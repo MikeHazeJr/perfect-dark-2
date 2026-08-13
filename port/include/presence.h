@@ -92,7 +92,7 @@ presence_state_t presenceGetLocalState(void);
  * (or any social-hub activity) until an agent profile has been loaded.
  * Connect codes are agent-specific, so the keypair/handle that drives
  * outbound presence must be tied to a known agent. Call this from the
- * agent-load completion path (prefs_agent.c::prefsAgentLoad). Idempotent.
+ * unified Agent Profile activation completion path. Idempotent.
  */
 void presenceMarkAgentLoaded(void);
 

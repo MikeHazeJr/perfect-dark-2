@@ -780,6 +780,7 @@ void chraiExecute(void *entity, s32 proptype)
 			s32 type = (cmd[0] << 8) + cmd[1];
 
 			if (type >= 0 && type < ARRAYCOUNT(g_CommandPointers)) {
+				u8 *prevailist = g_Vars.ailist;
 				u32 prevoffset = g_Vars.aioffset;
 
 				if (g_CommandPointers[type]()) {
@@ -787,14 +788,15 @@ void chraiExecute(void *entity, s32 proptype)
 				}
 
 				/* B-949: a command returning 0 ("continue this frame") is
-				 * required to have advanced g_Vars.aioffset. If it did NOT (an
+				 * required to have changed the active list or offset. If it did
+				 * neither (an
 				 * early "handled" return that skipped its own advance -- e.g.
 				 * say_ci_staff_quip when the quip audio is unresolved), the
 				 * loop would re-dispatch the same command forever and hang the
 				 * whole frame. Guarantee forward progress by force-advancing
-				 * the command length; any command that intentionally moved
-				 * aioffset (jump/goto/label) already differs and is untouched. */
-				if (g_Vars.aioffset == prevoffset) {
+				 * the command length; any command that intentionally switched
+				 * lists or moved aioffset already differs and is untouched. */
+				if (g_Vars.ailist == prevailist && g_Vars.aioffset == prevoffset) {
 					g_Vars.aioffset += chraiGetCommandLength(g_Vars.ailist, g_Vars.aioffset);
 				}
 			} else {

@@ -26,16 +26,59 @@ Code:
 
 ## Save format
 
-`SAVE_VERSION = 2` at [port/include/savefile.h:41](../../port/include/savefile.h:41) (SA-4: string IDs replace raw integers).
+`SAVE_VERSION = 2` continues to version system, player, and match-setup JSON
+documents. D-005 option A gives Agent Profile JSON its own current schema
+version so Agent evolution does not invalidate those independent stores.
 
 Four save types:
 
-- **`saveagent`** ([savefile.h:55-110](../../port/include/savefile.h:55)) - per-agent profile. Version, name, totaltime, `besttimes[60][3]` (60 stages x 3 difficulties), `coopcompletions[3]` bitmask, `firingrangescores[9]`, `weaponsfound[6]`, control mode arrays, audio volumes, `challengecompleted[128]`. Generous allocations explicitly to escape N64 bit-pack limits.
+- **`saveagent`** ([savefile.h:55-110](../../port/include/savefile.h:55)) - per-agent profile. Version, stable name identity, total time, the exact 21-stage by 3-difficulty completion domain, co-op completion masks, firing-range scores, discovered weapons, all ten gamefile flag bytes plus `unk1e`, audio/control state, and the exact 30-challenge by 4-player-count completion matrix.
 - **`savemplayer`** ([savefile.h:116-157](../../port/include/savefile.h:116)) - per-MP-player profile. `head_id[CATALOG_ID_LEN]` and `body_id[CATALOG_ID_LEN]` are the SA-4 string IDs, not raw indices. Stats are u32 (no truncation). Medals u32. Playtime u32 seconds.
 - **`savempsetup`** ([savefile.h:172-194](../../port/include/savefile.h:172)) - MP match setup. `stage_id[CATALOG_ID_LEN]`, `weapons[8]` (expanded from 6), `bots[SAVE_MAX_BOTS]` (32), `playerTeams[SAVE_MAX_PLAYERSLOTS]` (8). Every saved bot includes its authoritative `profile_id`; body/head IDs and the cached type/difficulty remain presentation/runtime derivations.
 - **`savesystem`** - system-wide settings (controls, audio, video, etc.).
 
 JSON parsing: minimal hand-written tokenizer at [savefile.c:40-100+](../../port/src/savefile.c:40), same approach as [modmgr.c](../../port/src/modmgr.c) and [updater.c](../../port/src/updater.c).
+
+### Agent Profile Store and activation transaction
+
+Agent names are the sole stable profile identity. Names are limited to the
+engine's ten-character domain and accept alphanumeric characters, spaces,
+underscores, and hyphens, with no leading or trailing space. The store publishes
+at most 30 validated profiles in deterministic case-insensitive order. It
+rejects malformed documents, unsupported versions, wrong field types or array
+shapes, duplicate fields, path/embedded-name mismatch, and case-insensitive
+identity collisions before any live state changes.
+
+`saveLoadAgent` parses into a candidate first. Commit then replaces
+the gamefile, resets cheats, applies audio/control/options, restores challenge
+completion, and recomputes challenge availability. `gamefileCaptureOptions`
+is shared by the JSON writer and legacy pak serializer so retained option bits
+cannot drift. Create, copy, delete, list, and revision APIs all use this store;
+legacy pak file IDs are not part of the public menu boundary.
+
+[port/src/agent_session.c](../../port/src/agent_session.c) is the one
+production activation transaction. It calls the JSON load and then applies the
+per-agent preference, social, hub, and presence identity. Agent Select and the
+CLI fast path both call this boundary exactly once; failed activation leaves
+the previous agent active. Agent Create, Copy, and Delete mutate the same JSON
+store without implicitly changing the active identity.
+
+D-005 option A is implemented and validated. One Agent Profile v3 JSON owns
+both game state and every per-agent preference. Current documents must contain
+the complete required schema. Only the exact legacy v2 writer shape may enter
+migration; an optional legacy INI sidecar is parsed into the same candidate
+before the current JSON is atomically committed, then retired idempotently.
+Current documents never read or write sidecars. Activation prepares the
+complete candidate before live game, preference, social, hub, or presence
+identity changes, and active deletion is rejected. User-driven settings, mod,
+update, pause-option, and Combat Simulator playlist mutations save through the
+same active v3 document.
+
+The final executable matrix passed exact migration and restart 24/24, corrupt
+activation rollback and active-delete rejection 21/21, ordinary Agent Select
+20/20, invalid campaign CLI rejection 12/12, and the 17-mission plus restart
+release run 23/23. The last run reloaded all 17 best times from v3 with the
+preferences block intact.
 
 ---
 
@@ -133,7 +176,7 @@ Per [constraints.md](../constraints.md):
 - **MPSETUP_VERSION = 3** (2026-07-30 bot-profile catalog identity).
 - **Catalog ID strings at all interface boundaries** (since 2026-04-02). Wire, save, public APIs use full catalog ID strings; raw N64 array indices (bodynum, headnum, filenum, stagenum, texnum, animnum) must not cross boundaries.
 - **`matchslot` / match config: catalog ID strings are primary identity.** `body_id` and `head_id` as strings; integer derivation only at `matchStart` last-mile handoff.
-- **30 agent save slots** - hardcoded in filelist struct layout. Cannot increase without breaking save format.
+- **30 validated JSON agent profiles** - the product capacity exposed by Agent Select. The profile name remains the stable identity and is limited to ten engine characters.
 - **`bool` is `s32` in game code** - `<stdbool.h>` is forbidden in `src/game/`. Save struct fields use the project bool type.
 
 ---
@@ -158,13 +201,19 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 - **`test_save_migration.cpp` migration helper duplicates the live rule.** Lines 54-71 reimplement `migrate_v1_to_v2` and `migrate_random_filter_mask_v1_to_v2`. Static text pin at lines 208-224 catches changes but cannot tell which side moved.
 - **Save migration registry is under-exercised.** Framework supports chains (1->2->3->...) but only one migration is in the wild. Cross-migration glue not behaviorally tested.
 - **Multiple version constants live in different files.** `SAVE_VERSION` in `savefile.h`, `MPSETUP_VERSION` in `mpsetups.h`, `NET_PROTOCOL_VER` in `net.h`. Constraint ledger is the only place that lists all three together with reasoning. A code reader inspecting one file does not see the others. Suggest cross-reference comment headers.
-- **`saveListAgents` API surface** declared at `savefile.h:237` but the disk-scan implementation surface and behavior were not fully read in the audit. May need verification.
+- **System save is not loaded automatically at boot.** Agent activation is now unified and validated, but startup ownership for `saveLoadSystem` remains a separate release-audit question.
 
 ---
 
 ## Tests
 
-`tests/test_savebuffer`, `test_save_migration`, `test_versions`, `test_versions_pin.c`. Pure mirror `savebuffer_pure.c`. See [pillars/tests.md](tests.md) for the full pd-tests rundown.
+`tests/test_savebuffer`, `test_save_migration`, `test_versions`,
+`test_versions_pin.c`, `test_menu_graph`, and
+`test_debug_campaign_complete_hotkey`, `test_agent_profile_codec`, and
+`test_autocampaign_cli_plan`. The final D-005/B-1063 focused selector passes
+1,475 assertions across 29 cases, and the complete suite passes 57,277
+assertions across 1,070 cases; see [pillars/tests.md](tests.md) for the
+ordinary-client receipt paths.
 
 ---
 

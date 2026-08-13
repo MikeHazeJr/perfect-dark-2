@@ -6,6 +6,56 @@
 
 ---
 
+## SP-43: Partial source projection replaces an authoritative index domain
+
+**Severity**: CRITICAL - valid records can pass source admission and then index
+past a runtime allocation sized from an incomplete sibling artifact
+
+**Pattern:** A public format declares one canonical indexed domain, but a
+runtime adapter sizes storage from only the records visible in a derivative
+projection such as collision triangles, render meshes, active entities, or
+currently populated rows. Valid empty or relation-only members at the end of
+the canonical domain disappear. A second defect occurs when downstream graph
+walkers read raw relationship endpoints and index storage without using the
+same validated domain boundary.
+
+**2026-08-12 proof:** B-1060 found Air Base declaring 147 rooms while its
+collision mesh mentioned only rooms through 143 and portals legitimately used
+rooms through 146. The typed-archive loader did not hydrate the declared count,
+so the background adapter allocated 144 room rows and later wrote
+`ROOMFLAG_STANDBY` to room 144. Second-hop room loading, lighting, explosion,
+and portal-intersection walks also read endpoint fields directly. The repair
+transports one checked count through extraction, descriptor/manifest
+conformance, catalog admission, and allocation, then routes relationship walks
+through shared portal-pair and other-room validators.
+
+**2026-08-12 validation:** The exact Air Base to Air Force One production-path
+canary passed 25/25 with the declared 147-room domain and no memory-canary
+corruption. The complete source-frozen campaign then passed 23/23 across all 17
+missions, live Credits, clean exit, and second-process agent persistence. The
+accepted receipts are
+`.claude/smoke-verify-runs/results-20260812T224455Z.json` and
+`.claude/smoke-verify-runs/results-20260812T224901Z.json`.
+
+**Audit:** For every indexed public-source family, identify the authoritative
+count and compare it with every allocation, cache, loop bound, and relationship
+endpoint. Search for `max + 1` sizing from only one source projection and for
+nested indexing where a relationship field enters another array directly.
+Require empty and relation-only trailing members in focused fixtures.
+
+```powershell
+rg -n "max.*\+ 1|count.*Alloc|room_count|source_.*count" port/src src/game src/lib
+rg -n "g_[A-Za-z0-9_]+\[g_[A-Za-z0-9_]+\[|roomnum1|roomnum2" port/src src/game src/lib
+```
+
+**Rule:** Preserve the declared canonical domain at ingress and validate it
+against every observed projection. Size runtime storage from that reconciled
+domain. Relationship consumers use one checked boundary that validates the
+record index, both endpoints, endpoint distinctness, and membership before any
+dependent array access.
+
+---
+
 ## SP-42: Persistence writes mutate the only good destination before success is known
 
 **Severity**: CRITICAL - a disk, permission, encoding, serialization, flush, or
@@ -234,6 +284,27 @@ the corrected three-ingress receipt passes 39/39. SP-32 remains open only for
 the comprehensive live all-family boundary matrix, not mixed-descriptor
 atomicity.
 
+**2026-08-12 private-cache propagation:** B-1063 exposed the same capacity class
+after public-source admission. A nested supported `--savedir` made one generated
+animation descriptor path 259 characters on Windows. The normalized cache path
+in the same directory was four characters shorter and succeeded, while the
+descriptor open failed with `errno=2` and forced selected-source startup to fail
+closed. Public path-field capacity does not by itself protect generated cache
+roots, sanitized component expansion, digest suffixes, or platform filesystem
+limits. Private cache path construction needs its own checked end-to-end budget
+and a deliberate fallback that never weakens source-hash identity.
+
+**2026-08-12 private-cache closure:** `modasset_compiler` now prefers the
+path-checked user-data root `$H/mod-cache`, admits `$S/mod-cache` or
+`$B/mod-cache` only when the expanded Windows CRT path fits, and uses one
+128-bit digest key for descriptor and normalized animation names while retaining
+the full source SHA-256 inside each descriptor. The original nested save-root
+ordinary-client migration smoke passed 24/24 at
+`.claude/smoke-verify-runs/results-20260813T030531Z.json`; its aggregate log has
+594 `$H/mod-cache` references, no `$S` or `$B` fallback, and no fatal signature.
+The native-source guard also passed. Keep this as a private-cache propagation
+gate while SP-32 remains open for the broader all-family boundary matrix.
+
 **Semantic boundary:** Widen and validate only fields that carry filesystem or
 qualified archive-member paths. Do not widen IDs, names, descriptions,
 archetypes, shader IDs, voice contexts, or other bounded metadata merely
@@ -255,8 +326,10 @@ rg -n "archive::member|::" port/src/assetcatalog_scanner.c port/src/loader_walke
 ```
 
 **Rule:** A path copy or join succeeds only when the complete input and its NUL
-terminator fit. Nonempty truncated output is failure, and failed qualification
-must not partially register catalog, provider, dependency, or runtime state.
+terminator fit both the in-memory field and the target platform filesystem.
+Nonempty truncated output is failure, and failed qualification or private-cache
+publication must not partially register catalog, provider, dependency, or
+runtime state.
 
 ---
 

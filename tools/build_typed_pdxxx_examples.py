@@ -741,15 +741,7 @@ def update_scenario() -> bytes:
     )
     portals_json = json.dumps({
         "schema": "pd2.scenario.portals.v1",
-        "rows": [
-            {
-                "portal_ref": "portal_0000",
-                "room_a": "room_1",
-                "room_b": "room_2",
-                "flags": "0x00",
-                "vertices": [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
-            },
-        ],
+        "rows": [],
     }, indent=2) + "\n"
     waypoints_json = empty_rows_json("pd2.scenario.waypoints.v1")
     waygroups_json = empty_rows_json("pd2.scenario.waygroups.v1")
@@ -886,7 +878,7 @@ def update_scenario() -> bytes:
         "  \"nodes\": [\n"
         "    { \"id\": \"scenario.load\", \"kind\": \"event.scenario.load\" },\n"
         "    { \"id\": \"source.scene\", \"kind\": \"scenario.scene.source\", \"file\": \"scene.glb\" },\n"
-        "    { \"id\": \"scenario.portals\", \"kind\": \"scenario.portals.source\", \"source\": \"portals.json\", \"portals\": 1 },\n"
+        "    { \"id\": \"scenario.portals\", \"kind\": \"scenario.portals.source\", \"source\": \"portals.json\", \"portals\": 0 },\n"
         "    { \"id\": \"scenario.pads\", \"kind\": \"scenario.pads.source\", \"source\": \"pads.json\", \"pads\": 1 },\n"
         "    { \"id\": \"navigation.paths\", \"kind\": \"scenario.navigation.paths.source\", \"source\": \"navigation/paths.json\", \"paths\": 1 },\n"
         "    { \"id\": \"scenario.ai.lists\", \"kind\": \"scenario.ai.lists.source\", \"source\": \"ai/ailists.json\", \"lists\": 1 },\n"
@@ -1864,7 +1856,7 @@ def update_scenario() -> bytes:
         "    { \"from\": \"scenario.load\", \"to\": \"trigger.volume.0000\" },\n"
         "    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.ailist_0000.command.0000\" }\n"
         "  ],\n"
-        "  \"counts\": { \"rooms\": 1, \"triangles\": 1, \"portals\": 1, \"pads\": 1, \"volumes\": 1, \"objects\": 1, \"objectives\": 1, \"ai_lists\": 1, \"ai_commands\": 1, \"waypoints\": 0, \"waygroups\": 0, \"covers\": 0, \"paths\": 1 }\n"
+        "  \"counts\": { \"rooms\": 2, \"triangles\": 1, \"portals\": 0, \"pads\": 1, \"volumes\": 1, \"objects\": 1, \"objectives\": 1, \"ai_lists\": 1, \"ai_commands\": 1, \"waypoints\": 0, \"waygroups\": 0, \"covers\": 0, \"paths\": 1 }\n"
         "}\n"
     )
     scenario_ini = (
@@ -1873,6 +1865,7 @@ def update_scenario() -> bytes:
         "catalog_id = example:tri_scenario\n"
         "name = Triangle Scenario\n"
         "mode = mp|solo\n"
+        "source_room_count = 2\n"
         "scene_file = scene.glb\n"
         "scene_format = GLB\n"
         "runtime_source_file = scene.glb\n"
@@ -1900,13 +1893,14 @@ def update_scenario() -> bytes:
         "  \"pd_kind\": \"scenario\",\n"
         "  \"pd_schema_version\": 1,\n"
         "  \"id\": \"example:tri_scenario\",\n"
+        "  \"room_count\": 2,\n"
         "  \"scene\": \"scene.glb\",\n"
         "  \"scene_format\": \"GLB\",\n"
         "  \"runtime_source\": \"scene.glb\",\n"
         "  \"collision_source\": \"collision.obj\",\n"
         "  \"collision_fallback\": \"override\",\n"
         "  \"portals\": \"portals.json\",\n"
-        "  \"portal_count\": 1,\n"
+        "  \"portal_count\": 0,\n"
         "  \"navigation\": \"navigation.ini\",\n"
         "  \"level_graph\": \"level.graph.json\",\n"
         "  \"pads\": \"pads.json\",\n"

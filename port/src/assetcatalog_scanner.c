@@ -2480,6 +2480,8 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	case ASSET_SCENARIO:
 		e->ext.scenario.stagenum = s_mintCustomStagenum(e, e->id); /* c3849 */
 		e->ext.scenario.mode = parseModeString(iniGet(ini, "mode", ""));
+		e->ext.scenario.source_room_count = iniGetInt(ini,
+			"source_room_count", 0);
 		{
 			const char *sf = iniGet(ini, "scene_file",
 				iniGet(ini, "scene",

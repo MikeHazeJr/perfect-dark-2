@@ -2,25 +2,41 @@
 
 > Single-doc plan covering every architectural pillar and infrastructure system on the path to PD2 v1.0.0. Synthesizes pillar docs in `pillars/`, active design references in `designs/`, recent audits in `audits/`, and the live state captured in `session-log.md`, `tasks.md`, and `bugs.md`.
 >
-> **Last refreshed**: 2026-04-30 (rebuild port from `_old/designs/full-release-roadmap-2026-04-27.md`). Wire protocol references updated v44 -> v46. "Current critical path" section added at the top per Mike's queue.
+> **Last refreshed**: 2026-08-12. D-004 replaces the former full-Forge-platform 1.0 contract with a complete base-game plus Theater release. The canonical Workbench remains authoritative when older gate detail below conflicts with current implementation truth.
 >
 > Authored under Mike's directive: "Make a plan for how we can get to a full release so we can follow that. It will include every architecture pillar and infrastructure system we've planned and discussed."
 >
 > **All 11 architectural decisions in Section E resolved 2026-04-27** (Mike approved 5 directly, 6 by delegated authority). See E.0 for the resolution table.
 >
+> **D-004 scope override, 2026-08-12**: 1.0 requires complete base-game production parity, complete consumption of every accepted base-game graph surface, usable Campaign and Combat Simulator Theater recording/playback, and one minimal graph-backed sample weapon in Match Setup custom slots. Forge maps/map variants, Studio, broad modding-pipeline tooling, and Needler-specific polish are post-1.0. D-004 supersedes older v1.0 Forge/Studio/federation/tooling requirements in this document.
+>
 > No em-dashes anywhere (PowerShell hygiene). Status markers: SHIPPED / IN-FLIGHT / QUEUED / PLANNED / DEFERRED / OPEN-DECISION / RESOLVED.
 
 ---
 
-## Current Critical Path (post-context-rebuild, 2026-04-30)
+## Current Critical Path (D-004, 2026-08-12)
 
-Per Mike's directive 2026-04-30, the queue is:
+The canonical Workbench replaces the older sequencing text in this historical
+roadmap. T-RELEASE-001 routes 1.0 through five ordered milestones:
 
-1. **Catalog - Weapons F11-F13 data move** (retires `g_Weapons[]` static array, completes the catalog Manager + .pdbase pattern proving domain). See [pillars/catalog.md](pillars/catalog.md) "What is in flight" + design at `designs/catalog/catalog-full-pipeline-weapons.md`.
-2. **Catalog - Gate 3 Migration** (heads / bodies / arenas / audio / other asset types, applying the proven Manager + .pdbase pattern from F11-F13). Same pillar doc.
-3. **Input - Controller Support** (Branch 2 Cohorts 5-8 + menus + full controller). See [pillars/input.md](pillars/input.md) "What is in flight" + design at `designs/input/input-universality-and-transitions.md`.
+1. **T-RELEASE-002: Complete base game and graphs.** V-010 currently has 2
+   closed, 7 partial, and 6 missing leaf gates out of 15. Establish the
+   current-tree parity matrix and campaign runner, then close production gaps.
+2. **T-RELEASE-003: Usable Theater.** Complete authoritative Campaign and
+   Combat Simulator recording, persistence, reconstruction, playback, seeking,
+   camera control, corruption handling, and clean menu return.
+3. **T-RELEASE-004: Sample graph-backed weapon.** Ship one enabled base-gun
+   variant in custom Match Setup slots and prove local/listen-host behavior.
+4. **T-RELEASE-005: Friend play and performance.** Preserve D-003 authority-
+   first routing while completing candidate transport, NAT/TURN/co-op proof,
+   tier consolidation, and explicit performance budgets.
+5. **T-RELEASE-006: Release candidate.** Run V-013 from one source-frozen
+   revision and accept only durable, non-overlapped production evidence.
 
-After these three lanes, return to this roadmap's broader gate sequence (Section D).
+The default new-session route is the lowest-numbered incomplete milestone and
+one unowned dependency that advances it. Post-1.0 and historical-cut items are
+not selected unless Mike explicitly changes scope. [tasks.md](tasks.md) is the
+concise live context view; Workbench status and evidence remain authoritative.
 
 ---
 
@@ -32,13 +48,13 @@ Mike's stated direction (per project memory + session log): **PD2 is a Perfect D
 
 1. Every base-game mode (Solo Campaign, Combat Simulator, Co-Op, Counter-Op) is stable, content-complete, and competitively playable.
 2. Every architectural pillar that powers the platform is in place: catalog system, asset provider, manifest/match pipeline, mod ecosystem, online connectivity, dev tooling.
-3. The creative tools (Skin Editor, Audio Mod, Theme Tool, Map Importer, Forge / The Grid level editor, future Studio platform) let players make and share content without engine knowledge.
-4. The connectivity model (P2P friend-mesh + presence + voice + theater) supports a small social platform without a dedicated central server, while leaving the door open to federation later.
+3. The public asset and graph runtime is complete enough to prove one shipped sample weapon through ordinary gameplay and custom Match Setup slots. Broad creator tooling follows after 1.0.
+4. The connectivity model supports in-client friend play and Theater without a dedicated central server. Federation remains a later platform feature.
 5. Quality gates are systematic, not ad hoc: pd-tests cohorts, manifest discipline, crash-breadcrumb instrumentation, super-audit cadence.
 
 ### A.2 Baseline release vs later milestones
 
-The pre-existing release ladder in `context/roadmap.md` ramps from v0.1.0 "Foundation" through v1.0.0 "Forge" with seven named milestones. This roadmap **keeps that ladder** but reframes it around the architectural pillars that gate each step, rather than around the original feature buckets which have been overtaken by the catalog universality work, the .pdmod migration, the connectivity pivot, and the input-framework consolidation.
+The pre-existing release ladder ramped from v0.1.0 "Foundation" through a platform-scale v1.0.0 "Forge" milestone. D-004 retains that ladder as history but replaces its 1.0 endpoint with complete base-game parity, Theater, and one narrow sample weapon. Forge and broad creator-platform work continue after 1.0.
 
 The semantic shift in this roadmap:
 
@@ -52,8 +68,8 @@ The semantic shift in this roadmap:
 |---|---|---|
 | **v0.1.0 Foundation** | "PD2 boots clean, plays clean, mods clean" | Stability + content correctness + the architectural foundation that keeps shipping more content cheap. |
 | **v0.3.0 Connected** | "PD2 plays with friends" | Connectivity Phase 1 + 2, public mods page, drop-in/drop-out co-op, NAT matrix verified. |
-| **v0.5.0 Studio** | "PD2 lets you build" | Forge content-complete, Studio Platform foundations, mod-pack and theme-bundle authoring polished. |
-| **v1.0.0 Forge** | "PD2 is a platform" | Visual scripting, voice chat, theater, federation hooks, all release-gate audits cleared. |
+| **v0.5.0 Studio** | Historical transitional milestone | Earlier Forge/Studio scope is retained as project history, not a 1.0 dependency. |
+| **v1.0.0** | "PD2 is complete and replayable" | Complete base game and accepted graph runtime, Campaign and Combat Simulator Theater persistence, one minimal custom-slot sample weapon, and all release qualification gates. |
 
 (The v0.2 / v0.4 / v0.6 mid-points retain their original meanings as transitional but are no longer named gates.)
 
@@ -95,8 +111,8 @@ This section enumerates every pillar visible across the design docs, audits, inf
 | C4 | **Counter-Op (D14a)** | PLANNED-V0.6.0 | NPC possession mechanic. Room-type support already in network-architecture.md. Per-session role-assign UI (L-5 setup screen) planned but not built. |
 | C5 | **Co-op polish (D12)** | PLANNED-V0.6.0 | Drop-in/drop-out (L-6), telefrag prevention, server-side coop manifest rebuild. Some pieces shipped opportunistically (S264 endscreen team). |
 | C6 | **Spectator Mode (D10)** | DESIGN-DRAFT-V0.6.0 | Connectivity doc Section 5 unifies Spectator (live) + Theater (saved replay) under one subsystem. Wire scaffolding present at v42 (`CLC_SPECTATE_REQUEST 0x16`, `SVC_SPECTATE_ACK 0x6a`, `SVC_STATE_FRAME 0x6b`). Implementation pending. |
-| C7 | **Theater (saved-match playback)** | PLANNED-V1.0.0 | Connectivity Phase 6. Replay capture format + playback UI. |
-| C8 | **The Grid (Forge level editor)** | F0+POLISH-SHIPPED / F1-F8-PLANNED | Free-fly Dr Carroll mode + HUD shell + main-menu Forge entry + map-variant editing + bot tab shipped (S307 + S313). F1-F8 design ready (`forge-level-editor-2026-04-16.md`). |
+| C7 | **Theater (saved-match playback)** | PARTIAL / RELEASE-BLOCKER | A v1 participant-snapshot recorder/list/player exists, but does not reconstruct Campaign or Combat Simulator sessions. T-THEATER-001 and V-011 own authoritative capture, restart-safe load, world reconstruction, pause/seek, failure handling, and ordinary-client proof. |
+| C8 | **The Grid (Forge level editor)** | FOUNDATION-SHIPPED / POST-1.0 | Existing free-fly/editor foundations remain, but map creation, map variants, and F1-F8 extended authoring are explicitly post-1.0 under D-004. |
 | C9 | **Listening Rooms** | PLANNED-V0.4.0 | Connectivity Phase 4 - shared-music sessions over Phase 2 social channel. Wire decided (PDSHR port 27109). |
 
 ### B.3 Online Connectivity
@@ -156,8 +172,8 @@ This section enumerates every pillar visible across the design docs, audits, inf
 | M14 | **Nine-Slice Chrome Tool** | SHIPPED | Modding Hub tool. Image import, ruler sliders, save-as-mod, transform pipeline. |
 | M15 | **Font Mod (Font Import as Mod)** | SHIPPED | `mods/Fonts/<slug>/*.ttf`, `Video.FontId` pd.ini, Settings dropdown. |
 | M16 | **Forge Level Editor (F0-F8)** | F0+POLISH-SHIPPED / F1-F8-PLANNED | (covered by C8) |
-| M17 | **Studio Platform (S1-S14)** | DESIGN-READY | Asset import + JSON weapons + map editor + visual scripting integration. ~13,400 LOC over ~35 sessions. (`studio-platform-design.md`) |
-| M18 | **Visual Scripting Node Taxonomy** | DESIGN-COMPLETE | Pin types + ten node categories + proof graphs for 5 base-game weapons + full mission flow. Feeds Studio S5 + S7. (`visual-scripting-node-taxonomy.md`) |
+| M17 | **Studio Platform (S1-S14)** | POST-1.0 | Asset import, map editor, creator UI, and tooling integration are no longer 1.0 dependencies. |
+| M18 | **Graph Runtime and Visual Authoring** | RUNTIME-RELEASE-BLOCKER / AUTHORING-POST-1.0 | Every accepted base-game graph requires a production consumer and parity proof for V-010. User-facing Studio/visual authoring tooling is post-1.0. |
 
 ### B.6 UI / UX
 
@@ -192,7 +208,7 @@ This section enumerates every pillar visible across the design docs, audits, inf
 | # | Pillar | Status | Scope |
 |---|---|---|---|
 | T1 | **pd-tests Catch2 framework** | SHIPPED-COHORTS-1+2 / DEFERRED-COHORT-3 | 155 cases / 1881 assertions. Cherry-picked sources, link-time stubs, no SDL/GL/ENet/ROM. Cohort 1: netbuf, savebuffer, connectcode, manifest, random-pool, version pins, save-migration. Cohort 2: IMC stack, menu pool, flat-menu reachability, right-stick scroll. Cohort 3 (mission/mode/input mapping, master-loader/hand state machines) deferred. (`testing-framework-2026-04-26.md`) |
-| T2 | **Bug discipline (bugs.md / systemic-bugs.md)** | SHIPPED-PROCESS | One-off vs systemic separation. ~5 truly OPEN entries (B-182 CRITICAL, B-183 HIGH, B-249 HIGH, B-246-OQ1 OPEN-QUESTION, plus minor). 74 FIXED-PENDING-PLAYTEST entries. |
+| T2 | **Bug discipline (bugs.md / systemic-bugs.md)** | SHIPPED-PROCESS | Five live one-off 1.0 defects remain: B-919, B-249, B-242, B-174, and B-183. Historical fixed-pending-playtest rows are consolidated into Workbench-owned regression clusters, with the exact former ledger hash-preserved under `_old/bugs/2026/`. |
 | T3 | **Manual QC Backlog (qc-tests.md)** | LARGE-BACKLOG | Major categories: SPF-3 Lobby Hub Rooms (8 tests), SPF-1 (18), B-12 Phase 2 (8), 31-bot fix (5), D3R-7-11 (53), UI Scaling (~16+). Significant burn-down required at release. |
 | T4 | **Crash Breadcrumb Ring** | SHIPPED | 256-slot ring dumped by VEH/UEF/SIGABRT. Push sites in mainTick, lvTick, chraTickBg/Tick, bwalkTick, botSpawn, botmgrAllocateBot, mainChangeToStage, SVC_STAGE_START send/receive. (S301) |
 | T5 | **Diagnostic Instrumentation (5 DIAG tags)** | SHIPPED | `ENDSCREEN.DIAG`, `CHR.DIAG`, `MATCHSTART.DIAG`, `AUDIO.DIAG`, `CRASH.DIAG`. |
@@ -499,37 +515,32 @@ Five gates. Each is a coherent stretch of work, not a fixed time window. Mike se
 
 **Rough effort sketch:** Multi-week. Phase 1 finish is short; Phase 2/3 each ~2-4 weeks; security blockers each 1-3 days; NAT matrix testing is real-world calendar work.
 
-### D.5 Gate 5: Polish and Release Prep (-> v1.0.0 "Forge")
+### D.5 Gate 5: Complete Base Game, Theater, and Release Prep (-> v1.0.0)
 
-**Premise:** Convergence. All pillars functional; final pass for accessibility, polish, voice, theater, and release-grade audit clearance.
+**Premise:** Ship a complete, replayable Perfect Dark base game. Platform-scale map creation and creator tooling continue after 1.0.
 
 **Scope:**
 
-1. **Voice chat (N6)** -- libopus implementation, PDVOC frames, UI indicator on Settings tab status pill.
-2. **Theater (C7)** -- saved-match playback subsystem (Connectivity Phase 6).
-3. **Spectator (C6)** -- complete unified subsystem with Theater (Connectivity Phase 5 polish).
-4. **Visual scripting completion (M18 / Studio S5/S7)** -- node taxonomy lands as user-facing.
-5. **Studio Platform completion (M17 S8-S14)** -- map editor, ADS/auto-aim, mod packager, hot-reload, network integration.
-6. **Forge F8 stretch** -- terrain brushes, co-op editing, blueprints, weather, physics objects.
-7. **Federation hooks (N10)** -- Phase D16a-d if not started in Gate 4.
-8. **Interest management Phase C/D (N8)** -- PVS + cadence throttling for high-bot or high-spectator scenarios.
-9. **Cohort 3 pd-tests final** -- full state-machine coverage.
-10. **Theme Tool mod-pack bundling polish**.
-11. **Audio polish** -- B-141 root cause if not yet pinned, S323 channel routing enforcement, audio-mod transitions.
-12. **ID renames** -- catalog ID slug renames deferred from heads/bodies/maps audits (test_arch -> suburb, etc.) if Mike approves save-format compat plan.
-13. **Cross-platform shell metadata (X3)** -- macOS Spotlight + Linux file-manager hooks if scope.
-14. **Release-gate audit clearance** -- final 2026-04-19 super-audit findings closed, NAT lab test, full-flow tests across campaign + MP, build automation refinements, packaging.
+1. **Complete base-game implementation (V-010)**: every shipped Campaign, Combat Simulator, Co-op, Counter-Operative, menu, save, input, renderer, audio, physics, networking, and asset path has production evidence and no placeholder or silent fallback.
+2. **Complete graph-backed parity (T-MODDING-002/V-010)**: scenario/AI/setup/objective/mission, weapon/projectile/entity, prop, effect, game-mode, and bot-profile graph surfaces are deliberate production inputs. Named native modules are allowed only when explicitly selected by the graph contract.
+3. **Theater (T-THEATER-001/V-011)**: record, persist, list, load, play, pause, seek, and stop coherent Campaign and Combat Simulator replays after process restart through the shared spectator/Theater camera surface.
+4. **Sample custom weapon (T-MODDING-008/V-012)**: ship a minimal three-round-burst or alternate-projectile base-gun variant through public graph/runtime/catalog source and every supported Match Setup custom weapon slot.
+5. **Base-content separation (T-MODINFRASTRUCTURE-003)**: remove bundled AllInOne content from base-game authority and retain desired extras only as optional typed mods.
+6. **Friend-play and physical-device qualification**: complete real-WAN/NAT, listen-host lifecycle, MKB/controller, save/reload, and failure-recovery gates already listed under T-RELEASE-001.
+7. **Performance and release qualification (P-001/T-RELEASE-001)**: approved budgets, source-frozen builds/tests/smokes, signed package/updater, clean install/upgrade/rollback, dependency checks, crash/log review, documentation, and release notes.
 
 **Exit criteria:**
 
-- All v1.0.0 features per `roadmap.md` shipped.
+- D-004, V-010, V-011, V-012, and every T-RELEASE-001 dependency are complete with passing evidence.
 - Final super-audit clean.
 - pd-tests cohorts 1-3 green.
-- QC checklist 100% across solo + MP + Forge + Studio + connectivity.
+- QC checklist 100% across Campaign, Combat Simulator, Co-op, Counter-Operative, Theater, custom-slot sample weapon, and connectivity.
 - Cross-NAT verification matrix all green.
 - Documentation fresh.
 
-**Rough effort sketch:** Voice + Theater are each ~2-4 weeks. Studio S8-S14 is ~7 sessions. Final audit clearance is calendar work.
+**Explicitly post-1.0:** Forge maps and map variants, Studio, user-facing visual scripting tools, broad Modding Hub/packer/creator workflow polish, Needler-specific fidelity, full federation, and advanced interest-management phases.
+
+**Rough effort sketch:** Theater and full base-game/graph parity are the largest implementation lanes. Final campaign, NAT, device, and packaging qualification remains calendar work.
 
 ### D.6 Out-of-band: ongoing infrastructure that runs across all gates
 
@@ -562,8 +573,8 @@ Mike approved E.1, E.2, E.3, E.6, E.7 directly. E.4, E.5, E.8, E.9, E.10, E.11 r
 | **E.4** | Catalog ID slug renames | **Approved per delegated authority: Bundle into a single Gate 5 release-prep ID rename pass.** Test-style slugs (`test_arch` -> `suburb`, `test_dest` -> `training_day`, `test_lam` -> `grand_library`) ride a single SAVE_VERSION bump. | Rename churn is cosmetic; bundling into one bump avoids multiple migrations and keeps the v1.0 polish surface clean. |
 | **E.5** | Grid Blank Map stagenum | **Approved per delegated authority: Defer to Forge F3.** Blank Map becomes the natural empty base stage when F3 (Save/load + base stage) lands; register `forge_blank` as a `FileProvider` catalog entry at that point. The Grid submenu continues to omit the Blank Map row until then. | F3 already needs a base-stage registration mechanism; building Blank Map separately would duplicate plumbing. |
 | **E.6** | Voice chat scope at v1.0.0 | **PTT-only.** Hard mute + per-friend mute. VAD deferred past v1.0. | PTT covers ~90% of friend-play utility; VAD adds detector complexity and quality tuning that does not justify v1.0 scope. |
-| **E.7** | Federation / Master Server (D16) | **Minimal D16a bootstrap.** Bootstrap-rendezvous nodes for non-friend discovery. Full federation (D16b/c/d: cross-server matchmaking, signed transfer tokens, trust levels) deferred past v1.0. | Bootstrap gives discovery without committing to centralized identity or matchmaking; aligns with the connectivity P2P-first stance. |
-| **E.8** | Studio Platform scope at v1.0.0 | **Approved per delegated authority: S1-S10 in Gate 5.** Asset import, weapon editor, map editor. Defer S11-S14 (ADS/auto-aim, mod packager, hot-reload, network integration). | Forge F1-F8 already covers level-editor surface; Studio adds asset/weapon authoring. S11-S14 are cross-cutting integrations best landed once content tools are real. |
+| **E.7** | Federation / Master Server (D16) | **Superseded by D-004: post-1.0.** | In-client friend play and presence are the 1.0 connectivity scope; federation and non-friend discovery are separate platform work. |
+| **E.8** | Studio Platform scope at v1.0.0 | **Superseded by D-004: all Studio and broad creator-tool scope is post-1.0.** | 1.0 now targets complete base-game production parity, Theater, and one narrow sample weapon rather than a full authoring platform. |
 | **E.9** | PVS / Interest Management depth | **Approved per delegated authority: Phase A at Gate 4, Phase B at Gate 5, defer C/D.** Phase A (room/stage relevance) + Phase B (radius/grid filter) ship in Gate 4 and Gate 5 respectively; PVS portal walking (Phase C) and cadence throttling (Phase D) deferred past v1.0. | Phase A+B is enough for friend-mesh scaling; PVS is high-cost optimization with limited friend-mesh ROI. |
 | **E.10** | Cross-platform port (X4) | **Approved per delegated authority: PC-only through v1.0.0.** Mac/Linux ports parked as a post-v1.0 pillar. macOS Spotlight + Linux file-manager metadata hooks (X3) likewise deferred. | Architecture is portable (SDL2 + OpenGL + statically linked deps), but explicit cross-platform engineering is its own pillar. PC-only ships v1.0 sooner. |
 | **E.11** | Audit cadence | **Approved per delegated authority: Per-gate cadence.** One full super-audit at each gate boundary (Gate 1 -> Gate 2 -> ... -> Gate 5). Daily delta audits and weekly skill-driven audits remain ad-hoc. | Per-gate cadence aligns with exit-criteria checks and avoids audit fatigue between gates. |
@@ -576,8 +587,8 @@ Several resolutions tighten or relax the gate sequencing in Section D:
 - **E.2 (incremental catalog migration)** keeps Gate 2 to a single domain (Weapons + Manager + .pdbase pattern); Gate 3 picks up bodies/heads/scenarios/music/AI scripts/animations as content-system work touches them.
 - **E.3 (top-3 SP stages)** scopes C3 in Gate 3 to three stages, not ten.
 - **E.6 (PTT-only voice)** trims Gate 5 voice scope.
-- **E.7 (minimal D16a)** removes federation matchmaking from v1.0 scope.
-- **E.8 (Studio S1-S10)** trims Gate 5 Studio scope.
+- **D-004 supersedes E.7** and removes federation/bootstrap work from v1.0 scope.
+- **D-004 supersedes E.8** and removes Studio, Forge map creation, map variants, and broad creator tooling from Gate 5.
 - **E.9 (Phase A in Gate 4, Phase B in Gate 5)** splits interest-management work across both gates.
 - **E.4 / E.5 / E.10 / E.11** are scoping/cadence calls that don't change pillar count, just timing.
 
@@ -592,6 +603,7 @@ These are now explicitly post-v1.0 per the resolutions above:
 - Voice activity detection / noise suppression.
 - Interest management Phase C (PVS) and Phase D (cadence throttling).
 - Studio Platform S11-S14 (ADS/auto-aim, mod packager, hot-reload, network integration).
+- Studio Platform S1-S10, Forge map creation/map variants, broad Modding Hub/packer UX, and Needler-specific fidelity under D-004.
 - SP-stages-in-MP Option E for the seven non-top-3 stages (Attackship, AirForceOne, Infiltration, Defection, Defense, Investigation, Deepsea).
 - Game-agnostic dedicated server (P4-B/C, R-5) -- pending Gate 4 review.
 
@@ -697,7 +709,7 @@ These are now explicitly post-v1.0 per the resolutions above:
 
 ### E.7 Federation / Master Server (D16) scope at v1.0.0
 
-**RESOLVED 2026-04-27: Minimal D16a bootstrap** (Mike approved direct). Bootstrap-rendezvous only. D16b/c/d (full federation) deferred past v1.0.
+**SUPERSEDED 2026-08-12 by D-004:** all federation and bootstrap-rendezvous work is post-1.0. The options below are retained as historical context.
 
 **Question:** D16 master server is planned for v0.4.0 but the connectivity pivot may obviate it.
 
@@ -713,7 +725,7 @@ These are now explicitly post-v1.0 per the resolutions above:
 
 ### E.8 Studio Platform scope at v1.0.0
 
-**RESOLVED 2026-04-27: Studio S1-S10 in Gate 5** (delegated authority). Asset import + weapon editor + map editor. S11-S14 (ADS/auto-aim, mod packager, hot-reload, network integration) deferred past v1.0.
+**SUPERSEDED 2026-08-12 by D-004:** all Studio phases are post-1.0. The options below are retained as historical context.
 
 **Question:** `studio-platform-design.md` is 14 phases / ~35 sessions / ~13,400 LOC. Full scope vs partial vs deferred to post-v1.0.
 

@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "name": "corrupt",
+  "totaltime": 999,
+  "autodifficulty": 3,
+  "autostageindex": 9,
+  "thumbnail": 5,
+  "coopcompletions": [9, 9, 9],
+  "firingrangescores": [9, 9, 9, 9, 9, 9, 9, 9, 9],
+  "weaponsfound": [9, 9, 9, 9, 9, 9]
+}

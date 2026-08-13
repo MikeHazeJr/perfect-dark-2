@@ -64,6 +64,7 @@
 #include "lib/rng.h"
 #include "../../src/lib/naudio/n_sndp.h"
 #include "lib/snd.h"
+#include "scenario_room_domain.h"
 #include "scenario_source_runtime.h"
 #include "langmanifest.h"
 #include "romdata.h"
@@ -18455,6 +18456,7 @@ s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 	s32 source_chr = -1;
 	s32 vehicle_count = 0;
 	s32 source_vehicle_type = -1;
+	s32 applied = 0;
 
 	if (!s_aiGraphRequireListControlNode("set_return_list",
 			s_ActiveScenarioGraphs.level_ai_set_return_list_node_count)) {
@@ -18468,10 +18470,13 @@ s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 					&chr_count, &source_chr)) {
 				return 1;
 			}
-			if (active_chr->prop) {
-				active_chr->aireturnlist = list_id;
-				chr = active_chr;
-			}
+			/* Background AI lists execute on stage-lifetime pseudo-characters
+			 * that intentionally have no prop. aireturnlist is interpreter
+			 * state, not world-prop state, so CHR_SELF must preserve the native
+			 * command's unconditional assignment for those scripts too. */
+			active_chr->aireturnlist = list_id;
+			chr = active_chr;
+			applied = 1;
 		} else {
 			if (!s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(
 					"set_return_list", active_chr,
@@ -18479,8 +18484,9 @@ s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 				return 1;
 			}
 			source_chr = chr ? chr->chrnum : -1;
-			if (chr && chr->prop) {
+			if (chr) {
 				chr->aireturnlist = list_id;
+				applied = 1;
 			}
 		}
 	} else if (truck) {
@@ -18491,6 +18497,7 @@ s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 			return 1;
 		}
 		truck->aireturnlist = list_id;
+		applied = 1;
 	} else if (heli) {
 		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
 				"set_return_list", &heli->base,
@@ -18499,6 +18506,7 @@ s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 			return 1;
 		}
 		heli->aireturnlist = list_id;
+		applied = 1;
 	} else if (hovercar) {
 		if (!s_aiGraphRequireRuntimeVehicleObjectPointer(
 				"set_return_list", &hovercar->base,
@@ -18507,14 +18515,15 @@ s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 			return 1;
 		}
 		hovercar->aireturnlist = list_id;
+		applied = 1;
 	}
 
 	g_Vars.aioffset += 5;
 	if (!s_ActiveScenarioGraphs.ai_action_set_return_list_logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action set_return_list target=%d chr_rows=%d source_chr=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d list=%u source=%s objects=%s backend=graph.ai.action.list_control+ai/ailists.json+objects.json",
+			"SCENARIO.GRAPH: AI action set_return_list target=%d chr_rows=%d source_chr=%d target_chr=%d vehicle_rows=%d source_vehicle_type=%d list=%u applied=%d source=%s objects=%s backend=graph.ai.action.list_control+ai/ailists.json+objects.json",
 			target_preset, chr_count, source_chr, chr ? chr->chrnum : -1,
-			vehicle_count, source_vehicle_type, (unsigned)list_id,
+			vehicle_count, source_vehicle_type, (unsigned)list_id, applied,
 			s_ActiveScenarioGraphs.ai_lists_path,
 			s_ActiveScenarioGraphs.objects_path);
 		s_ActiveScenarioGraphs.ai_action_set_return_list_logged = 1;
@@ -34610,6 +34619,92 @@ static u32 s_sourceTileStride(void)
 		+ 3u * (u32)sizeof(struct coord);
 }
 
+static s32 s_portalRowsMaxRoom(const scenario_source_portal_row_t *rows,
+	s32 row_count)
+{
+	s32 max_room = -1;
+
+	for (s32 i = 0; rows && i < row_count; i++) {
+		if (rows[i].room1 > max_room) {
+			max_room = rows[i].room1;
+		}
+		if (rows[i].room2 > max_room) {
+			max_room = rows[i].room2;
+		}
+	}
+
+	return max_room;
+}
+
+s32 scenarioSourceResolveRoomCountForStage(
+	const catalog_stage_result_t *stage, s32 prefer_mp,
+	s32 mesh_max_room, s32 *out_room_count)
+{
+	const asset_entry_t *scenario;
+	char portals_path[FS_MAXPATH + 1];
+	u32 text_size = 0;
+	char *text;
+	scenario_source_portal_row_t *rows;
+	s32 row_count = 0;
+	s32 portal_max_room;
+	s32 resolved_count = 0;
+	scenario_room_domain_result_t result;
+
+	if (out_room_count) {
+		*out_room_count = 0;
+	}
+	if (!out_room_count) {
+		return 0;
+	}
+
+	scenario = s_findScenarioForStage(stage, prefer_mp);
+	if (!scenario || !scenario->id[0]
+			|| !catalogLoadStageAsset(ASSET_SCENARIO, scenario->id)
+			|| !s_scenarioPortalsPath(scenario, portals_path,
+				sizeof(portals_path))) {
+		return 0;
+	}
+
+	text = s_loadOptionalText(portals_path, &text_size);
+	if (!text) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: cannot resolve room domain for '%s': missing public portals source %s",
+			scenario->id, portals_path);
+		return 0;
+	}
+
+	rows = s_parsePortalsJson(text, &row_count);
+	free(text);
+	if (!rows) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: cannot resolve room domain for '%s': invalid public portals source %s",
+			scenario->id, portals_path);
+		return 0;
+	}
+
+	portal_max_room = s_portalRowsMaxRoom(rows, row_count);
+	free(rows);
+	result = scenarioRoomDomainResolve(
+		scenario->ext.scenario.source_room_count,
+		mesh_max_room, portal_max_room, &resolved_count);
+	if (result != SCENARIO_ROOM_DOMAIN_OK) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: invalid room domain '%s' declared=%d mesh_max=%d portal_max=%d reason=%s",
+			scenario->id, scenario->ext.scenario.source_room_count,
+			mesh_max_room, portal_max_room,
+			scenarioRoomDomainResultName(result));
+		return 0;
+	}
+
+	*out_room_count = resolved_count;
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.SOURCE: resolved room domain '%s' rooms=%d declared=%d mesh_max=%d portal_max=%d source=catalog-metadata+scene.glb+portals.json",
+		scenario->id, resolved_count,
+		scenario->ext.scenario.source_room_count,
+		mesh_max_room, portal_max_room);
+	return 1;
+}
+
 static void s_sourceTileSetBounds(struct geotilef *tile)
 {
 	if (!tile) {
@@ -34640,6 +34735,7 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 	const asset_entry_t *scenario;
 	struct colmesh *mesh;
 	s32 max_room = 0;
+	s32 room_count = 0;
 	s32 source_tiles = 0;
 	u32 header_size;
 	u32 tile_stride = s_sourceTileStride();
@@ -34703,8 +34799,12 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 		}
 		return NULL;
 	}
+	if (!scenarioSourceResolveRoomCountForStage(stage, prefer_mp,
+			max_room, &room_count)) {
+		return NULL;
+	}
 
-	header_size = (u32)(max_room + 3) * (u32)sizeof(u32);
+	header_size = (u32)(room_count + 2) * (u32)sizeof(u32);
 	if (source_tiles > 0
 			&& (u32)source_tiles > (0xffffffffu - header_size) / tile_stride) {
 		sysLogPrintf(LOG_ERROR,
@@ -34724,11 +34824,11 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 	memset(data, 0, total_size);
 
 	u32data = (u32 *)data;
-	*u32data = (u32)(max_room + 1);
+	*u32data = (u32)room_count;
 	rooms = u32data + 1;
 	cursor = header_size;
 
-	for (s32 room = 0; room <= max_room; room++) {
+	for (s32 room = 0; room < room_count; room++) {
 		rooms[room] = cursor;
 		for (s32 i = 0; i < mesh->numtris; i++) {
 			const struct meshtri *src = &mesh->tris[i];
@@ -34755,7 +34855,7 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 			cursor += tile_stride;
 		}
 	}
-	rooms[max_room + 1] = cursor;
+	rooms[room_count] = cursor;
 
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
@@ -34764,7 +34864,7 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 		: scenario->ext.scenario.scene_file;
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.SOURCE: compiled scene tiles '%s' for stage '%s' as %d rooms, %d tiles (%u bytes) source=%s",
-		scenario->id, stageid, max_room + 1, source_tiles,
+		scenario->id, stageid, room_count, source_tiles,
 		(unsigned)cursor,
 		source_path && source_path[0] ? source_path : "(none)");
 
@@ -34779,7 +34879,7 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 			u32 advanced_tiles = 0;   /* tiles with bits beyond FLOOR1/2/WALL */
 			u32 floortype_tiles = 0;  /* tiles with a non-zero floortype */
 			s32 shown = 0;
-			for (s32 ri = 0; ri <= max_room; ri++) {
+			for (s32 ri = 0; ri < room_count; ri++) {
 				u32 a = rooms[ri];
 				u32 b = rooms[ri + 1];
 				while (a + tile_stride <= b) {
@@ -34812,7 +34912,7 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 		*out_size = (s32)cursor;
 	}
 	if (out_rooms) {
-		*out_rooms = max_room + 1;
+		*out_rooms = room_count;
 	}
 	if (out_tiles) {
 		*out_tiles = source_tiles;
@@ -34821,7 +34921,8 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 }
 
 struct bgportal *scenarioSourceLoadPortalsForStage(
-	const catalog_stage_result_t *stage, s32 prefer_mp, s32 *out_count)
+	const catalog_stage_result_t *stage, s32 prefer_mp, s32 room_count,
+	s32 *out_count)
 {
 	const asset_entry_t *scenario;
 	char portals_path[FS_MAXPATH + 1];
@@ -34867,6 +34968,19 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 		}
 		return NULL;
 	}
+	for (s32 i = 0; i < row_count; i++) {
+		if (rows[i].room1 <= 0 || rows[i].room2 <= 0
+				|| rows[i].room1 == rows[i].room2
+				|| !scenarioRoomDomainContains(room_count, rows[i].room1)
+				|| !scenarioRoomDomainContains(room_count, rows[i].room2)) {
+			sysLogPrintf(LOG_ERROR,
+				"SCENARIO.SOURCE: portal row %d for '%s' exceeds room domain rooms=%d room1=%d room2=%d",
+				i, scenario->id, room_count,
+				rows[i].room1, rows[i].room2);
+			free(rows);
+			return NULL;
+		}
+	}
 
 	total_size = (size_t)(row_count + 1) * sizeof(struct bgportal);
 	for (s32 i = 0; i < row_count; i++) {
@@ -34911,8 +35025,8 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: compiled portals.json '%s' for stage '%s' as %d portals (%u bytes)",
-		portals_path, stageid, row_count, (unsigned)total_size);
+		"SCENARIO.SOURCE: compiled portals.json '%s' for stage '%s' as %d portals across %d rooms (%u bytes)",
+		portals_path, stageid, row_count, room_count, (unsigned)total_size);
 
 	if (out_count) {
 		*out_count = row_count;

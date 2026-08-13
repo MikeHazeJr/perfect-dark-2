@@ -763,13 +763,9 @@ void mainTick(void)
 		(void)bootDebugSpawnAtTick();
 	}
 
-	/* c118 (2026-05-15): --launch-load-agent one-shot. Invokes
-	 * saveLoadAgent(name) on the first frame past the load gate to read
-	 * a pre-staged agent JSON fixture into g_GameFile. Provides smoke
-	 * coverage of saveLoadAgent's wire-format path -- the production
-	 * code has zero call-sites today (Agent Select routes through
-	 * gamefileLoad). Cheap no-op when the flag wasn't on the command
-	 * line. */
+	/* c118/D-005: --launch-load-agent one-shot. Activates a pre-staged
+	 * unified Agent Profile through the same production transaction as
+	 * ordinary Agent Select. */
 	{
 		extern s32 bootLaunchLoadAgentTick(void);
 		(void)bootLaunchLoadAgentTick();

@@ -179,10 +179,10 @@ u32 joyGetConnectedControllers(void);
 /* Change agent handler */
 MenuItemHandlerResult menuhandlerChangeAgent(s32 operation, struct menuitem *item, union handlerdata *data);
 
-/* S309: per-agent preferences sidecar. Declared here because
+/* D-005: unified Agent Profile persistence. Declared here because
  * prefs_agent.h lives in port/include/ and C++ ABI guard (#define bool
  * s32) blocks including it directly. */
-void prefsAgentSave(void);
+s32 prefsAgentSave(void);
 /* B-172: refresh pd.ini baseline after a pre-sign-in visual change so
  * the next Agent Select reset doesn't clobber the user's new theme. */
 void prefsAgentRefreshVisualsBaseline(void);
@@ -1440,11 +1440,6 @@ static void renderSettingsInterface(float scale)
     /* pdguiInterfaceRenderDeleteConfirm — declared at file scope */
     pdguiInterfaceRenderDeleteConfirm();
 
-    /* S309: mirror the current Interface selections into the active
-     * agent's prefs.ini sidecar.  If an agent is signed in, switching
-     * to them later restores the same look.  Debounced writes inside
-     * prefs_agent.c mean this is cheap per frame. */
-    prefsAgentSave();
 }
 
 static void renderSettingsAudio(float scale)
@@ -5194,10 +5189,15 @@ static void renderSettingsView(float scale, float contentH)
             ImGui::EndTabItem();
         }
 
-        ImGui::EndTabBar();
-    }
+		ImGui::EndTabBar();
+	}
 
-    /* Bumper hint at bottom — S311: glyph-driven key labels track active device. */
+	/* D-005: every per-agent settings tab feeds the same versioned Agent
+	 * Profile document. The save path is change-detected, so this is safe to
+	 * call from the shared settings renderer. */
+	prefsAgentSave();
+
+	/* Bumper hint at bottom — S311: glyph-driven key labels track active device. */
     {
         char prevKey[24], nextKey[24];
         pdguiGlyphGetActionLabel(ACTION_MENU_TAB_PREV, prevKey, (s32)sizeof(prevKey));

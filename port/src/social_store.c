@@ -809,7 +809,7 @@ const char *socialMyAgentName(void)
  * via socialMyAgentName() which returns identityGetActiveProfile()->name
  * -- always "Agent" because the identity keypair is per-device, not
  * per-save-slot. That made every save slot produce the same handle.
- * The caller now passes the actual save-slot name (from prefsAgentLoad
+ * The caller now passes the actual save-slot name (from profile activation
  * or the CLI fast-path) so two slots produce two distinct codes. */
 void socialRebindToActiveAgent(const char *agent_name)
 {

@@ -1,0 +1,8 @@
+{
+  "scenario_name": "campaign_release_verify_process",
+  "description": "Child harness for restart verification of the PC-native campaign agent save.",
+  "timeout_seconds": 180,
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Wait for persisted campaign verification and exit." }
+  ]
+}

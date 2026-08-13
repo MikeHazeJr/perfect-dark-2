@@ -47,6 +47,7 @@
 #include <math.h>
 #include "net/netmanifest.h"  /* F-0.4: manifestClear */
 #include "room.h"             /* c3845: listen-host room create/membership for auto-start */
+#include "pdgui_campaign_bridge.h"
 
 /* F-1.2: Forward declaration — defined in pdgui_menu_solomission.cpp */
 void pdguiSoloMissionReset(void);

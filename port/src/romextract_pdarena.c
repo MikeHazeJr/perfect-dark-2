@@ -7124,6 +7124,18 @@ static s32 s_buildBgPortalsJson(const u8 *bg, u32 bg_size,
 	}
 	for (u32 i = 0; i < portal_count; i++) {
 		struct portalvertices *verts;
+		if (portals[i].roomnum1 <= 0 || portals[i].roomnum2 <= 0
+				|| portals[i].roomnum1 == portals[i].roomnum2
+				|| (u32)portals[i].roomnum1 >= room_count
+				|| (u32)portals[i].roomnum2 >= room_count) {
+			sysLoudFailf("EXTRACT.PDSCENARIO",
+				"portal %u has invalid room boundary room1=%d room2=%d rooms=%u",
+				(unsigned)i, (s32)portals[i].roomnum1,
+				(s32)portals[i].roomnum2, (unsigned)room_count);
+			free(offsets);
+			sysMemFree(primary);
+			return -1;
+		}
 		if (offsets[i] == 0) {
 			continue;
 		}

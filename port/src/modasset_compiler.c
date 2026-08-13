@@ -11,6 +11,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
@@ -19,6 +20,7 @@
 #include "types.h"
 #include "assetcatalog.h"
 #include "data.h"
+#include "fs.h"
 #include "game/tex.h"
 #include "gbiex.h"
 #include "lib/meshcollision.h"
@@ -3813,6 +3815,95 @@ static s32 ensureCacheDirs(const char *cache_root,
 	return 1;
 }
 
+/* The MinGW CRT in the shipping Windows client rejects an expanded path at
+ * 259 characters even though FS_MAXPATH is larger. Keep one byte below that
+ * observed boundary and select another private cache root before mutation. */
+#define MODASSET_WINDOWS_CRT_PATH_LIMIT 259
+
+static s32 cacheFormatPath(char *out, size_t out_size,
+		const char *format, ...)
+{
+	va_list args;
+	int written;
+
+	if (!out || out_size == 0 || !format) return 0;
+	va_start(args, format);
+	written = vsnprintf(out, out_size, format, args);
+	va_end(args);
+	if (written < 0 || (size_t)written >= out_size) {
+		out[0] = '\0';
+		return 0;
+	}
+	return 1;
+}
+
+static s32 cachePathFitsPlatform(const char *path)
+{
+	char resolved[FS_MAXPATH + 1];
+
+	if (!path || !path[0]) return 0;
+	fsFullPath(path, resolved, sizeof(resolved));
+	if (!resolved[0] || strlen(resolved) >= FS_MAXPATH) return 0;
+#ifdef PLATFORM_WIN32
+	{
+		char absolute[FS_MAXPATH + 1];
+		if (!_fullpath(absolute, resolved, sizeof(absolute))) return 0;
+		return strlen(absolute) < MODASSET_WINDOWS_CRT_PATH_LIMIT;
+	}
+#else
+	return 1;
+#endif
+}
+
+static s32 cacheBuildPaths(const char *cache_root,
+		const char *mod_part, const char *asset_part, const char *kind_part,
+		const char *source_kind, const char *asset_kind,
+		const char *digest_key, char *cache_path, size_t cache_path_size,
+		char *normalized_path, size_t normalized_path_size)
+{
+	if (!cacheFormatPath(cache_path, cache_path_size,
+			"%s/%s/%s/%s-v%d-%s.pdmc",
+			cache_root, mod_part, asset_part, kind_part,
+			MODASSET_COMPILER_VERSION, digest_key)) return 0;
+
+	normalized_path[0] = '\0';
+	if (strcmp(source_kind, "obj") == 0
+			&& assetKindUsesGeneratedModeldef(asset_kind)) {
+		if (!cacheFormatPath(normalized_path, normalized_path_size,
+				"%s/%s/%s/%s-v%d-%s.pdmodel.json",
+				cache_root, mod_part, asset_part, kind_part,
+				MODASSET_COMPILER_MODELDEF_VERSION, digest_key)) return 0;
+	} else if (strcmp(source_kind, "obj") == 0) {
+		if (!cacheFormatPath(normalized_path, normalized_path_size,
+				"%s/%s/%s/%s-v%d-%s.pdmesh.json",
+				cache_root, mod_part, asset_part, kind_part,
+				MODASSET_COMPILER_VERSION, digest_key)) return 0;
+	} else if ((strcmp(source_kind, "gltf") == 0
+			|| strcmp(source_kind, "glb") == 0)
+			&& assetKindUsesGeneratedModeldef(asset_kind)) {
+		if (!cacheFormatPath(normalized_path, normalized_path_size,
+				"%s/%s/%s/%s-v%d-%s.pdmodel.json",
+				cache_root, mod_part, asset_part, kind_part,
+				MODASSET_COMPILER_MODELDEF_VERSION, digest_key)) return 0;
+	} else if ((strcmp(source_kind, "gltf") == 0
+			|| strcmp(source_kind, "glb") == 0)
+			&& assetKindUsesGeneratedAnimationClip(asset_kind)) {
+		if (!cacheFormatPath(normalized_path, normalized_path_size,
+				"%s/%s/%s/%s-v%d-%s.pdanimation.json",
+				cache_root, mod_part, asset_part, kind_part,
+				MODASSET_COMPILER_VERSION, digest_key)) return 0;
+	} else if (strcmp(source_kind, "gltf") == 0
+			|| strcmp(source_kind, "glb") == 0) {
+		if (!cacheFormatPath(normalized_path, normalized_path_size,
+				"%s/%s/%s/%s-v%d-%s.pdmesh.json",
+				cache_root, mod_part, asset_part, kind_part,
+				MODASSET_COMPILER_VERSION, digest_key)) return 0;
+	}
+
+	return cachePathFitsPlatform(cache_path)
+		&& (!normalized_path[0] || cachePathFitsPlatform(normalized_path));
+}
+
 static s32 cachePathExists(const char *path)
 {
 	return path && path[0] && fsFileSize(path) >= 0;
@@ -4183,7 +4274,6 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 	u8 digest[SHA256_DIGEST_SIZE];
 	char digest_hex[SHA256_HEX_SIZE];
 	char digest_key[33];
-	char animation_digest_key[17];
 	char mod_part[96];
 	char asset_part[96];
 	char kind_part[48];
@@ -4227,61 +4317,49 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 	sha256ToHex(digest, digest_hex);
 	memcpy(digest_key, digest_hex, sizeof(digest_key) - 1);
 	digest_key[sizeof(digest_key) - 1] = '\0';
-	memcpy(animation_digest_key, digest_hex, sizeof(animation_digest_key) - 1);
-	animation_digest_key[sizeof(animation_digest_key) - 1] = '\0';
 
 	sanitizePathPart(entry->category[0] ? entry->category : "mod", mod_part, sizeof(mod_part));
 	sanitizePathPart(entry->id, asset_part, sizeof(asset_part));
 	sanitizePathPart(asset_kind && asset_kind[0] ? asset_kind : "asset",
 		kind_part, sizeof(kind_part));
+	source_kind = sourceKindForPath(source_path);
 
-	snprintf(cache_root, sizeof(cache_root), "$S/mod-cache");
-	if (!ensureCacheDirs(cache_root, mod_part, asset_part)) {
-		snprintf(cache_root, sizeof(cache_root), "$B/mod-cache");
+	{
+		static const char *cache_roots[] = {
+			"$H/mod-cache",
+			"$S/mod-cache",
+			"$B/mod-cache",
+		};
+		s32 selected = 0;
+
+		for (size_t i = 0; i < sizeof(cache_roots) / sizeof(cache_roots[0]); i++) {
+			if (!cacheFormatPath(cache_root, sizeof(cache_root), "%s",
+					cache_roots[i])) continue;
+			if (!cacheBuildPaths(cache_root, mod_part, asset_part, kind_part,
+					source_kind, asset_kind, digest_key,
+					cache_rel, sizeof(cache_rel), normalized_rel,
+					sizeof(normalized_rel))) {
+				sysLogPrintf(LOG_WARNING,
+					"MODASSET.COMPILER: private cache root '%s' exceeds the platform path budget for '%s'",
+					cache_root, entry->id);
+				continue;
+			}
+			if (!ensureCacheDirs(cache_root, mod_part, asset_part)) continue;
+			selected = 1;
+			break;
+		}
+
+		if (!selected) {
+			cache_root[0] = '\0';
+		}
 	}
 
-	if (!ensureCacheDirs(cache_root, mod_part, asset_part)) {
+	if (!cache_root[0]) {
 		sysLogPrintf(LOG_WARNING,
-			"MODASSET.COMPILER: could not create private cache dirs for '%s'",
+			"MODASSET.COMPILER: could not select a writable private cache path for '%s'",
 			entry->id);
 		free(source_bytes);
 		return -1;
-	}
-
-	snprintf(cache_rel, sizeof(cache_rel),
-		"%s/%s/%s/%s-v%d-%s.pdmc",
-		cache_root, mod_part, asset_part, kind_part,
-		MODASSET_COMPILER_VERSION, digest_key);
-
-	normalized_rel[0] = '\0';
-	source_kind = sourceKindForPath(source_path);
-	if (strcmp(source_kind, "obj") == 0 && assetKindUsesGeneratedModeldef(asset_kind)) {
-		snprintf(normalized_rel, sizeof(normalized_rel),
-			"%s/%s/%s/%s-v%d-%s.pdmodel.json",
-			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_MODELDEF_VERSION, digest_key);
-	} else if (strcmp(source_kind, "obj") == 0) {
-		snprintf(normalized_rel, sizeof(normalized_rel),
-			"%s/%s/%s/%s-v%d-%s.pdmesh.json",
-			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_VERSION, digest_key);
-	} else if ((strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0)
-			&& assetKindUsesGeneratedModeldef(asset_kind)) {
-		snprintf(normalized_rel, sizeof(normalized_rel),
-			"%s/%s/%s/%s-v%d-%s.pdmodel.json",
-			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_MODELDEF_VERSION, digest_key);
-	} else if ((strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0)
-			&& assetKindUsesGeneratedAnimationClip(asset_kind)) {
-		snprintf(normalized_rel, sizeof(normalized_rel),
-			"%s/%s/%s/%s-v%d-%s.pdanimation.json",
-			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_VERSION, animation_digest_key);
-	} else if (strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0) {
-		snprintf(normalized_rel, sizeof(normalized_rel),
-			"%s/%s/%s/%s-v%d-%s.pdmesh.json",
-			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_VERSION, digest_key);
 	}
 
 	if (cachePathExists(cache_rel)

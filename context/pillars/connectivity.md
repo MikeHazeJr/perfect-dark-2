@@ -167,6 +167,26 @@ punch waterfall remains separate spectator scope.
 
 ---
 
+## Theater 1.0 release gate
+
+D-004 makes usable Campaign and Combat Simulator Theater playback a 1.0
+requirement. The current `theater.c` foundation is partial: it lists `.pdth`
+files and can feed recorded participant transforms into the shared spectator
+overlay, but recording requires `SPECTATOR_SOURCE_LIVE`,
+`THEATER_RECORD_MATCH_CONFIG` is never emitted, stage/world state is not
+reconstructed, and pause/seek are absent. This is not yet a watchable saved
+session.
+
+`T-THEATER-001` owns the versioned authoritative recorder, exact stage and
+catalog context, replay checkpoints/events, restart-safe file lifecycle,
+pause/seek, corrupt-file rejection, and clean menu return. `V-011` requires
+ordinary-client Campaign and Combat Simulator record/restart/load/playback
+evidence, plus listen-host Combat Simulator evidence if it uses a distinct
+authority capture path. The shared spectator camera, follow, subset, and
+observer input surface remains one implementation for live and file drivers.
+
+---
+
 ## Voice
 
 [port/src/voice.c](../../port/src/voice.c). Gated on `HAVE_OPUS` build flag. UDP port 27108. Frame Ed25519 signed over `"pd-voice-v1"`.
@@ -263,7 +283,7 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 
 ## What is in flight
 
-- **Connectivity Phase 2 / Phase 3** per [designs/connectivity/connectivity-and-modern-main-menu.md](../designs/connectivity/connectivity-and-modern-main-menu.md). Phase 1 + 2 substantially shipped (presence, voice, social shell, NAT diagnostics, public mods registry, file transfer, listening rooms, theater); remaining items vary by sub-pillar.
+- **Connectivity Phase 2 / Phase 3** per [designs/connectivity/connectivity-and-modern-main-menu.md](../designs/connectivity/connectivity-and-modern-main-menu.md). Presence, voice, social shell, NAT diagnostics, public mods registry, file transfer, and listening rooms have substantial foundations. Theater remains a partial 1.0 release blocker under T-THEATER-001/V-011 rather than a shipped sub-pillar.
 
 ---
 

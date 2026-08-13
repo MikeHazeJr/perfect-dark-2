@@ -1,0 +1,68 @@
+{
+  "scenario_name": "agent_profile_failure_rollback_smoke",
+  "description": "D-005 ordinary-client failure proof. A valid Agent activates first, the live client then attempts to replace it with an incomplete legacy document through the production Agent Session boundary, verifies the active identity is unchanged, rejects deletion of that active Agent, and activates it again to prove the backing v3 file remains.",
+  "tags": ["save", "agent", "rollback", "corruption", "ordinary-client", "d-005", "milestone-1"],
+  "paths_of_interest": [
+    "port/src/agent_profile_codec.c",
+    "port/src/savefile.c",
+    "port/src/prefs_agent.c",
+    "port/src/agent_session.c",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 150,
+  "install_state": "clean",
+  "remove_paths": [
+    "agent-profile-rollback-home"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent-profile-rollback-home/agent_smoke.json" },
+    { "src": "tools/smoke-verify/fixtures/agent_corrupt.json", "dst": "agent-profile-rollback-home/agent_corrupt.json" }
+  ],
+  "boot_args": [
+    "--no-update-check", "--no-sound", "--no-net", "--portable",
+    "--savedir", "./agent-profile-rollback-home",
+    "--launch-load-agent", "smoke"
+  ],
+  "retain_artifacts": [
+    { "src": "agent-profile-rollback-home/agent_smoke.json", "name": "agent_smoke_after_rollback.json" },
+    { "src": "agent-profile-rollback-home/agent_corrupt.json", "name": "agent_corrupt_preserved.json" }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Allow the valid profile to migrate and activate first." },
+    { "at_ms": 75000, "type": "agent_activate", "name": "corrupt", "comment": "Attempt a corrupt replacement through the production Agent Session transaction." },
+    { "at_ms": 80000, "type": "agent_delete", "name": "smoke", "comment": "Attempt to delete the still-active profile." },
+    { "at_ms": 85000, "type": "agent_activate", "name": "smoke", "comment": "Reload the active profile to prove its backing v3 document was not deleted." },
+    { "at_ms": 95000, "type": "exit", "comment": "Exit after all fail-closed receipts are durable." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SAVE: Agent Profile activation committed name='smoke'.*source=migrated-v2",
+      "SAVE: Agent Profile JSON '.*agent_corrupt\\.json' rejected: Agent Profile is not a complete current or exact known v2 document; live state preserved",
+      "SAVE: agent 'corrupt' rejected; prior live profile preserved",
+      "AGENT\\.SESSION: activation rejected name='corrupt'; prior session preserved",
+      "SMOKE: agent_session op=activate name='corrupt' result=-1 active_before='smoke' active_after='smoke'",
+      "SAVE: refusing to delete active Agent Profile 'smoke'",
+      "SMOKE: agent_session op=delete name='smoke' result=-1 active_before='smoke' active_after='smoke'",
+      "SAVE: Agent Profile activation committed name='smoke'.*source=v3",
+      "SMOKE: agent_session op=activate name='smoke' result=0 active_before='smoke' active_after='smoke'",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "SAVE: Agent Profile 'smoke' deleted",
+      "SMOKE: agent_session op=delete name='smoke' result=0",
+      "active_after='corrupt'",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": [
+      { "pattern": "AGENT\\.SESSION: activation rejected name='corrupt'", "min": 1, "max": 1 },
+      { "pattern": "SAVE: refusing to delete active Agent Profile 'smoke'", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: agent_session op=activate name='smoke' result=0", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 1, "max": 1 }
+    ]
+  }
+}

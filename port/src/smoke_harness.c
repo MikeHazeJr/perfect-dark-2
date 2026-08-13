@@ -79,6 +79,12 @@
  *        BEGIN/CHUNK/END receive handlers at a deterministic live point.
  *        The event exists only while the smoke harness is active.
  *
+ *   { "at_ms": N, "type": "agent_activate", "name": "Agent" }
+ *   { "at_ms": N, "type": "agent_delete", "name": "Agent" }
+ *     -- invoke the production Agent Session boundary from an ordinary client
+ *        so failure rollback and active-delete rules can be observed in one
+ *        live process.
+ *
  *   { "at_ms": N, "type": "catalog_weapon_acquire", "path": "mod:id" }
  *   { "at_ms": N, "type": "catalog_weapon_release", "path": "mod:id" }
  *     -- acquire or release one explicit owner through the production typed
@@ -108,6 +114,8 @@
 #include "assetprovider.h"
 #include "asset_runtime.h"
 #include "net/netdistrib.h"
+#include "agent_session.h"
+#include "prefs_agent.h"
 
 /* c115 (2026-05-14): need gfxGetSdlWindow to stamp the correct windowID
  * on synthesised SDL events. ImGui's SDL2 backend filters events whose
@@ -146,6 +154,8 @@ typedef enum {
     SMOKE_EVENT_MOUSE_MOVE,
     SMOKE_EVENT_MOUSE_WHEEL,
     SMOKE_EVENT_RECEIVE_PDCA_LIST,
+    SMOKE_EVENT_AGENT_ACTIVATE,
+    SMOKE_EVENT_AGENT_DELETE,
     SMOKE_EVENT_CATALOG_WEAPON_ACQUIRE,
     SMOKE_EVENT_CATALOG_WEAPON_RELEASE,
     SMOKE_EVENT_CATALOG_RECOVERY_PROBE,
@@ -587,6 +597,19 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             return 0;
         }
         ev->type = SMOKE_EVENT_RECEIVE_PDCA_LIST;
+        return 1;
+    }
+    if (!strcmp(type_str, "agent_activate")
+            || !strcmp(type_str, "agent_delete")) {
+        if (!name_str[0]) {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE: %s event missing 'name' (at_ms=%d)",
+                type_str, ev->at_ms);
+            return 0;
+        }
+        snprintf(ev->path, sizeof(ev->path), "%s", name_str);
+        ev->type = !strcmp(type_str, "agent_activate")
+            ? SMOKE_EVENT_AGENT_ACTIVATE : SMOKE_EVENT_AGENT_DELETE;
         return 1;
     }
     if (!strcmp(type_str, "catalog_recovery_probe")) {
@@ -1241,6 +1264,22 @@ void smokeHarnessTick(void)
             sysLogPrintf(delivered > 0 ? LOG_NOTE : LOG_WARNING,
                 "SMOKE: receive_pdca_list path='%s' delivered=%d at_ms=%d",
                 ev->path, delivered, ev->at_ms);
+            break;
+        }
+        case SMOKE_EVENT_AGENT_ACTIVATE:
+        case SMOKE_EVENT_AGENT_DELETE:
+        {
+            char before[AGENT_PROFILE_NAME_MAX];
+            const s32 activate = ev->type == SMOKE_EVENT_AGENT_ACTIVATE;
+            s32 result;
+            snprintf(before, sizeof(before), "%s", prefsAgentGetActive());
+            result = activate
+                ? agentSessionActivate(ev->path)
+                : agentSessionDelete(ev->path);
+            sysLogPrintf(result == 0 ? LOG_NOTE : LOG_WARNING,
+                "SMOKE: agent_session op=%s name='%s' result=%d active_before='%s' active_after='%s' at_ms=%d",
+                activate ? "activate" : "delete", ev->path, result,
+                before, prefsAgentGetActive(), ev->at_ms);
             break;
         }
         case SMOKE_EVENT_CATALOG_WEAPON_ACQUIRE:

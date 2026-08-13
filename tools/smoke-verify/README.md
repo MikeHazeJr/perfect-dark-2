@@ -52,7 +52,8 @@ Top-level keys consumed by the harness:
 | `timeout_seconds`    | no       | Hard ceiling; default 90 s |
 | `install_state`      | no       | Runner-side hint (`"clean"`, `"upgraded"`) |
 | `boot_args`          | no       | Extra argv appended to the launch command |
-| `processes`          | no       | Multi-process launch definitions; each entry can set `name`, `log_file`, `smoke_path`, `snapshot_log_file`, `snapshot_exit_timeout_seconds`, `boot_args`, `wait_for`, and `wait_timeout_seconds` |
+| `processes`          | no       | Multi-process launch definitions; each entry can set `name`, `log_file`, `smoke_path`, `snapshot_log_file`, `snapshot_exit_timeout_seconds`, `expected_exit_code`, `boot_args`, `wait_for`, and `wait_timeout_seconds` |
+| `retain_artifacts`   | no       | Required install-relative files copied to the durable run artifacts directory before cleanup; entries use `src` and optional leaf `name` |
 | `input_sequence`     | yes      | Ordered list of events (see below) |
 | `assertions`         | no       | Runner-side; not consumed by the harness |
 
@@ -200,6 +201,14 @@ This smoke-only event delivers each raw PDCA entry through the production
 network `BEGIN`/`CHUNK`/`END` receive handlers at a deterministic live point.
 Use it for lifecycle/rollback validation after an ordinary runtime owner is
 already active; it is not a substitute for a real-peer validation receipt.
+
+#### Agent session actions (D-005)
+
+The agent_activate and agent_delete events invoke the same Agent Session
+boundary used by ordinary Agent Select while the smoke client remains live.
+Each event requires a name and logs its result plus the active identity before
+and after. Use these events for replacement rollback and active-delete policy
+proof, not as a substitute for the separate ordinary Agent Select input smoke.
 
 ### Action modes
 

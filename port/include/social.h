@@ -137,7 +137,7 @@ const char *socialMyAgentName(void);
  * agent_name MUST be the save-slot name (e.g. "MikeHazeJr", "allen")
  * picked from Agent Select, NOT the identity profile name (which today
  * is always "Agent" because there is a single identity keypair per
- * device).  Callers: prefs_agent.c::prefsAgentLoad, main.c::
+ * device). Callers: unified Agent Profile activation, main.c::
  * bootLaunchLoadAgentTick.
  */
 void socialRebindToActiveAgent(const char *agent_name);

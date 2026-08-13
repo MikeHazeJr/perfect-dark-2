@@ -2,73 +2,68 @@
 #define _IN_PREFS_AGENT_H
 
 /**
- * prefs_agent.h -- Per-agent preference sidecar (S309 + S313 batch)
+ * prefs_agent.h -- runtime adapter for unified Agent Profile preferences.
  *
- * Tracks visual + audio + mod-enablement preferences per Agent profile
- * so the user's preferences (theme, menu style, title bar, font,
- * scanlines, audio volume layers, enabled mods) follow the active
- * agent.  Sidecar file at
- *
- *     saves/prefs_<agent_name>.ini
- *
- * with the same INI format as pd.ini.  Fields are loaded via the
- * matching setter on each subsystem, not via the global config registry,
- * so loading a profile doesn't smear its values onto pd.ini.
- *
- * All visual fields (theme, chrome, font, scanlines) swap live via
- * pdguiRequestFontAtlasRebuild() — no restart required.
- *
- * Global pd.ini remains the source of per-machine / hardware-level
- * defaults (resolution, fullscreen, video mode, gameplay bindings,
- * server port, network tuning).  The global file is still read at
- * boot; agent prefs overlay on top for visuals + audio + mods.
+ * Current per-agent preferences are serialized only inside the versioned
+ * Agent Profile JSON. pd.ini remains the unsigned-in machine baseline.
+ * Legacy prefs_<agent>.ini files are read only by the v2 migration adapter.
  */
 
 #include <PR/ultratypes.h>
+#include "agent_profile_codec.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/** Initialise the subsystem.  Must be called AFTER saveInit() so
- *  saveGetDir() returns a valid path. */
+/** Capture the machine baseline after config, catalog, and UI init. */
 void prefsAgentInit(void);
 
-/** Remember who the currently-loaded agent is.  Any subsequent
- *  prefsAgentSave() call writes to this agent's sidecar. */
-void prefsAgentSetActive(const char *agent_name);
+/** Copy the machine-default candidate used by new and legacy profiles. */
+void prefsAgentGetBaselineSnapshot(struct agent_profile_preferences *out);
 
-/** Load (or apply) the active agent's prefs.  Looks for
- *  saves/prefs_<active>.ini and applies each recognised key via the
- *  owning subsystem's setter.  Missing file is a no-op. */
-void prefsAgentLoad(const char *agent_name);
+/** Capture current user-facing values for the unified profile writer. */
+void prefsAgentCaptureSnapshot(struct agent_profile_preferences *out);
 
-/** Reset all visual per-agent prefs (theme, chrome, font, scanlines) to
- *  built-in defaults.  Call when Agent Select opens so the screen always
- *  shows the unmodified base appearance before any agent is signed in. */
-void prefsAgentResetVisuals(void);
+/** Pure pre-commit validation. This function never changes runtime state. */
+s32 prefsAgentPrepareSnapshot(const struct agent_profile_preferences *candidate,
+		char *error, size_t error_size);
 
-/** B-172: re-capture the *current* visual state (theme, chrome, font,
- *  title bar style, scanlines) as the pd.ini baseline.  Call from the
- *  theme / chrome / font picker after a pre-sign-in change saves to
- *  pd.ini so a subsequent prefsAgentResetVisuals() reverts to the newly
- *  saved preference instead of the boot-time snapshot. */
-void prefsAgentRefreshVisualsBaseline(void);
+/**
+ * Apply a prepared snapshot. Missing optional mod assets use deterministic
+ * machine fallbacks while the requested IDs remain retained in the profile.
+ */
+void prefsAgentCommitSnapshot(const struct agent_profile_preferences *candidate);
 
-/** Write the current in-memory values for every per-agent key to the
- *  active agent's sidecar.  No-op if no active agent is set. */
-void prefsAgentSave(void);
+/** Publish active identity and online presence after game and prefs commit. */
+void prefsAgentPublishActive(const char *agent_name);
 
-/** Convenience: call prefsAgentSave() only when the caller has already
- *  performed a prefsAgentSetActive(). */
+/** Active Agent identity, or an empty string before successful activation. */
 const char *prefsAgentGetActive(void);
 
-/** One-shot migration: if the display-name sidecar doesn't exist, look for
- *  a legacy sidecar built from the raw N64 save bytes (pre-S313 naming).
- *  If found, rename it to the new path and log the migration.
- *  raw_name: file->name[] (16 raw save bytes, the old prefsAgentLoad arg).
- *  display_name: human-readable agent name decoded by gamefileGetOverview. */
-void prefsAgentMigrateLegacySidecar(const char *raw_name, const char *display_name);
+/**
+ * Apply the complete machine baseline before the first Agent signs in. This
+ * does not publish or clear an identity and does not write any file.
+ */
+void prefsAgentApplyMachineBaseline(void);
+
+/** Re-capture machine visuals after a pre-sign-in pd.ini change. */
+void prefsAgentRefreshVisualsBaseline(void);
+
+/** Save changed active preferences through the unified Agent JSON writer. */
+s32 prefsAgentSave(void);
+
+/**
+ * Read and validate the optional legacy sidecar into a candidate. A missing
+ * file succeeds with found=0. No runtime or disk state changes occur.
+ */
+s32 prefsAgentReadLegacySidecar(const char *agent_name,
+		const struct agent_profile_preferences *defaults,
+		struct agent_profile_preferences *out, s32 *found,
+		char *error, size_t error_size);
+
+/** Remove a stale legacy sidecar after the unified JSON is authoritative. */
+void prefsAgentRetireLegacySidecar(const char *agent_name);
 
 #ifdef __cplusplus
 }

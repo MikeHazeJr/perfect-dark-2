@@ -179,6 +179,7 @@ extern s32 g_MenuMouseControl;
 
 /* Config save */
 s32 configSave(const char *fname);
+s32 prefsAgentSave(void);
 
 /* ---- Solo stage table (21 entries, indices 0–20) ----
  * Mirrors struct solostage from types.h.  The compiler inserts 1 byte of
@@ -3570,6 +3571,7 @@ static s32 renderOptions(struct menudialog *dialog,
     if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         configSave("pd.ini");
+        prefsAgentSave();
         menuGraphFireSwitchSibling(MENU_TYPE_SOLO_OPTIONS, "back",
                                    &g_SoloMissionPauseMenuDialog);
         ImGui::End();

@@ -1,55 +1,108 @@
 {
   "scenario_name": "auto_campaign_skedar_boot",
-  "description": "c126 (2026-05-18): exercise the campaign auto-runner state machine for the first solo mission (Defection) and confirm it chains into the second (Investigation). Verifies CAMPAIGN.AUTO.* state transitions, the force-complete + mainEndStage path, endscreenContinue(2) advancing to the briefing dialog, and menuhandlerAcceptMission firing the next stage load. Uses --auto-campaign-fast so dwells are 0.5s rather than 4s; cutscenes still play because the DWELL_PRE state holds while playerAnyInCutscene() is true.",
-  "tags": [
-    "campaign",
-    "auto-runner",
-    "mission",
-    "endscreen",
-    "stability"
-  ],
+  "description": "Focused T-TESTS-002 ordinary-client proof for the final campaign mission. A live run starts Skedar Ruins through the production mission-start entry, commits objective/progression/save state, routes through the ImGui endscreen action, waits for live Credits, and exits. A restart reloads the same PC-native agent and verifies the final best time persisted. This remains the fast regression for historical Skedar loading and final-route failures; the full 17-mission gate is auto_campaign_release.",
+  "tags": ["campaign", "release", "t-tests-002", "skedar", "credits", "save", "multi-process"],
   "paths_of_interest": [
     "port/src/autocampaign.c",
-    "port/include/autocampaign.h",
-    "port/src/main.c",
-    "port/src/pdmain.c",
-    "src/game/endscreen.c",
-    "src/lib/main.c",
-    "src/game/mainmenu.c",
-    "src/game/objectives.c"
+    "port/src/campaign_run.c",
+    "port/src/campaign_evidence.c",
+    "port/src/savefile.c",
+    "port/fast3d/pdgui_bridge.c",
+    "src/game/objectives.c",
+    "src/game/endscreen.c"
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 90,
+  "timeout_seconds": 360,
   "install_state": "clean",
-  "boot_args": [
-    "--no-update-check",
-    "--no-sound",
-    "--no-net",
-    "--skip-intro",
-    "--auto-campaign",
-    "16",
-    "--auto-campaign-fast"
+  "remove_paths": [
+    "campaign_release_run.json",
+    "campaign_release_verify.json",
+    "agent_smoke.json"
   ],
-  "input_sequence": [
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent_smoke.json" }
+  ],
+  "processes": [
     {
-      "at_ms": 0,
-      "type": "wait",
-      "comment": "boot path: --skip-intro lands in CI Training, --auto-campaign 0 arms the auto-runner at solo index 0 (Defection). BOOT state on first mainTick fires startStageAt(0)."
+      "name": "skedar-live-run",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/campaign_release_run_process.json",
+      "snapshot_log_file": "pd-skedar-live-run.log",
+      "snapshot_exit_timeout_seconds": 30,
+      "boot_args": [
+        "--no-update-check",
+        "--no-sound",
+        "--no-net",
+        "--portable",
+        "--skip-intro",
+        "--launch-load-agent",
+        "smoke",
+        "--auto-campaign",
+        "16",
+        "--auto-campaign-fast",
+        "--auto-campaign-difficulty",
+        "0"
+      ],
+      "wait_for": "SMOKE: result=campaign_complete .* code=0",
+      "wait_timeout_seconds": 300
     },
     {
-      "at_ms": 70000,
-      "type": "exit",
-      "comment": "fallback scripted exit. The auto-runner now treats full campaign completion as the stronger terminal condition; this exit only catches regressions that leave the client alive after the first-cycle assertions have already been met."
+      "name": "skedar-restart-verify",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/campaign_release_verify_process.json",
+      "snapshot_log_file": "pd-skedar-restart-verify.log",
+      "snapshot_exit_timeout_seconds": 30,
+      "boot_args": [
+        "--no-update-check",
+        "--no-sound",
+        "--no-net",
+        "--portable",
+        "--skip-intro",
+        "--launch-load-agent",
+        "smoke",
+        "--auto-campaign-verify",
+        "16",
+        "--auto-campaign-difficulty",
+        "0"
+      ],
+      "wait_for": "SMOKE: result=campaign_verified .* code=0",
+      "wait_timeout_seconds": 120
     }
+  ],
+  "retain_artifacts": [
+    { "src": "campaign_release_run.json", "name": "skedar_campaign_release_run.json" },
+    { "src": "campaign_release_verify.json", "name": "skedar_campaign_release_verify.json" },
+    { "src": "agent_smoke.json", "name": "skedar_agent_smoke_after_campaign.json" }
   ],
   "assertions": {
     "required_lines": [
-      "SMOKE: scenario=auto_campaign_skedar_boot"
+      "CAMPAIGN\\.AUTO: plan profile='smoke' difficulty=0 start=16 final=16 missions=1",
+      "CAMPAIGN\\.AUTO: loaded plan=0 idx=16 stage_id='base:skedarruins'",
+      "CAMPAIGN\\.AUTO: completed plan=0 idx=16 stage_id='base:skedarruins'",
+      "CAMPAIGN\\.AUTO: routed plan=0 idx=16 stage_id='base:skedarruins' route_to='system:credits'",
+      "CAMPAIGN\\.AUTO: credits verified live profile='smoke' missions=1 difficulty=0",
+      "CAMPAIGN\\.AUTO: persisted plan=0 idx=16 stage_id='base:skedarruins' difficulty=0 besttime=[1-9][0-9]*",
+      "CAMPAIGN\\.AUTO: persisted verification complete profile='smoke' missions=1",
+      "SMOKE: result=campaign_complete .* code=0",
+      "SMOKE: result=campaign_verified .* code=0"
     ],
     "forbidden_patterns": [
-      "EXCEPTION_ACCESS_VIOLATION",
-      "FATAL: Crash"
+      "CAMPAIGN\\.AUTO: failed reason=",
+      "SMOKE: result=campaign_failed",
+      "SMOKE: result=timeout",
+      "ACCESS_VIOLATION",
+      "EXCEPTION:",
+      "FATAL: ",
+      "LOUDFAIL\\.LOAD: .*unrecoverable"
+    ],
+    "required_counts": [
+      { "pattern": "CAMPAIGN\\.AUTO: loaded plan=", "min": 1, "max": 1 },
+      { "pattern": "CAMPAIGN\\.AUTO: completed plan=", "min": 1, "max": 1 },
+      { "pattern": "CAMPAIGN\\.AUTO: routed plan=", "min": 1, "max": 1 },
+      { "pattern": "CAMPAIGN\\.AUTO: persisted plan=", "min": 1, "max": 1 },
+      { "pattern": "SAVE: Agent Profile v3 committed name='smoke'", "min": 2, "max": 2 },
+      { "pattern": "BOOT: --launch-load-agent consumed: name='smoke' result=OK", "min": 2, "max": 2 }
     ]
   }
 }

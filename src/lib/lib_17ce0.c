@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "game/atan2f.h"
+#include "game/bg.h"
 #include "game/padhalllv.h"
 #include "bss.h"
 #include "lib/lib_17ce0.h"
@@ -14,9 +15,25 @@ u8 var8009a4e0[456][2];
 
 void portalGetAvgVertexPos(s32 portalnum, struct coord *avg)
 {
-	struct portalvertices *pvertices = (struct portalvertices *)((uintptr_t)g_BgPortals + g_BgPortals[portalnum].verticesoffset);
+	struct portalvertices *pvertices;
 	f32 f0;
 	s32 i;
+	RoomNum roomnum1;
+	RoomNum roomnum2;
+
+	if (avg == NULL) {
+		return;
+	}
+
+	avg->x = 0.0f;
+	avg->y = 0.0f;
+	avg->z = 0.0f;
+
+	if (!bgPortalGetRooms(portalnum, &roomnum1, &roomnum2)) {
+		return;
+	}
+
+	pvertices = (struct portalvertices *)((uintptr_t)g_BgPortals + g_BgPortals[portalnum].verticesoffset);
 
 	avg->x = pvertices->vertices[0].x;
 	avg->y = pvertices->vertices[0].y;
@@ -63,6 +80,10 @@ void portal00017dc4(RoomNum *rooms, RoomNum roomnum)
 {
 	s32 i;
 
+	if (rooms == NULL || !bgRoomIsValid(roomnum)) {
+		return;
+	}
+
 	for (i = 0; i < 16 && rooms[i] != -1; i++) {
 		if (rooms[i] == roomnum) {
 			return;
@@ -101,6 +122,13 @@ s32 portalCalculateIntersection(s32 portalnum, struct coord *pos1, struct coord 
 	f32 value2;
 	f32 tmp;
 	u32 stack;
+	RoomNum roomnum1;
+	RoomNum roomnum2;
+
+	if (pos1 == NULL || pos2 == NULL
+			|| !bgPortalGetRooms(portalnum, &roomnum1, &roomnum2)) {
+		return PORTALINTERSECTION_NONE;
+	}
 
 	lastside = 0;
 	pvertices = (struct portalvertices *)((uintptr_t)g_BgPortals + g_BgPortals[portalnum].verticesoffset);
@@ -202,13 +230,28 @@ void portal00018148(struct coord *pos1, struct coord *pos2, RoomNum *rooms1, Roo
 	do {
 		rooms7c[0] = -1;
 
-		for (j = 0; (roomnum = rooms9c[j]) != -1 && j < 16; j++) {
+		for (j = 0; j < 16 && (roomnum = rooms9c[j]) != -1; j++) {
+			if (!bgRoomIsValid(roomnum)) {
+				continue;
+			}
+
 			numportals = g_Rooms[roomnum].numportals;
 			portalnums = &g_RoomPortals[g_Rooms[roomnum].roomportallistoffset];
 
 			for (i = 0; i < numportals; i++) {
 				s32 portalnum = *portalnums;
-				u8 *s1 = var8009a4e0[portalnum];
+				RoomNum portalroom1;
+				RoomNum portalroom2;
+				u8 *s1;
+
+				if (portalnum < 0 || portalnum >= ARRAYCOUNT(var8009a4e0)
+						|| !bgPortalGetRooms(portalnum, &portalroom1, &portalroom2)
+						|| (roomnum != portalroom1 && roomnum != portalroom2)) {
+					portalnums++;
+					continue;
+				}
+
+				s1 = var8009a4e0[portalnum];
 
 				if (s1[0] != var8005ef20) {
 					s1[0] = var8005ef20;
@@ -217,17 +260,17 @@ void portal00018148(struct coord *pos1, struct coord *pos2, RoomNum *rooms1, Roo
 
 				if (s1[1] != PORTALINTERSECTION_NONE) {
 					if (s1[1] == PORTALINTERSECTION_BEHINDTOFRONT) {
-						if (roomnum == g_BgPortals[portalnum].roomnum1) {
-							portal00017dc4(rooms7c, g_BgPortals[portalnum].roomnum2);
-							portal00017dc4(rooms5c, g_BgPortals[portalnum].roomnum2);
+						if (roomnum == portalroom1) {
+							portal00017dc4(rooms7c, portalroom2);
+							portal00017dc4(rooms5c, portalroom2);
 							s1[1] = PORTALINTERSECTION_NONE;
 						}
 					}
 
 					if (s1[1] == PORTALINTERSECTION_FRONTTOBEHIND) {
-						if (roomnum == g_BgPortals[portalnum].roomnum2) {
-							portal00017dc4(rooms7c, g_BgPortals[portalnum].roomnum1);
-							portal00017dc4(rooms5c, g_BgPortals[portalnum].roomnum1);
+						if (roomnum == portalroom2) {
+							portal00017dc4(rooms7c, portalroom1);
+							portal00017dc4(rooms5c, portalroom1);
 							s1[1] = PORTALINTERSECTION_NONE;
 						}
 					}

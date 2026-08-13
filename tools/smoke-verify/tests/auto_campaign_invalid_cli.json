@@ -1,0 +1,55 @@
+{
+  "scenario_name": "auto_campaign_invalid_cli",
+  "description": "B-1062 ordinary-client negative gate. Standalone --auto-campaign-through-load must fail before any campaign plan is armed, emit the exact invalid-plan reason, and exit with code 2.",
+  "tags": ["campaign", "cli", "negative", "ordinary-client", "b-1062", "t-tests-002", "milestone-1"],
+  "paths_of_interest": [
+    "port/src/autocampaign.c",
+    "port/src/autocampaign_cli_plan.c",
+    "port/include/autocampaign_cli_plan.h"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 150,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "invalid-cli",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/campaign_invalid_cli_process.json",
+      "snapshot_log_file": "pd-campaign-invalid-cli.log",
+      "snapshot_exit_timeout_seconds": 15,
+      "expected_exit_code": 2,
+      "boot_args": [
+        "--no-update-check",
+        "--no-sound",
+        "--no-net",
+        "--portable",
+        "--skip-intro",
+        "--auto-campaign-through-load",
+        "10"
+      ],
+      "wait_for": "SMOKE: result=campaign_failed .* code=2",
+      "wait_timeout_seconds": 120
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "CAMPAIGN\\.AUTO: failed reason=invalid_plan detail='--auto-campaign-through-load requires --auto-campaign' completed=0/0",
+      "SMOKE: result=campaign_failed .* code=2"
+    ],
+    "forbidden_patterns": [
+      "CAMPAIGN\\.AUTO: plan profile=",
+      "CAMPAIGN\\.AUTO: loaded plan=",
+      "failed to publish failure evidence",
+      "SMOKE: result=scripted_exit",
+      "SMOKE: result=timeout",
+      "ACCESS_VIOLATION",
+      "EXCEPTION:",
+      "FATAL: "
+    ],
+    "required_counts": [
+      { "pattern": "CAMPAIGN\\.AUTO: failed reason=invalid_plan", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: result=campaign_failed .* code=2", "min": 1, "max": 1 }
+    ]
+  }
+}

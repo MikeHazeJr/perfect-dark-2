@@ -405,7 +405,7 @@ static void sendFrame(u32 ipv4, u16 port, u8 kind, u32 target_handle,
  * specific contract), so emitting pings before the agent is selected
  * would announce a placeholder identity to friends. Cold state =
  * PRESENCE_BOOTSTRAP; tick early-returns; outbound socket allocated but
- * idle. Flipped by presenceMarkAgentLoaded() called from prefsAgentLoad. */
+ * idle. Flipped only after unified Agent Profile activation commits. */
 static s32 s_AgentConfirmed = 0;
 
 void presenceInit(void)

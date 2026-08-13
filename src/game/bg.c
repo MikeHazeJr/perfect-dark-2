@@ -1422,17 +1422,25 @@ static s32 bgTryActivateScenarioSourceBackground(const catalog_stage_result_t *s
 	return 1;
 }
 
-static void bgBuildScenarioSourcePortalTables(const catalog_stage_result_t *stage)
+static void bgBuildScenarioSourcePortalTables(const catalog_stage_result_t *stage,
+	s32 roomcount)
 {
 	s32 portalcount = 0;
 	s32 totalrefs = 0;
 	s32 index = 0;
 	struct bgportal *portals = scenarioSourceLoadPortalsForStage(stage,
-		g_Vars.normmplayerisrunning, &portalcount);
+		g_Vars.normmplayerisrunning, roomcount, &portalcount);
 
-	if (!portals || portalcount <= 0) {
-		g_BgPortals = portals ? portals :
-			mempAlloc(ALIGN16(sizeof(struct bgportal)), MEMPOOL_STAGE);
+	if (!portals) {
+		sysFatalError(
+			"SCENARIO.SOURCE: stage '%s' has no valid public portal table",
+			stage && stage->entry && stage->entry->id[0]
+				? stage->entry->id : "?");
+		return;
+	}
+
+	if (portalcount <= 0) {
+		g_BgPortals = portals;
 		g_RoomPortals = mempAlloc(ALIGN16(sizeof(s16)), MEMPOOL_STAGE);
 		g_BgPortalAlphas = mempAlloc(ALIGN16(1), MEMPOOL_STAGE);
 		g_PortalMetrics = mempAlloc(ALIGN16(sizeof(struct portalmetric)), MEMPOOL_STAGE);
@@ -1458,12 +1466,17 @@ static void bgBuildScenarioSourcePortalTables(const catalog_stage_result_t *stag
 	memset(g_PortalCameraCache, 0, portalcount * sizeof(struct portalcamcacheitem));
 
 	for (s32 i = 0; i < portalcount; i++) {
-		if (g_BgPortals[i].roomnum1 >= 0 && g_BgPortals[i].roomnum1 < g_Vars.roomcount) {
-			totalrefs++;
+		RoomNum roomnum1;
+		RoomNum roomnum2;
+
+		if (!bgPortalGetRooms(i, &roomnum1, &roomnum2)) {
+			sysFatalError(
+				"SCENARIO.SOURCE: portal %d is outside canonical room domain rooms=%d",
+				i, g_Vars.roomcount);
+			return;
 		}
-		if (g_BgPortals[i].roomnum2 >= 0 && g_BgPortals[i].roomnum2 < g_Vars.roomcount) {
-			totalrefs++;
-		}
+
+		totalrefs += 2;
 	}
 
 	g_RoomPortals = mempAlloc(ALIGN16((totalrefs > 0 ? totalrefs : 1) * sizeof(s16)), MEMPOOL_STAGE);
@@ -1473,7 +1486,11 @@ static void bgBuildScenarioSourcePortalTables(const catalog_stage_result_t *stag
 		s32 count = 0;
 		g_Rooms[i].roomportallistoffset = index;
 		for (s32 j = 0; j < portalcount; j++) {
-			if (g_BgPortals[j].roomnum1 == i || g_BgPortals[j].roomnum2 == i) {
+			RoomNum roomnum1;
+			RoomNum roomnum2;
+
+			if (bgPortalGetRooms(j, &roomnum1, &roomnum2)
+					&& (roomnum1 == i || roomnum2 == i)) {
 				if (count < 127) {
 					g_RoomPortals[index++] = (s16)j;
 					count++;
@@ -1558,11 +1575,14 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 		}
 	}
 
-	roomcount = maxroom + 1;
-	if (roomcount < 2) {
-		roomcount = 2;
-	}
 	catalogGetStageResultByIndex(g_StageIndex, &stage);
+	if (!scenarioSourceResolveRoomCountForStage(&stage,
+			g_Vars.normmplayerisrunning, maxroom, &roomcount)) {
+		sysFatalError(
+			"SCENARIO.SOURCE: stage '%s' has no safe canonical room domain",
+			stage.entry && stage.entry->id[0] ? stage.entry->id : "?");
+		return;
+	}
 
 	g_Vars.roomcount = roomcount;
 	g_Rooms = mempAlloc(ALIGN16(g_Vars.roomcount * sizeof(struct room)), MEMPOOL_STAGE);
@@ -1670,7 +1690,7 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 	}
 
 	mtx00016748(1);
-	bgBuildScenarioSourcePortalTables(&stage);
+	bgBuildScenarioSourcePortalTables(&stage, g_Vars.roomcount);
 
 	/* B-943 (gap #1 part-2): rebuild the per-room dynamic-light table from the
 	 * room_lights.json sidecar. The flat struct light[] array is room-ordered
@@ -2247,13 +2267,20 @@ void bgBuildTables(s32 stagenum)
 			g_Rooms[i].roomportallistoffset = index;
 
 			for (j = 0; j < numportals; j++) {
-				if (i == g_BgPortals[j].roomnum1) {
+				RoomNum portalroom1;
+				RoomNum portalroom2;
+
+				if (!bgPortalGetRooms(j, &portalroom1, &portalroom2)) {
+					continue;
+				}
+
+				if (i == portalroom1) {
 					g_RoomPortals[index] = j;
 					numportalsthisroom++;
 					index++;
 				}
 
-				if (i == g_BgPortals[j].roomnum2) {
+				if (i == portalroom2) {
 					g_RoomPortals[index] = j;
 					numportalsthisroom++;
 					index++;
@@ -2277,34 +2304,38 @@ void bgBuildTables(s32 stagenum)
 		// sorted.
 		for (i = 0; i < g_Vars.roomcount; i++) {
 			for (j = 0; j < g_Rooms[i].numportals; j++) {
-				if (g_BgPortals[g_RoomPortals[g_Rooms[i].roomportallistoffset + j]].roomnum1 == i) {
-					thisneighbournum = g_BgPortals[g_RoomPortals[g_Rooms[i].roomportallistoffset + j]].roomnum2;
-				} else {
-					thisneighbournum = g_BgPortals[g_RoomPortals[g_Rooms[i].roomportallistoffset + j]].roomnum1;
+				s32 thisportalnum = g_RoomPortals[g_Rooms[i].roomportallistoffset + j];
+				RoomNum neighbournum;
+
+				if (!bgPortalGetOtherRoom(thisportalnum, i, &neighbournum)) {
+					continue;
 				}
+				thisneighbournum = neighbournum;
 
 				for (k = j; k < g_Rooms[i].numportals; k++) {
+					s32 candidateportalnum = g_RoomPortals[g_Rooms[i].roomportallistoffset + k];
+					RoomNum candidateneighbournum;
 					swap = false;
 
-					if (i == g_BgPortals[g_RoomPortals[g_Rooms[i].roomportallistoffset + k]].roomnum1) {
-						if (g_BgPortals[g_RoomPortals[g_Rooms[i].roomportallistoffset + k]].roomnum2 < thisneighbournum) {
-							swap = true;
-						}
-					} else {
-						if (g_BgPortals[g_RoomPortals[g_Rooms[i].roomportallistoffset + k]].roomnum1 < thisneighbournum) {
-							swap = true;
-						}
+					if (!bgPortalGetOtherRoom(candidateportalnum, i, &candidateneighbournum)) {
+						continue;
+					}
+
+					if (candidateneighbournum < thisneighbournum) {
+						swap = true;
 					}
 
 					if (swap) {
+						RoomNum updatedneighbournum;
+
 						candportalnum = g_RoomPortals[g_Rooms[i].roomportallistoffset + k];
 						g_RoomPortals[g_Rooms[i].roomportallistoffset + k] = g_RoomPortals[g_Rooms[i].roomportallistoffset + j];
 						g_RoomPortals[g_Rooms[i].roomportallistoffset + j] = candportalnum;
 
-						if (g_BgPortals[g_RoomPortals[g_Rooms[i].roomportallistoffset + j]].roomnum1 == i) {
-							thisneighbournum = g_BgPortals[g_RoomPortals[g_Rooms[i].roomportallistoffset + j]].roomnum2;
-						} else {
-							thisneighbournum = g_BgPortals[g_RoomPortals[g_Rooms[i].roomportallistoffset + j]].roomnum1;
+						if (bgPortalGetOtherRoom(
+								g_RoomPortals[g_Rooms[i].roomportallistoffset + j],
+								i, &updatedneighbournum)) {
+							thisneighbournum = updatedneighbournum;
 						}
 					}
 				}
@@ -5144,14 +5175,70 @@ bool bgTestHitInRoom(struct coord *frompos, struct coord *topos, s32 roomnum, st
 	return false;
 }
 
+bool bgRoomIsValid(s32 roomnum)
+{
+	return g_Rooms != NULL && roomnum >= 0 && roomnum < g_Vars.roomcount;
+}
+
+bool bgPortalGetRooms(s32 portalnum, RoomNum *roomnum1, RoomNum *roomnum2)
+{
+	RoomNum first;
+	RoomNum second;
+
+	if (roomnum1 == NULL || roomnum2 == NULL || g_BgPortals == NULL
+			|| portalnum < 0 || portalnum >= g_BgNumPortalCameraCacheItems
+			|| g_BgPortals[portalnum].verticesoffset == 0) {
+		return false;
+	}
+
+	first = g_BgPortals[portalnum].roomnum1;
+	second = g_BgPortals[portalnum].roomnum2;
+
+	if (first <= 0 || second <= 0 || first == second
+			|| !bgRoomIsValid(first) || !bgRoomIsValid(second)) {
+		return false;
+	}
+
+	*roomnum1 = first;
+	*roomnum2 = second;
+	return true;
+}
+
+bool bgPortalGetOtherRoom(s32 portalnum, s32 roomnum, RoomNum *otherroomnum)
+{
+	RoomNum first;
+	RoomNum second;
+
+	if (otherroomnum == NULL || !bgPortalGetRooms(portalnum, &first, &second)) {
+		return false;
+	}
+
+	if (roomnum == first) {
+		*otherroomnum = second;
+		return true;
+	}
+
+	if (roomnum == second) {
+		*otherroomnum = first;
+		return true;
+	}
+
+	return false;
+}
+
 bool bgRoomIsLoaded(s32 room)
 {
-	return g_Rooms[room].loaded240;
+	return bgRoomIsValid(room) && g_Rooms[room].loaded240;
 }
 
 bool bgRoomContainsCoord(struct coord *pos, RoomNum roomnum)
 {
 	struct coord copy;
+
+	if (pos == NULL || !bgRoomIsValid(roomnum)) {
+		return false;
+	}
+
 	copy.x = pos->x;
 	copy.y = pos->y;
 	copy.z = pos->z;
@@ -5180,8 +5267,20 @@ bool bgTestPosInRoomCheap(struct coord *pos, RoomNum roomnum)
 {
 	s32 i;
 
+	if (pos == NULL || !bgRoomIsValid(roomnum)) {
+		return false;
+	}
+
 	for (i = 0; i < g_Rooms[roomnum].numportals; i++) {
 		s32 portalnum = g_RoomPortals[g_Rooms[roomnum].roomportallistoffset + i];
+		RoomNum roomnum1;
+		RoomNum roomnum2;
+
+		if (!bgPortalGetRooms(portalnum, &roomnum1, &roomnum2)
+				|| (roomnum != roomnum1 && roomnum != roomnum2)) {
+			return false;
+		}
+
 		struct portalmetric *metric = &g_PortalMetrics[portalnum];
 
 		f32 value = metric->normal.f[0] * pos->f[0]
@@ -5189,11 +5288,11 @@ bool bgTestPosInRoomCheap(struct coord *pos, RoomNum roomnum)
 			+ metric->normal.f[2] * pos->f[2];
 
 		if (value < metric->min) {
-			if (roomnum != g_BgPortals[portalnum].roomnum1) {
+			if (roomnum != roomnum1) {
 				return false;
 			}
 		} else if (value > metric->max) {
-			if (roomnum != g_BgPortals[portalnum].roomnum2) {
+			if (roomnum != roomnum2) {
 				return false;
 			}
 		}
@@ -5221,6 +5320,12 @@ bool bgTestPosInRoomExpensive(struct coord *pos, RoomNum roomnum)
 	f32 f18;
 	s32 i;
 	f32 sum;
+	RoomNum portalroom1;
+	RoomNum portalroom2;
+
+	if (pos == NULL || !bgRoomIsValid(roomnum)) {
+		return false;
+	}
 
 	sp74.f[0] = g_Rooms[roomnum].centre.f[0];
 	sp74.f[1] = g_Rooms[roomnum].centre.f[1];
@@ -5228,6 +5333,12 @@ bool bgTestPosInRoomExpensive(struct coord *pos, RoomNum roomnum)
 
 	for (i = 0; i < g_Rooms[roomnum].numportals; i++) {
 		portalnum = g_RoomPortals[g_Rooms[roomnum].roomportallistoffset + i];
+
+		if (!bgPortalGetRooms(portalnum, &portalroom1, &portalroom2)
+				|| (roomnum != portalroom1 && roomnum != portalroom2)) {
+			return false;
+		}
+
 		pvertices = (struct portalvertices *)((u8 *) g_BgPortals + g_BgPortals[portalnum].verticesoffset);
 		metric = &g_PortalMetrics[portalnum];
 
@@ -5296,11 +5407,11 @@ bool bgTestPosInRoomExpensive(struct coord *pos, RoomNum roomnum)
 
 		if (t5) {
 			if (f0 < metric->min) {
-				if (roomnum == g_BgPortals[portalnum].roomnum2) {
+				if (roomnum == portalroom2) {
 					return false;
 				}
 			} else if (f0 > metric->max) {
-				if (roomnum == g_BgPortals[portalnum].roomnum1) {
+				if (roomnum == portalroom1) {
 					return false;
 				}
 			}
@@ -5312,6 +5423,10 @@ bool bgTestPosInRoomExpensive(struct coord *pos, RoomNum roomnum)
 
 bool bgTestPosInRoom(struct coord *pos, RoomNum roomnum)
 {
+	if (!bgRoomIsValid(roomnum)) {
+		return false;
+	}
+
 	if (g_Rooms[roomnum].flags & ROOMFLAG_COMPLICATEDPORTALS) {
 		return bgTestPosInRoomExpensive(pos, roomnum);
 	} else {
@@ -5868,7 +5983,8 @@ void bgAddToSnake(RoomNum fromroomnum, RoomNum roomnum, s16 depth, struct screen
 	s32 i;
 	s32 j;
 
-	if (g_Rooms[roomnum].flags & ROOMFLAG_DISABLEDBYSCRIPT) {
+	if (!bgRoomIsValid(roomnum) || box == NULL
+			|| (g_Rooms[roomnum].flags & ROOMFLAG_DISABLEDBYSCRIPT)) {
 		return;
 	}
 
@@ -5952,12 +6068,17 @@ void bgConsumeSnakeItem(struct bgsnakeitem *item)
 	RoomNum prevfoundroom;
 	RoomNum newfoundroom;
 	s16 side;
-	RoomNum tmp;
+	RoomNum portalroom1;
+	RoomNum portalroom2;
 	bool pass;
 	struct portalmetric *metric;
 	struct screenbox prevbox;
 	struct screenbox newbox;
 	f32 sum;
+
+	if (item == NULL || !bgRoomIsValid(item->roomnum)) {
+		return;
+	}
 
 	g_Rooms[item->roomnum].snakecount--;
 	g_BgSnake.count++;
@@ -5967,6 +6088,10 @@ void bgConsumeSnakeItem(struct bgsnakeitem *item)
 
 	for (i = 0; i < item->numportals; i++) {
 		portalnum = g_RoomPortals[item->roomportallistoffset + i];
+
+		if (!bgPortalGetRooms(portalnum, &portalroom1, &portalroom2)) {
+			continue;
+		}
 
 		// Calculate which side of the portal the camera is on
 		// if we haven't done it on this frame yet.
@@ -5990,21 +6115,22 @@ void bgConsumeSnakeItem(struct bgsnakeitem *item)
 
 		// Swap the rooms if needed, or skip past this portal entirely if the
 		// other room and camera room are on the same side.
-		tmp = g_BgPortals[portalnum].roomnum1;
 		side = g_PortalCameraCache[portalnum].side;
 
-		if ((u32)tmp == item->roomnum) {
+		if (portalroom1 == item->roomnum) {
 			if (side == 0) {
 				continue;
 			}
 
-			newfoundroom = g_BgPortals[portalnum].roomnum2;
-		} else {
+			newfoundroom = portalroom2;
+		} else if (portalroom2 == item->roomnum) {
 			if (side == 1) {
 				continue;
 			}
 
-			newfoundroom = tmp;
+			newfoundroom = portalroom1;
+		} else {
+			continue;
 		}
 
 		if (1);
@@ -6109,76 +6235,75 @@ bool bgTryConsumeSnake(void)
  * destroying the glass may make many rooms visible at once, and only one room
  * is loaded per tick.
  */
+static void bgMarkRoomLoadCandidate(RoomNum roomnum)
+{
+	if (bgRoomIsValid(roomnum) && g_Rooms[roomnum].loaded240 == 0
+			&& (g_Rooms[roomnum].flags & ROOMFLAG_LOADCANDIDATE) == 0) {
+		g_Rooms[roomnum].flags |= ROOMFLAG_LOADCANDIDATE;
+		g_BgNumRoomLoadCandidates++;
+	}
+}
+
+static void bgMarkSecondHopLoadCandidates(RoomNum roomnum)
+{
+	s32 i;
+
+	if (!bgRoomIsValid(roomnum)) {
+		return;
+	}
+
+	for (i = 0; i < g_Rooms[roomnum].numportals; i++) {
+		s32 portalnum = g_RoomPortals[g_Rooms[roomnum].roomportallistoffset + i];
+		RoomNum otherroomnum;
+
+		if (bgPortalGetOtherRoom(portalnum, roomnum, &otherroomnum)) {
+			bgMarkRoomLoadCandidate(otherroomnum);
+		}
+	}
+}
+
 void bgChooseRoomsToLoad(void)
 {
 	s32 i;
-	s32 j;
 	u32 stack;
 
 	g_BgNumRoomLoadCandidates = 0;
 
-	for (i = 0; g_BgPortals[i].verticesoffset != 0; i++) {
+	for (i = 0; i < g_BgNumPortalCameraCacheItems; i++) {
 		if ((g_BgPortals[i].flags & PORTALFLAG_SKIP) == 0) {
-			s32 roomnum1 = g_BgPortals[i].roomnum1;
-			s32 roomnum2 = g_BgPortals[i].roomnum2;
-			s32 portalnum;
+			RoomNum roomnum1;
+			RoomNum roomnum2;
+
+			if (!bgPortalGetRooms(i, &roomnum1, &roomnum2)) {
+				g_BgPortals[i].flags |= PORTALFLAG_SKIP;
+				sysLogPrintf(LOG_ERROR,
+					"BG.PORTALS: disabled invalid portal boundary portal=%d rooms=%d",
+					i, g_Vars.roomcount);
+				continue;
+			}
 
 			if ((g_Rooms[roomnum1].flags & ROOMFLAG_ONSCREEN) && (g_Rooms[roomnum2].flags & ROOMFLAG_ONSCREEN) == 0) {
 				// From room1 to room2
 				g_Rooms[roomnum2].flags |= ROOMFLAG_STANDBY;
 
-				if (g_Rooms[roomnum2].loaded240 == 0) {
-					g_Rooms[roomnum2].flags |= ROOMFLAG_LOADCANDIDATE;
-					g_BgNumRoomLoadCandidates++;
-				}
+				bgMarkRoomLoadCandidate(roomnum2);
 
 				bgUnpausePropsInRoom(roomnum2, true);
 
 				if (PORTAL_IS_CLOSED(i)) {
-					for (j = 0; j < g_Rooms[roomnum2].numportals; j++) {
-						portalnum = g_RoomPortals[g_Rooms[roomnum2].roomportallistoffset + j];
-
-						if (roomnum2 == g_BgPortals[portalnum].roomnum1) {
-							if (g_Rooms[g_BgPortals[portalnum].roomnum2].loaded240 == 0) {
-								g_Rooms[g_BgPortals[portalnum].roomnum2].flags |= ROOMFLAG_LOADCANDIDATE;
-								g_BgNumRoomLoadCandidates++;
-							}
-						} else {
-							if (g_Rooms[g_BgPortals[portalnum].roomnum1].loaded240 == 0) {
-								g_Rooms[g_BgPortals[portalnum].roomnum1].flags |= ROOMFLAG_LOADCANDIDATE;
-								g_BgNumRoomLoadCandidates++;
-							}
-						}
-					}
+					bgMarkSecondHopLoadCandidates(roomnum2);
 				}
 			} else if ((g_Rooms[roomnum2].flags & ROOMFLAG_ONSCREEN)
 					&& (g_Rooms[roomnum1].flags & ROOMFLAG_ONSCREEN) == 0) {
 				// From room2 to room1
 				g_Rooms[roomnum1].flags |= ROOMFLAG_STANDBY;
 
-				if (g_Rooms[roomnum1].loaded240 == 0) {
-					g_Rooms[roomnum1].flags |= ROOMFLAG_LOADCANDIDATE;
-					g_BgNumRoomLoadCandidates++;
-				}
+				bgMarkRoomLoadCandidate(roomnum1);
 
 				bgUnpausePropsInRoom(roomnum1, true);
 
 				if (PORTAL_IS_CLOSED(i)) {
-					for (j = 0; j < g_Rooms[roomnum1].numportals; j++) {
-						portalnum = g_RoomPortals[g_Rooms[roomnum1].roomportallistoffset + j];
-
-						if (roomnum1 == g_BgPortals[portalnum].roomnum1) {
-							if (g_Rooms[g_BgPortals[portalnum].roomnum1].loaded240 == 0) {
-								g_Rooms[g_BgPortals[portalnum].roomnum1].flags |= ROOMFLAG_LOADCANDIDATE;
-								g_BgNumRoomLoadCandidates++;
-							}
-						} else {
-							if (g_Rooms[g_BgPortals[portalnum].roomnum1].loaded240 == 0) {
-								g_Rooms[g_BgPortals[portalnum].roomnum2].flags |= ROOMFLAG_LOADCANDIDATE;
-								g_BgNumRoomLoadCandidates++;
-							}
-						}
-					}
+					bgMarkSecondHopLoadCandidates(roomnum1);
 				}
 			}
 		}
@@ -6381,12 +6506,20 @@ s32 bgRoomGetNeighbours(s32 roomnum, RoomNum *dstrooms, s32 len)
 	s32 i;
 	s32 j;
 
+	if (dstrooms == NULL || len <= 0) {
+		return 0;
+	}
+	if (!bgRoomIsValid(roomnum)) {
+		dstrooms[0] = -1;
+		return 0;
+	}
+
 	for (i = 0; i < g_Rooms[roomnum].numportals; i++) {
 		s32 portalnum = g_RoomPortals[g_Rooms[roomnum].roomportallistoffset + i];
-		s32 neighbournum = g_BgPortals[portalnum].roomnum1;
+		RoomNum neighbournum;
 
-		if (neighbournum == roomnum) {
-			neighbournum = g_BgPortals[portalnum].roomnum2;
+		if (!bgPortalGetOtherRoom(portalnum, roomnum, &neighbournum)) {
+			continue;
 		}
 
 		for (j = 0; j < count; j++) {
@@ -6415,10 +6548,16 @@ bool bgRoomsAreNeighbours(s32 roomnum1, s32 roomnum2)
 {
 	s32 i;
 
+	if (!bgRoomIsValid(roomnum1) || !bgRoomIsValid(roomnum2)) {
+		return false;
+	}
+
 	for (i = 0; i < g_Rooms[roomnum1].numportals; i++) {
 		s32 portalnum = g_RoomPortals[g_Rooms[roomnum1].roomportallistoffset + i];
+		RoomNum neighbournum;
 
-		if (g_BgPortals[portalnum].roomnum1 == roomnum2 || g_BgPortals[portalnum].roomnum2 == roomnum2) {
+		if (bgPortalGetOtherRoom(portalnum, roomnum1, &neighbournum)
+				&& neighbournum == roomnum2) {
 			return true;
 		}
 	}
@@ -6481,9 +6620,19 @@ void bgExpandRoomToPortals(s32 roomnum)
 	s32 j;
 	s32 k;
 	s32 count = 0;
+	RoomNum otherroomnum;
+
+	if (!bgRoomIsValid(roomnum)) {
+		return;
+	}
 
 	for (i = 0; i < g_Rooms[roomnum].numportals; i++) {
 		s32 portalnum = g_RoomPortals[g_Rooms[roomnum].roomportallistoffset + i];
+
+		if (!bgPortalGetOtherRoom(portalnum, roomnum, &otherroomnum)) {
+			continue;
+		}
+
 		struct portalvertices *pvertices = (struct portalvertices *)((uintptr_t)g_BgPortals + g_BgPortals[portalnum].verticesoffset);
 
 		for (j = 0; j < pvertices->count; j++) {
@@ -6521,9 +6670,13 @@ bool bgPortalExists(s32 portalnum)
 
 void bgPortalSwapRooms(s32 portal)
 {
-	RoomNum tmp = g_BgPortals[portal].roomnum1;
-	g_BgPortals[portal].roomnum1 = g_BgPortals[portal].roomnum2;
-	g_BgPortals[portal].roomnum2 = tmp;
+	RoomNum roomnum1;
+	RoomNum roomnum2;
+
+	if (bgPortalGetRooms(portal, &roomnum1, &roomnum2)) {
+		g_BgPortals[portal].roomnum1 = roomnum2;
+		g_BgPortals[portal].roomnum2 = roomnum1;
+	}
 }
 
 void bgInitPortal(s32 portalnum)
@@ -6536,11 +6689,19 @@ void bgInitPortal(s32 portalnum)
 	f32 tmp1;
 	f32 tmp2;
 	bool sp18;
-	s32 roomnum1;
-	s32 roomnum2;
+	RoomNum roomnum1;
+	RoomNum roomnum2;
 
-	roomnum1 = g_BgPortals[portalnum].roomnum1;
-	roomnum2 = g_BgPortals[portalnum].roomnum2;
+	if (!bgPortalGetRooms(portalnum, &roomnum1, &roomnum2)) {
+		if (g_BgPortals != NULL && portalnum >= 0
+				&& portalnum < g_BgNumPortalCameraCacheItems) {
+			g_BgPortals[portalnum].flags |= PORTALFLAG_SKIP;
+		}
+		sysLogPrintf(LOG_ERROR,
+			"BG.PORTALS: cannot initialize invalid portal boundary portal=%d rooms=%d",
+			portalnum, g_Vars.roomcount);
+		return;
+	}
 
 	room1centre.x = g_Rooms[roomnum1].centre.x;
 	room1centre.y = g_Rooms[roomnum1].centre.y;
@@ -6607,9 +6768,21 @@ void bgInitRoom(s32 roomnum)
 	s16 portalnum;
 	s16 portalnum2;
 	f32 tmp;
+	RoomNum portalroom1;
+	RoomNum portalroom2;
+	RoomNum otherroomnum;
+
+	if (!bgRoomIsValid(roomnum)) {
+		return;
+	}
 
 	for (i = 0; i < g_Rooms[roomnum].numportals; i++) {
 		portalnum = g_RoomPortals[g_Rooms[roomnum].roomportallistoffset + i];
+
+		if (!bgPortalGetRooms(portalnum, &portalroom1, &portalroom2)
+				|| (roomnum != portalroom1 && roomnum != portalroom2)) {
+			continue;
+		}
 
 		metric.normal.f[0] = (g_PortalMetrics + portalnum)->normal.f[0];
 		metric.normal.f[1] = (g_PortalMetrics + portalnum)->normal.f[1];
@@ -6617,7 +6790,7 @@ void bgInitRoom(s32 roomnum)
 		metric.min = (g_PortalMetrics + portalnum)->min;
 		metric.max = (g_PortalMetrics + portalnum)->max;
 
-		if (roomnum == g_BgPortals[portalnum].roomnum1) {
+		if (roomnum == portalroom1) {
 			metric.normal.f[0] = -metric.normal.f[0];
 			metric.normal.f[1] = -metric.normal.f[1];
 			metric.normal.f[2] = -metric.normal.f[2];
@@ -6631,6 +6804,9 @@ void bgInitRoom(s32 roomnum)
 			portalnum2 = g_RoomPortals[g_Rooms[roomnum].roomportallistoffset + j];
 
 			if (portalnum2 == portalnum) {
+				continue;
+			}
+			if (!bgPortalGetOtherRoom(portalnum2, roomnum, &otherroomnum)) {
 				continue;
 			}
 
@@ -6652,7 +6828,12 @@ void bgInitRoom(s32 roomnum)
 
 void bgSetPortalOpenState(s32 portal, bool open)
 {
-	g_BgPortals[portal].flags = (g_BgPortals[portal].flags | PORTALFLAG_CLOSED) ^ (open != false);
+	RoomNum roomnum1;
+	RoomNum roomnum2;
+
+	if (bgPortalGetRooms(portal, &roomnum1, &roomnum2)) {
+		g_BgPortals[portal].flags = (g_BgPortals[portal].flags | PORTALFLAG_CLOSED) ^ (open != false);
+	}
 }
 
 Gfx *bgRenderPortals(Gfx *gdl, s32 arg1, s32 arg2)
@@ -6675,7 +6856,11 @@ s32 bgFindPortalBetweenPositions(struct coord *pos1, struct coord *pos2)
 	f32 thisthing;
 	s32 i;
 
-	for (i = 0; g_BgPortals[i].verticesoffset; i++) {
+	if (pos1 == NULL || pos2 == NULL) {
+		return -1;
+	}
+
+	for (i = 0; i < g_BgNumPortalCameraCacheItems; i++) {
 		if (portalCalculateIntersection(i, pos1, pos2) != PORTALINTERSECTION_NONE) {
 			thisthing = var8007fcb4;
 
@@ -6700,6 +6885,11 @@ bool bgIsBboxOverlapping(struct coord *portalbbmin, struct coord *portalbbmax, s
 {
 	s32 i;
 
+	if (portalbbmin == NULL || portalbbmax == NULL
+			|| propbbmin == NULL || propbbmax == NULL) {
+		return false;
+	}
+
 	for (i = 0; i < 3; i++) {
 		if (propbbmin->f[i] > portalbbmax->f[i] || propbbmax->f[i] < portalbbmin->f[i]) {
 			return false;
@@ -6714,6 +6904,23 @@ void bgCalculatePortalBbox(s32 portalnum, struct coord *bbmin, struct coord *bbm
 	struct portalvertices *pvertices;
 	s32 i;
 	s32 j;
+	RoomNum roomnum1;
+	RoomNum roomnum2;
+
+	if (bbmin == NULL || bbmax == NULL) {
+		return;
+	}
+
+	bbmin->x = 0.0f;
+	bbmin->y = 0.0f;
+	bbmin->z = 0.0f;
+	bbmax->x = 0.0f;
+	bbmax->y = 0.0f;
+	bbmax->z = 0.0f;
+
+	if (!bgPortalGetRooms(portalnum, &roomnum1, &roomnum2)) {
+		return;
+	}
 
 	bbmin->x = MAXFLOAT;
 	bbmin->y = MAXFLOAT;
@@ -6783,7 +6990,7 @@ void bgFindEnteredRooms(struct coord *bbmin, struct coord *bbmax, RoomNum *rooms
 
 		for (; i < origlen; i++) {
 			room = rooms[i];
-			if (room < 0 || room >= g_Vars.roomcount) {
+			if (!bgRoomIsValid(room)) {
 				sysLogPrintf(LOG_WARNING,
 					"BG.ROOMS: skipping invalid entered room=%d roomcount=%d",
 					(s32)room, g_Vars.roomcount);
@@ -6792,9 +6999,9 @@ void bgFindEnteredRooms(struct coord *bbmin, struct coord *bbmax, RoomNum *rooms
 
 			for (j = 0; j < g_Rooms[room].numportals; j++) {
 				portalnum = g_RoomPortals[g_Rooms[room].roomportallistoffset + j];
-				if (portalnum < 0 || portalnum >= g_BgNumPortalCameraCacheItems) {
+				if (!bgPortalGetOtherRoom(portalnum, room, &otherroom)) {
 					sysLogPrintf(LOG_WARNING,
-						"BG.ROOMS: skipping invalid portal=%d room=%d portals=%d",
+						"BG.ROOMS: skipping invalid portal boundary portal=%d room=%d portals=%d",
 						portalnum, (s32)room, g_BgNumPortalCameraCacheItems);
 					continue;
 				}
@@ -6806,18 +7013,6 @@ void bgFindEnteredRooms(struct coord *bbmin, struct coord *bbmax, RoomNum *rooms
 				bgCalculatePortalBbox(portalnum, &portalbbmin, &portalbbmax);
 
 				if (bgIsBboxOverlapping(&portalbbmin, &portalbbmax, &propbbmin, &propbbmax)) {
-					if (room == g_BgPortals[portalnum].roomnum1) {
-						otherroom = g_BgPortals[portalnum].roomnum2;
-					} else {
-						otherroom = g_BgPortals[portalnum].roomnum1;
-					}
-					if (otherroom < 0 || otherroom >= g_Vars.roomcount) {
-						sysLogPrintf(LOG_WARNING,
-							"BG.ROOMS: skipping invalid portal room=%d via portal=%d from room=%d",
-							(s32)otherroom, portalnum, (s32)room);
-						continue;
-					}
-
 					for (k = 0; k < len; k++) {
 						if (rooms[k] == otherroom) {
 							break;

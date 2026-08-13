@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <ctype.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -28,11 +29,54 @@
 #include "bss.h"
 #include "system.h"
 #include "savefile.h"
+#include "agent_profile_codec.h"
 #include "assetcatalog.h"
 #include "net/matchsetup.h"
 #include "fs.h"
 #include "save_atomic.h"
+#include "prefs_agent.h"
+#include "game/challenge.h"
+#include "game/cheats.h"
+#include "game/gamefile.h"
 #include "game/mplayer/mplayer.h"
+#include "game/options.h"
+#include "game/training.h"
+#include "lib/snd.h"
+
+static struct saveagentwritereceipt s_LastAgentWriteReceipt;
+static u32 s_AgentProfileRevision;
+
+static void savePublishAgentWriteReceipt(const char *name, s32 result)
+{
+	s_LastAgentWriteReceipt.serial++;
+	if (s_LastAgentWriteReceipt.serial == 0) {
+		s_LastAgentWriteReceipt.serial = 1;
+	}
+	s_LastAgentWriteReceipt.result = result;
+	strncpy(s_LastAgentWriteReceipt.name, name ? name : "",
+		SAVE_NAME_MAX - 1);
+	s_LastAgentWriteReceipt.name[SAVE_NAME_MAX - 1] = '\0';
+}
+
+void saveGetLastAgentWriteReceipt(struct saveagentwritereceipt *out)
+{
+	if (out) {
+		*out = s_LastAgentWriteReceipt;
+	}
+}
+
+u32 saveGetAgentProfileRevision(void)
+{
+	return s_AgentProfileRevision;
+}
+
+static void saveAdvanceAgentProfileRevision(void)
+{
+	s_AgentProfileRevision++;
+	if (s_AgentProfileRevision == 0) {
+		s_AgentProfileRevision = 1;
+	}
+}
 
 /* ========================================================================
  * Mini JSON tokenizer (shared approach with modmgr.c)
@@ -312,6 +356,12 @@ static void writeJsonString(FILE *fp, const char *key, const char *value)
  *   - version == SAVE_VERSION → normal load. */
 static s32 saveCheckFileVersion(s32 fileVersion, const char *kind, const char *path)
 {
+	if (fileVersion <= 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: refusing to load %s '%s' with invalid version %d",
+			kind, path, fileVersion);
+		return -1;
+	}
 	if (fileVersion > SAVE_VERSION) {
 		sysLogPrintf(LOG_WARNING,
 			"SAVE: refusing to load %s '%s' — file version %d is NEWER than current SAVE_VERSION %d",
@@ -453,225 +503,429 @@ const char *saveGetDir(void)
  * Agent profile save/load
  * ======================================================================== */
 
-s32 saveSaveAgent(const char *name)
+_Static_assert(SAVE_AGENT_STAGE_COUNT == NUM_SOLOSTAGES,
+	"agent JSON stage domain must match struct gamefile");
+_Static_assert(SAVE_AGENT_CHALLENGE_COUNT == ARRAYCOUNT(g_MpChallenges),
+	"agent JSON challenge domain must match gameplay");
+_Static_assert(SAVE_AGENT_PLAYER_COUNTS == MAX_LOCAL_PLAYERS,
+	"agent JSON player-count domain must match gameplay");
+_Static_assert(SAVE_AGENT_STAGE_COUNT == AGENT_PROFILE_STAGE_COUNT,
+	"public save and Agent Profile stage domains must match");
+_Static_assert(SAVE_AGENT_CHALLENGE_COUNT == AGENT_PROFILE_CHALLENGE_COUNT,
+	"public save and Agent Profile challenge domains must match");
+_Static_assert(SAVE_AGENT_PLAYER_COUNTS == AGENT_PROFILE_PLAYER_COUNTS,
+	"public save and Agent Profile player-count domains must match");
+
+static s32 saveAgentNameIsValid(const char *name)
+{
+	s32 length;
+	if (!name) return 0;
+	length = (s32)strlen(name);
+	if (length < 1 || length > SAVE_AGENT_NAME_LENGTH_MAX
+			|| name[0] == ' ' || name[length - 1] == ' ') return 0;
+	for (s32 i = 0; i < length; i++) {
+		unsigned char c = (unsigned char)name[i];
+		if (!isalnum(c) && c != ' ' && c != '_' && c != '-') return 0;
+	}
+	return 1;
+}
+
+static void saveAgentDocumentSetGamefile(
+		struct agent_profile_document *document,
+		const struct gamefile *gamefile)
+{
+	strncpy(document->name, gamefile->name, sizeof(document->name) - 1);
+	document->name[sizeof(document->name) - 1] = '\0';
+	document->totaltime = gamefile->totaltime;
+	document->autodifficulty = gamefile->autodifficulty;
+	document->autostageindex = gamefile->autostageindex;
+	document->thumbnail = gamefile->thumbnail;
+	memcpy(document->besttimes, gamefile->besttimes, sizeof(document->besttimes));
+	memcpy(document->coopcompletions, gamefile->coopcompletions,
+		sizeof(document->coopcompletions));
+	memcpy(document->firingrangescores, gamefile->firingrangescores,
+		sizeof(document->firingrangescores));
+	memcpy(document->weaponsfound, gamefile->weaponsfound,
+		sizeof(document->weaponsfound));
+	memcpy(document->flags, gamefile->flags, sizeof(document->flags));
+	document->unk1e = gamefile->unk1e;
+}
+
+static void saveAgentDocumentGetGamefile(
+		const struct agent_profile_document *document,
+		struct gamefile *gamefile)
+{
+	memset(gamefile, 0, sizeof(*gamefile));
+	strncpy(gamefile->name, document->name, sizeof(gamefile->name) - 1);
+	gamefile->name[sizeof(gamefile->name) - 1] = '\0';
+	gamefile->totaltime = document->totaltime;
+	gamefile->autodifficulty = document->autodifficulty;
+	gamefile->autostageindex = document->autostageindex;
+	gamefile->thumbnail = document->thumbnail;
+	memcpy(gamefile->besttimes, document->besttimes, sizeof(gamefile->besttimes));
+	memcpy(gamefile->coopcompletions, document->coopcompletions,
+		sizeof(gamefile->coopcompletions));
+	memcpy(gamefile->firingrangescores, document->firingrangescores,
+		sizeof(gamefile->firingrangescores));
+	memcpy(gamefile->weaponsfound, document->weaponsfound,
+		sizeof(gamefile->weaponsfound));
+	memcpy(gamefile->flags, document->flags, sizeof(gamefile->flags));
+	gamefile->unk1e = document->unk1e;
+}
+
+static void saveAgentDocumentDefaults(struct agent_profile_document *document)
+{
+	struct gamefile gamefile;
+	memset(document, 0, sizeof(*document));
+	gamefileSetDefaultState(&gamefile);
+	saveAgentDocumentSetGamefile(document, &gamefile);
+#if VERSION >= VERSION_NTSC_1_0
+	document->sfxvolume = 0x5000;
+	document->musicvolume = 0x5000;
+#else
+	document->sfxvolume = 0x7f80;
+	document->musicvolume = 0x7f80;
+#endif
+	document->soundmode = SOUNDMODE_STEREO;
+	document->controlmode[0] = CONTROLMODE_11;
+	document->controlmode[1] = CONTROLMODE_11;
+	prefsAgentGetBaselineSnapshot(&document->preferences);
+}
+
+static s32 saveParseAgentDocument(const char *data, const char *path,
+		const char *expected_name, struct agent_profile_document *document,
+		enum agent_profile_source_shape *shape)
+{
+	struct agent_profile_document defaults;
+	char error[256];
+	if (!data || !path || !document) return -1;
+	saveAgentDocumentDefaults(&defaults);
+	if (agentProfileParseJson(data, expected_name, &defaults, document,
+			shape, error, sizeof(error)) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"SAVE: Agent Profile JSON '%s' rejected: %s; live state preserved",
+			path, error[0] ? error : "schema validation failed");
+		return -1;
+	}
+	return 0;
+}
+
+static s32 saveReadAgentDocument(const char *name,
+		struct agent_profile_document *document, char *path, s32 path_size,
+		enum agent_profile_source_shape *shape)
+{
+	s32 length = 0;
+	char *data;
+	enum agent_profile_source_shape source;
+	char error[256];
+
+	if (!saveAgentNameIsValid(name) || !document || !path || path_size <= 0) {
+		return -1;
+	}
+	buildSavePath(path, path_size, "agent", name, "json");
+	data = readFileContents(path, &length);
+	if (!data) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: failed to read agent '%s' from %s", name, path);
+		return -1;
+	}
+	if (saveParseAgentDocument(data, path, name, document, &source) != 0) {
+		free(data);
+		return -1;
+	}
+	free(data);
+	if (source != AGENT_PROFILE_SOURCE_CURRENT) {
+		struct agent_profile_preferences merged;
+		s32 found = 0;
+		if (prefsAgentReadLegacySidecar(name, &document->preferences,
+				&merged, &found, error, sizeof(error)) != 0) {
+			sysLogPrintf(LOG_ERROR,
+				"SAVE: legacy Agent Profile '%s' sidecar rejected: %s; files preserved",
+				name, error[0] ? error : "invalid sidecar");
+			return -1;
+		}
+		document->preferences = merged;
+		sysLogPrintf(LOG_NOTE,
+			"SAVE: prepared exact legacy Agent Profile name='%s' shape=%d sidecar=%s",
+			name, (s32)source, found ? "present" : "absent");
+	}
+	if (shape) *shape = source;
+	return 0;
+}
+
+static s32 saveWriteAgentDocument(const char *name,
+		const struct agent_profile_document *document)
 {
 	char path[512];
 	save_atomic_file_t transaction;
-	buildSavePath(path, sizeof(path), "agent", name, "json");
+	FILE *stream;
 
-	if (saveAtomicBegin(&transaction, path) != 0) {
-		sysLogPrintf(LOG_WARNING, "SAVE: failed to write agent '%s' to %s", name, path);
+	if (!saveAgentNameIsValid(name) || !document
+			|| strcmp(name, document->name) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: refusing invalid or mismatched Agent Profile name '%s'",
+			name ? name : "(null)");
+		savePublishAgentWriteReceipt(name, -1);
 		return -1;
 	}
-	FILE *fp = saveAtomicStream(&transaction);
-
-	fprintf(fp, "{\n");
-	fprintf(fp, "  \"version\": %d,\n", SAVE_VERSION);
-	writeJsonString(fp, "name", name);
-	fprintf(fp, ",\n");
-
-	/* Campaign data from g_GameFile */
-	fprintf(fp, "  \"totaltime\": %u,\n", g_GameFile.totaltime);
-	fprintf(fp, "  \"autodifficulty\": %u,\n", g_GameFile.autodifficulty);
-	fprintf(fp, "  \"autostageindex\": %u,\n", g_GameFile.autostageindex);
-	fprintf(fp, "  \"thumbnail\": %u,\n", g_GameFile.thumbnail);
-
-	/* Best times array */
-	fprintf(fp, "  \"besttimes\": [\n");
-	for (s32 s = 0; s < NUM_SOLOSTAGES; s++) {
-		fprintf(fp, "    [%u, %u, %u]%s\n",
-		        g_GameFile.besttimes[s][0],
-		        g_GameFile.besttimes[s][1],
-		        g_GameFile.besttimes[s][2],
-		        s < NUM_SOLOSTAGES - 1 ? "," : "");
+	buildSavePath(path, sizeof(path), "agent", name, "json");
+	if (saveAtomicBegin(&transaction, path) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: failed to start Agent Profile write name='%s' path='%s'",
+			name, path);
+		savePublishAgentWriteReceipt(name, -1);
+		return -1;
 	}
-	fprintf(fp, "  ],\n");
-
-	/* Co-op completions */
-	fprintf(fp, "  \"coopcompletions\": [%d, %d, %d],\n",
-	        g_GameFile.coopcompletions[0], g_GameFile.coopcompletions[1], g_GameFile.coopcompletions[2]);
-
-	/* Firing range scores */
-	fprintf(fp, "  \"firingrangescores\": [");
-	for (s32 i = 0; i < 9; i++) {
-		fprintf(fp, "%u%s", g_GameFile.firingrangescores[i], i < 8 ? ", " : "");
+	stream = saveAtomicStream(&transaction);
+	if (agentProfileWriteJson(stream, document) != 0) {
+		saveAtomicAbort(&transaction);
+		sysLogPrintf(LOG_ERROR,
+			"SAVE: Agent Profile serialization failed name='%s'; destination preserved",
+			name);
+		savePublishAgentWriteReceipt(name, -1);
+		return -1;
 	}
-	fprintf(fp, "],\n");
-
-	/* Weapons found */
-	fprintf(fp, "  \"weaponsfound\": [");
-	for (s32 i = 0; i < 6; i++) {
-		fprintf(fp, "%u%s", g_GameFile.weaponsfound[i], i < 5 ? ", " : "");
-	}
-	fprintf(fp, "]\n");
-
-	fprintf(fp, "}\n");
 	if (saveAtomicCommit(&transaction) != 0) {
 		sysLogPrintf(LOG_WARNING,
-			"SAVE: failed to commit agent '%s' to %s", name, path);
+			"SAVE: failed to commit Agent Profile '%s' to %s", name, path);
+		savePublishAgentWriteReceipt(name, -1);
 		return -1;
 	}
-
-	sysLogPrintf(LOG_NOTE, "SAVE: agent '%s' saved to %s", name, path);
+	saveAdvanceAgentProfileRevision();
+	savePublishAgentWriteReceipt(name, 0);
+	sysLogPrintf(LOG_NOTE,
+		"SAVE: Agent Profile v%d committed name='%s' path='%s'",
+		SAVE_AGENT_VERSION, name, path);
 	return 0;
+}
+
+static void saveCaptureAgentDocument(const char *name,
+		struct agent_profile_document *document)
+{
+	struct gamefile captured = g_GameFile;
+	s32 player1 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 0 : 4;
+	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : 5;
+
+	memset(document, 0, sizeof(*document));
+	strncpy(captured.name, name, sizeof(captured.name) - 1);
+	captured.name[sizeof(captured.name) - 1] = '\0';
+	gamefileCaptureOptions(&captured);
+	saveAgentDocumentSetGamefile(document, &captured);
+	document->sfxvolume = g_SfxVolume;
+	document->musicvolume = optionsGetMusicVolume();
+	document->soundmode = g_SoundMode;
+	document->controlmode[0] = (u8)optionsGetControlMode(player1);
+	document->controlmode[1] = (u8)optionsGetControlMode(player2);
+	for (s32 challenge = 0; challenge < SAVE_AGENT_CHALLENGE_COUNT; challenge++) {
+		for (s32 players = 0; players < SAVE_AGENT_PLAYER_COUNTS; players++) {
+			document->challengecompleted[challenge][players] =
+				challengeIsCompletedByAnyPlayerWithNumPlayers(
+					challenge, players + 1) ? 1 : 0;
+		}
+	}
+	prefsAgentCaptureSnapshot(&document->preferences);
+}
+
+static void saveCommitAgentDocument(
+		const struct agent_profile_document *document)
+{
+	struct gamefile committed;
+	s32 player1 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 0 : 4;
+	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : 5;
+
+	prefsAgentCommitSnapshot(&document->preferences);
+	saveAgentDocumentGetGamefile(document, &committed);
+	g_GameFile = committed;
+	cheatsInit();
+	sndSetSfxVolume(document->sfxvolume);
+	optionsSetMusicVolume(document->musicvolume);
+	sndSetSoundMode(document->soundmode);
+	optionsSetControlMode(player1, g_PlayerExtCfg[0].extcontrols
+		? CONTROLMODE_PC : document->controlmode[0]);
+	optionsSetControlMode(player2, g_PlayerExtCfg[1].extcontrols
+		? CONTROLMODE_PC : document->controlmode[1]);
+	for (s32 challenge = 0; challenge < SAVE_AGENT_CHALLENGE_COUNT; challenge++) {
+		for (s32 players = 0; players < SAVE_AGENT_PLAYER_COUNTS; players++) {
+			challengeSetCompletedByAnyPlayerWithNumPlayers(challenge,
+				players + 1,
+				document->challengecompleted[challenge][players] != 0);
+		}
+	}
+	challengeDetermineUnlockedFeatures();
+	gamefileApplyOptions(&g_GameFile);
+}
+
+s32 saveSaveAgent(const char *name)
+{
+	struct agent_profile_document document;
+	char error[256];
+
+	if (!saveAgentNameIsValid(name)) {
+		savePublishAgentWriteReceipt(name, -1);
+		return -1;
+	}
+	saveCaptureAgentDocument(name, &document);
+	if (prefsAgentPrepareSnapshot(&document.preferences,
+			error, sizeof(error)) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"SAVE: captured Agent Profile '%s' rejected: %s", name, error);
+		savePublishAgentWriteReceipt(name, -1);
+		return -1;
+	}
+	return saveWriteAgentDocument(name, &document);
 }
 
 s32 saveLoadAgent(const char *name)
 {
 	char path[512];
-	buildSavePath(path, sizeof(path), "agent", name, "json");
+	char error[256];
+	struct agent_profile_document candidate;
+	enum agent_profile_source_shape source;
 
-	s32 len = 0;
-	char *data = readFileContents(path, &len);
-	if (!data) {
-		sysLogPrintf(LOG_WARNING, "SAVE: failed to load agent '%s' from %s", name, path);
+	if (saveReadAgentDocument(name, &candidate, path, sizeof(path),
+			&source) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"SAVE: agent '%s' rejected; prior live profile preserved",
+			name ? name : "(null)");
 		return -1;
 	}
-	if (savePreflightJson(data, "agent", path) != 0) {
-		free(data);
+	if (prefsAgentPrepareSnapshot(&candidate.preferences,
+			error, sizeof(error)) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"SAVE: Agent Profile '%s' preference candidate rejected: %s",
+			name, error);
 		return -1;
 	}
-
-	/* Clear current game file */
-	memset(&g_GameFile, 0, sizeof(g_GameFile));
-
-	/* Parse JSON */
-	sparse_t p = { data, { NULL, 0, STOK_NONE } };
-	stok_t tok = s_next(&p); /* opening { */
-
-	if (tok.type != STOK_LBRACE) {
-		free(data);
+	if (source != AGENT_PROFILE_SOURCE_CURRENT
+			&& saveWriteAgentDocument(name, &candidate) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"SAVE: Agent Profile '%s' migration commit failed; legacy files and live state preserved",
+			name);
 		return -1;
 	}
-
-	char key[64];
-	while ((tok = s_next(&p)).type == STOK_STRING) {
-		s_tok_str(&tok, key, sizeof(key));
-		s_next(&p); /* colon */
-
-		if (strcmp(key, "version") == 0) {
-			tok = s_next(&p);
-			s32 fv = s_tok_int(&tok);
-			if (saveCheckFileVersion(fv, "agent", path) != 0) {
-				free(data);
-				memset(&g_GameFile, 0, sizeof(g_GameFile));
-				return -1;
-			}
-		} else if (strcmp(key, "name") == 0) {
-			tok = s_next(&p);
-			s_tok_str(&tok, g_GameFile.name, 11); /* engine limit */
-		} else if (strcmp(key, "totaltime") == 0) {
-			tok = s_next(&p);
-			g_GameFile.totaltime = s_tok_uint(&tok);
-		} else if (strcmp(key, "autodifficulty") == 0) {
-			tok = s_next(&p);
-			g_GameFile.autodifficulty = s_tok_int(&tok);
-		} else if (strcmp(key, "autostageindex") == 0) {
-			tok = s_next(&p);
-			g_GameFile.autostageindex = s_tok_int(&tok);
-		} else if (strcmp(key, "thumbnail") == 0) {
-			tok = s_next(&p);
-			g_GameFile.thumbnail = s_tok_int(&tok);
-		} else if (strcmp(key, "besttimes") == 0) {
-			tok = s_next(&p); /* [ */
-			if (tok.type == STOK_LBRACKET) {
-				for (s32 s = 0; s < NUM_SOLOSTAGES; s++) {
-					tok = s_next(&p); /* [ */
-					if (tok.type == STOK_LBRACKET) {
-						for (s32 d = 0; d < 3; d++) {
-							tok = s_next(&p);
-							g_GameFile.besttimes[s][d] = s_tok_int(&tok);
-							s_next(&p); /* comma or ] */
-						}
-					}
-					tok = s_next(&p); /* comma or ] */
-					if (tok.type == STOK_RBRACKET) break;
-				}
-			}
-		} else if (strcmp(key, "coopcompletions") == 0) {
-			tok = s_next(&p); /* [ */
-			if (tok.type == STOK_LBRACKET) {
-				for (s32 i = 0; i < 3; i++) {
-					tok = s_next(&p);
-					g_GameFile.coopcompletions[i] = s_tok_int(&tok);
-					s_next(&p); /* comma or ] */
-				}
-			}
-		} else if (strcmp(key, "firingrangescores") == 0) {
-			tok = s_next(&p); /* [ */
-			if (tok.type == STOK_LBRACKET) {
-				for (s32 i = 0; i < 9; i++) {
-					tok = s_next(&p);
-					g_GameFile.firingrangescores[i] = s_tok_int(&tok);
-					tok = s_next(&p); /* comma or ] */
-					if (tok.type == STOK_RBRACKET) break;
-				}
-			}
-		} else if (strcmp(key, "weaponsfound") == 0) {
-			tok = s_next(&p); /* [ */
-			if (tok.type == STOK_LBRACKET) {
-				for (s32 i = 0; i < 6; i++) {
-					tok = s_next(&p);
-					g_GameFile.weaponsfound[i] = s_tok_int(&tok);
-					tok = s_next(&p); /* comma or ] */
-					if (tok.type == STOK_RBRACKET) break;
-				}
-			}
-		} else {
-			/* Unknown key — skip value for forward compatibility */
-			s_skip_value(&p, 0);
-		}
-
-		/* Consume comma between fields */
-		tok = s_next(&p);
-		if (tok.type == STOK_RBRACE) break;
-		/* if comma, continue loop */
-	}
-
-	free(data);
-	sysLogPrintf(LOG_NOTE, "SAVE: agent '%s' loaded from %s", name, path);
+	saveCommitAgentDocument(&candidate);
+	prefsAgentRetireLegacySidecar(name);
+	sysLogPrintf(LOG_NOTE,
+		"SAVE: Agent Profile activation committed name='%s' path='%s' source=%s",
+		name, path, source == AGENT_PROFILE_SOURCE_CURRENT ? "v3" : "migrated-v2");
 	return 0;
 }
 
 s32 saveCreateAgent(const char *name)
 {
-	/* Check if already exists */
 	char path[512];
-	buildSavePath(path, sizeof(path), "agent", name, "json");
-
 	struct stat st;
-	if (stat(path, &st) == 0) {
-		sysLogPrintf(LOG_WARNING, "SAVE: agent '%s' already exists", name);
+	struct agent_profile_document document;
+	struct saveagentsummary existing[SAVE_MAX_AGENTS];
+	s32 existing_count;
+
+	if (!saveAgentNameIsValid(name)) {
+		savePublishAgentWriteReceipt(name, -1);
 		return -1;
 	}
-
-	/* Initialize a fresh game file, but do not publish it in memory if the
-	 * candidate cannot replace the destination. */
-	struct gamefile previous = g_GameFile;
-	memset(&g_GameFile, 0, sizeof(g_GameFile));
-	strncpy(g_GameFile.name, name, 10);
-	g_GameFile.name[10] = '\0';
-
-	s32 result = saveSaveAgent(name);
-	if (result != 0) {
-		g_GameFile = previous;
+	buildSavePath(path, sizeof(path), "agent", name, "json");
+	if (stat(path, &st) == 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: agent '%s' aliases an existing profile path", name);
+		savePublishAgentWriteReceipt(name, -1);
+		return -1;
 	}
-	return result;
+	existing_count = saveListAgentProfiles(existing, SAVE_MAX_AGENTS);
+	for (s32 i = 0; i < existing_count; i++) {
+		if (strcasecmp(existing[i].name, name) == 0) {
+			sysLogPrintf(LOG_WARNING,
+				"SAVE: agent identity '%s' conflicts with existing profile '%s'",
+				name, existing[i].name);
+			savePublishAgentWriteReceipt(name, -1);
+			return -1;
+		}
+	}
+	if (existing_count >= SAVE_MAX_AGENTS) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: agent profile capacity %d is full", SAVE_MAX_AGENTS);
+		savePublishAgentWriteReceipt(name, -1);
+		return -1;
+	}
+	saveAgentDocumentDefaults(&document);
+	strncpy(document.name, name, sizeof(document.name) - 1);
+	document.name[sizeof(document.name) - 1] = '\0';
+	return saveWriteAgentDocument(name, &document);
+}
+
+s32 saveCopyAgent(const char *source_name, const char *destination_name)
+{
+	char source_path[512];
+	char destination_path[512];
+	struct stat st;
+	struct agent_profile_document document;
+	struct saveagentsummary existing[SAVE_MAX_AGENTS];
+	enum agent_profile_source_shape source_shape;
+	s32 existing_count;
+
+	if (!saveAgentNameIsValid(destination_name)
+			|| saveReadAgentDocument(source_name, &document,
+				source_path, sizeof(source_path), &source_shape) != 0) {
+		savePublishAgentWriteReceipt(destination_name, -1);
+		return -1;
+	}
+	buildSavePath(destination_path, sizeof(destination_path),
+		"agent", destination_name, "json");
+	if (stat(destination_path, &st) == 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: copy destination '%s' already exists or aliases another profile",
+			destination_name);
+		savePublishAgentWriteReceipt(destination_name, -1);
+		return -1;
+	}
+	existing_count = saveListAgentProfiles(existing, SAVE_MAX_AGENTS);
+	for (s32 i = 0; i < existing_count; i++) {
+		if (strcasecmp(existing[i].name, destination_name) == 0) {
+			sysLogPrintf(LOG_WARNING,
+				"SAVE: copy destination identity '%s' conflicts with existing profile '%s'",
+				destination_name, existing[i].name);
+			savePublishAgentWriteReceipt(destination_name, -1);
+			return -1;
+		}
+	}
+	if (existing_count >= SAVE_MAX_AGENTS) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: agent profile capacity %d is full", SAVE_MAX_AGENTS);
+		savePublishAgentWriteReceipt(destination_name, -1);
+		return -1;
+	}
+	strncpy(document.name, destination_name, sizeof(document.name) - 1);
+	document.name[sizeof(document.name) - 1] = '\0';
+	return saveWriteAgentDocument(destination_name, &document);
 }
 
 s32 saveDeleteAgent(const char *name)
 {
 	char path[512];
-	buildSavePath(path, sizeof(path), "agent", name, "json");
+	struct agent_profile_document document;
+	enum agent_profile_source_shape source;
 
+	if (name && prefsAgentGetActive()[0]
+			&& strcasecmp(name, prefsAgentGetActive()) == 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: refusing to delete active Agent Profile '%s'", name);
+		return -1;
+	}
+	if (saveReadAgentDocument(name, &document, path, sizeof(path),
+			&source) != 0) {
+		return -1;
+	}
 	if (remove(path) == 0) {
-		sysLogPrintf(LOG_NOTE, "SAVE: agent '%s' deleted", name);
+		prefsAgentRetireLegacySidecar(name);
+		saveAdvanceAgentProfileRevision();
+		sysLogPrintf(LOG_NOTE,
+			"SAVE: Agent Profile '%s' deleted source=%s",
+			name, source == AGENT_PROFILE_SOURCE_CURRENT ? "v3" : "legacy-v2");
 		return 0;
 	}
-
 	sysLogPrintf(LOG_WARNING, "SAVE: failed to delete agent '%s'", name);
 	return -1;
 }
+
 
 /* ========================================================================
  * System settings save/load
@@ -1389,82 +1643,156 @@ reject:
  * Agent listing
  * ======================================================================== */
 
-s32 saveListAgents(char names[][SAVE_NAME_MAX], s32 maxcount)
+static int saveAgentSummaryCompare(const void *left, const void *right)
 {
-	if (!names || maxcount <= 0) {
-		return 0;
-	}
+	const struct saveagentsummary *a = (const struct saveagentsummary *)left;
+	const struct saveagentsummary *b = (const struct saveagentsummary *)right;
+	s32 folded = strcasecmp(a->name, b->name);
+	return folded != 0 ? folded : strcmp(a->name, b->name);
+}
 
-	const char *dir = saveGetDir();
+s32 saveListAgentProfiles(struct saveagentsummary *profiles, s32 maxcount)
+{
+	struct saveagentsummary *found = NULL;
+	s32 found_count = 0;
+	s32 found_capacity = 0;
+	s32 published_count;
+	DIR *d;
+	struct dirent *ent;
+	const char *dir;
+
+	if (!profiles || maxcount <= 0) return 0;
+
+	dir = saveGetDir();
 	if (!dir || !dir[0]) {
 		return 0;
 	}
 
-	DIR *d = opendir(dir);
+	d = opendir(dir);
 	if (!d) {
-		sysLogPrintf(LOG_WARNING, "SAVE: saveListAgents: failed to open '%s'", dir);
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: saveListAgentProfiles: failed to open '%s'", dir);
 		return 0;
 	}
 
-	s32 count = 0;
-	struct dirent *ent;
-	while ((ent = readdir(d)) != NULL && count < maxcount) {
+	while ((ent = readdir(d)) != NULL) {
 		const char *fname = ent->d_name;
+		char path[FS_MAXPATH];
+		char expected_path[FS_MAXPATH];
+		char *data;
+		s32 filelen = 0;
+		s32 duplicate = 0;
+		s32 sidecar_found = 0;
+		char sidecar_error[256];
+		struct agent_profile_document document;
+		struct agent_profile_preferences merged_preferences;
+		enum agent_profile_source_shape source;
+		struct saveagentsummary summary;
 
-		/* Match files with the "agent_" prefix and ".json" suffix */
-		if (strncmp(fname, "agent_", 6) != 0) {
-			continue;
-		}
+		if (strncmp(fname, "agent_", 6) != 0) continue;
 		s32 flen = (s32)strlen(fname);
 		if (flen < 12 || strcmp(fname + flen - 5, ".json") != 0) {
-			continue; /* minimum: "agent_x.json" = 12 chars */
+			continue;
 		}
-
-		/* Read the file and extract the "name" field value */
-		char path[FS_MAXPATH];
 		snprintf(path, sizeof(path), "%s/%s", dir, fname);
-
-		s32 filelen = 0;
-		char *buf = readFileContents(path, &filelen);
-		if (!buf) {
+		data = readFileContents(path, &filelen);
+		if (!data) continue;
+		if (saveParseAgentDocument(data, path, NULL, &document, &source) != 0) {
+			free(data);
+			continue;
+		}
+		free(data);
+		if (source != AGENT_PROFILE_SOURCE_CURRENT
+				&& prefsAgentReadLegacySidecar(document.name,
+					&document.preferences, &merged_preferences,
+					&sidecar_found, sidecar_error,
+					sizeof(sidecar_error)) != 0) {
+			sysLogPrintf(LOG_ERROR,
+				"SAVE: excluding legacy Agent Profile '%s' because its sidecar is invalid: %s",
+				document.name, sidecar_error);
 			continue;
 		}
 
-		/* Scan for "name": "<value>" — find first occurrence of the key */
-		const char *p = buf;
-		const char *namestart = NULL;
-		while (*p) {
-			if (strncmp(p, "\"name\"", 6) == 0) {
-				p += 6;
-				while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') { p++; }
-				if (*p == ':') { p++; }
-				while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r') { p++; }
-				if (*p == '"') {
-					namestart = p + 1;
-				}
+		/* The embedded stable identity must reproduce the file's canonical
+		 * storage path. This rejects manually renamed aliases. */
+		buildSavePath(expected_path, sizeof(expected_path), "agent",
+			document.name, "json");
+		if (strcasecmp(path, expected_path) != 0) {
+			sysLogPrintf(LOG_ERROR,
+				"SAVE: rejecting aliased agent file path='%s' identity='%s' expected='%s'",
+				path, document.name, expected_path);
+			continue;
+		}
+
+		for (s32 i = 0; i < found_count; i++) {
+			if (strcasecmp(found[i].name, document.name) == 0) {
+				duplicate = 1;
 				break;
 			}
-			p++;
+		}
+		if (duplicate) {
+			sysLogPrintf(LOG_ERROR,
+				"SAVE: rejecting duplicate agent identity '%s' from %s",
+				document.name, path);
+			continue;
 		}
 
-		if (namestart) {
-			s32 j = 0;
-			while (*namestart && *namestart != '"' && j < SAVE_NAME_MAX - 1) {
-				names[count][j++] = *namestart++;
+		if (found_count == found_capacity) {
+			s32 next_capacity = found_capacity ? found_capacity * 2 : 16;
+			struct saveagentsummary *grown = (struct saveagentsummary *)realloc(
+				found, (size_t)next_capacity * sizeof(*found));
+			if (!grown) {
+				sysLogPrintf(LOG_ERROR,
+					"SAVE: out of memory while listing agent profiles");
+				break;
 			}
-			names[count][j] = '\0';
-			if (j > 0) {
-				count++;
-			}
-		} else {
-			sysLogPrintf(LOG_WARNING, "SAVE: %s has no 'name' field, skipping", fname);
+			found = grown;
+			found_capacity = next_capacity;
 		}
 
-		free(buf);
+		memset(&summary, 0, sizeof(summary));
+		strncpy(summary.name, document.name, sizeof(summary.name) - 1);
+		summary.totaltime = document.totaltime;
+		summary.autodifficulty = document.autodifficulty;
+		summary.autostageindex = document.autostageindex;
+		summary.thumbnail = document.thumbnail;
+		found[found_count++] = summary;
 	}
 
 	closedir(d);
-	sysLogPrintf(LOG_NOTE, "SAVE: found %d agent profile(s)", count);
+	if (found_count > 1) {
+		qsort(found, (size_t)found_count, sizeof(*found), saveAgentSummaryCompare);
+	}
+	published_count = found_count;
+	if (published_count > SAVE_MAX_AGENTS) published_count = SAVE_MAX_AGENTS;
+	if (published_count > maxcount) published_count = maxcount;
+	for (s32 i = 0; i < published_count; i++) {
+		profiles[i] = found[i];
+	}
+	if (found_count > SAVE_MAX_AGENTS) {
+		sysLogPrintf(LOG_WARNING,
+			"SAVE: %d valid agent profiles exceed the supported capacity %d; publishing first %d in name order",
+			found_count, SAVE_MAX_AGENTS, published_count);
+	}
+	free(found);
+	sysLogPrintf(LOG_NOTE,
+		"SAVE: Agent Profile Store published %d validated profile(s)",
+		published_count);
+	return published_count;
+}
+
+s32 saveListAgents(char names[][SAVE_NAME_MAX], s32 maxcount)
+{
+	struct saveagentsummary profiles[SAVE_MAX_AGENTS];
+	s32 count;
+
+	if (!names || maxcount <= 0) return 0;
+	if (maxcount > SAVE_MAX_AGENTS) maxcount = SAVE_MAX_AGENTS;
+	count = saveListAgentProfiles(profiles, maxcount);
+	for (s32 i = 0; i < count; i++) {
+		strncpy(names[i], profiles[i].name, SAVE_NAME_MAX - 1);
+		names[i][SAVE_NAME_MAX - 1] = '\0';
+	}
 	return count;
 }
 

@@ -1,8 +1,9 @@
 # Perfect Dark 2 - Project Context
 
-> **Live as of 2026-08-08.** The repo-local Workbench is durable project truth.
-> The current asset audit preserves implemented baselines while explicit family,
-> live-device, negative-path, and performance gates remain open.
+> **Live as of 2026-08-12.** The repo-local Workbench is durable project truth.
+> D-004 and T-RELEASE-001 define the canonical five-milestone path to 1.0:
+> complete base game and graphs, Theater, sample weapon, friend-play/performance
+> hardening, and one source-frozen release candidate.
 
 ---
 
@@ -39,8 +40,10 @@ The canonical context source is this `context/` tree. Parent-level briefing file
 - **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`; standalone `pd-server` is removed/deprecated, so use listen-host in the client.
 - **Active session range**: see [session-log.md](session-log.md).
 - **Critical path**: the repo-local Workbench is authoritative for active work,
-  decisions, evidence, and gates. The former Kanban is retired migration history.
-  See [tasks.md](tasks.md) for the concise context summary.
+  decisions, evidence, and gates. The default route is T-RELEASE-002 through
+  T-RELEASE-006 in order. The former Kanban and `historical-cut` Workbench items
+  are retained history, not live queues. See [tasks.md](tasks.md) for the concise
+  milestone summary.
 - **Long-term roadmap**: [roadmap.md](roadmap.md).
 
 ---
@@ -56,7 +59,7 @@ Each pillar doc captures the live state, current invariants, and the code that o
 | Menus / UI / UX | [pillars/menus.md](pillars/menus.md) | ImGui menus (31 files), menu pool, menu graph, theme system |
 | Modding | [pillars/modding.md](pillars/modding.md) | `.pdmod` format, scanner, manifest, network distribution |
 | Connectivity | [pillars/connectivity.md](pillars/connectivity.md) | ENet, P2P 6-tier (LAN/DIRECT/STUN/UPnP/ICE/TURN), presence, voice |
-| Save / wire format | [pillars/save-wire-format.md](pillars/save-wire-format.md) | SAVE_VERSION=2, MPSETUP_VERSION=2, NET_PROTOCOL_VER=51, migration framework |
+| Save / wire format | [pillars/save-wire-format.md](pillars/save-wire-format.md) | SAVE_VERSION=2, MPSETUP_VERSION=3, NET_PROTOCOL_VER=53, migration framework |
 | Server / hosting | [pillars/server.md](pillars/server.md) | Listen vs dedicated, participant pool, RCON, bans, room passwords |
 | Build / dev tooling | [pillars/build-dev-tooling.md](pillars/build-dev-tooling.md) | CMake + MSYS2, build-headless / build-session, release pipeline, updater |
 | Tests | [pillars/tests.md](pillars/tests.md) | pd-tests, Catch2, 35 test files, pure mirrors, scope aliases |
@@ -131,8 +134,11 @@ Older audits that are no longer active entry points are either retained only whe
 
 ## Bug ledgers
 
-- [bugs.md](bugs.md) - open one-off bugs with severity, status, fix, verify command.
-- [systemic-bugs.md](systemic-bugs.md) - architectural bug pattern catalog (SP-1 through SP-15).
+- [bugs.md](bugs.md) - seven current one-off 1.0 defects, consolidated release
+  regression clusters, and explicit post-1.0 bug routing. The complete former
+  mixed ledger is hash-preserved under `_old/bugs/2026/`.
+- [systemic-bugs.md](systemic-bugs.md) - architectural bug pattern catalog and
+  propagation checklists.
 
 ---
 

@@ -48,6 +48,7 @@
 #include "scene.h"
 #include "savemigrate.h"
 #include "savefile.h"
+#include "agent_session.h"
 #include "v006_save_harness.h"
 #include "testscenarios.h"
 #include "net/matchsetup.h"
@@ -264,15 +265,11 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       --debug-generated-mesh-render-audit.
  *
  *   --launch-load-agent <name>
- *       Post-saveInit hook: invokes saveLoadAgent(name) on the first
- *       frame after stage load (g_Vars.lvframenum >= 4) to read the
- *       pre-staged <savedir>/agent_<safeName>.json fixture into
- *       g_GameFile.  Provides smoke-test coverage of the saveLoadAgent
- *       wire-format path -- the production code has zero call-sites
- *       today (Agent Select routes through gamefileLoad, not
- *       saveLoadAgent; see port/PHASE_D5_PLAN.md:89 for the intended
- *       wiring).  Name is limited to 63 chars (buffer size 64) and
- *       sanitized inside buildSavePath().  One-shot per boot.
+ *       Post-saveInit hook: activates one pre-staged JSON profile through
+ *       the same agentSessionActivate transaction used by Agent Select.
+ *       Dispatch waits until g_Vars.lvframenum >= 4 so smoke ordering is
+ *       deterministic. The profile name is validated by the Agent Profile
+ *       Store and the hook fires at most once per boot.
  *
  *   --debug-v006-save-failclosed
  *       Runs the production-linked V-006 setup persistence harness after the
@@ -441,18 +438,13 @@ static struct coord g_BootDebugForceFirstPersonCamOffsetVec = {0.0f, 0.0f, 0.0f}
 static s32         g_BootLaunchScenarioPending = 0;
 static s32         g_BootLaunchScenarioId      = 0;  /* TESTSCEN_NONE */
 
-/* c118 (2026-05-15): --launch-load-agent one-shot. CLI fast-path that
- * invokes saveLoadAgent(name) directly at boot, mirroring the
- * --debug-mount-bike / --debug-spawn-at deferred-tick pattern. Provides
- * smoke-test coverage of the saveLoadAgent wire-format path without
- * scripted Agent Select menu nav (which routes through gamefileLoad,
- * not saveLoadAgent -- see port/PHASE_D5_PLAN.md:89 for the intended
- * wiring that was planned but never executed). The fixture is the v2
- * agent JSON pre-staged via run.ps1::Copy-SmokeFixtures. saveInit()
- * fires synchronously in main() at line ~957, well before any deferred
- * tick, so the save dir is wired when this fires. One-shot per boot. */
+/* c118 (2026-05-15): --launch-load-agent one-shot. The CLI path mirrors the
+ * --debug-mount-bike / --debug-spawn-at deferred-tick pattern and activates
+ * the staged JSON profile through the shared Agent Session boundary. The
+ * ordinary Agent Select menu uses that same transaction. saveInit() runs
+ * before the deferred tick, so the profile store is ready when this fires. */
 static s32         g_BootLoadAgentArmed = 0;
-static char        g_BootLoadAgentName[64] = {0};
+static char        g_BootLoadAgentName[AGENT_PROFILE_NAME_MAX] = {0};
 
 /* c118 (2026-05-15): --listen-bind <port> one-shot. CLI fast-path that
  * invokes netStartServer(port, NET_MAX_CLIENTS) on the first mainTick
@@ -1606,12 +1598,11 @@ void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop
 }
 
 /* c118 (2026-05-15): Arm the --launch-load-agent one-shot. Captures
- * the agent name into a static buffer; the actual saveLoadAgent call
- * runs inside mainTick once g_Vars.lvframenum >= 4 (same gate as the
+ * the agent name into a static buffer; agentSessionActivate runs inside
+ * mainTick once g_Vars.lvframenum >= 4 (same gate as the
  * other deferred ticks). Empty / missing arg leaves the latch off.
- * Name longer than 63 chars is rejected with a WARNING (the file-side
- * limit is SAVE_NAME_MAX but the CLI capture buffer is 64 to keep this
- * file independent of savefile.h's constants). */
+ * Names longer than the shared Agent Profile Store identity limit are
+ * rejected before the one-shot is armed. */
 static void bootApplyLaunchLoadAgent(const char *arg)
 {
 	if (!arg || !arg[0]) {
@@ -3086,22 +3077,20 @@ s32 bootDebugForceFirstPersonPreRenderTick(void)
 }
 
 /* c118 (2026-05-15): Called once per frame from pdmain.c's mainTick
- * when the --launch-load-agent one-shot is armed. Invokes
- * saveLoadAgent(name) which reads the pre-staged JSON fixture from
- * <savedir>/agent_<safeName>.json and populates g_GameFile.
+ * when the --launch-load-agent one-shot is armed. Invokes the same
+ * agentSessionActivate(name) transaction used by ordinary Agent Select.
  *
  * Gates (mirror the other deferred-tick hooks):
  *   - g_BootLoadAgentArmed must be set
  *   - g_Vars.lvframenum >= 4 (deferred just like spawn-at / mount-bike;
- *     even though saveLoadAgent doesn't need stage/player props,
+ *     even though profile activation does not need stage/player props,
  *     deferring keeps the harness assertion ordering deterministic so
  *     the smoke test sees the SAVE: log lines after the SAVE: initialized
  *     line from saveInit())
  *
- * saveLoadAgent returns 0 on success, -1 on failure. Logs OK or FAILED
- * based on the return; saveLoadAgent itself emits its own SAVE: log
- * lines (loaded / failed to load / refusing to load) which the smoke
- * test can additionally assert on.
+ * agentSessionActivate returns 0 on success and -1 on failure. The shared
+ * save and session layers publish the validation and activation receipts
+ * used by both CLI and ordinary-menu smoke tests.
  *
  * One-shot: clears the latch regardless of result so a subsequent
  * stage change does not re-fire. */
@@ -3114,22 +3103,11 @@ s32 bootLaunchLoadAgentTick(void)
 		return 0;
 	}
 
-	s32 result = saveLoadAgent(g_BootLoadAgentName);
+	s32 result = agentSessionActivate(g_BootLoadAgentName);
 
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --launch-load-agent consumed: name='%s' result=%s",
 		g_BootLoadAgentName, result == 0 ? "OK" : "FAILED");
-
-	/* Mike directive 2026-05-17: this CLI fast-path is the smoke-only
-	 * counterpart to the live UI agent-select path in
-	 * pdgui_menu_agentselect.cpp. Mirror its post-load hooks so the
-	 * social-hub gate flips here too -- smoke tests can then exercise
-	 * post-agent presence behavior the same way the live UI does. */
-	if (result == 0) {
-		socialRebindToActiveAgent(g_BootLoadAgentName);
-		socialHubBringOnline();
-		presenceMarkAgentLoaded();
-	}
 
 	g_BootLoadAgentArmed = 0;
 	return 1;
@@ -3667,8 +3645,8 @@ int main(int argc, const char **argv)
 	 * All online subsystems that own a socket or publish identity
 	 * (p2p / presence / groupSession / chat / voice / file-transfer /
 	 * spectator / theater / listening-room / share / pdgui-toast) are
-	 * deferred to socialHubBringOnline(), which prefsAgentLoad and
-	 * bootLaunchLoadAgentTick fire AFTER a successful agent load. The
+	 * deferred to socialHubBringOnline(), which the unified Agent Profile
+	 * activation transaction fires after a successful complete load. The
 	 * connect code that drives these subsystems is per-agent, so
 	 * binding a UDP socket and announcing identity before an agent
 	 * is loaded would publish a placeholder identity to friends.
@@ -3686,8 +3664,8 @@ int main(int argc, const char **argv)
 		/* menuMgrInit() removed — P10 D5.7 OG Menu Removal */
 		statsInit();
 		achievementsInit();
-		/* S309: per-agent preferences sidecar.  prefsAgentLoad runs on agent
-		 * switch; this init just marks the subsystem live. */
+		/* D-005: capture the pd.ini machine baseline before the first unified
+		 * Agent Profile is activated. */
 		prefsAgentInit();
 
 		/* D7: Discord Rich Presence — connects to Discord IPC pipe if running.

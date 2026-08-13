@@ -16,12 +16,13 @@ This file is the convention that prevents the next 88K-line cleanup pass.
 | `daily-logs/` | 30 days | `_old/daily-logs/<year>/` |
 | `designs/` | While not yet shipped, OR while in-flight | `_old/designs-shipped/<pillar>/` |
 | `session-log.md` | Last ~100 sessions in active rolling window | `_old/session-log/sN-sM/` |
-| `tasks.md` | Active lanes only; completed slices delete | session-log.md retains the narrative |
+| `tasks.md` | Active milestones and live dependencies only; completed slices delete | `session-log.md`; use `_old/tasks/<year>/` only for a dated major-consolidation snapshot |
 | `scratch/` (if reintroduced) | 14 days | `_old/scratch/<date>/` |
 | `pillars/*.md` | Live always; updated with code changes | n/a |
 | `constraints.md` | Live always | n/a |
 | `procedures.md`, `working-preferences.md`, `roadmap.md` | Live always | n/a |
-| `bugs.md`, `systemic-bugs.md` | Live always | n/a |
+| `bugs.md` | Current one-off defects, routed regression clusters, and explicit deferred bugs only | `_old/bugs/<year>/` for dated full-ledger snapshots |
+| `systemic-bugs.md` | Live architectural pattern catalog | n/a |
 
 ---
 

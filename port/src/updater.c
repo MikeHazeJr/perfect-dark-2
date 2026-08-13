@@ -30,6 +30,7 @@
 #include "config.h"
 #include "platform.h"
 #include "cacert_blob.h"
+#include "prefs_agent.h"
 
 /* ========================================================================
  * Config registration (PD_CONSTRUCTOR runs before main so configInit() can
@@ -1882,10 +1883,19 @@ s32 updaterGetShowDevReleases(void)
 
 void updaterSetShowDevReleases(s32 show)
 {
-	s32 v = show ? 1 : 0;
-	s_Updater.showDevReleases = v;
-	s_ShowDevReleasesCfg = v;
+	updaterApplyShowDevReleases(show);
 	configSave("pd.ini");
+	if (prefsAgentGetActive()[0] && prefsAgentSave() != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"UPDATER: active Agent Profile did not persist prerelease visibility");
+	}
+}
+
+void updaterApplyShowDevReleases(s32 show)
+{
+	s32 value = show ? 1 : 0;
+	s_Updater.showDevReleases = value;
+	s_ShowDevReleasesCfg = value;
 }
 
 /* ========================================================================

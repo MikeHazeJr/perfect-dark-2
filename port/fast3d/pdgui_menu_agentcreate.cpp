@@ -5,11 +5,11 @@
  * by the Agent Select screen when "New Agent..." is chosen.
  *
  * Features:
- *   - Name text input (15 chars max, matching PD's char name[15])
+ *   - Name text input (10 chars max, matching struct gamefile)
  *   - Body selection carousel with localized names
  *   - Head selection carousel (auto-set from body, user can override)
  *   - Portrait preview placeholder (colored silhouette with initials)
- *   - Create button → saves new agent via filemgrSaveOrLoad
+ *   - Create button saves through the validated JSON Agent Profile Store
  *   - Cancel button -> returns to Agent Select
  *
  * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
@@ -38,6 +38,7 @@
 #include "assetcatalog.h"
 #include "menupool.h"
 #include "menugraph.h"
+#include "agent_session.h"
 
 /* ========================================================================
  * Forward declarations for game symbols
@@ -47,24 +48,6 @@ extern "C" {
 
 /* The dialog we're replacing */
 extern struct menudialogdef g_FilemgrEnterNameMenuDialog;
-
-/* File list system */
-struct filelist;
-struct fileguid {
-    s32 fileid;
-    u16 deviceserial;
-};
-
-extern struct filelist *g_FileLists[4];
-extern struct fileguid g_GameFileGuid;
-
-/* Game file — agent save data structure */
-struct gamefile;
-extern struct gamefile g_GameFile;
-void gamefileLoadDefaults(struct gamefile *file);
-
-/* g_GameFile.name is at offset 0x00 in the gamefile struct, 11 bytes.
- * The campaign save name, NOT the MP player name (which is 15 bytes in mpchrconfig). */
 
 /* Player config access — via bridge functions in pdgui_bridge.c.
  * We can't include types.h (bool conflict), so pdgui_bridge.c provides
@@ -83,15 +66,6 @@ char *mpGetBodyName(u8 mpbodynum);
  * pools read through the catalog with the unlock filter applied -- per
  * Mike's directive "selector pool = catalog INTERSECT unlock-state". */
 
-/* File operations.
- * In PD, "New Agent" creates a campaign GAME save (FILETYPE_GAME).
- * The original flow: enter name → filemgrPushSelectLocationDialog(0, FILETYPE_GAME).
- * On the PC port with a unified save system, we can create the save directly. */
-#define FILEOP_SAVE_GAME_000 101
-#define FILETYPE_GAME 0
-void filemgrPushSelectLocationDialog(s32 arg0, u32 filetype);
-s32 filemgrSaveOrLoad(struct fileguid *guid, s32 fileop, uintptr_t playernum);
-
 /* Language strings */
 char *langGet(s32 textid);
 
@@ -104,7 +78,8 @@ char *langGet(s32 textid);
 static bool s_Registered = false;
 
 /* Agent creation form state */
-static char s_AgentName[16] = {0};  /* 15 chars + null */
+static char s_AgentName[AGENT_PROFILE_NAME_MAX] = {0};
+static char s_CreateStatus[160] = {0};
 static s32  s_SelectedBody = 0;
 static s32  s_SelectedHead = 0;
 static bool s_HeadOverridden = false; /* Has user manually picked a head? */
@@ -114,6 +89,18 @@ static bool s_FirstFrame = true;      /* Focus name input on first frame */
  * docked action bar later in the same frame so Enter from the name field
  * commits Create.  Reset to false at the top of each render pass. */
 static bool s_NameEnterPressedThisFrame = false;
+
+static bool agentNameInputIsValid(void)
+{
+    size_t len = strlen(s_AgentName);
+    if (len < 1 || len > AGENT_PROFILE_NAME_LENGTH_MAX || s_AgentName[0] == ' '
+            || s_AgentName[len - 1] == ' ') return false;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)s_AgentName[i];
+        if (!isalnum(c) && c != ' ' && c != '_' && c != '-') return false;
+    }
+    return true;
+}
 
 /* Head + body pools -- catalog entries filtered by the local player's unlock
  * state, sorted by display name.  Built via assetCatalogIterateUnlockedByType
@@ -443,6 +430,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
         s_FirstFrame = true;
+        s_CreateStatus[0] = '\0';
         /* Force preview re-render on screen open */
         pdguiModelPreviewInvalidate();
 
@@ -553,6 +541,10 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             ImGuiInputTextFlags inputFlags = ImGuiInputTextFlags_EnterReturnsTrue;
             bool nameEntered = ImGui::InputText("##agent_name", s_AgentName,
                                                  sizeof(s_AgentName), inputFlags);
+            if (s_CreateStatus[0]) {
+                ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.55f, 1.0f),
+                                   "%s", s_CreateStatus);
+            }
             ImGui::Dummy(ImVec2(0, pdguiScale(8.0f)));
 
             /* ----- Character (Body) carousel ----- */
@@ -722,7 +714,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     bool doCreate = false;
     bool doCancel = false;
 
-    bool nameValid = (s_AgentName[0] != '\0');
+    bool nameValid = agentNameInputIsValid();
 
     if (pdguiBeginActionBar("##ac_actionbar")) {
         float avail = ImGui::GetContentRegionAvail().x;
@@ -757,46 +749,37 @@ static s32 renderAgentCreate(struct menudialog *dialog,
 
     /* ---- Execute Create ---- */
     if (doCreate && nameValid) {
-        pdguiPlaySound(PDGUI_SND_SUCCESS);
-
-        /* Write name into g_GameFile.name (first 11 bytes of the struct).
-         * This is the campaign save file name — what appears in the
-         * Agent Select list. Truncate to 10 chars + null. */
-        char *gfName = (char *)&g_GameFile;
-        strncpy(gfName, s_AgentName, 10);
-        gfName[10] = '\0';
-
-        /* Set head and body on the active player config so the save
-         * includes this data.  The agent is NOT loaded for play — the
-         * player must still select it from Agent Select. */
-        s32 pnum = g_MpPlayerNum;
-        if (pnum < 0) pnum = 0;
-        {
+        if (agentSessionCreate(s_AgentName) == 0) {
+            /* Preserve the existing character-selection behavior only after
+             * the durable profile commit succeeds. The campaign agent itself
+             * remains inactive until selected from Agent Select. */
+            s32 pnum = g_MpPlayerNum;
+            if (pnum < 0) pnum = 0;
             const char *hid = (s_HeadListCount > 0)
-                ? s_HeadList[s_SelectedHead].id
-                : "";
+                ? s_HeadList[s_SelectedHead].id : "";
             const char *bid = (s_BodyListCount > 0)
-                ? s_BodyList[s_SelectedBody].id
-                : "";
+                ? s_BodyList[s_SelectedBody].id : "";
             mpPlayerConfigSetHeadBody(pnum, hid, bid);
+            mpPlayerConfigSetName(pnum, s_AgentName);
+
+            pdguiPlaySound(PDGUI_SND_SUCCESS);
+            sysLogPrintf(LOG_NOTE,
+                         "pdgui_agentcreate: committed JSON agent '%s' "
+                         "body_id=\"%s\" head_id=\"%s\" (awaiting selection)",
+                         s_AgentName, bid, hid);
+            menuGraphFirePop(MENU_TYPE_AGENT_CREATE, "save");
+
+            s_AgentName[0] = '\0';
+            s_CreateStatus[0] = '\0';
+            s_SelectedBody = 0;
+            s_SelectedHead = 0;
+            s_HeadOverridden = false;
+        } else {
+            snprintf(s_CreateStatus, sizeof(s_CreateStatus),
+                     "Could not create '%s'. Use a unique name with letters, numbers, spaces, _ or -.",
+                     s_AgentName);
+            pdguiPlaySound(PDGUI_SND_ERROR);
         }
-        mpPlayerConfigSetName(pnum, s_AgentName);
-
-        /* Pop the Agent Create dialog to return to Agent Select */
-        menuGraphFirePop(MENU_TYPE_AGENT_CREATE, "save");
-
-        filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
-
-        sysLogPrintf(LOG_NOTE, "pdgui_agentcreate: Saved new agent '%s' "
-                     "body_id=\"%s\" head_id=\"%s\" (not loaded, requires selection)",
-                     s_AgentName,
-                     (s_BodyListCount > 0) ? s_BodyList[s_SelectedBody].id : "",
-                     (s_HeadListCount > 0) ? s_HeadList[s_SelectedHead].id : "");
-
-        s_AgentName[0] = '\0';
-        s_SelectedBody = 0;
-        s_SelectedHead = 0;
-        s_HeadOverridden = false;
     }
 
     /* ---- Execute Cancel ---- */
@@ -805,6 +788,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         menuGraphFirePop(MENU_TYPE_AGENT_CREATE, "cancel");
 
         s_AgentName[0] = '\0';
+        s_CreateStatus[0] = '\0';
         s_SelectedBody = 0;
         s_SelectedHead = 0;
         s_HeadOverridden = false;

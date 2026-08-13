@@ -1,6 +1,6 @@
 {
   "scenario_name": "auto_campaign_infiltration_robot_attack",
-  "description": "B-365: start the campaign auto-runner directly at Infiltration (stage 0x2f) and dwell through the robot-heavy intro/AI tick window that Mike's build log crashed in at chrTickRobotAttack. This targets the exact auto-campaign path instead of relying on the longer first-cycle runner to reach Infiltration before its timeout.",
+  "description": "B-365 targeted regression: load a confirmed PC-native agent, start the strict campaign runner at Infiltration through the production mission-start entry, and dwell through the historical robot-heavy chrTickRobotAttack window. Campaign release completion is covered by auto_campaign_release; this fixture remains a bounded crash regression.",
   "tags": ["campaign", "auto-runner", "mission", "robot", "stability"],
   "paths_of_interest": [
     "src/game/chraction.c",
@@ -12,11 +12,17 @@
   "verbose": 0,
   "timeout_seconds": 120,
   "install_state": "clean",
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent_smoke.json" }
+  ],
   "boot_args": [
     "--no-update-check",
     "--no-sound",
     "--no-net",
+    "--portable",
     "--skip-intro",
+    "--launch-load-agent",
+    "smoke",
     "--auto-campaign",
     "6",
     "--auto-campaign-fast"
@@ -28,9 +34,11 @@
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=auto_campaign_infiltration_robot_attack",
-      "CAMPAIGN\\.AUTO: armed start_idx=6",
-      "CAMPAIGN\\.AUTO: state IDLE -> BOOT",
-      "CAMPAIGN\\.AUTO: boot stage_id='base:infiltration' stagenum=0x2f idx=6",
+      "BOOT: --launch-load-agent consumed: name='smoke' result=OK",
+      "CAMPAIGN\\.AUTO: armed start_idx=6 difficulty=0",
+      "CAMPAIGN\\.AUTO: plan profile='smoke' difficulty=0 start=6 final=16 missions=11",
+      "CAMPAIGN\\.AUTO: queued first mission through menuhandlerAcceptMission plan=0 idx=6 stage_id='base:infiltration' stagenum=0x2f",
+      "CAMPAIGN\\.AUTO: loaded plan=0 idx=6 stage_id='base:infiltration'",
       "GAMELOOP\\.CAMPAIGN: playerReset begin playernum=0 role=bond stage=0x2f",
       "TICK: lvTick enter tick=0 stagenum=0x2f",
       "SMOKE: result=scripted_exit"
@@ -41,8 +49,7 @@
       "FATAL: ",
       "SMOKE: result=timeout",
       "LOUDFAIL\\.LOAD: .*unrecoverable",
-      "CAMPAIGN\\.AUTO: load timeout",
-      "CAMPAIGN\\.AUTO: endscreen still missing after retry"
+      "CAMPAIGN\\.AUTO: failed reason="
     ],
     "required_counts": []
   }

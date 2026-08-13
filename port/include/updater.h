@@ -232,6 +232,8 @@ s32 updaterGetShowDevReleases(void);
  * Triggers a re-check so the list reflects the new filter immediately.
  */
 void updaterSetShowDevReleases(s32 show);
+/** Apply the active Agent preference without writing machine-global pd.ini. */
+void updaterApplyShowDevReleases(s32 show);
 
 /* ========================================================================
  * Version info

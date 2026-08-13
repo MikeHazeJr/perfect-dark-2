@@ -100,6 +100,8 @@ const char *mpPlayerConfigGetName(s32 playernum);
 #include "audio.h"
 #include "modmusic.h"
 
+s32 prefsAgentSave(void);
+
 /* ---- Batch 12 legacy handlers (mpSelectTunes / multi-tunes checkbox)
  * Declared with the shadow types so the C++ function-pointer conversion
  * in list_GetOptionCount / checkbox_Get / etc. is exact.  At link time
@@ -768,6 +770,7 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
         /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
         if (pdguiCheckbox("Shuffle", &shuffle)) {
             audioSetModShuffle(shuffle ? 1 : 0);
+            prefsAgentSave();
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
         ImGui::SameLine();
@@ -843,6 +846,7 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                                 audioAddModPlaylistEntry(cid);
                                 pdguiPlaySound(PDGUI_SND_SELECT);
                             }
+                            prefsAgentSave();
                             audioResetPlaylistIndex();
                             if (lobbyIsLocalLeader()
                                 && (g_NetMode == MPSETTINGS_NETMODE_CLIENT
@@ -919,6 +923,7 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                             audioAddModPlaylistEntry(t->catalog_id);
                             pdguiPlaySound(PDGUI_SND_SELECT);
                         }
+                        prefsAgentSave();
                         audioResetPlaylistIndex();
                         if (lobbyIsLocalLeader()
                             && (g_NetMode == MPSETTINGS_NETMODE_CLIENT
@@ -991,6 +996,7 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                 if (ImGui::Selectable(label, false, 0,
                                       ImVec2(0, pdguiScale(22.0f)))) {
                     audioRemoveModPlaylistEntry(cid);
+                    prefsAgentSave();
                     audioResetPlaylistIndex();
                     if (lobbyIsLocalLeader()
                         && (g_NetMode == MPSETTINGS_NETMODE_CLIENT
@@ -1009,6 +1015,7 @@ static s32 renderSelectTunes(struct menudialog *dialog, struct menu *, s32, s32)
                 if (ImGui::Selectable("Clear All##tunes_clr", false, 0,
                                       ImVec2(0, pdguiScale(22.0f)))) {
                     audioClearModPlaylist();
+                    prefsAgentSave();
                     if (lobbyIsLocalLeader()
                         && (g_NetMode == MPSETTINGS_NETMODE_CLIENT
                             || (g_NetMode == MPSETTINGS_NETMODE_SERVER && !g_NetDedicated))) {

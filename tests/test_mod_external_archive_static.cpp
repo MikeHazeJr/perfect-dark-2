@@ -47,6 +47,24 @@ struct ScopedCatalogSourceStub {
 	}
 };
 
+static size_t countOccurrences(const std::string &text,
+		const std::string &needle)
+{
+	if (needle.empty()) {
+		return 0;
+	}
+
+	size_t count = 0;
+	size_t offset = 0;
+
+	while ((offset = text.find(needle, offset)) != std::string::npos) {
+		count++;
+		offset += needle.size();
+	}
+
+	return count;
+}
+
 extern "C" const char *modiniTemplateForKind(const char *kind)
 {
 	(void)kind;
@@ -5976,19 +5994,19 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("validateGlbSource") != std::string::npos);
 	REQUIRE(compiler.find("parseGltfLikeMeshSource") != std::string::npos);
 	REQUIRE(compiler.find("gltf_external_binary_buffers_are_not_allowed") != std::string::npos);
-	REQUIRE(compiler.find("snprintf(cache_root, sizeof(cache_root), \"$S/mod-cache\")") !=
-	        std::string::npos);
-	REQUIRE(compiler.find("snprintf(cache_root, sizeof(cache_root), \"$B/mod-cache\")") !=
-	        std::string::npos);
+	REQUIRE(compiler.find("\"$H/mod-cache\"") != std::string::npos);
 	REQUIRE(compiler.find("$S/mod-cache") != std::string::npos);
 	REQUIRE(compiler.find("$B/mod-cache") != std::string::npos);
+	REQUIRE(compiler.find("cacheBuildPaths") != std::string::npos);
+	REQUIRE(compiler.find("private cache root '%s' exceeds the platform path budget") !=
+	        std::string::npos);
 	REQUIRE(compiler.find(".pdmc") != std::string::npos);
 	REQUIRE(compiler.find(".pdmesh.json") != std::string::npos);
 	REQUIRE(compiler.find(".pdmodel.json") != std::string::npos);
 	REQUIRE(compiler.find(".pdanimation.json") != std::string::npos);
-	REQUIRE(compiler.find("char animation_digest_key[17]") != std::string::npos);
-	REQUIRE(compiler.find("MODASSET_COMPILER_VERSION, animation_digest_key") !=
-	        std::string::npos);
+	REQUIRE(compiler.find("char animation_digest_key[17]") == std::string::npos);
+	REQUIRE(countOccurrences(compiler,
+	        "MODASSET_COMPILER_VERSION, digest_key") >= 4);
 	REQUIRE(compiler.find("source_sha256") != std::string::npos);
 	REQUIRE(compiler.find("runtime_boundary") != std::string::npos);
 	REQUIRE(compiler.find("runtime_payload") != std::string::npos);

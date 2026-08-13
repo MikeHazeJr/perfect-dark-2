@@ -1,0 +1,90 @@
+{
+  "scenario_name": "agent_profile_migration_restart_smoke",
+  "description": "D-005 ordinary-client migration proof. The first client loads an exact legacy v2 Agent JSON plus its validated preference sidecar, atomically replaces them with one v3 document, retires the sidecar, and exits. A second ordinary client reloads the same savedir and must activate the v3 document without consulting or migrating a sidecar.",
+  "tags": ["save", "agent", "migration", "restart", "ordinary-client", "d-005", "milestone-1"],
+  "paths_of_interest": [
+    "port/src/agent_profile_codec.c",
+    "port/src/savefile.c",
+    "port/src/prefs_agent.c",
+    "port/src/agent_session.c",
+    "port/src/modasset_compiler.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "remove_paths": [
+    "agent-profile-migration-home"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_legacy.json", "dst": "agent-profile-migration-home/agent_legacy.json" },
+    { "src": "tools/smoke-verify/fixtures/prefs_legacy.ini", "dst": "agent-profile-migration-home/prefs_legacy.ini" }
+  ],
+  "processes": [
+    {
+      "name": "legacy-migration",
+      "log_file": "pd-client.log",
+      "snapshot_log_file": "pd-agent-migration-first.log",
+      "snapshot_exit_timeout_seconds": 45,
+      "boot_args": [
+        "--no-update-check", "--no-sound", "--no-net", "--portable",
+        "--savedir", "./agent-profile-migration-home",
+        "--launch-load-agent", "legacy"
+      ],
+      "wait_for": "SAVE: Agent Profile activation committed name='legacy'.*source=migrated-v2",
+      "wait_timeout_seconds": 140
+    },
+    {
+      "name": "v3-restart",
+      "log_file": "pd-client.log",
+      "snapshot_log_file": "pd-agent-migration-restart.log",
+      "snapshot_exit_timeout_seconds": 80,
+      "boot_args": [
+        "--no-update-check", "--no-sound", "--no-net", "--portable",
+        "--savedir", "./agent-profile-migration-home",
+        "--launch-load-agent", "legacy"
+      ],
+      "wait_for": "SAVE: Agent Profile activation committed name='legacy'.*source=v3",
+      "wait_timeout_seconds": 100
+    }
+  ],
+  "retain_artifacts": [
+    { "src": "agent-profile-migration-home/agent_legacy.json", "name": "agent_legacy_after_migration.json" }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Allow each ordinary client to complete the shared Agent activation transaction." },
+    { "at_ms": 70000, "type": "exit", "comment": "Exit cleanly after the migration or restart activation receipt." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SAVE: prepared exact legacy Agent Profile name='legacy' shape=1 sidecar=present",
+      "SAVE: Agent Profile v3 committed name='legacy'",
+      "PREFS\\.AGENT: retired migrated legacy sidecar '.*prefs_legacy\\.ini'",
+      "SAVE: Agent Profile activation committed name='legacy'.*source=migrated-v2",
+      "SAVE: Agent Profile activation committed name='legacy'.*source=v3",
+      "MODASSET\\.COMPILER: cached external animation .*cache=\\$H/mod-cache",
+      "AGENT\\.SESSION: activation committed name='legacy' source=json",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "Agent Profile JSON .* rejected",
+      "legacy Agent Profile 'legacy' sidecar rejected",
+      "migration commit failed",
+      "activation rejected",
+      "retirement deferred",
+      "MODASSET\\.COMPILER: .*\\$S/mod-cache",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": [
+      { "pattern": "SAVE: prepared exact legacy Agent Profile name='legacy'", "min": 1, "max": 1 },
+      { "pattern": "PREFS\\.AGENT: retired migrated legacy sidecar", "min": 1, "max": 1 },
+      { "pattern": "source=migrated-v2", "min": 1, "max": 1 },
+      { "pattern": "source=v3", "min": 1, "max": 1 },
+      { "pattern": "AGENT\\.SESSION: activation committed name='legacy' source=json", "min": 2, "max": 2 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 2, "max": 2 }
+    ]
+  }
+}

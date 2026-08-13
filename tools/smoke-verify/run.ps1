@@ -1035,6 +1035,7 @@ function Invoke-SmokeTestMultiProcess {
             Process = $p
             LogPath = $logPath
             InstallDir = $processInstallInfo.InstallDir
+            ExpectedExitCode = $(if ($pdef.PSObject.Properties.Match('expected_exit_code').Count -gt 0) { [int]$pdef.expected_exit_code } else { 0 })
             Assertions = $(if ($pdef.PSObject.Properties.Match('assertions').Count -gt 0) { $pdef.assertions } else { $null })
         }
 
@@ -1064,6 +1065,20 @@ function Invoke-SmokeTestMultiProcess {
                     } catch {}
                 }
                 if ($p.HasExited) {
+                    # A successful smoke result is commonly the process's last
+                    # log line. Reap the process and scan once more so an exit
+                    # between the preceding poll and the logger flush cannot
+                    # become a false launch-barrier failure.
+                    $p.WaitForExit()
+                    if (Test-Path -LiteralPath $logPath) {
+                        try {
+                            $hit = Select-String -LiteralPath $logPath -Pattern $waitFor -SimpleMatch:$false -List -ErrorAction SilentlyContinue
+                            if ($hit) {
+                                $matched = $true
+                                break
+                            }
+                        } catch {}
+                    }
                     Write-Fail ("    process exited (code {0}) before emitting wait_for marker" -f $p.ExitCode)
                     $launchFailed = $true
                     break
@@ -1137,6 +1152,18 @@ function Invoke-SmokeTestMultiProcess {
             $allExited = $false
         }
     }
+    $allExitCodesExpected = $allExited
+    foreach ($entry in $procs) {
+        if (-not $entry.Process.HasExited) {
+            $allExitCodesExpected = $false
+            continue
+        }
+        if ($entry.Process.ExitCode -ne $entry.ExpectedExitCode) {
+            Write-Fail ("  process [{0}] exit code {1}; expected {2}" -f `
+                $entry.Name, $entry.Process.ExitCode, $entry.ExpectedExitCode)
+            $allExitCodesExpected = $false
+        }
+    }
     $launchedPids = @($procs | ForEach-Object { try { [int]$_.Process.Id } catch { 0 } } | Where-Object { $_ -gt 0 })
     Stop-SmokeOwnedFaultProcesses -KnownPids $launchedPids
 
@@ -1161,6 +1188,56 @@ function Invoke-SmokeTestMultiProcess {
     Set-Content -LiteralPath $aggLogPath -Value $aggBody.ToString() -Encoding UTF8 -NoNewline
     Write-Info ("  aggregated log: {0}" -f $aggLogPath)
     Write-Info ("  elapsed: {0:N1}s" -f $elapsed)
+
+    # Optional durable artifact contract. Paths are install-relative, must stay
+    # inside the shared install, and are copied before successful cleanup.
+    $artifactPaths = @()
+    $artifactsOk = $true
+    if ($def.PSObject.Properties.Match('retain_artifacts').Count -gt 0 -and
+            $def.retain_artifacts) {
+        $artifactDir = Join-Path $RunRoot ("artifacts\{0:yyyyMMddTHHmmssfffZ}-{1}" -f `
+            (Get-Date).ToUniversalTime(), ($name -replace '[^A-Za-z0-9._-]+', '-'))
+        New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
+        $trimSeparators = [char[]]@(
+            [System.IO.Path]::DirectorySeparatorChar,
+            [System.IO.Path]::AltDirectorySeparatorChar)
+        $installRoot = [System.IO.Path]::GetFullPath(
+            $installInfo.InstallDir).TrimEnd($trimSeparators) +
+            [System.IO.Path]::DirectorySeparatorChar
+        foreach ($artifact in $def.retain_artifacts) {
+            $relativeSource = [string]$artifact.src
+            $artifactName = if ($artifact.PSObject.Properties.Match('name').Count -gt 0 -and $artifact.name) {
+                [string]$artifact.name
+            } else {
+                [System.IO.Path]::GetFileName($relativeSource)
+            }
+            try {
+                if (-not $relativeSource -or -not $artifactName -or
+                        [System.IO.Path]::GetFileName($artifactName) -ne $artifactName) {
+                    throw "artifact source or destination name is invalid"
+                }
+                $sourcePath = [System.IO.Path]::GetFullPath(
+                    (Join-Path $installInfo.InstallDir $relativeSource))
+                if (-not $sourcePath.StartsWith($installRoot,
+                        [System.StringComparison]::OrdinalIgnoreCase)) {
+                    throw "artifact source escapes install root: $relativeSource"
+                }
+                if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+                    throw "required artifact is missing: $relativeSource"
+                }
+                $destinationPath = Join-Path $artifactDir $artifactName
+                Copy-Item -LiteralPath $sourcePath -Destination $destinationPath -Force
+                $artifactPaths += $destinationPath
+                Write-Info ("  retained artifact: {0}" -f $destinationPath)
+            } catch {
+                Write-Fail ("  artifact retention failed: {0}" -f $_.Exception.Message)
+                $artifactsOk = $false
+            }
+        }
+        $aggregateArtifact = Join-Path $artifactDir "aggregated.log"
+        Copy-Item -LiteralPath $aggLogPath -Destination $aggregateArtifact -Force
+        $artifactPaths += $aggregateArtifact
+    }
 
     # Run assertions against the aggregated log.
     $assertions = $null
@@ -1198,13 +1275,22 @@ function Invoke-SmokeTestMultiProcess {
         }
     }
 
-    $testOk = $assertResult.Passed -and -not $launchFailed
+    $binarySha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
+    $definitionSha256 = (Get-FileHash -LiteralPath $Test.Path -Algorithm SHA256).Hash
+    $testOk = $assertResult.Passed -and -not $launchFailed -and
+        $allExited -and $allExitCodesExpected -and $artifactsOk
 
     foreach ($line in (Format-AssertionFailures -Result $assertResult)) {
         if ($testOk) { Write-Info $line } else { Write-Fail $line }
     }
     if ($launchFailed) {
         Write-Fail "  launch barrier failed (see logs for context)"
+    }
+    if (-not $allExited) {
+        Write-Fail "  one or more processes exceeded the watchdog"
+    }
+    if (-not $allExitCodesExpected) {
+        Write-Fail "  one or more processes returned an unexpected exit code"
     }
 
     if ($testOk -and -not $KeepOnSuccess -and -not $ExistingInstall -and -not $Shared) {
@@ -1260,6 +1346,9 @@ function Invoke-SmokeTestMultiProcess {
         ElapsedSeconds = $elapsed
         InstallDir = $installInfo.InstallDir
         ProcessInstallDirs = @($processPlans | ForEach-Object { $_.InstallInfo.InstallDir })
+        BinarySha256 = $binarySha256
+        DefinitionSha256 = $definitionSha256
+        Artifacts = @($artifactPaths)
         AssertionsTotal = $assertResult.Total
         AssertionsMet = $assertResult.Met
         Failures = @($assertResult.Failures)

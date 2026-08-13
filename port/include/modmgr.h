@@ -189,6 +189,8 @@ s32 modmgrRetireSessionContent(void);
 void modmgrSetEnabled(s32 index, s32 enabled);
 s32  modmgrIsDirty(void);              // true if enable state changed since last reload
 void modmgrApplyChanges(void);         // save + rebuild catalog in-place (no stage restart)
+/** Rebuild from the selected set without persisting machine-global state. */
+void modmgrApplyChangesTransient(void);
 
 // Check if all dependencies of a mod are enabled.
 // Returns 0 if all satisfied, >0 = number of missing deps.

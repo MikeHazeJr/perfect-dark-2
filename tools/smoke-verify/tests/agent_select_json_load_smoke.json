@@ -1,0 +1,64 @@
+{
+  "scenario_name": "agent_select_json_load_smoke",
+  "description": "Ordinary-client Agent Select proof. An exact legacy v2 JSON profile is staged in a test-owned save directory, the client reaches Agent Select without --launch-load-agent, and the normal accept action migrates and activates it through the unified Agent Session transaction before routing to the live main menu.",
+  "tags": ["save", "agent", "menu", "input", "ordinary-client", "pillar:save-wire-format"],
+  "paths_of_interest": [
+    "port/src/savefile.c",
+    "port/src/agent_session.c",
+    "port/fast3d/pdgui_menu_agentselect.cpp",
+    "port/fast3d/pdgui_menu_agentcreate.cpp",
+    "src/game/gamefile.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 190,
+  "install_state": "clean",
+  "remove_paths": [
+    "agent-select-smoke-home"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent-select-smoke-home/agent_smoke.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--savedir",
+    "./agent-select-smoke-home"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Allow clean extraction and ordinary title startup to complete." },
+    { "at_ms": 112000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "Press the production accept action on the ordinary title path to open Agent Select." },
+    { "at_ms": 130000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "Activate the only staged JSON profile through Agent Select after its production transition has settled." },
+    { "at_ms": 150000, "type": "exit", "comment": "Exit after the production main menu has acquired." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=agent_select_json_load_smoke",
+      "SAVE: initialized .*agent-select-smoke-home",
+      "MENUPOOL: acquired agent_select",
+      "SAVE: Agent Profile Store published 1 validated profile\\(s\\)",
+      "MENU\\.GRAPH\\.FIRE source=agent_select edge=load",
+      "SAVE: Agent Profile activation committed name='smoke'.*source=migrated-v2",
+      "PREFS\\.AGENT: active identity published name='smoke' source=profile-json",
+      "AGENT\\.SESSION: activation committed name='smoke' source=json",
+      "MENUPOOL: acquired main_menu",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "--launch-load-agent armed",
+      "filemgrSaveOrLoad",
+      "AGENT\\.SESSION: activation rejected",
+      "Agent Profile JSON .* rejected",
+      "profile identity mismatch",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": [
+      { "pattern": "AGENT\\.SESSION: activation committed name='smoke' source=json", "min": 1, "max": 1 },
+      { "pattern": "MENU\\.GRAPH\\.RESULT source=agent_select edge=load rc=0 ok=1", "min": 1, "max": 1 }
+    ]
+  }
+}

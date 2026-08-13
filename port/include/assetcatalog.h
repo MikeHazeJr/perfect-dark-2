@@ -380,6 +380,7 @@ typedef struct asset_entry {
         struct {
             s32 stagenum;              /* logical stage ID this scenario content backs */
             s32 mode;                  /* mp, solo, coop (flags or bitmask) */
+            s32 source_room_count;     /* canonical room domain, including room 0 */
             char scene_file[FS_MAXPATH]; /* DCC-openable runtime scene source */
             char collision_file[FS_MAXPATH]; /* optional collision override */
             char rooms_file[FS_MAXPATH]; /* compatibility rooms/geometry export */

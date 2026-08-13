@@ -1,0 +1,93 @@
+{
+  "scenario_name": "auto_campaign_airbase_transition_canary",
+  "description": "B-1060 and T-TESTS-002 ordinary-client regression for the canonical scenario room domain. One production PerfectDark.exe process starts an exact two-mission plan at Air Base with STAGE-pool canaries enabled, completes and routes Air Base through the ordinary endscreen and save path, requires Air Force One to become the exact live destination, publishes truthful bounded transition evidence, and exits cleanly without manufacturing progression outside the plan.",
+  "tags": ["campaign", "release", "t-tests-002", "milestone-1", "airbase", "room-domain", "memp-canary"],
+  "paths_of_interest": [
+    "port/src/scenario_room_domain.c",
+    "port/src/scenario_source_runtime.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/loader_walker_scenario.c",
+    "src/game/bg.c",
+    "port/src/autocampaign.c",
+    "port/src/campaign_run.c",
+    "port/src/campaign_evidence.c",
+    "port/src/savefile.c",
+    "port/fast3d/pdgui_bridge.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "clean",
+  "remove_paths": [
+    "campaign_release_run.json",
+    "agent_smoke.json"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent_smoke.json" }
+  ],
+  "processes": [
+    {
+      "name": "airbase-transition-live-run",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/campaign_release_run_process.json",
+      "snapshot_log_file": "pd-airbase-transition-live-run.log",
+      "snapshot_exit_timeout_seconds": 30,
+      "boot_args": [
+        "--no-update-check",
+        "--no-sound",
+        "--no-net",
+        "--portable",
+        "--skip-intro",
+        "--launch-load-agent",
+        "smoke",
+        "--memp-canary",
+        "--auto-campaign",
+        "9",
+        "--auto-campaign-through-load",
+        "10",
+        "--auto-campaign-fast",
+        "--auto-campaign-difficulty",
+        "0"
+      ],
+      "wait_for": "SMOKE: result=campaign_transition_verified .* code=0",
+      "wait_timeout_seconds": 300
+    }
+  ],
+  "retain_artifacts": [
+    { "src": "campaign_release_run.json", "name": "airbase_transition_evidence.json" },
+    { "src": "agent_smoke.json", "name": "airbase_transition_agent.json" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "MEMP\\.CANARY: enabled",
+      "CAMPAIGN\\.AUTO: plan profile='smoke' difficulty=0 start=9 final=10 missions=2",
+      "SCENARIO\\.SOURCE: resolved room domain 'base:scenario_airbase' rooms=147 declared=147 mesh_max=143 portal_max=146 source=catalog-metadata\\+scene\\.glb\\+portals\\.json",
+      "CAMPAIGN\\.AUTO: loaded plan=0 idx=9 stage_id='base:airbase'",
+      "CAMPAIGN\\.AUTO: completed plan=0 idx=9 stage_id='base:airbase'",
+      "CAMPAIGN\\.AUTO: routed plan=0 idx=9 stage_id='base:airbase' route_to='base:airforceone'",
+      "SCENARIO\\.SOURCE: resolved room domain 'base:scenario_airforceone' rooms=104 declared=104 mesh_max=103 portal_max=103 source=catalog-metadata\\+scene\\.glb\\+portals\\.json",
+      "CAMPAIGN\\.AUTO: loaded plan=1 idx=10 stage_id='base:airforceone'",
+      "CAMPAIGN\\.AUTO: transition verified profile='smoke' start=9 target=10 stage_id='base:airforceone' completed=1 loaded=2 difficulty=0",
+      "SMOKE: result=campaign_transition_verified .* code=0"
+    ],
+    "forbidden_patterns": [
+      "MEMP\\.CANARY\\.CORRUPT",
+      "CAMPAIGN\\.AUTO: failed reason=",
+      "SMOKE: result=campaign_failed",
+      "SMOKE: result=timeout",
+      "ACCESS_VIOLATION",
+      "EXCEPTION:",
+      "FATAL: ",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "catalog miss.*fallback",
+      "numeric fallback"
+    ],
+    "required_counts": [
+      { "pattern": "CAMPAIGN\\.AUTO: loaded plan=", "min": 2, "max": 2 },
+      { "pattern": "CAMPAIGN\\.AUTO: completed plan=", "min": 1, "max": 1 },
+      { "pattern": "CAMPAIGN\\.AUTO: routed plan=", "min": 1, "max": 1 },
+      { "pattern": "SAVE: Agent Profile v3 committed name='smoke'", "min": 2, "max": 2 },
+      { "pattern": "BOOT: --launch-load-agent consumed: name='smoke' result=OK", "min": 1, "max": 1 }
+    ]
+  }
+}

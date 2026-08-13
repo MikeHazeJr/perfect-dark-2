@@ -498,19 +498,9 @@ static bool explosionCreateInternal(struct prop *sourceprop,
 			spc8.y *= mult;
 			spc8.z *= mult;
 
-			exp->bbs[0].bbmin.x = g_Rooms[exproom].bbmin[0];
-			exp->bbs[0].bbmin.y = g_Rooms[exproom].bbmin[1];
-			exp->bbs[0].bbmin.z = g_Rooms[exproom].bbmin[2];
-			exp->bbs[0].bbmax.x = g_Rooms[exproom].bbmax[0];
-			exp->bbs[0].bbmax.y = g_Rooms[exproom].bbmax[1];
-			exp->bbs[0].bbmax.z = g_Rooms[exproom].bbmax[2];
-			exp->bbs[0].room = exproom;
-			exp->bbs[0].room2 = -1;
-			exp->numbb = 1;
+			exp->numbb = 0;
 
-			if (exp->type == EXPLOSIONTYPE_HUGE25 || exproom < 0) {
-				exp->numbb = 0;
-			} else {
+			if (exp->type != EXPLOSIONTYPE_HUGE25 && bgRoomIsValid(exproom)) {
 				exp->bbs[0].bbmin.x = g_Rooms[exproom].bbmin[0];
 				exp->bbs[0].bbmin.y = g_Rooms[exproom].bbmin[1];
 				exp->bbs[0].bbmin.z = g_Rooms[exproom].bbmin[2];
@@ -524,17 +514,15 @@ static bool explosionCreateInternal(struct prop *sourceprop,
 				for (k = 0; k < g_Rooms[exproom].numportals; k++) {
 					portalnum = g_RoomPortals[g_Rooms[exproom].roomportallistoffset + k];
 
+					if (!bgPortalGetOtherRoom(portalnum, exproom, &otherroom)) {
+						continue;
+					}
+
 					bgCalculatePortalBbox(portalnum, &portalbbmin, &portalbbmax);
 
 					if (bgIsBboxOverlapping(&portalbbmin, &portalbbmax, &spd4, &spc8)) {
 						otherroom2 = -1;
 						index = 0;
-
-						if (exproom == g_BgPortals[portalnum].roomnum1) {
-							otherroom = g_BgPortals[portalnum].roomnum2;
-						} else {
-							otherroom = g_BgPortals[portalnum].roomnum1;
-						}
 
 						spac.f[0] = (g_PortalMetrics + portalnum)->normal.f[0];
 						spac.f[1] = (g_PortalMetrics + portalnum)->normal.f[1];
@@ -592,19 +580,14 @@ static bool explosionCreateInternal(struct prop *sourceprop,
 						for (j = 0; j < g_Rooms[otherroom].numportals; j++) {
 							portalnum2 = g_RoomPortals[g_Rooms[otherroom].roomportallistoffset + j];
 
-							if (portalnum2 != portalnum) {
+							if (portalnum2 != portalnum
+									&& bgPortalGetOtherRoom(portalnum2, otherroom, &otherroom2)) {
 								bgCalculatePortalBbox(portalnum2, &portal2bbmin, &portal2bbmax);
 
 								if (portal2bbmin.f[indexplus1] <= portalbbmin.f[indexplus1] + 10.0f * mult
 										&& portal2bbmin.f[indexplus2] <= portalbbmin.f[indexplus2] + 10.0f * mult
 										&& portal2bbmax.f[indexplus1] >= portalbbmax.f[indexplus1] - 10.0f * mult
 										&& portal2bbmax.f[indexplus2] >= portalbbmax.f[indexplus2] - 10.0f * mult) {
-									if (otherroom == g_BgPortals[portalnum2].roomnum1) {
-										otherroom2 = g_BgPortals[portalnum2].roomnum2;
-									} else {
-										otherroom2 = g_BgPortals[portalnum2].roomnum1;
-									}
-
 									if (portalbbmin.f[index] > g_Rooms[otherroom2].bbmin[index]) {
 										portalbbmin.f[index] = g_Rooms[otherroom2].bbmin[index];
 									}

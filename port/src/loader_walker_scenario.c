@@ -15,6 +15,7 @@
 #include "fs.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
+#include "system.h"
 
 static s32 s_kindToMode(const char *kind)
 {
@@ -87,6 +88,17 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     char collision_member[FS_MAXPATH];
     char graph_member[FS_MAXPATH];
     char member_path[FS_MAXPATH + 1];
+    s64 room_count = 0;
+
+    if (!loaderWalkerEnvelopeInt(manifest, manifest_len, "room_count",
+                                 &room_count)
+            || room_count < 2 || room_count > 32768) {
+        sysLoudFailf("LOAD.UNIVERSAL.SCENARIO",
+            "missing or invalid room_count in typed archive id=%s path=%s",
+            id ? id : "(null)", file_path ? file_path : "(null)");
+        return -1;
+    }
+
     loaderWalkerEnvelopeInt(manifest, manifest_len, "stagenum", &stagenum);
     loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "kind",
                                  kind, sizeof(kind));
@@ -113,6 +125,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
     loaderWalkerMarkBaseArchiveEntry(e);
     e->ext.scenario.stagenum = (s32)stagenum;
     e->ext.scenario.mode = s_kindToMode(kind);
+    e->ext.scenario.source_room_count = (s32)room_count;
 
     if (loaderWalkerArchiveMemberPath(file_path, scene_member,
                                       member_path, sizeof(member_path))) {
@@ -194,7 +207,7 @@ void loaderWalkerScanScenarios(const char *tier_dir,
                                 loader_walker_kind_result_t *out)
 {
     static const loader_walker_kind_desc_t desc = {
-        "scenario", "scenarios", ".pdscenario",
+        "scenario", "scenarios", ".pdscenario", /* always_invoke: */ 1,
     };
     loaderWalkerScanKind(tier_dir, &desc, s_register, out);
 }

@@ -66,6 +66,24 @@ TEST_CASE("smoke can deliver received archives after a live owner activates",
     requireContains(network, "DISTRIB.CATALOG.RELOAD: id=%s result=%d");
 }
 
+TEST_CASE("smoke can exercise Agent replacement rollback and active deletion",
+    "[save][agent][smoke][d-005][static]")
+{
+    const std::string source = readTextFile("port/src/smoke_harness.c");
+    const std::string scenario = readTextFile(
+        "tools/smoke-verify/tests/agent_profile_failure_rollback_smoke.json");
+
+    requireContains(source, "SMOKE_EVENT_AGENT_ACTIVATE");
+    requireContains(source, "SMOKE_EVENT_AGENT_DELETE");
+    requireContains(source, "!strcmp(type_str, \"agent_activate\")");
+    requireContains(source, "!strcmp(type_str, \"agent_delete\")");
+    requireContains(source, "agentSessionActivate(ev->path)");
+    requireContains(source, "agentSessionDelete(ev->path)");
+    requireContains(source, "active_before='%s' active_after='%s'");
+    requireContains(scenario, "\"type\": \"agent_activate\"");
+    requireContains(scenario, "\"type\": \"agent_delete\"");
+}
+
 TEST_CASE("Needler replacement smoke generates valid then invalid same-slot PDCA",
     "[catalog][network][modding][v009][b1027][static]")
 {

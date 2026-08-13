@@ -35,6 +35,7 @@
 #include "pdgui.h"
 #include "pdgui_theme_loader.h"  /* Issue 2/8: theme rescan after mod apply */
 #include "pdgui_theme.h"         /* S-8: chrome style rescan after mod apply */
+#include "prefs_agent.h"
 
 /* Forward declaration — defined in src/lib/main.c */
 extern void mainChangeToStage(s32 stagenum);
@@ -2099,6 +2100,10 @@ void modmgrSaveConfig(void)
 	modmgrSaveModsEnabledJson();
 	modmgrBuildEnabledList();
 	configSave(CONFIG_PATH);
+	if (prefsAgentGetActive()[0] && prefsAgentSave() != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"modmgr: active Agent Profile did not persist the enabled-mod change");
+	}
 	sysLogPrintf(LOG_NOTE, "modmgr: saved config — enabled mods: %s",
 		g_ModEnabledList[0] ? g_ModEnabledList : "(none)");
 }
@@ -2842,9 +2847,10 @@ void modmgrLoadComponentState(void)
 	}
 }
 
-void modmgrApplyChanges(void)
+static void modmgrApplyChangesInternal(s32 persist_machine_state)
 {
-	sysLogPrintf(LOG_NOTE, "modmgr: applying changes...");
+	sysLogPrintf(LOG_NOTE, "modmgr: applying changes mode=%s...",
+		persist_machine_state ? "persistent" : "transient");
 
 	/* Priority M / B-238 (M-1.5): hot-reload state machine.
 	 *
@@ -2882,12 +2888,13 @@ void modmgrApplyChanges(void)
 		}
 	}
 
-	/* Persist catalog enable state to .modstate (read at next scan) */
-	modmgrSaveComponentState();
-
-	/* Persist legacy modinfo enables -- WITH user intent so config reflects
-	 * what they asked for, not the masked (preserved) state. */
-	modmgrSaveConfig();
+	if (persist_machine_state) {
+		/* User-driven global changes remain the machine default. Agent profile
+		 * activation uses the transient seam so it cannot create a second
+		 * per-agent source in .modstate, mods-enabled.json, or pd.ini. */
+		modmgrSaveComponentState();
+		modmgrSaveConfig();
+	}
 
 	/* Mask enabled for deferred mods so the rebuild keeps them in their
 	 * pre-apply loaded state. After the rebuild we restore intent so the
@@ -2936,6 +2943,16 @@ void modmgrApplyChanges(void)
 	} else {
 		sysLogPrintf(LOG_NOTE, "modmgr: apply complete -- no stage restart");
 	}
+}
+
+void modmgrApplyChanges(void)
+{
+	modmgrApplyChangesInternal(1);
+}
+
+void modmgrApplyChangesTransient(void)
+{
+	modmgrApplyChangesInternal(0);
 }
 
 // ---------------------------------------------------------------------------

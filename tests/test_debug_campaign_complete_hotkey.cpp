@@ -144,3 +144,133 @@ TEST_CASE("ImGui endscreen routes final campaign advance to credits",
 	REQUIRE(render.find("pdguiEndscreenNextMissionLabel()") != std::string::npos);
 	REQUIRE(render.find("pdguiActionBarButton(nextLabel") != std::string::npos);
 }
+
+TEST_CASE("release campaign runner observes strict production progression seams",
+	"[debug][campaign][runner][static][t-tests-002]")
+{
+	const std::string runner =
+		read_text_file_debug_hotkey("port/src/autocampaign.c");
+	const std::string tick =
+		function_block_debug_hotkey(runner, "void autocampaignTick");
+	const std::string first =
+		function_block_debug_hotkey(runner, "static s32 queueFirstMission");
+	const std::string save =
+		read_text_file_debug_hotkey("port/src/savefile.c");
+	const std::string save_header =
+		read_text_file_debug_hotkey("port/include/savefile.h");
+	const std::string save_fn =
+		function_block_debug_hotkey(save, "s32 saveSaveAgent");
+	const std::string save_write_fn =
+		function_block_debug_hotkey(save, "static s32 saveWriteAgentDocument");
+	const std::string player =
+		read_text_file_debug_hotkey("src/game/player.c");
+	const std::string player_header =
+		read_text_file_debug_hotkey("src/include/game/player.h");
+	const std::string skip_request =
+		function_block_debug_hotkey(player, "bool playerRequestCutsceneSkip");
+	const std::string cutscene_tick =
+		function_block_debug_hotkey(player, "void playerTickCutscene");
+
+	REQUIRE(first.find("menuhandlerAcceptMission(MENUOP_SET, NULL, NULL)") !=
+		std::string::npos);
+	REQUIRE(first.find("mainChangeToStage") == std::string::npos);
+	REQUIRE(tick.find("objectivesDebugCompleteCurrentMission()") !=
+		std::string::npos);
+	REQUIRE(tick.find("saveGetLastAgentWriteReceipt(&before)") !=
+		std::string::npos);
+	REQUIRE(tick.find("saveGetLastAgentWriteReceipt(&after)") !=
+		std::string::npos);
+	REQUIRE(tick.find("pdguiEndscreenNextMission()") != std::string::npos);
+	REQUIRE(tick.find("g_MainChangeToStageNum != STAGE_CREDITS") !=
+		std::string::npos);
+	REQUIRE(tick.find("g_Vars.stagenum == STAGE_CREDITS") !=
+		std::string::npos);
+	REQUIRE(tick.find("PRESENCE_ONLINE_IDLE") != std::string::npos);
+	REQUIRE(runner.find("--auto-campaign-through-load") !=
+		std::string::npos);
+	REQUIRE(tick.find("publishEvidenceOrFail(terminal_load") !=
+		std::string::npos);
+	REQUIRE(tick.find("\"transition_complete\"") != std::string::npos);
+	REQUIRE(tick.find(
+		"smokeHarnessExit(0, \"campaign_transition_verified\")") !=
+		std::string::npos);
+	REQUIRE(runner.find("g_DebugSetComplete") == std::string::npos);
+	REQUIRE(runner.find("g_DebugObjectives") == std::string::npos);
+	REQUIRE(runner.find("endscreenContinue(") == std::string::npos);
+	REQUIRE(tick.find("playerRequestCutsceneSkip(g_Vars.currentplayernum, false)") !=
+		std::string::npos);
+	REQUIRE(tick.find("playerSetCutsceneSkipRequested") == std::string::npos);
+	REQUIRE(player_header.find("bool playerRequestCutsceneSkip(s32 playernum, bool skipautocutgroup)") !=
+		std::string::npos);
+	REQUIRE(skip_request.find("state->curtotalframe60f <= 30.0f") !=
+		std::string::npos);
+	REQUIRE(skip_request.find("g_NetMode == NETMODE_CLIENT") !=
+		std::string::npos);
+	REQUIRE(skip_request.find("playerSendCutsceneSkipRequest(playernum)") !=
+		std::string::npos);
+	REQUIRE(skip_request.find("playerSetCutsceneSkipRequested(playernum, true)") !=
+		std::string::npos);
+	REQUIRE(cutscene_tick.find("playerRequestCutsceneSkip(playeridx, cancelorpause ? true : false)") !=
+		std::string::npos);
+
+	REQUIRE(save_header.find("struct saveagentwritereceipt") !=
+		std::string::npos);
+	REQUIRE(save_header.find("saveGetLastAgentWriteReceipt") !=
+		std::string::npos);
+	REQUIRE(save_fn.find("saveWriteAgentDocument(name, &document)") !=
+		std::string::npos);
+	REQUIRE(save_write_fn.find("savePublishAgentWriteReceipt(name, -1)") !=
+		std::string::npos);
+	REQUIRE(save_write_fn.find("savePublishAgentWriteReceipt(name, 0)") !=
+		std::string::npos);
+}
+
+TEST_CASE("campaign smoke requires clean exits and retains restart evidence",
+	"[debug][campaign][runner][smoke][static][t-tests-002]")
+{
+	const std::string smoke =
+		read_text_file_debug_hotkey("tools/smoke-verify/run.ps1");
+	const std::string release =
+		read_text_file_debug_hotkey("tools/smoke-verify/tests/auto_campaign_release.json");
+	const std::string skedar =
+		read_text_file_debug_hotkey("tools/smoke-verify/tests/auto_campaign_skedar_boot.json");
+	const std::string airbase =
+		read_text_file_debug_hotkey("tools/smoke-verify/tests/auto_campaign_airbase_transition_canary.json");
+	const std::string invalid_cli =
+		read_text_file_debug_hotkey("tools/smoke-verify/tests/auto_campaign_invalid_cli.json");
+
+	REQUIRE(smoke.find("$allExited -and $allExitCodesExpected -and $artifactsOk") !=
+		std::string::npos);
+	REQUIRE(smoke.find("ExpectedExitCode") != std::string::npos);
+	REQUIRE(smoke.find("retain_artifacts") != std::string::npos);
+	REQUIRE(smoke.find("BinarySha256") != std::string::npos);
+	REQUIRE(smoke.find("DefinitionSha256") != std::string::npos);
+
+	REQUIRE(release.find("missions=17") != std::string::npos);
+	REQUIRE(release.find("campaign_release_run.json") != std::string::npos);
+	REQUIRE(release.find("campaign_release_verify.json") != std::string::npos);
+	REQUIRE(release.find("agent_smoke_after_campaign.json") != std::string::npos);
+	REQUIRE(release.find("campaign_complete") != std::string::npos);
+	REQUIRE(release.find("campaign_verified") != std::string::npos);
+
+	REQUIRE(skedar.find("start=16 final=16 missions=1") != std::string::npos);
+	REQUIRE(skedar.find("system:credits") != std::string::npos);
+
+	REQUIRE(airbase.find("--auto-campaign-through-load") !=
+		std::string::npos);
+	REQUIRE(airbase.find("start=9 final=10 missions=2") !=
+		std::string::npos);
+	REQUIRE(airbase.find("campaign_transition_verified") !=
+		std::string::npos);
+	REQUIRE(airbase.find("MEMP\\\\.CANARY\\\\.CORRUPT") !=
+		std::string::npos);
+
+	REQUIRE(invalid_cli.find("--auto-campaign-through-load") !=
+		std::string::npos);
+	REQUIRE(invalid_cli.find("--auto-campaign-through-load requires --auto-campaign") !=
+		std::string::npos);
+	REQUIRE(invalid_cli.find("\"expected_exit_code\": 2") !=
+		std::string::npos);
+	REQUIRE(invalid_cli.find("CAMPAIGN\\\\.AUTO: plan profile=") !=
+		std::string::npos);
+}

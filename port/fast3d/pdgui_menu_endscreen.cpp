@@ -37,6 +37,7 @@
 #include "menugraph.h"
 #include "achievements.h"
 #include "pdgui_achievement_toast.h"
+#include "pdgui_campaign_bridge.h"
 
 /* ========================================================================
  * Forward declarations (C boundary — cannot include types.h)
@@ -103,13 +104,8 @@ char *endscreenMenuTitleStageFailed(struct menuitem *item);
 s32 pdguiEndscreenGetDifficulty(void);
 const char *pdguiEndscreenGetCheatTimedName(void);
 const char *pdguiEndscreenGetCheatComplName(void);
-void pdguiEndscreenStartMission(void);
-void pdguiEndscreenNextMission(void);
-void pdguiEndscreenExitToMainMenu(void);
 void pdguiEndscreenExitToRoom(void); /* Networked MP exit-to-room variant. */
 void netSendLobbyResync(void); /* v49 CLC_LOBBY_RESYNC client helper. */
-s32 pdguiEndscreenHasNextMission(void);
-const char *pdguiEndscreenNextMissionLabel(void);
 s32 pdguiEndscreenGetPlacementIndex(void);
 const char *pdguiEndscreenGetTitle(void);
 s32 pdguiEndscreenTitleChanged(void);

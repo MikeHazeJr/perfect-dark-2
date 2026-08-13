@@ -10,12 +10,12 @@
  * codes are per-agent; any subsystem that publishes the local identity
  * (presence pings, p2p LAN broadcast, voice peer handshakes, group
  * session handle, chat presence) must stay COLD -- no socket bound, no
- * tick body running -- until prefsAgentLoad fires.
+ * tick body running -- until unified Agent Profile activation commits.
  *
  * This module owns the lifecycle:
  *
- *   socialHubBringOnline()  -- called from prefsAgentLoad (and the CLI
- *                              fast-path bootLaunchLoadAgentTick).
+ *   socialHubBringOnline()  -- called from the shared profile activation
+ *                              used by Agent Select and the CLI fast path.
  *                              Runs all the online subsystem inits in
  *                              the same order mainInit used to. Idempotent.
  *

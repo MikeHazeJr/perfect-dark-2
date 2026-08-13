@@ -1,6 +1,6 @@
 # Theme Bundling + Per-Agent Settings (S305 design)
 
-**Status**: partial (theme bundle plumbing stubbed in S305; per-agent is design only).
+**Status**: superseded in part by D-005 option A (2026-08-12).
 **Owner**: Mike + Claude.
 **Date**: 2026-04-16.
 
@@ -69,6 +69,17 @@ Missing pieces (queued for a follow-up):
 ---
 
 ## Per-Agent Settings (design only — no code this session)
+
+### 2026-08-12 ownership decision
+
+D-005 option A supersedes the sidecar storage proposal below. The one
+Agent-specific current JSON document owns campaign state and all per-agent
+preferences. `pd.ini` remains the machine-default source before sign-in.
+Existing exact legacy v2 Agent JSON plus an optional `prefs_<agent>.ini` file is
+a migration input only: both are parsed and validated into one candidate, the
+current JSON is replaced atomically, and the sidecar is retired after commit.
+Current profiles never read or write a sidecar. The older proposal remains
+below as migration history, not as the target architecture.
 
 ### Problem
 

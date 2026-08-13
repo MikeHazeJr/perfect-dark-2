@@ -1,5 +1,177 @@
 # Session Log (Active)
 
+## 2026-08-12 - Milestone 1 Agent Profile Store and campaign gate validated
+
+Goal: complete D-005 option A as one durable profile lifecycle and restore
+T-TESTS-002 only after executable failure, migration, rollback, UI, CLI, and
+campaign receipts passed. This matters because campaign progression and player
+preferences cannot be release-ready while separate stores can partially commit
+or an incomplete legacy file can silently erase state.
+
+Agent Profile v3 is now the sole per-agent authority for campaign state and
+preferences. The strict codec accepts only complete v3 or the exact legacy v2
+writer shape, optionally overlays one validated `prefs_<agent>.ini` candidate,
+atomically replaces the JSON, and retires the sidecar after commit. Current
+profiles never consult sidecars. Create, copy, activate, save, and delete share
+the same lifecycle. Activation prepares all fallible input before committing
+game state, preferences, social identity, hub, and presence; failure preserves
+the prior live Agent, and deletion of that active Agent is rejected. Settings,
+mod enablement, update preferences, pause options, and local Combat Simulator
+playlist mutations now save through the active v3 document.
+
+The final matrix passed exact migration and restart 24/24 at
+`.claude/smoke-verify-runs/results-20260813T030531Z.json`, corrupt activation
+rollback plus active-delete rejection 21/21 at
+`results-20260813T030952Z.json`, and ordinary Agent Select 20/20 at
+`results-20260813T031306Z.json`. B-1062 now validates CLI relationships before
+arming. Its final ordinary client rejected standalone
+`--auto-campaign-through-load`, emitted the exact invalid-plan reason, armed no
+plan, and exited 2 with 12/12 at `results-20260813T032640Z.json`.
+
+B-1063 was exposed by the original long migration path and fixed at the private
+cache boundary. Generated caches now prefer path-checked `$H/mod-cache`, admit
+`$S` or `$B` only when the expanded Windows path fits, use one 128-bit filename
+key, and retain the full source SHA-256 inside descriptors. The passing 24/24
+migration log has 594 `$H` references, no `$S` or `$B` fallback, and no fatal
+signature.
+
+The final isolated build produced client SHA-256
+`9BC837488A34B1D2A99171558E994E7E6CBDA3DE713D9518253A2079E7D10010` and
+test SHA-256
+`34754BF9DC06CB970E2299564282E092E0139ECCE813CF69FF15773E0F4E31A4`.
+The focused D-005/B-1063 selector passes 1,475 assertions across 29 cases, the
+complete suite passes 57,277 assertions across 1,070 cases, and the mandatory
+native-source guard passes. On the final client, all 17 base missions loaded,
+completed, saved, and routed in order; Skedar Ruins reached live Credits; a
+second client reloaded all 17 best times from v3 with preferences intact. That
+release gate passed 23/23 at
+`.claude/smoke-verify-runs/results-20260813T032847Z.json`. The 2,869-input
+source/harness fingerprint was unchanged before and after at
+`89D6477D6D6BD95DABFB896DE73EAB92BC2916539F8E1C46437B91BA776C9281`.
+
+T-TESTS-002 is validated. B-1061, B-1062, and B-1063 moved from active defects
+to locked release regression gates. Milestone 1 now has 3 closed, 6 partial,
+and 6 missing leaves. The next default structural task is T-ENGINE-004.
+Workbench decision D-005 remains `decided`; options B and C remain only in its
+rejected trade-off history.
+
+## 2026-08-12 - Milestone 1 full-campaign runner and canonical room domains
+
+Goal: establish a reusable production-path campaign release gate, then fix every
+structural defect it exposed instead of teaching the smoke to skip failures.
+This matters because Milestone 1 requires all graph-backed base-game paths to be
+real and repeatable, not merely reachable in isolated tests.
+
+Implemented a strict campaign plan/evidence layer with exact mission,
+difficulty, objective, save, unlock, route, profile, and social-state checks.
+The runner uses the authoritative completion and ImGui end-screen paths, reaches
+live Credits after Skedar Ruins, writes atomic evidence, and starts a second
+ordinary client to prove the same versioned JSON agent persisted. A bounded
+`--auto-campaign-through-load` mode now verifies exact transition slices without
+manufacturing unrelated unlocks.
+
+The runner exposed and drove structural repairs for production cutscene-skip
+authority, pseudo-character `set_return_list` state, AI list-identity progress,
+and B-1060's incomplete room domain. B-1060 is fixed by preserving the declared
+room count across extraction, public archive conformance, catalog/loader
+hydration, allocation, and shared checked portal traversal. The exact Air Base
+to Air Force One canary passed 25/25 at
+`.claude/smoke-verify-runs/results-20260812T224455Z.json`.
+
+The final source-frozen full campaign passed 23/23 at
+`.claude/smoke-verify-runs/results-20260812T224901Z.json` using client SHA-256
+`7909761878BF02061817BCCE6AC85173A8DAC9FF466F2C52078DB195BF5F9DFC`.
+All 17 missions completed and saved in order, Skedar Ruins routed to live
+Credits, both processes exited cleanly, and restart verification found all 17
+best times. The 3,049-file source fingerprint was unchanged at
+`8AB71B6A5BF3A553DA2EDFD474C4EABBB35A316B834DF0E13E559F0ABFBA4D7D`.
+B-1060 moved from the active bug list to a locked release regression gate.
+
+Completed that final split with one JSON-native Agent Profile Store and one
+`agentSessionActivate` transaction shared by Agent Select and CLI automation.
+The profile name is the sole stable identity; list/create/copy/delete enforce
+the 30-profile capacity and case-insensitive uniqueness. Parsing and semantic
+validation complete in a candidate before live commit, full gamefile flags and
+challenge state are preserved, and failure leaves the previous active profile
+untouched. Agent Select and Agent Create no longer pass through legacy pak IDs
+or `filemgrSaveOrLoad`.
+
+The source-frozen client, updater, and test build passed. Final focused tests
+pass 279 assertions across 21 cases; the complete suite passes 57,136 across
+1,088 expanded sections. Shared CLI activation passed 28/28 at
+`.claude/smoke-verify-runs/results-20260812T232456Z.json`. The ordinary title
+and Agent Select input path, isolated in a test-owned save directory, loaded
+the exact staged `smoke` profile and reached the live main menu with 20/20 at
+`.claude/smoke-verify-runs/results-20260812T233623Z.json`. Native-source guard,
+conformance selftest, and the 28-root/52-archive example matrix pass. The final
+3,051-file source/harness fingerprint remained
+`29C98450E8A50A578D3FA17440F019AD08195921F4F31E13487F448BCBAD85D2`.
+An exploratory complete extracted-tree conformance run was rejected as evidence
+because it reached the known separate voice-archive metadata backlog; it is not
+reported as a pass or as a regression in this unit.
+
+That initial validation was later reopened by the D-005 audit. The final
+profile, cache, CLI, and campaign closure plus the current Milestone 1 counts
+are recorded in the newer session entry above.
+
+## 2026-08-12 - Canonical 1.0 Workbench and bug-ledger consolidation
+
+Goal: turn the approved D-004 scope into a deterministic new-session route and
+remove stale tracker noise without deleting permanent IDs or historical
+evidence. This matters because the old Workbench still exposed overlapping
+legacy cards, while `context/bugs.md` mixed 623 fixed, partial, malformed, and
+open rows under an "Open Bugs" heading.
+
+Created T-RELEASE-002 through T-RELEASE-006 as five ordered milestones for base
+game/graphs, Theater, sample weapon, friend play/performance, and release-
+candidate qualification. Created V-013 as the final source-frozen 1.0 gate,
+made T-RELEASE-001 depend on D-004 plus milestone 5, and recorded Mike's exact
+new-session prompt as incorporated Workbench note N-0036. The route requires
+each progress message to state the milestone, recomputed progress, immediate
+goal, and why it matters, while favoring shared structural/infrastructural
+solutions over local pass-only patches.
+
+Sixteen unreferenced standalone legacy cards were marked `cut` in the
+`historical-cut` lane with explicit supersession targets; none were deleted and
+no required 1.0 behavior was waived. Five overlapping GPU benchmark cards were
+consolidated into post-1.0 T-BENCHMARKING-006. Queue Match and D-001 were moved
+post-1.0, and T-NETWORKING-008 now owns optional post-1.0 authority migration
+instead of duplicating D-003. Remaining release tasks were condensed into
+current completion contracts. T-NETWORKING-001/002/003/005/006/007 moved from
+the historical-import lane into Milestone 4 with distinct D-003-safe candidate,
+route, lifecycle, consolidation, and co-op contracts. No unfinished item remains
+in historical-import. A-ASSETS-001 now owns all 27 family rows and V-010 routes
+through that umbrella, eliminating the last four unfinished family-audit orphans.
+All 36 Workbench notes are now terminal, with no `new` or merely `acknowledged`
+note left behind.
+
+Archived the exact 1,227,583-byte former bug ledger at
+`context/_old/bugs/2026/bugs-through-2026-08-12-pre-v1-consolidation.md` with
+SHA-256
+`80A567D268C22901B6117AF310BE206336EC5CC9A9E61B221172F20296093D4E`.
+The live 110-line ledger now contains five current one-off 1.0 defects,
+Workbench-owned regression clusters, B-1054 through B-1059 locked regression
+gates, and three explicit post-1.0 bugs. The malformed/truncated historical rows
+remain available only in the archive.
+
+Archived the exact 127,142-byte former task ledger at
+`context/_old/tasks/2026/tasks-through-2026-08-12-pre-v1-consolidation.md` with
+SHA-256
+`2DDF4541E7B2FD753F296158EB8991831BF4572834D38C00A40545868087F9DF`.
+The live task summary now mirrors the five Workbench milestones and names
+Milestone 1's current default focus: establish the V-010 matrix and complete the
+T-TESTS-002 campaign-runner foundation before closing concrete production gaps.
+
+No source, build, game, smoke, hook, or Workbench-tooling implementation file
+was changed. No build was required for this data/context-only consolidation.
+An independent GPT-5.6 Luna xhigh read-only audit confirmed the 152-item graph
+is acyclic with no dangling dependencies, no cut release item, all 23 release
+items reachable, truthful milestone progress, preserved D-003/D-004 scope, and
+adequate bug regression routing. It found one stale README pillar-index value;
+that entry now matches authoritative MPSETUP_VERSION 3 and NET_PROTOCOL_VER 53.
+Next session should recompute Workbench dependency progress, select
+T-RELEASE-002, and claim one unowned Milestone 1 dependency.
+
 ## 2026-08-12 - D-003 option A production-verified
 
 Goal: keep friend/group discovery peer-to-peer while routing each accepted
@@ -4941,3 +5113,21 @@ distribution receipts remain T-ASSETS-025. Durable detail:
   path tests pass 3,654/20, long-effect-member 9/1, full tests 56,562/1,027,
   native-source guard, selftest, and 28-root/52-recursive all-family
   conformance pass. Workbench T-CATALOG-003 is implemented.
+
+## 2026-08-12 - D-004 defines the 1.0 product contract
+
+- Mike selected a complete base-game plus Theater release instead of the older
+  full Forge-platform definition. All shipped base-game systems and accepted
+  graph surfaces require production consumers and parity evidence under V-010.
+- Created T-THEATER-001/V-011 for restart-safe Campaign and Combat Simulator
+  recording, listing, loading, coherent playback, pause/seek, shared spectator
+  controls, and corrupt/interrupted-file handling. The current participant-only
+  `.pdth` implementation is explicitly recorded as a partial foundation.
+- Created T-MODDING-008/V-012 for a minimal graph-backed three-round-burst or
+  alternate-projectile sample weapon that is enabled and usable in Match Setup
+  custom slots through local and listen-host gameplay.
+- Created T-RELEASE-001 as the canonical release umbrella. Forge maps/map
+  variants, Studio, broad modding pipeline tooling, V-007, and Needler-specific
+  polish moved to post-1.0. T-MODINFRASTRUCTURE-003 remains a 1.0 gate so
+  AllInOne content is separated from base-game authority.
+- No runtime source changed and no build or gameplay verification was claimed.

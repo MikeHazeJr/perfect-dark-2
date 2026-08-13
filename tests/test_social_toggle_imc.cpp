@@ -257,6 +257,7 @@ TEST_CASE("Social presence and invites use per-agent identity and stale-offline 
     const std::string socialStore = readTextFile("port/src/social_store.c");
     const std::string presence = readTextFile("port/src/presence.c");
     const std::string prefsAgent = readTextFile("port/src/prefs_agent.c");
+    const std::string agentSession = readTextFile("port/src/agent_session.c");
     const std::string friends = readTextFile("port/fast3d/pdgui_friends.cpp");
     const std::string group = readTextFile("port/src/net/group_session.c");
 
@@ -264,6 +265,7 @@ TEST_CASE("Social presence and invites use per-agent identity and stale-offline 
     REQUIRE_FALSE(socialStore.empty());
     REQUIRE_FALSE(presence.empty());
     REQUIRE_FALSE(prefsAgent.empty());
+    REQUIRE_FALSE(agentSession.empty());
     REQUIRE_FALSE(friends.empty());
     REQUIRE_FALSE(group.empty());
 
@@ -279,7 +281,9 @@ TEST_CASE("Social presence and invites use per-agent identity and stale-offline 
     REQUIRE(presence.find("socialHandleBindsPubkeyForAgent(from_handle, sender_pub, agent)") != std::string::npos);
     REQUIRE(presence.find("socialFriendUpdateAgentName(f->connect_code, agent)") != std::string::npos);
     REQUIRE(presence.find("*out_port = PRESENCE_PORT;") != std::string::npos);
-    REQUIRE(countSubstring(prefsAgent, "socialHubBringOnline();") >= 2);
+    REQUIRE(prefsAgent.find("void prefsAgentPublishActive(const char *agent_name)") != std::string::npos);
+    REQUIRE(countSubstring(prefsAgent, "socialHubBringOnline();") == 1);
+    REQUIRE(agentSession.find("prefsAgentPublishActive(name);") != std::string::npos);
 
     REQUIRE(friends.find("if (actionButton(\"Invite\"))") != std::string::npos);
     REQUIRE(friends.find("const bool can_invite") == std::string::npos);

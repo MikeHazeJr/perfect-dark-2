@@ -1275,14 +1275,79 @@ TEST_CASE("menu graph: Agent Select load create and back use graph helpers", "[i
     REQUIRE_FALSE(render.empty());
 
     REQUIRE(load.find("menupoolReleaseDialog(payload->release_def)") != std::string::npos);
-    REQUIRE(load.find("filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0)") != std::string::npos);
-    REQUIRE(load.find("prefsLoadForFile(payload->file)") != std::string::npos);
+    REQUIRE(load.find("agentSessionActivate(payload->name)") != std::string::npos);
+    REQUIRE(load.find("filemgrSaveOrLoad") == std::string::npos);
+    REQUIRE(render.find("agentSessionListProfiles") == std::string::npos);
+    REQUIRE(agent.find("refreshAgentProfiles") != std::string::npos);
+    REQUIRE(agent.find("Agent.DefaultName") != std::string::npos);
+    REQUIRE(agent.find("Agent.DefaultFileId") == std::string::npos);
+    REQUIRE(agent.find("g_FileLists") == std::string::npos);
+    REQUIRE(agent.find("g_GameFileGuid") == std::string::npos);
     REQUIRE(render.find("menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, \"load\"") != std::string::npos);
     REQUIRE(findAll(render, "menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, \"load\"").size() >= 2);
     REQUIRE(render.find("menuGraphFirePushDialog(MENU_TYPE_AGENT_SELECT, \"create\"") != std::string::npos);
     REQUIRE(render.find("menuGraphFirePop(MENU_TYPE_AGENT_SELECT, \"back\")") != std::string::npos);
     REQUIRE(render.find("menuPushDialog(&g_FilemgrEnterNameMenuDialog)") == std::string::npos);
     REQUIRE(render.find("menuPopDialog()") == std::string::npos);
+}
+
+TEST_CASE("Agent profile UI uses one JSON-native store for create copy delete and activation",
+          "[input][agent][save][static]")
+{
+    const std::string select = readTextFile("port/fast3d/pdgui_menu_agentselect.cpp");
+    const std::string create = readTextFile("port/fast3d/pdgui_menu_agentcreate.cpp");
+    const std::string session = readTextFile("port/src/agent_session.c");
+    const std::string save = readTextFile("port/src/savefile.c");
+
+    REQUIRE_FALSE(select.empty());
+    REQUIRE_FALSE(create.empty());
+    REQUIRE_FALSE(session.empty());
+    REQUIRE_FALSE(save.empty());
+
+    REQUIRE(session.find("saveLoadAgent(name)") != std::string::npos);
+    REQUIRE(session.find("prefsAgentPublishActive(name)") != std::string::npos);
+    REQUIRE(session.find("saveCreateAgent(name)") != std::string::npos);
+    REQUIRE(session.find("saveCopyAgent(source_name, destination_name)") != std::string::npos);
+    REQUIRE(session.find("saveDeleteAgent(name)") != std::string::npos);
+
+    REQUIRE(select.find("agentSessionActivate") != std::string::npos);
+    REQUIRE(select.find("agentSessionCopy") != std::string::npos);
+    REQUIRE(select.find("agentSessionDelete") != std::string::npos);
+    REQUIRE(create.find("agentSessionCreate(s_AgentName)") != std::string::npos);
+    REQUIRE(select.find("filemgrSaveOrLoad") == std::string::npos);
+    REQUIRE(create.find("filemgrSaveOrLoad") == std::string::npos);
+    REQUIRE(create.find("filemgrPushSelectLocationDialog") == std::string::npos);
+
+    REQUIRE(save.find("saveParseAgentDocument") != std::string::npos);
+    REQUIRE(save.find("saveCommitAgentDocument(&candidate)") != std::string::npos);
+    REQUIRE(save.find("strcasecmp(existing[i].name, name) == 0") != std::string::npos);
+    REQUIRE(save.find("strcasecmp(existing[i].name, destination_name) == 0") != std::string::npos);
+    REQUIRE(save.find("challengeDetermineUnlockedFeatures()") != std::string::npos);
+    REQUIRE(save.find("gamefileApplyOptions(&g_GameFile)") != std::string::npos);
+}
+
+TEST_CASE("Agent preference mutations persist through the unified JSON writer",
+          "[input][agent][save][preferences][static]")
+{
+    const std::string mainmenu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+    const std::string solo = readTextFile("port/fast3d/pdgui_menu_solomission.cpp");
+    const std::string tunes = readTextFile("port/fast3d/pdgui_menu_mpsettings.cpp");
+    const std::string mods = readTextFile("port/src/modmgr.c");
+    const std::string updater = readTextFile("port/src/updater.c");
+
+    REQUIRE(mainmenu.find("prefsAgentSave();") != std::string::npos);
+    REQUIRE(solo.find("configSave(\"pd.ini\");\n        prefsAgentSave();") !=
+        std::string::npos);
+    REQUIRE(tunes.find("audioSetModShuffle(shuffle ? 1 : 0);\n            prefsAgentSave();") !=
+        std::string::npos);
+    REQUIRE(tunes.find("audioRemoveModPlaylistEntry(cid);\n                    prefsAgentSave();") !=
+        std::string::npos);
+    REQUIRE(tunes.find("audioClearModPlaylist();\n                    prefsAgentSave();") !=
+        std::string::npos);
+    REQUIRE(mods.find("prefsAgentGetActive()[0] && prefsAgentSave() != 0") !=
+        std::string::npos);
+    REQUIRE(updater.find("prefsAgentGetActive()[0] && prefsAgentSave() != 0") !=
+        std::string::npos);
 }
 
 TEST_CASE("menu graph: Firing Range difficulty start and cancel use graph edges", "[input][menu_graph][training][static]")

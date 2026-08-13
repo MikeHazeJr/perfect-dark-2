@@ -2459,6 +2459,56 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
             label, "objectives.json", objectives_text,
             MISSION_OBJECTIVES_HEADER
         ))
+
+
+SCENARIO_ROOM_COUNT_MIN = 2
+SCENARIO_ROOM_COUNT_MAX = 32768
+
+
+def parse_scenario_room_count_text(label: str, text: str | None,
+                                   errors: list[str]) -> int | None:
+    if not text:
+        errors.append(
+            f"{label} scenario.ini must declare source_room_count"
+        )
+        return None
+    try:
+        value = int(text, 10)
+    except ValueError:
+        errors.append(
+            f"{label} scenario.ini source_room_count must be an integer"
+        )
+        return None
+    if not SCENARIO_ROOM_COUNT_MIN <= value <= SCENARIO_ROOM_COUNT_MAX:
+        errors.append(
+            f"{label} scenario.ini source_room_count must be between "
+            f"{SCENARIO_ROOM_COUNT_MIN} and {SCENARIO_ROOM_COUNT_MAX}"
+        )
+        return None
+    return value
+
+
+def parse_scenario_room_count_manifest(label: str, value: object,
+                                       errors: list[str]) -> int | None:
+    if value is None:
+        errors.append(
+            f"{label} _meta/manifest.json must declare room_count"
+        )
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        errors.append(
+            f"{label} _meta/manifest.json room_count must be an integer"
+        )
+        return None
+    if not SCENARIO_ROOM_COUNT_MIN <= value <= SCENARIO_ROOM_COUNT_MAX:
+        errors.append(
+            f"{label} _meta/manifest.json room_count must be between "
+            f"{SCENARIO_ROOM_COUNT_MIN} and {SCENARIO_ROOM_COUNT_MAX}"
+        )
+        return None
+    return value
+
+
 def validate_scenario_source_contract(label: str, zf: zipfile.ZipFile,
                                       name_set: set[str],
                                       errors: list[str]) -> None:
@@ -2474,6 +2524,21 @@ def validate_scenario_source_contract(label: str, zf: zipfile.ZipFile,
     if not manifest:
         errors.append(f"{label} _meta/manifest.json is invalid JSON")
         return
+
+    source_room_count = parse_scenario_room_count_text(
+        label, descriptor_values.get("source_room_count"), errors
+    )
+    manifest_room_count = parse_scenario_room_count_manifest(
+        label, manifest.get("room_count"), errors
+    )
+    if (source_room_count is not None
+            and manifest_room_count is not None
+            and source_room_count != manifest_room_count):
+        errors.append(
+            f"{label} scenario.ini source_room_count must match "
+            f"_meta/manifest.json room_count "
+            f"({source_room_count} != {manifest_room_count})"
+        )
 
     scene_file = descriptor_values.get("scene_file")
     runtime_source = descriptor_values.get("runtime_source_file")
@@ -5242,7 +5307,9 @@ def validate_volumes_json_schema(label: str, entry_name: str,
 
 
 def validate_portals_json_schema(label: str, entry_name: str,
-                                 text: str) -> tuple[int, list[str]]:
+                                 text: str,
+                                 source_room_count: int | None = None
+                                 ) -> tuple[int, list[str]]:
     errors: list[str] = []
     try:
         parsed = json.loads(text)
@@ -5271,11 +5338,31 @@ def validate_portals_json_schema(label: str, entry_name: str,
             errors.append(
                 f"{label} {entry_name} row {idx} portal_ref must preserve portal order"
             )
+        parsed_rooms: list[int] = []
         for room_key in ("room_a", "room_b"):
-            if not re.match(r"^room_-?\d+$", str(row.get(room_key, ""))):
+            room_match = re.fullmatch(
+                r"room_(-?\d+)", str(row.get(room_key, ""))
+            )
+            if not room_match:
                 errors.append(
                     f"{label} {entry_name} row {idx} {room_key} must be room_#"
                 )
+                continue
+            roomnum = int(room_match.group(1))
+            parsed_rooms.append(roomnum)
+            if roomnum <= 0:
+                errors.append(
+                    f"{label} {entry_name} row {idx} {room_key} must reference a positive room"
+                )
+            elif source_room_count is not None and roomnum >= source_room_count:
+                errors.append(
+                    f"{label} {entry_name} row {idx} {room_key} room {roomnum} "
+                    f"exceeds source_room_count {source_room_count}"
+                )
+        if len(parsed_rooms) == 2 and parsed_rooms[0] == parsed_rooms[1]:
+            errors.append(
+                f"{label} {entry_name} row {idx} must connect two different rooms"
+            )
         flags = row.get("flags")
         if not (isinstance(flags, int) or
                 (isinstance(flags, str) and re.match(r"^0x[0-9a-fA-F]+$", flags))):
@@ -6198,6 +6285,13 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
 
             if ext == ".pdscenario" and descriptor in name_set:
                 text = zf.read(descriptor).decode("utf-8", errors="replace")
+                descriptor_values = parse_ini_values(text)
+                # validate_scenario_source_contract records descriptor and
+                # manifest errors; this value only supplies the portal-bound
+                # check below without duplicating those diagnostics.
+                source_room_count = parse_scenario_room_count_text(
+                    label, descriptor_values.get("source_room_count"), []
+                )
                 if "scene.glb" in name_set:
                     validate_scene_glb_texture_contract(
                         label, zf.read("scene.glb"), result.errors
@@ -6245,7 +6339,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         "utf-8", errors="replace"
                     )
                     portal_row_count, portal_errors = validate_portals_json_schema(
-                        label, "portals.json", portals_text
+                        label, "portals.json", portals_text,
+                        source_room_count=source_room_count,
                     )
                     result.errors.extend(portal_errors)
                 if "objectives_file = objectives.json" not in text:

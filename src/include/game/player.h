@@ -42,6 +42,7 @@ bool playerCutsceneInProgress(s32 playernum);
 bool playerAnyCutsceneInProgress(void);
 bool playerCurrentCutsceneInProgress(void);
 void playerSetCutsceneSkipRequested(s32 playernum, bool skiprequested);
+bool playerRequestCutsceneSkip(s32 playernum, bool skipautocutgroup);
 bool playerCutsceneSkipRequested(s32 playernum);
 bool playerAnyCutsceneSkipRequested(void);
 bool playerCurrentCutsceneSkipRequested(void);

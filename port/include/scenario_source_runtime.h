@@ -763,8 +763,12 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp, s32 *out_size);
 u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp, s32 *out_size, s32 *out_rooms, s32 *out_tiles);
+s32 scenarioSourceResolveRoomCountForStage(
+	const catalog_stage_result_t *stage, s32 prefer_mp,
+	s32 mesh_max_room, s32 *out_room_count);
 struct bgportal *scenarioSourceLoadPortalsForStage(
-	const catalog_stage_result_t *stage, s32 prefer_mp, s32 *out_count);
+	const catalog_stage_result_t *stage, s32 prefer_mp, s32 room_count,
+	s32 *out_count);
 u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp, s32 *out_count, s32 *out_max_room);
 

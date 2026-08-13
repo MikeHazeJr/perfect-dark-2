@@ -1,0 +1,8 @@
+{
+  "scenario_name": "campaign_invalid_cli_process",
+  "description": "Child harness for a fail-closed campaign CLI relationship check.",
+  "timeout_seconds": 120,
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "The production campaign planner must reject the invalid CLI before arming." }
+  ]
+}

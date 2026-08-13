@@ -968,15 +968,34 @@ NAT traversal completes in Phase 1 (all 5 tiers); Phase 2 reorients around socia
 
 ### Phase 6 -- Theater (saved-match playback)
 
-**Scope:** Theater driver feeding the same Phase 5 subsystem.
+**Scope:** Theater driver feeding the same Phase 5 subsystem. D-004 expands
+the original spectator-stream concept into a 1.0 replay system for both
+Campaign and Combat Simulator.
 
-- Match-recording infrastructure (write `SVC_*` stream to disk).
-- Replay file format.
-- Theater UI: browse saved matches, play, pause, seek.
+- Authoritative match-recording infrastructure for ordinary local Campaign,
+  local Combat Simulator, and listen-host Combat Simulator where the capture
+  path differs.
+- A versioned, bounded, fail-closed replay format containing exact stage,
+  mode, difficulty/options, catalog/manifest identity, participants/bots,
+  initial checkpoint, ordered simulation events or state checkpoints, and an
+  index sufficient for pause and seek.
+- Coherent replay of objectives/cutscenes, actors, weapons/projectiles,
+  props/doors/lifts, effects, scores/timers, and match end. A participant-only
+  ghost overlay is not Theater completion.
+- Theater UI: browse saved matches, play, pause, seek, stop, report invalid or
+  incompatible files, and return cleanly to the menu.
+- Crash/interrupted-write recovery, format migration policy, strict length and
+  version validation, and no serialization of private/non-replayable data.
 
 **Dependencies:** Phase 5 (the unified subsystem). Theater is the second driver; the camera + controls + UI are reused.
 
-**Exit criteria:** record a match, exit, find it in Theater, play it back with full camera control. Don't-build-Theater-twice rule (Section 5.2) holds: zero new camera / control / UI code; only the recorder + replay parser are Theater-specific.
+**Exit criteria:** record one Campaign session and one Combat Simulator match,
+exit the process, restart, find each recording, and replay each coherently with
+play/pause/seek/stop plus first-person, third-person, and free-fly controls.
+Completed, interrupted, corrupt, oversized, and incompatible files fail safely.
+The don't-build-Theater-twice rule holds: camera, follow, subset, and observer
+input behavior remain shared with spectator mode, while recording, indexing,
+world reconstruction, and replay-file parsing are Theater-specific.
 
 ---
 

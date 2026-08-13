@@ -13,8 +13,8 @@
  *
  * Boot order post-change:
  *   mainInit() calls only socialInit (local-only -- friends/blocks
- *   on disk). All online subsystems wait for prefsAgentLoad to fire
- *   socialHubBringOnline().
+ *   on disk). All online subsystems wait for unified Agent Profile
+ *   activation to fire socialHubBringOnline().
  *
  * Idempotence: BringOnline is safe to call multiple times. The
  * underlying init functions have their own internal guards; we only

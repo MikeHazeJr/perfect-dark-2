@@ -5,6 +5,20 @@
 
 ## Highlights
 
+- Defined the 1.0 release as a complete graph-backed base game, usable Campaign
+  and Combat Simulator Theater, one custom-slot sample weapon, hardened friend
+  play/performance, and a single source-frozen release-candidate gate.
+- Added a strict full-campaign release runner that verifies all 17 missions,
+  objective completion, unlock routing, saves, social state, live Credits, and
+  restart persistence through ordinary clients.
+- Unified campaign state and per-agent preferences in one versioned Agent JSON,
+  with atomic exact-v2 migration, fail-closed activation, and rollback.
+- Made Agent Select, CLI automation, settings, mods, playlists, and updates use
+  the same profile lifecycle, while refusing deletion of the active Agent.
+- Kept generated asset caches inside checked Windows path limits without tying
+  them to arbitrarily nested save directories or weakening source-hash identity.
+- Preserved each scenario's declared room domain through loading and portal
+  traversal, preventing Air Base's portal-only rooms from corrupting teardown.
 - Routed friend matches through one elected in-client listen authority using a
   separately signed server route, one join per peer, and retry-free rollback.
 - Measured real session upload traffic passively and used fresh signed reports

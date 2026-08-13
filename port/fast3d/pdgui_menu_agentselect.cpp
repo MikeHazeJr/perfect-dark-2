@@ -35,95 +35,24 @@
 #include "inputctx.h"
 #include "menupool.h"
 #include "menugraph.h"
+#include "agent_session.h"
 
 extern "C" {
 
 extern struct menudialogdef g_FilemgrFileSelectMenuDialog;
 extern struct menudialogdef g_FilemgrEnterNameMenuDialog;
+extern struct menudialogdef g_CiMenuViaPcMenuDialog;
 
 /* Config system — for storing default agent */
 s32 configSave(const char *fname);
-void configRegisterInt(const char *key, s32 *var, s32 min, s32 max);
+void configRegisterString(const char *key, char *var, u32 maxstr);
 
-struct filelistfile {
-    s32 fileid;
-    u16 deviceserial;
-    char name[16];
-};
-
-struct fileguid {
-    s32 fileid;
-    u16 deviceserial;
-};
-
-struct filelist {
-    struct filelistfile files[30];
-    s16 numfiles;
-    s8 spacesfree[5];
-    struct fileguid deviceguids[5];
-    s8 devicestartindexes[5];
-    s8 unk305[5];
-    u8 numdevices;
-    u8 filetype;
-    u8 timeuntilupdate;
-    u8 unk30d;
-    u8 updatedthisframe;
-};
-
-extern struct filelist *g_FileLists[4];
-extern struct fileguid g_GameFileGuid;
-
-void gamefileGetOverview(char *arg0, char *name, u8 *stage,
-                         u8 *difficulty, u32 *time);
-
-struct gamefile;
-extern struct gamefile g_GameFile;
-void gamefileLoadDefaults(struct gamefile *file);
-
-#define FILEOP_LOAD_GAME  100
-
-/* S309: per-agent preferences sidecar. Declared here because the C header
+/* D-005: unified Agent Profile preferences. Declared here because the C header
  * sits in port/include/ and the C++ ABI guard (#define bool s32) blocks
  * including prefs_agent.h directly from this translation unit. */
-extern "C" void prefsAgentLoad(const char *agent_name);
-extern "C" void prefsAgentResetVisuals(void);
-extern "C" void prefsAgentMigrateLegacySidecar(const char *raw_name, const char *display_name);
+extern "C" void prefsAgentApplyMachineBaseline(void);
 extern "C" s32  presenceIsAgentLoaded(void);
-
-static void prefsLoadForFile(struct filelistfile *file)
-{
-    if (!file) return;
-    /* Use gamefileGetOverview to decode the display name exactly as Agent
-     * Select shows it -- the raw file->name[] bytes may be encoded as
-     * variable-length character codes and produce different text than
-     * the overview decoder yields.  Keeping the same decoder here means
-     * the sidecar path matches the visible agent name 1:1. */
-    char name[32];
-    u8 stage = 0, diff = 0;
-    u32 ptime = 0;
-    memset(name, 0, sizeof(name));
-    gamefileGetOverview(file->name, name, &stage, &diff, &ptime);
-    /* Defensive: trim trailing spaces + ensure NUL terminator. */
-    name[sizeof(name) - 1] = '\0';
-    for (s32 i = (s32)strlen(name) - 1; i >= 0 && name[i] == ' '; --i) {
-        name[i] = '\0';
-    }
-    if (!name[0]) {
-        snprintf(name, sizeof(name), "id%d", (int)file->fileid);
-    }
-    /* One-shot migration: agents created before the S313 gamefileGetOverview
-     * fix had sidecars named from raw save bytes.  Rename to display-name path
-     * if the old file exists and the new one doesn't. */
-    prefsAgentMigrateLegacySidecar(file->name, name);
-    prefsAgentLoad(name);
-}
-s32 filemgrSaveOrLoad(struct fileguid *guid, s32 fileop, uintptr_t playernum);
-
-extern struct fileguid g_FilemgrFileToDelete;
-void filemgrDeleteCurrentFile(void);
-
-#define FILETYPE_GAME 0
-void filemgrPushSelectLocationDialog(s32 arg0, u32 filetype);
+void func0f0f820c(struct menudialogdef *dialogdef, s32 root);
 
 const char *langSafe(s32 textid);
 
@@ -153,25 +82,31 @@ const char *mpPlayerConfigGetBodyId(s32 playernum);
 } /* extern "C" */
 
 typedef struct AgentSelectLoadPayload {
-    struct filelistfile *file;
+    char name[AGENT_PROFILE_NAME_MAX];
     const struct menudialogdef *release_def;
 } AgentSelectLoadPayload;
+
+static char s_StatusMessage[160] = {0};
 
 static s32 agentSelectGraphLoad(void *userdata)
 {
     AgentSelectLoadPayload *payload = (AgentSelectLoadPayload *)userdata;
-    if (!payload || !payload->file) {
+    if (!payload || !payload->name[0]) {
+        return -1;
+    }
+
+    if (agentSessionActivate(payload->name) != 0) {
+        snprintf(s_StatusMessage, sizeof(s_StatusMessage),
+                 "Could not load '%s'. The previous agent is still active.",
+                 payload->name);
         return -1;
     }
 
     if (payload->release_def) {
         menupoolReleaseDialog(payload->release_def);
     }
-
-    g_GameFileGuid.fileid = payload->file->fileid;
-    g_GameFileGuid.deviceserial = payload->file->deviceserial;
-    filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
-    prefsLoadForFile(payload->file);
+    s_StatusMessage[0] = '\0';
+    func0f0f820c(&g_CiMenuViaPcMenuDialog, 2); /* MENUROOT_MAINMENU */
     return 0;
 }
 
@@ -182,7 +117,11 @@ static s32 agentSelectGraphLoad(void *userdata)
 static s32 s_SelectedIdx = 0;
 static s32 s_PrevSelectedIdx = -1;
 static bool s_Registered = false;
-static s32 s_DefaultAgentFileId = -1; /* file ID of the default agent (-1 = none) */
+static struct agentprofilesummary s_Profiles[AGENT_PROFILE_CAPACITY];
+static s32 s_ProfileCount = 0;
+static u32 s_ProfileRevision = 0;
+static bool s_ProfileListInitialized = false;
+static char s_DefaultAgentName[AGENT_PROFILE_NAME_MAX] = {0};
 static bool s_DefaultAgentConfigured = false;
 static bool s_AutoLoadTriggered = false;
 
@@ -207,6 +146,68 @@ static s32 s_ConfirmOpenFrame = -1;
 /* ========================================================================
  * Helpers
  * ======================================================================== */
+
+static s32 findProfileByName(const char *name)
+{
+    if (!name || !name[0]) return -1;
+    for (s32 i = 0; i < s_ProfileCount; i++) {
+        if (strcmp(s_Profiles[i].name, name) == 0) return i;
+    }
+    return -1;
+}
+
+static void refreshAgentProfiles(bool force)
+{
+    u32 revision = agentSessionProfileRevision();
+    char selectedName[AGENT_PROFILE_NAME_MAX] = {0};
+
+    if (!force && s_ProfileListInitialized && revision == s_ProfileRevision) return;
+    if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
+        snprintf(selectedName, sizeof(selectedName), "%s",
+                 s_Profiles[s_SelectedIdx].name);
+    }
+
+    s_ProfileCount = agentSessionListProfiles(s_Profiles,
+                                               AGENT_PROFILE_CAPACITY);
+    s_ProfileRevision = revision;
+    s_ProfileListInitialized = true;
+
+    s32 preserved = findProfileByName(selectedName);
+    if (preserved >= 0) {
+        s_SelectedIdx = preserved;
+    } else if (s_SelectedIdx > s_ProfileCount) {
+        s_SelectedIdx = s_ProfileCount;
+    }
+}
+
+static bool profileNameExists(const char *name)
+{
+    return findProfileByName(name) >= 0;
+}
+
+static s32 buildCopyProfileName(const char *source, char *out, size_t outSize)
+{
+    if (!source || !source[0] || !out || outSize < 2) return -1;
+
+    for (s32 attempt = 1; attempt < 100; attempt++) {
+        char suffix[8];
+        size_t suffixLen;
+        size_t baseLen;
+
+        if (attempt == 1) snprintf(suffix, sizeof(suffix), "_copy");
+        else snprintf(suffix, sizeof(suffix), "_c%d", attempt);
+        suffixLen = strlen(suffix);
+        baseLen = strlen(source);
+        if (baseLen + suffixLen > AGENT_PROFILE_NAME_LENGTH_MAX) {
+            baseLen = AGENT_PROFILE_NAME_LENGTH_MAX - suffixLen;
+        }
+        if (baseLen < 1) continue;
+        snprintf(out, outSize, "%.*s%s", (int)baseLen, source, suffix);
+        if (!profileNameExists(out)) return 0;
+    }
+    out[0] = '\0';
+    return -1;
+}
 
 static void formatPlayTime(char *buf, size_t bufsize, u32 totalSeconds)
 {
@@ -261,15 +262,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                               struct menu *menu,
                               s32 winW, s32 winH)
 {
-    if (!g_FileLists[0]) {
-        return 0;
-    }
-
-    struct filelist *fl = g_FileLists[0];
-    s32 totalEntries = fl->numfiles + 1;
-
-    if (s_SelectedIdx >= totalEntries) s_SelectedIdx = totalEntries - 1;
-    if (s_SelectedIdx < 0) s_SelectedIdx = 0;
+    refreshAgentProfiles(false);
+    s32 totalEntries = s_ProfileCount + 1;
 
     float scale = pdguiScaleFactor();
     float dialogW = pdguiMenuWidth();
@@ -302,38 +296,35 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
 
     if (ImGui::IsWindowAppearing()) {
+        refreshAgentProfiles(true);
+        totalEntries = s_ProfileCount + 1;
         ImGui::SetWindowFocus();
         s_ConfirmMode = CONFIRM_NONE;
         s_ConfirmIdx = -1;
 
-        /* Agent Select is pre-sign-in: reset to base defaults so the
-         * screen never shows a previous agent's custom theme/chrome/font.
-         * Per-agent visuals are applied below only if auto-load fires, or
-         * later when the user explicitly selects an agent. */
-        prefsAgentResetVisuals();
+        /* Apply machine defaults only before the first successful sign-in.
+         * Change Agent must preserve the current profile until a complete
+         * replacement profile has validated and committed. */
+        if (presenceIsAgentLoaded() == 0) {
+            prefsAgentApplyMachineBaseline();
+        }
 
-        /* Auto-load default agent on first appearance -- only when no
-         * agent is loaded yet. If presenceIsAgentLoaded() is true the
+        /* Auto-load the stable default profile name on first appearance only
+         * when no agent is loaded yet. If presenceIsAgentLoaded() is true the
          * user reached Agent Select from main_menu via Change Agent
-         * (an explicit "I want to pick a different agent" gesture);
-         * triggering filemgrSaveOrLoad(FILEOP_LOAD_GAME) here cascades
-         * through filemgrHandleSuccess -> func0f0f820c(MENUROOT_MAINMENU)
-         * which queues a menuPushRootDialog. menupoolReleaseAll() in
-         * that path nukes the agent_select pool slot, slamming the user
-         * back to a fresh main_menu after 14 frames -- the "Change
-         * Agent flashes open then closes" jank Mike reported. */
-        if (!s_AutoLoadTriggered && s_DefaultAgentFileId >= 0 &&
+         * (an explicit request to choose a different identity). */
+        s32 defaultIndex = findProfileByName(s_DefaultAgentName);
+        if (!s_AutoLoadTriggered && defaultIndex >= 0 &&
                 presenceIsAgentLoaded() == 0) {
             s_AutoLoadTriggered = true;
-            for (s32 i = 0; i < fl->numfiles; i++) {
-                if (fl->files[i].fileid == s_DefaultAgentFileId) {
-                    g_GameFileGuid.fileid = fl->files[i].fileid;
-                    g_GameFileGuid.deviceserial = fl->files[i].deviceserial;
-                    filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
-                    prefsLoadForFile(&fl->files[i]);
-                    s_SelectedIdx = i;
-                    break;
-                }
+            s_SelectedIdx = defaultIndex;
+            AgentSelectLoadPayload payload = {{0}, menupoolDialogDef(dialog)};
+            snprintf(payload.name, sizeof(payload.name), "%s",
+                     s_Profiles[defaultIndex].name);
+            if (menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load",
+                    agentSelectGraphLoad, &payload) == 0) {
+                ImGui::End();
+                return 1;
             }
         } else if (!s_AutoLoadTriggered) {
             /* Mark triggered anyway so the gate flips for the rest of the
@@ -341,16 +332,12 @@ static s32 renderAgentSelect(struct menudialog *dialog,
              * present the picker, not auto-load the prior agent. */
             s_AutoLoadTriggered = true;
             /* Preselect the default if any; the user can A-confirm it. */
-            if (s_DefaultAgentFileId >= 0) {
-                for (s32 i = 0; i < fl->numfiles; i++) {
-                    if (fl->files[i].fileid == s_DefaultAgentFileId) {
-                        s_SelectedIdx = i;
-                        break;
-                    }
-                }
-            }
+            if (defaultIndex >= 0) s_SelectedIdx = defaultIndex;
         }
     }
+
+    if (s_SelectedIdx >= totalEntries) s_SelectedIdx = totalEntries - 1;
+    if (s_SelectedIdx < 0) s_SelectedIdx = 0;
 
     pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, "Perfect Dark", 1);
 
@@ -366,6 +353,10 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
     pdguiSetCursorBelowTitle(pdTitleH);
     ImGui::TextDisabled("Choose Your Reality");
+    if (s_StatusMessage[0]) {
+        ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.55f, 1.0f),
+                           "%s", s_StatusMessage);
+    }
     ImGui::Separator();
 
     /* ================================================================
@@ -376,22 +367,22 @@ static s32 renderAgentSelect(struct menudialog *dialog,
      * than nested inside the agent-select window.
      * ================================================================ */
     bool confirmActive = (s_ConfirmMode != CONFIRM_NONE &&
-                          s_ConfirmIdx >= 0 && s_ConfirmIdx < fl->numfiles);
+                          s_ConfirmIdx >= 0 && s_ConfirmIdx < s_ProfileCount);
 
     /* Menu Accept = load/select — disabled while confirm modal is open so
      * the modal owns input. */
     if (!confirmActive && pdguiMenuAcceptPressed()) {
-        if (s_SelectedIdx == fl->numfiles) {
+        if (s_SelectedIdx == s_ProfileCount) {
             pdguiPlaySound(PDGUI_SND_SELECT);
             /* B-124 / S300: pop owned ctx before transitioning away */
             menupoolReleaseDialog(menupoolDialogDef(dialog));
-            gamefileLoadDefaults(&g_GameFile);
             menuGraphFirePushDialog(MENU_TYPE_AGENT_SELECT, "create",
                 &g_FilemgrEnterNameMenuDialog);
-        } else if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
-            struct filelistfile *file = &fl->files[s_SelectedIdx];
+        } else if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
             pdguiPlaySound(PDGUI_SND_SELECT);
-            AgentSelectLoadPayload payload = { file, menupoolDialogDef(dialog) };
+            AgentSelectLoadPayload payload = {{0}, menupoolDialogDef(dialog)};
+            snprintf(payload.name, sizeof(payload.name), "%s",
+                     s_Profiles[s_SelectedIdx].name);
             menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load",
                 agentSelectGraphLoad, &payload);
         }
@@ -404,7 +395,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
      * row Selectable below). The direct C-fires-Copy and Y-fires-Delete
      * paths are kept as power-user shortcuts on the keyboard. */
     if (!confirmActive && pdguiMenuSecondaryPressed()) {
-        if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
+        if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
             ImGui::OpenPopup("##agent_ctx");
             pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
         }
@@ -412,7 +403,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     /* Menu Delete = delete (with confirmation). Controller users can reach
      * Delete through the Menu Secondary context menu when Delete is unbound. */
     if (!confirmActive && pdguiMenuDeletePressed()) {
-        if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
+        if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
             pdguiPlaySound(PDGUI_SND_ERROR);
             s_ConfirmMode = CONFIRM_DELETE;
             s_ConfirmIdx = s_SelectedIdx;
@@ -422,13 +413,12 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     }
     /* Menu Tertiary = set as default agent. */
     if (!confirmActive && pdguiMenuTertiaryPressed()) {
-        if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
-            struct filelistfile *file = &fl->files[s_SelectedIdx];
-            if (s_DefaultAgentFileId == file->fileid) {
-                /* Toggle off default */
-                s_DefaultAgentFileId = -1;
+        if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
+            const char *name = s_Profiles[s_SelectedIdx].name;
+            if (strcmp(s_DefaultAgentName, name) == 0) {
+                s_DefaultAgentName[0] = '\0';
             } else {
-                s_DefaultAgentFileId = file->fileid;
+                snprintf(s_DefaultAgentName, sizeof(s_DefaultAgentName), "%s", name);
             }
             configSave("pd.ini");
             pdguiPlaySound(PDGUI_SND_SELECT);
@@ -460,7 +450,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
      * Agent List
      * ================================================================ */
     char footerText[320];
-    buildAgentSelectFooter(s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles,
+    buildAgentSelectFooter(s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount,
                            footerText, sizeof(footerText));
 
     /* The cursor is already below the title/header.  Measure from the actual
@@ -480,22 +470,21 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
             ImGui::PushID(i);
 
-            if (i == fl->numfiles) {
+            if (i == s_ProfileCount) {
                 if (ImGui::Selectable("  + New Agent...", isSelected,
                                       ImGuiSelectableFlags_None,
                                       ImVec2(0, 40.0f * scale))) {
                     pdguiPlaySound(PDGUI_SND_SELECT);
-                    gamefileLoadDefaults(&g_GameFile);
                     menuGraphFirePushDialog(MENU_TYPE_AGENT_SELECT, "create",
                         &g_FilemgrEnterNameMenuDialog);
                 }
                 if (ImGui::IsItemHovered()) s_SelectedIdx = i;
             } else {
-                struct filelistfile *file = &fl->files[i];
-                char name[12] = {0};
-                u8 stage = 0, difficulty = 0;
-                u32 time = 0;
-                gamefileGetOverview(file->name, name, &stage, &difficulty, &time);
+                const struct agentprofilesummary *profile = &s_Profiles[i];
+                const char *name = profile->name;
+                u8 stage = profile->autostageindex;
+                u8 difficulty = profile->autodifficulty;
+                u32 time = profile->totaltime;
 
                 if (stage > SOLOSTAGEINDEX_SKEDARRUINS + 1) stage = SOLOSTAGEINDEX_SKEDARRUINS + 1;
                 if (difficulty > DIFF_PA) difficulty = DIFF_PA;
@@ -518,7 +507,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                                       ImGuiSelectableFlags_AllowDoubleClick,
                                       ImVec2(0, rowH))) {
                     pdguiPlaySound(PDGUI_SND_SELECT);
-                    AgentSelectLoadPayload payload = { file, NULL };
+                    AgentSelectLoadPayload payload = {{0}, NULL};
+                    snprintf(payload.name, sizeof(payload.name), "%s", name);
                     menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load",
                         agentSelectGraphLoad, &payload);
                 }
@@ -577,7 +567,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 dl->AddText(ImVec2(textX, lineY), pdguiPalImU32(PDPAL_TITLEFG, 255), name);
 
                 /* Show [DEFAULT] tag if this agent is the default — S311 theme success tint. */
-                if (file->fileid == s_DefaultAgentFileId) {
+                if (strcmp(name, s_DefaultAgentName) == 0) {
                     ImVec2 nameSize = ImGui::CalcTextSize(name);
                     dl->AddText(ImVec2(textX + nameSize.x + 8.0f * scale, lineY),
                                 pdguiImU32TintSuccess(200), "[DEFAULT]");
@@ -604,20 +594,18 @@ static s32 renderAgentSelect(struct menudialog *dialog,
      * a row. The popup body fires the same Load / Copy / Delete /
      * Set-Default actions as the existing keyboard shortcuts, just
      * presented as a discoverable menu. */
-    if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles
+    if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount
             && ImGui::BeginPopup("##agent_ctx")) {
-        struct filelistfile *cfile = &fl->files[s_SelectedIdx];
-        char cname[12] = {0};
-        u8 cstage = 0, cdiff = 0;
-        u32 ctime = 0;
-        gamefileGetOverview(cfile->name, cname, &cstage, &cdiff, &ctime);
+        const struct agentprofilesummary *cprofile = &s_Profiles[s_SelectedIdx];
+        const char *cname = cprofile->name;
 
         ImGui::TextColored(pdguiVec4TitleGlow(), "Agent: %s", cname[0] ? cname : "(unnamed)");
         ImGui::Separator();
 
         if (ImGui::MenuItem("Load")) {
             ImGui::CloseCurrentPopup();
-            AgentSelectLoadPayload payload = { cfile, NULL };
+            AgentSelectLoadPayload payload = {{0}, NULL};
+            snprintf(payload.name, sizeof(payload.name), "%s", cname);
             menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load",
                 agentSelectGraphLoad, &payload);
             pdguiPlaySound(PDGUI_SND_SELECT);
@@ -638,10 +626,11 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID);
             pdguiPlaySound(PDGUI_SND_ERROR);
         }
-        const bool isDefault = (cfile->fileid == s_DefaultAgentFileId);
+        const bool isDefault = (strcmp(cname, s_DefaultAgentName) == 0);
         if (ImGui::MenuItem(isDefault ? "Clear Default Agent" : "Set as Default Agent")) {
             ImGui::CloseCurrentPopup();
-            s_DefaultAgentFileId = isDefault ? -1 : cfile->fileid;
+            if (isDefault) s_DefaultAgentName[0] = '\0';
+            else snprintf(s_DefaultAgentName, sizeof(s_DefaultAgentName), "%s", cname);
             configSave("pd.ini");
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
@@ -653,7 +642,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     }
 
     /* Character preview for selected agent */
-    if (s_SelectedIdx >= 0 && s_SelectedIdx < fl->numfiles) {
+    if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
         s32 pnum = g_MpPlayerNum;
         if (pnum < 0) pnum = 0;
         pdguiCharPreviewRequest(mpPlayerConfigGetHeadId(pnum), mpPlayerConfigGetBodyId(pnum));
@@ -681,14 +670,12 @@ static s32 renderAgentSelect(struct menudialog *dialog,
      * X/Delete press that triggered the popup can't bleed through.
      * ================================================================ */
     if (s_ConfirmMode != CONFIRM_NONE &&
-            s_ConfirmIdx >= 0 && s_ConfirmIdx < fl->numfiles) {
+            s_ConfirmIdx >= 0 && s_ConfirmIdx < s_ProfileCount) {
 
         pdguiPopupDarkenBehind(0.65f);
 
-        struct filelistfile *cf = &fl->files[s_ConfirmIdx];
-        char cfName[12] = {0};
-        u8 cs = 0, cd = 0; u32 ct = 0;
-        gamefileGetOverview(cf->name, cfName, &cs, &cd, &ct);
+        const struct agentprofilesummary *cf = &s_Profiles[s_ConfirmIdx];
+        const char *cfName = cf->name;
 
         const bool isDelete = (s_ConfirmMode == CONFIRM_DELETE);
 
@@ -863,18 +850,49 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
             if (doConfirm) {
                 if (isDelete) {
-                    pdguiPlaySound(PDGUI_SND_SELECT);
-                    g_FilemgrFileToDelete.fileid = cf->fileid;
-                    g_FilemgrFileToDelete.deviceserial = cf->deviceserial;
-                    filemgrDeleteCurrentFile();
-                    if (s_SelectedIdx >= fl->numfiles) s_SelectedIdx = fl->numfiles - 1;
+                    char deletedName[AGENT_PROFILE_NAME_MAX];
+                    snprintf(deletedName, sizeof(deletedName), "%s", cfName);
+                    if (agentSessionDelete(deletedName) == 0) {
+                        if (strcmp(s_DefaultAgentName, deletedName) == 0) {
+                            s_DefaultAgentName[0] = '\0';
+                            configSave("pd.ini");
+                        }
+                        snprintf(s_StatusMessage, sizeof(s_StatusMessage),
+                                 "Deleted agent '%s'.", deletedName);
+                        pdguiPlaySound(PDGUI_SND_SELECT);
+                        refreshAgentProfiles(true);
+                        if (s_SelectedIdx > s_ProfileCount) {
+                            s_SelectedIdx = s_ProfileCount;
+                        }
+                    } else {
+                        snprintf(s_StatusMessage, sizeof(s_StatusMessage),
+                                 "Could not delete '%s'.", deletedName);
+                        pdguiPlaySound(PDGUI_SND_ERROR);
+                    }
                 } else {
-                    pdguiPlaySound(PDGUI_SND_SELECT);
-                    g_GameFileGuid.fileid = cf->fileid;
-                    g_GameFileGuid.deviceserial = cf->deviceserial;
-                    filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_LOAD_GAME, 0);
-                    prefsLoadForFile(cf);
-                    filemgrPushSelectLocationDialog(0, FILETYPE_GAME);
+                    char sourceName[AGENT_PROFILE_NAME_MAX];
+                    char destinationName[AGENT_PROFILE_NAME_MAX];
+                    snprintf(sourceName, sizeof(sourceName), "%s", cfName);
+                    if (s_ProfileCount >= AGENT_PROFILE_CAPACITY) {
+                        snprintf(s_StatusMessage, sizeof(s_StatusMessage),
+                                 "Agent capacity is full (%d).",
+                                 AGENT_PROFILE_CAPACITY);
+                        pdguiPlaySound(PDGUI_SND_ERROR);
+                    } else if (buildCopyProfileName(sourceName, destinationName,
+                                   sizeof(destinationName)) == 0
+                            && agentSessionCopy(sourceName, destinationName) == 0) {
+                        snprintf(s_StatusMessage, sizeof(s_StatusMessage),
+                                 "Copied '%s' to '%s'.",
+                                 sourceName, destinationName);
+                        pdguiPlaySound(PDGUI_SND_SELECT);
+                        refreshAgentProfiles(true);
+                        s32 copiedIndex = findProfileByName(destinationName);
+                        if (copiedIndex >= 0) s_SelectedIdx = copiedIndex;
+                    } else {
+                        snprintf(s_StatusMessage, sizeof(s_StatusMessage),
+                                 "Could not copy '%s'.", sourceName);
+                        pdguiPlaySound(PDGUI_SND_ERROR);
+                    }
                 }
                 ImGui::CloseCurrentPopup();
                 s_ConfirmMode = CONFIRM_NONE;
@@ -912,7 +930,8 @@ extern "C" {
 void pdguiMenuAgentSelectInitConfig(void)
 {
     if (!s_DefaultAgentConfigured) {
-        configRegisterInt("Agent.DefaultFileId", &s_DefaultAgentFileId, -1, 9999);
+        configRegisterString("Agent.DefaultName", s_DefaultAgentName,
+                             sizeof(s_DefaultAgentName));
         s_DefaultAgentConfigured = true;
     }
 }

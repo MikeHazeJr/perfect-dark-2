@@ -26,6 +26,21 @@ Mike is the architect / designer. Claude is the intermediary / interpreter. Sess
 - Don't let tangential work pull focus while critical work is in flight.
 - "What's the critical task right now?" is a fair question to ask Mike if unclear.
 
+## 1.0 milestone reporting
+
+- Begin every progress message with a plain statement of what is being done and
+  why, so Mike can check status without reading the full transcript.
+- For the canonical "Let's get to 1.0" prompt, name the active Workbench
+  milestone, recompute and state its current dependency progress, state the
+  immediate task goal, and explain why that work advances the milestone.
+- Route through T-RELEASE-002 through T-RELEASE-006 in order unless blocked or
+  Mike changes priority. Do not select post-1.0 or historical-cut work by
+  default.
+- Prefer shared structural and infrastructural seams with explicit authority,
+  lifecycle, versioning, failure, rollback, and reusable production behavior.
+  "Technically it works" is not completion when the implementation is a local
+  special case or leaves the underlying class unresolved.
+
 ## Workflow
 
 - Auto-merge worktree work to dev sequentially. Don't ask first; just do.

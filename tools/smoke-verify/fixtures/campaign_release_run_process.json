@@ -1,0 +1,8 @@
+{
+  "scenario_name": "campaign_release_run_process",
+  "description": "Child harness for the strict campaign live-run process. The campaign runner owns successful termination; this harness only supplies a hard timeout.",
+  "timeout_seconds": 1800,
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Wait for the campaign runner to publish live Credits evidence and exit." }
+  ]
+}

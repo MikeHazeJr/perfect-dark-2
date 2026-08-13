@@ -385,6 +385,39 @@ static void playerSendCutsceneSkipRequest(s32 playernum)
 	}
 }
 
+bool playerRequestCutsceneSkip(s32 playernum, bool skipautocutgroup)
+{
+	struct playercutscenestate *state = playerCutsceneStateForNum(playernum);
+
+	/* Keep every caller behind the same production hold gate and authority
+	 * boundary. A request outside an active animation, or during its opening
+	 * half-second, cannot become a latent skip for a later cutscene. */
+	if (!state || !state->active || !state->in_progress
+			|| state->curtotalframe60f <= 30.0f) {
+		return false;
+	}
+
+	if (g_NetMode == NETMODE_CLIENT) {
+		if (!g_NetLocalClient || g_NetLocalClient->state != CLSTATE_GAME) {
+			return false;
+		}
+		playerSendCutsceneSkipRequest(playernum);
+		return true;
+	}
+
+	playerSetCutsceneSkipRequested(playernum, true);
+
+	if (g_Vars.autocutplaying) {
+		if (skipautocutgroup) {
+			g_Vars.autocutgroupskip = true;
+		} else {
+			g_Vars.autocutfinished = true;
+		}
+	}
+
+	return true;
+}
+
 static void playerRefreshCutsceneProtect(void)
 {
 	s32 i;
@@ -3600,33 +3633,13 @@ void playerTickCutscene(bool arg0)
 	/* M0.2: replaced buttons bitmask tests with action map booleans */
 	if (cutscene->curtotalframe60f > 30 && skiphold) {
 		actionConsumeHold(playeridx, skipaction);
-		if (g_NetMode == NETMODE_CLIENT) {
-			playerSendCutsceneSkipRequest(playeridx);
-		} else {
-			playerSetCutsceneSkipRequested(playeridx, true);
-
-			if (g_Vars.autocutplaying) {
-				if (cancelorpause) {
-					g_Vars.autocutgroupskip = true;
-				} else {
-					g_Vars.autocutfinished = true;
-				}
-			}
-		}
+		playerRequestCutsceneSkip(playeridx, cancelorpause ? true : false);
 	}
 #else
 	if (cutscene->curtotalframe60f > 30) {
 		if (skiphold) {
 			actionConsumeHold(playeridx, skipaction);
-			if (g_NetMode == NETMODE_CLIENT) {
-				playerSendCutsceneSkipRequest(playeridx);
-			} else {
-				playerSetCutsceneSkipRequested(playeridx, true);
-			}
-		}
-
-		if (g_NetMode != NETMODE_CLIENT && cancelorpause && g_Vars.autocutplaying) {
-			g_Vars.autocutgroupskip = true;
+			playerRequestCutsceneSkip(playeridx, cancelorpause ? true : false);
 		}
 	}
 #endif

@@ -6,39 +6,42 @@ extern "C" {
 #endif
 
 /*
- * Campaign auto-runner (c126, 2026-05-18).
+ * Strict release campaign runner.
  *
- * Drives the solo campaign mission by mission: for each stage, dwells
- * while the intro cutscene plays, force-completes the objectives via
- * the existing debug flags, triggers the endscreen, then chains into
- * the next mission via endscreenContinue + menuhandlerAcceptMission.
+ * The runner accelerates objective completion through the same scoped helper
+ * used by the F6 developer action, then observes the ordinary authoritative
+ * endscreen, progression save, unlock, next-mission bridge, and Credits path.
+ * It validates one exact catalog-ID plan and fails on skips, substitutions,
+ * missing saves, stale identity, bad social state, or numeric fallback.
  *
- * The auto-runner does NOT play the gameplay -- it sits as a passive
- * tick driver that nudges the existing campaign flow forward at the
- * right state boundaries. Intro cutscenes play naturally; the dwell
- * window holds until playerAnyInCutscene() reports false. The
- * endscreen and briefing dialogs are visible to the user but advance
- * automatically after a short dwell.
+ * CLI:
+ *   --auto-campaign [solo-index]
+ *   --auto-campaign-fast
+ *   --auto-campaign-difficulty [0..2]
+ *   --auto-campaign-through-load [solo-index]
+ *   --auto-campaign-verify [solo-index]
  *
- * Lifecycle:
- *   - CLI: --auto-campaign            arms at solo stage 0 (Defection)
- *   - CLI: --auto-campaign N          arms at solo stage index N
- *   - CLI: --auto-campaign-fast       short dwells, same flow
+ * The optional through-load terminal is run-only. It builds one exact,
+ * inclusive campaign slice and exits successfully after the final planned
+ * mission becomes live. This supports bounded transition regressions without
+ * manufacturing unlock state for missions outside the slice.
  *
- * Hierarchical log channel: CAMPAIGN.AUTO.* . State transitions log
- * to LOG_NOTE; load/wait timeouts log to LOG_WARNING.
- *
- * Client-only module. Server target's hand-curated SRC_SERVER list
- * does not include autocampaign.c; server_stubs.c provides inert
- * stubs so the pd-server link stays clean.
+ * A loaded agent is mandatory. Smoke runs should pair either campaign mode
+ * with --launch-load-agent <name>. Live and restart-verification evidence is
+ * atomically written under the configured save directory.
  */
 
 typedef enum autocampaign_flag {
 	AUTOCAMPAIGN_FLAG_NONE = 0,
-	AUTOCAMPAIGN_FLAG_FAST = 1u << 0
+	AUTOCAMPAIGN_FLAG_FAST = 1u << 0,
+	AUTOCAMPAIGN_FLAG_VERIFY_ONLY = 1u << 1
 } autocampaign_flag_t;
 
 void autocampaignArm(int start_solo_index, unsigned int flags);
+void autocampaignArmAtDifficulty(int start_solo_index, int difficulty,
+	unsigned int flags);
+void autocampaignArmThroughLoadAtDifficulty(int start_solo_index,
+	int final_load_solo_index, int difficulty, unsigned int flags);
 void autocampaignDisarm(void);
 void autocampaignTick(void);
 int  autocampaignIsActive(void);

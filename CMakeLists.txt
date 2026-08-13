@@ -809,6 +809,15 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_stage_load_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_campaign_complete_hotkey.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_credits_button.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_campaign_run.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/campaign_run.c
+  ${CMAKE_SOURCE_DIR}/tests/test_autocampaign_cli_plan.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/autocampaign_cli_plan.c
+  ${CMAKE_SOURCE_DIR}/tests/test_campaign_evidence.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/campaign_evidence.c
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_room_domain.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_room_domain.c
+  ${CMAKE_SOURCE_DIR}/tests/test_portal_room_domain_contract.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp
@@ -819,6 +828,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_save_migration.cpp
   ${CMAKE_SOURCE_DIR}/port/src/save_atomic.c
   ${CMAKE_SOURCE_DIR}/tests/test_save_atomic.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_agent_profile_codec.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/agent_profile_codec.c
   # c074: the REAL save-migration chain framework under behavioural test.
   # Globals-free (static registry array only); its one external callee
   # sysLogPrintf is provided by tests/stubs.c.

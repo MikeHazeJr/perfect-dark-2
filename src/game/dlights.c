@@ -598,7 +598,7 @@ void func0f001c0c(void)
 	lightsCalculateRoomDimensions();
 
 	if (1);
-	for (g_NumPortals = 0; g_BgPortals[g_NumPortals].verticesoffset != 0; g_NumPortals++);
+	g_NumPortals = g_BgNumPortalCameraCacheItems;
 
 	if (g_NumPortals == 0) {
 		return;
@@ -867,7 +867,11 @@ void func0f00259c(s32 roomnum)
 void func0f002844(s32 roomnum, f32 arg1, s32 arg2, s32 portalnum)
 {
 	s32 i;
-	s32 otherroomnum = -1;
+	RoomNum otherroomnum = -1;
+
+	if (!bgRoomIsValid(roomnum)) {
+		return;
+	}
 
 	var80061440++;
 
@@ -883,24 +887,17 @@ void func0f002844(s32 roomnum, f32 arg1, s32 arg2, s32 portalnum)
 	}
 
 	if (portalnum != -1) {
-		if (roomnum == g_BgPortals[portalnum].roomnum1) {
-			otherroomnum = (s32) g_BgPortals[portalnum].roomnum2;
-		} else {
-			otherroomnum = (s32) g_BgPortals[portalnum].roomnum1;
+		if (!bgPortalGetOtherRoom(portalnum, roomnum, &otherroomnum)) {
+			return;
 		}
 	}
 
 	for (i = 0; i < g_Rooms[roomnum].numportals; i++) {
 		s32 iterportalnum = g_RoomPortals[g_Rooms[roomnum].roomportallistoffset + i];
-		s32 iterroomnum;
+		RoomNum iterroomnum;
 
-		if (var80061438[iterportalnum]) {
-			if (roomnum == g_BgPortals[iterportalnum].roomnum1) {
-				iterroomnum = g_BgPortals[iterportalnum].roomnum2;
-			} else {
-				iterroomnum = g_BgPortals[iterportalnum].roomnum1;
-			}
-
+		if (bgPortalGetOtherRoom(iterportalnum, roomnum, &iterroomnum)
+				&& var80061438[iterportalnum]) {
 			if (iterroomnum != otherroomnum) {
 				f32 f0 = var8009cae8(roomnum, arg1, portalnum, iterportalnum);
 
@@ -1848,18 +1845,27 @@ void func0f00505c(void)
 	for (i = 0; i < g_NumPortals; i++) {
 		for (j = 0, var8009cad0[0] = i, sp78 = 1; j != sp78; j = (j + 1) & 0x7ff) {
 			portalnum = var8009cad0[j];
+			RoomNum portalroom1;
+			RoomNum portalroom2;
+
+			if (!bgPortalGetRooms(portalnum, &portalroom1, &portalroom2)) {
+				continue;
+			}
 
 			for (k = 0; k < 2; k++) {
 				if (k != 0) {
-					roomnum = g_BgPortals[portalnum].roomnum2;
+					roomnum = portalroom2;
 				} else {
-					roomnum = g_BgPortals[portalnum].roomnum1;
+					roomnum = portalroom1;
 				}
 
 				for (l = 0; l < g_Rooms[roomnum].numportals; l++) {
 					portalnum2 = g_RoomPortals[g_Rooms[roomnum].roomportallistoffset + l];
+					RoomNum adjacentroom;
 
-					if (portalnum2 != portalnum && var8009cad8[portalnum2] != 0) {
+					if (portalnum2 != portalnum
+							&& bgPortalGetOtherRoom(portalnum2, roomnum, &adjacentroom)
+							&& var8009cad8[portalnum2] != 0) {
 						if (var8006142c[portalnum][portalnum2] >= 0x8000) {
 							f32 xdiff = var80061428[portalnum].x - var80061428[portalnum2].x;
 							f32 ydiff = var80061428[portalnum].y - var80061428[portalnum2].y;

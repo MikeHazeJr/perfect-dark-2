@@ -25,6 +25,66 @@ std::string readTextFile(const char *path)
 	return ss.str();
 }
 
+TEST_CASE("scenario room domain preserves portal-only rooms and fails closed",
+	"[modding][pdxxx][scenario][room-domain][t-tests-002][static]")
+{
+	const std::string catalog_header = readTextFile("port/include/assetcatalog.h");
+	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
+	const std::string runtime = readTextFile("port/src/scenario_source_runtime.c");
+	const std::string bg = readTextFile("src/game/bg.c");
+	const std::string conformance = readTextFile("tools/asset_archive_conformance.py");
+
+	REQUIRE(catalog_header.find("s32 source_room_count") != std::string::npos);
+	REQUIRE(scanner.find("e->ext.scenario.source_room_count = iniGetInt") !=
+		std::string::npos);
+	REQUIRE(runtime.find("scenarioSourceResolveRoomCountForStage") !=
+		std::string::npos);
+	REQUIRE(runtime.find("scenarioRoomDomainResolve(") != std::string::npos);
+	REQUIRE(runtime.find("scenarioRoomDomainContains(room_count, rows[i].room1)") !=
+		std::string::npos);
+	REQUIRE(bg.find("scenarioSourceResolveRoomCountForStage(&stage") !=
+		std::string::npos);
+	REQUIRE(bg.find("disabled invalid portal boundary") !=
+		std::string::npos);
+	REQUIRE(conformance.find("exceeds source_room_count") !=
+		std::string::npos);
+}
+
+TEST_CASE("typed scenario archives carry the canonical room domain",
+	"[modding][pdxxx][scenario][room-domain][t-tests-002][static]")
+{
+	const std::string loader =
+		readTextFile("port/src/loader_walker_scenario.c");
+	const std::string examples =
+		readTextFile("tools/build_typed_pdxxx_examples.py");
+	const std::string conformance =
+		readTextFile("tools/asset_archive_conformance.py");
+
+	REQUIRE(loader.find(
+		"loaderWalkerEnvelopeInt(manifest, manifest_len, \"room_count\"") !=
+		std::string::npos);
+	REQUIRE(loader.find("room_count < 2 || room_count > 32768") !=
+		std::string::npos);
+	REQUIRE(loader.find("return -1;") != std::string::npos);
+	REQUIRE(loader.find(
+		"e->ext.scenario.source_room_count = (s32)room_count;") !=
+		std::string::npos);
+	REQUIRE(loader.find(
+		"/* always_invoke: */ 1") != std::string::npos);
+	REQUIRE(conformance.find(
+		"scenario.ini must declare source_room_count") !=
+		std::string::npos);
+	REQUIRE(conformance.find(
+		"_meta/manifest.json room_count must be between") !=
+		std::string::npos);
+	REQUIRE(conformance.find(
+		"scenario.ini source_room_count must match") !=
+		std::string::npos);
+	REQUIRE(examples.find("source_room_count = 2") != std::string::npos);
+	REQUIRE(examples.find("\\\"room_count\\\": 2") !=
+		std::string::npos);
+}
+
 std::string functionBlock(const std::string &text, const std::string &name)
 {
 	const size_t start = text.find(name);
@@ -2639,7 +2699,12 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 			"active_chr->aireturnlist = list_id");
 		requireTokenOrder(block,
 			"s_aiGraphResolveOptionalRuntimeCharacterRefOrSelector(",
-			"if (chr && chr->prop) {\n\t\t\t\tchr->aireturnlist = list_id");
+			"if (chr) {\n\t\t\t\tchr->aireturnlist = list_id");
+		REQUIRE(block.find("if (chr && chr->prop)") ==
+		        std::string::npos);
+		REQUIRE(block.find(
+			"if (chr) {\n\t\t\t\tchr->aireturnlist = list_id;\n\t\t\t\tapplied = 1;") !=
+		        std::string::npos);
 		requireTokenOrder(block,
 			"OBJTYPE_TRUCK, -1, &vehicle_count",
 			"truck->aireturnlist = list_id");
@@ -10878,6 +10943,63 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(lv.find("MESHCOL: ENABLED -- source=") != std::string::npos);
 }
 
+TEST_CASE("scenario graph return lists preserve background interpreter state",
+		"[campaign][scenario][graph][cutscene][static]") {
+	const std::string runtime =
+		readTextFile("port/src/scenario_source_runtime.c");
+	const std::string native = readTextFile("src/game/chraicommands.c");
+	const std::string defection = readTextFile("src/setups/setupame.c");
+	const std::string interpreter = readTextFile("src/game/chrai.c");
+	const std::string chicago = readTextFile("src/setups/setuppete.c");
+	const std::string graph_set_return = functionBlock(runtime,
+		"scenarioSourceAiGraphExecuteSetReturnList");
+	const std::string native_set_return = functionBlock(native,
+		"aiSetReturnList");
+	const std::string execute = functionBlock(interpreter, "chraiExecute");
+	const std::string chicago_intro_from_gameplay = functionBlock(chicago,
+		"func040a_intro_from_gameplay");
+	const std::string chicago_intro = functionBlock(chicago, "func040a_intro");
+
+	REQUIRE(!graph_set_return.empty());
+	REQUIRE(!native_set_return.empty());
+	REQUIRE(!execute.empty());
+	REQUIRE(!chicago_intro_from_gameplay.empty());
+	REQUIRE(!chicago_intro.empty());
+	REQUIRE(defection.find(
+		"set_returnlist(CHR_SELF, AILIST_INTRO_041E)") !=
+		std::string::npos);
+	REQUIRE(chicago_intro_from_gameplay.find(
+		"set_ailist(CHR_SELF, 0x040a)") != std::string::npos);
+	requireTokenOrder(chicago_intro,
+		"set_returnlist(CHR_SELF, 0x0406)",
+		"set_ailist(CHR_SELF, 0x0401)");
+	REQUIRE(graph_set_return.find("active_chr->prop") ==
+		std::string::npos);
+	REQUIRE(graph_set_return.find("chr && chr->prop") ==
+		std::string::npos);
+	REQUIRE(graph_set_return.find(
+		"active_chr->aireturnlist = list_id;") !=
+		std::string::npos);
+	REQUIRE(graph_set_return.find("chr->aireturnlist = list_id;") !=
+		std::string::npos);
+	REQUIRE(graph_set_return.find("list=%u applied=%d") !=
+		std::string::npos);
+	requireTokenOrder(graph_set_return,
+		"s_aiGraphRequireOptionalRuntimeCharacterPointer(",
+		"active_chr->aireturnlist = list_id;");
+	requireTokenOrder(native_set_return,
+		"if (cmd[2] == CHR_SELF)",
+		"g_Vars.chrdata->aireturnlist = ailistid;");
+	requireTokenOrder(execute,
+		"u8 *prevailist = g_Vars.ailist;",
+		"g_CommandPointers[type]()");
+	REQUIRE(execute.find(
+		"if (g_Vars.ailist == prevailist && g_Vars.aioffset == prevoffset)") !=
+		std::string::npos);
+	REQUIRE(execute.find("if (g_Vars.aioffset == prevoffset)") ==
+		std::string::npos);
+}
+
 TEST_CASE("base weapon archives use the catalog IDs requested at runtime",
           "[modding][pdxxx][c3844][weapon][static]") {
 	const std::string authored =
@@ -11795,7 +11917,9 @@ TEST_CASE("Scenario source accepts explicit empty public pads and portals",
 	        std::string::npos);
 	REQUIRE(runtime.find("SCENARIO.SOURCE: compiled portals.json") !=
 	        std::string::npos);
-	REQUIRE(bg.find("portals ? portals :") != std::string::npos);
+	REQUIRE(bg.find("if (!portals)") != std::string::npos);
+	REQUIRE(bg.find("g_BgPortals = portals;") != std::string::npos);
+	REQUIRE(bg.find("portals ? portals :") == std::string::npos);
 	REQUIRE(bg.find("portalcount > 0 ? portalcount : 0") !=
 	        std::string::npos);
 	REQUIRE(bg.find("SCENARIO.SOURCE: built native portal tables") !=
@@ -14361,6 +14485,14 @@ TEST_CASE("c3844 live smokes use scoped asset proof logging",
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("source_sha256") != std::string::npos);
 	REQUIRE(modasset_compiler.find("MODASSET_COMPILER_VERSION, digest_key") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("MODASSET_WINDOWS_CRT_PATH_LIMIT 259") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("cachePathFitsPlatform") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("_fullpath(absolute, resolved") !=
+	        std::string::npos);
+	REQUIRE(modasset_compiler.find("\"$H/mod-cache\"") !=
 	        std::string::npos);
 	REQUIRE(main_c.find("bootDebugCatalogProbesCanRunBeforeBaseEmit") !=
 	        std::string::npos);
