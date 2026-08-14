@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-14T11:50:05.309Z",
+  "updated": "2026-08-14T11:57:15.748Z",
   "items": [
     {
       "type": "task",
@@ -665,9 +665,10 @@
         "context/bugs.md:B-1100 + context/systemic-bugs.md:SP-64: verifier correction requires production COMBAT: SHOT_FIRED and orders exactly one final credential retirement after scripted exit; retained-log revalidation and focused static verification pending.",
         ".claude/session-builds/v1m1engine004/b1099-retained-log-revalidation.json: accepted corrected retained-log evaluation 98/98 (aggregate 16, host 41, client 41), zero failures/operational failures; original results-20260814T113729Z.json remains immutable and rejected 92/95.",
         ".claude/session-builds/v1m1engine004/b1100-source-freeze-post-focused.txt + _b1100-focused.log: unchanged product 7437d77c... / client 0f377e3e..., verifier 9f6c126b..., rebuilt tests e4d35724..., focused [b1100] 61 assertions/1 case, zero process leaks.",
-        "context/bugs.md:B-1091/B-1092/B-1094/B-1095/B-1099/B-1100 promoted to regression_gate; SP-56/SP-57/SP-58/SP-59/SP-63/SP-64 retain propagation rules."
+        "context/bugs.md:B-1091/B-1092/B-1094/B-1095/B-1099/B-1100 promoted to regression_gate; SP-56/SP-57/SP-58/SP-59/SP-63/SP-64 retain propagation rules.",
+        "git:b88d7ed665ad80e55cb8d6a2838bd268337ab61a Engine - T-ENGINE-004: source-frozen D-003 authority-first friend play plus B-1064/B-1099 reconnect unit; asset-native-source pre-commit guard passed and protected Workbench-hook files were excluded."
       ],
-      "detail": "T-ENGINE-004 remains partial for broader Campaign/player-init, transition reset, wider failure rollback, strengthened listen-host lifecycle, and the V-009 release capture gate.\n\nThe reconnect slice is production-verified on frozen product 7437d77c... / exact client 0f377e3e.... The sole replacement run publishes the listener, reaches initial NORMAL gameplay, preserves explicit timeout intent plus one reservation and endpoint credential, authenticates one retry, applies the B-1099 prior-stage CUTSCENE 6 -> GE_FADEIN 0 boundary, commits one exact world/inventory transaction, reaches restored NORMAL gameplay, emits five real MagSec shots, records host server_accepted=1, exits both processes cleanly, and leaves no PerfectDark/pd-tests/WerFault process. Existing D-003 smokes were not rerun.\n\nThe immutable raw receipt results-20260814T113729Z.json remains rejected at 92/95 because B-1100's old definition required optional LOG.WPN.DIAG output and forbade correct final credential retirement after scripted exit. Verifier-only source now requires bounded COMBAT: SHOT_FIRED and one lifecycle-ordered terminal cleanup. Separately hashed offline revalidation passes the exact retained aggregate/host/client logs 98/98. Rebuilt [b1100] passes 61 assertions in 1 case under verifier 9f6c126b...; product source/client are unchanged. The accepted full 63,936/1,168 and native-source guard were not redundantly rerun.",
+      "detail": "T-ENGINE-004 remains partial for broader Campaign/player-init, transition reset, wider failure rollback, strengthened listen-host lifecycle, and the V-009 release capture gate.\n\nThe reconnect slice is production-verified on frozen product 7437d77c... / exact client 0f377e3e.... The sole replacement run publishes the listener, reaches initial NORMAL gameplay, preserves explicit timeout intent plus one reservation and endpoint credential, authenticates one retry, applies the B-1099 prior-stage CUTSCENE 6 -> GE_FADEIN 0 boundary, commits one exact world/inventory transaction, reaches restored NORMAL gameplay, emits five real MagSec shots, records host server_accepted=1, exits both processes cleanly, and leaves no PerfectDark/pd-tests/WerFault process. Existing D-003 smokes were not rerun.\n\nThe immutable raw receipt results-20260814T113729Z.json remains rejected at 92/95 because B-1100's old definition required optional LOG.WPN.DIAG output and forbade correct final credential retirement after scripted exit. Verifier-only source now requires bounded COMBAT: SHOT_FIRED and one lifecycle-ordered terminal cleanup. Separately hashed offline revalidation passes the exact retained aggregate/host/client logs 98/98. Rebuilt [b1100] passes 61 assertions in 1 case under verifier 9f6c126b...; product source/client are unchanged. The accepted full 63,936/1,168 and native-source guard were not redundantly rerun.\n\nCommitted verified source as b88d7ed665ad80e55cb8d6a2838bd268337ab61a. The commit contains 165 intended files and excludes AGENTS.md, context/pillars/build-dev-tooling.md, docs/CODEX_COORDINATION.md, tools/Workbench/README.md, .codex, and the hook test lane.",
       "tags": [
         "release:v1.0",
         "architecture",
@@ -678,7 +679,7 @@
         "c3746"
       ],
       "id": "T-ENGINE-004",
-      "updated": "2026-08-14T11:50:05.309Z",
+      "updated": "2026-08-14T11:57:15.748Z",
       "created": "2026-07-30T15:15:41.885Z",
       "model": "gpt-5.6-sol"
     },

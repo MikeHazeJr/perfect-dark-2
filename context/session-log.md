@@ -381,6 +381,10 @@ B-1094, B-1095, B-1099, and B-1100 are regression gates; T-ENGINE-004 remains
 partial for its broader Campaign/player-init and transition work. V-009 remains
 the required visual regression gate for future gameplay captures.
 
+Commit `b88d7ed665ad80e55cb8d6a2838bd268337ab61a` preserves this verified
+165-file source unit. The asset-native-source pre-commit guard passed, and the
+unrelated active Workbench-hook lane remained unstaged.
+
 ## 2026-08-14 - D-003 current-product two-role friend play accepted
 
 Goal: finish the B-1082 through B-1090 authority-first friend-play cluster on
