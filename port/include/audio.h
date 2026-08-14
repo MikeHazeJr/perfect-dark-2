@@ -67,6 +67,9 @@ void audioNotifyEngineReady(void);
  * and returns the currently-playing/first track for backward compat. */
 const char *audioGetModTrackId(void);
 void audioSetModTrackId(const char *id);
+/* Exact currently selected/playing public track. Unlike the compatibility
+ * getter, this never substitutes playlist entry zero. */
+const char *audioGetCurrentModTrackId(void);
 
 /* ---- Mod track playlist (replaces single-track selection) ----
  * Up to 16 tracks can be queued. Playlist + shuffle state persisted

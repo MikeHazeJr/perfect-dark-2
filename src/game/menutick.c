@@ -31,6 +31,7 @@
 #include "types.h"
 #include "assetcatalog.h"
 #include "scene_transition.h"
+#include "smoke_harness.h"
 
 #include "system.h"
 #include "net/net.h"
@@ -1072,4 +1073,57 @@ void menuTick(void)
 
 	g_ScaleX = 1;
 	g_MenuData.isdialogopen = isdialogopen ? true : false;
+
+	/* T-ENGINE-004 smoke observability: the ImGui MP endscreen is queued by
+	 * the legacy dialog stack every frame. Record the stack/menu-active tuple
+	 * at bounded intervals and whenever ownership changes, so a missing input
+	 * consumer can be attributed to the producer boundary without changing
+	 * menu lifetime or rendering behavior. */
+	{
+		static s32 s_mpEndscreenStateTicks = 0;
+		static s32 s_prevCount = -1;
+		static s32 s_prevDepth = -1;
+		static s32 s_prevMenuActive = -1;
+		static s32 s_prevDialogState = -1;
+		static s32 s_prevRenderBg = -1;
+		struct menudialog *curdialog = g_Menus[0].curdialog;
+		const s32 menuactive = g_Vars.players[0]
+			? g_Vars.players[0]->menuisactive : -1;
+		const s32 dialogstate = curdialog ? curdialog->state : -1;
+
+		if (smokeHarnessIsActive()
+				&& g_MenuData.root == MENUROOT_MPENDSCREEN) {
+			s_mpEndscreenStateTicks++;
+			if (s_mpEndscreenStateTicks == 1
+					|| s_mpEndscreenStateTicks == 5
+					|| s_mpEndscreenStateTicks == 30
+					|| (s_mpEndscreenStateTicks % 120) == 0
+					|| s_prevCount != g_MenuData.count
+					|| s_prevDepth != g_Menus[0].depth
+					|| s_prevMenuActive != menuactive
+					|| s_prevDialogState != dialogstate
+					|| s_prevRenderBg != var8009dfc0) {
+				sysLogPrintf(LOG_NOTE,
+					"ENDSCREEN.STATE: tick=%d count=%d is_open=%d cur=%p def=%p depth=%d state=%d menu_active=%d render_bg=%d bg=%d next_bg=%d",
+					s_mpEndscreenStateTicks, g_MenuData.count,
+					g_MenuData.isdialogopen ? 1 : 0,
+					(void *)curdialog,
+					(void *)(curdialog ? curdialog->definition : NULL),
+					g_Menus[0].depth, dialogstate, menuactive,
+					var8009dfc0, g_MenuData.bg, g_MenuData.nextbg);
+			}
+			s_prevCount = g_MenuData.count;
+			s_prevDepth = g_Menus[0].depth;
+			s_prevMenuActive = menuactive;
+			s_prevDialogState = dialogstate;
+			s_prevRenderBg = var8009dfc0;
+		} else {
+			s_mpEndscreenStateTicks = 0;
+			s_prevCount = -1;
+			s_prevDepth = -1;
+			s_prevMenuActive = -1;
+			s_prevDialogState = -1;
+			s_prevRenderBg = -1;
+		}
+	}
 }

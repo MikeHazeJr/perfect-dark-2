@@ -66,8 +66,12 @@ s32 bgPopulateVtxBatchType(s32 roomnum, struct vtxbatch *batches, Gfx *gdl, s32 
 void bgFindRoomVtxBatches(s32 roomnum);
 bool bgTestLineIntersectsIntBbox(struct coord *arg0, struct coord *arg1, s32 *arg2, s32 *arg3);
 bool bgTestLineIntersectsBbox(struct coord *arg0, struct coord *arg1, struct coord *arg2, struct coord *arg3);
-bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1, struct coord *arg2, Gfx *gdl, Gfx *gdl2, Vtx *vertices, struct hitthing *hitthing);
-bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2, struct coord *arg3, Gfx *arg4, Gfx *arg5, Vtx *vertices, f32 *arg7, struct hitthing *hitthing);
+bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1,
+	struct coord *arg2, Gfx *gdl, u32 gdlbytes, Gfx *gdl2,
+	u32 gdl2bytes, Vtx *vertices, struct hitthing *hitthing);
+bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2,
+	struct coord *arg3, Gfx *gdl, u32 gdlbytes, Gfx *gdl2, u32 gdl2bytes,
+	Vtx *vertices, f32 *arg7, struct hitthing *hitthing);
 bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *arg2, struct vtxbatch *batches, s32 roomnum, struct hitthing *hitthing);
 s32 bg0f1612e4(struct coord *bbmin, struct coord *bbmax, struct coord *frompos, struct coord *dist, struct coord *arg4, struct coord *arg5);
 bool bgTestHitInRoom(struct coord *frompos, struct coord *topos, s32 roomnum, struct hitthing *hitthing);

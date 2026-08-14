@@ -4,12 +4,76 @@
 #include "types.h"
 #include "constants.h"
 #include "net/netbuf.h"
+#include "net/net_client_settings_wire.h"
 #include "assetcatalog.h"
 
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 53  /* v53 (2026-08-11): match-manifest distribution
+#define NET_PROTOCOL_VER 57  /* v57 (2026-08-14): reconnect is one authenticated
+                              * transaction. ENet connect data carries a
+                              * non-authoritative stable client-slot hint;
+                              * CLC_AUTH still proves an endpoint-scoped 128-bit
+                              * cookie, and CLC_SETTINGS freezes one exact typed
+                              * candidate. The server republishes the room,
+                              * session catalog, and manifest on the reliable
+                              * control channel, then waits for a hash-matched
+                              * manifest READY. Only then may the server enqueue
+                              * the exact stage packet; runtime config, reserved
+                              * room capacity, player/prop linkage, and preserved
+                              * credential remain uncommitted. The replay roster
+                              * retains every other timed reservation as an
+                              * explicitly absent
+                              * participant. Once the receiver reports the real
+                              * post-load scene boundary, the server atomically
+                              * publishes that frozen runtime state and sends one
+                              * targeted authoritative snapshot on the same
+                              * reliable ordered channel. Its announced
+                              * replicated-prop set removes stale stage-load
+                              * objects before dynamic spawns, then restores
+                              * authoritative world-object, inventory, player,
+                              * bot, score, cutscene, and co-op mission state before
+                              * SVC_RECONNECT_COMMIT. The client retires its
+                              * retry transaction only after consuming that
+                              * ordered marker; the server retains the player
+                              * record and room reservation until post-load
+                              * READY. Any prepare/write/enqueue failure rolls back without
+                              * consuming the preserved slot. Only a
+                              * transport timeout retains the in-memory retry
+                              * credential. Mixed v56/v57 play is rejected.
+                              * v56 (2026-08-13): cutscene authority freezes
+                              * the validated stage roster and carries one
+                              * room-scoped reliable START/ACCEPT/END stream
+                              * with server-minted generations and stable client-ID
+                              * identity in every network game mode.
+                              * CLC_CUTSCENE_SKIP remains only a request; the
+                              * authority publishes SVC_CUTSCENE_SKIP in that
+                              * stream. Each receiver maps the exact full roster
+                              * into local player slots, treats duplicates/stale
+                              * state idempotently, and rejects conflicts. Failed
+                              * authority publication blocks ordinary output
+                              * until its retained retry succeeds. Mixed v55/v56
+                              * play is rejected at auth. Terminal END and
+                              * SVC_STAGE_END share a retained transaction whose
+                              * frames discard earlier and block later gameplay.
+                              * v55 (2026-08-13): CLC_SETTINGS carries one
+                              * transactionally validated exact typed body/head
+                              * identity plus the client's nonzero handicap.
+                              * CLC_LOBBY_START removes its duplicate positional
+                              * four-player handicap cache. The server derives
+                              * each prepared roster entry from that exact
+                              * authenticated client's settings, eliminating
+                              * pre-catalog identity and cross-machine slot drift.
+                              * Mixed v54/v55 play is rejected at auth.
+                              * v54 (2026-08-13): transactional CLC_LOBBY_START
+                              * carries exact bot team after type and rejects
+                              * fallback identities before publication. Random
+                              * weapon-set intent carries already resolved exact
+                              * slots, and network launch consumes the frozen
+                              * roster/options/weapons/stage without a second
+                              * mutation. Mixed v53/v54 play is rejected at the
+                              * auth handshake.
+                              * v53 (2026-08-11): match-manifest distribution
                               * distinguishes typed catalog assets from full
                               * mod packages, admits session packages against
                               * the manifest SHA-256, and tracks multi-item
@@ -268,6 +332,10 @@ extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from se
 #define CLFLAG_COOPREADY (1 << 1) // client is ready to start co-op mission
 #define CLFLAG_SPECTATOR (1 << 2) // v42: client is spectator-only; skip player iteration, fan out SVC_STATE_FRAME
 
+#define NET_RECONNECT_MANIFEST_NONE         0
+#define NET_RECONNECT_MANIFEST_WAITING      1
+#define NET_RECONNECT_MANIFEST_TRANSFERRING 2
+
 #define NET_MAX_RECENT_SERVERS 8
 #define NET_PRESERVE_TIMEOUT_FRAMES (60 * 60 * 5) // 5 minutes at 60 fps
 
@@ -281,14 +349,26 @@ extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from se
 #define NETGAMEMODE_COOP  1 // cooperative campaign
 #define NETGAMEMODE_ANTI  2 // counter-operative campaign
 
+struct netclientsettings {
+	char name[NET_MAX_NAME];
+	u16 options;
+	char body_id[CATALOG_ID_LEN];
+	char head_id[CATALOG_ID_LEN];
+	u8 team;
+	u8 handicap;
+	f32 fovy;
+	f32 fovzoommult;
+};
+
 struct netpreservedplayer {
 	char name[NET_MAX_NAME];
 	u8 cookie[NET_AUTH_COOKIE_LEN]; /* MASTER-C3: server-issued identity cookie */
+	u8 client_id; /* v57: stable authenticated id reserved in ENet connect data */
 	u8 playernum;
-	u8 team;
-	s16 killcounts[MAX_MPCHRS];
-	s16 numdeaths;
-	s16 numpoints;
+	u8 room_id;
+	u32 prop_syncid;
+	struct netclientsettings settings;
+	struct mpplayerconfig config;
 	bool active;
 	u32 preserveframe; // frame number when preserved, for timeout
 };
@@ -313,6 +393,7 @@ extern s32 g_NetNumPreserved;
 extern struct netrecentserver g_NetRecentServers[NET_MAX_RECENT_SERVERS];
 extern s32 g_NetNumRecentServers;
 extern u8 g_NetCounterOpClientId; /* NET_NULL_CLIENT when not in Counter-Op */
+extern u8 g_NetMatchRoomId; /* 0xFF = lounge/global scope, otherwise exact room */
 extern u8 g_NetBotAuthorityClientId; /* NET_NULL_CLIENT when no authority delegated */
 
 #define NETCHAN_DEFAULT  0
@@ -386,15 +467,7 @@ struct netclient {
 	u32 state; // CLSTATE_
 	u32 flags; // CLFLAG_
 
-	struct {
-		char name[NET_MAX_NAME];
-		u16 options;
-		char body_id[CATALOG_ID_LEN]; /* canonical catalog asset ID, e.g. "base:dark_combat" */
-		char head_id[CATALOG_ID_LEN]; /* canonical catalog asset ID, e.g. "base:head_dark_combat" */
-		u8 team;
-		f32 fovy;
-		f32 fovzoommult;
-	} settings;
+	struct netclientsettings settings;
 
 	struct mpplayerconfig *config;
 	struct player *player;
@@ -408,6 +481,16 @@ struct netclient {
 	u32 lerpticks; // how many ticks we've been lerping the position
 
 	u8 room_id;    // hub room assignment (0xFF = in lounge, not in a room)
+	u8 reconnect_preserved_index; /* v57: pending auth record; NET_NULL_CLIENT when none */
+	bool reconnect_settings_pending; /* exact CLC_SETTINGS waits for manifest READY */
+	u8 reconnect_manifest_phase; /* NET_RECONNECT_MANIFEST_* */
+	u8 reconnect_sanitized_team;
+	u32 reconnect_manifest_hash;
+	net_client_settings_plan_t reconnect_settings_plan;
+	u32 server_disconnect_intent_reason; /* sender-local ENet events discard wire reason */
+	bool server_disconnect_intent_pending; /* first server intent wins until teardown */
+	bool reconnect_resync_pending; /* v57: stage queued; exact state waits for post-load READY */
+	bool reconnect_gameplay_witness_pending; /* v57: next accepted fire move proves restored authority use */
 	bool stage_ready; // server: true once this client sent CLC_STAGE_READY after stage load
 	bool is_admin;    // MASTER-C2b: set after successful CLC_ADMIN ADMIN_AUTH on this peer
 	u8 auth_cookie[NET_AUTH_COOKIE_LEN]; // MASTER-C3: server-issued identity cookie for this peer
@@ -431,6 +514,10 @@ extern s32 g_NetDedicated; // --dedicated : server-only, no local player
 // net frame, ticks at 60 fps, starts at 0 when the server is started
 extern u32 g_NetTick;
 extern u32 g_NetNextSyncId;
+/* First ID available to runtime-created props in the current stage. Initial
+ * setup IDs are deterministic prop-slot offsets; runtime IDs are monotonic and
+ * never reuse the last setup ID. */
+extern u32 g_NetFirstDynamicSyncId;
 
 extern u64 g_NetRngSeeds[2];
 extern u32 g_NetRngLatch;
@@ -455,7 +542,9 @@ extern bool g_NetLocalBotAuthority;
  * g_NetLocalBotAuthority once stage load is confirmed (pads loaded, spawn points ready). */
 extern bool g_NetPendingBotAuthority;
 
-/* U-10: Stage-ready handshake state (server-side, dedicated server only).
+/* U-10/v57: Stage-ready handshake state. Every ordinary client emits READY at
+ * the real post-load scene boundary. Dedicated servers additionally use it for
+ * bot-authority delegation; reconnects use it for ordered targeted resync.
  * g_NetStageReadyDeadline: g_NetTick value at which the server stops waiting and sends
  *   BOT_AUTHORITY regardless; -1 means not currently waiting.
  * g_NetBotAuthorityDelegated: set once SVC_BOT_AUTHORITY has been sent this match so
@@ -490,6 +579,11 @@ void netHeartbeatLog(void);
 
 void netInit(void);
 s32 netDisconnect(void);
+s32 netClientReconnectAvailable(void);
+s32 netClientReconnect(void);
+void netClientReconnectAuthAccepted(void);
+void netClientReconnectCommitAccepted(void);
+void netClientStageLoaded(void);
 void netStartFrame(void);
 void netEndFrame(void);
 
@@ -497,35 +591,72 @@ s32 netStartServer(u16 port, s32 maxclients);
 s32 netStartClient(const char *addr);
 
 u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan);
-void netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan);
+u32 netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan);
+s32 netServerSendReconnectState(struct netclient *dstcl);
 
 void netChat(struct netclient *dst, const char *text);
 void netChatPrintf(struct netclient *dst, const char *fmt, ...);
 
-void netServerStageStart(void);
-void netServerCoopStageStart(u8 stagenum, u8 difficulty);
+s32 netServerStageStart(void);
+s32 netServerCoopStageStart(u8 stagenum, u8 difficulty);
 void netServerStageEnd(void);
 void netServerKick(struct netclient *cl, const u32 reason);
 
 struct netclient *netClientForPlayerNum(s32 playernum);
 
 void netClientSyncRng(void);
-void netClientSettingsChanged(void);
+s32 netClientSettingsChanged(void);
 
-void netPlayersAllocate(void);
+enum net_player_allocate_result {
+	NET_PLAYER_ALLOC_OK = 0,
+	NET_PLAYER_ALLOC_INVALID_MODE = -1,
+	NET_PLAYER_ALLOC_MISSING_LOCAL_CLIENT = -2,
+	NET_PLAYER_ALLOC_TOO_MANY_PLAYERS = -3,
+	NET_PLAYER_ALLOC_INVALID_PLAYER_SLOT = -4,
+	NET_PLAYER_ALLOC_DUPLICATE_PLAYER_SLOT = -5,
+	NET_PLAYER_ALLOC_MISSING_PLAYER_OBJECT = -6,
+	NET_PLAYER_ALLOC_INVALID_IDENTITY = -7,
+};
+
+enum net_player_allocate_result netPlayersAllocate(void);
+const char *netPlayerAllocateResultString(enum net_player_allocate_result result);
 void netSyncIdsAllocate(void);
 
 void netServerPreservePlayer(struct netclient *cl);
-/* MASTER-C3: Find a preserved player by name.  Advisory lookup — the caller
- * MUST additionally compare cookie bytes before restoring.  Returns NULL if
- * the preserved table has no matching name. */
-struct netpreservedplayer *netServerFindPreserved(const char *name);
-/* MASTER-C3: Find by BOTH name and cookie.  Used on reconnect — if either
- * check fails this returns NULL and the caller should treat the peer as a
- * fresh player (or reject if mid-game). */
-struct netpreservedplayer *netServerFindPreservedByCookie(const char *name,
-	const u8 cookie[NET_AUTH_COOKIE_LEN]);
-void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *pp);
+struct netpreservedplayer *netServerFindPreservedByClientId(u8 client_id);
+s32 netServerMatchInProgress(void);
+s32 netServerReconnectSettingsMatch(const struct netpreservedplayer *pp,
+	const net_client_settings_plan_t *plan, u8 sanitized_team);
+enum net_restore_result {
+	NET_RESTORE_OK = 0,
+	NET_RESTORE_INVALID_ARGUMENT = -1,
+	NET_RESTORE_INACTIVE_RECORD = -2,
+	NET_RESTORE_INVALID_PLAYER_SLOT = -3,
+	NET_RESTORE_MISSING_PLAYER = -4,
+	NET_RESTORE_SLOT_CONFLICT = -5,
+	NET_RESTORE_INVALID_IDENTITY = -6,
+	NET_RESTORE_SETTINGS_MISMATCH = -7,
+	NET_RESTORE_ROOM_UNAVAILABLE = -8,
+	NET_RESTORE_MISSING_PROP = -9,
+	NET_RESTORE_STAGE_WRITE_FAILED = -10,
+	NET_RESTORE_STAGE_SEND_FAILED = -11,
+	NET_RESTORE_PROP_MISMATCH = -12,
+	NET_RESTORE_STATE_WRITE_FAILED = -13,
+	NET_RESTORE_STATE_SEND_FAILED = -14,
+};
+
+enum net_restore_result netServerRestorePreserved(struct netclient *cl,
+	struct netpreservedplayer *pp,
+	const net_client_settings_plan_t *settings_plan,
+	u8 sanitized_team,
+	struct netbuf *stage_wire,
+	u32 *out_stage_len);
+enum net_restore_result netServerCompleteReconnect(struct netclient *cl);
+const char *netRestoreResultString(enum net_restore_result result);
+/* A failed authority attempt must not be reported as peer content corruption
+ * or consume a valid endpoint-scoped credential. The timeout close is the
+ * protocol's retryable transport policy; validation failures remain terminal. */
+s32 netRestoreResultRequiresRetryableClose(enum net_restore_result result);
 
 /* MASTER-C3: Populate out with NET_AUTH_COOKIE_LEN cryptographically-unique
  * bytes drawn from SDL_GetPerformanceCounter mixed with a running hash.

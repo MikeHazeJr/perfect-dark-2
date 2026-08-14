@@ -37,6 +37,7 @@ IDENTITIES = {
 IDENTITY_MAGIC = 0x44494450
 IDENTITY_VERSION = 3
 SOCIAL_DOMAIN = b"pd-social-connect-v1\n"
+AGENT_TEMPLATE = Path(__file__).resolve().parent / "fixtures" / "agent_smoke.json"
 
 
 def agent_handle(pubkey: bytes, agent_name: str) -> int:
@@ -63,6 +64,24 @@ def write_identity(install_dir: Path, role: str) -> None:
         + identity["pub"]
     )
     (install_dir / "pd-identity.dat").write_bytes(payload)
+
+
+def write_agent(install_dir: Path, role: str) -> None:
+    """Clone the canonical valid Agent fixture and change only its identity.
+
+    Friend-play tests exercise social/network behavior, not an independent save
+    schema. Keeping a second hand-written Agent document here allowed it to
+    drift behind the versioned profile codec and fail before friend play began.
+    """
+    agent_template = json.loads(AGENT_TEMPLATE.read_text(encoding="utf-8"))
+
+    if not isinstance(agent_template, dict) or "name" not in agent_template:
+        raise ValueError(f"invalid Agent template: {AGENT_TEMPLATE}")
+
+    agent_template["name"] = role
+    (install_dir / f"agent_{role}.json").write_text(
+        json.dumps(agent_template, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def write_social(install_dir: Path, role: str) -> dict[str, object]:
@@ -102,20 +121,6 @@ def write_social(install_dir: Path, role: str) -> dict[str, object]:
         '  "notify": { "social": true, "invites": true }\n}\n',
         encoding="utf-8",
     )
-    agent = {
-        "version": 2,
-        "name": role,
-        "totaltime": 0,
-        "autodifficulty": 0,
-        "autostageindex": 0,
-        "thumbnail": 0,
-        "coopcompletions": [0, 0, 0],
-        "firingrangescores": [0] * 9,
-        "weaponsfound": [0] * 6,
-    }
-    (install_dir / f"agent_{role}.json").write_text(
-        json.dumps(agent, indent=2) + "\n", encoding="utf-8"
-    )
     return {
         "role": role,
         "handle": local_handle,
@@ -136,6 +141,7 @@ def main() -> int:
     install_dir = args.install_dir.resolve()
     install_dir.mkdir(parents=True, exist_ok=True)
     write_identity(install_dir, args.role)
+    write_agent(install_dir, args.role)
     print(json.dumps(write_social(install_dir, args.role), sort_keys=True))
     return 0
 

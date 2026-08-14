@@ -2426,14 +2426,15 @@ TEST_CASE("projectile and entity asset kinds are catalog and manifest visible",
 	REQUIRE(manifest_h.find("slot_index stores asset_type_e") != std::string::npos);
 
 	std::string manifest_c = readFile("port/src/net/netmanifest.c");
-	REQUIRE(manifest_c.find("case ASSET_PROJECTILE: return MANIFEST_TYPE_PROJECTILE") != std::string::npos);
-	REQUIRE(manifest_c.find("case ASSET_ENTITY:") != std::string::npos);
-	REQUIRE(manifest_c.find("case MANIFEST_TYPE_PROJECTILE: return ASSET_PROJECTILE") != std::string::npos);
-	REQUIRE(manifest_c.find("case MANIFEST_TYPE_ENTITY:") != std::string::npos);
-	REQUIRE(manifest_c.find("default:              return MANIFEST_TYPE_ASSET") != std::string::npos);
+	std::string manifest_type = readFile("port/src/net/net_manifest_type.c");
+	REQUIRE(manifest_type.find("case ASSET_PROJECTILE: return MANIFEST_TYPE_PROJECTILE") != std::string::npos);
+	REQUIRE(manifest_type.find("case ASSET_ENTITY:     return MANIFEST_TYPE_ENTITY") != std::string::npos);
+	REQUIRE(manifest_type.find("default:               return MANIFEST_TYPE_ASSET") != std::string::npos);
+	REQUIRE(manifest_type.find("manifest_type != netManifestTypeForCatalogAsset(asset_type)") != std::string::npos);
+	REQUIRE(manifest_type.find("slot_index == (u8)asset_type") != std::string::npos);
 	REQUIRE(manifest_c.find("s_manifestEntryCatalogAssetType") != std::string::npos);
 	REQUIRE(manifest_c.find("mtype == MANIFEST_TYPE_ASSET") != std::string::npos);
-	REQUIRE(manifest_c.find("entry->type == MANIFEST_TYPE_ASSET") != std::string::npos);
+	REQUIRE(manifest_c.find("netManifestTypeAcceptsCatalogAsset(") != std::string::npos);
 
 	std::string netmsg = readFile("port/src/net/netmsg.c");
 	REQUIRE(netmsg.find("ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY") != std::string::npos);
@@ -5198,11 +5199,11 @@ TEST_CASE("weapon graph MP agreement is protocol-versioned after cutover",
 	REQUIRE(net.find("weaponGraphRuntimeNetRestoreEnabled()") == std::string::npos);
 
 	const std::string netHeader = readFile("port/include/net/net.h");
-	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 53") != std::string::npos);
-	REQUIRE(netHeader.find("v52/v53") != std::string::npos);
+	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 57") != std::string::npos);
+	REQUIRE(netHeader.find("v54/v55") != std::string::npos);
 
 	const std::string versions = readFile("tests/test_versions.cpp");
-	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 53") != std::string::npos);
+	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 57") != std::string::npos);
 }
 
 TEST_CASE("bot-profile catalog identity reaches UI save wire manifest and runtime",
@@ -5233,7 +5234,11 @@ TEST_CASE("bot-profile catalog identity reaches UI save wire manifest and runtim
 	const std::string match = readFile("port/src/net/matchsetup.c");
 	REQUIRE(match.find("s_matchSlotApplyBotProfile") != std::string::npos);
 	REQUIRE(match.find("mpBotProfileRuntimeBindingById(profile_id)") != std::string::npos);
-	REQUIRE(match.find("strncpy(bot->profile_id, profile_id") != std::string::npos);
+	REQUIRE(match.find("strncpy(slot->profile_id, profile_id") != std::string::npos);
+	REQUIRE(match.find("strncpy(participant->bot.profile_id, slot->profile_id") !=
+		std::string::npos);
+	REQUIRE(match.find("g_BotConfigsArray[bot_slot] = participant->bot") !=
+		std::string::npos);
 
 	const std::string scenario = readFile("port/src/scenario_save.c");
 	REQUIRE(scenario.find("\"profileId\"") != std::string::npos);
@@ -5244,10 +5249,11 @@ TEST_CASE("bot-profile catalog identity reaches UI save wire manifest and runtim
 	REQUIRE(save.find("matchConfigAddBotWithProfile(profile_id") != std::string::npos);
 
 	const std::string netmsg = readFile("port/src/net/netmsg.c");
-	REQUIRE(netmsg.find("netbufWriteStr(dst, sl->profile_id)") != std::string::npos);
-	REQUIRE(netmsg.find("lobby bot slot %d has no public profile") != std::string::npos);
-	REQUIRE(netmsg.find("const u16 profile_session = catalogReadAssetRef(src)") != std::string::npos);
-	REQUIRE(netmsg.find("sessionCatalogGetId(profile_canon)") != std::string::npos);
+	REQUIRE(netmsg.find("netbufWriteStr(dst, bot->profile_id)") != std::string::npos);
+	REQUIRE(netmsg.find("bot profile has no exact hydrated binding") != std::string::npos);
+	REQUIRE(netmsg.find("profile_session = catalogReadAssetRef(src)") != std::string::npos);
+	REQUIRE(netmsg.find("prepared->profile_session = sessionCatalogGetId(profile_entry->id)") !=
+		std::string::npos);
 
 	const std::string manifest = readFile("port/src/net/netmanifest.c");
 	REQUIRE(manifest.find("sl->profile_id[0] ? assetCatalogResolve(sl->profile_id)") != std::string::npos);
@@ -5965,6 +5971,16 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler_h.find(".bin suffix") != std::string::npos);
 
 	std::string compiler = readFile("port/src/modasset_compiler.c");
+	REQUIRE(compiler.find("u32 render_audit_step_mask;") != std::string::npos);
+	REQUIRE(compiler.find("s32 needler_render_audit_witness_logged;") != std::string::npos);
+	REQUIRE(compiler.find("generatedModeldefRenderAuditStageBit") != std::string::npos);
+	REQUIRE(compiler.find("\"gundl-pre-opa\"") != std::string::npos);
+	REQUIRE(compiler.find("\"dl-post-xlu-displaylist\"") != std::string::npos);
+	REQUIRE(compiler.find("\"bgun-after-mtxF2L\"") != std::string::npos);
+	REQUIRE(compiler.find("owner->render_audit_step_mask & stage_bit") != std::string::npos);
+	REQUIRE(compiler.find("owner->render_audit_step_mask |= stage_bit") != std::string::npos);
+	REQUIRE(compiler.find("!owner->needler_render_audit_witness_logged") != std::string::npos);
+	REQUIRE(compiler.find("owner->needler_render_audit_witness_logged = 1") != std::string::npos);
 	REQUIRE(compiler.find("endsWithNoCase(path, \".gltf\")") != std::string::npos);
 	REQUIRE(compiler.find("endsWithNoCase(path, \".glb\")") != std::string::npos);
 	REQUIRE(compiler.find("endsWithNoCase(path, \".obj\")") != std::string::npos);
@@ -6148,13 +6164,25 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(main_c.find("debug_body_id, debug_head_id") != std::string::npos);
 	REQUIRE(main_c.find("BOOT: --debug-bot-appearance applied") != std::string::npos);
 	REQUIRE(main_c.find("bootDebugPlaceBotNearPlayerPreRenderTick") != std::string::npos);
-	REQUIRE(main_c.find("chrMoveToPos(bot, &target, rooms") != std::string::npos);
-	REQUIRE(main_c.find("target = g_Vars.currentplayer->cam_pos") != std::string::npos);
-	REQUIRE(main_c.find("PROPFLAG_ONTHISSCREENTHISTICK") != std::string::npos);
-	REQUIRE(main_c.find("propActivateThisFrame(bot->prop)") != std::string::npos);
+	REQUIRE(main_c.find("cdFindGroundInfoAtCyl(&candidate, bot->radius, rooms") != std::string::npos);
+	REQUIRE(main_c.find("meshFindFloor(&candidate, bot->radius, &meshnormaly)") != std::string::npos);
+	REQUIRE(main_c.find("playerground = g_Vars.currentplayer->vv_ground") != std::string::npos);
+	REQUIRE(main_c.find("fabsf(selectedground - playerground) <= 80.0f") != std::string::npos);
+	REQUIRE(main_c.find("target.y = selectedground") != std::string::npos);
+	REQUIRE(main_c.find("selectedsource = \"mesh\"") != std::string::npos);
+	REQUIRE(main_c.find("ground_source=%s") != std::string::npos);
+	REQUIRE(main_c.find("chrRelocateToFloorWithCachedGround(bot, &target") != std::string::npos);
+	REQUIRE(main_c.find("playerprop->pos.y - playerground, rooms") != std::string::npos);
+	REQUIRE(main_c.find("chrSetPosWithCachedGround(bot, &target, rooms") == std::string::npos);
+	REQUIRE(main_c.find("chrSetPos(bot, &target, rooms") == std::string::npos);
+	REQUIRE(main_c.find("chrMoveToPos(bot, &target, rooms") == std::string::npos);
+	REQUIRE(main_c.find("struct coord candidate = g_Vars.currentplayer->cam_pos") != std::string::npos);
 	REQUIRE(main_c.find("g_BootDebugPlaceBotNearPlayerProp = bot->prop") != std::string::npos);
 	REQUIRE(main_c.find("BOT.RENDER.AUDIT: stage=%s") != std::string::npos);
-	REQUIRE(main_c.find("k_BootDebugPlaceBotNearPlayerHoldMaxFrames") != std::string::npos);
+	REQUIRE(main_c.find("k_BootDebugPlaceBotNearPlayerStableFrames") != std::string::npos);
+	REQUIRE(main_c.find("--debug-place-bot-near-player-hold-sec") != std::string::npos);
+	REQUIRE(main_c.find("g_BootDebugPlaceBotNearPlayerHoldDurationMs") != std::string::npos);
+	REQUIRE(main_c.find("g_Vars.tickmode != TICKMODE_NORMAL") != std::string::npos);
 	REQUIRE(main_c.find("camera_forward=(%f,%f)") != std::string::npos);
 
 	std::string pdmain_c = readFile("port/src/pdmain.c");

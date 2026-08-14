@@ -27,6 +27,7 @@ s32 mpGetTeamRankings(struct ranking *rankings);
 s32 func0f188bcc(void);
 s32 mpGetNumWeaponOptions(void);
 char *mpGetWeaponLabel(s32 weaponnum);
+s32 mpResolveWeaponUiIndex(s32 weaponnum);
 void mpSetWeaponSlot(s32 slot, s32 mpweaponnum);
 s32 mpGetWeaponSlot(s32 slot);
 struct mpweapon *mpGetMpWeaponByLocation(s32 locationindex);
@@ -37,6 +38,13 @@ s32 func0f189088(void);
 char *mpGetWeaponSetName(s32 arg0);
 void func0f18913c(void);
 void mpSetRandomWeapons(u8 weapons[]);
+/* Build a complete weapon-set candidate without publishing g_MpSetup or
+ * g_MpWeaponSetNum. `weaponsetnum == -1` means the supplied custom slots. */
+s32 mpPrepareWeaponSet(s32 weaponsetnum, const u8 custom_weapons[NUM_MPWEAPONSLOTS],
+		u8 out_weapons[NUM_MPWEAPONSLOTS], s32 *out_resolved_set);
+/* Infallible publication half of mpPrepareWeaponSet. */
+void mpCommitPreparedWeaponSet(s32 resolved_set,
+		const u8 weapons[NUM_MPWEAPONSLOTS]);
 void mpApplyWeaponSet(void);
 void mpSetWeaponSet(s32 weaponsetnum);
 void func0f1895e8(void);

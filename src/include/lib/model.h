@@ -28,6 +28,8 @@ void modelNodeGetPosition(struct model *model, struct modelnode *node, struct co
 void modelNodeSetPosition(struct model *model, struct modelnode *node, struct coord *pos);
 void modelGetRootPosition(struct model *model, struct coord *pos);
 void modelSetRootPosition(struct model *model, struct coord *pos);
+bool modelSetChrRootHeight(struct model *model, f32 rootheight);
+void modelClearChrRootHeight(struct model *model);
 void modelNodeGetModelRelativePosition(struct model *model, struct modelnode *node, struct coord *pos);
 f32 modelGetChrRotY(struct model *model);
 void modelSetChrRotY(struct model *model, f32 angle);
@@ -105,8 +107,9 @@ void modelInitRwData(struct model *model, struct modelnode *node);
 void modelInit(struct model *model, struct modeldef *modeldef, u32 *rwdatas, bool resetanim);
 void animInit(struct anim *anim);
 void modelAttachHead(struct model *model, struct modeldef *arg1, struct modelnode *node, struct modeldef *arg3);
-/* B-952: deep-copy a modeldef + node tree so a modular chr gets a per-instance
- * modeldef, and modelAttachHead mutates that copy rather than the shared cache. */
+/* B-952/B-1098: clone a character modeldef's nodes, packed parts, and mutable
+ * relation rodata so attachment/indexing cannot mutate shared topology. Returns
+ * NULL unless the complete private definition can be published. */
 struct modeldef *modeldefCloneForChr(struct modeldef *src);
 void modelIterateDisplayLists(struct modeldef *modeldef, struct modelnode **nodeptr, Gfx **gdlptr);
 void modelNodeReplaceGdl(struct modeldef *modeldef, struct modelnode *node, Gfx *find, Gfx *replacement);

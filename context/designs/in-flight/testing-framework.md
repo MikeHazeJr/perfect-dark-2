@@ -573,7 +573,7 @@ These do not block the first cohort, but should be revisited:
 - `port/src/net/netmanifest.c` -- container ops + serialize/deserialize +
   diff
 - `src/game/savebuffer.c` -- save format primitives under test
-- `port/include/net/net.h:12` -- `NET_PROTOCOL_VER` definition (currently 44)
+- `port/include/net/net.h:12` -- `NET_PROTOCOL_VER` definition (currently 56)
 - `port/src/mpsetups.c:35` -- `MPSETUP_VERSION` definition (currently 2)
 - `src/game/mplayer/mplayer.c:4474-4493` -- v1 -> v2 weapon-cull migration rule
 - Mike's directive: this session's prompt

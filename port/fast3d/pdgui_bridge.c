@@ -467,7 +467,7 @@ void netServerKickClient(s32 clientId, const char *reason)
 
     sysLogPrintf(LOG_NOTE, "NET: kicking client %d (%s): %s",
                  clientId, cl->settings.name, reason ? reason : "no reason");
-    enet_peer_disconnect(cl->peer, 0);
+    netServerKick(cl, DISCONNECT_KICKED);
 }
 
 /* ========================================================================
@@ -1278,9 +1278,24 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
         return -3;
     }
 
+    /* Refresh/publish the initiating player's complete typed settings first.
+     * On a listen host this updates the authoritative cache in place; on a
+     * remote leader it queues CLC_SETTINGS on the same reliable control
+     * channel before CLC_LOBBY_START. */
+    if (netClientSettingsChanged() != 0) {
+        sysLogPrintf(LOG_ERROR,
+                     "BRIDGE: local client settings preflight failed before match start");
+        return -4;
+    }
+
     /* Write CLC_LOBBY_START into the per-client reliable out-buffer. */
     netbufStartWrite(&g_NetLocalClient->out);
-    netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, (u8)stagenum, difficulty, antiClientId, numSims, simType, timelimit, options, scenario, scorelimit, teamscorelimit, weaponSetIndex);
+    if (netmsgClcLobbyStartWrite(&g_NetLocalClient->out, gamemode, stage_id,
+            difficulty, antiClientId, numSims, simType, timelimit, options,
+            scenario, scorelimit, teamscorelimit, weaponSetIndex) != 0) {
+        netbufStartWrite(&g_NetLocalClient->out);
+        return -5;
+    }
 
     if (isClient) {
         /* Remote client: netSend(cl, NULL, reliable, chan) flushes it via
@@ -1292,8 +1307,11 @@ s32 netLobbyRequestStartWithSims(u8 gamemode, const char *stage_id, u8 difficult
         struct netbuf rb;
         netbufStartReadData(&rb, g_NetLocalClient->out.data, g_NetLocalClient->out.wp);
         (void)netbufReadU8(&rb); /* skip the message-type byte */
-        netmsgClcLobbyStartRead(&rb, g_NetLocalClient);
+        const u32 replayResult = netmsgClcLobbyStartRead(&rb, g_NetLocalClient);
         netbufStartWrite(&g_NetLocalClient->out);
+        if (replayResult != 0) {
+            return -6;
+        }
     }
     sysLogPrintf(LOG_NOTE, "BRIDGE: %s CLC_LOBBY_START gamemode=%u stage='%s'(0x%02x) diff=%u antiClient=%u sims=%u simtype=%u tl=%u opt=0x%08x scen=%u sc=%u tsc=%u weaponset=%u",
                  isClient ? "sent" : "local-replayed",

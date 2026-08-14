@@ -99,6 +99,14 @@ void sessionCatalogBuild(const match_manifest_t *manifest);
 void sessionCatalogBroadcast(void);
 
 /**
+ * Broadcast the active session catalog only to one match room.  Pass 0xFF
+ * for the legacy global-lobby scope.  Match-start transactions use this
+ * entry point so unrelated room members never receive another room's typed
+ * wire-ID table.
+ */
+void sessionCatalogBroadcastToRoom(u8 room_id);
+
+/**
  * Look up a wire_id by catalog string ID.
  * Returns 0 if not found.
  */

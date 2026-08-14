@@ -1,6 +1,6 @@
 # Connectivity / Online
 
-> ENet UDP transport. Server-authoritative wire protocol at v53. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v4). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
+> ENet UDP transport. Server-authoritative wire protocol at v57. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v5). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
 ---
 
@@ -64,7 +64,21 @@ client. This closes the B-1034 through B-1042 transport/session chain without
 using absolute paths as content identity or copying client/server manifests.
 See `context/evidence/2026-08-12-v009-real-peer-needler-random-stage.md`.
 
-`NET_PROTOCOL_VER 53` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v53. The version is pinned by [tests/test_versions.cpp](../../tests/test_versions.cpp) (`g_TestExpectedNetProtocolVer`) which reads the live header.
+2026-08-13 B-1075 reopened and then cleared the local manifest-lifecycle portion
+of the ordinary listen-host gate. The first 50/50 match receipt reached both
+spawns, scoring, end, and endscreen but was rejected because both processes
+inverted the coarse STAGE token to `ASSET_MAP` and skipped the exact
+`ASSET_ARENA` Felicity row. One shared forward/acceptance helper now validates
+lobby and manifest categories, exact string-ID lookup preserves the concrete
+type through load and release, the parallel AUDIO family follows the same rule,
+and transitions publish only after complete load success with reverse rollback.
+The source-frozen strengthened receipt
+`.claude/smoke-verify-runs/results-20260813T091851Z.json` passes 56/56 with one
+exact Felicity load per process and no mismatch, skip, rejection, rollback,
+crash, or fatal signature. Broader transition, reconnect, and friend-play gates
+remain under T-ENGINE-004 and T-RELEASE-005.
+
+`NET_PROTOCOL_VER 57` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v57. The version is pinned by [tests/test_versions.cpp](../../tests/test_versions.cpp) (`g_TestExpectedNetProtocolVer`) which reads the live header.
 
 Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1560](../../port/src/net/net.c:1560) `enet_peer_disconnect(peer, DISCONNECT_VERSION)`) and at the presence-channel proto check ([port/src/group_session.c:212](../../port/src/group_session.c:212)).
 
@@ -72,6 +86,11 @@ Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1
 
 | Bump | What changed |
 |------|--------------|
+| **v57 (2026-08-14)** | Reconnect is one endpoint-scoped authenticated transaction. ENet connect data is only a stable-slot hint; `CLC_AUTH` proves the in-memory cookie and exact settings remain frozen through manifest and asynchronous stage replay. Post-load `CLC_STAGE_READY` commits room/player publication and one targeted reliable packet containing cutscene state, one announced exact replicated-prop set, dynamic spawns, attachments/projectiles, doors/lifts/autoguns/weapons, every stable player's inventory/movement/stats, characters/bots/scores, applicable co-op state, and terminal `SVC_RECONNECT_COMMIT 0x55`. Client-local debris/effects remain outside the vocabulary. Failures roll back without consuming retryable reservations, while malformed peer content remains terminal. B-1096 restores projectile reverse ownership and exact terminal absence; B-1097 preserves packed character model-part lookup; B-1098 keeps generated relation topology inside each private clone. The exact B-1098 ordinary receipt proves reconnect world/inventory commit and no former clone crash, but is rejected for B-1099's stale prior-stage CUTSCENE. B-1099 adds the narrow authenticated stage-load retirement boundary without changing wire v57. Frozen product `7437d77c...` / client `0f377e3e...` and verifier `d5fd25c9...` / tests `ef5bdc72...` pass isolated builds, focused 1,746/19, full 63,936/1,168, and the native-source guard; one replacement ordinary smoke remains. |
+| **v56 (2026-08-13)** | Cutscene state carries a server-minted stage-scoped generation and the exact stable client-ID mask in every network game mode. One immutable prepared roster both serializes `SVC_STAGE_START` and commits the match snapshot for a room-scoped reliable START/ACCEPT/END stream; direct writers and second live-roster scans are excluded. `CLC_CUTSCENE_SKIP` remains untrusted, predicted client presentation holds no token outside an authoritative ACTIVE phase, and failed sends retain the ordered batch. Pending START/ACCEPT retries publish before ordinary shared traffic and discard that traffic when publication fails. Terminal END plus `SVC_STAGE_END` use one prepare/send/commit packet with idempotent retry before local lobby teardown; duplicate/no-match ends are inert, terminal frames discard pre-retry shared output, and later gameplay/spectator publication is suppressed. Receivers apply one stale/duplicate/conflict planner, map the frozen roster into local runtime slots, and replace the full active mask; lifecycle exits retire pending state. The final D-003 source freeze passed both ordinary-client authority roles on one product binary: initiator authority 214/214 and invitee authority 218/218, with receiver-local presentation, END-before-START ordering, stable gameplay, and no probe/relay endpoint handoff. |
+| **v55 (2026-08-13)** | `CLC_SETTINGS` transactionally carries the client's exact typed body/head IDs, team, nonzero handicap, options, FOV, and name before a match-scoped session catalog exists. `CLC_LOBBY_START` removes its duplicate positional handicap array. The server binds each prepared roster entry to that exact authenticated client's settings; `SVC_STAGE_START` still carries the final compacted authoritative roster. |
+
+| **v54 (2026-08-13)** | `CLC_LOBBY_START` and `SVC_STAGE_START` prepare exact typed state before one publication point, carry bot teams, preserve random-set intent with already resolved slots, and make network `mpStartMatch` an immutable launch consumer. |
 | **v53 (2026-08-11)** | Match-manifest distribution preserves typed-asset versus full-package identity, temporary packages are admitted against manifest SHA-256 without persisting the peer's Mod Manager selection, and multi-item transfer sets wait for every item or fail explicitly. |
 | **v52 (2026-07-30)** | Selected bot-profile identity is a public `.pdbotprofile` catalog ID in `CLC_LOBBY_START`, a session-catalog reference in `SVC_STAGE_START`, and a required manifest entry. Receivers derive bot type/difficulty from the profile and reject missing public bindings. |
 | **v51 (2026-06-17)** | c3849 Wave 7: weapon graph runtime is product-default ON, the old user toggle plus transient stage-start option bit are retired, and mixed v50/v51 play is rejected at auth. |
@@ -93,6 +112,21 @@ Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1
 | v31 | `SVC_PROP_SPAWN modelnum` uses catalog session refs |
 | v30 | Weapon identity uses catalog session refs (u16) |
 | v27 | All `net_hash` removed from wire |
+
+B-1099 does not change protocol v57. The stage-start message still validates
+all typed state and the exact roster before committing its match authority.
+The asynchronous client load now consumes that trusted latch once to retire
+only receiver-local presentation inherited from the prior stage; authored
+cutscene START/END and skip remain on the existing reliable authority stream.
+
+2026-08-14 B-1094 clarification: v56 authority owns only real transitions out
+of `TICKMODE_CUTSCENE` during an active match. The shared
+`playerEndCutscene()` helper also terminates local presentation modes such as
+the Combat Simulator opening `TICKMODE_MPSWIRL`; those modes must pass through
+the canonical setter and advance locally. The client guard keys on source mode
+plus match authority lifetime, including predicted presentation before START,
+instead of rejecting the helper solely because the process is a client. This
+changes no wire layout and requires no protocol bump.
 
 2026-05-21 c3813 follow-through: the live `CLC_LOBBY_RESYNC` handler now replays `SVC_ROOM_ASSIGN`, `SVC_ROOM_SETTINGS`, and `SVC_ROOM_PLAYLIST` directly, listen-host local return-to-room satisfies the resync locally instead of broadcasting a client opcode to peers, and failed active match-prep distribution now sends `MANIFEST_STATUS_DECLINE` instead of re-requesting the same failed assets. c3813 also live-verifies the two-process listen-host/client loopback smoke, gives that fixture enough clean-install budget for typed-archive validation/extraction, routes early `--host` logs to `pd-host.log`, and pins disconnect/reconnect/drop-in/drop-out guards: preserve-before-reset, room-leave-before-reset, mid-game fresh-join rejection, cookie reconnect, score restore, stage-start replay, and full chr/prop/score resync scheduling.
 
@@ -238,13 +272,13 @@ This static-test discipline catches the "trust client byte before validating" cl
 
 Per [constraints.md](../constraints.md):
 
-- **ENet protocol version v53** must match across clients.
+- **ENet protocol version v57** must match across clients.
 - **Server is not a player.** Dedicated server sets `g_NetLocalClient = NULL` and `g_NetNumClients = 0` at startup; slot 0 free for real players. All paths that dereference `g_NetLocalClient` must NULL-guard.
 - **No raw IP in any UI surface.** Connect codes only.
 - **Connect code byte order** is host-order, not network-order.
 - **MAX_LOCAL_PLAYERS = 4**, **MAX_PLAYERS = 8** (includes remote).
 - **60 Hz tick rate.** Network sync frequencies are multiples.
-- **Identity cookie is the reconnect authority** (MASTER-C3, S393): 16-byte server-issued cookie at first `CLC_AUTH`. Reconnect requires both name and cookie match in constant time.
+- **Identity cookie is the reconnect authority** (MASTER-C3/B-1064): the server-issued 16-byte cookie plus name are checked in constant time after the stable-slot hint. Client retention is in-memory, retryable-timeout-only, and scoped to the same resolved endpoint; final teardown clears it.
 - **Persistent bans live in `$S/bans.ini`** (MASTER-C2c/d). `serverBansInit` runs once at server start; `netServerEvConnect` checks `serverBansIsBanned(ip)` before any client slot allocation.
 - **Admin RCON token is hashed** (MASTER-C2a). Domain-salted SHA-256, never stored as plaintext.
 - **Room passwords are hashed at create time** (SEC-14). Domain-salted SHA-256.
@@ -300,6 +334,20 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
   passes 90/5 and the complete suite passes 56,774/1,040. This fixes B-1058 and
   satisfies D-003 as a prerequisite; `T-NETWORKING-001/002/006` remain partial
   for their separate candidate transport, tier unification, and real-NAT work.
+  Current-product qualification also passes initiator authority 214/214 at
+  `.claude/smoke-verify-runs/results-20260814T020223Z.json` and invitee authority
+  218/218 at `results-20260814T030245Z.json` on exact client `D1C91583...`, with
+  one listen start, one non-authority join, signed typed routes, stable gameplay,
+  clean exits, and no probe/relay descriptor handed to `netStartClient`.
+- **Ordinary timeout reconnect is production-verified through resumed play.**
+  Exact client `0f377e3e...` preserves server intent and room identity through
+  ENet teardown, performs one endpoint-scoped retry, retires stale prior-stage
+  presentation at the authenticated load boundary, commits the exact world and
+  both inventories, resumes NORMAL gameplay and authority-accepted fire, then
+  clears the credential only during final scripted shutdown. The original
+  92/95 receipt remains immutable; corrected retained-log verification passes
+  98/98 in `b1099-retained-log-revalidation.json` on unchanged product
+  `7437d77c...`. Broader player-init and transition work remains T-ENGINE-004.
 - **ICE peer candidate exchange not wired.** [p2p_ice.c:260](../../port/src/net/p2p_ice.c:260) `p2pIceAddPeerCandidate` exists but is never called from presence or invite layer in surveyed files. Without it, ICE tier probes only local NIC + local STUN reflexive against the hint, functionally equivalent to Tier 1 with backup.
 - **STUN reflexive candidate not transmitted to peer.**
   [p2p_stun.c:125-131](../../port/src/net/p2p_stun.c:125) reports success with

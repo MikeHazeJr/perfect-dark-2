@@ -20,7 +20,6 @@
 #include <PR/ultratypes.h>
 #include "screenmfst.h"
 #include "assetcatalog_load.h"
-#include "net/netmanifest.h"
 #include "system.h"
 
 /* ========================================================================
@@ -30,29 +29,9 @@
 typedef struct {
     void *dialogdef;                            /* menudialogdef* key (opaque) */
     char  ids[SMFST_MAX_IDS_PER_SCREEN][64];   /* catalog string IDs */
-    u8    types[SMFST_MAX_IDS_PER_SCREEN];     /* MANIFEST_TYPE_* per ID */
+    asset_type_e types[SMFST_MAX_IDS_PER_SCREEN]; /* exact catalog type per ID */
     s32   count;                                /* valid entries */
 } ScreenEntry;
-
-static asset_type_e screenManifestCatalogAssetType(u8 manifest_type)
-{
-    switch (manifest_type) {
-    case MANIFEST_TYPE_BODY:      return ASSET_BODY;
-    case MANIFEST_TYPE_HEAD:      return ASSET_HEAD;
-    case MANIFEST_TYPE_STAGE:     return ASSET_MAP;
-    case MANIFEST_TYPE_WEAPON:    return ASSET_WEAPON;
-    case MANIFEST_TYPE_MODEL:     return ASSET_MODEL;
-    case MANIFEST_TYPE_ANIM:      return ASSET_ANIMATION;
-    case MANIFEST_TYPE_TEXTURE:   return ASSET_TEXTURE;
-    case MANIFEST_TYPE_LANG:      return ASSET_LANG;
-    case MANIFEST_TYPE_AUDIO:     return ASSET_AUDIO;
-    case MANIFEST_TYPE_PROJECTILE: return ASSET_PROJECTILE;
-    case MANIFEST_TYPE_ENTITY:    return ASSET_ENTITY;
-    case MANIFEST_TYPE_ASSET:     return ASSET_NONE;
-    case MANIFEST_TYPE_COMPONENT: return ASSET_NONE;
-    default:                      return ASSET_NONE;
-    }
-}
 
 /* ========================================================================
  * Module state
@@ -97,7 +76,7 @@ static s32 isInList(void **list, s32 count, void *ptr)
 
 void screenManifestRegister(void *dialogdef,
                              const char **catalog_ids,
-                             const u8 *types,
+                             const asset_type_e *types,
                              s32 count)
 {
     ScreenEntry *e;
@@ -166,7 +145,7 @@ void screenManifestTick(void **active_defs, s32 count)
                      active_defs[i], e->count);
         for (j = 0; j < e->count; j++) {
             if (e->ids[j][0]) {
-                catalogLoadTypedAsset(screenManifestCatalogAssetType(e->types[j]), e->ids[j]);
+                catalogLoadTypedAsset(e->types[j], e->ids[j]);
             }
         }
     }
@@ -193,7 +172,7 @@ void screenManifestTick(void **active_defs, s32 count)
                      s_LastActive[i], e->count);
         for (j = 0; j < e->count; j++) {
             if (e->ids[j][0]) {
-                catalogReleaseTypedAsset(screenManifestCatalogAssetType(e->types[j]), e->ids[j]);
+                catalogReleaseTypedAsset(e->types[j], e->ids[j]);
             }
         }
     }
@@ -221,7 +200,7 @@ void screenManifestShutdown(void)
         }
         for (j = 0; j < e->count; j++) {
             if (e->ids[j][0]) {
-                catalogReleaseTypedAsset(screenManifestCatalogAssetType(e->types[j]), e->ids[j]);
+                catalogReleaseTypedAsset(e->types[j], e->ids[j]);
             }
         }
     }

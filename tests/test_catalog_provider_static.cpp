@@ -403,6 +403,26 @@ TEST_CASE("modelnum load sites use typed model catalog APIs", "[catalog][provide
 	}
 }
 
+TEST_CASE("stage resolution preserves exact map and arena domains",
+	"[catalog][stage][typed][static][b1070]")
+{
+	const std::string header = readTextFile("port/include/assetcatalog.h");
+	const std::string api = readTextFile("port/src/assetcatalog_api.c");
+	const std::string typed = functionBlock(
+		api, "s32 catalogResolveStageForType(");
+	const std::string map_only = functionBlock(
+		api, "s32 catalogResolveStage(const char *id");
+
+	REQUIRE(header.find("catalogResolveStageForType") != std::string::npos);
+	REQUIRE(typed.find(
+		"expected_type != ASSET_MAP && expected_type != ASSET_ARENA") !=
+		std::string::npos);
+	REQUIRE(typed.find("e->type != expected_type") != std::string::npos);
+	REQUIRE(map_only.find(
+		"catalogResolveStageForType(id, ASSET_MAP, out)") !=
+		std::string::npos);
+}
+
 TEST_CASE("prop-named model compatibility wrappers stay inside catalog API", "[catalog][provider][static]")
 {
 	const std::vector<std::string> allowed = {

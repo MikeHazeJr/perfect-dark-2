@@ -5575,14 +5575,14 @@ static bool gridCommitEnter(void)
     g_MatchConfig.scorelimit      = (u8)(s_GridScoreLimit & 0xff);
     g_MatchConfig.teamscorelimit  = (u16)s_GridScoreLimit;
 
-    u32 opts = g_MatchConfig.options;
+    u32 opts = matchConfigGetUserOptions();
     if (s_GridTeamsOn)     opts |=  (u32)MPOPTION_TEAMSENABLED;
     else                   opts &= ~(u32)MPOPTION_TEAMSENABLED;
     if (s_GridOneHitKills) opts |=  (u32)MPOPTION_ONEHITKILLS;
     else                   opts &= ~(u32)MPOPTION_ONEHITKILLS;
     if (s_GridSlowMotion)  opts |=  (u32)MPOPTION_SLOWMOTION_ON;
     else                   opts &= ~(u32)MPOPTION_SLOWMOTION_ON;
-    g_MatchConfig.options = opts;
+    matchConfigReplaceUserOptions(opts, "Grid menu commit");
 
     sysLogPrintf(LOG_NOTE,
             "GRID.MENU: enter map='%s' stagenum=0x%02x scenario='%s' "

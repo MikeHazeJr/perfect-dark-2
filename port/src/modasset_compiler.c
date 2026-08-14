@@ -23,6 +23,7 @@
 #include "fs.h"
 #include "game/tex.h"
 #include "gbiex.h"
+#include "gdl_span.h"
 #include "lib/meshcollision.h"
 #include "lib/model.h"
 #include "modasset_compiler.h"
@@ -4579,6 +4580,7 @@ typedef struct generated_modeldef {
 	Vtx *vertices;
 	Col *colours;
 	Gfx *gdl;
+	size_t gdl_bytes;
 	struct modelnode *dynamic_nodes;
 	union modelrodata *dynamic_rodatas;
 	void *dynamic_parts;
@@ -4587,6 +4589,8 @@ typedef struct generated_modeldef {
 	s32 triangle_count;
 	s32 vertex_count;
 	s32 render_audit_logged;
+	u32 render_audit_step_mask;
+	s32 needler_render_audit_witness_logged;
 	char catalog_id[CATALOG_ID_LEN];
 	char source_path[FS_MAXPATH + 1];
 } generated_modeldef_t;
@@ -4598,6 +4602,8 @@ typedef struct generated_dl_payload {
 	void *baseaddr;
 	Gfx *seg_gdl;
 	size_t gdl_bytes;
+	size_t base_bytes;
+	size_t gdl_offset;
 	size_t vertex_bytes;
 	s32 vertex_count;
 	s32 triangle_count;
@@ -4708,7 +4714,14 @@ static generated_modeldef_t *generatedModeldefOwner(
 	generated_modeldef_t *owner = s_GeneratedModeldefs;
 
 	while (owner) {
-		if (&owner->def == modeldef) {
+		if (&owner->def == modeldef ||
+				(modeldef != NULL && modeldef->rootnode != NULL &&
+				owner->def.rootnode != NULL &&
+				modeldef->rootnode->rodata != NULL &&
+				modeldef->rootnode->rodata == owner->def.rootnode->rodata &&
+				(modeldef->rootnode->type & 0xff) ==
+					(owner->def.rootnode->type & 0xff) &&
+				modeldef->skel == owner->def.skel)) {
 			return owner;
 		}
 		owner = owner->next;
@@ -4740,6 +4753,58 @@ s32 modAssetCompilerNeedlerRenderAuditWitnessActive(void)
 s32 modAssetCompilerModeldefIsGenerated(const struct modeldef *modeldef)
 {
 	return generatedModeldefOwner(modeldef) != NULL;
+}
+
+s32 modAssetCompilerGeneratedGdlBytesRemaining(
+	const void *gdl, u32 *out_bytes_remaining)
+{
+	generated_modeldef_t *owner = s_GeneratedModeldefs;
+
+	if (out_bytes_remaining) {
+		*out_bytes_remaining = 0;
+	}
+	if (!gdl || !out_bytes_remaining) {
+		return 0;
+	}
+
+	while (owner) {
+		if (owner->gdl_bytes <= UINT32_MAX &&
+				gdlSpanBytesRemaining(owner->gdl, (u32)owner->gdl_bytes,
+					gdl, out_bytes_remaining)) {
+			return 1;
+		}
+
+		for (s32 i = 0; i < owner->dynamic_payload_count; i++) {
+			generated_dl_payload_t *payload = &owner->dynamic_payloads[i];
+			u32 payload_bytes;
+
+			if (payload->gdl_bytes > UINT32_MAX) {
+				continue;
+			}
+			payload_bytes = (u32)payload->gdl_bytes;
+			if (gdlSpanBytesRemaining(payload->gdl, payload_bytes, gdl,
+					out_bytes_remaining)) {
+				return 1;
+			}
+			if (payload->baseaddr && payload->seg_gdl &&
+					payload->gdl_offset <= 0xffffffu &&
+					((uintptr_t)UNSEGADDR(payload->seg_gdl) & 0xffffffu) ==
+						payload->gdl_offset &&
+					gdlSpanFitsAllocation(payload->base_bytes,
+						payload->gdl_offset, payload->gdl_bytes)) {
+				const void *relocated_gdl =
+					(const u8 *)payload->baseaddr + payload->gdl_offset;
+				if (gdlSpanBytesRemaining(relocated_gdl, payload_bytes, gdl,
+						out_bytes_remaining)) {
+					return 1;
+				}
+			}
+		}
+
+		owner = owner->next;
+	}
+
+	return 0;
 }
 
 /* c3844 debug capture: --debug-show-only-mesh <substr> renders ONLY generated
@@ -4808,6 +4873,34 @@ void modAssetCompilerTraceGeneratedModeldefRender(
 			modAssetCompilerSkeletonSymbolForPointer(owner->def.skel) : "(none)");
 }
 
+static u32 generatedModeldefRenderAuditStageBit(const char *stage)
+{
+	static const char *const stages[] = {
+		"gundl-pre-opa",
+		"gundl-post-opa-displaylist",
+		"gundl-pre-xlu",
+		"gundl-post-xlu-displaylist",
+		"dl-pre-opa",
+		"dl-post-opa-displaylist",
+		"dl-pre-xlu",
+		"dl-post-xlu-displaylist",
+		"bgun-after-gun-render",
+		"bgun-after-hand-render",
+		"bgun-after-mtxF2L",
+	};
+	u32 i;
+
+	if (stage) {
+		for (i = 0; i < (u32)(sizeof(stages) / sizeof(stages[0])); i++) {
+			if (strcmp(stage, stages[i]) == 0) {
+				return 1u << i;
+			}
+		}
+	}
+
+	return 1u << (u32)(sizeof(stages) / sizeof(stages[0]));
+}
+
 void modAssetCompilerTraceGeneratedModeldefRenderStep(
 	const struct modeldef *modeldef,
 	const struct modelnode *node,
@@ -4820,6 +4913,7 @@ void modAssetCompilerTraceGeneratedModeldefRenderStep(
 	s32 mcount)
 {
 	generated_modeldef_t *owner;
+	u32 stage_bit;
 
 	if (!s_GeneratedModeldefRenderAuditEnabled) {
 		return;
@@ -4829,6 +4923,12 @@ void modAssetCompilerTraceGeneratedModeldefRenderStep(
 	if (!owner) {
 		return;
 	}
+
+	stage_bit = generatedModeldefRenderAuditStageBit(stage);
+	if (owner->render_audit_step_mask & stage_bit) {
+		return;
+	}
+	owner->render_audit_step_mask |= stage_bit;
 
 	sysLogPrintf(LOG_NOTE,
 		"MODASSET.RENDER.STEP: id=%s stage=%s modeldef=%p node=%p rwdata=%p gdl=%p vertices=%p colours=%p numvertices=%d mcount=%d tris=%d",
@@ -4844,8 +4944,10 @@ void modAssetCompilerTraceGeneratedModeldefRenderStep(
 		mcount,
 		owner->triangle_count);
 
-	if (stage && strcmp(stage, "dl-post-opa-displaylist") == 0
+	if (!owner->needler_render_audit_witness_logged
+			&& stage && strcmp(stage, "dl-post-opa-displaylist") == 0
 			&& strcmp(owner->catalog_id, "mod_needler:needler_model") == 0) {
+		owner->needler_render_audit_witness_logged = 1;
 		s_NeedlerRenderAuditWitnessFrames = 300;
 		sysLogPrintf(LOG_NOTE, "NEEDLER SOURCE MODEL RENDERED");
 	}
@@ -7130,6 +7232,18 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			memcpy(payload->gdl, source_gdl, (size_t)source_bytes);
 		}
 		payload->gdl_bytes = (size_t)output_bytes;
+		if (!gdlSpanEndsWithEnddl(payload->gdl, (u32)payload->gdl_bytes)) {
+			sysLogPrintf(LOG_WARNING,
+				"MODASSET.COMPILER: generated hierarchy GDL rejected for '%s' group=%s bytes=%zu reason=missing_terminal_enddl",
+				asset_id ? asset_id : "(unknown)",
+				group_name ? group_name : "(unknown)",
+				payload->gdl_bytes);
+			free(source_gdl);
+			free(payload->vertices);
+			free(payload->gdl);
+			memset(payload, 0, sizeof(*payload));
+			return 0;
+		}
 		if (model_segment == SPSEGMENT_MODEL_COL1) {
 			/* c3844 vtxcolour: the relocated baseaddr packs vertices, then the
 			 * deduped colour table (numcolours entries, not 1), then the gdl. The
@@ -7140,6 +7254,15 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 				sizeof(*payload->colours);
 			size_t gdl_offset = ALIGN8(colour_offset + colour_bytes);
 			size_t base_bytes = gdl_offset + payload->gdl_bytes;
+			if (gdl_offset > 0xffffffu ||
+					!gdlSpanFitsAllocation(base_bytes, gdl_offset,
+						payload->gdl_bytes)) {
+				free(source_gdl);
+				free(payload->vertices);
+				free(payload->gdl);
+				memset(payload, 0, sizeof(*payload));
+				return 0;
+			}
 			payload->baseaddr = calloc(1, base_bytes);
 			if (!payload->baseaddr) {
 				free(source_gdl);
@@ -7153,6 +7276,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 				payload->colours, colour_bytes);
 			memcpy((u8 *)payload->baseaddr + gdl_offset,
 				payload->gdl, payload->gdl_bytes);
+			payload->base_bytes = base_bytes;
+			payload->gdl_offset = gdl_offset;
 			payload->seg_gdl = (Gfx *)SEGADDR(
 				((u32)SPSEGMENT_MODEL_COL1 << 24) | (u32)gdl_offset);
 		}
@@ -7979,8 +8104,9 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	gSPEndDisplayList(gdl++);
 	{
 		s32 source_bytes = (s32)((uintptr_t)gdl - (uintptr_t)source_gdl);
+		s32 output_bytes = source_bytes;
 		if (textured_material_count > 0) {
-			s32 output_bytes = texLoadFromGdl(source_gdl, source_bytes,
+			output_bytes = texLoadFromGdl(source_gdl, source_bytes,
 				owner->gdl, NULL, (u8 *)owner->vertices);
 			if (output_bytes <= 0 ||
 					output_bytes > output_gdl_count * (s32)sizeof(Gfx)) {
@@ -7996,6 +8122,17 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 			}
 		} else {
 			memcpy(owner->gdl, source_gdl, (size_t)source_bytes);
+		}
+		owner->gdl_bytes = (size_t)output_bytes;
+		if (!gdlSpanEndsWithEnddl(owner->gdl, (u32)owner->gdl_bytes)) {
+			sysLogPrintf(LOG_WARNING,
+				"MODASSET.COMPILER: generated model GDL rejected for '%s' source=%s bytes=%zu reason=missing_terminal_enddl",
+				entry ? entry->id : "(unknown)",
+				source_path ? source_path : "(null)",
+				owner->gdl_bytes);
+			free(source_gdl);
+			modAssetCompilerFreeModeldef(&owner->def);
+			return -1;
 		}
 		free(source_gdl);
 	}

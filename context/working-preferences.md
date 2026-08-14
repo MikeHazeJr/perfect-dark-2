@@ -53,6 +53,11 @@ Mike is the architect / designer. Claude is the intermediary / interpreter. Sess
 - The session build wrapper is isolated and queued by default. Do not use shared `Build/` for verification when parallel sessions may build.
 - Do not pass `-NoQueue` unless Mike explicitly asks for it.
 - Reuse the same session id for reruns in one session, watch queue status/ETA while waiting, and clean up with `.\devtools\build-session.ps1 -Remove -Session <short-id>`.
+- Batch verification around coherent source-frozen units: inspect and plan the
+  whole slice, implement it thoroughly, and use only cheap local sanity checks
+  while editing. Then run one queued build, one focused/full automation batch,
+  and the required runtime proof. Do not rebuild or rerun the full suite after
+  each small edit unless a concrete compile risk or failed gate requires it.
 
 ## Investigation discipline
 

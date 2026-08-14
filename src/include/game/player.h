@@ -20,27 +20,40 @@ bool playerSpawnAnti(struct chrdata *chr, s32 param_2);
 void playerSpawn(void);
 void playerResetBond(struct playerbond *pb, struct coord *pos);
 void playersTickAllChrBodies(void);
-void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2);
+s32 playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2);
 void playerTickChrBody(void);
 void playerRemoveChrBody(void);
 void playerTickMpSwirl(void);
 void playerExecutePreparedWarp(void);
-void playerStartCutscene(s16 anim_id);
+bool playerStartCutscene(s16 anim_id);
+bool playerStartCutsceneForPresentation(s16 anim_id);
 void playerReorientForCutsceneStop(s32 tweenduration60);
 void playerTickCutscene(bool arg0);
 f32 playerGetCutsceneBlurFrac(void);
 void playerResetCutsceneState(s32 playernum);
 void playerResetAllCutsceneStates(void);
+u32 playerCutsceneGeneration(void);
+bool playerSyncCutsceneGeneration(u32 generation);
 void playerSetCutsceneActive(s32 playernum, bool active);
 bool playerInCutscene(s32 playernum);
 bool playerAnyInCutscene(void);
 bool playerCurrentInCutscene(void);
 u8 playerCutsceneActiveMask(void);
 void playerSetCutsceneActiveMask(u8 player_mask, bool active);
+void playerReplaceCutsceneActiveMask(u8 player_mask);
+bool playerApplyAuthoritativeCutsceneState(u8 active, u8 player_mask,
+		u32 generation);
+/**
+ * Retire receiver-local presentation from the preceding stage after a
+ * validated network stage-start has established the new match authority.
+ * Returns false outside that exact client-side lifecycle boundary.
+ */
+bool playerApplyAuthoritativeStageStartPresentation(void);
 void playerSetCutsceneInProgress(s32 playernum, bool in_progress);
 bool playerCutsceneInProgress(s32 playernum);
 bool playerAnyCutsceneInProgress(void);
 bool playerCurrentCutsceneInProgress(void);
+bool playerPresentationCutsceneInProgress(void);
 void playerSetCutsceneSkipRequested(s32 playernum, bool skiprequested);
 bool playerRequestCutsceneSkip(s32 playernum, bool skipautocutgroup);
 bool playerCutsceneSkipRequested(s32 playernum);
@@ -115,7 +128,7 @@ void playerChooseThirdPersonAnimation(struct chrdata *chr, s32 crouchpos, f32 sp
 Gfx *playerRender(struct prop *prop, Gfx *gdl, bool xlupass);
 Gfx *playerLoadMatrix(Gfx *gdl);
 void player0f0c3320(Mtxf *matrices, s32 count);
-void playerSetTickMode(s32 tickmode);
+bool playerSetTickMode(s32 tickmode);
 void playerBeginGeFadeIn(void);
 void playersBeginMpSwirl(void);
 void player0f0b9a20(void);
@@ -123,7 +136,7 @@ void playerEndCutscene(void);
 void playerPrepareWarpType1(s16 pad_id);
 void playerPrepareWarpType2(struct warpparams *cmd, bool hasdir, s32 arg2);
 void playerPrepareWarpType3(f32 posangle, f32 rotangle, f32 range, f32 height1, f32 height2, s32 padnum);
-void playerStartCutscene2(void);
+bool playerStartCutscene2(s16 anim_id);
 void playerSetFadeColour(s32 r, s32 g, s32 b, f32 a);
 void playerAdjustFade(f32 maxfadetime, s32 r, s32 g, s32 b, f32 frac);
 void playerSetFadeFrac(f32 maxfadetime, f32 frac);

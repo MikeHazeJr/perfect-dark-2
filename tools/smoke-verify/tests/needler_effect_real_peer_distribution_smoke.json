@@ -24,7 +24,6 @@
     "mods/needler",
     "mods/installed/needler.pdmod",
     "mods/installed/needler",
-    "mods/weapons/mod_needler:needler",
     "mods/.temp/received/needler",
     "mods/.temp/pdmod/needler"
   ],

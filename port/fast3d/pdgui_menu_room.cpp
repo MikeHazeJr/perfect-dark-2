@@ -40,6 +40,7 @@
 #include "menupool.h"
 #include "menugraph.h"
 #include "room.h"
+#include "combat_sim_verify.h"
 
 /* ========================================================================
  * Forward declarations (C boundary)
@@ -158,18 +159,11 @@ const char *catalogGetBodyDefaultHead(const char *body_id);
 s32 catalogGetBodyIsComplete(s32 bodynum);
 
 /* Weapon sets (mplayer.c) */
-void mpSetWeaponSet(s32 weaponsetnum);
 s32 mpGetWeaponSet(void);
 char *mpGetWeaponSetName(s32 index);
 s32 func0f189058(s32 full);   /* count of available weapon sets (full=1 includes Random/Custom) */
 extern s32 g_MpWeaponSetNum;
 #define WEAPONSET_CUSTOM 0x0e
-
-/* Weapon slot editing (mplayer.c) */
-void mpSetWeaponSlot(s32 slot, s32 mpweaponnum);
-s32 mpGetWeaponSlot(s32 slot);
-char *mpGetWeaponLabel(s32 weaponnum);
-s32 mpGetNumWeaponOptions(void);
 
 /* Match config types and API — canonical definitions in scenario_save.h */
 #include "scenario_save.h"
@@ -221,6 +215,8 @@ s32 matchStart(void);
 s32 matchConfigMaxBotsForHumans(s32 humanCount);
 /* M0.1c: weapon slot catalog ID accessor (matchsetup.c) */
 const char *matchGetWeaponSlotCatalogId(s32 slot);
+s32 matchConfigSelectWeaponSet(s32 weaponsetnum);
+s32 matchConfigSetWeaponSlotId(s32 slot, const char *weapon_id);
 
 /* Solo room close — defined in pdgui_lobby.cpp */
 void pdguiSoloRoomClose(void);
@@ -1710,7 +1706,7 @@ static int countBots(void)
 
 /* ========================================================================
  * Helper: get "global" sim difficulty for netLobbyRequestStartWithSims
- * (uses the first bot's difficulty; 0 = Normal if no bots)
+ * (uses the first bot's difficulty; 0 is the canonical no-bot wire sentinel)
  * ======================================================================== */
 
 static u8 getLeadSimType(void)
@@ -1720,7 +1716,7 @@ static u8 getLeadSimType(void)
             return g_MatchConfig.slots[i].botDifficulty;
         }
     }
-    return 2; /* Normal as default */
+    return 0; /* No lead bot exists. */
 }
 
 static void roomRememberFocusedRegion(int region)
@@ -1790,14 +1786,13 @@ static bool roomContextPopupRequestedForLastItem(void)
 
 static void optToggle(const char *label, u32 flag, bool leader)
 {
-    bool on = (g_MatchConfig.options & flag) != 0;
+    bool on = (matchConfigGetUserOptions() & flag) != 0;
     if (!leader) ImGui::BeginDisabled();
     /* Priority L (2026-04-25): pdguiCheckbox places the label on the LEFT
      * and plays its own TOGGLE sound; we replace the SUBFOCUS sound the
      * legacy optToggle used. */
     if (pdguiCheckbox(label, &on)) {
-        if (on) g_MatchConfig.options |= flag;
-        else    g_MatchConfig.options &= ~flag;
+        matchConfigSetUserOption(flag, on ? 1 : 0);
         s_RoomSettingsDirty = true;
     }
     roomCsSectionTrackLastItem(ROOM_CS_OPTIONS);
@@ -1807,12 +1802,11 @@ static void optToggle(const char *label, u32 flag, bool leader)
 /* Like optToggle but logic is inverted (flag ON means feature OFF) */
 static void optToggleInverted(const char *label, u32 flag, bool leader)
 {
-    bool on = (g_MatchConfig.options & flag) == 0; /* true when feature is enabled */
+    bool on = (matchConfigGetUserOptions() & flag) == 0; /* true when feature is enabled */
     if (!leader) ImGui::BeginDisabled();
     /* Priority L (2026-04-25): pdguiCheckbox places the label on the LEFT. */
     if (pdguiCheckbox(label, &on)) {
-        if (on) g_MatchConfig.options &= ~flag;
-        else    g_MatchConfig.options |= flag;
+        matchConfigSetUserOption(flag, on ? 0 : 1);
         s_RoomSettingsDirty = true;
     }
     roomCsSectionTrackLastItem(ROOM_CS_OPTIONS);
@@ -1968,7 +1962,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                       ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
 
     /* Teams state drives both the header dropdown and row sorting / tinting. */
-    bool teamsOn = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
+    bool teamsOn = (matchConfigGetUserOptions() & MPOPTION_TEAMSENABLED) != 0;
 
     /* B-190: Player / bot count header lives OUTSIDE the scrollable list so
      * it stays pinned to the top of the player panel even when the row list
@@ -3507,10 +3501,10 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
             char setLabel[128];
             snprintf(setLabel, sizeof(setLabel), "%s##ws%d", s_WSorted[j].name, s_WSorted[j].idx);
             if (ImGui::Selectable(setLabel, isSel)) {
-                mpSetWeaponSet(s_WSorted[j].idx);
-                g_MatchConfig.weaponSetIndex = (s8)s_WSorted[j].idx;
-                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                s_RoomSettingsDirty = true;
+                if (matchConfigSelectWeaponSet(s_WSorted[j].idx)) {
+                    pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                    s_RoomSettingsDirty = true;
+                }
             }
             roomCsSectionTrackLastItem(ROOM_CS_WEAPONS);
             if (isSel) ImGui::SetItemDefaultFocus();
@@ -3548,11 +3542,10 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                     snprintf(wLabel, sizeof(wLabel), "%s##cws%d_%d",
                              opt->name, slot, w);
                     if (ImGui::Selectable(wLabel, isSel)) {
-                        strncpy(g_MatchConfig.weapon_ids[slot], opt->catalog_id,
-                                sizeof(g_MatchConfig.weapon_ids[slot]) - 1);
-                        g_MatchConfig.weapon_ids[slot][sizeof(g_MatchConfig.weapon_ids[slot]) - 1] = '\0';
-                        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
-                        s_RoomSettingsDirty = true;
+                        if (matchConfigSetWeaponSlotId(slot, opt->catalog_id)) {
+                            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+                            s_RoomSettingsDirty = true;
+                        }
                     }
                     if (isSel) ImGui::SetItemDefaultFocus();
                 }
@@ -3589,7 +3582,7 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
      * S482 (2026-04-27): three-mode selector. Random = roll once at match
      * start (fixed for the match); Fiesta = roll fresh per spawn per player;
      * specific weapon = always that weapon. */
-    if (g_MatchConfig.options & MPOPTION_SPAWNWITHWEAPON) {
+    if (matchConfigGetUserOptions() & MPOPTION_SPAWNWITHWEAPON) {
         if (!leader) ImGui::BeginDisabled();
         ImGui::SetNextItemWidth(comboW * 0.9f);
         const char *curSpawnName = s_SpawnWeapons[s_SpawnWeaponIdx].name;
@@ -3950,8 +3943,11 @@ static s32 roomGraphStartMatch(void *userdata)
                  * Keep s_MatchConfigInited=true so returning via
                  * pdguiSoloRoomReturn() preserves the full room setup
                  * (bots, weapons, arena, settings). */
+                if (matchStart() != 0) {
+                    return -1;
+                }
+                combatSimVerifyOnMatchStart("room");
                 pdguiSoloRoomClose();
-                matchStart();
                 return 0;
             } else {
                 int humanCount = s_IsSoloMode ? 1 : lobbyGetPlayerCount();
@@ -3969,7 +3965,7 @@ static s32 roomGraphStartMatch(void *userdata)
                     (u8)numBots,
                     simType,
                     g_MatchConfig.timelimit,
-                    g_MatchConfig.options,
+                    matchConfigGetUserOptions(),
                     g_MatchConfig.scenario,
                     g_MatchConfig.scorelimit,
                     g_MatchConfig.teamscorelimit,
@@ -4027,6 +4023,7 @@ static s32 roomGraphLeaveRoom(void *userdata)
 
     s_MatchConfigInited = false;
     s_CodeGenerated = false;
+    matchConfigRestoreUserOptions("room leave");
 
     /* S300: release MENU_TYPE_ROOM. The pool pops ctx only if it owned the
      * push in network mode. Solo mode pool was shared, so the main-menu-owned
@@ -4352,7 +4349,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
          * end-to-end CS match without keyboard nav. The CLI flag is
          * one-shot (see port/src/main.c::bootConsumeDebugAutoStartMatch). */
         extern s32 bootConsumeDebugAutoStartMatch(void);
-        const bool autoStart = (bootConsumeDebugAutoStartMatch() != 0);
+        const bool bootAutoStart = (bootConsumeDebugAutoStartMatch() != 0);
+        const bool cycleAutoStart =
+            (combatSimVerifyConsumeRoomAutoStart() != 0);
+        const bool autoStart = bootAutoStart || cycleAutoStart;
         if (autoStart) {
             sysLogPrintf(LOG_NOTE,
                 "ROOM: --debug-auto-start-match -- firing Start Match");
@@ -5147,6 +5147,33 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
 extern "C" void pdguiRoomScreenSetSolo(s32 solo)
 {
     s_IsSoloMode = (solo != 0);
+}
+
+/* Adopt a match configuration that was initialized outside the Room renderer.
+ *
+ * The CLI/direct-start path and other future orchestration seams can prepare
+ * g_MatchConfig before this screen gets a first frame. On Play Again,
+ * pdguiSoloRoomReturn calls this boundary so the Room owns that existing
+ * configuration and only rebuilds its derived catalog selectors. Calling
+ * matchConfigInit here would destroy the user's arena, roster, weapons,
+ * options, and limits; this function deliberately never does so. */
+extern "C" void pdguiRoomScreenAdoptMatchConfig(void)
+{
+    if (!s_ArenasBuilt) {
+        buildArenaListFromCatalog();
+    }
+    if (s_NumSpawnWeapons == 0) {
+        buildSpawnWeaponList();
+    }
+
+    syncArenaFromConfig();
+    syncSpawnWeaponFromConfig();
+    s_MatchConfigInited = true;
+
+    sysLogPrintf(LOG_NOTE,
+        "ROOM.CONFIG: adopted existing setup stage='%s' scenario='%s' slots=%d user_options=0x%08x",
+        g_MatchConfig.stage_id, g_MatchConfig.scenario_id,
+        g_MatchConfig.numSlots, matchConfigGetUserOptions());
 }
 
 extern "C" void pdguiRoomScreenReset(void)

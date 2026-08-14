@@ -322,20 +322,29 @@ TEST_CASE("actionmap: query reads honor layer-declared gameplay aperture", "[inp
     const std::string actionmap = readTextFile("port/src/actionmap.cpp");
 
     REQUIRE(actionmap.find("#include \"inputlayer.h\"") != std::string::npos);
+    REQUIRE(actionmap.find("#include \"action_read_authority.h\"") != std::string::npos);
+    REQUIRE(actionmap.find("static s32 actionLayerApertureDecision(InputAction a)") != std::string::npos);
     REQUIRE(actionmap.find("static s32 actionLayerAllows(InputAction a)") != std::string::npos);
+    REQUIRE(actionmap.find("static s32 actionReadAllows(s32 player, InputAction a)") != std::string::npos);
     REQUIRE(actionmap.find("inputLayerTop()") != std::string::npos);
     REQUIRE(actionmap.find("inputLayerHandleDef(top)") != std::string::npos);
     REQUIRE(actionmap.find("def->action_set && def->action_set_count > 0 && actionIsGameplayOnly(a)") != std::string::npos);
     REQUIRE(actionmap.find("def->action_set[i] == a") != std::string::npos);
     REQUIRE(actionmap.find("gameplayInputSuppressed() && actionIsGameplayOnly(a)") != std::string::npos);
+    REQUIRE(actionmap.find("ActionReadAuthorityInput input = {};") != std::string::npos);
+    REQUIRE(actionmap.find("input.aperture_decision = actionLayerApertureDecision(a);") != std::string::npos);
+    REQUIRE(actionmap.find("input.smoke_owned = actionStateIsSmokeOwned(player, a);") != std::string::npos);
+    REQUIRE(actionmap.find("input.gameplay_context = context == &g_CtxGameplay || context == &g_CtxForgeEditor;") != std::string::npos);
+    REQUIRE(actionmap.find("input.focus_lost = authority.window_focus_lost;") != std::string::npos);
+    REQUIRE(actionmap.find("return actionReadAuthorityAllows(&input);") != std::string::npos);
 
     size_t calls = 0;
     size_t pos = 0;
-    while ((pos = actionmap.find("actionLayerAllows(action)", pos)) != std::string::npos) {
+    while ((pos = actionmap.find("actionReadAllows(player, action)", pos)) != std::string::npos) {
         calls++;
-        pos += strlen("actionLayerAllows(action)");
+        pos += strlen("actionReadAllows(player, action)");
     }
-    REQUIRE(calls >= 8);
+    REQUIRE(calls >= 12);
 }
 
 TEST_CASE("actionmap: dispatch writes honor layer-declared gameplay aperture", "[inputlayer][actionmap][static]")
@@ -380,7 +389,7 @@ TEST_CASE("actionmap: hold bookkeeping honors layer-declared gameplay aperture",
 
     const size_t consume = actionmap.find("void actionConsumeHold(s32 player, InputAction action)");
     REQUIRE(consume != std::string::npos);
-    const size_t consumeGate = actionmap.find("if (!actionLayerAllows(action)) return;", consume);
+    const size_t consumeGate = actionmap.find("if (!actionReadAllows(player, action)) return;", consume);
     REQUIRE(consumeGate != std::string::npos);
     const size_t consumeWrite = actionmap.find("st->hold_consumed = 1;", consume);
     REQUIRE(consumeWrite != std::string::npos);
@@ -388,7 +397,7 @@ TEST_CASE("actionmap: hold bookkeeping honors layer-declared gameplay aperture",
 
     const size_t read = actionmap.find("s32 actionHoldConsumed(s32 player, InputAction action)");
     REQUIRE(read != std::string::npos);
-    const size_t readGate = actionmap.find("if (!actionLayerAllows(action)) return 0;", read);
+    const size_t readGate = actionmap.find("if (!actionReadAllows(player, action)) return 0;", read);
     REQUIRE(readGate != std::string::npos);
     const size_t readState = actionmap.find("return s_State[player][action].hold_consumed;", read);
     REQUIRE(readState != std::string::npos);

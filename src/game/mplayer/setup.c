@@ -485,7 +485,18 @@ MenuItemHandlerResult menuhandlerMpWeaponSlot(s32 operation, struct menuitem *it
 	case MENUOP_GETOPTIONTEXT:
 		return (uintptr_t) mpGetWeaponLabel(data->dropdown.value);
 	case MENUOP_SET:
-		mpSetWeaponSlot(item->param3, data->dropdown.value);
+		{
+			const s32 mp_weapon_id =
+				mpResolveWeaponUiIndex(data->dropdown.value);
+			const char *weapon_id = mp_weapon_id >= 0
+				? catalogWeaponIdByMpWeaponId(mp_weapon_id) : NULL;
+			if (!weapon_id || !matchConfigSetWeaponSlotId(
+					item->param3, weapon_id)) {
+				sysLogPrintf(LOG_ERROR,
+					"PLAYER.INIT.ROLLBACK menu weapon-slot slot=%d ui=%d",
+					item->param3, data->dropdown.value);
+			}
+		}
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = mpGetWeaponSlot(item->param3);
@@ -508,9 +519,7 @@ MenuItemHandlerResult menuhandlerMpWeaponSetDropdown(s32 operation, struct menui
 	case MENUOP_GETOPTIONTEXT:
 		return (uintptr_t) mpGetWeaponSetName(data->dropdown.value);
 	case MENUOP_SET:
-		mpSetWeaponSet(data->dropdown.value);
-		/* Sync match config so matchStart() uses the correct weapon set */
-		g_MatchConfig.weaponSetIndex = (s8)data->dropdown.value;
+		(void)matchConfigSelectWeaponSet(data->dropdown.value);
 		break;
 	case MENUOP_GETSELECTEDINDEX:
 		data->dropdown.value = mpGetWeaponSet();
@@ -5868,7 +5877,7 @@ MenuItemHandlerResult menuhandlerMpQuickTeamOption(s32 operation, struct menuite
 		g_Vars.mpquickteam = item->param;
 
 		if (mpGetWeaponSet() >= func0f189058(0)) {
-			mpSetWeaponSet(0);
+			(void)matchConfigSelectWeaponSet(0);
 		}
 
 		if (g_Vars.mpquickteam == MPQUICKTEAM_PLAYERSONLY ||

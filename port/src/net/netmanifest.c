@@ -43,6 +43,7 @@
 #include "audio.h"
 #include "sha256.h"
 #include "net/netbuf.h"
+#include "net/net_manifest_type.h"
 #include "net/matchsetup.h"
 #include "game/chrai.h"     /* FIX-B.1: chraiGetCommandLength for ailist walk */
 
@@ -494,60 +495,22 @@ u32 manifestComputeHash(match_manifest_t *m)
 typedef struct {
     match_manifest_t *manifest;
     u8                slot_index;
+    s32               ok;
 } s_DepExpandCtx;
-
-static u8 s_assetTypeToManifestType(asset_type_e atype)
-{
-    switch (atype) {
-    case ASSET_BODY:      return MANIFEST_TYPE_BODY;
-    case ASSET_HEAD:      return MANIFEST_TYPE_HEAD;
-    case ASSET_MAP:       return MANIFEST_TYPE_STAGE;
-    case ASSET_WEAPON:    return MANIFEST_TYPE_WEAPON;
-    case ASSET_MODEL:     return MANIFEST_TYPE_MODEL;
-    case ASSET_ANIMATION: return MANIFEST_TYPE_ANIM;
-    case ASSET_TEXTURE:   return MANIFEST_TYPE_TEXTURE;
-    case ASSET_LANG:      return MANIFEST_TYPE_LANG;
-    case ASSET_AUDIO:
-    case ASSET_SFX:
-    case ASSET_MUSIC:     return MANIFEST_TYPE_AUDIO;
-    case ASSET_PROJECTILE: return MANIFEST_TYPE_PROJECTILE;
-    case ASSET_ENTITY:    return MANIFEST_TYPE_ENTITY;
-    case ASSET_NONE:      return MANIFEST_TYPE_COMPONENT;
-    default:              return MANIFEST_TYPE_ASSET;
-    }
-}
-
-static asset_type_e s_manifestCatalogAssetType(u8 manifest_type)
-{
-    switch (manifest_type) {
-    case MANIFEST_TYPE_BODY:      return ASSET_BODY;
-    case MANIFEST_TYPE_HEAD:      return ASSET_HEAD;
-    case MANIFEST_TYPE_STAGE:     return ASSET_MAP;
-    case MANIFEST_TYPE_WEAPON:    return ASSET_WEAPON;
-    case MANIFEST_TYPE_MODEL:     return ASSET_MODEL;
-    case MANIFEST_TYPE_ANIM:      return ASSET_ANIMATION;
-    case MANIFEST_TYPE_TEXTURE:   return ASSET_TEXTURE;
-    case MANIFEST_TYPE_LANG:      return ASSET_LANG;
-    case MANIFEST_TYPE_AUDIO:     return ASSET_AUDIO;
-    case MANIFEST_TYPE_PROJECTILE: return ASSET_PROJECTILE;
-    case MANIFEST_TYPE_ENTITY:    return ASSET_ENTITY;
-    case MANIFEST_TYPE_ASSET:     return ASSET_NONE;
-    case MANIFEST_TYPE_COMPONENT: return ASSET_NONE;
-    default:                      return ASSET_NONE;
-    }
-}
 
 static asset_type_e s_manifestEntryCatalogAssetType(const match_manifest_entry_t *e)
 {
-    if (!e) {
+    const asset_entry_t *asset;
+
+    if (!e || !e->id[0] || e->type == MANIFEST_TYPE_COMPONENT) {
         return ASSET_NONE;
     }
-    if (e->type == MANIFEST_TYPE_ASSET) {
-        return (e->slot_index > ASSET_NONE && e->slot_index < ASSET_TYPE_COUNT)
-            ? (asset_type_e)e->slot_index
-            : ASSET_NONE;
+    asset = assetCatalogResolveAny(e->id);
+    if (!asset || !netManifestTypeAcceptsCatalogAsset(
+            e->type, e->slot_index, asset->type)) {
+        return ASSET_NONE;
     }
-    return s_manifestCatalogAssetType(e->type);
+    return asset->type;
 }
 
 static void s_manifestAddCatalogEntry(match_manifest_t *m,
@@ -561,28 +524,84 @@ static void s_manifestAddCatalogEntry(match_manifest_t *m,
         return;
     }
 
-    mtype = s_assetTypeToManifestType(e->type);
+    mtype = netManifestTypeForCatalogAsset(e->type);
     mslot = (mtype == MANIFEST_TYPE_ASSET) ? (u8)e->type : slot_index;
     manifestAddEntry(m, e->id, mtype, mslot);
+}
+
+static s32 s_manifestHasCatalogEntry(const match_manifest_t *m,
+                                     const asset_entry_t *e)
+{
+    u8 expected_type;
+
+    if (!m || !e || !e->id[0]) {
+        return 0;
+    }
+    expected_type = netManifestTypeForCatalogAsset(e->type);
+    for (s32 i = 0; i < (s32)m->num_entries; i++) {
+        const match_manifest_entry_t *entry = &m->entries[i];
+        if (strcmp(entry->id, e->id) != 0) {
+            continue;
+        }
+        if (entry->type != expected_type) {
+            return 0;
+        }
+        if (!netManifestTypeAcceptsCatalogAsset(
+                entry->type, entry->slot_index, e->type)) {
+            return 0;
+        }
+        return 1;
+    }
+    return 0;
 }
 
 static void s_manifestDepAddEntry(const char *dep_id, void *userdata)
 {
     s_DepExpandCtx *ctx = (s_DepExpandCtx *)userdata;
     const asset_entry_t *de = assetCatalogResolve(dep_id);
-    if (de) {
-        s_manifestAddCatalogEntry(ctx->manifest, de, ctx->slot_index);
+    if (!ctx || !ctx->ok) {
+        return;
     }
-    /* Unresolved dep_id is silently skipped — mod may be partially loaded */
+    if (!de || !de->occupied || !de->enabled) {
+        ctx->ok = 0;
+        return;
+    }
+    s_manifestAddCatalogEntry(ctx->manifest, de, ctx->slot_index);
+    if (!s_manifestHasCatalogEntry(ctx->manifest, de)) {
+        ctx->ok = 0;
+    }
 }
 
-static void s_manifestExpandDeps(match_manifest_t *m,
-                                 const char *owner_id, u8 slot_index)
+static s32 s_manifestExpandDeps(match_manifest_t *m,
+                                const char *owner_id, u8 slot_index)
 {
     s_DepExpandCtx ctx;
     ctx.manifest   = m;
     ctx.slot_index = slot_index;
+    ctx.ok         = 1;
     catalogDepForEach(owner_id, s_manifestDepAddEntry, &ctx);
+    return ctx.ok;
+}
+
+s32 manifestAppendCatalogClosure(match_manifest_t *m, const char *id,
+                                 u8 slot_index)
+{
+    const asset_entry_t *entry;
+
+    if (!m || !id || !id[0]
+            || memchr(id, '\0', CATALOG_ID_LEN) == NULL) {
+        return 0;
+    }
+    entry = assetCatalogResolve(id);
+    if (!entry || !entry->occupied || !entry->enabled
+            || strcmp(entry->id, id) != 0) {
+        return 0;
+    }
+    s_manifestAddCatalogEntry(m, entry, slot_index);
+    if (!s_manifestHasCatalogEntry(m, entry)) {
+        return 0;
+    }
+    return s_manifestExpandDeps(m, entry->id, slot_index);
 }
 
 /**
@@ -1216,6 +1235,95 @@ s32 manifestDeserialize(struct netbuf *src, match_manifest_t *out)
     return 0;
 }
 
+s32 manifestDeserializeStrict(struct netbuf *src, match_manifest_t *out,
+                              u16 *out_advertised_count)
+{
+    const u16 start_entries = out ? out->num_entries : 0;
+    const u32 start_hash = out ? out->manifest_hash : 0;
+    u16 num_entries;
+
+    if (out_advertised_count) {
+        *out_advertised_count = 0;
+    }
+    if (!src || !out) {
+        return 1;
+    }
+
+    num_entries = netbufReadU16(src);
+    if (out_advertised_count) {
+        *out_advertised_count = num_entries;
+    }
+    if (src->error || num_entries == 0
+            || num_entries > (u16)manifestGetMaxEntries()) {
+        sysLogPrintf(LOG_WARNING,
+                     "MANIFEST: strict deserialize: bad entry count %u",
+                     (unsigned)num_entries);
+        goto reject;
+    }
+
+    for (s32 i = 0; i < (s32)num_entries; i++) {
+        const u8 type = netbufReadU8(src);
+        const u8 slot_index = netbufReadU8(src);
+        const char *id = netbufReadStr(src);
+        size_t id_len;
+        u16 before;
+
+        if (src->error || !id) {
+            goto reject;
+        }
+        id_len = strnlen(id, sizeof(((match_manifest_entry_t *)0)->id));
+        if (id_len == 0
+                || id_len >= sizeof(((match_manifest_entry_t *)0)->id)
+                || type > MANIFEST_TYPE_ASSET) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST: strict deserialize: invalid entry %d type=%u id='%s'",
+                         i, (unsigned)type, id ? id : "?");
+            goto reject;
+        }
+        for (s32 j = 0; j < (s32)out->num_entries; j++) {
+            if (strcmp(out->entries[j].id, id) == 0) {
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST: strict deserialize: duplicate id '%s'", id);
+                goto reject;
+            }
+        }
+
+        before = out->num_entries;
+        if (type == MANIFEST_TYPE_COMPONENT) {
+            u8 sha256[32];
+            static const u8 zero_sha256[32] = { 0 };
+
+            netbufReadData(src, sha256, sizeof(sha256));
+            if (src->error
+                    || memcmp(sha256, zero_sha256, sizeof(sha256)) == 0) {
+                sysLogPrintf(LOG_WARNING,
+                             "MANIFEST: strict deserialize: component '%s' has no integrity root",
+                             id);
+                goto reject;
+            }
+            manifestAddModEntry(out, id, slot_index, sha256);
+        } else {
+            manifestAddEntry(out, id, type, slot_index);
+        }
+        if (out->num_entries != (u16)(before + 1)) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST: strict deserialize: entry '%s' was not accepted exactly once",
+                         id);
+            goto reject;
+        }
+    }
+
+    if (out->num_entries != (u16)(start_entries + num_entries)) {
+        goto reject;
+    }
+    return 0;
+
+reject:
+    out->num_entries = start_entries;
+    out->manifest_hash = start_hash;
+    return 1;
+}
+
 /* =========================================================================
  * SA-6: SP diff-based asset lifecycle
  * ========================================================================= */
@@ -1711,6 +1819,7 @@ void manifestDiff(const match_manifest_t *current,
             if (de) {
                 de->net_hash = ne->net_hash;
                 de->type     = ne->type;
+                de->slot_index = ne->slot_index;
                 de->asset_type = (u8)s_manifestEntryCatalogAssetType(ne);
                 strncpy(de->id, ne->id, sizeof(de->id) - 1);
                 de->id[sizeof(de->id) - 1] = '\0';
@@ -1720,6 +1829,7 @@ void manifestDiff(const match_manifest_t *current,
             if (de) {
                 de->net_hash = ne->net_hash;
                 de->type     = ne->type;
+                de->slot_index = ne->slot_index;
                 de->asset_type = (u8)s_manifestEntryCatalogAssetType(ne);
                 strncpy(de->id, ne->id, sizeof(de->id) - 1);
                 de->id[sizeof(de->id) - 1] = '\0';
@@ -1742,6 +1852,7 @@ void manifestDiff(const match_manifest_t *current,
             if (de) {
                 de->net_hash = ce->net_hash;
                 de->type     = ce->type;
+                de->slot_index = ce->slot_index;
                 de->asset_type = (u8)s_manifestEntryCatalogAssetType(ce);
                 strncpy(de->id, ce->id, sizeof(de->id) - 1);
                 de->id[sizeof(de->id) - 1] = '\0';
@@ -1758,11 +1869,58 @@ void manifestDiffFree(manifest_diff_t *diff)
     memset(diff, 0, sizeof(*diff));
 }
 
-void manifestApplyDiff(const match_manifest_t *needed,
-                       manifest_diff_t *diff)
+static s32 s_manifestDiffEntryHasExactType(
+        const manifest_diff_entry_t *entry, s32 require_enabled)
+{
+    const asset_entry_t *asset;
+
+    if (!entry || !entry->id[0]) {
+        return 0;
+    }
+    if (entry->type == MANIFEST_TYPE_COMPONENT) {
+        return entry->asset_type == ASSET_NONE;
+    }
+    if (entry->asset_type <= ASSET_NONE
+            || entry->asset_type >= ASSET_TYPE_COUNT) {
+        return 0;
+    }
+    asset = assetCatalogResolveAny(entry->id);
+    return asset
+        && (!require_enabled || asset->enabled)
+        && asset->type == (asset_type_e)entry->asset_type
+        && netManifestTypeAcceptsCatalogAsset(
+            entry->type, entry->slot_index, asset->type);
+}
+
+s32 manifestApplyDiff(const match_manifest_t *needed,
+                      manifest_diff_t *diff)
 {
     s32 i;
     s32 load_ok;
+    s32 loaded_count = 0;
+
+    if (!needed || !diff) {
+        return 0;
+    }
+
+    /* Validate both halves before the first lifecycle mutation. Components
+     * are package/distribution records and deliberately have no catalog load. */
+    for (i = 0; i < diff->num_to_load; i++) {
+        if (!s_manifestDiffEntryHasExactType(&diff->to_load[i], 1)) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST.LIFECYCLE.REJECT: load '%s' has no exact enabled type",
+                         diff->to_load[i].id);
+            return 0;
+        }
+    }
+    for (i = 0; i < diff->num_to_unload; i++) {
+        if (!s_manifestDiffEntryHasExactType(&diff->to_unload[i], 0)) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST.LIFECYCLE.REJECT: unload '%s' has no exact catalog type",
+                         diff->to_unload[i].id);
+            return 0;
+        }
+    }
 
     /* Load first: bring in entries entering the active manifest BEFORE releasing
      * any outgoing assets.  This ensures new assets are resident before old data
@@ -1773,19 +1931,30 @@ void manifestApplyDiff(const match_manifest_t *needed,
      * payload or metadata and increments ref_count. A missing asset logs a
      * warning and is skipped. */
     for (i = 0; i < diff->num_to_load; i++) {
-        if (diff->to_load[i].id[0]) {
-            load_ok = catalogLoadTypedAsset(
-                    (asset_type_e)diff->to_load[i].asset_type,
-                    diff->to_load[i].id);
-            if (!load_ok) {
-                sysLogPrintf(LOG_WARNING,
-                             "MANIFEST-SP: load failed '%s' — asset missing, skipping",
-                             diff->to_load[i].id);
-            } else {
-                sysLogPrintf(LOG_NOTE, "MANIFEST-SP: load '%s'",
-                             diff->to_load[i].id);
-            }
+        if (diff->to_load[i].type == MANIFEST_TYPE_COMPONENT) {
+            continue;
         }
+        load_ok = catalogLoadTypedAsset(
+                (asset_type_e)diff->to_load[i].asset_type,
+                diff->to_load[i].id);
+        if (!load_ok) {
+            s32 rollback;
+
+            for (rollback = i; rollback-- > 0; ) {
+                if (diff->to_load[rollback].type != MANIFEST_TYPE_COMPONENT) {
+                    catalogReleaseTypedAsset(
+                            (asset_type_e)diff->to_load[rollback].asset_type,
+                            diff->to_load[rollback].id);
+                }
+            }
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST.LIFECYCLE.ROLLBACK: load failed '%s' restored=%d baseline_unchanged=1",
+                         diff->to_load[i].id, loaded_count);
+            return 0;
+        }
+        loaded_count++;
+        sysLogPrintf(LOG_NOTE, "MANIFEST-SP: load '%s'",
+                     diff->to_load[i].id);
     }
 
     /* Unload second: decrement ref_count for entries leaving the active manifest.
@@ -1797,13 +1966,14 @@ void manifestApplyDiff(const match_manifest_t *needed,
      * registered deps are cascade-decremented. Detailed "freed / retained"
      * logging is emitted inside the catalog lifecycle implementation. */
     for (i = 0; i < diff->num_to_unload; i++) {
-        if (diff->to_unload[i].id[0]) {
-            catalogReleaseTypedAsset(
-                    (asset_type_e)diff->to_unload[i].asset_type,
-                    diff->to_unload[i].id);
-            sysLogPrintf(LOG_NOTE, "MANIFEST-SP: unload '%s'",
-                         diff->to_unload[i].id);
+        if (diff->to_unload[i].type == MANIFEST_TYPE_COMPONENT) {
+            continue;
         }
+        catalogReleaseTypedAsset(
+                (asset_type_e)diff->to_unload[i].asset_type,
+                diff->to_unload[i].id);
+        sysLogPrintf(LOG_NOTE, "MANIFEST-SP: unload '%s'",
+                     diff->to_unload[i].id);
     }
 
     /* Deep-copy needed into g_CurrentLoadedManifest so it becomes the new
@@ -1814,6 +1984,7 @@ void manifestApplyDiff(const match_manifest_t *needed,
     sysLogPrintf(LOG_NOTE,
                  "MANIFEST-SP: applied diff — load=%d unload=%d keep=%d",
                  diff->num_to_load, diff->num_to_unload, diff->num_to_keep);
+    return 1;
 }
 
 /* =========================================================================
@@ -1835,7 +2006,7 @@ static void s_validateDepCallback(const char *dep_id, void *userdata)
     s_ValidateDepCtx *ctx = (s_ValidateDepCtx *)userdata;
     const asset_entry_t *de;
 
-    de = assetCatalogResolve(dep_id);
+    de = assetCatalogResolveAny(dep_id);
     if (!de) {
         sysLogPrintf(LOG_WARNING,
                      "MANIFEST-VALIDATE: WARN: dep '%s' of '%s'"
@@ -1886,7 +2057,7 @@ s32 manifestValidate(manifest_diff_t *diff)
 
         /* Resolve strictly by catalog ID string.  Manifest boundaries are
          * string-authoritative; avoid hash fallback that can mask ID drift. */
-        e = assetCatalogResolve(entry->id);
+        e = assetCatalogResolveAny(entry->id);
 
         if (!e) {
             sysLogPrintf(LOG_WARNING,
@@ -1933,22 +2104,17 @@ s32 manifestValidate(manifest_diff_t *diff)
             }
         }
 
-        if (entry->type == MANIFEST_TYPE_ASSET) {
+        {
             asset_type_e expected = (asset_type_e)entry->asset_type;
-            if (expected <= ASSET_NONE || expected >= ASSET_TYPE_COUNT) {
+            if (expected <= ASSET_NONE || expected >= ASSET_TYPE_COUNT
+                    || e->type != expected
+                    || !netManifestTypeAcceptsCatalogAsset(
+                        entry->type, entry->slot_index, expected)) {
                 sysLogPrintf(LOG_WARNING,
-                             "MANIFEST-VALIDATE: WARN: entry '%s' has"
-                             " invalid generic asset type %d, skipping",
-                             entry->id, (int)expected);
-                entry->id[0] = '\0';
-                invalid_count++;
-                continue;
-            }
-            if (e->type != expected) {
-                sysLogPrintf(LOG_WARNING,
-                             "MANIFEST-VALIDATE: WARN: entry '%s' expected"
-                             " asset type %d but got type %d, skipping",
-                             entry->id, (int)expected, (int)e->type);
+                             "MANIFEST-VALIDATE: WARN: entry '%s' exact type mismatch"
+                             " manifest=%d slot=%d expected=%d actual=%d, skipping",
+                             entry->id, (int)entry->type, (int)entry->slot_index,
+                             (int)expected, (int)e->type);
                 entry->id[0] = '\0';
                 invalid_count++;
                 continue;
@@ -1993,8 +2159,11 @@ void manifestSPTransition(s32 stagenum)
                  (unsigned)stagenum, (int)s_SpNeededManifest.num_entries);
 
     manifestDiff(&g_CurrentLoadedManifest, &s_SpNeededManifest, &s_SpLastDiff);
-    manifestValidate(&s_SpLastDiff);
-    manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff);
+    if (manifestValidate(&s_SpLastDiff) != 0
+            || !manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff)) {
+        sysLogPrintf(LOG_WARNING,
+                     "MANIFEST-SP: transition rejected; current manifest preserved");
+    }
     manifestDiffFree(&s_SpLastDiff);
 }
 
@@ -2046,8 +2215,11 @@ void manifestSPRescanSetup(s32 stagenum)
                  s_SpLastDiff.num_to_load,
                  s_SpLastDiff.num_to_keep,
                  s_SpLastDiff.num_to_unload);
-    manifestValidate(&s_SpLastDiff);
-    manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff);
+    if (manifestValidate(&s_SpLastDiff) != 0
+            || !manifestApplyDiff(&s_SpNeededManifest, &s_SpLastDiff)) {
+        sysLogPrintf(LOG_WARNING,
+                     "MANIFEST-SP: rescan rejected; current manifest preserved");
+    }
     manifestDiffFree(&s_SpLastDiff);
 }
 
@@ -2062,8 +2234,11 @@ void manifestMenuTransition(void)
                  (int)s_MenuManifest.num_entries);
 
     manifestDiff(&g_CurrentLoadedManifest, &s_MenuManifest, &s_SpLastDiff);
-    manifestValidate(&s_SpLastDiff);
-    manifestApplyDiff(&s_MenuManifest, &s_SpLastDiff);
+    if (manifestValidate(&s_SpLastDiff) != 0
+            || !manifestApplyDiff(&s_MenuManifest, &s_SpLastDiff)) {
+        sysLogPrintf(LOG_WARNING,
+                     "MANIFEST-MENU: transition rejected; current manifest preserved");
+    }
     manifestDiffFree(&s_SpLastDiff);
 }
 
@@ -2125,8 +2300,11 @@ void manifestMPTransition(void)
                  (int)needed->num_entries, source_name);
 
     manifestDiff(&g_CurrentLoadedManifest, needed, &s_SpLastDiff);
-    manifestValidate(&s_SpLastDiff);
-    manifestApplyDiff(needed, &s_SpLastDiff);
+    if (manifestValidate(&s_SpLastDiff) != 0
+            || !manifestApplyDiff(needed, &s_SpLastDiff)) {
+        sysLogPrintf(LOG_WARNING,
+                     "MANIFEST-MP: transition rejected; current manifest preserved");
+    }
     manifestDiffFree(&s_SpLastDiff);
 }
 
@@ -2141,7 +2319,7 @@ void manifestMPTransition(void)
  * FNV-1a hash.  If not, resolves it via assetCatalogResolve(), adds it to the
  * manifest, and advances its catalog state to ASSET_STATE_LOADED.
  *
- * asset_type: MANIFEST_TYPE_BODY, MANIFEST_TYPE_HEAD, or MANIFEST_TYPE_MODEL.
+ * asset_type: canonical MANIFEST_TYPE_* token expected for the catalog row.
  *
  * Returns 1 if the asset is now tracked; 0 if catalog_id is NULL/empty, the
  * active manifest has no entries (pre-load), MP mode is active, or the asset could not
@@ -2184,12 +2362,22 @@ s32 manifestEnsureLoaded(const char *catalog_id, s32 asset_type)
 
     /* Not yet tracked — late-register and load. */
     if (e) {
+        u8 slot_index = asset_type == MANIFEST_TYPE_ASSET
+            ? (u8)e->type : MANIFEST_SLOT_MATCH;
+
+        if (!netManifestTypeAcceptsCatalogAsset(
+                (u8)asset_type, slot_index, e->type)) {
+            sysLogPrintf(LOG_WARNING,
+                         "MANIFEST-SP: late-add '%s' rejected type=%d actual=%d",
+                         catalog_id, asset_type, (int)e->type);
+            return 0;
+        }
         sysLogPrintf(LOG_NOTE,
                      "MANIFEST-SP: late-add '%s' type=%d (missed by pre-scan)",
                      catalog_id, asset_type);
         manifestAddEntry(&g_CurrentLoadedManifest, e->id,
-                         (u8)asset_type, MANIFEST_SLOT_MATCH);
-        catalogLoadTypedAsset(s_manifestCatalogAssetType((u8)asset_type), e->id);
+                         (u8)asset_type, slot_index);
+        catalogLoadTypedAsset(e->type, e->id);
 
         /* S312: late-add diagnostic for body/head modeldefs — the
          * sp_body_108 parts=0 class (S308) was observed after a late-add

@@ -11,6 +11,75 @@
 
 namespace {
 
+size_t function_body_end(const std::string &text, size_t brace)
+{
+	enum class lexical_state {
+		normal,
+		line_comment,
+		block_comment,
+		string_literal,
+		character_literal,
+	};
+
+	lexical_state state = lexical_state::normal;
+	size_t depth = 0;
+
+	for (size_t pos = brace; pos < text.size(); pos++) {
+		const char ch = text[pos];
+		const char next = pos + 1 < text.size() ? text[pos + 1] : '\0';
+
+		switch (state) {
+		case lexical_state::normal:
+			if (ch == '/' && next == '/') {
+				state = lexical_state::line_comment;
+				pos++;
+			} else if (ch == '/' && next == '*') {
+				state = lexical_state::block_comment;
+				pos++;
+			} else if (ch == '"') {
+				state = lexical_state::string_literal;
+			} else if (ch == '\'') {
+				state = lexical_state::character_literal;
+			} else if (ch == '{') {
+				depth++;
+			} else if (ch == '}') {
+				REQUIRE(depth > 0);
+				depth--;
+				if (depth == 0) {
+					return pos;
+				}
+			}
+			break;
+
+		case lexical_state::line_comment:
+			if (ch == '\n') {
+				state = lexical_state::normal;
+			}
+			break;
+
+		case lexical_state::block_comment:
+			if (ch == '*' && next == '/') {
+				state = lexical_state::normal;
+				pos++;
+			}
+			break;
+
+		case lexical_state::string_literal:
+		case lexical_state::character_literal:
+			if (ch == '\\' && pos + 1 < text.size()) {
+				pos++;
+			} else if ((state == lexical_state::string_literal && ch == '"')
+					|| (state == lexical_state::character_literal && ch == '\'')) {
+				state = lexical_state::normal;
+			}
+			break;
+		}
+	}
+
+	FAIL("function definition block not closed");
+	return std::string::npos;
+}
+
 std::string read_text_file(const char *path)
 {
     std::ifstream in(path, std::ios::in | std::ios::binary);
@@ -28,20 +97,9 @@ std::string function_block(const std::string &text, const char *signature)
     const size_t brace = text.find('{', begin);
     REQUIRE(brace != std::string::npos);
 
-    size_t depth = 0;
-    for (size_t pos = brace; pos < text.size(); pos++) {
-        if (text[pos] == '{') {
-            depth++;
-        } else if (text[pos] == '}') {
-            depth--;
-            if (depth == 0) {
-                return text.substr(begin, pos - begin + 1);
-            }
-        }
-    }
-
-    FAIL("function block not closed");
-    return {};
+	const size_t end = function_body_end(text, brace);
+	REQUIRE(end != std::string::npos);
+	return text.substr(begin, end - begin + 1);
 }
 
 std::string function_definition_block(const std::string &text, const char *signature)
@@ -61,49 +119,102 @@ std::string function_definition_block(const std::string &text, const char *signa
             continue;
         }
 
-        size_t depth = 0;
-        for (size_t pos = brace; pos < text.size(); pos++) {
-            if (text[pos] == '{') {
-                depth++;
-            } else if (text[pos] == '}') {
-                depth--;
-                if (depth == 0) {
-                    return text.substr(begin, pos - begin + 1);
-                }
-            }
-        }
-
-        FAIL("function definition block not closed");
+		const size_t end = function_body_end(text, brace);
+		REQUIRE(end != std::string::npos);
+		return text.substr(begin, end - begin + 1);
     }
 }
 
 } /* anon */
+
+TEST_CASE("B-1092 server disconnect policy survives ENet sender-local reason loss",
+          "[net][lifecycle][reconnect][static][b1092]")
+{
+    const std::string net = read_text_file("port/src/net/net.c");
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string pdgui = read_text_file("port/fast3d/pdgui_bridge.c");
+    const std::string server = read_text_file("port/src/server_bridge.c");
+    const std::string kick = function_definition_block(
+        net, "void netServerKick(struct netclient *cl");
+    const std::string disconnect = function_definition_block(
+        net, "static void netServerEvDisconnect(struct netclient *cl");
+    const std::string admin = function_definition_block(
+        netmsg, "u32 netmsgClcAdminRead");
+    const std::string pdgui_kick = function_definition_block(
+        pdgui, "void netServerKickClient");
+    const std::string server_kick = function_definition_block(
+        server, "void netServerKickClient");
+    const std::string server_ban = function_definition_block(
+        server, "void netServerBanClient");
+
+    const size_t duplicate_gate = kick.find(
+        "if (cl->server_disconnect_intent_pending)");
+    const size_t latch_reason = kick.find(
+        "cl->server_disconnect_intent_reason = reason", duplicate_gate);
+    const size_t latch_pending = kick.find(
+        "cl->server_disconnect_intent_pending = true", latch_reason);
+    const size_t enet_call = kick.find(
+        "enet_peer_disconnect(cl->peer, reason)", latch_pending);
+    REQUIRE(duplicate_gate != std::string::npos);
+    REQUIRE(latch_reason != std::string::npos);
+    REQUIRE(latch_pending != std::string::npos);
+    REQUIRE(enet_call != std::string::npos);
+    REQUIRE(duplicate_gate < latch_reason);
+    REQUIRE(latch_reason < latch_pending);
+    REQUIRE(latch_pending < enet_call);
+
+    const size_t resolve = disconnect.find(
+        "netReconnectPlanServerDisconnect(transport_reason");
+    const size_t consume = disconnect.find(
+        "cl->server_disconnect_intent_pending = false", resolve);
+    const size_t retryable = disconnect.find(
+        "netReconnectReasonIsRetryable(reason", consume);
+    REQUIRE(resolve != std::string::npos);
+    REQUIRE(consume != std::string::npos);
+    REQUIRE(retryable != std::string::npos);
+    REQUIRE(resolve < consume);
+    REQUIRE(consume < retryable);
+
+    REQUIRE(admin.find("netServerKick(srccl, DISCONNECT_ADMIN_AUTH)") !=
+        std::string::npos);
+    REQUIRE(pdgui_kick.find("netServerKick(cl, DISCONNECT_KICKED)") !=
+        std::string::npos);
+    REQUIRE(server_kick.find("netServerKick(cl, DISCONNECT_KICKED)") !=
+        std::string::npos);
+    REQUIRE(server_ban.find("netServerKick(cl, DISCONNECT_BANNED)") !=
+        std::string::npos);
+}
 
 TEST_CASE("net lifecycle: CLC_LOBBY_START authorizes before reading payload",
           "[net][lifecycle][static]")
 {
     const std::string netmsg = read_text_file("port/src/net/netmsg.c");
     const std::string read = function_block(netmsg, "u32 netmsgClcLobbyStartRead");
+    const std::string authority = function_block(
+        netmsg, "static bool netLobbyStartIsAuthority");
 
-    const size_t server_gate = read.find("if (g_NetMode != NETMODE_SERVER)");
-    const size_t null_client_gate = read.find("if (!srccl)");
-    const size_t lobby_refresh = read.find("lobbyUpdate();");
-    const size_t leader_gate = read.find("if (!isLeader)");
-    const size_t leader_reject = read.find("return src->error;", leader_gate);
+    const size_t context_gate = read.find(
+        "if (!src || g_NetMode != NETMODE_SERVER || s_ReadyGate.active");
+    const size_t authority_gate = read.find(
+        "if (!netLobbyStartIsAuthority(srccl, &room))");
     const size_t first_payload_read = read.find("netbufReadU8(src)");
 
-    REQUIRE(server_gate != std::string::npos);
-    REQUIRE(null_client_gate != std::string::npos);
-    REQUIRE(lobby_refresh != std::string::npos);
-    REQUIRE(leader_gate != std::string::npos);
-    REQUIRE(leader_reject != std::string::npos);
+    REQUIRE(context_gate != std::string::npos);
+    REQUIRE(authority_gate != std::string::npos);
     REQUIRE(first_payload_read != std::string::npos);
+    REQUIRE(context_gate < authority_gate);
+    REQUIRE(authority_gate < first_payload_read);
 
-    REQUIRE(server_gate < first_payload_read);
-    REQUIRE(null_client_gate < first_payload_read);
-    REQUIRE(lobby_refresh < first_payload_read);
-    REQUIRE(leader_gate < first_payload_read);
-    REQUIRE(leader_reject < first_payload_read);
+    REQUIRE(authority.find("room->state != ROOM_STATE_LOBBY") != std::string::npos);
+    REQUIRE(authority.find("room->creator_client_id != srccl->id") != std::string::npos);
+    REQUIRE(authority.find("netLobbyStartRoomContains(room, (u8)srccl->id)") !=
+        std::string::npos);
+    REQUIRE(authority.find("g_Lobby.leaderSlot < LOBBY_MAX_PLAYERS") !=
+        std::string::npos);
+    REQUIRE(authority.find("for (u8 i = 0; i < NET_MAX_CLIENTS; i++)") !=
+        std::string::npos);
+    REQUIRE(authority.find("lobbyUpdate();") == std::string::npos);
+    REQUIRE(read.find("lobbyUpdate();") == std::string::npos);
 }
 
 TEST_CASE("net lifecycle: listen host can start a match (Combat Sim / co-op start fix)",
@@ -136,6 +247,127 @@ TEST_CASE("net lifecycle: listen host can start a match (Combat Sim / co-op star
 
     /* The old client-only rejection must be gone. */
     REQUIRE(fn.find("if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient)") == std::string::npos);
+}
+
+TEST_CASE("B-1076 every in-client server start closes the complete menu owner",
+		"[net][lifecycle][menu][transition][static][b1076]")
+{
+	const std::string net = read_text_file("port/src/net/net.c");
+	const std::string cleanup = function_block(
+		net, "static void netServerPrepareInClientStageTransition");
+	const std::string combat = function_block(net, "s32 netServerStageStart");
+	const std::string coop = function_block(net, "s32 netServerCoopStageStart");
+
+	REQUIRE(cleanup.find("menuStop();") != std::string::npos);
+	REQUIRE(cleanup.find(
+		"sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL")
+		!= std::string::npos);
+	REQUIRE(combat.find(
+		"netServerPrepareInClientStageTransition(\"server stage start combat\")")
+		!= std::string::npos);
+	REQUIRE(coop.find(
+		"netServerPrepareInClientStageTransition(\"server stage start coop\")")
+		!= std::string::npos);
+}
+
+TEST_CASE("net lifecycle: local settings refresh serves clients and listen hosts without a host loopback send",
+          "[net][lifecycle][settings][static][b1071]")
+{
+    const std::string net = read_text_file("port/src/net/net.c");
+    const std::string match = read_text_file("port/src/net/matchsetup.c");
+    const std::string changed = function_block(net, "s32 netClientSettingsChanged");
+    const std::string init = function_block(match, "void matchConfigInit");
+
+    const size_t client_role = changed.find("g_NetMode == NETMODE_CLIENT");
+    const size_t host_role = changed.find(
+        "g_NetMode == NETMODE_SERVER && !g_NetDedicated");
+    const size_t refresh = changed.find(
+        "netClientReadConfig(g_NetLocalClient, 0)");
+    const size_t prepare = changed.find("netClientPrepareCachedSettings(", refresh);
+    const size_t commit = changed.find("netClientCommitPreparedSettings(", prepare);
+    const size_t host_return = changed.find("if (is_listen_host)", commit);
+    const size_t write = changed.find("netmsgClcSettingsWrite(&g_NetMsgRel)",
+                                      host_return);
+    const size_t send = changed.find("netSend(NULL, &g_NetMsgRel", write);
+    const size_t reset = init.find("matchResetHandicaps()");
+    const size_t publish = init.find("g_MatchConfig.numSlots = 1", reset);
+    const size_t notify = init.find("netClientSettingsChanged()", publish);
+
+    REQUIRE(client_role != std::string::npos);
+    REQUIRE(host_role != std::string::npos);
+    REQUIRE(refresh != std::string::npos);
+    REQUIRE(prepare != std::string::npos);
+    REQUIRE(commit != std::string::npos);
+    REQUIRE(host_return != std::string::npos);
+    REQUIRE(write != std::string::npos);
+    REQUIRE(send != std::string::npos);
+    REQUIRE(reset != std::string::npos);
+    REQUIRE(publish != std::string::npos);
+    REQUIRE(notify != std::string::npos);
+    REQUIRE(refresh < prepare);
+    REQUIRE(prepare < commit);
+    REQUIRE(commit < host_return);
+    REQUIRE(host_return < write);
+    REQUIRE(write < send);
+    REQUIRE(reset < publish);
+    REQUIRE(publish < notify);
+}
+
+TEST_CASE("net settings: v55 publishes exact lobby identity and handicap before roster start",
+          "[net][lifecycle][settings][wire][static][b1071]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string codec = read_text_file(
+        "port/src/net/net_client_settings_wire.c");
+    const std::string bridge = read_text_file("port/fast3d/pdgui_bridge.c");
+    const std::string write = function_block(netmsg, "u32 netmsgClcSettingsWrite");
+    const std::string read = function_block(netmsg, "u32 netmsgClcSettingsRead");
+    const std::string start = function_block(bridge, "s32 netLobbyRequestStartWithSims");
+    const std::string roster = function_block(netmsg,
+        "static bool netLobbyStartPrepareRoster");
+
+    REQUIRE(write.find("input.body_id = g_NetLocalClient->settings.body_id") !=
+        std::string::npos);
+    REQUIRE(write.find("input.head_id = g_NetLocalClient->settings.head_id") !=
+        std::string::npos);
+    REQUIRE(write.find("input.handicap = g_NetLocalClient->settings.handicap") !=
+        std::string::npos);
+    REQUIRE(write.find("netClientSettingsWireWrite(dst, CLC_SETTINGS") !=
+        std::string::npos);
+    REQUIRE(write.find("sessionCatalogGetId") == std::string::npos);
+
+    REQUIRE(read.find("netClientSettingsWireRead(src, &plan") !=
+        std::string::npos);
+    REQUIRE(read.find("status != NET_CLIENT_SETTINGS_WIRE_OK") !=
+        std::string::npos);
+    REQUIRE(read.find("srccl->settings.handicap = effective_handicap") !=
+        std::string::npos);
+    REQUIRE(read.find("body_session") == std::string::npos);
+    REQUIRE(read.find("head_session") == std::string::npos);
+
+    REQUIRE(codec.find("playerIdentityPrepare(input->body_id, input->head_id") !=
+        std::string::npos);
+    REQUIRE(codec.find("input->handicap == 0") != std::string::npos);
+    REQUIRE(codec.find("netbufWriteStr(dst, plan.identity.body_id)") !=
+        std::string::npos);
+    REQUIRE(codec.find("netbufWriteStr(dst, plan.identity.head_id)") !=
+        std::string::npos);
+    REQUIRE(codec.find("netbufWriteU8(dst, plan.handicap)") !=
+        std::string::npos);
+
+    const size_t refresh = start.find("netClientSettingsChanged()");
+    const size_t lobbyWrite = start.find("netmsgClcLobbyStartWrite(", refresh);
+    REQUIRE(refresh != std::string::npos);
+    REQUIRE(lobbyWrite != std::string::npos);
+    REQUIRE(refresh < lobbyWrite);
+
+    REQUIRE(roster.find("reason=client_settings") != std::string::npos);
+    REQUIRE(roster.find("netClientSettingsPrepare(&settings_input") !=
+        std::string::npos);
+    REQUIRE(roster.find("player->identity = settings_plan.identity") !=
+        std::string::npos);
+    REQUIRE(roster.find("player->config.handicap = settings_plan.handicap") !=
+        std::string::npos);
 }
 
 TEST_CASE("net lifecycle: malformed SVC_MATCH_MANIFEST clears staged client manifest",
@@ -308,6 +540,12 @@ TEST_CASE("net interoperability: friend joins consume only typed signed match ro
 	const std::string stun_h = read_text_file("port/include/net/netstun.h");
 	const std::string fixture = read_text_file(
 		"tools/smoke-verify/generate_friend_play_identity.py");
+	const std::string authority_initiator = read_text_file(
+		"tools/smoke-verify/tests/friend_play_authority_initiator_smoke.json");
+	const std::string authority_invitee = read_text_file(
+		"tools/smoke-verify/tests/friend_play_authority_invitee_smoke.json");
+	const std::string authority_prefs = read_text_file(
+		"tools/smoke-verify/fixtures/prefs_needler_enabled.ini");
     const std::string spectator = read_text_file("port/src/spectator.c");
 	const std::string pair_open = function_block(group, "static void onPairOpen");
 	const std::string drive = function_block(group, "static void driveMatchTransport");
@@ -358,54 +596,109 @@ TEST_CASE("net interoperability: friend joins consume only typed signed match ro
 	REQUIRE(fixture.find("pd-identity.dat") != std::string::npos);
 	REQUIRE(fixture.find("pd-social-connect-v1\\n") != std::string::npos);
 	REQUIRE(fixture.find("0x7F000001") != std::string::npos);
+	REQUIRE(fixture.find("fixtures\" / \"agent_smoke.json") !=
+		std::string::npos);
+	REQUIRE(fixture.find("agent_template[\"name\"] = role") !=
+		std::string::npos);
+	REQUIRE(fixture.find("\"version\": 2") == std::string::npos);
+	REQUIRE(fixture.find("\"besttimes\":") == std::string::npos);
+	/* B-1083: Agent activation owns enabled-mod preference state and therefore
+	 * supersedes the machine-level mods-enabled.json fixture.  Only the elected
+	 * authority receives a validated legacy sidecar, which the production v2->v3
+	 * Agent migration consumes and retires before friend play starts. */
+	REQUIRE(authority_prefs.find("[Mods]") != std::string::npos);
+	REQUIRE(authority_prefs.find("Enabled=needler") != std::string::npos);
+	REQUIRE(authority_initiator.find("prefs_needler_enabled.ini") !=
+		std::string::npos);
+	REQUIRE(authority_initiator.find("\"dst\": \"prefs_initiator.ini\"") !=
+		std::string::npos);
+	REQUIRE(authority_initiator.find("prefs_invitee.ini") == std::string::npos);
+	REQUIRE(authority_invitee.find("prefs_needler_enabled.ini") !=
+		std::string::npos);
+	REQUIRE(authority_invitee.find("\"dst\": \"prefs_invitee.ini\"") !=
+		std::string::npos);
+	REQUIRE(authority_invitee.find("prefs_initiator.ini") == std::string::npos);
+	/* B-1084/B-1085/B-1088: mission-map peers can observe different presentation
+	 * timing after the same authoritative stage start. Each client crosses the
+	 * current stage-ready epoch, then one stateful barrier requires a continuous
+	 * gameplay-ready window. While gameplay is false, the exact cutscene aperture
+	 * may issue one bounded Skip assist; release is owned by the barrier. A
+	 * one-frame gameplay sample and duplicated wall-clock waves are not evidence. */
+	for (const std::string *authority : {&authority_initiator, &authority_invitee}) {
+		REQUIRE(authority->find("\"timeout_seconds\": 360") !=
+			std::string::npos);
+		REQUIRE(authority->find(
+			"\"at_ms\": 0, \"type\": \"wait_until\", \"condition\": \"network_stage_live\", \"timeout_ms\": 220000") !=
+			std::string::npos);
+		REQUIRE(authority->find(
+			"\"at_ms\": 0, \"type\": \"wait_until\", \"condition\": \"gameplay_ready\", \"timeout_ms\": 60000, \"stable_ms\": 3000, \"assist_action\": \"ACTION_SKIP_CUTSCENE\", \"assist_condition\": \"cutscene_skip_ready\", \"assist_hold_ms\": 900") !=
+			std::string::npos);
+		REQUIRE(authority->find(
+			"SMOKE\\\\.WAIT\\\\.ASSIST: action=72 condition=cutscene_skip_ready outcome=(?:used at_ms=0 waited_ms=\\\\d+ press_count=1 release_count=1|not_needed at_ms=0 waited_ms=\\\\d+ press_count=0 release_count=0)") !=
+			std::string::npos);
+		REQUIRE(authority->find(
+			"SMOKE\\\\.WAIT: satisfied condition=gameplay_ready at_ms=0 timeout_ms=60000 .*stable_ms=3000 stable_elapsed_ms=(?:3\\\\d{3}|[4-9]\\\\d{3}|[1-5]\\\\d{4}) assist_action=72 assist_condition=cutscene_skip_ready assist_hold_ms=900") !=
+			std::string::npos);
+		REQUIRE(authority->find("cutscene_skip_or_gameplay_ready") ==
+			std::string::npos);
+		REQUIRE(authority->find(
+			"\"type\": \"action\", \"name\": \"ACTION_SKIP_CUTSCENE\"") ==
+			std::string::npos);
+		REQUIRE(authority->find("\"at_ms\": 750") == std::string::npos);
+		REQUIRE(authority->find("\"at_ms\": 2250") == std::string::npos);
+		REQUIRE(authority->find("\"at_ms\": 2500") == std::string::npos);
+		REQUIRE(authority->find("\"at_ms\": 59000") == std::string::npos);
+		REQUIRE(authority->find("\"at_ms\": 105000") == std::string::npos);
+		REQUIRE(authority->find("\"at_ms\": 145000") == std::string::npos);
+		REQUIRE(authority->find(
+			"SMOKE\\\\.WAIT\\\\.ASSIST: action=72 condition=cutscene_skip_ready event=press") !=
+			std::string::npos);
+		REQUIRE(authority->find(
+			"SMOKE\\\\.WAIT\\\\.ASSIST: action=72 condition=cutscene_skip_ready event=release") !=
+			std::string::npos);
+		REQUIRE(authority->find(
+			"MATCH: immutable network launch activeMask=0x[0-9a-f]+ players=2 bots=0") !=
+			std::string::npos);
+		REQUIRE(authority->find("NET: mpStartMatch server activeMask=") ==
+			std::string::npos);
+	}
 
     REQUIRE(spectator.find("#include \"net/netholepunch.h\"") != std::string::npos);
     REQUIRE(spectator.find("netStartClientWithHolePunch(addr)") != std::string::npos);
     REQUIRE(spectator.find("netStartClient(addr)") == std::string::npos);
 }
 
-TEST_CASE("net lifecycle: rejected Counter-Op start does not commit mode state",
+TEST_CASE("net lifecycle: rejected Counter-Op start cannot publish role state",
           "[net][lifecycle][static]")
 {
     const std::string netmsg = read_text_file("port/src/net/netmsg.c");
     const std::string read = function_block(netmsg, "u32 netmsgClcLobbyStartRead");
+    const std::string roster = function_block(
+        netmsg, "static bool netLobbyStartPrepareRoster");
+    const std::string commit = function_block(
+        netmsg, "static bool netLobbyStartCommit");
 
-    const size_t local_initial = read.find("u8 counterOpClientId = NET_NULL_CLIENT");
-    const size_t anti_branch = read.find("if (gamemode == NETGAMEMODE_ANTI)", local_initial);
-    const size_t invalid_check = read.find("antiClientId == NET_NULL_CLIENT", anti_branch);
-    const size_t invalid_return = read.find("return src->error;", invalid_check);
-    const size_t state_check = read.find("antiCl->state < CLSTATE_LOBBY", invalid_return);
-    const size_t state_return = read.find("return src->error;", state_check);
-    const size_t room_check = read.find("antiCl->room_id != srccl->room_id", state_return);
-    const size_t room_return = read.find("return src->error;", room_check);
-    const size_t local_commit = read.find("counterOpClientId = antiClientId;", room_return);
-    const size_t mode_commit = read.find("g_NetGameMode = gamemode;", local_commit);
-    const size_t anti_commit = read.find("g_NetCounterOpClientId = counterOpClientId;", mode_commit);
+    const size_t roster_prepare = read.find(
+        "netLobbyStartPrepareRoster(&plan, srccl, room)");
+    const size_t manifest_prepare = read.find(
+        "netLobbyStartPrepareManifest(src, &plan)", roster_prepare);
+    const size_t commit_call = read.find("netLobbyStartCommit(&plan)", manifest_prepare);
+    REQUIRE(roster_prepare != std::string::npos);
+    REQUIRE(manifest_prepare != std::string::npos);
+    REQUIRE(commit_call != std::string::npos);
+    REQUIRE(roster_prepare < manifest_prepare);
+    REQUIRE(manifest_prepare < commit_call);
 
-    REQUIRE(local_initial != std::string::npos);
-    REQUIRE(anti_branch != std::string::npos);
-    REQUIRE(invalid_check != std::string::npos);
-    REQUIRE(invalid_return != std::string::npos);
-    REQUIRE(state_check != std::string::npos);
-    REQUIRE(state_return != std::string::npos);
-    REQUIRE(room_check != std::string::npos);
-    REQUIRE(room_return != std::string::npos);
-    REQUIRE(local_commit != std::string::npos);
-    REQUIRE(mode_commit != std::string::npos);
-    REQUIRE(anti_commit != std::string::npos);
-
-    REQUIRE(local_initial < anti_branch);
-    REQUIRE(anti_branch < invalid_check);
-    REQUIRE(invalid_check < invalid_return);
-    REQUIRE(invalid_return < state_check);
-    REQUIRE(state_check < state_return);
-    REQUIRE(state_return < room_check);
-    REQUIRE(room_check < room_return);
-    REQUIRE(room_return < local_commit);
-    REQUIRE(local_commit < mode_commit);
-    REQUIRE(mode_commit < anti_commit);
-
-    REQUIRE(read.find("g_NetCounterOpClientId = antiClientId") == std::string::npos);
+    REQUIRE(roster.find("plan->num_players != 2") != std::string::npos);
+    REQUIRE(roster.find("plan->anti_client_id == NET_NULL_CLIENT") !=
+        std::string::npos);
+    REQUIRE(roster.find("plan->anti_client_id == srccl->id") !=
+        std::string::npos);
+    REQUIRE(roster.find("if (!anti_present) return false;") != std::string::npos);
+    REQUIRE(commit.find("if (!lobbyStartTransactionBegin(plan->room_id))") !=
+        std::string::npos);
+    REQUIRE(commit.find("g_NetCounterOpClientId =") != std::string::npos);
+    REQUIRE(read.find("g_NetCounterOpClientId =") == std::string::npos);
 }
 
 TEST_CASE("net lifecycle: SVC_STAGE_START validates mode before committing state",
@@ -417,25 +710,31 @@ TEST_CASE("net lifecycle: SVC_STAGE_START validates mode before committing state
     const size_t mode_read = read.find("const u8 mode = netbufReadU8(src)");
     const size_t error_gate = read.find("if (src->error)", mode_read);
     const size_t invalid_mode = read.find("mode != NETGAMEMODE_MP", error_gate);
-    const size_t invalid_return = read.find("return 1;", invalid_mode);
-    const size_t mode_commit = read.find("g_NetGameMode = mode;", invalid_return);
-    const size_t mission_write = read.find("g_MissionConfig.stagenum = stagenum", mode_commit);
-    const size_t mp_write = read.find("g_MpSetup.stagenum = stagenum", mode_commit);
+    const size_t invalid_return = read.find("netStageStartReject", invalid_mode);
+    const size_t plan_mode = read.find("plan.mode = mode;", invalid_return);
+    const size_t publication = read.find("/* One publication point", plan_mode);
+    const size_t mode_commit = read.find("g_NetGameMode = plan.mode;", publication);
+    const size_t mp_commit = read.find("g_MpSetup = plan.setup;", mode_commit);
+    const size_t mission_commit = read.find("g_MissionConfig = plan.mission;", mp_commit);
 
     REQUIRE(mode_read != std::string::npos);
     REQUIRE(error_gate != std::string::npos);
     REQUIRE(invalid_mode != std::string::npos);
     REQUIRE(invalid_return != std::string::npos);
     REQUIRE(mode_commit != std::string::npos);
-    REQUIRE(mission_write != std::string::npos);
-    REQUIRE(mp_write != std::string::npos);
+    REQUIRE(plan_mode != std::string::npos);
+    REQUIRE(publication != std::string::npos);
+    REQUIRE(mp_commit != std::string::npos);
+    REQUIRE(mission_commit != std::string::npos);
 
     REQUIRE(mode_read < error_gate);
     REQUIRE(error_gate < invalid_mode);
     REQUIRE(invalid_mode < invalid_return);
-    REQUIRE(invalid_return < mode_commit);
-    REQUIRE(mode_commit < mission_write);
-    REQUIRE(mode_commit < mp_write);
+    REQUIRE(invalid_return < plan_mode);
+    REQUIRE(plan_mode < publication);
+    REQUIRE(publication < mode_commit);
+    REQUIRE(mode_commit < mp_commit);
+    REQUIRE(mp_commit < mission_commit);
 }
 
 TEST_CASE("net lifecycle: SVC_STAGE_START rejects missing source client before state access",
@@ -445,9 +744,9 @@ TEST_CASE("net lifecycle: SVC_STAGE_START rejects missing source client before s
     const std::string read = function_block(netmsg, "u32 netmsgSvcStageStartRead");
 
     const size_t null_gate = read.find("if (!srccl)");
-    const size_t null_return = read.find("return 1;", null_gate);
+    const size_t null_return = read.find("return netStageStartReject", null_gate);
     const size_t state_gate = read.find("srccl->state != CLSTATE_LOBBY", null_return);
-    const size_t first_payload_read = read.find("netbufReadU32(src)");
+    const size_t first_payload_read = read.find("plan.net_tick = netbufReadU32(src)");
 
     REQUIRE(null_gate != std::string::npos);
     REQUIRE(null_return != std::string::npos);
@@ -459,30 +758,70 @@ TEST_CASE("net lifecycle: SVC_STAGE_START rejects missing source client before s
     REQUIRE(state_gate < first_payload_read);
 }
 
+TEST_CASE("net lifecycle: reconnect stage authority is validated before deferred presentation reset",
+          "[net][lifecycle][reconnect][static][b1099]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string lv = read_text_file("src/game/lv.c");
+    const std::string read = function_block(netmsg, "u32 netmsgSvcStageStartRead");
+    const std::string reset = function_block(lv, "void lvReset(s32 stagenum)");
+    const std::string reconnectCommit = function_block(netmsg,
+        "u32 netmsgSvcReconnectCommitRead");
+
+    REQUIRE_FALSE(read.empty());
+    REQUIRE_FALSE(reset.empty());
+    REQUIRE_FALSE(reconnectCommit.empty());
+
+    const size_t finalWireGate = read.find("truncated bot roster");
+    const size_t authorityCommit = read.find(
+        "netmsgCutsceneAuthorityBeginMatch", finalWireGate);
+    const size_t globalPublication = read.find(
+        "/* One publication point", authorityCommit);
+    const size_t asyncLoad = read.find("mpStartMatch()", globalPublication);
+    REQUIRE(finalWireGate != std::string::npos);
+    REQUIRE(authorityCommit != std::string::npos);
+    REQUIRE(globalPublication != std::string::npos);
+    REQUIRE(asyncLoad != std::string::npos);
+    REQUIRE(finalWireGate < authorityCommit);
+    REQUIRE(authorityCommit < globalPublication);
+    REQUIRE(globalPublication < asyncLoad);
+
+    const size_t presentationBoundary = reset.find(
+        "playerApplyAuthoritativeStageStartPresentation()");
+    const size_t playerAllocation = reset.find("playerReset();",
+        presentationBoundary);
+    REQUIRE(presentationBoundary != std::string::npos);
+    REQUIRE(playerAllocation != std::string::npos);
+    REQUIRE(presentationBoundary < playerAllocation);
+
+    REQUIRE(reconnectCommit.find("playerSetTickMode") == std::string::npos);
+    REQUIRE(reconnectCommit.find("g_Vars.tickmode") == std::string::npos);
+}
+
 TEST_CASE("net lifecycle: SVC_STAGE_START stages tick and RNG until identity is valid",
           "[net][lifecycle][static]")
 {
     const std::string netmsg = read_text_file("port/src/net/netmsg.c");
     const std::string read = function_block(netmsg, "u32 netmsgSvcStageStartRead");
 
-    const size_t tick_read = read.find("const u32 netTick = netbufReadU32(src)");
-    const size_t rng0_read = read.find("const u64 rngSeed0 = netbufReadU64(src)", tick_read);
-    const size_t rng1_read = read.find("const u64 rngSeed1 = netbufReadU64(src)", rng0_read);
-    const size_t seed_read = read.find("const u32 matchSeed = netbufReadU32(src)", rng1_read);
+    const size_t tick_read = read.find("plan.net_tick = netbufReadU32(src)");
+    const size_t rng0_read = read.find("plan.rng_seed_0 = netbufReadU64(src)", tick_read);
+    const size_t rng1_read = read.find("plan.rng_seed_1 = netbufReadU64(src)", rng0_read);
+    const size_t seed_read = read.find("plan.match_seed = netbufReadU32(src)", rng1_read);
     const size_t stage_read = read.find("const u16 stage_session = catalogReadAssetRef(src)", seed_read);
     const size_t zero_stage = read.find("if (stage_session == 0)", stage_read);
-    const size_t zero_return = read.find("return 1;", zero_stage);
+    const size_t zero_return = read.find("return netStageStartReject", zero_stage);
     const size_t unknown_stage = read.find("NET: SVC_STAGE unknown stage session", zero_return);
-    const size_t unknown_return = read.find("return 1;", unknown_stage);
+    const size_t unknown_return = read.find("return netStageStartReject", unknown_stage);
     const size_t mode_read = read.find("const u8 mode = netbufReadU8(src)", unknown_return);
     const size_t invalid_mode = read.find("mode != NETGAMEMODE_MP", mode_read);
-    const size_t invalid_return = read.find("return 1;", invalid_mode);
-    const size_t tick_commit = read.find("g_NetTick = netTick;", invalid_return);
-    const size_t rng0_commit = read.find("g_NetRngSeeds[0] = rngSeed0;", tick_commit);
-    const size_t rng1_commit = read.find("g_NetRngSeeds[1] = rngSeed1;", rng0_commit);
+    const size_t invalid_return = read.find("return netStageStartReject", invalid_mode);
+    const size_t tick_commit = read.find("g_NetTick = plan.net_tick;", invalid_return);
+    const size_t rng0_commit = read.find("g_NetRngSeeds[0] = plan.rng_seed_0;", tick_commit);
+    const size_t rng1_commit = read.find("g_NetRngSeeds[1] = plan.rng_seed_1;", rng0_commit);
     const size_t latch_commit = read.find("g_NetRngLatch = true;", rng1_commit);
-    const size_t seed_commit = read.find("g_NetMatchSeed = matchSeed;", latch_commit);
-    const size_t mode_commit = read.find("g_NetGameMode = mode;", seed_commit);
+    const size_t seed_commit = read.find("g_NetMatchSeed = plan.match_seed;", latch_commit);
+    const size_t mode_commit = read.find("g_NetGameMode = plan.mode;", seed_commit);
 
     REQUIRE(tick_read != std::string::npos);
     REQUIRE(rng0_read != std::string::npos);
@@ -560,52 +899,92 @@ TEST_CASE("net lifecycle: SVC_LOBBY_STATE validates mode and status before commi
     REQUIRE(mode_commit < scenario_commit);
 }
 
-TEST_CASE("net lifecycle: CLC_LOBBY_START drains over-cap bot records before manifest",
+TEST_CASE("net lifecycle: CLC_LOBBY_START rejects over-cap bots before record reads",
           "[net][lifecycle][security][static]")
 {
     const std::string netmsg = read_text_file("port/src/net/netmsg.c");
     const std::string read = function_block(netmsg, "u32 netmsgClcLobbyStartRead");
+    const std::string bots = function_block(
+        netmsg, "static bool netLobbyStartReadBots");
+    const std::string manifest = function_block(
+        netmsg, "static bool netLobbyStartPrepareManifest");
 
-    const size_t clamp = read.find("u8 clampedSims");
-    const size_t kept_loop = read.find("for (s32 bi = 0; bi < clampedSims; bi++)", clamp);
-    const size_t drain_guard = read.find("if (clampedSims < numSims)", kept_loop);
-    const size_t drain_loop = read.find("for (s32 bi = clampedSims; bi < (s32)numSims; bi++)", drain_guard);
-    const size_t drain_name = read.find("netbufReadStr(src); /* bot name */", drain_loop);
-    const size_t drain_body = read.find("netbufReadStr(src); /* body catalog ID */", drain_name);
-    const size_t drain_head = read.find("netbufReadStr(src); /* head catalog ID */", drain_body);
-    const size_t drain_diff = read.find("netbufReadU8(src);  /* difficulty */", drain_head);
-    const size_t drain_type = read.find("netbufReadU8(src);  /* type */", drain_diff);
-    const size_t drain_error = read.find("malformed over-cap bot configs", drain_type);
-    const size_t manifest = read.find("manifestDeserialize(src, &g_ServerManifest)");
+    const size_t cap_check = bots.find("advertised_bots > MAX_BOTS");
+    const size_t participant_cap = bots.find(
+        "plan->num_players + advertised_bots > MATCH_PARTICIPANT_CAP",
+        cap_check);
+    const size_t bot_loop = bots.find(
+        "for (u8 i = 0; i < advertised_bots; i++)", participant_cap);
+    const size_t first_record_read = bots.find(
+        "const char *name = netbufReadStr(src)", bot_loop);
+    REQUIRE(cap_check != std::string::npos);
+    REQUIRE(participant_cap != std::string::npos);
+    REQUIRE(bot_loop != std::string::npos);
+    REQUIRE(first_record_read != std::string::npos);
+    REQUIRE(cap_check < participant_cap);
+    REQUIRE(participant_cap < bot_loop);
+    REQUIRE(bot_loop < first_record_read);
 
-    REQUIRE(clamp != std::string::npos);
-    REQUIRE(kept_loop != std::string::npos);
-    REQUIRE(drain_guard != std::string::npos);
-    REQUIRE(drain_loop != std::string::npos);
-    REQUIRE(drain_name != std::string::npos);
-    REQUIRE(drain_body != std::string::npos);
-    REQUIRE(drain_head != std::string::npos);
-    REQUIRE(drain_diff != std::string::npos);
-    REQUIRE(drain_type != std::string::npos);
-    REQUIRE(drain_error != std::string::npos);
-    REQUIRE(manifest != std::string::npos);
+    const size_t roster_prepare = read.find("netLobbyStartPrepareRoster(&plan");
+    const size_t bot_prepare = read.find("netLobbyStartReadBots(src, &plan", roster_prepare);
+    const size_t manifest_prepare = read.find(
+        "netLobbyStartPrepareManifest(src, &plan)", bot_prepare);
+    const size_t state_prepare = read.find("netLobbyStartBuildState(&plan)", manifest_prepare);
+    const size_t commit = read.find("netLobbyStartCommit(&plan)", state_prepare);
+    REQUIRE(roster_prepare < bot_prepare);
+    REQUIRE(bot_prepare < manifest_prepare);
+    REQUIRE(manifest_prepare < state_prepare);
+    REQUIRE(state_prepare < commit);
+    REQUIRE(manifest.find("manifestDeserializeStrict(src, &plan->manifest") !=
+        std::string::npos);
+	REQUIRE(read.find("clampedSims") == std::string::npos);
+}
 
-    REQUIRE(clamp < kept_loop);
-    REQUIRE(kept_loop < drain_guard);
-    REQUIRE(drain_guard < drain_loop);
-    REQUIRE(drain_loop < drain_name);
-    REQUIRE(drain_name < drain_body);
-    REQUIRE(drain_body < drain_head);
-    REQUIRE(drain_head < drain_diff);
-    REQUIRE(drain_diff < drain_type);
-    REQUIRE(drain_type < drain_error);
-    REQUIRE(drain_error < manifest);
+TEST_CASE("B-1073 lobby start uses one canonical zero-bot wire form",
+          "[net][lifecycle][bots][wire][static][b1073]")
+{
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string main_source = read_text_file("port/src/main.c");
+    const std::string room = read_text_file("port/fast3d/pdgui_menu_room.cpp");
+    const std::string write = function_block(
+        netmsg, "static bool netLobbyStartWritePrepare");
+    const std::string read = function_block(
+        netmsg, "static bool netLobbyStartReadBots");
+    const std::string autostart = function_block(
+        main_source, "s32 bootHostAutostartTick");
+    const std::string lead_type = function_block(room, "static u8 getLeadSimType");
+
+    const size_t count_check = write.find("if (bot_count != (s32)num_sims)");
+    const size_t zero_check = write.find("if (bot_count == 0)", count_check);
+    const size_t zero_commit = write.find("plan->sim_type = 0;", zero_check);
+    const size_t lead_check = write.find(
+        "else if (sim_type != plan->bots[0].difficulty)", zero_commit);
+    REQUIRE(count_check != std::string::npos);
+    REQUIRE(zero_check != std::string::npos);
+    REQUIRE(zero_commit != std::string::npos);
+    REQUIRE(lead_check != std::string::npos);
+    REQUIRE(count_check < zero_check);
+    REQUIRE(zero_check < zero_commit);
+    REQUIRE(zero_commit < lead_check);
+
+    REQUIRE(read.find("advertised_bots == 0 && plan->sim_type == 0") !=
+        std::string::npos);
+    REQUIRE(lead_type.find("return 0;") != std::string::npos);
+    REQUIRE(lead_type.find("return 2;") == std::string::npos);
+    REQUIRE(autostart.find("g_MatchConfig.numSlots > MATCH_MAX_SLOTS") !=
+        std::string::npos);
+    REQUIRE(autostart.find("slot->type != SLOT_BOT") != std::string::npos);
+    REQUIRE(autostart.find("simType = slot->botDifficulty;") != std::string::npos);
+    REQUIRE(autostart.find("simType,                        /* first prepared bot") !=
+        std::string::npos);
 }
 
 TEST_CASE("net settings: client team changes are sanitized before match state writes",
           "[net][settings][security][static]")
 {
     const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string codec = read_text_file(
+        "port/src/net/net_client_settings_wire.c");
     const std::string sanitize = function_block(netmsg, "static u8 netmsgSanitizeClientTeam");
     const std::string read = function_block(netmsg, "u32 netmsgClcSettingsRead");
 
@@ -614,25 +993,30 @@ TEST_CASE("net settings: client team changes are sanitized before match state wr
     REQUIRE(sanitize.find("MPOPTION_TEAMSENABLED") != std::string::npos);
     REQUIRE(sanitize.find("g_MpSetup.options") != std::string::npos);
 
-    const size_t team_read = read.find("const u8 team = netbufReadU8(src)");
-    const size_t error_gate = read.find("if (src->error)");
-    const size_t sanitized = read.find("const u8 sanitizedTeam = netmsgSanitizeClientTeam(srccl, team)");
+    const size_t candidate_read = read.find(
+        "netClientSettingsWireRead(src, &plan");
+    const size_t error_gate = read.find(
+        "status != NET_CLIENT_SETTINGS_WIRE_OK", candidate_read);
+    const size_t sanitized = read.find(
+        "const u8 sanitizedTeam = netmsgSanitizeClientTeam(srccl, plan.team)",
+        error_gate);
     const size_t config_write = read.find("srccl->config->base.team = sanitizedTeam");
     const size_t settings_write = read.find("srccl->settings.team = sanitizedTeam");
 
-    REQUIRE(team_read != std::string::npos);
+    REQUIRE(candidate_read != std::string::npos);
     REQUIRE(error_gate != std::string::npos);
     REQUIRE(sanitized != std::string::npos);
     REQUIRE(config_write != std::string::npos);
     REQUIRE(settings_write != std::string::npos);
 
-    REQUIRE(team_read < error_gate);
+    REQUIRE(candidate_read < error_gate);
     REQUIRE(error_gate < sanitized);
     REQUIRE(sanitized < config_write);
     REQUIRE(config_write < settings_write);
 
-    REQUIRE(read.find("srccl->config->base.team = team") == std::string::npos);
-    REQUIRE(read.find("srccl->settings.team = team") == std::string::npos);
+    REQUIRE(read.find("srccl->config->base.team = plan.team") == std::string::npos);
+    REQUIRE(read.find("srccl->settings.team = plan.team") == std::string::npos);
+    REQUIRE(codec.find("input->team >= MAX_TEAMS") != std::string::npos);
 }
 
 TEST_CASE("net room mutations: source client is validated before room state access",
@@ -875,15 +1259,23 @@ TEST_CASE("net lifecycle: room leave aborts ready gate before destroying an empt
           "[net][lifecycle][room][static][c3813]")
 {
     const std::string room = read_text_file("port/src/room.c");
-    const std::string leave = function_block(room, "void roomLeave");
+	const std::string leave = function_block(
+		room, "void roomLeave(hub_room_t *room, u8 clientId)");
+	const std::string leave_internal = function_block(
+		room, "static void roomLeaveInternal");
 
-    const size_t found_gate = leave.find("if (found < 0) return");
-    const size_t decrement = leave.find("room->client_count--", found_gate);
-    const size_t client_abort = leave.find("netReadyGateOnClientLeft(clientId)", decrement);
-    const size_t empty_gate = leave.find("room->client_count == 0 && room->id != 0", client_abort);
-    const size_t room_abort = leave.find("netReadyGateAbortForRoom(room->id, \"Room closed\")", empty_gate);
-    const size_t destroy = leave.find("roomDestroy(room)", room_abort);
+	const size_t found_gate = leave_internal.find("if (found < 0) return");
+	const size_t decrement = leave_internal.find("room->client_count--", found_gate);
+	const size_t client_abort = leave_internal.find(
+		"netReadyGateOnClientLeft(clientId)", decrement);
+	const size_t empty_gate = leave_internal.find(
+		"roomOccupiedCount(room) == 0 && room->id != 0", client_abort);
+	const size_t room_abort = leave_internal.find(
+		"netReadyGateAbortForRoom(room->id, \"Room closed\")", empty_gate);
+	const size_t destroy = leave_internal.find("roomDestroy(room)", room_abort);
 
+	REQUIRE(leave.find("roomLeaveInternal(room, clientId, false)") !=
+		std::string::npos);
     REQUIRE(found_gate != std::string::npos);
     REQUIRE(decrement != std::string::npos);
     REQUIRE(client_abort != std::string::npos);
@@ -949,31 +1341,47 @@ TEST_CASE("net lifecycle: ready gate cancel only aborts an active preparing coun
     REQUIRE(countdown_gate < state_gate);
     REQUIRE(state_gate < abort_call);
 
-    const size_t active_clear = abort.find("s_ReadyGate.active           = 0");
-    const size_t countdown_clear = abort.find("s_ReadyGate.countdown_active = 0", active_clear);
-    const size_t expected_clear = abort.find("s_ReadyGate.expected_mask    = 0", countdown_clear);
-    const size_t preparing_loop = abort.find("g_NetClients[i].state == CLSTATE_PREPARING", expected_clear);
+    const size_t room_snapshot = abort.find("const u8 room_id = s_ReadyGate.room_id");
+    const size_t expected_snapshot = abort.find(
+        "const u32 expected_mask = s_ReadyGate.expected_mask", room_snapshot);
+    const size_t active_gate = abort.find("if (!s_ReadyGate.active)", expected_snapshot);
+    const size_t transaction_gate = abort.find("if (s_LobbyStartTxn.active)", active_gate);
+    const size_t transaction_rollback = abort.find(
+        "lobbyStartTransactionRollback(canceller_name)", transaction_gate);
+    const size_t preparing_loop = abort.find(
+        "g_NetClients[i].state == CLSTATE_PREPARING", transaction_rollback);
     const size_t lobby_state = abort.find("g_NetClients[i].state = CLSTATE_LOBBY", preparing_loop);
     const size_t room_lobby = abort.find("roomTransition(room, ROOM_STATE_LOBBY)", lobby_state);
     const size_t cancel_write = abort.find("netmsgSvcMatchCancelledWrite(&g_NetMsgRel", room_lobby);
-    const size_t cancel_send = abort.find("netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL)", cancel_write);
+    const size_t cancel_send = abort.find(
+        "netSendToRoom(room_id, &g_NetMsgRel, true, NETCHAN_CONTROL)", cancel_write);
+    const size_t gate_clear = abort.find(
+        "memset(&s_ReadyGate, 0, sizeof(s_ReadyGate))", cancel_send);
 
-    REQUIRE(active_clear != std::string::npos);
-    REQUIRE(countdown_clear != std::string::npos);
-    REQUIRE(expected_clear != std::string::npos);
+    REQUIRE(room_snapshot != std::string::npos);
+    REQUIRE(expected_snapshot != std::string::npos);
+    REQUIRE(active_gate != std::string::npos);
+    REQUIRE(transaction_gate != std::string::npos);
+    REQUIRE(transaction_rollback != std::string::npos);
     REQUIRE(preparing_loop != std::string::npos);
     REQUIRE(lobby_state != std::string::npos);
     REQUIRE(room_lobby != std::string::npos);
     REQUIRE(cancel_write != std::string::npos);
     REQUIRE(cancel_send != std::string::npos);
+    REQUIRE(gate_clear != std::string::npos);
 
-    REQUIRE(active_clear < countdown_clear);
-    REQUIRE(countdown_clear < expected_clear);
-    REQUIRE(expected_clear < preparing_loop);
+    REQUIRE(room_snapshot < expected_snapshot);
+    REQUIRE(expected_snapshot < active_gate);
+    REQUIRE(active_gate < transaction_gate);
+    REQUIRE(transaction_gate < transaction_rollback);
+    REQUIRE(transaction_rollback < preparing_loop);
     REQUIRE(preparing_loop < lobby_state);
     REQUIRE(lobby_state < room_lobby);
     REQUIRE(room_lobby < cancel_write);
     REQUIRE(cancel_write < cancel_send);
+    REQUIRE(cancel_send < gate_clear);
+    REQUIRE(abort.find("netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL)") ==
+        std::string::npos);
 }
 
 TEST_CASE("net manifest distribution: failed active transfer declines instead of rechecking forever",
@@ -1097,11 +1505,26 @@ TEST_CASE("net lifecycle: c3813 listen-host smoke fixtures cover live peer setup
     REQUIRE(lazy_path < default_call);
 
     REQUIRE(system.find("static s32 sysWeaponDiagLoggingEnabled(void)") != std::string::npos);
-    REQUIRE(system.find("sysArgCheck(\"--debug-weapon-diag\")") != std::string::npos);
-    REQUIRE(system.find("sysArgCheck(\"--debug-force-first-person\")") != std::string::npos);
-    REQUIRE(system.find("sysArgCheck(\"--debug-generated-mesh-render-audit\")") != std::string::npos);
+    const std::string weapon_diag = function_block(
+        system, "static s32 sysWeaponDiagLoggingEnabled(void)");
+    REQUIRE(weapon_diag.find("sysArgCheck(\"--debug-weapon-diag\")") !=
+        std::string::npos);
+    REQUIRE(weapon_diag.find("sysArgCheck(\"--debug-generated-mesh-render-audit\")") !=
+        std::string::npos);
+    REQUIRE(weapon_diag.find("sysArgCheck(\"--debug-force-first-person\")") ==
+        std::string::npos);
     REQUIRE(log_printf.find("strncmp(logmsg, \"LOG.WPN.DIAG:\", 13)") != std::string::npos);
     REQUIRE(log_printf.find("!sysWeaponDiagLoggingEnabled()") != std::string::npos);
+    REQUIRE(system.find("#define WEAPON_DIAG_LOG_BUDGET 2048") !=
+        std::string::npos);
+    REQUIRE(system.find("static SDL_atomic_t s_WeaponDiagLogCount;") !=
+        std::string::npos);
+    REQUIRE(log_printf.find("SDL_AtomicAdd(&s_WeaponDiagLogCount, 1)") !=
+        std::string::npos);
+    REQUIRE(log_printf.find("prior_count > WEAPON_DIAG_LOG_BUDGET") !=
+        std::string::npos);
+    REQUIRE(log_printf.find("output budget exhausted after %d lines") !=
+        std::string::npos);
 }
 
 TEST_CASE("manifest component identity resolves through the mod registry",
@@ -1171,7 +1594,7 @@ TEST_CASE("manifest distribution preserves package identity and waits for the co
     REQUIRE(modmgr.find("mod->session_only = 1") != std::string::npos);
     REQUIRE(modmgr.find("enabled && !g_ModRegistry[i].session_only") !=
         std::string::npos);
-    REQUIRE(net_h.find("#define NET_PROTOCOL_VER 53") != std::string::npos);
+	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 57") != std::string::npos);
 }
 
 TEST_CASE("client sessions initialize distribution before receiving server packets",
@@ -1223,28 +1646,55 @@ TEST_CASE("listen host starts one authoritative local and remote Combat Simulato
     const std::string net = read_text_file("port/src/net/net.c");
     const std::string netmsg = read_text_file("port/src/net/netmsg.c");
     const std::string lv = read_text_file("src/game/lv.c");
-    const std::string start = function_block(net, "void netServerStageStart");
+    const std::string start = function_block(net, "s32 netServerStageStart");
     const std::string countdown = function_block(netmsg, "void readyGateTickCountdown");
+    const std::string mpstart = function_block(
+        read_text_file("src/game/mplayer/mplayer.c"), "void mpStartMatch");
 
     const size_t game_state = start.find("g_NetClients[ci].state = CLSTATE_GAME");
-    const size_t local_start = start.find("mpStartMatch();", game_state);
-    const size_t stage_write = start.find("netmsgSvcStageStartWrite", local_start);
+    const size_t stage_validate = start.find("netmsgSvcStageStartValidate()", game_state);
+    const size_t stage_write = start.find("netmsgServerStageStartWrite", stage_validate);
+    const size_t local_start = start.find("mpStartMatch();", stage_write);
+    const size_t stage_send = start.find("netSendToRoom(", local_start);
 
     REQUIRE(game_state != std::string::npos);
-    REQUIRE(local_start != std::string::npos);
+    REQUIRE(stage_validate != std::string::npos);
     REQUIRE(stage_write != std::string::npos);
-    REQUIRE(game_state < local_start);
-    REQUIRE(local_start < stage_write);
+    REQUIRE(local_start != std::string::npos);
+    REQUIRE(stage_send != std::string::npos);
+    REQUIRE(game_state < stage_validate);
+    REQUIRE(stage_validate < stage_write);
+    REQUIRE(stage_write < local_start);
+    REQUIRE(local_start < stage_send);
     REQUIRE(start.find("if (g_NetDedicated) {\n\t\tmpStartMatch();") ==
         std::string::npos);
-    const size_t mp_branch = countdown.find("} else {");
-    REQUIRE(mp_branch != std::string::npos);
-    REQUIRE(countdown.find("netServerStageStart();", mp_branch) != std::string::npos);
+    REQUIRE(countdown.find("launch_result = netServerStageStart();") !=
+        std::string::npos);
+    REQUIRE(countdown.find("if (launch_result != 0)") != std::string::npos);
+    REQUIRE(countdown.find("readyGateAbort(\"Authoritative stage launch rejected\")") !=
+        std::string::npos);
     REQUIRE(countdown.find("mainChangeToStage(s_ReadyGate.stagenum)") ==
         std::string::npos);
     REQUIRE(lv.find("netServerStageStart();") == std::string::npos);
     REQUIRE(lv.find("server stage start is emitted by the authoritative lobby/ready") !=
         std::string::npos);
+
+    const size_t network_flag = mpstart.find("const bool network_prepared");
+    const size_t offline_gate = mpstart.find("if (!network_prepared)", network_flag);
+    const size_t random_apply = mpstart.find("matchConfigSelectWeaponSet", offline_gate);
+    const size_t quick_team = mpstart.find("mpConfigureQuickTeamSimulants()", random_apply);
+    const size_t stage_resolve = mpstart.find("mpResolveMatchStage()", quick_team);
+    const size_t immutable_branch = mpstart.find("} else {", stage_resolve);
+    REQUIRE(network_flag != std::string::npos);
+    REQUIRE(offline_gate != std::string::npos);
+    REQUIRE(random_apply != std::string::npos);
+    REQUIRE(quick_team != std::string::npos);
+    REQUIRE(stage_resolve != std::string::npos);
+    REQUIRE(immutable_branch != std::string::npos);
+    REQUIRE(offline_gate < random_apply);
+    REQUIRE(random_apply < quick_team);
+    REQUIRE(quick_team < stage_resolve);
+    REQUIRE(stage_resolve < immutable_branch);
 }
 
 TEST_CASE("listen host applies its authoritative manifest before gameplay asset use",
@@ -1296,23 +1746,30 @@ TEST_CASE("match start preserves the authoritative arena catalog identity",
     const std::string mplayer = read_text_file("src/game/mplayer/mplayer.c");
     const std::string netmsg = read_text_file("port/src/net/netmsg.c");
     const std::string manifest = read_text_file("port/src/net/netmanifest.c");
-    const std::string start = function_block(setup, "s32 matchStart");
+    const std::string prepare = function_block(setup, "static match_start_status_e matchStartPrepare(");
+    const std::string commit = function_block(setup, "static void matchStartCommit");
+    const std::string start = function_block(setup, "s32 matchStart(void)");
     const std::string mpstart = function_block(mplayer, "void mpStartMatch");
     const std::string resolve_stage = function_block(mplayer, "s32 mpResolveMatchStage");
     const std::string receive_start = function_block(netmsg, "u32 netmsgClcLobbyStartRead");
+    const std::string build_state = function_block(
+        netmsg, "static bool netLobbyStartBuildState");
     const std::string set_stage = function_block(manifest, "s32 manifestSetStageEntry");
 
-    const size_t resolve = start.find("assetCatalogResolve(g_MatchConfig.stage_id)");
-    const size_t derive = start.find("g_MpSetup.stagenum =", resolve);
+    const size_t resolve = prepare.find("entry = assetCatalogResolve(g_MatchConfig.stage_id)");
+    const size_t derive = prepare.find("plan->setup.stagenum =", resolve);
     const size_t preserve = start.find(
-        "strncpy(g_MpSetup.stage_id, g_MatchConfig.stage_id", derive);
+        "matchStartCommit(&plan)");
 
     REQUIRE(resolve != std::string::npos);
     REQUIRE(derive != std::string::npos);
     REQUIRE(preserve != std::string::npos);
     REQUIRE(resolve < derive);
-    REQUIRE(derive < preserve);
+    REQUIRE(prepare.find("strncpy(plan->setup.stage_id, g_MatchConfig.stage_id") !=
+        std::string::npos);
+    REQUIRE(commit.find("g_MpSetup = plan->setup;") != std::string::npos);
 
+    REQUIRE(mpstart.find("if (!network_prepared)") != std::string::npos);
     REQUIRE(mpstart.find("if (!mpResolveMatchStage())") != std::string::npos);
     REQUIRE(resolve_stage.find("assetCatalogResolve(g_MpSetup.stage_id)") !=
         std::string::npos);
@@ -1321,23 +1778,35 @@ TEST_CASE("match start preserves the authoritative arena catalog identity",
         std::string::npos);
     REQUIRE(resolve_stage.find("strncpy(g_MpSetup.stage_id, sid") != std::string::npos);
 
-    const size_t pre_manifest_resolve = receive_start.find("if (!mpResolveMatchStage())");
-    const size_t deserialize = receive_start.find("manifestDeserialize", pre_manifest_resolve);
-    const size_t authoritative_stage = receive_start.find(
-        "manifestSetStageEntry(&g_ServerManifest, g_MpSetup.stage_id)", deserialize);
-    const size_t manifest_hash = receive_start.find(
-        "manifestComputeHash(&g_ServerManifest)", authoritative_stage);
-    const size_t session_build = receive_start.find(
-        "sessionCatalogBuild(&g_ServerManifest)", manifest_hash);
-    REQUIRE(pre_manifest_resolve != std::string::npos);
-    REQUIRE(deserialize != std::string::npos);
-    REQUIRE(authoritative_stage != std::string::npos);
-    REQUIRE(manifest_hash != std::string::npos);
-    REQUIRE(session_build != std::string::npos);
-    REQUIRE(pre_manifest_resolve < deserialize);
-    REQUIRE(deserialize < authoritative_stage);
-    REQUIRE(authoritative_stage < manifest_hash);
-    REQUIRE(manifest_hash < session_build);
+    const size_t exact_stage = receive_start.find(
+        "catalogResolveStageForType(plan.stage_id,");
+    const size_t manifest_prepare = receive_start.find(
+        "netLobbyStartPrepareManifest(src, &plan)", exact_stage);
+    const size_t build = receive_start.find(
+        "netLobbyStartBuildState(&plan)", manifest_prepare);
+    const size_t publish = receive_start.find("netLobbyStartCommit(&plan)", build);
+    REQUIRE(exact_stage != std::string::npos);
+    REQUIRE(manifest_prepare != std::string::npos);
+    REQUIRE(build != std::string::npos);
+    REQUIRE(publish != std::string::npos);
+    REQUIRE(exact_stage < manifest_prepare);
+    REQUIRE(manifest_prepare < build);
+    REQUIRE(build < publish);
+    REQUIRE(build_state.find("plan->setup.stagenum = plan->stagenum") !=
+        std::string::npos);
+    REQUIRE(build_state.find("plan->match.stagenum = plan->stagenum") !=
+        std::string::npos);
+    REQUIRE(receive_start.find(
+        "plan.mode == NETGAMEMODE_MP ? ASSET_ARENA : ASSET_MAP") !=
+        std::string::npos);
+
+    const std::string write_prepare = function_block(
+        netmsg, "static bool netLobbyStartWritePrepare");
+    REQUIRE(write_prepare.find("catalogResolveStageForType(plan->stage_id,") !=
+        std::string::npos);
+    REQUIRE(write_prepare.find(
+        "gamemode == NETGAMEMODE_MP ? ASSET_ARENA : ASSET_MAP") !=
+        std::string::npos);
 
     REQUIRE(set_stage.find("stage->type != ASSET_ARENA && stage->type != ASSET_MAP") !=
         std::string::npos);
@@ -1411,115 +1880,953 @@ TEST_CASE("net lifecycle: reconnect and drop-in gates preserve slots before rese
           "[net][lifecycle][reconnect][static][c3813]")
 {
     const std::string net = read_text_file("port/src/net/net.c");
+	const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+	const std::string room = read_text_file("port/src/room.c");
+	const std::string room_header = read_text_file("port/include/room.h");
     const std::string connect = function_block(net, "static void netServerEvConnect");
     const std::string disconnect = function_block(net, "static void netServerEvDisconnect");
+	const std::string room_can_join = function_definition_block(
+		room, "s32 roomCanJoin");
+	const std::string room_leave_fn = function_definition_block(
+		room, "static void roomLeaveInternal");
+	const std::string room_rejoin = function_definition_block(
+		room, "s32 roomRejoin");
+	const std::string discard = function_definition_block(
+		net, "static void netServerDiscardPreservedPlayer");
+	const std::string match_progress = function_definition_block(
+		net, "s32 netServerMatchInProgress");
+	const std::string client_disconnect = function_definition_block(
+		net, "static s32 netDisconnectWithIntent");
+	const std::string client_reset_fn = function_definition_block(
+		net, "static inline void netClientReset");
 
-    const size_t ingame_gate = connect.find("const bool ingame =");
-    const size_t no_preserved = connect.find("ingame && g_NetNumPreserved == 0", ingame_gate);
-    const size_t late_disconnect = connect.find("DISCONNECT_LATE", no_preserved);
-    const size_t reset = connect.find("netClientReset(cl)", late_disconnect);
-    const size_t auth_state = connect.find("cl->state = CLSTATE_AUTH", reset);
-    const size_t absent_flag = connect.find("cl->flags = ingame ? CLFLAG_ABSENT : 0", auth_state);
+	const size_t decode = connect.find("netReconnectConnectDataDecode");
+	const size_t match_gate = connect.find("netServerMatchInProgress", decode);
+	const size_t stable_lookup = connect.find(
+		"netServerFindPreservedByClientId(reconnect_client_id)", match_gate);
+	const size_t exact_slot = connect.find(
+		"cl = &g_NetClients[reconnect_client_id]", stable_lookup);
+	const size_t reset = connect.find("netClientReset(cl)", exact_slot);
+	const size_t pending = connect.find("cl->reconnect_preserved_index", reset);
+	REQUIRE(decode != std::string::npos);
+	REQUIRE(match_gate != std::string::npos);
+	REQUIRE(stable_lookup != std::string::npos);
+	REQUIRE(exact_slot != std::string::npos);
+	REQUIRE(reset != std::string::npos);
+	REQUIRE(pending != std::string::npos);
+	REQUIRE(decode < match_gate);
+	REQUIRE(match_gate < stable_lookup);
+	REQUIRE(stable_lookup < exact_slot);
+	REQUIRE(exact_slot < reset);
+	REQUIRE(reset < pending);
 
-    REQUIRE(ingame_gate != std::string::npos);
-    REQUIRE(no_preserved != std::string::npos);
-    REQUIRE(late_disconnect != std::string::npos);
-    REQUIRE(reset != std::string::npos);
-    REQUIRE(auth_state != std::string::npos);
-    REQUIRE(absent_flag != std::string::npos);
+	const size_t retry_gate = disconnect.find("netReconnectReasonIsRetryable");
+	const size_t preserve = disconnect.find("netServerPreservePlayer(cl)", retry_gate);
+	const size_t kill = disconnect.find("playerDie(true)", preserve);
+	const size_t room_leave = disconnect.find("roomLeaveForReconnect", kill);
+	const size_t client_reset = disconnect.find("netClientReset(cl)", room_leave);
+	REQUIRE(retry_gate != std::string::npos);
+	REQUIRE(preserve != std::string::npos);
+	REQUIRE(kill != std::string::npos);
+	REQUIRE(room_leave != std::string::npos);
+	REQUIRE(client_reset != std::string::npos);
+	REQUIRE(retry_gate < preserve);
+	REQUIRE(preserve < kill);
+	REQUIRE(kill < room_leave);
+	REQUIRE(room_leave < client_reset);
+	REQUIRE(disconnect.find("if (cl->state == CLSTATE_GAME") !=
+		std::string::npos);
+	REQUIRE(disconnect.find(
+		"cl->state >= CLSTATE_GAME && cl->settings.name") ==
+		std::string::npos);
 
-    REQUIRE(ingame_gate < no_preserved);
-    REQUIRE(no_preserved < late_disconnect);
-    REQUIRE(late_disconnect < reset);
-    REQUIRE(reset < auth_state);
-    REQUIRE(auth_state < absent_flag);
+	const size_t terminal_gate = disconnect.find(
+		"if (!retryable && authenticated");
+	const size_t terminal_detach = disconnect.find(
+		"cl->reconnect_preserved_index = NET_NULL_CLIENT", terminal_gate);
+	const size_t terminal_release = disconnect.find(
+		"netServerDiscardPreservedPlayer", terminal_detach);
+	REQUIRE(terminal_gate != std::string::npos);
+	REQUIRE(terminal_detach != std::string::npos);
+	REQUIRE(terminal_release != std::string::npos);
+	REQUIRE(terminal_gate < terminal_detach);
+	REQUIRE(terminal_detach < terminal_release);
 
-    const size_t preserve_gate = disconnect.find("cl->state >= CLSTATE_GAME && cl->settings.name[0]");
-    const size_t preserve = disconnect.find("netServerPreservePlayer(cl)", preserve_gate);
-    const size_t kill = disconnect.find("playerDie(true)", preserve);
-    const size_t room_gate = disconnect.find("if (cl->room_id != 0xFF)", kill);
-    const size_t room_leave = disconnect.find("roomLeave(room, cl->id)", room_gate);
-    const size_t client_reset = disconnect.find("netClientReset(cl)", room_leave);
-    const size_t room_broadcast = disconnect.find("netBroadcastRoomList()", client_reset);
+	REQUIRE(room_header.find("u32          reconnect_reservation_mask") !=
+		std::string::npos);
+	REQUIRE(room_can_join.find("roomOccupiedCount(room) >= cap") !=
+		std::string::npos);
+	const size_t reserve = room_leave_fn.find(
+		"room->reconnect_reservation_mask |= 1u << clientId");
+	const size_t active_remove = room_leave_fn.find(
+		"room->client_count--", reserve);
+	REQUIRE(reserve != std::string::npos);
+	REQUIRE(active_remove != std::string::npos);
+	REQUIRE(reserve < active_remove);
+	const size_t consume_reservation = room_rejoin.find(
+		"room->reconnect_reservation_mask &= ~(1u << clientId)");
+	const size_t restore_membership = room_rejoin.find(
+		"room->clients[room->client_count++] = clientId", consume_reservation);
+	REQUIRE(consume_reservation != std::string::npos);
+	REQUIRE(restore_membership != std::string::npos);
+	REQUIRE(consume_reservation < restore_membership);
+	REQUIRE(discard.find("roomReleaseReconnectReservation(room, client_id)") !=
+		std::string::npos);
+	REQUIRE(match_progress.find(
+		"g_NetClients[i].state == CLSTATE_GAME") != std::string::npos);
+	REQUIRE(match_progress.find(
+		"g_NetClients[i].state >= CLSTATE_GAME") == std::string::npos);
+	REQUIRE(client_disconnect.find(
+		"g_NetLocalClient->state == CLSTATE_GAME") != std::string::npos);
+	REQUIRE(client_reset_fn.find("cl->config && cl->config->client == cl") !=
+		std::string::npos);
+	REQUIRE(client_reset_fn.find("cl->config->client = NULL") !=
+		std::string::npos);
 
-    REQUIRE(preserve_gate != std::string::npos);
-    REQUIRE(preserve != std::string::npos);
-    REQUIRE(kill != std::string::npos);
-    REQUIRE(room_gate != std::string::npos);
-    REQUIRE(room_leave != std::string::npos);
-    REQUIRE(client_reset != std::string::npos);
-    REQUIRE(room_broadcast != std::string::npos);
-
-    REQUIRE(preserve_gate < preserve);
-    REQUIRE(preserve < kill);
-    REQUIRE(kill < room_gate);
-    REQUIRE(room_gate < room_leave);
-    REQUIRE(room_leave < client_reset);
-    REQUIRE(client_reset < room_broadcast);
+	REQUIRE(net.find("netDisconnectWithIntent(netReconnectReasonIsRetryable(reason") !=
+		std::string::npos);
+	REQUIRE(netmsg.find("netmsgClcAuthEndpointEqual") != std::string::npos);
+	REQUIRE(netmsg.find(
+		"memcmp(&a->ipv6, &b->ipv6, sizeof(a->ipv6)) == 0") !=
+		std::string::npos);
+	REQUIRE(netmsg.find("netmsgClcAuthPrepareConnect") != std::string::npos);
+	REQUIRE(netmsg.find("netbufWriteData(dst, s_AuthSession.cookie") !=
+		std::string::npos);
 }
 
-TEST_CASE("net lifecycle: reconnect restores score identity and schedules full state resync",
-          "[net][lifecycle][reconnect][static][c3813]")
+TEST_CASE("net lifecycle: reconnect commits after post-load ack and ordered exact state",
+          "[net][lifecycle][reconnect][static][c3813][b1064]")
 {
     const std::string net = read_text_file("port/src/net/net.c");
     const std::string netmsg = read_text_file("port/src/net/netmsg.c");
-    const std::string restore = function_block(net, "void netServerRestorePreserved");
-    const std::string auth = function_block(netmsg, "u32 netmsgClcAuthRead");
+	const std::string netmsg_header = read_text_file("port/include/net/netmsg.h");
+    const std::string prepare_candidate = function_block(
+        net, "static enum net_restore_result netServerPrepareRestoreCandidate");
+    const std::string stage_prepare = function_block(
+        net, "enum net_restore_result netServerRestorePreserved");
+	const std::string complete = function_block(
+		net, "enum net_restore_result netServerCompleteReconnect");
+	const std::string targeted_state = function_block(
+		net, "s32 netServerSendReconnectState");
+	const std::string client_stage_loaded = function_block(
+		net, "void netClientStageLoaded");
+	const std::string auth = function_block(netmsg, "u32 netmsgClcAuthRead");
+	const std::string auth_write = function_definition_block(
+		netmsg, "u32 netmsgClcAuthWrite");
+	const std::string settings = function_block(
+		netmsg, "u32 netmsgClcSettingsRead");
+	const std::string manifest = function_block(
+		netmsg, "u32 netmsgClcManifestStatusRead");
+	const std::string manifest_ready = function_block(
+		netmsg, "static u32 netmsgReconnectManifestReady");
+	const std::string stage_ready = function_block(
+		netmsg, "u32 netmsgClcStageReadyRead");
+	const std::string reconnect_state = function_block(
+		netmsg, "u32 netmsgSvcReconnectStateWrite");
+	const std::string move_snapshot = function_block(
+		netmsg, "static u32 netmsgSvcPlayerMoveSnapshotWrite");
+	const std::string reconnect_commit = function_block(
+		netmsg, "u32 netmsgSvcReconnectCommitRead");
+	const std::string reconnect_props_write = function_block(
+		netmsg, "static u32 netmsgSvcReconnectPropsWrite");
+	const std::string reconnect_client_mask = function_block(
+		netmsg, "static u32 netmsgReconnectValidClientMask");
+	const std::string reconnect_world_predicate = function_block(
+		netmsg, "static bool netmsgReconnectIsWorldPropCandidate(");
+	const std::string reconnect_props_begin = function_block(
+		netmsg, "u32 netmsgSvcReconnectPropBeginRead");
+	const std::string reconnect_prop_write = function_block(
+		netmsg, "static u32 netmsgSvcReconnectPropStateWrite");
+	const std::string reconnect_prop_state = function_block(
+		netmsg, "u32 netmsgSvcReconnectPropStateRead");
+	const std::string reconnect_props_end = function_block(
+		netmsg, "u32 netmsgSvcReconnectPropEndRead");
+	const std::string reconnect_projectile_write = function_block(
+		netmsg, "static u32 netmsgReconnectProjectileWrite");
+	const std::string prop_spawn_read = function_block(
+		netmsg, "u32 netmsgSvcPropSpawnRead");
+	const std::string reconnect_inventory = function_block(
+		netmsg, "u32 netmsgSvcReconnectInventoryRead");
+	const std::string sync_ids = function_block(
+		net, "void netSyncIdsAllocate");
+	const std::string prop_dirty = function_block(
+		netmsg, "void netPropMarkDirty");
+	const std::string cutscene_snapshot = function_definition_block(
+		netmsg, "static u32 netmsgReconnectCutsceneAuthorityWrite");
+	const std::string stage_roster = function_block(
+		netmsg, "static bool netStageStartWritePrepare");
+	const std::string client_receive = function_definition_block(
+		net, "static void netClientEvReceive");
+	const std::string move = function_definition_block(
+		netmsg, "u32 netmsgClcMoveRead");
+	const std::string cutscene_retire = function_definition_block(
+		netmsg, "void netmsgCutsceneAuthorityRetireClient");
+	const std::string stage_end = function_definition_block(
+		net, "static void netServerCommitPendingStageEnd");
+	const std::string stage_end_commit = function_definition_block(
+		netmsg, "void netmsgSvcStageEndCommit");
 
-    const size_t score_cfg = restore.find("struct mpchrconfig *mpchr");
-    const size_t kills = restore.find("memcpy(mpchr->killcounts", score_cfg);
-    const size_t deaths = restore.find("mpchr->numdeaths = pp->numdeaths", kills);
-    const size_t points = restore.find("mpchr->numpoints = pp->numpoints", deaths);
-    const size_t client_link = restore.find("cl->config->client = cl", points);
-    const size_t game_state = restore.find("cl->state = CLSTATE_GAME", client_link);
-    const size_t one_use = restore.find("pp->active = false", game_state);
+	REQUIRE(auth.find("netmsgReconnectCredentialMatches") != std::string::npos);
+	REQUIRE(netmsg_header.find("#define SVC_RECONNECT_COMMIT 0x55") !=
+		std::string::npos);
+	REQUIRE(netmsg_header.find("#define SVC_RECONNECT_PROP_BEGIN 0x56") !=
+		std::string::npos);
+	REQUIRE(netmsg_header.find("#define SVC_RECONNECT_PROP_STATE 0x57") !=
+		std::string::npos);
+	REQUIRE(netmsg_header.find("#define SVC_RECONNECT_PROP_END   0x58") !=
+		std::string::npos);
+	REQUIRE(netmsg_header.find("#define SVC_RECONNECT_INVENTORY  0x59") !=
+		std::string::npos);
+	REQUIRE(netmsg_header.find(
+		"void netmsgServerPublishAuthenticatedTopology(void);") !=
+		std::string::npos);
+	REQUIRE(auth.find("settings=pending") != std::string::npos);
+	REQUIRE(auth.find("netServerRestorePreserved") == std::string::npos);
+	const size_t reconnect_name_gate = auth_write.find("bool reconnecting");
+	const size_t frozen_name = auth_write.find(
+		"const char *name = g_NetLocalClient->settings.name", reconnect_name_gate);
+	const size_t profile_only_fresh = auth_write.find(
+		"if (!reconnecting && profile && profile->name[0])", frozen_name);
+	REQUIRE(reconnect_name_gate != std::string::npos);
+	REQUIRE(frozen_name != std::string::npos);
+	REQUIRE(profile_only_fresh != std::string::npos);
+	REQUIRE(reconnect_name_gate < frozen_name);
+	REQUIRE(frozen_name < profile_only_fresh);
+	const size_t admitted_record = auth.find(
+		"if (srccl->reconnect_preserved_index < NET_MAX_CLIENTS)");
+	const size_t match_boundary = auth.find("} else if (ingame)", admitted_record);
+	REQUIRE(admitted_record != std::string::npos);
+	REQUIRE(match_boundary != std::string::npos);
+	REQUIRE(admitted_record < match_boundary);
 
-    REQUIRE(score_cfg != std::string::npos);
-    REQUIRE(kills != std::string::npos);
-    REQUIRE(deaths != std::string::npos);
-    REQUIRE(points != std::string::npos);
-    REQUIRE(client_link != std::string::npos);
-    REQUIRE(game_state != std::string::npos);
-    REQUIRE(one_use != std::string::npos);
+	REQUIRE(prepare_candidate.find("cl->state != CLSTATE_PREPARING") !=
+		std::string::npos);
+	REQUIRE(prepare_candidate.find("!(cl->flags & CLFLAG_ABSENT)") !=
+		std::string::npos);
+	REQUIRE(prepare_candidate.find("!cl->reconnect_settings_pending") !=
+		std::string::npos);
+	REQUIRE(prepare_candidate.find("netServerReconnectSettingsMatch") !=
+		std::string::npos);
+	REQUIRE(prepare_candidate.find("playerIdentityPrepare") !=
+		std::string::npos);
+	REQUIRE(prepare_candidate.find("out->player->prop->syncid != pp->prop_syncid") !=
+		std::string::npos);
+	REQUIRE(prepare_candidate.find("roomCanRejoin") != std::string::npos);
 
-    REQUIRE(score_cfg < kills);
-    REQUIRE(kills < deaths);
-    REQUIRE(deaths < points);
-    REQUIRE(points < client_link);
-    REQUIRE(client_link < game_state);
-    REQUIRE(game_state < one_use);
+	const size_t temporary_publish = stage_prepare.find(
+		"cl->state = CLSTATE_GAME");
+	const size_t stage_write = stage_prepare.find(
+		"netmsgSvcStageReplayWrite", temporary_publish);
+	const size_t stage_send = stage_prepare.find(
+		"netSend(cl, stage_wire, true, NETCHAN_DEFAULT)", stage_write);
+	const size_t restore_temporary = stage_prepare.find(
+		"restore_temporary_publication:", stage_send);
+	const size_t restore_state = stage_prepare.find(
+		"cl->state = client_state_before", restore_temporary);
+	const size_t arm_post_load = stage_prepare.find(
+		"cl->reconnect_resync_pending = true", restore_state);
+	REQUIRE(temporary_publish != std::string::npos);
+	REQUIRE(stage_write != std::string::npos);
+	REQUIRE(stage_send != std::string::npos);
+	REQUIRE(restore_temporary != std::string::npos);
+	REQUIRE(restore_state != std::string::npos);
+	REQUIRE(arm_post_load != std::string::npos);
+	REQUIRE(temporary_publish < stage_write);
+	REQUIRE(stage_write < stage_send);
+	REQUIRE(stage_send < restore_temporary);
+	REQUIRE(restore_temporary < restore_state);
+	REQUIRE(restore_state < arm_post_load);
+	REQUIRE(stage_prepare.find("roomRejoin") == std::string::npos);
+	REQUIRE(stage_prepare.find("pp->active = false") == std::string::npos);
+	REQUIRE(stage_prepare.find("commit=pending_post_load") !=
+		std::string::npos);
 
-    const size_t ingame = auth.find("const bool ingame");
-    const size_t zero_cookie = auth.find("bool cookieZero = true", ingame);
-    const size_t cookie_lookup = auth.find("netServerFindPreservedByCookie(name, suppliedCookie)", zero_cookie);
-    const size_t late_join_reject = auth.find("mid-game join without cookie", cookie_lookup);
-    const size_t restore_call = auth.find("netServerRestorePreserved(srccl, pp)", late_join_reject);
-    const size_t clear_absent = auth.find("srccl->flags &= ~CLFLAG_ABSENT", restore_call);
-    const size_t stage_start = auth.find("netmsgSvcStageStartWrite(&srccl->out)", clear_absent);
-    const size_t chr_resync = auth.find("NET_RESYNC_FLAG_CHRS", stage_start);
-    const size_t prop_resync = auth.find("NET_RESYNC_FLAG_PROPS", chr_resync);
-    const size_t score_resync = auth.find("NET_RESYNC_FLAG_SCORES", prop_resync);
+	const size_t room_join = complete.find("roomRejoin");
+	const size_t config_commit = complete.find(
+		"g_PlayerConfigsArray[pp->playernum] = candidate.config", room_join);
+	const size_t game_state = complete.find(
+		"cl->state = CLSTATE_GAME", config_commit);
+	const size_t targeted_send = complete.find(
+		"netServerSendReconnectState(cl)", game_state);
+	const size_t rollback_room = complete.find(
+		"*candidate.room = room_before", targeted_send);
+	const size_t consume_record = complete.find(
+		"memset(pp, 0, sizeof(*pp))", targeted_send);
+	const size_t commit_log = complete.find(
+		"PLAYER.INIT.COMMIT reconnect", consume_record);
+	REQUIRE(room_join != std::string::npos);
+	REQUIRE(config_commit != std::string::npos);
+	REQUIRE(game_state != std::string::npos);
+	REQUIRE(targeted_send != std::string::npos);
+	REQUIRE(rollback_room != std::string::npos);
+	REQUIRE(consume_record != std::string::npos);
+	REQUIRE(commit_log != std::string::npos);
+	REQUIRE(room_join < config_commit);
+	REQUIRE(config_commit < game_state);
+	REQUIRE(game_state < targeted_send);
+	REQUIRE(targeted_send < rollback_room);
+	REQUIRE(targeted_send < consume_record);
+	REQUIRE(consume_record < commit_log);
+	REQUIRE(complete.find("NET_RESTORE_STATE_SEND_FAILED") !=
+		std::string::npos);
 
-    REQUIRE(ingame != std::string::npos);
-    REQUIRE(zero_cookie != std::string::npos);
-    REQUIRE(cookie_lookup != std::string::npos);
-    REQUIRE(late_join_reject != std::string::npos);
-    REQUIRE(restore_call != std::string::npos);
-    REQUIRE(clear_absent != std::string::npos);
-    REQUIRE(stage_start != std::string::npos);
-    REQUIRE(chr_resync != std::string::npos);
-    REQUIRE(prop_resync != std::string::npos);
-    REQUIRE(score_resync != std::string::npos);
+	const size_t state_write = targeted_state.find(
+		"netmsgSvcReconnectStateWrite");
+	const size_t state_send = targeted_state.find(
+		"netSend(dstcl, &wire, true, NETCHAN_DEFAULT)", state_write);
+	const size_t state_consume = targeted_state.find(
+		"reconnect_resync_pending = false", state_send);
+	const size_t witness_arm = targeted_state.find(
+		"reconnect_gameplay_witness_pending = true", state_consume);
+	REQUIRE(targeted_state.find("malloc(NET_BUFSIZE)") != std::string::npos);
+	REQUIRE(state_write != std::string::npos);
+	REQUIRE(state_send != std::string::npos);
+	REQUIRE(state_consume != std::string::npos);
+	REQUIRE(witness_arm != std::string::npos);
+	REQUIRE(state_write < state_send);
+	REQUIRE(state_send < state_consume);
+	REQUIRE(state_consume < witness_arm);
+	REQUIRE(targeted_state.find("g_NetPendingResyncFlags") ==
+		std::string::npos);
 
-    REQUIRE(ingame < zero_cookie);
-    REQUIRE(zero_cookie < cookie_lookup);
-    REQUIRE(cookie_lookup < late_join_reject);
-    REQUIRE(late_join_reject < restore_call);
-    REQUIRE(restore_call < clear_absent);
-    REQUIRE(clear_absent < stage_start);
-    REQUIRE(stage_start < chr_resync);
-    REQUIRE(chr_resync < prop_resync);
-    REQUIRE(prop_resync < score_resync);
+	REQUIRE(reconnect_state.find(
+		"netmsgReconnectCutsceneAuthorityWrite(dst)") != std::string::npos);
+	REQUIRE(reconnect_state.find("netServerFindPreservedByClientId") !=
+		std::string::npos);
+	REQUIRE(reconnect_state.find("struct netclient absent") !=
+		std::string::npos);
+	const size_t exact_world = reconnect_state.find(
+		"netmsgSvcReconnectPropsWrite");
+	const size_t exact_inventory = reconnect_state.find(
+		"netmsgSvcReconnectInventoryWrite", exact_world);
+	const size_t exact_players = reconnect_state.find(
+		"netmsgSvcPlayerStatsWrite", exact_inventory);
+	const size_t exact_chrs = reconnect_state.find(
+		"netmsgSvcChrResyncWrite", exact_players);
+	REQUIRE(exact_world != std::string::npos);
+	REQUIRE(exact_inventory != std::string::npos);
+	REQUIRE(exact_players != std::string::npos);
+	REQUIRE(exact_chrs != std::string::npos);
+	REQUIRE(exact_world < exact_inventory);
+	REQUIRE(exact_inventory < exact_players);
+	REQUIRE(exact_players < exact_chrs);
+	REQUIRE(reconnect_state.find("netmsgSvcPropResyncWrite") ==
+		std::string::npos);
+	REQUIRE(reconnect_state.find("netmsgSvcPlayerMoveSnapshotWrite") !=
+		std::string::npos);
+	REQUIRE(move_snapshot.find("UCMD_FL_FORCEPOS") != std::string::npos);
+	REQUIRE(move_snapshot.find("UCMD_FL_FORCEANGLE") != std::string::npos);
+	REQUIRE(move_snapshot.find("UCMD_FL_FORCEGROUND") != std::string::npos);
+	REQUIRE(move_snapshot.find("move.weaponnum =") != std::string::npos);
+	REQUIRE(move_snapshot.find("player->ucmd") == std::string::npos);
+
+	REQUIRE(reconnect_props_write.find("SVC_RECONNECT_PROP_BEGIN") !=
+		std::string::npos);
+	REQUIRE(netmsg.find("_Static_assert(NET_MAX_CLIENTS > 0 && NET_MAX_CLIENTS <= 32") !=
+		std::string::npos);
+	REQUIRE(reconnect_client_mask.find("#if NET_MAX_CLIENTS >= 32") !=
+		std::string::npos);
+	REQUIRE(reconnect_client_mask.find("return ~(u32)0;") !=
+		std::string::npos);
+	REQUIRE(netmsg.find("~((1u << NET_MAX_CLIENTS) - 1u)") ==
+		std::string::npos);
+	REQUIRE(reconnect_props_write.find("g_NetFirstDynamicSyncId") !=
+		std::string::npos);
+	REQUIRE(reconnect_props_write.find("netmsgSvcPropSpawnWrite") !=
+		std::string::npos);
+	REQUIRE(prop_spawn_read.find("if (!s_ReconnectPropReceive.active") !=
+		std::string::npos);
+	REQUIRE(prop_spawn_read.find("must not replay an already-consumed throw effect") !=
+		std::string::npos);
+	REQUIRE(reconnect_props_write.find("netmsgSvcReconnectPropStateWrite") !=
+		std::string::npos);
+	REQUIRE(reconnect_props_write.find("SVC_RECONNECT_PROP_END") !=
+		std::string::npos);
+	REQUIRE(reconnect_world_predicate.find(
+		"prop->syncid < g_NetFirstDynamicSyncId") != std::string::npos);
+	REQUIRE(reconnect_world_predicate.find(
+		"netmsgReconnectCanSpawnDynamicProp(prop)") != std::string::npos);
+	REQUIRE(reconnect_props_begin.find("first_dynamic_syncid != g_NetFirstDynamicSyncId") !=
+		std::string::npos);
+	REQUIRE(reconnect_props_begin.find("netmsgReconnectRemoveWorldProp") !=
+		std::string::npos);
+	REQUIRE(reconnect_props_begin.find(
+		"NET_RECONNECT_LIFECYCLE_PRUNED_PARENT") != std::string::npos);
+	REQUIRE(reconnect_props_begin.find("propDetach(prop)") !=
+		std::string::npos);
+	REQUIRE(reconnect_props_begin.find("netSyncIdMapRebuild") !=
+		std::string::npos);
+	REQUIRE(reconnect_prop_write.find("attachment_mtx_index") !=
+		std::string::npos);
+	REQUIRE(reconnect_prop_write.find("modelFindNodeMtxIndex") !=
+		std::string::npos);
+	REQUIRE(reconnect_prop_write.find("prop->obj->shadecol") !=
+		std::string::npos);
+	REQUIRE(reconnect_prop_write.find("prop->obj->model->scale") !=
+		std::string::npos);
+	REQUIRE(reconnect_prop_write.find("weapon->dualweapon->base.prop") !=
+		std::string::npos);
+	REQUIRE(reconnect_projectile_write.find(
+		"NET_RECONNECT_PROJECTILE_EMBEDDED_EMPTY") != std::string::npos);
+	REQUIRE(reconnect_prop_state.find("netmsgReconnectApplyProjectile") !=
+		std::string::npos);
+	REQUIRE(reconnect_prop_state.find("parent_ids_by_slot") !=
+		std::string::npos);
+	REQUIRE(reconnect_props_end.find("refs=resolved") != std::string::npos);
+	REQUIRE(reconnect_props_end.find("projectile->ownerprop") !=
+		std::string::npos);
+	REQUIRE(reconnect_props_end.find("modelFindNodeByMtxIndex") !=
+		std::string::npos);
+	REQUIRE(reconnect_props_end.find("weapons_held[held_slot]") !=
+		std::string::npos);
+	REQUIRE(reconnect_props_end.find("weapon_dual_id") !=
+		std::string::npos);
+	REQUIRE(reconnect_props_end.find("propDetach(prop)") !=
+		std::string::npos);
+	REQUIRE(reconnect_inventory.find("invClear()") != std::string::npos);
+	REQUIRE(reconnect_inventory.find("invInsertItem(item)") !=
+		std::string::npos);
+	REQUIRE(reconnect_inventory.find("inventory_received_mask") !=
+		std::string::npos);
+
+	REQUIRE(sync_ids.find("g_Vars.freeprops") != std::string::npos);
+	REQUIRE(sync_ids.find("for (s32 i = 0; i < g_Vars.maxprops; ++i)") !=
+		std::string::npos);
+	REQUIRE(sync_ids.find("g_Vars.props[i].syncid = (u32)i + 1") !=
+		std::string::npos);
+	REQUIRE(sync_ids.find("max_initial_syncid + 1") != std::string::npos);
+	REQUIRE(sync_ids.find("g_Vars.activeprops") == std::string::npos);
+	REQUIRE(prop_dirty.find("netSyncIdLookup(syncid)") !=
+		std::string::npos);
+	REQUIRE(prop_dirty.find("NET_PROP_DIRTY_MAXSYNCID") ==
+		std::string::npos);
+	const size_t scores = reconnect_state.find("netmsgSvcPlayerScoresWrite");
+	const size_t marker = reconnect_state.find(
+		"netmsgSvcReconnectCommitWrite", scores);
+	REQUIRE(scores != std::string::npos);
+	REQUIRE(marker != std::string::npos);
+	REQUIRE(scores < marker);
+
+	REQUIRE(cutscene_snapshot.find(
+		"NET_CUTSCENE_AUTHORITY_PHASE_ACTIVE") != std::string::npos);
+	REQUIRE(cutscene_snapshot.find(
+		"s_CutsceneAuthority.full_client_mask") != std::string::npos);
+	REQUIRE(cutscene_snapshot.find(
+		"s_CutsceneAuthority.tracker.generation") != std::string::npos);
+	REQUIRE(cutscene_snapshot.find(
+		"s_CutsceneAuthority.accepted_client_mask") != std::string::npos);
+	REQUIRE(cutscene_snapshot.find("netmsgWriteCutsceneState") !=
+		std::string::npos);
+	REQUIRE(cutscene_snapshot.find("netmsgSvcCutsceneSkipWrite") !=
+		std::string::npos);
+
+	REQUIRE(stage_roster.find("netServerFindPreservedByClientId") !=
+		std::string::npos);
+	REQUIRE(stage_roster.find("preserved->playernum, CLFLAG_ABSENT") !=
+		std::string::npos);
+	REQUIRE(stage_roster.find(
+		"participant mask and authoritative roster disagree") !=
+		std::string::npos);
+	REQUIRE(netmsg.find(
+		"netmsgSvcStageStartWriteInternal(dst, false, false)") !=
+		std::string::npos);
+
+	const size_t exact_candidate = settings.find(
+		"netServerReconnectSettingsMatch");
+	const size_t context = settings.find("netmsgReconnectContextPrepare",
+		exact_candidate);
+	const size_t pending_plan = settings.find(
+		"srccl->reconnect_settings_plan = plan", context);
+	const size_t context_send = settings.find("netmsgReconnectContextSend",
+		pending_plan);
+	REQUIRE(settings.find("netServerRestorePreserved") == std::string::npos);
+	REQUIRE(exact_candidate != std::string::npos);
+	REQUIRE(context != std::string::npos);
+	REQUIRE(pending_plan != std::string::npos);
+	REQUIRE(context_send != std::string::npos);
+	REQUIRE(exact_candidate < context);
+	REQUIRE(context < pending_plan);
+	REQUIRE(pending_plan < context_send);
+
+	const size_t reconnect_gate = manifest.find(
+		"if (srccl && srccl->reconnect_settings_pending)");
+	const size_t hash_gate = manifest.find(
+		"manifest_hash != srccl->reconnect_manifest_hash", reconnect_gate);
+	const size_t transfer = manifest.find(
+		"netDistribServerHandleManifestDiff", hash_gate);
+	const size_t ready_call = manifest.find(
+		"netmsgReconnectManifestReady(srccl)", reconnect_gate);
+	REQUIRE(reconnect_gate != std::string::npos);
+	REQUIRE(hash_gate != std::string::npos);
+	REQUIRE(transfer != std::string::npos);
+	REQUIRE(ready_call != std::string::npos);
+	REQUIRE(reconnect_gate < hash_gate);
+	REQUIRE(hash_gate < ready_call);
+	REQUIRE(hash_gate < transfer);
+
+	const size_t restore_call = manifest_ready.find(
+		"netServerRestorePreserved");
+	const size_t full_stage_capacity = manifest_ready.find(
+		"malloc(NET_BUFSIZE)");
+	const size_t send_failure = manifest_ready.find(
+		"netRestoreResultRequiresRetryableClose(restore_result)",
+		restore_call);
+	const size_t retryable_close = manifest_ready.find(
+		"DISCONNECT_TIMEOUT", send_failure);
+	REQUIRE(restore_call != std::string::npos);
+	REQUIRE(full_stage_capacity != std::string::npos);
+	REQUIRE(full_stage_capacity < restore_call);
+	REQUIRE(send_failure != std::string::npos);
+	REQUIRE(retryable_close != std::string::npos);
+	REQUIRE(restore_call < send_failure);
+	REQUIRE(send_failure < retryable_close);
+	REQUIRE(manifest_ready.find("netmsgReconnectPreparedSend") ==
+		std::string::npos);
+	REQUIRE(manifest_ready.find("status=stage_queued") != std::string::npos);
+	REQUIRE(manifest_ready.find("reservation_retained=1") !=
+		std::string::npos);
+	REQUIRE(manifest_ready.find("restore=committed") == std::string::npos);
+	REQUIRE(manifest_ready.find("netmsgServerPublishAuthenticatedTopology") ==
+		std::string::npos);
+
+	const size_t pending_ready = stage_ready.find(
+		"if (srccl->reconnect_resync_pending)");
+	const size_t complete_ready = stage_ready.find(
+		"netServerCompleteReconnect(srccl)", pending_ready);
+	const size_t game_ready = stage_ready.find(
+		"srccl->state != CLSTATE_GAME", complete_ready);
+	REQUIRE(pending_ready != std::string::npos);
+	REQUIRE(complete_ready != std::string::npos);
+	REQUIRE(game_ready != std::string::npos);
+	REQUIRE(pending_ready < complete_ready);
+	REQUIRE(complete_ready < game_ready);
+	REQUIRE(stage_ready.find(
+		"netRestoreResultRequiresRetryableClose(restore_result)") !=
+		std::string::npos);
+
+	REQUIRE(client_stage_loaded.find("netmsgClcStageReadyWrite") !=
+		std::string::npos);
+	REQUIRE(client_stage_loaded.find(
+		"netSend(g_NetLocalClient, &wire, true, NETCHAN_DEFAULT)") !=
+		std::string::npos);
+	REQUIRE(client_stage_loaded.find("netClientReconnectCommitAccepted") ==
+		std::string::npos);
+	REQUIRE(reconnect_commit.find("client_id != srccl->id") !=
+		std::string::npos);
+	REQUIRE(reconnect_commit.find("!srccl->stage_ready") !=
+		std::string::npos);
+	REQUIRE(reconnect_commit.find("!s_ReconnectPropReceive.complete") !=
+		std::string::npos);
+	REQUIRE(reconnect_commit.find("inventory_received_mask") !=
+		std::string::npos);
+	REQUIRE(reconnect_commit.find("netClientReconnectCommitAccepted()") !=
+		std::string::npos);
+	REQUIRE(client_receive.find("case SVC_RECONNECT_PROP_BEGIN") !=
+		std::string::npos);
+	REQUIRE(client_receive.find("case SVC_RECONNECT_PROP_STATE") !=
+		std::string::npos);
+	REQUIRE(client_receive.find("case SVC_RECONNECT_PROP_END") !=
+		std::string::npos);
+	REQUIRE(client_receive.find("case SVC_RECONNECT_INVENTORY") !=
+		std::string::npos);
+	REQUIRE(client_receive.find("case SVC_RECONNECT_COMMIT") !=
+		std::string::npos);
+
+	const size_t malformed_log = client_receive.find(
+		"malformed or unknown message");
+	const size_t stage_fail_gate = client_receive.find(
+		"msgid == SVC_STAGE_START", malformed_log);
+	const size_t terminal_close = client_receive.find(
+		"enet_peer_disconnect(cl->peer, DISCONNECT_FILES)", stage_fail_gate);
+	REQUIRE(malformed_log != std::string::npos);
+	REQUIRE(stage_fail_gate != std::string::npos);
+	REQUIRE(terminal_close != std::string::npos);
+	REQUIRE(malformed_log < stage_fail_gate);
+	REQUIRE(stage_fail_gate < terminal_close);
+	REQUIRE(client_receive.find("msgid == SVC_MATCH_MANIFEST") !=
+		std::string::npos);
+	REQUIRE(client_receive.find("msgid == SVC_SESSION_CATALOG") !=
+		std::string::npos);
+	REQUIRE(client_receive.find("msgid == SVC_ROOM_ASSIGN") !=
+		std::string::npos);
+	REQUIRE(client_receive.find("s_NetReconnectAttempt.valid") !=
+		std::string::npos);
+
+	const size_t stale_move_gate = move.find(
+		"newmove.tick - srccl->inmove[0].tick");
+	const size_t move_commit = move.find("srccl->inmove[0] = newmove",
+		stale_move_gate);
+	const size_t fire_witness = move.find(
+		"srccl->reconnect_gameplay_witness_pending", move_commit);
+	const size_t authoritative_fire = move.find(
+		"NET.RECONNECT.GAMEPLAY", fire_witness);
+	REQUIRE(stale_move_gate != std::string::npos);
+	REQUIRE(move_commit != std::string::npos);
+	REQUIRE(fire_witness != std::string::npos);
+	REQUIRE(authoritative_fire != std::string::npos);
+	REQUIRE(stale_move_gate < move_commit);
+	REQUIRE(move_commit < fire_witness);
+	REQUIRE(fire_witness < authoritative_fire);
+	REQUIRE(move.find("newmove.ucmd & UCMD_FIRE", fire_witness) !=
+		std::string::npos);
+
+	/* A transport retirement clears only transient skip state. The frozen
+	 * match roster remains authoritative and becomes usable again after the
+	 * exact client/player slot is restored. */
+	REQUIRE(cutscene_retire.find("accepted_client_mask &=") !=
+		std::string::npos);
+	REQUIRE(cutscene_retire.find("participant_count =") ==
+		std::string::npos);
+	REQUIRE(cutscene_retire.find("match_active = false") ==
+		std::string::npos);
+
+	const size_t end_commit = stage_end.find(
+		"netmsgSvcStageEndCommit(room_id, mode)");
+	const size_t reservations_clear = stage_end.find(
+		"netServerClearPreservedPlayers(\"stage_end_commit\")", end_commit);
+	const size_t room_scope_clear = stage_end.find(
+		"g_NetMatchRoomId = 0xFF", reservations_clear);
+	REQUIRE(end_commit != std::string::npos);
+	REQUIRE(reservations_clear != std::string::npos);
+	REQUIRE(room_scope_clear != std::string::npos);
+	REQUIRE(end_commit < reservations_clear);
+	REQUIRE(reservations_clear < room_scope_clear);
+	REQUIRE(stage_end_commit.find(
+		"reconnect_resync_pending = false") !=
+		std::string::npos);
+	REQUIRE(stage_end_commit.find(
+		"reconnect_gameplay_witness_pending = false") !=
+		std::string::npos);
+}
+
+TEST_CASE("B-1096 reconnect snapshot preserves typed failure ownership",
+		  "[net][lifecycle][reconnect][static][b1064][b1096]")
+{
+	const std::string net = read_text_file("port/src/net/net.c");
+	const std::string net_header = read_text_file("port/include/net/net.h");
+	const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+	const std::string netmsg_header = read_text_file("port/include/net/netmsg.h");
+	const std::string propobj = read_text_file("src/game/propobj.c");
+	const std::string reconnect = read_text_file(
+		"port/src/net/net_reconnect.c");
+	const std::string projectile_init = function_definition_block(
+		propobj, "void func0f0685e4");
+	const std::string projectile_write = function_definition_block(
+		netmsg, "static u32 netmsgReconnectProjectileWrite");
+	const std::string world_prop_filter = function_definition_block(
+		netmsg, "static bool netmsgReconnectIsWorldProp(");
+	const std::string prop_state_write = function_definition_block(
+		netmsg, "static u32 netmsgSvcReconnectPropStateWrite");
+	const std::string state_write = function_definition_block(
+		netmsg, "u32 netmsgSvcReconnectStateWrite");
+	const std::string state_send = function_definition_block(
+		net, "s32 netServerSendReconnectState");
+	const std::string retry_policy = function_definition_block(
+		net, "s32 netRestoreResultRequiresRetryableClose");
+	const std::string manifest_ready = function_definition_block(
+		netmsg, "static u32 netmsgReconnectManifestReady");
+	const std::string stage_ready = function_definition_block(
+		netmsg, "u32 netmsgClcStageReadyRead");
+
+	/* The shared allocator/reset helper owns both sides of the relation. This
+	 * covers death drops, ordinary falls, and fallaway doors rather than
+	 * weakening the reconnect validator for one fixture. */
+	const size_t direct_projectile = projectile_init.find(
+		"projectile = obj->projectile");
+	const size_t owner_binding = projectile_init.find(
+		"projectile->obj = obj", direct_projectile);
+	REQUIRE(projectile_init.find(
+		"projectile = obj->embedment->projectile") != std::string::npos);
+	REQUIRE(direct_projectile != std::string::npos);
+	REQUIRE(owner_binding != std::string::npos);
+	REQUIRE(direct_projectile < owner_binding);
+
+	/* Exact-state validation remains fail closed and names the broken prop. */
+	REQUIRE(projectile_write.find("projectile->obj != prop->obj") !=
+		std::string::npos);
+	REQUIRE(projectile_write.find(
+		"NET_RECONNECT_SNAPSHOT_WORLD_PROJECTILE_OWNER") !=
+		std::string::npos);
+	REQUIRE(netmsg_header.find(
+		"typedef enum net_reconnect_snapshot_status_e") !=
+		std::string::npos);
+	REQUIRE(netmsg_header.find("net_reconnect_snapshot_result_t *out_result") !=
+		std::string::npos);
+	REQUIRE(state_write.find("NET_RECONNECT_SNAPSHOT_INVENTORY") !=
+		std::string::npos);
+	REQUIRE(state_write.find("NET_RECONNECT_SNAPSHOT_PLAYER_STATS") !=
+		std::string::npos);
+	REQUIRE(state_write.find("NET_RECONNECT_SNAPSHOT_PLAYER_MOVEMENT") !=
+		std::string::npos);
+	REQUIRE(state_write.find("NET_RECONNECT_SNAPSHOT_CHARACTER") !=
+		std::string::npos);
+	REQUIRE(state_write.find("NET_RECONNECT_SNAPSHOT_OBJECTIVE") !=
+		std::string::npos);
+
+	/* Terminal delete is exact-set absence. Regenerating setup objects retain
+	 * the pending transition that lets the authority bring them back later. */
+	REQUIRE(world_prop_filter.find(
+		"netReconnectWorldPropShouldSerialize") != std::string::npos);
+	REQUIRE(world_prop_filter.find("OBJHFLAG_DELETING") != std::string::npos);
+	REQUIRE(world_prop_filter.find("OBJH2FLAG_CANREGEN") != std::string::npos);
+	REQUIRE(reconnect.find("return !pending_delete || can_regenerate") !=
+		std::string::npos);
+	REQUIRE(state_write.find("terminal_absent_prop_count") !=
+		std::string::npos);
+	REQUIRE(state_write.find("first_terminal_absent_syncid") !=
+		std::string::npos);
+
+	/* Every local prop-state rejection has a stable machine-readable reason;
+	 * dual relations are validated symmetrically before publication. */
+	REQUIRE(netmsg_header.find(
+		"typedef enum net_reconnect_prop_state_status_e") !=
+		std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"NET_RECONNECT_PROP_STATE_MODEL_SCALE_NONPOSITIVE") !=
+		std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"NET_RECONNECT_PROP_STATE_MODEL_SCALE_TOO_LARGE") !=
+		std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"NET_RECONNECT_PROP_STATE_MODEL_SCALE_NAN") != std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"NET_RECONNECT_PROP_STATE_ATTACHMENT_PAIR") != std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"NET_RECONNECT_PROP_STATE_ATTACHMENT_PARENT") != std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"NET_RECONNECT_PROP_STATE_ATTACHMENT_MATRIX_RANGE") !=
+		std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"NET_RECONNECT_PROP_STATE_ATTACHMENT_MATRIX_MISSING") !=
+		std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"NET_RECONNECT_PROP_STATE_EMBEDDED_ATTACHMENT") !=
+		std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"NET_RECONNECT_PROP_STATE_WEAPON_IDENTITY") != std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"weapon->weaponnum < WEAPON_UNARMED") != std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"NET_RECONNECT_PROP_STATE_WEAPON_DUAL_REFERENCE") !=
+		std::string::npos);
+	REQUIRE(prop_state_write.find(
+		"weapon->dualweapon->dualweapon != weapon") != std::string::npos);
+	const std::string player_drop = function_definition_block(
+		propobj, "void weaponCreateForPlayerDrop");
+	const size_t drop_commit = player_drop.find("if (!objDrop(prop, true))");
+	const size_t failed_drop_retire = player_drop.find(
+		"objFreePermanently(prop->obj, true)", drop_commit);
+	const size_t spawn_publish = player_drop.find(
+		"netmsgSvcPropSpawnWrite", failed_drop_retire);
+	REQUIRE(drop_commit != std::string::npos);
+	REQUIRE(failed_drop_retire != std::string::npos);
+	REQUIRE(spawn_publish != std::string::npos);
+	REQUIRE(drop_commit < failed_drop_retire);
+	REQUIRE(failed_drop_retire < spawn_publish);
+
+	/* The compound writer is atomic even if a future caller supplies a shared
+	 * packet, and the outer boundary emits the first typed owner before the
+	 * reconnect transaction rolls back. */
+	const size_t rollback_label = state_write.find("rollback:");
+	const size_t rollback_wp = state_write.find("dst->wp = bytes_before",
+		rollback_label);
+	const size_t rollback_error = state_write.find("dst->error = error_before",
+		rollback_wp);
+	REQUIRE(rollback_label != std::string::npos);
+	REQUIRE(rollback_wp != std::string::npos);
+	REQUIRE(rollback_error != std::string::npos);
+	REQUIRE(rollback_label < rollback_wp);
+	REQUIRE(rollback_wp < rollback_error);
+	REQUIRE(state_send.find("net_reconnect_snapshot_result_t snapshot_result") !=
+		std::string::npos);
+	REQUIRE(state_send.find("NET.RECONNECT.RESYNC.FAIL") != std::string::npos);
+	REQUIRE(state_send.find("netmsgReconnectSnapshotStatusString") !=
+		std::string::npos);
+	REQUIRE(state_send.find("prop=%u") != std::string::npos);
+	REQUIRE(state_send.find("prop_reason=%s") != std::string::npos);
+	REQUIRE(state_send.find("hidden=0x%08x") != std::string::npos);
+
+	/* Authority-local generation and enqueue failures take the retryable close;
+	 * validated peer-content failures remain terminal. */
+	REQUIRE(net_header.find(
+		"s32 netRestoreResultRequiresRetryableClose") != std::string::npos);
+	REQUIRE(retry_policy.find("NET_RESTORE_STAGE_WRITE_FAILED") !=
+		std::string::npos);
+	REQUIRE(retry_policy.find("NET_RESTORE_STAGE_SEND_FAILED") !=
+		std::string::npos);
+	REQUIRE(retry_policy.find("NET_RESTORE_STATE_WRITE_FAILED") !=
+		std::string::npos);
+	REQUIRE(retry_policy.find("NET_RESTORE_STATE_SEND_FAILED") !=
+		std::string::npos);
+	REQUIRE(retry_policy.find("NET_RESTORE_SETTINGS_MISMATCH") ==
+		std::string::npos);
+	REQUIRE(manifest_ready.find(
+		"netRestoreResultRequiresRetryableClose(restore_result)") !=
+		std::string::npos);
+	REQUIRE(stage_ready.find(
+		"netRestoreResultRequiresRetryableClose(restore_result)") !=
+		std::string::npos);
+}
+
+TEST_CASE("B-1097 character model clones preserve packed part lookup state",
+		  "[model][clone][net][reconnect][static][b1097]")
+{
+	const std::string model = read_text_file("src/lib/model.c");
+	const std::string propobj = read_text_file("src/game/propobj.c");
+	const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+	const std::string clone = function_definition_block(
+		model, "struct modeldef *modeldefCloneForChr");
+	const std::string equip = function_definition_block(
+		propobj, "bool chrEquipWeapon");
+	const std::string reconnect_end = function_definition_block(
+		netmsg, "u32 netmsgSvcReconnectPropEndRead");
+
+	/* modeldef.parts is one packed allocation: node pointers followed by the
+	 * sorted s16 keys that modelGetPart bisects. Cloning either half alone is
+	 * an out-of-bounds lookup, not a partial model clone. */
+	REQUIRE(model.find(
+		"partnums = (s16 *)&modeldef->parts[modeldef->numparts]") !=
+		std::string::npos);
+	REQUIRE(model.find("modeldef->parts == NULL") != std::string::npos);
+	REQUIRE(model.find("upper = modeldef->numparts - 1") !=
+		std::string::npos);
+	REQUIRE(model.find("upper = modeldef->numparts;") ==
+		std::string::npos);
+	REQUIRE(clone.find("size_t part_ptr_bytes") != std::string::npos);
+	REQUIRE(clone.find("size_t part_num_bytes") != std::string::npos);
+	REQUIRE(clone.find("part_ptr_bytes + part_num_bytes") !=
+		std::string::npos);
+	REQUIRE(clone.find(
+		"(const s16 *)&src->parts[src->numparts]") != std::string::npos);
+	REQUIRE(clone.find("new_partnums[i] = src_partnums[i]") !=
+		std::string::npos);
+	REQUIRE(clone.find(
+		"total_bytes = modeldef_bytes + node_bytes + rodata_bytes + part_bytes") !=
+		std::string::npos);
+	REQUIRE(clone.find("clone_storage = mempAlloc(total_bytes, MEMPOOL_STAGE)") !=
+		std::string::npos);
+	REQUIRE(clone.find("if (clone_storage == NULL)") != std::string::npos);
+	REQUIRE(clone.find(
+		"src->numparts * sizeof(struct modelnode *)), MEMPOOL_STAGE") ==
+		std::string::npos);
+
+	/* Resolve and require the render node before publishing either pointer or
+	 * semantic ownership. Reconnect restores held slots only from that pair. */
+	const size_t resolve = equip.find("attachment_node = modelGetPart");
+	const size_t require_node = equip.find("if (!attachment_node)");
+	const size_t publish_model = equip.find(
+		"weapon->base.model->attachedtomodel = chr->model");
+	const size_t publish_node = equip.find(
+		"weapon->base.model->attachedtonode = attachment_node");
+	REQUIRE(resolve != std::string::npos);
+	REQUIRE(require_node != std::string::npos);
+	REQUIRE(publish_model != std::string::npos);
+	REQUIRE(publish_node != std::string::npos);
+	REQUIRE(resolve < require_node);
+	REQUIRE(require_node < publish_model);
+	REQUIRE(publish_model < publish_node);
+	REQUIRE(reconnect_end.find(
+		"Parent-only props can be valid transition state") != std::string::npos);
+	REQUIRE(reconnect_end.find("if (attachment_node && parent") !=
+		std::string::npos);
+}
+
+TEST_CASE("B-1098 character clones own relation topology and fail closed",
+		  "[model][clone][net][reconnect][static][b1098]")
+{
+	const std::string model = read_text_file("src/lib/model.c");
+	const std::string body = read_text_file("src/game/body.c");
+	const std::string relation_size = function_definition_block(
+		model, "static size_t modeldefCloneRelationRodataSize");
+	const std::string indexed_size = function_definition_block(
+		model, "static size_t modeldefCloneIndexedRodataSize");
+	const std::string collect = function_definition_block(
+		model, "static s32 modeldefCloneCollectNodes");
+	const std::string clone = function_definition_block(
+		model, "struct modeldef *modeldefCloneForChr");
+	const std::string prepare = function_definition_block(
+		body, "struct model *body0f02ce8c");
+
+	/* Only topology-bearing relation records become private. Immutable payload
+	 * rodata remains shared, preserving generated-model provenance, while every
+	 * rodata kind that modelCalculateRwDataIndexes dereferences is preflighted. */
+	REQUIRE(relation_size.find("MODELNODETYPE_DISTANCE") != std::string::npos);
+	REQUIRE(relation_size.find("MODELNODETYPE_TOGGLE") != std::string::npos);
+	REQUIRE(relation_size.find("MODELNODETYPE_REORDER") != std::string::npos);
+	REQUIRE(relation_size.find("MODELNODETYPE_DL") == std::string::npos);
+	REQUIRE(indexed_size.find("MODELNODETYPE_CHRINFO") != std::string::npos);
+	REQUIRE(indexed_size.find("MODELNODETYPE_HEADSPOT") != std::string::npos);
+	REQUIRE(indexed_size.find("MODELNODETYPE_DL") != std::string::npos);
+	REQUIRE(collect.find("modelRodataIsReadable(node, sizeof(*node))") !=
+		std::string::npos);
+	REQUIRE(collect.find("modeldefCloneIndexedRodataSize(node)") !=
+		std::string::npos);
+	REQUIRE(collect.find("node->rodata->distance.target") !=
+		std::string::npos);
+	REQUIRE(collect.find("node->rodata->toggle.target") !=
+		std::string::npos);
+	REQUIRE(collect.find("node->rodata->reorder.unk18") !=
+		std::string::npos);
+	REQUIRE(collect.find("case MODELNODETYPE_HEADSPOT:") !=
+		std::string::npos);
+	REQUIRE(collect.find("Attached heads are instance state") !=
+		std::string::npos);
+
+	/* Nodes, private relation rodata, and the packed part vector publish from
+	 * one stage allocation. Embedded targets must point back into newnodes. */
+	REQUIRE(clone.find("size_t rodata_bytes = 0") != std::string::npos);
+	REQUIRE(clone.find("sizeof(union modelrodata)") != std::string::npos);
+	REQUIRE(clone.find(
+		"total_bytes = modeldef_bytes + node_bytes + rodata_bytes + part_bytes") !=
+		std::string::npos);
+	REQUIRE(clone.find("clone_storage = mempAlloc(total_bytes, MEMPOOL_STAGE)") !=
+		std::string::npos);
+	REQUIRE(clone.find("memset(clone_storage, 0, total_bytes)") !=
+		std::string::npos);
+	REQUIRE(clone.find("newnodes[i].rodata = &newrodatas[relation_index++]") !=
+		std::string::npos);
+	REQUIRE(clone.find("newnodes[i].rodata->distance.target = modeldefCloneMap") !=
+		std::string::npos);
+	REQUIRE(clone.find("newnodes[i].rodata->toggle.target = modeldefCloneMap") !=
+		std::string::npos);
+	REQUIRE(clone.find("newnodes[i].rodata->reorder.unk18 = modeldefCloneMap") !=
+		std::string::npos);
+	REQUIRE(clone.find("case MODELNODETYPE_HEADSPOT:") != std::string::npos);
+	REQUIRE(clone.find("newnodes[i].child = NULL") != std::string::npos);
+	REQUIRE(clone.find("dst->parts = NULL") != std::string::npos);
+	REQUIRE(clone.find("dst->parts = newparts") != std::string::npos);
+	REQUIRE(clone.find(
+		"dst->rwdatalen = modelCalculateRwDataIndexes(dst->rootnode)") !=
+		std::string::npos);
+	REQUIRE(clone.find("return src") == std::string::npos);
+
+	/* Both catalog-selected and active random heads converge on the same single
+	 * clone point. Neither body nor head clone failure may reuse shared state. */
+	const size_t random_select = prepare.find(
+		"headmodeldef = func0f18e57c(-1 - headnum, &headnum)");
+	const size_t catalog_select = prepare.find(
+		"catalogGetHeadModeldefChecked(headnum, &headmodeldef)");
+	const size_t common_head_clone = prepare.find(
+		"modeldefCloneForChr(headmodeldef)");
+	REQUIRE(random_select != std::string::npos);
+	REQUIRE(catalog_select != std::string::npos);
+	REQUIRE(common_head_clone != std::string::npos);
+	REQUIRE(random_select < common_head_clone);
+	REQUIRE(catalog_select < common_head_clone);
+	REQUIRE(prepare.find("modeldefCloneForChr(headmodeldef)",
+		common_head_clone + 1) == std::string::npos);
+	REQUIRE(prepare.find("cloned_modeldef = modeldefCloneForChr(bodymodeldef)") !=
+		std::string::npos);
+	REQUIRE(prepare.find("BODY.CLONE.FAIL: body clone rejected") !=
+		std::string::npos);
+	REQUIRE(prepare.find("BODY.CLONE.FAIL: head clone rejected") !=
+		std::string::npos);
+	REQUIRE(prepare.find("BODY.RWDATA.FAIL: resize rejected") !=
+		std::string::npos);
+	REQUIRE(prepare.find("headmodeldef = cloned_modeldef") !=
+		std::string::npos);
+	REQUIRE(prepare.find("bodymodeldef->rwdatalen += headmodeldef->rwdatalen") !=
+		std::string::npos);
 }
 
 TEST_CASE("temporary distribution recovery is a durable all-family lifecycle",
@@ -1623,4 +2930,95 @@ TEST_CASE("received theme owners release before session package retirement",
 	REQUIRE(disconnect != std::string::npos);
 	REQUIRE(theme_shutdown < retire_session);
 	REQUIRE(retire_session < disconnect);
+}
+
+TEST_CASE("B-1075 manifest lifecycle preserves the exact catalog type",
+          "[net][manifest][catalog][static][b1075]")
+{
+    const std::string catalog_h = read_text_file("port/include/assetcatalog.h");
+    const std::string catalog = read_text_file("port/src/assetcatalog.c");
+    const std::string manifest = read_text_file("port/src/net/netmanifest.c");
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string screen_h = read_text_file("port/include/screenmfst.h");
+    const std::string screen = read_text_file("port/src/screenmfst.c");
+    const std::string smoke = read_text_file(
+        "tools/smoke-verify/tests/listen_host_match_smoke.json");
+    const std::string classify = function_block(
+        manifest, "static asset_type_e s_manifestEntryCatalogAssetType");
+    const std::string validate = function_block(
+        manifest, "s32 manifestValidate");
+    const std::string apply = function_block(
+        manifest, "s32 manifestApplyDiff");
+    const std::string mp_transition = function_block(
+        manifest, "void manifestMPTransition");
+    const std::string ensure = function_block(
+        manifest, "s32 manifestEnsureLoaded");
+    const std::string admission = function_block(
+        netmsg, "static bool netLobbyManifestEntryMatchesCatalog");
+
+    REQUIRE(catalog_h.find("assetCatalogResolveAny(const char *id)") !=
+        std::string::npos);
+    REQUIRE(catalog.find("static const asset_entry_t *s_resolveAnyLocked") !=
+        std::string::npos);
+    REQUIRE(catalog.find("entry && entry->enabled ? entry : NULL") !=
+        std::string::npos);
+
+    REQUIRE(classify.find("assetCatalogResolveAny(e->id)") !=
+        std::string::npos);
+    REQUIRE(classify.find("netManifestTypeAcceptsCatalogAsset(") !=
+        std::string::npos);
+    REQUIRE(classify.find("return asset->type;") != std::string::npos);
+    REQUIRE(manifest.find("s_manifestCatalogAssetType") == std::string::npos);
+    REQUIRE(manifest.find("de->slot_index = ne->slot_index") !=
+        std::string::npos);
+    REQUIRE(manifest.find("de->slot_index = ce->slot_index") !=
+        std::string::npos);
+
+    REQUIRE(validate.find("assetCatalogResolveAny(entry->id)") !=
+        std::string::npos);
+    REQUIRE(validate.find("e->type != expected") != std::string::npos);
+    REQUIRE(validate.find("entry->type, entry->slot_index, expected") !=
+        std::string::npos);
+    REQUIRE(apply.find("s_manifestDiffEntryHasExactType(&diff->to_load[i], 1)") !=
+        std::string::npos);
+    REQUIRE(apply.find("s_manifestDiffEntryHasExactType(&diff->to_unload[i], 0)") !=
+        std::string::npos);
+    REQUIRE(apply.find("for (rollback = i; rollback-- > 0; )") !=
+        std::string::npos);
+    REQUIRE(apply.find("catalogReleaseTypedAsset(") != std::string::npos);
+    REQUIRE(apply.find("MANIFEST.LIFECYCLE.ROLLBACK") != std::string::npos);
+    const size_t all_loads = apply.find("for (i = 0; i < diff->num_to_load; i++)");
+    const size_t first_unload = apply.find(
+        "for (i = 0; i < diff->num_to_unload; i++)", all_loads);
+    const size_t publish = apply.find(
+        "s_manifestCopyInto(&g_CurrentLoadedManifest, needed)", first_unload);
+    REQUIRE(all_loads != std::string::npos);
+    REQUIRE(first_unload != std::string::npos);
+    REQUIRE(publish != std::string::npos);
+    REQUIRE(all_loads < first_unload);
+    REQUIRE(first_unload < publish);
+    REQUIRE(mp_transition.find("manifestValidate(&s_SpLastDiff) != 0") !=
+        std::string::npos);
+    REQUIRE(mp_transition.find("|| !manifestApplyDiff(needed, &s_SpLastDiff)") !=
+        std::string::npos);
+    REQUIRE(mp_transition.find("current manifest preserved") !=
+        std::string::npos);
+    REQUIRE(ensure.find("catalogLoadTypedAsset(e->type, e->id)") !=
+        std::string::npos);
+    REQUIRE(admission.find("netManifestTypeAcceptsCatalogAsset(") !=
+        std::string::npos);
+
+    REQUIRE(screen_h.find("const asset_type_e *types") != std::string::npos);
+    REQUIRE(screen.find("catalogLoadTypedAsset(e->types[j], e->ids[j])") !=
+        std::string::npos);
+    REQUIRE(screen.find("screenManifestCatalogAssetType") == std::string::npos);
+
+    REQUIRE(smoke.find("MANIFEST-SP: load 'base:arena_mp_felicity'") !=
+        std::string::npos);
+    REQUIRE(smoke.find("CATALOG\\\\.LIFECYCLE\\\\.LOAD: .*type mismatch") !=
+        std::string::npos);
+    REQUIRE(smoke.find("MANIFEST-SP: load failed 'base:arena_mp_felicity'") !=
+        std::string::npos);
+    REQUIRE(smoke.find("MANIFEST\\\\.LIFECYCLE\\\\.(REJECT|ROLLBACK)") !=
+        std::string::npos);
 }

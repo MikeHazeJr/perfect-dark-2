@@ -32,12 +32,34 @@
  *   { "at_ms": N, "type": "wait" }
  *     -- inert marker; useful for sequencing comments / dwell.
  *
+ *   { "at_ms": N, "type": "wait_until",
+ *     "condition": "network_stage_live", "timeout_ms": 120000 }
+ *     -- pause this process's script timeline until a typed production-state
+ *        condition is true. Supported conditions are network_listen_ready,
+ *        network_stage_live, network_reconnect_available,
+ *        cutscene_skip_ready, and gameplay_ready. The real-time harness
+ *        watchdog continues while the script is paused, and every wait
+ *        requires a bounded timeout.
+ *
+ *   { "at_ms": N, "type": "wait_until", "condition": "gameplay_ready",
+ *     "timeout_ms": 60000, "stable_ms": 3000,
+ *     "assist_action": "ACTION_SKIP_CUTSCENE",
+ *     "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 900 }
+ *     -- require continuous target readiness while optionally issuing exactly
+ *        one bounded production action through a separate typed aperture. The
+ *        assist releases on hold expiry and every terminal harness path.
+ *
  *   { "at_ms": N, "type": "exit" }
  *     -- scripted clean exit; produces SMOKE: result=scripted_exit.
  *
  *   { "at_ms": N, "type": "unclean_exit" }
  *     -- validation-only process exit after flushing the log, deliberately
  *        skipping atexit so startup crash recovery sees the dirty session.
+ *
+ *   { "at_ms": N, "type": "network_timeout_client", "client_id": 1 }
+ *   { "at_ms": N, "type": "network_reconnect" }
+ *     -- deterministic smoke-only triggers around the production timeout and
+ *        reconnect APIs. They do not replace ENet teardown/auth/stage flow.
  *
  *   { "at_ms": N, "type": "key", "key": "Return", "action": "tap" }
  *     -- inject SDL_KEYDOWN / KEYUP for a named key or numeric scancode.
@@ -105,7 +127,12 @@
 
 #include <PR/ultratypes.h>
 
+#include "bss.h"
+#include "data.h"
+#include "smoke_fixture_schema.h"
 #include "smoke_harness.h"
+#include "smoke_readiness.h"
+#include "smoke_transition.h"
 #include "system.h"
 #include "actionmap.h"   /* actionmapResolveByName, actionmapInjectStateForSmoke */
 #include "assetcatalog.h"
@@ -114,6 +141,10 @@
 #include "assetprovider.h"
 #include "asset_runtime.h"
 #include "net/netdistrib.h"
+#include "net/net.h"
+#include "game/player.h"
+#include "game/playermgr.h"
+#include "scene.h"
 #include "agent_session.h"
 #include "prefs_agent.h"
 
@@ -137,11 +168,14 @@
 #define SMOKE_MAX_PATH           1024
 #define SMOKE_MAX_NAME           96
 #define SMOKE_DEFAULT_TIMEOUT_MS 90000
+#define SMOKE_MAX_WAIT_TIMEOUT_MS 3600000
+#define SMOKE_MAX_EVENT_AT_MS    3600000
 #define SMOKE_TAP_RELEASE_MS     16   /* one 60Hz frame */
 
 typedef enum {
     SMOKE_EVENT_NONE = 0,
     SMOKE_EVENT_WAIT,
+    SMOKE_EVENT_WAIT_UNTIL,
     SMOKE_EVENT_KEY_PRESS,
     SMOKE_EVENT_KEY_RELEASE,
     SMOKE_EVENT_KEY_TAP,
@@ -159,6 +193,8 @@ typedef enum {
     SMOKE_EVENT_CATALOG_WEAPON_ACQUIRE,
     SMOKE_EVENT_CATALOG_WEAPON_RELEASE,
     SMOKE_EVENT_CATALOG_RECOVERY_PROBE,
+    SMOKE_EVENT_NETWORK_TIMEOUT_CLIENT,
+    SMOKE_EVENT_NETWORK_RECONNECT,
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT,
     SMOKE_EVENT_UNCLEAN_EXIT
@@ -176,8 +212,15 @@ typedef struct {
     s32            mouse_button;      /* for mouse events: SDL_BUTTON_LEFT/RIGHT/MIDDLE */
     s32            mouse_wheel_x;     /* for mouse-wheel events */
     s32            mouse_wheel_y;     /* for mouse-wheel events */
+    s32            client_id;         /* network_timeout_client target */
     s32            release_at_ms;     /* for tap: scheduled release time */
     s32            released;          /* tap: 0 = press pending, 1 = release pending, 2 = done */
+    smoke_readiness_condition_t readiness_condition;
+    u32            wait_timeout_ms;
+    u32            stable_ms;
+    s32            assist_action_id;
+    smoke_readiness_condition_t assist_condition;
+    u32            assist_hold_ms;
     char           path[SMOKE_MAX_SHOTPATH]; /* for screenshot events: output file */
 } SmokeEvent;
 
@@ -194,6 +237,17 @@ typedef struct {
     s32          event_count;
     s32          next_event_idx;
     u32          start_ticks_ms;
+    u32          timeline_pause_ms;
+    u32          wait_started_ticks_ms;
+    s32          waiting_event_idx;
+    smoke_transition_state_t wait_transition;
+    s32          wait_assist_injected;
+	s32          wait_assist_press_count;
+	s32          wait_assist_release_count;
+    s32          observed_stage_ready_count;
+    s32          observed_stage_teardown_count;
+    s32          ready_stage_num;
+    u32          ready_stage_generation;
     s32          events_fired;
     s32          exited;             /* prevent re-entrant exit */
 } SmokeState;
@@ -278,6 +332,11 @@ static JTok j_next(JParse *p)
                     p->pos++;
                     while (*p->pos >= '0' && *p->pos <= '9') p->pos++;
                 }
+				if (*p->pos == 'e' || *p->pos == 'E') {
+					p->pos++;
+					if (*p->pos == '+' || *p->pos == '-') p->pos++;
+					while (*p->pos >= '0' && *p->pos <= '9') p->pos++;
+				}
             }
             t.len = (s32)(p->pos - t.start);
             t.type = JT_NUMBER;
@@ -311,6 +370,40 @@ static s64 j_tok_int(const JTok *t)
 {
     if (t->type != JT_NUMBER || !t->start) return 0;
     return (s64)strtoll(t->start, NULL, 0);
+}
+
+static int j_tok_is_integer(const JTok *t)
+{
+    s32 i = 0;
+
+    if (!t || t->type != JT_NUMBER || !t->start || t->len <= 0) {
+        return 0;
+    }
+    if (t->start[i] == '-') {
+        i++;
+    }
+    if (i >= t->len) {
+        return 0;
+    }
+    if (i + 2 <= t->len && t->start[i] == '0'
+            && (t->start[i + 1] == 'x' || t->start[i + 1] == 'X')) {
+        i += 2;
+        if (i >= t->len) {
+            return 0;
+        }
+        for (; i < t->len; i++) {
+            if (!isxdigit((unsigned char)t->start[i])) {
+                return 0;
+            }
+        }
+        return 1;
+    }
+    for (; i < t->len; i++) {
+        if (!isdigit((unsigned char)t->start[i])) {
+            return 0;
+        }
+    }
+    return 1;
 }
 
 /* Skip the value (possibly nested) at the current parse position. */
@@ -513,55 +606,204 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     ev->mouse_button = 0;
     ev->mouse_wheel_x = 0;
     ev->mouse_wheel_y = 0;
+    ev->client_id = -1;
     ev->release_at_ms = -1;
     ev->released = 0;
+    ev->readiness_condition = SMOKE_READINESS_INVALID;
+    ev->wait_timeout_ms = 0;
+    ev->stable_ms = 0;
+    ev->assist_action_id = -1;
+    ev->assist_condition = SMOKE_READINESS_INVALID;
+    ev->assist_hold_ms = 0;
 
     char type_str[32]   = {0};
     char key_str[32]    = {0};
     char action_str[16] = {0};
     char name_str[64]   = {0};
     char button_str[16] = {0};
+    char condition_str[32] = {0};
+    char assist_action_str[64] = {0};
+    char assist_condition_str[32] = {0};
     s32  scancode = 0;
+    s64  at_ms_value = 0;
+    s64  wait_timeout_ms = 0;
+    s64  stable_ms = 0;
+    s64  assist_hold_ms = 0;
+    s32  has_action_mode = 0;
+    s32  has_wait_timeout = 0;
+    s32  has_stable_ms = 0;
+    s32  has_assist_action = 0;
+    s32  has_assist_condition = 0;
+    s32  has_assist_hold_ms = 0;
     s32  has_x = 0;
     s32  has_y = 0;
     s32  has_wheel_x = 0;
     s32  has_wheel_y = 0;
+    s32  has_client_id = 0;
+	smoke_fixture_field_mask_t field_mask = 0;
+	smoke_fixture_field_mask_t unsupported_fields = 0;
 
     while (t.type != JT_RBRACE && t.type != JT_EOF) {
         if (t.type != JT_STRING) { t = j_next(p); continue; }
         char field[32]; j_tok_copy_str(&t, field, sizeof(field));
+		smoke_fixture_field_mask_t field_bit =
+			smokeFixtureEventFieldFromName(field);
+		if (!field_bit) {
+			sysLogPrintf(LOG_ERROR,
+				"SMOKE: event has unknown field '%s'", field);
+			return 0;
+		}
+		if (field_mask & field_bit) {
+			sysLogPrintf(LOG_ERROR,
+				"SMOKE: event has duplicate field '%s'", field);
+			return 0;
+		}
+		field_mask |= field_bit;
         t = j_next(p); /* colon */
         if (t.type == JT_COLON) t = j_next(p);
 
         if (!strcmp(field, "at_ms")) {
-            ev->at_ms = (s32)j_tok_int(&t);
+            if (!j_tok_is_integer(&t)) {
+                sysLogPrintf(LOG_ERROR,
+                    "SMOKE: event at_ms must be an integer");
+                return 0;
+            }
+            at_ms_value = j_tok_int(&t);
         } else if (!strcmp(field, "type")) {
+			if (t.type != JT_STRING) {
+				sysLogPrintf(LOG_ERROR, "SMOKE: event type must be a string");
+				return 0;
+			}
             j_tok_copy_str(&t, type_str, sizeof(type_str));
         } else if (!strcmp(field, "key")) {
+			if (t.type != JT_STRING) {
+				sysLogPrintf(LOG_ERROR, "SMOKE: event key must be a string");
+				return 0;
+			}
             j_tok_copy_str(&t, key_str, sizeof(key_str));
         } else if (!strcmp(field, "scancode")) {
+			if (!j_tok_is_integer(&t)) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: event scancode must be an integer");
+				return 0;
+			}
             scancode = (s32)j_tok_int(&t);
         } else if (!strcmp(field, "action")) {
+			if (t.type != JT_STRING) {
+				sysLogPrintf(LOG_ERROR, "SMOKE: event action must be a string");
+				return 0;
+			}
             j_tok_copy_str(&t, action_str, sizeof(action_str));
+            has_action_mode = 1;
         } else if (!strcmp(field, "name")) {
+			if (t.type != JT_STRING) {
+				sysLogPrintf(LOG_ERROR, "SMOKE: event name must be a string");
+				return 0;
+			}
             j_tok_copy_str(&t, name_str, sizeof(name_str));
+        } else if (!strcmp(field, "condition")) {
+			if (t.type != JT_STRING) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: wait_until condition must be a string");
+				return 0;
+            }
+            j_tok_copy_str(&t, condition_str, sizeof(condition_str));
+        } else if (!strcmp(field, "timeout_ms")) {
+            if (!j_tok_is_integer(&t)) {
+                sysLogPrintf(LOG_ERROR,
+                    "SMOKE: wait_until timeout_ms must be an integer");
+                return 0;
+            }
+            wait_timeout_ms = j_tok_int(&t);
+            has_wait_timeout = 1;
+        } else if (!strcmp(field, "stable_ms")) {
+            if (!j_tok_is_integer(&t)) {
+                sysLogPrintf(LOG_ERROR,
+                    "SMOKE: wait_until stable_ms must be an integer");
+                return 0;
+            }
+            stable_ms = j_tok_int(&t);
+            has_stable_ms = 1;
+        } else if (!strcmp(field, "assist_action")) {
+			if (t.type != JT_STRING) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: wait_until assist_action must be a string");
+				return 0;
+			}
+            j_tok_copy_str(&t, assist_action_str, sizeof(assist_action_str));
+            has_assist_action = 1;
+        } else if (!strcmp(field, "assist_condition")) {
+			if (t.type != JT_STRING) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: wait_until assist_condition must be a string");
+				return 0;
+			}
+            j_tok_copy_str(&t, assist_condition_str,
+                sizeof(assist_condition_str));
+            has_assist_condition = 1;
+        } else if (!strcmp(field, "assist_hold_ms")) {
+            if (!j_tok_is_integer(&t)) {
+                sysLogPrintf(LOG_ERROR,
+                    "SMOKE: wait_until assist_hold_ms must be an integer");
+                return 0;
+            }
+            assist_hold_ms = j_tok_int(&t);
+            has_assist_hold_ms = 1;
         } else if (!strcmp(field, "path")) {
+			if (t.type != JT_STRING) {
+				sysLogPrintf(LOG_ERROR, "SMOKE: event path must be a string");
+				return 0;
+			}
             j_tok_copy_str(&t, ev->path, sizeof(ev->path));
         } else if (!strcmp(field, "x")) {
+			if (!j_tok_is_integer(&t)) {
+				sysLogPrintf(LOG_ERROR, "SMOKE: event x must be an integer");
+				return 0;
+			}
             ev->mouse_x = (s32)j_tok_int(&t);
             has_x = 1;
         } else if (!strcmp(field, "y")) {
+			if (!j_tok_is_integer(&t)) {
+				sysLogPrintf(LOG_ERROR, "SMOKE: event y must be an integer");
+				return 0;
+			}
             ev->mouse_y = (s32)j_tok_int(&t);
             has_y = 1;
         } else if (!strcmp(field, "button")) {
+			if (t.type != JT_STRING) {
+				sysLogPrintf(LOG_ERROR, "SMOKE: event button must be a string");
+				return 0;
+			}
             j_tok_copy_str(&t, button_str, sizeof(button_str));
         } else if (!strcmp(field, "wheel_x")) {
+			if (!j_tok_is_integer(&t)) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: event wheel_x must be an integer");
+				return 0;
+			}
             ev->mouse_wheel_x = (s32)j_tok_int(&t);
             has_wheel_x = 1;
         } else if (!strcmp(field, "wheel_y")) {
+			if (!j_tok_is_integer(&t)) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: event wheel_y must be an integer");
+				return 0;
+			}
             ev->mouse_wheel_y = (s32)j_tok_int(&t);
             has_wheel_y = 1;
-        } else {
+        } else if (!strcmp(field, "client_id")) {
+			if (!j_tok_is_integer(&t)) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: event client_id must be an integer");
+				return 0;
+			}
+			ev->client_id = (s32)j_tok_int(&t);
+			has_client_id = 1;
+        } else if (!strcmp(field, "comment")) {
+			if (t.type != JT_STRING) {
+				sysLogPrintf(LOG_ERROR, "SMOKE: event comment must be a string");
+				return 0;
+			}
             j_skip_value(p);
         }
 
@@ -569,8 +811,96 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
         if (t.type == JT_COMMA) t = j_next(p);
     }
 
+	if (t.type != JT_RBRACE) {
+		sysLogPrintf(LOG_ERROR, "SMOKE: event object is truncated");
+		return 0;
+	}
+	if (!smokeFixtureEventTypeKnown(type_str)) {
+		sysLogPrintf(LOG_ERROR, "SMOKE: unknown event type '%s'", type_str);
+		return 0;
+	}
+	if (!smokeFixtureEventFieldsValid(type_str, field_mask,
+			&unsupported_fields)) {
+		smoke_fixture_field_mask_t first = unsupported_fields
+			& (0u - unsupported_fields);
+		sysLogPrintf(LOG_ERROR,
+			"SMOKE: field '%s' is not supported for event type '%s'",
+			smokeFixtureEventFieldName(first), type_str[0] ? type_str : "wait");
+		return 0;
+	}
+
+    if (at_ms_value < 0 || at_ms_value > SMOKE_MAX_EVENT_AT_MS) {
+        sysLogPrintf(LOG_ERROR,
+            "SMOKE: event at_ms must be in [0,%d] (value=%lld)",
+            SMOKE_MAX_EVENT_AT_MS, (long long)at_ms_value);
+        return 0;
+    }
+    ev->at_ms = (s32)at_ms_value;
+
     if (!strcmp(type_str, "wait") || !type_str[0]) {
         ev->type = SMOKE_EVENT_WAIT;
+        return 1;
+    }
+    if (!strcmp(type_str, "wait_until")) {
+        ev->readiness_condition = smokeReadinessConditionFromName(condition_str);
+        if (ev->readiness_condition == SMOKE_READINESS_INVALID) {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE: wait_until event has unknown condition '%s' (at_ms=%d)",
+                condition_str, ev->at_ms);
+            return 0;
+        }
+        if (!has_wait_timeout || wait_timeout_ms <= 0
+                || wait_timeout_ms > SMOKE_MAX_WAIT_TIMEOUT_MS) {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE: wait_until condition='%s' requires timeout_ms in [1,%d] (at_ms=%d)",
+                condition_str, SMOKE_MAX_WAIT_TIMEOUT_MS, ev->at_ms);
+            return 0;
+        }
+        ev->type = SMOKE_EVENT_WAIT_UNTIL;
+        ev->wait_timeout_ms = (u32)wait_timeout_ms;
+        if (has_stable_ms
+                && (stable_ms < 0 || stable_ms >= wait_timeout_ms)) {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE: wait_until stable_ms must be in [0,timeout_ms) (stable_ms=%lld timeout_ms=%lld at_ms=%d)",
+                (long long)stable_ms, (long long)wait_timeout_ms, ev->at_ms);
+            return 0;
+        }
+        ev->stable_ms = (u32)stable_ms;
+
+        if (has_assist_action || has_assist_condition
+                || has_assist_hold_ms) {
+            if (!has_assist_action || !has_assist_condition
+                    || !has_assist_hold_ms || !has_stable_ms
+                    || stable_ms <= 0) {
+                sysLogPrintf(LOG_ERROR,
+                    "SMOKE: assisted wait_until requires assist_action, assist_condition, assist_hold_ms, and stable_ms > 0 (at_ms=%d)",
+                    ev->at_ms);
+                return 0;
+            }
+            ev->assist_action_id = actionmapResolveByName(assist_action_str);
+            if (ev->assist_action_id < 0) {
+                sysLogPrintf(LOG_ERROR,
+                    "SMOKE: assisted wait_until has unknown assist_action '%s' (at_ms=%d)",
+                    assist_action_str, ev->at_ms);
+                return 0;
+            }
+            ev->assist_condition = smokeReadinessConditionFromName(
+                assist_condition_str);
+            if (ev->assist_condition == SMOKE_READINESS_INVALID) {
+                sysLogPrintf(LOG_ERROR,
+                    "SMOKE: assisted wait_until has unknown assist_condition '%s' (at_ms=%d)",
+                    assist_condition_str, ev->at_ms);
+                return 0;
+            }
+            if (assist_hold_ms <= 0 || assist_hold_ms >= wait_timeout_ms) {
+                sysLogPrintf(LOG_ERROR,
+                    "SMOKE: assisted wait_until assist_hold_ms must be in [1,timeout_ms) (assist_hold_ms=%lld timeout_ms=%lld at_ms=%d)",
+                    (long long)assist_hold_ms, (long long)wait_timeout_ms,
+                    ev->at_ms);
+                return 0;
+            }
+            ev->assist_hold_ms = (u32)assist_hold_ms;
+        }
         return 1;
     }
     if (!strcmp(type_str, "exit")) {
@@ -581,6 +911,21 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
         ev->type = SMOKE_EVENT_UNCLEAN_EXIT;
         return 1;
     }
+    if (!strcmp(type_str, "network_timeout_client")) {
+		if (!has_client_id || ev->client_id < 0
+				|| ev->client_id >= NET_MAX_CLIENTS) {
+			sysLogPrintf(LOG_ERROR,
+				"SMOKE: network_timeout_client requires client_id in [0,%d] (at_ms=%d)",
+				NET_MAX_CLIENTS - 1, ev->at_ms);
+			return 0;
+		}
+		ev->type = SMOKE_EVENT_NETWORK_TIMEOUT_CLIENT;
+		return 1;
+	}
+    if (!strcmp(type_str, "network_reconnect")) {
+		ev->type = SMOKE_EVENT_NETWORK_RECONNECT;
+		return 1;
+	}
     if (!strcmp(type_str, "screenshot")) {
         if (!ev->path[0]) {
             sysLogPrintf(LOG_ERROR, "SMOKE: screenshot event missing 'path' (at_ms=%d)", ev->at_ms);
@@ -639,7 +984,7 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     }
     if (!strcmp(type_str, "key")) {
         if (key_str[0]) scancode = smokeKeyNameToScancode(key_str);
-        if (scancode <= 0) {
+        if (scancode <= 0 || scancode >= SDL_NUM_SCANCODES) {
             sysLogPrintf(LOG_ERROR, "SMOKE: key event has unresolved key (key='%s', scancode=%d)",
                 key_str, scancode);
             return 0;
@@ -649,9 +994,14 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             ev->type = SMOKE_EVENT_KEY_PRESS;
         } else if (!strcmp(action_str, "release")) {
             ev->type = SMOKE_EVENT_KEY_RELEASE;
-        } else {
+        } else if (!has_action_mode || !strcmp(action_str, "tap")) {
             ev->type = SMOKE_EVENT_KEY_TAP;
             ev->release_at_ms = ev->at_ms + SMOKE_TAP_RELEASE_MS;
+        } else {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE: key event has unknown action '%s' (at_ms=%d)",
+                action_str, ev->at_ms);
+            return 0;
         }
         return 1;
     }
@@ -671,10 +1021,14 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             ev->type = SMOKE_EVENT_ACTION_PRESS;
         } else if (!strcmp(action_str, "release")) {
             ev->type = SMOKE_EVENT_ACTION_RELEASE;
-        } else {
-            /* tap (default) or any other value -- treat as tap with auto-release. */
+        } else if (!has_action_mode || !strcmp(action_str, "tap")) {
             ev->type = SMOKE_EVENT_ACTION_TAP;
             ev->release_at_ms = ev->at_ms + SMOKE_TAP_RELEASE_MS;
+        } else {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE: action event has unknown action '%s' (at_ms=%d)",
+                action_str, ev->at_ms);
+            return 0;
         }
         return 1;
     }
@@ -694,10 +1048,15 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
             ev->type = SMOKE_EVENT_MOUSE_PRESS;
         } else if (!strcmp(action_str, "release")) {
             ev->type = SMOKE_EVENT_MOUSE_RELEASE;
-        } else {
-            /* tap / click / default -- press now, schedule release next frame. */
+        } else if (!has_action_mode || !strcmp(action_str, "tap")
+                || !strcmp(action_str, "click")) {
             ev->type = SMOKE_EVENT_MOUSE_TAP;
             ev->release_at_ms = ev->at_ms + SMOKE_TAP_RELEASE_MS;
+        } else {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE: mouse event has unknown action '%s' (at_ms=%d)",
+                action_str, ev->at_ms);
+            return 0;
         }
         return 1;
     }
@@ -736,7 +1095,7 @@ static s32 smokeBuildScreenshotEvent(JParse *p, SmokeEvent *ev, s32 ordinal)
 {
     JTok t = p->cur;
     char name_str[SMOKE_MAX_NAME] = {0};
-    s32 at_ms = 0;
+    s64 at_ms = 0;
 
     if (t.type != JT_LBRACE) return 0;
     t = j_next(p);
@@ -746,7 +1105,7 @@ static s32 smokeBuildScreenshotEvent(JParse *p, SmokeEvent *ev, s32 ordinal)
         t = j_next(p);
         if (t.type == JT_COLON) t = j_next(p);
         if (!strcmp(field, "at_ms")) {
-            at_ms = (s32)j_tok_int(&t);
+            at_ms = j_tok_int(&t);
         } else if (!strcmp(field, "name")) {
             j_tok_copy_str(&t, name_str, sizeof(name_str));
         } else {
@@ -756,6 +1115,12 @@ static s32 smokeBuildScreenshotEvent(JParse *p, SmokeEvent *ev, s32 ordinal)
         if (t.type == JT_COMMA) t = j_next(p);
     }
 
+    if (at_ms < 0 || at_ms > SMOKE_MAX_EVENT_AT_MS) {
+        sysLogPrintf(LOG_ERROR,
+            "SMOKE: screenshot at_ms must be in [0,%d] (value=%lld)",
+            SMOKE_MAX_EVENT_AT_MS, (long long)at_ms);
+        return -1;
+    }
     if (!s_State.screenshot_dir[0]) return 0; /* no output dir -> nothing to do */
     if (!name_str[0]) {
         snprintf(name_str, sizeof(name_str), "shot-%d", (int)ordinal);
@@ -773,11 +1138,75 @@ static s32 smokeBuildScreenshotEvent(JParse *p, SmokeEvent *ev, s32 ordinal)
     }
     safe[j] = '\0';
 
-    ev->at_ms = at_ms;
+    ev->at_ms = (s32)at_ms;
     ev->type = SMOKE_EVENT_SCREENSHOT;
     snprintf(ev->path, sizeof(ev->path), "%s/%03d-%s.bmp",
         s_State.screenshot_dir, (int)ordinal, safe);
     return 1;
+}
+
+static void smokeTrackExplicitHold(u8 *held, s32 down, s32 *held_count)
+{
+	if (down && !*held) {
+		*held = 1;
+		(*held_count)++;
+	} else if (!down && *held) {
+		*held = 0;
+		(*held_count)--;
+	}
+}
+
+/* A wait_until pauses virtual script time while real time continues. Explicit
+ * press/release pairs are authored in virtual time, so crossing a wait with a
+ * press held would silently stretch it to the full real-time wait. Reject the
+ * fixture before launch; bounded wait assists are the only legal ownership
+ * mechanism inside a paused interval. The stable event sort makes same-time
+ * ordering deterministic and preserves JSON order. */
+static s32 smokeValidateWaitHoldSchedule(void)
+{
+	u8 key_held[SDL_NUM_SCANCODES];
+	u8 action_held[ACTION_COUNT];
+	u8 mouse_held[SDL_BUTTON_X2 + 1];
+	s32 held_count = 0;
+
+	memset(key_held, 0, sizeof(key_held));
+	memset(action_held, 0, sizeof(action_held));
+	memset(mouse_held, 0, sizeof(mouse_held));
+
+	for (s32 i = 0; i < s_State.event_count; i++) {
+		const SmokeEvent *ev = &s_State.events[i];
+		switch (ev->type) {
+		case SMOKE_EVENT_KEY_PRESS:
+			smokeTrackExplicitHold(&key_held[ev->scancode], 1, &held_count);
+			break;
+		case SMOKE_EVENT_KEY_RELEASE:
+			smokeTrackExplicitHold(&key_held[ev->scancode], 0, &held_count);
+			break;
+		case SMOKE_EVENT_ACTION_PRESS:
+			smokeTrackExplicitHold(&action_held[ev->action_id], 1, &held_count);
+			break;
+		case SMOKE_EVENT_ACTION_RELEASE:
+			smokeTrackExplicitHold(&action_held[ev->action_id], 0, &held_count);
+			break;
+		case SMOKE_EVENT_MOUSE_PRESS:
+			smokeTrackExplicitHold(&mouse_held[ev->mouse_button], 1, &held_count);
+			break;
+		case SMOKE_EVENT_MOUSE_RELEASE:
+			smokeTrackExplicitHold(&mouse_held[ev->mouse_button], 0, &held_count);
+			break;
+		case SMOKE_EVENT_WAIT_UNTIL:
+			if (held_count > 0) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: wait_until at_ms=%d crosses %d explicit input hold(s); use a bounded wait assist",
+					ev->at_ms, held_count);
+				return 0;
+			}
+			break;
+		default:
+			break;
+		}
+	}
+	return 1;
 }
 
 static s32 smokeParseJson(const char *src)
@@ -786,6 +1215,12 @@ static s32 smokeParseJson(const char *src)
     p.src = src;
     p.pos = src;
     p.cur.type = JT_NONE;
+
+	if (!smokeFixtureJsonValid(src)) {
+		sysLogPrintf(LOG_ERROR,
+			"SMOKE: test JSON is malformed, truncated, or has trailing data");
+		return 0;
+	}
 
     JTok t = j_next(&p);
     if (t.type != JT_LBRACE) {
@@ -818,7 +1253,12 @@ static s32 smokeParseJson(const char *src)
             s_State.jump_logging = (s32)j_tok_int(&t);
         } else if (!strcmp(field, "timeout_seconds")) {
             s64 secs = j_tok_int(&t);
-            if (secs <= 0) secs = (s64)(SMOKE_DEFAULT_TIMEOUT_MS / 1000);
+            if (secs <= 0) {
+                sysLogPrintf(LOG_ERROR,
+                    "SMOKE: timeout_seconds must be positive (value=%lld)",
+                    (long long)secs);
+                return 0;
+            }
             if (secs > 3600) secs = 3600;
             s_State.timeout_ms = (s32)(secs * 1000);
         } else if (!strcmp(field, "input_sequence")) {
@@ -827,21 +1267,28 @@ static s32 smokeParseJson(const char *src)
                 while (t.type != JT_RBRACKET && t.type != JT_EOF) {
                     if (t.type == JT_LBRACE) {
                         if (s_State.event_count >= SMOKE_MAX_EVENTS) {
-                            sysLogPrintf(LOG_WARNING, "SMOKE: event cap reached (%d), dropping the rest",
+                            sysLogPrintf(LOG_ERROR, "SMOKE: event cap reached (%d); refusing a partial timeline",
                                 SMOKE_MAX_EVENTS);
-                            j_skip_value(&p);
+                            return 0;
                         } else {
                             SmokeEvent *ev = &s_State.events[s_State.event_count];
-                            if (smokeParseEvent(&p, ev)) {
-                                s_State.event_count++;
+                            if (!smokeParseEvent(&p, ev)) {
+                                return 0;
                             }
+                            s_State.event_count++;
                         }
+					} else {
+						sysLogPrintf(LOG_ERROR,
+							"SMOKE: input_sequence entries must be objects");
+						return 0;
                     }
                     t = j_next(&p);
                     if (t.type == JT_COMMA) t = j_next(&p);
                 }
-            } else {
-                j_skip_value(&p);
+			} else {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: input_sequence must be an array");
+				return 0;
             }
         } else if (!strcmp(field, "screenshots")) {
             /* Standard scenario screenshots -> in-game glReadPixels events. */
@@ -853,18 +1300,35 @@ static s32 smokeParseJson(const char *src)
                         ordinal++;
                         if (s_State.event_count < SMOKE_MAX_EVENTS) {
                             SmokeEvent *ev = &s_State.events[s_State.event_count];
-                            if (smokeBuildScreenshotEvent(&p, ev, ordinal)) {
+                            s32 screenshot_result = smokeBuildScreenshotEvent(
+                                &p, ev, ordinal);
+                            if (screenshot_result < 0) {
+                                return 0;
+                            }
+                            if (screenshot_result > 0) {
                                 s_State.event_count++;
                             }
                         } else {
+                            if (s_State.screenshot_dir[0]) {
+                                sysLogPrintf(LOG_ERROR,
+                                    "SMOKE: event cap reached (%d); refusing a partial screenshot timeline",
+                                    SMOKE_MAX_EVENTS);
+                                return 0;
+                            }
                             j_skip_value(&p);
                         }
+					} else {
+						sysLogPrintf(LOG_ERROR,
+							"SMOKE: screenshot entries must be objects");
+						return 0;
                     }
                     t = j_next(&p);
                     if (t.type == JT_COMMA) t = j_next(&p);
                 }
-            } else {
-                j_skip_value(&p);
+			} else {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: screenshots must be an array");
+				return 0;
             }
         } else {
             /* assertions / description / tags / boot_args / paths_of_interest
@@ -887,6 +1351,35 @@ static s32 smokeParseJson(const char *src)
             k--;
         }
         s_State.events[k + 1] = key;
+    }
+	if (!smokeValidateWaitHoldSchedule()) {
+		return 0;
+	}
+
+    /* wait_until pauses script time while the real watchdog continues. The
+     * sum of every bounded pause plus the latest virtual event is therefore
+     * the fixture's worst-case real-time schedule. Require strict headroom so
+     * a scripted success can never share the watchdog's failure boundary. */
+    u64 wait_budget_ms = 0;
+    u64 latest_event_ms = 0;
+    for (s32 i = 0; i < s_State.event_count; i++) {
+        const SmokeEvent *ev = &s_State.events[i];
+        if ((u64)ev->at_ms > latest_event_ms) {
+            latest_event_ms = (u64)ev->at_ms;
+        }
+        if (ev->type == SMOKE_EVENT_WAIT_UNTIL) {
+            wait_budget_ms += (u64)ev->wait_timeout_ms;
+        }
+    }
+    if (wait_budget_ms > 0
+            && latest_event_ms + wait_budget_ms >= (u64)s_State.timeout_ms) {
+        sysLogPrintf(LOG_ERROR,
+            "SMOKE: timeout_ms=%d must exceed schedule bound=%llu (latest_event_ms=%llu wait_budget_ms=%llu)",
+            s_State.timeout_ms,
+            (unsigned long long)(latest_event_ms + wait_budget_ms),
+            (unsigned long long)latest_event_ms,
+            (unsigned long long)wait_budget_ms);
+        return 0;
     }
 
     return 1;
@@ -1055,12 +1548,14 @@ int smokeHarnessIsActive(void)
 
 /* Debug.JumpLogging gate (defined in port/src/main.c, default 0). The JUMP: and
  * CAPSULE: physics diagnostic markers honor this flag so normal play does not
- * flood the log; a running smoke is their intended consumer (see src/lib/capsule.c
- * comment), so smokeHarnessInit enables it below. */
+ * flood the log. Each smoke fixture owns the complete on/off assignment below
+ * so persisted user settings cannot leak diagnostics into another test. */
 extern s32 g_JumpLoggingEnabled;
 
 int smokeHarnessInit(void)
 {
+    const SceneFireCounts *scene_counts;
+
     memset(&s_State, 0, sizeof(s_State));
 
     const char *path = sysArgGetString("--smoke");
@@ -1111,18 +1606,26 @@ int smokeHarnessInit(void)
 
     s_State.active = 1;
     s_State.next_event_idx = 0;
+    s_State.timeline_pause_ms = 0;
+    s_State.wait_started_ticks_ms = 0;
+    s_State.waiting_event_idx = -1;
+    memset(&s_State.wait_transition, 0, sizeof(s_State.wait_transition));
+    s_State.wait_assist_injected = 0;
+    scene_counts = sceneInstrumentGet();
+    s_State.observed_stage_ready_count = scene_counts
+        ? scene_counts->fire_count[SCENE_EVENT_STAGE_READY] : 0;
+    s_State.observed_stage_teardown_count = scene_counts
+        ? scene_counts->fire_count[SCENE_EVENT_STAGE_TEARDOWN] : 0;
+    s_State.ready_stage_num = -1;
+    s_State.ready_stage_generation = 0;
     s_State.events_fired = 0;
     s_State.start_ticks_ms = SDL_GetTicks();
 
-    /* Per-test opt-in: enable the JUMP:/CAPSULE: physics diagnostic markers,
-     * which are gated behind Debug.JumpLogging (default 0 so normal play does
-     * not flood the log). A test sets "jump_logging": 1 when it asserts on those
-     * markers -- e.g. wall_jump_capsule_smoke (c038) needs "CAPSULE: sweep
-     * enter/result", which capsule.c only emits when this flag is set. Kept
-     * per-test on purpose: a swarm smoke (297 bots sweeping) would otherwise
-     * flood the log. Process exits at smoke end, so no restore is needed. */
-    if (s_State.jump_logging) {
-        g_JumpLoggingEnabled = 1;
+    /* Per-test ownership: assign both states so a persisted Debug.JumpLogging
+     * value cannot leak into a fixture that did not opt in. */
+    g_JumpLoggingEnabled = s_State.jump_logging ? 1 : 0;
+
+    if (g_JumpLoggingEnabled) {
         sysLogPrintf(LOG_NOTE, "SMOKE: jump_logging enabled (JUMP:/CAPSULE: markers on)");
     }
 
@@ -1162,12 +1665,357 @@ static void smokeCatalogRecoveryProbe(const char *asset_id, s32 at_ms)
     if (load_result) catalogReleaseTypedAsset(type, asset_id);
 }
 
+static void smokeObserveStageReadyEpoch(void)
+{
+    const SceneFireCounts *scene_counts = sceneInstrumentGet();
+    s32 ready_count = scene_counts
+        ? scene_counts->fire_count[SCENE_EVENT_STAGE_READY] : 0;
+    s32 teardown_count = scene_counts
+        ? scene_counts->fire_count[SCENE_EVENT_STAGE_TEARDOWN] : 0;
+
+    if (teardown_count != s_State.observed_stage_teardown_count) {
+        sysLogPrintf(teardown_count < s_State.observed_stage_teardown_count
+                ? LOG_ERROR : LOG_NOTE,
+            "SMOKE.READINESS: stage teardown observed old=%d new=%d; clearing epoch",
+            s_State.observed_stage_teardown_count, teardown_count);
+        s_State.observed_stage_teardown_count = teardown_count;
+        s_State.ready_stage_num = -1;
+    }
+
+    if (ready_count < s_State.observed_stage_ready_count) {
+        sysLogPrintf(LOG_ERROR,
+            "SMOKE.READINESS: stage-ready counter regressed old=%d new=%d; clearing epoch",
+            s_State.observed_stage_ready_count, ready_count);
+        s_State.observed_stage_ready_count = ready_count;
+        s_State.ready_stage_num = -1;
+        return;
+    }
+    if (ready_count == s_State.observed_stage_ready_count) {
+        return;
+    }
+
+    s_State.observed_stage_ready_count = ready_count;
+    s_State.ready_stage_num = g_StageNum;
+    s_State.ready_stage_generation++;
+    sysLogPrintf(LOG_NOTE,
+        "SMOKE.READINESS: stage-ready epoch generation=%u stage=0x%02x event_count=%d",
+        s_State.ready_stage_generation, s_State.ready_stage_num, ready_count);
+}
+
+static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
+{
+    smoke_readiness_facts_t facts;
+    const s32 local_player_num = playermgrGetLocalPlayerNum();
+    struct player *local_player = local_player_num >= 0
+            && local_player_num < MAX_PLAYERS
+        ? g_Vars.players[local_player_num] : NULL;
+    LayerType scene_layer = sceneCurrentLayer();
+
+    memset(&facts, 0, sizeof(facts));
+    facts.network_active = g_NetMode == NETMODE_SERVER
+        || g_NetMode == NETMODE_CLIENT;
+    facts.network_listen_ready = g_NetMode == NETMODE_SERVER
+        && netGetHost() != NULL;
+    facts.network_reconnect_available = netClientReconnectAvailable();
+    facts.local_client_in_game = g_NetLocalClient
+        && g_NetLocalClient->state == CLSTATE_GAME;
+    facts.gameplay_stage = g_StageNum == g_Vars.stagenum
+        && g_StageNum != STAGE_TITLE
+        && g_StageNum != STAGE_CITRAINING;
+    facts.stage_ready_epoch = s_State.ready_stage_generation > 0
+        && s_State.ready_stage_num == g_StageNum;
+    facts.multiplayer_running = g_Vars.normmplayerisrunning != 0;
+    facts.local_player_present = local_player
+        && g_NetLocalClient
+        && g_NetLocalClient->player == local_player;
+    facts.local_player_spawned = local_player && local_player->prop;
+    facts.stage_tick_active = g_Vars.tickmode == TICKMODE_CUTSCENE
+        || g_Vars.tickmode == TICKMODE_NORMAL;
+    facts.scene_cutscene_layer = scene_layer == LAYER_CUTSCENE;
+    facts.scene_gameplay_layer = scene_layer == LAYER_GAMEPLAY;
+	facts.cutscene_in_progress = local_player_num >= 0
+		&& playerCutsceneInProgress(local_player_num);
+	facts.cutscene_frame_ready = local_player_num >= 0
+		&& playerCutsceneCurTotalFrame60f(local_player_num) > 30.0f;
+	/* A network skip is not production-ready until the listen authority has
+	 * published the nonzero generation that the CLC must carry. */
+	facts.cutscene_authority_ready = playerCutsceneGeneration() != 0;
+    facts.gameplay_tick_normal = g_Vars.tickmode == TICKMODE_NORMAL;
+    facts.gameplay_updates_active = g_Vars.lvupdate240 > 0;
+	facts.player_in_cutscene = local_player_num >= 0
+		&& playerInCutscene(local_player_num);
+	facts.player_has_control = local_player_num >= 0
+		&& g_PlayersWithControl[local_player_num] != 0;
+    facts.player_unpaused = local_player
+        && local_player->pausemode == PAUSEMODE_UNPAUSED;
+    facts.player_alive = local_player && !local_player->isdead;
+    facts.player_walk_mode = local_player
+        && local_player->bondmovemode == MOVEMODE_WALK;
+    facts.endscreen = g_MainIsEndscreen != 0;
+    return facts;
+}
+
+static void smokeLogReadinessWait(s32 level, const char *status,
+        const SmokeEvent *ev, u32 waited_ms, u32 real_elapsed_ms,
+		u32 stable_elapsed_ms, const smoke_readiness_facts_t *facts)
+{
+    sysLogPrintf(level,
+		"SMOKE.WAIT: %s condition=%s at_ms=%d timeout_ms=%u waited_ms=%u real_elapsed_ms=%u stable_ms=%u stable_elapsed_ms=%u assist_action=%d assist_condition=%s assist_hold_ms=%u facts=net:%d/listen:%d/reconnect:%d/client_game:%d/stage:%d/ready:%d/mp:%d/player:%d/spawn:%d/tick:%d/layer_cut:%d/layer_game:%d/cut:%d/cut_progress:%d/cut_frame:%d/cut_auth:%d/normal:%d/update:%d/control:%d/unpaused:%d/alive:%d/walk:%d/end:%d",
+        status, smokeReadinessConditionName(ev->readiness_condition), ev->at_ms,
+        ev->wait_timeout_ms, waited_ms, real_elapsed_ms, ev->stable_ms,
+		stable_elapsed_ms,
+        ev->assist_action_id,
+        smokeReadinessConditionName(ev->assist_condition), ev->assist_hold_ms,
+		facts->network_active, facts->network_listen_ready,
+		facts->network_reconnect_available,
+		facts->local_client_in_game,
+        facts->gameplay_stage, facts->stage_ready_epoch,
+        facts->multiplayer_running,
+        facts->local_player_present, facts->local_player_spawned,
+        facts->stage_tick_active, facts->scene_cutscene_layer,
+        facts->scene_gameplay_layer, facts->player_in_cutscene,
+		facts->cutscene_in_progress, facts->cutscene_frame_ready,
+		facts->cutscene_authority_ready,
+        facts->gameplay_tick_normal, facts->gameplay_updates_active,
+        facts->player_has_control, facts->player_unpaused,
+        facts->player_alive, facts->player_walk_mode,
+        facts->endscreen);
+}
+
+static s32 smokeHasPendingTap(void)
+{
+    for (s32 i = 0; i < s_State.next_event_idx; i++) {
+        const SmokeEvent *ev = &s_State.events[i];
+        if ((ev->type == SMOKE_EVENT_KEY_TAP
+                || ev->type == SMOKE_EVENT_ACTION_TAP
+                || ev->type == SMOKE_EVENT_MOUSE_TAP)
+                && ev->released == 1) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static smoke_transition_config_t smokeWaitTransitionConfig(
+        const SmokeEvent *ev)
+{
+    smoke_transition_config_t config;
+    memset(&config, 0, sizeof(config));
+    config.timeout_ms = ev->wait_timeout_ms;
+    config.stable_ms = ev->stable_ms;
+    config.assist_enabled = ev->assist_action_id >= 0;
+    config.assist_hold_ms = ev->assist_hold_ms;
+    return config;
+}
+
+static s32 smokePressWaitAssist(const SmokeEvent *ev, u32 waited_ms)
+{
+    if (s_State.wait_assist_injected) {
+        sysLogPrintf(LOG_ERROR,
+            "SMOKE.WAIT.ASSIST: action=%d condition=%s event=press rejected=already_injected at_ms=%d waited_ms=%u",
+            ev->assist_action_id,
+            smokeReadinessConditionName(ev->assist_condition), ev->at_ms,
+            waited_ms);
+        return 0;
+    }
+    if (!actionmapInjectStateForSmoke(0, ev->assist_action_id, 1)) {
+        sysLogPrintf(LOG_ERROR,
+            "SMOKE.WAIT.ASSIST: action=%d condition=%s event=press rejected=actionmap at_ms=%d waited_ms=%u",
+            ev->assist_action_id,
+            smokeReadinessConditionName(ev->assist_condition), ev->at_ms,
+            waited_ms);
+        return 0;
+    }
+	s_State.wait_assist_injected = 1;
+	s_State.wait_assist_press_count++;
+    sysLogPrintf(LOG_NOTE,
+        "SMOKE.WAIT.ASSIST: action=%d condition=%s event=press at_ms=%d waited_ms=%u hold_ms=%u",
+        ev->assist_action_id,
+        smokeReadinessConditionName(ev->assist_condition), ev->at_ms,
+        waited_ms, ev->assist_hold_ms);
+    return 1;
+}
+
+static s32 smokeReleaseWaitAssist(const SmokeEvent *ev, const char *reason,
+        u32 waited_ms)
+{
+    if (!s_State.wait_assist_injected) {
+        sysLogPrintf(LOG_ERROR,
+            "SMOKE.WAIT.ASSIST: action=%d condition=%s event=release rejected=not_injected reason=%s at_ms=%d waited_ms=%u",
+            ev->assist_action_id,
+            smokeReadinessConditionName(ev->assist_condition), reason,
+            ev->at_ms, waited_ms);
+        return 0;
+    }
+    if (!actionmapInjectStateForSmoke(0, ev->assist_action_id, 0)) {
+        sysLogPrintf(LOG_ERROR,
+            "SMOKE.WAIT.ASSIST: action=%d condition=%s event=release rejected=actionmap reason=%s at_ms=%d waited_ms=%u",
+            ev->assist_action_id,
+            smokeReadinessConditionName(ev->assist_condition), reason,
+            ev->at_ms, waited_ms);
+        return 0;
+    }
+    s_State.wait_assist_injected = 0;
+	s_State.wait_assist_release_count++;
+    smokeTransitionForceRelease(&s_State.wait_transition);
+    sysLogPrintf(LOG_NOTE,
+        "SMOKE.WAIT.ASSIST: action=%d condition=%s event=release reason=%s at_ms=%d waited_ms=%u",
+        ev->assist_action_id,
+        smokeReadinessConditionName(ev->assist_condition), reason,
+        ev->at_ms, waited_ms);
+    return 1;
+}
+
+/* Returns 1 when satisfied, 0 while waiting, and -1 after a fail-closed exit. */
+static s32 smokeTickReadinessWait(SmokeEvent *ev, u32 now,
+        u32 real_elapsed_ms)
+{
+    smoke_readiness_facts_t facts = smokeCaptureReadinessFacts();
+    smoke_transition_config_t config = smokeWaitTransitionConfig(ev);
+    smoke_transition_input_t input;
+    smoke_transition_plan_t plan;
+    s32 first_tick = s_State.waiting_event_idx != s_State.next_event_idx;
+
+    if (first_tick) {
+        if (s_State.waiting_event_idx >= 0) {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE.WAIT: overlapping wait events active=%d next=%d",
+                s_State.waiting_event_idx, s_State.next_event_idx);
+            smokeHarnessExit(1, "wait_overlap");
+            return -1;
+        }
+        s_State.waiting_event_idx = s_State.next_event_idx;
+        s_State.wait_started_ticks_ms = now;
+        smokeTransitionInit(&s_State.wait_transition, &config, now);
+        s_State.wait_assist_injected = 0;
+		s_State.wait_assist_press_count = 0;
+		s_State.wait_assist_release_count = 0;
+        smokeLogReadinessWait(LOG_NOTE, "begin", ev, 0, real_elapsed_ms,
+			0, &facts);
+    }
+
+    u32 waited_ms = now - s_State.wait_started_ticks_ms;
+    /* Pausing virtual time while a one-frame tap remains down would turn it
+     * into an unbounded hold. Reject this even when the condition is already
+     * true so a malformed fixture cannot hide the pending ownership leak. */
+    if (first_tick && smokeHasPendingTap()) {
+        smokeLogReadinessWait(LOG_ERROR, "pending_tap", ev, waited_ms,
+			real_elapsed_ms, 0, &facts);
+        smokeHarnessExit(1, "wait_pending_tap");
+        return -1;
+    }
+
+    memset(&input, 0, sizeof(input));
+    input.target_met = smokeReadinessConditionMet(ev->readiness_condition,
+        &facts);
+    if (ev->assist_action_id >= 0) {
+        input.assist_condition_met = smokeReadinessConditionMet(
+            ev->assist_condition, &facts);
+    }
+    plan = smokeTransitionTick(&s_State.wait_transition, &config, &input,
+        now);
+    if (plan.invalid) {
+        smokeLogReadinessWait(LOG_ERROR, "invalid_policy", ev, waited_ms,
+			real_elapsed_ms, 0, &facts);
+        smokeHarnessExit(1, "wait_policy_invalid");
+        return -1;
+    }
+
+    if (plan.stability_started) {
+        sysLogPrintf(LOG_NOTE,
+            "SMOKE.WAIT.STABLE: condition=%s event=begin stable_ms=%u at_ms=%d waited_ms=%u",
+            smokeReadinessConditionName(ev->readiness_condition),
+            ev->stable_ms, ev->at_ms, waited_ms);
+    }
+    if (plan.stability_reset) {
+        sysLogPrintf(LOG_NOTE,
+            "SMOKE.WAIT.STABLE: condition=%s event=reset stable_ms=%u at_ms=%d waited_ms=%u",
+            smokeReadinessConditionName(ev->readiness_condition),
+            ev->stable_ms, ev->at_ms, waited_ms);
+    }
+
+    /* The policy changes ownership state first, then the harness projects that
+     * plan through the production action map. Releases always precede terminal
+     * timeout/success handling, so no exit can strand a held assist. */
+    if (plan.release_assist
+            && !smokeReleaseWaitAssist(ev,
+                plan.timed_out ? "wait_timeout" : "hold_elapsed",
+                waited_ms)) {
+        smokeHarnessExit(1, "wait_assist_release_failed");
+        return -1;
+    }
+    if (plan.press_assist && !smokePressWaitAssist(ev, waited_ms)) {
+        smokeHarnessExit(1, "wait_assist_press_failed");
+        return -1;
+    }
+    if (plan.timed_out) {
+        smokeLogReadinessWait(LOG_ERROR, "timeout", ev, waited_ms,
+			real_elapsed_ms, plan.stable_elapsed_ms, &facts);
+        smokeHarnessExit(1, "wait_condition_timeout");
+        return -1;
+    }
+
+    if (plan.satisfied) {
+        if (s_State.wait_assist_injected) {
+            smokeLogReadinessWait(LOG_ERROR, "held_assist", ev, waited_ms,
+				real_elapsed_ms, plan.stable_elapsed_ms, &facts);
+            smokeHarnessExit(1, "wait_assist_held_on_success");
+            return -1;
+        }
+        if (ev->assist_action_id >= 0) {
+			s32 assist_used = smokeTransitionAssistWasUsed(
+				&s_State.wait_transition);
+			if ((assist_used && (s_State.wait_assist_press_count != 1
+						|| s_State.wait_assist_release_count != 1))
+					|| (!assist_used && (s_State.wait_assist_press_count != 0
+						|| s_State.wait_assist_release_count != 0))) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE.WAIT.ASSIST: action=%d condition=%s rejected=ownership_balance press_count=%d release_count=%d at_ms=%d waited_ms=%u",
+					ev->assist_action_id,
+					smokeReadinessConditionName(ev->assist_condition),
+					s_State.wait_assist_press_count,
+					s_State.wait_assist_release_count, ev->at_ms, waited_ms);
+				smokeHarnessExit(1, "wait_assist_balance_invalid");
+				return -1;
+			}
+            sysLogPrintf(LOG_NOTE,
+				"SMOKE.WAIT.ASSIST: action=%d condition=%s outcome=%s at_ms=%d waited_ms=%u press_count=%d release_count=%d",
+                ev->assist_action_id,
+                smokeReadinessConditionName(ev->assist_condition),
+				assist_used ? "used" : "not_needed", ev->at_ms, waited_ms,
+				s_State.wait_assist_press_count,
+				s_State.wait_assist_release_count);
+        }
+        s_State.timeline_pause_ms += waited_ms;
+        s_State.waiting_event_idx = -1;
+        s_State.wait_started_ticks_ms = 0;
+        memset(&s_State.wait_transition, 0, sizeof(s_State.wait_transition));
+        smokeLogReadinessWait(LOG_NOTE, "satisfied", ev, waited_ms,
+			real_elapsed_ms, plan.stable_elapsed_ms, &facts);
+        return 1;
+    }
+    return 0;
+}
+
 void smokeHarnessTick(void)
 {
     if (!s_State.active || s_State.exited) return;
 
     u32 now = SDL_GetTicks();
-    s32 elapsed = (s32)(now - s_State.start_ticks_ms);
+    u32 real_elapsed_ms = now - s_State.start_ticks_ms;
+
+    /* The real watchdog has priority over observation, releases, readiness,
+     * and scripted events. At the exact deadline, failure is the only legal
+     * outcome; in particular, an exit event cannot win this tick. */
+    if (real_elapsed_ms >= (u32)s_State.timeout_ms) {
+        smokeHarnessExit(1, "timeout");
+        return;
+    }
+
+    smokeObserveStageReadyEpoch();
+    u32 script_elapsed_ms = real_elapsed_ms >= s_State.timeline_pause_ms
+        ? real_elapsed_ms - s_State.timeline_pause_ms : 0;
+    s32 elapsed = (s32)script_elapsed_ms;
 
     /* Pending-release sweep: scan all fired tap events whose release_at_ms
      * has come due.  Since events are dispatched in JSON order, we keep
@@ -1201,6 +2049,23 @@ void smokeHarnessTick(void)
     while (s_State.next_event_idx < s_State.event_count) {
         SmokeEvent *ev = &s_State.events[s_State.next_event_idx];
         if (ev->at_ms > elapsed) break;
+
+        if (ev->type == SMOKE_EVENT_WAIT_UNTIL) {
+            s32 wait_result = smokeTickReadinessWait(ev, now,
+                real_elapsed_ms);
+            if (wait_result < 0) {
+                return;
+            }
+            if (wait_result == 0) {
+                break;
+            }
+            s_State.next_event_idx++;
+            s_State.events_fired++;
+            script_elapsed_ms = real_elapsed_ms >= s_State.timeline_pause_ms
+                ? real_elapsed_ms - s_State.timeline_pause_ms : 0;
+            elapsed = (s32)script_elapsed_ms;
+            continue;
+        }
 
         switch (ev->type) {
         case SMOKE_EVENT_WAIT:
@@ -1307,6 +2172,39 @@ void smokeHarnessTick(void)
         case SMOKE_EVENT_CATALOG_RECOVERY_PROBE:
             smokeCatalogRecoveryProbe(ev->path, ev->at_ms);
             break;
+        case SMOKE_EVENT_NETWORK_TIMEOUT_CLIENT:
+        {
+			struct netclient *target = ev->client_id >= 0
+				&& ev->client_id < NET_MAX_CLIENTS
+				? &g_NetClients[ev->client_id] : NULL;
+			if (g_NetMode != NETMODE_SERVER || !target || !target->peer
+					|| target->state < CLSTATE_GAME || !target->stage_ready) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE.NETWORK: timeout_client rejected client=%d mode=%d state=%d peer=%d stage_ready=%d at_ms=%d",
+					ev->client_id, g_NetMode, target ? (s32)target->state : -1,
+					target && target->peer, target && target->stage_ready,
+					ev->at_ms);
+				smokeHarnessExit(1, "network_timeout_client_failed");
+				return;
+			}
+			sysLogPrintf(LOG_NOTE,
+				"SMOKE.NETWORK: timeout_client client=%d state=%u stage_ready=1 at_ms=%d production_path=1",
+				ev->client_id, (unsigned)target->state, ev->at_ms);
+			netServerKick(target, DISCONNECT_TIMEOUT);
+			break;
+		}
+        case SMOKE_EVENT_NETWORK_RECONNECT:
+		{
+			const s32 rc = netClientReconnect();
+			sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_ERROR,
+				"SMOKE.NETWORK: reconnect rc=%d at_ms=%d production_path=1",
+				rc, ev->at_ms);
+			if (rc != 0) {
+				smokeHarnessExit(1, "network_reconnect_failed");
+				return;
+			}
+			break;
+		}
         case SMOKE_EVENT_SCREENSHOT:
             sysLogPrintf(LOG_NOTE, "SMOKE: screenshot at_ms=%d -> %s", ev->at_ms, ev->path);
             gfxRequestSmokeScreenshot(ev->path);
@@ -1334,21 +2232,37 @@ void smokeHarnessTick(void)
         s_State.events_fired++;
     }
 
-    if (elapsed >= s_State.timeout_ms) {
-        smokeHarnessExit(1, "timeout");
-    }
 }
 
 void smokeHarnessExit(int code, const char *reason)
 {
+    u32 now;
+    s32 elapsed;
+
     if (!s_State.active) {
         exit(code);
     }
     if (s_State.exited) return;
-    s_State.exited = 1;
 
-    u32 now = SDL_GetTicks();
-    s32 elapsed = (s32)(now - s_State.start_ticks_ms);
+    now = SDL_GetTicks();
+    elapsed = (s32)(now - s_State.start_ticks_ms);
+    /* The real watchdog can preempt the wait policy before its next tick.
+     * Release actual runtime ownership here as a final idempotent backstop. */
+    if (s_State.wait_assist_injected) {
+        if (s_State.waiting_event_idx < 0
+                || s_State.waiting_event_idx >= s_State.event_count
+                || !smokeReleaseWaitAssist(
+                    &s_State.events[s_State.waiting_event_idx],
+                    reason ? reason : "harness_exit",
+                    now - s_State.wait_started_ticks_ms)) {
+            sysLogPrintf(LOG_ERROR,
+                "SMOKE.WAIT.ASSIST: terminal cleanup failed reason=%s",
+                reason ? reason : "unknown");
+            code = 1;
+            reason = "wait_assist_cleanup_failed";
+        }
+    }
+    s_State.exited = 1;
 
     sysLogPrintf(code == 0 ? LOG_NOTE : LOG_WARNING,
         "SMOKE: result=%s scenario=%s elapsed_ms=%d events_fired=%d/%d code=%d",

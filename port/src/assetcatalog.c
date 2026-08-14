@@ -1072,9 +1072,8 @@ asset_entry_t *assetCatalogRegisterSfx(const char *id)
  * Public API: Resolution
  * ======================================================================== */
 
-/* Engine Phase 4: locked-body resolve helper.  Caller must hold
- * s_CatalogMutex.  Public wrappers below acquire/release the lock. */
-static const asset_entry_t *s_resolveLocked(const char *id)
+/* Exact locked-body lookup. Caller must hold s_CatalogMutex. */
+static const asset_entry_t *s_resolveAnyLocked(const char *id)
 {
     if (id == NULL || s_HashTable == NULL) {
         return NULL;
@@ -1088,17 +1087,24 @@ static const asset_entry_t *s_resolveLocked(const char *id)
         return NULL;  /* not found */
     }
 
-    /* Verify the entry exists and is enabled */
+    /* Verify the exact row still exists. Enabled state is caller policy. */
     if (pool_idx < 0 || pool_idx >= s_EntryPoolSize) {
         return NULL;
     }
 
     asset_entry_t *entry = &s_EntryPool[pool_idx];
-    if (!entry->occupied || !entry->enabled) {
+    if (!entry->occupied) {
         return NULL;
     }
 
     return entry;
+}
+
+/* Enabled-only lookup used by ordinary gameplay resolution. */
+static const asset_entry_t *s_resolveLocked(const char *id)
+{
+    const asset_entry_t *entry = s_resolveAnyLocked(id);
+    return entry && entry->enabled ? entry : NULL;
 }
 
 const asset_entry_t *assetCatalogResolve(const char *id)
@@ -1109,22 +1115,18 @@ const asset_entry_t *assetCatalogResolve(const char *id)
     return entry;
 }
 
+const asset_entry_t *assetCatalogResolveAny(const char *id)
+{
+    CATALOG_LOCK();
+    const asset_entry_t *entry = s_resolveAnyLocked(id);
+    CATALOG_UNLOCK();
+    return entry;
+}
+
 asset_entry_t *assetCatalogGetMutable(const char *id)
 {
     CATALOG_LOCK();
-    asset_entry_t *result = NULL;
-
-    if (id != NULL && s_HashTable != NULL) {
-        u32 id_hash = fnv1a(id);
-        s32 pool_idx = 0;
-        s32 slot = findSlot(id_hash, id, &pool_idx);
-
-        if (slot >= 0 && pool_idx != SENTINEL
-                && pool_idx >= 0 && pool_idx < s_EntryPoolSize) {
-            asset_entry_t *entry = &s_EntryPool[pool_idx];
-            if (entry->occupied) result = entry;
-        }
-    }
+    asset_entry_t *result = (asset_entry_t *)s_resolveAnyLocked(id);
     CATALOG_UNLOCK();
     return result;
 }

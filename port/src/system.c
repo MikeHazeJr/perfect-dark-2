@@ -58,6 +58,7 @@ __attribute__((dllexport)) u32 AmdPowerXpressRequestHighPerformance = 1;
 #define LOG_ROOT_DIR "logs"
 #define LOG_CLIENT_DIR "logs/game client"
 #define USEC_IN_SEC 1000000ULL
+#define WEAPON_DIAG_LOG_BUDGET 2048
 
 static u64 startTick = 0;
 static char logPath[2048];
@@ -72,6 +73,7 @@ static const char **sysArgv;
 static u32 s_LogChannelMask = LOG_CH_ALL;
 static s32 s_LogVerbose = 0;
 static s32 s_WeaponDiagLogging = -1;
+static SDL_atomic_t s_WeaponDiagLogCount;
 
 const char *sysLogChannelNames[LOG_CH_COUNT] = {
 	"Network", "Game", "Combat", "Audio", "Menu", "Save", "Mods", "System", "Match",
@@ -122,7 +124,6 @@ static s32 sysWeaponDiagLoggingEnabled(void)
 	if (s_WeaponDiagLogging < 0) {
 		s_WeaponDiagLogging =
 			sysArgCheck("--debug-weapon-diag")
-			|| sysArgCheck("--debug-force-first-person")
 			|| sysArgCheck("--debug-generated-mesh-render-audit");
 	}
 
@@ -522,9 +523,22 @@ void sysLogPrintf(s32 level, const char *fmt, ...)
 
 	const char *pfx = (lvl < (s32)(sizeof(prefix) / sizeof(prefix[0]))) ? prefix[lvl] : "";
 
-	if (strncmp(logmsg, "LOG.WPN.DIAG:", 13) == 0
-	    && !sysWeaponDiagLoggingEnabled()) {
-		return;
+	if (strncmp(logmsg, "LOG.WPN.DIAG:", 13) == 0) {
+		s32 prior_count;
+
+		if (!sysWeaponDiagLoggingEnabled()) {
+			return;
+		}
+
+		prior_count = SDL_AtomicAdd(&s_WeaponDiagLogCount, 1);
+		if (prior_count > WEAPON_DIAG_LOG_BUDGET) {
+			return;
+		}
+		if (prior_count == WEAPON_DIAG_LOG_BUDGET) {
+			snprintf(logmsg, sizeof(logmsg),
+				"LOG.WPN.DIAG: output budget exhausted after %d lines; further weapon diagnostics suppressed",
+				WEAPON_DIAG_LOG_BUDGET);
+		}
 	}
 
 	/* --- Verbose filter ---

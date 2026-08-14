@@ -801,11 +801,25 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/main.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_smoke.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_netbuf.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_net_client_settings_wire.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/net_client_settings_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_net_reconnect.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/net_reconnect.c
+  ${CMAKE_SOURCE_DIR}/tests/test_net_cutscene_authority.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/net_cutscene_authority.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_bandwidth.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/net_bandwidth.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_match_route.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/net_match_route.c
+  ${CMAKE_SOURCE_DIR}/tests/test_net_manifest_type.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/net_manifest_type.c
+  ${CMAKE_SOURCE_DIR}/tests/test_combat_sim_verify.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/combat_sim_verify_parse.c
+  ${CMAKE_SOURCE_DIR}/tests/test_gdl_span.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/gdl_span.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_lifecycle_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_player_init_lifecycle_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_playermgr_transaction_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_stage_load_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_campaign_complete_hotkey.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_credits_button.cpp
@@ -830,6 +844,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_save_atomic.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_agent_profile_codec.cpp
   ${CMAKE_SOURCE_DIR}/port/src/agent_profile_codec.c
+  ${CMAKE_SOURCE_DIR}/tests/test_player_identity.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/player_identity.c
   # c074: the REAL save-migration chain framework under behavioural test.
   # Globals-free (static registry array only); its one external callee
   # sysLogPrintf is provided by tests/stubs.c.
@@ -879,6 +895,14 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_custom_controller_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_settings_input_tab_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_smoke_input_events_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_action_read_authority.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/action_read_authority.c
+  ${CMAKE_SOURCE_DIR}/tests/test_smoke_readiness.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/smoke_readiness.c
+  ${CMAKE_SOURCE_DIR}/tests/test_smoke_fixture_schema.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/smoke_fixture_schema.c
+  ${CMAKE_SOURCE_DIR}/tests/test_smoke_transition.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/smoke_transition.c
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_weapon_resolved.cpp
 
   # Cohort 1 (input universality and transitions, 2026-04-27): action map
@@ -1127,6 +1151,7 @@ target_include_directories(pd-tests PRIVATE
 )
 target_compile_definitions(pd-tests PRIVATE
 	VOICE_LOCALE_PURE_ONLY
+  PD_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
   PD_TESTS=1
   AVOID_UB=1
   _LANGUAGE_C=1

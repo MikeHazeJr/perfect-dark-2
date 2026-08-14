@@ -242,6 +242,8 @@ static MenuItemHandlerResult menuhandlerCoopConfigStart(s32 operation, struct me
 		if (g_NetMode == NETMODE_CLIENT && g_NetLocalClient &&
 		    g_NetLocalClient->state >= CLSTATE_LOBBY) {
 			u8 stagenum = (u8)g_SoloStages[g_NetCoopStageIndex].stagenum;
+			const char *stage_id =
+				g_SoloStages[g_NetCoopStageIndex].catalog_id;
 			u8 difficulty = (u8)g_NetCoopDiffIndex;
 			/* Determine game mode: co-op or counter-op.
 			 * Counter-op is selected when menuhandler sets g_NetGameMode = 2.
@@ -253,9 +255,19 @@ static MenuItemHandlerResult menuhandlerCoopConfigStart(s32 operation, struct me
 				g_NetCoopStageIndex, stagenum, difficulty, gamemode);
 
 			netbufStartWrite(&g_NetLocalClient->out);
-			netmsgClcLobbyStartWrite(&g_NetLocalClient->out,
-				gamemode, stagenum, difficulty, NET_NULL_CLIENT, 0, 0, 60, 0, 0, 0, 0, 0xFF);
-			netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
+			if (stage_id && stage_id[0]
+					&& netmsgClcLobbyStartWrite(&g_NetLocalClient->out,
+						gamemode, stage_id, difficulty,
+						gamemode == NETGAMEMODE_ANTI
+							? g_NetCounterOpClientId : NET_NULL_CLIENT,
+						0, 0, 60, 0, 0, 0, 0, 0xFF) == 0) {
+				netSend(g_NetLocalClient, NULL, true, NETCHAN_CONTROL);
+			} else {
+				netbufStartWrite(&g_NetLocalClient->out);
+				sysLogPrintf(LOG_ERROR,
+					"NET: co-op/Counter-Op lobby start preflight rejected");
+				return 0;
+			}
 
 			/* Pop the config dialog — we're done configuring */
 			menuPopDialog();

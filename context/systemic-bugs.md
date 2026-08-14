@@ -6,6 +6,127 @@
 
 ---
 
+## SP-46: Recovery watchdog substitutes for the owning menu close transaction
+
+**Severity:** HIGH - a stale menu-pool slot or input context can survive a
+dialog-stack transition, block the next open, or leave input routed to an owner
+that no longer exists; a watchdog may hide the missing lifecycle edge by
+bulk-releasing unrelated state.
+
+**Pattern:** The legacy dialog stack and the PC menu pool describe the same
+screen lifetime, but one path empties or bypasses the legacy stack without
+closing the pool-owned slot and input context. A later consistency check sees
+`legacy depth == 0 && active pool slots > 0` and repairs the symptom globally.
+That recovery is a safety net, not a successful close transaction.
+
+**2026-08-13 proof:** B-1076 reproduced the class in the accepted ordinary
+listen-host smoke. At match startup the legacy stack was empty while one
+non-optional `agent_select` legacy-stack slot remained active; the watchdog in
+`menu.c` logged and released it. The match then passed, so a green gameplay
+receipt alone would have hidden the menu ownership failure.
+
+**Audit:** For every non-optional legacy-stack pool slot, trace acquire, legacy
+push, input-context ownership, every pop/force-close/stage-change path, slot
+release, and context pop as one transaction. Forbid watchdog-repair diagnostics
+in lifecycle smokes and assert balanced acquire/release generations.
+
+```powershell
+rg -n "legacy-stack|menuPoolConsistencyCheck|menupoolAcquire|menupoolRelease|menuPush|menuPop" src/game port/src port/fast3d
+rg -n "agent_select|MENU: watchdog|MENUPOOL:" tools/smoke-verify context
+```
+
+**Rule:** The owner that ends a menu lifetime must close its dialog, pool slot,
+and input context together. A watchdog may prevent a stuck client, but it never
+counts as lifecycle success and must remain forbidden in release receipts.
+
+---
+
+## SP-45: A many-to-one transport token is inverted as one concrete source type
+
+**Severity:** CRITICAL - valid typed assets can be rejected or silently skipped
+after transport while an independent legacy/runtime path hides the lifecycle
+failure.
+
+**Pattern:** Several concrete source types deliberately share one compact wire or
+manifest category, but a consumer reconstructs a concrete type from that category
+alone. The inverse does not exist: `map|arena -> stage` and
+`audio|sfx|music -> audio` are many-to-one. Choosing the first historical type
+causes typed load/release calls to disagree with the exact catalog row.
+
+**2026-08-13 proof:** B-1075 found `netmanifest.c` emitting Felicity as
+`MANIFEST_TYPE_STAGE`, then reconstructing `ASSET_MAP` even though the exact row
+is `ASSET_ARENA`. Both ordinary-client logs reported
+`expected=1 actual=14` and skipped the manifest load, while another stage-load
+path let the match reach both spawns, scoring, end, and endscreen. The same
+inverse existed for the three audio families. `screenmfst.c` had the same latent
+reverse switch, although its two current registrations use only body, head, and
+language types. `manifestEnsureLoaded` currently has only body/head/model callers.
+The repaired frozen unit passes the strengthened ordinary two-client receipt
+`results-20260813T091851Z.json` at 56/56: both exact Felicity loads occur and no
+typed mismatch, load skip, transition rejection, or rollback appears.
+
+**Audit:** For every compact category, session ID, enum projection, or tagged
+union, write down whether the mapping is bijective. Search for reverse switches
+that return one concrete value for a category fed by multiple source values.
+Trace exact ID, concrete type, validation, load, retain, release, and disabled-row
+teardown together; a successful parallel runtime path is not proof that the
+typed lifecycle ran.
+
+```powershell
+rg -n "MANIFEST_TYPE_STAGE|MANIFEST_TYPE_AUDIO|ASSET_ARENA|ASSET_SFX|ASSET_MUSIC" port src tests
+rg -n "switch .*type|CatalogAssetType|catalogLoadTypedAsset|catalogReleaseTypedAsset" port/src
+```
+
+**Rule:** A lossy token is a category, never concrete identity. Resolve the exact
+catalog row by its authoritative string ID, preserve that row's concrete type,
+and validate that the concrete type maps forward to the received category.
+Generic tokens must additionally carry and match an explicit exact type tag.
+The transition then loads every entering root before releasing any outgoing
+root; on validation or load failure it releases newly acquired roots in reverse
+order and leaves the prior global manifest unchanged.
+
+---
+
+## SP-44: A parent-array extent is reused as a nested-field bound
+
+**Severity:** CRITICAL - an apparently local reset can overwrite adjacent
+authoritative state in every element it initializes.
+
+**Pattern:** Code iterates a fixed field inside one structure but uses
+`ARRAYCOUNT` or a capacity constant from the outer structure array. The loop is
+type-correct and often survives review because both dimensions are compile-time
+constants, yet every iteration beyond the child field writes into following
+members or the next object. A later initialization pass can hide the damage
+until a new fail-closed boundary validates the corrupted field.
+
+**2026-08-13 proof:** B-1072 found `mpPlayerSetDefaults` clearing
+`gunfuncs[6]` with `ARRAYCOUNT(g_PlayerConfigsArray)` (16). Index 6 zeroed the
+neutral handicap set earlier in the same function, and later indices reached
+padding and the client pointer. The v55 settings transaction rejected the
+ordinary client's resulting zero handicap before publishing its handshake.
+
+The bounded propagation audit found no second live overwrite in player,
+multiplayer, match, network, or reset paths. It confirmed the sibling
+`gunfuncs` loop uses the nested field's own count and that kill-count copies use
+matching destination extents. Runtime parent counts that index nested fields
+still require a dominating capacity proof during future changes.
+
+**Audit:** For every nested fixed-array write, derive the bound from the exact
+field being indexed or use `sizeof(field)` for a whole-field clear. Search for
+parent-array `ARRAYCOUNT` values inside per-element loops and compare every
+source/destination field extent in `memcpy`, `memset`, and manual loops.
+
+```powershell
+rg -n "ARRAYCOUNT\(g_[A-Za-z0-9_]+\)|sizeof\(g_[A-Za-z0-9_]+\)" src/game src/lib port/src
+rg -n "memset|memcpy|for \(" src/game/mplayer src/game/player.c port/src/net
+```
+
+**Rule:** A nested field owns its own bound. Never substitute the count of its
+parent collection, a sibling field, or a wire roster capacity, even when the
+current values happen to match.
+
+---
+
 ## SP-43: Partial source projection replaces an authoritative index domain
 
 **Severity**: CRITICAL - valid records can pass source admission and then index
@@ -1377,6 +1498,21 @@ member), final-owner cleanup, and growable dependency rollback. Apply this
 audit rule to every remaining public typed reference: prove both positive
 source-to-consumer behavior and negative no-fallback/no-stale-state behavior.
 
+**2026-08-13 save-load propagation (B-1068):** The same rule applies to
+versioned save migrations. A present typed field is authoritative: an invalid
+value rejects the complete candidate and may not fall through to a numeric
+legacy field. Numeric migration is legal only when the typed field is absent,
+the old version permits it, and the mapping is unique in the target domain.
+Parsing and migration must finish before any live setup, player, bot, RNG, or
+option state is published.
+
+**2026-08-13 launch-freeze propagation (B-1069):** Serialization is a commit
+boundary for authoritative match state. After a launch packet is validated and
+written, no shared launch consumer may reroll, normalize, unlock-filter,
+reconfigure, reverse-resolve, or rebuild any serialized field or roster member.
+Offline setup conveniences remain before the boundary; network launch consumes
+the prepared state and performs only nonfallible stage-transition side effects.
+
 **2026-08-08 lifecycle propagation (B-1008):** Reset truth has the same
 ordering requirement as activation truth. Retire every live typed-owner
 closure while catalog identities and dependency edges still resolve; clear
@@ -1606,6 +1742,814 @@ runtime index to the final consumer; reject any second lookup through another
 index table unless that conversion is the explicit protocol contract.
 
 `rg -n "assetCatalogResolve.*ext\.|runtime_index|catalogGet.*Num" port/src src/game`
+
+---
+
+## SP-47: Diagnostic state leaks across tests or emits without a finite evidence budget
+
+**Severity: HIGH — verification can hang or become dependent on a user's saved
+debug preferences while production behavior is healthy.**
+
+Every automated fixture must assign each diagnostic gate it owns, including the
+off state. A fixture that merely enables an opt-in flag when requested inherits
+persisted process/config state when the field is absent. High-frequency render,
+physics, input, and network probes must also deduplicate by a stable evidence
+identity or use a finite budget; per-frame logging is not a valid long-duration
+proof contract.
+
+**Known instances (B-1081):** non-opt-in Combat Simulator smokes inherited
+`Debug.JumpLogging=1` and emitted 98,484 capsule lines before timing out;
+generated-model step tracing logged every node/stage every frame and repeatedly
+rearmed the Needler witness, making the ordinary client unresponsive before its
+first endscreen; and the camera-only `--debug-force-first-person` flag implicitly
+enabled the unbounded weapon diagnostic stream. Camera control now remains
+separate, while explicit/generated-audit weapon tracing has an atomic line
+budget and one suppression witness.
+
+**Propagation check:** inspect every smoke/config bridge for enable-only writes,
+and every tick/render/network diagnostic for an unbounded `sysLogPrintf` path.
+Keep one-shot semantic witnesses separate from detailed traces so rate limiting
+does not erase release evidence.
+
+`rg -n "if \(.*logging.*\)|sysLogPrintf|Trace.*Step|debug-.*audit|configRegister.*Debug" port/src port/fast3d src tests tools/smoke-verify`
+
+---
+
+## SP-48: Test fixture generator duplicates a versioned production schema
+
+**Severity: HIGH — a required production smoke can fail before reaching its
+target boundary, or worse, keep exercising an obsolete accepted shape after
+the real schema changes.**
+
+A test helper must not hand-author a second copy of a versioned save, wire, or
+typed-archive document when a canonical validated fixture or production encoder
+already exists. Schema fields, defaults, migration rules, and completeness
+masks otherwise drift independently.
+
+**Known instance (B-1082):** `generate_friend_play_identity.py` duplicated a
+partial Agent Profile v2 document and omitted `besttimes`. D-005 strengthened
+the real loader to accept only complete current or exact known-v2 documents, so
+both D-003 authority smokes failed closed during role activation. The generator
+now clones the canonical valid Agent fixture and changes only the role name.
+The pinned contract passes 94 assertions in 5 cases, and behavioral generation
+for initiator and invitee remains deep-equal to the canonical profile apart
+from that name while retaining all 21 required `besttimes` entries.
+
+**Audit:** search fixture generators for inline `version` objects and compare
+them with their production codec/emitter. Prefer invoking the production
+encoder; otherwise clone one canonical validated template and pin that the
+generator does not repeat schema fields.
+
+`rg -n "[\"']version[\"']|version.*[0-9]" tools tests devtools -g "*.py" -g "*.ps1" -g "*.js"`
+
+---
+
+## SP-49: Test fixture seeds machine preference after activating an Agent owner
+
+**Severity: HIGH — a production smoke can silently replace the staged machine
+default before reaching its target behavior.**
+
+Agent Profile activation owns personal theme, audio, gameplay, and enabled-mod
+preferences. A fixture that writes only `mods-enabled.json` and then activates
+an Agent is internally contradictory: the validated Agent transaction will
+apply its own `enabled_mods` list and rebuild the catalog. Tests must seed the
+preference at the same ownership boundary the production flow consumes.
+
+**Known instance (B-1083):** both D-003 authority fixtures packed and globally
+enabled Needler, but their migrated v2 role profiles carried the canonical
+empty per-Agent mod list. Activation transiently unmounted Needler, so the
+authority bound and published a valid route before transactional lobby start
+correctly rejected the now-unavailable specific spawn weapon.
+
+**Audit:** for every smoke using `--launch-load-agent`, compare machine-level
+preference fixtures against fields the Agent transaction owns. When a legacy
+v2 fixture needs nondefault preferences, stage the validated `prefs_<agent>.ini`
+migration sidecar; do not mutate production state directly after activation.
+
+`rg -n "launch-load-agent|mods-enabled.json|prefs_[A-Za-z0-9_-]+\\.ini" tools/smoke-verify/tests -g "*.json"`
+
+---
+
+## SP-50: Smoke-only state override substitutes for a production transition
+
+**Severity: HIGH — a fixture can render a plausible frame while gameplay is
+still owned by a cutscene, menu, countdown, or other transition state.**
+
+Debug camera, placement, and render-audit hooks may observe or frame a loaded
+stage, but they do not prove that ordinary input has acquired gameplay control.
+Any smoke that needs to leave a production transition must use the same action
+or lifecycle transaction as a player, then prove downstream gameplay behavior.
+
+**Known instance (B-1084):** both D-003 authority fixtures used
+`--debug-force-first-person` on Chicago and fired on a wall-clock schedule. The
+hook temporarily forced camera mode zero, but Chicago's intro cutscene resumed,
+kept `tickmode=6` and `MOVEMODE_CUTSCENE`, and prevented the queued Needler from
+equipping. Repeated early/later/cold-load Skip waves were an intermediate
+mitigation, not a durable transition proof. The fixtures now cross the typed
+network-stage barrier and use one stable gameplay wait whose exact cutscene
+aperture may own one bounded `ACTION_SKIP_CUTSCENE` assist before gameplay
+pulses; the immutable network-launch receipt remains pinned.
+
+**Audit:** for every gameplay smoke using a debug state override, identify the
+real transition owner and require an ordinary input or lifecycle witness before
+accepting fire, movement, save, endscreen, or rendering evidence.
+
+`rg -n "debug-force|debug-place|ACTION_SKIP_CUTSCENE|SMOKE: action|tickmode|cameramode" tools/smoke-verify/tests port/src src tests`
+
+---
+
+## SP-51: Direct smoke input remains hidden behind a production focus gate
+
+**Severity: HIGH — a correctly injected action can be logged as held while the
+background ordinary client consumes no input, making multi-process proof depend
+on which window the OS focused last.**
+
+A smoke-only direct-input API must define both state mutation and read authority.
+Writing the ordinary action state is insufficient when every public query still
+passes through a production window-focus or menu-suppression predicate. The
+focus-independent aperture must belong only to explicitly injected state; it
+must not disable production focus suppression globally, bypass the typed input
+layer's action set, or override observer/freefly restrictions.
+
+**Known instance (B-1085):** the first-launched invitee-authority client lost
+focus when the initiator process opened. `actionmapInjectStateForSmoke` reported
+`held_after=1`, but `actionHeld` returned false through
+`gameplayInputSuppressed()`, so a fully loaded Needler never fired. The D-003
+route and match lifecycle passed 138/144; only gameplay/presentation effect
+witnesses were absent. Correct ownership requires both halves of the boundary:
+every physical writer must defer only for the exact injected owner, while public
+reads must preserve typed apertures, menu/freefly authority, and ordinary focus
+suppression. A production-linked pure decision seam now proves that focus loss
+still denies an unowned gameplay action and admits only an exact owner under a
+gameplay-capable context for focus loss/regain settling. Smoke presses cannot
+seize already-held physical state, and unowned releases are no-ops.
+
+The inverse-role production run exposed a second half of the same authority
+boundary. Win32 foreground ownership changed successfully, but core input
+authority emitted no focus edge because the SDL pump depended only on a queued
+window event after general UI dispatch and had no reconciliation path. Window
+focus is lifecycle state, not consumable UI input: the main-window edge must be
+routed before `pdguiProcessEvent`, the event must still reach ImGui for its own
+bookkeeping, and the idempotent authority state must be reconciled once per
+pump against `SDL_WINDOW_INPUT_FOCUS`. This preserves ordinary menu/textbox
+capture while making missed or coalesced focus events self-healing. Current
+input contexts do not consume `SDL_WINDOWEVENT`, so reconciliation is the
+evidenced runtime repair and pre-UI routing is structural lifecycle hardening.
+
+Verifier control is part of the systemic fix. Launch order is not focus proof;
+every named process must reach its readiness barrier, checked focus acquisition
+must use the declared timeout, the losing process log must remain append-only,
+and the target must still own GUI-thread active keyboard focus at the new
+focus-loss witness. `GetForegroundWindow` equality proves z-order, not
+`hwndActive`/`hwndFocus`; cross-process focus automation must verify both through
+`GetGUIThreadInfo`. Presence checks are also insufficient: strict per-process
+sequences must prove `focus LOST -> clean smoke owner acquisition -> gameplay
+read/effect` on later lines. If the operational transition fails, every causal
+sequence explicitly tied to it needs an unreachable named exact-line anchor so
+older whole-log matches cannot remain credited inside a rejected receipt.
+Sequences that prove startup or gameplay state before the focus handoff must
+remain untagged and retain whole-log semantics; one process-wide anchor silently
+invalidates otherwise valid evidence from an earlier phase.
+The first controlled attempt correctly failed closed at 62/147 when the later
+process still had no window. A later inverse-role attempt reached both windows
+but moved focus while the elected authority was still inside a bounded public-
+route probe, so its event loop could not emit the focus-loss witness before the
+transition deadline. The fixture now uses the existing second-process
+`gameplay_ready` launch barrier before changing focus. The current inverse run
+reached stable gameplay on both peers and confirmed foreground transfer, then
+failed closed because the core focus witness was still absent. After per-pump
+reconciliation, the next run exposed the distinction precisely: each client
+logged its initial focus loss, but the runner never established a fresh source
+keyboard-focus gain before requesting loss, so its 15-second barrier killed both
+clients before scripted exit. A launch/readiness barrier must cover the phase in
+which focus proof is consumed, the production SDL boundary must expose the OS
+transition, and the runner must prove active keyboard focus; launch order or
+foreground ownership alone is not enough.
+
+The next checked-GUI-thread receipt (`results-20260814T022303Z.json`) kept the
+product path healthy—both peers reached stable gameplay and emitted owned fire
+plus source-backed effects—but still produced no fresh focus edge and correctly
+failed 203/218. `Process.MainWindowHandle` had not been proven to be SDL's
+window, and ignored native return values made the 15-second failure opaque.
+Cross-process control must therefore enumerate visible unowned top-level HWNDs
+by exact PID and require one candidate, check every attach/foreground/active/
+focus call, verify GUI-thread state after detach, and require two fresh complete
+SDL log witnesses: source `focus GAINED`, then source `focus LOST` after the
+target is focused. Persist the operational failure phase and native state in the
+result JSON separately from gameplay assertions. Do not use an undocumented
+task-switch primitive or accept native focus without the SDL witness.
+
+The corrected unique-HWND activation path then reached both fresh SDL witnesses
+in `.claude/smoke-verify-runs/results-20260814T024631Z.json`: the invitee logged
+the new `focus GAINED`, then the exact `focus LOST` while the initiator retained
+GUI-thread keyboard focus, followed by owned fire, gameplay read, source-backed
+effects, both scripted exits, and zero operational failures. The receipt reached
+215/218 but remains rejected because the runner applied that loss line to every
+invitee sequence, relocating three valid cutscene/readiness sequences that had
+completed before the handoff. Runner-observed boundaries must therefore be a
+named map consumed only by explicitly tagged sequences. Missing named entries
+fail closed; transition failure assigns only that name an unreachable sentinel;
+untagged sequences continue to inspect the complete append-only log.
+
+The consolidated correction passed parser/JSON checks, the scoped-anchor
+behavior self-test, embedded Win32 compilation, and 402 assertions in 13
+focused B-1085 cases. Final inverse receipt
+`.claude/smoke-verify-runs/results-20260814T030245Z.json` then passed 218/218
+with the same fresh gain/loss and post-loss owner/fire/effect chain, while all
+three pre-focus sequences remained valid. Both clients exited by script, no
+operational failure or process leak remained, and the product/test/tool
+fingerprint stayed `2784d121...` before and after. This is the accepted reusable
+contract: phase boundaries are named assertion inputs, never implicit global
+state on an entire process receipt.
+
+**Audit:** find every direct test or automation mutator, then trace the same
+state through the public consumer query and all authority gates. Require an
+explicitly scoped ownership bit with release, flush, and end-of-frame cleanup;
+prove foreground and background processes consume the same scripted gesture.
+
+`rg -n "InjectStateForSmoke|DebugInject|gameplayInputSuppressed|focus LOST|SDL_WINDOW_INPUT_FOCUS|inputCtxNotifyFocus|actionHeld|actionPressed" port/src port/include port/fast3d src tests tools/smoke-verify`
+
+---
+
+## SP-52: One readiness sample is mistaken for a completed transition
+
+**Severity: HIGH - automation can advance through a transient valid frame and
+inject gameplay while an authored cutscene, menu, countdown, or stage owner is
+about to retake control.**
+
+A transition receipt is state over time, not a one-frame Boolean. A wait that
+guards gameplay, saving, input, capture, or authority handoff must declare how
+long its target must remain continuously valid; any false sample resets that
+window. If the transition needs an assist action, the action must have a
+separate exact aperture, fire at most once, use the production input owner, and
+release on hold expiry and every timeout/failure path. Real watchdog time must
+continue while virtual script time is paused, and the exact deadline must beat
+late success.
+
+**Known instance (B-1088):** both D-003 peers briefly satisfied
+`gameplay_ready` immediately after stage start, so the first repair advanced
+without Skip. Chicago's authored intro then activated, retook cutscene control,
+and caused both later gameplay waits to fail. The superseded one-shot source
+passed focused/full automation because its predicate was internally correct;
+only ordinary-client timing exposed that the predicate was the wrong proof.
+The replacement is a pure stable-target/one-shot-assist policy integrated into
+the generic typed wait, with explicit runtime ownership and terminal cleanup.
+The terminal receipt must carry the measured stable duration, not only echo the
+configured duration. The fixture boundary must also reject malformed/truncated
+JSON, incompatible or duplicate event fields, and explicit input holds that
+would cross a paused wait; otherwise a false receipt or unbounded synthetic
+hold can hide behind an otherwise correct transition policy.
+
+**Audit:** inspect every readiness wait and polling loop that gates downstream
+side effects. Classify it as an instantaneous predicate or a transition; for
+transitions, require a continuous stability window, reset coverage, exact
+deadline ordering, and bounded ownership cleanup. Reject duplicated timing
+waves and OR predicates that merely select whichever transient state appears
+first.
+
+`rg -n "wait_until|Readiness|ready.*(true|1)|ACTION_SKIP_CUTSCENE|timeout_ms|SDL_GetTicks" port src tests tools/smoke-verify`
+
+---
+
+## SP-53: A validated client command has no authoritative result path
+
+**Severity: CRITICAL - the server can accept and apply a reliable client
+command while the requesting peer never receives the accepted state change.**
+
+A client-to-server command is not a complete authority protocol by itself.
+After validating source identity, lifecycle state, and payload, the server must
+publish an explicit authoritative result to every consumer whose runtime state
+depends on the command. The result must use stable wire identity and map that
+identity into each receiver's local runtime domain; server player-slot numbers
+cannot be copied directly when clients place their own player in runtime slot
+zero. A rejected or unpublishable command must not consume the local input or
+leave a latent state transition.
+
+**Known instance (B-1089):** protocol v55 accepts
+`CLC_CUTSCENE_SKIP {playernum}` on the listen authority and replaces the
+untrusted requested slot with `srccl->playernum`. In ordinary Combat Simulator,
+however, no server message reports that acceptance back to peers because
+`SVC_CUTSCENE` is co-op-only. The authority therefore exits the authored intro
+while the requesting client remains in its own cutscene. The retained runtime
+proves a 900 ms production hold, one balanced press/release, server acceptance
+for client 1/player 1, and a requester timeout after authority shutdown.
+
+**Current correction (source-connected, verification pending):** protocol v56
+keeps the CLC as an untrusted request and publishes the accepted stable client
+identity only after authenticated validation. The first authority role proved
+that result path; the inverse role then exposed a second half of the same class:
+clients still minted generations from local script counts and Combat Simulator
+did not receive the co-op-only start/end state, so a legitimate generation 3
+request was rejected against authority generation 2.
+
+The replacement design uses the same immutable prepared roster instance to
+serialize `SVC_STAGE_START` and commit the authority snapshot, then owns one
+match-room-scoped reliable queue for ordered START, ACCEPT, and END events in
+every network game mode. Only server/offline code mints generations; local
+client presentation may predict START but holds a nonzero token only during an
+authoritative ACTIVE phase, and START/END are queued before authoritative local
+mutation. Failed sends retain the batch; pending START/ACCEPT retries discard
+ordinary shared traffic until authority publication succeeds. The terminal END
+and `SVC_STAGE_END` share one prepare/send/commit packet, so local
+authority/lobby teardown waits for successful queueing, partial delivery
+retries are receiver-idempotent, and every terminal frame discards prior shared
+traffic before retry and cannot publish later gameplay or spectator traffic.
+Receivers require the exact full stable-client mask, run one
+stale/duplicate/conflict transition planner, map the frozen roster into
+receiver-local slots, and replace the full local active mask. Disconnect, room
+leave/switch, spectator promotion, stage end, and network teardown retire
+pending authority state. This is current source truth, not yet build or runtime
+proof.
+
+**Consecutive-transition instance (B-1090):** the first replacement runtime
+proved that publishing START/ACCEPT/END is still incomplete if END is queued
+from only one named helper instead of the actual state-mutation boundary. The
+listen authority left `TICKMODE_CUTSCENE` through another production path, kept
+generation 1 ACTIVE for another 15 seconds, and rejected the next authored
+generation 2 START as a conflict. Every authoritative transition out of the
+cutscene tick mode must therefore preflight END before local mutation; a
+same-frame next START must append after that END and mint the next generation.
+Tests must cover consecutive transitions, not only one isolated lifecycle.
+
+**Audit:** enumerate every reliable CLC command that mutates shared or
+peer-visible state. For each, identify the server validation, authoritative
+commit, SVC result or snapshot, receiver-side identity remap, malformed and
+stale rejection, and retry/idempotence behavior. A server log alone is not an
+end-to-end receipt.
+
+`rg -n "#define CLC_|case CLC_|netmsgClc.*Read|#define SVC_|case SVC_|netmsgSvc.*Read" port/include/net port/src/net tests`
+
+---
+
+## SP-54: Global gameplay work inherits a replicated-player context
+
+**Severity: CRITICAL - global scenario actions can mutate a remote replica
+while the process's actual local player never receives presentation state.**
+
+Legacy gameplay uses `g_Vars.currentplayer` as an ambient parameter. Per-player
+tick and render loops intentionally select each runtime player and may finish
+with the final remote replica still selected. Any later global level, scenario,
+or AI work that assumes the ambient pointer means "this process's player" can
+therefore start a camera, read a condition, apply animation overrun, warp, or
+write other player-owned state into the wrong slot. Receiver-local runtime
+slot numbers are not stable wire identity: a client commonly maps itself to
+slot zero even when the server identifies it with another player number.
+
+**Known instance (B-1090):** the invitee-authority friend-play smoke published
+the correct ordered END generation 1 and START generation 2, but its local
+player 0 remained at `cut_progress=0`. The authored camera action and
+`if_in_cutscene` branch had run against the replicated player left selected by
+the previous frame. The opposite authority role passed only because its first
+action happened while player 0 was coincidentally ambient.
+
+**Verifier instance (B-1093):** `smokeCaptureReadinessFacts()` independently
+hardcoded slot 0 for player presence, cutscene, and control observations. That
+violated the same identity rule even though the next exact-client receipt
+proved this particular ordinary client really occupied runtime slot 0; stable
+client ID 1 was not evidence of receiver-local slot 1. Verifier projections
+must use the same canonical local identity resolver as production gameplay,
+and failure diagnosis must not infer a runtime slot from wire identity.
+
+**Canonical correction:** derive process-local identity from pointer equality
+with the committed `g_NetLocalClient->player`, require `!isremote`, and restore
+that runtime slot at the global gameplay boundary. Presentation-specific graph
+APIs must also resolve the local player explicitly for start, condition, and
+animation synchronization, then restore any valid caller context. Never use
+the peer's wire `playernum` as a receiver-local array index. If allocation is
+not complete or is ambiguous, an in-client network process must defer the
+global tick and retry instead of falling through to the ambient replica.
+Dedicated server-only simulation has no presentation player and retains an
+explicit separate ambient simulation policy.
+
+**Audit:** locate global work adjacent to per-player selection, every
+current-player-dependent scenario/AI action, and every diagnostic or verifier
+that indexes player state. Prove whether each operation is truly per-player or
+process-local presentation before preserving ambient state or selecting an
+array slot.
+
+`rg -n "lvTick\\(|lvRender\\(|setCurrentPlayerNum|g_Vars\\.currentplayer|playerCurrentCutscene" port/src/pdmain.c src/game port/src/scenario_source_runtime.c tests`
+
+---
+
+## SP-55: A fixed fast-lookup window becomes the identity domain
+
+**Severity: HIGH - valid long-lived entities silently stop participating once
+their monotonic identity exceeds an optimization table's capacity.**
+
+Stable wire IDs and bounded lookup caches are different domains. A fast array
+may cover common low IDs, but runtime IDs can remain valid after that window is
+exhausted. Keying dirty bits, ownership, deduplication, or admission directly by
+the raw ID silently turns the cache bound into an undeclared lifetime limit.
+
+**Known instance (B-1064):** initial prop sync IDs were allocated by active and
+paused list scans, which omitted allocated parented inventory/held children,
+and runtime IDs were later reused from an incomplete boundary. The prop dirty
+heartbeat then indexed a 2,048-entry bitmap by raw sync ID, so sufficiently
+late valid runtime props stopped waking the resync path. The source correction
+derives initial allocation from the complete raw pool minus its validated free
+list, assigns deterministic one-based slot IDs to every allocated prop, starts
+runtime IDs after the maximum initial ID, keeps them monotonic, uses the fixed
+map only as a fast path with validated linear fallback, and treats dirty state
+as a bounded wake-up latch after confirming the ID resolves. The reconnect
+inventory mask separately asserts a 1..32-client domain and uses an explicit
+full-width branch, avoiding the undefined `1u << 32` validation expression that
+the first successful client build exposed. Consolidated verification and
+production reconnect proof are still pending.
+
+**Audit:** whenever an external/stable/monotonic ID indexes an array or bitmap,
+identify whether that storage is the authoritative domain or only an
+optimization. Require either an explicit protocol bound with rejection or a
+validated fallback that preserves every legal identity.
+
+`rg -n "syncid|NextSyncId|FirstDynamicSyncId|PROP_MAP_SIZE|Dirty|\[[^]]*(id|index|slot)" port/src port/include src tests`
+
+---
+
+## SP-56: Test discovery converts invalid input into an empty successful run
+
+**Severity: HIGH - malformed or misspelled verification input can produce exit
+zero without executing the requested proof.**
+
+A runner that logs and skips malformed definitions has already lost the user's
+requested test. If its empty-selection branch then exits successfully, queue
+automation cannot distinguish “all selected tests passed” from “nothing ran.”
+The same class appears when requested names are silently ignored, unsupported
+filters select zero cases, or a parser warning is not represented in the final
+result artifact.
+
+**Known instance (B-1091):** the first B-1064 production-smoke attempt contained
+one invalid JSON regex escape. `Get-SmokeTests` warned and continued, explicit
+selection found zero tests, and `run.ps1` returned exit 0. No processes launched
+and no result artifact was produced. The correction makes malformed discovery
+and zero selection terminal, pins both boundaries in focused automation, and
+requires the caller to accept only a fresh result artifact for the named test.
+
+Focused correction passes 339 assertions in 6 cases, the explicit unknown-test
+selection exits nonzero, and the later exact reconnect launch produced a fresh
+named process artifact. B-1091 is therefore a regression gate rather than an
+open runtime dependency.
+
+**Audit:** for every test, smoke, capture, migration, and deployment runner,
+trace parse errors, unknown names/tags, empty discovery, zero selected cases,
+skips, and result serialization to the process exit code. Require the result to
+name the requested work and report a nonzero executed count. A stale prior
+artifact or process exit 0 is never sufficient.
+
+`rg -n "Failed to parse|continue|No tests matched|selected.Count|exit 0|skipped" tools devtools tests`
+
+---
+
+## SP-57: Transport disconnect metadata is assumed to be symmetric
+
+**Severity: CRITICAL - opposite peers can apply incompatible identity and
+reservation policy to the same disconnect.**
+
+A transport's user data on a disconnect command is not necessarily echoed to
+the initiating endpoint's local completion event. In the vendored ENet path,
+the remote peer receives `command.disconnect.data`, but the sender's
+acknowledged-disconnect callback is explicitly emitted with `event->data = 0`.
+Using that local observation as the server's policy source makes the client
+retain a retry credential while the server destroys the matching reservation.
+
+**Known instance (B-1092):** the B-1064 host called
+`netServerKick(client, DISCONNECT_TIMEOUT)`. The ordinary client received reason
+5 and retained its endpoint-scoped cookie, while the listen server observed
+reason 0, classified the loss as terminal, left the room without a reservation,
+and made reconnect impossible. The source correction latches the first
+server-issued reason on the authenticated `netclient` before entering ENet,
+consumes it exactly once during authoritative teardown, and routes every
+post-assignment GUI/admin kick or ban through that boundary. A server intent
+wins over a racing transport timeout, preventing a later event from turning a
+terminal ban into a reconnectable loss.
+
+The exact `0f377e3e...` production run validates the asymmetric case directly:
+the host records reason 5 with `transport_reason=0 server_intent=1 retryable=1`,
+retains one reservation, accepts one reconnect/commit, receives authoritative
+fire, and exits cleanly. Corrected retained-log verification passes 98/98 on
+unchanged product `7437d77c...`.
+
+**Audit:** separate local intent, remote command metadata, and transport-cause
+events. Trace every server-side `enet_peer_disconnect*` call after peer-to-client
+assignment; it must either pass through the authoritative intent owner or prove
+that no game identity/reservation cleanup can follow. Test both directions and
+the race where terminal intent is followed by transport timeout.
+
+`rg -n "enet_peer_disconnect|netServerKick|ENET_EVENT_TYPE_DISCONNECT|disconnect.*reason" port/src port/fast3d port/include tests`
+
+---
+
+## SP-58: A mode-specific authority guard blocks a shared state helper
+
+**Severity: CRITICAL - a valid local presentation state can become permanent
+when a helper is guarded by subsystem role instead of the transition it makes.**
+
+Legacy helpers often serve several tick modes despite having a narrow name.
+`playerEndCutscene()`, for example, ends authored cutscenes and the ordinary
+Combat Simulator opening swirl. A blanket client/server guard at helper entry
+therefore blocks every caller, including transitions that do not publish or
+consume cutscene authority. Policy belongs at the state-mutation boundary and
+must examine the current and requested modes, authority lifetime, and whether
+the transition is an authoritative apply.
+
+**Known instance (B-1094):** the ordinary client reached Felicity, spawned both
+players, sent `CLC_STAGE_READY`, and ticked continuously, but
+`playerTickMpSwirl()` could never advance from `TICKMODE_MPSWIRL` because
+`playerEndCutscene()` returned for every `NETMODE_CLIENT`. The client therefore
+missed its initial stage-live barrier and never reached the intended reconnect
+action. The correction routes every exit through `playerSetTickMode`, which
+holds only a real `TICKMODE_CUTSCENE` exit while the match authority stream owns
+it and permits the local MP swirl to finish normally.
+
+The exact `0f377e3e...` production run reaches NORMAL gameplay both before and
+after timeout, then commits and resumes authority-accepted fire. This validates
+the permitted MPSWIRL sibling without weakening the protected CUTSCENE path.
+
+**Audit:** enumerate every caller of a role-gated shared helper and classify
+the concrete source and destination states. Move authority checks to the
+smallest common mutation boundary, test at least one protected transition and
+one permitted sibling transition, and reject fixes that directly write the
+target state around the canonical setter.
+
+`rg -n "g_NetMode == NETMODE_CLIENT|g_NetMode == NETMODE_SERVER|playerEndCutscene|playerSetTickMode|TICKMODE_" src/game port/src tests`
+
+---
+
+## SP-59: A peer-dependent timeout begins before the peer can exist
+
+**Severity: HIGH - valid cold-start work can consume a causal deadline before
+the operation being measured is even eligible to begin.**
+
+Multi-process runners often gate a dependent process on an externally observed
+prerequisite such as a listen socket. If the first process starts its own
+peer-dependent wait at harness boot, that deadline races the runner: cold asset
+initialization consumes the budget while the peer is deliberately not yet
+launched. Increasing one timeout hides the topology error and remains sensitive
+to machine and cache state. Sequence an exact production-state prerequisite
+inside the owning process before starting the dependent deadline.
+
+**Known instance (B-1095):** the reconnect host began its 150-second
+`network_stage_live` wait at 00:01, but did not create the ENet listener until
+01:23. The runner launched the client only after that correct marker. Its
+72-second cold initialization reached `NET: connecting` at wall time 02:35,
+four seconds after the host wait had expired and closed the server. B-1094 had
+already advanced the client to normal gameplay presentation; the 23/93 receipt
+failed solely because the stage-live budget preceded peer eligibility. The
+correction adds a typed `network_listen_ready` barrier and starts the host's
+stage-live budget only after that barrier commits.
+
+In the exact accepted production logs, listen readiness satisfies at 41.855
+seconds and only then begins the stage-live wait; the peer subsequently joins,
+reconnects, commits, fires, and exits cleanly. B-1095 is now a regression gate.
+
+**Audit:** draw the prerequisite graph for every multi-process timeout. Check
+when each process starts, when the runner permits its peers to launch, and when
+each in-process deadline starts. Require an exact readiness barrier for server
+listen, authentication, stage publication, or other causal prerequisites; do
+not use fixed startup sleeps or cache-dependent timeout inflation.
+
+`rg -n "wait_for|wait_timeout_seconds|wait_until|timeout_ms|network_stage_live|created server" tools/smoke-verify port/src tests`
+
+---
+
+## SP-60: Compound serializer failure loses the owning substage and blames the peer
+
+**Severity: CRITICAL - an authority-local state defect becomes opaque and can be
+misreported as remote content corruption.**
+
+Large protocol transactions often compose roster, world, inventory, movement,
+score, and commit writers. Returning one undifferentiated nonzero result from
+the composition boundary hides which invariant failed. Mapping that result
+directly to a peer-facing policy reason compounds the defect: atomic rollback
+may remain correct, but diagnostics point at the wrong owner and a retryable or
+server-local condition can consume a valid credential as if the client sent
+bad files. Each compound writer must return a typed substage/result, preserve
+the first failure before rollback, and map transport policy separately from
+serialization diagnostics.
+
+**Known instance (B-1096):** the ordinary reconnect transaction passed endpoint
+authentication, manifest validation, stage replay, post-load READY, and room
+reservation reclaim. Disconnect death created a dropped CMP150 through the
+shared projectile initializer, which populated `obj->projectile` but not the
+required reverse link `projectile->obj`. The exact world writer correctly
+rejected that inconsistent authority graph. `netmsgSvcReconnectStateWrite()`
+then returned one generic failure before its PREPARE receipt,
+`netServerSendReconnectState()` collapsed that into `state_write_failed`, and
+the caller selected `DISCONNECT_FILES`. The ordinary client therefore displayed
+"Your files differ" even though its manifest had already matched and the fault
+belonged to server-owned runtime state.
+
+Current source repairs the shared ownership invariant, keeps the exact-state
+validator fail closed, returns the first typed component plus client/prop or
+objective subject, restores the packet cursor/error on failure, and separates
+authority-local write/send retry policy from peer-content rejection. Production
+automation passes. The first ordinary receipt on that source is still rejected,
+but it proves those boundaries work: the prior owner failure is gone, the close
+is retryable rather than a file mismatch, and the next authority defect is
+named `world_prop_state` on prop 4. Sync allocation maps 1-2 to the players and
+3-4 to post-start held weapons; disconnect death marks the departing player's
+original held prop 4 deleting before it allocates a replacement drop. Current
+source defines terminal non-regenerating deletion as authoritative absence,
+retains deleting `CANREGEN` setup objects for their future GONE/regeneration
+transition, emits omission counts and the first omitted ID in PREPARE, and
+reports each included prop-state predicate with compact identity. The common
+death-drop publisher also retires a newly allocated candidate if `objDrop()`
+cannot commit, so no half-transitioned dynamic prop is announced. Replacement
+automation passes on frozen product `b3df3ed0...` and verification
+`38c558b2...`: isolated all/tests build, focused 623/13, full 61,423/1,163, and
+native-source guard. The class remains open until the ordinary reconnect receipt
+proves exact PREPARE/commit/resumed play; the rejected receipt is not upgraded.
+
+**Audit:** enumerate every subwriter and every local validation branch in a
+compound transaction. Require a stable typed failure result, an owner/substage
+receipt before rollback, and an explicit policy mapping at the caller. Verify
+that content mismatch is reachable only from validated peer-controlled content,
+not from authority-local allocation, topology, inventory, or serialization
+state.
+
+`rg -n "Write\(|state_write_failed|write_failed|DISCONNECT_FILES|return 1;|rollback" port/src/net port/include/net tests`
+
+---
+
+## SP-61: A deep copy preserves a pointer vector but drops its packed sidecar
+
+**Severity: CRITICAL - lookups read beyond the clone and silently disconnect
+semantic ownership from render or gameplay state.**
+
+Legacy representations can place metadata immediately after a pointer array
+and expose only the pointer-array field in the owning struct. A clone that
+allocates `count * sizeof(pointer)` and remaps the pointers appears complete but
+silently drops the adjacent keys, offsets, flags, or indices consumed by lookup
+code. The clone must copy the full packed representation as one transaction and
+tests must pin both the layout calculation and the sidecar contents.
+
+**Known instance (B-1097):** `modeldef.parts` points at `numparts` model-node
+pointers followed immediately by `numparts` sorted `s16` part numbers.
+`modelGetPart()` bisects that trailing table. `modeldefCloneForChr()` remapped
+only the pointers into an allocation sized for the pointer vector, so every
+modular character clone read beyond its allocation for hand, hat, and other
+part lookups. `chrEquipWeapon()` set `attachedtomodel` before the right-hand
+lookup returned no node, producing the live one-sided Cyclone attachment named
+by the B-1096 reconnect diagnostic. This is an owning model-graph clone defect,
+not permission for the serializer to accept incoherent pointers.
+
+Current B-1097 source allocates the modeldef, remapped nodes, pointer vector,
+and sorted `s16` sidecar as one stage transaction. The lookup rejects
+null/empty tables and searches only `0..numparts-1`; the old upper bound of
+`numparts` could inspect one key past even a complete table. Weapon equip also
+resolves and requires its hand node before replacing an old held slot or
+publishing either attachment pointer or prop ownership. Frozen automation
+passes. The replacement runtime reached the valid named part and exposed the
+separate mutable-rodata alias class SP-62; it does not invalidate SP-61's
+lookup correction or permit reconnect to accept one-sided ownership.
+
+**Audit:** for every clone or snapshot of a pointer-bearing legacy struct,
+trace every consumer of the source field and calculate the complete backing
+allocation, including data reached by pointer arithmetic. Require one checked
+allocation for the full representation, remap pointers, copy every sidecar in
+the same index domain, and reject hybrid clones when a required allocation
+fails.
+
+`rg -n "= \*src|Clone|clone|parts\[.*numparts|partnums|sizeof\(.*\*\)" src port tests`
+
+---
+
+## SP-62: A node-tree clone shares rodata that owns mutable topology
+
+**Severity: CRITICAL - traversal leaves the private tree and indexes runtime
+state in the wrong model-relative domain.**
+
+A model node's rodata is not uniformly immutable geometry. Several variants
+carry `rwdataindex`, and DISTANCE, TOGGLE, and REORDER records also carry node
+pointers that traversal writes back into `node->child` or relation state. A
+clone that remaps only `parent`/`next`/`prev`/`child` while sharing these rodata
+records is not a private topology. The next index or initialization pass can
+replace a cloned edge with a cached-source node, after which ancestor walking
+uses the wrong model root and resolves an otherwise valid index against the
+wrong rwdata base.
+
+**Known instance (B-1098):** hierarchy-generated heads initialize DISTANCE and
+TOGGLE targets in cached source rodata. `modeldefCloneForChr()` copied private
+nodes but shared that rodata. `modelCalculateRwDataIndexes()` then assigned the
+shared index and replaced the cloned node's child with the cached target.
+`modelInitRwData()` followed that target out of the attached head; because the
+cached target's parent chain did not contain the current body HEADSPOT,
+`modelGetNodeRwData()` used body-relative storage and corrupted the HEADSPOT's
+attached-head rwdata route. Once B-1097 made the sunglasses part lookup valid,
+`body.c` observed the corrupted null route and faulted before networking.
+
+**Validated class correction (B-1098):** classify every
+field in every cloned pointee as immutable payload, deterministic index, or
+topology reference. Private-copy each DISTANCE/TOGGLE/REORDER record that owns
+topology, shallow-copy its immutable payload fields, and remap every embedded
+node target into the same clone. Other indexed rodata may remain shared only
+when the canonical traversal makes its index identical across clones; preflight
+every such record before recalculation. This deliberately preserves the shared
+non-relation root-rodata provenance used to recognize generated model clones.
+Collect from relation targets rather than mutable visibility children, discard
+foreign HEADSPOT children, publish nodes/relations/packed parts in one
+allocation, and never fall back to the shared definition. Exercise generated
+DISTANCE -> DL and TOGGLE -> DISTANCE -> DL subtrees plus both random and catalog
+head selection, because flat child-only fixtures cannot expose the domain
+escape. Frozen product `920a236d...` / client `2039d142...` and verifier
+`96601f67...` / tests `c3987ec6...` pass isolated builds, focused 1,541/16,
+full 63,731/1,165, and the native-source guard. The exact replacement receipt
+`results-20260814T110358Z.json` reaches both complete stage loads and reconnect
+commit without the former generated-head access violation; B-1099 owns its
+separate post-commit gameplay failure.
+
+`rg -n "rwdataindex|\.target|unk18|unk1c|node->child = rodata|Clone|clone" src/lib src/game port/src tests`
+
+---
+
+## SP-63: A new authority latch captures stale presentation state from the previous stage
+
+**Severity: CRITICAL - a validated stage can commit while the receiver remains
+permanently trapped in a presentation mode owned by the stage it replaced.**
+
+An authority guard often blocks local state-machine exits while an authoritative
+session or phase exists. If a new session latch is published before stale
+receiver-local presentation from the previous lobby/stage is retired, the guard
+can reinterpret that stale mode as part of the new authority lifetime. Later
+stage-reset code then cannot establish its own fade, swirl, camera, or gameplay
+mode, even though all per-player flags and scene layers appear ready.
+
+**Known instance (B-1099):** timeout teardown returns the ordinary client to CI
+and its intro cutscene. Reconnect `SVC_STAGE_START` validates the full packet and
+freezes a new cutscene-authority match before asynchronous `playerReset()`.
+`playerReset()` first requests `TICKMODE_GE_FADEIN` and later
+`TICKMODE_MPSWIRL`; both are departures from the stale
+`TICKMODE_CUTSCENE`. The general client guard correctly rejects such departures
+whenever `netmsgCutsceneAuthorityHasMatch()` is true, because locally predicted
+authored cutscenes must await reliable END. No authoritative cutscene is active
+in this replay, so no later END arrives. The exact reconnect transaction commits
+world and inventory, while the global tick mode remains 6 forever.
+
+**Validated class correction (B-1099):** the fully validated
+stage-start roster mints the new match latch before asynchronous load. At the
+real `lvReset` boundary, a network client may retire prior-stage CUTSCENE only
+when that latch exists and its authority tracker is still idle. The transition
+uses the same setter under a scoped authoritative application flag to establish
+GE_FADEIN; ordinary player reset then enters MP swirl and NORMAL. The shared
+`HasMatch()` guard remains unchanged, an active new-match cutscene is excluded,
+invalid candidates cannot reach the latch, and smoke gameplay readiness still
+requires NORMAL. Focused contracts pin latch-before-publication,
+boundary-before-player-reset, and the exact reconnect witness. Frozen product
+`7437d77c...` / client `0f377e3e...` and verifier `d5fd25c9...` / tests
+`ef5bdc72...` pass isolated builds, focused 1,746/19, full 63,936/1,168, and
+the native-source guard. The exact `0f377e3e...` replacement then proves the
+`6 -> 0` boundary, two NORMAL gameplay epochs, exact reconnect commit,
+authority-accepted fire, scripted exits, and no leaks. Corrected retained-log
+verification passes 98/98 without changing product source.
+
+**Audit:** for every new stage/session/room authority latch, enumerate global
+presentation state inherited from the previous owner. Verify the old owner is
+retired through an explicit trusted boundary before the new guard becomes
+effective, and that a rejected candidate cannot mutate presentation. Exercise a
+transition that begins while the receiver is in each guarded mode, not only a
+clean title-screen start.
+
+`rg -n "HasMatch|IsActive|BeginMatch|playerSetTickMode|TICKMODE_|StageStart|stage-start" src/game port/src/net tests`
+
+---
+
+## SP-64: A verifier treats optional diagnostics and final cleanup as product failure
+
+**Severity: HIGH - a production-successful run is rejected because the proof
+contract observes the wrong semantic layer or ignores lifecycle phase.**
+
+Diagnostic lines are optional instrumentation, not authoritative product
+events. Requiring one can reject real gameplay when diagnostics are disabled,
+renamed, budget-suppressed, or legitimately absent. Likewise, a process-wide
+forbidden pattern cannot represent state that must be absent during retry but
+must appear during final shutdown. Verification must prefer the lowest stable
+production event and express lifecycle-sensitive state as an ordered sequence.
+
+**Known instance (B-1100):** the B-1099 replacement ordinary client emitted
+five real MagSec `COMBAT: SHOT_FIRED` events and the listen authority logged
+`server_accepted=1`, yet the fixture required the optional
+`LOG.WPN.DIAG: fire-input` trace. The same fixture forbade every
+`credential_retained=0` teardown, even though final scripted shutdown must
+retire a completed reconnect credential. Those two stale assertions caused all
+three failures in an otherwise complete 92/95 receipt.
+
+**Validated class correction (B-1100):** require
+bounded production `COMBAT: SHOT_FIRED` evidence after the injected press,
+retain the host's authoritative acceptance witness, and require exactly one
+terminal credential retirement strictly after `SMOKE: result=scripted_exit`.
+Static coverage rejects both the obsolete diagnostic dependency and the
+process-wide terminal-cleanup prohibition. The original receipt remains
+immutable. Corrected verifier `9f6c126b...` passes all 98 assertions against
+the separately hashed retained aggregate/host/client logs, and compiled
+`[b1100]` passes 61 assertions in 1 case. Product `7437d77c...` and client
+`0f377e3e...` remain unchanged; no game was rerun.
+
+**Audit:** for every required assertion, classify the witness as product state,
+diagnostic instrumentation, or runner bookkeeping. Prefer product state. For
+every forbidden state, enumerate the lifecycle phases in which it is invalid
+and any phase in which it is required; encode phase changes as ordered
+sequences plus bounded counts instead of whole-log absence.
+
+`rg -n "LOG\\.|DIAG|forbidden_patterns|required_sequences|credential_retained|result=scripted_exit" tools/smoke-verify tests`
 
 ---
 

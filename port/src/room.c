@@ -102,6 +102,7 @@ hub_room_t *roomCreate(const char *name)
 
     memset(r->clients, 0, sizeof(r->clients));
     r->client_count      = 0;
+    r->reconnect_reservation_mask = 0;
     r->stagenum          = 0;
     r->scenario          = 0;
     r->rng_seed          = 0;
@@ -170,20 +171,59 @@ s32 roomCheckPassword(const hub_room_t *room, const char *plaintext)
     return (diff == 0) ? 1 : 0;
 }
 
-s32 roomJoin(hub_room_t *room, u8 clientId)
+static u8 roomReconnectReservationCount(const hub_room_t *room)
 {
-    if (!room || room->state == ROOM_STATE_CLOSED) return 0;
+    u32 mask = room ? room->reconnect_reservation_mask : 0;
+    u8 count = 0;
 
-    /* Check if already in room */
-    for (u8 i = 0; i < room->client_count; i++) {
-        if (room->clients[i] == clientId) return 0;
+    while (mask) {
+        count = (u8)(count + (mask & 1u));
+        mask >>= 1;
     }
+    return count;
+}
+
+u8 roomOccupiedCount(const hub_room_t *room)
+{
+    if (!room || room->client_count > HUB_MAX_CLIENTS) return 0;
+    return (u8)(room->client_count + roomReconnectReservationCount(room));
+}
+
+static s32 roomContainsClient(const hub_room_t *room, u8 clientId)
+{
+    if (!room || room->client_count > HUB_MAX_CLIENTS) return 0;
+    for (u8 i = 0; i < room->client_count; i++) {
+        if (room->clients[i] == clientId) return 1;
+    }
+    return 0;
+}
+
+static s32 roomHasReconnectReservation(const hub_room_t *room, u8 clientId)
+{
+    return room && clientId < HUB_MAX_CLIENTS
+        && (room->reconnect_reservation_mask & (1u << clientId)) != 0;
+}
+
+s32 roomCanJoin(const hub_room_t *room, u8 clientId)
+{
+    if (!room || room->state == ROOM_STATE_CLOSED
+            || clientId >= HUB_MAX_CLIENTS) return 0;
+
+    if (roomContainsClient(room, clientId)
+            || roomHasReconnectReservation(room, clientId)) return 0;
 
     /* SEC-14: room max_players is now authoritative (was previously a display-only
      * field).  Hard cap at HUB_MAX_CLIENTS regardless. */
     const u8 cap = (room->max_players && room->max_players <= HUB_MAX_CLIENTS)
                     ? room->max_players : HUB_MAX_CLIENTS;
-    if (room->client_count >= cap) return 0;
+    if (roomOccupiedCount(room) >= cap) return 0;
+
+    return 1;
+}
+
+s32 roomJoin(hub_room_t *room, u8 clientId)
+{
+    if (!roomCanJoin(room, clientId)) return 0;
 
     room->clients[room->client_count++] = clientId;
     sysLogPrintf(LOG_NOTE, "HUB ROOM: client %u joined room %u \"%s\" (%u/%u)",
@@ -192,9 +232,15 @@ s32 roomJoin(hub_room_t *room, u8 clientId)
     return 1;
 }
 
-void roomLeave(hub_room_t *room, u8 clientId)
+static void roomLeaveInternal(hub_room_t *room, u8 clientId,
+		s32 reserve_for_reconnect)
 {
-    if (!room) return;
+    if (!room || clientId >= HUB_MAX_CLIENTS) return;
+
+    if (reserve_for_reconnect
+            && roomHasReconnectReservation(room, clientId)) {
+        return;
+    }
 
     s32 found = -1;
     for (u8 i = 0; i < room->client_count; i++) {
@@ -206,15 +252,22 @@ void roomLeave(hub_room_t *room, u8 clientId)
 
     if (found < 0) return;
 
+    if (reserve_for_reconnect) {
+        /* Set the reservation before removing active membership so room
+         * occupancy never transiently exposes the slot to another joiner. */
+        room->reconnect_reservation_mask |= 1u << clientId;
+    }
+
     /* Shift remaining clients down */
     for (u8 i = found; i < room->client_count - 1; i++) {
         room->clients[i] = room->clients[i + 1];
     }
     room->client_count--;
 
-    sysLogPrintf(LOG_NOTE, "HUB ROOM: client %u left room %u \"%s\" (%u remaining)",
+    sysLogPrintf(LOG_NOTE, "HUB ROOM: client %u left room %u \"%s\" (%u active, %u reserved)",
                  (unsigned)clientId, (unsigned)room->id, room->name,
-                 (unsigned)room->client_count);
+                 (unsigned)room->client_count,
+                 (unsigned)roomReconnectReservationCount(room));
 
     /* Bug B: if this client was participating in the pre-match ready
      * gate, abort the countdown.  Safe no-op if gate is inactive or the
@@ -223,12 +276,69 @@ void roomLeave(hub_room_t *room, u8 clientId)
     netReadyGateOnClientLeft(clientId);
 
     /* Destroy empty rooms (except room 0) */
-    if (room->client_count == 0 && room->id != 0) {
+    if (roomOccupiedCount(room) == 0 && room->id != 0) {
         /* Bug B defensive: abort any gate still targeting this room before
          * destroying the slot.  Should already be clear from the
          * netReadyGateOnClientLeft above, but covers edge cases (e.g. the
          * leaver was a late-join spectator not in expected_mask). */
         netReadyGateAbortForRoom(room->id, "Room closed");
+        roomDestroy(room);
+    }
+}
+
+void roomLeave(hub_room_t *room, u8 clientId)
+{
+    roomLeaveInternal(room, clientId, false);
+}
+
+s32 roomLeaveForReconnect(hub_room_t *room, u8 clientId)
+{
+    if (!room || clientId >= HUB_MAX_CLIENTS) return 0;
+    if (roomHasReconnectReservation(room, clientId)) return 1;
+    if (!roomContainsClient(room, clientId)) return 0;
+    roomLeaveInternal(room, clientId, true);
+    return roomHasReconnectReservation(room, clientId);
+}
+
+s32 roomCanRejoin(const hub_room_t *room, u8 clientId)
+{
+    const u8 cap = room && room->max_players
+            && room->max_players <= HUB_MAX_CLIENTS
+        ? room->max_players : HUB_MAX_CLIENTS;
+    return room && room->state != ROOM_STATE_CLOSED
+        && clientId < HUB_MAX_CLIENTS
+        && roomHasReconnectReservation(room, clientId)
+        && !roomContainsClient(room, clientId)
+        && roomOccupiedCount(room) <= cap;
+}
+
+s32 roomRejoin(hub_room_t *room, u8 clientId)
+{
+    if (!roomCanRejoin(room, clientId)) return 0;
+
+    room->reconnect_reservation_mask &= ~(1u << clientId);
+    room->clients[room->client_count++] = clientId;
+    sysLogPrintf(LOG_NOTE,
+        "HUB ROOM: client %u reclaimed reconnect reservation in room %u \"%s\" (%u active, %u reserved)",
+        (unsigned)clientId, (unsigned)room->id, room->name,
+        (unsigned)room->client_count,
+        (unsigned)roomReconnectReservationCount(room));
+    return 1;
+}
+
+void roomReleaseReconnectReservation(hub_room_t *room, u8 clientId)
+{
+    if (!roomHasReconnectReservation(room, clientId)) return;
+
+    room->reconnect_reservation_mask &= ~(1u << clientId);
+    sysLogPrintf(LOG_NOTE,
+        "HUB ROOM: released reconnect reservation client %u room %u (%u active, %u reserved)",
+        (unsigned)clientId, (unsigned)room->id,
+        (unsigned)room->client_count,
+        (unsigned)roomReconnectReservationCount(room));
+
+    if (roomOccupiedCount(room) == 0 && room->id != 0) {
+        netReadyGateAbortForRoom(room->id, "Room reservation expired");
         roomDestroy(room);
     }
 }
@@ -241,6 +351,7 @@ void roomDestroy(hub_room_t *room)
         /* Room 0 is permanent — reset to lobby instead of closing. */
         roomTransition(room, ROOM_STATE_LOBBY);
         room->client_count = 0;
+        room->reconnect_reservation_mask = 0;
         sysLogPrintf(LOG_NOTE, "HUB ROOM: room 0 reset to lobby");
         return;
     }
@@ -249,6 +360,7 @@ void roomDestroy(hub_room_t *room)
                  (unsigned)room->id, room->name);
     room->state        = ROOM_STATE_CLOSED;
     room->client_count = 0;
+    room->reconnect_reservation_mask = 0;
 }
 
 void roomTransition(hub_room_t *room, room_state_t state)

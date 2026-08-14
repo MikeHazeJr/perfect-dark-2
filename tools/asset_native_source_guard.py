@@ -663,11 +663,6 @@ SCENARIO_CURRENT_PLAYER_POINTER_SOURCE_PROVEN_FUNCTIONS = {
         "s_aiGraphRequireRuntimePlayerPointer(",
         '"if_player_chr_portal_distance_less_than", player',
     ),
-    "scenarioSourceAiGraphExecuteSetCameraAnimation": (
-        "struct player *player = g_Vars.currentplayer;",
-        's_aiGraphRequireRuntimePlayerPointer("set_camera_animation"',
-        'player, "current"',
-    ),
 }
 
 SCENARIO_CURRENT_PLAYER_NUMBER_ERROR = "scenario current-player-number reads must stay behind runtime player-slot proof helpers"
@@ -1063,7 +1058,7 @@ SCENARIO_CUTSCENE_FRAME_OVERRUN_SOURCE_PROVEN_FUNCTIONS = {
         's_aiGraphRequireAnimationNode("chr_do_animation"',
         's_aiGraphResolveAnimationCatalogId("chr_do_animation"',
         '"chr_do_animation", basechr, target_chr',
-        "playerCurrentCutsceneInProgress()",
+        "playerPresentationCutsceneInProgress()",
         "g_CutsceneFrameOverrun240 * speed * 0.25f",
         "AI action chr_do_animation chr=%d chr_rows=%d target_chr=%d player_checked=%d anim_id=%s anim_source=%s clip_bytes=%u",
     ),
@@ -1072,7 +1067,7 @@ SCENARIO_CUTSCENE_FRAME_OVERRUN_SOURCE_PROVEN_FUNCTIONS = {
         "missing objects.json source",
         '"object_do_animation", anim_id, "object"',
         's_aiGraphRequireRuntimeObjectTag("object_do_animation"',
-        "playerCurrentCutsceneInProgress()",
+        "playerPresentationCutsceneInProgress()",
         "g_CutsceneFrameOverrun240 * speed *",
         "AI action object_do_animation anim_id=%s anim_source=%s clip_bytes=%u tag=%d resolved_tag=%d object_rows=%d chr_rows=%d",
     ),

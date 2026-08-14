@@ -33,7 +33,31 @@ void matchOptionsRestoreUserOriginal(u32 *options_inout, u32 *engine_forced_inou
 void matchOptionsForceBit(u32 *options_inout, u32 *engine_forced_inout, u32 bit)
 {
 	if (options_inout && engine_forced_inout) {
-		*engine_forced_inout |= bit;
+		const u32 newly_forced = bit & ~(*options_inout);
+		*engine_forced_inout |= newly_forced;
 		*options_inout |= bit;
+	}
+}
+
+void matchOptionsSetUserBit(u32 *options_inout, u32 *engine_forced_inout,
+		u32 bit, s32 enabled)
+{
+	if (options_inout && engine_forced_inout) {
+		*engine_forced_inout &= ~bit;
+
+		if (enabled) {
+			*options_inout |= bit;
+		} else {
+			*options_inout &= ~bit;
+		}
+	}
+}
+
+void matchOptionsReplaceUserOriginal(u32 *options_inout,
+		u32 *engine_forced_inout, u32 user_options)
+{
+	if (options_inout && engine_forced_inout) {
+		*options_inout = user_options;
+		*engine_forced_inout = 0;
 	}
 }

@@ -212,6 +212,16 @@ bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 angle
 void chrSetPosWithCachedGround(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
 		f32 angle, f32 ground, u16 floorcol, u8 floortype, RoomNum floorroom);
 
+/**
+ * Warp an existing actor to a floor point at an explicit model-root height.
+ * This is the typed boundary for callers that own floor and actor-root domains
+ * separately. The model latches a non-absolute animation bias so visible and
+ * averaged paths keep the requested basis across later merges and loop wraps.
+ */
+bool chrRelocateToFloorWithCachedGround(struct chrdata *chr,
+		const struct coord *floorpos, f32 rootheight, RoomNum *rooms, f32 angle,
+		u16 floorcol, u8 floortype, RoomNum floorroom);
+
 struct prop *chrSpawnAtCoord(s32 body, s32 head, struct coord *pos, RoomNum *room, f32 angle, u8 *ailist, u32 spawnflags);
 bool chrIsPropPresetBlockingSightToTarget(struct chrdata *chr);
 bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *room, f32 angle, bool ignorebg);

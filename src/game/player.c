@@ -27,6 +27,7 @@
 #include "game/camera.h"
 #include "game/player.h"
 #include "game/modeldef.h"
+#include "game/modelmgr.h"
 #include "game/healthbar.h"
 #include "game/hudmsg.h"
 #include "game/menu.h"
@@ -79,6 +80,7 @@
 #include "system.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "net/net_cutscene_authority.h"
 #include "net/matchsetup.h"
 #include "game/playerreset.h" /* 2026-04-23 B-219 v2: modelmgrLoadProjectileModeldefs */
 #include "spawn_predicate.h"  /* INV-2: spawn-with-weapon mutual-exclusion gate */
@@ -87,6 +89,7 @@
 #include "assetcatalog_load.h"
 #include "asset_source_debug.h"
 #include "assetprovider.h"
+#include "player_identity.h"
 #include "actionmap.h"
 #include "scene.h"
 #include "game/spawnpool.h"
@@ -228,6 +231,8 @@ s32 playerDevInvincibilityHudActive(void)
 }
 
 static struct playercutscenestate s_CutsceneFallbackState;
+static u32 s_CutsceneGeneration;
+static bool s_ApplyingAuthoritativeCutsceneState;
 
 static void playerRefreshCutsceneProtect(void);
 
@@ -277,6 +282,10 @@ void playerResetAllCutsceneStates(void)
 {
 	s32 i;
 
+	/* Network authority lifetime is owned by SVC_STAGE_START/STAGE_END, not by
+	 * this player reset: stage loading calls this after the frozen match roster
+	 * has already committed. */
+	s_CutsceneGeneration = 0;
 	playerClearCutsceneState(&s_CutsceneFallbackState);
 
 	for (i = 0; i < MAX_PLAYERS; i++) {
@@ -284,6 +293,28 @@ void playerResetAllCutsceneStates(void)
 	}
 
 	playerRefreshCutsceneProtect();
+}
+
+u32 playerCutsceneGeneration(void)
+{
+	return s_CutsceneGeneration;
+}
+
+bool playerSyncCutsceneGeneration(u32 generation)
+{
+	u32 synchronized_generation;
+
+	/* B-1089: only a network client consumes an authority-minted token.
+	 * The listen server and offline runtime own generation advancement. */
+	if (g_NetMode != NETMODE_CLIENT) {
+		return false;
+	}
+	if (netCutsceneAuthoritySyncGeneration(s_CutsceneGeneration, generation,
+			&synchronized_generation) != NET_CUTSCENE_AUTHORITY_OK) {
+		return false;
+	}
+	s_CutsceneGeneration = synchronized_generation;
+	return true;
 }
 
 void playerSetCutsceneActive(s32 playernum, bool active)
@@ -348,41 +379,127 @@ void playerSetCutsceneActiveMask(u8 player_mask, bool active)
 	}
 }
 
-static u8 playerBuildCutsceneNetworkMask(void)
+void playerReplaceCutsceneActiveMask(u8 player_mask)
 {
-	u8 mask = 0;
-	s32 i;
-
-	if (g_NetMode == NETMODE_SERVER
-			&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
-		for (i = 0; i < g_NetMaxClients && i < NET_MAX_CLIENTS; i++) {
-			struct netclient *client = &g_NetClients[i];
-
-			if (client->state >= CLSTATE_GAME
-					&& !(client->flags & CLFLAG_SPECTATOR)
-					&& client->playernum < MAX_PLAYERS
-					&& client->playernum < 8) {
-				mask |= (u8)(1u << client->playernum);
+	for (s32 i = 0; i < MAX_PLAYERS && i < 8; i++) {
+		struct playercutscenestate *state = playerCutsceneStateForNum(i);
+		if (state) {
+			state->active = (player_mask & (u8)(1u << i)) != 0;
+			if (!state->active) {
+				state->in_progress = false;
+				state->skiprequested = false;
 			}
 		}
 	}
-
-	if (!mask && g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS && g_Vars.currentplayernum < 8) {
-		mask = (u8)(1u << g_Vars.currentplayernum);
+	if (player_mask == 0) {
+		s_CutsceneFallbackState.active = false;
+		s_CutsceneFallbackState.in_progress = false;
+		s_CutsceneFallbackState.skiprequested = false;
 	}
-
-	return mask;
+	playerRefreshCutsceneProtect();
 }
 
-static void playerSendCutsceneSkipRequest(s32 playernum)
+static bool playerApplyAuthoritativeTickMode(s32 tickmode)
+{
+	const bool was_applying = s_ApplyingAuthoritativeCutsceneState;
+	bool applied;
+
+	s_ApplyingAuthoritativeCutsceneState = true;
+	applied = playerSetTickMode(tickmode);
+	s_ApplyingAuthoritativeCutsceneState = was_applying;
+	return applied;
+}
+
+bool playerApplyAuthoritativeStageStartPresentation(void)
+{
+	const s32 previous_tickmode = g_Vars.tickmode;
+	const bool stale_cutscene = previous_tickmode == TICKMODE_CUTSCENE;
+
+	/* The match latch is minted only after SVC_STAGE_START has completely
+	 * validated its typed assets and exact participant roster. Its tracker must
+	 * still be idle here: an active tracker belongs to authored presentation in
+	 * the new match and may only be released by its reliable authority END. */
+	if (g_NetMode != NETMODE_CLIENT
+			|| !netmsgCutsceneAuthorityHasMatch()
+			|| netmsgCutsceneAuthorityIsActive()) {
+		return false;
+	}
+
+	/* lvReset is the one receiver-local boundary where presentation from the
+	 * preceding stage is obsolete. Move through the normal GE fade-in state so
+	 * playerReset can enter MP swirl and eventually NORMAL; do not weaken the
+	 * ordinary client cutscene-exit guard in playerSetTickMode. */
+	if (stale_cutscene
+			&& !playerApplyAuthoritativeTickMode(TICKMODE_GE_FADEIN)) {
+		return false;
+	}
+	playerResetAllCutsceneStates();
+	sysLogPrintf(LOG_NOTE,
+		"CUTSCENE.AUTHORITY: stage-start presentation previous_tickmode=%d next_tickmode=%d stale_cutscene_retired=%u",
+		previous_tickmode, g_Vars.tickmode, (unsigned)stale_cutscene);
+	return true;
+}
+
+bool playerApplyAuthoritativeCutsceneState(u8 active, u8 player_mask,
+		u32 generation)
+{
+	if (g_NetMode != NETMODE_CLIENT || active > 1 || player_mask == 0
+			|| generation == 0) {
+		return false;
+	}
+	if (active && !playerSyncCutsceneGeneration(generation)) {
+		return false;
+	}
+	if (active) {
+		/* The authored script may have predicted presentation locally before the
+		 * reliable START arrived. Latch authority and replace its exact roster
+		 * mask without restarting camera/movement state mid-animation. If this
+		 * receiver has not predicted the start, the authority initializes it. */
+		const bool predicted_start =
+			g_Vars.tickmode == TICKMODE_CUTSCENE && playerAnyInCutscene();
+		if (!predicted_start) {
+			sceneFire(SCENE_EVENT_CUTSCENE_START, NULL);
+			if (!playerSetTickMode(TICKMODE_CUTSCENE)) {
+				return false;
+			}
+			g_PlayerTriggerGeFadeIn = false;
+			bmoveSetModeForAllPlayers(MOVEMODE_CUTSCENE);
+			playersClearMemCamRoom();
+		}
+		playerReplaceCutsceneActiveMask(player_mask);
+		sysLogPrintf(LOG_NOTE,
+			"CUTSCENE.AUTHORITY: START reconciled predicted=%u generation=%u mask=0x%02x",
+			(unsigned)predicted_start, generation, (unsigned)player_mask);
+	} else {
+		const bool was_cutscene = g_Vars.tickmode == TICKMODE_CUTSCENE;
+		if (!playerApplyAuthoritativeTickMode(TICKMODE_NORMAL)) {
+			return false;
+		}
+		g_PlayerTriggerGeFadeIn = false;
+		bmoveSetModeForAllPlayers(MOVEMODE_WALK);
+		playerReplaceCutsceneActiveMask(0);
+		/* A client holds a nonzero authority token only while that exact
+		 * generation is ACTIVE. Clearing it at END makes any locally predicted
+		 * later animation fail closed until its reliable START arrives. */
+		s_CutsceneGeneration = 0;
+		if (!was_cutscene) {
+			sceneFire(SCENE_EVENT_CUTSCENE_END, NULL);
+		}
+	}
+	return true;
+}
+
+static bool playerSendCutsceneSkipRequest(s32 playernum)
 {
 	if (g_NetMode == NETMODE_CLIENT
 			&& g_NetLocalClient
 			&& g_NetLocalClient->state == CLSTATE_GAME) {
 		u8 wire_playernum = (playernum >= 0 && playernum < MAX_PLAYERS) ? (u8)playernum : 0;
 
-		netmsgClcCutsceneSkipWrite(&g_NetMsgRel, wire_playernum);
+		return netmsgClcCutsceneSkipWrite(&g_NetMsgRel, wire_playernum,
+			playerCutsceneGeneration()) == 0;
 	}
+	return false;
 }
 
 bool playerRequestCutsceneSkip(s32 playernum, bool skipautocutgroup)
@@ -401,8 +518,14 @@ bool playerRequestCutsceneSkip(s32 playernum, bool skipautocutgroup)
 		if (!g_NetLocalClient || g_NetLocalClient->state != CLSTATE_GAME) {
 			return false;
 		}
-		playerSendCutsceneSkipRequest(playernum);
-		return true;
+		return playerSendCutsceneSkipRequest(playernum);
+	}
+
+	if (g_NetMode == NETMODE_SERVER) {
+		if (!netmsgServerQueueLocalCutsceneSkip((u8)playernum,
+				playerCutsceneGeneration())) {
+			return false;
+		}
 	}
 
 	playerSetCutsceneSkipRequested(playernum, true);
@@ -476,6 +599,13 @@ bool playerAnyCutsceneInProgress(void)
 bool playerCurrentCutsceneInProgress(void)
 {
 	return playerCurrentCutsceneState()->in_progress;
+}
+
+bool playerPresentationCutsceneInProgress(void)
+{
+	const s32 playernum = playermgrGetPresentationPlayerNum();
+
+	return playernum >= 0 && playerCutsceneInProgress(playernum);
 }
 
 void playerSetCutsceneSkipRequested(s32 playernum, bool skiprequested)
@@ -2394,10 +2524,41 @@ void playersTickAllChrBodies(void)
 	setCurrentPlayerNum(prevplayernum);
 }
 
-void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
+static s32 playerResolveConfiguredIdentity(const struct mpchrconfig *config,
+		s32 *bodynum, s32 *headnum, s32 *arg2, const char *caller)
+{
+	player_identity_plan_t identity;
+	player_identity_status_e status;
+
+	if (!config || !bodynum || !headnum) {
+		return 0;
+	}
+
+	status = playerIdentityPrepare(config->body_id, config->head_id, &identity);
+	if (status != PLAYER_IDENTITY_OK) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK identity caller=%s status=%s body='%s' head='%s'",
+			caller ? caller : "unknown", playerIdentityStatusString(status),
+			config->body_id, config->head_id);
+		return 0;
+	}
+
+	*bodynum = identity.runtime_bodynum;
+	*headnum = identity.runtime_headnum;
+	if (arg2) {
+		*arg2 = false;
+	}
+	return 1;
+}
+
+s32 playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 {
 	s32 outfit;
 	bool solo;
+
+	if (!bodynum || !headnum) {
+		return 0;
+	}
 
 	if (g_Vars.antiplayernum >= 0
 			&& PLAYER_IS_ANTI(g_Vars.currentplayer)
@@ -2405,56 +2566,16 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 			&& g_Vars.antibodynum >= 0) {
 		*headnum = g_Vars.antiheadnum;
 		*bodynum = g_Vars.antibodynum;
-		return;
+		return 1;
 	}
 
-	/* 2026-04-23 B-234 deep-dive: catalog-ID path for player body/head
-	 * resolution. Prior code read mpheadnum/mpbodynum directly; non-MP heads
-	 * (Maian, Skedar, Dr Carroll) have mpheadnum=0 (legacy compat write from
-	 * mpchrSetHeadById when mp_index<0), so this path resolved to
-	 * HEAD_DARK_COMBAT for aliens just like the bot alloc path used to. Now:
-	 * resolve head_id / body_id strings via catalog first, read runtime
-	 * indices from ext.head.headnum / ext.body.bodynum; fall back to the
-	 * legacy mpheadnum path only when the catalog strings are empty. Shared
-	 * helper by the normmp and net-coop branches below. */
-	#define B234_RESOLVE_CHARCONFIG(cfg_, headout_, bodyout_, arg2flag_) do { \
-		const char *_hid = (cfg_).head_id; \
-		const char *_bid = (cfg_).body_id; \
-		s32 _resolved_head = -1; \
-		s32 _resolved_body = -1; \
-		if (_hid && _hid[0]) { \
-			const asset_entry_t *_he = assetCatalogResolve(_hid); \
-			if (_he && _he->type == ASSET_HEAD) { \
-				_resolved_head = (s32)_he->ext.head.headnum; \
-			} \
-		} \
-		if (_bid && _bid[0]) { \
-			const asset_entry_t *_be = assetCatalogResolve(_bid); \
-			if (_be && _be->type == ASSET_BODY) { \
-				_resolved_body = (s32)_be->ext.body.bodynum; \
-			} \
-		} \
-		if (_resolved_head >= 0) { \
-			*(headout_) = _resolved_head; \
-		} else if ((cfg_).mpheadnum < mpGetNumHeads2()) { \
-			*(headout_) = mpGetHeadId((cfg_).mpheadnum); \
-		} else { \
-			*(headout_) = (cfg_).mpheadnum - mpGetNumHeads2(); \
-			if (arg2flag_) { \
-				*(arg2flag_) = true; \
-			} \
-		} \
-		if (_resolved_body >= 0) { \
-			*(bodyout_) = _resolved_body; \
-		} else { \
-			*(bodyout_) = mpGetBodyId((cfg_).mpbodynum); \
-		} \
-	} while (0)
-
 	if (g_Vars.normmplayerisrunning) {
-		B234_RESOLVE_CHARCONFIG(
-			g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base,
-			headnum, bodynum, arg2);
+		const struct mpchrconfig *config =
+			&g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base;
+		if (!playerResolveConfiguredIdentity(config, bodynum, headnum, arg2,
+				"normal multiplayer")) {
+			return 0;
+		}
 		/* B-246 instrumentation: log the resolved body/head + their rig_class
 		 * for player 0 only. The bug correlates with body choice (Dark Combat
 		 * default = broken; Dr Carroll = working in one log), so capturing
@@ -2488,7 +2609,7 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 				(u32)cfg->mpbodynum, (u32)cfg->mpheadnum,
 				body_id, head_id, body_rig, head_rig);
 		}
-		return;
+		return 1;
 	}
 
 	// In network co-op, allow players to use their chosen MP character model.
@@ -2501,10 +2622,12 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 		const struct mpchrconfig *cfg =
 			&g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base;
 		bool hasCustomCharacter =
-			(cfg->head_id[0] != '\0' || cfg->body_id[0] != '\0'
-				|| cfg->mpbodynum > 0 || cfg->mpheadnum > 0);
+			(cfg->head_id[0] != '\0' || cfg->body_id[0] != '\0');
 		if (hasCustomCharacter) {
-			B234_RESOLVE_CHARCONFIG(*cfg, headnum, bodynum, arg2);
+			if (!playerResolveConfiguredIdentity(cfg, bodynum, headnum, arg2,
+					"network co-op")) {
+				return 0;
+			}
 			sysLogPrintf(LOG_NOTE,
 				"NET: co-op player %d using custom character body=%d head=%d "
 				"(body_id='%s' head_id='%s' mpbody=%u mphead=%u)",
@@ -2512,11 +2635,10 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 				cfg->body_id[0] ? cfg->body_id : "(empty)",
 				cfg->head_id[0] ? cfg->head_id : "(empty)",
 				cfg->mpbodynum, cfg->mpheadnum);
-			return;
+			return 1;
 		}
-		// empty body_id and head_id and zero MP indices: fall through to default
+		/* No typed character override: mission outfit remains authoritative. */
 	}
-	#undef B234_RESOLVE_CHARCONFIG
 
 	outfit = g_Vars.currentplayer->bondtype;
 	solo = !(g_Vars.coopplayernum >= 0) || (g_Vars.currentplayer != g_Vars.coop);
@@ -2524,7 +2646,7 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 	if (cheatIsActive(CHEAT_PLAYASELVIS)) {
 		*bodynum = BODY_THEKING;
 		*headnum = HEAD_ELVIS;
-		return;
+		return 1;
 	}
 
 	if (g_Vars.stagenum == STAGE_VILLA && lvGetDifficulty() >= DIFF_PA) {
@@ -2601,6 +2723,23 @@ void playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
 		*headnum = solo ? HEAD_MAIAN_S : HEAD_MAIAN_S;
 		break;
 	}
+
+	return 1;
+}
+
+static bool playerBodyModeldefIsUsable(struct modeldef *modeldef,
+		const char *body_id)
+{
+	bool public_source_generated = modeldef != NULL
+		&& modeldef->rootnode != NULL
+		&& body_id != NULL
+		&& catalogGetLoadedModeldef(body_id) == modeldef;
+
+	return modeldef != NULL
+		&& modeldef->rootnode != NULL
+		&& (public_source_generated || modeldef->skel != NULL)
+		&& (public_source_generated || modeldef->numparts > 0)
+		&& modeldef->numparts <= 500;
 }
 
 /**
@@ -2625,6 +2764,7 @@ void playerTickChrBody(void)
 
 	if (g_Vars.currentplayer->haschrbody == false) {
 		struct chrdata *chr;
+		struct model *prepared_model = NULL;
 		struct texpool texpool;
 		struct modeldef *bodymodeldef = NULL;
 		struct modeldef *headmodeldef = NULL;
@@ -2640,6 +2780,9 @@ void playerTickChrBody(void)
 		s32 weapon_model_file_source_1p = 0;
 		asset_data_handle_t weapon_handle = ASSET_HANDLE_NULL_INIT;
 		catalog_model_result_t weapon_model_result;
+		const char *rollback_reason = "unknown";
+		bool acquired_gunmem = false;
+		u8 previous_prop_type = g_Vars.currentplayer->prop->type;
 
 		// Unused
 		struct weaponobj template = {
@@ -2677,15 +2820,17 @@ void playerTickChrBody(void)
 
 		s32 weaponmodelnum;
 		s32 weaponnum = bgunGetWeaponNum2(HAND_RIGHT);
-		s32 bodynum = BODY_DARK_COMBAT;
-		s32 headnum = HEAD_DARK_COMBAT;
+		s32 bodynum = -1;
+		s32 headnum = -1;
 		bool sp60 = false;
 		struct model *model = NULL;
 		u32 *rwdatas;
 		u32 stack3[2];
 
-		g_Vars.currentplayer->haschrbody = true;
-		playerChooseBodyAndHead(&bodynum, &headnum, &sp60);
+		if (!playerChooseBodyAndHead(&bodynum, &headnum, &sp60)) {
+			rollback_reason = "identity";
+			goto player_init_rollback;
+		}
 
 		if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
 			weaponnum = g_DefaultWeapons[0];
@@ -2698,15 +2843,21 @@ void playerTickChrBody(void)
 			if (g_Vars.currentplayer->gunmem2 == NULL) {
 				if (!var8009dfc0 && bgunChangeGunMem(GUNMEMOWNER_CHRBODY)) {
 					g_Vars.currentplayer->gunmem2 = bgunGetGunMem();
+					acquired_gunmem = true;
+
+					if (g_Vars.currentplayer->gunmem2 == NULL) {
+						rollback_reason = "gun memory unavailable";
+						goto player_init_rollback;
+					}
 				} else {
 					if (var8009dfc0);
-
-					g_Vars.currentplayer->haschrbody = false;
 
 					if (!var8009dfc0) {
 						g_Vars.lockscreen = true;
 					}
-					return;
+
+					rollback_reason = "gun memory ownership";
+					goto player_init_rollback;
 				}
 			}
 
@@ -2748,9 +2899,10 @@ void playerTickChrBody(void)
 			s32 body_filenum_1p;
 			s32 head_filenum_1p = -1;
 			if (!bodyid || !catalogResolveBody(bodyid, &bodyresult)) {
-				sysLogPrintf(LOG_ERROR, "CHARACTER.LOAD.FAIL: cannot resolve body catalog entry for bodynum=%d -- character will be INVISIBLE (asset missing from catalog/data tree; try a Clean Build / re-extract)",
+				sysLogPrintf(LOG_ERROR, "CHARACTER.LOAD.FAIL: cannot resolve body catalog entry for bodynum=%d",
 					bodynum);
-				return;
+				rollback_reason = "body source";
+				goto player_init_rollback;
 			}
 
 			body_filenum_1p = bodyresult.filenum;
@@ -2758,7 +2910,15 @@ void playerTickChrBody(void)
 				"player chrbody body modeldef", bodyid, bodyresult.handle);
 			body_file_source = (bodyresult.handle.provider == fileProvider());
 
-			if (headid && catalogResolveHead(headid, &headresult)) {
+			if (!catalogGetBodyIsComplete(bodynum)) {
+				if (!headid || !catalogResolveHead(headid, &headresult)) {
+					sysLogPrintf(LOG_ERROR,
+						"CHARACTER.LOAD.FAIL: cannot resolve head catalog entry for headnum=%d",
+						headnum);
+					rollback_reason = "head source";
+					goto player_init_rollback;
+				}
+
 				havehead = 1;
 				head_filenum_1p = headresult.filenum;
 				assetSourceDebugFatalHandleFallback(ASSET_HEAD,
@@ -2774,8 +2934,8 @@ void playerTickChrBody(void)
 					assetSourceDebugFatalHandleFallback(ASSET_MODEL,
 						"player chrbody weapon modeldef", weapon_model_id_1p, weapon_handle);
 					if (assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL, weapon_handle)) {
-						g_Vars.currentplayer->haschrbody = false;
-						return;
+						rollback_reason = "weapon source";
+						goto player_init_rollback;
 					}
 					weapon_model_file_source_1p = (weapon_model_result.handle.provider == fileProvider());
 				}
@@ -2809,13 +2969,13 @@ void playerTickChrBody(void)
 				bodymodeldef = modeldefLoadFromHandle(bodyresult.handle, bodyresult.filenum, allocation + offset1, offset2 - offset1, &texpool);
 			}
 
-			if (bodymodeldef == NULL) {
-				// Body model failed to load -- player will be invisible but won't crash
+			if (!playerBodyModeldefIsUsable(bodymodeldef, bodyid)) {
 				playerFatalSourceOnlyCharacterAssetFailure(ASSET_BODY, bodyid,
 					bodynum, "player chrbody body modeldef");
-				sysLogPrintf(LOG_ERROR, "CHARACTER.LOAD.FAIL: body modeldef NULL for bodynum=%d filenum=0x%04x -- character will be INVISIBLE (missing/stale/incompatible extracted asset; try a Clean Build / re-extract)",
+				sysLogPrintf(LOG_ERROR, "CHARACTER.LOAD.FAIL: body modeldef invalid for bodynum=%d filenum=0x%04x",
 					bodynum, body_filenum_1p);
-				return;
+				rollback_reason = "body model";
+				goto player_init_rollback;
 			}
 
 			if (!body_file_source) {
@@ -2835,8 +2995,10 @@ void playerTickChrBody(void)
 				} else {
 					playerFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD, headid,
 						headnum, "player chrbody head modeldef");
-					sysLogPrintf(LOG_WARNING, "PLAYER: headmodeldef NULL for headnum=%d filenum=0x%04x",
+					sysLogPrintf(LOG_ERROR, "PLAYER: headmodeldef NULL for headnum=%d filenum=0x%04x",
 						headnum, head_filenum_1p);
+					rollback_reason = "head model";
+					goto player_init_rollback;
 				}
 			}
 
@@ -2867,37 +3029,17 @@ void playerTickChrBody(void)
 		} else {
 			// 2-4 players
 			const char *multi_body_id = catalogBodyIdByBodynum(bodynum);
-			bool public_source_generated_body = false;
 
 			bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
-			public_source_generated_body = bodymodeldef != NULL
-				&& bodymodeldef->rootnode != NULL
-				&& multi_body_id != NULL
-				&& catalogGetLoadedModeldef(multi_body_id) == bodymodeldef;
 
-			/* Check for NULL or structurally corrupt modeldef (bad pointer fixup,
-			 * missing file, etc.). If the player's configured body is broken,
-			 * fall back to the default combat body. NOTE: we no longer reject
-			 * models with bad scale here — body0f02ce8c will clamp the scale
-			 * instead of rejecting, preventing cascading failures. */
-			if (bodymodeldef == NULL
-				|| bodymodeldef->rootnode == NULL
-				|| (!public_source_generated_body && bodymodeldef->skel == NULL)
-				|| (!public_source_generated_body && bodymodeldef->numparts <= 0)
-				|| bodymodeldef->numparts > 500) {
+			if (!playerBodyModeldefIsUsable(bodymodeldef, multi_body_id)) {
 				playerFatalSourceOnlyCharacterAssetFailure(ASSET_BODY, multi_body_id,
 					bodynum, "multiplayer body modeldef");
-				sysLogPrintf(LOG_WARNING, "PLAYER: bodymodeldef bad (multi) for bodynum=%d filenum=0x%04x, trying BODY_DARK_COMBAT",
+				sysLogPrintf(LOG_ERROR,
+					"PLAYER: bodymodeldef invalid (multi) for bodynum=%d filenum=0x%04x",
 					bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
-				bodynum = BODY_DARK_COMBAT;
-				headnum = HEAD_DARK_COMBAT;
-
-				bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
-
-				if (bodymodeldef == NULL) {
-					sysLogPrintf(LOG_WARNING, "PLAYER: fallback bodymodeldef also NULL — giving up");
-					return;
-				}
+				rollback_reason = "multiplayer body model";
+				goto player_init_rollback;
 			}
 
 			if (catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
@@ -2907,45 +3049,39 @@ void playerTickChrBody(void)
 			} else {
 				headmodeldef = catalogGetHeadModeldef(headnum); /* SA-5f */
 			}
+
+			if (!catalogGetBodyIsComplete(bodynum) && headmodeldef == NULL) {
+				playerFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD,
+					catalogHeadIdByHeadnum(headnum), headnum,
+					"multiplayer head modeldef");
+				rollback_reason = "multiplayer head model";
+				goto player_init_rollback;
+			}
 		}
 
-		g_Vars.currentplayer->model00d4 = body0f02ce8c(bodynum, headnum, bodymodeldef, headmodeldef, false, model, true, true);
+		prepared_model = body0f02ce8c(bodynum, headnum, bodymodeldef,
+			headmodeldef, false, model, true, true);
 
-		/* If body failed to load (corrupt modeldef, missing file, etc.),
-		 * try falling back to default combat body before giving up. */
-		if (g_Vars.currentplayer->model00d4 == NULL) {
+		if (prepared_model == NULL) {
 			playerFatalSourceOnlyCharacterAssetFailure(ASSET_BODY,
 				catalogBodyIdByBodynum(bodynum), bodynum,
 				"player chrbody body instantiation");
-			sysLogPrintf(LOG_WARNING, "PLAYER: body0f02ce8c returned NULL for bodynum=%d, trying fallback BODY_DARK_COMBAT", bodynum);
-			bodynum = BODY_DARK_COMBAT;
-			headnum = HEAD_DARK_COMBAT;
-
-			bodymodeldef = catalogGetBodyModeldef(bodynum); /* SA-5f */
-			headmodeldef = catalogGetHeadModeldef(headnum); /* SA-5f */
-
-			g_Vars.currentplayer->model00d4 = body0f02ce8c(bodynum, headnum, bodymodeldef, headmodeldef, false, model, true, true);
+			rollback_reason = "body instantiation";
+			goto player_init_rollback;
 		}
 
-		if (g_Vars.currentplayer->model00d4 == NULL) {
-			sysLogPrintf(LOG_WARNING, "PLAYER: fallback body also failed — player will be invisible");
-			g_Vars.currentplayer->haschrbody = false;
-			return;
+		if (chr0f020b14(g_Vars.currentplayer->prop, prepared_model,
+				&g_Vars.currentplayer->prop->pos,
+				g_Vars.currentplayer->prop->rooms, turnangle, 0) == NULL) {
+			rollback_reason = "character allocation";
+			goto player_init_rollback;
 		}
-
-		chr0f020b14(g_Vars.currentplayer->prop, g_Vars.currentplayer->model00d4, &g_Vars.currentplayer->prop->pos,
-				g_Vars.currentplayer->prop->rooms, turnangle, 0);
 		g_Vars.currentplayer->prop->type = PROPTYPE_PLAYER;
 		chr = g_Vars.currentplayer->prop->chr;
 
-		if (g_Vars.mplayerisrunning) {
-			g_MpAllChrPtrs[g_Vars.currentplayernum] = chr;
-			g_MpAllChrConfigPtrs[g_Vars.currentplayernum] = &g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base;
-		}
-
 		chr->chrflags |= CHRCFLAG_FORCETOGROUND;
 
-		modelSetRootPosition(g_Vars.currentplayer->model00d4, &g_Vars.currentplayer->prop->pos);
+		modelSetRootPosition(prepared_model, &g_Vars.currentplayer->prop->pos);
 		chrSetLookAngle(g_Vars.currentplayer->prop->chr, turnangle);
 
 		chr->headnum = headnum;
@@ -3023,6 +3159,47 @@ void playerTickChrBody(void)
 		chr->fireslots[0] = bgunAllocateFireslot();
 		func0f02e9a0(chr, 0);
 		bmoveUpdateRooms(g_Vars.currentplayer);
+
+		if (g_Vars.mplayerisrunning) {
+			g_MpAllChrPtrs[g_Vars.currentplayernum] = chr;
+			g_MpAllChrConfigPtrs[g_Vars.currentplayernum] =
+				&g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base;
+		}
+
+		g_Vars.currentplayer->model00d4 = prepared_model;
+		g_Vars.currentplayer->haschrbody = true;
+		sysLogPrintf(LOG_NOTE,
+			"PLAYER.INIT.COMMIT chrbody player=%d body=%d head=%d model=%p",
+			g_Vars.currentplayernum, bodynum, headnum, (void *)prepared_model);
+		goto player_init_complete;
+
+player_init_rollback:
+		if (g_Vars.currentplayer->prop->chr == NULL) {
+			g_Vars.currentplayer->prop->type = previous_prop_type;
+		}
+
+		if (g_Vars.mplayerisrunning && prepared_model != NULL) {
+			modelmgrFreeModel(prepared_model);
+		}
+
+		if (g_Vars.mplayerisrunning) {
+			g_MpAllChrPtrs[g_Vars.currentplayernum] = NULL;
+			g_MpAllChrConfigPtrs[g_Vars.currentplayernum] = NULL;
+		}
+
+		if (acquired_gunmem) {
+			bgunFreeGunMem();
+			g_Vars.currentplayer->gunmem2 = NULL;
+		}
+
+		g_Vars.currentplayer->model00d4 = NULL;
+		g_Vars.currentplayer->haschrbody = false;
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK chrbody player=%d reason=%s body=%d head=%d",
+			g_Vars.currentplayernum, rollback_reason, bodynum, headnum);
+
+player_init_complete:
+		;
 	} else {
 		struct chrdata *chr = g_Vars.currentplayer->prop->chr;
 
@@ -3082,31 +3259,77 @@ void playerRemoveChrBody(void)
 	}
 }
 
-void playerSetTickMode(s32 tickmode)
+bool playerSetTickMode(s32 tickmode)
 {
 	s32 prevtickmode = g_Vars.tickmode;
+	const bool leaving_cutscene = prevtickmode == TICKMODE_CUTSCENE
+		&& tickmode != TICKMODE_CUTSCENE;
+	bool queued_authority_end = false;
+	u8 authority_player_mask = 0;
+
+	/* A network client may prepare the authored animation locally, but only
+	 * SVC_CUTSCENE END can release the authoritative phase. This catches every
+	 * tick-mode exit, not only playerEndCutscene's primary script path. */
+	if (g_NetMode == NETMODE_CLIENT && !s_ApplyingAuthoritativeCutsceneState
+			&& leaving_cutscene
+			&& netmsgCutsceneAuthorityHasMatch()) {
+		return false;
+	}
+
+	/* B-1090: this is the canonical authority END boundary. Authored scripts can
+	 * leave CUTSCENE without calling playerEndCutscene, and may start the next
+	 * cutscene in the same frame. Queue END before local mutation so the reliable
+	 * stream becomes ... END generation N, START generation N+1. Explicit
+	 * playerEndCutscene exits also use this boundary, so there is one preflight
+	 * and one local teardown transaction for every tick-mode transition. */
+	if (g_NetMode == NETMODE_SERVER && leaving_cutscene
+			&& netmsgCutsceneAuthorityIsActive()) {
+		if (!netmsgServerQueueCutsceneState(0, playerCutsceneGeneration(),
+				&authority_player_mask)) {
+			sysLogPrintf(LOG_ERROR,
+				"CUTSCENE.AUTHORITY: tick-mode END preflight rejected generation=%u",
+				playerCutsceneGeneration());
+			return false;
+		}
+		queued_authority_end = true;
+		sysLogPrintf(LOG_NOTE,
+			"CUTSCENE.AUTHORITY: tick-mode END queued generation=%u mask=0x%02x",
+			playerCutsceneGeneration(), (unsigned)authority_player_mask);
+	}
 
 	g_Vars.tickmode = tickmode;
 
 	if (tickmode != TICKMODE_CUTSCENE) {
-		playerSetCutsceneInProgress(g_Vars.currentplayernum, false);
+		if (queued_authority_end) {
+			playerReplaceCutsceneActiveMask(0);
+		} else {
+			playerSetCutsceneInProgress(g_Vars.currentplayernum, false);
+		}
 	}
 
-	if (prevtickmode == TICKMODE_CUTSCENE && tickmode != TICKMODE_CUTSCENE) {
-		playerSetCutsceneActive(g_Vars.currentplayernum, false);
+	if (leaving_cutscene) {
+		if (!queued_authority_end) {
+			playerSetCutsceneActive(g_Vars.currentplayernum, false);
+		}
 		sceneFire(SCENE_EVENT_CUTSCENE_END, NULL);
 	}
+
+	return true;
 }
 
 void playerBeginGeFadeIn(void)
 {
-	playerSetTickMode(TICKMODE_GE_FADEIN);
+	if (!playerSetTickMode(TICKMODE_GE_FADEIN)) {
+		return;
+	}
 	g_PlayerTriggerGeFadeIn = false;
 }
 
 void playersBeginMpSwirl(void)
 {
-	playerSetTickMode(TICKMODE_MPSWIRL);
+	if (!playerSetTickMode(TICKMODE_MPSWIRL)) {
+		return;
+	}
 	g_PlayerTriggerGeFadeIn = false;
 	bmoveSetMode(MOVEMODE_WALK);
 
@@ -3186,7 +3409,9 @@ void playerTickMpSwirl(void)
 
 void player0f0b9a20(void)
 {
-	playerSetTickMode(TICKMODE_NORMAL);
+	if (!playerSetTickMode(TICKMODE_NORMAL)) {
+		return;
+	}
 	g_PlayerTriggerGeFadeIn = false;
 	bmoveSetMode(MOVEMODE_WALK);
 
@@ -3209,33 +3434,26 @@ void playerEndCutscene(void)
 	if (g_Vars.autocutplaying) {
 		g_Vars.autocutfinished = true;
 	} else {
-		u8 cutscene_mask = playerCutsceneActiveMask();
-
-		if (!cutscene_mask) {
-			cutscene_mask = playerBuildCutsceneNetworkMask();
+		/* This helper also ends non-cutscene presentation modes, notably the
+		 * Combat Simulator opening swirl. Keep the network authority decision at
+		 * playerSetTickMode: a client cannot leave TICKMODE_CUTSCENE while a
+		 * match owns the reliable authority stream, including before START is
+		 * reconciled, but it must be able to leave TICKMODE_MPSWIRL locally. */
+		if (!playerSetTickMode(TICKMODE_NORMAL)) {
+			return;
 		}
 
-		playerSetTickMode(TICKMODE_NORMAL);
 		g_PlayerTriggerGeFadeIn = false;
 		bmoveSetModeForAllPlayers(MOVEMODE_WALK);
-		playerSetCutsceneActiveMask(cutscene_mask, false);
-
-		// Broadcast cutscene end to co-op clients
-		if (g_NetMode == NETMODE_SERVER
-				&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
-			netmsgSvcCutsceneWrite(&g_NetMsgRel, 0, cutscene_mask);
-		}
-
-		/* Cohort 4 (2026-04-27, input universality): pop LAYER_CUTSCENE
-		 * via the Scene Manager. Fires the on_pop hook (deactivates
-		 * g_ImcCutscene). Idempotent if no cutscene was pushed. */
-		sceneFire(SCENE_EVENT_CUTSCENE_END, NULL);
+		playerReplaceCutsceneActiveMask(0);
 	}
 }
 
 void playerPrepareWarpType1(s16 pad)
 {
-	playerSetTickMode(TICKMODE_WARP);
+	if (!playerSetTickMode(TICKMODE_WARP)) {
+		return;
+	}
 	g_PlayerTriggerGeFadeIn = false;
 	bmoveSetModeForAllPlayers(MOVEMODE_CUTSCENE);
 	playersClearMemCamRoom();
@@ -3245,7 +3463,9 @@ void playerPrepareWarpType1(s16 pad)
 
 void playerPrepareWarpType2(struct warpparams *cmd, bool hasdir, s32 arg2)
 {
-	playerSetTickMode(TICKMODE_WARP);
+	if (!playerSetTickMode(TICKMODE_WARP)) {
+		return;
+	}
 	g_PlayerTriggerGeFadeIn = false;
 	bmoveSetModeForAllPlayers(MOVEMODE_CUTSCENE);
 	playersClearMemCamRoom();
@@ -3259,7 +3479,9 @@ void playerPrepareWarpType2(struct warpparams *cmd, bool hasdir, s32 arg2)
 
 void playerPrepareWarpType3(f32 posangle, f32 rotangle, f32 range, f32 height1, f32 height2, s32 padnum)
 {
-	playerSetTickMode(TICKMODE_WARP);
+	if (!playerSetTickMode(TICKMODE_WARP)) {
+		return;
+	}
 	g_PlayerTriggerGeFadeIn = false;
 	bmoveSetModeForAllPlayers(MOVEMODE_CUTSCENE);
 	playersClearMemCamRoom();
@@ -3358,17 +3580,55 @@ void playerExecutePreparedWarp(void)
 	player0f0c1ba4(&pos, &up, &look, &memcampos, room);
 }
 
-void playerStartCutscene2(void)
+bool playerStartCutscene2(s16 animnum)
 {
+	const bool authority_transition = !playerAnyInCutscene();
+	u8 authority_player_mask = 0;
+	u32 next_generation = s_CutsceneGeneration;
+
 	/* Cohort 4 (2026-04-27, input universality): push LAYER_CUTSCENE
 	 * via the Scene Manager BEFORE the tickmode flip so the on_push
 	 * hook flushes gameplay state plus the cutscene action set while
 	 * input state is still observable. Combined with the hold-to-skip
 	 * gate in playerTickCutscene, this makes the Mission 1 obj 2 cutscene
 	 * flash structurally impossible. */
+	/* B-1089: this is an authority token, not a counter peers attempt to
+	 * reproduce from local script timing. A client may predict only authored
+	 * presentation; its generation remains zero until reliable SVC_CUTSCENE
+	 * START, so requests fail closed and no client can commit END early. */
+	if (g_NetMode == NETMODE_CLIENT && authority_transition) {
+		/* Defensive invalidation for presentation that begins before START. The
+		 * previous cutscene's token must never authorize this new request. */
+		s_CutsceneGeneration = 0;
+	} else if (authority_transition) {
+		if (!netCutsceneAuthorityNextGeneration(s_CutsceneGeneration,
+				&next_generation)) {
+			sysLogPrintf(LOG_ERROR,
+				"CUTSCENE.AUTHORITY: generation exhausted; START rejected");
+			return false;
+		}
+		/* Queue the exact room-scoped wire state before any local scene, movement,
+		 * or generation mutation. A queue failure leaves the old phase intact. */
+		if (g_NetMode == NETMODE_SERVER
+				&& !netmsgServerQueueCutsceneState(1, next_generation,
+					&authority_player_mask)) {
+			sysLogPrintf(LOG_ERROR,
+				"CUTSCENE.AUTHORITY: START preflight rejected generation=%u",
+				next_generation);
+			return false;
+		}
+		s_CutsceneGeneration = next_generation;
+	}
+
+	/* The animation number is presentation state. Publish authority first so a
+	 * rejected generation or full reliable queue leaves the previous camera
+	 * transaction completely untouched. */
+	playerSetCutsceneAnimNum(g_Vars.currentplayernum, animnum);
 	sceneFire(SCENE_EVENT_CUTSCENE_START, NULL);
 
-	playerSetTickMode(TICKMODE_CUTSCENE);
+	if (!playerSetTickMode(TICKMODE_CUTSCENE)) {
+		return false;
+	}
 	g_PlayerTriggerGeFadeIn = false;
 	bmoveSetModeForAllPlayers(MOVEMODE_CUTSCENE);
 	playersClearMemCamRoom();
@@ -3385,13 +3645,8 @@ void playerStartCutscene2(void)
 	g_CutsceneTweenDuration60 = -1;
 	playerSetCutsceneActive(g_Vars.currentplayernum, true);
 
-	// Broadcast cutscene start to co-op clients
-	if (g_NetMode == NETMODE_SERVER
-			&& (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI)) {
-		u8 cutscene_mask = playerBuildCutsceneNetworkMask();
-
-		playerSetCutsceneActiveMask(cutscene_mask, true);
-		netmsgSvcCutsceneWrite(&g_NetMsgRel, 1, cutscene_mask);
+	if (g_NetMode == NETMODE_SERVER && authority_transition) {
+		playerReplaceCutsceneActiveMask(authority_player_mask);
 	}
 
 	paksStop(true);
@@ -3399,9 +3654,10 @@ void playerStartCutscene2(void)
 			g_Vars.tickmode == TICKMODE_CUTSCENE
 			&& playerCurrentCutsceneCurAnimFrame60() < animGetNumFrames(playerCurrentCutsceneAnimNum()) - 1);
 	g_Vars.cutsceneskip60ths = 0;
+	return true;
 }
 
-void playerStartCutscene(s16 animnum)
+bool playerStartCutscene(s16 animnum)
 {
 	if (!g_Vars.autocutplaying
 			|| !playerCurrentCutsceneInProgress()
@@ -3417,12 +3673,54 @@ void playerStartCutscene(s16 animnum)
 			playersTickAllChrBodies();
 		}
 
-		playerSetCutsceneAnimNum(g_Vars.currentplayernum, animnum);
-
 		if (g_Vars.currentplayer->haschrbody) {
-			playerStartCutscene2();
+			return playerStartCutscene2(animnum);
 		}
 	}
+
+	return false;
+}
+
+/**
+ * Start authored camera presentation on this process's local player.
+ *
+ * Scenario AI runs during the global level tick, after the prior frame's
+ * per-player render loop has often left a remote replica selected. Keep the
+ * legacy current-player API for true per-player callers, but give global graph
+ * commands an explicit receiver-local boundary and restore their ambient
+ * context after the transaction.
+ */
+bool playerStartCutsceneForPresentation(s16 animnum)
+{
+	const s32 previousplayernum = g_Vars.currentplayernum;
+	const s32 presentationplayernum = playermgrGetPresentationPlayerNum();
+	bool body_ready;
+	bool committed;
+
+	if (presentationplayernum < 0
+			|| presentationplayernum >= MAX_PLAYERS
+			|| !g_Vars.players[presentationplayernum]) {
+		return false;
+	}
+
+	setCurrentPlayerNum(presentationplayernum);
+	committed = playerStartCutscene(animnum);
+	body_ready = g_Vars.currentplayer && g_Vars.currentplayer->haschrbody;
+	if (g_NetMode != NETMODE_NONE) {
+		sysLogPrintf(LOG_NOTE,
+			"CUTSCENE.PRESENTATION: start local_player=%d ambient_player=%d anim=%d body_ready=%u committed=%u active=%u in_progress=%u",
+			presentationplayernum, previousplayernum, (s32)animnum,
+			(unsigned)body_ready, (unsigned)committed,
+			(unsigned)playerInCutscene(presentationplayernum),
+			(unsigned)playerCutsceneInProgress(presentationplayernum));
+	}
+
+	if (previousplayernum >= 0 && previousplayernum < MAX_PLAYERS
+			&& g_Vars.players[previousplayernum]) {
+		setCurrentPlayerNum(previousplayernum);
+	}
+
+	return committed;
 }
 
 void playerReorientForCutsceneStop(s32 tweenduration60)
@@ -3631,15 +3929,16 @@ void playerTickCutscene(bool arg0)
 
 #if VERSION >= VERSION_NTSC_1_0
 	/* M0.2: replaced buttons bitmask tests with action map booleans */
-	if (cutscene->curtotalframe60f > 30 && skiphold) {
+	if (cutscene->curtotalframe60f > 30 && skiphold
+			&& playerRequestCutsceneSkip(playeridx,
+				cancelorpause ? true : false)) {
 		actionConsumeHold(playeridx, skipaction);
-		playerRequestCutsceneSkip(playeridx, cancelorpause ? true : false);
 	}
 #else
 	if (cutscene->curtotalframe60f > 30) {
-		if (skiphold) {
+		if (skiphold && playerRequestCutsceneSkip(playeridx,
+				cancelorpause ? true : false)) {
 			actionConsumeHold(playeridx, skipaction);
-			playerRequestCutsceneSkip(playeridx, cancelorpause ? true : false);
 		}
 	}
 #endif
@@ -4632,7 +4931,9 @@ void playerUpdateShake(void)
 
 void playerAutoWalk(s16 aimpad, u8 walkspeed, u8 turnspeed, u8 lookup, u8 dist)
 {
-	playerSetTickMode(TICKMODE_AUTOWALK);
+	if (!playerSetTickMode(TICKMODE_AUTOWALK)) {
+		return;
+	}
 
 	// Prevents momentum from being preserved. Fixes potential softlock during The Duel.
 	g_Vars.currentplayer->resetheadpos = true;

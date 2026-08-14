@@ -6,11 +6,21 @@
 
 void playermgrInit(void);
 void playermgrReset(void);
-void playermgrAllocatePlayers(s32 count);
-void playermgrAllocatePlayer(s32 index);
+enum playermgr_allocate_result {
+	PLAYMGR_ALLOC_OK = 0,
+	PLAYMGR_ALLOC_INVALID_COUNT = -1,
+	PLAYMGR_ALLOC_OUT_OF_MEMORY = -2,
+	PLAYMGR_ALLOC_NETWORK_REJECTED = -3,
+};
+
+enum playermgr_allocate_result playermgrAllocatePlayers(s32 count);
+const char *playermgrAllocateResultString(enum playermgr_allocate_result result);
 void playermgrCalculateAiBuddyNums(void);
 void setCurrentPlayerNum(s32 playernum);
 s32 playermgrGetPlayerNumByProp(struct prop *prop);
+s32 playermgrGetLocalPlayerNum(void);
+s32 playermgrGetPresentationPlayerNum(void);
+bool playermgrRestoreLocalPlayerContext(void);
 void playermgrSetViewSize(s32 viewx, s32 viewy);
 void playermgrSetViewPosition(s32 viewleft, s32 viewtop);
 void playermgrSetFovY(f32 fovy);

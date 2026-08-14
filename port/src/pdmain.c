@@ -42,6 +42,7 @@
 #include "scene.h"
 #include "smoke_harness.h"
 #include "autocampaign.h"
+#include "combat_sim_verify.h"
 #include "game/lv.h"
 #include "game/options.h"
 #include "game/timing.h"
@@ -90,6 +91,7 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "net/netmanifest.h"
+#include "net/matchsetup.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
 #include "presence.h"
@@ -589,7 +591,31 @@ void mainLoop(void)
 			g_Vars.antiplayernum = 1;
 		}
 
-		playermgrAllocatePlayers(numplayers);
+		{
+			enum playermgr_allocate_result player_result =
+				playermgrAllocatePlayers(numplayers);
+			if (player_result != PLAYMGR_ALLOC_OK) {
+				sysLogPrintf(LOG_ERROR,
+					"PLAYER.INIT.ROLLBACK stage=0x%02x status=%s; returning to title",
+					g_StageNum, playermgrAllocateResultString(player_result));
+				if (g_NetMode != NETMODE_NONE) {
+					if (g_NetLocalClient != NULL) {
+						g_NetLocalClient->state = CLSTATE_LOBBY;
+					}
+					netDisconnect();
+				}
+				playermgrReset();
+				g_Vars.mplayerisrunning = false;
+				g_Vars.normmplayerisrunning = false;
+				g_Vars.lvmpbotlevel = 0;
+				setNumPlayers(1);
+				g_StageNum = STAGE_TITLE;
+				g_MainChangeToStageNum = -1;
+				titleSetNextStage(STAGE_TITLE);
+				titleSetNextMode(TITLEMODE_SKIP);
+				continue;
+			}
+		}
 
 		if (argFindByPrefix(1, "-mpbots")) {
 			g_Vars.lvmpbotlevel = 1;
@@ -648,6 +674,10 @@ void mainLoop(void)
 			sceneFire(SCENE_EVENT_STAGE_TEARDOWN, NULL);
 		} else {
 			sceneFire(SCENE_EVENT_STAGE_READY, NULL);
+			/* The network stage-ready handshake belongs to this real post-load
+			 * boundary, after lvReset and player allocation. In particular, a
+			 * reconnect snapshot must never race the asynchronous stage load. */
+			netClientStageLoaded();
 		}
 
 		while (g_MainChangeToStageNum < 0) {
@@ -743,6 +773,12 @@ void mainTick(void)
 		extern s32 bootLaunchMpMatchTick(void);
 		(void)bootLaunchMpMatchTick();
 	}
+
+	/* T-ENGINE-004: bounded ordinary-client Combat Simulator verifier.
+	 * Marks a fully validated deterministic kill matrix ready only after a
+	 * live offline match reaches its configured frame. mpEndMatch commits the
+	 * ready matrix immediately before the production award calculation. */
+	combatSimVerifyTick();
 
 	/* c115 (2026-05-13): --debug-mount-bike one-shot. Walks
 	 * g_Vars.activeprops once the load black-frame is over, mounts
@@ -844,7 +880,32 @@ void mainTick(void)
 			gDPSetTile(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 0, 0x0000, G_TX_LOADTILE, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD);
 			gDPSetTile(gdl++, G_IM_FMT_RGBA, G_IM_SIZ_4b, 0, 0x0100, 6, 0, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD, G_TX_NOMIRROR | G_TX_WRAP, G_TX_NOMASK, G_TX_NOLOD);
 
-			lvTick();
+			/* B-1090: lvRender and the per-player tick intentionally leave the
+			 * final replicated player selected. Global scenario/AI work belongs to
+			 * this process's local presentation player, never a remote replica.
+			 * Restore that pointer-derived runtime slot before every global tick;
+			 * allocation-in-progress frames fail closed and retry next frame.
+			 * Dedicated simulation has no local presentation player and retains its
+			 * explicit server-only policy. */
+			bool run_global_tick = true;
+			static bool s_LocalContextFailureLogged = false;
+
+			if (g_NetMode != NETMODE_NONE && !g_NetDedicated) {
+				run_global_tick = playermgrRestoreLocalPlayerContext();
+				if (!run_global_tick && !s_LocalContextFailureLogged) {
+					sysLogPrintf(LOG_WARNING,
+						"GLOBAL.TICK: deferred; receiver-local player context is not committed");
+					s_LocalContextFailureLogged = true;
+				} else if (run_global_tick) {
+					s_LocalContextFailureLogged = false;
+				}
+			} else {
+				s_LocalContextFailureLogged = false;
+			}
+
+			if (run_global_tick) {
+				lvTick();
+			}
 			playermgrShuffle();
 
 			/* Forge level editor (F0+): drives session state, mode toggle,
@@ -1094,6 +1155,7 @@ void mainEndStage(void)
 		}
 
 		netServerStageEnd();
+		matchConfigRestoreUserOptions("mainEndStage");
 	}
 
 	g_MainIsEndscreen = 1;

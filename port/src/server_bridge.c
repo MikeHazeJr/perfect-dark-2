@@ -111,7 +111,7 @@ void netServerKickClient(s32 clientId, const char *reason)
 
     sysLogPrintf(LOG_NOTE, "NET: kicking client %d (%s): %s",
                  clientId, cl->settings.name, reason ? reason : "no reason");
-    enet_peer_disconnect(cl->peer, DISCONNECT_KICKED);
+    netServerKick(cl, DISCONNECT_KICKED);
 }
 
 void netServerBanClient(s32 clientId, const char *reason)
@@ -144,7 +144,7 @@ void netServerBanClient(s32 clientId, const char *reason)
     sysLogPrintf(LOG_NOTE, "NET: banning client %d (%s @ %s): %s",
                  clientId, cl->settings.name, addrBuf[0] ? addrBuf : "?",
                  reason ? reason : "no reason");
-    enet_peer_disconnect(cl->peer, DISCONNECT_BANNED);
+    netServerKick(cl, DISCONNECT_BANNED);
 }
 
 /* ========================================================================

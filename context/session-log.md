@@ -1,5 +1,432 @@
 # Session Log (Active)
 
+## 2026-08-14 - B-1064 reconnect verification; B-1096 snapshot root confirmed
+
+Goal: complete the reconnect slice of T-ENGINE-004 as one structural
+authority transaction before running a consolidated verification batch. This
+matters because reconnect cannot be considered usable if identity, room
+capacity, stage state, world topology, or inventory publishes partially, or if
+loading a fresh stage silently substitutes for the live authoritative match.
+
+Protocol v57 source now scopes the in-memory cookie and frozen settings to the
+resolved endpoint, uses ENet connect data only as a stable-slot hint, retains
+the preserved player and room reservation through manifest and stage load, and
+uses the real post-load `CLC_STAGE_READY` boundary for server commit. The stable
+replay roster preserves simultaneous timed absences. One targeted reliable
+packet then announces the exact authoritative replicated-prop set, removes
+stale pristine-stage objects before supported dynamic weapon/autogun spawns,
+reconstructs attachment/projectile/door/lift/autogun/weapon links and every
+stable player's inventory, applies movement/stats, chr/bot, score, cutscene,
+and applicable co-op mission state, and terminates with
+`SVC_RECONNECT_COMMIT`. Client-local transient debris/effects remain outside
+the replicated vocabulary. Snapshot application does not replay one-shot
+input commands or throw sounds.
+
+Initial prop IDs now derive from the complete allocated raw pool rather than
+active/paused lists, including parented inventory and held objects. Runtime IDs
+begin after the maximum initial slot and remain monotonic; the fixed 2,048-ID
+map is only a fast path, and dirty propagation is a validated wake-up latch
+rather than a raw-ID-indexed bitmap. A bounded GPT-5.6 Luna xhigh read-only
+review supplied the post-load marker, simultaneous-absence, cutscene, terminal
+malformed-control, and direct-targeted-send checks; Sol integrated and audited
+the foundational transaction and prop graph.
+
+The first queued isolated all-target build reached the client compiler and
+failed after 9 seconds because `net.c` called the authenticated-topology
+publisher while its definition remained private to `netmsg.c`; the updater
+still passed. Exposing that helper through `netmsg.h` produced a successful
+client/updater rebuild, but the compiler then exposed undefined `1u << 32`
+reconnect-mask validation. The source now uses a compile-time 1..32
+client-domain assertion and explicit full-width mask branch. The accepted
+incremental client/updater rebuild passed from product-source fingerprint
+`3b6bcfe4...`; `PerfectDark.exe` is
+`07E2D24F0A86859A35CED875754768E542D085F70012A5957B5C9D769C6BFA19`.
+
+The focused B-1064 selector passes 335 assertions in 6 cases. The first full
+run exposed four stale static guards that still inspected pre-refactor wrapper
+bodies; after auditing all four production boundaries together, exact helper
+and entry-point contracts replaced those stale substring assumptions without
+changing product source. The accepted `pd-tests.exe`
+`1A6246ED852DD6858078D26C630CF9A632AD9858CD2B4D5DEE74645E1ACB80E1`
+passes the complete 61,241 assertions in 1,157 cases, and
+`tools/asset_native_source_guard.py` passes. The first runtime invocation is
+rejected rather than counted as a smoke: one regex had an invalid JSON escape,
+discovery skipped that malformed explicitly requested fixture, and the empty
+selection branch returned exit 0 without launching either process or producing
+a fresh result. B-1091/SP-56 now make parse failure and zero selection terminal,
+correct the fixture escape, and pin the fail-closed runner contract; all 131
+smoke definitions parse.
+
+That B-1091 correction subsequently passed 339 focused assertions in 6 cases,
+the complete 61,245 assertions in 1,157 cases, the native-source guard, and an
+explicit unknown-selection nonzero check. A second smoke invocation was
+rejected because the host fixture's 180-second process watchdog was shorter
+than its 210-second bounded event schedule. After correcting that fail-closed
+bound, `.claude/smoke-verify-runs/results-20260814T063430Z.json` launched both
+ordinary clients and exposed B-1092: the host issued
+`DISCONNECT_TIMEOUT`, the client received reason 5 and retained its cookie,
+but the server's acknowledged ENet disconnect event reported reason 0 and
+destroyed the reservation.
+
+Vendored ENet source confirms this asymmetry is intentional: the disconnect
+datum is delivered to the remote command handler, while sender-local
+acknowledgement emits `event->data = 0`. Current source now latches the first
+server-issued reason on the authenticated client before entering ENet,
+consumes it once during authoritative teardown, and centralizes GUI kick, ban,
+and admin-lockout callers through that policy boundary. A terminal first intent
+also wins over a later transport timeout. The smoke now requires the remote
+client's real post-load `CLC_STAGE_READY` before timeout and gives initial
+gameplay a bounded margin instead of racing stage publication. SP-57 records
+the propagation rule.
+
+The B-1092 source-frozen isolated client/updater and test builds pass without a
+relevant warning. Product source is `b587851e...`; `PerfectDark.exe` is
+`104C57DC...` and `pd-tests.exe` is `7EDD6527...`. Focused B-1064/B-1092 passes
+385 assertions in 8 cases, the complete suite passes 61,291 assertions in
+1,159 cases, and the native-source guard passes.
+
+The next ordinary two-client receipt at
+`.claude/smoke-verify-runs/results-20260814T070008Z.json` is also rejected, but
+it narrows runtime truth materially. The host consumed effective reason 5 over
+ENet's sender-local transport reason 0, preserved a complete reconnect snapshot
+and one room reservation, and the client retained its timeout credential. This
+proves the B-1092 production policy correction itself. The client never invoked
+reconnect, and the retained log did not expose which pre-disconnect readiness
+fact remained false. B-1093 therefore removed an independently invalid
+hardcoded player-0 verifier projection by routing all smoke player, cutscene,
+and control facts through
+`playermgrGetLocalPlayerNum()` and fails closed when receiver-local identity is
+unavailable or ambiguous. Product aggregate `cee25049...` and verification
+aggregate `eddd3c9...` remained unchanged through the isolated build. Client
+`FA70FC97...`, updater, and test binary `56D4FE4E...` build successfully. The
+three emitted warning signatures all predate B-1093 in retained build logs;
+no warning was introduced by this correction. Focused B-1064/B-1092/B-1093
+automation passes 510 assertions in 9 cases, the complete suite passes 61,302
+assertions in 1,159 cases, and the native-source guard passes.
+
+The exact `FA70FC97...` follow-up at
+`.claude/smoke-verify-runs/results-20260814T071725Z.json` is rejected at 36/93
+and corrects the earlier inference: the ordinary client really mapped itself to
+runtime slot 0. It authenticated, loaded Felicity, allocated and spawned both
+players, sent `CLC_STAGE_READY`, and ran level/player ticks, but its controls
+remained in the match-opening swirl until the host's intentional timeout.
+`playerTickMpSwirl()` finishes through `playerEndCutscene()`, and that shared
+helper returned unconditionally for every network client. B-1094 removes the
+mode conflation: `playerEndCutscene()` now uses the canonical tick-mode setter,
+whose client guard owns only transitions out of `TICKMODE_CUTSCENE` during a
+match, including the predicted-before-START interval. Local
+`TICKMODE_MPSWIRL` may therefore reach normal gameplay without weakening the
+server's START/ACCEPT/END authority stream. Product aggregate `9e1fff25...`
+remained frozen while exact client `011132D1...` built. After rejecting one
+stale test binary and one overbroad static assertion, the corrected explicit
+test target `5F6C0647...` passes focused B-1064/B-1092/B-1093/B-1094 coverage
+with 527 assertions in 10 cases, the complete 61,325 assertions in 1,160 cases,
+and the native-source guard. Verification aggregate `656c22ba...` remained
+unchanged across the accepted batch. Only the ordinary reconnect runtime proof
+remains for this source unit.
+
+The exact `011132D1...` runtime follow-up at
+`.claude/smoke-verify-runs/results-20260814T075829Z.json` is rejected at 23/93,
+but it proves B-1094 advanced: the client ended in `normal=1` instead of the MP
+swirl. B-1095 is the next verifier boundary. The host started its 150-second
+`network_stage_live` wait at 00:01 and created the ENet listener only at 01:23;
+the runner correctly withheld the client until that marker. The client's
+72-second cold initialization reached `NET: connecting` four seconds after the
+host fixture had already timed out and closed the listener. No auth, gameplay,
+or reconnect path was exercised, there were zero operational failures, and no
+game or fault process leaked. Current source adds an exact
+`network_listen_ready` policy/projection barrier and sequences the host's
+peer-dependent stage deadline after it. Product `8f94b807...` / client
+`33C8FDF8...` and verification `e94a10d4...` / tests `DFCE2DFF...` remained
+frozen while focused 537/11, complete 61,337/1,161, and the native-source guard
+passed. Only the exact runtime rerun remains.
+
+That exact rerun at
+`.claude/smoke-verify-runs/results-20260814T082045Z.json` is rejected at 56/93,
+but it materially advances the transaction. B-1095's listener prerequisite
+passed; the ordinary client reached normal gameplay, retained its credential
+through the deliberate timeout, reauthenticated to its stable slot, accepted
+the manifest, replayed Felicity, published post-load READY, and let the host
+reclaim the reserved room seat. The host then serialized inactive cutscene
+authority and failed inside the compound authoritative snapshot before
+`NET.RECONNECT.RESYNC.PREPARE`, reporting
+`PLAYER.INIT.ROLLBACK reconnect status=state_write_failed`. Atomic rollback
+worked, but the generic return was mapped to terminal `DISCONNECT_FILES`, so the
+client incorrectly reported differing files and discarded its valid
+credential. B-1096/SP-60 now own typed substage diagnostics, the underlying
+authority-state invariant, and corrected peer-policy mapping before any rerun.
+
+The B-1096 root is now source-confirmed. Timeout teardown calls
+`playerDie(true)`, which drops the departing player's CMP150 through
+`weaponCreateForPlayerDrop()` -> `objSetDropped()` -> `func0f0685e4()`.
+That common initializer installs a direct or embedded projectile on the object
+but does not install the projectile's required reverse `obj` pointer.
+`netmsgReconnectProjectileWrite()` rejects exactly that inconsistent dynamic
+world prop. The structural unit therefore owns the shared initializer, typed
+snapshot component/reason propagation, and retryable authority-local rollback;
+it does not weaken the exact-state validator.
+
+That structural unit is now source-connected. `func0f0685e4()` binds every
+successfully selected direct or embedded projectile back to its object.
+`netmsgSvcReconnectStateWrite()` now returns a typed first-failure result with
+the owning client, prop, or objective; failed compound writes restore the
+caller's packet cursor and prior error. The outer restore boundary logs that
+result and treats only authority-local stage/state generation or enqueue
+failures as retryable, leaving validated client-content failures terminal.
+Focused, full, native-source, and ordinary-client verification remain pending.
+
+The B-1096 frozen automation unit is accepted: product fingerprint
+`701931d8...` built client `C497DD0F...`, verification fingerprint
+`00ec5fb4...` built tests `61FAA307...`, focused reconnect contracts pass
+586 assertions in 12 cases, the full suite passes 61,386 assertions in 1,162
+cases, and the native-source guard passes. Both fingerprints remained exact.
+
+The one permitted ordinary run on that freeze is retained at
+`.claude/smoke-verify-runs/results-20260814T090751Z.json` and rejected at
+55/93 with zero operational failures or process leaks. It proves the original
+projectile-owner failure is gone, the typed outer diagnostic works, and the
+authority-local close is retryable instead of `DISCONNECT_FILES`. The next
+exact boundary is `world_prop_state` on authoritative prop 4 after 118 attempted
+bytes. No PREPARE, world/inventory commit, or resumed fire occurred. Source
+remained frozen; the next implementation audits every prop-state rejection and
+repairs the owning object lifecycle before any rerun.
+
+The prop-state audit maps initial sync IDs 1-2 to player props and dynamic IDs
+3-4 to the two held weapons created after stage sync allocation. Prop 4 is
+therefore the departing player's original held MagSec, which
+`currentPlayerDropAllItems()` marks `OBJHFLAG_DELETING` before allocating a
+separate replacement drop. Current source now defines terminal non-regenerating
+deletion as exact-set absence while preserving deleting `CANREGEN` setup
+objects, emits the omitted count and first omitted ID in a successful PREPARE,
+and records stable prop-state subreasons with model/weapon/parent/lifecycle
+identity on rejection. Reciprocal dual links are validated before publication.
+The shared death-drop publisher also treats `objDrop()` as a commit boundary and
+fully retires an unannounced candidate on failure. This is implementation truth;
+the prior automation is superseded for the new candidate and no runtime claim
+has been upgraded.
+
+The replacement source-frozen automation is now accepted. Product fingerprint
+`b3df3ed0...` built client `F2A25827...`; verification fingerprint
+`38c558b2...` built tests `26861DA1...`. The isolated all/tests build has an
+empty error log, focused B-1064 through B-1096 coverage passes 623 assertions
+in 13 cases, the complete suite passes 61,423 assertions in 1,163 cases, and
+the native-source guard passes. Both fingerprints remained exact. This upgrades
+automation only; no replacement ordinary-client runtime has run yet.
+
+That replacement ordinary run is retained at
+`.claude/smoke-verify-runs/results-20260814T094551Z.json` and rejected at 55/93
+with zero operational failures or leaked processes. The typed diagnostic names
+a live host Cyclone (`prop=4`, `parent=1`, `hidden=0`) with
+`prop_reason=attachment_pair`; terminal-delete omission was not this boundary.
+Source tracing confirms B-1097/SP-61: `modeldefCloneForChr()` allocates and
+copies only the `modelnode *` vector in `modeldef.parts`, but the representation
+also packs one sorted `s16` part number per pointer immediately after that
+vector. `modelGetPart()` always reads that adjacent table. Cloned modular bodies
+therefore read beyond the clone allocation; `chrEquipWeapon()` publishes the
+parent model before the corrupted lookup fails to resolve the right-hand node,
+leaving the exact one-sided attachment observed at runtime. The correction must
+clone the complete packed representation rather than weakening reconnect
+validation.
+
+B-1097 is now implemented pending verification. `modeldefCloneForChr()` uses
+one stage allocation for the modeldef, cloned nodes, remapped part pointers,
+and copied sorted `s16` sidecar, so allocation failure can return the unchanged
+source without exposing a hybrid clone. `modelGetPart()` also rejects null or
+empty tables and corrects its inclusive upper bound to `numparts - 1`, removing
+the remaining one-past-key read. `chrEquipWeapon()` resolves and
+requires the hand part before replacing a held slot or publishing attachment
+and prop ownership. Reconnect restores held slots only from a validated
+attachment pair, and the ordinary smoke PREPARE assertion now includes the
+terminal-absence fields already emitted by B-1096. A consolidated frozen
+build/focused/full/native-guard batch and one replacement smoke remain.
+
+The B-1097 automation batch is accepted on unchanged product fingerprint
+`10eab368...` across 2,713 files and verification fingerprint `628d2c66...`
+across 400 files. The isolated all/tests builds produced client `6E4AC13...`
+and tests `D839DA85...` with empty aggregate error logs. Focused reconnect
+coverage passes 655 assertions in 14 cases, the complete suite passes 61,455
+assertions in 1,164 cases, and the native-source guard passes. Only one
+replacement ordinary reconnect smoke remains for this slice.
+
+That replacement receipt is retained but rejected at 14/57 in
+`.claude/smoke-verify-runs/results-20260814T101348Z.json`. The exact
+`6E4AC13...` host crashes before ENet listener publication or client launch
+while loading a CI lab technician with `base:head_christ`. Symbolization maps
+the access violation to `body.c:634`; disassembly shows the faulting write uses
+the null result returned by `modelGetNodeRwData()` for the now-valid sunglasses
+toggle. The runner cleaned both game/fault processes. The Windows firewall
+rule remained unavailable, but no network operation had begun and it is not
+causal.
+
+B-1098/SP-62 is source-confirmed. The character clone owns model nodes and the
+packed part table but shares rodata. In hierarchy-generated heads, DISTANCE,
+TOGGLE, and REORDER rodata carries both instance-relative rwdata indexes and
+node targets. `modelCalculateRwDataIndexes()` replaces cloned child links from
+those shared source targets, so `modelInitRwData()` leaves the private attached
+head and resolves later nodes against the body rwdata base. That corrupts the
+HEADSPOT route installed by `modelAttachHead()`. The structural correction must
+private-copy every topology-bearing relation record, remap embedded node
+targets, preflight shared indexed immutable payloads, retain geometry/GDL
+pointers as shallow payloads, and reject an incomplete clone rather than
+mutating cached topology. No new build or runtime claim exists yet.
+
+B-1098 is now implemented but remains unverified. `modeldefCloneForChr()` walks
+the canonical relation graph instead of transient visibility children,
+preflights nodes plus all rwdata-indexed rodata, privately copies and remaps
+DISTANCE/TOGGLE/REORDER topology, drops previously attached HEADSPOT children,
+and publishes the definition, nodes, relation records, and packed part table in
+one stage allocation. Immutable geometry/GDL and the non-relation generated
+root provenance remain shared. Clone failure returns NULL, and
+`body0f02ce8c()` now rolls back instead of reusing shared state; random-cache
+and catalog heads converge on the same single clone path. Focused B-1098 static
+contracts pin the topology ownership, packed transaction, and failure policy.
+GPT-5.6 Luna xhigh independently traced the generated importer and confirmed
+`base:head_christ` has valid traversal-ordered indices and `rwdatalen=44`, so
+the importer is not the fault. No build, test pass, native-source pass, or new
+runtime receipt is claimed yet.
+
+Runtime truth remains partial until one ordinary two-client receipt proves
+post-load commit, exact world/inventory replay, resumed authoritative input,
+clean exits, and unchanged source. T-ENGINE-004 remains partial, and Milestone
+1 remains 2 closed, 8 partial, and 5 missing dependencies.
+
+B-1098 automation is now accepted. The isolated client/updater and tests targets
+compile on exact product fingerprint `920a236d...` (2,713 files) and
+verification fingerprint `96601f67...` (400 files). `PerfectDark.exe` is
+`2039d142...`; the final `pd-tests.exe` is `c3987ec6...`. Focused
+B-1064/B-1092 through B-1098 coverage passes 1,541 assertions in 16 cases, the
+complete suite passes 63,731 assertions in 1,165 cases, and the native-source
+guard passes. Two rejected intermediate test receipts exposed and corrected a
+comment-brace function extractor and indentation-dependent catalog assertion;
+neither changed product source. Pre/post fingerprints match exactly.
+
+The single exact-client replacement at
+`.claude/smoke-verify-runs/results-20260814T110358Z.json` is retained but
+rejected at 80/93. It proves B-1098's former startup crash is absent, publishes
+the ENet listener, reaches initial ordinary gameplay, preserves the timeout
+reservation, reauthenticates, replays Felicity, applies the exact world and
+both inventories, and accepts one reconnect commit. Both processes exit and no
+game/fault process leaks. The product and verifier fingerprints remain frozen.
+
+B-1099/SP-63 is the next production root. Timeout lobby return starts the CI
+intro and leaves global `TICKMODE_CUTSCENE=6`. The fully validated replay then
+calls `netmsgCutsceneAuthorityBeginMatch()` before asynchronous `playerReset()`.
+The shared client authority guard sees a match and correctly rejects both the
+CUTSCENE-to-GE_FADEIN reset and later CUTSCENE-to-MPSWIRL transition. Scene and
+per-player cutscene flags clear, but the global tick mode remains 6 for the full
+60-second post-commit wait; the fixture therefore cannot issue fire. The next
+source change must add a narrow authenticated stage-start presentation boundary
+before the new latch governs authored exits, without weakening the general
+cutscene guard. One new frozen consolidated batch and one replacement ordinary
+smoke remain; no earlier D-003 receipt will be rerun.
+
+B-1099 is now source-implemented at the real stage-load boundary. GPT-5.6 Luna
+xhigh independently confirmed the receipt's stale CI CUTSCENE root and that
+reconnect commit itself never writes tick mode. `SVC_STAGE_START` still validates
+the full typed packet and roster before minting the new match latch. During
+`lvReset`, only a client with that latch and an idle authority tracker may use a
+scoped authoritative setter transition from stale CUTSCENE to GE_FADEIN; all
+other loads retain the ordinary cutscene-state reset, and the general
+`HasMatch()` exit guard is unchanged. New B-1099 contracts pin the boundary,
+latch/publication/load ordering, normal-only gameplay readiness, the exact
+`previous_tickmode=6` runtime witness, and the real reconnect world-log shape.
+No build, automated pass, guard pass, or replacement smoke is claimed yet.
+
+The first B-1099 isolated client/updater and test builds passed; product source
+remained frozen at `7437d77c...` under the current 2,713-file fingerprint
+method and produced client `0F377E3E...`. The first focused receipt is rejected
+at 1,698/1,699 assertions: both new static tests asked their extractor for
+`void lvReset`, which selected the earlier `lvResetMiscSfx` function. Product
+source and the accepted client binary did not change. Verification source now
+uses the exact `void lvReset(s32 stagenum)` signature and is refrozen at
+`675433fe...`; its test rebuild and consolidated rerun remain pending.
+
+That verification-only rebuild passed, but its focused receipt was also
+rejected before the full suite: `test_cutscene_layer.cpp` uses a different
+helper that appends `(` internally, so the complete signature could not match.
+Its already-safe bare `void lvReset` selector is restored while the lifecycle
+test keeps the complete signature. Product remains unchanged; final
+verification source is refrozen at `d5fd25c9...` pending one rebuild/rerun.
+
+B-1099 automation is now accepted on unchanged product `7437d77c...` (2,713
+files) / client `0f377e3e...` and verifier `d5fd25c9...` (400 files) / tests
+`ef5bdc72...`. Isolated client/updater/tests builds pass, focused B-1064 and
+B-1092 through B-1099 coverage passes 1,746 assertions in 19 cases, the full
+suite passes 63,936 assertions in 1,168 cases, and the native-source guard
+passes. The two rejected focused receipts are retained as verifier-only
+extractor corrections; neither changed product source or the accepted client.
+Exactly one source-frozen replacement reconnect smoke remains.
+
+That sole replacement production run is complete. Exact client
+`0f377e3e...` applies the B-1099 `6 -> 0` stage-start presentation boundary,
+reaches NORMAL gameplay before and after timeout, retains and consumes one
+endpoint-scoped reconnect credential, commits the exact replicated world and
+both inventories, emits five real MagSec shots, and receives host-side
+`server_accepted=1`. Both scripted exits complete with no PerfectDark,
+pd-tests, or WerFault leak. Product remains exactly `7437d77c...`.
+
+The immutable run receipt
+`.claude/smoke-verify-runs/results-20260814T113729Z.json` is retained as rejected
+at 92/95 because B-1100/SP-64 required an optional `LOG.WPN.DIAG` line and
+forbade the correct final credential clear after scripted exit. No game was
+rerun. Verification-only source now requires bounded production
+`COMBAT: SHOT_FIRED`, orders exactly one terminal credential retirement after
+scripted success, and rejects both stale forms. The separately hashed offline
+artifact `.claude/session-builds/v1m1engine004/b1099-retained-log-revalidation.json`
+passes the exact retained aggregate/host/client logs 98/98. Verifier
+`9f6c126b...` and rebuilt tests `e4d35724...` remain frozen; `[b1100]` passes 61
+assertions in 1 case. The accepted full 63,936/1,168 and native-source gate were
+not redundantly rerun because no product source changed. B-1091, B-1092,
+B-1094, B-1095, B-1099, and B-1100 are regression gates; T-ENGINE-004 remains
+partial for its broader Campaign/player-init and transition work. V-009 remains
+the required visual regression gate for future gameplay captures.
+
+## 2026-08-14 - D-003 current-product two-role friend play accepted
+
+Goal: finish the B-1082 through B-1090 authority-first friend-play cluster on
+the current product binary without rerunning already accepted broad gates. This
+matters because D-003's route architecture was complete, but T-ENGINE-004 still
+needed both elected-authority roles to survive real cutscene, focus, input,
+custom-asset distribution, gameplay, and teardown behavior.
+
+The product-side focus lifecycle routes main-window focus before consumable UI
+dispatch and reconciles SDL input focus once per pump. A GPT-5.6 Luna xhigh
+review drove the verifier to resolve exactly one visible top-level HWND per PID,
+check supported GUI-thread focus calls and native state, and require fresh SDL
+source gain then loss witnesses. The first corrected inverse run proved that
+handoff but exposed one verifier-only defect: a global process line anchor moved
+three valid pre-focus sequences. The final structural correction supplies a
+named anchor map to the assertion engine and tags only the two post-focus causal
+sequences; missing anchors and failed transitions remain fail-closed.
+
+One consolidated boundary passed PowerShell/JSON parsing, ordered-sequence and
+scoped-anchor behavior, embedded Win32 C# compilation, and 402 assertions in 13
+B-1085 cases. Test binary SHA-256 is
+`853499495859173730C54DF4D27948C37266848E912ABDEC83CAE06622478FC8`.
+No full-suite or native-source rerun was needed because product source and exact
+client remained frozen from their accepted 60,824/1,152 plus guard batch.
+
+Initiator authority remains accepted 214/214 at
+`.claude/smoke-verify-runs/results-20260814T020223Z.json`. The sole rerun,
+invitee authority, passed 218/218 at
+`.claude/smoke-verify-runs/results-20260814T030245Z.json` on client SHA-256
+`D1C9158335DA8E5ACD1C39A6ED4643E44FA97D4E6563EDE89AC3F7810EDC33D0`.
+It proves one election/latch/listen start, one non-authority idempotent join,
+signed typed presence-v5 match routes, no probe/relay-to-client handoff,
+protocol-v56 authority/presentation, stable gameplay, fresh focus gain/loss,
+post-loss owned fire/effects, two scripted exits, no operational failures, and
+zero process leaks. Product/test/tool fingerprint `2784d121...` was unchanged
+before and after. Full evidence is indexed in
+`context/evidence/2026-08-14-d003-current-two-role-production.md`.
+
+B-1082 through B-1090 are now regression gates. D-003 remains decided and
+production-verified. T-ENGINE-004 truthfully remains partial; next work is its
+separate ordinary Campaign/player-init and transition lifecycle slice, followed
+by disconnect/reconnect, broader rollback, strengthened listen-host, and V-009
+visual-release gates. B-1086/V-010 (solid-white Carrington doors) remains an
+independent repro-required rendering issue. Milestone 1 remains 2 closed, 8
+partial, and 5 missing dependencies.
+
 ## 2026-08-12 - Milestone 1 Agent Profile Store and campaign gate validated
 
 Goal: complete D-005 option A as one durable profile lifecycle and restore

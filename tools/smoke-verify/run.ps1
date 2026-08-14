@@ -126,8 +126,11 @@ if (-not ([System.Management.Automation.PSTypeName]'PdSmokeWinErrorMode').Type) 
 
 $captureSource = @"
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 
 public static class PdSmokeWindowCapture
@@ -136,6 +139,17 @@ public static class PdSmokeWindowCapture
     private const int BI_RGB = 0;
     private const int DIB_RGB_COLORS = 0;
     private const uint PW_RENDERFULLCONTENT = 2;
+    private const uint GW_OWNER = 4;
+    private const int SW_RESTORE = 9;
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    private static string lastFocusDiagnostics = "not_attempted";
+
+    public static string LastFocusDiagnostics
+    {
+        get { return lastFocusDiagnostics; }
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     public struct RECT
@@ -168,14 +182,85 @@ public static class PdSmokeWindowCapture
         public BITMAPINFOHEADER bmiHeader;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct GUITHREADINFO
+    {
+        public uint cbSize;
+        public uint flags;
+        public IntPtr hwndActive;
+        public IntPtr hwndFocus;
+        public IntPtr hwndCapture;
+        public IntPtr hwndMenuOwner;
+        public IntPtr hwndMoveSize;
+        public IntPtr hwndCaret;
+        public RECT rcCaret;
+    }
+
     [DllImport("user32.dll")]
     private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
-    [DllImport("user32.dll")]
+    [DllImport("user32.dll", SetLastError = true)]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr processId);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId")]
+    private static extern uint GetWindowThreadProcessIdWithPid(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetGUIThreadInfo(uint idThread, ref GUITHREADINFO guiInfo);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsChild(IntPtr hWndParent, IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindowEnabled(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetWindow(IntPtr hWnd, uint command);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int maxCount);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetActiveWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetFocus(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
     private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("kernel32.dll", EntryPoint = "SetLastError")]
+    private static extern void SetLastErrorCode(uint errorCode);
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetDC(IntPtr hWnd);
@@ -208,6 +293,216 @@ public static class PdSmokeWindowCapture
     [DllImport("gdi32.dll")]
     private static extern int GetDIBits(IntPtr hdc, IntPtr hbm, uint start, uint cLines,
                                         byte[] lpvBits, ref BITMAPINFO lpbmi, uint usage);
+
+    private static bool TryGetWindowIdentity(IntPtr hWnd, out uint threadId, out uint processId)
+    {
+        processId = 0;
+        threadId = hWnd == IntPtr.Zero
+            ? 0
+            : GetWindowThreadProcessIdWithPid(hWnd, out processId);
+        return threadId != 0 && processId != 0;
+    }
+
+    private static bool IsProcessMainWindowCandidate(IntPtr hWnd, uint processId, out long area)
+    {
+        area = 0;
+        uint threadId;
+        uint actualProcessId;
+        RECT rect;
+        if (!TryGetWindowIdentity(hWnd, out threadId, out actualProcessId) ||
+            actualProcessId != processId || !IsWindow(hWnd) ||
+            !IsWindowVisible(hWnd) || GetWindow(hWnd, GW_OWNER) != IntPtr.Zero ||
+            !GetWindowRect(hWnd, out rect))
+            return false;
+
+        long width = Math.Max(0, rect.Right - rect.Left);
+        long height = Math.Max(0, rect.Bottom - rect.Top);
+        area = width * height;
+        return area > 0;
+    }
+
+    public static IntPtr ResolveUniqueProcessWindow(uint processId)
+    {
+        List<IntPtr> candidates = new List<IntPtr>();
+        EnumWindowsProc callback = delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            long area;
+            if (IsProcessMainWindowCandidate(hWnd, processId, out area))
+                candidates.Add(hWnd);
+            return true;
+        };
+        EnumWindows(callback, IntPtr.Zero);
+        return candidates.Count == 1 ? candidates[0] : IntPtr.Zero;
+    }
+
+    private static string WindowTitle(IntPtr hWnd)
+    {
+        StringBuilder title = new StringBuilder(256);
+        GetWindowText(hWnd, title, title.Capacity);
+        return title.ToString().Replace("|", "/");
+    }
+
+    public static string DescribeProcessWindows(uint processId)
+    {
+        List<string> windows = new List<string>();
+        EnumWindowsProc callback = delegate(IntPtr hWnd, IntPtr lParam)
+        {
+            uint actualProcessId;
+            uint threadId = GetWindowThreadProcessIdWithPid(hWnd, out actualProcessId);
+            if (actualProcessId == processId)
+            {
+                RECT rect;
+                bool hasRect = GetWindowRect(hWnd, out rect);
+                windows.Add(String.Format(
+                    "hwnd=0x{0:x} thread={1} visible={2} enabled={3} iconic={4} owner=0x{5:x} rect={6} title='{7}'",
+                    hWnd.ToInt64(), threadId, IsWindowVisible(hWnd), IsWindowEnabled(hWnd),
+                    IsIconic(hWnd), GetWindow(hWnd, GW_OWNER).ToInt64(),
+                    hasRect ? String.Format("{0},{1},{2},{3}", rect.Left, rect.Top, rect.Right, rect.Bottom) : "unavailable",
+                    WindowTitle(hWnd)));
+            }
+            return true;
+        };
+        EnumWindows(callback, IntPtr.Zero);
+        return windows.Count == 0 ? "windows=none" : String.Join(" | ", windows.ToArray());
+    }
+
+    public static string DescribeInputFocus(IntPtr hWnd)
+    {
+        IntPtr foreground = GetForegroundWindow();
+        uint targetProcessId;
+        uint targetThread = GetWindowThreadProcessIdWithPid(hWnd, out targetProcessId);
+        GUITHREADINFO guiInfo = new GUITHREADINFO();
+        guiInfo.cbSize = (uint)Marshal.SizeOf(typeof(GUITHREADINFO));
+        bool guiOk = targetThread != 0 && GetGUIThreadInfo(targetThread, ref guiInfo);
+        int guiError = guiOk ? 0 : Marshal.GetLastWin32Error();
+        uint activeProcessId = 0;
+        uint focusProcessId = 0;
+        uint activeThread = guiOk
+            ? GetWindowThreadProcessIdWithPid(guiInfo.hwndActive, out activeProcessId)
+            : 0;
+        uint focusThread = guiOk
+            ? GetWindowThreadProcessIdWithPid(guiInfo.hwndFocus, out focusProcessId)
+            : 0;
+        return String.Format(
+            "target=0x{0:x} target_pid={1} target_thread={2} foreground=0x{3:x} gui_ok={4} gui_error={5} active=0x{6:x}/pid={7}/thread={8} focus=0x{9:x}/pid={10}/thread={11} visible={12} enabled={13} iconic={14}",
+            hWnd.ToInt64(), targetProcessId, targetThread, foreground.ToInt64(), guiOk,
+            guiError, guiInfo.hwndActive.ToInt64(), activeProcessId, activeThread,
+            guiInfo.hwndFocus.ToInt64(), focusProcessId, focusThread,
+            IsWindowVisible(hWnd), IsWindowEnabled(hWnd), IsIconic(hWnd));
+    }
+
+    private static bool FocusOnce(IntPtr hWnd)
+    {
+        ShowWindowAsync(hWnd, SW_RESTORE);
+
+        uint currentThread = GetCurrentThreadId();
+        uint foregroundThread = GetWindowThreadProcessId(GetForegroundWindow(), IntPtr.Zero);
+        uint targetThread = GetWindowThreadProcessId(hWnd, IntPtr.Zero);
+        bool attachedForeground = false;
+        bool attachedTarget = false;
+        int attachTargetError = 0;
+        int attachForegroundError = 0;
+        bool broughtToTop = false;
+        int bringToTopError = 0;
+        bool foregroundSet = false;
+        int foregroundError = 0;
+        IntPtr previousActive = IntPtr.Zero;
+        int activeError = 0;
+        IntPtr previousFocus = IntPtr.Zero;
+        int focusError = 0;
+        bool focusedWhileAttached = false;
+
+        try
+        {
+            if (targetThread != 0 && targetThread != currentThread)
+            {
+                SetLastErrorCode(0);
+                attachedTarget = AttachThreadInput(currentThread, targetThread, true);
+                attachTargetError = attachedTarget ? 0 : Marshal.GetLastWin32Error();
+            }
+            if (foregroundThread != 0 && foregroundThread != currentThread &&
+                foregroundThread != targetThread)
+            {
+                SetLastErrorCode(0);
+                attachedForeground = AttachThreadInput(currentThread, foregroundThread, true);
+                attachForegroundError = attachedForeground ? 0 : Marshal.GetLastWin32Error();
+            }
+
+            SetLastErrorCode(0);
+            broughtToTop = BringWindowToTop(hWnd);
+            bringToTopError = broughtToTop ? 0 : Marshal.GetLastWin32Error();
+            SetLastErrorCode(0);
+            foregroundSet = SetForegroundWindow(hWnd);
+            foregroundError = foregroundSet ? 0 : Marshal.GetLastWin32Error();
+            if (targetThread == currentThread || attachedTarget)
+            {
+                SetLastErrorCode(0);
+                previousActive = SetActiveWindow(hWnd);
+                activeError = Marshal.GetLastWin32Error();
+                SetLastErrorCode(0);
+                previousFocus = SetFocus(hWnd);
+                focusError = Marshal.GetLastWin32Error();
+            }
+            focusedWhileAttached = HasInputFocus(hWnd);
+            lastFocusDiagnostics = String.Format(
+                "mode=supported attach_target={0}/error={1} attach_foreground={2}/error={3} bring_top={4}/error={5} set_foreground={6}/error={7} previous_active=0x{8:x}/error={9} previous_focus=0x{10:x}/error={11} focused_attached={12} {13}",
+                attachedTarget, attachTargetError, attachedForeground, attachForegroundError,
+                broughtToTop, bringToTopError, foregroundSet, foregroundError,
+                previousActive.ToInt64(), activeError, previousFocus.ToInt64(), focusError,
+                focusedWhileAttached, DescribeInputFocus(hWnd));
+        }
+        finally
+        {
+            if (attachedForeground)
+                AttachThreadInput(currentThread, foregroundThread, false);
+            if (attachedTarget)
+                AttachThreadInput(currentThread, targetThread, false);
+        }
+
+        bool focusedAfterDetach = HasInputFocus(hWnd);
+        lastFocusDiagnostics += String.Format(
+            " focused_after_detach={0} final=({1})",
+            focusedAfterDetach, DescribeInputFocus(hWnd));
+        return focusedAfterDetach;
+    }
+
+    public static bool HasInputFocus(IntPtr hWnd)
+    {
+        if (hWnd == IntPtr.Zero || GetForegroundWindow() != hWnd)
+            return false;
+
+        uint targetThread = GetWindowThreadProcessId(hWnd, IntPtr.Zero);
+        if (targetThread == 0)
+            return false;
+
+        GUITHREADINFO guiInfo = new GUITHREADINFO();
+        guiInfo.cbSize = (uint)Marshal.SizeOf(typeof(GUITHREADINFO));
+        if (!GetGUIThreadInfo(targetThread, ref guiInfo))
+            return false;
+
+        bool focusMatches = guiInfo.hwndFocus == hWnd ||
+            (guiInfo.hwndFocus != IntPtr.Zero && IsChild(hWnd, guiInfo.hwndFocus));
+        return guiInfo.hwndActive == hWnd && focusMatches;
+    }
+
+    public static bool Focus(IntPtr hWnd, int timeoutMs)
+    {
+        if (hWnd == IntPtr.Zero) return false;
+        int boundedTimeoutMs = Math.Max(1, timeoutMs);
+        Stopwatch elapsed = Stopwatch.StartNew();
+        int attempt = 0;
+        do
+        {
+            if (FocusOnce(hWnd)) return true;
+            attempt++;
+            Thread.Sleep(50);
+        } while (elapsed.ElapsedMilliseconds < boundedTimeoutMs);
+        bool finalFocused = HasInputFocus(hWnd);
+        lastFocusDiagnostics += String.Format(
+            " timeout_ms={0} attempts={1} final_focused={2}",
+            boundedTimeoutMs, attempt, finalFocused);
+        return finalFocused;
+    }
 
     public static bool Capture(IntPtr hWnd, string path)
     {
@@ -533,8 +828,7 @@ function Get-SmokeTests {
             $clean = ($raw -replace '(?m)^\s*//.*$', '')
             $def = $clean | ConvertFrom-Json
         } catch {
-            Write-Warn ("Failed to parse {0}: {1}" -f $f.Name, $_.Exception.Message)
-            continue
+            throw ("Failed to parse {0}: {1}" -f $f.Name, $_.Exception.Message)
         }
 
         # Compute a stable category from the path relative to $Dir so the
@@ -688,12 +982,314 @@ function Select-SmokeTests {
 #     does not appear within process[i].wait_timeout_seconds (default 15s)
 #     the orchestration aborts -- the late-launching processes are not
 #     started, the already-running ones are killed, and the test fails.
+#   - An optional top-level `window_focus_transition` object resolves exactly
+#     one visible process-owned top-level window per named process, focuses
+#     `from_process`, requires a new source `source_wait_for` witness, then
+#     focuses `to_process` and requires a new source `wait_for` witness. Both
+#     native GUI-thread focus and SDL gained/lost evidence are mandatory;
+#     launch order and foreground z-order are not focus proof. Operational
+#     failures retain their exact phase and Win32 diagnostics in the receipt.
 #   - Once all processes are launched, the runner waits up to
 #     timeout_seconds for ALL processes to exit. Any still running after
 #     the timeout are killed.
 #   - Assertions run against the concatenation of every process's log
 #     (separator: a blank line + a `--- <log_file> ---` header). This
 #     keeps the single-pattern Test-Assertions engine intact.
+$script:lastWindowFocusTransitionFailure = $null
+
+function Set-WindowFocusTransitionFailure {
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [string] $Stage,
+        [Parameter(Mandatory)] [string] $Message,
+        [string] $Diagnostics = ""
+    )
+
+    $script:lastWindowFocusTransitionFailure = [PSCustomObject]@{
+        Kind = 'window_focus_transition_failed'
+        Stage = $Stage
+        Message = $Message
+        Diagnostics = $Diagnostics
+    }
+    Write-Fail ("  {0}" -f $Message)
+    return $false
+}
+
+function Wait-AppendOnlyLogWitness {
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [object] $Entry,
+        [Parameter(Mandatory)] [AllowEmptyString()] [string] $BaselineText,
+        [Parameter(Mandatory)] [regex] $Pattern,
+        [Parameter(Mandatory)] [System.Diagnostics.Stopwatch] $Clock,
+        [Parameter(Mandatory)] [int] $BudgetMs,
+        [Parameter(Mandatory)] [string] $WitnessName
+    )
+
+    $completeLineRegex = [regex]::new("(?<line>[^`r`n]*)(?:`r`n|`n|`r)")
+    while ($Clock.ElapsedMilliseconds -lt $BudgetMs) {
+        if ($Entry.Process.HasExited) {
+            return [PSCustomObject]@{
+                Passed = $false
+                Stage = "$WitnessName-process-exit"
+                Message = "focus-transition process exited before $WitnessName witness: $($Entry.Name)"
+            }
+        }
+        if (-not (Test-Path -LiteralPath $Entry.LogPath -PathType Leaf)) {
+            return [PSCustomObject]@{
+                Passed = $false
+                Stage = "$WitnessName-log-missing"
+                Message = "focus-transition log disappeared before $WitnessName witness: $($Entry.LogPath)"
+            }
+        }
+        try {
+            $currentText = [System.IO.File]::ReadAllText($Entry.LogPath)
+        } catch {
+            return [PSCustomObject]@{
+                Passed = $false
+                Stage = "$WitnessName-log-read"
+                Message = "could not read focus-transition log for $WitnessName witness: $($_.Exception.Message)"
+            }
+        }
+        if ($currentText.Length -lt $BaselineText.Length -or
+                -not $currentText.StartsWith($BaselineText, [StringComparison]::Ordinal)) {
+            return [PSCustomObject]@{
+                Passed = $false
+                Stage = "$WitnessName-log-replaced"
+                Message = "focus-transition log was truncated or replaced before $WitnessName witness: $($Entry.LogPath)"
+            }
+        }
+
+        $delta = $currentText.Substring($BaselineText.Length)
+        # The pre-existing partial line may be completed after the snapshot;
+        # skip it so an old prefix cannot become a newly accepted witness.
+        $skipFirstCompleteLine = $BaselineText.Length -gt 0 -and
+            -not ($BaselineText.EndsWith("`n") -or $BaselineText.EndsWith("`r"))
+        $crlfSplitAtBaseline = $BaselineText.EndsWith("`r") -and $delta.StartsWith("`n")
+        foreach ($lineMatch in $completeLineRegex.Matches($delta)) {
+            if ($skipFirstCompleteLine -or $crlfSplitAtBaseline) {
+                $skipFirstCompleteLine = $false
+                $crlfSplitAtBaseline = $false
+                continue
+            }
+            $completeLine = $lineMatch.Groups['line'].Value
+            if ($Pattern.IsMatch($completeLine)) {
+                $absoluteWitnessOffset = $BaselineText.Length + $lineMatch.Index
+                $witnessLine = [regex]::Matches(
+                    $currentText.Substring(0, $absoluteWitnessOffset), "`r`n|`n|`r").Count
+                return [PSCustomObject]@{
+                    Passed = $true
+                    Stage = $WitnessName
+                    Message = ""
+                    CurrentText = $currentText
+                    WitnessLine = $witnessLine
+                    MatchedLine = $completeLine
+                }
+            }
+        }
+
+        $remainingMs = $BudgetMs - [int]$Clock.ElapsedMilliseconds
+        if ($remainingMs -gt 0) {
+            Start-Sleep -Milliseconds ([Math]::Min(100, $remainingMs))
+        }
+    }
+
+    return [PSCustomObject]@{
+        Passed = $false
+        Stage = "$WitnessName-timeout"
+        Message = "new $WitnessName witness not seen in [$($Entry.Name)] within the shared focus-transition budget: $($Pattern.ToString())"
+    }
+}
+
+function Invoke-MultiProcessWindowFocusTransition {
+    [CmdletBinding()] param(
+        [Parameter(Mandatory)] [object] $Definition,
+        [Parameter(Mandatory)] [array] $Processes
+    )
+
+    $script:lastWindowFocusTransitionFailure = $null
+    if ($Definition.PSObject.Properties.Match('window_focus_transition').Count -eq 0 -or
+            $null -eq $Definition.window_focus_transition) {
+        return $true
+    }
+
+    $transition = $Definition.window_focus_transition
+    foreach ($required in @('from_process', 'to_process', 'source_wait_for', 'wait_for')) {
+        if ($transition.PSObject.Properties.Match($required).Count -eq 0 -or
+                -not [string]$transition.$required) {
+            return (Set-WindowFocusTransitionFailure -Stage 'definition' `
+                -Message ("window focus transition missing required field '{0}'" -f $required))
+        }
+    }
+
+    $fromName = [string]$transition.from_process
+    $toName = [string]$transition.to_process
+    $sourceWaitFor = [string]$transition.source_wait_for
+    $waitFor = [string]$transition.wait_for
+    if ($fromName -eq $toName) {
+        return (Set-WindowFocusTransitionFailure -Stage 'definition' `
+            -Message 'window focus transition requires distinct from/to processes')
+    }
+    try {
+        $sourceWaitRegex = [regex]::new($sourceWaitFor)
+        $waitRegex = [regex]::new($waitFor)
+    } catch {
+        return (Set-WindowFocusTransitionFailure -Stage 'definition-regex' `
+            -Message ("focus-transition witness regex is invalid: {0}" -f $_.Exception.Message))
+    }
+
+    $fromMatches = @($Processes | Where-Object { $_.Name -eq $fromName })
+    $toMatches = @($Processes | Where-Object { $_.Name -eq $toName })
+    if ($fromMatches.Count -ne 1 -or $toMatches.Count -ne 1) {
+        return (Set-WindowFocusTransitionFailure -Stage 'process-resolution' `
+            -Message ("window focus transition could not resolve one process each: from='{0}' ({1}), to='{2}' ({3})" -f
+                $fromName, $fromMatches.Count, $toName, $toMatches.Count))
+    }
+
+    $fromEntry = $fromMatches[0]
+    $toEntry = $toMatches[0]
+    $timeoutSeconds = 10
+    if ($transition.PSObject.Properties.Match('timeout_seconds').Count -gt 0 -and
+            $transition.timeout_seconds) {
+        $timeoutSeconds = [Math]::Min(3600,
+            [Math]::Max(1, [int]$transition.timeout_seconds))
+    }
+    $settleMs = 500
+    if ($transition.PSObject.Properties.Match('settle_ms').Count -gt 0 -and
+            $transition.settle_ms) {
+        $settleMs = [Math]::Max(100, [int]$transition.settle_ms)
+    }
+
+    if (-not ([System.Management.Automation.PSTypeName]'PdSmokeWindowCapture').Type) {
+        try { Add-Type -TypeDefinition $captureSource } catch {
+            return (Set-WindowFocusTransitionFailure -Stage 'interop-compile' `
+                -Message ("window focus interop unavailable: {0}" -f $_.Exception.Message))
+        }
+    }
+
+    # One monotonic budget covers window discovery, both focus operations,
+    # settle, and the complete-line witness. No phase can silently multiply
+    # the fixture's declared timeout.
+    $transitionBudgetMs = $timeoutSeconds * 1000
+    $transitionClock = [System.Diagnostics.Stopwatch]::StartNew()
+    $fromHandle = [IntPtr]::Zero
+    $toHandle = [IntPtr]::Zero
+    while ($transitionClock.ElapsedMilliseconds -lt $transitionBudgetMs -and
+            ($fromHandle -eq [IntPtr]::Zero -or $toHandle -eq [IntPtr]::Zero)) {
+        foreach ($entry in @($fromEntry, $toEntry)) {
+            if ($entry.Process.HasExited) {
+                return (Set-WindowFocusTransitionFailure -Stage 'window-resolution-process-exit' `
+                    -Message ("window focus transition process exited before focus: {0}" -f $entry.Name))
+            }
+            $entry.Process.Refresh()
+        }
+        $fromHandle = [PdSmokeWindowCapture]::ResolveUniqueProcessWindow(
+            [uint32]$fromEntry.Process.Id)
+        $toHandle = [PdSmokeWindowCapture]::ResolveUniqueProcessWindow(
+            [uint32]$toEntry.Process.Id)
+        if ($fromHandle -eq [IntPtr]::Zero -or $toHandle -eq [IntPtr]::Zero) {
+            $remainingMs = $transitionBudgetMs - [int]$transitionClock.ElapsedMilliseconds
+            if ($remainingMs -gt 0) {
+                Start-Sleep -Milliseconds ([Math]::Min(100, $remainingMs))
+            }
+        }
+    }
+    if ($fromHandle -eq [IntPtr]::Zero -or $toHandle -eq [IntPtr]::Zero) {
+        $windowDiagnostics = "from_pid=$($fromEntry.Process.Id) " +
+            [PdSmokeWindowCapture]::DescribeProcessWindows([uint32]$fromEntry.Process.Id) +
+            " || to_pid=$($toEntry.Process.Id) " +
+            [PdSmokeWindowCapture]::DescribeProcessWindows([uint32]$toEntry.Process.Id)
+        return (Set-WindowFocusTransitionFailure -Stage 'unique-window-resolution' `
+            -Message ("window focus transition did not resolve exactly one visible process-owned top-level window each: from='{0}' to='{1}'" -f
+                $fromName, $toName) -Diagnostics $windowDiagnostics)
+    }
+
+    if (-not (Test-Path -LiteralPath $fromEntry.LogPath -PathType Leaf)) {
+        return (Set-WindowFocusTransitionFailure -Stage 'source-baseline-missing' `
+            -Message ("focus-transition source log missing before baseline: {0}" -f $fromEntry.LogPath))
+    }
+    try {
+        $baselineText = [System.IO.File]::ReadAllText($fromEntry.LogPath)
+    } catch {
+        return (Set-WindowFocusTransitionFailure -Stage 'source-baseline-read' `
+            -Message ("could not read focus-transition source baseline: {0}" -f $_.Exception.Message))
+    }
+    Write-Info ("  window focus transition: {0} -> {1}" -f $fromName, $toName)
+    $remainingFocusMs = $transitionBudgetMs - [int]$transitionClock.ElapsedMilliseconds
+    if ($remainingFocusMs -le 0 -or
+            -not [PdSmokeWindowCapture]::Focus($fromHandle, $remainingFocusMs)) {
+        return (Set-WindowFocusTransitionFailure -Stage 'source-native-focus' `
+            -Message ("could not establish GUI-thread focus for source process: {0}" -f $fromName) `
+            -Diagnostics ([PdSmokeWindowCapture]::LastFocusDiagnostics))
+    }
+
+    $sourceWitness = Wait-AppendOnlyLogWitness -Entry $fromEntry `
+        -BaselineText $baselineText -Pattern $sourceWaitRegex `
+        -Clock $transitionClock -BudgetMs $transitionBudgetMs `
+        -WitnessName 'source-focus-gained'
+    if (-not $sourceWitness.Passed) {
+        return (Set-WindowFocusTransitionFailure -Stage $sourceWitness.Stage `
+            -Message $sourceWitness.Message `
+            -Diagnostics ([PdSmokeWindowCapture]::LastFocusDiagnostics))
+    }
+    if (-not [PdSmokeWindowCapture]::HasInputFocus($fromHandle)) {
+        return (Set-WindowFocusTransitionFailure -Stage 'source-focus-gained-recheck' `
+            -Message ("source GUI thread lost keyboard focus at its SDL gained witness: {0}" -f $fromName) `
+            -Diagnostics ([PdSmokeWindowCapture]::DescribeInputFocus($fromHandle)))
+    }
+    $remainingSettleMs = $transitionBudgetMs - [int]$transitionClock.ElapsedMilliseconds
+    if ($remainingSettleMs -lt $settleMs) {
+        return (Set-WindowFocusTransitionFailure -Stage 'source-settle-budget' `
+            -Message ("focus-transition budget expired before source settle: {0}" -f $fromName) `
+            -Diagnostics ([PdSmokeWindowCapture]::DescribeInputFocus($fromHandle)))
+    }
+    Start-Sleep -Milliseconds $settleMs
+    if (-not [PdSmokeWindowCapture]::HasInputFocus($fromHandle)) {
+        return (Set-WindowFocusTransitionFailure -Stage 'source-settle-recheck' `
+            -Message ("focus-transition source lost keyboard input focus before target transition: {0}" -f $fromName) `
+            -Diagnostics ([PdSmokeWindowCapture]::DescribeInputFocus($fromHandle)))
+    }
+    try {
+        $transitionBaselineText = [System.IO.File]::ReadAllText($fromEntry.LogPath)
+    } catch {
+        return (Set-WindowFocusTransitionFailure -Stage 'pre-target-baseline-read' `
+            -Message ("could not read focus-transition pre-target baseline: {0}" -f $_.Exception.Message))
+    }
+    if ($transitionBaselineText.Length -lt $sourceWitness.CurrentText.Length -or
+            -not $transitionBaselineText.StartsWith(
+                $sourceWitness.CurrentText, [StringComparison]::Ordinal)) {
+        return (Set-WindowFocusTransitionFailure -Stage 'pre-target-log-replaced' `
+            -Message ("focus-transition source log changed non-append-only before target focus: {0}" -f
+                $fromEntry.LogPath))
+    }
+    $remainingFocusMs = $transitionBudgetMs - [int]$transitionClock.ElapsedMilliseconds
+    if ($remainingFocusMs -le 0 -or
+            -not [PdSmokeWindowCapture]::Focus($toHandle, $remainingFocusMs)) {
+        return (Set-WindowFocusTransitionFailure -Stage 'target-native-focus' `
+            -Message ("could not establish GUI-thread focus for target process: {0}" -f $toName) `
+            -Diagnostics ([PdSmokeWindowCapture]::LastFocusDiagnostics))
+    }
+
+    $lostWitness = Wait-AppendOnlyLogWitness -Entry $fromEntry `
+        -BaselineText $transitionBaselineText -Pattern $waitRegex `
+        -Clock $transitionClock -BudgetMs $transitionBudgetMs `
+        -WitnessName 'source-focus-lost'
+    if (-not $lostWitness.Passed) {
+        return (Set-WindowFocusTransitionFailure -Stage $lostWitness.Stage `
+            -Message $lostWitness.Message `
+            -Diagnostics (([PdSmokeWindowCapture]::LastFocusDiagnostics) +
+                " || source=" + [PdSmokeWindowCapture]::DescribeInputFocus($fromHandle)))
+    }
+    if (-not [PdSmokeWindowCapture]::HasInputFocus($toHandle)) {
+        return (Set-WindowFocusTransitionFailure -Stage 'target-focus-lost-witness-recheck' `
+            -Message ("focus-transition target no longer owns keyboard input at source lost witness: {0}" -f $toName) `
+            -Diagnostics ([PdSmokeWindowCapture]::DescribeInputFocus($toHandle)))
+    }
+    $fromEntry.RequiredSequenceStartLines['window_focus_transition'] =
+        $lostWitness.WitnessLine
+    Write-Info ("    focus witnesses reached in [{0}] with [{1}] input-focused: gained='{2}' lost='{3}'" -f
+        $fromName, $toName, $sourceWaitFor, $waitFor)
+    return $true
+}
+
 function Invoke-SmokeTestMultiProcess {
     [CmdletBinding()] param(
         [Parameter(Mandatory)] [psobject] $Test,
@@ -922,6 +1518,7 @@ function Invoke-SmokeTestMultiProcess {
     $started = Get-Date
     $procs = @()  # array of @{ Name; Process; LogPath; }
     $launchFailed = $false
+    $operationalFailures = New-Object System.Collections.Generic.List[psobject]
 
     foreach ($plan in $processPlans) {
         $pdef = $plan.Definition
@@ -1037,6 +1634,7 @@ function Invoke-SmokeTestMultiProcess {
             InstallDir = $processInstallInfo.InstallDir
             ExpectedExitCode = $(if ($pdef.PSObject.Properties.Match('expected_exit_code').Count -gt 0) { [int]$pdef.expected_exit_code } else { 0 })
             Assertions = $(if ($pdef.PSObject.Properties.Match('assertions').Count -gt 0) { $pdef.assertions } else { $null })
+            RequiredSequenceStartLines = @{}
         }
 
         # Optional barrier: poll the just-launched process's log for the
@@ -1130,6 +1728,33 @@ function Invoke-SmokeTestMultiProcess {
             $extraMs = [int]$pdef.wait_after_launch_ms
             if ($extraMs -gt 0) { Start-Sleep -Milliseconds $extraMs }
         }
+    }
+
+    $focusTransitionPassed = $true
+    if (-not $launchFailed) {
+        $focusTransitionPassed = Invoke-MultiProcessWindowFocusTransition `
+            -Definition $def -Processes $procs
+    }
+    if (-not $launchFailed -and -not $focusTransitionPassed) {
+        if ($null -ne $script:lastWindowFocusTransitionFailure) {
+            $operationalFailures.Add($script:lastWindowFocusTransitionFailure)
+        } else {
+            $operationalFailures.Add([PSCustomObject]@{
+                Kind = 'window_focus_transition_failed'
+                Stage = 'unknown'
+                Message = 'window focus transition failed without structured diagnostics'
+                Diagnostics = ''
+            })
+        }
+        # A failed operational transition invalidates every sequence explicitly
+        # anchored to that transition. Use an unreachable exact-line sentinel
+        # so old whole-log matches cannot remain counted as causal evidence,
+        # while unrelated pre-transition sequences retain whole-log semantics.
+        foreach ($entry in $procs) {
+            $entry.RequiredSequenceStartLines['window_focus_transition'] =
+                [int]::MaxValue
+        }
+        $launchFailed = $true
     }
 
     # If a launch failed, mass-kill any survivors and let the assertion
@@ -1259,7 +1884,10 @@ function Invoke-SmokeTestMultiProcess {
 
     foreach ($entry in $procs) {
         if ($null -eq $entry.Assertions) { continue }
-        $processResult = Invoke-SmokeAssertions -LogPath $entry.LogPath -Assertions $entry.Assertions -VerboseAssertions:$VerboseEval
+        $processResult = Invoke-SmokeAssertions -LogPath $entry.LogPath `
+            -Assertions $entry.Assertions `
+            -RequiredSequenceStartLines $entry.RequiredSequenceStartLines `
+            -VerboseAssertions:$VerboseEval
         $assertResult.Total += $processResult.Total
         $assertResult.Met += $processResult.Met
         if (-not $processResult.Passed) { $assertResult.Passed = $false }
@@ -1352,6 +1980,7 @@ function Invoke-SmokeTestMultiProcess {
         AssertionsTotal = $assertResult.Total
         AssertionsMet = $assertResult.Met
         Failures = @($assertResult.Failures)
+        OperationalFailures = @($operationalFailures)
     }
 }
 
@@ -1848,8 +2477,7 @@ $selected = @(Select-SmokeTests `
     -AutoSelectBase $MergeBase)
 
 if ($selected.Count -eq 0) {
-    Write-Warn "No tests matched the selection criteria."
-    exit 0
+    throw "No tests matched the selection criteria."
 }
 
 Write-Info ("Selected {0} of {1} tests." -f $selected.Count, $all.Count)

@@ -2,6 +2,23 @@
 
 > fast3d: N64 GBI display lists translated at runtime to OpenGL. Function-pointer-table backend abstraction (`GfxRenderingAPI` + `GfxWindowManagerAPI`). Dear ImGui v1.91.8 overlay through the same SDL2 + OpenGL context. Theme system decodes ROM textures to RGBA32 and uploads as GL textures.
 
+## 2026-08-13 generated display-list ownership
+
+Generated model payloads and their texture-loaded clones now register exact,
+queryable GDL byte spans instead of relying on a geometry-count fuse as a
+normal traversal boundary. Registration retains generated base ownership,
+`GUNDL` base bytes and offsets, independent opaque/translucent ranges, and the
+terminal `ENDDL`; malformed, unowned, or out-of-range pointers fail closed.
+Character and object hit walkers consume the same span contract, so render
+cloning cannot turn a valid generated model into an unbounded memory walk.
+
+The source-frozen two-cycle Combat Simulator proof is
+`.claude/smoke-verify-runs/results-20260813T153846Z.json` (56/56, two natural
+generated-character hits, no GDL rejection, clean exit). Future gameplay
+captures must retain V-009 as a visual regression gate: no huge white
+first-person obstruction, correct held placement/scale and material colour,
+and readable effect colour.
+
 ## 2026-08-10 public `.pdeffect` presentation
 
 Generic v1 public effects now publish immutable growable presentation commands
@@ -156,6 +173,26 @@ Per [audits/codebase-architecture-rating-2026-04-27.md](../audits/codebase-archi
 - B-346 credits/fog alpha artifact is patched with visual proof. Mike's first `gfxalpha` run showed the broad fog-alpha output-alpha path was wrong: characters/weapons became translucent and credits masks still rendered as solid colored quads. Fast3d now keeps `G_BL_A_FOG` as color-fog state only, material alpha is back to normal translucent `MEM,1MA`/texture-edge cases, strict `G_RM_ADD` additive fog uses only the exact `IN,FOG_ALPHA,MEM,1` tuple with additive blending, and `text0f153628()` explicitly resets texture enable/scale before CI4 glyph drawing. The 2026-06-30 diagnostics showed the CI4 glyph path was decoding correctly (`rdp.palette_fmt == G_TT_IA16`, `use_alpha=1`, palette alpha 0/255, shaped row masks), so the visible solid quads were not a TLUT decode failure. Root cause is frame-start render-state cache drift: `gfx_opengl_start_frame()` disables `GL_BLEND`, but Fast3D's `rendering_state.alpha_blend` cache could remain true from the prior frame, causing the first translucent credits draw to skip `set_use_alpha()` and draw opaque. The patch invalidates Fast3D's alpha/modulate/additive blend cache after backend frame start, keeps the TLUT fallback local to palette loading, and keys CI texture cache entries by palette format. Verification: isolated `b346tlut` build PASS, focused B-346 static tests PASS (27 assertions / 4 cases), asset-native-source guard PASS, and delayed credits screenshots in `.claude/smoke-verify-runs/screenshots/20260630T025340-credits_alpha_smoke_delayed_local/` show shaped glyphs and masked particle trails. The smoke harness result is 7/8 with exit code 0 because only a stale required log-line pattern is missing.
 - HUD layer order discipline per [designs/menus/hud-layer-order.md](../designs/menus/hud-layer-order.md) (implemented).
 - GPU swarm benchmark per [designs/in-flight/gpu-swarm-and-test-scenarios.md](../designs/in-flight/gpu-swarm-and-test-scenarios.md) (Phase 1 design; Phase 2 gated on Mike's call on F.1 GL 4.3 vs transform feedback).
+- B-1097/SP-61 has accepted frozen automation: per-character
+  modular model clones now preserve the packed sorted part-number sidecar used
+  by hand, hat, and other named-part lookups in the same allocation as the
+  cloned definition and nodes. Part lookup rejects null/empty tables and
+  searches only the exact key domain. Weapon equip resolves and requires its hand node
+  before publishing either attachment pointer or held ownership, so a malformed
+  body cannot leave an invisible one-sided held weapon. The exact reconnect
+  serializer remains the fail-closed regression detector. Frozen builds,
+  focused 655/14, full 61,455/1,164, and native-source guard pass.
+- The one B-1097 replacement receipt is retained but rejected before networking
+  at 14/57. Correct part lookup exposed B-1098/SP-62: generated relation targets
+  could replace private edges with cached-source nodes and corrupt the attached
+  HEADSPOT rwdata route. The correction collects the canonical graph, gives each
+  DISTANCE/TOGGLE/REORDER relation a private remapped record, preflights every
+  indexed record, discards foreign attached-head state, and unifies random and
+  catalog heads on one fail-closed transactional clone. Frozen B-1098 builds,
+  focused 1,541/16, full 63,731/1,165, and the native-source guard pass. The
+  exact follow-up `results-20260814T110358Z.json` completes both stage loads and
+  reconnect commit without the former access violation; its rejected
+  post-commit gameplay state is separately owned by B-1099.
 
 ---
 

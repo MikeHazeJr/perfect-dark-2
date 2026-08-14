@@ -54,6 +54,7 @@
 #include "assetcatalog_load.h"
 #include "asset_source_debug.h"
 #include "lib/meshcollision.h"
+#include "model_rodata_guard.h"
 #include "scenario_scene_renderer.h"
 #include "scenario_source_runtime.h"
 
@@ -4091,8 +4092,38 @@ bool bgTestLineIntersectsBbox(struct coord *arg0, struct coord *arg1, struct coo
 	return true;
 }
 
-bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1, struct coord *arg2, Gfx *gdl,
-		Gfx *gdl2, Vtx *vertices, struct hitthing *hitthing)
+/* Native model loaders do not yet retain allocation spans. This high ceiling
+ * is only an emergency corruption fuse for those legacy lists; it is not an
+ * authored geometry limit. Generated geometry always supplies an exact span. */
+#define BG_HIT_GDL_NATIVE_COMMAND_CAP 65536u
+
+static void bgHitGdlLogReject(const char *site, struct model *model,
+		const Gfx *gdl, u32 bytesremaining, const char *reason)
+{
+	static u32 count = 0;
+
+	if (count >= 16) {
+		return;
+	}
+	count++;
+	sysLogPrintf(LOG_WARNING,
+		"MODEL.GDL.REJECT: site=%s model=%p modeldef=%p gdl=%p bytes_remaining=%u reason=%s count=%u",
+		site ? site : "unknown", (void *)model,
+		model ? (void *)model->definition : NULL, (const void *)gdl,
+		bytesremaining, reason ? reason : "unknown", count);
+}
+
+static void bgHitGdlAdvance(Gfx **gdl, u32 *bytesremaining, bool bounded)
+{
+	(*gdl)++;
+	if (bounded) {
+		*bytesremaining -= sizeof(Gfx);
+	}
+}
+
+bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1,
+		struct coord *arg2, Gfx *gdl, u32 gdlbytes, Gfx *gdl2,
+		u32 gdl2bytes, Vtx *vertices, struct hitthing *hitthing)
 {
 	s16 stack;
 	s16 triref;
@@ -4118,30 +4149,90 @@ bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1, struct coord *arg2, 
 	struct coord sp8c;
 	struct coord sp80;
 	s32 points[3];
+	u32 bytesremaining = gdlbytes;
+	u32 commandsseen = 0;
+	bool bounded = gdlbytes > 0;
+
+	intersectsbbox = false;
 
 	while (true) {
-		if (gdl->dma.cmd == G_ENDDL) {
+		s8 cmd;
+
+		if (bounded) {
+			if (bytesremaining < sizeof(Gfx)) {
+				bgHitGdlLogReject("bgTestHitOnObj", NULL, gdl,
+					bytesremaining, "generated_span_exhausted_before_enddl");
+				break;
+			}
+		} else {
+			if (commandsseen >= BG_HIT_GDL_NATIVE_COMMAND_CAP) {
+				bgHitGdlLogReject("bgTestHitOnObj", NULL, gdl, 0,
+					"native_command_cap");
+				break;
+			}
+			if (!modelRodataIsReadable(gdl, sizeof(Gfx))) {
+				bgHitGdlLogReject("bgTestHitOnObj", NULL, gdl, 0,
+					"native_unreadable_command");
+				break;
+			}
+		}
+		commandsseen++;
+		cmd = (s8)gdl->bytes[GFX_W0_BYTE(0)];
+
+		if (cmd == G_ENDDL) {
 			imggdl = NULL;
 
 			if (gdl2 != NULL) {
 				gdl = gdl2;
+				bytesremaining = gdl2bytes;
+				bounded = gdl2bytes > 0;
+				commandsseen = 0;
 				gdl2 = NULL;
+				gdl2bytes = 0;
 				continue;
 			}
 			break;
-		} else if (gdl->dma.cmd == G_VTX) {
+		} else if (cmd == G_VTX) {
+			uintptr_t vertexaddr;
+			size_t vertexbytes;
+
 			ptr = var800a6470;
 			count = gdl->bytes[GFX_W0_BYTE(1)] & 0xf;
+			numvertices =
+				(((u32)gdl->bytes[GFX_W0_BYTE(1)] >> 4) & 0xf) + 1;
+			if (!vertices || count < 0 || count >= 16 ||
+					numvertices <= 0 || count + numvertices > 16) {
+				bgHitGdlLogReject("bgTestHitOnObj", NULL, gdl,
+					bytesremaining, "vertex_batch_out_of_range");
+				break;
+			}
 			if (gdl->words.w1 & 1) {
 				// segmented address
 				offset = (UNSEGADDR(gdl->words.w1) & 0xffffff);
+				if (offset < (uintptr_t)count * sizeof(Vtx) ||
+						UINTPTR_MAX - (uintptr_t)vertices < offset) {
+					bgHitGdlLogReject("bgTestHitOnObj", NULL, gdl,
+						bytesremaining, "vertex_address_out_of_range");
+					break;
+				}
+				vertexaddr = (uintptr_t)vertices + offset;
 			} else {
 				// linear address
-				offset = gdl->words.w1 - (uintptr_t)vertices;
+				vertexaddr = (uintptr_t)gdl->words.w1;
+				if (vertexaddr < (uintptr_t)count * sizeof(Vtx)) {
+					bgHitGdlLogReject("bgTestHitOnObj", NULL, gdl,
+						bytesremaining, "vertex_address_out_of_range");
+					break;
+				}
 			}
-			numvertices = (((u32) gdl->bytes[GFX_W0_BYTE(1)] >> 4) & 0xf) + 1;
-			vtx = (Vtx *)((uintptr_t)vertices + offset);
-			vtx -= count;
+			vertexaddr -= (uintptr_t)count * sizeof(Vtx);
+			vertexbytes = (size_t)numvertices * sizeof(Vtx);
+			if (!modelRodataIsReadable((const void *)vertexaddr, vertexbytes)) {
+				bgHitGdlLogReject("bgTestHitOnObj", NULL, gdl,
+					bytesremaining, "vertex_data_unreadable");
+				break;
+			}
+			vtx = (Vtx *)vertexaddr;
 
 			ptr[0] = vtx->x;
 			ptr[1] = vtx->y;
@@ -4227,26 +4318,26 @@ bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1, struct coord *arg2, 
 			if (intersectsbbox) {
 				intersectsbbox = bgTestLineIntersectsBbox(arg0, arg2, &min, &max);
 			}
-		} else if (gdl->dma.cmd == (s8)G_SETTIMG) {
+		} else if (cmd == (s8)G_SETTIMG) {
 			imggdl = gdl;
 		} else {
 			if (!intersectsbbox) {
-				gdl++;
+				bgHitGdlAdvance(&gdl, &bytesremaining, bounded);
 				continue;
 			}
 
-			if (gdl->dma.cmd != G_TRI1 && gdl->dma.cmd != G_TRI4) {
-				gdl++;
+			if (cmd != G_TRI1 && cmd != G_TRI4) {
+				bgHitGdlAdvance(&gdl, &bytesremaining, bounded);
 				continue;
 			}
 
-			if (gdl->dma.cmd == G_TRI1) {
+			if (cmd == G_TRI1) {
 				trisremaining = 0;
 				triref = 0;
 				points[0] = gdl->tri.tri.v[GFX_TRI_VTX(0)] / 10;
 				points[1] = gdl->tri.tri.v[GFX_TRI_VTX(1)] / 10;
 				points[2] = gdl->tri.tri.v[GFX_TRI_VTX(2)] / 10;
-			} else if (gdl->dma.cmd == G_TRI4) {
+			} else if (cmd == G_TRI4) {
 				tri4gdl = gdl;
 				trisremaining = 3;
 				triref = 1;
@@ -4257,6 +4348,14 @@ bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1, struct coord *arg2, 
 
 			do {
 				if (points[0] == 0 && points[1] == 0 && points[2] == 0) {
+					break;
+				}
+				if (points[0] < 0 || points[0] >= 16 ||
+						points[1] < 0 || points[1] >= 16 ||
+						points[2] < 0 || points[2] >= 16) {
+					bgHitGdlLogReject("bgTestHitOnObj", NULL, gdl,
+						bytesremaining, "triangle_index_out_of_range");
+					trisremaining = -1;
 					break;
 				}
 
@@ -4387,14 +4486,16 @@ bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1, struct coord *arg2, 
 			} while (trisremaining >= 0);
 		}
 
-		gdl++;
+		bgHitGdlAdvance(&gdl, &bytesremaining, bounded);
 	}
 
 	return hit;
 }
 
-bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2, struct coord *arg3,
-		Gfx *gdl, Gfx *gdl2, Vtx *vertices, f32 *sqdistptr, struct hitthing *hitthing)
+bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2,
+		struct coord *arg3, Gfx *gdl, u32 gdlbytes, Gfx *gdl2,
+		u32 gdl2bytes, Vtx *vertices, f32 *sqdistptr,
+		struct hitthing *hitthing)
 {
 	s16 triref;
 	s32 i;
@@ -4419,28 +4520,91 @@ bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2,
 	struct coord sp84;
 	struct coord sp78;
 	s32 points[3];
+	u32 bytesremaining = gdlbytes;
+	u32 commandsseen = 0;
+	bool bounded = gdlbytes > 0;
 
 	spdc = 16;
 	spd8 = 0;
 	hit = false;
+	intersectsbbox = false;
+	mtx = NULL;
 
 	while (true) {
-		if (gdl->dma.cmd == G_ENDDL) {
+		s8 cmd;
+
+		if (bounded) {
+			if (bytesremaining < sizeof(Gfx)) {
+				bgHitGdlLogReject("bgTestHitOnChr", model, gdl,
+					bytesremaining,
+					"generated_span_exhausted_before_enddl");
+				break;
+			}
+		} else {
+			if (commandsseen >= BG_HIT_GDL_NATIVE_COMMAND_CAP) {
+				bgHitGdlLogReject("bgTestHitOnChr", model, gdl, 0,
+					"native_command_cap");
+				break;
+			}
+			if (!modelRodataIsReadable(gdl, sizeof(Gfx))) {
+				bgHitGdlLogReject("bgTestHitOnChr", model, gdl, 0,
+					"native_unreadable_command");
+				break;
+			}
+		}
+		commandsseen++;
+		cmd = (s8)gdl->bytes[GFX_W0_BYTE(0)];
+
+		if (cmd == G_ENDDL) {
 			if (gdl2 != NULL) {
 				gdl = gdl2;
+				bytesremaining = gdl2bytes;
+				bounded = gdl2bytes > 0;
+				commandsseen = 0;
 				gdl2 = NULL;
+				gdl2bytes = 0;
 				continue;
 			}
 			break;
-		} else if (gdl->dma.cmd == G_MTX) {
+		} else if (cmd == G_MTX) {
 			word = UNSEGADDR(gdl->words.w1) & 0xffffff;
 			i = word / sizeof(Mtxf);
+			if (!model || !model->definition || !model->matrices || i < 0 ||
+					i >= model->definition->nummatrices) {
+				bgHitGdlLogReject("bgTestHitOnChr", model, gdl,
+					bytesremaining,
+					"matrix_index_out_of_range");
+				break;
+			}
 			mtx = &model->matrices[i];
-		} else if (gdl->dma.cmd == G_VTX) {
+		} else if (cmd == G_VTX) {
+			uintptr_t vertexaddr;
+			size_t vertexbytes;
+
 			count = (gdl->bytes[GFX_W0_BYTE(1)] & 0xf);
 			word = UNSEGADDR(gdl->words.w1) & 0xffffff;
 			numvertices = ((u32) gdl->bytes[GFX_W0_BYTE(1)] >> 4) + 1;
-			vtx = (Vtx *)((uintptr_t)vertices + word);
+			if (!mtx || !vertices || count < 0 || count >= 16 ||
+					numvertices <= 0 ||
+					count + numvertices > 16) {
+				bgHitGdlLogReject("bgTestHitOnChr", model, gdl,
+					bytesremaining,
+					"vertex_batch_out_of_range");
+				break;
+			}
+			if (UINTPTR_MAX - (uintptr_t)vertices < word) {
+				bgHitGdlLogReject("bgTestHitOnChr", model, gdl,
+					bytesremaining, "vertex_address_out_of_range");
+				break;
+			}
+			vertexaddr = (uintptr_t)vertices + word;
+			vertexbytes = (size_t)numvertices * sizeof(Vtx);
+			if (!modelRodataIsReadable((const void *)vertexaddr, vertexbytes)) {
+				bgHitGdlLogReject("bgTestHitOnChr", model, gdl,
+					bytesremaining, "vertex_data_unreadable");
+				break;
+			}
+			vtx = (Vtx *)vertexaddr;
 
 			if (count < spdc) {
 				spdc = count;
@@ -4517,22 +4681,22 @@ bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2,
 			}
 		} else {
 			if (!intersectsbbox) {
-				gdl++;
+				bgHitGdlAdvance(&gdl, &bytesremaining, bounded);
 				continue;
 			}
 
-			if ((gdl->dma.cmd != G_TRI1 && gdl->dma.cmd != G_TRI4)) {
-				gdl++;
+			if (cmd != G_TRI1 && cmd != G_TRI4) {
+				bgHitGdlAdvance(&gdl, &bytesremaining, bounded);
 				continue;
 			}
 
-			if (gdl->dma.cmd == G_TRI1) {
+			if (cmd == G_TRI1) {
 				i = 0;
 				triref = 0;
 				points[0] = gdl->tri.tri.v[GFX_TRI_VTX(0)] / 10;
 				points[1] = gdl->tri.tri.v[GFX_TRI_VTX(1)] / 10;
 				points[2] = gdl->tri.tri.v[GFX_TRI_VTX(2)] / 10;
-			} else if (gdl->dma.cmd == G_TRI4) {
+			} else if (cmd == G_TRI4) {
 				tri4gdl = gdl;
 				i = 3;
 				triref = 1;
@@ -4543,6 +4707,14 @@ bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2,
 
 			do {
 				if (points[0] == 0 && points[1] == 0 && points[2] == 0) {
+					break;
+				}
+				if (points[0] < 0 || points[0] >= 16 ||
+						points[1] < 0 || points[1] >= 16 ||
+						points[2] < 0 || points[2] >= 16) {
+					bgHitGdlLogReject("bgTestHitOnChr", model, gdl,
+						bytesremaining, "triangle_index_out_of_range");
+					i = -1;
 					break;
 				}
 
@@ -4665,7 +4837,7 @@ bool bgTestHitOnChr(struct model *model, struct coord *arg1, struct coord *arg2,
 			} while (i >= 0);
 		}
 
-		gdl++;
+		bgHitGdlAdvance(&gdl, &bytesremaining, bounded);
 	}
 
 	return hit;

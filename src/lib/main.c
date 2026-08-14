@@ -75,6 +75,8 @@
 #include "lib/str.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
+#include "net/net.h"
 
 // mainLoop calls rngSetSeed with a u32 argument,
 // but the function takes a u64 so an incorrect declaration is needed.
@@ -982,7 +984,31 @@ void mainLoop(void)
 			g_Vars.antiplayernum = 1;
 		}
 
-		playermgrAllocatePlayers(numplayers);
+		{
+			enum playermgr_allocate_result player_result =
+				playermgrAllocatePlayers(numplayers);
+			if (player_result != PLAYMGR_ALLOC_OK) {
+				sysLogPrintf(LOG_ERROR,
+					"PLAYER.INIT.ROLLBACK stage=0x%02x status=%s; returning to title",
+					g_StageNum, playermgrAllocateResultString(player_result));
+				if (g_NetMode != NETMODE_NONE) {
+					if (g_NetLocalClient != NULL) {
+						g_NetLocalClient->state = CLSTATE_LOBBY;
+					}
+					netDisconnect();
+				}
+				playermgrReset();
+				g_Vars.mplayerisrunning = false;
+				g_Vars.normmplayerisrunning = false;
+				g_Vars.lvmpbotlevel = 0;
+				setNumPlayers(1);
+				g_StageNum = STAGE_TITLE;
+				g_MainChangeToStageNum = -1;
+				titleSetNextStage(STAGE_TITLE);
+				titleSetNextMode(TITLEMODE_SKIP);
+				continue;
+			}
+		}
 
 		if (argFindByPrefix(1, "-mpbots")) {
 			g_Vars.lvmpbotlevel = 1;

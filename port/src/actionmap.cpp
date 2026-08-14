@@ -32,6 +32,7 @@
 #include <PR/ultratypes.h>
 
 #include "actionmap.h"
+#include "action_read_authority.h"
 #include "config.h"     /* configRegisterString */
 #include "fs.h"         /* fsCreateDir, fsFileOpenRead/Write */
 #include "system.h"     /* sysLogPrintf, LOG_NOTE, LOG_WARNING */
@@ -463,6 +464,36 @@ static s32 s_NumActive = 0;
 /* Per-player, per-action state */
 static ActionState s_State[ACTIONMAP_MAX_PLAYERS][ACTION_COUNT];
 
+enum SmokeActionOwnership {
+    SMOKE_ACTION_NONE = 0,
+    SMOKE_ACTION_HELD = 1,
+    SMOKE_ACTION_RELEASED = 2,
+};
+
+static s32 actionStateIsSmokeOwned(s32 player, InputAction action)
+{
+    return smokeHarnessIsActive() &&
+        player >= 0 && player < ACTIONMAP_MAX_PLAYERS &&
+        action >= 0 && action < ACTION_COUNT &&
+        s_State[player][action].smoke_injected != SMOKE_ACTION_NONE;
+}
+
+/* Physical analog polling owns ordinary axis state. During a smoke-owned
+ * gesture it must leave that one action untouched; every unowned action keeps
+ * the normal production polling/zeroing behavior. */
+static void actionmapSetPhysicalAxisState(s32 player, InputAction action, f32 value)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS ||
+        action < 0 || action >= ACTION_COUNT ||
+        actionStateIsSmokeOwned(player, action)) {
+        return;
+    }
+
+    ActionState *st = &s_State[player][action];
+    st->value = value;
+    st->held = value != 0.0f ? 1 : 0;
+}
+
 /* M-2: Pre-computed list of actions bound to mouse wheel VKs, for fast end-of-frame release. */
 static InputAction s_WheelActions[ACTION_COUNT];
 static s32 s_NumWheelActions = 0;
@@ -729,6 +760,12 @@ static void fireVk(u32 vk, s32 is_down)
             }
 
             ActionState *st = &s_State[player][best_a];
+            if (actionStateIsSmokeOwned(player, (InputAction)best_a)) {
+                /* The harness owns this exact action until its injected
+                 * release edge retires. Ignore coincident physical edges so
+                 * they cannot split held/value from smoke ownership. */
+                goto next_player;
+            }
 
             /* DIAG: Log which IMC wins the VK→action mapping for gamepad VKs.
              * S197a: gated behind sysLogGetVerbose() — was spamming the log
@@ -1259,17 +1296,13 @@ static void actionmapZeroGameplayAxes(s32 player, s32 zero_move, s32 zero_aim)
     }
 
     if (zero_move) {
-        s_State[player][ACTION_AXIS_MOVE_X].value = 0.0f;
-        s_State[player][ACTION_AXIS_MOVE_Y].value = 0.0f;
-        s_State[player][ACTION_AXIS_MOVE_X].held = 0;
-        s_State[player][ACTION_AXIS_MOVE_Y].held = 0;
+        actionmapSetPhysicalAxisState(player, ACTION_AXIS_MOVE_X, 0.0f);
+        actionmapSetPhysicalAxisState(player, ACTION_AXIS_MOVE_Y, 0.0f);
     }
 
     if (zero_aim) {
-        s_State[player][ACTION_AXIS_AIM_X].value = 0.0f;
-        s_State[player][ACTION_AXIS_AIM_Y].value = 0.0f;
-        s_State[player][ACTION_AXIS_AIM_X].held = 0;
-        s_State[player][ACTION_AXIS_AIM_Y].held = 0;
+        actionmapSetPhysicalAxisState(player, ACTION_AXIS_AIM_X, 0.0f);
+        actionmapSetPhysicalAxisState(player, ACTION_AXIS_AIM_Y, 0.0f);
     }
 }
 
@@ -1359,19 +1392,19 @@ void actionmapPollFrame(void)
             }
 
             if (moveAxesAllowed) {
-                s_State[p][ACTION_AXIS_MOVE_X].value = clampf(mvx, -1.0f, 1.0f);
-                s_State[p][ACTION_AXIS_MOVE_Y].value = clampf(mvy, -1.0f, 1.0f);
-                s_State[p][ACTION_AXIS_MOVE_X].held = (mvx != 0.0f) ? 1 : 0;
-                s_State[p][ACTION_AXIS_MOVE_Y].held = (mvy != 0.0f) ? 1 : 0;
+                actionmapSetPhysicalAxisState(p, ACTION_AXIS_MOVE_X,
+                    clampf(mvx, -1.0f, 1.0f));
+                actionmapSetPhysicalAxisState(p, ACTION_AXIS_MOVE_Y,
+                    clampf(mvy, -1.0f, 1.0f));
             } else {
                 actionmapZeroGameplayAxes(p, 1, 0);
             }
 
             if (aimAxesAllowed) {
-                s_State[p][ACTION_AXIS_AIM_X].value = clampf(avx, -1.0f, 1.0f);
-                s_State[p][ACTION_AXIS_AIM_Y].value = clampf(avy, -1.0f, 1.0f);
-                s_State[p][ACTION_AXIS_AIM_X].held  = (avx != 0.0f) ? 1 : 0;
-                s_State[p][ACTION_AXIS_AIM_Y].held  = (avy != 0.0f) ? 1 : 0;
+                actionmapSetPhysicalAxisState(p, ACTION_AXIS_AIM_X,
+                    clampf(avx, -1.0f, 1.0f));
+                actionmapSetPhysicalAxisState(p, ACTION_AXIS_AIM_Y,
+                    clampf(avy, -1.0f, 1.0f));
             } else {
                 actionmapZeroGameplayAxes(p, 0, 1);
             }
@@ -1428,10 +1461,8 @@ void actionmapPollFrame(void)
                     dy /= len;
                 }
             }
-            s_State[0][ACTION_AXIS_AIM_X].value = dx;
-            s_State[0][ACTION_AXIS_AIM_Y].value = dy;
-            s_State[0][ACTION_AXIS_AIM_X].held = (dx != 0.0f) ? 1 : 0;
-            s_State[0][ACTION_AXIS_AIM_Y].held = (dy != 0.0f) ? 1 : 0;
+            actionmapSetPhysicalAxisState(0, ACTION_AXIS_AIM_X, dx);
+            actionmapSetPhysicalAxisState(0, ACTION_AXIS_AIM_Y, dy);
         }
     }
 
@@ -1485,10 +1516,8 @@ void actionmapPollFrame(void)
             /* Always assign — when no digital keys are held, this writes 0,0
              * and clears any stuck axis value from a previous synthesis frame.
              * (B-152.) */
-            s_State[0][ACTION_AXIS_MOVE_X].value = mx;
-            s_State[0][ACTION_AXIS_MOVE_Y].value = my;
-            s_State[0][ACTION_AXIS_MOVE_X].held  = (mx != 0.0f) ? 1 : 0;
-            s_State[0][ACTION_AXIS_MOVE_Y].held  = (my != 0.0f) ? 1 : 0;
+            actionmapSetPhysicalAxisState(0, ACTION_AXIS_MOVE_X, mx);
+            actionmapSetPhysicalAxisState(0, ACTION_AXIS_MOVE_Y, my);
         }
     }
 
@@ -1555,6 +1584,9 @@ void actionmapEndFrame(void)
             ActionState *st = &s_State[p][a];
             st->pressed  = 0;
             st->released = 0;
+            if (st->smoke_injected == SMOKE_ACTION_RELEASED) {
+                st->smoke_injected = SMOKE_ACTION_NONE;
+            }
 
             /* Wheel auto-release is now handled by the M-2 pre-computed array below. */
         }
@@ -1568,6 +1600,9 @@ void actionmapEndFrame(void)
                 st->value                 = 0.0f;
                 st->up_time_ms            = now;
                 st->hold_vis_grace_until_ms = now + 100;
+                if (st->smoke_injected == SMOKE_ACTION_HELD) {
+                    st->smoke_injected = SMOKE_ACTION_RELEASED;
+                }
             }
         }
     }
@@ -1634,7 +1669,11 @@ s32 actionIsGameplayOnly(InputAction a)
     }
 }
 
-static s32 actionLayerAllows(InputAction a)
+/* Returns 1/0 when the top typed layer explicitly allows/denies a gameplay
+ * action, or -1 when the transitional input-context predicate owns the
+ * decision. Keeping this tri-state boundary prevents focus-independent smoke
+ * reads from bypassing cutscene/vehicle/observer action apertures. */
+static s32 actionLayerApertureDecision(InputAction a)
 {
     const LayerHandle *top = inputLayerTop();
     const LayerDef *def = top ? inputLayerHandleDef(top) : NULL;
@@ -1648,11 +1687,63 @@ static s32 actionLayerAllows(InputAction a)
         return 0;
     }
 
+    return -1;
+}
+
+static s32 actionLayerAllows(InputAction a)
+{
+    const s32 aperture = actionLayerApertureDecision(a);
+
+    if (aperture >= 0) {
+        return aperture;
+    }
+
     if (gameplayInputSuppressed() && actionIsGameplayOnly(a)) {
         return 0;
     }
 
     return 1;
+}
+
+/* Public reads normally use the exact production authority decision above.
+ * A smoke-owned state may override only the focus-lost/regain-settle portion
+ * of the transitional input-context predicate, and only while gameplay (or
+ * Forge's gameplay-capable editor context) remains on top. Menu/context
+ * suppression and every explicit typed-layer aperture remain authoritative. */
+static s32 actionReadAllows(s32 player, InputAction a)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS || a < 0 || a >= ACTION_COUNT) {
+        return 0;
+    }
+
+    ActionReadAuthorityInput input = {};
+    input.aperture_decision = actionLayerApertureDecision(a);
+    if (input.aperture_decision != ACTION_READ_APERTURE_INHERIT) {
+        return actionReadAuthorityAllows(&input);
+    }
+
+    input.gameplay_suppressed = gameplayInputSuppressed();
+    input.gameplay_only = actionIsGameplayOnly(a);
+    if (!input.gameplay_suppressed || !input.gameplay_only) {
+        return actionReadAuthorityAllows(&input);
+    }
+
+    input.smoke_owned = actionStateIsSmokeOwned(player, a);
+    if (!input.smoke_owned) {
+        return actionReadAuthorityAllows(&input);
+    }
+
+    InputContext *context = inputCtxGetTop();
+    input.gameplay_context = context == &g_CtxGameplay || context == &g_CtxForgeEditor;
+    if (!input.gameplay_context) {
+        return actionReadAuthorityAllows(&input);
+    }
+
+    InputCtxDebugAuthority authority = {};
+    inputCtxDebugSnapshotAuthority(&authority);
+    input.focus_lost = authority.window_focus_lost;
+    input.focus_settle_active = authority.focus_settle_remaining_ms > 0;
+    return actionReadAuthorityAllows(&input);
 }
 
 /* Priority D (2026-04-24): FREEFLY observer suppression.
@@ -1727,6 +1818,7 @@ static void actionmapFlushStateSlot(ActionState *st, u32 now)
     st->hold_pin_full_until_ms = 0;
     st->hold_vis_grace_until_ms = 0;
     st->hold_vis_last_down_progress = 0.0f;
+    st->smoke_injected = SMOKE_ACTION_NONE;
 }
 
 void actionmapFlushGameplayState(void)
@@ -1781,7 +1873,7 @@ s32 actionPressed(s32 player, InputAction action)
     /* Input-authority gate: when a top layer declares a gameplay action
      * aperture, gameplay-only reads must be in that set. Otherwise, fall
      * back to the transitional inputctx suppression predicate. */
-    if (!actionLayerAllows(action)) return 0;
+    if (!actionReadAllows(player, action)) return 0;
     /* Priority D (2026-04-24): FREEFLY observer suppression. */
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     return s_State[player][action].pressed;
@@ -1791,7 +1883,7 @@ s32 actionHeld(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    if (!actionLayerAllows(action)) return 0;
+    if (!actionReadAllows(player, action)) return 0;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     return s_State[player][action].held;
 }
@@ -1800,7 +1892,7 @@ s32 actionReleased(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    if (!actionLayerAllows(action)) return 0;
+    if (!actionReadAllows(player, action)) return 0;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     return s_State[player][action].released;
 }
@@ -1809,7 +1901,7 @@ f32 actionValue(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0.0f;
     if (action < 0 || action >= ACTION_COUNT) return 0.0f;
-    if (!actionLayerAllows(action)) return 0.0f;
+    if (!actionReadAllows(player, action)) return 0.0f;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0.0f;
     return s_State[player][action].value;
 }
@@ -1823,17 +1915,24 @@ void actionAxis(s32 player, InputAction action, f32 *out_x, f32 *out_y)
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return;
     if (action < 0 || action >= ACTION_COUNT) return;
 
-    /* Gate axis reads through the layer-declared gameplay aperture. */
-    if (!actionLayerAllows(action)) return;
-
-    /* Axis-pair actions: return both components */
+    /* Axis-pair actions gate each component independently so a focus-lost
+     * smoke override can never expose an unowned sibling axis. */
     if (action == ACTION_AXIS_MOVE_X || action == ACTION_AXIS_MOVE_Y) {
-        *out_x = s_State[player][ACTION_AXIS_MOVE_X].value;
-        *out_y = s_State[player][ACTION_AXIS_MOVE_Y].value;
+        if (actionReadAllows(player, ACTION_AXIS_MOVE_X)) {
+            *out_x = s_State[player][ACTION_AXIS_MOVE_X].value;
+        }
+        if (actionReadAllows(player, ACTION_AXIS_MOVE_Y)) {
+            *out_y = s_State[player][ACTION_AXIS_MOVE_Y].value;
+        }
     } else if (action == ACTION_AXIS_AIM_X || action == ACTION_AXIS_AIM_Y) {
-        *out_x = s_State[player][ACTION_AXIS_AIM_X].value;
-        *out_y = s_State[player][ACTION_AXIS_AIM_Y].value;
+        if (actionReadAllows(player, ACTION_AXIS_AIM_X)) {
+            *out_x = s_State[player][ACTION_AXIS_AIM_X].value;
+        }
+        if (actionReadAllows(player, ACTION_AXIS_AIM_Y)) {
+            *out_y = s_State[player][ACTION_AXIS_AIM_Y].value;
+        }
     } else {
+        if (!actionReadAllows(player, action)) return;
         *out_x = s_State[player][action].value;
         *out_y = 0.0f;
     }
@@ -1847,7 +1946,7 @@ s32 actionHeldForMs(s32 player, InputAction action, s32 threshold_ms)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    if (!actionLayerAllows(action)) return 0;
+    if (!actionReadAllows(player, action)) return 0;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->held || st->down_time_ms == 0) return 0;
@@ -1860,7 +1959,7 @@ s32 actionWasTap(s32 player, InputAction action, s32 max_hold_ms)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    if (!actionLayerAllows(action)) return 0;
+    if (!actionReadAllows(player, action)) return 0;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->released) return 0;
@@ -1874,7 +1973,7 @@ s32 actionLastGestureHoldMs(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    if (!actionLayerAllows(action)) return 0;
+    if (!actionReadAllows(player, action)) return 0;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     const ActionState *st = &s_State[player][action];
     if (!st->released) return 0;
@@ -1887,7 +1986,7 @@ void actionConsumeHold(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return;
     if (action < 0 || action >= ACTION_COUNT) return;
-    if (!actionLayerAllows(action)) return;
+    if (!actionReadAllows(player, action)) return;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return;
     {
         ActionState *st = &s_State[player][action];
@@ -1901,7 +2000,7 @@ s32 actionHoldConsumed(s32 player, InputAction action)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
     if (action < 0 || action >= ACTION_COUNT) return 0;
-    if (!actionLayerAllows(action)) return 0;
+    if (!actionReadAllows(player, action)) return 0;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0;
     return s_State[player][action].hold_consumed;
 }
@@ -1910,7 +2009,7 @@ f32 actionHoldProgress(s32 player, InputAction action, s32 threshold_ms)
 {
     if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0.0f;
     if (action < 0 || action >= ACTION_COUNT) return 0.0f;
-    if (!actionLayerAllows(action)) return 0.0f;
+    if (!actionReadAllows(player, action)) return 0.0f;
     if (forgeIsFreefly() && actionIsBlockedInFreefly(action)) return 0.0f;
     if (threshold_ms <= 0) return 0.0f;
     ActionState *st = &s_State[player][action];
@@ -1957,7 +2056,7 @@ u32 actionHoldPressStartMs(s32 player, InputAction action)
     if (action < 0 || action >= ACTION_COUNT) {
         return 0;
     }
-    if (!actionLayerAllows(action)) {
+    if (!actionReadAllows(player, action)) {
         return 0;
     }
     const ActionState *st = &s_State[player][action];
@@ -3626,8 +3725,19 @@ s32 actionmapInjectStateForSmoke(s32 player, s32 action, s32 down)
 
     ActionState *st = &s_State[player][action];
     u32 now = SDL_GetTicks();
+    const s32 held_before = st->held;
+    const s32 pressed_before = st->pressed;
+    const s32 released_before = st->released;
+    const s32 smoke_injected_before = st->smoke_injected;
 
     if (down) {
+        if (smoke_injected_before == SMOKE_ACTION_NONE && held_before) {
+            sysLogPrintf(LOG_WARNING,
+                "SMOKE.ACTION.INJECT.REJECT: player=%d action=%d down=1 reason=unowned-held",
+                player, action);
+            return 0;
+        }
+        st->smoke_injected = SMOKE_ACTION_HELD;
         /* Mirror the rising-edge bookkeeping in fireVk(). Idempotent on
          * the held flag so a stuck-down inject does not double-fire the
          * pressed edge. */
@@ -3644,7 +3754,7 @@ s32 actionmapInjectStateForSmoke(s32 player, s32 action, s32 down)
                 cheatRecord((InputAction)action);
             }
         }
-    } else {
+    } else if (smoke_injected_before == SMOKE_ACTION_HELD) {
         if (st->held) {
             st->held       = 0;
             st->released   = 1;
@@ -3652,6 +3762,22 @@ s32 actionmapInjectStateForSmoke(s32 player, s32 action, s32 down)
             st->up_time_ms = now;
             st->hold_vis_grace_until_ms = now + 100;
         }
+        st->smoke_injected = SMOKE_ACTION_RELEASED;
+    } else {
+        /* An idempotent release cannot seize or mutate physically owned
+         * state. Preserve NONE (or an already-readable RELEASED edge). */
+        st->smoke_injected = smoke_injected_before;
     }
+
+    /* The harness event log proves only that an event became due. Keep this
+     * smoke-only boundary receipt beside the state owner so release smokes can
+     * distinguish a real rising edge from an idempotent press against a stale
+     * held action. */
+    sysLogPrintf(LOG_NOTE,
+        "SMOKE.ACTION.INJECT: player=%d action=%d down=%d held_before=%d pressed_before=%d released_before=%d held_after=%d pressed_after=%d released_after=%d smoke_owner_before=%d smoke_owner_after=%d",
+        player, action, down ? 1 : 0,
+        held_before, pressed_before, released_before,
+        st->held, st->pressed, st->released,
+        smoke_injected_before, st->smoke_injected);
     return 1;
 }

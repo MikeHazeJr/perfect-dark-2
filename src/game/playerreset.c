@@ -252,6 +252,11 @@ void playerReset(void)
 	g_NumSpawnPoints = 0;
 	g_Vars.currentplayer->bondtankexplode = false;
 	g_Vars.currentplayer->gunmem2 = NULL;
+	/* B-1066: the player object is reused across stage loads. A queued jump
+	 * or released-button latch from the prior stage must not become input in
+	 * the next one. Fresh allocations use these same defaults. */
+	g_Vars.currentplayer->wantsjump = false;
+	g_Vars.currentplayer->jumpconsumed = true;
 	g_PlayersWithControl[0] = true;
 	g_PlayersWithControl[1] = true;
 	g_PlayersWithControl[2] = true;
@@ -927,7 +932,12 @@ void playerReset(void)
 		g_Vars.aibuddies[i] = NULL;
 	}
 
-	playerChooseBodyAndHead(&bodynum, &headnum, 0);
-	g_Vars.currentplayer->prop->chr->bodynum = bodynum;
-	g_Vars.currentplayer->prop->chr->headnum = headnum;
+	if (playerChooseBodyAndHead(&bodynum, &headnum, 0)) {
+		g_Vars.currentplayer->prop->chr->bodynum = bodynum;
+		g_Vars.currentplayer->prop->chr->headnum = headnum;
+	} else {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK reset identity player=%d",
+			g_Vars.currentplayernum);
+	}
 }

@@ -45,6 +45,8 @@ s32 netStartClient(const char *addr);
 s32 netStartClientWithHolePunch(const char *addr);
 s32 netStartServer(u16 port, s32 maxclients);
 s32 netDisconnect(void);
+s32 netClientReconnectAvailable(void);
+s32 netClientReconnect(void);
 
 /* Net menu state — shared with netmenu.c */
 extern char g_NetJoinAddr[];
@@ -133,6 +135,12 @@ static s32 networkGraphStartClient(void *userdata)
         return -99;
     }
     return netStartClientWithHolePunch(addr);
+}
+
+static s32 networkGraphReconnect(void *userdata)
+{
+    (void)userdata;
+    return netClientReconnect();
 }
 
 static const char *fmtUpnpStatus(s32 st)
@@ -290,6 +298,23 @@ static s32 renderMultiplayerMenu(struct menudialog *dialog,
      * Direct-Connect form + Server-Browser list as one focus surface. */
     ImGui::BeginChild("##mp_body", ImVec2(0, bodyH),
                       ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
+
+    /* v57: retry the endpoint-scoped in-memory credential without exposing
+     * the prior raw address. This uses the same graph-owned joining view as a
+     * normal connect, but bypasses LAN/STUN/UPnP probe descriptors entirely. */
+    if (netClientReconnectAvailable()) {
+        if (ImGui::Button("Reconnect to previous match", ImVec2(-1.0f, 0.0f))) {
+            pdguiPlaySound(PDGUI_SND_SELECT);
+            if (menuGraphFireNetworkOp(MENU_TYPE_NETWORK, "reconnect",
+                    networkGraphReconnect, NULL) == 0) {
+                menuGraphFirePushDialog(MENU_TYPE_NETWORK, "joining",
+                    &g_NetJoiningDialog);
+            }
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+    }
 
     /* ---- Host game (listen server, same process as --host / g_NetHostLatch) ---- */
     ImGui::TextColored(pdguiVec4TitleGlow(), "Host game (this PC)");
@@ -554,9 +579,9 @@ void pdguiMenuNetworkRegister(void)
                 "base:lang_mpmenu",  /* MP menu / lobby strings */
                 "base:lang_misc",    /* General UI strings */
             };
-            static const u8 types[] = {
-                MANIFEST_TYPE_LANG,
-                MANIFEST_TYPE_LANG,
+            static const asset_type_e types[] = {
+                ASSET_LANG,
+                ASSET_LANG,
             };
             screenManifestRegister(
                 (void*)&g_NetMenuDialog,

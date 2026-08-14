@@ -12,7 +12,7 @@ The input system has three principal subsystems sitting on top of SDL2:
 2. **Input context stack** ([port/include/inputctx.h](../../port/include/inputctx.h), [port/src/inputctx.c](../../port/src/inputctx.c), 974 lines). 16-slot pushdown stack of input contexts (`g_CtxGameplay`, `g_CtxImGuiMenu`, `g_CtxPauseMenu`, `g_CtxDebugOverlay`). Owns SDL mouse mode and the `gameplayInputSuppressed()` single-truth-source predicate.
 3. **Layer stack** ([port/include/inputlayer.h](../../port/include/inputlayer.h), [port/src/inputlayer.c](../../port/src/inputlayer.c), 421 lines). 7 typed layers with handle-based push/pop, generation counters, scene-event integration.
 
-Single SDL event entry point: [port/fast3d/pdgui_backend.cpp:1272](../../port/fast3d/pdgui_backend.cpp:1272) `pdguiProcessEvent`. Every event flows ImGui -> WantCaptureKeyboard gate -> `actionmapDispatch` -> `inputCtxDispatch`.
+Single SDL event pump: [port/fast3d/gfx_sdl2.cpp](../../port/fast3d/gfx_sdl2.cpp) routes main-window focus lifecycle to core input authority first, then every event flows through [port/fast3d/pdgui_backend.cpp](../../port/fast3d/pdgui_backend.cpp) `pdguiProcessEvent`: ImGui -> WantCaptureKeyboard gate -> `actionmapDispatch` -> `inputCtxDispatch`. The pump also reconciles `SDL_WINDOW_INPUT_FOCUS` once per frame so a missed or coalesced focus event cannot leave stale suppression state.
 
 ---
 
@@ -73,6 +73,18 @@ Higher priority wins for the same VK. Deterministic dispatch at [port/src/action
 - Within 50ms focus-settle window
 
 This is the single truth-source. Every action-map query gates on `actionLayerAllows()` at [port/src/actionmap.cpp:1392-1411](../../port/src/actionmap.cpp:1392) which checks the predicate plus declared layer action-set membership.
+
+**Focus lifecycle authority** is main-window scoped and non-consumable. Current
+source routes `SDL_WINDOWEVENT_FOCUS_LOST/GAINED` before UI dispatch, still
+forwards each event to ImGui, and reconciles the actual SDL focus flag after
+the queue drains. `inputCtxNotifyFocus()` remains idempotent, so reconciliation
+repairs a missing edge without duplicate flushes or logs. Consolidated
+B-1085/B-1090 build/full/guard verification passed, and the paired runtime
+now proves a fresh source gain-to-loss transition, exact GUI-thread keyboard
+focus ownership, and post-loss owned gameplay reads/effects on both ordinary
+clients. Named per-sequence anchors passed their focused behavior contract and
+the final inverse ordinary-client receipt passed 218/218 with all pre-focus
+evidence intact, two scripted exits, and zero operational failures or leaks.
 
 **Deferred-pop correctness**: `PopDeferred` marks-without-removing; `inputCtxGetTop` skips marked entries; `EndFrame` compacts at frame boundary. Verified at [tests/test_input_authority.cpp:145-163](../../tests/test_input_authority.cpp:145).
 

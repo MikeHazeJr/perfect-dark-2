@@ -98,7 +98,18 @@ Server now links `participant.c` directly (per S324 CMakeLists update); both sid
 
 [port/src/identity.c](../../port/src/identity.c). On PC, `identityGetActiveProfile()->name` is the canonical player name. The legacy N64 config field (`g_PlayerConfigsArray[0].base.name`) is consulted only as a fallback when the identity name is empty.
 
-**Identity cookie is the reconnect authority** (MASTER-C3, S393, 2026-04-19). `struct netpreservedplayer` records both `name` and a 16-byte `cookie[NET_AUTH_COOKIE_LEN]` server-issued at first `CLC_AUTH`. Reconnect to a preserved slot requires `netServerFindPreservedByCookie(name, cookie)` to match BOTH fields in constant time. Legacy name-only lookup (`netServerFindPreserved`) remains for advisory/diagnostic use but MUST NOT be used to gate a preserved-slot restore. Client-side cookie is module-static in `netmsg.c` and is cleared on `netDisconnect`; never persisted to disk.
+**Identity cookie is the reconnect authority** (MASTER-C3/B-1064, updated 2026-08-14). `struct netpreservedplayer` records both `name` and a 16-byte `cookie[NET_AUTH_COOKIE_LEN]` server-issued at first `CLC_AUTH`. The ENet connect-data client ID is only a stable-slot hint; the server admits reconnect only after constant-time name-and-cookie authentication for that preserved record. Name-only lookup remains advisory and MUST NOT gate restore. The client cookie is module-static and never persisted: only retryable timeout teardown retains it, only for the same resolved endpoint, while intentional, policy, hosting, and other final teardown clears it.
+
+**Server disconnect policy is authoritative** (B-1092/SP-57, source connected
+2026-08-14). ENet delivers a disconnect datum to the remote peer but reports
+zero to the initiating sender's acknowledged-disconnect event. Every
+authenticated server close therefore enters through `netServerKick`, whose
+first-writer intent is stored on `netclient` before ENet and consumed once by
+server teardown. The intent overrides a racing transport observation: timeout
+preserves the reservation, while kick, ban, admin lockout, content failure, and
+other terminal reasons remove it. The current-source isolated build, focused
+385/8, complete 61,291/1,159 suite, and native-source guard pass; the ordinary-
+client reconnect runtime receipt remains pending.
 
 ---
 

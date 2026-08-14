@@ -16019,6 +16019,31 @@ void chrSetPosWithCachedGround(struct chrdata *chr, struct coord *pos, RoomNum *
 	propSetPerimEnabled(chr->prop, true);
 }
 
+bool chrRelocateToFloorWithCachedGround(struct chrdata *chr,
+		const struct coord *floorpos, f32 rootheight, RoomNum *rooms, f32 theta,
+		u16 floorcol, u8 floortype, RoomNum floorroom)
+{
+	struct coord rootpos;
+
+	if (chr == NULL || chr->prop == NULL || chr->model == NULL
+			|| chr->model->definition == NULL || floorpos == NULL
+			|| rooms == NULL
+			|| !(rootheight >= -30000.0f && rootheight <= 30000.0f)) {
+		return false;
+	}
+
+	if (!modelSetChrRootHeight(chr->model, rootheight)) {
+		return false;
+	}
+
+	rootpos = *floorpos;
+	rootpos.y = floorpos->y + rootheight;
+
+	chrSetPosWithCachedGround(chr, &rootpos, rooms, theta, floorpos->y,
+		floorcol, floortype, floorroom);
+	return true;
+}
+
 bool chrSetPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 theta, bool findground)
 {
 	const f32 angle = BADDEG2RAD(360.f - theta);

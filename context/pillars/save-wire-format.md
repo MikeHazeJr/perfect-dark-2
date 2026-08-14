@@ -10,7 +10,7 @@ Two persisted formats and one transient format share the same versioning discipl
 
 1. **Save format** - PC-native JSON files at known paths (`agent_<name>.json`, `player_<name>.json`, `mpsetup_<name>.json`, `system.json`). Replaces N64 EEPROM. `SAVE_VERSION = 2`.
 2. **MP setup format** - binary WAD format for MP setup blocks. `MPSETUP_VERSION = 3`.
-3. **Wire format** - ENet UDP frames. `NET_PROTOCOL_VER = 53`.
+3. **Wire format** - ENet UDP frames. `NET_PROTOCOL_VER = 57`.
 
 All three are version-pinned in headers and verified in tests; mixed-version mismatches are rejected at handshake.
 
@@ -146,7 +146,18 @@ carry catalog IDs; no numeric custom identity was added to either format.
 
 ## Wire protocol
 
-`NET_PROTOCOL_VER = 53` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The 2026-08-11 bump preserves typed-asset versus full-package identity through match-manifest distribution, authenticates temporary package admission with the manifest SHA-256, and balances multi-item completion/failure. Mixed v52/v53 peers are rejected at auth. The v52 bot-profile identity change and earlier bumps remain documented in `net.h` and [pillars/connectivity.md](connectivity.md).
+`NET_PROTOCOL_VER = 57` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The 2026-08-14 bump makes reconnect an endpoint-scoped authenticated transaction: a stable-slot hint is never authority, the exact cookie/settings/room/player record survives manifest and asynchronous stage loading, every timed absent participant remains in the replay roster, and the server publishes the restored runtime only after post-load `CLC_STAGE_READY`. One ordered targeted state packet replays active cutscene authority plus player/world/score/mission state and ends with `SVC_RECONNECT_COMMIT`; only that marker retires the client's retry transaction. Failed preparation or queueing rolls back without consuming the reservation. v56's complete cutscene authority stream, v55's authenticated client-settings candidate, v54's transactional typed-state freeze, and earlier bumps remain documented in `net.h` and [pillars/connectivity.md](connectivity.md). Mixed-version peers are rejected at auth.
+
+B-1075's v55 category bytes remain unchanged in v57: STAGE and AUDIO remain compact category
+tokens. Their receiver contract is now explicit—resolve the authoritative string
+ID to its exact catalog row, then validate that the concrete type maps forward to
+the category. Never infer `ASSET_MAP` or `ASSET_AUDIO` from those lossy tokens.
+The source-frozen strengthened ordinary two-client receipt
+`.claude/smoke-verify-runs/results-20260813T091851Z.json` passes 56/56 with one
+exact Felicity load per process and no typed mismatch, load skip, transition
+rejection, or rollback. The category contract is therefore a locked
+regression gate; stage-transition, reconnect, and friend-play lifecycle proofs
+remain before release closure.
 
 See [pillars/connectivity.md](connectivity.md) for the full changelog and protocol details.
 
@@ -219,7 +230,7 @@ ordinary-client receipt paths.
 
 ## Where to look
 
-- For wire protocol full changelog (v27 through v51): [pillars/connectivity.md](connectivity.md).
+- For wire protocol full changelog (v27 through v57): [pillars/connectivity.md](connectivity.md).
 - For catalog ID convention behind every string field: [pillars/catalog.md](catalog.md).
 - For mod distribution which carries SHA-256 digests: [pillars/modding.md](modding.md).
 - For why bit-pack matters at scale: see B-12 history in `_old/_archive/` or [systemic-bugs.md](../systemic-bugs.md) SP entries.

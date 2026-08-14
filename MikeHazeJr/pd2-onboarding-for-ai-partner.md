@@ -56,7 +56,7 @@ There are TWO layers today and a planned third state. **Layer A** = legacy stati
 
 **Test framework.** `pd-tests` is a Catch2-based suite (header-only, dropped into `port/include/catch.hpp`). Run with `ninja -C Build pd-tests && ./Build/pd-tests`. Three test categories: pure unit tests (manifest, savebuffer, random-pool selector), roundtrip tests (netmsg encode/decode, save format v1→v2 migration), state-machine tests (IMC stack, menu stack, reachability walks). Coverage roadmap in `context/designs/testing-framework-2026-04-26.md`. Cohort 2 (state machines) shipped late April 2026; cohort 3 (mission/mode/input mapping) deferred.
 
-**Wire format.** `NET_PROTOCOL_VER` currently 44. Catalog ID strings cross the wire as session refs (u16); raw enum values do NOT. Bumps require version migration coverage.
+**Wire format.** `NET_PROTOCOL_VER` currently 56. Catalog ID strings cross the wire as session refs (u16); raw enum values do NOT. v54 freezes transactional lobby/stage launch state; v55 adds the signed typed match-server route; v56 adds the authoritative room-scoped cutscene START/ACCEPT/END stream. Bumps require version migration coverage.
 
 **Save format.** `MPSETUP_VERSION` currently 2. Bumps require migration code with pd-tests roundtrip coverage.
 

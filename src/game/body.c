@@ -345,6 +345,7 @@ bool bodyLoad(s32 bodynum)
 struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeldef, struct modeldef *headmodeldef, bool sunglasses, struct model *model, bool isplayer, u8 varyheight)
 {
 	const char *body_source_id = NULL;
+	struct modeldef *cloned_modeldef;
 
 	body_source_id = catalogBodyIdByBodynum(bodynum);
 	if (!body_source_id) {
@@ -477,12 +478,24 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 	 * modeldef per bodynum). Without this, every modular chr corrupted the shared
 	 * body modeldef -- the drifting rwdatalen eventually wrote head rwdata out of
 	 * bounds into an adjacent modeldef's rootnode (skedarruins chrnum 5052 crash).
-	 * Only the fresh path (model == NULL: regular chr spawns); the reused-model
-	 * player/menu paths keep their existing model->definition. */
+	 * Reused player/menu models need the same private definition before their
+	 * model->definition pointer is replaced below. B-1098 additionally requires
+	 * clone failure to stop this operation rather than restoring shared mutation. */
 	if (bodymodeldef != NULL
 			&& bodymodeldef->skel == &g_SkelChr
 			&& !catalogGetBodyIsComplete(bodynum)) {
-		bodymodeldef = modeldefCloneForChr(bodymodeldef);
+		cloned_modeldef = modeldefCloneForChr(bodymodeldef);
+
+		if (cloned_modeldef == NULL) {
+			bodyFatalSourceOnlyCharacterAssetFailure(ASSET_BODY, body_source_id,
+				bodynum, "body modeldef clone");
+			sysLogPrintf(LOG_ERROR,
+				"BODY.CLONE.FAIL: body clone rejected bodynum=%d headnum=%d; refusing shared modeldef",
+				bodynum, headnum);
+			return NULL;
+		}
+
+		bodymodeldef = cloned_modeldef;
 	}
 
 	modelAllocateRwData(bodymodeldef);
@@ -508,9 +521,7 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					headmodeldef = func0f18e57c(-1 - headnum, &headnum);
 					/* B-163: func0f18e57c returns from var800acc28[] which can be
 					 * NULL if random-head slot was never populated. */
-					if (headmodeldef != NULL) {
-						bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
-					} else {
+					if (headmodeldef == NULL) {
 						sysLogPrintf(LOG_WARNING,
 							"body0f02ce8c: random headmodeldef NULL (bodynum %d) -- skipping head merge",
 							bodynum);
@@ -534,23 +545,9 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					}
 
 					/* B-163: catalogGetHeadModeldef may return NULL (out-of-range,
-					 * torn asset, or HEAD_RANDOM_GENDER).  Skip merging rwdatalen
-					 * rather than dereferencing NULL. */
-					if (headmodeldef != NULL) {
-						modelAllocateRwData(headmodeldef);
-						/* Per-instance HEAD clone (completes the body clone above).
-						 * modelmgrAttachHead rewrites the head modeldef's node ->parent
-						 * pointers to the body headspot; the head modeldef is a shared
-						 * cache, so with chrnum recycling those parents get repointed at
-						 * different (freed) body-clone headspots -> a WILD parent node.
-						 * Cloning the head makes the attach mutate a private copy.
-						 * (bodyCalculateHeadOffset already ran on the shared head above
-						 * and is copied into the clone.) This is a latent-correctness fix
-						 * for the shared-cache mutation -- NOT the B-952 crash fix (that
-						 * was the objDrop NULL-mtx guard in propobj.c). */
-						headmodeldef = modeldefCloneForChr(headmodeldef);
-						bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
-					} else {
+					 * torn asset, or HEAD_RANDOM_GENDER). Skip the merge rather than
+					 * dereferencing NULL. */
+					if (headmodeldef == NULL) {
 						bodyFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD,
 							catalogHeadIdByHeadnum(headnum), headnum,
 							"head merge");
@@ -564,6 +561,28 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 						f32 frac = RANDOMFRAC() * 0.05f;
 						scale *= 2.0f * frac - 0.05f + 1.0f;
 					}
+				}
+
+				/* B-1098: every separately attached head, including an active
+				 * random-head slot, receives one complete private clone. Attach and
+				 * rwdata indexing both mutate node topology; falling back to the
+				 * shared catalog/cache modeldef would cross-link character instances. */
+				if (headmodeldef != NULL) {
+					modelAllocateRwData(headmodeldef);
+					cloned_modeldef = modeldefCloneForChr(headmodeldef);
+
+					if (cloned_modeldef == NULL) {
+						bodyFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD,
+							catalogHeadIdByHeadnum(headnum), headnum,
+							"head modeldef clone");
+						sysLogPrintf(LOG_ERROR,
+							"BODY.CLONE.FAIL: head clone rejected bodynum=%d headnum=%d; refusing shared modeldef",
+							bodynum, headnum);
+						return NULL;
+					}
+
+					headmodeldef = cloned_modeldef;
+					bodymodeldef->rwdatalen += headmodeldef->rwdatalen;
 				}
 
 				if (!isplayer) {
@@ -605,6 +624,13 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 				}
 				model->rwdatas = newrwdatas;
 				model->rwdatalen = bodymodeldef->rwdatalen;
+			} else {
+				bodyFatalSourceOnlyCharacterAssetFailure(ASSET_BODY,
+					body_source_id, bodynum, "body rwdata resize");
+				sysLogPrintf(LOG_ERROR,
+					"BODY.RWDATA.FAIL: resize rejected bodynum=%d headnum=%d words=%d; preserving prior model",
+					bodynum, headnum, bodymodeldef->rwdatalen);
+				return NULL;
 			}
 		}
 		model->definition = bodymodeldef;

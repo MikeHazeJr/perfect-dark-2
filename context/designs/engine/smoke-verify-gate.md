@@ -255,15 +255,44 @@ input stream takes over:
 
 - `wait`: no-op marker, used to keep authoring linear or to anchor a
   comment. Harness consumes the event and moves on.
+- `wait_until`: bounded typed production-state barrier. It pauses only the
+  current process's virtual script time while the real watchdog continues.
+  `condition` is one exact readiness predicate and `timeout_ms` is mandatory;
+  expiration wins at the exact boundary. Optional `stable_ms` requires one
+  continuous true window. The complete `assist_action`,
+  `assist_condition`, and `assist_hold_ms` tuple may press one production
+  action while the target is false, never re-arms it, and releases ownership on
+  hold expiry and every terminal path. Assisted waits require
+  `stable_ms > 0`; one-frame OR predicates are not transition proof. The
+  terminal receipt exposes `stable_elapsed_ms`, and fixture assertions must
+  prove it met the configured lower bound. Player, cutscene, and control facts
+  resolve through `playermgrGetLocalPlayerNum()` and fail closed when committed
+  receiver-local identity is missing or ambiguous. Runtime slot zero and a
+  peer's stable wire ID are never substitutes for receiver-local identity.
+  Multi-process host fixtures use `network_listen_ready` before a
+  peer-dependent stage barrier, so cold startup cannot consume the deadline
+  while the runner is correctly withholding the dependent client.
 - `key`: keyboard event. Either `"scancode": <int>` or `"key": "<name>"`.
   `action` is `"press"` (KEYDOWN only), `"release"` (KEYUP only), or
   `"tap"` (KEYDOWN then a KEYUP 1 frame later). Tap is the most common.
+- `action`: unconditional semantic action-map press, release, or tap. The
+  harness owns only successfully injected state and explicit or assisted
+  releases are mandatory; readiness-gated one-shot actions are represented by
+  the stateful `wait_until` tuple above.
 - `exit`: end the test cleanly. Harness emits `SMOKE: result=ok` and
   calls `exit(0)`. Use this when the scripted scenario has reached its
   goal before the timeout.
 
 Phase 2 adds: `mouse_move`, `mouse_click`, `mouse_wheel`, `screenshot`,
 `controller_button`, `controller_axis`, `console` (run a console command).
+
+Before runtime parsing, the harness validates the entire JSON-like document
+(including the supported `//` comments and hexadecimal-number extension).
+Truncation, trailing data, malformed delimiters, unknown/duplicate event
+fields, and fields incompatible with the declared event type fail closed.
+After stable event ordering, a fixture is also rejected if an explicit
+key/action/mouse press would remain held across a `wait_until`; bounded assist
+ownership is the only input allowed to live inside a paused interval.
 
 ### Named keys (Phase 1)
 
@@ -407,6 +436,24 @@ Per-run directory layout:
 +- smoke-verify-result.json     (written by run.ps1 after assertions)
 ```
 
+### Focus-sensitive multi-process gates
+
+Launch order and `GetForegroundWindow` are not input proof. A test that needs a
+real focus handoff declares `window_focus_transition` with named source/target
+processes plus `source_wait_for` and `wait_for` regexes. The runner enumerates
+visible unowned top-level HWNDs by exact PID and fails unless each process has
+exactly one candidate. It uses checked `AttachThreadInput`,
+`SetForegroundWindow`, `SetActiveWindow`, and `SetFocus` calls, verifies
+`GUITHREADINFO.hwndActive` and `hwndFocus` before and after detaching, then
+requires fresh complete source-log witnesses for SDL `focus GAINED` followed by
+`focus LOST`. The target must still own active keyboard focus at the lost
+witness. Only `required_sequences` explicitly tagged with
+`anchor: window_focus_transition` receive that exact loss-witness line; untagged
+pre-transition sequences retain whole-log semantics. A missing named anchor
+fails closed. Any operational failure assigns the named anchor an unreachable
+line and emits a structured result diagnostic, so earlier log lines can never
+satisfy the causal gate without invalidating unrelated evidence.
+
 ### Clean-install matrix
 
 The runner supports three install modes via `install_state` in the test
@@ -515,7 +562,8 @@ The runner writes its aggregate to
   "InstallDir": "...",
   "AssertionsTotal": 5,
   "AssertionsMet": 5,
-  "Failures": []
+  "Failures": [],
+  "OperationalFailures": []   // phase/message/native state for runner failures
 }
 ```
 
@@ -624,7 +672,13 @@ small follow-up rather than a redesign.
 
 ```
 port/include/smoke_harness.h
+port/include/smoke_fixture_schema.h
+port/include/smoke_readiness.h
+port/include/smoke_transition.h
 port/src/smoke_harness.c
+port/src/smoke_fixture_schema.c
+port/src/smoke_readiness.c
+port/src/smoke_transition.c
 port/src/main.c                 (init + tick hook, ~10 lines)
 tools/smoke-verify/run.ps1
 tools/smoke-verify/lib/Test-Assertions.ps1

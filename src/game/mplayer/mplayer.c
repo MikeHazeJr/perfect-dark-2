@@ -23,6 +23,7 @@
 #include "game/pak.h"
 #include "bss.h"
 #include "net/net.h"
+#include "net/matchsetup.h"
 #include "lib/args.h"
 #include "lib/vi.h"
 #include "lib/main.h"
@@ -44,6 +45,7 @@
 #include "mod.h"
 #include "modmusic.h"
 #include "game/bg.h"
+#include "combat_sim_verify.h"
 
 #include "system.h"
 
@@ -293,74 +295,65 @@ void mpStartMatch(void)
 	s32 i;
 	s32 numplayers = 0;
 	s32 stagenum;
+	const bool network_prepared = g_NetMode == NETMODE_SERVER
+		|| g_NetMode == NETMODE_CLIENT;
 
-	if (g_NetMode == NETMODE_SERVER) {
-		/* Clear player participants (slots 0 .. MAX_PLAYERS-1); leave bot
-		 * participants untouched. */
-		for (s32 _j = 0; _j < MAX_PLAYERS; _j++) {
-			mpRemoveParticipant(_j);
-		}
-
-		s32 slot = 0;
-		s32 startIdx = 0;
-
-		if (!g_NetDedicated) {
-			/* Listen server: g_NetLocalClient occupies g_NetClients[0] (slot 0).
-			 * Add the server itself as participant slot 0 (PARTICIPANT_LOCAL),
-			 * then enumerate remote clients starting from index 1. */
-			mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);
-			slot = 1;
-			startIdx = 1;
-		}
-		/* Dedicated server: g_NetLocalClient == NULL, no server player.
-		 * g_NetClients[0] is the first real remote client (S50 constraint).
-		 * Enumerate all clients from index 0; no phantom at slot 0. */
-
-		for (s32 i = startIdx; i < g_NetMaxClients; ++i) {
-			if (g_NetClients[i].state >= CLSTATE_LOBBY) {
-				mpAddParticipantAt(slot, PARTICIPANT_REMOTE, 0, (s8)i, 0);
-				++slot;
-			}
-		}
-
-		sysLogPrintf(LOG_NOTE, "NET: mpStartMatch server activeMask=0x%016llx players=%d (dedicated=%d)",
-			(unsigned long long)mpParticipantsEncodeActiveMask(), slot, g_NetDedicated);
-	}
-
-	if (g_NetMode != NETMODE_CLIENT) {
+	/* B-1069: lobby preparation/ready-gate compaction on the authority and
+	 * SVC_STAGE_START parsing on a client are the sole network publication
+	 * boundaries. Once the stage packet has been validated and written,
+	 * mpStartMatch is an immutable consumer: it must not rebuild participants,
+	 * reroll weapons, create quick-team bots, filter options against a different
+	 * local profile, normalize serialized handicaps, or reverse-resolve a typed
+	 * stage. Offline starts retain those setup conveniences before transition. */
+	if (!network_prepared) {
 		if (g_MpSetup.options & MPOPTION_AUTORANDOMWEAPON_START) {
 			if (g_MpWeaponSetNum == WEAPONSET_RANDOM
 					|| g_MpWeaponSetNum == WEAPONSET_RANDOMFIVE) {
-				mpApplyWeaponSet();
+				if (!matchConfigSelectWeaponSet(g_MpWeaponSetNum)) {
+					sysLogPrintf(LOG_ERROR,
+						"PLAYER.INIT.ROLLBACK offline auto-random start set=%d",
+						g_MpWeaponSetNum);
+					return;
+				}
 			}
 		}
-	}
 
-	sysLogPrintf(LOG_NOTE, "MATCH: pre-quickteam activeMask=0x%016llx hasSim=%d netmode=%d",
-		(unsigned long long)mpParticipantsEncodeActiveMask(), mpHasSimulants(), g_NetMode);
-	mpConfigureQuickTeamSimulants();
-	sysLogPrintf(LOG_NOTE, "MATCH: post-quickteam activeMask=0x%016llx hasSim=%d",
-		(unsigned long long)mpParticipantsEncodeActiveMask(), mpHasSimulants());
+		sysLogPrintf(LOG_NOTE,
+			"MATCH: pre-quickteam activeMask=0x%016llx hasSim=%d netmode=%d",
+			(unsigned long long)mpParticipantsEncodeActiveMask(),
+			mpHasSimulants(), g_NetMode);
+		mpConfigureQuickTeamSimulants();
+		sysLogPrintf(LOG_NOTE,
+			"MATCH: post-quickteam activeMask=0x%016llx hasSim=%d",
+			(unsigned long long)mpParticipantsEncodeActiveMask(),
+			mpHasSimulants());
 
-	if (!challengeIsFeatureUnlocked(MPFEATURE_ONEHITKILLS)) {
-		g_MpSetup.options &= ~MPOPTION_ONEHITKILLS;
-	}
-
-	if (!challengeIsFeatureUnlocked(MPFEATURE_SLOWMOTION)) {
-		g_MpSetup.options &= ~(MPOPTION_SLOWMOTION_ON | MPOPTION_SLOWMOTION_SMART);
-	}
-
-	/* Ensure all active players have a valid handicap (128 = neutral/100%).
-	 * The handicap field is not stored in the save format, so if
-	 * mpPlayerSetDefaults didn't run for a player (e.g. player 0 who is
-	 * auto-joined), handicap stays at its BSS-init value of 0. A handicap
-	 * of 0 maps to mpHandicapToDamageScale(0) = 0.1, causing incoming
-	 * damage to be divided by 0.1 (10x multiplier) — instant death.
-	 * Fix: force neutral handicap for any player whose handicap is 0. */
-	for (i = 0; i < MAX_PLAYERS; i++) {
-		if (g_PlayerConfigsArray[i].handicap == 0) {
-			g_PlayerConfigsArray[i].handicap = 0x80;
+		if (!challengeIsFeatureUnlocked(MPFEATURE_ONEHITKILLS)) {
+			g_MpSetup.options &= ~MPOPTION_ONEHITKILLS;
 		}
+
+		if (!challengeIsFeatureUnlocked(MPFEATURE_SLOWMOTION)) {
+			g_MpSetup.options &=
+				~(MPOPTION_SLOWMOTION_ON | MPOPTION_SLOWMOTION_SMART);
+		}
+
+		/* Ensure all offline player slots have a valid handicap
+		 * (128 = neutral/100%). Network preflight rejects zero instead of
+		 * silently changing the authoritative cache after serialization. */
+		for (i = 0; i < MAX_PLAYERS; i++) {
+			if (g_PlayerConfigsArray[i].handicap == 0) {
+				g_PlayerConfigsArray[i].handicap = 0x80;
+			}
+		}
+
+		if (!mpResolveMatchStage()) {
+			return;
+		}
+	} else {
+		sysLogPrintf(LOG_NOTE,
+			"MATCH: immutable network launch activeMask=0x%016llx players=%d bots=%d",
+			(unsigned long long)mpParticipantsEncodeActiveMask(),
+			mpGetActivePlayerCount(), mpGetActiveBotCount());
 	}
 
 	sysLogPrintf(LOG_NOTE, "MATCH: options=0x%08x onehitkills=%d slowmo=%d scenario=%d handicap0=%d",
@@ -372,10 +365,6 @@ void mpStartMatch(void)
 
 	/* B-12 Phase 2 */
 	numplayers = mpGetActivePlayerCount();
-
-	if (!mpResolveMatchStage()) {
-		return;
-	}
 	stagenum = g_MpSetup.stagenum;
 
 	/* M0.1a: Set textures surfacetype based on catalog stage_id */
@@ -864,9 +853,11 @@ void mpPlayerSetDefaults(s32 playernum, bool autonames)
 		challengeDetermineUnlockedFeatures();
 	}
 
-	for (i = 0; i < ARRAYCOUNT(g_PlayerConfigsArray); i++) {
-		g_PlayerConfigsArray[playernum].gunfuncs[i] = 0;
-	}
+	/* B-1072: clear exactly this field.  MAX_MPPLAYERCONFIGS is 16 while
+	 * gunfuncs has six entries; using the parent array's extent zeroed the
+	 * adjacent handicap and client pointer after their defaults were set. */
+	memset(g_PlayerConfigsArray[playernum].gunfuncs, 0,
+		sizeof(g_PlayerConfigsArray[playernum].gunfuncs));
 }
 
 void func0f1881d4(s32 index)
@@ -954,9 +945,16 @@ void mpInit(bool resetplayers)
 
 	if (argFindByPrefix(1, "-mpwpnset")) {
 		char *value = argFindByPrefix(1, "-mpwpnset");
-		mpSetWeaponSet(*value - '0');
+		if (!matchConfigSelectWeaponSet(*value - '0')) {
+			sysLogPrintf(LOG_ERROR,
+				"MPLAYER: startup weapon set '%c' has no exact typed binding",
+				*value);
+		}
 	} else {
-		mpSetWeaponSet(0);
+		if (!matchConfigSelectWeaponSet(0)) {
+			sysLogPrintf(LOG_ERROR,
+				"MPLAYER: default weapon set has no exact typed binding");
+		}
 	}
 
 	g_Vars.mplayerisrunning = false;
@@ -1371,6 +1369,17 @@ static void mpweaponPickByIndexCb(const asset_entry_t *e, void *userdata)
 	ctx->cur++;
 }
 
+s32 mpResolveWeaponUiIndex(s32 weaponnum)
+{
+	struct mpweapon_pick_ctx ctx;
+
+	ctx.target_idx = weaponnum;
+	ctx.cur = 0;
+	ctx.result_mpidx = -1;
+	assetCatalogIterateUnlockedByType(ASSET_WEAPON, mpweaponPickByIndexCb, &ctx);
+	return ctx.result_mpidx;
+}
+
 struct mpweapon_find_ctx {
 	s32 needle_mpidx;   /* find this catalog mp_index */
 	s32 below_count;    /* count of unlocked entries with mp_index < needle */
@@ -1423,21 +1432,14 @@ const char var7f1b8a80[] = "HOLDER: selecting weapon set %d\n";
 
 void mpSetWeaponSlot(s32 slot, s32 mpweaponnum)
 {
-	/* mpweaponnum is the UI index (0..N-1 over unlocked weapons).  Walk
-	 * the catalog until we hit the N-th unlocked entry; store its
-	 * mp_index into g_MpSetup.weapons[slot]. */
-	struct mpweapon_pick_ctx ctx;
-	ctx.target_idx = mpweaponnum;
-	ctx.cur = 0;
-	ctx.result_mpidx = -1;
-	assetCatalogIterateUnlockedByType(ASSET_WEAPON, mpweaponPickByIndexCb, &ctx);
+	const s32 resolved = mpResolveWeaponUiIndex(mpweaponnum);
+	const char *weapon_id = resolved >= 0
+		? catalogWeaponIdByMpWeaponId(resolved) : NULL;
 
-	if (ctx.result_mpidx >= 0) {
-		g_MpSetup.weapons[slot] = (u8)ctx.result_mpidx;
-	} else {
-		/* No matching unlocked entry -- legacy behaviour stored mpweaponnum
-		 * unchanged in this branch (the next-valid step would clamp).  Match. */
-		g_MpSetup.weapons[slot] = (u8)mpweaponnum;
+	if (!weapon_id || !matchConfigSetWeaponSlotId(slot, weapon_id)) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK weapon-slot slot=%d ui=%d globals_published=0",
+			slot, mpweaponnum);
 	}
 }
 
@@ -1615,6 +1617,7 @@ struct mpweapon_random_ctx {
 	u8 *weapons;
 	s32 ui_idx;
 	s32 index;
+	s32 capacity;
 };
 
 static void mpweaponRandomCollectCb(const asset_entry_t *e, void *userdata)
@@ -1622,88 +1625,175 @@ static void mpweaponRandomCollectCb(const asset_entry_t *e, void *userdata)
 	struct mpweapon_random_ctx *ctx = (struct mpweapon_random_ctx *)userdata;
 	s32 mpidx = (s32)e->mp_index;
 	if (mpidx >= 0 && mpidx < (s32)ARRAYCOUNT(g_MpWeaponSetRandomFilters)
-			&& g_MpWeaponSetRandomFilters[mpidx] == 1) {
+			&& g_MpWeaponSetRandomFilters[mpidx] == 1
+			&& ctx->index < ctx->capacity) {
 		ctx->weapons[ctx->index++] = (u8)ctx->ui_idx;
 	}
 	ctx->ui_idx++;
 }
 
-void mpSetRandomWeapons(u8 weapons[])
+static s32 mpCollectRandomWeapons(u8 weapons[], s32 capacity)
 {
 	struct mpweapon_random_ctx ctx;
 	ctx.weapons = weapons;
 	ctx.ui_idx = 0;
 	ctx.index = 0;
+	ctx.capacity = capacity;
 	assetCatalogIterateUnlockedByType(ASSET_WEAPON, mpweaponRandomCollectCb, &ctx);
 
 	if (ctx.index == 0) {
 		weapons[0] = 0; // optionindex (usually 0 == "Nothing")
-		g_MpWeaponRandomFilterNum = 1;
-	} else {
-		g_MpWeaponRandomFilterNum = ctx.index;
+		return 1;
 	}
+
+	return ctx.index;
+}
+
+void mpSetRandomWeapons(u8 weapons[])
+{
+	g_MpWeaponRandomFilterNum = mpCollectRandomWeapons(
+		weapons, (s32)NUM_MPWEAPONS);
+}
+
+static s32 mpPrepareResolvedWeaponSet(s32 resolved_set,
+		const u8 custom_weapons[NUM_MPWEAPONSLOTS],
+		u8 out_weapons[NUM_MPWEAPONSLOTS])
+{
+	s32 i;
+	u8 *ptr = NULL;
+	u8 randomweapons[NUM_MPWEAPONS];
+	s32 random_count;
+
+	if (out_weapons == NULL) {
+		return -1;
+	}
+
+	if (resolved_set >= 0 && resolved_set < ARRAYCOUNT(g_MpWeaponSets)) {
+		if (challengeIsFeatureUnlocked(g_MpWeaponSets[resolved_set].requirefeatures[0])
+				&& challengeIsFeatureUnlocked(g_MpWeaponSets[resolved_set].requirefeatures[1])
+				&& challengeIsFeatureUnlocked(g_MpWeaponSets[resolved_set].requirefeatures[2])
+				&& challengeIsFeatureUnlocked(g_MpWeaponSets[resolved_set].requirefeatures[3])) {
+			ptr = &g_MpWeaponSets[resolved_set].slots[0];
+		} else if (g_MpWeaponSets[resolved_set].unk0c != WEAPON_DISABLED) {
+			ptr = &g_MpWeaponSets[resolved_set].unk0c;
+		} else {
+			return -2;
+		}
+
+		for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+			u32 j;
+			s32 mpweaponnum = -1;
+			s32 weaponnum = ptr[i];
+
+			if (weaponnum == WEAPON_MPSHIELD
+					&& !challengeIsFeatureUnlocked(MPFEATURE_WEAPON_SHIELD)) {
+				weaponnum = WEAPON_NONE;
+			}
+
+			for (j = 0; j <= MPWEAPON_DISABLED; j++) {
+				if (weaponnum == catalogGetMpWeaponNum(j)) { /* SA-5e */
+					mpweaponnum = (s32)j;
+					break;
+				}
+			}
+
+			if (mpweaponnum < 0 || mpweaponnum > 255) {
+				return -3;
+			}
+			out_weapons[i] = (u8)mpweaponnum;
+		}
+	} else if (resolved_set == WEAPONSET_RANDOM) {
+		random_count = mpCollectRandomWeapons(randomweapons, (s32)NUM_MPWEAPONS);
+		if (random_count <= 0) {
+			return -4;
+		}
+		for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+			s32 resolved = mpResolveWeaponUiIndex(
+				randomweapons[rngRandom() % random_count]);
+			if (resolved < 0 || resolved > 255) {
+				return -5;
+			}
+			out_weapons[i] = (u8)resolved;
+		}
+	} else if (resolved_set == WEAPONSET_RANDOMFIVE) {
+		random_count = mpCollectRandomWeapons(randomweapons, (s32)NUM_MPWEAPONS);
+		if (random_count <= 0) {
+			return -4;
+		}
+		for (i = 0; i < 5; i++) {
+			s32 resolved = mpResolveWeaponUiIndex(
+				randomweapons[rngRandom() % random_count]);
+			if (resolved < 0 || resolved > 255) {
+				return -5;
+			}
+			out_weapons[i] = (u8)resolved;
+		}
+		{
+			s32 resolved = mpResolveWeaponUiIndex(mpGetNumWeaponOptions() - 1);
+			if (resolved < 0 || resolved > 255) {
+				return -5;
+			}
+			out_weapons[5] = (u8)resolved;
+		}
+	} else if (resolved_set == WEAPONSET_CUSTOM) {
+		if (custom_weapons == NULL) {
+			return -1;
+		}
+		memcpy(out_weapons, custom_weapons, NUM_MPWEAPONSLOTS);
+	} else {
+		return -6;
+	}
+
+	return 0;
+}
+
+s32 mpPrepareWeaponSet(s32 weaponsetnum,
+		const u8 custom_weapons[NUM_MPWEAPONSLOTS],
+		u8 out_weapons[NUM_MPWEAPONSLOTS], s32 *out_resolved_set)
+{
+	s32 resolved_set;
+	s32 result;
+
+	if (out_weapons == NULL || out_resolved_set == NULL) {
+		return -1;
+	}
+
+	resolved_set = weaponsetnum == -1
+		? WEAPONSET_CUSTOM
+		: func0f188f9c(weaponsetnum);
+	result = mpPrepareResolvedWeaponSet(resolved_set, custom_weapons, out_weapons);
+	if (result != 0) {
+		return result;
+	}
+
+	*out_resolved_set = resolved_set;
+	return 0;
+}
+
+void mpCommitPreparedWeaponSet(s32 resolved_set,
+		const u8 weapons[NUM_MPWEAPONSLOTS])
+{
+	if (weapons == NULL) {
+		return;
+	}
+
+	g_MpWeaponSetNum = resolved_set;
+	memcpy(g_MpSetup.weapons, weapons, NUM_MPWEAPONSLOTS);
 }
 
 void mpApplyWeaponSet(void)
 {
-	s32 i;
-	u8 *ptr;
-	u8 randomweapons[NUM_MPWEAPONS];
+	u8 weapons[NUM_MPWEAPONSLOTS];
 
-	if (g_MpWeaponSetNum >= 0 && g_MpWeaponSetNum < ARRAYCOUNT(g_MpWeaponSets)) {
-		if (challengeIsFeatureUnlocked(g_MpWeaponSets[g_MpWeaponSetNum].requirefeatures[0])
-				&& challengeIsFeatureUnlocked(g_MpWeaponSets[g_MpWeaponSetNum].requirefeatures[1])
-				&& challengeIsFeatureUnlocked(g_MpWeaponSets[g_MpWeaponSetNum].requirefeatures[2])
-				&& challengeIsFeatureUnlocked(g_MpWeaponSets[g_MpWeaponSetNum].requirefeatures[3])) {
-			ptr = &g_MpWeaponSets[g_MpWeaponSetNum].slots[0];
-		} else if (g_MpWeaponSets[g_MpWeaponSetNum].unk0c != WEAPON_DISABLED) {
-			ptr = &g_MpWeaponSets[g_MpWeaponSetNum].unk0c;
-		} else {
-			ptr = NULL;
-		}
-
-		if (ptr != NULL) {
-			for (i = 0; i < ARRAYCOUNT(g_MpSetup.weapons); i++) {
-				u32 j;
-				bool done = false;
-				s32 mpweaponnum = MPWEAPON_NONE;
-				s32 weaponnum = ptr[i];
-
-				if (weaponnum == WEAPON_MPSHIELD && !challengeIsFeatureUnlocked(MPFEATURE_WEAPON_SHIELD)) {
-					weaponnum = 0;
-				}
-
-				for (j = 0; !done; j++) {
-					if (j > MPWEAPON_DISABLED) {
-						done = true;
-					} else if (weaponnum == catalogGetMpWeaponNum(j)) { /* SA-5e */
-						mpweaponnum = j;
-						done = true;
-					}
-				}
-
-				g_MpSetup.weapons[i] = mpweaponnum;
-			}
-		}
-	} else if (g_MpWeaponSetNum == WEAPONSET_RANDOM) {
-		mpSetRandomWeapons(randomweapons);
-		for (i = 0; i < ARRAYCOUNT(g_MpSetup.weapons); i++) {
-			mpSetWeaponSlot(i, randomweapons[rngRandom() % g_MpWeaponRandomFilterNum]);
-		}
-	} else if (g_MpWeaponSetNum == WEAPONSET_RANDOMFIVE) {
-		mpSetRandomWeapons(randomweapons);
-		for (i = 0; i < 5; i++) {
-			mpSetWeaponSlot(i, randomweapons[rngRandom() % g_MpWeaponRandomFilterNum]);
-		}
-
-		mpSetWeaponSlot(i, mpGetNumWeaponOptions() - 1);
+	if (mpPrepareResolvedWeaponSet(g_MpWeaponSetNum, g_MpSetup.weapons,
+			weapons) == 0) {
+		mpCommitPreparedWeaponSet(g_MpWeaponSetNum, weapons);
 	}
 }
 
 void mpSetWeaponSet(s32 weaponsetnum)
 {
-	g_MpWeaponSetNum = func0f188f9c(weaponsetnum);
-	mpApplyWeaponSet();
+	(void)matchConfigSelectWeaponSet(weaponsetnum);
 }
 
 void func0f1895e8(void)
@@ -2770,57 +2860,56 @@ void mpCalculateAwards(void)
 
 		/* B-12 Phase 2 */
 		for (k = mpParticipantFirst(); k >= 0; k = mpParticipantNext(k)) {
-			{
-				s32 totalkills = 0;
-				struct mpchrconfig *mpchr = MPCHR(k);
+			s32 totalkills = 0;
+			struct mpchrconfig *mpchr = MPCHR(k);
 
-				for (j = 0; j < MAX_MPCHRS; j++) {
-					// @bug: i should be k. The value of i was incremented after
-					// the last iteration of its loop above so it'll be between
-					// 1 and 4 inclusively depending on the number of players.
-					// The bot nums start from 4 regardless of how many players
-					// there are. So in a game with 4 humans, the kills on the
-					// first bot will not be considered for the killmaster medal
-					// which means the medal could go to a player who got fewer
-					// total kills. Additionally, suicides are counted as kills
-					// while the intention here was to omit them.
-					if (i != j) {
-						totalkills += mpchr->killcounts[j];
-					}
+			for (j = 0; j < MAX_MPCHRS; j++) {
+				/* KillMaster excludes this participant's suicide column. */
+				if (k != j) {
+					totalkills += mpchr->killcounts[j];
 				}
+			}
+			combatSimVerifyRecordAwardParticipant(k, totalkills,
+				mpchr->killcounts[k], mpchr->numdeaths);
 
-				if (totalkills == mostkillsvalue) {
-					mostkillsplayer = -1;
-				}
+			if (totalkills == mostkillsvalue) {
+				mostkillsplayer = -1;
+			}
 
-				if (totalkills > mostkillsvalue) {
-					mostkillsplayer = k;
-					mostkillsvalue = totalkills;
-				}
+			if (totalkills > mostkillsvalue) {
+				mostkillsplayer = k;
+				mostkillsvalue = totalkills;
+			}
 
-				if (mpchr->numdeaths == leastdeathsvalue) {
-					leastdeathsplayer = -1;
-				}
+			if (mpchr->numdeaths == leastdeathsvalue) {
+				leastdeathsplayer = -1;
+			}
 
-				if (mpchr->numdeaths < leastdeathsvalue) {
-					leastdeathsplayer = k;
-					leastdeathsvalue = mpchr->numdeaths;
-				}
+			if (mpchr->numdeaths < leastdeathsvalue) {
+				leastdeathsplayer = k;
+				leastdeathsvalue = mpchr->numdeaths;
 			}
 		}
 
-		if (!g_CheatsActiveBank0 && !g_CheatsActiveBank1) {
-			if (mostkillsplayer < 4 && mostkillsplayer >= 0) {
-				struct mpplayerconfig *mpplayer = (struct mpplayerconfig *)MPCHR(mostkillsplayer);
-				mpplayer->medals |= MEDAL_KILLMASTER;
-				mpplayer->killmastermedals++;
-			}
+		{
+			s32 killmaster_awarded_human = 0;
 
-			if (leastdeathsplayer < 4 && leastdeathsplayer >= 0) {
-				struct mpplayerconfig *mpplayer = (struct mpplayerconfig *)MPCHR(leastdeathsplayer);
-				mpplayer->medals |= MEDAL_SURVIVOR;
-				mpplayer->survivormedals++;
+			if (!g_CheatsActiveBank0 && !g_CheatsActiveBank1) {
+				if (mostkillsplayer < MAX_PLAYERS && mostkillsplayer >= 0) {
+					struct mpplayerconfig *mpplayer = (struct mpplayerconfig *)MPCHR(mostkillsplayer);
+					mpplayer->medals |= MEDAL_KILLMASTER;
+					mpplayer->killmastermedals++;
+					killmaster_awarded_human = 1;
+				}
+
+				if (leastdeathsplayer < MAX_PLAYERS && leastdeathsplayer >= 0) {
+					struct mpplayerconfig *mpplayer = (struct mpplayerconfig *)MPCHR(leastdeathsplayer);
+					mpplayer->medals |= MEDAL_SURVIVOR;
+					mpplayer->survivormedals++;
+				}
 			}
+			combatSimVerifyRecordKillMaster(mostkillsplayer, mostkillsvalue,
+				killmaster_awarded_human);
 		}
 	}
 
@@ -2897,7 +2986,9 @@ void mpEndMatch(void)
 	}
 
 	setCurrentPlayerNum(prevplayernum);
+	combatSimVerifyPrepareAwards();
 	mpCalculateAwards();
+	combatSimVerifyOnMatchEnd();
 
 	if (g_BossFile.locktype == MPLOCKTYPE_CHALLENGE) {
 		challengeConsiderMarkingComplete();
@@ -2907,7 +2998,11 @@ void mpEndMatch(void)
 		if (g_MpSetup.options & MPOPTION_AUTORANDOMWEAPON_END) {
 			if (g_MpWeaponSetNum == WEAPONSET_RANDOM
 					|| g_MpWeaponSetNum == WEAPONSET_RANDOMFIVE) {
-				mpApplyWeaponSet();
+				if (!matchConfigSelectWeaponSet(g_MpWeaponSetNum)) {
+					sysLogPrintf(LOG_ERROR,
+						"PLAYER.INIT.ROLLBACK auto-random end set=%d",
+						g_MpWeaponSetNum);
+				}
 			}
 		}
 	}

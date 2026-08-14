@@ -172,6 +172,16 @@ void manifestSetMaxEntries(s32 n);
 void manifestAddEntry(match_manifest_t *m, const char *id,
                       u8 type, u8 slot_index);
 
+/**
+ * Append one exact enabled catalog asset and its registered dependency closure.
+ * The root and every dependency must resolve and fit in the manifest; otherwise
+ * this returns zero.  Existing entries are accepted only when their manifest
+ * type agrees with the catalog type.  This is the prepare-phase API used by
+ * match-start transactions before a manifest becomes globally visible.
+ */
+s32 manifestAppendCatalogClosure(match_manifest_t *m, const char *id,
+                                 u8 slot_index);
+
 /** Replace every advertised stage token with one authoritative concrete stage.
  * Returns nonzero on success. The caller recomputes the manifest hash after
  * completing any other supplements. */
@@ -225,6 +235,19 @@ u32 manifestSerialize(struct netbuf *dst, const match_manifest_t *m);
  * Returns 0 on success, 1 on parse error.
  */
 s32 manifestDeserialize(struct netbuf *src, match_manifest_t *out);
+
+/**
+ * Strict transactional counterpart to manifestDeserialize().
+ *
+ * Requires every advertised entry to be accepted exactly once. Empty IDs,
+ * duplicate IDs, unknown types, zero component hashes, allocation/capacity
+ * drops, and malformed input all reject the whole append. On rejection the
+ * caller-visible entry count/hash are restored to their values on entry.
+ * Match-start authority uses this API; permissive distribution readers may
+ * continue to use manifestDeserialize().
+ */
+s32 manifestDeserializeStrict(struct netbuf *src, match_manifest_t *out,
+                              u16 *out_advertised_count);
 
 /**
  * Build the manifest from current server match state.
@@ -286,6 +309,7 @@ typedef struct {
     char id[64];      /**< Catalog string ID */
     u32  net_hash;    /**< FNV-1a hash — primary catalog key */
     u8   type;        /**< MANIFEST_TYPE_* */
+    u8   slot_index;  /**< Original manifest slot; generic entries carry asset_type_e */
     u8   asset_type;  /**< asset_type_e for loading; ASSET_NONE for components */
 } manifest_diff_entry_t;
 
@@ -357,14 +381,16 @@ void manifestDiffFree(manifest_diff_t *diff);
  * For each entry in diff->to_load: transitions the catalog entry to
  * ASSET_STATE_LOADED (marks it as resident for the upcoming mission).
  *
- * Deep-copies *needed into g_CurrentLoadedManifest so subsequent calls to
- * manifestSPTransition() can diff against the correct baseline.
+ * All entering catalog roots are loaded before any outgoing root is released.
+ * If exact-type preflight or any load fails, earlier loads are released in
+ * reverse order and the current manifest remains unchanged. Only a complete
+ * load phase releases outgoing roots and publishes a deep copy of *needed.
+ * Components are distribution/package records, not typed catalog roots.
  *
- * Note: actual memory load/eviction is a future MEM-2 concern.  This call
- * establishes the tracking infrastructure that MEM-2 will hook into.
+ * Returns nonzero only after the complete transition commits.
  */
-void manifestApplyDiff(const match_manifest_t *needed,
-                       manifest_diff_t *diff);
+s32 manifestApplyDiff(const match_manifest_t *needed,
+                      manifest_diff_t *diff);
 
 /**
  * Pre-validation pass: check all to_load entries in a manifest diff.

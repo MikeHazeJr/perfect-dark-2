@@ -286,7 +286,7 @@ s32 scenarioSave(const char *name)
      * to a saved scenario or the user's menu choice would silently
      * change. matchOptionsUserView subtracts the forced bits. */
     fprintf(fp, "  \"options\": %u,\n",
-        (unsigned)matchOptionsUserView(g_MatchConfig.options, g_MatchConfig.options_engine_forced));
+        (unsigned)matchConfigGetUserOptions());
     fprintf(fp, "  \"weaponset\": %d,\n",    (int)g_MatchConfig.weaponSetIndex);
 
     /* M0.1c: weapon_ids[] are PRIMARY — write catalog ID strings directly.
@@ -463,9 +463,13 @@ s32 scenarioLoad(const char *filepath, s32 humanCount)
     if (scorelimit >= 0)
         g_MatchConfig.scorelimit   = (u8)scorelimit;
     g_MatchConfig.teamscorelimit   = (u16)teamscorelimit;
-    g_MatchConfig.options          = options;
-    g_MatchConfig.weaponSetIndex   = (s8)weaponset;
-    mpSetWeaponSet(g_MatchConfig.weaponSetIndex);
+    matchConfigReplaceUserOptions(options, "scenarioLoad");
+    if (!matchConfigSelectWeaponSet(weaponset)) {
+        sysLogPrintf(LOG_ERROR,
+            "SCENARIO: weapon set %d has no exact typed binding", weaponset);
+        free(buf);
+        return -1;
+    }
 
     /* M0.1c: Restore weapon slot picks — catalog ID string is PRIMARY.
      * Populate weapon_ids[] and derive weapons[] MPWEAPON_* slots. */

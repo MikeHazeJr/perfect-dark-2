@@ -1254,6 +1254,11 @@ void audioSetModTrackId(const char *id)
 	}
 }
 
+const char *audioGetCurrentModTrackId(void)
+{
+	return g_AudioModTrackId;
+}
+
 /* ---- Playlist API ---- */
 
 s32 audioGetModPlaylistCount(void) { return g_AudioModPlaylistCount; }

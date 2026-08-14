@@ -14,6 +14,8 @@
 #include "net/net.h"
 #include "net/netbuf.h"
 #include "net/netmsg.h"
+#include "net/net_client_settings_wire.h"
+#include "net/net_reconnect.h"
 #include "net/netupnp.h"
 #include "net/netstun.h"
 #include "net/netholepunch.h"
@@ -54,6 +56,7 @@
 #include "utils.h"
 #include "room.h"
 #include "assetcatalog.h"
+#include "player_identity.h"
 #include "audio.h"
 #include "sha256.h"
 #include "server_bans.h"
@@ -101,6 +104,7 @@ char g_NetLastJoinAddr[NET_MAX_ADDR + 1] = "127.0.0.1:27100";
 
 u32 g_NetTick = 0;
 u32 g_NetNextSyncId = 1;
+u32 g_NetFirstDynamicSyncId = 1;
 
 s32 g_NetSimPacketLoss = 0;
 s32 g_NetDebugDraw = 0;
@@ -117,6 +121,16 @@ struct netpreservedplayer g_NetPreservedPlayers[NET_MAX_CLIENTS];
 s32 g_NetNumPreserved = 0;
 struct netrecentserver g_NetRecentServers[NET_MAX_RECENT_SERVERS];
 s32 g_NetNumRecentServers = 0;
+
+/* The retry address and exact last-published settings remain in memory across
+ * timeout teardown. The cookie stays in netmsg.c and is independently scoped
+ * to the resolved ENet endpoint. */
+static struct {
+	bool valid;
+	bool auth_accepted;
+	char addr[NET_MAX_ADDR + 1];
+	struct netclientsettings settings;
+} s_NetReconnectAttempt;
 
 /* Bot authority: true on the client designated to run bot AI and relay positions via CLC_BOT_MOVE.
  * Set by SVC_BOT_AUTHORITY (dedicated server games only); cleared on disconnect/stage-end. */
@@ -144,6 +158,23 @@ struct netbuf g_NetMsg = { .data = g_NetMsgBuf, .size = sizeof(g_NetMsgBuf) };
 
 static u8 g_NetMsgRelBuf[65536]; // 64KB reliable buffer (control/auth/lobby — no bot bulk data)
 struct netbuf g_NetMsgRel = { .data = g_NetMsgRelBuf, .size = sizeof(g_NetMsgRelBuf) };
+
+typedef struct net_stage_end_pending_s {
+	bool active;
+	u8 room_id;
+	u8 mode;
+} net_stage_end_pending_t;
+
+static net_stage_end_pending_t s_NetStageEndPending;
+/* Remains set through the end of the frame that publishes SVC_STAGE_END, even
+ * when the first send succeeds immediately and clears the pending retry. This
+ * prevents stale gameplay/spectator traffic from following the terminal
+ * packet in that same frame. */
+static bool s_NetStageEndTerminalFrame;
+
+static void netServerClearPreservedPlayers(const char *reason);
+static void netServerDiscardPreservedPlayer(
+	struct netpreservedplayer *pp, const char *reason);
 
 /* c118 (2026-05-15): made non-static so the smoke-verify CLI fast-paths
  * --listen-bind / --connect-host in port/src/main.c can gate their
@@ -370,12 +401,16 @@ static inline void netClientReset(struct netclient *cl)
 		cl->player->client = NULL;
 		cl->player->isremote = false;
 	}
+	if (cl->config && cl->config->client == cl) {
+		cl->config->client = NULL;
+	}
 	memset(cl, 0, sizeof(*cl));
 	cl->out.data = cl->out_data;
 	cl->out.size = sizeof(cl->out_data);
 	cl->id = cl - g_NetClients;
 	cl->settings.team = 0xff;
 	cl->room_id = 0xFF;
+	cl->reconnect_preserved_index = NET_NULL_CLIENT;
 	netmsgChatRateReset((u32)cl->id);
 	netmsgRoomMutationRateReset((u32)cl->id);
 	netmsgAdminAuthRateReset((u32)cl->id);
@@ -385,6 +420,9 @@ static inline void netClientResetAll(void)
 {
 	g_NetMaxClients = NET_MAX_CLIENTS;
 	g_NetNumClients = 1; // always at least one client, which is us
+	memset(&s_NetStageEndPending, 0, sizeof(s_NetStageEndPending));
+	s_NetStageEndTerminalFrame = false;
+	netmsgCutsceneAuthorityReset();
 	for (u32 i = 0; i < NET_MAX_CLIENTS + 1; ++i) {
 		netClientReset(&g_NetClients[i]);
 	}
@@ -507,6 +545,7 @@ static inline void netClientReadConfig(struct netclient *cl, const s32 playernum
 		cl->settings.head_id[0] = '\0';
 	}
 	cl->settings.team = g_PlayerConfigsArray[playernum].base.team;
+	cl->settings.handicap = g_PlayerConfigsArray[playernum].handicap;
 	cl->settings.fovy = g_PlayerExtCfg[playernum].fovy;
 	cl->settings.fovzoommult = g_PlayerExtCfg[playernum].fovzoommult;
 	// Identity profile is the authoritative name source on PC.
@@ -527,6 +566,44 @@ static inline void netClientReadConfig(struct netclient *cl, const s32 playernum
 			*newline = '\0';
 		}
 	}
+}
+
+static net_client_settings_wire_status_e netClientPrepareCachedSettings(
+		struct netclient *cl, net_client_settings_plan_t *out_plan,
+		player_identity_status_e *out_identity_status)
+{
+	net_client_settings_input_t input;
+
+	if (!cl || !out_plan) {
+		return NET_CLIENT_SETTINGS_WIRE_INVALID_ARGUMENT;
+	}
+	input.options = cl->settings.options;
+	input.body_id = cl->settings.body_id;
+	input.head_id = cl->settings.head_id;
+	input.team = cl->settings.team;
+	input.handicap = cl->settings.handicap;
+	input.fovy = cl->settings.fovy;
+	input.fovzoommult = cl->settings.fovzoommult;
+	input.name = cl->settings.name;
+	return netClientSettingsPrepare(&input, out_plan, out_identity_status);
+}
+
+static void netClientCommitPreparedSettings(struct netclient *cl,
+		const net_client_settings_plan_t *plan)
+{
+	if (!cl || !plan) return;
+	cl->settings.options = plan->options;
+	strncpy(cl->settings.body_id, plan->identity.body_id,
+		sizeof(cl->settings.body_id) - 1);
+	cl->settings.body_id[sizeof(cl->settings.body_id) - 1] = '\0';
+	strncpy(cl->settings.head_id, plan->identity.head_id,
+		sizeof(cl->settings.head_id) - 1);
+	cl->settings.head_id[sizeof(cl->settings.head_id) - 1] = '\0';
+	cl->settings.team = plan->team;
+	cl->settings.handicap = plan->handicap;
+	cl->settings.fovy = plan->fovy;
+	cl->settings.fovzoommult = plan->fovzoommult;
+	memcpy(cl->settings.name, plan->name, sizeof(cl->settings.name));
 }
 
 static inline void netFlushSendBuffers(void)
@@ -898,6 +975,17 @@ s32 netStartServer(u16 port, s32 maxclients)
 		return -1;
 	}
 
+	/* Reserve the complete shipping participant domain before publishing an
+	 * ENet listen host.  Lobby-start transactions must not discover that the
+	 * authoritative roster cannot be represented after peers can connect. */
+	if ((!g_MpParticipants.slots || g_MpParticipants.capacity < MAX_MPCHRS)
+			&& !mpParticipantPoolResize(MAX_MPCHRS)) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: could not reserve %d match participant slots before server start",
+			MAX_MPCHRS);
+		return -2;
+	}
+
 	memset(&g_NetLocalAddr, 0, sizeof(g_NetLocalAddr));
 	g_NetLocalAddr.port = port;
 
@@ -913,7 +1001,7 @@ s32 netStartServer(u16 port, s32 maxclients)
 	g_NetHost = enet_host_create(&g_NetLocalAddr, maxclients, NETCHAN_COUNT, g_NetServerInRate, g_NetServerOutRate, 0);
 	if (!g_NetHost) {
 		sysLogPrintf(LOG_ERROR, "NET: could not create ENet host on port %u", port);
-		return -2;
+		return -3;
 	}
 	netUploadMeasurementReset();
 
@@ -936,10 +1024,13 @@ s32 netStartServer(u16 port, s32 maxclients)
 	}
 
 	g_NetMode = NETMODE_SERVER;
+	netmsgClcAuthClearCookie();
+	memset(&s_NetReconnectAttempt, 0, sizeof(s_NetReconnectAttempt));
 
 	g_NetTick = 0;
 	g_NetNextUpdate = 0;
 	g_NetNextSyncId = 1;
+	g_NetFirstDynamicSyncId = 1;
 	netSyncIdMapClear(); // ensure map is empty from any previous session
 
 	/* S300 / SP-14: belt-and-braces — make sure no room-scoped state
@@ -977,8 +1068,25 @@ s32 netStartServer(u16 port, s32 maxclients)
 	return 0;
 }
 
-void netServerStageStart(void)
+static void netServerPrepareInClientStageTransition(const char *reason)
 {
+#if !defined(PD_SERVER)
+	/* B-1076: menuStop clears the legacy stack; the scene-transition owner
+	 * then releases every PC pool slot and its input context before menuReset
+	 * can make those owners unreachable. */
+	menuStop();
+	sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+		reason);
+#else
+	(void)reason;
+#endif
+}
+
+s32 netServerStageStart(void)
+{
+	u8 state_before[NET_MAX_CLIENTS];
+	const u32 match_seed_before = g_NetMatchSeed;
+
 	/* S301 Airbase diag: entry breadcrumb. If this fires but the
 	 * corresponding "netServerStageStart called" log does not appear
 	 * in pd-server.log, we bailed on the NETMODE_SERVER check (which
@@ -991,7 +1099,7 @@ void netServerStageStart(void)
 		sysLogPrintf(LOG_WARNING,
 			"MATCHSTART.DIAG: netServerStageStart bailed — g_NetMode=%d (not SERVER=%d)",
 			(int)g_NetMode, (int)NETMODE_SERVER);
-		return;
+		return -1;
 	}
 
 	/* NOTE: do NOT guard on g_StageNum == STAGE_CITRAINING here.
@@ -1001,11 +1109,6 @@ void netServerStageStart(void)
 	 * so clients never received the map-load signal.  This function is only
 	 * called from the CLC_LOBBY_START handler after leader validation, so
 	 * there is no need for a stage-num guard. */
-
-	// re-read the player config in case it changed
-	if (g_NetLocalClient) {
-		netClientReadConfig(g_NetLocalClient, 0);
-	}
 
 	{
 		int clientCount = 0;
@@ -1033,13 +1136,42 @@ void netServerStageStart(void)
 	 * through the ready gate); declined clients are already back in CLSTATE_LOBBY
 	 * and are intentionally left there as spectators. */
 	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-		if (g_NetClients[ci].state == CLSTATE_LOBBY ||
-		    g_NetClients[ci].state == CLSTATE_PREPARING) {
+		state_before[ci] = g_NetClients[ci].state;
+		if (g_NetClients[ci].state == CLSTATE_PREPARING) {
 			if (g_NetMatchRoomId != 0xFF && g_NetClients[ci].room_id != g_NetMatchRoomId) {
+				continue;
+			}
+			if (g_NetClients[ci].flags & CLFLAG_SPECTATOR) {
 				continue;
 			}
 			g_NetClients[ci].state = CLSTATE_GAME;
 		}
+	}
+	g_NetMatchSeed = (u32)(g_RngSeed ^ (g_RngSeed >> 32)) ^ g_NetTick;
+
+	/* Typed identities, room-scoped roster, participant mask, and session
+	 * references must all validate and serialize before mpStartMatch changes
+	 * local stage state. The prepared packet is the exact committed roster. */
+	if (netmsgSvcStageStartValidate() != 0) {
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			g_NetClients[ci].state = state_before[ci];
+		}
+		g_NetMatchSeed = match_seed_before;
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK server-stage reason=preflight_rejected stage_started=0");
+		return -2;
+	}
+	netbufStartWrite(&g_NetMsgRel);
+	if (netmsgServerStageStartWrite(&g_NetMsgRel,
+			g_NetMatchRoomId) != 0) {
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			g_NetClients[ci].state = state_before[ci];
+		}
+		g_NetMatchSeed = match_seed_before;
+		netbufStartWrite(&g_NetMsgRel);
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK server-stage reason=stage_write_or_authority_commit_rejected stage_started=0");
+		return -3;
 	}
 
 	/* B-1039: The listen host is a real Combat Simulator participant too.
@@ -1050,6 +1182,11 @@ void netServerStageStart(void)
 	 * serialising it to peers.  The dedicated build resolves this symbol to its
 	 * headless stub, so one call is the correct contract for both server modes. */
 	mpStartMatch();
+	/* B-1076: the in-client server owns the same menu transition as an
+	 * offline start and a receiving client. Without this pair, menuReset
+	 * clears the legacy stack during stage load while Agent Select remains
+	 * active in the PC pool until the gameplay watchdog bulk-releases it. */
+	netServerPrepareInClientStageTransition("server stage start combat");
 
 	extern s32 g_MainChangeToStageNum;
 	sysLogPrintf(LOG_NOTE, "NET: === STAGE START === stage=0x%02x (g_StageNum=0x%02x, pending=0x%02x) scenario=%u clients=%d",
@@ -1067,26 +1204,17 @@ void netServerStageStart(void)
 		}
 	}
 
-	// clear preserved players from previous rounds
-	memset(g_NetPreservedPlayers, 0, sizeof(g_NetPreservedPlayers));
-	g_NetNumPreserved = 0;
+	// Clear prior-round identities and their exact room-capacity reservations.
+	netServerClearPreservedPlayers("combat_stage_start");
 
-	/* L2-4: Generate match seed from RNG for deterministic spawn pools.
-	 * Both server and all clients will use this to build identical spawn
-	 * point pools via spawnpool.c (future). */
-	g_NetMatchSeed = (u32)(g_RngSeed ^ (g_RngSeed >> 32)) ^ g_NetTick;
-
-	netbufStartWrite(&g_NetMsgRel);
-	netmsgSvcStageStartWrite(&g_NetMsgRel);
+	netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true, NETCHAN_DEFAULT);
 	if (g_NetMatchRoomId != 0xFF) {
-		netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true, NETCHAN_DEFAULT);
 		sysLogPrintf(LOG_NOTE,
 			"MATCHSTART.DIAG: SVC_STAGE_START sent to room 0x%02x (combat sim)",
 			(unsigned)g_NetMatchRoomId);
 	} else {
-		netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
 		sysLogPrintf(LOG_NOTE,
-			"MATCHSTART.DIAG: SVC_STAGE_START broadcast to all clients (combat sim)");
+			"MATCHSTART.DIAG: SVC_STAGE_START sent to lounge scope (combat sim)");
 	}
 	crashBreadcrumbPush("SVC_STAGE_START sent mode=%d room=0x%02x",
 		(int)g_NetGameMode, (unsigned)g_NetMatchRoomId);
@@ -1132,105 +1260,170 @@ void netServerStageStart(void)
 	netPropSnapReset();
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START sent, resync flags=0x%x", g_NetPendingResyncFlags);
+	return 0;
 }
 
-void netServerCoopStageStart(u8 stagenum, u8 difficulty)
+s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 {
+	struct missionconfig mission_before;
+	u8 state_before[NET_MAX_CLIENTS];
+	u8 playernum_before[NET_MAX_CLIENTS];
+	struct netclient *roster[MAX_PLAYERS];
+	const char *stage_id;
+	const asset_entry_t *stage_entry;
+	u8 roster_count = 0;
+	s32 anti_playernum = -1;
+	s32 bond_before;
+	s32 coop_before;
+	s32 anti_before;
+	u32 match_seed_before;
+
 	if (g_NetMode != NETMODE_SERVER) {
-		return;
+		return -1;
+	}
+	if (g_NetGameMode != NETGAMEMODE_COOP
+			&& g_NetGameMode != NETGAMEMODE_ANTI) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK coop-stage reason=invalid_mode mode=%d",
+			g_NetGameMode);
+		return -2;
+	}
+	if (difficulty > DIFF_PD) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK coop-stage reason=invalid_difficulty value=%u",
+			(unsigned)difficulty);
+		return -3;
+	}
+	/* The typed mission ID prepared by CLC_LOBBY_START is authoritative.
+	 * Reverse lookup by stagenum crosses the solo/arena index domains and can
+	 * select a different catalog entry that happens to share a legacy number. */
+	stage_id = g_MissionConfig.stage_id;
+	stage_entry = stage_id ? assetCatalogResolve(stage_id) : NULL;
+	if (!stage_entry || !stage_entry->occupied || !stage_entry->enabled
+			|| stage_entry->type != ASSET_MAP
+			|| strcmp(stage_entry->id, stage_id) != 0
+			|| stage_entry->ext.map.stagenum != stagenum) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK coop-stage reason=invalid_stage stagenum=0x%02x",
+			(unsigned)stagenum);
+		return -4;
 	}
 
-	// configure mission on the server side
-	g_MissionConfig.stagenum = stagenum;
-	/* Phase 2: populate PRIMARY catalog ID string field */
-	{
-		const char *cid = catalogStageIdByStagenum(stagenum);
-		if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; }
-		else { g_MissionConfig.stage_id[0] = '\0'; }
+	for (s32 i = 0; i < g_NetMaxClients; i++) {
+		struct netclient *client = &g_NetClients[i];
+		state_before[i] = client->state;
+		playernum_before[i] = client->playernum;
+		if ((client->state != CLSTATE_PREPARING
+				&& client->state != CLSTATE_GAME)
+				|| (client->flags & CLFLAG_SPECTATOR)
+				|| client->room_id != g_NetMatchRoomId) {
+			continue;
+		}
+		if (roster_count >= 2 || roster_count >= MAX_PLAYERS) {
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ROLLBACK coop-stage reason=roster_exceeds_two");
+			return -5;
+		}
+		roster[roster_count++] = client;
 	}
-	g_MissionConfig.difficulty = difficulty;
-	g_MissionConfig.iscoop = (g_NetGameMode == NETGAMEMODE_COOP);
-	g_MissionConfig.isanti = (g_NetGameMode == NETGAMEMODE_ANTI);
-
-	// set up co-op player numbers
-	g_Vars.bondplayernum = 0;
-	if (g_NetGameMode == NETGAMEMODE_COOP) {
-		g_Vars.coopplayernum = (g_NetNumClients > 1) ? 1 : -1;
-		g_Vars.antiplayernum = -1;
-		sysLogPrintf(LOG_NOTE,
-			"GAMELOOP.COOP: server start coop stage=0x%02x clients=%u coopplayernum=%d",
-			stagenum, g_NetNumClients, g_Vars.coopplayernum);
-	} else {
-		s32 antiPlayerNum = -1;
-		bool resolvedFromWire = false;
-		if (g_NetCounterOpClientId != NET_NULL_CLIENT) {
-			for (s32 i = 0; i < g_NetMaxClients; i++) {
-				struct netclient *ncl = &g_NetClients[i];
-				if (ncl->id != g_NetCounterOpClientId) continue;
-				if (ncl->state < CLSTATE_LOBBY) continue;
-				if (ncl->playernum < MAX_PLAYERS) {
-					antiPlayerNum = ncl->playernum;
-					resolvedFromWire = true;
-				}
+	if (roster_count == 0 || roster[0]->id != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK coop-stage reason=missing_wire_client_zero players=%u",
+			(unsigned)roster_count);
+		return -6;
+	}
+	if (g_NetGameMode == NETGAMEMODE_ANTI) {
+		if (roster_count != 2 || g_NetCounterOpClientId == NET_NULL_CLIENT) {
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ROLLBACK coop-stage reason=invalid_counterop_roster players=%u antiClient=%u",
+				(unsigned)roster_count, (unsigned)g_NetCounterOpClientId);
+			return -7;
+		}
+		for (u8 i = 0; i < roster_count; i++) {
+			if (roster[i]->id == g_NetCounterOpClientId) {
+				anti_playernum = i;
 				break;
 			}
 		}
-		if (antiPlayerNum < 0) {
-			/* S303: log the silent fallback so playtest logs show when
-			 * anti-player identity routing degraded from explicit
-			 * CLC_LOBBY_START antiClientId down to "assume slot 1".
-			 * This path should be unreachable after v36 but belt-and-
-			 * braces covers stale state or future regressions. */
-			antiPlayerNum = (g_NetNumClients > 1) ? 1 : -1;
-			sysLogPrintf(LOG_WARNING,
-				"GAMELOOP.COUNTEROP: antiClientId unresolved (id=%u) — falling back to slot %d (clients=%u)",
-				(unsigned)g_NetCounterOpClientId,
-				antiPlayerNum, g_NetNumClients);
-		} else {
-			sysLogPrintf(LOG_NOTE,
-				"GAMELOOP.COUNTEROP: server start anti stage=0x%02x clients=%u antiClientId=%u antiplayernum=%d%s",
-				stagenum, g_NetNumClients,
-				(unsigned)g_NetCounterOpClientId, antiPlayerNum,
-				resolvedFromWire ? " (from wire)" : "");
+		if (anti_playernum < 0 || anti_playernum == 0) {
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ROLLBACK coop-stage reason=anti_client_not_distinct id=%u",
+				(unsigned)g_NetCounterOpClientId);
+			return -8;
 		}
-		g_Vars.coopplayernum = -1;
-		g_Vars.antiplayernum = antiPlayerNum;
 	}
 
-	// re-read the player config
-	if (g_NetLocalClient) {
-		netClientReadConfig(g_NetLocalClient, 0);
-		g_NetLocalClient->state = CLSTATE_GAME;
-	}
+	mission_before = g_MissionConfig;
+	bond_before = g_Vars.bondplayernum;
+	coop_before = g_Vars.coopplayernum;
+	anti_before = g_Vars.antiplayernum;
+	match_seed_before = g_NetMatchSeed;
 
-	// clear preserved players from previous rounds
-	memset(g_NetPreservedPlayers, 0, sizeof(g_NetPreservedPlayers));
-	g_NetNumPreserved = 0;
+	g_MissionConfig.stagenum = stagenum;
+	strncpy(g_MissionConfig.stage_id, stage_entry->id,
+		sizeof(g_MissionConfig.stage_id) - 1);
+	g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
+	g_MissionConfig.difficulty = difficulty;
+	g_MissionConfig.iscoop = g_NetGameMode == NETGAMEMODE_COOP;
+	g_MissionConfig.isanti = g_NetGameMode == NETGAMEMODE_ANTI;
+	g_Vars.bondplayernum = 0;
+	g_Vars.coopplayernum = g_NetGameMode == NETGAMEMODE_COOP
+		&& roster_count == 2 ? 1 : -1;
+	g_Vars.antiplayernum = anti_playernum;
 
-	// clear coop ready flags
-	for (s32 i = 0; i < g_NetMaxClients; ++i) {
-		g_NetClients[i].flags &= ~CLFLAG_COOPREADY;
+	for (u8 i = 0; i < roster_count; i++) {
+		roster[i]->playernum = i;
+		roster[i]->state = CLSTATE_GAME;
 	}
 
 	/* L2-4: Generate match seed for deterministic spawn pools */
 	g_NetMatchSeed = (u32)(g_RngSeed ^ (g_RngSeed >> 32)) ^ g_NetTick;
 
-	// broadcast stage start to all clients
+	/* Serialize only after the exact roster, stage, identities, and roles are
+	 * committed.  On rejection restore the launch-visible state so the room can
+	 * safely return to lobby instead of continuing with a partial mission. */
 	netbufStartWrite(&g_NetMsgRel);
-	netmsgSvcStageStartWrite(&g_NetMsgRel);
-	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+	if (netmsgServerStageStartWrite(&g_NetMsgRel,
+			g_NetMatchRoomId) != 0) {
+		for (s32 i = 0; i < g_NetMaxClients; i++) {
+			g_NetClients[i].state = state_before[i];
+			g_NetClients[i].playernum = playernum_before[i];
+		}
+		g_MissionConfig = mission_before;
+		g_Vars.bondplayernum = bond_before;
+		g_Vars.coopplayernum = coop_before;
+		g_Vars.antiplayernum = anti_before;
+		g_NetMatchSeed = match_seed_before;
+		netbufStartWrite(&g_NetMsgRel);
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK coop-stage reason=stage_write_or_authority_commit_rejected globals_restored=1");
+		return -9;
+	}
+	netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+
+	netServerClearPreservedPlayers("coop_stage_start");
+	for (s32 i = 0; i < g_NetMaxClients; ++i) {
+		if (g_NetClients[i].room_id == g_NetMatchRoomId) {
+			g_NetClients[i].flags &= ~CLFLAG_COOPREADY;
+		}
+	}
 
 	// Log character selections for each player
 	for (s32 i = 0; i < g_NetMaxClients; ++i) {
 		struct netclient *cl = &g_NetClients[i];
-		if (cl->state >= CLSTATE_LOBBY) {
+		if (cl->state >= CLSTATE_LOBBY
+				&& cl->room_id == g_NetMatchRoomId) {
 			sysLogPrintf(LOG_NOTE, "NET: player %d (%s) body='%s' head='%s'",
 				i, cl->settings.name, cl->settings.body_id, cl->settings.head_id);
 		}
 	}
 
 	sysLogPrintf(LOG_NOTE, "NET: starting co-op stage 0x%02x difficulty %u with %u players",
-		stagenum, difficulty, g_NetNumClients);
+		stagenum, difficulty, roster_count);
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.COMMIT coop-stage players=%u bond=%d coop=%d anti=%d",
+		(unsigned)roster_count, g_Vars.bondplayernum,
+		g_Vars.coopplayernum, g_Vars.antiplayernum);
 
 	g_NotLoadMod = true;
 	romdataFileFreeForSolo();
@@ -1239,13 +1432,11 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	g_NetPendingResyncFlags = NET_RESYNC_FLAG_NPCS | NET_RESYNC_FLAG_PROPS;
 	netPropSnapReset();
 
-	// start the mission on the server
-	menuStop();
-#if !defined(PD_SERVER)
-	/* Input context stack handles mouse capture when gameplay context becomes top. */
-#endif
+	// Start the mission on the server. The in-client server must close the
+	// complete menu owner before stage load; a dedicated process has no menu.
+	netServerPrepareInClientStageTransition("server stage start coop");
 	titleSetNextStage(stagenum);
-	setNumPlayers(g_NetNumClients > 1 ? 2 : 1);
+	setNumPlayers(roster_count);
 	lvSetDifficulty(difficulty);
 	titleSetNextMode(TITLEMODE_SKIP);
 	mainChangeToStage(stagenum);
@@ -1253,11 +1444,119 @@ void netServerCoopStageStart(u8 stagenum, u8 difficulty)
 #if VERSION >= VERSION_NTSC_1_0
 	viBlack(true);
 #endif
+	return 0;
+}
+
+static bool netServerFlushCutsceneAuthorityPacket(const char *reason,
+		bool append_stage_end, u8 stage_end_room, u8 stage_end_mode)
+{
+	u8 data[NET_CUTSCENE_AUTHORITY_PACKET_CAPACITY + 2u];
+	struct netbuf wire = { .data = data, .size = sizeof(data) };
+	u8 room_id = 0xff;
+	u32 event_count = 0;
+	netbufStartWrite(&wire);
+	if (netmsgServerPrepareCutsceneAuthorityPacket(&wire, &room_id,
+			&event_count) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: CUTSCENE.AUTHORITY packet preflight failed reason=%s",
+			reason ? reason : "unspecified");
+		return false;
+	}
+	if (event_count == 0 && !append_stage_end) {
+		return true;
+	}
+	if (append_stage_end) {
+		if (event_count > 0 && room_id != stage_end_room) {
+			sysLogPrintf(LOG_ERROR,
+				"NET: CUTSCENE.AUTHORITY stage-end room conflict authority=%u teardown=%u",
+				(unsigned)room_id, (unsigned)stage_end_room);
+			return false;
+		}
+		room_id = stage_end_room;
+		if (netmsgSvcStageEndWrite(&wire, stage_end_room,
+				stage_end_mode) != 0) {
+			sysLogPrintf(LOG_ERROR,
+				"NET: CUTSCENE.AUTHORITY stage-end packet preflight failed reason=%s",
+				reason ? reason : "unspecified");
+			return false;
+		}
+	}
+	const u32 bytes = wire.wp;
+	/* Destination scope remains the match room, deliberately including a
+	 * same-room observer. The frozen participant mask inside SVC_CUTSCENE owns
+	 * gameplay identity; unrelated lounge peers and probe endpoints never do. */
+	if (netSendToRoom(room_id, &wire, true, NETCHAN_DEFAULT) != bytes) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: CUTSCENE.AUTHORITY room send failed reason=%s room=%u events=%u; idempotent retry retained",
+			reason ? reason : "unspecified", (unsigned)room_id,
+			(unsigned)event_count);
+		return false;
+	}
+	if (event_count > 0
+			&& !netmsgServerCommitCutsceneAuthorityPacket(event_count)) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: CUTSCENE.AUTHORITY commit failed after send reason=%s events=%u",
+			reason ? reason : "unspecified", (unsigned)event_count);
+		return false;
+	}
+	return true;
+}
+
+static bool netServerFlushCutsceneAuthority(const char *reason)
+{
+	return netServerFlushCutsceneAuthorityPacket(reason, false, 0xff,
+		NETGAMEMODE_MP);
+}
+
+static void netServerCommitPendingStageEnd(void)
+{
+	const u8 room_id = s_NetStageEndPending.room_id;
+	const u8 mode = s_NetStageEndPending.mode;
+
+	playerResetAllCutsceneStates();
+	netmsgCutsceneAuthorityReset();
+	if (g_NetLocalClient) {
+		g_NetLocalClient->state = CLSTATE_LOBBY;
+	}
+	netmsgSvcStageEndCommit(room_id, mode);
+	/* A stage boundary invalidates the old stage snapshot. Release every exact
+	 * room/client reservation only after the terminal packet is published, so a
+	 * failed END send remains retryable against the still-live match. */
+	netServerClearPreservedPlayers("stage_end_commit");
+	g_NetMatchRoomId = 0xFF;
+	g_NetCounterOpClientId = NET_NULL_CLIENT;
+	sessionCatalogTeardown();
+	memset(&s_NetStageEndPending, 0, sizeof(s_NetStageEndPending));
+	sysLogPrintf(LOG_NOTE,
+		"NET: SVC_STAGE_END published and committed, returning to lobby");
+}
+
+static bool netServerFlushPendingStageEnd(const char *reason)
+{
+	if (!s_NetStageEndPending.active) {
+		return true;
+	}
+	if (!netServerFlushCutsceneAuthorityPacket(reason, true,
+			s_NetStageEndPending.room_id, s_NetStageEndPending.mode)) {
+		return false;
+	}
+	netServerCommitPendingStageEnd();
+	return true;
 }
 
 void netServerStageEnd(void)
 {
 	if (g_NetMode != NETMODE_SERVER) {
+		return;
+	}
+	if (s_NetStageEndPending.active) {
+		s_NetStageEndTerminalFrame = true;
+		(void)netServerFlushPendingStageEnd("stage-end-repeat");
+		return;
+	}
+	if (!netmsgCutsceneAuthorityHasMatch()) {
+		sysLogPrintf(LOG_NOTE,
+			"NET: SVC_STAGE_END ignored without active match");
 		return;
 	}
 
@@ -1267,21 +1566,32 @@ void netServerStageEnd(void)
 	g_NetBotAuthorityClientId  = NET_NULL_CLIENT;
 
 	sysLogPrintf(LOG_NOTE, "NET: === STAGE END === game mode=%u tick=%u", g_NetGameMode, g_NetTick);
-
-	if (g_NetLocalClient) {
-		g_NetLocalClient->state = CLSTATE_LOBBY;
+	/* A stage boundary is the terminal authority transition. Preserve the same
+	 * ordered START -> ACCEPT -> END stream even when gameplay ends the stage
+	 * directly instead of reaching playerEndCutscene first. */
+	if (netmsgCutsceneAuthorityIsActive()
+			&& !netmsgServerQueueCutsceneState(0,
+				playerCutsceneGeneration(), NULL)) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: CUTSCENE.AUTHORITY stage-end preflight rejected generation=%u",
+			playerCutsceneGeneration());
+		return;
 	}
-
+	/* The terminal authority packet supersedes any unrelated gameplay traffic
+	 * accumulated earlier in this frame. A failed terminal send must not be
+	 * followed by stale shared-buffer state on the same channel. */
+	netbufStartWrite(&g_NetMsg);
 	netbufStartWrite(&g_NetMsgRel);
-	netmsgSvcStageEndWrite(&g_NetMsgRel, g_NetMatchRoomId);
-	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
-	g_NetMatchRoomId = 0xFF;
-	g_NetCounterOpClientId = NET_NULL_CLIENT;
-
-	/* L-E3: tear down session catalog on server-side stage end */
-	sessionCatalogTeardown();
-
-	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_END sent, returning to lobby");
+	s_NetStageEndTerminalFrame = true;
+	s_NetStageEndPending.active = true;
+	s_NetStageEndPending.room_id = g_NetMatchRoomId;
+	s_NetStageEndPending.mode = g_NetGameMode;
+	if (!netServerFlushPendingStageEnd("stage-end")) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: SVC_STAGE_END delivery retained for idempotent retry room=%u mode=%u",
+			(unsigned)s_NetStageEndPending.room_id,
+			(unsigned)s_NetStageEndPending.mode);
+	}
 }
 
 void netServerKick(struct netclient *cl, const u32 reason)
@@ -1293,12 +1603,34 @@ void netServerKick(struct netclient *cl, const u32 reason)
 	if (!cl || !cl->state || !cl->peer) {
 		return;
 	}
+	/* ENet's disconnect datum belongs to the remote notification.  Once that
+	 * reliable command is acknowledged, ENet reports data=0 to this sender's
+	 * local disconnect event.  Latch the authoritative policy before entering
+	 * ENet so timeout preservation and terminal cleanup cannot disagree across
+	 * the two peers.  First writer wins if multiple subsystems race to close. */
+	if (cl->server_disconnect_intent_pending) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.DISCONNECT.INTENT duplicate client=%u retained=%u ignored=%u",
+			(unsigned)cl->id,
+			(unsigned)cl->server_disconnect_intent_reason,
+			(unsigned)reason);
+		return;
+	}
+	cl->server_disconnect_intent_reason = reason;
+	cl->server_disconnect_intent_pending = true;
+	sysLogPrintf(LOG_NOTE,
+		"NET.DISCONNECT.INTENT latch client=%u reason=%u retryable=%d",
+		(unsigned)cl->id, (unsigned)reason,
+		netReconnectReasonIsRetryable(reason, DISCONNECT_TIMEOUT) != 0);
 
 	enet_peer_disconnect(cl->peer, reason);
 }
 
 s32 netStartClient(const char *addr)
 {
+	u32 connect_data;
+	s32 reconnecting;
+
 	if (g_NetMode || !g_NetInit) {
 		return -1;
 	}
@@ -1307,6 +1639,14 @@ s32 netStartClient(const char *addr)
 		sysLogPrintf(LOG_ERROR, "NET: `%s` is not a valid address", addr);
 		return -2;
 	}
+	connect_data = netmsgClcAuthPrepareConnect(&g_NetRemoteAddr,
+		NET_PROTOCOL_VER);
+	if (connect_data == 0) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: could not prepare authenticated connect data for %s", addr);
+		return -3;
+	}
+	reconnecting = (connect_data & NET_RECONNECT_CONNECT_FLAG) != 0;
 
 	memset(&g_NetLocalAddr, 0, sizeof(g_NetLocalAddr));
 	g_NetHost = enet_host_create(&g_NetLocalAddr, 1, NETCHAN_COUNT, g_NetClientInRate, g_NetClientOutRate, 0);
@@ -1332,7 +1672,8 @@ s32 netStartClient(const char *addr)
 	sysLogPrintf(LOG_NOTE, "NET: using protocol version %d", NET_PROTOCOL_VER);
 	sysLogPrintf(LOG_NOTE, "NET: connecting to %s...", addr);
 
-	g_NetLocalClient->peer = enet_host_connect(g_NetHost, &g_NetRemoteAddr, NETCHAN_COUNT, NET_PROTOCOL_VER);
+	g_NetLocalClient->peer = enet_host_connect(g_NetHost, &g_NetRemoteAddr,
+		NETCHAN_COUNT, connect_data);
 	if (!g_NetLocalClient->peer) {
 		sysLogPrintf(LOG_WARNING, "NET: could not connect to %s", addr);
 		enet_host_destroy(g_NetHost);
@@ -1342,12 +1683,18 @@ s32 netStartClient(const char *addr)
 
 	g_NetLocalClient->state = CLSTATE_CONNECTING;
 	netClientReadConfig(g_NetLocalClient, 0);
+	if (reconnecting && s_NetReconnectAttempt.valid) {
+		g_NetLocalClient->settings = s_NetReconnectAttempt.settings;
+		sysLogPrintf(LOG_NOTE,
+			"NET.RECONNECT.PREPARE endpoint_match=1 client_settings_frozen=1");
+	}
 
 	g_NetMode = NETMODE_CLIENT;
 
 	g_NetTick = 0;
 	g_NetNextUpdate = 0;
 	g_NetNextSyncId = 1;
+	g_NetFirstDynamicSyncId = 1;
 	netSyncIdMapClear(); // ensure map is empty from any previous session
 
 	sysLogPrintf(LOG_NOTE, "NET: waiting for response from %s...", addr);
@@ -1363,16 +1710,45 @@ s32 netStartClient(const char *addr)
 	return 0;
 }
 
-s32 netDisconnect(void)
+static s32 netDisconnectWithIntent(s32 retain_reconnect)
 {
 	if (!g_NetMode) {
 		return -1;
 	}
 
+	const bool was_client = g_NetMode == NETMODE_CLIENT;
+	const bool wasingame = g_NetLocalClient
+		&& g_NetLocalClient->state == CLSTATE_GAME;
+	const bool reconnect_in_flight = s_NetReconnectAttempt.valid;
+	const bool retain_credential = retain_reconnect && was_client
+		&& (wasingame || reconnect_in_flight)
+		&& netmsgClcAuthReconnectAvailable(&g_NetRemoteAddr);
+	if (retain_credential) {
+		/* A first live timeout freezes the exact prior settings/address. A
+		 * second timeout during auth, manifest transfer, or stage publication
+		 * keeps that original candidate intact instead of clearing the only
+		 * credential capable of reclaiming the reserved server slot. */
+		if (!reconnect_in_flight) {
+			s_NetReconnectAttempt.valid = true;
+			s_NetReconnectAttempt.auth_accepted = false;
+			s_NetReconnectAttempt.settings = g_NetLocalClient->settings;
+			strncpy(s_NetReconnectAttempt.addr, g_NetLastJoinAddr,
+				sizeof(s_NetReconnectAttempt.addr) - 1);
+			s_NetReconnectAttempt.addr[
+				sizeof(s_NetReconnectAttempt.addr) - 1] = '\0';
+		}
+	} else {
+		memset(&s_NetReconnectAttempt, 0, sizeof(s_NetReconnectAttempt));
+		netmsgClcAuthClearCookie();
+	}
+
+	matchConfigRestoreUserOptions("netDisconnect");
+	if (g_NetMode == NETMODE_SERVER) {
+		netServerClearPreservedPlayers("server_disconnect");
+	}
+
 	// stop responding to connectionless packets
 	enet_host_set_intercept_callback(g_NetHost, NULL);
-
-	const bool wasingame = (g_NetLocalClient && g_NetLocalClient->state >= CLSTATE_GAME);
 
 	for (s32 i = 0; i < NET_MAX_CLIENTS + 1; ++i) {
 		if (g_NetClients[i].peer) {
@@ -1382,6 +1758,10 @@ s32 netDisconnect(void)
 	}
 
 	g_NetLocalClient = &g_NetClients[NET_MAX_CLIENTS];
+	memset(&s_NetStageEndPending, 0, sizeof(s_NetStageEndPending));
+	s_NetStageEndTerminalFrame = false;
+	netmsgCutsceneAuthorityReset();
+	playerResetAllCutsceneStates();
 
 	// flush pending packets
 	enet_host_flush(g_NetHost);
@@ -1415,14 +1795,12 @@ s32 netDisconnect(void)
 	groupSessionOnTransportDisconnected();
 #endif
 
-	/* MASTER-C3: drop the identity cookie so a fresh connect to any server
-	 * begins as a new player.  Cookies are scoped to a single session —
-	 * intentionally NOT persisted to disk (keeping them in-memory avoids
-	 * cross-process replay attacks via shared config files). */
-#if !defined(PD_SERVER)
-	extern void netmsgClcAuthClearCookie(void);
-	netmsgClcAuthClearCookie();
-#endif
+	/* v57: only a transport timeout from a live client retains the endpoint-
+	 * scoped credential captured before reset. Every intentional or policy
+	 * disconnect cleared it before transport teardown. */
+	sysLogPrintf(LOG_NOTE,
+		"NET.RECONNECT.TEARDOWN retryable=%d credential_retained=%d",
+		retain_reconnect != 0, retain_credential != 0);
 
 	/* S300 / SP-14: reset room-scoped state so a stale room id doesn't survive
 	 * into the next hosting/client session. Server-side disconnect during a
@@ -1481,6 +1859,94 @@ s32 netDisconnect(void)
 	}
 
 	return 0;
+}
+
+s32 netDisconnect(void)
+{
+	return netDisconnectWithIntent(false);
+}
+
+s32 netClientReconnectAvailable(void)
+{
+	ENetAddress endpoint;
+
+	if (g_NetMode != NETMODE_NONE || !s_NetReconnectAttempt.valid
+			|| !s_NetReconnectAttempt.addr[0]
+			|| !netParseAddr(&endpoint, s_NetReconnectAttempt.addr)) {
+		return false;
+	}
+	return netmsgClcAuthReconnectAvailable(&endpoint);
+}
+
+s32 netClientReconnect(void)
+{
+	char addr[NET_MAX_ADDR + 1];
+
+	if (!netClientReconnectAvailable()) {
+		return -1;
+	}
+	memcpy(addr, s_NetReconnectAttempt.addr, sizeof(addr));
+	return netStartClient(addr);
+}
+
+void netClientReconnectAuthAccepted(void)
+{
+	if (s_NetReconnectAttempt.valid) {
+		s_NetReconnectAttempt.auth_accepted = true;
+		sysLogPrintf(LOG_NOTE,
+			"NET.RECONNECT.CLIENT auth=accepted retry_transaction_retained_until_server_commit=1");
+	}
+
+}
+
+void netClientReconnectCommitAccepted(void)
+{
+	if (s_NetReconnectAttempt.valid) {
+		if (!s_NetReconnectAttempt.auth_accepted) {
+			sysLogPrintf(LOG_ERROR,
+				"NET.RECONNECT.CLIENT commit=rejected auth=missing retry_transaction=retained");
+			return;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"NET.RECONNECT.CLIENT transaction=complete post_load_ready=1 server_commit_ack=1 retry_transaction=retired");
+		memset(&s_NetReconnectAttempt, 0, sizeof(s_NetReconnectAttempt));
+	}
+}
+
+void netClientStageLoaded(void)
+{
+	u8 payload[8];
+	struct netbuf wire;
+	u32 bytes;
+
+	if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient
+			|| g_NetLocalClient->state != CLSTATE_GAME
+			|| !g_NetLocalClient->peer) {
+		return;
+	}
+
+	memset(&wire, 0, sizeof(wire));
+	wire.data = payload;
+	wire.size = sizeof(payload);
+	netbufStartWrite(&wire);
+	if (netmsgClcStageReadyWrite(&wire) != 0 || wire.wp == 0) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: CLC_STAGE_READY post-load serialization failed");
+		enet_peer_disconnect(g_NetLocalClient->peer, DISCONNECT_TIMEOUT);
+		return;
+	}
+	bytes = wire.wp;
+	if (netSend(g_NetLocalClient, &wire, true, NETCHAN_DEFAULT) != bytes) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: CLC_STAGE_READY post-load enqueue failed");
+		enet_peer_disconnect(g_NetLocalClient->peer, DISCONNECT_TIMEOUT);
+		return;
+	}
+
+	g_NetLocalClient->stage_ready = true;
+	sysLogPrintf(LOG_NOTE,
+		"NET: sent CLC_STAGE_READY post_load=1 stage=0x%02x",
+		(unsigned)g_StageNum);
 }
 
 /* Fill buf with len bytes from the OS CSPRNG (BCryptGenRandom / getrandom /
@@ -1567,24 +2033,27 @@ void netServerIssueCookie(u8 out[NET_AUTH_COOKIE_LEN])
 
 void netServerPreservePlayer(struct netclient *cl)
 {
-	if (!cl || !cl->settings.name[0] || cl->playernum >= MAX_PLAYERS) {
+	struct netpreservedplayer candidate;
+	struct netpreservedplayer *pp;
+	bool replacing;
+
+	if (!cl || cl->id >= NET_MAX_CLIENTS || !cl->settings.name[0]
+			|| cl->playernum >= MAX_PLAYERS || !cl->config || !cl->player
+			|| !cl->player->prop || cl->player->prop->syncid == NET_NULL_PROP) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.RECONNECT.PRESERVE rejected client=%d player=%d config=%d player_object=%d prop=%d",
+			cl ? (s32)cl->id : -1, cl ? (s32)cl->playernum : -1,
+			cl && cl->config, cl && cl->player,
+			cl && cl->player && cl->player->prop);
 		return;
 	}
 
-	// find an existing entry for this name or an empty slot
-	struct netpreservedplayer *pp = NULL;
-	for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
-		if (g_NetPreservedPlayers[i].active &&
-			strncasecmp(g_NetPreservedPlayers[i].name, cl->settings.name, NET_MAX_NAME) == 0) {
-			pp = &g_NetPreservedPlayers[i];
-			break;
-		}
-	}
+	/* Stable client id, not display name, owns the preservation record. */
+	pp = netServerFindPreservedByClientId((u8)cl->id);
 	if (!pp) {
 		for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
 			if (!g_NetPreservedPlayers[i].active) {
 				pp = &g_NetPreservedPlayers[i];
-				++g_NetNumPreserved;
 				break;
 			}
 		}
@@ -1595,138 +2064,614 @@ void netServerPreservePlayer(struct netclient *cl)
 		return;
 	}
 
-	strncpy(pp->name, cl->settings.name, NET_MAX_NAME - 1);
-	pp->name[NET_MAX_NAME - 1] = '\0';
-	pp->playernum = cl->playernum;
-	pp->team = cl->settings.team;
-
-	/* MASTER-C3: preserve the current cookie so only the real owner can restore. */
-	memcpy(pp->cookie, cl->auth_cookie, NET_AUTH_COOKIE_LEN);
-
-	// copy score data from the player config
-	struct mpchrconfig *mpchr = &g_PlayerConfigsArray[cl->playernum].base;
-	memcpy(pp->killcounts, mpchr->killcounts, sizeof(pp->killcounts));
-	pp->numdeaths = mpchr->numdeaths;
-	pp->numpoints = mpchr->numpoints;
+	replacing = pp->active;
+	memset(&candidate, 0, sizeof(candidate));
+	strncpy(candidate.name, cl->settings.name, sizeof(candidate.name) - 1);
+	candidate.name[sizeof(candidate.name) - 1] = '\0';
+	memcpy(candidate.cookie, cl->auth_cookie, sizeof(candidate.cookie));
+	candidate.client_id = (u8)cl->id;
+	candidate.playernum = cl->playernum;
+	candidate.room_id = cl->room_id;
+	candidate.prop_syncid = cl->player->prop->syncid;
+	candidate.settings = cl->settings;
+	candidate.config = g_PlayerConfigsArray[cl->playernum];
+	candidate.config.client = NULL;
+	candidate.preserveframe = g_NetTick;
+	/* Publish active last so readers never observe a partial snapshot. */
+	*pp = candidate;
 	pp->active = true;
-	pp->preserveframe = g_NetTick;
+	if (!replacing) {
+		++g_NetNumPreserved;
+	}
 
-	sysLogPrintf(LOG_NOTE, "NET: preserved player %s (playernum %u, %d kills, %d deaths)",
-		pp->name, pp->playernum, pp->numpoints, pp->numdeaths);
+	sysLogPrintf(LOG_NOTE,
+		"NET.RECONNECT.PRESERVE client=%u player=%u room=%u prop=%u team=%u body='%s' head='%s' points=%d deaths=%d snapshot=complete",
+		(unsigned)pp->client_id, (unsigned)pp->playernum,
+		(unsigned)pp->room_id, (unsigned)pp->prop_syncid,
+		(unsigned)pp->settings.team, pp->settings.body_id,
+		pp->settings.head_id, (int)pp->config.base.numpoints,
+		(int)pp->config.base.numdeaths);
 }
 
-struct netpreservedplayer *netServerFindPreserved(const char *name)
+static void netServerDiscardPreservedPlayer(
+		struct netpreservedplayer *pp, const char *reason)
 {
-	if (!name || !name[0]) {
+	u8 client_id;
+	u8 room_id;
+	u8 preserved_index;
+	hub_room_t *room;
+
+	if (!pp || !pp->active) {
+		return;
+	}
+	client_id = pp->client_id;
+	room_id = pp->room_id;
+	preserved_index = (u8)(pp - g_NetPreservedPlayers);
+
+	/* Stop an authenticated peer that is still acquiring the manifest for this
+	 * exact record. Once the record is gone, allowing PREPARING to linger could
+	 * only produce an unfinishable transaction. */
+	if (client_id < NET_MAX_CLIENTS) {
+		struct netclient *pending = &g_NetClients[client_id];
+		if (pending->peer
+				&& pending->reconnect_preserved_index == preserved_index) {
+			netServerKick(pending, DISCONNECT_LATE);
+		}
+	}
+
+	if (room_id != 0xFF) {
+		room = roomGetById(room_id);
+		if (room) {
+			roomReleaseReconnectReservation(room, client_id);
+		}
+	}
+	memset(pp, 0, sizeof(*pp));
+	if (g_NetNumPreserved > 0) {
+		--g_NetNumPreserved;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"NET.RECONNECT.RESERVATION released client=%u room=%u reason=%s remaining=%d",
+		(unsigned)client_id, (unsigned)room_id,
+		reason ? reason : "unspecified", g_NetNumPreserved);
+}
+
+static void netServerClearPreservedPlayers(const char *reason)
+{
+	s32 released = 0;
+
+	for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
+		if (g_NetPreservedPlayers[i].active) {
+			netServerDiscardPreservedPlayer(&g_NetPreservedPlayers[i], reason);
+			++released;
+		}
+	}
+	/* Also erase inactive historical bytes and repair any stale count. */
+	memset(g_NetPreservedPlayers, 0, sizeof(g_NetPreservedPlayers));
+	g_NetNumPreserved = 0;
+	if (released > 0) {
+		netRoomListMarkDirty();
+		sysLogPrintf(LOG_NOTE,
+			"NET.RECONNECT.RESERVATION cleared count=%d reason=%s",
+			released, reason ? reason : "unspecified");
+	}
+}
+
+static void netServerExpirePreservedPlayers(void)
+{
+	if (g_NetNumPreserved <= 0 || (g_NetTick % 600) != 0) {
+		return;
+	}
+
+	for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
+		struct netpreservedplayer *pp = &g_NetPreservedPlayers[i];
+		if (!pp->active
+				|| (g_NetTick - pp->preserveframe)
+					<= NET_PRESERVE_TIMEOUT_FRAMES) {
+			continue;
+		}
+
+		sysLogPrintf(LOG_NOTE,
+			"NET: preserved player %s timed out room=%u client=%u",
+			pp->name, (unsigned)pp->room_id, (unsigned)pp->client_id);
+		netServerDiscardPreservedPlayer(pp, "timeout");
+	}
+}
+
+struct netpreservedplayer *netServerFindPreservedByClientId(u8 client_id)
+{
+	if (client_id >= NET_NULL_CLIENT) {
 		return NULL;
 	}
-	for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
-		if (g_NetPreservedPlayers[i].active &&
-			strncasecmp(g_NetPreservedPlayers[i].name, name, NET_MAX_NAME) == 0) {
+	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+		if (g_NetPreservedPlayers[i].active
+				&& g_NetPreservedPlayers[i].client_id == client_id) {
 			return &g_NetPreservedPlayers[i];
 		}
 	}
 	return NULL;
 }
 
-/* MASTER-C3: match on BOTH name AND cookie.  Constant-time compare on the
- * cookie so a name collision doesn't leak timing about the real owner's
- * cookie value. */
-struct netpreservedplayer *netServerFindPreservedByCookie(const char *name,
-	const u8 cookie[NET_AUTH_COOKIE_LEN])
+s32 netServerMatchInProgress(void)
 {
-	if (!name || !name[0] || !cookie) {
-		return NULL;
+	if (g_NetMatchRoomId != 0xFF) {
+		hub_room_t *room = roomGetById(g_NetMatchRoomId);
+		if (room && (room->state == ROOM_STATE_LOADING
+				|| room->state == ROOM_STATE_MATCH)) {
+			return true;
+		}
 	}
-
-	/* Reject all-zero cookies explicitly — the wire default is zeros and
-	 * matching a preserved record with zeros would be trivially bypassable
-	 * if a slot were ever preserved with a zero cookie (shouldn't happen,
-	 * but defence-in-depth). */
-	u8 zeroOr = 0;
-	for (s32 i = 0; i < NET_AUTH_COOKIE_LEN; i++) zeroOr |= cookie[i];
-	if (!zeroOr) return NULL;
-
-	struct netpreservedplayer *pp = netServerFindPreserved(name);
-	if (!pp) return NULL;
-
-	u8 diff = 0;
-	for (s32 i = 0; i < NET_AUTH_COOKIE_LEN; i++) {
-		diff |= (u8)(pp->cookie[i] ^ cookie[i]);
+	for (s32 i = 0; i < g_NetMaxClients; i++) {
+		if (g_NetClients[i].state == CLSTATE_GAME) {
+			return true;
+		}
 	}
-	return (diff == 0) ? pp : NULL;
+	return false;
 }
 
-void netServerRestorePreserved(struct netclient *cl, struct netpreservedplayer *pp)
+const char *netRestoreResultString(enum net_restore_result result)
 {
-	if (!cl || !pp || pp->playernum >= MAX_PLAYERS) {
-		return;
+	switch (result) {
+	case NET_RESTORE_OK: return "ok";
+	case NET_RESTORE_INVALID_ARGUMENT: return "invalid_argument";
+	case NET_RESTORE_INACTIVE_RECORD: return "inactive_record";
+	case NET_RESTORE_INVALID_PLAYER_SLOT: return "invalid_player_slot";
+	case NET_RESTORE_MISSING_PLAYER: return "missing_player";
+	case NET_RESTORE_SLOT_CONFLICT: return "slot_conflict";
+	case NET_RESTORE_INVALID_IDENTITY: return "invalid_identity";
+	case NET_RESTORE_SETTINGS_MISMATCH: return "settings_mismatch";
+	case NET_RESTORE_ROOM_UNAVAILABLE: return "room_unavailable";
+	case NET_RESTORE_MISSING_PROP: return "missing_prop";
+	case NET_RESTORE_STAGE_WRITE_FAILED: return "stage_write_failed";
+	case NET_RESTORE_STAGE_SEND_FAILED: return "stage_send_failed";
+	case NET_RESTORE_PROP_MISMATCH: return "prop_mismatch";
+	case NET_RESTORE_STATE_WRITE_FAILED: return "state_write_failed";
+	case NET_RESTORE_STATE_SEND_FAILED: return "state_send_failed";
+	default: return "unknown";
+	}
+}
+
+s32 netRestoreResultRequiresRetryableClose(enum net_restore_result result)
+{
+	return result == NET_RESTORE_STAGE_WRITE_FAILED
+		|| result == NET_RESTORE_STAGE_SEND_FAILED
+		|| result == NET_RESTORE_STATE_WRITE_FAILED
+		|| result == NET_RESTORE_STATE_SEND_FAILED;
+}
+
+static enum net_restore_result netServerRestoreReject(
+		enum net_restore_result result, const struct netclient *cl,
+		const struct netpreservedplayer *pp,
+		player_identity_status_e identity_status)
+{
+	sysLogPrintf(LOG_ERROR,
+		"PLAYER.INIT.ROLLBACK reconnect status=%s client=%d player=%d identity=%s globals_published=0",
+		netRestoreResultString(result), cl ? (s32)cl->id : -1,
+		pp ? (s32)pp->playernum : -1,
+		playerIdentityStatusString(identity_status));
+	return result;
+}
+
+s32 netServerReconnectSettingsMatch(
+		const struct netpreservedplayer *pp,
+		const net_client_settings_plan_t *plan, u8 sanitized_team)
+{
+	return pp && plan
+		&& plan->options == pp->settings.options
+		&& strcmp(plan->identity.body_id, pp->settings.body_id) == 0
+		&& strcmp(plan->identity.head_id, pp->settings.head_id) == 0
+		&& plan->team == pp->settings.team
+		&& sanitized_team == pp->settings.team
+		&& plan->handicap == pp->settings.handicap
+		&& plan->fovy == pp->settings.fovy
+		&& plan->fovzoommult == pp->settings.fovzoommult
+		&& strcmp(plan->name, pp->settings.name) == 0;
+}
+
+struct net_restore_candidate {
+	struct netpreservedplayer *preserved;
+	struct player *player;
+	struct mpplayerconfig config;
+	player_identity_plan_t identity;
+	player_identity_status_e identity_status;
+	hub_room_t *room;
+};
+
+static enum net_restore_result netServerPrepareRestoreCandidate(
+		struct netclient *cl, struct netpreservedplayer *pp,
+		const net_client_settings_plan_t *settings_plan, u8 sanitized_team,
+		struct net_restore_candidate *out)
+{
+	if (!cl || !cl->peer || !pp || !settings_plan || !out
+			|| cl->id >= NET_MAX_CLIENTS
+			|| cl->state != CLSTATE_PREPARING
+			|| !(cl->flags & CLFLAG_ABSENT)
+			|| !cl->reconnect_settings_pending
+			|| cl->reconnect_preserved_index >= NET_MAX_CLIENTS
+			|| pp != &g_NetPreservedPlayers[cl->reconnect_preserved_index]
+			|| pp->client_id != cl->id) {
+		return netServerRestoreReject(NET_RESTORE_INVALID_ARGUMENT, cl, pp,
+			PLAYER_IDENTITY_INVALID_ARGUMENT);
+	}
+	memset(out, 0, sizeof(*out));
+	out->preserved = pp;
+	if (!pp->active) {
+		return netServerRestoreReject(NET_RESTORE_INACTIVE_RECORD, cl, pp,
+			PLAYER_IDENTITY_INVALID_ARGUMENT);
+	}
+	if (pp->playernum >= MAX_PLAYERS) {
+		return netServerRestoreReject(NET_RESTORE_INVALID_PLAYER_SLOT, cl, pp,
+			PLAYER_IDENTITY_INVALID_ARGUMENT);
+	}
+	if (!netServerReconnectSettingsMatch(pp, settings_plan, sanitized_team)) {
+		return netServerRestoreReject(NET_RESTORE_SETTINGS_MISMATCH, cl, pp,
+			PLAYER_IDENTITY_OK);
 	}
 
-	cl->playernum = pp->playernum;
-	cl->settings.team = pp->team;
+	out->identity_status = playerIdentityPrepare(pp->settings.body_id,
+		pp->settings.head_id, &out->identity);
+	if (out->identity_status != PLAYER_IDENTITY_OK
+			|| strcmp(pp->config.base.body_id, out->identity.body_id) != 0
+			|| strcmp(pp->config.base.head_id, out->identity.head_id) != 0
+			|| pp->config.base.mpbodynum != (out->identity.mp_body_index >= 0
+				? (u8)out->identity.mp_body_index : 0xFF)
+			|| pp->config.base.mpheadnum != (out->identity.mp_head_index >= 0
+				? (u8)out->identity.mp_head_index : 0xFF)) {
+		return netServerRestoreReject(NET_RESTORE_INVALID_IDENTITY, cl, pp,
+			out->identity_status);
+	}
 
-	// restore score data to the player config
-	struct mpchrconfig *mpchr = &g_PlayerConfigsArray[pp->playernum].base;
-	memcpy(mpchr->killcounts, pp->killcounts, sizeof(mpchr->killcounts));
-	mpchr->numdeaths = pp->numdeaths;
-	mpchr->numpoints = pp->numpoints;
+	out->player = g_Vars.players[pp->playernum];
+	if (!out->player) {
+		return netServerRestoreReject(NET_RESTORE_MISSING_PLAYER, cl, pp,
+			out->identity_status);
+	}
+	if (!out->player->prop) {
+		return netServerRestoreReject(NET_RESTORE_MISSING_PROP, cl, pp,
+			out->identity_status);
+	}
+	if (out->player->prop->syncid != pp->prop_syncid) {
+		return netServerRestoreReject(NET_RESTORE_PROP_MISMATCH, cl, pp,
+			out->identity_status);
+	}
 
-	// re-link the player struct
-	cl->config = &g_PlayerConfigsArray[pp->playernum];
-	cl->config->client = cl;
-	cl->player = g_Vars.players[pp->playernum];
-	if (cl->player) {
-		cl->player->client = cl;
-		cl->player->isremote = true;
-
-		// if the player was killed on disconnect, schedule a respawn
-		if (cl->player->isdead) {
-			cl->player->dostartnewlife = true;
-			sysLogPrintf(LOG_NOTE, "NET: scheduling respawn for reconnected player %s", pp->name);
+	for (s32 i = 0; i < g_NetMaxClients; i++) {
+		struct netclient *other = &g_NetClients[i];
+		if (other != cl && other->state == CLSTATE_GAME
+				&& !(other->flags & CLFLAG_ABSENT)
+				&& other->playernum == pp->playernum) {
+			return netServerRestoreReject(NET_RESTORE_SLOT_CONFLICT, cl, pp,
+				out->identity_status);
 		}
 	}
 
-	// apply settings to the config
-	struct mpplayerconfig *cfg = cl->config;
-	{
-		const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
-		const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
-		cfg->base.mpbodynum = be ? (u8)be->mp_index : 0;
-		cfg->base.mpheadnum = he ? (u8)he->mp_index : 0;
-		/* Phase 2: populate PRIMARY catalog ID string fields */
-		strncpy(cfg->base.body_id, cl->settings.body_id, sizeof(cfg->base.body_id) - 1);
-		cfg->base.body_id[sizeof(cfg->base.body_id) - 1] = '\0';
-		strncpy(cfg->base.head_id, cl->settings.head_id, sizeof(cfg->base.head_id) - 1);
-		cfg->base.head_id[sizeof(cfg->base.head_id) - 1] = '\0';
+	if (pp->room_id != 0xFF) {
+		out->room = roomGetById(pp->room_id);
+		if (!out->room || !roomCanRejoin(out->room, (u8)cl->id)) {
+			return netServerRestoreReject(NET_RESTORE_ROOM_UNAVAILABLE, cl, pp,
+				out->identity_status);
+		}
 	}
-	cfg->controlmode = CONTROLMODE_NA;
-	snprintf(cfg->base.name, sizeof(cfg->base.name), "%s\n", cl->settings.name);
-	cfg->options = g_PlayerConfigsArray[0].options & OPTION_PAINTBALL;
-	cfg->options |= cl->settings.options & ~OPTION_PAINTBALL;
-	cfg->options &= ~(OPTION_AIMCONTROL | OPTION_LOOKAHEAD);
-	cfg->options |= OPTION_FORWARDPITCH | OPTION_ASKEDSAVEPLAYER;
+	out->config = pp->config;
+	out->config.client = cl;
+	return NET_RESTORE_OK;
+}
 
+enum net_restore_result netServerRestorePreserved(struct netclient *cl,
+		struct netpreservedplayer *pp,
+		const net_client_settings_plan_t *settings_plan,
+		u8 sanitized_team,
+		struct netbuf *stage_wire,
+		u32 *out_stage_len)
+{
+	struct net_restore_candidate candidate;
+	struct mpplayerconfig config_before;
+	struct netclientsettings settings_before;
+	struct mpplayerconfig *client_config_before;
+	struct player *client_player_before;
+	struct netclient *player_client_before;
+	u32 client_state_before;
+	u32 client_flags_before;
+	u8 client_playernum_before;
+	u8 client_room_before;
+	u8 player_newlife_before;
+	bool player_remote_before;
+	u8 auth_cookie_before[NET_AUTH_COOKIE_LEN];
+	u32 stage_len;
+	enum net_restore_result result;
+
+	if (!stage_wire || !stage_wire->data || !out_stage_len
+			|| stage_wire->size == 0 || (cl && cl->reconnect_resync_pending)) {
+		return netServerRestoreReject(NET_RESTORE_INVALID_ARGUMENT, cl, pp,
+			PLAYER_IDENTITY_INVALID_ARGUMENT);
+	}
+	*out_stage_len = 0;
+	result = netServerPrepareRestoreCandidate(cl, pp, settings_plan,
+		sanitized_team, &candidate);
+	if (result != NET_RESTORE_OK) {
+		return result;
+	}
+
+	config_before = g_PlayerConfigsArray[pp->playernum];
+	settings_before = cl->settings;
+	client_config_before = cl->config;
+	client_player_before = cl->player;
+	client_playernum_before = cl->playernum;
+	client_room_before = cl->room_id;
+	client_state_before = cl->state;
+	client_flags_before = cl->flags;
+	memcpy(auth_cookie_before, cl->auth_cookie, sizeof(auth_cookie_before));
+	player_client_before = candidate.player->client;
+	player_remote_before = candidate.player->isremote;
+	player_newlife_before = candidate.player->dostartnewlife;
+
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.PREFLIGHT reconnect client=%u player=%u room=%u prop=%u body='%s' head='%s' exact_settings=1 reservation_retained=1",
+		(unsigned)cl->id, (unsigned)pp->playernum, (unsigned)pp->room_id,
+		(unsigned)pp->prop_syncid, candidate.identity.body_id,
+		candidate.identity.head_id);
+
+	/* Publish only long enough to serialize the exact immutable roster. Room
+	 * membership, preserved identity, and every gameplay linkage remain
+	 * uncommitted until the receiver reports its real post-load boundary. */
+	g_PlayerConfigsArray[pp->playernum] = candidate.config;
+	cl->settings = pp->settings;
+	cl->playernum = pp->playernum;
+	cl->room_id = pp->room_id;
+	cl->config = &g_PlayerConfigsArray[pp->playernum];
+	cl->player = candidate.player;
+	candidate.player->client = cl;
+	candidate.player->isremote = true;
 	cl->state = CLSTATE_GAME;
+	cl->flags &= ~CLFLAG_ABSENT;
+	memcpy(cl->auth_cookie, pp->cookie, sizeof(cl->auth_cookie));
 
-	/* MASTER-C3: cl->auth_cookie was already refreshed in netmsgClcAuthRead
-	 * before this call, and SVC_AUTH will ship the new cookie back to the
-	 * client.  We clear the preserved slot so the freshly-issued cookie is
-	 * what the client must present on any future reconnect. */
+	netbufStartWrite(stage_wire);
+	if (netmsgSvcStageReplayWrite(stage_wire) != 0 || stage_wire->wp == 0) {
+		result = NET_RESTORE_STAGE_WRITE_FAILED;
+		goto restore_temporary_publication;
+	}
+	stage_len = stage_wire->wp;
+	if (netSend(cl, stage_wire, true, NETCHAN_DEFAULT) != stage_len) {
+		result = NET_RESTORE_STAGE_SEND_FAILED;
+		goto restore_temporary_publication;
+	}
+	result = NET_RESTORE_OK;
 
-	// clear the preserved slot
-	pp->active = false;
-	--g_NetNumPreserved;
+restore_temporary_publication:
+	g_PlayerConfigsArray[pp->playernum] = config_before;
+	cl->settings = settings_before;
+	cl->config = client_config_before;
+	cl->player = client_player_before;
+	cl->playernum = client_playernum_before;
+	cl->room_id = client_room_before;
+	cl->state = client_state_before;
+	cl->flags = client_flags_before;
+	memcpy(cl->auth_cookie, auth_cookie_before, sizeof(auth_cookie_before));
+	candidate.player->client = player_client_before;
+	candidate.player->isremote = player_remote_before;
+	candidate.player->dostartnewlife = player_newlife_before;
 
-	sysLogPrintf(LOG_NOTE, "NET: restored player %s to playernum %u", cl->settings.name, pp->playernum);
+	if (result != NET_RESTORE_OK) {
+		netbufStartWrite(stage_wire);
+		return netServerRestoreReject(result, cl, pp,
+			candidate.identity_status);
+	}
+
+	cl->stage_ready = false;
+	cl->reconnect_resync_pending = true;
+	cl->reconnect_gameplay_witness_pending = false;
+	*out_stage_len = stage_len;
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.PREPARED reconnect client=%u player=%u room=%u prop=%u stage_bytes=%u reservation_retained=1 commit=pending_post_load",
+		(unsigned)cl->id, (unsigned)pp->playernum, (unsigned)pp->room_id,
+		(unsigned)pp->prop_syncid, (unsigned)stage_len);
+	return NET_RESTORE_OK;
+}
+
+enum net_restore_result netServerCompleteReconnect(struct netclient *cl)
+{
+	struct net_restore_candidate candidate;
+	struct netpreservedplayer *pp;
+	struct mpplayerconfig config_before;
+	struct netclientsettings settings_before;
+	struct mpplayerconfig *client_config_before;
+	struct player *client_player_before;
+	struct netclient *player_client_before;
+	hub_room_t room_before;
+	u32 client_state_before;
+	u32 client_flags_before;
+	u8 client_playernum_before;
+	u8 client_room_before;
+	u8 player_newlife_before;
+	bool player_remote_before;
+	bool stage_ready_before;
+	u8 auth_cookie_before[NET_AUTH_COOKIE_LEN];
+	char reconnect_name[NET_MAX_NAME];
+	s32 state_send_result;
+	enum net_restore_result result;
+
+	if (!cl || !cl->reconnect_resync_pending
+			|| cl->reconnect_preserved_index >= NET_MAX_CLIENTS) {
+		return netServerRestoreReject(NET_RESTORE_INVALID_ARGUMENT, cl, NULL,
+			PLAYER_IDENTITY_INVALID_ARGUMENT);
+	}
+	pp = &g_NetPreservedPlayers[cl->reconnect_preserved_index];
+	result = netServerPrepareRestoreCandidate(cl, pp,
+		&cl->reconnect_settings_plan, cl->reconnect_sanitized_team, &candidate);
+	if (result != NET_RESTORE_OK) {
+		return result;
+	}
+	strncpy(reconnect_name, pp->name, sizeof(reconnect_name) - 1);
+	reconnect_name[sizeof(reconnect_name) - 1] = '\0';
+
+	if (candidate.room) {
+		room_before = *candidate.room;
+	}
+	config_before = g_PlayerConfigsArray[pp->playernum];
+	settings_before = cl->settings;
+	client_config_before = cl->config;
+	client_player_before = cl->player;
+	client_playernum_before = cl->playernum;
+	client_room_before = cl->room_id;
+	client_state_before = cl->state;
+	client_flags_before = cl->flags;
+	stage_ready_before = cl->stage_ready;
+	memcpy(auth_cookie_before, cl->auth_cookie, sizeof(auth_cookie_before));
+	player_client_before = candidate.player->client;
+	player_remote_before = candidate.player->isremote;
+	player_newlife_before = candidate.player->dostartnewlife;
+
+	if (candidate.room && !roomRejoin(candidate.room, (u8)cl->id)) {
+		return netServerRestoreReject(NET_RESTORE_ROOM_UNAVAILABLE, cl, pp,
+			candidate.identity_status);
+	}
+	g_PlayerConfigsArray[pp->playernum] = candidate.config;
+	cl->settings = pp->settings;
+	cl->playernum = pp->playernum;
+	cl->room_id = pp->room_id;
+	cl->config = &g_PlayerConfigsArray[pp->playernum];
+	cl->player = candidate.player;
+	candidate.player->client = cl;
+	candidate.player->isremote = true;
+	if (candidate.player->isdead) {
+		candidate.player->dostartnewlife = true;
+	}
+	cl->state = CLSTATE_GAME;
+	cl->flags &= ~CLFLAG_ABSENT;
+	cl->stage_ready = true;
+	memcpy(cl->auth_cookie, pp->cookie, sizeof(cl->auth_cookie));
+
+	state_send_result = netServerSendReconnectState(cl);
+	if (state_send_result != 0) {
+		if (candidate.room) {
+			*candidate.room = room_before;
+		}
+		g_PlayerConfigsArray[pp->playernum] = config_before;
+		cl->settings = settings_before;
+		cl->config = client_config_before;
+		cl->player = client_player_before;
+		cl->playernum = client_playernum_before;
+		cl->room_id = client_room_before;
+		cl->state = client_state_before;
+		cl->flags = client_flags_before;
+		cl->stage_ready = stage_ready_before;
+		memcpy(cl->auth_cookie, auth_cookie_before,
+			sizeof(auth_cookie_before));
+		candidate.player->client = player_client_before;
+		candidate.player->isremote = player_remote_before;
+		candidate.player->dostartnewlife = player_newlife_before;
+		return netServerRestoreReject(
+			state_send_result == -1 || state_send_result == -3
+				? NET_RESTORE_STATE_WRITE_FAILED
+				: NET_RESTORE_STATE_SEND_FAILED,
+			cl, pp,
+			candidate.identity_status);
+	}
+
+	memset(pp, 0, sizeof(*pp));
+	if (g_NetNumPreserved > 0) {
+		--g_NetNumPreserved;
+	}
+	cl->reconnect_preserved_index = NET_NULL_CLIENT;
+	cl->reconnect_settings_pending = false;
+	cl->reconnect_manifest_phase = NET_RECONNECT_MANIFEST_NONE;
+	cl->reconnect_manifest_hash = 0;
+	netRoomListMarkDirty();
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.COMMIT reconnect client=%u player=%u room=%u prop=%u team=%u body='%s' head='%s' points=%d deaths=%d cookie_preserved=1 post_load_ready=1 resync=targeted",
+		(unsigned)cl->id, (unsigned)cl->playernum, (unsigned)cl->room_id,
+		(unsigned)cl->player->prop->syncid, (unsigned)cl->settings.team,
+		cl->settings.body_id, cl->settings.head_id,
+		(int)cl->config->base.numpoints, (int)cl->config->base.numdeaths);
+	sysLogPrintf(LOG_NOTE,
+		"NET: %s (%u) reconnected player=%u room=%u stable_id=1 resync_once=1",
+		reconnect_name, (unsigned)cl->id, (unsigned)cl->playernum,
+		(unsigned)cl->room_id);
+	netChatPrintf(NULL, "%s reconnected", reconnect_name);
+	netmsgServerPublishAuthenticatedTopology();
+	return NET_RESTORE_OK;
+}
+
+s32 netServerSendReconnectState(struct netclient *dstcl)
+{
+	struct netbuf wire;
+	net_reconnect_snapshot_result_t snapshot_result;
+	u8 *data;
+	u32 bytes;
+
+	if (g_NetMode != NETMODE_SERVER || !dstcl || !dstcl->peer
+			|| dstcl->state != CLSTATE_GAME
+			|| !dstcl->reconnect_resync_pending) {
+		return -1;
+	}
+
+	data = (u8 *)malloc(NET_BUFSIZE);
+	if (!data) {
+		return -2;
+	}
+	memset(&wire, 0, sizeof(wire));
+	wire.data = data;
+	wire.size = NET_BUFSIZE;
+	netbufStartWrite(&wire);
+	if (netmsgSvcReconnectStateWrite(&wire, dstcl, &snapshot_result) != 0
+			|| wire.wp == 0) {
+		sysLogPrintf(LOG_ERROR,
+			"NET.RECONNECT.RESYNC.FAIL target_client=%u status=%s subject_client=%d prop=%u prop_reason=%s prop_type=%d obj_type=%d model=%d scale=%g weapon=%d dual_weapon=%d dual_prop=%u parent=%u hidden=0x%08x hidden2=0x%02x attachment_mtx=%d objective=%d bytes=%u capacity=%u atomic=1",
+			(unsigned)dstcl->id,
+			netmsgReconnectSnapshotStatusString(snapshot_result.status),
+			snapshot_result.client_id == NET_NULL_CLIENT
+				? -1 : (s32)snapshot_result.client_id,
+			(unsigned)snapshot_result.prop_syncid,
+			netmsgReconnectPropStateStatusString(
+				snapshot_result.prop_state_status),
+			(int)snapshot_result.prop_type,
+			(int)snapshot_result.object_type,
+			(int)snapshot_result.model_num,
+			(double)snapshot_result.model_scale,
+			(int)snapshot_result.weapon_num,
+			(int)snapshot_result.dual_weapon_num,
+			(unsigned)snapshot_result.dual_prop_syncid,
+			(unsigned)snapshot_result.parent_syncid,
+			(unsigned)snapshot_result.object_hidden,
+			(unsigned)snapshot_result.object_hidden2,
+			(int)snapshot_result.attachment_mtx_index,
+			(int)snapshot_result.objective_index,
+			(unsigned)snapshot_result.bytes_written,
+			(unsigned)snapshot_result.capacity);
+		free(data);
+		return -3;
+	}
+	bytes = wire.wp;
+	if (netSend(dstcl, &wire, true, NETCHAN_DEFAULT) != bytes) {
+		free(data);
+		return -4;
+	}
+	free(data);
+
+	dstcl->reconnect_resync_pending = false;
+	dstcl->reconnect_gameplay_witness_pending = true;
+	sysLogPrintf(LOG_NOTE,
+		"NET.RECONNECT.RESYNC client=%u bytes=%u post_load_ready=1 targeted=1 ordered=1",
+		(unsigned)dstcl->id, (unsigned)bytes);
+	return 0;
 }
 
 static void netServerEvConnect(ENetPeer *peer, const u32 data)
 {
+	net_reconnect_connect_status_e connect_status;
+	struct netpreservedplayer *pp = NULL;
+	s32 reconnect = false;
+	u8 reconnect_client_id = NET_NULL_CLIENT;
+
 	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: incoming connection");
 
-	if (data != NET_PROTOCOL_VER) {
-		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection rejected: protocol mismatch (got %u, expected %u)", data, NET_PROTOCOL_VER);
+	connect_status = netReconnectConnectDataDecode(data, NET_PROTOCOL_VER,
+		NET_NULL_CLIENT, &reconnect, &reconnect_client_id);
+	if (connect_status != NET_RECONNECT_CONNECT_OK) {
+		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON,
+			"NET: connection rejected: connect-data status=%s raw=%u expected_protocol=%u",
+			netReconnectConnectStatusString(connect_status), data,
+			NET_PROTOCOL_VER);
 		enet_peer_disconnect(peer, DISCONNECT_VERSION);
 		return;
 	}
@@ -1748,29 +2693,42 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 		}
 	}
 
-	const bool ingame = (g_NetLocalClient && g_NetLocalClient->state > CLSTATE_LOBBY);
+	const bool ingame = netServerMatchInProgress() != 0;
 
 	struct netclient *cl = NULL;
 
 	/* Dedicated server: slot 0 is free for real players.
 	 * Listen server: slot 0 is the host, start at 1. */
 	s32 slotStart = g_NetDedicated ? 0 : 1;
-	for (s32 i = slotStart; i < g_NetMaxClients; ++i) {
-		if (!g_NetClients[i].state) {
-			cl = &g_NetClients[i];
-			break;
+	if (ingame) {
+		if (!reconnect || reconnect_client_id < slotStart
+				|| reconnect_client_id >= g_NetMaxClients) {
+			sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON,
+				"NET: connection rejected: live match requires a valid stable-slot reconnect hint");
+			enet_peer_disconnect(peer, DISCONNECT_LATE);
+			return;
+		}
+		pp = netServerFindPreservedByClientId(reconnect_client_id);
+		if (!pp || g_NetClients[reconnect_client_id].state != CLSTATE_DISCONNECTED) {
+			sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON,
+				"NET: connection rejected: preserved stable slot %u is unavailable",
+				(unsigned)reconnect_client_id);
+			enet_peer_disconnect(peer, DISCONNECT_LATE);
+			return;
+		}
+		cl = &g_NetClients[reconnect_client_id];
+	} else {
+		for (s32 i = slotStart; i < g_NetMaxClients; ++i) {
+			if (!g_NetClients[i].state) {
+				cl = &g_NetClients[i];
+				break;
+			}
 		}
 	}
 
 	if (!cl) {
 		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection rejected: server full");
 		enet_peer_disconnect(peer, DISCONNECT_FULL);
-		return;
-	}
-
-	if (ingame && g_NetNumPreserved == 0) {
-		sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: connection rejected: game in progress, no preserved slots");
-		enet_peer_disconnect(peer, DISCONNECT_LATE);
 		return;
 	}
 
@@ -1781,13 +2739,39 @@ static void netServerEvConnect(ENetPeer *peer, const u32 data)
 	cl->state = CLSTATE_AUTH; // skip CLSTATE_CONNECTING, since we already know it connected
 	cl->peer = peer;
 	cl->flags = ingame ? CLFLAG_ABSENT : 0; // mark as pending reconnect if mid-game
+	if (pp) {
+		cl->reconnect_preserved_index = (u8)(pp - g_NetPreservedPlayers);
+	}
 	enet_peer_set_data(peer, cl);
-	sysLogPrintf(LOG_NOTE, "NET: client slot %d assigned to peer", (int)(cl - g_NetClients));
+	sysLogPrintf(LOG_NOTE,
+		"NET: client slot %d assigned to peer reconnect=%d preserved_index=%u",
+		(int)(cl - g_NetClients), reconnect != 0,
+		(unsigned)cl->reconnect_preserved_index);
 }
 
-static void netServerEvDisconnect(struct netclient *cl)
+static void netServerEvDisconnect(struct netclient *cl,
+		const u32 transport_reason)
 {
-	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON, "NET: disconnect event from client %u", cl->id);
+	const net_reconnect_disconnect_plan_t disconnect_plan =
+		netReconnectPlanServerDisconnect(transport_reason,
+			cl && cl->server_disconnect_intent_pending,
+			cl ? cl->server_disconnect_intent_reason : DISCONNECT_UNKNOWN);
+	const u32 reason = disconnect_plan.effective_reason;
+
+	if (disconnect_plan.used_server_intent) {
+		cl->server_disconnect_intent_pending = false;
+		cl->server_disconnect_intent_reason = DISCONNECT_UNKNOWN;
+	}
+	const bool authenticated = cl && cl->state >= CLSTATE_LOBBY;
+	const bool retryable = netReconnectReasonIsRetryable(reason,
+		DISCONNECT_TIMEOUT) != 0;
+	bool reconnect_preserved = false;
+
+	sysLogPrintf(LOG_NOTE | LOGFLAG_NOCON,
+		"NET: disconnect event from client %u reason=%u transport_reason=%u server_intent=%d retryable=%d",
+		cl->id, reason, transport_reason,
+		disconnect_plan.used_server_intent != 0, retryable != 0);
+	netmsgCutsceneAuthorityRetireClient(cl->id);
 
 	if (cl->peer) {
 		enet_peer_reset(cl->peer);
@@ -1795,8 +2779,12 @@ static void netServerEvDisconnect(struct netclient *cl)
 
 	// if client was in a game, preserve their identity and scores for reconnection,
 	// then kill their character so it doesn't stand idle as a free target
-	if (cl->state >= CLSTATE_GAME && cl->settings.name[0]) {
-		netServerPreservePlayer(cl);
+	if (cl->state == CLSTATE_GAME && cl->settings.name[0]) {
+		if (retryable) {
+			netServerPreservePlayer(cl);
+			reconnect_preserved =
+				netServerFindPreservedByClientId((u8)cl->id) != NULL;
+		}
 
 		// kill the disconnected player's character (client is still linked,
 		// so playerDie will broadcast SVC_PLAYER_STATS to all clients)
@@ -1809,17 +2797,47 @@ static void netServerEvDisconnect(struct netclient *cl)
 		}
 	}
 
+	/* Once an authenticated reconnect attempt ends for a policy/content/user
+	 * reason, the client deliberately discards its credential. Release the
+	 * matching server reservation in the same terminal path. An unauthenticated
+	 * wrong-cookie probe can never reach this branch and therefore cannot evict
+	 * the real owner's reservation. */
+	if (!retryable && authenticated
+			&& cl->reconnect_preserved_index < NET_MAX_CLIENTS) {
+		const u8 preserved_index = cl->reconnect_preserved_index;
+		/* This peer is already inside its ENet disconnect callback. Detach the
+		 * transaction index before releasing the record so the general expiry
+		 * helper does not try to disconnect the same reset peer a second time. */
+		cl->reconnect_preserved_index = NET_NULL_CLIENT;
+		netServerDiscardPreservedPlayer(
+			&g_NetPreservedPlayers[preserved_index],
+			"authenticated_terminal_disconnect");
+	}
+
 	/* R-3: Remove from room before reset (room_id cleared by netClientReset) */
 	if (cl->room_id != 0xFF) {
 		hub_room_t *room = roomGetById(cl->room_id);
-		if (room) {
-			roomLeave(room, cl->id);
+		if (reconnect_preserved
+				&& (!room || !roomLeaveForReconnect(room, (u8)cl->id))) {
+			/* Preservation is useful only if every owned topology slot was
+			 * reserved. Fail closed rather than publish a record that can never
+			 * restore atomically. */
+			netServerDiscardPreservedPlayer(
+				netServerFindPreservedByClientId((u8)cl->id),
+				"room_reservation_failed");
+			reconnect_preserved = false;
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ROLLBACK reconnect status=room_reservation_failed client=%u globals_published=0",
+				(unsigned)cl->id);
+		}
+		if (room && !reconnect_preserved) {
+			roomLeave(room, (u8)cl->id);
 		}
 	}
 
 	if (cl->id == g_NetBotAuthorityClientId) {
 		g_NetBotAuthorityClientId = NET_NULL_CLIENT;
-		if (g_NetDedicated && cl->state >= CLSTATE_GAME) {
+		if (g_NetDedicated && cl->state == CLSTATE_GAME) {
 			g_NetBotAuthorityDelegated = false;
 			g_NetStageReadyDeadline = (s32)(g_NetTick + 120);
 			sysLogPrintf(LOG_NOTE,
@@ -1837,7 +2855,9 @@ static void netServerEvDisconnect(struct netclient *cl)
 
 	netClientReset(cl);
 
-	--g_NetNumClients;
+	if (authenticated && g_NetNumClients > 0) {
+		--g_NetNumClients;
+	}
 
 	/* R-3: Broadcast updated room list after client leaves */
 	netBroadcastRoomList();
@@ -1906,15 +2926,24 @@ static void netClientEvConnect(const u32 data)
 
 	// send auth request
 	netbufStartWrite(&g_NetMsgRel);
-	netmsgClcAuthWrite(&g_NetMsgRel);
-	netmsgClcSettingsWrite(&g_NetMsgRel);
+	if (netmsgClcAuthWrite(&g_NetMsgRel) != 0
+			|| netmsgClcSettingsWrite(&g_NetMsgRel) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: client auth/settings preflight rejected; no handshake packet sent");
+		netbufStartWrite(&g_NetMsgRel);
+		if (g_NetLocalClient->peer) {
+			enet_peer_disconnect(g_NetLocalClient->peer, DISCONNECT_FILES);
+		}
+		return;
+	}
 	netSend(g_NetLocalClient, &g_NetMsgRel, true, NETCHAN_CONTROL);
 }
 
 static void netClientEvDisconnect(const u32 reason)
 {
 	sysLogPrintf(LOG_CHAT, "NET: disconnected from server: %s (%u)", netGetDisconnectReason(reason), reason);
-	netDisconnect();
+	netDisconnectWithIntent(netReconnectReasonIsRetryable(reason,
+		DISCONNECT_TIMEOUT));
 }
 
 static void netClientEvReceive(struct netclient *cl)
@@ -1958,6 +2987,12 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_OBJ_STATUS: rc = netmsgSvcObjStatusRead(&cl->in, cl); break;
 			case SVC_ALARM: rc = netmsgSvcAlarmRead(&cl->in, cl); break;
 			case SVC_CUTSCENE: rc = netmsgSvcCutsceneRead(&cl->in, cl); break;
+			case SVC_CUTSCENE_SKIP: rc = netmsgSvcCutsceneSkipRead(&cl->in, cl); break;
+			case SVC_RECONNECT_PROP_BEGIN: rc = netmsgSvcReconnectPropBeginRead(&cl->in, cl); break;
+			case SVC_RECONNECT_PROP_STATE: rc = netmsgSvcReconnectPropStateRead(&cl->in, cl); break;
+			case SVC_RECONNECT_PROP_END: rc = netmsgSvcReconnectPropEndRead(&cl->in, cl); break;
+			case SVC_RECONNECT_INVENTORY: rc = netmsgSvcReconnectInventoryRead(&cl->in, cl); break;
+			case SVC_RECONNECT_COMMIT: rc = netmsgSvcReconnectCommitRead(&cl->in, cl); break;
 			case SVC_LOBBY_LEADER:   rc = netmsgSvcLobbyLeaderRead(&cl->in, cl); break;
 			case SVC_LOBBY_STATE:    rc = netmsgSvcLobbyStateRead(&cl->in, cl); break;
 			/* D3R-9: Network Distribution */
@@ -2007,6 +3042,30 @@ static void netClientEvReceive(struct netclient *cl)
 
 	if (rc) {
 		sysLogPrintf(LOG_WARNING, "NET: malformed or unknown message 0x%02x from server", msgid);
+		/* Stage publication is transactional on both peers. If a stage replay
+		 * cannot be validated and applied, continuing on the old local stage
+		 * after the server has reliably queued the new snapshot would create a
+		 * split-brain client. Close with a terminal content/protocol reason; a
+		 * reconnect credential is intentionally not retained for malformed
+		 * authoritative state. */
+		const bool reconnect_transaction = s_NetReconnectAttempt.valid;
+		const bool reconnect_control = msgid == SVC_AUTH
+			|| msgid == SVC_MATCH_MANIFEST
+			|| msgid == SVC_SESSION_CATALOG
+			|| msgid == SVC_ROOM_ASSIGN
+			|| msgid == SVC_CATALOG_INFO
+			|| msgid == SVC_DISTRIB_BEGIN
+			|| msgid == SVC_DISTRIB_CHUNK
+			|| msgid == SVC_DISTRIB_END;
+		if ((msgid == SVC_STAGE_START
+				|| (reconnect_transaction
+					&& (reconnect_control || (cl && cl->stage_ready))))
+				&& cl && cl->peer) {
+			sysLogPrintf(LOG_ERROR,
+				"NET.RECONNECT.CLIENT authoritative message rejected id=0x%02x reconnect=%u terminal=1",
+				(unsigned)msgid, reconnect_transaction ? 1u : 0u);
+			enet_peer_disconnect(cl->peer, DISCONNECT_FILES);
+		}
 	}
 }
 
@@ -2019,17 +3078,46 @@ void netClientSyncRng(void)
 	}
 }
 
-void netClientSettingsChanged(void)
+s32 netClientSettingsChanged(void)
 {
-	if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient) {
-		return;
+	const bool is_remote_client = g_NetMode == NETMODE_CLIENT;
+	const bool is_listen_host = g_NetMode == NETMODE_SERVER && !g_NetDedicated;
+	net_client_settings_plan_t plan;
+	net_client_settings_wire_status_e status;
+	player_identity_status_e identity_status;
+
+	if (!g_NetLocalClient || (!is_remote_client && !is_listen_host)) {
+		return -1;
 	}
 
+	/* The historical name predates in-client listen hosting. Both network
+	 * roles own a local settings cache, but only a remote client has a server
+	 * peer to notify. Refreshing the listen host in place keeps lobby resets
+	 * and player-file changes on the same authoritative path without sending
+	 * a client opcode through a null ENet peer. */
 	netClientReadConfig(g_NetLocalClient, 0);
+	status = netClientPrepareCachedSettings(g_NetLocalClient, &plan,
+		&identity_status);
+	if (status != NET_CLIENT_SETTINGS_WIRE_OK) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.PREFLIGHT local-settings=reject status=%s identity=%s team=%u handicap=%u",
+			netClientSettingsWireStatusString(status),
+			playerIdentityStatusString(identity_status),
+			(unsigned)g_NetLocalClient->settings.team,
+			(unsigned)g_NetLocalClient->settings.handicap);
+		return -2;
+	}
+	netClientCommitPreparedSettings(g_NetLocalClient, &plan);
+	if (is_listen_host) {
+		return 0;
+	}
 
 	netbufStartWrite(&g_NetMsgRel);
-	netmsgClcSettingsWrite(&g_NetMsgRel);
-	netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL);
+	if (netmsgClcSettingsWrite(&g_NetMsgRel) != 0) {
+		netbufStartWrite(&g_NetMsgRel);
+		return -3;
+	}
+	return netSend(NULL, &g_NetMsgRel, true, NETCHAN_CONTROL) > 0 ? 0 : -4;
 }
 
 void netStartFrame(void)
@@ -2080,7 +3168,9 @@ void netStartFrame(void)
 				} else if (ev.peer) {
 					struct netclient *cl = enet_peer_get_data(ev.peer);
 					if (cl) {
-						netServerEvDisconnect(cl);
+						netServerEvDisconnect(cl,
+							ev.type == ENET_EVENT_TYPE_DISCONNECT_TIMEOUT
+								? DISCONNECT_TIMEOUT : ev.data);
 					} else {
 						// No attached client — spurious disconnect from peer that never completed auth.
 						// Do NOT decrement g_NetNumClients here: it was never incremented for this peer.
@@ -2118,6 +3208,13 @@ void netStartFrame(void)
 
 void netEndFrame(void)
 {
+	const bool terminal_stage_end_frame = g_NetMode == NETMODE_SERVER
+		&& (s_NetStageEndPending.active || s_NetStageEndTerminalFrame);
+	const bool authority_pending_frame = g_NetMode == NETMODE_SERVER
+		&& !terminal_stage_end_frame
+		&& netmsgCutsceneAuthorityHasPendingEvents();
+	bool authority_publication_failed = false;
+
 	if (!g_NetMode) {
 		return;
 	}
@@ -2125,8 +3222,24 @@ void netEndFrame(void)
 	g_NetReliableFrameLen = 0;
 	g_NetUnreliableFrameLen = 0;
 
-	// send whatever messages have accumulated so far
-	netFlushSendBuffers();
+	/* Any authority event already pending at this boundary supersedes ordinary
+	 * game messages accumulated since netStartFrame. Discard those shared
+	 * buffers, then publish the dedicated authority packet first. This keeps a
+	 * retained START/ACCEPT retry from being overtaken just as strictly as the
+	 * terminal END + SVC_STAGE_END transaction. */
+	if (terminal_stage_end_frame || authority_pending_frame) {
+		netbufStartWrite(&g_NetMsg);
+		netbufStartWrite(&g_NetMsgRel);
+	} else {
+		// send whatever messages have accumulated so far
+		netFlushSendBuffers();
+	}
+	if (terminal_stage_end_frame && s_NetStageEndPending.active) {
+		(void)netServerFlushPendingStageEnd("end-frame-stage-end");
+	} else if (authority_pending_frame
+			&& !netServerFlushCutsceneAuthority("end-frame-priority")) {
+		authority_publication_failed = true;
+	}
 
 	/* Phase 3 (v42): spectator host fan-out. Server-side only. The
 	 * SPECTATOR_FANOUT_HZ cadence is enforced inside
@@ -2134,7 +3247,8 @@ void netEndFrame(void)
 	 * we can call this every tick on both `pd` (listen host) and
 	 * `pd-server` (dedicated). No-op when no spectator clients are
 	 * subscribed. */
-	if (g_NetMode == NETMODE_SERVER) {
+	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
+			&& !authority_publication_failed) {
 		netSendSpectateStateFrame();
 	}
 
@@ -2161,13 +3275,21 @@ void netEndFrame(void)
 		}
 	}
 
+	/* Reservation lifetime is server state, not broadcast work. It must keep
+	 * advancing even when the last remote client is currently disconnected. */
+	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame) {
+		netServerExpirePreservedPlayers();
+	}
+
 	/* --- Server: broadcast game state to all clients ---
 	 * CRITICAL: This block must NOT be guarded by g_NetLocalClient — on a
 	 * dedicated server g_NetLocalClient is NULL, so putting this inside a
 	 * g_NetLocalClient guard makes the entire server broadcast path dead code.
 	 * Instead, check g_NetMode == NETMODE_SERVER and use g_NetNumClients to
 	 * know whether any clients are connected and need updates. */
-	if (g_NetMode == NETMODE_SERVER && g_NetNumClients > 0) {
+	if (g_NetMode == NETMODE_SERVER && g_NetNumClients > 0
+			&& !terminal_stage_end_frame
+			&& !authority_publication_failed) {
 		for (s32 i = 0; i < g_NetMaxClients; ++i) {
 			struct netclient *cl = &g_NetClients[i];
 			if (cl->state >= CLSTATE_GAME && cl->player) {
@@ -2261,18 +3383,6 @@ void netEndFrame(void)
 			}
 		}
 
-		// Expire preserved player slots after timeout
-		if (g_NetNumPreserved > 0 && (g_NetTick % 600) == 0) {
-			for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
-				if (g_NetPreservedPlayers[i].active
-						&& (g_NetTick - g_NetPreservedPlayers[i].preserveframe) > NET_PRESERVE_TIMEOUT_FRAMES) {
-					sysLogPrintf(LOG_NOTE, "NET: preserved player %s timed out", g_NetPreservedPlayers[i].name);
-					g_NetPreservedPlayers[i].active = false;
-					--g_NetNumPreserved;
-				}
-			}
-		}
-
 		/* L1-2: Periodic score broadcast every 300 frames (~5 s at 60 fps).
 		 * Score mutations are event-driven (SVC_PLAYER_STATS on each death), but
 		 * a single dropped reliable packet causes permanent divergence until
@@ -2334,7 +3444,8 @@ void netEndFrame(void)
 	}
 
 	/* D3R-9: tick mod distribution (runs in lobby and in-game, server only) */
-	if (g_NetMode == NETMODE_SERVER) {
+	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
+			&& !authority_publication_failed) {
 		netDistribServerTick();
 		/* Phase F: drive the match launch countdown (no-op until armed by readyGateCheck) */
 		readyGateTickCountdown();
@@ -2373,13 +3484,32 @@ void netEndFrame(void)
 			g_NetBotAuthorityDelegated = true;
 			g_NetStageReadyDeadline    = -1;
 		}
+
+	}
+
+	/* Catch any event introduced by future end-frame producers before the
+	 * shared buffers are flushed. On failure, retain the ordered authority
+	 * queue and discard all ordinary output from this frame. */
+	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
+			&& !authority_publication_failed
+			&& netmsgCutsceneAuthorityHasPendingEvents()
+			&& !netServerFlushCutsceneAuthority("end-frame-late")) {
+		authority_publication_failed = true;
+		netbufStartWrite(&g_NetMsg);
+		netbufStartWrite(&g_NetMsgRel);
 	}
 
 	// send position updates
-	netFlushSendBuffers();
+	if (terminal_stage_end_frame || authority_publication_failed) {
+		netbufStartWrite(&g_NetMsg);
+		netbufStartWrite(&g_NetMsgRel);
+	} else {
+		netFlushSendBuffers();
+	}
 
 	enet_host_flush(g_NetHost);
 	netUploadMeasurementTick();
+	s_NetStageEndTerminalFrame = false;
 }
 
 u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan)
@@ -2411,6 +3541,8 @@ u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, con
 			if (enet_peer_send(dstcl->peer, chan, p) < 0) {
 				sysLogPrintf(LOG_WARNING, "NET: enet_peer_send failed (%u bytes, chan %d)", buf->wp, chan);
 				enet_packet_destroy(p);
+				netbufStartWrite(buf);
+				return 0;
 			}
 		} else {
 			/* c3845: a peer-less client is the in-client listen host's own local
@@ -2429,23 +3561,29 @@ u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, con
 	return ret;
 }
 
-void netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan)
+u32 netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan)
 {
-	if (!g_NetHost || !buf || !buf->wp) return;
+	if (!g_NetHost || !buf || !buf->wp) return 0;
 
 	const u32 flags = reliable ? ENET_PACKET_FLAG_RELIABLE : 0;
+	const u32 bytes = buf->wp;
+	bool failed = false;
 
 	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
 		struct netclient *cl = &g_NetClients[i];
 		if (cl->state >= CLSTATE_LOBBY && cl->peer && cl->room_id == room_id) {
 			ENetPacket *p = enet_packet_create(buf->data, buf->wp, flags);
-			if (p) {
-				enet_peer_send(cl->peer, chan, p);
+			if (!p || enet_peer_send(cl->peer, chan, p) != 0) {
+				failed = true;
+				if (p) {
+					enet_packet_destroy(p);
+				}
 			}
 		}
 	}
 
 	netbufStartWrite(buf);
+	return failed ? 0 : bytes;
 }
 
 /* Snapshot of remote player configs before netPlayersAllocate overwrites them.
@@ -2454,107 +3592,259 @@ void netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan)
  * that arrives before the stage fully loads). */
 static struct mpplayerconfig s_RemoteConfigBackups[MAX_PLAYERS];
 
-void netPlayersAllocate(void)
+struct net_player_allocation_plan {
+	struct netclient *client;
+	struct player *player;
+	struct mpplayerconfig config;
+	player_identity_plan_t identity;
+	u8 playernum;
+	bool remote;
+};
+
+const char *netPlayerAllocateResultString(enum net_player_allocate_result result)
 {
-	s32 playernum = 0;
+	switch (result) {
+	case NET_PLAYER_ALLOC_OK: return "ok";
+	case NET_PLAYER_ALLOC_INVALID_MODE: return "invalid_mode";
+	case NET_PLAYER_ALLOC_MISSING_LOCAL_CLIENT: return "missing_local_client";
+	case NET_PLAYER_ALLOC_TOO_MANY_PLAYERS: return "too_many_players";
+	case NET_PLAYER_ALLOC_INVALID_PLAYER_SLOT: return "invalid_player_slot";
+	case NET_PLAYER_ALLOC_DUPLICATE_PLAYER_SLOT: return "duplicate_player_slot";
+	case NET_PLAYER_ALLOC_MISSING_PLAYER_OBJECT: return "missing_player_object";
+	case NET_PLAYER_ALLOC_INVALID_IDENTITY: return "invalid_identity";
+	default: return "unknown";
+	}
+}
+
+static enum net_player_allocate_result netPlayersAllocationReject(
+		enum net_player_allocate_result result, s32 client_id, s32 playernum,
+		player_identity_status_e identity_status)
+{
+	sysLogPrintf(LOG_ERROR,
+		"PLAYER.INIT.ROLLBACK network status=%s client=%d player=%d identity=%s globals_published=0",
+		netPlayerAllocateResultString(result), client_id, playernum,
+		playerIdentityStatusString(identity_status));
+	return result;
+}
+
+enum net_player_allocate_result netPlayersAllocate(void)
+{
+	struct net_player_allocation_plan plans[MAX_PLAYERS];
+	bool occupied_slots[MAX_PLAYERS] = { false };
+	s32 plan_count = 0;
+	s32 server_playernum = 0;
+	s32 client_local_wire_playernum = -1;
+
+	if (g_NetMode != NETMODE_SERVER && g_NetMode != NETMODE_CLIENT) {
+		return netPlayersAllocationReject(NET_PLAYER_ALLOC_INVALID_MODE,
+			-1, -1, PLAYER_IDENTITY_INVALID_ARGUMENT);
+	}
 
 	if (g_NetMode == NETMODE_CLIENT) {
-		// we always put the local player at index 0, even client-side
-		// which means that clientside we have to put the server's player into our slot
-		const s32 svplayernum = g_NetLocalClient->playernum;
-		g_NetLocalClient->playernum = 0;
-		g_NetClients[0].playernum = svplayernum;
+		if (g_NetLocalClient == NULL) {
+			return netPlayersAllocationReject(
+				NET_PLAYER_ALLOC_MISSING_LOCAL_CLIENT, -1, -1,
+				PLAYER_IDENTITY_INVALID_ARGUMENT);
+		}
+		client_local_wire_playernum = g_NetLocalClient->playernum;
 	}
+
+	sysLogPrintf(LOG_NOTE, "PLAYER.INIT.PREFLIGHT network mode=%d", g_NetMode);
 
 	for (s32 i = 0; i < g_NetMaxClients; ++i) {
 		struct netclient *cl = &g_NetClients[i];
-		if (cl->state < CLSTATE_LOBBY) {
+		struct net_player_allocation_plan *plan;
+		s32 playernum;
+		player_identity_status_e identity_status;
+
+		if (cl->state != CLSTATE_GAME || (cl->flags & CLFLAG_SPECTATOR)) {
 			continue;
 		}
 
+		if (plan_count >= MAX_PLAYERS) {
+			return netPlayersAllocationReject(NET_PLAYER_ALLOC_TOO_MANY_PLAYERS,
+				(s32)cl->id, -1, PLAYER_IDENTITY_INVALID_ARGUMENT);
+		}
+
 		if (g_NetMode == NETMODE_SERVER) {
-			// on the server allocate players sequentially
-			cl->playernum = playernum++;
+			playernum = server_playernum++;
+		} else if (cl == g_NetLocalClient) {
+			playernum = 0;
+		} else if (cl == &g_NetClients[0]) {
+			playernum = client_local_wire_playernum;
+		} else {
+			playernum = cl->playernum;
 		}
 
-		if (cl != g_NetLocalClient) {
-			// disable controls for the remote pawns and set their settings
-			struct mpplayerconfig *cfg = &g_PlayerConfigsArray[cl->playernum];
-			// Snapshot original config before overwrite; restore via s_RemoteConfigBackups[playernum]
-			// if the match fails to start after this point.
-			if (cl->playernum < MAX_PLAYERS) {
-				s_RemoteConfigBackups[cl->playernum] = *cfg;
-			}
-			{
-				const asset_entry_t *be = assetCatalogResolve(cl->settings.body_id);
-				const asset_entry_t *he = assetCatalogResolve(cl->settings.head_id);
-				cfg->base.mpbodynum = be ? (u8)be->runtime_index : 0;
-				cfg->base.mpheadnum = he ? (u8)he->runtime_index : 0;
-				/* Phase 2: populate PRIMARY catalog ID string fields */
-				strncpy(cfg->base.body_id, cl->settings.body_id, sizeof(cfg->base.body_id) - 1);
-				cfg->base.body_id[sizeof(cfg->base.body_id) - 1] = '\0';
-				strncpy(cfg->base.head_id, cl->settings.head_id, sizeof(cfg->base.head_id) - 1);
-				cfg->base.head_id[sizeof(cfg->base.head_id) - 1] = '\0';
-			}
-			cfg->controlmode = CONTROLMODE_NA;
-			snprintf(cfg->base.name, sizeof(cfg->base.name), "%s\n", cl->settings.name);
-			// take some of the options from our local player and others from the client
-			cfg->options = g_PlayerConfigsArray[0].options & OPTION_PAINTBALL;
-			cfg->options |= cl->settings.options & ~OPTION_PAINTBALL;
-			// don't enable toggle aim, invert pitch or lookahead for remote players
-			cfg->options &= ~(OPTION_AIMCONTROL | OPTION_LOOKAHEAD);
-			cfg->options |= OPTION_FORWARDPITCH | OPTION_ASKEDSAVEPLAYER;
+		if (playernum < 0 || playernum >= MAX_PLAYERS) {
+			return netPlayersAllocationReject(
+				NET_PLAYER_ALLOC_INVALID_PLAYER_SLOT, (s32)cl->id,
+				playernum, PLAYER_IDENTITY_INVALID_ARGUMENT);
+		}
+		if (occupied_slots[playernum]) {
+			return netPlayersAllocationReject(
+				NET_PLAYER_ALLOC_DUPLICATE_PLAYER_SLOT, (s32)cl->id,
+				playernum, PLAYER_IDENTITY_INVALID_ARGUMENT);
+		}
+		if (g_Vars.players[playernum] == NULL) {
+			return netPlayersAllocationReject(
+				NET_PLAYER_ALLOC_MISSING_PLAYER_OBJECT, (s32)cl->id,
+				playernum, PLAYER_IDENTITY_INVALID_ARGUMENT);
 		}
 
-		cl->config = &g_PlayerConfigsArray[cl->playernum];
-		cl->config->client = cl;
-		cl->config->handicap = 0x80;
-		cl->player = g_Vars.players[cl->playernum];
-		if (cl->player) {
-			cl->player->client = cl;
-			cl->player->isremote = (cl != g_NetLocalClient);
+		plan = &plans[plan_count];
+		memset(plan, 0, sizeof(*plan));
+		identity_status = playerIdentityPrepare(cl->settings.body_id,
+			cl->settings.head_id, &plan->identity);
+		if (identity_status != PLAYER_IDENTITY_OK) {
+			return netPlayersAllocationReject(NET_PLAYER_ALLOC_INVALID_IDENTITY,
+				(s32)cl->id, playernum, identity_status);
 		}
 
-		// Log player allocation
-		sysLogPrintf(LOG_NOTE, "NET: allocated playernum=%d body='%s' head='%s' name=%s",
-			cl->playernum, cl->settings.body_id, cl->settings.head_id, cl->settings.name);
+		plan->client = cl;
+		plan->player = g_Vars.players[playernum];
+		plan->playernum = (u8)playernum;
+		plan->remote = cl != g_NetLocalClient;
+		plan->config = g_PlayerConfigsArray[playernum];
+		plan->config.base.mpbodynum = plan->identity.mp_body_index >= 0
+			? (u8)plan->identity.mp_body_index : 0xFF;
+		plan->config.base.mpheadnum = plan->identity.mp_head_index >= 0
+			? (u8)plan->identity.mp_head_index : 0xFF;
+		strncpy(plan->config.base.body_id, plan->identity.body_id,
+			sizeof(plan->config.base.body_id) - 1);
+		plan->config.base.body_id[sizeof(plan->config.base.body_id) - 1] = '\0';
+		strncpy(plan->config.base.head_id, plan->identity.head_id,
+			sizeof(plan->config.base.head_id) - 1);
+		plan->config.base.head_id[sizeof(plan->config.base.head_id) - 1] = '\0';
+
+		if (plan->remote) {
+			plan->config.controlmode = CONTROLMODE_NA;
+			snprintf(plan->config.base.name, sizeof(plan->config.base.name),
+				"%s\n", cl->settings.name);
+			plan->config.options = g_PlayerConfigsArray[0].options & OPTION_PAINTBALL;
+			plan->config.options |= cl->settings.options & ~OPTION_PAINTBALL;
+			plan->config.options &= ~(OPTION_AIMCONTROL | OPTION_LOOKAHEAD);
+			plan->config.options |= OPTION_FORWARDPITCH | OPTION_ASKEDSAVEPLAYER;
+		}
+		plan->config.handicap = cl->settings.handicap;
+
+		occupied_slots[playernum] = true;
+		plan_count++;
 	}
+
+	if (plan_count == 0) {
+		return netPlayersAllocationReject(NET_PLAYER_ALLOC_MISSING_PLAYER_OBJECT,
+			-1, -1, PLAYER_IDENTITY_INVALID_ARGUMENT);
+	}
+
+	for (s32 i = 0; i < plan_count; i++) {
+		struct net_player_allocation_plan *plan = &plans[i];
+		if (plan->remote) {
+			s_RemoteConfigBackups[plan->playernum] =
+				g_PlayerConfigsArray[plan->playernum];
+		}
+		g_PlayerConfigsArray[plan->playernum] = plan->config;
+	}
+
+	for (s32 i = 0; i < plan_count; i++) {
+		struct net_player_allocation_plan *plan = &plans[i];
+		plan->client->playernum = plan->playernum;
+		plan->client->config = &g_PlayerConfigsArray[plan->playernum];
+		plan->client->config->client = plan->client;
+		plan->client->player = plan->player;
+		plan->player->client = plan->client;
+		plan->player->isremote = plan->remote;
+		sysLogPrintf(LOG_NOTE,
+			"NET: allocated playernum=%d body='%s' head='%s' name=%s",
+			plan->playernum, plan->identity.body_id, plan->identity.head_id,
+			plan->client->settings.name);
+	}
+
+	sysLogPrintf(LOG_NOTE, "PLAYER.INIT.COMMIT network players=%d", plan_count);
+	return NET_PLAYER_ALLOC_OK;
 }
 
 void netSyncIdsAllocate(void)
 {
-	// allocate sync ids sequentially for all active or paused props
+	u8 *free_slots;
+	struct prop *prop;
+	s32 free_count = 0;
+	/* Setup props use their deterministic one-based prop-slot offset. Runtime
+	 * props start strictly after the greatest setup ID. Build allocation truth
+	 * from the free list so parented inventory/held-weapon children receive IDs
+	 * too; active/paused-list-only scans silently omitted those props. */
+	u32 max_initial_syncid = 0;
 	g_NetNextSyncId = 1;
+	g_NetFirstDynamicSyncId = 1;
 
 	// don't allocate anything else if we're in lobby
 	if (g_StageNum == STAGE_TITLE || g_StageNum == STAGE_CITRAINING) {
 		return;
 	}
-
-	// iterate active props first
-	struct prop *prop = g_Vars.activeprops;
-	while (prop && prop != g_Vars.pausedprops) {
-		prop->syncid = prop - g_Vars.props + 1;
-		if (prop->syncid > g_NetNextSyncId) {
-			g_NetNextSyncId = prop->syncid;
+	if (!g_Vars.props || g_Vars.maxprops <= 0) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: cannot allocate sync IDs without a prop pool");
+		netDisconnect();
+		return;
+	}
+	free_slots = (u8 *)calloc((size_t)g_Vars.maxprops,
+		sizeof(*free_slots));
+	if (!free_slots) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: cannot allocate sync-ID free-list preflight");
+		netDisconnect();
+		return;
+	}
+	prop = g_Vars.freeprops;
+	while (prop && free_count < g_Vars.maxprops) {
+		const uintptr_t pool_begin = (uintptr_t)g_Vars.props;
+		const uintptr_t pool_end = pool_begin
+			+ (size_t)g_Vars.maxprops * sizeof(*g_Vars.props);
+		const uintptr_t current = (uintptr_t)prop;
+		s32 slot;
+		if (current < pool_begin || current >= pool_end
+				|| (current - pool_begin) % sizeof(*g_Vars.props) != 0) {
+			free(free_slots);
+			sysLogPrintf(LOG_ERROR,
+				"NET: malformed prop free list during sync-ID allocation");
+			netDisconnect();
+			return;
 		}
+		slot = (s32)((current - pool_begin) / sizeof(*g_Vars.props));
+		if (free_slots[slot]) {
+			free(free_slots);
+			sysLogPrintf(LOG_ERROR,
+				"NET: duplicate prop in free list during sync-ID allocation");
+			netDisconnect();
+			return;
+		}
+		free_slots[slot] = 1;
+		free_count++;
 		prop = prop->next;
 	}
-
-	// then the paused props
-	prop = g_Vars.pausedprops;
-	while (prop) {
-		prop->syncid = prop - g_Vars.props + 1;
-		if (prop->syncid > g_NetNextSyncId) {
-			g_NetNextSyncId = prop->syncid;
-		}
-		prop = prop->next;
+	if (prop) {
+		free(free_slots);
+		sysLogPrintf(LOG_ERROR,
+			"NET: cyclic prop free list during sync-ID allocation");
+		netDisconnect();
+		return;
 	}
+	for (s32 i = 0; i < g_Vars.maxprops; ++i) {
+		if (free_slots[i]) {
+			g_Vars.props[i].syncid = 0;
+			continue;
+		}
+		g_Vars.props[i].syncid = (u32)i + 1;
+		max_initial_syncid = (u32)i + 1;
+	}
+	free(free_slots);
 
 	// HACK: when we're a client, we'll need to swap our player and server player's props
 	// because of what we do in netPlayersAllocate
 	if (g_NetMode == NETMODE_CLIENT) {
-		if (!g_NetLocalClient->player || !g_NetLocalClient->player->prop) {
+		if (!g_NetLocalClient->player || !g_NetLocalClient->player->prop
+				|| !g_NetClients[0].player
+				|| !g_NetClients[0].player->prop) {
 			sysLogPrintf(LOG_ERROR, "NET: no props allocated for players?");
 			netDisconnect();
 			return;
@@ -2564,7 +3854,12 @@ void netSyncIdsAllocate(void)
 		g_NetLocalClient->player->prop->syncid = sid;
 	}
 
-	sysLogPrintf(LOG_NOTE, "NET: last initial syncid: %u", g_NetNextSyncId);
+	g_NetFirstDynamicSyncId = max_initial_syncid + 1;
+	g_NetNextSyncId = g_NetFirstDynamicSyncId;
+	sysLogPrintf(LOG_NOTE,
+		"NET: last initial syncid=%u first dynamic syncid=%u",
+		(unsigned)max_initial_syncid,
+		(unsigned)g_NetFirstDynamicSyncId);
 	netSyncIdMapRebuild(); // rebuild O(1) lookup map after all syncids are finalised
 }
 

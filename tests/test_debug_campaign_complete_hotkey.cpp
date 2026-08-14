@@ -210,7 +210,9 @@ TEST_CASE("release campaign runner observes strict production progression seams"
 		std::string::npos);
 	REQUIRE(skip_request.find("playerSetCutsceneSkipRequested(playernum, true)") !=
 		std::string::npos);
-	REQUIRE(cutscene_tick.find("playerRequestCutsceneSkip(playeridx, cancelorpause ? true : false)") !=
+	REQUIRE(cutscene_tick.find("&& playerRequestCutsceneSkip(playeridx,") !=
+		std::string::npos);
+	REQUIRE(cutscene_tick.find("actionConsumeHold(playeridx, skipaction)") !=
 		std::string::npos);
 
 	REQUIRE(save_header.find("struct saveagentwritereceipt") !=

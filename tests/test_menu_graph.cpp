@@ -503,17 +503,21 @@ TEST_CASE("menu pool: watchdog preserves standalone Combat Simulator room", "[in
 TEST_CASE("menu graph: MP endscreen is not hidden by legacy save-player prompt", "[input][menu_graph][mp_endscreen][static][b356]")
 {
     const std::string ingame = readTextFile("src/game/mplayer/ingame.c");
+    const std::string menu = readTextFile("src/game/menu.c");
     const std::string mpingame = readTextFile("port/fast3d/pdgui_menu_mpingame.cpp");
     const std::string endscreen = readTextFile("port/fast3d/pdgui_menu_endscreen.cpp");
     const std::string bridge = readTextFile("port/fast3d/pdgui_bridge.c");
 
     REQUIRE_FALSE(ingame.empty());
+    REQUIRE_FALSE(menu.empty());
     REQUIRE_FALSE(mpingame.empty());
     REQUIRE_FALSE(endscreen.empty());
     REQUIRE_FALSE(bridge.empty());
 
     const std::string pushEndscreen = functionBlock(ingame, "mpPushEndscreenDialog");
+    const std::string commitQueuedSave = functionBlock(menu, "func0f0f3220");
     REQUIRE_FALSE(pushEndscreen.empty());
+    REQUIRE_FALSE(commitQueuedSave.empty());
 
     REQUIRE(pushEndscreen.find("menuPushRootDialog(&g_MpEndscreenIndGameOverMenuDialog, MENUROOT_MPENDSCREEN)") != std::string::npos);
     REQUIRE(pushEndscreen.find("menuPushRootDialog(&g_MpEndscreenTeamGameOverMenuDialog, MENUROOT_MPENDSCREEN)") != std::string::npos);
@@ -522,6 +526,12 @@ TEST_CASE("menu graph: MP endscreen is not hidden by legacy save-player prompt",
     REQUIRE(pushEndscreen.find("menuPushDialog(&g_MpEndscreenSavePlayerMenuDialog)") == std::string::npos);
     REQUIRE(pushEndscreen.find("hiding") != std::string::npos);
     REQUIRE(pushEndscreen.find("post-match screen") != std::string::npos);
+
+    REQUIRE(commitQueuedSave.find("saveSaveAgent(agentname)") != std::string::npos);
+    REQUIRE(commitQueuedSave.find("saveSaveMpPlayer(profilename, g_MpPlayerNum)") != std::string::npos);
+    REQUIRE(commitQueuedSave.find("SKIPPED_NO_ACTIVE_PROFILE") != std::string::npos);
+    REQUIRE(commitQueuedSave.find("filemgrSaveOrLoad") == std::string::npos);
+    REQUIRE(commitQueuedSave.find("g_PakNotOriginalMenuDialog") != std::string::npos);
 
     REQUIRE(mpingame.find("pdguiGameOverRender() (in pdgui_menu_pausemenu.cpp) owns the full tabbed") != std::string::npos);
     REQUIRE(mpingame.find("pdguiHotswapRegister(&g_MpEndscreenSavePlayerMenuDialog") != std::string::npos);
@@ -672,6 +682,7 @@ TEST_CASE("menu graph: priority nodes and dialog-push firing substrate exist", "
     REQUIRE(graph.find("EDGE_PUSH(\"select_music\", ACTION_MENU_ACCEPT, \"Select Music\", MENU_TYPE_MP_TUNES)") != std::string::npos);
     REQUIRE(graph.find("EDGE_PUSH_ANY(\"more_options\", ACTION_MENU_ACCEPT, \"More Options\")") != std::string::npos);
     REQUIRE(graph.find("EDGE_NETWORK(\"disconnect\", ACTION_MENU_ACCEPT") != std::string::npos);
+    REQUIRE(graph.find("EDGE_NETWORK(\"reconnect\", ACTION_MENU_ACCEPT") != std::string::npos);
     REQUIRE(graph.find("EDGE_PUSH(\"joining\", ACTION_MENU_ACCEPT, \"Joining\", MENU_TYPE_NETWORK_JOINING)") != std::string::npos);
     REQUIRE(graph.find("EDGE_POP(\"host_started\", ACTION_MENU_ACCEPT") != std::string::npos);
     REQUIRE(graph.find("EDGE_PUSH(\"team_setup\", ACTION_MENU_ACCEPT, \"Team Setup\", MENU_TYPE_MP_TEAM_SETUP)") != std::string::npos);
@@ -750,6 +761,7 @@ TEST_CASE("menu graph: Network menu uses graph helpers for network transitions",
     REQUIRE(render.find("menuGraphFireNetworkOp(MENU_TYPE_NETWORK, \"disconnect\"") != std::string::npos);
     REQUIRE(render.find("menuGraphFireNetworkOp(MENU_TYPE_NETWORK, \"host\"") != std::string::npos);
     REQUIRE(render.find("menuGraphFireNetworkOp(MENU_TYPE_NETWORK, \"join\"") != std::string::npos);
+    REQUIRE(render.find("menuGraphFireNetworkOp(MENU_TYPE_NETWORK, \"reconnect\"") != std::string::npos);
     REQUIRE(render.find("menuGraphFirePushDialog(MENU_TYPE_NETWORK, \"joining\"") != std::string::npos);
     REQUIRE(render.find("menuGraphFirePop(MENU_TYPE_NETWORK, \"host_started\")") != std::string::npos);
     REQUIRE(render.find("menuGraphFirePop(MENU_TYPE_NETWORK, \"back\")") != std::string::npos);
@@ -897,8 +909,10 @@ TEST_CASE("menu graph: Combat Sim limits and custom weapons are catalog-native",
     REQUIRE(weaponWalker.find("loaderPoolParseWeaponJsonWithRuntimeSlot") != std::string::npos);
     REQUIRE(loaderPool.find("assetCatalogRefreshWeaponPrivateSlotDefaults(weapon_id") != std::string::npos);
 
-    REQUIRE(matchsetup.find("mpw >= 0 && mpw < NUM_MPWEAPONS") != std::string::npos);
-    REQUIRE(netmsg.find("strncpy(g_MatchConfig.weapon_ids[wi], wid") != std::string::npos);
+    REQUIRE(matchsetup.find("entry->mp_index < 0 || entry->mp_index > 255") != std::string::npos);
+    REQUIRE(matchsetup.find("catalogGetMpWeaponNum(entry->mp_index) != entry->runtime_index") != std::string::npos);
+    REQUIRE(netmsg.find("strncpy(plan.weapon_ids[wi], wr.entry->id") != std::string::npos);
+    REQUIRE(netmsg.find("memcpy(g_MatchConfig.weapon_ids, plan.weapon_ids") != std::string::npos);
     REQUIRE(netmanifest.find("catalog-native custom slots") != std::string::npos);
     REQUIRE(netmanifest.find("s_manifestSkipMpWeaponSlot") != std::string::npos);
     REQUIRE(netmanifest.find("entry->type == MANIFEST_TYPE_COMPONENT") != std::string::npos);
@@ -1224,9 +1238,13 @@ TEST_CASE("menu graph: solo endscreen scene transitions use graph edges", "[inpu
 TEST_CASE("menu graph: MP endscreen exits use graph edges", "[input][menu_graph][endscreen][static]")
 {
     const std::string endscreen = readTextFile("port/fast3d/pdgui_menu_endscreen.cpp");
+    const std::string lobby = readTextFile("port/fast3d/pdgui_lobby.cpp");
+    const std::string room = readTextFile("port/fast3d/pdgui_menu_room.cpp");
     const std::string graph = readTextFile("port/src/menugraph.c");
 
     REQUIRE_FALSE(endscreen.empty());
+    REQUIRE_FALSE(lobby.empty());
+    REQUIRE_FALSE(room.empty());
     REQUIRE_FALSE(graph.empty());
     REQUIRE(endscreen.find("#include \"menugraph.h\"") != std::string::npos);
     REQUIRE(graph.find("EDGE_SCENE(\"continue\", ACTION_MENU_ACCEPT, \"Continue\", SCENE_EVENT_STAGE_TEARDOWN)") != std::string::npos);
@@ -1257,6 +1275,24 @@ TEST_CASE("menu graph: MP endscreen exits use graph edges", "[input][menu_graph]
     REQUIRE(render.find("bool wantQuitConfirm") != std::string::npos);
     REQUIRE(findAll(render, "ImGui::OpenPopup(mpDisconnectPopupId)").size() == 1);
     REQUIRE(findAll(render, "ImGui::OpenPopup(mpQuitPopupId)").size() == 1);
+
+    const std::string soloOpen = functionBlock(lobby, "pdguiSoloRoomOpen");
+    const std::string soloReturn = functionBlock(lobby, "pdguiSoloRoomReturn");
+    const std::string adopt = functionBlock(room, "pdguiRoomScreenAdoptMatchConfig");
+    REQUIRE_FALSE(soloOpen.empty());
+    REQUIRE_FALSE(soloReturn.empty());
+    REQUIRE_FALSE(adopt.empty());
+    REQUIRE(soloOpen.find("pdguiRoomScreenReset()") != std::string::npos);
+    REQUIRE(soloOpen.find("pdguiRoomScreenAdoptMatchConfig()") == std::string::npos);
+    REQUIRE(soloReturn.find("pdguiRoomScreenAdoptMatchConfig()") != std::string::npos);
+    REQUIRE(soloReturn.find("pdguiRoomScreenReset()") == std::string::npos);
+    REQUIRE(adopt.find("buildArenaListFromCatalog()") != std::string::npos);
+    REQUIRE(adopt.find("buildSpawnWeaponList()") != std::string::npos);
+    REQUIRE(adopt.find("syncArenaFromConfig()") != std::string::npos);
+    REQUIRE(adopt.find("syncSpawnWeaponFromConfig()") != std::string::npos);
+    REQUIRE(adopt.find("s_MatchConfigInited = true") != std::string::npos);
+    REQUIRE(adopt.find("matchConfigInit()") == std::string::npos);
+    REQUIRE(adopt.find("ROOM.CONFIG: adopted existing setup") != std::string::npos);
 }
 
 TEST_CASE("menu graph: Agent Select load create and back use graph helpers", "[input][menu_graph][agent][static]")

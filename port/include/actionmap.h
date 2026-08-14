@@ -378,6 +378,7 @@ typedef struct {
     u32  hold_pin_full_until_ms; /* B-221.2: show full ring briefly after consume */
     u32  hold_vis_grace_until_ms; /* B-221.2: after release, keep last progress ~100ms */
     f32  hold_vis_last_down_progress; /* last in-hold progress for UI grace */
+    s32  smoke_injected; /* smoke-only ownership: 0=none, 1=held, 2=release edge */
 } ActionState;
 
 /* ============================================================
@@ -722,11 +723,17 @@ void imcCutsceneExit(void);
 s32 actionmapResolveByName(const char *name);
 
 /** Inject a press (down=1) or release (down=0) edge on `action` for
- *  `player`, writing directly to the per-player ActionState. The
- *  smoke harness uses this to drive menu navigation deterministically
- *  even when the SDL window has lost focus. Returns 1 if the inject
- *  was applied, 0 if it was rejected (harness not active, out-of-range
- *  player, or out-of-range action). */
+ *  `player`, writing directly to and explicitly owning the per-player
+ *  ActionState until release. While a gameplay context remains active,
+ *  only that owned state can bypass window-focus loss/regain settling;
+ *  typed layer apertures and FREEFLY blocking still apply. This lets the
+ *  smoke harness drive ordinary clients deterministically without weakening
+ *  physical production input. Physical button and analog writers defer only
+ *  for the explicitly owned action until its release edge retires. A press
+ *  cannot seize an already-held unowned action, and an unowned release is an
+ *  idempotent no-op. Returns 1 if the event was accepted (including a safe
+ *  no-op release), 0 if it was rejected (harness not active, invalid index,
+ *  or an ownership collision). */
 s32 actionmapInjectStateForSmoke(s32 player, s32 action, s32 down);
 
 #ifdef __cplusplus

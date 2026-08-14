@@ -4955,8 +4955,6 @@ void bgunTickMasterLoad(void)
 		if (player->gunctrl.gunlocktimer == 0) {
 			newweaponnum = player->gunctrl.gunmemnew;
 
-			playerChooseBodyAndHead(&bodynum, &headnum, NULL);
-
 			/* INV-1 / Cohort A.4 (player-init-architectural-fixes-2026-04-26):
 			 * checked variant surfaces catalog miss as CATALOG.MISS WARNING
 			 * with the bodynum that resolved out-of-bounds or unpopulated. On
@@ -4967,7 +4965,13 @@ void bgunTickMasterLoad(void)
 			 * checked accessor returns s32 so use an s32 intermediate. */
 			{
 				s32 hf32 = 0;
-				(void)catalogGetBodyHandFilenumChecked(bodynum, &hf32);
+				if (playerChooseBodyAndHead(&bodynum, &headnum, NULL)) {
+					(void)catalogGetBodyHandFilenumChecked(bodynum, &hf32);
+				} else {
+					sysLogPrintf(LOG_ERROR,
+						"PLAYER.INIT.ROLLBACK hands identity player=%d",
+						g_Vars.currentplayernum);
+				}
 				handfilenum = (u16)hf32;
 			}
 

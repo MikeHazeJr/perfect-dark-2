@@ -854,6 +854,15 @@ asset_entry_t *assetCatalogRegisterHud(const char *id, s32 hud_id,
 const asset_entry_t *assetCatalogResolve(const char *id);
 
 /**
+ * Resolve an asset by exact string ID without filtering disabled rows.
+ * Intended for lifecycle classification and teardown, where the concrete type
+ * must remain available after disable. Returns NULL only when the exact row is
+ * absent or the catalog is not initialized. Pointer lifetime matches
+ * assetCatalogResolve().
+ */
+const asset_entry_t *assetCatalogResolveAny(const char *id);
+
+/**
  * Resolve and return the runtime_index for a character asset.
  * Returns runtime_index if found, or -1 if not found / not enabled.
  */
@@ -1212,6 +1221,13 @@ s32 catalogResolveHead(const char *id, catalog_head_result_t *out);
 
 /** Resolve a stage (map) asset by catalog string ID. Returns 1 on success, 0 on failure. */
 s32 catalogResolveStage(const char *id, catalog_stage_result_t *out);
+
+/** Resolve a stage with an exact catalog domain. `expected_type` must be
+ * ASSET_MAP or ASSET_ARENA. This is the network and mode-boundary API: it
+ * prevents a campaign map and a Combat Simulator arena that share a legacy
+ * stagenum from being substituted for one another. */
+s32 catalogResolveStageForType(const char *id, asset_type_e expected_type,
+                               catalog_stage_result_t *out);
 
 /** Resolve a weapon asset by catalog string ID. Returns 1 on success, 0 on failure. */
 s32 catalogResolveWeapon(const char *id, catalog_weapon_result_t *out);

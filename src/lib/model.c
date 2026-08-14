@@ -1,4 +1,5 @@
 #include <float.h>
+#include <string.h>
 #include <ultra64.h>
 #include "constants.h"
 #include "system.h" /* sysLogPrintf for SURFACE_LOCO.RENDER_TILT diagnostic */
@@ -335,16 +336,16 @@ struct modelnode *modelGetPart(struct modeldef *modeldef, s32 partnum)
 {
 	s32 upper;
 	s32 lower;
-	u32 i;
+	s32 i;
 	s16 *partnums;
 
-	if (modeldef->numparts == 0) {
+	if (modeldef == NULL || modeldef->parts == NULL || modeldef->numparts <= 0) {
 		return NULL;
 	}
 
 	partnums = (s16 *)&modeldef->parts[modeldef->numparts];
 	lower = 0;
-	upper = modeldef->numparts;
+	upper = modeldef->numparts - 1;
 
 	while (upper >= lower) {
 		i = (lower + upper) / 2;
@@ -1911,6 +1912,165 @@ s32 modelConstrainOrWrapAnimFrame(s32 frame, s16 animnum, f32 endframe)
 	return frame;
 }
 
+static bool modelReadAuthoredChrRootHeightForAnim(struct model *model,
+		s16 animnum, bool flip, s16 framea, s16 frameb, f32 frac,
+		f32 endframe, f32 *height)
+{
+	struct modelnode *rootnode;
+	struct modelrodata_chrinfo *rodata;
+	struct coord posa = {0, 0, 0};
+	struct coord posb = {0, 0, 0};
+	f32 scale;
+
+	if (model == NULL || model->definition == NULL || model->anim == NULL
+			|| height == NULL
+			|| animnum <= 0 || animnum >= animGetTotalCount()
+			|| !animHasFrames(animnum)
+			|| (g_Anims[animnum].flags & ANIMFLAG_ABSOLUTETRANSLATION)
+			|| !(frac >= 0.0f && frac <= 1.0f)) {
+		return false;
+	}
+
+	rootnode = model->definition->rootnode;
+
+	if (rootnode == NULL || rootnode->rodata == NULL
+			|| (rootnode->type & 0xff) != MODELNODETYPE_CHRINFO
+			|| model->definition->skel == NULL) {
+		return false;
+	}
+
+	rodata = &rootnode->rodata->chrinfo;
+	framea = (s16)modelConstrainOrWrapAnimFrame(framea, animnum, endframe);
+	frameb = (s16)modelConstrainOrWrapAnimFrame(frameb, animnum, endframe);
+
+	animGetTranslateAngle(rodata->animpart, flip, model->definition->skel,
+		animnum, framea, &posa, false);
+
+	if (framea != frameb) {
+		animGetTranslateAngle(rodata->animpart, flip, model->definition->skel,
+			animnum, frameb, &posb, false);
+	} else {
+		posb = posa;
+	}
+
+	scale = model->scale * model->anim->animscale;
+	*height = (posa.y + (posb.y - posa.y) * frac) * scale;
+
+	return *height >= -30000.0f && *height <= 30000.0f;
+}
+
+static bool modelReadAuthoredChrRootHeight(struct model *model, f32 *height)
+{
+	struct anim *anim;
+	f32 primary;
+
+	if (model == NULL || model->anim == NULL || height == NULL) {
+		return false;
+	}
+
+	anim = model->anim;
+
+	if (!modelReadAuthoredChrRootHeightForAnim(model, anim->animnum,
+			anim->flip, anim->framea, anim->frameb, anim->frac,
+			anim->endframe, &primary)) {
+		return false;
+	}
+
+	if (anim->animnum2 != 0 && anim->fracmerge != 0.0f) {
+		f32 secondary;
+
+		if (!(anim->fracmerge >= 0.0f && anim->fracmerge <= 1.0f)
+				|| !modelReadAuthoredChrRootHeightForAnim(model, anim->animnum2,
+					anim->flip2, anim->frame2a, anim->frame2b, anim->frac2,
+					anim->endframe2, &secondary)) {
+			return false;
+		}
+
+		primary += (secondary - primary) * anim->fracmerge;
+	}
+
+	*height = primary;
+	return true;
+}
+
+bool modelSetChrRootHeight(struct model *model, f32 rootheight)
+{
+	struct modelnode *rootnode;
+	struct modelrwdata_chrinfo *rwdata;
+	f32 authoredheight;
+	f32 bias;
+
+	if (model == NULL || model->definition == NULL || model->rwdatas == NULL
+			|| model->anim == NULL
+			|| !(rootheight >= -30000.0f && rootheight <= 30000.0f)) {
+		return false;
+	}
+
+	rootnode = model->definition->rootnode;
+
+	if (rootnode == NULL || rootnode->rodata == NULL
+			|| (rootnode->type & 0xff) != MODELNODETYPE_CHRINFO
+			|| model->anim->animnum <= 0
+			|| model->anim->animnum >= animGetTotalCount()
+			|| (g_Anims[model->anim->animnum].flags
+				& ANIMFLAG_ABSOLUTETRANSLATION)
+			|| (model->anim->animnum2 > 0
+				&& (model->anim->animnum2 >= animGetTotalCount()
+					|| (g_Anims[model->anim->animnum2].flags
+						& ANIMFLAG_ABSOLUTETRANSLATION)))) {
+		return false;
+	}
+
+	if (!model->chrrootheightenabled
+			|| fabsf(model->chrrootheight - rootheight) > 0.001f) {
+		if (!modelReadAuthoredChrRootHeight(model, &authoredheight)) {
+			return false;
+		}
+
+		bias = rootheight - authoredheight;
+
+		if (!(bias >= -30000.0f && bias <= 30000.0f)) {
+			return false;
+		}
+
+		model->chrrootheight = rootheight;
+		model->chrrootheightbias = bias;
+		model->chrrootheightenabled = true;
+	}
+
+	/* The controller remains byte-for-byte untouched. Rebase both active
+	 * endpoint histories to the requested floor-relative root now; future
+	 * endpoint regeneration applies chrrootheightbias to authored non-absolute
+	 * Y values below, independent of the transient anim->average cull state. */
+	rwdata = modelGetNodeRwData(model, rootnode);
+	rwdata->pos.y = rwdata->ground + rootheight;
+	rwdata->unk34.y = rootheight;
+	rwdata->unk24.y = rootheight;
+	rwdata->unk4c.y = rootheight;
+	rwdata->unk40.y = rootheight;
+	return true;
+}
+
+void modelClearChrRootHeight(struct model *model)
+{
+	if (model != NULL) {
+		model->chrrootheight = 0.0f;
+		model->chrrootheightbias = 0.0f;
+		model->chrrootheightenabled = false;
+	}
+}
+
+static void modelApplyChrRootHeightBias(struct model *model, s16 animnum,
+		bool average, struct coord *translate)
+{
+	if (model->chrrootheightenabled && !average && animnum > 0
+			&& animnum < animGetTotalCount()
+			&& (g_Anims[animnum].flags
+				& ANIMFLAG_ABSOLUTETRANSLATION) == 0) {
+		translate->y += model->chrrootheightbias;
+	}
+}
+
 void modelCopyAnimForMerge(struct model *model, f32 merge)
 {
 	struct anim *anim = model->anim;
@@ -2045,6 +2205,9 @@ void modelSetAnimation2(struct model *model, s16 animnum, s32 flip, f32 fstartfr
 
 				if (anim->average) {
 					translate.y = rwdata->pos.y - rwdata->ground;
+				} else {
+					modelApplyChrRootHeightBias(model, anim->animnum,
+						anim->average, &translate);
 				}
 
 				sp98 = cosf(rwdata->yrot);
@@ -2503,6 +2666,9 @@ void modelSetAnimFrame2WithChrStuff(struct model *model, f32 curframe, f32 endfr
 
 							if (anim->average) {
 								translate.y = rwdata->pos.y - rwdata->ground;
+							} else {
+								modelApplyChrRootHeightBias(model, anim->animnum,
+									anim->average, &translate);
 							}
 
 							cosine = cosf(rwdata->yrot);
@@ -2552,6 +2718,9 @@ void modelSetAnimFrame2WithChrStuff(struct model *model, f32 curframe, f32 endfr
 
 							if (anim->average) {
 								translate.y = rwdata->unk34.y;
+							} else {
+								modelApplyChrRootHeightBias(model, anim->animnum,
+									anim->average, &translate);
 							}
 
 							cosine = cosf(rwdata->unk30);
@@ -2668,6 +2837,9 @@ void modelSetAnimFrame2WithChrStuff(struct model *model, f32 curframe, f32 endfr
 
 						if (anim->average) {
 							translate.y = rwdata->unk4c.y;
+						} else {
+							modelApplyChrRootHeightBias(model, anim->animnum2,
+								anim->average, &translate);
 						}
 
 						rwdata->unk40.y = translate.y;
@@ -4653,6 +4825,9 @@ void modelInit(struct model *model, struct modeldef *modeldef, u32 *rwdatas, boo
 	model->scale = 1;
 	model->attachedtomodel = NULL;
 	model->attachedtonode = NULL;
+	model->chrrootheight = 0.0f;
+	model->chrrootheightbias = 0.0f;
+	model->chrrootheightenabled = false;
 
 	node = modeldef->rootnode;
 
@@ -4731,8 +4906,11 @@ void animInit(struct anim *anim)
  * re-attach. Under chrnum recycling this leaves earlier chrs' heads wired to a
  * freed body instance (wild parent nodes) and mis-sizes rwdata. Cloning per chr
  * restores the correct N64 per-instance semantics AND sizes the rwdata to that
- * chr's actual body(+head) need -- never touching the shared cache. rodata
- * (read-only geometry/DL) is intentionally shared.
+ * chr's actual body(+head) need -- never touching shared topology. Immutable
+ * geometry/GDL rodata remains shared, while DISTANCE/TOGGLE/REORDER records are
+ * private because they own node targets and rwdata indexes that indexing and
+ * relation application mutate. Clone failure returns NULL; callers must not
+ * fall back to the shared definition.
  *
  * NOTE: this is a real latent-correctness fix (shared-cache mutation), but it is
  * NOT the fix for the B-952 skedarruins crash -- that crash was objDrop (propobj.c)
@@ -4740,83 +4918,359 @@ void animInit(struct anim *anim)
  * OBJDROP.GUARD there. This clone was written while chasing the crash and is kept
  * because the shared-mutation bug is genuine. */
 #define MODELDEF_CLONE_MAX_NODES 512
+#define MODELDEF_CLONE_MAX_PARTS 1024
+#define MODELDEF_CLONE_STACK_CAP (MODELDEF_CLONE_MAX_NODES * 4)
 
-static struct modelnode *modeldefCloneMap(struct modelnode *old,
-		struct modelnode **oldnodes, struct modelnode *newnodes, s32 count)
+static s32 modeldefCloneFindNode(struct modelnode *old,
+		struct modelnode **oldnodes, s32 count)
 {
 	s32 i;
 
 	if (old == NULL) {
-		return NULL;
+		return -1;
 	}
+
 	for (i = 0; i < count; i++) {
 		if (oldnodes[i] == old) {
-			return &newnodes[i];
+			return i;
 		}
 	}
-	return old; /* reference outside the cloned subtree (e.g. rootnode->parent) */
+
+	return -1;
+}
+
+static struct modelnode *modeldefCloneMap(struct modelnode *old,
+		struct modelnode **oldnodes, struct modelnode *newnodes, s32 count)
+{
+	s32 index = modeldefCloneFindNode(old, oldnodes, count);
+
+	return index >= 0 ? &newnodes[index] : NULL;
+}
+
+static size_t modeldefCloneRelationRodataSize(struct modelnode *node)
+{
+	if (node == NULL) {
+		return 0;
+	}
+
+	switch (node->type & 0xff) {
+	case MODELNODETYPE_DISTANCE:
+		return sizeof(struct modelrodata_distance);
+	case MODELNODETYPE_TOGGLE:
+		return sizeof(struct modelrodata_toggle);
+	case MODELNODETYPE_REORDER:
+		return sizeof(struct modelrodata_reorder);
+	default:
+		return 0;
+	}
+}
+
+static size_t modeldefCloneIndexedRodataSize(struct modelnode *node)
+{
+	if (node == NULL) {
+		return 0;
+	}
+
+	switch (node->type & 0xff) {
+	case MODELNODETYPE_CHRINFO:
+		return sizeof(struct modelrodata_chrinfo);
+	case MODELNODETYPE_DISTANCE:
+		return sizeof(struct modelrodata_distance);
+	case MODELNODETYPE_TOGGLE:
+		return sizeof(struct modelrodata_toggle);
+	case MODELNODETYPE_HEADSPOT:
+		return sizeof(struct modelrodata_headspot);
+	case MODELNODETYPE_REORDER:
+		return sizeof(struct modelrodata_reorder);
+	case MODELNODETYPE_0B:
+		return sizeof(struct modelrodata_type0b);
+	case MODELNODETYPE_CHRGUNFIRE:
+		return sizeof(struct modelrodata_chrgunfire);
+	case MODELNODETYPE_DL:
+		return sizeof(struct modelrodata_dl);
+	default:
+		return 0;
+	}
+}
+
+static bool modeldefClonePushUnique(struct modelnode *node,
+		struct modelnode **oldnodes, s32 count,
+		struct modelnode **stackbuf, s32 *stackcount)
+{
+	s32 i;
+
+	if (node == NULL || modeldefCloneFindNode(node, oldnodes, count) >= 0) {
+		return true;
+	}
+
+	for (i = 0; i < *stackcount; i++) {
+		if (stackbuf[i] == node) {
+			return true;
+		}
+	}
+
+	if (*stackcount >= MODELDEF_CLONE_STACK_CAP) {
+		return false;
+	}
+
+	stackbuf[(*stackcount)++] = node;
+	return true;
+}
+
+/* Collect the definition's canonical graph, not its current visibility state.
+ * DISTANCE/TOGGLE child links are mutable projections of rodata targets, and a
+ * HEADSPOT child may be a previously attached foreign head. Relation targets
+ * therefore enter explicitly while HEADSPOT children never do. */
+static s32 modeldefCloneCollectNodes(struct modeldef *src,
+		struct modelnode **oldnodes, struct modelnode **stackbuf)
+{
+	s32 count = 0;
+	s32 stackcount = 0;
+
+	if (!modeldefClonePushUnique(src->rootnode, oldnodes, count,
+			stackbuf, &stackcount)) {
+		return -1;
+	}
+
+	while (stackcount > 0) {
+		struct modelnode *node = stackbuf[--stackcount];
+		size_t indexed_size;
+
+		if (modeldefCloneFindNode(node, oldnodes, count) >= 0) {
+			continue;
+		}
+
+		if (!modelRodataIsReadable(node, sizeof(*node))) {
+			sysLogPrintf(LOG_WARNING,
+				"MODEL.CLONE.REJECT: unreadable node=%p bytes=%zu",
+				(void *)node, sizeof(*node));
+			return -1;
+		}
+
+		if (count >= MODELDEF_CLONE_MAX_NODES) {
+			sysLogPrintf(LOG_WARNING,
+				"MODEL.CLONE.REJECT: node count exceeds cap=%d",
+				MODELDEF_CLONE_MAX_NODES);
+			return -1;
+		}
+
+		oldnodes[count++] = node;
+		indexed_size = modeldefCloneIndexedRodataSize(node);
+
+		if (indexed_size > 0 &&
+				!modelRodataIsReadable(node->rodata, indexed_size)) {
+			sysLogPrintf(LOG_WARNING,
+				"MODEL.CLONE.REJECT: unreadable indexed rodata type=0x%02x bytes=%zu",
+				node->type & 0xff, indexed_size);
+			return -1;
+		}
+
+		if (!modeldefClonePushUnique(node->next, oldnodes, count,
+				stackbuf, &stackcount)) {
+			return -1;
+		}
+
+		switch (node->type & 0xff) {
+		case MODELNODETYPE_DISTANCE:
+			if (!modeldefClonePushUnique(node->rodata->distance.target,
+					oldnodes, count, stackbuf, &stackcount)) {
+				return -1;
+			}
+			break;
+		case MODELNODETYPE_TOGGLE:
+			if (!modeldefClonePushUnique(node->rodata->toggle.target,
+					oldnodes, count, stackbuf, &stackcount)) {
+				return -1;
+			}
+			break;
+		case MODELNODETYPE_REORDER:
+			if (!modeldefClonePushUnique(node->rodata->reorder.unk18,
+					oldnodes, count, stackbuf, &stackcount)
+					|| !modeldefClonePushUnique(node->rodata->reorder.unk1c,
+					oldnodes, count, stackbuf, &stackcount)) {
+				return -1;
+			}
+			break;
+		case MODELNODETYPE_HEADSPOT:
+			/* Attached heads are instance state, not body-definition children. */
+			break;
+		default:
+			if (!modeldefClonePushUnique(node->child, oldnodes, count,
+					stackbuf, &stackcount)) {
+				return -1;
+			}
+			break;
+		}
+	}
+
+	return count;
 }
 
 struct modeldef *modeldefCloneForChr(struct modeldef *src)
 {
 	struct modelnode *oldnodes[MODELDEF_CLONE_MAX_NODES];
-	struct modelnode *stackbuf[MODELDEF_CLONE_MAX_NODES];
+	struct modelnode *stackbuf[MODELDEF_CLONE_STACK_CAP];
 	struct modeldef *dst;
 	struct modelnode *newnodes;
-	struct modelnode *n;
-	s32 count = 0;
-	s32 sp = 0;
+	union modelrodata *newrodatas = NULL;
+	struct modelnode **newparts = NULL;
+	const s16 *src_partnums = NULL;
+	u8 *clone_storage;
+	size_t modeldef_bytes;
+	size_t node_bytes;
+	size_t rodata_bytes = 0;
+	size_t part_ptr_bytes = 0;
+	size_t part_num_bytes = 0;
+	size_t part_bytes = 0;
+	size_t total_bytes;
+	s32 relation_count = 0;
+	s32 relation_index = 0;
+	s32 count;
 	s32 i;
 
 	if (src == NULL || src->rootnode == NULL) {
-		return src;
+		return NULL;
 	}
 
-	/* collect every node reachable via child/next from the root */
-	stackbuf[sp++] = src->rootnode;
-	while (sp > 0) {
-		n = stackbuf[--sp];
-		while (n != NULL) {
-			if (count >= MODELDEF_CLONE_MAX_NODES) {
-				sysLogPrintf(LOG_WARNING,
-					"modeldefCloneForChr: >%d nodes -- keeping shared modeldef", MODELDEF_CLONE_MAX_NODES);
-				return src;
-			}
-			oldnodes[count++] = n;
-			if (n->child != NULL && sp < MODELDEF_CLONE_MAX_NODES) {
-				stackbuf[sp++] = n->child;
-			}
-			n = n->next;
-		}
+	if (src->numparts < 0 || src->numparts > MODELDEF_CLONE_MAX_PARTS
+			|| (src->numparts > 0 && src->parts == NULL)) {
+		sysLogPrintf(LOG_WARNING,
+			"MODEL.CLONE.REJECT: invalid packed parts count=%d table=%p",
+			src->numparts, (void *)src->parts);
+		return NULL;
 	}
 
-	dst = mempAlloc(ALIGN16(sizeof(struct modeldef)), MEMPOOL_STAGE);
-	newnodes = mempAlloc(ALIGN16(count * sizeof(struct modelnode)), MEMPOOL_STAGE);
-	if (dst == NULL || newnodes == NULL) {
-		return src; /* out of stage memory -- degrade to shared (old behaviour) */
+	count = modeldefCloneCollectNodes(src, oldnodes, stackbuf);
+	if (count <= 0) {
+		return NULL;
 	}
 
 	for (i = 0; i < count; i++) {
-		newnodes[i] = *oldnodes[i]; /* rodata pointer copied -> shared geometry */
+		if (modeldefCloneRelationRodataSize(oldnodes[i]) > 0) {
+			relation_count++;
+		}
+	}
+
+	if (src->parts != NULL && src->numparts > 0) {
+		part_ptr_bytes = (size_t)src->numparts * sizeof(struct modelnode *);
+		part_num_bytes = (size_t)src->numparts * sizeof(s16);
+		part_bytes = ALIGN16(part_ptr_bytes + part_num_bytes);
+		if (!modelRodataIsReadable(src->parts,
+				part_ptr_bytes + part_num_bytes)) {
+			sysLogPrintf(LOG_WARNING,
+				"MODEL.CLONE.REJECT: unreadable packed parts count=%d bytes=%zu",
+				src->numparts, part_ptr_bytes + part_num_bytes);
+			return NULL;
+		}
+		src_partnums = (const s16 *)&src->parts[src->numparts];
+	}
+
+	for (i = 0; i < src->numparts; i++) {
+		if (src->parts[i] != NULL &&
+				modeldefCloneFindNode(src->parts[i], oldnodes, count) < 0) {
+			sysLogPrintf(LOG_WARNING,
+				"MODEL.CLONE.REJECT: part index=%d points outside canonical graph",
+				i);
+			return NULL;
+		}
+	}
+
+	modeldef_bytes = ALIGN16(sizeof(struct modeldef));
+	node_bytes = ALIGN16((size_t)count * sizeof(struct modelnode));
+	if (relation_count > 0) {
+		rodata_bytes = ALIGN16((size_t)relation_count *
+			sizeof(union modelrodata));
+	}
+	total_bytes = modeldef_bytes + node_bytes + rodata_bytes + part_bytes;
+
+	/* Publish only a complete clone. Relation rodata owns mutable topology and
+	 * rwdata indexes; immutable geometry/GDL payload pointers inside those
+	 * private records remain shallow. The packed parts vector and sorted s16 keys
+	 * are the same transaction. */
+	clone_storage = mempAlloc(total_bytes, MEMPOOL_STAGE);
+	if (clone_storage == NULL) {
+		sysLogPrintf(LOG_WARNING,
+			"MODEL.CLONE.REJECT: stage allocation failed bytes=%zu", total_bytes);
+		return NULL;
+	}
+	memset(clone_storage, 0, total_bytes);
+	dst = (struct modeldef *)clone_storage;
+	newnodes = (struct modelnode *)(clone_storage + modeldef_bytes);
+	if (rodata_bytes > 0) {
+		newrodatas = (union modelrodata *)(clone_storage
+			+ modeldef_bytes + node_bytes);
+	}
+	if (part_bytes > 0) {
+		newparts = (struct modelnode **)(clone_storage
+			+ modeldef_bytes + node_bytes + rodata_bytes);
+	}
+
+	for (i = 0; i < count; i++) {
+		size_t relation_size = modeldefCloneRelationRodataSize(oldnodes[i]);
+
+		newnodes[i] = *oldnodes[i];
 		newnodes[i].parent = modeldefCloneMap(oldnodes[i]->parent, oldnodes, newnodes, count);
 		newnodes[i].next   = modeldefCloneMap(oldnodes[i]->next, oldnodes, newnodes, count);
 		newnodes[i].prev   = modeldefCloneMap(oldnodes[i]->prev, oldnodes, newnodes, count);
 		newnodes[i].child  = modeldefCloneMap(oldnodes[i]->child, oldnodes, newnodes, count);
+
+		if (relation_size > 0) {
+			memcpy(&newrodatas[relation_index], oldnodes[i]->rodata,
+				relation_size);
+			newnodes[i].rodata = &newrodatas[relation_index++];
+		}
 	}
 
 	*dst = *src;
 	dst->rootnode = modeldefCloneMap(src->rootnode, oldnodes, newnodes, count);
+	dst->parts = NULL;
 
-	if (src->parts != NULL && src->numparts > 0) {
-		struct modelnode **newparts =
-			mempAlloc(ALIGN16(src->numparts * sizeof(struct modelnode *)), MEMPOOL_STAGE);
-		if (newparts != NULL) {
-			for (i = 0; i < src->numparts; i++) {
-				newparts[i] = modeldefCloneMap(src->parts[i], oldnodes, newnodes, count);
-			}
-			dst->parts = newparts;
+	/* Remap every topology-bearing rodata pointer only after all private nodes
+	 * and relation records exist. Collection above guarantees every non-null
+	 * target belongs to this graph, so each map is complete. */
+	for (i = 0; i < count; i++) {
+		switch (oldnodes[i]->type & 0xff) {
+		case MODELNODETYPE_DISTANCE:
+			newnodes[i].rodata->distance.target = modeldefCloneMap(
+				oldnodes[i]->rodata->distance.target,
+				oldnodes, newnodes, count);
+			newnodes[i].child = newnodes[i].rodata->distance.target;
+			break;
+		case MODELNODETYPE_TOGGLE:
+			newnodes[i].rodata->toggle.target = modeldefCloneMap(
+				oldnodes[i]->rodata->toggle.target,
+				oldnodes, newnodes, count);
+			newnodes[i].child = newnodes[i].rodata->toggle.target;
+			break;
+		case MODELNODETYPE_REORDER:
+			newnodes[i].rodata->reorder.unk18 = modeldefCloneMap(
+				oldnodes[i]->rodata->reorder.unk18,
+				oldnodes, newnodes, count);
+			newnodes[i].rodata->reorder.unk1c = modeldefCloneMap(
+				oldnodes[i]->rodata->reorder.unk1c,
+				oldnodes, newnodes, count);
+			modelApplyReorderRelationsByArg(&newnodes[i], false);
+			break;
+		case MODELNODETYPE_HEADSPOT:
+			newnodes[i].child = NULL;
+			break;
+		default:
+			break;
 		}
 	}
+
+	if (newparts != NULL) {
+		s16 *new_partnums =
+			(s16 *)((u8 *)newparts + part_ptr_bytes);
+
+		for (i = 0; i < src->numparts; i++) {
+			newparts[i] = modeldefCloneMap(src->parts[i], oldnodes, newnodes, count);
+			new_partnums[i] = src_partnums[i];
+		}
+		dst->parts = newparts;
+	}
+
+	dst->rwdatalen = modelCalculateRwDataIndexes(dst->rootnode);
 
 	return dst;
 }

@@ -50,7 +50,6 @@ extern s32  stunGetStatus(void);
 extern const char *stunGetExternalIP(void);
 
 /* Net functions */
-extern void netServerStageStart(void);
 extern void netServerStageEnd(void);
 extern void netServerKickClient(s32 clientId, const char *reason);
 extern void netServerBanClient(s32 clientId, const char *reason);
@@ -795,13 +794,7 @@ static void drawTabOperator(float panelW, float panelH)
         ImGui::Spacing();
 
         /* Start / End match */
-        bool hasPlayers = (g_NetNumClients > 0) && (roomGetActiveCount() > 0);
-        if (!hasPlayers) ImGui::BeginDisabled();
-        if (ImGui::Button("Force Start Match", ImVec2(-1, 30))) {
-            sysLogPrintf(LOG_NOTE, "SERVER GUI: force starting match");
-            netServerStageStart();
-        }
-        if (!hasPlayers) ImGui::EndDisabled();
+		ImGui::TextDisabled("Room authority starts the match after manifest validation.");
         ImGui::Spacing();
         if (ImGui::Button("End Match", ImVec2(-1, 30))) {
             sysLogPrintf(LOG_NOTE, "SERVER GUI: ending match");

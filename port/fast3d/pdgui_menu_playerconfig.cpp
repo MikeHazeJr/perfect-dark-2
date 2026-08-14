@@ -116,7 +116,7 @@ extern s32 g_MpPlayerNum;
 
 /* ---- Net ---- */
 extern s32 g_NetMode;
-void netClientSettingsChanged(void);
+s32 netClientSettingsChanged(void);
 
 /* ---- Asset catalog (declared in assetcatalog.h; simple externs so we
  *      don't pull heavy headers that would drag types.h via transitive

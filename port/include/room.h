@@ -77,6 +77,7 @@ typedef struct hub_room_s {
     u8           clients[HUB_MAX_CLIENTS];    /**< clientId of each member. */
     u8           client_count;
     u8           max_players;                 /**< Slots allocated from server pool. */
+    u32          reconnect_reservation_mask;  /**< Timed-out stable client IDs that still own capacity. */
 
     u8           stagenum;
     u8           scenario;
@@ -175,11 +176,30 @@ static inline const char *roomStateName(room_state_t state)
  *  check needed), 0 on mismatch. */
 s32 roomCheckPassword(const hub_room_t *room, const char *plaintext);
 
+/** Number of active plus reconnect-reserved capacity slots. */
+u8 roomOccupiedCount(const hub_room_t *room);
+
+/** Side-effect-free ordinary join preflight. Reconnect reservations count
+ * against capacity and cannot be consumed through this path. */
+s32 roomCanJoin(const hub_room_t *room, u8 clientId);
+
 /** Add a client to a room. Returns 1 on success, 0 if full or already in room. */
 s32 roomJoin(hub_room_t *room, u8 clientId);
 
 /** Remove a client from a room. Destroys room if empty (except room 0). */
 void roomLeave(hub_room_t *room, u8 clientId);
+
+/** Atomically replace an active room membership with an exact stable-client
+ * reconnect reservation. Returns 1 on success (including an already-reserved
+ * idempotent retry), 0 when the client did not own the room slot. */
+s32 roomLeaveForReconnect(hub_room_t *room, u8 clientId);
+
+/** Side-effect-free exact-reservation preflight, then its atomic consume path. */
+s32 roomCanRejoin(const hub_room_t *room, u8 clientId);
+s32 roomRejoin(hub_room_t *room, u8 clientId);
+
+/** Release one expired/invalidated exact reconnect reservation. */
+void roomReleaseReconnectReservation(hub_room_t *room, u8 clientId);
 
 #ifdef __cplusplus
 }

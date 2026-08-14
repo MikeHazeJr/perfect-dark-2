@@ -13,7 +13,8 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_screen_config.h"
 
-/* D3d: ImGui event integration — pdgui processes events before PD */
+/* D3d: ImGui event integration. Main-window focus lifecycle reaches input
+ * authority first; pdgui then processes every event before ordinary PD input. */
 extern "C" {
     signed int pdguiProcessEvent(void *sdlEvent);  /* s32 = signed int */
     void meshDebugToggle(void);
@@ -338,10 +339,45 @@ static void gfx_sdl_get_dimensions(uint32_t* width, uint32_t* height, int32_t* p
     SDL_GetWindowPosition(wnd, static_cast<int*>(posX), static_cast<int*>(posY));
 }
 
+static void gfx_sdl_route_main_window_focus(const SDL_Event *event) {
+    if (!wnd || !event || event->type != SDL_WINDOWEVENT ||
+            event->window.windowID != SDL_GetWindowID(wnd)) {
+        return;
+    }
+
+    if (event->window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
+        /* Focus lifecycle is core input-authority state, not consumable UI
+         * input. Route it before pdguiProcessEvent so held gameplay state is
+         * flushed even when a UI context consumes the SDL event. */
+        inputCtxNotifyFocus(0);
+    } else if (event->window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+        /* Start the settle window before ordinary input dispatch. The event
+         * still reaches ImGui below so its own focus bookkeeping stays exact. */
+        inputCtxNotifyFocus(1);
+    }
+}
+
+static void gfx_sdl_reconcile_main_window_focus(void) {
+    if (!wnd) {
+        return;
+    }
+
+    /* Windows may coalesce or omit a queued SDL focus event while automation
+     * moves foreground ownership between ordinary clients. Reconcile once per
+     * pump against SDL's main-window state. inputCtxNotifyFocus is idempotent,
+     * so this repairs a missed edge without duplicating flushes or logs. */
+    inputCtxNotifyFocus(
+        (SDL_GetWindowFlags(wnd) & SDL_WINDOW_INPUT_FOCUS) ? 1 : 0);
+}
+
 static void gfx_sdl_handle_events(void) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
-        /* D3d: Let ImGui see every event first.
+        gfx_sdl_route_main_window_focus(&event);
+
+        /* D3d: Let ImGui see every event before ordinary PD input.
+         * Main-window focus lifecycle was already routed above because it is
+         * non-consumable input-authority state.
          * actionmapDispatch is called inside pdguiProcessEvent — do NOT
          * call it here too or every event fires twice. */
         int consumed = pdguiProcessEvent(&event);
@@ -370,16 +406,6 @@ static void gfx_sdl_handle_events(void) {
                     if (!fullscreen_state) {
                         maximized_state = SDL_GetWindowFlags(wnd) & SDL_WINDOW_MAXIMIZED ? true : false;
                     }
-                } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST) {
-                    /* ADR 2026-04-13: flush held gameplay keys on alt-tab so
-                     * the player doesn't keep walking while the window is
-                     * backgrounded. SDL may never deliver matching KEYUPs. */
-                    inputCtxNotifyFocus(0);
-                } else if (event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
-                    /* Focus back: start the settle window; until it expires,
-                     * gameplayInputSuppressed() stays true so SDL's auto-
-                     * repeat replays of held keys won't move the player. */
-                    inputCtxNotifyFocus(1);
                 } else if (event.window.event == SDL_WINDOWEVENT_CLOSE &&
                            event.window.windowID == SDL_GetWindowID(wnd)) {
                     // We listen specifically for main window close because closing main window
@@ -392,6 +418,8 @@ static void gfx_sdl_handle_events(void) {
                 break;
         }
     }
+
+    gfx_sdl_reconcile_main_window_focus();
 
     /* End-of-frame cleanup: remove any contexts marked for deferred removal.
      * Must happen after all events are dispatched, before next frame. */

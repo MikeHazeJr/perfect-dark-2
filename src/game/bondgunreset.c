@@ -157,8 +157,16 @@ void bgunReset(void)
 
 	g_Vars.currentplayer->gunctrl.loadall = true;
 	g_Vars.currentplayer->gunctrl.dualwielding = false;
+	g_Vars.currentplayer->gunctrl.prevwasdualwielding = false;
 	g_Vars.currentplayer->gunctrl.throwing = false;
+	g_Vars.currentplayer->gunctrl.wantammo = false;
+	g_Vars.currentplayer->gunctrl.passivemode = false;
 
+	/* B-1066: player storage can survive a stage transition. Reset the
+	 * equipped/previous identity as deliberately as a fresh allocation does,
+	 * rather than inheriting the prior stage's weapon state. */
+	g_Vars.currentplayer->gunctrl.weaponnum = WEAPON_NONE;
+	g_Vars.currentplayer->gunctrl.prevweaponnum = -1;
 	g_Vars.currentplayer->gunctrl.switchtoweaponnum = -1;
 	g_Vars.currentplayer->gunctrl.fnfader = 0;
 

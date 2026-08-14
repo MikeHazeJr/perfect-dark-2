@@ -9,7 +9,7 @@
 > with SHA-256
 > `2DDF4541E7B2FD753F296158EB8991831BF4572834D38C00A40545868087F9DF`.
 
-Last updated: 2026-08-12
+Last updated: 2026-08-14
 
 ---
 
@@ -62,7 +62,7 @@ start of each session rather than repeating stale numbers.
 
 | Order | Workbench item | Status | Current dependency progress | Completion |
 |-------|----------------|--------|-----------------------------|------------|
-| 1 | T-RELEASE-002 | partial | V-010 has 3 closed, 6 partial, and 6 missing leaf gates out of 15 | V-010 validated/pass |
+| 1 | T-RELEASE-002 | partial | V-010 has 2 closed, 8 partial, and 5 missing leaf gates out of 15 | V-010 validated/pass |
 | 2 | T-RELEASE-003 | partial | 0 of 2 closed; T-THEATER-001 partial, V-011 missing | Theater implementation plus V-011 validated/pass |
 | 3 | T-RELEASE-004 | missing | 0 of 2 closed | T-MODDING-008 and V-012 complete |
 | 4 | T-RELEASE-005 | partial | 2 closed, 4 partial, and 3 missing out of 9 | Friend-play/NAT/co-op/performance dependencies closed |
@@ -75,13 +75,14 @@ sixth work queue.
 
 ## Milestone 1: complete base game and graphs
 
-Current default focus: T-ENGINE-004. Replace ambiguous player-initialization
-defaults and partial mutation with checked phases and one atomic commit or full
-rollback. T-TESTS-002 is now validated after D-005 option A closed the Agent
-Profile Store lifecycle, B-1061/B-1062/B-1063 passed their ordinary-client
-gates, and the final source-frozen 17-mission plus restart release run passed.
-This matters because "100 percent" requires complete failure behavior and
-reusable initialization boundaries, not only reachable golden paths.
+Current default focus: T-ENGINE-004. The B-1082 through B-1090 current-product
+friend-play cluster is now a regression gate; continue with the next unverified
+T-ENGINE-004 Campaign/player-init and transition lifecycle slice. T-TESTS-002 remains
+validated after D-005 option A closed the Agent Profile Store lifecycle,
+B-1061/B-1062/B-1063 passed their ordinary-client gates, and the final
+source-frozen 17-mission plus restart release run passed. This matters because
+"100 percent" requires symmetric production behavior and complete failure
+semantics, not a route that works only when one social role becomes authority.
 
 Decided Workbench item D-005 owns the architecture: one Agent Profile v3 JSON is
 the sole per-agent source for campaign state and preferences. The global
@@ -102,22 +103,25 @@ Runtime ROM/RomProvider fallback after extraction is an asset-chain failure trac
 | T-RUNTIME-001 | partial | Every accepted public source and graph drives production with no hidden native, loose, or ROM fallback. |
 | T-MODDING-002 | partial | Every accepted base weapon/projectile/entity graph deliberately selects its production behavior with parity proof. |
 | T-MODINFRASTRUCTURE-003 | missing | Remove AllInOne content from base authority and retain it only as optional typed mods. |
-| T-ENGINE-004 | missing | Checked, phased, atomic player initialization with no silent default substitution. |
+| T-ENGINE-004 | partial | Accepted regression gates retain ordinary listen-host, generated-audit, two-cycle Combat Simulator, D-003 rollback, both authority-first friend-play roles (214/214 initiator and 218/218 invitee), and the B-1099 ordinary reconnect production path. Exact product `7437d77c...` / client `0f377e3e...` passes isolated builds, focused 1,746/19, full 63,936/1,168, and the native-source guard. Its sole replacement run proves listen readiness, initial and restored NORMAL gameplay, timeout intent/reservation retention, one authenticated retry, exact world plus both inventories, one commit, five real MagSec shots, authority acceptance, scripted exits, and no leaks. The immutable raw receipt remains 92/95 due B-1100's stale verifier; separately hashed retained-log revalidation passes 98/98 under verifier `9f6c126b...`, and compiled `[b1100]` passes 61/1 without rerunning the game. B-1091, B-1092, B-1094, B-1095, B-1099, and B-1100 are regression gates. Broader T-ENGINE-004 remains partial for Campaign/player-init, transition reset, wider failure rollback, strengthened listen-host lifecycle, and the V-009 release capture gate. |
 | T-TESTS-002 | validated | D-005 option A is production-proven: exact v2 plus optional INI migration to v3, complete-schema rejection, activation rollback, active-delete rejection, ordinary Agent Select, fail-closed invalid CLI, all 17 missions through live Credits, and second-client v3 persistence. Final full automation passes 57,277 assertions in 1,070 cases. |
 | T-VEHICLES-002 | missing | Complete hoverbike operation across input, physics, lifecycle, and applicable authority paths. |
 | T-TOOLING-003 | missing | Durable indexed release evidence instead of transient build-folder claims. |
 | V-003 | partial | All-family catalog/provider production use. |
 | V-004 | partial | Real MKB/controller navigation, rebinding, glyph switching, and gameplay input. |
 | V-005 | missing | One controlled public-source edit changes production behavior for each of 27 families. |
-| V-006 | validated/pass | Preserve fail-closed extraction, source-load, and save behavior as a regression gate. |
+| V-006 | partial | B-1068 reopened scenario JSON loading: candidate-first typed validation, bounded v1/v2 migration, exact rollback, and ordinary-client save/load/start proof remain. Prior extraction and MP setup receipts stay valid. |
 | V-008 | missing | Custom game-mode and bot-profile identity through save and listen-host networking. |
 | V-009 | validated/pass | Preserve edited effect/weapon gameplay, distribution, lifecycle, and visual proof. |
 
 V-010 also owns the consolidated regression matrix from [bugs.md](bugs.md),
 including campaign and Combat Simulator lifecycle, bot spawn and attribution,
 collision, physical input, vehicles, character geometry, long-session stress,
-and rendering. The five live one-off 1.0 bugs are B-919, B-249, B-242, B-174,
-and B-183. B-1061, B-1062, and B-1063 are locked release regression gates.
+and rendering. The forty-two live one-off 1.0 bugs are B-919, B-249, B-242, B-174,
+B-183, B-1064, B-1065, B-1066, B-1067, B-1068, B-1069, B-1070, B-1071,
+B-1072, B-1073, B-1074, B-1075, B-1076, B-1077, B-1078, B-1079, B-1080,
+B-1081, B-1082, B-1083, B-1084, B-1085, B-1086, B-1087, B-1088, B-1089, B-1090, B-1091, B-1092, B-1093, B-1094, B-1095, B-1096, B-1097, B-1098, B-1099, and B-1100. B-1061, B-1062, and B-1063 are locked release
+regression gates.
 
 ---
 

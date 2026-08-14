@@ -29,6 +29,7 @@
 #include "modelcatalog.h"
 #include "assetcatalog.h"
 #include "asset_runtime.h"
+#include "player_identity.h"
 #include "game/mplayer/participant.h"
 #include "net/matchsetup.h"
 #include "input.h"
@@ -66,9 +67,144 @@ struct menudialogdef g_MatchSetupMenuDialog = {
 /* Definition of the match config global (declaration in net/matchsetup.h) */
 struct matchconfig g_MatchConfig;
 
+u32 matchConfigGetUserOptions(void)
+{
+	return matchOptionsUserView(g_MatchConfig.options,
+	                            g_MatchConfig.options_engine_forced);
+}
+
+void matchConfigSetUserOption(u32 bit, s32 enabled)
+{
+	matchOptionsSetUserBit(&g_MatchConfig.options,
+	                       &g_MatchConfig.options_engine_forced,
+	                       bit, enabled);
+}
+
+void matchConfigReplaceUserOptions(u32 options, const char *reason)
+{
+	const u32 prior_forced = g_MatchConfig.options_engine_forced;
+
+	matchOptionsReplaceUserOriginal(&g_MatchConfig.options,
+	                                &g_MatchConfig.options_engine_forced,
+	                                options);
+
+	if (prior_forced != 0) {
+		sysLogPrintf(LOG_NOTE,
+			"MATCH.OPTIONS.REBASE: reason=%s discarded_overlay=0x%08x user=0x%08x",
+			reason ? reason : "unspecified", prior_forced, options);
+	}
+}
+
+void matchConfigRestoreUserOptions(const char *reason)
+{
+	const u32 prior_forced = g_MatchConfig.options_engine_forced;
+
+	if (prior_forced == 0) {
+		return;
+	}
+
+	matchOptionsRestoreUserOriginal(&g_MatchConfig.options,
+	                                &g_MatchConfig.options_engine_forced);
+	sysLogPrintf(LOG_NOTE,
+		"MATCH.OPTIONS.RESTORE: reason=%s cleared_overlay=0x%08x user=0x%08x",
+		reason ? reason : "unspecified", prior_forced, g_MatchConfig.options);
+}
+
 /* ========================================================================
  * Match config initialization
  * ======================================================================== */
+
+static s32 matchConfigPrepareExactWeaponIds(
+		const u8 weapons[NUM_MPWEAPONSLOTS],
+		char out_ids[NUM_MPWEAPONSLOTS][CATALOG_ID_LEN])
+{
+	for (s32 i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+		const char *id;
+		const asset_entry_t *entry;
+
+		out_ids[i][0] = '\0';
+		if (weapons[i] == MPWEAPON_NONE) {
+			continue;
+		}
+		id = catalogWeaponIdByMpWeaponId((s32)weapons[i]);
+		entry = id ? assetCatalogResolve(id) : NULL;
+		if (!entry || !entry->occupied || !entry->enabled
+				|| entry->type != ASSET_WEAPON
+				|| entry->mp_index != (s32)weapons[i]
+				|| entry->runtime_index <= 0
+				|| catalogGetMpWeaponNum(entry->mp_index)
+					!= entry->runtime_index) {
+			return 0;
+		}
+		strncpy(out_ids[i], entry->id, CATALOG_ID_LEN - 1);
+		out_ids[i][CATALOG_ID_LEN - 1] = '\0';
+	}
+	return 1;
+}
+
+s32 matchConfigSelectWeaponSet(s32 weaponsetnum)
+{
+	u8 prepared[NUM_MPWEAPONSLOTS];
+	char ids[NUM_MPWEAPONSLOTS][CATALOG_ID_LEN];
+	s32 resolved_set;
+	u64 rng_seed = g_RngSeed;
+	u64 rng_seed_2 = g_Rng2Seed;
+
+	if (mpPrepareWeaponSet(weaponsetnum, g_MpSetup.weapons,
+			prepared, &resolved_set) != 0
+			|| !matchConfigPrepareExactWeaponIds(prepared, ids)) {
+		g_RngSeed = rng_seed;
+		g_Rng2Seed = rng_seed_2;
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK weapon-set index=%d globals_published=0",
+			weaponsetnum);
+		return 0;
+	}
+
+	mpCommitPreparedWeaponSet(resolved_set, prepared);
+	g_MatchConfig.weaponSetIndex = (s8)weaponsetnum;
+	memcpy(g_MatchConfig.weapon_ids, ids, sizeof(ids));
+	memcpy(g_MatchConfig.weapons, prepared, sizeof(prepared));
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.COMMIT weapon-set index=%d resolved=%d",
+		weaponsetnum, resolved_set);
+	return 1;
+}
+
+s32 matchConfigSetWeaponSlotId(s32 slot, const char *weapon_id)
+{
+	const asset_entry_t *entry;
+
+	if (slot < 0 || slot >= NUM_MPWEAPONSLOTS || !weapon_id
+			|| memchr(weapon_id, '\0', CATALOG_ID_LEN) == NULL) {
+		return 0;
+	}
+	if (!weapon_id[0]) {
+		g_MatchConfig.weapon_ids[slot][0] = '\0';
+		g_MatchConfig.weapons[slot] = MPWEAPON_NONE;
+		g_MpSetup.weapons[slot] = MPWEAPON_NONE;
+		g_MatchConfig.weaponSetIndex = -1;
+		mpCommitPreparedWeaponSet(WEAPONSET_CUSTOM, g_MpSetup.weapons);
+		return 1;
+	}
+	entry = assetCatalogResolve(weapon_id);
+	if (!entry || !entry->occupied || !entry->enabled
+			|| entry->type != ASSET_WEAPON
+			|| entry->mp_index < 0 || entry->mp_index > 255
+			|| entry->runtime_index <= 0
+			|| catalogGetMpWeaponNum(entry->mp_index) != entry->runtime_index) {
+		return 0;
+	}
+	strncpy(g_MatchConfig.weapon_ids[slot], entry->id,
+		sizeof(g_MatchConfig.weapon_ids[slot]) - 1);
+	g_MatchConfig.weapon_ids[slot][
+		sizeof(g_MatchConfig.weapon_ids[slot]) - 1] = '\0';
+	g_MatchConfig.weapons[slot] = (u8)entry->mp_index;
+	g_MpSetup.weapons[slot] = (u8)entry->mp_index;
+	g_MatchConfig.weaponSetIndex = -1;
+	mpCommitPreparedWeaponSet(WEAPONSET_CUSTOM, g_MpSetup.weapons);
+	return 1;
+}
 
 void matchConfigInit(void)
 {
@@ -118,7 +254,7 @@ void matchConfigInit(void)
 	 * the lobby pick reflect its label: every match rolls once across the
 	 * active weapon set and uses that for every spawn. */
 	g_MatchConfig.spawnWeaponMode = SPAWNWEAPON_MODE_RANDOM;
-	/* M0.1c: weapon_ids[] initialized to empty — preset sets fill g_MpSetup directly */
+	/* The transactional selection below publishes exact IDs with the cache. */
 	memset(g_MatchConfig.weapon_ids, 0, sizeof(g_MatchConfig.weapon_ids));
 	g_MatchConfig.numSlots = 0;
 
@@ -129,12 +265,16 @@ void matchConfigInit(void)
 	/* Apply the default weapon set so g_MpSetup.weapons[] is populated.
 	 * mpSetWeaponSet() maps the user-facing index through the unlock filter
 	 * and calls mpApplyWeaponSet() to fill the 6 weapon slots. */
-	mpSetWeaponSet(g_MatchConfig.weaponSetIndex);
+	if (!matchConfigSelectWeaponSet(g_MatchConfig.weaponSetIndex)) {
+		sysLogPrintf(LOG_ERROR,
+			"MATCHSETUP: default weapon set has no exact typed identity");
+	}
 
 	/* Slot 0 = local player — use agent name from save file */
 	struct matchslot *s0 = &g_MatchConfig.slots[0];
 	s0->type = SLOT_PLAYER;
 	s0->team = 0;
+	g_PlayerConfigsArray[0].base.team = s0->team;
 	/* Copy catalog IDs directly from playerconfig; fall back to defaults
 	 * if the save file hasn't populated them yet. */
 	{
@@ -174,6 +314,12 @@ void matchConfigInit(void)
 		s0->name[MAX_PLAYER_NAME - 1] = '\0';
 	}
 	g_MatchConfig.numSlots = 1;
+
+	/* matchResetHandicaps and the local identity writes above replace values
+	 * cached when networking started. Refresh the one local network settings
+	 * record after the reset; remote clients publish CLC_SETTINGS, while an
+	 * in-client listen host updates its authoritative cache in place. */
+	netClientSettingsChanged();
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: config initialized — player '%s' body_id='%s' head_id='%s'",
 	             s0->name, s0->body_id, s0->head_id);
@@ -639,7 +785,7 @@ s32 matchConfigAddBotWithProfile(const char *profile_id, const char *body_id,
 	struct matchslot *slot = &g_MatchConfig.slots[idx];
 	memset(slot, 0, sizeof(*slot));
 	slot->type = SLOT_BOT;
-	slot->team = (g_MatchConfig.options & MPOPTION_TEAMSENABLED)
+	slot->team = (matchConfigGetUserOptions() & MPOPTION_TEAMSENABLED)
 		? matchConfigChooseBotTeam(2)
 		: 0;
 	if (s_matchSlotApplyBotProfile(slot, profile_id, 1) != 0) {
@@ -884,362 +1030,495 @@ s32 spawnWeaponPickFromMatchManifest(void)
 	return (s32)pool[r % (u32)count];
 }
 
+static s32 spawnWeaponPickFromPreparedMatch(const u8 *prepared_slots)
+{
+	const match_manifest_t *manifest = spawnWeaponSelectManifest();
+	u8 pool[NUM_MPWEAPONS];
+	s32 count = spawnWeaponBuildPoolFromManifest(
+		manifest, pool, (s32)ARRAYCOUNT(pool));
+
+	if (count > 0) {
+		return (s32)pool[rngRandom() % (u32)count];
+	}
+
+	return spawnWeaponPickFromSlots(prepared_slots, NUM_MPWEAPONSLOTS,
+		spawnWeaponRngBridge, NULL);
+}
+
+typedef struct match_start_participant_plan_t {
+	ParticipantType type;
+	u8 participant_slot;
+	u8 team;
+	player_identity_plan_t identity;
+	struct mpchrconfig player;
+	struct mpbotconfig bot;
+} match_start_participant_plan_t;
+
+typedef struct match_start_plan_t {
+	match_start_status_e status;
+	struct mpsetup setup;
+	char weapon_ids[NUM_MPWEAPONSLOTS][CATALOG_ID_LEN];
+	u8 spawn_weapon_num;
+	s32 resolved_weapon_set;
+	s32 num_participants;
+	s32 num_players;
+	s32 num_bots;
+	match_start_participant_plan_t participants[MATCH_PARTICIPANT_CAP];
+} match_start_plan_t;
+
+const char *matchStartStatusString(match_start_status_e status)
+{
+	switch (status) {
+	case MATCH_START_OK: return "ok";
+	case MATCH_START_INVALID_SLOT_COUNT: return "invalid_slot_count";
+	case MATCH_START_INVALID_PARTICIPANT: return "invalid_participant";
+	case MATCH_START_NO_PLAYERS: return "no_players";
+	case MATCH_START_INVALID_SCENARIO: return "invalid_scenario";
+	case MATCH_START_INVALID_STAGE: return "invalid_stage";
+	case MATCH_START_INVALID_WEAPON_SET: return "invalid_weapon_set";
+	case MATCH_START_INVALID_WEAPON: return "invalid_weapon";
+	case MATCH_START_INVALID_SPAWN_WEAPON: return "invalid_spawn_weapon";
+	case MATCH_START_INVALID_PLAYER_IDENTITY: return "invalid_player_identity";
+	case MATCH_START_INVALID_BOT_PROFILE: return "invalid_bot_profile";
+	case MATCH_START_INVALID_BOT_IDENTITY: return "invalid_bot_identity";
+	case MATCH_START_PARTICIPANT_POOL_UNAVAILABLE: return "participant_pool_unavailable";
+	default: return "unknown";
+	}
+}
+
+static match_start_status_e matchStartReject(match_start_plan_t *plan,
+		match_start_status_e status, const char *detail)
+{
+	if (plan != NULL) {
+		plan->status = status;
+	}
+	sysLogPrintf(LOG_ERROR,
+		"PLAYER.INIT.PREFLIGHT match=reject status=%s detail=%s",
+		matchStartStatusString(status), detail ? detail : "unspecified");
+	return status;
+}
+
+static s32 matchStartIdIsValid(const char *id, size_t capacity)
+{
+	return id != NULL && capacity > 0 && id[0] != '\0'
+		&& memchr(id, '\0', capacity) != NULL;
+}
+
+static match_start_status_e matchStartPrepareIdentity(
+		const struct matchslot *slot, player_identity_plan_t *identity,
+		match_start_status_e failure_status, match_start_plan_t *plan)
+{
+	player_identity_status_e status;
+
+	status = playerIdentityPrepare(slot->body_id, slot->head_id, identity);
+	if (status != PLAYER_IDENTITY_OK) {
+		return matchStartReject(plan, failure_status,
+			playerIdentityStatusString(status));
+	}
+
+	return MATCH_START_OK;
+}
+
+static match_start_status_e matchStartPrepare(match_start_plan_t *plan)
+{
+	const asset_entry_t *entry;
+	u8 custom_weapons[NUM_MPWEAPONSLOTS];
+	s32 player_slot = 0;
+	s32 bot_slot = 0;
+	s32 i;
+
+	if (plan == NULL) {
+		return MATCH_START_INVALID_PARTICIPANT;
+	}
+	memset(plan, 0, sizeof(*plan));
+	plan->status = MATCH_START_INVALID_PARTICIPANT;
+	plan->setup = g_MpSetup;
+
+	if (g_MatchConfig.numSlots == 0
+			|| g_MatchConfig.numSlots > MATCH_MAX_SLOTS
+			|| g_MatchConfig.numSlots > MATCH_PARTICIPANT_CAP) {
+		return matchStartReject(plan, MATCH_START_INVALID_SLOT_COUNT,
+			"numSlots outside participant contract");
+	}
+	if (g_MpParticipants.slots == NULL
+			|| g_MpParticipants.capacity < MAX_PLAYERS + MAX_BOTS) {
+		return matchStartReject(plan, MATCH_START_PARTICIPANT_POOL_UNAVAILABLE,
+			"participant pool is not initialized at full runtime capacity");
+	}
+
+	if (!matchStartIdIsValid(g_MatchConfig.scenario_id,
+			sizeof(g_MatchConfig.scenario_id))) {
+		return matchStartReject(plan, MATCH_START_INVALID_SCENARIO,
+			"scenario ID is empty or unterminated");
+	}
+	entry = assetCatalogResolve(g_MatchConfig.scenario_id);
+	if (!entry || entry->type != ASSET_GAMEMODE
+			|| entry->ext.gamemode.mode_id < MPSCENARIO_COMBAT
+			|| entry->ext.gamemode.mode_id > MPSCENARIO_CAPTURETHECASE) {
+		return matchStartReject(plan, MATCH_START_INVALID_SCENARIO,
+			g_MatchConfig.scenario_id);
+	}
+	plan->setup.scenario = (u8)entry->ext.gamemode.mode_id;
+
+	if (!matchStartIdIsValid(g_MatchConfig.stage_id,
+			sizeof(g_MatchConfig.stage_id))) {
+		return matchStartReject(plan, MATCH_START_INVALID_STAGE,
+			"stage ID is empty or unterminated");
+	}
+	entry = assetCatalogResolve(g_MatchConfig.stage_id);
+	if (entry && entry->type == ASSET_ARENA) {
+		if (entry->ext.arena.stagenum <= 0 || entry->ext.arena.stagenum > 255) {
+			return matchStartReject(plan, MATCH_START_INVALID_STAGE,
+				"arena runtime stagenum is outside the wire/runtime domain");
+		}
+		plan->setup.stagenum = (u8)entry->ext.arena.stagenum;
+	} else if (entry && entry->type == ASSET_MAP) {
+		if (entry->ext.map.stagenum <= 0 || entry->ext.map.stagenum > 255) {
+			return matchStartReject(plan, MATCH_START_INVALID_STAGE,
+				"map runtime stagenum is outside the wire/runtime domain");
+		}
+		plan->setup.stagenum = (u8)entry->ext.map.stagenum;
+	} else {
+		return matchStartReject(plan, MATCH_START_INVALID_STAGE,
+			g_MatchConfig.stage_id);
+	}
+	if (plan->setup.stagenum == 0) {
+		return matchStartReject(plan, MATCH_START_INVALID_STAGE,
+			"stage has no runtime stagenum binding");
+	}
+	strncpy(plan->setup.stage_id, g_MatchConfig.stage_id,
+		sizeof(plan->setup.stage_id) - 1);
+	plan->setup.stage_id[sizeof(plan->setup.stage_id) - 1] = '\0';
+	plan->setup.timelimit = g_MatchConfig.timelimit;
+	plan->setup.scorelimit = g_MatchConfig.scorelimit;
+	plan->setup.teamscorelimit = g_MatchConfig.teamscorelimit;
+	plan->setup.options = matchConfigGetUserOptions();
+
+	memcpy(custom_weapons, g_MpSetup.weapons, sizeof(custom_weapons));
+	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+		if (g_MatchConfig.weapon_ids[i][0] == '\0') {
+			if (g_MatchConfig.weaponSetIndex < 0) {
+				return matchStartReject(plan, MATCH_START_INVALID_WEAPON,
+					"custom weapon slot has no typed ID");
+			}
+			continue;
+		}
+
+		if (!matchStartIdIsValid(g_MatchConfig.weapon_ids[i],
+				sizeof(g_MatchConfig.weapon_ids[i]))) {
+			return matchStartReject(plan, MATCH_START_INVALID_WEAPON,
+				"weapon ID is unterminated");
+		}
+		entry = assetCatalogResolve(g_MatchConfig.weapon_ids[i]);
+		if (!entry || entry->type != ASSET_WEAPON || entry->mp_index < 0
+				|| entry->mp_index > 255 || entry->runtime_index <= 0
+				|| catalogGetMpWeaponNum(entry->mp_index) != entry->runtime_index) {
+			return matchStartReject(plan, MATCH_START_INVALID_WEAPON,
+				g_MatchConfig.weapon_ids[i]);
+		}
+		custom_weapons[i] = (u8)entry->mp_index;
+	}
+
+	if (mpPrepareWeaponSet(g_MatchConfig.weaponSetIndex,
+			custom_weapons, plan->setup.weapons,
+			&plan->resolved_weapon_set) != 0) {
+		return matchStartReject(plan, MATCH_START_INVALID_WEAPON_SET,
+			"weapon set could not prepare without global mutation");
+	}
+	/* Typed custom IDs are authoritative even when the selected base set is
+	 * retained for UI grouping. */
+	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+		if (g_MatchConfig.weapon_ids[i][0] != '\0') {
+			plan->setup.weapons[i] = custom_weapons[i];
+		}
+	}
+	/* Freeze an exact typed identity for every resolved non-empty slot.  Preset
+	 * selection begins as an index, but the committed match and network writer
+	 * must never reconstruct public identity from a numeric cache later. */
+	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+		const s32 mp_weapon_id = (s32)plan->setup.weapons[i];
+		const char *weapon_id;
+
+		if (mp_weapon_id == MPWEAPON_NONE) {
+			plan->weapon_ids[i][0] = '\0';
+			continue;
+		}
+		weapon_id = g_MatchConfig.weapon_ids[i][0]
+			? g_MatchConfig.weapon_ids[i]
+			: catalogWeaponIdByMpWeaponId(mp_weapon_id);
+		entry = weapon_id ? assetCatalogResolve(weapon_id) : NULL;
+		if (!entry || !entry->occupied || !entry->enabled
+				|| entry->type != ASSET_WEAPON
+				|| entry->mp_index != mp_weapon_id
+				|| entry->runtime_index <= 0
+				|| catalogGetMpWeaponNum(entry->mp_index)
+					!= entry->runtime_index) {
+			return matchStartReject(plan, MATCH_START_INVALID_WEAPON,
+				"resolved weapon slot has no exact typed identity");
+		}
+		strncpy(plan->weapon_ids[i], entry->id,
+			sizeof(plan->weapon_ids[i]) - 1);
+		plan->weapon_ids[i][sizeof(plan->weapon_ids[i]) - 1] = '\0';
+	}
+
+	switch (g_MatchConfig.spawnWeaponMode) {
+	case SPAWNWEAPON_MODE_FIESTA:
+		plan->spawn_weapon_num = SPAWNWEAPON_FIESTA_SENTINEL;
+		break;
+	case SPAWNWEAPON_MODE_RANDOM: {
+		s32 picked = spawnWeaponPickFromPreparedMatch(plan->setup.weapons);
+		if (picked <= MPWEAPON_NONE || picked >= NUM_MPWEAPONS) {
+			sysLogPrintf(LOG_WARNING,
+				"MATCH.PREFLIGHT: random spawn pool empty; using Falcon 2 safety fallback");
+			picked = MPWEAPON_FALCON2;
+		}
+		plan->spawn_weapon_num = (u8)catalogGetMpWeaponNum(picked);
+		if (!spawnWeaponNumIsResolved(plan->spawn_weapon_num)) {
+			return matchStartReject(plan, MATCH_START_INVALID_SPAWN_WEAPON,
+				"random weapon has no runtime binding");
+		}
+		break;
+	}
+	case SPAWNWEAPON_MODE_SPECIFIC:
+		if (!matchStartIdIsValid(g_MatchConfig.spawn_weapon_id,
+				sizeof(g_MatchConfig.spawn_weapon_id))) {
+			return matchStartReject(plan, MATCH_START_INVALID_SPAWN_WEAPON,
+				"specific spawn weapon ID is empty or unterminated");
+		}
+		entry = assetCatalogResolve(g_MatchConfig.spawn_weapon_id);
+		if (!entry || entry->type != ASSET_WEAPON || entry->runtime_index <= 0
+				|| entry->runtime_index >= WEAPON_CUSTOM_END) {
+			return matchStartReject(plan, MATCH_START_INVALID_SPAWN_WEAPON,
+				g_MatchConfig.spawn_weapon_id);
+		}
+		plan->spawn_weapon_num = (u8)entry->runtime_index;
+		break;
+	default:
+		return matchStartReject(plan, MATCH_START_INVALID_SPAWN_WEAPON,
+			"unknown spawn weapon mode");
+	}
+
+	for (i = 0; i < g_MatchConfig.numSlots; i++) {
+		const struct matchslot *slot = &g_MatchConfig.slots[i];
+		match_start_participant_plan_t *participant;
+
+		if (slot->type == SLOT_EMPTY) {
+			continue;
+		}
+		if (plan->num_participants >= MATCH_PARTICIPANT_CAP) {
+			return matchStartReject(plan, MATCH_START_INVALID_PARTICIPANT,
+				"participant plan capacity exceeded");
+		}
+		participant = &plan->participants[plan->num_participants];
+		if (slot->team >= MAX_TEAMS) {
+			return matchStartReject(plan, MATCH_START_INVALID_PARTICIPANT,
+				"participant team is outside the runtime domain");
+		}
+		participant->team = slot->team;
+
+		if (slot->type == SLOT_PLAYER) {
+			match_start_status_e status;
+			if (player_slot >= MAX_PLAYERS) {
+				return matchStartReject(plan, MATCH_START_INVALID_PARTICIPANT,
+					"too many player slots");
+			}
+			status = matchStartPrepareIdentity(slot, &participant->identity,
+				MATCH_START_INVALID_PLAYER_IDENTITY, plan);
+			if (status != MATCH_START_OK) return status;
+			participant->type = PARTICIPANT_LOCAL;
+			participant->participant_slot = (u8)player_slot;
+			participant->player = g_PlayerConfigsArray[player_slot].base;
+			participant->player.mpbodynum = participant->identity.mp_body_index >= 0
+				? (u8)participant->identity.mp_body_index : 0xFF;
+			participant->player.mpheadnum = participant->identity.mp_head_index >= 0
+				? (u8)participant->identity.mp_head_index : 0xFF;
+			participant->player.team = slot->team;
+			strncpy(participant->player.body_id, participant->identity.body_id,
+				sizeof(participant->player.body_id) - 1);
+			participant->player.body_id[sizeof(participant->player.body_id) - 1] = '\0';
+			strncpy(participant->player.head_id, participant->identity.head_id,
+				sizeof(participant->player.head_id) - 1);
+			participant->player.head_id[sizeof(participant->player.head_id) - 1] = '\0';
+			strncpy(participant->player.name, slot->name,
+				sizeof(participant->player.name) - 1);
+			participant->player.name[sizeof(participant->player.name) - 1] = '\0';
+			player_slot++;
+		} else if (slot->type == SLOT_BOT) {
+			const asset_runtime_binding_t *profile;
+			match_start_status_e status;
+			if (bot_slot >= MAX_BOTS) {
+				return matchStartReject(plan, MATCH_START_INVALID_PARTICIPANT,
+					"too many bot slots");
+			}
+			if (!matchStartIdIsValid(slot->profile_id,
+					sizeof(slot->profile_id))) {
+				return matchStartReject(plan, MATCH_START_INVALID_BOT_PROFILE,
+					"bot profile ID is empty or unterminated");
+			}
+			entry = assetCatalogResolve(slot->profile_id);
+			profile = entry && entry->type == ASSET_BOT_PROFILE
+				? assetRuntimeFindByTypeAndId(ASSET_BOT_PROFILE, slot->profile_id)
+				: NULL;
+			if (!profile || !profile->active || !profile->source_hydrated
+					|| profile->type != ASSET_BOT_PROFILE
+					|| strcmp(profile->id, slot->profile_id) != 0
+					|| !assetRuntimePrimaryFileAccessible(profile)
+					|| profile->bot_profile_type < 0
+					|| profile->bot_profile_type > 255
+					|| profile->bot_profile_difficulty < 0
+					|| profile->bot_profile_difficulty > 255) {
+				return matchStartReject(plan, MATCH_START_INVALID_BOT_PROFILE,
+					slot->profile_id);
+			}
+			status = matchStartPrepareIdentity(slot, &participant->identity,
+				MATCH_START_INVALID_BOT_IDENTITY, plan);
+			if (status != MATCH_START_OK) return status;
+			participant->type = PARTICIPANT_BOT;
+			participant->participant_slot = (u8)(MAX_PLAYERS + bot_slot);
+			participant->bot = g_BotConfigsArray[bot_slot];
+			participant->bot.base.mpbodynum = participant->identity.mp_body_index >= 0
+				? (u8)participant->identity.mp_body_index : 0xFF;
+			participant->bot.base.mpheadnum = participant->identity.mp_head_index >= 0
+				? (u8)participant->identity.mp_head_index : 0xFF;
+			participant->bot.base.team = slot->team;
+			participant->bot.type = (u8)profile->bot_profile_type;
+			participant->bot.difficulty = (u8)profile->bot_profile_difficulty;
+			strncpy(participant->bot.profile_id, slot->profile_id,
+				sizeof(participant->bot.profile_id) - 1);
+			participant->bot.profile_id[sizeof(participant->bot.profile_id) - 1] = '\0';
+			strncpy(participant->bot.base.body_id, participant->identity.body_id,
+				sizeof(participant->bot.base.body_id) - 1);
+			participant->bot.base.body_id[sizeof(participant->bot.base.body_id) - 1] = '\0';
+			strncpy(participant->bot.base.head_id, participant->identity.head_id,
+				sizeof(participant->bot.base.head_id) - 1);
+			participant->bot.base.head_id[sizeof(participant->bot.base.head_id) - 1] = '\0';
+			strncpy(participant->bot.base.name, slot->name,
+				sizeof(participant->bot.base.name) - 1);
+			participant->bot.base.name[sizeof(participant->bot.base.name) - 1] = '\0';
+			bot_slot++;
+		} else {
+			return matchStartReject(plan, MATCH_START_INVALID_PARTICIPANT,
+				"unknown match slot type");
+		}
+
+		plan->num_participants++;
+	}
+
+	if (player_slot == 0) {
+		return matchStartReject(plan, MATCH_START_NO_PLAYERS,
+			"match has no human player");
+	}
+
+	plan->num_players = player_slot;
+	plan->num_bots = bot_slot;
+	plan->status = MATCH_START_OK;
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.PREFLIGHT match=ok players=%d bots=%d stage='%s' scenario='%s'",
+		player_slot, bot_slot, plan->setup.stage_id, g_MatchConfig.scenario_id);
+	return MATCH_START_OK;
+}
+
+static void matchStartCommit(const match_start_plan_t *plan)
+{
+	s32 i;
+
+	matchConfigRestoreUserOptions("matchStart commit");
+	g_Vars.bondplayernum = 0;
+	g_Vars.coopplayernum = -1;
+	g_Vars.antiplayernum = -1;
+	g_MpSetup = plan->setup;
+	g_MatchConfig.scenario = plan->setup.scenario;
+	g_MatchConfig.stagenum = plan->setup.stagenum;
+	memcpy(g_MatchConfig.weapon_ids, plan->weapon_ids,
+		sizeof(g_MatchConfig.weapon_ids));
+	memcpy(g_MatchConfig.weapons, plan->setup.weapons,
+		sizeof(g_MatchConfig.weapons));
+	g_MatchConfig.spawnWeaponNum = plan->spawn_weapon_num;
+	mpCommitPreparedWeaponSet(plan->resolved_weapon_set, plan->setup.weapons);
+	mpClearAllParticipants();
+
+	for (i = 0; i < plan->num_participants; i++) {
+		const match_start_participant_plan_t *participant = &plan->participants[i];
+		if (participant->type == PARTICIPANT_LOCAL) {
+			g_PlayerConfigsArray[participant->participant_slot].base = participant->player;
+			mpAddParticipantAt(participant->participant_slot,
+				PARTICIPANT_LOCAL, participant->team, 0,
+				participant->participant_slot);
+		} else {
+			const s32 bot_slot = participant->participant_slot - MAX_PLAYERS;
+			g_BotConfigsArray[bot_slot] = participant->bot;
+			mpAddParticipantAt(participant->participant_slot,
+				PARTICIPANT_BOT, participant->team, -1, 0xFF);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.COMMIT match players=%d bots=%d activeMask=0x%016llx",
+		plan->num_players, plan->num_bots,
+		(unsigned long long)mpParticipantsEncodeActiveMask());
+}
+
 /* ========================================================================
  * Match start — the clean replacement for the old menutick flow
  * ======================================================================== */
 
 s32 matchStart(void)
 {
-	/* INV-4 / Cohort D (player-init-architectural-fixes-2026-04-26):
-	 * restore user-original options before propagating to g_MpSetup. Any
-	 * MPOPTION_* bits force-set by an engine fallback (e.g. setup.c B-181
-	 * forcing SPAWNWITHWEAPON when world pickups were sparse on the prior
-	 * map) are cleared from g_MatchConfig.options here so the new match
-	 * starts from the user's original menu choices. The B-181 fallback
-	 * re-evaluates per stage and re-fires if the new map's pickup count
-	 * is still low; tracking via options_engine_forced makes the cycle
-	 * idempotent. Pre-INV-4 the OR-set persisted across matches because
-	 * matchConfigReset() is rare. */
-	if (g_MatchConfig.options_engine_forced != 0) {
-		const u32 cleared = g_MatchConfig.options_engine_forced;
-		matchOptionsRestoreUserOriginal(&g_MatchConfig.options,
-		                                &g_MatchConfig.options_engine_forced);
-		sysLogPrintf(LOG_NOTE,
-			"MATCHSETUP: cleared engine-forced MP option bits 0x%08x at matchStart "
-			"(restoring user-original options); B-181 will re-evaluate for new stage",
-			cleared);
-	}
+	match_start_plan_t plan;
+	match_start_status_e status;
+	const u64 rng_seed = g_RngSeed;
+	const u64 rng2_seed = g_Rng2Seed;
 
-	sysLogPrintf(LOG_NOTE, "MATCHSETUP: starting match — %d slots, scenario=%d stage='%s'",
-	             g_MatchConfig.numSlots, g_MatchConfig.scenario, g_MatchConfig.stage_id);
-
-	/* S301 Airbase diag: log full entry state so a failure to progress
-	 * past matchStart() has clear fingerprint. Airbase 0xc0000005 repro
-	 * showed manifest build OK but no SVC_STAGE_START — log the state
-	 * at each phase transition from here to that send. */
 	sysLogPrintf(LOG_NOTE,
-		"MATCHSTART.DIAG: entry stage_id='%s' scenario_id='%s' numSlots=%d "
+		"MATCHSTART.DIAG: preflight stage_id='%s' scenario_id='%s' slots=%d "
 		"weaponSet=%d spawn_weapon='%s'",
 		g_MatchConfig.stage_id, g_MatchConfig.scenario_id,
 		g_MatchConfig.numSlots, g_MatchConfig.weaponSetIndex,
 		g_MatchConfig.spawn_weapon_id);
-	crashBreadcrumbPush("MATCHSTART entry stage='%s' slots=%d",
+	crashBreadcrumbPush("MATCHSTART preflight stage='%s' slots=%d",
 		g_MatchConfig.stage_id, g_MatchConfig.numSlots);
 
-	/* --- Set up global vars like the old handler does --- */
-	g_Vars.bondplayernum = 0;
-	g_Vars.coopplayernum = -1;
-	g_Vars.antiplayernum = -1;
-
 	challengeDetermineUnlockedFeatures();
+	status = matchStartPrepare(&plan);
 
-	/* --- Configure g_MpSetup from our match config --- */
-	/* M0.1d: resolve scenario from catalog ID (PRIMARY). Fall back to
-	 * deprecated integer if scenario_id is empty (backward compat). */
-	if (g_MatchConfig.scenario_id[0]) {
-		const asset_entry_t *gm = assetCatalogResolve(g_MatchConfig.scenario_id);
-		if (gm && gm->type == ASSET_GAMEMODE) {
-			g_MpSetup.scenario = (u8)gm->ext.gamemode.mode_id;
-			g_MatchConfig.scenario = g_MpSetup.scenario; /* keep derived in sync */
-		} else {
-			sysLogPrintf(LOG_WARNING,
-				"MATCHSETUP: scenario_id '%s' not in catalog — falling back to integer %d",
-				g_MatchConfig.scenario_id, g_MatchConfig.scenario);
-			g_MpSetup.scenario = g_MatchConfig.scenario;
-		}
-	} else {
-		g_MpSetup.scenario = g_MatchConfig.scenario;
+	if (status != MATCH_START_OK) {
+		/* Random weapon-set/spawn preparation is allowed to consume RNG only
+		 * when the transaction commits. Failed preflight is observationally
+		 * side-effect free. */
+		g_RngSeed = rng_seed;
+		g_Rng2Seed = rng2_seed;
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK match status=%s globals_published=0",
+			matchStartStatusString(status));
+		return -(s32)status;
 	}
 
-	/* Resolve stagenum from stage_id (PRIMARY). stage_id may refer to an ASSET_ARENA
-	 * (MP arena) or ASSET_MAP (co-op/counter-op mission). */
-	{
-		const asset_entry_t *ae = assetCatalogResolve(g_MatchConfig.stage_id);
-		if (ae && ae->type == ASSET_ARENA) {
-			g_MpSetup.stagenum = (u8)ae->ext.arena.stagenum;
-		} else if (ae && ae->type == ASSET_MAP) {
-			g_MpSetup.stagenum = (u8)ae->ext.map.stagenum;
-		} else {
-			sysLogPrintf(LOG_ERROR,
-			    "MATCHSETUP: cannot resolve stage '%s' — aborting",
-			    g_MatchConfig.stage_id);
-			return -1;
-		}
-		strncpy(g_MpSetup.stage_id, g_MatchConfig.stage_id,
-			sizeof(g_MpSetup.stage_id) - 1);
-		g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
-		sysLogPrintf(LOG_NOTE, "MATCHSETUP: stage '%s' → stagenum=0x%02x",
-		             g_MatchConfig.stage_id, g_MpSetup.stagenum);
-	}
-	g_MpSetup.timelimit = g_MatchConfig.timelimit;
-	g_MpSetup.scorelimit = g_MatchConfig.scorelimit;
-	g_MpSetup.teamscorelimit = g_MatchConfig.teamscorelimit;
-	g_MpSetup.options = g_MatchConfig.options;
-
-	/* Re-apply the selected weapon set — this populates g_MpSetup.weapons[]
-	 * through the engine's own mpApplyWeaponSet(). This handles presets,
-	 * random, random-five, and custom sets correctly. */
-	mpSetWeaponSet(g_MatchConfig.weaponSetIndex);
-
-	/* M0.1c: if custom weapon_ids[] are populated, override g_MpSetup.weapons[]
-	 * with catalog-resolved values. For presets/random this is a no-op. */
-	{
-		s32 wi;
-		for (wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
-			if (g_MatchConfig.weapon_ids[wi][0]) {
-				const asset_entry_t *we = assetCatalogResolve(g_MatchConfig.weapon_ids[wi]);
-				if (we && we->type == ASSET_WEAPON) {
-					s32 mpw = we->ext.weapon.weapon_id;
-					if (mpw >= 0 && mpw < NUM_MPWEAPONS) {
-						g_MpSetup.weapons[wi] = (u8)mpw;
-					} else {
-						sysLogPrintf(LOG_NOTE,
-							"MATCHSETUP: weapon slot %d uses catalog-only weapon '%s' "
-							"(no MPWEAPON binding yet); disabling legacy slot %u",
-							wi, g_MatchConfig.weapon_ids[wi],
-							(unsigned)g_MpSetup.weapons[wi]);
-						g_MpSetup.weapons[wi] = MPWEAPON_DISABLED;
-					}
-				}
-			}
-		}
-	}
-
-	sysLogPrintf(LOG_NOTE, "MATCHSETUP: weapon set %d applied — slots: %d %d %d %d %d %d",
-	             g_MatchConfig.weaponSetIndex,
-	             g_MpSetup.weapons[0], g_MpSetup.weapons[1], g_MpSetup.weapons[2],
-	             g_MpSetup.weapons[3], g_MpSetup.weapons[4], g_MpSetup.weapons[5]);
-
-	/* S482 (2026-04-27): resolve spawn weapon for the match.
-	 *
-	 * SPECIFIC: spawn_weapon_id names the weapon; resolve to WEAPON_* enum.
-	 * RANDOM:   roll once across the active weapon set; the rolled WEAPON_*
-	 *           enum is what every spawn uses for the rest of the match.
-	 * FIESTA:   set spawnWeaponNum = SPAWNWEAPON_FIESTA_SENTINEL so player.c /
-	 *           bot.c spawn sites detect FIESTA and roll per-spawn from the
-	 *           active set.
-	 *
-	 * The host runs matchStart() once and writes spawnWeaponNum into the wire
-	 * (SVC_STAGE_START), so clients in MP receive the resolved integer
-	 * directly without re-rolling.
-	 */
-	switch (g_MatchConfig.spawnWeaponMode) {
-	case SPAWNWEAPON_MODE_FIESTA:
-		g_MatchConfig.spawnWeaponNum = SPAWNWEAPON_FIESTA_SENTINEL;
-		sysLogPrintf(LOG_NOTE,
-		    "MATCHSETUP: spawn weapon mode=FIESTA — every spawn rolls from active weapon set");
-		break;
-	case SPAWNWEAPON_MODE_RANDOM: {
-		/* S483 (2026-04-27): pool source is the host's full match manifest
-		 * (every host-unlocked ASSET_WEAPON), not just the 6 active-set slots.
-		 * spawnWeaponPickFromMatchManifest cascades to the active-set helper
-		 * when the manifest is empty / unavailable (solo CS, pre-build, etc). */
-		s32 picked_mpw = spawnWeaponPickFromMatchManifest();
-		if (picked_mpw <= 0) {
-			sysLogPrintf(LOG_WARNING,
-			    "MATCHSETUP: RANDOM roll found zero eligible weapons (manifest + active set both empty) "
-			    "— falling back to MPWEAPON_FALCON2");
-			picked_mpw = MPWEAPON_FALCON2;
-		}
-		g_MatchConfig.spawnWeaponNum = (u8)catalogGetMpWeaponNum(picked_mpw);
-		sysLogPrintf(LOG_NOTE,
-		    "MATCHSETUP: spawn weapon mode=RANDOM — rolled mpidx=%d weaponnum=%d for the match",
-		    picked_mpw, (s32)g_MatchConfig.spawnWeaponNum);
-		break;
-	}
-	case SPAWNWEAPON_MODE_SPECIFIC:
-	default:
-		if (g_MatchConfig.spawn_weapon_id[0]) {
-			const asset_entry_t *swe = assetCatalogResolve(g_MatchConfig.spawn_weapon_id);
-			if (swe && swe->type == ASSET_WEAPON &&
-					swe->runtime_index > 0 &&
-					swe->runtime_index < WEAPON_CUSTOM_END) {
-				/* B-1022: runtime_index is the catalog row's authoritative
-				 * gameplay identity. Re-deriving through ext.weapon.weapon_id
-				 * can select a different custom slot after catalog rebuilds. */
-				g_MatchConfig.spawnWeaponNum = (u8)swe->runtime_index;
-			} else {
-				sysLogPrintf(LOG_WARNING,
-				    "MATCHSETUP: spawn_weapon_id '%s' not in catalog — defaulting to Random fallback",
-				    g_MatchConfig.spawn_weapon_id);
-				g_MatchConfig.spawnWeaponNum = 0xFF;
-			}
-		} else {
-			g_MatchConfig.spawnWeaponNum = 0xFF;
-		}
-		sysLogPrintf(LOG_NOTE, "MATCHSETUP: spawn weapon mode=SPECIFIC '%s' → weaponnum=%d",
-		             g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(empty)",
-		             (s32)g_MatchConfig.spawnWeaponNum);
-		break;
-	}
-
-	/* --- Populate the participant pool (B-12 Phase 3) --- */
-	mpClearAllParticipants();
-	s32 playerSlot = 0;
-	s32 botSlot = 0;
-
-	for (s32 i = 0; i < g_MatchConfig.numSlots && i < MATCH_MAX_SLOTS; i++) {
-		struct matchslot *ms = &g_MatchConfig.slots[i];
-
-		if (ms->type == SLOT_PLAYER && playerSlot < MAX_PLAYERS) {
-			mpAddParticipantAt(playerSlot, PARTICIPANT_LOCAL, ms->team, 0, (u8)playerSlot);
-
-			struct mpchrconfig *cfg = &g_PlayerConfigsArray[playerSlot].base;
-
-			/* Phase 8: derive mp_index from catalog entry at last-moment handoff */
-			if (ms->body_id[0]) {
-				const asset_entry_t *be = assetCatalogResolve(ms->body_id);
-				if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
-					cfg->mpbodynum = (u8)be->mp_index;
-				} else {
-					cfg->mpbodynum = ms->bodynum; /* cached fallback */
-				}
-			} else {
-				cfg->mpbodynum = ms->bodynum;
-			}
-			if (ms->head_id[0]) {
-				const asset_entry_t *he = assetCatalogResolve(ms->head_id);
-				if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
-					cfg->mpheadnum = (u8)he->mp_index;
-				} else {
-					cfg->mpheadnum = ms->headnum; /* cached fallback */
-				}
-			} else {
-				cfg->mpheadnum = ms->headnum;
-			}
-			/* Phase 2: populate PRIMARY catalog ID string fields */
-			strncpy(cfg->body_id, ms->body_id, sizeof(cfg->body_id) - 1);
-			cfg->body_id[sizeof(cfg->body_id) - 1] = '\0';
-			strncpy(cfg->head_id, ms->head_id, sizeof(cfg->head_id) - 1);
-			cfg->head_id[sizeof(cfg->head_id) - 1] = '\0';
-			cfg->team = ms->team;
-
-			strncpy(cfg->name, ms->name, 14);
-			cfg->name[14] = '\0';
-
-			sysLogPrintf(LOG_NOTE,
-			    "MATCHSETUP: player slot %d: %s body='%s' head='%s' mpbody=%d mphead=%d team=%d",
-			    playerSlot, cfg->name, ms->body_id, ms->head_id,
-			    cfg->mpbodynum, cfg->mpheadnum, ms->team);
-			playerSlot++;
-
-		} else if (ms->type == SLOT_BOT && botSlot < MAX_BOTS) {
-			const char *profile_id = ms->profile_id[0]
-				? ms->profile_id
-				: mpBotProfileIdForTraits(ms->botType,
-					ms->botDifficulty);
-			const asset_runtime_binding_t *profile = profile_id
-				? mpBotProfileRuntimeBindingById(profile_id)
-				: NULL;
-
-			if (!profile) {
-				sysLogPrintf(LOG_ERROR,
-					"MATCHSETUP: bot match slot %d has no valid public "
-					"profile (id='%s' type=%u diff=%u)",
-					i, profile_id ? profile_id : "",
-					(unsigned)ms->botType,
-					(unsigned)ms->botDifficulty);
-				return -1;
-			}
-
-			mpAddParticipantAt(botSlot + MAX_PLAYERS, PARTICIPANT_BOT, ms->team, -1, 0xFF);
-
-			struct mpbotconfig *bot = &g_BotConfigsArray[botSlot];
-
-			/* Phase 8: derive mp_index from catalog entry at last-moment handoff */
-			if (ms->body_id[0]) {
-				const asset_entry_t *be = assetCatalogResolve(ms->body_id);
-				if (be && be->type == ASSET_BODY && be->mp_index >= 0) {
-					bot->base.mpbodynum = (u8)be->mp_index;
-				} else {
-					bot->base.mpbodynum = ms->bodynum;
-				}
-			} else {
-				bot->base.mpbodynum = ms->bodynum;
-			}
-			if (ms->head_id[0]) {
-				const asset_entry_t *he = assetCatalogResolve(ms->head_id);
-				if (he && he->type == ASSET_HEAD && he->mp_index >= 0) {
-					bot->base.mpheadnum = (u8)he->mp_index;
-				} else {
-					bot->base.mpheadnum = ms->headnum;
-				}
-			} else {
-				bot->base.mpheadnum = ms->headnum;
-			}
-			/* Phase 2: populate PRIMARY catalog ID string fields */
-			strncpy(bot->base.body_id, ms->body_id, sizeof(bot->base.body_id) - 1);
-			bot->base.body_id[sizeof(bot->base.body_id) - 1] = '\0';
-			strncpy(bot->base.head_id, ms->head_id, sizeof(bot->base.head_id) - 1);
-			bot->base.head_id[sizeof(bot->base.head_id) - 1] = '\0';
-			strncpy(bot->profile_id, profile_id,
-				sizeof(bot->profile_id) - 1);
-			bot->profile_id[sizeof(bot->profile_id) - 1] = '\0';
-			bot->base.team = ms->team;
-			bot->type = (u8)profile->bot_profile_type;
-			bot->difficulty = (u8)profile->bot_profile_difficulty;
-
-			strncpy(bot->base.name, ms->name, 14);
-			bot->base.name[14] = '\0';
-
-			sysLogPrintf(LOG_NOTE,
-			    "MATCHSETUP: bot slot %d: %s profile='%s' type=%d diff=%d body='%s' head='%s' mpbody=%d mphead=%d",
-			    botSlot, bot->base.name, profile_id, bot->type,
-			    bot->difficulty,
-			    ms->body_id, ms->head_id,
-			    bot->base.mpbodynum, bot->base.mpheadnum);
-			botSlot++;
-		}
-	}
-
-	sysLogPrintf(LOG_NOTE, "MATCHSETUP: activeMask=0x%016llx (%d players, %d bots)",
-	             (unsigned long long)mpParticipantsEncodeActiveMask(), playerSlot, botSlot);
-
-	if (playerSlot == 0) {
-		sysLogPrintf(LOG_WARNING, "MATCHSETUP: no players configured — aborting");
-		sysLogPrintf(LOG_WARNING,
-			"MATCHSTART.DIAG: abort reason=no_players numSlots=%d",
-			g_MatchConfig.numSlots);
-		return -1;
-	}
-
-	/* --- Free ROM data and start --- */
+	matchStartCommit(&plan);
 	g_NotLoadMod = false;
 	romdataFileFreeForSolo();
 
-	/* S301 Airbase diag: confirm we reached mpStartMatch. This is the
-	 * engine-side entry to the real stage load. */
 	sysLogPrintf(LOG_NOTE,
-		"MATCHSTART.DIAG: pre-mpStartMatch stagenum=0x%02x activeMask=0x%llx "
+		"MATCHSTART.DIAG: committed stage=0x%02x activeMask=0x%llx "
 		"players=%d bots=%d",
 		(u32)g_MpSetup.stagenum,
 		(unsigned long long)mpParticipantsEncodeActiveMask(),
-		playerSlot, botSlot);
-	crashBreadcrumbPush("MATCHSTART pre-mpStartMatch stage=0x%02x players=%d bots=%d",
-		(u32)g_MpSetup.stagenum, playerSlot, botSlot);
+		plan.num_players, plan.num_bots);
+	crashBreadcrumbPush("MATCHSTART commit stage=0x%02x players=%d bots=%d",
+		(u32)g_MpSetup.stagenum, plan.num_players, plan.num_bots);
 
-	/* Call mpStartMatch which handles weapon randomization,
-	 * quick team sims, random stage, etc. */
 	mpStartMatch();
 
 	sysLogPrintf(LOG_NOTE,
 		"MATCHSTART.DIAG: post-mpStartMatch returned, about to menuStop()");
 	crashBreadcrumbPush("MATCHSTART post-mpStartMatch");
 
-	/* Stop the menu system and let the game take over */
 	menuStop();
-
-	/* Phase 2 / Priority K-b3: release every pool slot before the stage
-	 * transition.  menupoolReleaseAll pops every owned ctx (including
-	 * unregistered-fallback after K-b1), so the legacy paired
-	 * inputCtxPopDeferred(&g_CtxImGuiMenu) is no longer needed. */
 	sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
 		"matchStart");
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: match started successfully");
 	return 0;
 }
-
 /* ========================================================================
  * M0.1c: Weapon slot catalog ID accessor
  * ======================================================================== */

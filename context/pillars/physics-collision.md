@@ -2,6 +2,23 @@
 
 > Capsule sweep over the existing N64 geometry infrastructure. Replaces the legacy `cdTestVolume` / `cdFindGroundInfoAtCyl` hacks where a real geometric solution is needed (jump, stair-step, ground detection, ceiling). Movement runs through `bondwalk.c` and `bondmove.c`. Five movement modes (walk, bike, grab, cutscene, with hidden values for vehicle).
 
+## 2026-08-13 generated-character floor relocation
+
+Debug/test placement of generated characters now requests a floor-relative
+root target while preserving the animation's model-specific root-above-ground
+offset through later animation initialization and frame regeneration. The
+persistent bias is opt-in; ordinary character placement and animation retain
+their existing behavior. Character/object weapon hit traversal is separately
+bounded by exact generated-GDL ownership, rather than by movement collision or
+render-frame matrices.
+
+The source-frozen production fixture held the relocated generated bot stable
+for 15 seconds and produced two natural hits across two complete Combat
+Simulator cycles: `.claude/smoke-verify-runs/results-20260813T153846Z.json`
+(56/56, clean exit, no capsule diagnostic leak or GDL rejection). B-1077 and
+B-1080 remain regression gates while T-ENGINE-004's broader ordinary-client
+matrix is still partial.
+
 ---
 
 ## What it is

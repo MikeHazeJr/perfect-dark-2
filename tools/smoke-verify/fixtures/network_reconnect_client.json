@@ -1,0 +1,18 @@
+{
+  "scenario_name": "network_reconnect_client",
+  "description": "Ordinary-client half of the B-1064 reconnect proof. It proves initial gameplay, waits for endpoint-scoped retry authority after real teardown, invokes the production reconnect API once, then proves a second live gameplay epoch.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 460,
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 150000, "comment": "Initial ordinary-client match epoch." },
+    { "at_ms": 0, "type": "wait_until", "condition": "gameplay_ready", "timeout_ms": 45000, "stable_ms": 1000, "comment": "Initial gameplay must be usable before timeout." },
+    { "at_ms": 3000, "type": "wait_until", "condition": "network_reconnect_available", "timeout_ms": 60000, "stable_ms": 1000, "comment": "Wait through production disconnect and lobby return; no raw endpoint is supplied by this fixture." },
+    { "at_ms": 3000, "type": "network_reconnect", "comment": "Invoke exactly one endpoint-scoped production retry." },
+    { "at_ms": 3000, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 120000, "comment": "Require a second stage-live epoch after stable-slot restore." },
+    { "at_ms": 3000, "type": "wait_until", "condition": "gameplay_ready", "timeout_ms": 60000, "stable_ms": 3000, "comment": "The restored player must regain continuously usable gameplay." },
+    { "at_ms": 7000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 9000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 11000, "type": "exit" }
+  ]
+}

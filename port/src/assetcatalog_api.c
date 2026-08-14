@@ -270,19 +270,32 @@ s32 catalogResolveHead(const char *id, catalog_head_result_t *out)
     return 1;
 }
 
-s32 catalogResolveStage(const char *id, catalog_stage_result_t *out)
+s32 catalogResolveStageForType(const char *id, asset_type_e expected_type,
+                               catalog_stage_result_t *out)
 {
     const asset_entry_t *e;
 
     memset(out, 0, sizeof(*out));
+    if (expected_type != ASSET_MAP && expected_type != ASSET_ARENA) {
+        sysLogPrintf(LOG_WARNING,
+                     "[CATALOG-ERROR] catalogResolveStageForType: invalid expected type %d",
+                     (s32)expected_type);
+        return 0;
+    }
     e = assetCatalogResolve(id);
-    if (!e || e->type != ASSET_MAP) {
-        sysLogPrintf(LOG_WARNING, "[CATALOG-ERROR] catalogResolveStage: '%s' not found or wrong type",
-                     id ? id : "(null)");
+    if (!e || e->type != expected_type) {
+        sysLogPrintf(LOG_WARNING,
+                     "[CATALOG-ERROR] catalogResolveStageForType: '%s' not found or wrong type (expected=%d)",
+                     id ? id : "(null)", (s32)expected_type);
         return 0;
     }
     s_fillStageResult(e, out);
     return 1;
+}
+
+s32 catalogResolveStage(const char *id, catalog_stage_result_t *out)
+{
+    return catalogResolveStageForType(id, ASSET_MAP, out);
 }
 
 s32 catalogResolveWeapon(const char *id, catalog_weapon_result_t *out)

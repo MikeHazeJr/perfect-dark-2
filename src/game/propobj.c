@@ -83,6 +83,10 @@
 #include "data.h"
 #include "textures.h"
 #include "types.h"
+
+extern s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop);
+extern void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop,
+		s32 once_bit, s32 a, s32 b, s32 c, s32 d);
 #include "weapon_graph_runtime.h"
 #include "effect_gameplay_runtime.h"
 #include "assetcatalog.h"
@@ -1310,6 +1314,7 @@ struct projectile *projectileAllocate(void)
 void func0f0685e4(struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
+	struct projectile *projectile = NULL;
 
 	if (obj->hidden & OBJHFLAG_EMBEDDED) {
 		if (obj->embedment->projectile) {
@@ -1317,6 +1322,7 @@ void func0f0685e4(struct prop *prop)
 		} else {
 			obj->embedment->projectile = projectileAllocate();
 		}
+		projectile = obj->embedment->projectile;
 	} else if ((obj->hidden & OBJHFLAG_PROJECTILE) == 0) {
 		if (obj->projectile) {
 			projectileReset(obj->projectile);
@@ -1327,6 +1333,19 @@ void func0f0685e4(struct prop *prop)
 		if (obj->projectile) {
 			obj->hidden |= OBJHFLAG_PROJECTILE;
 		}
+		projectile = obj->projectile;
+	} else {
+		projectile = obj->projectile;
+	}
+
+	/* B-1096: this helper establishes the complete object/projectile
+	 * ownership invariant. Several ordinary gameplay paths (death drops,
+	 * falling objects, and fallaway doors) do not have a later launch-site
+	 * assignment. Leaving the reverse link null makes the live object graph
+	 * internally inconsistent and correctly causes exact reconnect snapshots
+	 * to fail closed. */
+	if (projectile) {
+		projectile->obj = obj;
 	}
 }
 
@@ -3653,6 +3672,23 @@ s32 func0f06be44(struct modelnode *rootnode)
 	return count;
 }
 
+static void modelHitLogGeneratedGdlReject(const char *site,
+		struct model *model, struct modelnode *node, const Gfx *gdl,
+		const char *reason)
+{
+	static u32 count = 0;
+
+	if (count >= 8) {
+		return;
+	}
+	count++;
+	sysLogPrintf(LOG_WARNING,
+		"MODEL.GDL.REJECT: site=%s node=%p modeldef=%p gdl=%p reason=%s count=%u",
+		site ? site : "unknown", (void *)node,
+		model ? (void *)model->definition : NULL,
+		(const void *)gdl, reason ? reason : "unknown", count);
+}
+
 bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelnode *node, struct coord *arg3, struct coord *arg4, void *arg5, f32 *arg6, struct modelnode **arg7, s32 *hitpart, s32 *arg9, struct modelnode **arg10)
 {
 	u32 stack;
@@ -3661,6 +3697,8 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 	f32 sp98 = MAXFLOAT;
 	Gfx *s4;
 	Gfx *s6;
+	u32 s4bytes;
+	u32 s6bytes;
 	Vtx *vertices;
 	struct modelnode *sp88;
 	struct modelnode *sp84 = NULL;
@@ -3683,6 +3721,8 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 		u32 type = node->type & 0xff;
 		s4 = NULL;
 		s6 = NULL;
+		s4bytes = 0;
+		s6bytes = 0;
 
 		switch (type) {
 		case MODELNODETYPE_BBOX:
@@ -3712,12 +3752,18 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 			break;
 		case MODELNODETYPE_DL:
 			if (s7) {
+				bool generated_model =
+					modAssetCompilerModeldefIsGenerated(model->definition);
 				rodata = node->rodata;
 				rwdata = modelGetNodeRwData(model, node);
 
 				if (rwdata->gdl != NULL) {
-					if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+					if (modAssetCompilerGeneratedGdlBytesRemaining(
+							rwdata->gdl, &s4bytes)) {
 						s4 = rwdata->gdl;
+					} else if (generated_model) {
+						modelHitLogGeneratedGdlReject("func0f06bea0", model, node,
+							rwdata->gdl, "unowned_generated_opaque");
 					} else if (rwdata->gdl == rodata->dl.opagdl) {
 						s4 = (Gfx *)((uintptr_t)rodata->dl.colours + ((uintptr_t)UNSEGADDR(rodata->dl.opagdl) & 0xffffff));
 					} else {
@@ -3725,8 +3771,14 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 					}
 
 					if (rodata->dl.xlugdl != NULL) {
-						if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+						if (modAssetCompilerGeneratedGdlBytesRemaining(
+								rodata->dl.xlugdl, &s6bytes)) {
 							s6 = rodata->dl.xlugdl;
+						} else if (generated_model) {
+							modelHitLogGeneratedGdlReject("func0f06bea0", model, node,
+								rodata->dl.xlugdl, "unowned_generated_xlu");
+							s4 = NULL;
+							s4bytes = 0;
 						} else {
 							s6 = (Gfx *)((uintptr_t)rodata->dl.colours + ((uintptr_t)UNSEGADDR(rodata->dl.xlugdl) & 0xffffff));
 						}
@@ -3739,12 +3791,30 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 		case MODELNODETYPE_GUNDL:
 			if (s7) {
 				if (node->rodata->gundl.opagdl != NULL) {
-					s32 base = (intptr_t)node->rodata->gundl.baseaddr;
+					uintptr_t base =
+						(uintptr_t)node->rodata->gundl.baseaddr;
+					bool generated_model =
+						modAssetCompilerModeldefIsGenerated(model->definition);
 
 					s4 = (Gfx *)(base + ((uintptr_t)UNSEGADDR(node->rodata->gundl.opagdl) & 0xffffff));
+					if (!modAssetCompilerGeneratedGdlBytesRemaining(
+							s4, &s4bytes) && generated_model) {
+						modelHitLogGeneratedGdlReject("func0f06bea0", model, node, s4,
+							"unowned_generated_gundl_opaque");
+						s4 = NULL;
+					}
 
 					if (node->rodata->gundl.xlugdl != NULL) {
 						s6 = (Gfx *)(base + ((uintptr_t)UNSEGADDR(node->rodata->gundl.xlugdl) & 0xffffff));
+						if (!modAssetCompilerGeneratedGdlBytesRemaining(
+								s6, &s6bytes) && generated_model) {
+							modelHitLogGeneratedGdlReject("func0f06bea0", model, node, s6,
+								"unowned_generated_gundl_xlu");
+							s4 = NULL;
+							s4bytes = 0;
+							s6 = NULL;
+							s6bytes = 0;
+						}
 					}
 
 					vertices = (Vtx *)base;
@@ -3762,7 +3832,8 @@ bool func0f06bea0(struct model *model, struct modelnode *endnode, struct modelno
 			break;
 		}
 
-		if (s4 && bgTestHitOnChr(model, arg3, &sp74, arg4, s4, s6, vertices, &sp98, arg5)) {
+		if (s4 && bgTestHitOnChr(model, arg3, &sp74, arg4, s4, s4bytes,
+				s6, s6bytes, vertices, &sp98, arg5)) {
 			ok = true;
 			sp88 = node;
 			*arg7 = sp84;
@@ -16837,16 +16908,20 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 	bool done = false;
 	struct modelnode *node = nodearg;
 	Vtx *vertices = NULL;
+	bool generated_model;
 
 	if (!model || !nodearg || !arg2 || !arg3 || !hitthing || !dstmtxindex || !dstnode
 			|| !model->definition || !model->matrices || model->definition->nummatrices <= 0) {
 		return false;
 	}
+	generated_model = modAssetCompilerModeldefIsGenerated(model->definition);
 
 	while (node && !done) {
 		u32 type = node->type & 0xff;
 		Gfx *s3 = NULL;
-		void *s5 = NULL;
+		Gfx *s5 = NULL;
+		u32 s3bytes = 0;
+		u32 s5bytes = 0;
 
 		switch (type) {
 		case MODELNODETYPE_DL:
@@ -16863,8 +16938,12 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 				}
 
 				if (rwdata->gdl != NULL) {
-					if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+					if (modAssetCompilerGeneratedGdlBytesRemaining(
+							rwdata->gdl, &s3bytes)) {
 						s3 = rwdata->gdl;
+					} else if (generated_model) {
+						modelHitLogGeneratedGdlReject("func0f0849dc", model,
+							node, rwdata->gdl, "unowned_generated_opaque");
 					} else if (rwdata->gdl == rodata->opagdl) {
 						s3 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->opagdl) & 0xffffff));
 					} else {
@@ -16872,10 +16951,16 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 					}
 
 					if (rodata->xlugdl != NULL) {
-						if (modAssetCompilerModeldefIsGenerated(model->definition)) {
+						if (modAssetCompilerGeneratedGdlBytesRemaining(
+								rodata->xlugdl, &s5bytes)) {
 							s5 = rodata->xlugdl;
+						} else if (generated_model) {
+							modelHitLogGeneratedGdlReject("func0f0849dc", model,
+								node, rodata->xlugdl, "unowned_generated_xlu");
+							s3 = NULL;
+							s3bytes = 0;
 						} else {
-							s5 = (void *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+							s5 = (Gfx *)((uintptr_t)rodata->colours + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
 						}
 					}
 
@@ -16892,13 +16977,32 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 				struct modelrodata_gundl *rodata = &node->rodata->gundl;
 
 				if (rodata->opagdl != NULL) {
-					s3 = (Gfx *)((uintptr_t)rodata->baseaddr + ((uintptr_t)UNSEGADDR(rodata->opagdl) & 0xffffff));
+					uintptr_t base = (uintptr_t)rodata->baseaddr;
 
-					if (rodata->xlugdl != NULL) {
-						s5 = (Gfx *)((uintptr_t)rodata->baseaddr + ((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+					s3 = (Gfx *)(base +
+						((uintptr_t)UNSEGADDR(rodata->opagdl) & 0xffffff));
+					if (!modAssetCompilerGeneratedGdlBytesRemaining(
+							s3, &s3bytes) && generated_model) {
+						modelHitLogGeneratedGdlReject("func0f0849dc", model,
+							node, s3, "unowned_generated_gundl_opaque");
+						s3 = NULL;
 					}
 
-					vertices = (void *)(uintptr_t)rodata->baseaddr;
+					if (rodata->xlugdl != NULL) {
+						s5 = (Gfx *)(base +
+							((uintptr_t)UNSEGADDR(rodata->xlugdl) & 0xffffff));
+						if (!modAssetCompilerGeneratedGdlBytesRemaining(
+								s5, &s5bytes) && generated_model) {
+							modelHitLogGeneratedGdlReject("func0f0849dc", model,
+								node, s5, "unowned_generated_gundl_xlu");
+							s3 = NULL;
+							s3bytes = 0;
+							s5 = NULL;
+							s5bytes = 0;
+						}
+					}
+
+					vertices = (Vtx *)base;
 				}
 			}
 			break;
@@ -16944,7 +17048,8 @@ bool func0f0849dc(struct model *model, struct modelnode *nodearg, struct coord *
 				spe0.z = spd4.z * 32767.0f + spec.z;
 			}
 
-			if (mtx && bgTestHitOnObj(&spec, &spe0, &spd4, s3, s5, vertices, hitthing)) {
+			if (mtx && bgTestHitOnObj(&spec, &spe0, &spd4, s3, s3bytes,
+					s5, s5bytes, vertices, hitthing)) {
 				*dstmtxindex = mtxindex;
 				*dstnode = node;
 				done = true;
@@ -20393,9 +20498,31 @@ bool chrEquipWeapon(struct weaponobj *weapon, struct chrdata *chr)
 {
 	u32 stack1;
 	s32 handnum = (weapon->base.flags & OBJFLAG_WEAPON_LEFTHANDED) ? HAND_LEFT : HAND_RIGHT;
+	struct modelnode *attachment_node = NULL;
 	u32 stack2[2];
 
-	if (weapon->base.prop && weapon->base.model) {
+	if (weapon->base.prop && weapon->base.model && chr && chr->model
+			&& chr->model->definition) {
+		if ((weapon->base.flags & OBJFLAG_WEAPON_AICANNOTUSE) == 0) {
+			if (chr->model->definition->skel == &g_SkelChr) {
+				attachment_node = modelGetPart(chr->model->definition,
+					handnum == HAND_RIGHT ? MODELPART_CHR_RIGHTHAND
+						: MODELPART_CHR_LEFTHAND);
+			} else if (chr->model->definition->skel == &g_SkelSkedar) {
+				attachment_node = modelGetPart(chr->model->definition,
+					handnum == HAND_RIGHT ? MODELPART_SKEDAR_RIGHTHAND
+						: MODELPART_SKEDAR_LEFTHAND);
+			} else {
+				return false;
+			}
+
+			/* A held weapon requires a real hand part. Reject malformed body
+			 * graphs before replacing the old slot or publishing a prop parent. */
+			if (!attachment_node) {
+				return false;
+			}
+		}
+
 		if (g_Vars.mplayerisrunning) {
 			s32 playernum = mpPlayerGetIndex(chr);
 
@@ -20414,36 +20541,16 @@ bool chrEquipWeapon(struct weaponobj *weapon, struct chrdata *chr)
 			}
 
 			if (!chr->weapons_held[handnum]) {
-				if (chr->model->definition->skel == &g_SkelChr) {
-					weapon->base.model->attachedtomodel = chr->model;
+				/* The node was resolved before any ownership mutation, so these
+				 * paired writes cannot leave a persistent half-attachment. */
+				weapon->base.model->attachedtomodel = chr->model;
+				weapon->base.model->attachedtonode = attachment_node;
+				chr->weapons_held[handnum] = weapon->base.prop;
 
-					if (handnum == HAND_RIGHT) {
-						weapon->base.model->attachedtonode = modelGetPart(chr->model->definition, MODELPART_CHR_RIGHTHAND);
-					} else {
-						weapon->base.model->attachedtonode = modelGetPart(chr->model->definition, MODELPART_CHR_LEFTHAND);
-					}
-
-					chr->weapons_held[handnum] = weapon->base.prop;
-
-					if ((weapon->base.flags & OBJFLAG_WEAPON_CANMIXDUAL) && chr->weapons_held[1 - handnum]) {
-						propweaponSetDual(weapon, chr->weapons_held[1 - handnum]->weapon);
-					}
-				} else if (chr->model->definition->skel == &g_SkelSkedar) {
-					weapon->base.model->attachedtomodel = chr->model;
-
-					if (handnum == HAND_RIGHT) {
-						weapon->base.model->attachedtonode = modelGetPart(chr->model->definition, MODELPART_SKEDAR_RIGHTHAND);
-					} else {
-						weapon->base.model->attachedtonode = modelGetPart(chr->model->definition, MODELPART_SKEDAR_LEFTHAND);
-					}
-
-					chr->weapons_held[handnum] = weapon->base.prop;
-
-					if ((weapon->base.flags & OBJFLAG_WEAPON_CANMIXDUAL) && chr->weapons_held[1 - handnum]) {
-						propweaponSetDual(weapon, chr->weapons_held[1 - handnum]->weapon);
-					}
-				} else {
-					return false;
+				if ((weapon->base.flags & OBJFLAG_WEAPON_CANMIXDUAL)
+						&& chr->weapons_held[1 - handnum]) {
+					propweaponSetDual(weapon,
+						chr->weapons_held[1 - handnum]->weapon);
 				}
 			}
 		}
@@ -22290,6 +22397,7 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 	RoomNum *rooms;
 	RoomNum roomnum;
 	bool result = false;
+	bool sawonscreenroom = false;
 	u32 stack;
 
 	rooms = prop->rooms;
@@ -22297,8 +22405,33 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 
 	while (roomnum != -1) {
 		if (g_Rooms[roomnum].flags & ROOMFLAG_ONSCREEN) {
-			if (envIsPosInFogMaxDistance(pos, arg2) && (!arg3 || posIsInObjFadeDistance(pos, arg2))) {
+			bool fogvisible = envIsPosInFogMaxDistance(pos, arg2);
+			bool fadevisible = !arg3 || posIsInObjFadeDistance(pos, arg2);
+			bool auditprop = bootDebugPlaceBotNearPlayerIsAuditProp(prop);
+
+			sawonscreenroom = true;
+			if (auditprop) {
+				bootDebugPlaceBotNearPlayerTrace("cull-onscreen-room", prop, 8,
+					(s32)roomnum, (s32)g_Rooms[roomnum].flags,
+					(s32)(arg2 * 1000.0f), arg3 ? 1 : 0);
+			}
+
+			if (!fogvisible && auditprop) {
+				bootDebugPlaceBotNearPlayerTrace("cull-fog-reject", prop, 9,
+					(s32)roomnum, (s32)(arg2 * 1000.0f), 0, 0);
+			}
+			if (!fadevisible && auditprop) {
+				bootDebugPlaceBotNearPlayerTrace("cull-fade-reject", prop, 10,
+					(s32)roomnum, (s32)(arg2 * 1000.0f), 0, 0);
+			}
+
+			if (fogvisible && fadevisible) {
 				result = camIsPosInFovAndVisibleRoom(prop->rooms, pos, arg2);
+
+				if (!result && auditprop) {
+					bootDebugPlaceBotNearPlayerTrace("cull-fov-reject", prop, 11,
+						(s32)roomnum, (s32)(arg2 * 1000.0f), 0, 0);
+				}
 
 				if (result) {
 					struct coord *campos = &g_Vars.currentplayer->cam_pos;
@@ -22310,6 +22443,11 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 						result = false;
 					}
 				}
+
+				if (result && auditprop) {
+					bootDebugPlaceBotNearPlayerTrace("cull-pass", prop, 12,
+						(s32)roomnum, (s32)(arg2 * 1000.0f), 1, 1);
+				}
 			}
 
 			break;
@@ -22318,6 +22456,13 @@ bool func0f08e8ac(struct prop *prop, struct coord *pos, f32 arg2, bool arg3)
 		rooms++;
 		roomnum = *rooms;
 		result = false;
+	}
+
+	if (!sawonscreenroom && bootDebugPlaceBotNearPlayerIsAuditProp(prop)) {
+		bootDebugPlaceBotNearPlayerTrace("cull-no-onscreen-room", prop, 13,
+			(s32)prop->rooms[0],
+			prop->rooms[0] >= 0 ? (s32)g_Rooms[prop->rooms[0]].flags : 0,
+			(s32)(arg2 * 1000.0f), 0);
 	}
 
 	return result;
@@ -23542,7 +23687,19 @@ void weaponCreateForPlayerDrop(s32 weaponnum)
 
 	if (prop) {
 		objSetDropped(prop, DROPTYPE_DEFAULT);
-		objDrop(prop, true);
+		/* A newly allocated network prop becomes authoritative only after the
+		 * common drop transition has detached it and established projectile
+		 * state. Allocation failure can leave the object parented without a
+		 * projectile; retire that unannounced candidate atomically instead of
+		 * publishing a half-transitioned dynamic prop. */
+		if (!objDrop(prop, true)) {
+			sysLogPrintf(LOG_WARNING,
+				"DROP.TRANSACTION.FAIL weapon=%d syncid=%u parent=%u retired=1",
+				weaponnum, (unsigned)prop->syncid,
+				(unsigned)(prop->parent ? prop->parent->syncid : 0));
+			objFreePermanently(prop->obj, true);
+			return;
+		}
 
 		if (weaponnum == WEAPON_BRIEFCASE2) {
 			scenarioHandleDroppedToken(chr, prop);

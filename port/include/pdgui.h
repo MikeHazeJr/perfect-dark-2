@@ -33,9 +33,10 @@ void pdguiRender(void);
 /* Clean up ImGui resources. Called during shutdown (cleanup in main.c). */
 void pdguiShutdown(void);
 
-/* Pass an SDL event to ImGui for processing.
- * Called from gfx_sdl_handle_events() for each event BEFORE PD's own handling.
- * Returns true (non-zero) if ImGui consumed the event (suppress PD input).
+/* Pass an SDL event to ImGui and the input-context dispatcher.
+ * Called from gfx_sdl_handle_events() for each event before ordinary PD input.
+ * Main-window focus lifecycle is non-consumable core state and is routed first.
+ * Returns true (non-zero) when UI/input context consumes the event.
  * sdlEvent is a void* to SDL_Event. */
 s32 pdguiProcessEvent(void *sdlEvent);
 

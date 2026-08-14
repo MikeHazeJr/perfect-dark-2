@@ -173,3 +173,55 @@ TEST_CASE("matchOptionsForceBit: idempotent when bit already forced",
 	REQUIRE(options == TEST_OPT_SPAWNWITHWEAPON);
 	REQUIRE(forced  == TEST_OPT_SPAWNWITHWEAPON);
 }
+
+TEST_CASE("matchOptionsForceBit: preserves ownership of a user-enabled bit",
+          "[options][forced][regression][B-1065]") {
+	u32 options = TEST_OPT_TEAMSENABLED | TEST_OPT_SPAWNWITHWEAPON;
+	u32 forced  = 0u;
+
+	matchOptionsForceBit(&options, &forced, TEST_OPT_SPAWNWITHWEAPON);
+
+	REQUIRE(options == (TEST_OPT_TEAMSENABLED | TEST_OPT_SPAWNWITHWEAPON));
+	REQUIRE(forced == 0u);
+
+	matchOptionsRestoreUserOriginal(&options, &forced);
+	REQUIRE(options == (TEST_OPT_TEAMSENABLED | TEST_OPT_SPAWNWITHWEAPON));
+}
+
+TEST_CASE("matchOptionsForceBit: mixed mask records only newly added bits",
+          "[options][forced][regression][B-1065]") {
+	u32 options = TEST_OPT_TEAMSENABLED;
+	u32 forced  = 0u;
+
+	matchOptionsForceBit(&options, &forced,
+	                     TEST_OPT_TEAMSENABLED | TEST_OPT_ONEHITKILLS);
+
+	REQUIRE(options == (TEST_OPT_TEAMSENABLED | TEST_OPT_ONEHITKILLS));
+	REQUIRE(forced == TEST_OPT_ONEHITKILLS);
+}
+
+TEST_CASE("matchOptionsSetUserBit: explicit user edit takes ownership",
+          "[options][forced][regression][B-1065]") {
+	u32 options = TEST_OPT_SPAWNWITHWEAPON;
+	u32 forced  = TEST_OPT_SPAWNWITHWEAPON;
+
+	matchOptionsSetUserBit(&options, &forced, TEST_OPT_SPAWNWITHWEAPON, 1);
+	REQUIRE(options == TEST_OPT_SPAWNWITHWEAPON);
+	REQUIRE(forced == 0u);
+
+	matchOptionsForceBit(&options, &forced, TEST_OPT_ONEHITKILLS);
+	matchOptionsSetUserBit(&options, &forced, TEST_OPT_ONEHITKILLS, 0);
+	REQUIRE(options == TEST_OPT_SPAWNWITHWEAPON);
+	REQUIRE(forced == 0u);
+}
+
+TEST_CASE("matchOptionsReplaceUserOriginal: authoritative replacement drops overlay",
+          "[options][forced][regression][B-1065]") {
+	u32 options = TEST_OPT_TEAMSENABLED | TEST_OPT_SPAWNWITHWEAPON;
+	u32 forced  = TEST_OPT_SPAWNWITHWEAPON;
+
+	matchOptionsReplaceUserOriginal(&options, &forced, TEST_OPT_ONEHITKILLS);
+
+	REQUIRE(options == TEST_OPT_ONEHITKILLS);
+	REQUIRE(forced == 0u);
+}

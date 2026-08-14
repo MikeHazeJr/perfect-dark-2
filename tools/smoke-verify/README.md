@@ -53,6 +53,7 @@ Top-level keys consumed by the harness:
 | `install_state`      | no       | Runner-side hint (`"clean"`, `"upgraded"`) |
 | `boot_args`          | no       | Extra argv appended to the launch command |
 | `processes`          | no       | Multi-process launch definitions; each entry can set `name`, `log_file`, `smoke_path`, `snapshot_log_file`, `snapshot_exit_timeout_seconds`, `expected_exit_code`, `boot_args`, `wait_for`, and `wait_timeout_seconds` |
+| `window_focus_transition` | no | Focus-sensitive multi-process gate with `from_process`, `to_process`, `source_wait_for`, `wait_for`, `timeout_seconds`, and `settle_ms` |
 | `retain_artifacts`   | no       | Required install-relative files copied to the durable run artifacts directory before cleanup; entries use `src` and optional leaf `name` |
 | `input_sequence`     | yes      | Ordered list of events (see below) |
 | `assertions`         | no       | Runner-side; not consumed by the harness |
@@ -69,6 +70,21 @@ client log. The runner removes the ordinary log after each snapshot and before
 the next launch, so a restart cannot satisfy its barrier with a stale marker.
 Its post-marker clean-exit wait defaults to 30 seconds and can be
 raised per process with `snapshot_exit_timeout_seconds`.
+
+`window_focus_transition` is fail-closed. The runner enumerates visible,
+unowned top-level windows by exact process ID and requires exactly one candidate
+for each named process. It then uses checked Win32 foreground/active/focus calls,
+requires a newly appended source `source_wait_for` witness (normally
+`INPUTCTX: focus GAINED`), focuses the target, and requires a newly appended
+source `wait_for` witness (normally `INPUTCTX: focus LOST`). The target must
+still own GUI-thread active keyboard focus at the lost witness. Operational
+failures are stored separately in the result JSON with their phase and native
+focus diagnostics. Focus-dependent `required_sequences` declare
+`"anchor": "window_focus_transition"`; the runner supplies the exact fresh
+loss-witness line only to those sequences. Untagged startup/gameplay sequences
+still inspect the complete log. A missing named anchor or an operational focus
+failure rejects the tagged sequence, so old log lines are never credited as
+causal evidence without discarding valid pre-transition evidence.
 
 ### Event types
 
@@ -110,6 +126,60 @@ dependency edges are present. Missing IDs log zeroes for every layer.
 ```json
 { "at_ms": 62000, "type": "catalog_recovery_probe", "path": "example:tri_weapon" }
 ```
+
+#### `wait_until` (B-1085/B-1088/B-1095)
+
+Pause only the current process's virtual script timeline until an exact typed
+production predicate is satisfied. The real harness watchdog continues. Every
+wait requires `timeout_ms`, and the fixture timeout must strictly exceed the
+latest virtual event plus the sum of all wait timeouts.
+
+```json
+{ "at_ms": 0, "type": "wait_until", "condition": "network_listen_ready", "timeout_ms": 120000 }
+{ "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 220000 }
+{ "at_ms": 0, "type": "wait_until", "condition": "gameplay_ready", "timeout_ms": 60000, "stable_ms": 3000 }
+```
+
+Exact conditions are `network_listen_ready`, `network_stage_live`,
+`network_reconnect_available`, `cutscene_skip_ready`, and `gameplay_ready`.
+Use `network_listen_ready` before a host-side peer-dependent wait when the
+runner withholds dependent processes until the listen socket exists; this keeps
+cold startup outside the peer's causal deadline. `stable_ms` defaults to zero;
+when non-zero, the condition must remain continuously true for that real-time
+window and any false sample resets it. Expiration wins if readiness and the
+deadline occur on the same tick.
+
+An assisted wait may issue one bounded production action while its target is
+false:
+
+```json
+{
+  "at_ms": 0,
+  "type": "wait_until",
+  "condition": "gameplay_ready",
+  "timeout_ms": 60000,
+  "stable_ms": 3000,
+  "assist_action": "ACTION_SKIP_CUTSCENE",
+  "assist_condition": "cutscene_skip_ready",
+  "assist_hold_ms": 900
+}
+```
+
+The four assist/stability fields are one complete tuple: assisted waits require
+`stable_ms > 0`, a resolvable action, an exact assist condition, and a positive
+hold shorter than the wait timeout. The assist presses at most once through
+`actionmapInjectStateForSmoke()`, uses real time while the script is paused,
+and releases on hold expiry and every success, failure, or timeout path.
+Standalone `action` events are deliberately unconditional; pair explicit
+press/release events, or use this owned assisted-wait form.
+
+Successful wait receipts include `stable_elapsed_ms`. Runtime assertions for a
+stable wait must bound that value at or above `stable_ms`; the configured value
+alone is not transition proof. Explicit key/action/mouse presses cannot cross a
+`wait_until`, because pausing virtual time would silently extend the hold in
+real time. The fixture loader also validates the complete JSON document before
+parsing and rejects truncated syntax, duplicate or unknown event fields, and
+known fields used on the wrong event type.
 
 #### `key`
 

@@ -2620,7 +2620,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 			"s_aiGraphRequireRuntimeCharacterRefFromBase(",
 			"g_CutsceneFrameOverrun240 * speed * 0.25f");
 		requireTokenOrder(block,
-			"playerCurrentCutsceneInProgress()",
+			"playerPresentationCutsceneInProgress()",
 			"g_CutsceneFrameOverrun240 * speed * 0.25f");
 		requireTokenOrder(block,
 			"g_CutsceneFrameOverrun240 * speed * 0.25f",
@@ -3519,9 +3519,9 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(set_camera_animation.find("g_Vars.currentplayer->haschrbody") ==
 		        std::string::npos);
 		REQUIRE(set_camera_animation.find(
-			        "s_aiGraphRequireRuntimePlayerPointer(\"set_camera_animation\"") !=
+			        "s_aiGraphRequireRuntimePlayerSlot(\"set_camera_animation\"") !=
 		        std::string::npos);
-		REQUIRE(set_camera_animation.find("player, \"current\"") !=
+		REQUIRE(set_camera_animation.find("g_Vars.players[") ==
 		        std::string::npos);
 		REQUIRE(set_camera_animation.find(
 			        "s_aiGraphRequireRuntimeCharacterStatePointer(\"set_camera_animation\"") !=
@@ -3532,11 +3532,11 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 			        "struct chrdata *active_chr = g_Vars.chrdata;") !=
 		        std::string::npos);
 		requireTokenOrder(set_camera_animation,
-			"s_aiGraphRequireRuntimePlayerPointer(\"set_camera_animation\"",
+			"s_aiGraphRequireRuntimePlayerSlot(\"set_camera_animation\"",
 			"s_aiGraphRequireRuntimeCharacterStatePointer(\"set_camera_animation\"");
 		requireTokenOrder(set_camera_animation,
 			"s_aiGraphRequireRuntimeCharacterStatePointer(\"set_camera_animation\"",
-			"playerStartCutscene(");
+			"playerStartCutsceneForPresentation(");
 		requireTokenOrder(set_camera_animation,
 			"s_aiGraphRequireRuntimeCharacterStatePointer(\"set_camera_animation\"",
 			"active_chr->sleep = -1");
@@ -4109,7 +4109,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		"s_aiGraphRequireRuntimeObjectTag(\"object_do_animation\"",
 		"g_CutsceneFrameOverrun240 * speed *");
 	requireTokenOrder(object_do_animation_block,
-		"playerCurrentCutsceneInProgress()",
+		"playerPresentationCutsceneInProgress()",
 		"g_CutsceneFrameOverrun240 * speed *");
 	requireTokenOrder(object_do_animation_block,
 		"g_CutsceneFrameOverrun240 * speed *",
@@ -13643,9 +13643,13 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(player.find("catalogGetHeadModeldef(headnum)") !=
 	        std::string::npos);
-	REQUIRE(player.find("public_source_generated_body") !=
+	REQUIRE(player.find("static bool playerBodyModeldefIsUsable") !=
 	        std::string::npos);
-	REQUIRE(player.find("catalogGetLoadedModeldef(multi_body_id) == bodymodeldef") !=
+	REQUIRE(player.find("bool public_source_generated =") !=
+	        std::string::npos);
+	REQUIRE(player.find("catalogGetLoadedModeldef(body_id) == modeldef") !=
+	        std::string::npos);
+	REQUIRE(player.find("playerBodyModeldefIsUsable(bodymodeldef, multi_body_id)") !=
 	        std::string::npos);
 	REQUIRE(player.find("bodymodeldef->numparts == 0") ==
 	        std::string::npos);
@@ -14314,29 +14318,107 @@ TEST_CASE("custom body/head assembly chain stays source-backed through the priva
 	        std::string::npos);
 }
 
-TEST_CASE("source-generated character hit tests use generated display-list pointers",
-          "[modding][pdxxx][c3844][source][static][b769]") {
+TEST_CASE("source-generated hit tests carry exact owned display-list spans",
+		  "[modding][pdxxx][c3844][source][static][b769][B-1080]") {
 	const std::string propobj = readTextFile("src/game/propobj.c");
-	const std::string hit_walker = functionBlock(propobj, "func0f06bea0");
+	const std::string chr_hit_caller = functionBlock(propobj, "func0f06bea0");
+	const std::string obj_hit_caller =
+		functionBlock(propobj, "bool func0f0849dc");
+	const std::string bg = readTextFile("src/game/bg.c");
+	const std::string bg_header = readTextFile("src/include/game/bg.h");
+	const std::string compiler = readTextFile("port/src/modasset_compiler.c");
+	const std::string compiler_header =
+		readTextFile("port/include/modasset_compiler.h");
 
-	REQUIRE(!hit_walker.empty());
-	REQUIRE(hit_walker.find("modAssetCompilerModeldefIsGenerated(model->definition)") !=
+	REQUIRE(!chr_hit_caller.empty());
+	REQUIRE(chr_hit_caller.find("modAssetCompilerModeldefIsGenerated(model->definition)") !=
 	        std::string::npos);
-	REQUIRE(hit_walker.find("s4 = rwdata->gdl;") != std::string::npos);
-	REQUIRE(hit_walker.find("s6 = rodata->dl.xlugdl;") !=
+	REQUIRE(chr_hit_caller.find("modAssetCompilerGeneratedGdlBytesRemaining(") !=
 	        std::string::npos);
-	requireTokenOrder(hit_walker,
-		"modAssetCompilerModeldefIsGenerated(model->definition)",
+	REQUIRE(chr_hit_caller.find("s4 = rwdata->gdl;") != std::string::npos);
+	REQUIRE(chr_hit_caller.find("s6 = rodata->dl.xlugdl;") !=
+	        std::string::npos);
+	requireTokenOrder(chr_hit_caller,
+		"modAssetCompilerGeneratedGdlBytesRemaining(",
 		"s4 = rwdata->gdl;");
-	requireTokenOrder(hit_walker,
+	requireTokenOrder(chr_hit_caller,
 		"s4 = rwdata->gdl;",
 		"UNSEGADDR(rodata->dl.opagdl)");
-	requireTokenOrder(hit_walker,
-		"modAssetCompilerModeldefIsGenerated(model->definition)",
+	requireTokenOrder(chr_hit_caller,
+		"modAssetCompilerGeneratedGdlBytesRemaining(",
 		"s6 = rodata->dl.xlugdl;");
-	requireTokenOrder(hit_walker,
+	requireTokenOrder(chr_hit_caller,
 		"s6 = rodata->dl.xlugdl;",
 		"UNSEGADDR(rodata->dl.xlugdl)");
+	REQUIRE(chr_hit_caller.find("uintptr_t base =") != std::string::npos);
+	REQUIRE(chr_hit_caller.find("s32 base = (intptr_t)") == std::string::npos);
+	REQUIRE(chr_hit_caller.find("s4, s4bytes,") != std::string::npos);
+	REQUIRE(chr_hit_caller.find("s6, s6bytes, vertices") != std::string::npos);
+
+	REQUIRE(!obj_hit_caller.empty());
+	REQUIRE(obj_hit_caller.find(
+		"generated_model = modAssetCompilerModeldefIsGenerated") !=
+		std::string::npos);
+	REQUIRE(obj_hit_caller.find("modAssetCompilerGeneratedGdlBytesRemaining(") !=
+		std::string::npos);
+	REQUIRE(obj_hit_caller.find("uintptr_t base =") != std::string::npos);
+	REQUIRE(obj_hit_caller.find("s3, s3bytes,") != std::string::npos);
+	REQUIRE(obj_hit_caller.find("s5, s5bytes, vertices") != std::string::npos);
+	REQUIRE(obj_hit_caller.find("unowned_generated_gundl_opaque") !=
+		std::string::npos);
+
+	REQUIRE(compiler_header.find(
+		"modAssetCompilerGeneratedGdlBytesRemaining") != std::string::npos);
+	REQUIRE(compiler.find("size_t gdl_bytes;") != std::string::npos);
+	REQUIRE(compiler.find("size_t base_bytes;") != std::string::npos);
+	REQUIRE(compiler.find("size_t gdl_offset;") != std::string::npos);
+	REQUIRE(compiler.find(
+		"modeldef->rootnode->rodata == owner->def.rootnode->rodata") !=
+		std::string::npos);
+	REQUIRE(compiler.find(
+		"gdlSpanBytesRemaining(owner->gdl") != std::string::npos);
+	REQUIRE(compiler.find(
+		"gdlSpanBytesRemaining(payload->gdl") != std::string::npos);
+	REQUIRE(compiler.find(
+		"gdlSpanBytesRemaining(relocated_gdl") != std::string::npos);
+	REQUIRE(compiler.find(
+		"gdlSpanFitsAllocation(payload->base_bytes") != std::string::npos);
+	REQUIRE(compiler.find("payload->base_bytes = base_bytes;") !=
+		std::string::npos);
+	REQUIRE(compiler.find("payload->gdl_offset = gdl_offset;") !=
+		std::string::npos);
+	REQUIRE(compiler.find("gdlSpanEndsWithEnddl(payload->gdl") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("gdlSpanEndsWithEnddl(owner->gdl") !=
+	        std::string::npos);
+
+	REQUIRE(bg_header.find("Gfx *gdl, u32 gdlbytes, Gfx *gdl2,") !=
+	        std::string::npos);
+	const std::string bounded_walker = functionBlock(bg, "bgTestHitOnChr");
+	REQUIRE(!bounded_walker.empty());
+	REQUIRE(bounded_walker.find("generated_span_exhausted_before_enddl") !=
+	        std::string::npos);
+	REQUIRE(bounded_walker.find("modelRodataIsReadable(gdl, sizeof(Gfx))") !=
+	        std::string::npos);
+	REQUIRE(bounded_walker.find("BG_HIT_GDL_NATIVE_COMMAND_CAP") !=
+	        std::string::npos);
+	REQUIRE(bounded_walker.find("bytesremaining = gdl2bytes") !=
+	        std::string::npos);
+	REQUIRE(bounded_walker.find("triangle_index_out_of_range") !=
+		std::string::npos);
+
+	const std::string bounded_obj_walker = functionBlock(bg, "bgTestHitOnObj");
+	REQUIRE(!bounded_obj_walker.empty());
+	REQUIRE(bounded_obj_walker.find(
+		"generated_span_exhausted_before_enddl") != std::string::npos);
+	REQUIRE(bounded_obj_walker.find(
+		"modelRodataIsReadable(gdl, sizeof(Gfx))") != std::string::npos);
+	REQUIRE(bounded_obj_walker.find("BG_HIT_GDL_NATIVE_COMMAND_CAP") !=
+		std::string::npos);
+	REQUIRE(bounded_obj_walker.find("bytesremaining = gdl2bytes") !=
+		std::string::npos);
+	REQUIRE(bounded_obj_walker.find("triangle_index_out_of_range") !=
+		std::string::npos);
 }
 
 TEST_CASE("language runtime loads public pdlang strings source",

@@ -1711,7 +1711,8 @@ static s32 s_catalogLoadEntry(asset_entry_t *entry, asset_type_e expected_type)
     return 0;
 }
 
-static s32 s_catalogValidateTypedLifecycle(const char *op, asset_type_e expected_type, const char *assetId)
+static s32 s_catalogValidateTypedLifecycle(const char *op,
+        asset_type_e expected_type, const char *assetId, s32 require_enabled)
 {
     const asset_entry_t *entry;
 
@@ -1723,7 +1724,9 @@ static s32 s_catalogValidateTypedLifecycle(const char *op, asset_type_e expected
         return 1;
     }
 
-    entry = assetCatalogResolve(assetId);
+    entry = require_enabled
+        ? assetCatalogResolve(assetId)
+        : assetCatalogResolveAny(assetId);
     if (!entry) {
         sysLogPrintf(LOG_WARNING,
                      "CATALOG.LIFECYCLE.%s: '%s' not found for expected type %d",
@@ -1762,7 +1765,7 @@ static s32 s_catalogResolveActivationNode(const char *asset_id,
 static s32 s_catalogResolveDeactivationNode(const char *asset_id,
         asset_type_e *out_actual_type, void *userdata)
 {
-    const asset_entry_t *entry = assetCatalogResolve(asset_id);
+    const asset_entry_t *entry = assetCatalogResolveAny(asset_id);
     (void)userdata;
     if (!entry) return 0;
     if (out_actual_type) *out_actual_type = entry->type;
@@ -1785,7 +1788,8 @@ s32 catalogLoadTypedAsset(asset_type_e expected_type, const char *assetId)
     size_t loaded = 0;
     u8 *was_resident = NULL;
 
-    if (!s_catalogValidateTypedLifecycle("LOAD", expected_type, assetId)) {
+    if (!s_catalogValidateTypedLifecycle(
+            "LOAD", expected_type, assetId, 1)) {
         return 0;
     }
     if (!catalogDepActivationPlanBuild(&plan, assetId, expected_type,
@@ -1873,7 +1877,8 @@ s32 catalogLoadStageAsset(asset_type_e expected_type, const char *assetId)
 {
     asset_entry_t *entry;
 
-    if (!s_catalogValidateTypedLifecycle("STAGE_LOAD", expected_type, assetId)) {
+    if (!s_catalogValidateTypedLifecycle(
+            "STAGE_LOAD", expected_type, assetId, 1)) {
         return 0;
     }
     entry = assetCatalogGetMutable(assetId);
@@ -2094,12 +2099,13 @@ void catalogReleaseTypedAsset(asset_type_e expected_type, const char *assetId)
     catalog_dep_activation_plan_t plan = {0};
     char error[256];
 
-    if (!s_catalogValidateTypedLifecycle("RELEASE", expected_type, assetId)) {
+    if (!s_catalogValidateTypedLifecycle(
+            "RELEASE", expected_type, assetId, 0)) {
         return;
     }
 
     if (!catalogDepActivationPlanBuild(&plan, assetId, expected_type,
-            s_catalogResolveActivationNode, NULL, error, sizeof(error))) {
+            s_catalogResolveDeactivationNode, NULL, error, sizeof(error))) {
         sysLogPrintf(LOG_WARNING,
             "CATALOG.LIFECYCLE.RELEASE: '%s' dependency preflight failed: %s",
             assetId, error[0] ? error : "unknown dependency error");
@@ -2117,7 +2123,7 @@ s32 catalogCanDeactivateTypedAsset(asset_type_e expected_type, const char *asset
     char error[256];
 
     if (!s_catalogValidateTypedLifecycle("DEACTIVATE_PREFLIGHT",
-            expected_type, assetId)) {
+            expected_type, assetId, 0)) {
         return 0;
     }
     if (!catalogDepActivationPlanBuild(&plan, assetId, expected_type,
@@ -2138,7 +2144,8 @@ s32 catalogDeactivateTypedAsset(asset_type_e expected_type, const char *assetId)
     char error[256];
     s32 root_refs;
 
-    if (!s_catalogValidateTypedLifecycle("DEACTIVATE", expected_type, assetId)) {
+    if (!s_catalogValidateTypedLifecycle(
+            "DEACTIVATE", expected_type, assetId, 0)) {
         return 0;
     }
     root = assetCatalogGetMutable(assetId);
@@ -2195,7 +2202,7 @@ s32 catalogDeactivateTypedAssetForReset(asset_type_e expected_type,
     asset_entry_t *root;
 
     if (!s_catalogValidateTypedLifecycle("RESET_DEACTIVATE",
-            expected_type, assetId)) {
+            expected_type, assetId, 0)) {
         return 0;
     }
     root = assetCatalogGetMutable(assetId);
@@ -2223,7 +2230,8 @@ void catalogReleaseStageAsset(asset_type_e expected_type, const char *assetId)
 {
     asset_entry_t *entry;
 
-    if (!s_catalogValidateTypedLifecycle("STAGE_RELEASE", expected_type, assetId)) {
+    if (!s_catalogValidateTypedLifecycle(
+            "STAGE_RELEASE", expected_type, assetId, 0)) {
         return;
     }
     entry = assetCatalogGetMutable(assetId);
@@ -2257,7 +2265,8 @@ void catalogRetainTypedAsset(asset_type_e expected_type, const char *assetId)
     char error[256];
     const asset_entry_t *root;
 
-    if (!s_catalogValidateTypedLifecycle("RETAIN", expected_type, assetId)) {
+    if (!s_catalogValidateTypedLifecycle(
+            "RETAIN", expected_type, assetId, 1)) {
         return;
     }
     root = assetCatalogResolve(assetId);

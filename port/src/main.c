@@ -74,6 +74,7 @@
 #include "assetprovider.h"
 #include "asset_runtime.h"
 #include "effect_instance_runtime.h"
+#include "combat_sim_verify.h"
 #include "weapon_nested_runtime_harness.h"
 #include "asset_source_debug.h"
 #include "modasset_compiler.h"
@@ -220,11 +221,13 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       character geometry reaches live rendering.
  *
  *   --debug-place-bot-near-player
- *       Pre-render smoke hook: after a match stage is loaded and a bot prop
- *       exists, moves the first spawned bot into player 0's current room so
- *       render-source smokes can prove the custom bot model reaches the real
- *       prop/chr/model render path instead of depending on random arena spawn
- *       visibility. One-shot per boot.
+ *   --debug-place-bot-near-player-hold-sec <1..60>
+ *       Pre-render smoke hook: after a match stage has remained in normal
+ *       first-person gameplay long enough to reject intro-camera transients,
+ *       moves the first spawned bot into player 0's current room. This lets
+ *       render and combat smokes prove the real prop/chr/model/shot path
+ *       without depending on random arena spawn visibility. The optional
+ *       bounded duration defaults to three seconds. One-shot per boot.
  *
  *   --debug-mount-bike
  *       Post-setupCreateProps hook: walks g_Vars.activeprops on the
@@ -244,8 +247,8 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *   --debug-force-first-person
  *       Pre-render smoke hook: after the gameplay stage is loaded, holds
  *       player 0 in CAMERAMODE_DEFAULT for a short window so first-person
- *       weapon render diagnostics can prove generated source meshes reach
- *       bgunRender. Inert unless passed on argv.
+ *       weapon render paths can be exercised deterministically. Inert unless
+ *       passed on argv; it does not enable weapon diagnostic logging.
  *
  *   --debug-force-first-person-look x,y,z
  *       Optional companion for --debug-force-first-person. Applies a
@@ -260,8 +263,8 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *
  *   --debug-weapon-diag
  *       Enables the LOG.WPN.DIAG diagnostic stream without forcing camera
- *       state or generated mesh render auditing. Weapon source smokes also
- *       get this stream through --debug-force-first-person /
+ *       state or generated mesh render auditing. Generated-mesh audit smokes
+ *       also get this finite-budget stream through
  *       --debug-generated-mesh-render-audit.
  *
  *   --launch-load-agent <name>
@@ -386,13 +389,17 @@ static const char *g_BootDebugBotHead = NULL;
 static bool        g_BootDebugPlaceBotNearPlayer = false;
 static s32         g_BootDebugPlaceBotNearPlayerPending = 0;
 static s32         g_BootDebugPlaceBotNearPlayerFrames = 0;
+static s32         g_BootDebugPlaceBotNearPlayerReadyFrames = 0;
 static s32         g_BootDebugPlaceBotNearPlayerHoldFrames = 0;
+static s32         g_BootDebugPlaceBotNearPlayerHoldFailures = 0;
+static u32         g_BootDebugPlaceBotNearPlayerHoldStartMs = 0;
+static u32         g_BootDebugPlaceBotNearPlayerHoldDurationMs = 3000;
 static bool        g_BootDebugPlaceBotNearPlayerLogged = false;
 static struct prop *g_BootDebugPlaceBotNearPlayerProp = NULL;
 static u32         g_BootDebugPlaceBotNearPlayerTraceMask = 0;
 static s32         g_BootDebugPlaceBotNearPlayerTraceBudget = 160;
-static const s32   k_BootDebugPlaceBotNearPlayerMaxFrames = 900;
-static const s32   k_BootDebugPlaceBotNearPlayerHoldMaxFrames = 180;
+static const s32   k_BootDebugPlaceBotNearPlayerMaxWaitFrames = 900;
+static const s32   k_BootDebugPlaceBotNearPlayerStableFrames = 30;
 /* Mike directive 2026-05-18 follow-up: override the swarm bench's
  * default arena. Default is base:mp_felicity (a cramped alley/rooftop
  * map where wallrun mechanics aren't visually obvious). Smokes /
@@ -815,12 +822,21 @@ extern void setCurrentPlayerNum(s32 playernum);
 extern bool currentPlayerTryMountHoverbike(struct prop *prop);
 extern s32 g_PostExitMainMenuView;
 
-/* c115 (2026-05-14): chrMoveToPos lives in src/game/chraction.c; declare
- * an extern shim rather than #include "game/chraction.h" to keep this
- * PC-port file outside the chr*.h dependency surface (which transitively
- * drags in PR/gbi.h and N64 micro-code defines). Signature must match
- * src/include/game/chraction.h:208 exactly. */
+/* c115 (2026-05-14): these live in src/game/chraction.c; declare extern
+ * shims rather than #include "game/chraction.h" to keep this PC-port file
+ * outside the chr*.h dependency surface (which transitively drags in
+ * PR/gbi.h and N64 micro-code defines). Signatures must match the public
+ * declarations in src/include/game/chraction.h exactly. */
 extern bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 angle, bool ignorebg);
+extern bool chrRelocateToFloorWithCachedGround(struct chrdata *chr,
+		const struct coord *floorpos, f32 rootheight, RoomNum *rooms, f32 theta,
+		u16 floorcol, u8 floortype, RoomNum floorroom);
+extern f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms,
+		u16 *floorcol, u8 *floortype, u16 *floorflags, RoomNum *floorroom,
+		s32 *inlift, struct prop **lift);
+extern f32 meshFindFloor(struct coord *pos, f32 radius, f32 *out_normalY);
+extern void bgFindRoomsByPos(struct coord *pos, RoomNum *inrooms,
+		RoomNum *aboverooms, s32 max, RoomNum *bestroom);
 
 /* c3844 (2026-06-23): --launch-credits credits-entry shims. These live in
  * src/game/{credits,title,lv}.c; declare extern shims rather than #include
@@ -1228,10 +1244,12 @@ static void bootApplyDebugMpOptions(void)
 {
 	if (!g_BootDebugMpOptionsSet) return;
 	extern struct mpsetup g_MpSetup;
-	g_MpSetup.options = g_BootDebugMpOptions;
+	matchConfigReplaceUserOptions(g_BootDebugMpOptions,
+		"--debug-mp-options");
+	g_MpSetup.options = matchConfigGetUserOptions();
 	sysLogPrintf(LOG_NOTE,
-		"BOOT: --debug-mp-options applied -- g_MpSetup.options=0x%08x",
-		g_BootDebugMpOptions);
+		"BOOT: --debug-mp-options applied -- user=0x%08x forced=0x%08x",
+		matchConfigGetUserOptions(), g_MatchConfig.options_engine_forced);
 }
 
 static void bootApplyDebugInstallReceivedMod(void)
@@ -1525,13 +1543,18 @@ static void bootApplyDebugPlaceBotNearPlayer(void)
 	}
 	g_BootDebugPlaceBotNearPlayerPending = 1;
 	g_BootDebugPlaceBotNearPlayerFrames = 0;
+	g_BootDebugPlaceBotNearPlayerReadyFrames = 0;
 	g_BootDebugPlaceBotNearPlayerHoldFrames = 0;
+	g_BootDebugPlaceBotNearPlayerHoldFailures = 0;
+	g_BootDebugPlaceBotNearPlayerHoldStartMs = 0;
 	g_BootDebugPlaceBotNearPlayerLogged = false;
 	g_BootDebugPlaceBotNearPlayerProp = NULL;
 	g_BootDebugPlaceBotNearPlayerTraceMask = 0;
 	g_BootDebugPlaceBotNearPlayerTraceBudget = 160;
 	sysLogPrintf(LOG_NOTE,
-		"BOOT: --debug-place-bot-near-player armed (will hold first spawned bot in player 0 room before prop sorting)");
+		"BOOT: --debug-place-bot-near-player armed (stable_frames=%d hold_ms=%u)",
+		k_BootDebugPlaceBotNearPlayerStableFrames,
+		g_BootDebugPlaceBotNearPlayerHoldDurationMs);
 }
 
 s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop)
@@ -2737,6 +2760,8 @@ s32 bootLaunchMpMatchTick(void)
 	if (matchStart() != 0) {
 		sysLogPrintf(LOG_WARNING,
 			"BOOT: --launch-mp-room direct match start failed");
+	} else {
+		combatSimVerifyOnMatchStart("direct");
 	}
 	return 1;
 }
@@ -2864,6 +2889,14 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 	struct coord target;
 	RoomNum rooms[2];
 	RoomNum room = (RoomNum)-1;
+	RoomNum floorroom = (RoomNum)-1;
+	u16 floorcol = 0;
+	u8 floortype = 0;
+	f32 targetdistance = 0.0f;
+	f32 targetlateral = 0.0f;
+	f32 playerground = -4294967296.0f;
+	const char *targetgroundsource = "none";
+	bool foundtarget = false;
 
 	if (!g_BootDebugPlaceBotNearPlayerPending) {
 		return 0;
@@ -2880,7 +2913,34 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 		return 0;
 	}
 
+	/* Intro cameras can briefly report a usable room immediately before the
+	 * cutscene IMC and camera animation take ownership. Requiring a bounded
+	 * run of ordinary first-person ticks keeps this hook on the same gameplay
+	 * boundary that a real shot uses instead of latching a transient camera
+	 * position. Once the first placement commits, keep following the player
+	 * until the requested wall-clock hold duration expires. */
+	if (!g_BootDebugPlaceBotNearPlayerLogged) {
+		if (g_Vars.tickmode != TICKMODE_NORMAL
+				|| g_Vars.currentplayer->cameramode != CAMERAMODE_DEFAULT) {
+			g_BootDebugPlaceBotNearPlayerReadyFrames = 0;
+			return 0;
+		}
+
+		g_BootDebugPlaceBotNearPlayerReadyFrames++;
+		if (g_BootDebugPlaceBotNearPlayerReadyFrames
+				< k_BootDebugPlaceBotNearPlayerStableFrames) {
+			return 0;
+		}
+	}
+
 	playerprop = g_Vars.currentplayer->prop;
+	playerground = g_Vars.currentplayer->vv_ground;
+	if (playerground <= -30000.0f) {
+		playerground = g_Vars.currentplayer->vv_manground;
+	}
+	if (playerground <= -30000.0f) {
+		goto wait_or_timeout;
+	}
 	room = g_Vars.currentplayer->cam_room >= 0
 		? (RoomNum)g_Vars.currentplayer->cam_room
 		: playerprop->rooms[0];
@@ -2905,7 +2965,6 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 		goto wait_or_timeout;
 	}
 
-	target = g_Vars.currentplayer->cam_pos;
 	f32 forward_x = g_Vars.currentplayer->cam_look.x;
 	f32 forward_z = g_Vars.currentplayer->cam_look.z;
 	if (forward_x > -0.001f && forward_x < 0.001f &&
@@ -2913,22 +2972,158 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 		forward_x = g_Vars.currentplayer->vv_sintheta;
 		forward_z = g_Vars.currentplayer->vv_costheta;
 	}
-	target.x += forward_x * 240.0f;
-	target.y = playerprop->pos.y;
-	target.z += forward_z * 240.0f;
+	{
+		const f32 forwardlen = sqrtf(forward_x * forward_x + forward_z * forward_z);
+		if (forwardlen < 0.001f) {
+			goto wait_or_timeout;
+		}
+		forward_x /= forwardlen;
+		forward_z /= forwardlen;
+	}
 	rooms[0] = room;
 	rooms[1] = -1;
 
-	bool ok = chrMoveToPos(bot, &target, rooms, 0.0f, true);
-	if (!ok) {
+	/* Multi-level arenas can expose more than one floor in a single room. A
+	 * fixed point on the camera ray is therefore not enough: Chicago's first
+	 * 240-unit point resolves to an upper GEOFLAG_STEP floor roughly 600 units
+	 * above the player, and the next ordinary chr tick correctly moves the bot
+	 * out of view. Search a small, deterministic cone from far to near and
+	 * accept only source-derived ground samples on the player's floor level.
+	 * A player's prop Y is their standing camera/body position (159 units above
+	 * the Chicago floor in the ordinary spawn), so level comparison must use the
+	 * movement controller's authoritative vv_ground rather than prop->pos.y.
+	 * Keep the
+	 * legacy query first because it owns dynamic-floor metadata; if its
+	 * intentional GEOFLAG_STEP semantics return a different level, consult the
+	 * collision mesh cache at the same point rather than changing global stair
+	 * climbing behavior for the sake of a smoke-only placement hook. */
+	{
+		static const f32 distances[] = {240.0f, 200.0f, 160.0f, 120.0f, 100.0f, 80.0f};
+		static const f32 lateralfracs[] = {0.0f, -0.20f, 0.20f};
+		const f32 right_x = -forward_z;
+		const f32 right_z = forward_x;
+		const bool logcandidates = !g_BootDebugPlaceBotNearPlayerLogged;
+
+		if (logcandidates) {
+			sysLogPrintf(LOG_NOTE,
+				"BOOT.PLACE.CANDIDATES: player=(%f,%f,%f) player_ground=%f player_rooms=(%d,%d) camera=(%f,%f,%f) camera_room=%d query_room=%d bot_radius=%f forward=(%f,%f)",
+				playerprop->pos.x, playerprop->pos.y, playerprop->pos.z,
+				playerground,
+				(s32)playerprop->rooms[0], (s32)playerprop->rooms[1],
+				g_Vars.currentplayer->cam_pos.x,
+				g_Vars.currentplayer->cam_pos.y,
+				g_Vars.currentplayer->cam_pos.z,
+				(s32)g_Vars.currentplayer->cam_room, (s32)room,
+				bot->radius, forward_x, forward_z);
+		}
+
+		for (s32 lateralindex = 0;
+				lateralindex < (s32)(sizeof(lateralfracs) / sizeof(lateralfracs[0])) && !foundtarget;
+				lateralindex++) {
+			for (s32 distanceindex = 0;
+					distanceindex < (s32)(sizeof(distances) / sizeof(distances[0]));
+					distanceindex++) {
+				const f32 distance = distances[distanceindex];
+				const f32 lateral = distance * lateralfracs[lateralindex];
+				struct coord candidate = g_Vars.currentplayer->cam_pos;
+				u16 candidatefloorcol = 0;
+				u8 candidatefloortype = 0;
+				RoomNum candidatefloorroom = (RoomNum)-1;
+				RoomNum candidaterooms[21];
+				RoomNum candidateaboverooms[21];
+				RoomNum candidatebestroom = (RoomNum)-1;
+				RoomNum resolvedrooms[2];
+				f32 resolvedground = -30000.0f;
+
+				candidate.x += forward_x * distance + right_x * lateral;
+				candidate.y = playerprop->pos.y + 100.0f;
+				candidate.z += forward_z * distance + right_z * lateral;
+				candidaterooms[0] = (RoomNum)-1;
+				candidateaboverooms[0] = (RoomNum)-1;
+				bgFindRoomsByPos(&candidate, candidaterooms,
+					candidateaboverooms, 20, &candidatebestroom);
+				resolvedrooms[0] = candidaterooms[0] >= 0
+					? candidaterooms[0] : candidatebestroom;
+				resolvedrooms[1] = (RoomNum)-1;
+
+				const f32 legacyground = cdFindGroundInfoAtCyl(&candidate, bot->radius, rooms,
+					&candidatefloorcol, &candidatefloortype, NULL,
+					&candidatefloorroom, NULL, NULL);
+				f32 selectedground = legacyground;
+				f32 meshground = -30000.0f;
+				const char *selectedsource = "legacy";
+
+				if (!(legacyground > -30000.0f
+						&& fabsf(legacyground - playerground) <= 80.0f)) {
+					f32 meshnormaly = 1.0f;
+					meshground = meshFindFloor(&candidate, bot->radius, &meshnormaly);
+
+					if (meshground > -30000.0f
+							&& fabsf(meshground - playerground) <= 80.0f) {
+						selectedground = meshground;
+						selectedsource = "mesh";
+						candidatefloorcol = 0;
+						candidatefloortype = 0;
+						candidatefloorroom = (RoomNum)-1;
+					}
+				}
+
+				if (resolvedrooms[0] >= 0) {
+					resolvedground = cdFindGroundInfoAtCyl(&candidate,
+						bot->radius, resolvedrooms, NULL, NULL, NULL,
+						NULL, NULL, NULL);
+				}
+
+				if (logcandidates) {
+					sysLogPrintf(LOG_NOTE,
+						"BOOT.PLACE.CANDIDATE: distance=%f lateral=%f pos=(%f,%f,%f) fixed_room=%d fixed_ground=%f fixed_floor_room=%d mesh_ground=%f in_room=%d above_room=%d best_room=%d resolved_ground=%f player_y=%f player_ground=%f",
+						distance, lateral, candidate.x, candidate.y, candidate.z,
+						(s32)room, legacyground, (s32)candidatefloorroom,
+						meshground, (s32)candidaterooms[0],
+						(s32)candidateaboverooms[0], (s32)candidatebestroom,
+						resolvedground, playerprop->pos.y, playerground);
+				}
+
+				if (selectedground > -30000.0f
+						&& fabsf(selectedground - playerground) <= 80.0f) {
+					target = candidate;
+					/* The candidate is a floor-domain coordinate. The relocation
+					 * boundary converts it to the explicitly requested floor-relative
+					 * model-root domain. */
+					target.y = selectedground;
+					targetdistance = distance;
+					targetlateral = lateral;
+					targetgroundsource = selectedsource;
+					floorcol = candidatefloorcol;
+					floortype = candidatefloortype;
+					floorroom = candidatefloorroom;
+					foundtarget = true;
+					break;
+				}
+			}
+		}
+	}
+
+	if (!foundtarget) {
+		goto wait_or_timeout;
+	}
+
+	/* This hook owns a floor coordinate, not an actor root. Keep that domain
+	 * distinction explicit; the model policy preserves the requested root
+	 * height while ordinary animation remains authoritative. */
+	if (!chrRelocateToFloorWithCachedGround(bot, &target,
+			playerprop->pos.y - playerground, rooms, 0.0f,
+			floorcol, floortype, floorroom)) {
 		goto wait_or_timeout;
 	}
 
 	if (bot->prop) {
-		bot->prop->flags |= PROPFLAG_ENABLED
-			| PROPFLAG_ONTHISSCREENTHISTICK
-			| PROPFLAG_ONANYSCREENTHISTICK;
-		propActivateThisFrame(bot->prop);
+		/* Do not synthesize ONTHISSCREEN or reactivate an already-live bot.
+		 * chrTick owns the visibility flag and the matching per-frame model
+		 * matrices. Advertising visibility here, after propsTickPlayer, lets
+		 * propFindAimingAt consume stale off-screen model state in this frame.
+		 * The next ordinary chr tick sees the committed position, builds the
+		 * matrices, and publishes visibility before propsSort. */
 		g_BootDebugPlaceBotNearPlayerProp = bot->prop;
 		bootDebugPlaceBotNearPlayerTrace("placed", bot->prop, 0,
 			(s32)bot->prop->rooms[0],
@@ -2939,24 +3134,32 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 
 	if (!g_BootDebugPlaceBotNearPlayerLogged) {
 		sysLogPrintf(LOG_NOTE,
-			"BOOT: --debug-place-bot-near-player consumed: bot=%p chrnum=%d result=OK pos=(%f,%f,%f) room=%d player_room=%d camera_forward=(%f,%f) hold_frames=%d",
+			"BOOT: --debug-place-bot-near-player consumed: bot=%p chrnum=%d result=OK floor=(%f,%f,%f) root_y=%f room=%d floor_room=%d player_room=%d camera_forward=(%f,%f) distance=%f lateral=%f ground_source=%s hold_ms=%u",
 			(void *)bot,
 			(s32)bot->chrnum,
 			target.x, target.y, target.z,
+			bot->prop ? bot->prop->pos.y : 0.0f,
 			(s32)(bot->prop ? bot->prop->rooms[0] : (RoomNum)-1),
+			(s32)floorroom,
 			(s32)room,
 			forward_x, forward_z,
-			k_BootDebugPlaceBotNearPlayerHoldMaxFrames);
+			targetdistance, targetlateral,
+			targetgroundsource,
+			g_BootDebugPlaceBotNearPlayerHoldDurationMs);
 		g_BootDebugPlaceBotNearPlayerLogged = true;
+		g_BootDebugPlaceBotNearPlayerHoldStartMs = SDL_GetTicks();
 	}
 
 	g_BootDebugPlaceBotNearPlayerHoldFrames++;
-	if (g_BootDebugPlaceBotNearPlayerHoldFrames >= k_BootDebugPlaceBotNearPlayerHoldMaxFrames) {
+	if ((u32)(SDL_GetTicks() - g_BootDebugPlaceBotNearPlayerHoldStartMs)
+			>= g_BootDebugPlaceBotNearPlayerHoldDurationMs) {
 		sysLogPrintf(LOG_NOTE,
-			"BOOT: --debug-place-bot-near-player hold complete: bot=%p chrnum=%d frames=%d room=%d flags=0x%x",
+			"BOOT: --debug-place-bot-near-player hold complete: bot=%p chrnum=%d frames=%d failures=%d elapsed_ms=%u room=%d flags=0x%x",
 			(void *)bot,
 			(s32)bot->chrnum,
 			g_BootDebugPlaceBotNearPlayerHoldFrames,
+			g_BootDebugPlaceBotNearPlayerHoldFailures,
+			(u32)(SDL_GetTicks() - g_BootDebugPlaceBotNearPlayerHoldStartMs),
 			(s32)(bot->prop ? bot->prop->rooms[0] : (RoomNum)-1),
 			(u32)(bot->prop ? bot->prop->flags : 0));
 		g_BootDebugPlaceBotNearPlayerPending = 0;
@@ -2964,8 +3167,22 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 	return 1;
 
 wait_or_timeout:
+	if (g_BootDebugPlaceBotNearPlayerLogged) {
+		g_BootDebugPlaceBotNearPlayerHoldFailures++;
+		if ((u32)(SDL_GetTicks() - g_BootDebugPlaceBotNearPlayerHoldStartMs)
+				>= g_BootDebugPlaceBotNearPlayerHoldDurationMs) {
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-place-bot-near-player hold complete: frames=%d failures=%d elapsed_ms=%u result=DEGRADED",
+				g_BootDebugPlaceBotNearPlayerHoldFrames,
+				g_BootDebugPlaceBotNearPlayerHoldFailures,
+				(u32)(SDL_GetTicks() - g_BootDebugPlaceBotNearPlayerHoldStartMs));
+			g_BootDebugPlaceBotNearPlayerPending = 0;
+		}
+		return 0;
+	}
+
 	g_BootDebugPlaceBotNearPlayerFrames++;
-	if (g_BootDebugPlaceBotNearPlayerFrames > k_BootDebugPlaceBotNearPlayerMaxFrames) {
+	if (g_BootDebugPlaceBotNearPlayerFrames > k_BootDebugPlaceBotNearPlayerMaxWaitFrames) {
 		sysLogPrintf(LOG_WARNING,
 			"BOOT: --debug-place-bot-near-player timed out: frame=%d stage=0x%02x player_room=%d",
 			(s32)g_Vars.lvframenum,
@@ -3345,14 +3562,28 @@ s32 bootHostAutostartTick(void)
 
 	u8 weaponSet = (u8)(g_MatchConfig.weaponSetIndex >= 0
 		? g_MatchConfig.weaponSetIndex : 0xFF);
-	/* Bot count comes from --launch-mp-room's third positional arg (the
-	 * Combat Sim path the Room UI uses passes the room's bot count here as
-	 * numSims). With 0 bots and two connected humans (host + joined client)
-	 * the CLC_LOBBY_START handler builds 2 player participants, which is a
-	 * valid Combat Sim (base:combat min players = 2) -- no bots required. */
-	u8 numSims = (u8)(g_BootLaunchMpBotCount < 0 ? 0
-		: (g_BootLaunchMpBotCount > 31 ? 31 : g_BootLaunchMpBotCount));
-	/* simType 2 = Normal (matches getLeadSimType()'s no-bot default). */
+	/* Derive the bot payload metadata from the prepared slots, not the CLI
+	 * request. matchConfigAddBot may reject excess requests, and zero bots have
+	 * no lead difficulty, whose canonical wire sentinel is zero. */
+	if (g_MatchConfig.numSlots == 0
+			|| g_MatchConfig.numSlots > MATCH_MAX_SLOTS) {
+		sysLogPrintf(LOG_ERROR,
+			"BOOT: --host-autostart rejected invalid prepared slot count=%u",
+			(unsigned)g_MatchConfig.numSlots);
+		return 1;
+	}
+	u8 numSims = 0;
+	u8 simType = 0;
+	for (s32 si = 0; si < g_MatchConfig.numSlots; si++) {
+		const struct matchslot *slot = &g_MatchConfig.slots[si];
+		if (slot->type != SLOT_BOT) {
+			continue;
+		}
+		if (numSims == 0) {
+			simType = slot->botDifficulty;
+		}
+		numSims++;
+	}
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --host-autostart firing: stage='%s' scenario=%u timelimit=%u sims=%u",
 		g_MatchConfig.stage_id, (unsigned)g_MatchConfig.scenario,
@@ -3364,9 +3595,9 @@ s32 bootHostAutostartTick(void)
 		0,                              /* difficulty (unused for MP) */
 		0xFF,                           /* antiClientId = NET_NULL_CLIENT */
 		numSims,                        /* bot count from --launch-mp-room */
-		2,                              /* simType = Normal */
+		simType,                        /* first prepared bot, or canonical zero */
 		g_MatchConfig.timelimit,
-		g_MatchConfig.options,
+		matchConfigGetUserOptions(),
 		g_MatchConfig.scenario,
 		g_MatchConfig.scorelimit,
 		g_MatchConfig.teamscorelimit,
@@ -3577,6 +3808,25 @@ int main(int argc, const char **argv)
 	g_BootDebugBotHead        = sysArgGetString("--debug-bot-head");
 	g_BootDebugPlaceBotNearPlayer = sysArgCheck("--debug-place-bot-near-player") ? true : false;
 	{
+		const char *holdsec = sysArgGetString(
+			"--debug-place-bot-near-player-hold-sec");
+		if (holdsec && holdsec[0]) {
+			char *end = NULL;
+			long seconds = strtol(holdsec, &end, 10);
+			if (!g_BootDebugPlaceBotNearPlayer) {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-place-bot-near-player-hold-sec requires --debug-place-bot-near-player; ignored");
+			} else if (!end || *end != '\0' || seconds < 1 || seconds > 60) {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-place-bot-near-player-hold-sec expects 1..60; got: '%s'",
+					holdsec);
+			} else {
+				g_BootDebugPlaceBotNearPlayerHoldDurationMs =
+					(u32)seconds * 1000u;
+			}
+		}
+	}
+	{
 		const char *mpopts = sysArgGetString("--debug-mp-options");
 		if (mpopts && mpopts[0]) {
 			g_BootDebugMpOptions = (u32)strtoul(mpopts, NULL, 0);
@@ -3607,6 +3857,7 @@ int main(int argc, const char **argv)
 			g_BootLaunchMpArena = NULL;
 		}
 	}
+	combatSimVerifyInit();
 
 	conInit();
 	sysInit();

@@ -92,6 +92,22 @@ enum spawn_weapon_mode {
 	SPAWNWEAPON_MODE_FIESTA   = 2,
 };
 
+typedef enum match_start_status_e {
+	MATCH_START_OK = 0,
+	MATCH_START_INVALID_SLOT_COUNT,
+	MATCH_START_INVALID_PARTICIPANT,
+	MATCH_START_NO_PLAYERS,
+	MATCH_START_INVALID_SCENARIO,
+	MATCH_START_INVALID_STAGE,
+	MATCH_START_INVALID_WEAPON_SET,
+	MATCH_START_INVALID_WEAPON,
+	MATCH_START_INVALID_SPAWN_WEAPON,
+	MATCH_START_INVALID_PLAYER_IDENTITY,
+	MATCH_START_INVALID_BOT_PROFILE,
+	MATCH_START_INVALID_BOT_IDENTITY,
+	MATCH_START_PARTICIPANT_POOL_UNAVAILABLE,
+} match_start_status_e;
+
 /* Sentinel WEAPON_* enum value for FIESTA mode. The spawn sites read this
  * and roll per-spawn instead of equipping a fixed weapon. Chosen as 0xFE
  * (one less than the legacy 0xFF "no spawn weapon" sentinel).
@@ -177,6 +193,19 @@ struct matchconfig {
 extern struct matchconfig g_MatchConfig;
 
 void matchConfigInit(void);
+/* User-facing option ownership boundary. Engine overlays are never exposed to
+ * room/settings UI or serialized as user intent. */
+u32 matchConfigGetUserOptions(void);
+void matchConfigSetUserOption(u32 bit, s32 enabled);
+void matchConfigReplaceUserOptions(u32 options, const char *reason);
+void matchConfigRestoreUserOptions(const char *reason);
+/* Transactional weapon-selection boundaries.  They publish the numeric cache
+ * and exact public catalog IDs together, so network/save writers never need to
+ * reconstruct identity from a legacy MPWEAPON_* value. */
+s32 matchConfigSelectWeaponSet(s32 weaponsetnum);
+/* Empty string clears the slot to MPWEAPON_NONE; non-empty IDs must resolve to
+ * one enabled public weapon source and its exact runtime binding. */
+s32 matchConfigSetWeaponSlotId(s32 slot, const char *weapon_id);
 /* body_id/head_id: catalog IDs (e.g. "base:dark_combat").  Pass NULL/"" to use
  * the default (base:dark_combat / base:head_dark_combat). */
 s32 matchConfigAddBot(u8 botType, u8 botDifficulty, const char *body_id,
@@ -190,6 +219,7 @@ void matchConfigRerollBot(s32 idx);
 /* Re-roll the bot's name only (body/head untouched). */
 void matchConfigRerollBotName(s32 idx);
 s32 matchStart(void);
+const char *matchStartStatusString(match_start_status_e status);
 /* Returns max bot slots allowed for the current human count, clamped against
  * both participant slots and MAX_BOTS runtime limits. */
 s32 matchConfigMaxBotsForHumans(s32 humanCount);

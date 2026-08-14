@@ -99,9 +99,7 @@ s32 configSave(const char *fname);
 /* Function declarations */
 s32 netStartServer(u16 port, s32 maxclients);
 s32 netDisconnect(void);
-void netServerStageStart(void);
 void netServerStageEnd(void);
-void mainChangeToStage(s32 stagenum);
 void mpEndMatch(void);
 
 /* Persistent memory diagnostics */
@@ -244,14 +242,11 @@ static void pdguiDebugNetworkSection(void)
         }
     }
 
-    /* Start/End Match — only available when running as server
-     * (either dedicated server process or debug local server) */
+    /* Match start is intentionally not exposed as a raw debug operation.
+     * The room authority must use the ordinary typed CLC_LOBBY_START path so
+     * manifest, roster, ready-gate, and rollback invariants stay intact. */
     if (isServer && inLobby) {
-        if (ImGui::Button("Start Match", ImVec2(S(160), S(24)))) {
-            sysLogPrintf(LOG_NOTE, "DEBUG_MENU: starting match on Complex");
-            mainChangeToStage(PDGUI_STAGE_MP_COMPLEX);
-            netServerStageStart();
-        }
+		ImGui::TextDisabled("Start matches from the Room screen.");
     }
 
     if (isServer && inGame) {

@@ -39,7 +39,15 @@
 #define SVC_STAGE_FLAG    0x50 // stage flags update (co-op only, u32 bitfield)
 #define SVC_OBJ_STATUS    0x51 // objective status change (co-op only, index + status)
 #define SVC_ALARM         0x52 // alarm state change (co-op only, active/inactive)
-#define SVC_CUTSCENE      0x53 // cutscene state change (co-op only, start/end)
+#define SVC_CUTSCENE      0x53 // v56: all-mode authority state {active, stable client mask, generation}
+#define SVC_CUTSCENE_SKIP 0x54 // v56: authoritative skip acceptance {requester client ID, generation}
+#define SVC_RECONNECT_COMMIT 0x55 // v57: ordered snapshot terminator {stable client ID}
+#define SVC_RECONNECT_PROP_BEGIN 0x56 // v57: announced exact replicated-prop set
+#define SVC_RECONNECT_PROP_STATE 0x57 // v57: one announced prop's live state
+#define SVC_RECONNECT_PROP_END   0x58 // v57: exact replicated-prop set terminator
+#define SVC_RECONNECT_INVENTORY  0x59 // v57: one stable client's exact inventory
+#define NET_CUTSCENE_AUTHORITY_EVENT_CAPACITY 64u
+#define NET_CUTSCENE_AUTHORITY_PACKET_CAPACITY 1024u
 #define SVC_LOBBY_LEADER  0x60 // server announces lobby leader {clientId}
 #define SVC_LOBBY_STATE   0x61 // server broadcasts lobby state (game mode, stage, etc.)
 
@@ -130,7 +138,7 @@
 #define CLC_SPECTATE_REQUEST      0x16 // client→host: promote me to CLFLAG_SPECTATOR; do not allocate a player slot
 
 /* v46: cutscene skip authority. */
-#define CLC_CUTSCENE_SKIP         0x17 // client->server: request cutscene skip {playernum}
+#define CLC_CUTSCENE_SKIP         0x17 // v56 request {playernum, authority generation}
 
 /* v49 (2026-05-17): post-match lobby resync. Client asks server to
  * re-broadcast SVC_ROOM_ASSIGN + SVC_ROOM_SETTINGS + SVC_ROOM_PLAYLIST so
@@ -149,6 +157,14 @@ void netSendLobbyResync(void); /* Client helper: fire CLC_LOBBY_RESYNC. */
 #define CLC_MANIFEST_STATUS 0x0E // client→server: manifest check result (READY / NEED_ASSETS / DECLINE)
 #define CLC_LOBBY_CANCEL    0x0F // client→server: cancel countdown before match launch (any player)
 
+/* v57 client reconnect credential lifecycle. The cookie never leaves memory
+ * and is emitted only when the newly resolved endpoint exactly matches the
+ * endpoint that issued it. The returned ENet connect datum is only a stable
+ * slot hint; CLC_AUTH remains the authenticator. */
+u32 netmsgClcAuthPrepareConnect(const ENetAddress *endpoint, u16 protocol);
+s32 netmsgClcAuthReconnectAvailable(const ENetAddress *endpoint);
+void netmsgClcAuthClearCookie(void);
+
 u32 netmsgClcAuthWrite(struct netbuf *dst);
 u32 netmsgClcAuthRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcChatWrite(struct netbuf *dst, const char *str);
@@ -163,8 +179,98 @@ u32 netmsgSvcAuthRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcChatWrite(struct netbuf *dst, const char *str);
 u32 netmsgSvcChatRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcStageStartWrite(struct netbuf *dst);
+/* Serialize the already-running authoritative match for one reconnecting
+ * client without advancing playlists or recapturing match authority. */
+u32 netmsgSvcStageReplayWrite(struct netbuf *dst);
+/* Serialize exact authoritative state after the reconnecting client's real
+ * stage-load boundary. This is the ordered companion to StageReplayWrite. */
+typedef enum net_reconnect_snapshot_status_e {
+	NET_RECONNECT_SNAPSHOT_OK = 0,
+	NET_RECONNECT_SNAPSHOT_INVALID_ARGUMENT,
+	NET_RECONNECT_SNAPSHOT_CUTSCENE,
+	NET_RECONNECT_SNAPSHOT_ROSTER,
+	NET_RECONNECT_SNAPSHOT_WORLD_ARGUMENT,
+	NET_RECONNECT_SNAPSHOT_WORLD_DUPLICATE_SYNC_ID,
+	NET_RECONNECT_SNAPSHOT_WORLD_UNSUPPORTED_DYNAMIC,
+	NET_RECONNECT_SNAPSHOT_WORLD_SPAWN_WRITE,
+	NET_RECONNECT_SNAPSHOT_WORLD_PROP_STATE,
+	NET_RECONNECT_SNAPSHOT_WORLD_PROJECTILE_STATE,
+	NET_RECONNECT_SNAPSHOT_WORLD_PROJECTILE_OWNER,
+	NET_RECONNECT_SNAPSHOT_INVENTORY,
+	NET_RECONNECT_SNAPSHOT_PLAYER_STATS,
+	NET_RECONNECT_SNAPSHOT_PLAYER_MOVEMENT,
+	NET_RECONNECT_SNAPSHOT_CHARACTER,
+	NET_RECONNECT_SNAPSHOT_NPC,
+	NET_RECONNECT_SNAPSHOT_STAGE_FLAGS,
+	NET_RECONNECT_SNAPSHOT_OBJECTIVE,
+	NET_RECONNECT_SNAPSHOT_SCORES,
+	NET_RECONNECT_SNAPSHOT_COMMIT,
+	NET_RECONNECT_SNAPSHOT_BUFFER,
+} net_reconnect_snapshot_status_e;
+
+typedef enum net_reconnect_prop_state_status_e {
+	NET_RECONNECT_PROP_STATE_NONE = 0,
+	NET_RECONNECT_PROP_STATE_INVALID_ARGUMENT,
+	NET_RECONNECT_PROP_STATE_MODEL_SCALE_NONPOSITIVE,
+	NET_RECONNECT_PROP_STATE_MODEL_SCALE_TOO_LARGE,
+	NET_RECONNECT_PROP_STATE_MODEL_SCALE_NAN,
+	NET_RECONNECT_PROP_STATE_ATTACHMENT_PAIR,
+	NET_RECONNECT_PROP_STATE_ATTACHMENT_PARENT,
+	NET_RECONNECT_PROP_STATE_ATTACHMENT_MATRIX_RANGE,
+	NET_RECONNECT_PROP_STATE_ATTACHMENT_MATRIX_MISSING,
+	NET_RECONNECT_PROP_STATE_EMBEDDED_ATTACHMENT,
+	NET_RECONNECT_PROP_STATE_WEAPON_IDENTITY,
+	NET_RECONNECT_PROP_STATE_WEAPON_DUAL_REFERENCE,
+} net_reconnect_prop_state_status_e;
+
+typedef struct net_reconnect_snapshot_result_s {
+	net_reconnect_snapshot_status_e status;
+	u8 client_id;       /* NET_NULL_CLIENT when no roster member owns failure */
+	u32 prop_syncid;    /* NET_NULL_PROP when no world prop owns failure */
+	s32 objective_index; /* -1 when no objective row owns failure */
+	net_reconnect_prop_state_status_e prop_state_status;
+	s32 prop_type;      /* -1 when no prop identity is available */
+	s32 object_type;
+	s32 model_num;
+	f32 model_scale;
+	s32 weapon_num;
+	s32 dual_weapon_num;
+	u32 dual_prop_syncid;
+	u32 parent_syncid;
+	u32 object_hidden;
+	u32 object_hidden2;
+	s32 attachment_mtx_index;
+	u32 bytes_written;  /* attempted transaction bytes before atomic rollback */
+	u32 capacity;
+} net_reconnect_snapshot_result_t;
+
+u32 netmsgSvcReconnectStateWrite(struct netbuf *dst,
+	struct netclient *reconnecting_client,
+	net_reconnect_snapshot_result_t *out_result);
+const char *netmsgReconnectSnapshotStatusString(
+	net_reconnect_snapshot_status_e status);
+const char *netmsgReconnectPropStateStatusString(
+	net_reconnect_prop_state_status_e status);
+u32 netmsgSvcReconnectCommitWrite(struct netbuf *dst, u8 client_id);
+u32 netmsgSvcReconnectCommitRead(struct netbuf *src,
+	struct netclient *srccl);
+u32 netmsgSvcReconnectPropBeginRead(struct netbuf *src,
+	struct netclient *srccl);
+u32 netmsgSvcReconnectPropStateRead(struct netbuf *src,
+	struct netclient *srccl);
+u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
+	struct netclient *srccl);
+u32 netmsgSvcReconnectInventoryRead(struct netbuf *src,
+	struct netclient *srccl);
+/* Serialize a new authoritative match from one immutable prepared roster and
+ * commit that exact roster as the cutscene authority identity snapshot. */
+u32 netmsgServerStageStartWrite(struct netbuf *dst, u8 room_id);
+/* Side-effect-free typed/roster preflight used before irreversible host
+ * stage-launch work. Returns zero only when a later write can be attempted. */
+u32 netmsgSvcStageStartValidate(void);
 u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcStageEndWrite(struct netbuf *dst, u8 room_id);
+u32 netmsgSvcStageEndWrite(struct netbuf *dst, u8 room_id, u8 mode);
+void netmsgSvcStageEndCommit(u8 room_id, u8 mode);
 u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcPlayerMoveWrite(struct netbuf *dst, struct netclient *movecl);
 u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl);
@@ -229,13 +335,31 @@ u32 netmsgSvcObjStatusWrite(struct netbuf *dst, u8 index, u8 status);
 u32 netmsgSvcObjStatusRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcAlarmWrite(struct netbuf *dst, u8 active);
 u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgSvcCutsceneWrite(struct netbuf *dst, u8 active, u8 player_mask);
 u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl);
-u32 netmsgClcCutsceneSkipWrite(struct netbuf *dst, u8 playernum);
+u32 netmsgSvcCutsceneSkipRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgClcCutsceneSkipWrite(struct netbuf *dst, u8 playernum,
+		u32 generation);
 u32 netmsgClcCutsceneSkipRead(struct netbuf *src, struct netclient *srccl);
+s32 netmsgServerQueueLocalCutsceneSkip(u8 playernum, u32 generation);
+s32 netmsgServerQueueCutsceneState(u8 active, u32 generation,
+		u8 *out_player_mask);
+u32 netmsgServerPrepareCutsceneAuthorityPacket(struct netbuf *dst,
+		u8 *out_room_id,
+		u32 *out_event_count);
+s32 netmsgServerCommitCutsceneAuthorityPacket(u32 event_count);
+bool netmsgCutsceneAuthorityIsActive(void);
+bool netmsgCutsceneAuthorityHasMatch(void);
+bool netmsgCutsceneAuthorityHasPendingEvents(void);
+void netmsgCutsceneAuthorityRetireClient(u8 client_id);
+void netmsgCutsceneAuthorityReset(void);
 
 /* Lobby protocol messages (Phase 3) */
-u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode, u8 stagenum, u8 difficulty, u8 antiClientId, u8 numSims, u8 simType, u8 timelimit, u32 options, u8 scenario, u8 scorelimit, u16 teamscorelimit, u8 weaponSetIndex);
+u32 netmsgClcLobbyStartWrite(struct netbuf *dst, u8 gamemode,
+                            const char *stage_id, u8 difficulty,
+                            u8 antiClientId, u8 numSims, u8 simType,
+                            u8 timelimit, u32 options, u8 scenario,
+                            u8 scorelimit, u16 teamscorelimit,
+                            u8 weaponSetIndex);
 u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcLobbyLeaderWrite(struct netbuf *dst, u8 leaderClientId);
 u32 netmsgSvcLobbyLeaderRead(struct netbuf *src, struct netclient *srccl);
@@ -457,6 +581,9 @@ void netSendGpuSwarmState(void);
  * is exposed because the client never sends it. */
 
 void netBroadcastRoomList(void);
+/* Rebuild and publish lobby leader plus room-list topology after an
+ * authenticated join or reconnect commit. Server mode only. */
+void netmsgServerPublishAuthenticatedTopology(void);
 
 /* SEC-C4: Reset per-client chat rate limiter state on disconnect. */
 void netmsgChatRateReset(u32 idx);

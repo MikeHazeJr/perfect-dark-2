@@ -81,7 +81,7 @@ void sessionCatalogBuild(const match_manifest_t *manifest)
  * Server-side: broadcast
  * ------------------------------------------------------------------------- */
 
-void sessionCatalogBroadcast(void)
+void sessionCatalogBroadcastToRoom(u8 room_id)
 {
     s32 i;
     const session_catalog_entry_t *e;
@@ -102,9 +102,33 @@ void sessionCatalogBroadcast(void)
         netbufWriteStr(&g_NetMsgRel, e->catalog_id);
     }
 
-    netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+    netSendToRoom(room_id, &g_NetMsgRel, 1, NETCHAN_CONTROL);
 
-    sysLogPrintf(LOG_NOTE, "NET: SVC_SESSION_CATALOG broadcast (%u entries)",
+    sysLogPrintf(LOG_NOTE,
+                 "NET: SVC_SESSION_CATALOG broadcast (%u entries room=%u)",
+                 (unsigned)g_SessionCatalog.num_entries, (unsigned)room_id);
+}
+
+void sessionCatalogBroadcast(void)
+{
+    s32 i;
+    const session_catalog_entry_t *e;
+
+    if (g_SessionCatalog.num_entries == 0) {
+        return;
+    }
+    netbufStartWrite(&g_NetMsgRel);
+    netbufWriteU8(&g_NetMsgRel, SVC_SESSION_CATALOG);
+    netbufWriteU16(&g_NetMsgRel, g_SessionCatalog.num_entries);
+    for (i = 0; i < (s32)g_SessionCatalog.num_entries; i++) {
+        e = &g_SessionCatalog.entries[i];
+        netbufWriteU16(&g_NetMsgRel, e->wire_id);
+        netbufWriteU8(&g_NetMsgRel, e->asset_type);
+        netbufWriteStr(&g_NetMsgRel, e->catalog_id);
+    }
+    netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+    sysLogPrintf(LOG_NOTE,
+                 "NET: SVC_SESSION_CATALOG global broadcast (%u entries)",
                  (unsigned)g_SessionCatalog.num_entries);
 }
 

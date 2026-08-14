@@ -155,6 +155,7 @@ static const MenuGraphEdge s_SocialShellEdges[] = {
 static const MenuGraphEdge s_NetworkEdges[] = {
     EDGE_NETWORK("host", ACTION_MENU_ACCEPT, "Host Game", "server"),
     EDGE_NETWORK("join", ACTION_MENU_ACCEPT, "Join Game", "client"),
+    EDGE_NETWORK("reconnect", ACTION_MENU_ACCEPT, "Reconnect", "client_reconnect"),
     EDGE_NETWORK("disconnect", ACTION_MENU_ACCEPT, "Disconnect", "disconnect"),
     EDGE_PUSH("joining", ACTION_MENU_ACCEPT, "Joining", MENU_TYPE_NETWORK_JOINING),
     EDGE_POP("host_started", ACTION_MENU_ACCEPT, "Host Started"),

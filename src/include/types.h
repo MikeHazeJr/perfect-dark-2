@@ -629,6 +629,9 @@ struct model {
 	/*0x18*/ struct model *attachedtomodel;
 	/*0x1c*/ struct modelnode *attachedtonode;
 	/*0x20*/ struct anim *anim;
+	/* PC */ f32 chrrootheight;
+	/* PC */ f32 chrrootheightbias;
+	/* PC */ u8 chrrootheightenabled;
 };
 
 struct modelrwdata_chrinfo { // type 0x01

@@ -38,6 +38,8 @@
 #include "achievements.h"
 #include "pdgui_achievement_toast.h"
 #include "pdgui_campaign_bridge.h"
+#include "combat_sim_verify.h"
+#include "smoke_harness.h"
 
 /* ========================================================================
  * Forward declarations (C boundary — cannot include types.h)
@@ -242,6 +244,7 @@ static s32 endscreenGraphMpContinue(void *userdata)
          * racing. */
         pdguiEndscreenExitToMainMenu();
         pdguiSoloRoomReturn();
+        combatSimVerifyOnRoomReturn();
     }
 
     return 0;
@@ -861,6 +864,8 @@ static s32 s_MpEndscreenDiagFramesRendered = 0;  /* count of Begin()=true frames
 static s32 s_MpEndscreenDiagLastLoggedFrame = -1; /* rate-limit section logs */
 static s32 s_MpEndscreenDiagRankingsCount = 0;
 static s32 s_MpEndscreenDiagAwardsShown = 0;
+static s32 s_MpEndscreenDiagAcceptPressed = -1;
+static s32 s_MpEndscreenDiagAcceptHeld = -1;
 static u32 s_MpEndscreenDiagPrintCount = 0;       /* cap total DIAG output */
 
 #define ENDSCREEN_DIAG_MAX_PRINTS 80
@@ -915,6 +920,8 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
             s_MpEndscreenDiagLastLoggedFrame = -1;
             s_MpEndscreenDiagRankingsCount = 0;
             s_MpEndscreenDiagAwardsShown = 0;
+            s_MpEndscreenDiagAcceptPressed = -1;
+            s_MpEndscreenDiagAcceptHeld = -1;
             s_MpEndscreenDiagPrintCount = 0;
 
             ENDSCREEN_DIAG_LOG(
@@ -1333,7 +1340,23 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
     bool wantDisconnectConfirm = false;
     bool wantQuitConfirm = false;
 
-    if (pdguiBeginActionBar("##es_mp_ab")) {
+    const s32 acceptPressed = actionPressed(0, ACTION_MENU_ACCEPT);
+    const s32 acceptHeld = actionHeld(0, ACTION_MENU_ACCEPT);
+    const s32 actionBarVisible = pdguiBeginActionBar("##es_mp_ab");
+
+    if (smokeHarnessIsActive()
+            && (freshEntry
+                || acceptPressed != s_MpEndscreenDiagAcceptPressed
+                || acceptHeld != s_MpEndscreenDiagAcceptHeld)) {
+        ENDSCREEN_DIAG_LOG(
+            "ENDSCREEN.DIAG: input action_bar_visible=%d accept_pressed=%d accept_held=%d suppressed=%d fresh=%d",
+            actionBarVisible, acceptPressed, acceptHeld,
+            inputSuppressed ? 1 : 0, freshEntry ? 1 : 0);
+        s_MpEndscreenDiagAcceptPressed = acceptPressed;
+        s_MpEndscreenDiagAcceptHeld = acceptHeld;
+    }
+
+    if (actionBarVisible) {
         float availW = ImGui::GetContentRegionAvail().x;
         float halfW  = availW * 0.5f;
 

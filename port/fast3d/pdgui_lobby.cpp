@@ -89,6 +89,7 @@ void pdguiLobbyScreenRender(s32 winW, s32 winH);
 void pdguiRoomScreenRender(s32 winW, s32 winH);
 void pdguiRoomScreenReset(void);
 void pdguiRoomScreenSetSolo(s32 solo);
+void pdguiRoomScreenAdoptMatchConfig(void);
 
 /* Check if local client is in lobby state */
 s32 netLocalClientInLobby(void);
@@ -186,6 +187,12 @@ extern "C" void pdguiSoloRoomOpen(void)
 extern "C" void pdguiSoloRoomReturn(void)
 {
     s_SoloRoomActive = true;
+    /* The match configuration is production state, while
+     * s_MatchConfigInited is Room-renderer ownership state. A direct start
+     * can seed and consume g_MatchConfig before the Room ever renders, so a
+     * rematch must explicitly adopt that existing configuration instead of
+     * treating the first return frame as a cold Room entry. */
+    pdguiRoomScreenAdoptMatchConfig();
     pdguiRoomScreenSetSolo(1);    /* re-apply solo flag without resetting config */
 }
 

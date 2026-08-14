@@ -960,10 +960,10 @@ void pdguiMenuAgentSelectRegister(void)
             "base:head_dark_combat",  /* Joanna head (default preview) */
             "base:lang_misc",         /* General UI strings */
         };
-        static const u8 types[] = {
-            MANIFEST_TYPE_BODY,
-            MANIFEST_TYPE_HEAD,
-            MANIFEST_TYPE_LANG,
+        static const asset_type_e types[] = {
+            ASSET_BODY,
+            ASSET_HEAD,
+            ASSET_LANG,
         };
         screenManifestRegister(
             (void*)&g_FilemgrFileSelectMenuDialog,

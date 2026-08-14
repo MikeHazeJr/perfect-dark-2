@@ -18143,7 +18143,7 @@ s32 scenarioSourceAiGraphExecuteChrDoAnimation(struct chrdata *basechr,
 			player_checked = 1;
 		}
 
-		if (playerCurrentCutsceneInProgress()) {
+		if (playerPresentationCutsceneInProgress()) {
 			if (startframe != 0xfffe) {
 #if PAL
 				fstartframe += var8009e388pf * speed;
@@ -27315,7 +27315,8 @@ s32 scenarioSourceAiGraphExecuteWarpJoToPad(s32 pad_id)
 
 s32 scenarioSourceAiGraphExecuteSetCameraAnimation(s32 anim_id)
 {
-	struct player *player = g_Vars.currentplayer;
+	const s32 presentation_playernum = playermgrGetPresentationPlayerNum();
+	struct player *player = NULL;
 	struct chrdata *active_chr = g_Vars.chrdata;
 	const char *anim_catalog_id;
 	const char *anim_source_path = "(none)";
@@ -27329,8 +27330,8 @@ s32 scenarioSourceAiGraphExecuteSetCameraAnimation(s32 anim_id)
 			"missing scenario.ai.action.set_camera_animation node")) {
 		return 0;
 	}
-	if (!s_aiGraphRequireRuntimePlayerPointer("set_camera_animation",
-			player, "current")) {
+	if (!s_aiGraphRequireRuntimePlayerSlot("set_camera_animation",
+			presentation_playernum, &player)) {
 		return 1;
 	}
 	player_checked = 1;
@@ -27344,8 +27345,7 @@ s32 scenarioSourceAiGraphExecuteSetCameraAnimation(s32 anim_id)
 			active_chr, &chr_count, &source_chr)) {
 		return 1;
 	}
-	playerStartCutscene((s16)anim_id);
-	if (player->haschrbody == false) {
+	if (!playerStartCutsceneForPresentation((s16)anim_id)) {
 		active_chr->sleep = -1;
 		if (!s_ActiveScenarioGraphs.ai_action_set_camera_animation_logged) {
 			sysLogPrintf(LOG_NOTE,
@@ -27378,7 +27378,7 @@ s32 scenarioSourceAiGraphExecuteIfInCutscene(s32 label)
 			"missing scenario.ai.condition.if_in_cutscene node")) {
 		return 0;
 	}
-	branch = playerCurrentCutsceneInProgress() ? 1 : 0;
+	branch = playerPresentationCutsceneInProgress() ? 1 : 0;
 	if (branch) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
 			g_Vars.aioffset, label);
@@ -28199,7 +28199,7 @@ s32 scenarioSourceAiGraphExecuteObjectDoAnimation(s32 anim_id, s32 tag_id,
 		}
 		if (obj->model->anim) {
 			speed = 1.0f / (s32)speed_divisor;
-			if (playerCurrentCutsceneInProgress() &&
+			if (playerPresentationCutsceneInProgress() &&
 					startframe != 0xfffe) {
 #if PAL
 				fstartframe += var8009e388pf * speed;

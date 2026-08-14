@@ -16,7 +16,7 @@
  *      pdguiHotswapRenderQueued() — no per-screen boilerplate needed.
  *   3. Screens with no mini-manifest work unchanged.
  *
- * Asset types: use MANIFEST_TYPE_* constants from netmanifest.h.
+ * Asset types: pass the exact asset_type_e for each catalog ID.
  *
  * Note on base-game assets: all bundled base-game bodies, heads, lang banks,
  * etc. carry bundled=1, so typed catalog load/release calls are no-ops
@@ -29,6 +29,7 @@
 #define _IN_SCREENMFST_H
 
 #include <PR/ultratypes.h>
+#include "assetcatalog.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -50,7 +51,7 @@ extern "C" {
  *              Passed as void* to avoid pulling game headers into port code.
  * catalog_ids: NULL-terminated array of catalog string IDs this screen needs.
  *              (e.g. "base:dark_combat", "base:lang_mpmenu")
- * types:       Array of MANIFEST_TYPE_* constants, one per catalog_id.
+ * types:       Array of exact asset_type_e values, one per catalog_id.
  * count:       Number of entries.  Clamped to SMFST_MAX_IDS_PER_SCREEN.
  *
  * Calling again for the same dialogdef replaces the previous registration.
@@ -58,7 +59,7 @@ extern "C" {
  */
 void screenManifestRegister(void *dialogdef,
                              const char **catalog_ids,
-                             const u8 *types,
+                             const asset_type_e *types,
                              s32 count);
 
 /**

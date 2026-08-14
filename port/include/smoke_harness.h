@@ -18,6 +18,14 @@ extern "C" {
  * Supported event types (see port/src/smoke_harness.c for the full
  * schema and tools/smoke-verify/README.md for examples):
  *   - wait    : inert sequencing marker
+ *   - wait_until: bounded typed production-state barrier that pauses only the
+ *                current process's script timeline; exact conditions are
+ *                network_listen_ready, network_stage_live,
+ *                network_reconnect_available, cutscene_skip_ready, and
+ *                gameplay_ready.
+ *                Optional stable_ms requires continuous truth. The complete
+ *                assist_action/assist_condition/assist_hold_ms tuple owns at
+ *                most one bounded action hold and always releases it.
  *   - exit    : scripted clean exit
  *   - key     : SDL_KEYDOWN / KEYUP
  *   - action  : actionmap press/release injected directly (focus-independent)
@@ -26,6 +34,11 @@ extern "C" {
  *   - catalog_recovery_probe: verify catalog/provider/runtime/dependency state
  *   - catalog_weapon_acquire / catalog_weapon_release: smoke-only calls into
  *                the production typed weapon lifecycle for owner-balance receipts
+ *
+ * The complete document is syntax-validated before parsing. Event fields are
+ * typed per event kind, duplicate/unknown/incompatible fields fail closed, and
+ * an explicit key/action/mouse hold may not cross a wait_until pause. Use the
+ * bounded assisted-wait tuple for input that belongs inside a paused interval.
  *
  * Design ref: context/designs/engine/smoke-verify-gate.md.
  *

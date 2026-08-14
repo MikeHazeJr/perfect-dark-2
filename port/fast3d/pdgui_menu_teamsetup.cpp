@@ -258,11 +258,10 @@ static s32 renderTeamSetup(struct menudialog *dialog,
 
     /* Teams enabled toggle */
     {
-        bool teamsOn = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
+        bool teamsOn = (matchConfigGetUserOptions() & MPOPTION_TEAMSENABLED) != 0;
         /* Priority L (2026-04-25): label LEFT via pdguiCheckbox. */
         if (pdguiCheckbox("Teams Enabled", &teamsOn)) {
-            if (teamsOn) g_MatchConfig.options |= MPOPTION_TEAMSENABLED;
-            else         g_MatchConfig.options &= ~MPOPTION_TEAMSENABLED;
+            matchConfigSetUserOption(MPOPTION_TEAMSENABLED, teamsOn ? 1 : 0);
             pdguiPlaySound(PDGUI_SND_SUBFOCUS);
         }
     }
@@ -271,7 +270,7 @@ static s32 renderTeamSetup(struct menudialog *dialog,
     ImGui::Separator();
     ImGui::Spacing();
 
-    bool teamsActive = (g_MatchConfig.options & MPOPTION_TEAMSENABLED) != 0;
+    bool teamsActive = (matchConfigGetUserOptions() & MPOPTION_TEAMSENABLED) != 0;
 
     if (!teamsActive) {
         ImGui::TextDisabled("Enable teams above to assign players to teams.");

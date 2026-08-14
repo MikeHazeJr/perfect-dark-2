@@ -13,7 +13,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 260,
+  "timeout_seconds": 360,
   "install_state": "clean",
   "separate_process_installs": true,
   "remove_paths": [
@@ -21,7 +21,6 @@
     "mods/needler",
     "mods/installed/needler.pdmod",
     "mods/installed/needler",
-    "mods/weapons/mod_needler:needler",
     "mods/.temp/received/needler",
     "mods/.temp/pdmod/needler"
   ],
@@ -76,12 +75,51 @@
           "GROUP.MATCH: authority latched handle=0x07a68cc7 transport=client route_flags=0x[0-9a-f]+",
           "NET: connected to server, sending CLC_AUTH",
           "MATCH: client stage start received",
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "NET: SVC_CUTSCENE read active=1 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=\\d+",
+          "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready outcome=(?:used at_ms=0 waited_ms=\\d+ press_count=1 release_count=1|not_needed at_ms=0 waited_ms=\\d+ press_count=0 release_count=0)",
+          "NET: SVC_CUTSCENE_SKIP applied requester_client=\\d+ runtime_player=\\d+ generation=\\d+",
+          "NET: SVC_CUTSCENE read active=0 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=\\d+",
+          "NET: SVC_CUTSCENE read active=0 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=1",
+          "NET: SVC_CUTSCENE read active=1 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=2",
+          "SMOKE\\.WAIT: satisfied condition=gameplay_ready at_ms=0 timeout_ms=60000 .*stable_ms=3000 stable_elapsed_ms=(?:3\\d{3}|[4-9]\\d{3}|[1-5]\\d{4}) assist_action=72 assist_condition=cutscene_skip_ready assist_hold_ms=900",
           "DISTRIB: recv begin 'mod_needler:needler'",
           "DISTRIB: SHA-256 verified for 'mod_needler:needler'",
           "DISTRIB: transactionally staged received archive at .* pending catalog admission",
           "DISTRIB\\.CATALOG\\.ADMISSION: id=mod_needler:needler scanner_result=[1-9]\\d*",
           "MANIFEST: check passed .* sending READY",
           "SMOKE: result=scripted_exit"
+        ],
+        "required_sequences": [
+          {
+            "name": "authority-generation-synchronized",
+            "patterns": [
+              "NET: SVC_CUTSCENE read active=1 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=\\d+",
+              "NET: SVC_CUTSCENE_SKIP applied requester_client=\\d+ runtime_player=\\d+ generation=\\d+",
+              "NET: SVC_CUTSCENE read active=0 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=\\d+"
+            ]
+          },
+          {
+            "name": "consecutive-authority-generations-applied",
+            "patterns": [
+              "NET: SVC_CUTSCENE read active=0 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=1",
+              "NET: SVC_CUTSCENE read active=1 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=2"
+            ]
+          },
+          {
+            "name": "stable-gameplay-transition",
+            "patterns": [
+              "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready outcome=(?:used at_ms=0 waited_ms=\\d+ press_count=1 release_count=1|not_needed at_ms=0 waited_ms=\\d+ press_count=0 release_count=0)",
+              "SMOKE\\.WAIT: satisfied condition=gameplay_ready at_ms=0 timeout_ms=60000 .*stable_ms=3000 stable_elapsed_ms=(?:3\\d{3}|[4-9]\\d{3}|[1-5]\\d{4}) assist_action=72 assist_condition=cutscene_skip_ready assist_hold_ms=900"
+            ]
+          },
+          {
+            "name": "authoritative-cutscene-result-applied",
+            "patterns": [
+              "NET: SVC_CUTSCENE_SKIP applied requester_client=\\d+ runtime_player=\\d+ generation=\\d+",
+              "SMOKE\\.WAIT: satisfied condition=gameplay_ready at_ms=0 timeout_ms=60000 .*stable_ms=3000 stable_elapsed_ms=(?:3\\d{3}|[4-9]\\d{3}|[1-5]\\d{4}) assist_action=72 assist_condition=cutscene_skip_ready assist_hold_ms=900"
+            ]
+          }
         ],
         "forbidden_patterns": [
           "GROUP.MATCH: server start attempt",
@@ -102,12 +140,18 @@
           "RomProvider:filenum",
           "result=FAIL",
           "result=MISSING",
-          "CATEGORY_MISMATCH"
+          "CATEGORY_MISMATCH",
+          "SVC_CUTSCENE rejected status=",
+          "CLC_CUTSCENE_SKIP ignored status=generation_mismatch",
+          "SVC_CUTSCENE_SKIP ignored status=generation_mismatch"
         ],
         "required_counts": [
           { "pattern": "GROUP.MATCH: join attempt authority=0x07a68cc7 route_kind=match-server flags=0x[0-9a-f]+ count=1", "min": 1, "max": 1 },
           { "pattern": "NET: connected to server, sending CLC_AUTH", "min": 1, "max": 1 },
-          { "pattern": "MATCH: client stage start received", "min": 1, "max": 1 }
+          { "pattern": "MATCH: client stage start received", "min": 1, "max": 1 },
+          { "pattern": "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready outcome=(?:used at_ms=0 waited_ms=\\d+ press_count=1 release_count=1|not_needed at_ms=0 waited_ms=\\d+ press_count=0 release_count=0)", "min": 1, "max": 1 },
+          { "pattern": "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready event=press", "min": 0, "max": 1 },
+          { "pattern": "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready event=release", "min": 0, "max": 1 }
         ]
       }
     },
@@ -116,7 +160,8 @@
       "friend_play_identity": "initiator",
       "log_file": "pd-client.log",
       "fixtures": [
-        { "src": "tools/smoke-verify/fixtures/needler_enabled.json", "dst": "mods-enabled.json" }
+        { "src": "tools/smoke-verify/fixtures/needler_enabled.json", "dst": "mods-enabled.json" },
+        { "src": "tools/smoke-verify/fixtures/prefs_needler_enabled.ini", "dst": "prefs_initiator.ini" }
       ],
       "packed_fixtures": [
         { "src": "dev-mods/needler", "dst": "mods/installed/needler.pdmod" }
@@ -166,7 +211,18 @@
           "NET: ready gate: client \\d+ READY",
           "MATCH: server stage start",
           "MATCH-START: writing SVC_STAGE_START, stage_session=[1-9]\\d*, stage_id='base:arena_chicago'",
-          "NET: mpStartMatch server activeMask=0x[0-9a-f]+ players=2 \\(dedicated=0\\)",
+          "MATCH: immutable network launch activeMask=0x[0-9a-f]+ players=2 bots=0",
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "CUTSCENE\\.PRESENTATION: start local_player=0 ambient_player=\\d+ anim=\\d+ body_ready=1 committed=1 active=1 in_progress=1",
+          "NET: SVC_CUTSCENE published active=1 client_mask=0x[0-9a-f]+ generation=\\d+ room=\\d+",
+          "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready outcome=(?:used at_ms=0 waited_ms=\\d+ press_count=1 release_count=1|not_needed at_ms=0 waited_ms=\\d+ press_count=0 release_count=0)",
+          "NET: CUTSCENE_SKIP\\.AUTHORITY accepted source=(?:local|remote) client=\\d+ player=\\d+(?: requested_player=\\d+)? generation=\\d+",
+          "NET: SVC_CUTSCENE_SKIP published requester_mask=0x[0-9a-f]+",
+          "NET: SVC_CUTSCENE published active=0 client_mask=0x[0-9a-f]+ generation=\\d+ room=\\d+",
+          "CUTSCENE\\.AUTHORITY: tick-mode END queued generation=1 mask=0x[0-9a-f]+",
+          "NET: SVC_CUTSCENE published active=0 client_mask=0x[0-9a-f]+ generation=1 room=\\d+",
+          "NET: SVC_CUTSCENE published active=1 client_mask=0x[0-9a-f]+ generation=2 room=\\d+",
+          "SMOKE\\.WAIT: satisfied condition=gameplay_ready at_ms=0 timeout_ms=60000 .*stable_ms=3000 stable_elapsed_ms=(?:3\\d{3}|[4-9]\\d{3}|[1-5]\\d{4}) assist_action=72 assist_condition=cutscene_skip_ready assist_hold_ms=900",
           "SPAWN: player 0 spawned with weapon \\d+ .*auto-equipped to right hand",
           "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod_needler:needler_model",
           "MODASSET\\.RENDER: generated source modeldef rendered id=mod_needler:needler_model",
@@ -174,6 +230,32 @@
           "EFFECT\\.GAMEPLAY\\.AUDIT: committed asset=mod_needler:pink_burst_effect",
           "EFFECT\\.PRESENTATION\\.RENDER\\.AUDIT: instance=\\d+ snapshots=[1-9]\\d* channel=2 shader=needler_pink_burst",
           "\\[[0-9]{2}:[0-9]{2}\\.[0-9]{2}\\] shutdown"
+        ],
+        "required_sequences": [
+          {
+            "name": "stable-gameplay-transition",
+            "patterns": [
+              "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready outcome=(?:used at_ms=0 waited_ms=\\d+ press_count=1 release_count=1|not_needed at_ms=0 waited_ms=\\d+ press_count=0 release_count=0)",
+              "SMOKE\\.WAIT: satisfied condition=gameplay_ready at_ms=0 timeout_ms=60000 .*stable_ms=3000 stable_elapsed_ms=(?:3\\d{3}|[4-9]\\d{3}|[1-5]\\d{4}) assist_action=72 assist_condition=cutscene_skip_ready assist_hold_ms=900"
+            ]
+          },
+          {
+            "name": "authoritative-cutscene-result-published",
+            "patterns": [
+              "NET: SVC_CUTSCENE published active=1 client_mask=0x[0-9a-f]+ generation=\\d+ room=\\d+",
+              "NET: CUTSCENE_SKIP\\.AUTHORITY accepted source=(?:local|remote) client=\\d+ player=\\d+(?: requested_player=\\d+)? generation=\\d+",
+              "NET: SVC_CUTSCENE_SKIP published requester_mask=0x[0-9a-f]+",
+              "NET: SVC_CUTSCENE published active=0 client_mask=0x[0-9a-f]+ generation=\\d+ room=\\d+"
+            ]
+          },
+          {
+            "name": "consecutive-authority-generations-published",
+            "patterns": [
+              "CUTSCENE\\.AUTHORITY: tick-mode END queued generation=1 mask=0x[0-9a-f]+",
+              "NET: SVC_CUTSCENE published active=0 client_mask=0x[0-9a-f]+ generation=1 room=\\d+",
+              "NET: SVC_CUTSCENE published active=1 client_mask=0x[0-9a-f]+ generation=2 room=\\d+"
+            ]
+          }
         ],
         "forbidden_patterns": [
           "GROUP.MATCH: join attempt",
@@ -192,35 +274,34 @@
           "RomProvider:filenum",
           "result=FAIL",
           "result=MISSING",
-          "CATEGORY_MISMATCH"
+          "CATEGORY_MISMATCH",
+          "SVC_CUTSCENE rejected status=",
+          "NET: CUTSCENE\\.AUTHORITY state queue (?:rejected|full)",
+          "CUTSCENE\\.AUTHORITY: (?:START|END|tick-mode END) preflight rejected"
         ],
         "required_counts": [
           { "pattern": "GROUP.MATCH: server start attempt authority=0x07a68cc7 count=1", "min": 1, "max": 1 },
           { "pattern": "NET: created server on port 27210", "min": 1, "max": 1 },
-          { "pattern": "MATCH: server stage start", "min": 1, "max": 1 }
+          { "pattern": "MATCH: server stage start", "min": 1, "max": 1 },
+          { "pattern": "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready outcome=(?:used at_ms=0 waited_ms=\\d+ press_count=1 release_count=1|not_needed at_ms=0 waited_ms=\\d+ press_count=0 release_count=0)", "min": 1, "max": 1 },
+          { "pattern": "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready event=press", "min": 0, "max": 1 },
+          { "pattern": "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready event=release", "min": 0, "max": 1 }
         ]
       }
     }
   ],
   "input_sequence": [
-    { "at_ms": 0, "type": "wait", "comment": "The invitee boots first so its ordinary client is presence-ready before the initiator sends the invite. The typed signed route, ready-gated package transfer, and server-authoritative match must complete before visual captures." },
-    { "at_ms": 65000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "Exercise the first peer after the route, transfer, and match-start gates." },
-    { "at_ms": 68000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
-    { "at_ms": 69000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
-    { "at_ms": 72000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "press" },
-    { "at_ms": 73000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "release" },
-    { "at_ms": 74000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
-    { "at_ms": 75000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
-    { "at_ms": 78000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
-    { "at_ms": 120000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "Exercise the later-starting peer through the same ordinary gameplay consumers." },
-    { "at_ms": 124000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
-    { "at_ms": 125000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
-    { "at_ms": 128000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "press" },
-    { "at_ms": 129000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "release" },
-    { "at_ms": 130000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
-    { "at_ms": 131000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
-    { "at_ms": 134000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
-    { "at_ms": 175000, "type": "exit", "comment": "Exit both isolated clients after route establishment, manifest distribution, stage start, and gameplay/render execution. V-009 image proof runs as its independent capture gate." }
+    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 220000, "comment": "Each ordinary client pauses independently until the signed route, ready gate, stage load, local-player allocation, and spawn are live in production state." },
+    { "at_ms": 0, "type": "wait_until", "condition": "gameplay_ready", "timeout_ms": 60000, "stable_ms": 3000, "assist_action": "ACTION_SKIP_CUTSCENE", "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 900, "comment": "Require continuously usable gameplay. If the authored intro takes control, inject one bounded canonical Skip only through its exact production aperture and release it before success or failure." },
+    { "at_ms": 6500, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "Allow the ordinary weapon switch and source-backed model activation to settle before exercising gameplay consumers." },
+    { "at_ms": 8500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 9500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 10500, "type": "action", "name": "ACTION_FIRE_MODE", "action": "press" },
+    { "at_ms": 11500, "type": "action", "name": "ACTION_FIRE_MODE", "action": "release" },
+    { "at_ms": 12500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 13500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 14500, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
+    { "at_ms": 20000, "type": "exit", "comment": "Exit both isolated clients after causal readiness, gameplay/render execution, and the D-003 route gates. V-009 image proof remains an independent regression gate." }
   ],
   "assertions": {
     "required_lines": [
@@ -244,6 +325,17 @@
       "MATCH-START: stage_session=[1-9]\\d* resolved to stagenum=0x1d",
       "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated weapon metadata payload 'mod_needler:needler'",
       "WEAPONGRAPH\\.EFFECT\\.INGEST: id=mod_needler:pink_burst_effect",
+      "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+      "CUTSCENE\\.PRESENTATION: start local_player=0 ambient_player=\\d+ anim=\\d+ body_ready=1 committed=1 active=1 in_progress=1",
+      "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready outcome=(?:used at_ms=0 waited_ms=\\d+ press_count=1 release_count=1|not_needed at_ms=0 waited_ms=\\d+ press_count=0 release_count=0)",
+      "NET: SVC_CUTSCENE published active=1 client_mask=0x[0-9a-f]+ generation=\\d+ room=\\d+",
+      "NET: SVC_CUTSCENE read active=1 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=\\d+",
+      "NET: CUTSCENE_SKIP\\.AUTHORITY accepted source=(?:local|remote) client=\\d+ player=\\d+(?: requested_player=\\d+)? generation=\\d+",
+      "NET: SVC_CUTSCENE_SKIP published requester_mask=0x[0-9a-f]+",
+      "NET: SVC_CUTSCENE_SKIP applied requester_client=\\d+ runtime_player=\\d+ generation=\\d+",
+      "NET: SVC_CUTSCENE published active=0 client_mask=0x[0-9a-f]+ generation=\\d+ room=\\d+",
+      "NET: SVC_CUTSCENE read active=0 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=\\d+",
+      "SMOKE\\.WAIT: satisfied condition=gameplay_ready at_ms=0 timeout_ms=60000 .*stable_ms=3000 stable_elapsed_ms=(?:3\\d{3}|[4-9]\\d{3}|[1-5]\\d{4}) assist_action=72 assist_condition=cutscene_skip_ready assist_hold_ms=900",
       "EFFECT\\.GAMEPLAY\\.AUDIT: committed asset=mod_needler:pink_burst_effect",
       "EFFECT\\.PRESENTATION\\.RENDER\\.AUDIT: instance=\\d+ snapshots=[1-9]\\d* channel=2 shader=needler_pink_burst",
       "\\[[0-9]{2}:[0-9]{2}\\.[0-9]{2}\\] shutdown",
@@ -261,6 +353,11 @@
       "ACCESS_VIOLATION",
       "FATAL: ",
       "SMOKE: result=timeout",
+      "SMOKE\\.WAIT: (timeout|pending_tap)",
+      "SMOKE\\.WAIT\\.ASSIST: .*rejected=",
+      "wait_assist_(press|release|cleanup)_failed",
+      "wait_assist_held_on_success",
+      "wait_policy_invalid",
       "LOUDFAIL\\.ASSETCHAIN",
       "LOUDFAIL\\.FALLBACK",
       "ASSET\\.FALLBACK",
@@ -270,7 +367,13 @@
       "NET: ready gate: client \\d+ DECLINED",
       "result=FAIL",
       "result=MISSING",
-      "CATEGORY_MISMATCH"
+      "CATEGORY_MISMATCH",
+      "SVC_CUTSCENE rejected status=",
+      "CLC_CUTSCENE_SKIP ignored status=generation_mismatch",
+      "SVC_CUTSCENE_SKIP ignored status=generation_mismatch",
+      "NET: CUTSCENE\\.AUTHORITY state queue (?:rejected|full)",
+      "CUTSCENE\\.AUTHORITY: (?:START|END|tick-mode END) preflight rejected",
+      "CUTSCENE\\.PRESENTATION: start local_player=[1-9]"
     ],
     "required_counts": [
       { "pattern": "SMOKE: scenario=friend_play_authority_initiator_smoke", "min": 2, "max": 2 },
@@ -284,6 +387,17 @@
       { "pattern": "GROUP.MATCH: authority latched handle=0x07a68cc7 transport=listen-host", "min": 1, "max": 1 },
       { "pattern": "GROUP.MATCH: authority latched handle=0x07a68cc7 transport=client route_flags=0x[0-9a-f]+", "min": 1, "max": 1 },
       { "pattern": "DISTRIB: all transfers complete \\(1 received\\)", "min": 2, "max": 2 },
+      { "pattern": "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready event=press", "min": 1, "max": 2 },
+      { "pattern": "SMOKE\\.ACTION\\.INJECT: player=0 action=72 down=1 .*smoke_owner_after=1", "min": 1, "max": 2 },
+      { "pattern": "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready event=release", "min": 1, "max": 2 },
+      { "pattern": "SMOKE\\.ACTION\\.INJECT: player=0 action=72 down=0 .*smoke_owner_before=1 smoke_owner_after=2", "min": 1, "max": 2 },
+      { "pattern": "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready outcome=(?:used at_ms=0 waited_ms=\\d+ press_count=1 release_count=1|not_needed at_ms=0 waited_ms=\\d+ press_count=0 release_count=0)", "min": 2, "max": 2 },
+      { "pattern": "SMOKE\\.WAIT\\.ASSIST: action=72 condition=cutscene_skip_ready outcome=used at_ms=0 waited_ms=\\d+ press_count=1 release_count=1", "min": 1, "max": 2 },
+      { "pattern": "NET: CUTSCENE_SKIP\\.AUTHORITY accepted source=(?:local|remote) client=\\d+ player=\\d+(?: requested_player=\\d+)? generation=\\d+", "min": 1, "max": 2 },
+      { "pattern": "NET: SVC_CUTSCENE_SKIP published requester_mask=0x[0-9a-f]+", "min": 1, "max": 2 },
+      { "pattern": "NET: SVC_CUTSCENE_SKIP applied requester_client=\\d+ runtime_player=\\d+ generation=\\d+", "min": 1, "max": 2 },
+      { "pattern": "SMOKE\\.WAIT: satisfied condition=network_stage_live", "min": 2, "max": 2 },
+      { "pattern": "SMOKE\\.WAIT: satisfied condition=gameplay_ready at_ms=0 timeout_ms=60000 .*stable_ms=3000 stable_elapsed_ms=(?:3\\d{3}|[4-9]\\d{3}|[1-5]\\d{4}) assist_action=72 assist_condition=cutscene_skip_ready assist_hold_ms=900", "min": 2, "max": 2 },
       { "pattern": "EFFECT\\.GAMEPLAY\\.AUDIT: committed asset=mod_needler:pink_burst_effect", "min": 1 },
       { "pattern": "EFFECT\\.PRESENTATION\\.RENDER\\.AUDIT: .*shader=needler_pink_burst", "min": 1 },
       { "pattern": "\\[[0-9]{2}:[0-9]{2}\\.[0-9]{2}\\] shutdown", "min": 2, "max": 2 },

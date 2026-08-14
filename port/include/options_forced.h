@@ -18,12 +18,12 @@
  * runs again (which is rare).
  *
  * INV-4 introduces a parallel `options_engine_forced` u32 field. The
- * B-181 fallback (and any future engine-forced bit setter) records
- * the forced bit in this mask BEFORE OR-ing into the active options.
- * On every matchStart() the engine-forced bits are cleared from the
- * active options and the forced-mask is reset, restoring the user's
- * original state for the next match. B-181 can re-evaluate and re-fire
- * if the new map's pickup count is still low.
+ * B-181 fallback (and any future engine-forced bit setter) records only
+ * bits that it actually added. A bit that was already enabled belongs to
+ * the user and must never enter the forced mask. At a match boundary the
+ * engine-forced bits are cleared from the active options and the mask is
+ * reset, restoring the user's original state. B-181 can re-evaluate and
+ * re-fire if the new map's pickup count is still low.
  *
  * The pure helpers here do the bit math. The B-181 caller and the
  * matchStart() restore site call these so the algebra has a single
@@ -70,14 +70,30 @@ u32 matchOptionsEngineView(u32 options, u32 engine_forced);
 void matchOptionsRestoreUserOriginal(u32 *options_inout, u32 *engine_forced_inout);
 
 /*
- * Mark a bit as engine-forced and apply it to options atomically.
- * The B-181 fallback uses this so the mark and the apply cannot get
- * out of sync (an apply without a mark would become permanent at the
- * next matchStart() restore, defeating the whole mechanism).
+ * Apply one or more engine-required bits atomically. Only bits absent
+ * from the current options value are added to the ownership mask. Bits
+ * the user had already enabled remain user-owned, so a later restore
+ * cannot erase them.
  *
  * Pure modulo the in-out pointers.
  */
 void matchOptionsForceBit(u32 *options_inout, u32 *engine_forced_inout, u32 bit);
+
+/*
+ * Apply an explicit user edit. The edited bits cease to be engine-owned,
+ * then are set or cleared according to `enabled`. This lets UI writers use
+ * the same ownership contract as UI readers.
+ */
+void matchOptionsSetUserBit(u32 *options_inout, u32 *engine_forced_inout,
+		u32 bit, s32 enabled);
+
+/*
+ * Replace the complete user-authored option set (scenario load, room sync,
+ * or other authoritative settings replacement). Any prior engine overlay
+ * is superseded and its ownership mask is cleared in the same operation.
+ */
+void matchOptionsReplaceUserOriginal(u32 *options_inout,
+		u32 *engine_forced_inout, u32 user_options);
 
 #ifdef __cplusplus
 }

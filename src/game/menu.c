@@ -69,6 +69,9 @@ extern s32 pdguiIsActive(void);
 #include "assetload.h"
 #include "asset_source_debug.h"
 #include "menupool.h"
+#include "smoke_harness.h"
+#include "savefile.h"
+#include "prefs_agent.h"
 #define BLUR_OFS 10
 
 #if VERSION >= VERSION_PAL_FINAL
@@ -1644,13 +1647,44 @@ void menuPushDialog(struct menudialogdef *dialogdef)
 	}
 }
 
-#if VERSION >= VERSION_NTSC_1_0
+static void menuCopyMpPlayerSaveName(char *dst, size_t dstlen, const char *src)
+{
+	size_t i = 0;
+
+	if (dstlen == 0) {
+		return;
+	}
+
+	while (src[i] != '\0' && src[i] != '\n' && src[i] != '\r'
+			&& i + 1 < dstlen) {
+		dst[i] = src[i];
+		i++;
+	}
+
+	while (i > 0 && dst[i - 1] == ' ') {
+		i--;
+	}
+
+	dst[i] = '\0';
+}
+
 bool func0f0f3220(s32 arg0)
 {
 	bool save = true;
 	s32 i;
+	u8 queuedtype;
 
-	if (g_MenuData.unk669[arg0] == 4) {
+	/* The force-close paths historically call this once with the queue count
+	 * before walking the real zero-based entries. Keep that sentinel call a
+	 * no-op instead of reading an unowned slot or decrementing the queue. */
+	if (arg0 < 0 || arg0 >= g_MenuData.unk66e
+			|| arg0 >= ARRAYCOUNT(g_MenuData.unk669)) {
+		return false;
+	}
+
+	queuedtype = g_MenuData.unk669[arg0];
+
+	if (queuedtype == 4) {
 		s32 prevplayernum = g_MpPlayerNum;
 
 		for (i = ARRAYCOUNT(g_Menus) - 1; i >= 0; i--) {
@@ -1674,14 +1708,47 @@ bool func0f0f3220(s32 arg0)
 		}
 
 		if (save) {
-			filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_SAVE_GAME_000, 0);
+			const char *agentname = prefsAgentGetActive();
+			s32 result = 0;
+
+			/* PC owns one canonical Agent Profile JSON document. The legacy
+			 * Controller Pak writer cannot succeed here and used to push
+			 * g_PakNotOriginalMenuDialog over the live MP endscreen. */
+			if (agentname != NULL && agentname[0] != '\0') {
+				result = saveSaveAgent(agentname);
+				sysLogPrintf(result == 0 ? LOG_NOTE : LOG_WARNING,
+					"SAVE.QUEUE: type=agent name='%s' result=%s",
+					agentname, result == 0 ? "OK" : "FAILED");
+			} else {
+				sysLogPrintf(LOG_NOTE,
+					"SAVE.QUEUE: type=agent result=SKIPPED_NO_ACTIVE_PROFILE");
+			}
 		}
 
 		g_MpPlayerNum = prevplayernum;
-	} else if (g_MenuData.unk669[arg0] < 4) {
+	} else if (queuedtype < MAX_PLAYERS) {
 		s32 prevplayernum = g_MpPlayerNum;
-		g_MpPlayerNum = g_MenuData.unk669[arg0];
-		filemgrSaveOrLoad(&g_PlayerConfigsArray[g_MpPlayerNum].fileguid, FILEOP_SAVE_MPPLAYER, g_MpPlayerNum);
+		char profilename[sizeof(g_PlayerConfigsArray[0].base.name) + 1];
+		s32 result = 0;
+
+		g_MpPlayerNum = queuedtype;
+		menuCopyMpPlayerSaveName(profilename, sizeof(profilename),
+			g_PlayerConfigsArray[g_MpPlayerNum].base.name);
+
+		/* Loaded multiplayer-player profiles are also PC-native JSON. Strip
+		 * the legacy display newline before using the name as persistent
+		 * identity, and never fall back to a Controller Pak modal. */
+		if (profilename[0] != '\0') {
+			result = saveSaveMpPlayer(profilename, g_MpPlayerNum);
+			sysLogPrintf(result == 0 ? LOG_NOTE : LOG_WARNING,
+				"SAVE.QUEUE: type=mp_player slot=%d name='%s' result=%s",
+				g_MpPlayerNum, profilename, result == 0 ? "OK" : "FAILED");
+		} else {
+			sysLogPrintf(LOG_WARNING,
+				"SAVE.QUEUE: type=mp_player slot=%d result=SKIPPED_EMPTY_NAME",
+				g_MpPlayerNum);
+		}
+
 		save = true;
 		g_MpPlayerNum = prevplayernum;
 	}
@@ -1692,33 +1759,6 @@ bool func0f0f3220(s32 arg0)
 
 	return save;
 }
-#else
-void func0f0f3220(s32 arg0)
-{
-	s32 i;
-
-	if (g_MenuData.unk669[arg0] == 4) {
-		s32 prevplayernum = g_MpPlayerNum;
-
-		for (i = ARRAYCOUNT(g_Menus) - 1; i >= 0; i--) {
-			if (g_Menus[i].curdialog) {
-				g_MpPlayerNum = i;
-			}
-		}
-
-		filemgrSaveOrLoad(&g_GameFileGuid, FILEOP_SAVE_GAME_000, 0);
-
-		g_MpPlayerNum = prevplayernum;
-	} else if (g_MenuData.unk669[arg0] < 4) {
-		s32 prevplayernum = g_MpPlayerNum;
-		g_MpPlayerNum = g_MenuData.unk669[arg0];
-		filemgrSaveOrLoad(&g_PlayerConfigsArray[g_MpPlayerNum].fileguid, FILEOP_SAVE_MPPLAYER, g_MpPlayerNum);
-		g_MpPlayerNum = prevplayernum;
-	}
-
-	g_MenuData.unk66e--;
-}
-#endif
 
 void menuCloseDialog(void)
 {
@@ -5793,6 +5833,32 @@ Gfx *menuRender(Gfx *gdl)
 	}
 
 	g_MpPlayerNum = 0;
+
+	/* T-ENGINE-004 smoke observability: distinguish lvRender calling this
+	 * producer from menuRenderDialogs actually selecting the MP participant
+	 * slot. The log is bounded and does not alter queue or dialog state. */
+	if (smokeHarnessIsActive()
+			&& g_MenuData.root == MENUROOT_MPENDSCREEN) {
+		static s32 s_mpEndscreenMenuRenderTicks = 0;
+		s32 mpindex = g_Vars.currentplayerstats
+			? g_Vars.currentplayerstats->mpindex : -1;
+		struct menudialog *curdialog = mpindex >= 0 && mpindex < MAX_PLAYERS
+			? g_Menus[mpindex].curdialog : NULL;
+
+		s_mpEndscreenMenuRenderTicks++;
+		if (s_mpEndscreenMenuRenderTicks == 1
+				|| s_mpEndscreenMenuRenderTicks == 5
+				|| s_mpEndscreenMenuRenderTicks == 30
+				|| (s_mpEndscreenMenuRenderTicks % 120) == 0) {
+			sysLogPrintf(LOG_NOTE,
+				"ENDSCREEN.MENU.RENDER: tick=%d mpindex=%d count=%d cur=%p def=%p depth=%d",
+				s_mpEndscreenMenuRenderTicks, mpindex, g_MenuData.count,
+				(void *)curdialog,
+				(void *)(curdialog ? curdialog->definition : NULL),
+				mpindex >= 0 && mpindex < MAX_PLAYERS
+					? g_Menus[mpindex].depth : -1);
+		}
+	}
 
 #if PAL
 	g_ScaleX = 1;

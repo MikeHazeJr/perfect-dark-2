@@ -349,10 +349,19 @@ void *fsFileLoad(const char *name, u32 *outSize)
  * want under test.
  * ------------------------------------------------------------------------- */
 static const asset_entry_t *s_TestResolvedAsset;
+static const asset_entry_t *s_TestResolvedAsset2;
 
 void testStubAssetCatalogResolveWith(const asset_entry_t *entry)
 {
     s_TestResolvedAsset = entry;
+    s_TestResolvedAsset2 = NULL;
+}
+
+void testStubAssetCatalogResolvePair(const asset_entry_t *first,
+        const asset_entry_t *second)
+{
+    s_TestResolvedAsset = first;
+    s_TestResolvedAsset2 = second;
 }
 
 const asset_entry_t *assetCatalogResolve(const char *id)
@@ -360,6 +369,23 @@ const asset_entry_t *assetCatalogResolve(const char *id)
     if (s_TestResolvedAsset && id &&
             strcmp(s_TestResolvedAsset->id, id) == 0) {
         return s_TestResolvedAsset;
+    }
+    if (s_TestResolvedAsset2 && id &&
+            strcmp(s_TestResolvedAsset2->id, id) == 0) {
+        return s_TestResolvedAsset2;
+    }
+    return NULL;
+}
+
+const asset_entry_t *assetCatalogResolveAny(const char *id)
+{
+    if (s_TestResolvedAsset && id &&
+            strcmp(s_TestResolvedAsset->id, id) == 0) {
+        return s_TestResolvedAsset;
+    }
+    if (s_TestResolvedAsset2 && id &&
+            strcmp(s_TestResolvedAsset2->id, id) == 0) {
+        return s_TestResolvedAsset2;
     }
     return NULL;
 }
@@ -374,6 +400,10 @@ asset_entry_t *assetCatalogGetMutable(const char *id)
     if (s_TestResolvedAsset && id &&
             strcmp(s_TestResolvedAsset->id, id) == 0) {
         return (asset_entry_t *)s_TestResolvedAsset;
+    }
+    if (s_TestResolvedAsset2 && id &&
+            strcmp(s_TestResolvedAsset2->id, id) == 0) {
+        return (asset_entry_t *)s_TestResolvedAsset2;
     }
     return NULL;
 }

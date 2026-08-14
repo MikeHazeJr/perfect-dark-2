@@ -1,0 +1,13 @@
+{
+  "scenario_name": "network_reconnect_host",
+  "description": "Listen-host half of the B-1064 reconnect proof. It waits for ordinary live gameplay, asks ENet to disconnect stable client 1 with the real timeout reason, then remains authoritative while that same client authenticates and restores.",
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 400,
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "network_listen_ready", "timeout_ms": 120000, "comment": "Start the peer-dependent deadline only after the ENet listen host is published." },
+    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 150000, "comment": "Do not perturb a partial handshake or loading stage." },
+    { "at_ms": 15000, "type": "network_timeout_client", "client_id": 1, "comment": "After a bounded post-load margin, require the remote client's real CLC_STAGE_READY and trigger the production timeout path." },
+    { "at_ms": 105000, "type": "exit", "comment": "Leave a bounded 90-second window after timeout for stable-slot auth, stage reload, ordered state restore, and gameplay resync." }
+  ]
+}

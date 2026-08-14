@@ -20,7 +20,7 @@ The canonical Workbench replaces the older sequencing text in this historical
 roadmap. T-RELEASE-001 routes 1.0 through five ordered milestones:
 
 1. **T-RELEASE-002: Complete base game and graphs.** V-010 currently has 2
-   closed, 7 partial, and 6 missing leaf gates out of 15. Establish the
+   closed, 8 partial, and 5 missing leaf gates out of 15. Establish the
    current-tree parity matrix and campaign runner, then close production gaps.
 2. **T-RELEASE-003: Usable Theater.** Complete authoritative Campaign and
    Combat Simulator recording, persistence, reconstruction, playback, seeking,
@@ -98,7 +98,7 @@ This section enumerates every pillar visible across the design docs, audits, inf
 | E13 | **Spawn System (L2 + B-134)** | SHIPPED | `spawnpool.c` L1-L4 cascade with `spawn_select_tier_t` enum. Capsule-radius threshold (30.0f) for raycast budget. Same-tick reservation bitset. Wall-probe + neighbour-room ground check. |
 | E14 | **Random / Fiesta semantics** | IN-FLIGHT | Per Mike's directive notes; partial. Random meta selectors migrated to catalog (S473 maps step, S471 weapons, S472 bodies, S470 heads). Fiesta semantics not fully verified. |
 | E15 | **Save Format Migration** | SHIPPED-V1->V2 / QUEUED-CASES | `MPSETUP_VERSION 1->2` at S468 alongside Goldfinger weapon cull (clamp rule documented). Future bumps: catalog universality data migration may require it; SAVE-1 audit calls for save integrity protection (HMAC). |
-| E16 | **Wire Format Versioning** | SHIPPED-V46 / QUEUED-CASES | `NET_PROTOCOL_VER` at v46 (S507 mandatory mod-transfer SHA-256 digest, S511 cutscene network semantics, both 2026-04-28). v45 was S483 spawn-weapon mode; v44 was S468 weapon cull hygiene bump. Future bumps coordinated per audit findings: P4-B if approved, full string-only wire surface (E5 Phase 3), spectator/theater finalization, voice integration. |
+| E16 | **Wire Format Versioning** | SHIPPED-V56 / QUEUED-CASES | `NET_PROTOCOL_VER` at v56. The current wire includes typed manifest distribution, exact authenticated player identity, transactional lobby/stage launch, and authoritative cutscene request/result identity remapping. Full bump history remains in `port/include/net/net.h`; future changes still require coordinated constraints, test pins, and mixed-build refusal. |
 | E17 | **AllInOne Lineage Cull** | IN-FLIGHT | Phase 1 audit done; Phase 2 in flight. Removes 8 Goldfinger weapons + 28 mod-derived arenas (75->47). Section H decisions resolved 2026-04-26. (`audits/allinone-cull-audit-2026-04-26.md`) |
 
 ### B.2 Game Modes / Content
@@ -119,7 +119,7 @@ This section enumerates every pillar visible across the design docs, audits, inf
 
 | # | Pillar | Status | Scope |
 |---|---|---|---|
-| N1 | **ENet Protocol** | SHIPPED-V44 | UDP, server-authoritative with client prediction. 60Hz tick. Statically linked. |
+| N1 | **ENet Protocol** | SHIPPED-V56 | UDP, server-authoritative with client prediction. 60Hz tick. Statically linked. |
 | N2 | **NAT Traversal D8** | SHIPPED-PHASE-1 / EXTENDED | STUN client (RFC 5389 minimal), 2-probe NAT type detection, symmetric hole-punch, relay fallback, NAT diagnostics overlay. Connectivity doc supersedes scope to a 5-tier escalation (Direct/STUN/UPnP/ICE/TURN) shipped in Phase 1. |
 | N3 | **Connect Codes (4-word phonetic)** | SHIPPED | Sentence-based, no raw IP in any UI. `connectCodeEncode`/`Decode` host-byte-order. |
 | N4 | **Friend Presence + Identity (Ed25519)** | IN-FLIGHT-PHASE-1 / QUEUED-P1.J/P1.K | Network-agnostic identity via `SHA256(pubkey \|\| domain)[:4]`. TOFU pubkey caching. 5-min endpoint TTL. P1.J in-match invite + P1.K NAT diagnostics harness deferred. (`audits/connectivity-phase1-decisions.md`) |

@@ -8,6 +8,12 @@
 - Defined the 1.0 release as a complete graph-backed base game, usable Campaign
   and Combat Simulator Theater, one custom-slot sample weapon, hardened friend
   play/performance, and a single source-frozen release-candidate gate.
+- Kept generated Combat Simulator characters on their selected floor across
+  animation resets so they remain stable, visible, and naturally hittable.
+- Bounded generated character and object hit tests to exact display-list
+  ownership, including texture-loaded clones and translucent geometry.
+- Isolated smoke-only diagnostics from ordinary play and capped opt-in weapon
+  traces so validation cannot stall the client or leak debug output.
 - Added a strict full-campaign release runner that verifies all 17 missions,
   objective completion, unlock routing, saves, social state, live Credits, and
   restart persistence through ordinary clients.
@@ -21,6 +27,46 @@
   traversal, preventing Air Base's portal-only rooms from corrupting teardown.
 - Routed friend matches through one elected in-client listen authority using a
   separately signed server route, one join per peer, and retry-free rollback.
+- Made live-match reconnect retain exact identity, settings, and room capacity
+  through stage loading, then restore simultaneous absences, the authoritative
+  replicated world, inventories, players, bots, scores, and cutscene state in
+  one ordered targeted transaction before gameplay resumes.
+- Retired stale lobby cutscene presentation at authenticated stage loads so a
+  reconnected client returns to normal play and authoritative weapon fire while
+  active match cutscenes remain server-controlled.
+- Preserved hand, hat, and other named model-part lookups in per-character
+  clones, preventing held weapons from becoming invisible or half-attached.
+- Kept generated character relation graphs inside each private body/head clone,
+  preventing distance and toggle traversal from corrupting another model's
+  runtime state; random and selected heads now share the same fail-closed path.
+- Restored the shared object/projectile ownership invariant used by drops and
+  falling objects, and made reconnect snapshot generation typed and atomic so
+  authority-local failures remain retryable without masquerading as peer file
+  mismatches; terminal non-regenerating deletes now reconcile as absence while
+  regenerating setup transitions and fail-closed prop diagnostics remain exact.
+- Preserved the server's first disconnect policy across ENet teardown so a
+  deliberate timeout remains reconnectable while kicks, bans, and policy
+  failures remain terminal even when the sender-local event reports no reason.
+- Made network smoke readiness resolve each process's committed local player
+  instead of assuming runtime slot zero, including cutscene and control state.
+- Sequenced multi-client stage deadlines after listen-host publication so cold
+  startup cannot consume a peer's connection window before that peer launches.
+- Let joined clients finish the local Combat Simulator opening camera swirl
+  while keeping real cutscene exits under the server's match authority stream.
+- Made cutscene skips authoritative in friend matches through one ordered,
+  room-scoped START/ACCEPT/END stream whose immutable stage roster is serialized
+  and committed once, with server-minted generations, exact roster remapping,
+  active-phase-only client tokens, priority retries that block overtaking game
+  traffic, terminal-frame suppression, atomic stage teardown, and fail-closed
+  conflicting state.
+- Bound network scenario camera presentation to each process's actual local
+  player instead of the remote replica left selected by per-player rendering.
+- Made main-window focus loss reach input authority before UI capture and
+  reconciled SDL focus state each pump so background clients cannot retain
+  stale held-input authority when a focus event is missed or coalesced; the
+  multi-client verifier now binds fresh focus-loss lines only to explicitly
+  tagged causal sequences so valid pre-focus route/gameplay evidence remains
+  independently scoped.
 - Measured real session upload traffic passively and used fresh signed reports
   for deterministic group authority and player-hosted relay selection.
 - Kept the editable Needler's luminous impact edge while making its authored

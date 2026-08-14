@@ -302,7 +302,8 @@ TEST_CASE("cutscene lifecycle wiring: central paths all fire scene events", "[cu
     REQUIRE_FALSE(net.empty());
     REQUIRE_FALSE(cmake.empty());
 
-    const std::string setTickMode = functionBlock(player, "playerSetTickMode");
+    const std::string setTickMode = functionBlock(player,
+        "bool playerSetTickMode");
     REQUIRE_FALSE(setTickMode.empty());
     REQUIRE(setTickMode.find("prevtickmode == TICKMODE_CUTSCENE") != std::string::npos);
     REQUIRE(setTickMode.find("sceneFire(SCENE_EVENT_CUTSCENE_END, NULL)") != std::string::npos);
@@ -315,12 +316,24 @@ TEST_CASE("cutscene lifecycle wiring: central paths all fire scene events", "[cu
     REQUIRE(pdmain.find("sceneFire(SCENE_EVENT_STAGE_TEARDOWN, NULL)") != std::string::npos);
 
     const std::string cutsceneRead = functionBlock(netmsg, "netmsgSvcCutsceneRead");
+    const std::string authoritativeApply = functionBlock(player,
+        "bool playerApplyAuthoritativeCutsceneState");
     REQUIRE_FALSE(cutsceneRead.empty());
-    REQUIRE(cutsceneRead.find("SCENE_EVENT_CUTSCENE_START") != std::string::npos);
-    REQUIRE(cutsceneRead.find("SCENE_EVENT_CUTSCENE_END") != std::string::npos);
+    REQUIRE_FALSE(authoritativeApply.empty());
+    REQUIRE(cutsceneRead.find("playerApplyAuthoritativeCutsceneState") !=
+        std::string::npos);
+    REQUIRE(authoritativeApply.find("SCENE_EVENT_CUTSCENE_START") !=
+        std::string::npos);
+    REQUIRE(authoritativeApply.find("SCENE_EVENT_CUTSCENE_END") !=
+        std::string::npos);
 
-    const std::string disconnect = functionBlock(net, "netDisconnect");
+    const std::string disconnectEntry = functionBlock(net, "netDisconnect");
+    const std::string disconnect = functionBlock(net,
+        "netDisconnectWithIntent");
+    REQUIRE_FALSE(disconnectEntry.empty());
     REQUIRE_FALSE(disconnect.empty());
+    REQUIRE(disconnectEntry.find("netDisconnectWithIntent(false)") !=
+        std::string::npos);
     /* The literal sceneFire(SCENE_EVENT_DISCONNECT, NULL) call was
      * centralized into sceneStageTransitionPrepare (port/src/scene_transition.c)
      * and is pinned there by test_scene_dispatch.cpp. Here we verify
@@ -495,7 +508,7 @@ TEST_CASE("cutscene protect: canonical gates use chr flag", "[cutscene][static][
     REQUIRE(invisible.find("otherchr->cutscene_protect") != std::string::npos);
 }
 
-TEST_CASE("cutscene network semantics: v46 carries mask and client skip authority", "[cutscene][static][net][v46]")
+TEST_CASE("cutscene network semantics: v56 owns one ordered match authority stream", "[cutscene][static][net][v56][b1089]")
 {
     const std::string netmsgHeader = readTextFile("port/include/net/netmsg.h");
     const std::string netHeader = readTextFile("port/include/net/net.h");
@@ -511,44 +524,751 @@ TEST_CASE("cutscene network semantics: v46 carries mask and client skip authorit
     REQUIRE_FALSE(player.empty());
     REQUIRE_FALSE(chrai.empty());
 
-    REQUIRE(netHeader.find("SVC_CUTSCENE") != std::string::npos);
-    REQUIRE(netHeader.find("player_mask") != std::string::npos);
-    REQUIRE(netHeader.find("CLC_CUTSCENE_SKIP") != std::string::npos);
+    REQUIRE(netHeader.find("v56 (2026-08-13): cutscene authority") != std::string::npos);
+    REQUIRE(netHeader.find("stable client-ID") != std::string::npos);
+    REQUIRE(netHeader.find("SVC_CUTSCENE_SKIP") != std::string::npos);
 
     REQUIRE(netmsgHeader.find("#define CLC_CUTSCENE_SKIP         0x17") != std::string::npos);
-    REQUIRE(netmsgHeader.find("netmsgSvcCutsceneWrite(struct netbuf *dst, u8 active, u8 player_mask)") != std::string::npos);
-    REQUIRE(netmsgHeader.find("netmsgClcCutsceneSkipWrite(struct netbuf *dst, u8 playernum)") != std::string::npos);
+    REQUIRE(netmsgHeader.find("#define SVC_CUTSCENE_SKIP 0x54") != std::string::npos);
+    REQUIRE(netmsgHeader.find("NET_CUTSCENE_AUTHORITY_EVENT_CAPACITY 64u") != std::string::npos);
+    REQUIRE(netmsgHeader.find("NET_CUTSCENE_AUTHORITY_PACKET_CAPACITY 1024u") != std::string::npos);
+    REQUIRE(netmsgHeader.find("netmsgServerStageStartWrite") != std::string::npos);
+    REQUIRE(netmsgHeader.find("netmsgServerBeginCutsceneAuthority") == std::string::npos);
+    REQUIRE(netmsgHeader.find("netmsgServerQueueCutsceneState") != std::string::npos);
+    REQUIRE(netmsgHeader.find("netmsgServerPrepareCutsceneAuthorityPacket") != std::string::npos);
+    REQUIRE(netmsgHeader.find("netmsgServerCommitCutsceneAuthorityPacket") != std::string::npos);
+    REQUIRE(netmsgHeader.find("netmsgCutsceneAuthorityHasMatch") != std::string::npos);
+    REQUIRE(netmsgHeader.find("netmsgCutsceneAuthorityHasPendingEvents") !=
+        std::string::npos);
+    REQUIRE(netmsgHeader.find("netmsgCutsceneAuthorityRetireClient") != std::string::npos);
+    REQUIRE(netmsgHeader.find("netmsgSvcCutsceneWrite") == std::string::npos);
+    REQUIRE(netmsgHeader.find("netmsgSvcCutsceneSkipWrite") == std::string::npos);
+    REQUIRE(netmsgHeader.find("netmsgClcCutsceneSkipWrite(struct netbuf *dst, u8 playernum,") != std::string::npos);
     REQUIRE(netmsgHeader.find("netmsgClcCutsceneSkipRead(struct netbuf *src, struct netclient *srccl)") != std::string::npos);
 
-    const std::string svcWrite = functionBlock(netmsg, "netmsgSvcCutsceneWrite");
-    REQUIRE_FALSE(svcWrite.empty());
-    REQUIRE(svcWrite.find("netbufWriteU8(dst, SVC_CUTSCENE)") != std::string::npos);
-    REQUIRE(svcWrite.find("netbufWriteU8(dst, active)") != std::string::npos);
-    REQUIRE(svcWrite.find("netbufWriteU8(dst, player_mask)") != std::string::npos);
+    const std::string collect = functionBlock(netmsg,
+        "netmsgCollectCutsceneParticipants");
+    REQUIRE_FALSE(collect.empty());
+    REQUIRE(collect.find("s_CutsceneAuthority.participants") !=
+        std::string::npos);
+    REQUIRE(collect.find("memcpy(participants") != std::string::npos);
+    REQUIRE(collect.find("g_NetClients") == std::string::npos);
+
+    const std::string preparedWrite = functionBlock(netmsg,
+        "netmsgSvcStageStartWriteInternal");
+    const std::string serverWrite = functionBlock(netmsg,
+        "netmsgServerStageStartWrite");
+    REQUIRE_FALSE(preparedWrite.empty());
+    REQUIRE_FALSE(serverWrite.empty());
+    REQUIRE(preparedWrite.find("prepared->client_id") != std::string::npos);
+    REQUIRE(preparedWrite.find("prepared->playernum") != std::string::npos);
+    REQUIRE(preparedWrite.find("prepared->options") != std::string::npos);
+    REQUIRE(preparedWrite.find("prepared->name") != std::string::npos);
+    REQUIRE(preparedWrite.find("s_StageStartAuthorityCandidate.participants") !=
+        std::string::npos);
+    REQUIRE(serverWrite.find("netmsgSvcStageStartWriteInternal(dst, true, true)") !=
+        std::string::npos);
+    REQUIRE(serverWrite.find("netmsgCutsceneAuthorityBeginMatch") !=
+        std::string::npos);
+    REQUIRE(serverWrite.find("s_StageStartAuthorityCandidate.participants") !=
+        std::string::npos);
+    REQUIRE(serverWrite.find("g_NetClients") == std::string::npos);
+
+    const std::string stateQueue = functionBlock(netmsg,
+        "netmsgServerQueueCutsceneState");
+    REQUIRE_FALSE(stateQueue.empty());
+    REQUIRE(stateQueue.find("s_CutsceneAuthority.full_client_mask") !=
+        std::string::npos);
+    REQUIRE(stateQueue.find("netCutscenePlanStateTransition") !=
+        std::string::npos);
+    REQUIRE(stateQueue.find("netmsgQueueCutsceneEvent") !=
+        std::string::npos);
+    REQUIRE(stateQueue.find("s_CutsceneAuthority.tracker = next") !=
+        std::string::npos);
+    REQUIRE(stateQueue.find("g_NetMsgRel") == std::string::npos);
+
+    const std::string prepare = functionBlock(netmsg,
+        "netmsgServerPrepareCutsceneAuthorityPacket");
+    const std::string commit = functionBlock(netmsg,
+        "netmsgServerCommitCutsceneAuthorityPacket");
+    REQUIRE_FALSE(prepare.empty());
+    REQUIRE_FALSE(commit.empty());
+    REQUIRE(prepare.find("netmsgWriteCutsceneState") != std::string::npos);
+    REQUIRE(prepare.find("netmsgSvcCutsceneSkipWrite") != std::string::npos);
+    REQUIRE(prepare.find("s_CutsceneAuthority.event_count") !=
+        std::string::npos);
+    REQUIRE(commit.find("memmove(s_CutsceneAuthority.events") !=
+        std::string::npos);
+    REQUIRE(commit.find("s_CutsceneAuthority.event_count -= event_count") !=
+        std::string::npos);
 
     const std::string svcRead = functionBlock(netmsg, "netmsgSvcCutsceneRead");
     REQUIRE_FALSE(svcRead.empty());
-    REQUIRE(svcRead.find("u8 player_mask = netbufReadU8(src)") != std::string::npos);
-    REQUIRE(svcRead.find("playerSetCutsceneActiveMask(player_mask, active ? true : false)") != std::string::npos);
-    REQUIRE(svcRead.find("SCENE_EVENT_CUTSCENE_START") != std::string::npos);
-    REQUIRE(svcRead.find("SCENE_EVENT_CUTSCENE_END") != std::string::npos);
+    REQUIRE(svcRead.find("state.client_mask != s_CutsceneAuthority.full_client_mask") != std::string::npos);
+    REQUIRE(svcRead.find("netCutscenePlanStateTransition") != std::string::npos);
+    REQUIRE(svcRead.find("netCutscenePlayerMaskFromClientMask") != std::string::npos);
+    REQUIRE(svcRead.find("playerApplyAuthoritativeCutsceneState") != std::string::npos);
+    REQUIRE(svcRead.find("s_CutsceneAuthority.tracker = next") != std::string::npos);
+    REQUIRE(svcRead.find("ignored outside active match") != std::string::npos);
 
     const std::string clcWrite = functionBlock(netmsg, "netmsgClcCutsceneSkipWrite");
     REQUIRE_FALSE(clcWrite.empty());
-    REQUIRE(clcWrite.find("netbufWriteU8(dst, CLC_CUTSCENE_SKIP)") != std::string::npos);
-    REQUIRE(clcWrite.find("netbufWriteU8(dst, playernum)") != std::string::npos);
+    REQUIRE(clcWrite.find("netCutsceneSkipRequestEncode") != std::string::npos);
+    REQUIRE(clcWrite.find("netmsgWriteCutscenePayload(dst, CLC_CUTSCENE_SKIP") != std::string::npos);
 
     const std::string clcRead = functionBlock(netmsg, "netmsgClcCutsceneSkipRead");
     REQUIRE_FALSE(clcRead.empty());
-    REQUIRE(clcRead.find("const u8 requested_playernum = netbufReadU8(src)") != std::string::npos);
-    REQUIRE(clcRead.find("playernum = srccl->playernum") != std::string::npos);
-    REQUIRE(clcRead.find("playerAnyInCutscene()") != std::string::npos);
-    REQUIRE(clcRead.find("playerSetCutsceneSkipRequested(playernum, true)") != std::string::npos);
+    REQUIRE(clcRead.find("netCutscenePlanServerSkip") != std::string::npos);
+    REQUIRE(clcRead.find("netmsgCutscenePlayerForClient(srccl->id") != std::string::npos);
+    REQUIRE(clcRead.find("srccl->playernum") == std::string::npos);
+    REQUIRE(clcRead.find("netmsgQueueCutsceneSkipAccept") != std::string::npos);
+    REQUIRE(clcRead.find("playerSetCutsceneSkipRequested(authoritative_playernum, true)") != std::string::npos);
+    REQUIRE(clcRead.find("netmsgQueueCutsceneSkipAccept") <
+        clcRead.find("playerSetCutsceneSkipRequested"));
+
+    const std::string svcSkipRead = functionBlock(netmsg, "netmsgSvcCutsceneSkipRead");
+    REQUIRE_FALSE(svcSkipRead.empty());
+    REQUIRE(svcSkipRead.find("netCutscenePlanClientSkip") != std::string::npos);
+    REQUIRE(svcSkipRead.find("playerSetCutsceneSkipRequested(runtime_playernum, true)") != std::string::npos);
+    REQUIRE(svcSkipRead.find("ignored outside active match") != std::string::npos);
+    const size_t inactiveGate = svcSkipRead.find(
+        "NET_CUTSCENE_AUTHORITY_PHASE_ACTIVE");
+    const size_t rosterCollect = svcSkipRead.find("netmsgCollectCutsceneParticipants");
+    REQUIRE(inactiveGate != std::string::npos);
+    REQUIRE(rosterCollect != std::string::npos);
+    REQUIRE(inactiveGate < rosterCollect);
+    REQUIRE(svcSkipRead.find("g_NetClients") == std::string::npos);
 
     REQUIRE(net.find("case CLC_CUTSCENE_SKIP") != std::string::npos);
-    REQUIRE(player.find("playerBuildCutsceneNetworkMask") != std::string::npos);
-    REQUIRE(player.find("playerSetCutsceneActiveMask(cutscene_mask, true)") != std::string::npos);
-    REQUIRE(player.find("playerSetCutsceneActiveMask(cutscene_mask, false)") != std::string::npos);
+    REQUIRE(net.find("case SVC_CUTSCENE_SKIP") != std::string::npos);
+    const std::string flush = functionBlock(net,
+        "netServerFlushCutsceneAuthorityPacket");
+    REQUIRE_FALSE(flush.empty());
+    REQUIRE(flush.find("netmsgServerPrepareCutsceneAuthorityPacket") !=
+        std::string::npos);
+    REQUIRE(flush.find(
+        "netSendToRoom(room_id, &wire, true, NETCHAN_DEFAULT)") !=
+        std::string::npos);
+    REQUIRE(flush.find("netmsgServerCommitCutsceneAuthorityPacket") !=
+        std::string::npos);
+    REQUIRE(flush.find("netSendToRoom") <
+        flush.find("netmsgServerCommitCutsceneAuthorityPacket"));
+    REQUIRE(flush.find("netmsgSvcStageEndWrite") <
+        flush.find("netSendToRoom"));
+    const std::string serverStart = functionBlock(net,
+        "netServerStageStart");
+    const std::string coopStart = functionBlock(net,
+        "netServerCoopStageStart");
+    REQUIRE_FALSE(serverStart.empty());
+    REQUIRE_FALSE(coopStart.empty());
+    REQUIRE(serverStart.find("netmsgServerStageStartWrite") !=
+        std::string::npos);
+    REQUIRE(serverStart.find("netmsgServerStageStartWrite") <
+        serverStart.find("mpStartMatch()"));
+    REQUIRE(coopStart.find("netmsgServerStageStartWrite") !=
+        std::string::npos);
+
+    const std::string clientStageStart = functionBlock(netmsg,
+        "netmsgSvcStageStartRead");
+    REQUIRE_FALSE(clientStageStart.empty());
+    REQUIRE(clientStageStart.find("netmsgCutsceneAuthorityBeginMatch") !=
+        std::string::npos);
+    REQUIRE(clientStageStart.find("netmsgCutsceneAuthorityBeginMatch") <
+        clientStageStart.find("g_NetTick = plan.net_tick"));
+
+    const std::string serverEnd = functionBlock(net, "netServerStageEnd");
+    const std::string stageEndFlush = functionBlock(net,
+        "netServerFlushPendingStageEnd");
+    const std::string stageEndCommit = functionBlock(net,
+        "netServerCommitPendingStageEnd");
+    const std::string stageEndWrite = functionBlock(netmsg,
+        "netmsgSvcStageEndWrite");
+    const std::string stageEndWireCommit = functionBlock(netmsg,
+        "netmsgSvcStageEndCommit");
+    REQUIRE_FALSE(serverEnd.empty());
+    REQUIRE_FALSE(stageEndFlush.empty());
+    REQUIRE_FALSE(stageEndCommit.empty());
+    REQUIRE_FALSE(stageEndWrite.empty());
+    REQUIRE_FALSE(stageEndWireCommit.empty());
+    REQUIRE(serverEnd.find("netmsgServerQueueCutsceneState(0") !=
+        std::string::npos);
+    REQUIRE(serverEnd.find("netmsgCutsceneAuthorityHasMatch") !=
+        std::string::npos);
+    const size_t terminalQueue = serverEnd.find(
+        "netmsgServerQueueCutsceneState(0");
+    const size_t terminalPending = serverEnd.find(
+        "s_NetStageEndPending.active = true", terminalQueue);
+    const size_t terminalPublish = serverEnd.find(
+        "netServerFlushPendingStageEnd(\"stage-end\")", terminalPending);
+    REQUIRE(terminalQueue != std::string::npos);
+    REQUIRE(terminalPending != std::string::npos);
+    REQUIRE(terminalPublish != std::string::npos);
+    REQUIRE(terminalQueue < terminalPending);
+    REQUIRE(terminalPending < terminalPublish);
+    REQUIRE(serverEnd.find("playerResetAllCutsceneStates") ==
+        std::string::npos);
+    REQUIRE(stageEndFlush.find("netServerFlushCutsceneAuthorityPacket") !=
+        std::string::npos);
+    REQUIRE(stageEndFlush.find("netServerCommitPendingStageEnd") !=
+        std::string::npos);
+    REQUIRE(stageEndFlush.find("netServerFlushCutsceneAuthorityPacket") <
+        stageEndFlush.find("netServerCommitPendingStageEnd"));
+    REQUIRE(stageEndCommit.find("playerResetAllCutsceneStates") !=
+        std::string::npos);
+    REQUIRE(stageEndCommit.find("netmsgCutsceneAuthorityReset") !=
+        std::string::npos);
+    REQUIRE(stageEndCommit.find("netmsgSvcStageEndCommit") !=
+        std::string::npos);
+    REQUIRE(stageEndWrite.find("netbufWriteU8(dst, SVC_STAGE_END)") !=
+        std::string::npos);
+    REQUIRE(stageEndWrite.find("g_NetClients") == std::string::npos);
+    REQUIRE(stageEndWireCommit.find("g_NetClients") != std::string::npos);
+
+    const std::string endFrame = functionBlock(net, "netEndFrame");
+    REQUIRE_FALSE(endFrame.empty());
+    REQUIRE(endFrame.find("const bool terminal_stage_end_frame") !=
+        std::string::npos);
+    REQUIRE(endFrame.find("const bool authority_pending_frame") !=
+        std::string::npos);
+    REQUIRE(endFrame.find("s_NetStageEndPending.active || s_NetStageEndTerminalFrame") !=
+        std::string::npos);
+    REQUIRE(endFrame.find("netmsgCutsceneAuthorityHasPendingEvents") !=
+        std::string::npos);
+    const size_t terminalDiscard = endFrame.find(
+        "if (terminal_stage_end_frame || authority_pending_frame)");
+    const size_t firstSharedFlush = endFrame.find("netFlushSendBuffers()");
+    REQUIRE(terminalDiscard != std::string::npos);
+    REQUIRE(firstSharedFlush != std::string::npos);
+    REQUIRE(terminalDiscard < firstSharedFlush);
+    REQUIRE(endFrame.find("netbufStartWrite(&g_NetMsg)", terminalDiscard) <
+        firstSharedFlush);
+    REQUIRE(endFrame.find("netbufStartWrite(&g_NetMsgRel)", terminalDiscard) <
+        firstSharedFlush);
+    const size_t priorityPublish = endFrame.find(
+        "netServerFlushCutsceneAuthority(\"end-frame-priority\")");
+    const size_t spectatorPublish = endFrame.find("netSendSpectateStateFrame");
+    const size_t gamePublish = endFrame.find(
+        "g_NetMode == NETMODE_SERVER && g_NetNumClients > 0");
+    REQUIRE(priorityPublish != std::string::npos);
+    REQUIRE(spectatorPublish != std::string::npos);
+    REQUIRE(gamePublish != std::string::npos);
+    REQUIRE(priorityPublish < spectatorPublish);
+    REQUIRE(priorityPublish < gamePublish);
+    REQUIRE(endFrame.find("&& !authority_publication_failed", priorityPublish) !=
+        std::string::npos);
+    REQUIRE(endFrame.find(
+        "if (terminal_stage_end_frame || authority_publication_failed)") !=
+        std::string::npos);
+    REQUIRE(endFrame.find("netSendSpectateStateFrame") >
+        endFrame.find("!terminal_stage_end_frame"));
+    REQUIRE(endFrame.find("g_NetNumClients > 0\n\t\t\t&& !terminal_stage_end_frame") !=
+        std::string::npos);
+    REQUIRE(endFrame.find("g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame") !=
+        std::string::npos);
+    REQUIRE(endFrame.find("s_NetStageEndTerminalFrame = false") !=
+        std::string::npos);
+
+    const std::string clientEnd = functionBlock(netmsg,
+        "netmsgSvcStageEndRead");
+    REQUIRE_FALSE(clientEnd.empty());
+    REQUIRE(clientEnd.find("!netmsgCutsceneAuthorityHasMatch()") <
+        clientEnd.find("playerResetAllCutsceneStates"));
+    REQUIRE(clientEnd.find("s_CutsceneAuthority.match_active") ==
+        std::string::npos);
+    REQUIRE(clientEnd.find("duplicate_or_stale") != std::string::npos);
+    REQUIRE(clientEnd.find("playerResetAllCutsceneStates") <
+        clientEnd.find("mainEndStage()"));
+    REQUIRE(clientEnd.find("netmsgCutsceneAuthorityReset") <
+        clientEnd.find("mainEndStage()"));
+
+    const std::string generationSync = functionBlock(player,
+        "bool playerSyncCutsceneGeneration");
+    REQUIRE_FALSE(generationSync.empty());
+    REQUIRE(generationSync.find("g_NetMode != NETMODE_CLIENT") !=
+        std::string::npos);
+    REQUIRE(generationSync.find("netCutsceneAuthoritySyncGeneration") !=
+        std::string::npos);
+
+    const std::string apply = functionBlock(player,
+        "bool playerApplyAuthoritativeCutsceneState");
+    REQUIRE_FALSE(apply.empty());
+    REQUIRE(apply.find("g_NetMode != NETMODE_CLIENT") != std::string::npos);
+    REQUIRE(apply.find("playerSyncCutsceneGeneration") != std::string::npos);
+    REQUIRE(apply.find("const bool predicted_start") != std::string::npos);
+    REQUIRE(apply.find("if (!predicted_start)") != std::string::npos);
+    REQUIRE(apply.find("START reconciled predicted=") != std::string::npos);
+    REQUIRE(apply.find("playerReplaceCutsceneActiveMask(player_mask)") !=
+        std::string::npos);
+    REQUIRE(apply.find("playerReplaceCutsceneActiveMask(0)") !=
+        std::string::npos);
+    REQUIRE(apply.find("s_CutsceneGeneration = 0") != std::string::npos);
+
+    const std::string replaceMask = functionBlock(player,
+        "void playerReplaceCutsceneActiveMask");
+    REQUIRE_FALSE(replaceMask.empty());
+    REQUIRE(replaceMask.find("i < MAX_PLAYERS && i < 8") !=
+        std::string::npos);
+    REQUIRE(replaceMask.find("state->active =") != std::string::npos);
+    REQUIRE(replaceMask.find("state->in_progress = false") !=
+        std::string::npos);
+    REQUIRE(replaceMask.find("state->skiprequested = false") !=
+        std::string::npos);
+    REQUIRE(replaceMask.find("s_CutsceneFallbackState.skiprequested = false") !=
+        std::string::npos);
+
+    const std::string tickMode = functionBlock(player,
+        "bool playerSetTickMode");
+    REQUIRE_FALSE(tickMode.empty());
+    REQUIRE(tickMode.find("s_ApplyingAuthoritativeCutsceneState") !=
+        std::string::npos);
+    const size_t clientExitGuard = tickMode.find(
+        "if (g_NetMode == NETMODE_CLIENT");
+    const size_t clientExitReturn = tickMode.find("return false;",
+        clientExitGuard);
+    const size_t serverEndGuard = tickMode.find(
+        "if (g_NetMode == NETMODE_SERVER", clientExitReturn);
+    REQUIRE(clientExitGuard != std::string::npos);
+    REQUIRE(clientExitReturn != std::string::npos);
+    REQUIRE(serverEndGuard != std::string::npos);
+    REQUIRE(clientExitGuard < clientExitReturn);
+    REQUIRE(clientExitReturn < serverEndGuard);
+    const std::string clientExitPredicate = tickMode.substr(clientExitGuard,
+        clientExitReturn - clientExitGuard);
+    REQUIRE(clientExitPredicate.find("netmsgCutsceneAuthorityHasMatch()") !=
+        std::string::npos);
+    REQUIRE(clientExitPredicate.find("netmsgCutsceneAuthorityIsActive()") ==
+        std::string::npos);
+    const size_t tickModeEndQueue = tickMode.find(
+        "netmsgServerQueueCutsceneState(0");
+    const size_t tickModeMutation = tickMode.find(
+        "g_Vars.tickmode = tickmode");
+    REQUIRE(tickMode.find("const bool leaving_cutscene") !=
+        std::string::npos);
+    REQUIRE(tickModeEndQueue != std::string::npos);
+    REQUIRE(tickModeMutation != std::string::npos);
+    REQUIRE(tickModeEndQueue < tickModeMutation);
+    REQUIRE(tickMode.find("tick-mode END preflight rejected") !=
+        std::string::npos);
+    REQUIRE(tickMode.find("return false") < tickModeMutation);
+    REQUIRE(tickMode.find("playerReplaceCutsceneActiveMask(0)") !=
+        std::string::npos);
+    REQUIRE(tickMode.find("playerReplaceCutsceneActiveMask(0)") >
+        tickModeMutation);
+    REQUIRE(tickMode.find("return true") != std::string::npos);
+
+    const std::string cutsceneStart = functionBlock(player,
+        "bool playerStartCutscene2");
+    REQUIRE_FALSE(cutsceneStart.empty());
+    REQUIRE(cutsceneStart.find(
+        "const bool authority_transition = !playerAnyInCutscene();") !=
+        std::string::npos);
+    REQUIRE(cutsceneStart.find(
+        "g_NetMode == NETMODE_CLIENT && authority_transition") !=
+        std::string::npos);
+    REQUIRE(cutsceneStart.find("} else if (authority_transition)") !=
+        std::string::npos);
+    REQUIRE(cutsceneStart.find("s_CutsceneGeneration = 0") !=
+        std::string::npos);
+    REQUIRE(cutsceneStart.find("generation remains zero until reliable") !=
+        std::string::npos);
+    REQUIRE(cutsceneStart.find("netCutsceneAuthorityNextGeneration") !=
+        std::string::npos);
+    REQUIRE(cutsceneStart.find("netmsgServerQueueCutsceneState(1") !=
+        std::string::npos);
+    REQUIRE(cutsceneStart.find("netmsgServerQueueCutsceneState(1") <
+        cutsceneStart.find("s_CutsceneGeneration = next_generation"));
+    REQUIRE(cutsceneStart.find("netmsgServerQueueCutsceneState(1") <
+        cutsceneStart.find("sceneFire(SCENE_EVENT_CUTSCENE_START"));
+    REQUIRE(cutsceneStart.find(
+        "playerReplaceCutsceneActiveMask(authority_player_mask)") !=
+        std::string::npos);
+    const size_t authorityStartQueue = cutsceneStart.find(
+        "netmsgServerQueueCutsceneState(1");
+    const size_t animationCommit = cutsceneStart.find(
+        "playerSetCutsceneAnimNum(g_Vars.currentplayernum, animnum)");
+    REQUIRE(authorityStartQueue != std::string::npos);
+    REQUIRE(animationCommit != std::string::npos);
+    REQUIRE(authorityStartQueue < animationCommit);
+    REQUIRE(cutsceneStart.find("return false", authorityStartQueue) <
+        animationCommit);
+    REQUIRE(cutsceneStart.find("return true") != std::string::npos);
+    REQUIRE(cutsceneStart.find("g_NetMsgRel") == std::string::npos);
+    REQUIRE(cutsceneStart.find("NETGAMEMODE_COOP") == std::string::npos);
+    REQUIRE(cutsceneStart.find("NETGAMEMODE_ANTI") == std::string::npos);
+
+    const std::string cutsceneEnd = functionBlock(player,
+        "void playerEndCutscene");
+    REQUIRE_FALSE(cutsceneEnd.empty());
+    REQUIRE(cutsceneEnd.find("g_NetMode == NETMODE_CLIENT") ==
+        std::string::npos);
+    REQUIRE(cutsceneEnd.find("if (!playerSetTickMode(TICKMODE_NORMAL))") !=
+        std::string::npos);
+    REQUIRE(cutsceneEnd.find("netmsgServerQueueCutsceneState(0") ==
+        std::string::npos);
+    REQUIRE(cutsceneEnd.find("SCENE_EVENT_CUTSCENE_END") ==
+        std::string::npos);
+    REQUIRE(cutsceneEnd.find("g_NetMsgRel") == std::string::npos);
+    REQUIRE(cutsceneEnd.find("NETGAMEMODE_COOP") == std::string::npos);
+    REQUIRE(cutsceneEnd.find("NETGAMEMODE_ANTI") == std::string::npos);
+
+    const std::string reset = functionBlock(player, "playerResetAllCutsceneStates");
+    REQUIRE_FALSE(reset.empty());
+    REQUIRE(reset.find("netmsgCutsceneAuthorityReset") == std::string::npos);
+    REQUIRE(player.find("playerBuildCutsceneNetworkMask") == std::string::npos);
     REQUIRE(player.find("netmsgClcCutsceneSkipWrite(&g_NetMsgRel") != std::string::npos);
+    REQUIRE(player.find("playerCutsceneGeneration()) == 0") != std::string::npos);
+    REQUIRE(player.find("&& playerRequestCutsceneSkip(playeridx,") != std::string::npos);
     REQUIRE(chrai.find("playerAnyCutsceneInProgress() && playerAnyCutsceneSkipRequested()") != std::string::npos);
+}
+
+TEST_CASE("network clients leave the local MP opening swirl without bypassing cutscene authority",
+          "[cutscene][network][static][b1094]")
+{
+    const std::string player = readTextFile("src/game/player.c");
+    REQUIRE_FALSE(player.empty());
+
+    const std::string swirl = functionBlock(player, "void playerTickMpSwirl");
+    const std::string end = functionBlock(player, "void playerEndCutscene");
+    const std::string transition = functionBlock(player,
+        "bool playerSetTickMode");
+    REQUIRE_FALSE(swirl.empty());
+    REQUIRE_FALSE(end.empty());
+    REQUIRE_FALSE(transition.empty());
+
+    REQUIRE(swirl.find("g_MpSwirlDistance < 5.0f") != std::string::npos);
+    REQUIRE(swirl.find("playerEndCutscene()") != std::string::npos);
+    REQUIRE(swirl.find("g_Vars.tickmode = TICKMODE_NORMAL") ==
+        std::string::npos);
+
+    REQUIRE(end.find("if (!playerSetTickMode(TICKMODE_NORMAL))") !=
+        std::string::npos);
+    REQUIRE(end.find("g_NetMode == NETMODE_CLIENT") == std::string::npos);
+
+    REQUIRE(transition.find(
+        "const bool leaving_cutscene = prevtickmode == TICKMODE_CUTSCENE") !=
+        std::string::npos);
+    REQUIRE(transition.find("g_NetMode == NETMODE_CLIENT") !=
+        std::string::npos);
+    REQUIRE(transition.find("&& leaving_cutscene") != std::string::npos);
+    const size_t clientGuard = transition.find(
+        "if (g_NetMode == NETMODE_CLIENT");
+    const size_t clientGuardReturn = transition.find("return false;",
+        clientGuard);
+    REQUIRE(clientGuard != std::string::npos);
+    REQUIRE(clientGuardReturn != std::string::npos);
+    const std::string clientPredicate = transition.substr(clientGuard,
+        clientGuardReturn - clientGuard);
+    REQUIRE(clientPredicate.find("netmsgCutsceneAuthorityHasMatch()") !=
+        std::string::npos);
+    REQUIRE(clientPredicate.find("netmsgCutsceneAuthorityIsActive()") ==
+        std::string::npos);
+    REQUIRE(transition.find("s_ApplyingAuthoritativeCutsceneState") !=
+        std::string::npos);
+}
+
+TEST_CASE("validated stage start retires only prior-stage client presentation",
+          "[cutscene][network][reconnect][static][b1099]")
+{
+    const std::string player = readTextFile("src/game/player.c");
+    const std::string lv = readTextFile("src/game/lv.c");
+    const std::string netmsg = readTextFile("port/src/net/netmsg.c");
+    REQUIRE_FALSE(player.empty());
+    REQUIRE_FALSE(lv.empty());
+    REQUIRE_FALSE(netmsg.empty());
+
+    const std::string boundary = functionBlock(player,
+        "bool playerApplyAuthoritativeStageStartPresentation");
+    const std::string authoritativeTick = functionBlock(player,
+        "static bool playerApplyAuthoritativeTickMode");
+    const std::string transition = functionBlock(player,
+        "bool playerSetTickMode");
+    const std::string reset = functionBlock(lv, "void lvReset");
+    const std::string stageStart = functionBlock(netmsg,
+        "u32 netmsgSvcStageStartRead");
+    REQUIRE_FALSE(boundary.empty());
+    REQUIRE_FALSE(authoritativeTick.empty());
+    REQUIRE_FALSE(transition.empty());
+    REQUIRE_FALSE(reset.empty());
+    REQUIRE_FALSE(stageStart.empty());
+
+    REQUIRE(boundary.find("g_NetMode != NETMODE_CLIENT") !=
+        std::string::npos);
+    REQUIRE(boundary.find("!netmsgCutsceneAuthorityHasMatch()") !=
+        std::string::npos);
+    REQUIRE(boundary.find("netmsgCutsceneAuthorityIsActive()") !=
+        std::string::npos);
+    REQUIRE(boundary.find(
+        "previous_tickmode == TICKMODE_CUTSCENE") != std::string::npos);
+    REQUIRE(boundary.find(
+        "playerApplyAuthoritativeTickMode(TICKMODE_GE_FADEIN)") !=
+        std::string::npos);
+    REQUIRE(boundary.find("playerResetAllCutsceneStates()") !=
+        std::string::npos);
+    REQUIRE(boundary.find("stage-start presentation previous_tickmode=") !=
+        std::string::npos);
+    REQUIRE(boundary.find("g_Vars.tickmode =") == std::string::npos);
+
+    REQUIRE(authoritativeTick.find(
+        "s_ApplyingAuthoritativeCutsceneState = true") !=
+        std::string::npos);
+    REQUIRE(authoritativeTick.find("playerSetTickMode(tickmode)") !=
+        std::string::npos);
+    REQUIRE(authoritativeTick.find(
+        "s_ApplyingAuthoritativeCutsceneState = was_applying") !=
+        std::string::npos);
+
+    const size_t loadBoundary = reset.find(
+        "playerApplyAuthoritativeStageStartPresentation()");
+    const size_t fallbackReset = reset.find(
+        "playerResetAllCutsceneStates()", loadBoundary);
+    const size_t playerReset = reset.find("playerReset();", fallbackReset);
+    REQUIRE(loadBoundary != std::string::npos);
+    REQUIRE(fallbackReset != std::string::npos);
+    REQUIRE(playerReset != std::string::npos);
+    REQUIRE(loadBoundary < fallbackReset);
+    REQUIRE(fallbackReset < playerReset);
+
+    const size_t finalWireGate = stageStart.find("truncated bot roster");
+    const size_t matchLatch = stageStart.find(
+        "netmsgCutsceneAuthorityBeginMatch", finalWireGate);
+    const size_t publication = stageStart.find(
+        "/* One publication point", matchLatch);
+    REQUIRE(finalWireGate != std::string::npos);
+    REQUIRE(matchLatch != std::string::npos);
+    REQUIRE(publication != std::string::npos);
+    REQUIRE(finalWireGate < matchLatch);
+    REQUIRE(matchLatch < publication);
+
+    const size_t ordinaryClientGuard = transition.find(
+        "if (g_NetMode == NETMODE_CLIENT");
+    const size_t ordinaryClientReturn = transition.find("return false;",
+        ordinaryClientGuard);
+    REQUIRE(ordinaryClientGuard != std::string::npos);
+    REQUIRE(ordinaryClientReturn != std::string::npos);
+    const std::string guard = transition.substr(ordinaryClientGuard,
+        ordinaryClientReturn - ordinaryClientGuard);
+    REQUIRE(guard.find("netmsgCutsceneAuthorityHasMatch()") !=
+        std::string::npos);
+    REQUIRE(guard.find("netmsgCutsceneAuthorityIsActive()") ==
+        std::string::npos);
+}
+
+TEST_CASE("network cutscene presentation restores the receiver-local player before global graph work",
+          "[cutscene][network][static][b1090]")
+{
+    const std::string pdmain = readTextFile("port/src/pdmain.c");
+    const std::string playermgr = readTextFile("src/game/playermgr.c");
+    const std::string player = readTextFile("src/game/player.c");
+    const std::string chrai = readTextFile("src/game/chraicommands.c");
+    const std::string scenario = readTextFile("port/src/scenario_source_runtime.c");
+
+    REQUIRE_FALSE(pdmain.empty());
+    REQUIRE_FALSE(playermgr.empty());
+    REQUIRE_FALSE(player.empty());
+    REQUIRE_FALSE(chrai.empty());
+    REQUIRE_FALSE(scenario.empty());
+
+    const std::string mainTick = functionBlock(pdmain, "void mainTick");
+    const std::string localPlayer = functionBlock(playermgr,
+        "s32 playermgrGetLocalPlayerNum");
+    const std::string presentationPlayer = functionBlock(playermgr,
+        "s32 playermgrGetPresentationPlayerNum");
+    const std::string restore = functionBlock(playermgr,
+        "bool playermgrRestoreLocalPlayerContext");
+    const std::string presentationStart = functionBlock(player,
+        "bool playerStartCutsceneForPresentation");
+    const std::string presentationCondition = functionBlock(player,
+        "bool playerPresentationCutsceneInProgress");
+    const std::string fallbackStart = functionBlock(chrai,
+        "bool aiSetCameraAnimation");
+    const std::string fallbackCondition = functionBlock(chrai,
+        "bool aiIfInCutscene");
+    const std::string fallbackChrAnimation = functionBlock(chrai,
+        "bool aiChrDoAnimation");
+    const std::string fallbackObjectAnimation = functionBlock(chrai,
+        "bool aiObjectDoAnimation");
+    const std::string graphStart = functionBlock(scenario,
+        "s32 scenarioSourceAiGraphExecuteSetCameraAnimation");
+    const std::string graphCondition = functionBlock(scenario,
+        "s32 scenarioSourceAiGraphExecuteIfInCutscene");
+    const std::string graphChrAnimation = functionBlock(scenario,
+        "s32 scenarioSourceAiGraphExecuteChrDoAnimation");
+    const std::string graphObjectAnimation = functionBlock(scenario,
+        "s32 scenarioSourceAiGraphExecuteObjectDoAnimation");
+
+    REQUIRE_FALSE(mainTick.empty());
+    REQUIRE_FALSE(localPlayer.empty());
+    REQUIRE_FALSE(presentationPlayer.empty());
+    REQUIRE_FALSE(restore.empty());
+    REQUIRE_FALSE(presentationStart.empty());
+    REQUIRE_FALSE(presentationCondition.empty());
+    REQUIRE_FALSE(fallbackStart.empty());
+    REQUIRE_FALSE(fallbackCondition.empty());
+    REQUIRE_FALSE(fallbackChrAnimation.empty());
+    REQUIRE_FALSE(fallbackObjectAnimation.empty());
+    REQUIRE_FALSE(graphStart.empty());
+    REQUIRE_FALSE(graphCondition.empty());
+    REQUIRE_FALSE(graphChrAnimation.empty());
+    REQUIRE_FALSE(graphObjectAnimation.empty());
+
+    const size_t contextRestore = mainTick.find(
+        "playermgrRestoreLocalPlayerContext");
+    const size_t globalTickGate = mainTick.find("if (run_global_tick)",
+        contextRestore);
+    const size_t globalTick = mainTick.find("lvTick();", globalTickGate);
+    REQUIRE(contextRestore != std::string::npos);
+    REQUIRE(globalTickGate != std::string::npos);
+    REQUIRE(globalTick != std::string::npos);
+    REQUIRE(contextRestore < globalTick);
+    REQUIRE(contextRestore < globalTickGate);
+    REQUIRE(globalTickGate < globalTick);
+    const size_t dedicatedPolicy = mainTick.find("g_NetDedicated");
+    REQUIRE(dedicatedPolicy != std::string::npos);
+    REQUIRE(dedicatedPolicy < contextRestore);
+    REQUIRE(mainTick.find("(void)playermgrRestoreLocalPlayerContext") ==
+        std::string::npos);
+
+    REQUIRE(localPlayer.find("g_NetLocalClient->player") != std::string::npos);
+    REQUIRE(localPlayer.find(
+        "g_Vars.players[i] == g_NetLocalClient->player") !=
+        std::string::npos);
+    REQUIRE(localPlayer.find("g_Vars.players[i]->isremote") !=
+        std::string::npos);
+    REQUIRE(localPlayer.find("localplayernum >= 0") !=
+        std::string::npos);
+    REQUIRE(localPlayer.find("g_NetLocalClient->playernum") ==
+        std::string::npos);
+    REQUIRE(presentationPlayer.find(
+        "g_NetMode == NETMODE_SERVER && g_NetDedicated") !=
+        std::string::npos);
+    REQUIRE(presentationPlayer.find("g_Vars.currentplayernum") !=
+        std::string::npos);
+    REQUIRE(presentationPlayer.find("playermgrGetLocalPlayerNum()") !=
+        std::string::npos);
+    REQUIRE(restore.find("setCurrentPlayerNum(localplayernum)") !=
+        std::string::npos);
+
+    const size_t selectPresentation = presentationStart.find(
+        "setCurrentPlayerNum(presentationplayernum)");
+    const size_t startPresentation = presentationStart.find(
+        "committed = playerStartCutscene(animnum)");
+    const size_t restoreAmbient = presentationStart.find(
+        "setCurrentPlayerNum(previousplayernum)", startPresentation);
+    REQUIRE(selectPresentation != std::string::npos);
+    REQUIRE(startPresentation != std::string::npos);
+    REQUIRE(restoreAmbient != std::string::npos);
+    REQUIRE(selectPresentation < startPresentation);
+    REQUIRE(startPresentation < restoreAmbient);
+    REQUIRE(presentationStart.find("CUTSCENE.PRESENTATION: start") !=
+        std::string::npos);
+    REQUIRE(presentationStart.find("return committed") != std::string::npos);
+    REQUIRE(presentationStart.find("playermgrGetPresentationPlayerNum()") !=
+        std::string::npos);
+    REQUIRE(presentationCondition.find(
+        "playermgrGetPresentationPlayerNum()") != std::string::npos);
+    REQUIRE(presentationCondition.find("g_Vars.currentplayer") ==
+        std::string::npos);
+
+    REQUIRE(fallbackStart.find("playerStartCutsceneForPresentation") !=
+        std::string::npos);
+    REQUIRE(fallbackStart.find("playerStartCutscene(anim_id)") ==
+        std::string::npos);
+    REQUIRE(graphStart.find("playerStartCutsceneForPresentation") !=
+        std::string::npos);
+    REQUIRE(graphStart.find("playermgrGetPresentationPlayerNum()") !=
+        std::string::npos);
+    REQUIRE(graphStart.find(
+        "s_aiGraphRequireRuntimePlayerSlot(\"set_camera_animation\"") !=
+        std::string::npos);
+    REQUIRE(graphStart.find("g_Vars.players[") == std::string::npos);
+    REQUIRE(graphStart.find("playermgrGetLocalPlayerNum()") ==
+        std::string::npos);
+    REQUIRE(graphStart.find("playerStartCutscene((s16)anim_id)") ==
+        std::string::npos);
+    REQUIRE(fallbackCondition.find(
+        "playerPresentationCutsceneInProgress()") != std::string::npos);
+    REQUIRE(graphCondition.find(
+        "playerPresentationCutsceneInProgress()") != std::string::npos);
+    REQUIRE(fallbackChrAnimation.find(
+        "playerPresentationCutsceneInProgress()") != std::string::npos);
+    REQUIRE(fallbackObjectAnimation.find(
+        "playerPresentationCutsceneInProgress()") != std::string::npos);
+    REQUIRE(graphChrAnimation.find(
+        "playerPresentationCutsceneInProgress()") != std::string::npos);
+    REQUIRE(graphObjectAnimation.find(
+        "playerPresentationCutsceneInProgress()") != std::string::npos);
+}
+
+TEST_CASE("cutscene authority smokes require publication and receiver-local application",
+          "[cutscene][network][smoke][v56][b1089][static]")
+{
+    const std::string initiatorAuthority = readTextFile(
+        "tools/smoke-verify/tests/friend_play_authority_initiator_smoke.json");
+    const std::string inviteeAuthority = readTextFile(
+        "tools/smoke-verify/tests/friend_play_authority_invitee_smoke.json");
+
+    REQUIRE_FALSE(initiatorAuthority.empty());
+    REQUIRE_FALSE(inviteeAuthority.empty());
+
+    const std::string *fixtures[] = {&initiatorAuthority, &inviteeAuthority};
+
+    for (const std::string *fixture : fixtures) {
+        REQUIRE(fixture->find("authoritative-cutscene-result-published") !=
+            std::string::npos);
+        REQUIRE(fixture->find("authoritative-cutscene-result-applied") !=
+            std::string::npos);
+        REQUIRE(fixture->find(
+            "NET: CUTSCENE_SKIP\\\\.AUTHORITY accepted source=(?:local|remote)") !=
+            std::string::npos);
+        REQUIRE(fixture->find(
+            "NET: SVC_CUTSCENE_SKIP published requester_mask=0x[0-9a-f]+") !=
+            std::string::npos);
+        REQUIRE(fixture->find(
+            "NET: SVC_CUTSCENE_SKIP applied requester_client=\\\\d+ runtime_player=\\\\d+ generation=\\\\d+") !=
+            std::string::npos);
+		REQUIRE(fixture->find(
+			"NET: SVC_CUTSCENE read active=1 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=\\\\d+") !=
+			std::string::npos);
+		REQUIRE(fixture->find(
+			"NET: SVC_CUTSCENE published active=1 client_mask=0x[0-9a-f]+ generation=\\\\d+ room=\\\\d+") !=
+			std::string::npos);
+		REQUIRE(fixture->find(
+			"NET: SVC_CUTSCENE published active=0 client_mask=0x[0-9a-f]+ generation=\\\\d+ room=\\\\d+") !=
+			std::string::npos);
+		REQUIRE(fixture->find(
+			"NET: SVC_CUTSCENE read active=0 client_mask=0x[0-9a-f]+ runtime_player_mask=0x[0-9a-f]+ generation=\\\\d+") !=
+			std::string::npos);
+		REQUIRE(fixture->find(
+			"CLC_CUTSCENE_SKIP ignored status=generation_mismatch") !=
+			std::string::npos);
+		REQUIRE(fixture->find(
+			"SVC_CUTSCENE_SKIP ignored status=generation_mismatch") !=
+			std::string::npos);
+		REQUIRE(fixture->find(
+			"SVC_CUTSCENE rejected status=") !=
+			std::string::npos);
+		REQUIRE(fixture->find(
+			"consecutive-authority-generations-published") !=
+			std::string::npos);
+		REQUIRE(fixture->find(
+			"consecutive-authority-generations-applied") !=
+			std::string::npos);
+		REQUIRE(fixture->find(
+			"CUTSCENE\\\\.AUTHORITY: tick-mode END queued generation=1") !=
+			std::string::npos);
+		REQUIRE(fixture->find(
+			"generation=2") != std::string::npos);
+		REQUIRE(fixture->find(
+			"NET: CUTSCENE\\\\.AUTHORITY state queue (?:rejected|full)") !=
+			std::string::npos);
+        REQUIRE(fixture->find(
+            "CUTSCENE\\\\.AUTHORITY: (?:START|END|tick-mode END) preflight rejected") !=
+            std::string::npos);
+		REQUIRE(fixture->find(
+			"CUTSCENE\\\\.PRESENTATION: start local_player=0 ambient_player=\\\\d+ anim=\\\\d+ body_ready=1 committed=1 active=1 in_progress=1") !=
+			std::string::npos);
+		REQUIRE(fixture->find(
+			"CUTSCENE\\\\.PRESENTATION: start local_player=[1-9]") !=
+			std::string::npos);
+    }
 }

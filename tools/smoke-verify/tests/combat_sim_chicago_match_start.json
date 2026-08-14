@@ -1,6 +1,6 @@
 {
   "scenario_name": "combat_sim_chicago_match_start",
-  "description": "Seed Chicago Combat with 12 bots, then auto-start the match through the debug launch path. Pins the B-360 crash path: MATCHSTART into base:arena_chicago followed by setupCreateProps SP-in-MP overlay.",
+  "description": "Seed Chicago Combat with 12 bots, then auto-start the match through the debug launch path. Pins the B-360 crash path and T-ENGINE-004 transactional initialization: exact Chicago/Combat/13-slot preflight, one-player-plus-12-bot commit, stage load, and setupCreateProps SP-in-MP overlay without rollback.",
   "tags": ["menu", "input", "combatsim", "match-start", "stability"],
   "paths_of_interest": [
     "src/game/setup.c",
@@ -32,7 +32,10 @@
       "BOOT: --debug-auto-start-match consumed",
       "BOOT: --launch-mp-room direct match start armed",
       "BOOT: --launch-mp-room direct match start",
-      "MATCHSTART\\.DIAG: entry stage_id='base:arena_chicago'",
+      "MATCHSTART\\.DIAG: preflight stage_id='base:arena_chicago' scenario_id='base:combat' slots=13",
+      "PLAYER\\.INIT\\.PREFLIGHT match=ok players=1 bots=12 stage='base:arena_chicago' scenario='base:combat'",
+      "MATCHSTART\\.DIAG: committed stage=0x1d activeMask=0xfff01 players=1 bots=12",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=12 activeMask=0x00000000000fff01",
       "MATCHSTART\\.DIAG: post-mpStartMatch returned",
       "LOAD: lv\\.c entering stage load sequence for stagenum=0x1d",
       "SETUP: prop iteration done",
@@ -43,7 +46,9 @@
       "ACCESS_VIOLATION",
       "FATAL: ",
       "SMOKE: result=timeout",
-      "bodyAllocateModel returned NULL"
+      "bodyAllocateModel returned NULL",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "PLAYER\\.INIT\\.PREFLIGHT match=reject"
     ],
     "required_counts": []
   }

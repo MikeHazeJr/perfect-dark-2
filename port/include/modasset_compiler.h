@@ -112,6 +112,16 @@ void modAssetCompilerSetGeneratedModeldefRenderAudit(s32 enabled);
 s32 modAssetCompilerGeneratedModeldefRenderAuditEnabled(void);
 s32 modAssetCompilerNeedlerRenderAuditWitnessActive(void);
 s32 modAssetCompilerModeldefIsGenerated(const struct modeldef *modeldef);
+
+/**
+ * Resolve a command-aligned pointer against every live generated model GDL,
+ * including hierarchy payloads, their relocated GUNDL copies, and payloads
+ * owned by a separately generated head attached to a character clone.
+ * Returns 1 with exact bytes remaining, or 0 with out_bytes_remaining cleared.
+ */
+s32 modAssetCompilerGeneratedGdlBytesRemaining(
+	const void *gdl, u32 *out_bytes_remaining);
+
 s32 modAssetCompilerShouldHideGeneratedModeldef(const struct modeldef *modeldef);
 void modAssetCompilerTraceGeneratedModeldefRender(
 	const struct modeldef *modeldef,

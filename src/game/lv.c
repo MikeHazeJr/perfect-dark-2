@@ -123,6 +123,7 @@
 #include "assetcatalog_load.h"
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "scenario_source_runtime.h"
+#include "smoke_harness.h"
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -551,7 +552,14 @@ void lvReset(s32 stagenum)
 	g_Vars.antiheadnum = -1;
 	g_Vars.antibodynum = -1;
 	g_Vars.dontplaynrg = false;
-	playerResetAllCutsceneStates();
+	/* B-1099: a reconnect can leave the CI menu's local cutscene tick mode
+	 * alive until the next validated SVC_STAGE_START has already minted its
+	 * match latch. Retire only that prior-stage presentation at this real load
+	 * boundary; all non-client/non-authoritative loads retain the ordinary
+	 * cutscene-state reset. */
+	if (!playerApplyAuthoritativeStageStartPresentation()) {
+		playerResetAllCutsceneStates();
+	}
 	g_Vars.autocutplaying = false;
 	g_Vars.autocutfinished = false;
 	g_Vars.autocutgroupskip = false;
@@ -1615,6 +1623,40 @@ Gfx *lvRender(Gfx *gdl)
 						g_Vars.lockscreen ? "lockscreen"
 							: (var8009dfc0 ? "menu-bg(SKIPS props/chrs)" : "live-world(props/chrs)"));
 				}
+			}
+
+			/* T-ENGINE-004 smoke observability for the render-side producer of
+			 * pdgui_hotswap's per-frame queue. This remains inert outside a smoke
+			 * and never changes branch selection. */
+			if (smokeHarnessIsActive()
+					&& g_MenuData.root == MENUROOT_MPENDSCREEN
+					&& g_Vars.currentplayernum == 0) {
+				static s32 s_mpEndscreenRenderTicks = 0;
+				static s32 s_prevMenuActive = -1;
+				static s32 s_prevBranch = -1;
+				const s32 menuactive = g_Vars.currentplayer
+					? g_Vars.currentplayer->menuisactive : -1;
+				const s32 branch = g_Vars.lockscreen ? 1
+					: (var8009dfc0 ? 2 : 3);
+
+				s_mpEndscreenRenderTicks++;
+				if (s_mpEndscreenRenderTicks == 1
+						|| s_mpEndscreenRenderTicks == 5
+						|| s_mpEndscreenRenderTicks == 30
+						|| (s_mpEndscreenRenderTicks % 120) == 0
+						|| s_prevMenuActive != menuactive
+						|| s_prevBranch != branch) {
+					sysLogPrintf(LOG_NOTE,
+						"ENDSCREEN.RENDER: tick=%d player=%d mpindex=%d branch=%d lockscreen=%d render_bg=%d menu_active=%d count=%d cur=%p",
+						s_mpEndscreenRenderTicks, g_Vars.currentplayernum,
+						g_Vars.currentplayerstats
+							? g_Vars.currentplayerstats->mpindex : -1,
+						branch, g_Vars.lockscreen, var8009dfc0,
+						menuactive, g_MenuData.count,
+						(void *)g_Menus[0].curdialog);
+				}
+				s_prevMenuActive = menuactive;
+				s_prevBranch = branch;
 			}
 
 			if (g_Vars.lockscreen) {

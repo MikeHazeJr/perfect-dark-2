@@ -1,6 +1,7 @@
 ---
-status: draft -- pending Mike's greenlight before implementation
+status: active closure under T-ENGINE-004; historical cohorts landed, B-1064/B-1065/B-1066 in progress
 authored: 2026-04-27 (mystifying-hofstadter-deca99 worktree)
+updated: 2026-08-12 (codex-v1-m1-runner-20260812)
 synthesizes: context/audits/player-init-comparison-upstream-2026-04-26.md
              context/audits/char-init-weapon-spawn-comparison-opus47-2026-04-26.md
              context/audits/char-init-weapon-spawn-comparison-sonnet46-2026-04-26.md
@@ -729,3 +730,190 @@ audit traceability.
   no half measures (every site in scope migrates per its invariant), no
   em-dashes anywhere, hierarchical log channels for any new diag.
   pd-tests cases land in the same commit as the invariant they enforce.
+
+---
+
+## 9. T-ENGINE-004 closure architecture, 2026-08-12
+
+The original five cohorts are historical foundation, not current completion
+proof. Cohorts A, B, C, and the narrow E guards remain valid. Cohort D added an
+option ownership field, but the full ownership lifecycle is incomplete. Current
+source audits recorded the remaining production defects as B-1064 through
+B-1067 and B-1069.
+
+No additional product choice is required. The closure follows the active
+catalog-ID, public-source, server-authority, and listen-host constraints.
+
+### 9.1 Transaction rule
+
+Player initialization is a sequence of explicit fallible phases. Each phase
+must do one of two things:
+
+1. prepare and validate all candidate state, then commit without another
+   fallible lookup or allocation; or
+2. reject with a typed error and leave the phase's published state unchanged.
+
+If a later stage phase cannot restore the prior live stage because the stage
+pool has already been reset, rollback means clearing every candidate pointer and
+relationship, disconnecting an invalid network start when applicable, and
+routing through a clean title-stage reset. Abandoned stage-pool bytes are
+reclaimed by the next `MEMPOOL_STAGE` reset and must never remain reachable.
+
+The production log contract is:
+
+```text
+PLAYER.INIT.PREFLIGHT phase=<match|allocation|network|identity|chrbody|stage>
+PLAYER.INIT.COMMIT phase=<match|allocation|network|identity|chrbody|stage>
+PLAYER.INIT.ROLLBACK phase=<...> reason=<typed reason> player=<n> id=<catalog id>
+```
+
+### 9.2 Exact typed identity plan
+
+One shared `player_identity_plan` resolves body and head catalog IDs and records:
+
+- the exact canonical body and head IDs;
+- the private runtime body and head indices;
+- optional MP selector indices as derived compatibility caches only; and
+- a typed failure reason for empty ID, missing entry, wrong type, unbound runtime
+  index, or inconsistent runtime binding.
+
+A nonempty typed ID never falls through to `mpbodynum`, `mpheadnum`, slot zero,
+`BODY_DARK_COMBAT`, or `HEAD_DARK_COMBAT`. Defaults are allowed only when an
+input boundary deliberately writes the default catalog IDs before preparation.
+Once preparation begins, a miss rejects the candidate.
+
+The plan is used by Match Setup, player character selection, network player
+allocation, client stage-start application, and preserved-player reconnect.
+Legacy numeric fields may be updated after a valid plan commits, but they never
+select identity.
+
+### 9.3 Match preparation and commit
+
+`matchStart` first builds a local plan containing the exact stage, scenario,
+weapon references, spawn-weapon result, participant descriptors, player config
+candidates, bot config candidates, and bot-profile bindings. It rejects:
+
+- invalid or missing typed stage/scenario/weapon/body/head/profile IDs;
+- unsupported slot types, duplicate/overflowed participant destinations, or no
+  player participant; and
+- a custom weapon that has no valid runtime Match Setup binding.
+
+Only after the full plan succeeds may it restore engine-forced options, write
+`g_MpSetup`, replace configs, clear/rebuild the participant pool, set role
+globals, free solo ROM state, or close the Room UI. The solo Room remains open
+when preparation fails.
+
+### 9.4 Player allocation and network linkage
+
+`playermgrAllocatePlayers` validates count and roles, prepares any network
+allocation plan, allocates every `struct player` candidate, and initializes each
+candidate through a local pointer. `g_Vars.players[]`, current-player pointers,
+Bond/Co-Op/Counter-Op pointers, network config links, and remote-player links are
+published only after every candidate exists.
+
+`netPlayersAllocate` becomes prepare plus commit. Preparation assigns unique
+player numbers and exact identities into temporary configs. Commit performs the
+client-side number swap, config copies, and client/player links without further
+catalog lookup. The unused remote-config backup array is removed rather than
+retained as an uncalled rollback promise.
+
+Allocation failure returns a typed status to the stage loop. The stage loop logs
+rollback, disconnects an invalid network stage, clears all player links, and
+re-enters the title stage through a fresh pool reset.
+
+### 9.5 Client stage-start and reconnect
+
+`SVC_STAGE_START` must parse and validate into local candidate state before it
+changes ticks, RNG seeds, game mode, mission/match setup, participants, client
+states, player configs, bot configs, or menu/stage state. Every body, head,
+weapon, profile, scenario, and stage reference is type-checked. A malformed or
+missing reference rejects the entire message with no partial publication.
+
+Preserved-player reconnect prepares the exact identity and full config copy
+before it changes player number, team, score, config/player links, state, respawn
+flags, or the preserved-slot count. Failure keeps the preserved slot active and
+rejects the reconnect as a file/catalog mismatch. Fresh mid-match joins remain
+explicitly rejected; true drop-in is not part of this task.
+
+### 9.6 Character-body commit and rollback
+
+`playerTickChrBody` does not set `haschrbody` or `model00d4` before success. It
+first resolves exact identity, source handles, body/head model definitions, and
+the optional weapon model. It then builds the model candidate and attaches the
+character. Only the final nonfallible block publishes:
+
+- `model00d4` and `haschrbody`;
+- player prop type and chr body/head/race data;
+- `g_MpAllChrPtrs` and `g_MpAllChrConfigPtrs`;
+- eye/head height and final root/look state; and
+- optional weapon and fireslot links.
+
+Any failure clears candidate model/chr links, resets multiplayer chr-pointer
+slots, releases newly acquired one-player gun memory, clears `gunmem2`, leaves
+`haschrbody` false, and emits `PLAYER.INIT.ROLLBACK`. Multiplayer never retries
+with Dark Combat after an exact identity or model failure.
+
+### 9.7 Stage-reuse reset contract
+
+The canonical gun reset explicitly re-establishes `weaponnum = WEAPON_NONE`,
+`prevweaponnum = -1`, `prevwasdualwielding = false`, `wantammo = false`, and
+`passivemode = false`. The canonical player reset explicitly re-establishes
+`wantsjump = false` and `jumpconsumed = true`.
+
+No blanket `memset` is permitted for `struct player`, `struct gunctrl`, or
+`struct hand`. Network relationship fields, queued-load ownership, and the
+aggregate hand defaults retain their existing intentional lifecycle.
+
+### 9.8 Engine-forced option ownership
+
+`matchOptionsForceBit` records only bits that were off in the user view and were
+actually added by the engine. User-facing reads use `matchOptionsUserView`.
+Match end, cancel, disconnect, settings replacement, and next-match start all
+call one restore or rebase helper so a user-owned bit is never cleared and an
+engine-owned bit never leaks into the next match.
+
+### 9.9 Network launch freeze
+
+For network starts, lobby preparation and ready-gate compaction own every
+mutable match decision. `SVC_STAGE_START` validation and serialization freeze
+the exact stage, scenario, options, weapons, spawn result, RNG, players, teams,
+handicaps, bot identities/profiles/teams, and participant mask. Network
+`mpStartMatch` consumes those values without participant rebuild, random weapon
+application, quick-team generation, profile-local unlock filtering, handicap
+normalization, or a fallible stage reverse lookup. Those setup conveniences are
+offline-only and run before an offline stage transition.
+
+The v55 lobby boundary has one settings transaction and one handicap owner.
+Before a match-scoped session catalog exists, `CLC_SETTINGS` carries exact typed
+body/head IDs, team, nonzero handicap, options, FOV, zoom multiplier, and name.
+The pure prepare/codec boundary validates the complete candidate before writing
+bytes or publishing a server cache. `CLC_LOBBY_START` carries no positional
+four-player handicap cache; the server prepares each roster entry from that
+exact authenticated client's settings. `SVC_STAGE_START` then carries the final
+compacted authoritative roster. Map and arena IDs resolve through an explicit
+expected catalog type, so campaign and Combat Simulator can never substitute
+across a shared stagenum.
+
+### 9.10 Verification and propagation gates
+
+Focused tests must behaviorally cover exact identity preparation, settings-wire
+roundtrip and no-mutation rejection, missing/wrong type/unbound indices,
+match-plan no-mutation rejection, player allocation
+failure, reconnect preservation on rejection, client stage-start parse before
+commit, chrbody rollback, option ownership, stage-reuse defaults, and the live
+spawn-predicate call-site wiring.
+
+Source-frozen production verification requires:
+
+- full `pd-tests` after the focused selectors;
+- ordinary Campaign and the full 17-mission/restart regression;
+- ordinary Combat Simulator start, shots, end, return, and repeat start;
+- the Air Base to Air Force One transition canary;
+- listen-host and ordinary client match start;
+- one two-process disconnect/reconnect receipt preserving player number, team,
+  score, cookie, body/head identity, and one chr/prop; and
+- both D-003 authority-first friend-play smokes, with V-009 Needler obstruction
+  checks retained in any gameplay captures.
+
+Every queued receipt is rejected if relevant source changes or the exclusive
+resource overlaps before completion.

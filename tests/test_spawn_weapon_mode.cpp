@@ -276,14 +276,14 @@ TEST_CASE("spawn-weapon: selected catalog IDs keep their authoritative runtime i
 	const std::string netmsg = read_text_file("port/src/net/netmsg.c");
 	const std::string setupSpecific = source_slice(setup,
 		"case SPAWNWEAPON_MODE_SPECIFIC:",
-		"/* --- Populate the participant pool");
+		"default:");
 	const std::string lobbySpecific = source_slice(netmsg,
-		"/* B-125: read spawn_weapon_id catalog string and resolve to spawnWeaponNum.",
-		"/* U-9: per-player handicap bytes */");
+		"if (plan.spawn_weapon_mode == SPAWNWEAPON_MODE_SPECIFIC)",
+		"} else if ((plan.spawn_weapon_mode != SPAWNWEAPON_MODE_RANDOM");
 
-	REQUIRE(setupSpecific.find("swe->runtime_index") != std::string::npos);
+	REQUIRE(setupSpecific.find("entry->runtime_index") != std::string::npos);
 	REQUIRE(setupSpecific.find("catalogGetMpWeaponNum(mpw)") == std::string::npos);
-	REQUIRE(lobbySpecific.find("swe->runtime_index") != std::string::npos);
+	REQUIRE(lobbySpecific.find("spawn->runtime_index") != std::string::npos);
 	REQUIRE(lobbySpecific.find("catalogGetMpWeaponNum(mpw)") == std::string::npos);
 }
 
@@ -559,23 +559,24 @@ TEST_CASE("spawn-weapon wire: SVC_STAGE_START v45 tail preserves following mod-t
     REQUIRE(netbufReadLeft(&b.nb) == 0);
 }
 
-TEST_CASE("spawn-weapon wire: CLC_LOBBY_START mode does not consume first handicap byte",
+TEST_CASE("spawn-weapon wire: CLC_LOBBY_START mode is followed directly by bot payload",
           "[spawn-weapon][wire][netbuf]") {
     WireBuf b;
     netbufWriteStr(&b.nb, "base:falcon2");
     netbufWriteU8(&b.nb, kSPAWNWEAPON_MODE_RANDOM);
-    netbufWriteU8(&b.nb, 77); /* first U-9 handicap byte */
+    netbufWriteStr(&b.nb, "First Sim");
     REQUIRE(b.nb.error == 0);
 
     b.rewind_for_read();
     const char *spawnId = netbufReadStr(&b.nb);
     const u8 mode = netbufReadU8(&b.nb);
-    const u8 firstHandicap = netbufReadU8(&b.nb);
+    const char *firstBotName = netbufReadStr(&b.nb);
 
     REQUIRE(spawnId != nullptr);
     REQUIRE(std::string(spawnId) == "base:falcon2");
     REQUIRE(mode == kSPAWNWEAPON_MODE_RANDOM);
-    REQUIRE(firstHandicap == 77);
+    REQUIRE(firstBotName != nullptr);
+    REQUIRE(std::string(firstBotName) == "First Sim");
     REQUIRE(b.nb.error == 0);
     REQUIRE(netbufReadLeft(&b.nb) == 0);
 }
@@ -603,10 +604,10 @@ TEST_CASE("spawn-weapon wire: production netmsg keeps v45 field order",
         "u32 netmsgSvcStageStartWrite",
         "u32 netmsgSvcStageStartRead");
     require_ordered(svcWrite, {
-        "netbufWriteStr(dst, g_MatchConfig.spawn_weapon_id",
-        "netbufWriteU8(dst, g_MatchConfig.spawnWeaponMode);",
-        "netbufWriteU8(dst, g_MatchConfig.spawnWeaponNum);",
-        "netbufWriteStr(dst, wireTrack ? wireTrack : \"\");",
+        "netbufWriteStr(dst, plan.spawn_weapon_id);",
+        "netbufWriteU8(dst, plan.spawn_weapon_mode);",
+        "netbufWriteU8(dst, plan.spawn_weapon_num);",
+        "netbufWriteStr(dst, plan.mod_track_id);",
     });
 
     const std::string svcRead = source_slice(
@@ -625,20 +626,32 @@ TEST_CASE("spawn-weapon wire: production netmsg keeps v45 field order",
         "u32 netmsgClcLobbyStartWrite",
         "u32 netmsgClcLobbyStartRead");
     require_ordered(clcWrite, {
-        "netbufWriteStr(dst, g_MatchConfig.spawn_weapon_id",
-        "netbufWriteU8(dst, g_MatchConfig.spawnWeaponMode);",
-        "g_PlayerConfigsArray[hi].handicap",
+        "netbufWriteStr(dst, plan.spawn_weapon_id);",
+        "netbufWriteU8(dst, plan.spawn_weapon_mode);",
+        "const net_lobby_start_write_bot_t *bot",
     });
+    REQUIRE(clcWrite.find("plan.handicaps") == std::string::npos);
 
     const std::string clcRead = source_slice(
         netmsg,
         "u32 netmsgClcLobbyStartRead",
         "u32 netmsgClcCatalogDiffWrite");
     require_ordered(clcRead, {
-        "const char *swid_str = netbufReadStr(src);",
-        "const u8 wireMode = netbufReadU8(src);",
-        "g_PlayerConfigsArray[hi].handicap = netbufReadU8(src);",
+        "netLobbyStartCopyString(plan.spawn_weapon_id",
+        "plan.spawn_weapon_mode = netbufReadU8(src);",
+        "netLobbyStartPrepareRoster(&plan, srccl, room)",
+        "netLobbyStartReadBots(src, &plan, advertised_bots)",
     });
+    REQUIRE(clcRead.find("plan.handicaps") == std::string::npos);
+    const std::string clcRoster = source_slice(
+        netmsg,
+        "static bool netLobbyStartPrepareRoster",
+        "static bool netLobbyStartReadBots");
+    REQUIRE(clcRoster.find("settings_input.handicap = client->settings.handicap") !=
+        std::string::npos);
+    REQUIRE(clcRoster.find(
+        "player->config.handicap = settings_plan.handicap") !=
+        std::string::npos);
 }
 
 /* ============================================================================

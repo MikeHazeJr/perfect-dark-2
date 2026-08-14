@@ -149,21 +149,34 @@ TEST_CASE("catalogCheckedValidateSlot: spawn-critical body slot examples",
 }
 
 TEST_CASE("body0f02ce8c gates head catalog misses before rw allocation",
-          "[catalog][checked][static][regression]") {
+		  "[catalog][checked][static][regression][b1098]") {
 	const std::string body = readTextFile("src/game/body.c");
+	const size_t checked = body.find(
+		"catalogGetHeadModeldefChecked(headnum, &headmodeldef)");
+	const size_t common_gate = body.find("if (headmodeldef != NULL) {", checked);
+	const size_t allocate = body.find("modelAllocateRwData(headmodeldef);", common_gate);
+	const size_t clone = body.find(
+		"cloned_modeldef = modeldefCloneForChr(headmodeldef);", allocate);
+	const size_t publish = body.find("headmodeldef = cloned_modeldef;", clone);
+	const size_t extend = body.find(
+		"bodymodeldef->rwdatalen += headmodeldef->rwdatalen;", publish);
 
-	REQUIRE(body.find("catalogGetHeadModeldefChecked(headnum, &headmodeldef)") != std::string::npos);
-	REQUIRE(body.find("modelAllocateRwData(headmodeldef);\n\n\t\t\t\t\t/* B-163") == std::string::npos);
-	// The head rw-allocation is gated behind the NULL check (B-163). The
-	// per-instance head clone (task #37, commit 24d24a56) legitimately sits
-	// BETWEEN modelAllocateRwData and the rwdatalen accumulation, so assert the
-	// gated allocate and the accumulation separately rather than pinning their
-	// exact adjacency (which the clone insertion would otherwise break).
+	/* Catalog and random heads converge on one NULL-gated transactional clone.
+	 * Pin semantic ordering instead of source indentation. */
+	REQUIRE(checked != std::string::npos);
+	REQUIRE(common_gate != std::string::npos);
+	REQUIRE(allocate != std::string::npos);
+	REQUIRE(clone != std::string::npos);
+	REQUIRE(publish != std::string::npos);
+	REQUIRE(extend != std::string::npos);
+	REQUIRE(checked < common_gate);
+	REQUIRE(common_gate < allocate);
+	REQUIRE(allocate < clone);
+	REQUIRE(clone < publish);
+	REQUIRE(publish < extend);
 	REQUIRE(body.find(
-		"if (headmodeldef != NULL) {\n"
-		"\t\t\t\t\t\tmodelAllocateRwData(headmodeldef);\n") != std::string::npos);
-	REQUIRE(body.find("headmodeldef = modeldefCloneForChr(headmodeldef);\n"
-		"\t\t\t\t\t\tbodymodeldef->rwdatalen += headmodeldef->rwdatalen;") != std::string::npos);
+		"cloned_modeldef = modeldefCloneForChr(headmodeldef);", clone + 1) ==
+		std::string::npos);
 }
 
 TEST_CASE("body0f02ce8c refuses unresolved body identity instead of slot-zero fallback",
