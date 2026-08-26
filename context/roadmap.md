@@ -19,8 +19,8 @@
 The canonical Workbench replaces the older sequencing text in this historical
 roadmap. T-RELEASE-001 routes 1.0 through five ordered milestones:
 
-1. **T-RELEASE-002: Complete base game and graphs.** V-010 currently has 2
-   validated, 8 partial, and 5 missing leaf gates out of 15. Establish the
+1. **T-RELEASE-002: Complete base game and graphs.** V-010 currently has 3
+   validated, 7 partial, and 5 missing leaf gates out of 15. Establish the
    current-tree parity matrix and campaign runner, then close production gaps.
 2. **T-RELEASE-003: Usable Theater.** Complete authoritative Campaign and
    Combat Simulator recording, persistence, reconstruction, playback, seeking,
@@ -38,8 +38,8 @@ one unowned dependency that advances it. Post-1.0 and historical-cut items are
 not selected unless Mike explicitly changes scope. [tasks.md](tasks.md) is the
 concise live context view; Workbench status and evidence remain authoritative.
 
-Current execution remains inside Milestone 1 at T-ENGINE-004, with 2 validated,
-8 partial, and 5 missing V-010 dependencies. Candidate-first Campaign/player
+Current execution remains inside Milestone 1 after validating T-ENGINE-004,
+with 3 validated, 7 partial, and 5 missing V-010 dependencies. Candidate-first Campaign/player
 initialization retains accepted frozen automation, Air Base, and full-Campaign
 evidence. B-1101's bounded-animation and explicit-target followup retains its
 source-frozen build, focused/full suites, native-source guard, and zero-overlap
@@ -57,8 +57,13 @@ product `e6287a9c...` and verifier `ad7c38f9...`. Exact client `133A55C6...`
 then passes the one replacement two-cycle Combat Simulator receipt 56/56 with
 real fire/hit, both results/award cycles, Play Again, clean exit, zero decoder
 or crash rejection matches, and no leaked process. B-1101/B-1102 are retained
-regression gates; Campaign, D-003, and reconnect proof was not rerun.
-T-ENGINE-004 remains partial pending its next broader closure audit.
+regression gates; Campaign, D-003, and reconnect proof was not rerun. B-1076
+and B-1096/B-1097 subsequently closed the ordinary two-cycle menu owner and
+snapshot-safe/exclusive-topology reconnect paths. The finite section 9.10
+matrix is indexed in
+`context/evidence/2026-08-26-t-engine-004-closure.md`; T-ENGINE-004 is
+validated. B-1105's base Mauler public-model activation failure is the next
+implementation unit under V-010, not a player-init lifecycle blocker.
 
 ---
 

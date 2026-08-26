@@ -205,8 +205,8 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
   108/2 and the separately hashed retained logs pass 170/170 without a product
   change. The route proves one elected in-client listen authority, one signed
   typed match-server route, exactly one non-authority join, and no probe/relay
-  endpoint handoff. This transaction is now a production regression gate;
-  broader T-ENGINE-004 lifecycle closure remains partial. B-1076 subsequently
+  endpoint handoff. This transaction is now a production regression gate.
+  B-1076 subsequently
   centralized the shared Combat Simulator stage-request boundary in
   `mpStartMatch`: both the in-client listen authority and receiving client now
   release menu/input ownership before stage publication, matching offline
@@ -265,8 +265,10 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
   `live_side_effects=0`, exclusive prop topology, exact world/inventories, one
   commit, 30 real Cyclone shots with `server_accepted=1`, final credential
   retirement, clean exits, and no process leak. B-1096/B-1097 plus SP-60,
-  SP-61, SP-72, and SP-73 are regression gates; broader T-ENGINE-004 remains
-  partial.
+  SP-61, SP-72, and SP-73 are regression gates. Together with the retained
+  Campaign, Combat Simulator, Air Base, rollback, both-authority-role, and
+  V-009 gates, this completes T-ENGINE-004's section 9.10 matrix. Durable index:
+  `context/evidence/2026-08-26-t-engine-004-closure.md`.
 
 ---
 

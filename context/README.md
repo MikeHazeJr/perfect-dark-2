@@ -44,8 +44,11 @@ The canonical context source is this `context/` tree. Parent-level briefing file
   T-RELEASE-006 in order. The former Kanban and `historical-cut` Workbench items
   are retained history, not live queues. See [tasks.md](tasks.md) for the concise
   milestone summary.
-- **Current Milestone 1 lane**: T-ENGINE-004 remains partial at 2 validated,
-  8 partial, and 5 missing dependencies. B-1101/B-1102 retain accepted frozen
+- **Current Milestone 1 lane**: T-ENGINE-004 is validated, moving the milestone
+  to 3 validated, 7 partial, and 5 missing dependencies (20 percent). Its
+  durable closure matrix is
+  [2026-08-26-t-engine-004-closure.md](evidence/2026-08-26-t-engine-004-closure.md).
+  B-1101/B-1102 retain accepted frozen
   automation and Combat Simulator evidence. B-1067/B-1103/B-1104 are
   production-verified regression gates at protocol v58: one explicit
   inactive/waiting/release/active
@@ -111,7 +114,10 @@ The canonical context source is this `context/` tree. Parent-level briefing file
   retirement/absence, snapshot `live_side_effects=0`, exclusive topology,
   exact world and both inventories, one commit, 30 authority-accepted Cyclone
   shots, clean exits, and no leaked process. B-1096/B-1097 are regression
-  gates; broader T-ENGINE-004 and Milestone 1 remain partial.
+  gates, completing T-ENGINE-004's finite section 9.10 lifecycle matrix. The
+  next implementation unit is B-1105 under V-010: repair the shared public
+  Mauler model activation/equip path and prove ordinary equip, fire, and render.
+  Milestone 1 remains partial.
 - **Long-term roadmap**: [roadmap.md](roadmap.md).
 
 ---

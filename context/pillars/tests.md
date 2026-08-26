@@ -297,8 +297,7 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
   SDL focus witness. It remains a focus/visual regression fixture and does not
   weaken or block the accepted D-003 route gate. Earlier rejected receipts are
   retained as diagnosis history in `context/session-log.md`; they are not the
-  current verification state. B-1104 is a regression gate, while broader
-  T-ENGINE-004 and Milestone 1 remain partial.
+  current verification state. B-1104 is a regression gate.
 
 - **B-1076 ordinary Combat Simulator ownership is production-verified.** The
   source-frozen isolated client/updater/tests builds pass; the coherent focused
@@ -312,8 +311,7 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
   unchanged invitee-authority regression `results-20260826T100235Z.json` passes
   170/170 with exactly one typed signed-route join. Static coverage pins
   `mpStartMatch` as the pre-publication cleanup owner and the exact `satisfied`
-  receipt vocabulary. B-1076 is a regression gate; broader T-ENGINE-004 and
-  Milestone 1 remain partial.
+  receipt vocabulary. B-1076 is a regression gate.
 
 - **B-1096/B-1097 corrected retirement proof is production-verified.** Exact
   client `BD0F9DAC...` and tests
@@ -362,7 +360,9 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
   the required retirement/absence, snapshot-side-effect, exclusive-topology,
   exact-restoration, one-commit, real-fire, clean-exit, and no-leak witnesses.
   B-1096/B-1097 are regression gates; accepted D-003 or Campaign receipts were
-  not rerun.
+  not rerun. The complete section 9.10 evidence matrix is indexed at
+  `context/evidence/2026-08-26-t-engine-004-closure.md`; T-ENGINE-004 is now
+  validated. Milestone 1 moves to 3 validated, 7 partial, and 5 missing leaves.
 
 ---
 

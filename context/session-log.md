@@ -1,5 +1,32 @@
 # Session Log (Active)
 
+## 2026-08-26 - T-ENGINE-004 validated; B-1105 selected next
+
+The formal section 9.10 closure audit is complete at canonical commit
+`8b254877778d635014c50d1904a06aad25c4248e`. Every bug routed to T-ENGINE-004
+is a regression gate. Accepted non-overlapped evidence covers current focused
+718/20 and full 66,960/1,209 tests plus the native-source guard; ordinary
+Campaign and all 17 missions/restart; Air Base transition; two-cycle Combat
+Simulator; co-op and Counter-Op; later-player and settings rollback; both D-003
+authority roles; latest-source reconnect 116/116; and V-009. Mixed receipts
+contribute only their individually passing named rows; rejected rows and stale
+test-binary receipts remain rejected. No product/verifier source changed and no
+accepted scenario was redundantly rerun for this evidence-only promotion.
+
+T-ENGINE-004 is now validated. Milestone 1 moves from 2 validated, 8 partial,
+and 5 missing leaves to 3 validated, 7 partial, and 5 missing leaves: 20 percent
+production-validated. Durable matrix:
+`context/evidence/2026-08-26-t-engine-004-closure.md`.
+
+Luna xhigh independently found B-1105's confirmed Mauler source-activation
+failure. Its suggested T-ENGINE blocker assignment was rejected because the
+canonical bug ledger and Workbench route B-1105 to V-010, and the finite
+T-ENGINE section 9.10 contract contains no unresolved model-activation gate.
+The technical finding is retained: `base:mauler` repeatedly fails conversion of
+`base:model_skpistol_hi` and re-enters gun-load retry. B-1105 is the next
+Milestone 1 implementation unit, with B-183 and B-1086 remaining evidence-first
+V-010 visual/source defects.
+
 ## 2026-08-26 - B-1096/B-1097 authoritative-retirement reconnect closure accepted
 
 Milestone 1 remains 2 validated, 8 partial, and 5 missing. The accepted current

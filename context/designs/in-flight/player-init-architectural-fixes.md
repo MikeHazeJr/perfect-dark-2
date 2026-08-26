@@ -1160,3 +1160,33 @@ listen authority, one separately signed typed match-server route, exactly one
 initiator join, no probe/relay endpoint handoff, epoch-correct baseline/ACTIVE
 publication, stable gameplay, and clean exits. B-1104 is a regression gate;
 T-ENGINE-004 remains active only for broader 1.0 base-game lifecycle closure.
+
+## 13. Final lifecycle closure, 2026-08-26
+
+B-1076 made `mpStartMatch` the one pre-publication Combat Simulator menu/input
+teardown owner for offline, listen-authority, and receiving-client starts. Exact
+client `04DB220E...` passes the ordinary Agent Select/Main Menu/Play/Room,
+two-match, and Play Again lifecycle 55/55 without watchdog repair.
+
+B-1096/B-1097 then closed the last reconnect ownership gap. Snapshot player
+state applies through a typed side-effect-free path instead of replaying live
+death scoring, drops, or cleanup. Authoritative dynamic props are parsed
+off-list and publish exactly one attached, active, or paused topology; stale
+sync-ID-zero local held weapons retire before adoption. Exact client
+`8262681E...` passes the ordinary two-process reconnect 116/116 with production
+weapon retirement plus read-only absence, one endpoint-scoped retry, snapshot
+`live_side_effects=0`, exclusive prop topology, exact world and both
+inventories, one commit, 30 authority-accepted Cyclone shots, clean exits, and
+no leaked process. Frozen focused 718/20, full 66,960/1,209, native-source
+guard, and zero-drift 2,734/410-file manifests also pass.
+
+The section 9.10 matrix is now complete. Retained accepted evidence covers
+ordinary Campaign and all 17 missions/restart, Air Base transition, two-cycle
+Combat Simulator, co-op, Counter-Op, later-player and settings rollback, both
+D-003 authority roles, latest-source reconnect, and V-009. Every bug routed to
+T-ENGINE-004 is a regression gate. The durable matrix is
+`context/evidence/2026-08-26-t-engine-004-closure.md`; T-ENGINE-004 is validated.
+
+B-1105 remains a real base Mauler public-model activation defect, but canonical
+Workbench routes it to V-010. It is the next Milestone 1 implementation unit and
+does not keep this completed player-init/lifecycle dependency partial.
