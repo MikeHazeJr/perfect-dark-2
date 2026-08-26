@@ -37,6 +37,27 @@ typedef struct net_reconnect_disconnect_plan_s {
 	s32 used_server_intent;
 } net_reconnect_disconnect_plan_t;
 
+/* Player stats are used both for live replication events and inside the
+ * ordered reconnect snapshot transaction.  A dead bit in a live packet owns
+ * death-event side effects; the same bit in a reconnect snapshot is only
+ * authoritative state restoration and must not replay scoring, drops, or
+ * owner cleanup. */
+typedef enum net_reconnect_player_state_action_e {
+	NET_RECONNECT_PLAYER_STATE_NONE = 0,
+	NET_RECONNECT_PLAYER_STATE_LIVE_DEATH,
+	NET_RECONNECT_PLAYER_STATE_SNAPSHOT_DEATH,
+	NET_RECONNECT_PLAYER_STATE_START_NEW_LIFE,
+} net_reconnect_player_state_action_e;
+
+/* A prop's next/prev links belong either to the scheduler or to one parent's
+ * child chain, never both. The wire active bit is invalid for an attached prop. */
+typedef enum net_reconnect_prop_placement_e {
+	NET_RECONNECT_PROP_PLACEMENT_INVALID = 0,
+	NET_RECONNECT_PROP_PLACEMENT_ATTACHED,
+	NET_RECONNECT_PROP_PLACEMENT_ACTIVE,
+	NET_RECONNECT_PROP_PLACEMENT_PAUSED,
+} net_reconnect_prop_placement_e;
+
 /* Fresh connections remain byte-for-byte compatible with the historical
  * datum. Reconnect ids must be below null_client_id. Returns zero on invalid
  * input; protocol zero is never a valid shipping handshake. */
@@ -62,6 +83,15 @@ s32 netReconnectReasonIsRetryable(u32 reason, u32 timeout_reason);
 net_reconnect_disconnect_plan_t netReconnectPlanServerDisconnect(
 	u32 transport_reason, s32 server_intent_pending,
 	u32 server_intent_reason);
+
+/* Plan one authoritative player-state transition without mutating gameplay.
+ * applying_snapshot is true only while consuming the ordered reconnect
+ * snapshot between WORLD end and RECONNECT commit. */
+net_reconnect_player_state_action_e netReconnectPlanPlayerState(
+	s32 local_dead, s32 authoritative_dead, s32 applying_snapshot);
+
+net_reconnect_prop_placement_e netReconnectPlanPropPlacement(
+	s32 has_parent, s32 wire_active);
 
 /* Reconnect publishes durable authority state, not objects that have already
  * entered terminal teardown. A deleting setup object that can regenerate is

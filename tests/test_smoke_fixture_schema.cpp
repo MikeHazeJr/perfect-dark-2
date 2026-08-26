@@ -59,6 +59,19 @@ TEST_CASE("smoke event schema rejects known fields on incompatible event types",
 		&unsupported));
 	REQUIRE(smokeFixtureEventFieldsValid("network_timeout_client",
 		common | SMOKE_FIXTURE_FIELD_CLIENT_ID, &unsupported));
+	REQUIRE(smokeFixtureEventFieldsValid("network_retire_held_weapon",
+		common | SMOKE_FIXTURE_FIELD_CLIENT_ID | SMOKE_FIXTURE_FIELD_HAND,
+		&unsupported));
+	REQUIRE(smokeFixtureEventFieldsValid(
+		"network_assert_retired_prop_absent", common, &unsupported));
+	REQUIRE_FALSE(smokeFixtureEventFieldsValid(
+		"network_assert_retired_prop_absent",
+		common | SMOKE_FIXTURE_FIELD_CLIENT_ID, &unsupported));
+	REQUIRE(unsupported == SMOKE_FIXTURE_FIELD_CLIENT_ID);
+	REQUIRE_FALSE(smokeFixtureEventFieldsValid("network_timeout_client",
+		common | SMOKE_FIXTURE_FIELD_CLIENT_ID | SMOKE_FIXTURE_FIELD_HAND,
+		&unsupported));
+	REQUIRE(unsupported == SMOKE_FIXTURE_FIELD_HAND);
 	REQUIRE(smokeFixtureEventFieldsValid("network_reconnect", common,
 		&unsupported));
 	REQUIRE_FALSE(smokeFixtureEventFieldsValid("network_reconnect",
@@ -71,6 +84,20 @@ TEST_CASE("smoke event schema rejects known fields on incompatible event types",
 	REQUIRE_FALSE(smokeFixtureEventFieldsValid("typo", common, &unsupported));
 }
 
+TEST_CASE("smoke event type admission never truncates known or oversized tokens",
+	"[smoke][schema][b1088][b1096]")
+{
+	const std::string longest_known =
+		"network_assert_retired_prop_absent";
+
+	REQUIRE(longest_known.size() == 34);
+	REQUIRE(smokeFixtureEventTypeLengthValid(longest_known.size()));
+	REQUIRE(smokeFixtureEventTypeLengthValid(
+		SMOKE_FIXTURE_EVENT_TYPE_CAPACITY - 1u));
+	REQUIRE_FALSE(smokeFixtureEventTypeLengthValid(
+		SMOKE_FIXTURE_EVENT_TYPE_CAPACITY));
+}
+
 TEST_CASE("smoke event field names resolve to one stable typed bit",
 	"[smoke][schema][b1088]")
 {
@@ -80,6 +107,8 @@ TEST_CASE("smoke event field names resolve to one stable typed bit",
 		SMOKE_FIXTURE_FIELD_COMMENT);
 	REQUIRE(smokeFixtureEventFieldFromName("client_id") ==
 		SMOKE_FIXTURE_FIELD_CLIENT_ID);
+	REQUIRE(smokeFixtureEventFieldFromName("hand") ==
+		SMOKE_FIXTURE_FIELD_HAND);
 	REQUIRE(smokeFixtureEventFieldFromName("typo") == 0);
 	REQUIRE(std::string(smokeFixtureEventFieldName(
 		SMOKE_FIXTURE_FIELD_ASSIST_ACTION)) == "assist_action");

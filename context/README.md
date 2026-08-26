@@ -65,8 +65,53 @@ The canonical context source is this `context/` tree. Parent-level briefing file
   two-match/Play Again lifecycle 55/55 and preserves the invitee-authority route
   170/170 with no watchdog repair. The integrated 210/218
   B-1085/V-009 fixture remains separately rejected only because this desktop
-  exposes no foreground HWND. The next default work is the broader
-  T-ENGINE-004 base-game lifecycle gap audit, not more D-003 route work.
+  exposes no foreground HWND. The current closure unit is B-1096/B-1097. Its
+  first frozen automation batch passes focused 468/15, complete 66,705/1,204,
+  and the native-source guard, while the sole ordinary run is retained and
+  rejected at 101/105. That run proved reciprocal Cyclone attachment, the real
+  deleting/non-regenerating transition, and the wider reconnect/gameplay/
+  teardown transaction, then disproved the gate's demand to keep the dead prop
+  resident. A bounded Luna xhigh audit confirmed normal cleanup should fully
+  retire the sync ID before PREPARE and a pristine receiver should remove zero
+  dynamic counterparts. Corrected source now captures the selected sync ID,
+  checks its completed authority-pool retirement read-only before reconnect,
+  and requires `terminal_absent=0`, `removed=0`, exact world/inventories, one
+  commit, and resumed authority fire. The first corrected batch passed 477/15,
+  66,714/1,204, and the native-source guard, but its runtime attempt stopped
+  before listener publication because the 34-character event name exposed an
+  existing 31-character parser buffer. Shared schema/harness source now admits
+  complete event tokens up to 63 characters and rejects longer tokens before
+  copy. The parser-safe refreeze then passed focused 483/16, complete
+  66,720/1,205, the native-source guard, and zero product/verifier drift on
+  exact client `5AEC7918...`. Its ordinary receipt
+  `results-20260826T111558Z.json` is retained and rejected at 93/109: it proves
+  the selected authority prop absent before auth, pristine receiver
+  `removed=0`, exact world and both inventories, and one reconnect commit, then
+  the client crashes in `objTickPlayer` before restored fire. Source tracing
+  shows reconnect snapshot stats replay the historical dead state through
+  `playerDieByShooter`, which performs live score/drop/prop side effects after
+  exact snapshot restoration. Current source now uses a pure typed planner to
+  distinguish live player-state events from the ordered reconnect snapshot and
+  shares dead-state presentation through a snapshot entry point that suppresses
+  score/killfeed, item-drop, owner-cleanup, menu/HUD, and lifetime side effects.
+  The same failure exposed a separate intrusive-link defect: dynamic spawn
+  receive assigned `prop.next/prev` to the scheduler and then reused those links
+  for a parent-child chain. A Luna xhigh audit confirmed the class. Current
+  source prunes stale sync-ID-zero held weapons before authoritative adoption,
+  constructs rows off-list, commits exactly one attached/active/paused topology,
+  validates scheduler membership on writer, receiver, and transaction end, and
+  emits `topology=exclusive`. Focused contracts and the ordinary fixture require
+  both that topology witness and exactly one `live_side_effects=0` witness before
+  commit. The isolated client/updater/tests builds and restarted frozen batch
+  now pass focused 718/20, complete 66,960/1,209, and the native-source guard on
+  exact product `1C184C57...` / client `8262681E...` and verifier `E0FA8E6A...`
+  / tests `A9B1ADAA...`, with zero manifest drift. The earlier stale-test-binary
+  receipt is retained and rejected. The unchanged-source ordinary reconnect
+  receipt `results-20260826T121959Z.json` now passes 116/116 with one authority
+  retirement/absence, snapshot `live_side_effects=0`, exclusive topology,
+  exact world and both inventories, one commit, 30 authority-accepted Cyclone
+  shots, clean exits, and no leaked process. B-1096/B-1097 are regression
+  gates; broader T-ENGINE-004 and Milestone 1 remain partial.
 - **Long-term roadmap**: [roadmap.md](roadmap.md).
 
 ---

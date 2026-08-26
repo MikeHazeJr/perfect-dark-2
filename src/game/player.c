@@ -7138,7 +7138,8 @@ void playerDie(bool force)
 	}
 }
 
-void playerDieByShooter(u32 shooter, bool force)
+static bool playerApplyDeadState(u32 shooter, bool force,
+		bool replay_live_event)
 {
 #if VERSION >= VERSION_NTSC_1_0
 	if (!g_Vars.currentplayer->isdead && (force || !g_Vars.currentplayer->invincible))
@@ -7146,20 +7147,22 @@ void playerDieByShooter(u32 shooter, bool force)
 	if (!g_Vars.currentplayer->isdead && (force || !g_Vars.currentplayer->invincible || !g_Vars.currentplayer->training))
 #endif
 	{
-		u32 prevplayernum = g_MpPlayerNum;
-		g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
-		func0f0f8120();
-		g_MpPlayerNum = prevplayernum;
+		if (replay_live_event) {
+			u32 prevplayernum = g_MpPlayerNum;
+			g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
+			func0f0f8120();
+			g_MpPlayerNum = prevplayernum;
 
-		hudmsgsRemoveForDeadPlayer(g_Vars.currentplayernum);
+			hudmsgsRemoveForDeadPlayer(g_Vars.currentplayernum);
 
-		if (g_Vars.mplayerisrunning) {
-			mpstatsRecordDeath(shooter, g_Vars.currentplayernum);
+			if (g_Vars.mplayerisrunning) {
+				mpstatsRecordDeath(shooter, g_Vars.currentplayernum);
+			}
 		}
 
 		chrUncloak(g_Vars.currentplayer->prop->chr, true);
 
-		if (g_Vars.mplayerisrunning &&
+		if (replay_live_event && g_Vars.mplayerisrunning &&
 				(g_Vars.antiplayernum < 0
 				 || g_Vars.currentplayernum != g_Vars.antiplayernum
 				 || shooter != g_Vars.antiplayernum)) {
@@ -7178,7 +7181,7 @@ void playerDieByShooter(u32 shooter, bool force)
 		 * propsReset alongside g_PlayersDetonatingMines. owner_lost_behavior
 		 * (disconnect) collapses onto this hook because the net layer kills
 		 * the chr on disconnect. */
-		{
+		if (replay_live_event) {
 			s32 cleanupindex;
 
 			if (g_Vars.normmplayerisrunning) {
@@ -7210,12 +7213,32 @@ void playerDieByShooter(u32 shooter, bool force)
 		bmoveSetMode(MOVEMODE_WALK);
 		bgunHandlePlayerDead();
 
-		if (playerGetMissionTime() - g_Vars.currentplayer->lifestarttime60 < g_Vars.currentplayerstats->shortestlife) {
-			g_Vars.currentplayerstats->shortestlife = playerGetMissionTime() - g_Vars.currentplayer->lifestarttime60;
+		if (replay_live_event) {
+			if (playerGetMissionTime() - g_Vars.currentplayer->lifestarttime60 < g_Vars.currentplayerstats->shortestlife) {
+				g_Vars.currentplayerstats->shortestlife = playerGetMissionTime() - g_Vars.currentplayer->lifestarttime60;
+			}
+
+			g_Vars.currentplayer->lifestarttime60 = playerGetMissionTime();
 		}
 
-		g_Vars.currentplayer->lifestarttime60 = playerGetMissionTime();
+		return true;
 	}
+
+	return false;
+}
+
+void playerDieByShooter(u32 shooter, bool force)
+{
+	playerApplyDeadState(shooter, force, true);
+}
+
+bool playerRestoreDeadStateFromSnapshot(void)
+{
+	/* A reconnect snapshot describes state that already became authoritative
+	 * on the server. Apply the dead presentation, but do not replay the live
+	 * event that produced it: no score/killfeed, inventory drop, owner cleanup,
+	 * menu/HUD retirement, or lifetime metric mutation. */
+	return playerApplyDeadState(g_Vars.currentplayernum, true, false);
 }
 
 void playerCheckIfShotInBack(s32 attackerplayernum, f32 x, f32 z)

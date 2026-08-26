@@ -2865,6 +2865,91 @@ gates must forbid pre-stage entity packets and false resync loops.
 
 ---
 
+## SP-72: Snapshot restoration replays the live event that originally produced the state
+
+**Severity: CRITICAL - an exact authoritative snapshot can mutate already
+restored ownership, scores, inventory, or lifecycle state a second time.**
+
+An ordinary replication message often represents both a durable state bit and
+the live event transition that produced it. Reusing that handler inside a
+restart/reconnect snapshot is unsafe when the live path also scores, drops
+items, retires entities, emits UI, raises cleanup work, or updates metrics. A
+snapshot must restore the authority's current state without replaying historical
+causes. Put the classification in a pure planner, share only state/presentation
+application, and keep event side effects behind an explicit live-event entry
+point.
+
+**Known instance (B-1096):** after reconnect restored an exact world and both
+inventories, snapshot `SVC_PLAYER_STATS` carried the authority's dead bit through
+`playerDieByShooter`. That live path recorded a death, dropped inventory, raised
+owner cleanup, and marked held weapon props deleting. The replayed cleanup then
+reached a separately corrupted prop topology (SP-73),
+and the client faulted in `objTickPlayer` at `propobj.c:12824` before restored
+fire. A null guard would hide the ownership violation and retain corrupted
+lifecycle state.
+
+**Production-verified correction:** the reconnect layer purely plans live death
+versus snapshot death. Both paths share dead
+presentation, but snapshot restoration omits score/killfeed, drop, owner
+cleanup, menu/HUD retirement, and lifetime metrics. The ordered transaction
+emits one explicit zero-live-side-effects witness before commit. Behavioral and
+static tests pin the planner and production dispatch. Exact ordinary-client
+receipt `results-20260826T121959Z.json` passes 116/116 with exactly one snapshot
+application reporting zero drops, score, owner cleanup, and other live side
+effects before one exact commit, resumed authority-accepted fire, and clean
+exits.
+
+**Audit:** for every save load, reconnect, checkpoint, Theater seek, rollback,
+or replay restore, list each handler that normally emits gameplay events. Split
+durable state application from scoring, spawning/dropping, deletion, UI/audio,
+cleanup queues, achievements, telemetry, and metrics. Require idempotent restore
+tests and a runtime witness that historical side effects remain zero.
+
+`rg -n "Snapshot|snapshot|Restore|restore|Replay|replay|playerDie|RecordDeath|DropAll|CleanupPending" src port tests`
+
+---
+
+## SP-73: One intrusive link pair is published into multiple ownership domains
+
+**Severity: CRITICAL - a child can remain scheduler-visible after its object is
+freed, corrupt iteration, or splice unrelated ownership chains together.**
+
+`struct prop` uses one `next/prev` pair for the active/paused scheduler and for a
+parent's child chain. A prop must therefore be off-list before reparenting, and
+an attached prop must have zero scheduler membership. Constructors and wire
+decoders must not publish map, scheduler, room, or parent ownership until the
+complete candidate is valid; commit exactly one topology and validate it at
+authority serialization and receiver transaction boundaries.
+
+**Known instance (B-1096):** `netmsgSvcPropSpawnRead` activated or paused a new
+dynamic prop, then called `propReparent` when the wire supplied a parent. The
+second operation silently reused the scheduler links for child ownership. A
+later reconnect snapshot replayed live death cleanup (SP-72), freed the object,
+and exposed the still scheduler-visible prop in `objTickPlayer`.
+
+**Production-verified correction:** reconnect begin removes sync-ID-zero local
+held-weapon children before authoritative adoption. Dynamic
+spawn rows are constructed off-list, then commit exactly one attached, active,
+or paused placement; the sync-ID map publishes last. A bounded scheduler walk
+rejects foreign pointers, cycles, duplicate membership, parented membership, or
+missing parentless membership on authority write, receiver publication, and
+reconnect end. The transaction emits `topology=exclusive`. Exact ordinary-client
+receipt `results-20260826T121959Z.json` passes 116/116 with one exclusive-
+topology witness, exact world/inventory restoration, resumed authority-accepted
+fire, and clean exits. A propagation audit of all 18 `propReparent` sites found
+the network spawn reader as the direct
+scheduler-before-reparent violation; common AI, graph, pickup, and tick-operation
+paths delist first or use fresh off-list constructors.
+
+**Audit:** before every `propReparent`, prove `propDelist` or fresh off-list
+construction. Before every scheduler insertion, prove `parent == NULL`. For
+wire/save/Theater reconstruction, parse and validate before publication, publish
+one ownership domain, and test failure cleanup plus idempotent reapplication.
+
+`rg -n -C 8 "propReparent|propActivate|propPause|propDelist|propDetach|next|prev" src port tests`
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

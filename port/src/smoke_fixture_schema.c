@@ -37,6 +37,7 @@ static const smoke_fixture_field_entry_t k_event_fields[] = {
 	{ "wheel_y", SMOKE_FIXTURE_FIELD_WHEEL_Y },
 	{ "comment", SMOKE_FIXTURE_FIELD_COMMENT },
 	{ "client_id", SMOKE_FIXTURE_FIELD_CLIENT_ID },
+	{ "hand", SMOKE_FIXTURE_FIELD_HAND },
 };
 
 static void smokeJsonSkipWhitespace(smoke_json_cursor_t *cursor)
@@ -298,6 +299,11 @@ const char *smokeFixtureEventFieldName(smoke_fixture_field_mask_t field)
 	return "unknown";
 }
 
+int smokeFixtureEventTypeLengthValid(size_t length)
+{
+	return length < SMOKE_FIXTURE_EVENT_TYPE_CAPACITY;
+}
+
 int smokeFixtureEventTypeKnown(const char *type)
 {
 	static const char *const types[] = {
@@ -305,7 +311,9 @@ int smokeFixtureEventTypeKnown(const char *type)
 		"receive_pdca_list", "agent_activate", "agent_delete",
 		"catalog_recovery_probe", "catalog_weapon_acquire",
 		"catalog_weapon_release", "key", "action", "mouse", "mouse_move",
-		"mouse_wheel", "network_timeout_client", "network_reconnect",
+		"mouse_wheel", "network_retire_held_weapon",
+		"network_assert_retired_prop_absent",
+		"network_timeout_client", "network_reconnect",
 	};
 
 	if (!type) {
@@ -329,11 +337,16 @@ smoke_fixture_field_mask_t smokeFixtureEventAllowedFields(const char *type)
 	}
 	if (!type[0] || !strcmp(type, "wait") || !strcmp(type, "exit")
 			|| !strcmp(type, "unclean_exit")
+			|| !strcmp(type, "network_assert_retired_prop_absent")
 			|| !strcmp(type, "network_reconnect")) {
 		return common;
 	}
 	if (!strcmp(type, "network_timeout_client")) {
 		return common | SMOKE_FIXTURE_FIELD_CLIENT_ID;
+	}
+	if (!strcmp(type, "network_retire_held_weapon")) {
+		return common | SMOKE_FIXTURE_FIELD_CLIENT_ID
+			| SMOKE_FIXTURE_FIELD_HAND;
 	}
 	if (!strcmp(type, "wait_until")) {
 		return common | SMOKE_FIXTURE_FIELD_CONDITION

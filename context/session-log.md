@@ -1,5 +1,117 @@
 # Session Log (Active)
 
+## 2026-08-26 - B-1096/B-1097 authoritative-retirement reconnect closure accepted
+
+Milestone 1 remains 2 validated, 8 partial, and 5 missing. The accepted current
+v58 reconnect receipt at
+`.claude/smoke-verify-runs/results-20260826T082557Z.json` remains strong evidence
+for two stage epochs, one endpoint-scoped retry, exact world and both
+inventories, one post-load commit, authority-accepted Cyclone fire, clean
+exits, and credential retirement. It is not B-1096/B-1097 closure evidence:
+the retained host PREPARE reports `terminal_absent=0` and
+`first_terminal_absent=0`, so no authority-deleted object was reconciled.
+
+Historical tracing confirms the intended state is the departing player's
+attached held weapon after the shared weapon lifecycle marks it deleting. The
+first verifier added a generic `network_retire_held_weapon` event keyed by
+stable client ID and typed hand. It validates the live GAME/stage-ready binding,
+dynamic identity, reciprocal parent/model/hand attachment, non-regenerating
+prestate, and pre-transition serializability before calling
+`weaponDeleteFromChr`. Stable equal-time ordering calls that lifecycle and the
+real timeout with no intervening game tick. Isolated client/updater/tests builds
+passed on exact client `BD0F9DAC...` and tests `51AD00D5...`; focused coverage
+passed 468 assertions in 15 cases, the complete suite passed 66,705 assertions
+in 1,204 cases, and the native-source guard passed. The 2,734-file product and
+410-file verifier sets remained byte-exact to their pre-build freeze.
+
+The sole ordinary reconnect run is retained at
+`.claude/smoke-verify-runs/results-20260826T104217Z.json` and rejected at
+101/105. The host event proved dynamic Cyclone prop 3 had the reciprocal player
+parent and both model attachment pointers, then entered the shared
+`weaponDeleteFromChr` deleting/non-regenerating state before the real timeout.
+All broader reconnect contracts passed: retryable reservation and credential,
+one stage replay, exact authoritative world and both inventories, one commit,
+authority-accepted Cyclone fire, clean exits, and final credential retirement.
+Normal prop cleanup fully freed prop 3 during the 1.25-second interval before
+PREPARE. The authority consequently reported `terminal_absent=0`; the freshly
+loaded client had no preexisting dynamic counterpart and correctly reported
+`removed=0` with `exact_set=1`. Luna xhigh's bounded read-only audit independently
+confirmed the four failed assertions were stale: preserving the prop would risk
+leaks and stale references, while receiver `removed>0` would reward stale
+preexisting state.
+
+Corrected source now captures the exact selected sync ID at the production
+retirement transition. A later fieldless event performs one read-only scan of
+the authority prop pool after ordinary game ticks and before reconnect auth,
+failing unless normal cleanup has removed that ID. The parent gate now requires
+this absence witness, PREPARE `terminal_absent=0`/`first_terminal_absent=0`, a
+pristine receiver with `removed=0`/`detached=0`, exact world and both inventories,
+one commit, resumed authority fire, and clean teardown. It neither delays
+cleanup nor mutates reconnect packets, counters, or receiver state. JSON and
+diff checks pass. This correction is source-connected but unverified; one
+refrozen automation batch and one replacement ordinary-client smoke remain.
+
+That first corrected batch passed focused 477 assertions/15 cases, complete
+66,714/1,204, and the native-source guard with zero product/verifier drift. The
+replacement runtime attempt is retained at
+`.claude/smoke-verify-runs/results-20260826T110651Z.json` and rejected before
+listener publication or any peer launch. The 34-character
+`network_assert_retired_prop_absent` token exposed the harness's existing
+31-character event-type buffer; it was silently truncated and rejected as
+unknown. This is parser evidence only, not reconnect evidence. Shared
+schema/harness source now owns a 64-byte token capacity, admits the complete
+known name, behavior-tests the 63/64 boundary, and rejects overlong tokens before
+copy. One refrozen consolidated batch and one replacement ordinary smoke remain.
+
+The parser-safe refreeze then passed focused 483/16, complete 66,720/1,205,
+the native-source guard, and zero manifest drift on exact client `5AEC7918...`.
+Its ordinary receipt `results-20260826T111558Z.json` is retained and rejected at
+93/109. It proves authority retirement and read-only absence before auth, a
+pristine exact world, both exact inventories, and one reconnect commit, then the
+client faults in `objTickPlayer` before restored fire. Source tracing shows
+snapshot `SVC_PLAYER_STATS` replayed the authority's historical dead bit through
+the live `playerDieByShooter` event, re-recording death and retiring restored
+ownership. Current source separates live death from side-effect-free snapshot
+state restoration through a pure reconnect planner and a shared presentation
+boundary. It emits one `live_side_effects=0` witness before commit.
+
+Luna xhigh agent `01a03dc9-316c-76c0-bf81-22ccee483086` independently confirmed
+that root and proved a companion ownership defect: the old dynamic spawn reader
+called `propActivate`/`propPause` before `propReparent`, assigning the shared
+`next/prev` fields to two intrusive-link domains. Sol integrated transactional
+off-list adoption, sync-ID-zero local held-weapon pruning, an exclusive attached/
+active/paused placement planner, authority/receiver/end membership checks, and
+the `topology=exclusive` witness. The propagation audit covered all 18
+`propReparent` sites and found this network path as the direct scheduler-before-
+reparent violation; common producers delist first or start off-list.
+
+The frozen automation gate is now accepted. `Target all` first left the old
+`pd-tests.exe` in place; its 393/14 focused pass and stale full-suite failures
+are retained and explicitly rejected. A queued `Target tests` rebuild produced
+tests `A9B1ADAA...`, after which the single restarted batch passed focused
+718/20, complete 66,960/1,209, and the native-source guard. Exact product
+`1C184C57...` (2,734 files) / client `8262681E...` and verifier `E0FA8E6A...`
+(410 files) remained byte-identical before and after automation. This upgrades
+automation only. The next and only runtime action is one unchanged-source
+ordinary reconnect smoke; T-ENGINE-004 and Milestone 1 remain partial.
+
+That sole unchanged-source production run is accepted at
+`.claude/smoke-verify-runs/results-20260826T121959Z.json`: 116/116 on exact
+client `8262681E...` and definition `2A395F68...`, with exit code 0, no assertion
+or operational failure, and no remaining PerfectDark/pd-tests/WerFault process.
+The listen authority retires the reciprocally attached Cyclone through
+`weaponDeleteFromChr`, then a read-only scan proves the exact sync ID absent
+after ordinary cleanup. The same stable client performs one endpoint-scoped
+retry; the pristine receiver reports `removed=0`, adopts one exclusive prop
+topology, restores the exact world and both inventories, applies historical
+dead state once with `live_side_effects=0`, and commits once. The resumed client
+fires 30 real Cyclone shots and the authority records `server_accepted=1` before
+both scripted exits and final credential retirement. Product `1C184C57...`,
+verifier `E0FA8E6A...`, and client `8262681E...` remain exact with zero
+post-smoke manifest differences. B-1096/B-1097 and SP-60/SP-61/SP-72/SP-73 are
+now regression gates. T-ENGINE-004 and Milestone 1 remain partial for the
+broader base-game lifecycle matrix.
+
 ## 2026-08-26 - B-1076 Combat Simulator menu-owner closure
 
 Milestone 1 remains 2 validated, 8 partial, and 5 missing. B-1076 is now a
@@ -6094,3 +6206,44 @@ distribution receipts remain T-ASSETS-025. Durable detail:
   polish moved to post-1.0. T-MODINFRASTRUCTURE-003 remains a 1.0 gate so
   AllInOne content is separated from base-game authority.
 - No runtime source changed and no build or gameplay verification was claimed.
+## 2026-08-26 - B-1096/B-1097 parser-safe reconnect receipt exposes snapshot death replay
+
+The final parser-safe source freeze passed isolated client/updater/tests builds,
+focused 483 assertions in 16 cases, complete `pd-tests` at 66,720 assertions in
+1,205 cases, the native-source guard, and zero 2,734-product/410-verifier file
+drift. Exact client is `5AEC7918E12ABF1057A05457E6D17085D13B1C56C273A67F41C3C3DC0D657649` and
+tests are `2674C22A89A0EA96AAFAA61DE872C51948E85AD95DD6810B651FE8D039F3FB05`.
+
+The sole ordinary receipt `.claude/smoke-verify-runs/results-20260826T111558Z.json`
+is retained and rejected at 93/109 with zero operational failures. It proves
+the exact authority-held Cyclone prop entered production deletion, disappeared
+read-only before reconnect auth, stayed absent from PREPARE, required no stale
+receiver removal, restored the exact world and both inventories, and committed
+once. The ordinary client then faults before restored fire at
+`objTickPlayer` (`src/game/propobj.c:12824`), where an active typed object prop
+has `prop->obj == NULL`.
+
+Static tracing identifies the architectural boundary: reconnect snapshot stats
+carry the authority's historical dead bit through the generic live
+`playerDieByShooter` path. That path records a death, drops inventory, raises
+owner cleanup, and retires held props after the exact reconnect world/inventory
+transaction has already restored ownership. A Luna xhigh sidecar is auditing
+the same lifecycle read-only while Sol implements one pure reconnect
+player-state planner and a shared player death transition with a
+side-effect-free snapshot mode. No null guard, delayed cleanup, or smoke-only
+mutation is accepted. One refrozen consolidated automation batch and one
+replacement ordinary-client smoke remain; T-ENGINE-004/B-1096/B-1097 and
+Milestone 1 stay partial.
+
+The structural correction is now source-connected and remains unverified. A
+pure `netReconnectPlanPlayerState()` contract classifies unchanged state, live
+death, reconnect-snapshot death, and start-new-life transitions without
+gameplay mutation. `netmsgSvcPlayerStatsRead()` selects snapshot restoration
+only inside the ordered reconnect transaction after exact world completion and
+before commit. `playerApplyDeadState()` owns shared dead presentation, while
+`playerRestoreDeadStateFromSnapshot()` suppresses score/killfeed, item drop,
+owner cleanup, menu/HUD retirement, and lifetime metrics; ordinary live death
+retains its prior behavior. Behavioral, static, and smoke contracts require one
+`NET.RECONNECT.PLAYER_STATE ... live_side_effects=0 drops=0 score=0
+owner_cleanup=0` witness between exact inventory restore and commit. No build,
+test, native-source guard, or replacement runtime pass is claimed yet.

@@ -75,6 +75,41 @@ sixth work queue.
 
 ## Milestone 1: complete base game and graphs
 
+Current in-progress unit: T-ENGINE-004/B-1096/B-1097. The strengthened gate
+uses production `weaponDeleteFromChr`, captures the selected sync ID, proves
+normal authority cleanup removed it before reconnect auth, and requires a
+pristine receiver (`terminal_absent=0`, `removed=0`) rather than retaining dead
+state or manufacturing removal. The parser-safe refreeze passed isolated
+builds, focused 483/16, complete 66,720/1,205, native-source guard, and zero
+drift on exact client `5AEC7918...` and tests `2674C22A...`.
+
+The ordinary receipt `results-20260826T111558Z.json` is retained and rejected
+at 93/109 with zero operational failures. It proves reciprocal Cyclone
+attachment, deleting/non-regenerating retirement, the exact read-only absence
+witness, real timeout/retry, pristine exact world, both exact inventories, and
+one reconnect commit. Immediately afterward the client faults at
+`objTickPlayer` (`src/game/propobj.c:12824`) because an active object prop has a
+null `obj`. The reconnect snapshot applies its authoritative dead bit through
+the generic live `playerDieByShooter` path, which records a death, drops items,
+and retires held props after the exact snapshot has already restored world and
+inventory ownership. Current source now routes that bit through a pure typed
+player-state planner and one shared death-state application boundary. Live
+replication retains the original event behavior; ordered snapshot restoration
+applies dead presentation while suppressing score/killfeed, item drop, owner
+cleanup, menu/HUD retirement, and lifetime metrics.
+
+Luna xhigh also proved an independent intrusive-link ownership defect: dynamic
+spawn receive inserted a new prop into the scheduler before reusing its shared
+`next/prev` links for a parent-child chain. Current source prunes stale sync-ID-
+zero held weapons, constructs authoritative rows off-list, commits exactly one
+attached/active/paused topology, and validates scheduler membership at writer,
+receiver, and transaction end. Behavioral/static contracts and the ordinary
+fixture require one `live_side_effects=0` witness plus `topology=exclusive`
+before commit. The source unit is implemented but unverified. One refrozen
+consolidated build/focused/full/guard batch and one replacement ordinary-client
+smoke remain before promotion; no null guard, cleanup delay, or smoke-only
+lifecycle mutation qualifies.
+
 Current completed unit: T-ENGINE-004/B-1076. `mpStartMatch` is now the single
 Combat Simulator stage-request owner and releases the complete menu/input pool
 before stage publication for offline, listen-authority, and receiving-client
@@ -147,7 +182,7 @@ Runtime ROM/RomProvider fallback after extraction is an asset-chain failure trac
 | T-RUNTIME-001 | partial | Every accepted public source and graph drives production with no hidden native, loose, or ROM fallback. |
 | T-MODDING-002 | partial | Every accepted base weapon/projectile/entity graph deliberately selects its production behavior with parity proof. |
 | T-MODINFRASTRUCTURE-003 | missing | Remove AllInOne content from base authority and retain it only as optional typed mods. |
-| T-ENGINE-004 | partial | Accepted regression gates retain ordinary listen-host, generated-audit, prior two-cycle Combat Simulator, D-003 rollback, both authority-first friend-play roles (214/214 initiator and 218/218 invitee), and the B-1099 ordinary reconnect production path. Exact reconnect product `7437d77c...` / client `0f377e3e...` retains its 98/98 corrected log proof. Candidate-first player/network allocation, exact Campaign identity and complete-body preflight, typed stage abort, reversible chrbody creation, scheduler-correct Eyespy ownership, and shared transient defaults retain Air Base 25/25 and full Campaign plus restart 23/23 on client `2fc37b38...`. B-1101's bounded decoder and explicit-target followup retain one isolated source-frozen build, focused 2,007/33, full 64,681/1,181, and the native-source guard on product `9592a63d...` (2,715/0 mismatches), verifier `c76aadc8...` (401/0), client `A0F46D54...`, and tests `B4D51B51...`. The exact replacement smoke rejected at 16/56 under B-1102 after schema-v5 reconstruction omitted all per-part flags and the fallback cleared animation ownership before CHRINFO. B-1102 now writes every flags discriminant, validates exact complete streams and rejects trailing bytes, parses canonical range-checked integer/boolean tokens across the full-u32 frame domain, preserves declared topology through explicit zero-frame placeholders, bumps only animation caches to v8, verifies optimized-consumer advancement, and re-enters bind pose with a null-safe scale without mutating `model->anim`. Luna's completed integrated audit found and Sol corrected all four residual edge gaps; production-linked pure JSON fixtures exercise scalar behavior rather than only source strings. The isolated source-frozen client/updater/tests build, focused 2,057/27, full 65,073/1,186, native-source guard, and unchanged product `e6287a9c...` / verifier `ad7c38f9...` manifests pass. Exact client `133A55C6...` then passes the sole replacement two-cycle Combat Simulator receipt 56/56 with real fire/hit, both stats/award cycles, Play Again, clean exit, zero decoder/crash matches, and no leaked process. B-1101/B-1102 are regression gates. B-1076 now centralizes pre-publication Combat Simulator menu/input teardown in `mpStartMatch`; exact client `04DB220E...` passes the ordinary two-cycle graph/Play Again lifecycle 55/55 and the invitee-authority route regression 170/170, with focused 275/4, full 66,690/1,204, native-source guard, and isolated builds retained. T-ENGINE-004 remains partial pending its next broader lifecycle closure audit. |
+| T-ENGINE-004 | partial | Accepted regression gates retain ordinary listen-host, generated-audit, prior two-cycle Combat Simulator, D-003 rollback, both authority-first friend-play roles (214/214 initiator and 218/218 invitee), and the B-1099 ordinary reconnect production path. Exact reconnect product `7437d77c...` / client `0f377e3e...` retains its 98/98 corrected log proof. Candidate-first player/network allocation, exact Campaign identity and complete-body preflight, typed stage abort, reversible chrbody creation, scheduler-correct Eyespy ownership, and shared transient defaults retain Air Base 25/25 and full Campaign plus restart 23/23 on client `2fc37b38...`. B-1101's bounded decoder and explicit-target followup retain one isolated source-frozen build, focused 2,007/33, full 64,681/1,181, and the native-source guard on product `9592a63d...` (2,715/0 mismatches), verifier `c76aadc8...` (401/0), client `A0F46D54...`, and tests `B4D51B51...`. The exact replacement smoke rejected at 16/56 under B-1102 after schema-v5 reconstruction omitted all per-part flags and the fallback cleared animation ownership before CHRINFO. B-1102 now writes every flags discriminant, validates exact complete streams and rejects trailing bytes, parses canonical range-checked integer/boolean tokens across the full-u32 frame domain, preserves declared topology through explicit zero-frame placeholders, bumps only animation caches to v8, verifies optimized-consumer advancement, and re-enters bind pose with a null-safe scale without mutating `model->anim`. Luna's completed integrated audit found and Sol corrected all four residual edge gaps; production-linked pure JSON fixtures exercise scalar behavior rather than only source strings. The isolated source-frozen client/updater/tests build, focused 2,057/27, full 65,073/1,186, native-source guard, and unchanged product `e6287a9c...` / verifier `ad7c38f9...` manifests pass. Exact client `133A55C6...` then passes the sole replacement two-cycle Combat Simulator receipt 56/56 with real fire/hit, both stats/award cycles, Play Again, clean exit, zero decoder/crash matches, and no leaked process. B-1101/B-1102 are regression gates. B-1076 now centralizes pre-publication Combat Simulator menu/input teardown in `mpStartMatch`; exact client `04DB220E...` passes the ordinary two-cycle graph/Play Again lifecycle 55/55 and the invitee-authority route regression 170/170, with focused 275/4, full 66,690/1,204, native-source guard, and isolated builds retained. The B-1096/B-1097 snapshot-safe/exclusive-topology unit is now a regression gate: exact client `8262681E...` passes the sole ordinary reconnect receipt 116/116 after isolated builds, focused 718/20, full 66,960/1,209, the native-source guard, and zero product `1C184C57...` / verifier `E0FA8E6A...` drift. T-ENGINE-004 stays partial for the broader base-game lifecycle matrix. |
 | T-TESTS-002 | validated | D-005 option A is production-proven: exact v2 plus optional INI migration to v3, complete-schema rejection, activation rollback, active-delete rejection, ordinary Agent Select, fail-closed invalid CLI, all 17 missions through live Credits, and second-client v3 persistence. Final full automation passes 57,277 assertions in 1,070 cases. |
 | T-VEHICLES-002 | missing | Complete hoverbike operation across input, physics, lifecycle, and applicable authority paths. |
 | T-TOOLING-003 | missing | Durable indexed release evidence instead of transient build-folder claims. |

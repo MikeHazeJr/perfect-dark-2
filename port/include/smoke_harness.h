@@ -26,6 +26,11 @@ extern "C" {
  *                Optional stable_ms requires continuous truth. The complete
  *                assist_action/assist_condition/assist_hold_ms tuple owns at
  *                most one bounded action hold and always releases it.
+ *   - network_retire_held_weapon: select one live player by stable client ID
+ *                and hand, then invoke the normal held-weapon retirement API.
+ *                Used to prove reconnect exact-set authoritative absence.
+ *   - network_assert_retired_prop_absent: read-only authority scan proving the
+ *                last fixture-retired sync ID completed normal prop cleanup.
  *   - exit    : scripted clean exit
  *   - key     : SDL_KEYDOWN / KEYUP
  *   - action  : actionmap press/release injected directly (focus-independent)

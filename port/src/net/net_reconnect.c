@@ -69,6 +69,36 @@ net_reconnect_disconnect_plan_t netReconnectPlanServerDisconnect(
 	return plan;
 }
 
+net_reconnect_player_state_action_e netReconnectPlanPlayerState(
+		s32 local_dead, s32 authoritative_dead, s32 applying_snapshot)
+{
+	const s32 was_dead = local_dead != 0;
+	const s32 is_dead = authoritative_dead != 0;
+
+	if (was_dead == is_dead) {
+		return NET_RECONNECT_PLAYER_STATE_NONE;
+	}
+	if (!is_dead) {
+		return NET_RECONNECT_PLAYER_STATE_START_NEW_LIFE;
+	}
+	return applying_snapshot
+		? NET_RECONNECT_PLAYER_STATE_SNAPSHOT_DEATH
+		: NET_RECONNECT_PLAYER_STATE_LIVE_DEATH;
+}
+
+net_reconnect_prop_placement_e netReconnectPlanPropPlacement(
+		s32 has_parent, s32 wire_active)
+{
+	if (has_parent) {
+		return wire_active
+			? NET_RECONNECT_PROP_PLACEMENT_INVALID
+			: NET_RECONNECT_PROP_PLACEMENT_ATTACHED;
+	}
+	return wire_active
+		? NET_RECONNECT_PROP_PLACEMENT_ACTIVE
+		: NET_RECONNECT_PROP_PLACEMENT_PAUSED;
+}
+
 s32 netReconnectWorldPropShouldSerialize(s32 pending_delete,
 		s32 can_regenerate)
 {

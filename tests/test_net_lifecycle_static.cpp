@@ -2994,6 +2994,127 @@ TEST_CASE("B-1096 reconnect snapshot preserves typed failure ownership",
 		std::string::npos);
 }
 
+TEST_CASE("B-1096 reconnect player snapshots restore state without replaying death",
+		  "[net][lifecycle][reconnect][player][static][b1064][b1096][b1097]")
+{
+	const std::string reconnect_header = read_text_file(
+		"port/include/net/net_reconnect.h");
+	const std::string reconnect_source = read_text_file(
+		"port/src/net/net_reconnect.c");
+	const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+	const std::string player_header = read_text_file(
+		"src/include/game/player.h");
+	const std::string player = read_text_file("src/game/player.c");
+	const std::string planner = function_definition_block(reconnect_source,
+		"net_reconnect_player_state_action_e netReconnectPlanPlayerState");
+	const std::string stats_read = function_definition_block(netmsg,
+		"u32 netmsgSvcPlayerStatsRead");
+	const std::string apply_dead = function_definition_block(player,
+		"static bool playerApplyDeadState");
+	const std::string live_death = function_definition_block(player,
+		"void playerDieByShooter");
+	const std::string snapshot_death = function_definition_block(player,
+		"bool playerRestoreDeadStateFromSnapshot");
+
+	REQUIRE(reconnect_header.find(
+		"typedef enum net_reconnect_player_state_action_e") !=
+		std::string::npos);
+	REQUIRE(planner.find("NET_RECONNECT_PLAYER_STATE_SNAPSHOT_DEATH") !=
+		std::string::npos);
+	REQUIRE(planner.find("NET_RECONNECT_PLAYER_STATE_LIVE_DEATH") !=
+		std::string::npos);
+	REQUIRE(stats_read.find(
+		"s_ReconnectPropReceive.complete") != std::string::npos);
+	REQUIRE(stats_read.find(
+		"playerRestoreDeadStateFromSnapshot()") != std::string::npos);
+	REQUIRE(stats_read.find(
+		"NET.RECONNECT.PLAYER_STATE client=%u dead=1 apply=snapshot live_side_effects=0 drops=0 score=0 owner_cleanup=0") !=
+		std::string::npos);
+	REQUIRE(player_header.find(
+		"bool playerRestoreDeadStateFromSnapshot(void)") !=
+		std::string::npos);
+
+	/* The shared state application keeps dead presentation identical. Only
+	 * the live entry point owns historical event effects. */
+	REQUIRE(apply_dead.find("if (replay_live_event)") !=
+		std::string::npos);
+	REQUIRE(apply_dead.find("mpstatsRecordDeath") != std::string::npos);
+	REQUIRE(apply_dead.find("currentPlayerDropAllItems") !=
+		std::string::npos);
+	REQUIRE(apply_dead.find("g_PlayersOwnerCleanupPending") !=
+		std::string::npos);
+	REQUIRE(apply_dead.find("bgunHandlePlayerDead") != std::string::npos);
+	REQUIRE(live_death.find(
+		"playerApplyDeadState(shooter, force, true)") != std::string::npos);
+	REQUIRE(snapshot_death.find(
+		"playerApplyDeadState(g_Vars.currentplayernum, true, false)") !=
+		std::string::npos);
+	REQUIRE(snapshot_death.find("mpstatsRecordDeath") == std::string::npos);
+	REQUIRE(snapshot_death.find("currentPlayerDropAllItems") ==
+		std::string::npos);
+}
+
+TEST_CASE("B-1096 reconnect prop adoption owns exactly one intrusive-link domain",
+		  "[net][lifecycle][reconnect][prop][static][b1064][b1096][b1097]")
+{
+	const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+	const std::string spawn_write = function_definition_block(netmsg,
+		"u32 netmsgSvcPropSpawnWrite");
+	const std::string spawn_read = function_definition_block(netmsg,
+		"u32 netmsgSvcPropSpawnRead");
+	const std::string begin_read = function_definition_block(netmsg,
+		"u32 netmsgSvcReconnectPropBeginRead");
+	const std::string end_read = function_definition_block(netmsg,
+		"u32 netmsgSvcReconnectPropEndRead");
+	const std::string membership = function_definition_block(netmsg,
+		"static s32 netmsgPropSchedulerMembershipCount");
+	const std::string prune = function_definition_block(netmsg,
+		"static u16 netmsgReconnectPruneLocalWeaponChildren");
+
+	REQUIRE(spawn_write.find("netReconnectPlanPropPlacement") !=
+		std::string::npos);
+	REQUIRE(spawn_write.find("netmsgPropSchedulerMembershipCount") !=
+		std::string::npos);
+	REQUIRE(membership.find("visited < g_Vars.maxprops") !=
+		std::string::npos);
+	REQUIRE(membership.find("return prop ? -1 : count") !=
+		std::string::npos);
+	REQUIRE(prune.find("child->syncid == 0") != std::string::npos);
+	REQUIRE(prune.find("child->type == PROPTYPE_WEAPON") !=
+		std::string::npos);
+	REQUIRE(prune.find("objFreePermanently(child->obj, true)") !=
+		std::string::npos);
+	REQUIRE(begin_read.find("netmsgReconnectPruneLocalWeaponChildren") !=
+		std::string::npos);
+
+	const size_t complete_payload = spawn_read.find(
+		"if (msgflags & (1 << 1))");
+	const size_t publish_boundary = spawn_read.find(
+		"Publish exactly one topology", complete_payload);
+	const size_t delist = spawn_read.find("propDelist(prop)", publish_boundary);
+	const size_t reparent = spawn_read.find("propReparent(prop, parent)", delist);
+	const size_t map_publish = spawn_read.find(
+		"netSyncIdMapSet(syncid, prop)", reparent);
+	REQUIRE(complete_payload != std::string::npos);
+	REQUIRE(publish_boundary != std::string::npos);
+	REQUIRE(delist != std::string::npos);
+	REQUIRE(reparent != std::string::npos);
+	REQUIRE(map_publish != std::string::npos);
+	REQUIRE(complete_payload < publish_boundary);
+	REQUIRE(publish_boundary < delist);
+	REQUIRE(delist < reparent);
+	REQUIRE(reparent < map_publish);
+	REQUIRE(spawn_read.find(
+		"NET_RECONNECT_PROP_PLACEMENT_INVALID") != std::string::npos);
+	REQUIRE(end_read.find("scheduler_membership != 0") !=
+		std::string::npos);
+	REQUIRE(end_read.find("scheduler_membership != 1") !=
+		std::string::npos);
+	REQUIRE(end_read.find("topology=exclusive") != std::string::npos);
+	REQUIRE(end_read.find("local_weapon_pruned=%u") !=
+		std::string::npos);
+}
+
 TEST_CASE("B-1097 character model clones preserve packed part lookup state",
 		  "[model][clone][net][reconnect][static][b1097]")
 {

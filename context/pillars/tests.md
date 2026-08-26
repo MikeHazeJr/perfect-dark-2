@@ -315,6 +315,55 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
   receipt vocabulary. B-1076 is a regression gate; broader T-ENGINE-004 and
   Milestone 1 remain partial.
 
+- **B-1096/B-1097 corrected retirement proof is production-verified.** Exact
+  client `BD0F9DAC...` and tests
+  `51AD00D5...` retain the
+  first accepted isolated builds, focused 468/15, complete 66,705/1,204, and
+  native-source guard. The sole ordinary run at
+  `results-20260826T104217Z.json` passes 101/105 and proves reciprocal Cyclone
+  attachment, the real deleting/non-regenerating transition, timeout/reconnect,
+  exact world/both inventories, one commit, resumed authority fire, and clean
+  teardown. Its four misses correctly report a fully freed authority prop and
+  pristine receiver. After Luna xhigh's bounded audit, the fixture now records
+  the selected sync ID, reads the authority pool after normal cleanup, and
+  requires that ID absent before auth, PREPARE `terminal_absent=0`, receiver
+  `removed=0`, and `exact_set=1`. Static schema contracts reject fields on the
+  fieldless absence event. No cleanup delay or reconnect wire/counter mutation
+  is permitted. The first corrected automation batch passes 477 assertions/15
+  cases, complete 66,714/1,204, and the native-source guard with zero freeze
+  drift. Its sole runtime attempt at `results-20260826T110651Z.json` is retained
+  and rejected before listener publication: the 34-character event name exposed
+  a 31-character parser buffer and arrived truncated. Shared schema/harness
+  source now uses a 64-byte capacity, behavior-tests the boundary, and rejects
+  overflow before copying. The parser-safe refreeze passes isolated builds,
+  focused 483/16, complete 66,720/1,205, the native-source guard, and unchanged
+  2,734/410-file manifests on exact client `5AEC7918...` and tests
+  `2674C22A...`. The replacement receipt
+  `results-20260826T111558Z.json` remains rejected at 93/109: every retirement,
+  absence, exact-world, inventory, and single-commit assertion passes before an
+  access violation at `objTickPlayer` prevents restored gameplay/fire. The
+  retained logs and symbolized binary localize one defect to reconnect snapshot
+  death replay invoking live drop/prop side effects. Current source adds a pure
+  planner matrix, static production-boundary coverage, and an ordinary-client
+  assertion requiring one snapshot dead-state application with
+  `live_side_effects=0`, `drops=0`, `score=0`, and `owner_cleanup=0` between
+  exact inventories and commit. A bounded Luna xhigh audit found the companion
+  topology defect: old spawn receive scheduled a prop before reparenting it
+  through the same intrusive links. Pure placement tests cover attached/active/
+  paused/invalid plans; static coverage pins off-list construction, local held-
+  weapon pruning, map publication last, bounded scheduler membership, and the
+  `topology=exclusive` transaction witness. A fresh tests-target build produced
+  `A9B1ADAA...`; focused coverage passes 718/20, the complete suite passes
+  66,960/1,209, and the native-source guard passes. Exact 2,734-file product
+  `1C184C57...` and 410-file verifier `E0FA8E6A...` manifests have zero pre/post
+  differences; exact client is `8262681E...`. The first attempted receipt is
+  retained/rejected because `Target all` had left a stale tests binary. Exact
+  unchanged client `8262681E...` passes the sole ordinary rerun 116/116 with
+  the required retirement/absence, snapshot-side-effect, exclusive-topology,
+  exact-restoration, one-commit, real-fire, clean-exit, and no-leak witnesses.
+  B-1096/B-1097 are regression gates; accepted D-003 or Campaign receipts were
+  not rerun.
+
 ---
 
 ## Known gaps

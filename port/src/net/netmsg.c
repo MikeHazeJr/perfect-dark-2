@@ -660,6 +660,7 @@ typedef struct netmsg_reconnect_prop_receive_s {
 	bool complete;
 	u16 expected_count;
 	u16 received_count;
+	u16 local_weapon_pruned;
 	u32 first_dynamic_syncid;
 	u32 inventory_expected_mask;
 	u32 inventory_received_mask;
@@ -1552,6 +1553,66 @@ static bool netmsgReconnectIsWorldProp(const struct prop *prop)
 	return netReconnectWorldPropShouldSerialize(
 		(prop->obj->hidden & OBJHFLAG_DELETING) != 0,
 		(prop->obj->hidden2 & OBJH2FLAG_CANREGEN) != 0) != 0;
+}
+
+/* The scheduler and parent-child chains share prop.next/prev. Count one prop's
+ * scheduler membership with a complete bounded walk so reconnect can reject
+ * dual ownership, cycles, and foreign pointers before publication. */
+static s32 netmsgPropSchedulerMembershipCount(const struct prop *needle)
+{
+	const struct prop *prop;
+	s32 count = 0;
+	s32 visited = 0;
+	const uintptr_t first = (uintptr_t)g_Vars.props;
+	const uintptr_t end = first
+		+ (size_t)g_Vars.maxprops * sizeof(*g_Vars.props);
+
+	if (!needle || !g_Vars.props || g_Vars.maxprops <= 0) {
+		return -1;
+	}
+	prop = g_Vars.activeprops;
+	while (prop && visited < g_Vars.maxprops) {
+		const uintptr_t address = (uintptr_t)prop;
+		if (address < first || address >= end
+				|| (address - first) % sizeof(*g_Vars.props) != 0) {
+			return -1;
+		}
+		if (prop == needle) {
+			count++;
+		}
+		prop = prop->next;
+		visited++;
+	}
+	return prop ? -1 : count;
+}
+
+/* A freshly replayed stage may have client-local, syncid-zero held weapon
+ * children. The authoritative reconnect world/inventory transaction replaces
+ * them; retaining both creates duplicate child ownership. */
+static u16 netmsgReconnectPruneLocalWeaponChildren(void)
+{
+	u16 pruned = 0;
+
+	for (s32 slot = 0; slot < g_Vars.maxprops; ++slot) {
+		struct prop *owner = &g_Vars.props[slot];
+		struct prop *child;
+		if ((owner->type != PROPTYPE_CHR
+				&& owner->type != PROPTYPE_PLAYER) || !owner->chr) {
+			continue;
+		}
+		child = owner->child;
+		while (child) {
+			struct prop *next = child->next;
+			if (child->syncid == 0 && child->type == PROPTYPE_WEAPON
+					&& child->obj
+					&& child->obj->type == OBJTYPE_WEAPON) {
+				objFreePermanently(child->obj, true);
+				pruned++;
+			}
+			child = next;
+		}
+	}
+	return pruned;
 }
 
 static struct model *netmsgReconnectModelForProp(const struct prop *prop)
@@ -4272,7 +4333,11 @@ u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)
 	setCurrentPlayerNum(actcl->playernum);
 
 	const bool newisdead = (flags & (1 << 0)) != 0;
-	if (!pl->isdead && newisdead) {
+	const net_reconnect_player_state_action_e player_state_action =
+		netReconnectPlanPlayerState(pl->isdead, newisdead,
+			s_ReconnectPropReceive.complete);
+
+	if (player_state_action == NET_RECONNECT_PLAYER_STATE_LIVE_DEATH) {
 		/* B-256 v43 dispatch:
 		 *   1. Wire field authoritative when in range and != self.  This
 		 *      is the new structural path: the producing peer already
@@ -4297,7 +4362,17 @@ u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)
 			shooter = g_Vars.currentplayernum;
 		}
 		playerDieByShooter(shooter, true);
-	} else if (pl->isdead && !newisdead) {
+	} else if (player_state_action ==
+			NET_RECONNECT_PLAYER_STATE_SNAPSHOT_DEATH) {
+		if (!playerRestoreDeadStateFromSnapshot()) {
+			setCurrentPlayerNum(prevplayernum);
+			return 1;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"NET.RECONNECT.PLAYER_STATE client=%u dead=1 apply=snapshot live_side_effects=0 drops=0 score=0 owner_cleanup=0",
+			(unsigned)clid);
+	} else if (player_state_action ==
+			NET_RECONNECT_PLAYER_STATE_START_NEW_LIFE) {
 		playerStartNewLife();
 	}
 
@@ -5100,6 +5175,8 @@ u32 netmsgSvcReconnectPropBeginRead(struct netbuf *src,
 			detached_count++;
 		}
 	}
+	s_ReconnectPropReceive.local_weapon_pruned =
+		netmsgReconnectPruneLocalWeaponChildren();
 
 	/* The announcement is applied before dynamic spawns so a client with the
 	 * pristine stage cannot run out of prop slots that the authority freed and
@@ -5114,9 +5191,10 @@ u32 netmsgSvcReconnectPropBeginRead(struct netbuf *src,
 	}
 	netSyncIdMapRebuild();
 	sysLogPrintf(LOG_NOTE,
-		"NET.RECONNECT.WORLD begin tick=%u props=%u removed=%u detached=%u first_dynamic=%u",
+		"NET.RECONNECT.WORLD begin tick=%u props=%u removed=%u detached=%u first_dynamic=%u local_weapon_pruned=%u",
 		(unsigned)tick, (unsigned)count, (unsigned)removed_count,
-		(unsigned)detached_count, (unsigned)first_dynamic_syncid);
+		(unsigned)detached_count, (unsigned)first_dynamic_syncid,
+		(unsigned)s_ReconnectPropReceive.local_weapon_pruned);
 	return 0;
 
 reject:
@@ -5172,6 +5250,7 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 		struct modelnode *attachment_node = NULL;
 		s16 attachment_mtx_index;
 		bool was_parented;
+		s32 scheduler_membership;
 
 		if (!netmsgReconnectIsWorldProp(prop)
 				|| netmsgReconnectPropExpectedIndex(prop->syncid) < 0) {
@@ -5242,6 +5321,12 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 				propPause(prop);
 			}
 		}
+		scheduler_membership = netmsgPropSchedulerMembershipCount(prop);
+		if (scheduler_membership < 0
+				|| (parent && scheduler_membership != 0)
+				|| (!parent && scheduler_membership != 1)) {
+			return 1;
+		}
 		if (prop->obj->model) {
 			prop->obj->model->attachedtomodel = attachment_node
 				? parent_model : NULL;
@@ -5308,8 +5393,9 @@ u32 netmsgSvcReconnectPropEndRead(struct netbuf *src,
 	s_ReconnectPropReceive.active = false;
 	s_ReconnectPropReceive.complete = true;
 	sysLogPrintf(LOG_NOTE,
-		"NET.RECONNECT.WORLD end props=%u exact_set=1 refs=resolved",
-		(unsigned)count);
+		"NET.RECONNECT.WORLD end props=%u exact_set=1 refs=resolved topology=exclusive local_weapon_pruned=%u",
+		(unsigned)count,
+		(unsigned)s_ReconnectPropReceive.local_weapon_pruned);
 	return 0;
 }
 
@@ -5697,9 +5783,9 @@ u32 netmsgSvcReconnectStateWrite(struct netbuf *dst,
 			}
 		}
 	}
-	/* PlayerStatsRead can trigger local death bookkeeping while applying the
-	 * snapshot. Scores follow every stats record and overwrite that transient
-	 * receiver-local side effect with the authority's exact table. */
+	/* Scores are part of the same exact snapshot. Player stats above restore a
+	 * dead bit through the snapshot-only state path, so this table is no longer
+	 * compensating for receiver-local death-event side effects. */
 	if (netmsgSvcPlayerScoresWrite(dst) != 0) {
 		netmsgReconnectSnapshotFail(out_result, dst->error
 			? NET_RECONNECT_SNAPSHOT_BUFFER : NET_RECONNECT_SNAPSHOT_SCORES,
@@ -5981,8 +6067,22 @@ u32 netmsgSvcPlayerScoresRead(struct netbuf *src, struct netclient *srccl)
 
 u32 netmsgSvcPropSpawnWrite(struct netbuf *dst, struct prop *prop)
 {
+	net_reconnect_prop_placement_e placement;
+	s32 scheduler_membership;
+
 	if (!dst || !prop || !prop->obj || prop->syncid == 0
 			|| !netmsgReconnectCanSpawnDynamicProp(prop)) {
+		return 1;
+	}
+	placement = netReconnectPlanPropPlacement(prop->parent != NULL,
+		prop->active);
+	scheduler_membership = netmsgPropSchedulerMembershipCount(prop);
+	if (placement == NET_RECONNECT_PROP_PLACEMENT_INVALID
+			|| scheduler_membership < 0
+			|| (placement == NET_RECONNECT_PROP_PLACEMENT_ATTACHED
+				&& scheduler_membership != 0)
+			|| (placement != NET_RECONNECT_PROP_PLACEMENT_ATTACHED
+				&& scheduler_membership != 1)) {
 		return 1;
 	}
 	const u8 msgflags = (prop->active != 0) | ((prop->obj != NULL) << 1) | ((prop->forcetick != 0) << 2);
@@ -6075,9 +6175,13 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 	const u8 type = netbufReadU8(src);
 	const u8 objtype = netbufReadU8(src);
 	const u8 propflags = netbufReadU8(src);
+	const net_reconnect_prop_placement_e placement =
+		netReconnectPlanPropPlacement(parent != NULL,
+			(msgflags & (1 << 0)) != 0);
 
-	if (src->error) {
-		return src->error;
+	if (src->error || (msgflags & ~7u)
+			|| placement == NET_RECONNECT_PROP_PLACEMENT_INVALID) {
+		return src->error ? src->error : 1;
 	}
 
 	if (srccl->state < CLSTATE_GAME || syncid == 0
@@ -6185,25 +6289,10 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 	if (prop) {
 		prop->type = type;
 		prop->syncid = syncid;
-		netSyncIdMapSet(syncid, prop); // keep lookup map current for client-side dynamic spawns
 		prop->pos = pos;
 		prop->forcetick = (msgflags & (1 << 2)) != 0;
 		// prop->flags = propflags;
 		roomsCopy(rooms, prop->rooms);
-		if (msgflags & (1 << 0)) {
-			propActivate(prop);
-			propRegisterRooms(prop);
-		} else {
-			propPause(prop);
-		}
-		if (propflags & PROPFLAG_ENABLED) {
-			propEnable(prop);
-		} else {
-			propDisable(prop);
-		}
-		if (parent) {
-			propReparent(prop, parent);
-		}
 	} else {
 		sysLogPrintf(LOG_WARNING, "NET: no prop allocated when spawning prop %u (%u)", syncid, type);
 		return src->error;
@@ -6267,6 +6356,39 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 
 	// just in case
 	prop->pos = pos;
+	if (src->error) {
+		objFreePermanently(prop->obj, true);
+		return src->error;
+	}
+
+	/* Publish exactly one topology only after the complete spawn row parses.
+	 * prop.next/prev cannot simultaneously represent scheduler and child links. */
+	if (prop->active) {
+		propDeregisterRooms(prop);
+	}
+	propDelist(prop);
+	if (prop->parent) {
+		objDetach(prop);
+	}
+	if (placement == NET_RECONNECT_PROP_PLACEMENT_ATTACHED) {
+		propReparent(prop, parent);
+	} else if (placement == NET_RECONNECT_PROP_PLACEMENT_ACTIVE) {
+		propActivate(prop);
+		propRegisterRooms(prop);
+	} else {
+		propPause(prop);
+	}
+	if (propflags & PROPFLAG_ENABLED) {
+		propEnable(prop);
+	} else {
+		propDisable(prop);
+	}
+	if (netmsgPropSchedulerMembershipCount(prop)
+			!= (placement == NET_RECONNECT_PROP_PLACEMENT_ATTACHED ? 0 : 1)) {
+		objFreePermanently(prop->obj, true);
+		return 1;
+	}
+	netSyncIdMapSet(syncid, prop);
 
 	return src->error;
 }

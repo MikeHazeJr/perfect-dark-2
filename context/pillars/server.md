@@ -215,6 +215,59 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
   without watchdog repair. B-1076 is a regression gate; it does not alter the
   authority election, typed-route, or protocol-v58 contracts above.
 
+- **B-1096/B-1097 reconnect closure is production-verified.** Exact client
+  `BD0F9DAC...` retains accepted isolated
+  builds, focused 468/15, complete 66,705/1,204, and the native-source guard.
+  Its sole ordinary run passes 101/105 and proves reciprocal attachment, the
+  production `weaponDeleteFromChr` transition, exact reconnect world/
+  inventories, one commit, resumed authority fire, and clean teardown. Normal
+  cleanup fully frees the selected dynamic prop before PREPARE; a pristine
+  receiver has no stale counterpart. Luna xhigh confirmed the failed
+  `terminal_absent=1`/`removed>0` assertions inverted the desired lifecycle.
+  Corrected harness source records the selected sync ID and later performs one
+  read-only authority-pool scan after ordinary cleanup. The scenario requires
+  that exact ID absent before reconnect auth, PREPARE `terminal_absent=0`,
+  receiver `removed=0`, and `exact_set=1`; it does not retain dead props or edit
+  reconnect packets, counters, or receiver state. The first corrected 477/15 +
+  66,714/1,204 + guard batch passed. Its runtime launch rejected before ENet
+  because the 34-character event name exceeded an existing 31-character parser
+  buffer. Schema/harness source now shares a 64-byte complete-token capacity and
+  rejects overflow before copy. The parser-safe refreeze passed focused 483/16,
+  complete 66,720/1,205, the native-source guard, and zero drift on exact client
+  `5AEC7918...`. The replacement ordinary run
+  `results-20260826T111558Z.json` is retained/rejected at 93/109: authority
+  retirement and read-only absence, pristine exact world, both inventories, and
+  one commit pass, but the client then faults in `objTickPlayer` before restored
+  fire. The snapshot currently routes its historical dead bit through the live
+  `playerDieByShooter` event path, replaying score/drop/held-prop side effects
+  after exact state restoration. Current source now plans live versus snapshot
+  player-state transitions in the pure reconnect layer. A shared player
+  dead-state boundary preserves presentation but the snapshot entry point omits
+  score/killfeed, item drop, owner cleanup, menu/HUD retirement, and lifetime
+  metrics. `SVC_PLAYER_STATS` selects it only while the ordered reconnect world
+  transaction is complete and not yet committed, and emits an exact
+  `live_side_effects=0` witness. Luna xhigh also proved a second ownership
+  defect: the old dynamic spawn receiver inserted a prop into the active/paused
+  scheduler before `propReparent` reused the same `next/prev` fields for child
+  ownership. Current source removes sync-ID-zero local held weapons before
+  authoritative adoption, constructs rows off-list, commits exactly one
+  attached/active/paused placement, validates scheduler membership on both
+  authority and receiver plus transaction end, and emits `topology=exclusive`.
+  The 18-site `propReparent` propagation audit found this network path as the
+  direct scheduler-before-reparent violation; common producers delist first or
+  construct off-list. Exact product `1C184C57...` / client `8262681E...` and
+  verifier `E0FA8E6A...` / tests `A9B1ADAA...` now pass isolated builds,
+  focused 718/20, complete 66,960/1,209, and the native-source guard with zero
+  manifest drift. The earlier stale-test-binary receipt is retained/rejected.
+  Exact unchanged client `8262681E...` then passes
+  `results-20260826T121959Z.json` 116/116: one production retirement and
+  read-only authority absence, one retryable reconnect, snapshot
+  `live_side_effects=0`, exclusive prop topology, exact world/inventories, one
+  commit, 30 real Cyclone shots with `server_accepted=1`, final credential
+  retirement, clean exits, and no process leak. B-1096/B-1097 plus SP-60,
+  SP-61, SP-72, and SP-73 are regression gates; broader T-ENGINE-004 remains
+  partial.
+
 ---
 
 ## Known gaps

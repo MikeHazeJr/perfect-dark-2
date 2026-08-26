@@ -1,6 +1,7 @@
 #ifndef PD_SMOKE_FIXTURE_SCHEMA_H
 #define PD_SMOKE_FIXTURE_SCHEMA_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -8,6 +9,11 @@ extern "C" {
 #endif
 
 typedef uint32_t smoke_fixture_field_mask_t;
+
+/* Event type tokens are copied into the shipping harness only after this
+ * shared bound admits the complete token. The capacity includes the trailing
+ * NUL and must remain larger than every known event name. */
+#define SMOKE_FIXTURE_EVENT_TYPE_CAPACITY 64u
 
 enum smoke_fixture_event_field {
 	SMOKE_FIXTURE_FIELD_AT_MS = 1u << 0,
@@ -29,7 +35,8 @@ enum smoke_fixture_event_field {
 	SMOKE_FIXTURE_FIELD_WHEEL_X = 1u << 16,
 	SMOKE_FIXTURE_FIELD_WHEEL_Y = 1u << 17,
 	SMOKE_FIXTURE_FIELD_COMMENT = 1u << 18,
-	SMOKE_FIXTURE_FIELD_CLIENT_ID = 1u << 19
+	SMOKE_FIXTURE_FIELD_CLIENT_ID = 1u << 19,
+	SMOKE_FIXTURE_FIELD_HAND = 1u << 20
 };
 
 /* Pure fixture-schema boundary shared by the shipping harness and tests.
@@ -37,6 +44,7 @@ enum smoke_fixture_event_field {
  * numbers, but malformed, truncated, or trailing documents fail closed. */
 int smokeFixtureJsonValid(const char *json);
 
+int smokeFixtureEventTypeLengthValid(size_t length);
 smoke_fixture_field_mask_t smokeFixtureEventFieldFromName(const char *name);
 const char *smokeFixtureEventFieldName(smoke_fixture_field_mask_t field);
 int smokeFixtureEventTypeKnown(const char *type);

@@ -143,6 +143,27 @@ latest virtual event plus the sum of all wait timeouts.
 Exact conditions are `network_listen_ready`, `network_stage_live`,
 `network_reconnect_available`, `cutscene_skip_ready`, `gameplay_ready`,
 `offline_gameplay_ready`, and `endscreen_visible`.
+
+Reconnect exact-set fixtures may use
+`{"type":"network_retire_held_weapon","client_id":1,"hand":"right"}`.
+The event resolves the player through the stable network client ID, validates
+the complete held-weapon attachment, and calls the production
+`weaponDeleteFromChr` lifecycle. It records the selected sync ID but never edits
+reconnect packets, omission counters, or receiver state. Pair it before
+`network_timeout_client` at the same `at_ms` when authored stable ordering must
+prevent an intervening game tick. A later fieldless
+`{"type":"network_assert_retired_prop_absent"}` performs one read-only scan of
+the authority prop pool and fails unless normal cleanup has removed that exact
+sync ID; use it after at least one ordinary game tick and before reconnect
+snapshot assertions.
+The reconnect scenario also requires
+`NET.RECONNECT.PLAYER_STATE ... apply=snapshot live_side_effects=0` between
+exact inventory restore and commit. This proves a historical dead bit restores
+presentation state without replaying scoring, item drops, or owner cleanup.
+`NET.RECONNECT.WORLD end ... topology=exclusive` additionally proves every
+authoritative object prop owns either scheduler links or parent-child links,
+never both; `local_weapon_pruned` records stale syncid-zero held weapons removed
+before authoritative adoption.
 Use `network_listen_ready` before a host-side peer-dependent wait when the
 runner withholds dependent processes until the listen socket exists; this keeps
 cold startup outside the peer's causal deadline. `stable_ms` defaults to zero;

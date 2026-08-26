@@ -56,6 +56,13 @@
  *     -- validation-only process exit after flushing the log, deliberately
  *        skipping atexit so startup crash recovery sees the dirty session.
  *
+ *   { "at_ms": N, "type": "network_retire_held_weapon",
+ *     "client_id": 1, "hand": "right" }
+ *     -- resolve a live player through its stable network identity, validate
+ *        the complete held-weapon attachment, then invoke the production
+ *        weaponDeleteFromChr lifecycle. It does not alter reconnect packets,
+ *        exact-set counters, or receiver state.
+ *
  *   { "at_ms": N, "type": "network_timeout_client", "client_id": 1 }
  *   { "at_ms": N, "type": "network_reconnect" }
  *     -- deterministic smoke-only triggers around the production timeout and
@@ -142,8 +149,10 @@
 #include "asset_runtime.h"
 #include "net/netdistrib.h"
 #include "net/net.h"
+#include "net/net_reconnect.h"
 #include "game/player.h"
 #include "game/playermgr.h"
+#include "game/propobj.h"
 #include "inputctx.h"
 #include "menupool.h"
 #include "scene.h"
@@ -195,6 +204,8 @@ typedef enum {
     SMOKE_EVENT_CATALOG_WEAPON_ACQUIRE,
     SMOKE_EVENT_CATALOG_WEAPON_RELEASE,
     SMOKE_EVENT_CATALOG_RECOVERY_PROBE,
+    SMOKE_EVENT_NETWORK_RETIRE_HELD_WEAPON,
+    SMOKE_EVENT_NETWORK_ASSERT_RETIRED_PROP_ABSENT,
     SMOKE_EVENT_NETWORK_TIMEOUT_CLIENT,
     SMOKE_EVENT_NETWORK_RECONNECT,
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
@@ -214,7 +225,8 @@ typedef struct {
     s32            mouse_button;      /* for mouse events: SDL_BUTTON_LEFT/RIGHT/MIDDLE */
     s32            mouse_wheel_x;     /* for mouse-wheel events */
     s32            mouse_wheel_y;     /* for mouse-wheel events */
-    s32            client_id;         /* network_timeout_client target */
+    s32            client_id;         /* stable target for network events */
+    s32            hand;              /* held-weapon event: HAND_RIGHT/LEFT */
     s32            release_at_ms;     /* for tap: scheduled release time */
     s32            released;          /* tap: 0 = press pending, 1 = release pending, 2 = done */
     smoke_readiness_condition_t readiness_condition;
@@ -250,6 +262,9 @@ typedef struct {
     s32          observed_stage_teardown_count;
     s32          ready_stage_num;
     u32          ready_stage_generation;
+    u32          retired_network_prop_syncid;
+    u32          retired_network_parent_syncid;
+    s32          retired_network_client_id;
     s32          events_fired;
     s32          exited;             /* prevent re-entrant exit */
 } SmokeState;
@@ -609,6 +624,7 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     ev->mouse_wheel_x = 0;
     ev->mouse_wheel_y = 0;
     ev->client_id = -1;
+    ev->hand = -1;
     ev->release_at_ms = -1;
     ev->released = 0;
     ev->readiness_condition = SMOKE_READINESS_INVALID;
@@ -618,11 +634,12 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     ev->assist_condition = SMOKE_READINESS_INVALID;
     ev->assist_hold_ms = 0;
 
-    char type_str[32]   = {0};
+    char type_str[SMOKE_FIXTURE_EVENT_TYPE_CAPACITY] = {0};
     char key_str[32]    = {0};
     char action_str[16] = {0};
     char name_str[64]   = {0};
     char button_str[16] = {0};
+    char hand_str[16]   = {0};
     char condition_str[32] = {0};
     char assist_action_str[64] = {0};
     char assist_condition_str[32] = {0};
@@ -642,6 +659,7 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     s32  has_wheel_x = 0;
     s32  has_wheel_y = 0;
     s32  has_client_id = 0;
+    s32  has_hand = 0;
 	smoke_fixture_field_mask_t field_mask = 0;
 	smoke_fixture_field_mask_t unsupported_fields = 0;
 
@@ -671,9 +689,15 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
                 return 0;
             }
             at_ms_value = j_tok_int(&t);
-        } else if (!strcmp(field, "type")) {
+		} else if (!strcmp(field, "type")) {
 			if (t.type != JT_STRING) {
 				sysLogPrintf(LOG_ERROR, "SMOKE: event type must be a string");
+				return 0;
+			}
+			if (!smokeFixtureEventTypeLengthValid((size_t)t.len)) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: event type exceeds %u characters",
+					(unsigned)SMOKE_FIXTURE_EVENT_TYPE_CAPACITY - 1u);
 				return 0;
 			}
             j_tok_copy_str(&t, type_str, sizeof(type_str));
@@ -801,6 +825,24 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 			}
 			ev->client_id = (s32)j_tok_int(&t);
 			has_client_id = 1;
+		} else if (!strcmp(field, "hand")) {
+			if (t.type != JT_STRING) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: event hand must be 'right' or 'left'");
+				return 0;
+			}
+			j_tok_copy_str(&t, hand_str, sizeof(hand_str));
+			if (!strcasecmp(hand_str, "right")) {
+				ev->hand = HAND_RIGHT;
+			} else if (!strcasecmp(hand_str, "left")) {
+				ev->hand = HAND_LEFT;
+			} else {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: event hand must be 'right' or 'left' (value='%s')",
+					hand_str);
+				return 0;
+			}
+			has_hand = 1;
         } else if (!strcmp(field, "comment")) {
 			if (t.type != JT_STRING) {
 				sysLogPrintf(LOG_ERROR, "SMOKE: event comment must be a string");
@@ -913,6 +955,22 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
         ev->type = SMOKE_EVENT_UNCLEAN_EXIT;
         return 1;
     }
+	if (!strcmp(type_str, "network_retire_held_weapon")) {
+		if (!has_client_id || ev->client_id < 0
+				|| ev->client_id >= NET_MAX_CLIENTS || !has_hand
+				|| (ev->hand != HAND_RIGHT && ev->hand != HAND_LEFT)) {
+			sysLogPrintf(LOG_ERROR,
+				"SMOKE: network_retire_held_weapon requires client_id in [0,%d] and hand 'right' or 'left' (at_ms=%d)",
+				NET_MAX_CLIENTS - 1, ev->at_ms);
+			return 0;
+		}
+		ev->type = SMOKE_EVENT_NETWORK_RETIRE_HELD_WEAPON;
+		return 1;
+	}
+	if (!strcmp(type_str, "network_assert_retired_prop_absent")) {
+		ev->type = SMOKE_EVENT_NETWORK_ASSERT_RETIRED_PROP_ABSENT;
+		return 1;
+	}
     if (!strcmp(type_str, "network_timeout_client")) {
 		if (!has_client_id || ev->client_id < 0
 				|| ev->client_id >= NET_MAX_CLIENTS) {
@@ -2186,6 +2244,107 @@ void smokeHarnessTick(void)
         case SMOKE_EVENT_CATALOG_RECOVERY_PROBE:
             smokeCatalogRecoveryProbe(ev->path, ev->at_ms);
             break;
+		case SMOKE_EVENT_NETWORK_RETIRE_HELD_WEAPON:
+		{
+			struct netclient *target = ev->client_id >= 0
+				&& ev->client_id < NET_MAX_CLIENTS
+				? &g_NetClients[ev->client_id] : NULL;
+			struct player *player = target ? target->player : NULL;
+			struct chrdata *chr = player && player->prop
+				? player->prop->chr : NULL;
+			struct prop *held = chr && (ev->hand == HAND_RIGHT
+					|| ev->hand == HAND_LEFT)
+				? chr->weapons_held[ev->hand] : NULL;
+			const s32 attached = held && held->obj && held->obj->model
+				&& chr && chr->model && held->parent == player->prop
+				&& held->obj->model->attachedtomodel == chr->model
+				&& held->obj->model->attachedtonode != NULL;
+			const s32 deleting = held && held->obj
+				&& (held->obj->hidden & OBJHFLAG_DELETING) != 0;
+			const s32 can_regen = held && held->obj
+				&& (held->obj->hidden2 & OBJH2FLAG_CANREGEN) != 0;
+
+			if (g_NetMode != NETMODE_SERVER || !target || !target->peer
+					|| target->state != CLSTATE_GAME || !target->stage_ready
+					|| !player || !player->prop || !chr || !held || !held->obj
+					|| held->type != PROPTYPE_WEAPON
+					|| held->obj->type != OBJTYPE_WEAPON || !held->weapon
+					|| held->syncid < g_NetFirstDynamicSyncId || !attached
+					|| deleting || can_regen
+					|| !netReconnectWorldPropShouldSerialize(0, 0)) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE.NETWORK: retire_held_weapon rejected client=%d hand=%d mode=%d state=%d peer=%d stage_ready=%d player=%d chr=%d held=%d prop=%u dynamic_floor=%u attached=%d deleting=%d can_regen=%d at_ms=%d",
+					ev->client_id, ev->hand, g_NetMode,
+					target ? (s32)target->state : -1, target && target->peer,
+					target && target->stage_ready, player != NULL, chr != NULL,
+					held != NULL, held ? (unsigned)held->syncid : 0u,
+					(unsigned)g_NetFirstDynamicSyncId, attached, deleting,
+					can_regen, ev->at_ms);
+				smokeHarnessExit(1, "network_retire_held_weapon_failed");
+				return;
+			}
+
+			const u32 syncid = held->syncid;
+			const u32 parent_syncid = held->parent->syncid;
+			const s32 weaponnum = held->weapon->weaponnum;
+			weaponDeleteFromChr(chr, ev->hand);
+			const s32 serialize_now = netReconnectWorldPropShouldSerialize(
+				(held->obj->hidden & OBJHFLAG_DELETING) != 0,
+				(held->obj->hidden2 & OBJH2FLAG_CANREGEN) != 0);
+			const s32 retirement_started = held == chr->weapons_held[ev->hand]
+				&& held->syncid == syncid && held->parent == player->prop
+				&& (held->obj->hidden & OBJHFLAG_DELETING) != 0
+				&& !(held->obj->hidden2 & OBJH2FLAG_CANREGEN)
+				&& !serialize_now;
+
+			if (!retirement_started) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE.NETWORK: retire_held_weapon transition_failed client=%d hand=%d prop=%u at_ms=%d",
+					ev->client_id, ev->hand, (unsigned)syncid, ev->at_ms);
+				smokeHarnessExit(1, "network_retire_held_weapon_failed");
+				return;
+			}
+			s_State.retired_network_prop_syncid = syncid;
+			s_State.retired_network_parent_syncid = parent_syncid;
+			s_State.retired_network_client_id = ev->client_id;
+			sysLogPrintf(LOG_NOTE,
+				"SMOKE.NETWORK: retire_held_weapon client=%d hand=%d prop=%u parent=%u weapon=%d attached=1 state=deleting_nonregen serialize_now=0 production_path=weaponDeleteFromChr at_ms=%d",
+				ev->client_id, ev->hand, (unsigned)syncid,
+				(unsigned)parent_syncid, weaponnum, ev->at_ms);
+			break;
+		}
+		case SMOKE_EVENT_NETWORK_ASSERT_RETIRED_PROP_ABSENT:
+		{
+			struct prop *found = NULL;
+			const u32 syncid = s_State.retired_network_prop_syncid;
+
+			if (g_NetMode == NETMODE_SERVER && syncid != 0
+					&& g_Vars.props && g_Vars.maxprops > 0) {
+				for (s32 i = 0; i < g_Vars.maxprops; ++i) {
+					if (g_Vars.props[i].syncid == syncid) {
+						found = &g_Vars.props[i];
+						break;
+					}
+				}
+			}
+			if (g_NetMode != NETMODE_SERVER || syncid == 0
+					|| !g_Vars.props || g_Vars.maxprops <= 0 || found) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE.NETWORK: retired_prop_absent rejected client=%d prop=%u parent=%u mode=%d pool=%d present=%d type=%d at_ms=%d",
+					s_State.retired_network_client_id, (unsigned)syncid,
+					(unsigned)s_State.retired_network_parent_syncid, g_NetMode,
+					g_Vars.props != NULL && g_Vars.maxprops > 0, found != NULL,
+					found ? (s32)found->type : -1, ev->at_ms);
+				smokeHarnessExit(1,
+					"network_assert_retired_prop_absent_failed");
+				return;
+			}
+			sysLogPrintf(LOG_NOTE,
+				"SMOKE.NETWORK: retired_prop_absent client=%d prop=%u parent=%u authoritative_present=0 read_only=1 production_cleanup=1 at_ms=%d",
+				s_State.retired_network_client_id, (unsigned)syncid,
+				(unsigned)s_State.retired_network_parent_syncid, ev->at_ms);
+			break;
+		}
         case SMOKE_EVENT_NETWORK_TIMEOUT_CLIENT:
         {
 			struct netclient *target = ev->client_id >= 0

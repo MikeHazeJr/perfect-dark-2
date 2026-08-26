@@ -35,6 +35,12 @@
   through stage loading, then restore simultaneous absences, the authoritative
   replicated world, inventories, players, bots, scores, and cutscene state in
   one ordered targeted transaction before gameplay resumes.
+- Restored reconnect snapshot death state without replaying historical scoring,
+  item drops, owner cleanup, menus, or lifetime metrics over the exact world and
+  inventory transaction.
+- Made reconnect prop adoption publish exactly one scheduler or parent-child
+  topology, pruning stale local held weapons and rejecting shared-link corruption
+  before the authoritative sync-ID map becomes visible.
 - Retired stale lobby cutscene presentation at authenticated stage loads so a
   reconnected client returns to normal play and authoritative weapon fire while
   active match cutscenes remain server-controlled.

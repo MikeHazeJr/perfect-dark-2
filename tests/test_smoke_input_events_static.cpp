@@ -1011,7 +1011,7 @@ TEST_CASE("multi-process smoke isolates process installs and assertions",
 }
 
 TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry",
-	"[smoke][network][reconnect][b1064][b1099][b1100][static]")
+	"[smoke][network][reconnect][b1064][b1096][b1097][b1099][b1100][static]")
 {
 	const std::string schema = readTextFile("port/src/smoke_fixture_schema.c");
 	const std::string harness = readTextFile("port/src/smoke_harness.c");
@@ -1024,8 +1024,21 @@ TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry
 		"tools/smoke-verify/fixtures/network_reconnect_client.json");
 
 	requireContains(schema, "network_timeout_client");
+	requireContains(schema, "network_retire_held_weapon");
+	requireContains(schema, "network_assert_retired_prop_absent");
 	requireContains(schema, "network_reconnect");
 	requireContains(schema, "SMOKE_FIXTURE_FIELD_CLIENT_ID");
+	requireContains(schema, "SMOKE_FIXTURE_FIELD_HAND");
+	requireContains(harness, "SMOKE_FIXTURE_EVENT_TYPE_CAPACITY");
+	requireContains(harness,
+		"smokeFixtureEventTypeLengthValid((size_t)t.len)");
+	requireContains(harness, "weaponDeleteFromChr(chr, ev->hand)");
+	requireContains(harness, "netReconnectWorldPropShouldSerialize(");
+	requireContains(harness, "production_path=weaponDeleteFromChr");
+	requireContains(harness, "retired_network_prop_syncid");
+	requireContains(harness,
+		"authoritative_present=0 read_only=1 production_cleanup=1");
+	REQUIRE(harness.find("terminal_absent_prop_count") == std::string::npos);
 	requireContains(harness, "netServerKick(target, DISCONNECT_TIMEOUT)");
 	requireContains(harness, "!target->stage_ready");
 	requireContains(harness, "stage_ready=1 at_ms=%d production_path=1");
@@ -1036,8 +1049,9 @@ TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry
 	requireContains(harness, "facts.network_reconnect_available = netClientReconnectAvailable()");
 	requireContains(runner, "throw (\"Failed to parse {0}: {1}\"");
 	requireContains(runner, "throw \"No tests matched the selection criteria.\"");
-	requireContains(parent, "terminal_absent=[0-9]+");
-	requireContains(parent, "first_terminal_absent=[0-9]+");
+	requireContains(parent, "terminal_absent=0 first_terminal_absent=0");
+	requireContains(parent,
+		"SMOKE.NETWORK: retired_prop_absent client=1");
 	requireContains(parent, "separate_process_installs");
 	requireContains(parent, "network_reconnect_host.json");
 	requireContains(parent, "network_reconnect_client.json");
@@ -1054,12 +1068,16 @@ TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry
 		"CUTSCENE.AUTHORITY: stage-start presentation previous_tickmode=6 next_tickmode=0 stale_cutscene_retired=1");
 	requireContains(parent, "NET.RECONNECT.WORLD begin");
 	requireContains(parent,
-		"removed=[0-9]+ detached=[0-9]+ first_dynamic=[1-9][0-9]*");
+		"removed=0 detached=0 first_dynamic=[1-9][0-9]*");
 	requireContains(parent, "NET.RECONNECT.WORLD end");
 	requireContains(parent, "NET.RECONNECT.INVENTORY client=0");
 	requireContains(parent, "NET.RECONNECT.INVENTORY client=1");
 	requireContains(parent,
-		"dynamic_prop=[0-9]+ terminal_absent=[0-9]+ first_terminal_absent=[0-9]+ exact_set=1");
+		"NET.RECONNECT.WORLD end props=[1-9][0-9]* exact_set=1 refs=resolved topology=exclusive local_weapon_pruned=[0-9]+");
+	requireContains(parent,
+		"NET.RECONNECT.PLAYER_STATE client=1 dead=1 apply=snapshot live_side_effects=0 drops=0 score=0 owner_cleanup=0");
+	requireContains(parent,
+		"dynamic_prop=[0-9]+ terminal_absent=0 first_terminal_absent=0 exact_set=1");
 	requireContains(parent, "NET.RECONNECT.RESYNC client=1");
 	requireContains(parent, "NET.RECONNECT.CLIENT commit=accepted client=1");
 	requireContains(parent, "cookie_preserved=1");
@@ -1082,8 +1100,19 @@ TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry
 	REQUIRE(presentationBoundary != std::string::npos);
 	REQUIRE(worldBegin != std::string::npos);
 	REQUIRE(presentationBoundary < worldBegin);
-	requireContains(host, "\"type\": \"network_timeout_client\"");
+	const size_t retireHeld = host.find(
+		"\"type\": \"network_retire_held_weapon\"");
+	const size_t timeoutClient = host.find(
+		"\"type\": \"network_timeout_client\"");
+	const size_t assertAbsent = host.find(
+		"\"type\": \"network_assert_retired_prop_absent\"");
+	REQUIRE(retireHeld != std::string::npos);
+	REQUIRE(timeoutClient != std::string::npos);
+	REQUIRE(assertAbsent != std::string::npos);
+	REQUIRE(retireHeld < timeoutClient);
+	REQUIRE(timeoutClient < assertAbsent);
 	requireContains(host, "\"client_id\": 1");
+	requireContains(host, "\"hand\": \"right\"");
 	requireContains(host, "\"timeout_seconds\": 400");
 	const size_t listenReady = host.find(
 		"\"condition\": \"network_listen_ready\"");
@@ -1093,6 +1122,7 @@ TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry
 	REQUIRE(stageLive != std::string::npos);
 	REQUIRE(listenReady < stageLive);
 	requireContains(host, "\"at_ms\": 15000");
+	requireContains(host, "\"at_ms\": 15250");
 	requireContains(host, "\"at_ms\": 105000");
 	requireContains(client, "\"condition\": \"network_reconnect_available\"");
 	requireContains(client, "\"type\": \"network_reconnect\"");

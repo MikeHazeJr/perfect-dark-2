@@ -100,6 +100,41 @@ TEST_CASE("server disconnect intent survives sender-local ENet reason loss",
 	REQUIRE(remote_shutdown.effective_reason == shutdown);
 }
 
+TEST_CASE("reconnect player-state planner separates snapshots from live events",
+		"[net][reconnect][b1064][b1096][b1097]")
+{
+	for (s32 snapshot = 0; snapshot <= 1; ++snapshot) {
+		REQUIRE(netReconnectPlanPlayerState(0, 0, snapshot) ==
+			NET_RECONNECT_PLAYER_STATE_NONE);
+		REQUIRE(netReconnectPlanPlayerState(1, 1, snapshot) ==
+			NET_RECONNECT_PLAYER_STATE_NONE);
+		REQUIRE(netReconnectPlanPlayerState(1, 0, snapshot) ==
+			NET_RECONNECT_PLAYER_STATE_START_NEW_LIFE);
+	}
+
+	REQUIRE(netReconnectPlanPlayerState(0, 1, 0) ==
+		NET_RECONNECT_PLAYER_STATE_LIVE_DEATH);
+	REQUIRE(netReconnectPlanPlayerState(0, 1, 1) ==
+		NET_RECONNECT_PLAYER_STATE_SNAPSHOT_DEATH);
+
+	/* Inputs are truth values, not a wire-width contract. */
+	REQUIRE(netReconnectPlanPlayerState(0, 7, 3) ==
+		NET_RECONNECT_PLAYER_STATE_SNAPSHOT_DEATH);
+}
+
+TEST_CASE("network prop placement gives links to one ownership domain",
+		"[net][reconnect][prop][b1064][b1096][b1097]")
+{
+	REQUIRE(netReconnectPlanPropPlacement(0, 1) ==
+		NET_RECONNECT_PROP_PLACEMENT_ACTIVE);
+	REQUIRE(netReconnectPlanPropPlacement(0, 0) ==
+		NET_RECONNECT_PROP_PLACEMENT_PAUSED);
+	REQUIRE(netReconnectPlanPropPlacement(1, 0) ==
+		NET_RECONNECT_PROP_PLACEMENT_ATTACHED);
+	REQUIRE(netReconnectPlanPropPlacement(1, 1) ==
+		NET_RECONNECT_PROP_PLACEMENT_INVALID);
+}
+
 TEST_CASE("reconnect world snapshots publish durable lifecycle state",
 		"[net][reconnect][b1064][b1096]")
 {

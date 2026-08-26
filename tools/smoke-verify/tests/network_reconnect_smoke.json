@@ -1,6 +1,6 @@
 {
   "scenario_name": "network_reconnect_smoke",
-  "description": "B-1064 ordinary-client production proof. A listen host and isolated client enter a real Combat Sim with the typed Cyclone selected as the deterministic spawn weapon, the host emits one timeout for client 1, and the same client performs one endpoint-scoped reconnect. Assertions require the same client/player/room/team/body/head snapshot to remain reserved through real stage load, commit once after post-load READY, restore one announced exact replicated-prop set plus every stable player's inventory before the explicit server marker, enter a second usable gameplay epoch with Cyclone fire accepted by the authority, and retire the retry credential only during final scripted shutdown.",
+  "description": "B-1064/B-1096/B-1097 ordinary-client production proof. A listen host and isolated client enter a real Combat Sim with the typed Cyclone selected as the deterministic spawn weapon. In one stable harness tick, the authority retires client 1's validated attached right-hand weapon through weaponDeleteFromChr and emits the real timeout; a read-only authority scan then proves normal cleanup removed that exact sync ID before the same client performs one endpoint-scoped reconnect. Assertions require the pristine receiver to begin with no stale dynamic counterpart, the same client/player/room/team/body/head snapshot through real stage load, both exact inventories, one post-load commit, a second usable gameplay epoch with Cyclone fire accepted by the authority, and final retry-credential retirement.",
   "tags": ["connectivity", "server", "reconnect", "transaction", "multi-process", "production"],
   "paths_of_interest": [
     "port/src/net/net.c",
@@ -34,7 +34,9 @@
         "required_lines": [
           "SMOKE: scenario=network_reconnect_host",
           "BOOT: --debug-spawn-weapon 'base:cyclone' \\(SPECIFIC\\)",
+          "SMOKE.NETWORK: retire_held_weapon client=1 hand=0 prop=[1-9][0-9]* parent=[1-9][0-9]* weapon=11 attached=1 state=deleting_nonregen serialize_now=0 production_path=weaponDeleteFromChr",
           "SMOKE.NETWORK: timeout_client client=1 state=4 .*production_path=1",
+          "SMOKE.NETWORK: retired_prop_absent client=1 prop=[1-9][0-9]* parent=[1-9][0-9]* authoritative_present=0 read_only=1 production_cleanup=1",
           "NET.DISCONNECT.INTENT latch client=1 reason=5 retryable=1",
           "NET: disconnect event from client 1 reason=5 transport_reason=[0-9]+ server_intent=1 retryable=1",
           "NET.RECONNECT.PRESERVE client=1 player=1 room=[0-9]+ prop=[1-9][0-9]* team=[0-9]+ body='[^']+' head='[^']+' .*snapshot=complete",
@@ -46,7 +48,7 @@
           "NET.RECONNECT.MANIFEST client=1 status=stage_queued stage_bytes=[1-9][0-9]* reservation_retained=1 commit=pending_post_load",
           "HUB ROOM: client 1 reclaimed reconnect reservation in room [0-9]+ \"[^\"]+\" \\([0-9]+ active, 0 reserved\\)",
           "NET.RECONNECT.CUTSCENE active=[01]",
-          "NET.RECONNECT.RESYNC.PREPARE client=1 live=[1-9][0-9]* absent=[0-9]+ bytes=[1-9][0-9]* inventory=[1-9][0-9]* player=1 chr=1 prop=[1-9][0-9]* dynamic_prop=[0-9]+ terminal_absent=[0-9]+ first_terminal_absent=[0-9]+ exact_set=1 score=1",
+          "NET.RECONNECT.RESYNC.PREPARE client=1 live=[1-9][0-9]* absent=[0-9]+ bytes=[1-9][0-9]* inventory=[1-9][0-9]* player=1 chr=1 prop=[1-9][0-9]* dynamic_prop=[0-9]+ terminal_absent=0 first_terminal_absent=0 exact_set=1 score=1",
           "NET.RECONNECT.RESYNC client=1 bytes=[1-9][0-9]* post_load_ready=1 targeted=1 ordered=1",
           "PLAYER.INIT.COMMIT reconnect client=1 player=1 room=[0-9]+ prop=[1-9][0-9]* team=[0-9]+ body='[^']+' head='[^']+' .*cookie_preserved=1 post_load_ready=1 resync=targeted",
           "NET: .* \\(1\\) reconnected player=1 room=[0-9]+ stable_id=1 resync_once=1",
@@ -57,8 +59,10 @@
           {
             "name": "reserved-restore-ordered-resync-and-authoritative-fire",
             "patterns": [
+              "SMOKE.NETWORK: retire_held_weapon client=1 .*state=deleting_nonregen serialize_now=0 production_path=weaponDeleteFromChr",
               "NET.RECONNECT.PRESERVE client=1 player=1",
               "HUB ROOM: client 1 left room [0-9]+ .*1 reserved",
+              "SMOKE.NETWORK: retired_prop_absent client=1 .*authoritative_present=0 read_only=1 production_cleanup=1",
               "NET.RECONNECT.AUTH client=1 .*credential=accepted",
               "NET.RECONNECT.MANIFEST client=1 .*status=waiting",
               "PLAYER.INIT.PREPARED reconnect client=1 player=1 .*commit=pending_post_load",
@@ -73,6 +77,8 @@
         ],
         "required_counts": [
           { "pattern": "NET: incoming connection", "min": 2, "max": 2 },
+          { "pattern": "SMOKE.NETWORK: retire_held_weapon client=1", "min": 1, "max": 1 },
+          { "pattern": "SMOKE.NETWORK: retired_prop_absent client=1", "min": 1, "max": 1 },
           { "pattern": "SMOKE.NETWORK: timeout_client client=1", "min": 1, "max": 1 },
           { "pattern": "NET.DISCONNECT.INTENT latch client=1 reason=5", "min": 1, "max": 1 },
           { "pattern": "disconnect event from client 1 reason=5 .*server_intent=1 retryable=1", "min": 1, "max": 1 },
@@ -92,6 +98,8 @@
           "NET.DISCONNECT.INTENT duplicate client=1",
           "SMOKE: result=timeout",
           "SMOKE: result=network_timeout_client_failed",
+          "SMOKE: result=network_retire_held_weapon_failed",
+          "SMOKE: result=network_assert_retired_prop_absent_failed",
           "EXCEPTION_ACCESS_VIOLATION",
           "ACCESS_VIOLATION",
           "FATAL: "
@@ -114,10 +122,11 @@
           "NET.RECONNECT.PREPARE endpoint_match=1 client_settings_frozen=1",
           "NET.RECONNECT.CLIENT auth=accepted retry_transaction_retained_until_server_commit=1",
           "CUTSCENE.AUTHORITY: stage-start presentation previous_tickmode=6 next_tickmode=0 stale_cutscene_retired=1",
-          "NET.RECONNECT.WORLD begin tick=[0-9]+ props=[1-9][0-9]* removed=[0-9]+ detached=[0-9]+ first_dynamic=[1-9][0-9]*",
-          "NET.RECONNECT.WORLD end props=[1-9][0-9]* exact_set=1 refs=resolved",
+          "NET.RECONNECT.WORLD begin tick=[0-9]+ props=[1-9][0-9]* removed=0 detached=0 first_dynamic=[1-9][0-9]* local_weapon_pruned=[0-9]+",
+          "NET.RECONNECT.WORLD end props=[1-9][0-9]* exact_set=1 refs=resolved topology=exclusive local_weapon_pruned=[0-9]+",
           "NET.RECONNECT.INVENTORY client=0 items=[0-9]+ allguns=[01] current=[0-9]+ exact=1",
           "NET.RECONNECT.INVENTORY client=1 items=[0-9]+ allguns=[01] current=[0-9]+ exact=1",
+          "NET.RECONNECT.PLAYER_STATE client=1 dead=1 apply=snapshot live_side_effects=0 drops=0 score=0 owner_cleanup=0",
           "NET.RECONNECT.CLIENT commit=accepted client=1 ordered_snapshot=complete retry_transaction_retire=1",
           "NET.RECONNECT.CLIENT transaction=complete post_load_ready=1 server_commit_ack=1 retry_transaction=retired",
           "SMOKE.NETWORK: reconnect rc=0 .*production_path=1",
@@ -133,9 +142,10 @@
             "patterns": [
               "CUTSCENE.AUTHORITY: stage-start presentation previous_tickmode=6 next_tickmode=0 stale_cutscene_retired=1",
               "NET.RECONNECT.WORLD begin .*props=[1-9][0-9]*",
-              "NET.RECONNECT.WORLD end .*exact_set=1 refs=resolved",
+              "NET.RECONNECT.WORLD end .*exact_set=1 refs=resolved topology=exclusive local_weapon_pruned=[0-9]+",
               "NET.RECONNECT.INVENTORY client=0 .*exact=1",
               "NET.RECONNECT.INVENTORY client=1 .*exact=1",
+              "NET.RECONNECT.PLAYER_STATE client=1 dead=1 apply=snapshot live_side_effects=0 drops=0 score=0 owner_cleanup=0",
               "NET.RECONNECT.CLIENT commit=accepted client=1 ordered_snapshot=complete",
               "NET.RECONNECT.CLIENT transaction=complete post_load_ready=1 server_commit_ack=1 retry_transaction=retired",
               "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
@@ -159,8 +169,10 @@
           { "pattern": "NET.RECONNECT.CLIENT auth=accepted", "min": 1, "max": 1 },
           { "pattern": "NET.RECONNECT.WORLD begin", "min": 1, "max": 1 },
           { "pattern": "NET.RECONNECT.WORLD end", "min": 1, "max": 1 },
+          { "pattern": "NET.RECONNECT.WORLD end .*topology=exclusive", "min": 1, "max": 1 },
           { "pattern": "NET.RECONNECT.INVENTORY client=0", "min": 1, "max": 1 },
           { "pattern": "NET.RECONNECT.INVENTORY client=1", "min": 1, "max": 1 },
+          { "pattern": "NET.RECONNECT.PLAYER_STATE client=1 dead=1 apply=snapshot live_side_effects=0 drops=0 score=0 owner_cleanup=0", "min": 1, "max": 1 },
           { "pattern": "NET.RECONNECT.CLIENT commit=accepted", "min": 1, "max": 1 },
           { "pattern": "NET.RECONNECT.CLIENT transaction=complete", "min": 1, "max": 1 },
           { "pattern": "stage-start presentation previous_tickmode=6 next_tickmode=0 stale_cutscene_retired=1", "min": 1, "max": 1 },
@@ -171,6 +183,7 @@
         ],
         "forbidden_patterns": [
           "SMOKE: result=network_reconnect_failed",
+          "SMOKE: result=network_retire_held_weapon_failed",
           "NET: connection rejected",
           "SMOKE: result=timeout",
           "EXCEPTION_ACCESS_VIOLATION",
@@ -190,7 +203,12 @@
       "NET.RECONNECT.GAMEPLAY client=1 player=1 .*server_accepted=1",
       "SMOKE.WAIT: satisfied condition=network_reconnect_available",
       "SMOKE.NETWORK: reconnect rc=0",
-      "NET.RECONNECT.CLIENT commit=accepted client=1 ordered_snapshot=complete"
+      "NET.RECONNECT.CLIENT commit=accepted client=1 ordered_snapshot=complete",
+      "NET.RECONNECT.PLAYER_STATE client=1 dead=1 apply=snapshot live_side_effects=0 drops=0 score=0 owner_cleanup=0",
+      "SMOKE.NETWORK: retired_prop_absent client=1 .*authoritative_present=0 read_only=1 production_cleanup=1",
+      "NET.RECONNECT.RESYNC.PREPARE client=1 .*terminal_absent=0 first_terminal_absent=0 exact_set=1",
+      "NET.RECONNECT.WORLD begin .*removed=0 detached=0 .*local_weapon_pruned=[0-9]+",
+      "NET.RECONNECT.WORLD end .*topology=exclusive local_weapon_pruned=[0-9]+"
     ],
     "forbidden_patterns": [
       "probe endpoint.*netStartClient",
@@ -204,6 +222,8 @@
       { "pattern": "PLAYER.INIT.COMMIT reconnect client=1", "min": 1, "max": 1 },
       { "pattern": "NET.RECONNECT.GAMEPLAY client=1", "min": 1, "max": 1 },
       { "pattern": "NET.RECONNECT.CLIENT commit=accepted client=1", "min": 1, "max": 1 },
+      { "pattern": "NET.RECONNECT.PLAYER_STATE client=1 dead=1 apply=snapshot live_side_effects=0 drops=0 score=0 owner_cleanup=0", "min": 1, "max": 1 },
+      { "pattern": "NET.RECONNECT.WORLD end .*topology=exclusive", "min": 1, "max": 1 },
       { "pattern": "SMOKE.NETWORK: reconnect rc=0", "min": 1, "max": 1 }
     ]
   }
