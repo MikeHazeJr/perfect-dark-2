@@ -764,7 +764,7 @@ TEST_CASE("net lifecycle: reconnect stage authority is validated before deferred
     const std::string netmsg = read_text_file("port/src/net/netmsg.c");
     const std::string lv = read_text_file("src/game/lv.c");
     const std::string read = function_block(netmsg, "u32 netmsgSvcStageStartRead");
-    const std::string reset = function_block(lv, "void lvReset(s32 stagenum)");
+    const std::string reset = function_block(lv, "bool lvReset(s32 stagenum)");
     const std::string reconnectCommit = function_block(netmsg,
         "u32 netmsgSvcReconnectCommitRead");
 
@@ -788,7 +788,7 @@ TEST_CASE("net lifecycle: reconnect stage authority is validated before deferred
 
     const size_t presentationBoundary = reset.find(
         "playerApplyAuthoritativeStageStartPresentation()");
-    const size_t playerAllocation = reset.find("playerReset();",
+    const size_t playerAllocation = reset.find("playerReset()",
         presentationBoundary);
     REQUIRE(presentationBoundary != std::string::npos);
     REQUIRE(playerAllocation != std::string::npos);

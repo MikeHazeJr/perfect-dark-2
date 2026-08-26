@@ -24,9 +24,11 @@
 #include "game/tex.h"
 #include "gbiex.h"
 #include "gdl_span.h"
+#include "lib/anim_bits.h"
 #include "lib/meshcollision.h"
 #include "lib/model.h"
 #include "modasset_compiler.h"
+#include "modasset_json.h"
 #include "sha256.h"
 #include "system.h"
 
@@ -1083,6 +1085,7 @@ typedef struct gltf_anim_channel {
 } gltf_anim_channel_t;
 
 #define GLTF_ANIM_MAX_TAIL_VALUES 512
+#define GLTF_ANIM_SPECIAL_PARTS_SCHEMA_VERSION 5
 
 /* Per-part raw field cap: 4 (ANIMFIELD_08 x/y/z/angle) + 3 (rotate) + 1
  * (camera) + 3 (scale) = 11; mirrors PDANIM_MAX_PART_FIELDS in the
@@ -1118,6 +1121,7 @@ typedef struct gltf_animation_clip {
 	u8 *owned_bin;
 	s32 channel_count;
 	s32 part_count;
+	s32 declared_part_count;
 	s32 frame_count;
 	s32 native_flags;
 	gltf_anim_repeat_range_t repeat_ranges[GLTF_ANIM_MAX_TAIL_VALUES];
@@ -1127,6 +1131,7 @@ typedef struct gltf_animation_clip {
 	/* Schema v5: verbatim per-part capture (NULL when absent). When present,
 	 * it covers ALL parts and the native frame stream is rebuilt from it. */
 	s32 schema_version;
+	s32 zero_frame_placeholder;
 	gltf_anim_special_part_t *special_parts;
 	s32 special_part_count;
 } gltf_animation_clip_t;
@@ -1305,42 +1310,43 @@ static s32 jsonObjectObject(json_span_t object, const char *key,
 static s32 jsonObjectInt(json_span_t object, const char *key, s32 *out)
 {
 	const char *value = jsonFindKeyInSpan(object, key);
-	char *endptr;
-	long parsed;
+	const char *endptr;
+	s32 parsed;
 
 	if (!value || !out) {
 		return 0;
 	}
 
 	value = jsonSkipWs(value, object.end);
-	parsed = strtol(value, &endptr, 10);
-	if (endptr == value) {
+	if (!modAssetJsonParseS32Token(value, object.end, &parsed, &endptr)
+			|| !modAssetJsonTokenHasContainerBoundary(endptr,
+				object.end, '}')) {
 		return 0;
 	}
 
-	*out = (s32)parsed;
+	*out = parsed;
 	return 1;
 }
 
 static s32 jsonObjectBool(json_span_t object, const char *key, s32 *out)
 {
 	const char *value = jsonFindKeyInSpan(object, key);
+	const char *endptr;
+	s32 parsed;
 
 	if (!value || !out) {
 		return 0;
 	}
 
 	value = jsonSkipWs(value, object.end);
-	if (value + 4 <= object.end && strncmp(value, "true", 4) == 0) {
-		*out = 1;
-		return 1;
-	}
-	if (value + 5 <= object.end && strncmp(value, "false", 5) == 0) {
-		*out = 0;
-		return 1;
+	if (!modAssetJsonParseBoolToken(value, object.end, &parsed, &endptr)
+			|| !modAssetJsonTokenHasContainerBoundary(endptr,
+				object.end, '}')) {
+		return 0;
 	}
 
-	return 0;
+	*out = parsed;
+	return 1;
 }
 
 static s32 jsonObjectFloat(json_span_t object, const char *key, f32 *out)
@@ -1516,43 +1522,101 @@ static s32 jsonArrayObjectCount(json_span_t array)
 	return count;
 }
 
-/* Iterate the next "[ ... ]" element of an array (e.g. the frame rows of
- * pd_special_parts[].frames, where each element is itself an array). Mirrors
- * jsonArrayNextObject but matches '[' instead of '{'. */
-static s32 jsonArrayNextArray(json_span_t array, const char **cursor,
-                              json_span_t *out)
+/* Strict iterator used by versioned native captures. Unlike the general GLTF
+ * helpers above, it rejects mixed element types, leading/trailing commas, and
+ * trailing bytes instead of skipping values of another shape. Return values:
+ * 1 = one container, 0 = exact end, -1 = malformed array. */
+static s32 jsonArrayNextContainerStrict(json_span_t array,
+		const char **cursor, char open, char close, json_span_t *out)
 {
 	const char *p;
+	const char *match;
+	s32 after_element;
 
 	if (!cursor || !out) {
+		return -1;
+	}
+
+	after_element = *cursor != NULL;
+	p = jsonSkipWs(after_element ? *cursor : array.start, array.end);
+
+	if (after_element) {
+		if (p >= array.end) {
+			return 0;
+		}
+		if (*p != ',') {
+			return -1;
+		}
+		p = jsonSkipWs(p + 1, array.end);
+		if (p >= array.end) {
+			return -1;
+		}
+	} else if (p >= array.end) {
 		return 0;
 	}
 
-	p = *cursor ? *cursor : array.start;
-	while (p < array.end) {
-		p = jsonSkipWs(p, array.end);
-		if (p < array.end && *p == ',') {
-			p++;
-			continue;
-		}
-		if (p >= array.end) {
-			break;
-		}
-		if (*p == '[') {
-			const char *m = jsonFindMatching(p, array.end, '[', ']');
-			if (!m) {
-				return 0;
-			}
-			out->start = p + 1;
-			out->end = m;
-			*cursor = m + 1;
-			return 1;
-		}
-		p = jsonValueEnd(p, array.end);
+	if (*p != open) {
+		return -1;
 	}
 
-	*cursor = array.end;
-	return 0;
+	match = jsonFindMatching(p, array.end, open, close);
+	if (!match) {
+		return -1;
+	}
+
+	if (jsonSkipWs(match + 1, array.end) < array.end
+			&& *jsonSkipWs(match + 1, array.end) != ',') {
+		return -1;
+	}
+
+	out->start = p + 1;
+	out->end = match;
+	*cursor = match + 1;
+	return 1;
+}
+
+/* Strict unsigned integer iterator for raw native bit fields. The extractor
+ * emits the full u32 domain (including IEEE-754 bit patterns above INT_MAX),
+ * so the signed JSON helper cannot own this wire contract. */
+static s32 jsonArrayNextU32Strict(json_span_t array, const char **cursor,
+		u32 *out)
+{
+	const char *p;
+	const char *endptr;
+	u32 parsed;
+	s32 after_element;
+
+	if (!cursor || !out) {
+		return -1;
+	}
+
+	after_element = *cursor != NULL;
+	p = jsonSkipWs(after_element ? *cursor : array.start, array.end);
+
+	if (after_element) {
+		if (p >= array.end) {
+			return 0;
+		}
+		if (*p != ',') {
+			return -1;
+		}
+		p = jsonSkipWs(p + 1, array.end);
+		if (p >= array.end) {
+			return -1;
+		}
+	} else if (p >= array.end) {
+		return 0;
+	}
+
+	if (!modAssetJsonParseU32Token(p, array.end, &parsed, &endptr)
+			|| !modAssetJsonTokenHasContainerBoundary(endptr,
+				array.end, ']')) {
+		return -1;
+	}
+
+	*out = parsed;
+	*cursor = endptr;
+	return 1;
 }
 
 static s32 jsonArrayNextInt(json_span_t array, const char **cursor,
@@ -2911,6 +2975,20 @@ static s32 parseGltfLikeAnimationInfo(const char *path,
 	return 0;
 }
 
+static void gltfAnimationSpecialPartsClear(gltf_animation_clip_t *clip)
+{
+	if (!clip || !clip->special_parts) {
+		return;
+	}
+
+	for (s32 i = 0; i < clip->special_part_count; i++) {
+		free(clip->special_parts[i].field_values);
+	}
+	free(clip->special_parts);
+	clip->special_parts = NULL;
+	clip->special_part_count = 0;
+}
+
 static void gltfAnimationClipFree(gltf_animation_clip_t *clip)
 {
 	if (!clip) {
@@ -2918,12 +2996,7 @@ static void gltfAnimationClipFree(gltf_animation_clip_t *clip)
 	}
 	free(clip->channels);
 	free(clip->owned_bin);
-	if (clip->special_parts) {
-		for (s32 i = 0; i < clip->special_part_count; i++) {
-			free(clip->special_parts[i].field_values);
-		}
-		free(clip->special_parts);
-	}
+	gltfAnimationSpecialPartsClear(clip);
 	memset(clip, 0, sizeof(*clip));
 }
 
@@ -2997,37 +3070,57 @@ static s32 animPartFieldCount(u8 flags)
 }
 
 /* Parse the schema-v5 `pd_special_parts` extras array into clip->special_parts.
- * Each entry carries a verbatim native header descriptor (header_hex) and a
- * frame-major frames[] of raw bit-field integers. On any malformation the
- * partial capture is discarded (special_parts left NULL) so the caller falls
- * back to the standard GLTF-channel rebuild. */
-static void parseGltfAnimationSpecialParts(json_span_t extras,
-                                           gltf_animation_clip_t *clip)
+ * Each entry carries a flags discriminant, a verbatim native field descriptor
+ * (header_hex), and frame-major raw bit-field integers. A present malformed
+ * capture rejects the source; it must never lose native-only semantics through
+ * the standard GLTF-channel path. */
+static s32 parseGltfAnimationSpecialParts(json_span_t extras,
+                                          gltf_animation_clip_t *clip)
 {
 	json_span_t parts_array;
-	const char *cursor;
+	const char *cursor = NULL;
 	json_span_t part_obj;
-	s32 count;
+	s32 count = 0;
 	s32 idx = 0;
+	s32 expected_capture_frames = -1;
+	s32 prior_part_count;
+	s32 state;
 
-	if (!jsonObjectArray(extras, "pd_special_parts", &parts_array)) {
-		return;
+	if (!jsonFindKeyInSpan(extras, "pd_special_parts")) {
+		return 1;
 	}
 
-	count = jsonArrayObjectCount(parts_array);
-	if (count <= 0 || count > 4096) {
-		return;
+	if (!clip
+			|| clip->schema_version != GLTF_ANIM_SPECIAL_PARTS_SCHEMA_VERSION
+			|| !jsonObjectArray(extras, "pd_special_parts", &parts_array)) {
+		return 0;
+	}
+
+	while ((state = jsonArrayNextContainerStrict(parts_array, &cursor,
+			'{', '}', &part_obj)) > 0) {
+		count++;
+	}
+	if (state < 0 || count <= 0 || count > 4096) {
+		return 0;
+	}
+
+	prior_part_count = clip->part_count;
+	if (prior_part_count > 0 && prior_part_count != count) {
+		return 0;
 	}
 
 	clip->special_parts = calloc((size_t)count, sizeof(*clip->special_parts));
 	if (!clip->special_parts) {
-		return;
+		return 0;
 	}
+	clip->special_part_count = count;
+	clip->part_count = count;
 
 	cursor = NULL;
-	while (idx < count && jsonArrayNextObject(parts_array, &cursor, &part_obj)) {
+	while ((state = jsonArrayNextContainerStrict(parts_array, &cursor,
+			'{', '}', &part_obj)) > 0) {
 		gltf_anim_special_part_t *sp = &clip->special_parts[idx];
-		char hex[GLTF_ANIM_MAX_PART_HEADER * 2 + 1];
+		char *hex;
 		s32 part_index = 0;
 		s32 flags_int = 0;
 		json_span_t frames_array;
@@ -3036,21 +3129,33 @@ static void parseGltfAnimationSpecialParts(json_span_t extras,
 		size_t hex_len;
 		s32 expect_fields;
 		s32 frame_idx = 0;
+		u32 measured_header_len;
+		u32 measured_frame_bits;
+
+		if (idx >= count) {
+			goto bad;
+		}
 
 		if (!jsonObjectInt(part_obj, "part", &part_index)
-				|| !jsonObjectInt(part_obj, "flags", &flags_int)) {
+				|| !jsonObjectInt(part_obj, "flags", &flags_int)
+				|| flags_int < 0 || flags_int > 0xff) {
 			goto bad;
 		}
 		sp->part = part_index;
 		sp->flags = (u8)flags_int;
+		if (sp->part != idx) {
+			goto bad;
+		}
 
 		/* header_hex -> raw bytes */
-		if (!jsonObjectString(part_obj, "header_hex", hex, sizeof(hex))) {
+		hex = jsonObjectStringAlloc(part_obj, "header_hex");
+		if (!hex) {
 			goto bad;
 		}
 		hex_len = strlen(hex);
-		if (hex_len == 0 || (hex_len & 1)
+		if ((hex_len & 1)
 				|| hex_len / 2 > GLTF_ANIM_MAX_PART_HEADER) {
+			free(hex);
 			goto bad;
 		}
 		sp->header_len = (s32)(hex_len / 2);
@@ -3058,9 +3163,18 @@ static void parseGltfAnimationSpecialParts(json_span_t extras,
 			s32 hi = hexNibble(hex[b * 2]);
 			s32 lo = hexNibble(hex[b * 2 + 1]);
 			if (hi < 0 || lo < 0) {
+				free(hex);
 				goto bad;
 			}
 			sp->header[b] = (u8)((hi << 4) | lo);
+		}
+		free(hex);
+
+		if (animFrameMeasurePartBounded(sp->header, (u32)sp->header_len,
+				sp->flags, &measured_header_len, &measured_frame_bits)
+				!= ANIM_FRAME_LAYOUT_OK
+				|| measured_header_len != (u32)sp->header_len) {
+			goto bad;
 		}
 
 		expect_fields = animPartFieldCount(sp->flags);
@@ -3070,15 +3184,19 @@ static void parseGltfAnimationSpecialParts(json_span_t extras,
 		 * count is derived here (a counting pre-pass) so this parse does not
 		 * depend on channel-derived clip->frame_count, which is not yet set
 		 * when extras are parsed. */
-		if (jsonObjectArray(part_obj, "frames", &frames_array)) {
+		if (!jsonObjectArray(part_obj, "frames", &frames_array)) {
+			goto bad;
+		}
+		{
 			s32 cap_frames = 0;
+			s32 frame_state;
 
 			frame_cursor = NULL;
-			while (jsonArrayNextArray(frames_array, &frame_cursor,
-					&frame_row)) {
+			while ((frame_state = jsonArrayNextContainerStrict(frames_array,
+					&frame_cursor, '[', ']', &frame_row)) > 0) {
 				cap_frames++;
 			}
-			if (cap_frames < 0 || cap_frames > 0xffff) {
+			if (frame_state < 0 || cap_frames > 0xffff) {
 				goto bad;
 			}
 			if (cap_frames > 0 && expect_fields > 0) {
@@ -3089,50 +3207,56 @@ static void parseGltfAnimationSpecialParts(json_span_t extras,
 				}
 			}
 			frame_cursor = NULL;
-			while (frame_idx < cap_frames
-					&& jsonArrayNextArray(frames_array, &frame_cursor,
-						&frame_row)) {
+			while ((frame_state = jsonArrayNextContainerStrict(frames_array,
+					&frame_cursor, '[', ']', &frame_row)) > 0) {
 				const char *vc = NULL;
-				s32 v;
-				s32 fi = 0;
-				while (fi < expect_fields
-						&& jsonArrayNextInt(frame_row, &vc, &v)) {
-					sp->field_values[frame_idx * expect_fields + fi] = (u32)v;
-					fi++;
+				u32 v;
+
+				if (frame_idx >= cap_frames) {
+					goto bad;
 				}
-				if (fi != expect_fields) {
+				for (s32 fi = 0; fi < expect_fields; fi++) {
+					if (jsonArrayNextU32Strict(frame_row, &vc, &v) != 1) {
+						goto bad;
+					}
+					sp->field_values[frame_idx * expect_fields + fi] = v;
+				}
+				if (jsonArrayNextU32Strict(frame_row, &vc, &v) != 0) {
 					goto bad;
 				}
 				frame_idx++;
 			}
-			/* All special parts share the same frame count; track the max so
-			 * the rebuild knows the native numframes even for the zero-channel
-			 * GLTF where no sampler input establishes it. */
-			if (frame_idx > clip->frame_count) {
-				clip->frame_count = frame_idx;
+			if (frame_state < 0 || frame_idx != cap_frames
+					|| (expected_capture_frames >= 0
+						&& frame_idx != expected_capture_frames)) {
+				goto bad;
+			}
+			if (expected_capture_frames < 0) {
+				expected_capture_frames = frame_idx;
 			}
 		}
 		sp->captured_frames = frame_idx;
 		idx++;
-		continue;
-
-	bad:
-		/* Discard the whole capture: any malformed part forces the
-		 * standard-channel fallback rather than a half-built native frame. */
-		for (s32 i = 0; i <= idx; i++) {
-			free(clip->special_parts[i].field_values);
-		}
-		free(clip->special_parts);
-		clip->special_parts = NULL;
-		clip->special_part_count = 0;
-		return;
 	}
 
-	clip->special_part_count = idx;
+	if (state < 0 || idx != count || expected_capture_frames < 0) {
+		goto bad;
+	}
+
+	clip->frame_count = expected_capture_frames;
+	return 1;
+
+bad:
+	/* A present malformed native capture is a source error. Discard the
+	 * complete allocation, but never reinterpret it through the lossy channel
+	 * path after the author selected schema-v5 special-part ownership. */
+	gltfAnimationSpecialPartsClear(clip);
+	clip->part_count = prior_part_count;
+	return 0;
 }
 
-static void parseGltfAnimationNativeExtras(json_span_t root,
-                                           gltf_animation_clip_t *clip)
+static s32 parseGltfAnimationNativeExtras(json_span_t root,
+                                          gltf_animation_clip_t *clip)
 {
 	json_span_t extras;
 	json_span_t repeat_array;
@@ -3142,15 +3266,41 @@ static void parseGltfAnimationNativeExtras(json_span_t root,
 	s32 value;
 
 	if (!clip || !jsonObjectObject(root, "extras", &extras)) {
-		return;
+		return 1;
 	}
 
 	if (jsonObjectInt(extras, "pd_schema_version", &value)) {
 		clip->schema_version = value;
 	}
 
-	if (jsonObjectInt(extras, "pd_anim_flags", &value)) {
-		clip->native_flags = value & 0xff;
+	if (jsonFindKeyInSpan(extras, "pd_part_count")) {
+		if (!jsonObjectInt(extras, "pd_part_count", &value)
+				|| value <= 0 || value > 4096) {
+			gltfAnimationSetError(&clip->info,
+				"gltf_animation_part_count_invalid");
+			return 0;
+		}
+		clip->declared_part_count = value;
+		clip->part_count = value;
+	}
+
+	if (jsonFindKeyInSpan(extras, "pd_anim_flags")) {
+		if (!jsonObjectInt(extras, "pd_anim_flags", &value)
+				|| value < 0 || value > 0xff) {
+			gltfAnimationSetError(&clip->info,
+				"gltf_animation_native_flags_invalid");
+			return 0;
+		}
+		clip->native_flags = value;
+	}
+
+	if (jsonFindKeyInSpan(extras, "pd_zero_frame_placeholder")) {
+		if (!jsonObjectBool(extras, "pd_zero_frame_placeholder", &value)) {
+			gltfAnimationSetError(&clip->info,
+				"gltf_animation_zero_frame_marker_invalid");
+			return 0;
+		}
+		clip->zero_frame_placeholder = value;
 	}
 
 	if (jsonObjectArray(extras, "pd_repeat_ranges", &repeat_array)) {
@@ -3183,7 +3333,21 @@ static void parseGltfAnimationNativeExtras(json_span_t root,
 	/* Schema v5: verbatim per-part native capture (ANIMFIELD_08 root-motion
 	 * + ANIMFIELD_CAMERA FOV/blur). When present it drives a byte-exact
 	 * native rebuild in gltfBuildAnimationClipPayload. */
-	parseGltfAnimationSpecialParts(extras, clip);
+	if (!parseGltfAnimationSpecialParts(extras, clip)) {
+		gltfAnimationSetError(&clip->info,
+			"gltf_animation_special_parts_invalid");
+		return 0;
+	}
+	if (clip->special_part_count > 0
+			&& ((clip->zero_frame_placeholder && clip->frame_count != 0)
+				|| (!clip->zero_frame_placeholder
+					&& clip->frame_count <= 0))) {
+		gltfAnimationSetError(&clip->info,
+			"gltf_animation_special_frame_count_invalid");
+		return 0;
+	}
+
+	return 1;
 }
 
 static s32 parseGltfAnimationClipFromJson(const char *json,
@@ -3229,7 +3393,9 @@ static s32 parseGltfAnimationClipFromJson(const char *json,
 	if (text_gltf && !gltfValidateTextBuffersAreEmbedded(root, &clip->info)) {
 		return 0;
 	}
-	parseGltfAnimationNativeExtras(root, clip);
+	if (!parseGltfAnimationNativeExtras(root, clip)) {
+		return 0;
+	}
 
 	while (jsonArrayNextObject(animations_array, &cursor, &animation_object)) {
 		json_span_t local_channels;
@@ -3258,17 +3424,29 @@ static s32 parseGltfAnimationClipFromJson(const char *json,
 	}
 
 	if (!jsonObjectArray(first_animation, "channels", &channels_array)) {
+		if (clip->special_part_count > 0) {
+			clip->info.frame_count = clip->frame_count;
+			return 1;
+		}
 		clip->info.frame_count = 1;
 		clip->frame_count = 1;
-		clip->part_count = 1;
+		if (clip->part_count <= 0) {
+			clip->part_count = 1;
+		}
 		return 1;
 	}
 
 	channel_count = jsonArrayObjectCount(channels_array);
 	if (channel_count <= 0) {
+		if (clip->special_part_count > 0) {
+			clip->info.frame_count = clip->frame_count;
+			return 1;
+		}
 		clip->info.frame_count = 1;
 		clip->frame_count = 1;
-		clip->part_count = 1;
+		if (clip->part_count <= 0) {
+			clip->part_count = 1;
+		}
 		return 1;
 	}
 	if (!bin || bin_size == 0) {
@@ -3374,6 +3552,12 @@ static s32 parseGltfAnimationClipFromJson(const char *json,
 		}
 		if (channel->target_node < 0 || channel->target_node > 511) {
 			gltfAnimationSetError(&clip->info, "gltf_channel_node_out_of_range");
+			goto cleanup;
+		}
+		if (clip->declared_part_count > 0
+				&& channel->target_node >= clip->declared_part_count) {
+			gltfAnimationSetError(&clip->info,
+				"gltf_channel_exceeds_declared_part_count");
 			goto cleanup;
 		}
 		if (gltfAnimationChannelDuplicate(clip, i,
@@ -3862,10 +4046,13 @@ static s32 cacheBuildPaths(const char *cache_root,
 		const char *digest_key, char *cache_path, size_t cache_path_size,
 		char *normalized_path, size_t normalized_path_size)
 {
+	s32 compiler_version = assetKindUsesGeneratedAnimationClip(asset_kind)
+		? MODASSET_COMPILER_ANIMATION_VERSION : MODASSET_COMPILER_VERSION;
+
 	if (!cacheFormatPath(cache_path, cache_path_size,
 			"%s/%s/%s/%s-v%d-%s.pdmc",
 			cache_root, mod_part, asset_part, kind_part,
-			MODASSET_COMPILER_VERSION, digest_key)) return 0;
+			compiler_version, digest_key)) return 0;
 
 	normalized_path[0] = '\0';
 	if (strcmp(source_kind, "obj") == 0
@@ -3892,7 +4079,7 @@ static s32 cacheBuildPaths(const char *cache_root,
 		if (!cacheFormatPath(normalized_path, normalized_path_size,
 				"%s/%s/%s/%s-v%d-%s.pdanimation.json",
 				cache_root, mod_part, asset_part, kind_part,
-				MODASSET_COMPILER_VERSION, digest_key)) return 0;
+				MODASSET_COMPILER_ANIMATION_VERSION, digest_key)) return 0;
 	} else if (strcmp(source_kind, "gltf") == 0
 			|| strcmp(source_kind, "glb") == 0) {
 		if (!cacheFormatPath(normalized_path, normalized_path_size,
@@ -4136,7 +4323,8 @@ static s32 writeAnimationClipJson(const char *path, const asset_entry_t *entry,
 
 	fprintf(f, "{\n");
 	fprintf(f, "  \"schema\": \"pd2.modasset.animation.v1\",\n");
-	fprintf(f, "  \"compiler_version\": %d,\n", MODASSET_COMPILER_VERSION);
+	fprintf(f, "  \"compiler_version\": %d,\n",
+		MODASSET_COMPILER_ANIMATION_VERSION);
 	fprintf(f, "  \"asset_id\": \"");
 	jsonWriteEscaped(f, entry ? entry->id : "");
 	fprintf(f, "\",\n");
@@ -4185,6 +4373,8 @@ static s32 writeCacheDescriptor(const char *path,
                                 const obj_mesh_t *mesh)
 {
 	FILE *f;
+	s32 compiler_version = assetKindUsesGeneratedAnimationClip(asset_kind)
+		? MODASSET_COMPILER_ANIMATION_VERSION : MODASSET_COMPILER_VERSION;
 
 	ensureCacheFileParentDirs(path);
 	f = fsFileOpenWrite(path);
@@ -4195,7 +4385,7 @@ static s32 writeCacheDescriptor(const char *path,
 
 	fprintf(f, "{\n");
 	fprintf(f, "  \"schema\": \"pd2.modasset.cache.v1\",\n");
-	fprintf(f, "  \"compiler_version\": %d,\n", MODASSET_COMPILER_VERSION);
+	fprintf(f, "  \"compiler_version\": %d,\n", compiler_version);
 	fprintf(f, "  \"asset_id\": \"");
 	jsonWriteEscaped(f, entry ? entry->id : "");
 	fprintf(f, "\",\n");
@@ -8617,61 +8807,6 @@ static void writeBitsMsb(u8 *dst, s32 bitoffset, u8 bitlen, u32 value)
 	}
 }
 
-/* Per-part native header descriptor byte length for the given flags. Mirrors
- * romextract_pdanim_chr.c::s_animSkipPartHeader (byte advances only). */
-static s32 animPartHeaderLen(u8 flags)
-{
-	s32 n = 0;
-	if (flags & ANIMFIELD_08) {
-		n += 12;
-	} else if (flags & ANIMFIELD_S16_TRANSLATE) {
-		n += 9;
-	} else if (flags & ANIMFIELD_S32_TRANSLATE) {
-		n += 15;
-	}
-	if (flags & ANIMFIELD_S16_ROTATE) {
-		n += 9;
-	} /* ANIMFIELD_F32_ROTATE: 0 header bytes (fixed 96-bit frame field) */
-	if (flags & ANIMFIELD_CAMERA) {
-		n += 5;
-	}
-	/* ANIMFIELD_F32_SCALE: 0 header bytes */
-	return n;
-}
-
-/* Per-part frame bit width for the given header descriptor + flags. Mirrors
- * the *bits_per_frame accounting in s_animSkipPartHeader: read-bit-lengths
- * come from the header bytes for the variable fields, fixed 96 for f32. */
-static s32 animPartFrameBits(const u8 *hdr, u8 flags)
-{
-	s32 bits = 0;
-	const u8 *ptr = hdr;
-	if (flags & ANIMFIELD_08) {
-		bits += ptr[2] + ptr[5] + ptr[8] + ptr[11];
-		ptr += 12;
-	} else if (flags & ANIMFIELD_S16_TRANSLATE) {
-		bits += ptr[2] + ptr[5] + ptr[8];
-		ptr += 9;
-	} else if (flags & ANIMFIELD_S32_TRANSLATE) {
-		bits += ptr[0] + ptr[5] + ptr[10];
-		ptr += 15;
-	}
-	if (flags & ANIMFIELD_S16_ROTATE) {
-		bits += ptr[2] + ptr[5] + ptr[8];
-		ptr += 9;
-	} else if (flags & ANIMFIELD_F32_ROTATE) {
-		bits += 96;
-	}
-	if (flags & ANIMFIELD_CAMERA) {
-		bits += ptr[0];
-		ptr += 5;
-	}
-	if (flags & ANIMFIELD_F32_SCALE) {
-		bits += 96;
-	}
-	return bits;
-}
-
 /* Per-field bit widths for a part, in the canonical native order that
  * s_decodeRawPartFields / animPartFieldCount produce. Writes up to
  * GLTF_ANIM_MAX_PART_FIELDS entries; returns the field count. */
@@ -8719,13 +8854,28 @@ static s32 animPartFieldBitWidths(const u8 *hdr, u8 flags,
 	return n;
 }
 
+static s32 animDescriptorStreamMatches(const u8 *header,
+		u32 descriptor_header_len, u32 frame_byte_len, u32 part_count,
+		u32 expected_frame_bits)
+{
+	struct anim_frame_stream_layout layout;
+	enum anim_frame_layout_result result =
+		animFrameMeasureDescriptorStreamBounded(header,
+			descriptor_header_len, frame_byte_len, part_count, &layout);
+
+	return result == ANIM_FRAME_LAYOUT_OK
+		&& layout.descriptor_bytes == descriptor_header_len
+		&& layout.frame_bit_count == expected_frame_bits
+		&& (layout.frame_bit_count + 7u) / 8u == frame_byte_len;
+}
+
 /* Rebuild the byte-exact native animation payload from the schema-v5
  * verbatim per-part capture (clip->special_parts). Used when ANIMFIELD_08 /
  * ANIMFIELD_CAMERA channels are present, which the lossy GLTF-channel path
  * cannot represent. The capture covers ALL parts, so the entire native
  * header + frame stream is reproduced here; the repeat/cut-skip tail is
- * appended exactly as the standard path does. Returns 1 on success, 0 on
- * failure (caller falls back to the GLTF-channel rebuild). */
+ * appended exactly as the standard path does. Returns 1 on success and 0 on a
+ * fail-closed source/layout rejection. */
 static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
                                            s32 frame_count,
                                            struct animtableentry *out_entry,
@@ -8741,26 +8891,38 @@ static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
 	s32 has_repeat_tail;
 	s32 has_cut_skip_tail;
 	u32 total_size;
+	u64 total_size64;
 	u8 *data;
 
 	if (part_count <= 0 || !clip->special_parts) {
 		return 0;
 	}
+	if (clip->part_count > 0 && part_count != clip->part_count) {
+		return 0;
+	}
 
 	/* Parts must be contiguous 0..part_count-1 in order, and each capture
-	 * must carry the expected frame count -- otherwise the native frame bit
-	 * accounting is ambiguous; bail to the fallback. */
+	 * must carry the expected frame count. The shared runtime contract owns
+	 * descriptor length, flags, and bit accounting. */
 	for (s32 i = 0; i < part_count; i++) {
 		gltf_anim_special_part_t *sp = &clip->special_parts[i];
-		if (sp->part != i || sp->header_len <= 0
-				|| sp->header_len != animPartHeaderLen(sp->flags)) {
+		u32 measured_header_len;
+		u32 measured_frame_bits;
+		enum anim_frame_layout_result layout_result;
+
+		layout_result = animFrameMeasurePartBounded(sp->header,
+			(u32)sp->header_len, sp->flags, &measured_header_len,
+			&measured_frame_bits);
+		if (sp->part != i
+				|| layout_result != ANIM_FRAME_LAYOUT_OK
+				|| measured_header_len != (u32)sp->header_len) {
 			return 0;
 		}
-		if (sp->field_count > 0 && sp->captured_frames != frame_count) {
+		if (sp->captured_frames != frame_count) {
 			return 0;
 		}
-		descriptor_header_len += sp->header_len;
-		bits_per_frame += animPartFrameBits(sp->header, sp->flags);
+		descriptor_header_len += 1 + sp->header_len;
+		bits_per_frame += (s32)measured_frame_bits;
 	}
 
 	has_repeat_tail = (clip->native_flags & ANIMFLAG_HASREPEATFRAMES)
@@ -8773,11 +8935,17 @@ static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
 	header_len = descriptor_header_len + tail_len;
 	bytes_per_frame = (bits_per_frame + 7) / 8;
 
-	if (header_len <= 0 || header_len > 0xffff || bytes_per_frame <= 0) {
+	if (header_len <= 0 || header_len > 0xffff || bytes_per_frame <= 0
+			|| bytes_per_frame > 0xffff) {
 		return 0;
 	}
 
-	total_size = (u32)header_len + (u32)frame_count * (u32)bytes_per_frame;
+	total_size64 = (u64)(u32)header_len
+		+ (u64)(u32)frame_count * (u64)(u32)bytes_per_frame;
+	if (total_size64 > 0xffffffffu || total_size64 > (u64)SIZE_MAX) {
+		return 0;
+	}
+	total_size = (u32)total_size64;
 	data = calloc(1, total_size);
 	if (!data) {
 		return 0;
@@ -8788,6 +8956,7 @@ static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
 		u8 *p = data;
 		for (s32 i = 0; i < part_count; i++) {
 			gltf_anim_special_part_t *sp = &clip->special_parts[i];
+			*p++ = sp->flags;
 			memcpy(p, sp->header, (size_t)sp->header_len);
 			p += sp->header_len;
 		}
@@ -8812,6 +8981,13 @@ static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
 		}
 	}
 
+	if (!animDescriptorStreamMatches(data, (u32)descriptor_header_len,
+			(u32)bytes_per_frame, (u32)part_count,
+			(u32)bits_per_frame)) {
+		free(data);
+		return 0;
+	}
+
 	/* Frames: pack each part's raw field values at their header bit widths,
 	 * MSB-first, in part order -- reproducing the native bit stream. */
 	for (s32 frame = 0; frame < frame_count; frame++) {
@@ -8831,6 +9007,10 @@ static s32 gltfBuildNativeFromSpecialParts(gltf_animation_clip_t *clip,
 				writeBitsMsb(framebytes, bitoffset, widths[f], v);
 				bitoffset += widths[f];
 			}
+		}
+		if (bitoffset != bits_per_frame) {
+			free(data);
+			return 0;
 		}
 	}
 
@@ -8869,6 +9049,7 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 	s32 *scale_for_part = NULL;
 	u8 *data = NULL;
 	u32 total_size;
+	u64 total_size64;
 
 	if (!clip || !out_entry || !out_data || !out_data_size) {
 		return 0;
@@ -8885,30 +9066,33 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 
 	/* Schema v5: if the clip carries a verbatim per-part native capture
 	 * (ANIMFIELD_08 root-motion / ANIMFIELD_CAMERA FOV-blur), rebuild the
-	 * native payload byte-exact from it. On any inconsistency this returns 0
-	 * and we fall through to the lossy GLTF-channel rebuild below. */
-	if (clip->special_parts && clip->special_part_count > 0) {
-		if (gltfBuildNativeFromSpecialParts(clip, frame_count, out_entry,
-				out_data, out_data_size)) {
-			return 1;
-		}
+	 * native payload byte-exact from it. Any inconsistency rejects the build;
+	 * native-only fields are never discarded into the lossy channel path. */
+	if (!clip->zero_frame_placeholder
+			&& clip->special_parts && clip->special_part_count > 0) {
+		return gltfBuildNativeFromSpecialParts(clip, frame_count, out_entry,
+			out_data, out_data_size);
 	}
 
 	has_repeat_tail = (clip->native_flags & ANIMFLAG_HASREPEATFRAMES)
 		|| clip->repeat_range_count > 0;
 	has_cut_skip_tail = (clip->native_flags & ANIMFLAG_HASCUTSKIPFRAMES)
 		|| clip->cut_skip_count > 0;
+	part_count = clip->part_count > 0 ? clip->part_count : 1;
 
 	if (clip->channel_count <= 0) {
+		descriptor_header_len = part_count;
 		tail_len = (has_cut_skip_tail ? 2 + clip->cut_skip_count * 2 : 0)
 			+ (has_repeat_tail ? 2 + clip->repeat_range_count * 4 : 0);
-		data = calloc(1, (size_t)(1 + tail_len));
+		header_len = descriptor_header_len + tail_len;
+		if (header_len <= 0 || header_len > 0xffff) {
+			return 0;
+		}
+		data = calloc(1, (size_t)header_len);
 		if (!data) {
 			return 0;
 		}
-		data[0] = 0;
-		header_len = 1 + tail_len;
-		u8 *tail = data + 1;
+		u8 *tail = data + descriptor_header_len;
 		if (has_cut_skip_tail) {
 			writeBe16(tail, 0xffff);
 			tail += 2;
@@ -8927,6 +9111,11 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 				tail += 4;
 			}
 		}
+		if (!animDescriptorStreamMatches(data,
+				(u32)descriptor_header_len, 0, (u32)part_count, 0)) {
+			free(data);
+			return 0;
+		}
 		memset(out_entry, 0, sizeof(*out_entry));
 		out_entry->numframes = (u16)frame_count;
 		out_entry->bytesperframe = 0;
@@ -8941,7 +9130,6 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 		return 1;
 	}
 
-	part_count = clip->part_count > 0 ? clip->part_count : 1;
 	translation_for_part = malloc((size_t)part_count * sizeof(s32));
 	rotation_for_part = malloc((size_t)part_count * sizeof(s32));
 	scale_for_part = malloc((size_t)part_count * sizeof(s32));
@@ -9001,11 +9189,17 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 	header_len += tail_len;
 
 	bytes_per_frame = (bits_per_frame + 7) / 8;
-	if (header_len <= 0 || bytes_per_frame <= 0) {
+	if (header_len <= 0 || header_len > 0xffff || bytes_per_frame <= 0
+			|| bytes_per_frame > 0xffff) {
 		goto fail;
 	}
 
-	total_size = (u32)header_len + (u32)frame_count * (u32)bytes_per_frame;
+	total_size64 = (u64)(u32)header_len
+		+ (u64)(u32)frame_count * (u64)(u32)bytes_per_frame;
+	if (total_size64 > 0xffffffffu || total_size64 > (u64)SIZE_MAX) {
+		goto fail;
+	}
+	total_size = (u32)total_size64;
 	data = calloc(1, total_size);
 	if (!data) {
 		goto fail;
@@ -9055,6 +9249,12 @@ static s32 gltfBuildAnimationClipPayload(gltf_animation_clip_t *clip,
 				p += 4;
 			}
 		}
+	}
+
+	if (!animDescriptorStreamMatches(data, (u32)descriptor_header_len,
+			(u32)bytes_per_frame, (u32)part_count,
+			(u32)bits_per_frame)) {
+		goto fail;
 	}
 
 	for (s32 frame = 0; frame < frame_count; frame++) {
@@ -9178,6 +9378,7 @@ s32 modAssetCompilerBuildAnimationClip(const asset_entry_t *entry,
 			entry ? entry->id : "(unknown)", source_path,
 			clip.info.error[0] ? clip.info.error : "parse_failed");
 		free(source_bytes);
+		gltfAnimationClipFree(&clip);
 		return -1;
 	}
 
@@ -9194,7 +9395,7 @@ s32 modAssetCompilerBuildAnimationClip(const asset_entry_t *entry,
 		out_data, out_data_size);
 	if (!ok) {
 		sysLogPrintf(LOG_WARNING,
-			"MODASSET.COMPILER: animation clip allocation failed for '%s'",
+			"MODASSET.COMPILER: animation clip build rejected for '%s'",
 			entry ? entry->id : "(unknown)");
 		gltfAnimationClipFree(&clip);
 		free(source_bytes);

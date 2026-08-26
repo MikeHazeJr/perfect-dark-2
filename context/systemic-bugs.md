@@ -2553,6 +2553,120 @@ sequences plus bounded counts instead of whole-log absence.
 
 ---
 
+## SP-65: A streaming decoder borrows an unrelated endpoint and can stop making progress
+
+**Severity: CRITICAL - valid or malformed public data can trap the main thread
+without a crash, timeout boundary, or typed rejection.**
+
+A decoder must own the exact byte span of the payload it consumes. Pointer
+subtraction is a valid remaining-length calculation only when both pointers are
+within the same owning array. Borrowing an adjacent header, cache slot, or
+allocation endpoint can produce arbitrary positive, negative, or zero lengths.
+Any loop that depends on replenishing a bit/byte count must also prove each
+iteration consumes input or returns a typed failure; a zero-length refill may
+never leave the loop condition unchanged.
+
+**Known instance (B-1101):** optimized character animation decoding kept
+`t3ptr8` as the end of the animation header and `t6ptr8` as the current frame
+payload pointer. `modelasmReadFrameData` subtracted those unrelated pointers to
+choose a refill size. A clean Combat Simulator run reached a layout where the
+calculated chunk was zero, `gp` remained zero, and `while (v1 > gp)` never
+reduced `v1`. The process stayed CPU-live after a real CMP150 shot while frame
+and log progress stopped. Sixteen of sixteen native main-thread samples landed
+inside that loop; caller candidates trace through character animation tick.
+
+**Current correction, automation verified; production smoke rejected:** frame setup carries the table's
+exact `bytesperframe`; a pure bounded big-endian reader validates every field;
+and descriptor walking validates header span, format flags, field widths, frame
+payload, and the optimized scratch-part capacity. Optimized transforms and the
+generic F32/S32/camera/scale path now share that admission boundary, while the
+root-motion and camera readers also locate and consume fields through it. A
+zero-width field over a zero-byte payload is an explicit no-op; any nonzero null
+or truncated read fails. The normal allocated `animnum=0` bind-pose state
+bypasses decoding without a false error. Focused tests pin cross-byte ordering,
+exact boundaries, 32-bit and zero-bit reads, 08-plus-camera ordering,
+conflicting flags, invalid widths, truncation, overflow-safe offsets,
+part-capacity enforcement, and removal of the unrelated subtraction.
+
+The source-frozen unit passes focused 2,007 assertions in 33 cases, the full
+64,681 assertions in 1,181 cases, and the native-source guard with zero product
+or verifier manifest mismatches. When host capacity recovered, the exact frozen
+replacement smoke reached player initialization and exposed B-1102 instead of
+closing B-1101. The public schema-v5 animation rebuild had omitted per-part
+flags from its runtime header, so the bounded decoder correctly rejected a
+shifted descriptor. The intended fail-closed fallback was itself unsafe: it
+nulled `model->anim` and entered a generic CHRINFO matrix path that
+unconditionally dereferenced it. The immutable receipt is
+`results-20260824T124625Z.json` at 16/56 with an access violation. B-1101's
+bounded-progress correction remains automation-verified, but production closure
+now depends on B-1102's framed-stream and explicit bind-pose repair.
+
+**Audit:** for every stream, bit reader, archive walker, and packet decoder,
+identify the object that owns the start and length. Reject mixed-allocation
+pointer arithmetic. For each loop, name the monotonic cursor/count and prove
+every branch advances it or returns. Exercise zero bytes, zero-bit fields, exact
+end, one-bit truncation, maximum field width, and overflowed offsets.
+
+`rg -n "while .*remaining|while .*bits|endptr -|ptrend -|ReadBits|read.*bits|bitoffset|bytelen" src port tools tests`
+
+---
+
+## SP-66: A transformed typed stream is published without consumer-contract validation
+
+**Severity: CRITICAL - valid public source can compile successfully into a
+misframed runtime stream that only fails when production consumes it.**
+
+When a public-source adapter reconstructs a tagged or length-delimited stream,
+the tag or discriminant is part of the payload contract, not metadata beside
+it. Producer-side byte counts and field ordering must come from the same bounded
+layout primitive used by consumers, and the completed stream must pass that
+primitive before cache publication or activation. Static presence tests for the
+adapter do not prove byte-level compatibility.
+
+**Known instance (B-1102):** schema-v5 `pd_special_parts` stores `flags` beside a
+verbatim `header_hex` field descriptor. `gltfBuildNativeFromSpecialParts`
+summed and copied only `header_hex`; unlike the standard builder, it neither
+reserved nor emitted one flags byte per part. The resulting stream retained the
+expected 11-byte frame width but lost all descriptor boundaries. Runtime read a
+field-header byte as a flags byte and rejected the valid public
+`base:animation_two_gun_hold` source before the first frame could render.
+
+The same receipt exposed a second error-path rule: a typed rejection fallback
+must be independently executable from the rejected dependency. Clearing a live
+animation pointer and then calling a generic matrix consumer that requires that
+pointer converts a safe rejection into an access violation. Bind-pose rendering
+must have an explicit dependency-free entry point and preserve live animation
+ownership unchanged.
+
+**Current correction, source-connected but unverified:** one pure
+`anim_bits` contract now measures individual descriptors and exact framed
+streams for both producers and consumers, including rejection of unconsumed
+trailing descriptor bytes. Schema-v5 parsing requires the known version,
+canonical bounded integer/boolean tokens, contiguous declared part topology,
+exact row shapes and frame counts, full unsigned 32-bit raw values, and coherent
+explicit zero-frame markers. Zero-frame private no-op streams preserve the
+declared part count instead of collapsing topology to one descriptor. The
+compiler reserves and writes every flags byte, validates each completed stream
+and frame width before publication, and uses animation-only cache version 8 to
+retire malformed v7 products without rebuilding unrelated mesh/model caches.
+The optimized runtime decoder records the shared descriptor/header-bit end and
+verifies its actual advancement for every part. Decode rejection re-enters the
+same complete matrix traversal with an explicit no-animation input, so live
+`model->anim` ownership remains unchanged, CHRINFO has a real bind-pose branch,
+and any residual translation path uses an explicit null-safe bind scale.
+Focused/full/native-source automation and the replacement production
+smoke are still pending; B-1102 remains confirmed until both gates pass.
+
+**Audit:** for every public-source compiler, cache adapter, packet builder, and
+save migrator, enumerate all discriminants, lengths, and tails. Require the
+producer to use or validate against the consumer's bounded parser before
+publication. For each failure fallback, list every dependency deliberately
+invalidated and prove the fallback does not call a consumer that requires it.
+
+`rg -n "header_len|descriptor|flags|tag|discriminant|payload|fallback|cache.*write|cache.*activate" src port tools tests`
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

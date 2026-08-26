@@ -525,6 +525,7 @@ set(SRC_LIB
   src/lib/ultra/io/vitbl.c
   src/lib/ailist.c
   src/lib/anim.c
+  src/lib/anim_bits.c
   src/lib/args.c
   src/lib/audiodma.c
   src/lib/audiomgr.c
@@ -817,6 +818,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/combat_sim_verify_parse.c
   ${CMAKE_SOURCE_DIR}/tests/test_gdl_span.cpp
   ${CMAKE_SOURCE_DIR}/port/src/gdl_span.c
+  ${CMAKE_SOURCE_DIR}/tests/test_anim_bits.cpp
+  ${CMAKE_SOURCE_DIR}/src/lib/anim_bits.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_lifecycle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_player_init_lifecycle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_playermgr_transaction_static.cpp
@@ -956,6 +959,8 @@ set(SRC_TESTS
 	${CMAKE_SOURCE_DIR}/tests/test_catalog_reset_plan.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/modasset_json.c
+  ${CMAKE_SOURCE_DIR}/tests/test_modasset_json.cpp
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_writer.c
   ${CMAKE_SOURCE_DIR}/port/src/theme_archive_authoring.c

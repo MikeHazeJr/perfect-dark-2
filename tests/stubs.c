@@ -350,11 +350,13 @@ void *fsFileLoad(const char *name, u32 *outSize)
  * ------------------------------------------------------------------------- */
 static const asset_entry_t *s_TestResolvedAsset;
 static const asset_entry_t *s_TestResolvedAsset2;
+static s32 s_TestCompleteBodyNum = -1;
 
 void testStubAssetCatalogResolveWith(const asset_entry_t *entry)
 {
     s_TestResolvedAsset = entry;
     s_TestResolvedAsset2 = NULL;
+	s_TestCompleteBodyNum = -1;
 }
 
 void testStubAssetCatalogResolvePair(const asset_entry_t *first,
@@ -362,6 +364,12 @@ void testStubAssetCatalogResolvePair(const asset_entry_t *first,
 {
     s_TestResolvedAsset = first;
     s_TestResolvedAsset2 = second;
+	s_TestCompleteBodyNum = -1;
+}
+
+void testStubCatalogCompleteBodyNum(s32 bodynum)
+{
+	s_TestCompleteBodyNum = bodynum;
 }
 
 const asset_entry_t *assetCatalogResolve(const char *id)
@@ -528,14 +536,37 @@ s32 catalogGetModelFilenumByModelnum(s32 modelnum)
 
 const char *catalogBodyIdByBodynum(s32 bodynum)
 {
-    (void)bodynum;
-    return NULL;
+	const asset_entry_t *entries[2] = {
+		s_TestResolvedAsset, s_TestResolvedAsset2
+	};
+	for (s32 i = 0; i < 2; i++) {
+		const asset_entry_t *entry = entries[i];
+		if (entry && entry->type == ASSET_BODY
+				&& entry->ext.body.bodynum == bodynum) {
+			return entry->id;
+		}
+	}
+	return NULL;
 }
 
 const char *catalogHeadIdByHeadnum(s32 headnum)
 {
-    (void)headnum;
-    return NULL;
+	const asset_entry_t *entries[2] = {
+		s_TestResolvedAsset, s_TestResolvedAsset2
+	};
+	for (s32 i = 0; i < 2; i++) {
+		const asset_entry_t *entry = entries[i];
+		if (entry && entry->type == ASSET_HEAD
+				&& entry->ext.head.headnum == headnum) {
+			return entry->id;
+		}
+	}
+	return NULL;
+}
+
+s32 catalogGetBodyIsComplete(s32 bodynum)
+{
+	return bodynum == s_TestCompleteBodyNum;
 }
 
 const char *catalogIdBySourceFilenum(asset_type_e type, s32 source_filenum)

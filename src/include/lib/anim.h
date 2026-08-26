@@ -3,6 +3,15 @@
 #include <ultra64.h>
 #include "data.h"
 #include "types.h"
+#include "lib/anim_bits.h"
+
+/* Animation cache dimensions are part of the decoder admission contract:
+ * anim.c owns the storage while modelasm validates every borrowed slot before
+ * dereferencing it. Keep one shared definition for both sides. */
+enum {
+	ANIM_HEADER_CACHE_SIZE = 40,
+	ANIM_FRAME_CACHE_SIZE = 32,
+};
 
 void animsInit(void);
 void animsInitTables(void);
@@ -18,8 +27,6 @@ bool animIsFrameCutSkipped(s16 animnum, s32 frame);
 u8 animLoadFrame(s16 animnum, s32 framenum);
 void animForgetFrameBirths(void);
 void animLoadHeader(s16 animnum);
-s32 animReadBits(u8 *ptr, u8 readbitlen, u32 bitoffset);
-s32 animReadSignedShort(u8 *arg0, u8 arg1, s32 arg2);
 void animGetRotTranslateScale(s32 part, bool flip, struct skeleton *skel, s16 animnum, u8 frameslot, struct coord *rot, struct coord *translate, struct coord *scale);
 u16 animGetPosAngleAsInt(s32 part, bool flip, struct skeleton *skel, s16 animnum, s32 framenum, s16 inttranslate[3], bool arg6);
 f32 animGetTranslateAngle(s32 part, bool flip, struct skeleton *skel, s16 animnum, s32 framenum, struct coord *pos, bool arg6);

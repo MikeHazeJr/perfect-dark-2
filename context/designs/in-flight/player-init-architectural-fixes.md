@@ -1,7 +1,7 @@
 ---
-status: active closure under T-ENGINE-004; historical cohorts landed, B-1064/B-1065/B-1066 in progress
+status: active closure under T-ENGINE-004; historical cohorts landed, B-1064/B-1065/B-1066/B-1101/B-1102 in progress
 authored: 2026-04-27 (mystifying-hofstadter-deca99 worktree)
-updated: 2026-08-12 (codex-v1-m1-runner-20260812)
+updated: 2026-08-25 (codex-v1-m1-runner-20260812)
 synthesizes: context/audits/player-init-comparison-upstream-2026-04-26.md
              context/audits/char-init-weapon-spawn-comparison-opus47-2026-04-26.md
              context/audits/char-init-weapon-spawn-comparison-sonnet46-2026-04-26.md
@@ -805,11 +805,13 @@ when preparation fails.
 
 ### 9.4 Player allocation and network linkage
 
-`playermgrAllocatePlayers` validates count and roles, prepares any network
-allocation plan, allocates every `struct player` candidate, and initializes each
-candidate through a local pointer. `g_Vars.players[]`, current-player pointers,
-Bond/Co-Op/Counter-Op pointers, network config links, and remote-player links are
-published only after every candidate exists.
+`playermgrAllocatePlayers` validates count and roles, allocates and initializes
+every private `struct player` candidate, then asks networking to validate and
+bind only that candidate array. `g_Vars.players[]`, current-player pointers, and
+Bond/Co-Op/Counter-Op pointers are published only after candidate allocation and
+network planning both succeed. Network config/client links may commit first only
+because no fallible work remains between that private-candidate commit and the
+synchronous global-player publication.
 
 `netPlayersAllocate` becomes prepare plus commit. Preparation assigns unique
 player numbers and exact identities into temporary configs. Commit performs the
@@ -837,28 +839,58 @@ explicitly rejected; true drop-in is not part of this task.
 
 ### 9.6 Character-body commit and rollback
 
-`playerTickChrBody` does not set `haschrbody` or `model00d4` before success. It
-first resolves exact identity, source handles, body/head model definitions, and
-the optional weapon model. It then builds the model candidate and attaches the
-character. Only the final nonfallible block publishes:
+`playerTickChrBody` does not set `haschrbody`, `model00d4`, or multiplayer chr
+pointer tables before success. It first resolves exact identity, source handles,
+body/head model definitions, and the optional weapon model. Character, held
+weapon, and fireslot attachment then run inside one reversible synchronous
+boundary. Only the final nonfallible block publishes:
 
 - `model00d4` and `haschrbody`;
-- player prop type and chr body/head/race data;
 - `g_MpAllChrPtrs` and `g_MpAllChrConfigPtrs`;
-- eye/head height and final root/look state; and
-- optional weapon and fireslot links.
+- eye/head height and final root/look state.
 
-Any failure clears candidate model/chr links, resets multiplayer chr-pointer
-slots, releases newly acquired one-player gun memory, clears `gunmem2`, leaves
-`haschrbody` false, and emits `PLAYER.INIT.ROLLBACK`. Multiplayer never retries
-with Dark Combat after an exact identity or model failure.
+Any late failure removes the attached character and its held weapon/fireslot,
+restores the reusable prop's type, position, room list, room registration, and
+pre-existing chr slot, frees an uncommitted multiplayer model, resets
+multiplayer chr-pointer slots, releases newly acquired one-player gun memory,
+clears `gunmem2`, leaves `haschrbody` false, and emits a typed
+`PLAYER.INIT.ROLLBACK`. A chr slot allocated by the attempt is retired instead
+of retained. Multiplayer never retries with Dark Combat after an exact identity
+or model failure.
+
+Runtime identity preparation accepts `headnum=-1` only when the exact
+reverse-resolved body is marked complete by the catalog; modular bodies still
+require an exact typed head. Eyespy allocation owns its model and private prop
+directly so prop-slot or chr-slot failure cannot strand either candidate. Its
+weapon-facing state and player link publish only after Eyespy and player-prop
+candidates both exist. Because `propAllocate` initially accounts an unpublished
+slot as a generic prop, every pre-tick Eyespy rollback restores that type before
+`propFree`; failure cleanup therefore preserves scheduler ownership as well as
+memory and pointer ownership.
+
+Chr target identity follows the same transaction boundary. The compatibility
+`chrInit` path may inherit only an active, enabled current-stage player prop.
+`chrInitWithTargetProp` and `chrSetTargetProp` validate an explicit prop-domain
+candidate before converting it to an index. A private player chr targets its own
+candidate prop; an Eyespy stays at the unresolved `-2` sentinel until that
+player candidate exists, then binds before either global pointer publishes.
+No pre-connect or stage-reset constructor may subtract a retained prior-stage
+player pointer from the newly allocated prop pool.
+
+`playermgrReset` invalidates every player, current-player, and role pointer before
+the stage arena is released. `chrGetTargetProp` treats every unresolved or
+out-of-domain target as `NULL`; it never exposes the `-2` sentinel as an array
+index. The normal compatibility constructor may inherit only a prop that is
+active, enabled, on the active scheduler list, and already owned by a published
+player.
 
 ### 9.7 Stage-reuse reset contract
 
-The canonical gun reset explicitly re-establishes `weaponnum = WEAPON_NONE`,
-`prevweaponnum = -1`, `prevwasdualwielding = false`, `wantammo = false`, and
-`passivemode = false`. The canonical player reset explicitly re-establishes
-`wantsjump = false` and `jumpconsumed = true`.
+One narrow stage-transient helper explicitly re-establishes
+`weaponnum = WEAPON_NONE`, `prevweaponnum = -1`,
+`prevwasdualwielding = false`, `wantammo = false`, `passivemode = false`,
+`wantsjump = false`, and `jumpconsumed = true`. Fresh player allocation and
+`bgunReset` both call it; ordinary respawn deliberately does not.
 
 No blanket `memset` is permitted for `struct player`, `struct gunctrl`, or
 `struct hand`. Network relationship fields, queued-load ownership, and the
@@ -912,8 +944,119 @@ Source-frozen production verification requires:
 - listen-host and ordinary client match start;
 - one two-process disconnect/reconnect receipt preserving player number, team,
   score, cookie, body/head identity, and one chr/prop; and
-- both D-003 authority-first friend-play smokes, with V-009 Needler obstruction
-  checks retained in any gameplay captures.
+- retain both already-accepted D-003 authority-first friend-play receipts rather
+  than rerunning them; keep V-009 Needler obstruction checks in any new gameplay
+  captures.
 
 Every queued receipt is rejected if relevant source changes or the exclusive
 resource overlaps before completion.
+
+## 10. Source-connected implementation status (2026-08-23, mixed verification)
+
+The current working tree implements the remaining Campaign/player-init source
+boundary as one coherent unit:
+
+- `playermgrAllocatePlayers` constructs private candidates; `netPlayersAllocate`
+  consumes that explicit array and never reads `g_Vars.players[]` during prepare.
+- `playerIdentityPrepareRuntime` round-trips legacy runtime selectors through
+  canonical typed IDs, accepts a missing head only for an exact catalog-complete
+  body, and `playerChrBodyPreflight` proves required body/head source and model
+  readiness before player-prop allocation.
+- `playerReset`, `playerSpawn`, `playerTickChrBody`, and `lvReset` return typed
+  outcomes. Both main loops disconnect/reset and return to a fresh title-stage
+  load when stage initialization rejects.
+- Character-body weapon-model load is complete before chr attachment. Weapon
+  attachment and fireslot allocation are mandatory, checked steps; rollback
+  removes every relationship they could have published and restores the exact
+  reusable prop position, rooms, registration, type, and prior chr-slot owner.
+- Eyespy model, prop, and state candidates have explicit cleanup; pre-tick
+  cleanup restores generic prop-counter ownership before freeing, and player
+  state publishes once after the Eyespy and player-prop candidates all succeed.
+- Player and Eyespy chr targets use explicit validated candidate props; the
+  legacy constructor inherits only a scheduler-published current-stage player.
+- `playerInitStageTransientDefaults` unifies fresh and reused stage defaults
+  without clearing transport relationships or respawn-preserved state.
+
+The first source-frozen verification batch passed focused 1,769/25, full
+64,427/1,173, the native-source guard, 2,713/400-file no-overlap manifests, Air
+Base 25/25, and the complete Campaign plus restart 23/23. The retained batch's
+Combat Simulator process stalled after first-cycle CMP150 readiness and is not
+accepted.
+
+B-1101 live sampling subsequently placed 16/16 main-thread samples in
+`modelasmReadFrameData`. The legacy decoder bounded frame data with the unrelated
+animation-header end and could enter a zero-progress `while (v1 > gp)` loop.
+Current source removes the unbounded bit-reader API and gives optimized and
+generic transforms, `ANIMFIELD_08` root motion, and camera values one bounded
+descriptor plus `bytesperframe` contract. It validates metadata, flags, header
+length, field widths, payload span, and optimized part capacity; a valid
+zero-width/zero-byte field is a no-op, malformed data emits a typed reason and
+renders bind pose, and an allocated `animnum=0` object follows the normal bind
+pose without a false rejection. Behavioral fixtures cover legacy, F32,
+08-plus-camera, conflict, truncation, and exact-boundary layouts.
+
+The final pure `anim_bits.h` boundary and explicit target ownership pass one
+isolated source-frozen build, focused 2,007 assertions/33 cases, full
+64,681/1,181, and the native-source guard. Product `9592a63d...` (2,715 files),
+verifier `c76aadc8...` (401 files), client `A0F46D54...`, and tests
+`B4D51B51...` remain unchanged with zero manifest mismatches. T-ENGINE-004 and
+B-1064/B-1066/B-1101 remain partial/confirmed only for the replacement Combat
+Simulator smoke. B-801 refused the first attempt before launch at 1,885 MiB free
+commit below its 2,048 MiB floor; a later read-only probe found 1,604 MiB. No
+bypass or runtime claim was made.
+
+## 11. B-1102 exact public-animation framing and independent bind pose
+
+The first exact B-1101 replacement smoke is retained and rejected at 16/56.
+It proves the bounded decoder escaped the former zero-progress loop and then
+correctly rejected a malformed generated descriptor stream. Schema-v5 public
+source stores each part as `flags`, exact `header_hex`, and frame-major raw
+field values. The prior compiler treated `flags` as out-of-band metadata: it
+summed/copied only `header_hex`, so the private runtime cache lost one required
+discriminant per part while retaining the expected frame width. Runtime then
+read field-header bytes as flags. The rejection path compounded that producer
+error by clearing `model->anim` before invoking generic CHRINFO matrix code that
+requires it.
+
+The source-connected repair uses one shared format contract rather than a
+fixture-specific patch:
+
+- `animFrameMeasurePartBounded` owns legal flag combinations, exact descriptor
+  bytes, field widths, and frame-bit accounting. The complete-stream helper
+  consumes one flags byte plus that exact descriptor for every declared part
+  and rejects any unconsumed trailing descriptor bytes.
+- Schema-v5 parsing is strict and fail-closed. It admits only the known schema,
+  canonical range-checked JSON integer/boolean tokens, contiguous part indices,
+  coherent declared topology/frame counts, exact row shapes, and the complete
+  unsigned 32-bit value domain needed by raw S32/F32 fields. Explicit zero-frame
+  placeholders retain both their declared part topology and semantic one-frame
+  no-op boundary instead of pretending to carry captured frames.
+- Native reconstruction reserves and emits every flags byte before
+  `header_hex`, validates the completed descriptor stream, verifies every frame
+  packs exactly the measured bits, and refuses lossy GLTF-channel fallback once
+  schema-v5 ownership is present.
+- Animation cache version 8 invalidates malformed v7 animation products while
+  leaving unrelated mesh version 7 and modeldef version 9 caches untouched.
+- The optimized runtime reader records the shared expected descriptor and bit
+  endpoints and verifies its actual advancement after each part. Decode
+  rejection re-enters the complete optimized matrix traversal with an explicit
+  null animation input; its POSITION and CHRINFO bind-pose branches execute
+  without reading or mutating the live `model->anim` object, and any residual
+  translation branch uses a null-safe bind scale.
+
+Pure layout tests contain the real 15-part
+`base:animation_two_gun_hold` framing (`0x09` root part plus fourteen `0x01`
+parts) and reject the same descriptors with omitted flags, undersized frame
+capacity, or an extra required part. Static production-path contracts pin the
+strict compiler, completed-stream validation, independent cache version, exact
+consumer advancement, and ownership-preserving fallback. Production-linked
+pure JSON tests additionally reject signed/unsigned overflow, leading-zero
+aliases, numeric prefixes, and boolean prefixes. These contracts now pass an
+isolated source-frozen client/updater/tests build, focused 2,057/27, full
+65,073/1,186, the native-source guard, and unchanged 2,717/402-file manifests.
+Exact client `133A55C6...` then passes the sole replacement two-cycle Combat
+Simulator receipt 56/56 with real CMP150 fire/hit, both stats/award cycles, Play
+Again, clean exit, zero decoder/crash rejection matches, and no leaked process.
+B-1101/B-1102 are retained regression gates. Accepted Campaign, D-003, and
+reconnect receipts were retained without rerun; broader T-ENGINE-004 lifecycle
+closure remains active.

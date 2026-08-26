@@ -545,6 +545,9 @@ void mainLoop(void)
 		var8005d9c4 = 0;
 
 		meshDetachAllStageProps();
+		/* Invalidate every stage-owned player handle before the arena that owns
+		 * those player structs and props is released. */
+		playermgrReset();
 		mempResetPool(MEMPOOL_7);
 		mempResetPool(MEMPOOL_STAGE);
 		filesStop(4);
@@ -644,7 +647,27 @@ void mainLoop(void)
 		joyReset();
 		dhudReset();
 		zbufReset(g_StageNum);
-		lvReset(g_StageNum);
+		if (!lvReset(g_StageNum)) {
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ROLLBACK phase=stage stage=0x%02x; returning to title",
+				g_StageNum);
+			if (g_NetMode != NETMODE_NONE) {
+				if (g_NetLocalClient != NULL) {
+					g_NetLocalClient->state = CLSTATE_LOBBY;
+				}
+				netDisconnect();
+			}
+			playermgrReset();
+			g_Vars.mplayerisrunning = false;
+			g_Vars.normmplayerisrunning = false;
+			g_Vars.lvmpbotlevel = 0;
+			setNumPlayers(1);
+			g_StageNum = STAGE_TITLE;
+			g_MainChangeToStageNum = -1;
+			titleSetNextStage(STAGE_TITLE);
+			titleSetNextMode(TITLEMODE_SKIP);
+			continue;
+		}
 		viReset(g_StageNum);
 		sysLogPrintf(LOG_VERBOSE, "INTRO: mainLoop - entering tick loop with g_StageNum=0x%02x, g_Vars.stagenum=0x%02x",
 			g_StageNum, g_Vars.stagenum);

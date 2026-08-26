@@ -3586,12 +3586,6 @@ u32 netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan)
 	return failed ? 0 : bytes;
 }
 
-/* Snapshot of remote player configs before netPlayersAllocate overwrites them.
- * Indexed by playernum (0..MAX_PLAYERS-1). Available for restoration if a match
- * fails to start after configs have been overwritten (e.g. on a SVC_STAGE_END
- * that arrives before the stage fully loads). */
-static struct mpplayerconfig s_RemoteConfigBackups[MAX_PLAYERS];
-
 struct net_player_allocation_plan {
 	struct netclient *client;
 	struct player *player;
@@ -3612,6 +3606,7 @@ const char *netPlayerAllocateResultString(enum net_player_allocate_result result
 	case NET_PLAYER_ALLOC_DUPLICATE_PLAYER_SLOT: return "duplicate_player_slot";
 	case NET_PLAYER_ALLOC_MISSING_PLAYER_OBJECT: return "missing_player_object";
 	case NET_PLAYER_ALLOC_INVALID_IDENTITY: return "invalid_identity";
+	case NET_PLAYER_ALLOC_ROSTER_MISMATCH: return "roster_mismatch";
 	default: return "unknown";
 	}
 }
@@ -3621,19 +3616,29 @@ static enum net_player_allocate_result netPlayersAllocationReject(
 		player_identity_status_e identity_status)
 {
 	sysLogPrintf(LOG_ERROR,
-		"PLAYER.INIT.ROLLBACK network status=%s client=%d player=%d identity=%s globals_published=0",
+		"PLAYER.INIT.ROLLBACK phase=network status=%s client=%d player=%d identity=%s globals_published=0",
 		netPlayerAllocateResultString(result), client_id, playernum,
 		playerIdentityStatusString(identity_status));
 	return result;
 }
 
-enum net_player_allocate_result netPlayersAllocate(void)
+enum net_player_allocate_result netPlayersAllocate(
+		struct player *const *candidates, s32 candidate_count)
 {
 	struct net_player_allocation_plan plans[MAX_PLAYERS];
 	bool occupied_slots[MAX_PLAYERS] = { false };
 	s32 plan_count = 0;
 	s32 server_playernum = 0;
 	s32 client_local_wire_playernum = -1;
+
+	if (candidates == NULL || candidate_count <= 0) {
+		return netPlayersAllocationReject(NET_PLAYER_ALLOC_MISSING_PLAYER_OBJECT,
+			-1, -1, PLAYER_IDENTITY_INVALID_ARGUMENT);
+	}
+	if (candidate_count > MAX_PLAYERS) {
+		return netPlayersAllocationReject(NET_PLAYER_ALLOC_TOO_MANY_PLAYERS,
+			-1, candidate_count, PLAYER_IDENTITY_INVALID_ARGUMENT);
+	}
 
 	if (g_NetMode != NETMODE_SERVER && g_NetMode != NETMODE_CLIENT) {
 		return netPlayersAllocationReject(NET_PLAYER_ALLOC_INVALID_MODE,
@@ -3649,7 +3654,9 @@ enum net_player_allocate_result netPlayersAllocate(void)
 		client_local_wire_playernum = g_NetLocalClient->playernum;
 	}
 
-	sysLogPrintf(LOG_NOTE, "PLAYER.INIT.PREFLIGHT network mode=%d", g_NetMode);
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.PREFLIGHT phase=network mode=%d candidates=%d",
+		g_NetMode, candidate_count);
 
 	for (s32 i = 0; i < g_NetMaxClients; ++i) {
 		struct netclient *cl = &g_NetClients[i];
@@ -3676,7 +3683,7 @@ enum net_player_allocate_result netPlayersAllocate(void)
 			playernum = cl->playernum;
 		}
 
-		if (playernum < 0 || playernum >= MAX_PLAYERS) {
+		if (playernum < 0 || playernum >= candidate_count) {
 			return netPlayersAllocationReject(
 				NET_PLAYER_ALLOC_INVALID_PLAYER_SLOT, (s32)cl->id,
 				playernum, PLAYER_IDENTITY_INVALID_ARGUMENT);
@@ -3686,7 +3693,7 @@ enum net_player_allocate_result netPlayersAllocate(void)
 				NET_PLAYER_ALLOC_DUPLICATE_PLAYER_SLOT, (s32)cl->id,
 				playernum, PLAYER_IDENTITY_INVALID_ARGUMENT);
 		}
-		if (g_Vars.players[playernum] == NULL) {
+		if (candidates[playernum] == NULL) {
 			return netPlayersAllocationReject(
 				NET_PLAYER_ALLOC_MISSING_PLAYER_OBJECT, (s32)cl->id,
 				playernum, PLAYER_IDENTITY_INVALID_ARGUMENT);
@@ -3702,7 +3709,7 @@ enum net_player_allocate_result netPlayersAllocate(void)
 		}
 
 		plan->client = cl;
-		plan->player = g_Vars.players[playernum];
+		plan->player = candidates[playernum];
 		plan->playernum = (u8)playernum;
 		plan->remote = cl != g_NetLocalClient;
 		plan->config = g_PlayerConfigsArray[playernum];
@@ -3732,17 +3739,13 @@ enum net_player_allocate_result netPlayersAllocate(void)
 		plan_count++;
 	}
 
-	if (plan_count == 0) {
-		return netPlayersAllocationReject(NET_PLAYER_ALLOC_MISSING_PLAYER_OBJECT,
-			-1, -1, PLAYER_IDENTITY_INVALID_ARGUMENT);
+	if (plan_count != candidate_count) {
+		return netPlayersAllocationReject(NET_PLAYER_ALLOC_ROSTER_MISMATCH,
+			-1, plan_count, PLAYER_IDENTITY_INVALID_ARGUMENT);
 	}
 
 	for (s32 i = 0; i < plan_count; i++) {
 		struct net_player_allocation_plan *plan = &plans[i];
-		if (plan->remote) {
-			s_RemoteConfigBackups[plan->playernum] =
-				g_PlayerConfigsArray[plan->playernum];
-		}
 		g_PlayerConfigsArray[plan->playernum] = plan->config;
 	}
 
@@ -3760,7 +3763,8 @@ enum net_player_allocate_result netPlayersAllocate(void)
 			plan->client->settings.name);
 	}
 
-	sysLogPrintf(LOG_NOTE, "PLAYER.INIT.COMMIT network players=%d", plan_count);
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.COMMIT phase=network players=%d", plan_count);
 	return NET_PLAYER_ALLOC_OK;
 }
 

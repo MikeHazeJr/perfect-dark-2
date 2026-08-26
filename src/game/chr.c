@@ -1221,10 +1221,113 @@ s16 chrsGetNextUnusedChrnum(void)
 	return chrnum;
 }
 
+static bool chrTargetPropIsInPool(struct prop *targetprop)
+{
+	uintptr_t base;
+	uintptr_t target;
+	uintptr_t offset;
+
+	if (targetprop == NULL || g_Vars.props == NULL || g_Vars.maxprops <= 0) {
+		return false;
+	}
+
+	base = (uintptr_t)g_Vars.props;
+	target = (uintptr_t)targetprop;
+
+	if (target < base) {
+		return false;
+	}
+
+	offset = target - base;
+
+	if (offset % sizeof(*targetprop) != 0
+			|| offset / sizeof(*targetprop) >= (uintptr_t)g_Vars.maxprops) {
+		return false;
+	}
+
+	return true;
+}
+
+static bool chrTargetPropIsPublishedPlayer(struct prop *targetprop)
+{
+	struct prop *cursor;
+	s32 visited = 0;
+	s32 i;
+	bool listed = false;
+
+	if (!chrTargetPropIsInPool(targetprop)
+			|| targetprop->type != PROPTYPE_PLAYER
+			|| !targetprop->active
+			|| (targetprop->flags & PROPFLAG_ENABLED) == 0) {
+		return false;
+	}
+
+	for (cursor = g_Vars.activeprops;
+			cursor != NULL && visited < g_Vars.maxprops;
+			cursor = cursor->next, visited++) {
+		if (cursor == targetprop) {
+			listed = true;
+			break;
+		}
+	}
+
+	if (!listed) {
+		return false;
+	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (g_Vars.players[i] != NULL
+				&& g_Vars.players[i]->prop == targetprop) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool chrSetTargetProp(struct chrdata *chr, struct prop *targetprop)
+{
+	/* -2 means the target is intentionally unresolved until playerReset owns
+	 * the current-stage player prop. chrGetTargetProp treats it as NULL. */
+	if (chr == NULL) {
+		return false;
+	}
+
+	chr->target = -2;
+
+	if (targetprop == NULL) {
+		return true;
+	}
+
+	if (!chrTargetPropIsInPool(targetprop)) {
+		return false;
+	}
+
+	chr->target = (s32)(targetprop - g_Vars.props);
+	return true;
+}
+
 void chrInit(struct prop *prop, u8 *ailist)
+{
+	struct prop *targetprop = NULL;
+
+	/* The compatibility entry point may inherit the live player only after its
+	 * prop has been published to the scheduler. Stage construction uses the
+	 * explicit entry point or leaves the target unresolved for playerReset. */
+	if (g_Vars.currentplayer != NULL
+			&& chrTargetPropIsPublishedPlayer(g_Vars.currentplayer->prop)) {
+		targetprop = g_Vars.currentplayer->prop;
+	}
+
+	(void)chrInitWithTargetProp(prop, ailist, targetprop);
+}
+
+bool chrInitWithTargetProp(struct prop *prop, u8 *ailist,
+		struct prop *targetprop)
 {
 	s32 i;
 	struct chrdata *chr = NULL;
+	bool targetbound;
 
 	for (i = 0; i < g_NumChrSlots; i++) {
 		if (g_ChrSlots[i].chrnum < 0) {
@@ -1250,7 +1353,7 @@ void chrInit(struct prop *prop, u8 *ailist)
 
 	if (chr == NULL) {
 		sysLogPrintf(LOG_ERROR, "chrInit: out of chr slots (g_NumChrSlots=%d) - cannot allocate", g_NumChrSlots);
-		return;
+		return false;
 	}
 
 	/* B-952 (2026-07-05): zero the recycled slot before init -- fix the CLASS.
@@ -1437,10 +1540,13 @@ void chrInit(struct prop *prop, u8 *ailist)
 	chr->aimendback = 0;
 	chr->aimendsideback = 0;
 
-	if (g_Vars.currentplayer->prop == NULL) {
-		chr->target = -2;
-	} else {
-		chr->target = g_Vars.currentplayer->prop - g_Vars.props;
+	targetbound = chrSetTargetProp(chr, targetprop);
+
+	if (!targetbound) {
+		sysLogPrintf(LOG_ERROR,
+			"CHR.INIT.TARGET.REJECT: chr=%d target=%p props=%p maxprops=%d",
+			chr->chrnum, (void *)targetprop, (void *)g_Vars.props,
+			g_Vars.maxprops);
 	}
 
 	chr->path = -1;
@@ -1531,6 +1637,7 @@ void chrInit(struct prop *prop, u8 *ailist)
 #endif
 
 	splatResetChr(chr);
+	return targetbound;
 }
 
 struct prop *chr0f020b14(struct prop *prop, struct model *model,
@@ -5534,15 +5641,25 @@ struct prop *chrGetHeldUsableProp(struct chrdata *chr, s32 hand)
 
 struct prop *chrGetTargetProp(struct chrdata *chr)
 {
-	struct prop *ret;
-
-	if (chr->target == -1) {
-		ret = g_Vars.players[chr->p1p2]->prop;
-	} else {
-		ret = g_Vars.props + chr->target;
+	if (chr == NULL) {
+		return NULL;
 	}
 
-	return ret;
+	if (chr->target == -1) {
+		if (chr->p1p2 >= MAX_PLAYERS
+				|| g_Vars.players[chr->p1p2] == NULL) {
+			return NULL;
+		}
+
+		return g_Vars.players[chr->p1p2]->prop;
+	}
+
+	if (chr->target < 0 || g_Vars.props == NULL
+			|| chr->target >= g_Vars.maxprops) {
+		return NULL;
+	}
+
+	return &g_Vars.props[chr->target];
 }
 
 bool chrUpdateGeometry(struct prop *prop, u8 **start, u8 **end)

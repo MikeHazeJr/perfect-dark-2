@@ -8,6 +8,7 @@
 #include "data.h"
 #include "types.h"
 #include "game/player.h"
+#include "game/playerreset.h"
 #include "system.h" /* B-246 round-6 instrumentation: sysLogPrintf for LOG.WPN.DIAG */
 #include "catalog_mgr_weapons.h" /* S484 F5: EYESPY variant via manager */
 
@@ -157,16 +158,12 @@ void bgunReset(void)
 
 	g_Vars.currentplayer->gunctrl.loadall = true;
 	g_Vars.currentplayer->gunctrl.dualwielding = false;
-	g_Vars.currentplayer->gunctrl.prevwasdualwielding = false;
 	g_Vars.currentplayer->gunctrl.throwing = false;
-	g_Vars.currentplayer->gunctrl.wantammo = false;
-	g_Vars.currentplayer->gunctrl.passivemode = false;
 
-	/* B-1066: player storage can survive a stage transition. Reset the
-	 * equipped/previous identity as deliberately as a fresh allocation does,
-	 * rather than inheriting the prior stage's weapon state. */
-	g_Vars.currentplayer->gunctrl.weaponnum = WEAPON_NONE;
-	g_Vars.currentplayer->gunctrl.prevweaponnum = -1;
+	/* B-1066: fresh allocation and stage reuse share one narrow set of
+	 * transient defaults. Do not clear network ownership or persistent
+	 * preferences here. */
+	playerInitStageTransientDefaults(g_Vars.currentplayer);
 	g_Vars.currentplayer->gunctrl.switchtoweaponnum = -1;
 	g_Vars.currentplayer->gunctrl.fnfader = 0;
 

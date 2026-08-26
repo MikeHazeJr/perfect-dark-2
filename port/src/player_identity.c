@@ -290,8 +290,117 @@ player_identity_status_e playerIdentityPrepare(
 
 	if (status != PLAYER_IDENTITY_OK) {
 		sysLogPrintf(LOG_ERROR,
-			"PLAYER.INIT.PREFLIGHT identity=reject status=%s",
+			"PLAYER.INIT.PREFLIGHT phase=identity status=%s",
 			playerIdentityStatusString(status));
+	}
+
+	return status;
+}
+
+static player_identity_status_e playerIdentityPrepareRuntimeBodyOnly(
+	s32 runtime_bodynum,
+	const char *body_id,
+	player_identity_plan_t *out_plan)
+{
+	const asset_entry_t *body_entry;
+	player_identity_status_e status;
+	player_identity_plan_t candidate;
+	s32 body_length;
+
+	if (out_plan != NULL) {
+		playerIdentityPlanReset(out_plan);
+	}
+
+	status = playerIdentityValidateId(body_id,
+		PLAYER_IDENTITY_EMPTY_BODY_ID,
+		PLAYER_IDENTITY_UNTERMINATED_BODY_ID);
+	if (status != PLAYER_IDENTITY_OK) {
+		return playerIdentityFailure(out_plan, status);
+	}
+	if (out_plan == NULL) {
+		return PLAYER_IDENTITY_INVALID_ARGUMENT;
+	}
+
+	body_entry = assetCatalogResolve(body_id);
+	if (body_entry == NULL || !body_entry->occupied) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_MISSING_BODY_ENTRY);
+	}
+	if (!body_entry->enabled) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_DISABLED_BODY_ENTRY);
+	}
+	if (!playerIdentityEntryIdMatches(body_id, body_entry)) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_BODY_ID_ENTRY_MISMATCH);
+	}
+	if (body_entry->type != ASSET_BODY) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_WRONG_BODY_TYPE);
+	}
+	if (body_entry->runtime_index < 0 || body_entry->ext.body.bodynum < 0) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_UNBOUND_BODY_RUNTIME_INDEX);
+	}
+	if (body_entry->runtime_index != (s32)body_entry->ext.body.bodynum
+			|| body_entry->runtime_index != runtime_bodynum) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_INCONSISTENT_BODY_BINDING);
+	}
+	if (!catalogGetBodyIsComplete(runtime_bodynum)) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_UNBOUND_HEAD_RUNTIME_INDEX);
+	}
+
+	body_length = playerIdentityIdLength(body_id);
+	playerIdentityPlanReset(&candidate);
+	memcpy(candidate.body_id, body_id, (size_t)body_length);
+	candidate.body_id[body_length] = '\0';
+	candidate.runtime_bodynum = runtime_bodynum;
+	candidate.mp_body_index = playerIdentityMpIndex(body_entry);
+	candidate.status = PLAYER_IDENTITY_OK;
+	*out_plan = candidate;
+	return PLAYER_IDENTITY_OK;
+}
+
+player_identity_status_e playerIdentityPrepareRuntime(
+	s32 runtime_bodynum,
+	s32 runtime_headnum,
+	player_identity_plan_t *out_plan)
+{
+	const char *body_id = catalogBodyIdByBodynum(runtime_bodynum);
+	const char *head_id;
+	player_identity_status_e status;
+
+	if (runtime_headnum < -1) {
+		if (out_plan != NULL) {
+			playerIdentityPlanReset(out_plan);
+		}
+		status = playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_INVALID_ARGUMENT);
+	} else if (runtime_headnum == -1) {
+		status = playerIdentityPrepareRuntimeBodyOnly(runtime_bodynum,
+			body_id, out_plan);
+	} else {
+		head_id = catalogHeadIdByHeadnum(runtime_headnum);
+		status = playerIdentityPrepare(body_id, head_id, out_plan);
+	}
+
+	if (status == PLAYER_IDENTITY_OK
+			&& (out_plan->runtime_bodynum != runtime_bodynum
+				|| out_plan->runtime_headnum != runtime_headnum)) {
+		status = out_plan->runtime_bodynum != runtime_bodynum
+			? PLAYER_IDENTITY_INCONSISTENT_BODY_BINDING
+			: PLAYER_IDENTITY_INCONSISTENT_HEAD_BINDING;
+		playerIdentityPlanReset(out_plan);
+		out_plan->status = status;
+	}
+
+	if (status != PLAYER_IDENTITY_OK) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.PREFLIGHT phase=identity runtime=reject status=%s body=%d head=%d",
+			playerIdentityStatusString(status), runtime_bodynum,
+			runtime_headnum);
 	}
 
 	return status;

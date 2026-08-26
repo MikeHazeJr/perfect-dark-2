@@ -1048,54 +1048,75 @@ struct prop *bodyAllocateEyespy(struct pad *pad, RoomNum room)
 
 	model = bodyAllocateModel(BODY_EYESPY, 0, 0);
 
-	if (model) {
-		prop = chrAllocate(model, &pad->pos, rooms, 0, ailistFindById(GAILIST_IDLE));
-
-		if (prop) {
-			propActivate(prop);
-			propEnable(prop);
-			chr = prop->chr;
-			chrSetChrnum(chr, chrsGetNextUnusedChrnum());
-			chr->bodynum = BODY_EYESPY;
-			chr->padpreset1 = 0;
-			chr->chrpreset1 = 0;
-			chr->headnum = 0;
-			chr->hearingscale = 0;
-			chr->visionrange = 0;
-			chr->race = bodyGetRace(chr->bodynum);
-
-			ground = cdFindGroundInfoAtCyl(&pad->pos, 30, rooms, NULL, NULL, NULL, NULL, &inlift, &lift);
-			chr->ground = ground;
-			chr->manground = ground;
-
-			chr->flags = 0;
-			chr->flags2 = 0;
-			chr->team = 0;
-			chr->squadron = 0;
-			chr->maxdamage = 2;
-			chr->tude = rngRandom() & 3;
-			chr->voicebox = rngRandom() % 3;
-			chr->naturalanim = 0;
-			chr->myspecial = 0;
-			chr->yvisang = 0;
-			chr->teamscandist = 0;
-			chr->convtalk = 0;
-			chr->radius = 26;
-			chr->height = 200;
-			func0f02e9a0(chr, 0);
-			chr->chrflags |= CHRCFLAG_HIDDEN;
-
-#if VERSION >= VERSION_NTSC_1_0
-			chr->hidden2 |= CHRH2FLAG_CONSIDERPROXIES;
-#else
-			chr->hidden |= CHRHFLAG_CONSIDERPROXIES;
-#endif
-
-			return prop;
-		}
+	if (!model) {
+		return NULL;
 	}
 
-	return NULL;
+	/* Keep ownership explicit so a failed prop or chr-slot allocation cannot
+	 * strand either half of the Eyespy candidate. chrAllocate historically
+	 * loses the private prop pointer when chrInit fails, which prevents the
+	 * caller from rolling the candidate back. */
+	prop = propAllocate();
+
+	if (!prop) {
+		modelmgrFreeModel(model);
+		return NULL;
+	}
+
+	if (chr0f020b14(prop, model, &pad->pos, rooms, 0,
+			ailistFindById(GAILIST_IDLE)) == NULL) {
+		/* chr0f020b14 assigns PROPTYPE_CHR before attempting chrInit, but this
+		 * unpublished slot is still charged to propAllocate's generic counter.
+		 * Restore that class so immediate rollback decrements the right owner. */
+		prop->type = PROPTYPE_OBJ;
+		propFree(prop);
+		modelmgrFreeModel(model);
+		return NULL;
+	}
+
+	propActivate(prop);
+	propEnable(prop);
+	chr = prop->chr;
+	if (cheatIsActive(CHEAT_ENEMYSHIELDS)) {
+		chrSetShield(chr, 8);
+	}
+	chrSetChrnum(chr, chrsGetNextUnusedChrnum());
+	chr->bodynum = BODY_EYESPY;
+	chr->padpreset1 = 0;
+	chr->chrpreset1 = 0;
+	chr->headnum = 0;
+	chr->hearingscale = 0;
+	chr->visionrange = 0;
+	chr->race = bodyGetRace(chr->bodynum);
+
+	ground = cdFindGroundInfoAtCyl(&pad->pos, 30, rooms, NULL, NULL, NULL, NULL, &inlift, &lift);
+	chr->ground = ground;
+	chr->manground = ground;
+
+	chr->flags = 0;
+	chr->flags2 = 0;
+	chr->team = 0;
+	chr->squadron = 0;
+	chr->maxdamage = 2;
+	chr->tude = rngRandom() & 3;
+	chr->voicebox = rngRandom() % 3;
+	chr->naturalanim = 0;
+	chr->myspecial = 0;
+	chr->yvisang = 0;
+	chr->teamscandist = 0;
+	chr->convtalk = 0;
+	chr->radius = 26;
+	chr->height = 200;
+	func0f02e9a0(chr, 0);
+	chr->chrflags |= CHRCFLAG_HIDDEN;
+
+#if VERSION >= VERSION_NTSC_1_0
+	chr->hidden2 |= CHRH2FLAG_CONSIDERPROXIES;
+#else
+	chr->hidden |= CHRHFLAG_CONSIDERPROXIES;
+#endif
+
+	return prop;
 }
 
 void body0f02ddbf(void)

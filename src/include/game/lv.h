@@ -14,7 +14,7 @@ void lvResetMiscSfx(void);
 s32 lvGetMiscSfxIndex(u32 arg0);
 void lvSetMiscSfxState(u32 type, bool play);
 void lvUpdateMiscSfx(void);
-void lvReset(s32 stagenum);
+bool lvReset(s32 stagenum);
 Gfx *lvRenderFade(Gfx *gdl);
 void lvFadeReset(void);
 bool lvUpdateTrackedProp(struct trackedprop *trackedprop, s32 index);

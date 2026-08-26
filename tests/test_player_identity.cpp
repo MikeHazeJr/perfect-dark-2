@@ -14,6 +14,9 @@
 extern "C" {
 #include "player_identity.h"
 void testStubAssetCatalogResolveWith(const asset_entry_t *entry);
+void testStubAssetCatalogResolvePair(const asset_entry_t *first,
+		const asset_entry_t *second);
+void testStubCatalogCompleteBodyNum(s32 bodynum);
 }
 
 static void initEntry(asset_entry_t &entry, asset_type_e type, const char *id,
@@ -311,4 +314,43 @@ TEST_CASE("player identity catalog wrapper rejects malformed input before lookup
 	REQUIRE(playerIdentityPrepare("base:body", unterminated, &plan)
 			== PLAYER_IDENTITY_UNTERMINATED_HEAD_ID);
 	requireResetState(plan, PLAYER_IDENTITY_UNTERMINATED_HEAD_ID);
+}
+
+TEST_CASE("player identity runtime wrapper round-trips exact typed bindings",
+		"[player][identity][runtime]")
+{
+	asset_entry_t body;
+	asset_entry_t head;
+	player_identity_plan_t plan;
+
+	initEntry(body, ASSET_BODY, "base:body", 17, 17, 3);
+	initEntry(head, ASSET_HEAD, "base:head", 29, 29, 4);
+	testStubAssetCatalogResolvePair(&body, &head);
+
+	REQUIRE(playerIdentityPrepareRuntime(17, 29, &plan) ==
+		PLAYER_IDENTITY_OK);
+	REQUIRE(std::strcmp(plan.body_id, "base:body") == 0);
+	REQUIRE(std::strcmp(plan.head_id, "base:head") == 0);
+	REQUIRE(plan.runtime_bodynum == 17);
+	REQUIRE(plan.runtime_headnum == 29);
+
+	testStubCatalogCompleteBodyNum(17);
+	REQUIRE(playerIdentityPrepareRuntime(17, -1, &plan) ==
+		PLAYER_IDENTITY_OK);
+	REQUIRE(std::strcmp(plan.body_id, "base:body") == 0);
+	REQUIRE(plan.head_id[0] == '\0');
+	REQUIRE(plan.runtime_bodynum == 17);
+	REQUIRE(plan.runtime_headnum == -1);
+	REQUIRE(plan.mp_body_index == 3);
+	REQUIRE(plan.mp_head_index == -1);
+
+	testStubCatalogCompleteBodyNum(-1);
+	REQUIRE(playerIdentityPrepareRuntime(17, -1, &plan) ==
+		PLAYER_IDENTITY_UNBOUND_HEAD_RUNTIME_INDEX);
+	requireResetState(plan, PLAYER_IDENTITY_UNBOUND_HEAD_RUNTIME_INDEX);
+
+	REQUIRE(playerIdentityPrepareRuntime(18, 29, &plan) ==
+		PLAYER_IDENTITY_INVALID_ARGUMENT);
+	requireResetState(plan, PLAYER_IDENTITY_INVALID_ARGUMENT);
+	testStubAssetCatalogResolveWith(NULL);
 }

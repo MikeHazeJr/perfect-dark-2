@@ -425,7 +425,7 @@ void lvUpdateMiscSfx(void)
 	}
 }
 
-void lvReset(s32 stagenum)
+bool lvReset(s32 stagenum)
 {
 	s32 i;
 	/* Stage-lifetime public effects cannot carry target/context state across
@@ -800,7 +800,16 @@ void lvReset(s32 stagenum)
 			bgunReset();
 			playerLoadDefaults();
 			sysLogPrintf(LOG_NOTE, "LOAD: playerLoadDefaults done for player %d, calling playerReset", i);
-			playerReset();
+			{
+				enum player_reset_result player_result = playerReset();
+				if (player_result != PLAYER_RESET_OK) {
+					sysLogPrintf(LOG_ERROR,
+						"PLAYER.INIT.ROLLBACK phase=stage player=%d status=%s; aborting stage reset",
+						i, playerResetResultString(player_result));
+					modelmgrSetLvResetting(false);
+					return false;
+				}
+			}
 			sysLogPrintf(LOG_NOTE, "LOAD: playerReset done for player %d", i);
 		}
 
@@ -812,7 +821,16 @@ void lvReset(s32 stagenum)
 			if (!g_Vars.players[i]) continue;
 			setCurrentPlayerNum(i);
 			sysLogPrintf(LOG_NOTE, "LOAD: calling playerSpawn for player %d", i);
-			playerSpawn();
+			{
+				enum player_chrbody_result chrbody_result = playerSpawn();
+				if (chrbody_result != PLAYER_CHRBODY_OK) {
+					sysLogPrintf(LOG_ERROR,
+						"PLAYER.INIT.ROLLBACK phase=spawn player=%d status=%s; aborting stage reset",
+						i, playerChrBodyResultString(chrbody_result));
+					modelmgrSetLvResetting(false);
+					return false;
+				}
+			}
 			sysLogPrintf(LOG_NOTE, "LOAD: playerSpawn done for player %d, calling bheadReset", i);
 
 			/* c3845 (2026-06-23): two-process match-smoke spawn milestone.
@@ -901,6 +919,7 @@ void lvReset(s32 stagenum)
 		}
 	}
 #endif
+	return true;
 }
 
 void lvConfigureFade(u32 color, s16 num_frames)

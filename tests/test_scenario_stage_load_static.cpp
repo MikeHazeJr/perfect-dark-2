@@ -68,7 +68,7 @@ TEST_CASE("lvReset uses scenario stage-load wrapper",
           "[scenario][stage-load][static]")
 {
 	const std::string lv = read_text_file_scenario_stage("src/game/lv.c");
-	const std::string reset = function_block_scenario_stage(lv, "void lvReset");
+	const std::string reset = function_block_scenario_stage(lv, "bool lvReset");
 
 	const size_t setup_load = reset.find("setupLoadFiles(stagenum)");
 	const size_t scenario_load = reset.find("scenarioResetForStageLoad(stagenum)", setup_load);

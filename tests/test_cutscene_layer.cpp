@@ -982,7 +982,7 @@ TEST_CASE("validated stage start retires only prior-stage client presentation",
         "static bool playerApplyAuthoritativeTickMode");
     const std::string transition = functionBlock(player,
         "bool playerSetTickMode");
-    const std::string reset = functionBlock(lv, "void lvReset");
+    const std::string reset = functionBlock(lv, "bool lvReset");
     const std::string stageStart = functionBlock(netmsg,
         "u32 netmsgSvcStageStartRead");
     REQUIRE_FALSE(boundary.empty());
@@ -1021,7 +1021,7 @@ TEST_CASE("validated stage start retires only prior-stage client presentation",
         "playerApplyAuthoritativeStageStartPresentation()");
     const size_t fallbackReset = reset.find(
         "playerResetAllCutsceneStates()", loadBoundary);
-    const size_t playerReset = reset.find("playerReset();", fallbackReset);
+    const size_t playerReset = reset.find("playerReset()", fallbackReset);
     REQUIRE(loadBoundary != std::string::npos);
     REQUIRE(fallbackReset != std::string::npos);
     REQUIRE(playerReset != std::string::npos);

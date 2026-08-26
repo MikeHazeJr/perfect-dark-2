@@ -39,6 +39,9 @@
 - Kept generated character relation graphs inside each private body/head clone,
   preventing distance and toggle traversal from corrupting another model's
   runtime state; random and selected heads now share the same fail-closed path.
+- Preserved exact per-part framing and full-range values when rebuilding editable
+  character animations, with bounded decoding and a safe bind-pose fallback for
+  malformed data instead of hangs or crashes.
 - Restored the shared object/projectile ownership invariant used by drops and
   falling objects, and made reconnect snapshot generation typed and atomic so
   authority-local failures remain retryable without masquerading as peer file

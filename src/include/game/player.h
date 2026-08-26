@@ -17,11 +17,31 @@ f32 playerChooseGeneralSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *
 void playerStartNewLife(void);
 void playerLoadDefaults(void);
 bool playerSpawnAnti(struct chrdata *chr, s32 param_2);
-void playerSpawn(void);
+
+enum player_chrbody_result {
+	PLAYER_CHRBODY_OK = 0,
+	PLAYER_CHRBODY_DEFERRED = 1,
+	PLAYER_CHRBODY_INVALID_STATE = -1,
+	PLAYER_CHRBODY_INVALID_IDENTITY = -2,
+	PLAYER_CHRBODY_BODY_SOURCE_FAILED = -3,
+	PLAYER_CHRBODY_HEAD_SOURCE_FAILED = -4,
+	PLAYER_CHRBODY_BODY_MODEL_FAILED = -5,
+	PLAYER_CHRBODY_HEAD_MODEL_FAILED = -6,
+	PLAYER_CHRBODY_GUNMEM_FAILED = -7,
+	PLAYER_CHRBODY_WEAPON_MODEL_FAILED = -8,
+	PLAYER_CHRBODY_BODY_INSTANTIATION_FAILED = -9,
+	PLAYER_CHRBODY_CHARACTER_ALLOCATION_FAILED = -10,
+	PLAYER_CHRBODY_WEAPON_ATTACHMENT_FAILED = -11,
+	PLAYER_CHRBODY_FIRESLOT_FAILED = -12,
+};
+
+const char *playerChrBodyResultString(enum player_chrbody_result result);
+enum player_chrbody_result playerChrBodyPreflight(s32 bodynum, s32 headnum);
+enum player_chrbody_result playerSpawn(void);
 void playerResetBond(struct playerbond *pb, struct coord *pos);
 void playersTickAllChrBodies(void);
-s32 playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2);
-void playerTickChrBody(void);
+s32 playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, bool *arg2);
+enum player_chrbody_result playerTickChrBody(void);
 void playerRemoveChrBody(void);
 void playerTickMpSwirl(void);
 void playerExecutePreparedWarp(void);

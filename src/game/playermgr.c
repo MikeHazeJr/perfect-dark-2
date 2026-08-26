@@ -3,6 +3,7 @@
 #include "game/cheats.h"
 #include "game/bondgun.h"
 #include "game/player.h"
+#include "game/playerreset.h"
 #include "game/playermgr.h"
 #include "game/propobj.h"
 #include "bss.h"
@@ -58,6 +59,31 @@ void playermgrReset(void)
 
 static void playermgrInitializePlayer(struct player *player, s32 index);
 
+static bool playermgrRolesAreValid(s32 playercount)
+{
+	if (g_Vars.bondplayernum < 0 || g_Vars.bondplayernum >= playercount) {
+		return false;
+	}
+
+	if (g_Vars.coopplayernum >= playercount
+			|| g_Vars.antiplayernum >= playercount
+			|| g_Vars.coopplayernum < -1
+			|| g_Vars.antiplayernum < -1) {
+		return false;
+	}
+
+	if (g_Vars.coopplayernum >= 0 && g_Vars.antiplayernum >= 0) {
+		return false;
+	}
+
+	if (g_Vars.coopplayernum == g_Vars.bondplayernum
+			|| g_Vars.antiplayernum == g_Vars.bondplayernum) {
+		return false;
+	}
+
+	return true;
+}
+
 const char *playermgrAllocateResultString(enum playermgr_allocate_result result)
 {
 	switch (result) {
@@ -65,6 +91,7 @@ const char *playermgrAllocateResultString(enum playermgr_allocate_result result)
 	case PLAYMGR_ALLOC_INVALID_COUNT: return "invalid_count";
 	case PLAYMGR_ALLOC_OUT_OF_MEMORY: return "out_of_memory";
 	case PLAYMGR_ALLOC_NETWORK_REJECTED: return "network_rejected";
+	case PLAYMGR_ALLOC_INVALID_ROLES: return "invalid_roles";
 	default: return "unknown";
 	}
 }
@@ -75,16 +102,26 @@ enum playermgr_allocate_result playermgrAllocatePlayers(s32 count)
 	s32 requested = count > 0 ? count : 1;
 	s32 i;
 
-	if (requested > MAX_PLAYERS) {
+	if (count < 0 || requested > MAX_PLAYERS) {
 		playermgrReset();
 		sysLogPrintf(LOG_WARNING,
-				"PLAYER.INIT.ROLLBACK reason=invalid_count requested=%d max=%d",
+				"PLAYER.INIT.ROLLBACK phase=allocation reason=invalid_count requested=%d max=%d",
 				requested, MAX_PLAYERS);
 		return PLAYMGR_ALLOC_INVALID_COUNT;
 	}
 
 	playermgrReset();
-	sysLogPrintf(LOG_NOTE, "PLAYER.INIT.PREFLIGHT count=%d", requested);
+
+	if (!playermgrRolesAreValid(requested)) {
+		sysLogPrintf(LOG_WARNING,
+			"PLAYER.INIT.ROLLBACK phase=allocation reason=invalid_roles count=%d bond=%d coop=%d anti=%d",
+			requested, g_Vars.bondplayernum, g_Vars.coopplayernum,
+			g_Vars.antiplayernum);
+		return PLAYMGR_ALLOC_INVALID_ROLES;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.PREFLIGHT phase=allocation count=%d", requested);
 
 	for (i = 0; i < requested; i++) {
 		staged[i] = mempAlloc(sizeof(struct player), MEMPOOL_STAGE);
@@ -92,7 +129,7 @@ enum playermgr_allocate_result playermgrAllocatePlayers(s32 count)
 		if (!staged[i]) {
 			playermgrReset();
 			sysLogPrintf(LOG_WARNING,
-					"PLAYER.INIT.ROLLBACK reason=allocation_failed index=%d count=%d",
+					"PLAYER.INIT.ROLLBACK phase=allocation reason=allocation_failed index=%d count=%d",
 					i, requested);
 			return PLAYMGR_ALLOC_OUT_OF_MEMORY;
 		}
@@ -100,15 +137,31 @@ enum playermgr_allocate_result playermgrAllocatePlayers(s32 count)
 		playermgrInitializePlayer(staged[i], i);
 	}
 
+	if (g_NetMode && g_StageNum != STAGE_TITLE && g_StageNum != STAGE_CITRAINING) {
+		enum net_player_allocate_result net_result =
+			netPlayersAllocate(staged, requested);
+		if (net_result != NET_PLAYER_ALLOC_OK) {
+			playermgrReset();
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ROLLBACK phase=network reason=network_rejected status=%s count=%d globals_published=0",
+				netPlayerAllocateResultString(net_result), requested);
+			return PLAYMGR_ALLOC_NETWORK_REJECTED;
+		}
+	}
+
+	/* No fallible work remains below this point. Publish the complete player set
+	 * and all role/current-player links as one synchronous commit. Network
+	 * preflight already bound its private candidates without consulting
+	 * g_Vars.players[]. */
 	for (i = 0; i < requested; i++) {
 		g_Vars.players[i] = staged[i];
 		playerResetCutsceneState(i);
 	}
 
-	if (count > 0) {
-		setCurrentPlayerNum(0);
-		g_Vars.bond = g_Vars.players[g_Vars.bondplayernum];
+	setCurrentPlayerNum(0);
+	g_Vars.bond = g_Vars.players[g_Vars.bondplayernum];
 
+	if (count > 0) {
 		if (g_Vars.coopplayernum >= 0) {
 			g_Vars.coop = g_Vars.players[g_Vars.coopplayernum];
 			g_Vars.anti = NULL;
@@ -117,28 +170,16 @@ enum playermgr_allocate_result playermgrAllocatePlayers(s32 count)
 			g_Vars.anti = g_Vars.players[g_Vars.antiplayernum];
 		}
 	} else {
-		setCurrentPlayerNum(0);
 		playermgrSetViewSize(playerGetFbWidth(), playerGetFbHeight());
 		g_Vars.coop = NULL;
 		g_Vars.anti = NULL;
-		g_Vars.bond = g_Vars.players[0];
 	}
 
 	g_Vars.bondvisible = true;
 	g_Vars.bondcollisions = true;
 
-	if (g_NetMode && g_StageNum != STAGE_TITLE && g_StageNum != STAGE_CITRAINING) {
-		enum net_player_allocate_result net_result = netPlayersAllocate();
-		if (net_result != NET_PLAYER_ALLOC_OK) {
-			playermgrReset();
-			sysLogPrintf(LOG_ERROR,
-				"PLAYER.INIT.ROLLBACK reason=network_rejected status=%s count=%d",
-				netPlayerAllocateResultString(net_result), requested);
-			return PLAYMGR_ALLOC_NETWORK_REJECTED;
-		}
-	}
-
-	sysLogPrintf(LOG_NOTE, "PLAYER.INIT.COMMIT count=%d", requested);
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.COMMIT phase=allocation count=%d", requested);
 	return PLAYMGR_ALLOC_OK;
 }
 
@@ -467,15 +508,11 @@ static void playermgrInitializePlayer(struct player *player, s32 index)
 	player->gunctrl.handmodeldef = NULL;
 	player->gunctrl.cartmodeldef = NULL;
 
-	player->gunctrl.weaponnum = WEAPON_NONE;
-	player->gunctrl.prevweaponnum = -1;
 	player->gunctrl.switchtoweaponnum = -1;
 
 	player->gunctrl.gunmemowner = GUNMEMOWNER_CHRBODY;
 	player->gunctrl.gunlocktimer = 0;
 	player->gunctrl.action = 0;
-
-	player->gunctrl.passivemode = false;
 
 	player->hands[0] = hand;
 	player->hands[1] = hand;
@@ -704,13 +741,13 @@ static void playermgrInitializePlayer(struct player *player, s32 index)
 	player->disguised = false;
 	player->dostartnewlife = false;
 
-	player->wantsjump = false;
-	player->jumpconsumed = true; /* start consumed so held button doesn't fire on first frame */
 	player->pcinteractusekind = 0;
 
 	player->client = NULL;
 	player->ucmd = (g_NetMode == NETMODE_SERVER) ? UCMD_FL_FORCEMASK : 0;
 	player->isremote = false;
+
+	playerInitStageTransientDefaults(player);
 
 }
 

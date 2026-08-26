@@ -177,6 +177,30 @@ std::string readFile(const char *path) {
 	return ss.str();
 }
 
+std::string sourceFunctionBlock(const std::string &text,
+		const char *signature)
+{
+	const size_t begin = text.find(signature);
+	REQUIRE(begin != std::string::npos);
+	const size_t brace = text.find('{', begin);
+	REQUIRE(brace != std::string::npos);
+
+	size_t depth = 0;
+	for (size_t pos = brace; pos < text.size(); ++pos) {
+		if (text[pos] == '{') {
+			++depth;
+		} else if (text[pos] == '}') {
+			REQUIRE(depth > 0);
+			if (--depth == 0) {
+				return text.substr(begin, pos - begin + 1);
+			}
+		}
+	}
+
+	FAIL("unterminated source function block");
+	return {};
+}
+
 TEST_CASE("pdmod archive size clamp widens signed off_t before comparison",
 		"[modding][pdmod][static][b1026]") {
 	const std::string modmgr = readFile("port/src/modmgr.c");
@@ -6021,8 +6045,13 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find(".pdmodel.json") != std::string::npos);
 	REQUIRE(compiler.find(".pdanimation.json") != std::string::npos);
 	REQUIRE(compiler.find("char animation_digest_key[17]") == std::string::npos);
-	REQUIRE(countOccurrences(compiler,
-	        "MODASSET_COMPILER_VERSION, digest_key") >= 4);
+	REQUIRE(countOccurrences(compiler, "compiler_version, digest_key") >= 1);
+	REQUIRE(compiler.find(
+		"MODASSET_COMPILER_ANIMATION_VERSION, digest_key") !=
+		std::string::npos);
+	REQUIRE(compiler.find(
+		"? MODASSET_COMPILER_ANIMATION_VERSION : MODASSET_COMPILER_VERSION") !=
+		std::string::npos);
 	REQUIRE(compiler.find("source_sha256") != std::string::npos);
 	REQUIRE(compiler.find("runtime_boundary") != std::string::npos);
 	REQUIRE(compiler.find("runtime_payload") != std::string::npos);
@@ -6373,6 +6402,101 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(distrib.find("e->ext.anim.flags = iniGetInt(ini, \"flags\", 0)") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_SCENARIO:") != std::string::npos);
 	REQUIRE(distrib.find("case ASSET_GAMEMODE:") != std::string::npos);
+}
+
+TEST_CASE("B-1102 schema-v5 animation framing is bounded and terminal",
+		"[modding][animation][static][B-1102]")
+{
+	const std::string extractor = readFile("port/src/romextract_pdanim_chr.c");
+	const std::string compiler = readFile("port/src/modasset_compiler.c");
+	const std::string special = sourceFunctionBlock(compiler,
+		"static s32 gltfBuildNativeFromSpecialParts");
+	const std::string payload = sourceFunctionBlock(compiler,
+		"static s32 gltfBuildAnimationClipPayload");
+	const std::string parser = sourceFunctionBlock(compiler,
+		"static s32 parseGltfAnimationSpecialParts");
+	const std::string native_extras = sourceFunctionBlock(compiler,
+		"static s32 parseGltfAnimationNativeExtras");
+	const std::string stream_validator = sourceFunctionBlock(compiler,
+		"static s32 animDescriptorStreamMatches");
+
+	/* The public schema is ordered framing, not two independent optional
+	 * properties: every header_hex descriptor is preceded by its flags byte. */
+	REQUIRE(extractor.find("\\\"flags\\\": %u, \\\"header_hex\\\": \\\"") !=
+		std::string::npos);
+	REQUIRE(compiler.find("#include \"lib/anim_bits.h\"") !=
+		std::string::npos);
+	const size_t parsed_flags = parser.find(
+		"jsonObjectInt(part_obj, \"flags\"");
+	const size_t parsed_header = parser.find(
+		"jsonObjectStringAlloc(part_obj, \"header_hex\"");
+	REQUIRE(parsed_flags != std::string::npos);
+	REQUIRE(parsed_header != std::string::npos);
+	REQUIRE(parsed_flags < parsed_header);
+	REQUIRE(parser.find("animFrameMeasurePartBounded") !=
+		std::string::npos);
+	REQUIRE(parser.find("GLTF_ANIM_SPECIAL_PARTS_SCHEMA_VERSION") !=
+		std::string::npos);
+	REQUIRE(parser.find("jsonArrayNextContainerStrict") !=
+		std::string::npos);
+	REQUIRE(parser.find("jsonArrayNextU32Strict") !=
+		std::string::npos);
+	REQUIRE(compiler.find("modAssetJsonParseS32Token") !=
+		std::string::npos);
+	REQUIRE(compiler.find("modAssetJsonParseBoolToken") !=
+		std::string::npos);
+	REQUIRE(compiler.find("modAssetJsonParseU32Token") !=
+		std::string::npos);
+	REQUIRE(parser.find("clip->part_count = count") != std::string::npos);
+	REQUIRE(native_extras.find("pd_part_count") != std::string::npos);
+	REQUIRE(native_extras.find("clip->declared_part_count = value") !=
+		std::string::npos);
+	REQUIRE(native_extras.find("pd_zero_frame_placeholder") !=
+		std::string::npos);
+	REQUIRE(native_extras.find("gltf_animation_special_frame_count_invalid") !=
+		std::string::npos);
+
+	/* Native reconstruction must share the bounded part and complete-stream
+	 * measurements. The flags byte is part of the reserved descriptor span and
+	 * is written before the verbatim header bytes. */
+	REQUIRE(special.find("animFrameMeasurePartBounded") !=
+		std::string::npos);
+	REQUIRE(stream_validator.find(
+		"animFrameMeasureDescriptorStreamBounded") !=
+		std::string::npos);
+	REQUIRE(special.find("descriptor_header_len += 1 + sp->header_len") !=
+		std::string::npos);
+	size_t writes_flags = special.find("*p++ = sp->flags");
+	if (writes_flags == std::string::npos) {
+		writes_flags = special.find("*p++ = (u8)sp->flags");
+	}
+	if (writes_flags == std::string::npos) {
+		writes_flags = special.find("*p = sp->flags");
+	}
+	if (writes_flags == std::string::npos) {
+		writes_flags = special.find("memcpy(p, &sp->flags");
+	}
+	REQUIRE(writes_flags != std::string::npos);
+	const size_t writes_descriptor = special.find("memcpy(p, sp->header");
+	const size_t validates_descriptor = special.find(
+		"animDescriptorStreamMatches");
+	const size_t publishes_payload = special.find("*out_data = data");
+	REQUIRE(writes_descriptor != std::string::npos);
+	REQUIRE(validates_descriptor != std::string::npos);
+	REQUIRE(publishes_payload != std::string::npos);
+	REQUIRE(writes_flags < writes_descriptor);
+	REQUIRE(writes_descriptor < validates_descriptor);
+	REQUIRE(validates_descriptor < publishes_payload);
+	REQUIRE(stream_validator.find("ANIM_FRAME_LAYOUT_OK") !=
+		std::string::npos);
+
+	/* Once schema-v5 ownership is present, malformed native reconstruction is a
+	 * terminal source error. The caller may not silently continue into the
+	 * lossy GLTF transform-channel rebuild. */
+	REQUIRE(payload.find("return gltfBuildNativeFromSpecialParts") !=
+		std::string::npos);
+	REQUIRE(payload.find("if (gltfBuildNativeFromSpecialParts") ==
+		std::string::npos);
 }
 
 TEST_CASE("packed pdmod transport fixture resolves typed pdxxx content through production VFS",
@@ -9020,20 +9144,28 @@ TEST_CASE("animation compiler preserves zero-frame no-op gltf clips at animtable
 	const std::string compiler = readFile("port/src/modasset_compiler.c");
 	REQUIRE(!compiler.empty());
 
-	const auto payload = compiler.find("static s32 gltfBuildAnimationClipPayload");
-	REQUIRE(payload != std::string::npos);
-	const auto frameClamp = compiler.find("if (frame_count <= 0)", payload);
+	const std::string payload = sourceFunctionBlock(compiler,
+		"static s32 gltfBuildAnimationClipPayload");
+	const auto frameClamp = payload.find("if (frame_count <= 0)");
 	REQUIRE(frameClamp != std::string::npos);
-	REQUIRE(compiler.find("frame_count = 1;", frameClamp) != std::string::npos);
+	REQUIRE(payload.find("frame_count = 1;", frameClamp) != std::string::npos);
+	REQUIRE(payload.find(
+		"part_count = clip->part_count > 0 ? clip->part_count : 1;") !=
+		std::string::npos);
+	REQUIRE(payload.find("part_count = clip->zero_frame_placeholder") ==
+		std::string::npos);
 
-	const auto noChannel = compiler.find("if (clip->channel_count <= 0)", payload);
+	const auto noChannel = payload.find("if (clip->channel_count <= 0)");
 	REQUIRE(noChannel != std::string::npos);
-	const auto normalChannel = compiler.find("part_count = clip->part_count", noChannel);
+	const auto normalChannel = payload.find("translation_for_part = malloc", noChannel);
 	REQUIRE(normalChannel != std::string::npos);
-	const std::string block = compiler.substr(noChannel, normalChannel - noChannel);
+	const std::string block = payload.substr(noChannel, normalChannel - noChannel);
 
-	REQUIRE(block.find("data = calloc(1, (size_t)(1 + tail_len));") != std::string::npos);
-	REQUIRE(block.find("data[0] = 0;") != std::string::npos);
+	REQUIRE(block.find("descriptor_header_len = part_count;") !=
+		std::string::npos);
+	REQUIRE(block.find("data = calloc(1, (size_t)header_len);") !=
+		std::string::npos);
+	REQUIRE(block.find("animDescriptorStreamMatches") != std::string::npos);
 	REQUIRE(block.find("out_entry->numframes = (u16)frame_count;") != std::string::npos);
 	REQUIRE(block.find("out_entry->bytesperframe = 0;") != std::string::npos);
 	REQUIRE(block.find("out_entry->data = 0xffffffff;") != std::string::npos);

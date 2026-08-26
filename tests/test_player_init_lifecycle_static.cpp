@@ -22,9 +22,21 @@ std::string read_player_init_source(const char *path)
 
 std::string player_init_function(const std::string &text, const char *signature)
 {
-	const size_t begin = text.find(signature);
+	size_t begin = text.find(signature);
+	size_t brace = std::string::npos;
+
+	while (begin != std::string::npos) {
+		brace = text.find('{', begin);
+		const size_t semicolon = text.find(';', begin);
+		if (brace != std::string::npos
+				&& (semicolon == std::string::npos || brace < semicolon)) {
+			break;
+		}
+		begin = text.find(signature,
+			semicolon == std::string::npos ? begin + 1 : semicolon + 1);
+	}
+
 	REQUIRE(begin != std::string::npos);
-	const size_t brace = text.find('{', begin);
 	REQUIRE(brace != std::string::npos);
 
 	size_t depth = 0;
@@ -43,31 +55,357 @@ std::string player_init_function(const std::string &text, const char *signature)
 	return {};
 }
 
+size_t count_substring(const std::string &text, const std::string &needle)
+{
+	size_t count = 0;
+	size_t offset = 0;
+
+	while ((offset = text.find(needle, offset)) != std::string::npos) {
+		count++;
+		offset += needle.size();
+	}
+
+	return count;
+}
+
 } /* namespace */
+
+TEST_CASE("B-1101 frames are bounded and B-1102 rejection keeps bind pose safe",
+		"[player-init][anim][static][B-1101][B-1102]")
+{
+	const std::string modelasm = read_player_init_source("src/lib/modelasm_c.c");
+	const std::string anim = read_player_init_source("src/lib/anim.c");
+	const std::string bounded_bits = read_player_init_source("src/lib/anim_bits.c");
+	const std::string matrix_core = player_init_function(modelasm,
+		"static bool modelasmBuildMatrices");
+	const std::string decode_failure = player_init_function(modelasm,
+		"static bool modelasmHandleFrameDecodeFailure");
+
+	REQUIRE(modelasm.find("t3ptr8 - t6ptr8") == std::string::npos);
+	REQUIRE(modelasm.find("while (v1 > gp)") == std::string::npos);
+	REQUIRE(modelasm.find("g_Anims[animnum].bytesperframe") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("s_ModelasmFrameByteLen = bytelen;") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("animReadBitsBounded") != std::string::npos);
+	REQUIRE(modelasm.find("MODELASM_FRAME_DECODE_PAYLOAD_TRUNCATED") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("MODELASM_FRAME_DECODE_GENERIC_REQUIRED") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("MODELASM_FRAME_DECODE_INVALID_FLAGS") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("MODELASM_FRAME_DECODE_METADATA_INVALID") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("MODELASM_FRAME_DECODE_FIELD_WIDTH_INVALID") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("MODELASM_FRAME_DECODE_PART_CAPACITY_EXCEEDED") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("MODELASM_FRAME_DECODE_LAYOUT_MISMATCH") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("MODELASM_FRAME_PART_CAPACITY") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("modelasmBeginAnimationFrame") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("modelasmFinishCurrentPart") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("s_ModelasmExpectedPartHeaderEnd") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("s_ModelasmExpectedPartFrameBitEnd") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("modelasmRequireFramePartCapacity") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("modelasmRequireFrameFieldWidth") !=
+		std::string::npos);
+	REQUIRE(modelasm.find("endoffset > bitlength") != std::string::npos);
+	REQUIRE(bounded_bits.find("endoffset > bitlength") != std::string::npos);
+	REQUIRE(bounded_bits.find("animFrameLocatePartBounded") !=
+		std::string::npos);
+	REQUIRE(anim.find("layout_result = animFrameLocatePartBounded") !=
+		std::string::npos);
+	REQUIRE(anim.find("animReadFrameField") != std::string::npos);
+	REQUIRE(anim.find("s32 animReadBits(") == std::string::npos);
+	REQUIRE(anim.find("animReadSignedShort") == std::string::npos);
+	REQUIRE(anim.find("u16 animGetPosAngleAsInt") != std::string::npos);
+	REQUIRE(anim.find("f32 animGetCameraValue") != std::string::npos);
+	REQUIRE(anim.find("ANIM.FRAME.LAYOUT.REJECT") != std::string::npos);
+	REQUIRE(modelasm.find("ANIM.FRAME.DECODE.REJECT") != std::string::npos);
+
+	/* B-1102: the optimized matrix core takes animation ownership explicitly,
+	 * treats the animnum-0 sentinel as bind pose, and owns a no-animation
+	 * CHRINFO branch. Decode rejection can therefore preserve model->anim and
+	 * re-enter the same complete traversal with an explicit NULL input. */
+	REQUIRE(matrix_core.find("struct anim *anim") != std::string::npos);
+	REQUIRE(matrix_core.find("anim != NULL && anim->animnum == 0") !=
+		std::string::npos);
+	REQUIRE(matrix_core.find("anim = NULL;") != std::string::npos);
+	REQUIRE(matrix_core.find(
+		"animscale = anim != NULL ? anim->animscale : 1.0f;") !=
+		std::string::npos);
+	REQUIRE(count_substring(matrix_core, "anim->animscale") == 1);
+	REQUIRE(matrix_core.find("case MODELNODETYPE_CHRINFO:") !=
+		std::string::npos);
+	REQUIRE(matrix_core.find("if (anim && anim->animnum)") !=
+		std::string::npos);
+	REQUIRE(decode_failure.find(
+		"return modelasmBuildMatrices(renderdata, model, NULL);") !=
+		std::string::npos);
+	REQUIRE(decode_failure.find("model->anim = NULL;") == std::string::npos);
+	REQUIRE(decode_failure.find("modelUpdateMatrices(renderdata, model);") ==
+		std::string::npos);
+	REQUIRE(decode_failure.find("model->anim = anim;") == std::string::npos);
+}
+
+TEST_CASE("B-1101 private player candidates own explicit chr targets",
+		"[player-init][target][static][B-1101]")
+{
+	const std::string chr_source = read_player_init_source("src/game/chr.c");
+	const std::string reset_source = read_player_init_source("src/game/playerreset.c");
+	const std::string legacy_init = player_init_function(
+		chr_source, "void chrInit(struct prop *prop");
+	const std::string explicit_init = player_init_function(
+		chr_source, "bool chrInitWithTargetProp");
+	const std::string set_target = player_init_function(
+		chr_source, "bool chrSetTargetProp");
+	const std::string get_target = player_init_function(
+		chr_source, "struct prop *chrGetTargetProp");
+	const std::string reset = player_init_function(
+		reset_source, "enum player_reset_result playerReset");
+	const std::string bind_eyespy = player_init_function(
+		reset_source, "static bool playerBindEyespyTarget");
+
+	REQUIRE(legacy_init.find("prop - g_Vars.props") == std::string::npos);
+	REQUIRE(legacy_init.find("chrTargetPropIsPublishedPlayer") !=
+		std::string::npos);
+	REQUIRE(chr_source.find("cursor = g_Vars.activeprops") !=
+		std::string::npos);
+	REQUIRE(chr_source.find("visited < g_Vars.maxprops") !=
+		std::string::npos);
+	REQUIRE(explicit_init.find("chrSetTargetProp(chr, targetprop)") !=
+		std::string::npos);
+	REQUIRE(explicit_init.find("return targetbound;") != std::string::npos);
+	REQUIRE(set_target.find("chr->target = -2;") != std::string::npos);
+	REQUIRE(chr_source.find("offset % sizeof(*targetprop)") !=
+		std::string::npos);
+	REQUIRE(get_target.find("chr->target < 0") != std::string::npos);
+	REQUIRE(get_target.find("return NULL;") != std::string::npos);
+	REQUIRE(reset.find("currentplayer->prop = NULL;") != std::string::npos);
+	REQUIRE(reset.find("currentplayer->eyespy = NULL;") != std::string::npos);
+	REQUIRE(reset.find(
+		"player_target_bound = chrInitWithTargetProp(playerprop, NULL, playerprop)") !=
+		std::string::npos);
+	REQUIRE(reset.find("if (!player_target_bound)") != std::string::npos);
+	REQUIRE(reset.find("playerBindEyespyTarget(&eyespy_candidate, playerprop)") !=
+		std::string::npos);
+	REQUIRE(reset.find("PLAYER_RESET_TARGET_BIND_FAILED") !=
+		std::string::npos);
+	REQUIRE(bind_eyespy.find("chrSetTargetProp") != std::string::npos);
+}
 
 TEST_CASE("B-1066 gun reset matches fresh-player weapon defaults",
           "[player-init][reset][static][B-1066]")
 {
-	const std::string source = read_player_init_source("src/game/bondgunreset.c");
-	const std::string reset = player_init_function(source, "void bgunReset(void)");
+	const std::string reset_source = read_player_init_source("src/game/bondgunreset.c");
+	const std::string playerreset_source = read_player_init_source("src/game/playerreset.c");
+	const std::string playermgr_source = read_player_init_source("src/game/playermgr.c");
+	const std::string reset = player_init_function(reset_source, "void bgunReset(void)");
+	const std::string defaults = player_init_function(playerreset_source,
+		"void playerInitStageTransientDefaults");
+	const std::string fresh = playermgr_source;
 
-	REQUIRE(reset.find("gunctrl.weaponnum = WEAPON_NONE;") != std::string::npos);
-	REQUIRE(reset.find("gunctrl.prevweaponnum = -1;") != std::string::npos);
-	REQUIRE(reset.find("gunctrl.prevwasdualwielding = false;") != std::string::npos);
-	REQUIRE(reset.find("gunctrl.wantammo = false;") != std::string::npos);
-	REQUIRE(reset.find("gunctrl.passivemode = false;") != std::string::npos);
-	REQUIRE(reset.find("memset(&g_Vars.currentplayer->gunctrl") == std::string::npos);
+	REQUIRE(defaults.find("gunctrl.weaponnum = WEAPON_NONE;") != std::string::npos);
+	REQUIRE(defaults.find("gunctrl.prevweaponnum = -1;") != std::string::npos);
+	REQUIRE(defaults.find("gunctrl.prevwasdualwielding = false;") != std::string::npos);
+	REQUIRE(defaults.find("gunctrl.wantammo = false;") != std::string::npos);
+	REQUIRE(defaults.find("gunctrl.passivemode = false;") != std::string::npos);
+	REQUIRE(defaults.find("wantsjump = false;") != std::string::npos);
+	REQUIRE(defaults.find("jumpconsumed = true;") != std::string::npos);
+	REQUIRE(defaults.find("client") == std::string::npos);
+	REQUIRE(defaults.find("isremote") == std::string::npos);
+	REQUIRE(defaults.find("ucmd") == std::string::npos);
+	REQUIRE(defaults.find("memset(") == std::string::npos);
+	REQUIRE(reset.find("playerInitStageTransientDefaults(g_Vars.currentplayer)") !=
+		std::string::npos);
+	REQUIRE(fresh.find("playerInitStageTransientDefaults(player)") !=
+		std::string::npos);
 }
 
 TEST_CASE("B-1066 stage reset consumes stale jump input",
           "[player-init][reset][static][B-1066]")
 {
-	const std::string source = read_player_init_source("src/game/playerreset.c");
-	const std::string reset = player_init_function(source, "void playerReset(void)");
+	const std::string source = read_player_init_source("src/game/lv.c");
+	const std::string reset = player_init_function(source, "bool lvReset(s32 stagenum)");
+	const size_t gun_reset = reset.find("bgunReset();");
+	const size_t player_reset = reset.find("playerReset()", gun_reset);
+	const size_t player_spawn = reset.find("playerSpawn()", player_reset);
 
-	REQUIRE(reset.find("currentplayer->wantsjump = false;") != std::string::npos);
-	REQUIRE(reset.find("currentplayer->jumpconsumed = true;") != std::string::npos);
-	REQUIRE(reset.find("memset(g_Vars.currentplayer") == std::string::npos);
+	REQUIRE(gun_reset != std::string::npos);
+	REQUIRE(player_reset != std::string::npos);
+	REQUIRE(player_spawn != std::string::npos);
+	REQUIRE(gun_reset < player_reset);
+	REQUIRE(player_reset < player_spawn);
+}
+
+TEST_CASE("B-1064 stage player creation preflights before prop publication",
+		"[player-init][transaction][static][B-1064][T-ENGINE-004]")
+{
+	const std::string reset_source = read_player_init_source("src/game/playerreset.c");
+	const std::string lv_source = read_player_init_source("src/game/lv.c");
+	const std::string reset = player_init_function(reset_source,
+		"enum player_reset_result playerReset(void)");
+	const std::string lv = player_init_function(lv_source,
+		"bool lvReset(s32 stagenum)");
+
+	const size_t choose = reset.find("playerChooseBodyAndHead");
+	const size_t preflight = reset.find("playerChrBodyPreflight", choose);
+	const size_t prop_allocate = reset.find("playerprop = propAllocate()", preflight);
+	const size_t prop_publish = reset.find("currentplayer->prop = playerprop", prop_allocate);
+
+	REQUIRE(choose != std::string::npos);
+	REQUIRE(preflight != std::string::npos);
+	REQUIRE(prop_allocate != std::string::npos);
+	REQUIRE(prop_publish != std::string::npos);
+	REQUIRE(choose < preflight);
+	REQUIRE(preflight < prop_allocate);
+	REQUIRE(prop_allocate < prop_publish);
+	REQUIRE(lv.find("player_result != PLAYER_RESET_OK") != std::string::npos);
+	REQUIRE(lv.find("chrbody_result != PLAYER_CHRBODY_OK") != std::string::npos);
+	REQUIRE(lv.find("aborting stage reset") != std::string::npos);
+}
+
+TEST_CASE("B-1064 chrbody late failures use one reversible publication boundary",
+		"[player-init][chrbody][rollback][static][B-1064][T-ENGINE-004]")
+{
+	const std::string source = read_player_init_source("src/game/player.c");
+	const std::string tick = player_init_function(source,
+		"enum player_chrbody_result playerTickChrBody(void)");
+	const size_t weapon_ready = tick.find("if (weaponmodeldef == NULL)");
+	const size_t attach_chr = tick.find("chr0f020b14", weapon_ready);
+	const size_t attach_weapon = tick.find("weaponCreateForChr", attach_chr);
+	const size_t fireslot = tick.find("bgunAllocateFireslot", attach_weapon);
+	const size_t publish_view = tick.find("currentplayer->vv_eyeheight = prepared_eyeheight", fireslot);
+	const size_t publish_model = tick.find("currentplayer->model00d4 = prepared_model", fireslot);
+	const size_t publish_flag = tick.find("currentplayer->haschrbody = true", publish_model);
+	const size_t rollback = tick.find("player_init_rollback:", publish_flag);
+
+	REQUIRE(weapon_ready != std::string::npos);
+	REQUIRE(attach_chr != std::string::npos);
+	REQUIRE(attach_weapon != std::string::npos);
+	REQUIRE(fireslot != std::string::npos);
+	REQUIRE(publish_view != std::string::npos);
+	REQUIRE(publish_model != std::string::npos);
+	REQUIRE(publish_flag != std::string::npos);
+	REQUIRE(rollback != std::string::npos);
+	REQUIRE(weapon_ready < attach_chr);
+	REQUIRE(attach_chr < attach_weapon);
+	REQUIRE(attach_weapon < fireslot);
+	REQUIRE(fireslot < publish_view);
+	REQUIRE(publish_view < publish_model);
+	REQUIRE(fireslot < publish_model);
+	REQUIRE(publish_model < publish_flag);
+	REQUIRE(tick.find("weaponCreateForChr(chr", attach_chr) != std::string::npos);
+	REQUIRE(tick.find("== NULL", attach_weapon) != std::string::npos);
+	REQUIRE(tick.find("fireslots[0] < 0", fireslot) != std::string::npos);
+	REQUIRE(tick.find("chrRemove(g_Vars.currentplayer->prop, !chr_was_preexisting)",
+		rollback) != std::string::npos);
+	REQUIRE(tick.find("currentplayer->prop->type = previous_prop_type", rollback) !=
+		std::string::npos);
+	REQUIRE(tick.find("currentplayer->prop->pos = previous_prop_pos", rollback) !=
+		std::string::npos);
+	REQUIRE(tick.find("roomsCopySafe(previous_prop_rooms", rollback) !=
+		std::string::npos);
+	REQUIRE(tick.find("propRegisterRooms(g_Vars.currentplayer->prop)", rollback) !=
+		std::string::npos);
+	REQUIRE(tick.find("currentplayer->prop->rooms[0] = -1", rollback) ==
+		std::string::npos);
+}
+
+TEST_CASE("B-1064 runtime identity permits headless bodies only when complete",
+		"[player-init][identity][static][B-1064][T-ENGINE-004]")
+{
+	const std::string source = read_player_init_source("port/src/player_identity.c");
+	const std::string body_only = player_init_function(source,
+		"static player_identity_status_e playerIdentityPrepareRuntimeBodyOnly");
+	const std::string runtime = player_init_function(source,
+		"player_identity_status_e playerIdentityPrepareRuntime(");
+
+	REQUIRE(body_only.find("catalogGetBodyIsComplete(runtime_bodynum)") !=
+		std::string::npos);
+	REQUIRE(body_only.find("PLAYER_IDENTITY_UNBOUND_HEAD_RUNTIME_INDEX") !=
+		std::string::npos);
+	REQUIRE(body_only.find("candidate.runtime_headnum") == std::string::npos);
+	REQUIRE(runtime.find("runtime_headnum == -1") != std::string::npos);
+	REQUIRE(runtime.find("playerIdentityPrepareRuntimeBodyOnly") !=
+		std::string::npos);
+}
+
+TEST_CASE("B-1064 Eyespy state publishes only after both candidates exist",
+		"[player-init][eyespy][transaction][static][B-1064]")
+{
+	const std::string source = read_player_init_source("src/game/playerreset.c");
+	const std::string body_source = read_player_init_source("src/game/body.c");
+	const std::string discard_prop = player_init_function(source,
+		"static void playerDiscardUnpublishedEyespyProp");
+	const std::string prepare = player_init_function(source,
+		"static bool playerPrepareEyespy");
+	const std::string commit = player_init_function(source,
+		"static void playerCommitEyespy");
+	const std::string reset = player_init_function(source,
+		"enum player_reset_result playerReset(void)");
+	const std::string allocate = player_init_function(body_source,
+		"struct prop *bodyAllocateEyespy");
+	const size_t prop_allocate = prepare.find("bodyAllocateEyespy");
+	const size_t prop_check = prepare.find("if (!prop)", prop_allocate);
+	const size_t state_allocate = prepare.find("mempAlloc(sizeof(*candidate)", prop_check);
+	const size_t state_check = prepare.find("if (!candidate)", state_allocate);
+	const size_t candidate_ready = prepare.find("out_candidate->state = candidate", state_check);
+	const size_t player_prepare = reset.find("playerPrepareEyespy");
+	const size_t player_prop_allocate = reset.find("playerprop = propAllocate()", player_prepare);
+	const size_t player_prop_publish = reset.find("currentplayer->prop = playerprop", player_prop_allocate);
+	const size_t eyespy_commit = reset.find("playerCommitEyespy", player_prop_publish);
+	const size_t discard_type = discard_prop.find("prop->type = PROPTYPE_OBJ");
+	const size_t discard_free = discard_prop.find("propFree(prop)", discard_type);
+	const size_t allocate_type = allocate.find("prop->type = PROPTYPE_OBJ");
+	const size_t allocate_free = allocate.find("propFree(prop)", allocate_type);
+
+	REQUIRE(prop_allocate != std::string::npos);
+	REQUIRE(prop_check != std::string::npos);
+	REQUIRE(state_allocate != std::string::npos);
+	REQUIRE(state_check != std::string::npos);
+	REQUIRE(candidate_ready != std::string::npos);
+	REQUIRE(player_prepare != std::string::npos);
+	REQUIRE(player_prop_allocate != std::string::npos);
+	REQUIRE(player_prop_publish != std::string::npos);
+	REQUIRE(eyespy_commit != std::string::npos);
+	REQUIRE(prop_allocate < prop_check);
+	REQUIRE(prop_check < state_allocate);
+	REQUIRE(state_allocate < state_check);
+	REQUIRE(state_check < candidate_ready);
+	REQUIRE(player_prepare < player_prop_allocate);
+	REQUIRE(player_prop_allocate < player_prop_publish);
+	REQUIRE(player_prop_publish < eyespy_commit);
+	REQUIRE(prepare.find("currentplayer->eyespy") == std::string::npos);
+	REQUIRE(prepare.find("playerDiscardUnpublishedEyespyProp(prop)",
+		state_check) != std::string::npos);
+	REQUIRE(discard_prop.find("chrRemove(prop, true)") != std::string::npos);
+	REQUIRE(discard_type != std::string::npos);
+	REQUIRE(discard_free != std::string::npos);
+	REQUIRE(discard_type < discard_free);
+	REQUIRE(commit.find("currentplayer->eyespy = candidate->state") !=
+		std::string::npos);
+	REQUIRE(commit.find("s_PlayerEyespyNextPad = candidate->pad + 1") !=
+		std::string::npos);
+	REQUIRE(reset.find("playerDiscardEyespyCandidate(&eyespy_candidate)",
+		player_prepare) != std::string::npos);
+	REQUIRE(allocate.find("prop = propAllocate()") != std::string::npos);
+	REQUIRE(allocate.find("chr0f020b14(prop, model") != std::string::npos);
+	REQUIRE(allocate_type != std::string::npos);
+	REQUIRE(allocate_free != std::string::npos);
+	REQUIRE(allocate_type < allocate_free);
+	REQUIRE(allocate.find("modelmgrFreeModel(model)") != std::string::npos);
+	REQUIRE(allocate.find("chrAllocate(") == std::string::npos);
+	REQUIRE(allocate.find("cheatIsActive(CHEAT_ENEMYSHIELDS)") !=
+		std::string::npos);
+	REQUIRE(allocate.find("chrSetShield(chr, 8)") != std::string::npos);
 }
 
 TEST_CASE("B-1072 player defaults clear only the gun-function field",

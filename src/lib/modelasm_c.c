@@ -2,8 +2,10 @@
 #include "constants.h"
 #include "bss.h"
 #include "data.h"
+#include "lib/anim.h"
 #include "lib/model.h"
 #include "lib/mtx.h"
+#include "system.h"
 #include "types.h"
 #include "platform.h"
 
@@ -14,12 +16,17 @@ struct t0slot {
 	u16 unk06;
 };
 
+/* Each decoded animation owns 60 rotation slots followed by 60 translation
+ * slots. The merge animation occupies the second 120-slot half. */
+#define MODELASM_FRAME_PART_CAPACITY 60
+#define MODELASM_FRAME_ANIM_STRIDE (MODELASM_FRAME_PART_CAPACITY * 2)
+#define MODELASM_FRAME_SCRATCH_SLOTS (MODELASM_FRAME_ANIM_STRIDE * 2)
+
 struct t0slot *t0slot;
 u8 *t2ptr8;
 s32 t3;
 u8 *t3ptr8;
 s32 t4;
-u8 *t6ptr8;
 s32 v1;
 s32 s0;
 s32 s1;
@@ -49,11 +56,47 @@ f32 f21;
 f32 f22;
 f32 f23;
 
-s32 gp;
+enum modelasm_frame_decode_failure {
+	MODELASM_FRAME_DECODE_OK = 0,
+	MODELASM_FRAME_DECODE_GENERIC_REQUIRED,
+	MODELASM_FRAME_DECODE_INVALID_FLAGS,
+	MODELASM_FRAME_DECODE_METADATA_INVALID,
+	MODELASM_FRAME_DECODE_HEADER_TRUNCATED,
+	MODELASM_FRAME_DECODE_FIELD_WIDTH_INVALID,
+	MODELASM_FRAME_DECODE_PAYLOAD_TRUNCATED,
+	MODELASM_FRAME_DECODE_PART_CAPACITY_EXCEEDED,
+	MODELASM_FRAME_DECODE_LAYOUT_MISMATCH,
+};
+
+static const u8 *s_ModelasmFrameBytes;
+static u32 s_ModelasmFrameByteLen;
+static u32 s_ModelasmFrameBitOffset;
+static enum modelasm_frame_decode_failure s_ModelasmFrameDecodeFailure;
+static s16 s_ModelasmFrameAnimnum;
+static s32 s_ModelasmFrameNum;
+static u32 s_ModelasmFramePartIndex;
+static const u8 *s_ModelasmExpectedPartHeaderEnd;
+static u32 s_ModelasmExpectedPartFrameBitEnd;
+static s16 s_ModelasmLastRejectedAnimnum = -1;
+static s32 s_ModelasmLastRejectedFrame = -1;
 
 static bool modelasmIterateThings1(void);
 static bool modelasmIterateThings2(void);
-static u32 modelasmReadFrameData(void);
+static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
+		struct model *model, struct anim *anim);
+static bool modelasmBeginAnimationFrame(s16 animnum, u8 frameslot,
+		s32 framenum);
+static bool modelasmBeginFrameData(u8 *bytes, u32 bytelen, s16 animnum,
+		s32 framenum);
+static bool modelasmRequireHeaderBytes(u32 bytecount);
+static bool modelasmValidateCurrentPart(u8 flags);
+static bool modelasmFinishCurrentPart(void);
+static bool modelasmRequireFrameFieldWidth(u8 width, u8 maxwidth);
+static bool modelasmRequireFramePartCapacity(void);
+static bool modelasmReadFrameData(s32 *value);
+static bool modelasmSkipFrameData(u32 bitcount);
+static bool modelasmHandleFrameDecodeFailure(
+		struct modelrenderdata *renderdata, struct model *model);
 static union modelrwdata *modelasmGetNodeRwData(struct model *model, struct modelnode *node, bool is_head);
 static void modelasmMathPain1(f32 f30);
 static void modelasmMathPain2(void);
@@ -77,6 +120,13 @@ static f32 modelasmAcosOrAsin(f32 f6);
  */
 bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 {
+	return modelasmBuildMatrices(renderdata, model,
+		model != NULL ? model->anim : NULL);
+}
+
+static bool modelasmBuildMatrices(struct modelrenderdata *renderdata,
+		struct model *model, struct anim *anim)
+{
 	bool sp7f8 = false;
 	f32 sp7e8f32;
 	struct t0slot *sp7e8slot;
@@ -84,9 +134,8 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 	f32 sp7f0;
 	f32 sp7ec;
 	bool sp7e4;
-	struct t0slot sp00[240];
+	struct t0slot sp00[MODELASM_FRAME_SCRATCH_SLOTS];
 	struct modelnode *node;
-	struct anim *anim;
 	struct skeleton *skeleton;
 	struct modeldef *modeldef;
 	union modelrwdata *rwdata;
@@ -96,6 +145,7 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 	f32 f9;
 	f32 f10;
 	f32 f30;
+	f32 animscale;
 	Mtxf *t0mtx;
 	Mtxf *t1mtx;
 	s32 t1;
@@ -104,42 +154,56 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 	s32 i;
 	f32 yrot;
 
+	s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_OK;
+
+	if (renderdata == NULL || model == NULL || model->definition == NULL
+			|| model->definition->nummatrices < 0
+			|| model->definition->nummatrices > MODELASM_FRAME_ANIM_STRIDE) {
+		return false;
+	}
+
 	for (i = 0; i < model->definition->nummatrices; i++) {
 		sp00[i].unk00 = 0;
 	}
 
-	anim = model->anim;
+	/* An allocated animation object with animnum 0 is the normal bind-pose
+	 * state. Treat it exactly like no animation instead of trying to decode the
+	 * sentinel table entry and reporting a malformed authored animation. */
+	if (anim != NULL && anim->animnum == 0) {
+		anim = NULL;
+	}
+	animscale = anim != NULL ? anim->animscale : 1.0f;
 
 	if (anim) {
 		t0slot = &sp00[0];
-		t2ptr8 = g_AnimHeaderBytes[g_AnimToHeaderSlot[anim->animnum]];
-		t3ptr8 = g_AnimHeaderBytes[g_AnimToHeaderSlot[anim->animnum]] + g_Anims[anim->animnum].headerlen;
-		t4 = g_Anims[anim->animnum].framelen;
+
+		if (!modelasmBeginAnimationFrame(anim->animnum, anim->frameslot1,
+				anim->framea)) {
+			return modelasmHandleFrameDecodeFailure(renderdata, model);
+		}
 
 		if (t2ptr8 != t3ptr8) {
-			t6ptr8 = g_AnimFrameBytes[anim->frameslot1];
-
 			if (!modelasmIterateThings1()) {
-				return false;
+				return modelasmHandleFrameDecodeFailure(renderdata, model);
 			}
 
 			if (anim->frac != 0.0f) {
 				for (i = 0; i < model->definition->nummatrices; i++) {
-					sp00[120 + i].unk00 = 0;
+					sp00[MODELASM_FRAME_ANIM_STRIDE + i].unk00 = 0;
 				}
 
 				f0int = anim->frac * 4096;
 
 				t0slot = &sp00[0];
-				t2ptr8 = g_AnimHeaderBytes[g_AnimToHeaderSlot[anim->animnum]];
-				t3ptr8 = g_AnimHeaderBytes[g_AnimToHeaderSlot[anim->animnum]] + g_Anims[anim->animnum].headerlen;
-				t4 = g_Anims[anim->animnum].framelen;
+
+				if (!modelasmBeginAnimationFrame(anim->animnum,
+						anim->frameslot2, anim->frameb)) {
+					return modelasmHandleFrameDecodeFailure(renderdata, model);
+				}
 
 				if (t2ptr8 != t3ptr8) {
-					t6ptr8 = g_AnimFrameBytes[anim->frameslot2];
-
 					if (!modelasmIterateThings2()) {
-						return false;
+						return modelasmHandleFrameDecodeFailure(renderdata, model);
 					}
 				}
 			}
@@ -148,30 +212,30 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 		f30 = anim->fracmerge;
 
 		if (anim->fracmerge != 0.0f) {
-			t0slot = &sp00[120];
-			t2ptr8 = g_AnimHeaderBytes[g_AnimToHeaderSlot[anim->animnum2]];
-			t3ptr8 = g_AnimHeaderBytes[g_AnimToHeaderSlot[anim->animnum2]] + g_Anims[anim->animnum2].headerlen;
-			t4 = g_Anims[anim->animnum2].framelen;
+			t0slot = &sp00[MODELASM_FRAME_ANIM_STRIDE];
+
+			if (!modelasmBeginAnimationFrame(anim->animnum2,
+					anim->frameslot3, anim->frame2a)) {
+				return modelasmHandleFrameDecodeFailure(renderdata, model);
+			}
 
 			if (t2ptr8 != t3ptr8) {
-				t6ptr8 = g_AnimFrameBytes[anim->frameslot3];
-
 				if (!modelasmIterateThings1()) {
-					return false;
+					return modelasmHandleFrameDecodeFailure(renderdata, model);
 				}
 
 				if (anim->frac2 != 0.0f) {
-					t0slot = &sp00[120];
+					t0slot = &sp00[MODELASM_FRAME_ANIM_STRIDE];
 					f0int = anim->frac2 * 4096;
-					t2ptr8 = g_AnimHeaderBytes[g_AnimToHeaderSlot[anim->animnum2]];
-					t3ptr8 = g_AnimHeaderBytes[g_AnimToHeaderSlot[anim->animnum2]] + g_Anims[anim->animnum2].headerlen;
-					t4 = g_Anims[anim->animnum2].framelen;
+
+					if (!modelasmBeginAnimationFrame(anim->animnum2,
+							anim->frameslot4, anim->frame2b)) {
+						return modelasmHandleFrameDecodeFailure(renderdata, model);
+					}
 
 					if (t2ptr8 != t3ptr8) {
-						t6ptr8 = g_AnimFrameBytes[anim->frameslot4];
-
 						if (!modelasmIterateThings2()) {
-							return false;
+							return modelasmHandleFrameDecodeFailure(renderdata, model);
 						}
 					}
 				}
@@ -222,10 +286,10 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 							s0ptr8 = skeleton->things[t1];
 							t0slot = &sp00[s0ptr8[1]];
 
-							s4 = t0slot[120].unk06;
-							s3 = t0slot[120].unk04;
+							s4 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk06;
+							s3 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk04;
 							s0 = t0slot[0].unk02;
-							s2 = t0slot[120].unk02;
+							s2 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk02;
 
 							if (s4 != 0) {
 								s4 = (0x10000 - s4) & 0xffff;
@@ -237,9 +301,9 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 						} else {
 							t0slot = &sp00[t1];
 
-							s2 = t0slot[120].unk02;
-							s3 = t0slot[120].unk04;
-							s4 = t0slot[120].unk06;
+							s2 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk02;
+							s3 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk04;
+							s4 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk06;
 						}
 
 						sp7e8slot = t0slot;
@@ -335,18 +399,18 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 				}
 
 				if (sr8 & 2) {
-					t2 = *(s16 *) &t0slot[60].unk00;
-					t3 = *(s16 *) &t0slot[60].unk02;
-					t4 = *(s16 *) &t0slot[60].unk04;
+					t2 = *(s16 *) &t0slot[MODELASM_FRAME_PART_CAPACITY].unk00;
+					t3 = *(s16 *) &t0slot[MODELASM_FRAME_PART_CAPACITY].unk02;
+					t4 = *(s16 *) &t0slot[MODELASM_FRAME_PART_CAPACITY].unk04;
 
 					if (node == modeldef->rootnode) {
-						f21 = t2 * anim->animscale;
-						f22 = t3 * anim->animscale;
-						f23 = t4 * anim->animscale;
+						f21 = t2 * animscale;
+						f22 = t3 * animscale;
+						f23 = t4 * animscale;
 					} else {
-						f0 = t2 * anim->animscale;
-						f1 = t3 * anim->animscale;
-						f2 = t4 * anim->animscale;
+						f0 = t2 * animscale;
+						f1 = t3 * animscale;
+						f2 = t4 * animscale;
 
 						f21 = f0 + node->rodata->position.pos.x;
 						f22 = f1 + node->rodata->position.pos.y;
@@ -454,12 +518,7 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 			if (model) {
 				t1 = node->rodata->chrinfo.animpart;
 
-#ifdef AVOID_UB
-				if (anim->animnum)
-#else
-				if (anim)
-#endif
-				{
+				if (anim && anim->animnum) {
 					if (f30 != 0.0f) {
 						if (anim->flip) {
 							t2ptr8 = skeleton->things[t1];
@@ -490,10 +549,10 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 							s0ptr8 = skeleton->things[t1];
 							t0slot = &sp00[s0ptr8[1]];
 
-							s4 = t0slot[120].unk06;
-							s3 = t0slot[120].unk04;
+							s4 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk06;
+							s3 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk04;
 							s0 = t0slot[0].unk02;
-							s2 = t0slot[120].unk02;
+							s2 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk02;
 
 							if (s4 != 0) {
 								s4 = (0x10000 - s4) & 0xffff;
@@ -505,9 +564,9 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 						} else {
 							t0slot = &sp00[t1];
 
-							s2 = t0slot[120].unk02;
-							s3 = t0slot[120].unk04;
-							s4 = t0slot[120].unk06;
+							s2 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk02;
+							s3 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk04;
+							s4 = t0slot[MODELASM_FRAME_ANIM_STRIDE].unk06;
 						}
 
 						sp7e8slot = t0slot;
@@ -745,28 +804,51 @@ bool modelasm00018680(struct modelrenderdata *renderdata, struct model *model)
 static bool modelasmIterateThings1(void)
 {
 	s32 t7;
-	s32 t8;
 	u32 v0;
-
-	gp = 0;
 
 	do {
 		t7 = *t2ptr8;
 		t2ptr8++;
-		t0slot->unk00 = t7;
 
 		if (t7 > 15) {
+			/* S32/f32/camera/scale descriptors and the native header tail
+			 * intentionally use the generic decoder. The generic path now owns
+			 * the same bounded layout admission in animGetRotTranslateScale. */
+			s_ModelasmFrameDecodeFailure =
+				MODELASM_FRAME_DECODE_GENERIC_REQUIRED;
 			return false;
 		}
 
+		if (!modelasmValidateCurrentPart((u8)t7)) {
+			return false;
+		}
+
+		if (!modelasmRequireFramePartCapacity()) {
+			return false;
+		}
+
+		t0slot->unk00 = t7;
+
 		if (t7 & 2) {
+			if (!modelasmRequireHeaderBytes(9)) {
+				return false;
+			}
+
+			if (!modelasmRequireFrameFieldWidth(t2ptr8[2], 16)
+					|| !modelasmRequireFrameFieldWidth(t2ptr8[5], 16)
+					|| !modelasmRequireFrameFieldWidth(t2ptr8[8], 16)) {
+				return false;
+			}
+
 			// 0, 1, 2
 			v1 = t2ptr8[2];
-			s0 = modelasmReadFrameData();
+			if (!modelasmReadFrameData(&s0)) {
+				return false;
+			}
 			v1 = t2ptr8[2];
 			s3 = 1;
 
-			if (v1 < 16) {
+			if (v1 > 0 && v1 < 16) {
 				v0 = v1 - 1;
 				s3 <<= v0;
 				s4 = 16;
@@ -787,11 +869,13 @@ static bool modelasmIterateThings1(void)
 
 			// 3, 4, 5
 			v1 = t2ptr8[5];
-			s1 = modelasmReadFrameData();
+			if (!modelasmReadFrameData(&s1)) {
+				return false;
+			}
 			v1 = t2ptr8[5];
 			s3 = 1;
 
-			if (v1 < 16) {
+			if (v1 > 0 && v1 < 16) {
 				v0 = v1 - 1;
 				s3 <<= v0;
 				s4 = 16;
@@ -812,11 +896,13 @@ static bool modelasmIterateThings1(void)
 
 			// 6, 7, 8
 			v1 = t2ptr8[8];
-			s2 = modelasmReadFrameData();
+			if (!modelasmReadFrameData(&s2)) {
+				return false;
+			}
 			v1 = t2ptr8[8];
 			s3 = 1;
 
-			if (v1 < 16) {
+			if (v1 > 0 && v1 < 16) {
 				v0 = v1 - 1;
 				s3 <<= v0;
 				s4 = 16;
@@ -837,29 +923,30 @@ static bool modelasmIterateThings1(void)
 
 			t2ptr8 += 9;
 
-			t0slot[60].unk00 = s0;
-			t0slot[60].unk02 = s1;
-			t0slot[60].unk04 = s2;
+			t0slot[MODELASM_FRAME_PART_CAPACITY].unk00 = s0;
+			t0slot[MODELASM_FRAME_PART_CAPACITY].unk02 = s1;
+			t0slot[MODELASM_FRAME_PART_CAPACITY].unk04 = s2;
 		} else {
 			s0 = 0;
 			s1 = 0;
 			s2 = 0;
 
 			if (t7 & 8) {
-				v0 = t2ptr8[2] + t2ptr8[5] + t2ptr8[8] + t2ptr8[11];
-				v1 = t2ptr8[11];
+				if (!modelasmRequireHeaderBytes(12)) {
+					return false;
+				}
 
-				if (v0 >= gp) {
-					v0 -= gp;
-					sr8 = 0;
-					t8 = v0 >> 3;
-					t6ptr8 += t8;
-					t8 <<= 3;
-					v0 -= t8;
-					sr8 = t6ptr8[0];
-					gp = 8;
-					t6ptr8++;
-					gp -= v0;
+				if (!modelasmRequireFrameFieldWidth(t2ptr8[2], 32)
+						|| !modelasmRequireFrameFieldWidth(t2ptr8[5], 32)
+						|| !modelasmRequireFrameFieldWidth(t2ptr8[8], 32)
+						|| !modelasmRequireFrameFieldWidth(t2ptr8[11], 32)) {
+					return false;
+				}
+
+				v0 = t2ptr8[2] + t2ptr8[5] + t2ptr8[8] + t2ptr8[11];
+
+				if (!modelasmSkipFrameData(v0)) {
+					return false;
 				}
 
 				t2ptr8 += 12;
@@ -867,20 +954,36 @@ static bool modelasmIterateThings1(void)
 		}
 
 		if (t7 & 1) {
+			if (!modelasmRequireHeaderBytes(9)) {
+				return false;
+			}
+
+			if (!modelasmRequireFrameFieldWidth(t2ptr8[2], 16)
+					|| !modelasmRequireFrameFieldWidth(t2ptr8[5], 16)
+					|| !modelasmRequireFrameFieldWidth(t2ptr8[8], 16)) {
+				return false;
+			}
+
 			v1 = t2ptr8[2];
-			s0 = modelasmReadFrameData();
+			if (!modelasmReadFrameData(&s0)) {
+				return false;
+			}
 			s0 += (t2ptr8[0] << 8) + t2ptr8[1];
 			v0 = 16 - t4;
 			s0 = (s0 << v0) & 0xffff;
 
 			v1 = t2ptr8[5];
-			s1 = modelasmReadFrameData();
+			if (!modelasmReadFrameData(&s1)) {
+				return false;
+			}
 			s1 += (t2ptr8[3] << 8) + t2ptr8[4];
 			v0 = 16 - t4;
 			s1 = (s1 << v0) & 0xffff;
 
 			v1 = t2ptr8[8];
-			s2 = modelasmReadFrameData();
+			if (!modelasmReadFrameData(&s2)) {
+				return false;
+			}
 			s2 += (t2ptr8[6] << 8) + t2ptr8[7];
 			v0 = 16 - t4;
 			s2 = (s2 << v0) & 0xffff;
@@ -890,6 +993,10 @@ static bool modelasmIterateThings1(void)
 			s0 = 0;
 			s1 = 0;
 			s2 = 0;
+		}
+
+		if (!modelasmFinishCurrentPart()) {
+			return false;
 		}
 
 		t0slot->unk02 = s0;
@@ -913,17 +1020,24 @@ static bool modelasmIterateThings1(void)
 static bool modelasmIterateThings2(void)
 {
 	s32 t7;
-	s32 t8;
 	s32 s5;
 	u32 v0;
-
-	gp = 0;
 
 	do {
 		t7 = t2ptr8[0];
 		t2ptr8++;
 
 		if (t7 > 15) {
+			s_ModelasmFrameDecodeFailure =
+				MODELASM_FRAME_DECODE_GENERIC_REQUIRED;
+			return false;
+		}
+
+		if (!modelasmValidateCurrentPart((u8)t7)) {
+			return false;
+		}
+
+		if (!modelasmRequireFramePartCapacity()) {
 			return false;
 		}
 
@@ -933,41 +1047,40 @@ static bool modelasmIterateThings2(void)
 			s2 = 0;
 
 			if (t7 & 8) {
+				if (!modelasmRequireHeaderBytes(12)) {
+					return false;
+				}
+
+				if (!modelasmRequireFrameFieldWidth(t2ptr8[2], 32)
+						|| !modelasmRequireFrameFieldWidth(t2ptr8[5], 32)
+						|| !modelasmRequireFrameFieldWidth(t2ptr8[8], 32)
+						|| !modelasmRequireFrameFieldWidth(t2ptr8[11], 32)) {
+					return false;
+				}
+
 				v0 = t2ptr8[2] + t2ptr8[5] + t2ptr8[8] + t2ptr8[11];
 
-				if (v0 >= gp) {
-					v0 -= gp;
-					sr8 = 0;
-					t8 = v0 >> 3;
-					t6ptr8 += t8;
-					t8 <<= 3;
-					v0 -= t8;
-					sr8 = t6ptr8[0];
-					gp = 8;
-					t6ptr8++;
-					gp -= v0;
-				} else {
-					v0 -= gp;
+				if (!modelasmSkipFrameData(v0)) {
+					return false;
 				}
 
 				t2ptr8 += 12;
 			}
 		} else {
+			if (!modelasmRequireHeaderBytes(9)) {
+				return false;
+			}
+
+			if (!modelasmRequireFrameFieldWidth(t2ptr8[2], 16)
+					|| !modelasmRequireFrameFieldWidth(t2ptr8[5], 16)
+					|| !modelasmRequireFrameFieldWidth(t2ptr8[8], 16)) {
+				return false;
+			}
+
 			v0 = t2ptr8[2] + t2ptr8[5] + t2ptr8[8];
 
-			if (v0 >= gp) {
-				v0 -= gp;
-				sr8 = 0;
-				t8 = v0 >> 3;
-				t6ptr8 += t8;
-				t8 <<= 3;
-				v0 -= t8;
-				sr8 = t6ptr8[0];
-				gp = 8;
-				t6ptr8++;
-				gp -= v0;
-			} else {
-				v0 -= gp;
+			if (!modelasmSkipFrameData(v0)) {
+				return false;
 			}
 
 			t2ptr8 += 9;
@@ -978,25 +1091,45 @@ static bool modelasmIterateThings2(void)
 			s1 = 0;
 			s2 = 0;
 		} else {
+			if (!modelasmRequireHeaderBytes(9)) {
+				return false;
+			}
+
+			if (!modelasmRequireFrameFieldWidth(t2ptr8[2], 16)
+					|| !modelasmRequireFrameFieldWidth(t2ptr8[5], 16)
+					|| !modelasmRequireFrameFieldWidth(t2ptr8[8], 16)) {
+				return false;
+			}
+
 			v1 = t2ptr8[2];
-			s0 = modelasmReadFrameData();
+			if (!modelasmReadFrameData(&s0)) {
+				return false;
+			}
 			s0 += (t2ptr8[0] << 8) + t2ptr8[1];
 			v0 = 16 - t4;
 			s0 = (s0 << v0) & 0xffff;
 
 			v1 = t2ptr8[5];
-			s1 = modelasmReadFrameData();
+			if (!modelasmReadFrameData(&s1)) {
+				return false;
+			}
 			s1 += (t2ptr8[3] << 8) + t2ptr8[4];
 			v0 = 16 - t4;
 			s1 = (s1 << v0) & 0xffff;
 
 			v1 = t2ptr8[8];
-			s2 = modelasmReadFrameData();
+			if (!modelasmReadFrameData(&s2)) {
+				return false;
+			}
 			s2 += (t2ptr8[6] << 8) + t2ptr8[7];
 			v0 = 16 - t4;
 			s2 = (s2 << v0) & 0xffff;
 
 			t2ptr8 += 9;
+		}
+
+		if (!modelasmFinishCurrentPart()) {
+			return false;
 		}
 
 		s3 = f0int;
@@ -1092,65 +1225,256 @@ static bool modelasmIterateThings2(void)
 	return true;
 }
 
-/**
- * Expects: t3 t6 v1 gp s8
- */
-static u32 modelasmReadFrameData(void)
+static bool modelasmBeginAnimationFrame(s16 animnum, u8 frameslot,
+		s32 framenum)
 {
-	u32 v0 = 0;
-	s32 s6;
+	u8 headerslot;
 
-	if (!v1) {
-		return 0;
+	/* Seed diagnostics before touching animation-owned arrays so every metadata
+	 * rejection remains typed and can safely fall back to the bind pose. */
+	s_ModelasmFrameAnimnum = animnum;
+	s_ModelasmFrameNum = framenum;
+	s_ModelasmFrameBytes = NULL;
+	s_ModelasmFrameByteLen = 0;
+	s_ModelasmFrameBitOffset = 0;
+	s_ModelasmFramePartIndex = 0;
+	s_ModelasmExpectedPartHeaderEnd = NULL;
+	s_ModelasmExpectedPartFrameBitEnd = 0;
+
+	if (animnum < 0 || animnum >= animGetTotalCount()
+			|| frameslot >= ANIM_FRAME_CACHE_SIZE
+			|| g_Anims == NULL || g_AnimToHeaderSlot == NULL
+			|| g_AnimHeaderBytes == NULL || g_AnimFrameBytes == NULL) {
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_METADATA_INVALID;
+		return false;
 	}
 
-	while (v1 > gp) {
-		v1 -= gp;
-		v0 |= (((1 << gp) - 1) & sr8) << v1;
-		s6 = t3ptr8 - t6ptr8;
+	headerslot = g_AnimToHeaderSlot[animnum];
 
-		if (s6 >= 4) {
-			s6 = 4;
-		}
-
-		sr8 = ((uintptr_t) t6ptr8 & 3) - 4;
-		sr8 = -sr8;
-
-		if (sr8 != 0 && sr8 < s6) {
-			s6 = sr8;
-		}
-
-		switch (s6) {
-		case 1: // 19c64
-			sr8 = t6ptr8[0];
-			t6ptr8++;
-			gp = 8;
-			break;
-		case 2: // 19c70
-			sr8 = (t6ptr8[0] << 8) | t6ptr8[1];
-			t6ptr8 += 2;
-			gp = 16;
-			break;
-		case 3: // 19c88
-			sr8 = (t6ptr8[0] << 16) | (t6ptr8[1] << 8) | t6ptr8[2];
-			t6ptr8 += 3;
-			gp = 24;
-			break;
-		case 4: // 19cac
-			sr8 = (t6ptr8[0] << 24) | (t6ptr8[1] << 16) | (t6ptr8[2] << 8) | t6ptr8[3];
-			t6ptr8 += 4;
-			gp = 32;
-			break;
-		}
+	if (headerslot == 0xff || headerslot >= ANIM_HEADER_CACHE_SIZE
+			|| g_AnimHeaderBytes[headerslot] == NULL) {
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_METADATA_INVALID;
+		return false;
 	}
 
-	gp -= v1;
+	t2ptr8 = g_AnimHeaderBytes[headerslot];
+	t3ptr8 = t2ptr8 + g_Anims[animnum].headerlen;
+	t4 = g_Anims[animnum].framelen;
 
-	if (v1) {
-		v0 |= (sr8 >> gp) & ((1 << v1) - 1);
+	return modelasmBeginFrameData(g_AnimFrameBytes[frameslot],
+		g_Anims[animnum].bytesperframe, animnum, framenum);
+}
+
+static bool modelasmBeginFrameData(u8 *bytes, u32 bytelen, s16 animnum,
+		s32 framenum)
+{
+	s_ModelasmFrameBytes = bytes;
+	s_ModelasmFrameByteLen = bytelen;
+	s_ModelasmFrameBitOffset = 0;
+	s_ModelasmFrameAnimnum = animnum;
+	s_ModelasmFrameNum = framenum;
+	s_ModelasmFramePartIndex = 0;
+	s_ModelasmExpectedPartHeaderEnd = NULL;
+	s_ModelasmExpectedPartFrameBitEnd = 0;
+
+	if ((bytes == NULL && bytelen != 0) || t4 < 0 || t4 > 16) {
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_METADATA_INVALID;
+		return false;
 	}
 
-	return v0;
+	return true;
+}
+
+static bool modelasmRequireHeaderBytes(u32 bytecount)
+{
+	if (t2ptr8 > t3ptr8 || (u64)(t3ptr8 - t2ptr8) < (u64)bytecount) {
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_HEADER_TRUNCATED;
+		return false;
+	}
+
+	return true;
+}
+
+static bool modelasmValidateCurrentPart(u8 flags)
+{
+	enum anim_frame_layout_result result;
+	u32 descriptor_bytes;
+	u32 frame_bits;
+	u64 frame_end;
+	u64 frame_capacity;
+
+	if (t2ptr8 > t3ptr8) {
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_HEADER_TRUNCATED;
+		return false;
+	}
+
+	result = animFrameMeasurePartBounded(t2ptr8,
+		(u32)(t3ptr8 - t2ptr8), flags, &descriptor_bytes, &frame_bits);
+
+	switch (result) {
+	case ANIM_FRAME_LAYOUT_OK:
+		break;
+	case ANIM_FRAME_LAYOUT_INVALID_FLAGS:
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_INVALID_FLAGS;
+		return false;
+	case ANIM_FRAME_LAYOUT_HEADER_TRUNCATED:
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_HEADER_TRUNCATED;
+		return false;
+	case ANIM_FRAME_LAYOUT_FIELD_WIDTH_INVALID:
+		s_ModelasmFrameDecodeFailure =
+			MODELASM_FRAME_DECODE_FIELD_WIDTH_INVALID;
+		return false;
+	case ANIM_FRAME_LAYOUT_PAYLOAD_TRUNCATED:
+		s_ModelasmFrameDecodeFailure =
+			MODELASM_FRAME_DECODE_PAYLOAD_TRUNCATED;
+		return false;
+	default:
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_METADATA_INVALID;
+		return false;
+	}
+
+	frame_end = (u64)s_ModelasmFrameBitOffset + (u64)frame_bits;
+	frame_capacity = (u64)s_ModelasmFrameByteLen * 8u;
+
+	if (frame_end > frame_capacity) {
+		s_ModelasmFrameDecodeFailure =
+			MODELASM_FRAME_DECODE_PAYLOAD_TRUNCATED;
+		return false;
+	}
+	if (frame_end > 0xffffffffu) {
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_METADATA_INVALID;
+		return false;
+	}
+
+	s_ModelasmExpectedPartHeaderEnd = t2ptr8 + descriptor_bytes;
+	s_ModelasmExpectedPartFrameBitEnd = (u32)frame_end;
+
+	return true;
+}
+
+static bool modelasmFinishCurrentPart(void)
+{
+	if (s_ModelasmExpectedPartHeaderEnd == NULL
+			|| t2ptr8 != s_ModelasmExpectedPartHeaderEnd
+			|| s_ModelasmFrameBitOffset != s_ModelasmExpectedPartFrameBitEnd) {
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_LAYOUT_MISMATCH;
+		return false;
+	}
+
+	return true;
+}
+
+static bool modelasmRequireFrameFieldWidth(u8 width, u8 maxwidth)
+{
+	if (width > maxwidth) {
+		s_ModelasmFrameDecodeFailure =
+			MODELASM_FRAME_DECODE_FIELD_WIDTH_INVALID;
+		return false;
+	}
+
+	return true;
+}
+
+static bool modelasmRequireFramePartCapacity(void)
+{
+	if (s_ModelasmFramePartIndex >= MODELASM_FRAME_PART_CAPACITY) {
+		s_ModelasmFrameDecodeFailure =
+			MODELASM_FRAME_DECODE_PART_CAPACITY_EXCEEDED;
+		return false;
+	}
+
+	s_ModelasmFramePartIndex++;
+	return true;
+}
+
+static bool modelasmReadFrameData(s32 *value)
+{
+	u32 decoded;
+
+	if (value == NULL || v1 < 0 || v1 > 32
+			|| !animReadBitsBounded(s_ModelasmFrameBytes,
+				s_ModelasmFrameByteLen, (u8)v1,
+				s_ModelasmFrameBitOffset, &decoded)) {
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_PAYLOAD_TRUNCATED;
+		return false;
+	}
+
+	s_ModelasmFrameBitOffset += (u32)v1;
+	*value = (s32)decoded;
+	return true;
+}
+
+static bool modelasmSkipFrameData(u32 bitcount)
+{
+	u64 endoffset = (u64)s_ModelasmFrameBitOffset + (u64)bitcount;
+	u64 bitlength = (u64)s_ModelasmFrameByteLen * 8u;
+
+	if (endoffset > bitlength
+			|| (s_ModelasmFrameBytes == NULL && bitcount != 0)) {
+		s_ModelasmFrameDecodeFailure = MODELASM_FRAME_DECODE_PAYLOAD_TRUNCATED;
+		return false;
+	}
+
+	s_ModelasmFrameBitOffset += bitcount;
+	return true;
+}
+
+static bool modelasmHandleFrameDecodeFailure(
+		struct modelrenderdata *renderdata, struct model *model)
+{
+	const char *reason;
+
+	if (s_ModelasmFrameDecodeFailure == MODELASM_FRAME_DECODE_OK) {
+		return false;
+	}
+
+	if (s_ModelasmFrameDecodeFailure
+			== MODELASM_FRAME_DECODE_GENERIC_REQUIRED) {
+		return false;
+	}
+
+	switch (s_ModelasmFrameDecodeFailure) {
+	case MODELASM_FRAME_DECODE_INVALID_FLAGS:
+		reason = "invalid_flags";
+		break;
+	case MODELASM_FRAME_DECODE_METADATA_INVALID:
+		reason = "metadata_invalid";
+		break;
+	case MODELASM_FRAME_DECODE_HEADER_TRUNCATED:
+		reason = "header_truncated";
+		break;
+	case MODELASM_FRAME_DECODE_FIELD_WIDTH_INVALID:
+		reason = "field_width_invalid";
+		break;
+	case MODELASM_FRAME_DECODE_PAYLOAD_TRUNCATED:
+		reason = "payload_truncated";
+		break;
+	case MODELASM_FRAME_DECODE_PART_CAPACITY_EXCEEDED:
+		reason = "part_capacity_exceeded";
+		break;
+	case MODELASM_FRAME_DECODE_LAYOUT_MISMATCH:
+		reason = "layout_mismatch";
+		break;
+	default:
+		reason = "invalid_state";
+		break;
+	}
+
+	if (s_ModelasmLastRejectedAnimnum != s_ModelasmFrameAnimnum
+			|| s_ModelasmLastRejectedFrame != s_ModelasmFrameNum) {
+		sysLogPrintf(LOG_ERROR,
+			"ANIM.FRAME.DECODE.REJECT: anim=%d frame=%d reason=%s bit_offset=%u bytes=%u model=%p",
+			s_ModelasmFrameAnimnum, s_ModelasmFrameNum, reason,
+			s_ModelasmFrameBitOffset, s_ModelasmFrameByteLen, (void *)model);
+		s_ModelasmLastRejectedAnimnum = s_ModelasmFrameAnimnum;
+		s_ModelasmLastRejectedFrame = s_ModelasmFrameNum;
+	}
+
+	/* A rejected public frame must not fall through to a generic decoder or
+	 * invalidate live animation ownership. Re-enter the same bounded matrix
+	 * core with an explicit no-animation input; its bind-pose branch owns every
+	 * node type without reading or mutating model->anim. */
+	return modelasmBuildMatrices(renderdata, model, NULL);
 }
 
 /**

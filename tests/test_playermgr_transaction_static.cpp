@@ -191,6 +191,8 @@ TEST_CASE("playermgr allocation publishes only a completely staged player set",
 		read_pd_source("src/include/game/playermgr.h"));
 	const std::string source = compact_source(
 		read_pd_source("src/game/playermgr.c"));
+	const std::string net_source = compact_source(
+		read_pd_source("port/src/net/net.c"));
 
 	const std::string enum_marker = "enumplayermgr_allocate_result{";
 	require_text(header, enum_marker.c_str(),
@@ -203,6 +205,8 @@ TEST_CASE("playermgr allocation publishes only a completely staged player set",
 			"typed allocation result includes OUT_OF_MEMORY");
 	require_text(header, "PLAYMGR_ALLOC_NETWORK_REJECTED=-3",
 			"typed allocation result includes NETWORK_REJECTED");
+	require_text(header, "PLAYMGR_ALLOC_INVALID_ROLES=-4",
+			"typed allocation result includes INVALID_ROLES");
 	require_text(header,
 			"enumplayermgr_allocate_resultplayermgrAllocatePlayers(s32count);",
 			"allocation declaration returns the typed result");
@@ -299,7 +303,9 @@ TEST_CASE("playermgr allocation publishes only a completely staged player set",
 	REQUIRE(allocation_count > 0);
 
 	const source_block invalid_count = block_at(
-		allocation.text, "if(requested>MAX_PLAYERS)");
+		allocation.text, "if(count<0||requested>MAX_PLAYERS)");
+	const source_block invalid_roles = block_at(
+		allocation.text, "if(!playermgrRolesAreValid(requested))");
 	const source_block out_of_memory = block_at(
 		allocation.text, "if(!staged[i])");
 	require_order(invalid_count.text,
@@ -310,8 +316,18 @@ TEST_CASE("playermgr allocation publishes only a completely staged player set",
 			{"playermgrReset();", "PLAYER.INIT.ROLLBACK",
 				"returnPLAYMGR_ALLOC_OUT_OF_MEMORY;"},
 			"allocation-failure rollback resets, logs, and returns the typed failure");
+	require_order(invalid_roles.text,
+			{"PLAYER.INIT.ROLLBACK", "returnPLAYMGR_ALLOC_INVALID_ROLES;"},
+			"invalid roles reject before any private allocation or publication");
+	REQUIRE(invalid_roles.begin < staging.begin);
+	require_text(source, "g_Vars.coopplayernum>=0&&g_Vars.antiplayernum>=0",
+		"role validation rejects simultaneous Co-Op and Counter-Op ownership");
+	require_text(source,
+		"g_Vars.coopplayernum==g_Vars.bondplayernum||g_Vars.antiplayernum==g_Vars.bondplayernum",
+		"role validation rejects role aliasing with Bond");
 
-	const size_t net_allocate = allocation.text.find("netPlayersAllocate()");
+	const size_t net_allocate = allocation.text.find(
+		"netPlayersAllocate(staged,requested)");
 	const size_t net_check = allocation.text.find(
 		"if(net_result!=NET_PLAYER_ALLOC_OK)", net_allocate);
 	const size_t network_rollback = allocation.text.find(
@@ -320,18 +336,28 @@ TEST_CASE("playermgr allocation publishes only a completely staged player set",
 		"PLAYER.INIT.COMMIT", network_rollback);
 	INFO("contract: the overall commit log exists after network preflight");
 	REQUIRE(commit_log != std::string::npos);
-	INFO("contract: network allocation runs only after local publication");
+	INFO("contract: network allocation validates private candidates before local publication");
 	REQUIRE(net_allocate != std::string::npos);
-	REQUIRE(allocation_publication < commit_log);
-	REQUIRE(allocation_publication < net_allocate);
 	REQUIRE(net_allocate < net_check);
 	REQUIRE(net_check < network_rollback);
-	REQUIRE(network_rollback < commit_log);
+	REQUIRE(network_rollback < allocation_publication);
+	REQUIRE(allocation_publication < commit_log);
 	const std::string network_reject_marker =
 		"returnPLAYMGR_ALLOC_NETWORK_REJECTED;";
 	require_order(allocation.text.substr(net_check,
 			network_rollback - net_check + network_reject_marker.size()),
-		{"playermgrReset();", "PLAYER.INIT.ROLLBACK",
+		{"playermgrReset();", "globals_published=0",
 			"returnPLAYMGR_ALLOC_NETWORK_REJECTED;"},
-		"network rejection clears local publication before returning failure");
+		"network rejection reports that no local player globals were published");
+
+	const source_block net_allocation = definition_block(net_source,
+		"netPlayersAllocate(structplayer*const*candidates,s32candidate_count)");
+	require_text(net_allocation.text, "plan->player=candidates[playernum];",
+		"network planning binds only the supplied private candidates");
+	require_text(net_allocation.text, "if(plan_count!=candidate_count)",
+		"network planning rejects a partial active-client roster");
+	require_text(net_allocation.text, "NET_PLAYER_ALLOC_ROSTER_MISMATCH",
+		"partial-roster rejection has a typed result");
+	INFO("contract: network prepare must not consult globally published players");
+	REQUIRE(net_allocation.text.find("g_Vars.players[") == std::string::npos);
 }

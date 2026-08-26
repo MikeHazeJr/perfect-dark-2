@@ -1,5 +1,224 @@
 # Session Log (Active)
 
+## 2026-08-25 - B-1102 production gate accepted; next engine gap audit
+
+Goal: correct the production-only animation framing and fallback defects exposed
+by the exact B-1101 replacement smoke, then run one consolidated frozen
+automation batch and one replacement two-cycle Combat Simulator receipt.
+Milestone 1 remains 2 validated, 8 partial, and 5 missing. Accepted Campaign,
+D-003, and reconnect smokes are retained rather than rerun.
+
+The immutable rejected receipt
+`.claude/smoke-verify-runs/results-20260824T124625Z.json` reached player
+initialization on exact client `A0F46D54...`, rejected animation 1 frame 0 as
+`invalid_flags`, and exited with an access violation at 16/56. The public
+`base:animation_two_gun_hold` schema-v5 source is valid: its first part is flags
+`0x09` plus 21 descriptor bytes, the remaining fourteen parts are `0x01` plus
+9 bytes each, and the complete frame is 176 bits/22 bytes. The compiler had
+omitted all fifteen flags bytes while copying `header_hex`. Its rejection
+handler then nulled `model->anim` and entered generic CHRINFO code that requires
+that pointer.
+
+Current source now gives extraction/compiler/runtime one shared exact layout
+contract. The schema-v5 parser requires the known version, exact container and
+row shapes, canonical range-checked integer/boolean tokens, contiguous declared
+part topology, coherent frame counts, full unsigned 32-bit field values, and
+explicit zero-frame semantics. Zero-frame runtime no-op streams preserve the
+declared part count. Native rebuild
+reserves/emits every flags byte, validates the completed descriptor stream and
+each packed frame, and terminates rather than degrading into the lossy channel
+path. Animation-only compiler version 8 retires malformed v7 animation caches
+without rebuilding mesh/model caches. Optimized runtime decoding verifies that
+its real header and bit cursors reach the exact shared per-part endpoints.
+Failure re-enters the complete matrix core with an explicit null animation
+input; POSITION and CHRINFO use bind pose and a null-safe scale without mutating
+live animation ownership. Completed-stream admission also rejects unconsumed
+descriptor bytes rather than accepting a valid prefix.
+
+A GPT-5.6 Luna xhigh worker changed only the three bounded test files. Sol
+reviewed and corrected its initially assumed public no-animation API to match
+the actual explicit-input matrix core, then extended the compiler contracts for
+strict full-u32/topology/zero-frame behavior. Luna's completed read-only
+integrated audit found four further edge gaps: null animation scale, scalar
+token prefixes/leading zeros, zero-frame topology collapse, and prefix-only
+descriptor validation. Sol corrected all four and added a reusable production
+JSON scalar module with behavioral fixtures. Pure layout tests use the real
+15-part framing and reject omitted flags, undersized frame capacity, incomplete
+part count, and trailing descriptor bytes. `git diff --check` is clean.
+
+The isolated source-frozen client, updater, and tests builds now pass. Focused
+player-init/B-1101/B-1102 verification passes 2,057 assertions in 27 cases, the
+full suite passes 65,073 assertions in 1,186 cases, and the native-source guard
+passes. Product `e6287a9c...` across 2,717 files and verifier `ad7c38f9...`
+across 402 files have zero pre/post mismatches; exact client is `133A55C6...`
+and tests are `C9D4511F...`.
+
+The one authorized replacement production run is accepted at
+`.claude/smoke-verify-runs/results-20260826T024226Z.json`: exact client
+`133A55C6...` passes 56/56 in 202.574 seconds. Both player-init/match starts
+commit, the 15-second bot-root hold reports zero failures, the real CMP150 path
+fires and hits, both controlled stats/award matrices commit, Play Again crosses
+the Room boundary into cycle two, both endscreens appear, and scripted exit 0
+reports all allocations intact. Post-run source remains product `e6287a9c...`
+and verifier `ad7c38f9...` with zero mismatches, zero animation/crash rejection
+matches, and zero PerfectDark/pd-tests/WerFault processes. B-1101/B-1102 are
+regression gates. No commit is claimed yet; T-ENGINE-004 remains partial while
+the next broader closure gap is audited.
+
+## 2026-08-24 - B-1101 frozen automation accepted; runtime smoke pending
+
+Goal: source-freeze the T-ENGINE-004 Campaign/player-init and animation unit
+before one consolidated automation batch and only the replacement two-cycle
+Combat Simulator smoke. Milestone 1 remains 2 validated, 8 partial, and 5
+missing; no accepted Campaign, D-003, or reconnect smoke is being rerun.
+
+The final source review removed the remaining production `animReadBits` and
+`animReadSignedShort` entry points. Optimized character transforms, generic
+F32/S32/camera/scale transforms, `ANIMFIELD_08` root motion, and camera values
+now share a bounded descriptor and explicit `bytesperframe` contract. Metadata,
+header span, conflicting flags, field widths, frame span, zero-byte semantics,
+and the optimized 60-part scratch capacity all fail closed with typed reasons.
+Malformed frames render bind pose; an allocated `animnum=0` object is recognized
+as the normal bind-pose state rather than corruption. A new pure fixture pins
+08-plus-camera ordering across adjacent parts.
+
+A bounded GPT-5.6 Luna xhigh review found four concrete residual gaps: unbounded
+08/camera readers, missing optimized width/framelen checks, possible scratch
+overflow above 60 low descriptors, and inconsistent zero-byte/null semantics.
+All four are incorporated in the source above. The same frozen unit invalidates
+arena-owned player and role handles before pool release, treats unresolved chr
+targets as `NULL`, and binds player/Eyespy candidate targets explicitly before
+publication.
+
+The first aggregate build receipt was rejected after unrelated 24-way compiler
+memory exhaustion, and two intermediate test-target receipts exposed and then
+structurally corrected the C/C++ header seam. The final pure `anim_bits.h` API
+keeps legacy `types.h` macros out of the C++ fixture while sharing the real C
+decoder contract. One isolated source-frozen batch then passed the production
+build, focused 2,007 assertions in 33 cases, full 64,681 assertions in 1,181
+cases, and `asset_native_source_guard.py`. Product `9592a63d...` (2,715 files),
+verifier `c76aadc8...` (401 files), client `A0F46D54...`, and tests
+`B4D51B51...` remained unchanged with zero manifest mismatches; `git diff
+--check` is clean.
+
+The replacement Combat Simulator smoke has not run. B-801 refused its first
+attempt before launch because free commit was 1,885 MiB, below the 2,048 MiB
+crash-prevention floor. A later read-only guard probe found only 1,604 MiB free
+commit; Unity held about 13.1 GiB private memory and WizFile about 2.35 GiB. No
+game process started, no source or binary changed, and neither application was
+terminated because Unity may contain unsaved work. The guard was not bypassed.
+B-1101 and T-ENGINE-004 therefore remain
+confirmed/partial until that one ordinary-client receipt passes.
+
+## 2026-08-23 - B-1101 Combat Simulator main-thread spin isolated and repaired in source
+
+Goal: finish the Campaign/player-init T-ENGINE-004 unit with one exact diagnosis
+and one replacement Combat Simulator proof, while retaining accepted Campaign,
+D-003, and reconnect evidence. Milestone 1 remains 2 validated, 8 partial, and
+5 missing until the replacement production receipt passes.
+
+The retained-install diagnostic
+`.claude/smoke-verify-runs/results-20260824T024327Z.json` completed both cycles
+but is rejected at 55/56 because its reused install emitted three Room-adoption
+events. A clean exact-client run at
+`.claude/smoke-verify-runs/results-20260824T025049Z.json` reproduced the real
+failure at 27/56 after the first CMP150 shot: the client remained CPU-live while
+frame and log progress stopped.
+
+Native sampling in
+`.claude/source-freeze/v1m1campaigninit/combat-sim-hang-thread-samples.txt`
+captured all 16 main-thread instruction pointers in `modelasmReadFrameData`.
+Symbolized stack candidates retain the production chain through
+`modelasmIterateThings1`, `modelasm00018680`, `modelSetMatricesWithAnim`,
+`chrTick`, and `propsTickPlayer`. This disproves the earlier `propsSort` theory.
+The decoder compared frame bytes against the unrelated animation-header end;
+when no new chunk was selected, `gp` stayed zero and the loop could not reduce
+its remaining bit count.
+
+Current source removes that implicit reader state. Frame setup carries the
+animation's exact `bytesperframe`; a pure big-endian reader validates every bit
+span; header reads and skips are bounded; failures are typed and logged; and a
+rejected frame renders bind pose without entering the legacy unbounded generic
+decoder. The same source unit removes a separate player-init hazard: private
+player and Eyespy candidates receive explicit validated target props, while
+pre-player chrs remain unresolved until the player transaction commits. Focused
+behavioral/static tests are connected, but no post-change build, suite, guard,
+or replacement Combat Simulator pass is claimed yet.
+
+## 2026-08-23 - T-ENGINE-004 Campaign/player-init transaction source-connected
+
+Goal: complete the remaining Campaign/player-init structural slice of Milestone
+1 before one consolidated verification batch. Live Workbench dependency status
+is 2 validated, 8 partial, and 5 missing. D-003 and the reconnect slice retain
+their accepted production receipts and are not being rerun.
+
+The source now allocates private player candidates, validates network identity
+against that explicit array, and publishes `g_Vars.players` plus role links only
+after every fallible allocation/network step succeeds. The unused remote-config
+backup promise is removed. `playerReset`, `playerSpawn`, `playerTickChrBody`, and
+`lvReset` return typed outcomes; both main loops disconnect/reset and request a
+fresh title-stage load when stage initialization rejects.
+
+Campaign identity now round-trips runtime body/head selectors through canonical
+typed IDs and preflights exact source-backed modeldefs before player-prop
+allocation. A headless runtime identity is valid only for an exact
+catalog-complete body. Character-body setup loads the requested weapon model
+before chr attachment, checks held-weapon creation and fireslot allocation, and
+on any late failure removes the chr/model/weapon/fireslot links, restores the
+reusable prop's type, position, rooms, registration, and prior chr slot, and
+leaves `model00d4`/`haschrbody` unpublished. Eyespy model, prop, and private
+state have explicit cleanup; unpublished prop rollback restores the generic
+scheduler-counter class before freeing, and player state publishes only after
+all candidates exist.
+
+A bounded GPT-5.6 Luna xhigh audit found two real fresh-allocation gaps in
+`prevwasdualwielding` and `wantammo`. One narrow
+`playerInitStageTransientDefaults` helper now supplies all seven stage-transient
+weapon/input defaults to fresh allocation and `bgunReset` while preserving
+`client`, `isremote`, `ucmd`, queued-load ownership, persistent preferences, and
+ordinary respawn behavior.
+
+Workbench T-ENGINE-004 records this as source-connected and unverified. Focused
+contracts now cover candidate-first publication, exact runtime identity,
+stage-abort propagation, reversible chrbody attachment, scheduler-correct
+Eyespy publication/rollback, and fresh/reused default parity. No build, test,
+native-source guard, Campaign
+transition, or Combat Simulator transition result has been claimed yet.
+
+The first frozen product build on aggregate `869f493d...` passed client and
+updater compilation with an empty error log; client SHA-256 is `2fc37b38...`.
+The separate test target was rejected at link time because the new runtime
+identity wrapper's `catalogGetBodyIsComplete` dependency had no test-harness
+stub. Product source and binary remain accepted; verifier source is thawed only
+to add a configurable completeness stub plus complete-body acceptance and
+modular-body rejection cases. No test or runtime pass is claimed from that
+rejected receipt.
+
+The refrozen focused selector then passed 1,769 assertions in 25 cases. The
+first full-suite receipt is also rejected: 64,392 of 64,394 assertions passed,
+with the only failures being two static extractors that still searched for
+`void lvReset` after its typed `bool` migration. The native-source guard did not
+run after that rejection. Both stale signatures were updated together and a
+repository-wide test search now finds no remaining `void lvReset` contract;
+consolidated verification still must be rerun before any validation claim.
+
+The final refrozen automation is now accepted. The focused selector passed all
+1,769 assertions in 25 cases, the complete suite passed all 64,427 assertions
+in 1,173 cases, and `tools/asset_native_source_guard.py` passed. The 2,713-file
+product and 400-file verifier manifests both had zero post-run mismatches.
+Exact binaries are client `2fc37b38...` and tests `8693b857...`.
+
+The retained ordinary-client batch at
+`.claude/smoke-verify-runs/results-20260824T021919Z.json` is mixed and therefore
+not a validation receipt. Air Base transition passed 25/25 and the complete
+17-mission Campaign plus second-client reload passed 23/23. Combat Simulator
+was rejected at 23/56: it committed allocation, stage, chrbody, and match spawn,
+reached first-cycle stats-ready, loaded the first-person CMP150, and placed the
+bot, then remained CPU-live while logging and frame progression stopped until
+the watchdog terminated it. The raw failure is preserved; no Combat Simulator
+or aggregate T-ENGINE-004 validation is claimed while root-cause diagnosis is
+active.
+
 ## 2026-08-14 - B-1064 reconnect verification; B-1096 snapshot root confirmed
 
 Goal: complete the reconnect slice of T-ENGINE-004 as one structural

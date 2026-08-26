@@ -32,16 +32,107 @@
 #include "navspawn.h"
 #include "game/spawnpool.h"
 
-void playerInitEyespy(void)
+void playerInitStageTransientDefaults(struct player *player)
+{
+	if (player == NULL) {
+		return;
+	}
+
+	player->gunctrl.weaponnum = WEAPON_NONE;
+	player->gunctrl.prevweaponnum = -1;
+	player->gunctrl.prevwasdualwielding = false;
+	player->gunctrl.wantammo = false;
+	player->gunctrl.passivemode = false;
+	player->wantsjump = false;
+	player->jumpconsumed = true;
+}
+
+struct player_eyespy_candidate {
+	struct eyespy *state;
+	u8 pad;
+};
+
+static u8 s_PlayerEyespyNextPad;
+
+static void playerDiscardUnpublishedEyespyProp(struct prop *prop)
+{
+	if (prop == NULL) {
+		return;
+	}
+
+	chrRemove(prop, true);
+	propDelist(prop);
+	propDisable(prop);
+
+	/* propAllocate accounts a new slot as a generic prop until the scheduler
+	 * has classified its first tick. An Eyespy candidate discarded during
+	 * playerReset cannot have ticked, so restore that allocation class before
+	 * propFree decrements the owning state counter. */
+	prop->type = PROPTYPE_OBJ;
+	propFree(prop);
+}
+
+static void playerDiscardEyespyCandidate(
+		struct player_eyespy_candidate *candidate)
+{
+	if (candidate == NULL || candidate->state == NULL) {
+		return;
+	}
+
+	playerDiscardUnpublishedEyespyProp(candidate->state->prop);
+
+	candidate->state = NULL;
+}
+
+static void playerDiscardUnpublishedPlayerProp(struct prop *prop)
+{
+	if (prop == NULL) {
+		return;
+	}
+
+	/* Before scheduler publication the player chr owns no model, children or
+	 * room registration. Release its registry slot directly, then restore the
+	 * generic allocation class that propAllocate charged. */
+	if (prop->chr != NULL) {
+		chrDeregister(prop->chr->chrnum);
+		prop->chr->chrnum = -1;
+		prop->chr = NULL;
+	}
+
+	prop->type = PROPTYPE_OBJ;
+	propFree(prop);
+}
+
+static bool playerBindEyespyTarget(
+		const struct player_eyespy_candidate *candidate,
+		struct prop *targetprop)
+{
+	if (candidate == NULL || candidate->state == NULL) {
+		return true;
+	}
+
+	return candidate->state->prop != NULL
+		&& chrSetTargetProp(candidate->state->prop->chr, targetprop);
+}
+
+static bool playerPrepareEyespy(s32 playerteam,
+		struct player_eyespy_candidate *out_candidate)
 {
 	struct prop *prop;
+	struct eyespy *candidate;
 	struct pad pad;
 	struct chrdata *propchr;
-	struct chrdata *playerchr;
-	static u8 nextpad = 0;
+	u8 candidatepad;
 
-	if (g_Vars.currentplayer->eyespy == NULL) {
-		/**
+	if (out_candidate == NULL) {
+		return false;
+	}
+
+	out_candidate->state = NULL;
+	out_candidate->pad = 0;
+	candidatepad = s_PlayerEyespyNextPad;
+
+	/**
 		 * To create the eyespy's prop, a pad must be passed to bodyAllocateEyespy.
 		 * However the eyespy doesn't have a pad because it's held by the
 		 * player, so it needs to choose one from the stage. The method used
@@ -51,65 +142,141 @@ void playerInitEyespy(void)
 		 * @bug: This method means if you play G5 Building enough times then
 		 * the camspy will start in a trigger point for the mid cutscene,
 		 * causing the mid cutscene to play instead of the intro.
-		 */
-		padUnpack(nextpad++, PADFIELD_ROOM | PADFIELD_POS, &pad);
-		prop = bodyAllocateEyespy(&pad, pad.room);
+	 */
+	padUnpack(candidatepad, PADFIELD_ROOM | PADFIELD_POS, &pad);
+	prop = bodyAllocateEyespy(&pad, pad.room);
 
-		if (prop) {
-			g_Vars.currentplayer->eyespy = mempAlloc(sizeof(struct eyespy), MEMPOOL_STAGE);
-
-			if (g_Vars.currentplayer->eyespy) {
-				g_Vars.currentplayer->eyespy->prop = prop;
-				g_Vars.currentplayer->eyespy->look.x = 0;
-				g_Vars.currentplayer->eyespy->look.y = 0;
-				g_Vars.currentplayer->eyespy->look.z = 1;
-				g_Vars.currentplayer->eyespy->up.x = 0;
-				g_Vars.currentplayer->eyespy->up.y = 1;
-				g_Vars.currentplayer->eyespy->up.z = 0;
-				g_Vars.currentplayer->eyespy->theta = 0;
-				g_Vars.currentplayer->eyespy->costheta = 1;
-				g_Vars.currentplayer->eyespy->sintheta = 0;
-				g_Vars.currentplayer->eyespy->verta = 0;
-				g_Vars.currentplayer->eyespy->cosverta = 1;
-				g_Vars.currentplayer->eyespy->sinverta = 0;
-				g_Vars.currentplayer->eyespy->held = true;
-				g_Vars.currentplayer->eyespy->deployed = false;
-				g_Vars.currentplayer->eyespy->active = false;
-				g_Vars.currentplayer->eyespy->buttonheld = false;
-				g_Vars.currentplayer->eyespy->camerabuttonheld = false;
-				g_Vars.currentplayer->eyespy->bobdir = 1;
-				g_Vars.currentplayer->eyespy->bobtimer = 0;
-				g_Vars.currentplayer->eyespy->bobactive = true;
-				g_Vars.currentplayer->eyespy->vel.x = 0;
-				g_Vars.currentplayer->eyespy->vel.y = 0;
-				g_Vars.currentplayer->eyespy->vel.z = 0;
-				g_Vars.currentplayer->eyespy->speed = 0;
-				g_Vars.currentplayer->eyespy->oldground = 0;
-				g_Vars.currentplayer->eyespy->height = 0;
-				g_Vars.currentplayer->eyespy->gravity = 0;
-				g_Vars.currentplayer->eyespy->hit = EYESPYHIT_NONE;
-				g_Vars.currentplayer->eyespy->opendoor = false;
-				g_Vars.currentplayer->eyespy->mode = EYESPYMODE_CAMSPY;
-				propchr = prop->chr;
-				playerchr = g_Vars.currentplayer->prop->chr;
-				propchr->team = playerchr->team;
-
-				/* S484 F5: route the EYESPY name/shortname/flags writes
-				 * through the catalog manager. The mode side-effect on
-				 * eyespy->mode stays inline because it owns runtime state,
-				 * not weapon data. */
-				catalogManagerWeaponSetEyespyForStage(stageGetIndex(g_Vars.stagenum));
-
-				if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_AIRBASE) {
-					g_Vars.currentplayer->eyespy->mode = EYESPYMODE_DRUGSPY;
-				} else if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR || stageGetIndex(g_Vars.stagenum) == STAGEINDEX_CHICAGO) {
-					g_Vars.currentplayer->eyespy->mode = EYESPYMODE_BOMBSPY;
-				} else {
-					g_Vars.currentplayer->eyespy->mode = EYESPYMODE_CAMSPY;
-				}
-			}
-		}
+	if (!prop) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK phase=eyespy reason=prop_allocation_failed player=%d pad=%u globals_published=0",
+			g_Vars.currentplayernum, (u32)candidatepad);
+		return false;
 	}
+
+	candidate = mempAlloc(sizeof(*candidate), MEMPOOL_STAGE);
+
+	if (!candidate) {
+		playerDiscardUnpublishedEyespyProp(prop);
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK phase=eyespy reason=state_allocation_failed player=%d pad=%u globals_published=0",
+			g_Vars.currentplayernum, (u32)candidatepad);
+		return false;
+	}
+
+	candidate->prop = prop;
+	candidate->look.x = 0;
+	candidate->look.y = 0;
+	candidate->look.z = 1;
+	candidate->up.x = 0;
+	candidate->up.y = 1;
+	candidate->up.z = 0;
+	candidate->theta = 0;
+	candidate->costheta = 1;
+	candidate->sintheta = 0;
+	candidate->verta = 0;
+	candidate->cosverta = 1;
+	candidate->sinverta = 0;
+	candidate->held = true;
+	candidate->deployed = false;
+	candidate->active = false;
+	candidate->buttonheld = false;
+	candidate->camerabuttonheld = false;
+	candidate->bobdir = 1;
+	candidate->bobtimer = 0;
+	candidate->bobactive = true;
+	candidate->vel.x = 0;
+	candidate->vel.y = 0;
+	candidate->vel.z = 0;
+	candidate->speed = 0;
+	candidate->oldground = 0;
+	candidate->height = 0;
+	candidate->gravity = 0;
+	candidate->hit = EYESPYHIT_NONE;
+	candidate->opendoor = false;
+	candidate->mode = EYESPYMODE_CAMSPY;
+	propchr = prop->chr;
+	propchr->team = playerteam;
+	(void)chrSetTargetProp(propchr, NULL);
+
+	if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_AIRBASE) {
+		candidate->mode = EYESPYMODE_DRUGSPY;
+	} else if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_MBR || stageGetIndex(g_Vars.stagenum) == STAGEINDEX_CHICAGO) {
+		candidate->mode = EYESPYMODE_BOMBSPY;
+	} else {
+		candidate->mode = EYESPYMODE_CAMSPY;
+	}
+
+	out_candidate->state = candidate;
+	out_candidate->pad = candidatepad;
+	return true;
+}
+
+static void playerCommitEyespy(
+		const struct player_eyespy_candidate *candidate)
+{
+	if (candidate == NULL || candidate->state == NULL) {
+		return;
+	}
+
+	/* S484 F5: the catalog manager owns the weapon-facing variant data. This
+	 * nonfallible mutation and the player pointer publish together only after
+	 * every Eyespy and player allocation has succeeded. */
+	catalogManagerWeaponSetEyespyForStage(stageGetIndex(g_Vars.stagenum));
+	g_Vars.currentplayer->eyespy = candidate->state;
+	s_PlayerEyespyNextPad = candidate->pad + 1;
+}
+
+bool playerInitEyespy(void)
+{
+	struct player_eyespy_candidate candidate = {0};
+
+	if (g_Vars.currentplayer == NULL
+			|| g_Vars.currentplayer->prop == NULL
+			|| g_Vars.currentplayer->prop->chr == NULL) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK phase=eyespy reason=invalid_player_state player=%d",
+			g_Vars.currentplayernum);
+		return false;
+	}
+
+	if (g_Vars.currentplayer->eyespy != NULL) {
+		return true;
+	}
+
+	if (!playerPrepareEyespy(g_Vars.currentplayer->prop->chr->team,
+			&candidate)) {
+		return false;
+	}
+
+	if (!playerBindEyespyTarget(&candidate, g_Vars.currentplayer->prop)) {
+		playerDiscardEyespyCandidate(&candidate);
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK phase=eyespy reason=target_bind_failed player=%d",
+			g_Vars.currentplayernum);
+		return false;
+	}
+
+	playerCommitEyespy(&candidate);
+	return true;
+}
+
+static s32 playerResetResolveTeam(void)
+{
+	if (g_Vars.coopplayernum >= 0) {
+		return TEAM_ALLY;
+	}
+
+	if (g_Vars.antiplayernum >= 0) {
+		return g_Vars.currentplayer == g_Vars.bond
+			? TEAM_ALLY : TEAM_ENEMY;
+	}
+
+	if (g_Vars.mplayerisrunning) {
+		return 1 << g_PlayerConfigsArray[
+			g_Vars.currentplayerstats->mpindex].base.team;
+	}
+
+	return TEAM_ALLY;
 }
 
 static f32 playerResetWallProbeAngle(const struct coord *pos, RoomNum *rooms)
@@ -215,7 +382,21 @@ struct cmd32 {
 	s32 param3;
 };
 
-void playerReset(void)
+const char *playerResetResultString(enum player_reset_result result)
+{
+	switch (result) {
+	case PLAYER_RESET_OK: return "ok";
+	case PLAYER_RESET_INVALID_IDENTITY: return "invalid_identity";
+	case PLAYER_RESET_PROP_ALLOCATION_FAILED: return "prop_allocation_failed";
+	case PLAYER_RESET_CHR_ALLOCATION_FAILED: return "chr_allocation_failed";
+	case PLAYER_RESET_EYESPY_ALLOCATION_FAILED: return "eyespy_allocation_failed";
+	case PLAYER_RESET_CHRBODY_PREFLIGHT_FAILED: return "chrbody_preflight_failed";
+	case PLAYER_RESET_TARGET_BIND_FAILED: return "target_bind_failed";
+	default: return "unknown";
+	}
+}
+
+enum player_reset_result playerReset(void)
 {
 	struct coord pos = {0, 0, 0};
 	RoomNum rooms[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
@@ -229,9 +410,18 @@ void playerReset(void)
 	s32 numchrs;
 	struct gecreditsdata *thing;
 	struct chrdata *chr;
+	struct prop *playerprop;
+	struct player_eyespy_candidate eyespy_candidate = {0};
 	s32 bodynum;
 	s32 headnum;
+	s32 playerteam;
 	bool spawnYAuthoritative = false;
+	bool player_target_bound;
+
+	/* playerReset is the stage-prop transaction boundary. No failure before
+	 * commit may leave a previous-stage prop or Eyespy handle observable. */
+	g_Vars.currentplayer->prop = NULL;
+	g_Vars.currentplayer->eyespy = NULL;
 
 	func0f18e558();
 
@@ -252,11 +442,6 @@ void playerReset(void)
 	g_NumSpawnPoints = 0;
 	g_Vars.currentplayer->bondtankexplode = false;
 	g_Vars.currentplayer->gunmem2 = NULL;
-	/* B-1066: the player object is reused across stage loads. A queued jump
-	 * or released-button latch from the prior stage must not become input in
-	 * the next one. Fresh allocations use these same defaults. */
-	g_Vars.currentplayer->wantsjump = false;
-	g_Vars.currentplayer->jumpconsumed = true;
 	g_PlayersWithControl[0] = true;
 	g_PlayersWithControl[1] = true;
 	g_PlayersWithControl[2] = true;
@@ -728,33 +913,81 @@ void playerReset(void)
 		g_DefaultWeapons[HAND_RIGHT] = WEAPON_UNARMED;
 	}
 
-	g_Vars.currentplayer->prop = propAllocate();
-	g_Vars.currentplayer->prop->chr = NULL;
-	g_Vars.currentplayer->prop->type = PROPTYPE_PLAYER;
+	if (!playerChooseBodyAndHead(&bodynum, &headnum, NULL)) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK phase=identity reason=invalid_identity player=%d player_prop_published=0",
+			g_Vars.currentplayernum);
+		return PLAYER_RESET_INVALID_IDENTITY;
+	}
+
+	{
+		enum player_chrbody_result chrbody_result =
+			playerChrBodyPreflight(bodynum, headnum);
+
+		if (chrbody_result != PLAYER_CHRBODY_OK) {
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ROLLBACK phase=chrbody_preflight reason=%s player=%d player_prop_published=0",
+				playerChrBodyResultString(chrbody_result),
+				g_Vars.currentplayernum);
+			return PLAYER_RESET_CHRBODY_PREFLIGHT_FAILED;
+		}
+	}
+
+	playerteam = playerResetResolveTeam();
+
+	if (haseyespy && !playerPrepareEyespy(playerteam, &eyespy_candidate)) {
+		return PLAYER_RESET_EYESPY_ALLOCATION_FAILED;
+	}
+
+	playerprop = propAllocate();
+	if (!playerprop) {
+		playerDiscardEyespyCandidate(&eyespy_candidate);
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK phase=stage reason=prop_allocation_failed player=%d player_prop_published=0",
+			g_Vars.currentplayernum);
+		return PLAYER_RESET_PROP_ALLOCATION_FAILED;
+	}
+
+	playerprop->chr = NULL;
+	playerprop->type = PROPTYPE_PLAYER;
+	player_target_bound = chrInitWithTargetProp(playerprop, NULL, playerprop);
+
+	if (!playerprop->chr) {
+		playerDiscardUnpublishedPlayerProp(playerprop);
+		playerDiscardEyespyCandidate(&eyespy_candidate);
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK phase=stage reason=chr_allocation_failed player=%d player_prop_published=0",
+			g_Vars.currentplayernum);
+		return PLAYER_RESET_CHR_ALLOCATION_FAILED;
+	}
+
+	if (!player_target_bound) {
+		playerDiscardUnpublishedPlayerProp(playerprop);
+		playerDiscardEyespyCandidate(&eyespy_candidate);
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK phase=stage reason=player_target_bind_failed player=%d player_prop_published=0",
+			g_Vars.currentplayernum);
+		return PLAYER_RESET_TARGET_BIND_FAILED;
+	}
+
+	playerprop->chr->bodynum = bodynum;
+	playerprop->chr->headnum = headnum;
+	playerprop->chr->team = playerteam;
+
+	if (!playerBindEyespyTarget(&eyespy_candidate, playerprop)) {
+		playerDiscardUnpublishedPlayerProp(playerprop);
+		playerDiscardEyespyCandidate(&eyespy_candidate);
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK phase=stage reason=target_bind_failed player=%d player_prop_published=0",
+			g_Vars.currentplayernum);
+		return PLAYER_RESET_TARGET_BIND_FAILED;
+	}
+
+	g_Vars.currentplayer->prop = playerprop;
 
 	propActivate(g_Vars.currentplayer->prop);
 	propEnable(g_Vars.currentplayer->prop);
-	chrInit(g_Vars.currentplayer->prop, NULL);
-
-	if (g_Vars.coopplayernum >= 0) {
-		g_Vars.currentplayer->prop->chr->team = TEAM_ALLY;
-	} else if (g_Vars.antiplayernum >= 0) {
-		if (g_Vars.currentplayer == g_Vars.bond) {
-			g_Vars.currentplayer->prop->chr->team = TEAM_ALLY;
-		} else {
-			g_Vars.currentplayer->prop->chr->team = TEAM_ENEMY;
-		}
-	} else {
-		if (g_Vars.mplayerisrunning) {
-			g_Vars.currentplayer->prop->chr->team = 1 << g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].base.team;
-		} else {
-			g_Vars.currentplayer->prop->chr->team = TEAM_ALLY;
-		}
-	}
-
-	if (haseyespy) {
-		playerInitEyespy();
-	}
+	playerCommitEyespy(&eyespy_candidate);
 
 	if (g_NumSpawnPoints > 0) {
 		if (g_Vars.coopplayernum >= 0) {
@@ -907,7 +1140,11 @@ void playerReset(void)
 		chr = &g_ChrSlots[i];
 
 		if (chr->target == -2) {
-			chr->target = g_Vars.currentplayer->prop - g_Vars.props;
+			if (!chrSetTargetProp(chr, g_Vars.currentplayer->prop)) {
+				sysLogPrintf(LOG_ERROR,
+					"CHR.TARGET.BIND.REJECT: chr=%d player=%d",
+					chr->chrnum, g_Vars.currentplayernum);
+			}
 		}
 	}
 
@@ -932,12 +1169,9 @@ void playerReset(void)
 		g_Vars.aibuddies[i] = NULL;
 	}
 
-	if (playerChooseBodyAndHead(&bodynum, &headnum, 0)) {
-		g_Vars.currentplayer->prop->chr->bodynum = bodynum;
-		g_Vars.currentplayer->prop->chr->headnum = headnum;
-	} else {
-		sysLogPrintf(LOG_ERROR,
-			"PLAYER.INIT.ROLLBACK reset identity player=%d",
-			g_Vars.currentplayernum);
-	}
+
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.COMMIT phase=stage player=%d body=%d head=%d",
+		g_Vars.currentplayernum, bodynum, headnum);
+	return PLAYER_RESET_OK;
 }

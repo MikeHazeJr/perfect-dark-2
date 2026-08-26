@@ -616,9 +616,11 @@ enum net_player_allocate_result {
 	NET_PLAYER_ALLOC_DUPLICATE_PLAYER_SLOT = -5,
 	NET_PLAYER_ALLOC_MISSING_PLAYER_OBJECT = -6,
 	NET_PLAYER_ALLOC_INVALID_IDENTITY = -7,
+	NET_PLAYER_ALLOC_ROSTER_MISMATCH = -8,
 };
 
-enum net_player_allocate_result netPlayersAllocate(void);
+enum net_player_allocate_result netPlayersAllocate(
+	struct player *const *candidates, s32 candidate_count);
 const char *netPlayerAllocateResultString(enum net_player_allocate_result result);
 void netSyncIdsAllocate(void);
 

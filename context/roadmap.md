@@ -2,7 +2,7 @@
 
 > Single-doc plan covering every architectural pillar and infrastructure system on the path to PD2 v1.0.0. Synthesizes pillar docs in `pillars/`, active design references in `designs/`, recent audits in `audits/`, and the live state captured in `session-log.md`, `tasks.md`, and `bugs.md`.
 >
-> **Last refreshed**: 2026-08-12. D-004 replaces the former full-Forge-platform 1.0 contract with a complete base-game plus Theater release. The canonical Workbench remains authoritative when older gate detail below conflicts with current implementation truth.
+> **Last refreshed**: 2026-08-24. D-004 replaces the former full-Forge-platform 1.0 contract with a complete base-game plus Theater release. The canonical Workbench remains authoritative when older gate detail below conflicts with current implementation truth.
 >
 > Authored under Mike's directive: "Make a plan for how we can get to a full release so we can follow that. It will include every architecture pillar and infrastructure system we've planned and discussed."
 >
@@ -20,7 +20,7 @@ The canonical Workbench replaces the older sequencing text in this historical
 roadmap. T-RELEASE-001 routes 1.0 through five ordered milestones:
 
 1. **T-RELEASE-002: Complete base game and graphs.** V-010 currently has 2
-   closed, 8 partial, and 5 missing leaf gates out of 15. Establish the
+   validated, 8 partial, and 5 missing leaf gates out of 15. Establish the
    current-tree parity matrix and campaign runner, then close production gaps.
 2. **T-RELEASE-003: Usable Theater.** Complete authoritative Campaign and
    Combat Simulator recording, persistence, reconstruction, playback, seeking,
@@ -37,6 +37,28 @@ The default new-session route is the lowest-numbered incomplete milestone and
 one unowned dependency that advances it. Post-1.0 and historical-cut items are
 not selected unless Mike explicitly changes scope. [tasks.md](tasks.md) is the
 concise live context view; Workbench status and evidence remain authoritative.
+
+Current execution remains inside Milestone 1 at T-ENGINE-004, with 2 validated,
+8 partial, and 5 missing V-010 dependencies. Candidate-first Campaign/player
+initialization retains accepted frozen automation, Air Base, and full-Campaign
+evidence. B-1101's bounded-animation and explicit-target followup retains its
+source-frozen build, focused/full suites, native-source guard, and zero-overlap
+manifests, but the exact replacement Combat Simulator run rejected at 16/56
+under B-1102. Its schema-v5 compiler omitted per-part flags and its fallback
+cleared `model->anim` before calling a CHRINFO consumer. Current source uses one
+exact producer/consumer descriptor contract, rejects unconsumed descriptor
+bytes, parses schema scalars with canonical bounded integer/boolean tokens,
+preserves declared topology through zero-frame placeholders, uses animation-
+cache version 8, verifies optimized-consumer advancement, and provides a
+null-safe explicit bind-pose traversal that preserves live animation ownership.
+The isolated source-frozen client/updater/tests build and consolidated focused
+2,057/27, full 65,073/1,186, and native-source verification pass on unchanged
+product `e6287a9c...` and verifier `ad7c38f9...`. Exact client `133A55C6...`
+then passes the one replacement two-cycle Combat Simulator receipt 56/56 with
+real fire/hit, both results/award cycles, Play Again, clean exit, zero decoder
+or crash rejection matches, and no leaked process. B-1101/B-1102 are retained
+regression gates; Campaign, D-003, and reconnect proof was not rerun.
+T-ENGINE-004 remains partial pending its next broader closure audit.
 
 ---
 
@@ -98,7 +120,7 @@ This section enumerates every pillar visible across the design docs, audits, inf
 | E13 | **Spawn System (L2 + B-134)** | SHIPPED | `spawnpool.c` L1-L4 cascade with `spawn_select_tier_t` enum. Capsule-radius threshold (30.0f) for raycast budget. Same-tick reservation bitset. Wall-probe + neighbour-room ground check. |
 | E14 | **Random / Fiesta semantics** | IN-FLIGHT | Per Mike's directive notes; partial. Random meta selectors migrated to catalog (S473 maps step, S471 weapons, S472 bodies, S470 heads). Fiesta semantics not fully verified. |
 | E15 | **Save Format Migration** | SHIPPED-V1->V2 / QUEUED-CASES | `MPSETUP_VERSION 1->2` at S468 alongside Goldfinger weapon cull (clamp rule documented). Future bumps: catalog universality data migration may require it; SAVE-1 audit calls for save integrity protection (HMAC). |
-| E16 | **Wire Format Versioning** | SHIPPED-V56 / QUEUED-CASES | `NET_PROTOCOL_VER` at v56. The current wire includes typed manifest distribution, exact authenticated player identity, transactional lobby/stage launch, and authoritative cutscene request/result identity remapping. Full bump history remains in `port/include/net/net.h`; future changes still require coordinated constraints, test pins, and mixed-build refusal. |
+| E16 | **Wire Format Versioning** | SHIPPED-V57 / QUEUED-CASES | `NET_PROTOCOL_VER` is v57. The current wire includes typed manifest distribution, exact authenticated player identity, transactional lobby/stage launch, authoritative cutscene request/result identity remapping, and endpoint-scoped reconnect state. Full bump history remains in `port/include/net/net.h`; future changes still require coordinated constraints, test pins, and mixed-build refusal. |
 | E17 | **AllInOne Lineage Cull** | IN-FLIGHT | Phase 1 audit done; Phase 2 in flight. Removes 8 Goldfinger weapons + 28 mod-derived arenas (75->47). Section H decisions resolved 2026-04-26. (`audits/allinone-cull-audit-2026-04-26.md`) |
 
 ### B.2 Game Modes / Content
@@ -119,7 +141,7 @@ This section enumerates every pillar visible across the design docs, audits, inf
 
 | # | Pillar | Status | Scope |
 |---|---|---|---|
-| N1 | **ENet Protocol** | SHIPPED-V56 | UDP, server-authoritative with client prediction. 60Hz tick. Statically linked. |
+| N1 | **ENet Protocol** | SHIPPED-V57 | UDP, server-authoritative with client prediction. 60Hz tick. Statically linked. |
 | N2 | **NAT Traversal D8** | SHIPPED-PHASE-1 / EXTENDED | STUN client (RFC 5389 minimal), 2-probe NAT type detection, symmetric hole-punch, relay fallback, NAT diagnostics overlay. Connectivity doc supersedes scope to a 5-tier escalation (Direct/STUN/UPnP/ICE/TURN) shipped in Phase 1. |
 | N3 | **Connect Codes (4-word phonetic)** | SHIPPED | Sentence-based, no raw IP in any UI. `connectCodeEncode`/`Decode` host-byte-order. |
 | N4 | **Friend Presence + Identity (Ed25519)** | IN-FLIGHT-PHASE-1 / QUEUED-P1.J/P1.K | Network-agnostic identity via `SHA256(pubkey \|\| domain)[:4]`. TOFU pubkey caching. 5-min endpoint TTL. P1.J in-match invite + P1.K NAT diagnostics harness deferred. (`audits/connectivity-phase1-decisions.md`) |

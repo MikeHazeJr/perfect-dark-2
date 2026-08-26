@@ -97,6 +97,9 @@ f32 chrGetMaxDamage(struct chrdata *chr);
 void chrAddHealth(struct chrdata *chr, f32 health);
 f32 chrGetArmor(struct chrdata *chr);
 void chrInit(struct prop *prop, u8 *ailist);
+bool chrInitWithTargetProp(struct prop *prop, u8 *ailist,
+		struct prop *targetprop);
+bool chrSetTargetProp(struct chrdata *chr, struct prop *targetprop);
 struct prop *chrAllocate(struct model *model, struct coord *pos, RoomNum *rooms, f32 faceangle, u8 *ailist);
 void chrClearReferences(s32 propnum);
 void chr0f022084(struct chrdata *chr, RoomNum *room);

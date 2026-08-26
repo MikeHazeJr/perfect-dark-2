@@ -11,6 +11,7 @@ enum playermgr_allocate_result {
 	PLAYMGR_ALLOC_INVALID_COUNT = -1,
 	PLAYMGR_ALLOC_OUT_OF_MEMORY = -2,
 	PLAYMGR_ALLOC_NETWORK_REJECTED = -3,
+	PLAYMGR_ALLOC_INVALID_ROLES = -4,
 };
 
 enum playermgr_allocate_result playermgrAllocatePlayers(s32 count);

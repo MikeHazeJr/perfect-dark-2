@@ -18,9 +18,6 @@
 #include "assetcatalog_anim_slots.h" /* c3849 Wave 2: ANIM_CUSTOM_COUNT */
 #include "assetcatalog_load.h"       /* c3849 Wave 2: catalogSeedCustomAnimRows */
 
-#define ANIM_HEADER_CACHE_SIZE 40
-#define ANIM_FRAME_CACHE_SIZE  32
-
 u8 *g_AnimFrameByteSlots;
 u8 **g_AnimFrameBytes;
 s16 *g_AnimFrameAnimNums;
@@ -43,6 +40,8 @@ s32 g_AnimMaxBytesPerFrame = 176;
 s32 g_AnimMaxHeaderLength = 608;
 bool g_AnimHostEnabled = false;
 u8 *g_AnimHostSegment = NULL;
+static s16 s_AnimLastRejectedAnimnum = -1;
+static s16 s_AnimLastRejectedFrame = -1;
 
 u8 **g_AnimReplacements;
 
@@ -432,243 +431,243 @@ void animLoadHeader(s16 animnum)
 }
 
 /**
- * Read a number of bits from the given ptr and return it as an integer.
- *
- * remainingbits in the number of bits to read.
- * bitoffset is the starting bit offset relative to ptr.
- */
-s32 animReadBits(u8 *ptr, u8 remainingbits, u32 bitoffset)
-{
-	u32 result = 0;
-	u32 mask;
-	u8 numbitsthisbyte;
-
-	result *= bitoffset / 8;
-
-	// Move ptr forward past all the bytes that should be fully skipped
-	ptr += bitoffset / 8;
-
-	// Calculate the number of bits to read in the first byte
-	bitoffset %= 8;
-	numbitsthisbyte = 8 - bitoffset;
-
-	// Iterate bytes, except for the last if it's a partial read
-	while (remainingbits >= numbitsthisbyte) {
-		remainingbits -= numbitsthisbyte;
-		mask = (1 << numbitsthisbyte) - 1;
-		result |= (*ptr & mask) << remainingbits;
-		ptr++;
-		numbitsthisbyte = 8;
-	}
-
-	// Read bits from the final byte if it's partial read
-	if (remainingbits > 0) {
-		mask = (1 << remainingbits) - 1;
-		result |= (*ptr >> (numbitsthisbyte - remainingbits)) & mask;
-	}
-
-	return result;
-}
-
-s32 animReadSignedShort(u8 *ptr, u8 readbitlen, s32 bitoffset)
-{
-	u16 result = animReadBits(ptr, readbitlen, bitoffset);
-
-	if (readbitlen < 16 && (result & (1 << (readbitlen - 1)))) {
-		result |= ((1 << (16 - readbitlen)) - 1) << readbitlen;
-	}
-
-	return result;
-}
-
-/**
  * Read the rotation, position and scale values for the given part for the frame
  * at the given frameslot.
  *
  * Both the anim header and frame data must be loaded already.
  */
-void animGetRotTranslateScale(s32 part, bool flip, struct skeleton *skel, s16 animnum, u8 frameslot, struct coord *rot, struct coord *translate, struct coord *scale)
+static u32 animReadBe32(const u8 *ptr)
 {
-	s32 i;
-	u16 introt[3];
-	u8 readbitlen;
-	u8 *framebytes = g_AnimFrameBytes[frameslot];
-	u8 framelen;
-	u8 *ptr;
-	u8 *end;
-	s32 bitoffset;
-	u32 stack;
+	return (u32)ptr[0] << 24 | (u32)ptr[1] << 16
+		| (u32)ptr[2] << 8 | (u32)ptr[3];
+}
 
-	if (flip) {
-		part = skel->things[part][1];
+static s16 animSignExtend16(u32 value, u8 width)
+{
+	if (width > 0 && width < 16 && (value & (1u << (width - 1)))) {
+		value |= 0xffffu << width;
 	}
 
-	framelen = g_Anims[animnum].framelen;
-	ptr = g_AnimHeaderBytes[g_AnimToHeaderSlot[animnum]];
-	bitoffset = 0;
-	end = ptr + g_Anims[animnum].headerlen;
+	return (s16)value;
+}
 
-	for (i = 0; i < part && ptr < end; i++) {
-		u8 flags = *ptr;
-		ptr++;
-
-		if (flags & ANIMFIELD_08) {
-			bitoffset += ptr[2] + ptr[5] + ptr[8] + ptr[11];
-			ptr += 12;
-		} else if (flags & ANIMFIELD_S16_TRANSLATE) {
-			bitoffset += ptr[2] + ptr[5] + ptr[8];
-			ptr += 9;
-		} else if (flags & ANIMFIELD_S32_TRANSLATE) {
-			bitoffset += ptr[0] + ptr[5] + ptr[10];
-			ptr += 15;
-		}
-
-		if (flags & ANIMFIELD_S16_ROTATE) {
-			bitoffset += ptr[2] + ptr[5] + ptr[8];
-			ptr += 9;
-		} else if (flags & ANIMFIELD_F32_ROTATE) {
-			bitoffset += 96;
-		}
-
-		if (flags & ANIMFIELD_CAMERA) {
-			bitoffset += ptr[0];
-			ptr += 5;
-		}
-
-		if (flags & ANIMFIELD_F32_SCALE) {
-			bitoffset += 0x60;
-		}
+static bool animReadFrameField(const u8 *framebytes, u32 framebytelen,
+		u8 width, u32 *bitoffset, u32 *value)
+{
+	if (bitoffset == NULL || !animReadBitsBounded(framebytes, framebytelen,
+			width, *bitoffset, value)) {
+		return false;
 	}
 
-	if (ptr < end) {
-		u8 flags = *ptr;
-		ptr++;
+	*bitoffset += width;
+	return true;
+}
 
-		if (flags & ANIMFIELD_S16_TRANSLATE) {
-			readbitlen = ptr[2];
-			translate->x = (s16) (animReadSignedShort(framebytes, readbitlen, bitoffset) + (ptr[0] << 8) + ptr[1]);
-			bitoffset += readbitlen;
-
-			readbitlen = ptr[5];
-			translate->y = (s16) (animReadSignedShort(framebytes, readbitlen, bitoffset) + (ptr[3] << 8) + ptr[4]);
-			bitoffset += readbitlen;
-
-			readbitlen = ptr[8];
-			translate->z = (s16) (animReadSignedShort(framebytes, readbitlen, bitoffset) + (ptr[6] << 8) + ptr[7]);
-			bitoffset += readbitlen;
-
-			ptr += 9;
-		} else if (flags & ANIMFIELD_S32_TRANSLATE) {
-			readbitlen = ptr[0];
-			translate->x = (animReadBits(framebytes, readbitlen, bitoffset) + ((ptr[1] << 24) + (ptr[2] << 16) + (ptr[3] << 8) + ptr[4])) * 0.001f;
-			bitoffset += readbitlen;
-
-			readbitlen = ptr[5];
-			translate->y = (animReadBits(framebytes, readbitlen, bitoffset) + ((ptr[6] << 24) + (ptr[7] << 16) + (ptr[8] << 8) + ptr[9])) * 0.001f;
-			bitoffset += readbitlen;
-
-			readbitlen = ptr[10];
-			translate->z = (animReadBits(framebytes, readbitlen, bitoffset) + ((ptr[11] << 24) + (ptr[12] << 16) + (ptr[13] << 8) + ptr[14])) * 0.001f;
-			bitoffset += readbitlen;
-
-			ptr += 15;
-		} else {
-			if (flags & ANIMFIELD_08) {
-				bitoffset += ptr[2] + ptr[5] + ptr[8] + ptr[11];
-				ptr += 12;
-			}
-
-			translate->x = translate->y = translate->z = 0.0f;
-		}
-
-		if (flags & ANIMFIELD_S16_ROTATE) {
-			readbitlen = ptr[2];
-			introt[0] = animReadBits(framebytes, readbitlen, bitoffset);
-			introt[0] += (ptr[0] << 8) + ptr[1];
-			introt[0] <<= 16 - framelen;
-			bitoffset += readbitlen;
-
-			readbitlen = ptr[5];
-			introt[1] = animReadBits(framebytes, readbitlen, bitoffset);
-			introt[1] += (ptr[3] << 8) + ptr[4];
-			introt[1] <<= 16 - framelen;
-			bitoffset += readbitlen;
-
-			readbitlen = ptr[8];
-			introt[2] = animReadBits(framebytes, readbitlen, bitoffset);
-			introt[2] += (ptr[6] << 8) + ptr[7];
-			introt[2] <<= 16 - framelen;
-			bitoffset += readbitlen;
-
-			rot->x = introt[0] * M_BADTAU / 65536.0f;
-
-			if (flip) {
-				if (introt[1] != 0) {
-					rot->y = (0x10000 - introt[1]) * M_BADTAU / 65536.0f;
-				} else {
-					rot->y = 0.0f;
-				}
-
-				if (introt[2] != 0) {
-					rot->z = (0x10000 - introt[2]) * M_BADTAU / 65536.0f;
-				} else {
-					rot->z = 0.0f;
-				}
-			} else {
-				rot->y = introt[1] * M_BADTAU / 65536.0f;
-				rot->z = introt[2] * M_BADTAU / 65536.0f;
-			}
-		} else if (flags & ANIMFIELD_F32_ROTATE) {
-			s32 sp38;
-
-			sp38 = animReadBits(framebytes, 32, bitoffset);
-			rot->x = *(f32 *)&sp38;
-			bitoffset += 32;
-
-			sp38 = animReadBits(framebytes, 32, bitoffset);
-			rot->y = *(f32 *)&sp38;
-			bitoffset += 32;
-
-			sp38 = animReadBits(framebytes, 32, bitoffset);
-			rot->z = *(f32 *)&sp38;
-			bitoffset += 32;
-
-			if (flip) {
-				if (rot->y != 0.0f) {
-					rot->y = M_BADTAU - rot->y;
-				}
-
-				if (rot->z != 0.0f) {
-					rot->z = M_BADTAU - rot->z;
-				}
-			}
-		} else {
-			rot->x = rot->y = rot->z = 0.0f;
-		}
-
-		if (flags & ANIMFIELD_F32_SCALE) {
-			s32 word;
-
-			word = animReadBits(framebytes, 32, bitoffset);
-			scale->x = *(f32 *)&word;
-			bitoffset += 32;
-
-			word = animReadBits(framebytes, 32, bitoffset);
-			scale->y = *(f32 *)&word;
-			bitoffset += 32;
-
-			word = animReadBits(framebytes, 32, bitoffset);
-			scale->z = *(f32 *)&word;
-		} else {
-			scale->x = scale->y = scale->z = 1.0f;
-		}
-
-		return;
-	}
-
+static void animSetDefaultTransform(struct coord *rot,
+		struct coord *translate, struct coord *scale)
+{
 	rot->x = rot->y = rot->z = 0.0f;
 	translate->x = translate->y = translate->z = 0.0f;
 	scale->x = scale->y = scale->z = 1.0f;
+}
+
+static void animLogFrameLayoutReject(s16 animnum, u8 frameslot, s32 part,
+		enum anim_frame_layout_result result)
+{
+	s16 framenum = g_AnimFrameFrameNums != NULL
+			&& frameslot < ANIM_FRAME_CACHE_SIZE
+		? g_AnimFrameFrameNums[frameslot] : -1;
+
+	if (s_AnimLastRejectedAnimnum == animnum
+			&& s_AnimLastRejectedFrame == framenum) {
+		return;
+	}
+
+	sysLogPrintf(LOG_ERROR,
+		"ANIM.FRAME.LAYOUT.REJECT: anim=%d frame=%d part=%d reason=%s",
+		animnum, framenum, part, animFrameLayoutResultString(result));
+	s_AnimLastRejectedAnimnum = animnum;
+	s_AnimLastRejectedFrame = framenum;
+}
+
+void animGetRotTranslateScale(s32 part, bool flip, struct skeleton *skel,
+		s16 animnum, u8 frameslot, struct coord *rot,
+		struct coord *translate, struct coord *scale)
+{
+	struct anim_frame_part_layout layout;
+	enum anim_frame_layout_result layout_result;
+	u16 introt[3];
+	const u8 *framebytes;
+	const u8 *ptr;
+	u32 framebytelen;
+	u32 bitoffset;
+	u32 value;
+	u8 flags;
+	u8 framelen;
+	u8 readbitlen;
+	s32 axis;
+
+	if (rot == NULL || translate == NULL || scale == NULL) {
+		return;
+	}
+
+	animSetDefaultTransform(rot, translate, scale);
+
+	if (animnum < 0 || animnum >= animGetTotalCount()
+			|| frameslot >= ANIM_FRAME_CACHE_SIZE
+			|| g_Anims == NULL || g_AnimToHeaderSlot == NULL
+			|| g_AnimHeaderBytes == NULL || g_AnimFrameBytes == NULL
+			|| g_AnimToHeaderSlot[animnum] == 0xff) {
+		animLogFrameLayoutReject(animnum, frameslot, part,
+			ANIM_FRAME_LAYOUT_INVALID_ARGUMENT);
+		return;
+	}
+
+	if (flip) {
+		if (skel == NULL || skel->things == NULL
+				|| part < 0 || part >= skel->numthings) {
+			animLogFrameLayoutReject(animnum, frameslot, part,
+				ANIM_FRAME_LAYOUT_INVALID_ARGUMENT);
+			return;
+		}
+
+		part = skel->things[part][1];
+	}
+
+	framebytes = g_AnimFrameBytes[frameslot];
+	framebytelen = g_Anims[animnum].bytesperframe;
+	framelen = g_Anims[animnum].framelen;
+
+	if ((framebytes == NULL && framebytelen != 0) || framelen > 16) {
+		animLogFrameLayoutReject(animnum, frameslot, part,
+			ANIM_FRAME_LAYOUT_INVALID_ARGUMENT);
+		return;
+	}
+
+	layout_result = animFrameLocatePartBounded(
+		g_AnimHeaderBytes[g_AnimToHeaderSlot[animnum]],
+		g_Anims[animnum].headerlen, framebytelen, part, &layout);
+
+	if (layout_result != ANIM_FRAME_LAYOUT_OK) {
+		animLogFrameLayoutReject(animnum, frameslot, part, layout_result);
+		return;
+	}
+
+	ptr = layout.field_header;
+	bitoffset = layout.frame_bit_offset;
+	flags = layout.flags;
+
+	if (flags & ANIMFIELD_S16_TRANSLATE) {
+		for (axis = 0; axis < 3; axis++) {
+			readbitlen = ptr[axis * 3 + 2];
+
+			if (!animReadFrameField(framebytes, framebytelen, readbitlen,
+					&bitoffset, &value)) {
+				animLogFrameLayoutReject(animnum, frameslot, part,
+					ANIM_FRAME_LAYOUT_PAYLOAD_TRUNCATED);
+				animSetDefaultTransform(rot, translate, scale);
+				return;
+			}
+
+			translate->f[axis] = (s16)(animSignExtend16(value, readbitlen)
+				+ ((u16)ptr[axis * 3] << 8) + ptr[axis * 3 + 1]);
+		}
+
+		ptr += 9;
+	} else if (flags & ANIMFIELD_S32_TRANSLATE) {
+		for (axis = 0; axis < 3; axis++) {
+			readbitlen = ptr[axis * 5];
+
+			if (!animReadFrameField(framebytes, framebytelen, readbitlen,
+					&bitoffset, &value)) {
+				animLogFrameLayoutReject(animnum, frameslot, part,
+					ANIM_FRAME_LAYOUT_PAYLOAD_TRUNCATED);
+				animSetDefaultTransform(rot, translate, scale);
+				return;
+			}
+
+			translate->f[axis] = ((s64)(s32)animReadBe32(
+				&ptr[axis * 5 + 1]) + value) * 0.001f;
+		}
+
+		ptr += 15;
+	} else if (flags & ANIMFIELD_08) {
+		bitoffset += ptr[2] + ptr[5] + ptr[8] + ptr[11];
+		ptr += 12;
+	}
+
+	if (flags & ANIMFIELD_S16_ROTATE) {
+		for (axis = 0; axis < 3; axis++) {
+			readbitlen = ptr[axis * 3 + 2];
+
+			if (!animReadFrameField(framebytes, framebytelen, readbitlen,
+					&bitoffset, &value)) {
+				animLogFrameLayoutReject(animnum, frameslot, part,
+					ANIM_FRAME_LAYOUT_PAYLOAD_TRUNCATED);
+				animSetDefaultTransform(rot, translate, scale);
+				return;
+			}
+
+			introt[axis] = (u16)((u32)(value
+				+ ((u16)ptr[axis * 3] << 8) + ptr[axis * 3 + 1])
+				<< (16 - framelen));
+		}
+
+		ptr += 9;
+
+		rot->x = introt[0] * M_BADTAU / 65536.0f;
+
+		if (flip) {
+			rot->y = introt[1] != 0
+				? (0x10000 - introt[1]) * M_BADTAU / 65536.0f : 0.0f;
+			rot->z = introt[2] != 0
+				? (0x10000 - introt[2]) * M_BADTAU / 65536.0f : 0.0f;
+		} else {
+			rot->y = introt[1] * M_BADTAU / 65536.0f;
+			rot->z = introt[2] * M_BADTAU / 65536.0f;
+		}
+	} else if (flags & ANIMFIELD_F32_ROTATE) {
+		for (axis = 0; axis < 3; axis++) {
+			if (!animReadFrameField(framebytes, framebytelen, 32,
+					&bitoffset, &value)) {
+				animLogFrameLayoutReject(animnum, frameslot, part,
+					ANIM_FRAME_LAYOUT_PAYLOAD_TRUNCATED);
+				animSetDefaultTransform(rot, translate, scale);
+				return;
+			}
+
+			memcpy(&rot->f[axis], &value, sizeof(value));
+		}
+
+		if (flip) {
+			if (rot->y != 0.0f) {
+				rot->y = M_BADTAU - rot->y;
+			}
+
+			if (rot->z != 0.0f) {
+				rot->z = M_BADTAU - rot->z;
+			}
+		}
+	}
+
+	if (flags & ANIMFIELD_CAMERA) {
+		bitoffset += ptr[0];
+		ptr += 5;
+	}
+
+	if (flags & ANIMFIELD_F32_SCALE) {
+		for (axis = 0; axis < 3; axis++) {
+			if (!animReadFrameField(framebytes, framebytelen, 32,
+					&bitoffset, &value)) {
+				animLogFrameLayoutReject(animnum, frameslot, part,
+					ANIM_FRAME_LAYOUT_PAYLOAD_TRUNCATED);
+				animSetDefaultTransform(rot, translate, scale);
+				return;
+			}
+
+			memcpy(&scale->f[axis], &value, sizeof(value));
+		}
+	}
 }
 
 /**
@@ -678,87 +677,125 @@ void animGetRotTranslateScale(s32 part, bool flip, struct skeleton *skel, s16 an
  * No data needs to be loaded by the caller - the function will ensure the
  * header and frame are loaded.
  */
-u16 animGetPosAngleAsInt(s32 part, bool flip, struct skeleton *skel, s16 animnum, s32 framenum, s16 inttranslate[3], bool arg6)
+u16 animGetPosAngleAsInt(s32 part, bool flip, struct skeleton *skel,
+		s16 animnum, s32 framenum, s16 inttranslate[3], bool arg6)
 {
+	struct anim_frame_part_layout layout;
+	enum anim_frame_layout_result layout_result;
+	const u8 *framebytes;
+	const u8 *ptr;
+	u32 framebytelen;
+	u32 bitoffset;
+	u32 value;
 	u16 result = 0;
-	s32 bitoffset;
 	u8 readbitlen;
 	u8 slot;
-	u8 *framebytes;
-	u8 *ptr;
-	s32 i;
+	s32 axis;
+
+	if (inttranslate == NULL) {
+		return 0;
+	}
+
+	inttranslate[0] = 0;
+	inttranslate[1] = 0;
+	inttranslate[2] = 0;
+
+	if (animnum < 0 || animnum >= animGetTotalCount()
+			|| g_Anims == NULL) {
+		return 0;
+	}
 
 	if (arg6) {
-		inttranslate[0] = 0;
-		inttranslate[1] = 0;
-		inttranslate[2] = var8005f014[animnum];
-	} else {
-		animLoadHeader(animnum);
-		slot = animLoadFrame(animnum, framenum);
-		animForgetFrameBirths();
-
-		framebytes = g_AnimFrameBytes[slot];
-
-		if (flip) {
-			part = skel->things[part][1];
+		if (var8005f014 != NULL) {
+			inttranslate[2] = var8005f014[animnum];
 		}
 
-		bitoffset = 0;
-		ptr = g_AnimHeaderBytes[g_AnimToHeaderSlot[animnum]];
+		return 0;
+	}
 
-		for (i = 0; i < part; i++) {
-			u8 flags = *ptr;
-			ptr++;
+	if (g_AnimToHeaderSlot == NULL || g_AnimHeaderBytes == NULL
+			|| g_AnimFrameBytes == NULL || framenum < 0
+			|| framenum >= g_Anims[animnum].numframes) {
+		return 0;
+	}
 
-			if (flags & ANIMFIELD_08) {
-				bitoffset += ptr[2] + ptr[5] + ptr[8] + ptr[11];
-				ptr += 12;
-			} else if (flags & ANIMFIELD_S16_TRANSLATE) {
-				bitoffset += ptr[2] + ptr[5] + ptr[8];
-				ptr += 9;
-			} else if (flags & ANIMFIELD_S32_TRANSLATE) {
-				bitoffset += ptr[0] + ptr[5] + ptr[10];
-				ptr += 15;
-			}
-
-			if (flags & ANIMFIELD_S16_ROTATE) {
-				bitoffset += ptr[2] + ptr[5] + ptr[8];
-				ptr += 9;
-			} else if (flags & ANIMFIELD_F32_ROTATE) {
-				bitoffset += 96;
-			}
-
-			if (flags & ANIMFIELD_CAMERA) {
-				bitoffset += *ptr;
-				ptr += 5;
-			}
-
-			if (flags & ANIMFIELD_F32_SCALE) {
-				bitoffset += 96;
-			}
+	if (flip) {
+		if (skel == NULL || skel->things == NULL
+				|| part < 0 || part >= skel->numthings) {
+			return 0;
 		}
 
-		readbitlen = ptr[3];
-		inttranslate[0] = animReadSignedShort(framebytes, readbitlen, bitoffset) + ptr[1] * 256 + ptr[2];
-		bitoffset += readbitlen;
+		part = skel->things[part][1];
+	}
 
-		readbitlen = ptr[6];
-		inttranslate[1] = animReadSignedShort(framebytes, readbitlen, bitoffset) + ptr[4] * 256 + ptr[5];
-		bitoffset += readbitlen;
+	animLoadHeader(animnum);
+	slot = animLoadFrame(animnum, framenum);
+	animForgetFrameBirths();
 
-		readbitlen = ptr[9];
-		inttranslate[2] = animReadSignedShort(framebytes, readbitlen, bitoffset) + ptr[7] * 256 + ptr[8];
-		bitoffset += readbitlen;
+	if (slot >= ANIM_FRAME_CACHE_SIZE
+			|| g_AnimToHeaderSlot[animnum] == 0xff) {
+		return 0;
+	}
 
-		readbitlen = ptr[12];
-		result = animReadSignedShort(framebytes, readbitlen, bitoffset) + ptr[10] * 256 + ptr[11];
+	framebytes = g_AnimFrameBytes[slot];
+	framebytelen = g_Anims[animnum].bytesperframe;
 
-		if (flip) {
-			inttranslate[0] = -inttranslate[0];
+	if (framebytes == NULL && framebytelen != 0) {
+		return 0;
+	}
 
-			if (result != 0) {
-				result = 0x10000 - result;
-			}
+	layout_result = animFrameLocatePartBounded(
+		g_AnimHeaderBytes[g_AnimToHeaderSlot[animnum]],
+		g_Anims[animnum].headerlen, framebytelen, part, &layout);
+
+	if (layout_result != ANIM_FRAME_LAYOUT_OK) {
+		animLogFrameLayoutReject(animnum, slot, part, layout_result);
+		return 0;
+	}
+
+	/* ANIMFIELD_08 is the native root-motion descriptor: three signed
+	 * translations followed by one signed yaw field. A regular transform part
+	 * has no root-motion result and therefore resolves to the zero defaults. */
+	if ((layout.flags & ANIMFIELD_08) == 0) {
+		return 0;
+	}
+
+	ptr = layout.field_header;
+	bitoffset = layout.frame_bit_offset;
+
+	for (axis = 0; axis < 3; axis++) {
+		readbitlen = ptr[axis * 3 + 2];
+
+		if (!animReadFrameField(framebytes, framebytelen, readbitlen,
+				&bitoffset, &value)) {
+			animLogFrameLayoutReject(animnum, slot, part,
+				ANIM_FRAME_LAYOUT_PAYLOAD_TRUNCATED);
+			inttranslate[0] = inttranslate[1] = inttranslate[2] = 0;
+			return 0;
+		}
+
+		inttranslate[axis] = (s16)(animSignExtend16(value, readbitlen)
+			+ ((u16)ptr[axis * 3] << 8) + ptr[axis * 3 + 1]);
+	}
+
+	readbitlen = ptr[11];
+
+	if (!animReadFrameField(framebytes, framebytelen, readbitlen,
+			&bitoffset, &value)) {
+		animLogFrameLayoutReject(animnum, slot, part,
+			ANIM_FRAME_LAYOUT_PAYLOAD_TRUNCATED);
+		inttranslate[0] = inttranslate[1] = inttranslate[2] = 0;
+		return 0;
+	}
+
+	result = (u16)(animSignExtend16(value, readbitlen)
+		+ ((u16)ptr[9] << 8) + ptr[10]);
+
+	if (flip) {
+		inttranslate[0] = -inttranslate[0];
+
+		if (result != 0) {
+			result = 0x10000 - result;
 		}
 	}
 
@@ -768,8 +805,14 @@ u16 animGetPosAngleAsInt(s32 part, bool flip, struct skeleton *skel, s16 animnum
 f32 animGetTranslateAngle(s32 part, bool flip, struct skeleton *skel, s16 animnum, s32 framenum, struct coord *translate, bool arg6)
 {
 	s16 inttranslate[3];
+	f32 angle;
 
-	f32 angle = animGetPosAngleAsInt(part, flip, skel, animnum, framenum, inttranslate, arg6);
+	if (translate == NULL) {
+		return 0.0f;
+	}
+
+	angle = animGetPosAngleAsInt(part, flip, skel, animnum, framenum,
+		inttranslate, arg6);
 
 	translate->x = inttranslate[0];
 	translate->y = inttranslate[1];
@@ -789,63 +832,76 @@ f32 animGetTranslateAngle(s32 part, bool flip, struct skeleton *skel, s16 animnu
  */
 f32 animGetCameraValue(s32 part, s16 animnum, u8 frameslot)
 {
-	u32 stack[2];
-	u8 *framebytes = g_AnimFrameBytes[frameslot];
-	u8 *ptr = g_AnimHeaderBytes[g_AnimToHeaderSlot[animnum]];
-	f32 result = 0;
-	s32 bitoffset = 0;
-	s32 i;
-	u8 *end = ptr + g_Anims[animnum].headerlen;
+	struct anim_frame_part_layout layout;
+	enum anim_frame_layout_result layout_result;
+	const u8 *framebytes;
+	const u8 *ptr;
+	u32 framebytelen;
+	u32 bitoffset;
+	u32 framevalue;
+	u8 flags;
 
-	for (i = 0; i < part && ptr < end; i++) {
-		u8 flags = ptr[0];
-		ptr++;
-
-		if (flags & ANIMFIELD_08) {
-			bitoffset += ptr[2] + ptr[5] + ptr[8] + ptr[11];
-			ptr += 12;
-		} else if (flags & ANIMFIELD_S16_TRANSLATE) {
-			bitoffset += ptr[2] + ptr[5] + ptr[8];
-			ptr += 9;
-		} else if (flags & ANIMFIELD_S32_TRANSLATE) {
-			bitoffset += ptr[0] + ptr[5] + ptr[10];
-			ptr += 15;
-		}
-
-		if (flags & ANIMFIELD_S16_ROTATE) {
-			bitoffset += ptr[2] + ptr[5] + ptr[8];
-			ptr += 9;
-		} else if (flags & ANIMFIELD_F32_ROTATE) {
-			bitoffset += 0x60;
-		}
-
-		if (flags & ANIMFIELD_CAMERA) {
-			bitoffset += ptr[0];
-			ptr += 5;
-		}
-
-		if (flags & ANIMFIELD_F32_SCALE) {
-			bitoffset += 0x60;
-		}
+	if (animnum < 0 || animnum >= animGetTotalCount()
+			|| frameslot >= ANIM_FRAME_CACHE_SIZE
+			|| g_Anims == NULL || g_AnimToHeaderSlot == NULL
+			|| g_AnimHeaderBytes == NULL || g_AnimFrameBytes == NULL
+			|| g_AnimToHeaderSlot[animnum] == 0xff) {
+		return 0.0f;
 	}
 
-	if (ptr < end) {
-		u8 flags = ptr[0];
-		ptr++;
+	framebytes = g_AnimFrameBytes[frameslot];
+	framebytelen = g_Anims[animnum].bytesperframe;
 
-		if (flags & ANIMFIELD_CAMERA) {
-			/**
-			 * In the header:
-			 * ptr[0] = number of bits to read in the frame data
-			 * ptr[1,2,3,4] = base value
-			 *
-			 * The value in the frame data is an adjustment value that is added
-			 * to the base value.
-			 */
-			s32 framevalue = animReadBits(framebytes, ptr[0], bitoffset);
-			result = (framevalue + ptr[1] * 0x1000000 + ptr[2] * 0x10000 + ptr[3] * 0x100 + ptr[4]) * 0.001f;
-		}
+	if (framebytes == NULL && framebytelen != 0) {
+		return 0.0f;
 	}
 
-	return result;
+	layout_result = animFrameLocatePartBounded(
+		g_AnimHeaderBytes[g_AnimToHeaderSlot[animnum]],
+		g_Anims[animnum].headerlen, framebytelen, part, &layout);
+
+	if (layout_result != ANIM_FRAME_LAYOUT_OK) {
+		animLogFrameLayoutReject(animnum, frameslot, part, layout_result);
+		return 0.0f;
+	}
+
+	flags = layout.flags;
+
+	if ((flags & ANIMFIELD_CAMERA) == 0) {
+		return 0.0f;
+	}
+
+	ptr = layout.field_header;
+	bitoffset = layout.frame_bit_offset;
+
+	if (flags & ANIMFIELD_08) {
+		bitoffset += ptr[2] + ptr[5] + ptr[8] + ptr[11];
+		ptr += 12;
+	} else if (flags & ANIMFIELD_S16_TRANSLATE) {
+		bitoffset += ptr[2] + ptr[5] + ptr[8];
+		ptr += 9;
+	} else if (flags & ANIMFIELD_S32_TRANSLATE) {
+		bitoffset += ptr[0] + ptr[5] + ptr[10];
+		ptr += 15;
+	}
+
+	if (flags & ANIMFIELD_S16_ROTATE) {
+		bitoffset += ptr[2] + ptr[5] + ptr[8];
+		ptr += 9;
+	} else if (flags & ANIMFIELD_F32_ROTATE) {
+		bitoffset += 96;
+	}
+
+	/**
+	 * In the header, ptr[0] is the frame adjustment width and ptr[1..4]
+	 * is its signed big-endian base value.
+	 */
+	if (!animReadFrameField(framebytes, framebytelen, ptr[0],
+			&bitoffset, &framevalue)) {
+		animLogFrameLayoutReject(animnum, frameslot, part,
+			ANIM_FRAME_LAYOUT_PAYLOAD_TRUNCATED);
+		return 0.0f;
+	}
+
+	return ((s64)(s32)animReadBe32(&ptr[1]) + framevalue) * 0.001f;
 }

@@ -73,6 +73,17 @@ player_identity_status_e playerIdentityPrepare(
 	const char *head_id,
 	player_identity_plan_t *out_plan);
 
+/*
+ * Resolve legacy runtime selectors back to their canonical typed IDs and
+ * validate that both directions describe the same exact identity. A headnum
+ * of -1 is accepted only for a catalog body explicitly marked complete; the
+ * resulting plan retains an empty head ID and runtime_headnum=-1.
+ */
+player_identity_status_e playerIdentityPrepareRuntime(
+	s32 runtime_bodynum,
+	s32 runtime_headnum,
+	player_identity_plan_t *out_plan);
+
 /* Stable machine-readable status text for logs and test receipts. */
 const char *playerIdentityStatusString(player_identity_status_e status);
 

@@ -93,6 +93,7 @@
 #include "actionmap.h"
 #include "scene.h"
 #include "game/spawnpool.h"
+#include "game/setuputils.h"
 
 s32 g_DefaultWeapons[2];
 f32 g_MpSwirlRotateSpeed;
@@ -2077,7 +2078,21 @@ bool playerSpawnAnti(struct chrdata *hostchr, bool force)
 			g_Vars.antibodynum = hostchr->bodynum;
 		}
 
-		playerTickChrBody();
+		{
+			enum player_chrbody_result chrbody_result = playerTickChrBody();
+
+			if (chrbody_result != PLAYER_CHRBODY_OK
+					|| g_Vars.currentplayer->prop->chr == NULL
+					|| g_Vars.currentplayer->prop->chr->model == NULL) {
+				hostchr->chrflags &= ~CHRCFLAG_PERIMDISABLEDTMP;
+				sysLogPrintf(LOG_ERROR,
+					"PLAYER.INIT.ROLLBACK phase=counterop_takeover status=%s",
+					playerChrBodyResultString(chrbody_result));
+				return false;
+			}
+
+			playerchr = g_Vars.currentplayer->prop->chr;
+		}
 		modelCopyAnimData(hostchr->model, playerchr->model);
 		func0f02e9a0(playerchr, 12);
 
@@ -2111,7 +2126,7 @@ bool playerSpawnAnti(struct chrdata *hostchr, bool force)
 	return false;
 }
 
-void playerSpawn(void)
+enum player_chrbody_result playerSpawn(void)
 {
 	f32 xdiff;
 	f32 ydiff;
@@ -2169,7 +2184,10 @@ void playerSpawn(void)
 			}
 
 			if (g_Vars.currentplayer->model00d4 == NULL) {
-				playerTickChrBody();
+				enum player_chrbody_result chrbody_result = playerTickChrBody();
+				if (chrbody_result != PLAYER_CHRBODY_OK) {
+					return chrbody_result;
+				}
 			}
 
 			for (i = 0; i < chrsGetNumSlots(); i++) {
@@ -2451,7 +2469,10 @@ void playerSpawn(void)
 			}
 
 			if (g_Vars.currentplayer->model00d4 == NULL) {
-				playerTickChrBody();
+				enum player_chrbody_result chrbody_result = playerTickChrBody();
+				if (chrbody_result != PLAYER_CHRBODY_OK) {
+					return chrbody_result;
+				}
 			}
 		}
 	}
@@ -2488,6 +2509,8 @@ void playerSpawn(void)
 			(s32)g_Vars.currentplayer->bondmovemode,
 			(s32)invGetCount());
 	}
+
+	return PLAYER_CHRBODY_OK;
 }
 
 void playerResetBond(struct playerbond *pb, struct coord *pos)
@@ -2525,7 +2548,7 @@ void playersTickAllChrBodies(void)
 }
 
 static s32 playerResolveConfiguredIdentity(const struct mpchrconfig *config,
-		s32 *bodynum, s32 *headnum, s32 *arg2, const char *caller)
+		s32 *bodynum, s32 *headnum, bool *arg2, const char *caller)
 {
 	player_identity_plan_t identity;
 	player_identity_status_e status;
@@ -2551,7 +2574,7 @@ static s32 playerResolveConfiguredIdentity(const struct mpchrconfig *config,
 	return 1;
 }
 
-s32 playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, s32 *arg2)
+s32 playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, bool *arg2)
 {
 	s32 outfit;
 	bool solo;
@@ -2742,6 +2765,78 @@ static bool playerBodyModeldefIsUsable(struct modeldef *modeldef,
 		&& modeldef->numparts <= 500;
 }
 
+const char *playerChrBodyResultString(enum player_chrbody_result result)
+{
+	switch (result) {
+	case PLAYER_CHRBODY_OK: return "ok";
+	case PLAYER_CHRBODY_DEFERRED: return "deferred";
+	case PLAYER_CHRBODY_INVALID_STATE: return "invalid_state";
+	case PLAYER_CHRBODY_INVALID_IDENTITY: return "invalid_identity";
+	case PLAYER_CHRBODY_BODY_SOURCE_FAILED: return "body_source_failed";
+	case PLAYER_CHRBODY_HEAD_SOURCE_FAILED: return "head_source_failed";
+	case PLAYER_CHRBODY_BODY_MODEL_FAILED: return "body_model_failed";
+	case PLAYER_CHRBODY_HEAD_MODEL_FAILED: return "head_model_failed";
+	case PLAYER_CHRBODY_GUNMEM_FAILED: return "gunmem_failed";
+	case PLAYER_CHRBODY_WEAPON_MODEL_FAILED: return "weapon_model_failed";
+	case PLAYER_CHRBODY_BODY_INSTANTIATION_FAILED: return "body_instantiation_failed";
+	case PLAYER_CHRBODY_CHARACTER_ALLOCATION_FAILED: return "character_allocation_failed";
+	case PLAYER_CHRBODY_WEAPON_ATTACHMENT_FAILED: return "weapon_attachment_failed";
+	case PLAYER_CHRBODY_FIRESLOT_FAILED: return "fireslot_failed";
+	default: return "unknown";
+	}
+}
+
+enum player_chrbody_result playerChrBodyPreflight(s32 bodynum, s32 headnum)
+{
+	player_identity_plan_t identity;
+	catalog_body_result_t body_result;
+	catalog_head_result_t head_result;
+	const char *body_id;
+	const char *head_id;
+	struct modeldef *body_modeldef;
+	struct modeldef *head_modeldef;
+
+	if (playerIdentityPrepareRuntime(bodynum, headnum, &identity)
+			!= PLAYER_IDENTITY_OK) {
+		return PLAYER_CHRBODY_INVALID_IDENTITY;
+	}
+
+	body_id = identity.body_id;
+	head_id = identity.head_id;
+
+	if (!catalogResolveBody(body_id, &body_result)
+			|| assetHandleIsNull(body_result.handle)) {
+		return PLAYER_CHRBODY_BODY_SOURCE_FAILED;
+	}
+
+	assetSourceDebugFatalHandleFallback(ASSET_BODY,
+		"player chrbody preflight body", body_id, body_result.handle);
+	body_modeldef = catalogGetBodyModeldef(bodynum);
+
+	if (!playerBodyModeldefIsUsable(body_modeldef, body_id)) {
+		return PLAYER_CHRBODY_BODY_MODEL_FAILED;
+	}
+
+	if (catalogGetBodyIsComplete(bodynum)) {
+		return PLAYER_CHRBODY_OK;
+	}
+
+	if (!catalogResolveHead(head_id, &head_result)
+			|| assetHandleIsNull(head_result.handle)) {
+		return PLAYER_CHRBODY_HEAD_SOURCE_FAILED;
+	}
+
+	assetSourceDebugFatalHandleFallback(ASSET_HEAD,
+		"player chrbody preflight head", head_id, head_result.handle);
+	head_modeldef = catalogGetHeadModeldef(headnum);
+
+	if (head_modeldef == NULL || head_modeldef->rootnode == NULL) {
+		return PLAYER_CHRBODY_HEAD_MODEL_FAILED;
+	}
+
+	return PLAYER_CHRBODY_OK;
+}
+
 /**
  * Ensure the chr's "chrbody" is set up, then tick it.
  *
@@ -2757,10 +2852,32 @@ static bool playerBodyModeldefIsUsable(struct modeldef *modeldef,
  * these structures are already allocated elsewhere in memory due to the two
  * players being able to see each other at any time.
  */
-void playerTickChrBody(void)
+enum player_chrbody_result playerTickChrBody(void)
 {
-	f32 turnangle = (360.0f - g_Vars.currentplayer->vv_theta) * M_BADTAU / 360.0f;
-	bool was_haschrbody = (bool)g_Vars.currentplayer->haschrbody;
+	enum player_chrbody_result result = PLAYER_CHRBODY_OK;
+	f32 turnangle;
+	bool was_haschrbody;
+
+	if (g_Vars.currentplayer == NULL || g_Vars.currentplayer->prop == NULL) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK phase=chrbody player=%d reason=invalid_state",
+			g_Vars.currentplayernum);
+		return PLAYER_CHRBODY_INVALID_STATE;
+	}
+	if (g_Vars.currentplayer->haschrbody
+			&& (g_Vars.currentplayer->prop->chr == NULL
+				|| g_Vars.currentplayer->prop->chr->model == NULL
+				|| g_Vars.currentplayer->model00d4 == NULL
+				|| g_Vars.currentplayer->prop->chr->model
+					!= g_Vars.currentplayer->model00d4)) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK phase=chrbody player=%d reason=inconsistent_published_state",
+			g_Vars.currentplayernum);
+		return PLAYER_CHRBODY_INVALID_STATE;
+	}
+
+	turnangle = (360.0f - g_Vars.currentplayer->vv_theta) * M_BADTAU / 360.0f;
+	was_haschrbody = (bool)g_Vars.currentplayer->haschrbody;
 
 	if (g_Vars.currentplayer->haschrbody == false) {
 		struct chrdata *chr;
@@ -2782,7 +2899,16 @@ void playerTickChrBody(void)
 		catalog_model_result_t weapon_model_result;
 		const char *rollback_reason = "unknown";
 		bool acquired_gunmem = false;
+		bool chr_attached = false;
+		bool chr_was_preexisting = g_Vars.currentplayer->prop->chr != NULL;
+		f32 prepared_eyeheight;
+		f32 prepared_headheight;
+		struct coord previous_prop_pos = g_Vars.currentplayer->prop->pos;
+		RoomNum previous_prop_rooms[8];
 		u8 previous_prop_type = g_Vars.currentplayer->prop->type;
+
+		roomsCopySafe(g_Vars.currentplayer->prop->rooms,
+			previous_prop_rooms, ARRAYCOUNT(previous_prop_rooms));
 
 		// Unused
 		struct weaponobj template = {
@@ -2828,7 +2954,14 @@ void playerTickChrBody(void)
 		u32 stack3[2];
 
 		if (!playerChooseBodyAndHead(&bodynum, &headnum, &sp60)) {
+			result = PLAYER_CHRBODY_INVALID_IDENTITY;
 			rollback_reason = "identity";
+			goto player_init_rollback;
+		}
+
+		result = playerChrBodyPreflight(bodynum, headnum);
+		if (result != PLAYER_CHRBODY_OK) {
+			rollback_reason = playerChrBodyResultString(result);
 			goto player_init_rollback;
 		}
 
@@ -2838,6 +2971,32 @@ void playerTickChrBody(void)
 
 		weaponmodelnum = playermgrGetModelOfWeapon(weaponnum);
 
+		if (weaponmodelnum >= 0) {
+			if (!catalogResolveModelByModelnum(weaponmodelnum,
+					&weapon_model_result)) {
+				result = PLAYER_CHRBODY_WEAPON_MODEL_FAILED;
+				rollback_reason = "weapon source";
+				goto player_init_rollback;
+			}
+
+			weapon_filenum_1p = weapon_model_result.filenum;
+			weapon_handle = weapon_model_result.handle;
+			weapon_model_id_1p = weapon_model_result.entry
+				? weapon_model_result.entry->id : NULL;
+			assetSourceDebugFatalHandleFallback(ASSET_MODEL,
+				"player chrbody weapon modeldef", weapon_model_id_1p,
+				weapon_handle);
+
+			if (assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL, weapon_handle)) {
+				result = PLAYER_CHRBODY_WEAPON_MODEL_FAILED;
+				rollback_reason = "weapon source";
+				goto player_init_rollback;
+			}
+
+			weapon_model_file_source_1p =
+				weapon_model_result.handle.provider == fileProvider();
+		}
+
 		if (!g_Vars.mplayerisrunning) {
 			// 1 player
 			if (g_Vars.currentplayer->gunmem2 == NULL) {
@@ -2846,6 +3005,7 @@ void playerTickChrBody(void)
 					acquired_gunmem = true;
 
 					if (g_Vars.currentplayer->gunmem2 == NULL) {
+						result = PLAYER_CHRBODY_GUNMEM_FAILED;
 						rollback_reason = "gun memory unavailable";
 						goto player_init_rollback;
 					}
@@ -2856,6 +3016,7 @@ void playerTickChrBody(void)
 						g_Vars.lockscreen = true;
 					}
 
+					result = PLAYER_CHRBODY_DEFERRED;
 					rollback_reason = "gun memory ownership";
 					goto player_init_rollback;
 				}
@@ -2901,6 +3062,7 @@ void playerTickChrBody(void)
 			if (!bodyid || !catalogResolveBody(bodyid, &bodyresult)) {
 				sysLogPrintf(LOG_ERROR, "CHARACTER.LOAD.FAIL: cannot resolve body catalog entry for bodynum=%d",
 					bodynum);
+				result = PLAYER_CHRBODY_BODY_SOURCE_FAILED;
 				rollback_reason = "body source";
 				goto player_init_rollback;
 			}
@@ -2915,6 +3077,7 @@ void playerTickChrBody(void)
 					sysLogPrintf(LOG_ERROR,
 						"CHARACTER.LOAD.FAIL: cannot resolve head catalog entry for headnum=%d",
 						headnum);
+					result = PLAYER_CHRBODY_HEAD_SOURCE_FAILED;
 					rollback_reason = "head source";
 					goto player_init_rollback;
 				}
@@ -2924,21 +3087,6 @@ void playerTickChrBody(void)
 				assetSourceDebugFatalHandleFallback(ASSET_HEAD,
 					"player chrbody head modeldef", headid, headresult.handle);
 				head_file_source = (headresult.handle.provider == fileProvider());
-			}
-
-			if (weaponmodelnum >= 0) {
-				if (catalogResolveModelByModelnum(weaponmodelnum, &weapon_model_result)) {
-					weapon_filenum_1p = weapon_model_result.filenum;
-					weapon_handle = weapon_model_result.handle;
-					weapon_model_id_1p = weapon_model_result.entry ? weapon_model_result.entry->id : NULL;
-					assetSourceDebugFatalHandleFallback(ASSET_MODEL,
-						"player chrbody weapon modeldef", weapon_model_id_1p, weapon_handle);
-					if (assetSourceDebugHandleRequiresPublicFileSource(ASSET_MODEL, weapon_handle)) {
-						rollback_reason = "weapon source";
-						goto player_init_rollback;
-					}
-					weapon_model_file_source_1p = (weapon_model_result.handle.provider == fileProvider());
-				}
 			}
 
 			offset2 = offset1;
@@ -2974,6 +3122,7 @@ void playerTickChrBody(void)
 					bodynum, "player chrbody body modeldef");
 				sysLogPrintf(LOG_ERROR, "CHARACTER.LOAD.FAIL: body modeldef invalid for bodynum=%d filenum=0x%04x",
 					bodynum, body_filenum_1p);
+				result = PLAYER_CHRBODY_BODY_MODEL_FAILED;
 				rollback_reason = "body model";
 				goto player_init_rollback;
 			}
@@ -2997,6 +3146,7 @@ void playerTickChrBody(void)
 						headnum, "player chrbody head modeldef");
 					sysLogPrintf(LOG_ERROR, "PLAYER: headmodeldef NULL for headnum=%d filenum=0x%04x",
 						headnum, head_filenum_1p);
+					result = PLAYER_CHRBODY_HEAD_MODEL_FAILED;
 					rollback_reason = "head model";
 					goto player_init_rollback;
 				}
@@ -3038,6 +3188,7 @@ void playerTickChrBody(void)
 				sysLogPrintf(LOG_ERROR,
 					"PLAYER: bodymodeldef invalid (multi) for bodynum=%d filenum=0x%04x",
 					bodynum, catalogGetBodyFilenumByIndex(bodynum)); /* SA-5a */
+				result = PLAYER_CHRBODY_BODY_MODEL_FAILED;
 				rollback_reason = "multiplayer body model";
 				goto player_init_rollback;
 			}
@@ -3054,9 +3205,49 @@ void playerTickChrBody(void)
 				playerFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD,
 					catalogHeadIdByHeadnum(headnum), headnum,
 					"multiplayer head modeldef");
+				result = PLAYER_CHRBODY_HEAD_MODEL_FAILED;
 				rollback_reason = "multiplayer head model";
 				goto player_init_rollback;
 			}
+		}
+
+		/* All model loading is complete before the character is attached to the
+		 * live player prop. A requested held weapon is mandatory here: silently
+		 * hiding it would publish a character that does not match the selected
+		 * loadout. */
+		if (weaponmodelnum >= 0) {
+			if (!g_Vars.mplayerisrunning) {
+				s32 wfn = weapon_filenum_1p;
+
+				if (wfn >= 0 && !assetHandleIsNull(weapon_handle)) {
+					if (weapon_model_file_source_1p) {
+						if (weapon_model_id_1p != NULL
+								&& catalogLoadStageAsset(ASSET_MODEL, weapon_model_id_1p)) {
+							weaponmodeldef =
+								catalogGetLoadedModeldef(weapon_model_id_1p);
+						}
+					} else {
+						weaponmodeldef = modeldefLoadFromHandle(weapon_handle,
+							wfn, allocation + offset1, offset2 - offset1,
+							&texpool);
+						assetLoadGetLoadedSize(weapon_handle);
+					}
+				}
+			} else {
+				weaponobj = NULL;
+				if (g_ModelStates[weaponmodelnum].modeldef == NULL) {
+					setupLoadModeldef(weaponmodelnum);
+				}
+				weaponmodeldef = g_ModelStates[weaponmodelnum].modeldef;
+			}
+
+			if (weaponmodeldef == NULL) {
+				result = PLAYER_CHRBODY_WEAPON_MODEL_FAILED;
+				rollback_reason = "weapon model";
+				goto player_init_rollback;
+			}
+
+			modelAllocateRwData(weaponmodeldef);
 		}
 
 		prepared_model = body0f02ce8c(bodynum, headnum, bodymodeldef,
@@ -3066,6 +3257,7 @@ void playerTickChrBody(void)
 			playerFatalSourceOnlyCharacterAssetFailure(ASSET_BODY,
 				catalogBodyIdByBodynum(bodynum), bodynum,
 				"player chrbody body instantiation");
+			result = PLAYER_CHRBODY_BODY_INSTANTIATION_FAILED;
 			rollback_reason = "body instantiation";
 			goto player_init_rollback;
 		}
@@ -3073,9 +3265,11 @@ void playerTickChrBody(void)
 		if (chr0f020b14(g_Vars.currentplayer->prop, prepared_model,
 				&g_Vars.currentplayer->prop->pos,
 				g_Vars.currentplayer->prop->rooms, turnangle, 0) == NULL) {
+			result = PLAYER_CHRBODY_CHARACTER_ALLOCATION_FAILED;
 			rollback_reason = "character allocation";
 			goto player_init_rollback;
 		}
+		chr_attached = true;
 		g_Vars.currentplayer->prop->type = PROPTYPE_PLAYER;
 		chr = g_Vars.currentplayer->prop->chr;
 
@@ -3089,74 +3283,48 @@ void playerTickChrBody(void)
 		chr->race = bodyGetRace(chr->bodynum);
 		chr->radius = g_Vars.currentplayer->bond2.radius;
 
-		g_Vars.currentplayer->vv_eyeheight = catalogGetBodyHeight(bodynum); /* SA-5d */
+		prepared_eyeheight = catalogGetBodyHeight(bodynum); /* SA-5d */
 
 #if VERSION >= VERSION_NTSC_1_0
 		if (g_Vars.antiplayernum >= 0
 				&& PLAYER_IS_ANTI(g_Vars.currentplayer)
-				&& g_Vars.currentplayer->vv_eyeheight > 159) {
-			g_Vars.currentplayer->vv_eyeheight = 159;
+				&& prepared_eyeheight > 159) {
+			prepared_eyeheight = 159;
 		}
 #endif
 
-		g_Vars.currentplayer->vv_headheight = g_Vars.currentplayer->vv_eyeheight;
+		prepared_headheight = prepared_eyeheight;
 
 		if (headnum >= 0) {
-			g_Vars.currentplayer->vv_headheight += catalogGetHeadHeight(headnum); /* SA-5f */
+			prepared_headheight += catalogGetHeadHeight(headnum); /* SA-5f */
 		} else {
-			g_Vars.currentplayer->vv_headheight += 13;
+			prepared_headheight += 13;
 		}
 
-		if (g_Vars.currentplayer->vv_headheight > catalogGetBodyHeight(BODY_MRBLONDE) + catalogGetHeadHeight(HEAD_MRBLONDE)) { /* SA-5d/5f */
-			g_Vars.currentplayer->vv_headheight = catalogGetBodyHeight(BODY_MRBLONDE) + catalogGetHeadHeight(HEAD_MRBLONDE); /* SA-5d/5f */
+		if (prepared_headheight > catalogGetBodyHeight(BODY_MRBLONDE) + catalogGetHeadHeight(HEAD_MRBLONDE)) { /* SA-5d/5f */
+			prepared_headheight = catalogGetBodyHeight(BODY_MRBLONDE) + catalogGetHeadHeight(HEAD_MRBLONDE); /* SA-5d/5f */
 		}
 
-		g_Vars.currentplayer->vv_height = g_Vars.currentplayer->vv_eyeheight;
-
-		if (weaponmodelnum >= 0) {
-			if (g_Vars.mplayerisrunning == false) {
-				s32 wfn = weapon_filenum_1p;
-				if (wfn < 0) {
-					weaponmodeldef = NULL;
-				} else if (!assetHandleIsNull(weapon_handle)) {
-					if (weapon_model_file_source_1p) {
-						if (weapon_model_id_1p != NULL && catalogLoadStageAsset(ASSET_MODEL, weapon_model_id_1p)) {
-							weaponmodeldef = catalogGetLoadedModeldef(weapon_model_id_1p);
-						} else {
-							sysLogPrintf(LOG_WARNING,
-								"PLAYER: public weapon model source failed for modelnum=%d id=%s",
-								weaponmodelnum, weapon_model_id_1p ? weapon_model_id_1p : "(null)");
-						}
-					} else {
-						weaponmodeldef = modeldefLoadFromHandle(weapon_handle, wfn, allocation + offset1, offset2 - offset1, &texpool);
-						assetLoadGetLoadedSize(weapon_handle);
-					}
-				} else {
-					static s32 s_last_missing_weapon_filenum = -1;
-
-					if (s_last_missing_weapon_filenum != wfn) {
-						s_last_missing_weapon_filenum = wfn;
-						sysLogPrintf(LOG_WARNING,
-							"CATALOG.MISS: player weapon modelnum=%d filenum=0x%04x has no provider handle",
-							weaponmodelnum, wfn);
-					}
-					weaponmodeldef = NULL;
-				}
-				if (weaponmodeldef == NULL) {
-					sysLogPrintf(LOG_WARNING, "PLAYER: weapon modeldef NULL for modelnum=%d filenum=0x%04x -- weapon will be hidden",
-						weaponmodelnum, wfn);
-				} else {
-					modelAllocateRwData(weaponmodeldef);
-				}
-			} else {
-				weaponobj = NULL;
-				weaponmodeldef = NULL;
-			}
-
-			weaponCreateForChr(chr, weaponmodelnum, weaponnum, 0, weaponobj, weaponmodeldef);
+		if (weaponmodelnum >= 0
+				&& weaponCreateForChr(chr, weaponmodelnum, weaponnum, 0,
+					weaponobj, weaponmodeldef) == NULL) {
+			result = PLAYER_CHRBODY_WEAPON_ATTACHMENT_FAILED;
+			rollback_reason = "weapon attachment";
+			goto player_init_rollback;
 		}
 
 		chr->fireslots[0] = bgunAllocateFireslot();
+		if (chr->fireslots[0] < 0) {
+			result = PLAYER_CHRBODY_FIRESLOT_FAILED;
+			rollback_reason = "fireslot allocation";
+			goto player_init_rollback;
+		}
+
+		/* No fallible work remains. Publish derived player view state only after
+		 * the character, held weapon, and fireslot are all owned. */
+		g_Vars.currentplayer->vv_eyeheight = prepared_eyeheight;
+		g_Vars.currentplayer->vv_headheight = prepared_headheight;
+		g_Vars.currentplayer->vv_height = prepared_eyeheight;
 		func0f02e9a0(chr, 0);
 		bmoveUpdateRooms(g_Vars.currentplayer);
 
@@ -3168,13 +3336,31 @@ void playerTickChrBody(void)
 
 		g_Vars.currentplayer->model00d4 = prepared_model;
 		g_Vars.currentplayer->haschrbody = true;
+		result = PLAYER_CHRBODY_OK;
 		sysLogPrintf(LOG_NOTE,
-			"PLAYER.INIT.COMMIT chrbody player=%d body=%d head=%d model=%p",
+			"PLAYER.INIT.COMMIT phase=chrbody player=%d body=%d head=%d model=%p",
 			g_Vars.currentplayernum, bodynum, headnum, (void *)prepared_model);
 		goto player_init_complete;
 
 player_init_rollback:
-		if (g_Vars.currentplayer->prop->chr == NULL) {
+		if (chr_attached) {
+			/* chrRemove owns the attached weapon/model/fireslot teardown. A player
+			 * prop normally enters with a chr slot allocated by playerReset; retain
+			 * that slot just as playerRemoveChrBody does. If this call allocated the
+			 * slot itself, retire it. Restore spatial registration after chrRemove's
+			 * deregistration so a later retry sees the exact pre-attach prop. */
+			chrRemove(g_Vars.currentplayer->prop, !chr_was_preexisting);
+			if (!chr_was_preexisting) {
+				g_Vars.currentplayer->prop->chr = NULL;
+			}
+			g_Vars.currentplayer->prop->type = previous_prop_type;
+			g_Vars.currentplayer->prop->pos = previous_prop_pos;
+			roomsCopySafe(previous_prop_rooms,
+				g_Vars.currentplayer->prop->rooms,
+				ARRAYCOUNT(g_Vars.currentplayer->prop->rooms));
+			propRegisterRooms(g_Vars.currentplayer->prop);
+			prepared_model = NULL;
+		} else {
 			g_Vars.currentplayer->prop->type = previous_prop_type;
 		}
 
@@ -3194,9 +3380,16 @@ player_init_rollback:
 
 		g_Vars.currentplayer->model00d4 = NULL;
 		g_Vars.currentplayer->haschrbody = false;
-		sysLogPrintf(LOG_ERROR,
-			"PLAYER.INIT.ROLLBACK chrbody player=%d reason=%s body=%d head=%d",
-			g_Vars.currentplayernum, rollback_reason, bodynum, headnum);
+		if (result == PLAYER_CHRBODY_DEFERRED) {
+			sysLogPrintf(LOG_VERBOSE,
+				"PLAYER.INIT.DEFER phase=chrbody player=%d reason=%s body=%d head=%d",
+				g_Vars.currentplayernum, rollback_reason, bodynum, headnum);
+		} else {
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ROLLBACK phase=chrbody player=%d status=%s reason=%s body=%d head=%d",
+				g_Vars.currentplayernum, playerChrBodyResultString(result),
+				rollback_reason, bodynum, headnum);
+		}
 
 player_init_complete:
 		;
@@ -3226,6 +3419,8 @@ player_init_complete:
 			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
 			(void *)g_Vars.currentplayer->model00d4);
 	}
+
+	return result;
 }
 
 void playerRemoveChrBody(void)
