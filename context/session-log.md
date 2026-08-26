@@ -62,8 +62,10 @@ the Room boundary into cycle two, both endscreens appear, and scripted exit 0
 reports all allocations intact. Post-run source remains product `e6287a9c...`
 and verifier `ad7c38f9...` with zero mismatches, zero animation/crash rejection
 matches, and zero PerfectDark/pd-tests/WerFault processes. B-1101/B-1102 are
-regression gates. No commit is claimed yet; T-ENGINE-004 remains partial while
-the next broader closure gap is audited.
+regression gates. The verified 50-file source unit is committed as
+`ed906402f0130e0aad5e793ac3ac6f4b07f5c6bc`; the pre-commit native-source guard
+passed and the protected Workbench-hook lane was excluded. T-ENGINE-004 remains
+partial while the next broader closure gap is audited.
 
 ## 2026-08-24 - B-1101 frozen automation accepted; runtime smoke pending
 

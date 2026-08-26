@@ -90,7 +90,8 @@ pass. Exact client `133A55C6...` then passes the one replacement two-cycle
 Combat Simulator smoke 56/56 with real fire/hit, both stats/award cycles, Play
 Again, clean exit, zero decoder/crash matches, and no leaked process. B-1101 and
 B-1102 are regression gates; accepted Campaign, D-003, and reconnect receipts
-were retained without rerun. The next T-ENGINE-004 closure gap is being audited.
+were retained without rerun. Verified source is committed as `ed906402`; the
+next T-ENGINE-004 closure gap is being audited.
 T-TESTS-002 remains validated
 after D-005 option A, B-1061/B-1062/B-1063, and the 17-mission restart gate.
 
