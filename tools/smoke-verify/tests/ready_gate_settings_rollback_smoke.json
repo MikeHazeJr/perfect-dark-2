@@ -1,0 +1,117 @@
+{
+  "scenario_name": "ready_gate_settings_rollback_smoke",
+  "description": "B-1103/SP-67 negative loopback proof. During a real immutable ready gate the remote ordinary client changes one valid handicap through netClientSettingsChanged and CLC_SETTINGS. The authority must roll back the exact prepared launch before accepting the candidate in restored lobby state, notify the client with SVC_MATCH_CANCELLED, avoid kicking either peer, and never start the stage.",
+  "tags": ["network", "ready-gate", "settings", "rollback", "protocol", "multi-process", "smoke"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/pdmain.c",
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 170,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--no-update-check", "--no-sound", "--skip-intro", "--host",
+        "--listen-bind", "27217",
+        "--launch-mp-room", "base:arena_mp_felicity", "base:combat", "0",
+        "--host-autostart"
+      ],
+      "wait_for": "NET: created server on port 27217",
+      "wait_timeout_seconds": 140,
+      "assertions": {
+        "required_lines": [
+          "PLAYER.INIT.COMMIT lobby-start room=\\d+ mode=0 players=2 bots=0 manifest=[1-9]\\d*",
+          "PLAYER.INIT.ROLLBACK ready-gate reason=settings_changed client=1 validated_candidate=1 settings_published=0",
+          "NET: ready gate aborted by '",
+          "PLAYER.INIT.ROLLBACK lobby-start room=\\d+ reason=.* globals_restored=1",
+          "NET: accepted CLC_SETTINGS client=1 .* handicap=129"
+        ],
+        "required_sequences": [
+          {
+            "name": "rollback-before-settings-publication",
+            "patterns": [
+              "PLAYER.INIT.COMMIT lobby-start room=\\d+ mode=0 players=2 bots=0",
+              "PLAYER.INIT.ROLLBACK ready-gate reason=settings_changed client=1 validated_candidate=1 settings_published=0",
+              "PLAYER.INIT.ROLLBACK lobby-start room=\\d+ reason=.* globals_restored=1",
+              "NET: accepted CLC_SETTINGS client=1"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "NET: countdown complete -- launching match",
+          "MATCH: server stage start",
+          "PLAYER.INIT.COMMIT lobby-start room=\\d+ rollback_snapshot_released=1",
+          "NET: rejected CLC_SETTINGS",
+          "NET: kicking client 1",
+          "SMOKE: result=timeout",
+          "EXCEPTION_ACCESS_VIOLATION",
+          "ACCESS_VIOLATION",
+          "FATAL: "
+        ],
+        "required_counts": [
+          { "pattern": "PLAYER.INIT.ROLLBACK ready-gate reason=settings_changed client=1", "min": 1, "max": 1 },
+          { "pattern": "NET: accepted CLC_SETTINGS client=1 .* handicap=129", "min": 1, "max": 1 }
+        ]
+      }
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--connect-host", "127.0.0.1:27217",
+        "--debug-ready-gate-settings-change"
+      ],
+      "assertions": {
+        "required_lines": [
+          "BOOT: --debug-ready-gate-settings-change armed smoke=1 one_shot=1",
+          "SMOKE.NET.SETTINGS_CHANGE sent state=\\d+ old_handicap=\\d+ new_handicap=[1-9]\\d* rc=0 ordinary_clc_settings=1 one_shot=1",
+          "NET: SVC_MATCH_CANCELLED .* cancelled by '",
+          "SMOKE: result=scripted_exit"
+        ],
+        "forbidden_patterns": [
+          "MATCH: client stage start received",
+          "PLAYER.INIT.COMMIT stage-start",
+          "NET: disconnected from server: Kicked",
+          "NET: rejected CLC_SETTINGS",
+          "SMOKE.NET.SETTINGS_CHANGE rejected",
+          "SMOKE: result=timeout",
+          "EXCEPTION_ACCESS_VIOLATION",
+          "ACCESS_VIOLATION",
+          "FATAL: "
+        ],
+        "required_counts": [
+          { "pattern": "SMOKE.NET.SETTINGS_CHANGE sent .* ordinary_clc_settings=1 one_shot=1", "min": 1, "max": 1 },
+          { "pattern": "NET: SVC_MATCH_CANCELLED", "min": 1, "max": 1 }
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "The client hook waits internally for the exact PREPARING state and sends one real validated CLC_SETTINGS update." },
+    { "at_ms": 105000, "type": "exit", "comment": "Bounded dwell covers clean install, join, prepared launch, settings race, rollback, cancellation delivery, and restored lobby observation." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=ready_gate_settings_rollback_smoke",
+      "NET: created server on port 27217",
+      "NET: incoming connection",
+      "PLAYER.INIT.ROLLBACK ready-gate reason=settings_changed client=1",
+      "NET: SVC_MATCH_CANCELLED",
+      "SMOKE: result=scripted_exit"
+    ],
+    "required_counts": [
+      { "pattern": "SMOKE: scenario=ready_gate_settings_rollback_smoke", "min": 2, "max": 2 },
+      { "pattern": "SMOKE.NET.SETTINGS_CHANGE sent .* one_shot=1", "min": 1, "max": 1 },
+      { "pattern": "PLAYER.INIT.ROLLBACK ready-gate reason=settings_changed", "min": 1, "max": 1 },
+      { "pattern": "NET: SVC_MATCH_CANCELLED", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 1, "max": 2 }
+    ]
+  }
+}

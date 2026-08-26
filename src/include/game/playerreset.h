@@ -29,4 +29,17 @@ enum player_reset_result {
 enum player_reset_result playerReset(void);
 const char *playerResetResultString(enum player_reset_result result);
 
+enum player_stage_rollback_flags {
+	PLAYER_STAGE_ROLLBACK_NONE = 0,
+	PLAYER_STAGE_ROLLBACK_EYESPY = 1 << 0,
+	PLAYER_STAGE_ROLLBACK_CHRBODY = 1 << 1,
+	PLAYER_STAGE_ROLLBACK_PLAYER_PROP = 1 << 2,
+	PLAYER_STAGE_ROLLBACK_GUNMEM = 1 << 3,
+	PLAYER_STAGE_ROLLBACK_MP_BINDINGS = 1 << 4,
+};
+
+/* Reverse one successfully committed playerReset/playerSpawn stage unit. The
+ * caller owns reverse roster order and must select the player first. */
+u32 playerRollbackStageInitialization(void);
+
 #endif

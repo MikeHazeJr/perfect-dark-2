@@ -26,7 +26,8 @@
 - Preserved each scenario's declared room domain through loading and portal
   traversal, preventing Air Base's portal-only rooms from corrupting teardown.
 - Routed friend matches through one elected in-client listen authority using a
-  separately signed server route, one join per peer, and retry-free rollback.
+  separately signed match-server route, one idempotent join per peer, and an
+  epoch-gated atomic stage baseline with retry-safe rollback.
 - Made live-match reconnect retain exact identity, settings, and room capacity
   through stage loading, then restore simultaneous absences, the authoritative
   replicated world, inventories, players, bots, scores, and cutscene state in

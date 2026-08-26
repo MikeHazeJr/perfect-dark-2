@@ -183,6 +183,76 @@ enum playermgr_allocate_result playermgrAllocatePlayers(s32 count)
 	return PLAYMGR_ALLOC_OK;
 }
 
+s32 playermgrBuildStageInitOrder(s32 out_order[MAX_PLAYERS])
+{
+	s32 order_keys[MAX_PLAYERS];
+	const s32 player_count = PLAYERCOUNT();
+	const bool network_order = g_NetMode == NETMODE_SERVER
+		|| g_NetMode == NETMODE_CLIENT;
+	s32 ordered_count = 0;
+
+	if (!out_order || player_count <= 0 || player_count > MAX_PLAYERS) {
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ORDER rejected reason=invalid_count count=%d max=%d",
+			player_count, MAX_PLAYERS);
+		return -1;
+	}
+
+	for (s32 playernum = 0; playernum < player_count; playernum++) {
+		struct player *player = g_Vars.players[playernum];
+		s32 order_key = playernum;
+		s32 insert_at;
+
+		if (!player) {
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ORDER rejected reason=missing_player player=%d count=%d",
+				playernum, player_count);
+			return -1;
+		}
+
+		if (network_order) {
+			if (!player->client || player->client->id >= NET_MAX_CLIENTS) {
+				sysLogPrintf(LOG_ERROR,
+					"PLAYER.INIT.ORDER rejected reason=invalid_client player=%d has_client=%d client=%d",
+					playernum, player->client != NULL,
+					player->client ? (s32)player->client->id : -1);
+				return -1;
+			}
+			order_key = (s32)player->client->id;
+		}
+
+		for (s32 i = 0; i < ordered_count; i++) {
+			if (order_keys[i] == order_key) {
+				sysLogPrintf(LOG_ERROR,
+					"PLAYER.INIT.ORDER rejected reason=duplicate_key player=%d key=%d other_player=%d",
+					playernum, order_key, out_order[i]);
+				return -1;
+			}
+		}
+
+		insert_at = ordered_count;
+		while (insert_at > 0 && order_keys[insert_at - 1] > order_key) {
+			order_keys[insert_at] = order_keys[insert_at - 1];
+			out_order[insert_at] = out_order[insert_at - 1];
+			insert_at--;
+		}
+		order_keys[insert_at] = order_key;
+		out_order[insert_at] = playernum;
+		ordered_count++;
+	}
+
+	for (s32 position = 0; position < ordered_count; position++) {
+		const s32 playernum = out_order[position];
+		const s32 client_id = network_order
+			? (s32)g_Vars.players[playernum]->client->id : -1;
+		sysLogPrintf(LOG_NOTE,
+			"PLAYER.INIT.ORDER position=%d player=%d client=%d mode=%d",
+			position, playernum, client_id, g_NetMode);
+	}
+
+	return ordered_count;
+}
+
 static void playermgrInitializePlayer(struct player *player, s32 index)
 {
 	struct hand hand = {

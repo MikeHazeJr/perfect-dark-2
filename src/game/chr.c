@@ -1748,7 +1748,13 @@ void chrRemove(struct prop *prop, bool free)
 	wallhitFadeSplatsForRemovedChr(prop);
 	psStopSound(prop, PSTYPE_GENERAL, 0xffff);
 	shieldhitsRemoveByProp(prop);
-	modelFreeVertices(VTXSTORETYPE_CHRVTX, model);
+	/* A playerReset commit owns a registered chr before playerSpawn attaches its
+	 * model. Stage-level rollback must use the same canonical chr owner for both
+	 * states, so model teardown is conditional while all other ownership still
+	 * retires normally. */
+	if (model != NULL) {
+		modelFreeVertices(VTXSTORETYPE_CHRVTX, model);
+	}
 	propDeregisterRooms(prop);
 
 	if (g_Vars.stagenum == STAGE_CITRAINING) {
@@ -1773,7 +1779,7 @@ void chrRemove(struct prop *prop, bool free)
 
 	/* c132: a frozen corpse has claimed this model -- keep it allocated (with
 	 * its rwdata binding) for the static corpse render; only detach the chr. */
-	if (!corpseStoreOwnsModel(model)) {
+	if (model != NULL && !corpseStoreOwnsModel(model)) {
 		modelmgrFreeModel(model);
 	}
 	chr->model = NULL;

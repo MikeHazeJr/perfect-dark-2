@@ -1,6 +1,6 @@
 # Connectivity / Online
 
-> ENet UDP transport. Server-authoritative wire protocol at v57. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v5). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
+> ENet UDP transport. Server-authoritative wire protocol at v58. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v5). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
 ---
 
@@ -78,7 +78,7 @@ exact Felicity load per process and no mismatch, skip, rejection, rollback,
 crash, or fatal signature. Broader transition, reconnect, and friend-play gates
 remain under T-ENGINE-004 and T-RELEASE-005.
 
-`NET_PROTOCOL_VER 57` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v57. The version is pinned by [tests/test_versions.cpp](../../tests/test_versions.cpp) (`g_TestExpectedNetProtocolVer`) which reads the live header.
+`NET_PROTOCOL_VER 58` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v58. The version is pinned by [tests/test_versions.cpp](../../tests/test_versions.cpp) (`g_TestExpectedNetProtocolVer`) which reads the live header.
 
 Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1560](../../port/src/net/net.c:1560) `enet_peer_disconnect(peer, DISCONNECT_VERSION)`) and at the presence-channel proto check ([port/src/group_session.c:212](../../port/src/group_session.c:212)).
 
@@ -86,6 +86,7 @@ Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1
 
 | Bump | What changed |
 |------|--------------|
+| **v58 (2026-08-26)** | Stage publication has one explicit inactive/waiting/release/active server lifecycle. `SVC_STAGE_START` carries a nonzero epoch and `CLC_STAGE_READY` echoes it, so stale or future readiness cannot release a different stage. The in-client listen authority and every exact surviving remote participant must cross the actual post-load boundary before one release frame publishes a fresh baseline; ordinary shared gameplay, spectator, cutscene, resync, and direct GPU-swarm entity state remain blocked before ACTIVE. The baseline uses dedicated reliable packet storage and clears its full pending mask only after a successful room queue, so late control-plane buffer resets cannot erase or partially consume it. Co-op NPC convergence is a reliable `SVC_NPC_RESYNC` plus immediate `SVC_NPC_SYNC` transaction whose digest is canonical by prop sync ID, hashes the exact serialized target and room-list fields, and is checked against that exact applied snapshot. Periodic live mutable-state checksums are removed. Current isolated builds, complete tests 66,421/1,200, native-source guard, and frozen product manifests pass. Current-v58 ordinary-client receipts pass co-op 96/96, Counter-Op 98/98, later-player rollback 60/60, settings rollback 43/43, initiator authority 214/214, reconnect 99/99, and the focus-independent invitee-authority route 170/170. The latter proves one elected in-client listen authority, one separately signed typed match-server route, exactly one non-authority join, and no probe/relay endpoint handoff. Its immutable raw receipt remains rejected at 169/170 for a stale two-digit epoch regex; corrected static coverage passes 108/2 and separately hashed retained logs pass 170/170 without product changes. All earlier v57 runtime receipts remain historical regression evidence rather than proof for the v58 binary. |
 | **v57 (2026-08-14)** | Reconnect is one endpoint-scoped authenticated transaction. ENet connect data is only a stable-slot hint; `CLC_AUTH` proves the in-memory cookie and exact settings remain frozen through manifest and asynchronous stage replay. Post-load `CLC_STAGE_READY` commits room/player publication and one targeted reliable packet containing cutscene state, one announced exact replicated-prop set, dynamic spawns, attachments/projectiles, doors/lifts/autoguns/weapons, every stable player's inventory/movement/stats, characters/bots/scores, applicable co-op state, and terminal `SVC_RECONNECT_COMMIT 0x55`. Client-local debris/effects remain outside the vocabulary. Failures roll back without consuming retryable reservations, while malformed peer content remains terminal. B-1096 restores projectile reverse ownership and exact terminal absence; B-1097 preserves packed character model-part lookup; B-1098 keeps generated relation topology inside each private clone. The exact B-1098 ordinary receipt proves reconnect world/inventory commit and no former clone crash, but is rejected for B-1099's stale prior-stage CUTSCENE. B-1099 adds the narrow authenticated stage-load retirement boundary without changing wire v57. Frozen product `7437d77c...` / client `0f377e3e...` and verifier `d5fd25c9...` / tests `ef5bdc72...` pass isolated builds, focused 1,746/19, full 63,936/1,168, and the native-source guard; one replacement ordinary smoke remains. |
 | **v56 (2026-08-13)** | Cutscene state carries a server-minted stage-scoped generation and the exact stable client-ID mask in every network game mode. One immutable prepared roster both serializes `SVC_STAGE_START` and commits the match snapshot for a room-scoped reliable START/ACCEPT/END stream; direct writers and second live-roster scans are excluded. `CLC_CUTSCENE_SKIP` remains untrusted, predicted client presentation holds no token outside an authoritative ACTIVE phase, and failed sends retain the ordered batch. Pending START/ACCEPT retries publish before ordinary shared traffic and discard that traffic when publication fails. Terminal END plus `SVC_STAGE_END` use one prepare/send/commit packet with idempotent retry before local lobby teardown; duplicate/no-match ends are inert, terminal frames discard pre-retry shared output, and later gameplay/spectator publication is suppressed. Receivers apply one stale/duplicate/conflict planner, map the frozen roster into local runtime slots, and replace the full active mask; lifecycle exits retire pending state. The final D-003 source freeze passed both ordinary-client authority roles on one product binary: initiator authority 214/214 and invitee authority 218/218, with receiver-local presentation, END-before-START ordering, stable gameplay, and no probe/relay endpoint handoff. |
 | **v55 (2026-08-13)** | `CLC_SETTINGS` transactionally carries the client's exact typed body/head IDs, team, nonzero handicap, options, FOV, and name before a match-scoped session catalog exists. `CLC_LOBBY_START` removes its duplicate positional handicap array. The server binds each prepared roster entry to that exact authenticated client's settings; `SVC_STAGE_START` still carries the final compacted authoritative roster. |
@@ -272,7 +273,7 @@ This static-test discipline catches the "trust client byte before validating" cl
 
 Per [constraints.md](../constraints.md):
 
-- **ENet protocol version v57** must match across clients.
+- **ENet protocol version v58** must match across clients.
 - **Server is not a player.** Dedicated server sets `g_NetLocalClient = NULL` and `g_NetNumClients = 0` at startup; slot 0 free for real players. All paths that dereference `g_NetLocalClient` must NULL-guard.
 - **No raw IP in any UI surface.** Connect codes only.
 - **Connect code byte order** is host-order, not network-order.
@@ -318,6 +319,29 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 ## What is in flight
 
 - **Connectivity Phase 2 / Phase 3** per [designs/connectivity/connectivity-and-modern-main-menu.md](../designs/connectivity/connectivity-and-modern-main-menu.md). Presence, voice, social shell, NAT diagnostics, public mods registry, file transfer, and listening rooms have substantial foundations. Theater remains a partial 1.0 release blocker under T-THEATER-001/V-011 rather than a shipped sub-pillar.
+- **Prepared-roster immutability is source-connected under
+  B-1067/B-1103/B-1104.** A valid ordinary settings change from the exact preparing
+  participant now aborts and restores the ready gate before settings
+  publication; reconnect and malformed-packet paths stay distinct. One shared
+  model-complete NPC predicate, bounded/transactional resync serialization,
+  retry-preserving pending bits, and validate-before-apply receive handling pass
+  frozen automation. The rejected v57 runtime receipts drove one authenticated
+  client-ID stage order plus the explicit protocol-v58
+  inactive/waiting/release/active lifecycle. START/READY share an epoch; the
+  listen authority and exact peers own separate post-load latches; one dedicated
+  fresh baseline and immediate exact NPC digest queue before ACTIVE admits
+  buffered, spectator, cutscene, or direct GPU-swarm gameplay. Current-v58
+  isolated builds, complete tests 66,421/1,200, native-source guard, and frozen
+  manifests pass. Seven current-v58 ordinary-client paths now pass: co-op,
+  Counter-Op, both rollback cases, both authority roles, and reconnect. The
+  focus-independent invitee-route fixture passes 170/170 from separately hashed
+  retained logs and pins one typed signed server route, one listen authority,
+  one idempotent peer join, and zero probe/relay handoff. The
+  integrated invitee-authority run proves route/start/gameplay but is rejected
+  at 210/218 because no foreground HWND exists for its independent B-1085 focus
+  transition; it remains a separate unchanged focus/visual regression fixture,
+  not a D-003 route blocker. B-1104 is a regression gate, while broader
+  T-ENGINE-004 closure remains partial.
 
 ---
 

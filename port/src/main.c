@@ -74,6 +74,7 @@
 #include "assetprovider.h"
 #include "asset_runtime.h"
 #include "effect_instance_runtime.h"
+#include "player_stage_init_fault.h"
 #include "combat_sim_verify.h"
 #include "weapon_nested_runtime_harness.h"
 #include "asset_source_debug.h"
@@ -207,6 +208,24 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       STAGE_CITRAINING with the Combat Sim room overlay auto-opened.
  *       With --debug-auto-start-match, arms a deferred direct match start
  *       for deterministic match-start smoke coverage after CI setup exists.
+ *
+ *   --host-autostart [--host-autostart-mode <mp|coop|counterop>]
+ *       Once one remote peer reaches the listen-host lobby, replays the same
+ *       high-level room start command used by the ordinary Room UI. Combat
+ *       Simulator is the default. Co-op and Counter-Op interpret the stage ID
+ *       supplied to --launch-mp-room as a typed mission map and use
+ *       --difficulty; Counter-Op assigns the one remote room member as Anti.
+ *
+ *   --debug-fail-stage-player-init <reset|spawn>:<player>
+ *       Smoke-only one-shot fault at the lvReset multi-player transaction
+ *       boundary. It is rejected unless --smoke is active and exists solely
+ *       to prove reverse rollback and clean stage-abort behavior.
+ *
+ *   --debug-ready-gate-settings-change
+ *       Smoke-only one-shot ordinary-client settings update. It waits for the
+ *       exact CLSTATE_PREPARING boundary, changes a valid local handicap, and
+ *       sends it through netClientSettingsChanged/CLC_SETTINGS. This proves a
+ *       prepared launch rolls back before the validated candidate publishes.
  *
  *   --debug-spawn-weapon <catalog_id>
  *       After --launch-mp-room seeds g_MatchConfig, forces the spawn weapon
@@ -368,8 +387,11 @@ static s32         g_BootLaunchMpMatchPending = 0;
  * minutes-only (6-bit), so this overrides g_MpTimeLimit60 directly at the
  * lv.c time-limit gate (test-only, gated on the latch). */
 static bool        g_BootHostAutostartArmed = false;
+static u8          g_BootHostAutostartGameMode = NETGAMEMODE_MP;
 static s32         g_BootHostAutostartFired = 0;
 static s32         g_BootHostAutostartSettleFrames = 0;
+static s32         g_BootReadyGateSettingsChangeArmed = 0;
+static s32         g_BootReadyGateSettingsChangeFired = 0;
 /* c3845: auto-start sequencing state machine.
  *   0 = waiting for remote-in-lobby + settle (handled by SettleFrames above)
  *   1 = room created + remote clients added; spacing frames before start
@@ -881,6 +903,29 @@ static s32 bootResolveDifficulty(const char *name)
 	sysLogPrintf(LOG_WARNING,
 		"BOOT: --difficulty '%s' unrecognised; defaulting to Agent", name);
 	return DIFF_A;
+}
+
+static bool bootResolveHostAutostartMode(const char *name, u8 *out_mode)
+{
+	if (out_mode == NULL) {
+		return false;
+	}
+	if (name == NULL || name[0] == '\0' || strcasecmp(name, "mp") == 0) {
+		*out_mode = NETGAMEMODE_MP;
+		return true;
+	}
+	if (strcasecmp(name, "coop") == 0
+			|| strcasecmp(name, "co-op") == 0) {
+		*out_mode = NETGAMEMODE_COOP;
+		return true;
+	}
+	if (strcasecmp(name, "counterop") == 0
+			|| strcasecmp(name, "counter-op") == 0
+			|| strcasecmp(name, "anti") == 0) {
+		*out_mode = NETGAMEMODE_ANTI;
+		return true;
+	}
+	return false;
 }
 
 /* Try to resolve a stage identifier (catalog ID like "base:defection" OR
@@ -2624,6 +2669,29 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void)
  * initialised. */
 static void bootApplyCliFastPaths(void)
 {
+	const char *player_init_fault =
+		sysArgGetString("--debug-fail-stage-player-init");
+
+	if (player_init_fault != NULL) {
+		const player_stage_init_fault_status_t status =
+			playerStageInitFaultConfigure(player_init_fault,
+				smokeHarnessIsActive() != 0, MAX_PLAYERS);
+		sysLogPrintf(status == PLAYER_STAGE_INIT_FAULT_OK
+				? LOG_NOTE : LOG_WARNING,
+			"BOOT: --debug-fail-stage-player-init spec='%s' status=%s smoke=%d",
+			player_init_fault, playerStageInitFaultStatusString(status),
+			smokeHarnessIsActive() != 0);
+	}
+	if (sysArgCheck("--debug-ready-gate-settings-change")) {
+		if (!smokeHarnessIsActive()) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-ready-gate-settings-change is smoke-only; request ignored");
+		} else {
+			g_BootReadyGateSettingsChangeArmed = 1;
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-ready-gate-settings-change armed smoke=1 one_shot=1");
+		}
+	}
 	if (sysArgCheck("--debug-generated-mesh-render-audit")) {
 		modAssetCompilerSetGeneratedModeldefRenderAudit(1);
 	}
@@ -3433,8 +3501,9 @@ s32 bootConnectHostTick(void)
  * local-client slot) has finished the join handshake, holds a ~2 s settle
  * delay so the manifest/catalog handshake state is stable, then fires the
  * SAME high-level start path the Room "Start Match" button uses --
- * netLobbyRequestStartWithSims(GAMEMODE_MP, ...) seeded from g_MatchConfig
- * (which --launch-mp-room populated). The bridge replays CLC_LOBBY_START
+ * netLobbyRequestStartWithSims(...) seeded from the typed stage ID that
+ * --launch-mp-room populated. The explicit autostart mode selects Combat
+ * Simulator, co-op, or Counter-Op metadata. The bridge replays CLC_LOBBY_START
  * through the server handler locally, performing the full room-assign /
  * manifest-broadcast / participant-playernum / ready-gate setup that
  * netServerStageStart() depends on -- so we deliberately do NOT call
@@ -3560,8 +3629,36 @@ s32 bootHostAutostartTick(void)
 
 	g_BootHostAutostartFired = 1;
 
+	const u8 mode = g_BootHostAutostartGameMode;
+	const u8 difficulty = mode == NETGAMEMODE_MP
+		? 0 : (u8)bootResolveDifficulty(g_BootLaunchDifficulty);
+	u8 antiClientId = NET_NULL_CLIENT;
+	s32 remoteParticipants = 0;
 	u8 weaponSet = (u8)(g_MatchConfig.weaponSetIndex >= 0
 		? g_MatchConfig.weaponSetIndex : 0xFF);
+
+	for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+		struct netclient *client = &g_NetClients[ci];
+
+		if (client == g_NetLocalClient
+				|| client->state < CLSTATE_LOBBY
+				|| (client->flags & CLFLAG_SPECTATOR)
+				|| client->room_id != g_BootHostAutostartRoomId) {
+			continue;
+		}
+		remoteParticipants++;
+		antiClientId = client->id;
+	}
+	if (mode == NETGAMEMODE_ANTI && remoteParticipants != 1) {
+		sysLogPrintf(LOG_ERROR,
+			"BOOT: --host-autostart Counter-Op requires exactly one remote room participant; found=%d",
+			remoteParticipants);
+		return 1;
+	}
+	if (mode != NETGAMEMODE_ANTI) {
+		antiClientId = NET_NULL_CLIENT;
+	}
+
 	/* Derive the bot payload metadata from the prepared slots, not the CLI
 	 * request. matchConfigAddBot may reject excess requests, and zero bots have
 	 * no lead difficulty, whose canonical wire sentinel is zero. */
@@ -3584,28 +3681,81 @@ s32 bootHostAutostartTick(void)
 		}
 		numSims++;
 	}
+	if (mode != NETGAMEMODE_MP) {
+		numSims = 0;
+		simType = 0;
+		weaponSet = 0xFF;
+	}
 	sysLogPrintf(LOG_NOTE,
-		"BOOT: --host-autostart firing: stage='%s' scenario=%u timelimit=%u sims=%u",
-		g_MatchConfig.stage_id, (unsigned)g_MatchConfig.scenario,
-		(unsigned)g_MatchConfig.timelimit, (unsigned)numSims);
+		"BOOT: --host-autostart firing: mode=%u stage='%s' difficulty=%u anti_client=%u scenario=%u timelimit=%u sims=%u",
+		(unsigned)mode, g_MatchConfig.stage_id, (unsigned)difficulty,
+		(unsigned)antiClientId,
+		(unsigned)(mode == NETGAMEMODE_MP ? g_MatchConfig.scenario : 0),
+		(unsigned)(mode == NETGAMEMODE_MP ? g_MatchConfig.timelimit : 0),
+		(unsigned)numSims);
 
 	s32 rc = netLobbyRequestStartWithSims(
-		0 /* GAMEMODE_MP */,
+		mode,
 		g_MatchConfig.stage_id,
-		0,                              /* difficulty (unused for MP) */
-		0xFF,                           /* antiClientId = NET_NULL_CLIENT */
-		numSims,                        /* bot count from --launch-mp-room */
-		simType,                        /* first prepared bot, or canonical zero */
-		g_MatchConfig.timelimit,
-		matchConfigGetUserOptions(),
-		g_MatchConfig.scenario,
-		g_MatchConfig.scorelimit,
-		g_MatchConfig.teamscorelimit,
+		difficulty,
+		antiClientId,
+		numSims,
+		simType,
+		mode == NETGAMEMODE_MP ? g_MatchConfig.timelimit : 0,
+		mode == NETGAMEMODE_MP ? matchConfigGetUserOptions() : 0,
+		mode == NETGAMEMODE_MP ? g_MatchConfig.scenario : 0,
+		mode == NETGAMEMODE_MP ? g_MatchConfig.scorelimit : 0,
+		mode == NETGAMEMODE_MP ? g_MatchConfig.teamscorelimit : 0,
 		weaponSet);
 
 	sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_WARNING,
 		"BOOT: --host-autostart consumed: result=%s rc=%d",
 		rc == 0 ? "OK" : "FAILED", (int)rc);
+	return 1;
+}
+
+/* B-1103/SP-67: production-path negative proof. schedStartFrame receives the
+ * manifest and sets the ordinary remote client to PREPARING before mainTick
+ * reaches this hook. Change one valid profile setting and use the same
+ * netClientSettingsChanged -> CLC_SETTINGS path as the lobby UI. The authority
+ * must roll back its immutable prepared roster before publishing this update.
+ * The hook is unavailable without an active smoke and fires at most once. */
+s32 bootReadyGateSettingsChangeTick(void)
+{
+	u8 prior_handicap;
+	u8 candidate_handicap;
+	s32 rc;
+
+	if (!g_BootReadyGateSettingsChangeArmed
+			|| g_BootReadyGateSettingsChangeFired) {
+		return 0;
+	}
+	if (!smokeHarnessIsActive()) {
+		g_BootReadyGateSettingsChangeArmed = 0;
+		sysLogPrintf(LOG_WARNING,
+			"SMOKE.NET.SETTINGS_CHANGE rejected smoke=0 one_shot=0");
+		return 1;
+	}
+	if (g_NetMode != NETMODE_CLIENT || g_NetLocalClient == NULL
+			|| g_NetLocalClient->state != CLSTATE_PREPARING) {
+		return 0;
+	}
+
+	prior_handicap = g_PlayerConfigsArray[0].handicap;
+	candidate_handicap = prior_handicap == 0
+		? 0x80 : (prior_handicap == 0xff ? 0xfe : prior_handicap + 1);
+	g_PlayerConfigsArray[0].handicap = candidate_handicap;
+	g_BootReadyGateSettingsChangeFired = 1;
+	g_BootReadyGateSettingsChangeArmed = 0;
+	rc = netClientSettingsChanged();
+	if (rc != 0) {
+		g_PlayerConfigsArray[0].handicap = prior_handicap;
+		g_NetLocalClient->settings.handicap = prior_handicap;
+	}
+	sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_ERROR,
+		"SMOKE.NET.SETTINGS_CHANGE sent state=%u old_handicap=%u new_handicap=%u rc=%d ordinary_clc_settings=1 one_shot=1",
+		(unsigned)g_NetLocalClient->state, (unsigned)prior_handicap,
+		(unsigned)candidate_handicap, rc);
 	return 1;
 }
 
@@ -3778,7 +3928,22 @@ int main(int argc, const char **argv)
 	/* c3845 (2026-06-23): listen-host two-process match smoke infra. */
 	g_BootHostAutostartArmed = sysArgCheck("--host-autostart") ? true : false;
 	if (g_BootHostAutostartArmed) {
-		sysLogPrintf(LOG_NOTE, "BOOT: --host-autostart armed");
+		const char *mode = sysArgGetString("--host-autostart-mode");
+		if (!bootResolveHostAutostartMode(mode,
+				&g_BootHostAutostartGameMode)) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --host-autostart-mode '%s' invalid; autostart disabled",
+				mode ? mode : "");
+			g_BootHostAutostartArmed = false;
+		} else {
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --host-autostart armed mode=%u difficulty=%s",
+				(unsigned)g_BootHostAutostartGameMode,
+				g_BootHostAutostartGameMode == NETGAMEMODE_MP
+					? "unused"
+					: (g_BootLaunchDifficulty
+						? g_BootLaunchDifficulty : "agent"));
+		}
 	}
 	{
 		const char *tlsec = sysArgGetString("--match-timelimit-sec");

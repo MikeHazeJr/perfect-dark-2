@@ -509,6 +509,86 @@ TEST_CASE("smoke-owned action reads bypass only gameplay focus suppression",
         "actionReadAllows(player, ACTION_AXIS_MOVE_Y)");
 }
 
+TEST_CASE("invitee authority route smoke isolates D-003 from focus and visual gates",
+    "[network][smoke][d-003][route-only][static]")
+{
+    const std::string fixture = readTextFile(
+        "tools/smoke-verify/tests/friend_play_authority_invitee_route_smoke.json");
+    const std::string invitee = requireSlice(fixture,
+        "\"name\": \"invitee\"", "\"name\": \"initiator\"");
+    const std::string initiator = requireSlice(fixture,
+        "\"name\": \"initiator\"", "\"input_sequence\"");
+
+    requireContains(fixture,
+        "\"scenario_name\": \"friend_play_authority_invitee_route_smoke\"");
+    requireContains(fixture, "\"separate_process_installs\": true");
+    requireContains(fixture, "\"friend_play_identity\": \"invitee\"");
+    requireContains(fixture, "\"friend_play_identity\": \"initiator\"");
+    requireContains(fixture, "base:arena_mp_felicity");
+    requireContains(fixture,
+        "GROUP.SESSION: authority elected handle=0x73eb8f71 kbps=9000 local=1");
+    requireContains(fixture,
+        "GROUP.SESSION: authority elected handle=0x73eb8f71 kbps=9000 local=0");
+    requireContains(invitee,
+        "GROUP.MATCH: server start attempt authority=0x73eb8f71 count=1");
+    requireContains(invitee,
+        "GROUP.MATCH: authority latched handle=0x73eb8f71 transport=listen-host");
+    requireContains(invitee,
+        "GROUP.SESSION: published typed match route authority=0x73eb8f71 flags=0x[0-9a-f]+ port=27210");
+    requireContains(initiator,
+        "PRESENCE: accepted signed match route authority=0x73eb8f71 flags=0x[0-9a-f]+ port=27210 fresh=1");
+    requireContains(initiator,
+        "GROUP.MATCH: join attempt authority=0x73eb8f71 route_kind=match-server flags=0x[0-9a-f]+ count=1");
+    requireContains(initiator,
+        "GROUP.MATCH: authority latched handle=0x73eb8f71 transport=client route_flags=0x[0-9a-f]+");
+    requireContains(fixture, "\"invitee-authority-start-and-publish\"");
+    requireContains(fixture, "\"initiator-consumes-only-signed-match-route\"");
+    requireContains(fixture, "\"v58-release-after-authority-and-peer-ready\"");
+    requireContains(fixture,
+        "NET.STAGE.REPLICATION phase=waiting epoch=[1-9]\\\\d*");
+    requireContains(fixture,
+        "NET.STAGE.REPLICATION ready authority=server epoch=[1-9]\\\\d* duplicate=0 post_load=1");
+    requireContains(fixture,
+        "NET.STAGE.REPLICATION phase=release epoch=[1-9]\\\\d*");
+    requireContains(fixture,
+        "NET.STAGE.REPLICATION phase=active epoch=[1-9]\\\\d*");
+    requireContains(fixture,
+        "\"condition\": \"network_stage_live\", \"timeout_ms\": 220000");
+    requireContains(fixture,
+        "\"condition\": \"gameplay_ready\", \"timeout_ms\": 60000, \"stable_ms\": 3000");
+    requireContains(fixture,
+        "probe endpoint.*netStartClient");
+    requireContains(fixture,
+        "relay descriptor.*netStartClient");
+    requireContains(fixture,
+        "P2P\\\\.(LAN|STUN|UPNP|ICE).*netStartClient");
+    requireContains(fixture,
+        "GROUP.SESSION: auxiliary probe.*netStartClient");
+    requireContains(fixture,
+        "\"pattern\": \"GROUP.MATCH: server start attempt authority=0x73eb8f71 count=1\", \"min\": 1, \"max\": 1");
+    requireContains(fixture,
+        "\"pattern\": \"GROUP.MATCH: join attempt authority=0x73eb8f71 route_kind=match-server flags=0x[0-9a-f]+ count=1\", \"min\": 1, \"max\": 1");
+    requireContains(fixture,
+        "\"pattern\": \"SMOKE: result=scripted_exit\", \"min\": 2, \"max\": 2");
+    requireContains(fixture,
+        "\"pattern\": \"SMOKE\\\\.WAIT: satisfied condition=gameplay_ready\", \"min\": 2, \"max\": 2");
+
+    /* B-1085 and V-009 retain their unchanged integrated fixture. This route
+     * proof must never acquire a focus transition, direct fire, generated
+     * rendering, effect audit, package distribution, or Needler dependency. */
+    REQUIRE(fixture.find("window_focus_transition") == std::string::npos);
+    REQUIRE(fixture.find("assist_action") == std::string::npos);
+    REQUIRE(fixture.find("ACTION_FIRE") == std::string::npos);
+    REQUIRE(fixture.find("debug-generated-mesh-render-audit") ==
+        std::string::npos);
+    REQUIRE(fixture.find("debug-effect-runtime-audit") == std::string::npos);
+    REQUIRE(fixture.find("packed_fixtures") == std::string::npos);
+    REQUIRE(fixture.find("needler") == std::string::npos);
+    REQUIRE(fixture.find(
+        "ready authority=server epoch=[1-9]\\\\d+ duplicate=0") ==
+        std::string::npos);
+}
+
 TEST_CASE("invitee authority smoke proves background owned fire reaches gameplay",
     "[input][network][smoke][d-003][b1085][static]")
 {
@@ -951,6 +1031,9 @@ TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry
 	requireContains(parent, "separate_process_installs");
 	requireContains(parent, "network_reconnect_host.json");
 	requireContains(parent, "network_reconnect_client.json");
+	requireContains(parent, "\"--debug-spawn-weapon\", \"base:cyclone\"");
+	requireContains(parent,
+		"BOOT: --debug-spawn-weapon 'base:cyclone' \\\\(SPECIFIC\\\\)");
 	requireContains(parent, "status=waiting exact_settings=1");
 	requireContains(parent, "NET.DISCONNECT.INTENT latch client=1 reason=5 retryable=1");
 	requireContains(parent, "server_intent=1 retryable=1");
@@ -974,7 +1057,7 @@ TEST_CASE("reconnect smoke drives one real timeout and one ordinary-client retry
 	requireContains(parent, "NET.RECONNECT.GAMEPLAY client=1");
 	requireContains(parent, "NET: .* \\\\(1\\\\) reconnected player=1");
 	requireContains(parent, "restored-client-gameplay-consumes-fire");
-	requireContains(parent, "COMBAT: SHOT_FIRED .*weapon=5(?: |$)");
+	requireContains(parent, "COMBAT: SHOT_FIRED .*weapon=11(?: |$)");
 	requireContains(parent, "scripted-exit-retires-reconnect-credential");
 	requireContains(parent,
 		"NET.RECONNECT.TEARDOWN retryable=0 credential_retained=0");

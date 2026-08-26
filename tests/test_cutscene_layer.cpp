@@ -728,18 +728,37 @@ TEST_CASE("cutscene network semantics: v56 owns one ordered match authority stre
     REQUIRE_FALSE(endFrame.empty());
     REQUIRE(endFrame.find("const bool terminal_stage_end_frame") !=
         std::string::npos);
-    REQUIRE(endFrame.find("const bool authority_pending_frame") !=
-        std::string::npos);
     REQUIRE(endFrame.find("s_NetStageEndPending.active || s_NetStageEndTerminalFrame") !=
         std::string::npos);
     REQUIRE(endFrame.find("netmsgCutsceneAuthorityHasPendingEvents") !=
         std::string::npos);
+    const size_t authorityPendingDeclaration = endFrame.find(
+        "bool authority_pending_frame");
+    const size_t stageReadiness = endFrame.find(
+        "stage_replication_ready = netServerStageReplicationReady()");
+    const size_t authorityPendingAssignment = endFrame.find(
+        "authority_pending_frame = g_NetMode", stageReadiness);
     const size_t terminalDiscard = endFrame.find(
-        "if (terminal_stage_end_frame || authority_pending_frame)");
+        "if (terminal_stage_end_frame", authorityPendingAssignment);
+    const size_t inactivePhaseDiscard = endFrame.find(
+        "!= NET_STAGE_REPLICATION_ACTIVE", terminalDiscard);
+    const size_t pendingAuthorityDiscard = endFrame.find(
+        "|| authority_pending_frame", inactivePhaseDiscard);
     const size_t firstSharedFlush = endFrame.find("netFlushSendBuffers()");
+    REQUIRE(authorityPendingDeclaration != std::string::npos);
+    REQUIRE(stageReadiness != std::string::npos);
+    REQUIRE(authorityPendingAssignment != std::string::npos);
     REQUIRE(terminalDiscard != std::string::npos);
+    REQUIRE(inactivePhaseDiscard != std::string::npos);
+    REQUIRE(pendingAuthorityDiscard != std::string::npos);
     REQUIRE(firstSharedFlush != std::string::npos);
+    REQUIRE(authorityPendingDeclaration < stageReadiness);
+    REQUIRE(stageReadiness < authorityPendingAssignment);
+    REQUIRE(authorityPendingAssignment < terminalDiscard);
+    REQUIRE(terminalDiscard < inactivePhaseDiscard);
+    REQUIRE(inactivePhaseDiscard < pendingAuthorityDiscard);
     REQUIRE(terminalDiscard < firstSharedFlush);
+    REQUIRE(pendingAuthorityDiscard < firstSharedFlush);
     REQUIRE(endFrame.find("netbufStartWrite(&g_NetMsg)", terminalDiscard) <
         firstSharedFlush);
     REQUIRE(endFrame.find("netbufStartWrite(&g_NetMsgRel)", terminalDiscard) <
@@ -756,9 +775,22 @@ TEST_CASE("cutscene network semantics: v56 owns one ordered match authority stre
     REQUIRE(priorityPublish < gamePublish);
     REQUIRE(endFrame.find("&& !authority_publication_failed", priorityPublish) !=
         std::string::npos);
-    REQUIRE(endFrame.find(
-        "if (terminal_stage_end_frame || authority_publication_failed)") !=
-        std::string::npos);
+    const size_t finalDiscard = endFrame.find(
+        "if (terminal_stage_end_frame || authority_publication_failed",
+        gamePublish);
+    const size_t finalInactivePhaseGate = endFrame.find(
+        "!= NET_STAGE_REPLICATION_ACTIVE", finalDiscard);
+    const size_t finalReleasePhaseGate = endFrame.find(
+        "!= NET_STAGE_REPLICATION_RELEASE", finalInactivePhaseGate);
+    const size_t finalSharedReset = endFrame.find(
+        "netbufStartWrite(&g_NetMsg)", finalReleasePhaseGate);
+    REQUIRE(finalDiscard != std::string::npos);
+    REQUIRE(finalInactivePhaseGate != std::string::npos);
+    REQUIRE(finalReleasePhaseGate != std::string::npos);
+    REQUIRE(finalSharedReset != std::string::npos);
+    REQUIRE(finalDiscard < finalInactivePhaseGate);
+    REQUIRE(finalInactivePhaseGate < finalReleasePhaseGate);
+    REQUIRE(finalReleasePhaseGate < finalSharedReset);
     REQUIRE(endFrame.find("netSendSpectateStateFrame") >
         endFrame.find("!terminal_stage_end_frame"));
     REQUIRE(endFrame.find("g_NetNumClients > 0\n\t\t\t&& !terminal_stage_end_frame") !=

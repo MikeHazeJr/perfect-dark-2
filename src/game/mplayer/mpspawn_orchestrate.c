@@ -4,8 +4,8 @@
  * Team anchors (max-spread among pool points) + Voronoi soft regions,
  * global min-cost assignment (Hungarian on padded square matrix), optional
  * bottleneck swap refinement, origin/duplicate relax, then human apply +
- * bot pool indices. Deterministic participant order (player num, bot slot)
- * for lockstep across host-fed config + spawn pool seed.
+ * bot pool indices. Deterministic participant order (authenticated client ID,
+ * then bot slot) for lockstep across endpoint-local runtime player slots.
  */
 
 #include <ultra64.h>
@@ -21,10 +21,12 @@
 #include "game/mplayer/mpspawn_orchestrate.h"
 #include "game/mplayer/mpspawn_hungarian.h"
 #include "game/player.h"
+#include "game/playermgr.h"
 #include "game/chr.h"
 #include "game/prop.h"
 #include "game/bot.h"
 #include "system.h"
+#include "net/net.h"
 
 bool g_MpOrchestrateInitialSpawnDone;
 
@@ -44,6 +46,7 @@ struct orch_part {
 	struct prop *prop;
 	s32 playernum;
 	s32 aibotnum;
+	s32 orderkey;
 	s32 team_sector;
 };
 
@@ -146,8 +149,8 @@ static int orch_part_cmp(const void *va, const void *vb)
 	s32 ka;
 	s32 kb;
 
-	ka = (a->playernum >= 0) ? a->playernum : (0x10000 + a->aibotnum);
-	kb = (b->playernum >= 0) ? b->playernum : (0x10000 + b->aibotnum);
+	ka = a->orderkey;
+	kb = b->orderkey;
 	if (ka < kb) {
 		return -1;
 	}
@@ -163,6 +166,14 @@ static void orch_sort_parts_deterministic(void)
 		return;
 	}
 	qsort(s_Parts, (size_t)s_PartCount, sizeof(s_Parts[0]), orch_part_cmp);
+}
+
+static const char *orch_player_role(s32 playernum)
+{
+	if (playernum == g_Vars.bondplayernum) return "bond";
+	if (playernum == g_Vars.coopplayernum) return "coop";
+	if (playernum == g_Vars.antiplayernum) return "anti";
+	return "combat";
 }
 
 /* Pick K anchor XZ positions from pool points: first farthest from AABB
@@ -366,6 +377,8 @@ void mpOrchestrateMatchStartSpawns(void)
 	f32 origin_tol = ORCH_ORIGIN_TOL_START;
 	f32 min_sep = ORCH_MIN_SEP_START;
 	s32 relax_iter;
+	s32 stage_player_order[MAX_PLAYERS];
+	s32 stage_player_count;
 	f32 dx;
 	f32 dz;
 	int64_t c;
@@ -391,8 +404,17 @@ void mpOrchestrateMatchStartSpawns(void)
 	center.y = (aabb.min.y + aabb.max.y) * 0.5f;
 	center.z = (aabb.min.z + aabb.max.z) * 0.5f;
 
+	stage_player_count = playermgrBuildStageInitOrder(stage_player_order);
+	if (stage_player_count < 0) {
+		sysLogPrintf(LOG_ERROR,
+			"SPAWN.ORCH: rejected reason=invalid_stage_player_order");
+		return;
+	}
+
 	s_PartCount = 0;
-	for (i = 0; i < MAX_PLAYERS; i++) {
+	for (s32 order_position = 0;
+			order_position < stage_player_count; order_position++) {
+		i = stage_player_order[order_position];
 		if (!g_Vars.players[i] || !g_Vars.players[i]->prop || !g_Vars.players[i]->prop->chr) {
 			continue;
 		}
@@ -403,6 +425,7 @@ void mpOrchestrateMatchStartSpawns(void)
 		s_Parts[s_PartCount].prop = g_Vars.players[i]->prop;
 		s_Parts[s_PartCount].playernum = i;
 		s_Parts[s_PartCount].aibotnum = -1;
+		s_Parts[s_PartCount].orderkey = order_position;
 		s_PartCount++;
 	}
 	for (i = 0; i < g_BotCount; i++) {
@@ -417,6 +440,8 @@ void mpOrchestrateMatchStartSpawns(void)
 		s_Parts[s_PartCount].playernum = -1;
 		s_Parts[s_PartCount].aibotnum = g_MpBotChrPtrs[i]->aibot
 			? (s32)g_MpBotChrPtrs[i]->aibot->aibotnum : i;
+		s_Parts[s_PartCount].orderkey = 0x10000
+			+ s_Parts[s_PartCount].aibotnum;
 		s_PartCount++;
 	}
 
@@ -698,6 +723,13 @@ void mpOrchestrateMatchStartSpawns(void)
 			}
 		}
 		if (s_Parts[p].playernum >= 0) {
+			const s32 playernum = s_Parts[p].playernum;
+			const s32 client_id = g_NetMode && g_Vars.players[playernum]
+				&& g_Vars.players[playernum]->client
+				? (s32)g_Vars.players[playernum]->client->id : -1;
+			sysLogPrintf(LOG_NOTE,
+				"SPAWN.ORCH: apply player=%d client=%d role=%s pool=%d duplicate=%d",
+				playernum, client_id, orch_player_role(playernum), ai, is_dup);
 			playerApplyOrchestratedSpawnFromPool(s_Parts[p].playernum, ai);
 		} else if (s_Parts[p].aibotnum >= 0 && s_Parts[p].aibotnum < MAX_BOTS) {
 			g_MpOrchestrateBotPoolIdx[s_Parts[p].aibotnum] = is_dup ? -1 : ai;

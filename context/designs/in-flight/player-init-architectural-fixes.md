@@ -1,7 +1,7 @@
 ---
-status: active closure under T-ENGINE-004; historical cohorts landed, B-1064/B-1065/B-1066/B-1101/B-1102 in progress
+status: active broader closure under T-ENGINE-004; B-1101/B-1102/B-1067/B-1103/B-1104 production-verified regression gates
 authored: 2026-04-27 (mystifying-hofstadter-deca99 worktree)
-updated: 2026-08-25 (codex-v1-m1-runner-20260812)
+updated: 2026-08-26 (codex-v1-m1-runner-20260812)
 synthesizes: context/audits/player-init-comparison-upstream-2026-04-26.md
              context/audits/char-init-weapon-spawn-comparison-opus47-2026-04-26.md
              context/audits/char-init-weapon-spawn-comparison-sonnet46-2026-04-26.md
@@ -1060,3 +1060,103 @@ Again, clean exit, zero decoder/crash rejection matches, and no leaked process.
 B-1101/B-1102 are retained regression gates. Accepted Campaign, D-003, and
 reconnect receipts were retained without rerun; broader T-ENGINE-004 lifecycle
 closure remains active.
+
+## 12. B-1067/B-1103/B-1104 prepared-roster and stage-player transaction closure
+
+Current source closes both residual partial-publication boundaries without
+introducing a second lobby or player-lifecycle model:
+
+- After complete `CLC_SETTINGS` validation, the authority identifies whether
+  the sender is the exact participant frozen in the active ready gate. If so,
+  it aborts and restores that transaction before publishing the new settings
+  in ordinary lobby state and recomputing team policy. Reconnect handling stays
+  separate, malformed packets remain non-mutating, and the smoke trigger calls
+  `netClientSettingsChanged` rather than a packet writer or raw transport send.
+- `lvReset` records each successful player reset and treats all selected
+  players as one stage transaction. Either a later reset failure or a spawn
+  failure reverse-unwinds every committed player through the canonical Eyespy,
+  chr/model, prop, gun-memory, and MP-binding owners. The teardown accepts both
+  model-less reset commits and full chrbody commits and leaves disconnect/title
+  recovery with no partially published stage player.
+- One exact smoke-only `reset:<player>` / `spawn:<player>` seam is disabled in
+  ordinary play, rejects malformed input, and consumes once. It enters the same
+  production rollback branch as a real failure instead of duplicating cleanup.
+- Mode-aware listen-host autostart reaches the ordinary ready gate for
+  multiplayer, co-op, and Counter-Op. Counter-Op assigns the sole remote client
+  as Anti and all modes start through `netLobbyRequestStartWithSims`.
+
+Source-linked focused contracts and four bounded fixtures now exist for
+positive ordinary co-op, positive ordinary Counter-Op, a preparing-client
+settings change, and a player-1 spawn failure after player 0 commits. This is
+an implemented but unverified checkpoint: no focused/full/guard result or
+production receipt is accepted until the source is frozen and the consolidated
+batch passes.
+
+The first frozen runtime batch retained positive co-op and exact later-player
+reverse-unwind evidence, but was rejected after Counter-Op crashed on a
+model-incomplete NPC orientation. The bounded readiness/serialization correction
+then passed frozen focused 816/13, full 65,898/1,198, and the native-source guard.
+All four replacement fixtures reached their terminal assertions on exact client
+`077FA41F...`, but that receipt is also rejected: Counter-Op logged 256 repeated
+missing-syncid 208 resync rejections.
+
+The second failure is not a wire-parser defect. Runtime player slots are
+local-first, so the authority runs Bond then Anti while the client runs Anti then
+Bond. Numeric player ordering assigns spawn pools 3 and 13 to opposite semantic
+roles; `playerSpawnAnti` then removes body/head 94/10 on the authority and 110/45
+on the client. The authority also emits NPC checksums/resyncs before the client's
+real post-load acknowledgement. The remaining structural unit therefore builds
+one immutable stage order from authenticated client IDs, uses it for reset,
+spawn, human orchestration, and true reverse rollback, and arms a post-load
+replication barrier that retains pending resync ownership until every relevant
+peer sends `CLC_STAGE_READY`. The barrier owns release at `netEndFrame`; a
+read-only query also gates the sole direct entity-state bypass, GPU-swarm
+snapshots, while room/auth/distribution/music/social control traffic remains
+available during loading. Disconnected obligations are removed without claiming
+a post-load acknowledgement, and release telemetry records both ready and
+departed masks. Production status remains unpromoted until one refrozen
+four-fixture batch is free of checksum/resync/rejection storms.
+
+The next exact-client batch proved that a zero wait mask still overloaded two
+states: no stage existed in the Carrington lobby, or a real stage had released.
+It also proved that a periodic checksum over mutable NPC fields had no shared
+sample boundary even after a successful full resync. Protocol v58 therefore
+replaces the barrier with explicit inactive/waiting/release/active phases and a
+nonzero stage epoch carried by START and echoed by READY. The listen authority
+owns an independent post-load latch. RELEASE appends one complete baseline,
+including a canonical sync-ID-sorted digest immediately after the full NPC
+resync it validates, to dedicated reliable packet storage. Pending ownership is
+cleared only after the complete room-scoped packet queues; a missing, partial,
+or failed packet leaves RELEASE intact for retry. The digest hashes the exact
+serialized target and sentinel-terminated room list, not receiver-local target
+fallbacks or unsent room-array tails. Only after that queue does the lifecycle
+enter ACTIVE for incrementals.
+The previous receipt and automation predate this wire change; at that checkpoint
+v58 remained source-connected and unverified until the consolidated replacement
+batch below.
+
+That replacement automation is now accepted. Product aggregate `03a65922...`
+across 2,719 files and final verifier aggregate `f5f9ba01...` across 408 files
+remain unchanged through the run; exact client `5DA75BE6...` and final tests
+`9E56A336...` come from the isolated queued build. The complete suite passes
+66,421 assertions in 1,200 cases and the native-source guard passes. Historical
+static expectations for the removed readiness boolean and old stage-send order
+were corrected only in verifier source; rejected receipts are retained and the
+product binary never changed. Current-v58 production receipts now pass co-op
+96/96, Counter-Op 98/98, later-player rollback 60/60, settings rollback 43/43,
+initiator authority 214/214, and reconnect 99/99. The reconnect verifier was
+made deterministic through ordinary typed match configuration by selecting
+`base:cyclone` and asserting actual weapon 11; its focused compiled contract
+passes 63 assertions. The integrated invitee-authority fixture reaches 210/218
+and proves the route/start/gameplay subset, but the execution desktop exposes
+no foreground HWND for B-1085's independent fresh SDL focus witness. One
+focus-independent invitee-route smoke therefore separated D-003 route proof
+from that unchanged focus/visual gate. Its immutable raw receipt remains
+rejected at 169/170 because the original epoch regex required two digits and
+rejected valid epoch 1; corrected static coverage passes 108 assertions in 2
+cases and separately hashed retained exact-client logs pass 170/170 without a
+product change. The accepted route proves one invitee-elected in-client ENet
+listen authority, one separately signed typed match-server route, exactly one
+initiator join, no probe/relay endpoint handoff, epoch-correct baseline/ACTIVE
+publication, stable gameplay, and clean exits. B-1104 is a regression gate;
+T-ENGINE-004 remains active only for broader 1.0 base-game lifecycle closure.

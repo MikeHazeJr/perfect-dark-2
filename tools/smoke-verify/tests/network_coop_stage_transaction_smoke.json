@@ -1,0 +1,199 @@
+{
+  "scenario_name": "network_coop_stage_transaction_smoke",
+  "description": "B-1067/B-1104 ordinary-client loopback proof that the high-level room start transaction carries a typed Campaign mission into a two-player server-authoritative co-op stage, allocates and spawns both players on both peers, and reaches stable usable gameplay.",
+  "tags": ["network", "coop", "campaign", "player-init", "transaction", "multi-process", "smoke"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c",
+    "port/src/smoke_harness.c",
+    "src/game/lv.c",
+    "src/game/playerreset.c",
+    "src/game/playermgr.c",
+    "src/game/mplayer/mpspawn_orchestrate.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--no-update-check", "--no-sound", "--skip-intro", "--host",
+        "--listen-bind", "27214",
+        "--launch-mp-room", "base:defection", "base:combat", "0",
+        "--host-autostart", "--host-autostart-mode", "coop",
+        "--difficulty", "agent"
+      ],
+      "wait_for": "NET: created server on port 27214",
+      "wait_timeout_seconds": 140,
+      "assertions": {
+        "required_lines": [
+          "BOOT: --host-autostart armed mode=1 difficulty=agent",
+          "BOOT: --host-autostart firing: mode=1 stage='base:defection' difficulty=0 anti_client=255 scenario=0 timelimit=0 sims=0",
+          "PLAYER.INIT.COMMIT lobby-start room=\\d+ mode=1 players=2 bots=0 manifest=[1-9]\\d*",
+          "NET: ready gate .*2/2 ready 0 declined timed_out=0 .*starting countdown",
+          "NET: starting co-op stage 0x[0-9a-f]+ difficulty 0 with 2 players",
+          "PLAYER.INIT.COMMIT coop-stage players=2 bond=0 coop=1 anti=-1",
+          "PLAYER.INIT.COMMIT lobby-start room=\\d+ rollback_snapshot_released=1",
+          "PLAYER.INIT.COMMIT phase=network players=2",
+          "PLAYER.INIT.ORDER position=0 player=0 client=0 mode=1",
+          "PLAYER.INIT.ORDER position=1 player=1 client=1 mode=1",
+          "PLAYER.INIT.COMMIT phase=stage player=0",
+          "PLAYER.INIT.COMMIT phase=stage player=1",
+          "SPAWN.ORCH: apply player=0 client=0 role=bond pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: apply player=1 client=1 role=coop pool=\\d+ duplicate=0",
+          "PLAYER.INIT.COMMIT phase=chrbody player=0",
+          "PLAYER.INIT.COMMIT phase=chrbody player=1",
+          "NET.STAGE.REPLICATION phase=waiting epoch=[1-9]\\d* room=\\d+ wait_mask=0x00000002 authority_ready=0 reason=coop-stage-start",
+          "NET.STAGE.REPLICATION ready authority=server epoch=[1-9]\\d* duplicate=0 post_load=1",
+          "NET.STAGE.REPLICATION ready client=1 epoch=[1-9]\\d* room=\\d+ duplicate=0 post_load=1",
+          "NET.STAGE.REPLICATION phase=release epoch=[1-9]\\d* room=\\d+ ready_mask=0x00000002 authority_ready=1",
+          "NET.STAGE.REPLICATION baseline=queued epoch=[1-9]\\d* room=\\d+ flags=0x[0-9a-f]+ bytes=[1-9]\\d*",
+          "NET.STAGE.REPLICATION phase=active epoch=[1-9]\\d* room=\\d+ fresh_release=1",
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "SMOKE\\.WAIT: satisfied condition=gameplay_ready"
+        ],
+        "required_sequences": [
+          {
+            "name": "canonical-coop-role-spawns",
+            "patterns": [
+              "PLAYER.INIT.ORDER position=0 player=0 client=0 mode=1",
+              "PLAYER.INIT.ORDER position=1 player=1 client=1 mode=1",
+              "SPAWN.ORCH: apply player=0 client=0 role=bond pool=\\d+ duplicate=0",
+              "SPAWN.ORCH: apply player=1 client=1 role=coop pool=\\d+ duplicate=0"
+            ]
+          },
+          {
+            "name": "post-load-replication-release",
+            "patterns": [
+              "NET.STAGE.REPLICATION phase=waiting .* wait_mask=0x00000002",
+              "NET.STAGE.REPLICATION ready authority=server .* post_load=1",
+              "NET.STAGE.REPLICATION ready client=1 .* post_load=1",
+              "NET.STAGE.REPLICATION phase=release .* ready_mask=0x00000002",
+              "NET: sending npc resync to all clients",
+              "NET.STAGE.REPLICATION baseline=queued .* flags=0x[0-9a-f]+ bytes=[1-9]\\d*",
+              "NET.STAGE.REPLICATION phase=active .* fresh_release=1"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "PLAYER.INIT.ROLLBACK",
+          "PLAYER.INIT.FAULT",
+          "BOOT: --host-autostart consumed: result=FAILED",
+          "SMOKE: result=timeout",
+          "SMOKE\\.WAIT: (timeout|pending_tap)",
+          "prop with syncid .* does not exist",
+          "SVC_NPC_SYNC checksum mismatch",
+          "SVC_NPC_SYNC snapshot mismatch",
+          "SVC_NPC_SYNC rejected",
+          "SVC_NPC_RESYNC rejected",
+          "requesting npc resync",
+          "NET.STAGE.REPLICATION release=retry",
+          "NET.STAGE.REPLICATION ready=rejected",
+          "malformed or unknown message 0x4b",
+          "EXCEPTION_ACCESS_VIOLATION",
+          "ACCESS_VIOLATION",
+          "FATAL: "
+        ]
+      }
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--connect-host", "127.0.0.1:27214"
+      ],
+      "assertions": {
+        "required_lines": [
+          "NET: connected to server, sending CLC_AUTH",
+          "PLAYER.INIT.COMMIT stage-start mode=1 stage='base:defection' players=2 bots=0",
+          "NET: SVC_STAGE from server: co-op stage 0x[0-9a-f]+ difficulty 0 with 2 players",
+          "PLAYER.INIT.COMMIT phase=network players=2",
+          "PLAYER.INIT.ORDER position=0 player=1 client=0 mode=2",
+          "PLAYER.INIT.ORDER position=1 player=0 client=1 mode=2",
+          "PLAYER.INIT.COMMIT phase=stage player=0",
+          "PLAYER.INIT.COMMIT phase=stage player=1",
+          "SPAWN.ORCH: apply player=1 client=0 role=bond pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: apply player=0 client=1 role=coop pool=\\d+ duplicate=0",
+          "PLAYER.INIT.COMMIT phase=chrbody player=0",
+          "PLAYER.INIT.COMMIT phase=chrbody player=1",
+          "NET: sent CLC_STAGE_READY epoch=[1-9]\\d* post_load=1 stage=0x[0-9a-f]+",
+          "NET: SVC_NPC_SYNC snapshot verified epoch=[1-9]\\d* tick=\\d+ count=\\d+ checksum=0x[0-9a-f]+",
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "SMOKE\\.WAIT: satisfied condition=gameplay_ready"
+        ],
+        "required_sequences": [
+          {
+            "name": "canonical-coop-role-spawns",
+            "patterns": [
+              "PLAYER.INIT.ORDER position=0 player=1 client=0 mode=2",
+              "PLAYER.INIT.ORDER position=1 player=0 client=1 mode=2",
+              "SPAWN.ORCH: apply player=1 client=0 role=bond pool=\\d+ duplicate=0",
+              "SPAWN.ORCH: apply player=0 client=1 role=coop pool=\\d+ duplicate=0",
+              "NET: sent CLC_STAGE_READY epoch=[1-9]\\d* post_load=1",
+              "NET: SVC_NPC_RESYNC read \\d+ npcs at tick \\d+ epoch=[1-9]\\d* snapshot_pending=1",
+              "NET: SVC_NPC_SYNC snapshot verified epoch=[1-9]\\d*"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "PLAYER.INIT.ROLLBACK",
+          "PLAYER.INIT.FAULT",
+          "NET: rejected CLC_SETTINGS",
+          "SMOKE: result=timeout",
+          "SMOKE\\.WAIT: (timeout|pending_tap)",
+          "prop with syncid .* does not exist",
+          "SVC_NPC_SYNC checksum mismatch",
+          "SVC_NPC_SYNC snapshot mismatch",
+          "SVC_NPC_SYNC rejected",
+          "SVC_NPC_RESYNC rejected",
+          "requesting npc resync",
+          "NET.STAGE.REPLICATION ready=rejected",
+          "malformed or unknown message 0x4b",
+          "EXCEPTION_ACCESS_VIOLATION",
+          "ACCESS_VIOLATION",
+          "FATAL: "
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 220000, "comment": "Pause each process until the ordinary ready gate, typed stage publication, load, allocation, and spawn are live." },
+    { "at_ms": 0, "type": "wait_until", "condition": "gameplay_ready", "timeout_ms": 60000, "stable_ms": 3000, "assist_action": "ACTION_SKIP_CUTSCENE", "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 900, "comment": "Require continuously usable local co-op control, using one bounded production Skip only if the authored intro owns input." },
+    { "at_ms": 4000, "type": "action", "name": "ACTION_MOVE_FORWARD", "action": "press" },
+    { "at_ms": 5500, "type": "action", "name": "ACTION_MOVE_FORWARD", "action": "release" },
+    { "at_ms": 8000, "type": "exit", "comment": "Exit after both peers prove stable gameplay and a bounded ordinary control gesture." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=network_coop_stage_transaction_smoke",
+      "NET: created server on port 27214",
+      "NET: incoming connection",
+      "MANIFEST: check passed .* sending READY",
+      "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+      "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "prop with syncid .* does not exist",
+      "SVC_NPC_SYNC checksum mismatch",
+      "SVC_NPC_SYNC snapshot mismatch",
+      "SVC_NPC_SYNC rejected",
+      "SVC_NPC_RESYNC rejected",
+      "requesting npc resync",
+      "NET.STAGE.REPLICATION release=retry",
+      "NET.STAGE.REPLICATION ready=rejected",
+      "malformed or unknown message 0x4b"
+    ],
+    "required_counts": [
+      { "pattern": "SMOKE: scenario=network_coop_stage_transaction_smoke", "min": 2, "max": 2 },
+      { "pattern": "SMOKE\\.WAIT: satisfied condition=network_stage_live", "min": 2, "max": 2 },
+      { "pattern": "SMOKE\\.WAIT: satisfied condition=gameplay_ready", "min": 2, "max": 2 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 1, "max": 2 }
+    ]
+  }
+}

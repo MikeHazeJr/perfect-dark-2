@@ -1724,7 +1724,13 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
         && g_StageNum != STAGE_CITRAINING;
     facts.stage_ready_epoch = s_State.ready_stage_generation > 0
         && s_State.ready_stage_num == g_StageNum;
-    facts.multiplayer_running = g_Vars.normmplayerisrunning != 0;
+    /* network_stage_live describes every shipping network game mode. Normal
+     * Combat Simulator uses normmplayerisrunning; co-op and Counter-Op retain
+     * their role globals instead. Requiring only the former made the typed
+     * readiness barrier permanently unreachable for network missions. */
+    facts.multiplayer_running = g_Vars.normmplayerisrunning != 0
+        || (facts.network_active && (g_Vars.coopplayernum >= 0
+            || g_Vars.antiplayernum >= 0));
     facts.local_player_present = local_player
         && g_NetLocalClient
         && g_NetLocalClient->player == local_player;

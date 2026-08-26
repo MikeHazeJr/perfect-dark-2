@@ -137,10 +137,12 @@ static struct {
 bool g_NetLocalBotAuthority = false;
 bool g_NetPendingBotAuthority = false;
 
-/* U-10: Stage-ready handshake — server-side tracking (dedicated server only). */
+/* U-10/B-1104: Stage-ready handshake — every server waits for real remote
+ * post-load readiness; dedicated mode also uses it for bot delegation. */
 s32  g_NetStageReadyDeadline    = -1;   /* g_NetTick value at timeout; -1 = not waiting */
 bool g_NetBotAuthorityDelegated = false; /* true once SVC_BOT_AUTHORITY sent this match */
 u32  g_NetMatchSeed             = 0;    /* L2-4: server-generated seed for deterministic spawn pools */
+u32  g_NetStageEpoch            = 0;    /* v58: exact published stage-session identity */
 
 /* Async recent-server query state */
 bool g_NetQueryInFlight = false;
@@ -159,6 +161,11 @@ struct netbuf g_NetMsg = { .data = g_NetMsgBuf, .size = sizeof(g_NetMsgBuf) };
 static u8 g_NetMsgRelBuf[65536]; // 64KB reliable buffer (control/auth/lobby — no bot bulk data)
 struct netbuf g_NetMsgRel = { .data = g_NetMsgRelBuf, .size = sizeof(g_NetMsgRelBuf) };
 
+/* B-1104: A stage baseline has dedicated packet ownership. Shared reliable
+ * storage is intentionally unavailable here because late control-plane
+ * producers reset g_NetMsgRel around their direct sends. */
+static u8 s_NetResyncTxnBuf[65536];
+
 typedef struct net_stage_end_pending_s {
 	bool active;
 	u8 room_id;
@@ -171,6 +178,22 @@ static net_stage_end_pending_t s_NetStageEndPending;
  * prevents stale gameplay/spectator traffic from following the terminal
  * packet in that same frame. */
 static bool s_NetStageEndTerminalFrame;
+
+typedef enum net_stage_replication_phase_e {
+	NET_STAGE_REPLICATION_INACTIVE = 0,
+	NET_STAGE_REPLICATION_WAITING,
+	NET_STAGE_REPLICATION_RELEASE,
+	NET_STAGE_REPLICATION_ACTIVE,
+} net_stage_replication_phase_e;
+
+/* B-1104/SP-70/SP-71: CLSTATE_GAME means that the match transaction is
+ * committed; it does not mean the authority or a remote endpoint has finished
+ * loading the referenced world. The explicit phase distinguishes "no stage"
+ * from "released", while the mask captures the exact peer-backed participants
+ * that received this stage start. */
+static net_stage_replication_phase_e s_NetStageReplicationPhase;
+static u32 s_NetStageReplicationWaitMask;
+static bool s_NetStageAuthorityReady;
 
 static void netServerClearPreservedPlayers(const char *reason);
 static void netServerDiscardPreservedPlayer(
@@ -625,6 +648,312 @@ static inline void netFlushSendBuffers(void)
 	}
 }
 
+static bool netServerStageReplicationPeer(const struct netclient *cl,
+		u8 room_id)
+{
+	return cl && cl->peer && cl->state == CLSTATE_GAME
+		&& !(cl->flags & CLFLAG_SPECTATOR) && cl->room_id == room_id;
+}
+
+bool netServerStageReplicationBlocked(void)
+{
+	/* Read-only by design. netEndFrame is the sole RELEASE -> ACTIVE owner so a
+	 * direct gameplay producer cannot make publication order depend on its tick
+	 * site. INACTIVE is blocked too: a prospective lobby mode is not a stage. */
+	return g_NetMode == NETMODE_SERVER
+		&& s_NetStageReplicationPhase != NET_STAGE_REPLICATION_ACTIVE;
+}
+
+static void netResetStageReplication(const char *reason,
+		bool clear_epoch)
+{
+	const net_stage_replication_phase_e prior = s_NetStageReplicationPhase;
+
+	s_NetStageReplicationPhase = NET_STAGE_REPLICATION_INACTIVE;
+	s_NetStageReplicationWaitMask = 0;
+	s_NetStageAuthorityReady = false;
+	g_NetPendingResyncFlags = 0;
+	if (clear_epoch) {
+		g_NetStageEpoch = 0;
+	}
+	netNpcReplicationReset();
+
+	if (prior != NET_STAGE_REPLICATION_INACTIVE) {
+		sysLogPrintf(LOG_NOTE,
+			"NET.STAGE.REPLICATION phase=inactive epoch=%u prior=%u reason=%s",
+			(unsigned)g_NetStageEpoch, (unsigned)prior,
+			reason ? reason : "unknown");
+	}
+}
+
+static void netServerRollbackStageReplicationBarrier(u32 prior_epoch,
+		const char *reason)
+{
+	s_NetStageReplicationPhase = NET_STAGE_REPLICATION_INACTIVE;
+	s_NetStageReplicationWaitMask = 0;
+	s_NetStageAuthorityReady = false;
+	g_NetPendingResyncFlags = 0;
+	g_NetStageEpoch = prior_epoch;
+	netNpcReplicationReset();
+	sysLogPrintf(LOG_WARNING,
+		"NET.STAGE.REPLICATION rollback epoch=%u phase=inactive reason=%s",
+		(unsigned)prior_epoch, reason ? reason : "unknown");
+}
+
+static bool netServerArmStageReplicationBarrier(const char *reason)
+{
+	u32 wait_mask = 0;
+
+	if (g_NetMode != NETMODE_SERVER
+			|| s_NetStageReplicationPhase != NET_STAGE_REPLICATION_INACTIVE) {
+		sysLogPrintf(LOG_ERROR,
+			"NET.STAGE.REPLICATION arm=rejected phase=%u mode=%u reason=%s",
+			(unsigned)s_NetStageReplicationPhase, (unsigned)g_NetMode,
+			reason ? reason : "unknown");
+		return false;
+	}
+
+	for (s32 i = 0; i < g_NetMaxClients && i < NET_MAX_CLIENTS; i++) {
+		struct netclient *cl = &g_NetClients[i];
+		if (!netServerStageReplicationPeer(cl, g_NetMatchRoomId)) {
+			continue;
+		}
+		cl->stage_ready = false;
+		wait_mask |= 1u << (u32)i;
+	}
+
+	g_NetStageEpoch++;
+	if (g_NetStageEpoch == 0) {
+		g_NetStageEpoch = 1;
+	}
+	s_NetStageReplicationPhase = NET_STAGE_REPLICATION_WAITING;
+	s_NetStageReplicationWaitMask = wait_mask;
+	s_NetStageAuthorityReady = false;
+	netNpcReplicationReset();
+	/* Stage publication may be initiated late in netEndFrame. Retire every
+	 * shared gameplay byte from the lobby/current stage before serializing the
+	 * new SVC_STAGE_START control transaction. */
+	netbufStartWrite(&g_NetMsg);
+	netbufStartWrite(&g_NetMsgRel);
+	sysLogPrintf(LOG_NOTE,
+		"NET.STAGE.REPLICATION phase=waiting epoch=%u room=%u wait_mask=0x%08x authority_ready=0 reason=%s",
+		(unsigned)g_NetStageEpoch, (unsigned)g_NetMatchRoomId,
+		(unsigned)wait_mask, reason ? reason : "unknown");
+	return true;
+}
+
+static bool netServerStageReplicationReady(void)
+{
+	const u32 waited_mask = s_NetStageReplicationWaitMask;
+	u32 pending_mask = 0;
+	u32 active_mask = 0;
+
+	if (g_NetMode != NETMODE_SERVER) {
+		return true;
+	}
+	if (s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE
+			|| s_NetStageReplicationPhase == NET_STAGE_REPLICATION_RELEASE) {
+		return true;
+	}
+	if (s_NetStageReplicationPhase != NET_STAGE_REPLICATION_WAITING) {
+		return false;
+	}
+
+	for (s32 i = 0; i < g_NetMaxClients && i < NET_MAX_CLIENTS; i++) {
+		const u32 bit = 1u << (u32)i;
+		struct netclient *cl;
+
+		if (!(s_NetStageReplicationWaitMask & bit)) {
+			continue;
+		}
+		cl = &g_NetClients[i];
+		/* A disconnected or transactionally removed peer no longer owns a wait
+		 * obligation. A reconnect enters PREPARING and receives its own targeted
+		 * post-load transaction rather than joining this initial barrier. */
+		if (!netServerStageReplicationPeer(cl, g_NetMatchRoomId)) {
+			continue;
+		}
+		active_mask |= bit;
+		if (!cl->stage_ready) {
+			pending_mask |= bit;
+		}
+	}
+
+	if (pending_mask || !s_NetStageAuthorityReady) {
+		return false;
+	}
+
+	s_NetStageReplicationPhase = NET_STAGE_REPLICATION_RELEASE;
+	sysLogPrintf(LOG_NOTE,
+		"NET.STAGE.REPLICATION phase=release epoch=%u room=%u ready_mask=0x%08x authority_ready=1 departed_mask=0x%08x",
+		(unsigned)g_NetStageEpoch, (unsigned)g_NetMatchRoomId,
+		(unsigned)active_mask, (unsigned)(waited_mask & ~active_mask));
+	return true;
+}
+
+typedef u32 (*net_resync_writer_fn)(struct netbuf *dst);
+
+/* Append one complete resync message or leave the destination byte-for-byte
+ * writable at its prior boundary. The pending bit is cleared by the caller
+ * only after the complete baseline is queued. */
+static bool netAppendResyncTransaction(struct netbuf *dst,
+		net_resync_writer_fn writer)
+{
+	const u32 wp_before = dst ? dst->wp : 0;
+	const u32 error_before = dst ? dst->error : 1;
+
+	if (!dst || !writer || error_before || writer(dst) != 0
+			|| dst->error || dst->wp <= wp_before) {
+		if (dst) {
+			dst->wp = wp_before;
+			dst->error = error_before;
+		}
+		return false;
+	}
+
+	return true;
+}
+
+static bool netAppendNpcResyncTransaction(struct netbuf *dst);
+
+/* Build and queue the complete requested baseline as one reliable packet. No
+ * individual ownership bit is consumed until ENet accepts the whole packet
+ * for every peer in the match room. RELEASE may therefore retry without ever
+ * exposing a partial baseline or allowing an incremental update to overtake
+ * it. */
+static bool netServerPublishPendingResyncs(void)
+{
+	const u8 requested = g_NetPendingResyncFlags;
+	struct netbuf wire = {
+		.data = s_NetResyncTxnBuf,
+		.size = sizeof(s_NetResyncTxnBuf),
+	};
+	bool complete = true;
+	u32 bytes;
+
+	if (!requested) {
+		if (s_NetStageReplicationPhase == NET_STAGE_REPLICATION_RELEASE) {
+			sysLogPrintf(LOG_ERROR,
+				"NET.STAGE.REPLICATION release=retry epoch=%u reason=missing-baseline",
+				(unsigned)g_NetStageEpoch);
+			return false;
+		}
+		return true;
+	}
+	if (g_NetMode != NETMODE_SERVER || !g_NetHost) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: baseline publish unavailable flags=0x%x; request retained for retry",
+			(unsigned)requested);
+		return false;
+	}
+
+	netbufStartWrite(&wire);
+	if (requested & NET_RESYNC_FLAG_CHRS) {
+		sysLogPrintf(LOG_NOTE,
+			"NET: sending chr resync to all clients (%u bots)", g_BotCount);
+		if (!netAppendResyncTransaction(&wire, netmsgSvcChrResyncWrite)) {
+			sysLogPrintf(LOG_WARNING,
+				"NET: chr resync append failed; request retained for retry");
+			complete = false;
+		}
+	}
+	if (complete && (requested & NET_RESYNC_FLAG_PROPS)) {
+		sysLogPrintf(LOG_NOTE, "NET: sending prop resync to all clients");
+		if (!netAppendResyncTransaction(&wire, netmsgSvcPropResyncWrite)) {
+			sysLogPrintf(LOG_WARNING,
+				"NET: prop resync append failed; request retained for retry");
+			complete = false;
+		}
+	}
+	if (complete && (requested & NET_RESYNC_FLAG_SCORES)) {
+		sysLogPrintf(LOG_NOTE, "NET: sending score resync to all clients");
+		if (!netAppendResyncTransaction(&wire,
+				netmsgSvcPlayerScoresWrite)) {
+			sysLogPrintf(LOG_WARNING,
+				"NET: score resync append failed; request retained for retry");
+			complete = false;
+		}
+	}
+	if (complete && (requested & NET_RESYNC_FLAG_NPCS)) {
+		sysLogPrintf(LOG_NOTE,
+			"NET: sending npc resync to all clients (%u npcs)", netNpcCount());
+		if (!netAppendNpcResyncTransaction(&wire)) {
+			sysLogPrintf(LOG_WARNING,
+				"NET: npc resync group append failed; request retained for retry");
+			complete = false;
+		}
+	}
+
+	if (!complete || wire.error || wire.wp == 0) {
+		netbufStartWrite(&wire);
+		sysLogPrintf(LOG_WARNING,
+			"NET: baseline transaction build failed flags=0x%x; request retained for retry",
+			(unsigned)requested);
+		return false;
+	}
+
+	bytes = wire.wp;
+	if (netSendToRoom(g_NetMatchRoomId, &wire, true,
+			NETCHAN_DEFAULT) != bytes) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: baseline transaction queue failed flags=0x%x bytes=%u; request retained for retry",
+			(unsigned)requested, (unsigned)bytes);
+		return false;
+	}
+
+	g_NetReliableFrameLen += bytes;
+	g_NetPendingResyncFlags &= (u8)~requested;
+	if (requested & NET_RESYNC_FLAG_SCORES) {
+		/* c3845 (2026-06-23): match-smoke milestone — the stage-start
+		 * baseline carries a scores broadcast immediately. */
+		sysLogPrintf(LOG_NOTE, "MATCH: scores replicated tick=%u", g_NetTick);
+	}
+	sysLogPrintf(LOG_NOTE,
+		"NET.STAGE.REPLICATION baseline=queued epoch=%u room=%u flags=0x%x bytes=%u",
+		(unsigned)g_NetStageEpoch, (unsigned)g_NetMatchRoomId,
+		(unsigned)requested, (unsigned)bytes);
+	return true;
+}
+
+/* The NPC snapshot and its mission-state companions are one correction unit.
+ * Never expose a partial group, and never consume the retry flag on failure. */
+static bool netAppendNpcResyncTransaction(struct netbuf *dst)
+{
+	const u32 wp_before = dst ? dst->wp : 0;
+	const u32 error_before = dst ? dst->error : 1;
+	bool complete = dst && !error_before && g_ObjectiveLastIndex <= 255;
+
+	if (complete && netmsgSvcNpcResyncWrite(dst) != 0) {
+		complete = false;
+	}
+	/* v58: the digest validates the exact snapshot immediately preceding it
+	 * on this reliable ordered transaction. A standalone periodic checksum has
+	 * no coherent sample time and is therefore forbidden. */
+	if (complete && netmsgSvcNpcSyncWrite(dst) != 0) {
+		complete = false;
+	}
+	if (complete && netmsgSvcStageFlagWrite(dst) != 0) {
+		complete = false;
+	}
+
+	for (s32 i = 0; complete && i <= g_ObjectiveLastIndex; i++) {
+		if (netmsgSvcObjStatusWrite(dst, (u8)i,
+				(u8)g_ObjectiveStatuses[i]) != 0) {
+			complete = false;
+		}
+	}
+
+	if (!complete || dst->error || dst->wp <= wp_before) {
+		if (dst) {
+			dst->wp = wp_before;
+			dst->error = error_before;
+		}
+		return false;
+	}
+
+	return true;
+}
+
 static inline const char *netGetDisconnectReason(const u32 reason)
 {
 	static const char *msgs[] = {
@@ -1024,6 +1353,7 @@ s32 netStartServer(u16 port, s32 maxclients)
 	}
 
 	g_NetMode = NETMODE_SERVER;
+	netResetStageReplication("server-start", true);
 	netmsgClcAuthClearCookie();
 	memset(&s_NetReconnectAttempt, 0, sizeof(s_NetReconnectAttempt));
 
@@ -1086,6 +1416,7 @@ s32 netServerStageStart(void)
 {
 	u8 state_before[NET_MAX_CLIENTS];
 	const u32 match_seed_before = g_NetMatchSeed;
+	const u32 stage_epoch_before = g_NetStageEpoch;
 
 	/* S301 Airbase diag: entry breadcrumb. If this fires but the
 	 * corresponding "netServerStageStart called" log does not appear
@@ -1148,6 +1479,15 @@ s32 netServerStageStart(void)
 		}
 	}
 	g_NetMatchSeed = (u32)(g_RngSeed ^ (g_RngSeed >> 32)) ^ g_NetTick;
+	if (!netServerArmStageReplicationBarrier("combat-stage-start")) {
+		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+			g_NetClients[ci].state = state_before[ci];
+		}
+		g_NetMatchSeed = match_seed_before;
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK server-stage reason=replication_lifecycle_rejected stage_started=0");
+		return -2;
+	}
 
 	/* Typed identities, room-scoped roster, participant mask, and session
 	 * references must all validate and serialize before mpStartMatch changes
@@ -1157,9 +1497,11 @@ s32 netServerStageStart(void)
 			g_NetClients[ci].state = state_before[ci];
 		}
 		g_NetMatchSeed = match_seed_before;
+		netServerRollbackStageReplicationBarrier(stage_epoch_before,
+			"combat-stage-preflight");
 		sysLogPrintf(LOG_ERROR,
 			"PLAYER.INIT.ROLLBACK server-stage reason=preflight_rejected stage_started=0");
-		return -2;
+		return -3;
 	}
 	netbufStartWrite(&g_NetMsgRel);
 	if (netmsgServerStageStartWrite(&g_NetMsgRel,
@@ -1169,24 +1511,41 @@ s32 netServerStageStart(void)
 		}
 		g_NetMatchSeed = match_seed_before;
 		netbufStartWrite(&g_NetMsgRel);
+		netServerRollbackStageReplicationBarrier(stage_epoch_before,
+			"combat-stage-write");
 		sysLogPrintf(LOG_ERROR,
 			"PLAYER.INIT.ROLLBACK server-stage reason=stage_write_or_authority_commit_rejected stage_started=0");
-		return -3;
+		return -4;
 	}
 
-	/* B-1039: The listen host is a real Combat Simulator participant too.
-	 * Previously only the removed/dedicated-style branch below called
-	 * mpStartMatch(), so a listen host broadcast a valid SVC_STAGE_START while
-	 * loading Chicago as solo state (mplayerisrunning=0, one Falcon player).
-	 * Build the authoritative participant set and arm the local MP stage before
-	 * serialising it to peers.  The dedicated build resolves this symbol to its
-	 * headless stub, so one call is the correct contract for both server modes. */
+	{
+		const u32 stage_wire_len = g_NetMsgRel.wp;
+		if (netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true,
+				NETCHAN_DEFAULT) != stage_wire_len) {
+			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
+				g_NetClients[ci].state = state_before[ci];
+			}
+			g_NetMatchSeed = match_seed_before;
+			netmsgCutsceneAuthorityReset();
+			netServerRollbackStageReplicationBarrier(stage_epoch_before,
+				"combat-stage-send");
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ROLLBACK server-stage reason=stage_send_rejected stage_started=0");
+			return -5;
+		}
+	}
+
+	/* B-1039: The listen host is a real Combat Simulator participant too. The
+	 * validated packet is queued first, then this synchronous local commit makes
+	 * the authority consume the same immutable participant set before ENet is
+	 * flushed. The dedicated build resolves mpStartMatch to its headless stub. */
 	mpStartMatch();
-	/* B-1076: the in-client server owns the same menu transition as an
-	 * offline start and a receiving client. Without this pair, menuReset
-	 * clears the legacy stack during stage load while Agent Select remains
-	 * active in the PC pool until the gameplay watchdog bulk-releases it. */
+	/* B-1076: the in-client server owns the same menu transition as an offline
+	 * start and a receiving client. */
 	netServerPrepareInClientStageTransition("server stage start combat");
+	/* A published stage, not a prepared packet, consumes prior-round identity
+	 * reservations. */
+	netServerClearPreservedPlayers("combat_stage_start");
 
 	extern s32 g_MainChangeToStageNum;
 	sysLogPrintf(LOG_NOTE, "NET: === STAGE START === stage=0x%02x (g_StageNum=0x%02x, pending=0x%02x) scenario=%u clients=%d",
@@ -1204,10 +1563,6 @@ s32 netServerStageStart(void)
 		}
 	}
 
-	// Clear prior-round identities and their exact room-capacity reservations.
-	netServerClearPreservedPlayers("combat_stage_start");
-
-	netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true, NETCHAN_DEFAULT);
 	if (g_NetMatchRoomId != 0xFF) {
 		sysLogPrintf(LOG_NOTE,
 			"MATCHSTART.DIAG: SVC_STAGE_START sent to room 0x%02x (combat sim)",
@@ -1239,10 +1594,8 @@ s32 netServerStageStart(void)
 	 * above already allocated the dedicated stub state.  On a listen server the
 	 * host runs full bot AI directly, so no relay is needed. */
 	if (g_NetDedicated) {
-		/* Reset per-client stage-ready flags and arm the handshake deadline (5 s). */
-		for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-			g_NetClients[ci].stage_ready = false;
-		}
+		/* The common replication barrier already reset the exact stage peers.
+		 * Dedicated mode additionally arms its bot-authority deadline. */
 		g_NetBotAuthorityDelegated = false;
 		g_NetBotAuthorityClientId  = NET_NULL_CLIENT;
 		g_NetStageReadyDeadline    = (s32)(g_NetTick + 300); /* 300 ticks = 5 s at 60 fps */
@@ -1277,6 +1630,7 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	s32 coop_before;
 	s32 anti_before;
 	u32 match_seed_before;
+	u32 stage_epoch_before;
 
 	if (g_NetMode != NETMODE_SERVER) {
 		return -1;
@@ -1358,6 +1712,7 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	coop_before = g_Vars.coopplayernum;
 	anti_before = g_Vars.antiplayernum;
 	match_seed_before = g_NetMatchSeed;
+	stage_epoch_before = g_NetStageEpoch;
 
 	g_MissionConfig.stagenum = stagenum;
 	strncpy(g_MissionConfig.stage_id, stage_entry->id,
@@ -1378,6 +1733,20 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 
 	/* L2-4: Generate match seed for deterministic spawn pools */
 	g_NetMatchSeed = (u32)(g_RngSeed ^ (g_RngSeed >> 32)) ^ g_NetTick;
+	if (!netServerArmStageReplicationBarrier("coop-stage-start")) {
+		for (s32 i = 0; i < g_NetMaxClients; i++) {
+			g_NetClients[i].state = state_before[i];
+			g_NetClients[i].playernum = playernum_before[i];
+		}
+		g_MissionConfig = mission_before;
+		g_Vars.bondplayernum = bond_before;
+		g_Vars.coopplayernum = coop_before;
+		g_Vars.antiplayernum = anti_before;
+		g_NetMatchSeed = match_seed_before;
+		sysLogPrintf(LOG_ERROR,
+			"PLAYER.INIT.ROLLBACK coop-stage reason=replication_lifecycle_rejected globals_restored=1");
+		return -9;
+	}
 
 	/* Serialize only after the exact roster, stage, identities, and roles are
 	 * committed.  On rejection restore the launch-visible state so the room can
@@ -1395,11 +1764,33 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 		g_Vars.antiplayernum = anti_before;
 		g_NetMatchSeed = match_seed_before;
 		netbufStartWrite(&g_NetMsgRel);
+		netServerRollbackStageReplicationBarrier(stage_epoch_before,
+			"coop-stage-write");
 		sysLogPrintf(LOG_ERROR,
 			"PLAYER.INIT.ROLLBACK coop-stage reason=stage_write_or_authority_commit_rejected globals_restored=1");
-		return -9;
+		return -10;
 	}
-	netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+	{
+		const u32 stage_wire_len = g_NetMsgRel.wp;
+		if (netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true,
+				NETCHAN_DEFAULT) != stage_wire_len) {
+			for (s32 i = 0; i < g_NetMaxClients; i++) {
+				g_NetClients[i].state = state_before[i];
+				g_NetClients[i].playernum = playernum_before[i];
+			}
+			g_MissionConfig = mission_before;
+			g_Vars.bondplayernum = bond_before;
+			g_Vars.coopplayernum = coop_before;
+			g_Vars.antiplayernum = anti_before;
+			g_NetMatchSeed = match_seed_before;
+			netmsgCutsceneAuthorityReset();
+			netServerRollbackStageReplicationBarrier(stage_epoch_before,
+				"coop-stage-send");
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ROLLBACK coop-stage reason=stage_send_rejected globals_restored=1");
+			return -11;
+		}
+	}
 
 	netServerClearPreservedPlayers("coop_stage_start");
 	for (s32 i = 0; i < g_NetMaxClients; ++i) {
@@ -1519,6 +1910,7 @@ static void netServerCommitPendingStageEnd(void)
 		g_NetLocalClient->state = CLSTATE_LOBBY;
 	}
 	netmsgSvcStageEndCommit(room_id, mode);
+	netResetStageReplication("stage-end-commit", true);
 	/* A stage boundary invalidates the old stage snapshot. Release every exact
 	 * room/client reservation only after the terminal packet is published, so a
 	 * failed END send remains retryable against the still-live match. */
@@ -1564,6 +1956,7 @@ void netServerStageEnd(void)
 	g_NetStageReadyDeadline    = -1;
 	g_NetBotAuthorityDelegated = false;
 	g_NetBotAuthorityClientId  = NET_NULL_CLIENT;
+	netResetStageReplication("stage-end-pending", false);
 
 	sysLogPrintf(LOG_NOTE, "NET: === STAGE END === game mode=%u tick=%u", g_NetGameMode, g_NetTick);
 	/* A stage boundary is the terminal authority transition. Preserve the same
@@ -1690,6 +2083,7 @@ s32 netStartClient(const char *addr)
 	}
 
 	g_NetMode = NETMODE_CLIENT;
+	netResetStageReplication("client-start", true);
 
 	g_NetTick = 0;
 	g_NetNextUpdate = 0;
@@ -1760,6 +2154,7 @@ static s32 netDisconnectWithIntent(s32 retain_reconnect)
 	g_NetLocalClient = &g_NetClients[NET_MAX_CLIENTS];
 	memset(&s_NetStageEndPending, 0, sizeof(s_NetStageEndPending));
 	s_NetStageEndTerminalFrame = false;
+	netResetStageReplication("disconnect", true);
 	netmsgCutsceneAuthorityReset();
 	playerResetAllCutsceneStates();
 
@@ -1913,15 +2308,34 @@ void netClientReconnectCommitAccepted(void)
 	}
 }
 
-void netClientStageLoaded(void)
+void netLocalStageLoaded(void)
 {
 	u8 payload[8];
 	struct netbuf wire;
 	u32 bytes;
+	bool already_ready;
+
+	if (g_NetMode == NETMODE_SERVER) {
+		if (s_NetStageReplicationPhase != NET_STAGE_REPLICATION_WAITING
+				&& s_NetStageReplicationPhase != NET_STAGE_REPLICATION_RELEASE) {
+			return;
+		}
+		already_ready = s_NetStageAuthorityReady;
+		s_NetStageAuthorityReady = true;
+		if (g_NetLocalClient) {
+			g_NetLocalClient->stage_ready = true;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"NET.STAGE.REPLICATION ready authority=server epoch=%u duplicate=%u post_load=1 stage=0x%02x",
+			(unsigned)g_NetStageEpoch, already_ready ? 1u : 0u,
+			(unsigned)g_StageNum);
+		return;
+	}
 
 	if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient
 			|| g_NetLocalClient->state != CLSTATE_GAME
-			|| !g_NetLocalClient->peer) {
+			|| !g_NetLocalClient->peer || g_NetStageEpoch == 0
+			|| g_NetLocalClient->stage_ready) {
 		return;
 	}
 
@@ -1945,8 +2359,8 @@ void netClientStageLoaded(void)
 
 	g_NetLocalClient->stage_ready = true;
 	sysLogPrintf(LOG_NOTE,
-		"NET: sent CLC_STAGE_READY post_load=1 stage=0x%02x",
-		(unsigned)g_StageNum);
+		"NET: sent CLC_STAGE_READY epoch=%u post_load=1 stage=0x%02x",
+		(unsigned)g_NetStageEpoch, (unsigned)g_StageNum);
 }
 
 /* Fill buf with len bytes from the OS CSPRNG (BCryptGenRandom / getrandom /
@@ -3210,9 +3624,8 @@ void netEndFrame(void)
 {
 	const bool terminal_stage_end_frame = g_NetMode == NETMODE_SERVER
 		&& (s_NetStageEndPending.active || s_NetStageEndTerminalFrame);
-	const bool authority_pending_frame = g_NetMode == NETMODE_SERVER
-		&& !terminal_stage_end_frame
-		&& netmsgCutsceneAuthorityHasPendingEvents();
+	bool stage_replication_ready = true;
+	bool authority_pending_frame;
 	bool authority_publication_failed = false;
 
 	if (!g_NetMode) {
@@ -3221,13 +3634,24 @@ void netEndFrame(void)
 
 	g_NetReliableFrameLen = 0;
 	g_NetUnreliableFrameLen = 0;
+	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame) {
+		stage_replication_ready = netServerStageReplicationReady();
+	}
+	authority_pending_frame = g_NetMode == NETMODE_SERVER
+		&& !terminal_stage_end_frame && stage_replication_ready
+		&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE
+		&& netmsgCutsceneAuthorityHasPendingEvents();
 
 	/* Any authority event already pending at this boundary supersedes ordinary
 	 * game messages accumulated since netStartFrame. Discard those shared
 	 * buffers, then publish the dedicated authority packet first. This keeps a
 	 * retained START/ACCEPT retry from being overtaken just as strictly as the
 	 * terminal END + SVC_STAGE_END transaction. */
-	if (terminal_stage_end_frame || authority_pending_frame) {
+	if (terminal_stage_end_frame
+			|| (g_NetMode == NETMODE_SERVER
+				&& (s_NetStageReplicationPhase
+					!= NET_STAGE_REPLICATION_ACTIVE))
+			|| authority_pending_frame) {
 		netbufStartWrite(&g_NetMsg);
 		netbufStartWrite(&g_NetMsgRel);
 	} else {
@@ -3248,7 +3672,8 @@ void netEndFrame(void)
 	 * `pd-server` (dedicated). No-op when no spectator clients are
 	 * subscribed. */
 	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
-			&& !authority_publication_failed) {
+			&& !authority_publication_failed
+			&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE) {
 		netSendSpectateStateFrame();
 	}
 
@@ -3289,7 +3714,11 @@ void netEndFrame(void)
 	 * know whether any clients are connected and need updates. */
 	if (g_NetMode == NETMODE_SERVER && g_NetNumClients > 0
 			&& !terminal_stage_end_frame
-			&& !authority_publication_failed) {
+			&& !authority_publication_failed && stage_replication_ready) {
+		/* RELEASE publishes only the complete fresh baseline below. Incremental
+		 * player/bot/NPC traffic starts on the following ACTIVE frame, so an
+		 * unreliable delta cannot overtake the reliable baseline. */
+		if (s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE) {
 		for (s32 i = 0; i < g_NetMaxClients; ++i) {
 			struct netclient *cl = &g_NetClients[i];
 			if (cl->state >= CLSTATE_GAME && cl->player) {
@@ -3358,7 +3787,7 @@ void netEndFrame(void)
 				if (g_NumChrSlots > 0) {
 					for (s32 i = 0; i < g_NumChrSlots; ++i) {
 						struct chrdata *chr = &g_ChrSlots[i];
-						if (chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot) {
+						if (netNpcIsReplicationReady(chr)) {
 							netmsgSvcNpcMoveWrite(&g_NetMsg, chr);
 						}
 					}
@@ -3370,16 +3799,11 @@ void netEndFrame(void)
 				if (g_NumChrSlots > 0) {
 					for (s32 i = 0; i < g_NumChrSlots; ++i) {
 						struct chrdata *chr = &g_ChrSlots[i];
-						if (chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot) {
+						if (netNpcIsReplicationReady(chr)) {
 							netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);
 						}
 					}
 				}
-			}
-
-			// NPC sync checksum every 120 frames (~0.5/sec)
-			if ((g_NetTick % 120) == 0) {
-				netmsgSvcNpcSyncWrite(&g_NetMsgRel);
 			}
 		}
 
@@ -3395,39 +3819,14 @@ void netEndFrame(void)
 			 * score broadcast from the HOST proves score replication is live. */
 			sysLogPrintf(LOG_NOTE, "MATCH: scores replicated tick=%u", g_NetTick);
 		}
-
-		// Handle pending resync requests from clients
-		if (g_NetPendingResyncFlags) {
-			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_CHRS) {
-				sysLogPrintf(LOG_NOTE, "NET: sending chr resync to all clients (%u bots)", g_BotCount);
-				netmsgSvcChrResyncWrite(&g_NetMsgRel);
-			}
-			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_PROPS) {
-				sysLogPrintf(LOG_NOTE, "NET: sending prop resync to all clients");
-				netmsgSvcPropResyncWrite(&g_NetMsgRel);
-			}
-			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_SCORES) {
-				sysLogPrintf(LOG_NOTE, "NET: sending score resync to all clients");
-				netmsgSvcPlayerScoresWrite(&g_NetMsgRel);
-				/* c3845 (2026-06-23): match-smoke milestone — the stage-start
-				 * resync fires a scores broadcast immediately at match start. */
-				sysLogPrintf(LOG_NOTE, "MATCH: scores replicated tick=%u", g_NetTick);
-			}
-			if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_NPCS) {
-				u32 npccount = netNpcCount();
-				sysLogPrintf(LOG_NOTE, "NET: sending npc resync to all clients (%u npcs)", npccount);
-				netmsgSvcNpcResyncWrite(&g_NetMsgRel);
-				// Also sync co-op mission state (stage flags + objective statuses)
-				netmsgSvcStageFlagWrite(&g_NetMsgRel);
-				for (s32 i = 0; i <= g_ObjectiveLastIndex; ++i) {
-					netmsgSvcObjStatusWrite(&g_NetMsgRel, (u8)i, (u8)g_ObjectiveStatuses[i]);
-				}
-			}
-			g_NetPendingResyncFlags = 0;
 		}
 
-		/* SEC-13: flush any pending SVC_ROOM_LIST broadcast (coalesces bursty
-		 * CLC_ROOM_CREATE/JOIN/LEAVE into one broadcast per frame). */
+	}
+
+	/* SEC-13: room topology is control-plane state. It must remain publishable
+	 * in the lobby and while a stage barrier suppresses gameplay. */
+	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
+			&& !authority_publication_failed) {
 		netRoomListFlushIfDirty();
 	}
 
@@ -3454,35 +3853,60 @@ void netEndFrame(void)
 		 * for client drift correction. */
 		audioNetworkMusicTick();
 
-		/* U-10: Stage-ready timeout — if not all clients reported ready within the
-		 * deadline, delegate BOT_AUTHORITY to the first available CLSTATE_GAME client
-		 * anyway so the match can proceed. */
+		/* U-10/B-1104: The deadline is only an ACTIVE-stage bot-authority
+		 * re-election aid. It may never bypass the post-load barrier or delegate
+		 * gameplay authority to an endpoint that has not acknowledged this stage. */
 		if (g_NetDedicated && !g_NetBotAuthorityDelegated
-				&& g_NetStageReadyDeadline >= 0 && (s32)g_NetTick >= g_NetStageReadyDeadline) {
-			s32 readyCount = 0, totalCount = 0;
+				&& g_NetStageReadyDeadline >= 0
+				&& (s32)g_NetTick >= g_NetStageReadyDeadline
+				&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE) {
+			struct netclient *candidate = NULL;
+			bool reelected = false;
+			s32 readyCount = 0;
+			s32 totalCount = 0;
 			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-				if (g_NetClients[ci].state == CLSTATE_GAME) {
+				struct netclient *cl = &g_NetClients[ci];
+				if (cl->state == CLSTATE_GAME
+						&& !(cl->flags & CLFLAG_SPECTATOR)) {
 					totalCount++;
-					if (g_NetClients[ci].stage_ready) {
+					if (cl->peer && cl->stage_ready) {
 						readyCount++;
+						if (!candidate) {
+							candidate = cl;
+						}
 					}
 				}
 			}
-			sysLogPrintf(LOG_NOTE, "NET: stage ready timeout, sending BOT_AUTHORITY anyway (ready: %d/%d)",
-			             readyCount, totalCount);
-			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
-				if (g_NetClients[ci].state == CLSTATE_GAME) {
-					netbufStartWrite(&g_NetMsgRel);
-					netmsgSvcBotAuthorityWrite(&g_NetMsgRel);
-					netSend(&g_NetClients[ci], &g_NetMsgRel, true, NETCHAN_DEFAULT);
-					g_NetBotAuthorityClientId = g_NetClients[ci].id;
-					sysLogPrintf(LOG_NOTE, "NET: SVC_BOT_AUTHORITY (timeout) sent to client %u ('%s') — %u bot stubs ready",
-					             g_NetClients[ci].id, g_NetClients[ci].settings.name, (u32)g_BotCount);
-					break;
+			if (candidate) {
+				u8 payload[8];
+				struct netbuf wire = {
+					.data = payload,
+					.size = sizeof(payload),
+				};
+				u32 bytes;
+
+				netbufStartWrite(&wire);
+				if (netmsgSvcBotAuthorityWrite(&wire) == 0 && wire.wp > 0) {
+					bytes = wire.wp;
+					if (netSend(candidate, &wire, true,
+							NETCHAN_DEFAULT) == bytes) {
+						g_NetBotAuthorityClientId = candidate->id;
+						g_NetBotAuthorityDelegated = true;
+						g_NetStageReadyDeadline = -1;
+						reelected = true;
+						sysLogPrintf(LOG_NOTE,
+							"NET: SVC_BOT_AUTHORITY re-elected client %u ('%s') ready=%d/%d bot_stubs=%u",
+							(unsigned)candidate->id, candidate->settings.name,
+							readyCount, totalCount, (unsigned)g_BotCount);
+					}
 				}
 			}
-			g_NetBotAuthorityDelegated = true;
-			g_NetStageReadyDeadline    = -1;
+			if (!reelected) {
+				g_NetStageReadyDeadline = (s32)(g_NetTick + 120);
+				sysLogPrintf(LOG_WARNING,
+					"NET: BOT_AUTHORITY re-election deferred ready=%d/%d retry_tick=%d",
+					readyCount, totalCount, (int)g_NetStageReadyDeadline);
+			}
 		}
 
 	}
@@ -3492,6 +3916,7 @@ void netEndFrame(void)
 	 * queue and discard all ordinary output from this frame. */
 	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
 			&& !authority_publication_failed
+			&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE
 			&& netmsgCutsceneAuthorityHasPendingEvents()
 			&& !netServerFlushCutsceneAuthority("end-frame-late")) {
 		authority_publication_failed = true;
@@ -3499,12 +3924,45 @@ void netEndFrame(void)
 		netbufStartWrite(&g_NetMsgRel);
 	}
 
-	// send position updates
-	if (terminal_stage_end_frame || authority_publication_failed) {
+	/* Publish resync ownership only after every late control-plane producer and
+	 * authority-priority check has finished. The dedicated packet cannot be
+	 * erased by a subsequent g_NetMsgRel reset. RELEASE stays blocked on any
+	 * build/queue failure and retries the complete baseline next frame. */
+	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
+			&& !authority_publication_failed && stage_replication_ready
+			&& (s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE
+				|| s_NetStageReplicationPhase == NET_STAGE_REPLICATION_RELEASE)
+			&& !netServerPublishPendingResyncs()
+			&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_RELEASE) {
+		authority_publication_failed = true;
+		sysLogPrintf(LOG_WARNING,
+			"NET.STAGE.REPLICATION release=retry epoch=%u reason=baseline-publish",
+			(unsigned)g_NetStageEpoch);
+	}
+
+	/* A stage can be armed late by readyGateTickCountdown after the readiness
+	 * snapshot at function entry. Consult the live phase here so no pre-arm
+	 * shared bytes escape. INACTIVE and WAITING both suppress shared entity
+	 * buffers; control-plane producers use their explicit direct sends. */
+	if (terminal_stage_end_frame || authority_publication_failed
+			|| (g_NetMode == NETMODE_SERVER
+				&& s_NetStageReplicationPhase
+					!= NET_STAGE_REPLICATION_ACTIVE
+				&& s_NetStageReplicationPhase
+					!= NET_STAGE_REPLICATION_RELEASE)) {
 		netbufStartWrite(&g_NetMsg);
 		netbufStartWrite(&g_NetMsgRel);
 	} else {
 		netFlushSendBuffers();
+	}
+	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
+			&& !authority_publication_failed
+			&& s_NetStageReplicationPhase == NET_STAGE_REPLICATION_RELEASE) {
+		s_NetStageReplicationPhase = NET_STAGE_REPLICATION_ACTIVE;
+		s_NetStageReplicationWaitMask = 0;
+		sysLogPrintf(LOG_NOTE,
+			"NET.STAGE.REPLICATION phase=active epoch=%u room=%u fresh_release=1",
+			(unsigned)g_NetStageEpoch, (unsigned)g_NetMatchRoomId);
 	}
 
 	enet_host_flush(g_NetHost);

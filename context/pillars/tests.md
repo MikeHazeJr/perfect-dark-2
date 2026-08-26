@@ -69,7 +69,7 @@ The binary is self-contained: no SDL2, no OpenGL, no ImGui, no ENet linkage. Com
 - `test_netbuf` - cursor-based buffer write/read, error-sticky flag, length-prefixed strings, malformed-input safety.
 - `test_net_lifecycle_static` - parse-before-commit ordering on every sensitive `CLC_*` and `SVC_*` handler. The static-text discipline that catches the "trust client byte before validating" bug class.
 - `test_net_cutscene_authority` - exact v56 cutscene request/result codecs, authenticated-source planning, stable client-ID/runtime-slot remapping, generation rejection, and malformed or ambiguous roster fail-closed behavior.
-- `test_net_reconnect` - v57 stable-slot connect-data validation, timeout-only
+- `test_net_reconnect` - v57-introduced stable-slot connect-data validation, timeout-only
   retry classification, and B-1092 server-intent resolution when ENet's
   sender-local event loses the remote disconnect datum.
 - `test_connectcode` - encode/decode round-trip; UI-surface no-raw-IP static guard.
@@ -266,6 +266,39 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 
 - **Cohorts 1+2** of the testing framework shipped per [designs/in-flight/testing-framework.md](../designs/in-flight/testing-framework.md) (the 2026-04-26 ADR). Cohort 3 (mission/mode/input mapping) deferred.
 - Static-text guards expand each session as new invariants need pinning.
+- **B-1067/B-1103/B-1104 protocol-v58 verification is accepted as one
+  coherent production gate.** Pure fault-seam and static production contracts
+  pin exact parsing, one-shot ownership, authenticated client-ID ordering,
+  reverse rollback, mode-aware listen-host startup, NPC readiness and atomic
+  resync, nonzero stage epochs, dedicated baseline queue ownership, and
+  ACTIVE-only shared replication. Current product `03a65922...` and verifier
+  `f5f9ba01...` pass isolated client/updater/tests builds, complete tests
+  66,421/1,200, the native-source guard, and exact post-run manifest comparison.
+  The focused transaction cluster passed 1,283/15 before its assertions were
+  included in that complete suite.
+
+  Exact client `5DA75BE6...` passes the seven-path ordinary-client matrix: co-op
+  96/96, Counter-Op 98/98, later-player rollback 60/60, settings rollback 43/43,
+  initiator authority 214/214, deterministic typed-Cyclone reconnect 99/99,
+  and focus-independent invitee authority 170/170. The final route fixture's
+  compiled route/reconnect contract passes 108 assertions in 2 cases. Its
+  immutable raw receipt remains rejected at 169/170 with zero operational
+  failures because a stale verifier regex rejected valid epoch 1; the corrected
+  definition and separately hashed retained logs pass 170/170 without changing
+  the product binary or logs. Final closure verifier `726a2c96...` spans 409
+  files and exact tests binary `38C37DC4...`; the only pre-route changes are that
+  corrected fixture and its static contract. They prove one elected listen authority, one
+  signed typed match-server route, exactly one peer join, no probe/relay
+  descriptor handoff, epoch-correct baseline/ACTIVE ordering, stable gameplay,
+  and clean exits.
+
+  The integrated invitee-authority B-1085/V-009 fixture remains unchanged at
+  210/218 on this desktop because no foreground HWND exists for its independent
+  SDL focus witness. It remains a focus/visual regression fixture and does not
+  weaken or block the accepted D-003 route gate. Earlier rejected receipts are
+  retained as diagnosis history in `context/session-log.md`; they are not the
+  current verification state. B-1104 is a regression gate, while broader
+  T-ENGINE-004 and Milestone 1 remain partial.
 
 ---
 

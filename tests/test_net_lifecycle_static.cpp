@@ -701,6 +701,245 @@ TEST_CASE("net lifecycle: rejected Counter-Op start cannot publish role state",
     REQUIRE(read.find("g_NetCounterOpClientId =") == std::string::npos);
 }
 
+TEST_CASE("NPC replication shares one complete-owner and transactional resync boundary",
+		"[net][npc][replication][resync][static][B-1104][SP-69]")
+{
+	const std::string header = read_text_file("port/include/net/netmsg.h");
+	const std::string net = read_text_file("port/src/net/net.c");
+	const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+	const std::string ready = function_block(
+		netmsg, "bool netNpcIsReplicationReady");
+	const std::string count = function_block(netmsg, "u32 netNpcCount");
+	const std::string checksum = function_block(
+		netmsg, "static bool netNpcSnapshotDigest");
+	const std::string snapshot_target = function_definition_block(
+		netmsg, "static struct prop *netNpcSnapshotTarget");
+	const std::string sync_write = function_block(
+		netmsg, "u32 netmsgSvcNpcSyncWrite");
+	const std::string sync_read = function_block(
+		netmsg, "u32 netmsgSvcNpcSyncRead");
+	const std::string move_write = function_block(
+		netmsg, "u32 netmsgSvcNpcMoveWrite");
+	const std::string move_read = function_block(
+		netmsg, "u32 netmsgSvcNpcMoveRead");
+	const std::string state_write = function_block(
+		netmsg, "u32 netmsgSvcNpcStateWrite");
+	const std::string state_read = function_block(
+		netmsg, "u32 netmsgSvcNpcStateRead");
+	const std::string resync_write = function_block(
+		netmsg, "u32 netmsgSvcNpcResyncWrite");
+	const std::string record_read = function_block(
+		netmsg, "static void netmsgNpcResyncRecordRead");
+	const std::string record_ready = function_block(
+		netmsg, "static bool netmsgNpcResyncRecordIsReady");
+	const std::string record_apply = function_block(
+		netmsg, "static void netmsgNpcResyncRecordApply");
+	const std::string resync_read = function_block(
+		netmsg, "u32 netmsgSvcNpcResyncRead");
+	const std::string append = function_block(
+		net, "static bool netAppendResyncTransaction");
+	const std::string npc_append = function_definition_block(
+		net, "static bool netAppendNpcResyncTransaction");
+	const std::string publish = function_block(
+		net, "static bool netServerPublishPendingResyncs");
+	const std::string endframe = function_block(net, "void netEndFrame");
+
+	REQUIRE(header.find(
+		"bool netNpcIsReplicationReady(const struct chrdata *chr);") !=
+		std::string::npos);
+	REQUIRE(ready.find("chr->prop") != std::string::npos);
+	REQUIRE(ready.find("chr->prop->type != PROPTYPE_CHR") != std::string::npos);
+	REQUIRE(ready.find("chr->prop->chr != chr") != std::string::npos);
+	REQUIRE(ready.find("chr->aibot") != std::string::npos);
+	REQUIRE(ready.find("chr->model") != std::string::npos);
+	REQUIRE(ready.find("chr->model->definition") != std::string::npos);
+	REQUIRE(ready.find("chr->model->definition->rootnode") != std::string::npos);
+	const size_t chrinfo = ready.find("MODELNODETYPE_CHRINFO");
+	const size_t rodata = ready.find("!root->rodata", chrinfo);
+	const size_t rwdatas = ready.find("!chr->model->rwdatas", rodata);
+	REQUIRE(chrinfo != std::string::npos);
+	REQUIRE(rodata != std::string::npos);
+	REQUIRE(rwdatas != std::string::npos);
+	REQUIRE(chrinfo < rodata);
+	REQUIRE(rodata < rwdatas);
+
+	for (const std::string *writer : {&count, &checksum, &move_write,
+			&state_write, &resync_write}) {
+		REQUIRE(writer->find("netNpcIsReplicationReady") != std::string::npos);
+	}
+	REQUIRE(checksum.find("qsort(ordered") != std::string::npos);
+	REQUIRE(checksum.find("chr->prop->syncid") != std::string::npos);
+	REQUIRE(checksum.find("netNpcDigestMixU32") != std::string::npos);
+	REQUIRE(checksum.find("netNpcFloatBits(chrGetInverseTheta") !=
+		std::string::npos);
+	REQUIRE(checksum.find("netNpcSnapshotFlags(chr, target)") !=
+		std::string::npos);
+	REQUIRE(checksum.find("netNpcSnapshotTarget(chr)") != std::string::npos);
+	REQUIRE(checksum.find("if (chr->prop->rooms[room] < 0)") !=
+		std::string::npos);
+	REQUIRE(snapshot_target.find("chr->target < 0") != std::string::npos);
+	REQUIRE(snapshot_target.find("target->syncid != 0 ? target : NULL") !=
+		std::string::npos);
+	REQUIRE(checksum.find("count > 0xffffu") != std::string::npos);
+	REQUIRE(sync_write.find(
+		"netNpcSnapshotDigest(&count, &checksum)") != std::string::npos);
+	REQUIRE(move_write.find("netNpcIsReplicationReady") <
+		move_write.find("chrGetInverseTheta"));
+	REQUIRE(resync_write.find("netNpcIsReplicationReady") <
+		resync_write.find("chrGetInverseTheta"));
+	const size_t schedule_first = endframe.find(
+		"if (netNpcIsReplicationReady(chr))");
+	const size_t schedule_second = endframe.find(
+		"if (netNpcIsReplicationReady(chr))", schedule_first + 1);
+	REQUIRE(schedule_first != std::string::npos);
+	REQUIRE(schedule_second != std::string::npos);
+	REQUIRE(endframe.find(
+		"chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot") ==
+		std::string::npos);
+
+	const size_t resync_count_bound = resync_write.find("count > 0xffffu");
+	const size_t resync_first_write = resync_write.find("netbufWriteU8");
+	REQUIRE(resync_count_bound != std::string::npos);
+	REQUIRE(resync_first_write != std::string::npos);
+	REQUIRE(resync_count_bound < resync_first_write);
+	for (const std::string *bounded : {&sync_write, &resync_write}) {
+		REQUIRE(bounded->find("dst->wp = wp_before") != std::string::npos);
+		REQUIRE(bounded->find("dst->error = error_before") !=
+			std::string::npos);
+	}
+	REQUIRE(resync_write.find("emitted++") != std::string::npos);
+	REQUIRE(resync_write.find("emitted != count") != std::string::npos);
+	REQUIRE(resync_write.find("targetprop = netNpcSnapshotTarget(chr)") !=
+		std::string::npos);
+	REQUIRE(resync_write.find("netNpcSnapshotFlags(chr, targetprop)") !=
+		std::string::npos);
+
+	const size_t move_payload_end = move_read.find(
+		"const f32 newsurface_z = netbufReadF32(src);");
+	const size_t move_ready = move_read.find(
+		"netNpcIsReplicationReady(prop->chr)");
+	REQUIRE(move_payload_end != std::string::npos);
+	REQUIRE(move_ready != std::string::npos);
+	REQUIRE(move_payload_end < move_ready);
+	REQUIRE(move_read.find("prop->chr->prop != prop", move_ready) !=
+		std::string::npos);
+	REQUIRE(move_ready < move_read.find("chrSetLookAngle"));
+
+	const size_t state_payload_end = state_read.find(
+		"const u8 fadealpha = netbufReadU8(src);");
+	const size_t state_ready = state_read.find(
+		"netNpcIsReplicationReady(prop->chr)");
+	REQUIRE(state_payload_end != std::string::npos);
+	REQUIRE(state_ready != std::string::npos);
+	REQUIRE(state_payload_end < state_ready);
+	REQUIRE(state_read.find("prop->chr->prop != prop", state_ready) !=
+		std::string::npos);
+
+	REQUIRE(record_read.find("const u32 target_syncid = netbufReadU32(src);") !=
+		std::string::npos);
+	REQUIRE(record_read.find(
+		"record->target_valid = target_syncid == 0 || record->targetprop != NULL") !=
+		std::string::npos);
+	REQUIRE(record_ready.find("netNpcIsReplicationReady(record->prop->chr)") !=
+		std::string::npos);
+	REQUIRE(record_ready.find("record->prop->chr->prop == record->prop") !=
+		std::string::npos);
+	REQUIRE(record_ready.find("record->target_valid") != std::string::npos);
+	REQUIRE(record_ready.find("record->flags & (1 << 2)") !=
+		std::string::npos);
+	REQUIRE(record_apply.find("chrSetLookAngle") != std::string::npos);
+
+	const size_t state_gate = resync_read.find(
+		"srccl->state < CLSTATE_GAME");
+	const size_t first_record_read = resync_read.find(
+		"netmsgNpcResyncRecordRead(src, &record)", state_gate);
+	const size_t incomplete_reject = resync_read.find("if (!complete)",
+		first_record_read);
+	const size_t rewind = resync_read.find("src->rp = records_rp",
+		incomplete_reject);
+	const size_t second_record_read = resync_read.find(
+		"netmsgNpcResyncRecordRead(src, &record)", first_record_read + 1);
+	const size_t apply_record = resync_read.find(
+		"netmsgNpcResyncRecordApply(&record)", second_record_read);
+	const size_t applied_digest = resync_read.find(
+		"netNpcSnapshotDigest(&applied_count, &applied_checksum)",
+		apply_record);
+	const size_t pending_snapshot = resync_read.find(
+		"s_NetNpcSnapshotValidation.pending = true", applied_digest);
+	const size_t reset_desync = resync_read.find(
+		"g_NetNpcDesyncCount = 0", pending_snapshot);
+	REQUIRE(state_gate != std::string::npos);
+	REQUIRE(first_record_read != std::string::npos);
+	REQUIRE(incomplete_reject != std::string::npos);
+	REQUIRE(rewind != std::string::npos);
+	REQUIRE(second_record_read != std::string::npos);
+	REQUIRE(apply_record != std::string::npos);
+	REQUIRE(applied_digest != std::string::npos);
+	REQUIRE(pending_snapshot != std::string::npos);
+	REQUIRE(reset_desync != std::string::npos);
+	REQUIRE(state_gate < first_record_read);
+	REQUIRE(first_record_read < incomplete_reject);
+	REQUIRE(incomplete_reject < rewind);
+	REQUIRE(rewind < second_record_read);
+	REQUIRE(second_record_read < apply_record);
+	REQUIRE(apply_record < applied_digest);
+	REQUIRE(applied_digest < pending_snapshot);
+	REQUIRE(pending_snapshot < reset_desync);
+	REQUIRE(resync_read.find("local_count == npccount") != std::string::npos);
+	REQUIRE(resync_read.find("!srccl->stage_ready") != std::string::npos);
+	REQUIRE(resync_read.find("g_NetStageEpoch == 0") != std::string::npos);
+	REQUIRE(resync_read.find(
+		"g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_NPCS") !=
+		std::string::npos);
+	REQUIRE(sync_read.find("const net_npc_snapshot_validation_t applied") !=
+		std::string::npos);
+	REQUIRE(sync_read.find("applied.stage_epoch == g_NetStageEpoch") !=
+		std::string::npos);
+	REQUIRE(sync_read.find("applied.tick == tick") != std::string::npos);
+	REQUIRE(sync_read.find("applied.count == npccount") != std::string::npos);
+	REQUIRE(sync_read.find("applied.checksum == server_checksum") !=
+		std::string::npos);
+
+	REQUIRE(append.find("dst->wp = wp_before") != std::string::npos);
+	REQUIRE(append.find("dst->error = error_before") != std::string::npos);
+	REQUIRE(npc_append.find("g_ObjectiveLastIndex <= 255") !=
+		std::string::npos);
+	const size_t npc_resync = npc_append.find("netmsgSvcNpcResyncWrite");
+	const size_t npc_sync = npc_append.find("netmsgSvcNpcSyncWrite",
+		npc_resync);
+	REQUIRE(npc_resync != std::string::npos);
+	REQUIRE(npc_sync != std::string::npos);
+	REQUIRE(npc_resync < npc_sync);
+	REQUIRE(npc_append.find("netmsgSvcStageFlagWrite") != std::string::npos);
+	REQUIRE(npc_append.find("netmsgSvcObjStatusWrite") != std::string::npos);
+	REQUIRE(npc_append.find("dst->wp = wp_before") != std::string::npos);
+	REQUIRE(net.find("static u8 s_NetResyncTxnBuf[65536]") !=
+		std::string::npos);
+	REQUIRE(publish.find("requested = g_NetPendingResyncFlags") !=
+		std::string::npos);
+	REQUIRE(publish.find(".data = s_NetResyncTxnBuf") !=
+		std::string::npos);
+	REQUIRE(publish.find("&g_NetMsgRel") == std::string::npos);
+	for (const char *writer : {"netmsgSvcChrResyncWrite",
+			"netmsgSvcPropResyncWrite", "netmsgSvcPlayerScoresWrite",
+			"netAppendNpcResyncTransaction"}) {
+		REQUIRE(publish.find(writer) != std::string::npos);
+	}
+	const size_t baseline_queue = publish.find(
+		"netSendToRoom(g_NetMatchRoomId, &wire");
+	const size_t baseline_clear = publish.find(
+		"g_NetPendingResyncFlags &= (u8)~requested", baseline_queue);
+	REQUIRE(baseline_queue != std::string::npos);
+	REQUIRE(baseline_clear != std::string::npos);
+	REQUIRE(baseline_queue < baseline_clear);
+	REQUIRE(publish.find("request retained for retry") != std::string::npos);
+	REQUIRE(endframe.find("g_NetPendingResyncFlags &=") == std::string::npos);
+	REQUIRE(endframe.find("g_NetPendingResyncFlags = 0") ==
+		std::string::npos);
+	REQUIRE(endframe.find("netmsgSvcNpcSyncWrite(&g_NetMsgRel)") ==
+		std::string::npos);
+}
+
 TEST_CASE("net lifecycle: SVC_STAGE_START validates mode before committing state",
           "[net][lifecycle][static]")
 {
@@ -808,7 +1047,8 @@ TEST_CASE("net lifecycle: SVC_STAGE_START stages tick and RNG until identity is 
     const size_t rng0_read = read.find("plan.rng_seed_0 = netbufReadU64(src)", tick_read);
     const size_t rng1_read = read.find("plan.rng_seed_1 = netbufReadU64(src)", rng0_read);
     const size_t seed_read = read.find("plan.match_seed = netbufReadU32(src)", rng1_read);
-    const size_t stage_read = read.find("const u16 stage_session = catalogReadAssetRef(src)", seed_read);
+    const size_t epoch_read = read.find("plan.stage_epoch = netbufReadU32(src)", seed_read);
+    const size_t stage_read = read.find("const u16 stage_session = catalogReadAssetRef(src)", epoch_read);
     const size_t zero_stage = read.find("if (stage_session == 0)", stage_read);
     const size_t zero_return = read.find("return netStageStartReject", zero_stage);
     const size_t unknown_stage = read.find("NET: SVC_STAGE unknown stage session", zero_return);
@@ -821,12 +1061,14 @@ TEST_CASE("net lifecycle: SVC_STAGE_START stages tick and RNG until identity is 
     const size_t rng1_commit = read.find("g_NetRngSeeds[1] = plan.rng_seed_1;", rng0_commit);
     const size_t latch_commit = read.find("g_NetRngLatch = true;", rng1_commit);
     const size_t seed_commit = read.find("g_NetMatchSeed = plan.match_seed;", latch_commit);
-    const size_t mode_commit = read.find("g_NetGameMode = plan.mode;", seed_commit);
+    const size_t epoch_commit = read.find("g_NetStageEpoch = plan.stage_epoch;", seed_commit);
+    const size_t mode_commit = read.find("g_NetGameMode = plan.mode;", epoch_commit);
 
     REQUIRE(tick_read != std::string::npos);
     REQUIRE(rng0_read != std::string::npos);
     REQUIRE(rng1_read != std::string::npos);
     REQUIRE(seed_read != std::string::npos);
+    REQUIRE(epoch_read != std::string::npos);
     REQUIRE(stage_read != std::string::npos);
     REQUIRE(zero_stage != std::string::npos);
     REQUIRE(zero_return != std::string::npos);
@@ -840,12 +1082,14 @@ TEST_CASE("net lifecycle: SVC_STAGE_START stages tick and RNG until identity is 
     REQUIRE(rng1_commit != std::string::npos);
     REQUIRE(latch_commit != std::string::npos);
     REQUIRE(seed_commit != std::string::npos);
+    REQUIRE(epoch_commit != std::string::npos);
     REQUIRE(mode_commit != std::string::npos);
 
     REQUIRE(tick_read < rng0_read);
     REQUIRE(rng0_read < rng1_read);
     REQUIRE(rng1_read < seed_read);
-    REQUIRE(seed_read < stage_read);
+    REQUIRE(seed_read < epoch_read);
+    REQUIRE(epoch_read < stage_read);
     REQUIRE(stage_read < zero_stage);
     REQUIRE(zero_stage < zero_return);
     REQUIRE(zero_return < unknown_stage);
@@ -858,7 +1102,8 @@ TEST_CASE("net lifecycle: SVC_STAGE_START stages tick and RNG until identity is 
     REQUIRE(rng0_commit < rng1_commit);
     REQUIRE(rng1_commit < latch_commit);
     REQUIRE(latch_commit < seed_commit);
-    REQUIRE(seed_commit < mode_commit);
+    REQUIRE(seed_commit < epoch_commit);
+    REQUIRE(epoch_commit < mode_commit);
 
     REQUIRE(read.find("g_NetTick = netbufReadU32(src)") == std::string::npos);
 }
@@ -974,13 +1219,34 @@ TEST_CASE("B-1073 lobby start uses one canonical zero-bot wire form",
     REQUIRE(autostart.find("g_MatchConfig.numSlots > MATCH_MAX_SLOTS") !=
         std::string::npos);
     REQUIRE(autostart.find("slot->type != SLOT_BOT") != std::string::npos);
-    REQUIRE(autostart.find("simType = slot->botDifficulty;") != std::string::npos);
-    REQUIRE(autostart.find("simType,                        /* first prepared bot") !=
-        std::string::npos);
+    const size_t sim_init = autostart.find("u8 simType = 0;");
+    const size_t sim_from_bot = autostart.find(
+        "simType = slot->botDifficulty;", sim_init);
+    const size_t mission_zero = autostart.find(
+        "if (mode != NETGAMEMODE_MP)", sim_from_bot);
+    const size_t mission_sim_zero = autostart.find(
+        "simType = 0;", mission_zero);
+    const size_t request = autostart.find(
+        "netLobbyRequestStartWithSims(", mission_sim_zero);
+    const size_t count_argument = autostart.find("numSims,", request);
+    const size_t type_argument = autostart.find("simType,", count_argument);
+    REQUIRE(sim_init != std::string::npos);
+    REQUIRE(sim_from_bot != std::string::npos);
+    REQUIRE(mission_zero != std::string::npos);
+    REQUIRE(mission_sim_zero != std::string::npos);
+    REQUIRE(request != std::string::npos);
+    REQUIRE(count_argument != std::string::npos);
+    REQUIRE(type_argument != std::string::npos);
+    REQUIRE(sim_init < sim_from_bot);
+    REQUIRE(sim_from_bot < mission_zero);
+    REQUIRE(mission_zero < mission_sim_zero);
+    REQUIRE(mission_sim_zero < request);
+    REQUIRE(request < count_argument);
+    REQUIRE(count_argument < type_argument);
 }
 
-TEST_CASE("net settings: client team changes are sanitized before match state writes",
-          "[net][settings][security][static]")
+TEST_CASE("net settings: client team changes are sanitized after prepared rollback and before writes",
+          "[net][settings][security][static][B-1103]")
 {
     const std::string netmsg = read_text_file("port/src/net/netmsg.c");
     const std::string codec = read_text_file(
@@ -997,20 +1263,28 @@ TEST_CASE("net settings: client team changes are sanitized before match state wr
         "netClientSettingsWireRead(src, &plan");
     const size_t error_gate = read.find(
         "status != NET_CLIENT_SETTINGS_WIRE_OK", candidate_read);
+    const size_t prepared_gate = read.find(
+        "if (readyGatePreparingClientIndex(srccl) >= 0)", error_gate);
+    const size_t prepared_abort = read.find(
+        "readyGateAbort(", prepared_gate);
     const size_t sanitized = read.find(
-        "const u8 sanitizedTeam = netmsgSanitizeClientTeam(srccl, plan.team)",
-        error_gate);
+        "sanitizedTeam = netmsgSanitizeClientTeam(srccl, plan.team)",
+        prepared_abort);
     const size_t config_write = read.find("srccl->config->base.team = sanitizedTeam");
     const size_t settings_write = read.find("srccl->settings.team = sanitizedTeam");
 
     REQUIRE(candidate_read != std::string::npos);
     REQUIRE(error_gate != std::string::npos);
+    REQUIRE(prepared_gate != std::string::npos);
+    REQUIRE(prepared_abort != std::string::npos);
     REQUIRE(sanitized != std::string::npos);
     REQUIRE(config_write != std::string::npos);
     REQUIRE(settings_write != std::string::npos);
 
     REQUIRE(candidate_read < error_gate);
-    REQUIRE(error_gate < sanitized);
+    REQUIRE(error_gate < prepared_gate);
+    REQUIRE(prepared_gate < prepared_abort);
+    REQUIRE(prepared_abort < sanitized);
     REQUIRE(sanitized < config_write);
     REQUIRE(config_write < settings_write);
 
@@ -1594,7 +1868,7 @@ TEST_CASE("manifest distribution preserves package identity and waits for the co
     REQUIRE(modmgr.find("mod->session_only = 1") != std::string::npos);
     REQUIRE(modmgr.find("enabled && !g_ModRegistry[i].session_only") !=
         std::string::npos);
-	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 57") != std::string::npos);
+	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 58") != std::string::npos);
 }
 
 TEST_CASE("client sessions initialize distribution before receiving server packets",
@@ -1654,8 +1928,8 @@ TEST_CASE("listen host starts one authoritative local and remote Combat Simulato
     const size_t game_state = start.find("g_NetClients[ci].state = CLSTATE_GAME");
     const size_t stage_validate = start.find("netmsgSvcStageStartValidate()", game_state);
     const size_t stage_write = start.find("netmsgServerStageStartWrite", stage_validate);
-    const size_t local_start = start.find("mpStartMatch();", stage_write);
-    const size_t stage_send = start.find("netSendToRoom(", local_start);
+    const size_t stage_send = start.find("netSendToRoom(", stage_write);
+    const size_t local_start = start.find("mpStartMatch();", stage_send);
 
     REQUIRE(game_state != std::string::npos);
     REQUIRE(stage_validate != std::string::npos);
@@ -1664,8 +1938,8 @@ TEST_CASE("listen host starts one authoritative local and remote Combat Simulato
     REQUIRE(stage_send != std::string::npos);
     REQUIRE(game_state < stage_validate);
     REQUIRE(stage_validate < stage_write);
-    REQUIRE(stage_write < local_start);
-    REQUIRE(local_start < stage_send);
+    REQUIRE(stage_write < stage_send);
+    REQUIRE(stage_send < local_start);
     REQUIRE(start.find("if (g_NetDedicated) {\n\t\tmpStartMatch();") ==
         std::string::npos);
     REQUIRE(countdown.find("launch_result = netServerStageStart();") !=
@@ -2009,7 +2283,7 @@ TEST_CASE("net lifecycle: reconnect commits after post-load ack and ordered exac
 	const std::string targeted_state = function_block(
 		net, "s32 netServerSendReconnectState");
 	const std::string client_stage_loaded = function_block(
-		net, "void netClientStageLoaded");
+		net, "void netLocalStageLoaded");
 	const std::string auth = function_block(netmsg, "u32 netmsgClcAuthRead");
 	const std::string auth_write = function_definition_block(
 		netmsg, "u32 netmsgClcAuthWrite");
@@ -3021,4 +3295,164 @@ TEST_CASE("B-1075 manifest lifecycle preserves the exact catalog type",
         std::string::npos);
     REQUIRE(smoke.find("MANIFEST\\\\.LIFECYCLE\\\\.(REJECT|ROLLBACK)") !=
         std::string::npos);
+}
+
+TEST_CASE("B-1104 ordinary gameplay waits for the real post-load stage barrier",
+          "[net][stage-ready][transaction][static][b1104]")
+{
+    const std::string header = read_text_file("port/include/net/net.h");
+    const std::string net = read_text_file("port/src/net/net.c");
+    const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+    const std::string blocked = function_definition_block(
+        net, "bool netServerStageReplicationBlocked(void)");
+    const std::string arm = function_definition_block(
+        net, "static bool netServerArmStageReplicationBarrier");
+    const std::string ready = function_definition_block(
+        net, "static bool netServerStageReplicationReady");
+    const std::string local_loaded = function_definition_block(
+        net, "void netLocalStageLoaded(void)");
+    const std::string combat_start = function_definition_block(
+        net, "s32 netServerStageStart(void)");
+    const std::string coop_start = function_definition_block(
+        net, "s32 netServerCoopStageStart");
+    const std::string end_frame = function_definition_block(
+        net, "void netEndFrame(void)");
+    const std::string publish = function_definition_block(
+        net, "static bool netServerPublishPendingResyncs(void)");
+    const std::string ready_read = function_definition_block(
+        netmsg, "u32 netmsgClcStageReadyRead");
+    const std::string ready_write = function_definition_block(
+        netmsg, "u32 netmsgClcStageReadyWrite");
+    const std::string gpu_send = function_definition_block(
+        netmsg, "void netSendGpuSwarmState(void)");
+
+    REQUIRE(header.find("bool netServerStageReplicationBlocked(void);") !=
+        std::string::npos);
+    REQUIRE(header.find("extern u32  g_NetStageEpoch;") !=
+        std::string::npos);
+    REQUIRE(blocked.find("g_NetMode == NETMODE_SERVER") != std::string::npos);
+    REQUIRE(blocked.find(
+        "s_NetStageReplicationPhase != NET_STAGE_REPLICATION_ACTIVE") !=
+        std::string::npos);
+    REQUIRE(arm.find(
+        "s_NetStageReplicationPhase != NET_STAGE_REPLICATION_INACTIVE") !=
+        std::string::npos);
+    REQUIRE(arm.find("netServerStageReplicationPeer(cl, g_NetMatchRoomId)") !=
+        std::string::npos);
+    REQUIRE(arm.find("cl->stage_ready = false") != std::string::npos);
+    REQUIRE(arm.find("wait_mask |= 1u << (u32)i") != std::string::npos);
+    REQUIRE(arm.find("g_NetStageEpoch++") != std::string::npos);
+    REQUIRE(arm.find(
+        "s_NetStageReplicationPhase = NET_STAGE_REPLICATION_WAITING") !=
+        std::string::npos);
+    REQUIRE(arm.find("s_NetStageReplicationWaitMask = wait_mask") !=
+        std::string::npos);
+    REQUIRE(arm.find("s_NetStageAuthorityReady = false") !=
+        std::string::npos);
+    const size_t combat_arm = combat_start.find(
+        "netServerArmStageReplicationBarrier(\"combat-stage-start\")");
+    const size_t combat_write = combat_start.find(
+        "netmsgServerStageStartWrite", combat_arm);
+    const size_t coop_arm = coop_start.find(
+        "netServerArmStageReplicationBarrier(\"coop-stage-start\")");
+    const size_t coop_write = coop_start.find(
+        "netmsgServerStageStartWrite", coop_arm);
+    REQUIRE(combat_arm != std::string::npos);
+    REQUIRE(combat_write != std::string::npos);
+    REQUIRE(coop_arm != std::string::npos);
+    REQUIRE(coop_write != std::string::npos);
+    REQUIRE(combat_arm < combat_write);
+    REQUIRE(coop_arm < coop_write);
+
+    REQUIRE(ready.find("if (!cl->stage_ready)") != std::string::npos);
+    REQUIRE(ready.find("pending_mask |= bit") != std::string::npos);
+    REQUIRE(ready.find("if (pending_mask || !s_NetStageAuthorityReady)") !=
+        std::string::npos);
+    REQUIRE(ready.find(
+        "s_NetStageReplicationPhase = NET_STAGE_REPLICATION_RELEASE") !=
+        std::string::npos);
+    REQUIRE(local_loaded.find("s_NetStageAuthorityReady = true") !=
+        std::string::npos);
+    REQUIRE(local_loaded.find("ready authority=server epoch=%u") !=
+        std::string::npos);
+    REQUIRE(local_loaded.find("g_NetLocalClient->stage_ready") !=
+        std::string::npos);
+    REQUIRE(ready_read.find("ready_epoch = netbufReadU32(src)") !=
+        std::string::npos);
+    REQUIRE(ready_read.find("ready_epoch != g_NetStageEpoch") !=
+        std::string::npos);
+    REQUIRE(ready_write.find("g_NetStageEpoch == 0") != std::string::npos);
+    REQUIRE(ready_write.find("netbufWriteU32(dst, g_NetStageEpoch)") !=
+        std::string::npos);
+    REQUIRE(ready_read.find("srccl->stage_ready = true") != std::string::npos);
+    REQUIRE(ready_read.find("post_load=1") != std::string::npos);
+    const size_t gpu_barrier = gpu_send.find(
+        "netServerStageReplicationBlocked()");
+    const size_t gpu_readback = gpu_send.find("swarmGpuReadbackTextureRows");
+    const size_t gpu_broadcast = gpu_send.find(
+        "netSend(NULL, &g_NetMsg, false");
+    REQUIRE(gpu_barrier != std::string::npos);
+    REQUIRE(gpu_readback != std::string::npos);
+    REQUIRE(gpu_broadcast != std::string::npos);
+    REQUIRE(gpu_barrier < gpu_readback);
+    REQUIRE(gpu_readback < gpu_broadcast);
+
+    const size_t readiness = end_frame.find(
+        "stage_replication_ready = netServerStageReplicationReady()");
+    const size_t initial_discard = end_frame.find(
+        "s_NetStageReplicationPhase", readiness);
+    const size_t server_broadcast = end_frame.find(
+        "if (g_NetMode == NETMODE_SERVER && g_NetNumClients > 0",
+        initial_discard);
+    const size_t active_incrementals = end_frame.find(
+        "s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE",
+        server_broadcast);
+    const size_t late_authority = end_frame.find("end-frame-late",
+        active_incrementals);
+    const size_t pending_resync = end_frame.find(
+        "netServerPublishPendingResyncs()", late_authority);
+    const size_t release_retry = end_frame.find(
+        "authority_publication_failed = true", pending_resync);
+    const size_t final_discard = end_frame.find(
+        "Consult the live phase here", pending_resync);
+    const size_t final_flush = end_frame.find("netFlushSendBuffers()",
+        final_discard);
+    const size_t active_commit = end_frame.find(
+        "s_NetStageReplicationPhase = NET_STAGE_REPLICATION_ACTIVE",
+        final_flush);
+    REQUIRE(readiness != std::string::npos);
+    REQUIRE(initial_discard != std::string::npos);
+    REQUIRE(server_broadcast != std::string::npos);
+    REQUIRE(active_incrementals != std::string::npos);
+    REQUIRE(late_authority != std::string::npos);
+    REQUIRE(pending_resync != std::string::npos);
+    REQUIRE(release_retry != std::string::npos);
+    REQUIRE(final_discard != std::string::npos);
+    REQUIRE(final_flush != std::string::npos);
+    REQUIRE(active_commit != std::string::npos);
+    REQUIRE(readiness < initial_discard);
+    REQUIRE(initial_discard < server_broadcast);
+    REQUIRE(server_broadcast < active_incrementals);
+    REQUIRE(active_incrementals < late_authority);
+    REQUIRE(late_authority < pending_resync);
+    REQUIRE(pending_resync < release_retry);
+    REQUIRE(release_retry < final_discard);
+    REQUIRE(final_discard < final_flush);
+    REQUIRE(final_flush < active_commit);
+    REQUIRE(publish.find(
+        "s_NetStageReplicationPhase == NET_STAGE_REPLICATION_RELEASE") !=
+        std::string::npos);
+    REQUIRE(publish.find("reason=missing-baseline") != std::string::npos);
+    const size_t reelect_gate = end_frame.find(
+        "g_NetDedicated && !g_NetBotAuthorityDelegated");
+    const size_t reelect_active = end_frame.find(
+        "s_NetStageReplicationPhase == NET_STAGE_REPLICATION_ACTIVE",
+        reelect_gate);
+    const size_t reelect_send = end_frame.find(
+        "netSend(candidate, &wire", reelect_active);
+    REQUIRE(reelect_gate != std::string::npos);
+    REQUIRE(reelect_active != std::string::npos);
+    REQUIRE(reelect_send != std::string::npos);
+    REQUIRE(reelect_gate < reelect_active);
+    REQUIRE(reelect_active < reelect_send);
 }

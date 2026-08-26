@@ -1,5 +1,268 @@
 # Session Log (Active)
 
+## 2026-08-26 - B-1067/B-1103/B-1104 protocol-v58 verification
+
+Milestone 1 remains 2 validated, 8 partial, and 5 missing. Protocol-v58 product
+source is frozen and accepted automation passes all isolated targets, complete
+tests 66,421/1,200, the native-source guard, and exact product aggregate
+`03a65922...` on client `5DA75BE6...`. Current-v58 ordinary-client receipts now
+pass co-op 96/96, Counter-Op 98/98, later-player rollback 60/60, settings
+rollback 43/43, initiator authority 214/214, reconnect 99/99, and the
+focus-independent invitee-authority route 170/170. The reconnect
+fixture now deterministically selects typed `base:cyclone` and asserts actual
+weapon 11; its compiled focused contract passes 63 assertions. A first typed
+`base:mauler` attempt was rejected after exposing B-1105's repeated public
+`base:model_skpistol_hi` conversion/activation failure; that separate V-010 bug
+does not invalidate reconnect behavior.
+
+The integrated invitee-authority fixture reaches 210/218 and proves authority
+election, one listen-host start, signed typed route publication/acceptance, one
+non-authority join, stage start, and gameplay. It remains rejected because this
+execution desktop reports no foreground HWND, so B-1085's independent required
+fresh SDL focus loss/gain witnesses cannot run. The unchanged fixture and its
+previous 218/218 evidence remain regression evidence. No focus contract is
+weakened and no GUI-thread state is substituted for SDL production truth.
+
+The separate focus-independent fixture closes D-003 on the same exact v58
+client. Its immutable raw receipt remains rejected at 169/170 with zero
+operational failures because the original verifier required two or more epoch
+digits and rejected valid epoch 1. The corrected definition is
+`C2A230CC...`; the compiled route/reconnect contract passes 108 assertions in 2
+cases, and separately hashed retained aggregate/invitee/initiator logs pass
+170/170 without changing the product binary or logs. Final verifier aggregate
+`726a2c96...` spans 409 files and exact tests binary `38C37DC4...`; product
+aggregate `03a65922...` has zero pre-route drift and the final native-source
+guard passes. They prove one
+invitee-elected in-client ENet listen authority, one separately signed typed
+match-server route, exactly one initiator join, no LAN/STUN/UPnP/ICE probe or
+relay descriptor handed to `netStartClient`, epoch-correct release/baseline/
+ACTIVE ordering, stable gameplay, clean exits, and intact process memory.
+B-1104 is now a regression gate. T-ENGINE-004 remains partial only for its
+broader 1.0 base-game lifecycle review; Milestone 1 totals remain unchanged.
+
+### Earlier checkpoints from this source unit
+
+Milestone 1 remains 2 validated, 8 partial, and 5 missing. The active
+T-ENGINE-004 slice closes two confirmed transaction gaps in source without
+claiming production proof. A valid ordinary `CLC_SETTINGS` from the exact
+preparing participant now aborts and restores the ready gate before settings
+publication. `lvReset` now tracks all committed players and reverse-unwinds
+their canonical Eyespy, chr/model, prop, gun-memory, and MP bindings if a later
+co-op or Counter-Op reset or spawn fails.
+
+The production path has one smoke-only exact, one-shot player-init fault seam;
+mode-aware host autostart reaches the ordinary ready gate for multiplayer,
+co-op, and Counter-Op; Counter-Op assigns the sole remote client as Anti; and
+network mission readiness resolves through the normal smoke facts. Focused
+contracts and four bounded fixtures cover positive co-op, positive Counter-Op,
+ready-gate settings rollback, and later-player stage rollback. The first frozen
+all-target build is retained and rejected: the new shared fault header imported
+`stdbool.h` after legacy `types.h`, redefining `bool` and making existing `lv.h`
+prototypes disagree with `lv.c`. The bounded correction keeps that C/C++ seam
+on the repository's `s32` convention and removes the macro collision. The first tests-target
+compile then correctly rejected residual `true`/`false` tokens in that pure C
+seam and three unparenthesized Catch2 chained expressions before executing any
+case; the bounded correction uses exact zero/one state and preserves the same
+ordering assertions. On the next freeze the client,
+updater, and tests targets built; focused verification passed 523 assertions in
+11 cases. The full suite then rejected only two stale static markers: B-1073
+depended on an autostart argument comment, and the team-sanitization guard still
+expected sanitization before the new prepared-roster rollback. Those tests now
+pin structural bot-count/type argument ordering and require ready-gate abort
+before ordinary team sanitization and publication. No production receipt is
+accepted yet, and the complete automation batch remains unaccepted until its
+refrozen full-suite/guard rerun passes. Existing Campaign, Combat Simulator, D-003, and reconnect
+receipts remain retained rather than rerun.
+
+The final frozen automation rerun passes the client/updater/tests build, 566
+focused assertions in 12 cases, 65,648 full assertions in 1,197 cases, and the
+native-source guard on exact client `0AE31343...`. Its first consolidated
+ordinary-client runtime batch is retained but rejected. Positive co-op passes
+51/51, the injected player-1 spawn failure reverse-unwinds player 1 then player
+0 with zero residual owners and clean disconnect, and the preparing-client
+settings change rolls back the ready gate and lobby snapshot before publishing
+handicap 129. Positive Counter-Op reaches the exact immutable roster
+`bond=0 coop=-1 anti=1`, both stage-player commits, and both chrbody commits,
+then the authority crashes during its initial NPC resync. Exact RVA `0x55e542`
+symbolizes to `modelGetChrRotY` through `chrGetInverseTheta` and
+`netmsgSvcNpcResyncWrite`: the NPC enumerator admits a `PROPTYPE_CHR` slot whose
+model is not yet replication-ready, while the serializer unconditionally emits
+orientation. The remote process consequently times out `network_stage_live`.
+No B-1067/B-1103/B-1104 production status is promoted from this batch. The
+next bounded correction is a canonical replication-ready NPC predicate plus
+matching receive-side validation, followed by one refrozen consolidated rerun.
+
+The bounded correction is now source-connected. One exported predicate admits
+only reciprocal NPC prop owners with a complete model definition/root and, for
+CHRINFO orientation, committed rodata/rwdata. The scheduler, count, checksum,
+incremental/full writers, and readers all use that predicate. NPC sync/resync
+reject counts above the u16 wire domain before writing; full resync verifies the
+emitted count and restores the prior buffer boundary on any failure. End-frame
+resync appends are transactional per pending bit, the NPC snapshot plus stage
+flags/objectives is one compound append, and only successful bits clear so a
+capacity or ownership failure retries next frame. Full-resync receive now
+consumes and validates the entire advertised snapshot in a first pass, then
+rewinds and applies it only when every local owner is ready; desync state resets
+only after that clean application. Luna xhigh supplied the bounded propagation
+audit; Sol integrated the production boundary and verifier. No replacement
+build, test, guard, or smoke result is claimed yet.
+
+The replacement isolated client/updater and tests-target builds pass. The first
+focused execution is retained and rejected before the full suite or guard: its
+new static case expected equality-style `type == PROPTYPE_CHR` / `!aibot`
+source text, while the canonical fail-closed predicate expresses the same
+admission rule as rejection clauses. Both stale verifier spellings are
+corrected together; product source and the passing client binary are unchanged.
+One rebuilt tests target and one restarted focused/full/guard batch remain.
+
+That refrozen batch now passes: product aggregate `33979203...` across 2,719
+files and verifier aggregate `d88d1002...` across 408 files remain unchanged;
+exact client is `077FA41F...`, focused verification is 816 assertions in 13
+cases, the full suite is 65,898 assertions in 1,198 cases, and the native-source
+guard passes. The consolidated four-fixture run at
+`.claude/smoke-verify-runs/results-20260826T045211Z.json` reports co-op 51/51,
+Counter-Op 53/53, player rollback 37/37, and settings rollback 43/43 with clean
+process exits.
+
+The runtime receipt is nevertheless rejected. Its Counter-Op aggregate contains
+256 repeated missing-syncid 208, `SVC_NPC_RESYNC` rejection, and resync-request
+cycles. Direct endpoint comparison proves different final NPC identity sets:
+the authority's local slots are Bond then Anti and its takeover chooses
+body/head 94/10, while the client's local slots are Anti then Bond and its
+takeover chooses 110/45. `mpOrchestrateMatchStartSpawns` assigned numeric pools 3
+and 13 in the same local-slot order, so opposite semantic roles consumed them.
+The client also received NPC checksums before its final `lvReset` completed;
+`CLSTATE_GAME` had been treated as content readiness even though
+`CLC_STAGE_READY` is the real post-load boundary. Luna xhigh independently
+confirmed the endpoint identity mismatch and parser semantics; Sol owns the
+structural correction. The next source unit is canonical client-ID ordering for
+reset, spawn, human orchestration, and actual reverse rollback plus a listen-host
+post-load replication barrier. Milestone 1 remains 2 validated, 8 partial, and 5
+missing; no B-1067/B-1103/B-1104 production status is promoted.
+
+That structural unit is now source-connected. `playermgr` freezes one validated
+authenticated client-ID order before stage mutation; `lvReset` and spawn
+orchestration consume it while preserving endpoint-local slots, and rollback
+reverses the actual successful commit ledger. The server captures exact
+peer-backed match participants at stage publication, discards ordinary shared
+traffic while any surviving peer is pre-load, retains resync ownership, and
+publishes a fresh initial snapshot only after the last idempotent READY. A
+direct-send audit classified auth/room/distribution/music/social messages as
+control-plane and found one entity-state bypass: listen-host GPU-swarm
+snapshots. They now use the barrier's central read-only predicate before GPU
+readback or send. Focused contracts and all four fixtures pin the intended
+ordering and release sequence, but no replacement build, test, guard, or runtime
+result is claimed yet.
+
+The first canonical-order freeze builds client, updater, and tests with empty
+compiler error logs. Its focused B-1067/B-1103/B-1104 cluster passes 1,137
+assertions in 15 cases. The complete suite is retained and rejected at 66,130 of
+66,131 assertions: the B-1089 cutscene static test still required a const
+authority-pending declaration and the historical two-condition shared-buffer
+discard spelling, while the new barrier deliberately computes readiness first
+and adds pre-load/release-frame conditions. The rest of that complete test block
+was audited before correction; its related final-discard check is updated in the
+same verifier-only unit. Product source remains frozen, and the native-source
+guard was not run after the rejected full result.
+
+The first verifier-only refreeze retains the 1,137/15 focused pass and advances
+the complete suite to 66,150 of 66,151 assertions. Its sole failure is the
+related final-discard search: the updated needle still placed a closing
+parenthesis immediately after `authority_publication_failed`, before the new
+readiness continuation in production source. The exact test needle is corrected
+to the stable condition prefix. Product source and client remain unchanged; the
+guard again was not run on this rejected receipt.
+
+The final verifier-only refreeze is accepted. Isolated queued client, updater,
+and tests targets build with empty compiler error logs. Product aggregate
+`18ad317dc4e6a8a1f4a1557ca3b23cab9f2830cdc6c4d89f3e91f8cc91a79c02`
+across 2,719 files and verifier aggregate
+`24e0cd11408668992bbc29933dfaf96fe94899287cfcb93ba87ca22c1ff7f62e`
+across 408 files remain unchanged through focused and complete execution. Exact
+client `48D79ABBE2F20F403A5D51558BED1B03AF16D89D59072B3C242E6CA3567F8F2C`
+passes the product build, and exact tests binary
+`40767CB0A31422332E278C8D14977CD2B37B7B1186C359A88F070F14A346F9D4`
+passes 1,137 assertions in 15 focused cases and 66,232 assertions in 1,200
+complete cases. `tools/asset_native_source_guard.py` passes, and post-run
+manifests match the pre-run freeze. This accepts automation only; all four
+ordinary-client fixtures still must pass on the exact client without identity,
+checksum, malformed-message, resync-loop, crash, or process-leak signatures.
+
+The exact-client runtime batch at
+`.claude/smoke-verify-runs/results-20260826T055628Z.json` is retained and
+rejected. Settings rollback passes 43/43. Co-op reaches 71/81, Counter-Op
+73/83, and later-player rollback 49/50; every process exits normally with zero
+operational failure or leaked PerfectDark/pd-tests/WerFault process. The two
+positive modes preserve canonical semantic-role mappings on both endpoints,
+but the fixtures incorrectly pinned transient spawn-pool numbers 3/13: the
+actual matching endpoint pairs are 15/10 for co-op and 5/9 for Counter-Op.
+
+The shared production failure precedes the new stage. After `netLobbyStartCommit`
+publishes a prospective co-op/Counter-Op mode, the listen server begins NPC
+broadcast for nine Carrington lobby NPCs three seconds before
+`SVC_STAGE_START`. Each ordinary client receives the resulting tick-600
+`SVC_NPC_SYNC` while still in its prior stage. The post-load barrier then arms,
+receives the real READY, releases, and its initial full NPC resync applies
+successfully with identical counts and identities. Later periodic checks still
+diverge because `netNpcSyncChecksum` hashes mutable position, damage, and action
+state transported on different reliable/unreliable cadences rather than one
+shared snapshot boundary. The next structural unit is an explicit inactive /
+waiting / release / active replication lifecycle, plus a deterministic NPC
+roster checkpoint instead of an asynchronous live-state checksum. No runtime
+status is promoted; Milestone 1 remains 2 validated, 8 partial, and 5 missing.
+
+That structural correction is now source-connected at protocol v58. The server
+owns explicit INACTIVE, WAITING, RELEASE, and ACTIVE phases instead of treating
+a zero wait mask as both no-stage and released-stage state. Each stage start
+increments a nonzero epoch carried by `SVC_STAGE_START`; every remote
+`CLC_STAGE_READY` must echo it, while the listen authority crosses a separate
+post-load latch. RELEASE publishes only the retained fresh baseline and enters
+ACTIVE after that flush, so ordinary incremental, spectator, cutscene, resync,
+and direct GPU-swarm entity traffic cannot precede the committed stage.
+
+NPC validation is now bound to the exact reliable correction transaction:
+`SVC_NPC_RESYNC` is followed immediately by a canonical sync-ID-sorted
+`SVC_NPC_SYNC` digest, and the client compares only against the just-applied
+resync latch for the same epoch/tick/count/checksum. Periodic standalone mutable
+checksums are removed. Co-op and Counter-Op fixtures use seed-independent pool
+patterns while retaining endpoint semantic-role checks; rollback fixtures
+forbid RELEASE/ACTIVE. This changed source has no accepted build, test, guard,
+or runtime receipt yet, and prior v57-product receipts remain historical
+regression evidence only. Milestone 1 remains 2 validated, 8 partial, and 5
+missing.
+
+The pre-freeze ownership audit found that the RELEASE baseline still shared
+`g_NetMsgRel` with late control-plane direct sends, so a later buffer reset could
+erase it after pending ownership had already been consumed. The baseline now
+builds in a dedicated 64 KiB transaction, queues room-scoped reliable bytes,
+and only then clears the complete requested mask; any build/queue failure keeps
+RELEASE blocked for a whole-transaction retry. Its digest now hashes exactly
+the serialized target and sentinel-terminated room fields rather than
+receiver-local fallback or unsent array tails. Dedicated bot-authority timeout
+work is ACTIVE-only and selects a post-load-ready non-spectator. Static and
+ordinary-client fixtures pin baseline-before-ACTIVE ordering and forbid release
+retry in accepted runs. At this checkpoint it remained source truth only until
+the consolidated v58 verification batch below passed.
+
+The consolidated protocol-v58 automation is now accepted. The isolated queued
+client, updater, and tests targets build; exact client
+`5DA75BE6AE240C0DA7FA5B1A741B85BD9FC4FD9BF8E4FEB515DFA65E27FCFFFD`
+and final tests binary
+`9E56A336CCBB8900F434142B2EB2FAB367C0734EC056D29C8BA3C34E39409D5D`
+are tied to unchanged product aggregate `03a65922...` across 2,719 files and
+final verifier aggregate `f5f9ba01...` across 408 files. The final complete
+suite passes 66,421 assertions in 1,200 cases and the native-source guard
+passes; post-automation manifests exactly match the corrected freeze. Two
+earlier complete-suite receipts are retained and rejected because historical
+cutscene/listen-host assertions still described the removed readiness boolean
+and old post-local-commit send order. Their verifier-only correction now
+requires non-ACTIVE shared-traffic discard, RELEASE-only baseline publication,
+and `SVC_STAGE_START` queue success before local `mpStartMatch`. Product source
+and the client binary never changed during those corrections. This accepts
+automation only. Co-op, Counter-Op, both rollback cases, both D-003 authority
+roles, and reconnect remain the current-v58 production matrix; Milestone 1
+remains 2 validated, 8 partial, and 5 missing.
+
 ## 2026-08-25 - B-1102 production gate accepted; next engine gap audit
 
 Goal: correct the production-only animation framing and fallback defects exposed

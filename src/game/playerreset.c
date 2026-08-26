@@ -103,6 +103,73 @@ static void playerDiscardUnpublishedPlayerProp(struct prop *prop)
 	propFree(prop);
 }
 
+u32 playerRollbackStageInitialization(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct prop *playerprop;
+	struct prop *eyespyprop;
+	u32 flags = PLAYER_STAGE_ROLLBACK_NONE;
+
+	if (player == NULL) {
+		return flags;
+	}
+
+	playerprop = player->prop;
+	eyespyprop = player->eyespy != NULL ? player->eyespy->prop : NULL;
+
+	/* Eyespy is an independently scheduled full chr whose stage-pool state is
+	 * referenced by the player. Retire it before its target player prop. */
+	if (eyespyprop != NULL && eyespyprop != playerprop) {
+		playerDiscardUnpublishedEyespyProp(eyespyprop);
+		flags |= PLAYER_STAGE_ROLLBACK_EYESPY;
+	}
+	player->eyespy = NULL;
+
+	if (playerprop != NULL) {
+		if (playerprop->chr != NULL) {
+			if (playerprop->chr->model != NULL) {
+				flags |= PLAYER_STAGE_ROLLBACK_CHRBODY;
+			}
+			/* chrRemove now owns both the model-less playerReset commit and the
+			 * complete playerSpawn commit, including child weapons and fire slots. */
+			chrRemove(playerprop, true);
+		} else {
+			propDeregisterRooms(playerprop);
+		}
+
+		propDelist(playerprop);
+		propDisable(playerprop);
+		propFree(playerprop);
+		flags |= PLAYER_STAGE_ROLLBACK_PLAYER_PROP;
+	}
+
+	if (player->gunmem2 != NULL) {
+		bgunFreeGunMem();
+		player->gunmem2 = NULL;
+		flags |= PLAYER_STAGE_ROLLBACK_GUNMEM;
+	}
+
+	if (g_Vars.currentplayernum >= 0
+			&& g_Vars.currentplayernum < MAX_MPCHRS) {
+		if (g_MpAllChrPtrs[g_Vars.currentplayernum] != NULL
+				|| g_MpAllChrConfigPtrs[g_Vars.currentplayernum] != NULL) {
+			flags |= PLAYER_STAGE_ROLLBACK_MP_BINDINGS;
+		}
+		g_MpAllChrPtrs[g_Vars.currentplayernum] = NULL;
+		g_MpAllChrConfigPtrs[g_Vars.currentplayernum] = NULL;
+	}
+
+	player->prop = NULL;
+	player->model00d4 = NULL;
+	player->haschrbody = false;
+
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.ROLLBACK phase=stage-player player=%d owner_flags=0x%02x residual_prop=%d residual_eyespy=%d residual_chrbody=%d",
+		g_Vars.currentplayernum, (unsigned)flags,
+		player->prop != NULL, player->eyespy != NULL, player->haschrbody != 0);
+	return flags;
+}
+
 static bool playerBindEyespyTarget(
 		const struct player_eyespy_candidate *candidate,
 		struct prop *targetprop)

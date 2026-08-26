@@ -700,7 +700,7 @@ void mainLoop(void)
 			/* The network stage-ready handshake belongs to this real post-load
 			 * boundary, after lvReset and player allocation. In particular, a
 			 * reconnect snapshot must never race the asynchronous stage load. */
-			netClientStageLoaded();
+			netLocalStageLoaded();
 		}
 
 		while (g_MainChangeToStageNum < 0) {
@@ -859,6 +859,14 @@ void mainTick(void)
 	{
 		extern s32 bootHostAutostartTick(void);
 		(void)bootHostAutostartTick();
+	}
+
+	/* B-1103/SP-67: smoke-only ordinary-client settings race. This runs after
+	 * netStartFrame has consumed the manifest and before netEndFrame, allowing
+	 * the real CLC_SETTINGS writer to challenge the exact prepared roster. */
+	{
+		extern s32 bootReadyGateSettingsChangeTick(void);
+		(void)bootReadyGateSettingsChangeTick();
 	}
 
 	/* Track 2c (c3807, 2026-05-16): --dump-swarm-state one-shot.

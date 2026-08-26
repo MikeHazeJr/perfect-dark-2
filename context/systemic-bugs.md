@@ -2667,6 +2667,204 @@ invalidated and prove the fallback does not call a consumer that requires it.
 
 ---
 
+## SP-67: A prepared transaction remains writable through its ordinary settings channel
+
+**Severity: CRITICAL - the serialized launch can differ from the roster and
+configuration that passed preparation.**
+
+Freezing one launch structure is insufficient when a later serializer still
+reads identity, options, team, handicap, catalog selections, or other fields
+from mutable live owners. Once a client participates in a prepared transaction,
+an otherwise valid settings change must either create a new candidate version or
+abort the exact transaction before publication. It must never patch live state
+under an older accepted snapshot.
+
+**Known instance (B-1103):** `netmsgClcSettingsRead` accepts and publishes a
+valid `CLC_SETTINGS` packet while the source client is `CLSTATE_PREPARING`.
+`netStageStartWriteAppendClient` later combines those mutable settings with the
+older ready-gate config, producing either an unexpected launch rejection or a
+packet that no longer represents the accepted roster.
+
+**Production-verified correction:** validate the complete settings candidate first;
+if the exact source client is still in the ready-gate expected mask, abort and
+roll back that transaction, then recompute lobby policy and publish the new
+settings in restored lobby state. Malformed settings remain fail-closed and do
+not abort or mutate the transaction. Exact protocol-v58 settings rollback passes
+43/43 and remains a release regression gate.
+
+**Audit:** after every prepare/freeze boundary, enumerate every field read by
+the eventual serializer and every message/menu/console path that can mutate its
+owner. Require versioning or abort-before-publish for all of them, including the
+countdown interval.
+
+`rg -n "PREPARING|ready.?gate|prepared|settings|StageStartWrite|serialize" port/src/net src tests`
+
+---
+
+## SP-68: Per-entity rollback is mistaken for a multi-entity transaction
+
+**Severity: CRITICAL - a later participant failure leaves earlier authoritative
+runtime objects published.**
+
+Candidate-first initialization for one object does not make a loop atomic. A
+stage, match, or roster that initializes several players/entities must record
+every successful commit and unwind them in reverse if any later participant
+fails. Pointer-table reset or eventual arena release is not rollback when
+disconnect, logging, replication, or UI recovery can observe the intermediate
+state.
+
+**Known instance (B-1104):** each `playerReset` and `playerSpawn` call reverses
+its own late failure, but `lvReset` returns immediately when player N fails.
+Players 0..N-1 can still own scheduler props, chr slots/models, held weapons,
+fire slots, Eyespy props, room registrations, gun memory, and MP chr/config
+bindings when network teardown begins; `playermgrReset` clears only pointers.
+
+**Production-verified correction:** make both player loops one stage transaction,
+track successful reset commits, and unwind every tracked player in reverse
+through the chr/prop/gunmem owners before `lvReset` returns false. The canonical
+chr teardown supports both model-less reset commits and full spawned bodies.
+Exact protocol-v58 co-op, Counter-Op, and later-player rollback receipts pass
+96/96, 98/98, and 60/60 respectively.
+
+**Audit:** for each loop of fallible commits, list the resources published by
+one successful iteration, identify the reverse owner for each, and prove a
+failure at the last iteration leaves no earlier publication observable. Include
+the zero/partial/full resource states of each element.
+
+`rg -n "for .*player|for .*client|for .*participant|return false|ROLLBACK|propAllocate|chrRemove" src/game port/src/net tests`
+
+---
+
+## SP-69: Runtime identity is mistaken for replication readiness
+
+**Severity: CRITICAL - a structurally identified entity can enter a wire
+serializer before the state required by that payload exists.**
+
+An entity's broad role marker is not proof that every runtime owner needed by a
+network payload has committed. Enumerators that select by prop type or role
+alone can observe legal transitional slots between identity publication and
+model/transform readiness. Any serializer that then dereferences those absent
+owners can crash the authority; any receiver that trusts its local counterpart
+to be equally ready can repeat the same failure on valid wire input.
+
+**Known instance (B-1104):** Counter-Op creates the correct two-player roster
+and both chr bodies, but the initial full NPC resync counts every
+`PROPTYPE_CHR && !aibot` slot. At least one such slot has no complete model.
+`netmsgSvcNpcResyncWrite` unconditionally calls `chrGetInverseTheta`, which
+reaches `modelGetChrRotY` and dereferences that missing owner. Frozen exact-client
+RVA `0x55e542` and its caller chain prove this production path.
+
+**Current correction:** one exported replication-ready NPC predicate requires
+reciprocal identity/prop ownership, model, definition, and root, plus CHRINFO
+rodata and live rwdata when orientation consumes them. Schedulers, counts,
+checksums, incremental/full writers, and readers share it. Both u16 count fields
+reject overflow before writing; full resync verifies its emitted count; shared
+reliable-buffer appends restore their prior write/error boundary on failure;
+only successful resync bits are consumed; and the receiver validates one whole
+snapshot pass before rewinding and applying a second pass. Frozen automation and
+the exact protocol-v58 Counter-Op receipt pass 98/98 without mismatch, resync
+loop, rejection storm, crash, or leaked process.
+
+**Audit:** for every replicated entity family, list the owners read by each
+payload, compare those owners with its enumeration predicate, and verify the
+receiver consumes the complete packet before rejecting a locally unready
+target. For bounded count fields, prove overflow rejection precedes every cast;
+for queued compound messages, prove partial bytes roll back and the request
+remains pending. Pin scheduler/count/write/read predicate identity in focused
+tests.
+
+`rg -n "Count\(|count =|for .*Slots|Write\(|Read\(|GetInverseTheta|SetLookAngle|model->definition" port/src/net src/game tests`
+
+---
+
+## SP-70: Endpoint-local player slots are mistaken for canonical match identity
+
+**Severity: CRITICAL - deterministic stage setup can remove or mutate different
+world entities on each endpoint before replication starts.**
+
+Runtime player indices are presentation-local in network Campaign/Counter-Op:
+the local human occupies slot zero, so the same semantic role can have a
+different `playernum` on authority and client. Any deterministic initialization,
+spawn assignment, takeover selection, rollback ledger, or RNG-consuming loop
+ordered by that local index is not lockstep. `CLSTATE_GAME` is likewise only a
+transport/session state; it does not prove the remote endpoint has crossed its
+post-load `CLC_STAGE_READY` boundary.
+
+**Known instance (B-1104):** the Counter-Op authority initializes Bond then Anti
+while the ordinary client initializes Anti then Bond. The spawn orchestrator
+sorts by local `playernum`, assigning pool 3 then pool 13 to opposite semantic
+roles. `playerSpawnAnti` consequently removes body/head 94/10 on the authority
+but 110/45 on the client. The authority also broadcasts NPC checksums/resyncs
+while the client is still loading, producing a 256-message missing-syncid 208
+storm even though all four fixtures reach their terminal assertions.
+
+**Current correction:** one immutable stage-player order derives from stable
+authenticated client IDs and owns reset, spawn, semantic-role orchestration,
+and the actual reverse commit ledger. A real stage replication barrier captures
+peer-backed match clients and releases ordinary gameplay/NPC/resync traffic only
+after every surviving relevant peer sends `CLC_STAGE_READY`; pending resync
+ownership remains live while blocked. The direct-send propagation audit keeps
+control-plane messages independent but makes GPU-swarm entity snapshots observe
+the same central read-only blocker as buffered gameplay, spectator, and cutscene
+publication. All seven exact protocol-v58 ordinary-client paths now pass,
+including both semantic-role authority cases and both rollback paths.
+
+**Audit:** whenever network code orders players, classify the key as canonical
+or endpoint-local and compare authority/client semantic-role mappings. Whenever
+code treats `CLSTATE_GAME` as readiness, identify the content-load acknowledgement
+that makes referenced world identities safe. Production smokes must reject
+checksum/resync storms, not merely require clean process exit.
+
+`rg -n "playernum|client->id|antiplayernum|coopplayernum|stage_ready|CLSTATE_GAME|SpawnAnti|Orchestrate" src/game port/src/net tests tools/smoke-verify/tests`
+
+---
+
+## SP-71: Network state is published without an explicit stage or sample epoch
+
+**Severity: CRITICAL - valid data from the wrong stage or sampling instant can
+be mistaken for authoritative current-stage convergence.**
+
+A selected lobby mode is prospective configuration, not proof that the current
+world is that mode's active authoritative stage. Likewise, a checksum of fields
+that travel on independent reliable and unreliable cadences is not comparable
+unless both endpoints bind it to the same committed snapshot. A wait-mask of
+zero cannot represent both "no stage transaction exists" and "this stage is
+released" without admitting stale-world publication.
+
+**Known instance (B-1104):** `netLobbyStartCommit` publishes co-op/Counter-Op
+mode while the listen host and ordinary client still run the Carrington lobby.
+The server begins nine-NPC broadcast before `SVC_STAGE_START`, and the client
+receives a tick-600 checksum from that old stage. The later post-load barrier
+works and its full resync applies, but periodic `netNpcSyncChecksum` still hashes
+mutable position/damage/action values that are not one atomic wire snapshot, so
+healthy endpoints repeatedly request unnecessary resyncs.
+
+**Production-verified correction (protocol v58):** stage publication
+is now an explicit inactive, waiting, release, or active phase. START/READY
+share a nonzero epoch; authority load and exact remote-peer load are separate
+latches; release emits one fresh baseline before ACTIVE traffic begins; and
+control traffic remains independently sendable. The baseline owns dedicated
+packet storage and consumes no pending bit until its complete room-scoped send
+queues, preventing a late control-plane reset from erasing accepted ownership.
+Each full NPC resync is
+followed immediately on the same reliable transaction by a canonical
+sync-ID-sorted digest of its exact wire fields checked against that applied
+snapshot. The old
+standalone periodic mutable-state checksum is removed. Frozen complete automation
+and all seven exact-client protocol-v58 paths prove no pre-stage entity
+publication, stale READY acceptance, snapshot mismatch, or resync loop. Keep
+this pattern as a release regression gate.
+
+**Audit:** for every gameplay producer, identify the stage epoch that authorizes
+it and prove prospective lobby settings cannot activate the current world. For
+every checksum/digest, list each field's transport and sample boundary. If those
+boundaries differ, use stable identity or an atomic versioned snapshot. Runtime
+gates must forbid pre-stage entity packets and false resync loops.
+
+`rg -n "g_NetGameMode|StageReplication|SVC_.*SYNC|Checksum|g_NetMsg|g_NetMsgRel|stage_ready" src port tests tools/smoke-verify/tests`
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

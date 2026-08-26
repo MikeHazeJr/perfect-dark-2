@@ -181,6 +181,32 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 - **R-5 server GUI redesign**. Players + Rooms panels, operator actions (Move / Kick / Set Leader / Close Room). Planned per old infrastructure tracker.
 - **L-5 dedicated Campaign / Counter-Op setup screen**. Deferred per the in-client pivot.
 - **L-6 drop-in prompt on client side**. Deferred per the in-client pivot.
+- **Multi-player stage startup transaction (B-1067/B-1103/B-1104).** Source
+  now rolls back a preparing participant's ready-gate transaction before a
+  valid settings publication and reverse-unwinds every committed player after
+  a later co-op/Counter-Op reset or spawn failure. Protocol v58 now gives the
+  server one explicit inactive/waiting/release/active publication lifecycle.
+  `SVC_STAGE_START` carries a nonzero epoch; each remote READY must echo it; the
+  listen authority owns a separate real post-load latch; and release publishes
+  only a fresh baseline from dedicated packet storage before ordinary
+  ACTIVE-frame traffic begins. The complete pending mask clears only after the
+  room-scoped reliable packet queues, so no shared control-buffer reset can
+  consume or partially publish it. NPC
+  convergence is one transactional full resync plus an immediate canonical
+  sync-ID-sorted digest of the exact serialized/applied snapshot, with no
+  standalone periodic live checksum. The prior v57 four-fixture receipt remains rejected;
+  replacement v58 automation passes isolated builds, complete tests
+  66,421/1,200, the native-source guard, and unchanged product/verifier
+  manifests. Ordinary-client receipts now pass co-op 96/96, Counter-Op 98/98,
+  later-player rollback 60/60, settings rollback 43/43, initiator authority
+  214/214, reconnect 99/99, and the focus-independent invitee-authority route
+  170/170. The immutable raw route receipt remains rejected at 169/170 because
+  its stale regex rejected valid epoch 1; corrected static coverage passes
+  108/2 and the separately hashed retained logs pass 170/170 without a product
+  change. The route proves one elected in-client listen authority, one signed
+  typed match-server route, exactly one non-authority join, and no probe/relay
+  endpoint handoff. This transaction is now a production regression gate;
+  broader T-ENGINE-004 lifecycle closure remains partial.
 
 ---
 

@@ -120,7 +120,7 @@
 #define CLC_BOT_MOVE      0x0A // bot-authority client→server: bot positions for server relay via SVC_CHR_MOVE
 
 /* U-10: Stage-ready handshake */
-#define CLC_STAGE_READY   0x0B // client→server: stage fully loaded, ready for bot authority delegation
+#define CLC_STAGE_READY   0x0B // client→server: real post-load boundary; releases gameplay replication and optional bot delegation
 
 /* R-3: Room networking (protocol v29) */
 #define CLC_ROOM_CREATE  0x10 // client→server: create a new room
@@ -327,6 +327,8 @@ u32 netmsgSvcNpcSyncWrite(struct netbuf *dst);
 u32 netmsgSvcNpcSyncRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcNpcResyncWrite(struct netbuf *dst);
 u32 netmsgSvcNpcResyncRead(struct netbuf *src, struct netclient *srccl);
+void netNpcReplicationReset(void);
+bool netNpcIsReplicationReady(const struct chrdata *chr);
 u32 netNpcCount(void);
 
 u32 netmsgSvcStageFlagWrite(struct netbuf *dst);

@@ -9,7 +9,7 @@
 > with SHA-256
 > `2DDF4541E7B2FD753F296158EB8991831BF4572834D38C00A40545868087F9DF`.
 
-Last updated: 2026-08-25
+Last updated: 2026-08-26
 
 ---
 
@@ -75,23 +75,44 @@ sixth work queue.
 
 ## Milestone 1: complete base game and graphs
 
-Current default focus: T-ENGINE-004/B-1102. Candidate-first Campaign/player
-initialization retains its accepted Campaign evidence, and B-1101 retains its
-frozen bounded-decoder automation. The exact replacement Combat Simulator run
-rejected at 16/56 because schema-v5 animation reconstruction omitted per-part
-flags and its fallback invalidated animation ownership. The source-connected
-B-1102 correction now makes producer and consumers share one exact descriptor
-contract, rejects trailing bytes and noncanonical scalar tokens, preserves
-declared topology/full-u32 frame values through zero-frame semantics, versions
-animation caches independently, and gives rejection a null-safe dependency-free
-bind-pose traversal. Its isolated source-frozen builds, focused 2,057/27, full
-65,073/1,186, native-source guard, and zero-mismatch 2,717/402-file manifests
-pass. Exact client `133A55C6...` then passes the one replacement two-cycle
-Combat Simulator smoke 56/56 with real fire/hit, both stats/award cycles, Play
-Again, clean exit, zero decoder/crash matches, and no leaked process. B-1101 and
-B-1102 are regression gates; accepted Campaign, D-003, and reconnect receipts
-were retained without rerun. Verified source is committed as `ed906402`; the
-next T-ENGINE-004 closure gap is being audited.
+Current completed unit: T-ENGINE-004/B-1067/B-1103/B-1104. The prepared-roster,
+ready-gate settings rollback, multi-player stage unwind, and model-complete NPC
+wire boundaries now share the protocol-v58 inactive/waiting/release/active
+lifecycle. START/READY carry one nonzero epoch, the listen authority and exact
+remote peers own separate post-load latches, RELEASE queues one complete fresh
+baseline from dedicated reliable storage, and ACTIVE alone admits incrementals.
+The exact full NPC resync carries its immediate canonical digest; periodic
+mutable-state checksums are gone. Current source-frozen automation is accepted:
+all isolated targets build, exact product `03a65922...` (2,719 files) and
+verifier `f5f9ba01...` (408 files) remain frozen, final full tests pass
+66,421/1,200, and the native-source guard passes. Exact client is `5DA75BE6...`
+and the automation-build tests were `9E56A336...`. Current-v58 production
+receipts now accept co-op 96/96, Counter-Op 98/98, later-player rollback 60/60,
+settings rollback 43/43, initiator authority 214/214, reconnect 99/99, and the
+focus-independent invitee-authority route 170/170. The route proof uses the
+same exact v58 client and establishes one elected in-client listen authority,
+one separately signed typed match-server route, one idempotent initiator join,
+and no probe or relay descriptor handoff. Its immutable raw receipt remains
+rejected at 169/170 because the original verifier rejected valid single-digit
+epoch 1; the corrected definition and separately hashed retained logs pass all
+170 assertions, and the compiled route/reconnect contract passes 108 assertions
+in 2 cases. Final verifier aggregate `726a2c96...` covers 409 files and exact
+tests binary `38C37DC4...`; its only pre-route delta is the corrected route
+fixture and static contract, while product `03a65922...` has zero drift. The
+reconnect verifier now selects typed `base:cyclone` and expects its actual
+weapon 11 instead of coupling a random spawn to stale weapon 5; its focused
+compiled contract passes 63 assertions. The integrated invitee-authority run
+reaches 210/218 and proves the route/start/gameplay path, but is rejected because
+this execution desktop exposes no foreground HWND for B-1085's fresh SDL focus
+witness; that independent focus/visual fixture remains unchanged and is no
+longer the D-003 route gate. B-1104 is now a production regression gate, while
+T-ENGINE-004 remains partial for its broader base-game lifecycle audit.
+Milestone 1 therefore remains 2 validated, 8 partial, and 5 missing.
+The next default focus is the broader T-ENGINE-004 base-game lifecycle gap
+audit; no further D-003 source or smoke work is pending. B-1101/B-1102 remain
+regression gates on accepted frozen
+automation and Combat Simulator evidence, and accepted Campaign, D-003, and
+reconnect receipts remain retained without rerun.
 T-TESTS-002 remains validated
 after D-005 option A, B-1061/B-1062/B-1063, and the 17-mission restart gate.
 
@@ -125,13 +146,40 @@ Runtime ROM/RomProvider fallback after extraction is an asset-chain failure trac
 | V-008 | missing | Custom game-mode and bot-profile identity through save and listen-host networking. |
 | V-009 | validated/pass | Preserve edited effect/weapon gameplay, distribution, lifecycle, and visual proof. |
 
+Current T-ENGINE-004 checkpoint: B-1067/B-1103/B-1104 production gates pass at
+protocol v58. The prepared roster aborts before a preparing
+participant's valid settings publication, and a later co-op/Counter-Op player
+failure reverse-unwinds every committed runtime owner in authenticated
+client-ID order. The rejected v57-era runtime batch drove an explicit
+inactive/waiting/release/active stage-publication lifecycle: START/READY share a
+nonzero epoch, the listen authority and exact remote peers own separate
+post-load latches, release publishes only a fresh baseline, and ordinary
+gameplay begins on the next ACTIVE frame. NPC convergence is one reliable full
+resync followed immediately by a canonical sync-ID-sorted digest of that exact
+applied snapshot; periodic asynchronous checksum traffic is removed. The
+baseline has dedicated packet storage, consumes its complete pending mask only
+after a successful room queue, and cannot release with a missing or partially
+built transaction. The digest uses the exact serialized target and
+sentinel-terminated room fields. Fixtures assert semantic endpoint roles with
+seed-independent pools and baseline-before-ACTIVE ordering. Exact v58 product
+`03a65922...` and verifier `f5f9ba01...` pass isolated builds, complete tests
+66,421/1,200, and the native-source guard with unchanged post-run manifests.
+Accepted ordinary-client receipts cover co-op 96/96, Counter-Op 98/98,
+later-player rollback 60/60, settings rollback 43/43, initiator authority
+214/214, reconnect 99/99, and the focus-independent invitee-authority route
+170/170. The immutable raw route receipt remains rejected at 169/170 for its
+stale two-digit epoch regex; corrected static coverage passes 108/2 and the
+same retained exact-client logs pass 170/170 without product changes. B-1104 is
+a regression gate. Milestone totals do not change until the broader
+T-ENGINE-004 closure review.
+
 V-010 also owns the consolidated regression matrix from [bugs.md](bugs.md),
 including campaign and Combat Simulator lifecycle, bot spawn and attribution,
 collision, physical input, vehicles, character geometry, long-session stress,
-and rendering. The forty-four live one-off 1.0 bugs are B-919, B-249, B-242, B-174,
+and rendering. The forty-seven live one-off 1.0 bugs are B-919, B-249, B-242, B-174,
 B-183, B-1064, B-1065, B-1066, B-1067, B-1068, B-1069, B-1070, B-1071,
 B-1072, B-1073, B-1074, B-1075, B-1076, B-1077, B-1078, B-1079, B-1080,
-B-1081, B-1082, B-1083, B-1084, B-1085, B-1086, B-1087, B-1088, B-1089, B-1090, B-1091, B-1092, B-1093, B-1094, B-1095, B-1096, B-1097, B-1098, B-1099, B-1100, B-1101, and B-1102. B-1061, B-1062, and B-1063 are locked release
+B-1081, B-1082, B-1083, B-1084, B-1085, B-1086, B-1087, B-1088, B-1089, B-1090, B-1091, B-1092, B-1093, B-1094, B-1095, B-1096, B-1097, B-1098, B-1099, B-1100, B-1101, B-1102, B-1103, B-1104, and B-1105. B-1061, B-1062, and B-1063 are locked release
 regression gates.
 
 ---

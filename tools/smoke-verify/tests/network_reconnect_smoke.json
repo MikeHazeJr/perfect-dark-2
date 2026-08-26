@@ -1,6 +1,6 @@
 {
   "scenario_name": "network_reconnect_smoke",
-  "description": "B-1064 ordinary-client production proof. A listen host and isolated client enter a real Combat Sim, the host emits one timeout for client 1, and the same client performs one endpoint-scoped reconnect. Assertions require the same client/player/room/team/body/head snapshot to remain reserved through real stage load, commit once after post-load READY, restore one announced exact replicated-prop set plus every stable player's inventory before the explicit server marker, enter a second usable gameplay epoch with real weapon fire accepted by the authority, and retire the retry credential only during final scripted shutdown.",
+  "description": "B-1064 ordinary-client production proof. A listen host and isolated client enter a real Combat Sim with the typed Cyclone selected as the deterministic spawn weapon, the host emits one timeout for client 1, and the same client performs one endpoint-scoped reconnect. Assertions require the same client/player/room/team/body/head snapshot to remain reserved through real stage load, commit once after post-load READY, restore one announced exact replicated-prop set plus every stable player's inventory before the explicit server marker, enter a second usable gameplay epoch with Cyclone fire accepted by the authority, and retire the retry credential only during final scripted shutdown.",
   "tags": ["connectivity", "server", "reconnect", "transaction", "multi-process", "production"],
   "paths_of_interest": [
     "port/src/net/net.c",
@@ -25,6 +25,7 @@
         "--no-update-check", "--no-sound", "--skip-intro", "--host",
         "--listen-bind", "27230",
         "--launch-mp-room", "base:arena_mp_felicity", "base:combat", "0",
+        "--debug-spawn-weapon", "base:cyclone",
         "--host-autostart", "--match-timelimit-sec", "120"
       ],
       "wait_for": "NET: created server on port 27230",
@@ -32,6 +33,7 @@
       "assertions": {
         "required_lines": [
           "SMOKE: scenario=network_reconnect_host",
+          "BOOT: --debug-spawn-weapon 'base:cyclone' \\(SPECIFIC\\)",
           "SMOKE.NETWORK: timeout_client client=1 state=4 .*production_path=1",
           "NET.DISCONNECT.INTENT latch client=1 reason=5 retryable=1",
           "NET: disconnect event from client 1 reason=5 transport_reason=[0-9]+ server_intent=1 retryable=1",
@@ -120,7 +122,7 @@
           "NET.RECONNECT.CLIENT transaction=complete post_load_ready=1 server_commit_ack=1 retry_transaction=retired",
           "SMOKE.NETWORK: reconnect rc=0 .*production_path=1",
           "SMOKE: action press id=20",
-          "COMBAT: SHOT_FIRED .*weapon=5(?: |$)",
+          "COMBAT: SHOT_FIRED .*weapon=11(?: |$)",
           "SMOKE: action release id=20",
           "SMOKE: result=scripted_exit",
           "NET.RECONNECT.TEARDOWN retryable=0 credential_retained=0"
@@ -138,7 +140,7 @@
               "NET.RECONNECT.CLIENT transaction=complete post_load_ready=1 server_commit_ack=1 retry_transaction=retired",
               "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
               "SMOKE: action press id=20",
-              "COMBAT: SHOT_FIRED .*weapon=5(?: |$)",
+              "COMBAT: SHOT_FIRED .*weapon=11(?: |$)",
               "SMOKE: action release id=20"
             ]
           },
@@ -164,7 +166,7 @@
           { "pattern": "stage-start presentation previous_tickmode=6 next_tickmode=0 stale_cutscene_retired=1", "min": 1, "max": 1 },
           { "pattern": "SMOKE.WAIT: satisfied condition=network_stage_live", "min": 2, "max": 2 },
           { "pattern": "SMOKE.WAIT: satisfied condition=gameplay_ready", "min": 2, "max": 2 },
-          { "pattern": "COMBAT: SHOT_FIRED .*weapon=5(?: |$)", "min": 1, "max": 10 },
+          { "pattern": "COMBAT: SHOT_FIRED .*weapon=11(?: |$)", "min": 1, "max": 60 },
           { "pattern": "NET.RECONNECT.TEARDOWN retryable=0 credential_retained=0", "min": 1, "max": 1 }
         ],
         "forbidden_patterns": [

@@ -1,0 +1,142 @@
+{
+  "scenario_name": "network_stage_player_rollback_smoke",
+  "description": "B-1104 negative loopback proof. The authority injects one smoke-only failure immediately before player 1 spawn, after both playerReset commits and player 0 chrbody commit. The production lvReset failure path must unwind both players in reverse order, report zero residual owners, disconnect cleanly, and return to title without publishing stage readiness.",
+  "tags": ["network", "coop", "player-init", "rollback", "fault", "multi-process", "smoke"],
+  "paths_of_interest": [
+    "port/src/player_stage_init_fault.c",
+    "port/src/main.c",
+    "port/src/pdmain.c",
+    "src/game/lv.c",
+    "src/game/playerreset.c",
+    "src/game/chr.c",
+    "src/game/playermgr.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 210,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--no-update-check", "--no-sound", "--skip-intro", "--host",
+        "--listen-bind", "27216",
+        "--launch-mp-room", "base:defection", "base:combat", "0",
+        "--host-autostart", "--host-autostart-mode", "coop",
+        "--difficulty", "agent",
+        "--debug-fail-stage-player-init", "spawn:1"
+      ],
+      "wait_for": "NET: created server on port 27216",
+      "wait_timeout_seconds": 140,
+      "assertions": {
+        "required_lines": [
+          "BOOT: --debug-fail-stage-player-init spec='spawn:1' status=ok smoke=1",
+          "PLAYER.INIT.COMMIT coop-stage players=2 bond=0 coop=1 anti=-1",
+          "NET.STAGE.REPLICATION phase=waiting epoch=[1-9]\\d* room=\\d+ wait_mask=0x00000002 authority_ready=0 reason=coop-stage-start",
+          "PLAYER.INIT.ORDER position=0 player=0 client=0 mode=1",
+          "PLAYER.INIT.ORDER position=1 player=1 client=1 mode=1",
+          "PLAYER.INIT.COMMIT phase=stage player=0",
+          "PLAYER.INIT.COMMIT phase=stage player=1",
+          "PLAYER.INIT.COMMIT phase=chrbody player=0",
+          "PLAYER.INIT.FAULT consumed phase=spawn player=1 stage=0x[0-9a-f]+ one_shot=1",
+          "PLAYER.INIT.ROLLBACK order_position=1 player=1",
+          "PLAYER.INIT.ROLLBACK phase=stage-player player=1 owner_flags=0x[0-9a-f]+ residual_prop=0 residual_eyespy=0 residual_chrbody=0",
+          "PLAYER.INIT.ROLLBACK order_position=0 player=0",
+          "PLAYER.INIT.ROLLBACK phase=stage-player player=0 owner_flags=0x[0-9a-f]+ residual_prop=0 residual_eyespy=0 residual_chrbody=0",
+          "PLAYER.INIT.ROLLBACK phase=stage-transaction failure_phase=spawn failed_player=1 status=smoke_injected committed=2 rolled_back=2 chrbodies=1 eyespies=0 owner_flags=0x[0-9a-f]+",
+          "PLAYER.INIT.ROLLBACK phase=stage stage=0x[0-9a-f]+; returning to title",
+          "NET: disconnected"
+        ],
+        "required_sequences": [
+          {
+            "name": "reverse-player-rollback",
+            "patterns": [
+              "PLAYER.INIT.FAULT consumed phase=spawn player=1",
+              "PLAYER.INIT.ROLLBACK order_position=1 player=1",
+              "PLAYER.INIT.ROLLBACK phase=stage-player player=1 .*residual_prop=0 residual_eyespy=0 residual_chrbody=0",
+              "PLAYER.INIT.ROLLBACK order_position=0 player=0",
+              "PLAYER.INIT.ROLLBACK phase=stage-player player=0 .*residual_prop=0 residual_eyespy=0 residual_chrbody=0",
+              "PLAYER.INIT.ROLLBACK phase=stage-transaction failure_phase=spawn failed_player=1 .*committed=2 rolled_back=2 chrbodies=1",
+              "PLAYER.INIT.ROLLBACK phase=stage stage=0x[0-9a-f]+; returning to title",
+              "NET: disconnected"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "PLAYER.INIT.COMMIT phase=chrbody player=1",
+          "PLAYER.INIT.FAULT consumed.*one_shot=[2-9]",
+          "NET.STAGE.REPLICATION phase=release",
+          "NET.STAGE.REPLICATION phase=active",
+          "NET.STAGE.REPLICATION baseline=queued",
+          "NET: sending npc resync",
+          "SVC_NPC_SYNC checksum mismatch",
+          "SVC_NPC_SYNC snapshot mismatch",
+          "SVC_NPC_SYNC rejected",
+          "SVC_NPC_RESYNC rejected",
+          "NET.STAGE.REPLICATION ready=rejected",
+          "SMOKE: result=timeout",
+          "EXCEPTION_ACCESS_VIOLATION",
+          "ACCESS_VIOLATION",
+          "FATAL: "
+        ],
+        "required_counts": [
+          { "pattern": "PLAYER.INIT.FAULT consumed phase=spawn player=1", "min": 1, "max": 1 },
+          { "pattern": "PLAYER.INIT.ROLLBACK phase=stage-player player=[01] ", "min": 2, "max": 2 },
+          { "pattern": "PLAYER.INIT.ROLLBACK phase=stage-transaction failure_phase=spawn failed_player=1", "min": 1, "max": 1 }
+        ]
+      }
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--connect-host", "127.0.0.1:27216"
+      ],
+      "assertions": {
+        "required_lines": [
+          "NET: connected to server, sending CLC_AUTH",
+          "PLAYER.INIT.COMMIT stage-start mode=1 stage='base:defection' players=2 bots=0"
+        ],
+        "forbidden_patterns": [
+          "PLAYER.INIT.FAULT",
+          "SMOKE: result=timeout",
+          "EXCEPTION_ACCESS_VIOLATION",
+          "ACCESS_VIOLATION",
+          "FATAL: "
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "The host consumes spawn:1 only after the two-player mission stage reaches lvReset; the initial one-player CI stage cannot consume this exact fault." },
+    { "at_ms": 150000, "type": "exit", "comment": "Bounded dwell covers clean install, join, ready gate, stage load, injected rollback, network teardown, and title recovery on ordinary clients." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=network_stage_player_rollback_smoke",
+      "NET: created server on port 27216",
+      "NET: incoming connection",
+      "PLAYER.INIT.FAULT consumed phase=spawn player=1",
+      "PLAYER.INIT.ROLLBACK phase=stage-transaction failure_phase=spawn failed_player=1",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "NET.STAGE.REPLICATION phase=release",
+      "NET.STAGE.REPLICATION phase=active",
+      "NET.STAGE.REPLICATION baseline=queued",
+      "NET: sending npc resync",
+      "SVC_NPC_SYNC checksum mismatch",
+      "SVC_NPC_SYNC snapshot mismatch",
+      "SVC_NPC_SYNC rejected",
+      "SVC_NPC_RESYNC rejected",
+      "NET.STAGE.REPLICATION ready=rejected"
+    ],
+    "required_counts": [
+      { "pattern": "SMOKE: scenario=network_stage_player_rollback_smoke", "min": 2, "max": 2 },
+      { "pattern": "PLAYER.INIT.FAULT consumed phase=spawn player=1", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 1, "max": 2 }
+    ]
+  }
+}

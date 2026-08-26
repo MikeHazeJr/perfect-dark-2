@@ -343,6 +343,29 @@ static struct {
 	struct matchslot roster_slots[MAX_PLAYERS];
 } s_ReadyGate;
 
+static void readyGateAbort(const char *canceller_name);
+
+static s32 readyGatePreparingClientIndex(const struct netclient *client)
+{
+	if (!s_ReadyGate.active || client == NULL) {
+		return -1;
+	}
+
+	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+		const u32 bit = 1u << i;
+
+		if (&g_NetClients[i] == client
+				&& (s_ReadyGate.expected_mask & bit)
+				&& !(s_ReadyGate.declined_mask & bit)
+				&& client->room_id == s_ReadyGate.room_id
+				&& client->state == CLSTATE_PREPARING) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
 typedef struct lobby_start_client_snapshot_t {
 	u32 state;
 	u8 playernum;
@@ -716,6 +739,25 @@ static struct prop *netSyncIdLookup(u32 syncid)
  * netStartFrame() resets g_NetMsgRel after the event loop — any write during dispatch is silently dropped.
  * The fix mirrors the server-side pattern: set a flag in the handler, write the message in netEndFrame. */
 u8 g_NetPendingResyncReqFlags = 0;
+
+typedef struct net_npc_snapshot_validation_s {
+	bool pending;
+	u32 stage_epoch;
+	u32 tick;
+	u16 count;
+	u32 checksum;
+} net_npc_snapshot_validation_t;
+
+static net_npc_snapshot_validation_t s_NetNpcSnapshotValidation;
+
+void netNpcReplicationReset(void)
+{
+	memset(&s_NetNpcSnapshotValidation, 0,
+		sizeof(s_NetNpcSnapshotValidation));
+	g_NetNpcDesyncCount = 0;
+	g_NetNpcResyncLastReq = 0;
+	g_NetPendingResyncReqFlags &= (u8)~NET_RESYNC_FLAG_NPCS;
+}
 
 /* utils */
 
@@ -2011,6 +2053,7 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 	player_identity_status_e identity_status;
 	bool in_match;
 	u8 effective_handicap;
+	u8 sanitizedTeam;
 
 	if (!src || !srccl) {
 		return 1;
@@ -2026,11 +2069,12 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 		return 1;
 	}
 
-	const u8 sanitizedTeam = netmsgSanitizeClientTeam(srccl, plan.team);
 	if (srccl->reconnect_preserved_index < NET_MAX_CLIENTS) {
 		netmsg_reconnect_context_wire_t context_wire;
 		struct netpreservedplayer *pp =
 			&g_NetPreservedPlayers[srccl->reconnect_preserved_index];
+
+		sanitizedTeam = netmsgSanitizeClientTeam(srccl, plan.team);
 
 		memset(&context_wire, 0, sizeof(context_wire));
 		if (srccl->reconnect_settings_pending || !pp->active
@@ -2079,6 +2123,20 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 			(unsigned)srccl->reconnect_manifest_hash);
 		return 0;
 	}
+
+	/* B-1103/SP-67: the ready gate owns an immutable prepared roster. A valid
+	 * settings candidate is normal lobby input, but it cannot publish beneath
+	 * that snapshot. Roll back the exact gate first, then apply the candidate to
+	 * restored lobby state. Invalid wire never reaches this boundary. */
+	if (readyGatePreparingClientIndex(srccl) >= 0) {
+		sysLogPrintf(LOG_NOTE,
+			"PLAYER.INIT.ROLLBACK ready-gate reason=settings_changed client=%u validated_candidate=1 settings_published=0",
+			(unsigned)srccl->id);
+		readyGateAbort(srccl->settings.name[0]
+			? srccl->settings.name : plan.name);
+	}
+
+	sanitizedTeam = netmsgSanitizeClientTeam(srccl, plan.team);
 
 	in_match = srccl->state >= CLSTATE_GAME && srccl->config;
 	effective_handicap = netClientSettingsEffectiveHandicap(plan.handicap,
@@ -2240,6 +2298,7 @@ typedef struct net_stage_start_write_plan_t {
 	u64 rng_seed_0;
 	u64 rng_seed_1;
 	u32 match_seed;
+	u32 stage_epoch;
 	u8 mode;
 	u16 stage_session;
 	char stage_id[CATALOG_ID_LEN];
@@ -2369,7 +2428,11 @@ static bool netStageStartWritePrepare(net_stage_start_write_plan_t *plan,
 	plan->rng_seed_0 = g_RngSeed;
 	plan->rng_seed_1 = g_Rng2Seed;
 	plan->match_seed = g_NetMatchSeed;
+	plan->stage_epoch = g_NetStageEpoch;
 	plan->mode = g_NetGameMode;
+	if (plan->stage_epoch == 0) {
+		return netStageStartWriteReject("stage epoch is zero");
+	}
 
 	if (plan->mode != NETGAMEMODE_MP && plan->mode != NETGAMEMODE_COOP
 			&& plan->mode != NETGAMEMODE_ANTI) {
@@ -2725,6 +2788,8 @@ static u32 netmsgSvcStageStartWriteInternal(struct netbuf *dst,
 	 * All clients receive this and store in g_NetMatchSeed so future
 	 * spawnpool.c can produce identical spawn pools on every machine. */
 	netbufWriteU32(dst, plan.match_seed);
+	/* v58: exact stage-session identity echoed by CLC_STAGE_READY. */
+	netbufWriteU32(dst, plan.stage_epoch);
 
 	/* SA-3: the preflight froze the mode-appropriate primary stage ID and
 	 * proved its nonzero session/runtime binding before any bytes were written. */
@@ -2905,6 +2970,7 @@ typedef struct net_stage_start_plan_t {
 	u64 rng_seed_0;
 	u64 rng_seed_1;
 	u32 match_seed;
+	u32 stage_epoch;
 	u8 mode;
 	u8 stagenum;
 	char stage_id[CATALOG_ID_LEN];
@@ -3066,6 +3132,11 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	plan.rng_seed_1 = netbufReadU64(src);
 	/* L2-4: match_seed for deterministic spawn pools */
 	plan.match_seed = netbufReadU32(src);
+	plan.stage_epoch = netbufReadU32(src);
+	if (src->error || plan.stage_epoch == 0) {
+		return netStageStartReject(&plan, NET_STAGE_START_MALFORMED,
+			"truncated or zero stage epoch");
+	}
 
 	/* SA-3: stage as session ID; 0 = return to lobby */
 	const u16 stage_session = catalogReadAssetRef(src);
@@ -3615,6 +3686,8 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	g_NetRngSeeds[1] = plan.rng_seed_1;
 	g_NetRngLatch = true;
 	g_NetMatchSeed = plan.match_seed;
+	g_NetStageEpoch = plan.stage_epoch;
+	netNpcReplicationReset();
 	g_NetGameMode = plan.mode;
 	g_NetCoopFriendlyFire = plan.coop_friendly_fire;
 	g_NetCoopRadar = plan.coop_radar;
@@ -3685,6 +3758,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 		client->settings.head_id[sizeof(client->settings.head_id) - 1] = '\0';
 		client->flags = prepared->flags;
 		client->state = CLSTATE_GAME;
+		client->stage_ready = false;
 		client->player = NULL;
 		client->config = NULL;
 
@@ -3715,9 +3789,10 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 
 	plan.status = NET_STAGE_START_OK;
 	sysLogPrintf(LOG_NOTE,
-		"PLAYER.INIT.COMMIT stage-start mode=%u stage='%s' players=%u bots=%d",
+		"PLAYER.INIT.COMMIT stage-start mode=%u stage='%s' players=%u bots=%d epoch=%u",
 		(unsigned)plan.mode, plan.stage_id, (unsigned)plan.numplayers,
-		netStageStartPopcount64(plan.active_mask >> MAX_PLAYERS));
+		netStageStartPopcount64(plan.active_mask >> MAX_PLAYERS),
+		(unsigned)plan.stage_epoch);
 	/* The reconnect credential remains retryable through the asynchronous stage
 	 * load. pdmain emits CLC_STAGE_READY and retires it only after lvReset and
 	 * player allocation reach the real SCENE_EVENT_STAGE_READY boundary. */
@@ -3796,6 +3871,8 @@ u32 netmsgSvcStageEndWrite(struct netbuf *dst, u8 room_id, u8 mode)
 
 void netmsgSvcStageEndCommit(u8 room_id, u8 mode)
 {
+	g_NetStageEpoch = 0;
+	netNpcReplicationReset();
 	/* A reconnect gameplay witness belongs only to the restored live stage. */
 	for (s32 i = 0; i < g_NetMaxClients; ++i) {
 		g_NetClients[i].reconnect_resync_pending = false;
@@ -5596,6 +5673,13 @@ u32 netmsgSvcReconnectStateWrite(struct netbuf *dst,
 			goto rollback;
 		}
 		if (netmsgSvcNpcResyncWrite(dst) != 0) {
+			netmsgReconnectSnapshotFail(out_result, dst->error
+				? NET_RECONNECT_SNAPSHOT_BUFFER
+				: NET_RECONNECT_SNAPSHOT_NPC,
+				NET_NULL_CLIENT, NET_NULL_PROP, -1);
+			goto rollback;
+		}
+		if (netmsgSvcNpcSyncWrite(dst) != 0) {
 			netmsgReconnectSnapshotFail(out_result, dst->error
 				? NET_RECONNECT_SNAPSHOT_BUFFER
 				: NET_RECONNECT_SNAPSHOT_NPC,
@@ -7492,13 +7576,33 @@ u32 netmsgSvcPropResyncRead(struct netbuf *src, struct netclient *srccl)
  * clients via SVC_NPC_* messages. These are separate from SVC_CHR_* (bots)
  * because NPCs lack the aibot struct — different data payload.
  *
- * NPC identification: prop->type == PROPTYPE_CHR && chr->aibot == NULL
+ * NPC replication readiness is stricter than identity. Stage setup can expose
+ * a PROPTYPE_CHR slot before its model graph commits; orientation-bearing wire
+ * payloads must not observe that transitional owner.
  * ======================================================================== */
 
-/* Helper: check if a chrdata is an active NPC (not a bot, not a player) */
-static inline bool netIsNpc(struct chrdata *chr)
+/* Canonical predicate shared by NPC scheduling, counts, checksums, writers,
+ * and readers. A non-CHRINFO root has no orientation rwdata to require; a
+ * CHRINFO root must have both immutable rodata and its live rwdata array. */
+bool netNpcIsReplicationReady(const struct chrdata *chr)
 {
-	return chr && chr->prop && chr->prop->type == PROPTYPE_CHR && !chr->aibot;
+	struct modelnode *root;
+
+	if (!chr || !chr->prop || chr->prop->type != PROPTYPE_CHR
+			|| chr->prop->chr != chr
+			|| chr->aibot || !chr->model || !chr->model->definition
+			|| !chr->model->definition->rootnode) {
+		return false;
+	}
+
+	root = chr->model->definition->rootnode;
+
+	if ((root->type & 0xff) == MODELNODETYPE_CHRINFO
+			&& (!root->rodata || !chr->model->rwdatas)) {
+		return false;
+	}
+
+	return true;
 }
 
 /* ========================================================================
@@ -7509,7 +7613,7 @@ static inline bool netIsNpc(struct chrdata *chr)
 
 u32 netmsgSvcNpcMoveWrite(struct netbuf *dst, struct chrdata *chr)
 {
-	if (!netIsNpc(chr)) {
+	if (!netNpcIsReplicationReady(chr)) {
 		return dst->error;
 	}
 
@@ -7551,7 +7655,8 @@ u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	if (!prop || !prop->chr || prop->type != PROPTYPE_CHR) {
+	if (!prop || !netNpcIsReplicationReady(prop->chr)
+			|| prop->chr->prop != prop) {
 		return src->error;
 	}
 
@@ -7591,7 +7696,7 @@ u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl)
 
 u32 netmsgSvcNpcStateWrite(struct netbuf *dst, struct chrdata *chr)
 {
-	if (!netIsNpc(chr)) {
+	if (!netNpcIsReplicationReady(chr)) {
 		return dst->error;
 	}
 
@@ -7630,7 +7735,8 @@ u32 netmsgSvcNpcStateRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	if (!prop || !prop->chr || prop->type != PROPTYPE_CHR) {
+	if (!prop || !netNpcIsReplicationReady(prop->chr)
+			|| prop->chr->prop != prop) {
 		return src->error;
 	}
 
@@ -7648,82 +7754,232 @@ u32 netmsgSvcNpcStateRead(struct netbuf *src, struct netclient *srccl)
 }
 
 /* ========================================================================
- * SVC_NPC_SYNC - Periodic checksum of all NPC states for desync detection
- * Server sends a compact checksum every N frames in co-op mode.
+ * SVC_NPC_SYNC - Digest of the immediately preceding full NPC snapshot.
+ * This message is valid only as the second half of one reliable ordered
+ * SVC_NPC_RESYNC transaction; there is deliberately no periodic live digest.
  * ======================================================================== */
 
 u32 netNpcCount(void)
 {
 	u32 count = 0;
 	for (s32 i = 0; i < g_NumChrSlots; ++i) {
-		if (netIsNpc(&g_ChrSlots[i])) {
+		if (netNpcIsReplicationReady(&g_ChrSlots[i])) {
 			++count;
 		}
 	}
 	return count;
 }
 
-static u32 netNpcSyncChecksum(void)
+static int netNpcDigestCompare(const void *a, const void *b)
 {
-	u32 crc = 0;
+	const struct chrdata *const left = *(struct chrdata *const *)a;
+	const struct chrdata *const right = *(struct chrdata *const *)b;
+	const u32 left_id = left->prop->syncid;
+	const u32 right_id = right->prop->syncid;
+
+	return left_id < right_id ? -1 : left_id > right_id ? 1 : 0;
+}
+
+static u32 netNpcFloatBits(f32 value)
+{
+	u32 bits;
+	memcpy(&bits, &value, sizeof(bits));
+	return bits;
+}
+
+static u32 netNpcDigestMixU32(u32 digest, u32 value)
+{
+	/* Explicit byte order keeps the digest a protocol value instead of a host
+	 * representation accident. FNV-1a is compact and deterministic here; the
+	 * protocol's authenticity comes from the trusted ENet authority channel. */
+	for (u32 shift = 0; shift < 32; shift += 8) {
+		digest ^= (value >> shift) & 0xffu;
+		digest *= 16777619u;
+	}
+	return digest;
+}
+
+static u8 netNpcSnapshotFlags(const struct chrdata *chr,
+		const struct prop *target)
+{
+	return (chrIsDead((struct chrdata *)chr) ? (1 << 0) : 0)
+		| ((chr->hidden & CHRHFLAG_CLOAKED) ? (1 << 1) : 0)
+		| (target ? (1 << 2) : 0);
+}
+
+/* Match the target field actually serialized by SVC_NPC_RESYNC. A target of
+ * -1 has local p1p2 fallback semantics in chrGetTargetProp, but no target
+ * syncid is present on this wire snapshot and therefore must not enter its
+ * digest. */
+static struct prop *netNpcSnapshotTarget(const struct chrdata *chr)
+{
+	struct prop *target;
+
+	if (!chr || !g_Vars.props || chr->target < 0
+			|| chr->target >= g_Vars.maxprops) {
+		return NULL;
+	}
+	target = &g_Vars.props[chr->target];
+	return target->syncid != 0 ? target : NULL;
+}
+
+static bool netNpcSnapshotDigest(u16 *out_count, u32 *out_checksum)
+{
+	const u32 count = netNpcCount();
+	struct chrdata **ordered = NULL;
+	u32 emitted = 0;
+	u32 digest = 2166136261u;
+
+	if (!out_count || !out_checksum || count > 0xffffu) {
+		return false;
+	}
+	if (count > 0) {
+		ordered = malloc((size_t)count * sizeof(*ordered));
+		if (!ordered) {
+			return false;
+		}
+	}
+
 	for (s32 i = 0; i < g_NumChrSlots; ++i) {
 		struct chrdata *chr = &g_ChrSlots[i];
-		if (!netIsNpc(chr)) {
+		if (!netNpcIsReplicationReady(chr)) {
 			continue;
 		}
-		u32 px = *(u32 *)&chr->prop->pos.x;
-		u32 py = *(u32 *)&chr->prop->pos.y;
-		u32 pz = *(u32 *)&chr->prop->pos.z;
-		u32 dm = *(u32 *)&chr->damage;
-		crc ^= px ^ (py << 7) ^ (pz << 13) ^ (dm << 19) ^ ((u32)chr->myaction << 24);
-		crc = (crc << 5) | (crc >> 27); // rotate
+		if (chr->prop->syncid == 0 || emitted >= count) {
+			free(ordered);
+			return false;
+		}
+		ordered[emitted++] = chr;
 	}
-	return crc;
+	if (emitted != count) {
+		free(ordered);
+		return false;
+	}
+	if (count > 1) {
+		qsort(ordered, (size_t)count, sizeof(*ordered),
+			netNpcDigestCompare);
+	}
+
+	for (u32 i = 0; i < count; i++) {
+		const struct chrdata *chr = ordered[i];
+		const struct prop *target = netNpcSnapshotTarget(chr);
+		if (i > 0 && ordered[i - 1]->prop->syncid == chr->prop->syncid) {
+			free(ordered);
+			return false;
+		}
+		digest = netNpcDigestMixU32(digest, chr->prop->syncid);
+		digest = netNpcDigestMixU32(digest,
+			netNpcFloatBits(chr->prop->pos.x));
+		digest = netNpcDigestMixU32(digest,
+			netNpcFloatBits(chr->prop->pos.y));
+		digest = netNpcDigestMixU32(digest,
+			netNpcFloatBits(chr->prop->pos.z));
+		digest = netNpcDigestMixU32(digest,
+			netNpcFloatBits(chrGetInverseTheta((struct chrdata *)chr)));
+		for (s32 room = 0; room < ARRAYCOUNT(chr->prop->rooms); room++) {
+			digest = netNpcDigestMixU32(digest,
+				(u32)(u16)chr->prop->rooms[room]);
+			if (chr->prop->rooms[room] < 0) {
+				break;
+			}
+		}
+		digest = netNpcDigestMixU32(digest, (u32)(u8)chr->myaction);
+		digest = netNpcDigestMixU32(digest, (u32)chr->actiontype);
+		digest = netNpcDigestMixU32(digest,
+			(u32)netNpcSnapshotFlags(chr, target));
+		digest = netNpcDigestMixU32(digest,
+			netNpcFloatBits(chr->damage));
+		digest = netNpcDigestMixU32(digest,
+			netNpcFloatBits(chr->maxdamage));
+		digest = netNpcDigestMixU32(digest, (u32)chr->alertness);
+		digest = netNpcDigestMixU32(digest, (u32)(u8)chr->team);
+		digest = netNpcDigestMixU32(digest, chr->chrflags);
+		digest = netNpcDigestMixU32(digest, chr->hidden);
+		digest = netNpcDigestMixU32(digest, (u32)chr->fadealpha);
+		digest = netNpcDigestMixU32(digest,
+			target ? target->syncid : 0);
+	}
+
+	free(ordered);
+	*out_count = (u16)count;
+	*out_checksum = digest;
+	return true;
 }
 
 u32 netmsgSvcNpcSyncWrite(struct netbuf *dst)
 {
+	const u32 wp_before = dst ? dst->wp : 0;
+	const u32 error_before = dst ? dst->error : 1;
+	u16 count;
+	u32 checksum;
+
+	if (!dst || error_before) {
+		return 1;
+	}
+
+	if (!netNpcSnapshotDigest(&count, &checksum)) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: SVC_NPC_SYNC rejected noncanonical snapshot");
+		return 1;
+	}
+
 	netbufWriteU8(dst, SVC_NPC_SYNC);
 	netbufWriteU32(dst, g_NetTick);
-	netbufWriteU16(dst, (u16)netNpcCount());
-	netbufWriteU32(dst, netNpcSyncChecksum());
-	return dst->error;
+	netbufWriteU16(dst, count);
+	netbufWriteU32(dst, checksum);
+
+	if (dst->error) {
+		dst->wp = wp_before;
+		dst->error = error_before;
+		return 1;
+	}
+
+	return 0;
 }
 
 u32 netmsgSvcNpcSyncRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u32 tick = netbufReadU32(src);
 	const u16 npccount = netbufReadU16(src);
-	const u32 serverCrc = netbufReadU32(src);
+	const u32 server_checksum = netbufReadU32(src);
+	const net_npc_snapshot_validation_t applied =
+		s_NetNpcSnapshotValidation;
+	bool matches;
 
-	if (src->error || srccl->state < CLSTATE_GAME) {
-		return src->error;
+	if (src->error || !srccl || srccl->state < CLSTATE_GAME) {
+		return src->error ? src->error : 1;
 	}
+	memset(&s_NetNpcSnapshotValidation, 0,
+		sizeof(s_NetNpcSnapshotValidation));
+	matches = applied.pending
+		&& applied.stage_epoch == g_NetStageEpoch
+		&& applied.tick == tick
+		&& applied.count == npccount
+		&& applied.checksum == server_checksum;
 
-	u32 localCount = netNpcCount();
-	if (npccount != localCount) {
-		sysLogPrintf(LOG_WARNING, "NET: SVC_NPC_SYNC desync detected at tick %u: server has %u npcs, we have %u",
-			tick, npccount, localCount);
+	if (!matches) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: SVC_NPC_SYNC snapshot mismatch epoch=%u tick=%u count=%u checksum=0x%08x pending=%u applied_epoch=%u applied_tick=%u applied_count=%u applied_checksum=0x%08x",
+			(unsigned)g_NetStageEpoch, (unsigned)tick,
+			(unsigned)npccount, (unsigned)server_checksum,
+			applied.pending ? 1u : 0u, (unsigned)applied.stage_epoch,
+			(unsigned)applied.tick, (unsigned)applied.count,
+			(unsigned)applied.checksum);
 		g_NetNpcDesyncCount++;
-	} else {
-		u32 localCrc = netNpcSyncChecksum();
-		if (localCrc != serverCrc) {
-			sysLogPrintf(LOG_WARNING, "NET: SVC_NPC_SYNC checksum mismatch at tick %u: server=0x%08x local=0x%08x",
-				tick, serverCrc, localCrc);
-			g_NetNpcDesyncCount++;
-		} else {
-			g_NetNpcDesyncCount = 0;
+		if (g_NetNpcResyncLastReq == 0
+				|| (g_NetTick - g_NetNpcResyncLastReq)
+					> NET_RESYNC_COOLDOWN) {
+			sysLogPrintf(LOG_WARNING,
+				"NET: requesting npc resync after atomic snapshot mismatch");
+			g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_NPCS;
+			g_NetNpcResyncLastReq = g_NetTick;
 		}
-	}
-
-	// After consecutive desyncs, request full resync from server.
-	// Same pending-flag pattern as chr/prop sync above — direct write here would be dropped by netStartFrame.
-	if (g_NetNpcDesyncCount >= NET_DESYNC_THRESHOLD &&
-		(g_NetTick - g_NetNpcResyncLastReq) > NET_RESYNC_COOLDOWN) {
-		sysLogPrintf(LOG_WARNING, "NET: requesting npc resync after %u consecutive desyncs", g_NetNpcDesyncCount);
-		g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_NPCS;
-		g_NetNpcResyncLastReq = g_NetTick;
+	} else {
 		g_NetNpcDesyncCount = 0;
+		sysLogPrintf(LOG_NOTE,
+			"NET: SVC_NPC_SYNC snapshot verified epoch=%u tick=%u count=%u checksum=0x%08x",
+			(unsigned)g_NetStageEpoch, (unsigned)tick,
+			(unsigned)npccount, (unsigned)server_checksum);
 	}
 
 	return src->error;
@@ -7735,25 +7991,38 @@ u32 netmsgSvcNpcSyncRead(struct netbuf *src, struct netclient *srccl)
 
 u32 netmsgSvcNpcResyncWrite(struct netbuf *dst)
 {
-	u16 count = (u16)netNpcCount();
+	const u32 count = netNpcCount();
+	const u32 wp_before = dst ? dst->wp : 0;
+	const u32 error_before = dst ? dst->error : 1;
+	u32 emitted = 0;
+
+	if (!dst || error_before) {
+		return 1;
+	}
+
+	if (count > 0xffffu) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: SVC_NPC_RESYNC rejected unrepresentable npc count %u",
+			count);
+		return 1;
+	}
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_NPC_RESYNC write %u npcs", count);
 
 	netbufWriteU8(dst, SVC_NPC_RESYNC);
 	netbufWriteU32(dst, g_NetTick);
-	netbufWriteU16(dst, count);
+	netbufWriteU16(dst, (u16)count);
 
 	for (s32 i = 0; i < g_NumChrSlots; ++i) {
 		struct chrdata *chr = &g_ChrSlots[i];
-		if (!netIsNpc(chr)) {
+		if (!netNpcIsReplicationReady(chr)) {
 			continue;
 		}
 
 		struct prop *prop = chr->prop;
+		struct prop *targetprop = netNpcSnapshotTarget(chr);
 
-		const u8 flags = (chrIsDead(chr) ? (1 << 0) : 0)
-			| ((chr->hidden & CHRHFLAG_CLOAKED) ? (1 << 1) : 0)
-			| ((chr->target >= 0) ? (1 << 2) : 0);
+		const u8 flags = netNpcSnapshotFlags(chr, targetprop);
 
 		// Identity
 		netbufWritePropPtr(dst, prop);
@@ -7778,98 +8047,189 @@ u32 netmsgSvcNpcResyncWrite(struct netbuf *dst)
 		netbufWriteU8(dst, chr->fadealpha);
 
 		// Target
-		if (chr->target >= 0 && chr->target < g_Vars.maxprops) {
-			netbufWritePropPtr(dst, &g_Vars.props[chr->target]);
-		} else {
-			netbufWriteU32(dst, 0);
+		netbufWritePropPtr(dst, targetprop);
+
+		emitted++;
+	}
+
+	if (dst->error || emitted != count) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: SVC_NPC_RESYNC write rolled back expected=%u emitted=%u buffer_error=%u",
+			count, emitted, dst->error ? 1u : 0u);
+		dst->wp = wp_before;
+		dst->error = error_before;
+		return 1;
+	}
+
+	return 0;
+}
+
+struct net_npc_resync_record {
+	struct prop *prop;
+	struct coord pos;
+	f32 angle;
+	RoomNum rooms[8];
+	s8 myaction;
+	u8 actiontype;
+	u8 flags;
+	f32 damage;
+	f32 maxdamage;
+	u8 alertness;
+	s8 team;
+	u32 chrflags;
+	u32 hidden;
+	u8 fadealpha;
+	struct prop *targetprop;
+	bool target_valid;
+};
+
+static void netmsgNpcResyncRecordRead(struct netbuf *src,
+		struct net_npc_resync_record *record)
+{
+	record->prop = netbufReadPropPtr(src);
+	netbufReadCoord(src, &record->pos);
+	record->angle = netbufReadF32(src);
+
+	for (s32 i = 0; i < ARRAYCOUNT(record->rooms); i++) {
+		record->rooms[i] = -1;
+	}
+
+	netbufReadRooms(src, record->rooms, ARRAYCOUNT(record->rooms));
+	record->myaction = netbufReadS8(src);
+	record->actiontype = netbufReadU8(src);
+	record->flags = netbufReadU8(src);
+	record->damage = netbufReadF32(src);
+	record->maxdamage = netbufReadF32(src);
+	record->alertness = netbufReadU8(src);
+	record->team = netbufReadS8(src);
+	record->chrflags = netbufReadU32(src);
+	record->hidden = netbufReadU32(src);
+	record->fadealpha = netbufReadU8(src);
+	const u32 target_syncid = netbufReadU32(src);
+	record->targetprop = target_syncid ? netSyncIdLookup(target_syncid) : NULL;
+	record->target_valid = target_syncid == 0 || record->targetprop != NULL;
+
+	if (!src->error && !record->target_valid) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: NPC resync target with syncid %u does not exist",
+			target_syncid);
+	}
+}
+
+static bool netmsgNpcResyncRecordIsReady(
+		const struct net_npc_resync_record *record)
+{
+	return record->prop
+		&& netNpcIsReplicationReady(record->prop->chr)
+		&& record->prop->chr->prop == record->prop
+		&& record->target_valid
+		&& (!!(record->flags & (1 << 2)) == !!record->targetprop);
+}
+
+static void netmsgNpcResyncRecordApply(
+		const struct net_npc_resync_record *record)
+{
+	struct prop *prop = record->prop;
+	struct chrdata *chr = prop->chr;
+
+	chr->prevpos = prop->pos;
+	prop->pos = record->pos;
+	chrSetLookAngle(chr, record->angle);
+
+	for (s32 i = 0; i < ARRAYCOUNT(prop->rooms); i++) {
+		prop->rooms[i] = record->rooms[i];
+
+		if (record->rooms[i] < 0) {
+			break;
 		}
 	}
 
-	return dst->error;
+	chr->myaction = record->myaction;
+	chr->actiontype = record->actiontype;
+	chr->damage = record->damage;
+	chr->maxdamage = record->maxdamage;
+	chr->alertness = record->alertness;
+	chr->team = record->team;
+	chr->chrflags = record->chrflags;
+	chr->hidden = record->hidden;
+	chr->fadealpha = record->fadealpha;
+	chr->target = record->targetprop
+		? (s32)(record->targetprop - g_Vars.props)
+		: -1;
 }
 
 u32 netmsgSvcNpcResyncRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u32 tick = netbufReadU32(src);
 	const u16 npccount = netbufReadU16(src);
+	const u32 records_rp = src->rp;
+	const u32 local_count = netNpcCount();
+	bool complete = local_count == npccount;
+	u16 applied_count = 0;
+	u32 applied_checksum = 0;
 
-	if (src->error) {
-		return src->error;
+	memset(&s_NetNpcSnapshotValidation, 0,
+		sizeof(s_NetNpcSnapshotValidation));
+	if (src->error || !srccl || srccl->state < CLSTATE_GAME
+			|| !srccl->stage_ready || g_NetStageEpoch == 0) {
+		return src->error ? src->error : 1;
 	}
 
-	sysLogPrintf(LOG_NOTE, "NET: SVC_NPC_RESYNC read %u npcs at tick %u, desync resolved", npccount, tick);
-
+	/* Validate and consume the complete advertised payload before mutating any
+	 * local NPC. A second pass applies only after every identity/model owner is
+	 * ready, so a late invalid record cannot leave a partial resync behind. */
 	for (u16 i = 0; i < npccount; ++i) {
-		struct prop *prop = netbufReadPropPtr(src);
+		struct net_npc_resync_record record;
+		netmsgNpcResyncRecordRead(src, &record);
 
-		// Position and orientation
-		struct coord pos;
-		netbufReadCoord(src, &pos);
-		f32 angle = netbufReadF32(src);
-		RoomNum rooms[8] = { -1 };
-		netbufReadRooms(src, rooms, ARRAYCOUNT(rooms));
-
-		// Actions
-		s8 myaction = netbufReadS8(src);
-		u8 actiontype = netbufReadU8(src);
-
-		// State
-		u8 flags = netbufReadU8(src);
-		f32 damage = netbufReadF32(src);
-		f32 maxdamage = netbufReadF32(src);
-		u8 alertness = netbufReadU8(src);
-		s8 team = netbufReadS8(src);
-		u32 chrflags = netbufReadU32(src);
-		u32 hidden = netbufReadU32(src);
-		u8 fadealpha = netbufReadU8(src);
-
-		// Target
-		struct prop *targetprop = netbufReadPropPtr(src);
-
-		if (src->error || srccl->state < CLSTATE_GAME) {
+		if (src->error) {
 			return src->error;
 		}
 
-		if (!prop || !prop->chr || prop->type != PROPTYPE_CHR) {
-			continue;
-		}
-
-		struct chrdata *chr = prop->chr;
-
-		// Apply full state correction
-		chr->prevpos = prop->pos;
-		prop->pos = pos;
-		chrSetLookAngle(chr, angle);
-
-		for (s32 r = 0; r < ARRAYCOUNT(prop->rooms); ++r) {
-			prop->rooms[r] = rooms[r];
-			if (rooms[r] < 0) break;
-		}
-
-		chr->myaction = myaction;
-		chr->actiontype = actiontype;
-		chr->damage = damage;
-		chr->maxdamage = maxdamage;
-		chr->alertness = alertness;
-		chr->team = team;
-		chr->chrflags = chrflags;
-		chr->hidden = hidden;
-		chr->fadealpha = fadealpha;
-
-		if (targetprop) {
-			// Bounds check: ensure targetprop is within valid props array range
-			if (targetprop >= g_Vars.props && targetprop < &g_Vars.props[g_Vars.maxprops]) {
-				chr->target = targetprop - g_Vars.props;
-			} else {
-				sysLogPrintf(LOG_WARNING, "NET: NPC resync received invalid target prop pointer");
-				chr->target = -1;
-			}
-		} else {
-			chr->target = -1;
+		if (!netmsgNpcResyncRecordIsReady(&record)) {
+			complete = false;
 		}
 	}
 
-	// Reset desync counter
+	if (!complete) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: SVC_NPC_RESYNC rejected incomplete snapshot tick=%u server_count=%u local_ready_count=%u",
+			tick, npccount, local_count);
+		g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_NPCS;
+		return 1;
+	}
+
+	src->rp = records_rp;
+
+	for (u16 i = 0; i < npccount; ++i) {
+		struct net_npc_resync_record record;
+		netmsgNpcResyncRecordRead(src, &record);
+
+		if (src->error || !netmsgNpcResyncRecordIsReady(&record)) {
+			return src->error ? src->error : 1;
+		}
+
+		netmsgNpcResyncRecordApply(&record);
+	}
+	if (!netNpcSnapshotDigest(&applied_count, &applied_checksum)
+			|| applied_count != npccount) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: SVC_NPC_RESYNC rejected noncanonical applied snapshot tick=%u server_count=%u applied_count=%u",
+			(unsigned)tick, (unsigned)npccount,
+			(unsigned)applied_count);
+		g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_NPCS;
+		return 1;
+	}
+	s_NetNpcSnapshotValidation.pending = true;
+	s_NetNpcSnapshotValidation.stage_epoch = g_NetStageEpoch;
+	s_NetNpcSnapshotValidation.tick = tick;
+	s_NetNpcSnapshotValidation.count = applied_count;
+	s_NetNpcSnapshotValidation.checksum = applied_checksum;
+
+	sysLogPrintf(LOG_NOTE,
+		"NET: SVC_NPC_RESYNC read %u npcs at tick %u epoch=%u snapshot_pending=1 checksum=0x%08x",
+		(unsigned)npccount, (unsigned)tick,
+		(unsigned)g_NetStageEpoch, (unsigned)applied_checksum);
 	g_NetNpcDesyncCount = 0;
 
 	return src->error;
@@ -9336,8 +9696,6 @@ static u8 readyGatePopcount(u32 mask)
 	while (mask) { n++; mask &= mask - 1; }
 	return n;
 }
-
-static void readyGateAbort(const char *canceller_name);
 
 static void readyGateBroadcastCountdown(u8 phase)
 {
@@ -12525,6 +12883,10 @@ void netSendGpuSwarmState(void)
 #if !defined(PD_SERVER)
 	if (g_NetMode != NETMODE_SERVER) return;
 	if (g_NetDedicated) return;
+	/* This snapshot bypasses netEndFrame's shared buffers, so it must observe
+	 * the same initial-stage publication barrier explicitly. Control traffic
+	 * continues while peers load; entity state does not. */
+	if (netServerStageReplicationBlocked()) return;
 
 	/* Skip if no peer is actually connected. We allow listen-host with
 	 * zero peers (no broadcast cost) but want to still tick the throttle
@@ -12949,22 +13311,38 @@ void netBroadcastRoomList(void)
  * state. Ordinary stage starts still use the same boundary for dedicated
  * bot-authority delegation.
  *
- * A 5-second / 300-frame timeout in netEndFrame() delegates authority anyway
- * if a slow client never responds, so the match is never permanently blocked.
+ * The dedicated bot-authority deadline is only an ACTIVE-stage re-election
+ * aid; it never bypasses this post-load barrier.
  * ======================================================================== */
 
 u32 netmsgClcStageReadyWrite(struct netbuf *dst)
 {
+	if (!dst || dst->error || g_NetStageEpoch == 0) {
+		return 1;
+	}
 	netbufWriteU8(dst, CLC_STAGE_READY);
+	netbufWriteU32(dst, g_NetStageEpoch);
 	return dst->error;
 }
 
 u32 netmsgClcStageReadyRead(struct netbuf *src, struct netclient *srccl)
 {
 	enum net_restore_result restore_result;
+	u32 ready_epoch;
 
 	if (!src || !srccl || src->error) {
 		return src && src->error ? src->error : 1;
+	}
+	ready_epoch = netbufReadU32(src);
+	if (src->error) {
+		return src->error;
+	}
+	if (ready_epoch == 0 || ready_epoch != g_NetStageEpoch) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.STAGE.REPLICATION ready=rejected client=%u received_epoch=%u active_epoch=%u reason=stale_or_future",
+			(unsigned)srccl->id, (unsigned)ready_epoch,
+			(unsigned)g_NetStageEpoch);
+		return 0;
 	}
 
 	if (srccl->reconnect_resync_pending) {
@@ -12994,7 +13372,15 @@ u32 netmsgClcStageReadyRead(struct netbuf *src, struct netclient *srccl)
 		return 0;
 	}
 
-	srccl->stage_ready = true;
+	{
+		const bool already_ready = srccl->stage_ready;
+		srccl->stage_ready = true;
+		sysLogPrintf(LOG_NOTE,
+			"NET.STAGE.REPLICATION ready client=%u epoch=%u room=%u duplicate=%u post_load=1",
+			(unsigned)srccl->id, (unsigned)ready_epoch,
+			(unsigned)srccl->room_id,
+			already_ready ? 1u : 0u);
+	}
 
 	/* Listen hosting has no bot-authority handoff. The reconnect transaction,
 	 * if any, was already committed above. */

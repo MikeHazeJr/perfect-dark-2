@@ -58,6 +58,7 @@
 #include "game/music.h"
 #include "modmusic.h"
 #include "effect_instance_runtime.h"
+#include "player_stage_init_fault.h"
 #include "pdgui_charpreview.h"
 #include "game/nbomb.h"
 #include "game/objectives.h"
@@ -425,9 +426,58 @@ void lvUpdateMiscSfx(void)
 	}
 }
 
+static s32 lvRollbackCommittedPlayers(
+		const s32 committed_order[MAX_PLAYERS], s32 committed_count,
+		const char *failure_phase, s32 failed_player, const char *status)
+{
+	const s32 previous_player = g_Vars.currentplayernum;
+	s32 rolled_back = 0;
+	s32 chrbody_count = 0;
+	s32 eyespy_count = 0;
+	u32 owner_flags = PLAYER_STAGE_ROLLBACK_NONE;
+
+	for (s32 position = committed_count - 1; position >= 0; position--) {
+		const s32 playernum = committed_order[position];
+		u32 flags;
+
+		if (playernum < 0 || playernum >= MAX_PLAYERS
+				|| g_Vars.players[playernum] == NULL) {
+			continue;
+		}
+
+		sysLogPrintf(LOG_NOTE,
+			"PLAYER.INIT.ROLLBACK order_position=%d player=%d",
+			position, playernum);
+		setCurrentPlayerNum(playernum);
+		flags = playerRollbackStageInitialization();
+		owner_flags |= flags;
+		chrbody_count += (flags & PLAYER_STAGE_ROLLBACK_CHRBODY) != 0;
+		eyespy_count += (flags & PLAYER_STAGE_ROLLBACK_EYESPY) != 0;
+		rolled_back++;
+	}
+
+	if (previous_player >= 0 && previous_player < MAX_PLAYERS
+			&& g_Vars.players[previous_player] != NULL) {
+		setCurrentPlayerNum(previous_player);
+	} else if (g_Vars.players[0] != NULL) {
+		setCurrentPlayerNum(0);
+	}
+
+	sysLogPrintf(LOG_ERROR,
+		"PLAYER.INIT.ROLLBACK phase=stage-transaction failure_phase=%s failed_player=%d status=%s committed=%d rolled_back=%d chrbodies=%d eyespies=%d owner_flags=0x%02x",
+		failure_phase ? failure_phase : "unknown", failed_player,
+		status ? status : "unknown", committed_count, rolled_back,
+		chrbody_count, eyespy_count, (unsigned)owner_flags);
+	return rolled_back;
+}
+
 bool lvReset(s32 stagenum)
 {
 	s32 i;
+	s32 stage_player_order[MAX_PLAYERS] = {0};
+	s32 stage_player_count = 0;
+	s32 committed_player_order[MAX_PLAYERS] = {0};
+	s32 committed_player_count = 0;
 	/* Stage-lifetime public effects cannot carry target/context state across
 	 * teardown or catalog diff activation. */
 	effectInstanceRuntimeClearAll();
@@ -785,12 +835,31 @@ bool lvReset(s32 stagenum)
 
 		utilsReset();
 		casingsReset();
+		stage_player_count = playermgrBuildStageInitOrder(stage_player_order);
+		if (stage_player_count < 0) {
+			sysLogPrintf(LOG_ERROR,
+				"PLAYER.INIT.ROLLBACK phase=stage-order status=invalid_order");
+			modelmgrSetLvResetting(false);
+			return false;
+		}
 
 		/* B-219: first pass loads intro weapons via playerReset (INTROCMD_*); second
 		 * pass below calls playerSpawn (MP spawn-with-weapon). Keep those in sync. */
-		for (i = 0; i < PLAYERCOUNT(); i++) {
-			if (!g_Vars.players[i]) continue;
+		for (s32 order_position = 0;
+				order_position < stage_player_count; order_position++) {
+			i = stage_player_order[order_position];
 			setCurrentPlayerNum(i);
+			if (playerStageInitFaultConsume(
+					PLAYER_STAGE_INIT_FAULT_RESET, i)) {
+				sysLogPrintf(LOG_ERROR,
+					"PLAYER.INIT.FAULT consumed phase=reset player=%d stage=0x%02x one_shot=1",
+					i, stagenum);
+				lvRollbackCommittedPlayers(committed_player_order,
+					committed_player_count, "reset", i,
+					"smoke_injected");
+				modelmgrSetLvResetting(false);
+				return false;
+			}
 			g_Vars.currentplayer->usedowntime = 0;
 			g_Vars.currentplayer->invdowntime = g_Vars.currentplayer->usedowntime;
 
@@ -806,10 +875,14 @@ bool lvReset(s32 stagenum)
 					sysLogPrintf(LOG_ERROR,
 						"PLAYER.INIT.ROLLBACK phase=stage player=%d status=%s; aborting stage reset",
 						i, playerResetResultString(player_result));
+					lvRollbackCommittedPlayers(committed_player_order,
+						committed_player_count, "reset", i,
+						playerResetResultString(player_result));
 					modelmgrSetLvResetting(false);
 					return false;
 				}
 			}
+			committed_player_order[committed_player_count++] = i;
 			sysLogPrintf(LOG_NOTE, "LOAD: playerReset done for player %d", i);
 		}
 
@@ -817,16 +890,31 @@ bool lvReset(s32 stagenum)
 			mpOrchestrateMatchStartSpawns();
 		}
 
-		for (i = 0; i < PLAYERCOUNT(); i++) {
-			if (!g_Vars.players[i]) continue;
+		for (s32 order_position = 0;
+				order_position < stage_player_count; order_position++) {
+			i = stage_player_order[order_position];
 			setCurrentPlayerNum(i);
 			sysLogPrintf(LOG_NOTE, "LOAD: calling playerSpawn for player %d", i);
+			if (playerStageInitFaultConsume(
+					PLAYER_STAGE_INIT_FAULT_SPAWN, i)) {
+				sysLogPrintf(LOG_ERROR,
+					"PLAYER.INIT.FAULT consumed phase=spawn player=%d stage=0x%02x one_shot=1",
+					i, stagenum);
+				lvRollbackCommittedPlayers(committed_player_order,
+					committed_player_count, "spawn", i,
+					"smoke_injected");
+				modelmgrSetLvResetting(false);
+				return false;
+			}
 			{
 				enum player_chrbody_result chrbody_result = playerSpawn();
 				if (chrbody_result != PLAYER_CHRBODY_OK) {
 					sysLogPrintf(LOG_ERROR,
 						"PLAYER.INIT.ROLLBACK phase=spawn player=%d status=%s; aborting stage reset",
 						i, playerChrBodyResultString(chrbody_result));
+					lvRollbackCommittedPlayers(committed_player_order,
+						committed_player_count, "spawn", i,
+						playerChrBodyResultString(chrbody_result));
 					modelmgrSetLvResetting(false);
 					return false;
 				}

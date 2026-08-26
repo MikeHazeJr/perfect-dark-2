@@ -10,7 +10,21 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 57  /* v57 (2026-08-14): reconnect is one authenticated
+#define NET_PROTOCOL_VER 58  /* v58 (2026-08-26): stage publication has one
+                              * explicit server lifecycle and nonzero epoch.
+                              * SVC_STAGE_START carries that epoch and
+                              * CLC_STAGE_READY must echo it, so delayed READY
+                              * traffic cannot release a later stage. The
+                              * listen or dedicated authority and every exact
+                              * remote participant must cross the real
+                              * post-load boundary before one release frame
+                              * publishes fresh gameplay. Co-op NPC convergence
+                              * is one reliable SVC_NPC_RESYNC + SVC_NPC_SYNC
+                              * transaction whose digest is canonical by prop
+                              * sync ID and validated against that exact applied
+                              * snapshot, never against a temporally unrelated
+                              * live frame. Mixed v57/v58 play is rejected.
+                              * v57 (2026-08-14): reconnect is one authenticated
                               * transaction. ENet connect data carries a
                               * non-authoritative stable client-slot hint;
                               * CLC_AUTH still proves an endpoint-scoped 128-bit
@@ -557,6 +571,10 @@ extern bool g_NetBotAuthorityDelegated;
  * that all clients agree on. Set by server before SVC_STAGE_START write;
  * read by clients in SVC_STAGE_START handler. */
 extern u32  g_NetMatchSeed;
+/* v58 stage-session identity. Zero means no published network stage. The
+ * server advances it before SVC_STAGE_START serialization; clients publish it
+ * only after the complete stage packet validates. */
+extern u32  g_NetStageEpoch;
 
 extern struct netbuf g_NetMsg;
 extern struct netbuf g_NetMsgRel;
@@ -583,9 +601,16 @@ s32 netClientReconnectAvailable(void);
 s32 netClientReconnect(void);
 void netClientReconnectAuthAccepted(void);
 void netClientReconnectCommitAccepted(void);
-void netClientStageLoaded(void);
+/* Called at the real SCENE_EVENT_STAGE_READY boundary for both the in-client
+ * authority and an ordinary client. The server satisfies its local authority
+ * latch; a client sends one epoch-bound CLC_STAGE_READY. */
+void netLocalStageLoaded(void);
 void netStartFrame(void);
 void netEndFrame(void);
+/* True unless the server is in the ACTIVE stage-replication phase. Direct
+ * gameplay senders must observe this just like netEndFrame's shared gameplay
+ * buffers; lobby/control-plane traffic remains independent. */
+bool netServerStageReplicationBlocked(void);
 
 s32 netStartServer(u16 port, s32 maxclients);
 s32 netStartClient(const char *addr);

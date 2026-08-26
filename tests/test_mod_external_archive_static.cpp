@@ -5223,11 +5223,11 @@ TEST_CASE("weapon graph MP agreement is protocol-versioned after cutover",
 	REQUIRE(net.find("weaponGraphRuntimeNetRestoreEnabled()") == std::string::npos);
 
 	const std::string netHeader = readFile("port/include/net/net.h");
-	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 57") != std::string::npos);
+	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 58") != std::string::npos);
 	REQUIRE(netHeader.find("v54/v55") != std::string::npos);
 
 	const std::string versions = readFile("tests/test_versions.cpp");
-	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 57") != std::string::npos);
+	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 58") != std::string::npos);
 }
 
 TEST_CASE("bot-profile catalog identity reaches UI save wire manifest and runtime",

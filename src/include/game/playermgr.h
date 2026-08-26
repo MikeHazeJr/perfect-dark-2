@@ -1,6 +1,7 @@
 #ifndef _IN_GAME_PLAYERMGR_H
 #define _IN_GAME_PLAYERMGR_H
 #include <ultra64.h>
+#include "constants.h"
 #include "data.h"
 #include "types.h"
 
@@ -16,6 +17,11 @@ enum playermgr_allocate_result {
 
 enum playermgr_allocate_result playermgrAllocatePlayers(s32 count);
 const char *playermgrAllocateResultString(enum playermgr_allocate_result result);
+/* Build the immutable stage initialization order. Network matches sort by the
+ * authenticated client ID because runtime player slots are endpoint-local;
+ * offline play retains numeric player order. Returns the number of players or
+ * -1 after logging a fail-closed rejection. */
+s32 playermgrBuildStageInitOrder(s32 out_order[MAX_PLAYERS]);
 void playermgrCalculateAiBuddyNums(void);
 void setCurrentPlayerNum(s32 playernum);
 s32 playermgrGetPlayerNumByProp(struct prop *prop);

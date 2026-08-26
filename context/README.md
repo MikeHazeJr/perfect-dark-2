@@ -1,6 +1,6 @@
 # Perfect Dark 2 - Project Context
 
-> **Live as of 2026-08-24.** The repo-local Workbench is durable project truth.
+> **Live as of 2026-08-26.** The repo-local Workbench is durable project truth.
 > D-004 and T-RELEASE-001 define the canonical five-milestone path to 1.0:
 > complete base game and graphs, Theater, sample weapon, friend-play/performance
 > hardening, and one source-frozen release candidate.
@@ -35,7 +35,7 @@ The canonical context source is this `context/` tree. Parent-level briefing file
 
 ## Live state at a glance
 
-- **Wire protocol**: v57 (per [constraints.md](constraints.md) and `port/include/net/net.h`).
+- **Wire protocol**: v58 (per [constraints.md](constraints.md) and `port/include/net/net.h`).
 - **Save format**: SAVE_VERSION=2, MPSETUP_VERSION=3.
 - **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`; standalone `pd-server` is removed/deprecated, so use listen-host in the client.
 - **Active session range**: see [session-log.md](session-log.md).
@@ -45,27 +45,23 @@ The canonical context source is this `context/` tree. Parent-level briefing file
   are retained history, not live queues. See [tasks.md](tasks.md) for the concise
   milestone summary.
 - **Current Milestone 1 lane**: T-ENGINE-004 remains partial at 2 validated,
-  8 partial, and 5 missing dependencies. Candidate-first player initialization
-  retains its accepted Campaign evidence, and B-1101's bounded decoder retains
-  its frozen automation receipt. The exact replacement Combat Simulator run
-  then rejected at 16/56 under B-1102: schema-v5 reconstruction omitted every
-  per-part flags discriminant, and the rejection fallback invalidated animation
-  ownership before entering a CHRINFO consumer. Current source now gives the
-  extractor/compiler/runtime one exact descriptor contract, rejects trailing
-  descriptor bytes, parses versioned scalar tokens canonically across the full
-  unsigned frame-value domain, preserves declared topology even for zero-frame
-  placeholders, invalidates malformed v7 animation caches through animation
-  compiler v8, validates exact optimized-consumer advancement, and renders bind
-  pose with a null-safe scale without mutating `model->anim`. One isolated
-  source-frozen build and consolidated verification batch now pass focused
-  2,057/27, full 65,073/1,186, and the native-source guard on unchanged product
-  `e6287a9c...` (2,717 files) and verifier `ad7c38f9...` (402 files). Exact client
-  `133A55C6...` then passes the sole replacement two-cycle Combat Simulator
-  receipt 56/56 with real fire/hit, both stats/award cycles, Play Again, clean
-  exit, zero decoder/crash matches, and no leaked process. B-1101/B-1102 are
-  regression gates; accepted Campaign, D-003, and reconnect receipts were not
-  rerun. T-ENGINE-004 remains partial while its next broader closure gap is
-  audited.
+  8 partial, and 5 missing dependencies. B-1101/B-1102 retain accepted frozen
+  automation and Combat Simulator evidence. B-1067/B-1103/B-1104 are
+  production-verified regression gates at protocol v58: one explicit
+  inactive/waiting/release/active
+  stage lifecycle requires the listen authority and every exact remote stage
+  participant to cross the real post-load boundary; `SVC_STAGE_START` and
+  `CLC_STAGE_READY` share a nonzero epoch; release publishes a fresh baseline;
+  and NPC convergence is one reliable resync plus canonical sync-ID-sorted
+  snapshot digest rather than a periodic mutable-state checksum. Frozen
+  automation passes 66,421 assertions in 1,200 cases plus the native-source
+  guard. Exact v58 client `5DA75BE6...` passes all seven ordinary-client paths,
+  including initiator authority 214/214 and focus-independent invitee authority
+  170/170 with one signed typed match-server route, one listen authority, one
+  idempotent peer join, and no probe/relay handoff. The integrated 210/218
+  B-1085/V-009 fixture remains separately rejected only because this desktop
+  exposes no foreground HWND. The next default work is the broader
+  T-ENGINE-004 base-game lifecycle gap audit, not more D-003 route work.
 - **Long-term roadmap**: [roadmap.md](roadmap.md).
 
 ---
@@ -81,7 +77,7 @@ Each pillar doc captures the live state, current invariants, and the code that o
 | Menus / UI / UX | [pillars/menus.md](pillars/menus.md) | ImGui menus (31 files), menu pool, menu graph, theme system |
 | Modding | [pillars/modding.md](pillars/modding.md) | `.pdmod` format, scanner, manifest, network distribution |
 | Connectivity | [pillars/connectivity.md](pillars/connectivity.md) | ENet, P2P 6-tier (LAN/DIRECT/STUN/UPnP/ICE/TURN), presence, voice |
-| Save / wire format | [pillars/save-wire-format.md](pillars/save-wire-format.md) | SAVE_VERSION=2, MPSETUP_VERSION=3, NET_PROTOCOL_VER=57, migration framework |
+| Save / wire format | [pillars/save-wire-format.md](pillars/save-wire-format.md) | SAVE_VERSION=2, MPSETUP_VERSION=3, NET_PROTOCOL_VER=58, migration framework |
 | Server / hosting | [pillars/server.md](pillars/server.md) | Listen vs dedicated, participant pool, RCON, bans, room passwords |
 | Build / dev tooling | [pillars/build-dev-tooling.md](pillars/build-dev-tooling.md) | CMake + MSYS2, build-headless / build-session, release pipeline, updater |
 | Tests | [pillars/tests.md](pillars/tests.md) | pd-tests, Catch2, 118 test files, production-linked pure modules, static architecture pins, scope aliases |

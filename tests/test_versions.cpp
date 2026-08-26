@@ -18,9 +18,9 @@
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
  *
- * Bumped 2026-08-14 to NET_PROTOCOL_VER 57 for endpoint-scoped reconnect
- * credentials, stable-slot admission, manifest-gated exact restoration, and
- * rollback-safe stage publication. MPSETUP_VERSION remains 3.
+ * Bumped 2026-08-26 to NET_PROTOCOL_VER 58 for epoch-bound stage readiness,
+ * explicit authority/peer replication phases, and canonical atomic NPC
+ * snapshot validation. MPSETUP_VERSION remains 3.
  */
 
 #include "catch.hpp"
@@ -43,7 +43,7 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 57;
+const u32 g_TestExpectedNetProtocolVer  = 58;
 const u32 g_TestExpectedMpsetupVersion  = 3;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",
@@ -54,9 +54,9 @@ TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written ag
      * verifying the bump is intentional, update g_TestExpectedNetProtocolVer
      * to match and re-run.
      *
-     * As of 2026-08-14 the live value is 57. v57 adds one authenticated,
-     * manifest-gated stable-slot reconnect transaction; prior bumps remain
-     * documented in port/include/net/net.h. */
+     * As of 2026-08-26 the live value is 58. v58 binds post-load readiness to
+     * one stage epoch and validates NPC convergence only against the exact
+     * canonical resync snapshot; prior bumps remain documented in net.h. */
     REQUIRE(g_TestLiveNetProtocolVer == g_TestExpectedNetProtocolVer);
 }
 
