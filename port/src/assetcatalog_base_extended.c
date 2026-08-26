@@ -1363,12 +1363,50 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 #if !defined(PD_SERVER)
 extern u16 g_CartFileNums[];
 
+/* A public model source discovered by the mesh walker or nested typed-archive
+ * scanner owns its catalog ID. The later legacy weapon-model coverage pass
+ * may add matching filenum provenance, but must never reset that row through
+ * assetCatalogRegister() and replace its FileProvider with RomProvider. */
+static s32 preserveTypedWeaponModelSource(const char *catalog_id, s32 filenum)
+{
+	const asset_entry_t *existing = assetCatalogResolveAny(catalog_id);
+	asset_data_handle_t effective;
+	asset_entry_t *mutable_entry;
+	if (!existing) return 0;
+	if (existing->type != ASSET_MODEL) {
+		sysLoudFailf("CATALOG.MODEL.SOURCE_COLLISION",
+			"legacy weapon model id=%s collides with type=%d",
+			catalog_id, (s32)existing->type);
+		return -1;
+	}
+	effective = catalogEffectiveHandle(existing);
+	if (effective.provider != fileProvider()) return 0;
+	if (!fileProviderPath(effective)) {
+		sysLoudFailf("CATALOG.MODEL.SOURCE_HANDLE",
+			"typed weapon model id=%s has an invalid FileProvider handle",
+			catalog_id);
+		return -1;
+	}
+	if (existing->source_filenum > 0 && existing->source_filenum != filenum) {
+		sysLoudFailf("CATALOG.MODEL.SOURCE_FILENUM",
+			"typed weapon model id=%s has filenum=%d, legacy pass requested=%d",
+			catalog_id, existing->source_filenum, filenum);
+		return -1;
+	}
+	mutable_entry = assetCatalogGetMutable(catalog_id);
+	if (!mutable_entry) return -1;
+	mutable_entry->source_filenum = filenum;
+	return 1;
+}
+
 s32 assetCatalogRegisterWeaponModelFiles(void)
 {
 	char idbuf[CATALOG_ID_LEN];
 	s32 registered = 0;
 	s32 skipped_dup = 0;
 	s32 skipped_zero = 0;
+	s32 preserved_typed = 0;
+	s32 source_errors = 0;
 
 	/* ---- weapon hi_model / lo_model ---- */
 	const s32 weapon_count = catalogManagerWeaponCount();
@@ -1388,6 +1426,14 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 				skipped_zero++;
 				continue;
 			}
+			catalogReadableModelIdForFile(fnum, suffixes[fi], "weapon",
+				idbuf, sizeof(idbuf));
+			s32 typed_result = preserveTypedWeaponModelSource(idbuf, fnum);
+			if (typed_result != 0) {
+				if (typed_result > 0) preserved_typed++;
+				else source_errors++;
+				continue;
+			}
 
 			/* Dedup: skip if any existing ASSET_MODEL entry already
 			 * has this source_filenum (e.g. g_ModelStates path covers
@@ -1401,8 +1447,6 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 				continue;
 			}
 
-			catalogReadableModelIdForFile(fnum, suffixes[fi], "weapon",
-				idbuf, sizeof(idbuf));
 			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
 			if (!e) {
 				sysLogPrintf(LOG_ERROR,
@@ -1440,6 +1484,14 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 				skipped_zero++;
 				continue;
 			}
+			snprintf(idbuf, sizeof(idbuf),
+				"base:model_cartridge_%s", cart_slugs[ci]);
+			s32 typed_result = preserveTypedWeaponModelSource(idbuf, fnum);
+			if (typed_result != 0) {
+				if (typed_result > 0) preserved_typed++;
+				else source_errors++;
+				continue;
+			}
 
 			asset_data_handle_t existing =
 				catalogHandleBySourceFilenum(ASSET_MODEL, fnum);
@@ -1448,8 +1500,6 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 				continue;
 			}
 
-			snprintf(idbuf, sizeof(idbuf),
-				"base:model_cartridge_%s", cart_slugs[ci]);
 			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
 			if (!e) {
 				sysLogPrintf(LOG_ERROR,
@@ -1477,13 +1527,20 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 	 * backed instead of warning and bypassing the typed asset graph. */
 	{
 		const s32 fnum = (s32)FILE_GHUDPIECE;
-		asset_data_handle_t existing =
-			catalogHandleBySourceFilenum(ASSET_MODEL, fnum);
-		if (!assetHandleIsNull(existing)) {
+		catalogReadableModelIdForFile(fnum, "menu", "menu",
+			idbuf, sizeof(idbuf));
+		s32 typed_result = preserveTypedWeaponModelSource(idbuf, fnum);
+		asset_data_handle_t existing = ASSET_HANDLE_NULL_INIT;
+		if (typed_result == 0) {
+			existing = catalogHandleBySourceFilenum(ASSET_MODEL, fnum);
+		}
+		if (typed_result > 0) {
+			preserved_typed++;
+		} else if (typed_result < 0) {
+			source_errors++;
+		} else if (!assetHandleIsNull(existing)) {
 			skipped_dup++;
 		} else {
-			catalogReadableModelIdForFile(fnum, "menu", "menu",
-				idbuf, sizeof(idbuf));
 			asset_entry_t *e = assetCatalogRegister(idbuf, ASSET_MODEL);
 			if (!e) {
 				sysLogPrintf(LOG_ERROR,
@@ -1505,9 +1562,10 @@ s32 assetCatalogRegisterWeaponModelFiles(void)
 
 	sysLogPrintf(LOG_NOTE,
 		"assetcatalog: registered %d weapon/menu-pipeline model files (ASSET_MODEL); "
-		"skipped %d already-registered, %d zero filenums",
-		registered, skipped_dup, skipped_zero);
-	return registered;
+		"preserved %d typed sources, skipped %d already-registered, %d zero filenums, "
+		"source_errors=%d",
+		registered, preserved_typed, skipped_dup, skipped_zero, source_errors);
+	return source_errors ? -1 : registered;
 }
 #endif /* !PD_SERVER */
 

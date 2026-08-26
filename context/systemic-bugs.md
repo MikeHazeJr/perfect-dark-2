@@ -150,6 +150,16 @@ transports one checked count through extraction, descriptor/manifest
 conformance, catalog admission, and allocation, then routes relationship walks
 through shared portal-pair and other-room validators.
 
+**2026-08-26 proof:** B-1105 found the same class in public model material
+identity. `model.mtl` is the complete ordered index domain, while OBJ `usemtl`
+lines are only a sparse encounter projection. The importer sized and ordered
+runtime materials from that projection, dropping a valid unused Mauler slot and
+shifting every later material before indexed `model.render.json` consumption.
+The same pattern affected one head archive. The repair retains every declared
+MTL slot and remaps used OBJ materials by name in both readable-cache validation
+and runtime modeldef construction; duplicate declarations and undeclared face
+materials fail closed.
+
 **2026-08-12 validation:** The exact Air Base to Air Force One production-path
 canary passed 25/25 with the declared 147-room domain and no memory-canary
 corruption. The complete source-frozen campaign then passed 23/23 across all 17
@@ -167,6 +177,7 @@ Require empty and relation-only trailing members in focused fixtures.
 ```powershell
 rg -n "max.*\+ 1|count.*Alloc|room_count|source_.*count" port/src src/game src/lib
 rg -n "g_[A-Za-z0-9_]+\[g_[A-Za-z0-9_]+\[|roomnum1|roomnum2" port/src src/game src/lib
+rg -n "newmtl|usemtl|material_index|material_count" port/src tools tests
 ```
 
 **Rule:** Preserve the declared canonical domain at ingress and validate it
@@ -2947,6 +2958,66 @@ wire/save/Theater reconstruction, parse and validate before publication, publish
 one ownership domain, and test failure cleanup plus idempotent reapplication.
 
 `rg -n -C 8 "propReparent|propActivate|propPause|propDelist|propDetach|next|prev" src port tests`
+
+---
+
+## SP-74: Dependency publication and source ownership diverge across registration order
+
+**Severity: HIGH - a valid self-contained archive can pass admission while its
+runtime consumer silently reads duplicate native or legacy bytes.**
+
+Two registration orders expose the same defect class. A nested typed dependency
+can reuse a legacy row without hydrating its source, or it can create a valid
+FileProvider row without filenum provenance and then be erased by a later
+legacy coverage pass that deduplicates only by filenum. A dependency edge is
+not source ownership. Typed publication must atomically bind provider plus
+provenance while preserving stable runtime identity, and every later legacy
+registrar must preserve an already-valid typed owner by `(type, catalog ID)`.
+Byte-identical shared sources keep the first canonical owner and add only edges;
+divergent typed sources and filenum mismatches fail closed.
+
+**Current contract (production-verified regression gate):** one strict planner
+validates the complete optional machine-manifest JSON root while treating the
+public INI geometry as authoritative. Top-level and nested readers consume one
+exported canonical key order (`model_file`, `geometry_file`, `model`,
+`geometry`, `file_path`). One binder compares duplicate typed archives by
+canonical SHA-256, preserves the first identical FileProvider, rejects
+divergence and unsupported/live replacement, and permits source hydration of a
+`LOADED` row only for the historical bundled/no-payload sentinel. Nested
+publication snapshots reused rows and FileProvider intern state; every later
+legacy model pass resolves by typed ID/effective FileProvider, reports source
+errors to the boot asset-chain gate, and never overwrites a valid typed owner.
+
+Exact client `395D48A6...` passes focused 132/14, full 67,152/1,223, the
+native-source guard, two-archive verification, fixture validation, and 23/23
+unchanged production-source hashes. Strict fresh-cache receipt
+`results-20260826T152922Z.json` passes 54/54: the one raw `GskpistolZ.bin` read
+is ordered inside pre-catalog extraction, then the nested typed source owns one
+13-material compiler/activation/Bond-gun/render chain, 11 real Mauler shots,
+and clean shutdown with no runtime native/ROM boundary or endscreen. All four
+reviewed gameplay captures retain authored silver/green projection and V-009's
+no-obstruction gate. Earlier binaries and rejected receipts remain diagnostic
+history only.
+
+**Known instance (B-1105):** with the duplicate global Mauler `.pdmesh` absent,
+`base:mauler` registered embedded `base:model_skpistol_hi` as a FileProvider
+row, but did not project `_meta/manifest.json`'s `FILE_GSKPISTOL` provenance.
+`assetCatalogRegisterWeaponModelFiles` later found no owner for filenum 889,
+called last-write-wins `assetCatalogRegister`, and replaced the typed row with
+the legacy `GskpistolZ.bin` route. Luna xhigh found 152 nested weapon meshes,
+113 unique model IDs, byte identity with all global counterparts, no source-
+symbol mismatch, and 14 shared-ID families, so ownership must be generic and
+order-independent.
+
+**Audit:** for each nested typed family, trace the existing-row path from
+content comparison through dependency publication and actual consumer handle.
+Require the same manifest adapter as top-level scanning, trace later legacy
+registrars by both filenum and catalog ID, preserve only stable runtime identity,
+and prove the effective nested source path in an ordinary client with the
+duplicate global source absent. Never treat a dependency-edge log as source-
+ownership proof.
+
+`rg -n "existing = 1|NESTED.REGISTER|registerComponent|catalogSetPrimary|source_filenum" port/src tests`
 
 ---
 

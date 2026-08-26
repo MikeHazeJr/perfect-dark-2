@@ -202,3 +202,63 @@ TEST_CASE("Falcon laser sight matrix lookup is bounded", "[bondgun][laser][stati
 	REQUIRE(source.find("modelFindNodeMtxIndex(node, 0)") != std::string::npos);
 	REQUIRE(source.find("mtxindex < 0 || mtxindex >= modeldef->nummatrices") != std::string::npos);
 }
+
+TEST_CASE("gun model source failures latch one request until catalog change",
+	"[bondgun][catalog][failure-latch][B-1105]")
+{
+	const std::string source = readBondgunSource();
+	const std::size_t queue_start = source.find("static void bgunQueueModelLoad");
+	const std::size_t queue_end = source.find(
+		"static bool bgunQueuedLoadCanUseHandle", queue_start);
+	const std::size_t fail_start = source.find(
+		"static void bgunFailQueuedModelLoad");
+	const std::size_t fail_end = source.find("Strict-catalog load", fail_start);
+	const std::size_t tick_start = source.find("void bgunTickGunLoad(void)");
+	const std::size_t tick_end = source.find(
+		"const char var7f1abcd8", tick_start);
+
+	REQUIRE(source.find("#define GUNLOADSTATE_FAILED   5") !=
+		std::string::npos);
+	REQUIRE(queue_start != std::string::npos);
+	REQUIRE(queue_end != std::string::npos);
+	REQUIRE(fail_start != std::string::npos);
+	REQUIRE(fail_end != std::string::npos);
+	REQUIRE(tick_start != std::string::npos);
+	REQUIRE(tick_end != std::string::npos);
+
+	const std::string queue = source.substr(queue_start, queue_end - queue_start);
+	const std::string fail = source.substr(fail_start, fail_end - fail_start);
+	const std::string tick = source.substr(tick_start, tick_end - tick_start);
+
+	REQUIRE(queue.find(
+		"loadcataloggeneration = assetCatalogGetGeneration()") !=
+		std::string::npos);
+	REQUIRE(fail.find(
+		"gunloadstate = GUNLOADSTATE_FAILED") != std::string::npos);
+	REQUIRE(fail.find(
+		"gunloadstate = GUNLOADSTATE_FLUX") == std::string::npos);
+	REQUIRE(fail.find("static s32 s_last_critical_filenum") ==
+		std::string::npos);
+	REQUIRE(tick.find(
+		"gunloadstate == GUNLOADSTATE_FAILED") != std::string::npos);
+	REQUIRE(tick.find(
+		"catalog_generation != player->gunctrl.loadcataloggeneration") !=
+		std::string::npos);
+	REQUIRE(tick.find(
+		"player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX") !=
+		std::string::npos);
+
+	std::ifstream types_file("src/include/types.h", std::ios::binary);
+	REQUIRE(types_file.good());
+	std::ostringstream types_contents;
+	types_contents << types_file.rdbuf();
+	REQUIRE(types_contents.str().find("u32 loadcataloggeneration") !=
+		std::string::npos);
+
+	std::ifstream reset_file("src/game/bondgunreset.c", std::ios::binary);
+	REQUIRE(reset_file.good());
+	std::ostringstream reset_contents;
+	reset_contents << reset_file.rdbuf();
+	REQUIRE(reset_contents.str().find(
+		"gunctrl.loadcataloggeneration = 0") != std::string::npos);
+}

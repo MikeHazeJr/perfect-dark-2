@@ -69,7 +69,9 @@ s32 assetCatalogGetBaseMaterialSource(s32 index, const char **name,
  * into loader_pool). Idempotent and dedupe-safe (skips
  * any filenum already present as ASSET_MODEL).
  *
- * Returns count of newly-registered weapon model file entries.
+ * Returns count of newly-registered weapon model file entries, or -1 when a
+ * typed source cannot be preserved safely. A negative result is a boot asset
+ * chain failure and must prevent runtime-cache publication.
  */
 s32 assetCatalogRegisterWeaponModelFiles(void);
 
@@ -162,8 +164,10 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
  * Register .pdanim/.pdsfx/.pdvoice/.pdui archives embedded directly inside a
  * .pdweapon source archive. The nested public descriptor remains the source
  * of truth and every registered source path is a VFS chain rooted at the
- * parent weapon archive. Existing bundled rows are preserved; conflicting
- * custom IDs fail closed.
+ * parent weapon archive. Compatible bundled model rows preserve their stable
+ * catalog/runtime identity while their legacy provider is transactionally
+ * hydrated from the nested typed mesh manifest. Resident source changes,
+ * filenum mismatches, and conflicting custom IDs fail closed.
  *
  * Returns the number of nested dependencies registered or reused, or -1 on
  * any malformed, unresolved, colliding, or unreadable nested dependency.

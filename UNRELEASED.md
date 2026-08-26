@@ -23,6 +23,9 @@
   the same profile lifecycle, while refusing deletion of the active Agent.
 - Kept generated asset caches inside checked Windows path limits without tying
   them to arbitrarily nested save directories or weakening source-hash identity.
+- Made nested weapon meshes preserve authored material-slot order and typed
+  source ownership, fixing Mauler rendering without legacy model fallback or
+  repeated failed-load retries.
 - Preserved each scenario's declared room domain through loading and portal
   traversal, preventing Air Base's portal-only rooms from corrupting teardown.
 - Routed friend matches through one elected in-client listen authority using a

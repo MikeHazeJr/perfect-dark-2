@@ -151,6 +151,7 @@ void bgunReset(void)
 	g_Vars.currentplayer->gunctrl.handmemloadremaining = 0;
 	g_Vars.currentplayer->gunctrl.masterloadstate = 0;
 	g_Vars.currentplayer->gunctrl.gunloadstate = 0;
+	g_Vars.currentplayer->gunctrl.loadcataloggeneration = 0;
 	g_Vars.currentplayer->gunctrl.gunmemtype = 0;
 	g_Vars.currentplayer->gunctrl.gunmemnew = -1;
 	g_Vars.currentplayer->gunctrl.gunmemowner = GUNMEMOWNER_CHRBODY;

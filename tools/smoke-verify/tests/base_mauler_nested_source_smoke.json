@@ -1,0 +1,131 @@
+{
+  "scenario_name": "base_mauler_nested_source_smoke",
+  "description": "B-1105 ordinary-client production gate. Remove only the sandbox copy of the duplicate top-level Mauler held mesh so the base:mauler public .pdweapon must supply its embedded held_hi.pdmesh. The boot extractor may verify the raw ROM-derived file before catalog construction, but every runtime model boundary must use the separately typed public source. Then prove the complete 13-slot authored material domain reaches one bounded gun-model load, first-person render, ordinary fire, and clean exit. Captures retain V-009's no-obstruction, placement, and material regression gate while preserving firing frames for effect review.",
+  "tags": ["base-game", "weapon", "pdweapon", "nested-source", "material-order", "viewmodel", "visual", "v009", "b1105", "smoke"],
+  "paths_of_interest": [
+    "Build/data/ntsc-final/weapons/base_mauler.pdweapon",
+    "port/src/modasset_compiler.c",
+    "port/src/modasset_material_order.c",
+    "port/src/loader_walker_mesh_source_plan.c",
+    "port/src/loader_walker_mesh_source_bind.c",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/assetcatalog_base_extended.c",
+    "src/game/bondgun.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,combat,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 150,
+  "install_state": "current",
+  "remove_paths": [
+    "data/ntsc-final/meshes/base_model_skpistol_hi.pdmesh"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-generated-mesh-render-audit",
+    "--debug-mesh-matclass",
+    "--debug-force-first-person",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-spawn-weapon",
+    "base:mauler",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "offline_gameplay_ready", "timeout_ms": 120000, "stable_ms": 3000, "assist_action": "ACTION_SKIP_CUTSCENE", "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 900, "comment": "Pause the virtual script until the ordinary Combat Simulator player is continuously spawned, live, controllable, and in walking mode; use one bounded canonical Skip only if the authored intro owns control." },
+    { "at_ms": 5000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "Aim the real player and Mauler toward ordinary nearby world collision after usable gameplay is proven." },
+    { "at_ms": 8000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Exercise the production Mauler fire path while the held source model is live." },
+    { "at_ms": 10000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 14000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "Second ordinary shot gives the visual gate a separate settled firing witness." },
+    { "at_ms": 18000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
+    { "at_ms": 22000, "type": "exit", "comment": "Exit after cold nested-source conversion, stable held-model render, two fire edges, and all visual captures." }
+  ],
+  "screenshots": [
+    { "at_ms": 4500, "name": "base-mauler-held-stable" },
+    { "at_ms": 8100, "name": "base-mauler-primary-fire" },
+    { "at_ms": 14100, "name": "base-mauler-second-fire" },
+    { "at_ms": 20000, "name": "base-mauler-held-settled" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=base_mauler_nested_source_smoke",
+      "BOOT: --debug-auto-start-match consumed",
+      "BOOT: --launch-mp-room direct match start",
+      "BOOT: --debug-spawn-weapon 'base:mauler' \\(SPECIFIC\\)",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000 stable_elapsed_ms=(?:3[0-9]{3}|[4-9][0-9]{3}|[1-9][0-9]{4,})",
+      "PDWEAPON\\.NESTED\\.REGISTER: owner=base:mauler id=base:model_skpistol_hi type=23 source=.*base_mauler\\.pdweapon::dependencies/assets/models/held_hi\\.pdmesh",
+      "PDWEAPON\\.NESTED\\.MESH_SOURCE: owner=base:mauler id=base:model_skpistol_hi action=claimed filenum=889 source=.*base_mauler\\.pdweapon::dependencies/assets/models/held_hi\\.pdmesh::model\\.obj",
+      "assetcatalog: registered \\d+ weapon/menu-pipeline model files \\(ASSET_MODEL\\); preserved [1-9]\\d* typed sources, skipped \\d+ already-registered, \\d+ zero filenums, source_errors=0",
+      "SETUP: user-picked spawn weapon 'base:mauler' num=6 preserved",
+      "SPAWN\\.WEAPON: player=0 weapon=6 .*",
+      "SPAWN: player 0 spawned with weapon 6 \\(Mauler\\) -- auto-equipped to right hand",
+      "MODASSET\\.COMPILER: cached external model 'base:model_skpistol_hi' source=.*base_mauler\\.pdweapon::dependencies/assets/models/held_hi\\.pdmesh::model\\.obj cache=\\$H/mod-cache/base/base_model_skpistol_hi/model-v7-[0-9a-f]+\\.pdmc",
+      "MODASSET\\.COMPILER: built hierarchy modeldef 'base:model_skpistol_hi' source=.*base_mauler\\.pdweapon::dependencies/assets/models/held_hi\\.pdmesh::model\\.obj.*nodes=[1-9]\\d*.*vertices=[1-9]\\d* tris=[1-9]\\d*",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated external model modeldef 'base:model_skpistol_hi' vertices=[1-9]\\d* tris=[1-9]\\d*",
+      "MODASSET\\.MATCLASS: id=base:model_skpistol_hi .* mats=13 ",
+      "BONDGUN\\.SOURCE: loaded catalog model source filenum=889 id=base:model_skpistol_hi path=.*base_mauler\\.pdweapon::dependencies/assets/models/held_hi\\.pdmesh::model\\.obj",
+      "MODASSET\\.RENDER: generated source modeldef rendered id=base:model_skpistol_hi source=.*base_mauler\\.pdweapon::dependencies/assets/models/held_hi\\.pdmesh::model\\.obj.*tris=[1-9]\\d*",
+      "BOOT: --debug-force-first-person active: stagenum=0x43 frame=\\d+ before=\\d+ after=0 frames=900",
+      "LOG\\.WPN\\.DIAG: playerRenderHud branch=fp_render cameramode=0",
+      "LOG\\.WPN\\.DIAG: bgunRender enter player=0 .* R\\(wpn=6 visible=1 inuse=1 .* gunctrl_wpn=6 switchto=-1 .* R_gunmodel_def=(?:0x)?0*[1-9a-fA-F][0-9a-fA-F]*",
+      "COMBAT: SHOT_FIRED .*weapon=6(?: |$)",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "CATALOG_CRITICAL: bgun model",
+      "CATALOG\\.LIFECYCLE\\.ACTIVATE: 'base:model_skpistol_hi' external model modeldef conversion failed",
+      "CATALOG\\.LIFECYCLE\\.LOAD: 'base:model_skpistol_hi' activation failed",
+      "BONDGUN\\.SOURCE: catalog model source load failed .*id=base:model_skpistol_hi",
+      "BONDGUN\\.SOURCE: releasing failed model request filenum=889",
+      "MODASSET\\.COMPILER: invalid external model material identity",
+      "MODEL\\.GDL\\.REJECT",
+      "MODASSET\\.MATCLASS: id=base:model_skpistol_hi .* mats=(?:[0-9]|1[0-2]) ",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum",
+      "BONDGUN\\.SOURCE:.*filenum=889.*(?:GskpistolZ|RomProvider|data/ntsc-final/files/)",
+      "MODASSET\\.COMPILER:.*base:model_skpistol_hi.*(?:GskpistolZ|RomProvider|data/ntsc-final/files/)",
+      "ENDSCREEN\\.STATE:",
+      "MATCH: endscreen shown",
+      "result=FAIL",
+      "result=MISSING",
+      "CATEGORY_MISMATCH"
+    ],
+    "required_counts": [
+      { "pattern": "MODASSET\\.COMPILER: cached external model 'base:model_skpistol_hi' source=.*base_mauler\\.pdweapon::dependencies/assets/models/held_hi\\.pdmesh::model\\.obj", "min": 1, "max": 1 },
+      { "pattern": "file 889 \\(GskpistolZ\\) loaded from per-romid disk \"data/ntsc-final/files/GskpistolZ\\.bin\"", "min": 1, "max": 1 },
+      { "pattern": "PDWEAPON\\.NESTED\\.MESH_SOURCE: owner=base:mauler id=base:model_skpistol_hi action=claimed filenum=889", "min": 1, "max": 1 },
+      { "pattern": "MODASSET\\.COMPILER: built hierarchy modeldef 'base:model_skpistol_hi' source=.*base_mauler\\.pdweapon::dependencies/assets/models/held_hi\\.pdmesh::model\\.obj", "min": 1, "max": 1 },
+      { "pattern": "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated external model modeldef 'base:model_skpistol_hi'", "min": 1, "max": 1 },
+      { "pattern": "BONDGUN\\.SOURCE: loaded catalog model source filenum=889 id=base:model_skpistol_hi", "min": 1, "max": 1 },
+      { "pattern": "MODASSET\\.RENDER: generated source modeldef rendered id=base:model_skpistol_hi", "min": 1, "max": 1 },
+      { "pattern": "COMBAT: SHOT_FIRED .*weapon=6(?: |$)", "min": 1, "max": 16 }
+    ],
+    "required_sequences": [
+      {
+        "name": "boot-extraction-before-typed-mauler-runtime",
+        "patterns": [
+          "ROMEXTRACT: starting first-launch extraction",
+          "file 889 \\(GskpistolZ\\) loaded from per-romid disk \"data/ntsc-final/files/GskpistolZ\\.bin\"",
+          "ROMEXTRACT: complete\\. wrote=\\d+, skipped_existing=\\d+, skipped_empty=\\d+, failed=0",
+          "PDWEAPON\\.NESTED\\.MESH_SOURCE: owner=base:mauler id=base:model_skpistol_hi action=claimed filenum=889 source=.*base_mauler\\.pdweapon::dependencies/assets/models/held_hi\\.pdmesh::model\\.obj",
+          "BONDGUN\\.SOURCE: loaded catalog model source filenum=889 id=base:model_skpistol_hi path=.*base_mauler\\.pdweapon::dependencies/assets/models/held_hi\\.pdmesh::model\\.obj",
+          "MODASSET\\.RENDER: generated source modeldef rendered id=base:model_skpistol_hi source=.*base_mauler\\.pdweapon::dependencies/assets/models/held_hi\\.pdmesh::model\\.obj"
+        ]
+      }
+    ]
+  }
+}

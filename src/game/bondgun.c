@@ -80,6 +80,7 @@
 #define GUNLOADSTATE_TEXTURES 2
 #define GUNLOADSTATE_DLS      3
 #define GUNLOADSTATE_LOADED   4
+#define GUNLOADSTATE_FAILED   5
 
 #define MASTERLOADSTATE_FLUX   0
 #define MASTERLOADSTATE_HANDS  1
@@ -4424,6 +4425,7 @@ static void bgunQueueModelLoad(struct player *player, u16 filenum, struct modeld
 {
 	player->gunctrl.loadfilenum = filenum;
 	player->gunctrl.loadhandle = bgunResolveQueuedModelHandle((s32)filenum);
+	player->gunctrl.loadcataloggeneration = assetCatalogGetGeneration();
 	player->gunctrl.loadtomodeldef = modeldef;
 	player->gunctrl.loadmemptr = memptr;
 	player->gunctrl.loadmemremaining = memremaining;
@@ -4614,25 +4616,21 @@ static struct modeldef *bgunQueuedLoadCatalogModelSource(struct player *player)
 
 static void bgunFailQueuedModelLoad(struct player *player)
 {
-	/* Throttle: log once per failing filenum. Without throttle the
-	 * gunloadstate flips back to FLUX and the master-load retries
-	 * the same miss next tick, flooding the log at 60 lines/sec.
-	 * One ERROR is the visibility we need; the GUNLOADSTATE_FLUX
-	 * retry stays in case a transient resource pressure clears
-	 * up later. */
-	static s32 s_last_critical_filenum = -1;
-
-	if (s_last_critical_filenum != (s32)player->gunctrl.loadfilenum) {
-		s_last_critical_filenum = (s32)player->gunctrl.loadfilenum;
-		sysLogPrintf(LOG_ERROR,
-			"CATALOG_CRITICAL: bgun model filenum=%d failed to load",
-			(s32)player->gunctrl.loadfilenum);
-	}
-	/* c3849 Wave 1: outside the log throttle so counts stay true. */
+	/* One request gets one attempt.  A permanent source/conversion failure must
+	 * not bounce MODEL -> FLUX and reactivate the same catalog dependency every
+	 * frame.  The FAILED state remains fail-closed until the caller explicitly
+	 * queues a new request or the catalog generation changes. */
+	sysLogPrintf(LOG_ERROR,
+		"CATALOG_CRITICAL: bgun model filenum=%d failed to load catalog_generation=%u",
+		(s32)player->gunctrl.loadfilenum,
+		(unsigned)player->gunctrl.loadcataloggeneration);
 	assetFallbackRecord(ASSET_MODEL, (s32)player->gunctrl.loadfilenum,
-		"bgun model load failed (FLUX retry)");
+		"bgun model load failed (request latched)");
 
-	player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
+	if (player->gunctrl.loadtomodeldef) {
+		*player->gunctrl.loadtomodeldef = NULL;
+	}
+	player->gunctrl.gunloadstate = GUNLOADSTATE_FAILED;
 }
 
 /*
@@ -4715,6 +4713,20 @@ void bgunTickGunLoad(void)
 #if VERSION >= VERSION_NTSC_1_0
 	u32 stack2;
 #endif
+
+	if (player->gunctrl.gunloadstate == GUNLOADSTATE_FAILED) {
+		u32 catalog_generation = assetCatalogGetGeneration();
+
+		if (catalog_generation != player->gunctrl.loadcataloggeneration) {
+			sysLogPrintf(LOG_NOTE,
+				"BONDGUN.SOURCE: releasing failed model request filenum=%d catalog_generation=%u->%u",
+				(s32)player->gunctrl.loadfilenum,
+				(unsigned)player->gunctrl.loadcataloggeneration,
+				(unsigned)catalog_generation);
+			player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
+		}
+		return;
+	}
 
 	if (player->gunctrl.gunloadstate == GUNLOADSTATE_MODEL) {
 		osSyncPrintf("BriGun:  BriGunLoadTick process GUN_LOADSTATE_LOAD_OBJ\n");

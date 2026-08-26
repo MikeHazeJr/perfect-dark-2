@@ -10802,11 +10802,18 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		readTextFile("port/src/loader_walker_mesh.c");
 	REQUIRE(mesh_walker.find("\"mesh\", \"meshes\", \".pdmesh\", /* always_invoke: */ 1") !=
 	        std::string::npos);
-	REQUIRE(mesh_walker.find("preserved_runtime_index") !=
+	REQUIRE(mesh_walker.find("assetCatalogGetMutable(id)") !=
 	        std::string::npos);
-	REQUIRE(mesh_walker.find("e->runtime_index = preserved_runtime_index") !=
+	REQUIRE(mesh_walker.find("loaderWalkerMeshSourcePlanManifest") !=
 	        std::string::npos);
-	REQUIRE(mesh_walker.find("catalogSetPrimaryFile(e, source_path)") !=
+	REQUIRE(mesh_walker.find("loaderWalkerBindMeshSource") !=
+	        std::string::npos);
+	REQUIRE(mesh_walker.find(
+	        "loaderWalkerArchiveTextMember(archive_path, \"mesh.ini\"") !=
+	        std::string::npos);
+	REQUIRE(mesh_walker.find("file_path, public_geometry") !=
+	        std::string::npos);
+	REQUIRE(mesh_walker.find("catalogSetPrimaryFile(e, source_path)") ==
 	        std::string::npos);
 	REQUIRE(mesh_extractor.find("pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models") !=
 	        std::string::npos);
@@ -13044,8 +13051,16 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 		const std::string walker = readTextFile(path);
 		INFO(path);
 		REQUIRE(walker.find("(void)file_path") == std::string::npos);
-		REQUIRE(walker.find("loaderWalkerArchiveMemberPath") != std::string::npos);
-		REQUIRE(walker.find("catalogSetPrimaryFile") != std::string::npos);
+		if (std::string(path) == "port/src/loader_walker_mesh.c") {
+			REQUIRE(walker.find("meshPublicSourceFields") != std::string::npos);
+			REQUIRE(walker.find("loaderWalkerBindMeshSource") !=
+				std::string::npos);
+			REQUIRE(walker.find("catalogSetPrimaryFile") == std::string::npos);
+		} else {
+			REQUIRE(walker.find("loaderWalkerArchiveMemberPath") !=
+				std::string::npos);
+			REQUIRE(walker.find("catalogSetPrimaryFile") != std::string::npos);
+		}
 		REQUIRE(walker.find("loaderWalkerMarkBaseArchiveEntry") !=
 		        std::string::npos);
 	}
@@ -13532,14 +13547,22 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(scenario.find("e->ext.scenario.level_graph_file") !=
 	        std::string::npos);
 
-	const std::string mesh = readTextFile("port/src/loader_walker_mesh.c");
-	REQUIRE(mesh.find("\"geometry\"") != std::string::npos);
-	REQUIRE(mesh.find("\"model.obj\"") != std::string::npos);
-	REQUIRE(mesh.find("\"source_filenum_symbol\"") != std::string::npos);
-	REQUIRE(mesh.find("loaderEnumResolveFileEnum(source_symbol, -1)") !=
+	const std::string mesh_source =
+		readTextFile("port/src/loader_walker_mesh_source_plan.c");
+	const std::string mesh_bind =
+		readTextFile("port/src/loader_walker_mesh_source_bind.c");
+	REQUIRE(mesh_source.find("\"geometry\"") != std::string::npos);
+	REQUIRE(mesh_source.find("\"model.obj\"") != std::string::npos);
+	REQUIRE(mesh_source.find("\"source_filenum_symbol\"") != std::string::npos);
+	REQUIRE(mesh_source.find("loaderEnumResolveFileEnum(fields.source_symbol, -1)") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("e->source_filenum = source_filenum") !=
+	REQUIRE(mesh_source.find("meshManifestParse") != std::string::npos);
+	REQUIRE(mesh_source.find("loaderWalkerMeshSourceChangeAllowed") !=
+		std::string::npos);
+	REQUIRE(mesh_bind.find("entry->source_filenum = plan->source_filenum") !=
 	        std::string::npos);
+	REQUIRE(mesh_bind.find("loaderWalkerMeshSourceMatchesEntry") !=
+		std::string::npos);
 	const std::string pdmesh_extract = readTextFile("port/src/romextract_pdmesh.c");
 	REQUIRE(pdmesh_extract.find("skeleton_symbol") !=
 	        std::string::npos);
@@ -13880,7 +13903,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(modasset_compiler_h.find(
 	        "#define MODASSET_COMPILER_ANIMATION_VERSION 8") !=
 	        std::string::npos);
-	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_MODELDEF_VERSION 9") !=
+	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_MODELDEF_VERSION 10") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("modAssetCompilerSkeletonForSymbol") !=
 	        std::string::npos);

@@ -770,7 +770,8 @@ static void bootRunCatalogWork(void *arg)
 				walker_result.total_register_failures);
 		}
 		if (loaderPoolIsActive()) {
-			assetCatalogRegisterWeaponModelFiles();
+			bootRecordAssetPhase("weapon-model-source",
+				assetCatalogRegisterWeaponModelFiles());
 		}
 	}
 	bootProgressEndPhase();

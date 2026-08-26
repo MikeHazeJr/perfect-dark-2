@@ -15,14 +15,89 @@
  */
 
 #include <stddef.h>
+#include <stdio.h>
 #include <string.h>
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
 #include "fs.h"
-#include "loader_enum_reverse.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
+#include "loader_walker_mesh_source.h"
+#include "system.h"
+
+static s32 meshPublicGeometry(const char *mesh_ini, size_t mesh_ini_len,
+        char *geometry, size_t geometry_cap)
+{
+    for (size_t i = 0; i < loaderWalkerMeshPublicGeometryKeyCount(); i++) {
+        const char *key = loaderWalkerMeshPublicGeometryKey(i);
+        char present[2];
+        if (!loaderWalkerIniValueCopy(mesh_ini, mesh_ini_len, "model",
+                key, present, sizeof(present))) {
+            continue;
+        }
+        if (!loaderWalkerIniPathCopy(mesh_ini, mesh_ini_len, "model",
+                key, geometry, geometry_cap) || !geometry[0]) {
+            return -1;
+        }
+        return 1;
+    }
+    snprintf(geometry, geometry_cap, "%s", "model.obj");
+    return 1;
+}
+
+static s32 meshPublicSourceFields(const char *archive_path,
+        const char *expected_id, char *geometry, size_t geometry_cap,
+        char *err, size_t err_cap)
+{
+    char *mesh_ini = NULL;
+    size_t mesh_ini_len = 0;
+    char public_id[CATALOG_ID_LEN];
+    char public_kind[32];
+    s32 ok = 0;
+
+    if (!geometry || geometry_cap == 0) return 0;
+    geometry[0] = '\0';
+    public_id[0] = '\0';
+    public_kind[0] = '\0';
+    if (!loaderWalkerArchiveTextMember(archive_path, "mesh.ini",
+            &mesh_ini, &mesh_ini_len)) {
+        snprintf(err, err_cap, "public mesh.ini is missing from %s",
+            archive_path ? archive_path : "");
+        goto done;
+    }
+    if ((!loaderWalkerIniValueCopy(mesh_ini, mesh_ini_len, "model",
+                "catalog_id", public_id, sizeof(public_id))
+            && !loaderWalkerIniValueCopy(mesh_ini, mesh_ini_len, "model",
+                "id", public_id, sizeof(public_id)))
+            || !public_id[0] || !expected_id
+            || strcmp(public_id, expected_id) != 0) {
+        snprintf(err, err_cap,
+            "public mesh.ini catalog ID does not match %s",
+            expected_id ? expected_id : "");
+        goto done;
+    }
+    if (!loaderWalkerIniValueCopy(mesh_ini, mesh_ini_len, "model", "kind",
+            public_kind, sizeof(public_kind))
+            || strcmp(public_kind, "mesh") != 0) {
+        snprintf(err, err_cap,
+            "public mesh.ini kind is not mesh for %s", expected_id);
+        goto done;
+    }
+    if (meshPublicGeometry(mesh_ini, mesh_ini_len, geometry,
+            geometry_cap) <= 0) {
+        snprintf(err, err_cap,
+            "public mesh.ini geometry is empty or too long for %s",
+            expected_id);
+        goto done;
+    }
+    ok = 1;
+
+done:
+    if (mesh_ini) sysMemFree(mesh_ini);
+    if (err && err_cap) err[err_cap - 1] = '\0';
+    return ok;
+}
 
 static s32 s_register(const char *manifest, size_t manifest_len,
                       const char *pd_kind, const char *id,
@@ -30,43 +105,48 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 {
     (void)pd_kind;
 
-    char geometry_member[FS_MAXPATH];
-    char source_symbol[64];
-    char source_path[FS_MAXPATH + 1];
-    s32 source_filenum = -1;
+    loader_walker_mesh_source_plan_t source_plan;
+    char public_geometry[FS_MAXPATH];
+    char source_error[256] = {0};
     const asset_entry_t *existing = assetCatalogResolve(id);
-    s32 preserved_runtime_index = existing ? existing->runtime_index : -1;
-    s16 preserved_mp_index = existing ? existing->mp_index : -1;
-    f32 preserved_model_scale = existing ? existing->model_scale : 1.0f;
-    s32 preserved_source_filenum = existing ? existing->source_filenum : -1;
+    asset_entry_t *e;
+    s32 created = 0;
 
-    if (!loaderWalkerEnvelopePathCopy(manifest, manifest_len, "geometry",
-                                     geometry_member, sizeof(geometry_member))) {
-        strncpy(geometry_member, "model.obj", sizeof(geometry_member) - 1);
-        geometry_member[sizeof(geometry_member) - 1] = '\0';
+    if (existing && existing->type != ASSET_MODEL) {
+        sysLoudFailf("LOAD.MESH.SOURCE_COLLISION",
+            "typed mesh id=%s collides with catalog type=%d",
+            id, (s32)existing->type);
+        return -1;
+    }
+    if (!meshPublicSourceFields(file_path, id, public_geometry,
+            sizeof(public_geometry), source_error, sizeof(source_error))) {
+        sysLoudFailf("LOAD.MESH.PUBLIC_SOURCE",
+            "typed mesh id=%s public source rejected: %s", id,
+            source_error[0] ? source_error : "mesh.ini unavailable");
+        return -1;
+    }
+    if (!loaderWalkerMeshSourcePlanManifest(manifest, manifest_len, id,
+            file_path, public_geometry,
+            existing ? existing->source_filenum : -1,
+            &source_plan, source_error, sizeof(source_error))) {
+        sysLoudFailf("LOAD.MESH.SOURCE_PLAN",
+            "typed mesh id=%s source rejected: %s", id, source_error);
+        return -1;
     }
 
-    if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len,
-                                    "source_filenum_symbol",
-                                    source_symbol, sizeof(source_symbol))) {
-        source_filenum = loaderEnumResolveFileEnum(source_symbol, -1);
+    e = existing ? assetCatalogGetMutable(id)
+                 : assetCatalogRegister(id, ASSET_MODEL);
+    created = existing ? 0 : 1;
+    if (!e || !loaderWalkerBindMeshSource(e, &source_plan, 1,
+            source_error, sizeof(source_error))) {
+        if (created) assetCatalogUnregister(id);
+        sysLoudFailf("LOAD.MESH.SOURCE_BIND",
+            "typed mesh id=%s source bind failed: %s", id,
+            source_error[0] ? source_error : "catalog row unavailable");
+        return -1;
     }
-
-    asset_entry_t *e = assetCatalogRegister(id, ASSET_MODEL);
     loaderWalkerMarkBaseArchiveEntry(e);
-    if (e && loaderWalkerArchiveMemberPath(file_path, geometry_member,
-                                           source_path, sizeof(source_path))) {
-        e->runtime_index = preserved_runtime_index;
-        e->mp_index = preserved_mp_index;
-        e->model_scale = preserved_model_scale;
-        catalogSetPrimaryFile(e, source_path);
-        if (source_filenum > 0) {
-            e->source_filenum = source_filenum;
-        } else if (preserved_source_filenum > 0) {
-            e->source_filenum = preserved_source_filenum;
-        }
-    }
-    return e ? 1 : -1;
+    return 1;
 }
 
 void loaderWalkerScanMeshes(const char *tier_dir,

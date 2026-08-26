@@ -48,6 +48,7 @@
 #include "assetcatalog_scanner.h"
 #include "asset_path_contract.h"
 #include "loader_pool.h"
+#include "loader_walker_mesh_source.h"
 #include "modarchive.h"
 #include "pdeffect_source.h"
 #include "effect_dependencies.h"
@@ -3495,9 +3496,25 @@ typedef struct weapon_nested_preflight {
 	s32 existing;
 	s32 created;
 	s32 edge_created;
+	loader_walker_mesh_source_plan_t mesh_source;
+	s32 has_mesh_source;
+	s32 keep_existing_mesh_source;
+	asset_entry_t existing_snapshot;
+	s32 existing_snapshot_valid;
 	effect_nested_registration_t effect_nested;
 	u8 *effect_dep_edges_created;
 } weapon_nested_preflight_t;
+
+static const char *weaponNestedMeshPublicGeometry(const ini_section_t *ini)
+{
+	if (!ini) return NULL;
+	for (size_t i = 0; i < loaderWalkerMeshPublicGeometryKeyCount(); i++) {
+		const char *value = iniGet(ini,
+			loaderWalkerMeshPublicGeometryKey(i), NULL);
+		if (value && value[0]) return value;
+	}
+	return "";
+}
 
 static s32 weaponNestedPendingReserve(weapon_nested_preflight_t **pending,
 		size_t *capacity, size_t needed)
@@ -3724,6 +3741,8 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 	weapon_nested_preflight_t *pending = NULL;
 	size_t pending_count = 0;
 	size_t pending_capacity = 0;
+	file_provider_checkpoint_t provider_checkpoint;
+	s32 provider_checkpoint_valid = 0;
 	s32 result = -1;
 
 	if (err && err_cap) err[0] = '\0';
@@ -3828,7 +3847,13 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 				goto rollback;
 			}
 		}
-		strncpy(p->catalog_id, catalog_id, sizeof(p->catalog_id) - 1);
+		if (!assetPathCopyChecked(p->catalog_id, sizeof(p->catalog_id),
+				catalog_id)) {
+			nestedSetErr(err, err_cap,
+				"nested dependency catalog ID exceeds capacity %s%s",
+				catalog_id, "");
+			goto rollback;
+		}
 		if (!assetPathJoinChecked(p->archive_ref, FS_MAXPATH, weapon_archive,
 				"::", entry_name) ||
 				!assetPathJoinChecked(p->descriptor_ref, FS_MAXPATH,
@@ -3855,6 +3880,44 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			}
 			p->existing = 1;
 		}
+		if (expected_type == ASSET_MODEL) {
+			u32 manifest_size = 0;
+			void *manifest = modArchiveExtractMemAlloc(p->bytes, p->size,
+				ASSET_ARCHIVE_META_MANIFEST_PATH, &manifest_size);
+			if (!loaderWalkerMeshSourcePlanManifest((const char *)manifest,
+					manifest_size, p->catalog_id, p->archive_ref,
+					weaponNestedMeshPublicGeometry(&p->ini),
+					existing ? existing->source_filenum : -1,
+					&p->mesh_source, err, err_cap)) {
+				free(manifest);
+				if (!err || !err[0]) {
+					nestedSetErr(err, err_cap,
+						"could not plan nested mesh source %s%s",
+						p->catalog_id, "");
+				}
+				goto rollback;
+			}
+			free(manifest);
+			p->has_mesh_source = 1;
+			if (existing && existing->source.primary.provider == fileProvider()) {
+				const char *current_path = fileProviderPath(existing->source.primary);
+				if ((!current_path
+						|| strcmp(current_path, p->mesh_source.source_path) != 0)
+						&& !loaderWalkerMeshSourceMatchesEntry(existing,
+							p->archive_ref, p->bytes, p->size, err, err_cap)) {
+					if (!err || !err[0]) {
+						nestedSetErr(err, err_cap,
+							"nested typed mesh source collision %s%s",
+							p->catalog_id, "");
+					}
+					goto rollback;
+				}
+				/* Multiple weapon owners may embed the same byte-identical
+				 * model. Keep the first typed owner and add only dependency
+				 * edges; source paths must not churn with owner order. */
+				p->keep_existing_mesh_source = 1;
+			}
+		}
 		pending_count++;
 	}
 	}
@@ -3862,6 +3925,18 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			&pending_capacity, weapon_id, weapon_archive, weapon_bytes,
 			weapon_size, err, err_cap)) {
 		goto rollback;
+	}
+	/* Source qualification is complete-closure preflight for reused, direct,
+	 * and recursively discovered rows. Publication below cannot discover a
+	 * late VFS-capacity failure after an earlier sibling has mutated state. */
+	for (size_t i = 0; i < pending_count; i++) {
+		if (!qualifyTypedArchiveSourcePaths(&pending[i].ini,
+				pending[i].archive_ref)) {
+			nestedSetErr(err, err_cap,
+				"nested dependency path exceeds repository capacity: %s%s",
+				pending[i].catalog_id, "");
+			goto rollback;
+		}
 	}
 	{
 		size_t edge_count = pending_count;
@@ -3881,16 +3956,17 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		goto rollback;
 		}
 	}
+	if (!fileProviderCheckpointCreate(&provider_checkpoint)) {
+		nestedSetErr(err, err_cap,
+			"could not checkpoint nested source providers for %s%s",
+			weapon_id, "");
+		goto rollback;
+	}
+	provider_checkpoint_valid = 1;
 
 	for (size_t i = 0; i < pending_count; i++) {
 		weapon_nested_preflight_t *p = &pending[i];
 		if (!p->existing) {
-			if (!qualifyTypedArchiveSourcePaths(&p->ini, p->archive_ref)) {
-				nestedSetErr(err, err_cap,
-					"nested dependency path exceeds repository capacity: %s%s",
-					p->catalog_id, "");
-				goto rollback;
-			}
 			p->created = 1; /* rollback even if registerComponent fails late */
 			if (!registerComponent(&p->ini, p->archive_ref,
 					bundled ? "base" : weapon_id, p->descriptor_ref)) {
@@ -3908,6 +3984,51 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			entry->bundled = bundled ? 1 : 0;
 			entry->enabled = 1;
 			entry->temporary = 0;
+		}
+		if (p->has_mesh_source) {
+			asset_entry_t *entry = assetCatalogGetMutable(p->catalog_id);
+			const char *source_action = "claimed";
+			const char *source_path = p->mesh_source.source_path;
+			if (!entry || entry->type != ASSET_MODEL) {
+				nestedSetErr(err, err_cap,
+					"nested mesh row disappeared before source bind %s%s",
+					p->catalog_id, "");
+				goto rollback;
+			}
+			if (p->existing) {
+				p->existing_snapshot = *entry;
+				p->existing_snapshot_valid = 1;
+			}
+			if (p->keep_existing_mesh_source) {
+				if (p->mesh_source.source_filenum > 0) {
+					entry->source_filenum = p->mesh_source.source_filenum;
+				}
+				source_action = "kept";
+				source_path = fileProviderPath(entry->source.primary);
+			} else if (!loaderWalkerBindMeshSource(entry, &p->mesh_source, 1,
+					err, err_cap)) {
+				goto rollback;
+			}
+			if (p->existing && !p->keep_existing_mesh_source) {
+				/* Preserve runtime identity/lifecycle while making the typed
+				 * source and its public descriptor discoverable diagnostics. */
+				if (!assetPathCopyChecked(entry->dirpath,
+						sizeof(entry->dirpath), p->archive_ref)
+						|| !assetPathCopyChecked(entry->descriptor_path,
+							sizeof(entry->descriptor_path), p->descriptor_ref)) {
+					nestedSetErr(err, err_cap,
+						"nested mesh source metadata exceeds capacity %s%s",
+						p->catalog_id, "");
+					goto rollback;
+				}
+				entry->model_scale = iniGetFloat(&p->ini, "model_scale",
+					entry->model_scale);
+			}
+			sysLogPrintf(LOG_NOTE,
+				"PDWEAPON.NESTED.MESH_SOURCE: owner=%s id=%s action=%s filenum=%d source=%s",
+				weapon_id, p->catalog_id, source_action,
+				p->mesh_source.source_filenum,
+				source_path ? source_path : "");
 		}
 		if (p->expected_type == ASSET_EFFECT
 				&& !effectNestedCommit(&p->effect_nested, bundled, err, err_cap)) {
@@ -3973,6 +4094,21 @@ rollback:
 		}
 		if (pending[i].created) {
 			assetCatalogUnregister(pending[i].catalog_id);
+		} else if (pending[i].existing_snapshot_valid) {
+			asset_entry_t *entry = assetCatalogGetMutable(pending[i].catalog_id);
+			if (entry) *entry = pending[i].existing_snapshot;
+		}
+	}
+	if (provider_checkpoint_valid) {
+		if (!fileProviderCheckpointRestore(&provider_checkpoint)) {
+			sysLoudFailf("PDWEAPON.NESTED.ROLLBACK",
+				"could not restore FileProvider checkpoint for owner=%s",
+				weapon_id);
+			if (err && err_cap && !err[0]) {
+				nestedSetErr(err, err_cap,
+					"nested source provider rollback failed for %s%s",
+					weapon_id, "");
+			}
 		}
 	}
 done:

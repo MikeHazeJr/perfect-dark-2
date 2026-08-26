@@ -964,6 +964,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_json.c
   ${CMAKE_SOURCE_DIR}/tests/test_modasset_json.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/modasset_material_order.c
+  ${CMAKE_SOURCE_DIR}/tests/test_modasset_material_order.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/loader_walker_mesh_source_plan.c
+  ${CMAKE_SOURCE_DIR}/tests/test_loader_walker_mesh_source_plan.cpp
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_writer.c
   ${CMAKE_SOURCE_DIR}/port/src/theme_archive_authoring.c

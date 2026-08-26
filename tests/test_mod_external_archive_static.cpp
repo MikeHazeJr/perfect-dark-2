@@ -9590,6 +9590,54 @@ TEST_CASE("nested weapon distribution ships parent archive and rebuilds hot inde
 	REQUIRE(nestedRegister < weaponParse);
 }
 
+TEST_CASE("SP-74 nested meshes hydrate compatible stable rows transactionally",
+		"[B-1105][SP-74][modding][pdxxx][weapon][nested]") {
+	const std::string header = readFile("port/include/assetcatalog_scanner.h");
+	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	const std::string walker = readFile("port/src/loader_walker_mesh.c");
+	const std::string binder =
+		readFile("port/src/loader_walker_mesh_source_bind.c");
+
+	/* Top-level and nested publication share one manifest planner/binder. */
+	REQUIRE(walker.find("loaderWalkerMeshSourcePlanManifest") !=
+		std::string::npos);
+	REQUIRE(walker.find("loaderWalkerBindMeshSource") != std::string::npos);
+	REQUIRE(walker.find(
+		"loaderWalkerArchiveTextMember(archive_path, \"mesh.ini\"") !=
+		std::string::npos);
+	REQUIRE(walker.find("file_path, public_geometry") != std::string::npos);
+	REQUIRE(binder.find("s32 loaderWalkerBindMeshSource") !=
+		std::string::npos);
+	REQUIRE(binder.find("loaderWalkerMeshSourceMatchesEntry") !=
+		std::string::npos);
+	REQUIRE(binder.find("loaderWalkerMeshSourceChangeAllowed") !=
+		std::string::npos);
+	REQUIRE(binder.find("Equal public archives share one stable first owner") !=
+		std::string::npos);
+	REQUIRE(scanner.find("loaderWalkerMeshSourcePlanManifest") !=
+		std::string::npos);
+	REQUIRE(scanner.find("loaderWalkerBindMeshSource") !=
+		std::string::npos);
+	REQUIRE(scanner.find("ASSET_ARCHIVE_META_MANIFEST_PATH") !=
+		std::string::npos);
+
+	/* Reused rows retain full identity/lifecycle state on success and restore
+	 * that exact state, dependency edges, and provider paths on late failure. */
+	REQUIRE(scanner.find("p->existing_snapshot = *entry") !=
+		std::string::npos);
+	REQUIRE(scanner.find("*entry = pending[i].existing_snapshot") !=
+		std::string::npos);
+	REQUIRE(scanner.find("fileProviderCheckpointCreate(&provider_checkpoint)") !=
+		std::string::npos);
+	REQUIRE(scanner.find("fileProviderCheckpointRestore(&provider_checkpoint)") !=
+		std::string::npos);
+	REQUIRE(scanner.find("PDWEAPON.NESTED.ROLLBACK") !=
+		std::string::npos);
+	REQUIRE(scanner.find("PDWEAPON.NESTED.MESH_SOURCE") !=
+		std::string::npos);
+	REQUIRE(header.find("preserve their stable") != std::string::npos);
+}
+
 TEST_CASE("pdeffect embedded typed dependencies publish through every ingress",
 		"[modding][network][pdxxx][pdeffect][dependencies][b1025][v009]") {
 	const std::string header = readFile("port/include/assetcatalog_scanner.h");

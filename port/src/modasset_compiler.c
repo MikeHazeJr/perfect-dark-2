@@ -29,6 +29,7 @@
 #include "lib/model.h"
 #include "modasset_compiler.h"
 #include "modasset_json.h"
+#include "modasset_material_order.h"
 #include "sha256.h"
 #include "system.h"
 
@@ -4455,6 +4456,9 @@ static void fillCompileResult(modasset_compiled_result_t *out,
 	}
 }
 
+static s32 generatedModeldefLoadMaterialMetadata(const char *source_path,
+	obj_mesh_t *mesh);
+
 s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
                                     const char *asset_kind,
                                     const char *source_path,
@@ -4583,6 +4587,18 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 			obj_mesh.vertex_count, obj_mesh.triangle_count);
 		has_obj_mesh = 1;
 		if (assetKindUsesGeneratedModeldef(asset_kind)) {
+			if (!generatedModeldefLoadMaterialMetadata(source_path, &obj_mesh)) {
+				snprintf(validation, sizeof(validation),
+					"format=obj invalid %s",
+					obj_mesh.error[0] ? obj_mesh.error :
+						"material_identity_invalid");
+				sysLogPrintf(LOG_WARNING,
+					"MODASSET.COMPILER: invalid external model material identity for '%s': %s (%s)",
+					entry->id, source_path, validation);
+				objMeshFree(&obj_mesh);
+				free(source_bytes);
+				return -1;
+			}
 			model_mesh = obj_mesh;
 			memset(&obj_mesh, 0, sizeof(obj_mesh));
 			has_model_mesh = 1;
@@ -6263,8 +6279,97 @@ static void objMaterialSetTextureMapPath(obj_material_t *material,
 	objMaterialSetTextureEntry(material, entry, 0);
 }
 
-static void generatedModeldefLoadMaterialMetadata(const char *source_path,
-                                                  obj_mesh_t *mesh)
+static s32 generatedModeldefReconcileMaterialOrder(const char *mtl_text,
+	obj_mesh_t *mesh)
+{
+	modasset_material_order_t order;
+	const char **obj_names = NULL;
+	u8 *obj_used = NULL;
+	obj_material_t *reordered = NULL;
+	char error[128];
+	s32 ok = 0;
+
+	if (!mtl_text || !mesh || mesh->material_count <= 0) {
+		objMeshSetError(mesh, 0, "material_reconcile_invalid_args");
+		return 0;
+	}
+
+	memset(&order, 0, sizeof(order));
+	obj_names = malloc((size_t)mesh->material_count * sizeof(*obj_names));
+	obj_used = calloc((size_t)mesh->material_count, sizeof(*obj_used));
+	if (!obj_names || !obj_used) {
+		objMeshSetError(mesh, 0, "material_reconcile_alloc_failed");
+		goto cleanup;
+	}
+
+	for (s32 i = 0; i < mesh->material_count; i++) {
+		obj_names[i] = mesh->materials[i].name;
+	}
+	for (s32 i = 0; i < mesh->triangle_count; i++) {
+		s32 old_index = mesh->triangles[i].material_index;
+
+		if (old_index < 0 || old_index >= mesh->material_count) {
+			objMeshSetError(mesh, 0, "triangle_material_index_invalid");
+			goto cleanup;
+		}
+		obj_used[old_index] = 1;
+	}
+
+	if (!modAssetMaterialOrderBuild(mtl_text, obj_names, obj_used,
+			mesh->material_count, &order, error, sizeof(error))) {
+		objMeshSetError(mesh, 0, error);
+		goto cleanup;
+	}
+
+	reordered = calloc((size_t)order.count, sizeof(*reordered));
+	if (!reordered) {
+		objMeshSetError(mesh, 0, "material_reorder_alloc_failed");
+		goto cleanup;
+	}
+
+	for (s32 i = 0; i < order.count; i++) {
+		strncpy(reordered[i].name, order.names[i],
+			sizeof(reordered[i].name) - 1);
+		reordered[i].name[sizeof(reordered[i].name) - 1] = '\0';
+		reordered[i].texture_num = -1;
+		reordered[i].secondary_texture_num = -1;
+		reordered[i].subcmd = -1;
+	}
+
+	for (s32 i = 0; i < mesh->material_count; i++) {
+		s32 declared_index = order.obj_to_declared[i];
+
+		if (declared_index >= 0) {
+			reordered[declared_index] = mesh->materials[i];
+			strncpy(reordered[declared_index].name,
+				order.names[declared_index],
+				sizeof(reordered[declared_index].name) - 1);
+			reordered[declared_index].name[
+				sizeof(reordered[declared_index].name) - 1] = '\0';
+		}
+	}
+	for (s32 i = 0; i < mesh->triangle_count; i++) {
+		mesh->triangles[i].material_index =
+			order.obj_to_declared[mesh->triangles[i].material_index];
+	}
+
+	free(mesh->materials);
+	mesh->materials = reordered;
+	mesh->material_count = order.count;
+	mesh->material_capacity = order.count;
+	reordered = NULL;
+	ok = 1;
+
+cleanup:
+	free(reordered);
+	free(obj_used);
+	free(obj_names);
+	modAssetMaterialOrderFree(&order);
+	return ok;
+}
+
+static s32 generatedModeldefLoadMaterialMetadata(const char *source_path,
+	obj_mesh_t *mesh)
 {
 	char mtl_path[FS_MAXPATH + 1];
 	u32 size = 0;
@@ -6273,11 +6378,11 @@ static void generatedModeldefLoadMaterialMetadata(const char *source_path,
 	obj_material_t *current = NULL;
 
 	if (!mesh || !source_path || !source_path[0]) {
-		return;
+		return 1;
 	}
 	if (!generatedModeldefMetadataPath(source_path, "model.mtl",
 			mtl_path, sizeof(mtl_path))) {
-		return;
+		return 1;
 	}
 
 	text = (char *)fsFileLoad(mtl_path, &size);
@@ -6285,17 +6390,28 @@ static void generatedModeldefLoadMaterialMetadata(const char *source_path,
 		if (text) {
 			free(text);
 		}
-		return;
+		return 1;
 	}
 
 	char *copy = malloc((size_t)size + 1);
 	if (!copy) {
 		free(text);
-		return;
+		objMeshSetError(mesh, 0, "material_metadata_alloc_failed");
+		return 0;
 	}
 	memcpy(copy, text, size);
 	copy[size] = '\0';
 	free(text);
+
+	/* OBJ `usemtl` encounter order is not material identity.  Indexed render
+	 * metadata follows the complete ordered MTL declaration table, including
+	 * intentionally unused slots.  Reconcile before applying metadata so every
+	 * subsequent reader observes the same authoritative index domain. */
+	if (endsWithNoCase(source_path, ".obj")
+			&& !generatedModeldefReconcileMaterialOrder(copy, mesh)) {
+		free(copy);
+		return 0;
+	}
 
 	line = copy;
 	while (line && *line) {
@@ -6366,6 +6482,7 @@ static void generatedModeldefLoadMaterialMetadata(const char *source_path,
 	}
 
 	free(copy);
+	return 1;
 }
 
 static struct skeleton *generatedModeldefSkeletonFromMetadata(
@@ -8446,7 +8563,14 @@ s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
 		return -1;
 	}
 
-	generatedModeldefLoadMaterialMetadata(source_path, &mesh);
+	if (!generatedModeldefLoadMaterialMetadata(source_path, &mesh)) {
+		sysLogPrintf(LOG_WARNING,
+			"MODASSET.COMPILER: modeldef material identity failed for '%s': %s (%s)",
+			entry->id, source_path,
+			mesh.error[0] ? mesh.error : "material_identity_invalid");
+		objMeshFree(&mesh);
+		return -1;
+	}
 	rc = buildGeneratedModeldefFromMeshHierarchy(entry, source_path, &mesh,
 		out_modeldef);
 	if (rc == 0) {

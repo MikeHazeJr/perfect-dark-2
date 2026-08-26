@@ -2,6 +2,26 @@
 
 > fast3d: N64 GBI display lists translated at runtime to OpenGL. Function-pointer-table backend abstraction (`GfxRenderingAPI` + `GfxWindowManagerAPI`). Dear ImGui v1.91.8 overlay through the same SDL2 + OpenGL context. Theme system decodes ROM textures to RGBA32 and uploads as GL textures.
 
+## 2026-08-26 B-1105 material-slot activation repair (production verified)
+
+Source now preserves the complete ordered `model.mtl` material domain before
+indexed `model.render.json` consumption. This corrects the Mauler high-detail
+first-person model and the propagated `base_model_cheaddarkaqua` head without
+special cases; sparse OBJ use order no longer collapses unused slots or shifts
+later render commands. A failed first-person model load also remains latched
+instead of retrying activation each frame. One shared public geometry-alias
+helper removes top-level/nested source-choice drift.
+
+Exact client `395D48A6...` passes focused 132/14, full 67,152/1,223,
+native-source, two-archive, fixture, and 23/23 unchanged-source verification.
+Strict fresh-cache ordinary receipt `results-20260826T152922Z.json` passes
+54/54 with one nested 13-material compile/activation/load/render chain, 11 real
+Mauler shots, no runtime native model boundary, and clean exit. Direct review
+of all four gameplay captures shows stable held placement and scale, readable
+silver/green materials, no endscreen, and no huge white first-person
+obstruction. B-1105 is now a V-009/V-010 regression gate. B-1086's separate
+Carrington Institute solid-white door report remains repro-required.
+
 ## 2026-08-13 generated display-list ownership
 
 Generated model payloads and their texture-loaded clones now register exact,

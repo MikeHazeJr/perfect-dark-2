@@ -21,6 +21,46 @@ and packer workflow, and V-007 creator UX validation are post-1.0.
 AllInOne content must leave base-game authority and become optional typed mods
 where retained.
 
+## 2026-08-26 ordered public mesh material identity
+
+V-010/B-1105's ordered-material and typed source-ownership automation is
+verified. For OBJ-backed `.pdmesh`, the complete ordered `model.mtl` declaration
+table is authoritative material identity; sparse OBJ `usemtl` encounter order
+is only a geometry projection. One shared reconciliation planner retains
+declared-but-unused slots, remaps every used OBJ material by name, rejects
+duplicate declarations and undeclared face materials, and feeds both readable-
+cache validation and runtime modeldef construction. The model-cache version is
+advanced so prior collapsed projections cannot be reused.
+
+One mesh source planner/binder serves top-level and nested registration. Both
+production ingresses take geometry from public `mesh.ini` and use the optional
+private machine manifest only for complete-root consistency/provenance checks.
+The binder retains the first canonical-SHA-identical owner for shared IDs,
+rejects divergent IDs, rolls provider/row mutations back with the dependency
+transaction, and makes the later legacy registrar preserve the effective typed
+FileProvider by catalog ID. Its lifecycle policy permits a source-changing
+claim only before residence, plus the historical bundled/no-payload pseudo-
+loaded sentinel; preservation errors block runtime-cache publication through
+the boot asset-chain gate.
+
+Top-level and nested `mesh.ini` readers also consume one exported canonical
+geometry-alias order, so ingress cannot choose different bytes from the same
+public descriptor. Exact client `395D48A6...` passes focused 132/14, full
+67,152/1,223, native-source, two-archive, fixture, and 23/23 unchanged-source
+verification. Strict fresh-cache ordinary receipt
+`results-20260826T152922Z.json` passes 54/54 with one nested 13-material
+compile/activation/load/render chain, 11 real Mauler shots, no runtime
+native/ROM route, and clean exit. Direct review of all four gameplay captures
+passes V-009 placement, color, and no-obstruction gates. B-1105/SP-74 are now
+production-verified regression gates.
+
+The bounded Luna xhigh propagation audit covered 733 archives. It found two
+real drifts: `base_model_skpistol_hi` (and the byte-identical Mauler nested
+copy) plus non-weapon `base_model_cheaddarkaqua`. The remaining 636 omissions
+were only the synthetic unused `pd_default` parser entry. The generic repair
+and propagation result are retained for future mesh families; no Mauler-
+specific source fallback or material special case was added.
+
 ## 2026-08-12 temporary distributed content recovery
 
 `T-NETWORKING-009` closes B-1044. Temporary peer-delivered typed content now

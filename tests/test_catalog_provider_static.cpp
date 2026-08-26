@@ -361,8 +361,13 @@ TEST_CASE("source-filenum provider handle reverse lookups stay catalog-owned", "
 	REQUIRE(sourceHelperBlock.find("catalogReadableModelIdForFile(source_filenum") != std::string::npos);
 	REQUIRE(meshWalker.find("\"mesh\", \"meshes\", \".pdmesh\", /* always_invoke: */ 1") != std::string::npos);
 	REQUIRE(meshWalker.find("const asset_entry_t *existing = assetCatalogResolve(id)") != std::string::npos);
-	REQUIRE(meshWalker.find("e->runtime_index = preserved_runtime_index") != std::string::npos);
-	REQUIRE(meshWalker.find("catalogSetPrimaryFile(e, source_path)") != std::string::npos);
+	REQUIRE(meshWalker.find("assetCatalogGetMutable(id)") != std::string::npos);
+	REQUIRE(meshWalker.find("loaderWalkerMeshSourcePlanManifest") != std::string::npos);
+	REQUIRE(meshWalker.find("loaderWalkerBindMeshSource") != std::string::npos);
+	REQUIRE(meshWalker.find(
+		"loaderWalkerArchiveTextMember(archive_path, \"mesh.ini\"") != std::string::npos);
+	REQUIRE(meshWalker.find("file_path, public_geometry") != std::string::npos);
+	REQUIRE(meshWalker.find("catalogSetPrimaryFile(e, source_path)") == std::string::npos);
 	REQUIRE(helperBlock.find("catalogHandleBySourceFilenum(") != std::string::npos);
 	REQUIRE(helperBlock.find("ASSET_MODEL") != std::string::npos);
 	REQUIRE(helperBlock.find("ASSET_BODY") != std::string::npos);
@@ -379,6 +384,47 @@ TEST_CASE("source-filenum provider handle reverse lookups stay catalog-owned", "
 		REQUIRE(stripped.find("catalogIdBySourceFilenum(") == std::string::npos);
 		REQUIRE(stripped.find("catalogEffectiveHandle(") == std::string::npos);
 	}
+}
+
+TEST_CASE("typed weapon model source survives the later legacy coverage pass",
+		"[B-1105][SP-74][catalog][provider][static]")
+{
+	const std::string baseExtended =
+		readTextFile("port/src/assetcatalog_base_extended.c");
+	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
+	const std::string binder =
+		readTextFile("port/src/loader_walker_mesh_source_bind.c");
+	const std::string mainSource = readTextFile("port/src/main.c");
+
+	REQUIRE(baseExtended.find("preserveTypedWeaponModelSource") !=
+		std::string::npos);
+	REQUIRE(baseExtended.find("effective = catalogEffectiveHandle(existing)") !=
+		std::string::npos);
+	REQUIRE(baseExtended.find("effective.provider != fileProvider()") !=
+		std::string::npos);
+	REQUIRE(baseExtended.find("mutable_entry->source_filenum = filenum") !=
+		std::string::npos);
+	const size_t preserve_call = baseExtended.find(
+		"preserveTypedWeaponModelSource(idbuf, fnum)");
+	const size_t legacy_register = baseExtended.find(
+		"assetCatalogRegister(idbuf, ASSET_MODEL)", preserve_call);
+	REQUIRE(preserve_call != std::string::npos);
+	REQUIRE(legacy_register != std::string::npos);
+	REQUIRE(preserve_call < legacy_register);
+	REQUIRE(scanner.find("entry->source_filenum = p->mesh_source.source_filenum") !=
+		std::string::npos);
+	REQUIRE(scanner.find("nested typed mesh source collision") !=
+		std::string::npos);
+	REQUIRE(scanner.find("loaderWalkerMeshSourceMatchesEntry") !=
+		std::string::npos);
+	REQUIRE(binder.find("weaponGraphArchiveCanonicalSha256File") !=
+		std::string::npos);
+	REQUIRE(binder.find("divergent typed mesh archives claim one catalog ID") !=
+		std::string::npos);
+	REQUIRE(baseExtended.find("return source_errors ? -1 : registered") !=
+		std::string::npos);
+	REQUIRE(mainSource.find("bootRecordAssetPhase(\"weapon-model-source\"") !=
+		std::string::npos);
 }
 
 TEST_CASE("modelnum load sites use typed model catalog APIs", "[catalog][provider][static]")

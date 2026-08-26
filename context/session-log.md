@@ -1,5 +1,157 @@
 # Session Log (Active)
 
+## 2026-08-26 - B-1105/SP-74 production closure accepted
+
+The final shared-alias source was refrozen and accepted as one coherent unit.
+The isolated build produced `PerfectDark.exe`
+`395D48A622EA1EA8FF5C186CC8B17D70F379E6E9DC9AB06EC6C4FE44E386EE0F`,
+`pd-tests.exe`
+`DF7F53DD070827DEBFDE475ABA2F69BEE96FF886864698EFA14724DD6B666E56`,
+and `Updater.exe`
+`5E6403AB7C6F2C94B60E43E9158D1914FF59EDC06687D531B7DCD8BB96FA9546`.
+The final test hash includes a whitespace-only fixture cleanup followed by one
+exact focused/full refresh. The frozen batch passed focused 132 assertions/14
+cases, complete 67,152
+assertions/1,223 cases, the native-source guard, exact source verification of
+the Mauler and propagated head archives, fixture JSON validation, `git diff
+--check`, and all 23 production-source hashes unchanged.
+
+The sole corrected fresh-cache ordinary-client receipt is accepted at
+`.claude/smoke-verify-runs/results-20260826T152922Z.json`: 54/54 assertions in
+33.8 seconds with exit code 0. Stable `offline_gameplay_ready` preceded every
+event. Boot extraction read filenum 889 once before catalog construction, then
+the embedded `base_mauler.pdweapon::held_hi.pdmesh` claimed the typed source and
+owned exactly one compile/build/activate/Bond-gun/render chain with 13 authored
+materials. No runtime native/ROM route, activation retry, endscreen, crash, or
+source fallback occurred; ordinary gameplay fired 11 real Mauler shots.
+
+Direct review of all four retained gameplay captures passed the V-009
+regression gate. The Mauler has stable first-person placement and scale, the
+silver/green material projection is readable, firing changes are visible, and
+the huge white first-person obstruction is absent. B-1105 and SP-74 are now
+regression gates. V-010 remains `missing/not_run` and Milestone 1 remains 3
+validated, 7 partial, and 5 missing leaves (20 percent); this closure does not
+promote an entire leaf. The next default V-010 unit is the evidence-first
+B-1086 Carrington Institute white-door reproduction and shared material/source
+trace.
+
+## 2026-08-26 - B-1105 final integration finds and removes mesh alias drift
+
+Sol's final integration review found a structural source-selection gap before
+accepting the runtime receipt. Top-level `.pdmesh` walking preferred
+`geometry_file` while nested weapon registration preferred `model_file`; a
+public `mesh.ini` carrying more than one compatibility alias could therefore
+select different bytes by ingress. Both readers now consume one exported
+canonical order: `model_file`, `geometry_file`, `model`, `geometry`, then
+`file_path`. A focused planner contract pins the complete order and out-of-range
+behavior.
+
+This is a production-source change after the accepted `D1788982...` batch, so
+that exact binary is retained only as evidence for its prior source and is not
+eligible for final B-1105 acceptance. The strict install remains at 732 meshes
+with its Mauler cache recoverably moved, but no stale-client smoke will run.
+Refreeze requires one isolated build, focused/full/native-source batch, and one
+fresh-cache zero-bot ordinary-client smoke with direct V-009 image review.
+Current launch/build work is waiting for safe commit headroom while an unrelated
+actively progressing Shanties Unity PlayMode test owns about 14 GB; its process
+will not be terminated or bypassed by this lane. Milestone 1 remains 20 percent.
+
+## 2026-08-26 - B-1105/SP-74 automation accepted; deterministic visual rerun pending
+
+The reviewed material-order, failed-request latch, and typed mesh-source unit
+passes one coherent source-frozen batch on exact client `D1788982...`: focused
+125 assertions/13 cases, full 67,145/1,222, native-source guard, two-archive
+source verification, and 23/23 unchanged production-source hashes. Accepted
+logs are under `.claude/source-freeze/v1m1b1105/`.
+
+The first post-batch strict 732-mesh ordinary receipt
+`.claude/smoke-verify-runs/results-20260826T150048Z.json` is retained and
+rejected at 45/48. It nonetheless proves the repaired production path: the
+embedded Mauler mesh claims filenum 889, the later legacy pass preserves typed
+ownership with `source_errors=0`, and exactly one compile/build/activate/load/
+render chain uses `base_mauler.pdweapon::held_hi.pdmesh` with 13 materials and
+clean shutdown. Source tracing proves the 4.96s `GskpistolZ.bin` line is inside
+`romExtractAllFiles`' boot sweep, which begins at 0.85s and ends at 9.37s before
+catalog binding; it is extraction bootstrap input, not runtime model fallback.
+
+The remaining failure was fixture topology: 12 bots ended the match at 1:55,
+before the 2:40 fire event and gameplay captures. The fixture now uses zero
+bots, pauses its virtual timeline until `offline_gameplay_ready` is stable,
+fires and captures within 22 seconds of readiness, forbids any native source at
+the compiler/Bond-gun runtime boundaries, requires the one extraction read to
+occur before typed binding/runtime use, and rejects any endscreen. One exact
+unchanged-client rerun and direct V-009 image inspection remain. Milestone 1
+stays 3 validated, 7 partial, and 5 missing (20 percent).
+
+## 2026-08-26 - B-1105/SP-74 source ownership repair source-connected
+
+Luna xhigh corrected the strict receipt's registration-order root: nested
+`base:model_skpistol_hi` was created with a valid FileProvider but no
+`FILE_GSKPISTOL` provenance; the later legacy weapon-model coverage pass then
+treated filenum 889 as unclaimed and reset the same ID to `GskpistolZ.bin`.
+Its propagation scan found 152 nested meshes, 113 unique IDs, byte identity
+with all 113 global counterparts, no source-symbol mismatches, and 14 model IDs
+shared by multiple weapon owners.
+
+Source-connected/unverified code now routes top-level and nested `.pdmesh`
+through one strict source planner and one live-safe binder. Both production
+ingresses read geometry from public `mesh.ini`, use the optional private
+machine manifest only as a consistency/provenance check, validate its complete JSON
+root, and rejects source-symbol/filenum mismatch. Luna xhigh's integrated review
+found and Sol closed scan-order-dependent top-level replacement, implicit
+pseudo-loaded lifecycle semantics, and non-propagating legacy-pass errors. The
+binder now preserves the first canonical-SHA-identical typed owner, rejects
+divergence/live or unsupported replacement, snapshots reused rows/provider
+intern state for rollback, and emits a dedicated source-claim witness. The
+later legacy coverage pass preserves the effective typed FileProvider by ID,
+adds only matching filenum provenance, and reports failure into the boot asset-
+chain gate. Focused planner/static contracts and the strict smoke fixture cover
+the order, lifecycle matrix, complete-root parsing, one activation, and forbid
+`GskpistolZ.bin`. No new build, test, source verifier, or runtime receipt has
+run; one coherent refrozen batch and one exact ordinary-client smoke remain.
+
+## 2026-08-26 - B-1105 strict nested-source receipt exposes legacy ownership
+
+The ordered-material and failed-request unit passes its coherent frozen batch:
+focused 47 assertions/6 cases, full 67,023/1,215, native-source guard, and the
+two-archive source verifier. Exact client
+`D9AED5552D20D7BACF1545747156301AA03F49B5B8F45496CDD7D05D45EFC2EE`
+also equipped, rendered, and fired a 13-material Mauler with clean shutdown.
+The first receipt remains rejected because extraction regenerated the removed
+global duplicate before catalog scan.
+
+The replacement install froze the normal pdmesh cache at 732 files after moving
+only `base_model_skpistol_hi.pdmesh` to a recoverable sandbox backup. Receipt
+`.claude/smoke-verify-runs/results-20260826T134117Z.json` is retained and
+rejected at 33/43. It proves the embedded `base:mauler` dependency registers,
+normal first-person gameplay fires nine Mauler shots, four captures succeed,
+and shutdown is clean with intact MEMPC. It also proves the unresolved source
+gap: the compatible bundled `base:model_skpistol_hi` row keeps its legacy
+provider, so filenum 889 reads `GskpistolZ.bin`; no nested compiler, material,
+activation, bondgun-source, or render witness occurs. B-1105 remains confirmed.
+The next bounded source unit is a shared mesh-manifest binder used by top-level
+and nested registration, preserving runtime identity while making a validated
+typed dependency's FileProvider path and `source_filenum_symbol` authoritative.
+One refrozen consolidated batch and one replacement smoke remain.
+
+## 2026-08-26 - B-1105 ordered material identity source-connected
+
+Milestone 1 remains 20 percent production-validated. The rejected Mauler run's
+root cause is now proven: OBJ use order collapsed an intentionally unused MTL
+slot before the indexed public render stream was validated. Source-connected,
+unverified implementation introduces one pure ordered-material planner, uses it
+for readable-cache validation and runtime modeldef construction, advances the
+model-cache version, and converts the gun loader's per-frame permanent-failure
+retry into a request-owned failure latch released by explicit replacement or a
+catalog generation change. No fallback to ROM/native model data was added.
+
+Luna xhigh's read-only propagation audit scanned 733 `.pdmesh` archives. The
+only real drifts are `base_model_skpistol_hi` (including the byte-identical
+Mauler nested copy) and `base_model_cheaddarkaqua`; 636 other apparent omissions
+are only synthetic `pd_default`. Consolidated isolated tests, the native-source
+guard, and an ordinary nested-path Mauler equip/fire/render capture with V-009
+remain. No verification or completion claim has been made.
+
 ## 2026-08-26 - T-ENGINE-004 validated; B-1105 selected next
 
 The formal section 9.10 closure audit is complete at canonical commit

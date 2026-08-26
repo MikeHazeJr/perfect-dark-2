@@ -2395,6 +2395,7 @@ struct gunctrl {
 	/*0x15b1*/ u8 gunloadstate;
 	/*0x15b2*/ u16 loadfilenum;
 	asset_data_handle_t loadhandle; /* Catalog/provider source for loadfilenum. */
+	u32 loadcataloggeneration; /* Catalog generation captured for this request. */
 	/*0x15b4*/ struct modeldef **loadtomodeldef;
 	/*0x15b8*/ uintptr_t *loadmemptr;
 	/*0x15bc*/ uintptr_t*loadmemremaining;
