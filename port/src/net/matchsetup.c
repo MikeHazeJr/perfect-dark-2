@@ -32,10 +32,6 @@
 #include "player_identity.h"
 #include "game/mplayer/participant.h"
 #include "net/matchsetup.h"
-#include "input.h"
-#include "inputctx.h"
-#include "menupool.h"
-#include "scene_transition.h"
 #include "fs.h"
 #include "lib/rng.h"
 #include "net/netmanifest.h"
@@ -1507,14 +1503,7 @@ s32 matchStart(void)
 		(u32)g_MpSetup.stagenum, plan.num_players, plan.num_bots);
 
 	mpStartMatch();
-
-	sysLogPrintf(LOG_NOTE,
-		"MATCHSTART.DIAG: post-mpStartMatch returned, about to menuStop()");
 	crashBreadcrumbPush("MATCHSTART post-mpStartMatch");
-
-	menuStop();
-	sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
-		"matchStart");
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: match started successfully");
 	return 0;
@@ -1603,14 +1592,9 @@ s32 matchStartFromChallenge(s32 slot)
 	g_NotLoadMod = false;
 	romdataFileFreeForSolo();
 
-	/* Start directly — g_MpSetup already fully configured by challengeApply() */
+	/* Start directly — g_MpSetup already fully configured by challengeApply().
+	 * mpStartMatch owns the complete menu teardown before its stage request. */
 	mpStartMatch();
-	menuStop();
-
-	/* Phase 2 / Priority K-b3: release every pool slot — see matchStart for
-	 * rationale; menupoolReleaseAll already pops the ctx so no paired pop. */
-	sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
-		"matchStartFromChallenge");
 
 	sysLogPrintf(LOG_NOTE, "MATCHSETUP: challenge match started");
 	return 0;

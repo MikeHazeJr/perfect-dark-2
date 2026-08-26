@@ -299,6 +299,7 @@ TEST_CASE("scene transition helper: priority transition sites use shared cleanup
     const std::string netmsg = readTextFile("port/src/net/netmsg.c");
     const std::string match = readTextFile("port/src/net/matchsetup.c");
     const std::string menutick = readTextFile("src/game/menutick.c");
+	const std::string mplayer = readTextFile("src/game/mplayer/mplayer.c");
 
     REQUIRE(bridge.find("#include \"scene_transition.h\"") != std::string::npos);
     REQUIRE(bridge.find("\"endscreen retry\"") != std::string::npos);
@@ -312,7 +313,7 @@ TEST_CASE("scene transition helper: priority transition sites use shared cleanup
     REQUIRE(net.find("sceneStageChangeTo(STAGE_CITRAINING") != std::string::npos);
 
     REQUIRE(netmsg.find("\"SVC_STAGE_START coop\"") != std::string::npos);
-    REQUIRE(netmsg.find("\"SVC_STAGE_START combat\"") != std::string::npos);
+	REQUIRE(netmsg.find("\"SVC_STAGE_START combat\"") == std::string::npos);
     const size_t svc_stage_end = netmsg.find("u32 netmsgSvcStageEndRead");
     const size_t svc_stage_end_clear = netmsg.find(
         "sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST",
@@ -322,8 +323,10 @@ TEST_CASE("scene transition helper: priority transition sites use shared cleanup
     REQUIRE(svc_stage_end < svc_stage_end_clear);
     REQUIRE(netmsg.find("menupoolReleaseAll();") == std::string::npos);
 
-    REQUIRE(match.find("\"matchStart\"") != std::string::npos);
-    REQUIRE(match.find("\"matchStartFromChallenge\"") != std::string::npos);
+	REQUIRE(mplayer.find("\"mpStartMatch\"") != std::string::npos);
+	REQUIRE(mplayer.find("sceneStageTransitionPrepare(") != std::string::npos);
+	REQUIRE(match.find("SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL") ==
+		std::string::npos);
     REQUIRE(match.find("menupoolReleaseAll();") == std::string::npos);
 
     REQUIRE(menutick.find("\"menutick deep sea auto advance\"") != std::string::npos);

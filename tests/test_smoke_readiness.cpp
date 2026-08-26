@@ -35,6 +35,10 @@ TEST_CASE("smoke readiness condition names are exact and fail closed",
 		SMOKE_READINESS_CUTSCENE_SKIP_READY);
 	REQUIRE(smokeReadinessConditionFromName("gameplay_ready") ==
 		SMOKE_READINESS_GAMEPLAY_READY);
+	REQUIRE(smokeReadinessConditionFromName("offline_gameplay_ready") ==
+		SMOKE_READINESS_OFFLINE_GAMEPLAY_READY);
+	REQUIRE(smokeReadinessConditionFromName("endscreen_visible") ==
+		SMOKE_READINESS_ENDSCREEN_VISIBLE);
 	REQUIRE(smokeReadinessConditionFromName("GAMEPLAY_READY") ==
 		SMOKE_READINESS_INVALID);
 	REQUIRE(smokeReadinessConditionFromName(0) == SMOKE_READINESS_INVALID);
@@ -49,6 +53,11 @@ TEST_CASE("smoke readiness condition names are exact and fail closed",
 		SMOKE_READINESS_CUTSCENE_SKIP_READY)) == "cutscene_skip_ready");
 	REQUIRE(std::string(smokeReadinessConditionName(
 		SMOKE_READINESS_GAMEPLAY_READY)) == "gameplay_ready");
+	REQUIRE(std::string(smokeReadinessConditionName(
+		SMOKE_READINESS_OFFLINE_GAMEPLAY_READY)) ==
+		"offline_gameplay_ready");
+	REQUIRE(std::string(smokeReadinessConditionName(
+		SMOKE_READINESS_ENDSCREEN_VISIBLE)) == "endscreen_visible");
 }
 
 TEST_CASE("network listen readiness starts peer deadlines at the published host",
@@ -212,4 +221,74 @@ TEST_CASE("stage-live without normal tick mode cannot admit reconnect gameplay",
 	facts.gameplay_tick_normal = 1;
 	REQUIRE(smokeReadinessConditionMet(
 		SMOKE_READINESS_GAMEPLAY_READY, &facts));
+}
+
+TEST_CASE("offline gameplay readiness uses the same complete local stage boundary",
+	"[smoke][readiness][offline][combat-sim][b1076]")
+{
+	auto facts = stageLiveFacts();
+	facts.network_active = 0;
+	facts.local_client_in_game = 0;
+	facts.scene_gameplay_layer = 1;
+	facts.gameplay_tick_normal = 1;
+	facts.gameplay_updates_active = 1;
+	facts.player_has_control = 1;
+	facts.player_unpaused = 1;
+	facts.player_alive = 1;
+	facts.player_walk_mode = 1;
+
+	REQUIRE(smokeReadinessConditionMet(
+		SMOKE_READINESS_OFFLINE_GAMEPLAY_READY, &facts));
+	REQUIRE_FALSE(smokeReadinessConditionMet(
+		SMOKE_READINESS_NETWORK_STAGE_LIVE, &facts));
+
+	int *required[] = {
+		&facts.gameplay_stage,
+		&facts.stage_ready_epoch,
+		&facts.multiplayer_running,
+		&facts.local_player_present,
+		&facts.local_player_spawned,
+		&facts.stage_tick_active,
+		&facts.scene_gameplay_layer,
+		&facts.gameplay_tick_normal,
+		&facts.gameplay_updates_active,
+		&facts.player_has_control,
+		&facts.player_unpaused,
+		&facts.player_alive,
+		&facts.player_walk_mode,
+	};
+	for (int *field : required) {
+		*field = 0;
+		REQUIRE_FALSE(smokeReadinessConditionMet(
+			SMOKE_READINESS_OFFLINE_GAMEPLAY_READY, &facts));
+		*field = 1;
+	}
+	facts.network_active = 1;
+	REQUIRE_FALSE(smokeReadinessConditionMet(
+		SMOKE_READINESS_OFFLINE_GAMEPLAY_READY, &facts));
+}
+
+TEST_CASE("endscreen readiness requires visible state, menu ownership, and input",
+		"[smoke][readiness][endscreen][b1076]")
+{
+	smoke_readiness_facts_t facts{};
+	int *required[] = {
+		&facts.endscreen,
+		&facts.endscreen_menu_active,
+		&facts.menu_input_active,
+	};
+
+	REQUIRE_FALSE(smokeReadinessConditionMet(
+		SMOKE_READINESS_ENDSCREEN_VISIBLE, &facts));
+	for (int *field : required) {
+		*field = 1;
+	}
+	REQUIRE(smokeReadinessConditionMet(
+		SMOKE_READINESS_ENDSCREEN_VISIBLE, &facts));
+	for (int *field : required) {
+		*field = 0;
+		REQUIRE_FALSE(smokeReadinessConditionMet(
+			SMOKE_READINESS_ENDSCREEN_VISIBLE, &facts));
+		*field = 1;
+	}
 }

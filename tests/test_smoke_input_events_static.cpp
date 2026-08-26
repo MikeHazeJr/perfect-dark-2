@@ -321,11 +321,21 @@ TEST_CASE("smoke readiness barriers pause virtual time on production state",
         "case SMOKE_READINESS_CUTSCENE_SKIP_READY:");
     requireContains(policy,
         "case SMOKE_READINESS_GAMEPLAY_READY:");
+	requireContains(policy,
+		"case SMOKE_READINESS_OFFLINE_GAMEPLAY_READY:");
+	requireContains(policy,
+		"case SMOKE_READINESS_ENDSCREEN_VISIBLE:");
     requireContains(policy, "&& facts->stage_ready_epoch");
     requireContains(policy, "&& facts->cutscene_frame_ready");
 	requireContains(policy, "&& facts->cutscene_authority_ready");
 	requireContains(source,
 		"facts.cutscene_authority_ready = playerCutsceneGeneration() != 0;");
+	requireContains(readinessProjection,
+		"!facts.network_active || (g_NetLocalClient");
+	requireContains(readinessProjection,
+		"menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)");
+	requireContains(readinessProjection,
+		"inputCtxIsActive(&g_CtxImGuiMenu)");
     requireContains(policy, "&& facts->scene_gameplay_layer");
     requireContains(policy, "&& facts->gameplay_updates_active");
     requireContains(policy, "&& !facts->player_in_cutscene");

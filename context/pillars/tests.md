@@ -300,6 +300,21 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
   current verification state. B-1104 is a regression gate, while broader
   T-ENGINE-004 and Milestone 1 remain partial.
 
+- **B-1076 ordinary Combat Simulator ownership is production-verified.** The
+  source-frozen isolated client/updater/tests builds pass; the coherent focused
+  and full batch passes 273/4 and 66,690/1,204, the post-fixture guard passes
+  275/4, and the native-source guard passes. The first ordinary runtime receipt
+  is retained/rejected at 51/55 because its definition used `pass` rather than
+  the harness's emitted `satisfied`; both product cycles completed. The corrected
+  same-client receipt `results-20260826T095854Z.json` passes 55/55 through
+  ordinary Agent Select, Main Menu/Play graph, Room, two gameplay/endscreen
+  cycles, and real Play Again with balanced menu owners and no watchdog. The
+  unchanged invitee-authority regression `results-20260826T100235Z.json` passes
+  170/170 with exactly one typed signed-route join. Static coverage pins
+  `mpStartMatch` as the pre-publication cleanup owner and the exact `satisfied`
+  receipt vocabulary. B-1076 is a regression gate; broader T-ENGINE-004 and
+  Milestone 1 remain partial.
+
 ---
 
 ## Known gaps

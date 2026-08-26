@@ -127,7 +127,7 @@ dependency edges are present. Missing IDs log zeroes for every layer.
 { "at_ms": 62000, "type": "catalog_recovery_probe", "path": "example:tri_weapon" }
 ```
 
-#### `wait_until` (B-1085/B-1088/B-1095)
+#### `wait_until` (B-1076/B-1085/B-1088/B-1095)
 
 Pause only the current process's virtual script timeline until an exact typed
 production predicate is satisfied. The real harness watchdog continues. Every
@@ -141,13 +141,23 @@ latest virtual event plus the sum of all wait timeouts.
 ```
 
 Exact conditions are `network_listen_ready`, `network_stage_live`,
-`network_reconnect_available`, `cutscene_skip_ready`, and `gameplay_ready`.
+`network_reconnect_available`, `cutscene_skip_ready`, `gameplay_ready`,
+`offline_gameplay_ready`, and `endscreen_visible`.
 Use `network_listen_ready` before a host-side peer-dependent wait when the
 runner withholds dependent processes until the listen socket exists; this keeps
 cold startup outside the peer's causal deadline. `stable_ms` defaults to zero;
 when non-zero, the condition must remain continuously true for that real-time
 window and any false sample resets it. Expiration wins if readiness and the
 deadline occur on the same tick.
+
+`offline_gameplay_ready` mirrors the complete usable-gameplay predicate without
+requiring a network endpoint: the current offline stage epoch, multiplayer
+session, local player allocation and spawn, gameplay layer, normal updating
+tick, player control, unpaused/live state, and walking mode must all agree.
+`endscreen_visible` requires the production endscreen state, the authoritative
+`MENU_TYPE_ENDSCREEN_MP` pool owner, and the live menu input context together.
+This makes an endscreen wait an input-usable UI boundary rather than a flag-only
+signal.
 
 An assisted wait may issue one bounded production action while its target is
 false:

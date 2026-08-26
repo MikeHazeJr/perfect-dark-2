@@ -23,6 +23,12 @@ smoke_readiness_condition_t smokeReadinessConditionFromName(
 	if (strcmp(name, "gameplay_ready") == 0) {
 		return SMOKE_READINESS_GAMEPLAY_READY;
 	}
+	if (strcmp(name, "offline_gameplay_ready") == 0) {
+		return SMOKE_READINESS_OFFLINE_GAMEPLAY_READY;
+	}
+	if (strcmp(name, "endscreen_visible") == 0) {
+		return SMOKE_READINESS_ENDSCREEN_VISIBLE;
+	}
 	return SMOKE_READINESS_INVALID;
 }
 
@@ -40,6 +46,10 @@ const char *smokeReadinessConditionName(
 		return "cutscene_skip_ready";
 	case SMOKE_READINESS_GAMEPLAY_READY:
 		return "gameplay_ready";
+	case SMOKE_READINESS_OFFLINE_GAMEPLAY_READY:
+		return "offline_gameplay_ready";
+	case SMOKE_READINESS_ENDSCREEN_VISIBLE:
+		return "endscreen_visible";
 	default:
 		return "invalid";
 	}
@@ -52,6 +62,8 @@ int smokeReadinessConditionMet(smoke_readiness_condition_t condition,
 	int stage_live;
 	int cutscene_skip_ready;
 	int gameplay_ready;
+	int offline_stage_live;
+	int offline_gameplay_ready;
 
 	if (!facts) {
 		return 0;
@@ -84,6 +96,24 @@ int smokeReadinessConditionMet(smoke_readiness_condition_t condition,
 		&& facts->player_unpaused
 		&& facts->player_alive
 		&& facts->player_walk_mode;
+	offline_stage_live = !facts->network_active
+		&& facts->gameplay_stage
+		&& facts->stage_ready_epoch
+		&& facts->multiplayer_running
+		&& facts->local_player_present
+		&& facts->local_player_spawned
+		&& facts->stage_tick_active
+		&& !facts->endscreen;
+	offline_gameplay_ready = offline_stage_live
+		&& facts->scene_gameplay_layer
+		&& facts->gameplay_tick_normal
+		&& facts->gameplay_updates_active
+		&& !facts->player_in_cutscene
+		&& !facts->cutscene_in_progress
+		&& facts->player_has_control
+		&& facts->player_unpaused
+		&& facts->player_alive
+		&& facts->player_walk_mode;
 
 	switch (condition) {
 	case SMOKE_READINESS_NETWORK_LISTEN_READY:
@@ -96,6 +126,12 @@ int smokeReadinessConditionMet(smoke_readiness_condition_t condition,
 		return cutscene_skip_ready;
 	case SMOKE_READINESS_GAMEPLAY_READY:
 		return gameplay_ready;
+	case SMOKE_READINESS_OFFLINE_GAMEPLAY_READY:
+		return offline_gameplay_ready;
+	case SMOKE_READINESS_ENDSCREEN_VISIBLE:
+		return facts->endscreen
+			&& facts->endscreen_menu_active
+			&& facts->menu_input_active;
 	default:
 		return 0;
 	}

@@ -88,17 +88,17 @@ void combatSimVerifyInit(void)
 			return;
 		}
 	}
-	if (!sysArgCheck("--no-net") || !sysArgCheck("--debug-auto-start-match")
-			|| !sysArgGetString("--launch-mp-room")) {
+	if (!sysArgCheck("--no-net") || !sysArgCheck("--debug-auto-start-match")) {
 		sysLogPrintf(LOG_ERROR,
-			"MATCH.CYCLE: config rejected reason=requires_offline_launch_and_auto_start");
+			"MATCH.CYCLE: config rejected reason=requires_offline_auto_start");
 		return;
 	}
 
 	s_Enabled = 1;
 	sysLogPrintf(LOG_NOTE,
-		"MATCH.CYCLE: armed target=%d kill_entries=%u matrix_delay_sec=%d",
-		s_CycleTarget, (unsigned)s_KillEntryCount, s_KillDelaySeconds);
+		"MATCH.CYCLE: armed target=%d kill_entries=%u matrix_delay_sec=%d start_mode=%s",
+		s_CycleTarget, (unsigned)s_KillEntryCount, s_KillDelaySeconds,
+		sysArgGetString("--launch-mp-room") ? "direct" : "room");
 }
 
 void combatSimVerifyOnMatchStart(const char *path)

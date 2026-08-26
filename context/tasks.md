@@ -75,7 +75,19 @@ sixth work queue.
 
 ## Milestone 1: complete base game and graphs
 
-Current completed unit: T-ENGINE-004/B-1067/B-1103/B-1104. The prepared-roster,
+Current completed unit: T-ENGINE-004/B-1076. `mpStartMatch` is now the single
+Combat Simulator stage-request owner and releases the complete menu/input pool
+before stage publication for offline, listen-authority, and receiving-client
+starts. Exact client `04DB220E...` passes the ordinary title -> Agent Select ->
+Main Menu/Play graph -> Room -> two gameplay/endscreen cycles with real Play
+Again 55/55, balanced Agent Select/Room ownership, no watchdog repair, and clean
+exit. The same binary preserves the invitee-authority D-003 route at 170/170:
+one listen host, one signed typed match-server route, one join, and no
+probe/relay handoff. The first ordinary receipt remains rejected at 51/55 only
+for its stale `pass` versus emitted `satisfied` verifier strings; both product
+cycles completed. B-1076 is now a regression gate.
+
+The preceding completed unit was T-ENGINE-004/B-1067/B-1103/B-1104. The prepared-roster,
 ready-gate settings rollback, multi-player stage unwind, and model-complete NPC
 wire boundaries now share the protocol-v58 inactive/waiting/release/active
 lifecycle. START/READY carry one nonzero epoch, the listen authority and exact
@@ -135,7 +147,7 @@ Runtime ROM/RomProvider fallback after extraction is an asset-chain failure trac
 | T-RUNTIME-001 | partial | Every accepted public source and graph drives production with no hidden native, loose, or ROM fallback. |
 | T-MODDING-002 | partial | Every accepted base weapon/projectile/entity graph deliberately selects its production behavior with parity proof. |
 | T-MODINFRASTRUCTURE-003 | missing | Remove AllInOne content from base authority and retain it only as optional typed mods. |
-| T-ENGINE-004 | partial | Accepted regression gates retain ordinary listen-host, generated-audit, prior two-cycle Combat Simulator, D-003 rollback, both authority-first friend-play roles (214/214 initiator and 218/218 invitee), and the B-1099 ordinary reconnect production path. Exact reconnect product `7437d77c...` / client `0f377e3e...` retains its 98/98 corrected log proof. Candidate-first player/network allocation, exact Campaign identity and complete-body preflight, typed stage abort, reversible chrbody creation, scheduler-correct Eyespy ownership, and shared transient defaults retain Air Base 25/25 and full Campaign plus restart 23/23 on client `2fc37b38...`. B-1101's bounded decoder and explicit-target followup retain one isolated source-frozen build, focused 2,007/33, full 64,681/1,181, and the native-source guard on product `9592a63d...` (2,715/0 mismatches), verifier `c76aadc8...` (401/0), client `A0F46D54...`, and tests `B4D51B51...`. The exact replacement smoke rejected at 16/56 under B-1102 after schema-v5 reconstruction omitted all per-part flags and the fallback cleared animation ownership before CHRINFO. B-1102 now writes every flags discriminant, validates exact complete streams and rejects trailing bytes, parses canonical range-checked integer/boolean tokens across the full-u32 frame domain, preserves declared topology through explicit zero-frame placeholders, bumps only animation caches to v8, verifies optimized-consumer advancement, and re-enters bind pose with a null-safe scale without mutating `model->anim`. Luna's completed integrated audit found and Sol corrected all four residual edge gaps; production-linked pure JSON fixtures exercise scalar behavior rather than only source strings. The isolated source-frozen client/updater/tests build, focused 2,057/27, full 65,073/1,186, native-source guard, and unchanged product `e6287a9c...` / verifier `ad7c38f9...` manifests pass. Exact client `133A55C6...` then passes the sole replacement two-cycle Combat Simulator receipt 56/56 with real fire/hit, both stats/award cycles, Play Again, clean exit, zero decoder/crash matches, and no leaked process. B-1101/B-1102 are regression gates; accepted Campaign, D-003, and reconnect receipts were not rerun. T-ENGINE-004 remains partial pending its next broader lifecycle closure audit. |
+| T-ENGINE-004 | partial | Accepted regression gates retain ordinary listen-host, generated-audit, prior two-cycle Combat Simulator, D-003 rollback, both authority-first friend-play roles (214/214 initiator and 218/218 invitee), and the B-1099 ordinary reconnect production path. Exact reconnect product `7437d77c...` / client `0f377e3e...` retains its 98/98 corrected log proof. Candidate-first player/network allocation, exact Campaign identity and complete-body preflight, typed stage abort, reversible chrbody creation, scheduler-correct Eyespy ownership, and shared transient defaults retain Air Base 25/25 and full Campaign plus restart 23/23 on client `2fc37b38...`. B-1101's bounded decoder and explicit-target followup retain one isolated source-frozen build, focused 2,007/33, full 64,681/1,181, and the native-source guard on product `9592a63d...` (2,715/0 mismatches), verifier `c76aadc8...` (401/0), client `A0F46D54...`, and tests `B4D51B51...`. The exact replacement smoke rejected at 16/56 under B-1102 after schema-v5 reconstruction omitted all per-part flags and the fallback cleared animation ownership before CHRINFO. B-1102 now writes every flags discriminant, validates exact complete streams and rejects trailing bytes, parses canonical range-checked integer/boolean tokens across the full-u32 frame domain, preserves declared topology through explicit zero-frame placeholders, bumps only animation caches to v8, verifies optimized-consumer advancement, and re-enters bind pose with a null-safe scale without mutating `model->anim`. Luna's completed integrated audit found and Sol corrected all four residual edge gaps; production-linked pure JSON fixtures exercise scalar behavior rather than only source strings. The isolated source-frozen client/updater/tests build, focused 2,057/27, full 65,073/1,186, native-source guard, and unchanged product `e6287a9c...` / verifier `ad7c38f9...` manifests pass. Exact client `133A55C6...` then passes the sole replacement two-cycle Combat Simulator receipt 56/56 with real fire/hit, both stats/award cycles, Play Again, clean exit, zero decoder/crash matches, and no leaked process. B-1101/B-1102 are regression gates. B-1076 now centralizes pre-publication Combat Simulator menu/input teardown in `mpStartMatch`; exact client `04DB220E...` passes the ordinary two-cycle graph/Play Again lifecycle 55/55 and the invitee-authority route regression 170/170, with focused 275/4, full 66,690/1,204, native-source guard, and isolated builds retained. T-ENGINE-004 remains partial pending its next broader lifecycle closure audit. |
 | T-TESTS-002 | validated | D-005 option A is production-proven: exact v2 plus optional INI migration to v3, complete-schema rejection, activation rollback, active-delete rejection, ordinary Agent Select, fail-closed invalid CLI, all 17 missions through live Credits, and second-client v3 persistence. Final full automation passes 57,277 assertions in 1,070 cases. |
 | T-VEHICLES-002 | missing | Complete hoverbike operation across input, physics, lifecycle, and applicable authority paths. |
 | T-TOOLING-003 | missing | Durable indexed release evidence instead of transient build-folder claims. |
@@ -172,6 +184,15 @@ stale two-digit epoch regex; corrected static coverage passes 108/2 and the
 same retained exact-client logs pass 170/170 without product changes. B-1104 is
 a regression gate. Milestone totals do not change until the broader
 T-ENGINE-004 closure review.
+
+B-1076 is also a regression gate. `mpStartMatch` owns one pre-publication
+`menuStop` plus `RELEASE_MENU_POOL` boundary for offline, listen-authority, and
+receiving-client Combat Simulator starts. Exact client `04DB220E...` passes the
+ordinary Agent Select/Main Menu/Play/Room/two-match/Play Again fixture 55/55 and
+the invitee-authority route fixture 170/170. The first ordinary 51/55 receipt is
+retained and rejected only for stale verifier wording; both product cycles ran.
+Milestone totals remain 2 validated, 8 partial, and 5 missing because the
+broader T-ENGINE-004 base-game lifecycle audit is still open.
 
 V-010 also owns the consolidated regression matrix from [bugs.md](bugs.md),
 including campaign and Combat Simulator lifecycle, bot spawn and attribution,

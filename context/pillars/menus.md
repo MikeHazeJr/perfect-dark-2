@@ -1,5 +1,23 @@
 # Menus / UI / UX
 
+## 2026-08-26 B-1076 stage-transition ownership
+
+`mpStartMatch` is the single Combat Simulator stage-request owner. Before any
+offline, listen-authority, or receiving-client stage publication, it stops the
+legacy menu flow and executes the shared `RELEASE_MENU_POOL` scene-transition
+boundary. Network/offline callers no longer attempt cleanup after the request.
+This preserves one ordering contract: every active menu and its input context is
+released while its owner is still observable, rather than relying on the
+legacy-stack consistency watchdog after `menuReset` erases the dialog chain.
+
+Exact client `04DB220E...` passes an ordinary title -> Agent Select -> Main
+Menu/Play graph -> Room -> gameplay -> endscreen -> real Play Again -> second
+gameplay/endscreen fixture 55/55. Agent Select and both Room owners balance,
+both gameplay and results surfaces remain stably observable, and no menu/input
+watchdog or legacy-stack leak appears. The same binary preserves the
+invitee-authority friend route 170/170. B-1076 is a regression gate; V-009
+remains the visual capture gate.
+
 ## 2026-08-08 scale-safe action-hint footers
 
 Workbench `T-MENUS-002` replaces Agent Select's full-dialog height arithmetic
@@ -187,7 +205,7 @@ Per [constraints.md](../constraints.md):
 - **Mouse capture driven by input context stack.** No menu may call `SDL_SetRelativeMouseMode` or `SDL_ShowCursor` directly.
 - **Room-settings mutations broadcast via end-of-frame dirty flag.** Leader-side mutations to shared room state set a file-static dirty flag; flush via `netSendRoomSettingsUpdate` / `netSendRoomPlaylistUpdate` at end-of-frame, gated on `g_NetMode == MPSETTINGS_NETMODE_CLIENT && lobbyIsLocalLeader()`. Do not broadcast inline (packet storm).
 - **Combat Simulator weapon/arena lists are catalog-name surfaces.** Weapon and arena selectors should present catalog entries alphabetically. Custom weapon slots use `g_MatchConfig.weapon_ids[]` as the primary identity and must not depend on authored numeric `weapon_id` values, so saved mod weapons can appear by catalog name.
-- **Legacy-stack watchdog is leak-only.** B-351 split `menuPoolConsistencyCheck()` away from `menupoolReleaseAll()`: the watchdog now releases only pool slots that require a live legacy dialog, while preserving standalone pure-ImGui overlays such as Combat Simulator Room, Social Lobby, Social Shell, and the MP Pause menu. Stage transitions still use `menupoolReleaseAll()` for pool/input teardown. Explicit graph root closes must also close the legacy root dialog via `menuClose()` (B-361), otherwise the live legacy root re-queues the ImGui menu on the next frame.
+- **Legacy-stack watchdog is leak-only.** B-351 split `menuPoolConsistencyCheck()` away from `menupoolReleaseAll()`: the watchdog now releases only pool slots that require a live legacy dialog, while preserving standalone pure-ImGui overlays such as Combat Simulator Room, Social Lobby, Social Shell, and the MP Pause menu. Stage transitions still use `menupoolReleaseAll()` for pool/input teardown. B-1076 requires the stage-request owner to perform that release before stage publication; a later watchdog repair is a failed lifecycle, not acceptable cleanup. Explicit graph root closes must also close the legacy root dialog via `menuClose()` (B-361), otherwise the live legacy root re-queues the ImGui menu on the next frame.
 - **MP post-match screen must stay top-visible and interactive.** B-356 keeps the suppressed legacy `g_MpEndscreenSavePlayerMenuDialog` from being pushed on top of the MP game-over root. The PC ImGui endscreen exit path owns config saving; the no-op Controller Pak prompt must not become the current Combat Simulator post-match dialog. Confirm popups opened from endscreen action bars must be opened from the parent endscreen window scope, not from the action-bar child scope, and the custom title X must accept focus from root/child windows so it still works after focus lands in endscreen content.
 - **Main Menu opens only after the CI camera gate.** Main Menu/File Select auto-open must wait until `STAGE_CITRAINING` is live, post-load frames have advanced, and the camera cutscene is no longer in progress. This applies to cold file select, `--main-menu` / post-mission returns via `g_PostExitMainMenuView`, and Combat Simulator room returns via `var80087260`; input remains disabled while the camera intro owns the screen.
 - **Main Menu Online Play is retired.** Since connectivity is drop-in/drop-out through Social/friend flows, the top-level Main Menu presents `Play` instead of `Solo Play` and no longer exposes the old `Online Play` direct-connect/recent-server view. Retired view 4 is clamped away; friend invites/joins live in Social and route through connectivity handoffs.
@@ -212,7 +230,7 @@ Per [constraints.md](../constraints.md):
 ## What is in flight
 
 - **Menu graph completion.** Closed for the active ImGui/controller-facing surface in c036 (2026-05-19). Remaining legacy C/runtime stack calls are not part of that controller menu lane.
-- **Combat Sim Room flow parity.** Code/build verified 2026-05-21 under c086, pending Mike playtest. Main Menu -> Combat Simulator -> Room -> Start Match and Room/Endscreen return paths remain graph-routed. Room panels and grouping headers are non-focusable where practical; focus lands on actionable contents. RS scroll continues to use the innermost-scroll target, and the Room left/right panels avoid extra nested scrollbars beyond the necessary settings/player-list scroll regions.
+- **Combat Sim Room flow parity.** The lifecycle route is production-verified under B-1076: ordinary title -> Agent Select -> Main Menu/Play graph -> Room -> two complete matches/results cycles through real Play Again passes 55/55 with balanced menu/input ownership and no watchdog repair. Room panels and grouping headers remain non-focusable where practical; focus lands on actionable contents. RS scroll continues to use the innermost-scroll target, and the Room left/right panels avoid extra nested scrollbars beyond the necessary settings/player-list scroll regions. Physical-device/UI feel remains under V-004 rather than reopening this ownership gate.
 - **Y-Social root-menu parity.** Code/build verified 2026-05-21 under c087/c088, pending Mike playtest. Main Menu uses the existing `MENU_TYPE_MAIN_MENU` social graph edge from Y, Pause Menu opens the Social shell directly, both render the `ACTION_MENU_SOCIAL` glyph in the top-right chrome area, and both suppress parent B/Escape close while Social owns input. Combat Sim Room remains intentionally unbound for Y.
 - **Main Menu CI camera gate.** Code/build verified 2026-05-21, pending Mike playtest. `menutick.c` now queues menu auto-open while the Carrington Institute camera cutscene is active, keeps player control disabled during that wait, finishes a stale completed cutscene latch if the camera animation has already reached its final frame, and consumes the queued Main Menu/File Select/Combat Sim room open only after the shared CI readiness gate passes. Focused `[input][menu_graph][mainmenu]`, adjacent `[input][menu_graph]`, and isolated all-target build passed.
 - **Main Menu Play cleanup.** Code/build verified 2026-05-21 under `c3828`, pending Mike+Chris live social playtest. The top-level `Solo Play` button is now `Play`, the obsolete `Online Play` button/view/graph edge was removed, and static coverage pins that `MENU_TYPE_MAIN_ONLINE_VIEW` is retired from the active Main Menu surface. Verification: isolated `[c3828]`, `[connectcode][security][static]`, `[input][menu_graph][static]`, and all-target build passed.

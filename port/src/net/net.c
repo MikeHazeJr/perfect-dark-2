@@ -1538,11 +1538,9 @@ s32 netServerStageStart(void)
 	/* B-1039: The listen host is a real Combat Simulator participant too. The
 	 * validated packet is queued first, then this synchronous local commit makes
 	 * the authority consume the same immutable participant set before ENet is
-	 * flushed. The dedicated build resolves mpStartMatch to its headless stub. */
+	 * flushed. mpStartMatch owns the in-client menu teardown before its stage
+	 * request; the dedicated build resolves the same boundary headlessly. */
 	mpStartMatch();
-	/* B-1076: the in-client server owns the same menu transition as an offline
-	 * start and a receiving client. */
-	netServerPrepareInClientStageTransition("server stage start combat");
 	/* A published stage, not a prepared packet, consumes prior-round identity
 	 * reservations. */
 	netServerClearPreservedPlayers("combat_stage_start");

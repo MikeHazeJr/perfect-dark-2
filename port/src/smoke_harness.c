@@ -144,6 +144,8 @@
 #include "net/net.h"
 #include "game/player.h"
 #include "game/playermgr.h"
+#include "inputctx.h"
+#include "menupool.h"
 #include "scene.h"
 #include "agent_session.h"
 #include "prefs_agent.h"
@@ -1731,9 +1733,12 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
     facts.multiplayer_running = g_Vars.normmplayerisrunning != 0
         || (facts.network_active && (g_Vars.coopplayernum >= 0
             || g_Vars.antiplayernum >= 0));
+    /* Local gameplay readiness is shared by ordinary offline and network
+     * fixtures. Network mode still requires the authenticated endpoint to
+     * own the resolved local player; offline mode has no netclient object. */
     facts.local_player_present = local_player
-        && g_NetLocalClient
-        && g_NetLocalClient->player == local_player;
+		&& (!facts.network_active || (g_NetLocalClient
+			&& g_NetLocalClient->player == local_player));
     facts.local_player_spawned = local_player && local_player->prop;
     facts.stage_tick_active = g_Vars.tickmode == TICKMODE_CUTSCENE
         || g_Vars.tickmode == TICKMODE_NORMAL;
@@ -1758,6 +1763,8 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
     facts.player_walk_mode = local_player
         && local_player->bondmovemode == MOVEMODE_WALK;
     facts.endscreen = g_MainIsEndscreen != 0;
+	facts.endscreen_menu_active = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP);
+	facts.menu_input_active = inputCtxIsActive(&g_CtxImGuiMenu);
     return facts;
 }
 
@@ -1766,7 +1773,7 @@ static void smokeLogReadinessWait(s32 level, const char *status,
 		u32 stable_elapsed_ms, const smoke_readiness_facts_t *facts)
 {
     sysLogPrintf(level,
-		"SMOKE.WAIT: %s condition=%s at_ms=%d timeout_ms=%u waited_ms=%u real_elapsed_ms=%u stable_ms=%u stable_elapsed_ms=%u assist_action=%d assist_condition=%s assist_hold_ms=%u facts=net:%d/listen:%d/reconnect:%d/client_game:%d/stage:%d/ready:%d/mp:%d/player:%d/spawn:%d/tick:%d/layer_cut:%d/layer_game:%d/cut:%d/cut_progress:%d/cut_frame:%d/cut_auth:%d/normal:%d/update:%d/control:%d/unpaused:%d/alive:%d/walk:%d/end:%d",
+		"SMOKE.WAIT: %s condition=%s at_ms=%d timeout_ms=%u waited_ms=%u real_elapsed_ms=%u stable_ms=%u stable_elapsed_ms=%u assist_action=%d assist_condition=%s assist_hold_ms=%u facts=net:%d/listen:%d/reconnect:%d/client_game:%d/stage:%d/ready:%d/mp:%d/player:%d/spawn:%d/tick:%d/layer_cut:%d/layer_game:%d/cut:%d/cut_progress:%d/cut_frame:%d/cut_auth:%d/normal:%d/update:%d/control:%d/unpaused:%d/alive:%d/walk:%d/end:%d/end_menu:%d/menu_input:%d",
         status, smokeReadinessConditionName(ev->readiness_condition), ev->at_ms,
         ev->wait_timeout_ms, waited_ms, real_elapsed_ms, ev->stable_ms,
 		stable_elapsed_ms,
@@ -1785,7 +1792,8 @@ static void smokeLogReadinessWait(s32 level, const char *status,
         facts->gameplay_tick_normal, facts->gameplay_updates_active,
         facts->player_has_control, facts->player_unpaused,
         facts->player_alive, facts->player_walk_mode,
-        facts->endscreen);
+		facts->endscreen, facts->endscreen_menu_active,
+		facts->menu_input_active);
 }
 
 static s32 smokeHasPendingTap(void)

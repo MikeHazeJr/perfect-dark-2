@@ -206,7 +206,14 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
   change. The route proves one elected in-client listen authority, one signed
   typed match-server route, exactly one non-authority join, and no probe/relay
   endpoint handoff. This transaction is now a production regression gate;
-  broader T-ENGINE-004 lifecycle closure remains partial.
+  broader T-ENGINE-004 lifecycle closure remains partial. B-1076 subsequently
+  centralized the shared Combat Simulator stage-request boundary in
+  `mpStartMatch`: both the in-client listen authority and receiving client now
+  release menu/input ownership before stage publication, matching offline
+  starts. Exact client `04DB220E...` preserves this invitee-authority route at
+  170/170 while the ordinary two-cycle graph/Play Again lifecycle passes 55/55
+  without watchdog repair. B-1076 is a regression gate; it does not alter the
+  authority election, typed-route, or protocol-v58 contracts above.
 
 ---
 

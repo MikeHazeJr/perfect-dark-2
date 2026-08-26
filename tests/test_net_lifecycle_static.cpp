@@ -125,6 +125,19 @@ std::string function_definition_block(const std::string &text, const char *signa
     }
 }
 
+size_t count_occurrences(const std::string &text, const char *needle)
+{
+	size_t count = 0;
+	size_t pos = 0;
+	const size_t length = std::char_traits<char>::length(needle);
+
+	while ((pos = text.find(needle, pos)) != std::string::npos) {
+		count++;
+		pos += length;
+	}
+	return count;
+}
+
 } /* anon */
 
 TEST_CASE("B-1092 server disconnect policy survives ENet sender-local reason loss",
@@ -249,25 +262,64 @@ TEST_CASE("net lifecycle: listen host can start a match (Combat Sim / co-op star
     REQUIRE(fn.find("if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient)") == std::string::npos);
 }
 
-TEST_CASE("B-1076 every in-client server start closes the complete menu owner",
+TEST_CASE("B-1076 every match start closes one complete menu owner before requesting its stage",
 		"[net][lifecycle][menu][transition][static][b1076]")
 {
 	const std::string net = read_text_file("port/src/net/net.c");
+	const std::string netmsg = read_text_file("port/src/net/netmsg.c");
+	const std::string matchsetup = read_text_file("port/src/net/matchsetup.c");
+	const std::string menutick = read_text_file("src/game/menutick.c");
+	const std::string mplayer = read_text_file("src/game/mplayer/mplayer.c");
 	const std::string cleanup = function_block(
 		net, "static void netServerPrepareInClientStageTransition");
 	const std::string combat = function_block(net, "s32 netServerStageStart");
 	const std::string coop = function_block(net, "s32 netServerCoopStageStart");
+	const std::string client = function_block(netmsg,
+		"u32 netmsgSvcStageStartRead");
+	const std::string local = function_block(matchsetup, "s32 matchStart(void)");
+	const std::string challenge = function_block(matchsetup,
+		"s32 matchStartFromChallenge");
+	const std::string mp_start = function_block(mplayer,
+		"void mpStartMatch(void)");
+	const size_t mp_cleanup = mp_start.find("menuStop();");
+	const size_t mp_release = mp_start.find(
+		"sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL");
+	const size_t mp_request = mp_start.find("mainChangeToStage(stagenum);");
+	const size_t coop_cleanup = coop.find(
+		"netServerPrepareInClientStageTransition(\"server stage start coop\")");
+	const size_t coop_request = coop.find("mainChangeToStage(stagenum);");
+	const size_t legacy_begin = menutick.find("g_MenuData.prevmenuroot == -5");
+	const size_t legacy_end = menutick.find("g_MenuData.prevmenuroot == -6",
+		legacy_begin);
+	REQUIRE(legacy_begin != std::string::npos);
+	REQUIRE(legacy_end != std::string::npos);
+	const std::string legacy_start = menutick.substr(legacy_begin,
+		legacy_end - legacy_begin);
 
 	REQUIRE(cleanup.find("menuStop();") != std::string::npos);
 	REQUIRE(cleanup.find(
 		"sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL")
 		!= std::string::npos);
-	REQUIRE(combat.find(
-		"netServerPrepareInClientStageTransition(\"server stage start combat\")")
-		!= std::string::npos);
-	REQUIRE(coop.find(
-		"netServerPrepareInClientStageTransition(\"server stage start coop\")")
-		!= std::string::npos);
+	REQUIRE(count_occurrences(mp_start, "menuStop();") == 1);
+	REQUIRE(count_occurrences(mp_start,
+		"sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL") == 1);
+	REQUIRE(mp_cleanup < mp_release);
+	REQUIRE(mp_release < mp_request);
+
+	REQUIRE(count_occurrences(combat, "mpStartMatch();") == 1);
+	REQUIRE(combat.find("server stage start combat") == std::string::npos);
+	REQUIRE(count_occurrences(client, "mpStartMatch();") == 1);
+	REQUIRE(client.find("SVC_STAGE_START combat") == std::string::npos);
+	REQUIRE(count_occurrences(local, "mpStartMatch();") == 1);
+	REQUIRE(local.find("menuStop();") == std::string::npos);
+	REQUIRE(count_occurrences(challenge, "mpStartMatch();") == 1);
+	REQUIRE(challenge.find("menuStop();") == std::string::npos);
+	REQUIRE(count_occurrences(legacy_start, "mpStartMatch();") == 1);
+	REQUIRE(legacy_start.find("menuStop();") == std::string::npos);
+
+	REQUIRE(count_occurrences(coop,
+		"netServerPrepareInClientStageTransition(\"server stage start coop\")") == 1);
+	REQUIRE(coop_cleanup < coop_request);
 }
 
 TEST_CASE("net lifecycle: local settings refresh serves clients and listen hosts without a host loopback send",

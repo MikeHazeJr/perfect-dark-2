@@ -46,6 +46,7 @@
 #include "modmusic.h"
 #include "game/bg.h"
 #include "combat_sim_verify.h"
+#include "scene_transition.h"
 
 #include "system.h"
 
@@ -597,6 +598,16 @@ void mpStartMatch(void)
 
 	g_Vars.mplayerisrunning = true;
 	g_Vars.normmplayerisrunning = true;
+
+	/* B-1076: mpStartMatch is the single owner of every Combat Simulator
+	 * stage request (offline Room, challenge, listen authority, and receiving
+	 * client). Close the complete legacy/PC menu owner here, before publishing
+	 * the request, so no caller can accidentally make menu cleanup depend on
+	 * mainChangeToStage remaining deferred. Co-op/Counter-Op do not call this
+	 * function and retain their explicit transition boundary. */
+	menuStop();
+	sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+		"mpStartMatch");
 
 	titleSetNextStage(stagenum);
 	mainChangeToStage(stagenum);

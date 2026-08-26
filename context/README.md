@@ -58,7 +58,12 @@ The canonical context source is this `context/` tree. Parent-level briefing file
   guard. Exact v58 client `5DA75BE6...` passes all seven ordinary-client paths,
   including initiator authority 214/214 and focus-independent invitee authority
   170/170 with one signed typed match-server route, one listen authority, one
-  idempotent peer join, and no probe/relay handoff. The integrated 210/218
+  idempotent peer join, and no probe/relay handoff. B-1076 is also a production
+  regression gate: `mpStartMatch` owns pre-publication Combat Simulator
+  menu/input teardown for offline, listen-authority, and receiving-client starts.
+  Exact client `04DB220E...` passes the ordinary Agent Select/Main Menu/Play/Room
+  two-match/Play Again lifecycle 55/55 and preserves the invitee-authority route
+  170/170 with no watchdog repair. The integrated 210/218
   B-1085/V-009 fixture remains separately rejected only because this desktop
   exposes no foreground HWND. The next default work is the broader
   T-ENGINE-004 base-game lifecycle gap audit, not more D-003 route work.

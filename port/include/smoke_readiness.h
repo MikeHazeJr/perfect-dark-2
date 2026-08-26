@@ -11,7 +11,9 @@ typedef enum smoke_readiness_condition {
 	SMOKE_READINESS_NETWORK_STAGE_LIVE,
 	SMOKE_READINESS_NETWORK_RECONNECT_AVAILABLE,
 	SMOKE_READINESS_CUTSCENE_SKIP_READY,
-	SMOKE_READINESS_GAMEPLAY_READY
+	SMOKE_READINESS_GAMEPLAY_READY,
+	SMOKE_READINESS_OFFLINE_GAMEPLAY_READY,
+	SMOKE_READINESS_ENDSCREEN_VISIBLE
 } smoke_readiness_condition_t;
 
 /* Production state is projected into this pure decision seam by the smoke
@@ -41,6 +43,8 @@ typedef struct smoke_readiness_facts {
 	int player_alive;
 	int player_walk_mode;
 	int endscreen;
+	int endscreen_menu_active;
+	int menu_input_active;
 } smoke_readiness_facts_t;
 
 smoke_readiness_condition_t smokeReadinessConditionFromName(

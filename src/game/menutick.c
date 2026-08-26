@@ -744,9 +744,9 @@ void menuTick(void)
 
 		if (g_MenuData.prevmenuroot != -1) {
 			if (g_MenuData.prevmenuroot == -5) {
-				// Match is beginning
+				/* Match is beginning. mpStartMatch closes the complete menu
+				 * owner before it requests the gameplay stage. */
 				mpStartMatch();
-				menuStop();
 
 				if (g_Vars.modifiedfiles & MODFILE_MPSETUP) {
 					bossfileSave();

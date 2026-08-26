@@ -3832,8 +3832,9 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 			(unsigned long long)mpParticipantsEncodeActiveMask());
 
 		/* The validated participant pool and exact player/bot identities were
-		 * published at the single commit boundary above.  mpStartMatch does not
-		 * rebuild participants for NETMODE_CLIENT. */
+		 * published at the single commit boundary above. mpStartMatch does not
+		 * rebuild participants for NETMODE_CLIENT and owns menu teardown before
+		 * its stage request. */
 
 		sysLogPrintf(LOG_WARNING, "MATCH-START: calling mainChangeToStage, stagenum=0x%x", (unsigned)g_MpSetup.stagenum);
 		mpStartMatch();
@@ -3846,14 +3847,6 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 #endif
 		/* Dismiss countdown overlay before going in-game. */
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
-		menuStop();
-#if !defined(PD_SERVER)
-		/* Phase 2 / Priority K-b3: pool slot cleanup is sufficient -- bulk
-		 * release pops every owned ctx (incl. unregistered-fallback after
-		 * K-b1), so no paired direct ctx pop is needed. */
-		sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
-			"SVC_STAGE_START combat");
-#endif
 	}
 
 	return 0;

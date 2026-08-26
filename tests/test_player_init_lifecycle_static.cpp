@@ -580,6 +580,71 @@ TEST_CASE("Combat Simulator verification follows production start end and return
 		std::string::npos);
 }
 
+TEST_CASE("B-1076 ordinary Combat Simulator smoke owns two complete UI cycles",
+		"[player-init][combat-sim][cycle][menu][static][b1076]")
+{
+	const std::string verifier = read_player_init_source(
+		"port/src/combat_sim_verify.c");
+	const std::string smoke = read_player_init_source(
+		"tools/smoke-verify/tests/combat_sim_ui_release_cycle.json");
+	const std::string init = player_init_function(
+		verifier, "void combatSimVerifyInit(void)");
+
+	/* This is deliberately the ordinary title -> Agent Select -> Main Menu ->
+	 * Room route. The debug latch may press the production Start Match widget,
+	 * but it may not seed or directly launch a match. */
+	REQUIRE(smoke.find("--launch-mp-room") == std::string::npos);
+	REQUIRE(smoke.find("--debug-auto-start-match") != std::string::npos);
+	REQUIRE(smoke.find("--debug-combat-sim-cycles") != std::string::npos);
+	REQUIRE(smoke.find("BOOT: --match-timelimit-sec armed: seconds=18") !=
+		std::string::npos);
+	REQUIRE(smoke.find("combat-sim-ui-cycle-home/agent_smoke.json") !=
+		std::string::npos);
+	REQUIRE(init.find(
+		"!sysArgCheck(\"--no-net\") || !sysArgCheck(\"--debug-auto-start-match\")") !=
+		std::string::npos);
+	REQUIRE(init.find("!sysArgGetString(\"--launch-mp-room\")") ==
+		std::string::npos);
+	REQUIRE(init.find("start_mode=%s") != std::string::npos);
+
+	REQUIRE(smoke.find("MENU\\\\.GRAPH\\\\.FIRE source=agent_select edge=load") !=
+		std::string::npos);
+	REQUIRE(smoke.find("MENU\\\\.GRAPH\\\\.FIRE source=main_menu edge=solo_play") !=
+		std::string::npos);
+	REQUIRE(smoke.find("MENU\\\\.GRAPH\\\\.FIRE source=main_solo_view edge=combat_simulator") !=
+		std::string::npos);
+	REQUIRE(smoke.find("MENU\\\\.GRAPH\\\\.FIRE source=room edge=start_match") !=
+		std::string::npos);
+	REQUIRE(smoke.find("MENU\\\\.GRAPH\\\\.FIRE source=endscreen_mp edge=continue") !=
+		std::string::npos);
+	REQUIRE(count_substring(smoke,
+		"\"condition\": \"offline_gameplay_ready\"") == 2);
+	REQUIRE(count_substring(smoke,
+		"\"condition\": \"endscreen_visible\"") == 2);
+	REQUIRE(smoke.find("stable_ms=2000 stable_elapsed_ms=") !=
+		std::string::npos);
+	REQUIRE(smoke.find("stable_ms=1000 stable_elapsed_ms=") !=
+		std::string::npos);
+	REQUIRE(count_substring(smoke,
+		"SMOKE\\\\.WAIT: satisfied condition=offline_gameplay_ready") == 2);
+	REQUIRE(count_substring(smoke,
+		"SMOKE\\\\.WAIT: satisfied condition=endscreen_visible") == 2);
+
+	REQUIRE(smoke.find(
+		"\"pattern\": \"TRANSITION\\\\.STAGE\\\\.PREP reason='mpStartMatch' flags=0x02\", \"min\": 2, \"max\": 2") !=
+		std::string::npos);
+	REQUIRE(smoke.find(
+		"\"pattern\": \"MENUPOOL: acquired room\", \"min\": 2, \"max\": 2") !=
+		std::string::npos);
+	REQUIRE(smoke.find(
+		"\"pattern\": \"MENUPOOL: released room\", \"min\": 2, \"max\": 2") !=
+		std::string::npos);
+	REQUIRE(smoke.find("MENU: watchdog") != std::string::npos);
+	REQUIRE(smoke.find("INPUTCTX watchdog") != std::string::npos);
+	REQUIRE(smoke.find("legacy-stack leak") != std::string::npos);
+	REQUIRE(smoke.find("SMOKE: result=wait_timeout") != std::string::npos);
+}
+
 TEST_CASE("floor-domain actor warp latches root height across animation loops",
 		"[player-init][actor][teleport][static][b1077]")
 {

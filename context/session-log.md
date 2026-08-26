@@ -1,5 +1,53 @@
 # Session Log (Active)
 
+## 2026-08-26 - B-1076 Combat Simulator menu-owner closure
+
+Milestone 1 remains 2 validated, 8 partial, and 5 missing. B-1076 is now a
+production regression gate, while T-ENGINE-004 remains partial for its broader
+base-game lifecycle audit.
+
+Root cause was split and incorrectly ordered scene ownership. Offline Combat
+Simulator, the in-client listen authority, and the receiving client could call
+`mpStartMatch` before complete menu/input teardown, while some callers attempted
+cleanup only after publishing the stage request. A valid two-client run reached
+gameplay with an empty legacy dialog chain but a live `agent_select` pool slot;
+the consistency watchdog repaired that missing owner close. `mpStartMatch` is
+now the single Combat Simulator stage-request owner and executes `menuStop` plus
+`sceneStageTransitionPrepare(RELEASE_MENU_POOL, "mpStartMatch")` before
+`titleSetNextStage`/`mainChangeToStage`. Caller-side post-request cleanup was
+removed. Co-op/Counter-Op retains its explicit shared stage-transition helper.
+GPT-5.6 Luna xhigh performed the bounded read-only ordering/propagation audit;
+Sol integrated and verified the final unit.
+
+The ordinary fixture now starts from the title screen, activates a staged Agent
+through Agent Select, walks the real Main Menu and Play graph into the Combat
+Simulator Room, completes one match and stable results screen, activates the
+real Play Again edge, and completes a second match/results cycle. Typed
+`offline_gameplay_ready` and `endscreen_visible` conditions require the
+controllable local-player projection plus the real endscreen menu/input owner.
+The first retained run completed both product cycles but is rejected at 51/55
+because its four receipt assertions expected status `pass` instead of the
+harness's emitted `satisfied`. The corrected fixture and static guard pass on
+the same client at `.claude/smoke-verify-runs/results-20260826T095854Z.json`:
+55/55, exactly two Room start edges, two pre-publication transition prepares,
+two gameplay barriers, two endscreens, two balanced Room acquire/releases, one
+balanced Agent Select owner, no menu/input watchdog or legacy-stack leak, clean
+scripted exit, and intact allocations.
+
+The unchanged client then passes the focus-independent invitee-authority D-003
+regression at `.claude/smoke-verify-runs/results-20260826T100235Z.json` 170/170:
+one invitee-elected in-client ENet listen host, one separately signed typed
+match-server route, exactly one initiator join, current-v58 stage release and
+gameplay on both clients, no LAN/STUN/UPnP/ICE probe or relay descriptor handed
+to `netStartClient`, and two clean exits. Exact client SHA-256 is
+`04DB220EF9B4778B0F16477872D5E1493FF88EE246867FE25996216BD82138C8`.
+Isolated client/updater/tests builds pass; the pre-smoke focused/full batch is
+273 assertions/4 cases and 66,690/1,204, the post-verifier focused gate is
+275/4, and `asset_native_source_guard.py` passes. Source fingerprints remained
+`950bee94...` for the intended tracked diff and `6e2f62b5...` for the fixture
+through both accepted smokes. Protected Workbench-hook lane files remained
+excluded.
+
 ## 2026-08-26 - B-1067/B-1103/B-1104 protocol-v58 verification
 
 Milestone 1 remains 2 validated, 8 partial, and 5 missing. Protocol-v58 product

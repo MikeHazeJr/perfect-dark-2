@@ -28,6 +28,9 @@
 - Routed friend matches through one elected in-client listen authority using a
   separately signed match-server route, one idempotent join per peer, and an
   epoch-gated atomic stage baseline with retry-safe rollback.
+- Released Combat Simulator menu and input ownership before every offline,
+  listen-authority, and joined-client match transition, including Play Again,
+  instead of relying on watchdog cleanup after gameplay starts.
 - Made live-match reconnect retain exact identity, settings, and room capacity
   through stage loading, then restore simultaneous absences, the authoritative
   replicated world, inventories, players, bots, scores, and cutscene state in
