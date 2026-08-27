@@ -6426,3 +6426,40 @@ retains its prior behavior. Behavioral, static, and smoke contracts require one
 `NET.RECONNECT.PLAYER_STATE ... live_side_effects=0 drops=0 score=0
 owner_cleanup=0` witness between exact inventory restore and commit. No build,
 test, native-source guard, or replacement runtime pass is claimed yet.
+
+## 2026-08-26 - B-1106 automation accepted; production proof paused safely
+
+Milestone 1 remains 20 percent production-validated (3 validated, 7 partial,
+5 missing). V-010 remains `missing` / `not_run`; B-1086 and B-1106 remain
+`source_connected`. The exact schema-v3 vertex-cache-provenance replacement is
+now source-frozen and automation-accepted. Exact binaries are client
+`7EF396C978061A1CD18CE91E09144621FE46874F675ED76F1830F14AF2F17CBF`,
+updater `9F0EB17A1C7DC5093D2B21D86314D3818173B9C66D0AC384A664DF56ACA95CCD`,
+and tests `4D14886D6F6DC625F35763727307A2F062360E827A985FF5C269B97884325208`.
+The focused suite passes 143 assertions in 8 cases; the complete suite passes
+67,451 assertions in 1,231 cases. Conformance selftest, all-family and Needler
+conformance, modder workflow, public-source validation, native-source guard,
+fixture validation, and `git diff --check` pass. Accepted product pre/post and
+verification pre/post manifests have zero differences.
+
+A brief host power interruption occurred after that accepted batch and before
+the production smoke was queued or launched. Recovery checks found no
+PerfectDark, build, test, compiler, or smoke process; the coordination FIFO was
+empty; no newer B-1086 smoke result exists; and every accepted binary still
+matches its recorded digest. The Workbench service had stopped and was
+restarted from the canonical checkout; `/api/meta` again reports
+`canonical=true`, `isolated=false`, the exact canonical project/data roots, and
+HEAD `179ec18f...`. Canonical README/tasks/bugs and their parent mirrors are
+hash-equal. No extraction, `base:model_cchicrob` conversion, door activation,
+Carrington capture, or V-009 visual claim was created by this recovery.
+
+Next action is one coordinated ordinary-client smoke using
+`tools/smoke-verify/tests/b1086_type4_door_render_smoke.json` and exact client
+`7EF396C9...`. It must cleanly extract 733/733 meshes, build
+`base:model_cchicrob`, commit the Main Menu manifest, activate
+`base:model_cidoor1_ref` and `base:model_instfrontdoor` exactly once, exit
+cleanly, and pass direct review of all six 3440x1440 captures including the
+V-009 no-huge-white-first-person-obstruction gate. Representative Campaign and
+Combat Simulator propagation remains required afterward. Do not stage the
+unrelated Workbench-hook lane or `.claude`; commit only after these production
+gates and a final source-freeze check.

@@ -1,0 +1,80 @@
+{
+  "scenario_name": "b1086_type4_door_render_smoke",
+  "description": "B-1086/B-1106 ordinary-client production gate. Start from a clean install so the current extractor must publish schema-v3 model.render.json streams with ordered vertex loads, exact triangle cache slots, and typed Type-3-retain/non-Type-3-reset boundaries, then compile and render those public sources while preserving restorable geometry-state order and node-owned combine/cycle. Retain 3440x1440 menu-backdrop captures that include the historically obstructed far-right region.",
+  "tags": ["base-game", "render", "pdmesh", "geometry-state", "door", "carrington", "ultrawide", "visual", "v009", "b1086", "b1106", "smoke"],
+  "paths_of_interest": [
+    "port/src/romextract_pdmesh.c",
+    "port/src/modasset_compiler.c",
+    "port/include/modasset_render_stream.h",
+    "port/src/modasset_render_stream.c",
+    "tools/asset_archive_conformance.py",
+    "tools/verify_pdmesh_render_state.py"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 210,
+  "install_state": "clean",
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/b1086_ultrawide_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "boot_args": [
+    "--no-net",
+    "--no-update-check",
+    "--no-sound",
+    "--portable",
+    "--debug-hide-menu",
+    "--debug-generated-mesh-render-audit",
+    "--debug-mesh-matclass"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "Allow the clean install to extract all public typed sources before ordinary title navigation." },
+    { "at_ms": 28000, "type": "key", "key": "Return", "action": "tap", "comment": "Advance past the title sequence after extraction." },
+    { "at_ms": 30000, "type": "key", "key": "Return", "action": "tap", "comment": "Advance the intro." },
+    { "at_ms": 32000, "type": "key", "key": "Return", "action": "tap", "comment": "Enter the Carrington Institute main-menu backdrop." },
+    { "at_ms": 165000, "type": "exit", "comment": "Retain multiple moving and settled camera phases, then exit cleanly." }
+  ],
+  "screenshots": [
+    { "at_ms": 45000, "name": "ci-door-ultrawide-45s" },
+    { "at_ms": 65000, "name": "ci-door-ultrawide-65s" },
+    { "at_ms": 85000, "name": "ci-door-ultrawide-85s" },
+    { "at_ms": 105000, "name": "ci-door-ultrawide-105s" },
+    { "at_ms": 125000, "name": "ci-door-ultrawide-125s" },
+    { "at_ms": 145000, "name": "ci-door-ultrawide-145s" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=b1086_type4_door_render_smoke",
+      "romextract pdmesh: exported filenum=0x055c .*geometrycmds=\\d+",
+      "romextract pdmesh: exported filenum=0x0757 .*geometrycmds=\\d+",
+      "MODELDEF\\.SOURCE: loaded catalog model source .* id=base:model_cidoor1_ref ",
+      "MODELDEF\\.SOURCE: loaded catalog model source .* id=base:model_instfrontdoor ",
+      "MODASSET\\.COMPILER: built hierarchy modeldef 'base:model_cidoor1_ref' .*nodes=[1-9]\\d*.*tris=[1-9]\\d*",
+      "MODASSET\\.COMPILER: built hierarchy modeldef 'base:model_instfrontdoor' .*nodes=[1-9]\\d*.*tris=[1-9]\\d*",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "MODASSET\\.COMPILER: failed to compile external model 'base:model_(cidoor1_ref|instfrontdoor)'",
+      "unsupported model\\.render\\.json schema",
+      "invalid geometry_(?:set|clear)",
+      "(?:ambiguous|unrelocatable) G_VTX state",
+      "MODEL\\.GDL\\.REJECT",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum",
+      "result=FAIL",
+      "result=MISSING",
+      "CATEGORY_MISMATCH",
+      "\\[(CRASH|ACCESS_VIOLATION)\\]|(^|\\r?\\n)(CRASH|ACCESS_VIOLATION):|segmentation fault"
+    ],
+    "required_counts": [
+      { "pattern": "MODELDEF\\.SOURCE: loaded catalog model source .* id=base:model_cidoor1_ref ", "min": 1, "max": 1 },
+      { "pattern": "MODELDEF\\.SOURCE: loaded catalog model source .* id=base:model_instfrontdoor ", "min": 1, "max": 1 }
+    ]
+  }
+}

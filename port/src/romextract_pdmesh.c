@@ -30,6 +30,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <stdarg.h>
+#include <limits.h>
 #include <SDL.h>
 #include <PR/gbi.h>
 #include <PR/ultratypes.h>
@@ -50,6 +51,7 @@
 #include "romextract.h"
 #include "romextract_pd.h"
 #include "modasset_compiler.h"
+#include "modasset_render_stream.h"
 #include "system.h"
 #include "preprocess.h"
 #include "weapondata_authored.h"
@@ -67,9 +69,9 @@
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour_jointflags_vtxmtx_collision19"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v25_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_zero_tri_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour_jointflags_vtxmtx_collision19"
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v28_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_allmodels_menuhud_zero_tri_models_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19"
 extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
@@ -89,43 +91,25 @@ static void s_markSeen(u16 filenum)
 	}
 }
 
-static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
+static s32 s_archiveEntryMatches(mod_archive_t *arc, const char *entry,
+		const char *expected, s32 exact)
 {
-	char full_buf[FS_MAXPATH + 1];
-	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
-	if (!full || !full[0]) return 0;
-	mod_archive_t *arc = modArchiveOpen(full);
-	if (!arc) return 0;
-	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
-	modArchiveClose(arc);
-	return has_entry;
-}
-
-static s32 s_existingArchiveEntryContains(const char *relpath,
-                                          const char *entry,
-                                          const char *needle)
-{
-	char full_buf[FS_MAXPATH + 1];
-	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
-	if (!full || !full[0] || !needle) return 0;
-	mod_archive_t *arc = modArchiveOpen(full);
-	if (!arc) return 0;
+	if (!arc || !entry || !expected) return 0;
 	s32 idx = modArchiveFindEntry(arc, entry);
-	if (idx < 0) {
-		modArchiveClose(arc);
-		return 0;
-	}
+	if (idx < 0) return 0;
 	u32 size = 0;
 	char *bytes = (char *)modArchiveExtractAlloc(arc, idx, &size);
-	modArchiveClose(arc);
 	if (!bytes) return 0;
 	s32 found = 0;
-	size_t needle_len = strlen(needle);
-	if (needle_len == 0) {
+	size_t expected_len = strlen(expected);
+	if (exact) {
+		found = size == expected_len &&
+			memcmp(bytes, expected, expected_len) == 0;
+	} else if (expected_len == 0) {
 		found = 1;
-	} else if (size >= needle_len) {
-		for (u32 i = 0; i + needle_len <= size; i++) {
-			if (memcmp(bytes + i, needle, needle_len) == 0) {
+	} else if (size >= expected_len) {
+		for (u32 i = 0; i + expected_len <= size; i++) {
+			if (memcmp(bytes + i, expected, expected_len) == 0) {
 				found = 1;
 				break;
 			}
@@ -133,6 +117,62 @@ static s32 s_existingArchiveEntryContains(const char *relpath,
 	}
 	free(bytes);
 	return found;
+}
+
+static s32 s_existingArchiveHasCurrentPayload(const char *relpath)
+{
+	static const char *required_entries[] = {
+		"mesh.ini",
+		"_meta/manifest.json",
+		"export_version.txt",
+		"model.obj",
+		"model.mtl",
+		"model.nodes.json",
+		"model.parts.json",
+		"model.faces.json",
+		"model.render.json",
+		"_meta/inventory.json",
+		"_meta/hashes.json",
+		"_meta/provenance.json",
+		"_meta/validation.json",
+		"_meta/source-handles.json",
+		"_meta/mesh.ini.sha256",
+		"_meta/export_version.txt.sha256",
+		"_meta/model.obj.sha256",
+		"_meta/model.mtl.sha256",
+		"_meta/model.nodes.json.sha256",
+		"_meta/model.parts.json.sha256",
+		"_meta/model.faces.json.sha256",
+		"_meta/model.render.json.sha256",
+	};
+	char full_buf[FS_MAXPATH + 1];
+	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *arc = modArchiveOpen(full);
+	if (!arc) return 0;
+	s32 valid = 1;
+
+	for (u32 i = 0; i < sizeof(required_entries) /
+			sizeof(required_entries[0]); i++) {
+		if (modArchiveFindEntry(arc, required_entries[i]) < 0) {
+			valid = 0;
+			break;
+		}
+	}
+	if (valid && !s_archiveEntryMatches(arc, "export_version.txt",
+			ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION, 1)) {
+		valid = 0;
+	}
+	if (valid && !s_archiveEntryMatches(arc, "mesh.ini",
+			ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL, 0)) {
+		valid = 0;
+	}
+	if (valid && !s_archiveEntryMatches(arc, "_meta/manifest.json",
+			ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL, 0)) {
+		valid = 0;
+	}
+	modArchiveClose(arc);
+	return valid;
 }
 
 typedef struct {
@@ -244,6 +284,7 @@ typedef struct {
 	u32             next_index;
 	u32             triangle_count;
 	u32             render_cmd_count;
+	u32             geometry_cmd_count;
 	u32             gdl_count;
 	u32             vtx_cmd_count;
 	u32             vtx_slot_count;
@@ -272,16 +313,54 @@ typedef struct {
 	s32             emitted_material;
 	char            current_group[64];
 	u32             material_switch_count;
+	/* Schema-v2 render state. Geometry mode is RSP-global across nested display
+	 * lists; known records only bits explicitly established by source commands so
+	 * untouched caller-owned state remains typed as inherited. */
+	u32             current_geometry_mode;
+	u32             current_geometry_known;
 	s32             current_render_class; /* PDMESH_RC_* active during the current opa/xlu walk */
 	/* c3844 vtxcolour: the per-DL colour table active for the DL currently being
 	 * walked. Vtx.colour is a u8 index ((colour>>2) selects colours[idx]) that
 	 * supplies the resolved RGBA the original DL used under G_CC_SHADE. We resolve
-	 * each vertex to RGBA at emit time and round-trip it via the OBJ v-line so the
+	 * each cache slot to RGBA at G_VTX load time and round-trip it via the OBJ v-line so the
 	 * consumer can rebuild a deduped colour table instead of inventing white.
 	 * NULL/0 for DL nodes with no table (gundl, stargunfire) -> white fallback. */
 	const Col      *current_colours;
 	s32             current_numcolours;
 } pdmesh_obj_export_t;
+
+/* One RSP vertex cache survives pushed display-list calls. Keep every
+ * load-time carrier together so recursive flattening has the same ownership as
+ * fast3d: children can consume parent slots and their loaded slots remain live
+ * after return. Type-3 opaque/translucent top-level pairs also share this cache,
+ * matching their consecutive submission; independently submitted lists start
+ * with fresh state. */
+typedef enum {
+	PDMESH_GDL_FAILURE_NONE = 0,
+	PDMESH_GDL_FAILURE_ARGUMENT,
+	PDMESH_GDL_FAILURE_GDL_DOMAIN,
+	PDMESH_GDL_FAILURE_VERTEX_DOMAIN,
+	PDMESH_GDL_FAILURE_CYCLE,
+	PDMESH_GDL_FAILURE_COMMAND_BOUNDS,
+	PDMESH_GDL_FAILURE_OUTPUT,
+	PDMESH_GDL_FAILURE_VERTEX_LOAD,
+	PDMESH_GDL_FAILURE_TRIANGLE_SLOT,
+	PDMESH_GDL_FAILURE_UNTERMINATED,
+} pdmesh_gdl_failure_t;
+
+typedef struct {
+	const Vtx *slots[64];
+	s32 slots_mtx[64];
+	u32 slots_geometry_mode[64];
+	u32 slots_geometry_known[64];
+	Col slots_colours[64];
+	Gfx *active_gdls[17];
+	pdmesh_gdl_failure_t failure;
+	s32 failure_depth;
+	s32 failure_cmdidx;
+	u32 failure_w0;
+	u32 failure_w1;
+} pdmesh_gdl_walk_state_t;
 
 typedef struct {
 	u32 triangle_count;
@@ -292,6 +371,7 @@ typedef struct {
 	u32 tri_attempt_count;
 	u32 tri_missing_slot_count;
 	u32 render_cmd_count;
+	u32 geometry_cmd_count;
 	u32 vtx_bad_addr_count;
 	u32 mtx_cmd_count;
 	u32 popmtx_cmd_count;
@@ -883,7 +963,10 @@ static s32 s_objAppendRenderRow(pdmesh_obj_export_t *ctx,
                                 s32 face,
                                 s32 matrix,
                                 u8 parameters,
-                                s32 material)
+                                s32 material,
+                                const u32 *vertex_geometry_mode,
+                                const u32 *vertex_geometry_known,
+                                const s32 *vertex_cache_slots)
 {
 	if (!ctx || !ctx->render || !op) {
 		return 0;
@@ -900,12 +983,102 @@ static s32 s_objAppendRenderRow(pdmesh_obj_export_t *ctx,
 				", \"face_index\": %d, \"matrix_index\": %d, "
 				"\"matrix_flags\": %u, \"matrix_mode\": { "
 				"\"projection\": %s, \"load\": %s, \"push\": %s }, "
-				"\"material_index\": %d }",
+				"\"material_index\": %d",
 				face, matrix, (unsigned)parameters,
 				(parameters & G_MTX_PROJECTION) ? "true" : "false",
 				(parameters & G_MTX_LOAD) ? "true" : "false",
 				(parameters & G_MTX_PUSH) ? "true" : "false",
 				material) != 0) {
+		return -1;
+	}
+	if (vertex_geometry_mode && vertex_geometry_known &&
+			s_textbufAppendf(ctx->render,
+				", \"vertex_geometry_mode\": [%u, %u, %u], "
+				"\"vertex_geometry_known\": [%u, %u, %u]",
+				(unsigned)vertex_geometry_mode[0],
+				(unsigned)vertex_geometry_mode[1],
+				(unsigned)vertex_geometry_mode[2],
+				(unsigned)vertex_geometry_known[0],
+				(unsigned)vertex_geometry_known[1],
+				(unsigned)vertex_geometry_known[2]) != 0) {
+		return -1;
+	}
+	if (vertex_cache_slots &&
+			s_textbufAppendf(ctx->render,
+				", \"vertex_cache_slots\": [%d, %d, %d]",
+				vertex_cache_slots[0], vertex_cache_slots[1],
+				vertex_cache_slots[2]) != 0) {
+		return -1;
+	}
+	if (s_textbufAppend(ctx->render, " }") != 0) {
+		return -1;
+	}
+	ctx->render_cmd_count++;
+	return 0;
+}
+
+static s32 s_objAppendVertexLoadRow(pdmesh_obj_export_t *ctx,
+	s32 slot_first, s32 slot_count)
+{
+	if (!ctx || !ctx->render ||
+			!modAssetRenderStreamVertexLoadRangeValid(slot_first, slot_count)) {
+		return -1;
+	}
+	if (ctx->render_cmd_count > 0 &&
+			s_textbufAppend(ctx->render, ",\n") != 0) {
+		return -1;
+	}
+	if (s_textbufAppend(ctx->render, "    { \"group\": ") != 0 ||
+			s_textbufAppendJsonString(ctx->render,
+				s_objCurrentGroup(ctx)) != 0 ||
+			s_textbufAppendf(ctx->render,
+				", \"command\": \"vertex_load\", \"slot_first\": %d, "
+				"\"slot_count\": %d }", slot_first, slot_count) != 0) {
+		return -1;
+	}
+	ctx->render_cmd_count++;
+	return 0;
+}
+
+static s32 s_objAppendGeometryRow(pdmesh_obj_export_t *ctx,
+	const char *op, u32 geometry_mask)
+{
+	if (!ctx || !ctx->render || !op) {
+		return 0;
+	}
+	if (ctx->render_cmd_count > 0 &&
+			s_textbufAppend(ctx->render, ",\n") != 0) {
+		return -1;
+	}
+	if (s_textbufAppend(ctx->render, "    { \"group\": ") != 0 ||
+			s_textbufAppendJsonString(ctx->render, s_objCurrentGroup(ctx)) != 0 ||
+			s_textbufAppend(ctx->render, ", \"command\": ") != 0 ||
+			s_textbufAppendJsonString(ctx->render, op) != 0 ||
+			s_textbufAppendf(ctx->render, ", \"geometry_mask\": %u }",
+				(unsigned)geometry_mask) != 0) {
+		return -1;
+	}
+	ctx->render_cmd_count++;
+	ctx->geometry_cmd_count++;
+	return 0;
+}
+
+static s32 s_objAppendVertexBoundaryRow(pdmesh_obj_export_t *ctx,
+	const char *command)
+{
+	if (!ctx || !ctx->render || !command) {
+		return -1;
+	}
+	if (ctx->render_cmd_count > 0 &&
+			s_textbufAppend(ctx->render, ",\n") != 0) {
+		return -1;
+	}
+	if (s_textbufAppend(ctx->render, "    { \"group\": ") != 0 ||
+			s_textbufAppendJsonString(ctx->render,
+				s_objCurrentGroup(ctx)) != 0 ||
+			s_textbufAppend(ctx->render, ", \"command\": ") != 0 ||
+			s_textbufAppendJsonString(ctx->render, command) != 0 ||
+			s_textbufAppend(ctx->render, " }") != 0) {
 		return -1;
 	}
 	ctx->render_cmd_count++;
@@ -1205,10 +1378,20 @@ static Col s_objResolveVtxColour(const pdmesh_obj_export_t *ctx, const Vtx *v)
  * receives the three corner matrices (mi_a/mi_b/mi_c, -1 when unknown) and writes
  * them to model.faces.json as an optional "vtx_matrix":[m0,m1,m2] triplet alongside
  * the existing per-face matrix_index (kept for back-compat). The consume compiler
- * groups a tri's verts by these matrices into N64-faithful matrix-load batches. */
+ * groups a tri's verts by these matrices into N64-faithful matrix-load batches.
+ *
+ * B-1086 adds the same load-time discipline for geometry state. fast3d consumes
+ * lighting, texgen, and fog while G_VTX runs, so the three corner snapshots must
+ * survive even though the readable stream emits one regenerated vertex batch per
+ * triangle. `known` distinguishes exact source state from caller-owned inherited
+ * state without inventing a default. */
 static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
                         const Vtx *a, const Vtx *b, const Vtx *c,
-                        s32 mi_a, s32 mi_b, s32 mi_c)
+                        s32 mi_a, s32 mi_b, s32 mi_c,
+                        const Col vertex_colours[3],
+                        const u32 vertex_geometry_mode[3],
+                        const u32 vertex_geometry_known[3],
+                        const s32 vertex_cache_slots[3])
 {
 	if (!a || !b || !c) return 0;
 	if (ctx->mtx_stack_size <= 0) {
@@ -1282,15 +1465,15 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 		ctx->emitted_material = material_index;
 		ctx->material_switch_count++;
 	}
-	/* c3844 vtxcolour: resolve each vertex's RGBA from the active per-DL colour
-	 * table ((colour>>2) indexes ctx->current_colours) and append it to the OBJ
+	/* c3844/B-1086 vtxcolour: use the RGBA/normal bytes captured from the active
+	 * colour table when each source slot was loaded, then append them to the OBJ
 	 * v-line as 4 ints 0-255 -> "v x y z r g b a". The consumer's v-parser reads
 	 * x/y/z then stops, so a 3-token v stays back-compatible; the new tokens are
 	 * additive. White (255,255,255,255) when no table or out-of-range index, which
 	 * matches today's invented-white behaviour for those vertices. */
-	Col ca = s_objResolveVtxColour(ctx, a);
-	Col cb = s_objResolveVtxColour(ctx, b);
-	Col cc = s_objResolveVtxColour(ctx, c);
+	Col ca = vertex_colours[0];
+	Col cb = vertex_colours[1];
+	Col cc = vertex_colours[2];
 	if (s_textbufAppendf(ctx->obj,
 			"v %.6f %.6f %.6f %u %u %u %u\n"
 			"v %.6f %.6f %.6f %u %u %u %u\n"
@@ -1336,7 +1519,8 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 		}
 	}
 	if (s_objAppendRenderRow(ctx, "tri", (s32)(ctx->triangle_count - 1u),
-			face_mtx, 0, material_index) != 0) {
+			face_mtx, 0, material_index, vertex_geometry_mode,
+			vertex_geometry_known, vertex_cache_slots) != 0) {
 		return -1;
 	}
 	ctx->materials[material_index].triangle_count++;
@@ -1344,31 +1528,87 @@ static s32 s_objEmitTri(pdmesh_obj_export_t *ctx,
 	return 0;
 }
 
-static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
-                            Vtx *vbuf, s32 numverts, s32 depth)
+static void s_objInitGdlWalkState(pdmesh_gdl_walk_state_t *state)
 {
-	if (!raw_gdl || !vbuf || numverts <= 0 || depth > 16) return 0;
+	memset(state, 0, sizeof(*state));
+	for (s32 i = 0; i < 64; i++) {
+		state->slots_mtx[i] = -1;
+		state->slots_colours[i].r = 0xff;
+		state->slots_colours[i].g = 0xff;
+		state->slots_colours[i].b = 0xff;
+		state->slots_colours[i].a = 0xff;
+	}
+}
+
+static const char *s_gdlFailureName(pdmesh_gdl_failure_t failure)
+{
+	switch (failure) {
+	case PDMESH_GDL_FAILURE_ARGUMENT: return "argument";
+	case PDMESH_GDL_FAILURE_GDL_DOMAIN: return "gdl_domain";
+	case PDMESH_GDL_FAILURE_VERTEX_DOMAIN: return "vertex_domain";
+	case PDMESH_GDL_FAILURE_CYCLE: return "cycle";
+	case PDMESH_GDL_FAILURE_COMMAND_BOUNDS: return "command_bounds";
+	case PDMESH_GDL_FAILURE_OUTPUT: return "output";
+	case PDMESH_GDL_FAILURE_VERTEX_LOAD: return "vertex_load";
+	case PDMESH_GDL_FAILURE_TRIANGLE_SLOT: return "triangle_slot";
+	case PDMESH_GDL_FAILURE_UNTERMINATED: return "unterminated";
+	default: return "none";
+	}
+}
+
+static s32 s_gdlWalkFail(pdmesh_gdl_walk_state_t *state,
+		pdmesh_gdl_failure_t failure, s32 depth, s32 cmdidx, u32 w0, u32 w1)
+{
+	if (state && state->failure == PDMESH_GDL_FAILURE_NONE) {
+		state->failure = failure;
+		state->failure_depth = depth;
+		state->failure_cmdidx = cmdidx;
+		state->failure_w0 = w0;
+		state->failure_w1 = w1;
+	}
+	return -1;
+}
+
+static s32 s_exportGdlToObjWalk(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
+		Vtx *vbuf, s32 numverts, s32 depth, pdmesh_gdl_walk_state_t *state)
+{
+	if (!ctx || !raw_gdl || !vbuf || numverts <= 0 || !state || depth > 16) {
+		return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_ARGUMENT,
+			depth, -1, 0, 0);
+	}
 	Gfx *gdl = s_resolveGdlPtr(ctx, raw_gdl);
-	if (!gdl) return 0;
-	if (!s_ptrInModel(ctx, vbuf, (size_t)numverts * sizeof(Vtx))) return 0;
+	if (!gdl) {
+		return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_GDL_DOMAIN,
+			depth, -1, 0, 0);
+	}
+	if (!s_ptrInModel(ctx, vbuf, (size_t)numverts * sizeof(Vtx))) {
+		return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_VERTEX_DOMAIN,
+			depth, -1, 0, 0);
+	}
+	for (s32 i = 0; i < depth; i++) {
+		if (state->active_gdls[i] == gdl) {
+			return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_CYCLE,
+				depth, -1, 0, 0);
+		}
+	}
+	state->active_gdls[depth] = gdl;
 
 	ctx->gdl_count++;
-	const Vtx *slots[64];
-	memset(slots, 0, sizeof(slots));
-	/* B-942 stitch probe: per-slot active model-matrix at G_VTX time. Detects
-	 * per-vertex (multi-matrix) skinned triangles, which the per-FACE matrix
-	 * capture collapses to one matrix -> mis-placed cross-bone verts. */
-	s32 slots_mtx[64];
-	for (s32 si = 0; si < 64; si++) { slots_mtx[si] = -1; }
-	s32 numslots = 0;
+	s32 terminated = 0;
 
 	for (s32 cmdidx = 0; cmdidx < 8192; cmdidx++) {
-		if (!s_ptrInModel(ctx, &gdl[cmdidx], sizeof(Gfx))) break;
+		if (!s_ptrInModel(ctx, &gdl[cmdidx], sizeof(Gfx))) {
+			return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_COMMAND_BOUNDS,
+				depth, cmdidx, 0, 0);
+		}
 		u32 w0 = gdl[cmdidx].words.w0;
 		u32 w1 = gdl[cmdidx].words.w1;
 		u8 cmd = (u8)((w0 >> 24) & 0xff);
 
-		if (cmd == (u8)G_ENDDL) break;
+		if (cmd == (u8)G_ENDDL) {
+			terminated = 1;
+			break;
+		}
 
 		if (cmd == (u8)G_NOOP) {
 			s32 texnum = (s32)(w1 & 0xfffu);
@@ -1384,8 +1624,9 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 				if (mat >= 0) {
 					ctx->current_material = mat;
 					if (s_objAppendRenderRow(ctx, "material", -1, -1,
-							0, mat) != 0) {
-						return -1;
+							0, mat, NULL, NULL, NULL) != 0) {
+						return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_OUTPUT,
+							depth, cmdidx, w0, w1);
 					}
 				}
 			}
@@ -1394,8 +1635,15 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 
 		if (cmd == (u8)G_DL) {
 			Gfx *child = (Gfx *)(((uintptr_t)w1) & ~(uintptr_t)1);
-			if (s_exportGdlToObj(ctx, child, vbuf, numverts, depth + 1) != 0) {
+			if (s_exportGdlToObjWalk(ctx, child, vbuf, numverts,
+					depth + 1, state) != 0) {
 				return -1;
+			}
+			/* A branch list does not return to this parent. Continuing would publish
+			 * unreachable geometry/material commands and corrupt the flattened order. */
+			if (((w0 >> 16) & 0xffu) == G_DL_NOPUSH) {
+				terminated = 1;
+				break;
 			}
 			continue;
 		}
@@ -1407,8 +1655,10 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 					&model_matrix_index) &&
 					!(parameters & G_MTX_PROJECTION)) {
 				if (s_objAppendRenderRow(ctx, "mtx", -1,
-						model_matrix_index, parameters, -1) != 0) {
-					return -1;
+						model_matrix_index, parameters, -1,
+						NULL, NULL, NULL) != 0) {
+					return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_OUTPUT,
+						depth, cmdidx, w0, w1);
 				}
 			}
 			continue;
@@ -1418,16 +1668,37 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 			ctx->popmtx_cmd_count++;
 			if (ctx->mtx_stack_size > 1) ctx->mtx_stack_size--;
 			if (s_objAppendRenderRow(ctx, "pop", -1, -1,
-					0, -1) != 0) {
-				return -1;
+					0, -1, NULL, NULL, NULL) != 0) {
+				return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_OUTPUT,
+					depth, cmdidx, w0, w1);
+			}
+			continue;
+		}
+
+		if (cmd == (u8)G_SETGEOMETRYMODE) {
+			ctx->current_geometry_mode |= w1;
+			ctx->current_geometry_known |= w1;
+			if (s_objAppendGeometryRow(ctx, "geometry_set", w1) != 0) {
+				return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_OUTPUT,
+					depth, cmdidx, w0, w1);
+			}
+			continue;
+		}
+
+		if (cmd == (u8)G_CLEARGEOMETRYMODE) {
+			ctx->current_geometry_mode &= ~w1;
+			ctx->current_geometry_known |= w1;
+			if (s_objAppendGeometryRow(ctx, "geometry_clear", w1) != 0) {
+				return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_OUTPUT,
+					depth, cmdidx, w0, w1);
 			}
 			continue;
 		}
 
 		if (cmd == (u8)G_VTX) {
 			ctx->vtx_cmd_count++;
-			s32 n = (s32)((w0 & 0xffffu) / sizeof(Vtx));
-			s32 v0 = (s32)((w0 >> 16) & 0xf);
+			s32 n = (s32)GBI_VTX_COUNT_FROM_W0(w0);
+			s32 v0 = (s32)GBI_VTX_DEST_FROM_W0(w0);
 			uintptr_t src = ((uintptr_t)w1) & ~(uintptr_t)1;
 			uintptr_t vstart = (uintptr_t)vbuf;
 			uintptr_t vend = vstart + (size_t)numverts * sizeof(Vtx);
@@ -1454,19 +1725,28 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 				}
 			}
 
-			if (srcidx >= 0) {
-				for (s32 i = 0; i < n && (v0 + i) < 64; i++) {
-					s32 vi = srcidx + i;
-					if (vi >= 0 && vi < numverts) {
-						slots[v0 + i] = &vbuf[vi];
-						slots_mtx[v0 + i] = (ctx->mtx_stack_size > 0)
-							? ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] : -1;
-						ctx->vtx_slot_count++;
-					}
-				}
-				if (v0 + n > numslots) numslots = v0 + n;
-			} else {
+			if (n <= 0 || v0 < 0 || v0 + n > 64 || srcidx < 0 ||
+					srcidx + n > numverts) {
 				ctx->vtx_bad_addr_count++;
+				return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_VERTEX_LOAD,
+					depth, cmdidx, w0, w1);
+			}
+			if (s_objAppendVertexLoadRow(ctx, v0, n) != 0) {
+				return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_OUTPUT,
+					depth, cmdidx, w0, w1);
+			}
+			for (s32 i = 0; i < n; i++) {
+				s32 vi = srcidx + i;
+				state->slots[v0 + i] = &vbuf[vi];
+				state->slots_mtx[v0 + i] = (ctx->mtx_stack_size > 0)
+					? ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] : -1;
+				state->slots_geometry_mode[v0 + i] =
+					ctx->current_geometry_mode;
+				state->slots_geometry_known[v0 + i] =
+					ctx->current_geometry_known;
+				state->slots_colours[v0 + i] =
+					s_objResolveVtxColour(ctx, &vbuf[vi]);
+				ctx->vtx_slot_count++;
 			}
 			continue;
 		}
@@ -1521,16 +1801,19 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 			s32 i0 = ((w1 >> 16) & 0xff) / 10;
 			s32 i1 = ((w1 >> 8)  & 0xff) / 10;
 			s32 i2 = ((w1 >> 0)  & 0xff) / 10;
-			if (i0 < numslots && i1 < numslots && i2 < numslots) {
+			if (i0 >= 0 && i0 < 64 && i1 >= 0 && i1 < 64 &&
+					i2 >= 0 && i2 < 64 && state->slots[i0] &&
+					state->slots[i1] && state->slots[i2]) {
 				ctx->tri_attempt_count++;
-				if (slots_mtx[i0] != slots_mtx[i1]
-						|| slots_mtx[i1] != slots_mtx[i2]) {
+				if (state->slots_mtx[i0] != state->slots_mtx[i1]
+						|| state->slots_mtx[i1] != state->slots_mtx[i2]) {
 					static s32 s_b942StitchTotal = 0, s_b942StitchLog = 0;
 					s_b942StitchTotal++;
 					if (s_b942StitchLog < 24) {
 						sysLogPrintf(LOG_NOTE,
 							"B942STITCH: tri verts span matrices=(%d,%d,%d) total=%d",
-							slots_mtx[i0], slots_mtx[i1], slots_mtx[i2],
+							state->slots_mtx[i0], state->slots_mtx[i1],
+							state->slots_mtx[i2],
 							s_b942StitchTotal);
 						s_b942StitchLog++;
 					}
@@ -1543,21 +1826,47 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 				{
 					s32 active = (ctx->mtx_stack_size > 0)
 						? ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] : -1;
-					if (slots_mtx[i0] >= 0 && slots_mtx[i0] != active) {
+					if (state->slots_mtx[i0] >= 0 &&
+							state->slots_mtx[i0] != active) {
 						static s32 s_desyncLog = 0, s_desyncTotal = 0;
 						s_desyncTotal++;
 						if (s_desyncLog < 24) {
 							sysLogPrintf(LOG_NOTE,
 								"B942DESYNC: verts loaded mtx=%d but tri active mtx=%d total=%d",
-								slots_mtx[i0], active, s_desyncTotal);
+								state->slots_mtx[i0], active, s_desyncTotal);
 							s_desyncLog++;
 						}
 					}
 				}
-				if (s_objEmitTri(ctx, slots[i0], slots[i1], slots[i2],
-						slots_mtx[i0], slots_mtx[i1], slots_mtx[i2]) != 0) return -1;
+				{
+					s32 vertex_slots[3] = { i0, i1, i2 };
+					u32 vertex_mode[3] = {
+						state->slots_geometry_mode[i0],
+						state->slots_geometry_mode[i1],
+						state->slots_geometry_mode[i2]
+					};
+					u32 vertex_known[3] = {
+						state->slots_geometry_known[i0],
+						state->slots_geometry_known[i1],
+						state->slots_geometry_known[i2]
+					};
+					Col vertex_colours[3] = {
+						state->slots_colours[i0], state->slots_colours[i1],
+						state->slots_colours[i2]
+					};
+					if (s_objEmitTri(ctx, state->slots[i0], state->slots[i1],
+							state->slots[i2], state->slots_mtx[i0],
+							state->slots_mtx[i1], state->slots_mtx[i2],
+							vertex_colours, vertex_mode, vertex_known,
+							vertex_slots) != 0) {
+						return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_OUTPUT,
+							depth, cmdidx, w0, w1);
+					}
+				}
 			} else {
 				ctx->tri_missing_slot_count++;
+				return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_TRIANGLE_SLOT,
+					depth, cmdidx, w0, w1);
 			}
 			continue;
 		}
@@ -1575,20 +1884,23 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 				s32 i1 = idx[ti][1];
 				s32 i2 = idx[ti][2];
 				if (i0 == i1 && i1 == i2) continue;
-				if (i0 < numslots && i1 < numslots && i2 < numslots) {
+				if (i0 >= 0 && i0 < 64 && i1 >= 0 && i1 < 64 &&
+						i2 >= 0 && i2 < 64 && state->slots[i0] &&
+						state->slots[i1] && state->slots[i2]) {
 					ctx->tri_attempt_count++;
 					/* B-942: the seam/desync probes previously lived ONLY on the
 					 * G_TRI1 handler; cdark_combat emits via G_TRI4, so they
 					 * reported 0 for four sessions. Mirror them here so weighted
 					 * (multi-matrix) tris are counted on this path too. */
-					if (slots_mtx[i0] != slots_mtx[i1]
-							|| slots_mtx[i1] != slots_mtx[i2]) {
+					if (state->slots_mtx[i0] != state->slots_mtx[i1]
+							|| state->slots_mtx[i1] != state->slots_mtx[i2]) {
 						static s32 s_b942StitchTotal4 = 0, s_b942StitchLog4 = 0;
 						s_b942StitchTotal4++;
 						if (s_b942StitchLog4 < 24) {
 							sysLogPrintf(LOG_NOTE,
 								"B942STITCH(TRI4): tri verts span matrices=(%d,%d,%d) total=%d",
-								slots_mtx[i0], slots_mtx[i1], slots_mtx[i2],
+								state->slots_mtx[i0], state->slots_mtx[i1],
+								state->slots_mtx[i2],
 								s_b942StitchTotal4);
 							s_b942StitchLog4++;
 						}
@@ -1596,26 +1908,102 @@ static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 					{
 						s32 active = (ctx->mtx_stack_size > 0)
 							? ctx->mtx_stack_indices[ctx->mtx_stack_size - 1] : -1;
-						if (slots_mtx[i0] >= 0 && slots_mtx[i0] != active) {
+						if (state->slots_mtx[i0] >= 0 &&
+								state->slots_mtx[i0] != active) {
 							static s32 s_desyncLog4 = 0, s_desyncTotal4 = 0;
 							s_desyncTotal4++;
 							if (s_desyncLog4 < 24) {
 								sysLogPrintf(LOG_NOTE,
 									"B942DESYNC(TRI4): verts loaded mtx=%d but tri active mtx=%d total=%d",
-									slots_mtx[i0], active, s_desyncTotal4);
+									state->slots_mtx[i0], active, s_desyncTotal4);
 								s_desyncLog4++;
 							}
 						}
 					}
-					if (s_objEmitTri(ctx, slots[i0], slots[i1], slots[i2],
-							slots_mtx[i0], slots_mtx[i1], slots_mtx[i2]) != 0) return -1;
+					{
+						s32 vertex_slots[3] = { i0, i1, i2 };
+						u32 vertex_mode[3] = {
+							state->slots_geometry_mode[i0],
+							state->slots_geometry_mode[i1],
+							state->slots_geometry_mode[i2]
+						};
+						u32 vertex_known[3] = {
+							state->slots_geometry_known[i0],
+							state->slots_geometry_known[i1],
+							state->slots_geometry_known[i2]
+						};
+						Col vertex_colours[3] = {
+							state->slots_colours[i0], state->slots_colours[i1],
+							state->slots_colours[i2]
+						};
+						if (s_objEmitTri(ctx, state->slots[i0], state->slots[i1],
+								state->slots[i2], state->slots_mtx[i0],
+								state->slots_mtx[i1], state->slots_mtx[i2],
+								vertex_colours, vertex_mode, vertex_known,
+								vertex_slots) != 0) {
+							return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_OUTPUT,
+								depth, cmdidx, w0, w1);
+						}
+					}
 				} else {
 					ctx->tri_missing_slot_count++;
+					return s_gdlWalkFail(state,
+						PDMESH_GDL_FAILURE_TRIANGLE_SLOT,
+						depth, cmdidx, w0, w1);
 				}
 			}
 		}
 	}
-	return 0;
+	return terminated ? 0 : s_gdlWalkFail(state,
+		PDMESH_GDL_FAILURE_UNTERMINATED, depth, 8192, 0, 0);
+}
+
+static s32 s_exportGdlToObjWithState(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
+		Vtx *vbuf, s32 numverts, pdmesh_gdl_walk_state_t *state)
+{
+	Gfx *resolved_gdl;
+	s32 vertex_domain_readable;
+
+	if (!ctx || !state) {
+		return -1;
+	}
+	resolved_gdl = raw_gdl ? s_resolveGdlPtr(ctx, raw_gdl) : NULL;
+	vertex_domain_readable = vbuf && numverts > 0 &&
+		s_ptrInModel(ctx, vbuf, (size_t)numverts * sizeof(Vtx));
+	modasset_render_top_level_walk_disposition_t disposition =
+		modAssetRenderStreamTopLevelWalkDisposition(raw_gdl != NULL,
+			vbuf != NULL, numverts, resolved_gdl != NULL,
+			vertex_domain_readable);
+
+	if (disposition == MODASSET_RENDER_TOP_LEVEL_WALK_SKIP) {
+		return 0;
+	}
+	if (disposition != MODASSET_RENDER_TOP_LEVEL_WALK_EXECUTE) {
+		return -1;
+	}
+	s32 result = s_exportGdlToObjWalk(ctx, resolved_gdl, vbuf, numverts, 0,
+		state);
+	if (result != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract pdmesh: strict GDL walk failed filenum=0x%04x group=%s reason=%s depth=%d cmd=%d w0=0x%08x w1=0x%08x gdls=%u vtxcmds=%u vtxslots=%u tricmds=%u triattempts=%u trimiss=%u badvtxaddr=%u",
+			(unsigned)ctx->source_filenum, ctx->current_group,
+			s_gdlFailureName(state->failure), (int)state->failure_depth,
+			(int)state->failure_cmdidx, (unsigned)state->failure_w0,
+			(unsigned)state->failure_w1, (unsigned)ctx->gdl_count,
+			(unsigned)ctx->vtx_cmd_count, (unsigned)ctx->vtx_slot_count,
+			(unsigned)ctx->tri_cmd_count, (unsigned)ctx->tri_attempt_count,
+			(unsigned)ctx->tri_missing_slot_count,
+			(unsigned)ctx->vtx_bad_addr_count);
+	}
+	return result;
+}
+
+static s32 s_exportGdlToObj(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
+		Vtx *vbuf, s32 numverts)
+{
+	pdmesh_gdl_walk_state_t state;
+	s_objInitGdlWalkState(&state);
+	return s_exportGdlToObjWithState(ctx, raw_gdl, vbuf, numverts, &state);
 }
 
 static s32 s_exportGunDlToObj(pdmesh_obj_export_t *ctx,
@@ -1644,7 +2032,12 @@ static s32 s_exportGunDlToObj(pdmesh_obj_export_t *ctx,
 	pdmesh_textbuf_t trial_buf = {0};
 	pdmesh_textbuf_t trial_faces = {0};
 	pdmesh_textbuf_t trial_render = {0};
+	pdmesh_gdl_walk_state_t paired_state;
+	u32 inherited_geometry_mode = ctx->current_geometry_mode;
+	u32 inherited_geometry_known = ctx->current_geometry_known;
 	pdmesh_obj_export_t trial = *ctx;
+	trial.current_geometry_mode = 0;
+	trial.current_geometry_known = 0;
 	trial.obj = &trial_buf;
 	trial.faces = &trial_faces;
 	trial.render = &trial_render;
@@ -1666,10 +2059,41 @@ static s32 s_exportGunDlToObj(pdmesh_obj_export_t *ctx,
 	}
 
 	trial.current_render_class = PDMESH_RC_OPAQUE; /* fix B: gun models opaque for now */
-	if (s_exportGdlToObj(&trial, gundl->opagdl, gundl->vertices,
-			gundl->numvertices, 0) != 0 ||
-	    s_exportGdlToObj(&trial, gundl->xlugdl, gundl->vertices,
-			gundl->numvertices, 0) != 0) {
+	s_objInitGdlWalkState(&paired_state);
+	if (s_exportGdlToObjWithState(&trial, gundl->opagdl, gundl->vertices,
+			gundl->numvertices, &paired_state) != 0) {
+		s_textbufFree(&trial_buf);
+		s_textbufFree(&trial_faces);
+		s_textbufFree(&trial_render);
+		free(trial.materials);
+		strncpy(ctx->current_group, saved_group,
+			sizeof(ctx->current_group));
+		ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
+		return -1;
+	}
+	/* Schema v3 publishes every opaque/translucent cache boundary. Type-3 keeps
+	 * the live 64-slot RSP table; other render modes explicitly clear it. This
+	 * lets validators prove each later triangle reference against real ordered
+	 * vertex_load commands instead of trusting an unbounded snapshot claim. */
+	if (gundl->xlugdl && s_objAppendVertexBoundaryRow(&trial,
+			modAssetRenderStreamTopLevelPairSharesVertexCache(gundl->unk12) ?
+			"vertex_scope" : "vertex_cache_reset") != 0) {
+		s_textbufFree(&trial_buf);
+		s_textbufFree(&trial_faces);
+		s_textbufFree(&trial_render);
+		free(trial.materials);
+		strncpy(ctx->current_group, saved_group,
+			sizeof(ctx->current_group));
+		ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
+		return -1;
+	}
+	trial.current_geometry_mode = 0;
+	trial.current_geometry_known = 0;
+	if (!modAssetRenderStreamTopLevelPairSharesVertexCache(gundl->unk12)) {
+		s_objInitGdlWalkState(&paired_state);
+	}
+	if (s_exportGdlToObjWithState(&trial, gundl->xlugdl, gundl->vertices,
+			gundl->numvertices, &paired_state) != 0) {
 		s_textbufFree(&trial_buf);
 		s_textbufFree(&trial_faces);
 		s_textbufFree(&trial_render);
@@ -1717,6 +2141,8 @@ static s32 s_exportGunDlToObj(pdmesh_obj_export_t *ctx,
 		ctx->obj = real_obj;
 		ctx->faces = real_faces;
 		ctx->render = real_render;
+		ctx->current_geometry_mode = inherited_geometry_mode;
+		ctx->current_geometry_known = inherited_geometry_known;
 		strncpy(ctx->current_group, saved_group,
 			sizeof(ctx->current_group));
 		ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
@@ -1748,7 +2174,10 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 	if (type == MODELNODETYPE_DL && node->rodata &&
 	    s_ptrInModel(ctx, node->rodata, sizeof(struct modelrodata_dl))) {
 		struct modelrodata_dl *dl = &node->rodata->dl;
+		pdmesh_gdl_walk_state_t paired_state;
 		s32 saved_mtx = ctx->current_node_mtx_index;
+		u32 saved_geometry_mode = ctx->current_geometry_mode;
+		u32 saved_geometry_known = ctx->current_geometry_known;
 		s32 node_id = s_objNodeId(ctx, node);
 		char saved_group[sizeof(ctx->current_group)];
 		strncpy(saved_group, ctx->current_group, sizeof(saved_group));
@@ -1760,6 +2189,8 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 		}
 		snprintf(ctx->current_group, sizeof(ctx->current_group),
 			"node_%d_dl", node_id);
+		ctx->current_geometry_mode = 0;
+		ctx->current_geometry_known = 0;
 		(void)s_textbufAppendf(ctx->obj, "g %s\n", ctx->current_group);
 		/* c3844 vtxcolour: this DL's per-vertex colour table. s_objEmitTri resolves
 		 * each vertex's (colour>>2) index against it. Inherited by the recursive
@@ -1769,13 +2200,26 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 		/* c3844 fix B: opaque DL -> OPAQUE class, translucent DL -> XLU class.
 		 * The field is inherited by the recursive G_DL walk; reset after. */
 		ctx->current_render_class = PDMESH_RC_OPAQUE;
-		if (s_exportGdlToObj(ctx, dl->opagdl, dl->vertices, dl->numvertices, 0) != 0) return -1;
+		s_objInitGdlWalkState(&paired_state);
+		if (s_exportGdlToObjWithState(ctx, dl->opagdl, dl->vertices,
+				dl->numvertices, &paired_state) != 0) return -1;
+		if (dl->xlugdl && s_objAppendVertexBoundaryRow(ctx,
+				modAssetRenderStreamTopLevelPairSharesVertexCache(dl->mcount) ?
+				"vertex_scope" : "vertex_cache_reset") != 0) return -1;
+		ctx->current_geometry_mode = 0;
+		ctx->current_geometry_known = 0;
 		ctx->current_render_class = PDMESH_RC_XLU;
-		if (s_exportGdlToObj(ctx, dl->xlugdl, dl->vertices, dl->numvertices, 0) != 0) return -1;
+		if (!modAssetRenderStreamTopLevelPairSharesVertexCache(dl->mcount)) {
+			s_objInitGdlWalkState(&paired_state);
+		}
+		if (s_exportGdlToObjWithState(ctx, dl->xlugdl, dl->vertices,
+				dl->numvertices, &paired_state) != 0) return -1;
 		ctx->current_render_class = PDMESH_RC_OPAQUE;
 		ctx->current_colours = NULL;
 		ctx->current_numcolours = 0;
 		ctx->current_node_mtx_index = saved_mtx;
+		ctx->current_geometry_mode = saved_geometry_mode;
+		ctx->current_geometry_known = saved_geometry_known;
 		strncpy(ctx->current_group, saved_group,
 			sizeof(ctx->current_group));
 		ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
@@ -1798,6 +2242,8 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 	           s_ptrInModel(ctx, node->rodata, sizeof(struct modelrodata_stargunfire))) {
 		struct modelrodata_stargunfire *star = &node->rodata->stargunfire;
 		s32 saved_mtx = ctx->current_node_mtx_index;
+		u32 saved_geometry_mode = ctx->current_geometry_mode;
+		u32 saved_geometry_known = ctx->current_geometry_known;
 		s32 node_id = s_objNodeId(ctx, node);
 		char saved_group[sizeof(ctx->current_group)];
 		strncpy(saved_group, ctx->current_group, sizeof(saved_group));
@@ -1809,15 +2255,22 @@ static s32 s_exportNodeObj(pdmesh_obj_export_t *ctx, struct modelnode *node,
 		}
 		snprintf(ctx->current_group, sizeof(ctx->current_group),
 			"node_%d_stargunfire", node_id);
+		ctx->current_geometry_mode = 0;
+		ctx->current_geometry_known = 0;
 		(void)s_textbufAppendf(ctx->obj, "g %s\n", ctx->current_group);
 		/* c3844 vtxcolour: stargunfire rodata has no colour table -> white fallback. */
 		ctx->current_colours = NULL;
 		ctx->current_numcolours = 0;
 		ctx->current_render_class = PDMESH_RC_OPAQUE; /* fix B: effects opaque for now */
-		if (s_exportGdlToObj(ctx, star->gdl, star->vertices, 4, 0) != 0) return -1;
+		s32 star_vertex_count = star->unk00 > 0 &&
+			star->unk00 <= INT_MAX / 4 ? star->unk00 * 4 : 0;
+		if (s_exportGdlToObj(ctx, star->gdl, star->vertices,
+				star_vertex_count) != 0) return -1;
 		ctx->current_colours = NULL;
 		ctx->current_numcolours = 0;
 		ctx->current_node_mtx_index = saved_mtx;
+		ctx->current_geometry_mode = saved_geometry_mode;
+		ctx->current_geometry_known = saved_geometry_known;
 		strncpy(ctx->current_group, saved_group,
 			sizeof(ctx->current_group));
 		ctx->current_group[sizeof(ctx->current_group) - 1] = '\0';
@@ -2256,11 +2709,12 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		free(copy);
 		return -1;
 	}
-	if (s_textbufAppend(ctx.render,
+	if (s_textbufAppendf(ctx.render,
 			"{\n"
 			"  \"pd_kind\": \"mesh_render_commands\",\n"
-			"  \"pd_schema_version\": 1,\n"
-			"  \"commands\": [\n") != 0) {
+			"  \"pd_schema_version\": %d,\n"
+			"  \"commands\": [\n",
+			MODASSET_RENDER_STREAM_SCHEMA_CURRENT) != 0) {
 		sysLogPrintf(LOG_WARNING,
 			"romextract pdmesh: render JSON header write failed for filenum=0x%04x",
 			(unsigned)source_filenum);
@@ -2360,6 +2814,7 @@ static s32 s_buildModelObj(const u8 *src, u32 src_size,
 		out_stats->tri_attempt_count = ctx.tri_attempt_count;
 		out_stats->tri_missing_slot_count = ctx.tri_missing_slot_count;
 		out_stats->render_cmd_count = ctx.render_cmd_count;
+		out_stats->geometry_cmd_count = ctx.geometry_cmd_count;
 		out_stats->vtx_bad_addr_count = ctx.vtx_bad_addr_count;
 		out_stats->mtx_cmd_count = ctx.mtx_cmd_count;
 		out_stats->popmtx_cmd_count = ctx.popmtx_cmd_count;
@@ -2570,11 +3025,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 	snprintf(dst_rel, sizeof(dst_rel), "%s/%s.pdmesh", out_dir, filename_slug);
 
 	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
-	    s_existingArchiveHasEntry(dst_rel, "mesh.ini") &&
-	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
-	    s_existingArchiveHasEntry(dst_rel, "model.obj") &&
-	    s_existingArchiveEntryContains(dst_rel, "export_version.txt",
-		ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION)) return 0;
+			s_existingArchiveHasCurrentPayload(dst_rel)) return 0;
 
 	u8 *model_bytes = NULL;
 	u32 model_size = 0;
@@ -2638,13 +3089,14 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 			(unsigned)stats.mtx_bad_addr_count);
 	}
 	sysLogPrintf(LOG_NOTE,
-		"romextract pdmesh: exported filenum=0x%04x loadtype=%u tris=%u gdls=%u materials=%u textured_materials=%u material_switches=%u mtxcmds=%u mtxrefs=%u seamtris=%u",
+		"romextract pdmesh: exported filenum=0x%04x loadtype=%u tris=%u gdls=%u materials=%u textured_materials=%u material_switches=%u mtxcmds=%u geometrycmds=%u mtxrefs=%u seamtris=%u",
 		(unsigned)filenum, (unsigned)loadtype,
 		(unsigned)stats.triangle_count, (unsigned)stats.gdl_count,
 		(unsigned)stats.material_count,
 		(unsigned)stats.textured_material_count,
 		(unsigned)stats.material_switch_count,
 		(unsigned)stats.mtx_cmd_count,
+		(unsigned)stats.geometry_cmd_count,
 		(unsigned)stats.mtx_model_ref_count,
 		(unsigned)stats.seam_face_count);
 	sysMemFree(model_bytes);
@@ -2678,6 +3130,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"  \"material_switch_count\": %u,\n"
 		"  \"display_list_count\": %u,\n"
 		"  \"render_command_count\": %u,\n"
+		"  \"geometry_command_count\": %u,\n"
 		"  \"matrix_command_count\": %u,\n"
 		"  \"model_matrix_reference_count\": %u\n"
 		"}\n",
@@ -2694,6 +3147,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		(unsigned)stats.material_switch_count,
 		(unsigned)stats.gdl_count,
 		(unsigned)stats.render_cmd_count,
+		(unsigned)stats.geometry_cmd_count,
 		(unsigned)stats.mtx_cmd_count,
 		(unsigned)stats.mtx_model_ref_count);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
@@ -2733,6 +3187,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		"material_switch_count = %u\n"
 		"display_list_count = %u\n"
 		"render_command_count = %u\n"
+		"geometry_command_count = %u\n"
 		"matrix_command_count = %u\n"
 		"model_matrix_reference_count = %u\n",
 		catalog_id,
@@ -2747,6 +3202,7 @@ static s32 s_emitOneMesh(u16 filenum, const char *hint_suffix,
 		(unsigned)stats.material_switch_count,
 		(unsigned)stats.gdl_count,
 		(unsigned)stats.render_cmd_count,
+		(unsigned)stats.geometry_cmd_count,
 		(unsigned)stats.mtx_cmd_count,
 		(unsigned)stats.mtx_model_ref_count);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {

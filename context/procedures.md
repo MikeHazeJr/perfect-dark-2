@@ -78,6 +78,12 @@ Rules:
 
 ## Worktree awareness
 
+**Current Codex mode (2026-08-27): worktrees are disabled by user choice.**
+Codex sessions operate in the canonical checkout, coordinate exact file
+ownership through Workbench and CodexCoordination, and serialize staging,
+commit, and push operations. The safeguards below remain mandatory if Mike
+explicitly re-enables a worktree workflow or another tool creates one.
+
 Claude Code may create git worktrees, placing changes in an isolated copy instead of the main working directory.
 
 - After completing code changes, verify they are in the main working copy.
@@ -122,6 +128,9 @@ The optional helper `devtools/git-snapshot.sh` automates this.
 ---
 
 ## Auto-merge (worktree work to dev)
+
+This section is dormant while Codex worktrees are disabled. It applies again
+only if Mike explicitly re-enables them.
 
 Per Mike's working-preferences (2026-04-26):
 

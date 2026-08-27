@@ -97,6 +97,16 @@
 #define G_RESERVED0     2 /* not implemeted */
 #define G_MOVEMEM       3 /* move a block of memory (up to 4 words) to dmem */
 #define G_VTX           4
+
+/* The G_VTX parameter byte is the stable source of vertex count and cache
+ * destination. Its low nibble is v0 and its high nibble is n - 1. Do not
+ * derive n from the DMA byte length: ROM commands retain the N64 16-byte Vtx
+ * stride while the PC Vtx structure is packed to 12 bytes. Generated host
+ * commands can therefore have a different length for the same semantic load. */
+#define GBI_VTX_COUNT_FROM_W0(w0) \
+	(((((u32)(w0)) >> 20) & 0x0fu) + 1u)
+#define GBI_VTX_DEST_FROM_W0(w0) \
+	((((u32)(w0)) >> 16) & 0x0fu)
 #define G_RESERVED1     5 /* not implemeted */
 #define G_DL            6
 #define G_COL           7 /* new in PD */

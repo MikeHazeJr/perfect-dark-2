@@ -2050,6 +2050,7 @@ def make_tri_mesh_archive(model_scale: float | None = None) -> bytes:
     model_render = {
         "schema": "pd2.mesh.render.v1",
         "pd_kind": "mesh_render_commands",
+        "pd_schema_version": 1,
         "commands": [
             {
                 "group": "-",

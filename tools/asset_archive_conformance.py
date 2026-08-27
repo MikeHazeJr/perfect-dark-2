@@ -25,6 +25,13 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 
+from pdmesh_render_stream import (
+    MAX_MATRIX_INDEX,
+    RENDER_NODE_TYPES,
+    RenderStreamError,
+    validate_render_stream,
+)
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -2039,6 +2046,7 @@ def validate_pdmesh_hierarchy_contract(label: str, zf: zipfile.ZipFile,
         )
         return
 
+    render_group_modes: dict[str, int] = {}
     for index, node in enumerate(nodes):
         if not isinstance(node, dict):
             errors.append(f"{label} model.nodes.json node {index} is not an object")
@@ -2057,16 +2065,41 @@ def validate_pdmesh_hierarchy_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} model.nodes.json node {index} has invalid parent {parent!r}"
             )
             return
-        if not isinstance(node_type, int):
+        for matrix_field in ("mtx0", "mtx1", "mtx2", "render_mtx"):
+            matrix_value = node.get(matrix_field)
+            if (isinstance(matrix_value, bool) or
+                    not isinstance(matrix_value, int) or
+                    matrix_value < -1 or matrix_value > MAX_MATRIX_INDEX):
+                errors.append(
+                    f"{label} model.nodes.json node {index} has invalid "
+                    f"{matrix_field} {matrix_value!r}"
+                )
+                return
+        if isinstance(node_type, bool) or not isinstance(node_type, int):
             errors.append(
                 f"{label} model.nodes.json node {index} has invalid type {node_type!r}"
             )
             return
-        if node_type in {3, 4, 18} and not str(node.get("group", "")).strip():
-            errors.append(
-                f"{label} model.nodes.json render node {index} must declare group"
-            )
-            return
+        if node_type in RENDER_NODE_TYPES:
+            group = node.get("group")
+            mcount = node.get("mcount")
+            if not isinstance(group, str) or not group.strip():
+                errors.append(
+                    f"{label} model.nodes.json render node {index} must declare group"
+                )
+                return
+            if isinstance(mcount, bool) or not isinstance(mcount, int):
+                errors.append(
+                    f"{label} model.nodes.json render node {index} must "
+                    "declare integer mcount"
+                )
+                return
+            if group in render_group_modes:
+                errors.append(
+                    f"{label} model.nodes.json duplicates render group {group!r}"
+                )
+                return
+            render_group_modes[group] = mcount
 
     for index, part in enumerate(parts):
         if not isinstance(part, dict):
@@ -2121,60 +2154,42 @@ def validate_pdmesh_hierarchy_contract(label: str, zf: zipfile.ZipFile,
             )
             return
         seen_faces.add(face_index)
-        if not isinstance(matrix_index, int) or matrix_index < 0:
+        if (isinstance(matrix_index, bool) or
+                not isinstance(matrix_index, int) or matrix_index < 0 or
+                matrix_index > MAX_MATRIX_INDEX):
             errors.append(
                 f"{label} model.faces.json row {index} has invalid matrix_index "
                 f"{matrix_index!r}"
             )
             return
+        if "vtx_matrix" in face:
+            vtx_matrix = face.get("vtx_matrix")
+            if (not isinstance(vtx_matrix, list) or len(vtx_matrix) != 3 or
+                    any(isinstance(value, bool) or not isinstance(value, int) or
+                        value < 0 or value > MAX_MATRIX_INDEX
+                        for value in vtx_matrix)):
+                errors.append(
+                    f"{label} model.faces.json row {index} has invalid "
+                    f"vtx_matrix {vtx_matrix!r}"
+                )
+                return
 
-    tri_faces: list[int] = []
-    allowed_commands = {"mtx", "pop", "material", "tri"}
-    for index, command in enumerate(commands):
-        if not isinstance(command, dict):
-            errors.append(
-                f"{label} model.render.json command {index} is not an object"
-            )
-            return
-        command_name = command.get("command")
-        if command_name not in allowed_commands:
-            errors.append(
-                f"{label} model.render.json command {index} has invalid command "
-                f"{command_name!r}"
-            )
-            return
-        if "matrix_flags" in command:
-            flags = command.get("matrix_flags")
-            if not isinstance(flags, int) or flags < 0 or flags > 255:
-                errors.append(
-                    f"{label} model.render.json command {index} has invalid "
-                    f"matrix_flags {flags!r}"
-                )
-                return
-        if command_name in {"mtx", "tri"} and "matrix_index" in command:
-            matrix_index = command.get("matrix_index")
-            if not isinstance(matrix_index, int) or matrix_index < 0:
-                errors.append(
-                    f"{label} model.render.json command {index} has invalid "
-                    f"matrix_index {matrix_index!r}"
-                )
-                return
-        if command_name == "tri":
-            face_index = command.get("face_index")
-            if (not isinstance(face_index, int) or face_index < 0 or
-                    face_index >= len(faces)):
-                errors.append(
-                    f"{label} model.render.json tri command {index} has invalid "
-                    f"face_index {face_index!r}"
-                )
-                return
-            tri_faces.append(face_index)
-
-    if len(tri_faces) != len(faces) or len(set(tri_faces)) != len(faces):
-        errors.append(
-            f"{label} model.render.json must reference every model.faces.json "
-            "face exactly once"
+    try:
+        render_report = validate_render_stream(
+            render_root, len(faces), render_group_modes
         )
+    except RenderStreamError as exc:
+        errors.append(f"{label} {exc}")
+        return
+    unowned_groups = sorted(
+        set(render_report.triangle_groups) - set(render_group_modes)
+    )
+    if unowned_groups:
+        errors.append(
+            f"{label} model.render.json has unowned triangle groups "
+            f"{unowned_groups}"
+        )
+        return
 
 
 def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
@@ -8020,6 +8035,373 @@ def run_selftest() -> int:
             if dr != jr:
                 failures.append(
                     f"PARITY {key}={value!r}: json reject={jr} but delimited reject={dr}"
+                )
+
+    # The shared public render-stream validator is executable contract, not a
+    # string-only guard. Pin one mixed-lighting source plus the two corruption
+    # classes that would otherwise let a flattened compiler reinterpret vertex
+    # bytes or redraw/drop faces.
+    valid_render_stream = {
+        "pd_kind": "mesh_render_commands",
+        "pd_schema_version": 2,
+        "commands": [
+            {
+                "group": "node_0_dl",
+                "command": "geometry_set",
+                "geometry_mask": 0x00020000,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "tri",
+                "face_index": 0,
+                "matrix_index": 0,
+                "vertex_geometry_mode": [0x00020000] * 3,
+                "vertex_geometry_known": [0x00020000] * 3,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "geometry_clear",
+                "geometry_mask": 0x00020000,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "tri",
+                "face_index": 1,
+                "matrix_index": 0,
+                "vertex_geometry_mode": [0] * 3,
+                "vertex_geometry_known": [0x00020000] * 3,
+            },
+        ],
+    }
+    try:
+        render_report = validate_render_stream(valid_render_stream, 2)
+        if render_report.triangle_lighting.get("node_0_dl") != (
+                "on", "on", "on", "off", "off", "off"):
+            failures.append("RENDER-STREAM mixed lighting census is incorrect")
+    except RenderStreamError as exc:
+        failures.append(f"RENDER-STREAM valid mixed source rejected: {exc}")
+
+    # B-1106: schema v3 records every ordered source vertex load and the exact
+    # cache slots consumed by each triangle. A Type-3 boundary resets list-local
+    # geometry while retaining the bounded 64-slot table; a non-Type-3 boundary
+    # explicitly clears it. The compiler may relocate a load only when its
+    # known-state domain and the triangle-time domain become equal after the
+    # deterministic Type-3 baseline is applied.
+    scoped_render_stream = {
+        "pd_kind": "mesh_render_commands",
+        "pd_schema_version": 3,
+        "commands": [
+            {
+                "group": "node_0_dl",
+                "command": "vertex_load",
+                "slot_first": 0,
+                "slot_count": 3,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "geometry_set",
+                "geometry_mask": 0x00020000,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "tri",
+                "face_index": 0,
+                "matrix_index": 0,
+                "vertex_geometry_mode": [0] * 3,
+                "vertex_geometry_known": [0] * 3,
+                "vertex_cache_slots": [0, 1, 2],
+            },
+            {
+                "group": "node_0_dl",
+                "command": "vertex_scope",
+            },
+            {
+                "group": "node_0_dl",
+                "command": "geometry_set",
+                "geometry_mask": 0x00040000,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "vertex_load",
+                "slot_first": 1,
+                "slot_count": 2,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "tri",
+                "face_index": 1,
+                "matrix_index": 0,
+                "vertex_geometry_mode": [0, 0x00040000, 0x00040000],
+                "vertex_geometry_known": [0, 0x00040000, 0x00040000],
+                "vertex_cache_slots": [0, 1, 2],
+            },
+        ],
+    }
+    try:
+        scoped_report = validate_render_stream(
+            scoped_render_stream, 2, {"node_0_dl": 3}
+        )
+        if scoped_report.vertex_scope_counts.get("node_0_dl") != 1:
+            failures.append("RENDER-STREAM Type-3 scope census is incorrect")
+        if scoped_report.triangle_lighting.get("node_0_dl") != (
+                "baseline", "baseline", "baseline",
+                "baseline", "baseline", "baseline"):
+            failures.append("RENDER-STREAM Type-3 scope state is incorrect")
+        if scoped_report.retained_vertex_corner_counts.get("node_0_dl") != 1:
+            failures.append("RENDER-STREAM retained slot census is incorrect")
+    except RenderStreamError as exc:
+        failures.append(f"RENDER-STREAM valid Type-3 scope rejected: {exc}")
+
+    reset_render_stream = {
+        "pd_kind": "mesh_render_commands",
+        "pd_schema_version": 3,
+        "commands": [
+            {
+                "group": "node_0_dl",
+                "command": "vertex_load",
+                "slot_first": 0,
+                "slot_count": 3,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "tri",
+                "face_index": 0,
+                "matrix_index": 0,
+                "vertex_geometry_mode": [0] * 3,
+                "vertex_geometry_known": [0] * 3,
+                "vertex_cache_slots": [0, 1, 2],
+            },
+            {
+                "group": "node_0_dl",
+                "command": "vertex_cache_reset",
+            },
+            {
+                "group": "node_0_dl",
+                "command": "geometry_set",
+                "geometry_mask": 0x00020000,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "vertex_load",
+                "slot_first": 0,
+                "slot_count": 3,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "tri",
+                "face_index": 1,
+                "matrix_index": 0,
+                "vertex_geometry_mode": [0x00020000] * 3,
+                "vertex_geometry_known": [0x00020000] * 3,
+                "vertex_cache_slots": [0, 1, 2],
+            },
+        ],
+    }
+    try:
+        reset_report = validate_render_stream(
+            reset_render_stream, 2, {"node_0_dl": 4}
+        )
+        if reset_report.vertex_cache_reset_counts.get("node_0_dl") != 1:
+            failures.append("RENDER-STREAM cache-reset census is incorrect")
+        if reset_report.triangle_lighting.get("node_0_dl") != (
+                "inherited", "inherited", "inherited",
+                "on", "on", "on"):
+            failures.append("RENDER-STREAM cache-reset state is incorrect")
+    except RenderStreamError as exc:
+        failures.append(f"RENDER-STREAM valid cache reset rejected: {exc}")
+
+    type3_reset_stream = json.loads(json.dumps(reset_render_stream))
+    try:
+        validate_render_stream(type3_reset_stream, 2, {"node_0_dl": 3})
+        failures.append("RENDER-STREAM accepted Type-3 cache reset")
+    except RenderStreamError as exc:
+        if "requires one non-Type-3 render owner" not in str(exc):
+            failures.append(
+                "RENDER-STREAM Type-3 cache reset rejected for wrong reason: "
+                f"{exc}"
+            )
+
+    scope_owner_stream = json.loads(json.dumps(scoped_render_stream))
+    del scope_owner_stream["commands"][1]
+    for label, render_modes, expected_error in (
+        ("non-Type-3 scope", {"node_0_dl": 4}, "Type-3 render owner"),
+        ("unowned scope", {}, "one unique render owner"),
+    ):
+        try:
+            validate_render_stream(scope_owner_stream, 2, render_modes)
+            failures.append(f"RENDER-STREAM accepted {label}")
+        except RenderStreamError as exc:
+            if expected_error not in str(exc):
+                failures.append(
+                    f"RENDER-STREAM {label} rejected for wrong reason: {exc}"
+                )
+
+    schema2_scope_stream = json.loads(json.dumps(scoped_render_stream))
+    schema2_scope_stream["pd_schema_version"] = 2
+    try:
+        validate_render_stream(schema2_scope_stream, 2, {"node_0_dl": 3})
+        failures.append("RENDER-STREAM schema v2 accepted vertex_scope")
+    except RenderStreamError as exc:
+        if "invalid command" not in str(exc):
+            failures.append(
+                f"RENDER-STREAM schema v2 scope rejected for wrong reason: {exc}"
+            )
+
+    repeated_scope_stream = json.loads(json.dumps(scoped_render_stream))
+    repeated_scope_stream["commands"].insert(5, {
+        "group": "node_0_dl",
+        "command": "vertex_scope",
+    })
+    try:
+        validate_render_stream(
+            repeated_scope_stream, 2, {"node_0_dl": 3}
+        )
+        failures.append("RENDER-STREAM accepted repeated Type-3 scope")
+    except RenderStreamError as exc:
+        if "repeats the single Type-3 list boundary" not in str(exc):
+            failures.append(
+                "RENDER-STREAM repeated Type-3 scope rejected for wrong reason: "
+                f"{exc}"
+            )
+
+    unloaded_slot_stream = json.loads(json.dumps(scoped_render_stream))
+    unloaded_slot_stream["commands"][6]["vertex_cache_slots"][0] = 63
+    try:
+        validate_render_stream(
+            unloaded_slot_stream, 2, {"node_0_dl": 3}
+        )
+        failures.append("RENDER-STREAM accepted unloaded retained slot")
+    except RenderStreamError as exc:
+        if "references unloaded vertex slot" not in str(exc):
+            failures.append(
+                "RENDER-STREAM unloaded slot rejected for wrong reason: "
+                f"{exc}"
+            )
+
+    mismatched_slot_stream = json.loads(json.dumps(scoped_render_stream))
+    mismatched_slot_stream["commands"][6]["vertex_geometry_known"][0] = (
+        0x00040000
+    )
+    try:
+        validate_render_stream(
+            mismatched_slot_stream, 2, {"node_0_dl": 3}
+        )
+        failures.append("RENDER-STREAM accepted false retained-slot snapshot")
+    except RenderStreamError as exc:
+        if "ambiguous G_VTX geometry state" not in str(exc):
+            failures.append(
+                "RENDER-STREAM false retained snapshot rejected for wrong reason: "
+                f"{exc}"
+            )
+
+    unrelocatable_fog_stream = {
+        "pd_kind": "mesh_render_commands",
+        "pd_schema_version": 3,
+        "commands": [
+            {
+                "group": "node_0_dl",
+                "command": "geometry_set",
+                "geometry_mask": 0x00010000,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "vertex_load",
+                "slot_first": 0,
+                "slot_count": 1,
+            },
+            {
+                "group": "node_0_dl",
+                "command": "vertex_scope",
+            },
+            {
+                "group": "node_0_dl",
+                "command": "tri",
+                "face_index": 0,
+                "matrix_index": 0,
+                "vertex_geometry_mode": [0x00010000] * 3,
+                "vertex_geometry_known": [0x00010000] * 3,
+                "vertex_cache_slots": [0, 0, 0],
+            },
+        ],
+    }
+    try:
+        validate_render_stream(
+            unrelocatable_fog_stream, 1, {"node_0_dl": 3}
+        )
+        failures.append("RENDER-STREAM accepted unrelocatable fog load")
+    except RenderStreamError as exc:
+        if "unrelocatable G_VTX geometry state" not in str(exc):
+            failures.append(
+                "RENDER-STREAM unrelocatable fog rejected for wrong reason: "
+                f"{exc}"
+            )
+
+    overflow_matrix_stream = json.loads(json.dumps(scoped_render_stream))
+    overflow_matrix_stream["commands"][2]["matrix_index"] = (
+        MAX_MATRIX_INDEX + 1
+    )
+    try:
+        validate_render_stream(
+            overflow_matrix_stream, 2, {"node_0_dl": 3}
+        )
+        failures.append("RENDER-STREAM accepted overflowing matrix index")
+    except RenderStreamError as exc:
+        if "invalid matrix_index" not in str(exc):
+            failures.append(
+                "RENDER-STREAM matrix overflow rejected for wrong reason: "
+                f"{exc}"
+            )
+
+    unowned_command_stream = json.loads(json.dumps(valid_render_stream))
+    unowned_command_stream["commands"][0]["group"] = "node_99_dl"
+    try:
+        validate_render_stream(
+            unowned_command_stream, 2, {"node_0_dl": 3}
+        )
+        failures.append("RENDER-STREAM accepted unowned non-triangle command")
+    except RenderStreamError as exc:
+        if "one unique render owner" not in str(exc):
+            failures.append(
+                "RENDER-STREAM unowned command rejected for wrong reason: "
+                f"{exc}"
+            )
+
+    legacy_render_stream = {
+        "schema": "pd2.mesh.render.v1",
+        "pd_kind": "mesh_render_commands",
+        "commands": [{
+            "group": "node_0_dl",
+            "command": "tri",
+            "face_index": 0,
+            "matrix_index": 0,
+        }],
+    }
+    try:
+        legacy_report = validate_render_stream(legacy_render_stream, 1)
+        if legacy_report.schema_version != 1:
+            failures.append("RENDER-STREAM legacy schema did not resolve to v1")
+    except RenderStreamError as exc:
+        failures.append(f"RENDER-STREAM historical v1 source rejected: {exc}")
+
+    duplicate_render_stream = json.loads(json.dumps(valid_render_stream))
+    duplicate_render_stream["commands"][3]["face_index"] = 0
+    ambiguous_render_stream = json.loads(json.dumps(valid_render_stream))
+    # Keep mode within known so this fixture reaches the intended load-state
+    # coverage rejection rather than the earlier subset check.
+    ambiguous_render_stream["commands"][1]["vertex_geometry_mode"] = [0] * 3
+    ambiguous_render_stream["commands"][1]["vertex_geometry_known"] = [0] * 3
+    for label, candidate, expected_error in (
+        ("duplicate face", duplicate_render_stream, "exactly once"),
+        ("ambiguous vertex state", ambiguous_render_stream,
+         "ambiguous G_VTX geometry state"),
+    ):
+        try:
+            validate_render_stream(candidate, 2)
+            failures.append(f"RENDER-STREAM accepted {label}")
+        except RenderStreamError as exc:
+            if expected_error not in str(exc):
+                failures.append(
+                    f"RENDER-STREAM {label} rejected for wrong reason: {exc}"
                 )
 
     # Recursion: a numeric ref nested in a list/dict is still caught.

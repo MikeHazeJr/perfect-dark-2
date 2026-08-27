@@ -14,6 +14,9 @@ Code:
   Node API, durable typed records, append-only notes/activity, unified web UI).
 - Session/queue coordination:
   [Tools/CodexCoordination/](../../Tools/CodexCoordination/).
+- Repo-local Codex lifecycle enforcement:
+  [.codex/hooks.json](../../.codex/hooks.json) and
+  [.codex/hooks/workbench_session.py](../../.codex/hooks/workbench_session.py).
 - Build entry: [devtools/build-headless.ps1](../../devtools/build-headless.ps1) (715 lines).
 - Per-session isolated build: [devtools/build-session.ps1](../../devtools/build-session.ps1) (847 lines).
 - Bash equivalent prelude: [devtools/build-env.sh](../../devtools/build-env.sh).
@@ -84,6 +87,18 @@ port and refuses a server for a different project/data root. Regression coverage
 lives in `Tools/Workbench/test-workbench.js` and exercises the repository's
 actual linked worktree. Metadata resolves identity per request so branch/HEAD
 remain current after commits without restarting the server.
+
+**Workbench session lifecycle hook (T-TOOLING-004, 2026-08-10):** Codex loads
+the trusted repo-local `.codex/hooks.json` lifecycle. `SessionStart` maps the
+real Codex session ID to a stable live coordination registration and injects
+canonical Workbench state. File edit tools fail closed when canonical metadata
+is unavailable, the session owns no active item, or targeted new notes remain.
+Post-edit receipts require a later Workbench item update or durable note before
+normal turn completion, with an automated session-end handoff as the last-resort
+recovery path. Operational receipts stay ignored under
+`.codex-coordination/hook-sessions/`; durable truth remains exclusively in the
+Workbench. `Tools/Workbench/test-workbench-session-hook.py` pins config shape,
+canonical identity checks, ownership/note gates, and stop synchronization.
 
 WPF GUI (`devtools/dev-window-v2/`) for build / run / version / status / git Pull and Push. DPI-aware (S255). Async RunspacePool (1-3 threads) for non-blocking UI updates (S361). Pre-build git sync (S257) via `Invoke-GitSyncBeforeBuild`. Single-exe consistency rules (S270).
 
@@ -194,6 +209,8 @@ Per [procedures.md](../procedures.md) and [constraints.md](../constraints.md):
 - **Pre-build git sync via Dev Window** (`Invoke-GitSyncBeforeBuild`); avoid leaving staged edits mid-pipeline.
 - **No em-dashes** in `.ps1` files (Windows-1252 encoding causes silent truncation, see SP-9 Mode A).
 - **No hooks bypass** (`--no-verify`, `--no-gpg-sign`) unless Mike explicitly authorizes.
+- **Codex Workbench hooks stay enabled and trusted.** Review changed definitions
+  through `/hooks`; do not disable or bypass lifecycle enforcement to edit.
 - **Ed25519 keypair generation is automated** on first build ([build-headless.ps1:852-864](../../devtools/build-headless.ps1:852)).
 
 ---

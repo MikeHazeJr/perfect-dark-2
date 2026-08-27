@@ -6841,8 +6841,8 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			texture_scale_t = (u16)(w1 & 0xffffu);
 		} else if (op == G_VTX) {
 			u32 w0 = (u32)cmd->words.w0;
-			u32 count = (w0 & 0xffffu) / (u32)sizeof(Vtx);
-			u32 dest = (w0 >> 16) & 0x0fu;
+			u32 count = GBI_VTX_COUNT_FROM_W0(w0);
+			u32 dest = GBI_VTX_DEST_FROM_W0(w0);
 			u32 off = (u32)(UNSEGADDR(cmd->words.w1) & 0x00ffffffu);
 			if (count == 0 || count > 16u || dest + count > 16u) continue;
 			if (off > vertex_span ||

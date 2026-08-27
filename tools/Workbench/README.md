@@ -68,6 +68,12 @@ separate task store.
 ## Required agent flow
 
 1. Read `AGENTS.md`, this file, and `SCHEMAS.md`.
+   Codex automatically runs the repo-local lifecycle configuration in
+   `.codex/hooks.json` after the user reviews and trusts it with `/hooks`.
+   `SessionStart` registers a stable coordination identity and injects the
+   current Workbench summary. File-edit hooks fail closed until that identity
+   owns an active item and has processed its targeted new notes. A post-edit
+   `Stop` check requires a later item update or durable note.
 2. Verify `/api/meta` reports the canonical project/data root.
 3. Run coordination `status`, then `register`.
 4. Read `data/roadmap.json` and fold `data/notes.jsonl`.
@@ -83,6 +89,11 @@ separate task store.
 Use the API whenever the server is running. Offline edits to `roadmap.json` are
 allowed only for recovery or bootstrap and must include a matching append-only
 changelog event.
+
+The lifecycle hook is a guardrail, not a replacement for judgment. It does not
+choose an item, resolve ownership conflicts, infer dependencies, or reserve an
+exclusive resource. Sessions remain responsible for those choices and for
+truthful evidence/status updates.
 
 ## Common API calls
 

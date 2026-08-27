@@ -606,6 +606,8 @@ TEST_CASE("asset native-source guard is tracked by tests and source docs",
 		readTextFile("tools/verify_audio_sources.py");
 	const std::string pdmesh_checker =
 		readTextFile("tools/verify_pdmesh_sources.py");
+	const std::string pdmesh_render_stream =
+		readTextFile("tools/pdmesh_render_stream.py");
 	const std::string workflow_checker =
 		readTextFile("tools/verify_pdxxx_modder_workflow.py");
 	REQUIRE(conformance.find("Strict conformance checks for PD2 typed asset archives") !=
@@ -772,7 +774,21 @@ TEST_CASE("asset native-source guard is tracked by tests and source docs",
 	        std::string::npos);
 	REQUIRE(pdmesh_checker.find("model.faces.json") !=
 	        std::string::npos);
-	REQUIRE(pdmesh_checker.find("model.render.json must reference every model.faces.json face exactly once") !=
+	REQUIRE(pdmesh_checker.find("render_root, len(faces), render_group_modes") !=
+	        std::string::npos);
+	REQUIRE(pdmesh_render_stream.find("model.render.json must reference every model.faces.json face") !=
+	        std::string::npos);
+	REQUIRE(pdmesh_render_stream.find("SCHEMA_CURRENT = 3") !=
+	        std::string::npos);
+	REQUIRE(pdmesh_render_stream.find("vertex_load") != std::string::npos);
+	REQUIRE(pdmesh_render_stream.find("vertex_scope") != std::string::npos);
+	REQUIRE(pdmesh_render_stream.find("vertex_cache_reset") !=
+	        std::string::npos);
+	REQUIRE(pdmesh_render_stream.find("vertex_cache_slots") !=
+	        std::string::npos);
+	REQUIRE(pdmesh_render_stream.find("MAX_MATRIX_INDEX = 32766") !=
+	        std::string::npos);
+	REQUIRE(pdmesh_render_stream.find("unrelocatable G_VTX geometry state") !=
 	        std::string::npos);
 	REQUIRE(workflow_checker.find("Verify the all-family typed .pdxxx modder workflow") !=
 	        std::string::npos);
@@ -10815,7 +10831,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(mesh_walker.find("catalogSetPrimaryFile(e, source_path)") ==
 	        std::string::npos);
-	REQUIRE(mesh_extractor.find("pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models") !=
+	REQUIRE(mesh_extractor.find("pdmesh_model_obj_mtx_v28_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_allmodels_menuhud_zero_tri_models_top_level_policy_gbi_vtxcount_paircache") !=
 	        std::string::npos);
 	REQUIRE(mesh_extractor.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
 	        std::string::npos);
@@ -13903,7 +13919,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(modasset_compiler_h.find(
 	        "#define MODASSET_COMPILER_ANIMATION_VERSION 8") !=
 	        std::string::npos);
-	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_MODELDEF_VERSION 10") !=
+	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_MODELDEF_VERSION 12") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("modAssetCompilerSkeletonForSymbol") !=
 	        std::string::npos);

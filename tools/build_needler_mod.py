@@ -495,6 +495,7 @@ def build_held_weapon_mesh() -> bytes:
     model_render = {
         "schema": "pd2.mesh.render.v1",
         "pd_kind": "mesh_render_commands",
+        "pd_schema_version": 1,
         "commands": [
             {"group": "-", "command": "tri",
              "face_index": i, "matrix_index": 0}

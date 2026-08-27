@@ -292,8 +292,8 @@ static void extractGfxTris(Gfx *gdl, Vtx *vbuf, s32 numverts,
 
 		if (cmd == (u8)G_VTX) {
 			/* gSPVertex: load N vertices starting at slot v0 */
-			s32 n = ((w0 >> 4) & 0xf) + 1;
-			s32 v0 = (w0 & 0xf);
+			s32 n = (s32)GBI_VTX_COUNT_FROM_W0(w0);
+			s32 v0 = (s32)GBI_VTX_DEST_FROM_W0(w0);
 			uintptr_t src = (uintptr_t)w1;
 			uintptr_t vstart = (uintptr_t)vbuf;
 			uintptr_t vend = vstart + vbytes;
@@ -686,17 +686,24 @@ s32 meshWorldAddRenderedRoom(s32 roomnum)
 		}
 
 		Vtx *vtx = (Vtx *)((UNSEGADDR(iter->words.w1) & 0xffffff) + (uintptr_t)basevtx);
-		s32 numvertices = (((u32)iter->bytes[GFX_W0_BYTE(1)] >> 4) & 0xf) + 1;
+		u32 vertex_word = (u32)iter->words.w0;
+		s32 numvertices = (s32)GBI_VTX_COUNT_FROM_W0(vertex_word);
+		s32 vertex_dest = (s32)GBI_VTX_DEST_FROM_W0(vertex_word);
 		struct coord slots[64];
+		u8 valid_slots[64];
+		memset(valid_slots, 0, sizeof(valid_slots));
 
-		if (numvertices > 64) {
-			numvertices = 64;
+		if (numvertices <= 0 || vertex_dest < 0 ||
+				vertex_dest + numvertices > 64) {
+			continue;
 		}
 
 		for (s32 vi = 0; vi < numvertices; vi++) {
-			slots[vi].x = g_BgRooms[roomnum].pos.x + vtx[vi].x;
-			slots[vi].y = g_BgRooms[roomnum].pos.y + vtx[vi].y;
-			slots[vi].z = g_BgRooms[roomnum].pos.z + vtx[vi].z;
+			s32 slot = vertex_dest + vi;
+			slots[slot].x = g_BgRooms[roomnum].pos.x + vtx[vi].x;
+			slots[slot].y = g_BgRooms[roomnum].pos.y + vtx[vi].y;
+			slots[slot].z = g_BgRooms[roomnum].pos.z + vtx[vi].z;
+			valid_slots[slot] = 1;
 		}
 
 		iter++;
@@ -723,7 +730,9 @@ s32 meshWorldAddRenderedRoom(s32 roomnum)
 				s32 p2 = points[ti][2];
 				if ((p0 == 0 && p1 == 0 && p2 == 0)
 						|| p0 < 0 || p1 < 0 || p2 < 0
-						|| p0 >= numvertices || p1 >= numvertices || p2 >= numvertices) {
+						|| p0 >= 64 || p1 >= 64 || p2 >= 64
+						|| !valid_slots[p0] || !valid_slots[p1] ||
+						!valid_slots[p2]) {
 					continue;
 				}
 

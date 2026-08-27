@@ -16,6 +16,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from pdmesh_render_stream import (
+    MAX_MATRIX_INDEX,
+    RENDER_NODE_TYPES,
+    RenderStreamError,
+    validate_render_stream,
+)
+
 
 DIRECT_MODEL_SOURCES = ("model.obj", "model.gltf", "model.glb")
 GLTF_COMPONENT_SIZES = {
@@ -529,6 +536,7 @@ def validate_hierarchy(label: str, archive: Archive, names: set[str],
         errors.append(f"{label} model.render.json must contain a non-empty commands array")
         return None
 
+    render_group_modes: dict[str, int] = {}
     for index, node in enumerate(nodes):
         if not isinstance(node, dict):
             errors.append(f"{label} model.nodes.json node {index} is not an object")
@@ -540,6 +548,38 @@ def validate_hierarchy(label: str, archive: Archive, names: set[str],
         if not isinstance(parent, int) or parent >= len(nodes):
             errors.append(f"{label} model.nodes.json node {index} has invalid parent {parent!r}")
             return None
+        for matrix_field in ("mtx0", "mtx1", "mtx2", "render_mtx"):
+            matrix_value = node.get(matrix_field)
+            if (isinstance(matrix_value, bool) or
+                    not isinstance(matrix_value, int) or
+                    matrix_value < -1 or matrix_value > MAX_MATRIX_INDEX):
+                errors.append(
+                    f"{label} model.nodes.json node {index} has invalid "
+                    f"{matrix_field} {matrix_value!r}"
+                )
+                return None
+        node_type = node.get("type")
+        if isinstance(node_type, bool) or not isinstance(node_type, int):
+            errors.append(f"{label} model.nodes.json node {index} has invalid type {node_type!r}")
+            return None
+        if node_type in RENDER_NODE_TYPES:
+            group = node.get("group")
+            mcount = node.get("mcount")
+            if not isinstance(group, str) or not group.strip():
+                errors.append(f"{label} model.nodes.json render node {index} must declare group")
+                return None
+            if isinstance(mcount, bool) or not isinstance(mcount, int):
+                errors.append(
+                    f"{label} model.nodes.json render node {index} must "
+                    "declare integer mcount"
+                )
+                return None
+            if group in render_group_modes:
+                errors.append(
+                    f"{label} model.nodes.json duplicates render group {group!r}"
+                )
+                return None
+            render_group_modes[group] = mcount
     for index, part in enumerate(parts):
         if not isinstance(part, dict):
             errors.append(f"{label} model.parts.json part {index} is not an object")
@@ -565,37 +605,35 @@ def validate_hierarchy(label: str, archive: Archive, names: set[str],
             errors.append(f"{label} model.faces.json duplicates face_index {face_index}")
             return None
         seen_faces.add(face_index)
-        if not isinstance(matrix_index, int) or matrix_index < 0:
+        if (isinstance(matrix_index, bool) or
+                not isinstance(matrix_index, int) or matrix_index < 0 or
+                matrix_index > MAX_MATRIX_INDEX):
             errors.append(f"{label} model.faces.json row {index} has invalid matrix_index {matrix_index!r}")
             return None
+        if "vtx_matrix" in face:
+            vtx_matrix = face.get("vtx_matrix")
+            if (not isinstance(vtx_matrix, list) or len(vtx_matrix) != 3 or
+                    any(isinstance(value, bool) or not isinstance(value, int) or
+                        value < 0 or value > MAX_MATRIX_INDEX
+                        for value in vtx_matrix)):
+                errors.append(
+                    f"{label} model.faces.json row {index} has invalid "
+                    f"vtx_matrix {vtx_matrix!r}"
+                )
+                return None
 
-    tri_faces: list[int] = []
-    matrix_commands = 0
-    for index, command in enumerate(commands):
-        if not isinstance(command, dict):
-            errors.append(f"{label} model.render.json command {index} is not an object")
-            return None
-        name = command.get("command")
-        if name not in {"mtx", "pop", "material", "tri"}:
-            errors.append(f"{label} model.render.json command {index} has invalid command {name!r}")
-            return None
-        if name == "mtx":
-            matrix_commands += 1
-        if name in {"mtx", "tri"} and "matrix_index" in command:
-            matrix_index = command.get("matrix_index")
-            if not isinstance(matrix_index, int) or matrix_index < 0:
-                errors.append(f"{label} model.render.json command {index} has invalid matrix_index {matrix_index!r}")
-                return None
-        if name == "tri":
-            face_index = command.get("face_index")
-            if not isinstance(face_index, int) or face_index < 0 or face_index >= len(faces):
-                errors.append(f"{label} model.render.json tri command {index} has invalid face_index {face_index!r}")
-                return None
-            tri_faces.append(face_index)
-    if len(tri_faces) != len(faces) or len(set(tri_faces)) != len(faces):
-        errors.append(
-            f"{label} model.render.json must reference every model.faces.json face exactly once"
+    try:
+        render_report = validate_render_stream(
+            render_root, len(faces), render_group_modes
         )
+    except RenderStreamError as exc:
+        errors.append(f"{label} {exc}")
+        return None
+    unowned_groups = sorted(
+        set(render_report.triangle_groups) - set(render_group_modes)
+    )
+    if unowned_groups:
+        errors.append(f"{label} model.render.json has unowned triangle groups {unowned_groups}")
         return None
 
     stats.hierarchy_archives += 1
@@ -603,13 +641,13 @@ def validate_hierarchy(label: str, archive: Archive, names: set[str],
     stats.parts += len(parts)
     stats.faces += len(faces)
     stats.render_commands += len(commands)
-    stats.matrix_commands += matrix_commands
+    stats.matrix_commands += render_report.matrix_command_count
     return HierarchyInfo(
         node_count=len(nodes),
         part_count=len(parts),
         face_count=len(faces),
         render_command_count=len(commands),
-        matrix_command_count=matrix_commands,
+        matrix_command_count=render_report.matrix_command_count,
     )
 
 

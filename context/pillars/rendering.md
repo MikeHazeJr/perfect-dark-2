@@ -2,6 +2,79 @@
 
 > fast3d: N64 GBI display lists translated at runtime to OpenGL. Function-pointer-table backend abstraction (`GfxRenderingAPI` + `GfxWindowManagerAPI`). Dear ImGui v1.91.8 overlay through the same SDL2 + OpenGL context. Theme system decodes ROM textures to RGBA32 and uploads as GL textures.
 
+## 2026-08-26 B-1086/B-1106 typed geometry-state repair (replacement source connected)
+
+The Carrington door trace found a shared public-source boundary, not a white
+material authored on one object. `base:model_instfrontdoor` and
+`base:model_cidoor1_ref` are Type-4 display-list nodes whose four-byte vertex
+carriers are polymorphic: `G_LIGHTING` determines whether fast3d interprets
+them as normals or literal RGBA. Schema v2 therefore records exact geometry
+set/clear order, per-corner load-time geometry, resolved colour-table bytes,
+matrix ownership, and complete face/group ownership. The compiler replays that
+state while leaving each node Type's combine/cycle authoritative; malformed or
+ambiguous streams fail closed. Exact named legacy v1 remains supported.
+
+Recursive extraction now owns one strict 64-slot vertex cache, terminates
+non-returning branches, and rejects cycles, depth/cap truncation, invalid loads,
+and missing slots. A separate typed top-level planner preserves legitimate
+zero-triangle/rootless modeldefs without weakening admitted recursion. Semantic
+`G_VTX` count/destination decoding is shared by fast3d, mesh extraction,
+collision, and arena conversion; star-gunfire uses its complete `unk00 * 4`
+domain; only consecutive Type-3 opaque/translucent lists share top-level cache;
+and room collision honors destination slots with exact ownership. Export/cache
+v23/v26 invalidates partial predecessors, while current-kind reuse requires the
+complete descriptor, manifest, seven public sources and sidecars, five common
+metadata members, and matching identity.
+
+Exact frozen client `36EA05D1...` passes focused 97 assertions/7 cases,
+complete 67,361/1,230, conformance, recursive examples/workflow,
+native-source guard, fixture parsing, and unchanged 10-product/20-verifier
+source manifests. Ordinary-client receipt `results-20260826T193629Z.json`
+cleanly exports 733/733 meshes and exits, accepting the shared command-decoding,
+star, pair-cache, and room-collision correction. It remains rejected at 20/26
+for visual closure because B-1106 fails `base:sp_body_118` / nested
+`base:model_cchicrob` modeldef conversion and transactionally rolls back the
+Main Menu manifest before either door source activates. The six retained
+captures remain outside Carrington.
+
+The B-1106 trace now identifies the exact contract gap. Type-3 opaque and
+translucent display lists execute consecutively with one live RSP vertex cache,
+but the extractor deliberately resets its geometry knowledge at the list
+transition. Flattened schema v2 omitted that scope, so the strict compiler
+carried `0x60000` forward and rejected 33 corners across 11 faces in
+`node_2_dl`, `node_6_dl`, and `node_10_dl` when their source-known masks reset
+to zero. This is not a malformed archive, skeleton, topology, part, material,
+or face-ownership failure.
+
+Current source publishes exact schema-v3 cache provenance. Every source
+`G_VTX` becomes an ordered `vertex_load` with its destination range, and every
+triangle names the exact three `vertex_cache_slots` it consumes. The one
+opaque/translucent boundary is typed by ownership: a uniquely owned Type-3
+group emits `vertex_scope` and retains its complete bounded 64-slot table;
+every non-Type-3 group emits `vertex_cache_reset` and clears the table. The C
+runtime and shared Python validator simulate the same ordered table, reject an
+unloaded slot or a per-corner snapshot that differs from the slot's load-time
+known/value state, require complete face/group ownership, reject malformed or
+mixed command arrays, and cap every hierarchy/face/render matrix carrier at
+32766 before its positive s16 matrix-count publication.
+
+The compiler still flattens source slots into fresh per-triangle vertex loads,
+so validation also proves relocation is reversible. For Type-3 only, the
+existing deterministic baseline fills inherited lighting-on and
+texture-generation-off state; explicit source commands can override those bits
+for a load and the compiler restores the draw-time value afterward. Fog stays
+caller-owned and outside that baseline, so a load/draw fog-known mismatch is
+unrelocatable and rejected instead of guessed. This exact rule permits
+load-time and triangle-time modes to differ anywhere an ordered load proves the
+state; it does not grant a broad post-boundary relaxation. Schema v2 retains
+its original strict current-state match. Export/cache v25/v28 and
+generated-modeldef cache v12 invalidate stale products. Exact frozen client
+`7EF396C9...` / tests `4D14886D...` pass focused 143 assertions/8 cases,
+complete 67,451/1,231, all conformance/workflow/source/native guards, and zero
+product or verification overlap. No replacement extraction, Carrington
+capture, or visual closure is claimed yet; run one clean true-3440 ordinary
+client proof next.
+
 ## 2026-08-26 B-1105 material-slot activation repair (production verified)
 
 Source now preserves the complete ordered `model.mtl` material domain before
@@ -19,8 +92,8 @@ Strict fresh-cache ordinary receipt `results-20260826T152922Z.json` passes
 Mauler shots, no runtime native model boundary, and clean exit. Direct review
 of all four gameplay captures shows stable held placement and scale, readable
 silver/green materials, no endscreen, and no huge white first-person
-obstruction. B-1105 is now a V-009/V-010 regression gate. B-1086's separate
-Carrington Institute solid-white door report remains repro-required.
+obstruction. B-1105 is now a V-009/V-010 regression gate. B-1086 is separately
+source-connected above and remains pending consolidated production proof.
 
 ## 2026-08-13 generated display-list ownership
 

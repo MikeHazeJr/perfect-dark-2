@@ -115,9 +115,40 @@ The canonical context source is this `context/` tree. Parent-level briefing file
   exact world and both inventories, one commit, 30 authority-accepted Cyclone
   shots, clean exits, and no leaked process. B-1096/B-1097 are regression
   gates, completing T-ENGINE-004's finite section 9.10 lifecycle matrix. The
-  next implementation unit is B-1105 under V-010: repair the shared public
-  Mauler model activation/equip path and prove ordinary equip, fire, and render.
-  Milestone 1 remains partial.
+  active V-010 unit remains B-1086/B-1106. Its schema-v2 geometry stream, strict
+  recursive ownership, canonical parameter-byte `G_VTX` decoder, full star
+  domain, Type-3 pair cache continuity, room-collision destination ownership,
+  legacy-v1 migration, and complete-cache gate are now automation-accepted on
+  exact client `36EA05D1...`: focused 97/7, complete 67,361/1,230, every
+  conformance/workflow/native-source gate, and unchanged 10-product/20-verifier
+  source manifests. Ordinary-client receipt `results-20260826T193629Z.json`
+  cleanly extracted all 733/733 public meshes and exited cleanly, accepting the
+  former `vertex_load` and `triangle_slot` repair. The same receipt remains
+  rejected at 20/26 for visual closure because confirmed B-1106 makes
+  `base:sp_body_118` / nested `base:model_cchicrob` modeldef conversion fail,
+  rolls back 64 Main Menu loads, and prevents both Carrington door sources from
+  activating. Its six captures never reach Carrington and prove neither exact
+  door state nor the V-009 no-obstruction gate. Exact tracing found the shared
+  defect: Type-3 opaque/translucent lists retain vertex slots while resetting
+  geometry knowledge, but schema v2 lacked that boundary. The source-connected
+  schema-v3 repair now publishes every ordered `vertex_load`, every triangle's
+  exact `vertex_cache_slots`, and a typed paired-list boundary: `vertex_scope`
+  retains the bounded 64-slot table only for a unique Type-3 owner, while
+  `vertex_cache_reset` clears it for every other render type. C and Python
+  validators simulate that exact table, reject unloaded or false snapshots,
+  malformed command arrays, and matrix indices above 32766, and prove each
+  flattened load can restore triangle-time state. The deterministic Type-3
+  baseline owns inherited lighting/texture-generation state but never
+  caller-owned fog; an unrelocatable fog transition fails closed. Explicit load
+  provenance, rather than boundary position, is what permits load-time state to
+  differ from later draw state. Extractor v25/cache v28 plus modeldef cache v12
+  invalidate predecessors. Exact frozen client `7EF396C9...` and tests
+  `4D14886D...` now pass focused 143/8, complete 67,451/1,231, all
+  conformance/workflow/source/native guards, and zero product or verification
+  overlap. No replacement extraction, door activation, or visual evidence is
+  claimed yet. Next run the clean true-3440 Carrington production proof, then
+  retain representative Campaign and Combat Simulator propagation. Milestone 1
+  remains partial at 20 percent.
 - **Long-term roadmap**: [roadmap.md](roadmap.md).
 
 ---

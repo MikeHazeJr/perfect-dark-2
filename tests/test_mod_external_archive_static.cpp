@@ -1275,6 +1275,36 @@ std::string readNestedArchiveEntryText(mod_archive_t *archive,
 	return text;
 }
 
+std::string readArchiveChainEntryText(
+		const char *archivePath,
+		const std::vector<const char *> &nestedEntries,
+		const char *innerEntry) {
+	std::string archiveBytes = readFile(archivePath);
+
+	for (const char *nestedEntry : nestedEntries) {
+		u32 nestedSize = 0;
+		void *nestedBytes = modArchiveExtractMemAlloc(
+			archiveBytes.data(), static_cast<u32>(archiveBytes.size()),
+			nestedEntry, &nestedSize);
+		INFO(archivePath << " -> " << nestedEntry);
+		REQUIRE(nestedBytes != nullptr);
+		archiveBytes.assign(static_cast<const char *>(nestedBytes),
+			static_cast<size_t>(nestedSize));
+		free(nestedBytes);
+	}
+
+	u32 innerSize = 0;
+	void *innerBytes = modArchiveExtractMemAlloc(
+		archiveBytes.data(), static_cast<u32>(archiveBytes.size()),
+		innerEntry, &innerSize);
+	INFO(archivePath << " -> " << innerEntry);
+	REQUIRE(innerBytes != nullptr);
+	std::string text(static_cast<const char *>(innerBytes),
+		static_cast<size_t>(innerSize));
+	free(innerBytes);
+	return text;
+}
+
 std::string entryRelativePath(const std::string &baseEntry,
                               const std::string &relative) {
 	const size_t slash = baseEntry.find_last_of('/');
@@ -5478,6 +5508,7 @@ TEST_CASE("presentation_file mirrors and camera clause pins stay wired",
 
 	/* B6.4: the needler builder converged on the canonical spellings. */
 	const std::string needler = readFile("tools/build_needler_mod.py");
+	REQUIRE(needler.find("\"pd_schema_version\": 1") != std::string::npos);
 	REQUIRE(needler.find("pd.weapon_settings.v1") != std::string::npos);
 	REQUIRE(needler.find("pd.weapon_variables.v1") != std::string::npos);
 	REQUIRE(needler.find("pd.weapon.settings.v1") == std::string::npos);
@@ -5492,6 +5523,75 @@ TEST_CASE("presentation_file mirrors and camera clause pins stay wired",
 	REQUIRE(needler.find("track_type = rocket_launcher") != std::string::npos);
 	REQUIRE(needler.find("\"functions\":") == std::string::npos);
 	REQUIRE(needler.find("\"aimsettings\":") == std::string::npos);
+}
+
+TEST_CASE("checked-in legacy render streams declare schema v1 through every archive layer",
+		"[modding][pdxxx][render_stream][compat][B-1086]") {
+	struct RenderLeaf {
+		const char *label;
+		const char *outerArchive;
+		std::vector<const char *> nestedArchives;
+	};
+
+	const std::vector<RenderLeaf> leaves = {
+		{
+			"Needler held mesh",
+			"dev-mods/needler/needler.pdweapon",
+			{ "dependencies/assets/models/weapon.pdmesh" },
+		},
+		{
+			"body mesh",
+			"examples/modding/typed-pdxxx-basic/bodies/tri_body.pdbody",
+			{ "mesh.pdmesh" },
+		},
+		{
+			"body hand mesh",
+			"examples/modding/typed-pdxxx-basic/bodies/tri_body.pdbody",
+			{ "hand.pdmesh" },
+		},
+		{
+			"character body mesh",
+			"examples/modding/typed-pdxxx-basic/characters/tri_character.pdcharacter",
+			{ "dependencies/assets/body/tri_body.pdbody", "mesh.pdmesh" },
+		},
+		{
+			"character hand mesh",
+			"examples/modding/typed-pdxxx-basic/characters/tri_character.pdcharacter",
+			{ "dependencies/assets/body/tri_body.pdbody", "hand.pdmesh" },
+		},
+		{
+			"character head mesh",
+			"examples/modding/typed-pdxxx-basic/characters/tri_character.pdcharacter",
+			{ "dependencies/assets/head/tri_head.pdhead", "mesh.pdmesh" },
+		},
+		{
+			"head mesh",
+			"examples/modding/typed-pdxxx-basic/heads/tri_head.pdhead",
+			{ "mesh.pdmesh" },
+		},
+		{
+			"top-level mesh",
+			"examples/modding/typed-pdxxx-basic/meshes/tri_mesh.pdmesh",
+			{},
+		},
+		{
+			"weapon held mesh",
+			"examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon",
+			{ "dependencies/assets/models/weapon.pdmesh" },
+		},
+	};
+	const std::regex numericLegacySchema(
+		"\"pd_schema_version\"\\s*:\\s*1\\s*[,}]");
+
+	REQUIRE(leaves.size() == 9);
+	for (const RenderLeaf &leaf : leaves) {
+		CAPTURE(leaf.label, leaf.outerArchive);
+		const std::string renderStream = readArchiveChainEntryText(
+			leaf.outerArchive, leaf.nestedArchives, "model.render.json");
+		REQUIRE(std::regex_search(renderStream, numericLegacySchema));
+		REQUIRE(renderStream.find("\"schema\": \"pd2.mesh.render.v1\"") !=
+			std::string::npos);
+	}
 }
 
 TEST_CASE("public weapon activation hydrates and clears the loader-owned runtime adapter",
@@ -6082,9 +6182,42 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("jsonObjectArray(root, \"commands\", &commands)") != std::string::npos);
 	REQUIRE(compiler.find("jsonObjectString(object, \"command\"") != std::string::npos);
 	REQUIRE(compiler.find("model.render.tsv") == std::string::npos);
-	REQUIRE(compiler.find("GENERATED_RENDER_OP_MTX") != std::string::npos);
-	REQUIRE(compiler.find("GENERATED_RENDER_OP_POP") != std::string::npos);
+	REQUIRE(compiler.find("MODASSET_RENDER_OP_MTX") != std::string::npos);
+	REQUIRE(compiler.find("MODASSET_RENDER_OP_POP") != std::string::npos);
+	REQUIRE(compiler.find("MODASSET_RENDER_OP_GEOMETRY_SET") != std::string::npos);
+	REQUIRE(compiler.find("MODASSET_RENDER_OP_GEOMETRY_CLEAR") != std::string::npos);
+	REQUIRE(compiler.find("MODASSET_RENDER_OP_VERTEX_LOAD") != std::string::npos);
+	REQUIRE(compiler.find("MODASSET_RENDER_OP_VERTEX_SCOPE") != std::string::npos);
+	REQUIRE(compiler.find("MODASSET_RENDER_OP_VERTEX_CACHE_RESET") != std::string::npos);
+	REQUIRE(compiler.find("vertex_cache_slots") != std::string::npos);
+	REQUIRE(compiler.find("jsonArrayNextContainerStrict(commands") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("jsonObjectOptionalInt") != std::string::npos);
+	REQUIRE(compiler.find("jsonObjectU32(object, \"geometry_mask\"") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("vertex_geometry_mode") != std::string::npos);
+	REQUIRE(compiler.find("vertex_geometry_known") != std::string::npos);
+	REQUIRE(compiler.find("emitGeneratedKnownGeometryMode") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("modAssetRenderStreamPreservesNodeCombine") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("modAssetRenderStreamResolveSchema") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("mcount == 3 || (use_render_stream &&") !=
+	        std::string::npos);
 	REQUIRE(compiler.find("generatedRenderStreamTriCount") != std::string::npos);
+	REQUIRE(compiler.find("face_seen[row->face]") != std::string::npos);
+	REQUIRE(compiler.find("generatedRenderStreamContractValid") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("modAssetRenderStreamCompilerVertexBaseline") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("invalid vertex scope") != std::string::npos);
+	REQUIRE(compiler.find("invalid vertex cache reset") != std::string::npos);
+	REQUIRE(compiler.find("invalid vertex cache reference") != std::string::npos);
+	REQUIRE(compiler.find("modAssetRenderStreamVertexRelocationValid") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("unrelocatable G_VTX state") != std::string::npos);
+	REQUIRE(compiler.find("duplicate render owner") != std::string::npos);
 	REQUIRE(compiler.find("generatedModeldefRegister(owner)") != std::string::npos);
 	REQUIRE(compiler.find("generatedModeldefUnregister(owner)") != std::string::npos);
 	REQUIRE(compiler.find("MODASSET.RENDER: generated source modeldef rendered") != std::string::npos);
@@ -6095,6 +6228,10 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("gSPPopMatrix(gdl++") != std::string::npos);
 
 	const std::string conformance = readFile("tools/asset_archive_conformance.py");
+	const std::string render_stream_contract =
+		readFile("tools/pdmesh_render_stream.py");
+	const std::string render_state_verifier =
+		readFile("tools/verify_pdmesh_render_state.py");
 	REQUIRE(conformance.find("validate_pdmesh_integer_native_boundary") != std::string::npos);
 	REQUIRE(conformance.find("validate_direct_model_source_integer_native_boundary") != std::string::npos);
 	REQUIRE(conformance.find("validate_pdmesh_obj_integer_native_boundary") != std::string::npos);
@@ -6116,6 +6253,58 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(conformance.find("manifest.get(key)") != std::string::npos);
 	REQUIRE(conformance.find("vertex cannot quantize to native s16 coordinates") != std::string::npos);
 	REQUIRE(conformance.find("texcoord cannot quantize to native s16 UV units") != std::string::npos);
+	REQUIRE(conformance.find("render_root, len(faces), render_group_modes") !=
+	        std::string::npos);
+	REQUIRE(conformance.find("duplicates render group") != std::string::npos);
+	REQUIRE(render_stream_contract.find("geometry_set") != std::string::npos);
+	REQUIRE(render_stream_contract.find("geometry_clear") != std::string::npos);
+	REQUIRE(render_stream_contract.find("geometry_mask") != std::string::npos);
+	REQUIRE(render_stream_contract.find("vertex_load") != std::string::npos);
+	REQUIRE(render_stream_contract.find("vertex_scope") != std::string::npos);
+	REQUIRE(render_stream_contract.find("vertex_cache_reset") != std::string::npos);
+	REQUIRE(render_stream_contract.find("vertex_cache_slots") != std::string::npos);
+	REQUIRE(render_stream_contract.find("VERTEX_CACHE_SLOTS = 64") !=
+	        std::string::npos);
+	REQUIRE(render_stream_contract.find("MAX_MATRIX_INDEX = 32766") !=
+	        std::string::npos);
+	REQUIRE(render_stream_contract.find("TYPE3_COMPILER_BASELINE_KNOWN") !=
+	        std::string::npos);
+	REQUIRE(render_stream_contract.find("SCHEMA_GEOMETRY = 2") !=
+	        std::string::npos);
+	REQUIRE(render_stream_contract.find("SCHEMA_CURRENT = 3") !=
+	        std::string::npos);
+	REQUIRE(render_stream_contract.find("Type-3 render owner") !=
+	        std::string::npos);
+	REQUIRE(render_stream_contract.find("ambiguous G_VTX geometry state") !=
+	        std::string::npos);
+	REQUIRE(render_stream_contract.find("unrelocatable G_VTX geometry state") !=
+	        std::string::npos);
+	REQUIRE(render_stream_contract.find("G_LIGHTING = 0x00020000") !=
+	        std::string::npos);
+	REQUIRE(render_stream_contract.find("pd2.mesh.render.v1") !=
+	        std::string::npos);
+	REQUIRE(render_stream_contract.find(
+		"RENDER_NODE_TYPES = {0x04, 0x16, 0x18}") != std::string::npos);
+	REQUIRE(render_state_verifier.find("render, len(face_rows), render_nodes") !=
+	        std::string::npos);
+	REQUIRE(render_state_verifier.find("schema v3 required") !=
+	        std::string::npos);
+	REQUIRE(render_state_verifier.find("geometry_commands") !=
+	        std::string::npos);
+	REQUIRE(render_state_verifier.find("vertex_loads") != std::string::npos);
+	REQUIRE(render_state_verifier.find("vertex_cache_resets") !=
+	        std::string::npos);
+	REQUIRE(render_state_verifier.find("retained_vertex_corners") !=
+	        std::string::npos);
+	REQUIRE(render_state_verifier.find("baseline") != std::string::npos);
+	REQUIRE(render_state_verifier.find("vertex_lighting") !=
+	        std::string::npos);
+	REQUIRE(render_state_verifier.find("expected lighting") !=
+	        std::string::npos);
+	REQUIRE(render_state_verifier.find("PATH:STATE=COUNT") !=
+	        std::string::npos);
+	REQUIRE(render_state_verifier.find("vertex_lighting_counts") !=
+	        std::string::npos);
 	REQUIRE(compiler.find("gSPTexture(gdl++, 0, 0, 0, 0, 0)") != std::string::npos);
 	/* B-938: the compiler no longer invents an all-white vertex colour -- it
 	 * dedups authored per-vertex RGBA into a Col table and stores the index. */
@@ -6124,8 +6313,9 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("dst->t = clampToS16((1.0f - texcoord->v) * 32.0f)") != std::string::npos);
 	REQUIRE(compiler.find("uv_vertices=%d") != std::string::npos);
 	REQUIRE(compiler.find("gSPClearGeometryMode(gdl++") != std::string::npos);
-	REQUIRE(compiler.find("G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH") != std::string::npos);
-	REQUIRE(compiler.find("gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH)") != std::string::npos);
+	REQUIRE(compiler.find("compiler_baseline_known & ~compiler_baseline_mode") !=
+	        std::string::npos);
+	REQUIRE(compiler.find("compiler_baseline_mode |") != std::string::npos);
 	REQUIRE(compiler.find("gDPSetCombineMode(gdl++, G_CC_SHADE, G_CC_SHADE)") != std::string::npos);
 	REQUIRE(compiler.find("G_NOOP") != std::string::npos);
 	REQUIRE(compiler.find("textured_materials=%d") != std::string::npos);
@@ -6820,6 +7010,8 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 
 	const std::string mesh = readArchiveEntryText(meshArchivePath.c_str(), "mesh.ini");
 	const std::string meshModel = readArchiveEntryText(meshArchivePath.c_str(), "model.gltf");
+	const std::string meshRender =
+		readArchiveEntryText(meshArchivePath.c_str(), "model.render.json");
 	const std::string meshManifest =
 		readArchiveEntryText(meshArchivePath.c_str(), "_meta/manifest.json");
 	REQUIRE(mesh.find("catalog_id = example:tri_mesh") != std::string::npos);
@@ -6829,6 +7021,7 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	REQUIRE(mesh.find("parts_file = model.parts.json") != std::string::npos);
 	REQUIRE(mesh.find("faces_file = model.faces.json") != std::string::npos);
 	REQUIRE(mesh.find("render_stream_file = model.render.json") != std::string::npos);
+	REQUIRE(meshRender.find("\"pd_schema_version\": 1") != std::string::npos);
 	REQUIRE(meshManifest.find("\"geometry\": \"model.gltf\"") != std::string::npos);
 	REQUIRE(meshManifest.find("\"model_file\": \"model.gltf\"") != std::string::npos);
 	REQUIRE(meshManifest.find("\"material_file\": \"model.mtl\"") != std::string::npos);
@@ -9231,17 +9424,44 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
           "[modding][pdxxx][base][static][c3812]") {
 	const std::string mesh = readFile("port/src/romextract_pdmesh.c");
 	const std::string gbi = readFile("port/src/preprocess/gbi.c");
+	const std::string gbi_contract = readFile("include/PR/gbi.h");
+	const std::string renderer = readFile("port/fast3d/gfx_pc.cpp");
+	const std::string collision = readFile("src/lib/meshcollision.c");
+	const std::string arena = readFile("port/src/romextract_pdarena.c");
 	const std::string model_core = readFile("src/lib/model.c");
+	const std::string render_stream_contract =
+		readFile("tools/pdmesh_render_stream.py");
 	REQUIRE(!mesh.empty());
 	REQUIRE(!gbi.empty());
+	REQUIRE(!gbi_contract.empty());
+	REQUIRE(!renderer.empty());
+	REQUIRE(!collision.empty());
+	REQUIRE(!arena.empty());
 	REQUIRE(!model_core.empty());
 
 	REQUIRE(mesh.find("s_buildModelObj") != std::string::npos);
 	REQUIRE(mesh.find("s_exportGdlToObj") != std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v20_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_vtxcolour_jointflags_vtxmtx_collision19\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL \"model_obj_mtx_v25_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_zero_tri_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19\"") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v23_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_allmodels_menuhud_zero_tri_models_vtxcolour_jointflags_vtxmtx_collision19\"") !=
+	REQUIRE(mesh.find("ROMEXTRACT_PDMESH_FAST_CACHE_KIND \"pdmesh_model_obj_mtx_v28_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_allmodels_menuhud_zero_tri_models_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19\"") !=
 	        std::string::npos);
+	REQUIRE(mesh.find("cmd == (u8)G_SETGEOMETRYMODE") != std::string::npos);
+	REQUIRE(mesh.find("cmd == (u8)G_CLEARGEOMETRYMODE") != std::string::npos);
+	REQUIRE(mesh.find("s_objAppendGeometryRow") != std::string::npos);
+	REQUIRE(mesh.find("s_objAppendVertexLoadRow") != std::string::npos);
+	REQUIRE(mesh.find("s_objAppendVertexBoundaryRow") != std::string::npos);
+	REQUIRE(mesh.find("vertex_load") != std::string::npos);
+	REQUIRE(mesh.find("vertex_cache_slots") != std::string::npos);
+	REQUIRE(mesh.find("vertex_scope") != std::string::npos);
+	REQUIRE(mesh.find("vertex_cache_reset") != std::string::npos);
+	REQUIRE(mesh.find("gundl->xlugdl &&") != std::string::npos);
+	REQUIRE(mesh.find("dl->xlugdl &&") != std::string::npos);
+	REQUIRE(mesh.find("slots_geometry_mode") != std::string::npos);
+	REQUIRE(mesh.find("slots_geometry_known") != std::string::npos);
+	REQUIRE(mesh.find("G_DL_NOPUSH") != std::string::npos);
+	REQUIRE(mesh.find("MODASSET_RENDER_STREAM_SCHEMA_CURRENT") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("geometry_command_count") != std::string::npos);
 	REQUIRE(mesh.find("catalogReadableModelIdForFile((s32)FILE_GHUDPIECE, \"menu\", \"menu\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("(u16)FILE_GHUDPIECE, \"menu\"") !=
@@ -9266,12 +9486,33 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("uintptr_t src = ((uintptr_t)w1) & ~(uintptr_t)1") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("G_VTX") != std::string::npos);
-	REQUIRE(mesh.find("(w0 & 0xffffu) / sizeof(Vtx)") !=
+	REQUIRE(mesh.find("GBI_VTX_COUNT_FROM_W0(w0)") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("(w0 >> 16) & 0xf") != std::string::npos);
+	REQUIRE(mesh.find("GBI_VTX_DEST_FROM_W0(w0)") != std::string::npos);
 	REQUIRE(mesh.find("seg == SPSEGMENT_MODEL_VTX") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("((w0 >> 4) & 0xf) + 1") == std::string::npos);
+	REQUIRE(mesh.find("(w0 & 0xffffu) / sizeof(Vtx)") ==
+	        std::string::npos);
+	REQUIRE(gbi_contract.find("GBI_VTX_COUNT_FROM_W0") !=
+	        std::string::npos);
+	REQUIRE(gbi_contract.find("GBI_VTX_DEST_FROM_W0") !=
+	        std::string::npos);
+	REQUIRE(renderer.find("GBI_VTX_COUNT_FROM_W0(cmd->words.w0)") !=
+	        std::string::npos);
+	REQUIRE(renderer.find("C0(0, 16) / sizeof(Vtx)") ==
+	        std::string::npos);
+	REQUIRE(collision.find("GBI_VTX_COUNT_FROM_W0(w0)") !=
+	        std::string::npos);
+	REQUIRE(collision.find("GBI_VTX_COUNT_FROM_W0(vertex_word)") !=
+	        std::string::npos);
+	REQUIRE(collision.find("GBI_VTX_DEST_FROM_W0(vertex_word)") !=
+	        std::string::npos);
+	REQUIRE(collision.find("slots[slot].x") != std::string::npos);
+	REQUIRE(collision.find("valid_slots[p0]") != std::string::npos);
+	REQUIRE(collision.find("((w0 >> 4) & 0xf) + 1") ==
+	        std::string::npos);
+	REQUIRE(arena.find("GBI_VTX_COUNT_FROM_W0(w0)") !=
+	        std::string::npos);
 	REQUIRE(mesh.find("G_MTX") != std::string::npos);
 	REQUIRE(mesh.find("G_POPMTX") != std::string::npos);
 	REQUIRE(mesh.find("s_objApplyMtxCommand") != std::string::npos);
@@ -9316,6 +9557,25 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("MODELPART_GUN_MUZZLEFLASH3") != std::string::npos);
 	REQUIRE(mesh.find("G_TRI1") != std::string::npos);
 	REQUIRE(mesh.find("G_TRI4") != std::string::npos);
+	REQUIRE(mesh.find("pdmesh_gdl_walk_state_t") != std::string::npos);
+	REQUIRE(mesh.find("s_exportGdlToObjWalk") != std::string::npos);
+	REQUIRE(mesh.find("modAssetRenderStreamTopLevelWalkDisposition") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("MODASSET_RENDER_TOP_LEVEL_WALK_SKIP") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("MODASSET_RENDER_TOP_LEVEL_WALK_EXECUTE") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("resolved_gdl != NULL") != std::string::npos);
+	REQUIRE(mesh.find("vertex_domain_readable") != std::string::npos);
+	REQUIRE(mesh.find("state->slots_geometry_known") != std::string::npos);
+	REQUIRE(mesh.find("!ctx || !raw_gdl || !vbuf || numverts <= 0 || !state || depth > 16") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("PDMESH_GDL_FAILURE_UNTERMINATED") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("s_exportGdlToObjWithState") != std::string::npos);
+	REQUIRE(mesh.find("modAssetRenderStreamTopLevelPairSharesVertexCache") !=
+	        std::string::npos);
+	REQUIRE(mesh.find("star->unk00 * 4") != std::string::npos);
 	REQUIRE(mesh.find("(w1 >> 0)  & 0xf") != std::string::npos);
 	REQUIRE(mesh.find("(w0 >> 12) & 0xf") != std::string::npos);
 	REQUIRE(mesh.find("gdl[cmdidx].tri4") == std::string::npos);
@@ -9332,7 +9592,7 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 	REQUIRE(conformance.find("model.faces.json row count") !=
 	        std::string::npos);
-	REQUIRE(conformance.find("model.render.json must reference every model.faces.json") !=
+	REQUIRE(render_stream_contract.find("model.render.json must reference every model.faces.json") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("model.nodes.json render node") !=
 	        std::string::npos);
@@ -9378,10 +9638,22 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	REQUIRE(mesh.find("render_command_count = %u") != std::string::npos);
 	REQUIRE(mesh.find("material_count = %u") != std::string::npos);
 	REQUIRE(mesh.find("\\\"textured_material_count\\\": %u") != std::string::npos);
-	REQUIRE(mesh.find("s_existingArchiveHasEntry(dst_rel, \"model.obj\")") !=
+	REQUIRE(mesh.find("s_existingArchiveHasCurrentPayload(dst_rel)") !=
 	        std::string::npos);
-	REQUIRE(mesh.find("s_existingArchiveEntryContains(dst_rel, \"export_version.txt\"") !=
+	REQUIRE(mesh.find("s_archiveEntryMatches(arc, \"export_version.txt\"") !=
 	        std::string::npos);
+	for (const char *required : {
+			"model.obj", "model.mtl", "model.nodes.json", "model.parts.json",
+			"model.faces.json", "model.render.json", "_meta/inventory.json",
+			"_meta/hashes.json", "_meta/provenance.json",
+			"_meta/validation.json", "_meta/source-handles.json",
+			"_meta/mesh.ini.sha256", "_meta/export_version.txt.sha256",
+			"_meta/model.obj.sha256", "_meta/model.mtl.sha256",
+			"_meta/model.nodes.json.sha256", "_meta/model.parts.json.sha256",
+			"_meta/model.faces.json.sha256", "_meta/model.render.json.sha256"}) {
+		CAPTURE(required);
+		REQUIRE(mesh.find(required) != std::string::npos);
+	}
 	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"export_version.txt\"") !=
 	        std::string::npos);
 	REQUIRE(mesh.find("assetArchiveWriterAddPublicMem(&asset_writer, \"model.obj\"") !=

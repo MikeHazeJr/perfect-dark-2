@@ -32,6 +32,41 @@ git worktree. Set `PD2_CODEX_COORDINATION_ROOT` only for deliberate isolation.
   -Plan "1. Audit; 2. Implement; 3. Verify"
 ```
 
+### Repo-local Codex lifecycle hook
+
+Codex sessions opened in this repository discover `.codex/hooks.json`. Review
+new or changed hook definitions with `/hooks`, then trust them. Do not use
+`--dangerously-bypass-hook-trust`, disable the hooks, or continue without
+trusting them merely to get around the workflow.
+
+The hook uses the actual Codex `session_id` to derive one stable coordination
+identity and applies the following lifecycle:
+
+- `SessionStart` registers or heartbeats the session, posts a live start
+  message, verifies canonical Workbench `/api/meta`, and injects owned items,
+  open decisions, and targeted new-note state into model context.
+- `UserPromptSubmit` refreshes the heartbeat/current task and repeats the
+  concise live Workbench contract.
+- `PreToolUse` denies `apply_patch`/Edit/Write until the session owns at least
+  one active Workbench task and every new note targeting that item (or GENERAL)
+  is processed.
+- `PostToolUse` records the final-edit time. `Stop` continues the turn once if
+  no owned item update or durable Workbench note is newer than that edit.
+- `SessionEnd` marks the coordination session idle and, if a session still
+  exits dirty, adds an automated durable handoff note to its first owned item.
+
+Hook-local receipts live under ignored operational state at
+`.codex-coordination/hook-sessions/`. They never replace Workbench records.
+Focused regression coverage is
+`python Tools/Workbench/test-workbench-session-hook.py`.
+
+The hook intentionally does not auto-create or guess a Workbench item. After
+reading the user's task, the session must select or create the correct permanent
+item through the canonical API, assign its hook-provided coordination identity,
+process notes, and announce shared edit surfaces. Exclusive-resource FIFO use
+also remains explicit because only the session can state the correct scope,
+title, ETA, and evidence contract.
+
 Heartbeat whenever the current task changes and at least every 20 minutes:
 
 ```powershell

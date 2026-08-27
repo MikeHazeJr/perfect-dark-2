@@ -2835,12 +2835,16 @@ static void gfx_run_dl(Gfx* cmd) {
             case (uint8_t)G_TEXTURE:
                 gfx_sp_texture(C1(16, 16), C1(0, 16), C0(11, 3), C0(8, 3), C0(0, 8));
                 break;
-            case G_VTX:
+            case G_VTX: {
+                const size_t vertex_count = GBI_VTX_COUNT_FROM_W0(cmd->words.w0);
+                const size_t vertex_dest = GBI_VTX_DEST_FROM_W0(cmd->words.w0);
                 gfx_audit_generated_mesh_vertices(cmd->words.w1,
-                    C0(0, 16) / sizeof(Vtx), C0(16, 4),
+                    vertex_count, vertex_dest,
                     (const Vtx*)seg_addr(cmd->words.w1));
-                gfx_sp_vertex(C0(0, 16) / sizeof(Vtx), C0(16, 4), (const Vtx*)seg_addr(cmd->words.w1));
+                gfx_sp_vertex(vertex_count, vertex_dest,
+                    (const Vtx*)seg_addr(cmd->words.w1));
                 break;
+            }
             case G_DL:
                 if (C0(16, 1) == 0) {
                     // Push return address

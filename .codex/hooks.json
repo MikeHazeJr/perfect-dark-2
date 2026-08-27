@@ -1,0 +1,102 @@
+{
+  "description": "Perfect Dark 2 Workbench and coordination lifecycle enforcement.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "commandWindows": "python -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "timeout": 15,
+            "statusMessage": "Registering Workbench session",
+            "additionalContextLimit": 2200
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "commandWindows": "python -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "timeout": 10,
+            "statusMessage": "Loading shared Workbench ownership",
+            "additionalContextLimit": 1600
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "commandWindows": "python -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "timeout": 10,
+            "statusMessage": "Refreshing Workbench context",
+            "additionalContextLimit": 1800
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "^(apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "commandWindows": "python -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "timeout": 10,
+            "statusMessage": "Checking Workbench ownership"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "commandWindows": "python -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "timeout": 10,
+            "statusMessage": "Recording Workbench edit checkpoint"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "commandWindows": "python -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "timeout": 15,
+            "statusMessage": "Verifying Workbench handoff"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "commandWindows": "python -c \"import pathlib,runpy; p=next(x for x in (pathlib.Path.cwd(), *pathlib.Path.cwd().parents) if (x / '.codex/hooks/workbench_session.py').exists()); runpy.run_path(str(p / '.codex/hooks/workbench_session.py'), run_name='__main__')\"",
+            "timeout": 3,
+            "statusMessage": "Saving Workbench handoff"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -30,6 +30,7 @@
 #include "modasset_compiler.h"
 #include "modasset_json.h"
 #include "modasset_material_order.h"
+#include "modasset_render_stream.h"
 #include "sha256.h"
 #include "system.h"
 
@@ -1329,6 +1330,39 @@ static s32 jsonObjectInt(json_span_t object, const char *key, s32 *out)
 	return 1;
 }
 
+/* Return 0 when absent, 1 when present and valid, and -1 when present but
+ * malformed. Versioned public source must never turn malformed optional data
+ * into an absent/default field. */
+static s32 jsonObjectOptionalInt(json_span_t object, const char *key,
+		s32 *out)
+{
+	if (!jsonFindKeyInSpan(object, key)) {
+		return 0;
+	}
+	return jsonObjectInt(object, key, out) ? 1 : -1;
+}
+
+static s32 jsonObjectU32(json_span_t object, const char *key, u32 *out)
+{
+	const char *value = jsonFindKeyInSpan(object, key);
+	const char *endptr;
+	u32 parsed;
+
+	if (!value || !out) {
+		return 0;
+	}
+
+	value = jsonSkipWs(value, object.end);
+	if (!modAssetJsonParseU32Token(value, object.end, &parsed, &endptr)
+			|| !modAssetJsonTokenHasContainerBoundary(endptr,
+				object.end, '}')) {
+		return 0;
+	}
+
+	*out = parsed;
+	return 1;
+}
+
 static s32 jsonObjectBool(json_span_t object, const char *key, s32 *out)
 {
 	const char *value = jsonFindKeyInSpan(object, key);
@@ -1618,6 +1652,24 @@ static s32 jsonArrayNextU32Strict(json_span_t array, const char **cursor,
 	*out = parsed;
 	*cursor = endptr;
 	return 1;
+}
+
+static s32 jsonObjectU32Array3(json_span_t object, const char *key,
+		u32 out[3])
+{
+	json_span_t array;
+	const char *cursor = NULL;
+	u32 extra;
+
+	if (!out || !jsonObjectArray(object, key, &array)) {
+		return 0;
+	}
+	for (s32 i = 0; i < 3; i++) {
+		if (jsonArrayNextU32Strict(array, &cursor, &out[i]) != 1) {
+			return 0;
+		}
+	}
+	return jsonArrayNextU32Strict(array, &cursor, &extra) == 0;
 }
 
 static s32 jsonArrayNextInt(json_span_t array, const char **cursor,
@@ -4865,13 +4917,6 @@ typedef struct generated_hierarchy {
 	s32 row_capacity;
 } generated_hierarchy_t;
 
-enum {
-	GENERATED_RENDER_OP_MTX = 1,
-	GENERATED_RENDER_OP_POP,
-	GENERATED_RENDER_OP_MATERIAL,
-	GENERATED_RENDER_OP_TRI,
-};
-
 typedef struct generated_render_row {
 	char group[64];
 	u8 op;
@@ -4879,12 +4924,19 @@ typedef struct generated_render_row {
 	s32 matrix;
 	u8 params;
 	s32 material;
+	u32 geometry_mask;
+	u32 vertex_geometry_mode[3];
+	u32 vertex_geometry_known[3];
+	s32 vertex_cache_slots[3];
+	s32 slot_first;
+	s32 slot_count;
 } generated_render_row_t;
 
 typedef struct generated_render_stream {
 	generated_render_row_t *rows;
 	s32 row_count;
 	s32 row_capacity;
+	s32 schema_version;
 } generated_render_stream_t;
 
 static generated_modeldef_t *s_GeneratedModeldefs = NULL;
@@ -5342,17 +5394,9 @@ static s32 s_debugForceChrPrim(void)
 	return cached;
 }
 
-/* B-936 env-lift: set per generatedModeldefBuildPayload call -- 1 for a lit chr
- * body (mcount==3). When set, the per-material emitters only enable texturing and
- * do NOT override the stock Type3 2-cycle G_CC_CUSTOM_17/18 + FOG_PRIM_A combine
- * that modelApplyRenderModeType3 set just before the DL; the prologue keeps
- * G_LIGHTING and supplies the room-shade lift via a DERIVED env (the stock lifts
- * the dark suit via the per-chr room shade carried in FOG, which the generated DL
- * doesn't reproduce). Props/scene meshes (mcount!=3) keep the unlit MODULATEIA path. */
-static s32 s_genLitChrBody = 0;
-
 static void emitGeneratedTextureMarker(Gfx **gdlptr,
-                                       const obj_material_t *material)
+                                       const obj_material_t *material,
+                                       s32 preserve_inherited_combine)
 {
 	Gfx *gdl;
 	u32 w0;
@@ -5388,12 +5432,11 @@ static void emitGeneratedTextureMarker(Gfx **gdlptr,
 	 * pixels (invisible). gSPTexture + G_CC_MODULATEIA assume 1-cycle, so self-
 	 * establish it here regardless of the inherited state. mcount=1 props/scene
 	 * meshes were already 1-cycle, so this is byte-neutral for them. */
-	if (s_genLitChrBody) {
-		/* B-936 env-lift: a lit chr body (mcount==3) keeps the stock Type3 2-cycle
-		 * G_CC_CUSTOM_17/18 combine that modelApplyRenderModeType3 set just before
-		 * this DL ([lerp(TEXEL0,ENV,shade_alpha)] * lit_shade). Only enable texturing
-		 * and load the texture below -- do NOT force 1-cycle / MODULATEIA, which
-		 * would discard the env-lerp that lifts her dark suit into a readable range. */
+	if (preserve_inherited_combine) {
+		/* B-936/B-1086: the owning node has already established its authoritative
+		 * cycle/combine state. Type3 bodies need their stock two-cycle env lift, and
+		 * schema-v2 streams may pair exact geometry-state changes with a Type-specific
+		 * combine. Only enable/load the texture here; do not replace that node state. */
 		gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
 	} else {
 		gDPSetCycleType(gdl++, G_CYC_1CYCLE);
@@ -5421,7 +5464,8 @@ static void emitGeneratedTextureMarker(Gfx **gdlptr,
 	*gdlptr = gdl;
 }
 
-static void emitGeneratedUntexturedState(Gfx **gdlptr)
+static void emitGeneratedUntexturedState(Gfx **gdlptr,
+                                         s32 preserve_inherited_combine)
 {
 	Gfx *gdl;
 
@@ -5432,11 +5476,11 @@ static void emitGeneratedUntexturedState(Gfx **gdlptr)
 		return; /* prologue forces magenta PRIMITIVE; emit no per-material state */
 	}
 
-	if (s_genLitChrBody) {
-		/* B-936 env-lift: keep the stock Type3 2-cycle state for chr bodies. Just
-		 * disable texturing so an untextured material falls to the env-lerp (which
-		 * is env-dominant where shade_alpha is low) rather than re-establishing the
-		 * unlit 1-cycle G_CC_SHADE path and discarding the env lift. */
+	if (preserve_inherited_combine) {
+		/* B-936/B-1086: keep the node-owned cycle/combine state. Disabling texturing
+		 * is the only material transition needed for Type3 env-lift bodies and for
+		 * schema-v2 streams whose exact geometry state remains paired with the node's
+		 * authored combine. */
 		gdl = *gdlptr;
 		gSPTexture(gdl++, 0, 0, 0, G_TX_RENDERTILE, G_OFF);
 		*gdlptr = gdl;
@@ -5453,6 +5497,28 @@ static void emitGeneratedUntexturedState(Gfx **gdlptr)
 	*gdlptr = gdl;
 }
 
+static void emitGeneratedKnownGeometryMode(Gfx **gdlptr, u32 known,
+		u32 mode)
+{
+	Gfx *gdl;
+	u32 clear_mask;
+	u32 set_mask;
+
+	if (!gdlptr || !*gdlptr || !known) {
+		return;
+	}
+	gdl = *gdlptr;
+	clear_mask = known & ~mode;
+	set_mask = known & mode;
+	if (clear_mask) {
+		gSPClearGeometryMode(gdl++, clear_mask);
+	}
+	if (set_mask) {
+		gSPSetGeometryMode(gdl++, set_mask);
+	}
+	*gdlptr = gdl;
+}
+
 /* c3844 fix B Slice 1 (activation): emit the render mode for a material's render
  * class inline in the body DL, only when the class changes. The generated-mesh
  * DL runs in the model's OPA pass under G_RM_AA_ZB_OPA_SURF (set by
@@ -5466,7 +5532,8 @@ static void emitGeneratedUntexturedState(Gfx **gdlptr)
  * budget. (A dedicated mcount=4 XLU pass with back-to-front sorting is a later
  * refinement; this inline mode fixes the opaque-black symptom first.) */
 static void emitGeneratedRenderClass(Gfx **gdlptr, s32 render_class,
-                                     s32 *last_class)
+                                     s32 *last_class,
+                                     s32 preserve_node_render_mode)
 {
 	Gfx *gdl;
 
@@ -5476,7 +5543,7 @@ static void emitGeneratedRenderClass(Gfx **gdlptr, s32 render_class,
 	if (s_debugForceChrPrim()) {
 		return; /* prologue forces magenta PRIMITIVE + OPA no-Z render mode */
 	}
-	if (s_genLitChrBody) {
+	if (preserve_node_render_mode) {
 		return; /* B-936: keep the stock Type3 FOG_PRIM_A render mode for chr bodies */
 	}
 
@@ -5524,12 +5591,13 @@ static void fillGeneratedVertex(Vtx *dst, const obj_vertex_t *src,
 	}
 }
 
-/* B-942 / SP-17: N64 weighted-vertex (per-corner matrix) batching plan for one
+/* B-942 / SP-17 and B-1086: N64 per-corner vertex-load batching plan for one
  * triangle. The chr-body DL interleaves matrix loads and vertex loads so a single
  * triangle's three verts can each bind a different bone matrix. To reproduce that
  * on the generated DL, the tri's 3 verts are laid into the vertex buffer GROUPED by
- * matrix (equal-matrix corners contiguous) and emitted as one gSPMatrix(LOAD) +
- * gSPVertex per group, then a single gSPTri referencing the remapped cache slots.
+ * matrix plus load-time geometry state (equal corners contiguous) and emitted as
+ * one matrix/state setup + gSPVertex per group, then a single gSPTri referencing
+ * the remapped cache slots.
  *
  *   slot[k]      = which original corner (0=a,1=b,2=c) occupies buffer/cache slot k
  *   slot_mtx[k]  = the bind matrix to load before slot k's run
@@ -5543,6 +5611,8 @@ typedef struct generated_tri_batch {
 	s32 slot[3];      /* slot k <- original corner slot[k] */
 	s32 corner_slot[3]; /* original corner j is in cache slot corner_slot[j] */
 	s32 slot_mtx[3];
+	u32 run_geometry_mode[3];
+	u32 run_geometry_known[3];
 	s32 run_start[3];
 	s32 run_len[3];
 	s32 run_count;
@@ -5550,17 +5620,36 @@ typedef struct generated_tri_batch {
 
 static void generatedTriComputeBatch(const obj_triangle_t *tri,
                                      s32 face_matrix,
+                                     const generated_render_row_t *render_row,
+									 u32 compiler_baseline_mode,
+									 u32 compiler_baseline_known,
                                      generated_tri_batch_t *out)
 {
 	s32 corner_mtx[3];
+	u32 corner_geometry_mode[3];
+	u32 corner_geometry_known[3];
 	s32 used[3] = { 0, 0, 0 };
 	s32 next_slot = 0;
 
 	/* Resolve each corner's bind matrix: its own vtx_matrix if known, else the
-	 * triangle's resolved single face matrix (the pre-B942 behaviour). */
+	 * triangle's resolved single face matrix (the pre-B942 behaviour). For a
+	 * Type-3 source, fill inherited load-state bits from the exact compiler
+	 * baseline. This matters when a source G_VTX precedes a later geometry
+	 * mutation but the flattened payload relocates that load beside the draw. */
 	for (s32 j = 0; j < 3; j++) {
 		s32 m = tri->vtx_matrix[j];
+		u32 source_known = render_row ?
+			(render_row->vertex_geometry_known[j] &
+				MODASSET_RENDER_VERTEX_LOAD_GEOMETRY_MASK) : 0;
+		u32 source_mode = render_row ?
+			(render_row->vertex_geometry_mode[j] & source_known) : 0;
 		corner_mtx[j] = (m >= 0) ? m : face_matrix;
+		corner_geometry_known[j] = (source_known |
+			compiler_baseline_known) &
+			MODASSET_RENDER_VERTEX_LOAD_GEOMETRY_MASK;
+		corner_geometry_mode[j] = (source_mode |
+			(compiler_baseline_mode & ~source_known)) &
+			corner_geometry_known[j];
 	}
 
 	out->run_count = 0;
@@ -5574,8 +5663,12 @@ static void generatedTriComputeBatch(const obj_triangle_t *tri,
 		out->run_start[run] = next_slot;
 		s32 m = corner_mtx[j];
 		out->slot_mtx[run] = m;
+		out->run_geometry_mode[run] = corner_geometry_mode[j];
+		out->run_geometry_known[run] = corner_geometry_known[j];
 		for (s32 k = j; k < 3; k++) {
-			if (!used[k] && corner_mtx[k] == m) {
+			if (!used[k] && corner_mtx[k] == m &&
+					corner_geometry_mode[k] == corner_geometry_mode[j] &&
+					corner_geometry_known[k] == corner_geometry_known[j]) {
 				used[k] = 1;
 				out->slot[next_slot] = k;     /* slot next_slot holds corner k */
 				out->corner_slot[k] = next_slot;
@@ -6664,18 +6757,6 @@ static s32 generatedRenderStreamGrow(generated_render_stream_t *stream,
 	return 1;
 }
 
-static s32 generatedRenderOpFromText(const char *op)
-{
-	if (!op) {
-		return 0;
-	}
-	if (strcmp(op, "mtx") == 0) return GENERATED_RENDER_OP_MTX;
-	if (strcmp(op, "pop") == 0) return GENERATED_RENDER_OP_POP;
-	if (strcmp(op, "material") == 0) return GENERATED_RENDER_OP_MATERIAL;
-	if (strcmp(op, "tri") == 0) return GENERATED_RENDER_OP_TRI;
-	return 0;
-}
-
 static s32 generatedModeldefReadRenderStream(const char *source_path,
                                              const obj_mesh_t *mesh,
                                              generated_render_stream_t *stream)
@@ -6689,6 +6770,11 @@ static s32 generatedModeldefReadRenderStream(const char *source_path,
 	const char *cursor = NULL;
 	json_span_t object;
 	s32 parsed_rows = 0;
+	s32 schema_version;
+	char kind[40];
+	char legacy_schema[64];
+	s32 has_numeric_schema;
+	s32 array_state;
 
 	if (!source_path || !mesh || !stream) {
 		return 0;
@@ -6718,22 +6804,44 @@ static s32 generatedModeldefReadRenderStream(const char *source_path,
 
 	root.start = copy;
 	root.end = copy + size;
-	if (!jsonObjectArray(root, "commands", &commands)) {
+	has_numeric_schema = jsonFindKeyInSpan(root,
+		"pd_schema_version") != NULL;
+	legacy_schema[0] = '\0';
+	(void)jsonObjectString(root, "schema", legacy_schema,
+		sizeof(legacy_schema));
+	if (!jsonObjectString(root, "pd_kind", kind, sizeof(kind)) ||
+			strcmp(kind, "mesh_render_commands") != 0 ||
+			(has_numeric_schema && !jsonObjectInt(root,
+				"pd_schema_version", &schema_version)) ||
+			!(schema_version = modAssetRenderStreamResolveSchema(
+				has_numeric_schema, has_numeric_schema ? schema_version : 0,
+				legacy_schema)) ||
+			!jsonObjectArray(root, "commands", &commands)) {
 		free(copy);
 		generatedRenderStreamFree(stream);
 		return -1;
 	}
+	stream->schema_version = schema_version;
 
-	while (jsonArrayNextObject(commands, &cursor, &object)) {
+	while ((array_state = jsonArrayNextContainerStrict(commands, &cursor,
+			'{', '}', &object)) > 0) {
 		generated_render_row_t row;
 		char command[32];
-		s32 op;
+		modasset_render_stream_op_t op;
 		s32 value;
+		s32 field_state;
+		u32 geometry_mask;
+		u32 cache_slots[3];
 
 		memset(&row, 0, sizeof(row));
 		row.face = -1;
 		row.matrix = -1;
 		row.material = -1;
+		row.slot_first = -1;
+		row.slot_count = -1;
+		for (s32 corner = 0; corner < 3; corner++) {
+			row.vertex_cache_slots[corner] = -1;
+		}
 
 		if (!jsonObjectString(object, "group", row.group,
 				sizeof(row.group)) ||
@@ -6743,19 +6851,37 @@ static s32 generatedModeldefReadRenderStream(const char *source_path,
 			generatedRenderStreamFree(stream);
 			return -1;
 		}
-		op = generatedRenderOpFromText(command);
-		if (!op) {
+		op = modAssetRenderStreamOpFromText(schema_version, command);
+		if (op == MODASSET_RENDER_OP_INVALID) {
 			free(copy);
 			generatedRenderStreamFree(stream);
 			return -1;
 		}
-		if (jsonObjectInt(object, "face_index", &value)) {
+		field_state = jsonObjectOptionalInt(object, "face_index", &value);
+		if (field_state < 0) {
+			free(copy);
+			generatedRenderStreamFree(stream);
+			return -1;
+		}
+		if (field_state > 0) {
 			row.face = value;
 		}
-		if (jsonObjectInt(object, "matrix_index", &value)) {
+		field_state = jsonObjectOptionalInt(object, "matrix_index", &value);
+		if (field_state < 0) {
+			free(copy);
+			generatedRenderStreamFree(stream);
+			return -1;
+		}
+		if (field_state > 0) {
 			row.matrix = value;
 		}
-		if (jsonObjectInt(object, "matrix_flags", &value)) {
+		field_state = jsonObjectOptionalInt(object, "matrix_flags", &value);
+		if (field_state < 0) {
+			free(copy);
+			generatedRenderStreamFree(stream);
+			return -1;
+		}
+		if (field_state > 0) {
 			if (value < 0 || value > 255) {
 				free(copy);
 				generatedRenderStreamFree(stream);
@@ -6763,20 +6889,89 @@ static s32 generatedModeldefReadRenderStream(const char *source_path,
 			}
 			row.params = (u8)value;
 		}
-		if (jsonObjectInt(object, "material_index", &value)) {
-			row.material = value;
-		}
-		if (op == GENERATED_RENDER_OP_TRI &&
-				(row.face < 0 || row.face >= mesh->triangle_count)) {
+		field_state = jsonObjectOptionalInt(object, "material_index", &value);
+		if (field_state < 0) {
 			free(copy);
 			generatedRenderStreamFree(stream);
 			return -1;
 		}
-		if (op == GENERATED_RENDER_OP_MATERIAL &&
+		if (field_state > 0) {
+			row.material = value;
+		}
+		if (op == MODASSET_RENDER_OP_TRI &&
+				(row.face < 0 || row.face >= mesh->triangle_count ||
+				!modAssetRenderStreamMatrixIndexValid(row.matrix))) {
+			free(copy);
+			generatedRenderStreamFree(stream);
+			return -1;
+		}
+		if (op == MODASSET_RENDER_OP_MTX &&
+				!modAssetRenderStreamOptionalMatrixIndexValid(row.matrix)) {
+			free(copy);
+			generatedRenderStreamFree(stream);
+			return -1;
+		}
+		if (op == MODASSET_RENDER_OP_TRI &&
+				schema_version >= MODASSET_RENDER_STREAM_SCHEMA_GEOMETRY) {
+			if (!jsonObjectU32Array3(object, "vertex_geometry_mode",
+						row.vertex_geometry_mode) ||
+					!jsonObjectU32Array3(object, "vertex_geometry_known",
+						row.vertex_geometry_known)) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			for (s32 corner = 0; corner < 3; corner++) {
+				if (!modAssetRenderStreamVertexStateValid(
+						row.vertex_geometry_mode[corner],
+						row.vertex_geometry_known[corner])) {
+					free(copy);
+					generatedRenderStreamFree(stream);
+					return -1;
+				}
+			}
+		}
+		if (op == MODASSET_RENDER_OP_TRI &&
+				schema_version >= MODASSET_RENDER_STREAM_SCHEMA_CURRENT) {
+			if (!jsonObjectU32Array3(object, "vertex_cache_slots",
+						cache_slots)) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			for (s32 corner = 0; corner < 3; corner++) {
+				if (cache_slots[corner] >=
+						MODASSET_RENDER_VERTEX_CACHE_SLOTS) {
+					free(copy);
+					generatedRenderStreamFree(stream);
+					return -1;
+				}
+				row.vertex_cache_slots[corner] = (s32)cache_slots[corner];
+			}
+		}
+		if (op == MODASSET_RENDER_OP_VERTEX_LOAD) {
+			if (!jsonObjectInt(object, "slot_first", &row.slot_first) ||
+					!jsonObjectInt(object, "slot_count", &row.slot_count) ||
+					!modAssetRenderStreamVertexLoadRangeValid(
+						row.slot_first, row.slot_count)) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+		}
+		if (op == MODASSET_RENDER_OP_MATERIAL &&
 				(row.material < 0 || row.material >= mesh->material_count)) {
 			free(copy);
 			generatedRenderStreamFree(stream);
 			return -1;
+		}
+		if (modAssetRenderStreamOpIsGeometry(op)) {
+			if (!jsonObjectU32(object, "geometry_mask", &geometry_mask)) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			row.geometry_mask = geometry_mask;
 		}
 		if (!generatedRenderStreamGrow(stream, 1)) {
 			free(copy);
@@ -6787,6 +6982,49 @@ static s32 generatedModeldefReadRenderStream(const char *source_path,
 		stream->rows[stream->row_count++] = row;
 		parsed_rows++;
 	}
+	if (array_state < 0) {
+		free(copy);
+		generatedRenderStreamFree(stream);
+		return -1;
+	}
+
+	/* Public source is consumed directly, so the runtime parser must enforce the
+	 * same complete one-to-one face ownership as offline conformance. Do not let
+	 * duplicate rows redraw one face while silently dropping another. */
+	if (mesh->triangle_count > 0) {
+		u8 *face_seen = calloc((size_t)mesh->triangle_count, sizeof(*face_seen));
+		if (!face_seen) {
+			free(copy);
+			generatedRenderStreamFree(stream);
+			return -1;
+		}
+		for (s32 i = 0; i < stream->row_count; i++) {
+			const generated_render_row_t *row = &stream->rows[i];
+			if (row->op != MODASSET_RENDER_OP_TRI) {
+				continue;
+			}
+			if (face_seen[row->face]) {
+				free(face_seen);
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			face_seen[row->face] = 1;
+		}
+		for (s32 face = 0; face < mesh->triangle_count; face++) {
+			if (!face_seen[face]) {
+				free(face_seen);
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+		}
+		free(face_seen);
+	}
+
+	/* Relocation safety depends on the owning node's render-mode prologue. It is
+	 * resolved after hierarchy ownership is known; parsing alone still enforces
+	 * the source mode/known subset and complete face coverage above. */
 
 	free(copy);
 	return parsed_rows > 0 ? 1 : 0;
@@ -6804,6 +7042,7 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 	const char *cursor = NULL;
 	json_span_t object;
 	s32 parsed_rows = 0;
+	s32 array_state;
 
 	if (!source_path || !hierarchy) {
 		return 0;
@@ -6839,7 +7078,8 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 		return -1;
 	}
 
-	while (jsonArrayNextObject(nodes, &cursor, &object)) {
+	while ((array_state = jsonArrayNextContainerStrict(nodes, &cursor,
+			'{', '}', &object)) > 0) {
 		generated_hierarchy_row_t row;
 		json_span_t position;
 		json_span_t bounds;
@@ -6847,10 +7087,16 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 		json_span_t reorder;
 		json_span_t pivot;
 		json_span_t axis;
+		s32 type_hi_state;
 		memset(&row, 0, sizeof(row));
 		row.payload_index = -1;
 		/* B-942: optional -- absent in pre-jointflags archives, defaults to 0. */
-		jsonObjectInt(object, "type_hi", &row.type_hi);
+		type_hi_state = jsonObjectOptionalInt(object, "type_hi", &row.type_hi);
+		if (type_hi_state < 0) {
+			free(copy);
+			generatedHierarchyFree(hierarchy);
+			return -1;
+		}
 		if (!jsonObjectInt(object, "id", &row.id) ||
 				!jsonObjectInt(object, "parent", &row.parent) ||
 				!jsonObjectInt(object, "type", &row.type) ||
@@ -6899,6 +7145,14 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 			generatedHierarchyFree(hierarchy);
 			return -1;
 		}
+		if (!modAssetRenderStreamOptionalMatrixIndexValid(row.mtx0) ||
+				!modAssetRenderStreamOptionalMatrixIndexValid(row.mtx1) ||
+				!modAssetRenderStreamOptionalMatrixIndexValid(row.mtx2) ||
+				!modAssetRenderStreamOptionalMatrixIndexValid(row.render_mtx)) {
+			free(copy);
+			generatedHierarchyFree(hierarchy);
+			return -1;
+		}
 		/* Full-parity 1b: optional -- absent in pre-collision19 (schema v1)
 		 * archives, defaults to zeros (matching the pre-1b zeroed rodata). */
 		{
@@ -6926,6 +7180,11 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 		}
 		hierarchy->rows[hierarchy->row_count++] = row;
 		parsed_rows++;
+	}
+	if (array_state < 0) {
+		free(copy);
+		generatedHierarchyFree(hierarchy);
+		return -1;
 	}
 
 	free(copy);
@@ -6966,7 +7225,7 @@ static s32 generatedRenderStreamTriCount(
 
 	for (s32 i = 0; i < stream->row_count; i++) {
 		const generated_render_row_t *row = &stream->rows[i];
-		if (row->op != GENERATED_RENDER_OP_TRI ||
+		if (row->op != MODASSET_RENDER_OP_TRI ||
 				!generatedRenderRowUsesGroup(row, group_name) ||
 				row->face < 0 ||
 				row->face >= mesh->triangle_count ||
@@ -7006,6 +7265,12 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 	s32 emitted = 0;
 	s32 use_render_stream = 0;
 	s32 render_stream_cmd_count = 0;
+	s32 preserve_inherited_combine = 0;
+	s32 preserve_node_render_mode = 0;
+	u32 stream_geometry_mode = 0;
+	u32 stream_geometry_known = 0;
+	u32 compiler_baseline_mode = 0;
+	u32 compiler_baseline_known = 0;
 	s32 colour_count = 0;       /* c3844 vtxcolour: distinct colours interned so far */
 	s32 colour_warned = 0;      /* one-shot >64-colour clamp warning */
 
@@ -7026,7 +7291,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 				continue;
 			}
 			render_stream_cmd_count++;
-			if (row->op != GENERATED_RENDER_OP_TRI ||
+			if (row->op != MODASSET_RENDER_OP_TRI ||
 					row->face < 0 ||
 					row->face >= mesh->triangle_count) {
 				continue;
@@ -7064,7 +7329,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			for (s32 i = 0; i < stream->row_count; i++) {
 				const generated_render_row_t *row = &stream->rows[i];
 				const obj_triangle_t *tri;
-				if (row->op != GENERATED_RENDER_OP_TRI ||
+				if (row->op != MODASSET_RENDER_OP_TRI ||
 						!generatedRenderRowUsesGroup(row, group_name) ||
 						row->face < 0 ||
 						row->face >= mesh->triangle_count) {
@@ -7126,13 +7391,15 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 	if (tri_count == 0) {
 		return 1;
 	}
+	(void)modAssetRenderStreamCompilerVertexBaseline(mcount,
+		&compiler_baseline_mode, &compiler_baseline_known);
 
 	/* B-942: a weighted-vertex (seam) triangle now emits up to 3 matrix loads + 3
 	 * vertex loads + 1 tri = 7 commands instead of the prior fixed 3 (1 mtx + 1 vtx
 	 * + 1 tri). Size the source buffer for that worst case so seam-heavy chr bodies
 	 * (e.g. cdark_combat: 225/601 seams) cannot overflow. Non-weighted tris still
 	 * emit <=3 commands, so this is pure headroom for them (calloc, cheap). */
-	source_gdl_count = tri_count * 7 + 7 + material_switch_count * 8 +
+	source_gdl_count = tri_count * 15 + 7 + material_switch_count * 8 +
 		render_stream_cmd_count * 2;
 	output_gdl_count = source_gdl_count
 		+ material_switch_count * 512
@@ -7151,7 +7418,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		for (s32 i = 0; i < stream->row_count; i++) {
 			const generated_render_row_t *row = &stream->rows[i];
 			const obj_triangle_t *tri;
-			if (row->op != GENERATED_RENDER_OP_TRI ||
+			if (row->op != MODASSET_RENDER_OP_TRI ||
 					!generatedRenderRowUsesGroup(row, group_name) ||
 					row->face < 0 ||
 					row->face >= mesh->triangle_count) {
@@ -7170,7 +7437,8 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 					(tri->matrix_index >= 0 ? tri->matrix_index :
 						(matrix_index >= 0 ? matrix_index : 0));
 				generated_tri_batch_t batch;
-				generatedTriComputeBatch(tri, face_matrix, &batch);
+				generatedTriComputeBatch(tri, face_matrix, row,
+					compiler_baseline_mode, compiler_baseline_known, &batch);
 				fillGeneratedTriVertices(&payload->vertices[emitted * 3],
 					mesh, tri, &batch, payload->colours, &colour_count,
 					&colour_warned, group_name);
@@ -7188,7 +7456,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 				s32 face_matrix = tri->matrix_index >= 0 ? tri->matrix_index :
 					(matrix_index >= 0 ? matrix_index : 0);
 				generated_tri_batch_t batch;
-				generatedTriComputeBatch(tri, face_matrix, &batch);
+				generatedTriComputeBatch(tri, face_matrix, NULL, 0, 0, &batch);
 				fillGeneratedTriVertices(&payload->vertices[emitted * 3],
 					mesh, tri, &batch, payload->colours, &colour_count,
 					&colour_warned, group_name);
@@ -7279,12 +7547,15 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			(int)(payload->numcolours > 1 ? payload->colours[1].a : 0));
 	}
 
-	/* B-936 env-lift: gate the per-material emitters (texture marker, untextured
-	 * reset, render class) and the prologue for a lit chr body, so they leave the
-	 * stock Type3 2-cycle G_CC_CUSTOM_17/18 + FOG_PRIM_A state in place instead of
-	 * overriding it with the 1-cycle MODULATEIA/SHADE prop path. forceprim still
-	 * wins (debug magenta override). */
-	s_genLitChrBody = (mcount == 3 && !s_debugForceChrPrim());
+	/* B-1086: a schema-v2+ render stream is authoritative source, so its node's
+	 * Type render setup owns cycle/combine and the stream replays exact RSP state.
+	 * B-936 mcount-3 bodies retain their existing inherited Type3 path. Legacy-v1
+	 * and author-authored flat meshes keep the generic unlit compiler prologue. */
+	preserve_inherited_combine = !s_debugForceChrPrim() &&
+		(mcount == 3 || (use_render_stream &&
+			modAssetRenderStreamPreservesNodeCombine(
+				stream ? stream->schema_version : 0)));
+	preserve_node_render_mode = !s_debugForceChrPrim() && mcount == 3;
 
 	gdl = source_gdl;
 	if (matrix_index < 0) {
@@ -7320,8 +7591,9 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		 * the stock env (64,10,10), which alone (no fog) renders near-black. The
 		 * stock CUSTOM_17/18 + 2-cycle + FOG_PRIM_A render mode are left to stand. */
 		gSPClearGeometryMode(gdl++,
-			G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
-		gSPSetGeometryMode(gdl++, G_LIGHTING | G_SHADE | G_SHADING_SMOOTH);
+			(compiler_baseline_known & ~compiler_baseline_mode) | G_CULL_BOTH);
+		gSPSetGeometryMode(gdl++, compiler_baseline_mode |
+			G_SHADE | G_SHADING_SMOOTH);
 		gDPSetEnvColor(gdl++, 160, 160, 160, 255);
 		/* B-936 env-lift: the stock Type3 render mode is G_RM_FOG_PRIM_A, which
 		 * blends toward the per-chr room-shade FOG. In a backdrop/menu context where
@@ -7334,7 +7606,9 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		 * won't fade into scene fog; acceptable for the menu backdrop + readable
 		 * gameplay bodies.) Keeps the 2-cycle CUSTOM_17/18 combine intact. */
 		gDPSetRenderMode(gdl++, G_RM_PASS, G_RM_AA_ZB_OPA_SURF2);
-	} else {
+		stream_geometry_mode = compiler_baseline_mode;
+		stream_geometry_known = compiler_baseline_known;
+	} else if (!preserve_inherited_combine) {
 		gSPClearGeometryMode(gdl++,
 			G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_CULL_BOTH);
 		gSPSetGeometryMode(gdl++, G_SHADE | G_SHADING_SMOOTH);
@@ -7366,7 +7640,50 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 				continue;
 			}
 
-			if (row->op == GENERATED_RENDER_OP_MTX) {
+			if (row->op == MODASSET_RENDER_OP_GEOMETRY_SET) {
+				stream_geometry_mode |= row->geometry_mask;
+				stream_geometry_known |= row->geometry_mask;
+				gSPSetGeometryMode(gdl++, row->geometry_mask);
+				continue;
+			}
+
+			if (row->op == MODASSET_RENDER_OP_GEOMETRY_CLEAR) {
+				stream_geometry_mode &= ~row->geometry_mask;
+				stream_geometry_known |= row->geometry_mask;
+				gSPClearGeometryMode(gdl++, row->geometry_mask);
+				continue;
+			}
+
+			if (row->op == MODASSET_RENDER_OP_VERTEX_SCOPE) {
+				/* B-1106: the extractor's schema-v3 scope means the source list
+				 * reset its geometry knowledge while retaining Type-3 RSP vertex
+				 * slots. Flattening that pair relocates those cached vertices into
+				 * fresh loads, so establish the same deterministic Type-3 vertex
+				 * interpretation before any relocated load in the second scope. */
+				emitGeneratedKnownGeometryMode(&gdl,
+					compiler_baseline_known, compiler_baseline_mode);
+				stream_geometry_mode = compiler_baseline_mode;
+				stream_geometry_known = compiler_baseline_known;
+				continue;
+			}
+
+			if (row->op == MODASSET_RENDER_OP_VERTEX_CACHE_RESET) {
+				/* Non-Type-3 paired lists begin with an empty source cache and no
+				 * list-local geometry knowledge. The flattened compiler emits fresh
+				 * loads per triangle, so only the tracked triangle-time state resets. */
+				stream_geometry_mode = 0;
+				stream_geometry_known = 0;
+				continue;
+			}
+
+			if (row->op == MODASSET_RENDER_OP_VERTEX_LOAD) {
+				/* Source-only cache provenance. Contract validation has already
+				 * resolved every triangle reference; payload generation deliberately
+				 * relocates those vertices into bounded per-triangle fresh loads. */
+				continue;
+			}
+
+			if (row->op == MODASSET_RENDER_OP_MTX) {
 				if (row->matrix >= 0 &&
 						!(row->params & G_MTX_PROJECTION)) {
 					gSPMatrix(gdl++,
@@ -7378,30 +7695,33 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 				continue;
 			}
 
-			if (row->op == GENERATED_RENDER_OP_POP) {
+			if (row->op == MODASSET_RENDER_OP_POP) {
 				gSPPopMatrix(gdl++, G_MTX_MODELVIEW);
 				last_matrix = -0x40000000;
 				continue;
 			}
 
-			if (row->op == GENERATED_RENDER_OP_MATERIAL) {
+			if (row->op == MODASSET_RENDER_OP_MATERIAL) {
 				if (row->material >= 0 &&
 						row->material < mesh->material_count) {
 					material = &mesh->materials[row->material];
 					if (objMaterialHasTexture(material)) {
-						emitGeneratedTextureMarker(&gdl, material);
+						emitGeneratedTextureMarker(&gdl, material,
+							preserve_inherited_combine);
 						last_textured = 1;
 					} else if (last_textured) {
-						emitGeneratedUntexturedState(&gdl);
+						emitGeneratedUntexturedState(&gdl,
+							preserve_inherited_combine);
 						last_textured = 0;
 					}
-					emitGeneratedRenderClass(&gdl, material->render_class, &last_render_class);
+					emitGeneratedRenderClass(&gdl, material->render_class,
+						&last_render_class, preserve_node_render_mode);
 					last_material = row->material;
 				}
 				continue;
 			}
 
-			if (row->op != GENERATED_RENDER_OP_TRI ||
+			if (row->op != MODASSET_RENDER_OP_TRI ||
 					row->face < 0 ||
 					row->face >= mesh->triangle_count) {
 				continue;
@@ -7425,7 +7745,9 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			 * exact pre-B942 matrix->material->vtx(3)->tri sequence. */
 			{
 				generated_tri_batch_t batch;
-				generatedTriComputeBatch(tri, tri_matrix, &batch);
+				u32 applied_geometry_known = 0;
+				generatedTriComputeBatch(tri, tri_matrix, row,
+					compiler_baseline_mode, compiler_baseline_known, &batch);
 				for (s32 r = 0; r < batch.run_count; r++) {
 					s32 run_mtx = batch.slot_mtx[r];
 					if (run_mtx != last_matrix) {
@@ -7446,21 +7768,33 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 					if (r == 0 && tri->material_index >= 0 &&
 							tri->material_index != last_material) {
 						if (objMaterialHasTexture(material)) {
-							emitGeneratedTextureMarker(&gdl, material);
+							emitGeneratedTextureMarker(&gdl, material,
+								preserve_inherited_combine);
 							last_textured = 1;
 						} else if (last_textured) {
-							emitGeneratedUntexturedState(&gdl);
+							emitGeneratedUntexturedState(&gdl,
+								preserve_inherited_combine);
 							last_textured = 0;
 						}
 						emitGeneratedRenderClass(&gdl,
-							material->render_class, &last_render_class);
+							material->render_class, &last_render_class,
+							preserve_node_render_mode);
 						last_material = tri->material_index;
 					}
+					emitGeneratedKnownGeometryMode(&gdl,
+						batch.run_geometry_known[r],
+						batch.run_geometry_mode[r]);
+					applied_geometry_known |= batch.run_geometry_known[r];
 					gSPVertex(gdl++,
 						SEGADDR(vertex_segment | (offset +
 							(uintptr_t)(batch.run_start[r] * (s32)sizeof(Vtx)))),
 						batch.run_len[r], batch.run_start[r]);
 				}
+				/* Geometry mutations used only to reproduce the source G_VTX load
+				 * state must not leak into triangle-time culling/fog semantics. */
+				emitGeneratedKnownGeometryMode(&gdl,
+					applied_geometry_known & stream_geometry_known,
+					stream_geometry_mode);
 				gSP1Triangle(gdl++,
 					batch.corner_slot[0], batch.corner_slot[1],
 					batch.corner_slot[2], 0);
@@ -7487,7 +7821,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 			 * run_count==1 reproduces the pre-B942 single-batch emit exactly. */
 			{
 				generated_tri_batch_t batch;
-				generatedTriComputeBatch(tri, tri_matrix, &batch);
+				generatedTriComputeBatch(tri, tri_matrix, NULL, 0, 0, &batch);
 				for (s32 r = 0; r < batch.run_count; r++) {
 					s32 run_mtx = batch.slot_mtx[r];
 					if (run_mtx != last_matrix) {
@@ -7499,10 +7833,12 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 					}
 					if (r == 0 && tri->material_index != last_material) {
 						if (objMaterialHasTexture(material)) {
-							emitGeneratedTextureMarker(&gdl, material);
+							emitGeneratedTextureMarker(&gdl, material,
+								preserve_inherited_combine);
 							last_textured = 1;
 						} else if (last_textured) {
-							emitGeneratedUntexturedState(&gdl);
+							emitGeneratedUntexturedState(&gdl,
+								preserve_inherited_combine);
 							last_textured = 0;
 						}
 						last_material = tri->material_index;
@@ -7737,6 +8073,7 @@ static s32 generatedModeldefReadFaces(const char *source_path,
 	json_span_t object;
 	u8 *seen;
 	s32 parsed_rows = 0;
+	s32 array_state;
 
 	if (!source_path || !mesh || mesh->triangle_count <= 0) {
 		return 0;
@@ -7781,15 +8118,16 @@ static s32 generatedModeldefReadFaces(const char *source_path,
 		return -1;
 	}
 
-	while (jsonArrayNextObject(faces_array, &cursor, &object)) {
+	while ((array_state = jsonArrayNextContainerStrict(faces_array, &cursor,
+			'{', '}', &object)) > 0) {
 		s32 face_index;
 		s32 matrix_index;
-		json_span_t vtx_array;
+		u32 vtx_matrix[3];
 		if (!jsonObjectInt(object, "face_index", &face_index) ||
 				!jsonObjectInt(object, "matrix_index", &matrix_index) ||
 				face_index < 0 ||
 				face_index >= mesh->triangle_count ||
-				matrix_index < 0 ||
+				!modAssetRenderStreamMatrixIndexValid(matrix_index) ||
 				seen[face_index]) {
 			free(seen);
 			free(copy);
@@ -7799,17 +8137,29 @@ static s32 generatedModeldefReadFaces(const char *source_path,
 		/* B-942: optional per-corner bind matrices. Absent in archives predating the
 		 * vtxmtx carrier -> leaves the -1 defaults, so the consumer falls back to the
 		 * single matrix_index and emits exactly the pre-B942 one-batch tri. */
-		if (jsonObjectArray(object, "vtx_matrix", &vtx_array)) {
-			const char *vcursor = NULL;
-			s32 vval;
+		if (jsonFindKeyInSpan(object, "vtx_matrix")) {
+			if (!jsonObjectU32Array3(object, "vtx_matrix", vtx_matrix)) {
+				free(seen);
+				free(copy);
+				return -1;
+			}
 			for (s32 vi = 0; vi < 3; vi++) {
-				if (jsonArrayNextInt(vtx_array, &vcursor, &vval) && vval >= 0) {
-					mesh->triangles[face_index].vtx_matrix[vi] = vval;
+				if (vtx_matrix[vi] > MODASSET_RENDER_MATRIX_INDEX_MAX) {
+					free(seen);
+					free(copy);
+					return -1;
 				}
+				mesh->triangles[face_index].vtx_matrix[vi] =
+					(s32)vtx_matrix[vi];
 			}
 		}
 		seen[face_index] = 1;
 		parsed_rows++;
+	}
+	if (array_state < 0) {
+		free(seen);
+		free(copy);
+		return -1;
 	}
 
 	free(seen);
@@ -7831,6 +8181,252 @@ static s32 generatedModeldefTypeIsRender(s32 type)
 	return type == MODELNODETYPE_DL ||
 		type == MODELNODETYPE_GUNDL ||
 		type == MODELNODETYPE_STARGUNFIRE;
+}
+
+static s32 generatedRenderStreamOwnerIndex(
+		const generated_hierarchy_t *hierarchy, const char *group)
+{
+	s32 owner = -1;
+
+	if (!hierarchy || !group || !group[0]) {
+		return -1;
+	}
+	for (s32 i = 0; i < hierarchy->row_count; i++) {
+		const generated_hierarchy_row_t *node = &hierarchy->rows[i];
+		if (!generatedModeldefTypeIsRender(node->type) ||
+				strcmp(node->group, group) != 0) {
+			continue;
+		}
+		/* A command group must resolve to exactly one render node. A map that
+		 * silently picks one duplicate owner would make vertex_scope's Type-3
+		 * baseline ambiguous. */
+		if (owner >= 0) {
+			return -1;
+		}
+		owner = i;
+	}
+	return owner;
+}
+
+typedef struct generated_render_contract_slot {
+	u8 loaded;
+	u32 mode;
+	u32 known;
+} generated_render_contract_slot_t;
+
+typedef struct generated_render_contract_node {
+	u32 mode;
+	u32 known;
+	u8 scope_seen;
+	u8 reset_seen;
+	generated_render_contract_slot_t slots[
+		MODASSET_RENDER_VERTEX_CACHE_SLOTS];
+} generated_render_contract_node_t;
+
+static s32 generatedRenderStreamContractValid(
+		const generated_render_stream_t *stream,
+		const generated_hierarchy_t *hierarchy,
+		const obj_mesh_t *mesh,
+		const char *asset_id)
+{
+	generated_render_contract_node_t *state_by_node;
+	s32 valid = 1;
+
+	if (!stream || !hierarchy || !mesh || hierarchy->row_count <= 0) {
+		return 0;
+	}
+	state_by_node = calloc((size_t)hierarchy->row_count,
+		sizeof(*state_by_node));
+	if (!state_by_node) {
+		return 0;
+	}
+	for (s32 i = 0; i < hierarchy->row_count; i++) {
+		const generated_hierarchy_row_t *left = &hierarchy->rows[i];
+		if (!generatedModeldefTypeIsRender(left->type) || !left->group[0]) {
+			continue;
+		}
+		for (s32 j = i + 1; j < hierarchy->row_count; j++) {
+			const generated_hierarchy_row_t *right = &hierarchy->rows[j];
+			if (generatedModeldefTypeIsRender(right->type) &&
+					strcmp(left->group, right->group) == 0) {
+				sysLogPrintf(LOG_WARNING,
+					"MODASSET.RENDER: duplicate render owner id=%s group=%s nodes=%d,%d",
+					asset_id ? asset_id : "(unknown)", left->group,
+					(int)i, (int)j);
+				free(state_by_node);
+				return 0;
+			}
+		}
+	}
+	for (s32 i = 0; i < stream->row_count; i++) {
+		const generated_render_row_t *render = &stream->rows[i];
+		s32 group_index;
+		s32 owner = generatedRenderStreamOwnerIndex(hierarchy, render->group);
+		generated_render_contract_node_t *state;
+
+		if (owner < 0) {
+			sysLogPrintf(LOG_WARNING,
+				"MODASSET.RENDER: invalid command-group ownership id=%s group=%s row=%d",
+				asset_id ? asset_id : "(unknown)", render->group, (int)i);
+			valid = 0;
+			break;
+		}
+		state = &state_by_node[owner];
+
+		if (render->op == MODASSET_RENDER_OP_GEOMETRY_SET) {
+			state->mode |= render->geometry_mask;
+			state->known |= render->geometry_mask;
+			continue;
+		}
+		if (render->op == MODASSET_RENDER_OP_GEOMETRY_CLEAR) {
+			state->mode &= ~render->geometry_mask;
+			state->known |= render->geometry_mask;
+			continue;
+		}
+
+		if (render->op == MODASSET_RENDER_OP_VERTEX_LOAD) {
+			if (!modAssetRenderStreamVertexLoadRangeValid(
+					render->slot_first, render->slot_count)) {
+				sysLogPrintf(LOG_WARNING,
+					"MODASSET.RENDER: invalid vertex load id=%s group=%s row=%d first=%d count=%d",
+					asset_id ? asset_id : "(unknown)", render->group,
+					(int)i, (int)render->slot_first,
+					(int)render->slot_count);
+				valid = 0;
+				break;
+			}
+			for (s32 slot = render->slot_first;
+					slot < render->slot_first + render->slot_count; slot++) {
+				state->slots[slot].loaded = 1;
+				state->slots[slot].mode = state->mode;
+				state->slots[slot].known = state->known;
+			}
+			continue;
+		}
+
+		if (render->op == MODASSET_RENDER_OP_VERTEX_SCOPE) {
+			const generated_hierarchy_row_t *node = &hierarchy->rows[owner];
+			if (!modAssetRenderStreamVertexScopeAllowed(
+					stream->schema_version, node->mcount) || state->scope_seen) {
+				sysLogPrintf(LOG_WARNING,
+					"MODASSET.RENDER: invalid vertex scope id=%s group=%s row=%d mcount=%d",
+					asset_id ? asset_id : "(unknown)", render->group,
+					(int)i, (int)node->mcount);
+				valid = 0;
+				break;
+			}
+			/* The source list state resets while the exact 64-slot table remains.
+			 * Later vertex_load rows overwrite bounded slots; triangles may retain
+			 * only those pre-scope slots that this table proves still live. */
+			state->mode = 0;
+			state->known = 0;
+			state->scope_seen = 1;
+			continue;
+		}
+
+		if (render->op == MODASSET_RENDER_OP_VERTEX_CACHE_RESET) {
+			const generated_hierarchy_row_t *node = &hierarchy->rows[owner];
+			if (!modAssetRenderStreamVertexCacheResetAllowed(
+					stream->schema_version, node->mcount) || state->reset_seen) {
+				sysLogPrintf(LOG_WARNING,
+					"MODASSET.RENDER: invalid vertex cache reset id=%s group=%s row=%d mcount=%d",
+					asset_id ? asset_id : "(unknown)", render->group,
+					(int)i, (int)node->mcount);
+				valid = 0;
+				break;
+			}
+			state->mode = 0;
+			state->known = 0;
+			memset(state->slots, 0, sizeof(state->slots));
+			state->reset_seen = 1;
+			continue;
+		}
+
+		if (render->op != MODASSET_RENDER_OP_TRI) {
+			continue;
+		}
+
+		group_index = objMeshGroupIndexByName(mesh, render->group);
+		if (render->face < 0 || render->face >= mesh->triangle_count ||
+				!generatedModeldefTriangleUsesGroup(
+					&mesh->triangles[render->face], render->group,
+					group_index)) {
+			sysLogPrintf(LOG_WARNING,
+				"MODASSET.RENDER: invalid face ownership id=%s group=%s row=%d face=%d",
+				asset_id ? asset_id : "(unknown)", render->group,
+				(int)i, (int)render->face);
+			valid = 0;
+			break;
+		}
+
+		if (stream->schema_version >=
+				MODASSET_RENDER_STREAM_SCHEMA_GEOMETRY) {
+			const generated_hierarchy_row_t *node = &hierarchy->rows[owner];
+			u32 compiler_baseline_known = 0;
+			(void)modAssetRenderStreamCompilerVertexBaseline(node->mcount,
+				NULL, &compiler_baseline_known);
+			for (s32 corner = 0; corner < 3; corner++) {
+				u32 expected_mode = state->mode;
+				u32 expected_known = state->known;
+				if (stream->schema_version >=
+						MODASSET_RENDER_STREAM_SCHEMA_CURRENT) {
+					s32 slot = render->vertex_cache_slots[corner];
+					if (slot < 0 ||
+							slot >= MODASSET_RENDER_VERTEX_CACHE_SLOTS ||
+							!state->slots[slot].loaded) {
+						sysLogPrintf(LOG_WARNING,
+							"MODASSET.RENDER: invalid vertex cache reference id=%s group=%s row=%d face=%d corner=%d slot=%d",
+							asset_id ? asset_id : "(unknown)", render->group,
+							(int)i, (int)render->face, (int)corner, (int)slot);
+						valid = 0;
+						break;
+					}
+					expected_mode = state->slots[slot].mode;
+					expected_known = state->slots[slot].known;
+				}
+				if (!modAssetRenderStreamVertexSnapshotMatches(
+						expected_mode, expected_known,
+						render->vertex_geometry_mode[corner],
+						render->vertex_geometry_known[corner])) {
+					sysLogPrintf(LOG_WARNING,
+						"MODASSET.RENDER: ambiguous G_VTX state id=%s group=%s row=%d face=%d corner=%d expected_mode=0x%08x expected_known=0x%08x actual_mode=0x%08x actual_known=0x%08x",
+						asset_id ? asset_id : "(unknown)", render->group,
+						(int)i, (int)render->face, (int)corner,
+						(unsigned)(expected_mode &
+							MODASSET_RENDER_VERTEX_LOAD_GEOMETRY_MASK),
+						(unsigned)(expected_known &
+							MODASSET_RENDER_VERTEX_LOAD_GEOMETRY_MASK),
+						(unsigned)(render->vertex_geometry_mode[corner] &
+							MODASSET_RENDER_VERTEX_LOAD_GEOMETRY_MASK),
+						(unsigned)(render->vertex_geometry_known[corner] &
+							MODASSET_RENDER_VERTEX_LOAD_GEOMETRY_MASK));
+					valid = 0;
+					break;
+				}
+				if (!modAssetRenderStreamVertexRelocationValid(
+						expected_known, state->known,
+						compiler_baseline_known)) {
+					sysLogPrintf(LOG_WARNING,
+						"MODASSET.RENDER: unrelocatable G_VTX state id=%s group=%s row=%d face=%d corner=%d load_known=0x%08x draw_known=0x%08x baseline_known=0x%08x",
+						asset_id ? asset_id : "(unknown)", render->group,
+						(int)i, (int)render->face, (int)corner,
+						(unsigned)(expected_known &
+							MODASSET_RENDER_VERTEX_LOAD_GEOMETRY_MASK),
+						(unsigned)(state->known &
+							MODASSET_RENDER_VERTEX_LOAD_GEOMETRY_MASK),
+						(unsigned)(compiler_baseline_known &
+							MODASSET_RENDER_VERTEX_LOAD_GEOMETRY_MASK));
+					valid = 0;
+					break;
+				}
+			}
+			if (!valid) {
+				break;
+			}
+		}
+	}
+	free(state_by_node);
+	return valid;
 }
 
 static s32 generatedModeldefPreserveGunDlType(struct skeleton *skeleton)
@@ -7952,6 +8548,12 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 	render_stream_rc = generatedModeldefReadRenderStream(source_path, mesh,
 		&render_stream);
 	if (render_stream_rc <= 0) {
+		generatedHierarchyFree(&hierarchy);
+		return -1;
+	}
+	if (!generatedRenderStreamContractValid(&render_stream, &hierarchy,
+			mesh, entry ? entry->id : NULL)) {
+		generatedRenderStreamFree(&render_stream);
 		generatedHierarchyFree(&hierarchy);
 		return -1;
 	}
@@ -8142,6 +8744,11 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 	for (s32 i = 0; i < mesh->triangle_count; i++) {
 		if (mesh->triangles[i].matrix_index > max_mtx) {
 			max_mtx = mesh->triangles[i].matrix_index;
+		}
+		for (s32 corner = 0; corner < 3; corner++) {
+			if (mesh->triangles[i].vtx_matrix[corner] > max_mtx) {
+				max_mtx = mesh->triangles[i].vtx_matrix[corner];
+			}
 		}
 	}
 	for (s32 i = 0; i < render_stream.row_count; i++) {
@@ -8390,10 +8997,10 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 		uintptr_t offset = (uintptr_t)(i * 3 * (s32)sizeof(Vtx));
 		if (tri->material_index != last_material) {
 			if (objMaterialHasTexture(material)) {
-				emitGeneratedTextureMarker(&gdl, material);
+				emitGeneratedTextureMarker(&gdl, material, 0);
 				last_textured = 1;
 			} else if (last_textured) {
-				emitGeneratedUntexturedState(&gdl);
+				emitGeneratedUntexturedState(&gdl, 0);
 				last_textured = 0;
 			}
 			/* c3844 vtxcolour + fix B: the hierarchy payload path already emits the
@@ -8402,7 +9009,7 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 			 * translucent material's alpha (carried in the deduped colour table)
 			 * actually blends. Opaque materials never change class -> no new cmds. */
 			emitGeneratedRenderClass(&gdl, material ? material->render_class :
-				PDMESH_RC_OPAQUE, &last_render_class);
+				PDMESH_RC_OPAQUE, &last_render_class, 0);
 			last_material = tri->material_index;
 		}
 		gSPVertex(gdl++, SEGADDR((SPSEGMENT_MODEL_VTX << 24) | offset), 3, 0);

@@ -75,12 +75,44 @@ sixth work queue.
 
 ## Milestone 1: complete base game and graphs
 
-Current in-progress unit: V-010/B-1086. Reproduce the Carrington Institute
-main-menu stage's reported solid-white doors in one ordinary client, identify
-the exact public door/model/material source and submitted renderer state, then
-fix the shared source-to-render boundary if the report reproduces. The closure
-must propagate across representative campaign and Combat Simulator doors and
-retain before/after captures; it must not add a per-door material exception.
+Current in-progress unit: V-010/B-1086 with B-1106 as its production blocker.
+The generic render-stream predecessor is automation- and extraction-accepted on
+exact client `36EA05D1...`: schema v2 preserves ordered geometry state and per-load
+colour ownership; recursion tracks strict 64-slot ownership; the shared
+parameter-byte `G_VTX` decoder, full star domain, Type-3 pair continuity, and
+room-collision destination slots all use the same command semantics; legacy v1
+remains exact; and complete cache v23/v26 payloads are required. Focused 97/7,
+complete 67,361/1,230, conformance, recursive examples/workflow,
+native-source guard, fixture parsing, and unchanged 10-product/20-verifier
+source manifests all pass. Ordinary-client receipt
+`results-20260826T193629Z.json` then cleanly wrote 733/733 meshes and exited,
+accepting the former `vertex_load` and `triangle_slot` repair.
+
+That receipt is retained/rejected at 20/26 for visual closure. Confirmed
+B-1106 makes `base:sp_body_118` select its nested `base:model_cchicrob`
+external-body cache and then fail modeldef conversion; closure row 0 rolls back
+64 prior loads, the Main Menu manifest remains unchanged, neither target door
+activates, and all six captures stay outside Carrington. Exact tracing found 33
+failing corners across 11 faces in three Type-3 groups: the paired lists share
+vertex slots but reset geometry knowledge, which schema v2 could not represent.
+Current source adds schema-v3 exact vertex-cache provenance: every source
+`G_VTX` becomes an ordered `vertex_load`, every triangle names three bounded
+`vertex_cache_slots`, Type-3 pairs retain the 64-slot table through one
+`vertex_scope`, and non-Type-3 pairs clear it through one
+`vertex_cache_reset`. C/Python validators simulate the same table, reject
+unloaded or forged snapshots and malformed arrays, bound all matrix carriers
+to 32766 before s16 publication, and require every relocated load to have a
+restorable triangle-time known-state domain. The Type-3 baseline supplies only
+inherited lighting/texture-generation state; caller-owned fog remains
+fail-closed. Schema v2 remains strict, while schema v3 permits load/draw
+divergence only when an explicit ordered load proves it. Export/cache v25/v28,
+modeldef cache v12, validators, and focused conformance contracts are connected.
+Exact frozen client `7EF396C9...` / tests `4D14886D...` pass focused 143/8,
+complete 67,451/1,231, all conformance/workflow/source/native guards, and zero
+source overlap. Do not bypass the remaining production gate in the fixture.
+Run clean 733/733 extraction and true 3440-wide Carrington proof, then retain
+representative Campaign/Combat Simulator propagation with the V-009
+no-obstruction gate.
 
 Most recently completed unit: V-010/B-1105/SP-74. One generic ordered-material
 planner now preserves the complete `model.mtl` domain, one request-owned latch
@@ -148,7 +180,8 @@ longer the D-003 route gate. B-1104 is now a production regression gate, while
 T-ENGINE-004 is validated after its finite section 9.10 closure audit.
 Milestone 1 therefore has 3 validated, 7 partial, and 5 missing leaves: 20
 percent production-validated. B-1105/SP-74 is now a production regression gate;
-the next default focus is the B-1086 Carrington door reproduction under V-010.
+the active focus is B-1086's source-connected render-state repair and production
+proof under V-010.
 No further D-003 or T-ENGINE-004 source/smoke work is pending. B-1101/B-1102 remain
 regression gates on accepted frozen
 automation and Combat Simulator evidence, and accepted Campaign, D-003, and
@@ -228,7 +261,7 @@ collision, physical input, vehicles, character geometry, long-session stress,
 and rendering. Its active defects and retained regression gates include B-919, B-249, B-242, B-174,
 B-183, B-1064, B-1065, B-1066, B-1067, B-1068, B-1069, B-1070, B-1071,
 B-1072, B-1073, B-1074, B-1075, B-1076, B-1077, B-1078, B-1079, B-1080,
-B-1081, B-1082, B-1083, B-1084, B-1085, B-1086, B-1087, B-1088, B-1089, B-1090, B-1091, B-1092, B-1093, B-1094, B-1095, B-1096, B-1097, B-1098, B-1099, B-1100, B-1101, B-1102, B-1103, B-1104, and B-1105. B-1061, B-1062, and B-1063 are locked release
+B-1081, B-1082, B-1083, B-1084, B-1085, B-1086, B-1087, B-1088, B-1089, B-1090, B-1091, B-1092, B-1093, B-1094, B-1095, B-1096, B-1097, B-1098, B-1099, B-1100, B-1101, B-1102, B-1103, B-1104, B-1105, and B-1106. B-1061, B-1062, and B-1063 are locked release
 regression gates.
 
 ---

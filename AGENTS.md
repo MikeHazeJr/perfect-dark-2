@@ -14,6 +14,15 @@ PC only — x86_64 via MSYS2/MinGW + CMake. SDL2 + OpenGL rendering.
 ## Repository
 GitHub: https://github.com/MikeHazeJr/perfect-dark-2
 
+## Codex live-session mode
+
+Codex worktrees are disabled by user choice as of 2026-08-27. Codex sessions
+work directly in the canonical checkout and coordinate exact Workbench item and
+file ownership before editing. Only one live session may stage, commit, or push
+at a time; other sessions must source-freeze and wait for that Git lane. Builds
+remain isolated and queued through `build-session.ps1`. The worktree merge
+rules below apply only if Mike explicitly re-enables worktrees.
+
 ## Build environment — every session, before any build
 
 > **Do not rediscover TEMP or PATH. Do not invent alternatives.**
@@ -79,6 +88,12 @@ Canonical tooling:
 Every agent session must:
 
 1. Read `Tools/Workbench/README.md` and `Tools/Workbench/SCHEMAS.md`.
+   Codex sessions must keep the repository lifecycle hooks in
+   `.codex/hooks.json` enabled and trusted. The hooks register the real Codex
+   session, inject live Workbench context, and block normal file-edit tools
+   until that coordination session owns an active Workbench item and has
+   processed targeted new notes. Review changed hooks with `/hooks`; never
+   bypass hook trust or disable the hooks to evade this workflow.
 2. Before any Workbench API mutation, inspect `GET /api/meta` and verify
    `canonical=true`, `isolated=false`, and that `projectRoot`/`dataDir` point at
    the canonical checkout. The default server refuses linked-worktree startup;

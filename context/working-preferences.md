@@ -43,9 +43,17 @@ Mike is the architect / designer. Claude is the intermediary / interpreter. Sess
 
 ## Workflow
 
-- Auto-merge worktree work to dev sequentially. Don't ask first; just do.
-- Safely (dry-run + line-count verify + build verify), one merge at a time.
-- Code sessions handle their own merge as part of completion.
+- Codex worktrees are disabled by user choice as of 2026-08-27. Codex sessions
+  work directly in the canonical checkout and must claim exact Workbench items
+  and file surfaces before editing.
+- The orchestrator keeps staging, commit, and push operations serialized. A
+  session with a source-frozen unit waits for the Git lane instead of staging
+  over another owner.
+- Each implementation unit is committed and pushed from the canonical checkout
+  after its coordinated verification. Isolated queued build directories remain
+  mandatory for parallel sessions.
+- If Mike explicitly re-enables worktrees, auto-merge their work to dev safely
+  and sequentially with dry-run, line-count, and build verification.
 
 ## Build verification
 
