@@ -65,10 +65,12 @@ typedef struct distrib_client_status {
     s32 missing_count;           /* total components we need */
     s32 received_count;          /* components fully received */
     char current_id[64];         /* component currently being received */
-    u32 current_bytes_received;  /* bytes received for current component */
-    u32 current_bytes_total;     /* total bytes expected for current component */
+    u32 current_bytes_received;  /* compressed wire bytes received */
+    u32 current_bytes_total;     /* declared expanded archive bytes */
     s32 temporary;               /* 1 = session-only download */
-    u32 session_bytes_total;     /* total bytes received this session */
+    u32 session_bytes_total;     /* compressed wire bytes received this session */
+    u32 current_chunks_received; /* complete wire chunks received */
+    u32 current_chunks_total;    /* declared number of wire chunks */
 } distrib_client_status_t;
 
 /* ========================================================================

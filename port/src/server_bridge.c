@@ -17,6 +17,7 @@
 #include "net/net.h"
 #include "net/netbuf.h"
 #include "net/netlobby.h"
+#include "net/lobby_view.h"
 #include "server_bans.h"
 
 #ifdef _WIN32
@@ -32,59 +33,27 @@ extern struct mpsetup g_MpSetup;
 
 s32 lobbyGetPlayerCount(void)
 {
-    lobbyUpdate();
-    return g_Lobby.numPlayers;
+    return lobbyPlayerCountForView(0);
 }
 
 /* Fills a simplified player view struct for ImGui.
  * The struct layout must match lobbyplayer_view in server_gui.cpp. */
-s32 lobbyGetPlayerInfo(s32 idx, void *out)
+s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out)
 {
-    if (idx < 0 || idx >= g_Lobby.numPlayers || !out) return 0;
-
-    struct lobbyplayer *lp = &g_Lobby.players[idx];
-    if (!lp->active) return 0;
-
-    /* Write fields matching lobbyplayer_view layout.
-     * 2026-04-23: struct shrank 2 bytes (deprecated headnum/bodynum removed).
-     * Keep layout in sync with pdgui_bridge.c::lobbyGetPlayerInfo. */
-    u8 *p = (u8 *)out;
-    p[0] = lp->active;
-    p[1] = lp->isLeader;
-    p[2] = lp->isReady;
-    p[3] = lp->team;
-    strncpy((char *)(p + 4), lp->name, 31);
-    p[35] = '\0';
-
-    /* isLocal (s32 at offset 36, aligned after name[32]) - always 0 on dedicated */
-    s32 isLocal = 0;
-    memcpy(p + 36, &isLocal, sizeof(s32));
-
-    /* state (s32 at offset 40) */
-    s32 state = g_NetClients[lp->clientId].state;
-    memcpy(p + 40, &state, sizeof(s32));
-
-    /* clientId (u8 at offset 44) */
-    p[44] = lp->clientId;
-
-    return 1;
+    return lobbyProjectViewIndex(idx, 0, out);
 }
 
 /* Phase 5: catalog ID accessors for lobby player identity */
 const char *lobbyGetPlayerBodyId(s32 idx)
 {
-    if (idx < 0 || idx >= g_Lobby.numPlayers) return "";
-    struct lobbyplayer *lp = &g_Lobby.players[idx];
-    if (!lp->active) return "";
-    return lp->body_id[0] ? lp->body_id : "";
+    const struct lobbyplayer *player = lobbyPlayerForView(idx, 0);
+    return player ? player->body_id : "";
 }
 
 const char *lobbyGetPlayerHeadId(s32 idx)
 {
-    if (idx < 0 || idx >= g_Lobby.numPlayers) return "";
-    struct lobbyplayer *lp = &g_Lobby.players[idx];
-    if (!lp->active) return "";
-    return lp->head_id[0] ? lp->head_id : "";
+    const struct lobbyplayer *player = lobbyPlayerForView(idx, 0);
+    return player ? player->head_id : "";
 }
 
 /* ========================================================================

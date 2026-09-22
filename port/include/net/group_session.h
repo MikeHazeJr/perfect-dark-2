@@ -76,6 +76,7 @@ typedef struct group_peer_s {
 } group_peer_t;
 
 typedef struct group_session_s {
+	u32          local_handle;     /* committed local Agent owning this session */
 	u8           in_session;       /* 1 once at least one peer is non-UNKNOWN */
 	u8           authority_idx;    /* index into peers[] of the elected authority */
 	u8           is_local_authority;

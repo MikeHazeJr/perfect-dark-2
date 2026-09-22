@@ -43,9 +43,11 @@
 #include "net/netmsg.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
+#include "net/transfer_buffer.h"
 #include "net/netenet.h"
 #include "net/netmanifest.h"
 #include "assetcatalog.h"
+#include "lang_source.h"
 #include "asset_path_contract.h"
 #include "pdca_extract_transaction.h"
 #include "asset_archive_policy.h"
@@ -61,6 +63,8 @@
 #include "assetcatalog_deps.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_scanner.h"
+#include "body_head_source_bind.h"
+#include "character_head_policy.h"
 #include "loader_pool.h"
 #include "modmgr.h"
 #include "modarchive.h"
@@ -84,13 +88,8 @@
 #define DISTRIB_INITIAL_QUEUE 128
 
 /* Default trust threshold in MB — transfers above this require user approval.
- * No hard size ceiling exists; the only protection is this user approval prompt.
  * Configurable via Net.DistribTrustThresholdMB in pd.ini (range 16–4096). */
 #define DISTRIB_TRUST_THRESHOLD_DEFAULT_MB  256
-
-/* Absolute hard cap on archive_bytes in a DISTRIB_BEGIN message.
- * Prevents a malicious server from causing an unbounded malloc at decompress time. */
-#define MAX_DISTRIB_ARCHIVE_BYTES  (512u * 1024u * 1024u)  /* 512 MB */
 
 /* ========================================================================
  * Server Transfer Queue
@@ -130,6 +129,7 @@ typedef struct distrib_recv_slot {
     u8  *compressed_buf;      /* accumulates compressed chunks */
     u32  compressed_cap;
     u32  compressed_len;
+    u32  compressed_limit;     /* compressBound(declared expanded archive) */
     u8   expected_sha256[SHA256_DIGEST_SIZE];  /* v46: digest of compressed archive */
     s32  temporary;
     /* Trust threshold approval (set when archive_bytes > s_TrustThresholdMb*1MB) */
@@ -142,6 +142,9 @@ static distrib_recv_slot_t s_RecvSlots[RECV_SLOTS];
 
 /* Client-visible status */
 static distrib_client_status_t s_ClientStatus;
+/* Expanded archive bytes admitted during this network session. Keep spent
+ * reservations after a failed transfer so retries cannot reset the cap. */
+static u32 s_SessionArchiveBytesReserved;
 /* Smoke ingress drives the real receive/extract/register transaction without
  * a remote peer. Only the final manifest protocol acknowledgement is skipped;
  * every filesystem/catalog/runtime mutation remains production code. */
@@ -895,7 +898,7 @@ static void distribSendEnd(struct netclient *cl, const char *id, u8 success)
 	if (!cl || !id || !id[0]) return;
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgSvcDistribEndWrite(&g_NetMsgRel, id, success);
-	netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+	netSend(cl, &g_NetMsgRel, 1, NETCHAN_TRANSFER);
 }
 
 /* ========================================================================
@@ -1012,7 +1015,13 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
 		distribSendEnd(cl, id, 0);
 		return;
 	}
-    netSend(cl, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+    /* BEGIN, every CHUNK and END share ENet's ordered transfer stream.
+     * Control traffic remains independent of bulk retransmission. */
+    if (!netSend(cl, &g_NetMsgRel, 1, NETCHAN_TRANSFER)) {
+        free(compressed);
+        distribSendEnd(cl, id, 0);
+        return;
+    }
 
     /* SVC_DISTRIB_CHUNK × total_chunks on NETCHAN_TRANSFER.
      * v27: packet format: msgid(1) + id_str(2+idlen) + chunk_idx(2) + compression(1)
@@ -1067,6 +1076,7 @@ void netDistribInit(void)
     }
     memset(s_RecvSlots, 0, sizeof(s_RecvSlots));
     memset(&s_ClientStatus, 0, sizeof(s_ClientStatus));
+    s_SessionArchiveBytesReserved = 0;
     memset(s_KillFeed, 0, sizeof(s_KillFeed));
     s_KillFeedNext = 0;
     /* D3R-9's default is session-only receive under mods/.temp. The user can
@@ -1295,10 +1305,11 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
     if (batch_offset == 0) {
         s_ClientStatus.missing_count = 0;
         s_ClientStatus.received_count = 0;
-        s_ClientStatus.session_bytes_total = 0;
         s_ClientStatus.current_id[0] = '\0';
         s_ClientStatus.current_bytes_received = 0;
         s_ClientStatus.current_bytes_total = 0;
+        s_ClientStatus.current_chunks_received = 0;
+        s_ClientStatus.current_chunks_total = 0;
     }
 
     /* v27: diff by catalog ID string — no net_hash lookup. */
@@ -1372,6 +1383,8 @@ void netDistribClientBeginManifestTransferSet(u16 missing_count)
 	s_ClientStatus.current_id[0] = '\0';
 	s_ClientStatus.current_bytes_received = 0;
 	s_ClientStatus.current_bytes_total = 0;
+	s_ClientStatus.current_chunks_received = 0;
+	s_ClientStatus.current_chunks_total = 0;
 	s_ClientStatus.temporary = 1;
 	s_ClientStatus.state = DISTRIB_CSTATE_DIFFING;
 	sysLogPrintf(LOG_NOTE,
@@ -1384,6 +1397,14 @@ s32 netDistribClientGetTransferTemporary(void)
     return s_PendingTemporary ? 1 : 0;
 }
 
+static void netDistribClientDeclineActiveManifest(const char *reason);
+
+static void netDistribClientRejectBegin(const char *reason)
+{
+    s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+    netDistribClientDeclineActiveManifest(reason);
+}
+
 void netDistribClientHandleBegin(const char *catalog_id, const char *category,
                                   u32 total_chunks, u32 archive_bytes,
                                   const u8 expected_sha256[SHA256_DIGEST_SIZE],
@@ -1391,20 +1412,35 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
 {
     if (!s_Initialized) return;
 
-    if (!catalog_id || !catalog_id[0] || !category) {
+    if (!catalog_id || !catalog_id[0] || !category || !category[0]
+            || strlen(catalog_id) >= sizeof(s_RecvSlots[0].id)
+            || strlen(category) >= sizeof(s_RecvSlots[0].category)) {
         sysLogPrintf(LOG_WARNING,
-                     "DISTRIB: rejecting BEGIN -- missing catalog/category identity");
+                     "DISTRIB: rejecting BEGIN -- invalid catalog/category identity");
+        netDistribClientRejectBegin("invalid transfer identity");
         return;
     }
 
-    /* M-4: Validate archive_bytes before storing — reject oversized transfers. */
-    if (archive_bytes == 0 || archive_bytes > MAX_DISTRIB_ARCHIVE_BYTES
-            || total_chunks == 0 || total_chunks > 65535u) {
+    /* The sender limits expanded PDCA archives to this same per-component
+     * size. compressBound() is the corresponding upper bound for its zlib
+     * compress2 wire stream, including incompressible input. */
+    if (archive_bytes == 0 || archive_bytes > NET_DISTRIB_MAX_COMP) {
         sysLogPrintf(LOG_WARNING,
-                     "DISTRIB: rejecting BEGIN '%s' — invalid archive_bytes=%u "
-                     "(max=%u) total_chunks=%u",
-                     catalog_id, archive_bytes, MAX_DISTRIB_ARCHIVE_BYTES,
-                     total_chunks);
+                     "DISTRIB: rejecting BEGIN '%s' — expanded archive %u exceeds %u",
+                     catalog_id, archive_bytes, (u32)NET_DISTRIB_MAX_COMP);
+        netDistribClientRejectBegin("archive exceeds component limit");
+        return;
+    }
+    uLong compressed_bound = compressBound((uLong)archive_bytes);
+    u32 max_chunks = (u32)((compressed_bound + NET_DISTRIB_CHUNK_SIZE - 1)
+        / NET_DISTRIB_CHUNK_SIZE);
+    if (compressed_bound == 0 || compressed_bound > UINT32_MAX
+            || total_chunks == 0 || total_chunks > 65535u
+            || total_chunks > max_chunks) {
+        sysLogPrintf(LOG_WARNING,
+            "DISTRIB: rejecting BEGIN '%s' — invalid chunk count %u (max %u)",
+            catalog_id, total_chunks, max_chunks);
+        netDistribClientRejectBegin("invalid transfer geometry");
         return;
     }
 
@@ -1415,23 +1451,29 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
             sysLogPrintf(LOG_ERROR,
                          "DISTRIB: rejecting BEGIN '%s' — missing SHA-256 digest",
                          catalog_id);
+            netDistribClientRejectBegin("missing transfer digest");
             return;
         }
     }
 
-    /* SEC-25: enforce the aggregate per-session cap across all components.
-     * session_bytes_total is only incremented on chunk receipt, so comparing
-     * against the *incoming* archive_bytes here is the right moment: a hostile
-     * server that stacks many medium-size components can no longer exceed the
-     * declared NET_DISTRIB_MAX_SESSION budget. */
-    {
-        u64 projected = (u64)s_ClientStatus.session_bytes_total + (u64)archive_bytes;
-        if (projected > (u64)NET_DISTRIB_MAX_SESSION) {
-            sysLogPrintf(LOG_ERROR,
-                         "DISTRIB: rejecting BEGIN '%s' — session cap exceeded "
-                         "(have=%u, incoming=%u, max=%u)",
-                         catalog_id, s_ClientStatus.session_bytes_total,
-                         archive_bytes, (u32)NET_DISTRIB_MAX_SESSION);
+    /* Reserve expanded bytes across active and completed transfers. The wire
+     * telemetry below is compressed bytes and cannot enforce this budget. */
+    u32 proposed_reservation = s_SessionArchiveBytesReserved;
+    if (!netTransferBudgetReserve(&proposed_reservation, archive_bytes,
+            NET_DISTRIB_MAX_COMP, NET_DISTRIB_MAX_SESSION)) {
+        sysLogPrintf(LOG_ERROR,
+            "DISTRIB: rejecting BEGIN '%s' — expanded session cap exceeded "
+            "(reserved=%u, incoming=%u, max=%u)",
+            catalog_id, s_SessionArchiveBytesReserved, archive_bytes,
+            (u32)NET_DISTRIB_MAX_SESSION);
+        netDistribClientRejectBegin("archive session budget exhausted");
+        return;
+    }
+    for (s32 i = 0; i < RECV_SLOTS; i++) {
+        if (s_RecvSlots[i].active && strcmp(s_RecvSlots[i].id, catalog_id) == 0) {
+            sysLogPrintf(LOG_WARNING,
+                "DISTRIB: rejecting duplicate BEGIN for '%s'", catalog_id);
+            netDistribClientRejectBegin("duplicate transfer identity");
             return;
         }
     }
@@ -1447,17 +1489,20 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
 
     if (!slot) {
         sysLogPrintf(LOG_ERROR, "DISTRIB: no free recv slot for '%s'", catalog_id);
+        netDistribClientRejectBegin("receive slots exhausted");
         return;
     }
 
     /* Allocate compressed buffer — size unknown yet, start at 64KB */
-    u32 initial_cap = 65536;
+    u32 initial_cap = compressed_bound < 65536u ? (u32)compressed_bound : 65536u;
     u8 *buf = (u8 *)malloc(initial_cap);
     if (!buf) {
         sysLogPrintf(LOG_ERROR, "DISTRIB: OOM for recv buffer");
+        netDistribClientRejectBegin("receive buffer allocation failed");
         return;
     }
 
+    s_SessionArchiveBytesReserved = proposed_reservation;
     memset(slot, 0, sizeof(*slot));
     slot->active = 1;
     /* v27: identified by id[] string — no net_hash. */
@@ -1469,6 +1514,7 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
     slot->compressed_buf = buf;
     slot->compressed_cap = initial_cap;
     slot->compressed_len = 0;
+    slot->compressed_limit = (u32)compressed_bound;
     memcpy(slot->expected_sha256, expected_sha256, sizeof(slot->expected_sha256));
     strncpy(slot->id, catalog_id, sizeof(slot->id) - 1);
     strncpy(slot->category, category, sizeof(slot->category) - 1);
@@ -1476,8 +1522,8 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
     /* Trust threshold check: if size exceeds threshold, set approval flag instead
      * of proceeding silently. The transfer is still staged so chunks can be buffered
      * after the user approves — the UI should call netDistribApproveTransfer(). */
-    u32 threshold_bytes = (u32)s_TrustThresholdMb * 1024u * 1024u;
-    if (archive_bytes > threshold_bytes) {
+    u64 threshold_bytes = (u64)s_TrustThresholdMb * 1024u * 1024u;
+    if ((u64)archive_bytes > threshold_bytes) {
         slot->needs_approval = 1;
         strncpy(slot->mod_name, catalog_id, sizeof(slot->mod_name) - 1);
         slot->archive_bytes_pending = archive_bytes;
@@ -1492,6 +1538,8 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
     strncpy(s_ClientStatus.current_id, catalog_id, sizeof(s_ClientStatus.current_id) - 1);
     s_ClientStatus.current_bytes_total = archive_bytes;
     s_ClientStatus.current_bytes_received = 0;
+    s_ClientStatus.current_chunks_total = total_chunks;
+    s_ClientStatus.current_chunks_received = 0;
     s_ClientStatus.temporary = temporary;
 
 	sysLogPrintf(LOG_NOTE,
@@ -1519,42 +1567,32 @@ void netDistribClientHandleChunk(const char *catalog_id, u16 chunk_idx,
         return;
     }
 
-    /* M-3: Validate chunk ordering — ENet reliable channels deliver in order,
-     * so out-of-sequence chunks indicate protocol tampering or a serious bug. */
-    if (chunk_idx != slot->expected_chunk) {
-        sysLogPrintf(LOG_WARNING, "DISTRIB: out-of-order chunk for '%s': expected %u got %u — dropping",
-                     catalog_id, slot->expected_chunk, chunk_idx);
+    /* Reliable transfer framing must remain ordered. A failed append ends
+     * this transfer; never advance a sequence or advertise unallocated space. */
+    if (chunk_idx != slot->expected_chunk || chunk_idx >= slot->total_chunks
+            || compression != NET_DISTRIB_COMP_DEFLATE
+            || data_len == 0 || data_len > NET_DISTRIB_CHUNK_SIZE || !data
+            || (chunk_idx + 1u < slot->total_chunks
+                && data_len != NET_DISTRIB_CHUNK_SIZE)) {
+        sysLogPrintf(LOG_WARNING, "DISTRIB: invalid chunk for '%s' (expected %u, got %u)",
+            slot->id, slot->expected_chunk, chunk_idx);
+        netDistribClientHandleEnd(catalog_id, 0);
+        return;
+    }
+    if (!netTransferBufferAppend(&slot->compressed_buf, &slot->compressed_cap,
+            &slot->compressed_len, data, data_len, slot->compressed_limit, NULL)) {
+        sysLogPrintf(LOG_ERROR, "DISTRIB: receive allocation or capacity failure for '%s'", slot->id);
+        netDistribClientHandleEnd(catalog_id, 0);
         return;
     }
     slot->expected_chunk++;
-
-    /* Grow buffer if needed */
-    while (slot->compressed_len + data_len > slot->compressed_cap) {
-        /* C-5: Prevent integer overflow when doubling compressed_cap. */
-        if (slot->compressed_cap > 256u * 1024u * 1024u / 2) {
-            sysLogPrintf(LOG_ERROR, "DISTRIB: compressed buffer exceeds 128MB cap for '%s'", slot->id);
-            free(slot->compressed_buf);
-            memset(slot, 0, sizeof(*slot));
-            return;
-        }
-        slot->compressed_cap *= 2;
-        u8 *newbuf = (u8 *)realloc(slot->compressed_buf, slot->compressed_cap);
-        if (!newbuf) {
-            sysLogPrintf(LOG_ERROR, "DISTRIB: OOM growing recv buffer for '%s'", slot->id);
-            return;
-        }
-        slot->compressed_buf = newbuf;
-    }
-
-    memcpy(slot->compressed_buf + slot->compressed_len, data, data_len);
-    slot->compressed_len += data_len;
     slot->chunks_received++;
 
     /* Update UI */
     s_ClientStatus.current_bytes_received = slot->compressed_len;
+    s_ClientStatus.current_chunks_received = slot->chunks_received;
     s_ClientStatus.session_bytes_total += data_len;
 
-    (void)compression;  /* stored in slot for future use; we detect below from END */
 }
 
 static void netDistribClientDeclineActiveManifest(const char *reason)
@@ -1952,240 +1990,6 @@ static s32 distribQualifyFilePath(const char *dirpath,
     return out[0] != '\0';
 }
 
-static const char *distribFindLastArchiveSeparator(const char *path)
-{
-    const char *last = NULL;
-    const char *p = path;
-
-    while (p && *p) {
-        const char *sep = strstr(p, "::");
-        if (!sep) {
-            break;
-        }
-        last = sep;
-        p = sep + 2;
-    }
-
-    return last;
-}
-
-static s32 distribSourceModelPathFromMeshArchiveChecked(const char *mesh_archive,
-                                                  char *out,
-                                                  size_t outsz)
-{
-    static const char *candidates[] = {
-        "model.obj",
-        "model.gltf",
-        "model.glb",
-    };
-    size_t i;
-
-    if (!out || outsz == 0) {
-        return 0;
-    }
-
-    out[0] = '\0';
-
-    if (!mesh_archive || !mesh_archive[0]) {
-        return 0;
-    }
-
-    for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-        if (!assetPathJoinChecked(out, outsz, mesh_archive, "::",
-                candidates[i])) return 0;
-        if (fsFileSize(out) > 0) {
-            return 1;
-        }
-    }
-
-    return assetPathJoinChecked(out, outsz, mesh_archive, "::", "model.obj");
-}
-
-static s32 distribManifestPathFromMeshArchive(const char *mesh_archive,
-                                              char *out,
-                                              size_t outsz)
-{
-    if (!out || outsz == 0) {
-        return 0;
-    }
-
-    out[0] = '\0';
-
-    if (!mesh_archive || !mesh_archive[0]) {
-        return 0;
-    }
-
-    const char *sep = distribFindLastArchiveSeparator(mesh_archive);
-    if (sep) {
-        size_t prefix_len = (size_t)(sep - mesh_archive);
-        if (prefix_len == 0 || prefix_len + strlen("::_meta/manifest.json") >= outsz) {
-            return 0;
-        }
-        snprintf(out, outsz, "%.*s::_meta/manifest.json",
-                 (int)prefix_len, mesh_archive);
-        out[outsz - 1] = '\0';
-        return 1;
-    }
-
-    const char *slash = strrchr(mesh_archive, '/');
-    const char *backslash = strrchr(mesh_archive, '\\');
-    if (!slash || (backslash && backslash > slash)) {
-        slash = backslash;
-    }
-    if (!slash) {
-        return 0;
-    }
-
-    size_t dir_len = (size_t)(slash - mesh_archive);
-    if (dir_len == 0 || dir_len + strlen("/_meta/manifest.json") >= outsz) {
-        return 0;
-    }
-    snprintf(out, outsz, "%.*s/_meta/manifest.json",
-             (int)dir_len, mesh_archive);
-    out[outsz - 1] = '\0';
-    return 1;
-}
-
-static void distribParseBodyManifestForPrivateSlot(const char *id,
-                                                   const char *mesh_archive,
-                                                   s32 bodynum)
-{
-    char manifest_path[FS_MAXPATH + 64];
-    char *json;
-    u32 json_size = 0;
-
-    if (bodynum < CATALOG_MGR_BODY_CUSTOM_START) {
-        return;
-    }
-
-    if (!distribManifestPathFromMeshArchive(mesh_archive, manifest_path,
-            sizeof(manifest_path))) {
-        sysLogPrintf(LOG_WARNING,
-                     "NETDISTRIB.BODY.MANIFEST_PATH_MISSING: id=%s mesh=%s",
-                     id ? id : "(null)", mesh_archive ? mesh_archive : "(null)");
-        return;
-    }
-
-    json = (char *)fsFileLoad(manifest_path, &json_size);
-    if (!json || json_size == 0) {
-        if (json) {
-            free(json);
-        }
-        sysLogPrintf(LOG_WARNING,
-                     "NETDISTRIB.BODY.MANIFEST_MISSING: id=%s path=%s",
-                     id ? id : "(null)", manifest_path);
-        return;
-    }
-
-    if (loaderPoolParseBodyJsonForSlot(json, json_size, bodynum)) {
-        loaderPoolFinalize();
-        {
-            const body_data_t *body = loaderPoolGetBody(bodynum);
-            if (body) {
-                catalogManagerRegisterBody(id, body);
-            }
-        }
-        sysLogPrintf(LOG_NOTE,
-                     "NETDISTRIB.BODY.LOADER_SLOT: id=%s slot=%d manifest=%s",
-                     id ? id : "(null)", bodynum, manifest_path);
-    }
-
-    free(json);
-}
-
-static void distribParseHeadManifestForPrivateSlot(const char *id,
-                                                   const char *mesh_archive,
-                                                   s32 headnum)
-{
-    char manifest_path[FS_MAXPATH + 64];
-    char *json;
-    u32 json_size = 0;
-
-    if (headnum < CATALOG_MGR_HEAD_CUSTOM_START) {
-        return;
-    }
-
-    if (!distribManifestPathFromMeshArchive(mesh_archive, manifest_path,
-            sizeof(manifest_path))) {
-        sysLogPrintf(LOG_WARNING,
-                     "NETDISTRIB.HEAD.MANIFEST_PATH_MISSING: id=%s mesh=%s",
-                     id ? id : "(null)", mesh_archive ? mesh_archive : "(null)");
-        return;
-    }
-
-    json = (char *)fsFileLoad(manifest_path, &json_size);
-    if (!json || json_size == 0) {
-        if (json) {
-            free(json);
-        }
-        sysLogPrintf(LOG_WARNING,
-                     "NETDISTRIB.HEAD.MANIFEST_MISSING: id=%s path=%s",
-                     id ? id : "(null)", manifest_path);
-        return;
-    }
-
-    if (loaderPoolParseHeadJsonForSlot(json, json_size, headnum)) {
-        loaderPoolFinalize();
-        {
-            const head_data_t *head = loaderPoolGetHead(headnum);
-            if (head) {
-                catalogManagerRegisterHead(id, head);
-            }
-        }
-        sysLogPrintf(LOG_NOTE,
-                     "NETDISTRIB.HEAD.LOADER_SLOT: id=%s slot=%d manifest=%s",
-                     id ? id : "(null)", headnum, manifest_path);
-    }
-
-    free(json);
-}
-
-static s32 distribResolveBodyRuntimeSlot(const char *id,
-                                         s32 declared_bodynum,
-                                         const char *dirpath)
-{
-    if (declared_bodynum >= 0 && declared_bodynum < CATALOG_MGR_BODY_COUNT) {
-        return declared_bodynum;
-    }
-
-    s32 custom = assetCatalogResolveBodyPrivateSlot(id);
-    if (custom >= 0) {
-        sysLogPrintf(LOG_NOTE,
-                     "NETDISTRIB.BODY.CUSTOM_SLOT: id=%s slot=%d path=%s",
-                     id ? id : "(null)", custom, dirpath ? dirpath : "(null)");
-    } else {
-        sysLogPrintf(LOG_WARNING,
-                     "NETDISTRIB.BODY.RUNTIME_SLOT_MISSING: id=%s bodynum=%d path=%s",
-                     id ? id : "(null)", declared_bodynum,
-                     dirpath ? dirpath : "(null)");
-    }
-
-    return custom;
-}
-
-static s32 distribResolveHeadRuntimeSlot(const char *id,
-                                         s32 declared_headnum,
-                                         const char *dirpath)
-{
-    if (declared_headnum >= 0 && declared_headnum < CATALOG_MGR_HEAD_COUNT) {
-        return declared_headnum;
-    }
-
-    s32 custom = assetCatalogResolveHeadPrivateSlot(id);
-    if (custom >= 0) {
-        sysLogPrintf(LOG_NOTE,
-                     "NETDISTRIB.HEAD.CUSTOM_SLOT: id=%s slot=%d path=%s",
-                     id ? id : "(null)", custom, dirpath ? dirpath : "(null)");
-    } else {
-        sysLogPrintf(LOG_WARNING,
-                     "NETDISTRIB.HEAD.RUNTIME_SLOT_MISSING: id=%s headnum=%d path=%s",
-                     id ? id : "(null)", declared_headnum,
-                     dirpath ? dirpath : "(null)");
-    }
-
-    return custom;
-}
-
 static s32 distribRegisterAnimationCommandSource(const char *id,
                                                   const char *dirpath,
                                                   const char *relpath)
@@ -2219,7 +2023,11 @@ static s32 distribRegisterAnimationCommandSource(const char *id,
         return 0;
     }
 
-    if (!loaderPoolParseAnimationSourceJson(json, json_size, path)) {
+    loader_animation_source_batch_t *batch = loaderAnimationSourceBatchCreate();
+    s32 accepted = batch && loaderAnimationSourceBatchStage(batch, json, json_size, path, id)
+        && loaderAnimationSourceBatchCommit(batch);
+    loaderAnimationSourceBatchDestroy(batch);
+    if (!accepted) {
         sysLogPrintf(LOG_WARNING,
                      "DISTRIB: animation command source rejected for '%s': %s",
                      id ? id : "", path);
@@ -2227,7 +2035,6 @@ static s32 distribRegisterAnimationCommandSource(const char *id,
         return 0;
     }
 
-    loaderPoolFinalize();
     sysLogPrintf(LOG_NOTE,
                  "DISTRIB: animation command source registered for '%s': %s",
                  id ? id : "", path);
@@ -2281,9 +2088,7 @@ static s32 distribMintCustomStagenum(asset_entry_t *e, const char *mint_key)
 #define distribSetPrimaryFromFile(e, dirpath, relpath) do { \
     if (!distribSetPrimaryFromFileChecked((e), (dirpath), (relpath))) return 0; \
 } while (0)
-#define distribSourceModelPathFromMeshArchive(mesh, out, outsz) do { \
-    if (!distribSourceModelPathFromMeshArchiveChecked((mesh), (out), (outsz))) return 0; \
-} while (0)
+
 
 static s32 distribIniKeyIsSourcePath(const char *key)
 {
@@ -2328,15 +2133,24 @@ static s32 populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *d
         }
         break;
     case ASSET_CHARACTER:
-        strncpy(e->ext.character.bodyfile,
-                iniGet(ini, "body_archive", iniGet(ini, "bodyfile", "")),
-                FS_MAXPATH - 1);
-        strncpy(e->ext.character.headfile,
-                iniGet(ini, "head_archive", iniGet(ini, "headfile", "")),
-                FS_MAXPATH - 1);
-        strncpy(e->ext.character.portrait_file,
-                iniGet(ini, "portrait_file", ""),
-                FS_MAXPATH - 1);
+        if (!characterSourceApplyIni(e, ini)) {
+            e->enabled = 0;
+            return 0;
+        }
+        {
+            char dependency_error[256];
+            char owner_id[CATALOG_ID_LEN];
+            strcpy(owner_id, e->id);
+            s32 dependency_result = assetCatalogRegisterCharacterDependencies(e, e->bundled,
+                dependency_error, sizeof(dependency_error));
+            e = assetCatalogGetMutable(owner_id);
+            if (dependency_result < 0 || !e) {
+                if (e) e->enabled = 0;
+                sysLogPrintf(LOG_WARNING, "DISTRIB: character dependency failure %s: %s",
+                    owner_id, dependency_error);
+                return 0;
+            }
+        }
         if (e->ext.character.bodyfile[0]) {
             distribSetPrimaryFromFile(e, dirpath, e->ext.character.bodyfile);
         }
@@ -2388,72 +2202,10 @@ static s32 populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *d
         }
         break;
     case ASSET_BODY:
-        e->ext.body.bodynum = (s16)distribResolveBodyRuntimeSlot(
-            e->id, -1, dirpath);
-        if (e->ext.body.bodynum >= 0) {
-            e->runtime_index = e->ext.body.bodynum;
-        }
-        e->ext.body.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
-        e->ext.body.headnum = -1;
-        e->ext.body.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
-        catalogSetBodyDisplayName(e, iniGet(ini, "display_name",
-            iniGet(ini, "name", "")));
-        catalogSetBodyRigClass(e, iniGet(ini, "rig_class", ""));
-        {
-            const char *mesh = iniGet(ini, "mesh_archive", "");
-            const char *hand = iniGet(ini, "hand_archive", "");
-            if (mesh[0]) {
-                char mesh_full[FS_MAXPATH + 1];
-                char source_path[FS_MAXPATH + 32];
-                strncpy(e->ext.body.mesh_archive, mesh,
-                    sizeof(e->ext.body.mesh_archive) - 1);
-                e->ext.body.mesh_archive[
-                    sizeof(e->ext.body.mesh_archive) - 1] = '\0';
-                if (distribQualifyFilePath(dirpath, e->ext.body.mesh_archive,
-                        mesh_full, sizeof(mesh_full))) {
-                    distribSourceModelPathFromMeshArchive(mesh_full,
-                        source_path, sizeof(source_path));
-                    catalogSetPrimaryFile(e, source_path);
-                    distribParseBodyManifestForPrivateSlot(e->id, mesh_full,
-                        e->ext.body.bodynum);
-                }
-            }
-            if (hand[0]) {
-                strncpy(e->ext.body.hand_archive, hand,
-                    sizeof(e->ext.body.hand_archive) - 1);
-                e->ext.body.hand_archive[
-                    sizeof(e->ext.body.hand_archive) - 1] = '\0';
-            }
-        }
-        break;
     case ASSET_HEAD:
-        e->ext.head.headnum = (s16)distribResolveHeadRuntimeSlot(
-            e->id, -1, dirpath);
-        if (e->ext.head.headnum >= 0) {
-            e->runtime_index = e->ext.head.headnum;
-        }
-        e->ext.head.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
-        catalogSetHeadRigClass(e, iniGet(ini, "rig_class", ""));
-        {
-            const char *mesh = iniGet(ini, "mesh_archive", "");
-            if (mesh[0]) {
-                char mesh_full[FS_MAXPATH + 1];
-                char source_path[FS_MAXPATH + 32];
-                strncpy(e->ext.head.mesh_archive, mesh,
-                    sizeof(e->ext.head.mesh_archive) - 1);
-                e->ext.head.mesh_archive[
-                    sizeof(e->ext.head.mesh_archive) - 1] = '\0';
-                if (distribQualifyFilePath(dirpath, e->ext.head.mesh_archive,
-                        mesh_full, sizeof(mesh_full))) {
-                    distribSourceModelPathFromMeshArchive(mesh_full,
-                        source_path, sizeof(source_path));
-                    catalogSetPrimaryFile(e, source_path);
-                    distribParseHeadManifestForPrivateSlot(e->id, mesh_full,
-                        e->ext.head.headnum);
-                }
-            }
-        }
-        break;
+        /* These sources prepare a complete transaction before this generic
+         * registrar can clear the owner row. No private metadata hydration. */
+        return 0;
     case ASSET_MODEL:
         {
             const char *pf = iniGet(ini, "model_file",
@@ -2672,99 +2424,9 @@ static s32 populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *d
         }
         break;
     case ASSET_AUDIO:
-        e->ext.audio.sound_id = -1;
-        strncpy(e->ext.audio.name, iniGet(ini, "name", ""), sizeof(e->ext.audio.name) - 1);
-        e->ext.audio.category = distribParseAudioCategoryValue(
-            iniGet(ini, "audio_category",
-                iniGet(ini, "kind",
-                iniGet(ini, "category", ""))),
-            distribAudioCategoryForSection(ini));
-        e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
-        strncpy(e->ext.audio.voice_actor, iniGet(ini, "actor", ""),
-                sizeof(e->ext.audio.voice_actor) - 1);
-        strncpy(e->ext.audio.voice_transcript, iniGet(ini, "transcript", ""),
-                sizeof(e->ext.audio.voice_transcript) - 1);
-        strncpy(e->ext.audio.voice_language, iniGet(ini, "language", ""),
-                sizeof(e->ext.audio.voice_language) - 1);
-        strncpy(e->ext.audio.voice_context, iniGet(ini, "context", ""),
-                sizeof(e->ext.audio.voice_context) - 1);
-        distribQualifyFilePath(dirpath, iniGet(ini, "subtitle_file", ""),
-                e->ext.audio.subtitle_file,
-                sizeof(e->ext.audio.subtitle_file));
-        strncpy(e->ext.audio.fallback_locale,
-                iniGet(ini, "fallback_locale", ""),
-                sizeof(e->ext.audio.fallback_locale) - 1);
-        {
-            static const char *locale_keys[6] = {
-                "locale_en_file", "locale_fr_file", "locale_de_file",
-                "locale_it_file", "locale_es_file", "locale_ja_file"
-            };
-            for (s32 i = 0; i < 6; i++) {
-                distribQualifyFilePath(dirpath, iniGet(ini, locale_keys[i], ""),
-                    e->ext.audio.locale_audio_files[i],
-                    sizeof(e->ext.audio.locale_audio_files[i]));
-            }
-        }
-        e->ext.audio.has_keymap = iniGetInt(ini, "has_keymap",
-            iniGet(ini, "key_base", NULL) != NULL ? 1 : 0);
-        e->ext.audio.key_min = iniGetInt(ini, "key_min", 0);
-        e->ext.audio.key_max = iniGetInt(ini, "key_max", 127);
-        e->ext.audio.key_base = iniGetInt(ini, "key_base", 60);
-        e->ext.audio.key_detune = iniGetInt(ini, "key_detune", 0);
-        e->ext.audio.velocity_min = iniGetInt(ini, "velocity_min", 0);
-        e->ext.audio.velocity_max = iniGetInt(ini, "velocity_max", 0);
-        e->ext.audio.sample_pan = iniGetInt(ini, "sample_pan", 64);
-        e->ext.audio.sample_volume = iniGetInt(ini, "sample_volume", 127);
-        e->ext.audio.loop_start_samples = (u32)iniGetInt(ini, "loop_start_samples", 0);
-        e->ext.audio.loop_end_samples = (u32)iniGetInt(ini, "loop_end_samples", 0);
-        e->ext.audio.loop_count = (u32)iniGetInt(ini, "loop_count", 0);
-        {
-            const char *has_loop = iniGet(ini, "has_loop", "0");
-            e->ext.audio.has_loop = iniGetInt(ini, "has_loop", 0)
-                || strcmp(has_loop, "true") == 0
-                || strcmp(has_loop, "yes") == 0
-                || e->ext.audio.loop_end_samples > e->ext.audio.loop_start_samples
-                || e->ext.audio.loop_count != 0;
-        }
-        e->ext.audio.attack_time_us = (u32)iniGetInt(ini, "attack_time_us", 0);
-        e->ext.audio.decay_time_us = (u32)iniGetInt(ini, "decay_time_us", 0);
-        e->ext.audio.release_time_us = (u32)iniGetInt(ini, "release_time_us", 0);
-        e->ext.audio.attack_volume = iniGetInt(ini, "attack_volume", 127);
-        e->ext.audio.decay_volume = iniGetInt(ini, "decay_volume", 127);
-        {
-            const char *has_envelope = iniGet(ini, "has_envelope", "0");
-            e->ext.audio.has_envelope = iniGetInt(ini, "has_envelope", 0)
-                || strcmp(has_envelope, "true") == 0
-                || strcmp(has_envelope, "yes") == 0
-                || e->ext.audio.attack_time_us != 0
-                || e->ext.audio.decay_time_us != 0
-                || e->ext.audio.release_time_us != 0
-                || e->ext.audio.attack_volume != 127
-                || e->ext.audio.decay_volume != 127;
-        }
-        {
-            const char *audio_file = iniGet(ini, "file_path", "");
-            const char *primary_file = audio_file[0] ? audio_file :
-                iniGet(ini, "music_file", iniGet(ini, "midi_file", ""));
-            strncpy(e->ext.audio.file_path, audio_file,
-                    sizeof(e->ext.audio.file_path) - 1);
-            if (primary_file[0]) {
-                distribSetPrimaryFromFile(e, dirpath, primary_file);
-            }
-            /* c3849 Wave 2: mirror the scanner -- net-distributed custom
-             * SFX/VOICE with no authored sound_id gets a private soundnum
-             * (never MUSIC: sound_id doubles as a tracknum there). */
-            if (e->ext.audio.sound_id < 0 &&
-                    e->ext.audio.category != AUDIO_CAT_MUSIC &&
-                    primary_file[0]) {
-                s32 slot = assetCatalogResolveSoundPrivateSlot(e->id);
-                if (slot >= 0) {
-                    e->ext.audio.sound_id = slot;
-                    e->source_soundnum = slot;
-                }
-            }
-        }
-        break;
+        /* All received audio uses transactional scanner admission. Never
+         * recreate an audio identity through this reset-then-fill fallback. */
+        return 0;
     case ASSET_GAMEMODE:
         e->ext.gamemode.mode_id = distribParseModeKeyValue(
             iniGet(ini, "mode_key", iniGet(ini, "mode_id", "")), -1);
@@ -2945,7 +2607,13 @@ static s32 populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *d
             strncpy(e->ext.lang.lang_category, category,
                     sizeof(e->ext.lang.lang_category) - 1);
             e->ext.lang.lang_category[sizeof(e->ext.lang.lang_category) - 1] = '\0';
-            e->ext.lang.string_count = (u32)iniGetInt(ini, "string_count", 0);
+            const char *count_text = iniGet(ini, "string_count", NULL);
+            e->ext.lang.string_count_declared = count_text != NULL;
+            e->ext.lang.string_count = 0;
+            if (count_text && !langSourceParseCount(count_text, &e->ext.lang.string_count)) {
+                /* Preserve invalid presence for the shared activation boundary. */
+                e->ext.lang.string_count = UINT32_MAX;
+            }
             strncpy(e->ext.lang.strings_file, sf,
                     sizeof(e->ext.lang.strings_file) - 1);
             e->ext.lang.strings_file[sizeof(e->ext.lang.strings_file) - 1] = '\0';
@@ -3073,8 +2741,26 @@ static s32 populateExtFromIni(asset_entry_t *e, asset_type_e type, const char *d
     return 1;
 }
 
-#undef distribSourceModelPathFromMeshArchive
 #undef distribSetPrimaryFromFile
+
+/* 0 absent, 1 prepared, -1 invalid. A loose root descriptor must be handled
+ * before scanning its child .pdmesh files can masquerade as root admission. */
+static s32 distribPreparePublicBodyHead(const char *dirpath, const char *id,
+    const char *category, s32 temporary, void **admission)
+{
+    char body_path[FS_MAXPATH], head_path[FS_MAXPATH], error[256];
+    if (!admission || !assetPathJoinChecked(body_path, sizeof(body_path), dirpath, "/", "body.ini") ||
+            !assetPathJoinChecked(head_path, sizeof(head_path), dirpath, "/", "head.ini")) return -1;
+    *admission = NULL;
+    s32 body_present = fsFileSize(body_path) >= 0, head_present = fsFileSize(head_path) >= 0;
+    if (!body_present && !head_present) return 0;
+    if (body_present && head_present) return -1;
+    *admission = assetCatalogPrepareBodyHeadDescriptor(head_present ? head_path : body_path,
+        id, dirpath, category, head_present, temporary, error, sizeof(error));
+    if (!*admission) sysLogPrintf(LOG_WARNING,
+        "DISTRIB.BODYHEAD.SOURCE.REJECT: id=%s error=%s", id, error);
+    return *admission ? 1 : -1;
+}
 
 static void distribMarkRegisteredTree(const char *root_dir, s32 temporary)
 {
@@ -3135,14 +2821,17 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         return;
     }
 
-    /* C-3: Block processing if transfer requires approval that hasn't been granted. */
+    /* Failure must resolve and release a transfer even while consent is pending. */
+    if (!success) {
+        sysLogPrintf(LOG_WARNING, "DISTRIB: transfer failed for '%s'", slot->id);
+        goto done;
+    }
     if (slot->needs_approval) {
         sysLogPrintf(LOG_WARNING, "DISTRIB: END for '%s' blocked — awaiting user approval", catalog_id);
         return;
     }
-
-    if (!success) {
-        sysLogPrintf(LOG_WARNING, "DISTRIB: server signalled failure for '%s'", slot->id);
+    if (slot->chunks_received != slot->total_chunks) {
+        sysLogPrintf(LOG_WARNING, "DISTRIB: incomplete ordered transfer for '%s'", slot->id);
         goto done;
     }
 
@@ -3172,14 +2861,13 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
         sysLogPrintf(LOG_ERROR, "DISTRIB: archive_bytes is zero — rejecting '%s'", slot->id);
         goto done;
     }
-    /* C-4: Reject absurdly large decompression to prevent integer overflow in alloc. */
-    if (slot->archive_bytes > 256u * 1024u * 1024u) {
-        sysLogPrintf(LOG_ERROR, "DISTRIB: archive_bytes %u exceeds 256MB safety cap — rejecting '%s'",
+    /* BEGIN already admitted the exact expanded size against both budgets. */
+    if (slot->archive_bytes > NET_DISTRIB_MAX_COMP) {
+        sysLogPrintf(LOG_ERROR, "DISTRIB: expanded size %u exceeds component cap — rejecting '%s'",
                      slot->archive_bytes, slot->id);
         goto done;
     }
-    uLongf raw_len = (uLongf)(slot->archive_bytes + 1024); /* a bit of headroom */
-    if (raw_len < 65536) raw_len = 65536;
+    uLongf raw_len = (uLongf)slot->archive_bytes;
     u8 *raw = (u8 *)malloc(raw_len);
     if (!raw) {
         sysLogPrintf(LOG_ERROR, "DISTRIB: OOM for decompressed buffer (%lu bytes)", raw_len);
@@ -3190,6 +2878,13 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                           slot->compressed_buf, (uLong)slot->compressed_len);
     if (zret != Z_OK) {
         sysLogPrintf(LOG_ERROR, "DISTRIB: decompress failed (%d) for '%s'", zret, slot->id);
+        free(raw);
+        goto done;
+    }
+    if (raw_len != (uLongf)slot->archive_bytes) {
+        sysLogPrintf(LOG_ERROR,
+            "DISTRIB: expanded size mismatch for '%s' (declared=%u, actual=%lu)",
+            slot->id, slot->archive_bytes, (unsigned long)raw_len);
         free(raw);
         goto done;
     }
@@ -3255,6 +2950,7 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
     /* Extract into a unique sibling and publish only after every member is
      * durable. A pre-existing component is restored on any publish failure. */
     pdca_extract_transaction_t install_transaction;
+    void *body_head_admission = NULL;
     pdca_extract_result_t extract_result = pdcaExtractArchiveBegin(raw,
         (u32)raw_len, destdir, NULL, &install_transaction);
     if (extract_result > 0) {
@@ -3298,7 +2994,9 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 			/* Typed archives are transferred intact, including their nested
 			 * dependency closure. Scan them before the loose-INI compatibility
 			 * path so temporary lobby installs hot-register nested media too. */
-			registered = assetCatalogScanExternalLayoutFolderDeferred(
+			registered = distribPreparePublicBodyHead(destdir, slot->id,
+				slot->category, slot->temporary, &body_head_admission);
+			if (registered == 0) registered = assetCatalogScanExternalLayoutFolderDeferred(
 				slot->category, destdir);
 		}
 		if (registered > 0) {
@@ -3310,51 +3008,30 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
             if (!assetPathJoinChecked(inipath, sizeof(inipath), destdir, "/",
                     ini_names[k])) continue;
             if (iniParse(inipath, &ini)) {
-                /* audio.ini: preserve legacy registration while mirroring the shared audio parser. */
+                /* Legacy audio.ini shares typed-source identity/rollback. */
                 if (strcmp(ini_names[k], "audio.ini") == 0) {
-                    const char *aname = iniGet(&ini, "name", slot->id);
-                    s32 cat = distribParseAudioCategoryValue(
-                        iniGet(&ini, "audio_category",
-                            iniGet(&ini, "kind",
-                            iniGet(&ini, "category", ""))), AUDIO_CAT_SFX);
-                    s32 dur = iniGetInt(&ini, "duration_ms", 0);
-                    const char *fpath = iniGet(&ini, "file_path", "");
-                    char fullfile[FS_MAXPATH];
-                    if (fpath[0] && !assetPathJoinChecked(fullfile,
-                            sizeof(fullfile), destdir, "/", fpath)) {
-                        sysLogPrintf(LOG_WARNING,
-                            "DISTRIB.ASSET.PATH.REJECT: audio candidate %s",
-                            slot->id);
-                        continue;
-                    }
-                    asset_entry_t prior_entry;
-                    const asset_entry_t *prior = assetCatalogResolve(slot->id);
-                    if (prior) prior_entry = *prior;
-                    asset_entry_t *e = assetCatalogRegisterAudio(
-                        slot->id, 0, aname, cat, dur, fpath[0] ? fullfile : "");
-                    if (e) {
-                        strncpy(e->dirpath, destdir, sizeof(e->dirpath) - 1);
-                        e->enabled = 1;
-                        e->temporary = slot->temporary;
-                        e->bundled = 0;
-                        if (!populateExtFromIni(e, ASSET_AUDIO, destdir, &ini,
-                                prior ? &prior_entry : NULL)) {
-                            if (prior) *e = prior_entry;
-                            else assetCatalogUnregister(slot->id);
-                            sysLogPrintf(LOG_WARNING,
-                                "DISTRIB.ASSET.PATH.REJECT: audio candidate %s",
-                                slot->id);
-                            continue;
+                    s32 audio_result = assetCatalogRegisterAudioIni(slot->id,
+                        slot->category, destdir, &ini, AUDIO_CAT_SFX, 1);
+                    if (audio_result > 0) {
+                        asset_entry_t *e = assetCatalogGetMutable(slot->id);
+                        if (e) {
+                            e->enabled = 1;
+                            e->temporary = slot->temporary;
+                            e->bundled = 0;
                         }
-                        distribRegisterDependencyList(e->id, iniGet(&ini, "deps", ""), e->bundled);
-                        sysLogPrintf(LOG_NOTE, "DISTRIB: hot-registered audio '%s' from %s", slot->id, destdir);
-                        registered = 1;
                     }
+                    registered = audio_result;
                 } else {
                     /* H-2: Resolve asset type from INI filename so the entry is
                      * type-queryable immediately. ASSET_NONE hides the entry from
                      * typed resolvers until the next catalog refresh. */
                     asset_type_e type = iniFilenameToAssetType(ini_names[k]);
+                    if (type == ASSET_AUDIO) {
+                        /* sound/sfx/voice/music descriptors were already
+                         * admitted or rejected by the scanner transaction. */
+                        registered = -1;
+                        break;
+                    }
                     if (type == ASSET_NONE) {
                         sysLogPrintf(LOG_WARNING,
                             "DISTRIB: no typed registrar for '%s' (id='%s') — "
@@ -3378,8 +3055,19 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
                         e->temporary = slot->temporary;
                         e->bundled = 0;
                         e->model_scale = iniGetFloat(&ini, "model_scale", 1.0f);
-                        if (!populateExtFromIni(e, type, destdir, &ini,
-                                preserved_entry_ptr)) {
+                        s32 populated = populateExtFromIni(e, type, destdir, &ini,
+                            preserved_entry_ptr);
+                        if (type == ASSET_CHARACTER) {
+                            /* The callee's refreshed pointer cannot update this
+                             * caller after embedded child registration/rollback. */
+                            e = assetCatalogGetMutable(slot->id);
+                        }
+                        if (!e) {
+                            sysLogPrintf(LOG_WARNING,
+                                "DISTRIB: catalog parent disappeared during admission: %s", slot->id);
+                            continue;
+                        }
+                        if (!populated) {
                             if (existing) *e = preserved_entry;
                             else assetCatalogUnregister(slot->id);
                             sysLogPrintf(LOG_WARNING,
@@ -3411,6 +3099,9 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
             sysLogPrintf(LOG_ERROR,
                 "DISTRIB.RECOVERY.STATE.REJECT: could not durably mark temporary content '%s' dirty",
                 slot->id);
+            if (!assetCatalogFinishBodyHeadAdmission(body_head_admission, 0))
+                sysLoudFailf("DISTRIB.BODYHEAD.ROLLBACK", "source admission rollback failed: %s", slot->id);
+            body_head_admission = NULL;
             (void)modmgrRetireSessionContent();
             registered = 0;
         }
@@ -3421,6 +3112,9 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
          * zero (nothing recognized) and negative (recognized rejection) both
          * roll the PDCA transaction back before pending roots are retried. */
         if (registered <= 0) {
+            if (!assetCatalogFinishBodyHeadAdmission(body_head_admission, 0))
+                sysLoudFailf("DISTRIB.BODYHEAD.ROLLBACK", "source admission rollback failed: %s", slot->id);
+            body_head_admission = NULL;
             sysLogPrintf(LOG_WARNING, "DISTRIB: no recognized INI for '%s' -- catalog entry skipped", slot->id);
             s32 rollback_result =
                 pdcaExtractTransactionRollback(&install_transaction);
@@ -3463,6 +3157,9 @@ void netDistribClientHandleEnd(const char *catalog_id, u8 success)
 
             pdca_extract_result_t commit_result =
                 pdcaExtractTransactionCommit(&install_transaction);
+            if (!assetCatalogFinishBodyHeadAdmission(body_head_admission, commit_result > 0))
+                sysLoudFailf("DISTRIB.BODYHEAD.ROLLBACK", "source admission finalization failed: %s", slot->id);
+            body_head_admission = NULL;
             if (commit_result == PDCA_EXTRACT_OK_BACKUP_RETAINED) {
                 sysLogPrintf(LOG_WARNING,
                     "DISTRIB: admitted '%s' but retained recovery backup; future replacement requires review",
@@ -3693,6 +3390,8 @@ void netDistribApproveTransfer(s32 slot_idx)
     strncpy(s_ClientStatus.current_id, slot->id, sizeof(s_ClientStatus.current_id) - 1);
     s_ClientStatus.current_bytes_total = slot->archive_bytes;
     s_ClientStatus.current_bytes_received = slot->compressed_len;
+    s_ClientStatus.current_chunks_total = slot->total_chunks;
+    s_ClientStatus.current_chunks_received = slot->chunks_received;
     s_ClientStatus.temporary = slot->temporary;
 
     sysLogPrintf(LOG_NOTE, "DISTRIB: user approved transfer of '%s' (%u bytes)",
@@ -4170,8 +3869,12 @@ s32 netCrashRecoveryApply(s32 action)
                         result = modmgrRegisterSessionFolder(candidates[i].dirpath,
                             candidates[i].id, candidates[i].package_sha256);
                     } else {
-                        result = assetCatalogScanExternalLayoutFolderDeferred(
+                        void *body_head_admission = NULL;
+                        result = distribPreparePublicBodyHead(candidates[i].dirpath, candidates[i].id,
+                            candidates[i].category, 1, &body_head_admission);
+                        if (result == 0) result = assetCatalogScanExternalLayoutFolderDeferred(
                             candidates[i].category, candidates[i].dirpath);
+                        if (!assetCatalogFinishBodyHeadAdmission(body_head_admission, result > 0)) result = -1;
                     }
                     if (result <= 0) {
                         sysLogPrintf(LOG_WARNING,

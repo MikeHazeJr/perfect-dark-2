@@ -40,6 +40,7 @@
  */
 
 #include "social.h"
+#include "save_atomic.h"
 #include "identity.h"
 #include "connectcode.h"
 #include "sha256.h"
@@ -313,19 +314,13 @@ static char *slurpFile(const char *path)
 
 static s32 writeAtomic(const char *path, const char *bytes, size_t len)
 {
-	char tmp[600];
-	snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-	FILE *f = fopen(tmp, "wb");
-	if (!f) return -1;
-	if (fwrite(bytes, 1, len, f) != len) { fclose(f); remove(tmp); return -1; }
-	fflush(f);
-	fclose(f);
-#ifdef _WIN32
-	/* Windows rename does not overwrite -- delete first, then rename. */
-	remove(path);
-#endif
-	if (rename(tmp, path) != 0) { remove(tmp); return -1; }
-	return 0;
+	save_atomic_file_t transaction;
+	if (saveAtomicBegin(&transaction, path) != 0) return -1;
+	if (fwrite(bytes, 1, len, saveAtomicStream(&transaction)) != len) {
+		saveAtomicAbort(&transaction);
+		return -1;
+	}
+	return saveAtomicCommit(&transaction);
 }
 
 /* Append a JSON-escaped string segment. Handles backslash, quote, control. */

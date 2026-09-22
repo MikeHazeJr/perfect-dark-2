@@ -1,10 +1,214 @@
 # Connectivity / Online
 
-> ENet UDP transport. Server-authoritative wire protocol at v58. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v5). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
+> ENet UDP transport. Listen-authority wire protocol at v61 (native roster and corrected two-client Join37/37 passed; broader multiplayer proof remains partial); remote movement authority remains an open audit finding. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v5). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
 ---
 
 ## What it is
+
+Sep22 19:18: the shortened ordinary distribution fixture cleared the first
+cache-path fatal, but host autostart repeatedly failed before ready/transfer:
+filtered weapon-set menu index 6 resolved to Random 13, while the lobby reader
+classified the raw index and re-rolled exact slots. A two-path reader/guard
+correction is applied and unverified; frozen retry source D56CDDD9/client
+7F5DD99D remains RED35/67, not distribution evidence. Next: combined build,
+focused guard and fresh two-process smoke after source owners release.
+
+Sep22 18:59: F12 resource accounting has a clean frozen full3623
+client/tests build, exact native allocation/budget4 pass and native source
+guard0. The receiver now reserves expanded archive bytes per accepted BEGIN,
+uses the sender's 50 MiB component limit and zlib wire bound, validates chunk
+geometry and exact expanded size, and displays chunk-based progress with
+separate wire/expanded byte labels. The first ordinary real-peer smoke is
+RED20/44 before transfer because the long test install path exhausts the
+public animation cache path budget; the short-name retry then reached ENet
+but failed at the separate weapon-set lobby start above. Consent-before-bulk,
+transfer pacing, larger content, and full multiplayer acceptance remain open.
+
+Sep22 18:34: F10 voice VAD/device capability passed isolated client/tests
+builds0 and exact native17/0fail with real Opus/Ed25519, deterministic
+SDL/transport, no-codec branch and asset guard0 on frozen full2156 59011833.
+This is component proof, not audible/device, voice-socket or ordinary Settings
+acceptance. Broad multiplayer status remains partial.
+
+Sep22 18:28: F10 voice VAD/device capability source8 applied on exact
+baselines, with energy hysteresis/silence hold, listen-only capability fallback
+and Settings controls. Full client/tests/native17/guard gates are unrun; earlier
+playout13 proof is historical for the prior voice source. Real socket/audio/UI
+acceptance remains open.
+
+Sep22 18:19: actual signed localhost FT socket r2 passed on one ordinary
+portable Agent plus disposable peer: smoke6/6, outbound and inbound4097 bytes
+verified, repeated final CHUNK ACK replayed, installed inbox SHA/JSON sidecar
+correct and one inbound publication. Frozen full2154 DFE17DD4/clientAB36312D
+unchanged. This qualifies local UDP/storage behavior only; UI, WAN/NAT,
+consent, pacing and broader multiplayer flow remain open.
+
+Sep22 18:14: peer-only r2 correction filters presence packets before FT
+verification and follows production `file` / `files` naming. Full2154
+DFE17DD4 differs from r1 only in disposable peer/private runner; r2 ordinary
+socket gate is queued and unrun. Client binary remains AB36312D.
+
+Sep22 18:12: first ordinary signed-socket FT smoke stopped at a synthetic-peer
+filter defect: it received a presence datagram before the FT INIT and rejected
+it as FT. Client Agent/UDP bind/send INIT and scripted exit occurred, but no
+ACK, inbound save, or replay was observed. Build/schema/guard passed on frozen
+full2154 DB405E40; runtime 4/6 failed receipt retained. New peer-only review
+and socket run are required.
+
+Sep22 18:02: signed presence-socket file-transfer smoke probe and disposable
+peer are source-applied but unbuilt/unrun. Outbound/inbound UDP, receipt
+replay, and installed inbox sidecar remain pending direct verification.
+
+Sep22 17:52: FT receiver storage/receipt repair passed clean isolated client and
+tests builds, native storage5 exact cases, and asset source guard on frozen
+full2149 SHA8337DB9E with no drift. The five cases exercise real temporary
+files and injected atomic commit failure. This remains component evidence;
+real signed socket exchange, sidecar parsing, UI and WAN are unverified.
+
+Sep22 17:40: FT receiver storage/receipt repair was source-applied.
+It defers final ACK until verified atomic inbox commit, rejects failed saves,
+and retains bounded Agent-owned completion receipts for matching retransmits.
+Peer-handle inbox directories, digest-prefixed safe names, and JSON-escaped
+sidecars remove the prior remote path and metadata injection paths. Fresh
+Client/tests/native5/source guard have since passed; real socket acceptance
+remains open. The
+first shared client build caught one local music-conversion sanitizer caller;
+source6 r2 restored that helper and awaits the owner's retry.
+
+Sep8 21:24: FT wire7 PASS2898 assertions, client/tests/guard0, no drift on full
+438CF4A4/client4DDA994D/tests6A2856DE. Capacity/signature, geometry, control owner
+and ACK progression use the production wire helper; adapters compile. Actual
+socket/receiver commit/replay/UI/WAN acceptance remains open. FIFOs/holds released.
+
+Sep8 21:19: signed FT wire8 applied (source72C4260E), validation pending. Complete
+1320-byte v2 signatures, bounded geometry/copies, peer/recipient/control ownership
+and discovered presence transport replace the broken1280-byte/dedicated-socket
+path. Native7 and builds/guard pending; no end-to-end transfer verdict.
+
+Sep8 21:16: FT activation actual-core acceptance passed in menu Core2 (35/35
+overall, full049E558F/client811BE779); failed save retains prompt/plan, retry
+persists and activates, explicit discard clears prompt without rollback.
+ft-activation-runtime-review.json independently verifies events and current FT4.
+Public Mods7 source-contract cases passed. Actual network downloads, Agent UI
+switch/controller remain open. New signed FT frame/geometry/peer-boundary defects
+are source-confirmed; wire8 repair/native7 is PRIVATE, prioritized before VAD.
+
+Sep8 20:43: received-mod activation migration applied pending shared build and
+actual-core verification. Failed activation retains the same Agent-owned plan
+and prompt; retry/discard text reflects partial effects. Install-only API is
+separate from activation. Agent transitions free old transfer/prompt state.
+No actual download, input, or Agent-switch runtime acceptance claimed yet.
+
+Sep8 20:22: voice playout13 PASS701 assertions, exact names/no drift on
+tests86BFB2D2/clientA88A88A3/full19F5FAEF, client/tests/guard0. Real Opus two-peer
+mix, packet ordering, bounded PLC/queues and lifecycle covered with fake SDL and
+transport. Actual sockets, audible/device/UI and VAD remain open. Root installed
+command-generation runtime is separate evidence, not voice acceptance.
+
+Sep8 20:16: ordered voice playout4 applied, manifest42602FDC. Eight encoded
+frames/peer,40ms prefill, ordered decode/shared20ms saturating mix, at most40ms
+SDL playback and80ms capture backlog, bounded PLC and stall recovery connected.
+Native13/client pending root batch19; actual socket/audio/VAD acceptance open.
+
+Sep8 20:05: corrected clientCF294A6D/full80E30B41 and guard passed with no drift;
+voice-session9/102 retained. Shared sound runtime passed separately and does not
+prove live voice. Earlier client compile/link reds retained. Voice playout4 plus
+native13 candidate remains private/unrun pending menu checkpoint release; actual
+socket/audio/UI, ordered mixed playback and VAD acceptance are still open.
+
+Sep8 19:49: voice-session9 PASS102 assertions, exact names/no voice-source drift
+on testsFEE7C21E/full3F22B541. Shared client build failed in root-owned audio and
+catalog_audio_generation isfinite calls. Current voice client/runtime proof is
+therefore pending corrected build, despite native9 passing. Root owns repair;
+MP remains quiescent. Native review and failed client receipt retained.
+
+Sep8 19:46: voice-session-v2 source4 applied, manifest4886DAC4, no CMake change.
+PDVOC2 binds signed media to sender epoch/receiver challenge and bounded sequence
+admission; pending HELLO preserves current audio until challenge proof. Expiry,
+STOP and rollover revoke old receive state. Native9/client pending under root's
+shared sound15 snapshot. ENet61 unchanged; PDVOC1 frames intentionally rejected.
+Mixed playback, VAD, real socket exchange and audible/device acceptance remain open.
+
+Sep8 19:32: transport7 client/tests/guard PASS; production voice adapter5 passed
+55 assertions on tests30D27547/clientFB499E55/fullFBCC1DBA with no drift. Exact
+signatures, recipients, malformed/unaccepted traffic, Agent switch and audio
+revocation covered with real Opus/signatures and fake SDL/transport. Actual
+presence socket exchange, audible/device/UI lifecycle proof still pending.
+
+Sep8 19:26: voice transport7 applied, source33083E3C. Dedicated fixed voice socket
+replaced by discovered presence-bound sending and explicit receive dispatch;
+incoming packets require exact recipient/signature/current-group membership.
+Maximum516-byte voice frame fits the enlarged receive buffer. Production voice
+adapter fixture5 registered with real Opus/signatures and fake devices/transport;
+client/native5 pending. Replay, mixing, VAD and actual peer/audio proof remain open.
+
+Sep8 19:19: group-owner policy6 passed40 assertions on tests09DD35F0/fullD9048BFF,
+exact JUnit names verified and no source drift; clientE69F3AF4 built with Opus.
+This supersedes the pending native status below. Actual Agent/group adapter,
+signed voice transport, SDL and audible acceptance remain pending. Transport4
+candidate is private, unapplied; fixed-port/replay/mixing/VAD findings stay open.
+
+Sep8 19:11: group/voice owner7 source settled, manifest774288F4. Accepted voice
+audience now requires current-Agent group ownership; Agent changes disable voice
+and retire old group routes after normal transport teardown. Revoked peers and
+disabled voice clear queued playback. Six policy tests registered; fresh client,
+native and guard checkpoint pending under menu ownership. No socket/SDL/audible
+or full lifecycle acceptance yet. Fixed voice port, replay, mixing and VAD remain open.
+
+Sep8 18:50: corrected roster Join-r3 passed37/37 in209.9s on client6C12FA9B/
+full639A68A8, no source/binary/fixture drift. Both initial roster packets accepted;
+three reviewed observer images show global2 and joined room2 with local/leader
+markers and guest start authority. Identical default profiles do not establish
+distinct portrait/name mapping. Match start, third-peer isolation, controller and
+WAN remain open. Runtime FIFO released; full T-NETWORKING-011 stays partial.
+
+Sep8 18:25: movement numeric7 now extracts the production53/57-byte codec into
+a shared module and validates a fully initialized candidate before publication.
+Both CLC/SVC ingress scratch records initialize; NaN/Inf and truncation cannot
+partially replace stored movement. Native4 and affected inventory contract passed5/362 at18:36 on A832459C/
+fullD0FE92DF; client compiled, movement runtime pending. This does not fix acknowledgement publication,
+client force flags, physical simulation authority or prediction reconciliation.
+
+Sep8 18:12: Join-r2 shows both global players and both joined-room members with
+correct guest/leader projection, but remains FAILED35/37 because its initial
+roster rejected empty appearance IDs. Corrected two-file wire sizing/auth-empty
+follow-up passed all9 affected native cases on331490B9/fullC9A6A2C9. Matching
+client and distinct Join-r3 remain pending. Retain failed run and reviewed images;
+no match start, third-peer isolation, controller or WAN proof.
+
+Sep8 17:27: roster18 is integrated with exact settled hashes (02816D3E),
+including authoritative presentation snapshots and room-filtered identity/portrait
+views. Provisional reconnects remain outside publication until commit. Seven
+new native cases passed363 assertions, and21 affected cases are accepted after
+correcting one stale persistence contract (no unchanged reruns). Client/SDL Join
+acceptance remains pending; full multiplayer scope remains partial.
+
+Sep8 T-NETWORKING-011: the first20-path audit repair candidate is integrated
+at14:31, with hashes matching the reviewed manifest. Room transactions, local
+host adapters, initial remote snapshots, per-room settings/playlist storage,
+structured results/access UI, transfer framing/allocation safety and the two-axis
+correction are connected in source. Thirteen new focused cases are present.
+The first batch passed13 focused and49 affected cases, plus client build and
+the required native-source guard. Its retained host capture proves rendering
+but exposed missing host rows, an incorrect displayed port and a C/C++ player
+view mismatch. At15:30 the reviewed lobby14 follow-up is integrated; five new
+focused cases subsequently passed, together with36 affected cases. Installed
+SDL open/cancel passed14 assertions; Create acceptance passed18 assertions and
+visibly reached Room with the host as leader on the frozen387-input E36F client.
+Remote room membership, match start, physical controller and WAN proof remain
+open. Full F01-F18 acceptance remains partial.
+See `context/audits/2026/multiplayer-repairs-2026-09-08.md` for exact frozen
+evidence. The social9 ACK/retry/delivery/persistence follow-up is integrated
+at16:17; its nine direct real-Ed25519 cases passed, plus17 affected contracts.
+The primary Lounge now initializes valid room-list capacity and an unowned
+creator; its separate fresh-process case passed. These use native build055E
+and2087 frozen inputsE5AC. Matching client9805 later passed31/31 in a two-client
+room-list capture with2090 inputs8B2CFF2A unchanged; the observer visibly receives
+the host's room name/capacity/Join action. Its player roster still omits the host,
+so global/per-room roster replication remains open. Chat's live peer/UI delivery,
+remote room Join and full settings/gameplay acceptance also remain open.
+The swarm follow-up remains private and has no runtime acceptance.
 
 The networking subsystem covers transport, protocol, NAT traversal, presence, voice, and the peer-to-peer orchestrator. Server-authoritative model: one peer is the host; all gameplay state flows through it.
 
@@ -78,7 +282,7 @@ exact Felicity load per process and no mismatch, skip, rejection, rollback,
 crash, or fatal signature. Broader transition, reconnect, and friend-play gates
 remain under T-ENGINE-004 and T-RELEASE-005.
 
-`NET_PROTOCOL_VER 58` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The header carries an in-source changelog from v27 through v58. The version is pinned by [tests/test_versions.cpp](../../tests/test_versions.cpp) (`g_TestExpectedNetProtocolVer`) which reads the live header.
+`NET_PROTOCOL_VER 59` at [port/include/net/net.h:13](../../port/include/net/net.h:13). The header carries an in-source changelog from v27 through v59. The version is pinned by [tests/test_versions.cpp](../../tests/test_versions.cpp) (`g_TestExpectedNetProtocolVer`) which reads the live header.
 
 Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1560](../../port/src/net/net.c:1560) `enet_peer_disconnect(peer, DISCONNECT_VERSION)`) and at the presence-channel proto check ([port/src/group_session.c:212](../../port/src/group_session.c:212)).
 
@@ -86,6 +290,7 @@ Mixed-version play is rejected at the ENet auth handshake ([port/src/net/net.c:1
 
 | Bump | What changed |
 |------|--------------|
+| **v59 (2026-08-27)** | Hoverbike mount/dismount is one typed, ordered server-authoritative transition. `UCMD_VEHICLE_PC_INTENT` carries only the accepted originating PC hold/direct vehicle-use intent; the authority validates and commits ownership, and `SVC_PROP_VEHICLE_STATE` publishes the resulting state. The current source wave still requires focused build, protocol, vehicle, and ordinary-client runtime proof. All v58 receipts below remain historical regression evidence rather than proof for the v59 binary. |
 | **v58 (2026-08-26)** | Stage publication has one explicit inactive/waiting/release/active server lifecycle. `SVC_STAGE_START` carries a nonzero epoch and `CLC_STAGE_READY` echoes it, so stale or future readiness cannot release a different stage. The in-client listen authority and every exact surviving remote participant must cross the actual post-load boundary before one release frame publishes a fresh baseline; ordinary shared gameplay, spectator, cutscene, resync, and direct GPU-swarm entity state remain blocked before ACTIVE. The baseline uses dedicated reliable packet storage and clears its full pending mask only after a successful room queue, so late control-plane buffer resets cannot erase or partially consume it. Co-op NPC convergence is a reliable `SVC_NPC_RESYNC` plus immediate `SVC_NPC_SYNC` transaction whose digest is canonical by prop sync ID, hashes the exact serialized target and room-list fields, and is checked against that exact applied snapshot. Periodic live mutable-state checksums are removed. Current isolated builds, complete tests 66,421/1,200, native-source guard, and frozen product manifests pass. Current-v58 ordinary-client receipts pass co-op 96/96, Counter-Op 98/98, later-player rollback 60/60, settings rollback 43/43, initiator authority 214/214, reconnect 99/99, and the focus-independent invitee-authority route 170/170. The latter proves one elected in-client listen authority, one separately signed typed match-server route, exactly one non-authority join, and no probe/relay endpoint handoff. Its immutable raw receipt remains rejected at 169/170 for a stale two-digit epoch regex; corrected static coverage passes 108/2 and separately hashed retained logs pass 170/170 without product changes. All earlier v57 runtime receipts remain historical regression evidence rather than proof for the v58 binary. |
 | **v57 (2026-08-14)** | Reconnect is one endpoint-scoped authenticated transaction. ENet connect data is only a stable-slot hint; `CLC_AUTH` proves the in-memory cookie and exact settings remain frozen through manifest and asynchronous stage replay. Post-load `CLC_STAGE_READY` commits room/player publication and one targeted reliable packet containing cutscene state, one announced exact replicated-prop set, dynamic spawns, attachments/projectiles, doors/lifts/autoguns/weapons, every stable player's inventory/movement/stats, characters/bots/scores, applicable co-op state, and terminal `SVC_RECONNECT_COMMIT 0x55`. Client-local debris/effects remain outside the vocabulary. Failures roll back without consuming retryable reservations, while malformed peer content remains terminal. B-1096 restores projectile reverse ownership and exact terminal absence; B-1097 preserves packed character model-part lookup; B-1098 keeps generated relation topology inside each private clone. The exact B-1098 ordinary receipt proves reconnect world/inventory commit and no former clone crash, but is rejected for B-1099's stale prior-stage CUTSCENE. B-1099 adds the narrow authenticated stage-load retirement boundary without changing wire v57. Frozen product `7437d77c...` / client `0f377e3e...` and verifier `d5fd25c9...` / tests `ef5bdc72...` pass isolated builds, focused 1,746/19, full 63,936/1,168, and the native-source guard; one replacement ordinary smoke remains. |
 | **v56 (2026-08-13)** | Cutscene state carries a server-minted stage-scoped generation and the exact stable client-ID mask in every network game mode. One immutable prepared roster both serializes `SVC_STAGE_START` and commits the match snapshot for a room-scoped reliable START/ACCEPT/END stream; direct writers and second live-roster scans are excluded. `CLC_CUTSCENE_SKIP` remains untrusted, predicted client presentation holds no token outside an authoritative ACTIVE phase, and failed sends retain the ordered batch. Pending START/ACCEPT retries publish before ordinary shared traffic and discard that traffic when publication fails. Terminal END plus `SVC_STAGE_END` use one prepare/send/commit packet with idempotent retry before local lobby teardown; duplicate/no-match ends are inert, terminal frames discard pre-retry shared output, and later gameplay/spectator publication is suppressed. Receivers apply one stale/duplicate/conflict planner, map the frozen roster into local runtime slots, and replace the full active mask; lifecycle exits retire pending state. The final D-003 source freeze passed both ordinary-client authority roles on one product binary: initiator authority 214/214 and invitee authority 218/218, with receiver-local presentation, END-before-START ordering, stable gameplay, and no probe/relay endpoint handoff. |
@@ -273,7 +478,7 @@ This static-test discipline catches the "trust client byte before validating" cl
 
 Per [constraints.md](../constraints.md):
 
-- **ENet protocol version v58** must match across clients.
+- **ENet protocol version v59** must match across clients.
 - **Server is not a player.** Dedicated server sets `g_NetLocalClient = NULL` and `g_NetNumClients = 0` at startup; slot 0 free for real players. All paths that dereference `g_NetLocalClient` must NULL-guard.
 - **No raw IP in any UI surface.** Connect codes only.
 - **Connect code byte order** is host-order, not network-order.

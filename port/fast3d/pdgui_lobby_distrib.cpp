@@ -64,6 +64,8 @@ typedef struct {
     u32 current_bytes_total;
     s32 temporary;
     u32 session_bytes_total;
+    u32 current_chunks_received;
+    u32 current_chunks_total;
 } distrib_client_status_t;
 
 typedef struct {
@@ -361,8 +363,8 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
             }
 
             /* Progress bar */
-            float frac = (st.current_bytes_total > 0)
-                ? (float)st.current_bytes_received / (float)st.current_bytes_total
+            float frac = (st.current_chunks_total > 0)
+                ? (float)st.current_chunks_received / (float)st.current_chunks_total
                 : 0.0f;
             if (frac > 1.0f) frac = 1.0f;
 
@@ -371,7 +373,7 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
             fmtBytes(st.current_bytes_total,    btotal, sizeof(btotal));
 
             char overlay[64];
-            snprintf(overlay, sizeof(overlay), "%s / %s", brecv, btotal);
+            snprintf(overlay, sizeof(overlay), "%s downloaded / %s unpacked", brecv, btotal);
 
             ImGui::SetCursorPos(ImVec2(padX, floorf(22.0f * scale)));
             /* S311: download progress bar tracks theme info tint. */

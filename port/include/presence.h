@@ -28,6 +28,7 @@
 
 #include <PR/ultratypes.h>
 #include "net/net_match_route.h"
+#include "net/net_candidate.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -67,6 +68,7 @@ typedef struct presence_peer_s {
 	u32              match_route_received_ms;
 	u32              match_route_latest_issued_unix_seconds;
 	u32              match_route_latest_nonce;
+	net_candidate_peer_state_t candidate_state; /* signed ICE candidates */
 	char             status_blurb[64];/* "Mission: Pelagic" / "CS: Felicity" / etc. */
 } presence_peer_t;
 
@@ -82,6 +84,15 @@ void presenceShutdown(void);
 
 /** Drive ping schedule + drain receive socket. Call once per frame. */
 void presenceTick(void);
+
+/* Send a signed chat frame on the discovered social path; 0 means socket accepted. */
+s32 presenceSendChatFrame(u32 friend_handle, const u8 *packet, u32 length);
+/* File and voice traffic share the discovered bound endpoint. Success means
+ * socket acceptance, not remote verification or installation. */
+s32 presenceFileTransportReady(void);
+s32 presenceSendFileFrame(u32 handle, const u8 *packet, u32 length);
+s32 presenceVoiceTransportReady(void);
+s32 presenceSendVoiceFrame(u32 friend_handle, const u8 *packet, u32 length);
 
 /** Report local lifecycle to outgoing pings. */
 void presenceSetLocalState(presence_state_t s);
@@ -125,6 +136,9 @@ s32 presencePeerMatchRoute(u32 handle, net_match_route_t *out_route);
 s32 presenceSetLocalMatchRoute(const net_match_route_t *route);
 void presenceClearLocalMatchRoute(void);
 void presencePublishMatchRoute(void);
+
+/** Refresh and send the signed, target-bound P2P candidate set now. */
+s32 presenceSendCandidateRefresh(u32 friend_handle);
 
 /* -------------------------------------------------------------------------
  * Pending invites (for the friend acceptance / DoS allowlist).

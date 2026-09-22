@@ -1,0 +1,52 @@
+{
+  "scenario_name": "file_transfer_socket_smoke",
+  "description": "One ordinary portable Agent sends a synthetic file over its signed presence socket to a local peer. The peer then sends a signed file back, repeats the final chunk after a lost ACK, and checks the committed inbox bytes and JSON sidecar outside the game process.",
+  "tags": ["network", "social", "file-transfer", "signed-socket", "smoke"],
+  "paths_of_interest": [
+    "port/src/file_transfer.c",
+    "port/src/file_transfer_storage.c",
+    "port/src/presence.c",
+    "port/src/smoke_harness.c",
+    "tools/smoke-verify/file_transfer_socket_peer.py"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 240,
+  "install_state": "clean",
+  "separate_process_installs": true,
+  "processes": [
+    {
+      "name": "initiator",
+      "friend_play_identity": "initiator",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--no-update-check",
+        "--no-sound",
+        "--portable",
+        "--skip-intro",
+        "--launch-load-agent", "initiator",
+        "--debug-presence-port", "28105"
+      ],
+      "assertions": {
+        "required_lines": [
+          "BOOT: --launch-load-agent consumed: name='initiator' result=OK",
+          "SMOKE\\.WAIT: satisfied condition=core_boot_ready",
+          "SMOKE\\.FT\\.SOCKET: send local=0x[0-9a-f]+ peer=0x[0-9a-f]+ bytes=4097 result=0",
+          "FT: receiver verified and saved ->",
+          "FT: complete <-",
+          "SMOKE: result=scripted_exit"
+        ],
+        "forbidden_lines": [
+          "file_transfer_socket_probe_failed",
+          "FT: receiver rejected transfer",
+          "FT: send abandoned"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "core_boot_ready", "timeout_ms": 180000, "stable_ms": 250 },
+    { "at_ms": 1000, "type": "file_transfer_socket_probe" },
+    { "at_ms": 12000, "type": "exit" }
+  ]
+}

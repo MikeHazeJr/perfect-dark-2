@@ -21,6 +21,7 @@
 #include "net/netbuf.h"
 #include "net/netmsg.h"
 #include "net/netlobby.h"
+#include "net/lobby_view.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/participant.h"
@@ -217,7 +218,7 @@ s32 netGetMode(void)
 
 s32 netGetNumClients(void)
 {
-    return g_NetNumClients;
+    return g_NetMode == NETMODE_CLIENT ? lobbyPlayerCountForView(0) : g_NetNumClients;
 }
 
 s32 netGetMaxClients(void)
@@ -281,15 +282,7 @@ const char *netGetPublicIP(void)
  */
 s32 netLobbyGetClientCount(void)
 {
-    if (g_NetMode == NETMODE_NONE) return 0;
-
-    s32 count = 0;
-    for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
-        if (g_NetClients[i].state != CLSTATE_DISCONNECTED) {
-            count++;
-        }
-    }
-    return count;
+    return g_NetMode == NETMODE_NONE ? 0 : lobbyPlayerCountForView(0);
 }
 
 /**
@@ -298,85 +291,40 @@ s32 netLobbyGetClientCount(void)
  */
 s32 netLobbyGetClientState(s32 idx)
 {
-    s32 count = 0;
-    for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
-        if (g_NetClients[i].state != CLSTATE_DISCONNECTED) {
-            if (count == idx) return g_NetClients[i].state;
-            count++;
-        }
-    }
-    return CLSTATE_DISCONNECTED;
+    const struct lobbyplayer *player = lobbyPlayerForView(idx, 0);
+    return player ? player->state : CLSTATE_DISCONNECTED;
 }
 
 const char *netLobbyGetClientName(s32 idx)
 {
-    s32 count = 0;
-    for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
-        if (g_NetClients[i].state != CLSTATE_DISCONNECTED) {
-            if (count == idx) {
-                if (g_NetClients[i].settings.name[0]) {
-                    return g_NetClients[i].settings.name;
-                }
-                return "Player";
-            }
-            count++;
-        }
-    }
-    return "???";
+    const struct lobbyplayer *player = lobbyPlayerForView(idx, 0);
+    return player ? player->name : "???";
 }
 
 u8 netLobbyGetClientHead(s32 idx)
 {
-    s32 count = 0;
-    for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
-        if (g_NetClients[i].state != CLSTATE_DISCONNECTED) {
-            if (count == idx) {
-                const asset_entry_t *e = assetCatalogResolve(g_NetClients[i].settings.head_id);
-                return e ? (u8)e->runtime_index : 0;
-            }
-            count++;
-        }
-    }
-    return 0;
+    const struct lobbyplayer *player = lobbyPlayerForView(idx, 0);
+    const asset_entry_t *entry = player ? assetCatalogResolve(player->head_id) : NULL;
+    return entry ? (u8)entry->runtime_index : 0;
 }
 
 u8 netLobbyGetClientBody(s32 idx)
 {
-    s32 count = 0;
-    for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
-        if (g_NetClients[i].state != CLSTATE_DISCONNECTED) {
-            if (count == idx) {
-                const asset_entry_t *e = assetCatalogResolve(g_NetClients[i].settings.body_id);
-                return e ? (u8)e->runtime_index : 0;
-            }
-            count++;
-        }
-    }
-    return 0;
+    const struct lobbyplayer *player = lobbyPlayerForView(idx, 0);
+    const asset_entry_t *entry = player ? assetCatalogResolve(player->body_id) : NULL;
+    return entry ? (u8)entry->runtime_index : 0;
 }
 
 u8 netLobbyGetClientTeam(s32 idx)
 {
-    s32 count = 0;
-    for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
-        if (g_NetClients[i].state != CLSTATE_DISCONNECTED) {
-            if (count == idx) return g_NetClients[i].settings.team;
-            count++;
-        }
-    }
-    return 0;
+    const struct lobbyplayer *player = lobbyPlayerForView(idx, 0);
+    return player ? player->team : 0;
 }
 
 s32 netLobbyIsLocalClient(s32 idx)
 {
-    s32 count = 0;
-    for (s32 i = 0; i <= NET_MAX_CLIENTS; i++) {
-        if (g_NetClients[i].state != CLSTATE_DISCONNECTED) {
-            if (count == idx) return (&g_NetClients[i] == g_NetLocalClient) ? 1 : 0;
-            count++;
-        }
-    }
-    return 0;
+    const struct lobbyplayer *player = lobbyPlayerForView(idx, 0);
+    return player && g_NetLocalClient && player->clientId == g_NetLocalClient->id;
 }
 
 /* ========================================================================
@@ -385,61 +333,26 @@ s32 netLobbyIsLocalClient(s32 idx)
 
 s32 lobbyGetPlayerCount(void)
 {
-    lobbyUpdate();
-    return g_Lobby.numPlayers;
+    return lobbyPlayerCountForView(0);
 }
 
-/* Fills a simplified player view struct for ImGui.
- * The struct layout must match lobbyplayer_view in pdgui_lobby.cpp. */
-s32 lobbyGetPlayerInfo(s32 idx, void *out)
+/* Project through the shared C/C++ presentation contract. */
+s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out)
 {
-    if (idx < 0 || idx >= g_Lobby.numPlayers || !out) return 0;
-
-    struct lobbyplayer *lp = &g_Lobby.players[idx];
-    if (!lp->active) return 0;
-
-    /* Write fields matching lobbyplayer_view layout.
-     * 2026-04-23: struct shrank by 2 bytes (deprecated headnum/bodynum
-     * fields removed - see pdgui_lobby.cpp lobbyplayer_view). Offsets
-     * for name / isLocal / state / clientId shifted accordingly. Keep in
-     * sync with the view struct and with server_bridge.c's mirror. */
-    u8 *p = (u8 *)out;
-    p[0] = lp->active;
-    p[1] = lp->isLeader;
-    p[2] = lp->isReady;
-    p[3] = lp->team;
-    strncpy((char *)(p + 4), lp->name, 31);
-    p[35] = '\0';
-
-    /* isLocal (s32 at offset 36, aligned after name[32]) */
-    s32 isLocal = (&g_NetClients[lp->clientId] == g_NetLocalClient) ? 1 : 0;
-    memcpy(p + 36, &isLocal, sizeof(s32));
-
-    /* state (s32 at offset 40) */
-    s32 state = g_NetClients[lp->clientId].state;
-    memcpy(p + 40, &state, sizeof(s32));
-
-    /* clientId (u8 at offset 44) */
-    p[44] = lp->clientId;
-
-    return 1;
+    return lobbyProjectViewIndex(idx, 0, out);
 }
 
 /* Phase 5: catalog ID accessors for lobby player identity */
 const char *lobbyGetPlayerBodyId(s32 idx)
 {
-    if (idx < 0 || idx >= g_Lobby.numPlayers) return "";
-    struct lobbyplayer *lp = &g_Lobby.players[idx];
-    if (!lp->active) return "";
-    return lp->body_id[0] ? lp->body_id : "";
+    const struct lobbyplayer *player = lobbyPlayerForView(idx, 0);
+    return player ? player->body_id : "";
 }
 
 const char *lobbyGetPlayerHeadId(s32 idx)
 {
-    if (idx < 0 || idx >= g_Lobby.numPlayers) return "";
-    struct lobbyplayer *lp = &g_Lobby.players[idx];
-    if (!lp->active) return "";
-    return lp->head_id[0] ? lp->head_id : "";
+    const struct lobbyplayer *player = lobbyPlayerForView(idx, 0);
+    return player ? player->head_id : "";
 }
 
 s32 netLocalClientInLobby(void)

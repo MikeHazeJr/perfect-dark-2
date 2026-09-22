@@ -1,14 +1,13 @@
 /**
  * netlobby.c -- Network lobby state management.
  *
- * Syncs lobby state from the network client array each frame.
+ * Builds authoritative state from authenticated clients and applies complete
+ * presentation snapshots on remote clients without fabricating gameplay slots.
  * Tracks player slots, leader assignment, and ready states.
  *
- * Architecture: Dedicated-server-only model.
- * - The server is always a dedicated process (g_NetDedicated == 1).
- * - The first client to reach CLSTATE_LOBBY becomes the lobby leader.
- * - Leader can be reassigned if the current leader disconnects.
- * - All players (including leader) are clients — no host player.
+ * Listen hosts participate as real players. Lobby leadership is retained by
+ * client identity while the visible list is compacted; room authority comes
+ * from the server-owned room record or its replicated cache.
  */
 
 #include <PR/ultratypes.h>
@@ -17,11 +16,13 @@
 #include "constants.h"
 #include "net/net.h"
 #include "net/netlobby.h"
+#include "net/lobby_roster_wire.h"
 #include "assetcatalog.h"
 #include "system.h"
 #include "room.h"
 
 struct lobbystate g_Lobby;
+static s32 s_RemoteRosterValid;
 
 /* R-3: Client-side room cache — populated by SVC_ROOM_LIST */
 room_cache_entry_t g_RoomCache[ROOM_CACHE_MAX];
@@ -30,13 +31,23 @@ u8  g_LocalRoomId = 0xFF;
 
 void lobbyInit(void)
 {
+    s_RemoteRosterValid = 0;
     memset(&g_Lobby, 0, sizeof(g_Lobby));
     g_Lobby.leaderSlot = 0xFF; /* No leader assigned yet */
     g_Lobby.settings.scenario = 0;
     g_Lobby.settings.stage_id[0] = '\0';
     g_Lobby.settings.stagenum = 0;
     g_Lobby.settings.numSimulants = 0;
-    sysLogPrintf(LOG_NOTE, "LOBBY: initialized (dedicated server model)");
+    sysLogPrintf(LOG_NOTE, "LOBBY: initialized");
+}
+
+s32 lobbyClientIsRosterParticipant(const struct netclient *client)
+{
+    /* Reconnect authentication is provisional until its preserved transaction
+     * commits; CLSTATE_LOBBY alone does not authorize presentation publication. */
+    return client && client->id < NET_MAX_CLIENTS
+        && client->state >= CLSTATE_LOBBY && client->state <= CLSTATE_PREPARING
+        && client->reconnect_preserved_index == NET_NULL_CLIENT;
 }
 
 void lobbyUpdate(void)
@@ -44,26 +55,25 @@ void lobbyUpdate(void)
     if (g_NetMode == NETMODE_NONE) {
         return;
     }
+    if (g_NetMode == NETMODE_CLIENT && s_RemoteRosterValid) return;
 
     /* Sync player list from network clients */
     u8 count = 0;
-    u8 currentLeaderFound = 0;
+    const u8 previousLeaderClient = g_Lobby.leaderSlot < g_Lobby.numPlayers
+        && g_Lobby.leaderSlot < LOBBY_MAX_PLAYERS
+        && g_Lobby.players[g_Lobby.leaderSlot].active
+        ? g_Lobby.players[g_Lobby.leaderSlot].clientId : 0xFF;
+    u8 retainedLeaderSlot = 0xFF;
     u8 firstLobbySlot = 0xFF;
 
     for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
         struct netclient *cl = &g_NetClients[i];
-        if (cl->state == CLSTATE_DISCONNECTED) {
+        if (!lobbyClientIsRosterParticipant(cl)) {
             continue;
         }
 
-        /* Skip the local server's own slot — after B-28, dedicated servers have
-         * g_NetLocalClient == NULL, so this check is always false on dedicated servers
-         * (all slots are real players).  On listen-server builds it skips the host slot.
-         * On clients (NETMODE_CLIENT), do NOT skip: the local slot IS the player and must
-         * appear in their own lobby list so they see themselves and are elected leader. */
-        if (g_NetMode != NETMODE_CLIENT && cl == g_NetLocalClient) {
-            continue;
-        }
+        /* A listen host occupies a real client slot. Dedicated processes
+         * have no local client and therefore need no exclusion here. */
 
         if (count >= LOBBY_MAX_PLAYERS) {
             break;
@@ -72,6 +82,8 @@ void lobbyUpdate(void)
         struct lobbyplayer *lp = &g_Lobby.players[count];
         lp->active = 1;
         lp->clientId = (u8)i;
+        lp->state = cl->state;
+        lp->roomId = cl->room_id;
         {
             /* Catalog ID strings are the sole identity. 2026-04-23: the legacy
              * integer derivations (lp->bodynum / lp->headnum) were removed
@@ -100,24 +112,7 @@ void lobbyUpdate(void)
             firstLobbySlot = count;
         }
 
-        /* Eager leader: if no leader is set yet and this is the first
-         * lobby-state client, assign them immediately.  This ensures the
-         * leader slot is populated before the post-loop election code runs,
-         * so CLC_LOBBY_START processed in the same server frame as CLC_AUTH
-         * sees a valid leader slot. */
-        if (g_Lobby.leaderSlot == 0xFF && cl->state >= CLSTATE_LOBBY) {
-            g_Lobby.leaderSlot = count;
-            sysLogPrintf(LOG_NOTE, "LOBBY: immediate leader assigned: slot %d (client %d, %s)",
-                         count, i, cl->settings.name[0] ? cl->settings.name : "?");
-        }
-
-        /* Check if current leader is still present */
-        if (g_Lobby.leaderSlot < LOBBY_MAX_PLAYERS &&
-            g_Lobby.players[g_Lobby.leaderSlot].active &&
-            g_Lobby.players[g_Lobby.leaderSlot].clientId == lp->clientId &&
-            g_Lobby.leaderSlot == count) {
-            currentLeaderFound = 1;
-        }
+        if (lp->clientId == previousLeaderClient) retainedLeaderSlot = count;
 
         /* Ready state: in-game (CLSTATE_GAME exactly) means ready.
          * CLSTATE_PREPARING (5) > CLSTATE_GAME (4) — use == to avoid false positives. */
@@ -134,23 +129,10 @@ void lobbyUpdate(void)
 
     g_Lobby.numPlayers = count;
 
-    /* Leader election:
-     * - Dedicated server: first client in CLSTATE_LOBBY+ becomes leader.
-     * - Client: the server tells us who the leader is via lobby state.
-     *   For now, we use the same logic client-side (first connected player). */
-    if (!currentLeaderFound || g_Lobby.leaderSlot >= count) {
-        /* Leader disconnected or invalid — elect a new one */
-        if (firstLobbySlot != 0xFF && firstLobbySlot < count) {
-            g_Lobby.leaderSlot = firstLobbySlot;
-            sysLogPrintf(LOG_NOTE, "LOBBY: leader elected: slot %d (%s)",
-                         firstLobbySlot, g_Lobby.players[firstLobbySlot].name);
-        } else if (count > 0) {
-            /* No one in LOBBY state yet — assign first connected client */
-            g_Lobby.leaderSlot = 0;
-        } else {
-            g_Lobby.leaderSlot = 0xFF;
-        }
-    }
+    /* Preserve the previous leader by client identity, not by a row index
+     * that changes when an earlier player disconnects. */
+    g_Lobby.leaderSlot = retainedLeaderSlot != 0xFF ? retainedLeaderSlot
+        : firstLobbySlot != 0xFF ? firstLobbySlot : count ? 0 : 0xFF;
 
     /* Apply leader flag */
     for (s32 i = 0; i < count; i++) {
@@ -172,6 +154,82 @@ void lobbyUpdate(void)
         }
         g_Lobby.inGame = anyInGame;
     }
+}
+
+void lobbyCaptureRoster(lobby_roster_snapshot_t *snapshot)
+{
+    if (!snapshot) return;
+    lobbyUpdate();
+    memset(snapshot, 0, sizeof(*snapshot));
+    snapshot->count = g_Lobby.numPlayers;
+    snapshot->leaderClientId = g_Lobby.leaderSlot < g_Lobby.numPlayers
+        ? g_Lobby.players[g_Lobby.leaderSlot].clientId : 0xff;
+    memcpy(snapshot->players, g_Lobby.players, sizeof(snapshot->players));
+}
+
+s32 lobbyAcceptRoster(const lobby_roster_snapshot_t *snapshot)
+{
+    if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient
+            || !lobbyRosterValid(snapshot)) return 0;
+    s32 local = -1;
+    for (u8 i = 0; i < snapshot->count; ++i) {
+        if (snapshot->players[i].clientId == g_NetLocalClient->id) local = i;
+    }
+    if (local < 0) return 0;
+    memcpy(g_Lobby.players, snapshot->players, sizeof(g_Lobby.players));
+    g_Lobby.numPlayers = snapshot->count;
+    g_Lobby.leaderSlot = 0xff;
+    for (u8 i = 0; i < g_Lobby.numPlayers; ++i) {
+        struct lobbyplayer *p = &g_Lobby.players[i];
+        p->isLeader = p->clientId == snapshot->leaderClientId;
+        p->isReady = p->state == CLSTATE_GAME;
+        if (p->isLeader) g_Lobby.leaderSlot = i;
+    }
+    for (u8 i = g_Lobby.numPlayers; i < LOBBY_MAX_PLAYERS; ++i)
+        memset(&g_Lobby.players[i], 0, sizeof(g_Lobby.players[i]));
+    g_Lobby.inGame = g_Lobby.players[local].state == CLSTATE_GAME;
+    s_RemoteRosterValid = 1;
+    return 1;
+}
+
+const struct lobbyplayer *lobbyPlayerForView(s32 index, s32 roomOnly)
+{
+    if (index < 0) return NULL;
+    const u8 room = g_NetLocalClient ? g_NetLocalClient->room_id : 0xff;
+    if (roomOnly && room == 0xff) return NULL;
+    for (u8 i = 0; i < g_Lobby.numPlayers && i < LOBBY_MAX_PLAYERS; ++i) {
+        const struct lobbyplayer *p = &g_Lobby.players[i];
+        if (!p->active || (roomOnly && p->roomId != room)) continue;
+        if (index-- == 0) return p;
+    }
+    return NULL;
+}
+
+s32 lobbyPlayerCountForView(s32 roomOnly)
+{
+    lobbyUpdate();
+    s32 count = 0;
+    const u8 room = g_NetLocalClient ? g_NetLocalClient->room_id : 0xff;
+    if (roomOnly && room == 0xff) return 0;
+    for (u8 i = 0; i < g_Lobby.numPlayers && i < LOBBY_MAX_PLAYERS; ++i) {
+        const struct lobbyplayer *p = &g_Lobby.players[i];
+        if (p->active && (!roomOnly || p->roomId == room)) ++count;
+    }
+    return count;
+}
+
+s32 lobbyRoomLeaderClientId(void)
+{
+    if (!g_NetLocalClient || g_NetLocalClient->room_id == 0xff) return -1;
+    if (g_NetMode == NETMODE_SERVER) {
+        const hub_room_t *room = roomGetById(g_NetLocalClient->room_id);
+        return room ? room->creator_client_id : -1;
+    }
+    for (s32 i = 0; i < g_RoomCacheCount && i < ROOM_CACHE_MAX; ++i) {
+        if (g_RoomCache[i].id == g_NetLocalClient->room_id)
+            return g_RoomCache[i].creator_client_id;
+    }
+    return -1;
 }
 
 void lobbySetLeader(u8 slot)
@@ -198,8 +256,23 @@ u8 lobbyGetLeader(void)
 
 s32 lobbyIsLocalLeader(void)
 {
-    if (g_NetMode == NETMODE_NONE || !g_NetLocalClient) {
+    if (g_NetMode == NETMODE_NONE) {
         return 1; /* Offline = always leader */
+    }
+    if (!g_NetLocalClient) return 0;
+
+    /* Room controls follow authoritative room ownership, which can differ
+     * from the first/global lobby player. Missing client cache stays read-only. */
+    if (g_NetLocalClient->room_id != 0xFF) {
+        if (g_NetMode == NETMODE_SERVER) {
+            const hub_room_t *room = roomGetById(g_NetLocalClient->room_id);
+            return room && room->creator_client_id == g_NetLocalClient->id;
+        }
+        for (s32 i = 0; i < g_RoomCacheCount && i < ROOM_CACHE_MAX; ++i) {
+            if (g_RoomCache[i].id == g_NetLocalClient->room_id)
+                return g_RoomCache[i].creator_client_id == g_NetLocalClient->id;
+        }
+        return 0;
     }
 
     /* Find local client in lobby */

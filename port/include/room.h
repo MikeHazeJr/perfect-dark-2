@@ -13,7 +13,8 @@
  *
  * Rooms do not own ENet peers or game state — they track which clients
  * are assigned to them and what phase the match is in.  The authoritative
- * state lives in g_NetClients / g_Lobby as before.
+ * membership lives alongside g_NetClients / g_Lobby. Accepted match settings
+ * and playlists are stored per room; menu globals are local projections.
  */
 
 #ifndef _IN_ROOM_H
@@ -32,6 +33,35 @@ extern "C" {
 #define HUB_MAX_ROOMS    4
 #define HUB_MAX_CLIENTS  32  /* must match NET_MAX_CLIENTS in port/include/net/net.h */
 #define ROOM_NAME_MAX   32
+#define ROOM_CATALOG_ID_MAX 64
+#define ROOM_PLAYLIST_MAX_TRACKS 16
+#define ROOM_PLAYLIST_TEXT_MAX (ROOM_PLAYLIST_MAX_TRACKS * 65)
+
+/* The accepted room configuration is authoritative even while nobody has
+ * this room's UI open. A process-global menu config is only a projection. */
+typedef struct room_settings_s {
+    u8 num_bots;
+    u8 timelimit;
+    u8 scorelimit;
+    u16 teamscorelimit;
+    u32 options;
+    u8 scenario;
+    u8 weapon_set;
+    char stage_id[ROOM_CATALOG_ID_MAX];
+} room_settings_t;
+
+typedef enum room_result_e {
+    ROOM_RESULT_OK = 0,
+    ROOM_RESULT_INVALID,
+    ROOM_RESULT_NOT_FOUND,
+    ROOM_RESULT_NOT_OPEN,
+    ROOM_RESULT_FULL,
+    ROOM_RESULT_PASSWORD,
+    ROOM_RESULT_INVITE_REQUIRED,
+    ROOM_RESULT_NO_ROOM_SLOTS,
+    ROOM_RESULT_NOT_LEADER,
+    ROOM_RESULT_RATE_LIMITED
+} room_result_t;
 
 /* -------------------------------------------------------------------------
  * Types
@@ -87,9 +117,27 @@ typedef struct hub_room_s {
     u8           password_hash[ROOM_PASSWORD_HASH_LEN]; /**< SEC-14: SHA-256 hash of password, or all-zero for open rooms. */
     u8           creator_client_id;           /**< Client who created this room. */
 
+    room_settings_t settings;
+    u32          settings_revision;
+    char         playlist[ROOM_PLAYLIST_TEXT_MAX];
+    u32          playlist_revision;
+    u32          invited_client_mask;
+
     u32          created_tick;                /**< g_NetTick when created.  */
     u32          state_enter_tick;            /**< g_NetTick of last transition. */
 } hub_room_t;
+
+/* Admission is prepared before the old membership changes. The caller
+ * publishes its client->room_id only after ROOM_RESULT_OK. */
+room_result_t roomJoinForClient(hub_room_t *previous, hub_room_t *destination,
+    u8 client_id, const char *password);
+room_result_t roomCreateForClient(hub_room_t *previous, u8 client_id,
+    const char *name, u8 max_players, room_access_t access,
+    const char *password, hub_room_t **created);
+room_result_t roomInviteClient(hub_room_t *room, u8 leader, u8 invited);
+const char *roomResultMessage(room_result_t result);
+s32 roomStoreSettings(hub_room_t *room, const room_settings_t *settings);
+s32 roomStorePlaylist(hub_room_t *room, const char *playlist);
 
 /* -------------------------------------------------------------------------
  * Client-side room cache (populated by SVC_ROOM_LIST, no server memory access)
@@ -103,6 +151,7 @@ typedef struct {
     u8   client_count;
     u8   max_players;
     u8   creator_client_id;
+    u8   access;
     char name[ROOM_NAME_MAX];
 } room_cache_entry_t;
 

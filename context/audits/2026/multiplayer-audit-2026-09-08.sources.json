@@ -1,0 +1,129 @@
+{
+  "head": "fadf9ff6a38e3164a25ebd522085a327d3814631",
+  "capturedUtc": "2026-09-08T17:20:17.0561772Z",
+  "verification": "Source inspection only; no executable tests or runtime",
+  "workbench": "T-NETWORKING-010",
+  "files": [
+    {
+      "bytes": 17874,
+      "path": "port/fast3d/pdgui_menu_lobby.cpp",
+      "sha256": "47FB87E06166854DB2B9558F729EB111A6EB8ADF45993860F678A5E0DE0266BC"
+    },
+    {
+      "bytes": 20072,
+      "path": "port/fast3d/pdgui_lobby.cpp",
+      "sha256": "64E95E17ACEDA975BFF0F0D23CDFB3E27BC252DB33D0FC0958B4D0D707122C23"
+    },
+    {
+      "bytes": 18575,
+      "path": "port/fast3d/pdgui_lobby_distrib.cpp",
+      "sha256": "C9F86BF1FA019D41179A74450D18788D3307C8A9B5689AE67E18E26FB3CF587A"
+    },
+    {
+      "bytes": 61200,
+      "path": "port/fast3d/pdgui_friends.cpp",
+      "sha256": "EB3481BFE5B964DB44D4C2B496DBD5D74F974C4AED22D2E193C7108B7DCFE69A"
+    },
+    {
+      "bytes": 227651,
+      "path": "port/fast3d/pdgui_menu_room.cpp",
+      "sha256": "2BD307941D57FF51850E2931C32C1B3FBF1E4AE45AD7F57A6A09D825A4700066"
+    },
+    {
+      "bytes": 164787,
+      "path": "port/src/net/net.c",
+      "sha256": "A53BF5ADB0002C44DF010825A4CBD693FD4DEBD45111FF94E5E919611F054D56"
+    },
+    {
+      "bytes": 483930,
+      "path": "port/src/net/netmsg.c",
+      "sha256": "1CE5DEA4E7F0261DB3D71BBC9B5EE385F39245B09AD610752DCEA2143A5C35F4"
+    },
+    {
+      "bytes": 6103,
+      "path": "port/src/net/netbuf.c",
+      "sha256": "82D58E3F654EB6DE749FEC50599E07141BFF5F7FD7D8F971010A743739235C3F"
+    },
+    {
+      "bytes": 154442,
+      "path": "port/src/net/netdistrib.c",
+      "sha256": "4221E33F8C0F67F93A18FEFC6A062F4FF6D4E4345E92A063FC5D3846C0274BBF"
+    },
+    {
+      "bytes": 27849,
+      "path": "port/src/net/group_session.c",
+      "sha256": "3DDFF092AFF4AD06B99BC81235E46904B8E842C6B55422395CCAE8EA09521A32"
+    },
+    {
+      "bytes": 1679,
+      "path": "port/src/net/p2p_turn.c",
+      "sha256": "D68B384F893A3821CAA5CBB9358123718DFFA2263661BA1DF8ABEBAC1EF0B255"
+    },
+    {
+      "bytes": 7548,
+      "path": "port/src/net/p2p_stun.c",
+      "sha256": "5CCD00777B92EBA8191C1D4585D6C486105A788AD0B69E4901DAE2C9F548DFA0"
+    },
+    {
+      "bytes": 3449,
+      "path": "port/src/net/p2p_upnp.c",
+      "sha256": "43E7D68AA4D1A2217F6A67ED4071D7A7DA920C910BE9CEDC4C37322C3835C8DA"
+    },
+    {
+      "bytes": 15634,
+      "path": "port/src/room.c",
+      "sha256": "AAFDD8D9FEF4A631E96A2840C779C9EDBD6D98B5123B993387C222E8F27E2D60"
+    },
+    {
+      "bytes": 54857,
+      "path": "port/src/presence.c",
+      "sha256": "95CEF1B3AAAEB252290E1B87FC15DFF38CA2C2B5E45D5B686C7A79CC162AD7B2"
+    },
+    {
+      "bytes": 34028,
+      "path": "port/src/social_store.c",
+      "sha256": "9EE23AA14643B607C92B634CA3B42F725F881DEA6FE4D3B7F99AB9236625A342"
+    },
+    {
+      "bytes": 27423,
+      "path": "port/src/chat.c",
+      "sha256": "5B1DCC0B892D6B230A521BEFC3714AA5397324DC577490DE28EE7B24427969B2"
+    },
+    {
+      "bytes": 19027,
+      "path": "port/src/voice.c",
+      "sha256": "7E6384036117EF9041F1633769D6220A6FC6E14FF9B6398C32DC1516492DC66E"
+    },
+    {
+      "bytes": 82228,
+      "path": "src/game/bondwalk.c",
+      "sha256": "73E3F04FF28601C2A954105F1F300E3B75B778CB5B0268800AEDD400646C9754"
+    },
+    {
+      "bytes": 122308,
+      "path": "src/game/bondmove.c",
+      "sha256": "04D014311C2AF0170B7DD20F10CFAAE9A3CD1093FEBCB7D7352B1DEA7EC59B0D"
+    },
+    {
+      "bytes": 40748,
+      "path": "port/include/net/net.h",
+      "sha256": "CC848C46A023541B822A2F9BD48315E90A46395D9360F1B8745EA32EF84A1354"
+    },
+    {
+      "bytes": 14301,
+      "path": "port/include/net/netdistrib.h",
+      "sha256": "F81462344CF1B9ED03150E92B2BC6152FF6149FBF6A2AC4A8D71B26846808E9F"
+    },
+    {
+      "bytes": 176543,
+      "path": "tests/test_net_lifecycle_static.cpp",
+      "sha256": "7F1EEA701B59AE3E561CF6951038C35B965D8959DFEB371B72EA52101CDDB079"
+    },
+    {
+      "bytes": 15615,
+      "path": "tests/test_netbuf.cpp",
+      "sha256": "4406FB217A160DA95864FD926113EDAB33AA5BBE46611E749D1745C66416C15E"
+    }
+  ],
+  "kind": "audit-source-snapshot-not-build-freeze"
+}

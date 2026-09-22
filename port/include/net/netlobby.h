@@ -20,6 +20,8 @@ struct lobbyplayer {
     u8 clientId;            /* netclient index */
     u8 isLeader;            /* 1 if this player is the lobby leader */
     u8 isReady;             /* 1 if player has readied up */
+    u8 state;               /* authenticated CLSTATE, presentation only */
+    u8 roomId;              /* authoritative membership; 0xff = lounge */
     /* PRIMARY: catalog ID strings - sole asset identity */
     char head_id[64];       /* e.g. "base:head_dark_combat" */
     char body_id[64];       /* e.g. "base:dark_combat" */
@@ -55,6 +57,21 @@ struct lobbystate {
 };
 
 extern struct lobbystate g_Lobby;
+
+typedef struct lobby_roster_snapshot {
+    u8 count;
+    u8 leaderClientId;
+    struct lobbyplayer players[LOBBY_MAX_PLAYERS];
+} lobby_roster_snapshot_t;
+
+/* These records never create or mutate gameplay netclient slots. */
+struct netclient;
+s32 lobbyClientIsRosterParticipant(const struct netclient *client);
+s32 lobbyAcceptRoster(const lobby_roster_snapshot_t *snapshot);
+void lobbyCaptureRoster(lobby_roster_snapshot_t *snapshot);
+const struct lobbyplayer *lobbyPlayerForView(s32 index, s32 roomOnly);
+s32 lobbyPlayerCountForView(s32 roomOnly);
+s32 lobbyRoomLeaderClientId(void);
 
 /* Initialize lobby state (call on server start or session join) */
 void lobbyInit(void);

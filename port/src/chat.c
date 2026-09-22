@@ -1,15 +1,17 @@
 /**
- * chat.c -- 1:1 private chat over a signed UDP socket on port 27106.
+ * chat.c -- Signed private chat over the discovered presence socket.
  *
  * Single writer per persistent file (`<home>/social/chat/<hex>.json`):
- * this module. Inbound text frames are verified (sig + handle bind +
- * TOFU recheck against the cached friend pubkey, done up the stack in
- * presence.c; chat.c only re-checks the signature against the embedded
- * pubkey in case the framing got out of order). Multi-fragment messages
+ * this module. Chat verifies the signature, recipient, sender handle and
+ * cached friend key after presence demultiplexes the datagram. Multi-fragment messages
  * are reassembled before being committed to history.
  */
 
 #include "chat.h"
+#include "presence.h"
+#include "save_atomic.h"
+#include "modasset_json.h"
+#include "sha256.h"
 #include "social.h"
 #include "identity.h"
 #include "ed25519.h"
@@ -24,21 +26,6 @@
 #include <stdarg.h>
 #include <time.h>
 
-#ifdef _WIN32
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-#else
-  #include <sys/socket.h>
-  #include <netinet/in.h>
-  #include <arpa/inet.h>
-  #include <unistd.h>
-  #include <fcntl.h>
-  #define closesocket close
-  typedef int SOCKET;
-  #define INVALID_SOCKET (-1)
-#endif
-
-#define CHAT_PORT             27106
 #define CHAT_MAGIC            "PDCHT"
 #define CHAT_MAGIC_LEN        5
 #define CHAT_VERSION          1
@@ -47,7 +34,7 @@
 #define CHAT_PUBKEY_LEN       32
 #define CHAT_SIG_OFFSET       256
 #define CHAT_SIG_LEN          64
-#define CHAT_FRAME_LEN        320
+#define CHAT_FRAME_LEN        CHAT_WIRE_FRAME_LEN
 #define CHAT_DOMAIN_LEN       10  /* strlen("pd-chat-v1") */
 
 #define CHAT_KIND_TEXT        0
@@ -57,15 +44,25 @@
 #define CHAT_FRIENDS_MAX      128 /* matches SOCIAL_FRIENDS_MAX */
 #define CHAT_RATE_WINDOW_MS   1000u
 #define CHAT_RATE_MAX_FRAMES  16  /* per second per source handle */
+#define CHAT_RECEIPT_MAX      512 /* Covers 30 seconds at the inbound rate cap. */
+#define CHAT_RECEIPT_TTL_MS   30000u
 
 /* -------------------------------------------------------------------------
  * State
  * ------------------------------------------------------------------------- */
 
 typedef struct {
+	u64 msg_id;
+	u32 accepted_ms;
+	u8 hash[SHA256_DIGEST_SIZE];
+	u8 in_use;
+} chat_receipt_t;
+
+typedef struct {
 	u32              handle;
 	s32              count;
 	chat_message_t   ring[CHAT_HISTORY_MAX];
+	chat_receipt_t   receipts[CHAT_RECEIPT_MAX];
 	s32              dirty;
 } chat_history_t;
 
@@ -77,6 +74,8 @@ typedef struct {
 	u32  total_text_len;
 	char text[CHAT_TEXT_MAX];
 	u32  last_recv_ms;
+	u32  first_recv_ms;
+	u16  chunk_lengths[CHAT_REASSEMBLY_MAX];
 	u8   chunk_present[CHAT_REASSEMBLY_MAX]; /* up to 8 chunks per message */
 	u8   in_use;
 } chat_reassembly_t;
@@ -94,9 +93,22 @@ static chat_reassembly_t s_Reassembly[CHAT_REASSEMBLY_MAX];
 
 static chat_rate_t      s_Rate[64];
 
-static SOCKET s_Sock = INVALID_SOCKET;
-static s32    s_SocketReady;
+static s32    s_Initialized;
+static u32    s_ActiveHandle;
+static const char *s_LastSendError = "";
 static u64    s_NextMsgIdCounter;
+
+#define CHAT_PENDING_MAX 16
+#define CHAT_PENDING_PER_FRIEND 4
+#define CHAT_RETRY_LIMIT 5
+#define CHAT_DELIVERY_TIMEOUT_MS 15000u
+typedef struct {
+	u32 handle, queued_ms, last_send_ms;
+	u64 msg_id;
+	u8 attempts, in_use;
+	char text[CHAT_TEXT_MAX];
+} chat_pending_t;
+static chat_pending_t s_Pending[CHAT_PENDING_MAX];
 
 /* -------------------------------------------------------------------------
  * Endian helpers (presence-style direct memcpy, little-endian on wire)
@@ -196,14 +208,14 @@ static s32 jExpect(jread_t *j, char c) {
 	jSkipWs(j); if (*j->p != c) return 0; j->p++; return 1;
 }
 static s32 jReadString(jread_t *j, char *dst, u32 dstsize) {
-	jSkipWs(j); if (*j->p != '"') return 0; j->p++; u32 i = 0;
-	while (*j->p && *j->p != '"') {
-		if (*j->p == '\\' && j->p[1]) { j->p++; if (i + 1 < dstsize) dst[i++] = *j->p; j->p++; continue; }
-		if (i + 1 < dstsize) dst[i++] = *j->p; j->p++;
+	jSkipWs(j);
+	if (*j->p != '"') return 0;
+	const char *start = j->p++;
+	while (*j->p) {
+		if (*j->p == '\\' && j->p[1]) { j->p += 2; continue; }
+		if (*j->p++ == '"') return modAssetJsonDecodeString(start, j->p, dst, dstsize);
 	}
-	if (*j->p == '"') j->p++;
-	if (dstsize > 0) dst[i < dstsize ? i : dstsize - 1] = '\0';
-	return 1;
+	return 0;
 }
 static s32 jReadInt64(jread_t *j, s64 *out) {
 	jSkipWs(j); const char *start = j->p;
@@ -211,6 +223,19 @@ static s32 jReadInt64(jread_t *j, s64 *out) {
 	while (*j->p >= '0' && *j->p <= '9') j->p++;
 	if (j->p == start) return 0;
 	*out = strtoll(start, NULL, 10); return 1;
+}
+static s32 jReadUint64(jread_t *j, u64 *out) {
+	jSkipWs(j);
+	if (*j->p < '0' || *j->p > '9') return 0;
+	u64 value = 0;
+	while (*j->p >= '0' && *j->p <= '9') {
+		const u64 digit = (u64)(*j->p - '0');
+		if (value > (~(u64)0 - digit) / 10) return 0;
+		value = value * 10 + digit;
+		++j->p;
+	}
+	*out = value;
+	return 1;
 }
 static void jSkipValue(jread_t *j) {
 	jSkipWs(j);
@@ -239,53 +264,53 @@ static char *slurpFile(const char *path) {
 }
 
 static s32 writeAtomic(const char *path, const char *bytes, size_t len) {
-	char tmp[600]; snprintf(tmp, sizeof(tmp), "%s.tmp", path);
-	FILE *f = fopen(tmp, "wb"); if (!f) return -1;
-	if (fwrite(bytes, 1, len, f) != len) { fclose(f); remove(tmp); return -1; }
-	fflush(f); fclose(f);
-#ifdef _WIN32
-	remove(path);
-#endif
-	if (rename(tmp, path) != 0) { remove(tmp); return -1; }
-	return 0;
+	save_atomic_file_t transaction;
+	if (saveAtomicBegin(&transaction, path) != 0) return -1;
+	if (fwrite(bytes, 1, len, saveAtomicStream(&transaction)) != len) {
+		saveAtomicAbort(&transaction);
+		return -1;
+	}
+	return saveAtomicCommit(&transaction);
 }
 
 /* JSON-escape a string segment into a growing buffer. */
 static void appendJsonString(char *dst, size_t dstsize, size_t *plen, const char *src) {
-	if (*plen + 2 > dstsize) return;
+	if (*plen >= dstsize || dstsize - *plen < 2) { *plen = dstsize; return; }
 	dst[(*plen)++] = '"';
-	while (*src && *plen + 2 < dstsize) {
-		char c = *src++;
+	while (*src) {
+		const unsigned char c = (unsigned char)*src++;
+		const size_t needed = c < 0x20 ? 6 : c == '"' || c == '\\' ? 2 : 1;
+		if (*plen >= dstsize || needed + 1 >= dstsize - *plen) { *plen = dstsize; return; }
 		if (c == '"' || c == '\\') {
-			if (*plen + 2 >= dstsize) break;
 			dst[(*plen)++] = '\\'; dst[(*plen)++] = c;
-		} else if ((unsigned char)c < 0x20 && c != '\n') {
-			continue;
-		} else if (c == '\n') {
-			if (*plen + 2 >= dstsize) break;
-			dst[(*plen)++] = '\\'; dst[(*plen)++] = 'n';
+		} else if (c < 0x20) {
+			static const char hex[] = "0123456789abcdef";
+			memcpy(dst + *plen, "\\u00", 4); *plen += 4;
+			dst[(*plen)++] = hex[c >> 4]; dst[(*plen)++] = hex[c & 15];
 		} else {
 			dst[(*plen)++] = c;
 		}
 	}
-	if (*plen + 1 < dstsize) dst[(*plen)++] = '"';
+	dst[(*plen)++] = '"';
 }
 static void appendStr(char *dst, size_t dstsize, size_t *plen, const char *src) {
 	while (*src && *plen + 1 < dstsize) dst[(*plen)++] = *src++;
+	if (*src) *plen = dstsize;
 }
 static void appendFmt(char *dst, size_t dstsize, size_t *plen, const char *fmt, ...) {
 	if (*plen >= dstsize) return;
 	va_list ap; va_start(ap, fmt);
 	int n = vsnprintf(dst + *plen, dstsize - *plen, fmt, ap);
 	va_end(ap);
-	if (n < 0) return;
-	*plen += (size_t)n < (dstsize - *plen) ? (size_t)n : (dstsize - *plen - 1);
+	if (n < 0 || (size_t)n >= dstsize - *plen) { *plen = dstsize; return; }
+	*plen += (size_t)n;
 }
 
 static void saveHistory(chat_history_t *h)
 {
 	if (!h || !h->dirty) return;
-	static char buf[128 * 1024];
+	/* Worst-case JSON escaping of every bounded text/attachment byte. */
+	static char buf[CHAT_HISTORY_MAX * (6 * (CHAT_TEXT_MAX + 64 + 256) + 512) + 128];
 	size_t len = 0;
 	appendStr(buf, sizeof(buf), &len, "{\n  \"version\": 1,\n  \"messages\": [");
 	for (s32 i = 0; i < h->count; i++) {
@@ -294,6 +319,7 @@ static void saveHistory(chat_history_t *h)
 		appendStr(buf, sizeof(buf), &len, "{ \"id\": ");
 		appendFmt(buf, sizeof(buf), &len, "%llu", (unsigned long long)m->msg_id);
 		appendFmt(buf, sizeof(buf), &len, ", \"dir\": %d", (int)m->direction);
+		appendFmt(buf, sizeof(buf), &len, ", \"delivery\": %d", (int)m->delivery);
 		appendFmt(buf, sizeof(buf), &len, ", \"ts\": %u", (unsigned)m->timestamp_unix);
 		appendStr(buf, sizeof(buf), &len, ", \"text\": ");
 		appendJsonString(buf, sizeof(buf), &len, m->text);
@@ -310,6 +336,10 @@ static void saveHistory(chat_history_t *h)
 		appendStr(buf, sizeof(buf), &len, " }");
 	}
 	appendStr(buf, sizeof(buf), &len, "\n  ]\n}\n");
+	if (len >= sizeof(buf)) {
+		sysLogPrintf(LOG_WARNING, "CHAT: history serialization exceeds bounded buffer");
+		return;
+	}
 
 	char path[600];
 	historyPath(h->handle, path, sizeof(path));
@@ -359,11 +389,16 @@ static void loadHistory(u32 handle)
 					if (!jReadString(&j, k2, sizeof(k2))) break;
 					if (!jExpect(&j, ':')) break;
 					if (!strcmp(k2, "id")) {
-						s64 v = 0; jReadInt64(&j, &v); m.msg_id = (u64)v;
+						if (!jReadUint64(&j, &m.msg_id)) { free(data); return; }
 					} else if (!strcmp(k2, "dir")) {
 						s64 v = 0; jReadInt64(&j, &v); m.direction = (chat_direction_t)v;
 					} else if (!strcmp(k2, "ts")) {
 						s64 v = 0; jReadInt64(&j, &v); m.timestamp_unix = (u32)v;
+					} else if (!strcmp(k2, "delivery")) {
+						s64 v = 0; jReadInt64(&j, &v);
+						m.delivery = v >= CHAT_DELIVERY_UNKNOWN && v <= CHAT_DELIVERY_FAILED
+							? (chat_delivery_t)v : CHAT_DELIVERY_UNKNOWN;
+						if (m.delivery == CHAT_DELIVERY_PENDING) m.delivery = CHAT_DELIVERY_FAILED;
 					} else if (!strcmp(k2, "text")) {
 						jReadString(&j, m.text, sizeof(m.text));
 					} else if (!strcmp(k2, "att")) {
@@ -462,48 +497,6 @@ static s32 rateLimitAllow(u32 handle)
  * Socket lifecycle
  * ------------------------------------------------------------------------- */
 
-static s32 socketSetNonblock(SOCKET s)
-{
-#ifdef _WIN32
-	u_long mode = 1; return ioctlsocket(s, FIONBIO, &mode) == 0 ? 0 : -1;
-#else
-	int fl = fcntl(s, F_GETFL, 0); if (fl < 0) return -1;
-	return fcntl(s, F_SETFL, fl | O_NONBLOCK) == 0 ? 0 : -1;
-#endif
-}
-
-SOCKET chatGetSocket(void); /* shared with file_transfer.c */
-
-static SOCKET ensureSocket(void)
-{
-	if (s_SocketReady) return s_Sock;
-	s_Sock = socket(AF_INET, SOCK_DGRAM, 0);
-	if (s_Sock == INVALID_SOCKET) return INVALID_SOCKET;
-	int yes = 1;
-	setsockopt(s_Sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
-	socketSetNonblock(s_Sock);
-	struct sockaddr_in addr;
-	memset(&addr, 0, sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	addr.sin_port = htons(CHAT_PORT);
-	if (bind(s_Sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-		addr.sin_port = 0;
-		if (bind(s_Sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-			closesocket(s_Sock); s_Sock = INVALID_SOCKET; return INVALID_SOCKET;
-		}
-	}
-	s_SocketReady = 1;
-	sysLogPrintf(LOG_NOTE, "CHAT: socket bound on UDP %u", (unsigned)CHAT_PORT);
-	return s_Sock;
-}
-
-SOCKET chatGetSocket(void) { return ensureSocket(); }
-
-/* -------------------------------------------------------------------------
- * Wire frame I/O
- * ------------------------------------------------------------------------- */
-
 static s32 signFrame(const u8 *body, u8 *outSig)
 {
 	if (!body || !outSig) return 0;
@@ -523,20 +516,20 @@ static s32 verifyFrame(const u8 *body, const u8 *sig, const u8 *pubkey)
 	return ed25519Verify(sig, buf, sizeof(buf), pubkey) == 1 ? 1 : 0;
 }
 
-static void sendChunk(u32 ipv4, u16 port, u32 target_handle,
+static s32 sendChunk(u8 kind, u32 target_handle,
                       u64 msg_id, u16 chunk_seq, u16 chunk_total,
                       const char *text, u16 text_len)
 {
-	if (!s_SocketReady) return;
+	if (!s_Initialized || !presenceIsAgentLoaded()) return -1;
 	const u8 *mypub = identityGetPubkey();
-	if (!mypub) return;
+	if (!mypub) return -1;
 
 	u8 packet[CHAT_FRAME_LEN];
 	memset(packet, 0, sizeof(packet));
 	u8 *w = packet;
 	memcpy(w, CHAT_MAGIC, CHAT_MAGIC_LEN); w += CHAT_MAGIC_LEN;
 	wU8(&w, CHAT_VERSION);
-	wU8(&w, CHAT_KIND_TEXT);
+	wU8(&w, kind);
 	wU8(&w, 0);
 	wU32(&w, socialMyHandle());
 	wU32(&w, target_handle);
@@ -547,15 +540,56 @@ static void sendChunk(u32 ipv4, u16 port, u32 target_handle,
 	wU16(&w, 0);
 	if (text_len > 0) memcpy(packet + 32, text, text_len);
 	memcpy(packet + CHAT_PUBKEY_OFFSET, mypub, CHAT_PUBKEY_LEN);
-	if (!signFrame(packet, packet + CHAT_SIG_OFFSET)) return;
+	if (!signFrame(packet, packet + CHAT_SIG_OFFSET)) return -1;
 
-	struct sockaddr_in dst;
-	memset(&dst, 0, sizeof(dst));
-	dst.sin_family = AF_INET;
-	dst.sin_addr.s_addr = htonl(ipv4);
-	dst.sin_port = htons(port);
-	(void)sendto(s_Sock, (const char *)packet, CHAT_FRAME_LEN, 0,
-	             (struct sockaddr *)&dst, sizeof(dst));
+	return presenceSendChatFrame(target_handle, packet, sizeof(packet));
+}
+
+static void setDelivery(u32 handle, u64 msg_id, chat_delivery_t delivery)
+{
+	chat_history_t *h = findHistory(handle);
+	if (!h) return;
+	for (s32 i = h->count - 1; i >= 0; --i) {
+		chat_message_t *m = &h->ring[i];
+		if (m->direction == CHAT_DIR_OUT && m->msg_id == msg_id) {
+			m->delivery = delivery;
+			h->dirty = 1;
+			return;
+		}
+	}
+}
+
+static void sendPending(chat_pending_t *pending, u32 now)
+{
+	const u32 length = (u32)strlen(pending->text);
+	const u16 count = (u16)((length + CHAT_FRAME_PAYLOAD_LEN - 1) / CHAT_FRAME_PAYLOAD_LEN);
+	pending->last_send_ms = now;
+	++pending->attempts;
+	for (u16 seq = 0; seq < count; ++seq) {
+		const u32 offset = (u32)seq * CHAT_FRAME_PAYLOAD_LEN;
+		const u16 bytes = (u16)(length - offset > CHAT_FRAME_PAYLOAD_LEN
+			? CHAT_FRAME_PAYLOAD_LEN : length - offset);
+		if (sendChunk(CHAT_KIND_TEXT, pending->handle, pending->msg_id,
+			seq, count, pending->text + offset, bytes) != 0) break;
+	}
+}
+
+static void refreshChatIdentity(void)
+{
+	const u32 handle = socialMyHandle();
+	if (handle == s_ActiveHandle) return;
+	for (s32 i = 0; i < CHAT_PENDING_MAX; ++i) {
+		if (s_Pending[i].in_use)
+			setDelivery(s_Pending[i].handle, s_Pending[i].msg_id, CHAT_DELIVERY_FAILED);
+	}
+	memset(s_Pending, 0, sizeof(s_Pending));
+	memset(s_Reassembly, 0, sizeof(s_Reassembly));
+	s_ActiveHandle = handle;
+}
+
+static void acknowledgeInbound(u32 handle, u64 msg_id)
+{
+	(void)sendChunk(CHAT_KIND_ACK, handle, msg_id, 0, 0, NULL, 0);
 }
 
 /* -------------------------------------------------------------------------
@@ -567,11 +601,13 @@ void chatInit(void)
 	memset(s_Histories, 0, sizeof(s_Histories));
 	memset(s_Reassembly, 0, sizeof(s_Reassembly));
 	memset(s_Rate, 0, sizeof(s_Rate));
+	memset(s_Pending, 0, sizeof(s_Pending));
 	s_NumHistories = 0;
-	s_NextMsgIdCounter = 0;
+	s_NextMsgIdCounter = SDL_GetPerformanceCounter();
 
 	(void)chatDir();
-	(void)ensureSocket();
+	s_Initialized = 1;
+	s_ActiveHandle = socialMyHandle();
 
 	const s32 nf = socialFriendCount();
 	for (s32 i = 0; i < nf; i++) {
@@ -583,32 +619,21 @@ void chatInit(void)
 
 void chatShutdown(void)
 {
+	for (s32 i = 0; i < CHAT_PENDING_MAX; ++i) {
+		if (s_Pending[i].in_use)
+			setDelivery(s_Pending[i].handle, s_Pending[i].msg_id, CHAT_DELIVERY_FAILED);
+	}
+	memset(s_Pending, 0, sizeof(s_Pending));
 	for (s32 i = 0; i < s_NumHistories; i++) {
 		saveHistory(&s_Histories[i]);
 	}
-	if (s_SocketReady) {
-		closesocket(s_Sock);
-		s_Sock = INVALID_SOCKET;
-		s_SocketReady = 0;
-	}
+	s_Initialized = 0;
+	memset(s_Reassembly, 0, sizeof(s_Reassembly));
 }
 
 /* -------------------------------------------------------------------------
  * Inbound dispatch
  * ------------------------------------------------------------------------- */
-
-/* Resolve the target endpoint for a friend handle the same way presence
- * does, but without the indirection back into presence.c (which would
- * pull a circular dependency). We rely on the persistent endpoint
- * cache and the friend record. */
-static s32 resolveFriendEndpoint(u32 handle, u32 *out_ipv4, u16 *out_port)
-{
-	if (socialFriendGetEndpoint(handle, out_ipv4, out_port)) {
-		if (*out_port == 0) *out_port = CHAT_PORT;
-		return 1;
-	}
-	return 0;
-}
 
 static void commitInboundMessage(u32 src_handle, u64 msg_id,
                                   const char *text, u32 text_len)
@@ -620,6 +645,23 @@ static void commitInboundMessage(u32 src_handle, u64 msg_id,
 	chat_history_t *h = touchHistory(src_handle);
 	if (!h) return;
 
+	/* Receipt lifetime is independent of outgoing/system history churn. */
+	u8 hash[SHA256_DIGEST_SIZE];
+	sha256Hash(text, text_len, hash);
+	const u32 accepted_ms = SDL_GetTicks();
+	chat_receipt_t *available = NULL;
+	for (s32 i = 0; i < CHAT_RECEIPT_MAX; ++i) {
+		chat_receipt_t *receipt = &h->receipts[i];
+		if (receipt->in_use && accepted_ms - receipt->accepted_ms >= CHAT_RECEIPT_TTL_MS)
+			receipt->in_use = 0;
+		if (!receipt->in_use) { if (!available) available = receipt; continue; }
+		if (receipt->msg_id == msg_id) {
+			if (!memcmp(receipt->hash, hash, sizeof(hash))) acknowledgeInbound(src_handle, msg_id);
+			return;
+		}
+	}
+	if (!available) return; /* Bounded admission; do not evict a live receipt. */
+
 	chat_message_t m; memset(&m, 0, sizeof(m));
 	m.msg_id = msg_id;
 	m.peer_handle = src_handle;
@@ -629,121 +671,160 @@ static void commitInboundMessage(u32 src_handle, u64 msg_id,
 	memcpy(m.text, text, text_len);
 	m.text[text_len] = '\0';
 
-	/* De-dup against the most recent N messages by msg_id. */
-	for (s32 i = h->count - 1; i >= 0 && i >= h->count - 8; i--) {
+	/* Re-ACK a retransmission without duplicating accepted history. */
+	for (s32 i = h->count - 1; i >= 0; i--) {
 		if (h->ring[i].msg_id == msg_id && h->ring[i].direction == CHAT_DIR_IN) {
+			if (strlen(h->ring[i].text) == text_len && !memcmp(h->ring[i].text, text, text_len)) {
+				available->in_use = 1; available->msg_id = msg_id; available->accepted_ms = accepted_ms;
+				memcpy(available->hash, hash, sizeof(hash));
+				acknowledgeInbound(src_handle, msg_id);
+			}
 			return;
 		}
 	}
 
+	available->in_use = 1; available->msg_id = msg_id; available->accepted_ms = accepted_ms;
+	memcpy(available->hash, hash, sizeof(hash));
 	appendMessage(h, &m);
 	saveHistory(h);
+	acknowledgeInbound(src_handle, msg_id);
 	sysLogPrintf(LOG_NOTE, "CHAT: in <- 0x%08x (%u bytes)",
 	             (unsigned)src_handle, (unsigned)text_len);
 }
 
-static void drainReceive(void)
+void chatReceiveFrame(const u8 *packet, u32 length)
 {
-	if (!s_SocketReady) return;
-	for (;;) {
-		u8 packet[1024];
-		struct sockaddr_in src;
-		socklen_t srclen = sizeof(src);
-		int n = recvfrom(s_Sock, (char *)packet, sizeof(packet), 0,
-		                 (struct sockaddr *)&src, &srclen);
-		if (n <= 0) break;
-		if (n != CHAT_FRAME_LEN) continue;
-		if (memcmp(packet, CHAT_MAGIC, CHAT_MAGIC_LEN) != 0) continue;
+	if (!s_Initialized || !presenceIsAgentLoaded() || !packet
+		|| length != CHAT_FRAME_LEN || memcmp(packet, CHAT_MAGIC, CHAT_MAGIC_LEN)) return;
+	refreshChatIdentity();
+	const u8 *p = packet + CHAT_MAGIC_LEN;
+	u8 ver  = rU8(&p);
+	u8 kind = rU8(&p);
+	u8 flags = rU8(&p);
+	u32 from_handle = rU32(&p);
+	u32 to_handle   = rU32(&p);
+	u64 msg_id      = rU64(&p);
+	u16 text_len    = rU16(&p);
+	u16 chunk_seq   = rU16(&p);
+	u16 chunk_total = rU16(&p);
+	u16 reserved = rU16(&p);
+	if (flags || reserved) return;
+	if (!to_handle || to_handle != socialMyHandle()) return;
 
-		const u8 *p = packet + CHAT_MAGIC_LEN;
-		u8 ver  = rU8(&p);
-		u8 kind = rU8(&p);
-		(void)rU8(&p);  /* flags */
-		u32 from_handle = rU32(&p);
-		u32 to_handle   = rU32(&p);
-		u64 msg_id      = rU64(&p);
-		u16 text_len    = rU16(&p);
-		u16 chunk_seq   = rU16(&p);
-		u16 chunk_total = rU16(&p);
-		(void)rU16(&p);  /* pad */
-		(void)to_handle;
+	if (ver != CHAT_VERSION) return;
+	if (kind != CHAT_KIND_TEXT && kind != CHAT_KIND_ACK) return;
+	if (!rateLimitAllow(from_handle)) return;
+	if (!socialFriendByHandle(from_handle)) return;
+	if (socialBlockIsHandle(from_handle)) return;
 
-		if (ver != CHAT_VERSION) continue;
-		if (kind != CHAT_KIND_TEXT) continue;
-		if (!rateLimitAllow(from_handle)) continue;
-		if (!socialFriendByHandle(from_handle)) continue;
-		if (socialBlockIsHandle(from_handle)) continue;
+	const u8 *sender_pub = packet + CHAT_PUBKEY_OFFSET;
+	const u8 *sender_sig = packet + CHAT_SIG_OFFSET;
 
-		const u8 *sender_pub = packet + CHAT_PUBKEY_OFFSET;
-		const u8 *sender_sig = packet + CHAT_SIG_OFFSET;
-
-		if (!socialHandleBindsPubkey(from_handle, sender_pub)) continue;
-		if (!verifyFrame(packet, sender_sig, sender_pub)) continue;
-		if (socialFriendBindPubkey(from_handle, sender_pub) < 0) continue;
-
-		if (text_len > CHAT_FRAME_PAYLOAD_LEN) continue;
-		if (chunk_total == 0 || chunk_total > CHAT_REASSEMBLY_MAX) continue;
-		if (chunk_seq >= chunk_total) continue;
-
-		if (chunk_total == 1) {
-			char text[CHAT_TEXT_MAX];
-			u32 cap = (text_len < sizeof(text) - 1) ? text_len : (u32)sizeof(text) - 1;
-			memcpy(text, packet + 32, cap);
-			text[cap] = '\0';
-			commitInboundMessage(from_handle, msg_id, text, cap);
-			continue;
+	if (!socialHandleBindsPubkey(from_handle, sender_pub)) return;
+	if (!verifyFrame(packet, sender_sig, sender_pub)) return;
+	if (socialFriendBindPubkey(from_handle, sender_pub) < 0) return;
+	if (kind == CHAT_KIND_ACK) {
+		if (text_len || chunk_seq || chunk_total) return;
+		for (s32 i = 0; i < CHAT_PENDING_MAX; ++i) {
+			chat_pending_t *pending = &s_Pending[i];
+			if (pending->in_use && pending->handle == from_handle && pending->msg_id == msg_id) {
+				setDelivery(from_handle, msg_id, CHAT_DELIVERY_DELIVERED);
+				memset(pending, 0, sizeof(*pending));
+				break;
+			}
 		}
-
-		chat_reassembly_t *r = findReassembly(from_handle, msg_id);
-		if (!r) {
-			r = allocReassembly();
-			r->in_use = 1;
-			r->src_handle = from_handle;
-			r->msg_id = msg_id;
-			r->expected_chunks = chunk_total;
-			r->received_chunks = 0;
-			r->total_text_len = 0;
-			memset(r->chunk_present, 0, sizeof(r->chunk_present));
-			memset(r->text, 0, sizeof(r->text));
-		}
-		r->last_recv_ms = SDL_GetTicks();
-
-		if (r->expected_chunks != chunk_total) continue;
-		if (chunk_seq >= CHAT_REASSEMBLY_MAX) continue;
-		if (r->chunk_present[chunk_seq]) continue;
-
-		const u32 dst_off = (u32)chunk_seq * CHAT_FRAME_PAYLOAD_LEN;
-		if (dst_off + text_len > sizeof(r->text)) continue;
-		memcpy(r->text + dst_off, packet + 32, text_len);
-		r->chunk_present[chunk_seq] = 1;
-		r->received_chunks++;
-		if (chunk_seq == chunk_total - 1) {
-			r->total_text_len = dst_off + text_len;
-		}
-
-		if (r->received_chunks == r->expected_chunks) {
-			commitInboundMessage(from_handle, msg_id, r->text, r->total_text_len);
-			memset(r, 0, sizeof(*r));
-		}
+		return;
 	}
 
-	/* Prune stale reassemblies after 10s of inactivity. */
-	const u32 now = SDL_GetTicks();
-	for (s32 i = 0; i < CHAT_REASSEMBLY_MAX; i++) {
-		if (s_Reassembly[i].in_use && (now - s_Reassembly[i].last_recv_ms) > 10000u) {
-			memset(&s_Reassembly[i], 0, sizeof(s_Reassembly[i]));
-		}
+	if (!text_len || text_len > CHAT_FRAME_PAYLOAD_LEN) return;
+	if (memchr(packet + 32, 0, text_len)) return;
+	if (chunk_total == 0 || chunk_total > (CHAT_TEXT_MAX - 2) / CHAT_FRAME_PAYLOAD_LEN + 1) return;
+	if (chunk_seq >= chunk_total) return;
+	if (chunk_seq + 1 < chunk_total && text_len != CHAT_FRAME_PAYLOAD_LEN) return;
+	if ((u32)chunk_seq * CHAT_FRAME_PAYLOAD_LEN + text_len >= CHAT_TEXT_MAX) return;
+
+	if (chunk_total == 1) {
+		char text[CHAT_TEXT_MAX];
+		u32 cap = (text_len < sizeof(text) - 1) ? text_len : (u32)sizeof(text) - 1;
+		memcpy(text, packet + 32, cap);
+		text[cap] = '\0';
+		commitInboundMessage(from_handle, msg_id, text, cap);
+		return;
+	}
+
+	chat_reassembly_t *r = findReassembly(from_handle, msg_id);
+	if (!r) {
+		r = allocReassembly();
+		r->in_use = 1;
+		r->src_handle = from_handle;
+		r->msg_id = msg_id;
+		r->expected_chunks = chunk_total;
+		r->received_chunks = 0;
+		r->total_text_len = 0;
+		r->first_recv_ms = SDL_GetTicks();
+		memset(r->chunk_lengths, 0, sizeof(r->chunk_lengths));
+		memset(r->chunk_present, 0, sizeof(r->chunk_present));
+		memset(r->text, 0, sizeof(r->text));
+	}
+	r->last_recv_ms = SDL_GetTicks();
+
+	if (r->expected_chunks != chunk_total || r->last_recv_ms - r->first_recv_ms >= CHAT_DELIVERY_TIMEOUT_MS) {
+		memset(r, 0, sizeof(*r));
+		return;
+	}
+	if (chunk_seq >= CHAT_REASSEMBLY_MAX) return;
+
+	const u32 dst_off = (u32)chunk_seq * CHAT_FRAME_PAYLOAD_LEN;
+	if (r->chunk_present[chunk_seq]) {
+		if (r->chunk_lengths[chunk_seq] != text_len || memcmp(r->text + dst_off, packet + 32, text_len))
+			memset(r, 0, sizeof(*r));
+		return;
+	}
+	if (dst_off + text_len > sizeof(r->text)) return;
+	memcpy(r->text + dst_off, packet + 32, text_len);
+	r->chunk_present[chunk_seq] = 1;
+	r->chunk_lengths[chunk_seq] = text_len;
+	r->received_chunks++;
+	if (chunk_seq == chunk_total - 1) {
+		r->total_text_len = dst_off + text_len;
+	}
+
+	if (r->received_chunks == r->expected_chunks) {
+		commitInboundMessage(from_handle, msg_id, r->text, r->total_text_len);
+		memset(r, 0, sizeof(*r));
 	}
 }
 
 void chatTick(void)
 {
-	if (!s_SocketReady) return;
-	drainReceive();
+	if (!s_Initialized) return;
+	refreshChatIdentity();
+
+	/* Prune stale reassemblies after 10s of inactivity. */
+	const u32 now = SDL_GetTicks();
+	for (s32 i = 0; i < CHAT_PENDING_MAX; ++i) {
+		chat_pending_t *pending = &s_Pending[i];
+		if (!pending->in_use) continue;
+		if (!presenceIsAgentLoaded() || socialBlockIsHandle(pending->handle)
+			|| !socialFriendByHandle(pending->handle)
+			|| now - pending->queued_ms >= CHAT_DELIVERY_TIMEOUT_MS) {
+			setDelivery(pending->handle, pending->msg_id, CHAT_DELIVERY_FAILED);
+			memset(pending, 0, sizeof(*pending));
+			continue;
+		}
+		if (pending->attempts < CHAT_RETRY_LIMIT
+			&& now - pending->last_send_ms >= (500u << (pending->attempts - 1)))
+			sendPending(pending, now);
+	}
+	for (s32 i = 0; i < CHAT_REASSEMBLY_MAX; i++) {
+		if (s_Reassembly[i].in_use && ((now - s_Reassembly[i].last_recv_ms) > 10000u
+			|| now - s_Reassembly[i].first_recv_ms >= CHAT_DELIVERY_TIMEOUT_MS)) {
+			memset(&s_Reassembly[i], 0, sizeof(s_Reassembly[i]));
+		}
+	}
 
 	/* Flush dirty histories at most once per second to amortise disk. */
 	static u32 s_LastFlushMs;
-	const u32 now = SDL_GetTicks();
 	if (now - s_LastFlushMs >= 1000u) {
 		s_LastFlushMs = now;
 		for (s32 i = 0; i < s_NumHistories; i++) {
@@ -758,49 +839,48 @@ void chatTick(void)
 
 s32 chatSendText(u32 friend_handle, const char *text)
 {
-	if (friend_handle == 0 || !text || !*text) return -1;
-	if (socialBlockIsHandle(friend_handle)) return -1;
-	if (!socialFriendByHandle(friend_handle)) return -1;
-	if (!s_SocketReady) (void)ensureSocket();
-	if (!s_SocketReady) return -1;
+	s_LastSendError = "";
+	if (friend_handle == 0 || !text || !*text) { s_LastSendError = "Enter a message and choose a friend."; return -1; }
+	if (socialBlockIsHandle(friend_handle)) { s_LastSendError = "Unblock this friend before sending."; return -1; }
+	if (!socialFriendByHandle(friend_handle)) { s_LastSendError = "This person is no longer on your Friends list."; return -1; }
+	if (!s_Initialized || !presenceIsAgentLoaded()) { s_LastSendError = "Load an agent and connect to Social before sending."; return -1; }
+	refreshChatIdentity();
 
-	const u32 text_len = (u32)strnlen(text, CHAT_TEXT_MAX - 1);
-	if (text_len == 0) return -1;
+	const u32 text_len = (u32)strnlen(text, CHAT_TEXT_MAX);
+	if (text_len == 0 || text_len >= CHAT_TEXT_MAX) { s_LastSendError = "The message is too long. Shorten it and try again."; return -1; }
 
-	u32 ipv4 = 0; u16 port = 0;
-	if (!resolveFriendEndpoint(friend_handle, &ipv4, &port)) return -1;
-
-	const u64 msg_id = ((u64)time(NULL) << 16) | (s_NextMsgIdCounter++ & 0xFFFFu);
-	const u16 chunk_total = (u16)((text_len + CHAT_FRAME_PAYLOAD_LEN - 1) / CHAT_FRAME_PAYLOAD_LEN);
-
-	u32 sent = 0;
-	for (u16 seq = 0; seq < chunk_total; seq++) {
-		const u32 chunk_off = (u32)seq * CHAT_FRAME_PAYLOAD_LEN;
-		const u32 chunk_len = (text_len - chunk_off > CHAT_FRAME_PAYLOAD_LEN)
-		                       ? CHAT_FRAME_PAYLOAD_LEN
-		                       : (text_len - chunk_off);
-		sendChunk(ipv4, port, friend_handle,
-		          msg_id, seq, chunk_total, text + chunk_off, (u16)chunk_len);
-		sent += chunk_len;
+	chat_pending_t *pending = NULL;
+	u32 peer_count = 0;
+	for (s32 i = 0; i < CHAT_PENDING_MAX; ++i) {
+		if (!s_Pending[i].in_use) { if (!pending) pending = &s_Pending[i]; }
+		else if (s_Pending[i].handle == friend_handle) ++peer_count;
 	}
-	(void)sent;
-
+	if (!pending || peer_count >= CHAT_PENDING_PER_FRIEND) { s_LastSendError = "Too many messages are pending. Wait for delivery or failure, then try again."; return -1; }
 	chat_history_t *h = touchHistory(friend_handle);
-	if (h) {
-		chat_message_t m; memset(&m, 0, sizeof(m));
-		m.msg_id = msg_id;
-		m.peer_handle = friend_handle;
-		m.direction = CHAT_DIR_OUT;
-		m.timestamp_unix = (u32)time(NULL);
-		strncpy(m.text, text, sizeof(m.text) - 1);
-		appendMessage(h, &m);
-		saveHistory(h);
-	}
-
-	sysLogPrintf(LOG_NOTE, "CHAT: out -> 0x%08x (%u bytes, %u frames)",
-	             (unsigned)friend_handle, (unsigned)text_len, (unsigned)chunk_total);
+	if (!h) { s_LastSendError = "Chat history capacity has been reached for this session."; return -1; }
+	const u64 msg_id = ((u64)(u32)time(NULL) << 32) | (s_NextMsgIdCounter++ & 0xffffffffu);
+	memset(pending, 0, sizeof(*pending));
+	pending->in_use = 1;
+	pending->handle = friend_handle;
+	pending->msg_id = msg_id;
+	pending->queued_ms = SDL_GetTicks();
+	memcpy(pending->text, text, text_len + 1);
+	chat_message_t m; memset(&m, 0, sizeof(m));
+	m.msg_id = msg_id;
+	m.peer_handle = friend_handle;
+	m.direction = CHAT_DIR_OUT;
+	m.delivery = CHAT_DELIVERY_PENDING;
+	m.timestamp_unix = (u32)time(NULL);
+	memcpy(m.text, text, text_len + 1);
+	appendMessage(h, &m);
+	saveHistory(h);
+	sendPending(pending, pending->queued_ms);
+	sysLogPrintf(LOG_NOTE, "CHAT: queued -> 0x%08x (%u bytes)",
+	             (unsigned)friend_handle, (unsigned)text_len);
 	return 0;
 }
+
+const char *chatLastSendError(void) { return s_LastSendError; }
 
 /* -------------------------------------------------------------------------
  * History accessors (UI side)

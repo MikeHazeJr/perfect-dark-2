@@ -1,5 +1,11 @@
 # Unreleased Changes
 
+- Fix signed file-transfer packet and chunk bounds, reject controls from the wrong peer, and use discovered social endpoints. Valid ACKs advance transfers without an extra retransmission delay.
+- Save received files before confirming delivery, preserve existing inbox files on failed saves, and retry lost completion acknowledgments safely.
+- Make voice activation honor microphone sensitivity and silence, with listen-only fallback and clear device/codec errors.
+- Bound mod downloads by expanded archive and compressed wire sizes, and show download progress consistently.
+- Preserve exact lobby weapon slots when a filtered menu selection resolves to a Random weapon set.
+
 - Keep menu actions held until all simultaneous bound inputs release. Wheel pulses retire independently, while focus loss and controller removal clear stale physical holds.
 - Let custom controllers bind buttons 23-32 separately from stick directions and triggers. Existing bindings keep working and show when an older shared control needs rebinding.
 - Keep failed mod activations available for retry, preserve restart requirements after a failed reload, and make dismissal clear that earlier changes remain.

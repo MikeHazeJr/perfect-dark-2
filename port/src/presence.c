@@ -33,6 +33,8 @@
  * Signature domain separator: "pd-presence-v5".
  *
  * The 196-byte frame is well within the 1500-byte unfragmented UDP MTU.
+ * ICE/STUN/UPnP candidates use the separately typed signed PDCND frame from
+ * net_candidate.h; they never occupy or overload the match-route fields.
  */
 
 #include "presence.h"
@@ -40,10 +42,13 @@
 #include "identity.h"
 #include "ed25519.h"
 #include "chat.h"
+#include "voice.h"
+#include "file_transfer.h"
 #include "pdgui_toast.h"
 #include "actionmap.h"
 #include "net/p2p.h"
 #include "net/net.h"
+#include "net/netupnp.h"
 #include "net/group_session.h"
 #include "net/net_bandwidth.h"
 #include "system.h"
@@ -64,6 +69,7 @@
   #include <arpa/inet.h>
   #include <unistd.h>
   #include <fcntl.h>
+  #include <errno.h>
   #define closesocket close
   typedef int SOCKET;
   #define INVALID_SOCKET (-1)
@@ -109,6 +115,9 @@
 #define PRESENCE_INVITE_CAP         16
 #define PRESENCE_INVITE_TTL_MS    180000 /* 3 min */
 #define PRESENCE_INVITE_TIMEOUT_MS 5000
+#define PRESENCE_CANDIDATE_PRIORITY_HOST NET_CANDIDATE_PRIORITY_HOST
+#define PRESENCE_CANDIDATE_PRIORITY_UPNP NET_CANDIDATE_PRIORITY_UPNP
+#define PRESENCE_CANDIDATE_PRIORITY_STUN NET_CANDIDATE_PRIORITY_STUN
 
 typedef struct {
 	u32 handle;
@@ -148,6 +157,22 @@ static s32               s_NumInbox;
 
 static ping_schedule_t  s_Schedule[PRESENCE_PEER_CAP];
 static s32              s_NumScheduled;
+
+static net_candidate_t s_LocalCandidates[NET_CANDIDATE_MAX];
+static u8 s_LocalCandidateCount;
+static u32 s_LocalCandidateGeneration;
+static u32 s_LocalCandidateExpires;
+static u8 s_LocalCandidateCredential[NET_CANDIDATE_CREDENTIAL_LEN];
+static char s_LocalCandidateAgent[NET_CANDIDATE_AGENT_LEN];
+
+/* Candidate generations are monotonic for the lifetime of this presence
+ * instance and saturate instead of wrapping. A restart begins at generation
+ * 1 with a new random credential; receivers accept that only with no prior
+ * live epoch (their peer cache is new or the old epoch has expired). */
+
+/* Defined below because shutdown must retire every eligible friend, not only
+ * peers that happened to answer during this process. */
+static s32 resolveEndpoint(u32 handle, u32 *out_ipv4, u16 *out_port);
 
 /* -------------------------------------------------------------------------
  * Helpers
@@ -216,14 +241,38 @@ static s32 socketSetNonblock(SOCKET s)
 #endif
 }
 
+static s32 socketSetExclusive(SOCKET s)
+{
+#ifdef _WIN32
+	int exclusive = 1;
+	return setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+		(const char *)&exclusive, sizeof(exclusive)) == 0 ? 0 : -1;
+#else
+	(void)s;
+	return 0;
+#endif
+}
+
+static s32 socketBindConflict(void)
+{
+#ifdef _WIN32
+	const s32 error = WSAGetLastError();
+	return error == WSAEADDRINUSE || error == WSAEACCES;
+#else
+	return errno == EADDRINUSE;
+#endif
+}
+
 static SOCKET ensureSocket(void)
 {
 	if (s_SocketReady) return s_Sock;
 	s_Sock = socket(AF_INET, SOCK_DGRAM, 0);
 	if (s_Sock == INVALID_SOCKET) return INVALID_SOCKET;
-	int yes = 1;
-	setsockopt(s_Sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
-	socketSetNonblock(s_Sock);
+	if (socketSetExclusive(s_Sock) != 0 || socketSetNonblock(s_Sock) != 0) {
+		closesocket(s_Sock);
+		s_Sock = INVALID_SOCKET;
+		return INVALID_SOCKET;
+	}
 	struct sockaddr_in addr;
 	memset(&addr, 0, sizeof(addr));
 	addr.sin_family = AF_INET;
@@ -238,6 +287,12 @@ static SOCKET ensureSocket(void)
 				(unsigned)s_LocalPort);
 			return INVALID_SOCKET;
 		}
+		if (!socketBindConflict()) {
+			closesocket(s_Sock);
+			s_Sock = INVALID_SOCKET;
+			sysLogPrintf(LOG_ERROR, "PRESENCE: UDP bind failed");
+			return INVALID_SOCKET;
+		}
 		addr.sin_port = 0;
 		if (bind(s_Sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
 			closesocket(s_Sock);
@@ -245,6 +300,16 @@ static SOCKET ensureSocket(void)
 			return INVALID_SOCKET;
 		}
 	}
+	struct sockaddr_in bound;
+	socklen_t bound_length = sizeof(bound);
+	memset(&bound, 0, sizeof(bound));
+	if (getsockname(s_Sock, (struct sockaddr *)&bound, &bound_length) != 0 ||
+		ntohs(bound.sin_port) == 0) {
+		closesocket(s_Sock);
+		s_Sock = INVALID_SOCKET;
+		return INVALID_SOCKET;
+	}
+	s_LocalPort = ntohs(bound.sin_port);
 	s_SocketReady = 1;
 	sysLogPrintf(LOG_NOTE, "PRESENCE: socket bound on UDP %u", (unsigned)s_LocalPort);
 	return s_Sock;
@@ -322,6 +387,216 @@ static s32 verifyFrame(const u8 *body, const u8 *sig, const u8 *pubkey)
 	memcpy(buf, body, PRESENCE_BODY_LEN);
 	memcpy(buf + PRESENCE_BODY_LEN, PRESENCE_SIG_DOMAIN, PRESENCE_SIG_DOMAIN_LEN);
 	return ed25519Verify(sig, buf, sizeof(buf), pubkey) == 1 ? 1 : 0;
+}
+
+static void appendLocalCandidate(net_candidate_t *list, u8 *count,
+		u32 ipv4, u16 port, u8 type, u32 priority)
+{
+	if (!list || !count || *count >= NET_CANDIDATE_MAX ||
+		(type == NET_CANDIDATE_TYPE_HOST
+			? !netCandidateIpv4IsHostRoute(ipv4)
+			: !netCandidateIpv4IsPublicRoute(ipv4)) || port == 0) return;
+	for (u8 i = 0; i < *count; i++) {
+		/* One endpoint has one canonical meaning. Do not let a second source
+		 * type silently replace or duplicate the same ipv4:port. */
+		if (list[i].ipv4 == ipv4 && list[i].port == port) return;
+	}
+	list[*count].ipv4 = ipv4;
+	list[*count].port = port;
+	list[*count].type = type;
+	list[*count].provenance = type;
+	list[*count].priority = priority;
+	(*count)++;
+}
+
+static s32 rotateCandidateCredential(u8 out_credential[NET_CANDIDATE_CREDENTIAL_LEN])
+{
+	if (!out_credential ||
+		!netCandidateRandomBytes(out_credential, NET_CANDIDATE_CREDENTIAL_LEN)) {
+		return 0;
+	}
+	for (u32 i = 0; i < NET_CANDIDATE_CREDENTIAL_LEN; i++) {
+		if (out_credential[i] != 0) return 1;
+	}
+	return 0;
+}
+
+static s32 candidateCredentialIsValid(void)
+{
+	for (u32 i = 0; i < NET_CANDIDATE_CREDENTIAL_LEN; i++) {
+		if (s_LocalCandidateCredential[i] != 0) return 1;
+	}
+	return 0;
+}
+
+static s32 advanceCandidateGeneration(u32 *generation)
+{
+	if (!generation || *generation == 0xffffffffu) return 0;
+	*generation = *generation == 0 ? 1 : *generation + 1;
+	return 1;
+}
+
+static void refreshLocalCandidateState(void)
+{
+	net_candidate_t next[NET_CANDIDATE_MAX];
+	memset(next, 0, sizeof(next));
+	u8 next_count = 0;
+	u32 host_ipv4 = 0;
+	u16 host_port = 0;
+	if (p2pIceGetLocalHostCandidate(&host_ipv4, &host_port)) {
+		appendLocalCandidate(next, &next_count, host_ipv4, host_port,
+			NET_CANDIDATE_TYPE_HOST, PRESENCE_CANDIDATE_PRIORITY_HOST);
+	}
+	u32 stun_ipv4 = 0;
+	u16 stun_port = 0;
+	if (p2pStunGetReflexiveCandidate(&stun_ipv4, &stun_port)) {
+		appendLocalCandidate(next, &next_count, stun_ipv4, stun_port,
+			NET_CANDIDATE_TYPE_STUN, PRESENCE_CANDIDATE_PRIORITY_STUN);
+	}
+	if (netUpnpIsActive()) {
+		u32 upnp_ipv4 = 0;
+		if (netMatchRouteParseIpv4(netUpnpGetExternalIP(), &upnp_ipv4)) {
+			u16 ice_port = netUpnpGetOwnedMappedPort(
+				NET_UPNP_OWNER_SOCIAL, host_port);
+			/* The social owner maps the exact bound ICE socket, including a
+			 * legitimate ephemeral fallback. No fixed/legacy port is inferred. */
+			if (ice_port != 0) {
+				appendLocalCandidate(next, &next_count, upnp_ipv4, ice_port,
+					NET_CANDIDATE_TYPE_UPNP, PRESENCE_CANDIDATE_PRIORITY_UPNP);
+			}
+		}
+	}
+
+	char next_agent[NET_CANDIDATE_AGENT_LEN];
+	writeFixedString((u8 *)next_agent, sizeof(next_agent), socialMyAgentName());
+	const time_t now_time = time(NULL);
+	if (now_time <= 0 || (u64)now_time > 0xffffffffu ||
+		(u64)now_time + NET_CANDIDATE_FRESH_SECONDS > 0xffffffffu) return;
+	s32 changed = next_count != s_LocalCandidateCount ||
+		memcmp(next, s_LocalCandidates, sizeof(next)) != 0 ||
+		memcmp(next_agent, s_LocalCandidateAgent, sizeof(next_agent)) != 0 ||
+		s_LocalCandidateGeneration == 0 ||
+		!netCandidateExpiryHasHeadroom(s_LocalCandidateExpires,
+			(u32)now_time,
+			NET_CANDIDATE_SIGNAL_EXPIRY_HEADROOM_SECONDS);
+	if (!changed) return;
+
+	u32 next_generation = s_LocalCandidateGeneration;
+	if (!advanceCandidateGeneration(&next_generation)) {
+		sysLogPrintf(LOG_WARNING,
+			"PRESENCE.CANDIDATE: generation exhausted; retaining last signed set");
+		return;
+	}
+	u8 next_credential[NET_CANDIDATE_CREDENTIAL_LEN];
+	if (!rotateCandidateCredential(next_credential)) {
+		sysLogPrintf(LOG_WARNING,
+			"PRESENCE.CANDIDATE: secure credential generation failed; retaining last signed set");
+		return;
+	}
+	memcpy(s_LocalCandidates, next, sizeof(s_LocalCandidates));
+	s_LocalCandidateCount = next_count;
+	s_LocalCandidateGeneration = next_generation;
+	s_LocalCandidateExpires = (u32)now_time + NET_CANDIDATE_FRESH_SECONDS;
+	memcpy(s_LocalCandidateAgent, next_agent, sizeof(s_LocalCandidateAgent));
+	memcpy(s_LocalCandidateCredential, next_credential,
+		sizeof(s_LocalCandidateCredential));
+	sysLogPrintf(LOG_NOTE,
+		"PRESENCE.CANDIDATE: generation=%u count=%u source set refreshed",
+		(unsigned)s_LocalCandidateGeneration, (unsigned)s_LocalCandidateCount);
+}
+
+static s32 prepareLocalCandidateRetirement(void)
+{
+	if (s_LocalCandidateCount == 0) return 0;
+	u32 next_generation = s_LocalCandidateGeneration;
+	if (!advanceCandidateGeneration(&next_generation)) return 0;
+	u8 next_credential[NET_CANDIDATE_CREDENTIAL_LEN];
+	if (!rotateCandidateCredential(next_credential)) return 0;
+	const time_t now_time = time(NULL);
+	if (now_time <= 0 || (u64)now_time > 0xffffffffu ||
+		(u64)now_time + NET_CANDIDATE_FRESH_SECONDS > 0xffffffffu) return 0;
+	s_LocalCandidateGeneration = next_generation;
+	s_LocalCandidateExpires = (u32)now_time + NET_CANDIDATE_FRESH_SECONDS;
+	memcpy(s_LocalCandidateCredential, next_credential,
+		sizeof(s_LocalCandidateCredential));
+	return 1;
+}
+
+static s32 signCandidateFrame(const u8 *body, u8 *out_sig)
+{
+	if (!body || !out_sig || !identityGetPubkey()) return 0;
+	u8 signed_bytes[NET_CANDIDATE_BODY_LEN + NET_CANDIDATE_SIG_DOMAIN_LEN];
+	memcpy(signed_bytes, body, NET_CANDIDATE_BODY_LEN);
+	memcpy(signed_bytes + NET_CANDIDATE_BODY_LEN,
+		NET_CANDIDATE_SIG_DOMAIN, NET_CANDIDATE_SIG_DOMAIN_LEN);
+	return identitySign(signed_bytes, sizeof(signed_bytes), out_sig);
+}
+
+static void sendCandidateFrame(u32 ipv4, u16 port, u32 target_handle,
+	s32 force_retire)
+{
+	if (!s_SocketReady || target_handle == 0 ||
+		!netCandidateIpv4IsUnicast(ipv4) || port == 0 ||
+		!identityGetPubkey() || socialMyHandle() == 0) return;
+	if (!force_retire && s_LocalState == PRESENCE_APPEAR_OFFLINE) return;
+	if (!force_retire) refreshLocalCandidateState();
+	if (s_LocalCandidateGeneration == 0 || s_LocalCandidateAgent[0] == '\0' ||
+		!candidateCredentialIsValid() || s_LocalCandidateExpires == 0) return;
+
+	const time_t now_time = time(NULL);
+	if (now_time <= 0 || (u64)now_time > 0xffffffffu) return;
+	net_candidate_set_t set;
+	memset(&set, 0, sizeof(set));
+	set.sender_handle = socialMyHandle();
+	set.target_handle = target_handle;
+	set.proto_version = NET_PROTOCOL_VER;
+	set.kind = force_retire || s_LocalCandidateCount == 0
+		? NET_CANDIDATE_FRAME_RETIRE : NET_CANDIDATE_FRAME_PUBLISH;
+	set.generation = s_LocalCandidateGeneration;
+	set.issued_unix_seconds = (u32)now_time;
+	set.expires_unix_seconds = s_LocalCandidateExpires;
+	memcpy(set.credential, s_LocalCandidateCredential, sizeof(set.credential));
+	memcpy(set.agent_name, s_LocalCandidateAgent, sizeof(set.agent_name));
+	set.candidate_count = force_retire ? 0 : s_LocalCandidateCount;
+	memcpy(set.candidates, s_LocalCandidates, sizeof(set.candidates));
+	net_candidate_set_t normalized;
+	if (!netCandidateSetNormalize(&set, set.sender_handle, set.target_handle,
+		set.issued_unix_seconds, &normalized)) return;
+	set = normalized;
+	p2pIceSetLocalCandidateSet(&set);
+
+	u8 packet[NET_CANDIDATE_FRAME_LEN];
+	if (!netCandidateFrameEncodeBody(&set, identityGetPubkey(), packet) ||
+		!signCandidateFrame(packet, packet + NET_CANDIDATE_SIG_OFFSET)) return;
+	struct sockaddr_in dst;
+	memset(&dst, 0, sizeof(dst));
+	dst.sin_family = AF_INET;
+	dst.sin_addr.s_addr = htonl(ipv4);
+	dst.sin_port = htons(port);
+	(void)sendto(s_Sock, (const char *)packet, NET_CANDIDATE_FRAME_LEN, 0,
+		(struct sockaddr *)&dst, sizeof(dst));
+}
+
+s32 presenceSendCandidateRefresh(u32 friend_handle)
+{
+	u32 ipv4 = 0;
+	u16 port = 0;
+	if (friend_handle == 0 || !resolveEndpoint(friend_handle, &ipv4, &port)) {
+		return -1;
+	}
+	sendCandidateFrame(ipv4, port, friend_handle, 0);
+	return 0;
+}
+
+static s32 verifyCandidateFrame(const u8 *body, const u8 *sig,
+	const u8 *pubkey)
+{
+	if (!body || !sig || !pubkey) return 0;
+	u8 signed_bytes[NET_CANDIDATE_BODY_LEN + NET_CANDIDATE_SIG_DOMAIN_LEN];
+	memcpy(signed_bytes, body, NET_CANDIDATE_BODY_LEN);
+	memcpy(signed_bytes + NET_CANDIDATE_BODY_LEN,
+		NET_CANDIDATE_SIG_DOMAIN, NET_CANDIDATE_SIG_DOMAIN_LEN);
+	return ed25519Verify(sig, signed_bytes, sizeof(signed_bytes), pubkey) == 1;
 }
 
 static void sendFrame(u32 ipv4, u16 port, u8 kind, u32 target_handle,
@@ -438,6 +713,13 @@ void presenceInit(void)
 	s_NumScheduled = 0;
 	s_LocalBlurb[0] = '\0';
 	memset(&s_LocalMatchRoute, 0, sizeof(s_LocalMatchRoute));
+	memset(s_LocalCandidates, 0, sizeof(s_LocalCandidates));
+	memset(s_LocalCandidateCredential, 0, sizeof(s_LocalCandidateCredential));
+	memset(s_LocalCandidateAgent, 0, sizeof(s_LocalCandidateAgent));
+	s_LocalCandidateCount = 0;
+	s_LocalCandidateGeneration = 0;
+	s_LocalCandidateExpires = 0;
+	p2pIceSetLocalCandidateSet(NULL);
 	s_LocalState = PRESENCE_BOOTSTRAP;
 	s_AgentConfirmed = 0;
 	(void)ensureSocket();
@@ -483,12 +765,51 @@ void presenceShutdown(void)
 {
 	if (!s_SocketReady) return;
 
-	/* Send BYE to every cached peer endpoint. */
+	const s32 retiring = prepareLocalCandidateRetirement();
+	/* Retirement is per-target. Walk every current friend so a peer that has
+	 * not answered this session still receives the signed generation change. */
+	u32 retired_handles[PRESENCE_PEER_CAP * 2];
+	s32 retired_count = 0;
+	for (s32 i = 0; i < socialFriendCount(); i++) {
+		const social_friend_t *friend = socialFriendAt(i);
+		if (!friend || friend->handle == 0) continue;
+		u32 ipv4 = 0;
+		u16 port = 0;
+		if (!resolveEndpoint(friend->handle, &ipv4, &port)) continue;
+		sendCandidateFrame(ipv4, port, friend->handle, 1);
+		sendFrame(ipv4, port, PRESENCE_KIND_BYE,
+			friend->handle, 0, 0, s_LocalBlurb);
+		if (retired_count < (s32)(sizeof(retired_handles) /
+			sizeof(retired_handles[0]))) {
+			retired_handles[retired_count++] = friend->handle;
+		}
+	}
+	/* Pending invitees that already supplied a valid presence frame are
+	 * eligible peers too. Avoid sending a second per-target frame. */
 	for (s32 i = 0; i < s_NumPeers; i++) {
-		presence_peer_t *p = &s_Peers[i];
-		if (p->cached_ipv4 == 0 || p->cached_port == 0) continue;
-		sendFrame(p->cached_ipv4, p->cached_port, PRESENCE_KIND_BYE,
-		          p->handle, 0, 0, s_LocalBlurb);
+		presence_peer_t *peer = &s_Peers[i];
+		if (peer->handle == 0) continue;
+		s32 already_sent = 0;
+		for (s32 j = 0; j < retired_count; j++) {
+			if (retired_handles[j] == peer->handle) {
+				already_sent = 1;
+				break;
+			}
+		}
+		if (already_sent) continue;
+		u32 ipv4 = 0;
+		u16 port = 0;
+		if (!resolveEndpoint(peer->handle, &ipv4, &port)) continue;
+		sendCandidateFrame(ipv4, port, peer->handle, 1);
+		sendFrame(ipv4, port, PRESENCE_KIND_BYE,
+			peer->handle, 0, 0, s_LocalBlurb);
+	}
+	if (retiring) {
+		/* Do not clear the local candidate set until all per-target retirement
+		 * frames have been attempted. */
+		s_LocalCandidateCount = 0;
+		memset(s_LocalCandidates, 0, sizeof(s_LocalCandidates));
+		p2pIceSetLocalCandidateSet(NULL);
 	}
 
 	closesocket(s_Sock);
@@ -646,15 +967,100 @@ static void enqueueInvite(u32 from_handle, u8 kind, const char *agent)
 	             (unsigned)from_handle, (unsigned)kind);
 }
 
+static void receiveCandidateFrame(const u8 *packet, size_t packet_len)
+{
+	net_candidate_set_t wire;
+	const u8 *sender_pub = NULL;
+	const u8 *sender_sig = NULL;
+	if (!netCandidateFrameDecode(packet, packet_len, &wire, &sender_pub,
+		&sender_sig)) return;
+	if (!acceptFromHandle(wire.sender_handle) ||
+		wire.target_handle != socialMyHandle()) return;
+	if (!socialHandleBindsPubkeyForAgent(wire.sender_handle, sender_pub,
+		wire.agent_name)) {
+		sysLogPrintf(LOG_WARNING,
+			"PRESENCE.CANDIDATE: drop -- handle 0x%08x key/agent mismatch",
+			(unsigned)wire.sender_handle);
+		return;
+	}
+	if (!verifyCandidateFrame(packet, sender_sig, sender_pub)) {
+		sysLogPrintf(LOG_WARNING,
+			"PRESENCE.CANDIDATE: drop -- bad signature from handle 0x%08x",
+			(unsigned)wire.sender_handle);
+		return;
+	}
+	if (socialFriendBindPubkey(wire.sender_handle, sender_pub) < 0) {
+		sysLogPrintf(LOG_WARNING,
+			"PRESENCE.CANDIDATE: drop -- key changed for handle 0x%08x",
+			(unsigned)wire.sender_handle);
+		return;
+	}
+
+	const time_t now_time = time(NULL);
+	if (now_time <= 0 || (u64)now_time > 0xffffffffu) return;
+	net_candidate_set_t normalized;
+	if (!netCandidateSetNormalize(&wire, wire.sender_handle,
+		socialMyHandle(), (u32)now_time, &normalized)) {
+		sysLogPrintf(LOG_WARNING,
+			"PRESENCE.CANDIDATE: drop -- stale or malformed set from handle 0x%08x",
+			(unsigned)wire.sender_handle);
+		return;
+	}
+
+	presence_peer_t *peer = touchPeer(wire.sender_handle);
+	if (!peer) return;
+	if (peer->candidate_state.generation != 0 &&
+		peer->candidate_state.expires_unix_seconds < (u32)now_time) {
+		/* A restarted sender may begin again at generation 1 only after the
+		 * previous signed epoch has expired. */
+		memset(&peer->candidate_state, 0, sizeof(peer->candidate_state));
+	}
+	net_candidate_update_t update = netCandidatePlanUpdate(
+		peer->candidate_state.generation != 0 ? &peer->candidate_state : NULL,
+		&normalized);
+	if (update == NET_CANDIDATE_UPDATE_REJECT) {
+		sysLogPrintf(LOG_WARNING,
+			"PRESENCE.CANDIDATE: rejected replay/conflict from handle 0x%08x",
+			(unsigned)wire.sender_handle);
+		return;
+	}
+	if (update == NET_CANDIDATE_UPDATE_DUPLICATE) return;
+
+	netCandidatePeerStateCommit(&peer->candidate_state, &normalized);
+	(void)p2pPeerCandidateSetReceived(wire.sender_handle, &normalized);
+	sysLogPrintf(LOG_NOTE,
+		"PRESENCE.CANDIDATE: accepted handle=0x%08x generation=%u count=%u kind=%u",
+		(unsigned)wire.sender_handle, (unsigned)normalized.generation,
+		(unsigned)normalized.candidate_count, (unsigned)normalized.kind);
+}
+
 static void drainReceive(void)
 {
-	for (;;) {
-		u8 packet[512];
+	for (s32 received = 0; received < 64; ++received) {
+		u8 packet[FT_FRAME_LEN + 1]; /* Reject oversized/truncated media frames. */
 		struct sockaddr_in src;
 		socklen_t srclen = sizeof(src);
 		int n = recvfrom(s_Sock, (char *)packet, sizeof(packet), 0,
 		                 (struct sockaddr *)&src, &srclen);
 		if (n <= 0) break;
+		if (n == NET_CANDIDATE_FRAME_LEN &&
+			memcmp(packet, NET_CANDIDATE_MAGIC, NET_CANDIDATE_MAGIC_LEN) == 0) {
+			receiveCandidateFrame(packet, (size_t)n);
+			continue;
+		}
+		if (n == CHAT_WIRE_FRAME_LEN && memcmp(packet, "PDCHT", 5) == 0) {
+			if (s_AgentConfirmed) chatReceiveFrame(packet, (u32)n);
+			continue;
+		}
+        if (n == FT_FRAME_LEN && !memcmp(packet, FT_WIRE_MAGIC, 5)) {
+            if (s_AgentConfirmed) fileTransferReceiveFrame(packet, (u32)n);
+            continue;
+        }
+        if (n >= (int)VOICE_WIRE_MIN_FRAME_LEN && n <= (int)VOICE_WIRE_MAX_FRAME_LEN
+                && memcmp(packet, "PDVOC", 5) == 0) {
+            if (s_AgentConfirmed) voiceReceiveFrame(packet, (u32)n);
+            continue;
+        }
 		if (n != PRESENCE_FRAME_LEN) continue;
 		if (memcmp(packet, PRESENCE_MAGIC, PRESENCE_MAGIC_LEN) != 0) continue;
 
@@ -775,6 +1181,7 @@ static void drainReceive(void)
 				           wire_route.issued_unix_seconds, nonce);
 				sendFrame(src_ipv4, src_port, PRESENCE_KIND_PONG, from_handle,
 				          nonce, 0, s_LocalBlurb);
+				sendCandidateFrame(src_ipv4, src_port, from_handle, 0);
 				break;
 			}
 			case PRESENCE_KIND_PONG: {
@@ -879,6 +1286,63 @@ static s32 resolveEndpoint(u32 handle, u32 *out_ipv4, u16 *out_port)
 	return 0;
 }
 
+/* Use the socket whose discovered source endpoint the peer caches. */
+s32 presenceSendChatFrame(u32 handle, const u8 *packet, u32 length)
+{
+	if (!s_SocketReady || !s_AgentConfirmed || !packet
+		|| length != CHAT_WIRE_FRAME_LEN || memcmp(packet, "PDCHT", 5)
+		|| !socialFriendByHandle(handle) || socialBlockIsHandle(handle)) return -1;
+	u32 ipv4 = 0; u16 port = 0;
+	if (!resolveEndpoint(handle, &ipv4, &port) || !ipv4 || !port) return -1;
+	struct sockaddr_in dst;
+	memset(&dst, 0, sizeof(dst));
+	dst.sin_family = AF_INET;
+	dst.sin_addr.s_addr = htonl(ipv4);
+	dst.sin_port = htons(port);
+	return sendto(s_Sock, (const char *)packet, (int)length, 0,
+		(struct sockaddr *)&dst, sizeof(dst)) == (int)length ? 0 : -1;
+}
+
+s32 presenceFileTransportReady(void)
+{
+    return s_SocketReady && s_AgentConfirmed;
+}
+s32 presenceSendFileFrame(u32 handle, const u8 *packet, u32 length)
+{
+    if (!presenceFileTransportReady() ||
+            !fileTransferWireHeaderValid(packet, length, handle) ||
+            !socialFriendByHandle(handle) || socialBlockIsHandle(handle)) return -1;
+    u32 ipv4 = 0; u16 port = 0;
+    if (!resolveEndpoint(handle, &ipv4, &port) || !ipv4 || !port) return -1;
+    struct sockaddr_in dst;
+    memset(&dst, 0, sizeof(dst));
+    dst.sin_family = AF_INET; dst.sin_addr.s_addr = htonl(ipv4); dst.sin_port = htons(port);
+    return sendto(s_Sock, (const char *)packet, (int)length, 0,
+        (struct sockaddr *)&dst, sizeof(dst)) == (int)length ? 0 : -1;
+}
+
+s32 presenceVoiceTransportReady(void)
+{
+    return s_SocketReady && s_AgentConfirmed;
+}
+
+s32 presenceSendVoiceFrame(u32 handle, const u8 *packet, u32 length)
+{
+    if (!presenceVoiceTransportReady() || !packet
+            || length < VOICE_WIRE_MIN_FRAME_LEN || length > VOICE_WIRE_MAX_FRAME_LEN
+            || memcmp(packet, "PDVOC", 5) || !socialFriendByHandle(handle)
+            || socialBlockIsHandle(handle)) return -1;
+    u32 ipv4 = 0; u16 port = 0;
+    if (!resolveEndpoint(handle, &ipv4, &port) || !ipv4 || !port) return -1;
+    struct sockaddr_in dst;
+    memset(&dst, 0, sizeof(dst));
+    dst.sin_family = AF_INET;
+    dst.sin_addr.s_addr = htonl(ipv4);
+    dst.sin_port = htons(port);
+    return sendto(s_Sock, (const char *)packet, (int)length, 0,
+        (struct sockaddr *)&dst, sizeof(dst)) == (int)length ? 0 : -1;
+}
+
 static void sendPingTo(u32 handle)
 {
 	const social_friend_t *f = socialFriendByHandle(handle);
@@ -889,6 +1353,7 @@ static void sendPingTo(u32 handle)
 
 	const u32 nonce = (u32)SDL_GetTicks() ^ handle;
 	sendFrame(ipv4, port, PRESENCE_KIND_PING, handle, nonce, 0, s_LocalBlurb);
+	sendCandidateFrame(ipv4, port, handle, 0);
 }
 
 void presenceTick(void)
@@ -1094,6 +1559,7 @@ s32 presenceSendInvite(u32 friend_handle, u8 kind)
 	 * before they accept would burn LAN/STUN attempts on a peer who may
 	 * decline.  groupSessionOnInviteResponse owns the pair-open path. */
 	if (groupSessionRecordSentInvite(friend_handle) != 0) return -1;
+	sendCandidateFrame(ipv4, port, friend_handle, 0);
 	sendFrame(ipv4, port, PRESENCE_KIND_INVITE, friend_handle, nonce, kind,
 	          s_LocalBlurb);
 	sysLogPrintf(LOG_NOTE,
@@ -1134,6 +1600,7 @@ s32 presenceInviteAccept(s32 idx)
 
 	const u32 nonce = (u32)SDL_GetTicks() ^ e.from_handle;
 	if (ipv4 != 0) {
+		sendCandidateFrame(ipv4, port, e.from_handle, 0);
 		sendFrame(ipv4, port, PRESENCE_KIND_INVITE_RESP, e.from_handle, nonce, 1,
 		          s_LocalBlurb);
 	}

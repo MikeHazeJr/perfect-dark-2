@@ -11127,8 +11127,13 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 		plan.scenario = (u8)scenario->ext.gamemode.mode_id;
 		rng_seed = g_RngSeed;
 		rng2_seed = g_Rng2Seed;
-		prepared_set = plan.weapon_set_index == 0xFF
-			? WEAPONSET_CUSTOM : (s32)plan.weapon_set_index;
+		/* The wire carries the filtered menu index, while WEAPONSET_RANDOM
+		 * and WEAPONSET_RANDOMFIVE name resolved sets. Map once before deciding
+		 * whether the transmitted exact slots should bypass another roll. */
+		const s32 requested_set = plan.weapon_set_index == 0xFF
+			? -1 : (s32)plan.weapon_set_index;
+		prepared_set = requested_set < 0
+			? WEAPONSET_CUSTOM : func0f188f9c(requested_set);
 		if (prepared_set == WEAPONSET_RANDOM
 				|| prepared_set == WEAPONSET_RANDOMFIVE) {
 			/* v54 transports the random-set intent plus the already resolved exact
@@ -11137,7 +11142,7 @@ u32 netmsgClcLobbyStartRead(struct netbuf *src, struct netclient *srccl)
 			memcpy(prepared_weapons, plan.weapons,
 				sizeof(prepared_weapons));
 		} else {
-			if (mpPrepareWeaponSet(prepared_set, plan.weapons,
+			if (mpPrepareWeaponSet(requested_set, plan.weapons,
 					prepared_weapons, &prepared_set) != 0) {
 				g_RngSeed = rng_seed;
 				g_Rng2Seed = rng2_seed;

@@ -27,6 +27,7 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include "net/lobby_view.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -113,19 +114,8 @@ void pdguiKillFeedRender(s32 winW, s32 winH);
  * UI; catalog IDs live in the real struct and portrait/charpreview reads
  * those). lobbyGetPlayerInfo in pdgui_bridge.c writes this layout; keep
  * the padding / offsets in sync there. */
-struct lobbyplayer_view {
-    u8 active;
-    u8 isLeader;
-    u8 isReady;
-    u8 team;
-    char name[32];  /* matches LOBBY_NAME_LEN */
-    s32 isLocal;
-    s32 state; /* CLSTATE_* */
-    u8 clientId;
-};
 
 s32 lobbyGetPlayerCount(void);
-s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 s32 lobbyIsLocalLeader(void);
 
 /* Video info */

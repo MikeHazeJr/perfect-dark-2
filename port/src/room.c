@@ -28,6 +28,7 @@ extern void netReadyGateOnClientLeft(u8 clientId);
 extern void netReadyGateAbortForRoom(u8 room_id, const char *reason);
 
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <stdio.h>
 
@@ -50,6 +51,7 @@ static void roomHashPassword(const char *plaintext, u8 out[ROOM_PASSWORD_HASH_LE
 
 static hub_room_t s_Rooms[HUB_MAX_ROOMS];
 static int        s_Initialised = 0;
+static s32 roomContainsClient(const hub_room_t *room, u8 clientId);
 
 /* External: current network tick (from net.h / net.c) */
 extern u32 g_NetTick;
@@ -84,6 +86,8 @@ void roomsInit(void)
 
     /* Room 0 always exists as the primary match room. */
     s_Rooms[0].state            = ROOM_STATE_LOBBY;
+    s_Rooms[0].max_players      = HUB_MAX_CLIENTS;
+    s_Rooms[0].creator_client_id = 0xff;
     s_Rooms[0].created_tick     = 0;
     s_Rooms[0].state_enter_tick = 0;
     strncpy(s_Rooms[0].name, "Lounge", ROOM_NAME_MAX - 1);
@@ -100,7 +104,11 @@ hub_room_t *roomCreate(const char *name)
         return NULL;
     }
 
-    memset(r->clients, 0, sizeof(r->clients));
+    const u8 room_id = r->id;
+    memset(r, 0, sizeof(*r));
+    r->id = room_id;
+    r->creator_client_id = 0xff;
+    r->max_players = HUB_MAX_CLIENTS;
     r->client_count      = 0;
     r->reconnect_reservation_mask = 0;
     r->stagenum          = 0;
@@ -121,6 +129,10 @@ hub_room_t *roomCreateConfigured(const char *name, u8 maxPlayers,
                                   room_access_t access, const char *password,
                                   u8 creatorClientId)
 {
+    if (creatorClientId >= HUB_MAX_CLIENTS || access < ROOM_ACCESS_OPEN || access > ROOM_ACCESS_INVITE
+            || (access == ROOM_ACCESS_PASSWORD && (!password || !password[0]))) {
+        return NULL;
+    }
     hub_room_t *r = roomCreate(name);
     if (!r) return NULL;
 
@@ -138,12 +150,110 @@ hub_room_t *roomCreateConfigured(const char *name, u8 maxPlayers,
     }
 
     /* Auto-join the creator */
-    roomJoin(r, creatorClientId);
+    if (!roomJoin(r, creatorClientId)) {
+        roomDestroy(r);
+        return NULL;
+    }
 
     sysLogPrintf(LOG_NOTE, "HUB ROOM: room %u configured by client %u (access=%u max=%u)",
                  (unsigned)r->id, (unsigned)creatorClientId,
                  (unsigned)r->access, (unsigned)r->max_players);
     return r;
+}
+
+const char *roomResultMessage(room_result_t result)
+{
+    switch (result) {
+    case ROOM_RESULT_OK: return "Room updated.";
+    case ROOM_RESULT_NOT_FOUND: return "That room no longer exists.";
+    case ROOM_RESULT_NOT_OPEN: return "That room is not accepting players.";
+    case ROOM_RESULT_FULL: return "That room is full. You are still in your previous room.";
+    case ROOM_RESULT_PASSWORD: return "The room password is incorrect.";
+    case ROOM_RESULT_INVITE_REQUIRED: return "Ask the room leader for an invitation.";
+    case ROOM_RESULT_NO_ROOM_SLOTS: return "No room slots are available. Your current room is unchanged.";
+    case ROOM_RESULT_NOT_LEADER: return "Only the room leader can do that.";
+    case ROOM_RESULT_RATE_LIMITED: return "Please wait a moment before another room request.";
+    default: return "The room request is invalid. Your current room is unchanged.";
+    }
+}
+
+room_result_t roomJoinForClient(hub_room_t *previous, hub_room_t *destination,
+    u8 client_id, const char *password)
+{
+    if (client_id >= HUB_MAX_CLIENTS) return ROOM_RESULT_INVALID;
+    if (!destination || destination->state == ROOM_STATE_CLOSED) return ROOM_RESULT_NOT_FOUND;
+    if (previous == destination && roomContainsClient(destination, client_id)) {
+        return ROOM_RESULT_OK;
+    }
+    if (destination->state != ROOM_STATE_LOBBY) return ROOM_RESULT_NOT_OPEN;
+    if (!roomCheckPassword(destination, password ? password : "")) return ROOM_RESULT_PASSWORD;
+    if (destination->access == ROOM_ACCESS_INVITE
+            && destination->creator_client_id != client_id
+            && !(destination->invited_client_mask & (1u << client_id))) {
+        return ROOM_RESULT_INVITE_REQUIRED;
+    }
+    if (previous && !roomContainsClient(previous, client_id)) return ROOM_RESULT_INVALID;
+    if (!roomCanJoin(destination, client_id)) return ROOM_RESULT_FULL;
+
+    /* No fallible operation follows admission. Do not evict the previous
+     * membership, destroy its room or cancel its ready gate on rejection. */
+    if (!roomJoin(destination, client_id)) return ROOM_RESULT_FULL;
+    if (previous) roomLeave(previous, client_id);
+    destination->invited_client_mask &= ~(1u << client_id);
+    return ROOM_RESULT_OK;
+}
+
+room_result_t roomCreateForClient(hub_room_t *previous, u8 client_id,
+    const char *name, u8 max_players, room_access_t access,
+    const char *password, hub_room_t **created)
+{
+    if (!created || client_id >= HUB_MAX_CLIENTS
+            || access < ROOM_ACCESS_OPEN || access > ROOM_ACCESS_INVITE
+            || (previous && !roomContainsClient(previous, client_id))) {
+        return ROOM_RESULT_INVALID;
+    }
+    if (access == ROOM_ACCESS_PASSWORD && (!password || !password[0])) {
+        return ROOM_RESULT_PASSWORD;
+    }
+    hub_room_t *candidate = roomCreateConfigured(name, max_players, access,
+        password, client_id);
+    if (!candidate) return ROOM_RESULT_NO_ROOM_SLOTS;
+    if (previous) roomLeave(previous, client_id);
+    *created = candidate;
+    return ROOM_RESULT_OK;
+}
+
+room_result_t roomInviteClient(hub_room_t *room, u8 leader, u8 invited)
+{
+    if (!room || invited >= HUB_MAX_CLIENTS) return ROOM_RESULT_INVALID;
+    if (room->creator_client_id != leader) return ROOM_RESULT_NOT_LEADER;
+    if (room->state != ROOM_STATE_LOBBY) return ROOM_RESULT_NOT_OPEN;
+    room->invited_client_mask |= 1u << invited;
+    return ROOM_RESULT_OK;
+}
+
+static u32 roomNextRevision(u32 revision)
+{
+    revision++;
+    return revision ? revision : 1;
+}
+
+s32 roomStoreSettings(hub_room_t *room, const room_settings_t *settings)
+{
+    if (!room || !settings || room->state == ROOM_STATE_CLOSED
+            || !memchr(settings->stage_id, '\0', sizeof(settings->stage_id))) return 0;
+    room->settings = *settings;
+    room->settings_revision = roomNextRevision(room->settings_revision);
+    return 1;
+}
+
+s32 roomStorePlaylist(hub_room_t *room, const char *playlist)
+{
+    if (!room || !playlist || room->state == ROOM_STATE_CLOSED
+            || strlen(playlist) >= sizeof(room->playlist)) return 0;
+    memcpy(room->playlist, playlist, strlen(playlist) + 1);
+    room->playlist_revision = roomNextRevision(room->playlist_revision);
+    return 1;
 }
 
 s32 roomCheckPassword(const hub_room_t *room, const char *plaintext)
@@ -263,6 +373,10 @@ static void roomLeaveInternal(hub_room_t *room, u8 clientId,
         room->clients[i] = room->clients[i + 1];
     }
     room->client_count--;
+    room->invited_client_mask &= ~(1u << clientId);
+    if (!reserve_for_reconnect && room->creator_client_id == clientId) {
+        room->creator_client_id = room->client_count ? room->clients[0] : 0xff;
+    }
 
     sysLogPrintf(LOG_NOTE, "HUB ROOM: client %u left room %u \"%s\" (%u active, %u reserved)",
                  (unsigned)clientId, (unsigned)room->id, room->name,
@@ -331,6 +445,9 @@ void roomReleaseReconnectReservation(hub_room_t *room, u8 clientId)
     if (!roomHasReconnectReservation(room, clientId)) return;
 
     room->reconnect_reservation_mask &= ~(1u << clientId);
+    if (room->creator_client_id == clientId) {
+        room->creator_client_id = room->client_count ? room->clients[0] : 0xff;
+    }
     sysLogPrintf(LOG_NOTE,
         "HUB ROOM: released reconnect reservation client %u room %u (%u active, %u reserved)",
         (unsigned)clientId, (unsigned)room->id,
@@ -347,9 +464,19 @@ void roomDestroy(hub_room_t *room)
 {
     if (!room) return;
 
+    memset(&room->settings, 0, sizeof(room->settings));
+    memset(room->playlist, 0, sizeof(room->playlist));
+    room->settings_revision = 0;
+    room->playlist_revision = 0;
+    room->invited_client_mask = 0;
+    room->creator_client_id = 0xff;
+    room->access = ROOM_ACCESS_OPEN;
+    memset(room->password_hash, 0, sizeof(room->password_hash));
+
     if (room->id == 0) {
         /* Room 0 is permanent — reset to lobby instead of closing. */
         roomTransition(room, ROOM_STATE_LOBBY);
+        room->max_players = HUB_MAX_CLIENTS;
         room->client_count = 0;
         room->reconnect_reservation_mask = 0;
         sysLogPrintf(LOG_NOTE, "HUB ROOM: room 0 reset to lobby");

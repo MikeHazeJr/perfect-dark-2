@@ -1,10 +1,9 @@
 /**
  * chat.h -- Phase 2 1:1 private chat over the connectivity layer.
  *
- * Friends exchange text messages via a dedicated signed UDP socket on
- * port 27106. The same socket is shared with the file-transfer module
- * (different magic / kind), but the chat module is self-contained:
- * `chat.c` only handles text frames and persistent per-friend history.
+ * Friends exchange signed text frames through the presence-owned socket
+ * and its discovered endpoint. `chat.c` validates each frame and owns
+ * reassembly and persistent per-friend history.
  *
  * Wire format -- 320 bytes per frame:
  *
@@ -23,7 +22,7 @@
  *   30  2    _pad
  *   32 192   utf-8 text payload (null-padded)
  *  224  32   sender Ed25519 pubkey
- *  256  64   Ed25519 signature over body[0..256) || domain
+ *  256  64   Ed25519 signature over body[0..224) || domain
  *  320
  *
  * Signature domain: "pd-chat-v1".
@@ -45,6 +44,8 @@
 extern "C" {
 #endif
 
+#define CHAT_WIRE_FRAME_LEN     320
+
 #define CHAT_TEXT_MAX           512  /* per message; multi-frame transport */
 #define CHAT_HISTORY_MAX        128  /* per-friend rolling log size */
 #define CHAT_FRAME_PAYLOAD_LEN  192  /* bytes carried per UDP frame */
@@ -56,10 +57,18 @@ typedef enum {
 	CHAT_DIR_SYS = 2,  /* system event: "Chris came online", etc. */
 } chat_direction_t;
 
+typedef enum {
+	CHAT_DELIVERY_UNKNOWN = 0,
+	CHAT_DELIVERY_PENDING,
+	CHAT_DELIVERY_DELIVERED,
+	CHAT_DELIVERY_FAILED,
+} chat_delivery_t;
+
 typedef struct chat_message_s {
 	u64              msg_id;
 	u32              peer_handle;       /* 0 for system events */
 	chat_direction_t direction;
+	chat_delivery_t  delivery;
 	u32              timestamp_unix;
 	u32              attachment_kind;   /* 0 = none; populated by file_transfer */
 	u64              attachment_size;
@@ -76,6 +85,9 @@ void chatInit(void);
 void chatShutdown(void);
 void chatTick(void);
 
+/* Presence socket demultiplexer; validates target, signature and friend binding. */
+void chatReceiveFrame(const u8 *packet, u32 length);
+
 /* -------------------------------------------------------------------------
  * Sending
  * ------------------------------------------------------------------------- */
@@ -83,11 +95,11 @@ void chatTick(void);
 /**
  * Send a UTF-8 text message to a friend.  Returns 0 on success, -1 if
  * the friend is unknown / blocked / unreachable / message too long.
- * The message is appended to the local persistent history immediately;
- * the wire send retries silently on dropped packets up to a small
- * timeout window.
+ * A zero result means queued locally. Inspect the history delivery field
+ * for the authenticated receiving client's acknowledgment or retry failure.
  */
 s32 chatSendText(u32 friend_handle, const char *text);
+const char *chatLastSendError(void);
 
 /* -------------------------------------------------------------------------
  * History accessors (UI side)

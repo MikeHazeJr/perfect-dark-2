@@ -815,6 +815,13 @@ TEST_CASE("B-1069 network launch consumes the frozen typed match",
 	REQUIRE(lobby_read.find("already resolved exact") != std::string::npos);
 	REQUIRE(lobby_read.find("memcpy(prepared_weapons, plan.weapons") !=
 		std::string::npos);
+	/* The wire index is filtered by unlocks; index 6 can resolve to Random 13.
+	 * The receiver must classify the resolved set, then pass the original menu
+	 * index when preparing a non-random preset. */
+	REQUIRE(lobby_read.find("func0f188f9c(requested_set)") !=
+		std::string::npos);
+	REQUIRE(lobby_read.find("mpPrepareWeaponSet(requested_set, plan.weapons") !=
+		std::string::npos);
 
 	REQUIRE(stage_write.find("netStageStartWriteAppendClient") !=
 		std::string::npos);

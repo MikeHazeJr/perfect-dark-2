@@ -10,7 +10,7 @@ Two persisted formats and one transient format share the same versioning discipl
 
 1. **Save format** - PC-native JSON files at known paths (`agent_<name>.json`, `player_<name>.json`, `mpsetup_<name>.json`, `system.json`). Replaces N64 EEPROM. `SAVE_VERSION = 2`.
 2. **MP setup format** - binary WAD format for MP setup blocks. `MPSETUP_VERSION = 3`.
-3. **Wire format** - ENet UDP frames. `NET_PROTOCOL_VER = 58`.
+3. **Wire format** - ENet UDP frames. `NET_PROTOCOL_VER = 61`.
 
 All three are version-pinned in headers and verified in tests; mixed-version mismatches are rejected at handshake.
 
@@ -146,9 +146,9 @@ carry catalog IDs; no numeric custom identity was added to either format.
 
 ## Wire protocol
 
-`NET_PROTOCOL_VER = 58` at [port/include/net/net.h:12](../../port/include/net/net.h:12). The 2026-08-26 bump gives every stage publication a nonzero epoch and one explicit inactive/waiting/release/active lifecycle. `CLC_STAGE_READY` must echo the exact `SVC_STAGE_START` epoch, and fresh shared gameplay is published only after both the authority and every exact surviving remote participant cross the real post-load boundary. NPC convergence now pairs one full resync with the canonical digest of that exact applied snapshot. v57's endpoint-scoped reconnect transaction, v56's complete cutscene authority stream, v55's authenticated client-settings candidate, v54's transactional typed-state freeze, and earlier bumps remain documented in `net.h` and [pillars/connectivity.md](connectivity.md). Mixed-version peers are rejected at auth.
+`NET_PROTOCOL_VER = 61` at [port/include/net/net.h:13](../../port/include/net/net.h:13). The 2026-09-08 v61 source integration adds authenticated complete presentation rosters, excluding provisional reconnects until commit; native roster and affected checks passed, and the corrected two-client Join-r3 passed37/37 with no malformed initial roster; distinct-profile, third-peer and gameplay acceptance remain open. The 2026-09-08 v60 bump adds initial room settings/playlist, access-aware room lists and create/join results. The 2026-08-27 v59 bump adds a typed, ordered authoritative hoverbike mount/dismount transition and an originating-client PC vehicle-intent bit; it does not change public catalog identity. v58 gives every stage publication a nonzero epoch and one explicit inactive/waiting/release/active lifecycle. `CLC_STAGE_READY` must echo the exact `SVC_STAGE_START` epoch, and fresh shared gameplay is published only after both the authority and every exact surviving remote participant cross the real post-load boundary. NPC convergence pairs one full resync with the canonical digest of that exact applied snapshot. v57's endpoint-scoped reconnect transaction, v56's complete cutscene authority stream, v55's authenticated client-settings candidate, v54's transactional typed-state freeze, and earlier bumps remain documented in `net.h` and [pillars/connectivity.md](connectivity.md). Mixed-version peers are rejected at auth.
 
-B-1075's v55 category bytes remain unchanged through v58: STAGE and AUDIO remain compact category
+B-1075's v55 category bytes remain unchanged through v61: STAGE and AUDIO remain compact category
 tokens. Their receiver contract is now explicit—resolve the authoritative string
 ID to its exact catalog row, then validate that the concrete type maps forward to
 the category. Never infer `ASSET_MAP` or `ASSET_AUDIO` from those lossy tokens.
@@ -230,7 +230,7 @@ ordinary-client receipt paths.
 
 ## Where to look
 
-- For wire protocol full changelog (v27 through v58): [pillars/connectivity.md](connectivity.md).
+- For wire protocol full changelog (v27 through v61): [pillars/connectivity.md](connectivity.md).
 - For catalog ID convention behind every string field: [pillars/catalog.md](catalog.md).
 - For mod distribution which carries SHA-256 digests: [pillars/modding.md](modding.md).
 - For why bit-pack matters at scale: see B-12 history in `_old/_archive/` or [systemic-bugs.md](../systemic-bugs.md) SP entries.

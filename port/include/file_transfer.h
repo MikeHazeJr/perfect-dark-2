@@ -2,20 +2,20 @@
  * file_transfer.h -- Phase 2 chunked + sha256-verified file pipe.
  *
  * Friends send arbitrary files (mods, music, images, saves, replays,
- * other) through a dedicated signed UDP frame on port 27107. Each
+ * other) through signed v2 frames on the discovered presence socket. Each
  * transfer carries a sha256 digest computed by the sender; the
- * receiver verifies before accepting the file and refuses on mismatch
+ * receiver verifies and atomically saves before acknowledging the final chunk, and refuses on mismatch
  * (rejects the file with a sidecar log).
  *
  * Per-type inbox layout (Q18 amendment in connectivity-and-modern-main-menu.md
  * Section 8.5.1):
  *
- *   <home>/social/inbox/mods/<friend_agent>/<original_name>
- *   <home>/social/inbox/music/<friend_agent>/<original_name>
- *   <home>/social/inbox/images/<friend_agent>/<original_name>
- *   <home>/social/inbox/saves/<friend_agent>/<original_name>
- *   <home>/social/inbox/replays/<friend_agent>/<original_name>
- *   <home>/social/inbox/files/<friend_agent>/<original_name>
+ *   <home>/social/inbox/mods/<peer_handle>/<digest_prefix>_<safe_name>
+ *   <home>/social/inbox/music/<peer_handle>/<digest_prefix>_<safe_name>
+ *   <home>/social/inbox/images/<peer_handle>/<digest_prefix>_<safe_name>
+ *   <home>/social/inbox/saves/<peer_handle>/<digest_prefix>_<safe_name>
+ *   <home>/social/inbox/replays/<peer_handle>/<digest_prefix>_<safe_name>
+ *   <home>/social/inbox/files/<peer_handle>/<digest_prefix>_<safe_name>
  *
  * Each landing path also gets a `<original>.meta.json` sidecar with
  * sender handle / agent / received_at / sha256 / size / kind.
@@ -31,7 +31,7 @@
  *
  * Wire frames are dispatched by kind (init, chunk, end, ack). Reliable
  * in user-space: receiver acks each chunk, sender retransmits absent
- * acks. Chunk size = 1024 bytes payload (frame total 1280 bytes
+ * acks. Chunk size = 1024 bytes payload (frame total 1320 bytes
  * including header + signature).
  */
 
@@ -39,6 +39,7 @@
 #define _IN_FILE_TRANSFER_H
 
 #include <PR/ultratypes.h>
+#include "file_transfer_wire.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,12 +52,13 @@ extern "C" {
 #define FT_KIND_SAVE     4
 #define FT_KIND_REPLAY   5
 
-#define FT_CHUNK_PAYLOAD 1024
-#define FT_FRAME_LEN     1280
+#define FT_CHUNK_PAYLOAD FT_WIRE_PAYLOAD_LEN
+#define FT_FRAME_LEN     FT_WIRE_FRAME_LEN
 
 void fileTransferInit(void);
 void fileTransferShutdown(void);
 void fileTransferTick(void);
+void fileTransferReceiveFrame(const u8 *packet, u32 length);
 
 /**
  * Initiate a send to a friend. Returns 0 on success, -1 on bad input or
@@ -94,13 +96,19 @@ s32 fileTransferPendingModEnablePeek(char *out_mod_id,
                                      char *out_mod_name,
                                      u32 out_mod_name_size,
                                      u32 *out_sender_handle);
+/* Accept returns 0 only after checked activation completes. Failure retains
+ * the same Agent-owned plan for retry. Discard frees it without rollback. */
 s32 fileTransferPendingModEnableAccept(void);
+const char *fileTransferPendingModEnableError(void);
+s32 fileTransferPendingModEnableHasEffects(void);
 void fileTransferPendingModEnableDecline(void);
 
 /* Smoke/debug helper: drive the received-mod install path against an
  * already-staged inbox .pdmod, then optionally accept the enable prompt. */
 s32 fileTransferDebugInstallReceivedModForSmoke(const char *inbox_path,
                                                 s32 accept_enable_prompt);
+/* Queue a real discovered package through the production prompt path. */
+s32 fileTransferDebugQueueInstalledModForSmoke(const char *mod_id);
 
 /* -------------------------------------------------------------------------
  * Convert-to-mod modal back-end.

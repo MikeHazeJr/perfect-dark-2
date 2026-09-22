@@ -1,35 +1,20 @@
 /**
- * voice.c -- Phase 5 voice chat (Opus codec + SDL audio + PDVOC wire).
- *
- * When HAVE_OPUS is defined, this module:
- *   - Opens an SDL audio capture device (16 kHz mono S16) when voice
- *     is enabled.
- *   - Opens an SDL audio playback device for received voice.
- *   - Wraps libopus encoder + decoder.
- *   - Runs a dedicated signed UDP socket on port 27108 for PDVOC
- *     frames.
- *   - Encodes 20 ms slices when transmitting, signs + sends per-frame.
- *   - Verifies inbound frames (handle bind + signature + per-friend
- *     mute) and feeds the decoder + audio playback queue.
- *
- * When HAVE_OPUS is NOT defined, the scaffold from the original Phase 5
- * commit is preserved: state + settings + UI hooks all work; PTT
- * still toggles voiceLocalIsTransmitting; encode / decode / wire are
- * no-ops. This lets the build succeed even before Mike's MSYS2 install
- * runs `pacman -S mingw-w64-x86_64-opus`.
- *
- * Single-writer hygiene: this module owns the encoder, decoders, audio
- * device handles, and the per-peer last-frame-recv state. Inbound
- * verification follows the same drop-pipeline as chat / file_transfer:
- * friend allowlist -> handle/key bind -> signature verify -> TOFU lock
- * -> per-friend mute -> decode.
+ * Voice: optional Opus, SDL capture/playback and signed recipient-specific PDVOC
+ * frames on the discovered presence transport. Accepted current-Agent group
+ * membership gates ingress and egress. Devices default off; PTT is implemented.
+ * Signed challenge/epoch negotiation gates media; ordered jitter buffers feed
+ * one bounded mixed output timeline. VAD uses energy hysteresis and silence hold.
+ * All state and callbacks run on the main thread.
  */
 
 #include "voice.h"
+#include "presence.h"
+#include "net/group_session_policy.h"
 #include "social.h"
 #include "identity.h"
 #include "ed25519.h"
 #include "system.h"
+#include "net/net_candidate.h"
 
 #include <SDL.h>
 #include <stdio.h>
@@ -40,37 +25,24 @@
   #include <opus.h>
 #endif
 
-#ifdef _WIN32
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-#else
-  #include <sys/socket.h>
-  #include <netinet/in.h>
-  #include <arpa/inet.h>
-  #include <unistd.h>
-  #include <fcntl.h>
-  #define closesocket close
-  typedef int SOCKET;
-  #define INVALID_SOCKET (-1)
-#endif
-
 /* -------------------------------------------------------------------------
  * Wire format
  * ------------------------------------------------------------------------- */
 
-#define VOICE_PORT             27108
 #define VOICE_MAGIC            "PDVOC"
 #define VOICE_MAGIC_LEN        5
-#define VOICE_VERSION          1
-#define VOICE_HEADER_LEN       20  /* up to payload */
+#define VOICE_VERSION          2
+#define VOICE_HEADER_LEN       54  /* up to payload */
 #define VOICE_PUBKEY_LEN       32
 #define VOICE_SIG_LEN          64
-#define VOICE_DOMAIN           "pd-voice-v1"
+#define VOICE_DOMAIN           "pd-voice-v2"
 #define VOICE_DOMAIN_LEN       11
 
 #define VOICE_KIND_OPUS_FRAME  0
 #define VOICE_KIND_PTT_START   1
 #define VOICE_KIND_PTT_STOP    2
+#define VOICE_KIND_CHALLENGE   3
+#define VOICE_TOKEN_BYTES      16
 
 /* -------------------------------------------------------------------------
  * Audio config
@@ -91,23 +63,63 @@ static voice_capture_mode_t s_Mode = VOICE_CAPTURE_PUSH_TO_TALK;
 static s32                  s_PttActive;
 static u32                  s_RxFrames;
 static u32                  s_TxFrames;
+static u32                  s_LocalHandle;
+static s32 voiceOwnerCurrent(void);
+static s32 s_VadActive, s_VadQuietMs, s_Sensitivity = 50;
+static float s_InputLevel;
+static u32 s_InputLastMs;
+static const char *s_LastError = "";
+static void voiceStopTransmission(void);
+
+static s32 voicePeerAllowed(u32 handle)
+{
+    return groupSessionPeerAccepted(groupSessionGet(), socialMyHandle(), handle)
+        && socialFriendByHandle(handle) && !socialBlockIsHandle(handle);
+}
+
+static s32 voiceHasAudience(void)
+{
+    const group_session_t *group = groupSessionGet();
+    for (s32 i = 0; i < GROUP_SESSION_MAX_PEERS; ++i)
+        if (voicePeerAllowed(group->peers[i].handle)) return 1;
+    return 0;
+}
 
 #ifdef HAVE_OPUS
 
 #define VOICE_PEER_DECODERS_MAX 8
+#define VOICE_JITTER_FRAMES 8
+#define VOICE_PREFILL_MS 40u
+#define VOICE_PCM_BYTES (VOICE_FRAME_SAMPLES * sizeof(opus_int16))
+typedef struct {
+    u32 sequence;
+    u16 length;
+    u8 bytes[VOICE_OPUS_MAX_BYTES];
+} voice_encoded_frame;
 typedef struct {
 	u32          handle;
 	OpusDecoder *dec;
 	u32          last_recv_ms;
+    u8 tx_challenge[VOICE_TOKEN_BYTES];
+    u8 rx_epoch[VOICE_TOKEN_BYTES], rx_challenge[VOICE_TOKEN_BYTES];
+    u8 pending_epoch[VOICE_TOKEN_BYTES], pending_challenge[VOICE_TOKEN_BYTES];
+    u64 rx_seen;
+    u32 rx_high, hello_ms, pending_ms;
+    u8 tx_ready, rx_active, pending;
+    voice_encoded_frame frames[VOICE_JITTER_FRAMES];
+    u32 play_sequence, play_due_ms;
+    u8 play_started, play_output, play_missing;
+
 } voice_peer_t;
 
 static voice_peer_t s_Peers[VOICE_PEER_DECODERS_MAX];
 static SDL_AudioDeviceID s_CaptureDev;
 static SDL_AudioDeviceID s_PlaybackDev;
 static OpusEncoder      *s_Encoder;
-static SOCKET            s_Sock = INVALID_SOCKET;
-static s32               s_SocketReady;
-static u16               s_NextSeq;
+static u32               s_NextSeq;
+static u8 s_TxEpoch[VOICE_TOKEN_BYTES];
+static u32 s_MixDueMs;
+static s32 s_MixClock;
 static u32               s_CaptureBytesPerFrame;
 static u8                s_CaptureScratch[VOICE_FRAME_SAMPLES * 2 * 4];
 static u32               s_CaptureScratchUsed;
@@ -126,40 +138,6 @@ static u16 rU16(const u8 **p) { u16 v = (u16)((*p)[0]) | ((u16)((*p)[1])<<8); *p
 static u32 rU32(const u8 **p) {
 	u32 v = ((u32)((*p)[0])      ) | ((u32)((*p)[1])<< 8) |
 	        ((u32)((*p)[2]) << 16) | ((u32)((*p)[3])<<24); *p+=4; return v;
-}
-
-static s32 socketSetNonblock(SOCKET s)
-{
-#ifdef _WIN32
-	u_long mode = 1; return ioctlsocket(s, FIONBIO, &mode) == 0 ? 0 : -1;
-#else
-	int fl = fcntl(s, F_GETFL, 0); if (fl < 0) return -1;
-	return fcntl(s, F_SETFL, fl | O_NONBLOCK) == 0 ? 0 : -1;
-#endif
-}
-
-static SOCKET ensureSocket(void)
-{
-	if (s_SocketReady) return s_Sock;
-	s_Sock = socket(AF_INET, SOCK_DGRAM, 0);
-	if (s_Sock == INVALID_SOCKET) return INVALID_SOCKET;
-	int yes = 1;
-	setsockopt(s_Sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
-	socketSetNonblock(s_Sock);
-	struct sockaddr_in addr;
-	memset(&addr, 0, sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	addr.sin_port = htons(VOICE_PORT);
-	if (bind(s_Sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-		addr.sin_port = 0;
-		if (bind(s_Sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-			closesocket(s_Sock); s_Sock = INVALID_SOCKET; return INVALID_SOCKET;
-		}
-	}
-	s_SocketReady = 1;
-	sysLogPrintf(LOG_NOTE, "VOICE: socket bound on UDP %u", (unsigned)VOICE_PORT);
-	return s_Sock;
 }
 
 static voice_peer_t *findOrAllocPeer(u32 handle)
@@ -181,6 +159,7 @@ static voice_peer_t *findOrAllocPeer(u32 handle)
 		if (s_Peers[i].last_recv_ms < s_Peers[oldest].last_recv_ms) oldest = i;
 	}
 	if (s_Peers[oldest].dec) opus_decoder_destroy(s_Peers[oldest].dec);
+	memset(&s_Peers[oldest], 0, sizeof(s_Peers[oldest]));
 	s_Peers[oldest].handle = handle;
 	s_Peers[oldest].dec = NULL;
 	s_Peers[oldest].last_recv_ms = 0;
@@ -295,7 +274,6 @@ static OpusDecoder *decoderFor(u32 handle)
 			p->dec = NULL;
 		}
 	}
-	p->last_recv_ms = SDL_GetTicks();
 	return p->dec;
 }
 
@@ -321,54 +299,252 @@ static s32 verifyFrame(const u8 *body, u32 body_len, const u8 *sig, const u8 *pu
 }
 
 /* -------------------------------------------------------------------------
- * Outbound: capture -> encode -> sign -> sendto every friend
+ * Outbound: capture -> encode -> sign -> accepted group peers only
  * ------------------------------------------------------------------------- */
 
-static void broadcastVoiceFrame(u8 kind, const u8 *opus_payload, u16 payload_len)
+static s32 tokenNonzero(const u8 *token)
 {
-	if (!s_SocketReady) return;
-	if (payload_len > VOICE_OPUS_MAX_BYTES) return;
+    u8 combined = 0;
+    for (s32 i = 0; i < VOICE_TOKEN_BYTES; ++i) combined |= token[i];
+    return combined != 0;
+}
 
-	const u32 body_len = VOICE_HEADER_LEN + payload_len + VOICE_PUBKEY_LEN;
-	u8 packet[VOICE_HEADER_LEN + VOICE_OPUS_MAX_BYTES + VOICE_PUBKEY_LEN + VOICE_SIG_LEN];
-	memset(packet, 0, sizeof(packet));
-	u8 *w = packet;
-	memcpy(w, VOICE_MAGIC, VOICE_MAGIC_LEN); w += VOICE_MAGIC_LEN;
-	wU8(&w, VOICE_VERSION);
-	wU8(&w, kind);
-	wU8(&w, 0);
-	wU32(&w, socialMyHandle());
-	wU32(&w, 0); /* target = group broadcast */
-	wU16(&w, s_NextSeq++);
-	wU16(&w, payload_len);
-	if (payload_len > 0 && opus_payload) {
-		memcpy(w, opus_payload, payload_len);
-		w += payload_len;
-	}
-	memcpy(w, identityGetPubkey(), VOICE_PUBKEY_LEN); w += VOICE_PUBKEY_LEN;
-	if (!signFrame(packet, body_len, w)) return;
+static s32 beginTxEpoch(void)
+{
+    u8 token[VOICE_TOKEN_BYTES];
+    if (!netCandidateRandomBytes(token, sizeof(token)) || !tokenNonzero(token)) return 0;
+    memcpy(s_TxEpoch, token, sizeof(token));
+    s_NextSeq = 1;
+    for (s32 i = 0; i < VOICE_PEER_DECODERS_MAX; ++i) {
+        s_Peers[i].tx_ready = 0;
+        s_Peers[i].hello_ms = 0;
+        memset(s_Peers[i].tx_challenge, 0, VOICE_TOKEN_BYTES);
+    }
+    return 1;
+}
 
-	/* Send to every friend with a cached endpoint. */
-	const s32 nf = socialFriendCount();
-	for (s32 i = 0; i < nf; i++) {
-		const social_friend_t *f = socialFriendAt(i);
-		if (!f) continue;
-		u32 ipv4 = 0; u16 port = 0;
-		if (!socialFriendGetEndpoint(f->handle, &ipv4, &port)) continue;
-		struct sockaddr_in dst;
-		memset(&dst, 0, sizeof(dst));
-		dst.sin_family = AF_INET;
-		dst.sin_addr.s_addr = htonl(ipv4);
-		dst.sin_port = htons(VOICE_PORT);
-		(void)sendto(s_Sock, (const char *)packet,
-		             body_len + VOICE_SIG_LEN, 0,
-		             (struct sockaddr *)&dst, sizeof(dst));
-	}
+static s32 sendVoicePacket(u32 target, u8 kind, u32 seq, const u8 *epoch,
+        const u8 *challenge, const u8 *payload, u16 payload_len)
+{
+    if (!voicePeerAllowed(target) || !presenceVoiceTransportReady()
+            || payload_len > VOICE_OPUS_MAX_BYTES || (payload_len && !payload)) return 0;
+    const u32 body_len = VOICE_HEADER_LEN + payload_len + VOICE_PUBKEY_LEN;
+    u8 packet[VOICE_WIRE_MAX_FRAME_LEN] = {0};
+    u8 *w = packet;
+    memcpy(w, VOICE_MAGIC, VOICE_MAGIC_LEN); w += VOICE_MAGIC_LEN;
+    wU8(&w, VOICE_VERSION); wU8(&w, kind); wU8(&w, 0);
+    wU32(&w, socialMyHandle()); wU32(&w, target);
+    wU32(&w, seq); wU16(&w, payload_len);
+    memcpy(w, epoch, VOICE_TOKEN_BYTES); w += VOICE_TOKEN_BYTES;
+    if (challenge) memcpy(w, challenge, VOICE_TOKEN_BYTES);
+    w += VOICE_TOKEN_BYTES;
+    if (payload_len) { memcpy(w, payload, payload_len); w += payload_len; }
+    memcpy(w, identityGetPubkey(), VOICE_PUBKEY_LEN); w += VOICE_PUBKEY_LEN;
+    return signFrame(packet, body_len, w)
+        && presenceSendVoiceFrame(target, packet, body_len + VOICE_SIG_LEN) == 0;
+}
+
+static void resetPeerPlayout(voice_peer_t *peer)
+{
+    memset(peer->frames, 0, sizeof(peer->frames));
+    peer->play_started = peer->play_output = peer->play_missing = 0;
+    peer->play_sequence = peer->play_due_ms = 0;
+}
+
+static s32 queueVoiceFrame(voice_peer_t *peer, u32 sequence,
+        const u8 *payload, u16 length, u32 now)
+{
+    if (peer->play_started && sequence < peer->play_sequence) {
+        if (peer->play_output || peer->play_sequence - sequence >= VOICE_JITTER_FRAMES) return 0;
+        peer->play_sequence = sequence;
+    }
+    if (!peer->play_started || sequence - peer->play_sequence >= VOICE_JITTER_FRAMES
+            || (s32)(now - peer->play_due_ms) > 120) {
+        resetPeerPlayout(peer);
+        if (peer->dec) { opus_decoder_destroy(peer->dec); peer->dec = NULL; }
+        peer->play_sequence = sequence;
+        peer->play_due_ms = now + VOICE_PREFILL_MS;
+        peer->play_started = 1;
+    }
+    voice_encoded_frame *frame = &peer->frames[sequence % VOICE_JITTER_FRAMES];
+    frame->sequence = sequence; frame->length = length;
+    memcpy(frame->bytes, payload, length);
+    peer->last_recv_ms = now;
+    if (!s_MixClock) { s_MixClock = 1; s_MixDueMs = now + VOICE_PREFILL_MS; }
+    return 1;
+}
+
+/* Each speaker contributes at most one ordered20ms frame to the same slice. */
+static s32 mixVoiceSlice(u32 slice_ms)
+{
+    s32 mixed[VOICE_FRAME_SAMPLES] = {0};
+    s32 contributors = 0;
+    for (s32 i = 0; i < VOICE_PEER_DECODERS_MAX; ++i) {
+        voice_peer_t *peer = &s_Peers[i];
+        if (!peer->rx_active || !peer->play_started || (s32)(slice_ms - peer->play_due_ms) < 0) continue;
+        voice_encoded_frame *frame = &peer->frames[peer->play_sequence % VOICE_JITTER_FRAMES];
+        const s32 present = frame->length && frame->sequence == peer->play_sequence;
+        if (!present && peer->play_missing >= 3) { peer->play_started = 0; continue; }
+        OpusDecoder *decoder = decoderFor(peer->handle);
+        opus_int16 pcm[VOICE_FRAME_SAMPLES] = {0};
+        int decoded = decoder ? opus_decode(decoder, present ? frame->bytes : NULL,
+            present ? frame->length : 0, pcm, VOICE_FRAME_SAMPLES, 0) : -1;
+        if (present) frame->length = 0;
+        if (decoded == VOICE_FRAME_SAMPLES) {
+            ++contributors;
+            for (s32 sample = 0; sample < VOICE_FRAME_SAMPLES; ++sample) mixed[sample] += pcm[sample];
+            if (present) ++s_RxFrames;
+        }
+        peer->play_missing = present ? 0 : peer->play_missing + 1;
+        peer->play_output = 1;
+        if (peer->play_sequence == 0xffffffffu) peer->play_started = 0;
+        else ++peer->play_sequence;
+        peer->play_due_ms += VOICE_FRAME_MS;
+    }
+    if (!contributors) return 0;
+    opus_int16 output[VOICE_FRAME_SAMPLES];
+    for (s32 i = 0; i < VOICE_FRAME_SAMPLES; ++i)
+        output[i] = (opus_int16)(mixed[i] > 32767 ? 32767 : mixed[i] < -32768 ? -32768 : mixed[i]);
+    if (audioPlaybackOpen() < 0) return 0;
+    return SDL_QueueAudio(s_PlaybackDev, output, sizeof(output)) == 0;
+}
+
+static void pumpVoicePlayback(void)
+{
+    if (!s_MixClock) return;
+    const u32 now = SDL_GetTicks();
+    if (s_PlaybackDev && SDL_GetQueuedAudioSize(s_PlaybackDev) > VOICE_PCM_BYTES * 2)
+        SDL_ClearQueuedAudio(s_PlaybackDev);
+    if ((s32)(now - s_MixDueMs) > 120) {
+        /* A paused main thread must not replay an accumulated conversation. */
+        if (s_PlaybackDev) SDL_ClearQueuedAudio(s_PlaybackDev);
+        for (s32 i = 0; i < VOICE_PEER_DECODERS_MAX; ++i) {
+            voice_peer_t *peer = &s_Peers[i];
+            voice_encoded_frame latest = {0};
+            for (s32 j = 0; j < VOICE_JITTER_FRAMES; ++j)
+                if (peer->frames[j].length && peer->frames[j].sequence > latest.sequence) latest = peer->frames[j];
+            resetPeerPlayout(peer);
+            if (peer->dec) { opus_decoder_destroy(peer->dec); peer->dec = NULL; }
+            if (latest.length && now - peer->last_recv_ms <= 120) {
+                peer->frames[latest.sequence % VOICE_JITTER_FRAMES] = latest;
+                peer->play_started = 1; peer->play_sequence = latest.sequence; peer->play_due_ms = now;
+            }
+        }
+        s_MixDueMs = now;
+    }
+    for (s32 slices = 0; slices < 3 && (s32)(now - s_MixDueMs) >= 0; ++slices) {
+        if (s_PlaybackDev && SDL_GetQueuedAudioSize(s_PlaybackDev) > VOICE_PCM_BYTES) break;
+        (void)mixVoiceSlice(s_MixDueMs);
+        s_MixDueMs += VOICE_FRAME_MS;
+    }
+    s32 pending = 0;
+    for (s32 i = 0; i < VOICE_PEER_DECODERS_MAX; ++i) pending |= s_Peers[i].play_started;
+    if (!pending) s_MixClock = 0;
+}
+
+static void revokePeerReceive(voice_peer_t *peer)
+{
+    peer->rx_active = peer->pending = 0;
+    resetPeerPlayout(peer);
+    peer->rx_seen = 0; peer->rx_high = 0; peer->last_recv_ms = 0;
+    memset(peer->rx_epoch, 0, VOICE_TOKEN_BYTES);
+    memset(peer->rx_challenge, 0, VOICE_TOKEN_BYTES);
+    memset(peer->pending_epoch, 0, VOICE_TOKEN_BYTES);
+    memset(peer->pending_challenge, 0, VOICE_TOKEN_BYTES);
+    if (peer->dec) { opus_decoder_destroy(peer->dec); peer->dec = NULL; }
+    if (s_PlaybackDev) SDL_ClearQueuedAudio(s_PlaybackDev);
+}
+
+/* Called only after signature, key, recipient and current audience checks. */
+static s32 acceptMediaSequence(voice_peer_t *peer, u32 sequence)
+{
+    if (!sequence) return 0;
+    if (!peer->rx_seen || sequence > peer->rx_high) {
+        const u32 delta = sequence - peer->rx_high;
+        peer->rx_seen = !peer->rx_seen || delta >= 64 ? 1 : (peer->rx_seen << delta) | 1;
+        peer->rx_high = sequence;
+        return 1;
+    }
+    const u32 age = peer->rx_high - sequence;
+    if (age >= 64 || (peer->rx_seen & ((u64)1 << age))) return 0;
+    peer->rx_seen |= (u64)1 << age;
+    return 1;
+}
+
+static s32 broadcastVoiceFrame(u8 kind, const u8 *payload, u16 payload_len)
+{
+    if (!voiceOwnerCurrent() || !tokenNonzero(s_TxEpoch)) return 0;
+    if (kind == VOICE_KIND_OPUS_FRAME && s_NextSeq == 0xffffffffu && !beginTxEpoch()) {
+        s_PttActive = s_VadActive = 0;
+        memset(s_TxEpoch, 0, sizeof(s_TxEpoch));
+        return 0;
+    }
+    const u32 seq = kind == VOICE_KIND_PTT_START ? 0 : s_NextSeq++;
+    const u32 now = SDL_GetTicks();
+    s32 delivered = 0;
+    const group_session_t *group = groupSessionGet();
+    for (s32 i = 0; i < GROUP_SESSION_MAX_PEERS; ++i) {
+        const u32 target = group->peers[i].handle;
+        if (!voicePeerAllowed(target)) continue;
+        voice_peer_t *peer = findOrAllocPeer(target);
+        if (!peer) continue;
+        if (kind == VOICE_KIND_PTT_START || !peer->tx_ready) {
+            if (kind == VOICE_KIND_PTT_STOP) continue;
+            if (kind == VOICE_KIND_PTT_START || !peer->hello_ms || now - peer->hello_ms >= 250) {
+                peer->hello_ms = now;
+                (void)sendVoicePacket(target, VOICE_KIND_PTT_START, 0, s_TxEpoch, NULL, NULL, 0);
+            }
+            continue;
+        }
+        if (kind == VOICE_KIND_OPUS_FRAME && now - peer->hello_ms >= 1000) {
+            peer->hello_ms = now;
+            (void)sendVoicePacket(target, VOICE_KIND_PTT_START, 0, s_TxEpoch, NULL, NULL, 0);
+        }
+        delivered += sendVoicePacket(target, kind, seq, s_TxEpoch, peer->tx_challenge, payload, payload_len);
+    }
+    return delivered;
+}
+
+/* Energy threshold in PCM units; separate stop threshold avoids chatter.
+ * Quiet duration advances by captured samples, independent of render cadence. */
+static void updateVoiceActivity(const opus_int16 *pcm)
+{
+    u64 energy = 0;
+    s32 peak = 0;
+    for (s32 i = 0; i < VOICE_FRAME_SAMPLES; ++i) {
+        const s32 sample = pcm[i];
+        const s32 magnitude = sample < 0 ? -sample : sample;
+        energy += (u64)((s64)sample * sample);
+        if (magnitude > peak) peak = magnitude;
+    }
+    s_InputLevel = peak / 32768.0f;
+    s_InputLastMs = SDL_GetTicks();
+    if (s_Mode != VOICE_CAPTURE_VOICE_ACTIVE) return;
+    if (!voiceHasAudience()) { voiceStopTransmission(); return; }
+    s32 threshold = s_Sensitivity >= 50 ? 600 - 10 * (s_Sensitivity - 50)
+        : 600 + 60 * (50 - s_Sensitivity);
+    if (s_VadActive) threshold = threshold * 3 / 5;
+    const s32 speech = energy >= (u64)threshold * threshold * VOICE_FRAME_SAMPLES;
+    if (speech) {
+        s_VadQuietMs = 0;
+        if (!s_VadActive && beginTxEpoch()) {
+            s_VadActive = 1;
+            broadcastVoiceFrame(VOICE_KIND_PTT_START, NULL, 0);
+        }
+    } else if (s_VadActive) {
+        s_VadQuietMs += VOICE_FRAME_MS;
+        if (s_VadQuietMs >= 300) voiceStopTransmission();
+    }
 }
 
 static void captureEncodeSend(void)
 {
 	if (!s_CaptureDev || !s_Encoder) return;
+    if (SDL_GetQueuedAudioSize(s_CaptureDev) > VOICE_PCM_BYTES * 4) {
+        SDL_ClearQueuedAudio(s_CaptureDev); s_CaptureScratchUsed = 0;
+        if (s_VadActive) voiceStopTransmission();
+        s_InputLevel = 0; return;
+    }
 
 	const u32 want = s_CaptureBytesPerFrame;
 	if (s_CaptureScratchUsed < want) {
@@ -383,11 +559,12 @@ static void captureEncodeSend(void)
 	while (s_CaptureScratchUsed >= want) {
 		u8 opus_buf[VOICE_OPUS_MAX_BYTES];
 		const opus_int16 *pcm = (const opus_int16 *)s_CaptureScratch;
-		const opus_int32 enc = opus_encode(s_Encoder, pcm, VOICE_FRAME_SAMPLES,
-		                                    opus_buf, sizeof(opus_buf));
+        updateVoiceActivity(pcm);
+        const opus_int32 enc = (s_PttActive || s_VadActive)
+            ? opus_encode(s_Encoder, pcm, VOICE_FRAME_SAMPLES, opus_buf, sizeof(opus_buf)) : 0;
 		if (enc > 0) {
-			broadcastVoiceFrame(VOICE_KIND_OPUS_FRAME, opus_buf, (u16)enc);
-			s_TxFrames++;
+			if (broadcastVoiceFrame(VOICE_KIND_OPUS_FRAME, opus_buf, (u16)enc) > 0)
+				s_TxFrames++;
 		}
 		/* Slide scratch buffer left. */
 		const u32 remaining = s_CaptureScratchUsed - want;
@@ -402,73 +579,121 @@ static void captureEncodeSend(void)
  * Inbound: drain -> verify -> decode -> queue
  * ------------------------------------------------------------------------- */
 
-static void drainReceive(void)
-{
-	if (!s_SocketReady) return;
-
-	for (;;) {
-		u8 packet[2048];
-		struct sockaddr_in src;
-		socklen_t srclen = sizeof(src);
-		int n = recvfrom(s_Sock, (char *)packet, sizeof(packet), 0,
-		                 (struct sockaddr *)&src, &srclen);
-		if (n <= 0) break;
-		if (n < (int)(VOICE_HEADER_LEN + VOICE_PUBKEY_LEN + VOICE_SIG_LEN)) continue;
-		if (memcmp(packet, VOICE_MAGIC, VOICE_MAGIC_LEN) != 0) continue;
-
-		const u8 *r = packet + VOICE_MAGIC_LEN;
-		u8 ver  = rU8(&r);
-		u8 kind = rU8(&r);
-		(void)rU8(&r);
-		u32 from_handle = rU32(&r);
-		u32 to_handle   = rU32(&r); (void)to_handle;
-		u16 seq         = rU16(&r); (void)seq;
-		u16 payload_len = rU16(&r);
-
-		if (ver != VOICE_VERSION) continue;
-		if (payload_len > VOICE_OPUS_MAX_BYTES) continue;
-		const u32 expected = VOICE_HEADER_LEN + payload_len + VOICE_PUBKEY_LEN + VOICE_SIG_LEN;
-		if ((u32)n != expected) continue;
-
-		const u8 *payload = packet + VOICE_HEADER_LEN;
-		const u8 *pubkey  = payload + payload_len;
-		const u8 *sig     = pubkey + VOICE_PUBKEY_LEN;
-
-		const social_friend_t *f = socialFriendByHandle(from_handle);
-		if (!f) continue;
-		if (f->muted) continue;
-		if (socialBlockIsHandle(from_handle)) continue;
-		if (!socialHandleBindsPubkey(from_handle, pubkey)) continue;
-		if (!verifyFrame(packet, VOICE_HEADER_LEN + payload_len + VOICE_PUBKEY_LEN, sig, pubkey)) continue;
-		if (socialFriendBindPubkey(from_handle, pubkey) < 0) continue;
-
-		if (kind == VOICE_KIND_OPUS_FRAME && payload_len > 0) {
-			OpusDecoder *dec = decoderFor(from_handle);
-			if (!dec) continue;
-			(void)audioPlaybackOpen();
-			if (!s_PlaybackDev) continue;
-			opus_int16 pcm[VOICE_FRAME_SAMPLES];
-			const opus_int32 dec_n = opus_decode(dec, payload, (opus_int32)payload_len,
-			                                      pcm, VOICE_FRAME_SAMPLES, 0);
-			if (dec_n > 0) {
-				SDL_QueueAudio(s_PlaybackDev, pcm, (Uint32)(dec_n * 2));
-				s_RxFrames++;
-			}
-		}
-	}
-}
-
 #endif /* HAVE_OPUS */
 
 /* -------------------------------------------------------------------------
  * Public API (always defined; codec branches on HAVE_OPUS)
  * ------------------------------------------------------------------------- */
 
+void voiceReceiveFrame(const u8 *packet, u32 n)
+{
+#ifdef HAVE_OPUS
+    if (!voiceOwnerCurrent() || !s_Enabled || !packet || n > VOICE_WIRE_MAX_FRAME_LEN) return;
+	if (n < (int)(VOICE_HEADER_LEN + VOICE_PUBKEY_LEN + VOICE_SIG_LEN)) return;
+	if (memcmp(packet, VOICE_MAGIC, VOICE_MAGIC_LEN) != 0) return;
+
+	const u8 *r = packet + VOICE_MAGIC_LEN;
+	u8 ver  = rU8(&r);
+	u8 kind = rU8(&r);
+	u8 flags = rU8(&r);
+	u32 from_handle = rU32(&r);
+	u32 to_handle   = rU32(&r);
+	u32 seq = rU32(&r);
+	u16 payload_len = rU16(&r);
+    const u8 *epoch = r; r += VOICE_TOKEN_BYTES;
+    const u8 *challenge = r; r += VOICE_TOKEN_BYTES;
+
+	if (ver != VOICE_VERSION || flags || kind > VOICE_KIND_CHALLENGE) return;
+	if ((kind == VOICE_KIND_OPUS_FRAME) != (payload_len > 0)) return;
+    if (!tokenNonzero(epoch)) return;
+    if (kind == VOICE_KIND_PTT_START) {
+        if (seq || tokenNonzero(challenge)) return;
+    } else if (kind == VOICE_KIND_CHALLENGE) {
+        if (seq || !tokenNonzero(challenge)) return;
+    } else if (!seq || !tokenNonzero(challenge)) return;
+        if (to_handle != socialMyHandle()) return;
+        if (!voicePeerAllowed(from_handle)) return;
+	if (payload_len > VOICE_OPUS_MAX_BYTES) return;
+	const u32 expected = VOICE_HEADER_LEN + payload_len + VOICE_PUBKEY_LEN + VOICE_SIG_LEN;
+	if ((u32)n != expected) return;
+
+	const u8 *payload = packet + VOICE_HEADER_LEN;
+	const u8 *pubkey  = payload + payload_len;
+	const u8 *sig     = pubkey + VOICE_PUBKEY_LEN;
+
+	const social_friend_t *f = socialFriendByHandle(from_handle);
+	if (!f) return;
+	if (f->muted && kind != VOICE_KIND_CHALLENGE) return;
+	if (socialBlockIsHandle(from_handle)) return;
+	if (!socialHandleBindsPubkey(from_handle, pubkey)) return;
+	if (!verifyFrame(packet, VOICE_HEADER_LEN + payload_len + VOICE_PUBKEY_LEN, sig, pubkey)) return;
+	if (socialFriendBindPubkey(from_handle, pubkey) < 0) return;
+
+    voice_peer_t *peer = findOrAllocPeer(from_handle);
+    if (!peer) return;
+    const u32 now = SDL_GetTicks();
+    if (peer->rx_active && now - peer->last_recv_ms >= 1000) revokePeerReceive(peer);
+    if (kind == VOICE_KIND_OPUS_FRAME
+            && opus_packet_get_nb_samples(payload, payload_len, VOICE_SAMPLE_RATE) != VOICE_FRAME_SAMPLES) return;
+    if (kind == VOICE_KIND_PTT_START) {
+        const u8 *reply = NULL;
+        if (peer->rx_active && !memcmp(peer->rx_epoch, epoch, VOICE_TOKEN_BYTES)) {
+            reply = peer->rx_challenge;
+        } else if (peer->pending && now - peer->pending_ms < 3000
+                && !memcmp(peer->pending_epoch, epoch, VOICE_TOKEN_BYTES)) {
+            reply = peer->pending_challenge;
+        } else {
+            if (peer->pending && now - peer->pending_ms < 250) return;
+            u8 fresh[VOICE_TOKEN_BYTES];
+            if (!netCandidateRandomBytes(fresh, sizeof(fresh)) || !tokenNonzero(fresh)) return;
+            memcpy(peer->pending_epoch, epoch, VOICE_TOKEN_BYTES);
+            memcpy(peer->pending_challenge, fresh, VOICE_TOKEN_BYTES);
+            peer->pending_ms = now; peer->pending = 1;
+            reply = peer->pending_challenge;
+        }
+        (void)sendVoicePacket(from_handle, VOICE_KIND_CHALLENGE, 0, epoch, reply, NULL, 0);
+        return;
+    }
+    if (kind == VOICE_KIND_CHALLENGE) {
+        if (!(s_PttActive || s_VadActive) || memcmp(epoch, s_TxEpoch, VOICE_TOKEN_BYTES)) return;
+        memcpy(peer->tx_challenge, challenge, VOICE_TOKEN_BYTES);
+        peer->tx_ready = 1;
+        return;
+    }
+    if (!peer->rx_active || memcmp(peer->rx_epoch, epoch, VOICE_TOKEN_BYTES)
+            || memcmp(peer->rx_challenge, challenge, VOICE_TOKEN_BYTES)) {
+        if (kind != VOICE_KIND_OPUS_FRAME || !peer->pending || now - peer->pending_ms >= 3000
+                || memcmp(peer->pending_epoch, epoch, VOICE_TOKEN_BYTES)
+                || memcmp(peer->pending_challenge, challenge, VOICE_TOKEN_BYTES)) return;
+        const s32 replacing_audio = peer->rx_active || peer->play_started || peer->dec != NULL;
+        memcpy(peer->rx_epoch, epoch, VOICE_TOKEN_BYTES);
+        memcpy(peer->rx_challenge, challenge, VOICE_TOKEN_BYTES);
+        peer->rx_active = 1; peer->pending = 0; peer->rx_seen = 0; peer->rx_high = 0;
+        resetPeerPlayout(peer);
+        if (peer->dec) { opus_decoder_destroy(peer->dec); peer->dec = NULL; }
+        if (replacing_audio && s_PlaybackDev) SDL_ClearQueuedAudio(s_PlaybackDev);
+    }
+    if (!acceptMediaSequence(peer, seq)) return;
+    if (kind == VOICE_KIND_PTT_STOP) {
+        revokePeerReceive(peer);
+        return;
+    }
+
+
+    if (kind == VOICE_KIND_OPUS_FRAME)
+        (void)queueVoiceFrame(peer, seq, payload, payload_len, now);
+#else
+    (void)packet; (void)n;
+#endif
+}
+
 void voiceInit(void)
 {
+	s_LocalHandle = socialMyHandle();
 	s_Enabled = 0;
 	s_Mode = VOICE_CAPTURE_PUSH_TO_TALK;
 	s_PttActive = 0;
+	s_VadActive = s_VadQuietMs = 0; s_InputLevel = 0; s_Sensitivity = 50; s_LastError = "";
 	s_RxFrames = 0;
 	s_TxFrames = 0;
 
@@ -478,72 +703,128 @@ void voiceInit(void)
 	s_CaptureDev = 0;
 	s_PlaybackDev = 0;
 	s_NextSeq = 0;
+    s_MixClock = 0; s_MixDueMs = 0;
+    memset(s_TxEpoch, 0, sizeof(s_TxEpoch));
 	s_CaptureScratchUsed = 0;
 	sysLogPrintf(LOG_NOTE, "VOICE: codec available (Opus)");
 #else
-	sysLogPrintf(LOG_NOTE, "VOICE: codec not built (HAVE_OPUS not defined; scaffold only)");
+	sysLogPrintf(LOG_NOTE, "VOICE: codec unavailable in this build");
 #endif
 }
 
 void voiceShutdown(void)
 {
 	s_Enabled = 0;
-	s_PttActive = 0;
+	s_PttActive = s_VadActive = s_VadQuietMs = 0;
+    s_InputLevel = 0;
 #ifdef HAVE_OPUS
 	audioCaptureClose();
 	audioPlaybackClose();
 	encoderDestroy();
+    s_MixClock = 0; s_MixDueMs = 0;
+    memset(s_TxEpoch, 0, sizeof(s_TxEpoch));
 	for (s32 i = 0; i < VOICE_PEER_DECODERS_MAX; i++) {
 		if (s_Peers[i].dec) opus_decoder_destroy(s_Peers[i].dec);
 	}
 	memset(s_Peers, 0, sizeof(s_Peers));
-	if (s_SocketReady) {
-		closesocket(s_Sock); s_Sock = INVALID_SOCKET; s_SocketReady = 0;
-	}
 #endif
 }
 
-s32  voiceEnabled(void) { return s_Enabled; }
+static s32 voiceOwnerCurrent(void)
+{
+    const u32 current = socialMyHandle();
+    if (current == s_LocalHandle) return current != 0;
+    voiceShutdown();
+    s_LocalHandle = current;
+    s_LastError = ""; s_Sensitivity = 50;
+    s_Mode = VOICE_CAPTURE_PUSH_TO_TALK;
+    s_RxFrames = s_TxFrames = 0;
+    return 0;
+}
+
+s32 voiceEnabled(void) { return voiceOwnerCurrent() ? s_Enabled : 0; }
+
+s32 voiceCodecAvailable(void)
+{
+#ifdef HAVE_OPUS
+    return 1;
+#else
+    return 0;
+#endif
+}
+const char *voiceLastError(void) { (void)voiceOwnerCurrent(); return s_LastError; }
+s32 voiceGetSensitivity(void) { (void)voiceOwnerCurrent(); return s_Sensitivity; }
+void voiceSetSensitivity(s32 value) {
+    (void)voiceOwnerCurrent(); s_Sensitivity = value < 0 ? 0 : value > 100 ? 100 : value;
+}
+float voiceInputLevel(void) { (void)voiceOwnerCurrent(); return s_InputLevel; }
+
+static void voiceStopTransmission(void)
+{
+#ifdef HAVE_OPUS
+    if (s_PttActive || s_VadActive) broadcastVoiceFrame(VOICE_KIND_PTT_STOP, NULL, 0);
+    memset(s_TxEpoch, 0, sizeof(s_TxEpoch));
+#endif
+    s_PttActive = s_VadActive = s_VadQuietMs = 0;
+    /* Capture loop owns scratch consumption; clearing it here would underflow. */
+}
+
+#ifdef HAVE_OPUS
+static s32 voiceOpenInput(void)
+{
+    if (ensureEncoder() == 0 && audioCaptureOpen() == 0) return 1;
+    audioCaptureClose(); encoderDestroy();
+    s_Mode = VOICE_CAPTURE_OFF;
+    s_LastError = "Microphone or encoder unavailable; listening only.";
+    return 0;
+}
+#endif
 
 void voiceSetEnabled(s32 on)
 {
-	const s32 want = on ? 1 : 0;
-	if (want == s_Enabled) return;
-	s_Enabled = want;
+    (void)voiceOwnerCurrent();
+    if (on && !socialMyHandle()) { s_LastError = "Select an Agent to enable voice."; return; }
+    if (!on) { voiceStopTransmission(); voiceShutdown(); s_LastError = ""; return; }
+    if (s_Enabled) return;
+    s_LastError = "";
 #ifdef HAVE_OPUS
-	if (want) {
-		(void)ensureSocket();
-		(void)ensureEncoder();
-		(void)audioCaptureOpen();
-		(void)audioPlaybackOpen();
-	} else {
-		s_PttActive = 0;
-		audioCaptureClose();
-		/* keep playback open so any in-flight late frames can drain */
-	}
+    if (audioPlaybackOpen() != 0) {
+        s_LastError = "Audio output unavailable. Voice could not be enabled.";
+        return;
+    }
+    s_Enabled = 1;
+    if (s_Mode != VOICE_CAPTURE_OFF) (void)voiceOpenInput();
 #else
-	if (!want) s_PttActive = 0;
+    s_LastError = "Voice support is unavailable in this build.";
+    s_Enabled = 0;
 #endif
-	sysLogPrintf(LOG_NOTE, "VOICE: enabled=%d", (int)s_Enabled);
 }
 
-voice_capture_mode_t voiceGetCaptureMode(void) { return s_Mode; }
+voice_capture_mode_t voiceGetCaptureMode(void) { (void)voiceOwnerCurrent(); return s_Mode; }
 
 void voiceSetCaptureMode(voice_capture_mode_t m)
 {
-	if (m != VOICE_CAPTURE_OFF && m != VOICE_CAPTURE_PUSH_TO_TALK &&
-	    m != VOICE_CAPTURE_VOICE_ACTIVE) return;
-	if (m == s_Mode) return;
-	s_Mode = m;
-	if (m == VOICE_CAPTURE_OFF) s_PttActive = 0;
-	sysLogPrintf(LOG_NOTE, "VOICE: capture mode = %d", (int)m);
+    (void)voiceOwnerCurrent();
+    if (m != VOICE_CAPTURE_OFF && m != VOICE_CAPTURE_PUSH_TO_TALK && m != VOICE_CAPTURE_VOICE_ACTIVE) return;
+    if (m == s_Mode) return;
+    voiceStopTransmission(); s_Mode = m; s_InputLevel = 0; s_LastError = "";
+#ifdef HAVE_OPUS
+    s_CaptureScratchUsed = 0;
+    if (s_CaptureDev) SDL_ClearQueuedAudio(s_CaptureDev);
+    if (m == VOICE_CAPTURE_OFF) { audioCaptureClose(); encoderDestroy(); }
+    else if (s_Enabled) (void)voiceOpenInput();
+#endif
 }
 
 void voicePttBegin(void)
 {
+	if (!voiceOwnerCurrent() || !voiceHasAudience()) return;
 	if (!s_Enabled) return;
 	if (s_Mode != VOICE_CAPTURE_PUSH_TO_TALK) return;
 	if (s_PttActive) return;
+#ifdef HAVE_OPUS
+    if (!s_CaptureDev || !s_Encoder || !beginTxEpoch()) return;
+#endif
 	s_PttActive = 1;
 #ifdef HAVE_OPUS
 	/* Reset scratch on PTT-down so leftover audio from the previous burst
@@ -556,30 +837,32 @@ void voicePttBegin(void)
 
 void voicePttEnd(void)
 {
-	if (!s_PttActive) return;
-	s_PttActive = 0;
+    if (!voiceOwnerCurrent() || !s_PttActive) return;
+    voiceStopTransmission();
 #ifdef HAVE_OPUS
-	broadcastVoiceFrame(VOICE_KIND_PTT_STOP, NULL, 0);
-	s_CaptureScratchUsed = 0;
+    s_CaptureScratchUsed = 0;
 #endif
 }
 
-s32 voicePttActive(void) { return s_PttActive; }
+s32 voicePttActive(void) { return voiceOwnerCurrent() ? s_PttActive : 0; }
 
 s32 voiceLocalIsTransmitting(void)
 {
+    if (!voiceOwnerCurrent() || !voiceHasAudience()) return 0;
+#ifndef HAVE_OPUS
+    return 0;
+#else
+    if (!s_CaptureDev || !s_Encoder || !presenceVoiceTransportReady()) return 0;
+#endif
 	if (!s_Enabled) return 0;
 	if (s_Mode == VOICE_CAPTURE_PUSH_TO_TALK) return s_PttActive;
-	if (s_Mode == VOICE_CAPTURE_VOICE_ACTIVE) {
-		/* Voice-activated needs a level estimator that's beyond this
-		 * commit's scope; the toggle remains for forward-compat. */
-		return 0;
-	}
+	if (s_Mode == VOICE_CAPTURE_VOICE_ACTIVE) return s_VadActive;
 	return 0;
 }
 
 s32 voicePeerIsTalking(u32 friend_handle)
 {
+	if (!voiceOwnerCurrent() || !voicePeerAllowed(friend_handle)) return 0;
 	if (friend_handle == 0) return 0;
 	if (!s_Enabled) return 0;
 	const social_friend_t *f = socialFriendByHandle(friend_handle);
@@ -587,7 +870,7 @@ s32 voicePeerIsTalking(u32 friend_handle)
 	if (f->muted) return 0;
 #ifdef HAVE_OPUS
 	for (s32 i = 0; i < VOICE_PEER_DECODERS_MAX; i++) {
-		if (s_Peers[i].handle == friend_handle && s_Peers[i].last_recv_ms != 0) {
+		if (s_Peers[i].handle == friend_handle && s_Peers[i].rx_active && s_Peers[i].last_recv_ms != 0) {
 			const u32 age = SDL_GetTicks() - s_Peers[i].last_recv_ms;
 			return age < 500u ? 1 : 0;
 		}
@@ -596,19 +879,48 @@ s32 voicePeerIsTalking(u32 friend_handle)
 	return 0;
 }
 
-u32 voiceStatsRxFrames(void) { return s_RxFrames; }
-u32 voiceStatsTxFrames(void) { return s_TxFrames; }
+u32 voiceStatsRxFrames(void) { return voiceOwnerCurrent() ? s_RxFrames : 0; }
+u32 voiceStatsTxFrames(void) { return voiceOwnerCurrent() ? s_TxFrames : 0; }
 
 void voiceTick(void)
 {
-	if (!s_Enabled) return;
+    if (!voiceOwnerCurrent() || !s_Enabled) return;
 #ifdef HAVE_OPUS
-	if (!s_SocketReady) (void)ensureSocket();
-	if (!s_SocketReady) return;
+    if (SDL_GetTicks() - s_InputLastMs > 200) s_InputLevel = 0;
+    if (s_VadActive && SDL_GetTicks() - s_InputLastMs >= 300) voiceStopTransmission();
 
-	if (s_PttActive) {
-		captureEncodeSend();
-	}
-	drainReceive();
+    s32 revoked = 0;
+    for (s32 i = 0; i < VOICE_PEER_DECODERS_MAX; ++i) {
+        voice_peer_t *peer = &s_Peers[i];
+        const social_friend_t *friend = peer->handle
+            ? socialFriendByHandle(peer->handle) : NULL;
+        if (peer->handle && (!voicePeerAllowed(peer->handle) || !friend)) {
+            if (peer->dec) opus_decoder_destroy(peer->dec);
+            memset(peer, 0, sizeof(*peer));
+            revoked = 1;
+        } else if (peer->handle && ((friend->muted && (peer->rx_active || peer->pending || peer->dec))
+                || (peer->rx_active && SDL_GetTicks() - peer->last_recv_ms >= 1000))) {
+            revokePeerReceive(peer);
+        }
+    }
+    /* The current shared queue cannot remove one speaker's old samples. */
+    if (revoked && s_PlaybackDev) SDL_ClearQueuedAudio(s_PlaybackDev);
+    if (s_PlaybackDev && SDL_GetAudioDeviceStatus(s_PlaybackDev) == SDL_AUDIO_STOPPED) {
+        voiceStopTransmission(); voiceShutdown();
+        s_LastError = "Audio output disconnected. Voice has been disabled."; return;
+    }
+    if (s_CaptureDev && SDL_GetAudioDeviceStatus(s_CaptureDev) == SDL_AUDIO_STOPPED) {
+        voiceStopTransmission(); audioCaptureClose(); encoderDestroy();
+        s_Mode = VOICE_CAPTURE_OFF; s_InputLevel = 0;
+        s_LastError = "Microphone disconnected; listening only.";
+    }
+    if (!voiceHasAudience()) voiceStopTransmission();
+    if (s_PttActive || s_Mode == VOICE_CAPTURE_VOICE_ACTIVE) {
+        captureEncodeSend();
+    } else {
+        s_CaptureScratchUsed = 0; s_InputLevel = 0;
+        if (s_CaptureDev) SDL_ClearQueuedAudio(s_CaptureDev);
+    }
+    pumpVoicePlayback();
 #endif
 }

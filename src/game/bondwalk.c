@@ -17,6 +17,7 @@
 #include "game/inv.h"
 #include "game/bondhead.h"
 #include "game/playermgr.h"
+#include "game/mplayer/mplayer.h"
 #include "game/propobj.h"
 #include "bss.h"
 #include "lib/model.h"
@@ -81,8 +82,8 @@ static void bwalkUpdateRemote(void)
 	} else if (!moveticks) {
 		// duplicate move, reposition to correct coords
 		delta.x = inmove->pos.x - pl->prop->pos.x;
-		delta.x = inmove->pos.y - pl->prop->pos.y;
-		delta.x = inmove->pos.z - pl->prop->pos.z;
+		delta.y = inmove->pos.y - pl->prop->pos.y;
+		delta.z = inmove->pos.z - pl->prop->pos.z;
 		bwalk0f0c63bc(&delta, pl->swaytarget == 0.0f, cdtype);
 	} else if (pl->client->lerpticks <= moveticks) {
 		// lerp towards the correct position
@@ -1647,10 +1648,13 @@ void bwalkUpdateVertical(void)
 					} else if (prop->type == PROPTYPE_PLAYER) {
 						// Landed on top of a player
 						u32 prevplayernum = g_Vars.currentplayernum;
+						s32 shooter_runtime_index = g_Vars.mplayerisrunning
+							? mpPlayerGetIndex(g_Vars.currentplayer->prop->chr)
+							: (s32)prevplayernum;
 						setCurrentPlayerNum(playermgrGetPlayerNumByProp(prop));
 
 						if (g_Vars.currentplayer->inlift) {
-							playerDieByShooter(prevplayernum, true);
+							playerDieByShooter(shooter_runtime_index, true);
 						}
 
 						setCurrentPlayerNum(prevplayernum);

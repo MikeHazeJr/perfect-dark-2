@@ -1,12 +1,12 @@
 /**
  * file_transfer.c -- chunked + sha256-verified file pipe over signed UDP.
  *
- * Wire format (1280 bytes per frame):
+ * Wire format (1320 bytes per frame):
  *
  *   off len  field
  *   ----------------------------
  *    0  5    magic "PDFTX"
- *    5  1    version (1)
+ *    5  1    version (2)
  *    6  1    kind  (0=init, 1=chunk, 2=end, 3=ack, 4=reject)
  *    7  1    reserved
  *    8  4    sender handle
@@ -21,10 +21,10 @@
  *  104 96    original_name (utf-8, null-padded; init only)
  *  200 1024  payload (chunk: file bytes; init/end/ack/reject: zero)
  * 1224 32    sender Ed25519 pubkey
- * 1256 64    Ed25519 signature over body[0..1224) || domain
- * 1280
+ * 1256 64    Ed25519 signature over bytes[0..1256) || domain
+ * 1320
  *
- * Signature domain: "pd-ft-v1".
+ * Signature covers bytes0..1256 plus domain "pd-ft-v2".
  *
  * Reliability: per-chunk ack. Sender retransmits unacked chunks at
  * 250 ms intervals up to 12 attempts. Receiver buffers chunks in a
@@ -38,6 +38,10 @@
  */
 
 #include "file_transfer.h"
+#include "file_transfer_storage.h"
+#include "save_atomic.h"
+#include "presence.h"
+#include "net/net_candidate.h"
 #include "chat.h"
 #include "social.h"
 #include "identity.h"
@@ -46,6 +50,7 @@
 #include "system.h"
 #include "fs.h"
 #include "modmgr.h"
+#include "modmgr_apply.h"
 
 #include <SDL.h>
 #include <stdio.h>
@@ -55,33 +60,11 @@
 #include <ctype.h>
 #include <time.h>
 
-#ifdef _WIN32
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-  #include <direct.h>
-#else
-  #include <sys/socket.h>
-  #include <netinet/in.h>
-  #include <arpa/inet.h>
-  #include <unistd.h>
-  #include <fcntl.h>
-  #include <sys/stat.h>
-  #define closesocket close
-  typedef int SOCKET;
-  #define INVALID_SOCKET (-1)
-#endif
-
-#define FT_PORT          27107
-#define FT_MAGIC         "PDFTX"
-#define FT_MAGIC_LEN     5
-#define FT_VERSION       1
-#define FT_BODY_LEN      1224
-#define FT_PUBKEY_OFFSET 1224
-#define FT_PUBKEY_LEN    32
-#define FT_SIG_OFFSET    1256
-#define FT_SIG_LEN       64
-#define FT_DOMAIN        "pd-ft-v1"
-#define FT_DOMAIN_LEN    8
+#define FT_MAGIC FT_WIRE_MAGIC
+#define FT_MAGIC_LEN 5
+#define FT_VERSION FT_WIRE_VERSION
+#define FT_PUBKEY_OFFSET FT_WIRE_PUBKEY_OFFSET
+#define FT_PUBKEY_LEN FT_WIRE_PUBKEY_LEN
 
 #define FT_KIND_INIT     0
 #define FT_KIND_CHUNK    1
@@ -175,8 +158,6 @@ typedef struct {
 	char path[400];
 	FILE *fp;
 	char name[96];
-	u32 ipv4;
-	u16 port;
 } ft_sender_t;
 
 typedef struct {
@@ -189,26 +170,28 @@ typedef struct {
 	u64 file_size;
 	s32 kind;
 	u8  expected_sha256[SHA256_DIGEST_SIZE];
+	u8 request_digest[32];
 	u8 *buffer;
 	u8 *chunk_present;
 	char name[96];
 	char inbox_path[600];
-	u32 ipv4;
-	u16 port;
 } ft_receiver_t;
 
 static ft_sender_t   s_Senders[FT_MAX_INFLIGHT_SEND];
 static ft_receiver_t s_Receivers[FT_MAX_INFLIGHT_RECV];
+static ft_receipt_store_t s_SavedReceipts;
 
-static SOCKET s_Sock = INVALID_SOCKET;
-static s32    s_SocketReady;
-static u64    s_NextTransferId;
+static u32    s_LocalOwner;
+static s32 ftOwnerCurrent(void);
 
 #define FT_PENDING_MOD_ENABLE_MAX 4
 
 typedef struct {
 	u8  in_use;
 	u32 sender_handle;
+	u32 local_handle;
+	modmgr_apply_plan_t *plan;
+	modmgr_apply_result_t result;
 	char mod_id[MODMGR_ID_LEN];
 	char mod_name[MODMGR_NAME_LEN];
 } ft_pending_mod_enable_t;
@@ -227,7 +210,6 @@ static void wU64(u8 **p, u64 v) {
 	for (s32 i = 0; i < 8; i++) (*p)[i] = (u8)(v >> (8*i));
 	*p += 8;
 }
-static u8  rU8 (const u8 **p) { return *(*p)++; }
 static u32 rU32(const u8 **p) {
 	u32 v = ((u32)((*p)[0])      ) | ((u32)((*p)[1])<< 8) |
 	        ((u32)((*p)[2]) << 16) | ((u32)((*p)[3])<<24); *p+=4; return v;
@@ -237,67 +219,10 @@ static u64 rU64(const u8 **p) {
 	*p += 8; return v;
 }
 
-static s32 socketSetNonblock(SOCKET s) {
-#ifdef _WIN32
-	u_long mode = 1; return ioctlsocket(s, FIONBIO, &mode) == 0 ? 0 : -1;
-#else
-	int fl = fcntl(s, F_GETFL, 0); if (fl < 0) return -1;
-	return fcntl(s, F_SETFL, fl | O_NONBLOCK) == 0 ? 0 : -1;
-#endif
-}
-
-static SOCKET ensureSocket(void)
+static void sendFrame(const u8 *packet, u32 length)
 {
-	if (s_SocketReady) return s_Sock;
-	s_Sock = socket(AF_INET, SOCK_DGRAM, 0);
-	if (s_Sock == INVALID_SOCKET) return INVALID_SOCKET;
-	int yes = 1;
-	setsockopt(s_Sock, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof(yes));
-	socketSetNonblock(s_Sock);
-	struct sockaddr_in addr;
-	memset(&addr, 0, sizeof(addr));
-	addr.sin_family = AF_INET;
-	addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	addr.sin_port = htons(FT_PORT);
-	if (bind(s_Sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-		addr.sin_port = 0;
-		if (bind(s_Sock, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
-			closesocket(s_Sock); s_Sock = INVALID_SOCKET; return INVALID_SOCKET;
-		}
-	}
-	s_SocketReady = 1;
-	sysLogPrintf(LOG_NOTE, "FT: socket bound on UDP %u", (unsigned)FT_PORT);
-	return s_Sock;
-}
-
-static s32 signFrame(const u8 *body, u8 *outSig)
-{
-	if (!body || !outSig) return 0;
-	if (!identityGetPubkey()) return 0;
-	u8 buf[FT_BODY_LEN + FT_DOMAIN_LEN];
-	memcpy(buf, body, FT_BODY_LEN);
-	memcpy(buf + FT_BODY_LEN, FT_DOMAIN, FT_DOMAIN_LEN);
-	return identitySign(buf, sizeof(buf), outSig);
-}
-
-static s32 verifyFrame(const u8 *body, const u8 *sig, const u8 *pubkey)
-{
-	if (!body || !sig || !pubkey) return 0;
-	u8 buf[FT_BODY_LEN + FT_DOMAIN_LEN];
-	memcpy(buf, body, FT_BODY_LEN);
-	memcpy(buf + FT_BODY_LEN, FT_DOMAIN, FT_DOMAIN_LEN);
-	return ed25519Verify(sig, buf, sizeof(buf), pubkey) == 1 ? 1 : 0;
-}
-
-static void sendFrameTo(u32 ipv4, u16 port, const u8 *packet, u32 len)
-{
-	struct sockaddr_in dst;
-	memset(&dst, 0, sizeof(dst));
-	dst.sin_family = AF_INET;
-	dst.sin_addr.s_addr = htonl(ipv4);
-	dst.sin_port = htons(port);
-	(void)sendto(s_Sock, (const char *)packet, len, 0,
-	             (struct sockaddr *)&dst, sizeof(dst));
+    const u8 *recipient = packet + 12;
+    (void)presenceSendFileFrame(rU32(&recipient), packet, length);
 }
 
 static const char *inboxRoot(void)
@@ -311,8 +236,8 @@ static const char *inboxRoot(void)
 	return path;
 }
 
-/* Sanitise a filename for inbox storage: strip path components, replace
- * unsafe characters with '_', cap to 95 bytes. */
+/* The local music-to-mod converter still needs a readable audio leaf. Remote
+ * inbox paths use fileTransferStorageNames instead of this helper. */
 static void sanitiseFilename(const char *src, char *out, u32 outsize)
 {
 	if (!out || outsize == 0) return;
@@ -397,45 +322,9 @@ static s32 ftFindModIndexById(const char *mod_id)
 	return -1;
 }
 
-static s32 ftEnableModIndexNow(s32 mod_index, const char *reason)
-{
-	modinfo_t *mod = modmgrGetMod(mod_index);
-	if (!mod || !mod->valid) {
-		sysLogPrintf(LOG_WARNING,
-		             "FT: cannot enable received mod at index %d (%s)",
-		             (int)mod_index, reason ? reason : "invalid");
-		return -1;
-	}
-
-	char missing[256];
-	if (modmgrCheckDependencies(mod_index, missing, sizeof(missing)) > 0) {
-		sysLogPrintf(LOG_WARNING,
-		             "FT: received mod '%s' left disabled; missing dependencies: %s",
-		             mod->id, missing);
-		return -1;
-	}
-
-	if (!mod->enabled) {
-		modmgrSetEnabled(mod_index, 1);
-		modmgrApplyChanges();
-	} else {
-		modmgrSyncCatalogToRegistry();
-	}
-
-	if (reason && reason[0]) {
-		sysLogPrintf(LOG_NOTE,
-		             "FT: enabled received mod '%s' (%s)",
-		             mod->id, reason);
-	} else {
-		sysLogPrintf(LOG_NOTE,
-		             "FT: enabled received mod '%s'",
-		             mod->id);
-	}
-	return 0;
-}
-
 static s32 ftPendingModFirstIndex(void)
 {
+	if (!ftOwnerCurrent()) return -1;
 	for (s32 i = 0; i < FT_PENDING_MOD_ENABLE_MAX; i++) {
 		if (s_PendingModEnable[i].in_use) return i;
 	}
@@ -445,12 +334,13 @@ static s32 ftPendingModFirstIndex(void)
 static void ftPendingModClearIndex(s32 idx)
 {
 	if (idx < 0 || idx >= FT_PENDING_MOD_ENABLE_MAX) return;
+	modmgrFreeApplyPlan(s_PendingModEnable[idx].plan);
 	memset(&s_PendingModEnable[idx], 0, sizeof(s_PendingModEnable[idx]));
 }
 
-static void ftQueuePendingModEnable(u32 sender_handle, const modinfo_t *mod)
+static s32 ftQueuePendingModEnable(u32 sender_handle, const modinfo_t *mod)
 {
-	if (!mod || !mod->id[0]) return;
+	if (!ftOwnerCurrent() || !mod || !mod->id[0]) return -1;
 
 	for (s32 i = 0; i < FT_PENDING_MOD_ENABLE_MAX; i++) {
 		if (s_PendingModEnable[i].in_use &&
@@ -460,7 +350,7 @@ static void ftQueuePendingModEnable(u32 sender_handle, const modinfo_t *mod)
 			        sizeof(s_PendingModEnable[i].mod_name) - 1);
 			s_PendingModEnable[i].mod_name[
 				sizeof(s_PendingModEnable[i].mod_name) - 1] = '\0';
-			return;
+			return i;
 		}
 	}
 
@@ -468,6 +358,7 @@ static void ftQueuePendingModEnable(u32 sender_handle, const modinfo_t *mod)
 		ft_pending_mod_enable_t *p = &s_PendingModEnable[i];
 		if (!p->in_use) {
 			p->in_use = 1;
+			p->local_handle = s_LocalOwner;
 			p->sender_handle = sender_handle;
 			strncpy(p->mod_id, mod->id, sizeof(p->mod_id) - 1);
 			strncpy(p->mod_name, mod->name, sizeof(p->mod_name) - 1);
@@ -476,17 +367,19 @@ static void ftQueuePendingModEnable(u32 sender_handle, const modinfo_t *mod)
 			sysLogPrintf(LOG_NOTE,
 			             "FT: queued enable prompt for received mod '%s' from 0x%08x",
 			             p->mod_id, (unsigned)sender_handle);
-			return;
+			return i;
 		}
 	}
 
 	sysLogPrintf(LOG_WARNING,
 	             "FT: received mod '%s' installed disabled; enable prompt queue full",
 	             mod->id);
+	return -1;
 }
 
 s32 fileTransferPendingModEnableCount(void)
 {
+	if (!ftOwnerCurrent()) return 0;
 	s32 count = 0;
 	for (s32 i = 0; i < FT_PENDING_MOD_ENABLE_MAX; i++) {
 		if (s_PendingModEnable[i].in_use) count++;
@@ -517,34 +410,53 @@ s32 fileTransferPendingModEnablePeek(char *out_mod_id,
 	return 1;
 }
 
+static s32 ftPendingModAcceptIndex(s32 idx)
+{
+	if (!ftOwnerCurrent() || idx < 0 || idx >= FT_PENDING_MOD_ENABLE_MAX) return -1;
+	ft_pending_mod_enable_t *p = &s_PendingModEnable[idx];
+	if (!p->in_use || p->local_handle != s_LocalOwner) return -1;
+	if (!p->plan) {
+		const s32 mod_index = ftFindModIndexById(p->mod_id);
+		if (mod_index < 0) {
+			snprintf(p->result.error, sizeof(p->result.error), "This mod is no longer installed.");
+			return -1;
+		}
+		if (!modmgrPrepareInstalledActivation(mod_index, &p->plan, &p->result)) return -1;
+	}
+	/* Retry the original persistent plan, including its pre-publication state. */
+	if (!modmgrApplyPreparedChanges(p->plan, &p->result)) return -1;
+	sysLogPrintf(LOG_NOTE, "FT: received mod '%s' activation completed", p->mod_id);
+	ftPendingModClearIndex(idx);
+	return 0;
+}
+
 s32 fileTransferPendingModEnableAccept(void)
 {
+	return ftPendingModAcceptIndex(ftPendingModFirstIndex());
+}
+
+const char *fileTransferPendingModEnableError(void)
+{
 	const s32 idx = ftPendingModFirstIndex();
-	if (idx < 0) return -1;
+	return idx < 0 ? "" : s_PendingModEnable[idx].result.error;
+}
 
-	char mod_id[MODMGR_ID_LEN];
-	strncpy(mod_id, s_PendingModEnable[idx].mod_id, sizeof(mod_id) - 1);
-	mod_id[sizeof(mod_id) - 1] = '\0';
-
-	const s32 mod_index = ftFindModIndexById(mod_id);
-	s32 rc = -1;
-	if (mod_index >= 0) {
-		rc = ftEnableModIndexNow(mod_index, "accepted received-mod prompt");
-	} else {
-		sysLogPrintf(LOG_WARNING,
-		             "FT: pending received mod '%s' is no longer installed",
-		             mod_id);
-	}
-	ftPendingModClearIndex(idx);
-	return rc;
+s32 fileTransferPendingModEnableHasEffects(void)
+{
+	const s32 idx = ftPendingModFirstIndex();
+	if (idx < 0) return 0;
+	const ft_pending_mod_enable_t *p = &s_PendingModEnable[idx];
+	const s32 mod_index = ftFindModIndexById(p->mod_id);
+	const modinfo_t *mod = mod_index < 0 ? NULL : modmgrGetMod(mod_index);
+	return p->plan != NULL || p->result.activation_published ||
+	       p->result.runtime_started || (mod && mod->enabled);
 }
 
 void fileTransferPendingModEnableDecline(void)
 {
 	const s32 idx = ftPendingModFirstIndex();
 	if (idx < 0) return;
-	sysLogPrintf(LOG_NOTE,
-	             "FT: received mod '%s' kept disabled by user",
+	sysLogPrintf(LOG_NOTE, "FT: received mod '%s' activation prompt dismissed; no rollback performed",
 	             s_PendingModEnable[idx].mod_id);
 	ftPendingModClearIndex(idx);
 }
@@ -553,13 +465,13 @@ static void fileTransferInstallReceivedMod(const char *inbox_path,
                                            const char *original_name,
                                            u32 sender_handle)
 {
-	if (!inbox_path || !inbox_path[0]) return;
+	if (!ftOwnerCurrent() || !inbox_path || !inbox_path[0]) return;
 	if (!ftValidateReceivedModArchive(inbox_path)) return;
 
 	const s32 enable_now = socialFriendByHandle(sender_handle) ? 1 : 0;
 	char err[MODMGR_ERROR_LEN];
 	const s32 mod_index =
-		modmgrInstallArchiveFile(inbox_path, enable_now, err, sizeof(err));
+		modmgrInstallArchiveFile(inbox_path, err, sizeof(err));
 	if (mod_index < 0) {
 		sysLogPrintf(LOG_WARNING,
 		             "FT: received mod archive install failed: %s (%s)",
@@ -582,12 +494,10 @@ static void fileTransferInstallReceivedMod(const char *inbox_path,
 	             "FT: installed received mod archive '%s' through shared .pdmod installer",
 	             mod->id);
 
-	if (enable_now) {
-		sysLogPrintf(LOG_NOTE,
-		             "FT: enabled received mod '%s' (friend request-download)",
-		             mod->id);
-	} else {
-		ftQueuePendingModEnable(sender_handle, mod);
+	const s32 pending_index = ftQueuePendingModEnable(sender_handle, mod);
+	if (enable_now && pending_index >= 0) {
+		/* Preserve the existing friend-download policy, but retain failed activation. */
+		(void)ftPendingModAcceptIndex(pending_index);
 	}
 	(void)original_name;
 }
@@ -603,22 +513,27 @@ s32 fileTransferDebugInstallReceivedModForSmoke(const char *inbox_path,
 	return 0;
 }
 
+s32 fileTransferDebugQueueInstalledModForSmoke(const char *mod_id)
+{
+	if (!ftOwnerCurrent()) return -1;
+	const s32 index = ftFindModIndexById(mod_id);
+	const modinfo_t *mod = index < 0 ? NULL : modmgrGetMod(index);
+	return ftQueuePendingModEnable(0, mod) >= 0 ? 0 : -1;
+}
+
 /* Build the destination path: <home>/social/inbox/<kind>/<friend>/<file>.
  * Creates intermediate folders. */
-static void buildInboxPath(s32 kind, const char *friend_agent, const char *name,
+static s32 buildInboxPath(s32 kind, u32 peer, const char *name, const u8 digest[32],
                             char *out, u32 outsize)
 {
-	char folder[700];
-	const char *agent = (friend_agent && friend_agent[0]) ? friend_agent : "anonymous";
-	snprintf(folder, sizeof(folder), "%s/%s", inboxRoot(), kindFolder(kind));
-	fsCreateDir(folder);
-	snprintf(folder, sizeof(folder), "%s/%s/%s",
-	          inboxRoot(), kindFolder(kind), agent);
-	fsCreateDir(folder);
-
-	char safe[96];
-	sanitiseFilename(name, safe, sizeof(safe));
-	snprintf(out, outsize, "%s/%s", folder, safe);
+    char folder[700], peer_folder[16], filename[96];
+    if (!fileTransferStorageNames(peer, name, digest, peer_folder, sizeof(peer_folder), filename, sizeof(filename))) return 0;
+    int n = snprintf(folder, sizeof(folder), "%s/%s", inboxRoot(), kindFolder(kind));
+    if (n < 0 || (size_t)n >= sizeof(folder) || !fsCreateDir(folder)) return 0;
+    n = snprintf(folder, sizeof(folder), "%s/%s/%s", inboxRoot(), kindFolder(kind), peer_folder);
+    if (n < 0 || (size_t)n >= sizeof(folder) || !fsCreateDir(folder)) return 0;
+    n = snprintf(out, outsize, "%s/%s", folder, filename);
+    return n >= 0 && (u32)n < outsize;
 }
 
 /* -------------------------------------------------------------------------
@@ -670,9 +585,8 @@ static void sendInit(ft_sender_t *s)
 	const char *kname = fileTransferKindName(s->kind);
 	strncpy((char *)(packet + 72), kname, 31);
 	strncpy((char *)(packet + 104), s->name, 95);
-	memcpy(packet + FT_PUBKEY_OFFSET, identityGetPubkey(), FT_PUBKEY_LEN);
-	if (!signFrame(packet, packet + FT_SIG_OFFSET)) return;
-	sendFrameTo(s->ipv4, s->port, packet, FT_FRAME_LEN);
+	if (!fileTransferWireSign(packet, sizeof(packet), identityGetPubkey(), identitySign)) return;
+	sendFrame(packet, sizeof(packet));
 }
 
 /* Send the chunk at next_seq. Reads from disk on demand. */
@@ -688,7 +602,7 @@ static void sendChunk(ft_sender_t *s)
 	                     ? (size_t)(s->file_size - (u64)seq * FT_CHUNK_PAYLOAD)
 	                     : (size_t)FT_CHUNK_PAYLOAD;
 	const size_t got = fread(chunk, 1, want, s->fp);
-	if (got == 0) return;
+	if (got != want) return;
 
 	u8 packet[FT_FRAME_LEN];
 	memset(packet, 0, sizeof(packet));
@@ -703,9 +617,8 @@ static void sendChunk(ft_sender_t *s)
 	wU32(&w, seq);
 	wU32(&w, s->chunk_total);
 	memcpy(packet + 200, chunk, got);
-	memcpy(packet + FT_PUBKEY_OFFSET, identityGetPubkey(), FT_PUBKEY_LEN);
-	if (!signFrame(packet, packet + FT_SIG_OFFSET)) return;
-	sendFrameTo(s->ipv4, s->port, packet, FT_FRAME_LEN);
+	if (!fileTransferWireSign(packet, sizeof(packet), identityGetPubkey(), identitySign)) return;
+	sendFrame(packet, sizeof(packet));
 }
 
 static void sendEnd(ft_sender_t *s)
@@ -722,9 +635,8 @@ static void sendEnd(ft_sender_t *s)
 	wU64(&w, s->transfer_id);
 	wU32(&w, 0);
 	wU32(&w, s->chunk_total);
-	memcpy(packet + FT_PUBKEY_OFFSET, identityGetPubkey(), FT_PUBKEY_LEN);
-	if (!signFrame(packet, packet + FT_SIG_OFFSET)) return;
-	sendFrameTo(s->ipv4, s->port, packet, FT_FRAME_LEN);
+	if (!fileTransferWireSign(packet, sizeof(packet), identityGetPubkey(), identitySign)) return;
+	sendFrame(packet, sizeof(packet));
 }
 
 /* -------------------------------------------------------------------------
@@ -760,23 +672,36 @@ static void freeReceiver(ft_receiver_t *r)
 }
 
 /* Send an ACK back to the sender for a specific chunk_seq. */
-static void sendAck(u32 ipv4, u16 port, u32 dst_handle, u64 transfer_id, u32 chunk_seq)
+static void sendControl(u8 control_kind, u32 dst_handle, u64 transfer_id, u32 chunk_seq)
 {
 	u8 packet[FT_FRAME_LEN];
 	memset(packet, 0, sizeof(packet));
 	u8 *w = packet;
 	memcpy(w, FT_MAGIC, FT_MAGIC_LEN); w += FT_MAGIC_LEN;
 	wU8(&w, FT_VERSION);
-	wU8(&w, FT_KIND_ACK);
+	wU8(&w, control_kind);
 	wU8(&w, 0);
 	wU32(&w, socialMyHandle());
 	wU32(&w, dst_handle);
 	wU64(&w, transfer_id);
 	wU32(&w, chunk_seq);
 	wU32(&w, 0);
-	memcpy(packet + FT_PUBKEY_OFFSET, identityGetPubkey(), FT_PUBKEY_LEN);
-	if (!signFrame(packet, packet + FT_SIG_OFFSET)) return;
-	sendFrameTo(ipv4, port, packet, FT_FRAME_LEN);
+	if (!fileTransferWireSign(packet, sizeof(packet), identityGetPubkey(), identitySign)) return;
+	sendFrame(packet, sizeof(packet));
+}
+
+static void sendAck(u32 peer, u64 id, u32 sequence) { sendControl(FT_KIND_ACK, peer, id, sequence); }
+static void sendReject(u32 peer, u64 id) { sendControl(FT_KIND_REJECT, peer, id, 0); }
+
+static void writeJsonString(FILE *stream, const char *value)
+{
+    fputc('"', stream);
+    for (const unsigned char *p = (const unsigned char *)(value ? value : ""); *p; ++p) {
+        if (*p == '"' || *p == '\\') { fputc('\\', stream); fputc(*p, stream); }
+        else if (*p < 32) fprintf(stream, "\\u%04x", (unsigned)*p);
+        else fputc(*p, stream);
+    }
+    fputc('"', stream);
 }
 
 /* -------------------------------------------------------------------------
@@ -785,67 +710,44 @@ static void sendAck(u32 ipv4, u16 port, u32 dst_handle, u64 transfer_id, u32 chu
 
 static void writeSidecar(const ft_receiver_t *r)
 {
-	char sidecar[700];
-	snprintf(sidecar, sizeof(sidecar), "%s.meta.json", r->inbox_path);
-	FILE *f = fopen(sidecar, "wb");
-	if (!f) return;
-	const social_friend_t *fr = socialFriendByHandle(r->src_handle);
-	const char *agent = fr && fr->agent_name[0] ? fr->agent_name : "anonymous";
-	char hex[SHA256_HEX_SIZE];
-	sha256ToHex(r->expected_sha256, hex);
-	fprintf(f,
-	         "{\n"
-	         "  \"sender_handle\": %u,\n"
-	         "  \"sender_agent\": \"%s\",\n"
-	         "  \"received_at\": %lld,\n"
-	         "  \"original_name\": \"%s\",\n"
-	         "  \"sha256\": \"%s\",\n"
-	         "  \"size_bytes\": %llu,\n"
-	         "  \"kind\": \"%s\"\n"
-	         "}\n",
-	         (unsigned)r->src_handle,
-	         agent,
-	         (long long)time(NULL),
-	         r->name,
-	         hex,
-	         (unsigned long long)r->file_size,
-	         fileTransferKindName(r->kind));
-	fclose(f);
+    char sidecar[700];
+    int n = snprintf(sidecar, sizeof(sidecar), "%s.meta.json", r->inbox_path);
+    if (n < 0 || (size_t)n >= sizeof(sidecar)) return;
+    save_atomic_file_t transaction;
+    if (saveAtomicBegin(&transaction, sidecar) != 0) return;
+    FILE *f = saveAtomicStream(&transaction);
+    const social_friend_t *friend = socialFriendByHandle(r->src_handle);
+    char hex[SHA256_HEX_SIZE]; sha256ToHex(r->expected_sha256, hex);
+    fprintf(f, "{\n  \"sender_handle\": %u,\n  \"sender_agent\": ", (unsigned)r->src_handle);
+    writeJsonString(f, friend ? friend->agent_name : "anonymous");
+    fprintf(f, ",\n  \"received_at\": %lld,\n  \"original_name\": ", (long long)time(NULL));
+    writeJsonString(f, r->name);
+    fprintf(f, ",\n  \"sha256\": \"%s\",\n  \"size_bytes\": %llu,\n  \"kind\": ", hex, (unsigned long long)r->file_size);
+    writeJsonString(f, fileTransferKindName(r->kind));
+    fputs("\n}\n", f);
+    if (saveAtomicCommit(&transaction) != 0)
+        sysLogPrintf(LOG_WARNING, "FT: verified data saved but metadata save failed");
 }
 
 /* -------------------------------------------------------------------------
  * Drain receive
  * ------------------------------------------------------------------------- */
 
-static void completeReceiver(ft_receiver_t *r, u32 src_ipv4, u16 src_port)
+static void completeReceiver(ft_receiver_t *r)
 {
-	if (r->received_chunks != r->chunk_total) return;
-
-	u8 actual[SHA256_DIGEST_SIZE];
-	sha256Hash(r->buffer, (size_t)r->file_size, actual);
-	if (memcmp(actual, r->expected_sha256, SHA256_DIGEST_SIZE) != 0) {
-		sysLogPrintf(LOG_WARNING, "FT: hash mismatch on transfer %llu from 0x%08x -- rejecting",
-		             (unsigned long long)r->transfer_id, (unsigned)r->src_handle);
-		freeReceiver(r);
-		return;
-	}
-
-	FILE *f = fopen(r->inbox_path, "wb");
-	if (!f) {
-		sysLogPrintf(LOG_WARNING, "FT: failed to open %s for write", r->inbox_path);
-		freeReceiver(r);
-		return;
-	}
-	if (fwrite(r->buffer, 1, (size_t)r->file_size, f) != (size_t)r->file_size) {
-		fclose(f);
-		remove(r->inbox_path);
-		sysLogPrintf(LOG_WARNING, "FT: short write to %s", r->inbox_path);
-		freeReceiver(r);
-		return;
-	}
-	fclose(f);
-
+    if (r->received_chunks != r->chunk_total) return;
+    ft_receipt_key_t key = {0};
+    key.local = socialMyHandle(); key.peer = r->src_handle; key.id = r->transfer_id;
+    key.bytes = r->file_size; key.chunks = r->chunk_total;
+    memcpy(key.digest, r->expected_sha256, 32); memcpy(key.request_digest, r->request_digest, 32);
+    char error[192];
+    if (!fileTransferStoreCommit(&s_SavedReceipts, &key, r->inbox_path, r->buffer,
+            (size_t)r->file_size, SDL_GetTicks(), error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING, "FT: receiver rejected transfer %llu: %s", (unsigned long long)r->transfer_id, error);
+        sendReject(r->src_handle, r->transfer_id); freeReceiver(r); return;
+    }
 	writeSidecar(r);
+    sendAck(r->src_handle, r->transfer_id, r->chunk_total - 1);
 
 	if (r->kind == FT_KIND_MOD) {
 		fileTransferInstallReceivedMod(r->inbox_path, r->name, r->src_handle);
@@ -859,11 +761,10 @@ static void completeReceiver(ft_receiver_t *r, u32 src_ipv4, u16 src_port)
 	             (unsigned)r->src_handle, fileTransferKindName(r->kind),
 	             (unsigned long long)r->file_size, r->inbox_path);
 
-	(void)src_ipv4; (void)src_port;
 	freeReceiver(r);
 }
 
-static void handleInit(const u8 *body, u32 src_ipv4, u16 src_port)
+static void handleInit(const u8 *body)
 {
 	const u8 *p = body + FT_MAGIC_LEN + 1 + 1 + 1; /* magic+ver+kind+rsv */
 	u32 src_handle = rU32(&p);
@@ -887,9 +788,9 @@ static void handleInit(const u8 *body, u32 src_ipv4, u16 src_port)
 	else if (!strncmp(kindstr, "save", 31))  kind = FT_KIND_SAVE;
 	else if (!strncmp(kindstr, "replay", 31)) kind = FT_KIND_REPLAY;
 
-	if (file_size > sizeLimitForKind(kind)) {
+	if (!fileTransferWireGeometry(file_size, chunk_total, sizeLimitForKind(kind))) {
 		sysLogPrintf(LOG_WARNING,
-		             "FT: refusing oversize %s (%llu > %llu) from 0x%08x",
+		             "FT: refusing invalid size/chunk geometry for %s (%llu bytes; limit %llu) from 0x%08x",
 		             fileTransferKindName(kind),
 		             (unsigned long long)file_size,
 		             (unsigned long long)sizeLimitForKind(kind),
@@ -897,9 +798,23 @@ static void handleInit(const u8 *body, u32 src_ipv4, u16 src_port)
 		return;
 	}
 
+    ft_receipt_key_t key = {0};
+    key.local = socialMyHandle(); key.peer = src_handle; key.id = tid;
+    key.bytes = file_size; key.chunks = chunk_total; memcpy(key.digest, sha, 32);
+    sha256Hash(body, FT_WIRE_PAYLOAD_OFFSET, key.request_digest);
+    const ft_saved_receipt_t *saved = fileTransferReceiptFind(&s_SavedReceipts, key.local, src_handle, tid, SDL_GetTicks());
+    if (saved) {
+        if (fileTransferReceiptMatchesInit(saved, &key)) sendAck(src_handle, tid, chunk_total - 1);
+        else sendReject(src_handle, tid);
+        return;
+    }
 	ft_receiver_t *r = findReceiver(tid, src_handle);
 	if (r) {
+        if (r->file_size != file_size || r->chunk_total != chunk_total ||
+                r->kind != kind || memcmp(r->expected_sha256, sha, SHA256_DIGEST_SIZE) ||
+                memcmp(r->request_digest, key.request_digest, 32)) return;
 		r->last_recv_ms = SDL_GetTicks();
+        sendAck(src_handle, tid, 0xFFFFFFFFu);
 		return;
 	}
 	r = allocReceiver();
@@ -916,9 +831,8 @@ static void handleInit(const u8 *body, u32 src_ipv4, u16 src_port)
 	r->last_recv_ms = SDL_GetTicks();
 	r->file_size = file_size;
 	r->kind = kind;
-	r->ipv4 = src_ipv4;
-	r->port = src_port;
 	memcpy(r->expected_sha256, sha, SHA256_DIGEST_SIZE);
+    memcpy(r->request_digest, key.request_digest, 32);
 	strncpy(r->name, origname, sizeof(r->name) - 1);
 
 	r->buffer = (u8 *)malloc((size_t)file_size);
@@ -928,9 +842,9 @@ static void handleInit(const u8 *body, u32 src_ipv4, u16 src_port)
 		return;
 	}
 
-	const social_friend_t *fr = socialFriendByHandle(src_handle);
-	const char *agent = fr && fr->agent_name[0] ? fr->agent_name : "anonymous";
-	buildInboxPath(kind, agent, r->name, r->inbox_path, sizeof(r->inbox_path));
+    if (!buildInboxPath(kind, src_handle, r->name, r->expected_sha256, r->inbox_path, sizeof(r->inbox_path))) {
+        sendReject(src_handle, tid); freeReceiver(r); return;
+    }
 
 	sysLogPrintf(LOG_NOTE,
 	             "FT: init <- 0x%08x kind=%s size=%llu chunks=%u name=\"%s\"",
@@ -938,10 +852,10 @@ static void handleInit(const u8 *body, u32 src_ipv4, u16 src_port)
 	             (unsigned long long)file_size, (unsigned)chunk_total, r->name);
 
 	/* Ack the init so the sender knows we are listening. */
-	sendAck(src_ipv4, src_port, src_handle, tid, 0xFFFFFFFFu);
+	sendAck(src_handle, tid, 0xFFFFFFFFu);
 }
 
-static void handleChunk(const u8 *body, u32 src_ipv4, u16 src_port)
+static void handleChunk(const u8 *body)
 {
 	const u8 *p = body + FT_MAGIC_LEN + 1 + 1 + 1;
 	u32 src_handle = rU32(&p);
@@ -949,130 +863,81 @@ static void handleChunk(const u8 *body, u32 src_ipv4, u16 src_port)
 	u64 tid        = rU64(&p);
 	u32 chunk_seq  = rU32(&p);
 	u32 chunk_total = rU32(&p);
-	(void)dst_handle;
-	(void)chunk_total;
+	if (dst_handle != socialMyHandle()) return;
 
 	ft_receiver_t *r = findReceiver(tid, src_handle);
-	if (!r) return;
-	if (chunk_seq >= r->chunk_total) return;
+    if (!r) {
+        const ft_saved_receipt_t *saved = fileTransferReceiptFind(&s_SavedReceipts, socialMyHandle(), src_handle, tid, SDL_GetTicks());
+        if (fileTransferReceiptMatchesChunk(saved, chunk_total, chunk_seq, body + FT_WIRE_PAYLOAD_OFFSET, FT_CHUNK_PAYLOAD))
+            sendAck(src_handle, tid, chunk_seq);
+        return;
+    }
+    u64 off; u32 cap;
+    if (!fileTransferWireChunkRange(r->file_size, r->chunk_total, chunk_seq, chunk_total, &off, &cap)) return;
 	r->last_recv_ms = SDL_GetTicks();
 	if (r->chunk_present[chunk_seq]) {
-		sendAck(src_ipv4, src_port, src_handle, tid, chunk_seq);
+		if (chunk_seq + 1 < r->chunk_total) sendAck(src_handle, tid, chunk_seq);
 		return;
 	}
-
-	const u64 off = (u64)chunk_seq * FT_CHUNK_PAYLOAD;
-	const u32 cap = (chunk_seq + 1 == r->chunk_total)
-	                ? (u32)(r->file_size - off)
-	                : (u32)FT_CHUNK_PAYLOAD;
-	if (off + cap > r->file_size) return;
 	memcpy(r->buffer + off, body + 200, cap);
 	r->chunk_present[chunk_seq] = 1;
 	r->received_chunks++;
 
-	sendAck(src_ipv4, src_port, src_handle, tid, chunk_seq);
-
-	if (r->received_chunks == r->chunk_total) {
-		completeReceiver(r, src_ipv4, src_port);
-	}
+    if (r->received_chunks == r->chunk_total) completeReceiver(r);
+    else if (chunk_seq + 1 < r->chunk_total) sendAck(src_handle, tid, chunk_seq);
 }
 
 static void handleAck(const u8 *body)
 {
 	const u8 *p = body + FT_MAGIC_LEN + 1 + 1 + 1;
 	(void)rU32(&p);
-	u32 dst_handle = rU32(&p);
-	u64 tid        = rU64(&p);
-	u32 chunk_seq  = rU32(&p);
-	(void)dst_handle;
-
+	const u32 dst_handle = rU32(&p);
+	const u64 tid = rU64(&p);
+	const u32 chunk_seq = rU32(&p);
+	if (dst_handle != socialMyHandle()) return;
 	ft_sender_t *s = findSender(tid);
-	if (!s) return;
-	if (chunk_seq == 0xFFFFFFFFu) {
-		/* INIT ack: start sending data chunks. */
-		s->next_seq = 0;
-		s->last_send_ms = SDL_GetTicks();
-		s->attempts = 0;
-		return;
-	}
-	if (chunk_seq >= s->chunk_total) return;
-	/* Advance: receiver got chunk_seq; we are sending sequentially so
-	 * this is just the ack we expected. */
-	if (chunk_seq == s->next_seq) {
-		s->next_seq++;
-		s->last_send_ms = SDL_GetTicks();
-		s->attempts = 0;
-		if (s->next_seq == s->chunk_total) {
-			sendEnd(s);
-			sysLogPrintf(LOG_NOTE,
-			             "FT: send complete -> 0x%08x tid=%llu",
-			             (unsigned)s->friend_handle, (unsigned long long)tid);
-			freeSender(s);
-		}
-	}
+	if (!s || !fileTransferWirePeerMatches(body, FT_FRAME_LEN, socialMyHandle(), s->friend_handle, s->transfer_id)) return;
+    u32 advanced;
+    if (!fileTransferWireAckProgress(s->next_seq, s->chunk_total, chunk_seq, &advanced)) return;
+    s->next_seq = advanced;
+    if (s->next_seq == s->chunk_total) {
+        sendEnd(s);
+        sysLogPrintf(LOG_NOTE, "FT: receiver verified and saved -> 0x%08x tid=%llu",
+            (unsigned)s->friend_handle, (unsigned long long)tid);
+        freeSender(s); return;
+    }
+    /* ACK arrival advances immediately; 250ms is retransmission delay only. */
+    sendChunk(s);
+    s->last_send_ms = SDL_GetTicks();
+    s->attempts = 1;
 }
 
-static void drainReceive(void)
+void fileTransferReceiveFrame(const u8 *packet, u32 length)
 {
-	if (!s_SocketReady) return;
-	for (;;) {
-		u8 packet[FT_FRAME_LEN + 64];
-		struct sockaddr_in src;
-		socklen_t srclen = sizeof(src);
-		int n = recvfrom(s_Sock, (char *)packet, sizeof(packet), 0,
-		                 (struct sockaddr *)&src, &srclen);
-		if (n <= 0) break;
-		if (n != FT_FRAME_LEN) continue;
-		if (memcmp(packet, FT_MAGIC, FT_MAGIC_LEN) != 0) continue;
-
-		const u8 ver  = packet[5];
-		const u8 kind = packet[6];
-		if (ver != FT_VERSION) continue;
-
-		/* We need src_handle to perform the friend / pubkey check. */
-		const u8 *p = packet + 8;
-		u32 src_handle = rU32(&p);
-		(void)src_handle;
-
-		const u8 *sender_pub = packet + FT_PUBKEY_OFFSET;
-		const u8 *sender_sig = packet + FT_SIG_OFFSET;
-
-		if (!socialFriendByHandle(src_handle) &&
-		    findSender(0) == NULL) {
-			/* Allow ACKs from peers we have an active send to even before
-			 * social adds them; otherwise gate on friendship. */
-			if (!socialFriendByHandle(src_handle)) continue;
-		}
-		if (socialBlockIsHandle(src_handle)) continue;
-		if (!socialHandleBindsPubkey(src_handle, sender_pub)) continue;
-		if (!verifyFrame(packet, sender_sig, sender_pub)) continue;
-		if (socialFriendBindPubkey(src_handle, sender_pub) < 0) continue;
-
-		const u32 src_ipv4 = ntohl(src.sin_addr.s_addr);
-		const u16 src_port = ntohs(src.sin_port);
-
-		switch (kind) {
-			case FT_KIND_INIT:  handleInit (packet, src_ipv4, src_port); break;
-			case FT_KIND_CHUNK: handleChunk(packet, src_ipv4, src_port); break;
-			case FT_KIND_END:
-				/* No-op for the receiver: chunk-complete handles teardown.
-				 * END exists so the sender can signal "I'm done sending"
-				 * for diagnostics; arrival-after-completion is harmless. */
-				break;
-			case FT_KIND_ACK:   handleAck(packet); break;
-			case FT_KIND_REJECT: {
-				const u8 *q = packet + 16;
-				u64 tid = rU64(&q);
-				ft_sender_t *s = findSender(tid);
-				if (s) {
-					sysLogPrintf(LOG_WARNING, "FT: peer 0x%08x rejected transfer %llu",
-					             (unsigned)s->friend_handle, (unsigned long long)tid);
-					freeSender(s);
-				}
-				break;
-			}
-		}
-	}
+    if (!ftOwnerCurrent() || !fileTransferWireHeaderValid(packet, length, socialMyHandle())) return;
+    const u8 *p = packet + 8;
+    const u32 src_handle = rU32(&p);
+    const u8 *sender_pub = packet + FT_PUBKEY_OFFSET;
+    if (!socialFriendByHandle(src_handle) || socialBlockIsHandle(src_handle) ||
+            !socialHandleBindsPubkey(src_handle, sender_pub) ||
+            !fileTransferWireVerify(packet, length, socialMyHandle()) ||
+            socialFriendBindPubkey(src_handle, sender_pub) < 0) return;
+    switch (packet[6]) {
+        case FT_KIND_INIT: handleInit(packet); break;
+        case FT_KIND_CHUNK: handleChunk(packet); break;
+        case FT_KIND_END: break; /* Current receiver completes after all chunks. */
+        case FT_KIND_ACK: handleAck(packet); break;
+        case FT_KIND_REJECT: {
+            const u8 *q = packet + 16;
+            ft_sender_t *sender = findSender(rU64(&q));
+            if (sender && fileTransferWirePeerMatches(packet, length, socialMyHandle(),
+                    sender->friend_handle, sender->transfer_id)) {
+                sysLogPrintf(LOG_WARNING, "FT: peer rejected transfer %llu", (unsigned long long)sender->transfer_id);
+                freeSender(sender);
+            }
+            break;
+        }
+    }
 }
 
 /* -------------------------------------------------------------------------
@@ -1121,26 +986,36 @@ static void senderTick(void)
 
 void fileTransferInit(void)
 {
+	fileTransferShutdown();
+	s_LocalOwner = socialMyHandle();
 	memset(s_Senders, 0, sizeof(s_Senders));
 	memset(s_Receivers, 0, sizeof(s_Receivers));
-	s_NextTransferId = ((u64)time(NULL) << 16);
 	(void)inboxRoot();
-	(void)ensureSocket();
 }
 
 void fileTransferShutdown(void)
 {
+    memset(&s_SavedReceipts, 0, sizeof(s_SavedReceipts));
+	for (s32 i = 0; i < FT_PENDING_MOD_ENABLE_MAX; i++) ftPendingModClearIndex(i);
+	s_LocalOwner = 0;
 	for (s32 i = 0; i < FT_MAX_INFLIGHT_SEND; i++) freeSender(&s_Senders[i]);
 	for (s32 i = 0; i < FT_MAX_INFLIGHT_RECV; i++) freeReceiver(&s_Receivers[i]);
-	if (s_SocketReady) {
-		closesocket(s_Sock); s_Sock = INVALID_SOCKET; s_SocketReady = 0;
+}
+
+static s32 ftOwnerCurrent(void)
+{
+	const u32 current = socialMyHandle();
+	if (current != s_LocalOwner) {
+		/* No pending plan or signed transfer may cross an Agent boundary. */
+		fileTransferShutdown();
+		s_LocalOwner = current;
 	}
+	return current != 0;
 }
 
 void fileTransferTick(void)
 {
-	if (!s_SocketReady) return;
-	drainReceive();
+	if (!ftOwnerCurrent()) return;
 	senderTick();
 
 	/* Prune stale receivers after 30s of silence. */
@@ -1156,16 +1031,12 @@ void fileTransferTick(void)
 
 s32 fileTransferSendFile(u32 friend_handle, const char *local_path)
 {
+	if (!ftOwnerCurrent()) return -1;
 	if (friend_handle == 0 || !local_path) return -1;
 	if (socialBlockIsHandle(friend_handle)) return -1;
 	if (!socialFriendByHandle(friend_handle)) return -1;
 
-	if (!s_SocketReady) (void)ensureSocket();
-	if (!s_SocketReady) return -1;
-
-	u32 ipv4 = 0; u16 port = 0;
-	if (!socialFriendGetEndpoint(friend_handle, &ipv4, &port)) return -1;
-	if (port == 0) port = FT_PORT;
+    if (!presenceFileTransportReady()) return -1;
 
 	FILE *fp = fopen(local_path, "rb");
 	if (!fp) {
@@ -1185,12 +1056,15 @@ s32 fileTransferSendFile(u32 friend_handle, const char *local_path)
 		return -1;
 	}
 
+	u64 transfer_id = 0;
+	if (!netCandidateRandomBytes((u8 *)&transfer_id, sizeof(transfer_id)) ||
+	        !transfer_id || findSender(transfer_id)) { fclose(fp); return -1; }
 	ft_sender_t *s = allocSender();
 	if (!s) { fclose(fp); return -1; }
 	memset(s, 0, sizeof(*s));
 	s->in_use = 1;
 	s->friend_handle = friend_handle;
-	s->transfer_id = s_NextTransferId++;
+	s->transfer_id = transfer_id;
 	s->file_size = (u64)sz;
 	s->chunk_total = (u32)((s->file_size + FT_CHUNK_PAYLOAD - 1) / FT_CHUNK_PAYLOAD);
 	s->next_seq = 0xFFFFFFFFu; /* awaiting INIT ack */
@@ -1198,8 +1072,6 @@ s32 fileTransferSendFile(u32 friend_handle, const char *local_path)
 	s->attempts = 0;
 	s->kind = kind;
 	s->fp = fp;
-	s->ipv4 = ipv4;
-	s->port = port;
 
 	/* Compute sha256 of the whole file. The file is small enough by
 	 * cap that a single pass is reasonable; we re-rewind for chunk

@@ -13,6 +13,7 @@
  */
 
 #include "net/group_session.h"
+#include "net/group_session_policy.h"
 #include "net/net_bandwidth.h"
 #include "net/p2p.h"
 #include "net/net.h"
@@ -275,10 +276,33 @@ static s32 refreshLocalAuthorityRoute(void)
  * Public lifecycle
  * ------------------------------------------------------------------------- */
 
+static void retireOwnerPeer(void *context, u32 handle, u32 pair_id)
+{
+	(void)context;
+	if (pair_id) p2pPairCancel(pair_id);
+	p2pTurnRegisterRelayCandidate(handle, 0, 0, 0);
+}
+
+static void retireOwnerRoute(void *context)
+{
+	(void)context;
+	presenceClearLocalMatchRoute();
+	memset(&s_PublishedRoute, 0, sizeof(s_PublishedRoute));
+}
+
+static s32 requireCurrentOwner(void)
+{
+	if (!s_Initialised) return 0;
+	const group_session_retire_ops ops = {retireOwnerPeer, retireOwnerRoute, NULL};
+	return groupSessionRefreshOwner(&s_Session, socialMyHandle(),
+		g_NetMode != NETMODE_NONE, &ops) != 0;
+}
+
 void groupSessionInit(void)
 {
 	if (s_Initialised) return;
 	memset(&s_Session, 0, sizeof(s_Session));
+	s_Session.local_handle = socialMyHandle();
 	memset(&s_PublishedRoute, 0, sizeof(s_PublishedRoute));
 	s_Initialised = 1;
 	debugFriendPlayInit();
@@ -303,11 +327,15 @@ void groupSessionShutdown(void)
 	s_Initialised = 0;
 }
 
-const group_session_t *groupSessionGet(void) { return &s_Session; }
+const group_session_t *groupSessionGet(void)
+{
+	static const group_session_t unavailable;
+	return requireCurrentOwner() ? &s_Session : &unavailable;
+}
 
-u32 groupSessionAuthorityHandle(void) { return s_Session.authority_handle; }
+u32 groupSessionAuthorityHandle(void) { return groupSessionGet()->authority_handle; }
 
-s32 groupSessionIsLocalAuthority(void) { return s_Session.is_local_authority ? 1 : 0; }
+s32 groupSessionIsLocalAuthority(void) { return groupSessionGet()->is_local_authority ? 1 : 0; }
 
 /* -------------------------------------------------------------------------
  * Authority election (Section 2.1)
@@ -320,7 +348,7 @@ s32 groupSessionIsLocalAuthority(void) { return s_Session.is_local_authority ? 1
 
 void groupSessionRecomputeAuthority(void)
 {
-	if (!s_Initialised) return;
+	if (!requireCurrentOwner()) return;
 	if (s_Session.latched_authority_handle != 0) {
 		s_Session.authority_handle = s_Session.latched_authority_handle;
 		s_Session.is_local_authority =
@@ -380,6 +408,7 @@ void groupSessionRecomputeAuthority(void)
 
 void groupSessionUpdateKbps(u32 handle, u32 kbps)
 {
+	if (!requireCurrentOwner()) return;
 	group_peer_t *p = findPeer(handle);
 	if (!p) return;
 	if (kbps > NET_UPLOAD_KBPS_MAX) kbps = 0;
@@ -395,6 +424,7 @@ void groupSessionUpdateKbps(u32 handle, u32 kbps)
 
 u32 groupSessionLocalElectionKbps(void)
 {
+	if (!requireCurrentOwner()) return 0;
 	return s_Session.election_input_latched ? s_Session.local_kbps :
 		sampleLocalElectionKbps();
 }
@@ -518,7 +548,7 @@ static void driveMatchTransport(void)
 
 s32 groupSessionRecordSentInvite(u32 invitee_handle)
 {
-	if (!s_Initialised || invitee_handle == 0) return -1;
+	if (!requireCurrentOwner() || invitee_handle == 0) return -1;
 	if (socialBlockIsHandle(invitee_handle)) return -1;
 	group_peer_t *p = allocPeer(invitee_handle);
 	if (!p) {
@@ -545,7 +575,7 @@ s32 groupSessionRecordSentInvite(u32 invitee_handle)
 
 s32 groupSessionAcceptInvite(u32 inviter_handle)
 {
-	if (!s_Initialised || inviter_handle == 0) return -1;
+	if (!requireCurrentOwner() || inviter_handle == 0) return -1;
 	if (socialBlockIsHandle(inviter_handle)) return -1;
 
 	group_peer_t *p = allocPeer(inviter_handle);
@@ -599,6 +629,7 @@ s32 groupSessionAcceptInvite(u32 inviter_handle)
 
 void groupSessionOnInviteResponse(u32 from_handle, s32 accepted)
 {
+	if (!requireCurrentOwner()) return;
 	group_peer_t *p = findPeer(from_handle);
 	if (!p) return;
 	if (!accepted) {
@@ -633,6 +664,7 @@ void groupSessionOnInviteResponse(u32 from_handle, s32 accepted)
 
 void groupSessionDropPeer(u32 handle)
 {
+	if (!requireCurrentOwner()) return;
 	group_peer_t *p = findPeer(handle);
 	if (!p) return;
 	if (p->pair_id) {
@@ -707,7 +739,7 @@ static void onPairOpen(group_peer_t *p, const p2p_endpoint_t *ep)
 
 void groupSessionTick(void)
 {
-	if (!s_Initialised) return;
+	if (!requireCurrentOwner()) return;
 	debugFriendPlayTick();
 
 	const u32 now_ms = SDL_GetTicks();
