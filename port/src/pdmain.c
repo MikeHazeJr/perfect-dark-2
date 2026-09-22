@@ -41,6 +41,10 @@
 #include "actionmap.h"
 #include "scene.h"
 #include "smoke_harness.h"
+#include "asset_mp3_harness.h"
+#include "asset_audio_identity_harness.h"
+#include "asset_audio_public_source_harness.h"
+#include "weapon_nested_runtime_harness.h"
 #include "autocampaign.h"
 #include "combat_sim_verify.h"
 #include "game/lv.h"
@@ -437,7 +441,35 @@ void mainProc(void)
 	rdpInit();
 	sndInit();
 	audioNotifyEngineReady();
+	/* These probes exercise native sound owners and require normal engine init. */
+	if (smokeHarnessIsActive()) {
+		if (sysArgCheck("--debug-asset-source-mp3")) {
+			s32 result = assetSourceMp3HarnessRun();
+			smokeHarnessExit(result == 0 ? 0 : 2,
+				result == 0 ? "scripted_exit" : "asset_source_mp3_failure");
+		}
+		if (sysArgCheck("--debug-asset-audio-identity")) {
+			s32 result = assetAudioIdentityHarnessRun();
+			smokeHarnessExit(result == 0 ? 0 : 2,
+				result == 0 ? "scripted_exit" : "asset_audio_identity_failure");
+		}
+		if (sysArgCheck("--debug-asset-audio-public-source")) {
+			s32 result = assetAudioPublicSourceHarnessRun();
+			smokeHarnessExit(result == 0 ? 0 : 2,
+				result == 0 ? "scripted_exit" : "audio_public_source_failure");
+		}
+	}
 
+	/* Source-model activation requires the memory pools initialized by mainInit.
+	 * Reaching this point also proves the ordinary boot asset-chain gate passed. */
+	const char *weaponNestedPlan = sysArgGetString("--debug-weapon-nested-harness");
+	if (weaponNestedPlan && weaponNestedPlan[0]) {
+		s32 pass = weaponNestedRuntimeHarnessRun(weaponNestedPlan);
+		if (smokeHarnessIsActive()) {
+			smokeHarnessExit(pass ? 0 : 1,
+				pass ? "weapon_nested_harness_pass" : "weapon_nested_harness_fail");
+		}
+	}
 	while (1) {
 		mainLoop();
 	}

@@ -79,6 +79,8 @@ s32 botGetUpdatesDisabled(void)
 #define STUCK_EPSILON_SQ    (10.0f * 10.0f)   /* 10 units (~10 cm in PD scale) */
 #define STUCK_RELO_MIN_SQ   (300.0f * 300.0f) /* minimum relocation distance */
 #define STUCK_RELO_FRACTION 0.25f              /* 25% max-damage penalty on relocation */
+#define STUCK_RELO_SEPARATION_SQ (150.0f * 150.0f)
+#define STUCK_MAX_WAYPOINTS 4096
 
 struct botstuckstate {
 	struct coord snapshot;
@@ -86,6 +88,137 @@ struct botstuckstate {
 	s32 relocating; /* non-zero if we just relocated; cleared on next snapshot */
 };
 static struct botstuckstate s_BotStuck[MAX_BOTS];
+
+enum bot_spawn_result {
+	BOT_SPAWN_OK = 0,
+	BOT_SPAWN_INVALID_CHARACTER,
+	BOT_SPAWN_CAPSULE_REJECTED,
+	BOT_SPAWN_MOVE_REJECTED,
+};
+
+/* Initial bot placement is a resumable ordered wave. A rejected placement
+ * leaves this cursor on the failed bot so both the AI opcode and the arena
+ * failsafe retry only the uncommitted suffix. botmgrRemoveAll owns reset. */
+static s32 s_BotSpawnWaveNextUncommitted;
+static bool s_BotSpawnFailsafeDone;
+static bool s_BotSpawnFailsafeRetryPending;
+
+void botSpawnWaveReset(void)
+{
+	s_BotSpawnWaveNextUncommitted = 0;
+	s_BotSpawnFailsafeDone = false;
+	s_BotSpawnFailsafeRetryPending = false;
+}
+
+/* B-174: choose a recovery point from authored navigation data without any
+ * arena-specific branch. Every candidate must pass the same capsule policy
+ * as a normal spawn and remain separated from the live roster. The scan is
+ * finite and deterministic from the bot slot, so a cohort that becomes stuck
+ * on one frame does not share a random best-point collapse. */
+static bool botFindStuckRecovery(struct chrdata *chr, struct coord *outpos,
+		RoomNum *outrooms, s32 *outwaypoint)
+{
+	struct waypoint *waypoints;
+	s32 numwaypoints = 0;
+	s32 slot;
+	s32 offset;
+	s32 bestwaypoint = -1;
+	f32 bestseparation = -1.0f;
+	struct coord bestpos = {0.0f, 0.0f, 0.0f};
+	RoomNum bestrooms[2] = {-1, -1};
+	f32 radius;
+	f32 height;
+
+	if (!chr || !chr->prop || !chr->aibot || !outpos || !outrooms
+			|| !outwaypoint || !g_StageSetup.waypoints) {
+		return false;
+	}
+
+	waypoints = g_StageSetup.waypoints;
+	while (numwaypoints < STUCK_MAX_WAYPOINTS
+			&& waypoints[numwaypoints].padnum >= 0) {
+		numwaypoints++;
+	}
+	if (numwaypoints <= 0 || numwaypoints >= STUCK_MAX_WAYPOINTS) {
+		return false;
+	}
+
+	slot = (s32)chr->aibot->aibotnum;
+	if (slot < 0 || slot >= MAX_BOTS) {
+		return false;
+	}
+	radius = chr->radius > 0.0f ? chr->radius : 30.0f;
+	height = spawnPoolGetChrCapsuleHeight(chr);
+
+	for (offset = 0; offset < numwaypoints; offset++) {
+		s32 index = (slot + offset) % numwaypoints;
+		struct pad pad;
+		struct coord candidate;
+		RoomNum rooms[8] = {-1, -1, -1, -1, -1, -1, -1, -1};
+		f32 fromcurrent;
+		f32 minseparation = 1.0e30f;
+		s32 other;
+
+		padUnpack(waypoints[index].padnum,
+			PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &pad);
+		if (pad.room < 0 || (pad.flags & PADFLAG_AIDROP)) {
+			continue;
+		}
+
+		fromcurrent = (pad.pos.x - chr->prop->pos.x)
+			* (pad.pos.x - chr->prop->pos.x)
+			+ (pad.pos.z - chr->prop->pos.z)
+			* (pad.pos.z - chr->prop->pos.z);
+		if (fromcurrent < STUCK_RELO_MIN_SQ) {
+			continue;
+		}
+
+		candidate = pad.pos;
+		rooms[0] = pad.room;
+		if (!spawnPoolFindClearPosition(&candidate, rooms, radius, height,
+				chr->prop)) {
+			continue;
+		}
+
+		for (other = 0; other < g_MpNumChrs; other++) {
+			struct chrdata *otherchr = g_MpAllChrPtrs[other];
+			f32 dx;
+			f32 dz;
+			f32 distance;
+
+			if (!otherchr || otherchr == chr || !otherchr->prop
+					|| otherchr->prop->rooms[0] < 0) {
+				continue;
+			}
+			dx = candidate.x - otherchr->prop->pos.x;
+			dz = candidate.z - otherchr->prop->pos.z;
+			distance = dx * dx + dz * dz;
+			if (distance < minseparation) {
+				minseparation = distance;
+			}
+		}
+
+		if (minseparation < STUCK_RELO_SEPARATION_SQ
+				|| minseparation <= bestseparation) {
+			continue;
+		}
+
+		bestwaypoint = index;
+		bestseparation = minseparation;
+		bestpos = candidate;
+		bestrooms[0] = rooms[0];
+	}
+
+	if (bestwaypoint < 0) {
+		return false;
+	}
+
+	*outpos = bestpos;
+	outrooms[0] = bestrooms[0];
+	outrooms[1] = -1;
+	*outwaypoint = bestwaypoint;
+	return true;
+}
 
 /**
  * Async bot tick scheduler.
@@ -315,14 +448,15 @@ void botReset(struct chrdata *chr, u8 respawning)
 	}
 }
 
-void botSpawn(struct chrdata *chr, u8 respawning)
+static enum bot_spawn_result botSpawnAttempt(struct chrdata *chr, u8 respawning)
 {
 	f32 thing;
 	struct prop *prop;
 	struct defaultobj *obj;
-	struct aibot *aibot = chr->aibot;
+	struct aibot *aibot = chr ? chr->aibot : NULL;
 	struct coord pos;
 	RoomNum rooms[8];
+	s32 cached_pool_idx = -1;
 
 	/* S301 Bug D diag: breadcrumb + full log on bot spawn so the
 	 * invisible-bot case can be traced from spawn to first render. */
@@ -337,31 +471,20 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 			(int)chr->bodynum, (int)chr->headnum,
 			(void *)chr->model, aibot != NULL, (unsigned)chr->team);
 	}
-
-	if (chr->prop) {
-		prop = chr->prop->child;
-
-		while (prop) {
-			obj = prop->obj;
-
-			if (obj) {
-				obj->hidden |= OBJHFLAG_DELETING;
-			}
-
-			prop = prop->next;
-		}
+	if (!chr || !aibot) {
+		return BOT_SPAWN_INVALID_CHARACTER;
 	}
 
 	if (aibot) {
-		botReset(chr, respawning);
-		splatResetChr(chr);
 		if (!respawning && g_MpOrchestrateInitialSpawnDone
 				&& aibot->aibotnum >= 0 && aibot->aibotnum < MAX_BOTS
 				&& g_MpOrchestrateBotPoolIdx[aibot->aibotnum] >= 0) {
 			const spawn_pool_t *spool = spawnPoolGet();
 			s32 pidx = g_MpOrchestrateBotPoolIdx[aibot->aibotnum];
 
-			g_MpOrchestrateBotPoolIdx[aibot->aibotnum] = -1;
+			/* Read the cached assignment during prepare. It remains owned by
+			 * this bot until chrMoveToPos accepts the prepared candidate. */
+			cached_pool_idx = pidx;
 			if (spawnPoolIsReady() && spool && pidx >= 0 && pidx < spool->count) {
 				pos = spool->points[pidx].pos;
 				rooms[0] = spool->points[pidx].room;
@@ -412,8 +535,69 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 		} else {
 			thing = scenarioChooseSpawnLocation(chr->radius, &pos, rooms, chr->prop);
 		}
-		chr->hidden |= CHRHFLAG_WARPONSCREEN;
-		chrMoveToPos(chr, &pos, rooms, thing, true);
+
+		/* B-242/B-174: bots and players consume the same fail-closed
+		 * full-height capsule policy. A cached orchestrator point is only a
+		 * candidate; if it cannot be corrected, retry the live selector within
+		 * a finite budget and leave the bot unpublished when all attempts fail. */
+		{
+			f32 chr_height = spawnPoolGetChrCapsuleHeight(chr);
+			f32 chr_radius = chr->radius > 0.0f ? chr->radius : 30.0f;
+			bool spawn_clear = false;
+			s32 attempt;
+
+			for (attempt = 0; attempt < 4; attempt++) {
+				if (spawnPoolFindClearPosition(&pos, rooms, chr_radius,
+						chr_height, chr->prop)) {
+					spawn_clear = true;
+					break;
+				}
+				thing = scenarioChooseSpawnLocation(chr_radius, &pos, rooms,
+					chr->prop);
+			}
+
+			if (!spawn_clear) {
+				sysLogPrintf(LOG_ERROR,
+					"SPAWN.REJECT: bot slot=%d exhausted capsule-safe candidates",
+					(s32)aibot->aibotnum);
+				return BOT_SPAWN_CAPSULE_REJECTED;
+			}
+		}
+		{
+			u32 previous_hidden = chr->hidden;
+
+			chr->hidden |= CHRHFLAG_WARPONSCREEN;
+			if (!chrMoveToPos(chr, &pos, rooms, thing, true)) {
+				chr->hidden = previous_hidden;
+				sysLogPrintf(LOG_ERROR,
+					"SPAWN.REJECT: bot slot=%d chrMoveToPos rejected initial=%d warp_restored=1",
+					(s32)aibot->aibotnum, respawning ? 0 : 1);
+				return BOT_SPAWN_MOVE_REJECTED;
+			}
+		}
+
+		/* Placement is the commit boundary. Everything below is infallible
+		 * retry-state publication: consume the cached assignment, retire the
+		 * previous loadout children, and initialize the accepted life only after
+		 * chrMoveToPos has committed the new position. */
+		if (cached_pool_idx >= 0) {
+			g_MpOrchestrateBotPoolIdx[aibot->aibotnum] = -1;
+		}
+		if (chr->prop) {
+			prop = chr->prop->child;
+
+			while (prop) {
+				obj = prop->obj;
+
+				if (obj) {
+					obj->hidden |= OBJHFLAG_DELETING;
+				}
+
+				prop = prop->next;
+			}
+		}
+		botReset(chr, respawning);
+		splatResetChr(chr);
 		/* Room recovery after spawn: if chrMoveToPos left rooms[0]==-1 the
 		 * position is likely in void geometry. Try floorroom first, then
 		 * bgFindRoomsByPos as a final fallback. Without a valid room,
@@ -503,7 +687,10 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 			s32 slot = (s32)aibot->aibotnum;
 			if (slot >= 0 && slot < MAX_BOTS && chr->prop) {
 				s_BotStuck[slot].snapshot = chr->prop->pos;
-				s_BotStuck[slot].snapshot_frame = g_Vars.lvframe60;
+				/* Stagger the first recovery audit across the bot cohort so
+				 * expensive navigation scans cannot synchronize on one frame. */
+				s_BotStuck[slot].snapshot_frame = g_Vars.lvframe60 + 1
+					+ (slot * STUCK_CHECK_FRAMES) / MAX_BOTS;
 				s_BotStuck[slot].relocating = 0;
 			}
 		}
@@ -634,11 +821,43 @@ void botSpawn(struct chrdata *chr, u8 respawning)
 			}
 		}
 	}
+
+	return BOT_SPAWN_OK;
 }
 
-void botSpawnAll(void)
+void botSpawn(struct chrdata *chr, u8 respawning)
+{
+	enum bot_spawn_result spawn_result = botSpawnAttempt(chr, respawning);
+
+	if (spawn_result != BOT_SPAWN_OK) {
+		/* Compatibility boundary for the legacy void API: consume the typed
+		 * result and deliberately preserve the caller's retry predicate. Dead
+		 * bots remain ACT_DEAD; invalid-room bots remain invalid-room, so their
+		 * existing tick path retries without hidden mutation or cache loss. */
+		sysLogPrintf(LOG_WARNING,
+			"SPAWN.RETRY: botSpawn status=%d respawning=%d retry_state=preserved",
+			(s32)spawn_result, (s32)respawning);
+	}
+}
+
+enum bot_spawn_wave_result botSpawnAll(void)
 {
 	s32 i;
+
+	if (s_BotSpawnWaveNextUncommitted < 0
+			|| s_BotSpawnWaveNextUncommitted > g_BotCount) {
+		sysLogPrintf(LOG_ERROR,
+			"SPAWN.WAVE: invalid cursor next=%d total=%d teardown_reset_required=1",
+			s_BotSpawnWaveNextUncommitted, (s32)g_BotCount);
+		return BOT_SPAWN_WAVE_INVALID_STATE;
+	}
+
+	/* A completed wave remains complete until botmgrRemoveAll resets it. This
+	 * makes duplicate AI/failsafe calls idempotent instead of respawning the
+	 * already committed prefix. */
+	if (s_BotSpawnWaveNextUncommitted == g_BotCount) {
+		return BOT_SPAWN_WAVE_COMPLETE;
+	}
 
 	/* B-218 v2 (2026-04-23): initial bot pile-up root cause.
 	 * `mpOrchestrateMatchStartSpawns` is called from `lv.c` between the
@@ -667,7 +886,9 @@ void botSpawnAll(void)
 	 * and the done flag (players already applied their positions from
 	 * the first run; the Hungarian is deterministic on same seed + roster
 	 * + stage, so re-application is stable). */
-	if (g_Vars.mplayerisrunning && spawnPoolIsReady() && g_BotCount > 0) {
+	if (s_BotSpawnWaveNextUncommitted == 0
+			&& g_Vars.mplayerisrunning && spawnPoolIsReady()
+			&& g_BotCount > 0) {
 		bool anyBotHasPoolIdx = false;
 		for (i = 0; i < g_BotCount; i++) {
 			struct chrdata *bc = g_MpBotChrPtrs[i];
@@ -680,17 +901,44 @@ void botSpawnAll(void)
 			}
 		}
 		if (!anyBotHasPoolIdx) {
+			enum mp_orchestrate_spawn_result orchestrate_result;
+
 			sysLogPrintf(LOG_NOTE,
 				"SPAWN.ORCH: botSpawnAll re-running orchestrator "
 				"(bots missed initial pass, g_BotCount=%d, initDone=%d)",
 				(s32)g_BotCount, (s32)g_MpOrchestrateInitialSpawnDone);
 			mpOrchestrateReset();
-			mpOrchestrateMatchStartSpawns();
+			orchestrate_result = mpOrchestrateMatchStartSpawns();
+			if (orchestrate_result != MP_ORCHESTRATE_SPAWN_OK) {
+				/* Keep the bounded live botSpawn fallback available, but leave
+				 * bot indices and InitialSpawnDone unpublished. */
+				sysLogPrintf(LOG_ERROR,
+					"SPAWN.ORCH: botSpawnAll rerun rejected status=%s fallback=live_bounded",
+					mpOrchestrateSpawnResultString(orchestrate_result));
+			}
 		}
 	}
 
-	for (i = 0; i < g_BotCount; i++) {
-		botSpawn(g_MpBotChrPtrs[i], false);
+	for (i = s_BotSpawnWaveNextUncommitted; i < g_BotCount; i++) {
+		enum bot_spawn_result spawn_result =
+			botSpawnAttempt(g_MpBotChrPtrs[i], false);
+		if (spawn_result != BOT_SPAWN_OK) {
+			sysLogPrintf(LOG_ERROR,
+				"SPAWN.REJECT: botSpawnAll slot=%d status=%d stop=first next_uncommitted=%d total=%d wave_atomic=0",
+				i, (s32)spawn_result, s_BotSpawnWaveNextUncommitted,
+				(s32)g_BotCount);
+			/* Earlier successful bots remain committed. The failed bot keeps
+			 * its cached plan and exact retry-owned state, and later bots are not
+			 * attempted. Do not clear orchestration assignments here. */
+			return BOT_SPAWN_WAVE_RETRY_PENDING;
+		}
+
+		/* botSpawnAttempt's accepted move is the per-bot commit boundary.
+		 * Advance only after that complete attempt succeeds. */
+		s_BotSpawnWaveNextUncommitted = i + 1;
+		sysLogPrintf(LOG_NOTE,
+			"SPAWN.WAVE: committed slot=%d next_uncommitted=%d total=%d",
+			i, s_BotSpawnWaveNextUncommitted, (s32)g_BotCount);
 	}
 
 	/* B-174 diagnostic: post-spawn variance check.  Car Park playtest
@@ -751,6 +999,8 @@ void botSpawnAll(void)
 				g_Vars.stagenum);
 		}
 	}
+
+	return BOT_SPAWN_WAVE_COMPLETE;
 }
 
 #if PIRACYCHECKS
@@ -1393,8 +1643,12 @@ s32 botTick(struct prop *prop)
 		 * because the stage (waypoints, pads, rooms) isn't fully loaded during
 		 * setupCreateProps. */
 		{
-			static bool s_BotSpawnFailsafeDone = false;
-			if (!s_BotSpawnFailsafeDone && updateable && prop->rooms[0] == -1) {
+			/* rooms[0] discovers stages whose script lacks aiMpInitSimulants.
+			 * Once a wave starts, its typed result and retained cursor own retry;
+			 * room state cannot suppress a rejected suffix. */
+			if (!s_BotSpawnFailsafeDone && updateable
+					&& (s_BotSpawnFailsafeRetryPending
+						|| prop->rooms[0] == -1)) {
 				/* Stage-readiness check: pads must be loaded and spawn points
 				 * must be resolved before we can place bots. If not ready yet,
 				 * skip this frame — botTick will retry next frame. Failsafe:
@@ -1403,28 +1657,43 @@ s32 botTick(struct prop *prop)
 				if (g_PadsFile == NULL) {
 					/* not ready yet — wait */
 				} else {
-					s_BotSpawnFailsafeDone = true;
-					sysLogPrintf(LOG_NOTE, "SPAWN: botSpawnAll failsafe — bots allocated but not spawned (rooms[0]==-1, spawns=%d)", g_NumSpawnPoints);
-					botSpawnAll();
+					enum bot_spawn_wave_result wave_result;
 
-					/* Verify all bots got valid rooms after the spawn wave.
-					 * If a bot's rooms[0] is still -1, its position is in void
-					 * geometry — re-spawn it individually to try a different pad. */
-					{
-						s32 bi;
-						for (bi = 0; bi < g_BotCount; bi++) {
-							struct chrdata *bchr = g_MpBotChrPtrs[bi];
-							if (bchr && bchr->prop && bchr->prop->rooms[0] == -1) {
-								sysLogPrintf(LOG_WARNING, "SPAWN: failsafe re-spawn bot %d (rooms still -1)", bi);
-								botSpawn(bchr, false);
+					s_BotSpawnFailsafeDone = true;
+					sysLogPrintf(LOG_NOTE,
+						"SPAWN: botSpawnAll failsafe retry_suffix=%d trigger_room=%d spawns=%d",
+						(s32)s_BotSpawnFailsafeRetryPending,
+						(s32)prop->rooms[0], g_NumSpawnPoints);
+					wave_result = botSpawnAll();
+
+					if (wave_result != BOT_SPAWN_WAVE_COMPLETE) {
+						/* The wave rejected at least one initial move. Retry the
+						 * exact retained suffix next frame; do not repair/publish it
+						 * as though the wave completed successfully. */
+						s_BotSpawnFailsafeDone = false;
+						s_BotSpawnFailsafeRetryPending = true;
+						sysLogPrintf(LOG_ERROR,
+							"SPAWN.REJECT: botSpawnAll failsafe status=%d retry_suffix=1",
+							(s32)wave_result);
+					} else {
+						s_BotSpawnFailsafeRetryPending = false;
+						/* Verify all bots got valid rooms after the spawn wave.
+						 * If a bot's rooms[0] is still -1, its position is in void
+						 * geometry — re-spawn it individually to try a different pad. */
+						{
+							s32 bi;
+							for (bi = 0; bi < g_BotCount; bi++) {
+								struct chrdata *bchr = g_MpBotChrPtrs[bi];
+								if (bchr && bchr->prop && bchr->prop->rooms[0] == -1) {
+									sysLogPrintf(LOG_WARNING, "SPAWN: failsafe re-spawn bot %d (rooms still -1)", bi);
+									/* The checked compatibility boundary preserves rooms[0]
+									 * on rejection, so the invalid-room tick retries. */
+									botSpawn(bchr, false);
+								}
 							}
 						}
 					}
 				}
-			}
-			/* Reset the flag on stage change (lvframe60 resets to 0) */
-			if (g_Vars.lvframe60 == 0) {
-				s_BotSpawnFailsafeDone = false;
 			}
 		}
 
@@ -1457,6 +1726,8 @@ s32 botTick(struct prop *prop)
 				/* Position is truly in void — re-spawn at a different pad */
 				sysLogPrintf(LOG_WARNING, "SPAWN: bot slot=%d in void at (%.0f,%.0f,%.0f) — re-spawning",
 					(s32)aibot->aibotnum, prop->pos.x, prop->pos.y, prop->pos.z);
+				/* Rejection leaves rooms[0] invalid, deliberately preserving this
+				 * same room-recovery retry predicate for the next tick. */
 				botSpawn(chr, false);
 			}
 		}
@@ -1508,58 +1779,47 @@ s32 botTick(struct prop *prop)
 							|| chr->myaction == MA_AIBOTGOTOPROP
 							|| chr->myaction == MA_AIBOTRUNAWAY
 							|| chr->myaction == MA_AIBOTDOWNLOAD);
-						if (hasIntent && !bs->relocating) {
+						if (bs->relocating) {
+							/* A relocation suppresses only the immediately following
+							 * audit. Clear the latch so continued AI intent can recover
+							 * again if the newly routed bot later becomes stuck. */
+							bs->relocating = 0;
+						} else if (hasIntent) {
 							f32 dx = chr->prop->pos.x - bs->snapshot.x;
 							f32 dz = chr->prop->pos.z - bs->snapshot.z;
 							if (dx * dx + dz * dz < STUCK_EPSILON_SQ) {
-								/* Stuck — find a waypoint with adequate separation */
-								if (g_StageSetup.waypoints) {
-									struct waypoint *wpts = g_StageSetup.waypoints;
-									s32 numwpts = 0;
-									s32 best = -1;
-									f32 bestdist = 0;
-									s32 wi;
-									while (wpts[numwpts].padnum >= 0) {
-										numwpts++;
-									}
-									for (wi = 0; wi < numwpts * 2; wi++) {
-										s32 idx = rngRandom() % numwpts;
-										struct pad rpad;
-										f32 rdx;
-										f32 rdz;
-										f32 rdsq;
-										padUnpack(wpts[idx].padnum, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS, &rpad);
-										if (rpad.room < 0 || (rpad.flags & PADFLAG_AIDROP)) {
-											continue;
+								/* Stuck: choose one finite, capsule-safe, separated
+								 * navigation waypoint and invalidate the stale route. */
+								{
+									struct coord recovery;
+									RoomNum recoveryrooms[2];
+									s32 recoverywaypoint = -1;
+									if (botFindStuckRecovery(chr, &recovery,
+											recoveryrooms, &recoverywaypoint)) {
+										if (chrMoveToPos(chr, &recovery, recoveryrooms, 0,
+												false)) {
+											chr->hidden |= CHRHFLAG_WARPONSCREEN;
+											chrAddHealth(chr,
+												-(chr->maxdamage * STUCK_RELO_FRACTION));
+											aibot->waypoints[0] = NULL;
+											aibot->numwaystepstotarget = 0;
+											chr->myaction = MA_AIBOTMAINLOOP;
+											bs->relocating = 1;
+											sysLogPrintf(LOG_NOTE, "STUCK: bot slot=%d chr=%p relocated to safe waypoint %d (%.0f,%.0f,%.0f) penalty=%.1f%%",
+												slot, (void *)chr, recoverywaypoint,
+												recovery.x, recovery.y, recovery.z,
+												STUCK_RELO_FRACTION * 100.0f);
+										} else {
+											sysLogPrintf(LOG_WARNING,
+												"STUCK: bot slot=%d rejected safe waypoint %d",
+												slot, recoverywaypoint);
 										}
-										rdx = rpad.pos.x - chr->prop->pos.x;
-										rdz = rpad.pos.z - chr->prop->pos.z;
-										rdsq = rdx * rdx + rdz * rdz;
-										if (rdsq > STUCK_RELO_MIN_SQ && rdsq > bestdist) {
-											best = idx;
-											bestdist = rdsq;
-										}
-									}
-									if (best >= 0) {
-										struct pad dstpad;
-										RoomNum newrooms[2];
-										padUnpack(wpts[best].padnum, PADFIELD_POS | PADFIELD_ROOM, &dstpad);
-										newrooms[0] = dstpad.room;
-										newrooms[1] = -1;
-										chr->hidden |= CHRHFLAG_WARPONSCREEN;
-										chrMoveToPos(chr, &dstpad.pos, newrooms, 0, false);
-										chrAddHealth(chr, -(chr->maxdamage * STUCK_RELO_FRACTION));
-										bs->relocating = 1;
-										sysLogPrintf(LOG_NOTE, "STUCK: bot slot=%d chr=%p action=%d relocated to waypoint %d (%.0f,%.0f,%.0f) — penalty %.1f%%",
-											slot, (void *)chr, chr->myaction, best,
-											dstpad.pos.x, dstpad.pos.y, dstpad.pos.z,
-											STUCK_RELO_FRACTION * 100.0f);
 									}
 								}
 							} else {
 								bs->relocating = 0;
 							}
-						} else if (!hasIntent) {
+						} else {
 							bs->relocating = 0;
 						}
 						bs->snapshot = chr->prop->pos;

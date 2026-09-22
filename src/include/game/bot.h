@@ -9,7 +9,15 @@ bool botroomFindPos(RoomNum room, struct coord *pos, f32 *angleptr, s32 *padnump
 bool botIsDizzy(struct chrdata *chr);
 void botReset(struct chrdata *chr, u8 respawning);
 void botSpawn(struct chrdata *chr, u8 full);
-void botSpawnAll(void);
+
+enum bot_spawn_wave_result {
+	BOT_SPAWN_WAVE_COMPLETE = 0,
+	BOT_SPAWN_WAVE_RETRY_PENDING,
+	BOT_SPAWN_WAVE_INVALID_STATE,
+};
+
+enum bot_spawn_wave_result botSpawnAll(void);
+void botSpawnWaveReset(void);
 void botToggleUpdatesDisabled(void);
 s32 botGetUpdatesDisabled(void);
 u32 add87654321(u32 value);

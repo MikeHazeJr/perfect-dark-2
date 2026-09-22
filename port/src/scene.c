@@ -125,6 +125,12 @@ LayerType sceneCurrentLayer(void)
     return inputLayerTopType();
 }
 
+bool sceneVehicleDriverCanBoard(void)
+{
+    return inputLayerHas(LAYER_VEHICLE_DRIVER)
+        || inputLayerDepth() < INPUTLAYER_MAX_DEPTH;
+}
+
 s32 sceneFire(SceneEvent ev, const void *payload)
 {
     if (ev < 0 || ev >= SCENE_EVENT_COUNT) return -1;
@@ -216,6 +222,9 @@ s32 sceneFire(SceneEvent ev, const void *payload)
         return 0;
 
     case SCENE_EVENT_VEHICLE_DISMOUNT:
+        /* The tracked pop is intentionally idempotent and aborts any nested
+         * layers above the vehicle handle. Dismount therefore cannot expose a
+         * WALK state with the vehicle action layer still active. */
         scenePopTrackedLayer(&s_VehicleHandle, ev);
         return 0;
 

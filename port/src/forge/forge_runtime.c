@@ -97,7 +97,7 @@ static void s_propGraphSetEnabled(void *context, s32 enabled)
 static void s_propGraphSetHealth(void *context, f32 health)
 {
 	forge_prop_handle_t *h = (forge_prop_handle_t *)context;
-	if (h && h->obj) h->obj->maxdamage = (s32)(health * 10.0f);
+	if (h && h->obj) h->obj->maxdamage = propGraphHealthToMaxDamage(health);
 }
 
 static void s_propGraphSetCollision(void *context, s32 enabled)
@@ -432,6 +432,11 @@ static void s_spawn_door(const forge_object_t *o)
 			"refusing synthetic door defaults.", o->catalog_id);
 		return;
 	}
+	if (!propGraphHealthIsRepresentable(source->prop_health)) {
+		sysFatalError("ASSET.CHAIN: forge door '%s' prop.json health exceeds native range 0..3276.7.",
+			o->catalog_id);
+		return;
+	}
 
     if (!s_forgeModelHandlePassesSourceOnlyCheck(ASSET_PROP, o->catalog_id,
             "forge door modeldef", pr.handle)) {
@@ -450,7 +455,7 @@ static void s_spawn_door(const forge_object_t *o)
     memset(door, 0, sizeof(*door));
 
     door->base.type       = OBJTYPE_DOOR;
-    door->base.maxdamage  = (s32)(source->prop_health * 10.0f);
+    door->base.maxdamage  = propGraphHealthToMaxDamage(source->prop_health);
     door->base.flags      = source->prop_flags;
     door->base.extrascale = 256;
     door->base.floorcol   = 0x0fff;
@@ -699,6 +704,11 @@ static void s_spawn_prop(const forge_object_t *o)
 			"refusing synthetic health/flags.", o->catalog_id);
 		return;
 	}
+	if (!propGraphHealthIsRepresentable(source->prop_health)) {
+		sysFatalError("ASSET.CHAIN: forge prop '%s' prop.json health exceeds native range 0..3276.7.",
+			o->catalog_id);
+		return;
+	}
 
     if (!s_forgeModelHandlePassesSourceOnlyCheck(ASSET_PROP, o->catalog_id,
             "forge prop modeldef", pr.handle)) {
@@ -716,7 +726,7 @@ static void s_spawn_prop(const forge_object_t *o)
     struct defaultobj *obj = &s_prop_pool[s_prop_count];
     memset(obj, 0, sizeof(*obj));
     obj->type       = OBJTYPE_BASIC;
-    obj->maxdamage  = (s32)(source->prop_health * 10.0f);
+    obj->maxdamage  = propGraphHealthToMaxDamage(source->prop_health);
     obj->flags      = source->prop_flags;
     obj->floorcol   = 0x0fff;
     obj->extrascale = 256;

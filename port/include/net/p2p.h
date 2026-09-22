@@ -6,12 +6,12 @@
  * layer is responsible for opening a peer-to-peer datagram channel between
  * two clients, escalating through six tiers in sequence:
  *
- *   T0 LAN broadcast            -- same subnet, UDP broadcast / mDNS
- *   T1 Direct UDP                -- known endpoint
- *   T2 STUN-assisted hole punch  -- reflexive addresses + simultaneous send
- *   T3 UPnP / NAT-PMP            -- temporary port mapping
- *   T4 ICE candidate gathering   -- host / srflx / prflx pair testing
- *   T5 TURN relay                -- last resort, ~2-3x relayer bandwidth
+ *   T0 LAN broadcast            -- same-subnet hint discovery only
+ *   T1 Direct UDP                -- legacy hint tier, cannot open a pair
+ *   T2 STUN discovery            -- reflexive candidate gathering only
+ *   T3 UPnP                      -- verified ICE-socket mapping only
+ *   T4 ICE candidate gathering   -- signed host/srflx/UPnP pair testing
+ *   T5 TURN relay                -- fail closed until allocation proof is authenticated
  *
  * Per-pair sequential escalation with ~2-3s per tier timeout. Each tier
  * exposes UX feedback ("Trying direct connection...", "Trying NAT
@@ -26,15 +26,17 @@
  *   - in-match P2P invites (Section 9 invite flow)
  *   - chat / file transfer (Phase 2)
  *
- * The orchestrator is single-threaded: tick from the main loop. STUN /
- * UPnP / TURN have their own background threads owned by their helper
- * modules; p2p.c only consumes their results.
+ * The orchestrator is single-threaded: tick from the main loop. ICE owns and
+ * demultiplexes its STUN transaction on its bound socket; route STUN and UPnP
+ * retain separate joinable workers with transport/owner-specific state.
  */
 
 #ifndef _IN_P2P_H
 #define _IN_P2P_H
 
 #include <PR/ultratypes.h>
+
+#include "net/net_candidate.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -60,6 +62,12 @@ const char *p2pTierUxLabel(p2p_tier_t t); /* short user-facing string */
 
 /* Per-tier soft timeout (ms) for the orchestrator's escalation loop. */
 #define P2P_TIER_TIMEOUT_MS 2500
+
+/* Fixed, separately typed transport ports. The TURN value is reserved for a
+ * future authenticated relay protocol; the current tier never opens. */
+#define P2P_DIRECT_PORT 27102
+#define P2P_ICE_PORT    27103
+#define P2P_TURN_PORT   27104
 
 /* -------------------------------------------------------------------------
  * Pair state
@@ -183,33 +191,32 @@ void p2pLanTick(void);
 s32  p2pLanIsRunning(void);
 
 /**
- * Fetch a previously-discovered peer's ipv4:port if recent. Returns 1 on
- * success. Out parameters are host byte order. Stale entries (>15s) are
- * pruned automatically.
+ * Fetch a previously-discovered peer hint if recent. This never proves an
+ * open path; the signed target-bound ICE check remains mandatory.
  */
 s32  p2pLanLookup(u32 peer_handle, u32 *out_ipv4, u16 *out_port);
 
 /* -------------------------------------------------------------------------
  * Tier 1 -- Direct UDP (port/src/net/p2p_direct.c)
  *
- * Trivial path: send a probe to (hint_ipv4 : hint_port) and wait for a
- * pong. Reuses the existing connectionless punch primitives where useful.
+ * Retained only for compatibility diagnostics. The orchestrator does not
+ * start this unauthenticated path and rejects any success callback from it.
  * ------------------------------------------------------------------------- */
 
 s32  p2pDirectStart(u32 pair_id, u32 ipv4, u16 port);
 void p2pDirectPoll(void);
+void p2pDirectCancel(u32 pair_id);
+void p2pDirectShutdown(void);
 
 /* -------------------------------------------------------------------------
- * Tier 2 -- STUN / hole punch (wrapping port/src/net/netstun.c +
- * netholepunch.c). Triggered only when tier 1 times out.
+ * Tier 2 -- same-socket STUN candidate gathering. This stage never opens a
+ * peer path; ICE consumes the result after signed exchange.
  * ------------------------------------------------------------------------- */
 
 s32  p2pStunStart(u32 pair_id);
 void p2pStunPoll(void);
-
-/* Tell the LAN module our STUN reflexive ip:port so neighbours behind the
- * same NAT may try our public endpoint as a tier-1 hint. */
-s32  p2pPublishMyReflexive(u32 ipv4, u16 port);
+void p2pStunCancel(u32 pair_id);
+void p2pStunShutdown(void);
 
 /** Latest known STUN reflexive endpoint, host byte order. 0 if unknown. */
 u32  p2pMyReflexiveIpv4(void);
@@ -221,33 +228,55 @@ u16  p2pMyReflexivePort(void);
 
 s32  p2pUpnpStart(u32 pair_id);
 void p2pUpnpPoll(void);
+void p2pUpnpCancel(u32 pair_id);
+void p2pUpnpShutdown(void);
 
 /* -------------------------------------------------------------------------
  * Tier 4 -- ICE candidate gathering + pair testing.
  * Consumes STUN reflexive results plus an exchange of candidate lists.
  * ------------------------------------------------------------------------- */
 
-s32  p2pIceStart(u32 pair_id);
+s32  p2pIceStart(u32 pair_id, u32 peer_handle);
 void p2pIcePoll(void);
+void p2pIceCancel(u32 pair_id, u32 peer_handle);
+void p2pIceShutdown(void);
 
-/**
- * Inject a candidate (ipv4 + port) for an ICE attempt. The signaling layer
- * calls this when a peer's candidate list arrives via the friend list.
- */
-s32  p2pIceAddPeerCandidate(u32 pair_id, u32 ipv4, u16 port);
+/** Apply a normalized, signed candidate set received from peer_handle. */
+s32  p2pIceApplyPeerCandidateSet(u32 pair_id,
+                                 const net_candidate_set_t *set);
+
+/** Update the local signed candidate set accepted by the ICE responder. */
+void p2pIceSetLocalCandidateSet(const net_candidate_set_t *set);
+
+/** Current ICE host candidate, including the actual bound listen port. */
+s32  p2pIceGetLocalHostCandidate(u32 *out_ipv4, u16 *out_port);
+
+/** Same-socket STUN transaction owned and demultiplexed by the ICE socket. */
+s32  p2pIceStunStart(void);
+s32  p2pIceStunGetStatus(u32 *out_ipv4, u16 *out_port,
+                         s32 *out_nat_type, u16 *out_local_port);
+void p2pIceStunCancel(void);
+
+/** Current cone-NAT STUN candidate, if its provenance is route-safe. */
+s32  p2pStunGetReflexiveCandidate(u32 *out_ipv4, u16 *out_port);
+
+/** Deliver a signed candidate set to the active pair for peer_handle. */
+s32  p2pPeerCandidateSetReceived(u32 peer_handle,
+                                 const net_candidate_set_t *set);
 
 /* -------------------------------------------------------------------------
- * Tier 5 -- TURN relay. Last resort when every direct path failed.
- * The relayer is selected from group peers with bandwidth headroom.
+ * Tier 5 -- reserved relay tier. It fails closed until allocation ACKs bind a
+ * signed relay identity, target, credential, and exact UDP source.
  * ------------------------------------------------------------------------- */
 
 s32  p2pTurnStart(u32 pair_id);
 void p2pTurnPoll(void);
+void p2pTurnCancel(u32 pair_id);
+void p2pTurnShutdown(void);
 
 /**
- * Register a peer as a willing relay candidate (filled in by group_session
- * once we know upload-speed measurements). Highest reported_kbps wins.
- * Pass kbps=0 to remove.
+ * Retain a willing relay candidate for diagnostics/future authenticated relay
+ * design. Registration cannot open a socket or path. Pass kbps=0 to remove.
  */
 void p2pTurnRegisterRelayCandidate(u32 peer_handle, u32 ipv4, u16 port, u32 kbps);
 

@@ -446,6 +446,7 @@ static inline void netClientResetAll(void)
 	memset(&s_NetStageEndPending, 0, sizeof(s_NetStageEndPending));
 	s_NetStageEndTerminalFrame = false;
 	netmsgCutsceneAuthorityReset();
+	netRoomRequestReset();
 	for (u32 i = 0; i < NET_MAX_CLIENTS + 1; ++i) {
 		netClientReset(&g_NetClients[i]);
 	}
@@ -676,6 +677,7 @@ static void netResetStageReplication(const char *reason,
 	if (clear_epoch) {
 		g_NetStageEpoch = 0;
 	}
+	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
 
 	if (prior != NET_STAGE_REPLICATION_INACTIVE) {
@@ -694,6 +696,7 @@ static void netServerRollbackStageReplicationBarrier(u32 prior_epoch,
 	s_NetStageAuthorityReady = false;
 	g_NetPendingResyncFlags = 0;
 	g_NetStageEpoch = prior_epoch;
+	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
 	sysLogPrintf(LOG_WARNING,
 		"NET.STAGE.REPLICATION rollback epoch=%u phase=inactive reason=%s",
@@ -726,6 +729,7 @@ static bool netServerArmStageReplicationBarrier(const char *reason)
 	if (g_NetStageEpoch == 0) {
 		g_NetStageEpoch = 1;
 	}
+	netmsgVehicleStateStageReset();
 	s_NetStageReplicationPhase = NET_STAGE_REPLICATION_WAITING;
 	s_NetStageReplicationWaitMask = wait_mask;
 	s_NetStageAuthorityReady = false;
@@ -1332,6 +1336,10 @@ s32 netStartServer(u16 port, s32 maxclients)
 		sysLogPrintf(LOG_ERROR, "NET: could not create ENet host on port %u", port);
 		return -3;
 	}
+	/* Publish the successfully bound socket port to UI, discovery and query
+	 * consumers. Failed binds never replace the configured port. */
+	port = g_NetHost->address.port;
+	g_NetServerPort = port;
 	netUploadMeasurementReset();
 
 	if (g_NetServerInfoQuery) {
@@ -2154,6 +2162,7 @@ static s32 netDisconnectWithIntent(s32 retain_reconnect)
 	s_NetStageEndTerminalFrame = false;
 	netResetStageReplication("disconnect", true);
 	netmsgCutsceneAuthorityReset();
+	netRoomRequestReset();
 	playerResetAllCutsceneStates();
 
 	// flush pending packets
@@ -3319,6 +3328,10 @@ static void netServerEvReceive(struct netclient *cl)
 			/* Phase C: Match Startup Pipeline */
 			case CLC_MANIFEST_STATUS:  rc = netmsgClcManifestStatusRead(&cl->in, cl); break;
 			case CLC_LOBBY_CANCEL:     rc = netmsgClcLobbyCancelRead(&cl->in, cl); break;
+			/* SVC messages are never client-authoritative. Keep the typed
+			 * vehicle ID explicit here so a forged client packet is parsed and
+			 * rejected by its state handler rather than treated as unknown data. */
+			case SVC_PROP_VEHICLE_STATE: rc = netmsgSvcVehicleStateRead(&cl->in, cl); break;
 			default:
 				rc = 1;
 				break;
@@ -3379,6 +3392,7 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_PROP_DAMAGE: rc = netmsgSvcPropDamageRead(&cl->in, cl); break;
 			case SVC_PROP_PICKUP: rc = netmsgSvcPropPickupRead(&cl->in, cl); break;
 			case SVC_PROP_USE: rc = netmsgSvcPropUseRead(&cl->in, cl); break;
+			case SVC_PROP_VEHICLE_STATE: rc = netmsgSvcVehicleStateRead(&cl->in, cl); break;
 			case SVC_PROP_DOOR: rc = netmsgSvcPropDoorRead(&cl->in, cl); break;
 			case SVC_PROP_LIFT: rc = netmsgSvcPropLiftRead(&cl->in, cl); break;
 			case SVC_CHR_DAMAGE: rc = netmsgSvcChrDamageRead(&cl->in, cl); break;
@@ -3416,6 +3430,8 @@ static void netClientEvReceive(struct netclient *cl)
 			/* R-3: Room networking */
 			case SVC_ROOM_LIST:        rc = netmsgSvcRoomListRead(&cl->in, cl); break;
 			case SVC_ROOM_ASSIGN:      rc = netmsgSvcRoomAssignRead(&cl->in, cl); break;
+			case SVC_ROOM_RESULT:      rc = netmsgSvcRoomResultRead(&cl->in, cl); break;
+				case SVC_LOBBY_ROSTER:     rc = netmsgSvcLobbyRosterRead(&cl->in, cl); break;
 			case SVC_MUSIC_ADVANCE:    rc = netmsgSvcMusicAdvanceRead(&cl->in, cl); break;
 			case SVC_ACHIEVEMENT_TOAST: rc = netmsgSvcAchievementToastRead(&cl->in, cl); break;
 			/* Phase 3 spectator (protocol v42) */
@@ -3826,6 +3842,7 @@ void netEndFrame(void)
 	if (g_NetMode == NETMODE_SERVER && !terminal_stage_end_frame
 			&& !authority_publication_failed) {
 		netRoomListFlushIfDirty();
+		netmsgPublishLobbyRoster(0);
 	}
 
 	/* Bot authority: relay bot positions to server even when local player is respawning.

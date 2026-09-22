@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include "constants.h"
+#include "game/tex.h"
 #include "game/smoke.h"
 #include "game/bg.h"
 #include "game/propobj.h"
@@ -344,8 +345,8 @@ bool splat0f149274(f32 arg0, struct prop *chrprop, struct shotdata *shotdata, f3
 			struct hit *hit = &stackshotdata.hits[i];
 
 			if (hit->prop && (hit->hitthing.texturenum < 0
-						|| hit->hitthing.texturenum >= NUM_TEXTURES
-						|| g_SurfaceTypes[g_Textures[hit->hitthing.texturenum].surfacetype]->numwallhittexes != 0)) {
+						|| hit->hitthing.texturenum >= TEXTURE_CUSTOM_END
+						|| g_SurfaceTypes[texGetDefinition(hit->hitthing.texturenum)->surfacetype]->numwallhittexes != 0)) {
 				sp50c = &hit->hitthing.pos;
 				hitpos = &hit->pos;
 				sp504 = &hit->hitthing.unk0c;

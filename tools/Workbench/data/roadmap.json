@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "project": "Perfect Dark 2",
-  "updated": "2026-08-26T21:37:30.870Z",
+  "updated": "2026-09-22T23:37:43.909Z",
   "items": [
     {
       "type": "task",
@@ -192,11 +192,23 @@
       "status": "partial",
       "phase": 5,
       "lane": "release-1.0",
-      "owner": "codex-roadmap-continuation-20260808",
+      "owner": "codex-v1-m4-networking-sol-20260827",
       "deps": [
         "D-003"
       ],
-      "evidence": [],
+      "evidence": [
+        "port/include/net/net_candidate.h",
+        "port/src/net/net_candidate.c",
+        "port/include/net/p2p.h",
+        "port/src/net/p2p.c",
+        "port/src/net/p2p_ice.c",
+        "port/src/net/p2p_lan.c",
+        "port/src/net/p2p_direct.c",
+        "port/src/net/p2p_turn.c",
+        "port/include/presence.h",
+        "port/src/presence.c",
+        "tests/test_net_candidate.cpp"
+      ],
       "detail": "Milestone 4 ICE-candidate transport. Exchange the remote peer candidate set through a separately typed, signed, fresh presence/group payload with bounded counts, canonical address validation, credentials, generation, expiry, replacement, and teardown. Feed only the candidate/probe orchestrator. Never format an ICE candidate as the authority match-server route and never pass it directly to netStartClient. Close with focused validation plus ordinary peers across real NAT conditions.",
       "tags": [
         "release:v1.0",
@@ -209,8 +221,9 @@
         "c054"
       ],
       "id": "T-NETWORKING-001",
-      "updated": "2026-08-12T20:11:59.332Z",
-      "created": "2026-07-30T15:15:41.838Z"
+      "updated": "2026-08-27T17:57:00.230Z",
+      "created": "2026-07-30T15:15:41.838Z",
+      "model": "gpt-5.6-sol"
     },
     {
       "type": "task",
@@ -219,11 +232,19 @@
       "status": "partial",
       "phase": 5,
       "lane": "release-1.0",
-      "owner": "codex-roadmap-continuation-20260808",
+      "owner": "codex-v1-m4-networking-sol-20260827",
       "deps": [
         "D-003"
       ],
-      "evidence": [],
+      "evidence": [
+        "port/include/net/netstun.h",
+        "port/src/net/netstun.c",
+        "port/src/net/p2p_stun.c",
+        "port/src/net/p2p_ice.c",
+        "port/include/presence.h",
+        "port/src/presence.c",
+        "tests/test_net_candidate.cpp"
+      ],
       "detail": "Milestone 4 STUN candidate transport. Publish each peer own reflexive candidate as a separately typed, signed, fresh candidate record and consume the remote peer record only inside traversal. Distinguish local discovery, remote candidate, and elected authority match-server route at the type boundary. Reject stale, self, malformed, replayed, or identity-mismatched records and prove real-NAT behavior without a probe-to-netStartClient handoff.",
       "tags": [
         "release:v1.0",
@@ -236,21 +257,29 @@
         "c055"
       ],
       "id": "T-NETWORKING-002",
-      "updated": "2026-08-12T20:11:59.341Z",
-      "created": "2026-07-30T15:15:41.841Z"
+      "updated": "2026-08-27T17:57:00.253Z",
+      "created": "2026-07-30T15:15:41.841Z",
+      "model": "gpt-5.6-sol"
     },
     {
       "type": "task",
       "title": "Networking: UPnP map p2p probe ports",
       "area": "NETWORKING",
-      "status": "missing",
+      "status": "partial",
       "phase": 5,
       "lane": "release-1.0",
-      "owner": "unassigned",
+      "owner": "codex-v1-m4-networking-sol-20260827",
       "deps": [
         "D-003"
       ],
-      "evidence": [],
+      "evidence": [
+        "port/include/net/netupnp.h",
+        "port/src/net/netupnp.c",
+        "port/src/net/p2p_upnp.c",
+        "port/include/presence.h",
+        "port/src/presence.c",
+        "tests/test_net_candidate.cpp"
+      ],
       "detail": "Milestone 4 UPnP transport lifecycle. Discover, map, renew, replace, and unmap only the explicit sockets required by the candidate/traversal architecture, with bounded lease behavior and interface-change cleanup. Advertise results only as typed signed candidates. The elected authority separately publishes its validated ENet match-server route after listen startup; UPnP discovery or probe success can never synthesize that route.",
       "tags": [
         "release:v1.0",
@@ -264,8 +293,9 @@
         "c057"
       ],
       "id": "T-NETWORKING-003",
-      "updated": "2026-08-12T20:11:59.347Z",
-      "created": "2026-07-30T15:15:41.844Z"
+      "updated": "2026-08-27T17:57:00.272Z",
+      "created": "2026-07-30T15:15:41.844Z",
+      "model": "gpt-5.6-sol"
     },
     {
       "type": "task",
@@ -446,12 +476,12 @@
       "status": "missing",
       "phase": 5,
       "lane": "release-1.0",
-      "owner": "unassigned",
+      "owner": "01a04408-1056-7f02-be4a-eac5258ba08e",
       "deps": [
         "V-004"
       ],
       "evidence": [],
-      "detail": "Single retained hoverbike release gate after consolidating the fixed precursor card. Prove enter, mount, drive, steer, accelerate, brake, reverse, dismount, remount, pause/menu suppression, MKB and physical-controller bindings/glyphs, collision, save/transition cleanup, and listen-host authority where applicable. Any failure must be fixed at the shared vehicle/input/physics seam rather than with map-specific input patches.",
+      "detail": "Finite correction scope: shared PC/network mount interaction, Player 0 mounted input/handbrake, lifecycle guards and rollback, prop collision and listen-authority audit, generic debug placement for production smoke, focused contracts, and stronger vehicle smoke definition. Exact paths: src/game/bondbike.c, src/game/bondmove.c, src/game/propobj.c, src/include/game/bondbike.h, port/src/inputlayer.c, port/src/actionmap.cpp, port/src/scene.c, port/src/net/netmsg.c, port/src/net/net.c, port/src/main.c, tests/test_vehicle_observer_layer.cpp, tests/test_actionmap_flush.cpp, tests/test_settings_input_tab_static.cpp, tools/smoke-verify/tests/vehicle_flow.json",
       "tags": [
         "release:v1.0",
         "vehicle",
@@ -463,8 +493,9 @@
         "c037"
       ],
       "id": "T-VEHICLES-002",
-      "updated": "2026-08-12T20:05:42.589Z",
-      "created": "2026-07-30T15:15:41.866Z"
+      "updated": "2026-08-27T16:32:25.736Z",
+      "created": "2026-07-30T15:15:41.866Z",
+      "model": "gpt-5.6-luna"
     },
     {
       "type": "task",
@@ -923,14 +954,88 @@
       "status": "partial",
       "phase": 5,
       "lane": "release-1.0",
-      "owner": "unassigned",
+      "owner": "codex-f9571c12-6af53c63",
       "deps": [
         "D-004"
       ],
       "evidence": [
-        "Legacy tracker statement: Updated 2026-05-25. The safe wrapper/audit slice is done: weaponGraphParityModule records map existing held/projectile/entity behavior opcodes to explicit og.* parity modules, and held/projectile/entity runtime records preserve the chosen parity_module for diagnostics and future replacement cuts. Focused [c3840] coverage validates the module registry and runtime recording. OG Perfect Dark routines still execute as the gameplay parity backend; do not mark full routine retirement complete until each behavior family is replaced, tested, and playtest-verified.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard cleanup 2026-06-11: deferred out of Active while c3844 owns all-asset source/runtime parity closure; retained here for history and future scheduling.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retai…"
+        "Legacy tracker statement: Updated 2026-05-25. The safe wrapper/audit slice is done: weaponGraphParityModule records map existing held/projectile/entity behavior opcodes to explicit og.* parity modules, and held/projectile/entity runtime records preserve the chosen parity_module for diagnostics and future replacement cuts. Focused [c3840] coverage validates the module registry and runtime recording. OG Perfect Dark routines still execute as the gameplay parity backend; do not mark full routine retirement complete until each behavior family is replaced, tested, and playtest-verified.\n\nBoard cleanup 2026-06-09: removed from Active during asset-parity 100% cleanup; retained here so the current Active lane only reflects the live completion path.\n\nBoard cleanup 2026-06-11: deferred out of Active while c3844 owns all-asset source/runtime parity closure; retained here for history and future scheduling.\n\nBoard cleanup 2026-06-11: attention flag cleared because c3844 is the only active parity-closure lane; history retai…",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        "docs/modding/standard-source-authoring.md",
+        "N-0093",
+        ".claude/asset0905-continuation/v006-result.json",
+        ".claude/asset0905-continuation/source-batch2-before-client-build.json",
+        ".claude/asset0905-continuation/batch3-language-corpus.json",
+        ".claude/asset0905-continuation/batch3-fresh-conformance.json",
+        ".claude/asset0905-continuation/batch3-python-exit.json",
+        ".claude/asset0905-continuation/source-batch3-after-final-corpus.json",
+        ".claude/asset0905-continuation/batch3-examples-focused.log",
+        ".claude/asset0905-continuation/batch3-smoke-result.json",
+        ".claude/asset0905-continuation/batch3-final-corpus.json",
+        ".claude/asset0905-continuation/batch3-binary-hashes.json",
+        ".claude/asset0908-drafts/graph-v2-integration/manifest.json",
+        ".claude/asset0905-continuation/batch9-graph-mp3-menu-tests-build-exit.json",
+        ".claude/asset0905-continuation/batch9-graph37-exit.json",
+        ".claude/asset0905-continuation/batch9-graph37-junit.xml",
+        ".claude/asset0905-continuation/batch9-client-receipt.json",
+        ".claude/asset0905-continuation/batch9-weapon-mesh-installed14-result.json",
+        ".claude/asset0905-continuation/batch10-equipped7-exit.json",
+        ".claude/asset0905-continuation/batch10-equipped7-junit.xml",
+        ".claude/asset0905-continuation/batch10-client-receipt.json",
+        ".claude/asset0905-continuation/batch10-native-guard-exit.json",
+        ".claude/asset0905-continuation/batch11-client-receipt.json",
+        ".claude/asset0905-continuation/batch11-native-guard-exit.json",
+        ".claude/asset0905-continuation/batch11-visibility-installed14-result.json",
+        ".claude/asset0905-continuation/batch12-command-installed15-result.json",
+        ".claude/asset0905-continuation/batch13-reader7-review.json",
+        ".claude/asset0905-continuation/batch13-affected3-r2-exit.json",
+        ".claude/asset0905-continuation/batch13-installed-base-coverage-review.json",
+        ".claude/asset0905-continuation/batch14-client-receipt.json",
+        ".claude/asset0905-continuation/batch14-native-guard-exit.json",
+        ".claude/asset0905-continuation/batch14-command-installed15-result.json",
+        ".claude/asset0905-continuation/batch14-base-command-coverage.json",
+        ".claude/asset0905-continuation/batch14-post-runtime-freeze.json",
+        ".claude/asset0905-continuation/batch19-build-receipt.json",
+        ".claude/asset0905-continuation/batch19-voice13-exit.json",
+        ".claude/asset0905-continuation/batch19-native-guard-exit.json",
+        ".claude/asset0905-continuation/batch19-command-generation-installed21-exit.json",
+        ".claude/asset0905-continuation/batch19-base-command-coverage.json",
+        ".claude/asset0905-continuation/batch19-post-runtime-freeze.json",
+        ".claude/smoke-verify-runs/results-20260909T002054Z.json",
+        ".claude/menu0908/activation-r4-two-exit.json",
+        ".claude/menu0908/activation-r4-guard-exit.json",
+        ".claude/asset0905-continuation/batch20-pre-runtime-freeze.json",
+        ".claude/asset0908-drafts/model-generation/test-contract-r4-settled.json",
+        ".claude/asset0905-continuation/batch20-model-inputs-installed22-exit.json",
+        ".claude/asset0905-continuation/batch20-base-command-coverage.json",
+        ".claude/asset0905-continuation/batch20-post-runtime-freeze.json",
+        ".claude/smoke-verify-runs/results-20260909T011712Z.json",
+        ".claude/asset0905-continuation/batch22-acceptance.json",
+        ".claude/asset0905-continuation/batch22-r9-texture-material-audit.json",
+        ".claude/asset0905-continuation/batch22-r9-post-runtime-freeze.json",
+        ".claude/smoke-verify-runs/results-20260909T030500Z.json",
+        ".claude/asset0905-continuation/batch23-graph-v2-focused.log",
+        ".claude/asset0905-continuation/batch23-native-source-guard.log",
+        ".claude/session-builds/asset0905b/_build-session.out.log",
+        ".claude/session-builds/asset0922graph/_build-headless-20260922-171128-compile-client.out.log",
+        "port/src/catalog_model_generation.cpp",
+        "port/src/assetcatalog_load.c",
+        "port/src/weapon_nested_runtime_harness.c",
+        ".claude/smoke-verify-runs/results-20260922T220654Z.json",
+        ".claude/session-builds/asset0905b/_build-session.out.log",
+        ".claude/smoke-verify-runs/results-20260922T222736Z.json",
+        "port/src/weapon_graph_v2_catalog.cpp",
+        "port/src/weapon_graph_v2_gset.cpp",
+        "tests/test_weapon_graph_v2_catalog.cpp",
+        "tests/test_weapon_graph_v2_native.cpp",
+        ".claude/session-builds/asset0905b/_build-session.out.log",
+        "context/pillars/modding.md:2026-09-22 v2 bridge 41 cases/547 assertions",
+        "port/src/weapon_graph_v2.cpp: gate.state_bool/state.bool_set executor v2.2",
+        "tests/test_weapon_graph_v2.cpp: authored state cases",
+        "q_20260922230623263_ca7f361b graph-v2 43/43 cases 582 assertions and asset guard",
+        "menu0922 pd-tests.exe SHA256 3CF93129E3C1D9E0330BF95FCB6AB84F9B263E1061AB152E6BFF9DE4D78791DA"
       ],
-      "detail": "1.0 graph-parity lane. Every accepted base weapon, projectile, and entity graph must deliberately select and execute its production behavior with no inert node, hidden native bypass, or silent fallback. A named native C routine may remain behind an explicit graph module when it is the intentional implementation. Replace a routine only where the graph contract advertises independent data-driven behavior or the native path bypasses authoritative graph source. Close with per-family tests plus ordinary campaign and Combat Simulator parity receipts.",
+      "detail": "Batch22 source35 texture pipeline accepted within scope: client/tests builds0, native26 + affected contract1 PASS, source guard0, warm installed24 PASS35/35 39.1s. All3503 texture material records/169 original assignments/87 standalone+45 embedded scenario graphs exact;132 other graph-data comparisons and hash records pass. Base110 command IDs/593 commands exact. Atomic additive upgrades preserve edits; ordinary runtime consumes public image/materials/stage overrides;12 sparse catalog index loops fixed or removed. Custom menu textures and suppressed base overlays use selected public sources. Full2145 24440303/client6D4FE54E/tests233ECA5C unchanged. Earlier reds retained. Full equipped model/graph integration, palette/mipmap parity, larger images, remaining asset-family parity and requested pack remain open. Root queues/holds released. 2026-09-22 secondary v2 source component accepted: primary/secondary catalog generations independently publish/acquire/retire; native action preserves authored mode/ammo slot -1..1. Incremental isolated client/tests build pass, focused graph v2 39 cases/501 assertions pass, source guard pass. Fresh parallel clean build failed on MinGW OOM before source diagnostics. Ordinary gameplay binding, model lifetime, bot/net/Theater and full graph vocabulary remain open. 2026-09-22 model-generation source batch applied, unverified: selected public model and texture source closure retained through catalog load/unload; installed edited-source fixture added. Combined build/runtime/guard gate pending; graph gameplay publication and broader parity remain open. 2026-09-22 model-generation component accepted: isolated client/updater/tests build pass, source guard pass, installed edited-image old/new retention/reject fixture passes, nested25/25 and smoke35/35. Ordinary catalog loader is wired; direct installed case tests generation API but the dedicated ordinary catalog-entry mutation case now passes installed nested25/25 and smoke35/35 (results-20260922T222736Z.json); graph publication remains open. 2026-09-22 v2 base-ID/secondary-gset bridge accepted within scope: exact base catalog identity admission, matching primary/secondary entry-function selection and copied action mode identity passed freshly rebuilt graph-v2 41/41 cases and 547 assertions; isolated client/updater and tests builds plus source guard passed. Ordinary equipped gameplay remains disconnected. 2026-09-22 authored per-instance boolean state/gate/set DAG routing accepted within scope; strict named keys/values, false-on-bind state, independent hands, asynchronous set/clear, source edits and rejection passed combined menu0922 client/updater/tests builds, freshly built graph-v2 43/43 cases/582 assertions and source guard on unchanged graph hashes. Ordinary equipped gameplay remains open.",
       "tags": [
         "legacy-kanban",
         "legacy-column:backlog",
@@ -940,8 +1045,9 @@
         "c3840"
       ],
       "id": "T-MODDING-002",
-      "updated": "2026-08-12T20:05:42.282Z",
-      "created": "2026-07-30T15:15:41.903Z"
+      "updated": "2026-09-22T23:07:52.177Z",
+      "created": "2026-07-30T15:15:41.903Z",
+      "model": "gpt-6"
     },
     {
       "type": "task",
@@ -1006,7 +1112,7 @@
       "owner": "unassigned",
       "deps": [],
       "evidence": [],
-      "detail": "Author a custom .pdmod weapon that looks similar to the Halo Needler and replicates its behavior. Primary fire: tracking needles. Secondary fire: non-tracking needles that explode on contact with small pink explosions. Binds to a catalog-owned custom weapon slot; CPU-verifiable (mesh probe, conformance, weapon source-gate smoke) before live test.\n\nLegacy notes: Updated 2026-06-17: gameplay authoring, archive conformance, and the live source-render proof are complete for the current Needler chain. The c3849 Wave 7 smoke proved installed needler.pdmod -> needler.pdweapon -> nested .pdmesh source rendering with the weapon graph runtime product-default ON (`needler_graph_runtime_visual_smoke`, 40/40, `.claude\\smoke-verify-runs\\results-20260617T193054Z.json`). Remaining on this card is c3847-s10 visible-needles/reload presentation fidelity, which stays Backlog unless Mike promotes it.\n\nLegacy subtasks:\n- [done] c3847-s1: Reserve dev-mods/needler folder + versioned manifest\n- [done] c3847-s2: Needle .pdmesh + pink .pdmaterial/.pdtexture\n- [done] c3847-s3: Primary weapon graph: tracking needles (.pdweapon/.pdprojectile)\n- [done] c3847-s4: Secondary: non-tracking explosive needles + small pink .pdeffect\n- [done] c3847-s5: Bind to custom weapon slot; conformance + mesh probe\n- [done] c3847-s6: Weapon source-gate smoke; live playtest (B-801 gated)\n- [done] c3847-s7: Homing-gate adapter so custom homing steers (Q1 runtime follow-up)\n- [done] c3847-s8: Custom-model runtime-slot allocator for embedded weapon meshes (B-911)\n- [done] c3847-s9: Impact consumer first slice + spawn-path functions bridge (B-912)\n- [backlog] c3847-s10: Visible needle ammo on the weapon model + reload pop-out (Halo-fidelity)\n\nImported from retired Kanban c3847, column backlog.\n\nD-004 scope update 2026-08-12: Needler-specific presentation and fidelity work is deferred until after 1.0. Keep V-009 visual evidence as a regression gate; T-MODDING-008/V-012 provide the smaller 1.0 sample-weapon seam.",
+      "detail": "Author a custom .pdmod weapon that looks similar to the Halo Needler and replicates its behavior. Primary fire: tracking needles. Secondary fire: non-tracking needles that explode on contact with small pink explosions. Binds to a catalog-owned custom weapon slot; CPU-verifiable (mesh probe, conformance, weapon source-gate smoke) before live test.\n\nLegacy notes: Updated 2026-06-17: gameplay authoring, archive conformance, and the live source-render proof are complete for the current Needler chain. The c3849 Wave 7 smoke proved installed needler.pdmod -> needler.pdweapon -> nested .pdmesh source rendering with the weapon graph runtime product-default ON (`needler_graph_runtime_visual_smoke`, 40/40, `.claude\\smoke-verify-runs\\results-20260617T193054Z.json`). Remaining on this card is c3847-s10 visible-needles/reload presentation fidelity, which stays Backlog unless Mike promotes it.\n\nLegacy subtasks:\n- [done] c3847-s1: Reserve dev-mods/needler folder + versioned manifest\n- [done] c3847-s2: Needle .pdmesh + pink .pdmaterial/.pdtexture\n- [done] c3847-s3: Primary weapon graph: tracking needles (.pdweapon/.pdprojectile)\n- [done] c3847-s4: Secondary: non-tracking explosive needles + small pink .pdeffect\n- [done] c3847-s5: Bind to custom weapon slot; conformance + mesh probe\n- [done] c3847-s6: Weapon source-gate smoke; live playtest (B-801 gated)\n- [done] c3847-s7: Homing-gate adapter so custom homing steers (Q1 runtime follow-up)\n- [done] c3847-s8: Custom-model runtime-slot allocator for embedded weapon meshes (B-911)\n- [done] c3847-s9: Impact consumer first slice + spawn-path functions bridge (B-912)\n- [backlog] c3847-s10: Visible needle ammo on the weapon model + reload pop-out (Halo-fidelity)\n\nImported from retired Kanban c3847, column backlog.\n\nD-004 scope update 2026-08-12: Needler-specific presentation and fidelity work is deferred until after 1.0. Keep V-009 visual evidence as a regression gate; T-MODDING-008/V-012 provide the smaller 1.0 sample-weapon seam.\n\nSep8 17:58 explicit user goal promotion: after completing the requested loading/extraction/modding/behavior foundations, finish a playable Needler-like custom weapon as part of a new pack with Ghost-like alternating-blaster vehicle and four requested character analogues. Reuse and audit current dev-mods/needler instead of duplicating its catalog identity. Prior deferral does not block this newly authorized follow-on. Current archive/manifest exists but historical gameplay evidence must be refreshed against the final editable graph/runtime pipeline; verify tracking needles, readable ammunition/reload presentation, impacts and supported alternate fire in ordinary installed gameplay.",
       "tags": [
         "legacy-kanban",
         "legacy-column:backlog",
@@ -1016,7 +1122,7 @@
         "c3847"
       ],
       "id": "T-MODDING-003",
-      "updated": "2026-08-12T19:46:05.280Z",
+      "updated": "2026-09-08T21:58:41.589Z",
       "created": "2026-07-30T15:15:41.911Z"
     },
     {
@@ -1153,7 +1259,7 @@
       "status": "partial",
       "phase": 1,
       "lane": "audit",
-      "owner": "codex-roadmap-continuation-20260808",
+      "owner": "codex-f9571c12-6af53c63",
       "deps": [
         "T-TOOLING-001",
         "T-TOOLING-002"
@@ -1167,15 +1273,29 @@
         "asset-native-source guard PASS",
         ".claude/smoke-verify-runs/results-20260730T185923Z.json: 58/58 PASS",
         "context/bugs.md:B-972 exact-scope OBJ retention rule",
-        "context/audits/2026/asset-roadmap-wave-2026-08-08.md"
+        "context/audits/2026/asset-roadmap-wave-2026-08-08.md",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        "docs/modding/standard-source-authoring.md",
+        "N-0093",
+        ".claude/asset0905-continuation/v006-result.json",
+        ".claude/asset0905-continuation/source-batch2-before-client-build.json",
+        ".claude/asset0905-continuation/batch3-language-corpus.json",
+        ".claude/asset0905-continuation/batch3-fresh-conformance.json",
+        ".claude/asset0905-continuation/batch3-python-exit.json",
+        ".claude/asset0905-continuation/source-batch3-after-final-corpus.json",
+        ".claude/asset0905-continuation/batch3-examples-focused.log",
+        ".claude/asset0905-continuation/batch3-smoke-result.json",
+        ".claude/asset0905-continuation/batch3-final-corpus.json",
+        ".claude/asset0905-continuation/batch3-binary-hashes.json"
       ],
-      "detail": "Current-tree audit umbrella for all 27 public families from extraction through catalog/provider, production consumers, creator-authored source, menus/input, distribution, lifecycle, and fallback boundaries. Implemented wave tasks and historical bug records are evidence, not active routing targets. Remaining release work is explicit under T-EXTRACTION-001, T-RUNTIME-001, V-003, V-005, V-006, V-008, V-009, T-TOOLING-003, and P-001. Close only when every retained public field is deliberately production-consumed or versioned out and all positive, negative, network, device, and performance gates have durable evidence.",
+      "detail": "Asset work remains partial. Accepted batch3 source freeze 157 paths SHA256 0CF630E3, isolated client 4F016CF4, 18/18 fresh-install source-consumer smoke, and full fresh corpus 8610 root / 9611 total archives across all 27 families with zero conformance errors. Affected C++ coverage is 305 passing cases plus one corrected example case (688 assertions), cumulative 306; prior terminal failures retained. English source parity 68/68 and V006 32/32 remain accepted. T044/045/047 bounded corrections are validated. T048 character policies and T049 real bounded Vorbis decoding are the next source batch. Executable graph topology, regional languages/fonts, complete glTF materials/animation, base MP3 and reverse mappings, and all-family edited-source utilization remain open. No GPU/human/controller/device-audio/release proof claimed. Full production closure requires removal of every runtime ROM/RomProvider fallback after extraction; any such fallback remains an asset-chain failure owned by c3844. Public editable sources feed consumers natively; generated products are source-hashed rebuildable caches only.",
       "tags": [
         "workbench-key:asset-current-tree-audit"
       ],
       "id": "T-ASSETS-001",
-      "updated": "2026-08-12T20:05:42.128Z",
-      "created": "2026-07-30T15:16:40.119Z"
+      "updated": "2026-09-06T12:52:23.730Z",
+      "created": "2026-07-30T15:16:40.119Z",
+      "model": "GPT-6 / Codex"
     },
     {
       "type": "task",
@@ -1184,7 +1304,7 @@
       "status": "partial",
       "phase": 2,
       "lane": "implementation",
-      "owner": "unassigned",
+      "owner": "codex-f9571c12-6af53c63",
       "deps": [
         "T-ASSETS-001"
       ],
@@ -1198,15 +1318,29 @@
         "T-ASSETS-012",
         "T-ASSETS-013",
         "T-ASSETS-014",
-        "T-ASSETS-015"
+        "T-ASSETS-015",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        "docs/modding/standard-source-authoring.md",
+        "N-0093",
+        ".claude/asset0905-continuation/v006-result.json",
+        ".claude/asset0905-continuation/source-batch2-before-client-build.json",
+        ".claude/asset0905-continuation/batch3-language-corpus.json",
+        ".claude/asset0905-continuation/batch3-fresh-conformance.json",
+        ".claude/asset0905-continuation/batch3-python-exit.json",
+        ".claude/asset0905-continuation/source-batch3-after-final-corpus.json",
+        ".claude/asset0905-continuation/batch3-examples-focused.log",
+        ".claude/asset0905-continuation/batch3-smoke-result.json",
+        ".claude/asset0905-continuation/batch3-final-corpus.json",
+        ".claude/asset0905-continuation/batch3-binary-hashes.json"
       ],
-      "detail": "All 27 archive families emit and pass strict conformance/package round-trip, and child-emitter failures are fail-closed under V-006. The umbrella remains partial until the current-tree V-005 matrix proves that extracted editable source retains every production-relevant semantic needed for base-game parity, without raw preprocessed dumps or duplicate authored/runtime representations. Any discovered semantic omission must be fixed in the family emitter and versioned cache boundary, not patched in a downstream consumer.",
+      "detail": "Asset work remains partial. Accepted batch3 source freeze 157 paths SHA256 0CF630E3, isolated client 4F016CF4, 18/18 fresh-install source-consumer smoke, and full fresh corpus 8610 root / 9611 total archives across all 27 families with zero conformance errors. Affected C++ coverage is 305 passing cases plus one corrected example case (688 assertions), cumulative 306; prior terminal failures retained. English source parity 68/68 and V006 32/32 remain accepted. T044/045/047 bounded corrections are validated. T048 character policies and T049 real bounded Vorbis decoding are the next source batch. Executable graph topology, regional languages/fonts, complete glTF materials/animation, base MP3 and reverse mappings, and all-family edited-source utilization remain open. No GPU/human/controller/device-audio/release proof claimed. Full production closure requires removal of every runtime ROM/RomProvider fallback after extraction; any such fallback remains an asset-chain failure owned by c3844. Public editable sources feed consumers natively; generated products are source-hashed rebuildable caches only.",
       "tags": [
         "workbench-key:asset-lossless-extraction"
       ],
       "id": "T-EXTRACTION-001",
-      "updated": "2026-08-12T20:05:42.140Z",
-      "created": "2026-07-30T15:16:40.124Z"
+      "updated": "2026-09-06T12:52:23.744Z",
+      "created": "2026-07-30T15:16:40.124Z",
+      "model": "GPT-6 / Codex"
     },
     {
       "type": "task",
@@ -1247,7 +1381,7 @@
       "status": "partial",
       "phase": 3,
       "lane": "implementation",
-      "owner": "codex-roadmap-continuation-20260808",
+      "owner": "codex-f9571c12-6af53c63",
       "deps": [
         "T-EXTRACTION-001",
         "T-ARCHIVES-001"
@@ -1275,16 +1409,38 @@
         ".claude/smoke-verify-runs/results-20260813T030531Z.json",
         ".claude/session-builds/v1m1d005/asset-native-source-guard.log",
         "context/systemic-bugs.md: SP-32 private-cache closure",
-        "git:7af5966590daa0e438d1ba5792d420c2b26c8b4a source-frozen Milestone 1 campaign, D-005 Agent Profile, B-1062, and B-1063 unit"
+        "git:7af5966590daa0e438d1ba5792d420c2b26c8b4a source-frozen Milestone 1 campaign, D-005 Agent Profile, B-1062, and B-1063 unit",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        "docs/modding/standard-source-authoring.md",
+        "N-0093",
+        ".claude/asset0905-continuation/v006-result.json",
+        ".claude/asset0905-continuation/source-batch2-before-client-build.json",
+        ".claude/asset0905-continuation/batch3-language-corpus.json",
+        ".claude/asset0905-continuation/batch3-fresh-conformance.json",
+        ".claude/asset0905-continuation/batch3-python-exit.json",
+        ".claude/asset0905-continuation/source-batch3-after-final-corpus.json",
+        ".claude/asset0905-continuation/batch3-examples-focused.log",
+        ".claude/asset0905-continuation/batch3-smoke-result.json",
+        ".claude/asset0905-continuation/batch3-final-corpus.json",
+        ".claude/asset0905-continuation/batch3-binary-hashes.json",
+        "port/src/catalog_model_generation.cpp",
+        "port/src/assetcatalog_load.c",
+        ".claude/smoke-verify-runs/results-20260922T220654Z.json",
+        "port/src/weapon_nested_runtime_harness.c: harnessModelGeneration ordinary_catalog/rejection",
+        ".claude/smoke-verify-runs/results-20260922T222736Z.json",
+        "port/src/modasset_compiler.c: compact full-identity source-hashed private cache fallback",
+        "tools/smoke-verify/tests/asset_compiler_long_install_public_animation_source_smoke.json",
+        ".claude/smoke-verify-runs/results-20260922T233640Z.json",
+        ".claude/session-builds/asset0905b/_build-session.out.log"
       ],
-      "detail": "Catalog/provider ownership, selected-source fail-closed behavior, typed dependency lifecycle, and generic effect dispatch are implemented. The umbrella remains partial for the current-tree all-family edited-source matrix and any production gaps it reveals under V-003, V-005, and V-008. Public typed archives are authoritative; engine-ready products are source-hashed rebuildable cache only. Runtime ROM/RomProvider fallback after extraction is an asset-chain failure, and native-mirror or loose-cache fallback after extraction is also a release failure.",
+      "detail": "Asset work remains partial. Accepted batch3 source freeze 157 paths SHA256 0CF630E3, isolated client 4F016CF4, 18/18 fresh-install source-consumer smoke, and full fresh corpus 8610 root / 9611 total archives across all 27 families with zero conformance errors. Affected C++ coverage is 305 passing cases plus one corrected example case (688 assertions), cumulative 306; prior terminal failures retained. English source parity 68/68 and V006 32/32 remain accepted. T044/045/047 bounded corrections are validated. T048 character policies and T049 real bounded Vorbis decoding are the next source batch. Executable graph topology, regional languages/fonts, complete glTF materials/animation, base MP3 and reverse mappings, and all-family edited-source utilization remain open. No GPU/human/controller/device-audio/release proof claimed. Full production closure requires removal of every runtime ROM/RomProvider fallback after extraction; any such fallback remains an asset-chain failure owned by c3844. Public editable sources feed consumers natively; generated products are source-hashed rebuildable caches only. 2026-09-22 selected public model loader owns retained source/texture generation instead of a bare generated modeldef; isolated build/guard and installed nested25/25, smoke35/35 pass. The ordinary ASSET_MODEL catalog-entry mutation, source edit, stage release and bad-image rejection passed installed nested25/25 and smoke35/35 on 2026-09-22 (results-20260922T222736Z.json). Remaining family/ROM fallback closure, rendered parity and equipped graph consumers remain open. 2026-09-22 long portable install cache path repair accepted within scope: full-identity/source/version SHA-256 flat private cache fallback activated base:animation_character_ao from extracted public glTF on installed source-only 10/10, fresh client SHA76CA2D10; isolated client/updater/tests builds, focused source contract1/81 and native source guard passed. The first short shared-install smoke RED9/10 was fixture-only and retained. Full extraction/graph/gameplay/mod-pack scope remains partial.",
       "tags": [
         "workbench-key:asset-native-runtime"
       ],
       "id": "T-RUNTIME-001",
-      "updated": "2026-08-13T03:38:09.054Z",
+      "updated": "2026-09-22T23:37:43.908Z",
       "created": "2026-07-30T15:16:40.133Z",
-      "model": "gpt-5.6-sol"
+      "model": "gpt-6"
     },
     {
       "type": "task",
@@ -3362,13 +3518,16 @@
     },
     {
       "phase": 4,
-      "owner": "codex-v1-m1-runner-20260812",
+      "owner": "codex-v1-orchestrator-20260827",
       "artifacts": [
         "context/evidence/2026-08-12-v006-failclosed-validation.md",
         "context/evidence/2026-08-12-v006-save-failclosed-result.json",
-        "context/evidence/2026-08-12-v006-extractor-failclosed.md"
+        "context/evidence/2026-08-12-v006-extractor-failclosed.md",
+        ".claude/asset0905-evidence/v006-result.json",
+        ".claude/asset0905-evidence/v006-client.log",
+        ".claude/asset0905-continuation/v006-result.json"
       ],
-      "detail": "Reopened on 2026-08-13 after B-1068 contradicted the prior validated scope. Existing extraction and MP setup receipts remain valid, but Combat Simulator scenario JSON load is not fail-closed: it mutates live setup/player/bot state before complete validation, accepts ambiguous numeric fallback when typed fields are present but invalid, and crosses arena-index/stagenum domains. Return to validated only after candidate-first v3 parsing, bounded v1/v2 migration, exact rollback tests, and an ordinary-client save/load/start smoke.",
+      "detail": "B1107 lifecycle and corrected Scenario fixture now pass complete32/32 ordinary smoke including19 transaction cases, match start and clean exit. Retained client2097E1C8 unchanged,source44186EA3 unchanged across run. Original30/32 timeout receipt retained. Current passing verdict is this Scenario gate; wider extraction/save failure receipts remain historical and are not newly revalidated.",
       "status": "partial",
       "verdict": "pass",
       "type": "validation",
@@ -3422,15 +3581,45 @@
         ".claude/session-builds/v006/v006-guard-conformance-final.log",
         "Final corrected receipt: smoke PASS 17/17 with player-config-inclusive 6/6 runtime cases; focused 84/7; full 56,544/1,026; fingerprint c09c897808af837dd9db7d1c77c6d1a196e54340178a1146546ac9581fc8a385 unchanged",
         "commit:510a1e56 Runtime - V-006: Validate fail-closed asset and save paths",
-        "context/bugs.md:B-1068 current source contradiction: scenarioLoad publishes partial globals, crosses arena/stagenum domains, and falls back from present invalid typed IDs"
+        "context/bugs.md:B-1068 current source contradiction: scenarioLoad publishes partial globals, crosses arena/stagenum domains, and falls back from present invalid typed IDs",
+        "B-1068 coherent source freeze on fadf9ff6: strict parse -> typed plan -> one commit; exact shipping-v3 eight-companion migration; exact declared/live human equality; verification not run",
+        "port/include/scenario_codec.h; port/src/scenario_codec.c; port/include/scenario_save.h; port/src/scenario_save.c; port/include/v006_scenario_harness.h; port/src/v006_scenario_harness.c; tests/test_scenario_codec.cpp; tests/test_scenario_save_transaction_static.cpp; tools/smoke-verify/tests/v006_scenario_transaction_smoke.json",
+        "Non-build review PASS: smoke JSON parses; 14 runtime cases equal 14 required case assertions; static contract scan clean; tracked diff-check clean; empty staged set; CMakeLists.txt unchanged; port/src/main.c scenario hook intentionally absent/pending orchestrator integration",
+        "Source-freeze SHA256: scenario_codec.h e9c7304e46cbc519; scenario_codec.c c62bb964e36dcd7b; scenario_save.h eb701b605502cc6f; scenario_save.c 8e6b479a75b5b0fd; v006_scenario_harness.h 970e296e08aa1e82; v006_scenario_harness.c fa8736873442a85d; test_scenario_codec.cpp 6785d3ca0ff5a2c4; test_scenario_save_transaction_static.cpp e521dcc3df4f347d; smoke cf7764bc650d3da2",
+        "B-1068 revised coherent source freeze on fadf9ff6: 16-case transactional parse/plan/commit/rollback matrix; exact prior-v3 hybrid compatibility; deliberate v1/v2 shapes; exact human equality; playerIdentityPrepare bot rig/runtime preflight; public ASSET_SCENARIO source preflight; verification not run",
+        "Owned paths: port/include/scenario_codec.h; port/src/scenario_codec.c; port/include/scenario_save.h; port/src/scenario_save.c; port/include/scenario_source_runtime.h; port/src/scenario_source_runtime.c; port/include/v006_scenario_harness.h; port/src/v006_scenario_harness.c; tests/test_scenario_codec.cpp; tests/test_scenario_save_transaction_static.cpp; tools/smoke-verify/tests/v006_scenario_transaction_smoke.json",
+        "Non-build review PASS: smoke JSON parses; 16 harness reports equal 16 required assertions; static authority/mutation scan clean; tracked diff-check and untracked whitespace scan clean; HEAD fadf9ff6; CMakeLists.txt unchanged; port/src/main.c hook intentionally absent; no build, pd-tests, smoke, guard, git-write, stage, commit, or push",
+        "Read-only player_identity dependency unchanged: header 3f0f9cae716c9df5; source 6a968b61aa4e6650; scenario planner consumes playerIdentityPrepare plan fields without editing dependency",
+        "Minimal active mission accessor for Theater: const char *scenarioSourceActiveMissionId(void), direct committed graph state only; no resolution heuristic",
+        "Revised SHA256: scenario_codec.h 59542df68d78f550; scenario_codec.c aa50c50c32f89c63; scenario_save.h fb054bb6e43326bf; scenario_save.c 7685c7500247c459; scenario_source_runtime.h 756867379b8cb133; scenario_source_runtime.c 0f421675907f6d8c; v006_scenario_harness.h 970e296e08aa1e82; v006_scenario_harness.c 58546bdb1cd797e5; test_scenario_codec.cpp dff4382d0ad2b791; test_scenario_save_transaction_static.cpp f2cc8099a39924b1; smoke 512cb77e7b08ec0e",
+        "B-1068 orchestrator review blocker corrected: legacy v1 arena path now zero-initializes catalog_stage_result_t, calls catalogResolveStageForType(entry->id, ASSET_ARENA, &stage), and proves entry/stagenum/catalog-hash invariants before scenarioSourceFindEntryForStage; no partial stage assignment remains",
+        "Focused non-build contract updated: exactly two arena-domain resolver calls, legacy resolution ordered before public Scenario lookup, complete result invariants pinned, existing v1_numeric_migration behavioral harness retained; static scan and diff-check pass, JSON remains 16/16; no build/test/smoke/CMake/main/git actions",
+        "Replacement freeze SHA256: scenario_save.c 7b150508e38492179e7a7243546c326a2a5a0e5a2107d2c0d4e9ebc7e193c319; test_scenario_save_transaction_static.cpp 3f69110f8e4c5db4b3b105d2b4b399eba896c2a47d772b2cd4f90b2e817891d1; other nine owned hashes unchanged from N-0061",
+        "N-0088 B-1068 lazy ASSET_SCENARIO activation correction freeze; source-only, verification not_run",
+        "B-1068 plan-scoped stage/activation-ledger snapshot -> catalogLoadStageAsset -> exact public runtime validation -> acquired-only release -> exact ownership comparison before publication",
+        "Source freeze: 97 paths fingerprint 27d13ef6bbed5ede82b9afac54c4f4a455d99cb8db0f9557ee5581d0c52dda39; changed hashes scenario_save 719bed16, harness ad8a1489, static 8a1c03a4, smoke e95bebb7",
+        "context/bugs.md:B-1107",
+        ".claude/smoke-verify-runs/results-20260827T194121Z.json",
+        ".claude/smoke-verify-runs/20260827T193941Z-v006_scenario_transaction_smoke/logs/game client/pd-client.log",
+        "Replacement isolated incremental client/tests builds PASS; focused [b1068] PASS 182 assertions/19 cases; asset_native_source_guard PASS",
+        "Second production smoke retained/rejected at 5/32: authored colmesh activated but exact ASSET_SCENARIO runtime binding absent; runner=1 client=2",
+        "Post-rejection 97-path source fingerprint unchanged: 27d13ef6bbed5ede82b9afac54c4f4a455d99cb8db0f9557ee5581d0c52dda39",
+        "Workbench N-0089: B-1107 diagnosed atomic colmesh plus runtime-adapter lifecycle blocker",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        ".claude/asset0905-evidence/source-portable-before.json",
+        ".claude/asset0905-evidence/v006-result.json",
+        ".claude/asset0905-evidence/v006-client.log",
+        ".claude/asset0905-continuation/v006-result.json",
+        ".claude/asset0905-continuation/source-before-smoke.json",
+        ".claude/asset0905-continuation/source-after-smoke.json"
       ],
       "title": "Prove extraction, source-load, and save failures are fail-closed",
       "area": "RUNTIME",
       "lane": "verification",
       "id": "V-006",
-      "updated": "2026-08-13T06:01:31.730Z",
+      "updated": "2026-09-05T23:56:33.716Z",
       "created": "2026-08-01T12:52:08.433Z",
-      "model": "gpt-5.6-sol"
+      "model": "GPT-6 / Codex"
     },
     {
       "phase": 4,
@@ -3575,23 +3764,29 @@
       ],
       "type": "task",
       "area": "TOOLING",
-      "detail": "Rerun every affected asset, archive, runtime, menu, input, and creator proof after the residual family changes stabilize. Retain raw logs, manifests, screenshots, controller identity, and timing receipts under a durable repo-local artifact directory; replace deleted .claude references in all 28 affected Workbench records. Reopen any validated claim that cannot be reproduced. Completion requires zero Workbench evidence/artifact paths resolving to missing files.",
+      "detail": "Bounded evidence-support unit accepted at source level and remains partial. Live source parsing derives 417 ordinary-gameplay cells (63 solo, 108 Combat Simulator, 120 challenges, 126 co-op/counter-op), records a separate 21-row Perfect Dark derivation, and retains all 47 authored arenas with explicit Bonus/Random exclusions. The checked 60-cell shard is truthfully non-executable: every runner fixture is missing, gameplay_commands is empty, and receipt commands only convert future retained smoke observations. Accepted receipts require exact smoke-runner identity, positive exact assertions, explicit exit/timeout/crash fields, real normalized log/evidence artifacts, artifact-base re-read and SHA-256 verification on resume/merge, exact source inventory revision/fingerprint, one client-binary fingerprint, and overlap/mixed-binary rejection. Orchestrator review batch passed 11/11 Python tests. No gameplay cell has run; fixture generation/runtime driving and the wider durable asset-program receipt refresh remain incomplete, so V-010 stays missing/not_run.",
       "evidence": [
-        "roadmap truth audit 2026-08-08: 28 records reference deleted .claude artifacts"
+        "tools/base_content_coverage.py",
+        "tests/test_base_content_coverage.py",
+        "tools/base-content-coverage/README.md",
+        "tools/base-content-coverage/matrix-v1.json",
+        "tools/base-content-coverage/shard-00-of-07.json",
+        "2026-08-27 orchestrator acceptance: python tests/test_base_content_coverage.py PASS 11/11 in 1.021s; coordination receipt q_20260827170444846_c29e2fbc"
       ],
       "title": "Refresh transient asset-program evidence into durable repo-local receipts",
       "lane": "verification-infrastructure",
-      "owner": "unassigned",
+      "owner": "codex-v1-m1-coverage-20260827",
       "tags": [
         "durable-evidence",
         "workbench-truth",
         "handoff:ultra",
         "handoff:lina"
       ],
-      "status": "missing",
+      "status": "partial",
       "id": "T-TOOLING-003",
-      "updated": "2026-08-08T16:57:11.886Z",
-      "created": "2026-08-08T16:57:01.765Z"
+      "updated": "2026-08-27T17:05:15.874Z",
+      "created": "2026-08-08T16:57:01.765Z",
+      "model": "gpt-5.6-luna"
     },
     {
       "deps": [
@@ -5258,11 +5453,18 @@
       "lane": "release-1.0",
       "type": "task",
       "evidence": [
-        "port/src/theater.c",
+        "port/include/theater_format.h",
+        "port/src/theater_format.c",
         "port/include/theater.h",
-        "port/src/spectator.c",
-        "port/fast3d/pdgui_friends.cpp",
-        "context/designs/connectivity/connectivity-and-modern-main-menu.md"
+        "port/src/theater.c",
+        "tests/test_theater_format.cpp",
+        "src/include/types.h:320",
+        "src/include/game/prop.h:24",
+        "src/game/prop.c:173",
+        "src/game/prop.c:266",
+        "src/game/varsreset.c:22",
+        "port/include/scenario_source_runtime.h:35",
+        "port/src/scenario_source_runtime.c:7318"
       ],
       "phase": 5,
       "status": "partial",
@@ -5279,11 +5481,12 @@
       "deps": [
         "D-004"
       ],
-      "detail": "A participant-snapshot recorder, replay reader, replay list, and shared spectator overlay exist, but they are not a usable match replay system. Current recording only samples SPECTATOR_SOURCE_LIVE participants, never emits THEATER_RECORD_MATCH_CONFIG, does not reconstruct a campaign or Combat Simulator stage/world, has no pause/seek/index, and cannot capture an ordinary local campaign or host match without a synthetic spectator path. Complete a versioned, bounded, fail-closed replay format and lifecycle that records authoritative match identity/configuration and enough ordered state/events/checkpoints to reconstruct campaign and Combat Simulator sessions after process restart. Playback must load the exact stage/catalog/manifest context, drive one shared spectator/Theater camera surface, support browse/play/pause/seek/stop, handle interrupted or corrupt files safely, preserve forward migration rules, and cleanly return to the menu. Include offline campaign, local Combat Simulator, and listen-host Combat Simulator where applicable; private/non-replayable data must not be serialized.",
-      "owner": "unassigned",
+      "detail": "Replacement five-path v2 recording/format/reader foundation is source-frozen on canonical fadf9ff6 with the N-0069 shared lifecycle seam connected read-only through game/prop.h. Every recordable prop is keyed by its never-zero process-lifetime allocation generation rather than an address or mutable-state fingerprint. A zero generation rejects the initial checkpoint and deletes the unpublished candidate, or rolls back a later checkpoint and finalizes only the last accepted prefix.\n\nThe codec persists typed manifest/config identity, Campaign variant and roster roles, participant views/orientation, semantic checkpoints/events, a deterministic seek index, and atomic .part lifecycle. Clean finish and durable-END header repair publish COMPLETE; an interrupted accepted prefix reconstructed without a durable END publishes COMPLETE|RECOVERED, and validated replay-list state exposes both flags. Full record CRC/header damage and semantic corruption reject without publication.\n\nT-THEATER-001 remains partial: 512 MiB uncompressed full checkpoints are not full-campaign storage and require a compression/delta plus persistent-reader unit; effects/explosions/smoke and animation/audio/cutscene streams are not captured; coherent playback/play/pause/seek/stop is not connected; theaterStartReplay validates then rejects without live mutation; the initial consolidated build rejection was corrected, then focused Theater tests rejected two error-precedence cases. The flag-order and header-short classification corrections are source-frozen; their focused rerun, broader build/tests, runtime, and V-011 remain not_run.",
+      "owner": "codex-v1-m2-theater-sol-20260827",
       "id": "T-THEATER-001",
-      "updated": "2026-08-12T19:45:35.609Z",
-      "created": "2026-08-12T19:45:35.609Z"
+      "updated": "2026-08-27T19:05:36.280Z",
+      "created": "2026-08-12T19:45:35.609Z",
+      "model": "gpt-5.6-sol"
     },
     {
       "title": "Ship a minimal graph-backed sample mod weapon in custom match slots",
@@ -5328,11 +5531,12 @@
         "V-005",
         "V-006",
         "V-008",
-        "V-009"
+        "V-009",
+        "T-ENGINE-005"
       ],
       "artifacts": [],
       "title": "Validate complete base-game implementation and graph-backed gameplay parity",
-      "owner": "codex-v1-m1-runner-20260812",
+      "owner": "codex-v1-m1-v010-carrington-sol-20260827",
       "measurements": [],
       "phase": 5,
       "status": "missing",
@@ -5489,14 +5693,15 @@
         ".claude/source-freeze/v1m1b1106/accepted-modder-workflow.log + accepted-example-pdmesh-sources.log + accepted-native-source-guard.log + accepted-smoke-definition.log: workflow/source/guard/fixture gates pass",
         ".claude/source-freeze/v1m1b1106/product-pre.manifest.sha256 + accepted-product-post.manifest.sha256: zero product-source differences",
         ".claude/source-freeze/v1m1b1106/accepted-verification-pre.manifest.sha256 + accepted-verification-post.manifest.sha256: zero verifier-source differences",
-        "context/session-log.md: 2026-08-26 B-1106 automation accepted and power-interruption recovery; no production smoke or visual claim"
+        "context/session-log.md: 2026-08-26 B-1106 automation accepted and power-interruption recovery; no production smoke or visual claim",
+        "T-TOOLING-003/N-0060: corrected 417-cell evidence index source-accepted; Python 11/11; checked shard non-executable; zero gameplay cells run"
       ],
       "verdict": "not_run",
       "area": "RELEASE",
-      "detail": "V-010 remains the release gate for complete graph-backed base-game implementation at 3 validated, 7 partial, and 5 missing leaves out of 15 (20 percent production-validated). The accepted B-1086 predecessor remains exact client 36EA05D1... with focused 97/7, full 67,361/1,230, all conformance/workflow/native-source gates, unchanged manifests, and clean 733/733 extraction; its 20/26 visual receipt remains rejected. B-1106 is exactly traced to 33 base:model_cchicrob corners whose Type-3 paired lists retain RSP slots across a geometry-knowledge reset. Schema v3 now records every ordered vertex_load, every triangle vertex_cache_slots triplet, one Type-3 vertex_scope retain boundary, and one non-Type-3 vertex_cache_reset clear boundary. C/Python consumers simulate the bounded 64-slot table, reject unloaded/false snapshots and malformed arrays, cap matrix carriers at 32766, and require flattened loads to be restorable; the deterministic Type-3 baseline owns inherited lighting/texgen but not caller-owned fog. Exact client 7EF396C9... and tests 4D14886D... pass focused 143/8, full 67,451/1,231, all conformance/workflow/source/native guards, and unchanged accepted product/verification manifests. A host power interruption occurred before any replacement production smoke was queued or launched; recovery found no active process or queue and revalidated all binary hashes. V-010 stays missing/not_run pending one clean 733/733 ordinary 3440-wide Carrington smoke, direct six-frame V-009/door review, and representative Campaign plus Combat Simulator propagation.",
+      "detail": "V-010 remains the release gate for complete graph-backed base-game implementation at 3 validated, 9 partial, and 4 missing leaves out of 16 (19 percent production-validated). The accepted B-1086 predecessor remains exact client 36EA05D1... with focused 97/7, full 67,361/1,230, all conformance/workflow/native-source gates, unchanged manifests, and clean 733/733 extraction; its 20/26 visual receipt remains rejected. B-1106 is exactly traced to 33 base:model_cchicrob corners whose Type-3 paired lists retain RSP slots across a geometry-knowledge reset. Schema v3 now records every ordered vertex_load, every triangle vertex_cache_slots triplet, one Type-3 vertex_scope retain boundary, and one non-Type-3 vertex_cache_reset clear boundary. C/Python consumers simulate the bounded 64-slot table, reject unloaded/false snapshots and malformed arrays, cap matrix carriers at 32766, and require flattened loads to be restorable; the deterministic Type-3 baseline owns inherited lighting/texgen but not caller-owned fog. Exact client 7EF396C9... and tests 4D14886D... pass focused 143/8, full 67,451/1,231, all conformance/workflow/source/native guards, and unchanged accepted product/verification manifests. A host power interruption occurred before any replacement production smoke was queued or launched; recovery found no active process or queue and revalidated all binary hashes. V-010 stays missing/not_run pending one clean 733/733 ordinary 3440-wide Carrington smoke, direct six-frame V-009/door review, and representative Campaign plus Combat Simulator propagation. T-TOOLING-003 now has an accepted source-level coverage index and remains partial: its checked shard has no gameplay fixtures or commands, and no V-010 gameplay cell has run.",
       "lane": "release-1.0",
       "id": "V-010",
-      "updated": "2026-08-26T21:37:30.870Z",
+      "updated": "2026-08-27T17:09:36.296Z",
       "created": "2026-08-12T19:45:35.637Z",
       "model": "gpt-5.6-sol"
     },
@@ -5613,9 +5818,10 @@
         "git:7af5966590daa0e438d1ba5792d420c2b26c8b4a source-frozen Milestone 1 campaign, D-005 Agent Profile, B-1062, and B-1063 unit",
         "context/bugs.md:B-1103/B-1104 active T-ENGINE-004 release blockers",
         ".claude/source-freeze/v1m1b1104v58/invitee-route-retained-log-revalidation.json: corrected retained-log evaluation passes 170/170 on exact v58 client 5DA75BE6...; immutable raw receipt remains rejected at 169/170 solely for a stale epoch regex; product source is unchanged and final verifier/static contract is 726a2c96... / 108 assertions in 2 cases.",
-        "context/evidence/2026-08-26-t-engine-004-closure.md: T-ENGINE-004 validated at commit 8b254877; V-010 dependency totals are 3 validated, 7 partial, 5 missing (20 percent); next implementation unit B-1105 remains under V-010"
+        "context/evidence/2026-08-26-t-engine-004-closure.md: T-ENGINE-004 validated at commit 8b254877; V-010 dependency totals are 3 validated, 7 partial, 5 missing (20 percent); next implementation unit B-1105 remains under V-010",
+        "T-TOOLING-003/N-0060: corrected 417-cell evidence index source-accepted; Python 11/11; checked shard non-executable; zero gameplay cells run"
       ],
-      "detail": "Release milestone 1 has 3 validated, 7 partial, and 5 missing across 15 explicit dependencies (20 percent production-validated). T-TESTS-002 is validated after D-005 and the complete campaign persistence matrix. T-ENGINE-004 retains production-verified B-1101/B-1102 animation and two-cycle Combat Simulator evidence and B-1067/B-1103/B-1104 protocol-v58 stage transaction evidence. Exact client 5DA75BE6... passes all seven current-v58 ordinary-client paths, including both friend-play authority roles, co-op, Counter-Op, both rollback cases, and reconnect. B-1104 is a regression gate; no further D-003 source or smoke work is pending.\n\nT-ENGINE-004 is validated through its finite section 9.10 matrix. The immediate structural target is B-1105 under V-010, followed by the remaining explicit Milestone 1 dependencies. Completion still requires V-010 validated/pass with durable ordinary-client evidence and V-009 retained as a visual regression gate; milestone totals do not move merely because this one transaction unit closed.",
+      "detail": "Release milestone 1 has 3 validated, 9 partial, and 4 missing across 16 explicit dependencies (19 percent production-validated). T-TESTS-002 is validated after D-005 and the complete campaign persistence matrix. T-ENGINE-004 retains production-verified B-1101/B-1102 animation and two-cycle Combat Simulator evidence and B-1067/B-1103/B-1104 protocol-v58 stage transaction evidence. Exact client 5DA75BE6... passes all seven current-v58 ordinary-client paths, including both friend-play authority roles, co-op, Counter-Op, both rollback cases, and reconnect. B-1104 is a regression gate; no further D-003 source or smoke work is pending.\n\nT-ENGINE-004 is validated through its finite section 9.10 matrix. The immediate structural target is B-1105 under V-010, followed by the remaining explicit Milestone 1 dependencies. Completion still requires V-010 validated/pass with durable ordinary-client evidence and V-009 retained as a visual regression gate; milestone totals do not move merely because this one transaction unit closed. The corrected T-TOOLING-003 evidence index is source-accepted/partial after 11/11 Python tests, but its first shard is explicitly non-executable and no gameplay coverage cell has run.",
       "tags": [
         "release",
         "v1.0",
@@ -5627,7 +5833,7 @@
       "status": "partial",
       "area": "RELEASE",
       "id": "T-RELEASE-002",
-      "updated": "2026-08-26T12:39:56.980Z",
+      "updated": "2026-08-27T17:09:36.415Z",
       "created": "2026-08-12T20:05:40.603Z",
       "model": "gpt-5.6-sol"
     },
@@ -5834,6 +6040,1115 @@
       "id": "D-005",
       "updated": "2026-08-13T03:38:08.997Z",
       "created": "2026-08-12T23:53:40.136Z"
+    },
+    {
+      "type": "task",
+      "lane": "release-1.0",
+      "title": "Close Combat Simulator bot attribution spawn and character rig defects",
+      "owner": "codex-v010-combatsim-sol-20260827",
+      "detail": "Coherent source implementation complete on canonical fadf9ff6 baseline. B-249 converts compact runtime roster indices once to stable participant config slots before player/bot persistent attribution and emits MPSTATS.ATTRIBUTION receipts. B-242 uses one full-height CDTYPE_ALL plus rendered-mesh capsule policy for initial player, orchestrated player, respawn, bot spawn, and B-174 recovery; it preserves self-perimeter state and propagates player rejection before orchestration completion. B-174 recovery is bounded to 4096 authored waypoints, deterministic by stable bot slot, separated from the live roster, capsule-safe, route-invalidating, latch-resetting, and contains no arena-specific branch. B-183 identity preparation rejects empty/mismatched rig classes and body assembly rejects missing headspots/head modeldefs by exact catalog identity; authored base:dark_combat body 86 plus base:head_dark_combat head 4 remains the exact positive fixture. Exact owned changed paths: port/include/player_identity.h; port/src/player_identity.c; src/game/body.c; src/game/bot.c; src/game/mplayer/mpspawn_orchestrate.c; src/game/mpstats.c; src/game/player.c; src/game/playerreset.c; src/game/spawnpool.c; src/include/game/player.h; src/include/game/playerreset.h; src/include/game/spawnpool.h; tests/test_player_identity.cpp; tests/test_combat_sim_defect_cohort.cpp; tools/smoke-verify/tests/combat_sim_defect_cohort.json. CMakeLists.txt remains orchestrator-owned; add tests/test_combat_sim_defect_cohort.cpp to SRC_TESTS before the shared freeze build. No C/C++ build, pd-tests, game, smoke, capture, git-write, staging, commit, or push has run; production fixture is authored but unexecuted pending orchestrator freeze.",
+      "evidence": [
+        "src/game/mpstats.c: runtime-to-stable config-slot attribution and MPSTATS.ATTRIBUTION receipt",
+        "src/game/spawnpool.c + src/include/game/spawnpool.h: canonical full-height CDTYPE_ALL/rendered-mesh capsule policy with exact self-perimeter restoration",
+        "src/game/playerreset.c + src/include/game/playerreset.h: every initial placement fail-closed as PLAYER_RESET_SPAWN_FAILED",
+        "src/game/player.c + src/include/game/player.h + src/game/mplayer/mpspawn_orchestrate.c: bool rejection propagated before orchestration completion",
+        "src/game/bot.c: finite deterministic separated capsule-safe spawn/recovery and latch reset",
+        "port/src/player_identity.c + port/include/player_identity.h + tests/test_player_identity.cpp: exact rig-class validation and dynamic cases",
+        "src/game/body.c: catalog-ID BODY.HEADSPOT.REJECT/RESOLVED and fail-closed required head model",
+        "tests/test_combat_sim_defect_cohort.cpp: named static source-integrity contracts, pending CMake insertion/build",
+        "tools/smoke-verify/tests/combat_sim_defect_cohort.json: named ordinary-client Car Park 12-bot fixture with four V-009 captures, unrun",
+        "non-build review 2026-08-27: git diff --check PASS; JSON parse/shape PASS; propagation search PASS; foreign staged set empty; asset_native_source_guard.py PASS",
+        "V-010"
+      ],
+      "status": "partial",
+      "area": "ENGINE",
+      "deps": [
+        "T-ENGINE-004"
+      ],
+      "phase": 5,
+      "model": "gpt-5.6-sol",
+      "tags": [
+        "release:v1.0",
+        "milestone:1",
+        "parent:V-010",
+        "bug:B-249",
+        "bug:B-242",
+        "bug:B-174",
+        "bug:B-183",
+        "combat-sim",
+        "spawn",
+        "character-rig"
+      ],
+      "id": "T-ENGINE-005",
+      "updated": "2026-08-27T16:59:17.486Z",
+      "created": "2026-08-27T16:25:47.710Z"
+    },
+    {
+      "owner": "codex-f9571c12-6af53c63",
+      "tags": [
+        "asset-pipeline",
+        "2026-09-05-batch"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        ".claude/asset0905-evidence/source-portable-before.json",
+        ".claude/asset0905-evidence/v006-result.json",
+        ".claude/asset0905-evidence/v006-client.log"
+      ],
+      "phase": 3,
+      "status": "implemented",
+      "deps": [
+        "T-RUNTIME-001"
+      ],
+      "detail": "Atomic metadata colmesh/runtime lifecycle connected. Build and focused contracts pass; ordinary V006 matrix19/19 and match start pass on source85609312. Overall smoke30/32 rejected only by timeout/absent scripted exit; retain strict readiness and final source freeze.",
+      "title": "B-1107: activate collision payloads and runtime adapters as one catalog lifecycle",
+      "area": "ASSETS",
+      "lane": "source-runtime-authority",
+      "type": "task",
+      "id": "T-ASSETS-038",
+      "updated": "2026-09-05T23:33:05.495Z",
+      "created": "2026-09-05T22:48:14.551Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "owner": "codex-f9571c12-6af53c63",
+      "tags": [
+        "asset-pipeline",
+        "2026-09-05-batch"
+      ],
+      "evidence": [
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        ".claude/asset0905-evidence/source-before.json",
+        ".claude/asset0905-evidence/gltf-python.log",
+        ".claude/asset0905-evidence/native-source-guard.log",
+        ".claude/asset0905-evidence/conformance-selftest.log",
+        ".claude/asset0905-evidence/conformance-examples.log",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        ".claude/asset0905-evidence/source-portable-before.json",
+        ".claude/asset0905-evidence/v006-result.json",
+        ".claude/asset0905-evidence/v006-client.log"
+      ],
+      "phase": 3,
+      "status": "implemented",
+      "deps": [
+        "T-EXTRACTION-001",
+        "T-RUNTIME-001"
+      ],
+      "detail": "Strict glTF document/local or embedded buffer admission, provider loading, shared buffer snapshot/cache hash, overflow-safe bounds and exact growable animation tails implemented. Python10 cases, C++ glTF/helper/archive cases, source guard, all27-family52-archive conformance, and client build pass. Optional root key and stale ABI test issues corrected with receipts. Full DCC visual semantics and edited-source production demonstration remain separate open scope.",
+      "title": "Preserve standard glTF source buffers and animation tail semantics",
+      "area": "ASSETS",
+      "lane": "source-runtime-authority",
+      "type": "task",
+      "id": "T-ASSETS-039",
+      "updated": "2026-09-05T23:33:05.607Z",
+      "created": "2026-09-05T22:48:14.562Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "owner": "codex-f9571c12-6af53c63",
+      "tags": [
+        "asset-pipeline",
+        "2026-09-05-batch"
+      ],
+      "evidence": [
+        "port/src/weapon_graph_runtime.c",
+        "port/src/prop_graph_runtime.c",
+        "tests/test_prop_graph_runtime.cpp",
+        "tests/test_mod_external_archive_static.cpp",
+        ".claude/asset0905-evidence/pd-tests.log",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        ".claude/asset0905-evidence/source-portable-before.json",
+        ".claude/asset0905-evidence/v006-result.json",
+        ".claude/asset0905-evidence/v006-client.log"
+      ],
+      "phase": 3,
+      "status": "implemented",
+      "deps": [
+        "T-MODDING-002"
+      ],
+      "detail": "Graph catalog references/model-audio preflight, numeric bounds, implemented policy values and prop health validation corrected. Production math shim issue corrected using ordered FLT_MAX/DBL_MAX bounds; focused7 cases502 assertions and corrected client build pass. Open D006 owns graph topology/shared-state/base-dispatch architecture.",
+      "title": "Enforce graph source references and typed parameter validation",
+      "area": "ASSETS",
+      "lane": "source-runtime-authority",
+      "type": "task",
+      "id": "T-ASSETS-040",
+      "updated": "2026-09-05T23:33:05.549Z",
+      "created": "2026-09-05T22:48:14.569Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "owner": "user",
+      "status": "decided",
+      "type": "decision",
+      "area": "MODDING",
+      "deps": [
+        "T-MODDING-002"
+      ],
+      "options": [
+        {
+          "id": "A",
+          "tradeoff": "Run authored events, connections, gates and shared state through a versioned execution layer, reusing named native modules; requires staged runtime changes and gameplay parity proof.",
+          "label": "Executable modular graphs"
+        },
+        {
+          "id": "B",
+          "tradeoff": "Keep native execution and expose validated module parameters/composition only; reject unsupported graph wiring and gates, with less user control.",
+          "label": "Strict native-module composition"
+        }
+      ],
+      "phase": 3,
+      "lane": "graph-authoring",
+      "tags": [
+        "asset-pipeline",
+        "architecture",
+        "2026-09-05"
+      ],
+      "resolution": "Option A - Executable modular graphs. On 2026-09-08 the user explicitly selected user-authored events, connections, gates and state driving reusable native modules. Proceed with the versioned execution layer and production integration; staged tests and real gameplay parity remain required.",
+      "detail": "Mike chose option A September8: executable modular graphs. Authored topology and state drive reusable named native modules; scalar projection alone is insufficient. Authorized kernel, source-generation/catalog lifetime, native-action preparation and explicit action-copy registry are applied15:56. Initial compile failed at three C++ header-ordering seams, corrected15:58; tests still pending. Complete equipped definitions, dependency slot leases, lifecycle/copy/getter hooks, network/Theater and base parity remain required. No further architecture choice is pending.",
+      "title": "Choose production execution contract for editable behavior graphs",
+      "evidence": [
+        "port/src/weapon_graph_runtime.c:3875",
+        "port/src/weapon_graph_runtime.c:4802",
+        "context/designs/modding/weapon-behavior-graph-assets.md:274"
+      ],
+      "id": "D-006",
+      "updated": "2026-09-08T19:59:41.902Z",
+      "created": "2026-09-05T22:49:36.162Z"
+    },
+    {
+      "detail": "Both affected fixture roots now use supported timeout_seconds125. All141 root fixtures inspected, only2 wrong keys. Corrected Scenario run PASS32/32 including19 transaction cases, match start and clean scripted exit96.3s. Retained client2097E1C8 unchanged,121-path source44186EA3 unchanged before/after. No product rebuild needed.",
+      "deps": [
+        "T-ASSETS-038"
+      ],
+      "status": "validated",
+      "title": "Repair V-006 smoke fixture timeout contract",
+      "phase": 1,
+      "evidence": [
+        "tools/smoke-verify/tests/v006_scenario_transaction_smoke.json",
+        "tools/smoke-verify/tests/v006_save_failclosed_smoke.json",
+        "port/src/smoke_harness.c:1325",
+        ".claude/asset0905-continuation/v006-result.json",
+        ".claude/asset0905-continuation/source-before-smoke.json",
+        ".claude/asset0905-continuation/source-after-smoke.json"
+      ],
+      "area": "TESTS",
+      "type": "task",
+      "tags": [
+        "v006",
+        "smoke",
+        "timeout",
+        "asset0905"
+      ],
+      "owner": "codex-f9571c12-6af53c63",
+      "id": "T-TESTS-003",
+      "updated": "2026-09-05T23:56:33.703Z",
+      "created": "2026-09-05T23:33:52.969Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "phase": 1,
+      "detail": "Strict numeric/unit parsing and s16 prop-health bounds are connected through graph compilation, hydration and Forge. Python cases and affected C++ production-record/hydration cases pass; isolated tests/client/updater build. Broader Forge ordinary gameplay is not newly proven. Receipts .claude/asset0905-continuation/; graph document parser work is separate T-ASSETS-045.",
+      "status": "implemented",
+      "area": "ASSETS",
+      "evidence": [
+        "port/src/weapon_graph_runtime.c:2032",
+        "port/src/weapon_graph_runtime.c:2264",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        ".claude/asset0905-continuation/source-batch2-before-build.json",
+        ".claude/asset0905-continuation/batch2-native-source-guard-corrected.log",
+        ".claude/asset0905-continuation/batch2-conformance-selftest.log",
+        ".claude/asset0905-continuation/focused-stdout.log",
+        ".claude/asset0905-continuation/focused-corrected-language.log",
+        ".claude/asset0905-continuation/scene-smoke-result.json",
+        ".claude/asset0905-continuation/batch2-binary-hashes.json"
+      ],
+      "title": "Consume graph tunables with complete numeric and unit validation",
+      "owner": "codex-f9571c12-6af53c63",
+      "type": "task",
+      "deps": [
+        "T-ASSETS-040"
+      ],
+      "id": "T-ASSETS-041",
+      "updated": "2026-09-06T00:43:24.548Z",
+      "created": "2026-09-05T23:42:02.726Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "phase": 1,
+      "detail": "Shared null/empty/count/Latin1 source and runtime helper passes9C++ and4Python cases; independent verifier16cases and actual68/68English bank/native-table parity pass with full row/hash/RZIP receipts. Inventory476rawcandidates across7locales;68publishedEnglish. Regional emission/atomic locale selection/gameglyphs remain partial. Concrete language design saved.",
+      "status": "partial",
+      "area": "ASSETS",
+      "evidence": [
+        "port/src/romextract_pdlang.c:621",
+        "port/src/langmanifest.c:517",
+        "port/src/romextract_pdfont.c:11",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        ".claude/asset0905-continuation/source-batch2-before-build.json",
+        ".claude/asset0905-continuation/batch2-native-source-guard-corrected.log",
+        ".claude/asset0905-continuation/batch2-conformance-selftest.log",
+        ".claude/asset0905-continuation/focused-stdout.log",
+        ".claude/asset0905-continuation/focused-corrected-language.log",
+        ".claude/asset0905-continuation/scene-smoke-result.json",
+        ".claude/asset0905-continuation/batch2-binary-hashes.json",
+        ".claude/asset0905-continuation/batch3-language-corpus.json",
+        ".claude/asset0905-continuation/batch3-fresh-conformance.json",
+        ".claude/asset0905-continuation/batch3-python-exit.json"
+      ],
+      "title": "Extract and select every available base-game language source",
+      "owner": "codex-f9571c12-6af53c63",
+      "type": "task",
+      "deps": [
+        "T-EXTRACTION-001",
+        "T-RUNTIME-001"
+      ],
+      "id": "T-ASSETS-042",
+      "updated": "2026-09-06T00:55:14.375Z",
+      "created": "2026-09-05T23:42:02.740Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "owner": "codex-f9571c12-6af53c63",
+      "deps": [
+        "T-ASSETS-039"
+      ],
+      "type": "task",
+      "status": "validated",
+      "tags": [
+        "gltf",
+        "source-authority",
+        "rendering",
+        "collision"
+      ],
+      "detail": "Shared selected scene, parent/TRS/matrix, instancing and reflected winding semantics connected to collision/model compiler and Scenario renderer. Python16 and C++ scene contracts pass. Real clean-install smoke18/18 across12cases passes47.1s with client87D74D0D and unchanged148-path source F1500A6F. Includes decoded keys, external buffer edit/cache refresh and invalid scene/native bounds. CPU/model/collision evidence only; GPU/human visual/material/skin/animation parity remains separate.",
+      "title": "Apply standard glTF scenes and node transforms consistently to rendering and collision",
+      "area": "ASSETS",
+      "evidence": [
+        "port/src/modasset_compiler.c:2603",
+        "port/fast3d/scenario_scene_renderer.cpp:737",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        ".claude/asset0905-continuation/source-batch2-before-build.json",
+        ".claude/asset0905-continuation/batch2-native-source-guard-corrected.log",
+        ".claude/asset0905-continuation/batch2-conformance-selftest.log",
+        ".claude/asset0905-continuation/focused-stdout.log",
+        ".claude/asset0905-continuation/focused-corrected-language.log",
+        ".claude/asset0905-continuation/scene-smoke-result.json",
+        ".claude/asset0905-continuation/batch2-binary-hashes.json"
+      ],
+      "phase": 1,
+      "id": "T-ASSETS-043",
+      "updated": "2026-09-06T00:43:24.531Z",
+      "created": "2026-09-05T23:48:13.982Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "evidence": [
+        ".claude/asset0905-continuation/fresh-extraction-conformance.log",
+        ".claude/asset0905-continuation/scene-smoke-client.log",
+        ".claude/asset0905-continuation/batch3-language-corpus.json",
+        ".claude/asset0905-continuation/batch3-fresh-conformance.json",
+        ".claude/asset0905-continuation/batch3-python-exit.json",
+        ".claude/asset0905-continuation/batch3-final-corpus.json",
+        ".claude/asset0905-continuation/batch3-final-corpus-exit.json",
+        ".claude/asset0905-continuation/batch3-smoke-result.json",
+        ".claude/asset0905-continuation/batch3-examples-focused.log",
+        ".claude/asset0905-continuation/batch3-binary-hashes.json"
+      ],
+      "deps": [
+        "T-ASSETS-001"
+      ],
+      "detail": "Selected WAV/MP3 source validation respects public voice.ini descriptive metadata authority. Eight corrected audio cases and native guard pass; new actual client4F016CF4 fresh extraction full corpus8610root/9611total passes0errors all27families on157unchangedpaths0CF630E3. Framing/metadata/source conformance is proven; actual audio PCM/device/audibility belongs to T046/T049.",
+      "area": "ASSETS",
+      "status": "validated",
+      "type": "task",
+      "title": "Align typed audio conformance with actual standard source formats",
+      "phase": 1,
+      "owner": "codex-f9571c12-6af53c63",
+      "tags": [
+        "asset0905",
+        "audio",
+        "conformance",
+        "source-authority"
+      ],
+      "id": "T-ASSETS-044",
+      "updated": "2026-09-06T01:22:54.021Z",
+      "created": "2026-09-06T00:33:04.511Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "deps": [
+        "T-ASSETS-040",
+        "T-ASSETS-041"
+      ],
+      "tags": [
+        "asset0905",
+        "graphs",
+        "json",
+        "source-authority"
+      ],
+      "type": "task",
+      "phase": 1,
+      "area": "ASSETS",
+      "owner": "codex-f9571c12-6af53c63",
+      "title": "Parse graph source documents and exported entries without ambiguity",
+      "detail": "Strict complete decoded JSON, object rows, export uniqueness and final runtime string capacities implemented. All11new actual compiler/runtime boundary cases pass. Affected coverage cumulative306cases:305priorpasses plus corrected688assertion example case compiling all4contexts in both triangle/Needler examples. Both producers formerly emitted scalar context strings silently discarded; only that archive member changed, otherpayloads preserved. Client/updater build and fresh source smoke18/18 pass on157unchangedpaths0CF630E3. Full extracted corpus0errors all27families. D006 executable topology/runtime parity remains separate and open.",
+      "status": "validated",
+      "evidence": [
+        "port/src/weapon_graph_runtime.c",
+        "port/src/modasset_json_document.cpp",
+        "context/designs/modding/executable-behavior-graphs-2026-09.md",
+        ".claude/asset0905-continuation/batch3-final-corpus.json",
+        ".claude/asset0905-continuation/batch3-final-corpus-exit.json",
+        ".claude/asset0905-continuation/batch3-smoke-result.json",
+        ".claude/asset0905-continuation/batch3-examples-focused.log",
+        ".claude/asset0905-continuation/batch3-binary-hashes.json"
+      ],
+      "id": "T-ASSETS-045",
+      "updated": "2026-09-06T01:22:54.038Z",
+      "created": "2026-09-06T00:34:42.994Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "detail": "Base source-filenum MP3 playback now uses decoded stereo PCM through the native scheduler and mixer, preserving priority, pause, stop, repeat and decoded voice duration. Theme one-shots share bounded standard WAV/MP3/Vorbis decoding. Same-ID and received public audio source registrations preserve native reverse identity; public controls replace stale private mirrors. Batch5 actual decoder/mixer/oneshot/identity/helper cases and source contracts pass within cumulative74 exact-name audited C++ cases. Fifteen Python audio conformance cases pass. Current source312 825AFB40 and tests3CEF96FC; original failures and corrections retained in audit. Current client build and three installed audio probes are pending, so scheduler/catalog integration and physical audio output remain unproved for batch5. Stricter full MP3 framing draft remains unapplied. Batch4 public-song playlist runtime5/5 remains separately accepted.\n\nCurrent installed boundary 2026-09-06 13:16 ET: shared client2E4448B3 built on312/46DAC86C; native source guard passed. First ordinary installed boot timed out before readiness because nested mesh canonical File hashing cannot open :: paths; MP75 also duplicates the authored sp_head21 native slot. Exact correction is active; all seven asset probes remain unrun. Source/helper passes remain accepted with affected cases to be refreshed. No installed acceptance for batch5.\n\nCurrent boundary Sep6 13:46 ET: nested mesh hashing/native type/native21 identity direct12 cases pass, bringing corrected cumulative asset acceptance to76. Fresh client3D1EBB6A/source313 1A3EC5A6 registers68 bodies,84 heads,63 characters but stops209 asset registrations before any body/head harness case. Exact six-path packed SFX domain correction now frozen313 9CB05A8E; tests F141574E pass all six affected audio parser cases. Previous five parser cases superseded, so cumulative77 after exact union audit. Python16/source contracts running; corrected client and installed gates pending. File-route native chain/delay/restart semantics are separately confirmed missing, draft authorized. Menu302 retained independently. All next-feature drafts remain unapplied; D006 open. No batch5 installed or full completion acceptance.\n\nSep8 15:13: installed MP3 scheduler10 PASS,6/6 outer,65.159s on unchanged source360 F43883E4/client1B938609. Actual native singleton scheduler and main-bus pulls prove priority, pause/resume, stop, repeat and EOF response using public MP3 sources with dummy audio. No audible/hardware claim. Native PCM identity off-by-one, voice namespace classification, native chains/delay/restart and strict MP3 framing remain separate unapplied corrections. Fifteen-path native identity review2 now prepared with main hook/CMake/fixture and corrected existing contracts; migration refusal alone is not a complete edit-preserving upgrade.\n\nSep8 15:17: audio identity installed8 terminal RED before first case,0/8 and3/15 outer,64.292s on unchanged1B/F438. Public-audio6/weapon14 remain unrun. One-path target-admission diagnostic added, acceptance conditions unchanged, uncompiled/unrun. Next joint client build and single diagnostic retry.\n\nSep8 15:37 CURRENT: native base seed identity correction verified. Installed8 PASS15/15 outer in58.204s on unchanged source371F0A104AC/client21C5C296. Ordinary SFX identity and configured packed/file identity now initialize before public replacement. Actual folder and received source replacements, native file handles, custom slots and rollback pass. Focused8, required guard and client build pass. Earlier preflight reds retained/resolved. Native PCM extraction indexing/migration/chains and strict MP3 framing remain separate unapplied work, so task stays partial. Public-audio6 and weapon14 still pending.\n\nSep8 15:46: publicaudio6 RED0/6,3/14outer65.205s on371F0/client21C unchanged. Configured32928 exceeds4096 reverse sound table despite admitted public controls. Table extended to full16-bit domain and actual harness checks exact packed identity plus invalid wider inputs. Applied, unverified. Playback caller packed-to-leaf identity loss remains separate open propagation gap; next focused installed repair before graph source window.\n\nSep8 15:50: packed reverse-domain correction PASSES installed6/14outer70.1s, native guard and client build unchanged3719D551466/client5A39CAD6. Real configured32928 public WAV/control route, negative/wider lookup rejection, edited SFX/voice controls, stale private metadata and active-row rollback pass. Receipt batch8-packed-audio-installed6-exit/result.json. Packed-to-leaf caller propagation, PCM indexing/migration/chains and graph execution remain open.\n\nSep8 16:12 CURRENT: strict MP3 framing4 integrated; actual decoder25, Python audio conformance18, required native guard, tests56796CE5/clientE36F3211 builds PASS source3876C79C9F1 unchanged. Installed asset_source_mp3_smoke10/6outerPASS55.262s verifies native singleton scheduler/main-bus priority,pause,resume,stop,repeat,EOF response using extracted public sources. Full fresh8610root/9611total/27family corpus passes zero errors. No device output or complete PCM chain/index/migration/caller identity parity claim. Shared runtime/source hold released; task remains partial.",
+      "phase": 1,
+      "status": "partial",
+      "area": "ASSETS",
+      "title": "Preserve standard MP3 playback and base audio replacement routes",
+      "type": "task",
+      "owner": "codex-f9571c12-6af53c63",
+      "evidence": [
+        ".claude/asset0905-continuation/batch5-body-head-smoke-exit.json",
+        ".claude/asset0905-continuation/batch5-boot-correction12-exit.json",
+        ".claude/asset0905-continuation/batch5-sfx-correction6-exit.json",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        "port/src/assetcatalog_scanner.c:2559",
+        "port/src/assetcatalog.c:680",
+        "port/src/mixer.c:689",
+        "src/game/propsnd.c:455",
+        "src/lib/mp3.c",
+        "src/lib/snd.c",
+        ".claude/asset0905-continuation/batch7-mp3-installed10-exit.json",
+        ".claude/asset0905-continuation/batch7-mp3-installed10-result.json",
+        ".claude/asset0905-continuation/batch7-audio-identity-installed8-exit.json",
+        ".claude/asset0905-continuation/batch7-audio-identity-installed8-result.json",
+        ".claude/asset0905-continuation/batch8-audio-seed-installed8-exit.json",
+        ".claude/asset0905-continuation/batch8-audio-seed-installed8-result.json",
+        ".claude/asset0905-continuation/batch8-audio-seed-focused8-exit.json",
+        ".claude/asset0905-continuation/batch8-audio-seed-native-guard-exit.json",
+        ".claude/asset0905-continuation/batch8-audio-seed-client-receipt.json",
+        ".claude/asset0905-continuation/batch8-public-audio-installed6-exit.json",
+        ".claude/asset0905-continuation/batch8-public-audio-installed6-result.json",
+        ".claude/asset0905-continuation/batch8-packed-audio-installed6-exit.json",
+        ".claude/asset0905-continuation/batch8-packed-audio-installed6-result.json",
+        ".claude/asset0905-continuation/batch8-packed-audio-native-guard-exit.json",
+        ".claude/asset0905-continuation/batch9-mp3-decoder25-exit.json",
+        ".claude/asset0905-continuation/batch9-audio-conformance-exit.json",
+        ".claude/asset0905-continuation/batch9-mp3-installed10-exit.json",
+        ".claude/asset0905-continuation/batch9-mp3-installed10-result.json",
+        ".claude/asset0905-continuation/batch9-fresh-corpus-report.json"
+      ],
+      "deps": [
+        "T-ASSETS-044",
+        "T-RUNTIME-001"
+      ],
+      "tags": [
+        "asset0905",
+        "audio",
+        "source-authority"
+      ],
+      "id": "T-ASSETS-046",
+      "updated": "2026-09-08T20:13:57.853Z",
+      "created": "2026-09-06T00:43:24.576Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "owner": "codex-f9571c12-6af53c63",
+      "status": "validated",
+      "phase": 1,
+      "type": "task",
+      "detail": "Botprofile manifest now emits requirefeature consistently with public profile/INI; fastcachev16 and perarchive reuse contract regenerate old missing-field outputs. Four character conformance cases recognize explicit coherent unbound heads without hiding dependencies. Actual client4F016CF4 fresh extraction8610root/9611recursive archives passes0errors all27families on157unchangedpaths0CF630E3. All prior2700/92errorreceipts retained. Actual character default/integrated-head runtime utilization remains T048; conformance does not close it.",
+      "deps": [
+        "T-EXTRACTION-001"
+      ],
+      "area": "ASSETS",
+      "tags": [
+        "asset0905",
+        "extraction",
+        "conformance"
+      ],
+      "title": "Reconcile extracted bot profile and optional character head contracts",
+      "evidence": [
+        ".claude/asset0905-continuation/batch3-fresh-conformance.json",
+        "port/src/romextract_pdmeta.c:1046",
+        "port/src/romextract_pdcharacter.c:191",
+        ".claude/asset0905-continuation/batch3-final-corpus.json",
+        ".claude/asset0905-continuation/batch3-final-corpus-exit.json",
+        ".claude/asset0905-continuation/batch3-smoke-result.json",
+        ".claude/asset0905-continuation/batch3-examples-focused.log",
+        ".claude/asset0905-continuation/batch3-binary-hashes.json"
+      ],
+      "id": "T-ASSETS-047",
+      "updated": "2026-09-06T01:22:54.057Z",
+      "created": "2026-09-06T00:49:54.923Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "owner": "codex-f9571c12-6af53c63",
+      "title": "Consume characters with native default or integrated head policies",
+      "evidence": [
+        ".claude/asset0905-continuation/batch4-character-python-exit.json",
+        ".claude/asset0905-continuation/batch4-character-smoke-exit.json",
+        ".claude/asset0905-continuation/batch4-character-smoke-result.json",
+        ".claude/asset0905-continuation/batch4-contracts-exit.json",
+        ".claude/asset0905-continuation/batch4-focused-actual-exit.json",
+        ".claude/asset0905-continuation/batch4-focused-remaining-actual-exit.json",
+        ".claude/asset0905-continuation/batch4-remaining-junit.xml",
+        ".claude/asset0905-continuation/batch4-remaining-name-audit.json",
+        ".claude/asset0905-continuation/batch5-body-head-smoke-exit.json",
+        ".claude/asset0905-continuation/batch5-body-head-smoke-mesh-alias-exit.json",
+        ".claude/asset0905-continuation/batch5-boot-correction12-exit.json",
+        ".claude/asset0905-continuation/batch5-build-client-mesh-alias-exit.json",
+        ".claude/asset0905-continuation/batch5-mesh-alias-static5-corrected-exit.json",
+        ".claude/asset0905-continuation/batch5-native-guard-mesh-alias-exit.json",
+        ".claude/asset0905-continuation/batch5-sfx-correction6-exit.json",
+        ".claude/asset0905-continuation/native-model-alias-inventory.json",
+        ".claude/asset0905-continuation/source-after-batch4-character-smoke.json",
+        ".claude/asset0905-continuation/source-batch4-before-build.json",
+        "context/audits/2026/asset-source-runtime-contract-2026-09-05.md",
+        "port/fast3d/pdgui_menu_room.cpp:3137",
+        "port/src/asset_character_harness.c",
+        "port/src/asset_runtime.c:540",
+        "port/src/character_head_policy.c",
+        "port/src/romextract_pdcharacter.c:191",
+        "src/game/mplayer/mplayer.c:3131",
+        ".claude/asset0905-continuation/batch6-hand-native-guard-exit.json",
+        ".claude/asset0905-continuation/batch6-hand-build-tests-failure-detail.json",
+        ".claude/asset0905-continuation/batch6-hand-focused14-recovered-exit.json",
+        ".claude/asset0905-continuation/batch6-hand-focused14-junit.xml",
+        ".claude/asset0905-continuation/batch6-hand-focused14-name-audit.json",
+        ".claude/asset0905-continuation/batch6-hand-build-tests-menu-corrected-exit.json",
+        ".claude/asset0905-continuation/batch6-hand-client-build-freeze-receipt.json",
+        ".claude/asset0905-continuation/batch6-shared-build-tests-pointer-corrected-exit.json",
+        ".claude/asset0905-continuation/batch6-hand-installed9-exit.json",
+        ".claude/asset0905-continuation/batch6-hand-installed9-result.json",
+        ".claude/asset0905-continuation/batch6-native-alias-diagnostic-exit.json",
+        ".claude/asset0905-continuation/batch6-native-alias-diagnostic-result.json",
+        ".claude/asset0905-continuation/batch6-body-head-single-owner-guard-exit.json",
+        ".claude/asset0905-continuation/batch6-body-head-single-owner-build-exit.json",
+        ".claude/asset0905-continuation/batch6-body-head-single-owner-installed9-exit.json",
+        ".claude/asset0905-continuation/batch6-body-head-single-owner-installed9-result.json",
+        ".claude/asset0905-continuation/batch7-model-source-applied.json",
+        ".claude/asset0905-continuation/batch7-direct-model-installed10-exit.json",
+        ".claude/asset0905-continuation/batch7-direct-model-installed10-result.json",
+        ".claude/asset0905-continuation/batch7-model-source3-preview-corrected-exit.json",
+        ".claude/asset0905-continuation/batch7-model-source-native-guard-exit.json",
+        ".claude/asset0905-continuation/batch7-model-mp-client-build-exit.json"
+      ],
+      "deps": [
+        "T-ASSETS-047",
+        "T-RUNTIME-001"
+      ],
+      "type": "task",
+      "area": "ASSETS",
+      "status": "partial",
+      "detail": "Public body/head scalars, native named types, source-selected mesh/hand closure and native21/MP75 identity are integrated. Body/head manager and ordinary preview retain the selected FileProvider; established native model aliases are permitted only for direct catalog source loads, while hand/private bridges inspect every conflicting model owner. Exact five current source-contract cases pass, native guard passes, current cumulative asset80 includes three newly selected cases and two refreshed prior cases. Source314 DAB3EDD8 and client72FBED1D build pass. Direct fresh body/head eight-case installed retry is running; previous retries stopped before any cases (nested mesh hash, SFX packed domains, then CamSpy native alias). No current installed acceptance. Batch4 all63 template activation remains separately accepted, while complete actual selection/network identity and unlock source preservation remain reviewed unapplied drafts. See audit for exact hashes, prior reds and evidence boundaries.\n\nCurrent Sep6 14:14: direct eight-case retry terminal red100.5s before0/8,3/10 outer assertions. Two bodies dark_combat/sp_body132 share model_combathandslod_hand provenance with _hi/_lo aliases; one dependent character also fails. Source314 DAB3 and client72FB unchanged. Worker drafts exact hand catalog identity/provider propagation through Bondgun loading and same-filnum cache invalidation; no more gates until reviewed correction. Inventory733 mesh rows/31 aliased symbols/one affected handgroup retained. No unchanged rerun.\n\nSep8 13:07 ET: common freeze released with menu owner acknowledgment. Hand identity draft absent after interruption; root implements locally. Manager now retains resolved hand catalog ID and scanner prepares catalog-selected native aliases. Accessor validates the exact effective FileProvider source. Bondgun consumers and installed proof remain in progress; no new passing validation.\n\nSep8 13:28: hand/fists consumers, request identity, cache/reset handling and nine-case installed probe are written. Common347 B471 freeze native guard passes. Tests build stops at CMake configure before compiler/tests on menu target C feature metadata; menu owner makes a one-line correction. Fourteen asset C++ cases and installed probe remain unrun. No new runtime acceptance.\n\nSep8 13:40: exact14/14 asset cases passed on347 376CCD11 and tests416F174E. Initial runner post-receipt failed on sandbox Git ownership; independent source recapture proved unchanged347 and exact binary, recovered receipt preserves that infrastructure failure separately. Thirteen prior cases refreshed plus one new failure-latch case gives81 cumulative (67 retained +14 current). Only subsequent menu test assertion changed; shared incremental build is green347 7D919A1B/testsB371C2C7. Menu remaining/dedicated gates precede client build and the nine-case installed hand probe. Runtime acceptance remains pending.\n\nSep8 14:06: client A05B4141 build passes unchanged347/3F891670; tests7E23070A build also passes. Hand14 remains accepted (81 cumulative); installed hand9 still pending. Menu task owns bounded pointer diagnostic test builds after same terminal red (198 retained,152 remaining), then dedicated gates. Root holds builds/runtime until that lane releases. MP next-unit integration window will follow current installed receipt; exact character identity network hunks reviewed as nonoverlapping.\n\nSep8 14:14: fresh installed hand9 reaches runtime after clean first admission68 bodies/84heads/63characters, ROM released. First head identity case passes; existing native-alias case fails before hand witness. ClientA05B/source347 4D03BFAD unchanged,57.1s,4/11outer,1/9cases. Hand runtime remains unproven. Exact one-path harness checkpoint diagnostics now written, not validated; menu OSK test-only correction accompanies next freeze.\n\nSep8 14:27 CURRENT: installed body/head/hand9 PASS,12/12 outer assertions,56.516s, clientBB6F044D/source347 EFF4FE2C unchanged. Exact catalog hand identity, same-handle distinct identity, fists queue geometry, stale/missing rejection, native/private aliases, later metadata scan preservation, public scanner/walker/received edits and rollback are verified. Root removed duplicate generic body/head metadata registration that overwrote specialized public providers. Required guard and client build pass. Prior14 focused cases/81 cumulative retained separately. Full character selection/unlock/network identity and other family probes remain open; status stays partial. Menu350+11/4 passes independently; one unchanged Agent runtime fixture precedes MP integration. No overall pipeline/visual/hardware/release claim.\n\nSep8 14:35: next10 direct typed-model source paths applied, not validated: shared public geometry resolver across catalog/preview/Bondgun and fail-closed FileProvider routing. Installed fixture expands9to10 with actual consumers; four existing source-contract cases updated. Awaiting joint freeze with separate disjoint MP20 integration. Previous hand9 PASS belongs to EFF4FE2C/clientBB6F and is not acceptance of current10-case source. D006 remains open.\n\nSep8 15:03 CURRENT: shared direct typed-model resolver passes actual catalog, preview and Bondgun installed10/13 outer assertions,53.998s, unchanged client1B938609/source360 F43883E4. Required guard/client build pass. Four affected source cases pass cumulatively (one retained plus three final-source). Hook runs before ordinary main initialization: asset consumer proof does not establish ordinary menu readiness, gameplay or hardware. Historical universal source contract refreshed; historical81 is not a new current all-case run. Six other installed probes, character selection, audio identity/chains, language, Arena source authority and D006 remain open; partial status retained.",
+      "tags": [
+        "asset0905",
+        "character",
+        "source-authority"
+      ],
+      "phase": 1,
+      "id": "T-ASSETS-048",
+      "updated": "2026-09-08T19:03:00.390Z",
+      "created": "2026-09-06T00:53:12.434Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "area": "ASSETS",
+      "evidence": [
+        "port/src/modmusic.c",
+        "port/external/stb_vorbis.c",
+        "tests/test_modmusic_decode.cpp",
+        "tests/fixtures/audio/vorbis/fixture-hashes.json",
+        ".claude/asset0905-drafts/vorbis/draft-hashes.json",
+        ".claude/asset0905-continuation/batch4-focused-actual-stdout.log",
+        ".claude/asset0905-continuation/batch4-focused-actual-exit.json",
+        ".claude/asset0905-continuation/batch4-focused-remaining-actual-exit.json",
+        ".claude/asset0905-continuation/batch4-remaining-junit.xml",
+        ".claude/asset0905-continuation/batch4-remaining-name-audit.json",
+        ".claude/asset0905-continuation/batch4-build-client-vorbis-pch-exit.json",
+        ".claude/asset0905-continuation/batch4-audio-smoke-exit.json",
+        ".claude/asset0905-continuation/batch4-audio-smoke-result.json",
+        ".claude/asset0905-continuation/source-after-batch4-audio-smoke.json"
+      ],
+      "status": "partial",
+      "tags": [
+        "asset0905",
+        "audio",
+        "standard-formats"
+      ],
+      "type": "task",
+      "deps": [
+        "T-RUNTIME-001"
+      ],
+      "owner": "codex-f9571c12-6af53c63",
+      "detail": "Pinned upstream stb_vorbis now provides actual incremental standard OGG/Vorbis decode with bounded SDL-owned PCM and conversion workspace. Provider bytes remain owned through decoder close; candidate cleanup, retained-buffer replay, final/one-frame mixing, oversized sync seek and nonfinite rate are repaired. Eleven real codec/SDL/CPU mixer cases pass within cumulative batch4 65 distinct asset cases (retained33 plus corrected/unrun32, exact-name coverage audited). Corrected client C3A64691 builds on unchanged207-path source02A5C91A; vendor source skips incompatible legacy game PCH without vendor edits. Fresh installed asset_source_audio_smoke passes5/5: real pdsong writer, ordinary folder catalog, nested ZIP PCM, actual audioMusicSyncReceive playlist,4410 stereo frames and EOF. Receipts preserve all original red failures separately. No device/audible/network-packet proof or complete malformed-tail/chained-stream admission. Standard WAV/MP3 shared allocation, actual theme one-shot and base MP3 scheduler remain unapplied T046 drafts. The broader standard-format pipeline remains partial.",
+      "title": "Implement advertised standard Vorbis audio decoding and mixer consumption",
+      "phase": 1,
+      "id": "T-ASSETS-049",
+      "updated": "2026-09-06T15:37:02.742Z",
+      "created": "2026-09-06T00:57:20.662Z",
+      "model": "GPT-6 / Codex"
+    },
+    {
+      "phase": 3,
+      "model": "gpt-6-astra",
+      "deps": [
+        "T-MENUS-001",
+        "T-INPUT-004",
+        "T-MENUS-002"
+      ],
+      "status": "partial",
+      "area": "MENUS",
+      "detail": "Sep8 15:29: applied2-path AgentCreate contained/wrapped controls (23AF9A96) and verbose-only ActionMap Accept/Cancel VK edge diagnostics (9872D522); joint clientFA930431 builds on source3607EB79621. ONE changed-source desktop Agent verbose fixture then RED9/22,0of10 events,no GL captures,zero source/client/fixture drift. Supported real window activation failed on first try and one refreshed-target recovery; no focus-gain or menu-edge witness. Actual layout/navigation/provenance remain unverified. Prior desktop1 on1B/F438 established real focus, but global Agent Select Accept independently pushed Create before250ms stability despite0 fixture events; terminal11/22. Input source unknown; black preview body base:dark_combat/head base:head_dark_combat separately handed to asset owner. Root stopped startup retries and released common source/build/runtime for asset seed fix/MP14. Historical350 selected source/native cases plus save11/FR4 pass; later MP affected49 includes all3 refreshed menu contracts. These are not ordinary runtime/visual/hardware acceptance. Full menu inventory, controller/MKB/glyph journeys, save/restart/failure UI, physical-controller/human-visual proof, ModManager atomic copy/disabled and malformed state/checked Apply, raw high-button aliases remain open.",
+      "title": "Complete menu navigation, input and glyph accessibility across controller and MKB",
+      "lane": "implementation",
+      "owner": "codex-43ce463e-29f381f8",
+      "evidence": [
+        "context/audits/2026/menu-accessibility-2026-09-06.md",
+        ".claude/menu0906-evidence/build-tests-detail.log",
+        ".claude/menu0906-evidence/focused-tests.log",
+        ".claude/menu0906-evidence/menu-refreeze.json",
+        "T-MENUS-004",
+        "T-MENUS-005",
+        "T-INPUT-005",
+        ".claude/menu0906-evidence/menu-accepted235.json",
+        ".claude/menu0906-evidence/menu-accepted235-cases.txt",
+        ".claude/menu0906-next/accepted302.json",
+        ".claude/menu0906-next/accepted302-cases.txt",
+        ".claude/menu0906-next/next-agent-smoke-exit.json",
+        ".claude/smoke-verify-runs/results-20260906T170953Z.json",
+        ".claude/asset0905-continuation/batch5-body-head-smoke-sfx-correction-exit.json",
+        ".claude/menu0906-next/next-unit-integration.md",
+        ".claude/asset0905-continuation/batch5-body-head-smoke-mesh-alias-exit.json",
+        ".claude/menu0906-next/body-alias-review/preview-consumer-review.md",
+        ".claude/menu0906-next/integration-rehearsal/README.md",
+        ".claude/menu0908/integration-verified.json",
+        ".claude/menu0908/current-menu-exit.json",
+        ".claude/menu0908/current-menu-remainder-exit.json",
+        ".claude/menu0908/current-menu-remainder154-exit.json",
+        "tools/smoke-verify/tests/menu_settings_keyboard.json",
+        ".claude/menu0908/accepted350.json",
+        ".claude/menu0908/settings-save-exit.json",
+        ".claude/menu0908/training-renderer-exit.json",
+        ".claude/menu0908/current-agent-exit.json",
+        ".claude/smoke-verify-runs/results-20260908T183022Z.json",
+        ".claude/menu0908/mp-affected-menu3-accepted.json",
+        ".claude/menu0908/readiness-next/proposal.json",
+        ".claude/menu0908/agent-desktop1-exit.json",
+        ".claude/menu0908/agent-layout-review/applied-two-paths.json",
+        ".claude/menu0908/agent-layout-provenance-exit.json",
+        ".claude/menu0908/agent-layout-provenance-intervention.json"
+      ],
+      "type": "task",
+      "tags": [
+        "menus",
+        "input",
+        "controller",
+        "mkb",
+        "glyphs"
+      ],
+      "id": "T-MENUS-003",
+      "updated": "2026-09-08T19:30:30.610Z",
+      "created": "2026-09-06T12:47:15.951Z"
+    },
+    {
+      "owner": "codex-43ce463e-29f381f8",
+      "title": "Make confirmation actions respect focused controls and current bindings",
+      "lane": "implementation",
+      "model": "gpt-6-astra",
+      "tags": [
+        "menus",
+        "controller",
+        "mkb",
+        "confirmation",
+        "focus"
+      ],
+      "detail": "Focused native confirmation and opening-key ownership cases pass within302 cumulative acceptance; stable outer popup caller corrections integrated. Shared theme/mod Delete has visible Cancel and cancel precedence. Ordinary destructive-dialog matrix, remaining Results single-intent draft and physical/visual acceptance remain pending.\nSep8 current source/native menu gate accepted350 exact cases with dedicated real-config save11 and actual FR4 separately passing; evidence .claude/menu0908/accepted350.json. Model family GPT-6, root codex-43ce463e-29f381f8. These component/source passes do not establish ordinary client journeys, visual/hardware acceptance or remaining ModManager core functionality; status remains partial.",
+      "evidence": [
+        "port/fast3d/pdgui_layout.cpp:103",
+        "port/fast3d/pdgui_layout.cpp:223",
+        "port/fast3d/pdgui_menu_warning.cpp:1248",
+        "port/fast3d/pdgui_menu_agentselect.cpp:840",
+        "port/fast3d/pdgui_menu_pausemenu.cpp:832",
+        "port/fast3d/pdgui_menu_solomission.cpp:3190",
+        "port/fast3d/pdgui_menu_room.cpp:4984",
+        "port/include/pdgui_layout.h",
+        "tests/test_menu_graph.cpp:[t-menus-004]",
+        "tests/test_menu_confirmation_imgui.cpp:[t-menus-004]",
+        "git diff --check on exact nine paths: PASS",
+        ".claude/menu0906-evidence/menu-accepted235.json",
+        ".claude/menu0906-evidence/menu-accepted235-cases.txt",
+        "context/audits/2026/menu-accessibility-2026-09-06.md",
+        ".claude/menu0906-next/accepted302.json",
+        ".claude/menu0906-next/accepted302-cases.txt",
+        ".claude/menu0908/accepted350.json",
+        ".claude/menu0908/settings-save-exit.json",
+        ".claude/menu0908/training-renderer-exit.json"
+      ],
+      "type": "task",
+      "phase": 3,
+      "status": "partial",
+      "deps": [
+        "T-MENUS-003"
+      ],
+      "area": "MENUS",
+      "id": "T-MENUS-004",
+      "updated": "2026-09-08T18:27:50.658Z",
+      "created": "2026-09-06T12:49:09.392Z"
+    },
+    {
+      "phase": 1,
+      "evidence": [
+        "port/fast3d/pdgui_menu_mainmenu.cpp:2190",
+        "port/fast3d/pdgui_menu_mainmenu.cpp:5058",
+        "port/fast3d/pdgui_menu_mainmenu.cpp:5934",
+        ".claude/menu0906-evidence/menu-accepted235.json",
+        ".claude/menu0906-evidence/menu-accepted235-cases.txt",
+        "context/audits/2026/menu-accessibility-2026-09-06.md",
+        ".claude/menu0906-next/accepted302.json",
+        ".claude/menu0906-next/accepted302-cases.txt",
+        ".claude/menu0908/integration-verified.json",
+        ".claude/menu0908/accepted350.json",
+        ".claude/menu0908/settings-save-exit.json",
+        ".claude/menu0908/training-renderer-exit.json"
+      ],
+      "title": "Settings binding capture ownership and controller clearing",
+      "type": "task",
+      "tags": [
+        "menu-goal",
+        "settings",
+        "controller",
+        "capture"
+      ],
+      "owner": "codex-43ce463e-29f381f8",
+      "deps": [
+        "T-MENUS-003"
+      ],
+      "status": "partial",
+      "area": "MENUS",
+      "detail": "Binding capture/review/Apply, complete slots, focused clearing, legacy reachable binding rows and save errors are connected; selected native/helper/static cases pass within302. Settings theme/Interface accessibility and checked config/Agent save-status repair remain unapplied drafts; full Settings runtime/device/visual acceptance remains open.\nSep8 13:07: reviewed37-path menu unit applied, including complete corrected OSK/native hook/backend owner lifetime, Settings checked save/status/departure and Interface controls, remaining navigation/Results, real virtual-controller harness and dedicated test targets. Rehearsal text equivalence verified; compile/current tests pending. Prior302 belongs to the earlier source unit. Asset hand-source boot failure still blocks ordinary menus. No hardware/full visual acceptance.\nSep8 current source/native menu gate accepted350 exact cases with dedicated real-config save11 and actual FR4 separately passing; evidence .claude/menu0908/accepted350.json. Model family GPT-6, root codex-43ce463e-29f381f8. These component/source passes do not establish ordinary client journeys, visual/hardware acceptance or remaining ModManager core functionality; status remains partial.",
+      "id": "T-MENUS-005",
+      "updated": "2026-09-08T18:27:50.679Z",
+      "created": "2026-09-06T12:50:14.908Z",
+      "model": "gpt-6-astra"
+    },
+    {
+      "type": "task",
+      "area": "INPUT",
+      "model": "gpt-6-astra",
+      "tags": [
+        "controller",
+        "menus",
+        "glyphs"
+      ],
+      "status": "partial",
+      "deps": [
+        "T-MENUS-003"
+      ],
+      "detail": "Shared authoritative resolver and capability predicate, nested controller scroll, native ImGui/widget action ownership and held opening-key locks are integrated; affected focused cases pass within302. Remaining caller authority drafts, broad ordinary menu journeys and physical controller scrolling still need acceptance.",
+      "owner": "codex-menu-verification-ro-20260906",
+      "evidence": [
+        "port/src/actionmap_binding.cpp",
+        "port/src/actionmap.cpp:1784",
+        "port/fast3d/pdgui_glyphs.cpp",
+        "tests/test_actionmap_binding.cpp",
+        ".claude/menu0906-evidence/menu-accepted235.json",
+        ".claude/menu0906-evidence/menu-accepted235-cases.txt",
+        "context/audits/2026/menu-accessibility-2026-09-06.md",
+        ".claude/menu0906-next/accepted302.json",
+        ".claude/menu0906-next/accepted302-cases.txt"
+      ],
+      "title": "Resolve menu glyphs from dispatch authority and restore menu right-stick scroll",
+      "id": "T-INPUT-005",
+      "updated": "2026-09-06T17:07:48.993Z",
+      "created": "2026-09-06T12:51:06.006Z"
+    },
+    {
+      "owner": "codex-43ce463e-29f381f8",
+      "type": "task",
+      "detail": "Complete versioned snapshots preserve all known context/action identities and four exact slots through startup/edit/named-profile load. Candidate parse and atomic disk commit precede live publication; device-only resets and malformed-current recovery are explicit. Eleven production profile cases pass within302. Ordinary restart/profile/device journeys and independent machine/Agent Settings save-status repair remain pending.",
+      "area": "INPUT",
+      "evidence": [
+        "context/audits/2026/menu-accessibility-2026-09-06.md",
+        "port/src/actionmap_profile.cpp",
+        "port/include/actionmap_profile.h",
+        "port/src/optionsmenu.c",
+        "tests/test_actionmap_profile.cpp",
+        ".claude/menu0906-next/profiles/manifest.json",
+        ".claude/menu0906-next/accepted302.json",
+        ".claude/menu0906-next/accepted302-cases.txt"
+      ],
+      "lane": "implementation",
+      "phase": 3,
+      "deps": [
+        "T-MENUS-005"
+      ],
+      "tags": [
+        "menu-accessibility",
+        "full-goal"
+      ],
+      "model": "gpt-6-astra",
+      "status": "partial",
+      "title": "Persist all menu and gameplay bindings through transactional save and reload",
+      "id": "T-INPUT-006",
+      "updated": "2026-09-06T17:07:49.016Z",
+      "created": "2026-09-06T13:11:54.121Z"
+    },
+    {
+      "owner": "codex-43ce463e-29f381f8",
+      "type": "task",
+      "detail": "97 direct text widgets and107 numeric/slider/drag widgets have no shared controller keyboard. Connect text ownership, safe active widget lifetime, full character/caret/edit commands, current glyphs, physical typing, Done/Cancel and nested-modal teardown. Preserve native ImGui callbacks and avoid retaining caller buffer pointers. Require actual widget and ordinary client outcomes.\nSep8 13:07: reviewed37-path menu unit applied, including complete corrected OSK/native hook/backend owner lifetime, Settings checked save/status/departure and Interface controls, remaining navigation/Results, real virtual-controller harness and dedicated test targets. Rehearsal text equivalence verified; compile/current tests pending. Prior302 belongs to the earlier source unit. Asset hand-source boot failure still blocks ordinary menus. No hardware/full visual acceptance.\nSep8 current source/native menu gate accepted350 exact cases with dedicated real-config save11 and actual FR4 separately passing; evidence .claude/menu0908/accepted350.json. Model family GPT-6, root codex-43ce463e-29f381f8. These component/source passes do not establish ordinary client journeys, visual/hardware acceptance or remaining ModManager core functionality; status remains partial.",
+      "area": "INPUT",
+      "evidence": [
+        "context/audits/2026/menu-accessibility-2026-09-06.md",
+        ".claude/menu0908/integration-verified.json",
+        ".claude/menu0908/accepted350.json",
+        ".claude/menu0908/settings-save-exit.json",
+        ".claude/menu0908/training-renderer-exit.json"
+      ],
+      "lane": "implementation",
+      "phase": 3,
+      "deps": [
+        "T-MENUS-003"
+      ],
+      "tags": [
+        "menu-accessibility",
+        "full-goal"
+      ],
+      "model": "gpt-6-astra",
+      "status": "partial",
+      "title": "Provide shared controller text entry across menu and numeric editors",
+      "id": "T-INPUT-007",
+      "updated": "2026-09-08T18:27:50.706Z",
+      "created": "2026-09-06T13:11:54.193Z"
+    },
+    {
+      "owner": "codex-43ce463e-29f381f8",
+      "type": "task",
+      "detail": "Sep22 additive raw Btn23-32 and precise axes preserve old numeric/name aliases. Capture, one-winner dispatch, Settings, complete-profile codec and glyph labels use the actual winning physical source. Combined client/updater/tests compile; focused raw-key/menu gate 12 cases/957 assertions passes on final source. Earlier broad input/menu/settings run remains RED4/9679: three stale menu/catalog assertions are corrected and focused-pass; vehicle protocol literal is separate owner gap. Ordinary raw joystick, virtual menu attach with vacant player0, physical controller/MKB, visual and full broad acceptance remain open.",
+      "area": "INPUT",
+      "evidence": [
+        "context/audits/2026/menu-accessibility-2026-09-06.md",
+        "port/src/input_device_identity.cpp",
+        "port/include/input_device_identity.h",
+        "port/fast3d/pdgui_glyphs.cpp",
+        "tests/test_input_device_identity.cpp",
+        ".claude/menu0906-next/accepted302.json",
+        ".claude/menu0906-next/accepted302-cases.txt",
+        "port/include/actionmap_digital_owner.h",
+        "port/src/actionmap.cpp",
+        "tests/test_actionmap_binding.cpp",
+        "tests/test_smoke_input_events_static.cpp",
+        ".claude/menu0922/accepted-source.json",
+        ".claude/menu0922/owner-junit.xml",
+        ".claude/menu0922/smoke-owner-r3-junit.xml",
+        ".claude/menu0922/actionmap-regression-junit.xml",
+        "tools/smoke-verify/run.ps1",
+        ".claude/menu0922/virtual-runtime-boundary.json",
+        ".claude/smoke-verify-runs/results-20260922T222357Z.json",
+        "port/include/input_vk.h",
+        "port/src/input_vk.c",
+        "port/src/actionmap_binding.cpp",
+        "port/src/input.c",
+        "port/fast3d/pdgui_menu_mainmenu.cpp",
+        "tests/test_actionmap_profile.cpp",
+        ".claude/menu0922/raw-vk-source.json",
+        ".claude/menu0922/raw-vk-junit.xml",
+        ".claude/menu0922/raw-vk-regression-junit.xml",
+        ".claude/menu0922/raw-vk-final-junit.xml",
+        ".claude/menu0922/glyph-followup-source.json",
+        ".claude/menu0922/raw-vk-glyph-menu-final-junit.xml",
+        "tests/test_menu_graph.cpp"
+      ],
+      "lane": "implementation",
+      "phase": 3,
+      "deps": [
+        "T-INPUT-005"
+      ],
+      "tags": [
+        "menu-accessibility",
+        "full-goal"
+      ],
+      "model": "gpt-6-astra",
+      "status": "partial",
+      "title": "Resolve live controller family and device switching in every input hint",
+      "id": "T-INPUT-008",
+      "updated": "2026-09-22T23:06:37.933Z",
+      "created": "2026-09-06T13:11:54.202Z"
+    },
+    {
+      "owner": "codex-43ce463e-29f381f8",
+      "type": "task",
+      "detail": "Sep8 21:16 activation component ACCEPTED: actual core2 PASS35/35 in79.5s, full049E558F/client811BE779 unchanged. Real new/already-enabled persistent save retries, late archive-load failure retaining original loaded1 restart baseline, and real FT pending retry/explicit no-rollback discard verified with saved JSON readback. Native12 exact union, client build and source guard PASS; prior three stale source-contract reds and core1 setup red preserved. Importer/FT Retry/Discard and modal guards compiled, but ordinary UI/Agent-switch/controller/MKB/network download/process-restart acceptance remains open. Pre-install existing-archive rescan loaded baseline and raw VK/general digital hold ownership remain open. Menu native QUIESCENT for root installed22. Model gpt-6-astra.\r\n\r\nSep8 21:04 activation repair source/build checkpoint: caller-owned persistent prepare-before-enable plan retained across Retry/Discard; install-only archive API; importer/FT partial-state and modal lifecycle guards. Latest client4A00D186/tests41D5DBCA builds PASS with full69AED357 unchanged. Ten focused cases accepted across preserved gates; root universal-walker source contract fails scoped multiline arena assertion, texture lifecycle unrun. Root correction ongoing; guard and expanded actual-core/FT runtime still unrun. No input/human-visual/late-failure acceptance from this checkpoint. Model gpt-6-astra.\r\n\r\nSep8 18:32 matching clientB52B721F build0 verified, full native3B8304A3 and all16 unique component9/save-status7/scanner2 paths present/unchanged; menu0908/batch15-client-postcheck.json. Component15 native and save-status6/79 assertions plus their guards passed independently. Scanner2 now reports optional absence vs path/read/parse/registration failure, but actual filesystem cases unrun. Source-only status and real UI/core compilation do not establish ordinary UI failure/retry or full Apply/controller acceptance. Root batch15 stale source assertion repair and MP Join-r3 hold remain; full Apply canonical integration waits terminal release. Model gpt-6-astra.",
+      "area": "MENUS",
+      "evidence": [
+        "context/audits/2026/menu-accessibility-2026-09-06.md",
+        "port/fast3d/pdgui_menu_modmgr.cpp",
+        "port/fast3d/pdgui_menu_moddinghub.cpp",
+        "port/src/modmgr_selection.cpp",
+        "port/include/modmgr_selection.h",
+        "tests/test_modmgr_selection.cpp",
+        ".claude/menu0906-next/modmanager/manifest.json",
+        ".claude/menu0906-next/accepted302.json",
+        ".claude/menu0906-next/accepted302-cases.txt",
+        ".claude/menu0908/accepted350.json",
+        ".claude/menu0908/settings-save-exit.json",
+        ".claude/menu0908/training-renderer-exit.json",
+        ".claude/menu0908/modmgr-state-review/manifest.json",
+        ".claude/menu0908/modmgr-state-review/applied-four.json",
+        ".claude/menu0908/modmgr-persistence14-exit.json",
+        ".claude/menu0908/modmgr-state-review/client-postcheck.json",
+        ".claude/menu0908/modmgr-apply-review/catalog-applied-seven.json",
+        ".claude/menu0908/catalog-mutation10-exit.json",
+        ".claude/menu0908/catalog-lifecycle1-exit.json",
+        ".claude/menu0908/catalog-native-guard-exit.json",
+        ".claude/asset0905-continuation/batch11-client-receipt.json",
+        ".claude/menu0908/legacy-list-review/applied-four.json",
+        ".claude/menu0908/component-state-review/manifest.json",
+        ".claude/menu0908/component-state-review/README.md",
+        ".claude/menu0908/legacy-list4-exit.json",
+        ".claude/menu0908/legacy-list4-junit.xml",
+        ".claude/asset0905-continuation/batch12-native-guard-exit.json",
+        ".claude/menu0908/legacy-list-review/client-postcheck.json",
+        ".claude/asset0905-continuation/batch12-client-receipt.json",
+        ".claude/menu0908/component-state-review/integration-fragments.json",
+        ".claude/menu0908/component-state-review/io8-cases.txt",
+        ".claude/menu0908/component-state-review/catalog6-cases.txt",
+        ".claude/menu0908/apply-r3-main5-exit.json",
+        ".claude/menu0908/apply-r3-native-guard-exit.json",
+        ".claude/menu0908/apply-r3-client-postcheck.json",
+        ".claude/menu0908/apply-complete-review/alternate-callers.md",
+        ".claude/menu0908/callers-weapon1-exit.json",
+        ".claude/menu0908/callers-client-postcheck.json",
+        ".claude/menu0908/callers-native-guard-exit.json",
+        ".claude/menu0908/apply-complete-review/callers/applied-four.json",
+        ".claude/menu0908/core-apply2-exit.json",
+        ".claude/menu0908/core-apply-native2-exit.json",
+        ".claude/menu0908/core-apply-native-guard-exit.json",
+        ".claude/menu0908/interface-delete-client-postcheck.json",
+        ".claude/menu0908/activation-six-r5-settled.json",
+        ".claude/menu0908/activation-r3-client-build-exit.json",
+        ".claude/menu0908/activation-r3-tests-build-exit.json",
+        ".claude/menu0908/activation12-exit.json",
+        ".claude/menu0908/activation-r2-five-exit.json",
+        ".claude/menu0908/activation-r3-two-exit.json",
+        ".claude/menu0908/activation-core2-exit.json",
+        ".claude/menu0908/activation-focused12-acceptance.json",
+        ".claude/menu0908/activation-r5-client-build-exit.json",
+        ".claude/menu0908/activation-r5-guard-exit.json",
+        ".claude/menu0908/activation-core1-exit.json"
+      ],
+      "lane": "implementation",
+      "phase": 3,
+      "deps": [
+        "T-MENUS-004"
+      ],
+      "tags": [
+        "menu-accessibility",
+        "full-goal"
+      ],
+      "model": "gpt-6-astra",
+      "status": "partial",
+      "title": "Make Mod Manager actions, staged changes and exits complete across input devices",
+      "id": "T-MENUS-006",
+      "updated": "2026-09-09T01:17:08.888Z",
+      "created": "2026-09-06T13:11:54.253Z"
+    },
+    {
+      "evidence": [
+        ".claude/asset0905-continuation/batch5-body-head-smoke-exit.json",
+        ".claude/asset0905-continuation/batch5-boot-correction12-exit.json",
+        ".claude/asset0905-continuation/batch5-sfx-correction6-exit.json",
+        ".claude/asset0905-drafts/numeric-source/README.md",
+        "port/src/asset_runtime.c",
+        "port/src/modasset_compiler.c"
+      ],
+      "title": "Bound typed-source integer and glTF room-tag conversions",
+      "tags": [
+        "asset0905",
+        "numeric-source",
+        "batch5"
+      ],
+      "type": "task",
+      "lane": "source-authority",
+      "phase": 1,
+      "deps": [
+        "T-ASSETS-041",
+        "T-ASSETS-043"
+      ],
+      "area": "ASSETS",
+      "detail": "Shared typed runtime integer admission now requires canonical bounded integer tokens before s32 conversion; glTF room tags reject nonfinite values before range checking/u32 conversion. Actual bot-source integer regression passed within batch5 cumulative74 exact-name audited C++ cases on source312 825AFB40/tests3CEF96FC. Seven-case real importer harness is integrated but unbuilt/unrun in the current client. Earlier structural JSON key lookup and broader string/float grammar remain separate open gaps. No installed importer acceptance yet.\n\nCurrent installed boundary 2026-09-06 13:16 ET: shared client2E4448B3 built on312/46DAC86C; native source guard passed. First ordinary installed boot timed out before readiness because nested mesh canonical File hashing cannot open :: paths; MP75 also duplicates the authored sp_head21 native slot. Exact correction is active; all seven asset probes remain unrun. Source/helper passes remain accepted with affected cases to be refreshed. No installed acceptance for batch5.\n\nCurrent boundary Sep6 13:46 ET: nested mesh hashing/native type/native21 identity direct12 cases pass, bringing corrected cumulative asset acceptance to76. Fresh client3D1EBB6A/source313 1A3EC5A6 registers68 bodies,84 heads,63 characters but stops209 asset registrations before any body/head harness case. Exact six-path packed SFX domain correction now frozen313 9CB05A8E; tests F141574E pass all six affected audio parser cases. Previous five parser cases superseded, so cumulative77 after exact union audit. Python16/source contracts running; corrected client and installed gates pending. File-route native chain/delay/restart semantics are separately confirmed missing, draft authorized. Menu302 retained independently. All next-feature drafts remain unapplied; D006 open. No batch5 installed or full completion acceptance.",
+      "owner": "codex-f9571c12-6af53c63",
+      "status": "partial",
+      "id": "T-ASSETS-050",
+      "updated": "2026-09-06T17:46:36.186Z",
+      "created": "2026-09-06T15:43:40.436Z"
+    },
+    {
+      "type": "task",
+      "evidence": [
+        "context/audits/2026/multiplayer-audit-2026-09-08.md",
+        "context/audits/2026/multiplayer-audit-2026-09-08.sources.json"
+      ],
+      "area": "NETWORKING",
+      "status": "partial",
+      "owner": "codex-mp-audit-20260908",
+      "tags": [
+        "audit",
+        "multiplayer"
+      ],
+      "deps": [],
+      "detail": "Audit delivered: 18 prioritized findings covering listen-host room dispatch; nontransactional membership; settings/playlist snapshot ownership; distribution channel ordering, approval, pacing, accounting and realloc failure; untrusted movement and vector correction; wrong chat endpoint and unacknowledged delivery; voice audience, mixer and unsupported VAD; incomplete room/social UX; known NAT/drop-in/migration limits; GPU-swarm bandwidth. 24 inspected source hashes retained. No production repairs, builds, executable tests, runtime, WAN, audio, graphical or physical-controller proof. Existing cards unchanged. Partial reflects unresolved functionality, not an unfinished report. Next repair batches await user direction.",
+      "title": "Audit multiplayer menus, social, distribution and gameplay continuity",
+      "phase": 4,
+      "id": "T-NETWORKING-010",
+      "updated": "2026-09-08T17:21:17.255Z",
+      "created": "2026-09-08T17:11:38.434Z",
+      "model": "gpt-6"
+    },
+    {
+      "title": "Implement multiplayer audit fixes and production qualification",
+      "owner": "codex-385f1c85-675768a6",
+      "tags": [
+        "multiplayer",
+        "repair",
+        "goal"
+      ],
+      "area": "NETWORKING",
+      "phase": 4,
+      "evidence": [
+        ".claude/mp0908-repairs/runtime/room-list-pair-r2-exit.json",
+        ".claude/mp0908-repairs/runtime/room-list-pair-r2-visual-review.json",
+        ".claude/mp0908-repairs/runtime/lobby-readiness-affected-review.json",
+        ".claude/mp0908-repairs/followups/social/transport/chat9-exit.json",
+        ".claude/mp0908-repairs/followups/social/transport/social-affected17-exit.json",
+        "context/audits/2026/multiplayer-repairs-2026-09-08.md",
+        "Source-only integration: .claude/mp0908-repairs/followups/roster/source-roster18-settled.json SHA02816D3E240112BFFA8D847C5CEDB54982F67B1B1594FAADEE69511DD6560073; native7/affected/client/SDL Join still unrun.",
+        ".claude/mp0908-repairs/followups/roster/roster7-native-review.json",
+        ".claude/mp0908-repairs/followups/roster/roster-affected17-r2-exit.json",
+        ".claude/mp0908-repairs/runtime/roster-join-pair-invalidated.json",
+        ".claude/mp0908-repairs/runtime/roster-join-pair-r2-exit.json",
+        ".claude/mp0908-repairs/runtime/roster-join-pair-r2-visual-review.json",
+        ".claude/mp0908-repairs/followups/roster/source-empty-ids2.json",
+        ".claude/mp0908-repairs/followups/roster/roster9-empty-r3-exit.json",
+        ".claude/mp0908-repairs/followups/movement/source-numeric7-settled.json",
+        ".claude/mp0908-repairs/followups/movement/movement-numeric5-exit.json",
+        ".claude/mp0908-repairs/runtime/batch15-client-product-equivalence.json",
+        ".claude/mp0908-repairs/runtime/roster-join-pair-r3-exit.json",
+        ".claude/mp0908-repairs/runtime/roster-join-pair-r3-visual-review.json",
+        ".claude/smoke-verify-runs/results-20260908T225023Z.json",
+        ".claude/mp0908-repairs/followups/voice/source-owner7-settled.json",
+        ".claude/mp0908-repairs/followups/voice/owner6-native-review.json",
+        ".claude/menu0908/apply-r3-policy6-exit.json",
+        ".claude/mp0908-repairs/followups/voice/source-transport7-settled.json",
+        ".claude/mp0908-repairs/followups/voice/voice-transport5-exit.json",
+        ".claude/mp0908-repairs/followups/voice/voice-transport5-name-audit.json",
+        ".claude/menu0908/callers-native-guard-exit.json",
+        ".claude/mp0908-repairs/followups/voice/source-session-v2-4-settled.json",
+        ".claude/mp0908-repairs/followups/voice/voice-session9-native-review.json",
+        ".claude/asset0905-continuation/batch18-client-build-exit.json",
+        ".claude/asset0905-continuation/batch18-client-r3-receipt.json",
+        ".claude/asset0905-continuation/batch18-native-guard-exit.json",
+        ".claude/mp0908-repairs/followups/voice/source-playout4-settled.json",
+        ".claude/mp0908-repairs/followups/voice/voice-playout13-native-review.json",
+        ".claude/asset0905-continuation/batch19-build-receipt.json",
+        ".claude/asset0905-continuation/batch19-native-guard-exit.json",
+        ".claude/mp0908-repairs/ft-activation7-native-review.json",
+        ".claude/mp0908-repairs/ft-activation-runtime-review.json",
+        ".claude/menu0908/activation-core2-exit.json",
+        ".claude/mp0908-repairs/followups/ft-wire/source8-settled.json",
+        ".claude/mp0908-repairs/followups/ft-wire/wire7-exit.json",
+        ".claude/mp0908-repairs/followups/ft-wire/wire7-name-audit.json",
+        ".claude/mp0908-repairs/followups/ft-wire/build-client-exit.json",
+        ".claude/mp0908-repairs/followups/ft-wire/build-tests-exit.json",
+        ".claude/mp0908-repairs/followups/ft-wire/native-guard-exit.json",
+        ".claude/mp0908-repairs/followups/ft-storage/source6-applied.json",
+        ".claude/mp0908-repairs/followups/ft-storage/full-source-r2.json",
+        ".claude/mp0908-repairs/followups/ft-storage/build-r2-client-exit.json",
+        ".claude/mp0908-repairs/followups/ft-storage/build-r2-tests-exit.json",
+        ".claude/mp0908-repairs/followups/ft-storage/storage5-exit.json",
+        ".claude/mp0908-repairs/followups/ft-storage/storage5-name-audit.json",
+        ".claude/mp0908-repairs/followups/ft-storage/native-guard-r2-exit.json",
+        "tools/smoke-verify/tests/file_transfer_socket_smoke.json",
+        "tools/smoke-verify/file_transfer_socket_peer.py",
+        ".claude/mp0908-repairs/followups/ft-storage/socket-build-client-exit.json",
+        ".claude/mp0908-repairs/followups/ft-storage/socket-build-tests-exit.json",
+        ".claude/mp0908-repairs/followups/ft-storage/socket-schema-exit.json",
+        ".claude/mp0908-repairs/followups/ft-storage/socket-guard-exit.json",
+        ".claude/mp0908-repairs/followups/ft-storage/socket-smoke-exit.json",
+        ".claude/mp0908-repairs/followups/ft-storage/socket-peer-result.json",
+        ".claude/mp0908-repairs/followups/ft-storage/full-source-socket-r2.json",
+        ".claude/mp0908-repairs/followups/ft-storage/socket-r2-smoke-exit.json",
+        ".claude/mp0908-repairs/followups/ft-storage/socket-r2-peer-result.json",
+        ".claude/mp0908-repairs/followups/ft-storage/socket-r2-installed-receipt.json",
+        ".claude/smoke-verify-runs/results-20260922T221856Z.json",
+        ".claude/mp0908-repairs/followups/voice/source-vad8-applied.json",
+        ".claude/mp0908-repairs/followups/voice/full-source-vad-r1.json",
+        ".claude/mp0908-repairs/followups/voice/vad-build-client-exit.json",
+        ".claude/mp0908-repairs/followups/voice/vad-build-tests-exit.json",
+        ".claude/mp0908-repairs/followups/voice/vad17-exit.json",
+        ".claude/mp0908-repairs/followups/voice/vad-guard-exit.json",
+        ".claude/mp0908-repairs/followups/distrib-budget/source-applied.json",
+        ".claude/mp0908-repairs/followups/distrib-budget/full-source-r1.json",
+        ".claude/mp0908-repairs/followups/distrib-budget/build-exit.json",
+        ".claude/mp0908-repairs/followups/distrib-budget/build-tests-exit.json",
+        ".claude/mp0908-repairs/followups/distrib-budget/native-exit.json",
+        ".claude/mp0908-repairs/followups/distrib-budget/native-guard-exit.json",
+        ".claude/mp0908-repairs/followups/distrib-budget/real-peer-exit.json",
+        ".claude/smoke-verify-runs/results-20260922T225929Z.json",
+        ".claude/mp0908-repairs/followups/distrib-budget/short-fixture-review.json",
+        ".claude/mp0908-repairs/followups/distrib-budget/real-peer-short-r2-exit.json",
+        ".claude/smoke-verify-runs/results-20260922T231327Z.json",
+        "port/src/net/netmsg.c:11470",
+        "tests/test_player_init_lifecycle_static.cpp:818",
+        "tests/test_vehicle_observer_layer.cpp:333",
+        "Scoped paused checkpoint e3ffedbb on origin/codex/mp-paused-20260922",
+        "Root combined asset0905b client/tests build pass on MP weapon-set source, focused selectors and ordinary transfer retry unrun"
+      ],
+      "status": "partial",
+      "type": "task",
+      "model": "gpt-6",
+      "deps": [
+        "T-NETWORKING-010"
+      ],
+      "detail": "21:24 FT wire7 PASS2898 exact assertions, client/tests/guard0, full438CF4A4/client4DDA994D/tests6A2856DE unchanged; all holds/FIFOs released. Signature capacity/chunk geometry/control ownership repaired via production helper; actual socket/receiver commit/replay/UI/WAN remains open. VAD8 still private, full multiplayer18 goal partial. 21:16 actual FT activation core PASS35/35 overall with independent FT retry/discard evidence, full049E558F/client811BE779. Public Mods7 source contracts accepted. Network download/Agent UI/controller not proven. New severe FT frame/geometry/control ownership defects source-confirmed; private wire8/native7 prioritized before private VAD8. Canonical MP sources held through root installed22. Full multiplayer18 goal remains partial. 18:50 ET corrected roster Join-r3 PASS37/37 in209.9s on client6C12FA9B/full2111 639A68A8/fixture2330BBCA; no source/binary/fixture drift. Initial roster accepted twice, no malformed message, host Create and guest SDL Join committed; normal exits. Three model-reviewed observer images global2/joined room2 with leader/local labels and guest waiting footer. Identical defaults do not prove distinct profile/portrait mapping. Root batch16 prerequisite inner18/18 outer23/23 plus base110 assets593 commands passed. Runtime d1c2df7b released; global source hold released and peers notified. Source/native9/393 roster and numeric5/362 movement evidence remain separate; earlier red/invalidated runs retained. Full18 scope partial: distinct Agent/third-peer isolation/room settings-bots, match start and movement authority, content consent/pacing/accounting, live chat/voice/NAT and swarm convergence/performance. Own audit/bugs/connectivity/save-wire/constraints updated, parent constraints synced8A12982D; root please fold shared tasks/log/bugs mirror. Receipts runtime/roster-join-pair-r3-{exit,visual-review}.json, results-20260908T225023Z.json. gpt-6.\n19:19 ET: active-Agent group ownership and accepted-peer voice admission/revocation connected. Owner7 clientE69F3AF4 with Opus; policy6 PASS40 assertions on tests09DD35F0/fullD9048BFF, zero drift, guard0. Actual Agent/group adapter, signed voice/SDL/audible proof pending. Transport7 private candidate includes production adapter fixture5, not applied or tested. Replay/mixing/VAD and other original findings remain open.\n19:32 ET: transport7 now applied and verified. Voice uses discovered presence-bound endpoint, exact recipient signing and admission. ClientFB499E55/tests30D27547/fullFBCC1DBA, native5 PASS55 assertions with real Opus/Ed25519 and simulated SDL/transport; builds/guard0, no drift. Actual socket/audio/Agent UI acceptance, session replay/mixing/VAD and original broader multiplayer requirements remain open.\n19:49 ET: current PDVOC2 voice-session4 applied with epoch/challenge, bounded replay and expiry/STOP/rollover handling. Native9 PASS102 assertions, exact names, testsFEE7C21E/full3F22B541. Shared client build RED in root audio isfinite calls; current client/guard/runtime unproven. Root owns narrow correction; MP quiescent. Earlier v1 client proof historical. Mixing/ordering/VAD/socket/audio/UI and broader original requirements remain open.\n20:08 ET: batch18 correction terminal PASS, clientCF294A6D/full80E30B41/guard0, no drift; voice9/102 remains valid. Original compile/link reds preserved. Separate root sound installed20 is not voice runtime evidence. Playout4/native13 private draft83693750 prepared but uncompiled/unapplied while menu fixture correction runs. VAD/capability, real voice socket/audio/UI and broader original requirements open.\n20:23 ET: playout4 now APPLIED and native13 PASS701 assertions, exact names/no source drift; tests86BFB2D2/clientA88A88A3/full19F5FAEF, client/tests/guard0. Two-speaker saturating mix, packet order, bounded PLC/capture/playback/stall and session lifecycle verified with actual Opus/Ed25519 and fake SDL/transport. Root shared installed checkpoint terminal/released; not actual voice proof. VAD/capability, real sockets/audio/UI, FT retained activation/Agent ownership and all other original requirements remain open. N-0168 records helper failure-retry hole owned by menu; MP will migrate FT after API settles.\nSep22 17:41 ET: receiver atomic save/receipt/path-sidecar source6 applied on exact baselines; full build/native5/guard/socket UNRUN. Code and connectivity repair ledger updated. Full18 remains partial.\nSep22 17:52 ET: FT receiver source6 r2 component green. Frozen full2149 SHA8337DB9E/client45EB43CB/tests0660F40F unchanged; clean builds0, storage native5 exact5/0fail, required asset source guard0. First menu build red on removed local sanitizer retained, r2 restored and current combined client passed. Actual signed socket delivery/metadata/UI/WAN and other audit findings remain open.\nSep22 18:04 ET: signed presence-socket FT smoke event/fixture and disposable peer source-applied, unbuilt/unrun; script intends outbound/inbound signed UDP, final ACK replay, installed inbox bytes and sidecar proof. Existing storage5 green remains component only.\nSep22 18:14 ET: socket r1 frozen2154 DB405E40 clientAB36312D/tests9D28D922 builds0 schema1/guard0. Runtime STOPPED RED 4/6: Agent/presence UDP bind and FT INIT observed, synthetic peer exited on preceding presence ping, sender no INIT ACK. This is harness defect; no FT socket acceptance. Corrected only peer/private runner and froze full2154 r2 DFE17DD4; same product binary, next FIFO runtime queued. Retained r1 failure and released FIFO.\nSep22 18:19 ET: actual signed localhost FT socket r2 PASS. Frozen full2154 DFE17DD4/clientAB36312D unchanged; ordinary Agent smoke6/6, peer verified outbound4097 and delivered signed inbound4097, final ACK replay, installed SHA/quoted-name JSON and one inbound publication. r1 harness red preserved. UI/WAN/NAT/consent/pacing/full18 remain open; status partial. All MP queues/source hold released.\nSep22 18:28 ET: F10 voice VAD/device candidate source8 APPLIED on exact baselines, CMake additive rebase. Energy hysteresis/silence, listen-only/error capability, UI controls, real production adapter native cases. No new build/native/guard/runtime evidence yet; prior playout13 applies to old source. Full18 remains partial.\nSep22 18:34 ET: F10 voice VAD/device source8 component GREEN on frozen full2156 SHA59011833 unchanged; clean clientC28ED419/tests691259AF builds0, native exact17/0fail and guard0. Real Opus/Ed25519 with deterministic SDL/transport and no-codec branch; actual voice socket/audible/mic/UI and full18 remain open. MP queues/source hold released.",
+      "id": "T-NETWORKING-011",
+      "updated": "2026-09-22T23:34:25.399Z",
+      "created": "2026-09-08T17:29:20.682Z"
+    },
+    {
+      "deps": [
+        "T-MODDING-002",
+        "T-MODDING-003"
+      ],
+      "evidence": [],
+      "phase": 2,
+      "status": "missing",
+      "type": "task",
+      "detail": "User Sep8 objective: after wrapping up the requested asset loading/extraction/modding/behavior foundations, create a custom Needler-like weapon, a Ghost-like hover vehicle with alternating blaster weapons, and custom characters similar to Master Chief, Sergeant Johnson, a Brute and a Grunt. Preserve all original foundation requirements. Reuse/audit existing dev-mods/needler and permanent identity; author the vehicle, weapons/projectiles/effects and all four character/body/head/animation sources in editable standard public typed archives. Deliver an installable documented pack through ordinary mod discovery/import, proving native source consumption, distinct alternating vehicle blaster behavior, usable vehicle operation, all four selectable/rendered/animated characters and Needler gameplay. Validate source edits/reload, rejection rollback and applicable gameplay/network lifecycle against the final modular graph pipeline. Existing historical Needler receipts are discovery context, not current acceptance. No implementation or new mod-pack runtime verdict yet.\n\nSep8 18:03 expanded requirement: also create a Warthog-like vehicle that allows players to drive, ride as passenger, or operate its turret. All three positions must be functional, with entry/exit, role-specific controls and multiple-player occupancy verified through the same public-source/native/network lifecycle. Preserve the Needler, Ghost alternating blasters, all four named character analogues and every original pipeline/graph requirement.",
+      "area": "MODDING",
+      "lane": "authoring",
+      "owner": "codex-f9571c12-6af53c63",
+      "tags": [
+        "user-request",
+        "mod-pack",
+        "public-source"
+      ],
+      "title": "Create Needler Ghost and Warthog inspired mod pack with four character archetypes",
+      "model": "GPT-6 / Codex",
+      "id": "T-MODDING-009",
+      "updated": "2026-09-08T22:03:17.609Z",
+      "created": "2026-09-08T21:58:41.610Z"
     }
   ]
 }

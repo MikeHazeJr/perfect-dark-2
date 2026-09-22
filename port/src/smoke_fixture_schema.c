@@ -38,6 +38,8 @@ static const smoke_fixture_field_entry_t k_event_fields[] = {
 	{ "comment", SMOKE_FIXTURE_FIELD_COMMENT },
 	{ "client_id", SMOKE_FIXTURE_FIELD_CLIENT_ID },
 	{ "hand", SMOKE_FIXTURE_FIELD_HAND },
+	{ "axis", SMOKE_FIXTURE_FIELD_AXIS },
+	{ "value", SMOKE_FIXTURE_FIELD_VALUE },
 };
 
 static void smokeJsonSkipWhitespace(smoke_json_cursor_t *cursor)
@@ -299,6 +301,11 @@ const char *smokeFixtureEventFieldName(smoke_fixture_field_mask_t field)
 	return "unknown";
 }
 
+int smokeFixtureControllerAxisValueValid(int64_t value)
+{
+	return value >= -32768 && value <= 32767;
+}
+
 int smokeFixtureEventTypeLengthValid(size_t length)
 {
 	return length < SMOKE_FIXTURE_EVENT_TYPE_CAPACITY;
@@ -309,11 +316,13 @@ int smokeFixtureEventTypeKnown(const char *type)
 	static const char *const types[] = {
 		"", "wait", "wait_until", "exit", "unclean_exit", "screenshot",
 		"receive_pdca_list", "agent_activate", "agent_delete",
+		"modmgr_apply_retry_probe", "file_transfer_socket_probe",
 		"catalog_recovery_probe", "catalog_weapon_acquire",
 		"catalog_weapon_release", "key", "action", "mouse", "mouse_move",
 		"mouse_wheel", "network_retire_held_weapon",
 		"network_assert_retired_prop_absent",
 		"network_timeout_client", "network_reconnect",
+		"controller_attach", "controller_button", "controller_axis", "controller_detach",
 	};
 
 	if (!type) {
@@ -334,6 +343,17 @@ smoke_fixture_field_mask_t smokeFixtureEventAllowedFields(const char *type)
 
 	if (!type || !smokeFixtureEventTypeKnown(type)) {
 		return 0;
+	}
+	if (!strcmp(type, "modmgr_apply_retry_probe") ||
+			!strcmp(type, "file_transfer_socket_probe")) return common;
+	if (!strcmp(type, "controller_attach") || !strcmp(type, "controller_detach")) {
+		return common;
+	}
+	if (!strcmp(type, "controller_button")) {
+		return common | SMOKE_FIXTURE_FIELD_BUTTON | SMOKE_FIXTURE_FIELD_ACTION;
+	}
+	if (!strcmp(type, "controller_axis")) {
+		return common | SMOKE_FIXTURE_FIELD_AXIS | SMOKE_FIXTURE_FIELD_VALUE;
 	}
 	if (!type[0] || !strcmp(type, "wait") || !strcmp(type, "exit")
 			|| !strcmp(type, "unclean_exit")

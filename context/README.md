@@ -35,7 +35,10 @@ The canonical context source is this `context/` tree. Parent-level briefing file
 
 ## Live state at a glance
 
-- **Wire protocol**: v58 (per [constraints.md](constraints.md) and `port/include/net/net.h`).
+- **Wire protocol**: v59 (per [constraints.md](constraints.md) and `port/include/net/net.h`).
+  The v59 vehicle-authority change is source-frozen in the current Milestone 1
+  wave; focused build, protocol, vehicle, and ordinary-client receipts are still
+  required before the v59 product can inherit a production-verified claim.
 - **Save format**: SAVE_VERSION=2, MPSETUP_VERSION=3.
 - **Build**: v0.0.175+ (per recent release tags). Build via `.\devtools\build-session.ps1 -Session <id> -Target all`; standalone `pd-server` is removed/deprecated, so use listen-host in the client.
 - **Active session range**: see [session-log.md](session-log.md).
@@ -44,13 +47,16 @@ The canonical context source is this `context/` tree. Parent-level briefing file
   T-RELEASE-006 in order. The former Kanban and `historical-cut` Workbench items
   are retained history, not live queues. See [tasks.md](tasks.md) for the concise
   milestone summary.
-- **Current Milestone 1 lane**: T-ENGINE-004 is validated, moving the milestone
-  to 3 validated, 7 partial, and 5 missing dependencies (20 percent). Its
+- **Current Milestone 1 lane**: T-ENGINE-004 is validated. T-ENGINE-005 owns
+  the parallel Combat Simulator bot/spawn/character defect cohort, while the
+  corrected T-TOOLING-003 coverage index is source-accepted/partial with no
+  gameplay fixtures run. The milestone is now 3 validated, 9 partial, and 4
+  missing dependencies out of 16 (19 percent). Its
   durable closure matrix is
   [2026-08-26-t-engine-004-closure.md](evidence/2026-08-26-t-engine-004-closure.md).
   B-1101/B-1102 retain accepted frozen
   automation and Combat Simulator evidence. B-1067/B-1103/B-1104 are
-  production-verified regression gates at protocol v58: one explicit
+  production-verified historical regression gates at protocol v58: one explicit
   inactive/waiting/release/active
   stage lifecycle requires the listen authority and every exact remote stage
   participant to cross the real post-load boundary; `SVC_STAGE_START` and
@@ -61,7 +67,8 @@ The canonical context source is this `context/` tree. Parent-level briefing file
   guard. Exact v58 client `5DA75BE6...` passes all seven ordinary-client paths,
   including initiator authority 214/214 and focus-independent invitee authority
   170/170 with one signed typed match-server route, one listen authority, one
-  idempotent peer join, and no probe/relay handoff. B-1076 is also a production
+  idempotent peer join, and no probe/relay handoff. Those receipts remain
+  regression evidence and are not current-v59 product proof. B-1076 is also a production
   regression gate: `mpStartMatch` owns pre-publication Combat Simulator
   menu/input teardown for offline, listen-authority, and receiving-client starts.
   Exact client `04DB220E...` passes the ordinary Agent Select/Main Menu/Play/Room

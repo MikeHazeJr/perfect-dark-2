@@ -119,6 +119,11 @@ void sceneShutdown(void);
  *  via the TRANSITION.SCENE channel. */
 s32 sceneFire(SceneEvent ev, const void *payload);
 
+/** Return whether the vehicle driver transition can be committed without
+ * exhausting the scene/input layer stack. Existing driver layers are
+ * idempotent and therefore do not require another stack slot. */
+bool sceneVehicleDriverCanBoard(void);
+
 /** The current top-level scene layer type. Wrapper around
  *  inputLayerTopType() so callers do not need to include
  *  inputlayer.h directly. */

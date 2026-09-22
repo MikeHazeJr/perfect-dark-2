@@ -8,6 +8,8 @@
 #include "data.h"
 #include "types.h"
 
+#include <string.h>
+
 void varsResetRoomProps(void);
 
 void varsReset(void)
@@ -16,6 +18,15 @@ void varsReset(void)
 
 	g_Vars.props = mempAlloc(ALIGN64(g_Vars.maxprops * sizeof(struct prop)), MEMPOOL_STAGE);
 	g_Vars.onscreenprops = mempAlloc(ALIGN64(MAX_ONSCREEN_PROPS * sizeof(void *)), MEMPOOL_STAGE);
+
+	/* Free slots must have a deterministic zero identity and inert payload.
+	 * propAllocate stamps the exact process-lifetime generation before any slot
+	 * can be published. This also prevents scanners from interpreting stale
+	 * stage-pool bytes as live props. */
+	if (g_Vars.props && g_Vars.maxprops > 0) {
+		memset(g_Vars.props, 0,
+			(size_t)g_Vars.maxprops * sizeof(struct prop));
+	}
 
 	g_AutoAimScale = 1;
 

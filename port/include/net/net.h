@@ -10,34 +10,42 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 58  /* v58 (2026-08-26): stage publication has one
-                              * explicit server lifecycle and nonzero epoch.
-                              * SVC_STAGE_START carries that epoch and
-                              * CLC_STAGE_READY must echo it, so delayed READY
-                              * traffic cannot release a later stage. The
-                              * listen or dedicated authority and every exact
-                              * remote participant must cross the real
-                              * post-load boundary before one release frame
-                              * publishes fresh gameplay. Co-op NPC convergence
-                              * is one reliable SVC_NPC_RESYNC + SVC_NPC_SYNC
-                              * transaction whose digest is canonical by prop
-                              * sync ID and validated against that exact applied
-                              * snapshot, never against a temporally unrelated
-                              * live frame. Mixed v57/v58 play is rejected.
-                              * v57 (2026-08-14): reconnect is one authenticated
-                              * transaction. ENet connect data carries a
-                              * non-authoritative stable client-slot hint;
-                              * CLC_AUTH still proves an endpoint-scoped 128-bit
-                              * cookie, and CLC_SETTINGS freezes one exact typed
-                              * candidate. The server republishes the room,
-                              * session catalog, and manifest on the reliable
-                              * control channel, then waits for a hash-matched
-                              * manifest READY. Only then may the server enqueue
-                              * the exact stage packet; runtime config, reserved
-                              * room capacity, player/prop linkage, and preserved
-                              * credential remain uncommitted. The replay roster
-                              * retains every other timed reservation as an
-                              * explicitly absent
+#define NET_PROTOCOL_VER 61  /* v61 (2026-09-08): authenticated lobby roster.
+                             * v60: room creation includes its
+                               initial settings/playlist, room lists include
+                               access and create/join return SVC_ROOM_RESULT.
+                               v59 (2026-08-27): committed hoverbike
+                               mount/dismount state is typed and ordered;
+                               UCMD_VEHICLE_PC_INTENT carries only an accepted
+                               originating PC hold/direct vehicle-use intent;
+                               v58 (2026-08-26): stage publication has one
+                               * explicit server lifecycle and nonzero epoch.
+                               * SVC_STAGE_START carries that epoch and
+                               * CLC_STAGE_READY must echo it, so delayed READY
+                               * traffic cannot release a later stage. The
+                               * listen or dedicated authority and every exact
+                               * remote participant must cross the real
+                               * post-load boundary before one release frame
+                               * publishes fresh gameplay. Co-op NPC convergence
+                               * is one reliable SVC_NPC_RESYNC + SVC_NPC_SYNC
+                               * transaction whose digest is canonical by prop
+                               * sync ID and validated against that exact applied
+                               * snapshot, never against a temporally unrelated
+                               * live frame. Mixed v58/v59 play is rejected.
+                               * v57 (2026-08-14): reconnect is one authenticated
+                               * transaction. ENet connect data carries a
+                               * non-authoritative stable client-slot hint;
+                               * CLC_AUTH still proves an endpoint-scoped 128-bit
+                               * cookie, and CLC_SETTINGS freezes one exact typed
+                               * candidate. The server republishes the room,
+                               * session catalog, and manifest on the reliable
+                               * control channel, then waits for a hash-matched
+                               * manifest READY. Only then may the server enqueue
+                               * the exact stage packet; runtime config, reserved
+                               * room capacity, player/prop linkage, and preserved
+                               * credential remain uncommitted. The replay roster
+                               * retains every other timed reservation as an
+                               * explicitly absent
                               * participant. Once the receiver reports the real
                               * post-load scene boundary, the server atomically
                               * publishes that frozen runtime state and sends one
@@ -453,9 +461,13 @@ extern u8 g_NetBotAuthorityClientId; /* NET_NULL_CLIENT when no authority delega
 #define UCMD_EYESSHUT (1 << 9)
 #define UCMD_SECONDARY (1 << 10)
 #define UCMD_JUMP      (1 << 11)
+/* v59: originating client completed the PC hold/direct vehicle-use intent.
+ * UCMD_ACTIVATE remains the action; this bit preserves device semantics
+ * without asking the authority to infer them from its local control slot. */
+#define UCMD_VEHICLE_PC_INTENT (1 << 12)
 #define UCMD_RESPAWN (1 << 27)
 #define UCMD_CHAT (1 << 28)
-#define UCMD_IMPORTANT_MASK (UCMD_FIRE | UCMD_ACTIVATE | UCMD_RELOAD | UCMD_AIMMODE | UCMD_SELECT | UCMD_SELECT_DUAL)
+#define UCMD_IMPORTANT_MASK (UCMD_FIRE | UCMD_ACTIVATE | UCMD_RELOAD | UCMD_AIMMODE | UCMD_SELECT | UCMD_SELECT_DUAL | UCMD_VEHICLE_PC_INTENT)
 #define UCMD_FL_FORCEPOS (1 << 29)
 #define UCMD_FL_FORCEANGLE (1 << 30)
 #define UCMD_FL_FORCEGROUND (1 << 31)

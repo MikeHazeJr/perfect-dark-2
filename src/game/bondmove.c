@@ -43,6 +43,7 @@
 #include <math.h>
 #include "input.h"
 #include "actionmap.h"
+#include "scene.h"
 #include "video.h"
 #include "system.h"
 #include "utils.h"
@@ -67,6 +68,12 @@
  * with the rest of bondmove.c. */
 static u32 s_BondLastUseTapReleaseFrame[MAX_PLAYERS] = {0};
 #define BOND_DOUBLE_TAP_TICKS 15 /* ~250 ms at 60 Hz */
+
+/* Local controller activation is latched only for the current input frame.
+ * Mount eligibility consumes this typed source marker rather than asking the
+ * authority's option table which device a player uses. Remote controller
+ * activations use their transported timing edge instead. */
+static bool s_LocalControllerVehicleIntent[MAX_PLAYERS] = {false};
 
 /* Per-player previous airborne state. Used by the crouch-jump mid-air
  * window detector in bondwalk: the moment ACTION_CROUCH is pressed while
@@ -337,6 +344,11 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 	}
 
 	pl->bondactivateorreload = 0;
+	/* This is a one-frame server-side interpretation of a fresh remote
+	 * activation. The client only sets UCMD_ACTIVATE after the PC hold/vehicle
+	 * use intent is complete, so the authority must carry that explicit kind
+	 * across instead of consulting its own local control-mode slot. */
+	pl->pcinteractusekind = 0;
 
 	pl->eyesshut = (inmove->ucmd & UCMD_EYESSHUT) != 0;
 
@@ -413,7 +425,28 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 
 	if (g_NetMode == NETMODE_SERVER) {
 		if (!handled && (inmove->ucmd & UCMD_ACTIVATE)) {
-			pl->bondactivateorreload |= JO_ACTION_ACTIVATE;
+			const bool pcVehicleIntent =
+				(inmove->ucmd & UCMD_VEHICLE_PC_INTENT) != 0;
+			pl->pcinteractusekind = pcVehicleIntent ? 2 : 0;
+			if (!pcVehicleIntent) {
+				/* Preserve controller double-tap semantics without consulting the
+				 * authority's local device slot. The first ordinary activation records
+				 * the timing edge; the next one can satisfy the legacy window. */
+				pl->activatetimelast = pl->activatetimethis;
+				pl->activatetimethis = g_Vars.lvframe60;
+			}
+			if (pl->bondmovemode == MOVEMODE_BIKE) {
+				/* A mounted remote actor's activation is the transported vehicle
+				 * exit intent only when the client marked it as PC vehicle intent;
+				 * ordinary controller activation stays on the double-tap path. */
+				bbikeHandleActivate(pcVehicleIntent);
+				pl->bondactivateorreload = 0;
+			} else {
+				pl->bondactivateorreload |= JO_ACTION_ACTIVATE;
+			}
+			/* A bike has no bwalkUpdate path to advance this acknowledgement;
+			 * advance it at the authoritative intent-consumption boundary. */
+			pl->client->inmovetick = inmove->tick;
 		}
 
 		if (g_Vars.bondvisible && (bgunIsFiring(HAND_RIGHT) || bgunIsFiring(HAND_LEFT))) {
@@ -628,6 +661,15 @@ struct prop *bmoveGetHoverbike(void)
 	return NULL;
 }
 
+bool bmoveIsLocalControllerVehicleIntent(void)
+{
+	if (g_Vars.currentplayernum < 0 || g_Vars.currentplayernum >= MAX_PLAYERS) {
+		return false;
+	}
+
+	return s_LocalControllerVehicleIntent[g_Vars.currentplayernum];
+}
+
 struct prop *bmoveGetGrabbedProp(void)
 {
 	if (g_Vars.currentplayer->bondmovemode == MOVEMODE_GRAB) {
@@ -647,16 +689,39 @@ void bmoveGrabProp(struct prop *prop)
 	}
 }
 
-void bmoveSetMode(u32 movemode)
+bool bmoveSetMode(u32 movemode)
 {
-	if (g_Vars.currentplayer->bondmovemode == MOVEMODE_GRAB) {
+	struct player *player = g_Vars.currentplayer;
+	const u32 previousmode = player->bondmovemode;
+	const bool leavingbike = previousmode == MOVEMODE_BIKE
+		&& movemode != MOVEMODE_BIKE;
+	struct prop *previousbike = player->hoverbike;
+	struct prop *previousgrabbed = player->grabbedprop;
+	bool result = true;
+
+	if (movemode == MOVEMODE_BIKE && previousmode == MOVEMODE_BIKE) {
+		/* Replaying an already committed mount is idempotent. Do not tear down
+		 * the vehicle layer and re-run bbikeInit, which would make a same-state
+		 * duplicate capable of creating an unnecessary dismount side effect. */
+		return previousbike != NULL;
+	}
+
+	/* Check the only fallible vehicle transition before leaving a grabbed
+	 * state. bbikeInit repeats this check immediately before sceneFire as a
+	 * defensive boundary for callers that enter through another mode path. */
+	if (movemode == MOVEMODE_BIKE && !player->isremote
+			&& !sceneVehicleDriverCanBoard()) {
+		return false;
+	}
+
+	if (previousmode == MOVEMODE_GRAB) {
 		bgrabExit();
-	} else if (g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE) {
+	} else if (previousmode == MOVEMODE_BIKE) {
 		bbikeExit();
 	}
 
 	if (movemode == MOVEMODE_BIKE) {
-		bbikeInit();
+		result = bbikeInit();
 	} else if (movemode == MOVEMODE_GRAB) {
 		bgrabInit();
 	} else if (movemode == MOVEMODE_CUTSCENE) {
@@ -664,6 +729,32 @@ void bmoveSetMode(u32 movemode)
 	} else if (movemode == MOVEMODE_WALK) {
 		bwalkInit();
 	}
+
+	/* bwalkInit uses the bike pointer while it performs the collision-safe
+	 * walkinitmove handoff. Clear ownership only after that infallible mode
+	 * transition, so callers cannot expose WALK with a stale vehicle pointer or
+	 * make bwalkInit dereference NULL. */
+	if (result && leavingbike) {
+		player->hoverbike = NULL;
+	}
+
+	if (!result) {
+		/* A failed bike initialization must not strand a grabbed prop or leave
+		 * a stale bike pointer behind. Re-enter the exact prior interaction
+		 * mode so walking initialization and its collision handoff run through
+		 * the normal production path. */
+		player->hoverbike = previousbike;
+		if (previousmode == MOVEMODE_GRAB && previousgrabbed) {
+			player->grabbedprop = previousgrabbed;
+			bgrabInit();
+		} else if (previousmode == MOVEMODE_WALK) {
+			bwalkInit();
+		} else {
+			player->bondmovemode = previousmode;
+		}
+	}
+
+	return result;
 }
 
 void bmoveSetModeForAllPlayers(u32 movemode)
@@ -682,7 +773,7 @@ void bmoveSetModeForAllPlayers(u32 movemode)
 void bmoveHandleActivate(void)
 {
 	if (g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE) {
-		bbikeHandleActivate();
+		bbikeHandleActivate(false);
 	} else if (g_Vars.currentplayer->bondmovemode == MOVEMODE_GRAB) {
 		bgrabHandleActivate();
 	} else if (g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK) {
@@ -692,8 +783,11 @@ void bmoveHandleActivate(void)
 
 void bmoveApplyMoveData(struct movedata *data)
 {
+	bool vehicleExitIntent = false;
+
 	if (g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE) {
 		bbikeApplyMoveData(data);
+		vehicleExitIntent = bbikeTakeVehicleExitIntent();
 	} else if (g_Vars.currentplayer->bondmovemode == MOVEMODE_GRAB) {
 		bgrabApplyMoveData(data);
 	} else if (g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK) {
@@ -720,6 +814,18 @@ void bmoveApplyMoveData(struct movedata *data)
 			}
 			if (g_Vars.currentplayer->bondactivateorreload & JO_ACTION_ACTIVATE) {
 				g_Vars.currentplayer->ucmd |= UCMD_ACTIVATE;
+				if (g_Vars.currentplayer->pcinteractusekind == 2) {
+					g_Vars.currentplayer->ucmd |= UCMD_VEHICLE_PC_INTENT;
+				}
+			}
+			if (vehicleExitIntent) {
+				/* The client sends the same reliable activation bit, but consumes
+				 * the local action before lv.c can route it through prop interaction. */
+				g_Vars.currentplayer->ucmd |= UCMD_ACTIVATE;
+				if (g_Vars.currentplayer->pcinteractusekind == 2) {
+					g_Vars.currentplayer->ucmd |= UCMD_VEHICLE_PC_INTENT;
+				}
+				g_Vars.currentplayer->bondactivateorreload &= ~JO_ACTION_ACTIVATE;
 			}
 			if (g_Vars.currentplayer->bondactivateorreload & JO_ACTION_RELOAD) {
 				g_Vars.currentplayer->ucmd |= UCMD_RELOAD;
@@ -1143,6 +1249,10 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 	const f32 mlookscale = g_Vars.lvupdate240 ? (4.f / (f32)g_Vars.lvupdate240) : 4.f;
 	const bool allowmlook = (g_Vars.currentplayernum == 0) && (allowc1x || allowc1y);
 	bool allowmcross = false;
+
+	if (g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS) {
+		s_LocalControllerVehicleIntent[g_Vars.currentplayernum] = false;
+	}
 
 	controlmode = optionsGetControlMode(g_Vars.currentplayerstats->mpindex);
 
@@ -2644,6 +2754,7 @@ void bmoveProcessInput(bool allowc1x, bool allowc1y, bool allowc1buttons, bool i
 		}
 
 		if (controlmode != CONTROLMODE_PC) {
+			s_LocalControllerVehicleIntent[g_Vars.currentplayernum] = true;
 			bmoveHandleActivate();
 		}
 	}

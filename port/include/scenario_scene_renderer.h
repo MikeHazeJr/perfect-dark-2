@@ -15,6 +15,12 @@ typedef struct scenario_scene_renderer_probe {
 	size_t alpha_textures;
 	size_t alpha_materials;
 	size_t secondary_materials;
+	size_t instances;
+	int selected_scene;
+	float bounds_min[3];
+	float bounds_max[3];
+	/* Emitted transformed triangle positions, xyz float32 little-endian. */
+	char geometry_sha256[65];
 } scenario_scene_renderer_probe_t;
 
 int scenarioSceneRendererProbeSource(const char *scenario_id,

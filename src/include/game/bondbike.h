@@ -4,11 +4,14 @@
 #include "data.h"
 #include "types.h"
 
-void bbikeInit(void);
+bool bbikeInit(void);
 void bbikeExit(void);
+bool bbikeTryDismount(void);
+bool bbikeCanDismount(void);
+bool bbikeTakeVehicleExitIntent(void);
 void bbikeUpdateVehicleOffset(void);
 void bbikeTryDismountAngle(f32 relativeangle, f32 distance);
-void bbikeHandleActivate(void);
+void bbikeHandleActivate(bool transportedintent);
 void bbikeApplyMoveData(struct movedata *data);
 void bbike0f0d2b40(struct defaultobj *bike, struct coord *arg1, f32 arg2, struct defaultobj *obstacle);
 s32 bbikeCalculateNewPosition(struct coord *arg0, f32 arg1);

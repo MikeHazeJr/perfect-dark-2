@@ -24,6 +24,7 @@
 #include "imgui/imgui.h"
 
 #include "pdgui_friends.h"
+#include "pdgui_nav_input.h"
 #include "pdgui_nat_diagnostics.h"
 #include "pdgui_scaling.h"
 #include "pdgui_style.h"
@@ -62,6 +63,7 @@ static char s_AddFriendStatus[128];
 /* Per-friend chat panel state. One panel can be open at a time. */
 static u32  s_ChatPanelFriendHandle = 0;
 static char s_ChatComposeBuf[CHAT_TEXT_MAX];
+static char s_ChatSendError[192];
 static char s_ChatAttachPath[400];
 
 /* Per-friend Player Profile modal state. */
@@ -193,6 +195,7 @@ extern "C" s32  pdguiFriendsAnySurfaceIsOpen(void) { return socialShellNeedsMenu
 extern "C" void pdguiFriendsChatOpen(u32 friend_handle) {
 	s_ChatPanelFriendHandle = friend_handle;
 	s_ChatComposeBuf[0] = '\0';
+	s_ChatSendError[0] = '\0';
 	socialShellSyncMenuPool();
 }
 extern "C" void pdguiFriendsChatClose(void) { s_ChatPanelFriendHandle = 0; socialShellSyncMenuPool(); }
@@ -588,6 +591,7 @@ static void renderChatPanel(s32 winW, s32 winH)
 
 	ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.04f, 0.06f, 0.12f, 0.95f));
 	bool open = true;
+	bool closeChat = false;
 	if (ImGui::Begin("##pd2_chat_panel",
 	                 &open,
 	                 ImGuiWindowFlags_NoCollapse |
@@ -595,6 +599,11 @@ static void renderChatPanel(s32 winW, s32 winH)
 		if (ImGui::IsWindowAppearing()) {
 			ImGui::SetWindowFocus();
 		}
+
+		if (ImGui::IsWindowAppearing()) pdguiNavSuppressOpeningGesture();
+		closeChat = !open || (!socialShellBlockingModalOpen() && pdguiMenuCancelPressed());
+		if (closeChat) pdguiNavSuppressActivation();
+		ImGui::BeginDisabled(closeChat);
 
 		char title[128];
 		socialFormatDisplay(f, title, sizeof(title));
@@ -607,7 +616,9 @@ static void renderChatPanel(s32 winW, s32 winH)
 		ImGui::TextDisabled("[%s]", state_label);
 		ImGui::Separator();
 
-		const float footer_h = 84.0f;
+		float footer_h = 84.0f;
+		if (s_ChatSendError[0]) footer_h += ImGui::CalcTextSize(s_ChatSendError, nullptr,
+			false, ImGui::GetContentRegionAvail().x).y + ImGui::GetStyle().ItemSpacing.y;
 		ImGui::BeginChild("##pd2_chat_history", ImVec2(0, -footer_h), false);
 		const s32 nm = chatHistoryCount(f->handle);
 		for (s32 i = 0; i < nm; i++) {
@@ -622,6 +633,14 @@ static void renderChatPanel(s32 winW, s32 winH)
 				ImGui::Text("you:");
 				ImGui::SameLine();
 				ImGui::TextWrapped("%s", m->text);
+				const char *delivery = "Delivery unknown";
+				switch (m->delivery) {
+				case CHAT_DELIVERY_PENDING: delivery = "Sending..."; break;
+				case CHAT_DELIVERY_DELIVERED: delivery = "Delivered"; break;
+				case CHAT_DELIVERY_FAILED: delivery = "Not delivered"; break;
+				default: break;
+				}
+				ImGui::TextDisabled("%s", delivery);
 			} else {
 				ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
 				ImGui::Text("%s:", f->agent_name[0] ? f->agent_name : "friend");
@@ -710,10 +729,14 @@ static void renderChatPanel(s32 winW, s32 winH)
 			if (s_ChatComposeBuf[0] != '\0') {
 				if (chatSendText(f->handle, s_ChatComposeBuf) == 0) {
 					s_ChatComposeBuf[0] = '\0';
+					s_ChatSendError[0] = '\0';
+				} else {
+					snprintf(s_ChatSendError, sizeof(s_ChatSendError), "%s", chatLastSendError());
 				}
 			}
 		}
 
+		if (s_ChatSendError[0]) ImGui::TextWrapped("%s", s_ChatSendError);
 		ImGui::SetNextItemWidth(-180.0f);
 		ImGui::InputTextWithHint("##pd2_chat_attach", "absolute path to attach...",
 		                          s_ChatAttachPath, sizeof(s_ChatAttachPath));
@@ -740,11 +763,13 @@ static void renderChatPanel(s32 winW, s32 winH)
 			ImGui::TextDisabled("Offline -- message will not be delivered until "
 			                      "%s is online again.", f->agent_name);
 		}
+		ImGui::EndDisabled();
 	}
 	ImGui::End();
 	ImGui::PopStyleColor();
 
-	if (!open || (!socialShellBlockingModalOpen() && actionPressed(0, ACTION_CANCEL_USE))) {
+	if (!open || closeChat) {
+		pdguiNavSuppressActivation();
 		s_ChatPanelFriendHandle = 0;
 		socialShellSyncMenuPool();
 	}
@@ -768,6 +793,10 @@ static void renderProfileModal(void)
 	if (ImGui::BeginPopupModal("Player Profile", nullptr,
 	                            ImGuiWindowFlags_AlwaysAutoResize |
 	                            ImGuiWindowFlags_NoSavedSettings)) {
+		if (ImGui::IsWindowAppearing()) pdguiNavSuppressOpeningGesture();
+		bool closeProfile = pdguiMenuCancelPressed();
+		if (closeProfile) pdguiNavSuppressActivation();
+		ImGui::BeginDisabled(closeProfile);
 		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
 		ImGui::Text("%s", f->agent_name[0] ? f->agent_name : "?");
 		ImGui::PopStyleColor();
@@ -862,8 +891,10 @@ static void renderProfileModal(void)
 			listeningRoomSubscribe(f->handle);
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Close", ImVec2(120, 0)) ||
-		    actionPressed(0, ACTION_CANCEL_USE)) {
+		closeProfile |= ImGui::Button("Close", ImVec2(120, 0));
+		ImGui::EndDisabled();
+		if (closeProfile) {
+			pdguiNavSuppressActivation();
 			s_ProfileFriendHandle = 0;
 			socialShellSyncMenuPool();
 			ImGui::CloseCurrentPopup();
@@ -956,7 +987,15 @@ static void renderConvertToModModal(void)
 
 static void renderReceivedModEnableModal(void)
 {
-	if (fileTransferPendingModEnableCount() <= 0) return;
+	if (fileTransferPendingModEnableCount() <= 0) {
+		/* Agent rebind/shutdown may remove the queue while its modal is open. */
+		if (ImGui::BeginPopupModal("Downloaded Mod", nullptr,
+		        ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+			ImGui::CloseCurrentPopup();
+			ImGui::EndPopup();
+		}
+		return;
+	}
 
 	char mod_id[MODMGR_ID_LEN];
 	char mod_name[MODMGR_NAME_LEN];
@@ -972,24 +1011,30 @@ static void renderReceivedModEnableModal(void)
 	if (ImGui::BeginPopupModal("Downloaded Mod", nullptr,
 	                            ImGuiWindowFlags_AlwaysAutoResize |
 	                            ImGuiWindowFlags_NoSavedSettings)) {
+		if (ImGui::IsWindowAppearing()) pdguiNavSuppressOpeningGesture();
 		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
 		ImGui::TextUnformatted(mod_name[0] ? mod_name : mod_id);
 		ImGui::PopStyleColor();
 		ImGui::TextDisabled("%s", mod_id);
 		ImGui::Separator();
-		ImGui::TextWrapped(
-		        "This mod was downloaded from a player who is not in your "
-		        "friends list. It was installed disabled.");
-		ImGui::TextWrapped("Enable it now or keep it disabled in Mod Manager.");
+		const char *error = fileTransferPendingModEnableError();
+		const bool effects = fileTransferPendingModEnableHasEffects() != 0;
+		ImGui::TextWrapped("This downloaded mod is installed. Enable it now or manage it later in Mod Manager.");
+		if (error[0]) {
+			ImGui::TextWrapped("Activation failed: %s", error);
+		}
+		if (effects) {
+			ImGui::TextWrapped("Some settings or runtime changes may already have applied. Dismissing this prompt does not undo them.");
+		}
 		ImGui::Spacing();
-
-		if (ImGui::Button("Enable now", ImVec2(150, 0))) {
-			(void)fileTransferPendingModEnableAccept();
-			socialShellSyncMenuPool();
-			ImGui::CloseCurrentPopup();
+		if (ImGui::Button(error[0] ? "Retry activation" : "Enable now", ImVec2(150, 0))) {
+			if (fileTransferPendingModEnableAccept() == 0) {
+				socialShellSyncMenuPool();
+				ImGui::CloseCurrentPopup();
+			}
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Keep disabled", ImVec2(150, 0)) ||
+		if (ImGui::Button(effects ? "Discard retry" : "Keep disabled", ImVec2(150, 0)) ||
 		    actionPressed(0, ACTION_CANCEL_USE)) {
 			fileTransferPendingModEnableDecline();
 			socialShellSyncMenuPool();
@@ -1004,32 +1049,17 @@ static void renderReceivedModEnableModal(void)
 extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 {
 	socialShellAdoptForceClose();
+	const bool childOwnedFrame = socialShellBlockingModalOpen() || s_ChatPanelFriendHandle != 0;
+	const bool socialOwnedFrame = s_SocialOpen;
 	pdguiFriendsStatusIndicatorRender(winW, winH);
 
-	/* S483b (2026-04-27): Tab toggles the sidebar via ACTION_SOCIAL_TOGGLE.
-	 * Bound only on g_ImcMenu / g_ImcPauseMenu (port/src/actionmap.cpp
-	 * setupMenuDefaults / setupPauseMenuDefaults), so during pure
-	 * gameplay -- when only g_ImcGameplay is on top -- pressing Tab
-	 * cannot fire this action. The previous implementation called
-	 * ImGui::IsKeyPressed(Tab) directly with a comment "Avoids reaching
-	 * into the actionmap layer", which was the IMC bypass that opened
-	 * the connectivity sidebar mid-mission. WantCaptureKeyboard is
-	 * still queried for PTT below so text fields do not start voice
-	 * transmission. */
-	if (actionPressed(0, ACTION_SOCIAL_TOGGLE)) {
+	/* Keep the IMC restriction and let an active editor/child own Tab first. */
+	if (!childOwnedFrame && pdguiNavActionAllowed(ACTION_MENU_CANCEL) &&
+	    pdguiMenuActionPressed(ACTION_SOCIAL_TOGGLE)) {
 		s_SidebarOpen = !s_SidebarOpen;
+		pdguiNavSuppressOpeningGesture();
 	}
 	socialShellSyncMenuPool();
-	if (!socialShellBlockingModalOpen() && actionPressed(0, ACTION_CANCEL_USE)) {
-		if (s_ChatPanelFriendHandle != 0) {
-			s_ChatPanelFriendHandle = 0;
-		} else if (s_SocialOpen) {
-			s_SocialOpen = false;
-		} else if (s_SidebarOpen) {
-			s_SidebarOpen = false;
-		}
-		socialShellSyncMenuPool();
-	}
 	if (!ImGui::GetIO().WantCaptureKeyboard) {
 		if (voiceEnabled() && voiceGetCaptureMode() == VOICE_CAPTURE_PUSH_TO_TALK) {
 			if (actionPressed(0, ACTION_VOICE_PTT))   voicePttBegin();
@@ -1038,6 +1068,7 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 	}
 
 	if (s_SidebarOpen) {
+		bool closeSidebar = false;
 		const float w = 360.0f;
 		const float h = (float)winH * 0.7f;
 		ImGui::SetNextWindowPos(ImVec2((float)winW - w - 12.0f, 60.0f), ImGuiCond_Always);
@@ -1054,6 +1085,10 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 				ImGui::SetWindowFocus();
 			}
 
+			if (ImGui::IsWindowAppearing()) pdguiNavSuppressOpeningGesture();
+			closeSidebar = !childOwnedFrame && !socialOwnedFrame && pdguiMenuCancelPressed();
+			if (closeSidebar) pdguiNavSuppressActivation();
+			ImGui::BeginDisabled(closeSidebar);
 			ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
 			ImGui::TextUnformatted("Friends");
 			ImGui::PopStyleColor();
@@ -1095,16 +1130,22 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 				pdguiFriendsSocialOpen();
 			}
 			ImGui::SameLine();
-			if (ImGui::Button("Close")) {
-				s_SidebarOpen = false;
-				socialShellSyncMenuPool();
-			}
+			ImGui::BeginDisabled(childOwnedFrame);
+			closeSidebar |= ImGui::Button("Close");
+			ImGui::EndDisabled();
+			ImGui::EndDisabled();
 		}
 		ImGui::End();
 		ImGui::PopStyleColor();
+		if (closeSidebar && !socialShellBlockingModalOpen() && s_ChatPanelFriendHandle == 0) {
+			s_SidebarOpen = false;
+			pdguiNavSuppressActivation();
+			socialShellSyncMenuPool();
+		}
 	}
 
 	if (s_SocialOpen) {
+		bool closeSocial = false;
 		const float pad = 32.0f;
 		ImGui::SetNextWindowPos(ImVec2(pad, pad), ImGuiCond_Always);
 		ImGui::SetNextWindowSize(ImVec2((float)winW - pad * 2, (float)winH - pad * 2),
@@ -1120,13 +1161,17 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 				ImGui::SetWindowFocus();
 			}
 
+			if (ImGui::IsWindowAppearing()) pdguiNavSuppressOpeningGesture();
+			closeSocial = !childOwnedFrame && pdguiMenuCancelPressed();
+			if (closeSocial) pdguiNavSuppressActivation();
+			ImGui::BeginDisabled(closeSocial);
 			ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow(255));
 			ImGui::TextUnformatted("SOCIAL");
 			ImGui::PopStyleColor();
 			ImGui::TextDisabled("Connect code: %s", socialMyConnectCode());
 			ImGui::Separator();
 
-			socialHandleTabActions();
+			if (!childOwnedFrame) socialHandleTabActions();
 
 			if (ImGui::BeginTabBar("##pd2_social_tabs")) {
 
@@ -1569,23 +1614,25 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 					ImGui::Spacing();
 					ImGui::TextUnformatted("Voice");
 					ImGui::Indent(12.0f);
-					bool voice_on = voiceEnabled() != 0;
-					if (ImGui::Checkbox("Enable voice chat", &voice_on)) {
-						voiceSetEnabled(voice_on ? 1 : 0);
-					}
-					if (voice_on) {
-						const voice_capture_mode_t cm = voiceGetCaptureMode();
-						if (ImGui::RadioButton("Push-to-talk (default)", cm == VOICE_CAPTURE_PUSH_TO_TALK)) {
-							voiceSetCaptureMode(VOICE_CAPTURE_PUSH_TO_TALK);
-						}
-						if (ImGui::RadioButton("Voice-activated", cm == VOICE_CAPTURE_VOICE_ACTIVE)) {
-							voiceSetCaptureMode(VOICE_CAPTURE_VOICE_ACTIVE);
-						}
-						ImGui::TextDisabled(
-						        "Default off; opt-in. PTT key = V (hold to talk). "
-						        "Codec = Opus (low-latency, BSD-licensed). Per-friend mute "
-						        "applies to voice the same way it applies to chat / toasts.");
-					}
+                    ImGui::BeginDisabled(!voiceCodecAvailable());
+                    bool voice_on = voiceEnabled() != 0;
+                    if (ImGui::Checkbox("Enable voice chat", &voice_on)) {
+                        voiceSetEnabled(voice_on ? 1 : 0);
+                        voice_on = voiceEnabled() != 0;
+                    }
+                    const voice_capture_mode_t cm = voiceGetCaptureMode();
+                    if (ImGui::RadioButton("Listen only", cm == VOICE_CAPTURE_OFF)) voiceSetCaptureMode(VOICE_CAPTURE_OFF);
+                    if (ImGui::RadioButton("Push-to-talk", cm == VOICE_CAPTURE_PUSH_TO_TALK)) voiceSetCaptureMode(VOICE_CAPTURE_PUSH_TO_TALK);
+                    if (ImGui::RadioButton("Voice-activated", cm == VOICE_CAPTURE_VOICE_ACTIVE)) voiceSetCaptureMode(VOICE_CAPTURE_VOICE_ACTIVE);
+                    if (voiceGetCaptureMode() == VOICE_CAPTURE_VOICE_ACTIVE) {
+                        int sensitivity = voiceGetSensitivity();
+                        if (ImGui::SliderInt("Microphone sensitivity", &sensitivity, 0, 100)) voiceSetSensitivity(sensitivity);
+                        if (voice_on) ImGui::ProgressBar(voiceInputLevel(), ImVec2(180, 0), "Microphone level");
+                    }
+                    ImGui::EndDisabled();
+                    if (!voiceCodecAvailable()) ImGui::TextWrapped("Voice support is unavailable in this build.");
+                    else if (voiceLastError()[0]) ImGui::TextWrapped("%s", voiceLastError());
+                    ImGui::TextWrapped("Voice is shared only with accepted members of your group. Use your configured push-to-talk binding. Listen only closes microphone capture.");
 					ImGui::Unindent(12.0f);
 
 					ImGui::Spacing();
@@ -1610,12 +1657,17 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 				socialShellSyncMenuPool();
 			}
 			ImGui::SameLine();
-			if (ImGui::Button("Close")) {
-				pdguiFriendsSocialClose();
-			}
+			ImGui::BeginDisabled(childOwnedFrame);
+			closeSocial |= ImGui::Button("Close");
+			ImGui::EndDisabled();
+			ImGui::EndDisabled();
 		}
 		ImGui::End();
 		ImGui::PopStyleColor();
+		if (closeSocial && !socialShellBlockingModalOpen() && s_ChatPanelFriendHandle == 0) {
+			pdguiFriendsSocialClose();
+			pdguiNavSuppressActivation();
+		}
 	}
 
 	pdguiNatDiagnosticsRender(winW, winH);
@@ -1631,6 +1683,10 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 	if (ImGui::BeginPopupModal("Add Friend", nullptr,
 	                            ImGuiWindowFlags_AlwaysAutoResize |
 	                            ImGuiWindowFlags_NoSavedSettings)) {
+		if (ImGui::IsWindowAppearing()) pdguiNavSuppressOpeningGesture();
+		bool cancelAddFriend = pdguiMenuCancelPressed();
+		if (cancelAddFriend) pdguiNavSuppressActivation();
+		ImGui::BeginDisabled(cancelAddFriend);
 		ImGui::TextUnformatted("Enter a friend's connect code (4 words)");
 		ImGui::SetNextItemWidth(420.0f);
 		ImGui::InputText("Code", s_AddFriendCodeBuf, sizeof(s_AddFriendCodeBuf));
@@ -1656,7 +1712,12 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 		}
 
 		ImGui::Spacing();
-		if (ImGui::Button("Add", ImVec2(140, 0))) {
+		const bool addFriend = ImGui::Button("Add", ImVec2(140, 0));
+		ImGui::SameLine();
+		cancelAddFriend |= ImGui::Button("Cancel", ImVec2(140, 0));
+		ImGui::EndDisabled();
+
+		if (addFriend && !cancelAddFriend) {
 			s32 added = socialFriendAdd(s_AddFriendCodeBuf, "");
 			if (added < 0) {
 				snprintf(s_AddFriendStatus, sizeof(s_AddFriendStatus),
@@ -1676,12 +1737,12 @@ extern "C" void pdguiFriendsRender(s32 winW, s32 winH)
 				s_AddFriendStatus[0]  = '\0';
 				s_AddFriendOpen = false;
 				socialShellSyncMenuPool();
+				pdguiNavSuppressActivation();
 				ImGui::CloseCurrentPopup();
 			}
 		}
-		ImGui::SameLine();
-		if (ImGui::Button("Cancel", ImVec2(140, 0)) ||
-		    actionPressed(0, ACTION_CANCEL_USE)) {
+		else if (cancelAddFriend) {
+			pdguiNavSuppressActivation();
 			s_AddFriendCodeBuf[0] = '\0';
 			s_AddFriendNickBuf[0] = '\0';
 			s_AddFriendStatus[0]  = '\0';

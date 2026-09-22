@@ -12,13 +12,12 @@
  *   Left panel  — Connected Players (agent name, character, status)
  *   Right panel — Active Rooms (name, state badge, player count, Join button)
  *                 "Create Room" button at top of room panel
- *   Footer      — Server chat stub (UI frame only) + Disconnect button
+ *   Footer      — Room request status + Create / Disconnect action bar
  *
- * On "Create Room": sets s_InRoom=true via pdguiSetInRoom(1), showing
- * pdgui_menu_room.cpp until the player presses "Leave Room".
- * "Join" buttons are disabled until R-3 (SVC_ROOM_JOIN protocol).
+ * Create and Join use the same authoritative operation for the local listen
+ * host and remote peers. Only an accepted assignment opens the room interior.
  *
- * Architecture: Dedicated-server-only model.
+ * Architecture: In-client listen hosting with remote peers.
  * Called from pdguiLobbyRender() in pdgui_lobby.cpp.
  *
  * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
@@ -28,6 +27,8 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include "net/lobby_view.h"
+#include "assetcatalog.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -41,6 +42,7 @@
 #include "system.h"
 #include "hub.h"
 #include "room.h"
+#include "net/room_ui.h"
 #include "inputctx.h"
 #include "menupool.h"
 #include "menugraph.h"
@@ -75,19 +77,6 @@ s32 netDisconnect(void);
 void lobbyUpdate(void);
 s32 lobbyGetPlayerCount(void);
 
-struct lobbyplayer_view {
-    u8 active;
-    u8 isLeader;
-    u8 isReady;
-    u8 headnum;
-    u8 bodynum;
-    u8 team;
-    char name[32];  /* matches LOBBY_NAME_LEN */
-    s32 isLocal;
-    s32 state;
-    u8 clientId;
-};
-s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 
 /* Character accessor */
 char *mpGetBodyName(u8 mpbodynum);
@@ -105,18 +94,6 @@ const char *mpPlayerConfigGetName(s32 playernum);
 /* Routing: transition into room interior (pdgui_lobby.cpp) */
 void pdguiSetInRoom(s32 inRoom);
 
-/* R-3: Room networking — send create/join/leave to server.
- * SEC-14 (v38): CLC_ROOM_CREATE now carries access mode + password + max_players;
- * CLC_ROOM_JOIN carries an optional password. */
-struct netbuf;
-u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name, u8 access,
-                              const char *password, u8 maxPlayers);
-u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id, const char *password);
-u32 netmsgClcRoomLeaveWrite(struct netbuf *dst);
-u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan);
-extern struct netbuf g_NetMsgRel;
-void netbufStartWrite(struct netbuf *buf);
-
 } /* extern "C" */
 
 /* S391 M-5-A: Disconnect-from-server confirm modal tracker.
@@ -125,17 +102,17 @@ void netbufStartWrite(struct netbuf *buf);
  * and 3-frame input debounce, and clears it back to -1 on dismiss. */
 static s32 s_LobbyDisconnectOpenFrame = -1;
 
+static char s_CreateRoomName[ROOM_NAME_MAX];
+static char s_CreateRoomPassword[32];
+static int s_CreateRoomAccess = ROOM_ACCESS_OPEN;
+static int s_CreateRoomCapacity = 4;
+static u8 s_JoinRoomId = 0xff;
+static char s_JoinRoomPassword[32];
+
 static s32 lobbyGraphCreateRoom(void * /*userdata*/)
 {
-    sysLogPrintf(LOG_NOTE, "LOBBY: sending CLC_ROOM_CREATE to server");
-    /* SEC-14: default create goes out as an open room with the hub-wide
-     * max_players.  A follow-up UI pass should expose access mode +
-     * password + max_players fields in the "Create Room" dialog. */
-    netbufStartWrite(&g_NetMsgRel);
-    netmsgClcRoomCreateWrite(&g_NetMsgRel, "", /*access=*/0,
-                              /*password=*/"", /*maxPlayers=*/0);
-    netSend(NULL, &g_NetMsgRel, 1, 0);
-    return 0;
+    return netRequestRoomCreate(s_CreateRoomName, (u8)s_CreateRoomAccess,
+        s_CreateRoomPassword, (u8)s_CreateRoomCapacity);
 }
 
 static s32 lobbyGraphDisconnect(void * /*userdata*/)
@@ -213,7 +190,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
         s32 numPlayers = lobbyGetPlayerCount();
         s32 maxPlayers = netGetMaxClients();
         ImGui::TextColored(pdguiVec4TitleGlow(),
-                           "Connected to dedicated server");
+                           netGetMode() == NETMODE_SERVER ? "Hosting multiplayer" : "Connected to host");
         ImGui::SameLine();
         ImGui::TextColored(ImVec4(0.9f, 0.9f, 0.5f, 1.0f),
                            "  Players: %d / %d", numPlayers, maxPlayers);
@@ -222,8 +199,9 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     /* Connect code (server host view only) */
     if (netGetMode() == NETMODE_SERVER) {
         static char s_ConnectCode[128] = "";
-        static bool s_CodeGenerated = false;
-        if (!s_CodeGenerated) {
+        static u32 s_CodeIp = 0;
+        static u16 s_CodePort = 0;
+        {
             const char *ip = netGetPublicIP();
             u32 ipAddr = 0;
             if (ip) {
@@ -233,12 +211,14 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
                     ipAddr = a | (b << 8) | (c << 16) | (d << 24);
                 }
             }
-            if (ipAddr) {
-                u32 port = netGetServerPort();
-                if (port < 1 || port > 65535) port = CONNECT_DEFAULT_PORT;
-                connectCodeEncodeWithPort(ipAddr, (u16)port, s_ConnectCode, sizeof(s_ConnectCode));
-                s_CodeGenerated = true;
-                sysLogPrintf(LOG_NOTE, "LOBBY: connect code: %s", s_ConnectCode);
+            u32 port = netGetServerPort();
+            if (port < 1 || port > 65535) port = CONNECT_DEFAULT_PORT;
+            if (ipAddr != s_CodeIp || port != s_CodePort) {
+                s_CodeIp = ipAddr;
+                s_CodePort = (u16)port;
+                s_ConnectCode[0] = 0;
+                if (ipAddr) connectCodeEncodeWithPort(ipAddr, (u16)port,
+                    s_ConnectCode, sizeof(s_ConnectCode));
             }
         }
         if (s_ConnectCode[0]) {
@@ -259,7 +239,7 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     float colW = (dialogW - pad * 3.0f) * 0.5f;
     float bodyAvail = ImGui::GetContentRegionAvail().y;
     float contentH  = pdguiBodyHeightForActionBar(bodyAvail)
-                    - 60.0f * scale; /* reserve the footer chat-stub row */
+                    - 60.0f * scale; /* reserve the room request status row */
 
     /* ================================================================
      * Left column — Connected Players
@@ -288,12 +268,19 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
             ImGui::Text("%s", label);
         }
 
-        /* Character name */
-        if (pv.bodynum < (u8)mpGetNumBodies()) {
-            const char *bodyName = mpGetBodyName(pv.bodynum);
+        /* Resolve presentation from the player's public catalog identity. */
+        const char *bodyId = lobbyGetPlayerBodyId(i);
+        const char *headId = lobbyGetPlayerHeadId(i);
+        const asset_entry_t *character = assetCatalogFindCharacterByBodyHead(bodyId, headId);
+        const asset_entry_t *body = assetCatalogResolve(bodyId);
+        const char *bodyName = character && character->ext.character.display_name[0]
+            ? character->ext.character.display_name
+            : body && body->type == ASSET_BODY && body->ext.body.display_name[0]
+                ? body->ext.body.display_name : bodyId;
+        if (bodyName && bodyName[0]) {
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), " [%s]",
-                               bodyName ? bodyName : "?");
+                               bodyName);
         }
 
         /* Status string */
@@ -374,26 +361,27 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
 
         /* Player count + Join button on same row */
         ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f),
-                           "  %d player%s",
-                           entry->client_count,
-                           entry->client_count == 1 ? "" : "s");
+                           "  %u / %u players%s",
+                           entry->client_count, entry->max_players,
+                           entry->access == ROOM_ACCESS_PASSWORD ? " (password)" :
+                           entry->access == ROOM_ACCESS_INVITE ? " (invite only)" : "");
 
         if (!g_NetDedicated && entry->state == ROOM_STATE_LOBBY) {
             float joinW = pdguiScale(84.0f);
             char joinId[32];
             snprintf(joinId, sizeof(joinId), "Join##r%d", ri);
             ImGui::SameLine(innerW - joinW);
+            ImGui::BeginDisabled(netRoomRequestPending() || entry->client_count >= entry->max_players);
             if (ImGui::Button(joinId, ImVec2(joinW, 0))) {
                 pdguiPlaySound(PDGUI_SND_SELECT);
-                sysLogPrintf(LOG_NOTE, "LOBBY: sending CLC_ROOM_JOIN for room %u", (unsigned)entry->id);
-                /* SEC-14: the UI does not yet expose a password prompt — join
-                 * attempts on password-protected rooms will be rejected
-                 * server-side.  A follow-up UI pass should prompt for the
-                 * password here (open a confirm modal with a text input). */
-                netbufStartWrite(&g_NetMsgRel);
-                netmsgClcRoomJoinWrite(&g_NetMsgRel, entry->id, "");
-                netSend(NULL, &g_NetMsgRel, 1, 0);
+                if (entry->access == ROOM_ACCESS_PASSWORD) {
+                    s_JoinRoomId = entry->id;
+                    s_JoinRoomPassword[0] = 0;
+                } else {
+                    netRequestRoomJoin(entry->id, "");
+                }
             }
+            ImGui::EndDisabled();
         }
 
         ImGui::Spacing();
@@ -411,10 +399,10 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     ImGui::EndChild();
 
     /* ================================================================
-     * Footer — server chat stub (above the docked action bar)
+     * Footer — authoritative room request status
      * ================================================================ */
     ImGui::Separator();
-    ImGui::TextColored(ImVec4(0.3f, 0.4f, 0.5f, 0.6f), "Server Chat  (coming soon)");
+    ImGui::TextWrapped("%s", netRoomRequestMessage());
 
     /* ================================================================
      * Docked action bar (C1) — Create Room (clients only) + Disconnect
@@ -441,9 +429,55 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
     }
     pdguiEndActionBar();
 
-    if (wantCreate) {
-        menuGraphFireNetworkOp(MENU_TYPE_SOCIAL_LOBBY, "create_room",
-                               lobbyGraphCreateRoom, NULL);
+    const char *createPopupId = "Create Room##social_create";
+    const char *joinPopupId = "Room Password##social_join";
+    if (wantCreate && !netRoomRequestPending()) {
+        if (s_CreateRoomCapacity > netGetMaxClients()) s_CreateRoomCapacity = netGetMaxClients();
+        if (s_CreateRoomCapacity < 1) s_CreateRoomCapacity = 1;
+        ImGui::OpenPopup(createPopupId);
+    }
+    if (s_JoinRoomId != 0xff && !ImGui::IsPopupOpen(joinPopupId)) ImGui::OpenPopup(joinPopupId);
+    const bool roomModalOwnedInput = ImGui::IsPopupOpen(createPopupId) || ImGui::IsPopupOpen(joinPopupId);
+    if (ImGui::BeginPopupModal(createPopupId, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        const bool cancel = pdguiMenuCancelPressed();
+        ImGui::InputText("Name", s_CreateRoomName, sizeof(s_CreateRoomName));
+        ImGui::Combo("Access", &s_CreateRoomAccess, "Open\0Password\0");
+        if (s_CreateRoomAccess == ROOM_ACCESS_PASSWORD)
+            ImGui::InputText("Password", s_CreateRoomPassword, sizeof(s_CreateRoomPassword), ImGuiInputTextFlags_Password);
+        ImGui::SliderInt("Players", &s_CreateRoomCapacity, 1, netGetMaxClients());
+        ImGui::BeginDisabled(netRoomRequestPending()
+            || (s_CreateRoomAccess == ROOM_ACCESS_PASSWORD && !s_CreateRoomPassword[0]));
+        if (ImGui::Button("Create") && !cancel) {
+            menuGraphFireNetworkOp(MENU_TYPE_SOCIAL_LOBBY, "create_room", lobbyGraphCreateRoom, nullptr);
+            s_CreateRoomPassword[0] = 0;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || cancel) {
+            s_CreateRoomPassword[0] = 0;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
+    if (ImGui::BeginPopupModal(joinPopupId, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        const bool cancel = pdguiMenuCancelPressed();
+        ImGui::InputText("Password", s_JoinRoomPassword, sizeof(s_JoinRoomPassword), ImGuiInputTextFlags_Password);
+        ImGui::BeginDisabled(netRoomRequestPending() || !s_JoinRoomPassword[0]);
+        if (ImGui::Button("Join") && !cancel) {
+            netRequestRoomJoin(s_JoinRoomId, s_JoinRoomPassword);
+            s_JoinRoomId = 0xff;
+            s_JoinRoomPassword[0] = 0;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel") || cancel) {
+            s_JoinRoomId = 0xff;
+            s_JoinRoomPassword[0] = 0;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
 
     /* S391 M-5-A: route Disconnect button + Esc through a confirm modal
@@ -451,8 +485,9 @@ extern "C" void pdguiLobbyScreenRender(s32 winW, s32 winH)
      * single click / stray keystroke.  The modal fires the graph disconnect
      * edge only when the user confirms. */
     const char *discPopupId = "Disconnect from Server?##lobby_disconnect";
-    if ((wantDisconnect || pdguiMenuCancelPressed()) &&
-            !ImGui::IsPopupOpen(discPopupId)) {
+    if (!roomModalOwnedInput && (wantDisconnect || pdguiMenuCancelPressed()) &&
+            !ImGui::IsPopupOpen(discPopupId)
+            && !ImGui::IsPopupOpen(createPopupId) && !ImGui::IsPopupOpen(joinPopupId)) {
         sysLogPrintf(LOG_NOTE,
             "MENU_IMGUI: social lobby DISCONNECT confirm OPEN via button/ESC");
         ImGui::OpenPopup(discPopupId);

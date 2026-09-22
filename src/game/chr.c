@@ -5412,10 +5412,10 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 				}
 
 				// Create decal depending on the weapon's surface type
-				if (hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= NUM_TEXTURES) {
+				if (hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= TEXTURE_CUSTOM_END) {
 					surfacetype = SURFACETYPE_DEFAULT;
 				} else {
-					surfacetype = g_Textures[hit->hitthing.texturenum].surfacetype;
+					surfacetype = texGetDefinition(hit->hitthing.texturenum)->surfacetype;
 				}
 
 				if (surfacetype >= 0 && surfacetype < 15) {
@@ -5455,7 +5455,7 @@ void chrHit(struct shotdata *shotdata, struct hit *hit)
 				if (hit->hitthing.texturenum < 0) {
 					type = g_SurfaceTypes[0];
 				} else {
-					type = g_SurfaceTypes[g_Textures[hit->hitthing.texturenum].surfacetype];
+					type = g_SurfaceTypes[texGetDefinition(hit->hitthing.texturenum)->surfacetype];
 				}
 
 				index = rngRandom() % type->numwallhittexes;

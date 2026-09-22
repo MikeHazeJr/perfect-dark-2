@@ -42,8 +42,10 @@ static void initSettingsAsset(asset_entry_t &entry, asset_type_e type,
 	std::strncpy(entry.id, id, sizeof(entry.id) - 1);
 	if (type == ASSET_BODY) {
 		entry.ext.body.bodynum = (s16)runtime_index;
+		std::strcpy(entry.ext.body.rig_class, "test_rig");
 	} else if (type == ASSET_HEAD) {
 		entry.ext.head.headnum = (s16)runtime_index;
+		std::strcpy(entry.ext.head.rig_class, "test_rig");
 	}
 }
 
@@ -139,6 +141,17 @@ TEST_CASE("v55 client settings writer rejects invalid snapshots before bytes",
 	REQUIRE(netClientSettingsWireWrite(&buf, 0x05, &input,
 		&identity_status) == NET_CLIENT_SETTINGS_WIRE_INVALID_IDENTITY);
 	REQUIRE(identity_status == PLAYER_IDENTITY_WRONG_BODY_TYPE);
+	REQUIRE(buf.wp == 0);
+	initSettingsAsset(body, ASSET_BODY, input.body_id, 81, 7);
+	body.ext.body.rig_class[0] = '\0';
+	REQUIRE(netClientSettingsWireWrite(&buf, 0x05, &input,
+		&identity_status) == NET_CLIENT_SETTINGS_WIRE_INVALID_IDENTITY);
+	REQUIRE(identity_status == PLAYER_IDENTITY_EMPTY_BODY_RIG_CLASS);
+	REQUIRE(buf.wp == 0);
+	std::strcpy(body.ext.body.rig_class, "incompatible_rig");
+	REQUIRE(netClientSettingsWireWrite(&buf, 0x05, &input,
+		&identity_status) == NET_CLIENT_SETTINGS_WIRE_INVALID_IDENTITY);
+	REQUIRE(identity_status == PLAYER_IDENTITY_INCOMPATIBLE_RIG_CLASS);
 	REQUIRE(buf.wp == 0);
 	testStubAssetCatalogResolveWith(NULL);
 }

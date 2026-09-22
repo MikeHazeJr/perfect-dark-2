@@ -251,6 +251,8 @@ u32 propobjGetCiTagId(struct prop *prop);
 bool objIsHealthy(struct defaultobj *obj);
 bool objTestForInteract(struct prop *prop);
 bool currentPlayerTryMountHoverbike(struct prop *prop);
+bool currentPlayerApplyHoverbikeState(struct prop *prop, bool mounted);
+bool currentPlayerCanApplyHoverbikeState(struct prop *prop, bool mounted);
 bool propobjInteract(struct prop *prop);
 void objSetPerimEnabled(struct prop *prop, bool enable);
 bool objUpdateGeometry(struct prop *prop, u8 **start, u8 **end);

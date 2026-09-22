@@ -13,6 +13,7 @@
  */
 
 #include "net/p2p.h"
+#include "presence.h"
 #include "social.h"
 #include "system.h"
 
@@ -20,8 +21,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define P2P_MAX_PAIRS 64
+#define P2P_MAX_PENDING_CANDIDATE_SETS 32
 
 typedef struct {
 	u32              pair_id;
@@ -35,12 +38,22 @@ typedef struct {
 	u32              start_ms;
 	u32              tier_start_ms;
 	u32              tier_attempt_ms;     /* when tier was last (re-)kicked */
+	net_candidate_signal_retry_t candidate_signal_retry;
 	p2p_endpoint_t   endpoint;
 	char             last_error[96];
 	u8               in_use;
 } p2p_pair_t;
 
+typedef struct {
+	u32 peer_handle;
+	net_candidate_set_t set;
+	net_candidate_peer_state_t state;
+	u8 in_use;
+} p2p_pending_candidate_set_t;
+
 static p2p_pair_t s_Pairs[P2P_MAX_PAIRS];
+static p2p_pending_candidate_set_t s_PendingCandidateSets[
+	P2P_MAX_PENDING_CANDIDATE_SETS];
 static u32        s_NextPairId = 1;
 static s32        s_Initialised;
 
@@ -124,11 +137,31 @@ static void enterTier(p2p_pair_t *p, p2p_tier_t tier)
 
 	switch (tier) {
 		case P2P_TIER_LAN:    p2pLanTick(); break; /* tier 0 is passive; lookup handled in tick */
-		case P2P_TIER_DIRECT: p2pDirectStart(p->pair_id, p->hint_ipv4, p->hint_port); break;
+		case P2P_TIER_DIRECT:
+			/* A presence hint is not an authenticated transport proof. Preserve
+			 * the diagnostic tier, then require the signed ICE path. */
+			p2pInternalReportFailure(p->pair_id, P2P_TIER_DIRECT,
+				"legacy direct hint requires signed ICE proof");
+			break;
 		case P2P_TIER_STUN:   p2pStunStart(p->pair_id); break;
 		case P2P_TIER_UPNP:   p2pUpnpStart(p->pair_id); break;
-		case P2P_TIER_ICE:    p2pIceStart(p->pair_id); break;
-		case P2P_TIER_TURN:   p2pTurnStart(p->pair_id); break;
+		case P2P_TIER_ICE:
+			/* Candidate signaling has its own bounded schedule because probe
+			 * retries cannot begin until the remote signed set arrives. */
+			netCandidateSignalRetryInit(&p->candidate_signal_retry,
+				p->tier_start_ms);
+			if (netCandidateSignalRetryPoll(&p->candidate_signal_retry,
+				p->tier_start_ms,
+				p->tier_start_ms + P2P_TIER_TIMEOUT_MS) ==
+				NET_CANDIDATE_SIGNAL_RETRY_SEND) {
+				(void)presenceSendCandidateRefresh(p->peer_handle);
+			}
+			p2pIceStart(p->pair_id, p->peer_handle);
+			break;
+		case P2P_TIER_TURN:
+			p2pInternalReportFailure(p->pair_id, P2P_TIER_TURN,
+				"relay allocation proof is not authenticated");
+			break;
 		default: break;
 	}
 }
@@ -164,6 +197,7 @@ void p2pInit(void)
 {
 	if (s_Initialised) return;
 	memset(s_Pairs, 0, sizeof(s_Pairs));
+	memset(s_PendingCandidateSets, 0, sizeof(s_PendingCandidateSets));
 	s_NextPairId = 1;
 	p2pLanStart();
 	s_Initialised = 1;
@@ -174,8 +208,17 @@ void p2pInit(void)
 void p2pShutdown(void)
 {
 	if (!s_Initialised) return;
+	for (s32 i = 0; i < P2P_MAX_PAIRS; i++) {
+		if (s_Pairs[i].in_use) p2pPairCancel(s_Pairs[i].pair_id);
+	}
+	p2pDirectShutdown();
+	p2pStunShutdown();
+	p2pUpnpShutdown();
+	p2pIceShutdown();
+	p2pTurnShutdown();
 	p2pLanStop();
 	memset(s_Pairs, 0, sizeof(s_Pairs));
+	memset(s_PendingCandidateSets, 0, sizeof(s_PendingCandidateSets));
 	s_Initialised = 0;
 }
 
@@ -196,21 +239,20 @@ void p2pTick(void)
 		if (!p->in_use) continue;
 		if (p->state != P2P_PAIR_WORKING) continue;
 
-		/* When the orchestrator starts a pair on tier 0 LAN, it actively
-		 * polls the LAN cache rather than waiting for an async callback. */
+		/* LAN discovery may refresh a hint, but an announcement is not an
+		 * authenticated, target-bound reachability proof. */
 		if (p->current_tier == P2P_TIER_LAN) {
 			u32 ipv4 = 0; u16 port = 0;
 			if (p2pLanLookup(p->peer_handle, &ipv4, &port)) {
 				p->hint_ipv4 = ipv4;
 				p->hint_port = port;
-				p2p_endpoint_t ep;
-				memset(&ep, 0, sizeof(ep));
-				ep.ipv4 = ipv4;
-				ep.port = port;
-				ep.flags = P2P_EP_DIRECT;
-				p2pInternalReportSuccess(p->pair_id, P2P_TIER_LAN, &ep);
-				continue;
 			}
+		}
+		if (p->current_tier == P2P_TIER_ICE &&
+			netCandidateSignalRetryPoll(&p->candidate_signal_retry, now,
+				p->tier_start_ms + P2P_TIER_TIMEOUT_MS) ==
+				NET_CANDIDATE_SIGNAL_RETRY_SEND) {
+			(void)presenceSendCandidateRefresh(p->peer_handle);
 		}
 
 		const u32 elapsed = now - p->tier_start_ms;
@@ -253,8 +295,87 @@ u32 p2pPairBegin(u32 peer_handle, u32 hint_ipv4, u16 hint_port)
 	p->last_attempted_tier = P2P_TIER_NONE;
 	p->start_ms = p2pNowMs();
 
+	/* Candidate frames can arrive with presence pings before the caller has
+	 * requested a pair. Keep the latest validated set bounded and attach it
+	 * once the pair is created; ICE still performs its own validation. */
+	for (s32 i = 0; i < P2P_MAX_PENDING_CANDIDATE_SETS; i++) {
+		p2p_pending_candidate_set_t *pending = &s_PendingCandidateSets[i];
+		if (!pending->in_use || pending->peer_handle != peer_handle) continue;
+		if ((u32)time(NULL) <= pending->set.expires_unix_seconds) {
+			(void)p2pIceApplyPeerCandidateSet(p->pair_id, &pending->set);
+		}
+		memset(pending, 0, sizeof(*pending));
+		break;
+	}
+
 	enterTier(p, P2P_TIER_LAN);
 	return p->pair_id;
+}
+
+static p2p_pending_candidate_set_t *findPendingCandidateSet(u32 peer_handle)
+{
+	for (s32 i = 0; i < P2P_MAX_PENDING_CANDIDATE_SETS; i++) {
+		if (s_PendingCandidateSets[i].in_use &&
+			s_PendingCandidateSets[i].peer_handle == peer_handle) {
+			return &s_PendingCandidateSets[i];
+		}
+	}
+	return NULL;
+}
+
+static p2p_pending_candidate_set_t *allocPendingCandidateSet(void)
+{
+	for (s32 i = 0; i < P2P_MAX_PENDING_CANDIDATE_SETS; i++) {
+		if (!s_PendingCandidateSets[i].in_use) {
+			return &s_PendingCandidateSets[i];
+		}
+	}
+	return NULL;
+}
+
+s32 p2pPeerCandidateSetReceived(u32 peer_handle,
+	const net_candidate_set_t *set)
+{
+	/* A zero local handle is not a wildcard. Do not retain or route any
+	 * candidate until social identity has been initialized. */
+	if (!s_Initialised || peer_handle == 0 || !set || socialMyHandle() == 0) {
+		return 0;
+	}
+	const time_t now_time = time(NULL);
+	if (now_time <= 0 || (u64)now_time > 0xffffffffu) return 0;
+	const u32 now = (u32)now_time;
+	net_candidate_set_t normalized;
+	if (!netCandidateSetNormalize(set, peer_handle, socialMyHandle(),
+		now, &normalized)) return 0;
+
+	p2p_pair_t *pair = findPairByPeer(peer_handle);
+	if (pair) {
+		const u32 pair_id = pair->pair_id;
+		s32 result = p2pIceApplyPeerCandidateSet(pair_id, &normalized);
+		if (result == 3) p2pPairCancel(pair_id);
+		return result;
+	}
+
+	p2p_pending_candidate_set_t *pending = findPendingCandidateSet(peer_handle);
+	if (pending && pending->in_use && pending->state.expires_unix_seconds < now) {
+		/* An expired epoch no longer protects live state or blocks a safe
+		 * restart at generation 1. Never use it as a planner predecessor. */
+		memset(pending, 0, sizeof(*pending));
+		pending = NULL;
+	}
+	if (!pending) pending = allocPendingCandidateSet();
+	if (!pending) return 0;
+
+	net_candidate_update_t update = netCandidatePlanUpdate(
+		pending->in_use ? &pending->state : NULL, &normalized);
+	if (update == NET_CANDIDATE_UPDATE_REJECT) return 0;
+	if (update == NET_CANDIDATE_UPDATE_DUPLICATE) return 2;
+
+	pending->peer_handle = peer_handle;
+	pending->set = normalized;
+	netCandidatePeerStateCommit(&pending->state, &normalized);
+	pending->in_use = 1;
+	return update == NET_CANDIDATE_UPDATE_RETIRE ? 3 : 1;
 }
 
 void p2pPairCancel(u32 pair_id)
@@ -263,6 +384,19 @@ void p2pPairCancel(u32 pair_id)
 	if (!p) return;
 	sysLogPrintf(LOG_NOTE, "P2P.NAT: pair=%u peer=0x%08x cancel",
 	             (unsigned)p->pair_id, (unsigned)p->peer_handle);
+	const u32 peer_handle = p->peer_handle;
+	p2pDirectCancel(pair_id);
+	p2pStunCancel(pair_id);
+	p2pUpnpCancel(pair_id);
+	p2pIceCancel(pair_id, peer_handle);
+	p2pTurnCancel(pair_id);
+	for (s32 i = 0; i < P2P_MAX_PENDING_CANDIDATE_SETS; i++) {
+		if (s_PendingCandidateSets[i].in_use &&
+			s_PendingCandidateSets[i].peer_handle == peer_handle) {
+			memset(&s_PendingCandidateSets[i], 0,
+				sizeof(s_PendingCandidateSets[i]));
+		}
+	}
 	resetPair(p);
 }
 
@@ -327,6 +461,12 @@ void p2pInternalReportSuccess(u32 pair_id, p2p_tier_t tier,
 	p2p_pair_t *p = findPair(pair_id);
 	if (!p || !ep) return;
 	if (p->state != P2P_PAIR_WORKING) return;
+	if (tier != P2P_TIER_ICE) {
+		/* Discovery/gathering stages cannot bypass the signed candidate proof. */
+		p2pInternalReportFailure(pair_id, tier,
+			"tier cannot publish unauthenticated reachability");
+		return;
+	}
 	if (p->current_tier != tier) {
 		/* A late callback from a previously-escalated tier still counts as
 		 * a working channel -- accept it but record the discrepancy. */

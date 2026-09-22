@@ -305,6 +305,7 @@ s32 spawnPoolAppendForgePoints(const struct coord *positions,
                                s32 count);
 
 struct chrdata;
+struct prop;
 
 /*
  * B-242 (Priority O): Compute the chr's full bounding height for the
@@ -343,6 +344,7 @@ f32 spawnPoolGetChrCapsuleHeight(struct chrdata *chr);
  *   SPAWN.CLIP: original=(...) clipped, sweep_failed (iter=N) -- caller should pick a different pad
  */
 bool spawnPoolFindClearPosition(struct coord *pos, RoomNum *rooms,
-                                f32 radius, f32 height);
+                                f32 radius, f32 height,
+                                struct prop *selfprop);
 
 #endif /* IN_GAME_SPAWNPOOL_H */

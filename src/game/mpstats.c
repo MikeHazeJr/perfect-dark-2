@@ -18,6 +18,7 @@
 #include "types.h"
 #include "system.h"
 #include "pdgui_hud.h"
+#include "mpstats_attribution.h"
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -317,12 +318,42 @@ void mpstatsRecordPlayerSuicide(void)
 	}
 }
 
-void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
+/* B-249: death producers pass compact runtime-roster indices.  Convert once
+ * to the authoritative player/bot config-slot domain before classifying an
+ * actor.  The two domains are not interchangeable: with sparse or deferred
+ * player publication, runtime index 0 can legitimately name a bot whose
+ * stable config slot is MAX_PLAYERS or greater. */
+static bool mpstatsResolveActor(s32 runtime_index,
+		mpstats_actor_identity_t *out_identity)
 {
+	if (runtime_index < 0 || runtime_index >= g_MpNumChrs
+			|| g_MpAllChrPtrs[runtime_index] == NULL
+			|| g_MpAllChrConfigPtrs[runtime_index] == NULL) {
+		return false;
+	}
+
+	return mpstatsAttributionResolve(runtime_index, g_MpNumChrs,
+		func0f18d074(runtime_index), MAX_PLAYERS, MAX_MPCHRS,
+		out_identity) != 0;
+}
+
+static bool mpstatsConfigSlotHasPlayer(s32 config_slot)
+{
+	return config_slot >= 0 && config_slot < MAX_PLAYERS
+		&& g_Vars.players[config_slot] != NULL;
+}
+
+void mpstatsRecordDeathByRuntimeIndex(s32 attacker_runtime_index,
+		s32 victim_runtime_index)
+{
+	s32 aplayernum = attacker_runtime_index;
+	s32 vplayernum = victim_runtime_index;
 	s32 vmpindex = -1;
 	struct mpchrconfig *vmpchr = NULL;
-	s32 ampindex;
+	s32 ampindex = -1;
 	struct mpchrconfig *ampchr = NULL;
+	mpstats_actor_identity_t attacker_identity;
+	mpstats_actor_identity_t victim_identity;
 	s32 prevplayernum;
 	char text[256];
 
@@ -332,19 +363,29 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 
 	// Find attacker and victim mpchrs
 	if (aplayernum >= 0) {
-		ampindex = func0f18d074(aplayernum);
-
-		if (ampindex >= 0) {
+		if (mpstatsResolveActor(aplayernum, &attacker_identity)) {
+			ampindex = attacker_identity.config_slot;
 			ampchr = MPCHR(ampindex);
 		}
 	}
 
 	if (vplayernum >= 0) {
-		vmpindex = func0f18d074(vplayernum);
-
-		if (vmpindex >= 0) {
+		if (mpstatsResolveActor(vplayernum, &victim_identity)) {
+			vmpindex = victim_identity.config_slot;
 			vmpchr = MPCHR(vmpindex);
 		}
+	}
+
+	/* B-249 production receipt: record both domains at their conversion
+	 * boundary. Runtime indices remain valid for chr access below; stable
+	 * config slots alone determine player-versus-bot attribution. */
+	if (aplayernum >= 0 || vplayernum >= 0) {
+		sysLogPrintf(LOG_NOTE,
+			"MPSTATS.ATTRIBUTION runtime_attacker=%d stable_attacker=%d attacker_kind=%s runtime_victim=%d stable_victim=%d victim_kind=%s",
+			aplayernum, ampindex,
+			ampindex < 0 ? "invalid" : mpstatsActorKindString(attacker_identity.kind),
+			vplayernum, vmpindex,
+			vmpindex < 0 ? "invalid" : mpstatsActorKindString(victim_identity.kind));
 	}
 
 	if (vplayernum >= 0 && aplayernum == vplayernum) {
@@ -373,15 +414,15 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 		}
 
 		/* PC: track suicide in persistent stats */
-		if (vplayernum < PLAYERCOUNT()) {
+		if (mpstatsConfigSlotHasPlayer(vmpindex)) {
 			statIncrement("deaths.total", 1);
 			statIncrement("deaths.suicide", 1);
 			statIncrementMode("deaths");
 		}
 
-		if (vplayernum < PLAYERCOUNT()) {
+		if (mpstatsConfigSlotHasPlayer(vmpindex)) {
 			prevplayernum = g_Vars.currentplayernum;
-			setCurrentPlayerNum(vplayernum);
+			setCurrentPlayerNum(vmpindex);
 			mpstatsRecordPlayerSuicide();
 			setCurrentPlayerNum(prevplayernum);
 		}
@@ -392,10 +433,10 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 				vmpchr->numdeaths++;
 			}
 
-			if (vplayernum < PLAYERCOUNT()) {
+			if (mpstatsConfigSlotHasPlayer(vmpindex)) {
 				// Victim was a player
 				prevplayernum = g_Vars.currentplayernum;
-				setCurrentPlayerNum(vplayernum);
+				setCurrentPlayerNum(vmpindex);
 
 				if (g_Vars.normmplayerisrunning && aplayernum >= 0) {
 					/* Phase 2 fix #8 (input-menu pillar, 2026-05-01,
@@ -404,16 +445,17 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 					 * renders kills with attacker / victim. Snprintf
 					 * retained in case a future debug logger wants
 					 * the formatted string. */
-					snprintf(text, sizeof(text), "%s %s", langGet(L_MISC_183), g_MpAllChrConfigPtrs[aplayernum]->name);
+					snprintf(text, sizeof(text), "%s %s", langGet(L_MISC_183),
+						ampchr ? ampchr->name : "?");
 					(void)text;
 				}
 
 				/* PC: track death in persistent stats */
 				statIncrement("deaths.total", 1);
 				statIncrementMode("deaths");
-				if (aplayernum >= PLAYERCOUNT()) {
+				if (ampindex >= MAX_PLAYERS) {
 					statIncrement("deaths.by_bot", 1);
-				} else {
+				} else if (ampindex >= 0) {
 					statIncrement("deaths.by_player", 1);
 				}
 
@@ -457,68 +499,26 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 			}
 		}
 
-		if (aplayernum >= 0 && aplayernum < PLAYERCOUNT()) {
-			/* B-249 (2026-04-25) diagnostic instrumentation -- bot-vs-bot
-			 * kills attributed to player 0.
-			 *
-			 * Mike's report: "during one of my earlier test matches, bot
-			 * deaths were counting as kills for me, despite me never even
-			 * having use of a weapon or fists."  The scorecard read for
-			 * player 0 incremented when player 0 didn't fire.
-			 *
-			 * The static-altitude analysis ruled out the obvious paths
-			 * (mpPlayerGetIndex returns -1 for not-found; func0f18d074
-			 * returns -1 for not-found; suicide path is gated on
-			 * aplayernum == vplayernum).  The remaining hypothesis is
-			 * that `aplayernum` is being resolved as 0 for an attacker
-			 * whose chr is actually a BOT -- this would mean either:
-			 *   (a) g_MpAllChrPtrs[0] holds a bot chr instead of player 0
-			 *       (slot-assignment collision at match setup), or
-			 *   (b) a separate aplayernum=0 default-fallthrough exists
-			 *       that we haven't located in the static read.
-			 *
-			 * This LOG_WARNING fires the moment the attribution credits
-			 * player 0 BUT the resolved attacker chr is a bot (aibot != NULL).
-			 * Catches the symptom in logs so the next playtest pinpoints
-			 * which call site set aplayernum=0.  Also dumps the relevant
-			 * slot pointers so a follow-up audit can verify slot integrity.
-			 *
-			 * No behaviour change otherwise -- diagnostic only. */
-			{
-				struct chrdata *att_chr = (aplayernum >= 0 && aplayernum < g_MpNumChrs)
-				                          ? g_MpAllChrPtrs[aplayernum] : NULL;
-				if (att_chr && att_chr->aibot != NULL) {
-					sysLogPrintf(LOG_WARNING,
-						"B-249.DIAG: kill credited to player slot %d but attacker "
-						"chr at that slot is a BOT (aibot != NULL).  ampchr='%s' "
-						"vplayernum=%d att_chr=%p plr0_chr=%p numchrs=%d",
-						aplayernum,
-						ampchr ? ampchr->name : "(null)",
-						vplayernum,
-						(void *)att_chr,
-						g_Vars.players[0] ? (void *)g_Vars.players[0]->prop->chr : NULL,
-						g_MpNumChrs);
-				}
-			}
-
+		if (mpstatsConfigSlotHasPlayer(ampindex)) {
 			// Attacker was a player -- record kill in persistent stats
 			statIncrement("kills.total", 1);
 			statIncrementMode("kills");
-			if (vplayernum >= PLAYERCOUNT()) {
+			if (vmpindex >= MAX_PLAYERS) {
 				statIncrement("kills.vs_bot", 1);
-			} else {
+			} else if (vmpindex >= 0) {
 				statIncrement("kills.vs_player", 1);
 			}
 
 			prevplayernum = g_Vars.currentplayernum;
-			setCurrentPlayerNum(aplayernum);
+			setCurrentPlayerNum(ampindex);
 
 			/* Weapon-specific kill tracking (currentplayer set by setCurrentPlayerNum above) */
 			statIncrementWeapon("kills", g_Vars.currentplayer->gunctrl.weaponnum);
 
 			if (g_Vars.normmplayerisrunning && vplayernum >= 0) {
 				// "Killed %s"
-				snprintf(text, sizeof(text), "%s %s", langGet(L_MISC_184), g_MpAllChrConfigPtrs[vplayernum]->name);
+				snprintf(text, sizeof(text), "%s %s", langGet(L_MISC_184),
+					vmpchr ? vmpchr->name : "?");
 				hudmsgCreate(text, HUDMSGTYPE_DEFAULT);
 			}
 
@@ -529,13 +529,19 @@ void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum)
 		// If someone killed an aibot
 		if (g_Vars.normmplayerisrunning
 				&& aplayernum >= 0
-				&& vplayernum >= PLAYERCOUNT()
+				&& vmpindex >= MAX_PLAYERS
+				&& vplayernum >= 0 && vplayernum < g_MpNumChrs
+				&& g_MpAllChrPtrs[vplayernum] != NULL
+				&& g_MpAllChrPtrs[vplayernum]->aibot != NULL
 				&& aplayernum != vplayernum) {
 			g_MpAllChrPtrs[vplayernum]->aibot->lastkilledbyplayernum = aplayernum;
 		}
 	}
 
-	if (g_Vars.normmplayerisrunning && aplayernum >= 0 && g_MpAllChrPtrs[aplayernum]->aibot) {
+	if (g_Vars.normmplayerisrunning
+			&& aplayernum >= 0 && aplayernum < g_MpNumChrs
+			&& g_MpAllChrPtrs[aplayernum] != NULL
+			&& g_MpAllChrPtrs[aplayernum]->aibot != NULL) {
 		s32 index = mpGetWeaponSlotByWeaponNum(g_MpAllChrPtrs[aplayernum]->aibot->weaponnum);
 
 		if (index >= 0) {

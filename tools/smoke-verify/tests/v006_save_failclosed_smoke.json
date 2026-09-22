@@ -9,7 +9,7 @@
     "port/src/v006_save_harness.c",
     "port/src/main.c"
   ],
-  "timeout_ms": 125000,
+  "timeout_seconds": 125,
   "install_state": "clean",
   "boot_args": [
     "--no-update-check",

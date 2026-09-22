@@ -1,6 +1,8 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
 #include "asset_runtime.h"
+#include "mpstats_attribution.h"
 #include "game/bondeyespy.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
@@ -841,27 +843,59 @@ s32 playerCollectMpTeammatePositions(struct prop *selfprop, struct coord *out, s
 	return n;
 }
 
-void playerApplyOrchestratedSpawnFromPool(s32 playernum, s32 pool_idx)
+enum player_orchestrated_spawn_result playerPrepareOrchestratedSpawnFromPool(
+		s32 playernum, s32 pool_idx,
+		struct player_orchestrated_spawn_plan *out_plan)
 {
 	const spawn_pool_t *pool;
+	struct player *player;
+	struct prop *playerprop;
 	struct coord pos;
 	RoomNum rooms[8];
 	f32 turnanglerad;
 	f32 groundy;
+	f32 capsule_radius;
+	f32 capsule_height;
+	u16 floorcol;
+	u16 floorflags;
+	u8 floortype;
+	RoomNum floorroom;
 	s32 i;
 
-	if (!g_Vars.mplayerisrunning || !spawnPoolIsReady() || pool_idx < 0) {
-		return;
+	if (out_plan == NULL) {
+		return PLAYER_ORCHESTRATED_SPAWN_INVALID_PLAYER;
+	}
+
+	memset(out_plan, 0, sizeof(*out_plan));
+	out_plan->playernum = -1;
+	out_plan->pool_idx = -1;
+	out_plan->rooms[0] = -1;
+	out_plan->floorroom = -1;
+
+	/* The public prepare boundary must validate the stable player-slot domain
+	 * before indexing g_Vars.players. */
+	if (!g_Vars.mplayerisrunning || playernum < 0
+			|| playernum >= MAX_PLAYERS) {
+		return PLAYER_ORCHESTRATED_SPAWN_INVALID_PLAYER;
+	}
+	if (!spawnPoolIsReady() || pool_idx < 0) {
+		return PLAYER_ORCHESTRATED_SPAWN_INVALID_POOL;
 	}
 	pool = spawnPoolGet();
 	if (!pool || pool_idx >= pool->count) {
-		return;
-	}
-	if (!g_Vars.players[playernum] || !g_Vars.players[playernum]->prop) {
-		return;
+		return PLAYER_ORCHESTRATED_SPAWN_INVALID_POOL;
 	}
 
-	setCurrentPlayerNum(playernum);
+	player = g_Vars.players[playernum];
+	if (player == NULL || player->prop == NULL || player->prop->chr == NULL) {
+		return PLAYER_ORCHESTRATED_SPAWN_INVALID_PLAYER;
+	}
+	playerprop = player->prop;
+	floorcol = player->floorcol;
+	floorflags = player->floorflags;
+	floortype = player->floortype;
+	floorroom = player->floorroom;
+
 	pos = pool->points[pool_idx].pos;
 	rooms[0] = pool->points[pool_idx].room;
 	rooms[1] = -1;
@@ -870,29 +904,27 @@ void playerApplyOrchestratedSpawnFromPool(s32 playernum, s32 pool_idx)
 		rooms[i] = -1;
 	}
 
-	sysLogPrintf(LOG_NOTE,
-		"SPAWN.ORCH: apply player %d pool=%d pos=(%.0f,%.0f,%.0f) room=%d",
-		playernum, pool_idx, pos.x, pos.y, pos.z, (s32)rooms[0]);
-
-	/* B-242 (Priority O): post-pick capsule clip check + radial sweep.
-	 * The pool point passed validation with fixed 30u radius / 180u
-	 * height; a tall body (Skedar ~220) or a near-wall pad can still
-	 * leave the capsule clipping. Sweep radially if needed. No retry
-	 * here -- orchestrator owns the assignment, so on sweep failure
-	 * accept the original position (warning logged inside the helper). */
+	/* B-242: the orchestrator may assign only a position that passes the
+	 * canonical full-height capsule policy. This prepare phase owns every
+	 * fallible query and does not select currentplayer or publish position. */
 	{
-		struct chrdata *playerchr = g_Vars.currentplayer->prop->chr;
+		struct chrdata *playerchr = playerprop->chr;
 		f32 chr_height = spawnPoolGetChrCapsuleHeight(playerchr);
 		f32 chr_radius = (playerchr && playerchr->radius > 0.0f)
 			? playerchr->radius : 30.0f;
-		(void)spawnPoolFindClearPosition(&pos, rooms, chr_radius, chr_height);
+		capsule_height = chr_height;
+		capsule_radius = chr_radius;
+		if (!spawnPoolFindClearPosition(&pos, rooms, chr_radius, chr_height,
+				playerprop)) {
+			sysLogPrintf(LOG_ERROR,
+				"SPAWN.REJECT: orchestrated player=%d pool=%d has no capsule-safe position",
+				playernum, pool_idx);
+			return PLAYER_ORCHESTRATED_SPAWN_CAPSULE_REJECTED;
+		}
 	}
 
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,
-			&g_Vars.currentplayer->floorcol,
-			&g_Vars.currentplayer->floortype,
-			&g_Vars.currentplayer->floorflags,
-			&g_Vars.currentplayer->floorroom,
+			&floorcol, &floortype, &floorflags, &floorroom,
 			0, 0);
 
 	/* B-247 (2026-04-25): cdFindGroundFromList returns -2^32 sentinel
@@ -913,31 +945,91 @@ void playerApplyOrchestratedSpawnFromPool(s32 playernum, s32 pool_idx)
 		}
 	}
 
-	pos.y = g_Vars.currentplayer->vv_eyeheight + groundy;
-	g_Vars.currentplayer->vv_manground = groundy;
-	g_Vars.currentplayer->vv_ground = groundy;
-	g_Vars.currentplayer->vv_theta = (turnanglerad * 360.0f) / M_BADTAU;
+	pos.y = player->vv_eyeheight + groundy;
+	out_plan->playernum = playernum;
+	out_plan->pool_idx = pool_idx;
+	out_plan->player = player;
+	out_plan->prop = playerprop;
+	out_plan->pos = pos;
+	roomsCopySafe(rooms, out_plan->rooms, ARRAYCOUNT(out_plan->rooms));
+	out_plan->turnanglerad = turnanglerad;
+	out_plan->groundy = groundy;
+	out_plan->capsule_radius = capsule_radius;
+	out_plan->capsule_height = capsule_height;
+	out_plan->floorcol = floorcol;
+	out_plan->floorflags = floorflags;
+	out_plan->floortype = floortype;
+	out_plan->floorroom = floorroom;
+	out_plan->prepared = true;
+	return PLAYER_ORCHESTRATED_SPAWN_OK;
+}
 
-	playerResetBond(&g_Vars.currentplayer->bond2, &pos);
+bool playerOrchestratedSpawnPlanCanCommit(
+		const struct player_orchestrated_spawn_plan *plan)
+{
+	if (plan == NULL || !plan->prepared
+			|| plan->playernum < 0 || plan->playernum >= MAX_PLAYERS) {
+		return false;
+	}
 
-	g_Vars.currentplayer->bond2.unk00.x = -sinf(turnanglerad);
-	g_Vars.currentplayer->bond2.unk00.y = 0;
-	g_Vars.currentplayer->bond2.unk00.z = cosf(turnanglerad);
+	return plan->player != NULL
+		&& plan->prop != NULL
+		&& plan->prop->chr != NULL
+		&& plan->capsule_radius > 0.0f
+		&& plan->capsule_height > 0.0f
+		&& g_Vars.players[plan->playernum] == plan->player
+		&& plan->player->prop == plan->prop;
+}
 
-	g_Vars.currentplayer->prop->pos.f[0] = g_Vars.currentplayer->bondprevpos.f[0] = pos.f[0];
-	g_Vars.currentplayer->prop->pos.f[1] = g_Vars.currentplayer->bondprevpos.f[1] = pos.f[1];
-	g_Vars.currentplayer->prop->pos.f[2] = g_Vars.currentplayer->bondprevpos.f[2] = pos.f[2];
+void playerCommitValidatedOrchestratedSpawn(
+		const struct player_orchestrated_spawn_plan *plan)
+{
+	struct player *player;
+	struct prop *playerprop;
+	struct coord pos;
+	f32 turnanglerad;
 
-	propDeregisterRooms(g_Vars.currentplayer->prop);
+	/* The orchestrator has already validated every plan and committed the pure
+	 * transaction. No same-thread invalidator exists between that pass and this
+	 * mutation-only operation, so this boundary is deliberately infallible. */
+	setCurrentPlayerNum(plan->playernum);
+	player = plan->player;
+	playerprop = plan->prop;
+	pos = plan->pos;
+	turnanglerad = plan->turnanglerad;
 
-	g_Vars.currentplayer->prop->rooms[0] = rooms[0];
-	g_Vars.currentplayer->prop->rooms[1] = -1;
+	sysLogPrintf(LOG_NOTE,
+		"SPAWN.ORCH: commit player=%d pool=%d pos=(%.0f,%.0f,%.0f) room=%d",
+		plan->playernum, plan->pool_idx, pos.x, pos.y, pos.z,
+		(s32)plan->rooms[0]);
 
-	playerSetCamPropertiesWithRoom(&pos,
-			&g_Vars.currentplayer->bond2.unk28,
-			&g_Vars.currentplayer->bond2.unk1c, rooms[0]);
+	player->floorcol = plan->floorcol;
+	player->floortype = plan->floortype;
+	player->floorflags = plan->floorflags;
+	player->floorroom = plan->floorroom;
+	player->vv_manground = plan->groundy;
+	player->vv_ground = plan->groundy;
+	player->vv_theta = (turnanglerad * 360.0f) / M_BADTAU;
 
-	bmoveUpdateRooms(g_Vars.currentplayer);
+	playerResetBond(&player->bond2, &pos);
+
+	player->bond2.unk00.x = -sinf(turnanglerad);
+	player->bond2.unk00.y = 0;
+	player->bond2.unk00.z = cosf(turnanglerad);
+
+	playerprop->pos.f[0] = player->bondprevpos.f[0] = pos.f[0];
+	playerprop->pos.f[1] = player->bondprevpos.f[1] = pos.f[1];
+	playerprop->pos.f[2] = player->bondprevpos.f[2] = pos.f[2];
+
+	propDeregisterRooms(playerprop);
+
+	playerprop->rooms[0] = plan->rooms[0];
+	playerprop->rooms[1] = -1;
+
+	playerSetCamPropertiesWithRoom(&pos, &player->bond2.unk28,
+		&player->bond2.unk1c, plan->rooms[0]);
+
+	bmoveUpdateRooms(player);
 }
 
 static bool playerTrySelectPoolSpawn(struct coord *dstpos, RoomNum *dstrooms, struct prop *selfprop)
@@ -1656,12 +1748,23 @@ void playerStartNewLife(void)
 		f32 chr_radius = (playerchr && playerchr->radius > 0.0f)
 			? playerchr->radius : 30.0f;
 		s32 attempt;
+		bool spawn_clear = false;
 		for (attempt = 0; attempt < 3; attempt++) {
-			if (spawnPoolFindClearPosition(&pos, rooms, chr_radius, chr_height)) {
+			if (spawnPoolFindClearPosition(&pos, rooms, chr_radius, chr_height,
+					g_Vars.currentplayer->prop)) {
+				spawn_clear = true;
 				break;
 			}
 			angle = M_BADTAU - scenarioChooseSpawnLocation(30, &pos, rooms,
 				g_Vars.currentplayer->prop);
+		}
+		if (!spawn_clear) {
+			g_Vars.currentplayer->isdead = true;
+			g_Vars.currentplayer->dostartnewlife = true;
+			sysLogPrintf(LOG_ERROR,
+				"SPAWN.REJECT: player=%d respawn exhausted capsule-safe candidates",
+				g_Vars.currentplayernum);
+			return;
 		}
 	}
 
@@ -5319,7 +5422,7 @@ void playerTick(bool arg0)
 	}
 
 	if (g_Vars.currentplayer->devicesactive & DEVICE_SUICIDEPILL) {
-		playerDieByShooter(g_Vars.currentplayernum, true);
+		playerDie(true);
 	}
 
 	/* Kill plane: if the player falls below the world geometry, force-kill them.
@@ -7109,6 +7212,8 @@ Gfx *playerRenderHud(Gfx *gdl)
 void playerDie(bool force)
 {
 	struct chrdata *chr = g_Vars.currentplayer->prop->chr;
+	s32 victim_runtime_index;
+	s32 live_attacker_runtime_index;
 	s32 shooter;
 
 	if (g_NetMode == NETMODE_CLIENT) {
@@ -7117,16 +7222,18 @@ void playerDie(bool force)
 
 	/* B-256 (2026-04-25): `lastshooter` / `timeshooter` were never wired up
 	 * on the damage side, so this branch never fired and player deaths
-	 * always defaulted to suicide credit (currentplayernum). The live
+	 * always defaulted to suicide credit. The live
 	 * attacker field is `lastattacker` (set in chraction.c on every damage
 	 * hit). Resolve it to a player index; if it can't be resolved (attacker
-	 * chr removed, or no attacker tracked), fall back to suicide. Pairs
+	 * chr removed, or no attacker tracked), fall back to the victim's compact
+	 * runtime-roster index rather than the stable currentplayernum slot. Pairs
 	 * with the symmetric fix in chr.c for bot pit-deaths. */
-	if (chr->lastattacker) {
-		shooter = mpPlayerGetIndex(chr->lastattacker);
-		if (shooter < 0) {
-			shooter = g_Vars.currentplayernum;
-		}
+	if (g_Vars.mplayerisrunning) {
+		victim_runtime_index = mpPlayerGetIndex(chr);
+		live_attacker_runtime_index = chr->lastattacker
+			? mpPlayerGetIndex(chr->lastattacker) : -1;
+		shooter = mpstatsAttributionChooseShooterRuntimeIndex(-1,
+			live_attacker_runtime_index, victim_runtime_index, g_MpNumChrs);
 	} else {
 		shooter = g_Vars.currentplayernum;
 	}
@@ -7138,7 +7245,7 @@ void playerDie(bool force)
 	}
 }
 
-static bool playerApplyDeadState(u32 shooter, bool force,
+static bool playerApplyDeadState(s32 shooter_runtime_index, bool force,
 		bool replay_live_event)
 {
 #if VERSION >= VERSION_NTSC_1_0
@@ -7147,6 +7254,20 @@ static bool playerApplyDeadState(u32 shooter, bool force,
 	if (!g_Vars.currentplayer->isdead && (force || !g_Vars.currentplayer->invincible || !g_Vars.currentplayer->training))
 #endif
 	{
+		s32 victim_runtime_index = g_Vars.mplayerisrunning
+			? mpPlayerGetIndex(g_Vars.currentplayer->prop->chr)
+			: g_Vars.currentplayernum;
+		s32 antiplayer_runtime_index = -1;
+
+		if (g_Vars.mplayerisrunning
+				&& g_Vars.antiplayernum >= 0
+				&& g_Vars.antiplayernum < MAX_PLAYERS
+				&& g_Vars.players[g_Vars.antiplayernum] != NULL
+				&& g_Vars.players[g_Vars.antiplayernum]->prop != NULL) {
+			antiplayer_runtime_index = mpPlayerGetIndex(
+				g_Vars.players[g_Vars.antiplayernum]->prop->chr);
+		}
+
 		if (replay_live_event) {
 			u32 prevplayernum = g_MpPlayerNum;
 			g_MpPlayerNum = g_Vars.currentplayerstats->mpindex;
@@ -7156,7 +7277,8 @@ static bool playerApplyDeadState(u32 shooter, bool force,
 			hudmsgsRemoveForDeadPlayer(g_Vars.currentplayernum);
 
 			if (g_Vars.mplayerisrunning) {
-				mpstatsRecordDeath(shooter, g_Vars.currentplayernum);
+				mpstatsRecordDeathByRuntimeIndex(shooter_runtime_index,
+					victim_runtime_index);
 			}
 		}
 
@@ -7165,7 +7287,7 @@ static bool playerApplyDeadState(u32 shooter, bool force,
 		if (replay_live_event && g_Vars.mplayerisrunning &&
 				(g_Vars.antiplayernum < 0
 				 || g_Vars.currentplayernum != g_Vars.antiplayernum
-				 || shooter != g_Vars.antiplayernum)) {
+				 || shooter_runtime_index != antiplayer_runtime_index)) {
 			currentPlayerDropAllItems();
 		}
 
@@ -7227,8 +7349,10 @@ static bool playerApplyDeadState(u32 shooter, bool force,
 	return false;
 }
 
-void playerDieByShooter(u32 shooter, bool force)
+void playerDieByShooter(s32 shooter_runtime_index, bool force)
 {
+	s32 shooter = shooter_runtime_index;
+
 	playerApplyDeadState(shooter, force, true);
 }
 

@@ -12,7 +12,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 210,
+  "timeout_seconds": 360,
   "install_state": "clean",
   "fixtures": [
     { "src": "tools/smoke-verify/fixtures/b1086_ultrawide_pd.ini", "dst": "pd.ini" },
@@ -28,8 +28,8 @@
     "--debug-mesh-matclass"
   ],
   "input_sequence": [
-    { "at_ms": 0, "type": "wait", "comment": "Allow the clean install to extract all public typed sources before ordinary title navigation." },
-    { "at_ms": 28000, "type": "key", "key": "Return", "action": "tap", "comment": "Advance past the title sequence after extraction." },
+    { "at_ms": 0, "type": "wait_until", "condition": "title_sequence_ready", "timeout_ms": 180000, "stable_ms": 500, "comment": "Pause virtual fixture time until ordinary boot has completed extraction/catalog startup and applied the initial production title mode." },
+    { "at_ms": 28000, "type": "key", "key": "Return", "action": "tap", "comment": "Advance the production title sequence on its readiness-relative timeline." },
     { "at_ms": 30000, "type": "key", "key": "Return", "action": "tap", "comment": "Advance the intro." },
     { "at_ms": 32000, "type": "key", "key": "Return", "action": "tap", "comment": "Enter the Carrington Institute main-menu backdrop." },
     { "at_ms": 165000, "type": "exit", "comment": "Retain multiple moving and settled camera phases, then exit cleanly." }
@@ -45,6 +45,7 @@
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=b1086_type4_door_render_smoke",
+      "SMOKE\\.WAIT: satisfied condition=title_sequence_ready .*stable_ms=500 stable_elapsed_ms=(?:5\\d{2}|[1-9]\\d{3,})",
       "romextract pdmesh: exported filenum=0x055c .*geometrycmds=\\d+",
       "romextract pdmesh: exported filenum=0x0757 .*geometrycmds=\\d+",
       "MODELDEF\\.SOURCE: loaded catalog model source .* id=base:model_cidoor1_ref ",

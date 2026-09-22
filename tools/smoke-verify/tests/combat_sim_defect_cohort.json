@@ -1,0 +1,102 @@
+{
+  "scenario_name": "combat_sim_defect_cohort",
+  "description": "T-ENGINE-005 ordinary-client production gate for B-249/B-242/B-174/B-183. It starts a 12-bot Combat Simulator match on authored Car Park, resolves every bot to the exact base:dark_combat body 86 and base:head_dark_combat head 4 catalog identities, requires one-player-plus-12-bot publication through the canonical capsule-safe spawn policy, observes ordinary autonomous combat through stable runtime-to-config attribution receipts, and retains four gameplay captures for V-009 visual review without any Car Park-specific source branch.",
+  "tags": ["combatsim", "car-park", "bots", "spawn", "ai", "identity", "visual", "ordinary-client", "v010", "v009", "b249", "b242", "b174", "b183"],
+  "paths_of_interest": [
+    "src/game/mpstats.c",
+    "src/include/game/mpstats.h",
+    "port/src/mpstats_attribution.c",
+    "src/game/spawnpool.c",
+    "src/game/bot.c",
+    "src/include/game/bot.h",
+    "src/game/botmgr.c",
+    "src/game/mplayer/mpaicommands.c",
+    "src/game/player.c",
+    "src/game/playerreset.c",
+    "src/game/mplayer/mpspawn_orchestrate.c",
+    "src/include/game/mplayer/mpspawn_orchestrate.h",
+    "port/src/mpspawn_transaction.c",
+    "src/game/lv.c",
+    "src/game/chraction.c",
+    "src/game/bondwalk.c",
+    "src/game/body.c",
+    "port/src/player_identity.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 1,
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-generated-mesh-render-audit",
+    "--launch-mp-room",
+    "base:arena_mp_carpark",
+    "base:combat",
+    "12",
+    "--debug-bot-body",
+    "base:dark_combat",
+    "--debug-bot-head",
+    "base:head_dark_combat",
+    "--debug-auto-start-match",
+    "--debug-force-first-person"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "offline_gameplay_ready", "timeout_ms": 120000, "stable_ms": 3000, "assist_action": "ACTION_SKIP_CUTSCENE", "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 900, "comment": "Pause virtual fixture time until the ordinary Car Park match has published one player and 12 independently spawned bots and the player is stably controllable." },
+    { "at_ms": 5000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "Exercise ordinary player control while bots remain production-AI owned." },
+    { "at_ms": 8000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "Exercise the ordinary combat producer path without injecting score ownership." },
+    { "at_ms": 12000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
+    { "at_ms": 75000, "type": "exit", "comment": "Exit after autonomous bot combat has had a bounded 75-second window to produce stable player/bot attribution and navigation behavior." }
+  ],
+  "screenshots": [
+    { "at_ms": 4500, "name": "carpark-cohort-spawned" },
+    { "at_ms": 18000, "name": "carpark-cohort-combat-a" },
+    { "at_ms": 42000, "name": "carpark-cohort-combat-b" },
+    { "at_ms": 70000, "name": "carpark-cohort-settled" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=combat_sim_defect_cohort",
+      "BOOT: --debug-bot-body 'base:dark_combat' mpbody=\\d+",
+      "BOOT: --debug-bot-head 'base:head_dark_combat' mphead=\\d+",
+      "PLAYER\\.INIT\\.PREFLIGHT match=ok players=1 bots=12 stage='base:arena_mp_carpark' scenario='base:combat'",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=12",
+      "SPAWN\\.ORCH: prepare player=\\d+ client=-?\\d+ role=[^ ]+ pool=\\d+ duplicate=0",
+      "SPAWN\\.ORCH: commit player=\\d+ pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+      "SPAWN\\.ORCH: done participants=13 pool=\\d+ sectors=\\d+ teams_mask=0x[0-9a-f]+",
+      "SPAWN\\.WAVE: committed slot=11 next_uncommitted=12 total=12",
+      "SPAWN\\.DIAG: post-botSpawnAll stage=0x3d bots=12 numpads=\\d+",
+      "BODY\\.HEADSPOT\\.RESOLVED: body_id='base:dark_combat' bodynum=86 head_id='base:head_dark_combat' headnum=4 part=4",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "MPSTATS\\.ATTRIBUTION runtime_attacker=[1-9]\\d* stable_attacker=(?:[89]|[1-3]\\d) attacker_kind=bot runtime_victim=\\d+ stable_victim=\\d+ victim_kind=(?:player|bot)",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "SPAWN\\.REJECT:",
+      "SPAWN\\.DIAG: bot collision",
+      "SPAWN\\.ORCH: rejected",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "PLAYER\\.INIT\\.PREFLIGHT match=reject",
+      "BODY\\.HEADSPOT\\.REJECT",
+      "BODY\\.HEAD\\.REJECT",
+      "ASSET\\.SOURCE_ONLY",
+      "bodyAllocateModel returned NULL",
+      "MODEL\\.GDL\\.REJECT",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": [
+      { "pattern": "BOOT: --debug-bot-appearance applied slot=\\d+ body='base:dark_combat' head='base:head_dark_combat'", "min": 12, "max": 12 },
+      { "pattern": "SPAWN\\.ORCH: prepare player=", "min": 1, "max": 1 },
+      { "pattern": "SPAWN\\.ORCH: commit player=", "min": 1, "max": 1 },
+      { "pattern": "SPAWN\\.WAVE: committed slot=\\d+ next_uncommitted=\\d+ total=12", "min": 12, "max": 12 },
+      { "pattern": "SPAWN\\.DIAG: bot\\[\\d+\\] chrnum=\\d+ pos=\\([^)]+\\) room=[0-9]+", "min": 12, "max": 12 },
+      { "pattern": "BODY\\.HEADSPOT\\.RESOLVED: body_id='base:dark_combat' bodynum=86 head_id='base:head_dark_combat' headnum=4", "min": 12 },
+      { "pattern": "MPSTATS\\.ATTRIBUTION .* attacker_kind=bot ", "min": 1 }
+    ]
+  }
+}

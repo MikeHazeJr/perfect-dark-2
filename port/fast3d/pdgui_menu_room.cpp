@@ -23,6 +23,7 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include "net/lobby_view.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -33,6 +34,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_nav_input.h"
 #include "pdgui_layout.h"       /* pdguiPopupDarkenBehind */
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
@@ -93,22 +95,9 @@ const char *netGetPublicIP(void);
 
 /* Lobby state */
 void lobbyUpdate(void);
-s32 lobbyGetPlayerCount(void);
+s32 lobbyRoomGetPlayerCount(void);
 s32 lobbyIsLocalLeader(void);
 
-struct lobbyplayer_view {
-    u8 active;
-    u8 isLeader;
-    u8 isReady;
-    u8 headnum;
-    u8 bodynum;
-    u8 team;
-    char name[32];
-    s32 isLocal;
-    s32 state;
-    u8 clientId;
-};
-s32 lobbyGetPlayerInfo(s32 idx, struct lobbyplayer_view *out);
 
 /* Game mode constants */
 #define GAMEMODE_MP   0
@@ -140,8 +129,8 @@ u32 mpGetNumBodies(void);
 s32 mpDefaultHeadForBody(s32 mpbodynum);
 /* Body/head data accessed via catalog accessors */
 /* Phase 5: catalog ID accessors for lobby players */
-const char *lobbyGetPlayerBodyId(s32 idx);
-const char *lobbyGetPlayerHeadId(s32 idx);
+const char *lobbyRoomGetPlayerBodyId(s32 idx);
+const char *lobbyRoomGetPlayerHeadId(s32 idx);
 
 /* Local-player character override (room-scoped). Catalog ID accessors
  * + writers, declared in port/fast3d/pdgui_bridge.c. The room screen
@@ -1851,8 +1840,8 @@ static void lobbyPortraitsSync(s32 humanCount)
     }
 
     for (s32 i = 0; i < humanCount && i < LOBBY_PORTRAIT_MAX; i++) {
-        const char *hid = lobbyGetPlayerHeadId(i);
-        const char *bid = lobbyGetPlayerBodyId(i);
+        const char *hid = lobbyRoomGetPlayerHeadId(i);
+        const char *bid = lobbyRoomGetPlayerBodyId(i);
         LobbyPortrait &p = s_LobbyPortraits[i];
 
         bool match = (hid && bid && hid[0] && bid[0] &&
@@ -1905,8 +1894,8 @@ static void lobbyPortraitsTick(s32 humanCount)
     for (s32 i = 0; i < humanCount && i < LOBBY_PORTRAIT_MAX; i++) {
         LobbyPortrait &p = s_LobbyPortraits[i];
         if (p.glTex || p.source != 0) continue;
-        const char *hid = lobbyGetPlayerHeadId(i);
-        const char *bid = lobbyGetPlayerBodyId(i);
+        const char *hid = lobbyRoomGetPlayerHeadId(i);
+        const char *bid = lobbyRoomGetPlayerBodyId(i);
         if (!hid || !hid[0] || !bid || !bid[0]) continue;
 
         u32 portraitTex = 0;
@@ -1940,8 +1929,10 @@ static void lobbyPortraitsTick(s32 humanCount)
 
 static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
 {
+    bool openChangeCharacterRequested = false;
+
     /* In solo mode there's no network lobby — local player count is always 1. */
-    int humanCount = s_IsSoloMode ? 1 : lobbyGetPlayerCount();
+    int humanCount = s_IsSoloMode ? 1 : lobbyRoomGetPlayerCount();
     int curBots    = countBots();
     /* Max bots = remaining slots after accounting for human players. */
     int maxBots = matchConfigMaxBotsForHumans(humanCount);
@@ -2093,7 +2084,6 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         u8    team;
         u8    isLeader;
         u8    isLocal;
-        u8    bodynum;
         s32   state;       /* CLSTATE_* for humans, -1 for bots */
         u8    botDiff;     /* bots only */
         char  name[48];
@@ -2119,7 +2109,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         for (s32 i = 0; i < humanCount && rowCount < kMaxRows; i++) {
             struct lobbyplayer_view pv;
             memset(&pv, 0, sizeof(pv));
-            if (!lobbyGetPlayerInfo(i, &pv)) continue;
+            if (!lobbyRoomGetPlayerInfo(i, &pv)) continue;
             RoomRow &r = rows[rowCount++];
             memset(&r, 0, sizeof(r));
             r.isBot = false;
@@ -2128,7 +2118,6 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             r.team = pv.team;
             r.isLeader = pv.isLeader;
             r.isLocal = pv.isLocal ? 1 : 0;
-            r.bodynum = pv.bodynum;
             r.state = pv.state;
             snprintf(r.name, sizeof(r.name), "%s", pv.name);
         }
@@ -2143,7 +2132,6 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         r.slotIdx = i;
         r.lobbyIdx = -1;
         r.team = sl->team;
-        r.bodynum = sl->bodynum;
         r.state = -1;
         r.botDiff = sl->botDifficulty;
         snprintf(r.name, sizeof(r.name), "%s", sl->name);
@@ -2496,18 +2484,19 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             /* Line 2: body name + state label */
             {
                 const char *bodyName = "";
-                const char *bodyId = lobbyGetPlayerBodyId(r.lobbyIdx);
-                const char *headId = lobbyGetPlayerHeadId(r.lobbyIdx);
+                const char *bodyId = lobbyRoomGetPlayerBodyId(r.lobbyIdx);
+                const char *headId = lobbyRoomGetPlayerHeadId(r.lobbyIdx);
                 const asset_entry_t *character =
                     assetCatalogFindCharacterByBodyHead(bodyId, headId);
                 if (character && character->ext.character.display_name[0]) {
                     bodyName = character->ext.character.display_name;
                 }
-                if (!bodyName[0] && r.bodynum < (u8)mpGetNumBodies()) {
-                    const char *bn = mpGetBodyName(r.bodynum);
-                    if (bn && bn[0]) bodyName = bn;
+                if (!bodyName[0]) {
+                    const asset_entry_t *body = assetCatalogResolve(bodyId);
+                    bodyName = body && body->type == ASSET_BODY && body->ext.body.display_name[0]
+                        ? body->ext.body.display_name : bodyId;
                 }
-                if (bodyName[0]) {
+                if (bodyName && bodyName[0]) {
                     dl->AddText(ImVec2(textX, lineY1),
                                 IM_COL32(115, 115, 140, (int)(alpha * 190)), bodyName);
                 }
@@ -2607,11 +2596,8 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                             curHead ? curHead : "",
                             sizeof(s_PendingCharHeadId) - 1);
                     s_PendingCharHeadId[sizeof(s_PendingCharHeadId) - 1] = '\0';
-                    s_ShowChangeCharModal = true;
-                    /* OpenPopup must fire on the same id used by the
-                     * modal BeginPopupModal below. */
+                    openChangeCharacterRequested = true;
                     ImGui::CloseCurrentPopup();
-                    ImGui::OpenPopup("##room_change_char_modal");
                 }
                 ImGui::EndPopup();
             }
@@ -3093,6 +3079,13 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
      * BeginPopupModal floats above the parent regardless of where it's
      * rendered in the parent's tree. Pool registration not required;
      * popup tears down with the Room screen automatically. */
+    if (openChangeCharacterRequested) {
+        /* The roster row/context scopes have unwound. The outer player
+         * panel now owns both the OpenPopup and BeginPopupModal ID. */
+        ImGui::OpenPopup("##room_change_char_modal");
+        s_ShowChangeCharModal = true;
+        pdguiNavSuppressActivation();
+    }
     if (s_ShowChangeCharModal) {
         ImGui::SetNextWindowSizeConstraints(
             ImVec2(pdguiScale(420.0f), pdguiScale(360.0f)),
@@ -3100,6 +3093,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         if (ImGui::BeginPopupModal("##room_change_char_modal",
                                     NULL,
                                     ImGuiWindowFlags_NoSavedSettings)) {
+            const bool cancelCharacter = pdguiMenuCancelPressed();
             pdguiPopupDarkenBehind(0.65f);
             ImGui::TextColored(pdguiVec4TitleGlow(),
                                "Change Character (this match only)");
@@ -3290,7 +3284,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             float actBtnW = pdguiScale(120.0f);
             float actBtnH = btnH;
             if (ImGui::Button("Apply###char_modal_apply",
-                              ImVec2(actBtnW, actBtnH))) {
+                              ImVec2(actBtnW, actBtnH)) && !cancelCharacter) {
                 roomCharOverrideCaptureIfNeeded();
                 mpPlayerConfigSetHeadBody(0,
                                            s_PendingCharHeadId,
@@ -3302,14 +3296,14 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             }
             ImGui::SameLine();
             if (ImGui::Button("Cancel###char_modal_cancel",
-                              ImVec2(actBtnW, actBtnH))) {
+                              ImVec2(actBtnW, actBtnH)) || cancelCharacter) {
                 s_ShowChangeCharModal = false;
                 ImGui::CloseCurrentPopup();
             }
             if (s_RoomCharOverrideActive) {
                 ImGui::SameLine();
                 if (ImGui::Button("Reset to Saved###char_modal_reset",
-                                  ImVec2(pdguiScale(150.0f), actBtnH))) {
+                                  ImVec2(pdguiScale(150.0f), actBtnH)) && !cancelCharacter) {
                     roomCharOverrideRestore();
                     s_RoomSettingsDirty = true;
                     pdguiPlaySound(PDGUI_SND_SUBFOCUS);
@@ -3853,24 +3847,32 @@ static void renderCounterOpTab(float panelW, float panelH, bool leader)
     ImGui::TextDisabled("(plays as Maian side)");
 
     if (!leader) ImGui::BeginDisabled();
-    s32 playerCount = lobbyGetPlayerCount();
-    const char *antiPlayerName = "Player 2";
-    if (playerCount >= 2) {
-        struct lobbyplayer_view pv2;
-        memset(&pv2, 0, sizeof(pv2));
-        if (s_CounterOpPlayer < playerCount &&
-            lobbyGetPlayerInfo(s_CounterOpPlayer, &pv2)) {
-            antiPlayerName = pv2.name;
-            s_CounterOpClientId = pv2.clientId;
-        } else {
-            for (s32 pi = 0; pi < playerCount; pi++) {
-                if (!lobbyGetPlayerInfo(pi, &pv2)) continue;
-                s_CounterOpPlayer = pi;
-                s_CounterOpClientId = pv2.clientId;
-                antiPlayerName = pv2.name;
+    s32 playerCount = lobbyRoomGetPlayerCount();
+    char antiPlayerName[sizeof(lobbyplayer_view::name)] = "Player 2";
+    s32 selectedRow = -1;
+    for (s32 pi = 0; pi < playerCount; ++pi) {
+        struct lobbyplayer_view pv = {};
+        if (lobbyRoomGetPlayerInfo(pi, &pv) && pv.clientId == s_CounterOpClientId) {
+            selectedRow = pi;
+            break;
+        }
+    }
+    if (selectedRow < 0 && playerCount >= 2) {
+        selectedRow = 0;
+        for (s32 pi = 0; pi < playerCount; ++pi) {
+            struct lobbyplayer_view pv = {};
+            if (lobbyRoomGetPlayerInfo(pi, &pv) && !pv.isLocal) {
+                selectedRow = pi;
                 break;
             }
         }
+    }
+    s_CounterOpPlayer = selectedRow;
+    s_CounterOpClientId = 0xff;
+    struct lobbyplayer_view selectedPlayer = {};
+    if (selectedRow >= 0 && lobbyRoomGetPlayerInfo(selectedRow, &selectedPlayer)) {
+        s_CounterOpClientId = selectedPlayer.clientId;
+        snprintf(antiPlayerName, sizeof(antiPlayerName), "%s", selectedPlayer.name);
     }
 
     ImGui::SetNextItemWidth(comboW);
@@ -3878,8 +3880,8 @@ static void renderCounterOpTab(float panelW, float panelH, bool leader)
         for (s32 pi = 0; pi < playerCount; pi++) {
             struct lobbyplayer_view pv;
             memset(&pv, 0, sizeof(pv));
-            if (!lobbyGetPlayerInfo(pi, &pv)) continue;
-            bool sel = (pi == s_CounterOpPlayer);
+            if (!lobbyRoomGetPlayerInfo(pi, &pv)) continue;
+            bool sel = (pv.clientId == s_CounterOpClientId);
             char pLabel[80];
             snprintf(pLabel, sizeof(pLabel), "%s%s##anti%d",
                      pv.name, pv.isLocal ? " (you)" : "", pi);
@@ -3950,7 +3952,7 @@ static s32 roomGraphStartMatch(void *userdata)
                 pdguiSoloRoomClose();
                 return 0;
             } else {
-                int humanCount = s_IsSoloMode ? 1 : lobbyGetPlayerCount();
+                int humanCount = s_IsSoloMode ? 1 : lobbyRoomGetPlayerCount();
                 int maxBots = matchConfigMaxBotsForHumans(humanCount);
                 int numBots = countBots();
                 if (numBots > maxBots) {
@@ -4103,6 +4105,11 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         menupoolRelease(MENU_TYPE_ROOM);
         return;
     }
+
+    /* Keep child ownership through this whole render, including a modal
+     * that closes inside renderPlayerPanel before the Leave button runs. */
+    const bool roomPopupOwnedFrame = ImGui::IsPopupOpen(
+        nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 
     /* S300: attach ctx every frame (ImGui can reuse ##room_interior without
      * IsWindowAppearing after stage transitions — same class as main menu). */
@@ -4394,8 +4401,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
      * destructive-action rule — Leave Room / Back to Menu tears down the
      * lobby session (and potentially disconnects from the server), so the
      * user must confirm. */
-    if (ImGui::Button(leaveLabel, ImVec2(leaveW, btnH)) ||
-        (!countdownBlocks && !hotswapBlocks &&
+    const bool roomChildBlocks = roomPopupOwnedFrame || s_ShowChangeCharModal
+        || s_BotModalOpen || s_ShowSaveScenario || s_ShowLoadScenario
+        || ImGui::IsPopupOpen(nullptr,
+            ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    if ((ImGui::Button(leaveLabel, ImVec2(leaveW, btnH)) && !roomChildBlocks) ||
+        (!countdownBlocks && !hotswapBlocks && !roomChildBlocks &&
          pdguiMenuCancelPressed())) {
         if (!s_ShowLeaveConfirm) {
             s_ShowLeaveConfirm = true;
@@ -4691,7 +4702,8 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::Separator();
             ImGui::Spacing();
 
-            if (ImGui::Button("Done", ImVec2(pdguiScale(120.0f), 0.0f))) {
+            if (ImGui::Button("Done", ImVec2(pdguiScale(120.0f), 0.0f)) ||
+                pdguiMenuCancelPressed()) {
                 s_BotModalShowAdvanced = false;
                 s_BotPreviewRotY = 0.0f;
                 s_EditBotSlotIdx = -1;
@@ -4740,7 +4752,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::EndGroup(); /* end right column */
         } else {
             ImGui::TextDisabled("No bot selected.");
-            if (ImGui::Button("Close")) {
+            if (ImGui::Button("Close") || pdguiMenuCancelPressed()) {
                 s_EditBotSlotIdx = -1;
                 ImGui::CloseCurrentPopup();
             }
@@ -4757,6 +4769,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     ImGui::SetNextWindowSize(ImVec2(pdguiScale(480.0f), 0.0f));
     if (ImGui::BeginPopupModal("Save Scenario##savescenpop", nullptr,
                                ImGuiWindowFlags_AlwaysAutoResize)) {
+        const bool cancelSaveScenario = pdguiMenuCancelPressed();
         ImGui::TextColored(pdguiVec4TitleGlow(), "Save Scenario");
         ImGui::Separator();
         ImGui::Spacing();
@@ -4768,7 +4781,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         ImGui::Spacing();
 
         float bw = pdguiScale(150.0f);
-        if (ImGui::Button("Save", ImVec2(bw, 0.0f))) {
+        if (ImGui::Button("Save", ImVec2(bw, 0.0f)) && !cancelSaveScenario) {
             if (s_SaveNameBuf[0]) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario SAVE \"%s\"", s_SaveNameBuf);
                 if (scenarioSave(s_SaveNameBuf) == 0) {
@@ -4785,7 +4798,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             }
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(bw, 0.0f))) {
+        if (ImGui::Button("Cancel", ImVec2(bw, 0.0f)) || cancelSaveScenario) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             ImGui::CloseCurrentPopup();
         }
@@ -4802,6 +4815,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
     ImGui::SetNextWindowSize(ImVec2(pdguiScale(570.0f), pdguiScale(420.0f)));
     if (ImGui::BeginPopupModal("Load Scenario##loadscenpop", nullptr,
                                ImGuiWindowFlags_NoResize)) {
+        const bool cancelLoadScenario = pdguiMenuCancelPressed();
         ImGui::TextColored(pdguiVec4TitleGlow(), "Load Scenario");
         ImGui::Separator();
         ImGui::Spacing();
@@ -4834,9 +4848,9 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 if (ImGui::Selectable(displayName, isSel,
                                       ImGuiSelectableFlags_AllowDoubleClick)) {
                     s_ScenarioSelected = i;
-                    if (ImGui::IsMouseDoubleClicked(0)) {
+                    if (ImGui::IsMouseDoubleClicked(0) && !cancelLoadScenario) {
                         /* Double-click: load and close */
-                        s32 humanCount = lobbyGetPlayerCount();
+                        s32 humanCount = lobbyRoomGetPlayerCount();
                         if (humanCount < 1) humanCount = 1;
                         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD \"%s\" humans=%d",
                                      displayName, humanCount);
@@ -4870,7 +4884,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         bool hasSelection = (s_ScenarioSelected >= 0 && s_ScenarioSelected < s_ScenarioCount);
 
         if (!hasSelection) ImGui::BeginDisabled();
-        if (ImGui::Button("Load", ImVec2(fbw, 0.0f))) {
+        if (ImGui::Button("Load", ImVec2(fbw, 0.0f)) && !cancelLoadScenario) {
             const char *fullPath = s_ScenarioFiles[s_ScenarioSelected];
             const char *slash = strrchr(fullPath, '/');
             if (!slash) slash = strrchr(fullPath, '\\');
@@ -4881,7 +4895,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             size_t dlen2 = strlen(displayName);
             if (dlen2 > 5 && strcmp(displayName + dlen2 - 5, ".json") == 0)
                 displayName[dlen2 - 5] = '\0';
-            s32 humanCount = lobbyGetPlayerCount();
+            s32 humanCount = lobbyRoomGetPlayerCount();
             if (humanCount < 1) humanCount = 1;
             sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario LOAD \"%s\" humans=%d", displayName, humanCount);
             if (scenarioLoad(fullPath, humanCount) == 0) {
@@ -4902,7 +4916,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         ImGui::SameLine();
 
         if (!hasSelection) ImGui::BeginDisabled();
-        if (ImGui::Button("Delete", ImVec2(fbw, 0.0f))) {
+        if (ImGui::Button("Delete", ImVec2(fbw, 0.0f)) && !cancelLoadScenario) {
             /* M-5: arm the confirm modal rather than deleting immediately.
              * C5 destructive-action rule — scenario deletion is irreversible. */
             const char *fullPath = s_ScenarioFiles[s_ScenarioSelected];
@@ -4926,7 +4940,7 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         if (!hasSelection) ImGui::EndDisabled();
 
         ImGui::SameLine();
-        if (ImGui::Button("Close", ImVec2(fbw, 0.0f))) {
+        if (ImGui::Button("Close", ImVec2(fbw, 0.0f)) || cancelLoadScenario) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             ImGui::CloseCurrentPopup();
         }
@@ -4965,7 +4979,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 bool  doConfirm = false;
                 bool  doCancel  = false;
 
-                if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+                if (forceFocus) {
+                    ImGui::SetKeyboardFocusHere(0);
+                    ImGui::SetNavCursorVisible(true);
+                }
                 if (ImGui::Button("Cancel##scendel", ImVec2(dbw, 0.0f))) {
                     if (!inputDebounced) doCancel = true;
                 }
@@ -4982,15 +4999,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 ImGui::PopStyleColor(3);
 
                 if (!inputDebounced) {
-                    if (pdguiMenuAcceptPressed()) {
-                        doConfirm = true;
-                    }
                     if (pdguiMenuCancelPressed()) {
                         doCancel = true;
                     }
                 }
 
-                if (doConfirm) {
+                if (doConfirm && !doCancel) {
                     sysLogPrintf(LOG_NOTE, "MENU_IMGUI: scenario DELETE confirmed \"%s\"",
                                  s_ScenarioDeletePath);
                     if (scenarioDelete(s_ScenarioDeletePath) == 0) {
@@ -5069,7 +5083,10 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             bool  doCancel  = false;
 
             /* Cancel first — safer default focus. */
-            if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+            if (forceFocus) {
+                ImGui::SetKeyboardFocusHere(0);
+                ImGui::SetNavCursorVisible(true);
+            }
             if (ImGui::Button("Cancel##leaveconfirm", ImVec2(bw, 0.0f))) {
                 if (!inputDebounced) doCancel = true;
             }
@@ -5089,15 +5106,12 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
             ImGui::PopStyleColor(3);
 
             if (!inputDebounced) {
-                if (pdguiMenuAcceptPressed()) {
-                    doConfirm = true;
-                }
                 if (pdguiMenuCancelPressed()) {
                     doCancel = true;
                 }
             }
 
-            if (doConfirm) {
+            if (doConfirm && !doCancel) {
                 sysLogPrintf(LOG_NOTE, "MENU_IMGUI: room CLOSE confirmed via %s (solo=%d)",
                              leaveLabel, s_IsSoloMode);
                 pdguiPlaySound(PDGUI_SND_KBCANCEL);

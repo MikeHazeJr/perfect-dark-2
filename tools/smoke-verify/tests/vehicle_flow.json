@@ -1,44 +1,164 @@
 {
   "scenario_name": "vehicle_flow",
-  "description": "c115 re-author: boot to STAGE_CITRAINING via --skip-intro and arm --debug-mount-bike one-shot. Post-setupCreateProps hook scans g_Vars.activeprops for an OBJTYPE_HOVERBIKE and mounts player 0 on the first match (one-shot per boot). Note: CITRAINING does NOT spawn the player adjacent to its hoverbike, so the mount is expected to be REJECTED unless a future change moves player 0 to the bike pad or the bike to the player. The test surfaces this as a finding via the BOOT: --debug-mount-bike consumed result=REJECTED / MOUNTED line. --no-net bakes in to close firewall focus-steal class.",
-  "tags": ["vehicle", "input", "imc", "bondbike", "stability"],
+  "description": "T-VEHICLES-002 ordinary-client campaign smoke: launch the typed catalog mission base:escape, use --debug-mount-bike only as a bootstrap candidate invocation, and wait for the production vehicle_driver_ready facts before exercising acceleration, braking, steering, look, handbrake, dismount, and one ordinary ACTION_VEHICLE_USE remount. The debug bootstrap does not prove the normal propFindForInteract line-of-sight or collision path; the second mount is the ordinary interaction witness. The directional dismount/facing choice can leave Player 0 outside the ordinary remount range/facing aperture, so deterministic remount failure remains an explicit risk rather than a hidden reposition. No listen-authority/two-client or V-009 proof is claimed.",
+  "tags": ["vehicle", "input", "imc", "bondbike", "stability", "ordinary-client", "catalog"],
   "paths_of_interest": [
     "src/game/bondbike.c",
     "src/game/bondmove.c",
+    "src/game/propobj.c",
     "port/include/actionmap.h",
     "port/src/actionmap.cpp",
     "port/src/inputlayer.c",
-    "src/setups/setupdish.c",
-    "port/src/main.c"
+    "port/src/main.c",
+    "port/src/smoke_readiness.c",
+    "port/src/smoke_harness.c"
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 180,
+  "timeout_seconds": 240,
   "install_state": "clean",
   "boot_args": [
     "--no-update-check",
     "--no-sound",
     "--no-net",
-    "--skip-intro",
+    "--launch-mission",
+    "base:escape",
     "--debug-mount-bike"
   ],
   "input_sequence": [
-    { "at_ms": 0,     "type": "wait", "comment": "boot path: --skip-intro routes to STAGE_CITRAINING (0x26). --debug-mount-bike armed; bootDebugMountBikeTick scans activeprops post-load (lvframenum >= 4)." },
-    { "at_ms": 25000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "agent_select accept (focus-independent)" },
-    { "at_ms": 28000, "type": "action", "name": "ACTION_CANCEL_USE", "action": "tap", "comment": "close Main Menu -> CI free-roam (lvIsPaused 1 -> 0)" },
-    { "at_ms": 32000, "type": "wait", "comment": "settle so bootDebugMountBikeTick can walk activeprops and either mount or report REJECTED / no-bike-on-stage" },
-    { "at_ms": 40000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "manual mount attempt #1 (in case bike is nearby but mount-during-load failed)" },
-    { "at_ms": 44000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "manual mount attempt #2" },
-    { "at_ms": 60000, "type": "wait", "comment": "settle for one-shot consumption (lvframenum > 120 timeout in bootDebugMountBikeTick)" },
-    { "at_ms": 90000, "type": "exit", "comment": "scripted exit -- findings live in the BOOT: --debug-mount-bike consumed line regardless of mount success" }
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 120000,
+      "stable_ms": 500,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Readiness-relative bootstrap barrier: the offline non-title stage, local Player 0, gameplay layer, normal tick, and walking control must be live before the armed debug candidate is allowed to consume. The bounded skip assist advances a live campaign intro through the production cutscene aperture."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "vehicle_driver_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 1000,
+      "comment": "Causal mounted readiness barrier: the current non-title stage-ready Player 0 must be alive, controllable, unpaused, in normal gameplay, mounted with a hoverbike, and driving through LAYER_VEHICLE_DRIVER."
+    },
+    {
+      "at_ms": 1000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "press",
+      "comment": "Mounted acceleration reaches the production vehicle movement path."
+    },
+    {
+      "at_ms": 2200,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "release",
+      "comment": "Release acceleration."
+    },
+    {
+      "at_ms": 2500,
+      "type": "action",
+      "name": "ACTION_VEHICLE_STEER_RIGHT",
+      "action": "press",
+      "comment": "Mounted steering is consumed by the vehicle input path."
+    },
+    {
+      "at_ms": 3400,
+      "type": "action",
+      "name": "ACTION_VEHICLE_STEER_RIGHT",
+      "action": "release",
+      "comment": "Release steering."
+    },
+    {
+      "at_ms": 3700,
+      "type": "action",
+      "name": "ACTION_VEHICLE_LOOK_X",
+      "action": "press",
+      "comment": "Mounted camera look."
+    },
+    {
+      "at_ms": 4500,
+      "type": "action",
+      "name": "ACTION_VEHICLE_LOOK_X",
+      "action": "release",
+      "comment": "Release camera look."
+    },
+    {
+      "at_ms": 4800,
+      "type": "action",
+      "name": "ACTION_VEHICLE_HANDBRAKE",
+      "action": "press",
+      "comment": "Handbrake-only input enters the mounted vehicle path."
+    },
+    {
+      "at_ms": 5600,
+      "type": "action",
+      "name": "ACTION_VEHICLE_HANDBRAKE",
+      "action": "release",
+      "comment": "Release handbrake."
+    },
+    {
+      "at_ms": 5900,
+      "type": "action",
+      "name": "ACTION_VEHICLE_BRAKE",
+      "action": "press",
+      "comment": "Mounted braking path."
+    },
+    {
+      "at_ms": 7000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_BRAKE",
+      "action": "release",
+      "comment": "Release brake before the dismount transaction."
+    },
+    {
+      "at_ms": 7400,
+      "type": "action",
+      "name": "ACTION_VEHICLE_EXIT",
+      "action": "tap",
+      "comment": "Production dismount and vehicle-driver input-layer teardown."
+    },
+    {
+      "at_ms": 7600,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 30000,
+      "stable_ms": 250,
+      "comment": "Causal post-dismount barrier: Player 0 must be back in ordinary offline gameplay before the normal interaction remount."
+    },
+    {
+      "at_ms": 8000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_USE",
+      "action": "tap",
+      "comment": "Exactly one ordinary on-foot vehicle-use remount through propFindForInteract LOS/collision selection; this is the second and real interaction mount witness, not bootstrap."
+    },
+    {
+      "at_ms": 10000,
+      "type": "exit",
+      "comment": "Scripted exit; lifecycle verdict requires both mount receipts, causal readiness, mounted input, dismount, and the ordinary remount witness."
+    }
   ],
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=vehicle_flow",
       "Asset Catalog: \\d+ entries registered",
       "BOOT: --no-net set; netInit\\(\\) skipped",
+      "BOOT: --launch-mission 'base:escape' -> stagenum=",
       "BOOT: --debug-mount-bike armed",
-      "BOOT: --debug-mount-bike (consumed|no hoverbike)",
+      "BOOT: --debug-mount-bike consumed: path=debug_candidate_no_propfind_los .*result=MOUNTED",
+      "SMOKE.WAIT: satisfied condition=vehicle_driver_ready",
+      "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE: input .*brake=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE: input .*right=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE: input .*handbrake=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "SMOKE.ACTION.INJECT: player=0 action=117 down=1",
+      "VEHICLE: dismounted",
+      "SMOKE.WAIT: satisfied condition=offline_gameplay_ready",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -47,6 +167,8 @@
       "SMOKE: result=timeout",
       "LOUDFAIL\\.LOAD: .*unrecoverable"
     ],
-    "required_counts": []
+    "required_counts": [
+      { "pattern": "VEHICLE: mounted", "min": 2, "max": 2 }
+    ]
   }
 }

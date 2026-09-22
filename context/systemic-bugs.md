@@ -1,5 +1,66 @@
 # Systemic Bug Patterns — Architectural Issue Catalog
 
+2026-09-08 23:06 batch22 connected texture/source pipeline ACCEPTED within scope (source35).
+Full2145 24440303AB0D8D1EB47802A8BA52AA3D71F7D10FCFB818CFDCDB1135EE097BD2;
+changed488 BAF7FC71; client6D4FE54E/tests233ECA5C unchanged through final audits.
+Client/tests build0, native26 PASS (unchanged helper inputs), affected source-contract1
+PASS, source guard0, warm installed24 PASS35/35 in39.1s using completed fresh
+extraction20260909T025106Z. Actual texLoad pixels, descriptor edit, stage modes,
+GBI tile fields, rejection/reset, sparse reverse index, custom menu texture and
+suppressed/enabled base-overlay image/material selection all pass. Audit PASS all
+3503 original texture material records,169 stage assignments,87 standalone+45 nested
+scenario graphs,132 unchanged nonmaterial graph comparisons and coherent hashes.
+All110 public command IDs/593 commands exact, no source/fixup failures.
+Additive atomic upgrades preserve edited descriptors/images/graph topology and
+versioned omissions; incomplete archive views reject rewrite. All12 occupied-count
+index-bound mistakes fixed or removed across8 extraction/loading paths. Suppressed
+base overlays now select public base sources through shared image/material policy.
+Earlier compile/link reds, initial legacy-DMA crash, safe rejections and120s extraction
+timeout remain in batch22 receipts; timeout allowance is now bounded240s. This is
+native/source acceptance, not rendered appearance, full graph gameplay or all-family
+parity. Full equipped model-generation ownership/graph publication, palette/mipmap
+parity, larger textures and requested pack remain open. No staging/commit/push.
+Evidence: .claude/asset0905-continuation/batch22-r9-{client-build,tests-build,
+affected1,native-guard,texture-pipeline-installed24}-exit.json; batch22-combined26
+JUnit/name audit; batch22-r9-{texture-material-audit,base-command-coverage,
+post-runtime-freeze}.json; results-20260909T030500Z.json. Root queues finished;
+source holds released. MP storage remains private/paused; menu native work idle.
+
+
+2026-09-08 22:57 batch22 r7 installed warm24 TERMINAL RED32/35: custom slot now safely rejected, not legacy DMA crash. Actual sparse catalog root cause:12 index loops used occupied count instead of pool high-water index; valid later rows skipped after removal. Corrected full class across8 sources (root additionally owns base_extended/langmanifest/romextract_pdmeta), each already checks occupied rows. Fixture enables its texture and next asserts actual reverse-index binding before texLoad. Native26 unchanged; source33 pending combined client/guard/installed24. Prior r3/r4/r5/r6/r7 reds preserved.
+
+
+
+## 2026-09-08 Preserve inert metadata state during rejected replacement
+
+A shared rollback helper normalized enabled REGISTERED rows to ENABLED even
+when no runtime payload had ever existed. Import admission can legitimately
+produce such rows, so this changed state despite restoring source paths and
+commands. Preserve exact REGISTERED/ENABLED state for snapshots with no payload,
+pointer or references; retain mandatory pointer/count clearing for loaded or
+active snapshots. Audit all RestoreRetiredSnapshot callers with
+`rg -n "catalogActivationLedgerRestoreRetiredSnapshot" port`; test both inert
+row equality and retired runtime ownership, then an actual late sibling failure.
+Batch16 native2 and installed folder/loose/typed late/cycle cases passed. Do not
+hide rollback failures by relaxing snapshot equality in an installed fixture.
+
+## Enabled-only lookup reused for mutation and rollback (2026-09-08, T-MENUS-006)
+
+The catalog has distinct identity and gameplay resolvers. The enabled-only
+resolver is appropriate for ordinary gameplay admission; it cannot locate a
+disabled entry for re-enable or restore its bit after a failed disable. Both
+sites existed inside assetCatalogSetEnabled. Mutation/rollback must use the
+existing including-disabled identity resolver under the lock, then validate
+type and expected prior state explicitly. Do not weaken ordinary read filtering.
+
+Audit: `rg -n 's_resolveLocked|s_resolveAnyLocked' port/src/assetcatalog.c`.
+Check mutators and rollback paths separately, including the state immediately
+after their own writes. Verify failed teardown restores the selected bit and
+reports failure; verify disable then re-enable succeeds through real catalog
+code. Current repair/tests are drafted in menu0908/modmgr-apply-review, UNRUN.
+At 16:30 the repair is applied: actual catalog10, affected lifecycle1 and native
+guard PASS on frozen2087E5AC. Matching client build and full runtime remain open.
+
 > Recurring bug classes rooted in architectural mismatches between N64 assumptions and the PC port. These aren't individual bugs — they're *categories* that produce bugs wherever the pattern exists. Use this as an audit checklist.
 >
 > For one-off bugs, see [bugs.md](bugs.md).
@@ -3026,3 +3087,7 @@ ownership proof.
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.
 - When fixing a one-off bug, check if it's an instance of a pattern here. If so, do a propagation check (§3.6) on all files listed under that pattern.
 - When discovering a new pattern class, add it here with severity, root cause, known sites, and search command.
+
+## Specialized source admission overwritten by a later generic scan
+
+Found under T-ASSETS-048 on2026-09-08: a valid public descriptor can feed the specialized registrar and pass focused tests, yet a later metadata pass replaces its provider/path from stale private metadata. Audit the entire boot sequence, not just each registrar independently. Compare specialized loaderWalkerScan calls with s_MetaFamilies; verify each public source has one registration owner. Required runtime proof runs the later scan and then loads selected geometry, with divergent private echoes and metadata-free public files. Body/head duplicate registration is removed; Arena remains a recorded separate source-authority gap. Search: rg -n 'loaderWalkerScan|s_MetaFamilies|catalogSetPrimary' port/src/loader_walker*.c (use rg -g 'loader_walker*.c' port/src on PowerShell).

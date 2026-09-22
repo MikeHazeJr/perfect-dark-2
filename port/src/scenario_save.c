@@ -1,690 +1,1005 @@
 /**
- * scenario_save.c -- Combat Simulator scenario save/load system.
+ * scenario_save.c -- Transactional public-source Combat Simulator scenarios.
  *
- * Saves and loads complete Combat Simulator match configurations (arena,
- * scenario, limits, options, weapon set, bot roster) as JSON files in
- * the user's save directory ($S/scenarios/).
- *
- * File format (version 1):
- *   {
- *     "version": 1,
- *     "name": "My Setup",
- *     "arena": 31,
- *     "scenario": 0,
- *     "timelimit": 60,
- *     "scorelimit": 9,
- *     "teamscorelimit": 400,
- *     "options": 0,
- *     "weaponset": 0,
- *     "bots": [
- *       {"name": "NormalSim", "difficulty": 2, "body": 0, "head": 0},
- *       ...
- *     ]
- *   }
- *
- * Dynamic player count on load:
- *   Human players always fill slots first (slot 0 = local player from
- *   matchConfigInit).  Bots from the file fill remaining slots in order,
- *   up to (MATCH_MAX_SLOTS - humanCount).  Excess bots are silently dropped.
- *
- * Auto-discovered by CMake GLOB_RECURSE for port/*.c.
+ * A saved match JSON file is parsed into an isolated document, resolved into a
+ * complete match candidate, and only then published. No parser, migration, or
+ * catalog-resolution failure is allowed to mutate live match state.
  */
 
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <dirent.h>
 #include <sys/stat.h>
 #include <PR/ultratypes.h>
 
-/* Game engine headers — must come before scenario_save.h so that
- * MATCH_MAX_SLOTS is already defined as PARTICIPANT_DEFAULT_CAPACITY
- * before the #ifndef guard in scenario_save.h fires. */
-#include "game/mplayer/participant.h"   /* PARTICIPANT_DEFAULT_CAPACITY */
-
-#include "scenario_save.h"
-#include "assetcatalog.h"
-#include "options_forced.h" /* INV-4: matchOptionsUserView for save-clean serialization */
-#include "fs.h"
-#include "save_atomic.h"
-#include "system.h"
-
-/* g_MatchConfig is defined in matchsetup.c (the match configuration module).
- * scenario_save.c uses it via the extern in scenario_save.h. */
-
-/* mpSetWeaponSet/mpGetWeaponSlot/mpSetWeaponSlot: weapon set management. */
+#include "game/mplayer/participant.h"
 #include "game/mplayer/mplayer.h"
 
-/* catalogGetNumHeads/catalogGetNumBodies: bounds-check for reverse index lookup. */
-#include "modelcatalog.h"
+#include "scenario_save.h"
+#include "scenario_codec.h"
+#include "asset_runtime.h"
+#include "assetcatalog.h"
+#include "assetcatalog_load.h"
+#include "catalog_activation_ledger.h"
+#include "catalog_stage_ownership.h"
+#include "constants.h"
+#include "fs.h"
+#include "options_forced.h"
+#include "player_identity.h"
+#include "save_atomic.h"
+#include "scenario_source_runtime.h"
+#include "system.h"
 
-/* ========================================================================
- * Internal helpers
- * ======================================================================== */
+#define SCENARIO_SAVE_VERSION 3
+#define SCENARIO_FILE_EXTENSION ".json"
 
-/**
- * getSaveDir -- expand $S into the caller's buffer.
- */
+typedef struct scenario_source_ownership_snapshot_t {
+	/* Source-derived resident products are rebuildable cache. This snapshot
+	 * covers the mutable ownership truth that a candidate must restore. */
+	char id[CATALOG_ID_LEN];
+	s32 valid;
+	s32 stage_owned;
+	s32 entry_ref_count;
+	s32 ledger_present;
+	asset_type_e ledger_type;
+	s32 ledger_references;
+	s32 ledger_stage_owned;
+	s32 ledger_bundled;
+} scenario_source_ownership_snapshot_t;
+
+typedef struct scenario_load_plan_t {
+	struct matchconfig config;
+	scenario_source_ownership_snapshot_t source_ownership;
+	s32 source_stage_ref_acquired;
+	s32 source_version;
+	s32 migrated;
+	s32 legacy_v3_hybrid;
+	s32 bot_count;
+	s32 resolved_weapon_set;
+} scenario_load_plan_t;
+
+static void scenarioCopyId(char out[CATALOG_ID_LEN], const char *id)
+{
+	strncpy(out, id, CATALOG_ID_LEN - 1);
+	out[CATALOG_ID_LEN - 1] = '\0';
+}
+
+static s32 scenarioSetDetail(char *detail, size_t detail_size,
+		const char *message, const char *value)
+{
+	if (detail && detail_size > 0) {
+		snprintf(detail, detail_size, "%s%s%s", message,
+			value && value[0] ? ": " : "", value && value[0] ? value : "");
+		detail[detail_size - 1] = '\0';
+	}
+	return 0;
+}
+
 static void getSaveDir(char *out, s32 size)
 {
-    fsFullPath("$S", out, (size_t)size);
+	fsFullPath("$S", out, (size_t)size);
 }
 
-/**
- * getScenarioDir -- build the scenarios subdirectory path.
- */
 static void getScenarioDir(char *out, s32 size)
 {
-    char savedir[SCENARIO_PATH_MAX];
-    getSaveDir(savedir, sizeof(savedir));
-    snprintf(out, (size_t)size, "%s/scenarios", savedir);
+	char savedir[SCENARIO_PATH_MAX];
+	getSaveDir(savedir, sizeof(savedir));
+	snprintf(out, (size_t)size, "%s/scenarios", savedir);
 }
 
-/**
- * sanitizeName -- produce a safe filename component from user input.
- *
- * Allows: alphanumerics, spaces, hyphens, underscores, periods.
- * Everything else becomes '_'.  Leading/trailing spaces are stripped.
- * Empty result falls back to "scenario".
- */
 static void sanitizeName(const char *in, char *out, s32 maxlen)
 {
-    s32 j = 0;
-    for (s32 i = 0; in[i] && j < maxlen - 1; i++) {
-        unsigned char c = (unsigned char)in[i];
-        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-            (c >= '0' && c <= '9') ||
-            c == ' ' || c == '-' || c == '_' || c == '.') {
-            out[j++] = (char)c;
-        } else {
-            out[j++] = '_';
-        }
-    }
-    out[j] = '\0';
+	s32 i;
+	s32 j = 0;
+	s32 start;
+	s32 len;
 
-    /* Strip leading spaces */
-    s32 start = 0;
-    while (out[start] == ' ') start++;
-    if (start > 0) memmove(out, out + start, (size_t)(j - start + 1));
-
-    /* Strip trailing spaces */
-    s32 len = (s32)strlen(out);
-    while (len > 0 && out[len - 1] == ' ') out[--len] = '\0';
-
-    if (out[0] == '\0') {
-        strncpy(out, "scenario", (size_t)(maxlen - 1));
-        out[maxlen - 1] = '\0';
-    }
+	for (i = 0; in[i] && j < maxlen - 1; i++) {
+		unsigned char c = (unsigned char)in[i];
+		if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+				|| (c >= '0' && c <= '9') || c == ' ' || c == '-'
+				|| c == '_' || c == '.') {
+			out[j++] = (char)c;
+		} else {
+			out[j++] = '_';
+		}
+	}
+	out[j] = '\0';
+	start = 0;
+	while (out[start] == ' ') start++;
+	if (start > 0) memmove(out, out + start, (size_t)(j - start + 1));
+	len = (s32)strlen(out);
+	while (len > 0 && out[len - 1] == ' ') out[--len] = '\0';
+	if (!out[0]) {
+		strncpy(out, "scenario", (size_t)maxlen - 1);
+		out[maxlen - 1] = '\0';
+	}
 }
 
-/**
- * jsonEscapeStr -- write a JSON-escaped string (without surrounding quotes)
- * to fp.  Escapes " and \ only; we do not expect control characters in names.
- */
-static void jsonEscapeStr(FILE *fp, const char *s)
+static void scenarioJsonWriteEscaped(FILE *fp, const char *text)
 {
-    for (; *s; s++) {
-        if (*s == '"')       fputs("\\\"", fp);
-        else if (*s == '\\') fputs("\\\\", fp);
-        else                 fputc(*s, fp);
-    }
+	const unsigned char *p = (const unsigned char *)text;
+	for (; *p; p++) {
+		switch (*p) {
+		case '"': fputs("\\\"", fp); break;
+		case '\\': fputs("\\\\", fp); break;
+		case '\b': fputs("\\b", fp); break;
+		case '\f': fputs("\\f", fp); break;
+		case '\n': fputs("\\n", fp); break;
+		case '\r': fputs("\\r", fp); break;
+		case '\t': fputs("\\t", fp); break;
+		default:
+			if (*p >= 0x20) fputc((int)*p, fp);
+			break;
+		}
+	}
 }
 
-/* ========================================================================
- * Minimal JSON parser (read-only, for scenario files)
- *
- * The parser only handles the simple flat format we write ourselves.
- * It is NOT a general-purpose JSON parser.
- * ======================================================================== */
-
-/**
- * jsonFindString -- find "key": "value" in json, copy value into out[maxlen].
- * Returns 1 on success, 0 if key not found or value is not a string.
- */
-static s32 jsonFindString(const char *json, const char *key,
-                           char *out, s32 maxlen)
+static s32 scenarioTextSerializable(const char *text)
 {
-    char search[128];
-    snprintf(search, sizeof(search), "\"%s\":", key);
-
-    const char *p = strstr(json, search);
-    if (!p) return 0;
-    p += strlen(search);
-
-    /* Skip optional whitespace */
-    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-
-    if (*p != '"') return 0;
-    p++;  /* skip opening quote */
-
-    s32 i = 0;
-    while (*p && *p != '"' && i < maxlen - 1) {
-        if (*p == '\\' && *(p + 1)) {
-            p++;  /* skip backslash */
-            switch (*p) {
-                case '"':  out[i++] = '"';  break;
-                case '\\': out[i++] = '\\'; break;
-                case '/':  out[i++] = '/';  break;
-                case 'n':  out[i++] = '\n'; break;
-                case 'r':  out[i++] = '\r'; break;
-                case 't':  out[i++] = '\t'; break;
-                default:   out[i++] = *p;   break;
-            }
-            p++;
-        } else {
-            out[i++] = *p++;
-        }
-    }
-    out[i] = '\0';
-    return 1;
+	const unsigned char *p = (const unsigned char *)text;
+	for (; *p; p++) {
+		if (*p < 0x20 && *p != '\b' && *p != '\f' && *p != '\n'
+				&& *p != '\r' && *p != '\t') return 0;
+	}
+	return 1;
 }
 
-/**
- * jsonFindInt -- find "key": <integer> in json, store in *out.
- * Returns 1 on success, 0 if not found.
- */
-static s32 jsonFindInt(const char *json, const char *key, s32 *out)
+static s32 scenarioEntryUsable(const asset_entry_t *entry, asset_type_e type)
 {
-    char search[128];
-    snprintf(search, sizeof(search), "\"%s\":", key);
-
-    const char *p = strstr(json, search);
-    if (!p) return 0;
-    p += strlen(search);
-
-    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-
-    /* Accept optional negative sign */
-    if (*p == '-' || (*p >= '0' && *p <= '9')) {
-        *out = (s32)strtol(p, NULL, 10);
-        return 1;
-    }
-    return 0;
+	return entry && entry->occupied && entry->enabled && entry->type == type;
 }
 
-/**
- * jsonFindUInt -- find "key": <unsigned integer> in json, store in *out.
- * Returns 1 on success, 0 if not found.
- */
-static s32 jsonFindUInt(const char *json, const char *key, u32 *out)
+static const catalog_activation_root_t *scenarioFindActivationRoot(
+		const char *id)
 {
-    char search[128];
-    snprintf(search, sizeof(search), "\"%s\":", key);
+	const catalog_activation_root_t *match = NULL;
+	size_t i;
 
-    const char *p = strstr(json, search);
-    if (!p) return 0;
-    p += strlen(search);
-
-    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') p++;
-
-    if (*p >= '0' && *p <= '9') {
-        *out = (u32)strtoul(p, NULL, 10);
-        return 1;
-    }
-    return 0;
+	for (i = 0; i < catalogActivationLedgerActiveCount(); i++) {
+		const catalog_activation_root_t *root =
+			catalogActivationLedgerActiveAt(i);
+		if (!root || strcmp(root->id, id) != 0) continue;
+		if (match) return NULL;
+		match = root;
+	}
+	return match;
 }
 
-/* ========================================================================
- * Public API
- * ======================================================================== */
+static s32 scenarioCaptureSourceOwnership(const asset_entry_t *entry,
+		scenario_source_ownership_snapshot_t *snapshot, char *detail,
+		size_t detail_size)
+{
+	const catalog_activation_root_t *root;
+	s32 stage_owned;
+
+	if (!scenarioEntryUsable(entry, ASSET_SCENARIO) || !snapshot) {
+		return scenarioSetDetail(detail, detail_size,
+			"invalid public ASSET_SCENARIO ownership candidate", NULL);
+	}
+	memset(snapshot, 0, sizeof(*snapshot));
+	root = scenarioFindActivationRoot(entry->id);
+	stage_owned = catalogStageOwnershipHasRef(entry);
+	if (entry->stage_ref_count < 0 || entry->stage_ref_count > 1
+			|| (root && (root->type != ASSET_SCENARIO
+				|| root->references < 1
+				|| root->bundled != (entry->bundled ? 1 : 0)))
+			|| stage_owned != (root && root->stage_owned ? 1 : 0)) {
+		return scenarioSetDetail(detail, detail_size,
+			"public ASSET_SCENARIO ownership ledger is inconsistent", entry->id);
+	}
+	scenarioCopyId(snapshot->id, entry->id);
+	snapshot->valid = 1;
+	snapshot->stage_owned = stage_owned;
+	snapshot->entry_ref_count = entry->ref_count;
+	snapshot->ledger_present = root != NULL;
+	if (root) {
+		snapshot->ledger_type = root->type;
+		snapshot->ledger_references = root->references;
+		snapshot->ledger_stage_owned = root->stage_owned;
+		snapshot->ledger_bundled = root->bundled;
+	}
+	return 1;
+}
+
+static s32 scenarioSourceOwnershipMatches(
+		const scenario_source_ownership_snapshot_t *snapshot)
+{
+	const asset_entry_t *entry;
+	const catalog_activation_root_t *root;
+
+	if (!snapshot || !snapshot->valid) return 1;
+	entry = assetCatalogResolve(snapshot->id);
+	if (!scenarioEntryUsable(entry, ASSET_SCENARIO)
+			|| catalogStageOwnershipHasRef(entry) != snapshot->stage_owned
+			|| entry->ref_count != snapshot->entry_ref_count) return 0;
+	root = scenarioFindActivationRoot(snapshot->id);
+	if ((root != NULL) != snapshot->ledger_present) return 0;
+	return !root || (root->type == snapshot->ledger_type
+		&& root->references == snapshot->ledger_references
+		&& root->stage_owned == snapshot->ledger_stage_owned
+		&& root->bundled == snapshot->ledger_bundled);
+}
+
+static s32 scenarioReleasePlanSource(scenario_load_plan_t *plan,
+		char *detail, size_t detail_size)
+{
+	const asset_entry_t *entry;
+
+	if (!plan->source_ownership.valid) return 1;
+	entry = assetCatalogResolve(plan->source_ownership.id);
+	if (plan->source_stage_ref_acquired) {
+		if (!scenarioEntryUsable(entry, ASSET_SCENARIO)
+				|| !catalogStageOwnershipHasRef(entry)) {
+			return scenarioSetDetail(detail, detail_size,
+				"temporary ASSET_SCENARIO stage ownership was lost",
+				plan->source_ownership.id);
+		}
+		catalogReleaseStageAsset(ASSET_SCENARIO,
+			plan->source_ownership.id);
+		plan->source_stage_ref_acquired = 0;
+	}
+	if (!scenarioSourceOwnershipMatches(&plan->source_ownership)) {
+		return scenarioSetDetail(detail, detail_size,
+			"temporary ASSET_SCENARIO ownership did not restore exactly",
+			plan->source_ownership.id);
+	}
+	plan->source_ownership.valid = 0;
+	return 1;
+}
+
+static const asset_entry_t *scenarioFindLegacyUnique(asset_type_e type,
+		s32 legacy_value)
+{
+	const asset_entry_t *match = NULL;
+	s32 i;
+
+	for (i = 0; i < assetCatalogGetPoolSize(); i++) {
+		const asset_entry_t *entry = assetCatalogGetByIndex(i);
+		s32 value;
+		if (!scenarioEntryUsable(entry, type)) continue;
+		switch (type) {
+		case ASSET_ARENA: value = entry->ext.arena.stagenum; break;
+		case ASSET_GAMEMODE: value = entry->ext.gamemode.mode_id; break;
+		case ASSET_WEAPON:
+		case ASSET_BODY:
+		case ASSET_HEAD: value = entry->mp_index; break;
+		default: return NULL;
+		}
+		if (value != legacy_value) continue;
+		if (match) return NULL;
+		match = entry;
+	}
+	return match;
+}
+
+static s32 scenarioResolveArena(const scenario_document_t *document,
+		scenario_load_plan_t *plan, char out_id[CATALOG_ID_LEN],
+		u8 *out_stagenum, char *detail, size_t detail_size)
+{
+	const asset_entry_t *entry;
+	const asset_entry_t *scenario;
+	const asset_runtime_binding_t *runtime;
+	catalog_stage_result_t stage = {0};
+
+	if ((document->present & SCENARIO_DOC_ARENA_ID) != 0) {
+		if (!document->arena_id[0]
+				|| !catalogResolveStageForType(document->arena_id,
+					ASSET_ARENA, &stage)
+				|| !scenarioEntryUsable(stage.entry, ASSET_ARENA)
+				|| stage.stagenum < 0 || stage.stagenum > 255) {
+			return scenarioSetDetail(detail, detail_size,
+				"invalid ASSET_ARENA catalog ID", document->arena_id);
+		}
+		entry = stage.entry;
+	} else {
+		entry = scenarioFindLegacyUnique(ASSET_ARENA,
+			document->legacy_arena);
+		if (!entry
+				|| !catalogResolveStageForType(entry->id, ASSET_ARENA, &stage)
+				|| !scenarioEntryUsable(stage.entry, ASSET_ARENA)
+				|| stage.entry != entry
+				|| stage.stagenum != document->legacy_arena
+				|| stage.stagenum != entry->ext.arena.stagenum
+				|| stage.net_hash != entry->net_hash
+				|| stage.stagenum < 0 || stage.stagenum > 255) {
+			return scenarioSetDetail(detail, detail_size,
+				"legacy arena cannot produce a complete canonical stage result",
+				NULL);
+		}
+	}
+	/* A saved arena is publishable only when its MP stage resolves to the
+	 * public .pdscenario source that stage activation will consume. The
+	 * runtime binding is parsed/cache metadata; it cannot replace or fall
+	 * back from the accessible public source member. */
+	scenario = scenarioSourceFindEntryForStage(&stage, 1);
+	if (!scenarioEntryUsable(scenario, ASSET_SCENARIO)
+			|| scenario->ext.scenario.stagenum != stage.stagenum) {
+		return scenarioSetDetail(detail, detail_size,
+			"public ASSET_SCENARIO source does not match arena", entry->id);
+	}
+	if (!scenarioCaptureSourceOwnership(scenario, &plan->source_ownership,
+			detail, detail_size)) return 0;
+	if (!plan->source_ownership.stage_owned
+			&& !catalogCanDeactivateTypedAsset(ASSET_SCENARIO, scenario->id)) {
+		return scenarioSetDetail(detail, detail_size,
+			"public ASSET_SCENARIO source cannot balance stage activation",
+			scenario->id);
+	}
+	{
+		s32 activated = catalogLoadStageAsset(ASSET_SCENARIO, scenario->id);
+		if (!plan->source_ownership.stage_owned
+				&& catalogStageOwnershipHasRef(scenario)) {
+			plan->source_stage_ref_acquired = 1;
+		}
+		if (!activated || !catalogStageOwnershipHasRef(scenario)) {
+			return scenarioSetDetail(detail, detail_size,
+				"public ASSET_SCENARIO source activation failed", scenario->id);
+		}
+	}
+	runtime = assetRuntimeFindByTypeAndId(ASSET_SCENARIO, scenario->id);
+	if (!runtime || !runtime->active || runtime->type != ASSET_SCENARIO
+			|| strcmp(runtime->id, scenario->id) != 0
+			|| runtime->runtime_id != stage.stagenum
+			|| !assetRuntimePrimaryFileAccessible(runtime)) {
+		return scenarioSetDetail(detail, detail_size,
+			"activated public ASSET_SCENARIO source is not runtime-ready",
+			scenario->id);
+	}
+	scenarioCopyId(out_id, entry->id);
+	*out_stagenum = (u8)stage.stagenum;
+	return 1;
+}
+
+static s32 scenarioResolveGameMode(const scenario_document_t *document,
+		char out_id[CATALOG_ID_LEN], u8 *out_mode, char *detail,
+		size_t detail_size)
+{
+	const asset_entry_t *entry;
+	const asset_runtime_binding_t *runtime;
+
+	if ((document->present & SCENARIO_DOC_SCENARIO_ID) != 0) {
+		entry = assetCatalogResolve(document->scenario_id);
+		if (!document->scenario_id[0]
+				|| !scenarioEntryUsable(entry, ASSET_GAMEMODE)) {
+			return scenarioSetDetail(detail, detail_size,
+				"invalid ASSET_GAMEMODE catalog ID", document->scenario_id);
+		}
+	} else {
+		entry = scenarioFindLegacyUnique(ASSET_GAMEMODE,
+			document->legacy_scenario);
+		if (!entry) {
+			return scenarioSetDetail(detail, detail_size,
+				"legacy game-mode index is absent or ambiguous", NULL);
+		}
+	}
+	if (entry->ext.gamemode.mode_id < 0 || entry->ext.gamemode.mode_id > 255) {
+		return scenarioSetDetail(detail, detail_size,
+			"game-mode index is outside the runtime domain", entry->id);
+	}
+	/* The public typed gamemode source is game-facing authority. Its hydrated
+	 * runtime binding may cache parsed fields, but a catalog-only or missing
+	 * source entry is not a loadable match mode. */
+	runtime = assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, entry->id);
+	if (!runtime || !runtime->active || !runtime->source_hydrated
+			|| runtime->type != ASSET_GAMEMODE
+			|| strcmp(runtime->id, entry->id) != 0
+			|| runtime->runtime_id != entry->ext.gamemode.mode_id
+			|| !assetRuntimePrimaryFileAccessible(runtime)) {
+		return scenarioSetDetail(detail, detail_size,
+			"ASSET_GAMEMODE public source is not runtime-ready", entry->id);
+	}
+	scenarioCopyId(out_id, entry->id);
+	*out_mode = (u8)entry->ext.gamemode.mode_id;
+	return 1;
+}
+
+static s32 scenarioResolveWeaponId(const char *id,
+		char out_id[CATALOG_ID_LEN], u8 *out_mp_weapon, char *detail,
+		size_t detail_size)
+{
+	const asset_entry_t *entry;
+
+	if (!id[0]) {
+		out_id[0] = '\0';
+		*out_mp_weapon = MPWEAPON_NONE;
+		return 1;
+	}
+	entry = assetCatalogResolve(id);
+	if (!scenarioEntryUsable(entry, ASSET_WEAPON)
+			|| entry->mp_index <= MPWEAPON_NONE || entry->mp_index > 255
+			|| entry->runtime_index <= 0
+			|| catalogGetMpWeaponNum(entry->mp_index) != entry->runtime_index) {
+		return scenarioSetDetail(detail, detail_size,
+			"invalid ASSET_WEAPON catalog ID", id);
+	}
+	scenarioCopyId(out_id, entry->id);
+	*out_mp_weapon = (u8)entry->mp_index;
+	return 1;
+}
+
+static s32 scenarioResolveLegacyWeapon(s32 legacy_value,
+		char out_id[CATALOG_ID_LEN], u8 *out_mp_weapon, char *detail,
+		size_t detail_size)
+{
+	const asset_entry_t *entry;
+	if (legacy_value == MPWEAPON_NONE) {
+		out_id[0] = '\0';
+		*out_mp_weapon = MPWEAPON_NONE;
+		return 1;
+	}
+	entry = scenarioFindLegacyUnique(ASSET_WEAPON, legacy_value);
+	if (!scenarioEntryUsable(entry, ASSET_WEAPON)
+			|| entry->mp_index <= MPWEAPON_NONE || entry->mp_index > 255
+			|| entry->runtime_index <= 0
+			|| catalogGetMpWeaponNum(entry->mp_index) != entry->runtime_index) {
+		return scenarioSetDetail(detail, detail_size,
+			"legacy weapon index is absent or ambiguous", NULL);
+	}
+	scenarioCopyId(out_id, entry->id);
+	*out_mp_weapon = (u8)entry->mp_index;
+	return 1;
+}
+
+static s32 scenarioResolveIdentity(const char *typed_id, s32 typed_present,
+		s32 legacy_value, asset_type_e type, char out_id[CATALOG_ID_LEN],
+		char *detail, size_t detail_size)
+{
+	const asset_entry_t *entry;
+
+	if (typed_present) {
+		entry = assetCatalogResolve(typed_id);
+		if (!typed_id[0] || !scenarioEntryUsable(entry, type)) {
+			return scenarioSetDetail(detail, detail_size,
+				type == ASSET_BODY ? "invalid ASSET_BODY catalog ID"
+					: "invalid ASSET_HEAD catalog ID", typed_id);
+		}
+	} else {
+		entry = scenarioFindLegacyUnique(type, legacy_value);
+		if (!entry) {
+			return scenarioSetDetail(detail, detail_size,
+				type == ASSET_BODY
+					? "legacy body index is absent or ambiguous"
+					: "legacy head index is absent or ambiguous", NULL);
+		}
+	}
+	scenarioCopyId(out_id, entry->id);
+	return 1;
+}
+
+static const asset_runtime_binding_t *scenarioResolveBotProfile(
+		const char *profile_id)
+{
+	const asset_entry_t *entry = assetCatalogResolve(profile_id);
+	const asset_runtime_binding_t *profile =
+		assetRuntimeFindByTypeAndId(ASSET_BOT_PROFILE, profile_id);
+
+	if (!scenarioEntryUsable(entry, ASSET_BOT_PROFILE)
+			|| !profile || !profile->active || !profile->source_hydrated
+			|| profile->type != ASSET_BOT_PROFILE
+			|| strcmp(profile->id, profile_id) != 0
+			|| !assetRuntimePrimaryFileAccessible(profile)
+			|| profile->bot_profile_type < 0
+			|| profile->bot_profile_type > 255
+			|| profile->bot_profile_difficulty < 0
+			|| profile->bot_profile_difficulty > 255) {
+		return NULL;
+	}
+	return profile;
+}
+
+static u8 scenarioChooseBotTeam(const struct matchconfig *candidate)
+{
+	s32 count[2] = { 0, 0 };
+	s32 i;
+	for (i = 0; i < candidate->numSlots; i++) {
+		const struct matchslot *slot = &candidate->slots[i];
+		if (slot->type != SLOT_EMPTY && slot->team < 2) count[slot->team]++;
+	}
+	return count[1] < count[0] ? 1 : 0;
+}
+
+static s32 scenarioPrepareWeapons(const scenario_document_t *document,
+		scenario_load_plan_t *plan, char *detail, size_t detail_size)
+{
+	s32 typed_count = 0;
+	s32 legacy_count = 0;
+	s32 i;
+
+	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+		typed_count += document->weapon_id_present[i] ? 1 : 0;
+		legacy_count += document->legacy_weapon_present[i] ? 1 : 0;
+	}
+	if (typed_count != 0 && typed_count != NUM_MPWEAPONSLOTS) {
+		return scenarioSetDetail(detail, detail_size,
+			"typed weapon authority is incomplete", NULL);
+	}
+	if (typed_count == NUM_MPWEAPONSLOTS) {
+		for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+			if (!scenarioResolveWeaponId(document->weapon_ids[i],
+					plan->config.weapon_ids[i], &plan->config.weapons[i],
+					detail, detail_size)) return 0;
+		}
+	} else if (legacy_count != 0) {
+		if (legacy_count != NUM_MPWEAPONSLOTS) {
+			return scenarioSetDetail(detail, detail_size,
+				"legacy weapon migration input is incomplete", NULL);
+		}
+		for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+			if (!scenarioResolveLegacyWeapon(document->legacy_weapons[i],
+					plan->config.weapon_ids[i], &plan->config.weapons[i],
+					detail, detail_size)) return 0;
+		}
+	} else {
+		u8 prepared[NUM_MPWEAPONSLOTS];
+		s32 resolved = func0f188f9c(document->weaponset);
+		if (resolved == WEAPONSET_RANDOM || resolved == WEAPONSET_RANDOMFIVE
+				|| resolved == WEAPONSET_CUSTOM
+				|| mpPrepareWeaponSet(document->weaponset, NULL,
+					prepared, &resolved) != 0) {
+			return scenarioSetDetail(detail, detail_size,
+				"v1 weapon set cannot be migrated unambiguously", NULL);
+		}
+		for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+			if (!scenarioResolveLegacyWeapon(prepared[i],
+					plan->config.weapon_ids[i], &plan->config.weapons[i],
+					detail, detail_size)) return 0;
+		}
+	}
+	plan->resolved_weapon_set = WEAPONSET_CUSTOM;
+	plan->config.weaponSetIndex = (s8)document->weaponset;
+	return 1;
+}
+
+static s32 scenarioHasV3HybridCompanions(
+		const scenario_document_t *document)
+{
+	return document->version == 3
+		&& (document->present & SCENARIO_DOC_LEGACY_ARENA) != 0;
+}
+
+static s32 scenarioValidateTypedCompanions(
+		const scenario_document_t *document,
+		const scenario_load_plan_t *plan, char *detail, size_t detail_size)
+{
+	s32 i;
+	if ((document->present & SCENARIO_DOC_ARENA_ID) != 0
+			&& (document->present & SCENARIO_DOC_LEGACY_ARENA) != 0
+			&& document->legacy_arena != (s32)plan->config.stagenum) {
+		return scenarioSetDetail(detail, detail_size,
+			"numeric arena companion contradicts typed ASSET_ARENA", NULL);
+	}
+	if ((document->present & SCENARIO_DOC_SCENARIO_ID) != 0
+			&& (document->present & SCENARIO_DOC_LEGACY_SCENARIO) != 0
+			&& document->legacy_scenario != (s32)plan->config.scenario) {
+		return scenarioSetDetail(detail, detail_size,
+			"numeric scenario companion contradicts typed ASSET_GAMEMODE", NULL);
+	}
+	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+		if (document->weapon_id_present[i]
+				&& document->legacy_weapon_present[i]
+				&& document->legacy_weapons[i]
+					!= (s32)plan->config.weapons[i]) {
+			return scenarioSetDetail(detail, detail_size,
+				"numeric weapon companion contradicts typed ASSET_WEAPON", NULL);
+		}
+	}
+	return 1;
+}
+
+static s32 scenarioBuildPlanCandidate(const scenario_document_t *document,
+		s32 human_count, scenario_load_plan_t *plan, char *detail,
+		size_t detail_size)
+{
+	/* The legacy mutating matchConfigAddBotWithProfile( path is intentionally
+	 * excluded: saved "profileId" authority is resolved into plan->config and
+	 * every bot slot is published with the rest of the match exactly once. */
+	s32 actual_humans = 0;
+	s32 max_bots;
+	s32 i;
+
+	memset(plan, 0, sizeof(*plan));
+	if (human_count < 1 || human_count > MATCH_PARTICIPANT_CAP) {
+		return scenarioSetDetail(detail, detail_size,
+			"human count is outside the participant domain", NULL);
+	}
+	for (i = 0; i < g_MatchConfig.numSlots && i < MATCH_MAX_SLOTS; i++) {
+		if (g_MatchConfig.slots[i].type == SLOT_PLAYER) {
+			if (actual_humans >= human_count
+					|| actual_humans >= MATCH_PARTICIPANT_CAP) {
+				return scenarioSetDetail(detail, detail_size,
+					"live human slots exceed declared human count", NULL);
+			}
+			plan->config.slots[actual_humans++] = g_MatchConfig.slots[i];
+		}
+	}
+	if (actual_humans < 1) {
+		return scenarioSetDetail(detail, detail_size,
+			"live match has no human slot to preserve", NULL);
+	}
+	if (actual_humans != human_count) {
+		return scenarioSetDetail(detail, detail_size,
+			"live human slots do not match declared human count", NULL);
+	}
+	plan->config.numSlots = (u8)actual_humans;
+	if (!scenarioResolveArena(document, plan, plan->config.stage_id,
+			&plan->config.stagenum, detail, detail_size)
+			|| !scenarioResolveGameMode(document, plan->config.scenario_id,
+				&plan->config.scenario, detail, detail_size)) return 0;
+	plan->config.timelimit = (u8)document->timelimit;
+	plan->config.scorelimit = (u8)document->scorelimit;
+	plan->config.teamscorelimit = (u16)document->teamscorelimit;
+	plan->config.options = document->options;
+	plan->config.options_engine_forced = 0;
+	if (!scenarioPrepareWeapons(document, plan, detail, detail_size)
+			|| !scenarioValidateTypedCompanions(document, plan, detail,
+				detail_size)) return 0;
+
+	plan->config.spawnWeaponMode = (u8)(((document->present
+		& SCENARIO_DOC_SPAWN_WEAPON_MODE) != 0)
+		? document->spawn_weapon_mode
+		: (((document->present & SCENARIO_DOC_SPAWN_WEAPON_ID) != 0)
+			&& document->spawn_weapon_id[0]
+				? SPAWNWEAPON_MODE_SPECIFIC : SPAWNWEAPON_MODE_RANDOM));
+	if (plan->config.spawnWeaponMode == SPAWNWEAPON_MODE_SPECIFIC) {
+		u8 ignored;
+		if ((document->present & SCENARIO_DOC_SPAWN_WEAPON_ID) == 0
+				|| !document->spawn_weapon_id[0]
+				|| !scenarioResolveWeaponId(document->spawn_weapon_id,
+					plan->config.spawn_weapon_id, &ignored, detail,
+					detail_size)) return 0;
+	} else if (plan->config.spawnWeaponMode == SPAWNWEAPON_MODE_RANDOM
+			|| plan->config.spawnWeaponMode == SPAWNWEAPON_MODE_FIESTA) {
+		if ((document->present & SCENARIO_DOC_SPAWN_WEAPON_ID) != 0
+				&& document->spawn_weapon_id[0]) {
+			return scenarioSetDetail(detail, detail_size,
+				"random/fiesta spawn mode must not carry a weapon ID", NULL);
+		}
+		plan->config.spawn_weapon_id[0] = '\0';
+	} else {
+		return scenarioSetDetail(detail, detail_size,
+			"spawn mode is outside its enum domain", NULL);
+	}
+	plan->config.spawnWeaponNum = 0;
+
+	max_bots = matchConfigMaxBotsForHumans(human_count);
+	if (document->bot_count > max_bots
+			|| actual_humans + document->bot_count > MATCH_PARTICIPANT_CAP) {
+		return scenarioSetDetail(detail, detail_size,
+			"saved bot roster exceeds live participant capacity", NULL);
+	}
+	for (i = 0; i < document->bot_count; i++) {
+		const scenario_document_bot_t *source = &document->bots[i];
+		struct matchslot *slot = &plan->config.slots[plan->config.numSlots];
+		const asset_runtime_binding_t *profile;
+		const char *profile_id;
+		char body_id[CATALOG_ID_LEN];
+		char head_id[CATALOG_ID_LEN];
+		player_identity_plan_t identity;
+		player_identity_status_e identity_status;
+
+		if ((source->present & SCENARIO_BOT_PROFILE_ID) != 0) {
+			if (!source->profile_id[0]) {
+				return scenarioSetDetail(detail, detail_size,
+					"typed bot profile ID is empty", NULL);
+			}
+			profile_id = source->profile_id;
+		} else {
+			if (source->difficulty < 0 || source->difficulty > 5) {
+				return scenarioSetDetail(detail, detail_size,
+					"legacy bot difficulty cannot be migrated", NULL);
+			}
+			profile_id = mpBotProfileIdForTraits(0, source->difficulty);
+		}
+		profile = profile_id ? scenarioResolveBotProfile(profile_id) : NULL;
+		if (!profile || profile->bot_profile_difficulty != source->difficulty) {
+			return scenarioSetDetail(detail, detail_size,
+				"invalid or mismatched ASSET_BOT_PROFILE", profile_id);
+		}
+		if (!scenarioResolveIdentity(source->body_id,
+				(source->present & SCENARIO_BOT_BODY_ID) != 0,
+				source->legacy_body, ASSET_BODY, body_id, detail, detail_size)
+				|| !scenarioResolveIdentity(source->head_id,
+					(source->present & SCENARIO_BOT_HEAD_ID) != 0,
+					source->legacy_head, ASSET_HEAD, head_id, detail,
+					detail_size)) return 0;
+		identity_status = playerIdentityPrepare(body_id, head_id, &identity);
+		if (identity_status != PLAYER_IDENTITY_OK) {
+			return scenarioSetDetail(detail, detail_size,
+				"bot identity preflight rejected",
+				playerIdentityStatusString(identity_status));
+		}
+		if ((source->present & SCENARIO_BOT_BODY_ID) != 0
+				&& (source->present & SCENARIO_BOT_LEGACY_BODY) != 0
+				&& source->legacy_body != identity.mp_body_index) {
+			return scenarioSetDetail(detail, detail_size,
+				"numeric bot body companion contradicts typed ASSET_BODY", NULL);
+		}
+		if ((source->present & SCENARIO_BOT_HEAD_ID) != 0
+				&& (source->present & SCENARIO_BOT_LEGACY_HEAD) != 0
+				&& source->legacy_head != identity.mp_head_index) {
+			return scenarioSetDetail(detail, detail_size,
+				"numeric bot head companion contradicts typed ASSET_HEAD", NULL);
+		}
+
+		slot->type = SLOT_BOT;
+		slot->team = (plan->config.options & MPOPTION_TEAMSENABLED)
+			? scenarioChooseBotTeam(&plan->config) : 0;
+		scenarioCopyId(slot->profile_id, profile_id);
+		scenarioCopyId(slot->body_id, identity.body_id);
+		scenarioCopyId(slot->head_id, identity.head_id);
+		slot->botType = (u8)profile->bot_profile_type;
+		slot->botDifficulty = (u8)profile->bot_profile_difficulty;
+		slot->bodynum = identity.mp_body_index >= 0
+			? (u8)identity.mp_body_index : 0xFF;
+		slot->headnum = identity.mp_head_index >= 0
+			? (u8)identity.mp_head_index : 0xFF;
+		strncpy(slot->name, source->name, sizeof(slot->name) - 1);
+		slot->name[sizeof(slot->name) - 1] = '\0';
+		plan->config.numSlots++;
+	}
+	plan->source_version = document->version;
+	plan->legacy_v3_hybrid = scenarioHasV3HybridCompanions(document);
+	plan->migrated = document->version < SCENARIO_SAVE_VERSION
+		|| plan->legacy_v3_hybrid;
+	plan->bot_count = document->bot_count;
+	return 1;
+}
+
+static s32 scenarioBuildPlan(const scenario_document_t *document,
+		s32 human_count, scenario_load_plan_t *plan, char *detail,
+		size_t detail_size)
+{
+	s32 candidate_ok = scenarioBuildPlanCandidate(document, human_count, plan,
+		detail, detail_size);
+	s32 ownership_ok = scenarioReleasePlanSource(plan, detail, detail_size);
+
+	return candidate_ok && ownership_ok;
+}
+
+static void scenarioCommitPlan(const scenario_load_plan_t *plan)
+{
+	g_MatchConfig = plan->config;
+	mpCommitPreparedWeaponSet(plan->resolved_weapon_set, plan->config.weapons);
+}
+
+static s32 scenarioDocumentFromLive(const char *name,
+		scenario_document_t *document, char *detail, size_t detail_size)
+{
+	scenario_load_plan_t validation;
+	s32 i;
+
+	memset(document, 0, sizeof(*document));
+	if (!name || !name[0] || strlen(name) >= sizeof(document->name)
+			|| !scenarioTextSerializable(name)) {
+		return scenarioSetDetail(detail, detail_size,
+			"saved Scenario name is empty or too long", NULL);
+	}
+	document->version = SCENARIO_SAVE_VERSION;
+	document->present = SCENARIO_DOC_VERSION | SCENARIO_DOC_NAME
+		| SCENARIO_DOC_ARENA_ID | SCENARIO_DOC_SCENARIO_ID
+		| SCENARIO_DOC_TIMELIMIT | SCENARIO_DOC_SCORELIMIT
+		| SCENARIO_DOC_TEAMSCORELIMIT | SCENARIO_DOC_OPTIONS
+		| SCENARIO_DOC_WEAPONSET | SCENARIO_DOC_SPAWN_WEAPON_ID
+		| SCENARIO_DOC_SPAWN_WEAPON_MODE | SCENARIO_DOC_BOTS;
+	strncpy(document->name, name, sizeof(document->name) - 1);
+	scenarioCopyId(document->arena_id, g_MatchConfig.stage_id);
+	scenarioCopyId(document->scenario_id, g_MatchConfig.scenario_id);
+	document->timelimit = g_MatchConfig.timelimit;
+	document->scorelimit = g_MatchConfig.scorelimit;
+	document->teamscorelimit = g_MatchConfig.teamscorelimit;
+	document->options = matchConfigGetUserOptions();
+	document->weaponset = g_MatchConfig.weaponSetIndex;
+	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+		document->weapon_id_present[i] = 1;
+		scenarioCopyId(document->weapon_ids[i], g_MatchConfig.weapon_ids[i]);
+	}
+	document->spawn_weapon_mode = g_MatchConfig.spawnWeaponMode;
+	scenarioCopyId(document->spawn_weapon_id, g_MatchConfig.spawn_weapon_id);
+	for (i = 0; i < g_MatchConfig.numSlots && i < MATCH_MAX_SLOTS; i++) {
+		const struct matchslot *slot = &g_MatchConfig.slots[i];
+		scenario_document_bot_t *bot;
+		if (slot->type == SLOT_PLAYER) continue;
+		if (slot->type != SLOT_BOT
+				|| document->bot_count >= SCENARIO_CODEC_MAX_BOTS) {
+			return scenarioSetDetail(detail, detail_size,
+				"live match contains an invalid scenario slot", NULL);
+		}
+		bot = &document->bots[document->bot_count++];
+		if (!slot->name[0] || !scenarioTextSerializable(slot->name)) {
+			return scenarioSetDetail(detail, detail_size,
+				"live bot name is empty or not serializable", NULL);
+		}
+		bot->present = SCENARIO_BOT_NAME | SCENARIO_BOT_PROFILE_ID
+			| SCENARIO_BOT_DIFFICULTY | SCENARIO_BOT_BODY_ID
+			| SCENARIO_BOT_HEAD_ID;
+		strncpy(bot->name, slot->name, sizeof(bot->name) - 1);
+		scenarioCopyId(bot->profile_id, slot->profile_id);
+		scenarioCopyId(bot->body_id, slot->body_id);
+		scenarioCopyId(bot->head_id, slot->head_id);
+		bot->difficulty = slot->botDifficulty;
+	}
+	return scenarioBuildPlan(document, matchConfigCountHumans(), &validation,
+		detail, detail_size);
+}
 
 s32 scenarioSave(const char *name)
 {
-    if (!name || !name[0]) {
-        sysLogPrintf(LOG_WARNING, "SCENARIO: scenarioSave called with empty name");
-        return -1;
-    }
+	scenario_document_t document;
+	char detail[192];
+	char scenario_dir[SCENARIO_PATH_MAX];
+	char safe_name[128];
+	char filepath[SCENARIO_PATH_MAX];
+	save_atomic_file_t transaction;
+	FILE *fp;
+	s32 i;
 
-    /* Ensure $S/scenarios/ exists */
-    char scenDir[SCENARIO_PATH_MAX];
-    getScenarioDir(scenDir, sizeof(scenDir));
-
-    /* fsCreateDir is idempotent — ignore error if dir already exists */
-    fsCreateDir(scenDir);
-
-    /* Build safe filename */
-    char safeName[128];
-    sanitizeName(name, safeName, sizeof(safeName));
-
-    char filepath[SCENARIO_PATH_MAX];
-    save_atomic_file_t transaction;
-    snprintf(filepath, sizeof(filepath), "%s/%s.json", scenDir, safeName);
-
-    if (saveAtomicBegin(&transaction, filepath) != 0) {
-        sysLogPrintf(LOG_WARNING, "SCENARIO: failed to open '%s' for writing", filepath);
-        return -1;
-    }
-    FILE *fp = saveAtomicStream(&transaction);
-
-    /* --- Write JSON --- */
-    fprintf(fp, "{\n");
-    fprintf(fp, "  \"version\": 3,\n");
-    fprintf(fp, "  \"name\": \"");
-    jsonEscapeStr(fp, name);
-    fprintf(fp, "\",\n");
-    fprintf(fp, "  \"arena\": %u,\n",        (unsigned)g_MatchConfig.stagenum);
-    /* SA-4: catalog string ID for arena — use PRIMARY stage_id directly */
-    fprintf(fp, "  \"arenaId\": \"");
-    jsonEscapeStr(fp, g_MatchConfig.stage_id[0] ? g_MatchConfig.stage_id : "");
-    fprintf(fp, "\",\n");
-    fprintf(fp, "  \"scenario\": %u,\n",     (unsigned)g_MatchConfig.scenario);
-    /* M0.1d: scenario_id is PRIMARY catalog identity for game mode. */
-    fprintf(fp, "  \"scenarioId\": \"");
-    {
-        const char *sid = g_MatchConfig.scenario_id[0]
-            ? g_MatchConfig.scenario_id
-            : catalogGameModeIdByScenarioIndex((s32)g_MatchConfig.scenario);
-        jsonEscapeStr(fp, sid ? sid : "");
-    }
-    fprintf(fp, "\",\n");
-    fprintf(fp, "  \"timelimit\": %u,\n",    (unsigned)g_MatchConfig.timelimit);
-    fprintf(fp, "  \"scorelimit\": %u,\n",   (unsigned)g_MatchConfig.scorelimit);
-    fprintf(fp, "  \"teamscorelimit\": %u,\n",(unsigned)g_MatchConfig.teamscorelimit);
-    /* INV-4 / Cohort D: write user-original options only. Engine-forced
-     * bits (e.g. setup.c B-181 SPAWNWITHWEAPON force-set when world
-     * pickups are sparse) are transient state -- they must never persist
-     * to a saved scenario or the user's menu choice would silently
-     * change. matchOptionsUserView subtracts the forced bits. */
-    fprintf(fp, "  \"options\": %u,\n",
-        (unsigned)matchConfigGetUserOptions());
-    fprintf(fp, "  \"weaponset\": %d,\n",    (int)g_MatchConfig.weaponSetIndex);
-
-    /* M0.1c: weapon_ids[] are PRIMARY — write catalog ID strings directly.
-     * Legacy "weapon%d" integers kept for backward-compatible reading of old saves. */
-    for (s32 slot = 0; slot < 6; slot++) {
-        /* Prefer weapon_ids[] (PRIMARY). Fall back to runtime resolution if empty. */
-        const char *wid = g_MatchConfig.weapon_ids[slot][0]
-            ? g_MatchConfig.weapon_ids[slot]
-            : matchGetWeaponSlotCatalogId(slot);
-        s32 wval = mpGetWeaponSlot(slot);
-        fprintf(fp, "  \"weapon_id%d\": \"%s\",\n", slot, wid ? wid : "");
-        fprintf(fp, "  \"weapon%d\": %d,\n", slot, wval);
-    }
-
-    /* M0.1c: spawn weapon as catalog ID string (PRIMARY) */
-    fprintf(fp, "  \"spawnWeaponId\": \"");
-    jsonEscapeStr(fp, g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "");
-    fprintf(fp, "\",\n");
-    /* S482 (2026-04-27): spawn weapon mode — 0=SPECIFIC / 1=RANDOM / 2=FIESTA.
-     * Backwards-compat: scenarios saved before S482 lack this key; the loader
-     * defaults to SPECIFIC (when spawn_weapon_id is non-empty) or RANDOM
-     * (when empty) -- which preserves the legacy "empty = Random label"
-     * intent that those saves were authored with. */
-    fprintf(fp, "  \"spawnWeaponMode\": %u,\n",
-        (unsigned)g_MatchConfig.spawnWeaponMode);
-
-    /* Bot roster — only SLOT_BOT entries, skip slot 0 (local player) */
-    fprintf(fp, "  \"bots\": [\n");
-    s32 first = 1;
-    for (s32 i = 1; i < g_MatchConfig.numSlots && i < MATCH_MAX_SLOTS; i++) {
-        struct matchslot *sl = &g_MatchConfig.slots[i];
-        if (sl->type != SLOT_BOT) continue;
-
-        if (!first) fprintf(fp, ",\n");
-        first = 0;
-
-        /* Catalog-ID-native: body_id/head_id are the PRIMARY identity on the
-         * matchslot — use them directly.  The legacy "body"/"head" integer fields
-         * are kept for backward-compatible reading of old saves written before
-         * catalog IDs were primary; new writes always have the string fields. */
-        {
-            fprintf(fp, "    {\"name\": \"");
-            jsonEscapeStr(fp, sl->name);
-            fprintf(fp, "\", \"profileId\": \"");
-            jsonEscapeStr(fp, sl->profile_id);
-            fprintf(fp, "\", \"difficulty\": %u"
-                        ", \"bodyId\": \"",
-                    (unsigned)sl->botDifficulty);
-            jsonEscapeStr(fp, sl->body_id[0] ? sl->body_id : "");
-            fprintf(fp, "\", \"headId\": \"");
-            jsonEscapeStr(fp, sl->head_id[0] ? sl->head_id : "");
-            fprintf(fp, "\"}");
-        }
-    }
-    if (!first) fprintf(fp, "\n");
-    fprintf(fp, "  ]\n");
-    fprintf(fp, "}\n");
-
-    if (saveAtomicCommit(&transaction) != 0) {
-        sysLogPrintf(LOG_WARNING,
-            "SCENARIO: failed to commit '%s'; prior file preserved", filepath);
-        return -1;
-    }
-
-    sysLogPrintf(LOG_NOTE, "SCENARIO: saved '%s' → %s", name, filepath);
-    return 0;
+	if (!scenarioDocumentFromLive(name, &document, detail, sizeof(detail))) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.ROLLBACK save candidate rejected: %s", detail);
+		return -1;
+	}
+	getScenarioDir(scenario_dir, sizeof(scenario_dir));
+	fsCreateDir(scenario_dir);
+	sanitizeName(name, safe_name, sizeof(safe_name));
+	snprintf(filepath, sizeof(filepath), "%s/%s%s", scenario_dir, safe_name,
+		SCENARIO_FILE_EXTENSION);
+	if (saveAtomicBegin(&transaction, filepath) != 0) {
+		sysLogPrintf(LOG_WARNING, "SCENARIO.ROLLBACK cannot open '%s'", filepath);
+		return -1;
+	}
+	fp = saveAtomicStream(&transaction);
+	fprintf(fp, "{\n  \"version\": %d,\n  \"name\": \"", document.version);
+	scenarioJsonWriteEscaped(fp, document.name);
+	fprintf(fp, "\",\n  \"arenaId\": \"");
+	scenarioJsonWriteEscaped(fp, document.arena_id);
+	fprintf(fp, "\",\n  \"scenarioId\": \"");
+	scenarioJsonWriteEscaped(fp, document.scenario_id);
+	fprintf(fp, "\",\n  \"timelimit\": %d,\n  \"scorelimit\": %d,\n"
+		"  \"teamscorelimit\": %u,\n  \"options\": %u,\n"
+		"  \"weaponset\": %d,\n", document.timelimit,
+		document.scorelimit, (unsigned)document.teamscorelimit,
+		(unsigned)document.options, document.weaponset);
+	for (i = 0; i < NUM_MPWEAPONSLOTS; i++) {
+		fprintf(fp, "  \"weapon_id%d\": \"", i);
+		scenarioJsonWriteEscaped(fp, document.weapon_ids[i]);
+		fprintf(fp, "\",\n");
+	}
+	fprintf(fp, "  \"spawnWeaponId\": \"");
+	scenarioJsonWriteEscaped(fp, document.spawn_weapon_id);
+	fprintf(fp, "\",\n  \"spawnWeaponMode\": %d,\n  \"bots\": [\n",
+		document.spawn_weapon_mode);
+	for (i = 0; i < document.bot_count; i++) {
+		const scenario_document_bot_t *bot = &document.bots[i];
+		if (i) fprintf(fp, ",\n");
+		fprintf(fp, "    {\"name\": \"");
+		scenarioJsonWriteEscaped(fp, bot->name);
+		fprintf(fp, "\", \"profileId\": \"");
+		scenarioJsonWriteEscaped(fp, bot->profile_id);
+		fprintf(fp, "\", \"difficulty\": %d, \"bodyId\": \"",
+			bot->difficulty);
+		scenarioJsonWriteEscaped(fp, bot->body_id);
+		fprintf(fp, "\", \"headId\": \"");
+		scenarioJsonWriteEscaped(fp, bot->head_id);
+		fprintf(fp, "\"}");
+	}
+	if (document.bot_count) fprintf(fp, "\n");
+	fprintf(fp, "  ]\n}\n");
+	if (ferror(fp)) {
+		saveAtomicAbort(&transaction);
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.ROLLBACK write failed; prior '%s' preserved", filepath);
+		return -1;
+	}
+	if (saveAtomicCommit(&transaction) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.ROLLBACK commit failed; prior '%s' preserved", filepath);
+		return -1;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.COMMIT saved public source '%s' version=%d", filepath,
+		document.version);
+	return 0;
 }
 
 s32 scenarioLoad(const char *filepath, s32 humanCount)
 {
-    if (!filepath || !filepath[0]) return -1;
+	FILE *fp;
+	long filesize;
+	char *buffer;
+	size_t nread;
+	scenario_document_t document;
+	scenario_load_plan_t plan;
+	scenario_codec_status_e parse_status;
+	char detail[192];
 
-    /* Read the entire file into memory */
-    FILE *fp = fopen(filepath, "r");
-    if (!fp) {
-        sysLogPrintf(LOG_WARNING, "SCENARIO: failed to open '%s' for reading", filepath);
-        return -1;
-    }
-
-    fseek(fp, 0, SEEK_END);
-    long filesize = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    if (filesize <= 0 || filesize > 65536) {
-        fclose(fp);
-        sysLogPrintf(LOG_WARNING, "SCENARIO: file '%s' is empty or too large (%ld bytes)",
-                     filepath, filesize);
-        return -1;
-    }
-
-    char *buf = (char *)malloc((size_t)(filesize + 1));
-    if (!buf) {
-        fclose(fp);
-        sysLogPrintf(LOG_WARNING, "SCENARIO: out of memory reading '%s'", filepath);
-        return -1;
-    }
-
-    size_t nread = fread(buf, 1, (size_t)filesize, fp);
-    fclose(fp);
-    buf[nread] = '\0';
-
-    /* --- Parse version check --- */
-    s32 version = 0;
-    jsonFindInt(buf, "version", &version);
-    if (version != 1 && version != 2 && version != 3) {
-        sysLogPrintf(LOG_WARNING, "SCENARIO: unsupported version %d in '%s'",
-                     version, filepath);
-        free(buf);
-        return -1;
-    }
-
-    /* --- Extract match settings --- */
-    char scenarioName[64];
-    scenarioName[0] = '\0';
-    jsonFindString(buf, "name", scenarioName, sizeof(scenarioName));
-
-    s32 arena          = -1;
-    s32 scenario       = 0;
-    s32 timelimit      = 60;
-    s32 scorelimit     = 9;
-    s32 weaponset      = 0;
-    u32 teamscorelimit = 400;
-    u32 options        = 0;
-    char arena_id[CATALOG_ID_LEN];
-
-    char scenario_id[CATALOG_ID_LEN];
-    arena_id[0] = '\0';
-    scenario_id[0] = '\0';
-    jsonFindInt (buf, "arena",          &arena);
-    jsonFindInt (buf, "scenario",       &scenario);
-    jsonFindString(buf, "scenarioId",   scenario_id, sizeof(scenario_id));
-    jsonFindInt (buf, "timelimit",      &timelimit);
-    jsonFindInt (buf, "scorelimit",     &scorelimit);
-    jsonFindInt (buf, "weaponset",      &weaponset);
-    jsonFindUInt(buf, "teamscorelimit", &teamscorelimit);
-    jsonFindUInt(buf, "options",        &options);
-    /* SA-4: prefer catalog string ID for arena over legacy integer */
-    jsonFindString(buf, "arenaId", arena_id, sizeof(arena_id));
-
-    /* --- Reset match config and apply loaded settings --- */
-    matchConfigInit();
-
-    /* SA-4: prefer catalog string ID for arena; fall back to legacy integer */
-    if (arena_id[0]) {
-        s32 idx = assetCatalogResolveStageIndex(arena_id);
-        if (idx >= 0)
-            g_MatchConfig.stagenum = (u8)idx;
-        else if (arena >= 0)
-            g_MatchConfig.stagenum = (u8)arena;
-    } else if (arena >= 0) {
-        g_MatchConfig.stagenum     = (u8)arena;
-    }
-    /* M0.1d: prefer catalog ID (scenarioId) over legacy integer. */
-    if (scenario_id[0]) {
-        const asset_entry_t *gm = assetCatalogResolve(scenario_id);
-        if (gm && gm->type == ASSET_GAMEMODE) {
-            g_MatchConfig.scenario = (u8)gm->ext.gamemode.mode_id;
-        } else if (scenario >= 0 && scenario < 16) {
-            g_MatchConfig.scenario = (u8)scenario;
-        }
-        strncpy(g_MatchConfig.scenario_id, scenario_id, sizeof(g_MatchConfig.scenario_id) - 1);
-        g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
-    } else if (scenario >= 0 && scenario < 16) {
-        g_MatchConfig.scenario = (u8)scenario;
-        /* Derive scenario_id from integer for newly-loaded legacy saves */
-        const char *sid = catalogGameModeIdByScenarioIndex(scenario);
-        if (sid) {
-            strncpy(g_MatchConfig.scenario_id, sid, sizeof(g_MatchConfig.scenario_id) - 1);
-            g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
-        }
-    }
-    if (timelimit >= 0)
-        g_MatchConfig.timelimit    = (u8)timelimit;
-    if (scorelimit >= 0)
-        g_MatchConfig.scorelimit   = (u8)scorelimit;
-    g_MatchConfig.teamscorelimit   = (u16)teamscorelimit;
-    matchConfigReplaceUserOptions(options, "scenarioLoad");
-    if (!matchConfigSelectWeaponSet(weaponset)) {
-        sysLogPrintf(LOG_ERROR,
-            "SCENARIO: weapon set %d has no exact typed binding", weaponset);
-        free(buf);
-        return -1;
-    }
-
-    /* M0.1c: Restore weapon slot picks — catalog ID string is PRIMARY.
-     * Populate weapon_ids[] and derive weapons[] MPWEAPON_* slots. */
-    for (s32 slot = 0; slot < 6; slot++) {
-        char idkey[24], wkey[16], idbuf[128];
-        snprintf(idkey, sizeof(idkey), "weapon_id%d", slot);
-        snprintf(wkey,  sizeof(wkey),  "weapon%d",    slot);
-        if (jsonFindString(buf, idkey, idbuf, sizeof(idbuf)) && idbuf[0]) {
-            /* Set PRIMARY catalog ID */
-            strncpy(g_MatchConfig.weapon_ids[slot], idbuf,
-                    sizeof(g_MatchConfig.weapon_ids[slot]) - 1);
-            g_MatchConfig.weapon_ids[slot][sizeof(g_MatchConfig.weapon_ids[slot]) - 1] = '\0';
-            /* Derive integer for legacy engine */
-            const asset_entry_t *we = assetCatalogResolve(idbuf);
-            if (we && we->type == ASSET_WEAPON) {
-                s32 wval = (s32)we->ext.weapon.weapon_id;
-                g_MatchConfig.weapons[slot] = (u8)wval;
-            }
-        } else {
-            /* Legacy fallback: raw MPWEAPON_* integer from old saves.
-             * Reverse-resolve to catalog ID for weapon_ids[]. */
-            s32 wval = -1;
-            if (jsonFindInt(buf, wkey, &wval) && wval >= 0) {
-                g_MatchConfig.weapons[slot] = (u8)wval;
-                const char *cid = catalogWeaponIdByMpWeaponId(wval);
-                if (cid && cid[0]) {
-                    strncpy(g_MatchConfig.weapon_ids[slot], cid,
-                            sizeof(g_MatchConfig.weapon_ids[slot]) - 1);
-                    g_MatchConfig.weapon_ids[slot][sizeof(g_MatchConfig.weapon_ids[slot]) - 1] = '\0';
-                }
-            }
-        }
-    }
-
-    /* M0.1c: Restore spawn weapon — catalog ID string is PRIMARY. */
-    {
-        char spawnId[128];
-        s32 hasSpawnId = jsonFindString(buf, "spawnWeaponId", spawnId, sizeof(spawnId)) && spawnId[0];
-        if (hasSpawnId) {
-            strncpy(g_MatchConfig.spawn_weapon_id, spawnId,
-                    sizeof(g_MatchConfig.spawn_weapon_id) - 1);
-            g_MatchConfig.spawn_weapon_id[sizeof(g_MatchConfig.spawn_weapon_id) - 1] = '\0';
-        } else {
-            g_MatchConfig.spawn_weapon_id[0] = '\0';
-        }
-        /* S482 (2026-04-27): restore spawn-weapon mode. Backwards-compat with
-         * pre-S482 saves: missing "spawnWeaponMode" key defaults to SPECIFIC
-         * when spawn_weapon_id is non-empty, RANDOM when empty. This matches
-         * the legacy authoring intent ("empty = Random label" pre-S482). */
-        s32 modeVal = -1;
-        if (jsonFindInt(buf, "spawnWeaponMode", &modeVal)
-                && modeVal >= 0
-                && modeVal <= (s32)SPAWNWEAPON_MODE_FIESTA) {
-            g_MatchConfig.spawnWeaponMode = (u8)modeVal;
-        } else {
-            g_MatchConfig.spawnWeaponMode = hasSpawnId
-                ? SPAWNWEAPON_MODE_SPECIFIC
-                : SPAWNWEAPON_MODE_RANDOM;
-        }
-        /* spawn_weapon_id → spawnWeaponNum derivation happens at matchStart() */
-    }
-
-    /* --- Parse and add bots ---
-     *
-     * Dynamic player count rule:
-     *   maxBots = MATCH_MAX_SLOTS - humanCount
-     *   Bots are added in order; excess silently dropped.
-     */
-    s32 maxBots = matchConfigMaxBotsForHumans(humanCount);
-    s32 botCount = 0;
-
-    const char *botsKey = strstr(buf, "\"bots\":");
-    if (botsKey) {
-        const char *arrStart = strchr(botsKey, '[');
-        if (arrStart) {
-            const char *p = arrStart + 1;
-
-            while (*p && botCount < maxBots) {
-                /* Advance to next '{' (start of bot object) or ']' (end of array) */
-                while (*p && *p != '{' && *p != ']') p++;
-                if (!*p || *p == ']') break;
-
-                /* Find matching '}' — bots objects are flat, no nested braces */
-                const char *objStart = p;
-                const char *objEnd   = strchr(objStart + 1, '}');
-                if (!objEnd) break;
-
-                /* Copy bot object into a null-terminated scratch buffer */
-                s32 objLen = (s32)(objEnd - objStart + 1);
-                if (objLen < 2 || objLen > 768) {
-                    p = objEnd + 1;
-                    continue;
-                }
-
-                char obj[768];
-                memcpy(obj, objStart, (size_t)objLen);
-                obj[objLen] = '\0';
-
-                /* Extract fields */
-                char botName[MAX_PLAYER_NAME];
-                char profile_id[CATALOG_ID_LEN];
-                char body_id[CATALOG_ID_LEN];
-                char head_id[CATALOG_ID_LEN];
-                s32 difficulty = 2; /* NormalSim default */
-                s32 body       = 0;
-                s32 head       = 0;
-
-                botName[0] = '\0';
-                profile_id[0] = '\0';
-                body_id[0] = '\0';
-                head_id[0] = '\0';
-
-                jsonFindString(obj, "name",       botName, MAX_PLAYER_NAME);
-                jsonFindString(obj, "profileId",  profile_id, sizeof(profile_id));
-                jsonFindInt   (obj, "difficulty", &difficulty);
-                jsonFindInt   (obj, "body",        &body);
-                jsonFindInt   (obj, "head",        &head);
-                /* SA-4: prefer catalog string IDs */
-                jsonFindString(obj, "bodyId",      body_id, sizeof(body_id));
-                jsonFindString(obj, "headId",      head_id, sizeof(head_id));
-
-                /* Clamp legacy integer values to safe ranges */
-                if (difficulty < 0) difficulty = 0;
-                if (difficulty > 5) difficulty = 5;
-
-                /* Catalog-ID-native: prefer string IDs as the primary identity.
-                 * Fall back to legacy integer → catalog lookup for old saves. */
-                if (!body_id[0] && body >= 0 && body < 152) {
-                    const char *bid = catalogBodyIdByBodynum(body);
-                    if (bid) {
-                        strncpy(body_id, bid, sizeof(body_id) - 1);
-                        body_id[sizeof(body_id) - 1] = '\0';
-                    }
-                }
-                if (!head_id[0] && head >= 0 && head < 152) {
-                    const char *hid = catalogHeadIdByHeadnum(head);
-                    if (hid) {
-                        strncpy(head_id, hid, sizeof(head_id) - 1);
-                        head_id[sizeof(head_id) - 1] = '\0';
-                    }
-                }
-
-                if (profile_id[0]) {
-                    matchConfigAddBotWithProfile(
-                        profile_id,
-                        body_id[0] ? body_id : NULL,
-                        head_id[0] ? head_id : NULL,
-                        botName[0] ? botName : NULL);
-                } else {
-                    /* v1/v2 migration: derive the base catalog profile from
-                     * the legacy general-simulant difficulty. */
-                    matchConfigAddBot(0 /* BOTTYPE_GENERAL */,
-                                      (u8)difficulty,
-                                      body_id[0] ? body_id : NULL,
-                                      head_id[0] ? head_id : NULL,
-                                      botName[0] ? botName : NULL);
-                }
-                botCount++;
-                p = objEnd + 1;
-            }
-        }
-    }
-
-    free(buf);
-
-    sysLogPrintf(LOG_NOTE,
-        "SCENARIO: loaded '%s' — arena=0x%02x scenario=%d bots=%d/%d (humanCount=%d)",
-        scenarioName[0] ? scenarioName : filepath,
-        g_MatchConfig.stagenum, g_MatchConfig.scenario,
-        botCount, maxBots, humanCount);
-    return 0;
+	if (!filepath || !filepath[0]) return -1;
+	fp = fopen(filepath, "rb");
+	if (!fp) {
+		sysLogPrintf(LOG_WARNING, "SCENARIO.ROLLBACK cannot open '%s'", filepath);
+		return -1;
+	}
+	if (fseek(fp, 0, SEEK_END) != 0 || (filesize = ftell(fp)) <= 0
+			|| filesize > (long)SCENARIO_CODEC_MAX_BYTES
+			|| fseek(fp, 0, SEEK_SET) != 0) {
+		fclose(fp);
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.ROLLBACK invalid file extent for '%s'", filepath);
+		return -1;
+	}
+	buffer = (char *)malloc((size_t)filesize + 1);
+	if (!buffer) {
+		fclose(fp);
+		return -1;
+	}
+	nread = fread(buffer, 1, (size_t)filesize, fp);
+	if (nread != (size_t)filesize || ferror(fp)) {
+		fclose(fp);
+		free(buffer);
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.ROLLBACK truncated read for '%s'", filepath);
+		return -1;
+	}
+	fclose(fp);
+	buffer[filesize] = '\0';
+	parse_status = scenarioDocumentParse(buffer, (size_t)filesize, &document,
+		detail, sizeof(detail));
+	free(buffer);
+	if (parse_status != SCENARIO_CODEC_OK) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.ROLLBACK parse=%s detail='%s' file='%s'",
+			scenarioCodecStatusString(parse_status), detail, filepath);
+		return -1;
+	}
+	if (!scenarioBuildPlan(&document, humanCount, &plan, detail,
+			sizeof(detail))) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.ROLLBACK plan rejected detail='%s' file='%s'",
+			detail, filepath);
+		return -1;
+	}
+	scenarioCommitPlan(&plan);
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.COMMIT loaded '%s' version=%d migrated=%d legacy_v3_hybrid=%d bots=%d humans=%d",
+		filepath, plan.source_version, plan.migrated, plan.legacy_v3_hybrid,
+		plan.bot_count, humanCount);
+	return 0;
 }
 
 s32 scenarioDelete(const char *filepath)
 {
-    if (!filepath || !filepath[0]) {
-        sysLogPrintf(LOG_WARNING, "SCENARIO: scenarioDelete called with empty path");
-        return -1;
-    }
-
-    if (remove(filepath) != 0) {
-        sysLogPrintf(LOG_WARNING, "SCENARIO: scenarioDelete failed for '%s'", filepath);
-        return -1;
-    }
-
-    sysLogPrintf(LOG_NOTE, "SCENARIO: deleted '%s'", filepath);
-    return 0;
+	if (!filepath || !filepath[0] || remove(filepath) != 0) {
+		sysLogPrintf(LOG_WARNING, "SCENARIO: delete failed for '%s'",
+			filepath ? filepath : "(null)");
+		return -1;
+	}
+	sysLogPrintf(LOG_NOTE, "SCENARIO: deleted '%s'", filepath);
+	return 0;
 }
 
 s32 scenarioListFiles(char (*outPaths)[SCENARIO_PATH_MAX], s32 maxCount)
 {
-    if (!outPaths || maxCount <= 0) return 0;
+	char scenario_dir[SCENARIO_PATH_MAX];
+	DIR *dir;
+	struct dirent *entry;
+	s32 count = 0;
+	const size_t extension_len = strlen(SCENARIO_FILE_EXTENSION);
 
-    char scenDir[SCENARIO_PATH_MAX];
-    getScenarioDir(scenDir, sizeof(scenDir));
-
-    DIR *d = opendir(scenDir);
-    if (!d) return 0;
-
-    s32 count = 0;
-    struct dirent *ent;
-    while ((ent = readdir(d)) != NULL && count < maxCount) {
-        const char *fname = ent->d_name;
-        size_t flen = strlen(fname);
-        /* Must end in .json and not be just ".json" */
-        if (flen > 5 && strcmp(fname + flen - 5, ".json") == 0) {
-            snprintf(outPaths[count], (size_t)SCENARIO_PATH_MAX,
-                     "%s/%s", scenDir, fname);
-            count++;
-        }
-    }
-
-    closedir(d);
-
-    sysLogPrintf(LOG_NOTE, "SCENARIO: found %d scenario file(s) in '%s'",
-                 count, scenDir);
-    return count;
+	if (!outPaths || maxCount <= 0) return 0;
+	getScenarioDir(scenario_dir, sizeof(scenario_dir));
+	dir = opendir(scenario_dir);
+	if (!dir) return 0;
+	while ((entry = readdir(dir)) != NULL && count < maxCount) {
+		const size_t name_len = strlen(entry->d_name);
+		if (name_len > extension_len
+				&& strcmp(entry->d_name + name_len - extension_len,
+					SCENARIO_FILE_EXTENSION) == 0) {
+			snprintf(outPaths[count], SCENARIO_PATH_MAX, "%s/%s",
+				scenario_dir, entry->d_name);
+			count++;
+		}
+	}
+	closedir(dir);
+	return count;
 }

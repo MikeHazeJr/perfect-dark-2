@@ -36,13 +36,19 @@ enum smoke_fixture_event_field {
 	SMOKE_FIXTURE_FIELD_WHEEL_Y = 1u << 17,
 	SMOKE_FIXTURE_FIELD_COMMENT = 1u << 18,
 	SMOKE_FIXTURE_FIELD_CLIENT_ID = 1u << 19,
-	SMOKE_FIXTURE_FIELD_HAND = 1u << 20
+	SMOKE_FIXTURE_FIELD_HAND = 1u << 20,
+	SMOKE_FIXTURE_FIELD_AXIS = 1u << 21,
+	SMOKE_FIXTURE_FIELD_VALUE = 1u << 22
 };
 
 /* Pure fixture-schema boundary shared by the shipping harness and tests.
  * JSON remains author-friendly by allowing // line comments and hexadecimal
  * numbers, but malformed, truncated, or trailing documents fail closed. */
 int smokeFixtureJsonValid(const char *json);
+
+/* Raw virtual joystick axes use the complete Sint16 domain, including
+ * -32768 for released triggers. Values must be checked before narrowing. */
+int smokeFixtureControllerAxisValueValid(int64_t value);
 
 int smokeFixtureEventTypeLengthValid(size_t length);
 smoke_fixture_field_mask_t smokeFixtureEventFieldFromName(const char *name);

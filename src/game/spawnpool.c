@@ -24,7 +24,10 @@
 #include "game/bg.h"
 #include "game/pad.h"
 #include "game/atan2f.h"
+#include "game/playermgr.h"
+#include "game/prop.h"
 #include "game/propobj.h"   /* B-242: modelFindBboxRodata for chr-height capsule */
+#include "lib/capsule.h"
 #include "lib/collision.h"
 #include "lib/rng.h"
 #include "system.h"
@@ -774,17 +777,86 @@ f32 spawnPoolGetChrCapsuleHeight(struct chrdata *chr)
 	return height;
 }
 
-static bool spawnTestCapsuleClear(const struct coord *pos, RoomNum *rooms,
-                                  f32 radius, f32 height)
+static bool spawnRenderedCapsuleClear(const struct coord *pos,
+		const RoomNum *rooms, f32 radius, f32 height)
 {
-	/* cdTestVolume returns 1 = clear, 0 = wall collision detected. */
-	return cdTestVolume((struct coord *)pos, radius, rooms,
-	                    CDTYPE_BG, true,
-	                    pos->y + height, pos->y) == 1;
+	static const f32 directions[8][2] = {
+		{ 1.0f, 0.0f }, { 0.70710678f, 0.70710678f },
+		{ 0.0f, 1.0f }, {-0.70710678f, 0.70710678f },
+		{-1.0f, 0.0f }, {-0.70710678f,-0.70710678f },
+		{ 0.0f,-1.0f }, { 0.70710678f,-0.70710678f },
+	};
+	f32 bottom = radius;
+	f32 top = height - radius;
+	f32 samples[3];
+	s32 sample;
+	s32 direction;
+
+	if (top < bottom) {
+		top = bottom;
+	}
+	samples[0] = bottom;
+	samples[1] = (bottom + top) * 0.5f;
+	samples[2] = top;
+
+	/* The legacy volume query does not see every collision-owned rendered
+	 * triangle. Probe the full capsule skin at its lower sphere, cylinder
+	 * midpoint, and upper sphere so modeled walls and half-height obstacles
+	 * participate in the same spawn decision. */
+	for (sample = 0; sample < 3; sample++) {
+		for (direction = 0; direction < 8; direction++) {
+			struct coord from = *pos;
+			struct coord to;
+
+			from.y += samples[sample];
+			to = from;
+			to.x += directions[direction][0] * radius;
+			to.z += directions[direction][1] * radius;
+
+			if (capsuleStage2RayCast(&from, &to, rooms, NULL) < 1.0f) {
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+static bool spawnTestCapsuleClear(const struct coord *pos, RoomNum *rooms,
+		f32 radius, f32 height, struct prop *selfprop)
+{
+	s32 result;
+	bool restore_self_perim = true;
+
+	if (selfprop) {
+		if (selfprop->type == PROPTYPE_CHR && selfprop->chr) {
+			restore_self_perim =
+				(selfprop->chr->hidden & CHRHFLAG_PERIMDISABLED) == 0;
+		} else if (selfprop->type == PROPTYPE_PLAYER) {
+			s32 playernum = playermgrGetPlayerNumByProp(selfprop);
+			restore_self_perim = playernum >= 0 && playernum < MAX_PLAYERS
+				&& g_Vars.players[playernum]
+				&& g_Vars.players[playernum]->bondperimenabled;
+		}
+		propSetPerimEnabled(selfprop, false);
+	}
+
+	/* cdTestVolume takes vertical offsets relative to pos.y. The previous
+	 * implementation supplied absolute world Y values, expanding the test
+	 * by the map altitude and rejecting or accepting unrelated geometry. */
+	result = cdTestVolume((struct coord *)pos, radius, rooms,
+		CDTYPE_ALL, CHECKVERTICAL_YES, height, 0.0f);
+
+	if (selfprop) {
+		propSetPerimEnabled(selfprop, restore_self_perim);
+	}
+
+	return result == CDRESULT_NOCOLLISION
+		&& spawnRenderedCapsuleClear(pos, rooms, radius, height);
 }
 
 bool spawnPoolFindClearPosition(struct coord *pos, RoomNum *rooms,
-                                f32 radius, f32 height)
+		f32 radius, f32 height, struct prop *selfprop)
 {
 	struct coord origin;
 	s32 ring;
@@ -823,7 +895,7 @@ bool spawnPoolFindClearPosition(struct coord *pos, RoomNum *rooms,
 	}
 
 	/* Fast path: original position has clearance for the full chr height. */
-	if (spawnTestCapsuleClear(pos, rooms, radius, height)) {
+	if (spawnTestCapsuleClear(pos, rooms, radius, height, selfprop)) {
 		return true;
 	}
 
@@ -856,7 +928,8 @@ bool spawnPoolFindClearPosition(struct coord *pos, RoomNum *rooms,
 			}
 			localrooms[1] = -1;
 
-			if (spawnTestCapsuleClear(&candidate, localrooms, radius, height)) {
+			if (spawnTestCapsuleClear(&candidate, localrooms, radius, height,
+					selfprop)) {
 				sysLogPrintf(LOG_NOTE,
 					"SPAWN.CLIP: original=(%.0f,%.0f,%.0f) clipped, "
 					"swept iter=%d ring=%.0f deg=%.0f -> placed=(%.0f,%.0f,%.0f) "

@@ -1,7 +1,7 @@
 {
   "scenario_name": "friend_play_authority_invitee_route_smoke",
   "description": "D-003 option A ordinary-client route proof with the invitee elected as the sole match authority. Two clean clients retain peer-to-peer social topology, but only the invitee starts the in-client ENet listen host and publishes a signed typed match-server route; the initiating inviter consumes that route in one idempotent join. This fixture deliberately excludes window-focus, Needler, distribution, and visual assertions so route ownership remains independently verifiable.",
-  "tags": ["network", "social", "friend-play", "authority-first", "presence-v5", "listen-host", "route", "v58", "smoke"],
+  "tags": ["network", "social", "friend-play", "authority-first", "presence-v5", "listen-host", "route", "v59", "smoke"],
   "paths_of_interest": [
     "port/src/net/group_session.c",
     "port/src/presence.c",
@@ -77,7 +77,7 @@
             ]
           },
           {
-            "name": "v58-release-after-authority-and-peer-ready",
+            "name": "v59-release-after-authority-and-peer-ready",
             "patterns": [
               "NET.STAGE.REPLICATION phase=waiting .* wait_mask=0x00000002 authority_ready=0",
               "NET.STAGE.REPLICATION ready authority=server .* post_load=1",
@@ -180,7 +180,7 @@
             ]
           },
           {
-            "name": "initiator-joins-current-v58-stage",
+            "name": "initiator-joins-current-v59-stage",
             "patterns": [
               "MATCH: client stage start received",
               "NET: sent CLC_STAGE_READY epoch=[1-9]\\d* post_load=1 stage=0x[0-9a-f]+",
@@ -224,7 +224,7 @@
     }
   ],
   "input_sequence": [
-    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 220000, "comment": "Each ordinary client waits for the signed route, exact ready gate, current-v58 stage load, local player allocation, and spawn." },
+    { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 220000, "comment": "Each ordinary client waits for the signed route, exact ready gate, current-v59 stage load, local player allocation, and spawn." },
     { "at_ms": 0, "type": "wait_until", "condition": "gameplay_ready", "timeout_ms": 60000, "stable_ms": 3000, "comment": "Require a continuous usable-gameplay window without focus, visual, weapon, or direct transport assistance." },
     { "at_ms": 5000, "type": "exit", "comment": "Exit both clean clients after stable gameplay; route ownership and lifecycle assertions are already causally complete." }
   ],

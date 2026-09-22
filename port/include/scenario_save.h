@@ -57,7 +57,9 @@
 #define SCENARIO_MAX_LIST  64
 
 /**
- * scenarioSave -- Save current g_MatchConfig to $S/scenarios/<name>.json.
+ * scenarioSave -- Validate and atomically save the current match as public
+ * source at $S/scenarios/<name>.json. Catalog IDs inside the document resolve
+ * through their public typed archives (including the selected .pdscenario).
  *
  * Creates $S/scenarios/ if it does not exist.
  * Sanitizes <name> for use as a filename (strips path chars).
@@ -69,13 +71,13 @@
 s32 scenarioSave(const char *name);
 
 /**
- * scenarioLoad -- Load from file at filepath into g_MatchConfig.
+ * scenarioLoad -- Transactionally load one saved-match source file.
  *
- * Calls matchConfigInit() first (resets to local player + default settings).
- * Applies saved arena, scenario, limits, options, and weapon set.
- * Adds bots from the file up to (MATCH_MAX_SLOTS - humanCount);
- * excess bots are silently dropped.
- * Bots are loaded in order: saved bot 0 first, bot 1 second, etc.
+ * Strict parsing, deliberate historic v1/v2 migration shapes, the exact
+ * compatible shipping-v3 hybrid shape, typed catalog resolution, prepared bot
+ * identity/rig validation, roster capacity checks, and complete candidate
+ * construction all finish before the live match is published. A present typed
+ * field is always authoritative; any failure preserves the complete prior state.
  *
  * humanCount: number of human players currently in the room (>=1).
  *
@@ -84,7 +86,7 @@ s32 scenarioSave(const char *name);
 s32 scenarioLoad(const char *filepath, s32 humanCount);
 
 /**
- * scenarioListFiles -- List .json files in $S/scenarios/.
+ * scenarioListFiles -- List .json saved-match files in $S/scenarios/.
  *
  * Fills outPaths with full file paths (each SCENARIO_PATH_MAX chars).
  * Returns the number of files found (0 if directory does not exist).

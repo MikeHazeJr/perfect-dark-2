@@ -49,6 +49,8 @@
 #include "net/netmsg.h"
 #include "actionmap.h"
 
+#include <stdint.h>
+
 extern s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop);
 extern void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop,
 		s32 once_bit, s32 a, s32 b, s32 c, s32 d);
@@ -57,6 +59,10 @@ s16 *g_RoomPropListChunkIndexes;
 struct roomproplistchunk *g_RoomPropListChunks;
 struct prop *g_InteractProp;
 s32 var8009cdac;
+
+/* Never reset at a stage boundary. A reused prop slot must never inherit the
+ * allocation identity of its previous occupant. */
+static u64 s_PropLifecycleGenerationCounter;
 
 #if VERSION >= VERSION_NTSC_1_0
 s32 var8009cdb0;
@@ -169,6 +175,14 @@ struct prop *propAllocate(void)
 	struct prop *prop = g_Vars.freeprops;
 
 	if (g_Vars.freeprops) {
+		/* Zero is reserved for unallocated slots. Refuse the impossible wrap
+		 * instead of publishing an ambiguous identity. */
+		if (s_PropLifecycleGenerationCounter == UINT64_MAX) {
+			sysLogPrintf(LOG_ERROR,
+				"PROP.LIFECYCLE: generation counter exhausted; allocation rejected");
+			return NULL;
+		}
+
 		g_Vars.freeprops = g_Vars.freeprops->next;
 
 		prop->next = NULL;
@@ -191,6 +205,7 @@ struct prop *propAllocate(void)
 		prop->opawallhits = NULL;
 		prop->xluwallhits = NULL;
 		prop->colmesh = NULL;
+		prop->lifecycle_generation = ++s_PropLifecycleGenerationCounter;
 		// NOTE: this will be automatically overwritten at the start of the stage for the setup props
 		prop->syncid = (g_NetMode == NETMODE_SERVER) ? g_NetNextSyncId++ : 0;
 		if (prop->syncid) {
@@ -244,7 +259,13 @@ void propFree(struct prop *prop)
 	prop->chr = NULL;
 	prop->rooms[0] = -1;
 	prop->syncid = 0;
+	prop->lifecycle_generation = 0;
 	g_Vars.freeprops = prop;
+}
+
+u64 propGetLifecycleGeneration(const struct prop *prop)
+{
+	return prop ? prop->lifecycle_generation : 0;
 }
 
 /**
@@ -920,10 +941,10 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 
 			texnum = lightsHandleHit(&shotdata.gunpos3d, &hitpos, room);
 
-			if (sp694.texturenum < 0 || sp694.texturenum >= NUM_TEXTURES) {
+			if (sp694.texturenum < 0 || sp694.texturenum >= TEXTURE_CUSTOM_END) {
 				surfacetype = g_SurfaceTypes[SURFACETYPE_DEFAULT];
 			} else {
-				index = g_Textures[sp694.texturenum].surfacetype;
+				index = texGetDefinition(sp694.texturenum)->surfacetype;
 
 				if (index < ARRAYCOUNT(g_SurfaceTypes)) {
 					surfacetype = g_SurfaceTypes[index];
@@ -996,7 +1017,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 									break;
 								}
 
-								texnum = g_Textures[sp694.texturenum].surfacetype;
+								texnum = texGetDefinition(sp694.texturenum)->surfacetype;
 
 								if (texnum == SURFACETYPE_SHALLOWWATER || texnum == SURFACETYPE_DEEPWATER) {
 									sparktype = SPARKTYPE_SHALLOWWATER;

@@ -1,34 +1,18 @@
 /**
- * p2p_upnp.c -- Tier 3: UPnP / NAT-PMP port mapping.
+ * p2p_upnp.c -- Tier 3: UPnP mapping lifecycle handoff.
  *
- * Wraps the existing port/src/net/netupnp.c worker thread. On tier-3
- * activation we ensure a port mapping for our local p2p socket port is
- * present at the local IGD. The peer can then reach us at
- * (external_ip, mapped_port). For Phase 1 the orchestrator publishes the
- * resulting endpoint as the candidate -- the actual probe still uses the
- * tier-1 direct-UDP packet format.
- *
- * UPnP is asymmetric: it only opens our side of the NAT. If the peer is
- * also behind NAT and has not mapped, this tier still helps because the
- * peer can initiate the punch toward our public endpoint.
+ * UPnP only creates candidate provenance. It never reports a peer path open;
+ * ICE remains responsible for a signed candidate exchange and connectivity
+ * check. netupnp.c owns the single bounded mapping set and its lease cycle.
  */
 
 #include "net/p2p.h"
 #include "net/netupnp.h"
-#include "net/net.h"
 #include "system.h"
 
 #include <SDL.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
-
-#ifdef _WIN32
-  #include <winsock2.h>
-  #include <ws2tcpip.h>
-#else
-  #include <arpa/inet.h>
-#endif
 
 #define P2P_UPNP_MAX_INFLIGHT 16
 
@@ -50,17 +34,29 @@ static upnp_attempt_t *findFreeSlot(void)
 	return NULL;
 }
 
-static u32 parseIpv4(const char *s)
+static upnp_attempt_t *findByPair(u32 pair_id)
 {
-	if (!s || !*s) return 0;
-	struct in_addr addr;
-	if (inet_pton(AF_INET, s, &addr) != 1) return 0;
-	return ntohl(addr.s_addr);
+	for (s32 i = 0; i < P2P_UPNP_MAX_INFLIGHT; i++) {
+		if (s_Attempts[i].in_use && s_Attempts[i].pair_id == pair_id) {
+			return &s_Attempts[i];
+		}
+	}
+	return NULL;
+}
+
+static s32 mappingSetReady(void)
+{
+	u32 ice_ipv4 = 0;
+	u16 ice_port = 0;
+	if (!p2pIceGetLocalHostCandidate(&ice_ipv4, &ice_port)) return 0;
+	return netUpnpIsActive() && netUpnpGetStatus() == UPNP_STATUS_SUCCESS &&
+		netUpnpGetOwnedMappedPort(NET_UPNP_OWNER_SOCIAL, ice_port) != 0;
 }
 
 s32 p2pUpnpStart(u32 pair_id)
 {
-	upnp_attempt_t *a = findFreeSlot();
+	upnp_attempt_t *a = findByPair(pair_id);
+	if (!a) a = findFreeSlot();
 	if (!a) {
 		p2pInternalReportFailure(pair_id, P2P_TIER_UPNP, "table full");
 		return -1;
@@ -71,54 +67,53 @@ s32 p2pUpnpStart(u32 pair_id)
 	a->deadline_ms = SDL_GetTicks() + P2P_TIER_TIMEOUT_MS;
 	a->awaiting_upnp = 1;
 
-	if (!s_UpnpKicked) {
-		netUpnpSetup(g_NetServerPort ? (u16)g_NetServerPort : (u16)NET_DEFAULT_PORT);
-		s_UpnpKicked = 1;
-		sysLogPrintf(LOG_NOTE, "P2P.UPNP: kicked async port mapping");
-	}
-
-	if (netUpnpGetStatus() == UPNP_STATUS_SUCCESS) {
-		const u32 ipv4 = parseIpv4(netUpnpGetExternalIP());
-		const u16 port = g_NetServerPort ? (u16)g_NetServerPort : (u16)NET_DEFAULT_PORT;
-		if (ipv4 != 0) {
-			p2p_endpoint_t ep;
-			memset(&ep, 0, sizeof(ep));
-			ep.ipv4 = ipv4;
-			ep.port = port;
-			ep.flags = P2P_EP_PORT_MAPPED;
-			p2pInternalReportSuccess(pair_id, P2P_TIER_UPNP, &ep);
+	if (!s_UpnpKicked || !netUpnpIsActive()) {
+		u32 ice_ipv4 = 0;
+		u16 ice_port = 0;
+		if (!p2pIceGetLocalHostCandidate(&ice_ipv4, &ice_port) ||
+			netUpnpAcquire(NET_UPNP_OWNER_SOCIAL, ice_port) != 0) {
+			p2pInternalReportFailure(pair_id, P2P_TIER_UPNP,
+				"mapping start failed");
 			a->in_use = 0;
-			return 0;
+			return -1;
 		}
+		s_UpnpKicked = 1;
+		sysLogPrintf(LOG_NOTE,
+			"P2P.UPNP: social owner requested bound ICE port %u only",
+			(unsigned)ice_port);
 	}
 
+	if (mappingSetReady()) {
+		/* Mapping is only candidate provenance. The peer candidate set and
+		 * ICE probe must still establish the path. */
+		p2pInternalReportFailure(pair_id, P2P_TIER_UPNP,
+			"candidate mappings ready; continue to ICE");
+		a->in_use = 0;
+	}
 	return 0;
 }
 
 void p2pUpnpPoll(void)
 {
+	netUpnpTick();
 	const u32 now_ms = SDL_GetTicks();
 	const s32 status = netUpnpGetStatus();
-	const u32 ipv4   = (status == UPNP_STATUS_SUCCESS)
-	                     ? parseIpv4(netUpnpGetExternalIP()) : 0;
 
 	for (s32 i = 0; i < P2P_UPNP_MAX_INFLIGHT; i++) {
 		upnp_attempt_t *a = &s_Attempts[i];
 		if (!a->in_use) continue;
 
-		if (a->awaiting_upnp && status == UPNP_STATUS_SUCCESS && ipv4 != 0) {
-			p2p_endpoint_t ep;
-			memset(&ep, 0, sizeof(ep));
-			ep.ipv4 = ipv4;
-			ep.port = g_NetServerPort ? (u16)g_NetServerPort : (u16)NET_DEFAULT_PORT;
-			ep.flags = P2P_EP_PORT_MAPPED;
-			p2pInternalReportSuccess(a->pair_id, P2P_TIER_UPNP, &ep);
+		if (a->awaiting_upnp && status == UPNP_STATUS_SUCCESS &&
+			mappingSetReady()) {
+			p2pInternalReportFailure(a->pair_id, P2P_TIER_UPNP,
+				"candidate mappings ready; continue to ICE");
 			a->in_use = 0;
 			continue;
 		}
 
 		if (status == UPNP_STATUS_FAILED) {
-			p2pInternalReportFailure(a->pair_id, P2P_TIER_UPNP, "router rejected mapping");
+			p2pInternalReportFailure(a->pair_id, P2P_TIER_UPNP,
+				"router rejected required mappings");
 			a->in_use = 0;
 			continue;
 		}
@@ -128,4 +123,20 @@ void p2pUpnpPoll(void)
 			a->in_use = 0;
 		}
 	}
+}
+
+void p2pUpnpCancel(u32 pair_id)
+{
+	for (s32 i = 0; i < P2P_UPNP_MAX_INFLIGHT; i++) {
+		if (s_Attempts[i].pair_id == pair_id) {
+			memset(&s_Attempts[i], 0, sizeof(s_Attempts[i]));
+		}
+	}
+}
+
+void p2pUpnpShutdown(void)
+{
+	memset(s_Attempts, 0, sizeof(s_Attempts));
+	netUpnpRelease(NET_UPNP_OWNER_SOCIAL);
+	s_UpnpKicked = 0;
 }

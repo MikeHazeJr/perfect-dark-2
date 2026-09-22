@@ -27,6 +27,7 @@
 #include "game/bot.h"
 #include "system.h"
 #include "net/net.h"
+#include "mpspawn_transaction.h"
 
 bool g_MpOrchestrateInitialSpawnDone;
 
@@ -69,6 +70,33 @@ void mpOrchestrateReset(void)
 		g_MpOrchestrateBotPoolIdx[i] = -1;
 	}
 	s_PartCount = 0;
+}
+
+const char *mpOrchestrateSpawnResultString(
+		enum mp_orchestrate_spawn_result result)
+{
+	switch (result) {
+	case MP_ORCHESTRATE_SPAWN_OK:
+		return "ok";
+	case MP_ORCHESTRATE_SPAWN_NOT_READY:
+		return "not_ready";
+	case MP_ORCHESTRATE_SPAWN_INVALID_POOL:
+		return "invalid_pool";
+	case MP_ORCHESTRATE_SPAWN_INVALID_ROSTER:
+		return "invalid_roster";
+	case MP_ORCHESTRATE_SPAWN_NO_PARTICIPANTS:
+		return "no_participants";
+	case MP_ORCHESTRATE_SPAWN_NO_ASSIGNMENT:
+		return "no_assignment";
+	case MP_ORCHESTRATE_SPAWN_PLAYER_PREPARE_FAILED:
+		return "player_prepare_failed";
+	case MP_ORCHESTRATE_SPAWN_PLAYER_COMMIT_REJECTED:
+		return "player_commit_rejected";
+	case MP_ORCHESTRATE_SPAWN_PLAYER_BATCH_OVERLAP:
+		return "player_batch_overlap";
+	default:
+		return "unknown";
+	}
 }
 
 static f32 orch_min_dist_sq_to_placed(const struct coord *p, s32 nplaced, s32 skip_part_idx)
@@ -359,7 +387,7 @@ static s32 orch_pick_force_any(const spawn_pool_t *pool, const bool *used_pool)
 	return -1;
 }
 
-void mpOrchestrateMatchStartSpawns(void)
+enum mp_orchestrate_spawn_result mpOrchestrateMatchStartSpawns(void)
 {
 	spawn_aabb_t aabb;
 	struct coord center;
@@ -382,23 +410,32 @@ void mpOrchestrateMatchStartSpawns(void)
 	f32 dx;
 	f32 dz;
 	int64_t c;
+	const s32 previous_playernum = g_Vars.currentplayernum;
+	struct player_orchestrated_spawn_plan human_plans[MAX_PLAYERS];
+	s32 human_plan_count = 0;
+	s32 human_count = 0;
+	mpspawn_transaction_t human_transaction;
 
 	if (!g_Vars.mplayerisrunning || !spawnPoolIsReady()) {
-		return;
+		return MP_ORCHESTRATE_SPAWN_NOT_READY;
+	}
+	if (previous_playernum < 0 || previous_playernum >= MAX_PLAYERS
+			|| g_Vars.players[previous_playernum] == NULL) {
+		return MP_ORCHESTRATE_SPAWN_INVALID_ROSTER;
 	}
 
 	if (g_MpOrchestrateInitialSpawnDone) {
-		return;
+		return MP_ORCHESTRATE_SPAWN_OK;
 	}
 
 	pool = spawnPoolGet();
 	if (!pool || pool->count <= 0) {
-		return;
+		return MP_ORCHESTRATE_SPAWN_INVALID_POOL;
 	}
 
 	spawnPoolComputeAABB(&aabb);
 	if (!aabb.valid) {
-		return;
+		return MP_ORCHESTRATE_SPAWN_INVALID_POOL;
 	}
 	center.x = (aabb.min.x + aabb.max.x) * 0.5f;
 	center.y = (aabb.min.y + aabb.max.y) * 0.5f;
@@ -408,13 +445,19 @@ void mpOrchestrateMatchStartSpawns(void)
 	if (stage_player_count < 0) {
 		sysLogPrintf(LOG_ERROR,
 			"SPAWN.ORCH: rejected reason=invalid_stage_player_order");
-		return;
+		return MP_ORCHESTRATE_SPAWN_INVALID_ROSTER;
 	}
 
 	s_PartCount = 0;
 	for (s32 order_position = 0;
 			order_position < stage_player_count; order_position++) {
 		i = stage_player_order[order_position];
+		if (i < 0 || i >= MAX_PLAYERS) {
+			sysLogPrintf(LOG_ERROR,
+				"SPAWN.ORCH: rejected reason=invalid_player_slot player=%d",
+				i);
+			return MP_ORCHESTRATE_SPAWN_INVALID_ROSTER;
+		}
 		if (!g_Vars.players[i] || !g_Vars.players[i]->prop || !g_Vars.players[i]->prop->chr) {
 			continue;
 		}
@@ -446,7 +489,7 @@ void mpOrchestrateMatchStartSpawns(void)
 	}
 
 	if (s_PartCount <= 0) {
-		return;
+		return MP_ORCHESTRATE_SPAWN_NO_PARTICIPANTS;
 	}
 
 	orch_sort_parts_deterministic();
@@ -708,12 +751,128 @@ void mpOrchestrateMatchStartSpawns(void)
 
 	spawnPoolClearReservations();
 
+	/* B-242: count and prepare every human without selecting currentplayer or
+	 * publishing a position. A late capsule rejection therefore leaves every
+	 * human at the playerReset state and publishes no bot assignment. */
+	for (p = 0; p < s_PartCount; p++) {
+		if (s_Parts[p].playernum >= 0) {
+			human_count++;
+		}
+	}
+	if (mpspawnTransactionBegin(&human_transaction, human_count)
+			!= MPSPAWN_TRANSACTION_OK) {
+		return MP_ORCHESTRATE_SPAWN_INVALID_ROSTER;
+	}
+
+	for (p = 0; p < s_PartCount; p++) {
+		s32 ai = s_AssignedPool[p];
+		s32 is_dup = 0;
+		s32 q;
+		enum player_orchestrated_spawn_result prepare_result;
+		mpspawn_transaction_status_t transaction_result;
+
+		if (s_Parts[p].playernum < 0) {
+			continue;
+		}
+		if (ai < 0) {
+			sysLogPrintf(LOG_ERROR,
+				"SPAWN.ORCH: rejected player=%d reason=no_pool_assignment",
+				s_Parts[p].playernum);
+			return MP_ORCHESTRATE_SPAWN_NO_ASSIGNMENT;
+		}
+		for (q = 0; q < s_PartCount; q++) {
+			if (q != p && s_AssignedPool[q] == ai) {
+				is_dup = 1;
+				break;
+			}
+		}
+		{
+			const s32 playernum = s_Parts[p].playernum;
+			const s32 client_id = g_NetMode && g_Vars.players[playernum]
+				&& g_Vars.players[playernum]->client
+				? (s32)g_Vars.players[playernum]->client->id : -1;
+			sysLogPrintf(LOG_NOTE,
+				"SPAWN.ORCH: prepare player=%d client=%d role=%s pool=%d duplicate=%d",
+				playernum, client_id, orch_player_role(playernum), ai, is_dup);
+			prepare_result = playerPrepareOrchestratedSpawnFromPool(playernum,
+				ai, &human_plans[human_plan_count]);
+			transaction_result = mpspawnTransactionRecordPrepare(
+				&human_transaction, playernum,
+				prepare_result == PLAYER_ORCHESTRATED_SPAWN_OK);
+			if (prepare_result != PLAYER_ORCHESTRATED_SPAWN_OK
+					|| transaction_result != MPSPAWN_TRANSACTION_OK) {
+				sysLogPrintf(LOG_ERROR,
+					"SPAWN.ORCH: rejected player=%d pool=%d reason=prepare status=%d transaction=%d",
+					playernum, ai, (s32)prepare_result,
+					(s32)transaction_result);
+				return MP_ORCHESTRATE_SPAWN_PLAYER_PREPARE_FAILED;
+			}
+			human_plan_count++;
+		}
+	}
+
+	/* Revalidate all prepared owners before the first mutation. No fallible
+	 * work remains after this point. */
+	if (!mpspawnTransactionCanCommit(&human_transaction)) {
+		return MP_ORCHESTRATE_SPAWN_PLAYER_COMMIT_REJECTED;
+	}
+	for (i = 0; i < human_plan_count; i++) {
+		if (!playerOrchestratedSpawnPlanCanCommit(&human_plans[i])) {
+			return MP_ORCHESTRATE_SPAWN_PLAYER_COMMIT_REJECTED;
+		}
+	}
+
+	/* Capsule correction can move distinct pool anchors toward the same final
+	 * point. Validate the prepared final capsules as one batch before the
+	 * transaction commits, so no human move or bot assignment is published
+	 * when two corrected plans overlap. */
+	for (i = 0; i < human_plan_count; i++) {
+		s32 j;
+		mpspawn_capsule_t a = {
+			human_plans[i].pos.x,
+			human_plans[i].pos.z,
+			human_plans[i].groundy,
+			human_plans[i].capsule_radius,
+			human_plans[i].capsule_height,
+		};
+
+		for (j = i + 1; j < human_plan_count; j++) {
+			mpspawn_capsule_t b = {
+				human_plans[j].pos.x,
+				human_plans[j].pos.z,
+				human_plans[j].groundy,
+				human_plans[j].capsule_radius,
+				human_plans[j].capsule_height,
+			};
+
+			if (mpspawnCapsulesOverlap(&a, &b)) {
+				(void)mpspawnTransactionRejectPreparedBatch(
+					&human_transaction);
+				sysLogPrintf(LOG_ERROR,
+					"SPAWN.ORCH: rejected reason=prepared_capsule_overlap player_a=%d pool_a=%d player_b=%d pool_b=%d",
+					human_plans[i].playernum, human_plans[i].pool_idx,
+					human_plans[j].playernum, human_plans[j].pool_idx);
+				return MP_ORCHESTRATE_SPAWN_PLAYER_BATCH_OVERLAP;
+			}
+		}
+	}
+	if (mpspawnTransactionCommit(&human_transaction)
+			!= MPSPAWN_TRANSACTION_OK) {
+		return MP_ORCHESTRATE_SPAWN_PLAYER_COMMIT_REJECTED;
+	}
+
+	for (i = 0; i < human_plan_count; i++) {
+		playerCommitValidatedOrchestratedSpawn(&human_plans[i]);
+	}
+	setCurrentPlayerNum(previous_playernum);
+
 	for (p = 0; p < s_PartCount; p++) {
 		s32 ai = s_AssignedPool[p];
 		s32 is_dup = 0;
 		s32 q;
 
-		if (ai < 0) {
+		if (ai < 0 || s_Parts[p].aibotnum < 0
+				|| s_Parts[p].aibotnum >= MAX_BOTS) {
 			continue;
 		}
 		for (q = 0; q < s_PartCount; q++) {
@@ -722,18 +881,7 @@ void mpOrchestrateMatchStartSpawns(void)
 				break;
 			}
 		}
-		if (s_Parts[p].playernum >= 0) {
-			const s32 playernum = s_Parts[p].playernum;
-			const s32 client_id = g_NetMode && g_Vars.players[playernum]
-				&& g_Vars.players[playernum]->client
-				? (s32)g_Vars.players[playernum]->client->id : -1;
-			sysLogPrintf(LOG_NOTE,
-				"SPAWN.ORCH: apply player=%d client=%d role=%s pool=%d duplicate=%d",
-				playernum, client_id, orch_player_role(playernum), ai, is_dup);
-			playerApplyOrchestratedSpawnFromPool(s_Parts[p].playernum, ai);
-		} else if (s_Parts[p].aibotnum >= 0 && s_Parts[p].aibotnum < MAX_BOTS) {
-			g_MpOrchestrateBotPoolIdx[s_Parts[p].aibotnum] = is_dup ? -1 : ai;
-		}
+		g_MpOrchestrateBotPoolIdx[s_Parts[p].aibotnum] = is_dup ? -1 : ai;
 	}
 
 	g_MpOrchestrateInitialSpawnDone = true;
@@ -741,4 +889,5 @@ void mpOrchestrateMatchStartSpawns(void)
 	sysLogPrintf(LOG_NOTE,
 		"SPAWN.ORCH: done participants=%d pool=%d sectors=%d teams_mask=0x%x",
 		s_PartCount, pool->count, num_sectors, (unsigned)active_mask);
+	return MP_ORCHESTRATE_SPAWN_OK;
 }

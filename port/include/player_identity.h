@@ -29,6 +29,9 @@ typedef enum player_identity_status_e {
 	PLAYER_IDENTITY_DISABLED_HEAD_ENTRY,
 	PLAYER_IDENTITY_WRONG_BODY_TYPE,
 	PLAYER_IDENTITY_WRONG_HEAD_TYPE,
+	PLAYER_IDENTITY_EMPTY_BODY_RIG_CLASS,
+	PLAYER_IDENTITY_EMPTY_HEAD_RIG_CLASS,
+	PLAYER_IDENTITY_INCOMPATIBLE_RIG_CLASS,
 	PLAYER_IDENTITY_UNBOUND_BODY_RUNTIME_INDEX,
 	PLAYER_IDENTITY_UNBOUND_HEAD_RUNTIME_INDEX,
 	PLAYER_IDENTITY_INCONSISTENT_BODY_BINDING,
@@ -57,8 +60,11 @@ typedef struct player_identity_plan_t {
 void playerIdentityPlanReset(player_identity_plan_t *plan);
 
 /*
- * Validate already-resolved entries without catalog or runtime side effects.
+ * Validate already-resolved entries without registering, loading, activating,
+ * or mutating asset entries. Complete-body validation can report missing
+ * manager metadata through the normal catalog health diagnostics.
  * The entries must correspond exactly to body_id and head_id.
+ * An empty head ID with a NULL head entry is accepted only for a complete body.
  */
 player_identity_status_e playerIdentityPrepareResolved(
 	const char *body_id,
@@ -67,7 +73,7 @@ player_identity_status_e playerIdentityPrepareResolved(
 	const asset_entry_t *head_entry,
 	player_identity_plan_t *out_plan);
 
-/* Resolve both typed IDs, then apply the same pure validation contract. */
+/* Resolve the typed IDs, then apply the same validation contract. */
 player_identity_status_e playerIdentityPrepare(
 	const char *body_id,
 	const char *head_id,

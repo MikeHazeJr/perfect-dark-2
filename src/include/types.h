@@ -316,6 +316,8 @@ struct prop {
 	/*0x48*/ u32 syncid;
 	/* PC: mesh collision data for this prop (NULL if not extracted) */
 	struct colmesh *colmesh;
+	/* PC: exact process-lifetime allocation identity. Zero means unallocated. */
+	u64 lifecycle_generation;
 };
 
 struct packedpad {

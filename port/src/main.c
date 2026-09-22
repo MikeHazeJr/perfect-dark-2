@@ -50,6 +50,7 @@
 #include "savefile.h"
 #include "agent_session.h"
 #include "v006_save_harness.h"
+#include "v006_scenario_harness.h"
 #include "asset_source_harness.h"
 #include "asset_catalog_relocation_harness.h"
 #include "body_head_source_harness.h"
@@ -79,7 +80,6 @@
 #include "effect_instance_runtime.h"
 #include "player_stage_init_fault.h"
 #include "combat_sim_verify.h"
-#include "weapon_nested_runtime_harness.h"
 #include "asset_source_debug.h"
 #include "modasset_compiler.h"
 #include "loader_pool.h"
@@ -93,6 +93,7 @@
 #include "game/bondgun.h"
 #include "game/player.h"
 #include "game/prop.h"
+#include "game/propobj.h"
 #include "lib/music.h"
 #include "lib/snd.h"
 
@@ -435,6 +436,7 @@ static bool        g_BootMountBike        = false;
 /* Latched one-shot for the bike-mount hook; tickled by pdmain.c's
  * mainTick once activeprops is populated and player 0 is alive. */
 static s32         g_BootMountBikePending = 0;
+static s32         g_BootMountBikeStage = -1;
 
 /* c115 (2026-05-14): --debug-spawn-at one-shot latch. Parsed at boot,
  * fired on the first frame where the player prop exists. Mirrors the
@@ -1435,6 +1437,7 @@ static void bootApplyDebugMountBike(void)
 		return;
 	}
 	g_BootMountBikePending = 1;
+	g_BootMountBikeStage = -1;
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --debug-mount-bike armed (will mount on first hoverbike prop after stage load)");
 }
@@ -2746,6 +2749,12 @@ static void bootApplyCliFastPaths(void)
 	bootApplyLaunchMission();
 	bootApplyLaunchMpRoom();
 	bootApplyDebugMpOptions();
+	if (sysArgCheck("--debug-v006-scenario-transaction")) {
+		s32 result = v006ScenarioTransactionRun();
+		if (result != 0) {
+			smokeHarnessExit(2, "v006_scenario_failure");
+		}
+	}
 	bootApplyDebugMountBike();
 	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
 	bootApplyDebugForceFirstPerson();
@@ -2871,11 +2880,14 @@ s32 bootLaunchMpMatchTick(void)
 /* Called once per frame from pdmain.c's mainTick when the
  * --debug-mount-bike one-shot is armed.  Walks g_Vars.activeprops
  * looking for the first OBJTYPE_HOVERBIKE prop, and on match calls
- * currentPlayerTryMountHoverbike(prop) once, then clears the latch.
+ * currentPlayerTryMountHoverbike(prop) once, then clears the latch. This
+ * deliberately exercises the production candidate/commit path but does not
+ * prove normal propFindForInteract LOS/collision selection.
  *
  * Gates:
  *   - g_BootMountBikePending must be set (caller checks before calling)
- *   - g_Vars.lvframenum >= 4 (CI fly-in / load black frames out of the way)
+ *   - the real offline gameplay layer, normal tick, update, and Player 0
+ *     control/walking readiness must already be true
  *   - g_Vars.players[0] must be alive and have a valid prop
  *   - prop must be PROPTYPE_OBJ + obj->type == OBJTYPE_HOVERBIKE
  *
@@ -2886,11 +2898,25 @@ s32 bootDebugMountBikeTick(void)
 	if (!g_BootMountBikePending) {
 		return 0;
 	}
-	if (g_Vars.lvframenum < 4) {
+	if (!g_Vars.players[0] || !g_Vars.players[0]->prop
+			|| !g_Vars.players[0]->prop->chr) {
 		return 0;
 	}
-	if (!g_Vars.players[0] || !g_Vars.players[0]->prop) {
+	if (sceneCurrentLayer() != LAYER_GAMEPLAY
+			|| g_Vars.tickmode != TICKMODE_NORMAL
+			|| g_Vars.lvupdate240 <= 0
+			|| g_PlayersWithControl[0] == 0
+			|| g_Vars.players[0]->isdead
+			|| g_Vars.players[0]->bondmovemode != MOVEMODE_WALK) {
 		return 0;
+	}
+	if (g_BootMountBikeStage < 0) {
+		g_BootMountBikeStage = g_Vars.stagenum;
+	} else if (g_BootMountBikeStage != g_Vars.stagenum) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-mount-bike stage changed before a hoverbike became available; one-shot consumed");
+		g_BootMountBikePending = 0;
+		return 1;
 	}
 
 	struct prop *prop = g_Vars.activeprops;
@@ -2899,31 +2925,44 @@ s32 bootDebugMountBikeTick(void)
 				&& prop->obj
 				&& prop->obj->type == OBJTYPE_HOVERBIKE
 				&& (prop->obj->hidden & OBJHFLAG_MOUNTED) == 0) {
-			/* currentPlayerTryMountHoverbike reads g_Vars.currentplayer +
-			 * g_Vars.currentplayerstats, so make sure player 0 is current
-			 * before we call.  Don't dereference unless setCurrentPlayerNum
-			 * succeeded -- but it's a void function, so we trust the
-			 * caller's invariant (lvFrame >= 4 implies player 0 alive). */
+			/* Place Player 0 in a generic side-entry position so this hook
+			 * exercises the production proximity/facing/commit transaction.
+			 * The direct candidate call does not prove the normal
+			 * propFindForInteract LOS/collision selection. The hook remains
+			 * stage-agnostic: it uses the bike's own room and orientation rather
+			 * than map coordinates. */
+			const s32 previousPlayerNum = g_Vars.currentplayernum;
 			setCurrentPlayerNum(0);
+			struct coord target = prop->pos;
+			f32 turn = hoverpropGetTurnAngle(prop->obj);
+			target.x += sinf(turn + M_BADPI * 0.5f) * 150.0f;
+			target.z += cosf(turn + M_BADPI * 0.5f) * 150.0f;
+			if (!chrMoveToPos(g_Vars.players[0]->prop->chr, &target, prop->rooms,
+					turn, false)) {
+				setCurrentPlayerNum(previousPlayerNum);
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-mount-bike placement failed for Player 0");
+				g_BootMountBikePending = 0;
+				return 1;
+			}
+			/* The bootstrap is an explicit direct PC-use intent. It exercises the
+			 * production candidate/commit path without pretending to be a normal
+			 * propFindForInteract LOS/collision selection. */
+			g_Vars.players[0]->pcinteractusekind = 2;
 			bool ok = currentPlayerTryMountHoverbike(prop);
+			setCurrentPlayerNum(previousPlayerNum);
 			sysLogPrintf(LOG_NOTE,
-				"BOOT: --debug-mount-bike consumed: prop=%p stagenum=0x%02x result=%s",
+				"BOOT: --debug-mount-bike consumed: path=debug_candidate_no_propfind_los prop=%p stagenum=0x%02x result=%s",
 				(void *)prop, (u32)g_Vars.stagenum, ok ? "MOUNTED" : "REJECTED");
 			g_BootMountBikePending = 0;
 			return 1;
 		}
 		prop = prop->next;
 	}
-	/* No hoverbike on this stage.  Clear the latch after the load
-	 * settles so we don't keep scanning every frame for the entire
-	 * session; a follow-up stage change won't re-fire (one-shot). */
-	if (g_Vars.lvframenum > 120) {
-		sysLogPrintf(LOG_NOTE,
-			"BOOT: --debug-mount-bike: no hoverbike prop on stagenum=0x%02x; one-shot consumed",
-			(u32)g_Vars.stagenum);
-		g_BootMountBikePending = 0;
-		return 1;
-	}
+	/* Keep the latch pending when the current stage has not exposed a bike yet.
+	 * Stage/player readiness, rather than a process- or frame-start timeout,
+	 * owns when this one-shot may consume itself; a later prop activation can
+	 * still exercise the same production candidate path. */
 	return 0;
 }
 
@@ -4199,15 +4238,6 @@ int main(int argc, const char **argv)
 	bootProgressShutdown();
 
 	s32 assetChainFailures = SDL_AtomicGet(&g_BootAssetChainFailures);
-	const char *weaponNestedPlan =
-		sysArgGetString("--debug-weapon-nested-harness");
-	if (weaponNestedPlan && weaponNestedPlan[0]) {
-		s32 pass = weaponNestedRuntimeHarnessRun(weaponNestedPlan);
-		if (smokeHarnessIsActive()) {
-			smokeHarnessExit(pass ? 0 : 1,
-				pass ? "weapon_nested_harness_pass" : "weapon_nested_harness_fail");
-		}
-	}
 	if (assetChainFailures > 0) {
 		sysLoudFailf("ASSETCHAIN",
 			"boot stopped: %d extraction/load failure(s); see earlier "

@@ -17,6 +17,7 @@
 #include "lib/collision.h"
 #include "data.h"
 #include "types.h"
+#include "net/net.h"
 
 struct prop *var8009de70;
 u32 var8009de74;
@@ -890,6 +891,19 @@ void bgrabUpdateVertical(void)
 
 void bgrabHandleActivate(void)
 {
+	struct prop *grabbedprop = g_Vars.currentplayer
+		? g_Vars.currentplayer->grabbedprop : NULL;
+
+	/* A remote client may hold the same prop locally, but only the server's
+	 * currentPlayerInteract path may validate and commit a vehicle mount. Keep
+	 * the grab intact until the typed committed state arrives. */
+	if (g_NetMode == NETMODE_CLIENT && grabbedprop
+			&& grabbedprop->type == PROPTYPE_OBJ && grabbedprop->obj
+			&& grabbedprop->obj->type == OBJTYPE_HOVERBIKE) {
+		g_Vars.currentplayer->bondactivateorreload = 0;
+		return;
+	}
+
 	if (currentPlayerTryMountHoverbike(g_Vars.currentplayer->grabbedprop)) {
 		g_Vars.currentplayer->bondactivateorreload = 0;
 	} else {

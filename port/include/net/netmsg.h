@@ -25,6 +25,29 @@
 #define SVC_PROP_LIFT     0x36 // lift state changed
 #define SVC_PROP_SYNC     0x37 // prop sync checksum for desync detection
 #define SVC_PROP_RESYNC   0x38 // full prop state correction (sent on desync)
+#define SVC_PROP_VEHICLE_STATE 0x39 // v59: committed hoverbike mount/dismount state
+
+/* v59 vehicle state is a committed server decision, not a replayable use
+ * intent. The actor, prop sync ID, stage epoch, and monotonic transition
+ * sequence are all validated by receivers before state application. */
+#define NET_VEHICLE_STATE_WIRE_VERSION 1
+#define NET_VEHICLE_STATE_WIRE_BYTES 20u /* message ID + fixed payload */
+enum net_vehicle_state_kind {
+	NET_VEHICLE_STATE_MOUNTED = 1,
+	NET_VEHICLE_STATE_DISMOUNTED = 2,
+};
+
+/* A vehicle transition reserves its exact reliable bytes before changing
+ * world state. The reservation prevents a later append failure; commit copies
+ * the already-encoded bytes into that reserved range after the state change. */
+typedef struct net_vehicle_state_txn_s {
+	bool valid;
+	struct netbuf *dst;
+	struct prop *prop;
+	u32 write_offset;
+	u32 sequence;
+	u8 bytes[NET_VEHICLE_STATE_WIRE_BYTES];
+} net_vehicle_state_txn_t;
 #define SVC_CHR_DAMAGE    0x42 // chr was damaged
 #define SVC_CHR_DISARM    0x43 // chr's weapons were dropped
 #define SVC_CHR_MOVE      0x44 // chr (bot/simulant) position update from server
@@ -73,6 +96,8 @@
 
 /* R-5: Room settings sync (protocol v35 additive) */
 #define SVC_ROOM_SETTINGS  0x78 // server→room: match settings changed by leader (numBots, timelimit, etc.)
+#define SVC_ROOM_RESULT    0x7a // operation, room_result_t, unchanged/accepted room ID
+#define SVC_LOBBY_ROSTER   0x7b // authenticated presentation roster, stable client IDs
 #define SVC_ROOM_PLAYLIST  0x79 // server→room: mod music playlist changed by leader (serialized string)
 
 /* MASTER-C2b: Admin RCON reply (protocol v38+; ADMIN_RESP_RATE_LIMIT added v39). */
@@ -286,6 +311,16 @@ u32 netmsgSvcPropPickupWrite(struct netbuf *dst, struct netclient *actcl, struct
 u32 netmsgSvcPropPickupRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcPropUseWrite(struct netbuf *dst, struct prop *prop, struct netclient *usercl, const s32 tickop);
 u32 netmsgSvcPropUseRead(struct netbuf *src, struct netclient *srccl);
+void netmsgVehicleStateStageReset(void);
+bool netmsgSvcVehicleStateCanWrite(const struct netbuf *dst,
+	const struct prop *prop, const struct netclient *usercl, u8 state);
+bool netmsgSvcVehicleStatePrepare(struct netbuf *dst, struct prop *prop,
+	struct netclient *usercl, u8 state, net_vehicle_state_txn_t *txn);
+void netmsgSvcVehicleStateCommit(net_vehicle_state_txn_t *txn);
+void netmsgSvcVehicleStateAbort(net_vehicle_state_txn_t *txn);
+u32 netmsgSvcVehicleStateWrite(struct netbuf *dst, struct prop *prop,
+	struct netclient *usercl, u8 state);
+u32 netmsgSvcVehicleStateRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcPropDoorWrite(struct netbuf *dst, struct prop *prop, struct netclient *usercl);
 u32 netmsgSvcPropDoorRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcPropLiftWrite(struct netbuf *dst, struct prop *prop);
@@ -462,6 +497,8 @@ u32 netmsgSvcRoomListWrite(struct netbuf *dst);
 u32 netmsgSvcRoomListRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcRoomAssignWrite(struct netbuf *dst, u8 room_id);
 u32 netmsgSvcRoomAssignRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcRoomResultRead(struct netbuf *src, struct netclient *srccl);
+void netRoomRequestReset(void);
 
 /* v34: Mid-match music playlist advance.
  * v40 (Issue 4b): wire gains u32 match_clock_offset_ms after track_id;
@@ -488,6 +525,8 @@ u32 netmsgClcRoomPlaylistUpdateRead(struct netbuf *src, struct netclient *srccl)
 /* Convenience: pack current g_MatchConfig into CLC_ROOM_SETTINGS_UPDATE and send.
  * Call from the room screen whenever the leader changes settings. */
 void netSendRoomSettingsUpdate(void);
+s32 netRequestRoomCreate(const char *name, u8 access, const char *password, u8 max_players);
+s32 netRequestRoomJoin(u8 room_id, const char *password);
 /* Convenience: pack current mod playlist into CLC_ROOM_PLAYLIST_UPDATE and send. */
 void netSendRoomPlaylistUpdate(void);
 
@@ -583,6 +622,8 @@ void netSendGpuSwarmState(void);
  * is exposed because the client never sends it. */
 
 void netBroadcastRoomList(void);
+void netmsgPublishLobbyRoster(s32 force);
+u32 netmsgSvcLobbyRosterRead(struct netbuf *src, struct netclient *srccl);
 /* Rebuild and publish lobby leader plus room-list topology after an
  * authenticated join or reconnect commit. Server mode only. */
 void netmsgServerPublishAuthenticatedTopology(void);

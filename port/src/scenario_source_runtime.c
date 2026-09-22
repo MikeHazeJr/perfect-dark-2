@@ -66,6 +66,7 @@
 #include "lib/snd.h"
 #include "scenario_room_domain.h"
 #include "scenario_source_runtime.h"
+#include "texture_source_runtime.h"
 #include "langmanifest.h"
 #include "romdata.h"
 #include "romextract.h"
@@ -7315,6 +7316,13 @@ const asset_entry_t *scenarioSourceFindEntryForStage(
 	return s_findScenarioForStage(stage, prefer_mp);
 }
 
+const char *scenarioSourceActiveMissionId(void)
+{
+	return s_ActiveScenarioGraphs.mission_graph_active
+			&& s_ActiveScenarioGraphs.mission_id[0]
+		? s_ActiveScenarioGraphs.mission_id : NULL;
+}
+
 void scenarioSourceFatalRuntimeFallbackForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp,
 	const char *payload, s32 legacy_id, const char *reason)
@@ -7448,6 +7456,26 @@ static s32 s_scenarioMemberPath(const asset_entry_t *scenario,
 			member);
 	}
 	return out[0] != '\0';
+}
+
+
+s32 scenarioSourceApplyTexturePropertiesForStage(const catalog_stage_result_t *stage, s32 prefer_mp)
+{
+    const asset_entry_t *scenario = s_findScenarioForStage(stage, prefer_mp);
+    char path[FS_MAXPATH + 1], error[192];
+    if (!scenario) return 0;
+    if (scenario->ext.scenario.level_graph_file[0])
+        s_copyString(path, sizeof(path), scenario->ext.scenario.level_graph_file);
+    else if (!s_scenarioMemberPath(scenario, "level.graph.json", path, sizeof(path))) return 0;
+    u32 size = 0;
+    char *text = fsFileLoad(path, &size);
+    if (!text) return 0;
+    const s32 result = textureSourceRuntimeStageGraph(text, size, prefer_mp,
+        scenario->bundled, error, sizeof(error));
+    free(text);
+    if (!result) sysLoudFailf("SCENARIO.TEXTURE.SOURCE", "%s: %s", scenario->id, error);
+    else sysLogPrintf(LOG_NOTE, "SCENARIO.TEXTURE.SOURCE: id=%s path=%s active=1", scenario->id, path);
+    return result;
 }
 
 static s32 s_scenarioDeclaredOrMemberPath(const asset_entry_t *scenario,
@@ -14378,7 +14406,7 @@ static const asset_entry_t *s_aiGraphFindLangCatalogEntryForBank(s32 bank)
 		return NULL;
 	}
 
-	count = assetCatalogGetCount();
+	count = assetCatalogGetPoolSize();
 	for (s32 i = 0; i < count; i++) {
 		const asset_entry_t *entry = assetCatalogGetByIndex(i);
 		s32 score;

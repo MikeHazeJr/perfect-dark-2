@@ -24,6 +24,7 @@ enum player_reset_result {
 	PLAYER_RESET_EYESPY_ALLOCATION_FAILED = -4,
 	PLAYER_RESET_CHRBODY_PREFLIGHT_FAILED = -5,
 	PLAYER_RESET_TARGET_BIND_FAILED = -6,
+	PLAYER_RESET_SPAWN_FAILED = -7,
 };
 
 enum player_reset_result playerReset(void);

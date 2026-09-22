@@ -1,3 +1,4 @@
+#include "net/net_player_move_wire.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,6 +46,7 @@
 #include "net/netbuf.h"
 #include "net/netmsg.h"
 #include "net/netlobby.h"
+#include "net/lobby_roster_wire.h"
 #include "net/netdistrib.h"
 #include "net/netmanifest.h"
 #include "net/net_manifest_type.h"
@@ -54,10 +56,13 @@
 #include "net/net_reconnect.h"
 #include "net/sessioncatalog.h"
 #include "room.h"
+#include "net/room_ui.h"
+#include "net/room_wire.h"
 #include "scenario_save.h"
 #include "scenario_source_runtime.h"
 #include "assetcatalog.h"
 #include "asset_runtime.h"
+#include "mpstats_attribution.h"
 #include "player_identity.h"
 #include "audio.h"
 #include "modmusic.h"
@@ -655,6 +660,55 @@ int netPropDirtyCheck(void)
 #define NET_PROP_MAP_SIZE 2048
 static struct prop *s_PropBySyncId[NET_PROP_MAP_SIZE];
 
+typedef struct netmsg_vehicle_state_seen_s {
+	bool valid;
+	u8 actor_client_id;
+	u8 playernum;
+	u8 state;
+	u32 prop_syncid;
+	u32 stage_epoch;
+	u32 sequence;
+} netmsg_vehicle_state_seen_t;
+
+static netmsg_vehicle_state_seen_t s_VehicleStateSeen[MAX_PLAYERS];
+static u32 s_NextVehicleTransitionSequence;
+static u32 s_VehicleTransitionSequenceEpoch;
+static bool s_VehicleTransitionReserved;
+
+static bool netmsgVehicleSequenceIsNewer(u32 candidate, u32 prior)
+{
+	return candidate != prior
+		&& (u32)(candidate - prior) < 0x80000000u;
+}
+
+static u32 netmsgVehicleSequenceCandidate(void)
+{
+	u32 candidate;
+
+	/* This counter is intentionally independent of g_NetTick: a legitimate
+	 * mount followed by a dismount in one server tick must publish as two
+	 * ordered transitions, not collide as one event. */
+	if (s_VehicleTransitionSequenceEpoch != g_NetStageEpoch) {
+		s_VehicleTransitionSequenceEpoch = g_NetStageEpoch;
+		s_NextVehicleTransitionSequence = 0;
+	}
+
+	candidate = s_NextVehicleTransitionSequence + 1;
+	if (candidate == 0) {
+		candidate = 1;
+	}
+
+	return candidate;
+}
+
+void netmsgVehicleStateStageReset(void)
+{
+	memset(s_VehicleStateSeen, 0, sizeof(s_VehicleStateSeen));
+	s_NextVehicleTransitionSequence = 0;
+	s_VehicleTransitionSequenceEpoch = 0;
+	s_VehicleTransitionReserved = false;
+}
+
 typedef struct netmsg_reconnect_prop_receive_s {
 	bool active;
 	bool complete;
@@ -695,6 +749,7 @@ static void netmsgReconnectPropReceiveReset(void)
 void netSyncIdMapClear(void)
 {
     memset(s_PropBySyncId, 0, sizeof(s_PropBySyncId));
+	netmsgVehicleStateStageReset();
 	netmsgReconnectPropReceiveReset();
 }
 
@@ -844,52 +899,6 @@ static inline u32 netbufReadGset(struct netbuf *buf, struct gset *gset)
 	gset->unk0639 = netbufReadU8(buf);
 	gset->unk063a = netbufReadU8(buf);
 	gset->weaponfunc = netbufReadU8(buf);
-	return buf->error;
-}
-
-static inline u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplayermove *in)
-{
-	netbufWriteU32(buf, in->tick);
-	netbufWriteU32(buf, in->ucmd);
-	netbufWriteF32(buf, in->leanofs);
-	netbufWriteF32(buf, in->crouchofs);
-	netbufWriteF32(buf, in->movespeed[0]);
-	netbufWriteF32(buf, in->movespeed[1]);
-	netbufWriteF32(buf, in->angles[0]);
-	netbufWriteF32(buf, in->angles[1]);
-	netbufWriteF32(buf, in->crosspos[0]);
-	netbufWriteF32(buf, in->crosspos[1]);
-	netbufWriteS8(buf, in->weaponnum);
-	netbufWriteCoord(buf, &in->pos);
-	if (in->ucmd & UCMD_AIMMODE) {
-		netbufWriteF32(buf, in->zoomfov);
-	}
-	return buf->error;
-}
-
-static inline u32 netbufReadPlayerMove(struct netbuf *buf, struct netplayermove *in)
-{
-	in->tick = netbufReadU32(buf);
-	in->ucmd = netbufReadU32(buf);
-	in->leanofs = netbufReadF32(buf);
-	in->crouchofs = netbufReadF32(buf);
-	in->movespeed[0] = netbufReadF32(buf);
-	in->movespeed[1] = netbufReadF32(buf);
-	in->angles[0] = netbufReadF32(buf);
-	in->angles[1] = netbufReadF32(buf);
-	in->crosspos[0] = netbufReadF32(buf);
-	in->crosspos[1] = netbufReadF32(buf);
-	in->weaponnum = netbufReadS8(buf);
-	/* M-6: Clamp weaponnum to valid range to prevent OOB from malicious packets. */
-	if (in->weaponnum < WEAPON_NONE || in->weaponnum >= WEAPON_CUSTOM_END) {
-		in->weaponnum = WEAPON_UNARMED;
-	}
-	netbufReadCoord(buf, &in->pos);
-	if (in->ucmd & UCMD_AIMMODE) {
-		in->zoomfov = netbufReadF32(buf);
-	} else {
-		in->zoomfov = 0.f;
-	}
 	return buf->error;
 }
 
@@ -1824,7 +1833,7 @@ u32 netmsgClcMoveWrite(struct netbuf *dst)
 
 u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 {
-	struct netplayermove newmove;
+	struct netplayermove newmove = {0};
 	const u32 outmoveack = netbufReadU32(src);
 	netbufReadPlayerMove(src, &newmove);
 	if (src->error) {
@@ -1834,6 +1843,14 @@ u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 	if (srccl->state != CLSTATE_GAME) {
 		// silently ignore
 		return src->error;
+	}
+
+	if ((newmove.ucmd & UCMD_VEHICLE_PC_INTENT)
+			&& !(newmove.ucmd & UCMD_ACTIVATE)) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: rejected CLC_MOVE vehicle PC intent without activation from client %u",
+			(unsigned)srccl->id);
+		return 1;
 	}
 
 	if ((newmove.ucmd & UCMD_SELECT) && newmove.weaponnum >= 0) {
@@ -3748,6 +3765,7 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	g_NetRngLatch = true;
 	g_NetMatchSeed = plan.match_seed;
 	g_NetStageEpoch = plan.stage_epoch;
+	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
 	g_NetGameMode = plan.mode;
 	g_NetCoopFriendlyFire = plan.coop_friendly_fire;
@@ -3926,6 +3944,7 @@ u32 netmsgSvcStageEndWrite(struct netbuf *dst, u8 room_id, u8 mode)
 void netmsgSvcStageEndCommit(u8 room_id, u8 mode)
 {
 	g_NetStageEpoch = 0;
+	netmsgVehicleStateStageReset();
 	netNpcReplicationReset();
 	/* A reconnect gameplay witness belongs only to the restored live stage. */
 	for (s32 i = 0; i < g_NetMaxClients; ++i) {
@@ -4107,7 +4126,7 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
 {
 	u8 id = 0;
 	u32 outmoveack = 0;
-	struct netplayermove newmove;
+	struct netplayermove newmove = {0};
 	RoomNum newrooms[8] = { -1 };
 
 	id = netbufReadU8(src);
@@ -4338,30 +4357,27 @@ u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)
 			s_ReconnectPropReceive.complete);
 
 	if (player_state_action == NET_RECONNECT_PLAYER_STATE_LIVE_DEATH) {
-		/* B-256 v43 dispatch:
-		 *   1. Wire field authoritative when in range and != self.  This
-		 *      is the new structural path: the producing peer already
-		 *      resolved the attacker so receivers don't re-resolve from
-		 *      potentially-stale local chr-state.
-		 *   2. Fallback to the local-resolve path (the v42 third-site
-		 *      closure: mpPlayerGetIndex on lastattacker pointer, then
-		 *      currentplayernum) when the wire reports -1 sentinel or a
-		 *      self-attribution, since "self" on the wire would be a
-		 *      suicide and the legacy path encodes that as
-		 *      currentplayernum == self anyway.
-		 * Both layers exist now: wire-authoritative for normal kills,
-		 * local-fallback for v42 grace and edge cases (suicides, world
-		 * damage, NULL attacker). */
-		s16 shooter;
-		if (wire_attacker_id >= 0 && (s32)wire_attacker_id != g_Vars.currentplayernum) {
-			shooter = (s16)wire_attacker_id;
-		} else if (pl->prop->chr->lastattacker) {
-			shooter = (s16)mpPlayerGetIndex(pl->prop->chr->lastattacker);
-			if (shooter < 0) shooter = g_Vars.currentplayernum;
-		} else {
-			shooter = g_Vars.currentplayernum;
+		/* B-249: the wire, live chr pointer, and playerDieByShooter all use
+		 * compact g_MpAllChrPtrs runtime indices. Stable player/config slots are
+		 * never compared or forwarded as though they occupied that domain. */
+		const s32 victim_runtime_index = mpPlayerGetIndex(pl->prop->chr);
+		const s32 live_attacker_runtime_index = pl->prop->chr->lastattacker
+			? mpPlayerGetIndex(pl->prop->chr->lastattacker) : -1;
+		const s32 shooter_runtime_index =
+			mpstatsAttributionChooseShooterRuntimeIndex(
+				(s32)wire_attacker_id, live_attacker_runtime_index,
+				victim_runtime_index, g_MpNumChrs);
+
+		if (shooter_runtime_index < 0) {
+			setCurrentPlayerNum(prevplayernum);
+			sysLogPrintf(LOG_WARNING,
+				"NET: rejected live death with invalid runtime attribution victim=%d wire=%d live=%d count=%d",
+				victim_runtime_index, (s32)wire_attacker_id,
+				live_attacker_runtime_index, g_MpNumChrs);
+			return 1;
 		}
-		playerDieByShooter(shooter, true);
+
+		playerDieByShooter(shooter_runtime_index, true);
 	} else if (player_state_action ==
 			NET_RECONNECT_PLAYER_STATE_SNAPSHOT_DEATH) {
 		if (!playerRestoreDeadStateFromSnapshot()) {
@@ -6472,6 +6488,18 @@ u32 netmsgSvcPropPickupRead(struct netbuf *src, struct netclient *srccl)
 
 u32 netmsgSvcPropUseWrite(struct netbuf *dst, struct prop *prop, struct netclient *usercl, const s32 tickop)
 {
+	/* Hoverbike transitions have a typed committed-state message. Never emit
+	 * a raw interaction intent for them: receivers must not re-run local
+	 * distance, facing, or LOS validation. */
+	if (prop && prop->type == PROPTYPE_OBJ && prop->obj
+			&& prop->obj->type == OBJTYPE_HOVERBIKE) {
+		return 1;
+	}
+
+	if (!dst || !prop || !usercl) {
+		return 1;
+	}
+
 	netPropMarkDirty(prop->syncid);
 	netbufWriteU8(dst, SVC_PROP_USE);
 	netbufWritePropPtr(dst, prop);
@@ -6482,12 +6510,25 @@ u32 netmsgSvcPropUseWrite(struct netbuf *dst, struct prop *prop, struct netclien
 
 u32 netmsgSvcPropUseRead(struct netbuf *src, struct netclient *srccl)
 {
+	if (!src) {
+		return 1;
+	}
+
 	struct prop *prop = netbufReadPropPtr(src);
 	const u8 clid = netbufReadU8(src);
 	const s8 tickop = netbufReadS8(src);
 
-	if (!prop || srccl->state < CLSTATE_GAME || clid >= NET_MAX_CLIENTS + 1) {
+	if (!srccl || !prop || src->error || srccl->state < CLSTATE_GAME
+			|| clid >= NET_MAX_CLIENTS + 1) {
 		return src->error ? src->error : 1;
+	}
+
+	if (prop->type == PROPTYPE_OBJ && prop->obj
+			&& prop->obj->type == OBJTYPE_HOVERBIKE) {
+		sysLogPrintf(LOG_WARNING,
+			"NET: rejected raw SVC_PROP_USE for hoverbike syncid=%u",
+			(unsigned)prop->syncid);
+		return 1;
 	}
 
 	struct netclient *actcl = &g_NetClients[clid];
@@ -6509,10 +6550,8 @@ u32 netmsgSvcPropUseRead(struct netbuf *src, struct netclient *srccl)
 			}
 			break;
 		default:
-			// Unhandled prop types (CHR, etc.) produce no interaction on the client.
-			// Doors and lifts have dedicated SVC_PROP_DOOR / SVC_PROP_LIFT messages.
-			// SVC_PROP_USE can be removed once every interactive prop type has a
-			// dedicated handler and no callers of netmsgSvcPropUseWrite remain.
+			/* Doors and lifts have dedicated state messages. Other unhandled
+			 * prop types produce no interaction on the client. */
 			ownop = TICKOP_NONE;
 			break;
 	}
@@ -6521,6 +6560,239 @@ u32 netmsgSvcPropUseRead(struct netbuf *src, struct netclient *srccl)
 
 	setCurrentPlayerNum(prevplayernum);
 
+	return src->error;
+}
+
+bool netmsgSvcVehicleStateCanWrite(const struct netbuf *dst,
+	const struct prop *prop, const struct netclient *usercl, const u8 state)
+{
+	if (!dst || dst->error || g_NetMode != NETMODE_SERVER
+			|| s_VehicleTransitionReserved
+			|| dst->wp > dst->size
+			|| dst->size - dst->wp < NET_VEHICLE_STATE_WIRE_BYTES
+			|| !prop || prop->type != PROPTYPE_OBJ || !prop->obj
+			|| prop->obj->type != OBJTYPE_HOVERBIKE
+			|| prop->syncid == NET_NULL_PROP
+			|| !usercl || usercl->id >= NET_MAX_CLIENTS
+			|| !usercl->player || usercl->player->client != usercl
+			|| usercl->playernum >= MAX_PLAYERS
+			|| g_NetStageEpoch == 0
+			|| (state != NET_VEHICLE_STATE_MOUNTED
+				&& state != NET_VEHICLE_STATE_DISMOUNTED)) {
+		return false;
+	}
+
+	return true;
+}
+
+bool netmsgSvcVehicleStatePrepare(struct netbuf *dst, struct prop *prop,
+	struct netclient *usercl, const u8 state, net_vehicle_state_txn_t *txn)
+{
+	struct netbuf encoded;
+	u32 sequence;
+
+	if (!txn) {
+		return false;
+	}
+
+	memset(txn, 0, sizeof(*txn));
+	if (!netmsgSvcVehicleStateCanWrite(dst, prop, usercl, state)) {
+		return false;
+	}
+
+	sequence = netmsgVehicleSequenceCandidate();
+	encoded.data = txn->bytes;
+	encoded.size = sizeof(txn->bytes);
+	encoded.rp = 0;
+	encoded.wp = 0;
+	encoded.error = 0;
+	netbufWriteU8(&encoded, SVC_PROP_VEHICLE_STATE);
+	netbufWriteU8(&encoded, NET_VEHICLE_STATE_WIRE_VERSION);
+	netbufWriteU8(&encoded, state);
+	netbufWriteU8(&encoded, (u8)usercl->id);
+	netbufWriteU8(&encoded, usercl->playernum);
+	netbufWriteU32(&encoded, prop->syncid);
+	netbufWriteU8(&encoded, PROPTYPE_OBJ);
+	netbufWriteU16(&encoded, OBJTYPE_HOVERBIKE);
+	netbufWriteU32(&encoded, g_NetStageEpoch);
+	netbufWriteU32(&encoded, sequence);
+
+	if (encoded.error || encoded.wp != NET_VEHICLE_STATE_WIRE_BYTES
+			|| dst->wp + encoded.wp > dst->size) {
+		return false;
+	}
+
+	/* Reserve the exact destination range without publishing dirty state. No
+	 * gameplay writer may run between this reservation and commit/abort on the
+	 * main thread. The bytes themselves are copied only after world commit. */
+	txn->valid = true;
+	txn->dst = dst;
+	txn->prop = prop;
+	txn->write_offset = dst->wp;
+	txn->sequence = sequence;
+	dst->wp += encoded.wp;
+	s_VehicleTransitionReserved = true;
+	return true;
+}
+
+void netmsgSvcVehicleStateCommit(net_vehicle_state_txn_t *txn)
+{
+	if (!txn || !txn->valid) {
+		return;
+	}
+
+	if (!txn->dst || txn->dst->error
+			|| txn->dst->wp != txn->write_offset + NET_VEHICLE_STATE_WIRE_BYTES) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: vehicle state reservation violated before commit");
+		if (txn->dst) {
+			txn->dst->error = 1;
+		}
+	} else {
+		memcpy(txn->dst->data + txn->write_offset, txn->bytes,
+			NET_VEHICLE_STATE_WIRE_BYTES);
+		s_NextVehicleTransitionSequence = txn->sequence;
+		netPropMarkDirty(txn->prop->syncid);
+	}
+
+	txn->valid = false;
+	s_VehicleTransitionReserved = false;
+}
+
+void netmsgSvcVehicleStateAbort(net_vehicle_state_txn_t *txn)
+{
+	if (!txn || !txn->valid) {
+		return;
+	}
+
+	if (txn->dst && !txn->dst->error
+			&& txn->dst->wp == txn->write_offset + NET_VEHICLE_STATE_WIRE_BYTES) {
+		txn->dst->wp = txn->write_offset;
+	} else if (txn->dst) {
+		txn->dst->error = 1;
+		sysLogPrintf(LOG_ERROR,
+			"NET: vehicle state reservation violated during abort");
+	}
+
+	txn->valid = false;
+	s_VehicleTransitionReserved = false;
+}
+
+u32 netmsgSvcVehicleStateWrite(struct netbuf *dst, struct prop *prop,
+	struct netclient *usercl, const u8 state)
+{
+	net_vehicle_state_txn_t txn;
+
+	if (!netmsgSvcVehicleStatePrepare(dst, prop, usercl, state, &txn)) {
+		return dst && dst->error ? dst->error : 1;
+	}
+
+	/* Compatibility helper for callers that do not have a world-state commit
+	 * boundary. Vehicle gameplay uses Prepare/Commit directly. */
+	netmsgSvcVehicleStateCommit(&txn);
+	return dst->error;
+}
+
+u32 netmsgSvcVehicleStateRead(struct netbuf *src, struct netclient *srccl)
+{
+	/* The dispatch already consumed the message ID. Reject a short fixed
+	 * payload before decoding any field; remaining bytes may contain the next
+	 * coalesced message and are intentionally not treated as this frame. */
+	if (!src || netbufReadLeft(src) <
+			(s32)(NET_VEHICLE_STATE_WIRE_BYTES - sizeof(u8))) {
+		return 1;
+	}
+
+	const u8 wire_version = netbufReadU8(src);
+	const u8 state = netbufReadU8(src);
+	const u8 actor_client_id = netbufReadU8(src);
+	const u8 playernum = netbufReadU8(src);
+	const u32 prop_syncid = netbufReadU32(src);
+	const u8 prop_type = netbufReadU8(src);
+	const u16 object_type = netbufReadU16(src);
+	const u32 stage_epoch = netbufReadU32(src);
+	const u32 sequence = netbufReadU32(src);
+	struct prop *prop;
+	struct netclient *actor;
+	netmsg_vehicle_state_seen_t *seen;
+	bool mounted;
+
+	if (src->error || g_NetMode != NETMODE_CLIENT
+			|| !srccl || srccl != g_NetLocalClient
+			|| srccl->state < CLSTATE_GAME
+			|| wire_version != NET_VEHICLE_STATE_WIRE_VERSION
+			|| (state != NET_VEHICLE_STATE_MOUNTED
+				&& state != NET_VEHICLE_STATE_DISMOUNTED)
+			|| actor_client_id == NET_NULL_CLIENT
+			|| actor_client_id >= NET_MAX_CLIENTS
+			|| playernum >= MAX_PLAYERS
+			|| prop_syncid == NET_NULL_PROP
+			|| prop_type != PROPTYPE_OBJ
+			|| object_type != OBJTYPE_HOVERBIKE
+			|| sequence == 0
+			|| stage_epoch == 0 || stage_epoch != g_NetStageEpoch) {
+		return src->error ? src->error : 1;
+	}
+
+	actor = &g_NetClients[actor_client_id];
+	if (actor->state < CLSTATE_GAME || actor->id != actor_client_id
+			|| !actor->player || actor->player != g_Vars.players[playernum]
+			|| actor->player->client != actor || actor->playernum != playernum) {
+		return 1;
+	}
+
+	prop = netSyncIdLookup(prop_syncid);
+	if (!prop || prop->syncid != prop_syncid
+			|| prop->type != PROPTYPE_OBJ || !prop->obj
+			|| prop->obj->type != OBJTYPE_HOVERBIKE) {
+		return 1;
+	}
+
+	seen = &s_VehicleStateSeen[playernum];
+	if (seen->valid && seen->stage_epoch == stage_epoch) {
+		if (seen->actor_client_id != actor_client_id) {
+			return 1;
+		}
+		if (sequence == seen->sequence) {
+			if (seen->state == state && seen->prop_syncid == prop_syncid) {
+				/* Reliable duplicates are valid and intentionally idempotent. */
+				return 0;
+			}
+			return 1;
+		}
+		if (!netmsgVehicleSequenceIsNewer(sequence, seen->sequence)) {
+			sysLogPrintf(LOG_WARNING,
+				"NET: ignored stale vehicle state actor=%u player=%u sequence=%u last=%u",
+				(unsigned)actor_client_id, (unsigned)playernum,
+				(unsigned)sequence, (unsigned)seen->sequence);
+			return 0;
+		}
+	}
+
+	mounted = state == NET_VEHICLE_STATE_MOUNTED;
+	{
+		const s32 prevplayernum = g_Vars.currentplayernum;
+		bool applied;
+		setCurrentPlayerNum(playernum);
+		applied = currentPlayerApplyHoverbikeState(prop, mounted);
+		setCurrentPlayerNum(prevplayernum);
+		if (!applied) {
+			return 1;
+		}
+	}
+
+	seen->valid = true;
+	seen->actor_client_id = actor_client_id;
+	seen->playernum = playernum;
+	seen->state = state;
+	seen->prop_syncid = prop_syncid;
+	seen->stage_epoch = stage_epoch;
+	seen->sequence = sequence;
+	sysLogPrintf(LOG_NOTE,
+		"NET: vehicle state applied actor=%u player=%u prop=%u state=%s epoch=%u sequence=%u",
+		(unsigned)actor_client_id, (unsigned)playernum,
+		(unsigned)prop_syncid, mounted ? "mounted" : "dismounted",
+		(unsigned)stage_epoch, (unsigned)sequence);
 	return src->error;
 }
 
@@ -9195,64 +9467,132 @@ static void netmsgBuildCurrentPlaylistString(char *pl, size_t plsize)
 	pl[pos] = '\0';
 }
 
+
+/* A reliable room response resolves every admitted UI request. No local
+ * transition is guessed before authority has accepted the operation. */
+static s32 s_RoomRequestPending;
+static room_result_t s_RoomRequestResult;
+static s32 s_RoomRequestHasResult;
+s32 netRoomRequestPending(void) { return s_RoomRequestPending; }
+const char *netRoomRequestMessage(void)
+{
+    if (s_RoomRequestPending) return "Waiting for the host...";
+    return s_RoomRequestHasResult ? roomResultMessage(s_RoomRequestResult) : "";
+}
+void netRoomRequestReset(void)
+{
+    s_RoomRequestPending = 0;
+    s_RoomRequestHasResult = 0;
+    s_RoomRequestResult = ROOM_RESULT_OK;
+}
+
+u32 netmsgSvcRoomResultRead(struct netbuf *src, struct netclient *srccl)
+{
+    (void)srccl;
+    const u8 operation = netbufReadU8(src);
+    const u8 result = netbufReadU8(src);
+    const u8 room_id = netbufReadU8(src);
+    if (src->error || (operation != CLC_ROOM_CREATE && operation != CLC_ROOM_JOIN)
+            || result > ROOM_RESULT_RATE_LIMITED
+            || (room_id != 0xff && room_id >= HUB_MAX_ROOMS)) return 1;
+    s_RoomRequestPending = 0;
+    s_RoomRequestHasResult = 1;
+    s_RoomRequestResult = (room_result_t)result;
+    return 0;
+}
+
+static void netmsgDeliverRoomState(struct netclient *dstcl, struct netbuf *wire)
+{
+    if (!dstcl || !wire || wire->error) return;
+    if (g_NetMode == NETMODE_SERVER && !g_NetDedicated
+            && dstcl == g_NetLocalClient && !dstcl->peer) {
+        struct netbuf read;
+        netbufStartReadData(&read, wire->data, wire->wp);
+        switch (netbufReadU8(&read)) {
+        case SVC_ROOM_ASSIGN: netmsgSvcRoomAssignRead(&read, dstcl); break;
+        case SVC_ROOM_RESULT: netmsgSvcRoomResultRead(&read, dstcl); break;
+        case SVC_ROOM_SETTINGS: netmsgSvcRoomSettingsRead(&read, dstcl); break;
+        case SVC_ROOM_PLAYLIST: netmsgSvcRoomPlaylistRead(&read, dstcl); break;
+        default: read.error = 1; break;
+        }
+        if (read.error) sysLogPrintf(LOG_ERROR, "NET.ROOM: local projection failed");
+        netbufStartWrite(wire);
+        return;
+    }
+    netSend(dstcl, wire, true, NETCHAN_CONTROL);
+}
+
+static void netmsgSendRoomResult(struct netclient *client, u8 operation, room_result_t result)
+{
+    u8 bytes[4];
+    struct netbuf wire;
+    wire.data = bytes; wire.size = sizeof(bytes);
+    netbufStartWrite(&wire);
+    netbufWriteU8(&wire, SVC_ROOM_RESULT);
+    netbufWriteU8(&wire, operation);
+    netbufWriteU8(&wire, (u8)result);
+    netbufWriteU8(&wire, client->room_id);
+    netmsgDeliverRoomState(client, &wire);
+}
+
+
+
+static s32 netmsgRoomSettingsValid(const room_settings_t *settings)
+{
+    if (settings->num_bots > MAX_BOTS || settings->timelimit > 240
+            || settings->scorelimit > 200 || settings->teamscorelimit > 9999
+            || settings->scenario >= 16
+            || (settings->weapon_set != 0xff && settings->weapon_set > WEAPONSET_CUSTOM)) return 0;
+    if (settings->stage_id[0]) {
+        const asset_entry_t *stage = assetCatalogResolve(settings->stage_id);
+        if (!stage || (stage->type != ASSET_ARENA && stage->type != ASSET_MAP)) return 0;
+    }
+    return 1;
+}
+
+static s32 netmsgRoomPlaylistValid(const char *playlist)
+{
+    if (!playlist || strlen(playlist) >= ROOM_PLAYLIST_TEXT_MAX) return 0;
+    if (!playlist[0]) return 1;
+    unsigned count = 0;
+    const char *cursor = playlist;
+    while (*cursor) {
+        const char *separator = strchr(cursor, ';');
+        const size_t length = separator ? (size_t)(separator - cursor) : strlen(cursor);
+        if (!length || length >= ROOM_CATALOG_ID_MAX || ++count > ROOM_PLAYLIST_MAX_TRACKS) return 0;
+        if (!separator) return 1;
+        cursor = separator + 1;
+        if (!*cursor) return 0;
+    }
+    return 1;
+}
+
+
 static void netmsgSendLobbyResyncRoomState(struct netclient *dstcl, u8 room_id)
 {
-	if (!dstcl || !dstcl->peer) {
-		sysLogPrintf(LOG_NOTE,
-			"NET: CLC_LOBBY_RESYNC room replay skipped for local/unbound client");
-		return;
-	}
-
-	struct netbuf assignBuf;
-	u8 assignData[8];
-
-	assignBuf.data = assignData;
-	assignBuf.size = sizeof(assignData);
-	netbufStartWrite(&assignBuf);
-	netmsgSvcRoomAssignWrite(&assignBuf, room_id);
-	if (assignBuf.error) {
-		sysLogPrintf(LOG_WARNING,
-			"NET: CLC_LOBBY_RESYNC assignment encode failed for client=%u",
-			dstcl ? dstcl->id : NET_NULL_CLIENT);
-		return;
-	}
-	netSend(dstcl, &assignBuf, true, NETCHAN_DEFAULT);
-
-	if (room_id == 0xFF) {
-		return;
-	}
-
-	const u8 numBots = netmsgCountCurrentRoomBots();
-	const u8 wpnIdx = (g_MatchConfig.weaponSetIndex >= 0)
-		? (u8)g_MatchConfig.weaponSetIndex : 0xFF;
-
-	netbufStartWrite(&g_NetMsgRel);
-	netmsgSvcRoomSettingsWrite(&g_NetMsgRel, numBots,
-		g_MatchConfig.timelimit, g_MatchConfig.scorelimit,
-		g_MatchConfig.teamscorelimit, matchConfigGetUserOptions(),
-		g_MatchConfig.scenario, wpnIdx, g_MatchConfig.stage_id);
-	if (g_NetMsgRel.error) {
-		sysLogPrintf(LOG_WARNING,
-			"NET: CLC_LOBBY_RESYNC settings encode failed for client=%u",
-			dstcl ? dstcl->id : NET_NULL_CLIENT);
-		netbufStartWrite(&g_NetMsgRel);
-		return;
-	}
-	netSend(dstcl, &g_NetMsgRel, true, NETCHAN_CONTROL);
-
-	char pl[AUDIO_MAX_PLAYLIST * 65];
-	netmsgBuildCurrentPlaylistString(pl, sizeof(pl));
-
-	netbufStartWrite(&g_NetMsgRel);
-	netmsgSvcRoomPlaylistWrite(&g_NetMsgRel, pl);
-	if (g_NetMsgRel.error) {
-		sysLogPrintf(LOG_WARNING,
-			"NET: CLC_LOBBY_RESYNC playlist encode failed for client=%u",
-			dstcl ? dstcl->id : NET_NULL_CLIENT);
-		netbufStartWrite(&g_NetMsgRel);
-		return;
-	}
-	netSend(dstcl, &g_NetMsgRel, true, NETCHAN_CONTROL);
+    if (!dstcl) return;
+    u8 bytes[ROOM_PLAYLIST_TEXT_MAX + 128];
+    struct netbuf wire;
+    wire.data = bytes;
+    wire.size = sizeof(bytes);
+    netbufStartWrite(&wire);
+    netmsgSvcRoomAssignWrite(&wire, room_id);
+    netmsgDeliverRoomState(dstcl, &wire);
+    const hub_room_t *room = roomGetById(room_id);
+    if (!room) return;
+    if (room->settings_revision) {
+        const room_settings_t *settings = &room->settings;
+        netbufStartWrite(&wire);
+        netmsgSvcRoomSettingsWrite(&wire, settings->num_bots,
+            settings->timelimit, settings->scorelimit, settings->teamscorelimit,
+            settings->options, settings->scenario, settings->weapon_set, settings->stage_id);
+        netmsgDeliverRoomState(dstcl, &wire);
+    }
+    if (room->playlist_revision) {
+        netbufStartWrite(&wire);
+        netmsgSvcRoomPlaylistWrite(&wire, room->playlist);
+        netmsgDeliverRoomState(dstcl, &wire);
+    }
 }
 
 u32 netmsgClcLobbyResyncRead(struct netbuf *src, struct netclient *srccl)
@@ -12413,6 +12753,7 @@ u32 netmsgSvcRoomListWrite(struct netbuf *dst)
 		netbufWriteU8(dst, roomOccupiedCount(room));
 		netbufWriteU8(dst, room->max_players);
 		netbufWriteU8(dst, room->creator_client_id);
+		netbufWriteU8(dst, (u8)room->access);
 	}
 
 	return dst->error;
@@ -12420,42 +12761,33 @@ u32 netmsgSvcRoomListWrite(struct netbuf *dst)
 
 u32 netmsgSvcRoomListRead(struct netbuf *src, struct netclient *srccl)
 {
-	u8 count = netbufReadU8(src);
-	if (src->error) return src->error;
-
-	g_RoomCacheCount = 0;
-
-	for (u8 i = 0; i < count && i < ROOM_CACHE_MAX; i++) {
-		room_cache_entry_t *entry = &g_RoomCache[i];
-		entry->id                = netbufReadU8(src);
-		entry->state             = netbufReadU8(src);
-		const char *name         = netbufReadStr(src);
-		if (name) {
-			strncpy(entry->name, name, ROOM_NAME_MAX - 1);
-			entry->name[ROOM_NAME_MAX - 1] = '\0';
-		} else {
-			entry->name[0] = '\0';
-		}
-		entry->client_count      = netbufReadU8(src);
-		entry->max_players       = netbufReadU8(src);
-		entry->creator_client_id = netbufReadU8(src);
-		g_RoomCacheCount++;
-	}
-
-	/* Skip any extra rooms beyond cache capacity */
-	for (u8 i = ROOM_CACHE_MAX; i < count; i++) {
-		netbufReadU8(src);
-		netbufReadU8(src);
-		netbufReadStr(src);
-		netbufReadU8(src);
-		netbufReadU8(src);
-		netbufReadU8(src);
-	}
-
-	if (src->error) return src->error;
-
-	sysLogPrintf(LOG_NOTE, "NET: SVC_ROOM_LIST received (%d rooms)", (s32)count);
-	return src->error;
+    (void)srccl;
+    room_cache_entry_t entries[ROOM_CACHE_MAX] = {0};
+    const u8 count = netbufReadU8(src);
+    if (src->error || count > ROOM_CACHE_MAX) return 1;
+    u32 seen = 0;
+    for (u8 i = 0; i < count; ++i) {
+        room_cache_entry_t *entry = &entries[i];
+        entry->id = netbufReadU8(src);
+        entry->state = netbufReadU8(src);
+        const char *name = netbufReadStr(src);
+        if (src->error || !name || strlen(name) >= sizeof(entry->name)) return 1;
+        memcpy(entry->name, name, strlen(name) + 1);
+        entry->client_count = netbufReadU8(src);
+        entry->max_players = netbufReadU8(src);
+        entry->creator_client_id = netbufReadU8(src);
+        entry->access = netbufReadU8(src);
+        if (src->error || entry->id >= HUB_MAX_ROOMS || entry->state > ROOM_STATE_PREPARING
+                || entry->state == ROOM_STATE_CLOSED || entry->access > ROOM_ACCESS_INVITE
+                || !entry->max_players || entry->max_players > HUB_MAX_CLIENTS
+                || entry->client_count > entry->max_players
+                || (entry->creator_client_id != 0xff && entry->creator_client_id >= HUB_MAX_CLIENTS)
+                || (seen & (1u << entry->id))) return 1;
+        seen |= 1u << entry->id;
+    }
+    memcpy(g_RoomCache, entries, sizeof(entries));
+    g_RoomCacheCount = count;
+    return 0;
 }
 
 u32 netmsgSvcRoomAssignWrite(struct netbuf *dst, u8 room_id)
@@ -12471,6 +12803,7 @@ u32 netmsgSvcRoomAssignRead(struct netbuf *src, struct netclient *srccl)
 	if (src->error) return src->error;
 
 	g_LocalRoomId = room_id;
+	if (g_NetLocalClient) g_NetLocalClient->room_id = room_id;
 
 	if (room_id != 0xFF) {
 		sysLogPrintf(LOG_NOTE, "NET: SVC_ROOM_ASSIGN: assigned to room %u", (unsigned)room_id);
@@ -13139,113 +13472,73 @@ void netMusicBroadcastAdvance(const char *track_id, u8 room_id, u32 match_clock_
 u32 netmsgClcRoomCreateWrite(struct netbuf *dst, const char *name, u8 access,
                               const char *password, u8 maxPlayers)
 {
-	netbufWriteU8(dst, CLC_ROOM_CREATE);
-	netbufWriteStr(dst, name ? name : "");
-	/* SEC-14: access + password + max_players on the wire. */
-	netbufWriteU8(dst, access);
-	netbufWriteStr(dst, password ? password : "");
-	netbufWriteU8(dst, maxPlayers);
-	return dst->error;
+    if (!name) name = "";
+    if (!password) password = "";
+    net_room_create_request_t request = {0};
+    if (strlen(name) >= sizeof(request.name) || strlen(password) >= sizeof(request.password)) {
+        dst->error = 1;
+        return 1;
+    }
+    memcpy(request.name, name, strlen(name) + 1);
+    memcpy(request.password, password, strlen(password) + 1);
+    request.access = access;
+    request.max_players = maxPlayers;
+    request.settings.num_bots = netmsgCountCurrentRoomBots();
+    request.settings.timelimit = g_MatchConfig.timelimit;
+    request.settings.scorelimit = g_MatchConfig.scorelimit;
+    request.settings.teamscorelimit = g_MatchConfig.teamscorelimit;
+    request.settings.options = matchConfigGetUserOptions();
+    request.settings.scenario = g_MatchConfig.scenario;
+    request.settings.weapon_set = g_MatchConfig.weaponSetIndex >= 0 ? (u8)g_MatchConfig.weaponSetIndex : 0xff;
+    snprintf(request.settings.stage_id, sizeof(request.settings.stage_id), "%s", g_MatchConfig.stage_id);
+    netmsgBuildCurrentPlaylistString(request.playlist, sizeof(request.playlist));
+    netbufWriteU8(dst, CLC_ROOM_CREATE);
+    if (!netRoomCreatePayloadWrite(dst, &request)) dst->error = 1;
+    return dst->error;
 }
+
 
 u32 netmsgClcRoomCreateRead(struct netbuf *src, struct netclient *srccl)
 {
-	const char *name = netbufReadStr(src);
-	/* Copy name into a local buffer immediately — netbufReadStr returns a
-	 * pointer into the shared netbuf, and subsequent reads can overwrite it. */
-	char nameBuf[ROOM_NAME_MAX];
-	if (name) {
-		strncpy(nameBuf, name, sizeof(nameBuf) - 1);
-		nameBuf[sizeof(nameBuf) - 1] = '\0';
-	} else {
-		nameBuf[0] = '\0';
-	}
-	const u8 accessRaw   = netbufReadU8(src);
-	const char *password = netbufReadStr(src);
-	char passwordBuf[32];
-	if (password) {
-		strncpy(passwordBuf, password, sizeof(passwordBuf) - 1);
-		passwordBuf[sizeof(passwordBuf) - 1] = '\0';
-	} else {
-		passwordBuf[0] = '\0';
-	}
-	const u8 maxPlayers  = netbufReadU8(src);
-	if (src->error) return src->error;
-
-	if (g_NetMode != NETMODE_SERVER) return src->error;
-	if (!srccl) return 1;
-
-	/* SEC-13: rate-limit room mutations (1/sec/client). */
-	if (!netmsgRoomRateAllow(srccl)) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE rate-limited for client %u", srccl->id);
-		return src->error;
-	}
-
-	/* Leave current room first if in one */
-	if (srccl->room_id != 0xFF) {
-		hub_room_t *old = roomGetById(srccl->room_id);
-		netmsgCutsceneAuthorityRetireClient(srccl->id);
-		if (old) roomLeave(old, srccl->id);
-	}
-
-	/* Generate name if not provided */
-	char genName[ROOM_NAME_MAX];
-	const char *finalName = nameBuf;
-	if (!finalName[0]) {
-		roomGenerateName(genName, sizeof(genName));
-		finalName = genName;
-	}
-
-	/* SEC-14: validate access mode before room creation. */
-	room_access_t access = ROOM_ACCESS_OPEN;
-	if (accessRaw > ROOM_ACCESS_INVITE) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE from client %u rejected — access=%u out of range",
-			srccl->id, accessRaw);
-		return 1;
-	} else if (accessRaw == ROOM_ACCESS_PASSWORD) {
-		/* Require a non-empty password for password rooms. */
-		if (!passwordBuf[0]) {
-			sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE from client %u rejected — password room without password",
-				srccl->id);
-			return 1;
-		} else {
-			access = ROOM_ACCESS_PASSWORD;
-		}
-	} else if (accessRaw == ROOM_ACCESS_INVITE) {
-		access = ROOM_ACCESS_INVITE;
-	}
-
-	/* Clamp max_players to [1, HUB_MAX_CLIENTS].  0 = use default. */
-	u8 maxp = maxPlayers;
-	if (maxp == 0) maxp = HUB_MAX_CLIENTS;
-	if (maxp > HUB_MAX_CLIENTS) maxp = HUB_MAX_CLIENTS;
-
-	hub_room_t *room = roomCreateConfigured(finalName, maxp, access,
-	                                         passwordBuf[0] ? passwordBuf : NULL,
-	                                         srccl->id);
-	if (!room) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_CREATE failed — no free slots");
-		return src->error;
-	}
-
-	srccl->room_id = room->id;
-
-	sysLogPrintf(LOG_NOTE, "NET: CLC_ROOM_CREATE from client %u — created room %u \"%s\"",
-	             srccl->id, (unsigned)room->id, room->name);
-
-	/* Send room assignment to the creator */
-	struct netbuf assignBuf;
-	u8 assignData[8];
-	assignBuf.data = assignData;
-	assignBuf.size = sizeof(assignData);
-	netbufStartWrite(&assignBuf);
-	netmsgSvcRoomAssignWrite(&assignBuf, room->id);
-	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
-
-	/* SEC-13: coalesce room-list broadcast into end-of-frame flush. */
-	netRoomListMarkDirty();
-
-	return src->error;
+    if (g_NetMode != NETMODE_SERVER) return 1;
+    if (!srccl) return 1;
+    if (srccl->state != CLSTATE_LOBBY) return 1;
+    net_room_create_request_t request;
+    if (!netRoomCreatePayloadRead(src, &request)) return 1;
+    char *name_buf = request.name;
+    const u8 access = request.access;
+    const u8 max_players = request.max_players ? request.max_players : (u8)g_NetMaxClients;
+    const char *password_buf = request.password;
+    const room_settings_t initial_settings = request.settings;
+    const char *initial_playlist = request.playlist;
+    if (!netmsgRoomRateAllow(srccl)) {
+        netmsgSendRoomResult(srccl, CLC_ROOM_CREATE, ROOM_RESULT_RATE_LIMITED);
+        return 0;
+    }
+    if (!max_players || max_players > g_NetMaxClients
+            || !netmsgRoomSettingsValid(&initial_settings) || !netmsgRoomPlaylistValid(initial_playlist)) {
+        netmsgSendRoomResult(srccl, CLC_ROOM_CREATE, ROOM_RESULT_INVALID);
+        return 0;
+    }
+    if (!name_buf[0]) roomGenerateName(name_buf, sizeof(request.name));
+    hub_room_t *created = NULL;
+    hub_room_t *previous = roomGetById(srccl->room_id);
+    const room_result_t result = roomCreateForClient(previous, srccl->id,
+        name_buf, max_players, (room_access_t)access, password_buf, &created);
+    if (result != ROOM_RESULT_OK) {
+        netmsgSendRoomResult(srccl, CLC_ROOM_CREATE, result);
+        return 0;
+    }
+    netmsgCutsceneAuthorityRetireClient(srccl->id);
+    srccl->room_id = created->id;
+    /* Validated bounded values cannot fail admission after membership commit. */
+    roomStoreSettings(created, &initial_settings);
+    roomStorePlaylist(created, initial_playlist);
+    netmsgSendLobbyResyncRoomState(srccl, created->id);
+    netmsgSendRoomResult(srccl, CLC_ROOM_CREATE, ROOM_RESULT_OK);
+    netRoomListMarkDirty();
+    sysLogPrintf(LOG_NOTE, "NET.ROOM: create committed client=%u room=%u", srccl->id, created->id);
+    return 0;
 }
 
 u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id, const char *password)
@@ -13257,86 +13550,86 @@ u32 netmsgClcRoomJoinWrite(struct netbuf *dst, u8 room_id, const char *password)
 	return dst->error;
 }
 
+
 u32 netmsgClcRoomJoinRead(struct netbuf *src, struct netclient *srccl)
 {
-	u8 room_id = netbufReadU8(src);
-	const char *password = netbufReadStr(src);
-	/* Copy before downstream operations can clobber the netbuf read pointer. */
-	char passwordBuf[32];
-	if (password) {
-		strncpy(passwordBuf, password, sizeof(passwordBuf) - 1);
-		passwordBuf[sizeof(passwordBuf) - 1] = '\0';
-	} else {
-		passwordBuf[0] = '\0';
-	}
-	if (src->error) return src->error;
+    const u8 room_id = netbufReadU8(src);
+    const char *password = netbufReadStr(src);
+    if (src->error || !password || strlen(password) >= 32) return 1;
+    char password_buf[32];
+    snprintf(password_buf, sizeof(password_buf), "%s", password);
+    if (g_NetMode != NETMODE_SERVER) return 1;
+    if (!srccl) return 1;
+    if (srccl->state != CLSTATE_LOBBY) return 1;
+    if (!netmsgRoomRateAllow(srccl)) {
+        netmsgSendRoomResult(srccl, CLC_ROOM_JOIN, ROOM_RESULT_RATE_LIMITED);
+        return 0;
+    }
+    hub_room_t *destination = roomGetById(room_id);
+    const room_result_t result = roomJoinForClient(roomGetById(srccl->room_id),
+        destination, srccl->id, password_buf);
+    if (result != ROOM_RESULT_OK) {
+        netmsgSendRoomResult(srccl, CLC_ROOM_JOIN, result);
+        return 0;
+    }
+    netmsgCutsceneAuthorityRetireClient(srccl->id);
+    srccl->room_id = destination->id;
+    netmsgSendLobbyResyncRoomState(srccl, destination->id);
+    netmsgSendRoomResult(srccl, CLC_ROOM_JOIN, ROOM_RESULT_OK);
+    netRoomListMarkDirty();
+    sysLogPrintf(LOG_NOTE, "NET.ROOM: join committed client=%u room=%u", srccl->id, destination->id);
+    return 0;
+}
 
-	if (g_NetMode != NETMODE_SERVER) return src->error;
-	if (!srccl) return 1;
 
-	/* SEC-13: rate-limit room mutations (1/sec/client). */
-	if (!netmsgRoomRateAllow(srccl)) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN rate-limited for client %u", srccl->id);
-		return src->error;
-	}
+static s32 netRequestRoomOperation(struct netbuf *wire)
+{
+    if (s_RoomRequestPending) return -1;
+    if (!g_NetLocalClient || g_NetLocalClient->state != CLSTATE_LOBBY || wire->error
+            || (g_NetMode != NETMODE_CLIENT && (g_NetMode != NETMODE_SERVER || g_NetDedicated))) {
+        s_RoomRequestHasResult = 1;
+        s_RoomRequestResult = ROOM_RESULT_INVALID;
+        return -1;
+    }
+    s_RoomRequestPending = 1;
+    s_RoomRequestHasResult = 0;
+    s32 result = -1;
+    if (g_NetMode == NETMODE_CLIENT) {
+        result = netSend(g_NetLocalClient, wire, true, NETCHAN_CONTROL) ? 0 : -1;
+    } else {
+        struct netbuf read;
+        netbufStartReadData(&read, wire->data, wire->wp);
+        switch (netbufReadU8(&read)) {
+        case CLC_ROOM_CREATE: result = netmsgClcRoomCreateRead(&read, g_NetLocalClient) ? -1 : 0; break;
+        case CLC_ROOM_JOIN: result = netmsgClcRoomJoinRead(&read, g_NetLocalClient) ? -1 : 0; break;
+        }
+    }
+    if (result < 0) {
+        s_RoomRequestPending = 0;
+        s_RoomRequestHasResult = 1;
+        s_RoomRequestResult = ROOM_RESULT_INVALID;
+    }
+    return result;
+}
 
-	hub_room_t *room = roomGetById(room_id);
-	if (!room) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — room %u not found",
-		             srccl->id, (unsigned)room_id);
-		return src->error;
-	}
+s32 netRequestRoomCreate(const char *name, u8 access, const char *password, u8 max_players)
+{
+    u8 bytes[ROOM_PLAYLIST_TEXT_MAX + 256];
+    struct netbuf wire;
+    wire.data = bytes; wire.size = sizeof(bytes);
+    netbufStartWrite(&wire);
+    netmsgClcRoomCreateWrite(&wire, name, access, password, max_players);
+    return netRequestRoomOperation(&wire);
+}
 
-	if (room->state != ROOM_STATE_LOBBY) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — room %u not in lobby state",
-		             srccl->id, (unsigned)room_id);
-		return src->error;
-	}
-
-	/* SEC-14: enforce password before modifying any state. */
-	if (!roomCheckPassword(room, passwordBuf)) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — wrong password for room %u",
-		             srccl->id, (unsigned)room_id);
-		return src->error;
-	}
-
-	/* SEC-14: invite-only rooms can only be joined by the creator (for now). */
-	if (room->access == ROOM_ACCESS_INVITE && srccl->id != room->creator_client_id) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — invite-only room %u rejected",
-		             srccl->id, (unsigned)room_id);
-		return src->error;
-	}
-
-	/* Leave current room first if in one */
-	if (srccl->room_id != 0xFF) {
-		hub_room_t *old = roomGetById(srccl->room_id);
-		if (old) roomLeave(old, srccl->id);
-	}
-
-	if (!roomJoin(room, srccl->id)) {
-		sysLogPrintf(LOG_WARNING, "NET: CLC_ROOM_JOIN from client %u — room %u full",
-		             srccl->id, (unsigned)room_id);
-		return src->error;
-	}
-
-	srccl->room_id = room->id;
-
-	sysLogPrintf(LOG_NOTE, "NET: CLC_ROOM_JOIN from client %u — joined room %u \"%s\"",
-	             srccl->id, (unsigned)room->id, room->name);
-
-	/* Send assignment to the joiner */
-	struct netbuf assignBuf;
-	u8 assignData[8];
-	assignBuf.data = assignData;
-	assignBuf.size = sizeof(assignData);
-	netbufStartWrite(&assignBuf);
-	netmsgSvcRoomAssignWrite(&assignBuf, room->id);
-	netSend(srccl, &assignBuf, true, NETCHAN_DEFAULT);
-
-	/* SEC-13: coalesce room-list broadcast into end-of-frame flush. */
-	netRoomListMarkDirty();
-
-	return src->error;
+s32 netRequestRoomJoin(u8 room_id, const char *password)
+{
+    u8 bytes[128];
+    struct netbuf wire;
+    wire.data = bytes; wire.size = sizeof(bytes);
+    netbufStartWrite(&wire);
+    netmsgClcRoomJoinWrite(&wire, room_id, password);
+    return netRequestRoomOperation(&wire);
 }
 
 u32 netmsgClcRoomLeaveWrite(struct netbuf *dst)
@@ -13412,13 +13705,62 @@ void netListenHostRoomLeave(void)
 #endif
 }
 
+/* Presentation state is independent of gameplay/reconnect client storage.
+ * Reliable CONTROL ordering puts authentication before the first snapshot. */
+u32 netmsgSvcLobbyRosterRead(struct netbuf *src, struct netclient *srccl)
+{
+    (void)srccl;
+    lobby_roster_snapshot_t snapshot;
+    if (g_NetMode != NETMODE_CLIENT || !lobbyRosterPayloadRead(src, &snapshot)
+            || !lobbyAcceptRoster(&snapshot)) return 1;
+    sysLogPrintf(LOG_NOTE, "NET.LOBBY.ROSTER accepted count=%u local=%u",
+        (unsigned)snapshot.count, (unsigned)g_NetLocalClient->id);
+    return 0;
+}
+
+void netmsgPublishLobbyRoster(s32 force)
+{
+    static u8 previous[LOBBY_ROSTER_WIRE_MAX + 1];
+    static u32 previousBytes;
+    if (g_NetMode != NETMODE_SERVER) return;
+    lobby_roster_snapshot_t snapshot;
+    lobbyCaptureRoster(&snapshot);
+    u8 data[LOBBY_ROSTER_WIRE_MAX + 1];
+    struct netbuf wire = {0};
+    wire.data = data;
+    wire.size = sizeof(data);
+    netbufWriteU8(&wire, SVC_LOBBY_ROSTER);
+    if (!lobbyRosterPayloadWrite(&wire, &snapshot)) return;
+    const u32 bytes = wire.wp;
+    if (!force && bytes == previousBytes && !memcmp(previous, data, bytes)) return;
+    s32 failed = 0;
+    for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
+        struct netclient *cl = &g_NetClients[i];
+        if (!lobbyClientIsRosterParticipant(cl) || !cl->peer) continue;
+        /* netSend consumes the buffer cursor on success and send failure. */
+        wire.wp = bytes;
+        if (netSend(cl, &wire, true, NETCHAN_CONTROL) != bytes) failed = 1;
+    }
+    if (!failed) {
+        memcpy(previous, data, bytes);
+        previousBytes = bytes;
+    } else previousBytes = 0; /* Retry the current snapshot next frame. */
+}
+
 void netBroadcastRoomList(void)
 {
 	if (g_NetMode != NETMODE_SERVER) return;
 
 	netbufStartWrite(&g_NetMsgRel);
 	netmsgSvcRoomListWrite(&g_NetMsgRel);
+	if (!g_NetMsgRel.error && !g_NetDedicated && g_NetLocalClient) {
+		struct netbuf read;
+		netbufStartReadData(&read, g_NetMsgRel.data, g_NetMsgRel.wp);
+		(void)netbufReadU8(&read);
+		netmsgSvcRoomListRead(&read, g_NetLocalClient);
+	}
 	netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+	netmsgPublishLobbyRoster(1);
 }
 
 /* ========================================================================
@@ -13601,9 +13943,7 @@ u32 netmsgSvcRoomSettingsRead(struct netbuf *src, struct netclient *srccl)
 	matchConfigReplaceUserOptions(options, "SVC_ROOM_SETTINGS");
 	g_MatchConfig.scenario       = scenario;
 	g_MatchConfig.weaponSetIndex = (s8)weaponSetIndex;
-	if (stage_id && stage_id[0]) {
-		snprintf(g_MatchConfig.stage_id, sizeof(g_MatchConfig.stage_id), "%s", stage_id);
-	}
+	snprintf(g_MatchConfig.stage_id, sizeof(g_MatchConfig.stage_id), "%s", stage_id ? stage_id : "");
 
 	/* Rebuild slot array to match numBots.
 	 * Slot 0 = local player, slots 1..numBots = bots (defaults only —
@@ -13780,6 +14120,19 @@ u32 netmsgClcRoomSettingsUpdateRead(struct netbuf *src, struct netclient *srccl)
 		}
 	}
 
+	room_settings_t accepted = {0};
+	accepted.num_bots = numBots;
+	accepted.timelimit = timelimit;
+	accepted.scorelimit = scorelimit;
+	accepted.teamscorelimit = teamscorelimit;
+	accepted.options = options;
+	accepted.scenario = scenario;
+	accepted.weapon_set = weaponSetIndex;
+	if (!stage_id || strlen(stage_id) >= sizeof(accepted.stage_id)) return 1;
+	memcpy(accepted.stage_id, stage_id, strlen(stage_id) + 1);
+	if (!roomStoreSettings(room, &accepted)) return 1;
+	stage_id = room->settings.stage_id;
+
 	sysLogPrintf(LOG_NOTE,
 	    "NET: CLC_ROOM_SETTINGS_UPDATE from leader %u: numBots=%u stage='%s'",
 	    srccl->id, numBots, stage_id ? stage_id : "");
@@ -13804,7 +14157,7 @@ u32 netmsgClcRoomSettingsUpdateRead(struct netbuf *src, struct netclient *srccl)
 			netbufStartWrite(&g_NetMsgRel);
 			return 1;
 		}
-		netSend(ncl, &g_NetMsgRel, true, NETCHAN_CONTROL);
+		netmsgDeliverRoomState(ncl, &g_NetMsgRel);
 	}
 
 	return src->error;
@@ -13831,26 +14184,9 @@ u32 netmsgClcRoomPlaylistUpdateRead(struct netbuf *src, struct netclient *srccl)
 	hub_room_t *room = roomGetById(srccl->room_id);
 	if (!room || room->creator_client_id != srccl->id) return src->error;
 
-	/* SEC-22: clamp client-supplied playlist to the rebroadcast buffer capacity
-	 * before echoing it. netbufReadStr returns a pointer into the inbound
-	 * packet — a hostile client can send a string right up to the receive
-	 * cap, which could exceed our AUDIO_MAX_PLAYLIST*65 rebroadcast budget
-	 * (and overflow the netbufWriteStr target on receivers). Capping here
-	 * limits every server-rebroadcast payload to a known budget. */
-	char clamped[AUDIO_MAX_PLAYLIST * 65 - 8];
-	if (pl) {
-		size_t n = strlen(pl);
-		if (n >= sizeof(clamped)) {
-			sysLogPrintf(LOG_WARNING,
-			    "NET: CLC_ROOM_PLAYLIST_UPDATE from %u: oversized playlist (%zu bytes) — truncating to %zu",
-			    srccl->id, n, sizeof(clamped) - 1);
-			n = sizeof(clamped) - 1;
-		}
-		memcpy(clamped, pl, n);
-		clamped[n] = '\0';
-	} else {
-		clamped[0] = '\0';
-	}
+	if (!netmsgRoomPlaylistValid(pl)) return 1;
+	if (!roomStorePlaylist(room, pl)) return 1;
+	const char *clamped = room->playlist;
 
 	sysLogPrintf(LOG_NOTE,
 	    "NET: CLC_ROOM_PLAYLIST_UPDATE from leader %u — rebroadcasting", srccl->id);
@@ -13870,7 +14206,7 @@ u32 netmsgClcRoomPlaylistUpdateRead(struct netbuf *src, struct netclient *srccl)
 			netbufStartWrite(&g_NetMsgRel);
 			return 1;
 		}
-		netSend(ncl, &g_NetMsgRel, true, NETCHAN_CONTROL);
+		netmsgDeliverRoomState(ncl, &g_NetMsgRel);
 	}
 
 	return src->error;

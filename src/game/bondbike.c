@@ -19,6 +19,7 @@
 #include "game/objectives.h"
 #include "game/options.h"
 #include "game/propobj.h"
+#include "system.h"
 #include "bss.h"
 #include "lib/mtx.h"
 #include "lib/anim.h"
@@ -27,38 +28,79 @@
 #include "data.h"
 #include "types.h"
 #include "scene.h"
+#include "net/net.h"
+#include "net/netmsg.h"
 
-void bbikeInit(void)
+static struct prop *s_LastVehicleInputProp[MAX_PLAYERS];
+static s32 s_LastVehicleInputLogFrame[MAX_PLAYERS];
+static bool s_VehicleExitIntentPending[MAX_PLAYERS];
+
+bool bbikeInit(void)
 {
-	struct hoverbikeobj *hoverbike = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;
+	struct player *player = g_Vars.currentplayer;
+	struct prop *bikeprop = player ? player->hoverbike : NULL;
+	struct defaultobj *bikebase = bikeprop ? bikeprop->obj : NULL;
+	struct hoverbikeobj *hoverbike;
 	Mtxf matrix;
 
-	g_Vars.currentplayer->bondmovemode = MOVEMODE_BIKE;
-	g_Vars.currentplayer->bondvehiclemode = 0;
-	g_Vars.currentplayer->guncloseroffset = 0;
-	g_Vars.currentplayer->gunextraaimx = 0;
-	g_Vars.currentplayer->gunextraaimy = 0;
+	/* A failed mount must leave the player in the previous movement mode.
+	 * bmoveSetMode is shared by death, stage teardown, and network replay, so
+	 * do not enter BIKE until the complete vehicle identity is valid. */
+	if (!player || !player->prop || !bikeprop || bikeprop->type != PROPTYPE_OBJ
+			|| !bikebase || bikebase->type != OBJTYPE_HOVERBIKE
+			|| bikebase->prop != bikeprop
+			|| !bikebase->model || bikebase->model->scale == 0.0f) {
+		return false;
+	}
+
+	/* The scene/input transition is the only fallible operation in the local
+	 * vehicle commit. Remote actors still use the same movement/object state,
+	 * but must not push or pop the one local client's input layer. Perform the
+	 * local transition before changing movement, weapon, projectile, or
+	 * embedment state so a rejected transition is a true no-op. */
+	if (!player->isremote) {
+		if (!sceneVehicleDriverCanBoard()) {
+			return false;
+		}
+
+		{
+			SceneVehiclePayload payload;
+			payload.vehicle_kind = SCENE_VEHICLE_KIND_DRIVER;
+			payload.prop = bikeprop;
+			if (sceneFire(SCENE_EVENT_VEHICLE_BOARD, &payload) != 0) {
+				return false;
+			}
+		}
+	}
+
+	hoverbike = (struct hoverbikeobj *)bikebase;
+
+	player->bondmovemode = MOVEMODE_BIKE;
+	player->bondvehiclemode = 0;
+	player->guncloseroffset = 0;
+	player->gunextraaimx = 0;
+	player->gunextraaimy = 0;
 
 	bbikeUpdateVehicleOffset();
 
-	g_Vars.currentplayer->bondentert = 0;
-	g_Vars.currentplayer->bondentert2 = 1;
-	g_Vars.currentplayer->bondenterpos.x = g_Vars.currentplayer->prop->pos.x;
-	g_Vars.currentplayer->bondenterpos.y = g_Vars.currentplayer->prop->pos.y;
-	g_Vars.currentplayer->bondenterpos.z = g_Vars.currentplayer->prop->pos.z;
+	player->bondentert = 0;
+	player->bondentert2 = 1;
+	player->bondenterpos.x = player->prop->pos.x;
+	player->bondenterpos.y = player->prop->pos.y;
+	player->bondenterpos.z = player->prop->pos.z;
 
 	mtx3ToMtx4(hoverbike->base.realrot, &matrix);
 	mtx4SetTranslation(&hoverbike->base.prop->pos, &matrix);
-	mtx4TransformVec(&matrix, &g_Vars.currentplayer->bondvehicleoffset, &g_Vars.currentplayer->bondenteraim);
-	mtx00016b58(&g_Vars.currentplayer->bondentermtx,
+	mtx4TransformVec(&matrix, &player->bondvehicleoffset, &player->bondenteraim);
+	mtx00016b58(&player->bondentermtx,
 			0, 0, 0,
 			-g_Vars.currentplayer->bond2.unk1c.x, -g_Vars.currentplayer->bond2.unk1c.y, -g_Vars.currentplayer->bond2.unk1c.z,
 			g_Vars.currentplayer->bond2.unk28.x, g_Vars.currentplayer->bond2.unk28.y, g_Vars.currentplayer->bond2.unk28.z);
 
-	g_Vars.currentplayer->speedtheta = 0;
-	g_Vars.currentplayer->speedthetacontrol = 0;
-	g_Vars.currentplayer->speedforwards = 0;
-	g_Vars.currentplayer->speedsideways = 0;
+	player->speedtheta = 0;
+	player->speedthetacontrol = 0;
+	player->speedforwards = 0;
+	player->speedsideways = 0;
 
 	if (hoverbike->base.hidden & OBJHFLAG_PROJECTILE) {
 		struct projectile *projectile = hoverbike->base.projectile;
@@ -67,24 +109,49 @@ void bbikeInit(void)
 		hoverbike->w = projectile->unk0dc;
 	}
 
-	objFreeEmbedmentOrProjectile(g_Vars.currentplayer->hoverbike);
+	objFreeEmbedmentOrProjectile(bikeprop);
 
 	hoverbike->base.hidden |= OBJHFLAG_MOUNTED;
 
-	{
-		SceneVehiclePayload payload;
-		payload.vehicle_kind = SCENE_VEHICLE_KIND_DRIVER;
-		payload.prop = g_Vars.currentplayer->hoverbike;
-		sceneFire(SCENE_EVENT_VEHICLE_BOARD, &payload);
+	if (g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS) {
+		s_LastVehicleInputProp[g_Vars.currentplayernum] = bikeprop;
+		s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = -30;
+		s_VehicleExitIntentPending[g_Vars.currentplayernum] = false;
 	}
+
+	sysLogPrintf(LOG_NOTE, "VEHICLE: mounted player=%d", g_Vars.currentplayernum);
+	return true;
 }
 
-void bbikeExit(void)
+static void bbikeExitLocal(void)
 {
-	struct defaultobj *obj = g_Vars.currentplayer->hoverbike->obj;
-	struct hoverbikeobj *bikeobj = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;
+	struct player *player = g_Vars.currentplayer;
+	struct prop *bikeprop = player ? player->hoverbike : NULL;
+	struct defaultobj *obj = bikeprop ? bikeprop->obj : NULL;
+	struct hoverbikeobj *bikeobj;
 	struct coord speed;
 	f32 rotation;
+
+	/* Exit is called by every movement-mode transition, including death and
+	 * teardown. It must be safe and idempotent after a failed/remote mount.
+	 * The scene close is intentionally first and infallible: callers must never
+	 * enter WALK while the vehicle action layer remains active. */
+	if (!player || !bikeprop || bikeprop->type != PROPTYPE_OBJ || !obj
+			|| obj->type != OBJTYPE_HOVERBIKE) {
+		return;
+	}
+	if ((obj->hidden & OBJHFLAG_MOUNTED) == 0) {
+		return;
+	}
+
+	bikeobj = (struct hoverbikeobj *)obj;
+
+	if (!player->isremote) {
+		SceneVehiclePayload payload;
+		payload.vehicle_kind = SCENE_VEHICLE_KIND_DRIVER;
+		payload.prop = bikeprop;
+		(void)sceneFire(SCENE_EVENT_VEHICLE_DISMOUNT, &payload);
+	}
 
 	obj->hidden &= ~OBJHFLAG_MOUNTED;
 
@@ -94,19 +161,135 @@ void bbikeExit(void)
 	rotation = bikeobj->w;
 
 	objApplyMomentum(obj, &speed, rotation, false, false);
-	psStopSound(g_Vars.currentplayer->hoverbike, PSTYPE_GENERAL, 0xffff);
-	psStopSound(g_Vars.currentplayer->prop, PSTYPE_GENERAL, 0xffff);
-	psCreate(NULL, g_Vars.currentplayer->hoverbike, SFX_BIKE_PULSE, -1,
+	psStopSound(bikeprop, PSTYPE_GENERAL, 0xffff);
+	psStopSound(player->prop, PSTYPE_GENERAL, 0xffff);
+	psCreate(NULL, bikeprop, SFX_BIKE_PULSE, -1,
 			-1, 0, 0, PSTYPE_NONE, 0, -1, 0, -1, -1, -1, -1);
 
 	obj->flags |= OBJFLAG_HOVERBIKE_MOVINGWHILEEMPTY;
 
-	{
-		SceneVehiclePayload payload;
-		payload.vehicle_kind = SCENE_VEHICLE_KIND_DRIVER;
-		payload.prop = g_Vars.currentplayer->hoverbike;
-		sceneFire(SCENE_EVENT_VEHICLE_DISMOUNT, &payload);
+	sysLogPrintf(LOG_NOTE, "VEHICLE: dismounted player=%d", g_Vars.currentplayernum);
+
+	if (g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS) {
+		s_LastVehicleInputProp[g_Vars.currentplayernum] = NULL;
+		s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = -30;
+		s_VehicleExitIntentPending[g_Vars.currentplayernum] = false;
 	}
+}
+
+void bbikeExit(void)
+{
+	/* Legacy cleanup path: death and stage teardown are local ownership events.
+	 * It deliberately does not publish into the shared reliable buffer. */
+	bbikeExitLocal();
+}
+
+bool bbikeCanDismount(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct prop *bikeprop = player ? player->hoverbike : NULL;
+	struct defaultobj *obj = bikeprop ? bikeprop->obj : NULL;
+
+	if (!player || !bikeprop || bikeprop->type != PROPTYPE_OBJ || !obj
+			|| obj->type != OBJTYPE_HOVERBIKE
+			|| (obj->hidden & OBJHFLAG_MOUNTED) == 0) {
+		return true;
+	}
+	if (!currentPlayerCanApplyHoverbikeState(bikeprop, false)) {
+		/* Do not clear a vehicle whose authoritative owner is another player,
+		 * even if this actor retained a stale hoverbike pointer. */
+		return false;
+	}
+
+	if (g_NetMode == NETMODE_SERVER) {
+		/* Explicit gameplay dismounts require a live stage epoch. Cleanup paths
+		 * use bbikeExit directly and remain local during stage/death teardown. */
+		if (g_NetStageEpoch == 0
+				|| !netmsgSvcVehicleStateCanWrite(&g_NetMsgRel, bikeprop,
+					player->client, NET_VEHICLE_STATE_DISMOUNTED)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool bbikeTryDismount(void)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct prop *bikeprop = player ? player->hoverbike : NULL;
+	struct defaultobj *obj = bikeprop ? bikeprop->obj : NULL;
+
+	if (!player || !bikeprop || bikeprop->type != PROPTYPE_OBJ || !obj
+			|| obj->type != OBJTYPE_HOVERBIKE
+			|| (obj->hidden & OBJHFLAG_MOUNTED) == 0) {
+		return true;
+	}
+	if (g_NetMode == NETMODE_CLIENT && !player->isremote) {
+		/* Defensive boundary for callers outside the normal vehicle input path:
+		 * a client can request dismount, but only the typed server result commits
+		 * it. */
+		if (g_Vars.currentplayernum >= 0
+				&& g_Vars.currentplayernum < MAX_PLAYERS) {
+			s_VehicleExitIntentPending[g_Vars.currentplayernum] = true;
+		}
+		return false;
+	}
+
+	/* Reserve and encode the authoritative transition before any world or
+	 * movement mutation. The reserved bytes are copied only after the local
+	 * dismount commit, so a writer failure leaves this player mounted and the
+	 * reliable buffer unchanged. */
+	if (!bbikeCanDismount()) {
+		return false;
+	}
+
+	net_vehicle_state_txn_t vehicleTxn;
+	bool vehicleTxnValid = false;
+	if (g_NetMode == NETMODE_SERVER) {
+		if (!netmsgSvcVehicleStatePrepare(&g_NetMsgRel, bikeprop,
+				player->client, NET_VEHICLE_STATE_DISMOUNTED, &vehicleTxn)) {
+			sysLogPrintf(LOG_ERROR,
+				"VEHICLE: dismount publication failed before local commit player=%d",
+				g_Vars.currentplayernum);
+			return false;
+		}
+		vehicleTxnValid = true;
+	}
+
+	/* The WALK branch is structurally infallible after Prepare: bbikeExitLocal
+	 * closes the tracked vehicle layer and clears mounted side effects, then
+	 * bwalkInit performs the collision-safe handoff while the bike pointer is
+	 * still available. bmoveSetMode clears that pointer only after bwalkInit;
+	 * this guard detects an invariant violation without issuing a second exit. */
+	if (!bmoveSetMode(MOVEMODE_WALK)
+			|| player->bondmovemode == MOVEMODE_BIKE) {
+		if (vehicleTxnValid) {
+			netmsgSvcVehicleStateAbort(&vehicleTxn);
+		}
+		sysLogPrintf(LOG_ERROR,
+			"VEHICLE: dismount movement commit failed player=%d",
+			g_Vars.currentplayernum);
+		return false;
+	}
+
+	if (vehicleTxnValid) {
+		netmsgSvcVehicleStateCommit(&vehicleTxn);
+	}
+	return true;
+}
+
+bool bbikeTakeVehicleExitIntent(void)
+{
+	const s32 playernum = g_Vars.currentplayernum;
+	bool pending = false;
+
+	if (playernum >= 0 && playernum < MAX_PLAYERS) {
+		pending = s_VehicleExitIntentPending[playernum];
+		s_VehicleExitIntentPending[playernum] = false;
+	}
+
+	return pending;
 }
 
 void bbikeUpdateVehicleOffset(void)
@@ -130,7 +313,10 @@ void bbikeTryDismountAngle(f32 relativeangle, f32 distance)
 	f32 ymin;
 	f32 radius;
 
-	if (g_Vars.currentplayer->walkinitmove == 0) {
+	if (g_Vars.currentplayer && g_Vars.currentplayer->hoverbike
+			&& g_Vars.currentplayer->hoverbike->obj
+			&& g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE
+			&& g_Vars.currentplayer->walkinitmove == 0) {
 		bike = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;
 		angle = hoverpropGetTurnAngle(&bike->base);
 
@@ -183,8 +369,19 @@ void bbikeTryDismountAngle(f32 relativeangle, f32 distance)
 	}
 }
 
-void bbikeHandleActivate(void)
+void bbikeHandleActivate(bool transportedintent)
 {
+	const bool clientLocalIntent = g_NetMode == NETMODE_CLIENT
+		&& !g_Vars.currentplayer->isremote;
+
+	/* A transported mounted activation is already a typed one-shot vehicle exit
+	 * intent. It must not be reinterpreted through this authority process's local
+	 * control mode or double-tap timing. The local path retains those semantics. */
+	const bool authoritativeTransportedExit = transportedintent
+		&& g_NetMode == NETMODE_SERVER
+		&& g_Vars.currentplayer->isremote;
+	bool localIntentAccepted = false;
+
 	/* B-221 follow-up (2026-04-23): on PC, dismount is a single tap (mirrors the
 	 * mount-side PC bypass in currentPlayerTryMountHoverbike in propobj.c).
 	 * Classic double-tap window preserved for controller / N64-style inputs. */
@@ -195,7 +392,9 @@ void bbikeHandleActivate(void)
 		? g_Vars.currentplayer->hoverbike->obj : NULL;
 	if (vehicle && g_Vars.currentplayer->bondvehiclemode == VEHICLEMODE_RUNNING
 			&& assetRuntimeVehicleAllows(vehicle->modelnum, "dismount")
-			&& (_bbContrMode == CONTROLMODE_PC
+			&& bbikeCanDismount()
+			&& (authoritativeTransportedExit
+				|| _bbContrMode == CONTROLMODE_PC
 				|| g_Vars.lvframe60 - g_Vars.currentplayer->activatetimelast < TICKS(25))) {
 		struct hoverbikeobj *bike = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;
 		struct modelrodata_bbox *bbox = objFindBboxRodata(&bike->base);
@@ -203,6 +402,9 @@ void bbikeHandleActivate(void)
 		/* B-161 class: bike model may have no bbox node; can't compute
 		 * dismount distances without it — skip activation safely. */
 		if (bbox == NULL) {
+			if (clientLocalIntent && _bbContrMode == CONTROLMODE_PC) {
+				g_Vars.currentplayer->bondactivateorreload = 0;
+			}
 			return;
 		}
 
@@ -222,20 +424,60 @@ void bbikeHandleActivate(void)
 		bbikeTryDismountAngle(3.1410925388336f, frontdist); // 180 - back
 
 		if (g_Vars.currentplayer->walkinitmove) {
-			bmoveSetMode(MOVEMODE_WALK);
+			if (clientLocalIntent) {
+				/* Local clients send only an accepted intent; the committed mode and
+				 * vehicle pointer remain unchanged until SVC_PROP_VEHICLE_STATE. */
+				if (g_Vars.currentplayernum >= 0
+						&& g_Vars.currentplayernum < MAX_PLAYERS) {
+					s_VehicleExitIntentPending[g_Vars.currentplayernum] = true;
+				}
+				localIntentAccepted = true;
+			} else if (!bbikeTryDismount()) {
+				g_Vars.currentplayer->walkinitmove = false;
+			}
 		}
 
+		g_Vars.currentplayer->bondactivateorreload = 0;
+	}
+
+	if (clientLocalIntent && _bbContrMode == CONTROLMODE_PC
+			&& !localIntentAccepted) {
+		/* PC hold/direct use was rejected by local candidate policy or geometry.
+		 * Do not serialize a typed exit that the originating client did not accept. */
 		g_Vars.currentplayer->bondactivateorreload = 0;
 	}
 }
 
 void bbikeApplyMoveData(struct movedata *data)
 {
-	struct hoverbikeobj *bike = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;
-	s8 contnum = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
+	struct player *player = g_Vars.currentplayer;
+	struct prop *bikeprop = player ? player->hoverbike : NULL;
+	struct hoverbikeobj *bike;
+	s8 contnum = 0;
+	s32 actionPlayer;
 	f32 value1;
 	f32 tmp;
-	s32 contmode = optionsGetControlMode(g_Vars.currentplayerstats->mpindex);
+	s32 contmode = CONTROLMODE_NA;
+
+	if (!player || !bikeprop
+			|| bikeprop->type != PROPTYPE_OBJ || !bikeprop->obj
+			|| bikeprop->obj->type != OBJTYPE_HOVERBIKE || !data) {
+		return;
+	}
+
+	bike = (struct hoverbikeobj *)bikeprop->obj;
+	if (player->isremote) {
+		/* A listen server's remote actor already owns transported movedata.
+		 * Never read this process's controller/action state or overwrite those
+		 * values while simulating that actor. */
+		goto apply_transported_vehicle_data;
+	}
+	if (!g_Vars.currentplayerstats) {
+		return;
+	}
+	contnum = optionsGetContpadNum1(g_Vars.currentplayerstats->mpindex);
+	actionPlayer = (s32)contnum;
+	contmode = optionsGetControlMode(g_Vars.currentplayerstats->mpindex);
 
 	/* Phase 2 fix #4 (input-menu pillar, B-298, 2026-05-01):
 	 * vehicle IMC bindings (ACTION_VEHICLE_*) shadow the gameplay
@@ -248,9 +490,18 @@ void bbikeApplyMoveData(struct movedata *data)
 	 * (F / X-button) which fires the dismount cascade via
 	 * bmoveSetMode(MOVEMODE_WALK). */
 	if (contmode == CONTROLMODE_PC) {
-		f32 vLeft   = actionValue(0, ACTION_VEHICLE_STEER_LEFT);
-		f32 vRight  = actionValue(0, ACTION_VEHICLE_STEER_RIGHT);
-		if (actionPressed(0, ACTION_VEHICLE_EXIT)) {
+		f32 vLeft   = actionValue(actionPlayer, ACTION_VEHICLE_STEER_LEFT);
+		f32 vRight  = actionValue(actionPlayer, ACTION_VEHICLE_STEER_RIGHT);
+		if (actionPressed(actionPlayer, ACTION_VEHICLE_EXIT)) {
+			if (!bbikeCanDismount()) {
+				return;
+			}
+			if (g_NetMode == NETMODE_CLIENT) {
+				/* Direct PC vehicle exit is an accepted local intent only after the
+				 * same collision candidate probe below. It remains uncommitted until
+				 * the typed authoritative result arrives. */
+				player->pcinteractusekind = 2;
+			}
 			/* Mike directive 2026-05-17: directional dismount. The
 			 * left stick at dismount time picks the side the player
 			 * lands on; default LEFT if no input. We run the same
@@ -258,13 +509,12 @@ void bbikeApplyMoveData(struct movedata *data)
 			 * but with the user-chosen side at the front of the
 			 * priority list so the player lands where they asked
 			 * to land when geometry allows. */
-			struct hoverbikeobj *bike = (struct hoverbikeobj *)g_Vars.currentplayer->hoverbike->obj;
 			struct modelrodata_bbox *bbox = objFindBboxRodata(&bike->base);
+			g_Vars.currentplayer->walkinitmove = false;
 			if (bbox != NULL) {
 				f32 sidedist  = bbox->xmax * bike->base.model->scale;
 				f32 frontdist = bbox->zmax * bike->base.model->scale;
 				f32 diagdist  = sqrtf(sidedist * sidedist + frontdist * frontdist);
-				g_Vars.currentplayer->walkinitmove = false;
 
 				const bool wantRight = (vRight - vLeft) > 0.25f;
 				if (wantRight) {
@@ -281,23 +531,41 @@ void bbikeApplyMoveData(struct movedata *data)
 				bbikeTryDismountAngle(0,                  frontdist);
 				bbikeTryDismountAngle(3.1410925388336f,  frontdist);
 			}
-			bmoveSetMode(MOVEMODE_WALK);
+			if (g_Vars.currentplayer->walkinitmove) {
+				if (g_NetMode == NETMODE_CLIENT) {
+					if (g_Vars.currentplayernum >= 0
+							&& g_Vars.currentplayernum < MAX_PLAYERS) {
+						s_VehicleExitIntentPending[g_Vars.currentplayernum] = true;
+					}
+				} else if (!bbikeTryDismount()) {
+					g_Vars.currentplayer->walkinitmove = false;
+				}
+			}
 			return;
 		}
 
-		f32 vAccel  = actionValue(0, ACTION_VEHICLE_ACCELERATE);
-		f32 vBrake  = actionValue(0, ACTION_VEHICLE_BRAKE);
-		f32 vHandbrake = actionValue(0, ACTION_VEHICLE_HANDBRAKE);
+		f32 vAccel  = actionValue(actionPlayer, ACTION_VEHICLE_ACCELERATE);
+		f32 vBrake  = actionValue(actionPlayer, ACTION_VEHICLE_BRAKE);
+		f32 vHandbrake = actionValue(actionPlayer, ACTION_VEHICLE_HANDBRAKE);
 		bool vehicleInputs = (vAccel > 0.0f || vBrake > 0.0f
-				|| vLeft > 0.0f || vRight > 0.0f);
+				|| vLeft > 0.0f || vRight > 0.0f || vHandbrake > 0.0f);
 		if (vehicleInputs) {
 			/* Map [0..1] to the [-70..70] range bbikeApplyMoveData
 			 * expects (line 271 divides by 70 and clamps to [-1, 1]).
 			 * Handbrake (Mike directive 2026-05-17): full brake
 			 * regardless of accelerator; locks the bike in place. */
-			f32 effectiveBrake = vBrake + vHandbrake;
-			if (effectiveBrake > 1.0f) effectiveBrake = 1.0f;
-			data->analogwalk    = (vAccel - effectiveBrake) * 70.0f;
+			f32 targetForward;
+			if (vHandbrake > 1.0f) vHandbrake = 1.0f;
+			if (vHandbrake < 0.0f) vHandbrake = 0.0f;
+			if (vHandbrake > 0.0f) {
+				/* Handbrake is a damp/lock control, never a reverse command.
+				 * Full handbrake reaches zero from either travel direction even
+				 * when accelerator and brake are pressed together. */
+				targetForward = player->speedforwards * (1.0f - vHandbrake);
+			} else {
+				targetForward = vAccel - vBrake;
+			}
+			data->analogwalk    = targetForward * 70.0f;
 			data->analogstrafe  = (vRight - vLeft)  * 70.0f;
 			data->canlookahead  = 1;
 			data->unk14         = 1;
@@ -307,6 +575,25 @@ void bbikeApplyMoveData(struct movedata *data)
 			data->digitalstepback    = 0;
 			data->digitalstepleft    = 0;
 			data->digitalstepright   = 0;
+
+			/* Keep one bounded production witness per half-second while a
+			 * mounted action is active. The witness is keyed by player and
+			 * mounted prop so stage/frame resets cannot suppress a new mount. */
+			if (g_Vars.currentplayernum >= 0
+					&& g_Vars.currentplayernum < MAX_PLAYERS
+					&& s_LastVehicleInputProp[g_Vars.currentplayernum] != bikeprop) {
+				s_LastVehicleInputProp[g_Vars.currentplayernum] = bikeprop;
+				s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = -30;
+			}
+			if (g_Vars.currentplayernum >= 0
+					&& g_Vars.currentplayernum < MAX_PLAYERS
+					&& (s32)g_Vars.lvframenum
+						- s_LastVehicleInputLogFrame[g_Vars.currentplayernum] >= 30) {
+				sysLogPrintf(LOG_NOTE,
+					"VEHICLE: input player=%d accel=%.2f brake=%.2f left=%.2f right=%.2f handbrake=%.2f",
+					actionPlayer, vAccel, vBrake, vLeft, vRight, vHandbrake);
+				s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = (s32)g_Vars.lvframenum;
+			}
 		}
 
 		/* Vehicle camera look (Mike directive 2026-05-17): drive
@@ -315,7 +602,7 @@ void bbikeApplyMoveData(struct movedata *data)
 		 * Map [-1..1] to the existing aimturnleftspeed/rightspeed
 		 * channel that bmoveUpdateSpeedThetaControl consumes for
 		 * heading rotation. */
-		f32 lookX = actionValue(0, ACTION_VEHICLE_LOOK_X);
+		f32 lookX = actionValue(actionPlayer, ACTION_VEHICLE_LOOK_X);
 		if (lookX > 0.05f) {
 			data->aimturnrightspeed = lookX;
 			data->aimturnleftspeed  = 0;
@@ -326,7 +613,7 @@ void bbikeApplyMoveData(struct movedata *data)
 			data->aimturnleftspeed  = 0;
 			data->aimturnrightspeed = 0;
 		}
-		f32 lookY = actionValue(0, ACTION_VEHICLE_LOOK_Y);
+		f32 lookY = actionValue(actionPlayer, ACTION_VEHICLE_LOOK_Y);
 		if (lookY > 0.05f) {
 			data->speedvertaup   = lookY;
 			data->speedvertadown = 0;
@@ -339,7 +626,9 @@ void bbikeApplyMoveData(struct movedata *data)
 		}
 	}
 
-	if ((contmode == CONTROLMODE_12
+apply_transported_vehicle_data:
+
+	if (!player->isremote && (contmode == CONTROLMODE_12
 				|| contmode == CONTROLMODE_14
 				|| contmode == CONTROLMODE_13
 				|| contmode == CONTROLMODE_11

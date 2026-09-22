@@ -20,6 +20,8 @@ void propsSort(void);
 void propEnable(struct prop *prop);
 void propDisable(struct prop *prop);
 struct prop *propAllocate(void);
+/* Exact process-lifetime identity for one prop allocation; zero is invalid. */
+u64 propGetLifecycleGeneration(const struct prop *prop);
 /* Return whether the free-prop list can satisfy a synchronous transaction's
  * complete aggregate demand without any mutation. */
 s32 propsReserveCreateCount(s32 count);

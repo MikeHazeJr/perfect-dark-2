@@ -401,7 +401,7 @@ TEST_CASE("spawn orchestration keys humans by the same canonical stage identity"
 	const std::string source = compact_source(
 		read_pd_source("src/game/mplayer/mpspawn_orchestrate.c"));
 	const source_block orchestrate = definition_block(source,
-		"voidmpOrchestrateMatchStartSpawns(void)");
+		"enummp_orchestrate_spawn_resultmpOrchestrateMatchStartSpawns(void)");
 	const source_block compare = definition_block(source,
 		"staticintorch_part_cmp(constvoid*va,constvoid*vb)");
 
@@ -419,7 +419,7 @@ TEST_CASE("spawn orchestration keys humans by the same canonical stage identity"
 		"both comparator operands use canonical order");
 	REQUIRE(compare.text.find("playernum") == std::string::npos);
 	require_text(orchestrate.text,
-		"SPAWN.ORCH:applyplayer=%dclient=%drole=%spool=%dduplicate=%d",
+		"SPAWN.ORCH:prepareplayer=%dclient=%drole=%spool=%dduplicate=%d",
 		"production logs expose semantic role to pool mapping on both endpoints");
 }
 
@@ -448,10 +448,10 @@ TEST_CASE("stage player rollback retires every published runtime owner",
 			"player->prop=NULL;"},
 		"player chr, room, scheduler, allocation, and pointer ownership unwind together");
 	require_text(owner.text,
-		"g_MpAllChrPtrs[g_Vars.currentplayernum]=NULL;",
+		"g_MpAllChrPtrs[runtime_index]=NULL;",
 		"rollback clears the published MP character owner");
 	require_text(owner.text,
-		"g_MpAllChrConfigPtrs[g_Vars.currentplayernum]=NULL;",
+		"g_MpAllChrConfigPtrs[runtime_index]=NULL;",
 		"rollback clears the published MP character-config owner");
 	require_order(owner.text,
 		{"if(player->gunmem2!=NULL)", "bgunFreeGunMem();",

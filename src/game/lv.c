@@ -139,7 +139,7 @@ static s32 lvAddLoadedCatalogColmeshes(const char *category,
 	const char *exclude_id)
 {
 	s32 added = 0;
-	s32 total = assetCatalogGetCount();
+	s32 total = assetCatalogGetPoolSize();
 
 	if (!category || !category[0]) {
 		return 0;
@@ -621,6 +621,14 @@ bool lvReset(s32 stagenum)
 	modelmgrSetLvResetting(true);
 	surfaceReset();
 	texReset();
+	{
+		catalog_stage_result_t material_stage;
+		if (lvResolveStageForScenarioSource(stagenum, &material_stage)
+				&& !scenarioSourceApplyTexturePropertiesForStage(&material_stage,
+					g_Vars.normmplayerisrunning)) {
+			sysFatalError("ASSET.SOURCE_ONLY: stage material source activation failed");
+		}
+	}
 	textReset();
 	hudmsgsReset();
 
@@ -887,7 +895,19 @@ bool lvReset(s32 stagenum)
 		}
 
 		if (g_Vars.mplayerisrunning && spawnPoolIsReady()) {
-			mpOrchestrateMatchStartSpawns();
+			enum mp_orchestrate_spawn_result orchestrate_result =
+				mpOrchestrateMatchStartSpawns();
+
+			if (orchestrate_result != MP_ORCHESTRATE_SPAWN_OK) {
+				sysLogPrintf(LOG_ERROR,
+					"PLAYER.INIT.ROLLBACK phase=spawn-orchestration status=%s; aborting stage reset",
+					mpOrchestrateSpawnResultString(orchestrate_result));
+				lvRollbackCommittedPlayers(committed_player_order,
+					committed_player_count, "spawn-orchestration", -1,
+					mpOrchestrateSpawnResultString(orchestrate_result));
+				modelmgrSetLvResetting(false);
+				return false;
+			}
 		}
 
 		for (s32 order_position = 0;

@@ -481,11 +481,14 @@ s32 catalogResolveModelByModelnum(s32 modelnum, catalog_model_result_t *out)
 
 s32 catalogResolveModel(const char *id, catalog_model_result_t *out)
 {
-    (void)id;
+    const asset_entry_t *entry = assetCatalogResolve(id);
     if (out) {
         memset(out, 0, sizeof(*out));
     }
-    return 0;
+    if (!entry || !out || entry->type != ASSET_MODEL ||
+            entry->runtime_index < 0) return 0;
+    out->modelnum = entry->runtime_index;
+    return 1;
 }
 
 static char s_TestEffectAudioId[CATALOG_ID_LEN];

@@ -232,33 +232,35 @@ s32 p2pLanStart(void)
 
 void p2pLanStop(void)
 {
-	if (!s_Running) return;
+	if (s_Running) {
+		/* Send a goodbye announce so neighbours prune us promptly. */
+		u8 packet[P2P_LAN_PACKET_SIZE];
+		memset(packet, 0, sizeof(packet));
+		u8 *p = packet;
+		memcpy(p, P2P_LAN_MAGIC, P2P_LAN_MAGIC_LEN); p += P2P_LAN_MAGIC_LEN;
+		wU8(&p, P2P_LAN_VERSION);
+		wU8(&p, P2P_LAN_FLAG_BYE);
+		wU8(&p, 0); /* pad */
+		wU32(&p, socialMyHandle());
+		wU32(&p, 0);
+		wU16(&p, s_LocalPort);
+		wU16(&p, NET_PROTOCOL_VER);
+		wU32(&p, SDL_GetTicks());
 
-	/* Send a goodbye announce so neighbours prune us promptly. */
-	u8 packet[P2P_LAN_PACKET_SIZE];
-	memset(packet, 0, sizeof(packet));
-	u8 *p = packet;
-	memcpy(p, P2P_LAN_MAGIC, P2P_LAN_MAGIC_LEN); p += P2P_LAN_MAGIC_LEN;
-	wU8(&p, P2P_LAN_VERSION);
-	wU8(&p, P2P_LAN_FLAG_BYE);
-	wU8(&p, 0); /* pad */
-	wU32(&p, socialMyHandle());
-	wU32(&p, 0);
-	wU16(&p, s_LocalPort);
-	wU16(&p, NET_PROTOCOL_VER);
-	wU32(&p, SDL_GetTicks());
-
-	struct sockaddr_in dst;
-	memset(&dst, 0, sizeof(dst));
-	dst.sin_family = AF_INET;
-	dst.sin_addr.s_addr = htonl(INADDR_BROADCAST);
-	dst.sin_port = htons(P2P_LAN_PORT);
-	(void)sendto(s_Sock, (const char *)packet, P2P_LAN_PACKET_SIZE, 0,
-	             (struct sockaddr *)&dst, sizeof(dst));
-
-	closesocket(s_Sock);
+		struct sockaddr_in dst;
+		memset(&dst, 0, sizeof(dst));
+		dst.sin_family = AF_INET;
+		dst.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+		dst.sin_port = htons(P2P_LAN_PORT);
+		(void)sendto(s_Sock, (const char *)packet, P2P_LAN_PACKET_SIZE, 0,
+			(struct sockaddr *)&dst, sizeof(dst));
+		closesocket(s_Sock);
+	}
 	s_Sock = INVALID_SOCKET;
 	s_Running = 0;
+	s_LocalPort = 0;
+	s_LastAnnounceMs = 0;
+	memset(s_Cache, 0, sizeof(s_Cache));
 	sysLogPrintf(LOG_NOTE, "P2P.LAN: listener stopped");
 }
 

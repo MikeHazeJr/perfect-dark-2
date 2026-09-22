@@ -1,5 +1,521 @@
 # Bug Tracker
 
+2026-09-22 19:18 ET: T-NETWORKING-011 ordinary listen-host multiplayer start
+can reject a valid Random weapon selection. On the short-path real-peer
+distribution fixture, `matchConfigSelectWeaponSet(6)` resolved to Random set 13;
+the lobby writer transmitted the menu index and exact slots, but the server
+reader tested index 6 against the resolved Random constants, re-rolled slots,
+and rejected `weapon set metadata and exact slots disagree` four times before
+ready/transfer. Two-path `netmsg.c`/lifecycle guard correction applied, not yet
+built or runtime-verified. Propagation: surveyed all `mpPrepareWeaponSet` callers;
+writer and match setup already distinguish requested and resolved domains.
+Retain RED35/67 receipt `results-20260922T231327Z.json`; no F12 runtime verdict.
+
+2026-09-22 18:59 ET: T-NETWORKING-011/F12 transfer BEGIN previously allowed
+512 MiB while the sender capped expanded archives at 50 MiB and END rejected
+above 256 MiB. Its 200 MiB session check combined received compressed bytes
+with incoming expanded bytes, without reserving pending transfers. The lobby
+progress bar divided compressed bytes by expanded bytes. Source6 now has one
+expanded-size budget and bounded compressed receive geometry; native budget4,
+client/tests builds and source guard pass on full3623 SHA4463E90D. Propagation
+check covered sender/BEGIN/CHUNK/END/progress paths. Consent and pacing remain
+separate open defects. First two-process smoke stopped before any transfer on
+an `ASSET.SOURCE_ONLY` fatal: the long per-test host install path exceeded all
+private animation cache path budgets. This is a source-observed path limitation
+in `modasset_compiler.c:4533`, not proof that F12 distribution failed or passed
+at runtime. Retain RED20/44; the shorter install path cleared this first
+blocker and exposed the separate lobby-start defect above.
+
+2026-09-22 18:19 ET: T-NETWORKING-011 synthetic FT socket peer initially
+treated a preceding presence ping as an FT frame and exited before acknowledging
+the game's valid INIT. First ordinary run stopped red at 4/6; the game sender
+then abandoned after no INIT ACK. Root cause was the fixture peer assuming all
+datagrams on the shared presence socket were FT. The peer now filters non-PDFTX
+frames and expects the production `file` kind / `files` folder. Propagation
+check: all peer receive paths use the common filtered `received()` function.
+Corrected r2 on the unchanged client passes signed bidirectional UDP, saved
+file/sidecar and ACK replay (6/6, one publication). Retain r1 red and r2 green
+receipts under `.claude/mp0908-repairs/followups/ft-storage/`.
+
+2026-09-22 17:52 ET: T-NETWORKING-011/F04/F12 receiver completion repair is
+component-verified on frozen full2149 SHA8337DB9E: isolated client/tests builds
+0, native storage5 exact5/0 failures, native asset source guard0. The earlier
+menu client build stopped first red because the removed filename sanitizer still
+served the local music-to-mod converter. Propagation search found one remaining
+caller; source6 r2 restores that local helper while remote inbox naming uses the
+new safe peer/digest helper. Current combined client build passes. Real signed
+socket delivery, sidecar JSON parse, receiver restart and UI/WAN remain open.
+Receipts: .claude/mp0908-repairs/followups/ft-storage/{build-r2-client-exit,
+build-r2-tests-exit,storage5-exit,storage5-name-audit,native-guard-r2-exit}.json.
+
+2026-09-08 23:06 batch22 connected texture/source pipeline ACCEPTED within scope (source35).
+Full2145 24440303AB0D8D1EB47802A8BA52AA3D71F7D10FCFB818CFDCDB1135EE097BD2;
+changed488 BAF7FC71; client6D4FE54E/tests233ECA5C unchanged through final audits.
+Client/tests build0, native26 PASS (unchanged helper inputs), affected source-contract1
+PASS, source guard0, warm installed24 PASS35/35 in39.1s using completed fresh
+extraction20260909T025106Z. Actual texLoad pixels, descriptor edit, stage modes,
+GBI tile fields, rejection/reset, sparse reverse index, custom menu texture and
+suppressed/enabled base-overlay image/material selection all pass. Audit PASS all
+3503 original texture material records,169 stage assignments,87 standalone+45 nested
+scenario graphs,132 unchanged nonmaterial graph comparisons and coherent hashes.
+All110 public command IDs/593 commands exact, no source/fixup failures.
+Additive atomic upgrades preserve edited descriptors/images/graph topology and
+versioned omissions; incomplete archive views reject rewrite. All12 occupied-count
+index-bound mistakes fixed or removed across8 extraction/loading paths. Suppressed
+base overlays now select public base sources through shared image/material policy.
+Earlier compile/link reds, initial legacy-DMA crash, safe rejections and120s extraction
+timeout remain in batch22 receipts; timeout allowance is now bounded240s. This is
+native/source acceptance, not rendered appearance, full graph gameplay or all-family
+parity. Full equipped model-generation ownership/graph publication, palette/mipmap
+parity, larger textures and requested pack remain open. No staging/commit/push.
+Evidence: .claude/asset0905-continuation/batch22-r9-{client-build,tests-build,
+affected1,native-guard,texture-pipeline-installed24}-exit.json; batch22-combined26
+JUnit/name audit; batch22-r9-{texture-material-audit,base-command-coverage,
+post-runtime-freeze}.json; results-20260909T030500Z.json. Root queues finished;
+source holds released. MP storage remains private/paused; menu native work idle.
+
+
+2026-09-08 22:59 source33 settled r8: all12 occupied-count/index-bound mistakes repaired or removed across8 loading/extraction paths. Shared ordinary texture selection now chooses public base sources when overlays are suppressed; image/material policies match, cache tracks suppression mode. Installed24 fixture checks sparse reverse index before texLoad and exercises custom/menu source plus enabled/suppressed base overlay pixels/properties. Client/guard/warm24 next; native26 inputs unchanged. No full equipped-graph or rendered acceptance.
+
+
+2026-09-08 22:57 batch22 r7 installed warm24 TERMINAL RED32/35: custom slot now safely rejected, not legacy DMA crash. Actual sparse catalog root cause:12 index loops used occupied count instead of pool high-water index; valid later rows skipped after removal. Corrected full class across8 sources (root additionally owns base_extended/langmanifest/romextract_pdmeta), each already checks occupied rows. Fixture enables its texture and next asserts actual reverse-index binding before texLoad. Native26 unchanged; source33 pending combined client/guard/installed24. Prior r3/r4/r5/r6/r7 reds preserved.
+
+
+2026-09-08 22:45 batch22 r3 client/tests build0, combined native26 PASS, source guard0. Installed24 TERMINAL RED32/35 (98.9s): new ordinary custom texture case reached legacy DMA after g_NotLoadMod suppressed its public source. Exact addr2line traces texLoad:2361 from harnessTextureRuntime:839. Corrected custom-versus-base-overlay suppression and added a custom-slot boundary before any legacy directory lookup. Source30 now settled for r4 client/guard/installed24; native26 inputs unaffected, no unchanged rerun. Original red receipts retained; full texture/material acceptance pending.
+
+
+2026-09-08 22:30 source-confirmed: archive readers intentionally filter unsupported/encrypted/unsafe entries. Rewriting a filtered view silently loses members. modArchiveCanRewriteSources now records complete original entry names/count/comment and blocks partial-view rewrites in generic replacement and texture/stage migrations. Source28 applied; native rejection/preservation cases and combined validation pending.
+
+2026-09-08 21:58 texture generation/source-properties component ACCEPTED (batch21).
+Source20 r2 83677B33; full2136 CC3BAE06/changed4731F8F2D7F/clientE23B7EEF/
+tests5D62ADA3 unchanged. Client/tests build0, native texture7 PASS, source guard0,
+fresh installed23 PASS33/33 in75.3s with DummyAudio. Actual catalog acquisitions
+retain image+descriptor hashes, pixels/native identities and tile/surface data;
+image-only and property-only edits coexist; retirement/reset/empty pool preserve
+old users; actual model G_SETTIMG/G_SETTILE use selected retained generations.
+Malformed image, bad/duplicate/wrong-ID properties and incomplete bundled legacy
+metadata reject; final release permits reuse. Base110 command sources/593 commands
+exact, no missing/source/fixup failures. Receipts batch21-* in asset0905-continuation;
+install 20260909T015641Z-weapon_mesh_ingress_smoke, results-20260909T015757Z.json.
+All root queues finished and source holds released. MP storage6 stays private,
+paused and excluded. Base texture metadata migration, ordinary/stage override
+source authority, palette/mipmap parity, larger images, complete equipped graph
+and requested pack remain open. This proves native consumers, not rendered output.
+
+Earlier findings and preparation history follow; current status above wins.
+
+## 2026-09-08 File-transfer completion precedes durable save and loses retries
+
+T-NETWORKING-011/F04/F12, source-confirmed after wire7. handleChunk ACKs the final
+chunk before completeReceiver checks SHA and writes the inbox file. Sender frees
+on that ACK; receiver frees after completion, so a lost final ACK cannot be
+answered on retransmission. Data publication uses fopen wb and deletes the
+destination on a short write, risking a previous file. buildInboxPath inserts
+the remote Agent name directly into a directory; sidecar JSON interpolates names
+without escaping. Next repair must use bounded safe peer paths, verified atomic
+publication, final saved/rejected receipt and bounded completed-receipt replay.
+An in-memory completed cache alone does not prevent receiver-restart replay.
+The Sep22 source6 r2 component gate above verifies receiver commit behavior;
+actual socket proof remains open. Native wire7 is separate.
+
+## 2026-09-08 Signed file-transfer frame and chunk bounds are inconsistent
+
+T-NETWORKING-011/F04/F12, source-confirmed21:01. FT_FRAME_LEN is1280 while
+FT_SIG_OFFSET1256 + FT_SIG_LEN64 requires1320 bytes. Sender stack packets allocate
+1280 and signFrame writes64 signature bytes at1256: a40-byte overrun, followed by
+a truncated signature on the wire. Receiver storage is larger but accepts only
+1280 bytes and verifies64 signature bytes, including40 bytes not received.
+This prevents a trustworthy signed-file-transfer path; current activation probes
+exercise the installed-package queue, not this socket/frame path.
+
+handleInit also allocates chunk_present from unchecked advertised chunk_total,
+without requiring ceil(file_size/1024). handleChunk computes the final copy size
+from file_size minus offset without capping it to the received1024-byte payload.
+A too-small chunk count can therefore make the copy read beyond the packet.
+ACK/REJECT lookup is transfer-ID-only and does not bind the signing friend to
+the transfer; chunk handlers ignore recipient/echoed count. Repair wire sizes,
+geometry and peer/recipient admission with real signature/packet-boundary tests
+before claiming received-content transport acceptance. At21:19 wire8 applied
+under a fresh source grant (manifest72C4260E), validation pending. A shared
+capacity-checked v2 wire helper and presence dispatch now own these boundaries;
+native7 passed2898 assertions at21:24, client/tests/guard0 with no drift on full
+438CF4A4/client4DDA994D/tests6A2856DE. Actual socket/receiver commit acceptance
+remains open. The legacy sender's250ms delay after each ACK is also removed; only retries
+wait. Distinguish all-chunks-acknowledged from verified/saved/installed receipt.
+
+## 2026-09-08 Model source metadata and retained texture dependencies
+
+T-MODDING-002. Model skeleton read private `_meta/manifest.json` before public
+mesh.ini, while loose OBJ/glTF sidecars were ignored because metadata paths
+required an archive separator. Correction applied with explicit compiler input
+callbacks; verified in model-inputs installed22 (22 cases, 31 assertions). Geometry, public
+metadata, external buffers and image bytes can now be supplied as one captured
+read set. No immutable equipment-model acceptance yet.
+
+The audit also found texture tile offsets/mask reductions still read from
+`g_Textures` in texWriteTileFromDefinition, and tile/sound/surface attributes are
+not emitted by romextract_pdtexture.c into texture.ini. Collision/sound callers
+also consume texture numeric identities. A private model texture pool alone
+cannot preserve those semantics if it reuses local IDs. Next owned texture/model
+work must expose the missing public metadata, retain native texture identity and
+pixel lifetime, and cover renderer/collision consumers. Do not bypass this with
+zero defaults for extracted textures or claim geometry-only ownership as complete.
+
+Propagation audit 21:03: mpStartMatch also hardcodes 169 surface/sound assignments
+across 90 native texture identities according to stage ID. These stage semantics
+must become public stage-owned overrides keyed by exact texture catalog ID, with
+defined precedence and transition reset; copying the ROM texture table alone is
+insufficient. Existing extractor cache-kind mismatch rewrites entire archives;
+the metadata migration must preserve edited images, descriptors and extra members.
+Inventory: .claude/asset0908-drafts/texture-generation/stage-properties-audit.json
+and migration-review.md. No extraction/runtime fix for these findings applied yet.
+
+## 2026-09-08 Digital action holds lack per-source ownership
+
+T-INPUT-008; source-confirmed20:40, no runtime reproduction yet. fireVk resolves
+each press/release independently and toggles one ActionState.held. Two distinct
+bindings to one action can release each other. The per-frame wheel cleanup also
+clears every held action that has a wheel binding, regardless of which physical
+source holds it. This extends the raw Btn23/axis alias release problem to ordinary
+multi-binding. The future coherent VK/dispatch repair needs per-source retained
+ownership, source-specific wheel pulse retirement, and flush/smoke ownership
+integration. Merely widening VKs cannot fix this class. Sep22 source candidate
+now retains the physical source's original action winner and aggregates owners;
+wheel cleanup retires only actual wheel pulses. Focus, device, context, and
+binding boundaries retire matching owners. Sep22 isolated client/updater/tests
+builds, direct owner3/26, smoke-owned source1/53 and actionmap regression15/481
+pass. First peer FT compile red and two stale source-contract reds are retained.
+Ordinary menu/runtime and hardware proof remain open; high-button/axis VK
+separation and glyph truth remain open.
+
+## 2026-09-08 Archive rescan resets loaded baseline before activation preparation
+
+T-MENUS-006; source-confirmed20:36, runtime reproduction pending. Installation
+calls modmgrRescanDirectory before activation preparation. The rescan restores
+all archive rows with loaded=0 after closing handles, even if previously loaded.
+A subsequent requires-restart plan therefore cannot recover that earlier loaded
+baseline. The retained-plan repair preserves its own preparation baseline across
+retries; it does not yet preserve pre-install archive generations/state. Needs
+coordinated catalog/activation lifecycle work and an existing-archive regression.
+The current discovered-folder smoke must not be described as this proof.
+
+## 2026-09-08 Installed activation retry can skip a failed persistence step
+
+T-MENUS-006; MP read-only propagation finding, menu owns correction. In
+modmgrEnableInstalledChecked, disabled activation publishes enabled1 before
+persistent Apply. Failed component/config save leaves enabled1/dirty1; retry
+then takes the already-enabled sync-only branch and can report success without
+retrying persistence. A fresh Apply plan after late failure can also lose the
+original requires-restart loaded baseline. Do not wire FT retries to the current
+helper. Repair needs retained operation intent/baseline plus explicit completion
+or discard semantics. Sep8 20:31 correction applied: caller-owned persistent
+activation plan, install-only API, importer Retry/Discard and departure guard.
+MP owns FT migration. Actual changed-selection failure/retry validation pending.
+Core Apply2 proves SAME owned-plan retry only and does not cover this helper.
+
+Sep8 21:15 updated: activation core2 PASS35/35 in79.5s now verifies the replacement
+helper's new/already-enabled persistence retry and real late-load retry preserving
+original loaded1 restart baseline. FT actual retained queue/retry/explicit discard
+also passed. Receipt menu0908/activation-core2-exit.json, client811BE779. The prior
+helper retry defect is corrected; rendered UI/Agent-switch and the separate
+pre-install archive-rescan baseline gap remain open.
+
+
+## 2026-09-08 Received-mod activation retry can skip failed persistence
+
+T-NETWORKING-011/F04/F15 propagation finding, source-confirmed20:11; actual
+failure/retry reproduction pending. modmgrEnableInstalledChecked first publishes
+enabled1, then its persistent prepared Apply may fail component/config saving.
+It frees that plan while leaving the in-memory enabled flag. The next call takes
+the already-enabled branch into modmgrSyncCatalogToRegistryChecked, which rebuilds
+without saving, and may report success with unsaved selection. Menu owns helper
+repair; N-0168 records exact paths/lines and direct handoff. MP file-transfer caller
+also ignores Apply results and clears its prompt on failure; its UI void-casts
+acceptance and dismisses. Repair both checked retry semantics and caller/UI state,
+then prove saved selection and actual activation under injected failure/retry.
+21:16 update: menu retained-plan API and MP FT caller/UI repair are applied.
+Public Mods7 source-contract cases and actual core FT save-failure/retry/discard
+passed; ft-activation-runtime-review.json checks exact events/current FT4 against
+Core2 full049E558F/client811BE779. Retry saved selection and loaded the package;
+discard cleared the queue while preserving enabled1/dirty1. This is installed
+queue/core proof, not actual download, ordinary UI or Agent-switch acceptance.
+
+Related source ownership gap: file_transfer.c pending activation rows contain
+sender/mod identity but no local Agent owner; fileTransferInit/Shutdown do not
+clear that queue. Agent rebind can therefore retain another Agent's prompt and
+transfer state. MP follow-up must bind pending plans/prompts to local Agent and
+stable mod ID, cancel owned in-flight state on rebind, retain failures for retry,
+and avoid claiming a partially enabled package was kept disabled on dismissal.
+20:52 update: pending rows now own local Agent + stable mod ID and a persistent
+plan. Shutdown/rebind free plans and old transfer buffers; discard reports no
+rollback. An actual Agent-switch reproduction remains pending.
+
+## 2026-09-08 Voice burst negotiation can discard speech onset
+
+T-NETWORKING-011/F09/F10. Source review: a new PTT/VAD burst sends HELLO, and
+broadcastVoiceFrame drops encoded media until the peer returns its challenge.
+Fresh challenge admission prevents replay, but the initial speech can be lost
+over the handshake round trip. Preserve fresh-session security while evaluating
+bounded outgoing pre-roll or consent-scoped pre-negotiation. The accepted native
+transport tests answer HELLO before media and do not prove onset quality. VAD is
+now source-applied and native17/component-verified on frozen full2156 59011833,
+but actual sockets, audible onset and physical-device acceptance remain open.
+The VAD threshold does not itself solve negotiation pre-roll.
+
+## 2026-09-08 Audio generation and effective pitch ownership
+
+T-MODDING-002: sound leaf slots were reused on catalog reset while native command
+owners could still retain their IDs. Per-play source reopening also selected
+new bytes after an edit. Applied generation adapter owns decoded source and
+slot; each playing voice receives independent PCM. Shared file/PCM voice start
+also rejects finite pitch factors whose product is nonfinite, which could
+otherwise leave an infinite cursor in the loop mixer. Batch18 audio36 and installed20 dummy-mixer checks passed: retained PCM/slots,
+playing voice after release, loop timing and overflow-allocation rejection.
+Client isfinite and menu linkage build failures remain separately recorded;
+r3 clientCF294A6D/full80E30B41 is accepted. Full command/graph integration is open.
+
+## 2026-09-08 Interface Delete leaves stale catalog after partial file removal
+
+T-MENUS-006. interfaceDeleteModDir removes known manifests before attempting
+rmdir; remaining files can make rmdir fail after mod.json was already removed.
+The UI previously skipped catalog refresh in this case and reported success
+after unchecked refresh on complete deletion. Sep8 19:37 one-file source repair
+reconciles actual files after either outcome (including theme directories),
+consumes checked sync and offers Retry refresh without repeating deletion.
+Status preserves partial-file truth, wraps long errors, and gives Back priority
+over retry. Batch18 r2 exposed local extern declarations acquiring C++ linkage
+in the extracted helper; moved both to the global extern C block under root's
+sole-source correction grant. Settled manifest interface-delete-linkage-applied.json.
+Batch18 r3 clientCF294A6D/full80E30B41 passed with no drift (menu receipt
+interface-delete-client-postcheck.json). Actual UI/input verification pending.
+Filesystem deletion scope is unchanged; both earlier client reds remain retained.
+
+
+## 2026-09-08 Alternate Mod Manager callers discard activation failures
+
+T-MENUS-006; source-confirmed propagation of main Apply failure loss. Reload
+cleared dirty and transitioned stage after failed rebuild; archive enable returned
+an applied-success index after void Apply/sync; Weapon Save completed its modal
+after void Apply. Sep8 19:27 caller4 source repair adds checked reload/sync and
+installed activation, verifies actual enabled publication and carries failures
+to archive out_error and Weapon Save status. Restart deferrals get truthful
+wording. Manifest .claude/menu0908/apply-complete-review/callers/applied-four.json.
+Client/tests build0 and affected Weapon source contract1/100 assertions plus
+guard PASS on fullFBCC1DBA, no drift. Actual core/UI runtime remains pending.
+Interface Delete, file transfer, Agent transient
+Apply and session retirement are still explicit propagation follow-ups.
+
+
+## 2026-09-08 Main Apply loses failure and cannot retry its own publication
+
+T-MENUS-006; source-confirmed. Main UI mutated component runtime before saving,
+called void Apply, refreshed away desired choices and displayed success after
+ignored save/rebuild failure. Its old baseline also rejected retry after its
+own successful registry publication. Sep8 18:56 source repair adds prepared
+intent, checked Apply/rebuild, actual publication verification, retained Agent/
+restart state and post-attempt baseline. Main UI keeps failure/choices and guards
+departure until checked success or explicit discard. Applied-ten.json in
+.claude/menu0908/apply-complete-review. Catalog-plan4/51 and settled apply-r3
+main5/139 assertions, client/tests builds and guard PASS with no source drift.
+Actual core/UI failure journeys remain pending. Other void Apply/reload/sync/install callers remain
+the propagation follow-up; no full transaction rollback is claimed.
+
+
+## 2026-09-08 Metadata-only import rollback changes lifecycle state
+
+T-MODDING-002 installed batch15 failed all three new folder/loose/typed late
+replacement cases despite valid dependency admission and logged rollback.
+`catalogActivationLedgerRestoreRetiredSnapshot` unconditionally promoted every
+enabled REGISTERED row to ENABLED, even when it never owned a payload. Exact
+row restoration was therefore impossible for inert admitted command sources.
+Fix preserves prior REGISTERED/ENABLED state for unowned metadata, while still
+clearing retired loaded/active pointers, reference counts and runtime state.
+Actual-ledger regression and retired-ownership regression passed2. Corrected
+installed batch16 passed18/18 inner23/23 outer72.3s; folder/loose/typed late and
+cyclic replacements restore exact rows, native pointers and provider counts. The shared helper
+covers all import rollback callers; do not normalize away this fixture failure.
+Batch15 receipts remain failed15/18 inner,15/23 outer98.599s, source unchanged.
+
+## 2026-09-08 Social group and voice state lack active-Agent ownership
+
+T-NETWORKING-011/F07/F15, source-confirmed lifecycle gap; live reproduction
+pending. agentSessionActivate -> prefsAgentPublishActive rebinds the social handle,
+but socialHubBringOnline returns immediately once online. socialRebindToActiveAgent
+only changes name/handle/code; no group/voice reset. The only source caller of
+groupSessionShutdown is socialHubGoOffline, which has no production call sites.
+Transport disconnect preserves peers while suppressing automatic rejoin. The group
+snapshot has no local Agent owner, and voice signs using the current handle while
+retaining prior PTT/peer state. Accepted audience admission must bind the session
+to its Agent and revoke queued audio/routes on identity change; filtering only by
+current group peers is insufficient. Sep8 19:11 source repair binds group state to
+the local Agent, prevents an identity switch from adopting a live ENet session,
+and retires old peer probes/routes after transport teardown. Voice now gates send
+and receive by accepted current-owner membership, resets on Agent changes, and
+clears revoked playback. Seven-path manifest source-owner7-settled.json SHA774288F4
+was frozen for the coordinated client/native6 checkpoint. Native6 passed40
+assertions on tests09DD35F0/fullD9048BFF with no drift, and clientE69F3AF4 built
+with Opus. Actual Agent/voice runtime verdicts remain pending;
+transport/replay/mixing/VAD remain open.
+
+## 2026-09-08 Bot-variant scanning hides admission failures
+
+T-MENUS-006; source-confirmed. ScanBotVariants returned0 for overlong paths,
+unreadable/non-directory roots and silently skipped parse/registration errors;
+aggregate ScanComponents skipped overlong children. Sep8 18:29 exact-owner
+repair returns negative failure while retaining admitted counts; only optional
+directory absence is zero. No atomic rollback is claimed. Source manifest
+.claude/menu0908/scanner-status-review/applied-two.json; build and actual
+filesystem/client validation pending. Full Apply must consume these statuses.
+
+## 2026-09-08 Movement decoder accepts nonfinite fields and unwired stack data
+
+T-NETWORKING-011/F05, source-confirmed. Eleven ordinary floats and conditional
+zoom reached movement state without finite validation; weapon_id was never
+initialized by the legacy wire decoder. Sep8 18:25 numeric7 extracts the actual
+codec, zero-initializes a local candidate, rejects NaN/Inf transactionally and
+publishes only a complete record. Both ingress scratch records initialize before
+optional-force-field inspection. Native4 plus affected inventory contract passed5/362 at18:36 on A832459C/
+fullD0FE92DF; matching client compiled, movement runtime remains pending. Wire layout and weapon clamp unchanged. Both receive
+paths share the correction; acknowledgement/force policy and actual movement
+simulation remain open, so this is not server-authoritative movement acceptance.
+
+## 2026-09-08 Save-only authoring reports persistence success after failure
+
+18:24: native six production-executor cases/79 assertions PASS, tests build0
+and source guard0/no drift (save-status6-exit.json, save-status-native-guard-exit.json).
+Tests use controlled destination callbacks; actual adapter/UI/client proof
+remains pending. Silent enable refusal is checked in all three save-only paths.
+
+T-MENUS-006; source-confirmed. Audio import and chrome authoring used the void
+modmgrSaveConfig path, which ignored configSave failure and merely logged Agent
+failure. Audio success sound preceded saving; missing registry matches also
+fell through to success. Sep8 18:16 source repair adds checked destination and
+Agent-identity results, connects both audio paths and chrome, and moves audio
+success after persistence. Source manifest .claude/menu0908/save-status-review/
+applied-seven.json. Six orchestration cases and matching client/UI verification
+are pending. Propagation check found full Apply still needs end-to-end status;
+this repair does not claim complete Apply or cross-file rollback.
+
+## 2026-09-08 Animation command namespaces and failed admission (T-MODDING-002)
+
+17:54 bounded FIX VERIFIED: exact native command namespaces and category/order
+repairs pass installed15/18 outer58.904s. Public-source coverage independently
+matches110 unique base command sources to593 native commands, zero missing IDs
+or fixup failures. Batch14 receipts preserve source408ABDB/full20965BC6/clientD988.
+Original failed runs below remain evidence. Full mod-import transactional order,
+immutable slot retirement and graph gameplay still require implementation.
+
+
+17:45 installed fixture15/17 outer passes, but base-loading acceptance is RED:
+loaderWalkerMarkBaseArchiveEntry overwrites semantic category with base. The new
+compilation pass consequently skipped all110 base command sources; native pool
+logged animations=0/guncmds=0. Restore the animation category after provenance
+marking and reject category disagreement, plus require110 native base commands
+in the installed fixture. Original batch13 pass is retained as fixture evidence
+only; supplemental review records the failed base-content coverage.
+
+17:24 installed RED: the first strict-reader client stops boot with61 failed
+command admissions. The emitter writes trigger=z with an optional zero slot;
+the reader omitted that supported shape. The walker also compiles commands
+before all animation rows and audio FileProviders have been registered.
+Retained batch12-command-installed15-exit/result (7/17 outer,97s), unchanged
+source4036A3E/full2093EA1D/clientB56D. Repair registration order and source parity;
+do not weaken dependency validation or claim this installed run passed.
+
+Public command references such as mod_a:reload and mod_b:reload were stripped to
+reload by lookup and deferred fixups. The bare-name registry could bind a different
+mod's animation. The base walker additionally ignored source parser failure and
+logged success; missing character-clip references did not set its rollback flag.
+New strict public reader and catalog-ID loader entry point are integrated in the
+walker, local scanner, and distribution caller. Complete typed scalar/reference
+preflight precedes pool writes; exact qualified IDs survive lookup/fixup/replacement.
+Six reader cases passed; the combined8 gate stopped on an unrelated obsolete
+glTF-buffer prohibition assertion (retained JUnit, no source drift). That contract
+now follows the actual shared buffer loader. Indirect/self command include cycles
+are rejected before publication, with installed rollback proof staged. Revised
+affected contracts and installed proof are pending. Immutable dependency leases and removal
+of the remaining fixed command backing pool are still separate required work.
+
+## 2026-09-08 remote lobby roster omits the connected listen host (T-NETWORKING-011)
+
+Open, verified16:49 in the installed two-client pair-r2 capture. The observer
+authenticates as client1 and sees host client0's Crispy Monkey room with1/4
+capacity, but Connected Players shows only its own Agent and Players1/32.
+The server-side listen-host row fix is insufficient for remote roster views.
+Trace complete authoritative player identity/state replication and the separate
+selected-room membership projection before claiming lobby acceptance. Evidence:
+`.claude/mp0908-repairs/runtime/room-list-pair-r2-visual-review.json`.
+
+17:19 private roster18 draft addresses this through explicit presentation
+snapshots and room-filtered shared views. It is uncompiled/unapplied; seven native
+cases and the SDL Join pair are unrun. Review also found the Counter-Op preview
+holding a pointer to a block-local player view after its lifetime, and selection
+following a compacted row instead of client identity. Both are corrected only in
+the reviewed roster18 unit, integrated at17:27 with all settled hashes matching.
+Provisional reconnect publication is explicitly excluded to preserve the existing
+restoration transaction. At17:42 native7 and21 affected cases are accepted;
+client and SDL Join verification were pending. At17:59 Join-r2 shows correct
+global/room rosters but remains FAILED35/37 due one initial malformed0x7b warning.
+Empty body/head IDs were incorrectly sized2 vs writer3; corrected canonical
+lobby_roster_wire.c and two focused regressions passed the affected native9 at
+18:12 (331490B9/fullC9A6A2C9). Alternate zero-length empty decoding remains
+compatible; undersized output is atomic. Propagation found existing room-wire
+already handles both encodings. Matching-client Join-r3 passed37/37 at18:50 on6C12FA9B/full639A68A8,
+with both initial packets accepted and global2/joined-room2 visible. Initial
+roster omission/empty-ID rejection now has native and installed proof; distinct
+profile mapping, third-peer isolation and full multiplayer acceptance remain open. See repair audit and roster9-empty-r3-exit.json.
+
+## 2026-09-08 Empty weapon visibility list executes terminator (T-MODDING-002)
+
+Severity: invalid memory read / unintended model visibility mutation. Found while
+preparing owned graph equipment. `bgunExecuteGunVisCommands` tests END only after
+executing the current row and advancing. `loader_pool.c:parseGunvisArray` can
+legitimately materialize a terminator-only list, which the consumer executes and
+then reads past. The new equipped builder returns NULL for an empty list, but the
+consumer must also honor END before dispatch. Propagation search found this one
+consumer; menu part visibility already checks its sentinel before execution.
+Consumer now checks END before dispatch. Installed harness calls null and a single
+END row with null hand/model storage; the explicit required log line is present.
+Client build and native-source guard pass. Installed weapon_mesh_ingress_smoke
+passes14 cases/16 outer assertions in54.0s on client980529BE/source399078794E7
+(full native20908B2CFF2A), including required EMPTY_VISIBILITY proof. Receipt:
+.claude/asset0905-continuation/batch11-visibility-installed14-result.json.
+
+## 2026-09-08 primary Lounge invalidates authoritative room lists (T-NETWORKING-011)
+
+Source/native corrected16:28; remote room-list reception verified16:49 through
+pair-r2's31 assertions and both observer images. Full player-roster acceptance
+remains separate and open above.
+`roomsInit` previously opened permanent room0
+with zero capacity and a zero-initialized creator. `netmsgSvcRoomListRead`
+correctly rejects zero capacity transactionally, so that one entry prevents
+every room in the list from being published. `hubTick` updates only state.
+Initialize capacity to HUB_MAX_CLIENTS and creator to the unowned sentinel;
+preserve valid capacity through permanent-room reset. Add a direct fresh
+initialization/reset case, then verify room-list reception in the next client.
+The earlier host Create18 receipt proves assignment, not list reception.
+
+## 2026-09-08 catalog toggle uses enabled-only identity lookup (T-MENUS-006)
+
+16:30: actual catalog10, affected lifecycle1 and native guard PASS with no
+drift on source2087E5AC; test build green. Direct tests prove re-enable and
+rejected-teardown restoration. Matching client build remains pending; full
+typed runtime and Apply UI acceptance are separate and still open.
+
+16:23 update (N-0130): seven paths applied/frozen, receipt
+`.claude/menu0908/modmgr-apply-review/catalog-applied-seven.json`. Both resolver
+sites repaired; checked mutation outcomes and ten actual-catalog tests added.
+Compilation and execution remain pending the MP-owned joint build.
+
+Open, high impact. At 16:19 root traced both publication and rollback in
+`assetCatalogSetEnabled` to `s_resolveLocked`, which returns only enabled rows.
+Re-enabling a disabled row therefore aborts at its transaction check, and a
+failed disable cannot restore its enabled bit after it was set to zero.
+Use the existing `s_resolveAnyLocked` at both mutation sites while keeping
+ordinary gameplay resolution enabled-only. Both repairs are prepared in
+`.claude/menu0908/modmgr-apply-review/catalog-fragments.json`, not applied or
+tested yet; ten actual-catalog tests include re-enable and rejected teardown.
+
 > Live one-off defects and release regression gates only. Recurring architectural
 > classes belong in [systemic-bugs.md](systemic-bugs.md). Release priority and
 > ownership come from the canonical Workbench, not from this file.
@@ -11,9 +527,274 @@
 
 Back to [index](README.md).
 
+## 2026-09-08 Configured sound identities exceed reverse table (T-ASSETS-046)
+
+Critical, corrected and installed-verified15:50. Public audio
+installed6 stops0/6,3/14 outer on unchanged371/F0A104AC/client21C5C296. The
+admitted base:sfx_unlabeled_avrm source has correct public controls but packed
+sound identity32928 exceeds assetcatalog_load.c's4096-entry reverse table.
+The table now covers the complete unsigned16-bit admission domain; installed
+checks require the exact packed identity and reject negative/wider inputs.
+Corrected installed6 passes14/14 outer on371/9D551466/client5A39CAD6 in70.1s;
+guard and client build pass. Receipt batch8-packed-audio-installed6-exit/result.json.
+Evidence: batch8-public-audio-installed6-exit/result.json. Propagation audit
+also finds sndStart and Scenario audio helpers collapse configured references
+to leaf IDs; preserving configured source identity through those callers is
+separate open work, alongside PCM indexing/migration/chains. No playback parity
+claim is made by extending catalog resolution alone.
+
+## 2026-09-08 Base audio seed has no reverse identity (T-ASSETS-046)
+
+Critical, fixed and installed-verified15:37. Base audio registration initialized ext.audio.sound_id and
+runtime_index but leaves source_soundnum at -1. The source-authority replacement
+transaction correctly preserves existing native identity, thereby preserving an
+unset reverse route. Installed diagnostic192216Z confirms SFX candidates=0 while
+voice-file and music targets are admitted; no audio identity cases can begin.
+Configured aliases also omit their packed reference and MP3 file provenance.
+The two-path correction initializes identity at base seeding, preserving
+source replacement rules. Applied15:29; focused8, guard and installed8/15 outer
+pass on unchanged371/F0A104AC/client21C5C296. Prepared patch in
+`.claude/asset0908-drafts/audio-seed-identity/`. Native PCM extraction indexing is
+a separate defect; this fix does not establish waveform parity or migration.
+Evidence: batch8-audio-identity-preflight-exit/result.json, clientFA930431 and
+unchanged360/7EB79621. Public-audio6 and weapon14 are unrun after this first-red.
+Applied-source receipt: `.claude/asset0905-continuation/batch8-audio-seed-applied.json`.
+Acceptance: batch8-audio-seed-installed8-exit/result.json and focused8 JUnit/name
+audit. Actual source file handles, repeated replacements, custom slots and
+folder/received late rejection rollback pass; no audible or native waveform
+indexing parity is claimed by this identity repair.
+
+## 2026-09-08 Agent Create control overflow / focus transition (T-MENUS-003, N-0126)
+
+15:29 update: clientFA930431 builds with the layout and diagnostics. One
+changed-source desktop run remained at AgentSelect because supported window
+activation failed twice;9/22,0events/no captures, unchanged source7EB79621.
+No layout/navigation/provenance pass. Startup retries stopped; see
+`.claude/menu0908/agent-layout-provenance-exit.json` and the menu audit.
+
+Layout repair applied, unvalidated. Desktop observation after real window
+activation showed long body/head names and reset text extending into the black
+preview. Source manually drew names outside a fixed reserved width and left
+the controls group unconstrained. AgentCreate23AF9A96 contains controls in a
+scrollable NavFlattened child and wraps labels with separate count/reset rows.
+Matching client/visual/navigation gates remain pending. Preview request was
+body `base:dark_combat`, head `base:head_dark_combat`; black rendering remains
+an independent asset-owner handoff, not solved by the layout change.
+
+Input cause remains open: desktop1's real focus gain was followed by a global
+Agent Select Accept before the readiness stability interval completed. Fixture
+events stayed0/10, result11/22; no scripted route or GL-capture acceptance.
+ActionMap9872D522 adds verbose-only VK edge, prior-held and focus diagnostics
+to establish provenance. No guessed input behavior change or further unchanged
+startup retry. Evidence is in the menu audit and `.claude/menu0908/` receipts.
+
+## 2026-09-08 Mod Manager malformed state publication (T-MENUS-006, N-0125)
+
+16:04: matching clientE36F3211 buildPASS, source387 unchanged and native guard
+reports ok. Bounded source/build/direct helper-IO repair is complete; ordinary
+UI/restart and related full Apply/component-state defects remain open.
+
+16:02: focused production persistence14 PASS/256 assertions with zero source
+or binary drift, receipt `.claude/menu0908/modmgr-persistence14-exit.json`.
+The source defect is repaired and direct helper/file-IO validation passes.
+Matching client build/native guard and ordinary UI/restart proof are pending.
+
+15:56: four product/test paths applied after explicit release and frozen with
+exact hashes in `modmgr-state-review/applied-four.json`. Shared CMake/build
+pending; all fourteen cases and runtime remain unverified. Prior findings below
+describe the repaired source baseline, not a validated current runtime result.
+
+15:50 follow-up: the paired writer also inserts unescaped IDs into JSON and
+directly truncates the destination. A five-path strict-load/ordered-publication
+and escaped atomic-save candidate with fourteen tests (15:52 revision) is prepared in
+`.claude/menu0908/modmgr-state-review/manifest.json`, UNAPPLIED/UNRUN pending
+the shared source window. This does not close checked Apply or component state.
+
+Open; high impact on saved mod selection. Source review in the menu session
+found `modmgrLoadModsEnabledJson` disables live registry rows before validating
+its input, accepts EOF in place of a closing array, ignores invalid/non-string
+tokens, and reports successful load. The shared tokenizer accepts unterminated
+strings. A truncated or malformed `mods-enabled.json` can therefore publish a
+partial/empty selection and suppress fallback. This has not been runtime-tested.
+
+Required repair: validate a complete ordered candidate before any live flag or
+order change; reject malformed strings, overlength IDs, invalid separators and
+trailing content, preserving prior live state on rejection. Cover the actual
+production reader and publication path. The related disabled-state iterator,
+late-registration replay, ordered restart persistence and checked Apply defects
+remain open in the menu audit. No product changes during the joint source freeze.
+
+## 2026-09-08 menu dedicated-target configure failure (T-MENUS-003)
+
+OSK context correction passed;87 further cases pass (296 total), including all
+OSK cases. The Agent popup contract then failed a stale whole-function count
+(four suppressions versus three) because the new Back branch also suppresses
+activation. The test now checks suppression between each actual popup open and
+its body submission, preserving ownership without prohibiting other guarded
+transitions. Product unchanged;54 failed/unrun remain. Receipt:
+`.claude/menu0908/current-menu-context141-exit.json`.
+
+Pointer geometry correction passed;11 further cases passed (209 total). The
+OSK replacement-context section then failed because CreateContext restores the
+previous current context when one already exists. The test never switched to
+its replacement. It now explicitly selects that context, verifies the switch,
+and uses scope cleanup to restore the original even on assertion failure.
+Product unchanged;141 failed/unrun cases remain after rebuild. Receipt:
+`.claude/menu0908/current-menu-geometry152-exit.json`.
+
+First client compile stopped at MainMenu's new read-only tab producer: its
+ImGuiWindow/SkipItems observation needed imgui_internal.h. Added the missing
+declaration include only. No client linked or ran; retry requires refreeze.
+Receipt: `.claude/asset0905-continuation/batch6-hand-client-compile-error.log`.
+
+Next152 remaining: the first two Settings keyboard/controller cases passed;
+
+Diagnostic established the pointer cause: expected Actions NavId was correct,
+but NavRectRel produced center(212,48), above the current Actions row. Native
+HoveredId was0 and the press activated a different ID. Test pointer geometry now
+uses the native cursor position where the component submits its first Button;
+the press must activate the exact Button ID before release. Propagated to Editor
+Close's row rectangle. Product unchanged. Diagnostic receipt:
+`.claude/menu0908/pointer-diagnostic-junit.xml`. Coordinate correction unrun.
+pointer Actions stopped with its synthetic movement and press sharing one
+frame. The precise pointer failure remains under investigation; both cases submit an
+ordinary hover frame before press/release (Actions and Editor Close). Product
+unchanged; the cadence hypothesis is unverified. Retain198 current passes. Receipt:
+`.claude/menu0908/current-menu-remainder154-exit.json`.
+
+The hover-frame retry failed the same pointer case with zero new passes, so
+cadence is not established as the cause. Added focused native pointer position,
+hovered window/item and active-ID diagnostics before release. Next gate is the
+single failed case under this diagnostic build, not a broader unchanged retry.
+Receipt: `.claude/menu0908/current-menu-remainder152-exit.json`.
+
+The210 remainder passed56, then the cold Settings helper harness failed opening
+Actions despite matching NavId. ImGui's FocusApi explicitly leaves nav visibility
+unchanged; a cold context has it hidden and cannot activate buttons. The test
+fixture now applies the production visible-focus policy when requesting native
+focus and asserts that prerequisite. No product change. Current retained total
+is196 exact passes;154 failed/unrun cases remain after the test-only rebuild.
+Receipt: `.claude/menu0908/current-menu-remainder-exit.json`.
+
+The third shared build passed. Current menu gate then passed140/350 cases and
+stopped at the old capture-only scroll source assertion. The integrated OSK
+correctly adds its neutral-release gate to scroll ownership. Updated only
+test_right_stick_scroll.cpp to require the shared sampled axis and both owner
+guards; propagation search found one stale expression. Product unchanged.
+Retain140 exact current-unit passes and run the210 failed/unrun cases after the
+test-only rebuild. Receipt: `.claude/menu0908/current-menu-exit.json`.
+
+The corrected configure passed; the next build stopped linking the dedicated
+Firing Range target. Windows COFF retained reference-pointer sections for
+unrelated training dialogs despite function/data section GC. The existing
+PDGUI_TRAINING_RENDER_TEST define now excludes unrelated renderer bodies and
+registration while retaining the exact weapon-list renderer and shared helpers.
+Normal client compilation still includes all dialogs. This is a test-link
+correction, not a game behavior change; another frozen build is pending.
+Link error: `.claude/asset0905-continuation/batch6-hand-build-tests-menu-link-error.log`.
+
+The first shared build stopped before compilation at CMakeLists.txt:1332:
+`target_compile_features no known features for C compiler GNU version 15.2.0`.
+The supported headless wrapper forces compiler identification and does not
+populate this feature table. The new dedicated menu targets redundantly queried
+it despite project-wide C11/C++20 settings. Removed that one redundant call;
+both targets now inherit the same standards as pd-tests. Propagation search
+found no other target_compile_features call. Correction awaits a fresh queued
+build; no test or runtime pass is implied. Error receipt:
+`.claude/asset0905-continuation/batch6-hand-build-tests-configure-error.log`.
+
+## 2026-09-08 multiplayer source audit
+
+T-NETWORKING-010 records 18 prioritized source findings in
+[the multiplayer audit](audits/2026/multiplayer-audit-2026-09-08.md).
+The main defect classes are listen-host lobby dispatch, nontransactional room
+membership, stale room settings/playlist replay, cross-channel distribution
+completion and approval, receive allocation failure, client-position movement
+authority, chat endpoint/delivery, and voice audience/mixing. All remain open.
+No repair or new build/runtime/visual/controller acceptance is claimed.
+
+## 2026-09-06 menu batch source findings
+
+T-MENUS-006 source review confirms archive import can lose the previous file:
+`modmgrCopyFileAtomic` unlinks the destination before rename, then deletes the
+candidate if rename fails. Hub import and received archive installation reach
+this helper. A separate scratch correction will use the existing checked
+atomic replacement API; no current product edit or multi-file transaction claim.
+Component-state persistence also iterates only enabled entries while its writer
+requires disabled entries, and rebuild replays state before package loading can
+re-register rows. Truthful Apply failure reporting must include refused catalog
+retirement and mount/admission outcomes; changing only the UI result is insufficient.
+
+T-MENUS-003 propagation review at14:01 ET confirms Room character preview can
+redirect a selected public body/head mesh through a native filenum alias:
+`pdguiCharPreviewRequest` -> `menuRenderModel` -> `modeldefLoadFromHandle`
+replaces the supplied FileProvider handle with the first external filenum
+match. The body/head manager path retains the selected source, so its passing
+load alone cannot establish preview correctness. Asset root owns the narrow
+`src/game/modeldef.c` explicit-source preservation and real selected-triangle
+witness, alongside native primary alias admission and both-order hand/private
+collision rejection. No preview/runtime proof yet; menu.c remains unchanged.
+
+Tracked under T-MENUS-003/T-INPUT-006/T-MENUS-006: reachable Extended Key
+Bindings generated 21 rows over 19 actions, unchecked saves dismissed capture
+on failure, and missing device bindings could overwrite slot zero. The current
+batch adds row guards/count correction, checked persistence and bounded device
+slot lookup. Shared interface deletion also lacked Back and opened its status
+popup under the closing popup's ID. Affected focused cases now pass within302;
+the client builds, but ordinary menu verification is blocked in asset boot.
+
+The remaining caller audit additionally establishes source defects under
+T-MENUS-003: Social polls raw Back around editors and bypasses shared ownership;
+Agent/Solo/Cinema/Main Menu/Results allow competing forward and Back outcomes;
+Firing Range can push through both global Accept and native selection and
+override its focused Back footer; Cinema clamps away its valid Back index on
+the next frame. Exact scopes and source hashes are in
+`.claude/menu0906-next/remaining-audit/README.md`. These repairs are a subsequent
+scratch unit, not part of the previously accepted 235 cases. Mod Manager core
+Apply/save status and enabled-only component-state enumeration also need a
+separate review; UI staging cannot establish disk/runtime rollback.
+
+Historical propagation review found the underlying Main Menu could handle Back
+while the Modding Hub overlay was visible. Current source checks Hub visibility
+before `ImGui::Begin`, makes the parent window non-interactive, and returns
+before Main Menu Back/Social/body actions. The focused production-source
+contract in `tests/test_menu_graph.cpp` pins that ordering. The source gap is
+corrected; ordinary controller/MKB and visual navigation proof remains open.
+
+T-INPUT-008 source audit also confirms raw joystick buttons23-32 (zero-based
+slots22-31) share virtual keys with synthetic stick directions/triggers.
+`input.h` allocates both meanings inside the same32-slot player stride, and
+`actionmap.cpp` sends raw button and axis events to those same keys. They cannot
+be independently bound; labels such as Btn32/Axis6+ reveal the ambiguity but do
+not repair dispatch. This is source-confirmed, with no physical reproduction.
+Sep22 source correction keeps all old values/names as compatibility aliases and
+appends distinct precise button/axis keys. Capture, dispatch, saved names,
+Settings and glyph candidates now use the same conversion; the selected
+physical-source winner is retained through release. Scoped client/test builds
+and direct converter/resolver/glyph cases pass. The broader menu suite remains
+red on four unrelated source-contract assertions, and an ordinary raw joystick
+plus physical/visual proof has not run. Old ambiguous profiles remain ambiguous
+until rebound; see `.claude/menu0906-next/raw-vk-audit` for the compatibility
+design and `.claude/menu0922/raw-vk-final-junit.xml` for the retained broad red.
+Follow-up source review found a legacy alias could be selected by one physical
+source after its other source was shadowed by a precise bind, while the generic
+alias label still listed both. The glyph callback now carries the resolver's
+actual winning physical VK; focused source and production-helper cases pass
+12/957 on rebuilt client/tests. Ordinary device/visual proof and the retained
+broad test red keep T-INPUT-008 partial.
+
 ---
 
 ## Routing rules
+
+Sep6 asset continuation: T-ASSETS-049 also owns music sync cursor defects found
+during real Vorbis integration. NaN playback rate reached a float-to-integer
+cursor cast; an oversized seek narrowed before its frame bound and retained the
+original huge fractional offset. Applied ordered-rate handling and clamped the
+floating seek before narrowing, preserving a bounded fraction. A real PCM mixer
+regression is prepared; build and runtime validation are pending. T-ASSETS-048
+also requires transactional registration of character body/head dependency edges;
+source policies alone cannot make embedded custom children usable.
 
 - A confirmed current defect stays in **Active 1.0 defects** until its root cause,
   propagation audit, implementation, and required runtime proof pass.
@@ -23,7 +804,7 @@ Back to [index](README.md).
   are not duplicated here as bugs.
 - Post-1.0 defects remain visible but are never selected by the default 1.0
   prompt unless Mike promotes them.
-- The next unused numeric bug ID is **B-1107**. Never reuse an archived ID. If an
+- The next unused numeric bug ID is **B-1108**. Never reuse an archived ID. If an
   old unnumbered symptom recurs, assign a new B-number with current evidence.
 
 Status terms:
@@ -39,10 +820,48 @@ Status terms:
 
 ## Active 1.0 defects
 
+The 2026-09-06 menu audit under T-MENUS-003 found shared input ownership
+defects: the ImGui bridge overwrites physical arrow keys with action-map state
+while its broad keyboard-capture gate swallows navigation bindings; glyph
+lookup uses an incomplete private context list; menu scrolling reads gameplay
+aim axes that are correctly suppressed. T-MENUS-004 repairs destructive modal
+Accept overriding visibly focused Cancel in shared confirmation, End Match and
+Agent Copy/Delete. T-MENUS-005 repairs binding capture leaking into parent
+navigation and missing controller-accessible clearing. These are confirmed
+source defects; behavioral and ordinary-client acceptance are pending.
+
+The same audit's propagation pass confirms additional T-MENUS-004/003 defects:
+Solo Restart, Agent Copy/Delete and Room Change Character open popups under a
+different ImGui ID scope from their renderers; Agent and Room parent shortcuts
+ignore child owners; native combo Back can close both combo and parent screen.
+These remain unrepaired at the first shared verification freeze. The menu audit
+records exact production locations and the stable-owner repair boundary.
+The first actual ImGui gate additionally proved that forced default focus kept
+the navigation cursor hidden, preventing Enter/controller activation. The
+bounded 11:10 ET repair makes that focus visible across the affected dialogs and
+also removes Cheats Unlock Everything's global Accept override with No priority.
+Its matching build and remaining behavioral gate are pending.
+
+The active user-directed asset lane has three newly source-confirmed classes
+recorded by Workbench without reusing historical bug IDs: T-ASSETS-047 owns
+missing bot-profile manifest unlock metadata; T-ASSETS-048 owns fixed-head-only
+character consumers rejecting native default/random/integrated-head templates;
+the current asset audit records legacy base MP3 framing/sample limits, reverse
+mapping loss on generic audio replacement, and advertised Vorbis entrypoints
+that only decode WAV. The initially reported missing private MP3 decoder wiring
+was an incomplete trace and is explicitly withdrawn in T-ASSETS-046.
+
+The 2026-09-05 user-directed asset audit also tracks confirmed source-reference,
+typed graph value, glTF buffer, and animation-tail defects in T-ASSETS-039 and
+T-ASSETS-040. Exact producers, consumers, and remaining architectural gaps are
+recorded in the [current asset contract audit](audits/2026/asset-source-runtime-contract-2026-09-05.md).
+B-1107's replacement implementation and verification run under T-ASSETS-038.
+
 | ID | Severity | Status | Current truth | Workbench route | Closure gate |
 |----|----------|--------|---------------|-----------------|--------------|
 | B-919 | Low | confirmed | The collision hit-sound condition in `propobj.c` compares `WEAPON_COMBATKNIFE` twice. The intended second family is not proven, so this must not be fixed by guesswork. | V-010 | Verify intended base behavior from authoritative source, correct the shared mapping, add a focused propagation test, and prove combat-knife plus bolt-family impacts in an ordinary client. |
 | B-1106 | Critical | source_connected | Exact frozen client `36EA05D1...` completed clean 733/733 `.pdmesh` extraction, then `base:sp_body_118` / nested `base:model_cchicrob` failed the runtime render-stream contract and rolled back 64 Main Menu loads. The exact first mismatch is 33 corners across 11 faces in Type-3 groups `node_2_dl`, `node_6_dl`, and `node_10_dl`: the producer resets geometry knowledge between consecutive opaque/translucent lists while retaining the live RSP vertex cache, but flattened schema v2 had no typed cache provenance and the consumer conflated each vertex's earlier `G_VTX` load-time snapshot with later triangle-time geometry. Current schema v3 records every ordered `vertex_load`, every triangle's three exact `vertex_cache_slots`, one Type-3 `vertex_scope` that retains the bounded 64-slot table, and one non-Type-3 `vertex_cache_reset` that clears it. C/Python validators simulate the same table, reject unloaded/false snapshots, malformed arrays, and matrix indices above 32766, and require every flattened load to have a restorable draw-state domain. The compiler's deterministic Type-3 baseline owns inherited lighting and texture-generation state but not caller-owned fog, which remains fail-closed. Schema v2 remains strict; schema-v3 load/draw divergence requires explicit load provenance. Export/cache v25/v28 plus generated-modeldef cache v12 invalidate predecessors. Luna xhigh identified the retained-slot and parser/bounds gaps; Sol integrated the exact source, validators, conformance cases, and propagation contracts. Exact source-frozen client `7EF396C9...` / tests `4D14886D...` pass focused 143/8, complete 67,451/1,231, all conformance/workflow/source/native guards, and zero source overlap. No replacement extraction or visual receipt is claimed yet. | V-010 | Run one clean 733/733 extraction and ordinary 3440-wide smoke proving the Main Menu manifest commits, `base:model_cchicrob` builds, both door models activate exactly once, and Carrington/Campaign/Combat Simulator retain correct visuals plus V-009. |
+| B-1107 | Critical | implemented | Metadata colmesh success bypassed typed runtime activation/hydration, and colmesh unload omitted adapter detach. T-ASSETS-038 now prepares private geometry, activates and hydrates adapters, publishes once, rolls back acquired state on rejection, and detaches before geometry release. The 2026-09-05 ordinary client passes all 19 Scenario transaction cases and match start with strict readiness retained. The corrected V-006 fixture now passes 32/32 including clean exit on unchanged client `2097E1C8...`; source manifest `44186EA3...` is unchanged across the continuation run. | T-ASSETS-038 / V-006 | Retain the original timeout receipt and `.claude/asset0905-continuation/v006-result.json` (32/32 pass). T-TESTS-003 corrected both affected fixture roots to timeout_seconds=125. |
 | B-1105 | High | regression_gate | The shared ordered-material planner, request-owned failed-load latch, and SP-74 typed source binder now serve top-level and nested `.pdmesh` ingress with one canonical alias order. Exact client `395D48A6...` passes final focused 132/14, full 67,152/1,223, native-source guard, two-archive verification, fixture validation, 23/23 unchanged source hashes, and strict fresh-cache ordinary receipt `results-20260826T152922Z.json` at 54/54 in 33.8 seconds. The embedded Mauler source owns exactly one 13-material compiler/activation/Bond-gun/render chain, gameplay fires 11 shots, no runtime native/ROM boundary or endscreen occurs, and all four reviewed gameplay captures retain correct silver/green placement and the V-009 no-obstruction gate. | V-010 | Retain the final automation, exact binary hashes, strict receipt, and four reviewed captures. Revalidate this generic source/material contract through representative public mesh families and the V-010/V-013 release matrix; never credit the superseded `D1788982...` client or earlier rejected receipts as final closure. |
 | B-249 | High | repro_required | A prior playtest reported bot-versus-bot deaths credited to player 0. Static tracing found no hardcoded player-0 write and the existing diagnostic must identify the upstream attacker attribution first. | V-010 | Run a controlled bot-only Combat Simulator match with no player damage, capture attribution diagnostics, fix the authoritative damage/death source, and prove player 0 remains at zero kills. |
 | B-242 | Medium | repro_required | Players have previously spawned intersecting walls. Existing pad and ray validation does not prove a complete capsule fits at the committed spawn. | V-010 | Add one shared bounded capsule-placement validator for players and bots, search safe radial candidates or the next pad without infinite retry, then prove representative campaign and Combat Simulator maps. |
@@ -91,7 +910,7 @@ Status terms:
 | B-1103 | Critical | regression_gate | After complete wire and identity validation, source detects a valid `CLC_SETTINGS` from the exact preparing participant, aborts and restores the active ready-gate transaction before publishing new lobby settings, then recomputes team policy. The smoke-only trigger uses ordinary `netClientSettingsChanged`. Current protocol-v58 isolated builds, final full tests 66,421/1,200, native-source guard, and frozen manifests pass. Exact-client settings rollback passes 43/43: host logs ready-gate and complete lobby-transaction rollback before settings publication, sends `SVC_MATCH_CANCELLED`, starts no stage, kicks no peer, and both clients exit cleanly. | T-ENGINE-004 | Retain the accepted current-v58 settings-rollback receipt and malformed-packet no-mutation coverage; revalidate only through the broader release matrix. |
 | B-1104 | Critical | regression_gate | `lvReset` treats all selected players as one stage transaction, freezes authenticated client-ID order for reset/spawn/semantic roles, and reverse-unwinds the actual commit ledger. The NPC wire path shares one model-complete readiness predicate, bounded transactional appends, and validate-before-apply resync. Exact v57 runtime `results-20260826T055628Z.json` remains rejected after exposing old Carrington NPC state before `SVC_STAGE_START` and asynchronous mutable-state checksums. Protocol v58 replaces the ambiguous wait mask with explicit inactive/waiting/release/active phases, carries one nonzero START/READY epoch, requires separate authority and exact-peer post-load latches, and publishes one complete fresh baseline from dedicated reliable storage. Pending ownership clears only after successful room queue; a canonical sync-ID-sorted digest of exact serialized target/room fields follows the full resync it validates. Current v58 product `03a65922...` / client `5DA75BE6...` passes isolated builds, final full tests 66,421/1,200, native-source guard, and unchanged product manifests. Production receipts pass co-op 96/96, Counter-Op 98/98, later-player rollback 60/60, settings rollback 43/43, initiator authority 214/214, reconnect 99/99, and the focus-independent invitee-authority route 170/170. The immutable route receipt remains rejected at 169/170 solely because its old regex rejected valid epoch 1; corrected static coverage passes 108/2 and separately hashed retained exact-client logs pass 170/170. That proof establishes one invitee-elected in-client ENet listen authority, one separately signed typed match-server route, exactly one initiator join, no probe/relay endpoint handoff, epoch-correct baseline/ACTIVE publication, stable gameplay, and clean exits. The integrated 210/218 fixture remains unchanged and rejected only for B-1085's independent foreground-focus witness. | T-ENGINE-004 | Retain all seven current-v58 receipts, the immutable rejected raw route receipt, corrected retained-log proof, route-type separation, epoch/atomic-baseline contracts, and V-009 visual gate; revalidate through the broader T-ENGINE-004/release matrix. |
 
-These forty-seven are the only live one-off 1.0 bugs. Any newly reproduced release defect is
+These forty-eight are the only live one-off 1.0 bugs. Any newly reproduced release defect is
 added here immediately and linked to the owning Workbench milestone.
 
 ---
@@ -155,3 +974,60 @@ instead of reopening every historical row.
 7. On closure, update Workbench evidence/status and remove the row from Active
    1.0 defects during the next dated archive snapshot. Do not grow a second fixed
    history table in this live file.
+
+#### T-ASSETS-050 — public numeric source admission (2026-09-06)
+
+High: asset_runtime integer fields passed strtof directly to s32, admitting fractions and undefined nonfinite/overflow narrowing; glTF _PD_ROOM omitted finite rejection before u32 conversion. Narrow production fixes applied with real source hydration/importer regressions prepared, no build/runtime verdict. Propagation across shared integer consumers addressed by the common helper. Older structural JSON key search, float grammar and string decoding remain separate open source-admission work; no complete metadata-parser claim.
+
+#### T-ASSETS-046 — standard audio duration propagation (2026-09-06)
+
+Medium: psGetDuration60 assumed all public voice bytes were24kbps MP3, yielding incorrect length for mod WAV/Vorbis and other MPEG rates. Root applied actual decoded-frame duration and pre-pointer channel bounds, with independent WAV final-frame and compressed-format/preserved-playback cases prepared. Three static pins and native guard now enforce source decode and ownership ordering. Unbuilt/unrun; no performance or audible claim.
+
+Catalog growth source defect (2026-09-06, pending): s_registerLocked inserts its new unoccupied row before rehashTable, which skips unoccupied rows and loses the successful insertion at the growth threshold. Cached entry->id and metadata loaded_data=self also survive pool realloc incorrectly. Catalog worker owns bounded core/cache repair and real forced-growth probe; no validation yet.
+
+Mod Manager disabled component persistence (T-MENUS-006, source-confirmed): the
+writer uses enabled-only assetCatalogIterateByType while its callback writes
+!enabled, so disabled selections are omitted. Rebuild also replays preferences
+before final package registration can re-enable rows. At2026-09-08 17:45 a private
+nine-path candidate supplies complete atomic file merging, actual including-disabled
+catalog snapshots, checked replay and later ordering, with IO8/catalog6/family1
+cases prepared. Not integrated, compiled or run. Existing Apply core/UI still
+ignore complete failure status; no rollback, restart or physical input claim.
+See .claude/menu0908/component-state-review/README.md and integration-fragments.json.
+
+Character selector/wire gap (2026-09-06 12:32 ET, source-only, next batch): room template callback rejects empty head binding, excluding35random_gender and2integrated templates despite all63 activation proof. ASSET_CHARACTER unlock default bypasses component eligibility; stage-start client/bot writers/readers reject head_session0; matchConfig defaults replace empty integrated head with dark_combat. Catalog worker maps exact shared policy/consumer correction; no source edit or runtime proof yet.
+
+Batch5 actual body/head parser failure (2026-09-06 12:40 ET): symbolic type table used declaration order with CASS before MAIAN, while native constants are MAIAN3/CASS4. Authored named types selected wrong native type/rig; first C++ gate46pass then fails expected maian_tall_neck with cass_neck. Root fixes symbolic mapping to explicit native constants and expands all-six-type regression; no test expectation relaxation. Source311/C65DF594 unchanged during failure.
+
+Batch5 installed boot failures — 2026-09-06 13:13 ET: ordinary menu smoke on source312/46DAC86C client2E4448B3 times out before boot readiness after pervasive BODYHEAD.PUBLIC_SOURCE candidate nested mesh hash failures. Exact chain: body/head byte preflight succeeds against identical mesh source, then common binder rechecks with NULL bytes through canonical File hashing, which passes the nested :: path to an ordinary file opener. Extraction worker prepares a VFS-aware nested path branch plus actual first-owner/equal/divergent installed probe. A separate actual emitted base_sp_head_21 head.ini says HEADBODYTYPE_CASS although headdata_authored uses HEADBODYTYPE_MAIAN. loader_enum_reverse.c and loader_pool.c deliberately preserved an obsolete swapped numeric table; root owns correcting both to named native constants and proving real emitter-helper to public-parser roundtrip. No fixes applied yet. Generic sp_head21 admission failure is independently being traced. All seven asset probes remain unrun; menu failed before inputs/captures. Prior helper passes and client build are retained, not runtime acceptance.
+
+Body/head unlock source omission (2026-09-06 13:15 ET, source-only next correction): romextract_pdhead/pdbody public INI omit requirefeature; bodyHeadSourceParseIni defaults it to0 and registerBodyHeadPublicIni overwrites catalog manager eligibility originally set from g_MpHeads/g_MpBodies. Thus fresh public admission can erase native unlock requirements. Record for the forthcoming character selection/extractor parity unit; not yet corrected or runtime-proved. The public source must carry actual base eligibility, while explicit author edits remain authoritative.
+
+MP75/native21 correction applied 2026-09-06 13:18 ET: s_BaseHeads now includes MP75 with authored sp_head_21 identity, preserving actual native21, MP ordering and requirement0 while eliminating the synthetic base:head_75 duplicate. The cached SP selector row count reduces by one because the duplicate disappears. Loader enum export/legacy decoding use named native constants; existing body/head source regression now calls the actual extraction name helper for all six type roundtrips. Corrected build/direct runtime proof remain pending. Old cached author-edited base files were not rewritten.
+
+SFX public source domain mismatch (2026-09-06 13:35 ET): fresh source registration rejects208 native SFX archives because catalog_audio_public_source.cpp treats key_min/key_max/velocity_min/velocity_max as ordered MIDI7-bit ranges. Native n_sndplayer.c uses keyMin bits0..4 for volume channel/bits6..7 for chain ID, keyMax flags+FX mix, velocityMin chain low byte, velocityMax delay. Example base:sfx_unlabeled_avrm public values5/0/176/16 are valid packed bytes. Dependent explosion effect adds one activation failure, making boot ASSETCHAIN209. Exact source-domain fix drafted, not applied. Chain IDs encoded numerically and actual chain/delay preservation remain open c3842/runtime follow-up; do not call the admission fix full sound behavior parity.
+
+Batch5 SFX admission runtime result — Sep6 13:49 ET: all1768 SFX and effect dependency now register, source313/9CB05A8E client9C2057D9 unchanged. Installed20260906T174745Z body/head retry stops51.5s,3/9 outer assertions,0/7 cases on one first-pass body failure: sp_body108/model_ceyespy native mesh bridge collides. The second scan says68/68, but first scan67/68 is authoritative failure. Prior install first scan68/68; investigate ordering among legitimate model_ceyespy/_hi/_lo aliases sharing FILE_CEYESPY75 before changing ownership rules. No further gates; current cumulative77 helper cases and16 Python/guard/selftest pass remain separate. Next UV draft review found source-destructive whole-archive regeneration/cache bump and generator-label rejection; draft stays unapplied pending source-preserving design. SFX chain audit uncovered possible native sound1-based vs extractor array0-based source identity mismatch; bounded evidence/correction draft authorized before chain semantics implementation.
+
+Asset runtime boundary Sep6 14:12 ET: body/head native alias retry on314/DAB3EDD8/client72FBED1D is terminal red100.5s,3/10 assertions,0/8 cases. Full owner scan exposes2 first-pass body hand conflicts (dark_combat and sp_body132 selecting model_combathandslod_hand) plus1 dependent character; second-pass summaries do not erase failures. Inventory of733 mesh rows finds31 aliased native symbols, with one hand group shared by those bodies. Worker owns exact selected hand catalog ID/provider propagation through actual Bondgun queue, UNARMED path and same-filnum cached hand reload. Draft only; no new gate until coherent repair/refreeze. Current five affected source cases/native guard/client builds pass, cumulative80 helper cases retained separately. Standard-source authoring guide now documents current selected audio formats/public descriptor authority, body/head editable sources and explicit pending graph/audio/hand semantics. Source files remain frozen; documentation changes only.
+
+### T-ASSETS-048: later metadata scan replaces admitted body/head sources (2026-09-08)
+
+Critical; correction implemented, installed validation pending. Specialized body/head walkers bind public descriptor-selected geometry and native scalar pools, then the generic metadata-family table registers the same families again and replaces those handles with private manifest container paths. Installed CamSpy diagnostics prove native file75 and dependency are correct but body primary differs from the selected mesh primary. Removed duplicate body/head metadata entries and private field writers; the existing installed walker case now executes the later metadata pass before actual geometry checks. Evidence: batch6-native-alias-diagnostic-exit/result.json and source-batch6-body-head-single-owner.json under .claude/asset0905-continuation. Arena has a related dual-owner design pending its own public-source admission repair; this fix does not close Arena.
+
+T-ASSETS-048 validation update14:27: the duplicate-body/head-owner fix passes the real later-scan plus selected-geometry witness in all9 installed cases,12/12 outer assertions, source347/EFF4FE2C clientBB6F044D. Arena follow-up remains open.
+## 2026-09-08 legacy enabled-mod list loses final exact-fit ID (T-MENUS-006)
+
+Source-confirmed: modmgrBuildEnabledList rejects pos+needed equal to2047 even
+though g_ModEnabledList has2048 bytes. With32 enabled63-byte IDs and31 commas,
+it silently omits the final ID from the fallback config. Ordered JSON is already
+complete. Candidate uses a checked complete builder before persistence, retaining
+output on failure; direct exact-fit/capacity/session/order/invalid-registry tests
+prepared. Applied16:50 after runtime release; four-path hashes in
+.claude/menu0908/legacy-list-review/applied-four.json. At17:16 native4 PASS/26
+assertions on tests189B1644/full native2093EA1D, zero drift; tests build green.
+Native guard PASS exit0/unchanged source; matching client B56D8334 build0 verified
+at17:26 with owned hashes unchanged. Installed asset admission red remains separate.
+Receipt .claude/menu0908/legacy-list4-exit.json.
+Propagation: only one builder/caller in modmgr.c; primary JSON has separate
+maximum-domain roundtrip coverage. Full Apply failure propagation remains open.

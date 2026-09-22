@@ -35,6 +35,14 @@ extern "C" {
  *   - key     : SDL_KEYDOWN / KEYUP
  *   - action  : actionmap press/release injected directly (focus-independent)
  *   - mouse   : SDL_MOUSEBUTTONDOWN / UP at {x, y}
+ *   - controller_attach/controller_detach: one smoke-owned SDL virtual
+ *                GameController, admitted at agent_select_ready, assigned to
+ *                player 0 by normal hotplug, released and removed through SDL.
+ *   - controller_button: explicit press/release using SDL canonical names.
+ *   - controller_axis: raw virtual Sint16 state; sticks rest at 0 and triggers
+ *                at -32768. Equal-time states share one normal dispatch frame.
+ *                Virtual-controller runs provide software routing evidence,
+ *                not physical-controller or human visual acceptance.
  *   - unclean_exit: flush the log and terminate without normal cleanup
  *   - catalog_recovery_probe: verify catalog/provider/runtime/dependency state
  *   - catalog_weapon_acquire / catalog_weapon_release: smoke-only calls into
@@ -42,7 +50,9 @@ extern "C" {
  *
  * The complete document is syntax-validated before parsing. Event fields are
  * typed per event kind, duplicate/unknown/incompatible fields fail closed, and
- * an explicit key/action/mouse hold may not cross a wait_until pause. Use the
+ * an explicit key/action/mouse/controller hold may not cross a wait_until pause.
+ * Controller attachment/removal requires a separate timestamp, no other held
+ * inputs, and explicit detach before exit. Use the
  * bounded assisted-wait tuple for input that belongs inside a paused interval.
  *
  * Design ref: context/designs/engine/smoke-verify-gate.md.

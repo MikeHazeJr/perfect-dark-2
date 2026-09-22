@@ -3,6 +3,10 @@
 #include "../external/imgui-node-editor/crude_json.h"
 #include "../external/stb_image.h"
 #include "glad/glad.h"
+#include "modasset_gltf_document.h"
+#include "modasset_gltf_scene.h"
+#include "modasset_gltf_source.h"
+#include "sha256.h"
 
 extern "C" {
 #include "fs.h"
@@ -16,6 +20,7 @@ extern "C" {
 #include <cmath>
 #include <string>
 #include <vector>
+#include <algorithm>
 
 namespace {
 
@@ -102,6 +107,8 @@ struct Scene {
 	std::vector<DrawGroup> groups;
 	std::vector<Material> materials;
 	std::vector<Image> images;
+	size_t instances = 0;
+	int selected_scene = -1;
 	GLuint vao = 0;
 	GLuint vbo = 0;
 	GLuint shader = 0;
@@ -280,9 +287,8 @@ static const uint8_t *accessorData(const Accessor &a,
 		* typeComponentCount(a.type);
 	uint32_t stride = view.stride ? view.stride : elem;
 	uint64_t start = (uint64_t)view.offset + a.offset;
-	uint64_t end = start + (uint64_t)stride * (uint64_t)a.count;
-	if (elem == 0 || stride < elem || end > bin_size
-			|| a.offset > view.length) {
+	if (!modAssetGltfAccessorBounds(bin_size, view.offset, view.length,
+			a.offset, a.count, stride, elem)) {
 		return nullptr;
 	}
 	if (out_stride) {
@@ -604,7 +610,7 @@ static void markMaterialAlpha(Scene &scene)
 static bool appendPrimitive(const crude_json::value &prim,
 	const std::vector<Accessor> &accessors,
 	const std::vector<BufferView> &views, const uint8_t *bin,
-	uint32_t bin_size, Scene &scene)
+	uint32_t bin_size, const modasset_gltf_scene_instance_t &instance, Scene &scene)
 {
 	const crude_json::object *attrs = objectMember(prim, "attributes");
 	if (!attrs) {
@@ -623,8 +629,7 @@ static bool appendPrimitive(const crude_json::value &prim,
 	int uv0_i = findAttr("TEXCOORD_0");
 	int uv1_i = findAttr("TEXCOORD_1");
 	int color_i = findAttr("COLOR_0");
-	if (pos_i < 0 || (uv0_i < 0 && uv1_i < 0)
-			|| (size_t)pos_i >= accessors.size()) {
+	if (pos_i < 0 || (size_t)pos_i >= accessors.size()) {
 		return false;
 	}
 	if (uv0_i >= 0 && (size_t)uv0_i >= accessors.size()) {
@@ -724,6 +729,18 @@ static bool appendPrimitive(const crude_json::value &prim,
 		}
 	}
 
+	for (size_t i = first; i < scene.vertices.size(); i++) {
+		Vertex &vertex = scene.vertices[i];
+		const float position[3] = { vertex.x, vertex.y, vertex.z };
+		float transformed[3];
+		if (!modAssetGltfSceneTransformPoint(&instance, position, transformed)) return false;
+		vertex.x = transformed[0]; vertex.y = transformed[1]; vertex.z = transformed[2];
+	}
+	if (instance.mirrored) {
+		for (size_t i = first; i + 2 < scene.vertices.size(); i += 3)
+			std::swap(scene.vertices[i + 1], scene.vertices[i + 2]);
+	}
+
 	DrawGroup group;
 	group.material = material;
 	group.first = first;
@@ -734,12 +751,38 @@ static bool appendPrimitive(const crude_json::value &prim,
 	return group.count > 0;
 }
 
+/* Canonical buffer validation is shared with the generic compiler. Decoding
+ * occurs only after the shared validator proves alphabet, padding and size. */
+static uint8_t *decodeSceneBuffer(const char *uri, uint32_t declared)
+{
+	if (!modAssetGltfDataUriSize(uri, declared)) return nullptr;
+	auto digit = [](unsigned char c) -> unsigned {
+		if (c >= 'A' && c <= 'Z') return c - 'A';
+		if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+		if (c >= '0' && c <= '9') return c - '0' + 52;
+		return c == '+' ? 62 : 63;
+	};
+	uint8_t *out = static_cast<uint8_t *>(std::malloc(declared));
+	if (!out) return nullptr;
+	const char *encoded = std::strchr(uri, ',') + 1;
+	uint32_t cursor = 0;
+	for (size_t i = 0; encoded[i]; i += 4) {
+		const uint32_t bits = (digit(encoded[i]) << 18) | (digit(encoded[i + 1]) << 12) |
+			(encoded[i + 2] == '=' ? 0 : digit(encoded[i + 2]) << 6) |
+			(encoded[i + 3] == '=' ? 0 : digit(encoded[i + 3]));
+		if (cursor < declared) out[cursor++] = static_cast<uint8_t>(bits >> 16);
+		if (cursor < declared) out[cursor++] = static_cast<uint8_t>(bits >> 8);
+		if (cursor < declared) out[cursor++] = static_cast<uint8_t>(bits);
+	}
+	return out;
+}
+
 static bool buildCpuScene(const char *scenario_id, const char *path,
 	Scene &out)
 {
 	u32 size = 0;
 	uint8_t *bytes = (uint8_t *)fsFileLoad(path, &size);
-	if (!bytes || size < 28) {
+	if (!bytes || !size) {
 		if (bytes) std::free(bytes);
 		return false;
 	}
@@ -754,27 +797,39 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 	uint32_t json_size = 0;
 	const uint8_t *bin = nullptr;
 	uint32_t bin_size = 0;
+	uint8_t *owned_bin = nullptr;
+	modasset_gltf_scene_plan_t plan {};
+	char plan_error[128] = {};
 
-	if (std::memcmp(bytes, "glTF", 4) != 0 || readLe32(bytes + 4) != 2u) {
-		goto done;
-	}
-
-	{
-		uint32_t json_len = readLe32(bytes + 12);
-		uint32_t json_type = readLe32(bytes + 16);
-		uint32_t bin_off = 20u + json_len;
-		if (json_type != 0x4e4f534au || bin_off + 8u > size) {
-			goto done;
+	if (size >= 4 && std::memcmp(bytes, "glTF", 4) == 0) {
+		modasset_gltf_glb_chunks_t chunks;
+		uint32_t declared;
+		char uri[1];
+		if (!modAssetGltfGlbChunks(bytes, size, &chunks) ||
+				!modAssetGltfBufferDocument(reinterpret_cast<const char *>(chunks.json), chunks.json_size,
+					1, uri, sizeof(uri), &declared) ||
+				!modAssetGltfBufferSize(declared, chunks.bin_size, 1)) goto done;
+		json_bytes = chunks.json;
+		json_size = chunks.json_size;
+		bin = chunks.bin;
+		bin_size = declared;
+	} else {
+		std::vector<char> uri(static_cast<size_t>(size) + 1);
+		uint32_t declared;
+		if (!modAssetGltfBufferDocument(reinterpret_cast<const char *>(bytes), size,
+				0, uri.data(), uri.size(), &declared)) goto done;
+		json_bytes = bytes;
+		json_size = size;
+		if (std::strncmp(uri.data(), "data:", 5) == 0) {
+			owned_bin = decodeSceneBuffer(uri.data(), declared);
+			bin_size = declared;
+		} else {
+			char buffer_path[FS_MAXPATH + 1];
+			if (!modAssetGltfBufferPath(path, uri.data(), buffer_path, sizeof(buffer_path))) goto done;
+			owned_bin = static_cast<uint8_t *>(fsFileLoad(buffer_path, &bin_size));
 		}
-		json_bytes = bytes + 20;
-		json_size = json_len;
-		uint32_t bin_len = readLe32(bytes + bin_off);
-		uint32_t bin_type = readLe32(bytes + bin_off + 4);
-		if (bin_type != 0x004e4942u || bin_off + 8u + bin_len > size) {
-			goto done;
-		}
-		bin = bytes + bin_off + 8u;
-		bin_size = bin_len;
+		if (!owned_bin || !modAssetGltfBufferSize(declared, bin_size, 0)) goto done;
+		bin = owned_bin;
 	}
 
 	{
@@ -784,10 +839,12 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 				"SCENARIO.RENDER.CPU_PROBE: parse json bytes=%u bin=%u",
 				json_size, bin_size);
 		}
-		crude_json::value root = crude_json::value::parse(json);
+		crude_json::value root;
 		std::vector<BufferView> views;
 		std::vector<Accessor> accessors;
-		if (!root.is_object() || !parseViews(root, views)
+		if (!modAssetGltfReadDocument(json.data(), json.size(), root) ||
+				!modAssetGltfScenePlanBuild(json.data(), json.size(), &plan, plan_error, sizeof(plan_error)) ||
+				!parseViews(root, views)
 				|| !parseAccessors(root, accessors)) {
 			goto done;
 		}
@@ -799,6 +856,8 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 
 		out.scenario_id = scenario_id ? scenario_id : "";
 		out.source_path = path ? path : "";
+		out.instances = plan.count;
+		out.selected_scene = plan.selected_scene;
 		if (probeLoggingEnabled()) {
 			sysLogPrintf(LOG_NOTE,
 				"SCENARIO.RENDER.CPU_PROBE: begin materials");
@@ -825,7 +884,10 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 		if (!meshes) {
 			goto done;
 		}
-		for (const auto &mesh : *meshes) {
+		for (uint32_t i = 0; i < plan.count; i++) {
+			const modasset_gltf_scene_instance_t &instance = plan.instances[i];
+			if (instance.mesh_index < 0 || static_cast<size_t>(instance.mesh_index) >= meshes->size()) goto done;
+			const auto &mesh = (*meshes)[static_cast<size_t>(instance.mesh_index)];
 			const crude_json::array *prims =
 				arrayMember(mesh, "primitives");
 			if (!prims) {
@@ -836,7 +898,7 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 					goto done;
 				}
 				if (!appendPrimitive(prim, accessors, views, bin,
-						bin_size, out)) {
+						bin_size, instance, out)) {
 					goto done;
 				}
 			}
@@ -851,8 +913,12 @@ static bool buildCpuScene(const char *scenario_id, const char *path,
 	}
 
 done:
+	modAssetGltfScenePlanFree(&plan);
+	std::free(owned_bin);
 	std::free(bytes);
 	if (!ok) {
+		if (plan_error[0]) sysLogPrintf(LOG_WARNING,
+			"SCENARIO.RENDER: source scene invalid source=%s reason=%s", path, plan_error);
 		for (auto &img : out.images) {
 			if (img.rgba) {
 				stbi_image_free(img.rgba);
@@ -878,6 +944,26 @@ static void fillProbeResult(const Scene &scene,
 	out_probe->alpha_textures = scene.alpha_texture_count;
 	out_probe->alpha_materials = scene.alpha_material_count;
 	out_probe->secondary_materials = scene.secondary_material_count;
+	out_probe->instances = scene.instances;
+	out_probe->selected_scene = scene.selected_scene;
+	sha256_ctx hash;
+	sha256Init(&hash);
+	for (size_t i = 0; i < scene.vertices.size(); i++) {
+		const Vertex &vertex = scene.vertices[i];
+		const float position[3] = { vertex.x, vertex.y, vertex.z };
+		for (size_t axis = 0; axis < 3; axis++) {
+			if (i == 0 || position[axis] < out_probe->bounds_min[axis]) out_probe->bounds_min[axis] = position[axis];
+			if (i == 0 || position[axis] > out_probe->bounds_max[axis]) out_probe->bounds_max[axis] = position[axis];
+			uint32_t bits;
+			std::memcpy(&bits, &position[axis], sizeof(bits));
+			const uint8_t encoded[4] = { static_cast<uint8_t>(bits), static_cast<uint8_t>(bits >> 8),
+				static_cast<uint8_t>(bits >> 16), static_cast<uint8_t>(bits >> 24) };
+			sha256Update(&hash, encoded, sizeof(encoded));
+		}
+	}
+	u8 digest[SHA256_DIGEST_SIZE];
+	sha256Final(&hash, digest);
+	sha256ToHex(digest, out_probe->geometry_sha256);
 }
 
 static GLuint compileShader(GLenum type, const char *src, const char *label)

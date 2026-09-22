@@ -1,0 +1,70 @@
+{
+  "scenario_name": "v006_scenario_transaction_smoke",
+  "description": "V-006/B-1068 ordinary-client production proof for transactional saved Scenarios. The post-room harness proves lazy public .pdscenario activation restores exact stage/activation-ledger ownership on success and failure and preserves an already-owned source, saves canonical typed-only v3 source, accepts the exact complete hybrid shape emitted by the prior shipping v3 writer only when all numeric companions agree, rejects partial/contradictory hybrids, proves malformed, future-version, wrong-JSON-type, wrong-catalog-type, oversized, human-count-mismatched, incompatible-rig, and invalid-present-typed-v2 candidates preserve the full prior match/MP/RNG state, migrates bounded v2 and v1 sources, restores typed v3, then the ordinary deferred match-start path consumes the prepared catalog identities.",
+  "tags": ["runtime", "scenario", "save", "load", "transaction", "migration", "v006", "b1068", "smoke"],
+  "paths_of_interest": [
+    "port/src/scenario_codec.c",
+    "port/src/scenario_save.c",
+    "port/src/v006_scenario_harness.c",
+    "port/src/net/matchsetup.c",
+    "port/src/main.c"
+  ],
+  "timeout_seconds": 125,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--no-sound",
+    "--portable",
+    "--skip-intro",
+    "--launch-mp-room",
+    "base:arena_chicago",
+    "base:combat",
+    "1",
+    "--debug-v006-scenario-transaction",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 95000, "type": "exit", "comment": "Exit after the transaction matrix and ordinary deferred match start have completed." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "V006\\.SCENARIO: case=lazy_activation_success_restores_ownership result=PASS",
+      "V006\\.SCENARIO: case=v3_save_typed_only result=PASS",
+      "V006\\.SCENARIO: case=v3_load_commit result=PASS",
+      "V006\\.SCENARIO: case=already_owned_source_preserved result=PASS",
+      "V006\\.SCENARIO: case=lazy_activation_failure_rollback result=PASS",
+      "V006\\.SCENARIO: case=prior_v3_hybrid_migration result=PASS",
+      "V006\\.SCENARIO: case=malformed_preserves_state result=PASS",
+      "V006\\.SCENARIO: case=future_version_preserves_state result=PASS",
+      "V006\\.SCENARIO: case=wrong_json_type_preserves_state result=PASS",
+      "V006\\.SCENARIO: case=wrong_catalog_type_preserves_state result=PASS",
+      "V006\\.SCENARIO: case=oversized_preserves_state result=PASS",
+      "V006\\.SCENARIO: case=prior_v3_contradiction_preserves_state result=PASS",
+      "V006\\.SCENARIO: case=prior_v3_partial_preserves_state result=PASS",
+      "V006\\.SCENARIO: case=human_count_mismatch_preserves_state result=PASS",
+      "V006\\.SCENARIO: case=incompatible_rig_preserves_state result=PASS",
+      "V006\\.SCENARIO: case=v2_invalid_typed_identity_preserves_state result=PASS",
+      "V006\\.SCENARIO: case=v2_profile_migration result=PASS",
+      "V006\\.SCENARIO: case=v1_numeric_migration result=PASS",
+      "V006\\.SCENARIO: case=v3_restore_for_match_start result=PASS",
+      "V006\\.SCENARIO: passed=19 cases=19 result=PASS",
+      "BOOT: --launch-mp-room direct match start",
+      "PLAYER\\.INIT\\.PREFLIGHT match=ok players=1 bots=1 stage='base:arena_chicago' scenario='base:combat'",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=1",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "V006\\.SCENARIO: case=.* result=FAIL",
+      "V006\\.SCENARIO: .*result=FAIL",
+      "BOOT: --launch-mp-room direct match start failed",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "SMOKE: result=timeout",
+      "EXCEPTION_ACCESS_VIOLATION"
+    ],
+    "required_counts": [
+      { "pattern": "V006\\.SCENARIO: case=.* result=PASS", "min": 19, "max": 19 },
+      { "pattern": "V006\\.SCENARIO: passed=19 cases=19 result=PASS", "min": 1, "max": 1 }
+    ]
+  }
+}

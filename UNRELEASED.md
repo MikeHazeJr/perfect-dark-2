@@ -1,39 +1,141 @@
 # Unreleased Changes
 
+- Keep menu actions held until all simultaneous bound inputs release. Wheel pulses retire independently, while focus loss and controller removal clear stale physical holds.
+- Let custom controllers bind buttons 23-32 separately from stick directions and triggers. Existing bindings keep working and show when an older shared control needs rebinding.
+
+- Expose original texture materials and stage-specific surface rules in editable texture descriptors and level graphs; automatic upgrades preserve existing source edits.
+- Keep texture, animation, language, and stage assets discoverable after other catalog entries are removed. Suppressed texture overrides now use public base images and matching materials.
+- Reject archive rewrites that would silently drop unsupported members.
+
+- Retained model texture inputs now keep their pixels and material properties through catalog removal and pool reset; edited sources create separate generations, and final release safely clears native texture slots.
+
 - Fix signed file-transfer packet and chunk bounds, reject controls from the wrong peer, and use discovered social endpoints. Valid ACKs advance transfers without an extra retransmission delay.
 - Save received files before confirming delivery, preserve existing inbox files on failed saves, and retry lost completion acknowledgments safely.
 - Make voice activation honor microphone sensitivity and silence, with listen-only fallback and clear device/codec errors.
 - Bound mod downloads by expanded archive and compressed wire sizes, and show download progress consistently.
 - Preserve exact lobby weapon slots when a filtered menu selection resolves to a Random weapon set.
 
-- Keep menu actions held until all simultaneous bound inputs release. Wheel pulses retire independently, while focus loss and controller removal clear stale physical holds.
-- Let custom controllers bind buttons 23-32 separately from stick directions and triggers. Existing bindings keep working and show when an older shared control needs rebinding.
+- Read model scale and skeleton from public mesh metadata, including adjacent metadata for loose model files; private extraction metadata no longer overrides these edits.
+
 - Keep failed mod activations available for retry, preserve restart requirements after a failed reload, and make dismissal clear that earlier changes remain.
+
+- Graph native actions now retain complete command, animation, and sound source generations through catalog reloads; missing dependencies and command include cycles reject before publication.
+
+
+- Added retained WAV/MP3/Ogg sound sources and native sound-slot ownership for graph adapters. Playing voices own their PCM, preserving playback through source retirement; effective pitch overflow now rejects safely.
+- Added owned animation generations for graph dependencies: edited glTF/GLB sources can coexist with retained clips, and released native slots invalidate cached frames before reuse. Equipped graph integration remains in progress.
+- Load mod animation commands after their dependencies, independent of folder or archive order.
+- Preserve working command sources and catalog state when an animation import is rejected.
+
 - Preserve disabled component preferences when saving and rebuilding the mod catalog.
 - Report incomplete settings saves when importing audio or saving a chrome style.
 - Report mod activation failures when installing archives or saving weapon mods; preserve failure state during reload.
 - Refresh the mod catalog after partial deletion and offer a refresh retry without deleting files again.
-- Allow disabled assets to be enabled again, and restore their selection if disabling fails.
-- Restore saved Mod Manager load order and protect selection files from malformed input and failed saves.
-- Keep the final mod in a full enabled-mod list when saving fallback settings.
-- Wrap long Create Agent character/head names and keep controls and reset text inside a scrollable column beside the preview.
-- Add a controller-operated keyboard for native text fields, retaining editor focus and consuming closing gestures until controls are released.
-- Keep failed Settings saves visible, allow explicit retry, and confirm departure with unsaved changes; preserve the previous machine settings file on failure.
-- Prevent duplicate menu transitions and give Back priority across Social, Agent selection, mission, training and results screens.
-- Make theme actions and color-editor departure reachable through native controls.
-- Keep destructive confirmations on the visibly focused choice, with Cancel taking priority when confirm and Back arrive together.
-- Isolate binding capture from parent menus, expose every binding slot, and make clearing accessible from the controller.
-- Preserve keyboard navigation and text editing alongside mapped controller input; resolve action hints through the same binding authority as dispatch.
-- Restore controller menu scrolling without reopening gameplay aim input.
-- Save complete keyboard/controller binding layouts and named profiles, keeping empty slots and the last accepted bindings when a save fails.
-- Show action labels for the active controller family and available controls, switching hints on meaningful input without stick-noise flicker.
-- Stage Mod Manager enable/order edits and prompt to Apply, Discard, or Cancel before leaving the hub.
+
+- Weapon visibility lists now stop before executing an end marker, including empty mod-authored lists.
 
 > Running release-note source for the next GitHub release.
 > Keep bullets short, player-facing where possible, and specific to what changed.
 
 ## Highlights
 
+- Mix simultaneous voice speakers in sequence and limit playback and capture backlog.
+
+- Limit voice to accepted group peers, clear audio when access is revoked, and
+  send signed voice packets through the discovered social endpoint.
+
+- Reject truncated and non-finite multiplayer movement packets before replacing player movement state.
+
+- Preserve complete mod IDs in weapon animation commands, reject invalid
+  references and include cycles, and keep the previous commands after a rejected replacement.
+- Register base audio and animation sources before compiling command references,
+  preserving animation categories and the extracted trigger-release format.
+
+- Allow disabled assets to be enabled again, and restore their selection if
+  disabling fails.
+- Restore saved Mod Manager load order and protect selection files from
+  malformed input and failed saves.
+- Keep the final mod in a full enabled-mod list when saving fallback settings.
+
+- Reject damaged MP3 frames and malformed ID3 tags instead of playing a partial
+  decode; accept supported tags without changing the decoded audio.
+
+- Keep base sound identities connected to edited audio sources, including
+  repeated replacements and recovery from rejected imports.
+
+- Wrap long Create Agent character/head names and keep controls and reset text
+  inside a scrollable column beside the preview.
+
+- Route listen-host room changes through authority, preserve membership on
+  rejected changes, and synchronize each room's accepted settings and playlist.
+- Add room password and capacity controls, visible operation results, and
+  connect-code refresh when the host endpoint changes.
+- Synchronize complete player rosters across clients and keep room player lists,
+  portraits, and leadership aligned with membership.
+- Show the listen host and correct bound port in the lobby; preserve leader
+  identity as players leave and use the room owner for room controls.
+- Initialize the primary Lounge with valid capacity so it cannot invalidate
+  the server's room list.
+- Send private chat through the discovered presence endpoint, retry lost
+  messages, and show pending, delivered, failed or unknown delivery status.
+- Preserve chat text and unsigned message IDs across saves; keep prior chat
+  and social data when an atomic save fails.
+- Keep download framing ordered and fail receive-buffer allocation errors cleanly.
+- Correct the Y/Z movement adjustment for duplicate remote snapshots.
+
+- Load each body's selected hand model for weapons and fists, retaining modded
+  source identity and rejecting stale or missing replacements.
+- Preserve editable body/head geometry and properties through startup scans,
+  source reloads, and received asset imports.
+- Follow mesh descriptors' selected geometry in previews and weapon loading;
+  reject invalid replacements instead of silently choosing another file.
+
+- Add a controller-operated keyboard for native text fields, retaining editor
+  focus and consuming closing gestures until controls are released.
+- Keep failed Settings saves visible, allow explicit retry, and confirm departure
+  with unsaved changes; preserve the previous machine settings file on failure.
+- Prevent duplicate menu transitions and give Back priority across Social,
+  Agent selection, mission, training and results screens.
+- Make theme actions and color-editor departure reachable through native controls.
+
+- Decode standard Ogg Vorbis music through typed song archives and the playlist
+  mixer; preserve final audio frames and bound replay and synchronized seeks.
+- Activate all63 extracted character templates with explicit fixed, random-gender
+  and integrated-head policies and validated body/head dependencies.
+
+- Keep destructive confirmations on the visibly focused choice, with Cancel
+  taking priority when confirm and Back arrive together.
+- Isolate binding capture from parent menus, expose every binding slot, and
+  make clearing accessible from the controller.
+- Preserve keyboard navigation and text editing alongside mapped controller
+  input; resolve action hints through the same binding authority as dispatch.
+- Restore controller menu scrolling without reopening gameplay aim input.
+- Save complete keyboard/controller binding layouts and named profiles, keeping
+  empty slots and the last accepted bindings when a save fails.
+- Show action labels for the active controller family and available controls,
+  switching hints on meaningful input without stick-noise flicker.
+- Stage Mod Manager enable/order edits and prompt to Apply, Discard, or Cancel
+  before leaving the hub.
+
+- Reject malformed graph documents, ambiguous exports and truncated runtime
+  values; repair shared-context declarations in the triangle and Needler examples.
+- Validate extracted MP3 voices according to their actual format and preserve
+  public voice metadata authority; correct bot manifests and character source contracts.
+
+- Apply glTF scenes, hierarchy transforms, mesh instances, and reflected winding
+  consistently to collision, generated models, and Scenario geometry.
+- Preserve null, empty, and zero-row language banks; handle literal and escaped
+  Unicode consistently and reject unsupported native characters.
+- Validate graph setting units and numeric conversions, including the native
+  prop-health limit, before publishing runtime records.
+- Added archive-local glTF buffer support with checked source sizes and cache
+  refresh when the buffer changes; documented supported mod source layouts.
+- Preserve complete representable animation repeat and cut-skip tables and
+  reject malformed entries instead of silently dropping them.
+- Reject invalid graph catalog references, numeric values, and policy names
+  before runtime registration, including negative prop-health values.
+- Prepare collision data and runtime adapters together before publishing
+  source-backed catalog assets, with shared rollback and unload cleanup.
 - Defined the 1.0 release as a complete graph-backed base game, usable Campaign
   and Combat Simulator Theater, one custom-slot sample weapon, hardened friend
   play/performance, and a single source-frozen release-candidate gate.

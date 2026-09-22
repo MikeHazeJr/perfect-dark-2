@@ -88,6 +88,20 @@ TEST_CASE("voice-retag: registration loop passes category to RegisterAudio",
 	REQUIRE(src.find("idbuf, i, \"\", category, 0, \"\"") != std::string::npos);
 }
 
+TEST_CASE("base audio seeding owns native reverse identity before source replacement",
+          "[catalog][audio][source-identity][t-assets-046][static]") {
+    const auto source = readFile("port/src/assetcatalog_base_extended.c");
+    const auto begin = source.find("/* ---- audio (SFX + Phase 3 Slice 10 voice retag) ---- */");
+    const auto end = source.find("/* ---- music tracks (AUDIO_CAT_MUSIC) ---- */", begin);
+    REQUIRE(begin != std::string::npos);
+    REQUIRE(end != std::string::npos);
+    const auto audio = source.substr(begin, end - begin);
+    REQUIRE(audio.find("e->source_soundnum = i;") != std::string::npos);
+    REQUIRE(audio.find("e->source_soundnum = packed;") != std::string::npos);
+    REQUIRE(audio.find("mapped.packed = g_AudioRussMappings[r].soundnum;") != std::string::npos);
+    REQUIRE(audio.find("e->source_filenum = mapped.mp3priority ? (s32)mapped.id : -1;") != std::string::npos);
+}
+
 TEST_CASE("voice-retag: registration loop consults g_AudioRussMappings",
           "[catalog-audio-voice][gate3][slice10]") {
 	std::string src = readFile("port/src/assetcatalog_base_extended.c");

@@ -9,8 +9,43 @@ struct prop;
 /** MP team spawns: fill `out` with same-team chr positions (excl. self). Returns count. */
 s32 playerCollectMpTeammatePositions(struct prop *selfprop, struct coord *out, s32 max_out);
 
-/** MP match-start orchestrator: teleport player to validated pool slot. */
-void playerApplyOrchestratedSpawnFromPool(s32 playernum, s32 pool_idx);
+enum player_orchestrated_spawn_result {
+	PLAYER_ORCHESTRATED_SPAWN_OK = 0,
+	PLAYER_ORCHESTRATED_SPAWN_INVALID_PLAYER = -1,
+	PLAYER_ORCHESTRATED_SPAWN_INVALID_POOL = -2,
+	PLAYER_ORCHESTRATED_SPAWN_CAPSULE_REJECTED = -3,
+	PLAYER_ORCHESTRATED_SPAWN_STALE_PLAN = -4,
+};
+
+struct player_orchestrated_spawn_plan {
+	s32 playernum;
+	s32 pool_idx;
+	struct player *player;
+	struct prop *prop;
+	struct coord pos;
+	RoomNum rooms[8];
+	f32 turnanglerad;
+	f32 groundy;
+	f32 capsule_radius;
+	f32 capsule_height;
+	u16 floorcol;
+	u16 floorflags;
+	u8 floortype;
+	RoomNum floorroom;
+	bool prepared;
+};
+
+/* Prepare performs every fallible lookup/capsule check without mutation. */
+enum player_orchestrated_spawn_result playerPrepareOrchestratedSpawnFromPool(
+	s32 playernum, s32 pool_idx, struct player_orchestrated_spawn_plan *out_plan);
+
+/* Validate every prepared plan before the first commit. */
+bool playerOrchestratedSpawnPlanCanCommit(
+	const struct player_orchestrated_spawn_plan *plan);
+
+/* Infallible mutation-only commit; caller must validate the complete batch. */
+void playerCommitValidatedOrchestratedSpawn(
+	const struct player_orchestrated_spawn_plan *plan);
 
 f32 playerChooseSpawnLocation(f32 chrradius, struct coord *dstpos, RoomNum *dstrooms, struct prop *prop, s16 *spawnpads, s32 numspawnpads);
 f32 playerChooseGeneralSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms, struct prop *prop);
@@ -127,7 +162,8 @@ void playerDisplayShield(void);
 Gfx *playerRenderShield(Gfx *gdl);
 Gfx *playerRenderHud(Gfx *gdl);
 void playerDie(bool force);
-void playerDieByShooter(u32 shooter, bool force);
+/* shooter_runtime_index is a compact g_MpAllChrPtrs roster index in MP. */
+void playerDieByShooter(s32 shooter_runtime_index, bool force);
 bool playerRestoreDeadStateFromSnapshot(void);
 void playerCheckIfShotInBack(s32 attackerplayernum, f32 x, f32 z);
 f32 playerGetHealthBarHeightFrac(void);

@@ -32,6 +32,11 @@ typedef struct scenario_source_objective_operand {
 
 const asset_entry_t *scenarioSourceFindEntryForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp);
+s32 scenarioSourceApplyTexturePropertiesForStage(
+	const catalog_stage_result_t *stage, s32 prefer_mp);
+/* Borrowed typed catalog ID for the currently active public mission graph.
+ * Returns NULL when no mission graph is active. */
+const char *scenarioSourceActiveMissionId(void);
 void scenarioSourceFatalRuntimeFallbackForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp,
 	const char *payload, s32 legacy_id, const char *reason);

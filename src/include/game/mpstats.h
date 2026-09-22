@@ -17,6 +17,8 @@ void mpstatsRecordPlayerKill(void);
 s32 mpstatsGetPlayerKillCount(void);
 void mpstatsRecordPlayerDeath(void);
 void mpstatsRecordPlayerSuicide(void);
-void mpstatsRecordDeath(s32 aplayernum, s32 vplayernum);
+/* Both arguments are compact g_MpAllChrPtrs runtime-roster indices. */
+void mpstatsRecordDeathByRuntimeIndex(s32 attacker_runtime_index,
+	s32 victim_runtime_index);
 
 #endif

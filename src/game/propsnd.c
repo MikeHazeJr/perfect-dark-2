@@ -20,6 +20,7 @@
 #include "fs.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog.h"
+#include "modmusic.h"
 
 struct pschannel *g_PsChannels = NULL;
 
@@ -1536,18 +1537,18 @@ void ps0f095270(void)
 /**
  * Get the duration for an MP3 file by channel number.
  *
- * All MP3 files are 24 kilobits per second
- * so this is just math based on the filesize.
+ * Public voice sources can use any supported audio format or bitrate.
+ * Use decoded frames, which are also consumed by the sound scheduler.
  */
-static s32 psMp3DurationGetPublicSourceSize(s32 filenum)
+static s32 psMp3DurationGetPublicSource60(s32 filenum)
 {
-	s32 size;
+	s32 ticks;
 	CatalogResolveResult source = catalogResolveFile(filenum);
 
 	if (source.path && source.path[0]) {
-		size = fsFileSize(source.path);
-		if (size > 0) {
-			return size;
+		ticks = modMusicAudioSourceDuration60(source.path);
+		if (ticks > 0) {
+			return ticks;
 		}
 	}
 
@@ -1565,7 +1566,9 @@ static s32 psMp3DurationGetPublicSourceSize(s32 filenum)
 
 s32 psGetDuration60(s32 channelnum)
 {
-	struct pschannel *channel = &g_PsChannels[channelnum];
+	struct pschannel *channel;
+	if (!g_PsChannels || channelnum < 0 || channelnum >= CHANNELCOUNT()) return -1;
+	channel = &g_PsChannels[channelnum];
 
 	if (channelnum >= 0 && channelnum < CHANNELCOUNT()
 			&& (channel->flags & PSFLAG_FREE) == 0
@@ -1573,8 +1576,7 @@ s32 psGetDuration60(s32 channelnum)
 		union soundnumhack soundnum;
 		soundnum.packed = channel->soundnum26;
 
-		return psMp3DurationGetPublicSourceSize((s32)soundnum.id)
-			* 60 / (1024 * 24 / 8);
+		return psMp3DurationGetPublicSource60((s32)soundnum.id);
 	}
 
 	return -1;

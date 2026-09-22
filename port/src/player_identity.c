@@ -101,6 +101,12 @@ const char *playerIdentityStatusString(player_identity_status_e status)
 		return "wrong_body_type";
 	case PLAYER_IDENTITY_WRONG_HEAD_TYPE:
 		return "wrong_head_type";
+	case PLAYER_IDENTITY_EMPTY_BODY_RIG_CLASS:
+		return "empty_body_rig_class";
+	case PLAYER_IDENTITY_EMPTY_HEAD_RIG_CLASS:
+		return "empty_head_rig_class";
+	case PLAYER_IDENTITY_INCOMPATIBLE_RIG_CLASS:
+		return "incompatible_rig_class";
 	case PLAYER_IDENTITY_UNBOUND_BODY_RUNTIME_INDEX:
 		return "unbound_body_runtime_index";
 	case PLAYER_IDENTITY_UNBOUND_HEAD_RUNTIME_INDEX:
@@ -149,6 +155,69 @@ static player_identity_status_e playerIdentityFailure(
 	return status;
 }
 
+/* Share the existing runtime body-only contract with public typed IDs.
+ * This validates the supplied entry without resolving or changing residency. */
+static player_identity_status_e playerIdentityPrepareBodyOnlyResolved(
+	const char *body_id,
+	const asset_entry_t *body_entry,
+	s32 runtime_bodynum,
+	player_identity_plan_t *out_plan)
+{
+	player_identity_status_e status;
+	player_identity_plan_t candidate;
+	s32 body_length;
+
+	playerIdentityPlanReset(out_plan);
+	status = playerIdentityValidateId(body_id,
+		PLAYER_IDENTITY_EMPTY_BODY_ID,
+		PLAYER_IDENTITY_UNTERMINATED_BODY_ID);
+	if (status != PLAYER_IDENTITY_OK) {
+		return playerIdentityFailure(out_plan, status);
+	}
+	if (out_plan == NULL) {
+		return PLAYER_IDENTITY_INVALID_ARGUMENT;
+	}
+	if (body_entry == NULL || !body_entry->occupied) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_MISSING_BODY_ENTRY);
+	}
+	if (!body_entry->enabled) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_DISABLED_BODY_ENTRY);
+	}
+	if (!playerIdentityEntryIdMatches(body_id, body_entry)) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_BODY_ID_ENTRY_MISMATCH);
+	}
+	if (body_entry->type != ASSET_BODY) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_WRONG_BODY_TYPE);
+	}
+	if (body_entry->runtime_index < 0 || body_entry->ext.body.bodynum < 0) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_UNBOUND_BODY_RUNTIME_INDEX);
+	}
+	if (body_entry->runtime_index != (s32)body_entry->ext.body.bodynum
+			|| body_entry->runtime_index != runtime_bodynum) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_INCONSISTENT_BODY_BINDING);
+	}
+	if (!catalogGetBodyIsComplete(body_entry->runtime_index)) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_UNBOUND_HEAD_RUNTIME_INDEX);
+	}
+
+	body_length = playerIdentityIdLength(body_id);
+	playerIdentityPlanReset(&candidate);
+	memcpy(candidate.body_id, body_id, (size_t)body_length);
+	candidate.body_id[body_length] = '\0';
+	candidate.runtime_bodynum = body_entry->runtime_index;
+	candidate.mp_body_index = playerIdentityMpIndex(body_entry);
+	candidate.status = PLAYER_IDENTITY_OK;
+	*out_plan = candidate;
+	return PLAYER_IDENTITY_OK;
+}
+
 player_identity_status_e playerIdentityPrepareResolved(
 	const char *body_id,
 	const char *head_id,
@@ -173,7 +242,7 @@ player_identity_status_e playerIdentityPrepareResolved(
 	}
 
 	status = playerIdentityValidateId(head_id,
-		PLAYER_IDENTITY_EMPTY_HEAD_ID,
+		PLAYER_IDENTITY_OK,
 		PLAYER_IDENTITY_UNTERMINATED_HEAD_ID);
 	if (status != PLAYER_IDENTITY_OK) {
 		return playerIdentityFailure(out_plan, status);
@@ -185,6 +254,23 @@ player_identity_status_e playerIdentityPrepareResolved(
 
 	body_length = playerIdentityIdLength(body_id);
 	head_length = playerIdentityIdLength(head_id);
+
+	if (head_length == 0) {
+		status = playerIdentityPrepareBodyOnlyResolved(body_id, body_entry,
+			body_entry != NULL ? body_entry->runtime_index : -1, &candidate);
+		if (status == PLAYER_IDENTITY_UNBOUND_HEAD_RUNTIME_INDEX) {
+			status = PLAYER_IDENTITY_EMPTY_HEAD_ID;
+		}
+		if (status != PLAYER_IDENTITY_OK) {
+			return playerIdentityFailure(out_plan, status);
+		}
+		if (head_entry != NULL) {
+			return playerIdentityFailure(out_plan,
+				PLAYER_IDENTITY_HEAD_ID_ENTRY_MISMATCH);
+		}
+		*out_plan = candidate;
+		return PLAYER_IDENTITY_OK;
+	}
 
 	if (body_entry == NULL || !body_entry->occupied) {
 		return playerIdentityFailure(out_plan,
@@ -219,6 +305,26 @@ player_identity_status_e playerIdentityPrepareResolved(
 	if (head_entry->type != ASSET_HEAD) {
 		return playerIdentityFailure(out_plan,
 			PLAYER_IDENTITY_WRONG_HEAD_TYPE);
+	}
+
+	/* B-183: catalog identity is also the physical attachment contract.
+	 * A numerically valid body/head pair is not publishable unless both
+	 * authored entries name the same non-empty rig class.  Failing here keeps
+	 * an incompatible pair out of model assembly instead of relying on a
+	 * missing headspot warning after body state has already been selected. */
+	if (body_entry->ext.body.rig_class[0] == '\0') {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_EMPTY_BODY_RIG_CLASS);
+	}
+	if (head_entry->ext.head.rig_class[0] == '\0') {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_EMPTY_HEAD_RIG_CLASS);
+	}
+	if (strncmp(body_entry->ext.body.rig_class,
+			head_entry->ext.head.rig_class,
+			sizeof(body_entry->ext.body.rig_class)) != 0) {
+		return playerIdentityFailure(out_plan,
+			PLAYER_IDENTITY_INCOMPATIBLE_RIG_CLASS);
 	}
 
 	if (body_entry->runtime_index < 0 || body_entry->ext.body.bodynum < 0) {
@@ -272,7 +378,7 @@ player_identity_status_e playerIdentityPrepare(
 		PLAYER_IDENTITY_UNTERMINATED_BODY_ID);
 	if (status == PLAYER_IDENTITY_OK) {
 		status = playerIdentityValidateId(head_id,
-			PLAYER_IDENTITY_EMPTY_HEAD_ID,
+			PLAYER_IDENTITY_OK,
 			PLAYER_IDENTITY_UNTERMINATED_HEAD_ID);
 	}
 	if (status == PLAYER_IDENTITY_OK && out_plan == NULL) {
@@ -281,7 +387,7 @@ player_identity_status_e playerIdentityPrepare(
 
 	if (status == PLAYER_IDENTITY_OK) {
 		body_entry = assetCatalogResolve(body_id);
-		head_entry = assetCatalogResolve(head_id);
+		head_entry = head_id[0] != '\0' ? assetCatalogResolve(head_id) : NULL;
 		status = playerIdentityPrepareResolved(
 			body_id, head_id, body_entry, head_entry, out_plan);
 	} else {
@@ -304,8 +410,6 @@ static player_identity_status_e playerIdentityPrepareRuntimeBodyOnly(
 {
 	const asset_entry_t *body_entry;
 	player_identity_status_e status;
-	player_identity_plan_t candidate;
-	s32 body_length;
 
 	if (out_plan != NULL) {
 		playerIdentityPlanReset(out_plan);
@@ -322,45 +426,8 @@ static player_identity_status_e playerIdentityPrepareRuntimeBodyOnly(
 	}
 
 	body_entry = assetCatalogResolve(body_id);
-	if (body_entry == NULL || !body_entry->occupied) {
-		return playerIdentityFailure(out_plan,
-			PLAYER_IDENTITY_MISSING_BODY_ENTRY);
-	}
-	if (!body_entry->enabled) {
-		return playerIdentityFailure(out_plan,
-			PLAYER_IDENTITY_DISABLED_BODY_ENTRY);
-	}
-	if (!playerIdentityEntryIdMatches(body_id, body_entry)) {
-		return playerIdentityFailure(out_plan,
-			PLAYER_IDENTITY_BODY_ID_ENTRY_MISMATCH);
-	}
-	if (body_entry->type != ASSET_BODY) {
-		return playerIdentityFailure(out_plan,
-			PLAYER_IDENTITY_WRONG_BODY_TYPE);
-	}
-	if (body_entry->runtime_index < 0 || body_entry->ext.body.bodynum < 0) {
-		return playerIdentityFailure(out_plan,
-			PLAYER_IDENTITY_UNBOUND_BODY_RUNTIME_INDEX);
-	}
-	if (body_entry->runtime_index != (s32)body_entry->ext.body.bodynum
-			|| body_entry->runtime_index != runtime_bodynum) {
-		return playerIdentityFailure(out_plan,
-			PLAYER_IDENTITY_INCONSISTENT_BODY_BINDING);
-	}
-	if (!catalogGetBodyIsComplete(runtime_bodynum)) {
-		return playerIdentityFailure(out_plan,
-			PLAYER_IDENTITY_UNBOUND_HEAD_RUNTIME_INDEX);
-	}
-
-	body_length = playerIdentityIdLength(body_id);
-	playerIdentityPlanReset(&candidate);
-	memcpy(candidate.body_id, body_id, (size_t)body_length);
-	candidate.body_id[body_length] = '\0';
-	candidate.runtime_bodynum = runtime_bodynum;
-	candidate.mp_body_index = playerIdentityMpIndex(body_entry);
-	candidate.status = PLAYER_IDENTITY_OK;
-	*out_plan = candidate;
-	return PLAYER_IDENTITY_OK;
+	return playerIdentityPrepareBodyOnlyResolved(body_id, body_entry,
+		runtime_bodynum, out_plan);
 }
 
 player_identity_status_e playerIdentityPrepareRuntime(

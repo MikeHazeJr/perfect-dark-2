@@ -10,7 +10,7 @@ static void usage(const char *argv0)
 		"Usage: %s <scenario-id> <scene-path>\n"
 		"       %s <scene-path>\n"
 		"\n"
-		"scene-path may be a GLB file or archive member path such as\n"
+		"scene-path may be a GLB/glTF file or archive member path such as\n"
 		"data/ntsc-final/scenarios/base_scenario_mp_chicago.pdscenario::scene.glb\n",
 		argv0, argv0);
 }
@@ -47,9 +47,15 @@ int main(int argc, char **argv)
 	std::printf(
 		"SCENARIO.RENDER.CPU_PROBE: ok=1 scenario=%s source=%s "
 		"vertices=%zu groups=%zu materials=%zu images=%zu "
-		"alpha_textures=%zu alpha_materials=%zu secondary_materials=%zu\n",
+		"alpha_textures=%zu alpha_materials=%zu secondary_materials=%zu "
+		"instances=%zu selected_scene=%d bounds_min=[%.9g,%.9g,%.9g] "
+		"bounds_max=[%.9g,%.9g,%.9g] geometry_sha256=%s\n",
 		scenario_id, scene_path, probe.vertices, probe.groups,
 		probe.materials, probe.images, probe.alpha_textures,
-		probe.alpha_materials, probe.secondary_materials);
+		probe.alpha_materials, probe.secondary_materials,
+		probe.instances, probe.selected_scene,
+		static_cast<double>(probe.bounds_min[0]), static_cast<double>(probe.bounds_min[1]), static_cast<double>(probe.bounds_min[2]),
+		static_cast<double>(probe.bounds_max[0]), static_cast<double>(probe.bounds_max[1]), static_cast<double>(probe.bounds_max[2]),
+		probe.geometry_sha256);
 	return 0;
 }

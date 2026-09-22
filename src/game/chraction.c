@@ -3420,7 +3420,7 @@ void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hit
 
 	// Handle multiplayer stats and kill count
 	if (g_Vars.mplayerisrunning) {
-		mpstatsRecordDeath(aplayernum, mpPlayerGetIndex(chr));
+		mpstatsRecordDeathByRuntimeIndex(aplayernum, mpPlayerGetIndex(chr));
 	} else if (aplayernum >= 0) {
 		s32 prevplayernum = g_Vars.currentplayernum;
 		setCurrentPlayerNum(aplayernum);
@@ -5146,7 +5146,8 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 						}
 
 						if (g_Vars.mplayerisrunning) {
-							mpstatsRecordDeath(aplayernum, mpPlayerGetIndex(chr));
+							mpstatsRecordDeathByRuntimeIndex(aplayernum,
+								mpPlayerGetIndex(chr));
 						} else if (aprop && aprop->type == PROPTYPE_PLAYER) {
 							s32 prevplayernum = g_Vars.currentplayernum;
 							setCurrentPlayerNum(playermgrGetPlayerNumByProp(aprop));
@@ -5261,7 +5262,7 @@ void chrDie(struct chrdata *chr, s32 aplayernum)
 		chr->ailist = ailistFindById(GAILIST_AIBOT_DEAD);
 		chr->aioffset = 0;
 
-		mpstatsRecordDeath(aplayernum, mpPlayerGetIndex(chr));
+		mpstatsRecordDeathByRuntimeIndex(aplayernum, mpPlayerGetIndex(chr));
 		botinvDropAll(chr, chr->aibot->weaponnum);
 
 #if VERSION >= VERSION_NTSC_1_0
@@ -8456,6 +8457,9 @@ void chrTickDead(struct chrdata *chr)
 			chr->fadealpha = 0;
 
 			if (aibot) {
+				/* botSpawn consumes its typed placement result. On rejection this
+				 * ACT_DEAD state remains intact, so the next dead tick deliberately
+				 * retries without losing retry-owned bot state. */
 				botSpawn(chr, true);
 			} else {
 				chr->hidden |= CHRHFLAG_DELETING;

@@ -31,6 +31,7 @@
 #include "lib/rng.h"
 #include "navspawn.h"
 #include "game/spawnpool.h"
+#include "mpspawn_transaction.h"
 
 void playerInitStageTransientDefaults(struct player *player)
 {
@@ -108,6 +109,7 @@ u32 playerRollbackStageInitialization(void)
 	struct player *player = g_Vars.currentplayer;
 	struct prop *playerprop;
 	struct prop *eyespyprop;
+	s32 runtime_index = -1;
 	u32 flags = PLAYER_STAGE_ROLLBACK_NONE;
 
 	if (player == NULL) {
@@ -116,6 +118,10 @@ u32 playerRollbackStageInitialization(void)
 
 	playerprop = player->prop;
 	eyespyprop = player->eyespy != NULL ? player->eyespy->prop : NULL;
+	if (playerprop != NULL && playerprop->chr != NULL) {
+		runtime_index = g_Vars.mplayerisrunning
+			? mpPlayerGetIndex(playerprop->chr) : g_Vars.currentplayernum;
+	}
 
 	/* Eyespy is an independently scheduled full chr whose stage-pool state is
 	 * referenced by the player. Retire it before its target player prop. */
@@ -149,14 +155,13 @@ u32 playerRollbackStageInitialization(void)
 		flags |= PLAYER_STAGE_ROLLBACK_GUNMEM;
 	}
 
-	if (g_Vars.currentplayernum >= 0
-			&& g_Vars.currentplayernum < MAX_MPCHRS) {
-		if (g_MpAllChrPtrs[g_Vars.currentplayernum] != NULL
-				|| g_MpAllChrConfigPtrs[g_Vars.currentplayernum] != NULL) {
+	if (runtime_index >= 0 && runtime_index < MAX_MPCHRS) {
+		if (g_MpAllChrPtrs[runtime_index] != NULL
+				|| g_MpAllChrConfigPtrs[runtime_index] != NULL) {
 			flags |= PLAYER_STAGE_ROLLBACK_MP_BINDINGS;
 		}
-		g_MpAllChrPtrs[g_Vars.currentplayernum] = NULL;
-		g_MpAllChrConfigPtrs[g_Vars.currentplayernum] = NULL;
+		g_MpAllChrPtrs[runtime_index] = NULL;
+		g_MpAllChrConfigPtrs[runtime_index] = NULL;
 	}
 
 	player->prop = NULL;
@@ -459,8 +464,26 @@ const char *playerResetResultString(enum player_reset_result result)
 	case PLAYER_RESET_EYESPY_ALLOCATION_FAILED: return "eyespy_allocation_failed";
 	case PLAYER_RESET_CHRBODY_PREFLIGHT_FAILED: return "chrbody_preflight_failed";
 	case PLAYER_RESET_TARGET_BIND_FAILED: return "target_bind_failed";
+	case PLAYER_RESET_SPAWN_FAILED: return "spawn_failed";
 	default: return "unknown";
 	}
+}
+
+static enum player_reset_result playerResetAbortSpawn(const char *reason)
+{
+	u32 rollback_flags;
+
+	sysLogPrintf(LOG_ERROR,
+		"PLAYER.INIT.ROLLBACK phase=spawn player=%d reason=%s",
+		g_Vars.currentplayernum, reason ? reason : "spawn_rejected");
+	rollback_flags = playerRollbackStageInitialization();
+	sysLogPrintf(LOG_NOTE,
+		"PLAYER.INIT.ABORT phase=spawn player=%d owner_flags=0x%02x residual_prop=%d residual_eyespy=%d residual_chrbody=%d",
+		g_Vars.currentplayernum, (unsigned)rollback_flags,
+		g_Vars.currentplayer->prop != NULL,
+		g_Vars.currentplayer->eyespy != NULL,
+		g_Vars.currentplayer->haschrbody != 0);
+	return PLAYER_RESET_SPAWN_FAILED;
 }
 
 enum player_reset_result playerReset(void)
@@ -483,6 +506,7 @@ enum player_reset_result playerReset(void)
 	s32 headnum;
 	s32 playerteam;
 	bool spawnYAuthoritative = false;
+	bool spawnCapsuleValidated = false;
 	bool player_target_bound;
 
 	/* playerReset is the stage-prop transaction boundary. No failure before
@@ -1065,29 +1089,53 @@ enum player_reset_result playerReset(void)
 			spawnYAuthoritative = true;
 		} else if (g_Vars.mplayerisrunning && spawnPoolIsReady() && g_Vars.lvframe60 == 0) {
 			/* Initial MP placement is owned by mpOrchestrateMatchStartSpawns()
-			 * (Hungarian + team anchors + relax).  Use a stable temp point
-			 * until lv.c runs the orchestrator before playerSpawn(). */
+			 * (Hungarian + team anchors + relax). Deterministically scan the
+			 * finite typed pool for a capsule-safe temporary point; a blocked
+			 * first anchor must not turn a valid match into a random abort. */
 			const spawn_pool_t *pool = spawnPoolGet();
+			struct chrdata *playerchr = g_Vars.currentplayer->prop
+				? g_Vars.currentplayer->prop->chr : NULL;
+			f32 chr_height = spawnPoolGetChrCapsuleHeight(playerchr);
+			f32 chr_radius = (playerchr && playerchr->radius > 0.0f)
+				? playerchr->radius : 30.0f;
+			mpspawn_pool_scan_t scan;
+			s32 pool_idx;
 
-			if (pool && pool->count > 0) {
-				pos = pool->points[0].pos;
-				rooms[0] = pool->points[0].room;
-				rooms[1] = -1;
-				turnanglerad = pool->points[0].angle_rad;
-			} else {
-				struct coord lr_pos;
-				RoomNum lr_room = -1;
-				f32 lr_angle = 0.0f;
-				spawn_select_tier_t lr_tier =
-					spawnPoolLastResort(NULL, 0, &lr_pos, &lr_room, &lr_angle);
-				(void)lr_tier;
-				pos = lr_pos;
-				rooms[0] = lr_room;
-				rooms[1] = -1;
-				turnanglerad = lr_angle;
+			if (!pool || pool->count <= 0
+					|| !mpspawnPoolScanBegin(&scan, pool->count)) {
+				return playerResetAbortSpawn("temporary_pool_unavailable");
+			}
+
+			while ((pool_idx = mpspawnPoolScanNext(&scan)) >= 0) {
+				struct coord candidate = pool->points[pool_idx].pos;
+				RoomNum candidate_rooms[8] = {
+					pool->points[pool_idx].room, -1, -1, -1,
+					-1, -1, -1, -1,
+				};
+
+				if (spawnPoolFindClearPosition(&candidate, candidate_rooms,
+						chr_radius, chr_height, g_Vars.currentplayer->prop)) {
+					s32 room_index;
+					if (!mpspawnPoolScanAccept(&scan, pool_idx)) {
+						return playerResetAbortSpawn("temporary_pool_scan_state");
+					}
+					pos = candidate;
+					for (room_index = 0; room_index < 8; room_index++) {
+						rooms[room_index] = candidate_rooms[room_index];
+					}
+					turnanglerad = pool->points[pool_idx].angle_rad;
+					spawnCapsuleValidated = true;
+					spawnYAuthoritative = true;
+					break;
+				}
+			}
+
+			if (mpspawnPoolScanResult(&scan) < 0) {
+				return playerResetAbortSpawn("temporary_pool_all_blocked");
 			}
 			sysLogPrintf(LOG_NOTE,
-				"SPAWN: MP initial placement deferred to orchestrator (temp)");
+				"SPAWN: MP initial placement deferred to orchestrator temp_pool=%d",
+				mpspawnPoolScanResult(&scan));
 		} else {
 			if (g_Vars.mplayerisrunning == 0) {
 				g_NumSpawnPoints = 1;
@@ -1136,21 +1184,35 @@ enum player_reset_result playerReset(void)
 	sysLogPrintf(LOG_NOTE, "SPAWN: pre-ground pos=(%.1f,%.1f,%.1f) room=%d angle=%.3f",
 		pos.x, pos.y, pos.z, rooms[0], turnanglerad);
 
-	/* B-242 (Priority O): post-pick capsule clip check + radial sweep
-	 * for the player's initial spawn. Skip the deferred MP-orchestrator
-	 * placeholder case (the orchestrator overwrites pos via
-	 * playerApplyOrchestratedSpawnFromPool, where the same check runs).
-	 * For SP, coop, anti, and the non-deferred MP path: ensure the
-	 * picked position has clearance for the chr's full bounding capsule;
-	 * sweep radially if needed. */
-	if (!(g_Vars.mplayerisrunning && spawnPoolIsReady() && g_Vars.lvframe60 == 0
-			&& g_Vars.coopplayernum < 0 && g_Vars.antiplayernum < 0)) {
+	/* B-242: every initial player position, including the temporary point
+	 * used before MP orchestration, must pass the same fail-closed capsule
+	 * policy.  The later orchestrator may improve distribution, but a rejected
+	 * assignment can never expose an unchecked placeholder. */
+	{
 		struct chrdata *playerchr = g_Vars.currentplayer->prop
 			? g_Vars.currentplayer->prop->chr : NULL;
 		f32 chr_height = spawnPoolGetChrCapsuleHeight(playerchr);
 		f32 chr_radius = (playerchr && playerchr->radius > 0.0f)
 			? playerchr->radius : 30.0f;
-		(void)spawnPoolFindClearPosition(&pos, rooms, chr_radius, chr_height);
+		bool spawn_clear = spawnCapsuleValidated;
+		for (s32 attempt = 0; !spawn_clear && attempt < 3; attempt++) {
+			if (spawnPoolFindClearPosition(&pos, rooms, chr_radius, chr_height,
+					g_Vars.currentplayer->prop)) {
+				spawn_clear = true;
+				break;
+			}
+			if (g_NumSpawnPoints <= 0) {
+				break;
+			}
+			turnanglerad = M_BADTAU - scenarioChooseSpawnLocation(30, &pos,
+				rooms, g_Vars.currentplayer->prop);
+		}
+		if (!spawn_clear) {
+			/* The prop and optional Eyespy were published earlier so collision
+			 * could evaluate the exact live capsule. Abort that prepared player
+			 * explicitly; lv.c's committed-player list does not yet include it. */
+			return playerResetAbortSpawn("no_capsule_safe_candidate");
+		}
 	}
 
 	groundy = cdFindGroundInfoAtCyl(&pos, 30, rooms,

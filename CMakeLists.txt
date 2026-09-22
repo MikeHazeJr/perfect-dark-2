@@ -819,6 +819,25 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_netbuf.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_net_client_settings_wire.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/net_client_settings_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_net_player_move_wire.cpp
+  ${CMAKE_SOURCE_DIR}/tests/net_move_fixture.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/net_player_move_wire.c
+  # Multiplayer room transactions, wire payloads and allocation failure behavior.
+  ${CMAKE_SOURCE_DIR}/tests/test_room_transactions.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_net_lobby_view.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_net_lobby_roster.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_chat_delivery.cpp
+  ${CMAKE_SOURCE_DIR}/tests/chat_transport_fixture.c
+  ${CMAKE_SOURCE_DIR}/port/src/ed25519.c
+  ${CMAKE_SOURCE_DIR}/tests/net_lobby_fixture.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/lobby_view.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/lobby_roster_wire.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/netlobby.c
+  ${CMAKE_SOURCE_DIR}/port/src/room.c
+  ${CMAKE_SOURCE_DIR}/tests/test_net_room_wire.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/room_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_net_transfer_buffer.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/transfer_buffer.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_reconnect.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/net_reconnect.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_cutscene_authority.cpp
@@ -827,6 +846,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/net/net_bandwidth.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_match_route.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/net_match_route.c
+  ${CMAKE_SOURCE_DIR}/port/src/net/group_session_policy.c
+  ${CMAKE_SOURCE_DIR}/tests/test_group_session_policy.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_net_candidate.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/net_candidate.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_manifest_type.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/net_manifest_type.c
   ${CMAKE_SOURCE_DIR}/tests/test_combat_sim_verify.cpp
@@ -863,10 +886,18 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_save_migration.cpp
   ${CMAKE_SOURCE_DIR}/port/src/save_atomic.c
   ${CMAKE_SOURCE_DIR}/tests/test_save_atomic.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_codec.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_codec.c
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_save_transaction_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_theater_format.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/theater_format.c
   ${CMAKE_SOURCE_DIR}/tests/test_agent_profile_codec.cpp
   ${CMAKE_SOURCE_DIR}/port/src/agent_profile_codec.c
   ${CMAKE_SOURCE_DIR}/tests/test_player_identity.cpp
   ${CMAKE_SOURCE_DIR}/port/src/player_identity.c
+  ${CMAKE_SOURCE_DIR}/tests/test_combat_sim_defect_cohort.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/mpstats_attribution.c
+  ${CMAKE_SOURCE_DIR}/port/src/mpspawn_transaction.c
   # c074: the REAL save-migration chain framework under behavioural test.
   # Globals-free (static registry array only); its one external callee
   # sysLogPrintf is provided by tests/stubs.c.
@@ -1274,6 +1305,33 @@ target_compile_options(pd-tests PRIVATE
   $<$<COMPILE_LANGUAGE:C>:-Wno-pointer-sign>
 )
 target_link_libraries(pd-tests PRIVATE ${PD_SDL2_CORE_LIB} ${PD_SDL2_SUPPORT_LIBS})
+target_sources(pd-tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/port/src/file_transfer_storage.c
+  ${CMAKE_SOURCE_DIR}/tests/test_file_transfer_storage.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/file_transfer_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_file_transfer_wire.cpp)
+target_sources(pd-tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/tests/voice_no_codec_fixture.c
+  ${CMAKE_SOURCE_DIR}/tests/test_voice_no_codec.cpp)
+if(HAVE_OPUS)
+  target_sources(pd-tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/tests/voice_transport_fixture.c
+    ${CMAKE_SOURCE_DIR}/tests/test_voice_transport.cpp)
+  if(WIN32 AND EXISTS "${_msys_lib}/libopus.a")
+    target_link_libraries(pd-tests PRIVATE "${_msys_lib}/libopus.a")
+  else()
+    target_link_libraries(pd-tests PRIVATE ${OPUS_LIBRARIES})
+  endif()
+endif()
+if(WIN32)
+  if(NOT EXISTS "${_msys_lib}/libcrypto.a")
+    message(FATAL_ERROR "Chat signature tests require the same static libcrypto.a as the client")
+  endif()
+  target_link_libraries(pd-tests PRIVATE "${_msys_lib}/libcrypto.a" ws2_32 crypt32)
+else()
+  find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+  target_link_libraries(pd-tests PRIVATE OpenSSL::Crypto)
+endif()
 if(WIN32)
   target_link_libraries(pd-tests PRIVATE -static-libgcc -static-libstdc++
     -Wl,-Bstatic "${PD_ZLIB_LIB}" "${PD_WINPTHREAD_STATIC_LIB}" -Wl,-Bdynamic)
@@ -1286,6 +1344,7 @@ else()
   target_link_libraries(pd-tests PRIVATE "${PD_ZLIB_LIB}")
 endif()
 set_target_properties(pd-tests PROPERTIES OUTPUT_NAME "pd-tests")
+
 # Focused executables keep their filesystem/action adapters out of pd-tests.
 # Build through the existing queued -Target tests path; run each separately.
 add_executable(pd-settings-save-tests EXCLUDE_FROM_ALL

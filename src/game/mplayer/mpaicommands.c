@@ -11,7 +11,12 @@
  */
 bool aiMpInitSimulants(void)
 {
-	botSpawnAll();
+	if (botSpawnAll() != BOT_SPAWN_WAVE_COMPLETE) {
+		/* Leave the opcode in place. The retained wave cursor retries the
+		 * failed bot and its uncommitted suffix on the next AI pass. */
+		return false;
+	}
+
 	g_Vars.aioffset += 2;
 	return false;
 }

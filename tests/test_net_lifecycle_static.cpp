@@ -1371,30 +1371,25 @@ TEST_CASE("net room mutations: source client is validated before room state acce
     require_source_guard("u32 netmsgClcRoomPlaylistUpdateRead", "srccl->room_id == 0xFF");
 }
 
-TEST_CASE("net room create: access mode is rejected before room creation",
+TEST_CASE("net room create: complete wire and authority validation precede membership commit",
           "[net][room][security][static]")
 {
     const std::string netmsg = read_text_file("port/src/net/netmsg.c");
     const std::string read = function_block(netmsg, "u32 netmsgClcRoomCreateRead");
-
-    REQUIRE(read.find("downgrading to OPEN") == std::string::npos);
-
-    const size_t access_gate = read.find("accessRaw > ROOM_ACCESS_INVITE");
-    const size_t access_return = read.find("return 1;", access_gate);
-    const size_t password_gate = read.find("if (!passwordBuf[0])", access_return);
-    const size_t password_return = read.find("return 1;", password_gate);
-    const size_t create = read.find("roomCreateConfigured", password_return);
-
-    REQUIRE(access_gate != std::string::npos);
-    REQUIRE(access_return != std::string::npos);
-    REQUIRE(password_gate != std::string::npos);
-    REQUIRE(password_return != std::string::npos);
+    const size_t decode = read.find("netRoomCreatePayloadRead(src, &request)");
+    const size_t validate = read.find("netmsgRoomSettingsValid(&initial_settings)", decode);
+    const size_t create = read.find("roomCreateForClient(previous", validate);
+    const size_t reject = read.find("if (result != ROOM_RESULT_OK)", create);
+    const size_t assign = read.find("srccl->room_id = created->id", reject);
+    REQUIRE(decode != std::string::npos);
+    REQUIRE(validate != std::string::npos);
     REQUIRE(create != std::string::npos);
-
-    REQUIRE(access_gate < access_return);
-    REQUIRE(access_return < password_gate);
-    REQUIRE(password_gate < password_return);
-    REQUIRE(password_return < create);
+    REQUIRE(reject != std::string::npos);
+    REQUIRE(assign != std::string::npos);
+    REQUIRE(read.find("roomLeave(") == std::string::npos);
+    REQUIRE(read.find("netmsgSendRoomResult(srccl, CLC_ROOM_CREATE, result)") != std::string::npos);
+    // Production-linked room transaction tests exercise invalid access,
+    // password, capacity and reservation rejection without old-room mutation.
 }
 
 TEST_CASE("net room settings: rebroadcast buffer is rebuilt per recipient",
@@ -1412,7 +1407,7 @@ TEST_CASE("net room settings: rebroadcast buffer is rebuilt per recipient",
     const size_t start = read.find("netbufStartWrite(&g_NetMsgRel)", skip_source);
     const size_t write = read.find("netmsgSvcRoomSettingsWrite(&g_NetMsgRel", start);
     const size_t encode_guard = read.find("if (g_NetMsgRel.error)", write);
-    const size_t send = read.find("netSend(ncl, &g_NetMsgRel, true, NETCHAN_CONTROL)", encode_guard);
+    const size_t send = read.find("netmsgDeliverRoomState(ncl, &g_NetMsgRel)", encode_guard);
 
     REQUIRE(loop != std::string::npos);
     REQUIRE(skip_source != std::string::npos);
@@ -1437,13 +1432,13 @@ TEST_CASE("net room playlist: rebroadcast buffer is rebuilt per recipient",
     REQUIRE(read.find("struct netbuf bcast") == std::string::npos);
     REQUIRE(read.find("netSend(ncl, &bcast") == std::string::npos);
 
-    const size_t clamp = read.find("char clamped[AUDIO_MAX_PLAYLIST * 65 - 8]");
+    const size_t clamp = read.find("if (!netmsgRoomPlaylistValid(pl)) return 1");
     const size_t loop = read.find("for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++)", clamp);
     const size_t skip_source = read.find("if (ncl == srccl) continue", loop);
     const size_t start = read.find("netbufStartWrite(&g_NetMsgRel)", skip_source);
     const size_t write = read.find("netmsgSvcRoomPlaylistWrite(&g_NetMsgRel", start);
     const size_t encode_guard = read.find("if (g_NetMsgRel.error)", write);
-    const size_t send = read.find("netSend(ncl, &g_NetMsgRel, true, NETCHAN_CONTROL)", encode_guard);
+    const size_t send = read.find("netmsgDeliverRoomState(ncl, &g_NetMsgRel)", encode_guard);
 
     REQUIRE(clamp != std::string::npos);
     REQUIRE(loop != std::string::npos);
@@ -1485,37 +1480,24 @@ TEST_CASE("net lifecycle: v49 lobby resync replays assignment settings and playl
     REQUIRE(room_id < replay);
     REQUIRE(replay < dirty);
 
-    const size_t assign = send.find("netmsgSvcRoomAssignWrite(&assignBuf, room_id)");
-    const size_t peer_guard = send.find("!dstcl || !dstcl->peer");
-    const size_t default_chan = send.find("NETCHAN_DEFAULT", assign);
-    const size_t lounge_gate = send.find("if (room_id == 0xFF)", default_chan);
-    const size_t bot_count = send.find("netmsgCountCurrentRoomBots()", lounge_gate);
-    const size_t settings = send.find("netmsgSvcRoomSettingsWrite(&g_NetMsgRel", bot_count);
-    const size_t settings_chan = send.find("NETCHAN_CONTROL", settings);
-    const size_t playlist_string = send.find("netmsgBuildCurrentPlaylistString(pl, sizeof(pl))", settings_chan);
-    const size_t playlist = send.find("netmsgSvcRoomPlaylistWrite(&g_NetMsgRel, pl)", playlist_string);
-    const size_t playlist_chan = send.find("NETCHAN_CONTROL", playlist);
-
-    REQUIRE(peer_guard != std::string::npos);
+    const size_t assign = send.find("netmsgSvcRoomAssignWrite(&wire, room_id)");
+    const size_t lookup = send.find("roomGetById(room_id)", assign);
+    const size_t settings = send.find("room->settings_revision", lookup);
+    const size_t playlist = send.find("room->playlist_revision", settings);
     REQUIRE(assign != std::string::npos);
-    REQUIRE(default_chan != std::string::npos);
-    REQUIRE(lounge_gate != std::string::npos);
-    REQUIRE(bot_count != std::string::npos);
+    REQUIRE(lookup != std::string::npos);
     REQUIRE(settings != std::string::npos);
-    REQUIRE(settings_chan != std::string::npos);
-    REQUIRE(playlist_string != std::string::npos);
     REQUIRE(playlist != std::string::npos);
-    REQUIRE(playlist_chan != std::string::npos);
+    REQUIRE(send.find("g_MatchConfig") == std::string::npos);
+    REQUIRE(send.find("netmsgBuildCurrentPlaylistString") == std::string::npos);
+    REQUIRE(send.find("!dstcl->peer") == std::string::npos);
+    const std::string deliver = function_block(netmsg, "static void netmsgDeliverRoomState");
+    REQUIRE(deliver.find("dstcl == g_NetLocalClient && !dstcl->peer") != std::string::npos);
+    REQUIRE(deliver.find("netmsgSvcRoomAssignRead(&read, dstcl)") != std::string::npos);
+    REQUIRE(deliver.find("netmsgSvcRoomSettingsRead(&read, dstcl)") != std::string::npos);
+    REQUIRE(deliver.find("netmsgSvcRoomPlaylistRead(&read, dstcl)") != std::string::npos);
+    REQUIRE(deliver.find("netSend(dstcl, wire, true, NETCHAN_CONTROL)") != std::string::npos);
 
-    REQUIRE(peer_guard < assign);
-    REQUIRE(assign < default_chan);
-    REQUIRE(default_chan < lounge_gate);
-    REQUIRE(lounge_gate < bot_count);
-    REQUIRE(bot_count < settings);
-    REQUIRE(settings < settings_chan);
-    REQUIRE(settings_chan < playlist_string);
-    REQUIRE(playlist_string < playlist);
-    REQUIRE(playlist < playlist_chan);
 }
 
 TEST_CASE("net lifecycle: listen host return-to-room does not broadcast a client resync opcode",
@@ -1918,9 +1900,21 @@ TEST_CASE("manifest distribution preserves package identity and waits for the co
     REQUIRE(modmgr.find("memcmp(mod->sha256, expected_sha256") !=
         std::string::npos);
     REQUIRE(modmgr.find("mod->session_only = 1") != std::string::npos);
-    REQUIRE(modmgr.find("enabled && !g_ModRegistry[i].session_only") !=
+    // Both persistence formats delegate to the checked shared helper. Session
+    // downloads must remain excluded even though the loop moved out of modmgr.c.
+    const std::string enabled_state = read_text_file("port/src/modmgr_enabled_state.cpp");
+    const auto legacy_save = function_definition_block(modmgr, "static bool modmgrBuildEnabledList(void)");
+    const auto enabled_csv = function_definition_block(enabled_state, "int modmgrBuildEnabledCsv(");
+    const auto enabled_json = function_definition_block(enabled_state, "int modmgrSaveEnabledFile(");
+    REQUIRE(legacy_save.find("if (!modmgrBuildEnabledCsv(g_ModRegistry, g_ModRegistryCount,") !=
         std::string::npos);
-	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 58") != std::string::npos);
+    REQUIRE(modmgr.find("modmgrSaveEnabledFile(path, g_ModRegistry, g_ModRegistryCount") !=
+        std::string::npos);
+    REQUIRE(enabled_csv.find("if (!registry[i].enabled || registry[i].session_only) continue;") !=
+        std::string::npos);
+    REQUIRE(enabled_json.find("if (!registry[i].enabled || registry[i].session_only) continue;") !=
+        std::string::npos);
+	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 61") != std::string::npos);
 }
 
 TEST_CASE("client sessions initialize distribution before receiving server packets",
@@ -3628,4 +3622,21 @@ TEST_CASE("B-1104 ordinary gameplay waits for the real post-load stage barrier",
     REQUIRE(reelect_send != std::string::npos);
     REQUIRE(reelect_gate < reelect_active);
     REQUIRE(reelect_active < reelect_send);
+}
+
+TEST_CASE("Listen server publishes its successful bound port before discovery and UI use",
+          "[net][lifecycle][port][static][T-NETWORKING-011]")
+{
+    const auto source = read_text_file("port/src/net/net.c");
+    const auto start = function_block(source, "s32 netStartServer");
+    const auto create = start.find("g_NetHost = enet_host_create");
+    const auto failure = start.find("if (!g_NetHost)", create);
+    const auto bound = start.find("port = g_NetHost->address.port;", failure);
+    const auto publish = start.find("g_NetServerPort = port;", bound);
+    const auto discovery = start.find("netUpnpSetup(port)", publish);
+    REQUIRE(create != std::string::npos); REQUIRE(failure != std::string::npos);
+    REQUIRE(bound != std::string::npos); REQUIRE(publish != std::string::npos);
+    REQUIRE(discovery != std::string::npos);
+    REQUIRE(create < failure); REQUIRE(failure < bound); REQUIRE(bound < publish);
+    REQUIRE(publish < discovery);
 }

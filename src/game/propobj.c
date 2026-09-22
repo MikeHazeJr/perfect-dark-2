@@ -4,6 +4,7 @@
 #include "system.h"
 #include "arenapool.h"
 #include "game/bondmove.h"
+#include "game/bondbike.h"
 #include "game/bondwalk.h"
 #include "game/cheats.h"
 #include "game/chraction.h"
@@ -96,6 +97,7 @@ extern void statIncrement(const char *key, u64 amount);
 #include "string.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "scene.h"
 
 void rng2SetSeed(u32 seed);
 
@@ -4158,7 +4160,7 @@ s32 func0f06cd00(struct defaultobj *obj, struct coord *pos, struct coord *arg2, 
 
 					s0 = true;
 
-					if (g_Textures[hitthing.texturenum].surfacetype == SURFACETYPE_DEEPWATER) {
+					if (texGetDefinition(hitthing.texturenum)->surfacetype == SURFACETYPE_DEEPWATER) {
 						struct coord spa4 = {0, 0, 0};
 						s0 = false;
 						sparksCreate(prop->rooms[0], prop, &hitthing.pos, &spa4, &hitthing.unk0c, SPARKTYPE_DEEPWATER);
@@ -17827,10 +17829,10 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 			s8 spcb = false;
 			bool spc4;
 
-			if (hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= NUM_TEXTURES) {
+			if (hit->hitthing.texturenum < 0 || hit->hitthing.texturenum >= TEXTURE_CUSTOM_END) {
 				surfacetype = g_SurfaceTypes[0];
-			} else if (g_Textures[hit->hitthing.texturenum].surfacetype < 15) {
-				surfacetype = g_SurfaceTypes[g_Textures[hit->hitthing.texturenum].surfacetype];
+			} else if (texGetDefinition(hit->hitthing.texturenum)->surfacetype < 15) {
+				surfacetype = g_SurfaceTypes[texGetDefinition(hit->hitthing.texturenum)->surfacetype];
 			} else {
 				surfacetype = g_SurfaceTypes[0];
 			}
@@ -18068,40 +18070,242 @@ bool objTestForInteract(struct prop *prop)
 	return true;
 }
 
+static struct player *currentPlayerHoverbikeOwner(struct prop *prop)
+{
+	if (!prop) {
+		return NULL;
+	}
+
+	for (s32 i = 0; i < MAX_PLAYERS; ++i) {
+		struct player *candidate = g_Vars.players[i];
+
+		if (candidate && candidate->hoverbike == prop) {
+			return candidate;
+		}
+	}
+
+	return NULL;
+}
+
+static bool currentPlayerHoverbikeOwnedByOther(struct prop *prop,
+	struct player *player)
+{
+	if (!prop) {
+		return false;
+	}
+
+	for (s32 i = 0; i < MAX_PLAYERS; ++i) {
+		struct player *candidate = g_Vars.players[i];
+
+		if (candidate && candidate != player && candidate->hoverbike == prop) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool currentPlayerCanApplyHoverbikeState(struct prop *prop, bool mounted)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct defaultobj *obj;
+	struct player *owner;
+
+	/* This is the committed-state seam. It validates only the typed prop and
+	 * the local movement transition; it deliberately does not perform range,
+	 * facing, or LOS checks because network receivers must apply the authority's
+	 * already-validated decision idempotently. */
+	if (!player || !prop || prop->type != PROPTYPE_OBJ || !prop->obj) {
+		return false;
+	}
+
+	obj = prop->obj;
+	if (obj->type != OBJTYPE_HOVERBIKE || obj->prop != prop || !obj->model
+			|| obj->model->scale == 0.0f) {
+		return false;
+	}
+
+	owner = currentPlayerHoverbikeOwner(prop);
+	if ((owner && owner != player)
+			|| currentPlayerHoverbikeOwnedByOther(prop, player)) {
+		/* A stale or conflicting state may never clear or steal a bike owned by
+		 * another actor. The actor/prop relationship is authoritative here. */
+		return false;
+	}
+
+	if (mounted) {
+		if (player->bondmovemode == MOVEMODE_BIKE
+				&& player->hoverbike == prop
+				&& (obj->hidden & OBJHFLAG_MOUNTED) != 0) {
+			return true;
+		}
+		if (player->bondmovemode == MOVEMODE_BIKE
+				&& player->hoverbike != prop) {
+			/* A committed mount cannot replace another vehicle without an
+			 * authoritative dismount first; otherwise bbikeExit would inspect
+			 * the newly supplied prop and leave the old bike mounted. */
+			return false;
+		}
+
+		/* The authority's candidate path already checked the catalog-backed
+		 * mount policy. Re-check only that typed asset identity here; this is
+		 * not a local geometry gate and keeps committed-state replay tied to
+		 * the same public vehicle binding. */
+		if (!assetRuntimeVehicleAllows(obj->modelnum, "mount")) {
+			return false;
+		}
+
+		/* A committed mount cannot silently steal a bike already committed to a
+		 * different actor. */
+		if ((obj->hidden & OBJHFLAG_MOUNTED) != 0
+				&& player->hoverbike != prop) {
+			return false;
+		}
+
+		if (!player->isremote && !sceneVehicleDriverCanBoard()) {
+			return false;
+		}
+
+		return true;
+	}
+
+	if (player->bondmovemode == MOVEMODE_BIKE
+			&& player->hoverbike != prop) {
+		return false;
+	}
+
+	return true;
+}
+
+bool currentPlayerApplyHoverbikeState(struct prop *prop, bool mounted)
+{
+	struct player *player = g_Vars.currentplayer;
+	struct defaultobj *obj;
+	struct prop *previousbike;
+
+	/* This is the committed-state seam. It validates only the typed prop and
+	 * the local movement transition; it deliberately does not perform range,
+	 * facing, or LOS checks because network receivers must apply the authority's
+	 * already-validated decision idempotently. */
+	if (!currentPlayerCanApplyHoverbikeState(prop, mounted)) {
+		return false;
+	}
+
+	obj = prop->obj;
+
+	if (mounted) {
+		if (player->bondmovemode == MOVEMODE_BIKE
+				&& player->hoverbike == prop
+				&& (obj->hidden & OBJHFLAG_MOUNTED) != 0) {
+			return true;
+		}
+
+		/* currentPlayerCanApplyHoverbikeState preflights the scene layer and
+		 * ownership. No network publication is performed from this receiver. */
+		previousbike = player->hoverbike;
+		player->hoverbike = prop;
+		if (!bmoveSetMode(MOVEMODE_BIKE)
+				|| player->bondmovemode != MOVEMODE_BIKE
+				|| player->hoverbike != prop
+				|| (obj->hidden & OBJHFLAG_MOUNTED) == 0) {
+			/* This is a local transition failure, not a packet-write rollback.
+			 * bmoveSetMode restores the prior movement mode and pointer. */
+			player->hoverbike = previousbike;
+			return false;
+		}
+		return true;
+	}
+
+	/* Dismount is idempotent for a player already on foot. A mounted player may
+	 * only be taken off the exact committed vehicle, never a stale prop. */
+	if (player->bondmovemode != MOVEMODE_BIKE
+			|| player->hoverbike != prop) {
+		if (player->bondmovemode != MOVEMODE_BIKE) {
+			if (player->hoverbike == prop) {
+				player->hoverbike = NULL;
+				obj->hidden &= ~OBJHFLAG_MOUNTED;
+			}
+			return true;
+		}
+		return false;
+	}
+
+	if (!bmoveSetMode(MOVEMODE_WALK)
+			|| player->bondmovemode == MOVEMODE_BIKE) {
+		return false;
+	}
+	player->hoverbike = NULL;
+	return true;
+}
+
 bool currentPlayerTryMountHoverbike(struct prop *prop)
 {
-	struct defaultobj *obj = prop->obj;
+	struct player *player = g_Vars.currentplayer;
+	struct defaultobj *obj;
+	net_vehicle_state_txn_t vehicleTxn;
+	bool vehicleTxnValid = false;
 	bool mount = false;
-	u32 stack[2];
+	f32 range;
+	f32 xdiff;
+	f32 ydiff;
+	f32 zdiff;
 
-	if (obj->type == OBJTYPE_HOVERBIKE
-			&& assetRuntimeVehicleAllows(obj->modelnum, "mount")
-			&& (optionsGetControlMode(g_Vars.currentplayerstats->mpindex) == CONTROLMODE_PC
-				|| g_Vars.lvframe60 - g_Vars.currentplayer->activatetimelast < TICKS(30))
+	/* Local authority intent only. Network receivers use
+	 * currentPlayerApplyHoverbikeState after validating SVC_PROP_VEHICLE_STATE;
+	 * they must never re-run this candidate gate against stale local geometry. */
+	if (g_NetMode == NETMODE_CLIENT
+			|| !player || !g_Vars.currentplayerstats || !player->prop || !prop
+			|| prop->type != PROPTYPE_OBJ || !prop->obj || player->isdead
+			|| player->bondmovemode == MOVEMODE_BIKE) {
+		return false;
+	}
+
+	obj = prop->obj;
+	if (obj->type != OBJTYPE_HOVERBIKE) {
+		return false;
+	}
+
+	range = (obj->flags3 & OBJFLAG3_INTERACTSHORTRANGE) ? 100.0f : 200.0f;
+	xdiff = prop->pos.x - player->prop->pos.x;
+	ydiff = prop->pos.y - player->prop->pos.y;
+	zdiff = prop->pos.z - player->prop->pos.z;
+	if (xdiff * xdiff + zdiff * zdiff >= range * range
+			|| ydiff >= range || ydiff <= -range) {
+		return false;
+	}
+
+	bool hasMountIntent = player->pcinteractusekind == 2;
+	if (!hasMountIntent && player->pcinteractusekind == 0
+			&& (player->isremote || bmoveIsLocalControllerVehicleIntent())) {
+		/* Remote controller activations arrive with kind 0 and have already had
+		 * their double-tap timing edge recorded by bmoveProcessRemoteInput. A
+		 * local controller carries an equivalent one-frame source marker from
+		 * bmoveProcessInput. A local PC kind 0/1 is never mount permission; PC
+		 * hold/direct use must carry the explicit kind 2 marker. */
+		hasMountIntent = g_Vars.lvframe60 - player->activatetimelast < TICKS(30);
+	}
+
+	if (assetRuntimeVehicleAllows(obj->modelnum, "mount")
+			&& hasMountIntent
 			&& (obj->hidden & OBJHFLAG_MOUNTED) == 0) {
 		if (obj->hidden & OBJHFLAG_GRABBED) {
-			if (bmoveGetGrabbedProp() == prop) {
-				mount = true;
-			} else {
-				mount = false;
-			}
+			mount = bmoveGetGrabbedProp() == prop;
 		} else {
 			mount = true;
 		}
 	}
 
-	if (mount && g_Vars.currentplayer->bondmovemode != MOVEMODE_GRAB) {
-		if (g_Vars.currentplayer->bondmovemode != MOVEMODE_WALK
+	if (mount && player->bondmovemode != MOVEMODE_GRAB) {
+		if (player->bondmovemode != MOVEMODE_WALK
 				|| bmoveGetCrouchPos() != CROUCHPOS_STAND
-				|| g_Vars.currentplayer->crouchoffset != 0) {
+				|| player->crouchoffset != 0) {
 			mount = false;
 		}
 	}
 
 	if (mount) {
-		f32 angle = atan2f(
-				prop->pos.x - g_Vars.currentplayer->prop->pos.x,
-				prop->pos.z - g_Vars.currentplayer->prop->pos.z);
+		f32 angle = atan2f(prop->pos.x - player->prop->pos.x,
+				prop->pos.z - player->prop->pos.z);
 		angle -= hoverpropGetTurnAngle(obj);
 
 		if (angle < 0) {
@@ -18110,8 +18314,34 @@ bool currentPlayerTryMountHoverbike(struct prop *prop)
 
 		if ((angle > 0.3926365673542f && angle < 2.3558194637299f)
 				|| (angle < 5.8895483016968f && angle > 3.9263656139374f)) {
-			g_Vars.currentplayer->hoverbike = prop;
-			bmoveSetMode(MOVEMODE_BIKE);
+			if (!currentPlayerCanApplyHoverbikeState(prop, true)) {
+				return false;
+			}
+
+			/* Encode and reserve the fixed reliable state before mutating the world.
+			 * The transaction's commit is append-atomic, so a writer failure cannot
+			 * require bbikeExit and its momentum/sound side effects as rollback. */
+			if (g_NetMode == NETMODE_SERVER) {
+				if (!netmsgSvcVehicleStatePrepare(&g_NetMsgRel, prop,
+						player->client, NET_VEHICLE_STATE_MOUNTED, &vehicleTxn)) {
+					return false;
+				}
+				vehicleTxnValid = true;
+			}
+
+			if (!currentPlayerApplyHoverbikeState(prop, true)) {
+				if (vehicleTxnValid) {
+					netmsgSvcVehicleStateAbort(&vehicleTxn);
+				}
+				sysLogPrintf(LOG_ERROR,
+					"VEHICLE: mount apply failed after preflight player=%d",
+					g_Vars.currentplayernum);
+				return false;
+			}
+
+			if (vehicleTxnValid) {
+				netmsgSvcVehicleStateCommit(&vehicleTxn);
+			}
 			return true;
 		}
 	}
@@ -18255,28 +18485,15 @@ bool propobjInteract(struct prop *prop)
 		} else {
 			result = propPickupByPlayer(prop, 1);
 		}
-	} else if (obj->type == OBJTYPE_HOVERBIKE
-			&& optionsGetControlMode(g_Vars.currentplayerstats->mpindex) == CONTROLMODE_PC) {
-		/* PC: USE interaction is hold-only (see bondmove ACTION_USE synthesis). */
-		if (g_Vars.currentplayer->pcinteractusekind == 2) {
-			if ((obj->flags3 & OBJFLAG3_GRABBABLE)
-					&& g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK
-					&& bmoveGetCrouchPos() == CROUCHPOS_STAND
-					&& g_Vars.currentplayer->crouchoffset == 0
-					&& g_Vars.currentplayer->onladder == false) {
-				bmoveGrabProp(prop);
-			}
-		} else if (g_Vars.currentplayer->pcinteractusekind == 1) {
-			/* Tap is reload-only; do not mount or grab. */
-		} else {
-			/* Pending / unknown: do not mount or grab on press (avoids hold races). */
-		}
 	} else if (currentPlayerTryMountHoverbike(prop) == false
 			&& (obj->flags3 & OBJFLAG3_GRABBABLE)
 			&& g_Vars.currentplayer->bondmovemode == MOVEMODE_WALK
 			&& bmoveGetCrouchPos() == CROUCHPOS_STAND
 			&& g_Vars.currentplayer->crouchoffset == 0
 			&& g_Vars.currentplayer->onladder == false) {
+		/* The candidate owns the explicit PC/controller intent invariant. A
+		 * failed candidate may still intentionally use the normal grabbable
+		 * fallback, but it can never mount from local PC kind 0/1. */
 		bmoveGrabProp(prop);
 	}
 

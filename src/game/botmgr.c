@@ -8,6 +8,7 @@
 #include "game/chr.h"
 #include "game/body.h"
 #include "game/prop.h"
+#include "game/bot.h"
 #include "game/botcmd.h"
 #include "game/botinvinit.h"
 #include "game/mplayer/mplayer.h"
@@ -22,6 +23,9 @@
 void botmgrRemoveAll(void)
 {
 	s32 i;
+
+	/* Canonical bot/stage teardown also retires resumable initial-wave state. */
+	botSpawnWaveReset();
 
 	for (i = 0; i < MAX_BOTS; i++) {
 		g_MpBotChrPtrs[i] = NULL;

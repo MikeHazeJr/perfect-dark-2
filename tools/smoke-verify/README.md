@@ -127,7 +127,7 @@ dependency edges are present. Missing IDs log zeroes for every layer.
 { "at_ms": 62000, "type": "catalog_recovery_probe", "path": "example:tri_weapon" }
 ```
 
-#### `wait_until` (B-1076/B-1085/B-1088/B-1095)
+#### `wait_until` (B-1076/B-1085/B-1088/B-1095/T-VEHICLES-002)
 
 Pause only the current process's virtual script timeline until an exact typed
 production predicate is satisfied. The real harness watchdog continues. Every
@@ -138,11 +138,13 @@ latest virtual event plus the sum of all wait timeouts.
 { "at_ms": 0, "type": "wait_until", "condition": "network_listen_ready", "timeout_ms": 120000 }
 { "at_ms": 0, "type": "wait_until", "condition": "network_stage_live", "timeout_ms": 220000 }
 { "at_ms": 0, "type": "wait_until", "condition": "gameplay_ready", "timeout_ms": 60000, "stable_ms": 3000 }
+{ "at_ms": 0, "type": "wait_until", "condition": "title_sequence_ready", "timeout_ms": 180000, "stable_ms": 500 }
 ```
 
-Exact conditions are `network_listen_ready`, `network_stage_live`,
+Exact conditions are `title_sequence_ready`, `network_listen_ready`, `network_stage_live`,
 `network_reconnect_available`, `cutscene_skip_ready`, `gameplay_ready`,
-`offline_gameplay_ready`, and `endscreen_visible`.
+`offline_gameplay_ready`, `vehicle_driver_ready`, `endscreen_visible`,
+`agent_select_ready`, and `agent_create_ready`.
 
 Reconnect exact-set fixtures may use
 `{"type":"network_retire_held_weapon","client_id":1,"hand":"right"}`.
@@ -172,13 +174,68 @@ window and any false sample resets it. Expiration wins if readiness and the
 deadline occur on the same tick.
 
 `offline_gameplay_ready` mirrors the complete usable-gameplay predicate without
-requiring a network endpoint: the current offline stage epoch, multiplayer
-session, local player allocation and spawn, gameplay layer, normal updating
-tick, player control, unpaused/live state, and walking mode must all agree.
+requiring a network endpoint: the current offline stage epoch, local player
+allocation and spawn, gameplay layer, normal updating tick, player control,
+unpaused/live state, and walking mode must all agree. The offline predicate is
+independent of multiplayer-session flags so it can gate campaign fixtures.
+`vehicle_driver_ready` is the mounted counterpart: the network or offline
+stage-live boundary, gameplay layer, normal updating tick, player control,
+unpaused/live state, and a live `MOVEMODE_BIKE` player with a non-null
+hoverbike must all agree, and `LAYER_VEHICLE_DRIVER` must be the top input
+layer. A buried or absent driver layer fails closed, as does a gameplay overlay
+owning the top layer. It is the causal readiness barrier used by
+`vehicle_flow`.
+
+`vehicle_flow` is an ordinary-client campaign fixture. Its debug mount is only
+a bootstrap candidate invocation; it does not prove the normal
+`propFindForInteract` line-of-sight or collision path. The fixture first waits
+for offline gameplay readiness before the armed bootstrap can consume, then
+waits for `vehicle_driver_ready` before exercising mounted input. It dismounts,
+waits for offline gameplay readiness again, and sends one ordinary
+`ACTION_VEHICLE_USE` remount. That second mount is the real interaction
+witness. Listen-authority/two-client
+evidence and V-009 remain unverified by this fixture. The directional
+dismount/facing choice can leave Player 0 outside the ordinary remount
+range/facing aperture; that deterministic-remount risk is reported explicitly
+and is not hidden by a fixture-only reposition.
 `endscreen_visible` requires the production endscreen state, the authoritative
 `MENU_TYPE_ENDSCREEN_MP` pool owner, and the live menu input context together.
 This makes an endscreen wait an input-usable UI boundary rather than a flag-only
 signal.
+
+`agent_select_ready` and `agent_create_ready` require boot completion, player 0's
+current dialog of that exact type, its active menu-pool slot, and the top
+`g_CtxImGuiMenu` owner. The named ImGui window must have completed the latest
+render and own navigation with no popup or window-switching owner. Window-focus
+loss, the existing regain settle/key-push grace, and active binding capture
+reject readiness. Use a short `stable_ms` window to reject a transient menu
+that automatically loads an agent or immediately transitions elsewhere.
+
+Main Menu also supports `main_menu_play_ready`, `main_menu_settings_focused`,
+and `settings_video_ready`, `settings_interface_ready`, `settings_audio_ready`,
+`settings_input_ready`, `settings_game_ready`. These inspect the completed native
+render, actual submitted tab and navigation focus, current dialog/pools, active
+Agent and settled input ownership. An active editor, popup, capture or OSK blocks
+outer navigation admission. `SMOKE.MENUOBS` records actual Agent/device/glyph
+observations at readiness transitions. `menu_settings_keyboard.json` uses a
+disposable staged Agent and ordinary keyboard navigation; it is a separate gate
+after Agent Create/Cancel, not editing, restart or physical-controller proof.
+
+For screenshots relative to a readiness barrier, place harness-native
+`{"at_ms":250,"type":"screenshot","path":"menu-ready.bmp"}` events in
+`input_sequence`, and retain those files with `retain_artifacts`. These events
+share the paused virtual timeline. Require their `SMOKE.GLSHOT: captured` receipts.
+Do not also use the top-level `screenshots` schedule for those images: the
+runner's wall-clock PrintWindow fallback does not pause with `wait_until` and
+can otherwise mislabel an early boot image as the post-readiness state.
+
+`title_sequence_ready` requires ordinary boot completion, `STAGE_TITLE`, and
+the applied initial legal mode with neither an immediate/delayed mode change
+nor a next-stage transition pending. Alternate modes and pending title-stage
+exits fail closed. Because normal boot does not apply the legal mode until its
+public-source extraction and catalog worker has joined, fixtures can schedule
+title navigation relative to a real production boundary instead of a machine-
+and install-state-dependent delay.
 
 An assisted wait may issue one bounded production action while its target is
 false:
@@ -403,3 +460,52 @@ Remove-NetFirewallRule -DisplayName "PD2 Smoke Verify"
 
 The next shared-mode run will recreate the rule against the current
 canonical path.
+
+
+### SDL virtual-controller menu fixtures
+
+`controller_attach` creates one process-local SDL virtual GameController after
+`agent_select_ready`. Normal hotplug handling must assign its exact instance to
+player 0; the harness fails if that slot is occupied or the configured route is
+different. It never takes another device's slot or changes user mappings.
+
+```json
+{ "at_ms": 250, "type": "controller_attach" }
+{ "at_ms": 500, "type": "controller_button", "button": "a", "action": "press" }
+{ "at_ms": 600, "type": "controller_button", "button": "a", "action": "release" }
+{ "at_ms": 1000, "type": "controller_axis", "axis": "righty", "value": 24000 }
+{ "at_ms": 1250, "type": "controller_axis", "axis": "righty", "value": 0 }
+{ "at_ms": 1500, "type": "controller_detach" }
+```
+
+These are event objects within `input_sequence`. Button/axis names are SDL
+canonical names (for example `a`, `b`, `dpdown`, `righty`, `triggerleft`). Button
+`action` must be `press` or `release`; there is no default or tap mode. Axis
+`value` is an integer in [-32768,32767] in the raw virtual-joystick domain.
+**Released triggers use -32768**; SDL's mapped GameController trigger value is
+then 0. Sticks rest at 0.
+
+Equal-time controller state changes are dispatched together, including paired
+Accept/Back. Each later timestamp waits for another ordinary client frame so a
+slow frame cannot erase a press/release pair. A timestamp containing controller
+state may contain keyboard/mouse input, but no screenshot, wait, exit, or other
+non-input operation. Each controller control is written at most once per group.
+Attachment/removal each require their own timestamp and up to 1000 ms of real
+watchdog budget. They pause virtual fixture time while normal frames establish
+player ownership or observe release/removal. Explicit holds and pending taps
+from other input devices may not cross these pauses. Controller holds may not
+cross `wait_until`; `controller_detach` neutralizes all owned controls before
+removing the device. Every successful controller fixture must detach before
+exit; `unclean_exit` while attached is rejected.
+
+The driver uses SDL virtual state setters and the existing SDL event pump,
+ActionMap, input contexts, and menu code. It does not inject logical actions or
+fabricate controller events. `SMOKE.PAD` receipts record the real runtime SDL
+version, instance/player route, state readback, and observed cleanup. They do
+not prove a menu action succeeded: require the existing graph counts, exact
+readiness conditions, and native GL captures as in
+`menu_virtual_controller_agent_cancel.json`. Inspect retained captures before
+claiming visual correctness. Keep binary, DLL, source, and fixture hashes with
+the ordinary-client receipt. A virtual-controller smoke is software controller
+routing evidence; physical devices, hardware transport, rumble, ergonomics, and
+human visual acceptance require separate evidence.
