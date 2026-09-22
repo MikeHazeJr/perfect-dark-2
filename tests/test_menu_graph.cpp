@@ -173,11 +173,63 @@ TEST_CASE("menu action helpers replace raw confirm-modal key polling", "[input][
     const std::string actionBar = functionBlock(layout, "s32 pdguiActionBarButton");
     const std::string style = readTextFile("port/fast3d/pdgui_style.cpp");
     const std::string chrome = functionBlock(style, "pdguiDrawPdDialog");
-    REQUIRE(confirm.find("pdguiMenuAcceptPressed()") != std::string::npos);
+    REQUIRE(confirm.find("pdguiMenuAcceptPressed()") == std::string::npos);
     REQUIRE(confirm.find("pdguiMenuCancelPressed()") != std::string::npos);
     requireNoRawMenuShortcutPolling(confirm);
-    REQUIRE(actionBar.find("pdguiMenuAcceptPressed()") != std::string::npos);
+    REQUIRE(actionBar.find("pdguiMenuAcceptPressed()") == std::string::npos);
+    REQUIRE(actionBar.find("ImGui::IsItemFocused()") != std::string::npos);
     REQUIRE(chrome.find("ImGuiFocusedFlags_RootAndChildWindows") != std::string::npos);
+}
+
+TEST_CASE("confirmation actions belong to focused buttons and Back wins conflicts",
+          "[input][menus][confirmation][static][t-menus-004]")
+{
+    const std::string layout = readTextFile("port/fast3d/pdgui_layout.cpp");
+    const std::string warning = readTextFile("port/fast3d/pdgui_menu_warning.cpp");
+    const std::string agent = readTextFile("port/fast3d/pdgui_menu_agentselect.cpp");
+    const std::string confirm = functionBlock(layout, "s32 pdguiRenderConfirmModal");
+    const std::string endgame = functionBlock(warning, "renderMpEndGameDialog");
+    const size_t agentModalStart = agent.find("bool doConfirm = false;");
+    REQUIRE(agentModalStart != std::string::npos);
+    const std::string agentModal = agent.substr(agentModalStart);
+
+    for (const std::string *modal : {&confirm, &endgame, &agentModal}) {
+        REQUIRE_FALSE(modal->empty());
+        // Accept is delivered through ImGui navigation to the selected button.
+        // A second global action edge must never override a focused Cancel.
+        REQUIRE(modal->find("pdguiMenuAcceptPressed()") == std::string::npos);
+        REQUIRE(modal->find("pdguiMenuCancelPressed()") != std::string::npos);
+        REQUIRE(modal->find("if (!inputDebounced) doCancel = true;") != std::string::npos);
+        REQUIRE(modal->find("if (!inputDebounced) doConfirm = true;") != std::string::npos);
+        REQUIRE(modal->find("pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT") != std::string::npos);
+        REQUIRE(modal->find("pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL") != std::string::npos);
+        REQUIRE(modal->find("[%s] Select") != std::string::npos);
+    }
+    REQUIRE(confirm.find("if (doCancel)") < confirm.find("else if (doConfirm)"));
+    REQUIRE(endgame.find("if (doConfirm && !doCancel)") != std::string::npos);
+    REQUIRE(agentModal.find("if (doConfirm && !doCancel)") != std::string::npos);
+    REQUIRE(confirm.find("[Enter/Space/(A)]") == std::string::npos);
+    REQUIRE(confirm.find("[Esc/(B)]") == std::string::npos);
+
+    const char *propagationPaths[] = {
+        "port/fast3d/pdgui_menu_pausemenu.cpp",
+        "port/fast3d/pdgui_menu_solomission.cpp",
+        "port/fast3d/pdgui_menu_room.cpp",
+    };
+    for (const char *path : propagationPaths) {
+        const std::string source = readTextFile(path);
+        REQUIRE_FALSE(source.empty());
+        const auto shortcuts = findAll(source, "if (pdguiMenuAcceptPressed())");
+        for (size_t pos : shortcuts) {
+            // Inspect the direct shortcut body, stopping at the first brace.
+            const size_t bodyStart = source.find('{', pos);
+            const size_t bodyEnd = source.find('}', bodyStart);
+            REQUIRE(bodyStart != std::string::npos);
+            REQUIRE(bodyEnd != std::string::npos);
+            REQUIRE(source.substr(bodyStart, bodyEnd - bodyStart).find("doConfirm = true") == std::string::npos);
+        }
+        REQUIRE(source.find("if (doConfirm && !doCancel)") != std::string::npos);
+    }
 }
 
 TEST_CASE("cheats menu exposes one Tiny Mode row with controller actions", "[cheats][menu][static]")
@@ -242,9 +294,9 @@ TEST_CASE("menu action helpers replace priority navigation and tab polling", "[i
     requireNoRawMenuNavigationPolling(settings);
 
     REQUIRE(cinema.find("pdguiMenuCancelPressed()") != std::string::npos);
-    REQUIRE(cinema.find("pdguiMenuAcceptPressed()") != std::string::npos);
-    REQUIRE(cinema.find("pdguiMenuDownRepeat()") != std::string::npos);
-    REQUIRE(cinema.find("pdguiMenuUpRepeat()") != std::string::npos);
+    REQUIRE(cinema.find("ImGui::Selectable(") != std::string::npos);
+    REQUIRE(cinema.find("ImGui::IsItemFocused()") != std::string::npos);
+    REQUIRE(cinema.find("pdguiMenuAcceptPressed()") == std::string::npos);
     requireNoRawMenuShortcutPolling(cinema);
     requireNoRawMenuNavigationPolling(cinema);
 
@@ -300,24 +352,22 @@ TEST_CASE("menu action helpers replace cheats and modding panel polling", "[inpu
     }
 }
 
-TEST_CASE("Mod Manager apply modal balances its success color across state transitions",
+TEST_CASE("Mod Manager Apply owns a native modal and preflights staged publication",
     "[menus][modding][b1030][static]")
 {
     const std::string source = readTextFile("port/fast3d/pdgui_menu_modmgr.cpp");
     const std::string body = functionBlock(source, "renderModManagerBody");
 
     REQUIRE_FALSE(body.empty());
-    REQUIRE(body.find("const bool pushedApplySuccessBg = s_ApplyFlowState >= 3;")
-        != std::string::npos);
-    REQUIRE(body.find("if (pushedApplySuccessBg) {\n"
-                      "            ImGui::PushStyleColor(ImGuiCol_WindowBg")
-        != std::string::npos);
-    REQUIRE(body.find("if (pushedApplySuccessBg) {\n"
-                      "            ImGui::PopStyleColor();")
-        != std::string::npos);
-    REQUIRE(body.find("if (s_ApplyFlowState >= 3) {\n"
-                      "            ImGui::PopStyleColor();")
-        == std::string::npos);
+    REQUIRE(body.find("ImGui::BeginPopupModal(\"Applying Changes\"") != std::string::npos);
+    REQUIRE(body.find("ImGui::Begin(\"Applying Changes\"") == std::string::npos);
+    REQUIRE(body.find("ImGui::BeginDisabled(idleBack || s_ApplyFlowState > 0 || s_LeaveRequested)") != std::string::npos);
+    const auto publish = body.find("s_InstalledSelection.publish(");
+    const auto apply = body.find("modmgrApplyChanges();");
+    REQUIRE(publish != std::string::npos);
+    REQUIRE(apply != std::string::npos);
+    REQUIRE(publish < apply);
+    REQUIRE(body.find("pushedApplySuccessBg") == std::string::npos);
 }
 
 TEST_CASE("menu action helpers replace training menu polling", "[input][menu_action][static]")
@@ -902,7 +952,8 @@ TEST_CASE("menu graph: Combat Sim limits and custom weapons are catalog-native",
     REQUIRE(weaponSlots.find("mpw->priammoqty") != std::string::npos);
     REQUIRE(weaponSlots.find("mpw->model = (s16)weapon->hi_model") != std::string::npos);
     REQUIRE(functionBlock(assetCatalog, "assetCatalogClear").find("assetCatalogResetCustomWeaponSlots()") != std::string::npos);
-    REQUIRE(functionBlock(assetCatalog, "assetCatalogClearMods").find("assetCatalogResetCustomWeaponSlots()") != std::string::npos);
+    REQUIRE(functionBlock(assetCatalog, "assetCatalogClearMods").find("assetCatalogClearModsChecked()") != std::string::npos);
+    REQUIRE(functionBlock(assetCatalog, "assetCatalogClearModsChecked").find("assetCatalogResetCustomWeaponSlots()") != std::string::npos);
     REQUIRE(weaponWalker.find("assetCatalogResolveWeaponPrivateSlots") != std::string::npos);
     REQUIRE(scanner.find("assetCatalogResolveWeaponPrivateSlots") != std::string::npos);
     REQUIRE(netdistrib.find("assetCatalogResolveWeaponPrivateSlots") != std::string::npos);
@@ -1026,7 +1077,11 @@ TEST_CASE("menu graph: Room Leave uses graph network edge", "[input][menu_graph]
     REQUIRE(render.find("netmsgClcRoomLeaveWrite(&g_NetMsgRel)") == std::string::npos);
     REQUIRE(render.find("netListenHostRoomLeave()") == std::string::npos);
     REQUIRE(render.find("pdguiSetInRoom(0)") == std::string::npos);
-    REQUIRE(render.find("pdguiMenuAcceptPressed()") != std::string::npos);
+    REQUIRE(render.find("ImGui::Button(\"Cancel##leaveconfirm\"") != std::string::npos);
+    REQUIRE(render.find("Back to Menu##leaveconfirm") != std::string::npos);
+    REQUIRE(render.find("Leave Room##leaveconfirm") != std::string::npos);
+    REQUIRE(render.find("ImGui::Button(confirmLabel") != std::string::npos);
+    REQUIRE(render.find("if (doConfirm && !doCancel)") != std::string::npos);
     REQUIRE(render.find("pdguiMenuCancelPressed()") != std::string::npos);
     requireNoRawMenuShortcutPolling(render);
 }
@@ -1053,7 +1108,7 @@ TEST_CASE("menu graph: warning modal close paths use graph pop edges", "[input][
     REQUIRE(filemgr.find("menuGraphFirePop(MENU_TYPE_WARNING_MODAL, \"confirm\")") != std::string::npos);
     REQUIRE(filemgr.find("menuGraphFirePop(MENU_TYPE_WARNING_MODAL, \"cancel\")") != std::string::npos);
     REQUIRE(typed.find("pdguiMenuCancelPressed()") != std::string::npos);
-    REQUIRE(endgame.find("pdguiMenuAcceptPressed()") != std::string::npos);
+    REQUIRE(endgame.find("pdguiMenuAcceptPressed()") == std::string::npos);
     REQUIRE(endgame.find("pdguiMenuCancelPressed()") != std::string::npos);
     REQUIRE(filemgr.find("pdguiMenuCancelPressed()") != std::string::npos);
     requireNoRawMenuShortcutPolling(typed);
@@ -1091,7 +1146,7 @@ TEST_CASE("generic typed dialogs render list, carousel, ranking, and stats witho
     REQUIRE(listValue.find("(uintptr_t)hd.list.unk04u32") == std::string::npos);
     REQUIRE(warning.find("#include \"pdgui_glyphs.h\"") != std::string::npos);
     REQUIRE(warning.find("pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT") != std::string::npos);
-    REQUIRE(warning.find("pdguiGlyphGetActionLabel(ACTION_CANCEL_USE") != std::string::npos);
+    REQUIRE(warning.find("pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL") != std::string::npos);
 }
 
 TEST_CASE("menu instructions resolve active glyphs instead of hard-coded device labels",
@@ -1371,7 +1426,8 @@ TEST_CASE("Agent preference mutations persist through the unified JSON writer",
     const std::string mods = readTextFile("port/src/modmgr.c");
     const std::string updater = readTextFile("port/src/updater.c");
 
-    REQUIRE(mainmenu.find("prefsAgentSave();") != std::string::npos);
+    REQUIRE(mainmenu.find("strcmp(active, expectedAgent) == 0 && prefsAgentSave() == 0") != std::string::npos);
+    REQUIRE(mainmenu.find("s_SettingsSaveStatus.poll(prefsAgentGetActive(), settingsSaveCallbacks())") != std::string::npos);
     REQUIRE(solo.find("configSave(\"pd.ini\");\n        prefsAgentSave();") !=
         std::string::npos);
     REQUIRE(tunes.find("audioSetModShuffle(shuffle ? 1 : 0);\n            prefsAgentSave();") !=
@@ -1380,7 +1436,7 @@ TEST_CASE("Agent preference mutations persist through the unified JSON writer",
         std::string::npos);
     REQUIRE(tunes.find("audioClearModPlaylist();\n                    prefsAgentSave();") !=
         std::string::npos);
-    REQUIRE(mods.find("prefsAgentGetActive()[0] && prefsAgentSave() != 0") !=
+    REQUIRE(mods.find("strcmp(expected_agent, prefsAgentGetActive()) == 0 && prefsAgentSave() == 0") !=
         std::string::npos);
     REQUIRE(updater.find("prefsAgentGetActive()[0] && prefsAgentSave() != 0") !=
         std::string::npos);
@@ -1449,7 +1505,9 @@ TEST_CASE("menu graph: combat-sim pause End Match uses scene graph edge", "[inpu
     REQUIRE(render.find("menuGraphFireSceneOp(MENU_TYPE_PAUSE_MENU, \"end_mission\"") != std::string::npos);
     REQUIRE(render.find("pdguiPauseSetPlayerAborted()") == std::string::npos);
     REQUIRE(render.find("mainEndStage()") == std::string::npos);
-    REQUIRE(render.find("pdguiMenuAcceptPressed()") != std::string::npos);
+    REQUIRE(render.find("ImGui::Button(\"Cancel##pmendgame\"") != std::string::npos);
+    REQUIRE(render.find("ImGui::Button(\"End Match##pmendgame\"") != std::string::npos);
+    REQUIRE(render.find("if (doConfirm && !doCancel)") != std::string::npos);
     REQUIRE(render.find("pdguiMenuCancelPressed()") != std::string::npos);
     requireNoRawMenuShortcutPolling(render);
 }
@@ -1780,4 +1838,208 @@ TEST_CASE("main menu entries wait for the CI camera before opening input", "[inp
     REQUIRE(findAll(tick, "ciReadyForMenuOpen()").size() >= 3);
     REQUIRE(findAll(tick, "ciHoldMenuOpenUntilCameraReady()").size() >= 2);
     REQUIRE(tick.find("g_Vars.lvframenum > 300") == std::string::npos);
+}
+
+
+TEST_CASE("Cheats confirmation footer describes focused selection and menu Back",
+          "[input][menus][static][menu-popup-owner]")
+{
+    const std::string source = readTextFile("port/fast3d/pdgui_menu_cheats.cpp");
+    REQUIRE_FALSE(source.empty());
+    const std::string render = functionBlock(source, "renderCheatsConfirmUnlock");
+    REQUIRE_FALSE(render.empty());
+    REQUIRE(render.find("ACTION_MENU_CANCEL, cancel") != std::string::npos);
+    REQUIRE(render.find("\"[%s] Select\", accept") != std::string::npos);
+}
+
+TEST_CASE("Shared mod and theme delete owns Back and reopens status in its outer scope",
+          "[input][menus][static][menu-popup-owner]")
+{
+    const std::string source = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+    const std::string render = functionBlock(source, "pdguiInterfaceRenderDeleteConfirm");
+    REQUIRE_FALSE(render.empty());
+    REQUIRE(findAll(render, "ImGui::OpenPopup(popupId)").size() == 1);
+    REQUIRE(render.find("ImGui::OpenPopup(popupId)") < render.find("ImGui::BeginPopupModal(popupId"));
+    REQUIRE(render.find("const bool cancelDelete = ImGui::Button(\"Cancel\", confirmBtn) || pdguiMenuCancelPressed()") != std::string::npos);
+    REQUIRE(render.find("ImGui::Button(\"Delete\", confirmBtn) && !cancelDelete") != std::string::npos);
+    REQUIRE(render.find("const bool closeStatus = pdguiMenuCancelPressed()") != std::string::npos);
+    REQUIRE(render.find("retried = ImGui::Button(\"Retry refresh\") && !closeStatus") != std::string::npos);
+    REQUIRE(render.find("(ImGui::Button(\"OK\") && !retried) || closeStatus") != std::string::npos);
+    REQUIRE(render.find("s_InterfaceDeletePath[0] = '\\0'") != std::string::npos);
+}
+
+TEST_CASE("Agent popup requests open in the parent scope that renders them",
+          "[input][menus][static][menu-popup-owner]")
+{
+    const std::string source = readTextFile("port/fast3d/pdgui_menu_agentselect.cpp");
+    REQUIRE_FALSE(source.empty());
+    const std::string render = functionBlock(source, "renderAgentSelect");
+    REQUIRE_FALSE(render.empty());
+    const auto contextOpens = findAll(render, "ImGui::OpenPopup(\"##agent_ctx\")");
+    const auto confirmOpens = findAll(render, "ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID)");
+    REQUIRE(contextOpens.size() == 1);
+    REQUIRE(confirmOpens.size() == 1);
+    const size_t listEnd = render.find("ImGui::EndChild();");
+    const size_t contextBegin = render.find("ImGui::BeginPopup(\"##agent_ctx\")");
+    const size_t contextEnd = render.find("ImGui::EndPopup();", contextBegin);
+    const size_t confirmBegin = render.find("ImGui::BeginPopupModal(AGENTSEL_CONFIRM_POPUP_ID");
+    REQUIRE(listEnd < contextOpens[0]);
+    REQUIRE(contextOpens[0] < contextBegin);
+    REQUIRE(contextEnd < confirmOpens[0]);
+    REQUIRE(confirmOpens[0] < confirmBegin);
+    REQUIRE(confirmBegin < render.rfind("ImGui::End();"));
+    REQUIRE(render.find("!confirmActive &&") == std::string::npos);
+    REQUIRE(render.find("!agentChildOpen && pdguiMenuAcceptPressed()") != std::string::npos);
+    REQUIRE(render.find("!agentChildOpen && pdguiMenuCancelPressed()") != std::string::npos);
+    // Each popup suppresses its opening gesture before submitting its body.
+    // Other graph transitions may also suppress activation (including Back).
+    REQUIRE(render.find("pdguiNavSuppressActivation()", contextOpens[0]) < contextBegin);
+    REQUIRE(render.find("pdguiNavSuppressActivation()", confirmOpens[0]) < confirmBegin);
+}
+
+TEST_CASE("Solo restart opens after row scope and renders without exiting its owner",
+          "[input][menus][static][menu-popup-owner]")
+{
+    const std::string source = readTextFile("port/fast3d/pdgui_menu_solomission.cpp");
+    REQUIRE_FALSE(source.empty());
+    const std::string render = functionBlock(source, "renderPauseMenu");
+    REQUIRE_FALSE(render.empty());
+    const auto opens = findAll(render, "ImGui::OpenPopup(restartPopupId)");
+    REQUIRE(opens.size() == 1);
+    REQUIRE(render.find("ImGui::OpenPopup(\"Restart Mission?##restart\")") == std::string::npos);
+    REQUIRE(render.rfind("ImGui::PopID();", opens[0]) < opens[0]);
+    REQUIRE(render.find("if (openRestartRequested) break;") < opens[0]);
+    REQUIRE(opens[0] < render.find("pdguiRenderConfirmModal("));
+    REQUIRE(render.find("!pauseChildOpen && pdguiMenuAcceptPressed()") != std::string::npos);
+    REQUIRE(render.find("!pauseChildOpen && !openRestartRequested &&") != std::string::npos);
+}
+
+TEST_CASE("Room character popup has a stable owner and child Back cannot arm Leave",
+          "[input][menus][static][menu-popup-owner]")
+{
+    const std::string source = readTextFile("port/fast3d/pdgui_menu_room.cpp");
+    REQUIRE_FALSE(source.empty());
+    const std::string panel = functionBlock(source, "renderPlayerPanel");
+    REQUIRE_FALSE(panel.empty());
+    const auto opens = findAll(panel, "ImGui::OpenPopup(\"##room_change_char_modal\")");
+    REQUIRE(opens.size() == 1);
+    const size_t context = panel.find("ImGui::BeginPopup(\"##local_ctx\")");
+    REQUIRE(panel.find("ImGui::EndPopup();", context) < opens[0]);
+    REQUIRE(panel.rfind("ImGui::PopID();", opens[0]) < opens[0]);
+    REQUIRE(opens[0] < panel.find("ImGui::BeginPopupModal(\"##room_change_char_modal\""));
+    REQUIRE(panel.find("const bool cancelCharacter = pdguiMenuCancelPressed();") != std::string::npos);
+    REQUIRE(panel.find("|| cancelCharacter)") != std::string::npos);
+    const size_t renderStart = source.find("extern \"C\" void pdguiRoomScreenRender");
+    REQUIRE(renderStart != std::string::npos);
+    const std::string render = functionBlock(source.substr(renderStart), "pdguiRoomScreenRender");
+    REQUIRE_FALSE(render.empty());
+    REQUIRE(render.find("const bool roomPopupOwnedFrame") < render.find("renderPlayerPanel("));
+    REQUIRE(render.find("const bool roomChildBlocks = roomPopupOwnedFrame") != std::string::npos);
+    REQUIRE(render.find("!countdownBlocks && !hotswapBlocks && !roomChildBlocks") != std::string::npos);
+    REQUIRE(render.find("|| cancelSaveScenario)") != std::string::npos);
+    REQUIRE(render.find("|| cancelLoadScenario)") != std::string::npos);
+}
+
+
+TEST_CASE("Firing Range uses one native selection and dispatches after the window", "[input][menu_graph][remaining_navigation][static]")
+{
+    const std::string render = functionBlock(readTextFile("port/fast3d/pdgui_menu_training.cpp"), "renderFrWeaponList");
+    REQUIRE_FALSE(render.empty());
+    REQUIRE(render.find("pdguiMenuAcceptPressed()") == std::string::npos);
+    REQUIRE(render.find("listHandleKeyboardNav(") == std::string::npos);
+    REQUIRE(render.find("ImGui::IsItemFocused()") != std::string::npos);
+    REQUIRE(findAll(render, "frLoadData();").size() == 1);
+    REQUIRE(findAll(render, "menuGraphFirePushDialog(").size() == 1);
+    REQUIRE(render.rfind("ImGui::End();") < render.find("frLoadData();"));
+    REQUIRE(render.find("if (wantBack)", render.rfind("ImGui::End();")) < render.find("else if (selectedSlot >= 0)"));
+}
+
+TEST_CASE("Solo Overview accepts the native button and gives Back priority", "[input][menu_graph][remaining_navigation][static]")
+{
+    const std::string render = functionBlock(readTextFile("port/fast3d/pdgui_menu_solomission.cpp"), "renderAcceptMission");
+    REQUIRE_FALSE(render.empty());
+    REQUIRE(render.find("pdguiMenuAcceptPressed()") == std::string::npos);
+    REQUIRE(render.find("ImGui::IsItemFocused()") != std::string::npos);
+    REQUIRE(render.find("bool doDecline = pdguiMenuCancelPressed();") < render.find("ImGui::Button("));
+    REQUIRE(render.rfind("ImGui::End();") < render.find("menuGraphFirePop("));
+    REQUIRE(render.find("if (doDecline)", render.rfind("ImGui::End();")) < render.find("else if (doAccept)"));
+    REQUIRE(findAll(render, "menuGraphFireSceneOp(").size() == 1);
+}
+
+TEST_CASE("Cinema keeps footer selection and dispatches a single native outcome", "[input][menu_graph][remaining_navigation][static]")
+{
+    const std::string render = functionBlock(readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp"), "renderCinemaList");
+    REQUIRE_FALSE(render.empty());
+    REQUIRE(render.find("pdguiMenuAcceptPressed()") == std::string::npos);
+    REQUIRE(render.find("pdguiMenuDownRepeat()") == std::string::npos);
+    REQUIRE(render.find("pdguiMenuUpRepeat()") == std::string::npos);
+    REQUIRE(render.find("(uintptr_t)s_CinemaSelectIdx > optionCount") != std::string::npos);
+    REQUIRE(render.find("s_CinemaSelectIdx = (s32)optionCount;") != std::string::npos);
+    REQUIRE(render.find("ImGui::IsItemFocused()") != std::string::npos);
+    REQUIRE(render.rfind("ImGui::End();") < render.find("cn_handlerQuery(MENUOP_SET"));
+    REQUIRE(render.find("if (wantClose)", render.rfind("ImGui::End();")) < render.find("else if (selectedCutscene >= 0)"));
+}
+
+TEST_CASE("Agent Select resolves Back before accepting a profile", "[input][menu_graph][remaining_navigation][static]")
+{
+    const std::string render = functionBlock(readTextFile("port/fast3d/pdgui_menu_agentselect.cpp"), "renderAgentSelect");
+    REQUIRE_FALSE(render.empty());
+    REQUIRE(render.find("if (!agentChildOpen && pdguiMenuCancelPressed())") < render.find("if (!agentChildOpen && pdguiMenuAcceptPressed())"));
+}
+
+TEST_CASE("Social shell evaluates Back in its windows and retains child ownership", "[input][menu_graph][remaining_navigation][static]")
+{
+    const std::string render = functionBlock(readTextFile("port/fast3d/pdgui_friends.cpp"), "pdguiFriendsRender");
+    REQUIRE_FALSE(render.empty());
+    REQUIRE(render.find("actionPressed(0, ACTION_CANCEL_USE)") == std::string::npos);
+    REQUIRE(render.find("actionPressed(0, ACTION_SOCIAL_TOGGLE)") == std::string::npos);
+    REQUIRE(render.find("pdguiMenuActionPressed(ACTION_SOCIAL_TOGGLE)") != std::string::npos);
+    REQUIRE(render.find("pdguiNavActionAllowed(ACTION_MENU_CANCEL)") != std::string::npos);
+    REQUIRE(render.find("const bool childOwnedFrame") < render.find("ImGui::Begin("));
+    REQUIRE(render.find("ImGui::Begin(") < render.find("pdguiMenuCancelPressed()"));
+    REQUIRE(render.find("!childOwnedFrame && !socialOwnedFrame && pdguiMenuCancelPressed()") != std::string::npos);
+    REQUIRE(render.find("!childOwnedFrame && pdguiMenuCancelPressed()") != std::string::npos);
+    REQUIRE(render.find("if (addFriend && !cancelAddFriend)") < render.find("socialFriendAdd("));
+    REQUIRE(render.find("cancelAddFriend |= ImGui::Button(\"Cancel\"") < render.find("socialFriendAdd("));
+}
+
+TEST_CASE("Chat and profile defer to native editor Back ownership", "[input][menu_graph][remaining_navigation][static]")
+{
+    const std::string source = readTextFile("port/fast3d/pdgui_friends.cpp");
+    const std::string chat = functionBlock(source, "renderChatPanel");
+    const std::string profile = functionBlock(source, "renderProfileModal");
+    REQUIRE_FALSE(chat.empty());
+    REQUIRE_FALSE(profile.empty());
+    REQUIRE(chat.find("actionPressed(0, ACTION_CANCEL_USE)") == std::string::npos);
+    REQUIRE(profile.find("actionPressed(0, ACTION_CANCEL_USE)") == std::string::npos);
+    REQUIRE(chat.find("ImGui::Begin(") < chat.find("pdguiMenuCancelPressed()"));
+    REQUIRE(chat.find("ImGui::BeginDisabled(closeChat)") < chat.find("chatSendText("));
+    REQUIRE(profile.find("ImGui::BeginPopupModal(") < profile.find("pdguiMenuCancelPressed()"));
+    REQUIRE(profile.find("ImGui::BeginDisabled(closeProfile)") < profile.find("presenceSendInvite("));
+}
+
+
+TEST_CASE("Main Menu leaves input and close authority with a visible Modding Hub", "[input][menu_graph][remaining_navigation][static]")
+{
+    const std::string render = functionBlock(readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp"), "renderMainMenu");
+    REQUIRE_FALSE(render.empty());
+    REQUIRE(render.find("const bool hubOwnsFrame = pdguiModdingHubIsVisible() != 0;") < render.find("ImGui::Begin("));
+    REQUIRE(render.find("ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing") != std::string::npos);
+    const size_t guardedReturn = render.find("return 1;", render.find("if (hubOwnsFrame)", render.find("menupoolAcquireDialog(")));
+    REQUIRE(guardedReturn != std::string::npos);
+    REQUIRE(guardedReturn < render.find("ImGui::SetWindowFocus();"));
+    REQUIRE(guardedReturn < render.find("pdguiMenuCancelPressed()"));
+    REQUIRE(render.find("pdguiModdingHubHide();") == std::string::npos);
+}
+
+TEST_CASE("Main Menu defers Back and cannot activate the body in that frame", "[input][menu_graph][remaining_navigation][static]")
+{
+    const std::string render = functionBlock(readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp"), "renderMainMenu");
+    REQUIRE_FALSE(render.empty());
+    REQUIRE(render.find("&& !requestBack") < render.find("pdguiMenuTertiaryPressed()"));
+    REQUIRE(render.find("ImGui::BeginDisabled(requestBack);") < render.find("PdButton(\"Play\""));
+    REQUIRE(render.rfind("ImGui::End();") < render.find("if (requestBack && s_MenuView == backView)"));
+    REQUIRE(render.rfind("ImGui::End();") < render.find("menuGraphFirePopOp(MENU_TYPE_MAIN_MENU, \"close\""));
+    REQUIRE(findAll(render, "ImGui::SetNavCursorVisible(true);").size() == 2);
+    REQUIRE(render.find("actionmapFlushActionSet") == std::string::npos);
 }

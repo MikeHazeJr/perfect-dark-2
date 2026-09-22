@@ -1,5 +1,100 @@
 # Input System
 
+Sep22 T-INPUT-008 raw-key repair is source-connected and scoped-compiled:
+`input_vk.c` keeps old controller values 519-646 and saved names intact, adds
+precise raw buttons 23-32 and digital axes after them, and resolves one winner
+per physical event with context priority before precise-over-legacy priority.
+Capture, dispatch, complete-profile names, Settings binding rows/diagram, and
+device-aware glyphs use the same domain. Old shared aliases remain explicit
+until rebound. The client/updater/tests targets compile; first direct raw-key
+836 assertions and input/actionmap/glyph/custom 1,582 assertions passed. A
+final wider input/menu/settings run stopped on four unrelated source-contract
+assertions (4/9,679): vehicle protocol literal, asset reset literal, Agent
+save literal, and delete-status OK literal. The three menu/catalog assertions
+were updated to follow checked production flows; a rebuilt focused gate passes
+12 cases/957 assertions on the final glyph source. It now labels the actual
+physical source that wins a legacy alias after a precise rebind. The older
+broad gate remains red until rerun; ordinary raw joystick, physical-device and
+visual proof remain open. Receipt:
+`.claude/menu0922/raw-vk-glyph-menu-final-junit.xml`.
+
+Sep22 T-INPUT-008 scoped fix: `ActionDigitalOwners` records the winning
+action/context for each physical keyboard, mouse, wheel, controller, or raw
+device edge. `actionmap.cpp` aggregates simultaneous owners, retires only wheel
+sources at frame end, and clears matching ownership at focus/device/context/
+binding flush boundaries. Isolated client/updater/tests builds pass; direct
+production owner tests pass 3 cases/26 assertions, the smoke-owned contract
+passes 1/53, and the input/actionmap regression tag passes 15/481. The first
+build's peer `file_transfer.c` red and two stale source-contract reds are
+retained; corrected runs pass. No ordinary menu, physical-controller, or
+human-visual acceptance yet. The later precise-key candidate above is not
+ordinary input or glyph acceptance. Receipts: `.claude/menu0922/owner-junit.xml`,
+`smoke-owner-r3-junit.xml`, and `actionmap-regression-junit.xml`.
+
+Sep22 ordinary virtual-menu run remains incomplete: an opt-in foreground
+runner path restored Agent Select readiness at 86.73s, but the attached Xbox
+One Controller already occupied player0. The harness rejected virtual attach
+before any virtual button event. Evidence is
+`.claude/smoke-verify-runs/results-20260922T222357Z.json`; the earlier
+focus-loss and runner-setup reds are retained. Do not detach or reassign the
+user's physical controller to force this fixture green.
+
+Sep8 14:24: current integrated350 selected source/native cases accepted; all15
+controller keyboard and8 Settings helper cases pass. Actual FR renderer4 and
+real Settings save11 separately pass. `.claude/menu0908/accepted350.json` maps
+exact names/source/binaries. Virtual SDL fixture and ordinary client text/menu
+journeys are unrun; physical-controller and human-visual acceptance remain open.
+
+Sep8 current source: the controller-operated native text keyboard and real SDL
+virtual-controller fixture support are integrated with Settings save/status and
+the remaining navigation unit. Exact37-path receipt:
+`.claude/menu0908/integration-verified.json`. Compilation and current-unit tests
+are pending; the302 below does not validate these newer native InputText/backend
+changes. Raw high-button/axis VK aliasing remains open; no physical-controller,
+ordinary OSK or full input/visual acceptance has been established.
+
+Current client2E4448B3 builds; the readiness-based Agent keyboard smoke stops
+during asset boot at90s with repeated body/head nested-mesh hash failures. No
+menu key or capture ran. The focused302 acceptance below remains recorded;
+asset owner repairs the loader before ordinary menu verification resumes.
+
+## 2026-09-06 next batch - focused cases pass, client proof pending
+
+T-INPUT-006 now connects complete versioned `input-bindings.ini` snapshots to
+startup, edits and named-profile loads. All known context/action identities and
+four exact trigger slots persist; disk failure restores accepted live bindings.
+Legacy Extended Key Bindings receives checked saves, row bounds and safe empty
+slot lookup. T-INPUT-008 connects meaningful SDL device observation before text
+and binding capture, attached-device family/capability facts, and glyph lookup
+across all authoritative available bindings. All302 selected cases pass across
+the retained/corrected cohorts, including production profile and identity helpers.
+Final312-path46DAC86C / testsEA58CA28 is source-stable; receipt is
+`.claude/menu0906-next/accepted302.json`. The235 below belongs to the prior unit.
+
+The preceding client builds on C3A64691 / source207 02A5C91A; the ordinary Agent
+Create/Cancel fixture missed readiness and remains red, with three inspected
+captures. Native menu-readiness barriers and the revised fixture are now
+integrated/prepared for the next build. Slider/drag Activate, InputText native
+validation/cancel precedence, and held opening-key ownership have focused
+actual-ImGui cases passing within302. Persistent application input authority
+supplies readiness focus explicitly across ImGui EndFrame's transient reset.
+
+## 2026-09-06 menu input ownership correction
+
+T-MENUS-003 now sends mapped navigation through ImGui Gamepad keys with
+keyboard and gamepad navigation enabled; the SDL gamepad poller is disabled
+so the action map remains authoritative. Physical keyboard keys retain their
+own state. Text entry owns key presses while key releases still clear prior
+actions. Settings binding listening owns raw presses through release/neutral,
+including the transition to candidate review. Middle-click Back commits only
+after release without a drag, and right-stick scroll is time-scaled.
+T-INPUT-005 shares the exact active-context/trigger winner resolver with glyph
+lookup and adds a menu-only scroll query without reopening gameplay aim.
+The affected 235-case gate passes, including actual ImGui navigation/text and
+the production binding resolver. Client build, ordinary menu outcomes, and
+physical/controller-family acceptance remain pending. Full goal scope still
+includes controller text entry, profile persistence and popup ownership.
+
 > Unified action map. Pushdown input context stack. Typed layer stack. Single suppression predicate. The action map is the only legitimate way to read input outside the SDL event entry point.
 
 ---
@@ -150,7 +245,14 @@ Crouch-jump: `ACTION_JUMP` latches `g_BondCrouchJumpActive[pi]`; a fresh `ACTION
 
 ## Glyph system
 
-`port/include/pdgui_glyphs.h` + `port/fast3d/pdgui_glyphs.cpp` resolve any `InputAction` to its current primary VK through the active IMC stack, produce short labels ("E", "Space", "LMB", "A", "LB", "D-Up"), and render `[KEY] Label` pills on the foreground drawlist. Auto-detects KBM vs gamepad via `actionmapGetLastDevice()` with 500ms debounce. For non-standard controller classes, glyphs use generic `BtnN` / `AxisN+/-` labels instead of pretending a HOTAS, homemade HID, or accessibility device is an Xbox-style controller. Used by interact prompts and Glyph-aware UI surfaces.
+`port/include/pdgui_glyphs.h` + `port/fast3d/pdgui_glyphs.cpp` resolve actions
+through the same active binding authority as dispatch and render contextual
+labels/pills. Meaningful keyboard, pointer, text, button and axis activity changes
+identity immediately; releases and neutral/noisy motion do not. Attached player0
+device family and capability facts select available real controls. Generic/raw
+devices use BtnN/AxisN labels, including explicit combined labels where existing
+raw-button and synthetic-axis codes alias. That raw dispatch-domain collision
+remains open under T-INPUT-008; accurate labels do not make it independently bindable.
 
 ## Custom / accessibility controller foundation
 

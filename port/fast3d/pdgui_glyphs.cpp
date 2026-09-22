@@ -3,8 +3,8 @@
  *
  * Resolves bindings from the active InputMappingContext stack and
  * produces short on-screen labels + optional ImGui pill rendering.
- * Keyboard/mouse vs gamepad is driven by actionmapGetLastDevice()
- * with the same 500 ms debounce as the rest of the action map.
+ * Device/family follows meaningful input immediately; stale releases and
+ * neutral stick noise do not change prompts. Alternate hints name the device.
  *
  * C++ TU (ImGui is C++-only); the public header exposes extern "C"
  * so game code in src/game/*.c can call the lookup helpers.
@@ -14,6 +14,7 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include <PR/os_thread.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -23,10 +24,12 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "actionmap.h"
+#include "input.h"
+#include "input_vk.h"
+#include "input_device_identity.h"
 
-/* VK_* ordinals — mirrors the canonical enum in port/include/input.h.
- * We cannot include input.h directly because it pulls <PR/os_cont.h>
- * which transitively uses OSThread (libultra) and breaks C++ TUs. */
+/* Keyboard label abbreviations. Controller ranges come from input.h through
+ * input_vk.h after the required os_thread.h pre-include. */
 #define PDG_VK_RETURN       40
 #define PDG_VK_ESCAPE       41
 #define PDG_VK_BACKSPACE    42
@@ -69,97 +72,50 @@
 #define PDG_VK_MOUSE_WHEEL_UP  (PDG_VK_MOUSE_BEGIN + 5)
 #define PDG_VK_MOUSE_WHEEL_DN  (PDG_VK_MOUSE_BEGIN + 6)
 
-#define PDG_VK_JOY_BEGIN       519 /* VK_JOY_BEGIN == VK_MOUSE_BEGIN + 7 in input.h */
-#define PDG_INPUT_MAX_CONTROLLER_BUTTONS 32
-#define PDG_VK_TOTAL_COUNT (PDG_VK_JOY_BEGIN + 4 * PDG_INPUT_MAX_CONTROLLER_BUTTONS)
-
-/* Forward-declare just the one input.c entry point we need. */
-extern "C" const char *inputGetKeyName(s32 vk);
-
-static inline bool vkIsKbm(u32 vk)
-{
-	return vk > 0 && vk < (u32)PDG_VK_JOY_BEGIN;
-}
-
 static inline bool vkIsGamepad(u32 vk)
 {
-	return vk >= (u32)PDG_VK_JOY_BEGIN && vk < (u32)PDG_VK_TOTAL_COUNT;
+	return vk >= (u32)VK_JOY_BEGIN && vk < (u32)VK_TOTAL_COUNT;
 }
 
-/* Priority-sorted iteration: higher priority first (g_ImcTextInput
- * priority 30 is on top, gameplay 0 at the bottom).  For a prompt the
- * correct source is "what the player would hit right now", so we pick
- * the FIRST active IMC that maps the action — which is the topmost
- * context currently consulted by actionmapDispatch. */
-static InputMappingContext *const kAllImcs[] = {
-	&g_ImcTextInput,
-	&g_ImcDebugOverlay,
-	&g_ImcPauseMenu,
-	&g_ImcMenu,
-	&g_ImcObserver,
-	&g_ImcVehicle,
-	&g_ImcCutscene,
-	&g_ImcGameplay,
+/* Query live device facts independently of the active binding resolver. The
+ * resolver remains the sole authority for priority, suppression and conflicts. */
+struct GlyphBinding {
+    InputGlyphBindingChoice choice;
+    InputDeviceIdentity controller;
+    u32 controller_source_vk;
 };
-static const int kNumImcs = (int)(sizeof(kAllImcs) / sizeof(kAllImcs[0]));
 
-/* Find the primary VK bound to `action` for the requested device.
- * Returns 0 if none is found.
- *
- * Walks active IMCs in priority order.  For the topmost IMC that
- * carries the mapping, takes the first trigger matching `device`.
- * If no trigger matches, falls through to the next IMC so a menu-only
- * context without gamepad bindings still surfaces the gameplay one. */
-static u32 findPrimaryVk(InputAction action, pdgui_glyph_device_e device)
+struct GlyphPhysicalCandidate {
+    const InputDeviceIdentity *controller;
+    u32 selected_vk;
+};
+
+static s32 glyphControllerVkPresent(u32 vk, void *userdata)
 {
-	if ((int)action < 0 || (int)action >= ACTION_COUNT) {
-		return 0;
-	}
+    auto *candidate = static_cast<GlyphPhysicalCandidate *>(userdata);
+    if (!vkIsGamepad(vk) ||
+        !inputGlyphControllerVkPresent(candidate->controller, vk)) return 0;
+    /* The resolver returns the binding key; retain the physical candidate
+     * that actually survived its precise-over-legacy winner check. */
+    candidate->selected_vk = vk;
+    return 1;
+}
 
-	for (int i = 0; i < kNumImcs; i++) {
-		InputMappingContext *ctx = kAllImcs[i];
-		if (!ctx || !ctx->active) continue;
-		if (!ctx->has_mapping[action]) continue;
-
-		const InputMapping *m = &ctx->mappings[action];
-		for (int t = 0; t < m->num_triggers; t++) {
-			u32 vk = m->triggers[t].vk;
-			if (vk == 0) continue;
-			if (device == PDGUI_GLYPH_DEVICE_GAMEPAD && vkIsGamepad(vk)) {
-				return vk;
-			}
-			if (device == PDGUI_GLYPH_DEVICE_KBM && vkIsKbm(vk)) {
-				return vk;
-			}
-		}
-	}
-
-	/* Device-specific search failed.  Try the OTHER device so prompts
-	 * don't show "?" when only one device is bound. */
-	const pdgui_glyph_device_e fallback =
-		(device == PDGUI_GLYPH_DEVICE_GAMEPAD)
-			? PDGUI_GLYPH_DEVICE_KBM
-			: PDGUI_GLYPH_DEVICE_GAMEPAD;
-
-	for (int i = 0; i < kNumImcs; i++) {
-		InputMappingContext *ctx = kAllImcs[i];
-		if (!ctx || !ctx->active) continue;
-		if (!ctx->has_mapping[action]) continue;
-
-		const InputMapping *m = &ctx->mappings[action];
-		for (int t = 0; t < m->num_triggers; t++) {
-			u32 vk = m->triggers[t].vk;
-			if (vk == 0) continue;
-			if (fallback == PDGUI_GLYPH_DEVICE_GAMEPAD && vkIsGamepad(vk)) {
-				return vk;
-			}
-			if (fallback == PDGUI_GLYPH_DEVICE_KBM && vkIsKbm(vk)) {
-				return vk;
-			}
-		}
-	}
-
-	return 0;
+static GlyphBinding resolveGlyphBinding(InputAction action, pdgui_glyph_device_e device)
+{
+    GlyphBinding result = {};
+    const int controllerAvailable = actionmapGetBindingDeviceIdentity(0, &result.controller);
+    GlyphPhysicalCandidate candidate = {&result.controller, 0};
+    const u32 keyboardVk = actionmapGetActiveBindingVk(0, action, ACTIONMAP_DEVICE_KBM);
+    // Keep the absent-controller distinction, but never stop at a missing
+    // physical control when another authoritative binding is available.
+    const u32 controllerVk = actionmapGetActiveBindingVkMatching(0, action, ACTIONMAP_DEVICE_GAMEPAD,
+        controllerAvailable ? glyphControllerVkPresent : nullptr, &candidate);
+    result.controller_source_vk = controllerVk ? candidate.selected_vk : 0;
+    result.choice = inputGlyphChooseBinding(
+        device == PDGUI_GLYPH_DEVICE_GAMEPAD ? INPUT_DEVICE_GAMEPAD : INPUT_DEVICE_MKB,
+        keyboardVk, controllerVk, controllerAvailable);
+    return result;
 }
 
 /* Translate a VK to a short display label.  Keeps 1-3 character labels
@@ -238,72 +194,8 @@ static void vkShortLabel(u32 vk, char *out, s32 outlen)
 		return;
 	}
 
-	/* Gamepad buttons (offset 0..31 within a pad's slot range).
-	 * Only player-1 gets a short glyph label; other players fall back
-	 * to the full JOY<n>_<name> form from input.c. */
-	if (vkIsGamepad(vk)) {
-		u32 off = vk - (u32)PDG_VK_JOY_BEGIN;
-		u32 pad = off / (u32)PDG_INPUT_MAX_CONTROLLER_BUTTONS;
-		u32 btn = off % (u32)PDG_INPUT_MAX_CONTROLLER_BUTTONS;
-
-		const s32 inputClass = actionmapGetLastInputClass();
-		if (inputClass != ACTIONMAP_INPUT_CLASS_CONTROLLER &&
-		    inputClass != ACTIONMAP_INPUT_CLASS_MKB) {
-			switch ((int)btn) {
-			case 22: snprintf(out, outlen, "Axis1-"); return;
-			case 23: snprintf(out, outlen, "Axis1+"); return;
-			case 24: snprintf(out, outlen, "Axis2-"); return;
-			case 25: snprintf(out, outlen, "Axis2+"); return;
-			case 26: snprintf(out, outlen, "Axis3-"); return;
-			case 27: snprintf(out, outlen, "Axis3+"); return;
-			case 28: snprintf(out, outlen, "Axis4-"); return;
-			case 29: snprintf(out, outlen, "Axis4+"); return;
-			case 30: snprintf(out, outlen, "Axis5+"); return;
-			case 31: snprintf(out, outlen, "Axis6+"); return;
-			default:
-				snprintf(out, outlen, "Btn%u", (unsigned)(btn + 1));
-				return;
-			}
-		}
-
-		if (pad == 0) {
-			switch ((int)btn) {
-			case  0: snprintf(out, outlen, "A");     return;
-			case  1: snprintf(out, outlen, "B");     return;
-			case  2: snprintf(out, outlen, "X");     return;
-			case  3: snprintf(out, outlen, "Y");     return;
-			case  4: snprintf(out, outlen, "Back");  return;
-			case  5: snprintf(out, outlen, "Guide"); return;
-			case  6: snprintf(out, outlen, "Start"); return;
-			case  7: snprintf(out, outlen, "LS");    return; /* left-stick click */
-			case  8: snprintf(out, outlen, "RS");    return; /* right-stick click */
-			case  9: snprintf(out, outlen, "LB");    return;
-			case 10: snprintf(out, outlen, "RB");    return;
-			case 11: snprintf(out, outlen, "D-Up");     return;
-			case 12: snprintf(out, outlen, "D-Down");   return;
-			case 13: snprintf(out, outlen, "D-Left");   return;
-			case 14: snprintf(out, outlen, "D-Right");  return;
-			case 22: snprintf(out, outlen, "LS-L");  return;
-			case 23: snprintf(out, outlen, "LS-R");  return;
-			case 24: snprintf(out, outlen, "LS-U");  return;
-			case 25: snprintf(out, outlen, "LS-D");  return;
-			case 26: snprintf(out, outlen, "RS-L");  return;
-			case 27: snprintf(out, outlen, "RS-R");  return;
-			case 28: snprintf(out, outlen, "RS-U");  return;
-			case 29: snprintf(out, outlen, "RS-D");  return;
-			case 30: snprintf(out, outlen, "LT");    return;
-			case 31: snprintf(out, outlen, "RT");    return;
-			}
-		}
-
-		/* Fallback — use the input.c full name ("JOY2_A" etc.) */
-		const char *name = inputGetKeyName((s32)vk);
-		snprintf(out, outlen, "%s", name ? name : "?");
-		return;
-	}
-
 	/* Keyboard fallback for unnamed scancodes */
-	const char *name = inputGetKeyName((s32)vk);
+	const char *name = actionmapGetVkName(vk);
 	if (name && name[0] && strncmp(name, "UNKNOWN", 7) != 0) {
 		snprintf(out, outlen, "%s", name);
 	} else {
@@ -324,7 +216,7 @@ extern "C" pdgui_glyph_device_e pdguiGlyphGetDevice(void)
 
 extern "C" u32 pdguiGlyphGetPrimaryVk(InputAction action)
 {
-	return findPrimaryVk(action, pdguiGlyphGetDevice());
+	return resolveGlyphBinding(action, pdguiGlyphGetDevice()).choice.vk;
 }
 
 extern "C" s32 pdguiGlyphGetActionLabel(InputAction action, char *out, s32 outlen)
@@ -332,13 +224,17 @@ extern "C" s32 pdguiGlyphGetActionLabel(InputAction action, char *out, s32 outle
 	if (!out || outlen <= 0) return 0;
 	out[0] = '\0';
 
-	u32 vk = findPrimaryVk(action, pdguiGlyphGetDevice());
-	if (vk == 0) {
-		snprintf(out, outlen, "?");
-		return 0;
-	}
-	vkShortLabel(vk, out, outlen);
-	return 1;
+    const GlyphBinding binding = resolveGlyphBinding(action, pdguiGlyphGetDevice());
+    char shortLabel[96] = {};
+    if (binding.choice.vk) {
+        if (binding.choice.kind == INPUT_DEVICE_GAMEPAD) {
+            inputGlyphControllerVkLabel(&binding.controller, binding.controller_source_vk,
+                shortLabel, sizeof(shortLabel));
+        } else {
+            vkShortLabel(binding.choice.vk, shortLabel, sizeof(shortLabel));
+        }
+    }
+    return inputGlyphFormatBindingLabel(&binding.choice, shortLabel, out, outlen);
 }
 
 /* ============================================================

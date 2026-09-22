@@ -210,8 +210,11 @@ TEST_CASE("right-stick scroll: runtime constants match spec",
     /* Quadratic curve (matches kCurveExp = 2.0 above; t * t == pow(t,2)). */
     REQUIRE(backend.find("dir * t * t * maxPxPerFrame") != std::string::npos);
 
-    /* The runtime gate stays on gameplayInputSuppressed so the right
-     * stick scrolls only while a menu owns input (and not during
-     * gameplay aim). */
-    REQUIRE(backend.find("if (gameplayInputSuppressed())") != std::string::npos);
+    /* The separate menu-axis owner preserves gameplay aim suppression and
+     * capture and text-keyboard release ownership; scroll speed is independent
+     * of frame rate. The sampled axis also drives the neutral handoff gate. */
+    REQUIRE(backend.find("if (navigationActive)") != std::string::npos);
+    REQUIRE(backend.find("const float menuScroll = actionmapMenuScrollAxisY(0)") != std::string::npos);
+    REQUIRE(backend.find("s_BindingCaptureLatch.ownsMenuScroll() || s_TextKeyboardReleaseGate.blocksScroll() ? 0.0f : menuScroll") != std::string::npos);
+    REQUIRE(backend.find("maxPxPerFrame * 60.0f * io.DeltaTime") != std::string::npos);
 }

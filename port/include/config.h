@@ -1,6 +1,7 @@
 #pragma once
 
 #include <PR/ultratypes.h>
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,8 +15,15 @@ void configInit(void);
 // loads config from file (path extensions such as ! apply)
 s32 configLoad(const char *fname);
 
-// saves config to file (path extensions such as ! apply)
+// Atomically saves config to file (same path resolution as configLoad).
+// Returns 1 only after commit, 0 on failure; failed saves preserve prior bytes
+// and registered runtime values. Successful saves retain numeric normalization.
 s32 configSave(const char *fname);
+
+// Checked serializer for a caller-owned stream, also used by diagnostic tests.
+// Writes the current normalized snapshot without changing runtime values.
+// Does not flush, close, or commit the stream. Returns 1 on write success, 0 on error.
+s32 configWriteSnapshot(FILE *stream);
 
 // registers a variable in the config file
 // this should be done before configInit() is called, preferably in a module constructor

@@ -13,8 +13,9 @@
  *   By Mod      — tree by category label ("goldfinger64", "kakariko", etc.)
  *
  * Apply Changes:
- *   1. Commits s_Entries[] enable state to catalog via assetCatalogSetEnabled()
- *   2. Calls modmgrApplyChanges() — saves .modstate and rebuilds catalogs
+ *   1. Validates staged installed-mod identity/order and catalog generation.
+ *   2. Publishes registry and component selections only after Apply.
+ *   3. Calls modmgrApplyChanges() — saves .modstate and rebuilds catalogs
  *      in-place (no forced title restart).
  *
  * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
@@ -28,6 +29,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <algorithm>
+#include <cstdarg>
+#include <set>
+#include <string>
+#include <vector>
+#include "modmgr_selection.h"
+#include "modmgr_apply.h"
+#include <memory>
 
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
@@ -35,12 +44,14 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "system.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
 
 extern "C" {
+#include "modmgr.h"
 
 /* Mod manager lifecycle */
 void modmgrApplyChanges(void);
@@ -100,9 +111,6 @@ void pdguiSetCursorBelowTitle(float title_h);
  * Constants
  * ======================================================================== */
 
-#define MODMGR_MAX_ENTRIES    512
-#define MODMGR_MAX_CATEGORIES  64
-#define MODMGR_MAX_ERRORS     128
 #define MODMGR_INI_PATH_LEN   (FS_MAXPATH + 32)
 
 /* ========================================================================
@@ -119,7 +127,7 @@ struct ModMgrEntry {
     int          bundled;       /* base game asset — cannot be permanently disabled */
 };
 
-static ModMgrEntry s_Entries[MODMGR_MAX_ENTRIES];
+static std::vector<ModMgrEntry> s_Entries;
 static int         s_NumEntries   = 0;
 
 /* ========================================================================
@@ -134,15 +142,20 @@ static char s_SelectedId[CATALOG_ID_LEN] = "";
  * 0=idle, 1=open popup next frame, 2=run apply, 3=done/waiting for acknowledge */
 static int  s_ApplyFlowState      = 0;
 static bool s_ApplyCloseAfterDone = false;
+static std::unique_ptr<modmgr_apply_plan_t, decltype(&modmgrFreeApplyPlan)>
+    s_ApplyPlan{nullptr, modmgrFreeApplyPlan};
+static modmgr_apply_result_t s_ApplyResult{};
+static bool s_ApplyIncomplete = false;
+static bool s_ApplyRetryAllowed = true;
 
 /* By-Category: collapsed state per type */
 static bool s_TypeCollapsed[ASSET_TYPE_COUNT];
 static bool s_BaseCollapsed = true;  /* base game section starts collapsed */
 
 /* By-Mod: category list + collapsed state */
-static char s_Categories[MODMGR_MAX_CATEGORIES][CATALOG_CATEGORY_LEN];
+static std::vector<std::string> s_Categories;
 static int  s_NumCategories = 0;
-static bool s_CatCollapsed[MODMGR_MAX_CATEGORIES];
+static std::vector<bool> s_CatCollapsed;
 
 /* ========================================================================
  * Validate results
@@ -150,14 +163,44 @@ static bool s_CatCollapsed[MODMGR_MAX_CATEGORIES];
 
 struct ModMgrError {
     char id[CATALOG_ID_LEN];
-    char msg[256];
+    std::string msg;
     bool isError;   /* true = error (red), false = warning (yellow) */
 };
 
-static ModMgrError s_Errors[MODMGR_MAX_ERRORS];
+static std::vector<ModMgrError> s_Errors;
 static int         s_NumErrors       = 0;
 static bool        s_ValidationDone  = false;
 static bool        s_ShowValidation  = false;
+
+static modmgr_selection::Selection s_InstalledSelection;
+static std::string s_SelectionError;
+static std::string s_SelectedInstalledId;
+static std::string s_SizeConfirmId;
+static bool s_SizeConfirmPending = false;
+static bool s_LeaveRequested = false;
+static int s_LeaveResult = 0; // 1 accepted, -1 cancelled, 0 pending/no request
+static bool s_LocalClosePending = false;
+static int s_ChildPopupFrame = -1;
+static bool s_ApplyResultNeedsFocus = false;
+
+static std::vector<modmgr_selection::Entry> readInstalledSelection(void)
+{
+    std::vector<modmgr_selection::Entry> rows;
+    for (s32 i = 0; i < modmgrGetCount(); ++i) {
+        const modinfo_t *mod = modmgrGetMod(i);
+        if (!mod) continue;
+        rows.push_back({mod->id, mod->dirpath, mod->version, mod->enabled != 0,
+                        mod->valid != 0, mod->session_only != 0});
+    }
+    return rows;
+}
+
+static int installedRegistryIndex(const std::string &id)
+{
+    for (int i = 0; i < modmgrGetCount(); ++i)
+        if (id == modmgrGetModId(i)) return i;
+    return -1;
+}
 
 /* ========================================================================
  * Helpers
@@ -268,14 +311,28 @@ static int countPending(void)
     return n;
 }
 
-static void applyPendingSelectionToCatalog(void)
+static bool hasPendingSelection(void)
 {
-    for (int i = 0; i < s_NumEntries; i++) {
-        if (!s_Entries[i].bundled &&
-            s_Entries[i].enabled != s_Entries[i].orig_enabled) {
-            assetCatalogSetEnabled(s_Entries[i].id, s_Entries[i].enabled);
-        }
+    return s_ApplyIncomplete || countPending() != 0 || s_InstalledSelection.dirty();
+}
+
+static bool requestSelectionLeave(void)
+{
+    if (s_ApplyFlowState > 0) {
+        s_ApplyCloseAfterDone = true;
+        return false;
     }
+    if (!hasPendingSelection()) return true;
+    s_LeaveRequested = true;
+    s_LeaveResult = 0;
+    return false;
+}
+
+static bool ownsSelectionNavigation(void)
+{
+    return s_ApplyFlowState > 0 || s_LeaveRequested || s_SizeConfirmPending || s_ShowValidation
+        || s_ChildPopupFrame == ImGui::GetFrameCount()
+        || ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
 }
 
 /* ========================================================================
@@ -287,10 +344,9 @@ struct PopCtx { int *count; };
 static void populateCallback(const asset_entry_t *entry, void *userdata)
 {
     int *count = (int *)userdata;
-    if (*count >= MODMGR_MAX_ENTRIES) {
-        return;
-    }
-    ModMgrEntry &e = s_Entries[(*count)++];
+    s_Entries.emplace_back();
+    ModMgrEntry &e = s_Entries.back();
+    ++*count;
     strncpy(e.id,       entry->id,       CATALOG_ID_LEN - 1);  e.id[CATALOG_ID_LEN - 1] = '\0';
     strncpy(e.category, entry->category, CATALOG_CATEGORY_LEN - 1);  e.category[CATALOG_CATEGORY_LEN - 1] = '\0';
     strncpy(e.dirpath,  entry->dirpath,  FS_MAXPATH - 1);  e.dirpath[FS_MAXPATH - 1] = '\0';
@@ -313,8 +369,18 @@ static const asset_type_e s_AllTypes[] = {
 };
 static const int s_NumAllTypes = (int)(sizeof(s_AllTypes) / sizeof(s_AllTypes[0]));
 
-static void refreshSnapshot(void)
+static void refreshSnapshot(bool discardPending = false)
 {
+    if (!discardPending && hasPendingSelection()) {
+        s_SelectionError = "Pending changes were retained. Apply or discard them before refreshing.";
+        return;
+    }
+    if (discardPending) {
+        s_ApplyPlan.reset();
+        s_ApplyIncomplete = false;
+        s_ApplyRetryAllowed = true;
+    }
+    s_Entries.clear();
     s_NumEntries = 0;
     for (int t = 0; t < s_NumAllTypes; t++) {
         /* Mod Manager UI -- intentionally lists disabled entries so the user
@@ -331,12 +397,16 @@ static void refreshSnapshot(void)
     s_BaseCollapsed = true;
 
     /* Rebuild category list */
-    s_NumCategories = assetCatalogGetUniqueCategories(s_Categories, MODMGR_MAX_CATEGORIES);
-    for (int i = 0; i < s_NumCategories; i++) {
-        s_CatCollapsed[i] = false;
-    }
+    std::set<std::string> categories;
+    for (const auto &entry : s_Entries)
+        if (!entry.bundled && entry.category[0]) categories.insert(entry.category);
+    s_Categories.assign(categories.begin(), categories.end());
+    s_NumCategories = static_cast<int>(s_Categories.size());
+    s_CatCollapsed.assign(s_Categories.size(), false);
+    s_InstalledSelection.refresh(readInstalledSelection(), assetCatalogGetGeneration(), s_SelectionError);
 
     /* Clear validation results */
+    s_Errors.clear();
     s_NumErrors      = 0;
     s_ValidationDone = false;
     s_ShowValidation = false;
@@ -351,22 +421,32 @@ static void refreshSnapshot(void)
 
 static void addError(const char *id, bool isErr, const char *fmt, ...)
 {
-    if (s_NumErrors >= MODMGR_MAX_ERRORS) {
-        return;
-    }
-    ModMgrError &e = s_Errors[s_NumErrors++];
+    s_Errors.emplace_back();
+    ModMgrError &e = s_Errors.back();
+    ++s_NumErrors;
     strncpy(e.id, id, CATALOG_ID_LEN - 1);
     e.id[CATALOG_ID_LEN - 1] = '\0';
     e.isError = isErr;
 
     va_list ap;
     va_start(ap, fmt);
-    vsnprintf(e.msg, sizeof(e.msg), fmt, ap);
+    va_list measure;
+    va_copy(measure, ap);
+    const int needed = vsnprintf(nullptr, 0, fmt, measure);
+    va_end(measure);
+    if (needed < 0) {
+        e.msg = "Could not format validation detail.";
+    } else {
+        std::vector<char> message(static_cast<size_t>(needed) + 1);
+        vsnprintf(message.data(), message.size(), fmt, ap);
+        e.msg.assign(message.data(), static_cast<size_t>(needed));
+    }
     va_end(ap);
 }
 
 static void runValidation(void)
 {
+    s_Errors.clear();
     s_NumErrors = 0;
 
     for (int i = 0; i < s_NumEntries; i++) {
@@ -403,11 +483,8 @@ static void runValidation(void)
                 const char *deps = iniGet(&ini, "depends_on", "");
                 if (deps[0] != '\0') {
                     /* Split comma-separated dep list */
-                    char depbuf[256];
-                    strncpy(depbuf, deps, sizeof(depbuf) - 1);
-                    depbuf[sizeof(depbuf) - 1] = '\0';
-
-                    char *tok = depbuf;
+                    std::string depbuf = deps;
+                    char *tok = depbuf.data();
                     char *end;
                     while (tok && *tok) {
                         /* Trim leading spaces */
@@ -438,7 +515,7 @@ static void runValidation(void)
     sysLogPrintf(LOG_NOTE, "MODMGR: validation complete — %d issues found", s_NumErrors);
     for (int i = 0; i < s_NumErrors; i++) {
         sysLogPrintf(s_Errors[i].isError ? LOG_ERROR : LOG_WARNING,
-                     "MODMGR VALIDATE [%s]: %s", s_Errors[i].id, s_Errors[i].msg);
+                     "MODMGR VALIDATE [%s]: %s", s_Errors[i].id, s_Errors[i].msg.c_str());
     }
 }
 
@@ -803,7 +880,7 @@ static void renderByModTab(float scale)
     }
 
     for (int c = 0; c < s_NumCategories; c++) {
-        const char *cat = s_Categories[c];
+        const char *cat = s_Categories[c].c_str();
 
         int cnt = 0;
         for (int i = 0; i < s_NumEntries; i++) {
@@ -906,13 +983,14 @@ static void renderValidationModal(float scale)
             ImGui::TextColored(col, "[%s] %s",
                 s_Errors[i].isError ? "ERROR" : "WARN",
                 s_Errors[i].id);
-            ImGui::TextWrapped("  %s", s_Errors[i].msg);
+            ImGui::TextWrapped("  %s", s_Errors[i].msg.c_str());
             ImGui::Spacing();
         }
         ImGui::EndChild();
     }
 
-    if (ImGui::Button("Close", ImVec2(120.0f * scale, 28.0f * scale))) {
+    if (ImGui::Button("Close", ImVec2(120.0f * scale, 28.0f * scale)) || pdguiMenuCancelPressed()) {
+        s_ChildPopupFrame = ImGui::GetFrameCount();
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
@@ -924,172 +1002,121 @@ static void renderValidationModal(float scale)
  * size threshold prompts, load order reordering (up/down).
  * ======================================================================== */
 
-static int  s_SelectedModIdx = -1;
-static bool s_SizeConfirmPending = false;
-static int  s_SizeConfirmIdx = -1;
 
 static void renderInstalledModsTab(float scale)
 {
-    int modCount = modmgrGetCount();
-
-    /* --- No mods found --- */
-    if (modCount == 0) {
-        ImGui::Spacing();
-        ImGui::TextColored(pdguiVec4TextWarning(), "No mods found");
-        ImGui::Spacing();
+    std::string freshnessError;
+    const bool registryFresh = s_InstalledSelection.matches(readInstalledSelection(),
+        assetCatalogGetGeneration(), freshnessError);
+    if (!registryFresh) s_SelectionError = freshnessError;
+    const auto rows = s_InstalledSelection.entries(); // stable for this frame's reorder widgets
+    if (rows.empty()) {
         const char *modsDir = modmgrGetModsDir();
-        if (modsDir) {
-            ImGui::TextWrapped("Place mod folders in:\n%s", modsDir);
-        } else {
-            ImGui::TextWrapped("Place mod folders in a 'mods/' directory next to the game executable.");
-        }
-        ImGui::Spacing();
-        ImGui::TextDisabled("Each mod needs a mod.json or audio.ini manifest file.");
+        ImGui::TextWrapped("No mods found. Place mod folders in %s.", modsDir ? modsDir : "mods/");
         return;
     }
-
-    for (int i = 0; i < modCount; i++) {
-        ImGui::PushID(i);
-
-        bool valid   = modmgrGetModValid(i) != 0;
-        bool enabled = modmgrGetModEnabled(i) != 0;
-        const char *name    = modmgrGetModName(i);
-        const char *version = modmgrGetModVersion(i);
-        const char *author  = modmgrGetModAuthor(i);
-        const char *valErr  = modmgrGetModValidationError(i);
-        bool isSelected = (s_SelectedModIdx == i);
-
-        /* --- Invalid manifest: show error inline --- */
-        if (!valid) {
-            ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintDanger());
-            ImGui::BulletText("%s", name[0] ? name : "(unknown mod)");
-            ImGui::PopStyleColor();
-            ImGui::SameLine();
-            ImGui::TextColored(pdguiVec4TintDanger(204), "[INVALID]");
-            if (valErr[0]) {
-                ImGui::Indent(20.0f * scale);
-                ImGui::TextColored(pdguiVec4TintDanger(230), "%s", valErr);
-                ImGui::Unindent(20.0f * scale);
-            }
-            ImGui::PopID();
+    for (size_t position = 0; position < rows.size(); ++position) {
+        const auto &row = rows[position];
+        const int i = installedRegistryIndex(row.id);
+        if (i < 0) {
+            ImGui::TextWrapped("%s is no longer installed. Discard pending changes to refresh.", row.id.c_str());
             continue;
         }
-
-        /* --- Valid mod: enable/disable toggle + info --- */
-        bool en = enabled;
-        char chkLabel[80];
-        snprintf(chkLabel, sizeof(chkLabel), "##mod_%d", i);
-        if (ImGui::Checkbox(chkLabel, &en)) {
-            if (en && !enabled) {
-                /* Check size threshold before enabling */
-                if (modmgrExceedsThreshold(i)) {
-                    s_SizeConfirmPending = true;
-                    s_SizeConfirmIdx = i;
-                } else {
-                    modmgrSetEnabled(i, 1);
-                    modmgrSaveConfig();   /* persist mod-level enable immediately */
-                }
-            } else if (!en && enabled) {
-                modmgrSetEnabled(i, 0);
-                modmgrSaveConfig();       /* persist mod-level disable immediately */
+        const char *name = modmgrGetModName(i);
+        ImGui::PushID(row.id.c_str());
+        bool enabled = row.enabled;
+        ImGui::BeginDisabled(!registryFresh || row.locked || (!row.valid && !row.enabled));
+        if (ImGui::Checkbox("##enabled", &enabled)) {
+            if (enabled && modmgrExceedsThreshold(i)) {
+                s_SizeConfirmId = row.id;
+                s_SizeConfirmPending = true;
+            } else if (s_InstalledSelection.setEnabled(row.id, enabled)) {
+                pdguiPlaySound(enabled ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
             }
-            pdguiPlaySound(en ? PDGUI_SND_TOGGLEON : PDGUI_SND_TOGGLEOFF);
+        }
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        const std::string label = std::string(name) + " v" + modmgrGetModVersion(i);
+        if (ImGui::Selectable(label.c_str(), s_SelectedInstalledId == row.id)) s_SelectedInstalledId = row.id;
+        const bool contextKey = ImGui::IsItemFocused()
+            && (pdguiMenuSecondaryPressed() || pdguiMenuDeletePressed());
+        if (contextKey || ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            s_SelectedInstalledId = row.id;
+            ImGui::OpenPopup("Context");
+        }
+        if (ImGui::BeginPopup("Context")) {
+            s_ChildPopupFrame = ImGui::GetFrameCount();
+            const bool contextBack = pdguiMenuCancelPressed();
+            if (contextBack) ImGui::CloseCurrentPopup();
+            ImGui::TextUnformatted(name);
+            ImGui::Separator();
+            const bool canDelete = !row.locked && !hasPendingSelection() && registryFresh && !contextBack;
+            if (ImGui::MenuItem("Delete Mod...", nullptr, false, canDelete)) {
+                const char *dir = modmgrGetModDir(i);
+                if (dir) pdguiInterfaceRequestModDelete(i, name, dir);
+            }
+            if (!canDelete) ImGui::TextWrapped(row.locked ? "This mod belongs to the current network session."
+                : !registryFresh ? "Installed mods changed. Discard to refresh."
+                : "Apply or discard pending changes before deleting a mod.");
+            ImGui::EndPopup();
         }
         ImGui::SameLine();
-
-        /* Selectable name */
-        char label[160];
-        snprintf(label, sizeof(label), "%s v%s", name, version);
-        if (ImGui::Selectable(label, isSelected, ImGuiSelectableFlags_SpanAllColumns)) {
-            s_SelectedModIdx = i;
+        ImGui::BeginDisabled(!registryFresh || position == 0 || row.locked || (position > 0 && rows[position - 1].locked));
+        if (ImGui::SmallButton("Up")) s_InstalledSelection.move(static_cast<int>(position), static_cast<int>(position) - 1);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!registryFresh || position + 1 == rows.size() || row.locked || (position + 1 < rows.size() && rows[position + 1].locked));
+        if (ImGui::SmallButton("Down")) s_InstalledSelection.move(static_cast<int>(position), static_cast<int>(position) + 1);
+        ImGui::EndDisabled();
+        if (!row.valid) {
+            ImGui::TextWrapped("Invalid: %s", modmgrGetModValidationError(i));
+        } else if (row.locked) {
+            ImGui::TextDisabled("Network session mod");
         }
-
-        /* S306 BATCH 2: right-click + controller X-button → context menu
-         * with "Delete Mod..." (opens the Interface-tab confirm modal).
-         * The delete helper lives in pdgui_menu_mainmenu.cpp; we forward
-         * the mod index + display name + on-disk dir so the confirm
-         * dialog can show a clear path echo. Declared file-scope in the
-         * extern "C" block at the top of this file. */
-        {
-            char ctxId[32];
-            snprintf(ctxId, sizeof(ctxId), "##modctx_%d", i);
-            if (ImGui::BeginPopupContextItem(ctxId)) {
-                const char *dir = modmgrGetModDir(i);
-                ImGui::TextDisabled("%s", name);
-                ImGui::Separator();
-                if (ImGui::MenuItem("Delete Mod...")) {
-                    if (dir) {
-                        pdguiInterfaceRequestModDelete(i, name, dir);
-                    }
-                }
-                ImGui::EndPopup();
+        if (row.enabled) {
+            for (int d = 0; d < modmgrGetModNumDeps(i); ++d) {
+                const char *dependency = modmgrGetModDep(i, d);
+                if (dependency && *dependency && !s_InstalledSelection.enabled(dependency))
+                    ImGui::TextWrapped("Dependency disabled or missing: %s", dependency);
             }
         }
-
-        /* Dependency warning */
-        if (enabled) {
-            char missing[256];
-            s32 nmiss = modmgrCheckDependencies(i, missing, sizeof(missing));
-            if (nmiss > 0) {
-                ImGui::SameLine();
-                ImGui::TextColored(pdguiVec4TextWarning(220), "[deps: %s]", missing);
-            }
-        }
-
-        /* Reorder buttons */
-        ImGui::SameLine(ImGui::GetContentRegionAvail().x - 50.0f * scale);
-        {
-            bool isFirst = (i == 0);
-            bool isLast  = (i == modCount - 1);
-            if (isFirst) ImGui::BeginDisabled();
-            char upLabel[16];
-            snprintf(upLabel, sizeof(upLabel), "^##up%d", i);
-            if (ImGui::SmallButton(upLabel)) {
-                modmgrSwapOrder(i, i - 1);
-                if (s_SelectedModIdx == i) s_SelectedModIdx = i - 1;
-            }
-            if (isFirst) ImGui::EndDisabled();
-            ImGui::SameLine();
-            if (isLast) ImGui::BeginDisabled();
-            char dnLabel[16];
-            snprintf(dnLabel, sizeof(dnLabel), "v##dn%d", i);
-            if (ImGui::SmallButton(dnLabel)) {
-                modmgrSwapOrder(i, i + 1);
-                if (s_SelectedModIdx == i) s_SelectedModIdx = i + 1;
-            }
-            if (isLast) ImGui::EndDisabled();
-        }
-
         ImGui::PopID();
     }
+}
 
-    /* S306 BATCH 2: render the shared delete-confirm modal here too so
-     * deletes initiated inside the Modding Hub don't depend on Settings →
-     * Interface being open. The state is file-scope in mainmenu.cpp;
-     * this call is idempotent (no-op unless a delete request is live). */
+static void renderInstalledModPopups(float scale)
+{
+    // Render from the body owner after list children/row ID scopes have ended.
     pdguiInterfaceRenderDeleteConfirm();
-
-    /* --- Size threshold confirmation modal --- */
     if (s_SizeConfirmPending) {
+        pdguiNavSuppressActivation();
         ImGui::OpenPopup("Large Mod");
         s_SizeConfirmPending = false;
     }
-    if (ImGui::BeginPopupModal("Large Mod", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-        u32 sizeBytes = modmgrGetModSizeBytes(s_SizeConfirmIdx);
-        float sizeMB = (float)sizeBytes / (1024.0f * 1024.0f);
-        ImGui::Text("This mod is %.1f MB (threshold: %d MB).", sizeMB, modmgrGetSizeThresholdMB());
-        ImGui::Text("Enable it anyway?");
-        ImGui::Separator();
-        if (ImGui::Button("Yes, Enable", ImVec2(120 * scale, 0))) {
-            modmgrSetEnabled(s_SizeConfirmIdx, 1);
-            modmgrSaveConfig();   /* persist mod-level enable immediately */
+    if (ImGui::BeginPopupModal("Large Mod", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        const int i = installedRegistryIndex(s_SizeConfirmId);
+        if (i >= 0) ImGui::Text("This mod is %.1f MB (threshold: %d MB).",
+            modmgrGetModSizeBytes(i) / (1024.0f * 1024.0f), modmgrGetSizeThresholdMB());
+        else ImGui::TextUnformatted("This mod is no longer installed.");
+        ImGui::TextUnformatted("Stage enabling it?");
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+            ImGui::SetNavCursorVisible(true);
+        }
+        const bool cancel = ImGui::Button("Cancel", ImVec2(120 * scale, 0)) || pdguiMenuCancelPressed();
+        if (cancel) {
+            s_SizeConfirmId.clear();
+            s_ChildPopupFrame = ImGui::GetFrameCount();
             ImGui::CloseCurrentPopup();
-            pdguiPlaySound(PDGUI_SND_TOGGLEON);
         }
         ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(120 * scale, 0))) {
+        ImGui::BeginDisabled(cancel || i < 0);
+        if (ImGui::Button("Yes, Enable", ImVec2(120 * scale, 0))) {
+            s_InstalledSelection.setEnabled(s_SizeConfirmId, true);
+            s_SizeConfirmId.clear();
             ImGui::CloseCurrentPopup();
         }
+        ImGui::EndDisabled();
         ImGui::EndPopup();
     }
 }
@@ -1097,12 +1124,12 @@ static void renderInstalledModsTab(float scale)
 /* Mod detail panel for the Installed Mods tab */
 static void renderModDetails(float scale)
 {
-    if (s_SelectedModIdx < 0 || s_SelectedModIdx >= modmgrGetCount()) {
+    const int i = installedRegistryIndex(s_SelectedInstalledId);
+    if (i < 0) {
         ImGui::TextDisabled("Select a mod to see details.");
         return;
     }
 
-    int i = s_SelectedModIdx;
     const char *name    = modmgrGetModName(i);
     const char *id      = modmgrGetModId(i);
     const char *version = modmgrGetModVersion(i);
@@ -1147,7 +1174,7 @@ static void renderModDetails(float scale)
     /* Enabled status */
     ImGui::Spacing();
     ImGui::Separator();
-    if (modmgrGetModEnabled(i)) {
+    if (s_InstalledSelection.enabled(s_SelectedInstalledId)) {
         ImGui::TextColored(pdguiVec4TintSuccess(), "* Enabled");
     } else {
         ImGui::TextColored(pdguiVec4TintDanger(), "* Disabled");
@@ -1162,8 +1189,79 @@ static void renderModDetails(float scale)
  * Inner content renderer — usable both standalone and embedded in hub
  * ======================================================================== */
 
+static bool runPreparedApplyAttempt(void)
+{
+    const auto live = readInstalledSelection();
+    if (!s_InstalledSelection.matches(live, assetCatalogGetGeneration(), s_SelectionError)) {
+        s_ApplyRetryAllowed = false;
+        return false;
+    }
+    if (!s_ApplyPlan) {
+        std::vector<modmgr_component_override_t> changes;
+        for (const auto &entry : s_Entries) {
+            if (entry.bundled || entry.enabled == entry.orig_enabled) continue;
+            modmgr_component_override_t change{};
+            snprintf(change.id, sizeof(change.id), "%s", entry.id);
+            change.enabled = entry.enabled;
+            changes.push_back(change);
+        }
+        modmgr_apply_plan_t *raw = nullptr;
+        if (!modmgrPrepareApplyPlan(1, changes.data(), changes.size(), &raw, &s_ApplyResult)) {
+            s_SelectionError = s_ApplyResult.error;
+            s_ApplyIncomplete = true;
+            return false;
+        }
+        s_ApplyPlan.reset(raw);
+    }
+    const auto swap = [](void *, int a, int b) { modmgrSwapOrder(a, b); };
+    const auto enable = [](void *, int index, bool value) { modmgrSetEnabled(index, value ? 1 : 0); };
+    if (!s_InstalledSelection.publish(live, assetCatalogGetGeneration(), nullptr,
+            swap, enable, s_SelectionError)) return false;
+    /* Void registry callbacks may refuse an enable/order change. Confirm the
+     * actual post-publication state before saving or rebuilding anything. */
+    std::string publicationError;
+    if (!s_InstalledSelection.captureAfterAttempt(readInstalledSelection(),
+            assetCatalogGetGeneration(), publicationError)) {
+        s_SelectionError = publicationError;
+        s_ApplyIncomplete = true;
+        s_ApplyRetryAllowed = false;
+        return false;
+    }
+    if (s_InstalledSelection.dirty()) {
+        s_SelectionError = "Some requested package changes were refused. No settings or runtime rebuild were started.";
+        s_ApplyIncomplete = true;
+        return false;
+    }
+    /* No pre-save live component toggles: the prepared file drives replay after
+     * registration. This keeps persistence failures before runtime rebuild. */
+    const bool applied = modmgrApplyPreparedChanges(s_ApplyPlan.get(), &s_ApplyResult) != 0;
+    if (applied) {
+        refreshSnapshot(true);
+        return true;
+    }
+    s_ApplyIncomplete = true;
+    s_SelectionError = s_ApplyResult.error;
+    if (s_ApplyResult.id[0]) s_SelectionError += std::string("\nComponent/package: ") + s_ApplyResult.id;
+    if (s_ApplyResult.component.saved || s_ApplyResult.config.saved)
+        s_SelectionError += "\nSome settings were already saved. Retry keeps the same requested selection.";
+    if (s_ApplyResult.runtime_started)
+        s_SelectionError += "\nRuntime changes may remain from this attempt.";
+    std::string baselineError;
+    s_ApplyRetryAllowed = s_InstalledSelection.captureAfterAttempt(readInstalledSelection(),
+        assetCatalogGetGeneration(), baselineError);
+    if (!s_ApplyRetryAllowed) s_SelectionError += "\n" + baselineError;
+    return false;
+}
+
+
 static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 *outClose)
 {
+    if (ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel))
+        s_ChildPopupFrame = ImGui::GetFrameCount();
+    const bool canNavigate = !ownsSelectionNavigation();
+    const bool idleBack = canNavigate && pdguiMenuCancelPressed();
+    if (idleBack) pdguiNavSuppressActivation();
+    ImGui::BeginDisabled(idleBack || s_ApplyFlowState > 0 || s_LeaveRequested);
     /* --- Header --- */
     pdguiSetCursorBelowTitle(0.0f); /* content-inset: protect left/top from chrome border */
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 1.0f));
@@ -1178,11 +1276,11 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     /* Visual/UI order: Installed Mods (2), By Category (0), By Mod (1). */
     static const s32 k_ModMgrOrder[3] = { 2, 0, 1 };
     s32 s_ModMgrUiIdx = (s_Tab == 2) ? 0 : (s_Tab == 0 ? 1 : 2);
-    if (pdguiMenuTabPrevPressed()) {
+    if (canNavigate && !idleBack && pdguiMenuTabPrevPressed()) {
         s_ModMgrUiIdx = (s_ModMgrUiIdx - 1 + k_ModMgrTabCount) % k_ModMgrTabCount;
         s_ModMgrPendingTab = s_ModMgrUiIdx;
         pdguiPlaySound(PDGUI_SND_SWIPE);
-    } else if (pdguiMenuTabNextPressed()) {
+    } else if (canNavigate && !idleBack && pdguiMenuTabNextPressed()) {
         s_ModMgrUiIdx = (s_ModMgrUiIdx + 1) % k_ModMgrTabCount;
         s_ModMgrPendingTab = s_ModMgrUiIdx;
         pdguiPlaySound(PDGUI_SND_SWIPE);
@@ -1209,6 +1307,9 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
         s_ModMgrPendingTab = -1;
     }
 
+    if (s_ApplyIncomplete) {
+        ImGui::TextWrapped("Apply is incomplete. Retry or discard before editing. Discard clears pending choices; earlier saves and runtime changes remain.");
+    }
     /* --- Two-panel layout --- */
     float footerH = 44.0f * scale;
     float panelH  = dialogH
@@ -1218,6 +1319,7 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     float leftW   = dialogW * 0.65f - ImGui::GetStyle().ItemSpacing.x;
     float rightW  = dialogW * 0.35f - ImGui::GetStyle().ItemSpacing.x * 2.0f;
 
+    ImGui::BeginDisabled(s_ApplyIncomplete);
     /* Left panel: list */
     ImGui::BeginChild("##modmgr_list", ImVec2(leftW, panelH), true);
     if (s_Tab == 0) {
@@ -1242,15 +1344,18 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     }
     ImGui::EndChild();
 
+    ImGui::EndDisabled();
     /* --- Footer --- */
     ImGui::Separator();
     ImGui::SetCursorPosY(dialogH - footerH + ImGui::GetStyle().ItemSpacing.y);
 
     /* Pending change count */
-    int pending = countPending();
+    int pending = countPending() + s_InstalledSelection.pendingCount();
     if (pending > 0) {
         ImGui::TextColored(pdguiVec4TextWarning(),
                            "%d change(s) pending", pending);
+    } else if (s_ApplyIncomplete) {
+        ImGui::TextColored(pdguiVec4TextWarning(), "Apply incomplete");
     } else {
         ImGui::TextDisabled("No pending changes");
     }
@@ -1275,8 +1380,10 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
     /* Apply Changes */
     {
         char applyLabel[48];
-        bool modDirty = (modmgrIsDirty() != 0);
-        if (pending > 0) {
+        bool modDirty = s_InstalledSelection.dirty();
+        if (s_ApplyIncomplete) {
+            snprintf(applyLabel, sizeof(applyLabel), "Retry Apply");
+        } else if (pending > 0) {
             snprintf(applyLabel, sizeof(applyLabel), "Apply Changes (%d)", pending);
         } else if (modDirty) {
             strncpy(applyLabel, "Apply Changes*", sizeof(applyLabel));
@@ -1284,11 +1391,11 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
             strncpy(applyLabel, "Apply Changes", sizeof(applyLabel));
         }
 
-        bool applyDisabled = (pending == 0 && !modDirty);
+        bool applyDisabled = (pending == 0 && !modDirty && !s_ApplyIncomplete)
+            || (s_ApplyIncomplete && !s_ApplyRetryAllowed);
         if (applyDisabled) ImGui::BeginDisabled();
 
         if (ImGui::Button(applyLabel, ImVec2(160.0f * scale, 28.0f * scale))) {
-            applyPendingSelectionToCatalog();
             s_ApplyCloseAfterDone = false;
             s_ApplyFlowState = 1;
             pdguiPlaySound(PDGUI_SND_SELECT);
@@ -1306,113 +1413,110 @@ static void renderModManagerBody(float dialogW, float dialogH, float scale, s32 
 
     ImGui::SameLine();
 
-    /* Close — S311: theme danger tint at sub-opaque alpha. */
-    ImGui::PushStyleColor(ImGuiCol_Button, pdguiVec4TintDanger(128));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, pdguiVec4TintDanger(179));
-    if (ImGui::Button("Close", ImVec2(70.0f * scale, 28.0f * scale))) {
-        bool hasDirty = (pending > 0) || (modmgrIsDirty() != 0);
-        if (hasDirty) {
-            ImGui::OpenPopup("Unsaved Changes");
-        } else {
-            *outClose = 1;
-        }
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    if (ImGui::Button("Discard", ImVec2(85.0f * scale, 28.0f * scale))) {
+        s_InstalledSelection.discard();
+        refreshSnapshot(true);
     }
-    ImGui::PopStyleColor(2);
-
-    /* B button / Escape also closes — same guard */
-    if (pdguiMenuCancelPressed()) {
-        bool hasDirty = (pending > 0) || (modmgrIsDirty() != 0);
-        if (hasDirty) {
-            ImGui::OpenPopup("Unsaved Changes");
-        } else {
-            *outClose = 1;
-            pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        }
+    ImGui::SameLine();
+    const bool closeButton = ImGui::Button("Close", ImVec2(70.0f * scale, 28.0f * scale));
+    ImGui::EndDisabled();
+    if (closeButton || idleBack) {
+        if (requestSelectionLeave()) *outClose = 1;
+        else s_LocalClosePending = true;
     }
+    if (!s_SelectionError.empty()) ImGui::TextWrapped("%s", s_SelectionError.c_str());
 
-    /* Unsaved Changes guard modal */
-    if (ImGui::BeginPopupModal("Unsaved Changes", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted("You have unsaved changes.");
-        ImGui::TextUnformatted("Apply them now, or discard?");
-        ImGui::Spacing();
-        if (ImGui::Button("Apply & Close", ImVec2(120.0f * scale, 0))) {
+    renderInstalledModPopups(scale);
+    renderValidationPopup();
+    renderValidationModal(scale);
+
+    if (s_LeaveRequested && !ImGui::IsPopupOpen("Unsaved Changes")) {
+        pdguiNavSuppressActivation();
+        ImGui::OpenPopup("Unsaved Changes");
+    }
+    if (ImGui::BeginPopupModal("Unsaved Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted("Apply or discard pending mod selections before leaving?");
+        if (s_ApplyIncomplete) ImGui::TextWrapped("Discard only clears pending choices. Earlier saves and runtime changes remain.");
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+            ImGui::SetNavCursorVisible(true);
+        }
+        const bool cancel = ImGui::Button("Cancel") || pdguiMenuCancelPressed();
+        if (cancel) {
+            s_LeaveRequested = false;
+            s_LeaveResult = -1;
+            s_ChildPopupFrame = ImGui::GetFrameCount();
             ImGui::CloseCurrentPopup();
-            applyPendingSelectionToCatalog();
+        }
+        ImGui::SameLine();
+        ImGui::BeginDisabled(cancel);
+        if (ImGui::Button("Discard")) {
+            s_InstalledSelection.discard();
+            refreshSnapshot(true);
+            s_LeaveRequested = false;
+            s_LeaveResult = 1;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Apply")) {
+            s_LeaveRequested = false;
             s_ApplyCloseAfterDone = true;
             s_ApplyFlowState = 1;
-            pdguiPlaySound(PDGUI_SND_SELECT);
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Discard & Close", ImVec2(120.0f * scale, 0))) {
             ImGui::CloseCurrentPopup();
-            *outClose = 1;
-            pdguiPlaySound(PDGUI_SND_KBCANCEL);
         }
-        ImGui::SameLine();
-        if (ImGui::Button("Cancel", ImVec2(80.0f * scale, 0))) {
-            ImGui::CloseCurrentPopup();
-            pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        }
+        ImGui::EndDisabled();
         ImGui::EndPopup();
     }
 
-    if (s_ApplyFlowState > 0) {
-        ImGuiIO &io = ImGui::GetIO();
-        ImVec2 center(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
-        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(ImVec2(pdguiScale(600.0f), pdguiScale(240.0f)));
-
-        ImGuiWindowFlags applyFlags = ImGuiWindowFlags_NoResize |
-            ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
-            ImGuiWindowFlags_NoSavedSettings;
-
-        /* Match updater UX: neutral during work, green-tinted on success
-         * (S311 theme). Snapshot the scope before rendering because the apply
-         * state advances (or closes) inside this window. */
-        const bool pushedApplySuccessBg = s_ApplyFlowState >= 3;
-        if (pushedApplySuccessBg) {
-            ImGui::PushStyleColor(ImGuiCol_WindowBg, pdguiVec4TintSuccess(60));
-        }
-
-        if (ImGui::Begin("Applying Changes", NULL, applyFlags)) {
-            if (s_ApplyFlowState <= 1) {
-                ImGui::TextUnformatted("Applying mod changes...");
-                ImGui::TextDisabled("Rebuilding catalog and refreshing assets.");
-                ImGui::Spacing();
-                ImGui::ProgressBar(0.5f, ImVec2(-1, 24), "");
-                /* Let this frame paint the window before synchronous apply. */
-                s_ApplyFlowState = 2;
-            } else if (s_ApplyFlowState == 2) {
-                modmgrApplyChanges();
-                refreshSnapshot();
-                s_ApplyFlowState = 3;
-            } else {
-                ImGui::TextUnformatted("Apply complete.");
-                ImGui::TextDisabled("Catalog changes are live. No restart required.");
-                ImGui::Spacing();
-
-                float btnWidth = 120.0f * scale;
-                ImGui::SetCursorPosX((ImGui::GetWindowWidth() - btnWidth) * 0.5f);
-                if (ImGui::Button(s_ApplyCloseAfterDone ? "OK & Close" : "OK",
-                                  ImVec2(btnWidth, 0))) {
-                    if (s_ApplyCloseAfterDone) {
-                        *outClose = 1;
-                    }
+    if (s_ApplyFlowState == 1 && !ImGui::IsPopupOpen("Applying Changes")) {
+        s_ApplyResultNeedsFocus = false;
+        pdguiNavSuppressActivation();
+        ImGui::OpenPopup("Applying Changes");
+    }
+    if (ImGui::BeginPopupModal("Applying Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        if (s_ApplyFlowState == 1) {
+            ImGui::TextUnformatted("Applying mod changes...");
+            ImGui::ProgressBar(0.5f, ImVec2(360.0f * scale, 0));
+            s_ApplyFlowState = 2;
+        } else if (s_ApplyFlowState == 2) {
+            s_ApplyFlowState = runPreparedApplyAttempt() ? 3 : 4;
+            s_ApplyResultNeedsFocus = true;
+        } else {
+            if (s_ApplyFlowState == 3) {
+                ImGui::TextUnformatted("Apply finished.");
+                ImGui::TextWrapped("Mods marked as requiring restart take effect at the next launch.");
+                for (int i = 0; i < modmgrGetCount(); ++i)
+                    if (modmgrGetModPendingRestart(i)) ImGui::BulletText("Restart required: %s", modmgrGetModName(i));
+            } else ImGui::TextWrapped("%s", s_SelectionError.c_str());
+            if (s_ApplyResultNeedsFocus) {
+                pdguiNavSuppressActivation();
+                ImGui::SetKeyboardFocusHere();
+                ImGui::SetNavCursorVisible(true);
+                s_ApplyResultNeedsFocus = false;
+            }
+            bool retryPressed = false;
+            if (s_ApplyFlowState == 4 && s_ApplyRetryAllowed) {
+                retryPressed = ImGui::Button("Retry");
+                ImGui::SameLine();
+                if (retryPressed) s_ApplyFlowState = 1;
+            }
+            if (!retryPressed) {
+                if (ImGui::Button("OK") || pdguiMenuCancelPressed()) {
+                    if (s_ApplyCloseAfterDone) s_LeaveResult = s_ApplyFlowState == 3 ? 1 : -1;
                     s_ApplyFlowState = 0;
                     s_ApplyCloseAfterDone = false;
+                    s_ChildPopupFrame = ImGui::GetFrameCount();
+                    ImGui::CloseCurrentPopup();
                 }
             }
         }
-        ImGui::End();
-        if (pushedApplySuccessBg) {
-            ImGui::PopStyleColor();
-        }
+        ImGui::EndPopup();
     }
-
-    /* Validation popup (modal) */
-    renderValidationPopup();
-    renderValidationModal(scale);
+    if (s_LocalClosePending && s_LeaveResult) {
+        if (s_LeaveResult > 0) *outClose = 1;
+        s_LeaveResult = 0;
+        s_LocalClosePending = false;
+    }
 }
 
 static void renderModManager(s32 winW, s32 winH)
@@ -1489,10 +1593,18 @@ void pdguiModManagerShow(void)
 
 void pdguiModManagerHide(void)
 {
-    s_ApplyFlowState = 0;
-    s_ApplyCloseAfterDone = false;
-    s_Visible = false;
+    if (requestSelectionLeave()) s_Visible = false;
+    else s_LocalClosePending = true;
 }
+
+s32 pdguiModManagerRequestLeave(void) { return requestSelectionLeave() ? 1 : 0; }
+s32 pdguiModManagerConsumeLeaveResult(void)
+{
+    const int result = s_LeaveResult;
+    s_LeaveResult = 0;
+    return result;
+}
+s32 pdguiModManagerOwnsNavigation(void) { return ownsSelectionNavigation() ? 1 : 0; }
 
 s32 pdguiModManagerIsVisible(void)
 {

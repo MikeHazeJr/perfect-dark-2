@@ -53,6 +53,10 @@
 .PARAMETER Keep
     Do not delete the per-run dir on success.
 
+.PARAMETER MaintainForeground
+    For a single-process client smoke, keep its unique visible window focused
+    while waiting. Use only for fixtures that exercise real menu input.
+
 .PARAMETER Verbose
     Print every assertion check, not just failures.
 
@@ -87,6 +91,7 @@ param(
     [switch]   $SharedInstall,
     [switch]   $PerTestInstall,
     [switch]   $Keep,
+    [switch]   $MaintainForeground,
     [int]      $Timeout = 0,
 
     [string]   $TestsDir = "",
@@ -2274,11 +2279,42 @@ function Invoke-SmokeTest {
                 Write-Info ("  timeout-kill: process exited early with code {0}." -f $exitCode)
             }
         } else {
-            if ($screenshotSchedule.Count -gt 0) {
+            if ($screenshotSchedule.Count -gt 0 -or $MaintainForeground) {
+                if ($MaintainForeground -and
+                        -not ([System.Management.Automation.PSTypeName]'PdSmokeWindowCapture').Type) {
+                    Add-Type -TypeDefinition $captureSource
+                }
+                $focusLastAttempt = [DateTime]::MinValue
+                $focusWindowObserved = $false
+                $focusObserved = $false
+                $focusAttempts = 0
                 $deadline = $started.AddSeconds($watchdogSeconds)
                 while (-not $proc.HasExited -and (Get-Date) -lt $deadline) {
-                    Invoke-PendingSmokeScreenshots -Process $proc -Schedule $screenshotSchedule -Started $started
+                    if ($MaintainForeground) {
+                        $window = [PdSmokeWindowCapture]::ResolveUniqueProcessWindow([uint32]$proc.Id)
+                        if ($window -ne [IntPtr]::Zero) {
+                            $focusWindowObserved = $true
+                            $focused = [PdSmokeWindowCapture]::HasInputFocus($window)
+                            if (-not $focused -and
+                                    ((Get-Date) - $focusLastAttempt).TotalMilliseconds -ge 1000) {
+                                $focusLastAttempt = Get-Date
+                                $focusAttempts++
+                                $focused = [PdSmokeWindowCapture]::Focus($window, 500)
+                                if ($focused) {
+                                    Write-Info ("  window-focus: acquired pid={0} attempt={1}" -f $proc.Id, $focusAttempts)
+                                }
+                            }
+                            if ($focused) { $focusObserved = $true }
+                        }
+                    }
+                    if ($screenshotSchedule.Count -gt 0) {
+                        Invoke-PendingSmokeScreenshots -Process $proc -Schedule $screenshotSchedule -Started $started
+                    }
                     Start-Sleep -Milliseconds 250
+                }
+                if ($MaintainForeground) {
+                    Write-Info ("  window-focus: visible={0} acquired={1} attempts={2}" -f `
+                        $focusWindowObserved, $focusObserved, $focusAttempts)
                 }
                 if (-not $proc.HasExited) {
                     Write-Warn ("Watchdog firing after {0}s; terminating {1} (pid {2})." -f $watchdogSeconds, $exeLeaf, $proc.Id)

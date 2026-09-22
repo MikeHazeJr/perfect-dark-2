@@ -58,6 +58,8 @@ void pdguiConsoleToggle(void);
 /* Reset the main menu to the top-level view (s_MenuView = 0).
  * Call on disconnect so the menu re-opens at the root. */
 void pdguiMainMenuReset(void);
+/* Binding capture owns raw presses until the candidate is ready for review. */
+s32 pdguiMainMenuBindingCaptureListening(void);
 
 /* B-303 (2026-05-01): open the canonical Main Menu dialog over CI and switch
  * its inline view to the requested page. Used by the post-exit auto-pop

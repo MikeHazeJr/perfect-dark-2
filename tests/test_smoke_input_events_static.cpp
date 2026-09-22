@@ -327,9 +327,17 @@ TEST_CASE("smoke readiness barriers pause virtual time on production state",
 		"case SMOKE_READINESS_ENDSCREEN_VISIBLE:");
     requireContains(policy, "&& facts->stage_ready_epoch");
     requireContains(policy, "&& facts->cutscene_frame_ready");
-	requireContains(policy, "&& facts->cutscene_authority_ready");
-	requireContains(source,
-		"facts.cutscene_authority_ready = playerCutsceneGeneration() != 0;");
+	requireContains(policy,
+		"&& (!facts->network_active || facts->cutscene_authority_ready)");
+	REQUIRE(policy.find("&& facts->cutscene_authority_ready;") ==
+		std::string::npos);
+	requireContains(readinessProjection,
+		"facts.cutscene_authority_ready = !facts.network_active");
+	requireContains(readinessProjection,
+		"|| playerCutsceneGeneration() != 0;");
+	REQUIRE(readinessProjection.find(
+		"facts.cutscene_authority_ready = playerCutsceneGeneration() != 0;") ==
+		std::string::npos);
 	requireContains(readinessProjection,
 		"!facts.network_active || (g_NetLocalClient");
 	requireContains(readinessProjection,
@@ -424,19 +432,23 @@ TEST_CASE("smoke-owned action reads bypass only gameplay focus suppression",
     /* Physical dispatch keeps the production layer gate and then defers only
      * for the exact smoke-owned action before any button state write. */
     const std::string fireVk = requireSlice(source,
-        "static void fireVk(u32 vk, s32 is_down)",
+        "static void fireVk(u32 vk, s32 is_down, uint64_t source)",
         "static void handleAxisDigital(s32 player, s16 val,");
+    const size_t originalSourceRelease = fireVk.find(
+        "actionmapReleaseDigitalOwner(s_DigitalOwners.release(source))");
     const size_t physicalGate = fireVk.find(
         "if (!actionLayerAllows((InputAction)best_a))");
     const size_t stateLookup = fireVk.find(
         "ActionState *st = &s_State[player][best_a]");
     const size_t ownedGuard = fireVk.find(
         "if (actionStateIsSmokeOwned(player, (InputAction)best_a))");
-    const size_t stateWrite = fireVk.find("if (is_down)");
+    const size_t stateWrite = fireVk.find("s_DigitalOwners.press(source, player,");
+    REQUIRE(originalSourceRelease != std::string::npos);
     REQUIRE(physicalGate != std::string::npos);
     REQUIRE(stateLookup != std::string::npos);
     REQUIRE(ownedGuard != std::string::npos);
     REQUIRE(stateWrite != std::string::npos);
+    REQUIRE(originalSourceRelease < physicalGate);
     REQUIRE(physicalGate < stateLookup);
     REQUIRE(stateLookup < ownedGuard);
     REQUIRE(ownedGuard < stateWrite);
@@ -446,7 +458,7 @@ TEST_CASE("smoke-owned action reads bypass only gameplay focus suppression",
      * axis. The production layer gate itself remains unchanged. */
     const std::string physicalAxisSetter = requireSlice(source,
         "static void actionmapSetPhysicalAxisState(s32 player, InputAction action, f32 value)",
-        "/* M-2: Pre-computed list of actions bound to mouse wheel VKs");
+        "static ActionDigitalOwners s_DigitalOwners;");
     const size_t axisOwnedGuard = physicalAxisSetter.find(
         "actionStateIsSmokeOwned(player, action)");
     const size_t axisStateLookup = physicalAxisSetter.find(
@@ -497,11 +509,19 @@ TEST_CASE("smoke-owned action reads bypass only gameplay focus suppression",
         "/* ============================================================\n * Input authority: classification + flush helpers");
     const size_t retireRelease = endFrame.find(
         "if (st->smoke_injected == SMOKE_ACTION_RELEASED)");
-    const size_t wheelRelease = endFrame.find(
-        "if (st->smoke_injected == SMOKE_ACTION_HELD)");
+    const size_t wheelRelease = endFrame.find("s_DigitalOwners.retireWhere(");
+    const size_t wheelSource = endFrame.find("ActionSourceKind::Wheel", wheelRelease);
     REQUIRE(retireRelease != std::string::npos);
     REQUIRE(wheelRelease != std::string::npos);
+    REQUIRE(wheelSource != std::string::npos);
     REQUIRE(retireRelease < wheelRelease);
+    REQUIRE(endFrame.find("st->smoke_injected = SMOKE_ACTION_RELEASED") ==
+        std::string::npos);
+    const std::string physicalRelease = requireSlice(source,
+        "static void actionmapReleaseDigitalOwner(const ActionDigitalRelease &release)",
+        "static void fireVk(u32 vk, s32 is_down, uint64_t source)");
+    requireContains(physicalRelease,
+        "if (actionStateIsSmokeOwned(release.owner.player, release.owner.action)) return;");
 
     const std::string flush = requireSlice(source,
         "static void actionmapFlushStateSlot(ActionState *st, u32 now)",
@@ -553,7 +573,7 @@ TEST_CASE("invitee authority route smoke isolates D-003 from focus and visual ga
         "GROUP.MATCH: authority latched handle=0x73eb8f71 transport=client route_flags=0x[0-9a-f]+");
     requireContains(fixture, "\"invitee-authority-start-and-publish\"");
     requireContains(fixture, "\"initiator-consumes-only-signed-match-route\"");
-    requireContains(fixture, "\"v58-release-after-authority-and-peer-ready\"");
+    requireContains(fixture, "\"v59-release-after-authority-and-peer-ready\"");
     requireContains(fixture,
         "NET.STAGE.REPLICATION phase=waiting epoch=[1-9]\\\\d*");
     requireContains(fixture,
@@ -1199,4 +1219,76 @@ TEST_CASE("smoke can prove overlapping weapon owners through production lifecycl
     requireContains(scenario, "Missing PopStyleColor");
     requireContains(scenario, "ref=2->1 \\\\(retained\\\\)");
     requireContains(scenario, "ref=1->0 \\\\(freed\\\\)");
+}
+
+TEST_CASE("virtual controller smoke uses SDL state and preserves production input authority",
+    "[smoke][input][controller][static]")
+{
+    const std::string source = readTextFile("port/src/smoke_harness.c");
+    const std::string driver = requireSlice(source,
+        "/* One smoke-owned SDL device.", "static s32 smokeHasPendingTap(void)");
+    requireContains(driver, "SDL_JoystickAttachVirtualEx(&desc)");
+    requireContains(driver, "SDL_JoystickSetVirtualButton");
+    requireContains(driver, "SDL_JoystickSetVirtualAxis");
+    requireContains(driver, "SDL_GameControllerGetBindForButton");
+    requireContains(driver, "SDL_GameControllerGetBindForAxis");
+    requireContains(driver, "inputGetPad(0)");
+    requireContains(driver, "SDL_GameControllerFromPlayerIndex(0)");
+    requireContains(driver, "SMOKE_READINESS_AGENT_SELECT_READY");
+    REQUIRE(driver.find("SDL_PushEvent") == std::string::npos);
+    REQUIRE(driver.find("actionmapInject") == std::string::npos);
+    REQUIRE(driver.find("inputAssignController(") == std::string::npos);
+    REQUIRE(driver.find("SDL_GameControllerSetPlayerIndex(") == std::string::npos);
+    REQUIRE(driver.find("inputCtxDispatch(") == std::string::npos);
+    REQUIRE(driver.find("pdguiSubmitNavInput(") == std::string::npos);
+}
+
+TEST_CASE("virtual controller smoke fences state and releases before instance-safe removal",
+    "[smoke][input][controller][static]")
+{
+    const std::string source = readTextFile("port/src/smoke_harness.c");
+    const std::string index = requireSlice(source,
+        "static s32 smokePadDeviceIndex(void)", "static SDL_GameController *smokePadController(void)");
+    requireContains(index, "SDL_JoystickGetDeviceInstanceID(i) == s_SmokePad.instance");
+    const std::string detach = requireSlice(source,
+        "static s32 smokePadDetachOwned(void)", "static s32 smokePadCleanup(void)");
+    requireContains(detach, "const s32 index = smokePadDeviceIndex()");
+    requireContains(detach, "SDL_LockJoysticks()");
+    requireContains(detach, "SDL_UnlockJoysticks()");
+    requireContains(detach, "SDL_JoystickIsVirtual(index)");
+    requireContains(detach, "SDL_JoystickDetachVirtual(index)");
+    REQUIRE(detach.find("SDL_GameControllerClose") == std::string::npos);
+    const std::string tick = requireSlice(source, "void smokeHarnessTick(void)", "void smokeHarnessExit(");
+    requireContains(tick, "ev->at_ms != controller_group_at");
+    requireContains(tick, "SDL_JoystickUpdate()");
+    requireContains(tick, "s_SmokePad.pending_state = 1");
+    requireContains(source, "SMOKE_PAD_RELEASING");
+    requireContains(source, "SMOKE_PAD_REMOVING");
+    requireContains(source, "neutral_observed=1 removed_observed=1 virtual=1");
+    requireContains(source, "atexit(smokePadCleanupAtExit)");
+    requireContains(source.substr(source.find("void smokeHarnessExit(")), "if (!smokePadCleanup())");
+    requireContains(source, "if (!smokeValidateWaitHoldSchedule() || !smokeValidateControllerSchedule())");
+    requireContains(source, "wait_until crosses controller input hold(s)");
+    requireContains(source, "controller timestamp has conflicting state or non-input events");
+    requireContains(source, "exit requires controller_detach first");
+    requireContains(source, "controller axis value must be an integer");
+    requireContains(source, "smokeFixtureControllerAxisValueValid(controller_value)");
+}
+
+TEST_CASE("virtual controller menu fixture demands observed production outcomes",
+    "[smoke][input][controller][static]")
+{
+    const std::string fixture = readTextFile(
+        "tools/smoke-verify/tests/menu_virtual_controller_agent_cancel.json");
+    requireContains(fixture, "controller_attach");
+    requireContains(fixture, "controller_detach");
+    requireContains(fixture, "agent_select_ready");
+    requireContains(fixture, "agent_create_ready");
+    requireContains(fixture, "source=agent_select edge=create");
+    requireContains(fixture, "source=agent_create edge=cancel");
+    requireContains(fixture, "source=agent_select edge=back");
+    requireContains(fixture, "neutral_observed=1");
+    requireContains(fixture, "removed_observed=1");
+    requireContains(fixture, "virtual-after-editor-back.bmp");
+    requireContains(fixture, "retain_artifacts");
 }

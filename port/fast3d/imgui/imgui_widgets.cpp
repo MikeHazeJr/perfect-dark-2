@@ -43,6 +43,7 @@ Index of this file:
 #include "imgui.h"
 #ifndef IMGUI_DISABLE
 #include "imgui_internal.h"
+#include "pdgui_text_keyboard.h" // PD: exact-field native on-screen keyboard commands
 
 // System includes
 #include <stdint.h>     // intptr_t
@@ -4523,7 +4524,9 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
     if (is_resizable)
         IM_ASSERT(callback != NULL); // Must provide a callback if you set the ImGuiInputTextFlags_CallbackResize flag!
 
-    const bool input_requested_by_nav = (g.ActiveId != id) && ((g.NavActivateId == id) && ((g.NavActivateFlags & ImGuiActivateFlags_PreferInput) || (g.NavInputSource == ImGuiInputSource_Keyboard)));
+    // PD2: one mapped Activate enters text while sliders retain PreferTweak.
+    // Physical Enter and all existing validation/filter callbacks are unchanged.
+    const bool input_requested_by_nav = (g.ActiveId != id) && ((g.NavActivateId == id) && ((g.NavActivateFlags & ImGuiActivateFlags_PreferInput) || (g.NavInputSource == ImGuiInputSource_Keyboard) || (g.NavInputSource == ImGuiInputSource_Gamepad)));
 
     const bool user_clicked = hovered && io.MouseClicked[0];
     const bool user_scroll_finish = is_multiline && state != NULL && g.ActiveId == 0 && g.ActiveIdPreviousFrame == GetWindowScrollbarID(draw_window, ImGuiAxis_Y);
@@ -4621,7 +4624,10 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
         // FIXME: The reason we don't use Shortcut() is we would need a routing flag to specify multiple mods, or to all mods combinaison into individual shortcuts.
         const ImGuiKey always_owned_keys[] = { ImGuiKey_LeftArrow, ImGuiKey_RightArrow, ImGuiKey_Enter, ImGuiKey_KeypadEnter, ImGuiKey_Delete, ImGuiKey_Backspace, ImGuiKey_Home, ImGuiKey_End };
         for (ImGuiKey key : always_owned_keys)
-            SetKeyOwner(key, id);
+            // PD2: respect a window-opening lock until the actual key release;
+            // claiming Enter here would otherwise allow its held repeat to submit.
+            if (TestKeyOwner(key, ImGuiKeyOwner_Any))
+                SetKeyOwner(key, id);
         if (user_clicked)
             SetKeyOwner(ImGuiKey_MouseLeft, id);
         g.ActiveIdUsingNavDirMask |= (1 << ImGuiDir_Left) | (1 << ImGuiDir_Right);
@@ -4660,6 +4666,10 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
     // Release focus when we click outside
     if (g.ActiveId == id && io.MouseClicked[0] && !init_state && !init_make_active) //-V560
         clear_active_id = true;
+
+    // PD: commands are admitted only by this exact live InputText owner.
+    const PdguiTextKeyboardEdit keyboard_edit = pdguiTextKeyboardInputText(
+        id, window->ID, flags, !clear_active_id && !(g.CurrentItemFlags & ImGuiItemFlags_Disabled));
 
     // Lock the decision of whether we are going to take the path displaying the cursor or selection
     bool render_cursor = (g.ActiveId == id) || (state && user_scroll_active);
@@ -4788,6 +4798,13 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
             // Consume characters
             io.InputQueueCharacters.resize(0);
         }
+        // PD: use the same native character filtering and edit/undo machinery.
+        if (keyboard_edit.character && !ignore_char_inputs && !is_readonly && !input_requested_by_nav)
+        {
+            unsigned int c = keyboard_edit.character;
+            if (InputTextFilterCharacter(&g, &c, flags, callback, callback_user_data))
+                state->OnCharPressed(c);
+        }
     }
 
     // Process other shortcuts/key-presses
@@ -4816,13 +4833,13 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
         // We allow validate/cancel with Nav source (gamepad) to makes it easier to undo an accidental NavInput press with no keyboard wired, but otherwise it isn't very useful.
         const bool nav_gamepad_active = (io.ConfigFlags & ImGuiConfigFlags_NavEnableGamepad) != 0 && (io.BackendFlags & ImGuiBackendFlags_HasGamepad) != 0;
         const bool is_enter_pressed = IsKeyPressed(ImGuiKey_Enter, true) || IsKeyPressed(ImGuiKey_KeypadEnter, true);
-        const bool is_gamepad_validate = nav_gamepad_active && (IsKeyPressed(ImGuiKey_NavGamepadActivate, false) || IsKeyPressed(ImGuiKey_NavGamepadInput, false));
-        const bool is_cancel = Shortcut(ImGuiKey_Escape, f_repeat, id) || (nav_gamepad_active && Shortcut(ImGuiKey_NavGamepadCancel, f_repeat, id));
+        const bool is_gamepad_validate = (nav_gamepad_active && (IsKeyPressed(ImGuiKey_NavGamepadActivate, false) || IsKeyPressed(ImGuiKey_NavGamepadInput, false))) || keyboard_edit.key == PDGUI_TEXT_KEY_ENTER;
+        const bool is_cancel = Shortcut(ImGuiKey_Escape, f_repeat, id) || (nav_gamepad_active && Shortcut(ImGuiKey_NavGamepadCancel, f_repeat, id)) || keyboard_edit.key == PDGUI_TEXT_KEY_ESCAPE;
 
         // FIXME: Should use more Shortcut() and reduce IsKeyPressed()+SetKeyOwner(), but requires modifiers combination to be taken account of.
         // FIXME-OSX: Missing support for Alt(option)+Right/Left = go to end of line, or next line if already in end of line.
-        if (IsKeyPressed(ImGuiKey_LeftArrow))                        { state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_LINESTART : is_wordmove_key_down ? STB_TEXTEDIT_K_WORDLEFT : STB_TEXTEDIT_K_LEFT) | k_mask); }
-        else if (IsKeyPressed(ImGuiKey_RightArrow))                  { state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_LINEEND : is_wordmove_key_down ? STB_TEXTEDIT_K_WORDRIGHT : STB_TEXTEDIT_K_RIGHT) | k_mask); }
+        if (IsKeyPressed(ImGuiKey_LeftArrow) || keyboard_edit.key == PDGUI_TEXT_KEY_LEFT) { state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_LINESTART : is_wordmove_key_down ? STB_TEXTEDIT_K_WORDLEFT : STB_TEXTEDIT_K_LEFT) | k_mask); }
+        else if (IsKeyPressed(ImGuiKey_RightArrow) || keyboard_edit.key == PDGUI_TEXT_KEY_RIGHT) { state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_LINEEND : is_wordmove_key_down ? STB_TEXTEDIT_K_WORDRIGHT : STB_TEXTEDIT_K_RIGHT) | k_mask); }
         else if (IsKeyPressed(ImGuiKey_UpArrow) && is_multiline)     { if (io.KeyCtrl) SetScrollY(draw_window, ImMax(draw_window->Scroll.y - g.FontSize, 0.0f)); else state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_TEXTSTART : STB_TEXTEDIT_K_UP) | k_mask); }
         else if (IsKeyPressed(ImGuiKey_DownArrow) && is_multiline)   { if (io.KeyCtrl) SetScrollY(draw_window, ImMin(draw_window->Scroll.y + g.FontSize, GetScrollMaxY())); else state->OnKeyPressed((is_startend_key_down ? STB_TEXTEDIT_K_TEXTEND : STB_TEXTEDIT_K_DOWN) | k_mask); }
         else if (IsKeyPressed(ImGuiKey_PageUp) && is_multiline)      { state->OnKeyPressed(STB_TEXTEDIT_K_PGUP | k_mask); scroll_y -= row_count_per_page * g.FontSize; }
@@ -4839,7 +4856,7 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
             }
             state->OnKeyPressed(STB_TEXTEDIT_K_DELETE | k_mask);
         }
-        else if (IsKeyPressed(ImGuiKey_Backspace) && !is_readonly)
+        else if ((IsKeyPressed(ImGuiKey_Backspace) || keyboard_edit.key == PDGUI_TEXT_KEY_BACKSPACE) && !is_readonly)
         {
             if (!state->HasSelection())
             {
@@ -4850,7 +4867,7 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
             }
             state->OnKeyPressed(STB_TEXTEDIT_K_BACKSPACE | k_mask);
         }
-        else if (is_enter_pressed || is_gamepad_validate)
+        else if ((is_enter_pressed || is_gamepad_validate) && !is_cancel)
         {
             // Determine if we turn Enter into a \n character
             bool ctrl_enter_for_new_line = (flags & ImGuiInputTextFlags_CtrlEnterForNewLine) != 0;
@@ -5369,6 +5386,7 @@ bool ImGui::InputTextEx(const char* label, const char* hint, char* buf, int buf_
         MarkItemEdited(id);
 
     IMGUI_TEST_ENGINE_ITEM_INFO(id, label, g.LastItemData.StatusFlags | ImGuiItemStatusFlags_Inputable);
+    pdguiTextKeyboardFinishInputText(id, window->ID, validated);
     if ((flags & ImGuiInputTextFlags_EnterReturnsTrue) != 0)
         return validated;
     else

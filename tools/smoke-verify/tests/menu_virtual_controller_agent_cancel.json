@@ -1,0 +1,199 @@
+{
+  "scenario_name": "menu_virtual_controller_agent_cancel",
+  "description": "Ordinary-client SDL virtual GameController player-0 Agent Select -> Create -> editor Back -> screen Back; exact software controller route, graph counts and GL captures. No physical-controller or human visual proof.",
+  "tags": [
+    "menus",
+    "input",
+    "virtual-controller"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 140,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--main-menu"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "agent_select_ready",
+      "timeout_ms": 90000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 250,
+      "type": "controller_attach"
+    },
+    {
+      "at_ms": 750,
+      "type": "screenshot",
+      "path": "virtual-before-select.bmp"
+    },
+    {
+      "at_ms": 1000,
+      "type": "controller_button",
+      "button": "a",
+      "action": "press"
+    },
+    {
+      "at_ms": 1100,
+      "type": "controller_button",
+      "button": "a",
+      "action": "release"
+    },
+    {
+      "at_ms": 2000,
+      "type": "wait_until",
+      "condition": "agent_create_ready",
+      "timeout_ms": 15000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 2250,
+      "type": "screenshot",
+      "path": "virtual-create-open.bmp"
+    },
+    {
+      "at_ms": 2500,
+      "type": "controller_button",
+      "button": "b",
+      "action": "press",
+      "comment": "Native name editor owns the first Back."
+    },
+    {
+      "at_ms": 2600,
+      "type": "controller_button",
+      "button": "b",
+      "action": "release"
+    },
+    {
+      "at_ms": 3250,
+      "type": "wait_until",
+      "condition": "agent_create_ready",
+      "timeout_ms": 5000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 3500,
+      "type": "screenshot",
+      "path": "virtual-after-editor-back.bmp"
+    },
+    {
+      "at_ms": 3750,
+      "type": "controller_button",
+      "button": "b",
+      "action": "press",
+      "comment": "A separate Back cancels the screen after the editor released ownership."
+    },
+    {
+      "at_ms": 3850,
+      "type": "controller_button",
+      "button": "b",
+      "action": "release"
+    },
+    {
+      "at_ms": 4750,
+      "type": "wait_until",
+      "condition": "agent_select_ready",
+      "timeout_ms": 15000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 5000,
+      "type": "screenshot",
+      "path": "virtual-after-cancel.bmp"
+    },
+    {
+      "at_ms": 5250,
+      "type": "controller_detach"
+    },
+    {
+      "at_ms": 6250,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=menu_virtual_controller_agent_cancel",
+      "MENUPOOL: acquired agent_select",
+      "MENU\\.GRAPH\\.FIRE source=agent_select edge=create .*target=agent_create ok=1",
+      "MENU\\.GRAPH\\.FIRE source=agent_create edge=cancel .*ok=1",
+      "SMOKE: result=scripted_exit",
+      "SMOKE\\.WAIT: satisfied condition=agent_select_ready",
+      "SMOKE\\.WAIT: satisfied condition=agent_create_ready",
+      "SMOKE\\.PAD: event=attached .*player=0 .*virtual=1",
+      "SMOKE\\.PAD: event=detached .*player=0 .*neutral_observed=1 .*removed_observed=1 .*virtual=1",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> virtual-before-select\\.bmp",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> virtual-create-open\\.bmp",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> virtual-after-editor-back\\.bmp",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> virtual-after-cancel\\.bmp"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "MENU\\.GRAPH\\.FIRE .* ok=0",
+      "MENU\\.GRAPH\\.FIRE source=agent_select edge=back",
+      "pdgui_agentcreate: committed JSON agent",
+      "SMOKE: result=wait_",
+      "SMOKE\\.GLSHOT: fopen failed",
+      "SMOKE\\.PAD: failure",
+      "SMOKE: result=controller_"
+    ],
+    "required_counts": [
+      {
+        "pattern": "MENU\\.GRAPH\\.FIRE source=agent_select edge=create .*ok=1",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MENU\\.GRAPH\\.FIRE source=agent_create edge=cancel .*ok=1",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=agent_select_ready .* stable_ms=250 stable_elapsed_ms=(?:2[5-9][0-9]|[3-9][0-9]{2}|[1-9][0-9]{3,}) ",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=agent_create_ready .* stable_ms=250 stable_elapsed_ms=(?:2[5-9][0-9]|[3-9][0-9]{2}|[1-9][0-9]{3,}) ",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE\\.PAD: event=attached .*player=0 .*virtual=1",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE\\.PAD: event=detached .*player=0 .*neutral_observed=1 .*removed_observed=1 .*virtual=1",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  },
+  "retain_artifacts": [
+    {
+      "src": "virtual-before-select.bmp",
+      "name": "virtual-before-select.bmp"
+    },
+    {
+      "src": "virtual-create-open.bmp",
+      "name": "virtual-create-open.bmp"
+    },
+    {
+      "src": "virtual-after-editor-back.bmp",
+      "name": "virtual-after-editor-back.bmp"
+    },
+    {
+      "src": "virtual-after-cancel.bmp",
+      "name": "virtual-after-cancel.bmp"
+    }
+  ]
+}

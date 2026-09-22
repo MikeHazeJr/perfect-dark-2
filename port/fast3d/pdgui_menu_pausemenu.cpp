@@ -812,7 +812,10 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
                 bool doCancel  = false;
 
                 /* Cancel first — safer default focus. */
-                if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+                if (forceFocus) {
+                    ImGui::SetKeyboardFocusHere(0);
+                    ImGui::SetNavCursorVisible(true);
+                }
                 if (ImGui::Button("Cancel##pmendgame", ImVec2(bw, 0.0f))) {
                     if (!inputDebounced) doCancel = true;
                 }
@@ -830,15 +833,12 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
                 ImGui::PopStyleColor(3);
 
                 if (!inputDebounced) {
-                    if (pdguiMenuAcceptPressed()) {
-                        doConfirm = true;
-                    }
                     if (pdguiMenuCancelPressed()) {
                         doCancel = true;
                     }
                 }
 
-                if (doConfirm) {
+                if (doConfirm && !doCancel) {
                     /* GAP-3: route BOTH offline and online through mainEndStage
                      * so the player sees final rankings/awards before returning
                      * to the main menu. The MP endscreen's "Disconnect" button
@@ -962,7 +962,10 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
 
                 /* Footer: Close button (also Esc / B). */
                 bool doClose = false;
-                if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+                if (forceFocus) {
+                    ImGui::SetKeyboardFocusHere(0);
+                    ImGui::SetNavCursorVisible(true);
+                }
                 if (ImGui::Button("Close##pmshortcuts",
                                   ImVec2(pdguiScale(150.0f), 0.0f))) {
                     if (!inputDebounced) doClose = true;

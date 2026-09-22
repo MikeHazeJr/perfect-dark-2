@@ -966,6 +966,7 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
 
     if (forceFocus) {
         ImGui::SetKeyboardFocusHere(0);
+        ImGui::SetNavCursorVisible(true);
     }
 
     /* No (Cancel) first — safer default focus for destructive confirm. */
@@ -989,8 +990,8 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
     {
         char accept[24], cancel[24], hintL[64], hintR[64];
         pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
-        pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancel, (s32)sizeof(cancel));
-        snprintf(hintL, sizeof(hintL), "[%s] Confirm", accept);
+        pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL, cancel, (s32)sizeof(cancel));
+        snprintf(hintL, sizeof(hintL), "[%s] Select", accept);
         snprintf(hintR, sizeof(hintR), "[%s] Cancel", cancel);
 
         float hintY = dialogH - pdguiScale(22.0f);
@@ -1010,15 +1011,12 @@ static s32 renderCheatsConfirmUnlock(struct menudialog *dialog,
      * frames so the Enter press that activated the Unlock All row can't bleed
      * through. */
     if (!inputDebounced) {
-        if (pdguiMenuAcceptPressed()) {
-            doYes = true;
-        }
         if (pdguiMenuCancelPressed()) {
             doNo = true;
         }
     }
 
-    if (doYes) {
+    if (doYes && !doNo) {
         /* Legacy menuhandlerUnlockEverything is file-static in cheats.c; it
          * just calls gamefileUnlockEverything().  Zero-function-loss. */
         gamefileUnlockEverything();

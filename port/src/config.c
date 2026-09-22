@@ -5,6 +5,7 @@
 #include <PR/ultratypes.h>
 #include "fs.h"
 #include "config.h"
+#include "save_atomic.h"
 #include "system.h"
 #include "utils.h"
 
@@ -239,67 +240,111 @@ static void configSetFromString(const char *key, const char *val)
 	configApplyEntry(cfg, val);
 }
 
-static void configSaveEntry(struct configentry *cfg, FILE *f)
+/* Capture normalized numeric values without changing live settings before the
+ * disk commit. The registry and its pointers remain owned by the synchronous
+ * config caller, just as for configLoad/configRegister. */
+union configsavevalue {
+    s32 int_value;
+    u32 uint_value;
+    f32 float_value;
+};
+
+static void configCaptureSaveValues(union configsavevalue *values, s32 count)
 {
-	switch (cfg->type) {
-		case CFG_S32:
-			if (cfg->min_s32 < cfg->max_s32) {
-				*(s32 *)cfg->ptr = configClampInt(*(s32 *)cfg->ptr, cfg->min_s32, cfg->max_s32);
-			}
-			fprintf(f, "%s=%d\n", cfg->key + cfg->seclen + 1, *(s32 *)cfg->ptr);
-			break;
-		case CFG_F32:
-			if (cfg->min_f32 < cfg->max_f32) {
-				*(f32 *)cfg->ptr = configClampFloat(*(f32 *)cfg->ptr, cfg->min_f32, cfg->max_f32);
-			}
-			fprintf(f, "%s=%f\n", cfg->key + cfg->seclen + 1, *(f32 *)cfg->ptr);
-			break;
-		case CFG_U32:
-			if (cfg->min_u32 < cfg->max_u32) {
-				*(u32*)cfg->ptr = configClampUInt(*(u32*)cfg->ptr, cfg->min_u32, cfg->max_u32);
-			}
-			fprintf(f, "%s=%u\n", cfg->key + cfg->seclen + 1, *(u32 *)cfg->ptr);
-			break;
-		case CFG_STR:
-			fprintf(f, "%s=%s\n", cfg->key + cfg->seclen + 1, (char *)cfg->ptr);
-			break;
-		default:
-			/* S305: unregistered key with a pending raw value — preserve it on
-			 * save so an uninitialised subsystem doesn't lose user data.  Once
-			 * the owning subsystem registers later, the replay path applies
-			 * the value and the next save will write the typed form. */
-			if (cfg->has_pending) {
-				fprintf(f, "%s=%s\n", cfg->key + cfg->seclen + 1, cfg->pending);
-			}
-			break;
-	}
+    for (s32 i = 0; i < count; ++i) {
+        const struct configentry *cfg = &settings[i];
+        switch (cfg->type) {
+        case CFG_S32:
+            values[i].int_value = *(const s32 *)cfg->ptr;
+            if (cfg->min_s32 < cfg->max_s32)
+                values[i].int_value = configClampInt(values[i].int_value, cfg->min_s32, cfg->max_s32);
+            break;
+        case CFG_U32:
+            values[i].uint_value = *(const u32 *)cfg->ptr;
+            if (cfg->min_u32 < cfg->max_u32)
+                values[i].uint_value = configClampUInt(values[i].uint_value, cfg->min_u32, cfg->max_u32);
+            break;
+        case CFG_F32:
+            values[i].float_value = *(const f32 *)cfg->ptr;
+            if (cfg->min_f32 < cfg->max_f32)
+                values[i].float_value = configClampFloat(values[i].float_value, cfg->min_f32, cfg->max_f32);
+            break;
+        default: break;
+        }
+    }
+}
+
+static s32 configSaveEntry(const struct configentry *cfg, FILE *f,
+                          const union configsavevalue *value)
+{
+    const char *key = cfg->key + cfg->seclen + 1;
+    switch (cfg->type) {
+    case CFG_S32: return fprintf(f, "%s=%d\n", key, value->int_value) >= 0;
+    case CFG_F32: return fprintf(f, "%s=%f\n", key, value->float_value) >= 0;
+    case CFG_U32: return fprintf(f, "%s=%u\n", key, value->uint_value) >= 0;
+    case CFG_STR: return fprintf(f, "%s=%s\n", key, (const char *)cfg->ptr) >= 0;
+    default:
+        /* Keep late-registered subsystem values and their existing format. */
+        return !cfg->has_pending || fprintf(f, "%s=%s\n", key, cfg->pending) >= 0;
+    }
+}
+
+static s32 configWriteRegistry(FILE *f, const union configsavevalue *values, s32 count)
+{
+    char tmpSec[CONFIG_MAX_SECNAME + 1] = { 0 };
+    char curSec[CONFIG_MAX_SECNAME + 1] = { 0 };
+    if (!f) return 0;
+    configGetSection(curSec, &settings[0]);
+    if (fprintf(f, "[%s]\n", curSec) < 0) return 0;
+
+    for (s32 i = 0; i < count; ++i) {
+        const struct configentry *cfg = &settings[i];
+        configGetSection(tmpSec, cfg);
+        if (strncmp(curSec, tmpSec, CONFIG_MAX_SECNAME) != 0) {
+            if (fprintf(f, "\n[%s]\n", tmpSec) < 0) return 0;
+            strncpy(curSec, tmpSec, CONFIG_MAX_SECNAME - 1);
+            curSec[CONFIG_MAX_SECNAME - 1] = '\0';
+        }
+        if (!configSaveEntry(cfg, f, &values[i])) return 0;
+    }
+    return !ferror(f);
+}
+
+s32 configWriteSnapshot(FILE *stream)
+{
+    union configsavevalue values[CONFIG_MAX_SETTINGS];
+    const s32 count = numSettings;
+    configCaptureSaveValues(values, count);
+    return configWriteRegistry(stream, values, count);
 }
 
 s32 configSave(const char *fname)
 {
-	FILE *f = fsFileOpenWrite(fname);
-	if (!f) {
-		return 0;
-	}
+    save_atomic_file_t transaction;
+    char destination[FS_MAXPATH + 1];
+    union configsavevalue values[CONFIG_MAX_SETTINGS];
+    const s32 count = numSettings;
+    if (!fname || !fname[0]) return 0;
+    fsFullPath(fname, destination, sizeof(destination));
+    configCaptureSaveValues(values, count);
+    if (saveAtomicBegin(&transaction, destination) != 0) return 0;
+    if (!configWriteRegistry(saveAtomicStream(&transaction), values, count)) {
+        saveAtomicAbort(&transaction);
+        return 0;
+    }
+    if (saveAtomicCommit(&transaction) != 0) return 0;
 
-	char tmpSec[CONFIG_MAX_SECNAME + 1] = { 0 };
-	char curSec[CONFIG_MAX_SECNAME + 1] = { 0 };
-	configGetSection(curSec, &settings[0]);
-	fprintf(f, "[%s]\n", curSec);
-
-	for (s32 i = 0; i < numSettings; ++i) {
-		struct configentry *cfg = &settings[i];
-		configGetSection(tmpSec, cfg);
-		if (strncmp(curSec, tmpSec, CONFIG_MAX_SECNAME) != 0) {
-			fprintf(f, "\n[%s]\n", tmpSec);
-			strncpy(curSec, tmpSec, CONFIG_MAX_SECNAME - 1);
-			curSec[CONFIG_MAX_SECNAME - 1] = '\0';
-		}
-		configSaveEntry(cfg, f);
-	}
-
-	fsFileFree(f);
-	return 1;
+    /* Preserve successful-save normalization, using exactly the values written.
+     * Failure never modifies registered runtime values or the prior file. */
+    for (s32 i = 0; i < count; ++i) {
+        switch (settings[i].type) {
+        case CFG_S32: *(s32 *)settings[i].ptr = values[i].int_value; break;
+        case CFG_U32: *(u32 *)settings[i].ptr = values[i].uint_value; break;
+        case CFG_F32: *(f32 *)settings[i].ptr = values[i].float_value; break;
+        default: break;
+        }
+    }
+    return 1;
 }
 
 s32 configLoad(const char *fname)

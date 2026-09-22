@@ -1,0 +1,306 @@
+{
+  "scenario_name": "menu_settings_keyboard",
+  "description": "Ordinary SDL keyboard traversal using a disposable smoke Agent, observed native focus and submitted Settings tabs. Run after the unchanged Agent Create/Cancel gate. No editing, restart persistence or physical controller claim.",
+  "tags": [
+    "menus",
+    "input",
+    "settings",
+    "mkb"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 190,
+  "install_state": "clean",
+  "remove_paths": [
+    "settings-runtime-home"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/agent_smoke.json",
+      "dst": "settings-runtime-home/agent_smoke.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--savedir",
+    "./settings-runtime-home",
+    "--main-menu"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "agent_select_ready",
+      "timeout_ms": 90000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 250,
+      "type": "key",
+      "key": "Return",
+      "action": "tap"
+    },
+    {
+      "at_ms": 500,
+      "type": "wait_until",
+      "condition": "main_menu_play_ready",
+      "timeout_ms": 15000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 750,
+      "type": "screenshot",
+      "path": "settings-main-before.bmp"
+    },
+    {
+      "at_ms": 1000,
+      "type": "key",
+      "key": "Tab",
+      "action": "tap"
+    },
+    {
+      "at_ms": 1250,
+      "type": "key",
+      "key": "Tab",
+      "action": "tap"
+    },
+    {
+      "at_ms": 1500,
+      "type": "key",
+      "key": "Tab",
+      "action": "tap"
+    },
+    {
+      "at_ms": 1750,
+      "type": "key",
+      "key": "Tab",
+      "action": "tap"
+    },
+    {
+      "at_ms": 2000,
+      "type": "wait_until",
+      "condition": "main_menu_settings_focused",
+      "timeout_ms": 5000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 2250,
+      "type": "key",
+      "key": "Return",
+      "action": "tap"
+    },
+    {
+      "at_ms": 2500,
+      "type": "wait_until",
+      "condition": "settings_video_ready",
+      "timeout_ms": 5000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 2750,
+      "type": "key",
+      "key": "PageDown",
+      "action": "tap"
+    },
+    {
+      "at_ms": 3000,
+      "type": "wait_until",
+      "condition": "settings_interface_ready",
+      "timeout_ms": 5000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 3250,
+      "type": "key",
+      "key": "PageDown",
+      "action": "tap"
+    },
+    {
+      "at_ms": 3500,
+      "type": "wait_until",
+      "condition": "settings_audio_ready",
+      "timeout_ms": 5000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 3750,
+      "type": "key",
+      "key": "PageDown",
+      "action": "tap"
+    },
+    {
+      "at_ms": 4000,
+      "type": "wait_until",
+      "condition": "settings_input_ready",
+      "timeout_ms": 5000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 4250,
+      "type": "screenshot",
+      "path": "settings-input.bmp"
+    },
+    {
+      "at_ms": 4500,
+      "type": "key",
+      "key": "PageDown",
+      "action": "tap"
+    },
+    {
+      "at_ms": 4750,
+      "type": "wait_until",
+      "condition": "settings_game_ready",
+      "timeout_ms": 5000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 5000,
+      "type": "screenshot",
+      "path": "settings-game.bmp"
+    },
+    {
+      "at_ms": 5250,
+      "type": "key",
+      "key": "PageUp",
+      "action": "tap"
+    },
+    {
+      "at_ms": 5500,
+      "type": "wait_until",
+      "condition": "settings_input_ready",
+      "timeout_ms": 5000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 5750,
+      "type": "screenshot",
+      "path": "settings-input-return.bmp"
+    },
+    {
+      "at_ms": 6000,
+      "type": "key",
+      "key": "Escape",
+      "action": "tap"
+    },
+    {
+      "at_ms": 6250,
+      "type": "wait_until",
+      "condition": "main_menu_play_ready",
+      "timeout_ms": 15000,
+      "stable_ms": 250
+    },
+    {
+      "at_ms": 6500,
+      "type": "screenshot",
+      "path": "settings-main-return.bmp"
+    },
+    {
+      "at_ms": 6750,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=menu_settings_keyboard",
+      "SAVE: initialized .*settings-runtime-home",
+      "SAVE: Agent Profile Store published 1 validated profile\\(s\\)",
+      "SAVE: Agent Profile activation committed name='smoke'.*source=migrated-v2",
+      "PREFS\\.AGENT: active identity published name='smoke' source=profile-json",
+      "AGENT\\.SESSION: activation committed name='smoke' source=json",
+      "MENUPOOL: acquired main_menu",
+      "SMOKE: result=scripted_exit",
+      "SMOKE\\.WAIT: satisfied condition=agent_select_ready ",
+      "SMOKE\\.WAIT: satisfied condition=main_menu_play_ready ",
+      "SMOKE\\.WAIT: satisfied condition=main_menu_settings_focused ",
+      "SMOKE\\.WAIT: satisfied condition=settings_video_ready ",
+      "SMOKE\\.WAIT: satisfied condition=settings_interface_ready ",
+      "SMOKE\\.WAIT: satisfied condition=settings_audio_ready ",
+      "SMOKE\\.WAIT: satisfied condition=settings_input_ready ",
+      "SMOKE\\.WAIT: satisfied condition=settings_game_ready ",
+      "SMOKE\\.MENUOBS: satisfied condition=main_menu_play_ready .*agent=\"smoke\" device=0 accept_vk=[1-9][0-9]* accept=\"[^\"]+\" back=\"[^\"]+\" previous=\"[^\"]+\" next=\"[^\"]+\"",
+      "SMOKE\\.MENUOBS: satisfied condition=main_menu_settings_focused .*agent=\"smoke\" device=0 accept_vk=[1-9][0-9]* accept=\"[^\"]+\" back=\"[^\"]+\" previous=\"[^\"]+\" next=\"[^\"]+\"",
+      "SMOKE\\.MENUOBS: satisfied condition=settings_video_ready .*agent=\"smoke\" device=0 accept_vk=[1-9][0-9]* accept=\"[^\"]+\" back=\"[^\"]+\" previous=\"[^\"]+\" next=\"[^\"]+\"",
+      "SMOKE\\.MENUOBS: satisfied condition=settings_interface_ready .*agent=\"smoke\" device=0 accept_vk=[1-9][0-9]* accept=\"[^\"]+\" back=\"[^\"]+\" previous=\"[^\"]+\" next=\"[^\"]+\"",
+      "SMOKE\\.MENUOBS: satisfied condition=settings_audio_ready .*agent=\"smoke\" device=0 accept_vk=[1-9][0-9]* accept=\"[^\"]+\" back=\"[^\"]+\" previous=\"[^\"]+\" next=\"[^\"]+\"",
+      "SMOKE\\.MENUOBS: satisfied condition=settings_input_ready .*agent=\"smoke\" device=0 accept_vk=[1-9][0-9]* accept=\"[^\"]+\" back=\"[^\"]+\" previous=\"[^\"]+\" next=\"[^\"]+\"",
+      "SMOKE\\.MENUOBS: satisfied condition=settings_game_ready .*agent=\"smoke\" device=0 accept_vk=[1-9][0-9]* accept=\"[^\"]+\" back=\"[^\"]+\" previous=\"[^\"]+\" next=\"[^\"]+\"",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> settings-main-before\\.bmp",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> settings-input\\.bmp",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> settings-game\\.bmp",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> settings-input-return\\.bmp",
+      "SMOKE\\.GLSHOT: captured [0-9]+x[0-9]+ -> settings-main-return\\.bmp"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "SMOKE: result=wait_",
+      "SMOKE\\.GLSHOT: fopen failed",
+      "MENU\\.GRAPH\\.FIRE .*ok=0",
+      "MENU\\.GRAPH\\.FIRE source=main_menu edge=close",
+      "MENU\\.GRAPH\\.FIRE source=agent_select edge=(create|delete|back)",
+      "AGENT\\.SESSION: activation rejected",
+      "profile identity mismatch"
+    ],
+    "required_counts": [
+      {
+        "pattern": "MENU\\.GRAPH\\.RESULT source=agent_select edge=load rc=0 ok=1",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MENU\\.GRAPH\\.FIRE source=main_menu edge=settings .*ok=1",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MENU\\.GRAPH\\.FIRE source=main_settings_view edge=back .*ok=1",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=agent_select_ready ",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=main_menu_play_ready ",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=main_menu_settings_focused ",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=settings_video_ready ",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=settings_interface_ready ",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=settings_audio_ready ",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=settings_input_ready ",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=settings_game_ready ",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

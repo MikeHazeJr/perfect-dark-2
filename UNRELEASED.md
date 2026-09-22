@@ -1,5 +1,28 @@
 # Unreleased Changes
 
+- Keep menu actions held until all simultaneous bound inputs release. Wheel pulses retire independently, while focus loss and controller removal clear stale physical holds.
+- Let custom controllers bind buttons 23-32 separately from stick directions and triggers. Existing bindings keep working and show when an older shared control needs rebinding.
+- Keep failed mod activations available for retry, preserve restart requirements after a failed reload, and make dismissal clear that earlier changes remain.
+- Preserve disabled component preferences when saving and rebuilding the mod catalog.
+- Report incomplete settings saves when importing audio or saving a chrome style.
+- Report mod activation failures when installing archives or saving weapon mods; preserve failure state during reload.
+- Refresh the mod catalog after partial deletion and offer a refresh retry without deleting files again.
+- Allow disabled assets to be enabled again, and restore their selection if disabling fails.
+- Restore saved Mod Manager load order and protect selection files from malformed input and failed saves.
+- Keep the final mod in a full enabled-mod list when saving fallback settings.
+- Wrap long Create Agent character/head names and keep controls and reset text inside a scrollable column beside the preview.
+- Add a controller-operated keyboard for native text fields, retaining editor focus and consuming closing gestures until controls are released.
+- Keep failed Settings saves visible, allow explicit retry, and confirm departure with unsaved changes; preserve the previous machine settings file on failure.
+- Prevent duplicate menu transitions and give Back priority across Social, Agent selection, mission, training and results screens.
+- Make theme actions and color-editor departure reachable through native controls.
+- Keep destructive confirmations on the visibly focused choice, with Cancel taking priority when confirm and Back arrive together.
+- Isolate binding capture from parent menus, expose every binding slot, and make clearing accessible from the controller.
+- Preserve keyboard navigation and text editing alongside mapped controller input; resolve action hints through the same binding authority as dispatch.
+- Restore controller menu scrolling without reopening gameplay aim input.
+- Save complete keyboard/controller binding layouts and named profiles, keeping empty slots and the last accepted bindings when a save fails.
+- Show action labels for the active controller family and available controls, switching hints on meaningful input without stick-noise flicker.
+- Stage Mod Manager enable/order edits and prompt to Apply, Discard, or Cancel before leaving the hub.
+
 > Running release-note source for the next GitHub release.
 > Keep bullets short, player-facing where possible, and specific to what changed.
 

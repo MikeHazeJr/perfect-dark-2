@@ -82,7 +82,7 @@ TEST_CASE("Settings Input tab uses one scheme selector and one device selector",
 	requireContains(renderer, "renderInputDevicesSection();");
 	requireContains(renderer, "renderInputBindingsSection(scale);");
 	requireContains(renderer, "renderControlsGlobalMouse();");
-	requireContains(renderer, "handleCaptureInput();");
+    requireNotContains(renderer, "handleCaptureInput();");
 	requireNotContains(renderer, "##controls_imc_tabs");
 	requireNotContains(renderer, "renderImcTabBody");
 }
@@ -124,15 +124,21 @@ TEST_CASE("Input profiles save and load real action-map bindings",
 	REQUIRE(!actionmapC.empty());
 
 	requireContains(menu, "actionmapSaveProfileFile(path)");
-	requireContains(menu, "actionmapLoadProfileFile(path)");
+	requireContains(menu, "actionmapLoadProfileFileAsCurrent(path, profile)");
 	requireContains(menu, "$S/input-profiles/profile%d.ini");
 
 	requireContains(actionmapH, "actionmapSaveProfileFile");
 	requireContains(actionmapH, "actionmapLoadProfileFile");
-	requireContains(actionmapC, "buildContextBindStr");
+	requireContains(actionmapC, "s_ProfileStore.loadProfile(actionmapProfileRegistry()");
 	requireContains(actionmapC, "fsCreateDir(\"$S/input-profiles\")");
-	requireContains(actionmapC, "context.P0.ActionName=VK,VK");
-	requireContains(actionmapC, "parseBindStr(ctx, 0, action, binds)");
+	requireContains(actionmapC, "$S/input-bindings.ini");
+	requireContains(actionmapC, "s_ProfileStore.initialize(actionmapProfileRegistry()");
+	requireContains(actionmapC, "actionmap_profile::write(registry");
+    const std::string profiles = sliceBetween(menu, "static void inputUiLoadProfile", "static void renderInputDevicesSection");
+    requireNotContains(profiles, "inputProfilesSetActive(");
+    requireContains(profiles, "inputUiProfileCombo(\"Saved profile\", &selected)");
+    requireContains(menu, "if (!actionmapSaveBinds()) return false;");
+    requireContains(menu, "inputUiBindingPersistenceStatus();");
 }
 
 TEST_CASE("Settings Input binding table stays on the action map capture path",
@@ -212,6 +218,64 @@ TEST_CASE("Settings Input surfaces every user-bindable action",
 	requireContains(menu, "Look stick");
 	requireContains(menu, "Move deadzone");
 	requireContains(menu, "Look deadzone");
+}
+
+TEST_CASE("Settings capture previews every input before committing and owns parent navigation",
+          "[input][settings][capture][static]")
+{
+    const std::string menu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+    REQUIRE(!menu.empty());
+    const std::string capture = sliceBetween(menu, "static void handleCaptureInput(void)",
+                                            "static void renderInputCaptureModal(void)");
+    requireContains(capture, "inputGetLastKey()");
+    requireContains(capture, "s_CaptureCandidate = (u32)newKey;");
+    requireNotContains(capture, "actionmapBind(");
+    requireNotContains(capture, "newKey == PD_VK_ESCAPE");
+
+    const std::string modal = sliceBetween(menu, "static void renderInputCaptureModal(void)",
+                                          "/* Controller diagram:");
+    requireContains(modal, "ImGui::OpenPopup(popupId)");
+    requireContains(modal, "ImGui::BeginPopupModal(popupId");
+    requireContains(modal, "handleCaptureInput();");
+    requireContains(modal, "else if (ImGui::IsItemActive())");
+    REQUIRE(modal.find("if (ImGui::Button(\"Cancel\"))") < modal.find("handleCaptureInput();"));
+    REQUIRE(modal.find("else if (ImGui::IsItemActive())") < modal.find("handleCaptureInput();"));
+    requireContains(modal, "ImGui::Button(\"Try Again\")");
+    requireContains(modal, "ImGui::Button(\"Apply\") && s_CaptureImc && s_CaptureCandidate");
+    requireContains(modal, "actionmapBind(s_CaptureImc, 0, s_CaptureAction, s_CaptureBind, s_CaptureCandidate)");
+    requireContains(modal, "ready && pdguiMenuCancelPressed()");
+    requireContains(menu, "!s_CaptureActive && pdguiMenuTabPrevPressed()");
+    requireContains(menu, "!s_CaptureActive && pdguiMenuTabNextPressed()");
+    requireContains(menu, "if (oldView == 2 && view != 2) inputUiCancelCapture();");
+    requireContains(menu, "s_CaptureActive && !menupoolIsActive(MENU_TYPE_MAIN_SETTINGS_VIEW)");
+    requireContains(menu, "&& !menupoolIsActive(MENU_TYPE_CI_OPTIONS)");
+
+    /* Both ordinary Main Menu Settings and the legacy CI redirect render the
+     * modal from their owning window after the scroll child has ended. */
+    const size_t first = menu.find("\n        renderInputCaptureModal();");
+    REQUIRE(first != std::string::npos);
+    REQUIRE(menu.find("\n    renderInputCaptureModal();", first + 1) != std::string::npos);
+}
+
+TEST_CASE("Settings shows every trigger and supports focused clearing without slot eviction",
+          "[input][settings][capture][static]")
+{
+    const std::string menu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+    REQUIRE(!menu.empty());
+    const std::string table = sliceBetween(menu, "static void renderBindTable", "static void resetTabDeviceToDefaults");
+    requireContains(table, "1 + ACTIONMAP_MAX_TRIGGERS");
+    requireContains(table, "mkbVKs[ACTIONMAP_MAX_TRIGGERS]");
+    requireContains(table, "ctrlVKs, ctrlSlots, &ctrlCount, ACTIONMAP_MAX_TRIGGERS");
+    requireContains(table, "binding < ACTIONMAP_MAX_TRIGGERS");
+
+    const std::string freeSlot = sliceBetween(menu, "static s32 findFreeTriggerSlot", "/* Trigger slot index");
+    requireContains(freeSlot, "return -1;");
+    requireNotContains(freeSlot, "return 0;");
+    const std::string cell = sliceBetween(menu, "static void renderBindButton", "/* Find the first row");
+    requireContains(cell, "ImGui::BeginDisabled(!hasSlot || s_CaptureActive)");
+    requireContains(cell, "pdguiMenuSecondaryPressed() || pdguiMenuDeletePressed()");
+    requireContains(cell, "!s_CaptureActive && (ImGui::IsItemClicked(ImGuiMouseButton_Right) || focusedClear)");
+    requireNotContains(cell, "useSlot = (otherSlot == 0) ? 1 : 0");
 }
 
 TEST_CASE("Vehicle direct-use and Forge camera keys have distinct production contexts",

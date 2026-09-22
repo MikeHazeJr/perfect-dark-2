@@ -524,9 +524,15 @@ static s32 renderAgentCreate(struct menudialog *dialog,
         /* ============================================================
          * LEFT: Control rows
          * ============================================================ */
-        ImGui::BeginGroup();
-        {
-            ImGui::PushItemWidth(leftW);
+        // Contain long names/status text within the controls column. This
+        // child scrolls independently while the action bar remains docked.
+        if (ImGui::BeginChild("##ac_controls", ImVec2(leftW, 0),
+                              ImGuiChildFlags_NavFlattened,
+                              ImGuiWindowFlags_NoBackground)) {
+            const float controlsW = ImGui::GetContentRegionAvail().x;
+            const float controlsX = ImGui::GetCursorPosX();
+            ImGui::PushItemWidth(controlsW);
+            ImGui::PushTextWrapPos(0.0f);
 
             /* ----- Agent Name ----- */
             ImGui::AlignTextToFramePadding();
@@ -552,9 +558,20 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             ImGui::TextUnformatted("Character");
             ImGui::Spacing();
 
-            float arrowW = pdguiScale(28.0f);
-            float bodyNameW = leftW - arrowW * 2.0f - pdguiScale(80.0f);
-            if (bodyNameW < pdguiScale(80.0f)) bodyNameW = pdguiScale(80.0f);
+            const float arrowW = ImGui::GetFrameHeight();
+            const float nameSpace = controlsW - arrowW * 2.0f
+                - ImGui::GetStyle().ItemSpacing.x * 2.0f;
+            const float bodyNameW = nameSpace > 1.0f ? nameSpace : 1.0f;
+            const auto drawCarouselName = [bodyNameW](const char *name) {
+                ImGui::BeginGroup();
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + bodyNameW);
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                    pdguiPalImU32(PDPAL_TITLEFG, 255));
+                ImGui::TextUnformatted(name);
+                ImGui::PopStyleColor();
+                ImGui::PopTextWrapPos();
+                ImGui::EndGroup();
+            };
 
             if (ImGui::ArrowButton("##body_prev", ImGuiDir_Left)) {
                 s_SelectedBody--;
@@ -565,17 +582,8 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             }
             ImGui::SameLine();
 
-            {
-                const char *bodyName = getBodyDisplayName(s_SelectedBody);
-                ImVec2 cur = ImGui::GetCursorScreenPos();
-                ImGui::Dummy(ImVec2(bodyNameW, ImGui::GetFrameHeight()));
-                ImVec2 sz = ImGui::CalcTextSize(bodyName);
-                float ty = cur.y + (ImGui::GetFrameHeight() - sz.y) * 0.5f;
-                ImGui::GetWindowDrawList()->AddText(
-                    ImVec2(cur.x + (bodyNameW - sz.x) * 0.5f, ty),
-                    pdguiPalImU32(PDPAL_TITLEFG, 255), bodyName);
-            }
-            ImGui::SameLine();
+            drawCarouselName(getBodyDisplayName(s_SelectedBody));
+            ImGui::SameLine(controlsX + controlsW - arrowW);
 
             if (ImGui::ArrowButton("##body_next", ImGuiDir_Right)) {
                 s_SelectedBody++;
@@ -584,7 +592,6 @@ static s32 renderAgentCreate(struct menudialog *dialog,
                 autoSelectHead();
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
-            ImGui::SameLine();
             ImGui::TextDisabled("(%d/%d)", s_SelectedBody + 1, s_BodyListCount);
 
             ImGui::Dummy(ImVec2(0, pdguiScale(8.0f)));
@@ -608,19 +615,9 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             }
             ImGui::SameLine();
 
-            {
-                const char *headName = integratedHead
-                    ? "(integrated)"
-                    : getHeadDisplayName(s_SelectedHead);
-                ImVec2 cur = ImGui::GetCursorScreenPos();
-                ImGui::Dummy(ImVec2(bodyNameW, ImGui::GetFrameHeight()));
-                ImVec2 sz = ImGui::CalcTextSize(headName);
-                float ty = cur.y + (ImGui::GetFrameHeight() - sz.y) * 0.5f;
-                ImGui::GetWindowDrawList()->AddText(
-                    ImVec2(cur.x + (bodyNameW - sz.x) * 0.5f, ty),
-                    pdguiPalImU32(PDPAL_TITLEFG, 255), headName);
-            }
-            ImGui::SameLine();
+            drawCarouselName(integratedHead
+                ? "(integrated)" : getHeadDisplayName(s_SelectedHead));
+            ImGui::SameLine(controlsX + controlsW - arrowW);
 
             if (ImGui::ArrowButton("##head_next", ImGuiDir_Right)) {
                 s_SelectedHead++;
@@ -628,7 +625,6 @@ static s32 renderAgentCreate(struct menudialog *dialog,
                 s_HeadOverridden = true;
                 pdguiPlaySound(PDGUI_SND_FOCUS);
             }
-            ImGui::SameLine();
             if (integratedHead) {
                 ImGui::TextDisabled("(N/A)");
             } else {
@@ -647,7 +643,6 @@ static s32 renderAgentCreate(struct menudialog *dialog,
                         autoSelectHead();
                         pdguiPlaySound(PDGUI_SND_TOGGLEON);
                     }
-                    ImGui::SameLine();
                     ImGui::TextDisabled("Reset head to character default");
                 }
             }
@@ -655,9 +650,10 @@ static s32 renderAgentCreate(struct menudialog *dialog,
             /* Capture Enter-press for the action bar later this frame. */
             s_NameEnterPressedThisFrame = nameEntered;
 
+            ImGui::PopTextWrapPos();
             ImGui::PopItemWidth();
         }
-        ImGui::EndGroup();
+        ImGui::EndChild();
 
         /* ============================================================
          * RIGHT: 3D render pane (1/2 width, square, vertically centered)
@@ -748,7 +744,7 @@ static s32 renderAgentCreate(struct menudialog *dialog,
     }
 
     /* ---- Execute Create ---- */
-    if (doCreate && nameValid) {
+    if (doCreate && nameValid && !doCancel) {
         if (agentSessionCreate(s_AgentName) == 0) {
             /* Preserve the existing character-selection behavior only after
              * the durable profile commit succeeds. The campaign agent itself

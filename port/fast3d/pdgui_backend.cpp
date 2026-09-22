@@ -64,6 +64,13 @@
 
 /* D5 Phase 2: Gamepad navigation helpers (wrap, accept/cancel, device detect) */
 #include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
+#include "pdgui_text_keyboard.h"
+#include "pdgui_text_keyboard_gate.h"
+#include "pdgui_glyphs.h"
+
+static PdguiCaptureLatch s_BindingCaptureLatch;
+static PdguiTextKeyboardReleaseGate s_TextKeyboardReleaseGate;
 
 /* M0.2 Phase A: Core action map system */
 #include "actionmap.h"
@@ -390,11 +397,12 @@ void pdguiInit(void *sdlWindow)
     /* Create ImGui context */
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
+    pdguiTextKeyboardReset();
+    s_TextKeyboardReleaseGate.reset();
 
     ImGuiIO &io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    /* M0.2 Phase C: ImGui's built-in gamepad nav is disabled.
-     * pdguiDriveImGuiNav() now injects nav events from actionmap each frame. */
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+    /* Physical keyboard and mapped navigation have separate key ownership. */
 
     /* Priority K-c (2026-04-25) + B-259 (2026-04-25):
      *
@@ -454,6 +462,7 @@ void pdguiInit(void *sdlWindow)
      * default GL 3.0 compatibility profile context. */
     SDL_GLContext glCtx = SDL_GL_GetCurrentContext();
     ImGui_ImplSDL2_InitForOpenGL(g_PdguiWindow, glCtx);
+    ImGui_ImplSDL2_SetGamepadMode(ImGui_ImplSDL2_GamepadMode_Manual, nullptr, 0);
     ImGui_ImplOpenGL3_Init("#version 130");
 
     g_PdguiInitialized = true;
@@ -486,6 +495,10 @@ void pdguiInit(void *sdlWindow)
     /* D5 Phase 2: Register the C++ wrap trampoline so pdguiNavTickWrap()
      * can call ImGui::NavMoveRequestTryWrapping from C code. */
     pdguiNavSetWrapCallback(navWrapTrampoline);
+    pdguiNavSetActionFilter([](InputAction action) -> s32 {
+        return !pdguiTextKeyboardOwnsMenuInput() && s_TextKeyboardReleaseGate.allows(action)
+            && pdguiNavActionAllowed(action) ? 1 : 0;
+    });
 
     /* D5 Phase 2: Safe area margins — persist to pd.ini.
      * -1.0 = auto-detect (default). 0.0–0.5 = manual override. */
@@ -510,10 +523,8 @@ void pdguiInit(void *sdlWindow)
  * action states are up-to-date.  Replaces ImGui's built-in gamepad nav
  * with the unified action system.
  *
- * B-124 fix: Uses KEYBOARD nav keys (not ImGuiKey_Gamepad*) because
- * NavEnableGamepad is disabled. ImGui ignores all Gamepad* keys when
- * that flag is off. NavEnableKeyboard IS enabled, so keyboard nav keys
- * work for controller-driven navigation too. */
+ * Mapped inputs use Gamepad keys so neutral controller state cannot release
+ * an arrow/Enter/Escape key owned by the physical keyboard backend. */
 
 /* Phase 2 fix #2 (input-menu pillar, 2026-05-01): pick the innermost
  * scrollable visible descendant of NavWindow for the right-stick scroll
@@ -565,25 +576,8 @@ static ImGuiWindow *pdguiInnermostScrollableForNav(ImGuiWindow *root)
 static void pdguiDriveImGuiNav(void)
 {
     ImGuiIO &io = ImGui::GetIO();
-    static bool s_MouseBackHeld = false;
-
-    /* Pressed (edge) → ImGui addKeyEvent with value=true on press frame, false on release.
-     * For D-pad we use held state since ImGui expects sustained press for repeat navigation. */
-    auto drivePressed = [&](InputAction act, ImGuiKey key) {
-        if (actionPressed(0, act))  io.AddKeyEvent(key, true);
-        if (actionReleased(0, act)) io.AddKeyEvent(key, false);
-    };
-
-    auto driveHeld = [&](InputAction act, ImGuiKey key) {
-        io.AddKeyEvent(key, actionHeld(0, act) != 0);
-    };
-
-    drivePressed(ACTION_USE,           ImGuiKey_Enter);
-    drivePressed(ACTION_CANCEL_USE,    ImGuiKey_Escape);
-    driveHeld(ACTION_MENU_UP,          ImGuiKey_UpArrow);
-    driveHeld(ACTION_MENU_DOWN,        ImGuiKey_DownArrow);
-    driveHeld(ACTION_MENU_LEFT,        ImGuiKey_LeftArrow);
-    driveHeld(ACTION_MENU_RIGHT,       ImGuiKey_RightArrow);
+    static PdguiMouseBackGesture mouseBack;
+    const bool navigationActive = pdguiIsActive() && !pdguiMainMenuBindingCaptureListening();
 
     /* Universal mouse back/cancel: middle-click maps to the same back path
      * menus already use (Escape / ACTION_CANCEL_USE). Using middle-click avoids
@@ -591,17 +585,53 @@ static void pdguiDriveImGuiNav(void)
      *
      * S-2: Do not inject Escape while a middle-button drag is active — tools
      * like the Skin Editor use middle-drag for canvas pan. An Escape during
-     * the drag would close the tool mid-gesture. We only treat a pure
-     * middle-click press (no drag) as back. */
-    {
-        bool mouseBackRaw = (SDL_GetMouseState(NULL, NULL) & SDL_BUTTON(SDL_BUTTON_MIDDLE)) != 0;
-        bool draggingMiddle = ImGui::IsMouseDragging(ImGuiMouseButton_Middle);
-        bool mouseBackHeld = mouseBackRaw && !draggingMiddle;
-        if (mouseBackHeld != s_MouseBackHeld) {
-            io.AddKeyEvent(ImGuiKey_Escape, mouseBackHeld);
-            s_MouseBackHeld = mouseBackHeld;
-        }
-    }
+     * the drag would close the tool mid-gesture. Commit Back on release only
+     * after the full gesture is known to be a click. */
+    int mouseX = 0, mouseY = 0;
+    const unsigned int mouseButtons = SDL_GetMouseState(&mouseX, &mouseY);
+    pdguiTextKeyboardReconcilePointerButtons(mouseButtons);
+    const bool middleHeld = (mouseButtons & SDL_BUTTON(SDL_BUTTON_MIDDLE)) != 0;
+    const bool keyboardPointerOwner = pdguiTextKeyboardPointerEvent(
+        PDGUI_TEXT_POINTER_WHEEL, (float)mouseX, (float)mouseY, 0) != 0;
+    const bool mouseCancel = mouseBack.update(navigationActive && !keyboardPointerOwner, middleHeld,
+        (float)mouseX, (float)mouseY, io.MouseDragThreshold);
+    pdguiNavSetFrameCancel(mouseCancel ? 1 : 0);
+    InputCtxDebugAuthority textAuthority = {};
+    inputCtxDebugSnapshotAuthority(&textAuthority);
+    PdguiTextKeyboardInput textInput = {
+        navigationActive,
+        actionmapGetLastDevice() == ACTIONMAP_DEVICE_GAMEPAD,
+        !textAuthority.window_focus_lost && textAuthority.focus_settle_remaining_ms == 0,
+        actionHeld(0, ACTION_MENU_ACCEPT) != 0,
+        actionHeld(0, ACTION_MENU_CANCEL) != 0 || mouseCancel,
+        actionHeld(0, ACTION_MENU_UP) != 0,
+        actionHeld(0, ACTION_MENU_DOWN) != 0,
+        actionHeld(0, ACTION_MENU_LEFT) != 0,
+        actionHeld(0, ACTION_MENU_RIGHT) != 0, io.DeltaTime
+    };
+    const bool textKeyboardOwns = pdguiTextKeyboardBeginFrame(&textInput) != 0;
+    std::array<bool, ACTION_COUNT> textHeld = {};
+    for (int i = 0; i < ACTION_COUNT; ++i) textHeld[i] = actionHeld(0, (InputAction)i) != 0;
+    textHeld[ACTION_MENU_CANCEL] = textInput.cancel;
+    const float menuScroll = actionmapMenuScrollAxisY(0);
+    s_TextKeyboardReleaseGate.update(textKeyboardOwns, textHeld, std::fabs(menuScroll) > 0.18f);
+    pdguiSubmitNavInput({navigationActive,
+        s_TextKeyboardReleaseGate.allows(ACTION_MENU_ACCEPT) && textInput.accept,
+        s_TextKeyboardReleaseGate.allows(ACTION_MENU_CANCEL) && textInput.cancel,
+        s_TextKeyboardReleaseGate.allows(ACTION_MENU_UP) && textInput.up,
+        s_TextKeyboardReleaseGate.allows(ACTION_MENU_DOWN) && textInput.down,
+        s_TextKeyboardReleaseGate.allows(ACTION_MENU_LEFT) && textInput.left,
+        s_TextKeyboardReleaseGate.allows(ACTION_MENU_RIGHT) && textInput.right});
+
+    PdguiTextKeyboardHints textHints = {};
+    textHints.controller_mode = textInput.controller_preferred;
+    pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, textHints.accept, sizeof(textHints.accept));
+    pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL, textHints.cancel, sizeof(textHints.cancel));
+    pdguiGlyphGetActionLabel(ACTION_MENU_UP, textHints.up, sizeof(textHints.up));
+    pdguiGlyphGetActionLabel(ACTION_MENU_DOWN, textHints.down, sizeof(textHints.down));
+    pdguiGlyphGetActionLabel(ACTION_MENU_LEFT, textHints.left, sizeof(textHints.left));
+    pdguiGlyphGetActionLabel(ACTION_MENU_RIGHT, textHints.right, sizeof(textHints.right));
+    pdguiTextKeyboardSetHints(&textHints);
 
     /* Priority L Rule 7 (2026-04-25): right-stick Y smoothly scrolls a
      * scrollable region in any menu. Reads the analog right-stick Y
@@ -623,9 +653,8 @@ static void pdguiDriveImGuiNav(void)
      *
      * Suppressed when gameplay is the input authority (no menu open) so
      * we don't fight the gameplay aim path. */
-    if (gameplayInputSuppressed()) {
-        f32 axX = 0.0f, axY = 0.0f;
-        actionAxis(0, ACTION_AXIS_AIM_X, &axX, &axY);
+    if (navigationActive) {
+        f32 axY = s_BindingCaptureLatch.ownsMenuScroll() || s_TextKeyboardReleaseGate.blocksScroll() ? 0.0f : menuScroll;
         /* Deadzone matches the actionmap stick deadzone roughly; values
          * inside [-0.18, 0.18] are noise. */
         const f32 deadzone = 0.18f;
@@ -637,7 +666,7 @@ static void pdguiDriveImGuiNav(void)
              * fast. Speed unit is "pixels per frame at 60 Hz". */
             f32 t = (mag - deadzone) / (1.0f - deadzone);
             const f32 maxPxPerFrame = 28.0f;
-            f32 deltaY = dir * t * t * maxPxPerFrame;
+            f32 deltaY = dir * t * t * maxPxPerFrame * 60.0f * io.DeltaTime;
             ImGuiContext *ctx = ImGui::GetCurrentContext();
             ImGuiWindow *w = pdguiInnermostScrollableForNav(ctx ? ctx->NavWindow : NULL);
             if (w && w->ScrollMax.y > 0.0f) {
@@ -657,6 +686,7 @@ void pdguiRequestFontAtlasRebuild(void)
 
 void pdguiNewFrame(void)
 {
+    pdguiNavSetFrameCancel(0);
     /* Rebuild font atlas if requested (e.g., user changed font in Settings).
      * Must run between frames — after the previous Render() and before the
      * next NewFrame(). This placement (before early-return) guarantees that
@@ -673,10 +703,6 @@ void pdguiNewFrame(void)
 
     /* H-3: actionmapEndFrame() removed from here — it is called once from gfx_sdl2.cpp.
      * Calling it twice caused edge signals to be cleared before game logic could read them. */
-
-    /* Drive ImGui nav from actionmap each frame.
-     * actionmapPollFrame() already ran in pdsched so action states are current. */
-    pdguiDriveImGuiNav();
 
     bool networkActive = (netGetMode() != 0);
     bool pauseActive = (pdguiIsPauseMenuOpen() || pdguiIsScorecardVisible());
@@ -746,11 +772,16 @@ void pdguiNewFrame(void)
         && !mpLiveMatchHud
         && !friendsActive
         && !pdguiHotswapHasQueued() && !pdguiHotswapWasActive()) {
+        pdguiTextKeyboardCancelOwner();
         return;
     }
 
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplSDL2_NewFrame();
+    pdguiNavCaptureOwners();
+    /* SDL clears HasGamepad during its disabled gamepad poll; publish our
+     * action-map device after that poll and before ImGui consumes events. */
+    pdguiDriveImGuiNav();
 
     /* Scale font with display height so the 24pt atlas renders proportionally
      * at all resolutions. At 720p scale=1.0 (24pt effective). At 800x600
@@ -761,6 +792,7 @@ void pdguiNewFrame(void)
 
     pdguiPopupDarkenBeginFrame();
     ImGui::NewFrame();
+    pdguiNavFinishOwners();
 }
 
 /* ---- Live Console (backtick toggle) ---- */
@@ -1294,6 +1326,7 @@ void pdguiRender(void)
     }
 
     pdguiPopupDarkenFlush();
+    pdguiTextKeyboardRender();
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
@@ -1416,6 +1449,8 @@ void pdguiShutdown(void)
 
     ImGui_ImplOpenGL3_Shutdown();
     ImGui_ImplSDL2_Shutdown();
+    pdguiTextKeyboardReset();
+    s_TextKeyboardReleaseGate.reset();
     ImGui::DestroyContext();
 
     g_PdguiInitialized = false;
@@ -1490,6 +1525,45 @@ static void registerDebugShortcuts(void)
         DBG_SHORTCUT_CAT_FORGE, 0);
 }
 
+static bool pdguiCaptureBlocksEvent(const SDL_Event *ev, bool listening,
+                                   bool *release, bool *pointer)
+{
+    uint64_t family = 0, instance = 0, control = 0;
+    bool down = true;
+    *pointer = false;
+    switch (ev->type) {
+    case SDL_KEYDOWN: case SDL_KEYUP:
+        family = 1; control = ev->key.keysym.scancode;
+        down = ev->type == SDL_KEYDOWN; break;
+    case SDL_MOUSEBUTTONDOWN: case SDL_MOUSEBUTTONUP:
+        family = 2; control = ev->button.button;
+        down = ev->type == SDL_MOUSEBUTTONDOWN; *pointer = true; break;
+    case SDL_CONTROLLERBUTTONDOWN: case SDL_CONTROLLERBUTTONUP:
+        family = 3; instance = (uint32_t)ev->cbutton.which; control = ev->cbutton.button;
+        down = ev->type == SDL_CONTROLLERBUTTONDOWN; break;
+    case SDL_JOYBUTTONDOWN: case SDL_JOYBUTTONUP:
+        family = 4; instance = (uint32_t)ev->jbutton.which; control = ev->jbutton.button;
+        down = ev->type == SDL_JOYBUTTONDOWN; break;
+    case SDL_CONTROLLERAXISMOTION:
+        family = 5; instance = (uint32_t)ev->caxis.which; control = ev->caxis.axis;
+        down = ev->caxis.value > 8000 || ev->caxis.value < -8000; break;
+    case SDL_JOYAXISMOTION:
+        family = 6; instance = (uint32_t)ev->jaxis.which; control = ev->jaxis.axis;
+        down = ev->jaxis.value > 8000 || ev->jaxis.value < -8000; break;
+    case SDL_JOYHATMOTION:
+        family = 7; instance = (uint32_t)ev->jhat.which; control = ev->jhat.hat;
+        down = ev->jhat.value != SDL_HAT_CENTERED; break;
+    case SDL_TEXTINPUT: case SDL_TEXTEDITING: case SDL_MOUSEWHEEL:
+        *release = false; *pointer = ev->type == SDL_MOUSEWHEEL;
+        return listening;
+    default:
+        return false;
+    }
+    *release = !down;
+    const uint64_t token = (family << 56) | (instance << 16) | control;
+    return s_BindingCaptureLatch.block(listening, token, down);
+}
+
 s32 pdguiProcessEvent(void *sdlEvent)
 {
     if (!g_PdguiInitialized) {
@@ -1497,6 +1571,22 @@ s32 pdguiProcessEvent(void *sdlEvent)
     }
 
     const SDL_Event *ev = (const SDL_Event *)sdlEvent;
+    // The OSK owns main-window coordinates only. Other SDL windows retain
+    // the existing native backend's event admission and forwarding path.
+    const Uint32 textWindowId = g_PdguiWindow ? SDL_GetWindowID(g_PdguiWindow) : 0;
+    // Typing/capture selects its real device even when dispatch is consumed.
+    // Device removal must also reach identity independently of menu ownership.
+    actionmapObserveDeviceEvent(ev);
+
+    /* Release may be lost when focus/device ownership changes. The core
+     * input authority separately flushes actions at these lifecycle edges. */
+    if (ev->type == SDL_WINDOWEVENT && ev->window.event == SDL_WINDOWEVENT_FOCUS_LOST &&
+        ev->window.windowID == SDL_GetWindowID(g_PdguiWindow)) {
+        s_BindingCaptureLatch.clear();
+        pdguiTextKeyboardCancelOwner();
+    } else if (ev->type == SDL_CONTROLLERDEVICEREMOVED || ev->type == SDL_JOYDEVICEREMOVED) {
+        s_BindingCaptureLatch.removeDevice((uint32_t)ev->jdevice.which);
+    }
 
     /* s036-02 (c036, 2026-05-12): all raw SDL_KEYDOWN F-key handlers
      * removed. They were dispatching dev hotkeys + tooling actions
@@ -1535,32 +1625,54 @@ s32 pdguiProcessEvent(void *sdlEvent)
         return 1; /* consumed: don't forward to ImGui or dispatch */
     }
 
-    /* ---- Forward to ImGui for internal state tracking (Q-Backend-Event-Order) ----
-     * ImGui must see the event BEFORE we read WantCaptureKeyboard, so focus
-     * changes driven by this very event (e.g. Tab-into-textbox, click-to-focus)
-     * are reflected on the same frame instead of leaking one tick of keys into
-     * actionmapDispatch. WantCaptureKeyboard itself is computed at NewFrame, so
-     * true gain-focus-same-frame races still require the B-154 Esc/Enter carve
-     * plus the imguiEatsKey early-return below as defense-in-depth. */
+    /* The raw input event watch has already recorded the candidate. While
+     * listening, no press may also activate UI or a gameplay/system binding.
+     * Releases still retire state held before capture began. */
+    if (pdguiMainMenuBindingCaptureListening()) pdguiTextKeyboardCancelOwner();
+    bool captureRelease = false, capturePointer = false;
+    if (pdguiCaptureBlocksEvent(ev, pdguiMainMenuBindingCaptureListening() != 0,
+                               &captureRelease, &capturePointer)) {
+        const bool textOwnedRelease = ev->type == SDL_MOUSEBUTTONUP &&
+            textWindowId != 0 && ev->button.windowID == textWindowId &&
+            pdguiTextKeyboardPointerEvent(PDGUI_TEXT_POINTER_RELEASE,
+                (float)ev->button.x, (float)ev->button.y, (int)ev->button.button - 1);
+        if ((captureRelease || capturePointer) && !textOwnedRelease) ImGui_ImplSDL2_ProcessEvent(ev);
+        if (captureRelease) actionmapDispatch(ev);
+        return 1;
+    }
+
+    // Binding capture above retains priority; the OSK owns pointer gestures
+    // before SDL's native text outside-click handling and mapped dispatch.
+    bool textPointerOwned = false;
+    switch (ev->type) {
+    case SDL_MOUSEMOTION:
+        if (!textWindowId || ev->motion.windowID != textWindowId) break;
+        textPointerOwned = pdguiTextKeyboardPointerEvent(PDGUI_TEXT_POINTER_MOVE,
+            (float)ev->motion.x, (float)ev->motion.y, 0); break;
+    case SDL_MOUSEBUTTONDOWN: case SDL_MOUSEBUTTONUP:
+        if (!textWindowId || ev->button.windowID != textWindowId) break;
+        textPointerOwned = pdguiTextKeyboardPointerEvent(
+            ev->type == SDL_MOUSEBUTTONDOWN ? PDGUI_TEXT_POINTER_PRESS : PDGUI_TEXT_POINTER_RELEASE,
+            (float)ev->button.x, (float)ev->button.y, (int)ev->button.button - 1); break;
+    case SDL_MOUSEWHEEL:
+        if (!textWindowId || ev->wheel.windowID != textWindowId) break;
+        textPointerOwned = pdguiTextKeyboardPointerEvent(PDGUI_TEXT_POINTER_WHEEL,
+            (float)ev->wheel.mouseX, (float)ev->wheel.mouseY, 0); break;
+    }
+    if (textPointerOwned) return 1;
+
+    /* Keep physical keyboard events in ImGui, including cursor movement and
+     * editing. WantCaptureKeyboard also means ordinary navigation focus and
+     * therefore is not by itself a reason to swallow mapped menu actions. */
     ImGui_ImplSDL2_ProcessEvent(ev);
 
-    /* ---- B-154 fix: Textbox keystroke leak to action map ---- */
-    /* When ImGui has captured the keyboard (InputText active, or a nav-focused
-     * window claims keys), keystrokes must NOT reach actionmapDispatch — else
-     * typing "E" in a mod-name box still fires ACTION_USE, etc. Esc and Enter
-     * still pass through so dialogs can close/submit via their normal action
-     * bindings. Everything else is handed to ImGui only (and consumed so the
-     * game never sees it). */
     s32 isKeyEv = (ev->type == SDL_KEYDOWN || ev->type == SDL_KEYUP);
-    s32 imguiEatsKey = 0;
-    if (isKeyEv && ImGui::GetIO().WantCaptureKeyboard) {
+    const ImGuiIO &eventIo = ImGui::GetIO();
+    const bool leakedCapture = eventIo.WantCaptureKeyboard && !pdguiIsActive();
+    s32 imguiEatsKey = isKeyEv && !pdguiKeyboardActionAllowed(
+        ev->type == SDL_KEYDOWN, eventIo.WantTextInput, false, leakedCapture);
+    if (imguiEatsKey && leakedCapture) {
         SDL_Keycode sym = ev->key.keysym.sym;
-        /* Allow Esc (cancel/close) and Enter (submit) through to the action
-         * map — those are the only keys that must continue to drive menu-
-         * level actions while a textbox has focus. */
-        if (sym != SDLK_ESCAPE && sym != SDLK_RETURN && sym != SDLK_KP_ENTER) {
-            imguiEatsKey = 1;
-        }
         /* B-195 leak-class diagnostic: if the input-ctx stack is at
          * gameplay (no menus open) but ImGui still reports it wants the
          * keyboard, some widget kept focus past its window's Begin/End
@@ -1582,7 +1694,9 @@ s32 pdguiProcessEvent(void *sdlEvent)
     }
 
     /* ---- M0.2 Phase A: Update action map state ---- */
-    if (!imguiEatsKey) {
+    /* A textbox may take focus after a mapped key went down. Its key-up
+     * still belongs to the captured physical owner and must retire it. */
+    if (!imguiEatsKey || ev->type == SDL_KEYUP) {
         actionmapDispatch(ev);
     }
 
@@ -1647,6 +1761,7 @@ void pdguiClearImGuiFocusAndNav(void)
     if (!g_PdguiInitialized) {
         return;
     }
+    pdguiTextKeyboardCancelOwner();
     ImGui::FocusWindow(nullptr);
     ImGui::ClearActiveID();
 }

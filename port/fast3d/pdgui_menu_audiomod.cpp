@@ -36,6 +36,7 @@
 #include "pdgui_glyphs.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "modmgr_save_status.h"
 #include "voice_archive_authoring.h"
 #include "fs.h"
 
@@ -52,10 +53,8 @@ const char *fsFullPath(const char *relPath, char *out, size_t outSize);
 #define FS_MAXPATH 1024
 #endif
 
-/* audio.c */
-s32  audioPlayFileSound(const char *path, u16 volume, u8 pan);
-f32  audioGetMasterVolume(void);
-f32  audioGetMusicVolume(void);
+/* Canonical audio API prevents stale local declaration drift. */
+#include "audio.h"
 
 /* modmusic.c */
 void modMusicPlay(const char *file_path);
@@ -95,7 +94,7 @@ void assetCatalogIterateByTypeIncludingDisabled(asset_type_e type,
  * the catalog entry never gets re-registered. */
 void        modmgrRescanDirectory(void);
 void        modmgrSetEnabled(s32 index, s32 enabled);
-void        modmgrSaveConfig(void);
+s32         modmgrGetModEnabled(s32 index);
 s32         modmgrGetCount(void);
 const char *modmgrGetModId(s32 index);
 
@@ -470,13 +469,33 @@ static bool importVoiceArchive(const char *filePath, const char *displayName)
 
     modmgrRescanDirectory();
     s32 regCount = modmgrGetCount();
+    bool registeredMod = false;
     for (s32 i = 0; i < regCount; i++) {
         const char *id = modmgrGetModId(i);
         if (id && strcmp(id, modId) == 0) {
+            registeredMod = true;
             modmgrSetEnabled(i, 1);
-            modmgrSaveConfig();
+            if (!modmgrGetModEnabled(i)) {
+                snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                    "Voice archive saved; the mod could not be enabled.");
+                s_AudioStatusOk = false;
+                return false;
+            }
+            modmgr_save_result_t saved;
+            if (!modmgrSaveConfigChecked(nullptr, &saved)) {
+                snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                    "Voice archive saved; settings incomplete: %.180s", saved.error);
+                s_AudioStatusOk = false;
+                return false;
+            }
             break;
         }
+    }
+    if (!registeredMod) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+            "Voice archive saved; mod registry entry is missing.");
+        s_AudioStatusOk = false;
+        return false;
     }
     if (netGetMode() == NETMODE_SERVER_AUDIOMOD) {
         netDistribServerRebroadcastCatalog();
@@ -584,15 +603,6 @@ static bool importAudioFile(const char *filePath, const char *displayName,
         e->dirpath[FS_MAXPATH - 1] = '\0';
     }
 
-    snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
-             "Imported '%s' as %s", displayName, catalogId);
-    s_AudioStatusOk = true;
-    s_AudioStatusFlashStart = SDL_GetTicks();
-    pdguiPlaySound(PDGUI_SND_SUCCESS);
-
-    sysLogPrintf(LOG_NOTE, "AUDIOMOD: imported '%s' -> %s (%s)",
-                 filePath, catalogId, modDir);
-
     /* S309: rescan the mod registry so the new mod.json/audio.ini shows
      * up under Modding Hub > Mod Manager, then flip its enabled bit and
      * persist to pd.ini so the catalog entry gets re-registered on the
@@ -601,11 +611,25 @@ static bool importAudioFile(const char *filePath, const char *displayName,
      * Combat Simulator Select Tunes screen after restart). */
     modmgrRescanDirectory();
     s32 regCount = modmgrGetCount();
+    bool registeredMod = false;
     for (s32 i = 0; i < regCount; i++) {
         const char *id = modmgrGetModId(i);
         if (id && strcmp(id, slug) == 0) {
+            registeredMod = true;
             modmgrSetEnabled(i, 1);
-            modmgrSaveConfig();
+            if (!modmgrGetModEnabled(i)) {
+                snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                    "Audio files saved; the mod could not be enabled.");
+                s_AudioStatusOk = false;
+                return false;
+            }
+            modmgr_save_result_t saved;
+            if (!modmgrSaveConfigChecked(nullptr, &saved)) {
+                snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+                    "Audio files saved; settings incomplete: %.180s", saved.error);
+                s_AudioStatusOk = false;
+                return false;
+            }
             sysLogPrintf(LOG_NOTE,
                 "AUDIOMOD: auto-enabled mod '%s' so it survives restart", slug);
             break;
@@ -614,10 +638,23 @@ static bool importAudioFile(const char *filePath, const char *displayName,
 
     /* v34: If we're hosting a server, re-broadcast catalog so connected
      * clients learn about the new audio mod and can download it. */
+    if (!registeredMod) {
+        snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+            "Audio files saved; mod registry entry is missing.");
+        s_AudioStatusOk = false;
+        return false;
+    }
     if (netGetMode() == NETMODE_SERVER_AUDIOMOD) {
         netDistribServerRebroadcastCatalog();
     }
 
+    snprintf(s_AudioStatusMsg, sizeof(s_AudioStatusMsg),
+             "Imported '%s' as %s", displayName, catalogId);
+    s_AudioStatusOk = true;
+    s_AudioStatusFlashStart = SDL_GetTicks();
+    pdguiPlaySound(PDGUI_SND_SUCCESS);
+    sysLogPrintf(LOG_NOTE, "AUDIOMOD: imported '%s' -> %s (%s)",
+                 filePath, catalogId, modDir);
     return true;
 }
 

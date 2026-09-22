@@ -15,8 +15,9 @@
  *     so MENU_UP etc. work from a thumbstick.
  *   - actionmapEndFrame() clears pressed/released edge signals.
  *
- * pd.ini keys: "ActionMap.P%d.%s" per player×action, value = comma-separated
- * VK names as returned by inputGetKeyName().
+ * Current bindings: complete versioned context/action snapshots in
+ * $S/input-bindings.ini. Legacy "ActionMap.P%d.%s" pd.ini strings remain
+ * registered and refreshed for compatibility; profile metadata/tuning stays INI.
  *
  * Auto-discovered by CMakeLists.txt GLOB_RECURSE port/*.cpp.
  */
@@ -32,6 +33,12 @@
 #include <PR/ultratypes.h>
 
 #include "actionmap.h"
+#include "actionmap_binding.h"
+#include "actionmap_digital_owner.h"
+#include "input_device_identity.h"
+#include <unordered_map>
+#include <unordered_set>
+#include "actionmap_profile.h"
 #include "action_read_authority.h"
 #include "config.h"     /* configRegisterString */
 #include "fs.h"         /* fsCreateDir, fsFileOpenRead/Write */
@@ -50,6 +57,7 @@ extern "C" s32 forgeIsFreefly(void);
 #include <PR/os_thread.h>
 #include "input.h"      /* virtkey enum, inputGetKeyName, inputGetKeyByName,
                            inputMouseGetRawDelta, INPUT_MAX_CONTROLLER_BUTTONS */
+#include "input_vk.h"
 
 void actionmapRefreshStickMultFromUi(void);
 
@@ -110,6 +118,7 @@ void actionmapRefreshStickMultFromUi(void);
 
 /* Gamepad button VKs relative to VK_JOY1_BEGIN */
 #define JOY_BTN(player, btn)  ((u32)(VK_JOY1_BEGIN) + (u32)(player) * INPUT_MAX_CONTROLLER_BUTTONS + (u32)(btn))
+#define JOY_AXIS(player, slot) inputVkAxisByOrdinal((player), (slot) - JOFS_LSTICK_LEFT)
 
 /* SDL controller button indices */
 #define JBTN_A       0
@@ -243,31 +252,15 @@ static const VkNameEntry s_VkNameTable[] = {
 };
 static const s32 s_VkNameTableSize = (s32)(sizeof(s_VkNameTable) / sizeof(s_VkNameTable[0]));
 
-/* Joystick button names (offset within a controller's 32-slot range).
- * JOY<n>_<name> is assembled dynamically. */
-static const char * const s_JoyBtnNames[INPUT_MAX_CONTROLLER_BUTTONS] = {
-    "A","B","X","Y","BACK","GUIDE","START","LSTICK","RSTICK",
-    "LSHOULDER","RSHOULDER","DPAD_UP","DPAD_DOWN","DPAD_LEFT","DPAD_RIGHT",
-    "BUTTON_15","BUTTON_16","BUTTON_17","BUTTON_18","BUTTON_19",
-    "TOUCHPAD","BUTTON_21",
-    "LSTICK_LEFT","LSTICK_RIGHT","LSTICK_UP","LSTICK_DOWN",
-    "RSTICK_LEFT","RSTICK_RIGHT","RSTICK_UP","RSTICK_DOWN",
-    "LTRIGGER","RTRIGGER",
-};
-
 /** Look up VK name for pd.ini serialisation (self-contained, no input.c dependency).
  * M-9: WARNING — returns pointer to static buffer for joystick VKs.
  * The returned string is only valid until the next call with a joystick VK. */
-static const char *actionmapGetVkName(u32 vk)
+const char *actionmapGetVkName(u32 vk)
 {
-    /* Joystick buttons: JOY<n>_<btn> */
+    /* Legacy and precise controller names share the capture conversion. */
     if (vk >= (u32)VK_JOY1_BEGIN && vk < (u32)VK_TOTAL_COUNT) {
-        u32 off = vk - (u32)VK_JOY1_BEGIN;
-        u32 jidx = off / INPUT_MAX_CONTROLLER_BUTTONS;
-        u32 jbtn = off % INPUT_MAX_CONTROLLER_BUTTONS;
         static char joyBuf[32];
-        snprintf(joyBuf, sizeof(joyBuf), "JOY%u_%s", jidx + 1, s_JoyBtnNames[jbtn]);
-        return joyBuf;
+        if (inputVkControllerName(vk, joyBuf, sizeof(joyBuf))) return joyBuf;
     }
 
     /* Static table lookup */
@@ -288,16 +281,9 @@ static s32 actionmapGetVkByName(const char *name)
 {
     if (!name || !name[0]) return -1;
 
-    /* Joystick: JOY<n>_<btn> */
-    if (!strncmp(name, "JOY", 3) && name[3] >= '1' && name[3] <= '4' && name[4] == '_') {
-        u32 jidx = (u32)(name[3] - '1');
-        const char *btn = name + 5;
-        for (u32 b = 0; b < INPUT_MAX_CONTROLLER_BUTTONS; b++) {
-            if (!strcmp(btn, s_JoyBtnNames[b])) {
-                return (s32)(VK_JOY1_BEGIN + jidx * INPUT_MAX_CONTROLLER_BUTTONS + b);
-            }
-        }
-        return -1;
+    if (!strncmp(name, "JOY", 3)) {
+        const u32 vk = inputVkControllerByName(name);
+        return vk ? (s32)vk : -1;
     }
 
     /* UNKNOWN<n> raw code */
@@ -494,21 +480,13 @@ static void actionmapSetPhysicalAxisState(s32 player, InputAction action, f32 va
     st->held = value != 0.0f ? 1 : 0;
 }
 
-/* M-2: Pre-computed list of actions bound to mouse wheel VKs, for fast end-of-frame release. */
-static InputAction s_WheelActions[ACTION_COUNT];
-static s32 s_NumWheelActions = 0;
+static ActionDigitalOwners s_DigitalOwners;
+static void actionmapReleaseDigitalOwner(const ActionDigitalRelease &release);
 
-/* Stick digital state: tracks whether each synthetic stick-dir VK is held.
- * Indexed [player][stick_slot] where stick_slot:
+/* Stick digital state is keyed by device instance and physical direction.
+ * stick_slot:
  *   0=LX-, 1=LX+, 2=LY-, 3=LY+, 4=RX-, 5=RX+, 6=RY-, 7=RY+, 8=LTrig, 9=RTrig */
-static s32 s_StickHeld[ACTIONMAP_MAX_PLAYERS][10];
-
-/* Device detection */
-static s32 s_RawDevice  = ACTIONMAP_DEVICE_KBM;
-static s32 s_LastDevice = ACTIONMAP_DEVICE_KBM;
-static s32 s_RawInputClass  = ACTIONMAP_INPUT_CLASS_MKB;
-static s32 s_LastInputClass = ACTIONMAP_INPUT_CLASS_MKB;
-static u32 s_DeviceChangeTime = 0;
+static std::unordered_set<uint64_t> s_AxisHeld;
 
 /* Cheat code rolling buffer */
 static InputAction s_CheatBuf[ACTIONMAP_CHEAT_BUF_LEN];
@@ -532,9 +510,8 @@ static inline s32 playerForVk(u32 vk)
     if (vk < (u32)VK_JOY_BEGIN) {
         return 0;
     }
-    u32 off = vk - (u32)VK_JOY_BEGIN;
-    s32 p = (s32)(off / INPUT_MAX_CONTROLLER_BUTTONS);
-    return (p < ACTIONMAP_MAX_PLAYERS) ? p : 0;
+    input_vk_control_t control;
+    return inputVkDecodeController(vk, &control) ? control.player : 0;
 }
 
 /** Radial deadzone: returns 0 inside dead band, linearly rescaled outside. */
@@ -704,106 +681,310 @@ static s32 classifyJoystickInstance(SDL_JoystickID jid)
         SDL_JoystickNumHats(joy));
 }
 
+static_assert(INPUT_MAX_CONTROLLER_BUTTONS == 32,
+    "Update identity capability domain when ActionMap pad VK stride changes");
+static_assert(ACTIONMAP_MAX_PLAYERS == INPUT_DEVICE_IDENTITY_PLAYERS,
+    "Identity player registry must cover the ActionMap player domain");
+static InputDeviceIdentityState s_DeviceIdentity;
+static std::unordered_map<uint64_t, int> s_DeviceAxisAnchor;
+static int s_DeviceJoyconVerticalMode;
+
+static void actionmapInitDeviceIdentity()
+{
+    inputDeviceIdentityReset(&s_DeviceIdentity);
+    s_DeviceAxisAnchor.clear();
+    /* This hint is startup-only. The application never changes it later;
+     * capture the effective startup setting rather than pretending it is live. */
+    s_DeviceJoyconVerticalMode = SDL_GetHintBoolean(
+        SDL_HINT_JOYSTICK_HIDAPI_VERTICAL_JOY_CONS, SDL_FALSE);
+}
+
+static int deviceGlyphFamily(SDL_GameControllerType type)
+{
+    switch (type) {
+    case SDL_CONTROLLER_TYPE_XBOX360: return INPUT_GLYPH_XBOX360;
+    case SDL_CONTROLLER_TYPE_XBOXONE: return INPUT_GLYPH_XBOXONE;
+    case SDL_CONTROLLER_TYPE_PS3: return INPUT_GLYPH_PS3;
+    case SDL_CONTROLLER_TYPE_PS4: return INPUT_GLYPH_PS4;
+    case SDL_CONTROLLER_TYPE_PS5: return INPUT_GLYPH_PS5;
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO: return INPUT_GLYPH_SWITCH_PRO;
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_LEFT: return INPUT_GLYPH_JOYCON_LEFT;
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT: return INPUT_GLYPH_JOYCON_RIGHT;
+    case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_PAIR: return INPUT_GLYPH_JOYCON_PAIR;
+    default: return INPUT_GLYPH_GENERIC;
+    }
+}
+
+static int deviceIdentityFromInstance(SDL_JoystickID instance, InputDeviceIdentity *out)
+{
+    if (!out) return 0;
+    *out = {};
+    out->kind = INPUT_DEVICE_GAMEPAD;
+    out->instance_id = instance;
+    SDL_Joystick *joystick = SDL_JoystickFromInstanceID(instance);
+    if (!joystick || !SDL_JoystickGetAttached(joystick)) return 0;
+    SDL_GameController *controller = SDL_GameControllerFromInstanceID(instance);
+    out->connected = 1;
+    out->nintendo_button_labels = SDL_GetHintBoolean(
+        SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, SDL_TRUE);
+    out->joycon_vertical_mode = s_DeviceJoyconVerticalMode;
+    if (controller && SDL_GameControllerGetAttached(controller)) {
+        out->player = SDL_GameControllerGetPlayerIndex(controller);
+        /* Match existing dispatch's unassigned-device policy. */
+        if (out->player < 0 || out->player >= ACTIONMAP_MAX_PLAYERS) out->player = 0;
+        out->input_class = classifyControllerInstance(instance);
+        out->standard_controller = out->input_class == ACTIONMAP_INPUT_CLASS_CONTROLLER;
+        out->family = deviceGlyphFamily(SDL_GameControllerGetType(controller));
+        for (int button = 0; button < SDL_CONTROLLER_BUTTON_MAX && button < 32; ++button) {
+            if (SDL_GameControllerHasButton(controller, SDL_GameControllerButton(button)))
+                out->button_mask |= uint32_t(1) << button;
+        }
+        for (int axis = 0; axis < SDL_CONTROLLER_AXIS_MAX && axis < 6; ++axis) {
+            if (SDL_GameControllerHasAxis(controller, SDL_GameControllerAxis(axis)))
+                out->axis_mask |= uint32_t(1) << axis;
+        }
+    } else {
+        /* Raw-device dispatch currently targets player 0 and only axes 0..5.
+         * Buttons 22..31 overlap synthetic axis VKs; keep both capability facts. */
+        out->input_class = classifyJoystickInstance(instance);
+        for (int button = 0; button < SDL_JoystickNumButtons(joystick) && button < 32; ++button)
+            out->button_mask |= uint32_t(1) << button;
+        for (int axis = 0; axis < SDL_JoystickNumAxes(joystick) && axis < 6; ++axis)
+            out->axis_mask |= uint32_t(1) << axis;
+    }
+    return 1;
+}
+
+void actionmapObserveDeviceEvent(const SDL_Event *event)
+{
+    if (!event) return;
+    if (event->type == SDL_CONTROLLERDEVICEREMOVED || event->type == SDL_JOYDEVICEREMOVED) {
+        const SDL_JoystickID instance = event->jdevice.which;
+        s_DigitalOwners.retireWhere(
+            [instance](uint64_t key, const ActionDigitalOwner &) {
+                const uint8_t kind = uint8_t(key >> 56);
+                return kind >= uint8_t(ActionSourceKind::ControllerButton) &&
+                    uint32_t(key >> 16) == uint32_t(instance);
+            }, actionmapReleaseDigitalOwner);
+        for (auto it = s_AxisHeld.begin(); it != s_AxisHeld.end();) {
+            const uint64_t key = *it;
+            const uint8_t kind = uint8_t(key >> 56);
+            if (kind >= uint8_t(ActionSourceKind::ControllerAxis) &&
+                uint32_t(key >> 16) == uint32_t(instance)) it = s_AxisHeld.erase(it);
+            else ++it;
+        }
+        inputDeviceIdentityDisconnect(&s_DeviceIdentity, instance);
+        for (auto it = s_DeviceAxisAnchor.begin(); it != s_DeviceAxisAnchor.end();) {
+            if ((it->first >> 8) == uint32_t(instance)) it = s_DeviceAxisAnchor.erase(it);
+            else ++it;
+        }
+        return;
+    }
+
+    InputDeviceIdentity identity = inputDeviceKeyboardIdentity();
+    InputDeviceActivity activity = {INPUT_ACTIVITY_PRESS, 1, 0};
+    SDL_JoystickID instance = -1;
+    int axis = -1;
+    switch (event->type) {
+    case SDL_KEYDOWN:
+        if (event->key.keysym.scancode <= SDL_SCANCODE_UNKNOWN ||
+            event->key.keysym.scancode >= SDL_NUM_SCANCODES) return;
+        break; /* Includes typing repeat; this never dispatches an action. */
+    case SDL_TEXTINPUT:
+        activity = {INPUT_ACTIVITY_TEXT, event->text.text[0] != '\0', 0};
+        break;
+    case SDL_TEXTEDITING:
+        activity = {INPUT_ACTIVITY_TEXT, event->edit.text[0] != '\0', 0};
+        break;
+    case SDL_MOUSEBUTTONDOWN: break;
+    case SDL_MOUSEMOTION:
+        activity = {INPUT_ACTIVITY_POINTER,
+            event->motion.xrel > 1 || event->motion.xrel < -1
+                ? event->motion.xrel : event->motion.yrel, 0};
+        break;
+    case SDL_MOUSEWHEEL:
+        activity = {INPUT_ACTIVITY_WHEEL, event->wheel.y ? event->wheel.y : event->wheel.x, 0};
+        break;
+    case SDL_CONTROLLERBUTTONDOWN: instance = event->cbutton.which; break;
+    case SDL_CONTROLLERAXISMOTION:
+        instance = event->caxis.which;
+        axis = event->caxis.axis;
+        activity = {INPUT_ACTIVITY_AXIS, event->caxis.value, 0};
+        break;
+    case SDL_JOYBUTTONDOWN:
+        instance = event->jbutton.which;
+        if (SDL_GameControllerFromInstanceID(instance)) return; /* duplicate raw event */
+        break;
+    case SDL_JOYHATMOTION:
+        instance = event->jhat.which;
+        if (SDL_GameControllerFromInstanceID(instance)) return;
+        activity.value = event->jhat.value != SDL_HAT_CENTERED;
+        break;
+    case SDL_JOYAXISMOTION:
+        instance = event->jaxis.which;
+        if (SDL_GameControllerFromInstanceID(instance)) return;
+        axis = event->jaxis.axis;
+        activity = {INPUT_ACTIVITY_AXIS, event->jaxis.value, 0};
+        break;
+    default: return; /* Releases, connects and neutral/noise never select a device. */
+    }
+    if (instance >= 0 && !deviceIdentityFromInstance(instance, &identity)) return;
+    if (activity.kind == INPUT_ACTIVITY_AXIS) {
+        if (axis < 0 || axis >= 6) return; /* Exact existing ActionMap axis domain. */
+        /* Slots 4/5 are positive-only triggers in dispatch, including raw sticks. */
+        if (axis >= 4 && activity.value < 0) activity.value = 0;
+        const uint64_t token = (uint64_t(uint32_t(instance)) << 8) | unsigned(axis);
+        int &anchor = s_DeviceAxisAnchor[token];
+        activity.prior_value = anchor;
+        if (activity.value > -8192 && activity.value < 8192) {
+            anchor = 0;
+            return;
+        }
+        if (!inputDeviceActivityMeaningful(&activity)) return;
+        anchor = activity.value;
+    }
+    inputDeviceIdentityObserve(&s_DeviceIdentity, &identity, &activity);
+}
+
+s32 actionmapGetBindingDeviceIdentity(s32 player, InputDeviceIdentity *out)
+{
+    if (!out) return 0;
+    *out = {};
+    out->instance_id = -1;
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0;
+    InputDeviceIdentity current;
+    const auto &remembered = s_DeviceIdentity.controller[player];
+    if (remembered.connected &&
+        deviceIdentityFromInstance(remembered.instance_id, &current) && current.player == player) {
+        *out = current;
+        return 1;
+    }
+    /* Reconcile unplug without relying on an event reaching this consumer. */
+    if (remembered.connected) inputDeviceIdentityDisconnect(&s_DeviceIdentity, remembered.instance_id);
+    auto *controller = static_cast<SDL_GameController *>(inputGetPad(player));
+    if (!controller || !SDL_GameControllerGetAttached(controller)) return 0;
+    SDL_Joystick *joystick = SDL_GameControllerGetJoystick(controller);
+    if (!joystick || !deviceIdentityFromInstance(SDL_JoystickInstanceID(joystick), out)) return 0;
+    return out->player == player;
+}
+
+s32 actionmapGetLastDevice(void)
+{
+    return s_DeviceIdentity.last.kind == INPUT_DEVICE_GAMEPAD
+        ? ACTIONMAP_DEVICE_GAMEPAD : ACTIONMAP_DEVICE_KBM;
+}
+s32 actionmapGetLastInputClass(void)
+{
+    return s_DeviceIdentity.last.input_class;
+}
+
 /* ============================================================
  * Helpers: fire a digital VK event into action states
  * ============================================================ */
 
+static void actionmapCaptureBindingContexts(ActionBindingContext *contexts)
+{
+    const s32 suppress_gameplay = gameplayInputSuppressed();
+    for (s32 ci = 0; ci < s_NumActive; ci++) {
+        InputMappingContext *ctx = s_Active[ci];
+        contexts[ci].context = ctx;
+        contexts[ci].eligible = !(suppress_gameplay &&
+            (ctx == &g_ImcGameplay || ctx == &g_ImcVehicle || ctx == &g_ImcObserver));
+    }
+}
+
 /** Given a VK and direction (pressed=1, released=0), find the action it maps
  *  to in the highest-priority active IMC and update the player's state. */
-static void fireVk(u32 vk, s32 is_down)
+static void actionmapReleaseDigitalOwner(const ActionDigitalRelease &release)
 {
-    if (vk == 0) {
+    if (!release.valid || !release.last) return;
+    ActionState *st = &s_State[release.owner.player][release.owner.action];
+    if (actionStateIsSmokeOwned(release.owner.player, release.owner.action)) return;
+    if (st->held) {
+        const u32 now = SDL_GetTicks();
+        st->held = 0;
+        st->released = 1;
+        st->value = 0.0f;
+        st->up_time_ms = now;
+        st->hold_vis_grace_until_ms = now + 100;
+    }
+}
+
+static void fireVk(u32 vk, s32 is_down, uint64_t source)
+{
+    if (!is_down) {
+        actionmapReleaseDigitalOwner(s_DigitalOwners.release(source));
         return;
     }
+    if (vk == 0) return;
 
     s32 player = playerForVk(vk);
 
-    /* Legacy dispatch-site gate (ADR 2026-04-13): while the inputctx
-     * predicate suppresses gameplay, skip gameplay-scope IMCs entirely.
-     * Layer-declared action apertures are applied per winning action below. */
-    s32 suppressGameplay = gameplayInputSuppressed();
-
-    /* Walk contexts from highest priority to lowest */
-    for (s32 ci = 0; ci < s_NumActive; ci++) {
-        InputMappingContext *ctx = s_Active[ci];
-
-        if (suppressGameplay &&
-            (ctx == &g_ImcGameplay || ctx == &g_ImcVehicle || ctx == &g_ImcObserver)) {
-            continue;
-        }
-
-        /* B-221.5: one VK can map to several actions in the same IMC (e.g. two reload paths).
-         * Pick a single winner per context: lowest trigger slot first (Bind 1 / primary edge),
-         * then lower InputAction id as a deterministic tie-break. */
-        s32 best_a = ACTION_COUNT;
-        s32 best_ti = ACTIONMAP_MAX_TRIGGERS + 1;
-
-        for (s32 a = 0; a < ACTION_COUNT; a++) {
-            if (!ctx->has_mapping[a]) {
-                continue;
-            }
-            InputMapping *m = &ctx->mappings[a];
-            for (s32 ti = 0; ti < m->num_triggers; ti++) {
-                if (m->triggers[ti].vk != vk) {
-                    continue;
-                }
-                if (ti < best_ti || (ti == best_ti && a < best_a)) {
-                    best_ti = ti;
-                    best_a = a;
-                }
-            }
-        }
-
-        if (best_a < ACTION_COUNT) {
-            if (!actionLayerAllows((InputAction)best_a)) {
-                goto next_player;
-            }
-
-            ActionState *st = &s_State[player][best_a];
-            if (actionStateIsSmokeOwned(player, (InputAction)best_a)) {
-                /* The harness owns this exact action until its injected
-                 * release edge retires. Ignore coincident physical edges so
-                 * they cannot split held/value from smoke ownership. */
-                goto next_player;
-            }
-
-            /* DIAG: Log which IMC wins the VK→action mapping for gamepad VKs.
-             * S197a: gated behind sysLogGetVerbose() — was spamming the log
-             * at ~60 Hz × N buttons per player. Enable with --verbose. */
-            if (sysLogGetVerbose() && vk >= (u32)VK_JOY1_BEGIN && is_down) {
-                sysLogPrintf(LOG_NOTE, "DIAG fireVk: vk=%u player=%d -> IMC '%s' action=%d(%s) DOWN",
-                             vk, player,
-                             ctx->name ? ctx->name : "?",
-                             best_a, (best_a < ACTION_COUNT) ? s_ActionNames[best_a] : "?");
-            }
-
-            if (is_down) {
-                if (!st->held) {
-                    st->held          = 1;
-                    st->pressed       = 1;
-                    st->value         = 1.0f;
-                    st->down_time_ms  = SDL_GetTicks();
-                    st->hold_consumed = 0;
-                    st->hold_vis_grace_until_ms = 0;
-                    st->hold_pin_full_until_ms = 0;
-                    /* Record non-axis actions in cheat buffer */
-                    if (best_a != ACTION_AXIS_MOVE_X && best_a != ACTION_AXIS_MOVE_Y &&
-                        best_a != ACTION_AXIS_AIM_X  && best_a != ACTION_AXIS_AIM_Y) {
-                        cheatRecord((InputAction)best_a);
-                    }
-                }
-            } else {
-                if (st->held) {
-                    st->held        = 0;
-                    st->released    = 1;
-                    st->value       = 0.0f;
-                    st->up_time_ms  = SDL_GetTicks();
-                    st->hold_vis_grace_until_ms = SDL_GetTicks() + 100;
-                }
-            }
-            /* Matched this IMC — do not fall through to lower-priority contexts */
+    /* Dispatch and visible prompts share this exact priority/trigger winner.
+     * A layer-denied winner still consumes its VK without lower fallback. */
+    ActionBindingContext contexts[ACTIONMAP_MAX_CONTEXTS];
+    actionmapCaptureBindingContexts(contexts);
+    const ActionBindingMatch winner = actionBindingResolveVkPair(
+        contexts, s_NumActive, vk, inputVkLegacyAlias(vk));
+    if (winner.context) {
+        const InputMappingContext *ctx = winner.context;
+        const s32 best_a = (s32)winner.action;
+        if (!actionLayerAllows((InputAction)best_a)) {
             goto next_player;
         }
+
+        ActionState *st = &s_State[player][best_a];
+        if (actionStateIsSmokeOwned(player, (InputAction)best_a)) {
+            /* The harness owns this exact action until its injected
+             * release edge retires. Ignore coincident physical edges so
+             * they cannot split held/value from smoke ownership. */
+            goto next_player;
+        }
+
+        /* Diagnose menu activation at focus boundaries without recording text
+         * input. Preserve dispatch semantics; emit only under verbose logging. */
+        if (sysLogGetVerbose() &&
+            (best_a == ACTION_MENU_ACCEPT || best_a == ACTION_MENU_CANCEL)) {
+            InputCtxDebugAuthority authority = {};
+            inputCtxDebugSnapshotAuthority(&authority);
+            sysLogPrintf(LOG_NOTE,
+                "INPUT.MENU.EDGE: vk=%u player=%d context=%s action=%d edge=%s "
+                "held_before=%d pressed_before=%d focus_lost=%d settle_ms=%u device=%d",
+                vk, player, ctx->name ? ctx->name : "?", best_a,
+                is_down ? "down" : "up", st->held, st->pressed,
+                authority.window_focus_lost,
+                (unsigned int)authority.focus_settle_remaining_ms,
+                actionmapGetLastDevice());
+        }
+
+        /* DIAG: Log the winning mapping for gamepad VKs (verbose only). */
+        if (sysLogGetVerbose() && vk >= (u32)VK_JOY1_BEGIN && is_down) {
+            sysLogPrintf(LOG_NOTE, "DIAG fireVk: vk=%u player=%d -> IMC '%s' action=%d(%s) DOWN",
+                         vk, player,
+                         ctx->name ? ctx->name : "?",
+                         best_a, (best_a < ACTION_COUNT) ? s_ActionNames[best_a] : "?");
+        }
+
+        const ActionDigitalOwners::Press press =
+            s_DigitalOwners.press(source, player, (InputAction)best_a, ctx);
+        if (press.accepted) {
+            if (press.first && !st->held) {
+                st->held          = 1;
+                st->pressed       = 1;
+                st->value         = 1.0f;
+                st->down_time_ms  = SDL_GetTicks();
+                st->hold_consumed = 0;
+                st->hold_vis_grace_until_ms = 0;
+                st->hold_pin_full_until_ms = 0;
+                /* Record non-axis actions in cheat buffer */
+                if (best_a != ACTION_AXIS_MOVE_X && best_a != ACTION_AXIS_MOVE_Y &&
+                    best_a != ACTION_AXIS_AIM_X  && best_a != ACTION_AXIS_AIM_Y) {
+                    cheatRecord((InputAction)best_a);
+                }
+            }
+        }
+        /* Matched this IMC; do not fall through to lower-priority contexts. */
+        goto next_player;
     }
     /* DIAG: Log when a gamepad VK has no binding in any active IMC.
      * S197a: gated behind sysLogGetVerbose(). Also filter out synthetic
@@ -813,8 +994,9 @@ static void fireVk(u32 vk, s32 is_down)
      * were producing hundreds of false "NO BINDING FOUND" warnings per
      * stick flick and made the log unreadable. */
     if (sysLogGetVerbose() && vk >= (u32)VK_JOY1_BEGIN && is_down) {
-        u32 joyOffset = (vk - (u32)VK_JOY1_BEGIN) % (u32)INPUT_MAX_CONTROLLER_BUTTONS;
-        s32 isSyntheticAxis = (joyOffset >= 22 && joyOffset <= 31);
+        input_vk_control_t control;
+        const s32 isSyntheticAxis = inputVkDecodeController(vk, &control) &&
+            (control.kind == INPUT_VK_AXIS || control.kind == INPUT_VK_LEGACY_OVERLAP);
         if (!isSyntheticAxis) {
             sysLogPrintf(LOG_WARNING, "DIAG fireVk: vk=%u player=%d NO BINDING FOUND in %d active IMCs",
                          vk, player, s_NumActive);
@@ -879,70 +1061,45 @@ static u32 chordVkForKeysym(const SDL_Keysym *keysym)
 static u32 s_KeyDownChordVk[SDL_NUM_SCANCODES];
 
 /* ============================================================
- * Helpers: device detection update
- * ============================================================ */
-
-static void updateDevice(s32 new_raw, s32 input_class)
-{
-    if (new_raw == s_RawDevice && input_class == s_RawInputClass) {
-        return;
-    }
-    s_RawDevice = new_raw;
-    s_RawInputClass = input_class;
-    s_DeviceChangeTime = SDL_GetTicks();
-}
-
-/* ============================================================
  * Helpers: axis → digital transitions (stick threshold crossing)
  * ============================================================ */
 
 /** Handle one axis value, firing synthetic VKs when threshold is crossed.
- *  slot_neg/slot_pos are indices into s_StickHeld[player][].
+ *  slot_neg/slot_pos identify directions for this device instance.
  *  vk_neg/vk_pos are the synthetic VKs to fire. */
 static void handleAxisDigital(s32 player, s16 val,
                                s32 slot_neg, s32 slot_pos,
-                               u32 vk_neg, u32 vk_pos)
+                               u32 vk_neg, u32 vk_pos,
+                               ActionSourceKind kind, int32_t instance)
 {
+    (void)player;
+    const uint64_t negative = actionSourceKey(kind, instance, (uint16_t)slot_neg);
+    const uint64_t positive = actionSourceKey(kind, instance, (uint16_t)slot_pos);
     /* Negative direction */
     if (val < -STICK_PRESS_THRESHOLD) {
-        if (!s_StickHeld[player][slot_neg]) {
-            s_StickHeld[player][slot_neg] = 1;
-            fireVk(vk_neg, 1);
-        }
+        if (s_AxisHeld.insert(negative).second) fireVk(vk_neg, 1, negative);
     } else if (val > -STICK_RELEASE_THRESHOLD) {
-        if (s_StickHeld[player][slot_neg]) {
-            s_StickHeld[player][slot_neg] = 0;
-            fireVk(vk_neg, 0);
-        }
+        if (s_AxisHeld.erase(negative)) fireVk(vk_neg, 0, negative);
     }
 
     /* Positive direction */
     if (val > STICK_PRESS_THRESHOLD) {
-        if (!s_StickHeld[player][slot_pos]) {
-            s_StickHeld[player][slot_pos] = 1;
-            fireVk(vk_pos, 1);
-        }
+        if (s_AxisHeld.insert(positive).second) fireVk(vk_pos, 1, positive);
     } else if (val < STICK_RELEASE_THRESHOLD) {
-        if (s_StickHeld[player][slot_pos]) {
-            s_StickHeld[player][slot_pos] = 0;
-            fireVk(vk_pos, 0);
-        }
+        if (s_AxisHeld.erase(positive)) fireVk(vk_pos, 0, positive);
     }
 }
 
 /** Handle one trigger axis (unipolar 0..32767). */
-static void handleTriggerDigital(s32 player, s16 val, s32 slot, u32 vk)
+static void handleTriggerDigital(s32 player, s16 val, s32 slot, u32 vk,
+                                 ActionSourceKind kind, int32_t instance)
 {
+    (void)player;
+    const uint64_t source = actionSourceKey(kind, instance, (uint16_t)slot);
     if (val > TRIGGER_THRESHOLD) {
-        if (!s_StickHeld[player][slot]) {
-            s_StickHeld[player][slot] = 1;
-            fireVk(vk, 1);
-        }
+        if (s_AxisHeld.insert(source).second) fireVk(vk, 1, source);
     } else if (val < TRIGGER_THRESHOLD / 2) {
-        if (s_StickHeld[player][slot]) {
-            s_StickHeld[player][slot] = 0;
-            fireVk(vk, 0);
-        }
+        if (s_AxisHeld.erase(source)) fireVk(vk, 0, source);
     }
 }
 
@@ -990,6 +1147,10 @@ void imcDeactivate(InputMappingContext *imc)
     if (!imc || !imc->active) {
         return;
     }
+    s_DigitalOwners.retireWhere(
+        [imc](uint64_t, const ActionDigitalOwner &owner) {
+            return owner.context == imc;
+        }, actionmapReleaseDigitalOwner);
     s32 write = 0;
     for (s32 i = 0; i < s_NumActive; i++) {
         if (s_Active[i] != imc) {
@@ -1115,52 +1276,54 @@ void actionmapDispatch(const SDL_Event *ev)
     /* ---- Keyboard ---- */
     case SDL_KEYDOWN:
         if (ev->key.repeat) break;
-        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         if (ev->key.keysym.scancode >= 0 && ev->key.keysym.scancode < SDL_NUM_SCANCODES) {
             u32 chord_vk = chordVkForKeysym(&ev->key.keysym);
             s_KeyDownChordVk[ev->key.keysym.scancode] = chord_vk;
-            fireVk(chord_vk ? chord_vk : (u32)ev->key.keysym.scancode, 1);
+            fireVk(chord_vk ? chord_vk : (u32)ev->key.keysym.scancode, 1,
+                actionSourceKey(ActionSourceKind::Keyboard, 0,
+                    (uint16_t)ev->key.keysym.scancode));
         }
         break;
 
     case SDL_KEYUP:
         if (ev->key.repeat) break;
-        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         if (ev->key.keysym.scancode >= 0 && ev->key.keysym.scancode < SDL_NUM_SCANCODES) {
             u32 chord_vk = s_KeyDownChordVk[ev->key.keysym.scancode];
             s_KeyDownChordVk[ev->key.keysym.scancode] = 0;
-            fireVk(chord_vk ? chord_vk : (u32)ev->key.keysym.scancode, 0);
+            fireVk(chord_vk ? chord_vk : (u32)ev->key.keysym.scancode, 0,
+                actionSourceKey(ActionSourceKind::Keyboard, 0,
+                    (uint16_t)ev->key.keysym.scancode));
         }
         break;
 
     /* ---- Mouse buttons ---- */
     case SDL_MOUSEBUTTONDOWN:
-        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         if (ev->button.button >= 1 && ev->button.button <= 5) {
-            fireVk(VK_MOUSE_BEGIN + (ev->button.button - 1), 1);
+            fireVk(VK_MOUSE_BEGIN + (ev->button.button - 1), 1,
+                actionSourceKey(ActionSourceKind::MouseButton, 0, ev->button.button));
         }
         break;
 
     case SDL_MOUSEBUTTONUP:
-        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         if (ev->button.button >= 1 && ev->button.button <= 5) {
-            fireVk(VK_MOUSE_BEGIN + (ev->button.button - 1), 0);
+            fireVk(VK_MOUSE_BEGIN + (ev->button.button - 1), 0,
+                actionSourceKey(ActionSourceKind::MouseButton, 0, ev->button.button));
         }
         break;
 
     /* ---- Mouse wheel (momentary press, released next frame via EndFrame) ---- */
     case SDL_MOUSEWHEEL:
-        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         if (ev->wheel.y > 0) {
-            fireVk(VK_MOUSE_WHEEL_UP, 1);
+            fireVk(VK_MOUSE_WHEEL_UP, 1,
+                actionSourceKey(ActionSourceKind::Wheel, 0, 1));
         } else if (ev->wheel.y < 0) {
-            fireVk(VK_MOUSE_WHEEL_DN, 1);
+            fireVk(VK_MOUSE_WHEEL_DN, 1,
+                actionSourceKey(ActionSourceKind::Wheel, 0, 2));
         }
         break;
 
     /* ---- Mouse motion ---- */
     case SDL_MOUSEMOTION:
-        updateDevice(ACTIONMAP_DEVICE_KBM, ACTIONMAP_INPUT_CLASS_MKB);
         break;
 
     /* ---- Gamepad buttons ---- */
@@ -1169,7 +1332,6 @@ void actionmapDispatch(const SDL_Event *ev)
         SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(ev->cbutton.which);
         s32 player = ctrl ? SDL_GameControllerGetPlayerIndex(ctrl) : 0;
         if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) player = 0;
-        updateDevice(ACTIONMAP_DEVICE_GAMEPAD, classifyControllerInstance(ev->cbutton.which));
         u32 vk = JOY_BTN(player, (u32)ev->cbutton.button);
         if (sysLogGetVerbose()) {
             sysLogPrintf(LOG_NOTE, "DIAG btn: SDL btn=%d player=%d vk=%u %s ctrl=%p",
@@ -1177,7 +1339,9 @@ void actionmapDispatch(const SDL_Event *ev)
                          (ev->type == SDL_CONTROLLERBUTTONDOWN) ? "DOWN" : "UP",
                          (void*)ctrl);
         }
-        fireVk(vk, (ev->type == SDL_CONTROLLERBUTTONDOWN) ? 1 : 0);
+        fireVk(vk, (ev->type == SDL_CONTROLLERBUTTONDOWN) ? 1 : 0,
+            actionSourceKey(ActionSourceKind::ControllerButton,
+                ev->cbutton.which, ev->cbutton.button));
         break;
     }
 
@@ -1190,39 +1354,41 @@ void actionmapDispatch(const SDL_Event *ev)
         s16 val  = ev->caxis.value;
         s32 axis = ev->caxis.axis;
 
-        /* Only count as gamepad input if axis moves meaningfully */
-        if (val > 4000 || val < -4000) {
-            updateDevice(ACTIONMAP_DEVICE_GAMEPAD, classifyControllerInstance(ev->caxis.which));
-        }
 
         switch (axis) {
         case SDL_CONTROLLER_AXIS_LEFTX:
             handleAxisDigital(player, val, 0, 1,
-                              JOY_BTN(player, JOFS_LSTICK_LEFT),
-                              JOY_BTN(player, JOFS_LSTICK_RIGHT));
+                              JOY_AXIS(player, JOFS_LSTICK_LEFT),
+                              JOY_AXIS(player, JOFS_LSTICK_RIGHT),
+                              ActionSourceKind::ControllerAxis, ev->caxis.which);
             break;
         case SDL_CONTROLLER_AXIS_LEFTY:
             handleAxisDigital(player, val, 2, 3,
-                              JOY_BTN(player, JOFS_LSTICK_UP),
-                              JOY_BTN(player, JOFS_LSTICK_DOWN));
+                              JOY_AXIS(player, JOFS_LSTICK_UP),
+                              JOY_AXIS(player, JOFS_LSTICK_DOWN),
+                              ActionSourceKind::ControllerAxis, ev->caxis.which);
             break;
         case SDL_CONTROLLER_AXIS_RIGHTX:
             handleAxisDigital(player, val, 4, 5,
-                              JOY_BTN(player, JOFS_RSTICK_LEFT),
-                              JOY_BTN(player, JOFS_RSTICK_RIGHT));
+                              JOY_AXIS(player, JOFS_RSTICK_LEFT),
+                              JOY_AXIS(player, JOFS_RSTICK_RIGHT),
+                              ActionSourceKind::ControllerAxis, ev->caxis.which);
             break;
         case SDL_CONTROLLER_AXIS_RIGHTY:
             handleAxisDigital(player, val, 6, 7,
-                              JOY_BTN(player, JOFS_RSTICK_UP),
-                              JOY_BTN(player, JOFS_RSTICK_DOWN));
+                              JOY_AXIS(player, JOFS_RSTICK_UP),
+                              JOY_AXIS(player, JOFS_RSTICK_DOWN),
+                              ActionSourceKind::ControllerAxis, ev->caxis.which);
             break;
         case SDL_CONTROLLER_AXIS_TRIGGERLEFT:
             handleTriggerDigital(player, val, 8,
-                                 JOY_BTN(player, JOFS_LTRIG));
+                                 JOY_AXIS(player, JOFS_LTRIG),
+                                 ActionSourceKind::ControllerAxis, ev->caxis.which);
             break;
         case SDL_CONTROLLER_AXIS_TRIGGERRIGHT:
             handleTriggerDigital(player, val, 9,
-                                 JOY_BTN(player, JOFS_RTRIG));
+                                 JOY_AXIS(player, JOFS_RTRIG),
+                                 ActionSourceKind::ControllerAxis, ev->caxis.which);
             break;
         default:
             break;
@@ -1236,10 +1402,11 @@ void actionmapDispatch(const SDL_Event *ev)
         if (SDL_GameControllerFromInstanceID(ev->jbutton.which)) {
             break;
         }
-        updateDevice(ACTIONMAP_DEVICE_GAMEPAD, classifyJoystickInstance(ev->jbutton.which));
         if (ev->jbutton.button < INPUT_MAX_CONTROLLER_BUTTONS) {
-            fireVk(JOY_BTN(0, (u32)ev->jbutton.button),
-                   (ev->type == SDL_JOYBUTTONDOWN) ? 1 : 0);
+            fireVk(inputVkRawButton(0, ev->jbutton.button),
+                   (ev->type == SDL_JOYBUTTONDOWN) ? 1 : 0,
+                   actionSourceKey(ActionSourceKind::RawButton,
+                       ev->jbutton.which, ev->jbutton.button));
         }
         break;
 
@@ -1247,37 +1414,40 @@ void actionmapDispatch(const SDL_Event *ev)
         if (SDL_GameControllerFromInstanceID(ev->jaxis.which)) {
             break;
         }
-        if (ev->jaxis.value > 4000 || ev->jaxis.value < -4000) {
-            updateDevice(ACTIONMAP_DEVICE_GAMEPAD, classifyJoystickInstance(ev->jaxis.which));
-        }
         switch (ev->jaxis.axis) {
         case 0:
             handleAxisDigital(0, ev->jaxis.value, 0, 1,
-                              JOY_BTN(0, JOFS_LSTICK_LEFT),
-                              JOY_BTN(0, JOFS_LSTICK_RIGHT));
+                              JOY_AXIS(0, JOFS_LSTICK_LEFT),
+                              JOY_AXIS(0, JOFS_LSTICK_RIGHT),
+                              ActionSourceKind::RawAxis, ev->jaxis.which);
             break;
         case 1:
             handleAxisDigital(0, ev->jaxis.value, 2, 3,
-                              JOY_BTN(0, JOFS_LSTICK_UP),
-                              JOY_BTN(0, JOFS_LSTICK_DOWN));
+                              JOY_AXIS(0, JOFS_LSTICK_UP),
+                              JOY_AXIS(0, JOFS_LSTICK_DOWN),
+                              ActionSourceKind::RawAxis, ev->jaxis.which);
             break;
         case 2:
             handleAxisDigital(0, ev->jaxis.value, 4, 5,
-                              JOY_BTN(0, JOFS_RSTICK_LEFT),
-                              JOY_BTN(0, JOFS_RSTICK_RIGHT));
+                              JOY_AXIS(0, JOFS_RSTICK_LEFT),
+                              JOY_AXIS(0, JOFS_RSTICK_RIGHT),
+                              ActionSourceKind::RawAxis, ev->jaxis.which);
             break;
         case 3:
             handleAxisDigital(0, ev->jaxis.value, 6, 7,
-                              JOY_BTN(0, JOFS_RSTICK_UP),
-                              JOY_BTN(0, JOFS_RSTICK_DOWN));
+                              JOY_AXIS(0, JOFS_RSTICK_UP),
+                              JOY_AXIS(0, JOFS_RSTICK_DOWN),
+                              ActionSourceKind::RawAxis, ev->jaxis.which);
             break;
         case 4:
             handleTriggerDigital(0, ev->jaxis.value, 8,
-                                 JOY_BTN(0, JOFS_LTRIG));
+                                 JOY_AXIS(0, JOFS_LTRIG),
+                                 ActionSourceKind::RawAxis, ev->jaxis.which);
             break;
         case 5:
             handleTriggerDigital(0, ev->jaxis.value, 9,
-                                 JOY_BTN(0, JOFS_RTRIG));
+                                 JOY_AXIS(0, JOFS_RTRIG),
+                                 ActionSourceKind::RawAxis, ev->jaxis.which);
             break;
         default:
             break;
@@ -1478,8 +1648,8 @@ void actionmapPollFrame(void)
      * digital aim synthesis above. */
 
     /* B-124 fix (Bug C): WASD→AXIS_MOVE synthesis always runs for player 0,
-     * regardless of s_LastDevice. Previous code gated this on KBM device,
-     * so any gamepad event (stick noise) would switch s_LastDevice to GAMEPAD
+     * regardless of the last input device. Previous code gated this on KBM device,
+     * so any gamepad event (stick noise) could select controller prompts
      * and WASD synthesis would stop — causing "moves for 1 frame" behavior.
      * Now: gamepad sticks write first (above), then WASD overrides IF any
      * WASD key is held. Both inputs can coexist.
@@ -1544,41 +1714,8 @@ void actionmapPollFrame(void)
 
 void actionmapEndFrame(void)
 {
-    /* M-2: Rebuild wheel-bound action cache (only when contexts change, but cheap enough per-frame). */
-    s_NumWheelActions = 0;
-    for (s32 ci = 0; ci < s_NumActive; ci++) {
-        InputMappingContext *ctx = s_Active[ci];
-        for (s32 a = 0; a < ACTION_COUNT; a++) {
-            if (!ctx->has_mapping[a]) continue;
-            InputMapping *m = &ctx->mappings[a];
-            for (s32 ti = 0; ti < m->num_triggers; ti++) {
-                u32 vk = m->triggers[ti].vk;
-                if (vk == VK_MOUSE_WHEEL_UP || vk == VK_MOUSE_WHEEL_DN) {
-                    /* Avoid duplicates */
-                    s32 dup = 0;
-                    for (s32 k = 0; k < s_NumWheelActions; k++) {
-                        if (s_WheelActions[k] == (InputAction)a) { dup = 1; break; }
-                    }
-                    if (!dup && s_NumWheelActions < ACTION_COUNT) {
-                        s_WheelActions[s_NumWheelActions++] = (InputAction)a;
-                    }
-                }
-            }
-        }
-    }
-
-    /* Debounce: promote raw device to stable last device after timeout */
-    if (s_RawDevice != s_LastDevice || s_RawInputClass != s_LastInputClass) {
-        u32 now     = SDL_GetTicks();
-        u32 elapsed = now - s_DeviceChangeTime;
-        if (elapsed >= ACTIONMAP_DEVICE_DEBOUNCE_MS) {
-            s_LastDevice = s_RawDevice;
-            s_LastInputClass = s_RawInputClass;
-        }
-    }
-
-    /* Clear edge signals and auto-release mouse wheel (momentary) */
-    u32 now = SDL_GetTicks();
+    /* Clear edge signals, then retire only actual momentary wheel sources.
+     * A keyboard/controller owner of the same action must survive. */
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         for (s32 a = 0; a < ACTION_COUNT; a++) {
             ActionState *st = &s_State[p][a];
@@ -1588,24 +1725,12 @@ void actionmapEndFrame(void)
                 st->smoke_injected = SMOKE_ACTION_NONE;
             }
 
-            /* Wheel auto-release is now handled by the M-2 pre-computed array below. */
-        }
-
-        /* M-2: Auto-release wheel-bound actions using pre-computed list (avoids O(contexts*actions*triggers) scan). */
-        for (s32 wi = 0; wi < s_NumWheelActions; wi++) {
-            ActionState *st = &s_State[p][s_WheelActions[wi]];
-            if (st->held) {
-                st->held                  = 0;
-                st->released              = 1;
-                st->value                 = 0.0f;
-                st->up_time_ms            = now;
-                st->hold_vis_grace_until_ms = now + 100;
-                if (st->smoke_injected == SMOKE_ACTION_HELD) {
-                    st->smoke_injected = SMOKE_ACTION_RELEASED;
-                }
-            }
         }
     }
+    s_DigitalOwners.retireWhere(
+        [](uint64_t key, const ActionDigitalOwner &) {
+            return (key >> 56) == uint8_t(ActionSourceKind::Wheel);
+        }, actionmapReleaseDigitalOwner);
 }
 
 /* ============================================================
@@ -1804,6 +1929,50 @@ s32 actionIsBlockedInFreefly(InputAction a)
     }
 }
 
+u32 actionmapGetActiveBindingVk(s32 player, InputAction action, s32 device)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS ||
+        action < 0 || action >= ACTION_COUNT) return 0;
+
+    const s32 allowed = actionLayerAllows(action) &&
+        !(forgeIsFreefly() && actionIsBlockedInFreefly(action));
+    ActionBindingContext contexts[ACTIONMAP_MAX_CONTEXTS];
+    actionmapCaptureBindingContexts(contexts);
+    return actionBindingFindVk(contexts, s_NumActive, player, action, device, allowed);
+}
+
+u32 actionmapGetActiveBindingVkMatching(s32 player, InputAction action, s32 device,
+    s32 (*matches)(u32 vk, void *userdata), void *userdata)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS ||
+        action < 0 || action >= ACTION_COUNT) return 0;
+    const s32 allowed = actionLayerAllows(action) &&
+        !(forgeIsFreefly() && actionIsBlockedInFreefly(action));
+    ActionBindingContext contexts[ACTIONMAP_MAX_CONTEXTS];
+    actionmapCaptureBindingContexts(contexts);
+    return actionBindingFindVkMatching(contexts, s_NumActive, player, action,
+        device, allowed, matches, userdata);
+}
+
+f32 actionmapMenuScrollAxisY(s32 player)
+{
+    if (player < 0 || player >= ACTIONMAP_MAX_PLAYERS) return 0.0f;
+
+    const InputContext *top = inputCtxGetTop();
+    const s32 menu_authority = top == &g_CtxImGuiMenu ||
+        top == &g_CtxPauseMenu || top == &g_CtxDebugOverlay;
+    InputCtxDebugAuthority authority = {};
+    inputCtxDebugSnapshotAuthority(&authority);
+    if (!menu_authority || authority.window_focus_lost ||
+        authority.focus_settle_remaining_ms > 0) return 0.0f;
+
+    SDL_GameController *controller = SDL_GameControllerFromPlayerIndex(player);
+    if (!controller) return 0.0f;
+    return actionBindingMenuScrollY(menu_authority, authority.window_focus_lost,
+        authority.focus_settle_remaining_ms > 0,
+        SDL_GameControllerGetAxis(controller, SDL_CONTROLLER_AXIS_RIGHTY));
+}
+
 static void actionmapFlushStateSlot(ActionState *st, u32 now)
 {
     s32 wasHeld = st->held;
@@ -1821,12 +1990,25 @@ static void actionmapFlushStateSlot(ActionState *st, u32 now)
     st->smoke_injected = SMOKE_ACTION_NONE;
 }
 
+void actionmapRetirePhysicalOwners(void)
+{
+    s_DigitalOwners.retireWhere(
+        [](uint64_t, const ActionDigitalOwner &) { return true; },
+        actionmapReleaseDigitalOwner);
+    s_AxisHeld.clear();
+    memset(s_KeyDownChordVk, 0, sizeof(s_KeyDownChordVk));
+}
+
 void actionmapFlushGameplayState(void)
 {
     /* Zero every gameplay-only action's state across all players. Issues a
      * synthetic "released" edge so any consumer that latched on press sees a
      * corresponding release. */
     u32 now = SDL_GetTicks();
+    s_DigitalOwners.retireWhere(
+        [](uint64_t, const ActionDigitalOwner &owner) {
+            return actionIsGameplayOnly(owner.action) != 0;
+        }, [](const ActionDigitalRelease &) {});
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         for (s32 a = 0; a < ACTION_COUNT; a++) {
             if (!actionIsGameplayOnly((InputAction)a)) {
@@ -1838,10 +2020,8 @@ void actionmapFlushGameplayState(void)
          * that when gameplay resumes, a subsequent axis below threshold does
          * NOT fire a spurious release (which could be consumed by a menu
          * handler as e.g. MOVE_LEFT toggling off). */
-        for (s32 i = 0; i < 10; i++) {
-            s_StickHeld[p][i] = 0;
-        }
     }
+    s_AxisHeld.clear();
 }
 
 void actionmapFlushActionSet(const InputAction *actions, s32 action_count)
@@ -1857,6 +2037,10 @@ void actionmapFlushActionSet(const InputAction *actions, s32 action_count)
             if (a < 0 || a >= ACTION_COUNT) {
                 continue;
             }
+            s_DigitalOwners.retireWhere(
+                [p, a](uint64_t, const ActionDigitalOwner &owner) {
+                    return owner.player == p && owner.action == a;
+                }, [](const ActionDigitalRelease &) {});
             actionmapFlushStateSlot(&s_State[p][a], now);
         }
     }
@@ -2070,23 +2254,14 @@ u32 actionHoldPressStartMs(s32 player, InputAction action)
  * Public: last-device detection
  * ============================================================ */
 
-s32 actionmapGetLastDevice(void)
-{
-    return s_LastDevice;
-}
-
-s32 actionmapGetLastInputClass(void)
-{
-    return s_LastInputClass;
-}
-
 /* ============================================================
  * Bind management helpers
  * ============================================================ */
 
 /* All known IMCs — used for save/load to iterate regardless of active state.
  *
- * Order matters: buildBindStr / actionmapLoadBinds use first-match-wins
+ * Order matters only for legacy pd.ini compatibility: buildBindStr and
+ * actionmapLoadLegacyBinds use first-match-wins
  * semantics. Gameplay must come first so the shared baseline (movement,
  * combat, weapons, interact) is the canonical owner of those bindings in
  * pd.ini. Mission / CombatSim sit above gameplay in the iteration but only
@@ -2107,6 +2282,49 @@ static InputMappingContext * const s_AllImcs[] = {
     &g_ImcTextInput,
 };
 static const s32 s_NumAllImcs = (s32)(sizeof(s_AllImcs) / sizeof(s_AllImcs[0]));
+
+static actionmap_profile::Store s_ProfileStore;
+static actionmap_profile::Snapshot s_DefaultBindingSnapshot;
+static std::string s_BindingPersistenceError;
+static const char *s_CurrentBindingPath = "$S/input-bindings.ini";
+
+static actionmap_profile::Registry actionmapProfileRegistry(void)
+{
+    return {s_AllImcs, static_cast<size_t>(s_NumAllImcs), s_ActionNames,
+            actionmapGetVkName, actionmapGetVkByName, playerForVk, VK_JOY_BEGIN};
+}
+
+static void actionmapRetireBindingState(void)
+{
+    InputAction actions[ACTION_COUNT];
+    for (s32 a = 0; a < ACTION_COUNT; ++a) actions[a] = static_cast<InputAction>(a);
+    actionmapFlushActionSet(actions, ACTION_COUNT);
+    s_AxisHeld.clear();
+    memset(s_KeyDownChordVk, 0, sizeof(s_KeyDownChordVk));
+}
+
+const char *actionmapGetPersistenceError(void)
+{
+    return s_BindingPersistenceError.c_str();
+}
+
+s32 actionmapGetCurrentProfile(void)
+{
+    return s_ProfileStore.activeProfile();
+}
+
+s32 actionmapResetDeviceDefaults(InputMappingContext *const *imcs, s32 count, s32 controller)
+{
+    if (!imcs || count < 0) return 0;
+    const auto registry = actionmapProfileRegistry();
+    actionmap_profile::Snapshot candidate;
+    if (!actionmap_profile::resetDevice(registry, s_DefaultBindingSnapshot,
+            actionmap_profile::capture(registry, s_ProfileStore.activeProfile()),
+            imcs, static_cast<size_t>(count), controller != 0, candidate,
+            s_BindingPersistenceError)) return 0;
+    actionmap_profile::apply(registry, candidate);
+    return 1;
+}
 
 /** Build a comma-separated bind string from the triggers of action a for player p.
  *  Iterates ALL known IMCs (not just active ones) so inactive IMC binds are persisted. */
@@ -2146,41 +2364,6 @@ static void buildBindStr(s32 player, InputAction action,
     }
 }
 
-static void buildContextBindStr(InputMappingContext *ctx, s32 player, InputAction action,
-                                char *out, s32 outlen)
-{
-    if (!out || outlen <= 0) {
-        return;
-    }
-    out[0] = '\0';
-    if (!ctx || action < 0 || action >= ACTION_COUNT || !ctx->has_mapping[action]) {
-        return;
-    }
-
-    InputMapping *m = &ctx->mappings[action];
-    s32 written = 0;
-    for (s32 ti = 0; ti < m->num_triggers; ti++) {
-        u32 vk = m->triggers[ti].vk;
-        if (vk == 0) continue;
-        if (playerForVk(vk) != player) continue;
-
-        const char *name = actionmapGetVkName(vk);
-        if (!name || name[0] == '\0') continue;
-
-        s32 curlen = (s32)strlen(out);
-        if (written > 0 && curlen + 1 < outlen) {
-            out[curlen] = ',';
-            out[curlen + 1] = '\0';
-            curlen++;
-        }
-        s32 remaining = outlen - curlen - 1;
-        if (remaining > 0) {
-            strncat(out, name, (size_t)remaining);
-            written++;
-        }
-    }
-}
-
 /** Parse a comma-separated bind string and populate triggers in imc for player p. */
 static void parseBindStr(InputMappingContext *imc, s32 player,
                          InputAction action, const char *str)
@@ -2201,6 +2384,7 @@ static void parseBindStr(InputMappingContext *imc, s32 player,
             m->triggers[write++] = m->triggers[ti];
         }
         m->num_triggers = write;
+        for (s32 ti = write; ti < ACTIONMAP_MAX_TRIGGERS; ++ti) m->triggers[ti].vk = 0;
     }
 
     if (str[0] == '\0') return;
@@ -2310,7 +2494,7 @@ static void actionmapParseHoldOverridesFromIniStr(void)
     }
 }
 
-void actionmapSaveBinds(void)
+static void actionmapUpdateLegacyBindStrings(void)
 {
     actionmapSerializeHoldOverridesToIniStr();
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
@@ -2321,7 +2505,7 @@ void actionmapSaveBinds(void)
     }
 }
 
-void actionmapLoadBinds(void)
+static void actionmapLoadLegacyBinds(void)
 {
     actionmapRefreshStickMultFromUi();
 
@@ -2350,7 +2534,8 @@ void actionmapLoadBinds(void)
      * those. */
     for (s32 p = 0; p < ACTIONMAP_MAX_PLAYERS; p++) {
         for (s32 a = 0; a < ACTION_COUNT; a++) {
-            if (s_BindStr[p][a][0] == '\0') continue;
+            /* Registration seeded defaults before configLoad. An empty loaded
+             * value is an explicit clear, not a request to resurrect defaults. */
             for (s32 ci = 0; ci < s_NumAllImcs; ci++) {
                 if (s_AllImcs[ci]->has_mapping[a]) {
                     parseBindStr(s_AllImcs[ci], p, (InputAction)a, s_BindStr[p][a]);
@@ -2381,7 +2566,7 @@ void actionmapLoadBinds(void)
             s32 write    = 0;
             for (s32 ti = 0; ti < m->num_triggers; ti++) {
                 u32 vk = m->triggers[ti].vk;
-                if (vk != 0 && vk >= (u32)VK_JOY1_BEGIN) {
+                if (vk >= (u32)VK_JOY1_BEGIN && vk < (u32)VK_JOY_LEGACY_END) {
                     u32 btn = (vk - (u32)VK_JOY1_BEGIN) % (u32)INPUT_MAX_CONTROLLER_BUTTONS;
                     if (btn >= JOFS_LSTICK_LEFT && btn <= JOFS_LSTICK_DOWN) {
                         stripped++;
@@ -2392,6 +2577,7 @@ void actionmapLoadBinds(void)
             }
             if (stripped > 0) {
                 m->num_triggers = write;
+                for (s32 ti = write; ti < ACTIONMAP_MAX_TRIGGERS; ++ti) m->triggers[ti].vk = 0;
                 buildBindStr(p, a, s_BindStr[p][a], BIND_STR_MAX);
                 sysLogPrintf(LOG_NOTE,
                     "ACTIONMAP: stripped stale LSTICK movement bind from pd.ini"
@@ -2404,124 +2590,74 @@ void actionmapLoadBinds(void)
     actionmapParseHoldOverridesFromIniStr();
 }
 
-static InputMappingContext *actionmapFindContextByName(const char *name)
+void actionmapLoadBinds(void)
 {
-    if (!name || !name[0]) {
-        return NULL;
-    }
-    for (s32 ci = 0; ci < s_NumAllImcs; ci++) {
-        if (s_AllImcs[ci]->name && !strcmp(s_AllImcs[ci]->name, name)) {
-            return s_AllImcs[ci];
-        }
-    }
-    return NULL;
+    if (s_ProfileStore.initialized()) return;
+    actionmapLoadLegacyBinds();
+    char currentPath[FS_MAXPATH + 1];
+    fsFullPath(s_CurrentBindingPath, currentPath, sizeof(currentPath));
+    const bool ok = s_ProfileStore.initialize(actionmapProfileRegistry(),
+        s_DefaultBindingSnapshot, currentPath, s_BindingPersistenceError);
+    const s32 active = s_ProfileStore.activeProfile();
+    if (active >= 0) inputProfilesSetActive(active);
+    if (ok) actionmapUpdateLegacyBindStrings();
+    else sysLogPrintf(LOG_WARNING, "ACTIONMAP: %s", s_BindingPersistenceError.c_str());
+    actionmapRetireBindingState();
 }
 
-static InputAction actionmapFindActionByName(const char *name)
+s32 actionmapSaveBinds(void)
 {
-    if (!name || !name[0]) {
-        return ACTION_COUNT;
+    if (!s_ProfileStore.initialized()) actionmapLoadBinds();
+    char currentPath[FS_MAXPATH + 1];
+    fsFullPath(s_CurrentBindingPath, currentPath, sizeof(currentPath));
+    const bool ok = s_ProfileStore.saveCurrent(actionmapProfileRegistry(),
+        currentPath, s_BindingPersistenceError);
+    // On failure Store restores accepted mappings; retire events from the edit.
+    actionmapRetireBindingState();
+    if (!ok) {
+        sysLogPrintf(LOG_WARNING, "ACTIONMAP: %s", s_BindingPersistenceError.c_str());
+        return 0;
     }
-    for (s32 a = 0; a < ACTION_COUNT; a++) {
-        if (s_ActionNames[a] && !strcmp(s_ActionNames[a], name)) {
-            return (InputAction)a;
-        }
-    }
-    return ACTION_COUNT;
+    actionmapUpdateLegacyBindStrings();
+    return 1;
 }
 
 s32 actionmapSaveProfileFile(const char *relpath)
 {
-    if (!relpath || relpath[0] == '\0') {
+    if (!relpath || !*relpath) {
+        s_BindingPersistenceError = "The profile path is empty.";
         return 0;
     }
-
     fsCreateDir("$S/input-profiles");
-    FILE *f = fsFileOpenWrite(relpath);
-    if (!f) {
-        sysLogPrintf(LOG_WARNING, "ACTIONMAP: failed to save profile '%s'", relpath);
+    char path[FS_MAXPATH + 1];
+    fsFullPath(relpath, path, sizeof(path));
+    const auto registry = actionmapProfileRegistry();
+    return actionmap_profile::write(registry,
+        actionmap_profile::capture(registry, s_ProfileStore.activeProfile()),
+        path, s_BindingPersistenceError) ? 1 : 0;
+}
+
+s32 actionmapLoadProfileFileAsCurrent(const char *relpath, s32 profile)
+{
+    if (!relpath || !*relpath) {
+        s_BindingPersistenceError = "The profile path is empty.";
         return 0;
     }
-
-    fprintf(f, "# Perfect Dark 2 input profile\n");
-    fprintf(f, "# Format: context.P0.ActionName=VK,VK\n");
-
-    char bind[BIND_STR_MAX];
-    for (s32 ci = 0; ci < s_NumAllImcs; ci++) {
-        InputMappingContext *ctx = s_AllImcs[ci];
-        if (!ctx || !ctx->name) continue;
-        for (s32 a = 0; a < ACTION_COUNT; a++) {
-            if (!ctx->has_mapping[a]) continue;
-            buildContextBindStr(ctx, 0, (InputAction)a, bind, sizeof(bind));
-            fprintf(f, "%s.P0.%s=%s\n", ctx->name, s_ActionNames[a], bind);
-        }
-    }
-
-    fclose(f);
-    sysLogPrintf(LOG_NOTE, "ACTIONMAP: saved input profile '%s'", relpath);
+    if (!s_ProfileStore.initialized()) actionmapLoadBinds();
+    char path[FS_MAXPATH + 1], currentPath[FS_MAXPATH + 1];
+    fsFullPath(relpath, path, sizeof(path));
+    fsFullPath(s_CurrentBindingPath, currentPath, sizeof(currentPath));
+    if (!s_ProfileStore.loadProfile(actionmapProfileRegistry(), s_DefaultBindingSnapshot,
+            path, currentPath, profile, s_BindingPersistenceError)) return 0;
+    if (profile >= 0) inputProfilesSetActive(profile);
+    actionmapUpdateLegacyBindStrings();
+    actionmapRetireBindingState();
     return 1;
 }
 
 s32 actionmapLoadProfileFile(const char *relpath)
 {
-    if (!relpath || relpath[0] == '\0') {
-        return 0;
-    }
-
-    FILE *f = fsFileOpenRead(relpath);
-    if (!f) {
-        sysLogPrintf(LOG_WARNING, "ACTIONMAP: failed to load profile '%s'", relpath);
-        return 0;
-    }
-
-    for (s32 ci = 0; ci < s_NumAllImcs; ci++) {
-        actionmapSetDefaults(s_AllImcs[ci], 0);
-    }
-
-    char line[512];
-    while (fgets(line, sizeof(line), f)) {
-        char *start = line;
-        while (*start == ' ' || *start == '\t') start++;
-        if (*start == '\0' || *start == '\n' || *start == '\r' || *start == '#') {
-            continue;
-        }
-
-        char *eq = strchr(start, '=');
-        if (!eq) {
-            continue;
-        }
-        *eq = '\0';
-        char *binds = eq + 1;
-        for (char *p = binds; *p; ++p) {
-            if (*p == '\n' || *p == '\r') {
-                *p = '\0';
-                break;
-            }
-        }
-
-        char *ctxName = start;
-        char *playerName = strchr(ctxName, '.');
-        if (!playerName) continue;
-        *playerName++ = '\0';
-        char *actionName = strchr(playerName, '.');
-        if (!actionName) continue;
-        *actionName++ = '\0';
-        if (strcmp(playerName, "P0") != 0) {
-            continue;
-        }
-
-        InputMappingContext *ctx = actionmapFindContextByName(ctxName);
-        InputAction action = actionmapFindActionByName(actionName);
-        if (!ctx || action >= ACTION_COUNT || !ctx->has_mapping[action]) {
-            continue;
-        }
-        parseBindStr(ctx, 0, action, binds);
-    }
-
-    fclose(f);
-    actionmapSaveBinds();
-    sysLogPrintf(LOG_NOTE, "ACTIONMAP: loaded input profile '%s'", relpath);
-    return 1;
+    return actionmapLoadProfileFileAsCurrent(relpath, -1);
 }
 
 /* ============================================================
@@ -2842,23 +2978,17 @@ static void setupGameplayDefaults(s32 player)
 
     /* Keyboard/mouse defaults for player 0 */
     if (p == 0) {
-        /* Left stick directions are bound to movement for display in the
-         * rebind UI (so Forward shows "LSTICK_UP" etc.). Smooth analog
-         * movement from SDL_GameControllerGetAxis still takes priority —
-         * the WASD synthesis block skips when the analog path already
-         * provided axis values (see actionmapPollFrame). */
+        /* Left-stick movement is read as smooth analog input by
+         * actionmapPollFrame. Digital cardinal binds would overwrite it
+         * with snapped values, so only keyboard directions are seeded. */
         addBind(imc, ACTION_MOVE_FORWARD,   VKL_W);
-        addBind(imc, ACTION_MOVE_FORWARD,   JOY_BTN(0, JOFS_LSTICK_UP));
         addBind(imc, ACTION_MOVE_BACKWARD,  VKL_S);
-        addBind(imc, ACTION_MOVE_BACKWARD,  JOY_BTN(0, JOFS_LSTICK_DOWN));
         addBind(imc, ACTION_MOVE_LEFT,      VK_A);
-        addBind(imc, ACTION_MOVE_LEFT,      JOY_BTN(0, JOFS_LSTICK_LEFT));
         addBind(imc, ACTION_MOVE_RIGHT,     VKL_D);
-        addBind(imc, ACTION_MOVE_RIGHT,     JOY_BTN(0, JOFS_LSTICK_RIGHT));
         addBind(imc, ACTION_FIRE_PRIMARY,   VK_MOUSE_LEFT);
-        addBind(imc, ACTION_FIRE_PRIMARY,   JOY_BTN(0, JOFS_RTRIG));
+        addBind(imc, ACTION_FIRE_PRIMARY,   JOY_AXIS(0, JOFS_RTRIG));
         addBind(imc, ACTION_FIRE_SECONDARY, VK_MOUSE_RIGHT);
-        addBind(imc, ACTION_FIRE_SECONDARY, JOY_BTN(0, JOFS_LTRIG));
+        addBind(imc, ACTION_FIRE_SECONDARY, JOY_AXIS(0, JOFS_LTRIG));
         addBind(imc, ACTION_FIRE_MODE,      VKL_C);            /* alt secondary fire mode — kbd */
         addBind(imc, ACTION_FIRE_MODE,      JOY_BTN(0, JBTN_DPAD_RIGHT)); /* D-pad right — Xbox default */
         addBind(imc, ACTION_RELOAD,         VKL_R);
@@ -2888,13 +3018,13 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_WEAPON_6,       VKL_6);
         /* Look: right stick (+ swap sticks / invert Y in Controls). */
         addBind(imc, ACTION_AIM_UP,         VKL_UP);
-        addBind(imc, ACTION_AIM_UP,         JOY_BTN(0, JOFS_RSTICK_UP));
+        addBind(imc, ACTION_AIM_UP,         JOY_AXIS(0, JOFS_RSTICK_UP));
         addBind(imc, ACTION_AIM_DOWN,       VKL_DOWN);
-        addBind(imc, ACTION_AIM_DOWN,       JOY_BTN(0, JOFS_RSTICK_DOWN));
+        addBind(imc, ACTION_AIM_DOWN,       JOY_AXIS(0, JOFS_RSTICK_DOWN));
         addBind(imc, ACTION_AIM_LEFT,       VKL_LEFT);
-        addBind(imc, ACTION_AIM_LEFT,       JOY_BTN(0, JOFS_RSTICK_LEFT));
+        addBind(imc, ACTION_AIM_LEFT,       JOY_AXIS(0, JOFS_RSTICK_LEFT));
         addBind(imc, ACTION_AIM_RIGHT,      VKL_RIGHT);
-        addBind(imc, ACTION_AIM_RIGHT,      JOY_BTN(0, JOFS_RSTICK_RIGHT));
+        addBind(imc, ACTION_AIM_RIGHT,      JOY_AXIS(0, JOFS_RSTICK_RIGHT));
         /* N64 C-button bits are optional; default Xbox layout uses LS/RS axes only. */
         /* D-pad: physical LEFT -> ACTION_DPAD_DOWN (D_JPAD) for radial hold-open. */
         addBind(imc, ACTION_DPAD_DOWN,      JOY_BTN(0, JBTN_DPAD_LEFT));
@@ -3042,13 +3172,13 @@ static void setupVehicleDefaults(s32 player)
 
     if (p != 0) return; /* Player 0 only — no local MP */
     addBind(imc, ACTION_VEHICLE_ACCELERATE,  VKL_W);
-    addBind(imc, ACTION_VEHICLE_ACCELERATE,  JOY_BTN(0, JOFS_RTRIG));
+    addBind(imc, ACTION_VEHICLE_ACCELERATE,  JOY_AXIS(0, JOFS_RTRIG));
     addBind(imc, ACTION_VEHICLE_BRAKE,       VKL_S);
-    addBind(imc, ACTION_VEHICLE_BRAKE,       JOY_BTN(0, JOFS_LTRIG));
+    addBind(imc, ACTION_VEHICLE_BRAKE,       JOY_AXIS(0, JOFS_LTRIG));
     addBind(imc, ACTION_VEHICLE_STEER_LEFT,  VK_A);
-    addBind(imc, ACTION_VEHICLE_STEER_LEFT,  JOY_BTN(0, JOFS_LSTICK_LEFT));
+    addBind(imc, ACTION_VEHICLE_STEER_LEFT,  JOY_AXIS(0, JOFS_LSTICK_LEFT));
     addBind(imc, ACTION_VEHICLE_STEER_RIGHT, VKL_D);
-    addBind(imc, ACTION_VEHICLE_STEER_RIGHT, JOY_BTN(0, JOFS_LSTICK_RIGHT));
+    addBind(imc, ACTION_VEHICLE_STEER_RIGHT, JOY_AXIS(0, JOFS_LSTICK_RIGHT));
     addBind(imc, ACTION_VEHICLE_EXIT,        VKL_F);
     addBind(imc, ACTION_VEHICLE_EXIT,        JOY_BTN(0, JBTN_X)); /* align with on-foot USE / exit */
     /* Vehicle expansion (Mike directive 2026-05-17). LOOK_X/Y mirror the
@@ -3056,12 +3186,12 @@ static void setupVehicleDefaults(s32 player)
      * uses the analog stick the user already trained on for on-foot aim.
      * HANDBRAKE on Space / A-button. The on-foot mount/use shortcut lives
      * on g_ImcGameplay because this vehicle IMC is inactive until mounted. */
-    addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_BTN(0, JOFS_RSTICK_RIGHT));
-    addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_BTN(0, JOFS_RSTICK_LEFT));
+    addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_AXIS(0, JOFS_RSTICK_RIGHT));
+    addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_AXIS(0, JOFS_RSTICK_LEFT));
     addBind(imc, ACTION_VEHICLE_LOOK_X,      VKL_RIGHT);
     addBind(imc, ACTION_VEHICLE_LOOK_X,      VKL_LEFT);
-    addBind(imc, ACTION_VEHICLE_LOOK_Y,      JOY_BTN(0, JOFS_RSTICK_UP));
-    addBind(imc, ACTION_VEHICLE_LOOK_Y,      JOY_BTN(0, JOFS_RSTICK_DOWN));
+    addBind(imc, ACTION_VEHICLE_LOOK_Y,      JOY_AXIS(0, JOFS_RSTICK_UP));
+    addBind(imc, ACTION_VEHICLE_LOOK_Y,      JOY_AXIS(0, JOFS_RSTICK_DOWN));
     addBind(imc, ACTION_VEHICLE_LOOK_Y,      VKL_UP);
     addBind(imc, ACTION_VEHICLE_LOOK_Y,      VKL_DOWN);
     addBind(imc, ACTION_VEHICLE_HANDBRAKE,   VK_SPACE);
@@ -3126,8 +3256,8 @@ static void setupForgeDefaults(s32 player)
     if (player != 0) return; /* Player 0 only -- single-seat forge authoring. */
 
     /* ---- Camera axis / freefly modifiers (gamepad) ---- */
-    addBind(imc, ACTION_FORGE_ASCEND,           JOY_BTN(0, JOFS_RTRIG));
-    addBind(imc, ACTION_FORGE_DESCEND,          JOY_BTN(0, JOFS_LTRIG));
+    addBind(imc, ACTION_FORGE_ASCEND,           JOY_AXIS(0, JOFS_RTRIG));
+    addBind(imc, ACTION_FORGE_DESCEND,          JOY_AXIS(0, JOFS_LTRIG));
 
     /* ---- Camera modifiers (keyboard, also FREEFLY-only) ---- */
     addBind(imc, ACTION_FORGE_ASCEND,           VKL_E);
@@ -3185,9 +3315,9 @@ static void setupObserverDefaults(s32 player)
     addBind(imc, ACTION_OBSERVER_STOP,          VK_ESCAPE);
     addBind(imc, ACTION_OBSERVER_STOP,          JOY_BTN(0, JBTN_B));
     addBind(imc, ACTION_OBSERVER_ASCEND,        VKL_E);
-    addBind(imc, ACTION_OBSERVER_ASCEND,        JOY_BTN(0, JOFS_RTRIG));
+    addBind(imc, ACTION_OBSERVER_ASCEND,        JOY_AXIS(0, JOFS_RTRIG));
     addBind(imc, ACTION_OBSERVER_DESCEND,       VKL_Q);
-    addBind(imc, ACTION_OBSERVER_DESCEND,       JOY_BTN(0, JOFS_LTRIG));
+    addBind(imc, ACTION_OBSERVER_DESCEND,       JOY_AXIS(0, JOFS_LTRIG));
     addBind(imc, ACTION_VOICE_PTT,              VKL_V);
 }
 
@@ -3239,9 +3369,9 @@ static void setupMenuDefaults(void)
      * absolute-bounds semantics. Boundary case: stays on boundary,
      * does not wrap (Rule 1 + Rule 8 alignment). */
     addBind(imc, ACTION_MENU_SKIPUP, VKL_HOME);             /* Previous section/group/team - kbd */
-    addBind(imc, ACTION_MENU_SKIPUP, JOY_BTN(0, JOFS_LTRIG)); /* LT trigger */
+    addBind(imc, ACTION_MENU_SKIPUP, JOY_AXIS(0, JOFS_LTRIG)); /* LT trigger */
     addBind(imc, ACTION_MENU_SKIPDOWN, VKL_END);              /* Next section/group/team - kbd */
-    addBind(imc, ACTION_MENU_SKIPDOWN, JOY_BTN(0, JOFS_RTRIG)); /* RT trigger */
+    addBind(imc, ACTION_MENU_SKIPDOWN, JOY_AXIS(0, JOFS_RTRIG)); /* RT trigger */
     /* S483b (2026-04-27): Tab toggles the Online connectivity sidebar.
      * Bound on menu IMCs only (here + setupPauseMenuDefaults) so pressing
      * Tab during pure gameplay (only g_ImcGameplay active) cannot fire
@@ -3303,9 +3433,9 @@ static void setupPauseMenuDefaults(void)
      * Mirrors setupMenuDefaults so the binding stays universal across
      * all menu surfaces (paused or main-menu). */
     addBind(imc, ACTION_MENU_SKIPUP, VKL_HOME);             /* Previous section/group/team - kbd */
-    addBind(imc, ACTION_MENU_SKIPUP, JOY_BTN(0, JOFS_LTRIG)); /* LT trigger */
+    addBind(imc, ACTION_MENU_SKIPUP, JOY_AXIS(0, JOFS_LTRIG)); /* LT trigger */
     addBind(imc, ACTION_MENU_SKIPDOWN, VKL_END);              /* Next section/group/team - kbd */
-    addBind(imc, ACTION_MENU_SKIPDOWN, JOY_BTN(0, JOFS_RTRIG)); /* RT trigger */
+    addBind(imc, ACTION_MENU_SKIPDOWN, JOY_AXIS(0, JOFS_RTRIG)); /* RT trigger */
     /* S483b (2026-04-27): Tab toggles the Online connectivity sidebar
      * while paused. See setupMenuDefaults for the design rationale. */
     addBind(imc, ACTION_SOCIAL_TOGGLE, 43);                       /* TAB scancode */
@@ -3373,6 +3503,7 @@ void actionmapSetDefaults(InputMappingContext *imc, s32 player)
             }
         }
         m->num_triggers = write;
+        for (s32 ti = write; ti < ACTIONMAP_MAX_TRIGGERS; ++ti) m->triggers[ti].vk = 0;
     }
 
     /* Re-apply defaults for this player */
@@ -3412,18 +3543,16 @@ void actionmapInit(void)
     /* Zero all state */
     memset(s_Active,     0, sizeof(s_Active));
     memset(s_State,      0, sizeof(s_State));
-    memset(s_StickHeld,  0, sizeof(s_StickHeld));
+    s_DigitalOwners.clear();
+    s_AxisHeld.clear();
+    memset(s_KeyDownChordVk, 0, sizeof(s_KeyDownChordVk));
     memset(s_CheatBuf,   0, sizeof(s_CheatBuf));
     memset(s_BindStr,    0, sizeof(s_BindStr));
 
     s_NumActive         = 0;
     s_CheatHead         = 0;
     s_CheatCount        = 0;
-    s_RawDevice         = ACTIONMAP_DEVICE_KBM;
-    s_LastDevice        = ACTIONMAP_DEVICE_KBM;
-    s_RawInputClass     = ACTIONMAP_INPUT_CLASS_MKB;
-    s_LastInputClass    = ACTIONMAP_INPUT_CLASS_MKB;
-    s_DeviceChangeTime  = 0;
+    actionmapInitDeviceIdentity();
 
     /* Zero all IMC mapping slots */
     memset(&g_ImcGameplay,     0, sizeof(g_ImcGameplay));
@@ -3466,6 +3595,11 @@ void actionmapInit(void)
     setupPauseMenuDefaults();
     setupDebugOverlayDefaults();
     setupTextInputDefaults();
+
+    /* Capture defaults without mutating live contexts during profile imports. */
+    s_ProfileStore = actionmap_profile::Store{};
+    s_BindingPersistenceError.clear();
+    s_DefaultBindingSnapshot = actionmap_profile::capture(actionmapProfileRegistry(), -1);
 
     /* Build default bind strings for pd.ini registration */
     initDefaultBindStrings();

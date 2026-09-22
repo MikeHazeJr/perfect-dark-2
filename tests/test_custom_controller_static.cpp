@@ -5,6 +5,7 @@
  * @SYNC port/src/actionmap.cpp
  * @SYNC port/src/input.c
  * @SYNC port/fast3d/pdgui_glyphs.cpp
+ * @SYNC port/src/input_device_identity.cpp
  * @SYNC port/src/presence.c
  * @SYNC port/fast3d/pdgui_friends.cpp
  */
@@ -66,10 +67,11 @@ TEST_CASE("raw joystick devices route through the action map bridge",
 	requireContains(actionmap, "SDL_JOYAXISMOTION");
 	requireContains(actionmap, "SDL_GameControllerFromInstanceID(ev->jbutton.which)");
 	requireContains(actionmap, "SDL_GameControllerFromInstanceID(ev->jaxis.which)");
-	requireContains(actionmap, "JOY_BTN(0, (u32)ev->jbutton.button)");
+	requireContains(actionmap, "inputVkRawButton(0, ev->jbutton.button)");
 	requireContains(actionmap, "handleAxisDigital(0, ev->jaxis.value");
 	requireContains(actionmap, "handleTriggerDigital(0, ev->jaxis.value");
-	requireContains(actionmap, "s_LastInputClass");
+	requireContains(actionmap, "inputDeviceIdentityObserve(&s_DeviceIdentity, &identity, &activity)");
+	requireContains(actionmap, "return s_DeviceIdentity.last.input_class;");
 
 	requireContains(input, "rawJoysticks");
 	requireContains(input, "inputOpenRawJoystick");
@@ -83,14 +85,16 @@ TEST_CASE("custom-class glyphs do not pretend to be Xbox buttons",
           "[input][custom-controller][static][c3816]")
 {
 	const std::string glyphs = readTextFile("port/fast3d/pdgui_glyphs.cpp");
+	const std::string identity = readTextFile("port/src/input_device_identity.cpp");
 	REQUIRE(!glyphs.empty());
+	REQUIRE(!identity.empty());
 
-	requireContains(glyphs, "const s32 inputClass = actionmapGetLastInputClass()");
-	requireContains(glyphs, "inputClass != ACTIONMAP_INPUT_CLASS_CONTROLLER");
-	requireContains(glyphs, "inputClass != ACTIONMAP_INPUT_CLASS_MKB");
-	requireContains(glyphs, "Btn%u");
-	requireContains(glyphs, "Axis1-");
-	requireContains(glyphs, "Axis6+");
+	requireContains(glyphs, "actionmapGetBindingDeviceIdentity(0, &result.controller)");
+	requireContains(glyphs, "inputGlyphControllerVkLabel(&binding.controller, binding.controller_source_vk,");
+	requireContains(identity, "!identity->standard_controller || !known_family");
+	requireContains(identity, "Btn%d/Axis%d%c");
+	requireContains(identity, "Axis%d%c");
+	requireContains(identity, "Btn%d");
 }
 
 TEST_CASE("social presence carries privacy-safe input class",

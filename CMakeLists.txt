@@ -299,6 +299,8 @@ if(NINTENDO_SWITCH)
   endif()
 endif()
 include_directories(SYSTEM "${SDL2_INCLUDE_DIR}")
+set(PD_SDL2_CORE_LIB "${SDL2_LIBRARY}")
+set(PD_SDL2_SUPPORT_LIBS )
 set(_msys_lib "C:/msys64/mingw64/lib")
 if(WIN32)
   set(PD_WINPTHREAD_STATIC_LIB "${_msys_lib}/libwinpthread.a")
@@ -315,12 +317,16 @@ if(WIN32)
   # Direct file check for static .a (find_library can resolve to .dll.a stubs)
   if(EXISTS "${_msys_lib}/libSDL2.a" AND EXISTS "${_msys_lib}/libSDL2main.a")
     message(STATUS "SDL2: Static linking via ${_msys_lib}/libSDL2.a")
+    set(PD_SDL2_CORE_LIB "${_msys_lib}/libSDL2.a")
+    set(PD_SDL2_SUPPORT_LIBS imm32 version setupapi ole32 oleaut32 gdi32 winmm dinput8 dxguid shell32 user32 uuid bcrypt)
     list(APPEND LIBS mingw32 "${_msys_lib}/libSDL2main.a" "${_msys_lib}/libSDL2.a")
     list(APPEND LIBS imm32 version setupapi ole32 oleaut32 gdi32 winmm dinput8 dxguid shell32 user32 uuid bcrypt)
   elseif(SDL2_INCLUDE_DIR)
     get_filename_component(_sdl2_lib "${SDL2_INCLUDE_DIR}/../lib" ABSOLUTE)
     if(EXISTS "${_sdl2_lib}/libSDL2.a" AND EXISTS "${_sdl2_lib}/libSDL2main.a")
       message(STATUS "SDL2: Static linking via ${_sdl2_lib}/libSDL2.a")
+      set(PD_SDL2_CORE_LIB "${_sdl2_lib}/libSDL2.a")
+      set(PD_SDL2_SUPPORT_LIBS imm32 version setupapi ole32 oleaut32 gdi32 winmm dinput8 dxguid shell32 user32 uuid bcrypt)
       list(APPEND LIBS mingw32 "${_sdl2_lib}/libSDL2main.a" "${_sdl2_lib}/libSDL2.a")
       list(APPEND LIBS imm32 version setupapi ole32 oleaut32 gdi32 winmm dinput8 dxguid shell32 user32 uuid bcrypt)
     else()
@@ -896,6 +902,40 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_menu_stack.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_menu_reachability.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_menu_graph.cpp
+  # Actual headless ImGui navigation and production modal behavior.
+  ${CMAKE_SOURCE_DIR}/tests/test_pdgui_navigation.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_pdgui_text_navigation.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_pdgui_widget_navigation.cpp
+  # Native controller text/Settings controls; Results intent is header-only.
+  ${CMAKE_SOURCE_DIR}/tests/test_pdgui_text_keyboard.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_text_keyboard.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_pdgui_settings_ui.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_settings_ui.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_pdgui_endscreen_intent.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_pdgui_menu_readiness.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_menu_readiness.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_actionmap_profile.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/actionmap_profile.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_input_device_identity.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/input_device_identity.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/modmgr_selection.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_modmgr_selection.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/modmgr_enabled_state.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_modmgr_enabled_state.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/modmgr_component_state.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_modmgr_component_state.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/modmgr_save_status.c
+  ${CMAKE_SOURCE_DIR}/tests/test_modmgr_save_status.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_actionmap_binding.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/actionmap_binding.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/input_vk.c
+  ${CMAKE_SOURCE_DIR}/tests/test_menu_confirmation_imgui.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_nav_input.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_layout.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/imgui/imgui.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/imgui/imgui_draw.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/imgui/imgui_tables.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/imgui/imgui_widgets.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_right_stick_scroll.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_social_toggle_imc.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_custom_controller_static.cpp
@@ -1156,6 +1196,7 @@ set(SRC_TESTS
 add_executable(pd-tests ${SRC_TESTS})
 add_dependencies(pd-tests pd_headers)
 target_include_directories(pd-tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/port/fast3d
   ${CMAKE_SOURCE_DIR}/include
   ${CMAKE_SOURCE_DIR}/include/PR
   ${CMAKE_SOURCE_DIR}/src/include
@@ -1180,6 +1221,7 @@ target_compile_definitions(pd-tests PRIVATE
 target_compile_options(pd-tests PRIVATE
   $<$<COMPILE_LANGUAGE:C>:-Wno-pointer-sign>
 )
+target_link_libraries(pd-tests PRIVATE ${PD_SDL2_CORE_LIB} ${PD_SDL2_SUPPORT_LIBS})
 if(WIN32)
   target_link_libraries(pd-tests PRIVATE -static-libgcc -static-libstdc++
     -Wl,-Bstatic "${PD_ZLIB_LIB}" "${PD_WINPTHREAD_STATIC_LIB}" -Wl,-Bdynamic)
@@ -1192,3 +1234,88 @@ else()
   target_link_libraries(pd-tests PRIVATE "${PD_ZLIB_LIB}")
 endif()
 set_target_properties(pd-tests PROPERTIES OUTPUT_NAME "pd-tests")
+# Focused executables keep their filesystem/action adapters out of pd-tests.
+# Build through the existing queued -Target tests path; run each separately.
+add_executable(pd-settings-save-tests EXCLUDE_FROM_ALL
+  ${CMAKE_SOURCE_DIR}/tests/main.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_config_save.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_settings_save_status.cpp
+  ${CMAKE_SOURCE_DIR}/tests/support/settings_save_support.c
+  ${CMAKE_SOURCE_DIR}/port/src/config.c
+  ${CMAKE_SOURCE_DIR}/port/src/utils.c
+  ${CMAKE_SOURCE_DIR}/port/src/save_atomic.c
+  ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_settings_save_status.cpp
+)
+target_compile_definitions(pd-settings-save-tests PRIVATE
+  PD_SETTINGS_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+
+add_executable(pd-training-renderer-tests EXCLUDE_FROM_ALL
+  ${CMAKE_SOURCE_DIR}/tests/main.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_training_renderer_imgui.cpp
+  ${CMAKE_SOURCE_DIR}/tests/training_renderer_dialog_stubs.c
+  ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_menu_training.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/pdgui_nav.c
+  ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_nav_input.cpp
+  # The combined native InputText hook calls this production helper directly.
+  ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_text_keyboard.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/imgui/imgui.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/imgui/imgui_draw.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/imgui/imgui_tables.cpp
+  ${CMAKE_SOURCE_DIR}/port/fast3d/imgui/imgui_widgets.cpp
+)
+target_compile_definitions(pd-training-renderer-tests PRIVATE
+  PDGUI_TRAINING_RENDER_TEST=1)
+# The test define selects the actual FR renderer and shared native helpers.
+# Section GC trims unused helper code; it is not the COFF isolation boundary.
+target_compile_options(pd-training-renderer-tests PRIVATE
+  -ffunction-sections -fdata-sections)
+target_link_options(pd-training-renderer-tests PRIVATE -Wl,--gc-sections)
+target_link_libraries(pd-training-renderer-tests PRIVATE
+  ${PD_SDL2_CORE_LIB} ${PD_SDL2_SUPPORT_LIBS})
+
+# Direct production catalog mutation tests; lifecycle doubles stay isolated.
+add_executable(pd-catalog-mutation-tests EXCLUDE_FROM_ALL
+  ${CMAKE_SOURCE_DIR}/tests/main.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_mutation.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_modmgr_component_catalog.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/modmgr_component_state.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/modmgr_component_catalog.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/save_atomic.c
+  ${CMAKE_SOURCE_DIR}/tests/support/catalog_mutation_support.c
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog.c
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_reset_plan.c
+)
+target_include_directories(pd-catalog-mutation-tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/tests/support)
+target_link_libraries(pd-catalog-mutation-tests PRIVATE
+  ${PD_SDL2_CORE_LIB} ${PD_SDL2_SUPPORT_LIBS})
+
+if(WIN32)
+  # These Ninja executables share the configured build output directory.
+  # One dependency stages the DLL before either test can run; parallel links
+  # must not issue competing copies to the same destination.
+  add_custom_target(pd-menu-tests-runtime
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${PD_WINPTHREAD_RUNTIME_DLL}"
+      "${CMAKE_CURRENT_BINARY_DIR}/libwinpthread-1.dll"
+    COMMENT "Copying dedicated menu tests winpthread runtime DLL")
+endif()
+
+foreach(menu_test_target IN ITEMS pd-settings-save-tests pd-training-renderer-tests pd-catalog-mutation-tests)
+  add_dependencies(${menu_test_target} pd_headers)
+  target_include_directories(${menu_test_target} PRIVATE
+    $<TARGET_PROPERTY:pd-tests,INCLUDE_DIRECTORIES>)
+  target_compile_definitions(${menu_test_target} PRIVATE
+    $<TARGET_PROPERTY:pd-tests,COMPILE_DEFINITIONS>)
+  # Inherit the project-wide C11/C++20 standards, as pd-tests does.
+  if(WIN32)
+    add_dependencies(${menu_test_target} pd-menu-tests-runtime)
+    target_link_libraries(${menu_test_target} PRIVATE
+      -static-libgcc -static-libstdc++
+      -Wl,-Bstatic "${PD_WINPTHREAD_STATIC_LIB}" -Wl,-Bdynamic)
+  endif()
+endforeach()
+
+# Wrapper defaults and FIFO remain unchanged: -Target tests builds all four.
+# build-headless.ps1 -Target all still selects only client and updater.
+add_dependencies(pd-tests pd-settings-save-tests pd-training-renderer-tests pd-catalog-mutation-tests)

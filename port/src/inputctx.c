@@ -611,6 +611,7 @@ void inputCtxNotifyFocus(s32 gained)
              * anything physically still held; the user sees a brief
              * settle window (INPUTCTX_FOCUS_SETTLE_MS) during which
              * gameplay actions are suppressed. */
+            actionmapRetirePhysicalOwners();
             actionmapFlushGameplayState();
             sysLogPrintf(LOG_NOTE, "INPUTCTX: focus GAINED — flushed gameplay, settle %dms",
                          INPUTCTX_FOCUS_SETTLE_MS);
@@ -621,6 +622,7 @@ void inputCtxNotifyFocus(s32 gained)
             /* Focus lost: flush now. If we held W when alt-tabbing, we
              * must not continue walking forward while the window is
              * backgrounded (and SDL may never deliver the KEYUP). */
+            actionmapRetirePhysicalOwners();
             actionmapFlushGameplayState();
             sysLogPrintf(LOG_NOTE, "INPUTCTX: focus LOST — flushed gameplay state");
         }

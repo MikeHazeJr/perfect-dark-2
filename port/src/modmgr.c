@@ -21,12 +21,18 @@
 #include "config.h"
 #include "fs.h"
 #include "modmgr.h"
+#include "modmgr_enabled_state.h"
+#include "modmgr_component_catalog.h"
+#include "modmgr_save_status.h"
+#include "modmgr_apply.h"
+#include "assetcatalog_mutation.h"
 #include "modarchive.h"
 #include "modvfs.h"
 #include "modmigrate.h"
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
 #include "assetcatalog_scanner.h"
+#include "asset_path_contract.h"
 #include "assetcatalog_load.h"
 #include "data.h"
 #include "game/stagetable.h"
@@ -116,10 +122,11 @@ static void modmgrRegisterModJsonContent(modinfo_t *mod);
 static bool modmgrLoadMod(modinfo_t *mod);
 static void modmgrUnloadAllMods(void);
 static void modmgrRebuildCatalogFromCurrentSelection(void);
+static int modmgrApplyFailure(modmgr_apply_result_t *, enum modmgr_apply_phase, const char *, const char *);
 static s32  modmgrParseAudioCategoryValue(const char *value, s32 defaultCategory);
 static u32  modmgrHashString(const char *str);
 static void modmgrParseEnabledList(void);
-static void modmgrBuildEnabledList(void);
+static bool modmgrBuildEnabledList(void);
 
 // ---------------------------------------------------------------------------
 // Minimal JSON parser (read-only, for mod.json)
@@ -1974,27 +1981,15 @@ static void modmgrParseEnabledList(void)
 }
 
 // Build comma-separated list from current enabled flags
-static void modmgrBuildEnabledList(void)
+static bool modmgrBuildEnabledList(void)
 {
-	g_ModEnabledList[0] = '\0';
-	s32 pos = 0;
-	bool first = true;
-
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].enabled && !g_ModRegistry[i].session_only) {
-			s32 idlen = (s32)strlen(g_ModRegistry[i].id);
-			s32 needed = idlen + (first ? 0 : 1); // comma + id
-			if (pos + needed >= (s32)sizeof(g_ModEnabledList) - 1) break;
-
-			if (!first) {
-				g_ModEnabledList[pos++] = ',';
-			}
-			memcpy(&g_ModEnabledList[pos], g_ModRegistry[i].id, idlen);
-			pos += idlen;
-			first = false;
-		}
+	char error[256];
+	if (!modmgrBuildEnabledCsv(g_ModRegistry, g_ModRegistryCount,
+			g_ModEnabledList, sizeof(g_ModEnabledList), error, sizeof(error))) {
+		sysLogPrintf(LOG_WARNING, "modmgr: could not prepare enabled-mod config: %s", error);
+		return false;
 	}
-	g_ModEnabledList[pos] = '\0';
+	return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -2005,104 +2000,82 @@ static void modmgrBuildEnabledList(void)
 
 #define MODS_ENABLED_JSON_PATH "$S/mods-enabled.json"
 
-static void modmgrSaveModsEnabledJson(void)
+static bool modmgrSaveModsEnabledJson(void)
 {
 	char pathBuf[FS_MAXPATH + 1];
 	const char *path = fsFullPath(MODS_ENABLED_JSON_PATH, pathBuf, sizeof(pathBuf));
-	if (!path) return;
-
-	FILE *f = fopen(path, "w");
-	if (!f) {
-		sysLogPrintf(LOG_WARNING, "modmgr: could not write %s", path);
-		return;
+	char error[256];
+	if (!modmgrSaveEnabledFile(path, g_ModRegistry, g_ModRegistryCount, error, sizeof(error))) {
+		sysLogPrintf(LOG_WARNING, "modmgr: could not save %s: %s", path, error);
+		return false;
 	}
-
-	fprintf(f, "[\n");
-	bool first = true;
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].enabled && !g_ModRegistry[i].session_only) {
-			if (!first) fprintf(f, ",\n");
-			fprintf(f, "  \"%s\"", g_ModRegistry[i].id);
-			first = false;
-		}
-	}
-	if (!first) fprintf(f, "\n");
-	fprintf(f, "]\n");
-	fclose(f);
-
 	sysLogPrintf(LOG_NOTE, "modmgr: saved mods-enabled.json");
+	return true;
 }
 
-static bool modmgrLoadModsEnabledJson(void)
+// 1 = loaded; 0 = absent, permit legacy fallback; -1 = rejected, preserve state.
+static int modmgrLoadModsEnabledJson(void)
 {
 	char pathBuf[FS_MAXPATH + 1];
 	const char *path = fsFullPath(MODS_ENABLED_JSON_PATH, pathBuf, sizeof(pathBuf));
-	if (!path) return false;
-
-	struct stat st;
-	if (stat(path, &st) != 0 || !S_ISREG(st.st_mode)) {
-		return false;
+	char error[256];
+	int loaded = modmgrLoadEnabledFile(path, g_ModRegistry,
+		g_ModRegistryCount, error, sizeof(error));
+	if (loaded < 0) {
+		sysLogPrintf(LOG_WARNING, "modmgr: rejected %s: %s; retaining current selection", path, error);
+		return -1;
 	}
+	if (loaded) sysLogPrintf(LOG_NOTE, "modmgr: loaded mods-enabled.json in saved order");
+	return loaded;
+}
 
-	u32 filesize = 0;
-	char *data = (char *)fsFileLoad(path, &filesize);
-	if (!data || filesize == 0) return false;
+static const char *modmgrSaveActiveAgent(void *user)
+{
+	(void)user;
+	return prefsAgentGetActive();
+}
 
-	char *buf = (char *)malloc(filesize + 1);
-	if (!buf) { free(data); return false; }
-	memcpy(buf, data, filesize);
-	buf[filesize] = '\0';
-	free(data);
-
-	// Disable all mods first
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (!g_ModRegistry[i].session_only) {
-			g_ModRegistry[i].enabled = false;
-		}
+static int modmgrSaveDestination(enum modmgr_save_phase phase,
+		const char *expected_agent, char *error, size_t capacity, void *user)
+{
+	(void)user;
+	switch (phase) {
+	case MODMGR_SAVE_PREPARE:
+		if (modmgrBuildEnabledList()) return 1;
+		snprintf(error, capacity, "Could not prepare the enabled-mod list.");
+		break;
+	case MODMGR_SAVE_ENABLED_JSON:
+		if (modmgrSaveModsEnabledJson()) return 1;
+		snprintf(error, capacity, "Could not save mods-enabled.json.");
+		break;
+	case MODMGR_SAVE_MACHINE:
+		if (configSave(CONFIG_PATH) == 1) return 1;
+		snprintf(error, capacity, "Could not save pd.ini; enabled-mod JSON was saved.");
+		break;
+	case MODMGR_SAVE_AGENT:
+		if (strcmp(expected_agent, prefsAgentGetActive()) == 0 && prefsAgentSave() == 0) return 1;
+		snprintf(error, capacity, "Could not save Agent '%s'; machine settings were saved.", expected_agent);
+		break;
+	default:
+		snprintf(error, capacity, "Invalid mod settings save phase.");
+		break;
 	}
+	return 0;
+}
 
-	// Parse the JSON array
-	jparse_t j;
-	j.src = buf;
-	j.pos = buf;
-
-	jtok_t tok = json_next(&j);
-	if (tok.type != JTOK_LBRACKET) {
-		free(buf);
-		return false;
-	}
-
-	s32 order = 0;
-	while (1) {
-		tok = json_next(&j);
-		if (tok.type == JTOK_RBRACKET || tok.type == JTOK_EOF) break;
-		if (tok.type == JTOK_COMMA) continue;
-		if (tok.type == JTOK_STRING) {
-			char modid[MODMGR_ID_LEN];
-			json_tok_string(&tok, modid, MODMGR_ID_LEN);
-			modinfo_t *mod = modmgrFindMod(modid);
-			if (mod) {
-				mod->enabled = true;
-			} else {
-				sysLogPrintf(LOG_WARNING, "modmgr: mods-enabled.json references unknown mod '%s'", modid);
-			}
-		}
-	}
-
-	free(buf);
-	sysLogPrintf(LOG_NOTE, "modmgr: loaded mods-enabled.json");
-	return true;
+int modmgrSaveConfigChecked(const char *expected_agent, modmgr_save_result_t *result)
+{
+	const modmgr_save_callbacks_t callbacks = {modmgrSaveActiveAgent, modmgrSaveDestination, NULL};
+	return modmgrRunConfigSave(expected_agent, &callbacks, result);
 }
 
 void modmgrSaveConfig(void)
 {
-	// Save to both formats: JSON (primary) and config string (fallback)
-	modmgrSaveModsEnabledJson();
-	modmgrBuildEnabledList();
-	configSave(CONFIG_PATH);
-	if (prefsAgentGetActive()[0] && prefsAgentSave() != 0) {
-		sysLogPrintf(LOG_WARNING,
-			"modmgr: active Agent Profile did not persist the enabled-mod change");
+	modmgr_save_result_t result;
+	if (!modmgrSaveConfigChecked(NULL, &result)) {
+		sysLogPrintf(LOG_WARNING, "modmgr: settings save failed (phase %d, saved %u): %s",
+			result.phase, result.saved, result.error);
+		return;
 	}
 	sysLogPrintf(LOG_NOTE, "modmgr: saved config — enabled mods: %s",
 		g_ModEnabledList[0] ? g_ModEnabledList : "(none)");
@@ -2111,7 +2084,7 @@ void modmgrSaveConfig(void)
 void modmgrLoadConfig(void)
 {
 	// Try mods-enabled.json first (primary, ordered)
-	if (modmgrLoadModsEnabledJson()) {
+	if (modmgrLoadModsEnabledJson() != 0) {
 		return;
 	}
 
@@ -2127,89 +2100,32 @@ void modmgrLoadConfig(void)
 // Audio ini mod loading — re-parse audio.ini and register catalog entry
 // ---------------------------------------------------------------------------
 
-static void modmgrLoadAudioIni(modinfo_t *mod)
+static bool modmgrLoadAudioIni(modinfo_t *mod)
 {
-	char path[FS_MAXPATH + 1];
-	snprintf(path, sizeof(path), "%s/audio.ini", mod->dirpath);
-
-	FILE *f = fopen(path, "r");
-	if (!f) {
-		sysLogPrintf(LOG_WARNING, "modmgr: could not open %s for loading", path);
-		return;
+	char path[FS_MAXPATH];
+	char catalog_id[CATALOG_ID_LEN];
+	ini_section_t ini;
+	if (!assetPathJoinChecked(path, sizeof(path), mod->dirpath, "/", "audio.ini")
+			|| !iniParse(path, &ini)) return false;
+	const char *authored_id = iniGet(&ini, "catalog_id", iniGet(&ini, "id", ""));
+	if (authored_id[0]) {
+		if (!assetPathCopyChecked(catalog_id, sizeof(catalog_id), authored_id)) return false;
+	} else {
+		int n = snprintf(catalog_id, sizeof(catalog_id), "%s:audio", mod->id);
+		if (n < 0 || n >= (int)sizeof(catalog_id)) return false;
 	}
-
-	char name[MODMGR_NAME_LEN] = "";
-	char file_path[FS_MAXPATH] = "";
-	s32  category = 1;
-	s32  duration_ms = 0;
-	bool in_audio_section = false;
-
-	char line[512];
-	while (fgets(line, sizeof(line), f)) {
-		s32 len = (s32)strlen(line);
-		while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r' ||
-		       line[len-1] == ' ' || line[len-1] == '\t')) {
-			line[--len] = '\0';
-		}
-		if (len == 0 || line[0] == '#' || line[0] == ';') continue;
-
-		if (line[0] == '[') {
-			in_audio_section = (strncmp(line, "[audio]", 7) == 0);
-			continue;
-		}
-		if (!in_audio_section) continue;
-
-		char *eq = strchr(line, '=');
-		if (!eq) continue;
-
-		char *kstart = line;
-		while (*kstart == ' ' || *kstart == '\t') kstart++;
-		char *kend = eq - 1;
-		while (kend > kstart && (*kend == ' ' || *kend == '\t')) kend--;
-		kend[1] = '\0';
-
-		char *vstart = eq + 1;
-		while (*vstart == ' ' || *vstart == '\t') vstart++;
-
-		if (strcmp(kstart, "name") == 0) {
-			strncpy(name, vstart, sizeof(name) - 1);
-			name[sizeof(name) - 1] = '\0';
-		} else if (strcmp(kstart, "category") == 0) {
-			category = modmgrParseAudioCategoryValue(vstart, category);
-		} else if (strcmp(kstart, "duration_ms") == 0) {
-			duration_ms = atoi(vstart);
-		} else if (strcmp(kstart, "file_path") == 0) {
-			strncpy(file_path, vstart, sizeof(file_path) - 1);
-			file_path[sizeof(file_path) - 1] = '\0';
-		}
-	}
-	fclose(f);
-
-	if (name[0] == '\0' || file_path[0] == '\0') {
+	if (!iniGet(&ini, "name", "")[0] || !iniGet(&ini, "file_path", "")[0]) {
 		sysLogPrintf(LOG_WARNING, "modmgr: audio.ini in '%s' missing name or file_path", mod->dirpath);
-		return;
+		return false;
 	}
-
-	/* Build catalog ID: <mod_id>:audio */
-	char catalogId[MODMGR_ID_LEN];
-	snprintf(catalogId, sizeof(catalogId), "%s:audio", mod->id);
-
-	/* Build file path relative to mods dir */
-	char relPath[FS_MAXPATH];
-	snprintf(relPath, sizeof(relPath), "%s/%s", mod->dirpath, file_path);
-
-	/* Register in asset catalog */
-	asset_entry_t *e = assetCatalogRegisterAudio(
-		catalogId, 0, name, category, duration_ms, relPath);
-	if (e) {
-		e->bundled = 0;
-		e->enabled = 1;
-		strncpy(e->dirpath, mod->dirpath, FS_MAXPATH - 1);
-		e->dirpath[FS_MAXPATH - 1] = '\0';
+	if (assetCatalogRegisterAudioIni(catalog_id, mod->id, mod->dirpath,
+			&ini, AUDIO_CAT_MUSIC, 0) < 0) {
+		sysLogPrintf(LOG_WARNING, "modmgr: audio.ini admission rejected for '%s'", catalog_id);
+		return false;
 	}
-
-	sysLogPrintf(LOG_NOTE, "modmgr: registered audio mod '%s' -> %s (%s) category=%d",
-		name, catalogId, relPath, category);
+	sysLogPrintf(LOG_NOTE, "modmgr: registered audio mod '%s' -> %s",
+		iniGet(&ini, "name", ""), catalog_id);
+	return true;
 }
 
 static bool modmgrLoadMod(modinfo_t *mod)
@@ -2229,6 +2145,7 @@ static bool modmgrLoadMod(modinfo_t *mod)
 			modmgrShortSha256(mod->sha256, 8));
 
 		if (mod->archive_handle) {
+			modVfsUnmount(mod->id);
 			modArchiveClose(mod->archive_handle);
 			mod->archive_handle = NULL;
 		}
@@ -2242,22 +2159,38 @@ static bool modmgrLoadMod(modinfo_t *mod)
 
 		u32 mfstSize = 0;
 		char *mfstBuf = modArchiveReadManifest(mod->archive_handle, &mfstSize);
-		if (mfstBuf) {
-			modmgrRegisterModJsonContentBuf(mod, mfstBuf, mfstSize);
-			modmgrParseBotNamesBuf(mod, mfstBuf, mfstSize);
-			free(mfstBuf);
-		}
 
 		/* Priority M / B-238 (M-1.3): register the open archive with the
 		 * VFS layer so fsFileLoad / fsFileSize can resolve asset paths
 		 * inside it. The handle stays owned by modmgr; unload path will
 		 * call modVfsUnmount + modArchiveClose in modmgrUnloadAllMods. */
-		modVfsMount(mod->id, mod->archive_handle);
+		if (!mfstBuf || !modVfsMount(mod->id, mod->archive_handle)) {
+			free(mfstBuf);
+			modVfsUnmount(mod->id);
+			modArchiveClose(mod->archive_handle);
+			mod->archive_handle = NULL;
+			return false;
+		}
 
 		/* External-format .pdmod pipeline: archive component INIs are the
 		 * same authoring surface as loose folder _components, but paths stay
 		 * archive-relative so fsFileLoad resolves them through the VFS mount. */
-		assetCatalogScanComponentsFromArchive(mod->id, mod->archive_handle);
+		s32 scan_result = assetCatalogScanComponentsFromArchive(mod->id, mod->archive_handle);
+		if (scan_result < 0) {
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: archive package '%s' failed transactional catalog admission (%d)",
+				mod->id, scan_result);
+			free(mfstBuf);
+			modVfsUnmount(mod->id);
+			modArchiveClose(mod->archive_handle);
+			mod->archive_handle = NULL;
+			return false;
+		}
+		/* Manifest content and bot names become visible only after every typed
+		 * source in the archive has passed the same import transaction. */
+		modmgrRegisterModJsonContentBuf(mod, mfstBuf, mfstSize);
+		modmgrParseBotNamesBuf(mod, mfstBuf, mfstSize);
+		free(mfstBuf);
 
 		mod->loaded = true;
 		return true;
@@ -2267,7 +2200,7 @@ static bool modmgrLoadMod(modinfo_t *mod)
 
 	if (mod->has_audioini) {
 		// Audio ini mod: register audio entry in catalog
-		modmgrLoadAudioIni(mod);
+		if (!modmgrLoadAudioIni(mod)) return false;
 	} else {
 		s32 scan_result = assetCatalogScanExternalLayoutFolder(mod->id, mod->dirpath);
 		if (scan_result < 0) {
@@ -2390,23 +2323,25 @@ void modmgrShutdown(void)
 	sysLogPrintf(LOG_NOTE, "modmgr: shutdown");
 }
 
+int modmgrReloadChecked(modmgr_apply_result_t *result)
+{
+    if (!result) return 0;
+    sysLogPrintf(LOG_NOTE, "modmgr: reloading - rebuilding asset tables...");
+    modmgrUnloadAllMods();
+    if (!modmgrSyncCatalogToRegistryChecked(result)) return 0;
+    g_ModDirty = false;
+    sysLogPrintf(LOG_NOTE, "modmgr: reload complete");
+    mainChangeToStage(MODMGR_STAGE_TITLE);
+    return 1;
+}
+
 void modmgrReload(void)
 {
-	sysLogPrintf(LOG_NOTE, "modmgr: reloading — rebuilding asset tables...");
-
-	// Unload everything
-	modmgrUnloadAllMods();
-	modmgrRebuildCatalogFromCurrentSelection();
-
-	g_ModDirty = false;
-
-	sysLogPrintf(LOG_NOTE, "modmgr: reload complete");
-
-	// Invalidate catalog-backed caches so accessors pick up new state
-	modmgrCatalogChanged();
-
-	videoResetTextureCache();
-	mainChangeToStage(MODMGR_STAGE_TITLE);
+    modmgr_apply_result_t result;
+    if (!modmgrReloadChecked(&result)) {
+        sysLogPrintf(LOG_WARNING, "modmgr: reload incomplete phase=%d: %s",
+            result.phase, result.error);
+    }
 }
 
 void modmgrRescanDirectory(void)
@@ -2489,64 +2424,90 @@ void modmgrRescanDirectory(void)
 	sysLogPrintf(LOG_NOTE, "modmgr: rescan complete (now %d mods)", g_ModRegistryCount);
 }
 
+static int modmgrRebuildCatalogChecked(modmgr_apply_result_t *result)
+{
+    int ok = 0;
+    result->runtime_started = 1;
+    asset_catalog_change_e cleared = assetCatalogClearModsChecked();
+    if (cleared < 0) {
+        result->component.catalog_result = cleared;
+        modmgrApplyFailure(result, MODMGR_APPLY_RETIRE, NULL,
+            "Catalog retirement failed; runtime changes may remain.");
+        goto rebuild_caches;
+    }
+    const char *modsdir = modmgrGetModsDir();
+    if (modsdir && modsdir[0]) {
+        if (assetCatalogScanComponents(modsdir) < 0) {
+            modmgrApplyFailure(result, MODMGR_APPLY_COMPONENT_SCAN, NULL,
+                "Some components could not be admitted; runtime changes may remain.");
+            goto rebuild_caches;
+        }
+        if (assetCatalogScanBotVariants(modsdir) < 0) {
+            modmgrApplyFailure(result, MODMGR_APPLY_BOT_SCAN, NULL,
+                "Some bot variants could not be admitted; runtime changes may remain.");
+            goto rebuild_caches;
+        }
+    }
+    for (s32 i = 0; i < g_ModRegistryCount; ++i) g_ModRegistry[i].loaded = false;
+    for (s32 i = 0; i < g_ModRegistryCount; ++i) {
+        if ((g_ModRegistry[i].enabled || g_ModRegistry[i].has_audioini) &&
+                !modmgrLoadMod(&g_ModRegistry[i])) {
+            modmgrApplyFailure(result, MODMGR_APPLY_PACKAGE_LOAD, g_ModRegistry[i].id,
+                "A selected package could not be loaded; runtime changes may remain.");
+            goto rebuild_caches;
+        }
+    }
+    /* Keep the save result intact: replay has its own counters/error details. */
+    modmgr_component_result_t replay;
+    if (!modmgrLoadComponentStateChecked(&replay)) {
+        result->component.catalog_result = replay.catalog_result;
+        modmgrApplyFailure(result, MODMGR_APPLY_COMPONENT_REPLAY, replay.id, replay.error);
+        goto rebuild_caches;
+    }
+    ok = 1;
+rebuild_caches:
+    /* Reflect the actual resulting catalog even when earlier stages failed.
+     * This is cache invalidation/republication, not rollback or Apply success. */
+    catalogLoadInit();
+    catalogBuildRuntimeCaches();
+    return ok;
+}
+
 static void modmgrRebuildCatalogFromCurrentSelection(void)
 {
-	s32 enabledCount = 0;
+    modmgr_apply_result_t result = {0};
+    if (!modmgrRebuildCatalogChecked(&result)) {
+        g_ModDirty = true;
+        sysLogPrintf(LOG_WARNING, "modmgr: rebuild failed phase=%d id='%s': %s",
+            result.phase, result.id, result.error);
+    }
+}
 
-	// C-8: Rebuild catalog with the new enabled mod set.
-	// assetCatalogClearMods() removes all non-bundled (mod) entries from the
-	// catalog, then re-scanning repopulates them for the currently enabled mods.
-	// catalogLoadInit() then rebuilds reverse-index arrays so C-4/C-5/C-6/C-7
-	// intercepts reflect the updated mod state immediately.
-	sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild — clearing mod entries");
-	assetCatalogClearMods();
-	{
-		const char *modsdir = modmgrGetModsDir();
-		if (modsdir) {
-			s32 ncomp = assetCatalogScanComponents(modsdir);
-			assetCatalogScanBotVariants(modsdir);
-			sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild — %d component(s) re-registered", ncomp);
-		}
-	}
 
-	// Restore per-component enable state from .modstate (written by
-	// modmgrSaveComponentState during apply).
-	modmgrLoadComponentState();
-
-	// assetCatalogClearMods() removes catalog entries, but not mod->loaded flags.
-	// Reset them so enabled audio/mod.json packages are re-registered in this
-	// rebuild pass (without requiring a full modmgrUnloadAllMods()).
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		g_ModRegistry[i].loaded = false;
-	}
-
-	// Re-register enabled manifest mods + all audio-only mods so theme/audio
-	// content is present in the catalog for the next reverse-index build.
-	// Audio mods always re-register (see modmgrInit rationale).
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].enabled || g_ModRegistry[i].has_audioini) {
-			modmgrLoadMod(&g_ModRegistry[i]);
-			if (g_ModRegistry[i].enabled) enabledCount++;
-		}
-	}
-
-	// Rebuild reverse-index arrays after all mod entries are present.
-	catalogLoadInit();
-	/* B-1009: these caches store pointers into catalog row IDs. ClearMods
-	 * invalidates those addresses, so rebuild every runtime-to-ID cache before
-	 * any consumer can resolve a removed or reused mod row. */
-	catalogBuildRuntimeCaches();
-	sysLogPrintf(LOG_NOTE, "MOD: catalog rebuild complete — %d total entries (%d enabled mod package(s))",
-	             assetCatalogGetCount(), enabledCount);
+int modmgrSyncCatalogToRegistryChecked(modmgr_apply_result_t *result)
+{
+    if (!result) return 0;
+    memset(result, 0, sizeof(*result));
+    const int rebuilt = modmgrRebuildCatalogChecked(result);
+    /* Publish actual partial state too; this does not turn failure into success. */
+    modmgrCatalogChanged();
+    videoResetTextureCache();
+    if (!rebuilt) {
+        g_ModDirty = true;
+        return 0;
+    }
+    result->runtime_completed = 1;
+    result->phase = MODMGR_APPLY_COMPLETE;
+    return 1;
 }
 
 void modmgrSyncCatalogToRegistry(void)
 {
-	/* B-214: after disk deletes / rescans, rebuild mod catalog entries +
-	 * C-4 intercepts so UI and loaders drop removed packages immediately. */
-	modmgrRebuildCatalogFromCurrentSelection();
-	modmgrCatalogChanged();
-	videoResetTextureCache();
+    modmgr_apply_result_t result;
+    if (!modmgrSyncCatalogToRegistryChecked(&result)) {
+        sysLogPrintf(LOG_WARNING, "modmgr: catalog sync incomplete phase=%d: %s",
+            result.phase, result.error);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2753,196 +2714,297 @@ void modmgrSwapOrder(s32 indexA, s32 indexB)
 // are always enabled and are never listed.
 // ---------------------------------------------------------------------------
 
-// Iteration callback: writes disabled non-bundled entry IDs to a FILE*.
-typedef struct { FILE *f; s32 *count; } SaveStateCtx;
-
-static void saveStateCallback(const asset_entry_t *entry, void *userdata)
+/* The adapters own complete parsing, including-disabled snapshots and atomic
+ * persistence. Copy session ownership from the real package registry; do not
+ * guess ownership from an asset ID or category label. */
+static int modmgrComponentStateOperation(int action, const modmgr_component_override_t *changes, size_t change_count, modmgr_component_plan_t **plan, modmgr_component_result_t *result)
 {
-	SaveStateCtx *ctx = (SaveStateCtx *)userdata;
-	if (!entry->enabled && !entry->bundled) {
-		fprintf(ctx->f, "%s\n", entry->id);
-		(*ctx->count)++;
-	}
+    if (plan) *plan = NULL;
+    if (!result) return 0;
+    memset(result, 0, sizeof(*result));
+    const char *sessionDirs[MODMGR_MAX_MODS];
+    size_t sessionCount = 0;
+    if (g_ModRegistryCount < 0 || g_ModRegistryCount > MODMGR_MAX_MODS) {
+        snprintf(result->error, sizeof(result->error), "Invalid installed mod registry.");
+        return 0;
+    }
+    for (s32 i = 0; i < g_ModRegistryCount; ++i) {
+        if (!g_ModRegistry[i].session_only) continue;
+        if (!memchr(g_ModRegistry[i].dirpath, '\0', sizeof(g_ModRegistry[i].dirpath)) ||
+                !g_ModRegistry[i].dirpath[0]) {
+            snprintf(result->error, sizeof(result->error), "Invalid session package source ownership.");
+            return 0;
+        }
+        sessionDirs[sessionCount++] = g_ModRegistry[i].dirpath;
+    }
+    char statepath[FS_MAXPATH + 1];
+    const char *path = NULL;
+    const char *modsdir = modmgrGetModsDir();
+    if (modsdir && modsdir[0]) {
+        if (!assetPathJoinChecked(statepath, sizeof(statepath), modsdir, "/", ".modstate")) {
+            snprintf(result->error, sizeof(result->error), "Component-state path is too long.");
+            return 0;
+        }
+        path = statepath;
+    }
+    if (action == 2) return modmgrPrepareCatalogComponentPlan(path, sessionDirs, sessionCount, changes, change_count, plan, result);
+    return action
+        ? modmgrSaveCatalogComponentState(path, sessionDirs, sessionCount, result)
+        : modmgrReplayCatalogComponentState(path, sessionDirs, sessionCount, result);
+}
+
+int modmgrSaveComponentStateChecked(modmgr_component_result_t *result)
+{
+    return modmgrComponentStateOperation(1, NULL, 0, NULL, result);
+}
+
+int modmgrLoadComponentStateChecked(modmgr_component_result_t *result)
+{
+    return modmgrComponentStateOperation(0, NULL, 0, NULL, result);
+}
+
+int modmgrPrepareComponentPlan(const modmgr_component_override_t *changes,
+    size_t change_count, modmgr_component_plan_t **plan, modmgr_component_result_t *result)
+{
+    return modmgrComponentStateOperation(2, changes, change_count, plan, result);
 }
 
 void modmgrSaveComponentState(void)
 {
-	const char *modsdir = modmgrGetModsDir();
-	if (!modsdir) {
-		sysLogPrintf(LOG_NOTE, "modmgr: no mods dir, skipping component state save");
-		return;
-	}
-
-	char statepath[FS_MAXPATH + 1];
-	snprintf(statepath, sizeof(statepath), "%s/.modstate", modsdir);
-
-	FILE *f = fopen(statepath, "w");
-	if (!f) {
-		sysLogPrintf(LOG_WARNING, "modmgr: could not write component state to %s", statepath);
-		return;
-	}
-
-	fprintf(f, "# mods/.modstate -- disabled component IDs\n");
-	fprintf(f, "# Written by Mod Manager. One ID per line. # = comment.\n");
-
-	s32 count = 0;
-	SaveStateCtx ctx = { f, &count };
-
-	// Iterate all user-manageable asset types (non-bundled entries only matter)
-	static const asset_type_e types[] = {
-		ASSET_MAP, ASSET_CHARACTER, ASSET_SKIN, ASSET_BOT_VARIANT,
-		ASSET_WEAPON, ASSET_PROJECTILE, ASSET_ENTITY,
-		ASSET_ARENA, ASSET_BODY, ASSET_HEAD, ASSET_MODEL,
-		ASSET_ANIMATION,
-		ASSET_TEXTURES, ASSET_TEXTURE, ASSET_MATERIAL, ASSET_EFFECT,
-		ASSET_SFX, ASSET_MUSIC, ASSET_AUDIO,
-		ASSET_PROP, ASSET_VEHICLE, ASSET_MISSION, ASSET_GAMEMODE,
-		ASSET_BOT_PROFILE, ASSET_SCENARIO, ASSET_HUD, ASSET_UI,
-		ASSET_FONT, ASSET_LANG, ASSET_THEME, ASSET_TOOL
-	};
-	for (s32 i = 0; i < (s32)(sizeof(types) / sizeof(types[0])); i++) {
-		assetCatalogIterateByType(types[i], saveStateCallback, &ctx);
-	}
-
-	fclose(f);
-	sysLogPrintf(LOG_NOTE, "modmgr: saved component state (%d disabled)", count);
+    modmgr_component_result_t result;
+    if (!modmgrSaveComponentStateChecked(&result)) {
+        sysLogPrintf(LOG_WARNING, "modmgr: component state save failed: %s", result.error);
+        return;
+    }
+    if (result.saved) sysLogPrintf(LOG_NOTE, "modmgr: saved component preferences");
 }
 
 void modmgrLoadComponentState(void)
 {
-	const char *modsdir = modmgrGetModsDir();
-	if (!modsdir) {
-		return;
-	}
+    modmgr_component_result_t result;
+    if (!modmgrLoadComponentStateChecked(&result)) {
+        sysLogPrintf(LOG_WARNING, "modmgr: component state replay failed: %s", result.error);
+        return;
+    }
+    if (result.applied || result.unchanged) {
+        sysLogPrintf(LOG_NOTE, "modmgr: restored component preferences (%zu changed, %zu already disabled)",
+            result.applied, result.unchanged);
+    }
+}
 
-	char statepath[FS_MAXPATH + 1];
-	snprintf(statepath, sizeof(statepath), "%s/.modstate", modsdir);
+struct modmgr_apply_plan {
+    int persistent;
+    int activation_published;
+    char activation_id[MODMGR_ID_LEN];
+    s32 count;
+    char agent[AGENT_PROFILE_NAME_MAX];
+    modmgr_component_plan_t *components;
+    struct {
+        char id[MODMGR_ID_LEN];
+        char version[MODMGR_VERSION_LEN];
+        char path[FS_MAXPATH + 1];
+        int loaded, valid, session_only, requires_restart;
+    } original[MODMGR_MAX_MODS];
+};
 
-	FILE *f = fopen(statepath, "r");
-	if (!f) {
-		return;  /* no .modstate file = everything enabled, that's fine */
-	}
+static int modmgrApplyFailure(modmgr_apply_result_t *result,
+        enum modmgr_apply_phase phase, const char *id, const char *error)
+{
+    result->phase = phase;
+    snprintf(result->id, sizeof(result->id), "%s", id ? id : "");
+    snprintf(result->error, sizeof(result->error), "%s", error);
+    return 0;
+}
 
-	char line[CATALOG_ID_LEN + 4];
-	s32 count = 0;
-	while (fgets(line, sizeof(line), f)) {
-		/* Strip trailing newline/carriage-return */
-		s32 len = (s32)strlen(line);
-		while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
-			line[--len] = '\0';
-		}
+void modmgrFreeApplyPlan(modmgr_apply_plan_t *plan)
+{
+    if (!plan) return;
+    modmgrFreeCatalogComponentPlan(plan->components);
+    free(plan);
+}
 
-		/* Skip comments and blank lines */
-		if (line[0] == '#' || line[0] == '\0') {
-			continue;
-		}
+int modmgrPrepareApplyPlan(int persistent,
+        const modmgr_component_override_t *changes, size_t change_count,
+        modmgr_apply_plan_t **plan, modmgr_apply_result_t *result)
+{
+    if (plan) *plan = NULL;
+    if (!result) return 0;
+    memset(result, 0, sizeof(*result));
+    if (!plan || g_ModRegistryCount < 0 || g_ModRegistryCount > MODMGR_MAX_MODS ||
+            (change_count && (!changes || !persistent)))
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL, "Invalid Apply selection.");
+    const char *agent = prefsAgentGetActive();
+    if (!agent || strlen(agent) >= AGENT_PROFILE_NAME_MAX)
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL, "Invalid active Agent identity.");
+    modmgr_apply_plan_t *candidate = calloc(1, sizeof(*candidate));
+    if (!candidate)
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL, "Could not prepare Apply.");
+    candidate->persistent = persistent != 0;
+    candidate->count = g_ModRegistryCount;
+    strcpy(candidate->agent, agent);
+    for (s32 i = 0; i < candidate->count; ++i) {
+        const modinfo_t *mod = &g_ModRegistry[i];
+        if (!memchr(mod->id, '\0', sizeof(mod->id)) || !mod->id[0] ||
+                !memchr(mod->version, '\0', sizeof(mod->version)) ||
+                !memchr(mod->dirpath, '\0', sizeof(mod->dirpath))) {
+            modmgrFreeApplyPlan(candidate);
+            return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL, "Invalid installed package identity.");
+        }
+        for (s32 j = 0; j < i; ++j) {
+            if (strcmp(candidate->original[j].id, mod->id) == 0) {
+                modmgrFreeApplyPlan(candidate);
+                return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL, "Duplicate installed package identity.");
+            }
+        }
+        strcpy(candidate->original[i].id, mod->id);
+        strcpy(candidate->original[i].version, mod->version);
+        strcpy(candidate->original[i].path, mod->dirpath);
+        candidate->original[i].loaded = mod->loaded;
+        candidate->original[i].valid = mod->valid;
+        candidate->original[i].session_only = mod->session_only;
+        candidate->original[i].requires_restart = mod->requires_restart;
+    }
+    if (persistent && !modmgrPrepareComponentPlan(changes, change_count,
+            &candidate->components, &result->component)) {
+        modmgrFreeApplyPlan(candidate);
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE,
+            result->component.id, result->component.error);
+    }
+    *plan = candidate;
+    return 1;
+}
 
-		assetCatalogSetEnabled(line, 0);
-		count++;
-	}
+int modmgrApplyPreparedChanges(const modmgr_apply_plan_t *plan, modmgr_apply_result_t *result)
+{
+    if (!result) return 0;
+    memset(result, 0, sizeof(*result));
+    if (plan) result->activation_published = plan->activation_published;
+    if (!plan || g_ModRegistryCount != plan->count || plan->count < 0 || plan->count > MODMGR_MAX_MODS)
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL, "Installed packages changed; pending choices were retained.");
+    if (strcmp(plan->agent, prefsAgentGetActive()) != 0)
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL, "Active Agent changed; pending choices were retained.");
+    bool intended[MODMGR_MAX_MODS], originalLoaded[MODMGR_MAX_MODS];
+    for (s32 i = 0; i < g_ModRegistryCount; ++i) {
+        const modinfo_t *mod = &g_ModRegistry[i];
+        if (!memchr(mod->id, '\0', sizeof(mod->id)) ||
+                !memchr(mod->version, '\0', sizeof(mod->version)) ||
+                !memchr(mod->dirpath, '\0', sizeof(mod->dirpath)))
+            return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL,
+                "Invalid installed package identity; pending choices were retained.");
+        s32 old = 0;
+        while (old < plan->count && strcmp(plan->original[old].id, mod->id) != 0) ++old;
+        if (old == plan->count || strcmp(plan->original[old].path, mod->dirpath) != 0 ||
+                strcmp(plan->original[old].version, mod->version) != 0 ||
+                plan->original[old].valid != mod->valid ||
+                plan->original[old].session_only != mod->session_only ||
+                plan->original[old].requires_restart != mod->requires_restart)
+            return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, mod->id,
+                "An installed package changed identity; pending choices were retained.");
+        intended[i] = mod->enabled;
+        originalLoaded[i] = plan->original[old].loaded;
+    }
+    if (plan->activation_id[0]) {
+        modinfo_t *activation = modmgrFindMod(plan->activation_id);
+        if (!activation || !activation->enabled)
+            return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, plan->activation_id,
+                "The activation selection changed; discard before starting a different operation.");
+    }
+    g_ModDirty = true;
+    if (plan->persistent) {
+        if (!modmgrSaveCatalogComponentPlan(plan->components, &result->component))
+            return modmgrApplyFailure(result, MODMGR_APPLY_COMPONENT_SAVE,
+                result->component.id, result->component.error);
+        if (!modmgrSaveConfigChecked(plan->agent, &result->config))
+            return modmgrApplyFailure(result, MODMGR_APPLY_CONFIG_SAVE, NULL, result->config.error);
+    }
+    /* Every required save has succeeded before the first runtime mutation. */
+    for (s32 i = 0; i < g_ModRegistryCount; ++i) {
+        modinfo_t *mod = &g_ModRegistry[i];
+        mod->pending_restart = mod->requires_restart && intended[i] != originalLoaded[i];
+        if (mod->pending_restart) {
+            ++result->restart_count;
+            mod->enabled = originalLoaded[i];
+        }
+    }
+    result->runtime_started = 1;
+    modmgrUnloadAllMods();
+    const int rebuilt = modmgrRebuildCatalogChecked(result);
+    for (s32 i = 0; i < g_ModRegistryCount; ++i) g_ModRegistry[i].enabled = intended[i];
+    modmgrCatalogChanged();
+    videoResetTextureCache();
+    if (!rebuilt) {
+        g_ModDirty = true;
+        return 0;
+    }
+    pdguiThemeRescanMods();
+    pdguiThemeRescanChromeStyles();
+    pdguiThemeApplyEnabledModUiTextures();
+    g_ModDirty = false;
+    result->runtime_completed = 1;
+    result->phase = MODMGR_APPLY_COMPLETE;
+    return 1;
+}
 
-	fclose(f);
-	if (count > 0) {
-		sysLogPrintf(LOG_NOTE, "modmgr: loaded component state (%d disabled from .modstate)", count);
-	}
+int modmgrApplyChangesChecked(int persistent, modmgr_apply_result_t *result)
+{
+    modmgr_apply_plan_t *plan = NULL;
+    if (!modmgrPrepareApplyPlan(persistent, NULL, 0, &plan, result)) return 0;
+    int applied = modmgrApplyPreparedChanges(plan, result);
+    modmgrFreeApplyPlan(plan);
+    return applied;
 }
 
 static void modmgrApplyChangesInternal(s32 persist_machine_state)
 {
-	sysLogPrintf(LOG_NOTE, "modmgr: applying changes mode=%s...",
-		persist_machine_state ? "persistent" : "transient");
+    modmgr_apply_result_t result;
+    if (!modmgrApplyChangesChecked(persist_machine_state, &result)) {
+        sysLogPrintf(LOG_WARNING,
+            "modmgr: Apply failed phase=%d id='%s' saved-components=%d saved-config=%u runtime-started=%d: %s",
+            result.phase, result.id, result.component.saved, result.config.saved,
+            result.runtime_started, result.error);
+        return;
+    }
+    sysLogPrintf(LOG_NOTE, "modmgr: Apply complete; %d package(s) require restart", result.restart_count);
+}
 
-	/* Priority M / B-238 (M-1.5): hot-reload state machine.
-	 *
-	 * Snapshot enabled (user intent) and loaded (current runtime state).
-	 * For mods with requires_restart=true whose intent diverges from the
-	 * current loaded state, defer the live transition until next launch:
-	 *   - The user's intent is persisted to config (so next launch picks
-	 *     it up).
-	 *   - The mod->enabled field is temporarily reverted to match its
-	 *     pre-apply loaded state so the rebuild below produces the same
-	 *     mount set as before.
-	 *   - mod->pending_restart is set so the UI can render
-	 *     "Restart required for [name]" until the next launch.
-	 *
-	 * Mods without requires_restart go through the normal hot-reload path
-	 * unchanged. */
-	bool intendedEnabled[MODMGR_MAX_MODS];
-	bool prevLoaded[MODMGR_MAX_MODS];
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		intendedEnabled[i] = g_ModRegistry[i].enabled;
-		prevLoaded[i]      = g_ModRegistry[i].loaded;
-	}
-
-	s32 deferCount = 0;
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		modinfo_t *mod = &g_ModRegistry[i];
-		if (mod->requires_restart && intendedEnabled[i] != prevLoaded[i]) {
-			mod->pending_restart = 1;
-			deferCount++;
-			sysLogPrintf(LOG_NOTE,
-				"modmgr: '%s' requires_restart=true -- %s deferred until next launch",
-				mod->id, intendedEnabled[i] ? "enable" : "disable");
-		} else {
-			mod->pending_restart = 0;
-		}
-	}
-
-	if (persist_machine_state) {
-		/* User-driven global changes remain the machine default. Agent profile
-		 * activation uses the transient seam so it cannot create a second
-		 * per-agent source in .modstate, mods-enabled.json, or pd.ini. */
-		modmgrSaveComponentState();
-		modmgrSaveConfig();
-	}
-
-	/* Mask enabled for deferred mods so the rebuild keeps them in their
-	 * pre-apply loaded state. After the rebuild we restore intent so the
-	 * registry surface (modmgrGetModEnabled) reflects what the user chose. */
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].pending_restart) {
-			g_ModRegistry[i].enabled = prevLoaded[i];
-		}
-	}
-
-	/* Rebuild catalog + reverse-indexes from the (possibly masked) enabled set. */
-	modmgrUnloadAllMods();
-	modmgrRebuildCatalogFromCurrentSelection();
-
-	/* Restore intent so UI / network manifest / accessors see the user's
-	 * choice. The runtime mount state still reflects prevLoaded for the
-	 * deferred mods, which is what pending_restart communicates. */
-	for (s32 i = 0; i < g_ModRegistryCount; i++) {
-		if (g_ModRegistry[i].pending_restart) {
-			g_ModRegistry[i].enabled = intendedEnabled[i];
-		}
-	}
-
-	/* Invalidate catalog-backed caches so accessors pick up new state */
-	modmgrCatalogChanged();
-	videoResetTextureCache();
-	g_ModDirty = false;
-
-	/* Issue 2/8: rescan mods/ for new theme.json files so newly-installed
-	 * mod themes appear in the theme selector after Apply without a restart.
-	 * Audio is self-healing (renderSelectTunes scans per-frame); only themes
-	 * need an explicit rescan here. */
-	pdguiThemeRescanMods();
-	/* S-8: chrome styles are tracked in a separate subsystem from themes —
-	 * without this rescan the chrome style picker goes stale after Apply. */
-	pdguiThemeRescanChromeStyles();
-	/* D5 Phase 4: apply UI texture overrides from newly-enabled mods */
-	pdguiThemeApplyEnabledModUiTextures();
-
-	/* Stay in-place: no forced title restart.  Callers keep the active menu
-	 * and present an in-UI apply progress/completion modal. */
-	if (deferCount > 0) {
-		sysLogPrintf(LOG_NOTE,
-			"modmgr: apply complete -- %d mod(s) require restart to take effect",
-			deferCount);
-	} else {
-		sysLogPrintf(LOG_NOTE, "modmgr: apply complete -- no stage restart");
-	}
+int modmgrPrepareInstalledActivation(int index, modmgr_apply_plan_t **plan,
+        modmgr_apply_result_t *result)
+{
+    if (plan) *plan = NULL;
+    if (!result) return 0;
+    memset(result, 0, sizeof(*result));
+    if (!plan) return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL,
+        "Activation requires a caller-owned plan.");
+    modinfo_t *mod = modmgrGetMod(index);
+    if (!mod || !mod->valid) {
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, NULL,
+            "The installed package is missing or invalid.");
+    }
+    if (mod->session_only) {
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, mod->id,
+            "Session packages are controlled by the active network manifest.");
+    }
+    char missing[256];
+    if (modmgrCheckDependencies(index, missing, sizeof(missing)) > 0) {
+        char error[256];
+        snprintf(error, sizeof(error), "Missing dependencies: %.220s", missing);
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, mod->id, error);
+    }
+    /* Capture loaded/restart state before publishing the desired selection. */
+    modmgr_apply_plan_t *candidate = NULL;
+    if (!modmgrPrepareApplyPlan(1, NULL, 0, &candidate, result)) return 0;
+    const int wasEnabled = mod->enabled;
+    modmgrSetEnabled(index, 1);
+    if (!mod->enabled) {
+        modmgrFreeApplyPlan(candidate);
+        return modmgrApplyFailure(result, MODMGR_APPLY_PREPARE, mod->id,
+            "The installed package could not be enabled.");
+    }
+    candidate->activation_published = !wasEnabled;
+    snprintf(candidate->activation_id, sizeof(candidate->activation_id), "%s", mod->id);
+    result->activation_published = candidate->activation_published;
+    *plan = candidate;
+    return 1;
 }
 
 void modmgrApplyChanges(void)
@@ -3386,7 +3448,6 @@ const char *modmgrGetModsDir(void)
 }
 
 s32 modmgrInstallArchiveFile(const char *archive_path,
-                             s32 enable_now,
                              char *out_error,
                              s32 error_len)
 {
@@ -3447,24 +3508,7 @@ s32 modmgrInstallArchiveFile(const char *archive_path,
 		return -1;
 	}
 
-	if (enable_now) {
-		char missing[256];
-		if (modmgrCheckDependencies(found, missing, sizeof(missing)) > 0) {
-			modmgrSetError(out_error, error_len,
-				"Installed archive is missing dependencies: %s", missing);
-			return -1;
-		}
-		if (!mod->enabled) {
-			modmgrSetEnabled(found, 1);
-			modmgrApplyChanges();
-		} else {
-			modmgrSyncCatalogToRegistry();
-		}
-	}
-
-	sysLogPrintf(LOG_NOTE,
-		"modmgr: installed .pdmod archive -> %s%s",
-		dst, enable_now ? " and applied" : "");
+    sysLogPrintf(LOG_NOTE, "modmgr: installed .pdmod archive -> %s", dst);
 	return found;
 }
 

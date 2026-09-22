@@ -17,6 +17,8 @@
 /* ---- Wrap callback (set by C++ backend) ---- */
 
 static void (*s_WrapCallback)(void) = NULL;
+static s32 (*s_ActionFilter)(InputAction) = NULL;
+static s32 s_FrameCancel;
 static u32 s_RepeatNextMs[ACTION_COUNT];
 
 static s32 menuActionValid(InputAction action)
@@ -26,18 +28,28 @@ static s32 menuActionValid(InputAction action)
 
 static s32 menuActionPressed(InputAction action)
 {
-    if (!menuActionValid(action)) {
+    if (!menuActionValid(action) || (s_ActionFilter && !s_ActionFilter(action))) {
         return 0;
     }
-    return actionPressed(0, action);
+    return actionPressed(0, action) || (action == ACTION_MENU_CANCEL && s_FrameCancel);
 }
 
 static s32 menuActionHeld(InputAction action)
 {
-    if (!menuActionValid(action)) {
+    if (!menuActionValid(action) || (s_ActionFilter && !s_ActionFilter(action))) {
         return 0;
     }
-    return actionHeld(0, action);
+    return actionHeld(0, action) || (action == ACTION_MENU_CANCEL && s_FrameCancel);
+}
+
+void pdguiNavSetActionFilter(s32 (*fn)(InputAction))
+{
+    s_ActionFilter = fn;
+}
+
+void pdguiNavSetFrameCancel(s32 pressed)
+{
+    s_FrameCancel = pressed;
 }
 
 /* ========================================================================
@@ -72,7 +84,7 @@ s32 pdguiMenuActionRepeat(InputAction action)
     u32 now;
     u32 next;
 
-    if (!menuActionValid(action)) {
+    if (!menuActionValid(action) || (s_ActionFilter && !s_ActionFilter(action))) {
         return 0;
     }
     if (actionPressed(0, action)) {

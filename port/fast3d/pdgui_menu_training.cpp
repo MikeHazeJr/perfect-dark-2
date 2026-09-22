@@ -55,6 +55,7 @@
 #include "pdgui_charpreview.h"
 #include "assetcatalog.h"
 #include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
@@ -318,6 +319,10 @@ static bool beginTrainingWindow(const char *id, const char *title,
 
 /* Render a two-column label row (label: value).
  * Strips trailing newlines that the legacy text functions sometimes append. */
+#ifndef PDGUI_TRAINING_RENDER_TEST
+/* The standalone FR target compiles the production weapon-list renderer and
+ * shared window/button helpers. COFF retains undefined reference pointers from
+ * unrelated dialogs even with section GC, so omit those renderers explicitly. */
 static void renderLabelRow(const char *label, const char *value)
 {
     char lbuf[128];
@@ -1183,6 +1188,8 @@ static void drawSourcePreview(s32 kind,
     }
 }
 
+#endif /* !PDGUI_TRAINING_RENDER_TEST */
+
 /* Small helper: strip trailing newlines returned by legacy text fns. */
 static void stripNewline(char *buf)
 {
@@ -1283,13 +1290,9 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
     float childH  = diagH - titleH - footerH
                     - ImGui::GetStyle().WindowPadding.y * 2.0f;
 
-    if (backPressed()) {
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-        menuGraphFirePop(MENU_TYPE_FR_WEAPON_LIST, "back");
-        ImGui::End();
-        return 1;
-    }
+    bool wantBack = backPressed();
+    s32 selectedSlot = -1;
+    if (wantBack) pdguiNavSuppressActivation();
 
     s32 count = pdguiTrFrNumWeaponsAvailable();
     if (count < 0) count = 0;
@@ -1301,32 +1304,7 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         }
     }
 
-    listHandleKeyboardNav(&s_FrWeaponCursor, count);
-
-    /* A button / Enter confirms the currently highlighted weapon.
-     * Must match legacy frWeaponListMenuHandler MENUOP_SET behavior:
-     * frLoadData() + frSetSlot() + frSetDifficulty() before pushing
-     * the sub-dialog.  Without frLoadData(), the pre-game info dialog
-     * reads uninitialized g_FrData → ACCESS_VIOLATION. */
-    if (pdguiMenuAcceptPressed()) {
-        if (s_FrWeaponCursor >= 0 && s_FrWeaponCursor < count) {
-            frLoadData();
-            pdguiTrFrSetSlot(s_FrWeaponCursor);
-            u32 weaponnum = pdguiTrFrWeaponBySlot(s_FrWeaponCursor);
-            s32 tier = pdguiTrFrWeaponScoreTier(weaponnum);
-            if (tier > 0) {
-                frSetDifficulty(tier);
-                menuGraphFirePushDialog(MENU_TYPE_FR_WEAPON_LIST, "difficulty",
-                                        &g_FrDifficultyMenuDialog);
-            } else {
-                frSetDifficulty(FRDIFFICULTY_BRONZE);
-                menuGraphFirePushDialog(MENU_TYPE_FR_WEAPON_LIST, "info",
-                                        &g_FrTrainingInfoPreGameMenuDialog);
-            }
-            pdguiPlaySound(PDGUI_SND_SELECT);
-        }
-    }
-
+    /* Native focus owns both the weapon rows and the Back button. */
     /* Priority L (2026-04-25): NavFlattened layout panel. */
     ImGui::BeginChild("##fr_wl_body",
                       ImVec2(diagW - ImGui::GetStyle().WindowPadding.x * 2.0f,
@@ -1348,27 +1326,12 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         const float rowH = pdguiScale(24.0f);
         if (frWlFocusOnAppear && sel) {
             ImGui::SetKeyboardFocusHere(0);
+            ImGui::SetNavCursorVisible(true);
         }
         if (ImGui::Selectable("##fr_wl_row", sel, 0, ImVec2(0, rowH))) {
-            s_FrWeaponCursor = i;
-            /* Match legacy frWeaponListMenuHandler MENUOP_SET behavior:
-             * frLoadData loads the FR challenge config for the weapon. */
-            frLoadData();
-            pdguiTrFrSetSlot(i);
-            s32 tier = pdguiTrFrWeaponScoreTier(weaponnum);
-            if (tier > 0) {
-                frSetDifficulty(tier);
-                menuGraphFirePushDialog(MENU_TYPE_FR_WEAPON_LIST, "difficulty",
-                                        &g_FrDifficultyMenuDialog);
-            } else {
-                frSetDifficulty(FRDIFFICULTY_BRONZE);
-                menuGraphFirePushDialog(MENU_TYPE_FR_WEAPON_LIST, "info",
-                                        &g_FrTrainingInfoPreGameMenuDialog);
-            }
-            pdguiPlaySound(PDGUI_SND_SELECT);
+            selectedSlot = i;
         }
-
-        if (ImGui::IsItemHovered()) {
+        if (ImGui::IsItemHovered() || ImGui::IsItemFocused()) {
             s_FrWeaponCursor = i;
         }
 
@@ -1402,21 +1365,52 @@ static s32 renderFrWeaponList(struct menudialog *dialog,
         float btnH = pdguiScale(42.0f);
         ImGui::SetCursorPosX((diagW - btnW) * 0.5f);
         if (PdButton("Back", ImVec2(btnW, btnH))) {
-            pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-            menuGraphFirePop(MENU_TYPE_FR_WEAPON_LIST, "back");
+            wantBack = true;
         }
     }
 
     ImGui::End();
+
+    /* Dispatch once after the complete parent window has been submitted. */
+    if (wantBack) {
+        pdguiNavSuppressActivation();
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuGraphFirePop(MENU_TYPE_FR_WEAPON_LIST, "back");
+    } else if (selectedSlot >= 0) {
+        pdguiNavSuppressActivation();
+        s_FrWeaponCursor = selectedSlot;
+        frLoadData();
+        pdguiTrFrSetSlot(selectedSlot);
+        u32 weaponnum = pdguiTrFrWeaponBySlot(selectedSlot);
+        s32 tier = pdguiTrFrWeaponScoreTier(weaponnum);
+        frSetDifficulty(tier > 0 ? tier : FRDIFFICULTY_BRONZE);
+        menuGraphFirePushDialog(MENU_TYPE_FR_WEAPON_LIST,
+            tier > 0 ? "difficulty" : "info",
+            tier > 0 ? &g_FrDifficultyMenuDialog : &g_FrTrainingInfoPreGameMenuDialog);
+        pdguiPlaySound(PDGUI_SND_SELECT);
+    }
     return 1;
 }
+
+#ifdef PDGUI_TRAINING_RENDER_TEST
+/* A narrow entry to the actual renderer for the standalone headless target.
+ * Only its retained cursor is reset; layout, widgets and dispatch stay live. */
+extern "C" void pdguiTestResetFrWeaponList(void)
+{
+    s_FrWeaponCursor = -1;
+}
+extern "C" s32 pdguiTestRenderFrWeaponList(s32 width, s32 height)
+{
+    return renderFrWeaponList(nullptr, nullptr, width, height);
+}
+#endif
 
 /* =========================================================================
  * Bio List (g_BioListMenuDialog) -- grouped list of Character Profiles and
  * Other Information.  Legacy handler: ciOfficeInformationMenuHandler.
  * ========================================================================= */
 
+#ifndef PDGUI_TRAINING_RENDER_TEST
 static s32 s_BioCursor = -1;
 
 static s32 renderBioList(struct menudialog *dialog,
@@ -2274,3 +2268,4 @@ void pdguiMenuTrainingRegister(void)
 }
 
 } /* extern "C" */
+#endif /* !PDGUI_TRAINING_RENDER_TEST */

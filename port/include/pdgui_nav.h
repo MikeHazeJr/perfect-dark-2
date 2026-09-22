@@ -35,6 +35,11 @@ void pdguiNavTickWrap(void);
  */
 void pdguiNavSetWrapCallback(void (*fn)(void));
 
+/* The C++ presentation owner filters parent shortcuts after native widgets
+ * and popups consume input. A mouse Back gesture shares these same queries. */
+void pdguiNavSetActionFilter(s32 (*fn)(InputAction));
+void pdguiNavSetFrameCancel(s32 pressed);
+
 /* ========================================================================
  * Action-map menu queries
  * ======================================================================== */

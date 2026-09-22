@@ -1198,6 +1198,7 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
 
     if (forceFocus) {
         ImGui::SetKeyboardFocusHere(0);
+        ImGui::SetNavCursorVisible(true);
     }
 
     /* Cancel first — safer default focus. */
@@ -1227,9 +1228,9 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
         char hintR[64];
         pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, acceptGlyph,
                                  (s32)sizeof(acceptGlyph));
-        pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancelGlyph,
+        pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL, cancelGlyph,
                                  (s32)sizeof(cancelGlyph));
-        snprintf(hintL, sizeof(hintL), "[%s] Confirm", acceptGlyph);
+        snprintf(hintL, sizeof(hintL), "[%s] Select", acceptGlyph);
         snprintf(hintR, sizeof(hintR), "[%s] Cancel", cancelGlyph);
 
         float hintY = dialogH - pdguiScale(22.0f);
@@ -1245,22 +1246,15 @@ static s32 renderMpEndGameDialog(struct menudialog *dialog,
         ImGui::TextDisabled("%s", hintR);
     }
 
-    /* ---- Keyboard + gamepad shortcuts (active while the popup is open).
-     * pdguiDriveImGuiNav maps ACTION_USE → Enter and ACTION_CANCEL_USE →
-     * Escape, so gamepad A/B fire these via the same paths keyboard does.
-     * S385: debounced for ENDGAME_FRAME_DEBOUNCE frames after open so the
-     * Enter press that activated the hubPushRow Selectable can't bleed
-     * through into this frame. */
+    /* Accept activates the focused button, including the safe Cancel
+     * default. Only Back is dialog-wide, after the opening debounce. */
     if (!inputDebounced) {
-        if (pdguiMenuAcceptPressed()) {
-            doConfirm = true;
-        }
         if (pdguiMenuCancelPressed()) {
             doCancel = true;
         }
     }
 
-    if (doConfirm) {
+    if (doConfirm && !doCancel) {
         pdguiPlaySound(PDGUI_SND_SELECT);
 
         /* Invoke the legacy SELECTABLE that owns menuhandlerMpEndGame. */

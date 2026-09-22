@@ -9,7 +9,7 @@
  *   - 6 default IMC singletons (Gameplay/Vehicle/Menu/PauseMenu/Debug/TextInput)
  *   - pd.ini persistence via configRegisterString
  *   - 20-input rolling cheat code buffer
- *   - 500ms debounce last-device tracking
+ *   - Immediate meaningful-device identity with neutral/release noise filtering
  *
  * C/C++ compatible: all declarations wrapped in extern "C".
  * Auto-discovered by GLOB_RECURSE in CMakeLists.txt.
@@ -46,7 +46,6 @@ extern "C" {
 #define ACTIONMAP_MAX_PLAYERS       4    /* splitscreen players */
 #define ACTIONMAP_CHEAT_BUF_LEN    20    /* rolling cheat input window */
 #define ACTIONMAP_DEFAULT_DEADZONE  0.15f
-#define ACTIONMAP_DEVICE_DEBOUNCE_MS 500
 
 /* ============================================================
  * §2.1  InputAction enum — 45 actions
@@ -346,7 +345,8 @@ typedef struct {
  * InputMappingContext — a named, prioritized binding set.
  *
  * Higher priority contexts are consulted first during dispatch.
- * An action is resolved by the highest-priority active context that maps it.
+ * A physical VK is resolved by the highest-priority eligible active context
+ * that maps it, then trigger-slot priority and action ID break collisions.
  * Contexts are activated/deactivated at runtime via imcActivate/imcDeactivate.
  */
 typedef struct InputMappingContext {
@@ -420,6 +420,10 @@ void actionmapEndFrame(void);
  *  (ADR context/designs/input-authority-and-menu-pool-2026-04-13.md).
  */
 void actionmapFlushGameplayState(void);
+
+/** Retire physical key, mouse, and controller owners after focus loss/regain.
+ * Keeps smoke-owned states separate from physical input. */
+void actionmapRetirePhysicalOwners(void);
 
 /** Flush (zero) all per-player state for a declared action set.
  *
@@ -519,9 +523,31 @@ u32 actionHoldPressStartMs(s32 player, InputAction action);
 #define ACTIONMAP_DEVICE_KBM     0
 #define ACTIONMAP_DEVICE_GAMEPAD 1
 
-/** Returns ACTIONMAP_DEVICE_KBM or ACTIONMAP_DEVICE_GAMEPAD.
- *  500ms debounce prevents flicker on transitions. */
+typedef struct InputDeviceIdentity InputDeviceIdentity;
+/* Observe once before capture/text routing. This never dispatches an action. */
+void actionmapObserveDeviceEvent(const SDL_Event *event);
+/* Uses input-owned attached handles; does not open or close a device. */
+s32 actionmapGetBindingDeviceIdentity(s32 player, InputDeviceIdentity *out);
+/** Returns the last meaningful device immediately. Releases and neutral
+ *  noise do not change it; disconnect restores keyboard/mouse ownership. */
 s32 actionmapGetLastDevice(void);
+
+/** First binding for this player/device whose VK currently dispatches the
+ * requested action through the actual active IMC registry and layer gates.
+ * Returns 0 when unavailable; never substitutes another device. */
+u32 actionmapGetActiveBindingVk(s32 player, InputAction action, s32 device);
+/* Same dispatch/layer authority, searching every usable binding in order. */
+u32 actionmapGetActiveBindingVkMatching(s32 player, InputAction action, s32 device,
+    s32 (*matches)(u32 vk, void *userdata), void *userdata);
+
+/** Canonical binding name, including modifier chords. Copy before the next
+ * call: synthesized joystick and unknown names use internal buffers. */
+const char *actionmapGetVkName(u32 vk);
+
+/** Raw normalized physical right-stick Y for menu scrolling (down positive).
+ * Zero outside menu/debug authority, during focus loss/settling, or when no
+ * controller is assigned. Does not expose or modify suppressed gameplay aim. */
+f32 actionmapMenuScrollAxisY(s32 player);
 
 #define ACTIONMAP_INPUT_CLASS_MKB           0
 #define ACTIONMAP_INPUT_CLASS_CONTROLLER    1
@@ -550,18 +576,27 @@ void actionmapBind(InputMappingContext *imc, s32 player,
 
 /** Reset all bindings in imc for player to built-in PC defaults. */
 void actionmapSetDefaults(InputMappingContext *imc, s32 player);
+/** Prepare an exact device-only reset across contexts; the caller persists it
+ *  with actionmapSaveBinds. Capacity failure leaves every context untouched. */
+s32 actionmapResetDeviceDefaults(InputMappingContext *const *imcs, s32 count, s32 controller);
 
-/** Parse pd.ini bind strings into trigger arrays.  Call after configLoad(). */
+/** Initialize complete current bindings after configLoad(). Imports legacy
+ *  pd.ini only when the complete snapshot is absent; later calls are no-ops. */
 void actionmapLoadBinds(void);
 
-/** Serialize current trigger arrays into pd.ini bind strings.
- *  Call before configSave(). */
-void actionmapSaveBinds(void);
+/** Atomically persist all contexts/slots, then refresh pd.ini compatibility.
+ *  Returns 1 on success; failure restores accepted bindings. Call before configSave(). */
+s32 actionmapSaveBinds(void);
+const char *actionmapGetPersistenceError(void);
+s32 actionmapGetCurrentProfile(void);
 
 /** Save/load a complete player-0 binding profile to a caller-owned relative path.
  *  Settings -> Input uses `$S/input-profiles/profileN.ini` slots. */
 s32 actionmapSaveProfileFile(const char *relpath);
 s32 actionmapLoadProfileFile(const char *relpath);
+/** Stage a profile, durably replace current bindings, then publish the active
+ *  base slot (0..5). Neither bindings nor slot change on failure. */
+s32 actionmapLoadProfileFileAsCurrent(const char *relpath, s32 profile);
 
 /* ============================================================
  * Cheat code buffer

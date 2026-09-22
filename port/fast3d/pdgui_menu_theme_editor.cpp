@@ -16,6 +16,9 @@
  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
  */
 
+#include <algorithm>
+#include <string>
+#include <vector>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +27,9 @@
 #include <PR/ultratypes.h>
 
 #ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 
@@ -40,6 +46,9 @@
 #include "pdgui_audio.h"
 #include "pdgui_glyphs.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
+#include "pdgui_settings_ui.h"
+#include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "modpack_pdmod.h"   /* Priority M / B-238 / M-3.2 */
 #include "assetcatalog_scanner.h"
 #include "theme_archive_authoring.h"
@@ -330,35 +339,35 @@ static size_t collectThemeDependencies(theme_archive_dependency_t *out,
 static void renderDependencyCombo(const ThemeDependencySelection &selection,
                                   float scale)
 {
-    const asset_entry_t *choices[64];
-    s32 count = 0;
-    for (s32 i = 0; i < assetCatalogGetPoolSize() && count < 64; i++) {
+    (void)scale;
+    std::vector<std::string> choices;
+    for (s32 i = 0; i < assetCatalogGetPoolSize(); ++i) {
         const asset_entry_t *entry = assetCatalogGetByIndex(i);
         char path[FS_MAXPATH];
         if (entry && entry->enabled && entry->type == selection.type
-                && themeSelectionUsable(selection, entry->id,
-                    path, sizeof(path))) {
-            choices[count++] = entry;
+                && themeSelectionUsable(selection, entry->id, path, sizeof(path))) {
+            // Own stable IDs for the complete frame; no retained catalog-entry
+            // pointers or presentation-only cap can hide an eligible choice.
+            choices.emplace_back(entry->id);
         }
     }
-    const char *preview = selection.catalogId[0] ? selection.catalogId : "(none)";
-    char comboLabel[96];
-    snprintf(comboLabel, sizeof(comboLabel), "%s##theme_dep_%d",
-             selection.label, (int)selection.role);
-    ImGui::SetNextItemWidth(300.0f * scale);
-    if (ImGui::BeginCombo(comboLabel, preview)) {
-        if (ImGui::Selectable("(none)", !selection.catalogId[0])) {
-            selection.catalogId[0] = '\0';
-        }
-        for (s32 i = 0; i < count; i++) {
-            bool selected = strcmp(selection.catalogId, choices[i]->id) == 0;
-            if (ImGui::Selectable(choices[i]->id, selected)) {
-                snprintf(selection.catalogId, THEME_EDITOR_CATALOG_ID_LEN,
-                         "%s", choices[i]->id);
-            }
-        }
-        ImGui::EndCombo();
+    const PdguiSettingsRegistry registry = {
+        (int)choices.size(),
+        [](int index, void *data) -> const char * {
+            return static_cast<std::vector<std::string> *>(data)->at(index).c_str();
+        },
+        [](int index, void *data) -> const char * {
+            return static_cast<std::vector<std::string> *>(data)->at(index).c_str();
+        },
+        &choices
+    };
+    int selected = -1;
+    ImGui::PushID((int)selection.role);
+    if (pdguiSettingsRegistryCombo(selection.label, registry, selection.catalogId, "(none)", &selected)) {
+        snprintf(selection.catalogId, THEME_EDITOR_CATALOG_ID_LEN, "%s",
+            selected < 0 ? "" : choices.at(selected).c_str());
     }
+    ImGui::PopID();
 }
 
 /* =========================================================================
@@ -789,20 +798,22 @@ static void renderThemeEditor(s32 winW, s32 winH)
      * Previous width (420) was tight for color-pickers + bundle dropdowns;
      * 820 gives comfortable room for a 340px preview column alongside
      * the existing content. */
-    float editorW = 820.0f * scale;
+    const float margin = std::min(12.0f * scale, std::max(0.0f, (float)winW * 0.025f));
+    float editorW = std::min(820.0f * scale, std::max(1.0f, (float)winW - 2.0f * margin));
     float editorH = (float)winH * 0.85f;
 
     /* Open the modal on the first frame s_Visible becomes true.  Guarded by
      * IsPopupOpen so repeat calls in subsequent frames are no-ops. */
     if (!ImGui::IsPopupOpen("Theme Editor##Modal")) {
         ImGui::OpenPopup("Theme Editor##Modal");
+        pdguiNavSuppressOpeningGesture();
     }
 
     /* Center the modal on the screen.  Appearing cond so the user can drag
      * to reposition if they wish — but NoMove is set below to prevent it. */
     ImGui::SetNextWindowPos(ImVec2((float)winW * 0.5f, (float)winH * 0.5f),
                             ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(editorW, editorH), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(editorW, editorH));
 
     ImGuiWindowFlags flags = ImGuiWindowFlags_NoCollapse
                            | ImGuiWindowFlags_NoResize
@@ -811,9 +822,26 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
     bool open = true;
     if (ImGui::BeginPopupModal("Theme Editor##Modal", &open, flags)) {
+        char cancelGlyph[128] = {};
+        pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL, cancelGlyph, (s32)sizeof(cancelGlyph));
+        bool wantClose = pdguiConsumeTitleClose() != 0;
+        wantClose |= pdguiSettingsEditorClose(cancelGlyph, pdguiMenuCancelPressed() != 0,
+            std::max(28.0f * scale, ImGui::GetFrameHeight()));
+        if (wantClose) {
+            ImGui::CloseCurrentPopup();
+            pdguiThemeEditorHide();
+            ImGui::EndPopup();
+            return;
+        }
+        // Keep the safe Close control above the scrolling editor. Narrow or
+        // high-scale layouts can scroll every editor field without hiding it.
+        ImGui::BeginChild("##theme_editor_content", ImVec2(0, 0),
+            ImGuiChildFlags_NavFlattened);
+        ImGui::PushTextWrapPos(0.0f);
         /* ---- Load Theme dropdown ---- */
         s32 themeCount = pdguiThemeGetCount();
-        if (themeCount > 0 && ImGui::BeginCombo("Load Theme", pdguiThemeGetActiveId())) {
+        pdguiSettingsStackedRow("Load Theme");
+        if (themeCount > 0 && ImGui::BeginCombo("##load_theme", pdguiThemeGetActiveId())) {
             for (s32 i = 0; i < themeCount; i++) {
                 const char *id   = pdguiThemeGetId(i);
                 const char *name = pdguiThemeGetName(i);
@@ -834,27 +862,9 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
         ImGui::Separator();
 
-        /* --- Docked footer geometry (S298) ---
-         * Reserve footer height at the bottom so the scroll body always sits
-         * above the Save/Reset/Close row.  Mirrors the Nine-Slice Chrome tool
-         * footer pattern so the Save controls don't scroll out of view on
-         * short displays.  Footer holds two rows: [Name/Author/Save status]
-         * and [Reset | Close]. */
-        float btnW = 120.0f * scale;
-        float btnH = 28.0f * scale;
-        float rowSpacing = ImGui::GetStyle().ItemSpacing.y;
-        float inputH  = ImGui::GetFrameHeightWithSpacing();
-        float statusH = s_SaveStatus[0] ? ImGui::GetTextLineHeightWithSpacing() : 0.0f;
-        float dependencyH = (float)(sizeof(k_DependencySelections)
-                                  / sizeof(k_DependencySelections[0])) * inputH;
-        float footerH = inputH              /* "Save as Mod:" heading line */
-                      + inputH              /* Name + Author row */
-                      + dependencyH         /* typed dependency selectors */
-                      + ImGui::GetTextLineHeightWithSpacing() * 2.0f
-                      + btnH + rowSpacing   /* Reset / Close row */
-                      + statusH
-                      + ImGui::GetStyle().ItemSpacing.y * 2.0f
-                      + 10.0f * scale;
+        const float btnH = std::max(28.0f * scale, ImGui::GetFrameHeight());
+        const float paletteH = std::max(ImGui::GetFrameHeight() * 4.0f,
+            std::min(300.0f * scale, ImGui::GetContentRegionAvail().y * 0.55f));
 
         /* ---- Color pickers ----
          *
@@ -866,17 +876,12 @@ static void renderThemeEditor(s32 winW, s32 winH)
          * hover tooltip explaining where the color shows up in-game. */
         static bool s_ShowReserved = false;
 
-        /* S309: 2-column layout — color pickers on the left, live preview
-         * on the right. Uses a fixed 340px preview column so the left
-         * column adapts to the wider editor. */
-        float availW = ImGui::GetContentRegionAvail().x;
-        float previewW = 320.0f * scale;
-        if (previewW > availW * 0.5f) previewW = availW * 0.5f;
-        float pickerW = availW - previewW - 8.0f * scale;
-        /* Phase 2 fix #3 (input-menu pillar, 2026-05-01): NavFlattened
-         * pairs with ##theme_preview so D-pad LEFT/RIGHT crosses the
-         * preview / palette column boundary on gamepad. */
-        ImGui::BeginChild("PaletteScroll", ImVec2(pickerW, -footerH),
+        const float availW = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+        const bool previewBeside = availW >= 760.0f * scale;
+        const float previewW = previewBeside ? 320.0f * scale : 0.0f;
+        const float pickerW = previewBeside
+            ? std::max(1.0f, availW - previewW - ImGui::GetStyle().ItemSpacing.x) : availW;
+        ImGui::BeginChild("PaletteScroll", ImVec2(pickerW, paletteH),
                           ImGuiChildFlags_Border | ImGuiChildFlags_NavFlattened);
 
         static const struct { int group; const char *header; const char *blurb; } k_Groups[] = {
@@ -908,11 +913,10 @@ static void renderThemeEditor(s32 winW, s32 winH)
                 char pickerId[64];
                 snprintf(pickerId, sizeof(pickerId), "##pal_%d", idx);
 
-                ImGui::Text("%s", k_Fields[i].label);
+                pdguiSettingsStackedRow(k_Fields[i].label);
                 if (ImGui::IsItemHovered() && k_Fields[i].tooltip) {
                     ImGui::SetTooltip("%s", k_Fields[i].tooltip);
                 }
-                ImGui::SameLine(220.0f * scale);
 
                 ImGuiColorEditFlags cflags = ImGuiColorEditFlags_AlphaBar
                                            | ImGuiColorEditFlags_AlphaPreviewHalf
@@ -927,7 +931,6 @@ static void renderThemeEditor(s32 winW, s32 winH)
                  * on the right reminds the user that zero means "use
                  * derived default", and clicking it zeroes the slot. */
                 if (k_Fields[i].group == PFG_SEMANTIC) {
-                    ImGui::SameLine();
                     char resetId[64];
                     snprintf(resetId, sizeof(resetId), "auto##%d", idx);
                     if (ImGui::SmallButton(resetId)) {
@@ -954,8 +957,7 @@ static void renderThemeEditor(s32 winW, s32 winH)
                 ImVec4 col = palToVec4(s_WorkPalette[idx]);
                 char pickerId[64];
                 snprintf(pickerId, sizeof(pickerId), "##pal_%d", idx);
-                ImGui::Text("%s", k_Fields[i].label);
-                ImGui::SameLine(220.0f * scale);
+                pdguiSettingsStackedRow(k_Fields[i].label);
                 ImGuiColorEditFlags cflags = ImGuiColorEditFlags_AlphaBar
                                            | ImGuiColorEditFlags_AlphaPreviewHalf
                                            | ImGuiColorEditFlags_NoInputs;
@@ -968,10 +970,9 @@ static void renderThemeEditor(s32 winW, s32 winH)
 
         ImGui::EndChild();
 
-        /* S309: live preview beside the pickers — same top alignment,
-         * same scrollable footer budget. */
-        ImGui::SameLine();
-        renderLivePreview(-footerH, scale);
+        /* Live preview shares the row when it fits; otherwise it follows. */
+        if (previewBeside) ImGui::SameLine();
+        renderLivePreview(paletteH, scale);
 
         /* Apply changes live */
         if (changed) {
@@ -986,29 +987,15 @@ static void renderThemeEditor(s32 winW, s32 winH)
                                        s_WorkPalette[22], s_WorkPalette[23]);
         }
 
-        /* ---- Docked footer ---- */
+        /* ---- Save controls (scroll with the editor content) ---- */
         ImGui::Separator();
 
-        bool wantClose = false;
-
-        /* S311: S306 title-close channel — catches the titlebar X click
-         * before ImGui's own popup handling swallows the Escape edge. */
-        if (pdguiConsumeTitleClose()) {
-            sysLogPrintf(LOG_NOTE, "Theme editor: exit — title X button");
-            wantClose = true;
-        }
-
-        /* Save section (row 1): Name + Author inputs only — Save button moved
-         * to the action row so all three action buttons (Save / Reset / Close)
-         * are docked together. Previously Save was inline after Author, which
-         * pushed it off to the side (partly clipped on narrow windows) and
-         * meant it was only reachable via Tab. S305 fix. */
+        /* Names and actions stack to fit the current content width. */
         ImGui::Text("Save self-contained theme:");
-        ImGui::PushItemWidth(200.0f * scale);
-        ImGui::InputText("Name##save", s_SaveName, sizeof(s_SaveName));
-        ImGui::SameLine();
-        ImGui::InputText("Author##save", s_SaveAuthor, sizeof(s_SaveAuthor));
-        ImGui::PopItemWidth();
+        pdguiSettingsStackedRow("Name");
+        ImGui::InputText("##theme_save_name", s_SaveName, sizeof(s_SaveName));
+        pdguiSettingsStackedRow("Author");
+        ImGui::InputText("##theme_save_author", s_SaveAuthor, sizeof(s_SaveAuthor));
 
         /* The archive writer embeds the selected public typed archives and
          * records their catalog ids in strict theme source. A declared but
@@ -1027,20 +1014,13 @@ static void renderThemeEditor(s32 winW, s32 winH)
             ImGui::TextColored(statusCol, "%s", s_SaveStatus);
         }
 
-        char acceptGlyph[64] = {};
-        char cancelGlyph[64] = {};
-        char saveLabel[128];
-        char closeLabel[128];
+        char acceptGlyph[128] = {};
         pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, acceptGlyph, (s32)sizeof(acceptGlyph));
-        pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL, cancelGlyph, (s32)sizeof(cancelGlyph));
-        snprintf(saveLabel, sizeof(saveLabel), "Save .pdtheme [%s]##save_theme",
-                 acceptGlyph[0] ? acceptGlyph : "Accept");
-        snprintf(closeLabel, sizeof(closeLabel), "Close [%s]##close_theme",
-                 cancelGlyph[0] ? cancelGlyph : "Cancel");
+        ImGui::TextWrapped("Select: %s", acceptGlyph[0] ? acceptGlyph : "Unbound");
 
         /* Action row: ImGui navigation preserves mouse/keyboard/controller
          * activation; visible labels track the current device bindings. */
-        if (ImGui::Button(saveLabel, ImVec2(btnW * 1.35f, btnH))) {
+        if (ImGui::Button("Save .pdtheme##save_theme", ImVec2(pdguiSettingsFitWidth(ImGui::GetContentRegionAvail().x), btnH))) {
             s_SaveSuccess = saveThemeAsMod(s_SaveName, s_SaveAuthor);
             if (s_SaveSuccess) {
                 snprintf(s_SaveStatus, sizeof(s_SaveStatus),
@@ -1058,12 +1038,10 @@ static void renderThemeEditor(s32 winW, s32 winH)
             }
         }
 
-        ImGui::SameLine();
-
         /* Priority M / B-238 / M-3.2: write the same theme as a single
          * .pdmod archive (one file in mods/<slug>.pdmod). The folder save
          * above is kept during the migration window per design Section 5. */
-        if (ImGui::Button("Save as .pdmod", ImVec2(btnW * 1.4f, btnH))) {
+        if (ImGui::Button("Save as .pdmod", ImVec2(pdguiSettingsFitWidth(ImGui::GetContentRegionAvail().x), btnH))) {
             s_SaveSuccess = saveThemeAsPdmod(s_SaveName, s_SaveAuthor);
             if (s_SaveSuccess) {
                 snprintf(s_SaveStatus, sizeof(s_SaveStatus),
@@ -1079,20 +1057,14 @@ static void renderThemeEditor(s32 winW, s32 winH)
             }
         }
 
-        ImGui::SameLine();
-
-        if (ImGui::Button("Reset", ImVec2(btnW, btnH))) {
+        if (ImGui::Button("Reset", ImVec2(pdguiSettingsFitWidth(ImGui::GetContentRegionAvail().x), btnH))) {
             memcpy(s_WorkPalette, s_OrigPalette, sizeof(s_WorkPalette));
             pdguiSetPaletteCustom(s_WorkPalette);
             s_SaveStatus[0] = '\0';
         }
 
-        ImGui::SameLine();
-
-        if (ImGui::Button(closeLabel, ImVec2(btnW * 1.25f, btnH))) {
-            sysLogPrintf(LOG_NOTE, "Theme editor: exit — Close button");
-            wantClose = true;
-        }
+        ImGui::PopTextWrapPos();
+        ImGui::EndChild();
 
         /* ---- Click-outside-to-close detection ----
          *

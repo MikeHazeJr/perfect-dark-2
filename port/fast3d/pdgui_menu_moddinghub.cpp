@@ -32,6 +32,7 @@
 #include "pdgui_style.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_nav_input.h"
 #include "pdgui_layout.h"
 #include "pdgui_nav.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
@@ -51,6 +52,8 @@
 #include "pdgui_charpreview.h"
 #include "fs.h"
 #include "modarchive.h"
+#include "modmgr_save_status.h"
+#include "modmgr_apply.h"
 #include "modpack_pdmod.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
@@ -62,9 +65,8 @@
 
 extern "C" {
 
-void modmgrApplyChanges(void);
 void modmgrRescanDirectory(void);
-s32  modmgrInstallArchiveFile(const char *archive_path, s32 enable_now,
+s32  modmgrInstallArchiveFile(const char *archive_path,
                               char *out_error, s32 error_len);
 s32  modmgrGetCount(void);
 const char *modmgrGetModId(s32 index);
@@ -72,13 +74,15 @@ const char *modmgrGetModValidationError(s32 index);
 s32  modmgrGetModEnabled(s32 index);
 s32  modmgrGetModValid(s32 index);
 void modmgrSetEnabled(s32 index, s32 enabled);
-void modmgrSaveConfig(void);
 s32  viGetWidth(void);
 s32  viGetHeight(void);
 void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
 
 /* Mod Manager embedded content (D3R-7 API added to pdgui_menu_modmgr.cpp) */
 void pdguiModManagerRefreshSnapshot(void);
+s32 pdguiModManagerRequestLeave(void);
+s32 pdguiModManagerConsumeLeaveResult(void);
+s32 pdguiModManagerOwnsNavigation(void);
 void pdguiModManagerRenderContent(float w, float h, float scale, s32 *outClose);
 
 /* Audio Mod Menu (Batch A-3 — pdgui_menu_audiomod.cpp) */
@@ -151,11 +155,68 @@ static void renderFontTool(float w, float h, float scale);
 static void weaponToolRefresh(void);
 static void renderWeaponTool(float w, float h, float scale);
 
+static int s_ModMgrPendingDestination = -1; // -2 close, 0..9 tool, -1 none
+static modmgr_apply_plan_t *s_PdmodActivationPlan = nullptr;
+static modmgr_apply_result_t s_PdmodActivationResult = {};
+static char s_PdmodActivationId[CATALOG_ID_LEN] = "";
+static char s_PdmodStatusMsg[512] = "";
+static bool s_PdmodStatusOk = true;
+static bool s_PdmodActivationFocus = false;
+static int s_PdmodPendingDestination = -1;
+
+static bool pdmodRetryActivation(void)
+{
+    if (!s_PdmodActivationPlan) return false;
+    s_PdmodStatusOk = modmgrApplyPreparedChanges(
+        s_PdmodActivationPlan, &s_PdmodActivationResult) != 0;
+    if (s_PdmodStatusOk) {
+        snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
+            "Installed %s. %s", s_PdmodActivationId,
+            s_PdmodActivationResult.restart_count ?
+                "Preferences saved; restart required to finish applying." : "Activation completed.");
+        modmgrFreeApplyPlan(s_PdmodActivationPlan);
+        s_PdmodActivationPlan = nullptr;
+        pdguiModManagerRefreshSnapshot();
+    } else {
+        snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
+            "Installed %s; activation is incomplete: %s Earlier changes may remain.",
+            s_PdmodActivationId, s_PdmodActivationResult.error);
+        s_PdmodActivationFocus = true;
+    }
+    return s_PdmodStatusOk;
+}
+
+static void pdmodDiscardActivation(void)
+{
+    modmgrFreeApplyPlan(s_PdmodActivationPlan);
+    s_PdmodActivationPlan = nullptr;
+    s_PdmodStatusOk = false;
+    snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
+        "Stopped retrying activation of %s. Installed files and earlier changes remain; review Mods before applying again.",
+        s_PdmodActivationId);
+    pdguiModManagerRefreshSnapshot();
+}
+
+static bool moddingHubCanLeave(int destination)
+{
+    if (s_PdmodActivationPlan) {
+        if (s_PdmodPendingDestination == -1) s_PdmodPendingDestination = destination;
+        return false;
+    }
+    if (s_ActiveTool != 0) return true;
+    if (s_ModMgrPendingDestination != -1) return false;
+    if (pdguiModManagerRequestLeave()) return true;
+    s_ModMgrPendingDestination = destination;
+    return false;
+}
+
 static void moddingHubClose(const char *reason)
 {
     if (!s_Visible) {
         return;
     }
+    if (!moddingHubCanLeave(-2)) return;
+    s_ModMgrPendingDestination = -1;
     s_Visible = false;
     pdguiSkinEditorDismissTransientUi();
     chromeToolReset();
@@ -3223,7 +3284,14 @@ static bool weaponToolSaveCustom(void)
     sysLogPrintf(LOG_NOTE,
                  "WEAPONMOD.SAVE.APPLY_BEGIN catalog=%s mod_id=%s",
                  s_WeaponEditCatalogId, newModId);
-    modmgrApplyChanges();
+    modmgr_apply_result_t applyResult;
+    if (!modmgrApplyChangesChecked(1, &applyResult)) {
+        char message[384];
+        snprintf(message, sizeof(message),
+                 "Source files saved, but activation is incomplete: %s Earlier saves or runtime changes may remain.",
+                 applyResult.error[0] ? applyResult.error : "Apply failed");
+        return weaponSaveFail("APPLY_FAIL", message);
+    }
     pdguiModManagerRefreshSnapshot();
     weaponToolRefresh();
     strncpy(s_WeaponSelectedId, s_WeaponEditCatalogId,
@@ -3231,8 +3299,14 @@ static bool weaponToolSaveCustom(void)
     s_WeaponSelectedId[sizeof(s_WeaponSelectedId) - 1] = '\0';
 
     char status[192];
-    snprintf(status, sizeof(status),
-             "Saved, enabled, and catalog updated: %s", s_WeaponEditCatalogId);
+    if (applyResult.restart_count) {
+        snprintf(status, sizeof(status),
+                 "Saved. Restart required to finish applying %d package change(s).",
+                 applyResult.restart_count);
+    } else {
+        snprintf(status, sizeof(status),
+                 "Saved, enabled, and catalog updated: %s", s_WeaponEditCatalogId);
+    }
     weaponSetStatus(true, status);
     s_WeaponSaveComplete = true;
     sysLogPrintf(LOG_NOTE,
@@ -4539,11 +4613,27 @@ static void renderPackTool(float contentW, float contentH, float scale)
     static char s_PdmodSrcFolder[FS_MAXPATH]    = "mods/staging/";
     static char s_PdmodOutPath[FS_MAXPATH]      = "mods/packed.pdmod";
     static char s_PdmodImportPath[FS_MAXPATH]   = "mods/typed-pdxxx-basic.pdmod";
-    static char s_PdmodStatusMsg[256]           = "";
-    static bool s_PdmodStatusOk                 = true;
     static bool s_PdmodImportEnableNow          = false;
 
     renderAssetUtilityContractSummary(contentW, scale);
+
+    if (s_PdmodActivationPlan) {
+        ImGui::TextWrapped("%s", s_PdmodStatusMsg);
+        ImGui::TextWrapped("Retry keeps the original activation plan. Discard stops retrying; it does not undo installed files, enabled choices, saves, or runtime changes.");
+        /* A request can arrive before the modal is first drawn this frame. */
+        if (s_PdmodPendingDestination != -1) return;
+        const bool back = pdguiMenuCancelPressed();
+        if (s_PdmodActivationFocus) ImGui::SetKeyboardFocusHere();
+        s_PdmodActivationFocus = false;
+        const bool retry = PdButton("Retry activation");
+        ImGui::SameLine();
+        const bool discard = PdButton("Discard activation retry");
+        if (!back) {
+            if (retry) pdmodRetryActivation();
+            else if (discard) pdmodDiscardActivation();
+        }
+        return;
+    }
 
     ImGui::Spacing();
     ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TextWarning());
@@ -4662,7 +4752,6 @@ static void renderPackTool(float contentW, float contentH, float scale)
             char err[256] = "";
             s32 index = modmgrInstallArchiveFile(
                 s_PdmodImportPath,
-                s_PdmodImportEnableNow ? 1 : 0,
                 err,
                 sizeof(err));
             if (index >= 0) {
@@ -4671,6 +4760,19 @@ static void renderPackTool(float contentW, float contentH, float scale)
                          "Imported .pdmod into Mods list: %s",
                          s_PdmodImportPath);
                 s_PdmodStatusOk = true;
+                if (s_PdmodImportEnableNow) {
+                    snprintf(s_PdmodActivationId, sizeof(s_PdmodActivationId),
+                        "%s", modmgrGetModId(index));
+                    if (modmgrPrepareInstalledActivation(index, &s_PdmodActivationPlan,
+                            &s_PdmodActivationResult)) {
+                        pdmodRetryActivation();
+                    } else {
+                        s_PdmodStatusOk = false;
+                        snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
+                            "Installed %s; activation could not start: %s. Review Mods to resolve this.",
+                            s_PdmodActivationId, s_PdmodActivationResult.error);
+                    }
+                }
             } else {
                 snprintf(s_PdmodStatusMsg, sizeof(s_PdmodStatusMsg),
                          "Import failed: %s",
@@ -4683,11 +4785,10 @@ static void renderPackTool(float contentW, float contentH, float scale)
 
     ImGui::Separator();
     if (s_PdmodStatusMsg[0]) {
-        if (s_PdmodStatusOk) {
-            ImGui::TextColored(pdguiVec4TintSuccess(), "%s", s_PdmodStatusMsg);
-        } else {
-            ImGui::TextColored(pdguiVec4TintDanger(),  "%s", s_PdmodStatusMsg);
-        }
+        ImGui::PushStyleColor(ImGuiCol_Text,
+            s_PdmodStatusOk ? pdguiVec4TintSuccess() : pdguiVec4TintDanger());
+        ImGui::TextWrapped("%s", s_PdmodStatusMsg);
+        ImGui::PopStyleColor();
     } else {
         ImGui::TextDisabled("Pack an external-layout folder mod (mod.json + standard files + INI/JSON, no .bin/.tsv) into a .pdmod archive.");
     }
@@ -4696,6 +4797,29 @@ static void renderPackTool(float contentW, float contentH, float scale)
 /* ========================================================================
  * Hub renderer
  * ======================================================================== */
+
+static void moddingHubActivateTool(int tool)
+{
+    s_ActiveTool = tool;
+    switch (tool) {
+        case 0: pdguiModManagerRefreshSnapshot(); break;
+        case 1: iniRefreshEntries(); break;
+        case 2: scaleRefreshEntries(); break;
+        case 3: packRefreshEntries(); break;
+        case 4: pdguiAudioModRefresh(); break;
+        case 5: pdguiSkinEditorRefresh(); break;
+        case 6: importReset(); break;
+        case 7: chromeToolReset(); break;
+        case 8: fontToolReset(); break;
+        case 9: weaponToolRefresh(); break;
+    }
+}
+
+static void moddingHubRequestTool(int tool)
+{
+    if (tool == s_ActiveTool) return;
+    if (moddingHubCanLeave(tool)) moddingHubActivateTool(tool);
+}
 
 static void renderModdingHub(s32 winW, s32 winH)
 {
@@ -4718,16 +4842,11 @@ static void renderModdingHub(s32 winW, s32 winH)
         return;
     }
 
-    /* C-8: focus on appear so controller nav reaches the tool selector.
-     * B-210: clear the A/Enter/Space edges that opened the hub so they are
-     * not read as hub Close / tool activation on the first frame (same
-     * class as B-131 main-menu debounce). */
+    /* C-8: focus on appear and retain ownership of the opening gesture
+     * until release, so holding it cannot activate or close the new hub. */
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetWindowFocus();
-        ImGuiIO &nio = ImGui::GetIO();
-        nio.AddKeyEvent(ImGuiKey_GamepadFaceDown, false);
-        nio.AddKeyEvent(ImGuiKey_Enter, false);
-        nio.AddKeyEvent(ImGuiKey_Space, false);
+        pdguiNavSuppressOpeningGesture();
         s_ModHubOpenFrame = ImGui::GetFrameCount();
     }
 
@@ -4788,36 +4907,13 @@ static void renderModdingHub(s32 winW, s32 winH)
         /* ACTION_MENU_TAB_PREV/NEXT cycle hub tools.
          * Skin Editor uses list navigation heavily; suppress global tab cycling there
          * to avoid stealing selection input from the character list/editor UI. */
-        const bool allowHubTabCycle = (s_ActiveTool != 5);
+        // Installed Mods owns LB/RB for its inner tabs. Hub tools remain
+        // reachable through their ordinary navigation buttons.
+        const bool allowHubTabCycle = s_ActiveTool != 0 && s_ActiveTool != 5;
         if (allowHubTabCycle && pdguiMenuTabPrevPressed()) {
-            int next = (s_ActiveTool - 1 + NUM_TOOLS) % NUM_TOOLS;
-            s_ActiveTool = next;
-            if (next == 0) pdguiModManagerRefreshSnapshot();
-            else if (next == 1) iniRefreshEntries();
-            else if (next == 2) scaleRefreshEntries();
-            else if (next == 3) packRefreshEntries();
-            else if (next == 4) pdguiAudioModRefresh();
-            else if (next == 5) pdguiSkinEditorRefresh();
-            else if (next == 6) importReset();
-                    else if (next == 7) chromeToolReset();
-                    else if (next == 8) fontToolReset();
-                    else if (next == 9) weaponToolRefresh();
-            pdguiPlaySound(PDGUI_SND_SWIPE);
-        }
-        if (allowHubTabCycle && pdguiMenuTabNextPressed()) {
-            int next = (s_ActiveTool + 1) % NUM_TOOLS;
-            s_ActiveTool = next;
-            if (next == 0) pdguiModManagerRefreshSnapshot();
-            else if (next == 1) iniRefreshEntries();
-            else if (next == 2) scaleRefreshEntries();
-            else if (next == 3) packRefreshEntries();
-            else if (next == 4) pdguiAudioModRefresh();
-            else if (next == 5) pdguiSkinEditorRefresh();
-                    else if (next == 6) importReset();
-                    else if (next == 7) chromeToolReset();
-                    else if (next == 8) fontToolReset();
-                    else if (next == 9) weaponToolRefresh();
-            pdguiPlaySound(PDGUI_SND_SWIPE);
+            moddingHubRequestTool((s_ActiveTool - 1 + NUM_TOOLS) % NUM_TOOLS);
+        } else if (allowHubTabCycle && pdguiMenuTabNextPressed()) {
+            moddingHubRequestTool((s_ActiveTool + 1) % NUM_TOOLS);
         }
 
         for (int i = 0; i < NUM_TOOLS; i++) {
@@ -4847,22 +4943,7 @@ static void renderModdingHub(s32 winW, s32 winH)
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hover);
             }
 
-            if (PdButton(toolNames[i], ImVec2(btnW, btnH))) {
-                if (s_ActiveTool != i) {
-                    s_ActiveTool = i;
-                    /* Refresh tool data on switch */
-                    if (i == 0) pdguiModManagerRefreshSnapshot();
-                    else if (i == 1) iniRefreshEntries();
-                    else if (i == 2) scaleRefreshEntries();
-                    else if (i == 3) packRefreshEntries();
-                    else if (i == 4) pdguiAudioModRefresh();
-                    else if (i == 5) pdguiSkinEditorRefresh();
-                    else if (i == 6) importReset();
-                    else if (i == 7) chromeToolReset();
-                    else if (i == 8) fontToolReset();
-                    else if (i == 9) weaponToolRefresh();
-                }
-            }
+            if (PdButton(toolNames[i], ImVec2(btnW, btnH))) moddingHubRequestTool(i);
             if (active) ImGui::PopStyleColor(2);
         }
     }
@@ -4959,16 +5040,19 @@ static void renderModdingHub(s32 winW, s32 winH)
                 s_WeaponMeshPickerOpen = false;
             }
         } else {
+            ImGui::BeginDisabled(s_ActiveTool == 0 && pdguiModManagerOwnsNavigation());
             if (pdguiActionBarButton("Close", 1, ImGui::GetContentRegionAvail().x)) {
                 moddingHubCloseFromUi("close-button");
             }
+            ImGui::EndDisabled();
         }
     }
     pdguiEndActionBar();
 
     /* Back input mirrors footer Close behavior.  S311: title X button
      * also closes via pdguiConsumeTitleClose (first-click reliability). */
-    if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
+    if (!(s_ActiveTool == 0 && pdguiModManagerOwnsNavigation())
+        && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)) {
         if (pdguiConsumeTitleClose()) {
             if (weaponCreatorView) {
                 s_WeaponTemplateMenuOpen = false;
@@ -4996,6 +5080,53 @@ static void renderModdingHub(s32 winW, s32 winH)
     ImGui::EndChild();
     ImGui::End();
 
+    if (s_PdmodPendingDestination != -1 && s_PdmodActivationPlan) {
+        if (!ImGui::IsPopupOpen("Incomplete mod activation"))
+            ImGui::OpenPopup("Incomplete mod activation");
+        ImGui::SetNextWindowSize(ImVec2(520.0f * scale, 0), ImGuiCond_Appearing);
+        if (ImGui::BeginPopupModal("Incomplete mod activation", nullptr,
+                ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::TextWrapped("%s", s_PdmodStatusMsg);
+            ImGui::TextWrapped("Discard stops retrying. Installed files and any earlier enabled choices, saves, or runtime changes remain.");
+            const bool appearing = ImGui::IsWindowAppearing();
+            const bool back = !appearing && pdguiMenuCancelPressed();
+            if (appearing) ImGui::SetKeyboardFocusHere();
+            const bool keep = PdButton("Keep working");
+            ImGui::SameLine();
+            const bool retry = PdButton("Retry and continue");
+            ImGui::SameLine();
+            const bool discard = PdButton("Discard and continue");
+            bool proceed = false;
+            if (back || keep) {
+                s_PdmodPendingDestination = -1;
+                ImGui::CloseCurrentPopup();
+            } else if (retry) {
+                proceed = pdmodRetryActivation();
+            } else if (discard) {
+                pdmodDiscardActivation();
+                proceed = true;
+            }
+            if (proceed) {
+                const int destination = s_PdmodPendingDestination;
+                s_PdmodPendingDestination = -1;
+                ImGui::CloseCurrentPopup();
+                if (destination == -2) moddingHubClose("activation-guard");
+                else moddingHubActivateTool(destination);
+            }
+            ImGui::EndPopup();
+        }
+    }
+    if (s_ModMgrPendingDestination != -1) {
+        const int result = pdguiModManagerConsumeLeaveResult();
+        if (result != 0) {
+            const int destination = s_ModMgrPendingDestination;
+            s_ModMgrPendingDestination = -1;
+            if (result > 0) {
+                if (destination == -2) moddingHubClose("selection-guard");
+                else moddingHubActivateTool(destination);
+            }
+        }
+    }
     if (s_LastLoggedTool != s_ActiveTool) {
         sysLogPrintf(LOG_NOTE, "modhub: active tool -> %d (%s)",
                      s_ActiveTool, hubToolName(s_ActiveTool));
@@ -5518,14 +5649,35 @@ static bool chromeToolSaveMod(void)
     snprintf(newModId, sizeof(newModId), "user.%s.ui-chrome", slug);
     modmgrRescanDirectory();
     s32 modCount = modmgrGetCount();
+    bool registeredMod = false;
     for (s32 i = 0; i < modCount; i++) {
         const char *id = modmgrGetModId(i);
         if (id && strcmp(id, newModId) == 0) {
+            registeredMod = true;
             modmgrSetEnabled(i, 1);
+            if (!modmgrGetModEnabled(i)) {
+                snprintf(s_ChromeStatus, sizeof(s_ChromeStatus),
+                    "Chrome style saved; the mod could not be enabled.");
+                s_ChromeStatusOk = false;
+                return false;
+            }
             break;
         }
     }
-    modmgrSaveConfig();
+    if (!registeredMod) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus),
+            "Chrome style saved; mod registry entry is missing.");
+        s_ChromeStatusOk = false;
+        return false;
+    }
+    modmgr_save_result_t saved;
+    if (!modmgrSaveConfigChecked(nullptr, &saved)) {
+        snprintf(s_ChromeStatus, sizeof(s_ChromeStatus),
+            "Chrome style saved; settings incomplete: %.160s", saved.error);
+        s_ChromeStatusOk = false;
+        pdguiModManagerRefreshSnapshot();
+        return false;
+    }
     /* Rebuild the Mods tab's display snapshot so the new entry shows up
      * next time the user switches to the Mod Manager tool. */
     pdguiModManagerRefreshSnapshot();
@@ -6336,23 +6488,12 @@ void pdguiModdingHubShowTool(s32 tool)
     /* Clamp to the known tool range (0..9); out-of-range requests land
      * on Mod Manager rather than an undefined child render. */
     if (tool < 0 || tool > 9) tool = 0;
-    s_Visible    = 1;
-    s_ActiveTool = tool;
+    if (s_Visible && tool != s_ActiveTool && !moddingHubCanLeave(tool)) return;
+    const bool refresh = !s_Visible || tool != s_ActiveTool;
+    s_Visible = true;
     s_WeaponTemplateMenuOpen = false;
     s_WeaponMeshPickerOpen = false;
-    /* Refresh whichever tool we're about to show so its data is live. */
-    switch (tool) {
-        case 0: pdguiModManagerRefreshSnapshot(); break;
-        case 1: iniRefreshEntries();              break;
-        case 2: scaleRefreshEntries();            break;
-        case 3: packRefreshEntries();             break;
-        case 4: pdguiAudioModRefresh();           break;
-        case 5: pdguiSkinEditorRefresh();         break;
-        case 6: importReset();                    break;
-        case 7: chromeToolReset();                break;
-        case 8: fontToolReset();                  break;
-        case 9: weaponToolRefresh();              break;
-    }
+    if (refresh) moddingHubActivateTool(tool);
     sysLogPrintf(LOG_NOTE, "MODHUB: opened on tool %d", (int)tool);
 }
 
@@ -6383,7 +6524,8 @@ void pdguiModdingHubRender(s32 winW, s32 winH)
 
     /* Click-outside-to-close: if the user clicks outside the dialog area,
      * dismiss the modding hub.  Uses pdguiMenuPos/Size for the hub bounds. */
-    if (!ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)
+    if (!(s_ActiveTool == 0 && pdguiModManagerOwnsNavigation())
+            && !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId)
             && ImGui::IsMouseClicked(0)) {
         ImVec2 mp = ImGui::GetMousePos();
         ImVec2 hubPos  = pdguiMenuPos();

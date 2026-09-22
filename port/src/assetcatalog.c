@@ -26,6 +26,7 @@
 #include <SDL.h>           /* Engine Phase 4: catalog mutex for parallel walker */
 #include "types.h"
 #include "assetcatalog.h"
+#include "assetcatalog_mutation.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
@@ -540,10 +541,10 @@ void assetCatalogClear(void)
     assetCatalogResetCustomStageSlots();
 }
 
-void assetCatalogClearMods(void)
+asset_catalog_change_e assetCatalogClearModsChecked(void)
 {
     if (!s_retireCatalogRows(0)) {
-        return;
+        return CATALOG_CHANGE_RETIRE_FAILED;
     }
     catalogTypedLifecycleClearMods();
     catalogDepClearMods();
@@ -559,7 +560,7 @@ void assetCatalogClearMods(void)
         assetCatalogResetCustomTextureSlots();
         assetCatalogResetCustomAnimSlots();
         assetCatalogResetCustomStageSlots();
-        return;
+        return CATALOG_CHANGE_UNCHANGED;
     }
 
     /* Mark all non-bundled entries as unoccupied */
@@ -600,6 +601,12 @@ void assetCatalogClearMods(void)
     assetCatalogResetCustomTextureSlots();
     assetCatalogResetCustomAnimSlots();
     assetCatalogResetCustomStageSlots();
+    return CATALOG_CHANGE_APPLIED;
+}
+
+void assetCatalogClearMods(void)
+{
+    (void)assetCatalogClearModsChecked();
 }
 
 s32 assetCatalogGetCount(void)
@@ -1294,7 +1301,7 @@ s32 assetCatalogGetSkinsForTarget(const char *target_id,
  * Public API: Write (D3R-6)
  * ======================================================================== */
 
-void assetCatalogSetEnabled(const char *id, s32 enabled)
+asset_catalog_change_e assetCatalogSetEnabledChecked(const char *id, s32 enabled)
 {
     char selected_id[CATALOG_ID_LEN] = {0};
     asset_type_e selected_type = ASSET_NONE;
@@ -1320,33 +1327,32 @@ void assetCatalogSetEnabled(const char *id, s32 enabled)
     }
     CATALOG_UNLOCK();
 
-    if (selected_type == ASSET_NONE || previous_enabled == (enabled ? 1 : 0)) {
-        return;
-    }
+    if (selected_type == ASSET_NONE) return CATALOG_CHANGE_NOT_FOUND;
+    if (previous_enabled == (enabled ? 1 : 0)) return CATALOG_CHANGE_UNCHANGED;
 
     if (!enabled && !catalogCanDeactivateTypedAsset(selected_type, selected_id)) {
         sysLogPrintf(LOG_WARNING,
             "CATALOG.LIFECYCLE.DISABLE: '%s' preflight failed; enabled state unchanged",
             selected_id);
-        return;
+        return CATALOG_CHANGE_PREFLIGHT_FAILED;
     }
     if (!enabled && !catalogInvalidateTypedAssetDependents(selected_id)) {
         sysLogPrintf(LOG_WARNING,
             "CATALOG.LIFECYCLE.DISABLE: '%s' dependent invalidation failed; enabled state unchanged",
             selected_id);
-        return;
+        return CATALOG_CHANGE_DEPENDENTS_FAILED;
     }
 
     CATALOG_LOCK();
     {
-        asset_entry_t *entry = (asset_entry_t *)s_resolveLocked(selected_id);
+        asset_entry_t *entry = (asset_entry_t *)s_resolveAnyLocked(selected_id);
         if (!entry || entry->type != selected_type
                 || entry->enabled != previous_enabled) {
             CATALOG_UNLOCK();
             sysLogPrintf(LOG_WARNING,
                 "CATALOG.LIFECYCLE.TOGGLE: '%s' changed during transaction; aborted",
                 selected_id);
-            return;
+            return CATALOG_CHANGE_CONFLICT;
         }
         entry->enabled = enabled ? 1 : 0;
         if (enabled && entry->load_state == ASSET_STATE_REGISTERED) {
@@ -1362,7 +1368,7 @@ void assetCatalogSetEnabled(const char *id, s32 enabled)
          * failure is nevertheless reported. */
         CATALOG_LOCK();
         {
-            asset_entry_t *entry = (asset_entry_t *)s_resolveLocked(selected_id);
+            asset_entry_t *entry = (asset_entry_t *)s_resolveAnyLocked(selected_id);
             if (entry && entry->type == selected_type && !entry->enabled) {
                 entry->enabled = previous_enabled;
                 if (entry->load_state == ASSET_STATE_REGISTERED) {
@@ -1375,12 +1381,23 @@ void assetCatalogSetEnabled(const char *id, s32 enabled)
             "CATALOG.LIFECYCLE.DISABLE: '%s' teardown failed; toggle rolled back",
             selected_id);
         (void)catalogReloadInvalidatedTypedAssets();
+        return CATALOG_CHANGE_TEARDOWN_FAILED;
     } else if (enabled) {
         /* Re-enable is not a claim that the child works. Every previously
          * active parent must pass a fresh complete typed-source transaction;
          * failures remain pending and unreachable. */
-        (void)catalogReloadInvalidatedTypedAssets();
+        if (!catalogReloadInvalidatedTypedAssets()) {
+            sysLogPrintf(LOG_WARNING,
+                "CATALOG.LIFECYCLE.ENABLE: '%s' dependent reload failed; enabled intent retained", selected_id);
+            return CATALOG_CHANGE_RELOAD_FAILED;
+        }
     }
+    return CATALOG_CHANGE_APPLIED;
+}
+
+void assetCatalogSetEnabled(const char *id, s32 enabled)
+{
+    (void)assetCatalogSetEnabledChecked(id, enabled);
 }
 
 void assetCatalogSetCategoryById(const char *id, const char *category)

@@ -14,6 +14,7 @@
 #include "video.h"
 #include "input.h"
 #include "actionmap.h"
+#include "actionmap_profile.h"
 #include "config.h"
 
 static s32 g_ExtMenuPlayer = 0;
@@ -21,6 +22,19 @@ static struct menudialogdef *g_ExtNextDialog = NULL;
 
 static s32 g_BindIndex = 0;
 static InputAction g_BindAction = ACTION_MOVE_FORWARD;
+static char g_ExtendedBindStatus[192];
+
+static s32 persistExtendedBinds(void)
+{
+    if (actionmapSaveBinds()) {
+        g_ExtendedBindStatus[0] = '\0';
+        configSave("pd.ini");
+        return 1;
+    }
+    snprintf(g_ExtendedBindStatus, sizeof(g_ExtendedBindStatus), "%s\n",
+        actionmapGetPersistenceError());
+    return 0;
+}
 
 static MenuItemHandlerResult menuhandlerSelectPlayer(s32 operation, struct menuitem *item, union handlerdata *data);
 
@@ -1646,6 +1660,14 @@ struct menuitem g_ExtendedBindKeyMenuItems[] = {
 		0,
 		menuhandlerDoBind,
 	},
+    {
+        MENUITEMTYPE_LABEL,
+        0,
+        MENUITEMFLAG_LITERAL_TEXT,
+        (uintptr_t)g_ExtendedBindStatus,
+        0,
+        NULL,
+    },
 	{ MENUITEMTYPE_END },
 };
 
@@ -1694,36 +1716,20 @@ static MenuItemHandlerResult menuhandlerResetBindsPC(s32 operation, struct menui
 static MenuItemHandlerResult menuhandlerResetBindsN64(s32 operation, struct menuitem *item, union handlerdata *data);
 
 /* M0.2 Phase D: Helpers use actionmap triggers instead of CK_* binds. */
-static s32 vkIsController(u32 vk)
-{
-	return vk >= VK_JOY_BEGIN && vk < VK_TOTAL_COUNT;
-}
-
 static s32 filteredBindCount(s32 player, InputAction action)
 {
-	InputMapping *m = &g_ImcGameplay.mappings[action];
-	const s32 wantCtrl = inputGetAssignedControllerId(player) >= 0;
-	s32 count = 0;
-	for (s32 i = 0; i < m->num_triggers; ++i) {
-		if (m->triggers[i].vk && vkIsController(m->triggers[i].vk) == wantCtrl) {
-			count++;
-		}
-	}
-	return count ? count : 1;
+    const InputMapping *mapping = &g_ImcGameplay.mappings[action];
+    const s32 wantController = inputGetAssignedControllerId(player) >= 0;
+    const s32 count = actionmapProfileDeviceBindingCount(mapping,
+        VK_JOY_BEGIN, VK_TOTAL_COUNT, wantController);
+    return count ? count : 1; // one NONE placeholder may offer an empty slot
 }
 
 static s32 filteredToRealSlot(s32 player, InputAction action, s32 filteredIdx)
 {
-	InputMapping *m = &g_ImcGameplay.mappings[action];
-	const s32 wantCtrl = inputGetAssignedControllerId(player) >= 0;
-	s32 fi = 0;
-	for (s32 i = 0; i < m->num_triggers; ++i) {
-		if (m->triggers[i].vk && vkIsController(m->triggers[i].vk) == wantCtrl) {
-			if (fi == filteredIdx) return i;
-			fi++;
-		}
-	}
-	return filteredIdx;
+    return actionmapProfileFindDeviceSlot(&g_ImcGameplay.mappings[action],
+        VK_JOY_BEGIN, VK_TOTAL_COUNT, inputGetAssignedControllerId(player) >= 0,
+        filteredIdx);
 }
 
 #define DEFINE_MENU_BIND() \
@@ -1737,8 +1743,6 @@ static s32 filteredToRealSlot(s32 player, InputAction action, s32 filteredIdx)
 	}
 
 struct menuitem g_ExtendedBindsMenuItems[] = {
-	DEFINE_MENU_BIND(),
-	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
 	DEFINE_MENU_BIND(),
@@ -1798,6 +1802,14 @@ struct menuitem g_ExtendedBindsMenuItems[] = {
 		0,
 		NULL,
 	},
+    {
+        MENUITEMTYPE_LABEL,
+        0,
+        MENUITEMFLAG_LITERAL_TEXT,
+        (uintptr_t)g_ExtendedBindStatus,
+        0,
+        NULL,
+    },
 	{ MENUITEMTYPE_END },
 };
 
@@ -1811,16 +1823,20 @@ static MenuItemHandlerResult menuhandlerDoBind(s32 operation, struct menuitem *i
 	 * because we need the actual VK, not an action. The action map would map
 	 * the key to an action, but we need to know WHICH key was pressed. */
 	if (inputKeyPressed(VK_ESCAPE)) {
+        inputClearLastKey();
+        g_ExtendedBindStatus[0] = '\0';
 		menuPopDialog();
 		return 0;
 	}
 
 	const s32 key = inputGetLastKey();
 	if (key && key != VK_ESCAPE) {
+        /* Multiple menu operations visit this handler. Consume once before
+         * saving, including on failure, so a failed write cannot loop. */
+        inputClearLastKey();
 		actionmapBind(&g_ImcGameplay, g_ExtMenuPlayer, g_BindAction,
 		              g_BindIndex, (key == VK_DELETE ? 0 : (u32)key));
-		actionmapSaveBinds();
-		menuPopDialog();
+        if (persistExtendedBinds()) menuPopDialog();
 	}
 
 	return 0;
@@ -1828,14 +1844,16 @@ static MenuItemHandlerResult menuhandlerDoBind(s32 operation, struct menuitem *i
 
 static const char *menutextBind(struct menuitem *item)
 {
+    const s32 idx = item - g_ExtendedBindsMenuItems;
+    if (idx < 0 || idx >= (s32)ARRAYCOUNT(menuBinds)) return "Unavailable\n";
 	return g_PlayerExtCfg[g_ExtMenuPlayer].extcontrols ?
-		menuBinds[item - g_ExtendedBindsMenuItems].name :
-		menuBinds[item - g_ExtendedBindsMenuItems].n64name;
+		menuBinds[idx].name : menuBinds[idx].n64name;
 }
 
 static MenuItemHandlerResult menuhandlerBind(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	const s32 idx = item - g_ExtendedBindsMenuItems;
+    if (idx < 0 || idx >= (s32)ARRAYCOUNT(menuBinds)) return 0;
 	InputAction action = menuBinds[idx].action;
 
 	static char keyname[128];
@@ -1847,7 +1865,7 @@ static MenuItemHandlerResult menuhandlerBind(s32 operation, struct menuitem *ite
 	case MENUOP_GETOPTIONTEXT: {
 		InputMapping *m = &g_ImcGameplay.mappings[action];
 		const s32 realSlot = filteredToRealSlot(g_ExtMenuPlayer, action, data->dropdown.value);
-		if (realSlot < m->num_triggers && m->triggers[realSlot].vk) {
+		if (realSlot >= 0 && realSlot < m->num_triggers && m->triggers[realSlot].vk) {
 			strncpy(keyname, inputGetKeyName((s32)m->triggers[realSlot].vk), sizeof(keyname) - 1);
 			keyname[sizeof(keyname) - 1] = '\0';
 			for (char *p = keyname; *p; ++p) {
@@ -1861,6 +1879,12 @@ static MenuItemHandlerResult menuhandlerBind(s32 operation, struct menuitem *ite
 		g_ExtendedBindKeyMenuItems[0].param2 = (uintptr_t)menuBinds[idx].name;
 		g_BindAction = action;
 		g_BindIndex = filteredToRealSlot(g_ExtMenuPlayer, action, data->dropdown.value);
+        if (g_BindIndex < 0) {
+            snprintf(g_ExtendedBindStatus, sizeof(g_ExtendedBindStatus),
+                "All binding slots are occupied. Clear or replace an existing binding.\n");
+            break;
+        }
+        g_ExtendedBindStatus[0] = '\0';
 		inputClearLastKey();
 		menuPushDialog(&g_ExtendedBindKeyMenuDialog);
 		break;
@@ -1876,7 +1900,7 @@ static MenuItemHandlerResult menuhandlerResetBindsPC(s32 operation, struct menui
 {
 	if (operation == MENUOP_SET) {
 		actionmapSetDefaults(&g_ImcGameplay, g_ExtMenuPlayer);
-		actionmapSaveBinds();
+		persistExtendedBinds();
 	}
 
 	return 0;
@@ -1887,7 +1911,7 @@ static MenuItemHandlerResult menuhandlerResetBindsN64(s32 operation, struct menu
 	if (operation == MENUOP_SET) {
 		/* N64 defaults: just reset to standard defaults (no separate N64 mode) */
 		actionmapSetDefaults(&g_ImcGameplay, g_ExtMenuPlayer);
-		actionmapSaveBinds();
+		persistExtendedBinds();
 	}
 
 	return 0;
@@ -1924,6 +1948,7 @@ static MenuItemHandlerResult menuhandlerOpenGameMenu(s32 operation, struct menui
 static MenuItemHandlerResult menuhandlerOpenBindsMenu(s32 operation, struct menuitem *item, union handlerdata *data)
 {
 	if (operation == MENUOP_SET) {
+        g_ExtendedBindStatus[0] = '\0';
 		g_ExtNextDialog = &g_ExtendedBindsMenuDialog;
 		menuPushDialog(&g_ExtendedSelectPlayerMenuDialog);
 	}

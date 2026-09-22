@@ -27,6 +27,7 @@
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"       /* pdguiPopupDarkenBehind (M-4 confirm modal) */
 #include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "pdgui_glyphs.h"
 #include "pdgui_charpreview.h"
 #include "screenmfst.h"
@@ -359,19 +360,29 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     }
     ImGui::Separator();
 
-    /* ================================================================
-     * M-4: Confirmation modal — when s_ConfirmMode is active, gate all
-     * agent-list key input so the modal is the only input sink. The
-     * BeginPopupModal rendering itself happens at the end of the function
-     * (after ImGui::End()) so the modal is a viewport-level overlay rather
-     * than nested inside the agent-select window.
-     * ================================================================ */
-    bool confirmActive = (s_ConfirmMode != CONFIRM_NONE &&
-                          s_ConfirmIdx >= 0 && s_ConfirmIdx < s_ProfileCount);
+    /* Defer popup opens until the agent window's ID scope. A context menu
+     * and a confirmation both own input ahead of the parent agent list. */
+    const bool confirmActive = (s_ConfirmMode != CONFIRM_NONE &&
+                               s_ConfirmIdx >= 0 && s_ConfirmIdx < s_ProfileCount);
+    bool agentChildOpen = confirmActive || ImGui::IsPopupOpen(
+        nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    bool requestAgentContext = false;
+    bool requestAgentConfirm = false;
 
+    /* L-4: B / Escape = go back to previous menu — only when the confirm
+     * modal isn't open. When it is, Escape cancels the modal (handled in
+     * the BeginPopupModal block below). */
+    if (!agentChildOpen && pdguiMenuCancelPressed()) {
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
+        ImGui::End();
+        pdguiNavSuppressActivation();
+        menuGraphFirePop(MENU_TYPE_AGENT_SELECT, "back");
+        return 1;
+    }
     /* Menu Accept = load/select — disabled while confirm modal is open so
      * the modal owns input. */
-    if (!confirmActive && pdguiMenuAcceptPressed()) {
+    if (!agentChildOpen && pdguiMenuAcceptPressed()) {
         if (s_SelectedIdx == s_ProfileCount) {
             pdguiPlaySound(PDGUI_SND_SELECT);
             /* B-124 / S300: pop owned ctx before transitioning away */
@@ -386,6 +397,10 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load",
                 agentSelectGraphLoad, &payload);
         }
+        /* A graph transition must not also activate this frame's list row. */
+        pdguiNavSuppressActivation();
+        ImGui::End();
+        return 1;
     }
     /* X / C / right-click on row = open context menu (Mike directive
      * 2026-05-17 + menu-input-interaction-grammar Rule 5 X-context).
@@ -394,25 +409,26 @@ static s32 renderAgentSelect(struct menudialog *dialog,
      * popup; right-click on a list row also opens it (handled at the
      * row Selectable below). The direct C-fires-Copy and Y-fires-Delete
      * paths are kept as power-user shortcuts on the keyboard. */
-    if (!confirmActive && pdguiMenuSecondaryPressed()) {
+    if (!agentChildOpen && pdguiMenuSecondaryPressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
-            ImGui::OpenPopup("##agent_ctx");
+            requestAgentContext = true;
+            agentChildOpen = true;
             pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
         }
     }
     /* Menu Delete = delete (with confirmation). Controller users can reach
      * Delete through the Menu Secondary context menu when Delete is unbound. */
-    if (!confirmActive && pdguiMenuDeletePressed()) {
+    if (!agentChildOpen && pdguiMenuDeletePressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
             pdguiPlaySound(PDGUI_SND_ERROR);
             s_ConfirmMode = CONFIRM_DELETE;
             s_ConfirmIdx = s_SelectedIdx;
-            s_ConfirmOpenFrame = (s32)ImGui::GetFrameCount();
-            ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID);
+            requestAgentConfirm = true;
+            agentChildOpen = true;
         }
     }
     /* Menu Tertiary = set as default agent. */
-    if (!confirmActive && pdguiMenuTertiaryPressed()) {
+    if (!agentChildOpen && pdguiMenuTertiaryPressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
             const char *name = s_Profiles[s_SelectedIdx].name;
             if (strcmp(s_DefaultAgentName, name) == 0) {
@@ -424,23 +440,13 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
     }
-    /* L-4: B / Escape = go back to previous menu — only when the confirm
-     * modal isn't open. When it is, Escape cancels the modal (handled in
-     * the BeginPopupModal block below). */
-    if (!confirmActive && pdguiMenuCancelPressed()) {
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        /* S300: menuCloseDialog releases pool slot + pops owned ctx. */
-        menuGraphFirePop(MENU_TYPE_AGENT_SELECT, "back");
-        ImGui::End();
-        return 1;
-    }
     /* Arrow key navigation for MKB — frozen while modal is open. */
-    if (!confirmActive && pdguiMenuDownRepeat()) {
+    if (!agentChildOpen && pdguiMenuDownRepeat()) {
         s_SelectedIdx++;
         if (s_SelectedIdx >= totalEntries) s_SelectedIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (!confirmActive && pdguiMenuUpRepeat()) {
+    if (!agentChildOpen && pdguiMenuUpRepeat()) {
         s_SelectedIdx--;
         if (s_SelectedIdx < 0) s_SelectedIdx = totalEntries - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
@@ -520,9 +526,10 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                  * the right entry. Same popup id (##agent_ctx) backs
                  * both routes per Rule 5 X-context-menu (one builder
                  * for both input devices). */
-                if (!confirmActive && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                if (!agentChildOpen && ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
                     s_SelectedIdx = i;
-                    ImGui::OpenPopup("##agent_ctx");
+                    requestAgentContext = true;
+                    agentChildOpen = true;
                     pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
                 }
 
@@ -589,6 +596,11 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     }
     ImGui::EndChild();
 
+    if (requestAgentContext) {
+        ImGui::OpenPopup("##agent_ctx");
+        pdguiNavSuppressActivation();
+    }
+
     /* Per-row context menu (Mike directive 2026-05-17 + Rule 5 X-context).
      * Opened by controller secondary (X), keyboard C, or right-click on
      * a row. The popup body fires the same Load / Copy / Delete /
@@ -614,16 +626,16 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             ImGui::CloseCurrentPopup();
             s_ConfirmMode = CONFIRM_COPY;
             s_ConfirmIdx = s_SelectedIdx;
-            s_ConfirmOpenFrame = (s32)ImGui::GetFrameCount();
-            ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID);
+            requestAgentConfirm = true;
+            agentChildOpen = true;
             pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
         }
         if (ImGui::MenuItem("Delete")) {
             ImGui::CloseCurrentPopup();
             s_ConfirmMode = CONFIRM_DELETE;
             s_ConfirmIdx = s_SelectedIdx;
-            s_ConfirmOpenFrame = (s32)ImGui::GetFrameCount();
-            ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID);
+            requestAgentConfirm = true;
+            agentChildOpen = true;
             pdguiPlaySound(PDGUI_SND_ERROR);
         }
         const bool isDefault = (strcmp(cname, s_DefaultAgentName) == 0);
@@ -660,11 +672,16 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     pdguiDrawHintFooter("##agent_select_footer", footerText,
                         footerLayout.footer_height);
 
-    ImGui::End();
+    /* The context popup has ended and the list's row/child ID scopes have
+     * unwound. Open and begin the confirmation in this same owner window. */
+    if (requestAgentConfirm) {
+        ImGui::OpenPopup(AGENTSEL_CONFIRM_POPUP_ID);
+        s_ConfirmOpenFrame = (s32)ImGui::GetFrameCount();
+        pdguiNavSuppressActivation();
+    }
 
     /* ================================================================
-     * M-4: Delete / Copy confirmation modal (rendered as viewport-level
-     * popup after the agent-select window closes). Mirrors the M-1
+     * M-4: Delete / Copy confirmation modal. Mirrors the M-1
      * pattern in pdgui_menu_warning.cpp — 5-frame SetKeyboardFocusHere
      * on Cancel (Delete) / Confirm (Copy), 3-frame input debounce so the
      * X/Delete press that triggered the popup can't bleed through.
@@ -783,7 +800,10 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
             if (isDelete) {
                 /* Delete: default focus on Cancel (safer for destructive). */
-                if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+                if (forceFocus) {
+                    ImGui::SetKeyboardFocusHere(0);
+                    ImGui::SetNavCursorVisible(true);
+                }
 
                 if (ImGui::Button("Cancel##agent_delete_cancel", ImVec2(btnW, btnH))) {
                     if (!inputDebounced) doCancel = true;
@@ -809,7 +829,10 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 }
                 ImGui::SameLine(0.0f, gap);
 
-                if (forceFocus) ImGui::SetKeyboardFocusHere(0);
+                if (forceFocus) {
+                    ImGui::SetKeyboardFocusHere(0);
+                    ImGui::SetNavCursorVisible(true);
+                }
                 if (ImGui::Button("Copy##agent_copy_confirm", ImVec2(btnW, btnH))) {
                     if (!inputDebounced) doConfirm = true;
                 }
@@ -820,8 +843,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
             {
                 char accept[24], cancel[24], hintL[64], hintR[64];
                 pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
-                pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancel, (s32)sizeof(cancel));
-                snprintf(hintL, sizeof(hintL), "[%s] Confirm", accept);
+                pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL, cancel, (s32)sizeof(cancel));
+                snprintf(hintL, sizeof(hintL), "[%s] Select", accept);
                 snprintf(hintR, sizeof(hintR), "[%s] Cancel", cancel);
 
                 float hintY = modalH - pdguiScale(22.0f);
@@ -837,18 +860,15 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 ImGui::TextDisabled("%s", hintR);
             }
 
-            /* Keyboard + gamepad shortcuts — debounced for a few frames so
-             * the X/Delete press that opened the popup doesn't bleed through. */
+            /* Accept belongs to the focused Copy/Delete/Cancel button.
+             * Back remains dialog-wide after the opening debounce. */
             if (!inputDebounced) {
-                if (pdguiMenuAcceptPressed()) {
-                    doConfirm = true;
-                }
                 if (pdguiMenuCancelPressed()) {
                     doCancel = true;
                 }
             }
 
-            if (doConfirm) {
+            if (doConfirm && !doCancel) {
                 if (isDelete) {
                     char deletedName[AGENT_PROFILE_NAME_MAX];
                     snprintf(deletedName, sizeof(deletedName), "%s", cfName);
@@ -918,6 +938,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         pdguiSetPalette(prevPalette);
     }
 
+    ImGui::End();
     return 1;
 }
 

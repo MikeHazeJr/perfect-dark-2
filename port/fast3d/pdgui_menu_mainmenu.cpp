@@ -20,6 +20,7 @@
 
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include <PR/os_thread.h>
 #include <algorithm>
 #include <float.h>
 #include <math.h>
@@ -35,6 +36,7 @@
 #endif
 
 #include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
 #include "versioninfo.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
@@ -49,15 +51,26 @@
 #include "pdgui_friends.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
+#include "pdgui_nav_input.h"
+#include "pdgui_menu_readiness.h"
 #include "pdgui_layout.h"
 #include "pdgui_widgets.h"   /* Priority L: shared label-left widget helpers */
+#include "pdgui_settings_ui.h"
+#include "pdgui_settings_save_status.h"
+#include "modmgr_apply.h"
+#include "config.h"
 #include "system.h"
 #include "inputctx.h"
+#include "input.h"
+#include "input_vk.h"
+#include "input_device_identity.h"
 #include "assetcatalog.h"
 #include "asset_source_debug.h"
 #include "net/netmanifest.h"
 
 extern "C" {
+void modmgrRescanDirectory(void);
+void pdguiModManagerRefreshSnapshot(void);
 #include "pdgui_nav.h"
 #include "actionmap.h"
 #include "menupool.h"
@@ -183,6 +196,7 @@ MenuItemHandlerResult menuhandlerChangeAgent(s32 operation, struct menuitem *ite
  * prefs_agent.h lives in port/include/ and C++ ABI guard (#define bool
  * s32) blocks including it directly. */
 s32 prefsAgentSave(void);
+const char *prefsAgentGetActive(void);
 /* B-172: refresh pd.ini baseline after a pre-sign-in visual change so
  * the next Agent Select reset doesn't clobber the user's new theme. */
 void prefsAgentRefreshVisualsBaseline(void);
@@ -281,10 +295,6 @@ void inputControllerSetSticksSwapped(s32 cidx, s32 swapped);
 
 /* M0.2 Phase D: Input binding now uses actionmap.h API exclusively.
  * CK_* enum and old bind functions removed. */
-#define PD_VK_ESCAPE 41
-#define PD_VK_JOY_BEGIN 519
-#define PD_VK_TOTAL_COUNT (PD_VK_JOY_BEGIN + 4 * 32)
-const char *inputGetKeyName(s32 vk);
 void inputClearLastKey(void);
 s32 inputGetLastKey(void);
 s32 inputGetConnectedInputDevices(s32 *out);
@@ -384,8 +394,6 @@ extern s32 g_NetMode;
 /* g_MpPlayerNum */
 extern s32 g_MpPlayerNum;
 
-/* Config save */
-s32 configSave(const char *fname);
 
 /* M0.2 Phase D: inputModes API removed — inputmodes.c deleted. */
 
@@ -525,6 +533,103 @@ static s32 s_PrevView = -1;     /* Previous menu view, for sound on switch */
 static s32 s_PrevSubTab = -1;
 static bool s_ViewJustChanged = false; /* true on frame after s_MenuView changes */
 static bool s_NeedsFocus = false;      /* one-shot: give nav focus to first widget */
+
+static PdguiSettingsSaveStatus s_SettingsSaveStatus;
+
+static bool settingsSaveMachine(void *)
+{
+    return configSave(CONFIG_PATH) == 1;
+}
+
+static bool settingsSaveAgent(const char *expectedAgent, void *)
+{
+    const char *active = prefsAgentGetActive();
+    return active && active[0] && strcmp(active, expectedAgent) == 0 && prefsAgentSave() == 0;
+}
+
+static PdguiSettingsSaveCallbacks settingsSaveCallbacks()
+{
+    return { settingsSaveMachine, settingsSaveAgent, nullptr };
+}
+
+static void settingsRequestMachineSave()
+{
+    s_SettingsSaveStatus.requestMachineSave();
+}
+
+/* Visible above the scrolling tabs. Returning intent keeps persistence at the
+ * one shared end-of-render boundary; parent Back disables this native button. */
+static bool renderSettingsSaveStatus()
+{
+    bool retry = false;
+    if (s_SettingsSaveStatus.machineFailed())
+        ImGui::TextWrapped("Changes are active, but machine settings could not be saved to the save folder's pd.ini.");
+    if (s_SettingsSaveStatus.agentFailed())
+        ImGui::TextWrapped("Changes are active, but Agent %s could not be saved.",
+                          s_SettingsSaveStatus.agentName().c_str());
+    if (s_SettingsSaveStatus.hasUnsaved()) {
+        retry = ImGui::Button("Retry saving##settings_save");
+        ImGui::Separator();
+    }
+    for (const auto &agent : s_SettingsSaveStatus.previousAgentFailures())
+        ImGui::TextWrapped("Agent %s changed while its settings save had failed. Those edits were not written.", agent.c_str());
+    if (!s_SettingsSaveStatus.previousAgentFailures().empty() &&
+            ImGui::Button("Dismiss previous Agent notices##settings_save"))
+        s_SettingsSaveStatus.dismissPreviousAgentFailures();
+    return retry;
+}
+
+/* Call from the Settings ROOT window, after balanced child/disabled rendering.
+ * The caller performs any accepted departure only after its own ImGui::End. */
+static bool renderSettingsSaveDeparture()
+{
+    const char *popup = "Settings could not be saved##settings_leave";
+    if (s_SettingsSaveStatus.leavePending() && !ImGui::IsPopupOpen(popup)) {
+        pdguiNavSuppressOpeningGesture();
+        ImGui::OpenPopup(popup);
+    }
+    bool leave = false;
+    if (ImGui::BeginPopupModal(popup, nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        if (!s_SettingsSaveStatus.leavePending()) {
+            ImGui::CloseCurrentPopup();
+            pdguiNavSuppressOpeningGesture();
+            ImGui::EndPopup();
+            return false;
+        }
+        const bool back = pdguiMenuCancelPressed() != 0;
+        bool chosen = back;
+        PdguiSettingsLeaveChoice choice = PdguiSettingsLeaveChoice::Stay;
+        ImGui::TextWrapped("Your changes are active, but some settings have not been saved.");
+        if (s_SettingsSaveStatus.machinePending()) ImGui::TextUnformatted("Pending: machine settings (pd.ini)");
+        if (s_SettingsSaveStatus.agentFailed()) ImGui::Text("Pending: Agent %s", s_SettingsSaveStatus.agentName().c_str());
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+            ImGui::SetNavCursorVisible(true);
+        }
+        ImGui::BeginDisabled(back);
+        if (ImGui::Button("Stay##settings_leave")) chosen = true;
+        if (ImGui::Button("Retry and leave##settings_leave")) {
+            chosen = true;
+            choice = PdguiSettingsLeaveChoice::Retry;
+        }
+        if (ImGui::Button("Leave without saving##settings_leave")) {
+            chosen = true;
+            choice = PdguiSettingsLeaveChoice::LeaveWithoutSaving;
+        }
+        ImGui::EndDisabled();
+        if (chosen) {
+            leave = s_SettingsSaveStatus.chooseDeparture(choice, prefsAgentGetActive(), settingsSaveCallbacks());
+            if (!s_SettingsSaveStatus.leavePending()) {
+                ImGui::CloseCurrentPopup();
+                pdguiNavSuppressOpeningGesture();
+            }
+        }
+        ImGui::EndPopup();
+    }
+    return leave;
+}
+
 
 /* ========================================================================
  * Sound-playing widget wrappers
@@ -879,8 +984,10 @@ static s32 s_InterfaceDeleteTarget = -1;          /* theme index or mod index */
 static int s_InterfaceDeleteKind   = IFACE_DEL_NONE;
 static char s_InterfaceDeleteName[96] = "";       /* captured for the confirm dialog */
 static char s_InterfaceDeletePath[280] = "";      /* mods/<slug>/ path to remove */
-static char s_InterfaceDeleteStatus[160] = "";    /* last status string (red/green) */
+static char s_InterfaceDeleteStatus[384] = "";    /* last status string (red/green) */
 static bool s_InterfaceDeleteSuccess = false;
+static bool s_InterfaceDeleteFilesRemoved = false;
+static bool s_InterfaceDeleteRefreshPending = false;
 
 /* Forward decl for theme path helper — implementation lives in the theme
  * loader (see pdgui_theme_loader.h). We prefer pdguiThemeGetFilePath
@@ -926,6 +1033,32 @@ static s32 interfaceDeleteModDir(const char *dirPath)
 #endif
 }
 
+static void interfaceRefreshAfterDelete(void)
+{
+    /* A failed directory removal may already have removed a manifest. Always
+     * reconcile the actual files, including theme directories with mod.json. */
+    pdguiThemeRescanMods();
+    modmgrRescanDirectory();
+    modmgr_apply_result_t result;
+    const bool refreshed = modmgrSyncCatalogToRegistryChecked(&result) != 0;
+    pdguiModManagerRefreshSnapshot();
+    s_InterfaceDeleteRefreshPending = !refreshed;
+    s_InterfaceDeleteSuccess = s_InterfaceDeleteFilesRemoved && refreshed;
+    if (!refreshed) {
+        snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
+                 "%s Catalog refresh failed: %.220s Retry refresh will not delete more files.",
+                 s_InterfaceDeleteFilesRemoved ? "Files removed." : "Some files may remain.",
+                 result.error[0] ? result.error : "The catalog could not be rebuilt.");
+    } else if (s_InterfaceDeleteFilesRemoved) {
+        snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
+                 "Deleted \"%s\" and refreshed the catalog.", s_InterfaceDeleteName);
+    } else {
+        snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
+                 "Could not fully delete \"%s\"; extra files may remain. The catalog reflects the remaining files.",
+                 s_InterfaceDeleteName);
+    }
+}
+
 /* Public entry points (called from Color Theme picker above + Mod Manager
  * in a later commit). Capture the target + name + on-disk path now so the
  * confirm dialog can render even after the popup owner (context menu)
@@ -936,6 +1069,8 @@ extern "C" void pdguiInterfaceRequestThemeDelete(s32 themeIndex)
     const char *id   = pdguiThemeGetId(themeIndex);
     const char *name = pdguiThemeGetName(themeIndex);
     if (!id || !name) return;
+    s_InterfaceDeleteRefreshPending = false;
+    s_InterfaceDeleteFilesRemoved = false;
     s32 builtin = pdguiThemeIdToPaletteIndex(id);
     if (builtin >= 0 && builtin < INTERFACE_NUM_BUILTIN_THEMES) {
         /* Refuse to delete built-ins. */
@@ -965,6 +1100,8 @@ extern "C" void pdguiInterfaceRequestModDelete(s32 modIndex,
 {
     if (modIndex < 0) return;
     if (!displayName || !modDirPath) return;
+    s_InterfaceDeleteRefreshPending = false;
+    s_InterfaceDeleteFilesRemoved = false;
     s_InterfaceDeleteTarget = modIndex;
     s_InterfaceDeleteKind   = IFACE_DEL_MOD;
     snprintf(s_InterfaceDeleteName, sizeof(s_InterfaceDeleteName), "%s", displayName);
@@ -981,9 +1118,9 @@ extern "C" void pdguiInterfaceRenderDeleteConfirm(void)
     /* Open the popup the same frame the request fires. IsPopupOpen is the
      * guard against repeat OpenPopup calls (same-frame stacking). */
     const char *popupId = "Delete?##iface_delete_confirm";
-    if (s_InterfaceDeleteKind != IFACE_DEL_NONE &&
-            !ImGui::IsPopupOpen(popupId)) {
+    if (!ImGui::IsPopupOpen(popupId)) {
         ImGui::OpenPopup(popupId);
+        pdguiNavSuppressActivation();
     }
 
     ImGuiIO &io = ImGui::GetIO();
@@ -1004,9 +1141,28 @@ extern "C" void pdguiInterfaceRenderDeleteConfirm(void)
             ImVec4 col = s_InterfaceDeleteSuccess
                 ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
                 : ImVec4(1.0f, 0.55f, 0.2f, 1.0f);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX()
+                + std::min(pdguiScale(520.0f), io.DisplaySize.x * 0.85f));
             ImGui::TextColored(col, "%s", s_InterfaceDeleteStatus);
-            if (ImGui::Button("OK")) {
+            ImGui::PopTextWrapPos();
+            if (ImGui::IsWindowAppearing()) {
+                ImGui::SetKeyboardFocusHere();
+                ImGui::SetNavCursorVisible(true);
+            }
+            const bool closeStatus = pdguiMenuCancelPressed();
+            bool retried = false;
+            if (s_InterfaceDeleteRefreshPending) {
+                retried = ImGui::Button("Retry refresh") && !closeStatus;
+                if (retried) {
+                    interfaceRefreshAfterDelete();
+                    pdguiNavSuppressActivation();
+                    ImGui::SetKeyboardFocusHere();
+                }
+                ImGui::SameLine();
+            }
+            if ((ImGui::Button("OK") && !retried) || closeStatus) {
                 s_InterfaceDeleteStatus[0] = '\0';
+                s_InterfaceDeleteRefreshPending = false;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -1022,9 +1178,17 @@ extern "C" void pdguiInterfaceRenderDeleteConfirm(void)
         /* S311: confirm-modal buttons now scale with pdguiScaleFactor so the
          * Cancel/Delete pair reads the same at 1080p and 4K. */
         ImVec2 confirmBtn(pdguiScale(120.0f), 0);
-        if (ImGui::Button("Cancel", confirmBtn)) {
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+            ImGui::SetNavCursorVisible(true);
+        }
+        const bool cancelDelete = ImGui::Button("Cancel", confirmBtn) || pdguiMenuCancelPressed();
+        if (cancelDelete) {
             s_InterfaceDeleteKind = IFACE_DEL_NONE;
             s_InterfaceDeleteTarget = -1;
+            s_InterfaceDeleteName[0] = '\0';
+            s_InterfaceDeletePath[0] = '\0';
+            s_InterfaceDeleteStatus[0] = '\0';
             ImGui::CloseCurrentPopup();
         }
         ImGui::SameLine();
@@ -1034,31 +1198,9 @@ extern "C" void pdguiInterfaceRenderDeleteConfirm(void)
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.10f, 0.10f, 0.90f));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.70f, 0.15f, 0.15f, 0.95f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.85f, 0.20f, 0.20f, 1.0f));
-        if (ImGui::Button("Delete", confirmBtn)) {
-            s32 ok = interfaceDeleteModDir(s_InterfaceDeletePath);
-            if (ok) {
-                snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
-                         "Deleted \"%s\" from mods/.", s_InterfaceDeleteName);
-                s_InterfaceDeleteSuccess = true;
-                /* Refresh the theme registry so the UI catches up without
-                 * a restart. For mod deletes we also re-scan the mods
-                 * directory and refresh the Mod Manager snapshot so the
-                 * list drops the removed entry on the next frame. */
-                pdguiThemeRescanMods();
-                if (s_InterfaceDeleteKind == IFACE_DEL_MOD) {
-                    extern void modmgrRescanDirectory(void);
-                    extern void modmgrSyncCatalogToRegistry(void);
-                    extern void pdguiModManagerRefreshSnapshot(void);
-                    modmgrRescanDirectory();
-                    modmgrSyncCatalogToRegistry();
-                    pdguiModManagerRefreshSnapshot();
-                }
-            } else {
-                snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
-                         "Could not fully delete \"%s\" — extra files may remain.",
-                         s_InterfaceDeleteName);
-                s_InterfaceDeleteSuccess = false;
-            }
+        if (ImGui::Button("Delete", confirmBtn) && !cancelDelete) {
+            s_InterfaceDeleteFilesRemoved = interfaceDeleteModDir(s_InterfaceDeletePath) != 0;
+            interfaceRefreshAfterDelete();
             sysLogPrintf(s_InterfaceDeleteSuccess ? LOG_NOTE : LOG_WARNING,
                          "INTERFACE: delete %s '%s' from %s -> %s",
                          s_InterfaceDeleteKind == IFACE_DEL_THEME ? "theme" : "mod",
@@ -1067,9 +1209,8 @@ extern "C" void pdguiInterfaceRenderDeleteConfirm(void)
             s_InterfaceDeleteKind   = IFACE_DEL_NONE;
             s_InterfaceDeleteTarget = -1;
             ImGui::CloseCurrentPopup();
-            /* Re-open the popup next frame in status-only mode so the
-             * user sees the result without having to re-navigate. */
-            ImGui::OpenPopup(popupId);
+            /* The outer owner reopens next frame in status-only mode.
+             * Opening here would hash the ID inside the closing popup. */
         }
         ImGui::PopStyleColor(3);
 
@@ -1108,6 +1249,7 @@ static const ImVec4 s_InterfaceThemeTexts[] = {
 
 static void renderSettingsInterface(float scale)
 {
+    ImGui::PushTextWrapPos(0.0f);
     /* ---- Intro ---- */
     ImGui::TextDisabled("Every visual-customization control lives here: colors,");
     ImGui::TextDisabled("menu chrome, title bar, font. Editors for deeper tweaks");
@@ -1115,7 +1257,13 @@ static void renderSettingsInterface(float scale)
     ImGui::Spacing();
 
     float btnW = 110.0f * scale;
-    float btnH = 24.0f * scale;
+    float btnH = std::max(24.0f * scale, ImGui::GetFrameHeight());
+    const float gridW = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    const int themeColumns = std::max(1, (int)((gridW + gap) / (220.0f * scale + gap)));
+    const float themeCellW = std::max(1.0f, (gridW - gap * (themeColumns - 1)) / themeColumns);
+    char acceptGlyph[128] = {};
+    pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, acceptGlyph, (s32)sizeof(acceptGlyph));
 
     /* ================================================================
      * Section 1 — Color Theme
@@ -1130,7 +1278,7 @@ static void renderSettingsInterface(float scale)
         ImGui::TextColored(warnCol, "Color Theme");
     }
     ImGui::Separator();
-    ImGui::TextDisabled("Accent + background palette. Right-click a custom theme to enable/disable.");
+    ImGui::TextDisabled("Accent + background palette. Use Actions on a custom theme to enable, disable or delete it.");
     ImGui::Spacing();
 
     const char *activeThemeId = pdguiThemeGetActiveId();
@@ -1158,6 +1306,11 @@ static void renderSettingsInterface(float scale)
             modHeaderShown = true;
         }
 
+        ImGui::PushID(id);
+        ImGui::BeginGroup();
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + themeCellW);
+        ImGui::TextWrapped("%s", name);
+
         ImVec4 btnCol  = isBuiltin ? s_InterfaceThemeAccents[builtinIdx] : k_ModAccent;
         ImVec4 txtCol  = isBuiltin ? s_InterfaceThemeTexts[builtinIdx]   : k_ModText;
 
@@ -1182,48 +1335,17 @@ static void renderSettingsInterface(float scale)
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, btnActive);
         ImGui::PushStyleColor(ImGuiCol_Text, txtCol);
 
-        char btnLabel[96];
-        snprintf(btnLabel, sizeof(btnLabel), "%s##iface_theme_%d", name, (int)ti);
-
-        if (!isBuiltin && !themeEnabled) {
-            ImGui::Button(btnLabel, ImVec2(btnW, btnH));
-            if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Disabled — right-click to re-enable, or X / Delete to remove");
-            }
-        } else {
-            if (ImGui::Button(btnLabel, ImVec2(btnW, btnH))) {
-                pdguiThemeLoadFromCatalog(id);
-                configSave("pd.ini");
-                /* B-172: keep the pd.ini baseline in sync so Agent Select
-                 * reset doesn't revert this change on the next visit. */
-                prefsAgentRefreshVisualsBaseline();
-            }
+        const char *btnLabel = !themeEnabled ? "Disabled##select_theme"
+            : selected ? "Selected##select_theme" : "Use Theme##select_theme";
+        const bool useTheme = ImGui::Button(btnLabel, ImVec2(themeCellW, btnH));
+        if (useTheme && themeEnabled) {
+            pdguiThemeLoadFromCatalog(id);
+            settingsRequestMachineSave();
+            prefsAgentRefreshVisualsBaseline();
         }
-
-        if (!isBuiltin) {
-            char ctxId[64];
-            snprintf(ctxId, sizeof(ctxId), "##iface_themectx_%d", (int)ti);
-            if (ImGui::BeginPopupContextItem(ctxId)) {
-                if (themeEnabled) {
-                    if (ImGui::MenuItem("Disable Theme")) {
-                        pdguiThemeSetEnabled(ti, 0);
-                    }
-                } else {
-                    if (ImGui::MenuItem("Enable Theme")) {
-                        pdguiThemeSetEnabled(ti, 1);
-                    }
-                }
-                /* S306 BATCH 2: delete for user themes — opens the confirm
-                 * dialog handled in renderSettingsInterface below (see
-                 * s_InterfaceDeleteTarget). */
-                /* extern decl in file-scope extern "C" block at top */
-                ImGui::Separator();
-                if (ImGui::MenuItem("Delete Theme...")) {
-                    pdguiInterfaceRequestThemeDelete(ti);
-                }
-                ImGui::EndPopup();
-            }
-        }
+        // Preserve the native right-click shortcut; Actions below reaches
+        // this same popup with keyboard/controller and remains enabled.
+        if (!isBuiltin) ImGui::OpenPopupOnItemClick("##theme_actions");
 
         ImGui::PopStyleColor(4);
         if (selected) {
@@ -1231,17 +1353,26 @@ static void renderSettingsInterface(float scale)
             ImGui::PopStyleColor();
         }
 
-        shownOnCurrentRow++;
-        if (shownOnCurrentRow < 3 && ti + 1 < themeCount) {
-            s32 nextBuiltin = -1;
-            const char *nextId = pdguiThemeGetId(ti + 1);
-            if (nextId) nextBuiltin = pdguiThemeIdToPaletteIndex(nextId);
-            bool nextIsMod = (nextBuiltin < 0);
-            if (!(nextIsMod && !modHeaderShown)) {
-                ImGui::SameLine();
-            } else {
-                shownOnCurrentRow = 0;
+        if (!isBuiltin) {
+            switch (pdguiSettingsThemeActions(themeEnabled, acceptGlyph, themeCellW, btnH)) {
+            case PDGUI_SETTINGS_THEME_ENABLE: pdguiThemeSetEnabled(ti, 1); break;
+            case PDGUI_SETTINGS_THEME_DISABLE: pdguiThemeSetEnabled(ti, 0); break;
+            case PDGUI_SETTINGS_THEME_DELETE: pdguiInterfaceRequestThemeDelete(ti); break;
+            default: break;
             }
+        }
+        ImGui::PopTextWrapPos();
+        ImGui::EndGroup();
+        ImGui::PopID();
+
+        shownOnCurrentRow++;
+        bool nextStartsCustom = false;
+        if (ti + 1 < themeCount && !modHeaderShown) {
+            const char *nextId = pdguiThemeGetId(ti + 1);
+            nextStartsCustom = nextId && pdguiThemeIdToPaletteIndex(nextId) < 0;
+        }
+        if (shownOnCurrentRow < themeColumns && ti + 1 < themeCount && !nextStartsCustom) {
+            ImGui::SameLine();
         } else {
             shownOnCurrentRow = 0;
         }
@@ -1251,7 +1382,7 @@ static void renderSettingsInterface(float scale)
 
     /* Customize + delete confirm (BATCH 2 delete dialog is driven below).
      * "Open Color Editor..." is a direct launcher for pdguiThemeEditorShow. */
-    if (ImGui::Button("Open Color Editor...", ImVec2(btnW * 2.0f, btnH))) {
+    if (ImGui::Button("Open Color Editor...", ImVec2(pdguiSettingsFitWidth(btnW * 2.0f), btnH))) {
         pdguiThemeEditorShow();
     }
     if (ImGui::IsItemHovered()) {
@@ -1281,29 +1412,17 @@ static void renderSettingsInterface(float scale)
         "no haze. Focus pulse stays in both. Applies live.");
     ImGui::Spacing();
     {
-        const s32 styleCount = pdguiThemeGetChromeStyleCount();
-        const s32 maxStyles = 31;
-        const s32 usedStyles = styleCount < maxStyles ? styleCount : maxStyles;
-        const char *chromeOpts[1 + maxStyles];
-        chromeOpts[0] = "Procedural (built-in)";
-        for (s32 i = 0; i < usedStyles; i++) {
-            chromeOpts[i + 1] = pdguiThemeGetChromeStyleName(i);
-        }
-
-        int chromeIdx = 0;
-        if (pdguiThemeGetUiChromeEnabled() && usedStyles > 0) {
-            const char *savedStyleId = pdguiThemeGetUiChromeStyleId();
-            chromeIdx = 1;
-            for (s32 i = 0; i < usedStyles; i++) {
-                const char *id = pdguiThemeGetChromeStyleId(i);
-                if (savedStyleId && id && strcmp(savedStyleId, id) == 0) {
-                    chromeIdx = (int)(i + 1);
-                    break;
-                }
-            }
-        }
-
-        if (PdCombo("Menu Style", &chromeIdx, chromeOpts, 1 + usedStyles)) {
+        const PdguiSettingsRegistry chromeRegistry = {
+            pdguiThemeGetChromeStyleCount(),
+            [](int index, void *) -> const char * { return pdguiThemeGetChromeStyleId(index); },
+            [](int index, void *) -> const char * { return pdguiThemeGetChromeStyleName(index); },
+            nullptr
+        };
+        int selectedStyle = -1;
+        if (pdguiSettingsStyleCombo("Menu Style", chromeRegistry,
+                pdguiThemeGetUiChromeEnabled() != 0, pdguiThemeGetUiChromeStyleId(), &selectedStyle)) {
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            const int chromeIdx = selectedStyle + 1;
             if (chromeIdx <= 0) {
                 /* Procedural preset: chrome off, classic gradient title bar.
                  * Body draws solid + animated haze + 4-edge shimmer; title
@@ -1325,16 +1444,16 @@ static void renderSettingsInterface(float scale)
                 pdguiChromeSetEnabled(1);
                 pdguiThemeSetTitleBarStyle(PDGUI_TITLEBAR_SOLID);
             }
-            configSave("pd.ini");
+            settingsRequestMachineSave();
             sysLogPrintf(LOG_NOTE,
                 "UI.CHROME: style changed to '%s' (id=%s, title=%s)",
-                chromeOpts[chromeIdx],
+                chromeIdx <= 0 ? "Procedural (built-in)" : pdguiThemeGetChromeStyleName(selectedStyle),
                 chromeIdx <= 0 ? "procedural"
                                : pdguiThemeGetChromeStyleId(chromeIdx - 1),
                 chromeIdx <= 0 ? "classic-gradient" : "solid");
         }
     }
-    if (ImGui::Button("Open Menu Style Tool...", ImVec2(btnW * 2.0f, btnH))) {
+    if (ImGui::Button("Open Menu Style Tool...", ImVec2(pdguiSettingsFitWidth(btnW * 2.0f), btnH))) {
         /* Close the main menu so the Modding Hub modal has the foreground. */
         pdguiModdingHubShowTool(MODHUB_TOOL_MENU_STYLE);
     }
@@ -1366,9 +1485,11 @@ static void renderSettingsInterface(float scale)
         for (s32 i = 0; i < PDGUI_TITLEBAR_STYLE_COUNT; i++) {
             tbOpts[i] = pdguiThemeGetTitleBarStyleName(i);
         }
-        if (PdCombo("Title Bar Style", &tbIdx, tbOpts, PDGUI_TITLEBAR_STYLE_COUNT)) {
+        pdguiSettingsStackedRow("Title Bar Style");
+        if (ImGui::Combo("##iface_titlebar", &tbIdx, tbOpts, PDGUI_TITLEBAR_STYLE_COUNT)) {
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             pdguiThemeSetTitleBarStyle(tbIdx);
-            configSave("pd.ini");
+            settingsRequestMachineSave();
             sysLogPrintf(LOG_NOTE,
                 "UI.TITLEBAR: style changed to '%s' (%d)",
                 pdguiThemeGetTitleBarStyleName(tbIdx), tbIdx);
@@ -1413,20 +1534,22 @@ static void renderSettingsInterface(float scale)
             }
         }
 
-        if (PdCombo("Font", &fontIdx, fontOpts, fontOptCount)) {
+        pdguiSettingsStackedRow("Font");
+        if (ImGui::Combo("##iface_font", &fontIdx, fontOpts, fontOptCount)) {
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             if (fontIdx <= 0) {
                 pdguiFontModSetActiveId("");
             } else {
                 pdguiFontModSetActiveId(pdguiFontModGetId(fontIdx - 1));
             }
-            configSave("pd.ini");
+            settingsRequestMachineSave();
             pdguiRequestFontAtlasRebuild();
             sysLogPrintf(LOG_NOTE, "UI.FONT: selection changed to '%s'",
                 fontOpts[fontIdx]);
         }
 
         ImGui::Spacing();
-        if (ImGui::Button("Open Font Mod Tool...", ImVec2(btnW * 2.0f, btnH))) {
+        if (ImGui::Button("Open Font Mod Tool...", ImVec2(pdguiSettingsFitWidth(btnW * 2.0f), btnH))) {
             pdguiModdingHubShowTool(MODHUB_TOOL_FONT_MOD);
         }
         if (ImGui::IsItemHovered()) {
@@ -1439,6 +1562,7 @@ static void renderSettingsInterface(float scale)
      * the bottom of the Interface tab. */
     /* pdguiInterfaceRenderDeleteConfirm — declared at file scope */
     pdguiInterfaceRenderDeleteConfirm();
+    ImGui::PopTextWrapPos();
 
 }
 
@@ -1523,10 +1647,9 @@ static void renderSettingsAudio(float scale)
  * live from actionmapGetEffectiveHoldMs(). The tap row remains visible
  * inside the Mission tab as well so users see both halves of the split.
  *
- * The save / load model already routes correctly: each (player, action,
- * IMC) tuple is the first IMC with has_mapping[action]==1 in
- * s_AllImcs[]; the rebuild's per-row owningImc selection matches that
- * iteration order, so pd.ini round-trips without schema changes.
+ * Save/load uses complete context/action snapshots, including explicit empty
+ * mappings and all four slots. The per-row owningImc identity is retained;
+ * legacy pd.ini's first-context compatibility view is not the source of truth.
  *
  * Capture, search filter, conflict highlighting, right-click-to-clear,
  * controller visual mapper, drag-drop, per-action hold overrides, and
@@ -1539,6 +1662,21 @@ static void renderSettingsAudio(float scale)
  * key handler writes back into the right IMC. s_CaptureName carries the
  * row's display label so the capture banner reads the correct phrase even
  * when an action is bound on multiple IMCs. */
+/* Every binding edit uses the same checked current-snapshot commit. A failure
+ * restores accepted mappings and remains visible in the Input page/modal. */
+static bool inputUiPersistBindings(void)
+{
+    if (!actionmapSaveBinds()) return false;
+    settingsRequestMachineSave(); // profile names/device rules/tuning remain compatible
+    return true;
+}
+
+static void inputUiBindingPersistenceStatus(void)
+{
+    const char *error = actionmapGetPersistenceError();
+    if (error && *error) ImGui::TextWrapped("%s", error);
+}
+
 static s32                  s_CaptureActive   = 0;
 static InputAction          s_CaptureAction   = ACTION_MOVE_FORWARD;
 static s32                  s_CaptureColumn   = 0;      /* 0 = MKB, 1 = Controller */
@@ -1546,6 +1684,32 @@ static s32                  s_CaptureBind     = 0;      /* trigger slot index */
 static s32                  s_CaptureIsSecond = 0;
 static InputMappingContext *s_CaptureImc      = NULL;
 static const char          *s_CaptureName     = "";
+static u32                  s_CaptureCandidate = 0;
+static bool                 s_CaptureOpenPending = false;
+static bool                 s_CaptureReviewFocus = false;
+static int                  s_CaptureReviewFrame = -1;
+static void inputUiCancelCapture(void);
+
+static void inputUiFlushCaptureActions(void)
+{
+    static const InputAction actions[] = {
+        ACTION_MENU_ACCEPT, ACTION_MENU_CANCEL, ACTION_MENU_UP, ACTION_MENU_DOWN,
+        ACTION_MENU_LEFT, ACTION_MENU_RIGHT, ACTION_MENU_TAB_PREV, ACTION_MENU_TAB_NEXT,
+        ACTION_MENU_SECONDARY, ACTION_MENU_TERTIARY, ACTION_MENU_DELETE,
+        ACTION_MENU_SKIPUP, ACTION_MENU_SKIPDOWN, ACTION_SOCIAL_TOGGLE, ACTION_PAUSE,
+    };
+    actionmapFlushActionSet(actions, (s32)(sizeof(actions) / sizeof(actions[0])));
+}
+
+extern "C" s32 pdguiMainMenuBindingCaptureListening(void)
+{
+    /* The pool owns external stage/menu teardown, including the CI redirect. */
+    if (s_CaptureActive && !menupoolIsActive(MENU_TYPE_MAIN_SETTINGS_VIEW)
+            && !menupoolIsActive(MENU_TYPE_CI_OPTIONS)) {
+        inputUiCancelCapture();
+    }
+    return s_CaptureActive && s_CaptureCandidate == 0;
+}
 
 /* Logical groupings. Each row belongs to exactly one group; each tab
  * surfaces a fixed set of groups. BG_COUNT is sentinel-only. The rendering
@@ -1898,26 +2062,50 @@ static const char *formatRowLabel(const BindableAction *row, char *buf, size_t b
     return row->name;
 }
 
-static bool isVkMKB(u32 vk)     { return (vk > 0 && vk < PD_VK_JOY_BEGIN); }
-static bool isVkController(u32 vk) { return (vk >= PD_VK_JOY_BEGIN && vk < PD_VK_TOTAL_COUNT); }
-static const char *getBindName(u32 vk) { return vk ? inputGetKeyName((s32)vk) : "---"; }
+static bool isVkMKB(u32 vk)     { return (vk > 0 && vk < VK_JOY_BEGIN); }
+static bool isVkController(u32 vk) { return (vk >= VK_JOY_BEGIN && vk < VK_TOTAL_COUNT); }
+static const char *getBindName(u32 vk)
+{
+    if (!vk) return "---";
+    if (!isVkController(vk)) return inputGetKeyName((s32)vk);
+    static thread_local char display[96];
+    input_vk_control_t control;
+    if (!inputVkDecodeController(vk, &control)) return inputGetKeyName((s32)vk);
+    if (control.kind == INPUT_VK_LEGACY_OVERLAP) {
+        snprintf(display, sizeof(display), "%s (legacy shared)", inputGetKeyName((s32)vk));
+        return display;
+    }
+    InputDeviceIdentity identity = {};
+    if (actionmapGetBindingDeviceIdentity(control.player, &identity) &&
+        inputGlyphControllerVkLabel(&identity, vk, display, sizeof(display))) return display;
+    if (control.kind == INPUT_VK_BUTTON) {
+        snprintf(display, sizeof(display), "Btn%d", control.index + 1);
+    } else {
+        snprintf(display, sizeof(display), "Axis%d%c", control.index + 1,
+            control.direction < 0 ? '-' : '+');
+    }
+    return display;
+}
 
 /* Get triggers for an action from the supplied IMC, split by MKB vs controller. */
 static void getBindsByType(InputMappingContext *imc, InputAction action,
                            u32 mkbVKs[2], s32 mkbSlots[2], s32 *mkbCount,
-                           u32 ctrlVKs[2], s32 ctrlSlots[2], s32 *ctrlCount)
+                           u32 ctrlVKs[2], s32 ctrlSlots[2], s32 *ctrlCount,
+                           s32 capacity = 2)
 {
     *mkbCount = 0; *ctrlCount = 0;
-    mkbVKs[0] = mkbVKs[1] = 0; ctrlVKs[0] = ctrlVKs[1] = 0;
-    mkbSlots[0] = mkbSlots[1] = -1; ctrlSlots[0] = ctrlSlots[1] = -1;
+    for (s32 i = 0; i < capacity; ++i) {
+        mkbVKs[i] = ctrlVKs[i] = 0;
+        mkbSlots[i] = ctrlSlots[i] = -1;
+    }
     if (!imc) return;
     InputMapping *m = &imc->mappings[action];
     for (s32 i = 0; i < m->num_triggers; i++) {
         u32 vk = m->triggers[i].vk;
         if (vk == 0) continue;
-        if (isVkMKB(vk) && *mkbCount < 2) {
+        if (isVkMKB(vk) && *mkbCount < capacity) {
             mkbSlots[*mkbCount] = i; mkbVKs[(*mkbCount)++] = vk;
-        } else if (isVkController(vk) && *ctrlCount < 2) {
+        } else if (isVkController(vk) && *ctrlCount < capacity) {
             ctrlSlots[*ctrlCount] = i; ctrlVKs[(*ctrlCount)++] = vk;
         }
     }
@@ -1925,12 +2113,12 @@ static void getBindsByType(InputMappingContext *imc, InputAction action,
 
 static s32 findFreeTriggerSlot(InputMappingContext *imc, InputAction action)
 {
-    if (!imc) return 0;
+    if (!imc) return -1;
     InputMapping *m = &imc->mappings[action];
     for (s32 i = 0; i < ACTIONMAP_MAX_TRIGGERS; i++) {
         if (m->triggers[i].vk == 0) return i;
     }
-    return 0;
+    return -1;
 }
 
 /* Trigger slot index for controller Bind 1 / Bind 2 columns (matches renderBindTable). */
@@ -1971,7 +2159,7 @@ static s32 pickSlotForControllerBindColumn(InputMappingContext *imc, InputAction
 /* Clear controller bind at vk for Bind 1 (0) or Bind 2 (1) column. Walks every
  * row whose group is in the active tab (groupMask), so the visual mapper only
  * affects bindings the user can actually see. */
-static void clearControllerVkAtBindColumn(u32 vk, s32 bindCol, u32 groupMask)
+static bool clearControllerVkAtBindColumn(u32 vk, s32 bindCol, u32 groupMask)
 {
     for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
         if (!(groupMask & (1u << s_BindableActions[row].group))) {
@@ -1990,8 +2178,7 @@ static void clearControllerVkAtBindColumn(u32 vk, s32 bindCol, u32 groupMask)
             actionmapBind(imc, 0, act, ctrlSlots[1], 0);
         }
     }
-    actionmapSaveBinds();
-    configSave("pd.ini");
+    return inputUiPersistBindings();
 }
 
 /* Conflict map — computed once per frame, per filter column. Keys are the
@@ -2096,7 +2283,9 @@ static void renderBindButton(InputMappingContext *imc, InputAction action, const
         pushedBorder = 1;
     }
 
-    if (ImGui::SmallButton(btnLabel) && !s_CaptureActive) {
+    const bool hasSlot = slot >= 0 || findFreeTriggerSlot(imc, action) >= 0;
+    ImGui::BeginDisabled(!hasSlot || s_CaptureActive);
+    if (ImGui::SmallButton(btnLabel)) {
         s32 useSlot = slot;
         if (useSlot < 0) {
             useSlot = findFreeTriggerSlot(imc, action);
@@ -2106,8 +2295,12 @@ static void renderBindButton(InputMappingContext *imc, InputAction action, const
                 for (s32 i = 0; i < ACTIONMAP_MAX_TRIGGERS; i++) {
                     if (i != otherSlot && m->triggers[i].vk == 0) { useSlot = i; break; }
                 }
-                if (useSlot < 0) useSlot = (otherSlot == 0) ? 1 : 0;
             }
+        }
+        if (useSlot < 0) {
+            ImGui::EndDisabled();
+            if (pushedBorder) { ImGui::PopStyleVar(); ImGui::PopStyleColor(); }
+            return;
         }
         s_CaptureActive   = 1;
         s_CaptureAction   = action;
@@ -2116,9 +2309,14 @@ static void renderBindButton(InputMappingContext *imc, InputAction action, const
         s_CaptureBind     = useSlot;
         s_CaptureImc      = imc;
         s_CaptureName     = rowName ? rowName : "(unnamed)";
+        s_CaptureCandidate = 0;
+        s_CaptureOpenPending = true;
+        s_CaptureReviewFrame = -1;
         inputClearLastKey();
+        inputUiFlushCaptureActions();
         pdguiPlaySound(PDGUI_SND_SUBFOCUS);
     }
+    ImGui::EndDisabled();
 
     if (pushedBorder) {
         ImGui::PopStyleVar();
@@ -2131,11 +2329,15 @@ static void renderBindButton(InputMappingContext *imc, InputAction action, const
     }
     if (ImGui::IsItemHovered()) *rowHov = true;
     if (ImGui::IsItemFocused()) *rowNav = true;
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Right) && vk != 0 && slot >= 0) {
+    if (!hasSlot && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("All binding slots are occupied. Clear or replace an existing binding first.");
+    }
+    const bool focusedClear = ImGui::IsItemFocused()
+        && (pdguiMenuSecondaryPressed() || pdguiMenuDeletePressed());
+    if (!s_CaptureActive && (ImGui::IsItemClicked(ImGuiMouseButton_Right) || focusedClear)
+            && vk != 0 && slot >= 0) {
         actionmapBind(imc, 0, action, slot, 0);
-        actionmapSaveBinds();
-        configSave("pd.ini");
-        pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+        if (inputUiPersistBindings()) pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
     }
 }
 
@@ -2187,34 +2389,103 @@ static bool stringIContains(const char *hay, const char *needle)
  * cancels rather than blindly writing into Gameplay. */
 static void handleCaptureInput(void)
 {
-    if (!s_CaptureActive) return;
+    if (!s_CaptureActive || s_CaptureCandidate != 0) return;
+    if (!s_CaptureImc) { inputUiCancelCapture(); return; }
 
     s32 newKey = inputGetLastKey();
-    if (newKey == PD_VK_ESCAPE) {
-        s_CaptureActive = 0;
-        s_CaptureImc    = NULL;
-        s_CaptureName   = "";
-        inputClearLastKey();
-    } else if (newKey > 0) {
+    if (newKey > 0) {
         bool valid = (s_CaptureColumn == 0 && isVkMKB((u32)newKey))
                   || (s_CaptureColumn == 1 && isVkController((u32)newKey));
         if (valid && s_CaptureImc != NULL) {
-            actionmapBind(s_CaptureImc, 0, s_CaptureAction, s_CaptureBind, (u32)newKey);
-            actionmapSaveBinds();
-            configSave("pd.ini");
-            pdguiPlaySound(PDGUI_SND_SELECT);
-        } else {
-            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            /* Preview first: even the current Back/Escape input is bindable.
+             * Its captured press must never also activate the review buttons. */
+            s_CaptureCandidate = (u32)newKey;
+            s_CaptureReviewFocus = true;
+            s_CaptureReviewFrame = ImGui::GetFrameCount();
+            inputUiFlushCaptureActions();
         }
-        s_CaptureActive = 0;
-        s_CaptureImc    = NULL;
-        s_CaptureName   = "";
         inputClearLastKey();
     }
 }
 
+/* Called from the owning window after its Settings child has ended. OpenPopup
+ * and BeginPopupModal therefore share one root ID scope, including CI Options. */
+static void renderInputCaptureModal(void)
+{
+    const char *popupId = "Rebind input##settings_capture";
+    if (s_CaptureOpenPending) {
+        ImGui::OpenPopup(popupId);
+        s_CaptureOpenPending = false;
+    }
+    if (!s_CaptureActive && !ImGui::IsPopupOpen(popupId)) return;
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(),
+        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(popupId, nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        inputUiCancelCapture();
+        return;
+    }
+    if (!s_CaptureActive) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+
+    ImGui::Text("Rebind %s", s_CaptureName);
+    if (s_CaptureCandidate == 0) {
+        ImGui::Text("Press a %s input to preview it.",
+            s_CaptureColumn == 0 ? "keyboard/mouse" : "controller");
+        ImGui::TextUnformatted("Then choose Apply, Try Again, or Cancel.");
+        /* A pointer can cancel directly; controller/keyboard users can press
+         * any input and then cancel the review with their current Back action. */
+        if (ImGui::Button("Cancel")) {
+            inputUiCancelCapture();
+            ImGui::CloseCurrentPopup();
+        } else if (ImGui::IsItemActive()) {
+            /* Buttons commit on release. Retire the mouse-down mailbox now
+             * while Cancel owns the gesture, before its release can click. */
+            inputClearLastKey();
+        } else {
+            /* The pointer's Cancel click wins over the raw event-watch
+             * mailbox; clicking Cancel must never preview Mouse Left. */
+            handleCaptureInput();
+        }
+    } else {
+        ImGui::Text("New binding: %s", getBindName(s_CaptureCandidate));
+        const bool ready = ImGui::GetFrameCount() > s_CaptureReviewFrame;
+        ImGui::BeginDisabled(!ready);
+        if (s_CaptureReviewFocus && ready) {
+            ImGui::SetKeyboardFocusHere();
+            s_CaptureReviewFocus = false;
+        }
+        if (ImGui::Button("Cancel") || (ready && pdguiMenuCancelPressed())) {
+            inputUiCancelCapture();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Try Again")) {
+            s_CaptureCandidate = 0;
+            inputClearLastKey();
+            inputUiFlushCaptureActions();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Apply") && s_CaptureImc && s_CaptureCandidate) {
+            actionmapBind(s_CaptureImc, 0, s_CaptureAction, s_CaptureBind, s_CaptureCandidate);
+            if (inputUiPersistBindings()) {
+                inputUiCancelCapture();
+                pdguiPlaySound(PDGUI_SND_SELECT);
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndDisabled();
+    }
+    inputUiBindingPersistenceStatus();
+    ImGui::EndPopup();
+}
+
 /* Controller diagram: SDL gamepad button indices match port/src/actionmap.cpp (JBTN_*). */
-#define PD_JOY0_BTN(off) ((u32)PD_VK_JOY_BEGIN + (u32)(off))
+#define PD_JOY0_BTN(off) inputVkRawButton(0, (off))
+#define PD_JOY0_AXIS(slot) inputVkAxisByOrdinal(0, (slot) - 22)
 
 struct CtrlPadZone {
     const char *id;
@@ -2380,17 +2651,15 @@ static void renderOneCtrlPadZoneSplit(ImDrawList *dl, const ImVec2 &padOrigin, c
                 s32 sl = pickSlotForControllerBindColumn(p->imc, p->action, 0);
                 if (sl >= 0) {
                     actionmapBind(p->imc, 0, p->action, sl, z->vk);
-                    actionmapSaveBinds();
-                    configSave("pd.ini");
-                    pdguiPlaySound(PDGUI_SND_SELECT);
+                    if (inputUiPersistBindings()) pdguiPlaySound(PDGUI_SND_SELECT);
                 }
             }
         }
         ImGui::EndDragDropTarget();
     }
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-        clearControllerVkAtBindColumn(z->vk, 0, groupMask);
-        pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+        if (clearControllerVkAtBindColumn(z->vk, 0, groupMask))
+            pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
     }
 
     ImGui::SameLine(0.0f, 0.0f);
@@ -2407,17 +2676,15 @@ static void renderOneCtrlPadZoneSplit(ImDrawList *dl, const ImVec2 &padOrigin, c
                 s32 sl = pickSlotForControllerBindColumn(p->imc, p->action, 1);
                 if (sl >= 0) {
                     actionmapBind(p->imc, 0, p->action, sl, z->vk);
-                    actionmapSaveBinds();
-                    configSave("pd.ini");
-                    pdguiPlaySound(PDGUI_SND_SELECT);
+                    if (inputUiPersistBindings()) pdguiPlaySound(PDGUI_SND_SELECT);
                 }
             }
         }
         ImGui::EndDragDropTarget();
     }
     if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
-        clearControllerVkAtBindColumn(z->vk, 1, groupMask);
-        pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+        if (clearControllerVkAtBindColumn(z->vk, 1, groupMask))
+            pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
     }
     ImGui::PopID();
 
@@ -2517,22 +2784,24 @@ static void renderControllerVisualMapper(float scale, u32 groupMask)
     ImGui::TextWrapped(
         "Drag an action from the list onto the left or right half of a zone: left sets Bind 1, "
         "right sets Bind 2 (same columns as the table below). LS / RS arrows are synthetic stick "
-        "directions. Right-click a half to clear that bind column. Drops land on the IMC the row "
+        "directions. Old saved stick and trigger keys also match raw buttons 23-32; rebind them "
+        "to precise controls to separate those sources. Right-click a half to clear that bind column. "
+        "Drops land on the IMC the row "
         "belongs to, so dragging a Vehicle action only affects the Vehicle scheme.");
     ImGui::Spacing();
 
     static const CtrlPadZone kZones[] = {
-        /* Stick cardinals -- JOFS_* in port/src/actionmap.cpp (must match VK_JOY1_BEGIN + offset). */
-        { "lsu", "LS-Up", PD_JOY0_BTN(24), 0.212f, 0.752f, 0.066f, 0.058f },
-        { "lsd", "LS-Dn", PD_JOY0_BTN(25), 0.212f, 0.925f, 0.066f, 0.055f },
-        { "lsl", "LS-Lt", PD_JOY0_BTN(22), 0.098f, 0.862f, 0.058f, 0.068f },
-        { "lsr", "LS-Rt", PD_JOY0_BTN(23), 0.328f, 0.862f, 0.058f, 0.068f },
-        { "rsu", "RS-Up", PD_JOY0_BTN(28), 0.722f, 0.752f, 0.066f, 0.058f },
-        { "rsd", "RS-Dn", PD_JOY0_BTN(29), 0.722f, 0.925f, 0.066f, 0.055f },
-        { "rsl", "RS-Lt", PD_JOY0_BTN(26), 0.608f, 0.862f, 0.058f, 0.068f },
-        { "rsr", "RS-Rt", PD_JOY0_BTN(27), 0.838f, 0.862f, 0.058f, 0.068f },
-        { "lt", "LT", PD_JOY0_BTN(30), 0.07f, 0.032f, 0.13f, 0.074f },
-        { "rt", "RT", PD_JOY0_BTN(31), 0.80f, 0.032f, 0.13f, 0.074f },
+        /* Use the same precise axis vocabulary as SDL capture and dispatch. */
+        { "lsu", "LS-Up", PD_JOY0_AXIS(24), 0.212f, 0.752f, 0.066f, 0.058f },
+        { "lsd", "LS-Dn", PD_JOY0_AXIS(25), 0.212f, 0.925f, 0.066f, 0.055f },
+        { "lsl", "LS-Lt", PD_JOY0_AXIS(22), 0.098f, 0.862f, 0.058f, 0.068f },
+        { "lsr", "LS-Rt", PD_JOY0_AXIS(23), 0.328f, 0.862f, 0.058f, 0.068f },
+        { "rsu", "RS-Up", PD_JOY0_AXIS(28), 0.722f, 0.752f, 0.066f, 0.058f },
+        { "rsd", "RS-Dn", PD_JOY0_AXIS(29), 0.722f, 0.925f, 0.066f, 0.055f },
+        { "rsl", "RS-Lt", PD_JOY0_AXIS(26), 0.608f, 0.862f, 0.058f, 0.068f },
+        { "rsr", "RS-Rt", PD_JOY0_AXIS(27), 0.838f, 0.862f, 0.058f, 0.068f },
+        { "lt", "LT", PD_JOY0_AXIS(30), 0.07f, 0.032f, 0.13f, 0.074f },
+        { "rt", "RT", PD_JOY0_AXIS(31), 0.80f, 0.032f, 0.13f, 0.074f },
         { "lb", "LB", PD_JOY0_BTN(9), 0.12f, 0.137f, 0.14f, 0.116f },
         { "rb", "RB", PD_JOY0_BTN(10), 0.74f, 0.137f, 0.14f, 0.116f },
         { "bk", "Back", PD_JOY0_BTN(4), 0.295f, 0.253f, 0.13f, 0.105f },
@@ -2627,7 +2896,7 @@ static void renderBindTable(s32 filterCol, const char *tableId, u32 groupMask)
         const char *typeStr = (filterCol == 0) ? "keyboard/mouse" : "controller";
         const char *imcName = (s_CaptureImc && s_CaptureImc->name) ? s_CaptureImc->name : "?";
         ImGui::TextColored(warnCol,
-            "Press a %s key for \"%s\" on the %s scheme (Esc to cancel)",
+            "Choose a %s input for \"%s\" on the %s scheme",
             typeStr, s_CaptureName ? s_CaptureName : "?", imcName);
         ImGui::Spacing();
     }
@@ -2689,10 +2958,13 @@ static void renderBindTable(s32 filterCol, const char *tableId, u32 groupMask)
         char perTableId[64];
         snprintf(perTableId, sizeof(perTableId), "%s_g%d", tableId, g);
 
-        if (ImGui::BeginTable(perTableId, 3, tableFlags)) {
+        if (ImGui::BeginTable(perTableId, 1 + ACTIONMAP_MAX_TRIGGERS, tableFlags)) {
             ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthStretch, 1.6f);
-            ImGui::TableSetupColumn("Bind 1",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
-            ImGui::TableSetupColumn("Bind 2",  ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            for (s32 binding = 0; binding < ACTIONMAP_MAX_TRIGGERS; ++binding) {
+                char columnLabel[24];
+                snprintf(columnLabel, sizeof(columnLabel), "Bind %d", (int)binding + 1);
+                ImGui::TableSetupColumn(columnLabel, ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            }
             ImGui::TableHeadersRow();
 
             for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
@@ -2707,14 +2979,15 @@ static void renderBindTable(s32 filterCol, const char *tableId, u32 groupMask)
                 char rowLabelBuf[96];
                 const char *rowLabel = formatRowLabel(&s_BindableActions[row], rowLabelBuf, sizeof(rowLabelBuf));
 
-                u32 mkbVKs[2], ctrlVKs[2];
-                s32 mkbSlots[2], ctrlSlots[2];
+                u32 mkbVKs[ACTIONMAP_MAX_TRIGGERS], ctrlVKs[ACTIONMAP_MAX_TRIGGERS];
+                s32 mkbSlots[ACTIONMAP_MAX_TRIGGERS], ctrlSlots[ACTIONMAP_MAX_TRIGGERS];
                 s32 mkbCount, ctrlCount;
                 getBindsByType(imc, action, mkbVKs, mkbSlots, &mkbCount,
-                               ctrlVKs, ctrlSlots, &ctrlCount);
+                               ctrlVKs, ctrlSlots, &ctrlCount, ACTIONMAP_MAX_TRIGGERS);
 
                 u32 *vks    = (filterCol == 0) ? mkbVKs    : ctrlVKs;
                 s32 *slots  = (filterCol == 0) ? mkbSlots  : ctrlSlots;
+                s32 deviceBindCount = (filterCol == 0) ? mkbCount : ctrlCount;
                 const char *prefix = (filterCol == 0) ? "mkb" : "ctrl";
 
                 ImGui::TableNextRow();
@@ -2727,20 +3000,20 @@ static void renderBindTable(s32 filterCol, const char *tableId, u32 groupMask)
                     ImGui::SetTooltip("%s", actionTooltip);
                 }
 
-                char id1[40], id2[40];
-                snprintf(id1, sizeof(id1), "%s1g%dr%u", prefix, g, row);
-                snprintf(id2, sizeof(id2), "%s2g%dr%u", prefix, g, row);
-
-                ImGui::TableSetColumnIndex(1);
-                renderBindButton(imc, action, s_BindableActions[row].name, id1, filterCol, 0, vks[0],
-                                 (slots[0] >= 0) ? slots[0] : findFreeTriggerSlot(imc, action),
-                                 slots[1], &rowHovered, &rowNavFocus,
-                                 conflictMapCount(vks[0]) > 1);
-
-                ImGui::TableSetColumnIndex(2);
-                renderBindButton(imc, action, s_BindableActions[row].name, id2, filterCol, 1, vks[1], slots[1], slots[0],
-                                 &rowHovered, &rowNavFocus,
-                                 conflictMapCount(vks[1]) > 1);
+                for (s32 binding = 0; binding < ACTIONMAP_MAX_TRIGGERS; ++binding) {
+                    char cellId[40];
+                    snprintf(cellId, sizeof(cellId), "%s%dg%dr%u", prefix, (int)binding, g, row);
+                    ImGui::TableSetColumnIndex(1 + binding);
+                    /* One Add position follows the real bindings; extra
+                     * blank columns must not imply independent empty slots. */
+                    if (binding > deviceBindCount) {
+                        ImGui::TextDisabled("---");
+                        continue;
+                    }
+                    renderBindButton(imc, action, s_BindableActions[row].name,
+                        cellId, filterCol, binding, vks[binding], slots[binding], -1,
+                        &rowHovered, &rowNavFocus, conflictMapCount(vks[binding]) > 1);
+                }
 
                 if (s_CaptureActive && s_CaptureImc == imc && s_CaptureAction == action
                     && s_CaptureColumn == filterCol) {
@@ -2761,7 +3034,11 @@ static void renderBindTable(s32 filterCol, const char *tableId, u32 groupMask)
     ImGui::PopStyleVar(3);
 
     ImGui::Spacing();
-    ImGui::TextDisabled("Click to rebind. Right-click to clear. Esc to cancel.");
+    char acceptKey[24], clearKey[24];
+    pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, acceptKey, sizeof(acceptKey));
+    pdguiGlyphGetActionLabel(ACTION_MENU_SECONDARY, clearKey, sizeof(clearKey));
+    ImGui::TextDisabled("%s / click: rebind. %s / right-click: clear focused binding.", acceptKey, clearKey);
+    ImGui::TextDisabled("Four slots are shared by keyboard, mouse, and controller inputs.");
     ImGui::TextDisabled("Red border: same key bound twice in this tab + device. Cross-tab coincidences are fine.");
 }
 
@@ -2840,8 +3117,7 @@ static void renderActionHoldOverridesSection(void)
                     }
                     actionmapSetActionHoldMsOverride(act, seed);
                 }
-                actionmapSaveBinds();
-                configSave("pd.ini");
+                inputUiPersistBindings();
             }
             if (mode == 1) {
                 s32 ms = actionmapGetActionHoldMsOverride(act);
@@ -2856,8 +3132,7 @@ static void renderActionHoldOverridesSection(void)
                 }
                 if (PdSliderInt("##hms", &ms, 50, 2000, "%d ms")) {
                     actionmapSetActionHoldMsOverride(act, ms);
-                    actionmapSaveBinds();
-                    configSave("pd.ini");
+                    inputUiPersistBindings();
                 }
             }
             ImGui::PopID();
@@ -2878,40 +3153,13 @@ static void renderActionHoldOverridesSection(void)
     ImGui::EndChild();
 }
 
-/* Per-tab device reset. Walks every IMC in the tab's resetImcs list, strips
- * triggers belonging to the active device (MKB or Controller) for every
- * action that IMC has_mapping[] for, then re-applies that IMC's compiled-in
- * defaults via actionmapSetDefaults. The other device's triggers are
- * preserved so a user who rebound MKB and reset Controller does not lose
- * their MKB layout. */
+/* Build a complete device-only reset candidate. Other-device slots survive;
+ * capacity failure leaves the whole tab unchanged. Persist once after apply. */
 static void resetTabDeviceToDefaults(const ImcTabDesc *tab, s32 filterCol)
 {
     if (!tab) return;
-    bool wantMkb = (filterCol == 0);
-    for (s32 i = 0; i < tab->numResetImcs; i++) {
-        InputMappingContext *imc = tab->resetImcs[i];
-        if (!imc) continue;
-        for (s32 a = 0; a < ACTION_COUNT; a++) {
-            if (!imc->has_mapping[a]) continue;
-            InputMapping *m = &imc->mappings[a];
-            s32 write = 0;
-            for (s32 ti = 0; ti < m->num_triggers; ti++) {
-                u32 vk = m->triggers[ti].vk;
-                bool isMkb  = isVkMKB(vk);
-                bool isCtrl = isVkController(vk);
-                bool isThisDevice = wantMkb ? isMkb : isCtrl;
-                if (vk > 0 && !isThisDevice) {
-                    m->triggers[write++] = m->triggers[ti];
-                } else {
-                    m->triggers[ti].vk = 0;
-                }
-            }
-            m->num_triggers = write;
-        }
-        actionmapSetDefaults(imc, 0);
-    }
-    actionmapSaveBinds();
-    configSave("pd.ini");
+    if (actionmapResetDeviceDefaults(tab->resetImcs, tab->numResetImcs, filterCol != 0))
+        inputUiPersistBindings();
 }
 
 /* Inner subtab: Keyboard & Mouse. Renders the bind table for the outer tab's
@@ -3068,49 +3316,49 @@ static void renderControlsGlobalSticks(void)
             sticksChanged = true;
         }
         if (sticksChanged) {
-            configSave("pd.ini");
+            settingsRequestMachineSave();
         }
     }
     {
         f32 sensM = actionmapGetSensMoveUi();
         if (PdSliderSensUi("Move sensitivity (1-10)", &sensM)) {
             actionmapSetSensMoveUi(sensM);
-            configSave("pd.ini");
+            settingsRequestMachineSave();
         }
     }
     {
         f32 dzM = actionmapGetStickDeadzoneMove();
         if (PdSliderFloat("Move deadzone", &dzM, 0.0f, 0.5f, "%.2f")) {
             actionmapSetStickDeadzoneMove(dzM);
-            configSave("pd.ini");
+            settingsRequestMachineSave();
         }
     }
     {
         f32 sensA = actionmapGetSensAimUi();
         if (PdSliderSensUi("Look sensitivity (1-10)", &sensA)) {
             actionmapSetSensAimUi(sensA);
-            configSave("pd.ini");
+            settingsRequestMachineSave();
         }
     }
     {
         f32 sensAds = actionmapGetSensAdsUi();
         if (PdSliderSensUi("Aim-down-sights sensitivity (1-10)", &sensAds)) {
             actionmapSetSensAdsUi(sensAds);
-            configSave("pd.ini");
+            settingsRequestMachineSave();
         }
     }
     {
         f32 dzA = actionmapGetStickDeadzoneAim();
         if (PdSliderFloat("Look deadzone", &dzA, 0.0f, 0.5f, "%.2f")) {
             actionmapSetStickDeadzoneAim(dzA);
-            configSave("pd.ini");
+            settingsRequestMachineSave();
         }
     }
     {
         bool invertY = actionmapGetStickInvertY() != 0;
         if (PdCheckbox("Invert look (Y axis)", &invertY)) {
             actionmapSetStickInvertY(invertY ? 1 : 0);
-            configSave("pd.ini");
+            settingsRequestMachineSave();
         }
     }
 }
@@ -3141,7 +3389,7 @@ static void renderControlsGlobalHolds(void)
             s32 holdMs = actionmapGetUseHoldThresholdMs();
             if (PdSliderInt("Use hold (interact vs reload)", &holdMs, 50, 2000, "%d ms")) {
                 actionmapSetUseHoldThresholdMs(holdMs);
-                configSave("pd.ini");
+                settingsRequestMachineSave();
             }
             ImGui::TextDisabled(
                 "Global default for Use / Interact when no per-action override is set.");
@@ -3151,7 +3399,7 @@ static void renderControlsGlobalHolds(void)
         s32 termExtra = actionmapGetInteractHoldExtraTerminalMs();
         if (PdSliderInt("Hackable terminal extra hold", &termExtra, 0, 2000, "%d ms")) {
             actionmapSetInteractHoldExtraTerminalMs(termExtra);
-            configSave("pd.ini");
+            settingsRequestMachineSave();
         }
         ImGui::TextDisabled(
             "Layered on effective Use hold for hackable-terminal prompts. Saved as "
@@ -3286,7 +3534,7 @@ static void inputUiProfileStateSave(void)
 
     inputProfilesSetNamesIni(names);
     inputProfilesSetDeviceRulesIni(rules);
-    configSave("pd.ini");
+    settingsRequestMachineSave();
 }
 
 static void inputUiProfileStateLoad(void)
@@ -3392,13 +3640,11 @@ static void inputUiLoadProfile(s32 profile)
     if (profile >= INPUT_UI_MAX_PROFILES) profile = INPUT_UI_MAX_PROFILES - 1;
     char path[96];
     inputUiProfilePath(profile, path, sizeof(path));
-    inputProfilesSetActive(profile);
-    if (actionmapLoadProfileFile(path)) {
-        actionmapSaveBinds();
-        configSave("pd.ini");
+    if (actionmapLoadProfileFileAsCurrent(path, profile)) {
+        settingsRequestMachineSave();
         snprintf(s_InputStatus, sizeof(s_InputStatus), "Loaded %s", s_InputProfileNames[profile]);
     } else {
-        snprintf(s_InputStatus, sizeof(s_InputStatus), "No saved bindings for %s", s_InputProfileNames[profile]);
+        snprintf(s_InputStatus, sizeof(s_InputStatus), "Could not load %s", s_InputProfileNames[profile]);
     }
 }
 
@@ -3420,24 +3666,26 @@ static void renderInputProfilesSection(void)
     inputUiProfileStateLoad();
     ImGui::SeparatorText("Profiles");
 
-    s32 active = inputProfilesGetActive();
-    if (inputUiProfileCombo("Active Profile", &active)) {
-        inputProfilesSetActive(active);
-        inputUiProfileStateSave();
-    }
+    static s32 selected = -1;
+    if (selected < 0) selected = inputProfilesGetActive();
+    inputUiProfileCombo("Saved profile", &selected);
 
     ImGui::SameLine();
     if (ImGui::Button("Load")) {
-        inputUiLoadProfile(inputProfilesGetActive());
+        inputUiLoadProfile(selected);
     }
     ImGui::SameLine();
     if (ImGui::Button("Save")) {
-        inputUiSaveProfile(inputProfilesGetActive());
+        inputUiSaveProfile(selected);
     }
+    const s32 active = actionmapGetCurrentProfile();
+    if (active >= 0 && active < INPUT_UI_MAX_PROFILES)
+        ImGui::TextWrapped("Current bindings are based on %s, including saved edits.", s_InputProfileNames[active]);
+    else
+        ImGui::TextWrapped("Current bindings: defaults or imported custom bindings.");
 
     if (s_InputStatus[0]) {
-        ImGui::SameLine();
-        ImGui::TextDisabled("%s", s_InputStatus);
+        ImGui::TextWrapped("%s", s_InputStatus);
     }
 
     if (ImGui::BeginTable("##input_profile_names", 2,
@@ -3533,7 +3781,12 @@ static void inputUiCancelCapture(void)
     s_CaptureActive = 0;
     s_CaptureImc = NULL;
     s_CaptureName = "";
+    s_CaptureCandidate = 0;
+    s_CaptureOpenPending = false;
+    s_CaptureReviewFocus = false;
+    s_CaptureReviewFrame = -1;
     inputClearLastKey();
+    inputUiFlushCaptureActions();
 }
 
 static void renderInputBindingsSection(float scale)
@@ -3585,19 +3838,18 @@ static void renderInputBindingsSection(float scale)
 
 static void renderSettingsInput(float scale)
 {
-    /* Load binds from pd.ini when entering the Input tab so the UI reflects
-     * the current saved state (not stale in-memory mappings). */
+    /* Initialization is idempotent; reopening never replays legacy pd.ini over
+     * the complete current snapshot or live bindings. */
     if (s_ControlsNeedsInit) {
         actionmapLoadBinds();
         s_ControlsNeedsInit = false;
     }
 
-    /* Process any active key capture before rendering tabs so a captured key
-     * commits into the right IMC even if the user's last action was switching
-     * binding filters. */
-    handleCaptureInput();
+    /* The root-owned capture modal reads raw input after its Cancel button.
+     * Parent tab and view commands remain gated for the modal's lifetime. */
 
     renderInputProfilesSection();
+    inputUiBindingPersistenceStatus();
     ImGui::Spacing();
     renderInputDevicesSection();
     ImGui::Spacing();
@@ -3679,7 +3931,7 @@ static void renderSettingsGame(float scale)
     bool skipIntro = g_SkipIntro != 0;
     if (PdCheckbox("Skip Intro", &skipIntro)) {
         g_SkipIntro = skipIntro ? 1 : 0;
-        configSave("pd.ini");
+        settingsRequestMachineSave();
     }
 
     bool useKeyReloads = g_PlayerExtCfg[0].usereloads != 0;
@@ -3870,6 +4122,8 @@ static void pdguiMainMenuSetView(s32 view, const char *reason)
     }
 
     s32 oldView = s_MenuView;
+    if (oldView != 2 && view == 2) s_SettingsSaveStatus.cancelDeparture();
+    if (oldView == 2 && view != 2) inputUiCancelCapture();
     menu_type_t oldType = pdguiMainMenuViewPoolType(oldView);
     menu_type_t newType = pdguiMainMenuViewPoolType(view);
 
@@ -4163,7 +4417,7 @@ static void renderSettingsDebug(float scale)
     if (ImGui::Button("All Channels", ImVec2(btnW, btnH))) {
         sysLogSetChannelMask(LOG_CH_ALL);
         mask = LOG_CH_ALL;
-        configSave("pd.ini");
+        settingsRequestMachineSave();
     }
     if (isAll) ImGui::PopStyleColor();
 
@@ -4175,7 +4429,7 @@ static void renderSettingsDebug(float scale)
     if (ImGui::Button("None##ch", ImVec2(btnW, btnH))) {
         sysLogSetChannelMask(LOG_CH_NONE);
         mask = LOG_CH_NONE;
-        configSave("pd.ini");
+        settingsRequestMachineSave();
     }
     if (isNone) ImGui::PopStyleColor();
 
@@ -4200,7 +4454,7 @@ static void renderSettingsDebug(float scale)
 
     if (changed) {
         sysLogSetChannelMask(mask);
-        configSave("pd.ini");
+        settingsRequestMachineSave();
     }
 
     ImGui::Spacing();
@@ -4209,7 +4463,7 @@ static void renderSettingsDebug(float scale)
     bool verbose = sysLogGetVerbose() != 0;
     if (ImGui::Checkbox("Verbose Logging", &verbose)) {
         sysLogSetVerbose(verbose ? 1 : 0);
-        configSave("pd.ini");
+        settingsRequestMachineSave();
     }
     ImGui::SameLine();
     ImGui::TextDisabled("(0x%04X%s)", mask, verbose ? " +V" : "");
@@ -4223,7 +4477,7 @@ static void renderSettingsDebug(float scale)
         ImGui::SetNextItemWidth(120.0f * scale);
         if (ImGui::InputInt("Manifest Max Entries", &maxEnt, 64, 256)) {
             manifestSetMaxEntries((s32)maxEnt);
-            configSave("pd.ini");
+            settingsRequestMachineSave();
         }
         ImGui::SameLine();
         ImGui::TextDisabled("(64 – 4096)");
@@ -4246,7 +4500,7 @@ static void renderSettingsDebug(float scale)
             if (ImGui::Checkbox(family.label, &checked)) {
                 assetSourceDebugSetOnlyType(checked ? family.type : ASSET_NONE);
                 selected = assetSourceDebugOnlyType();
-                configSave("pd.ini");
+                settingsRequestMachineSave();
             }
             if (i + 1 == (sizeof(s_DebugAssetSourceFamilies) / sizeof(s_DebugAssetSourceFamilies[0]) + 1) / 2) {
                 ImGui::NextColumn();
@@ -5033,8 +5287,19 @@ static void renderSettingsCatalog(float scale)
 }
 
 /* Render the Settings sub-view with LB/RB bumper tab switching */
+static int s_SettingsSubmittedTab = -1;
+
+static void observeSettingsTab(int tab)
+{
+    const ImGuiWindow *window = ImGui::GetCurrentWindow();
+    if (window && !window->SkipItems && !window->Hidden)
+        s_SettingsSubmittedTab = tab;
+}
+
 static void renderSettingsView(float scale, float contentH)
 {
+    s_SettingsSubmittedTab = -1;
+    const bool retrySave = renderSettingsSaveStatus();
     /* Tab action handling: use a pending flag so SetSelected only fires
      * for ONE frame after a bumper press, not continuously.
      *
@@ -5055,14 +5320,14 @@ static void renderSettingsView(float scale, float contentH)
     /* S306: 8 tabs with PD_DEV_BUILD (Debug present); 7 tabs on stable (no Debug).
      * Order: 0=Video 1=Interface 2=Audio 3=Controls 4=Game 5=Updates
      * [6=Debug] 6/7=Catalog. */
-    if (pdguiMenuTabPrevPressed()) {
+    if (!s_CaptureActive && pdguiMenuTabPrevPressed()) {
         s_SettingsSubTab--;
         if (s_SettingsSubTab < 0) s_SettingsSubTab = settingsTabLast;
         s_BumperPendingTab = s_SettingsSubTab;
         s_NeedsFocus = true;
         pdguiPlaySound(PDGUI_SND_SWIPE);
     }
-    if (pdguiMenuTabNextPressed()) {
+    if (!s_CaptureActive && pdguiMenuTabNextPressed()) {
         s_SettingsSubTab++;
         if (s_SettingsSubTab > settingsTabLast) s_SettingsSubTab = 0;
         s_BumperPendingTab = s_SettingsSubTab;
@@ -5096,6 +5361,7 @@ static void renderSettingsView(float scale, float contentH)
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
             if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             renderSettingsVideo(scale);
+            observeSettingsTab(0);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
@@ -5107,6 +5373,7 @@ static void renderSettingsView(float scale, float contentH)
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
             if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             renderSettingsInterface(scale);
+            observeSettingsTab(1);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
@@ -5118,6 +5385,7 @@ static void renderSettingsView(float scale, float contentH)
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
             if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             renderSettingsAudio(scale);
+            observeSettingsTab(2);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
@@ -5129,6 +5397,7 @@ static void renderSettingsView(float scale, float contentH)
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
             if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             renderSettingsInput(scale);
+            observeSettingsTab(3);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
@@ -5140,6 +5409,7 @@ static void renderSettingsView(float scale, float contentH)
             if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
             if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
             renderSettingsGame(scale);
+            observeSettingsTab(4);
             ImGui::EndChild();
             ImGui::EndTabItem();
         }
@@ -5192,10 +5462,10 @@ static void renderSettingsView(float scale, float contentH)
 		ImGui::EndTabBar();
 	}
 
-	/* D-005: every per-agent settings tab feeds the same versioned Agent
-	 * Profile document. The save path is change-detected, so this is safe to
-	 * call from the shared settings renderer. */
-	prefsAgentSave();
+    /* D-005: retain the existing complete Agent document writer and its
+     * unchanged-snapshot check. A failed channel waits for explicit Retry. */
+    if (retrySave) s_SettingsSaveStatus.retry(prefsAgentGetActive(), settingsSaveCallbacks());
+    else s_SettingsSaveStatus.poll(prefsAgentGetActive(), settingsSaveCallbacks());
 
 	/* Bumper hint at bottom — S311: glyph-driven key labels track active device. */
     {
@@ -5813,6 +6083,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
                             | ImGuiWindowFlags_NoTitleBar
                             | ImGuiWindowFlags_NoBackground;
 
+    const bool hubOwnsFrame = pdguiModdingHubIsVisible() != 0;
+    if (hubOwnsFrame) {
+        wflags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing;
+    }
     if (!ImGui::Begin("##main_menu", nullptr, wflags)) {
         ImGui::End();
         s_MainMenuIsRendering = false;
@@ -5829,6 +6103,15 @@ static s32 renderMainMenu(struct menudialog *dialog,
      * never bound. */
     menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
 
+    /* Keep the window alive without input/focus while the Hub owns it.
+     * This preserves the Modding subview when the Hub later closes and lets
+     * its dirty-document close transaction decide whether Back can leave. */
+    if (hubOwnsFrame) {
+        ImGui::End();
+        s_MainMenuIsRendering = false;
+        return 1;
+    }
+
     /* Auto-possess: give this window nav focus ONLY on first appearance.
      * Must be AFTER Begin(). Using SetWindowFocus() instead of
      * SetNextWindowFocus() to avoid stealing focus from child popups. */
@@ -5836,44 +6119,10 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGui::SetWindowFocus();
         pdguiMainMenuSetView(0, "window-open"); /* Always open to main menu */
         s_NeedsFocus = true;
-        /* B-131: clear the stale Escape / GamepadFaceRight edges that the
-         * opening press queued into ImGui's input queue before this window
-         * existed.  Without this, a gamepad B-button or keyboard Escape
-         * press that opened the menu is still reported as "just pressed"
-         * on the frame after IsWindowAppearing — surviving past the
-         * IsWindowAppearing guard and slamming the close handler.
-         * AddKeyEvent(..., false) forces the down-state off this frame so
-         * the next frame sees prev=false cur=false (released, then re-press
-         * if the user actually wants to close). */
-        ImGuiIO &nio = ImGui::GetIO();
-        nio.AddKeyEvent(ImGuiKey_Escape, false);
-        nio.AddKeyEvent(ImGuiKey_GamepadFaceRight, false);
-        /* B-131 extension: also clear Start/A/Enter edges to prevent the
-         * opening press from being read as a menu selection on the first
-         * frame.  Without this, opening with Start can auto-select the
-         * first focused button. */
-        nio.AddKeyEvent(ImGuiKey_GamepadStart, false);
-        nio.AddKeyEvent(ImGuiKey_GamepadFaceDown, false);
-        nio.AddKeyEvent(ImGuiKey_Enter, false);
-        /* 2026-05-02 fix (input/menu pillar follow-up): also flush the
-         * actionmap-side pressed/released edges for the menu cancel /
-         * accept actions. The AddKeyEvent calls above clear ImGui's
-         * input state, but pdguiMenuCancelPressed / pdguiMenuAcceptPressed
-         * read actionPressed(0, ACTION_MENU_CANCEL/ACCEPT) which queries
-         * the actionmap layer's own per-frame edge flags. Without this
-         * flush, a stale "pressed" edge from the opening press (or the
-         * close press from a recent menu close + reopen cycle) survives
-         * into the new menu's first input-read frame and the cancel
-         * handler eats the user's first intentional close press --
-         * Mike's "press B twice on reopen" symptom. Flushing both
-         * cancel-equivalent and accept-equivalent actions covers both
-         * the close and the auto-select-first-button regressions. */
-        InputAction menuOpenFlushActions[] = {
-            ACTION_MENU_CANCEL, ACTION_MENU_ACCEPT,
-            ACTION_USE,         ACTION_CANCEL_USE,
-        };
-        actionmapFlushActionSet(menuOpenFlushActions,
-                                (s32)(sizeof(menuOpenFlushActions) / sizeof(menuOpenFlushActions[0])));
+        /* The opening gesture belongs to this transition until its real
+         * release. Keep physical and action-map held states intact so the
+         * native key lock cannot be ended by an artificial release. */
+        pdguiNavSuppressOpeningGesture();
         sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu OPEN");
     }
     pdguiMainMenuSetView(s_MenuView, "render-sync");
@@ -5913,29 +6162,20 @@ static s32 renderMainMenu(struct menudialog *dialog,
     float buttonW = contentW;
     float spacing = 6.0f * scale;
 
-    /* B button / Escape navigation:
-     * Sub-views (Play, Settings) -> back to top-level
-     * Top-level -> close menu entirely (return to CI free-roam)
-     *
-     * Guard: skip on the frame the window first appears. The
-     * actionmapFlushActionSet call at IsWindowAppearing above clears
-     * any stale pressed-edge for ACTION_MENU_CANCEL / ACCEPT / USE /
-     * CANCEL_USE, so the slip-frame race (B-131 timestamp grace was
-     * the prior backstop) cannot fire spuriously here.
-     *
-     * 2026-05-02 fix (input/menu pillar follow-up): the prior
-     * MAIN_MENU_CLOSE_GRACE_MS = 150 ms grace was eating legitimate
-     * fast user closes -- specifically the "press B twice to close on
-     * reopen" symptom Mike reported. The actionmap flush at open is
-     * a more precise replacement: the flush clears the SOURCE of the
-     * stale edge instead of broadly suppressing all cancel input
-     * during a 150 ms window. The B-131 grace is removed. */
+    /* Opening keys remain locked until physical release. A fresh Back
+     * resolves once after rendering; the current owner filter gives active
+     * native editors and child popups their first Back. */
     bool titleClose = pdguiConsumeTitleClose() != 0;
     bool actionCancelEdge = pdguiMenuCancelPressed() != 0;
     bool socialSurfaceOpen = pdguiFriendsAnySurfaceIsOpen() != 0;
+    const s32 backView = s_MenuView;
+    const bool requestBack = !ImGui::IsWindowAppearing() && !s_CaptureActive &&
+        !socialSurfaceOpen && (titleClose || actionCancelEdge);
     if (!ImGui::IsWindowAppearing()
+        && !s_CaptureActive
         && !socialSurfaceOpen
         && !pdguiFriendsSocialIsOpen()
+        && !requestBack
         && pdguiMenuTertiaryPressed()) {
         if (menuGraphFirePushOp(MENU_TYPE_MAIN_MENU, "social",
                 pdguiMainMenuGraphOpenSocial, NULL) == 0) {
@@ -5943,34 +6183,12 @@ static s32 renderMainMenu(struct menudialog *dialog,
         }
         socialSurfaceOpen = true;
     }
-    if (!ImGui::IsWindowAppearing()
-        && !socialSurfaceOpen
-        && (titleClose || actionCancelEdge)) {
-        if (s_MenuView != 0) {
-            if (s_MenuView == 2) {
-                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0)%s",
-                             titleClose ? " [via X]" : "");
-            } else if (s_MenuView == 3) {
-                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — modding hub CLOSE (view 3->0)");
-                pdguiModdingHubHide();
-            } else if (s_MenuView == 5) {
-                pdguiMenuStatsHide();
-            } else if (s_MenuView == 6) {
-                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC -- Grid submenu CLOSE (view 6->0)");
-            } else {
-                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — sub-view %d -> 0", s_MenuView);
-            }
-            pdguiMainMenuFireSubviewBackEdge("close-subview");
-            pdguiPlaySound(PDGUI_SND_SWIPE);
-        } else {
-            /* At top-level: close the menu, return to Carrington Institute */
-            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu CLOSE via ESC/B (top-level -> CI free-roam)");
-            pdguiPlaySound(PDGUI_SND_KBCANCEL);
-            menuGraphFirePopOp(MENU_TYPE_MAIN_MENU, "close",
-                pdguiMainMenuGraphClose, NULL);
-        }
-    }
+    if (requestBack) pdguiNavSuppressActivation();
+    ImGui::BeginDisabled(requestBack);
 
+    const s32 submittedView = s_MenuView;
+    s_SettingsSubmittedTab = -1;
+    ImGuiID playReadinessId = 0, settingsReadinessId = 0;
     if (s_MenuView == 0) {
         /* ================================================================
          * TOP LEVEL: Play / Social / Public Mods / Change Agent / Settings
@@ -5989,8 +6207,14 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGui::Dummy(ImVec2(0, 8.0f * scale));
 
         /* Play -- local missions and Combat Simulator; Social owns invite/join. */
-        if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
-        if (PdButton("Play", ImVec2(buttonW, buttonH * 1.2f))) {
+        if (s_NeedsFocus) {
+            ImGui::SetKeyboardFocusHere(0);
+            ImGui::SetNavCursorVisible(true);
+            s_NeedsFocus = false;
+        }
+        const bool playPressed = PdButton("Play", ImVec2(buttonW, buttonH * 1.2f));
+        playReadinessId = ImGui::GetItemID();
+        if (playPressed) {
             pdguiMainMenuFireSubviewEdge("solo_play", 1, "open-solo");
         }
 
@@ -6032,7 +6256,9 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGui::Dummy(ImVec2(0, spacing));
 
         /* Settings */
-        if (PdButton("Settings", ImVec2(buttonW, buttonH * 1.2f))) {
+        const bool settingsPressed = PdButton("Settings", ImVec2(buttonW, buttonH * 1.2f));
+        settingsReadinessId = ImGui::GetItemID();
+        if (settingsPressed) {
             if (pdguiMainMenuFireSubviewEdge("settings", 2, "open-settings") == 0) {
                 sysLogPrintf(LOG_NOTE, "MENU_STACK: settings OPEN (s_MenuView=2)");
             }
@@ -6149,7 +6375,11 @@ static s32 renderMainMenu(struct menudialog *dialog,
         ImGui::Dummy(ImVec2(0, 4.0f * scale));
 
         /* Solo Missions -- campaign */
-        if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+        if (s_NeedsFocus) {
+            ImGui::SetKeyboardFocusHere(0);
+            ImGui::SetNavCursorVisible(true);
+            s_NeedsFocus = false;
+        }
         if (PdButton("Solo Missions", ImVec2(buttonW, buttonH))) {
             menuGraphFirePushOp(MENU_TYPE_MAIN_SOLO_VIEW, "solo_missions",
                 pdguiMainMenuGraphSoloMissions, NULL);
@@ -6189,6 +6419,8 @@ static s32 renderMainMenu(struct menudialog *dialog,
             renderSettingsView(scale, contentH);
         }
         ImGui::EndChild();
+
+        renderInputCaptureModal();
 
     } else if (s_MenuView == 3) {
         /* ================================================================
@@ -6242,6 +6474,14 @@ static s32 renderMainMenu(struct menudialog *dialog,
         renderGridSubmenu(scale, buttonW, buttonH, spacing);
     }
 
+    ImGui::EndDisabled();
+
+    bool settingsLeave = false;
+    if (s_MenuView == 2) {
+        if (requestBack) settingsLeave = s_SettingsSaveStatus.requestDeparture();
+        settingsLeave = renderSettingsSaveDeparture() || settingsLeave;
+    }
+
     /* Sound on view switches + auto-focus flag */
     s_ViewJustChanged = (s_PrevView >= 0 && s_PrevView != s_MenuView);
     if (s_ViewJustChanged) {
@@ -6274,6 +6514,7 @@ static s32 renderMainMenu(struct menudialog *dialog,
          * (the enter-frame already reloaded via the default/view-change
          * flag). */
         if (s_PrevSubTab == 3 && s_SettingsSubTab != 3) {
+            inputUiCancelCapture();
             s_ControlsNeedsInit = true;
         }
     }
@@ -6282,8 +6523,37 @@ static s32 renderMainMenu(struct menudialog *dialog,
     /* D5 Phase 2: D-pad wrapping — must be after all widgets, before End() */
     pdguiNavTickWrap();
 
+    pdguiMenuRecordView(submittedView, s_SettingsSubmittedTab,
+        playReadinessId, settingsReadinessId,
+        s_CaptureActive || socialSurfaceOpen || requestBack || settingsLeave ||
+        s_MenuView != submittedView || !pdguiNavActionAllowed(ACTION_MENU_ACCEPT));
     ImGui::End();
     s_MainMenuIsRendering = false;
+    if (((requestBack && backView != 2) || settingsLeave) && s_MenuView == backView) {
+        if (s_MenuView != 0) {
+            if (s_MenuView == 2) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0)%s",
+                             titleClose ? " [via X]" : "");
+            } else if (s_MenuView == 3) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — modding subview CLOSE (view 3->0)");
+            } else if (s_MenuView == 5) {
+                pdguiMenuStatsHide();
+            } else if (s_MenuView == 6) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC -- Grid submenu CLOSE (view 6->0)");
+            } else {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — sub-view %d -> 0", s_MenuView);
+            }
+            pdguiMainMenuFireSubviewBackEdge("close-subview");
+            pdguiPlaySound(PDGUI_SND_SWIPE);
+        } else {
+            /* At top-level: close the menu, return to Carrington Institute */
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu CLOSE via ESC/B (top-level -> CI free-roam)");
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            menuGraphFirePopOp(MENU_TYPE_MAIN_MENU, "close",
+                pdguiMainMenuGraphClose, NULL);
+        }
+        s_NeedsFocus = true;
+    }
     return 1;  /* Handled */
 }
 
@@ -6397,8 +6667,10 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
     /* On first appearance or dialog switch: play open cue, select sub-tab. */
     static struct menudialogdef *s_LastDialog = nullptr;
     if (ImGui::IsWindowAppearing() || s_LastDialog != def) {
+        inputUiCancelCapture();
         ImGui::SetWindowFocus();
         s_NeedsFocus = true;
+        s_SettingsSaveStatus.cancelDeparture();
         s_SettingsSubTab = ciRedirectTargetTabForDialog(def);
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
         sysLogPrintf(LOG_NOTE,
@@ -6410,6 +6682,12 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
     /* PD title frame -- same look as the main menu. */
     f32 pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH,
                                       "Settings");
+
+    const bool titleCloseCi = pdguiConsumeTitleClose() != 0;
+    bool wantBack = !ImGui::IsWindowAppearing() && !s_CaptureActive &&
+        (titleCloseCi || pdguiMenuCancelPressed());
+    if (wantBack) pdguiNavSuppressActivation();
+    ImGui::BeginDisabled(wantBack);
 
     /* S305: content inset — clear the nineslice chrome border + breathing room. */
     float insLr = 0, insRr = 0, insTr = 0, insBr = 0;
@@ -6442,7 +6720,7 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
     ImGui::EndChild();
 
     /* Docked action bar -- Back button, always visible. */
-    bool wantBack = false;
+    ImGui::BeginDisabled(s_CaptureActive != 0);
     if (pdguiBeginActionBar("##ci_settings_ab")) {
         f32 barW = ImGui::GetContentRegionAvail().x;
         if (pdguiActionBarButton("Back", 1, barW)) {
@@ -6450,29 +6728,26 @@ static s32 renderCiSettingsRedirect(struct menudialog *dialog,
         }
     }
     pdguiEndActionBar();
+    ImGui::EndDisabled();
 
-    /* S311: title X / Escape / B all back out.  pdguiConsumeTitleClose
-     * fires on the X click before ImGui's own nav swallows the Escape
-     * edge, so the X button closes on the first attempt. */
-    bool titleCloseCi = pdguiConsumeTitleClose() != 0;
-    if (!ImGui::IsWindowAppearing() &&
-        (titleCloseCi || pdguiMenuCancelPressed())) {
-        wantBack = true;
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
-    }
+    ImGui::EndDisabled();
+    renderInputCaptureModal();
 
-    if (wantBack) {
-        sysLogPrintf(LOG_NOTE,
-            "MENU_IMGUI: CI Options redirect CLOSE (dialog=%p)%s",
-            (void *)def, titleCloseCi ? " [via X]" : "");
-        s_LastDialog = nullptr;
-        menuGraphFirePop(MENU_TYPE_CI_OPTIONS, "close");
-    }
+    bool leave = wantBack && s_SettingsSaveStatus.requestDeparture();
+    leave = renderSettingsSaveDeparture() || leave;
 
     /* D-pad wrapping must be called before End(). */
     pdguiNavTickWrap();
 
     ImGui::End();
+    if (leave) {
+        inputUiCancelCapture();
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: CI Options redirect CLOSE (dialog=%p)%s",
+                     (void *)def, titleCloseCi ? " [via X]" : "");
+        s_LastDialog = nullptr;
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuGraphFirePop(MENU_TYPE_CI_OPTIONS, "close");
+    }
     return 1;
 }
 
@@ -6644,32 +6919,23 @@ static s32 renderCinemaList(struct menudialog *dialog,
 
     /* S311: title X / Escape / B close. */
     bool wantClose = false;
+    s32 selectedCutscene = -1;
     if (!ImGui::IsWindowAppearing() &&
         (pdguiConsumeTitleClose() ||
          pdguiMenuCancelPressed())) {
         wantClose = true;
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        pdguiNavSuppressActivation();
     }
 
     /* Query the legacy handler for option count + group count. */
     uintptr_t optionCount = cn_handlerQuery(MENUOP_GETOPTIONCOUNT, 0);
     uintptr_t groupCount  = cn_handlerQuery(MENUOP_GETOPTGROUPCOUNT, 0);
 
-    /* Bound selection to valid range. */
+    /* Selection is presentation state; native focus includes the footer. */
     if (optionCount == 0) optionCount = 1; /* at least Play All */
-    if (s_CinemaSelectIdx < 0) s_CinemaSelectIdx = 0;
-    if ((uintptr_t)s_CinemaSelectIdx >= optionCount) s_CinemaSelectIdx = (s32)optionCount - 1;
-
-    /* D-pad nav with wrap -- include +1 action-bar row for Back */
-    const s32 totalFocusable = (s32)optionCount + 1;
-    if (pdguiMenuDownRepeat()) {
-        s_CinemaSelectIdx = (s_CinemaSelectIdx + 1) % totalFocusable;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
-    }
-    if (pdguiMenuUpRepeat()) {
-        s_CinemaSelectIdx = (s_CinemaSelectIdx - 1 + totalFocusable) % totalFocusable;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
-    }
+    if (s_CinemaSelectIdx < 0 || (uintptr_t)s_CinemaSelectIdx > optionCount)
+        s_CinemaSelectIdx = 0;
+    const bool focusFirstRow = ImGui::IsWindowAppearing();
 
     /* ---- Body: scrollable cutscene list ---- */
     f32 avail = ImGui::GetContentRegionAvail().y;
@@ -6722,26 +6988,16 @@ static s32 renderCinemaList(struct menudialog *dialog,
             bool isActive = (s_CinemaSelectIdx == (s32)i);
 
             ImGui::PushID((int)i);
-            bool clicked = ImGui::Selectable(label, isActive,
-                                              ImGuiSelectableFlags_None,
-                                              ImVec2(0, pdguiScale(36.0f)));
-            if (ImGui::IsItemHovered()) s_CinemaSelectIdx = (s32)i;
-
-            bool kbConfirm = isActive && pdguiMenuAcceptPressed();
-
-            if (clicked || kbConfirm) {
-                pdguiPlaySound(PDGUI_SND_SELECT);
-                /* Delegate to legacy handler -- it sets g_Vars.autocutgroupcur
-                 * and autocutgroupleft, then calls menuPopDialog + menuStop.
-                 * S311: the embedded menuPopDialog cascades through
-                 * menuCloseDialog → menupoolReleaseDialog so the pool slot +
-                 * owned ctx are released without an explicit pop here. */
-                cn_handlerQuery(MENUOP_SET, i);
-                ImGui::PopID();
-                ImGui::EndChild();
-                ImGui::End();
-                return 1;
+            if (focusFirstRow && i == 0) {
+                ImGui::SetKeyboardFocusHere();
+                ImGui::SetNavCursorVisible(true);
             }
+            if (ImGui::Selectable(label, isActive, ImGuiSelectableFlags_None,
+                                  ImVec2(0, pdguiScale(36.0f)))) {
+                selectedCutscene = (s32)i;
+            }
+            if (ImGui::IsItemHovered() || ImGui::IsItemFocused())
+                s_CinemaSelectIdx = (s32)i;
             ImGui::PopID();
         }
     }
@@ -6754,18 +7010,24 @@ static s32 renderCinemaList(struct menudialog *dialog,
         if (pdguiActionBarButton("Back", backActive ? 1 : 0, barW)) {
             wantClose = true;
         }
-        if (backActive && pdguiMenuAcceptPressed()) {
-            wantClose = true;
-        }
+        if (ImGui::IsItemHovered() || ImGui::IsItemFocused())
+            s_CinemaSelectIdx = (s32)optionCount;
     }
     pdguiEndActionBar();
 
-    if (wantClose) {
-        menuGraphFirePop(MENU_TYPE_CINEMA, "back");
-    }
-
     pdguiNavTickWrap();
     ImGui::End();
+
+    if (wantClose) {
+        pdguiNavSuppressActivation();
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuGraphFirePop(MENU_TYPE_CINEMA, "back");
+    } else if (selectedCutscene >= 0) {
+        pdguiNavSuppressActivation();
+        pdguiPlaySound(PDGUI_SND_SELECT);
+        /* The legacy SET handler closes the dialog and starts playback. */
+        cn_handlerQuery(MENUOP_SET, (uintptr_t)selectedCutscene);
+    }
     return 1;
 }
 
@@ -6777,6 +7039,7 @@ extern "C" {
 
 void pdguiMainMenuReset(void)
 {
+    inputUiCancelCapture();
     pdguiMainMenuSetView(0, "external-reset");
 }
 

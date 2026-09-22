@@ -31,6 +31,8 @@
 #include "pdgui_hotswap.h"
 #include "pdgui_layout.h"
 #include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
+#include "pdgui_endscreen_intent.h"
 #include "system.h"
 #include "inputctx.h"
 #include "menupool.h"
@@ -732,8 +734,15 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
      * that skipped the cutscene doesn't immediately trigger a button. */
     bool inputSuppressed = (s_SoloEndscreenDebounce > 0);
     const char *sfmmPopupId = "Return to Main Menu?##es_solo_mm";
-    bool wantSoloMainMenuConfirm = false;
+    // Capture Back while this parent owns input, before native activation.
+    const bool parentActionsAllowed = !inputSuppressed && pdguiNavActionAllowed(ACTION_MENU_ACCEPT);
+    const bool backPressed = !inputSuppressed && pdguiNavActionAllowed(ACTION_MENU_CANCEL)
+        && (pdguiConsumeTitleClose() || pdguiMenuCancelPressed());
+    PdguiEndscreenDecision decision;
+    if (backPressed) decision.request(completed ? PdguiEndscreenIntent::MainMenu
+                                              : PdguiEndscreenIntent::ConfirmMainMenu);
 
+    ImGui::BeginDisabled(!parentActionsAllowed || backPressed);
     if (pdguiBeginActionBar("##es_solo_ab")) {
         float availW = ImGui::GetContentRegionAvail().x;
         float halfW  = availW * 0.5f;
@@ -743,27 +752,23 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
             if (pdguiEndscreenHasNextMission()) {
                 const char *nextLabel = pdguiEndscreenNextMissionLabel();
                 if (pdguiActionBarButton(nextLabel, 1, halfW) && !inputSuppressed) {
-                    menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "continue",
-                        endscreenGraphNextMission, NULL);
+                    decision.request(PdguiEndscreenIntent::Continue);
                 }
                 ImGui::SameLine();
                 if (pdguiActionBarButton("Retry Mission", 0,
                                           ImGui::GetContentRegionAvail().x)
                         && !inputSuppressed) {
-                    menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "retry",
-                        endscreenGraphRetryMission, NULL);
+                    decision.request(PdguiEndscreenIntent::Retry);
                 }
             } else {
                 if (pdguiActionBarButton("Retry Mission", 1, halfW) && !inputSuppressed) {
-                    menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "retry",
-                        endscreenGraphRetryMission, NULL);
+                    decision.request(PdguiEndscreenIntent::Retry);
                 }
                 ImGui::SameLine();
                 if (pdguiActionBarButton("Main Menu", 0,
                                           ImGui::GetContentRegionAvail().x)
                         && !inputSuppressed) {
-                    menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "main_menu",
-                        endscreenGraphExitToMainMenu, NULL);
+                    decision.request(PdguiEndscreenIntent::MainMenu);
                 }
             }
         } else {
@@ -772,8 +777,7 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
              * any unsaved progress), so route through the canonical S385
              * confirm modal. */
             if (pdguiActionBarButton("Retry Mission", 1, halfW) && !inputSuppressed) {
-                menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "retry",
-                    endscreenGraphRetryMission, NULL);
+                decision.request(PdguiEndscreenIntent::Retry);
             }
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,
@@ -786,33 +790,18 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
                                       ImGui::GetContentRegionAvail().x)
                     && !inputSuppressed
                     && !ImGui::IsPopupOpen(sfmmPopupId)) {
-                wantSoloMainMenuConfirm = true;
+                decision.request(PdguiEndscreenIntent::ConfirmMainMenu);
             }
             ImGui::PopStyleColor(3);
         }
     }
     pdguiEndActionBar();
 
-    /* Keyboard navigation: Enter/Start or Escape/Back — also debounced.
-     * S311: title X button also exits (first-click reliability).
-     * M-6-B: when the failed-mission main-menu confirm is open, suppress
-     * Esc here so it routes to the modal only; completed runs still have
-     * Esc as the quick exit (non-destructive in that branch). */
-    if (!inputSuppressed) {
-        bool confirmOpen = ImGui::IsPopupOpen(sfmmPopupId);
-        if (!confirmOpen &&
-            (pdguiConsumeTitleClose() ||
-             pdguiMenuCancelPressed())) {
-            if (!completed) {
-                wantSoloMainMenuConfirm = true;
-            } else {
-                menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "main_menu",
-                    endscreenGraphExitToMainMenu, NULL);
-            }
-        }
-    }
+    ImGui::EndDisabled();
+    bool wantSoloMainMenuConfirm = decision.consume(PdguiEndscreenIntent::ConfirmMainMenu);
 
     if (wantSoloMainMenuConfirm && !ImGui::IsPopupOpen(sfmmPopupId)) {
+        pdguiNavSuppressActivation();
         ImGui::OpenPopup(sfmmPopupId);
         s_SoloFailedMainMenuOpenFrame = (s32)ImGui::GetFrameCount();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
@@ -830,13 +819,27 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
 
     ImGui::End();
 
-    if (sfmmRes == PDGUI_CONFIRM_OK) {
-        menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "main_menu",
-            endscreenGraphExitToMainMenu, NULL);
-    }
-
-    /* E.3: Restore palette so the next renderer (main menu, etc.) is clean. */
+    /* Restore presentation before a selected callback can change scenes. */
     pdguiSetPalette(prevPalette);
+    if (sfmmRes == PDGUI_CONFIRM_OK) decision.request(PdguiEndscreenIntent::MainMenu);
+    decision.dispatch([](PdguiEndscreenIntent intent) {
+        pdguiNavSuppressActivation();
+        switch (intent) {
+        case PdguiEndscreenIntent::Continue:
+            menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "continue",
+                endscreenGraphNextMission, NULL);
+            break;
+        case PdguiEndscreenIntent::Retry:
+            menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "retry",
+                endscreenGraphRetryMission, NULL);
+            break;
+        case PdguiEndscreenIntent::MainMenu:
+            menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_SOLO, "main_menu",
+                endscreenGraphExitToMainMenu, NULL);
+            break;
+        default: break;
+        }
+    });
 }
 
 /* ========================================================================
@@ -1337,8 +1340,15 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
 
     const char *mpDisconnectPopupId = "Disconnect?##es_mp_disc";
     const char *mpQuitPopupId       = "Quit Game?##es_mp_quit";
-    bool wantDisconnectConfirm = false;
-    bool wantQuitConfirm = false;
+    // Child editor/popup ownership is resolved by the shared native filter.
+    // Back seeds the one frame decision before any Return/Play Again button.
+    const bool parentActionsAllowed = !inputSuppressed && pdguiNavActionAllowed(ACTION_MENU_ACCEPT);
+    const bool backPressed = !inputSuppressed && pdguiNavActionAllowed(ACTION_MENU_CANCEL)
+        && (pdguiConsumeTitleClose() || pdguiMenuCancelPressed());
+    PdguiEndscreenDecision decision;
+    if (backPressed) decision.request(networked ? PdguiEndscreenIntent::ConfirmDisconnect
+                                              : PdguiEndscreenIntent::ConfirmQuit);
+    ImGui::BeginDisabled(!parentActionsAllowed || backPressed);
 
     const s32 acceptPressed = actionPressed(0, ACTION_MENU_ACCEPT);
     const s32 acceptHeld = actionHeld(0, ACTION_MENU_ACCEPT);
@@ -1363,8 +1373,7 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
         if (networked) {
             if (pdguiActionBarButton("Return to Room", 1, halfW)
                     && !inputSuppressed) {
-                menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_MP, "continue",
-                    endscreenGraphMpContinue, NULL);
+                decision.request(PdguiEndscreenIntent::Continue);
             }
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
@@ -1375,14 +1384,13 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
                                       ImGui::GetContentRegionAvail().x)
                     && !inputSuppressed
                     && !ImGui::IsPopupOpen(mpDisconnectPopupId)) {
-                wantDisconnectConfirm = true;
+                decision.request(PdguiEndscreenIntent::ConfirmDisconnect);
             }
             ImGui::PopStyleColor(3);
         } else {
             if (pdguiActionBarButton("Play Again", 1, halfW)
                     && !inputSuppressed) {
-                menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_MP, "continue",
-                    endscreenGraphMpContinue, NULL);
+                decision.request(PdguiEndscreenIntent::Continue);
             }
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
@@ -1393,37 +1401,24 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
                                       ImGui::GetContentRegionAvail().x)
                     && !inputSuppressed
                     && !ImGui::IsPopupOpen(mpQuitPopupId)) {
-                wantQuitConfirm = true;
+                decision.request(PdguiEndscreenIntent::ConfirmQuit);
             }
             ImGui::PopStyleColor(3);
         }
     }
     pdguiEndActionBar();
 
-    /* Escape / title X close: still need explicit handling because the
-     * action bar's focused-button Enter path covers the primary action
-     * but not the cancel path.  S311: title X button mirrors Escape exit.
-     * M-6-B: route Esc/title-X through the destructive-action confirm
-     * (networked = Disconnect, solo-MP = Quit). */
-    if (!inputSuppressed) {
-        bool anyConfirmOpen = ImGui::IsPopupOpen(mpDisconnectPopupId)
-                           || ImGui::IsPopupOpen(mpQuitPopupId);
-        if (!anyConfirmOpen &&
-            (pdguiConsumeTitleClose() ||
-             pdguiMenuCancelPressed())) {
-            if (networked) {
-                wantDisconnectConfirm = true;
-            } else {
-                wantQuitConfirm = true;
-            }
-        }
-    }
+    ImGui::EndDisabled();
+    bool wantDisconnectConfirm = decision.consume(PdguiEndscreenIntent::ConfirmDisconnect);
+    bool wantQuitConfirm = decision.consume(PdguiEndscreenIntent::ConfirmQuit);
 
     if (wantDisconnectConfirm && !ImGui::IsPopupOpen(mpDisconnectPopupId)) {
+        pdguiNavSuppressActivation();
         ImGui::OpenPopup(mpDisconnectPopupId);
         s_MpDisconnectOpenFrame = (s32)ImGui::GetFrameCount();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
     } else if (wantQuitConfirm && !ImGui::IsPopupOpen(mpQuitPopupId)) {
+        pdguiNavSuppressActivation();
         ImGui::OpenPopup(mpQuitPopupId);
         s_MpQuitOpenFrame = (s32)ImGui::GetFrameCount();
         pdguiPlaySound(PDGUI_SND_OPENDIALOG);
@@ -1446,16 +1441,28 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
 
     ImGui::End();
 
-    if (discRes == PDGUI_CONFIRM_OK) {
-        menuGraphFireNetworkOp(MENU_TYPE_ENDSCREEN_MP, "disconnect",
-            endscreenGraphDisconnect, NULL);
-    } else if (quitRes == PDGUI_CONFIRM_OK) {
-        menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_MP, "quit",
-            endscreenGraphExitToMainMenu, NULL);
-    }
-
-    /* E.3: Restore palette so the next renderer (main menu, etc.) is clean. */
+    /* Restore presentation before a selected callback can leave the room. */
     pdguiSetPalette(prevPalette);
+    if (discRes == PDGUI_CONFIRM_OK) decision.request(PdguiEndscreenIntent::Disconnect);
+    else if (quitRes == PDGUI_CONFIRM_OK) decision.request(PdguiEndscreenIntent::Quit);
+    decision.dispatch([](PdguiEndscreenIntent intent) {
+        pdguiNavSuppressActivation();
+        switch (intent) {
+        case PdguiEndscreenIntent::Continue:
+            menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_MP, "continue",
+                endscreenGraphMpContinue, NULL);
+            break;
+        case PdguiEndscreenIntent::Disconnect:
+            menuGraphFireNetworkOp(MENU_TYPE_ENDSCREEN_MP, "disconnect",
+                endscreenGraphDisconnect, NULL);
+            break;
+        case PdguiEndscreenIntent::Quit:
+            menuGraphFireSceneOp(MENU_TYPE_ENDSCREEN_MP, "quit",
+                endscreenGraphExitToMainMenu, NULL);
+            break;
+        default: break;
+        }
+    });
 }
 
 /* ========================================================================

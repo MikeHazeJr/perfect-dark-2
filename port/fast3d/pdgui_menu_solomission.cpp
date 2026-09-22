@@ -41,6 +41,7 @@
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
 #include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "pdgui_layout.h"
 #include "pdgui_widgets.h"      /* Priority L: shared label-left widget helpers */
 #include "actionmap.h"
@@ -2577,39 +2578,11 @@ static s32 renderAcceptMission(struct menudialog *dialog,
     }
     ImGui::Separator();
 
-    /* Navigation */
-    bool doAccept  = false;
-    bool doDecline = false;
-
-    if (pdguiMenuDownRepeat()) {
-        s_AcceptSelectIdx = 1;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
-    }
-    if (pdguiMenuUpRepeat()) {
-        s_AcceptSelectIdx = 0;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
-    }
-    if (pdguiMenuAcceptPressed()) {
-        if (s_AcceptSelectIdx == 0) doAccept  = true;
-        else                        doDecline = true;
-    }
-    if (pdguiMenuCancelPressed()) {
-        doDecline = true;
-    }
-
-    if (doAccept) {
-        pdguiPlaySound(PDGUI_SND_SELECT);
-        menuGraphFireSceneOp(MENU_TYPE_SOLO_MISSION, "start",
-            soloMissionGraphStart, NULL);
-        ImGui::End();
-        return 1;
-    }
-    if (doDecline) {
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
-        ImGui::End();
-        return 1;
-    }
+    /* Native button focus is the sole activation authority. Back takes
+     * precedence on an idle screen; active editors retain it via the helper. */
+    bool doAccept = false;
+    bool doDecline = pdguiMenuCancelPressed();
+    if (doDecline) pdguiNavSuppressActivation();
 
     /* ---- Objectives list ---- */
     float btnH    = pdguiScale(57.0f);
@@ -2668,27 +2641,30 @@ static s32 renderAcceptMission(struct menudialog *dialog,
         ImVec2 cp = ImGui::GetCursorScreenPos();
         if (sel) pdguiDrawItemHighlight(cp.x, cp.y, btnW, btnH);
 
+        if (ImGui::IsWindowAppearing() && idx == 0) {
+            ImGui::SetKeyboardFocusHere();
+            ImGui::SetNavCursorVisible(true);
+        }
         bool clicked = ImGui::Button(lbl, ImVec2(btnW, btnH));
-        if (ImGui::IsItemHovered()) s_AcceptSelectIdx = idx;
+        if (ImGui::IsItemHovered() || ImGui::IsItemFocused()) s_AcceptSelectIdx = idx;
         return clicked;
     };
 
-    if (drawBtn(0, langSafe(L_OPTIONS_274), pdguiImU32TintSuccess(255))) {
+    doAccept = drawBtn(0, langSafe(L_OPTIONS_274), pdguiImU32TintSuccess(255));
+    ImGui::SameLine(0.0f, pdguiScale(15.0f));
+    doDecline |= drawBtn(1, langSafe(L_OPTIONS_275), pdguiImU32TintDanger(255));
+
+    ImGui::End();
+    if (doDecline) {
+        pdguiNavSuppressActivation();
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
+    } else if (doAccept) {
+        pdguiNavSuppressActivation();
         pdguiPlaySound(PDGUI_SND_SELECT);
         menuGraphFireSceneOp(MENU_TYPE_SOLO_MISSION, "start",
             soloMissionGraphStart, NULL);
-        ImGui::End();
-        return 1;
     }
-    ImGui::SameLine(0.0f, pdguiScale(15.0f));
-    if (drawBtn(1, langSafe(L_OPTIONS_275), pdguiImU32TintDanger(255))) {
-        pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        menuGraphFirePop(MENU_TYPE_SOLO_MISSION, "back");
-        ImGui::End();
-        return 1;
-    }
-
-    ImGui::End();
     return 1;
 }
 
@@ -2805,18 +2781,24 @@ static s32 renderPauseMenu(struct menudialog *dialog,
     if (s_PauseSelectIdx < 0)                s_PauseSelectIdx = 0;
     if (s_PauseSelectIdx >= k_NumPauseItems) s_PauseSelectIdx = k_NumPauseItems - 1;
 
+    /* Keep the parent inert for the entire frame owned by a child popup. */
+    const char *restartPopupId = "Restart Mission?##restart";
+    const bool pauseChildOpen = ImGui::IsPopupOpen(
+        nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    bool openRestartRequested = false;
+
     /* Navigation */
-    if (pdguiMenuDownRepeat()) {
+    if (!pauseChildOpen && pdguiMenuDownRepeat()) {
         s_PauseSelectIdx++;
         if (s_PauseSelectIdx >= k_NumPauseItems) s_PauseSelectIdx = 0;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    if (pdguiMenuUpRepeat()) {
+    if (!pauseChildOpen && pdguiMenuUpRepeat()) {
         s_PauseSelectIdx--;
         if (s_PauseSelectIdx < 0) s_PauseSelectIdx = k_NumPauseItems - 1;
         pdguiPlaySound(PDGUI_SND_FOCUS);
     }
-    bool doConfirm = pdguiMenuAcceptPressed();
+    bool doConfirm = !pauseChildOpen && pdguiMenuAcceptPressed();
 
     /* ---- Objectives with completion status ---- */
     /* Height = total - title - separators/padding - 5 action buttons */
@@ -2941,8 +2923,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 menuGraphFirePop(MENU_TYPE_SOLO_MISSION_PAUSE, "resume");
                 break;
             case 1: /* Restart Mission — M-6-A: open canonical S385 confirm modal */
-                ImGui::OpenPopup("Restart Mission?##restart");
-                s_RestartOpenFrame = (s32)ImGui::GetFrameCount();
+                openRestartRequested = true;
                 pdguiPlaySound(PDGUI_SND_OPENDIALOG);
                 break;
             case 2: /* Inventory (ImGui weapon list — M1.2) */
@@ -2962,6 +2943,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
                 break;
             }
             ImGui::PopID();
+            if (openRestartRequested) break;
             ImGui::End();
             return 1;
         }
@@ -2969,10 +2951,17 @@ static s32 renderPauseMenu(struct menudialog *dialog,
         ImGui::PopID();
     }
 
+    /* Open and render at the pause window's ID scope, after the row PopID. */
+    if (openRestartRequested) {
+        ImGui::OpenPopup(restartPopupId);
+        s_RestartOpenFrame = (s32)ImGui::GetFrameCount();
+        pdguiNavSuppressActivation();
+    }
+
     /* B button / Escape = Resume (unless restart confirm is showing).
      * M-6-A: restart confirm is now a popup modal — suppress the pause-level
      * cancel while the popup is open so Esc routes to the modal only. */
-    if (!ImGui::IsPopupOpen("Restart Mission?##restart") &&
+    if (!pauseChildOpen && !openRestartRequested &&
         pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         menuGraphFirePop(MENU_TYPE_SOLO_MISSION_PAUSE, "resume");
@@ -2985,7 +2974,7 @@ static s32 renderPauseMenu(struct menudialog *dialog,
      * via pdguiRenderConfirmModal().  Rendered before End() so the popup
      * is parented to the pause window. */
     s32 restartRes = pdguiRenderConfirmModal(
-        "Restart Mission?##restart",
+        restartPopupId,
         "Restart Mission?",
         "Restart the current mission from the beginning? All progress will be lost.",
         "Restart",
@@ -3139,6 +3128,7 @@ static s32 renderAbortMission(struct menudialog *dialog,
 
     if (forceFocus) {
         ImGui::SetKeyboardFocusHere(0);
+        ImGui::SetNavCursorVisible(true);
     }
 
     /* Cancel first — safer default focus for destructive confirm. */
@@ -3170,8 +3160,8 @@ static s32 renderAbortMission(struct menudialog *dialog,
     {
         char accept[24], cancel[24], hintL[64], hintR[64];
         pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, accept, (s32)sizeof(accept));
-        pdguiGlyphGetActionLabel(ACTION_CANCEL_USE, cancel, (s32)sizeof(cancel));
-        snprintf(hintL, sizeof(hintL), "[%s] Confirm", accept);
+        pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL, cancel, (s32)sizeof(cancel));
+        snprintf(hintL, sizeof(hintL), "[%s] Select", accept);
         snprintf(hintR, sizeof(hintR), "[%s] Cancel", cancel);
 
         float hintY = dialogH - pdguiScale(22.0f);
@@ -3187,19 +3177,15 @@ static s32 renderAbortMission(struct menudialog *dialog,
         ImGui::TextDisabled("%s", hintR);
     }
 
-    /* Keyboard + gamepad shortcuts. Debounced for ABORT_FRAME_DEBOUNCE frames
-     * after open so the Enter press that activated the Abort row can't bleed
-     * through. */
+    /* Accept belongs to the focused button. Back cancels the dialog after
+     * the opening debounce, including simultaneous confirm/cancel input. */
     if (!inputDebounced) {
-        if (pdguiMenuAcceptPressed()) {
-            doConfirm = true;
-        }
         if (pdguiMenuCancelPressed()) {
             doCancel = true;
         }
     }
 
-    if (doConfirm) {
+    if (doConfirm && !doCancel) {
         pdguiPlaySound(PDGUI_SND_EXPLOSION);
         /* Abort handler kicks off mission-end transition which unwinds the
          * menu stack via menupoolReleaseAll(). Pop the dialog explicitly as

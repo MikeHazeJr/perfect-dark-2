@@ -120,15 +120,16 @@ void pdguiEndActionBar(void);
 /**
  * Draw a primary action button inside the action bar.
  *
- * Handles consistent sizing (fills bar height), focus ring (via
- * pdguiDrawItemHighlight when isFocused is set), and audio cue
+ * Handles consistent sizing (fills bar height), an edge glow for the
+ * actual ImGui focus/hover/active state, and audio cue
  * (plays PDGUI_SND_SELECT on activation).
  *
  * Returns non-zero when the button is activated by mouse click OR
  * gamepad A / keyboard Enter while focused.
  *
  * @param label     Button text (visible).
- * @param isFocused Non-zero if the controller focus is on this button.
+ * @param isFocused Retained legacy layout hint; it does not grant focus or
+ *                  activation. ImGui owns both for every input device.
  * @param width     Button width in scaled pixels.  Use
  *                  ImGui::GetContentRegionAvail().x for a full-bar
  *                  single-button layout.
@@ -250,8 +251,9 @@ void pdguiPopupDarkenFlush(void);
  *   - 5-frame SetKeyboardFocusHere(0) force-focus latch on Cancel.
  *   - 3-frame input debounce (rejects Enter/Space/Esc before settle so
  *     the activation that opened the popup cannot bleed through).
- *   - Enter/Space/(A) = Confirm, Esc/(B) = Cancel keyboard shortcuts.
- *   - "[Enter/Space/(A)] Confirm   [Esc/(B)] Cancel" footer hint.
+ *   - Accept activates the focused button, including the safe Cancel default.
+ *     Back cancels the modal and takes priority over simultaneous Accept.
+ *   - Footer hints resolve current Menu Accept and Menu Cancel bindings.
  *   - Plays PDGUI_SND_SELECT on confirm and PDGUI_SND_KBCANCEL on cancel.
  *   - Clears *openFrame to -1 on dismiss.
  *

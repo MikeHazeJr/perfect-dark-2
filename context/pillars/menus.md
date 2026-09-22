@@ -1,5 +1,273 @@
 # Menus / UI / UX
 
+Sep8 21:15 activation core2 PASS35/35,79.5s, full049E558F/client811BE779 unchanged.
+Actual early persistence retries (new and already-enabled package), late archive
+load failure retaining original loaded1 restart baseline, FT retained failure/
+retry and explicit no-rollback discard verified. Saved JSON readback is real.
+Native12 union/build/guard PASS; receipts menu0908/activation-core2-exit.json and
+activation-focused12-acceptance.json. All prior reds retained. Source/runtime
+holds released; menu QUIESCENT for root installed22. Ordinary UI/Agent-switch/
+MKB/controller/network download/process restart remain unverified. Pre-install
+archive rescan loaded-state loss and raw VK/general hold ownership remain open.
+
+Sep8 21:11 native12 exact union + guard PASS. Actual activation-core1 failed
+manifest setup after baseline Apply PASS (70.3s18/35); changed-selection/late/FT
+cases not reached. Smoke-only exclusive-create correction now source049E558F,
+new client/guard/runtime pending; tests38BED245/native12 carry. Receipt
+menu0908/activation-core1-exit.json. No new behavioral activation acceptance yet.
+
+Sep8 21:02 activation R3 builds PASS client4A00D186/tests41D5DBCA/full69AED357.
+Remaining2 stopped again on root universal-walker exact multiline arena call
+assertion; no new passes, texture1unrun. Accepted10 carry; root owns formatting
+contract diagnosis. Guard/runtime still unrun; receipt activation-r3-two-exit.json.
+
+Sep8 20:52 activation R2: MP test-only repair + tests build PASS; remaining5
+gave3PASS then stale/root universal-walker `(void)file_path` source assertion
+red, texture lifecycle1unrun. Total10 accepted. Root owns correction; no
+guard/runtime yet. Receipt menu0908/activation-r2-five-exit.json, fullE4050262.
+
+Sep8 20:49 activation checkpoint: combined client/tests builds PASS, full3D302BEE
+unchanged, client212B6654/tests31EEE27F. Focused12 stopped on stale Public Mods
+loader source assertion:7PASS/1FAIL/4unrun. Guard/runtime unrun; MP owns test-only
+correction, root/menu source held. Receipt menu0908/activation12-exit.json.
+Owned final activation6 r4 adds actual FT failure/retry/discard smoke, unrun.
+
+Sep8 20:31 installed activation source repair applied (unverified): prepare an
+owned persistent plan before enabled publication, retain original loaded state
+and publication status through retries, reject changed activation selection.
+Archive installation is separate; importer keeps failed plan with explicit
+Retry/Discard and guards hub departure. MP migrates FT separately. Next gate:
+actual discovered-package first-save failure and retained retry; no UI proof.
+Final source manifest activation-six-r3-settled.json E327DD1A also rejects
+session-only activation and extends actual core smoke to a real missing-archive
+late failure preserving original loaded1 restart baseline. All validation pending.
+
+Sep8 20:13 actual core Apply2 PASS16/16,64.1s, clientC2A2A4B4/full67A85250,
+no drift. Component-save injected failure preserved file/registry and stopped
+before config/runtime; same owned-plan retry persisted mask3/completed runtime,
+dirty0. Receipt menu0908/core-apply2-exit.json. Initial admission red retained.
+Baseline API proof only: no changed selection/UI/input/Agent/restart/late failure.
+Installed activation helper retry hole remains open (enabled branch skips failed
+persistence); menu owns correction with retained baseline semantics. Holds released.
+
+Sep8 20:00 actual-core Apply probe7 integrated after batch18 release/grant:
+explicit smoke event + separate boot-only readiness + native schema/readiness2.
+Real atomic-save failure then same owned Apply-plan retry, with destination and
+registry unchanged checks before runtime. Source/build/runtime pending, manifest
+menu0908/apply-complete-review/core-probe/applied-seven.json. No new CMake;
+ordinary input readiness unchanged. Baseline core proof is not full Apply/UI proof.
+
+Sep8 19:37 InterfaceDelete1 source applied: refresh actual catalog after partial
+or complete file removal, checked status and Retry refresh without more deletes.
+Back wins; retry cannot also dismiss; long status wraps. Manifest menu0908/
+interface-delete-applied.json. Menu quiescent; root sound cohort client/guard
+requested. Actual UI/input proof pending; filesystem deletion scope unchanged.
+19:55 r3 clientCF294A6D/full80E30B41 PASS, all2121 inputs unchanged. R2 found
+two moved helper declarations with C++ linkage; corrected to global extern C.
+Settled interface-delete-linkage-applied.json, client-postcheck receipt in menu0908.
+Retain initial audio compile and subsequent menu link reds; UI proof still open.
+
+Sep8 19:27 checked caller4 integrated: reload/sync now expose rebuild failure;
+archive activation checks actual enable and Apply/sync; Weapon Save keeps its
+error/editor on failed Apply and identifies deferred restart. ClientFB499E55
+built on fullFBCC1DBA without source drift. Sep8 19:31 tests30D27547 build0,
+affected Weapon source contract1/100 assertions and native guard PASS; MP
+voice adapter5/55 assertions also PASS. Receipts .claude/menu0908/callers-*.
+All holds released. Actual core/UI failure and retry journeys remain open. Manifest
+.claude/menu0908/apply-complete-review/callers/applied-four.json. InterfaceDelete,
+file-transfer, Agent transient and session retirement propagation remain open.
+
+Sep8 19:19 Apply-r3 PASS: all-owner quiescent full D9048BFF; clientE69F3AF4
+and tests09DD35F0 builds0, main5/139 assertions and MP policy6/40 assertions
+PASS, native guard0, no source drift. Receipts .claude/menu0908/apply-r3-*.
+Prior actual catalog-plan4/51 retained without rerun. Earlier source-drift
+preflight red retained below, remaining5 now executed successfully. Holds
+released to root generation14. Main core/ImGui failure/retry, alternate callers
+and ordinary controller/MKB acceptance remain open; full menu goal partial.
+
+Sep8 19:02 Apply checkpoint: client/tests builds PASS and actual catalog-plan4
+PASS without drift; main5 aborted before execution on MP group_session.h/.c
+source drift during explicit hold. Guard/runtime unrun. Receipts menu0908/
+apply-catalog-plan4-exit.json, apply-main5-exit.json, apply-client-postcheck.json.
+Await coordinated settled manifest/rebuild; no menu defect inferred and no
+unchanged catalog4 rerun. Full Apply/native5/runtime/caller propagation open.
+
+Sep8 18:56: main Apply/retry10 integrated after MP release, uncompiled/unrun.
+Prepared intent saves before runtime; checked rebuild results reach main UI;
+Agent identity/restart baseline and desired choices survive retry. Actual
+publication is verified; incomplete Apply guards departure and editing.
+Manifest menu0908/apply-complete-review/applied-ten.json; catalog4/main5 next.
+Alternate callers and real core/ImGui/controller acceptance remain open.
+
+Sep8 18:32: matching clientB52B721F build0 verified against frozen full3B8304A3;
+all16 unique component/save-status/scanner paths present and unchanged. Receipt
+menu0908/batch15-client-postcheck.json. Production core and authoring UI compile;
+component15/save-status6 native acceptance remains separate. Scanner filesystem,
+ordinary UI failure/retry and full menu/controller acceptance remain open.
+
+Sep8 18:24: save-status6 PASS/79 assertions; tests build0/4s and native source
+guard PASS, no drift. Full manifest1BB2179A/tests0C1AEA5F. Receipts menu0908/
+save-status6-exit.json and save-status-native-guard-exit.json. Production save
+sequencing tested with controlled callbacks; actual core adapter/client/UI
+failure/retry proof remains pending. Full Apply/input goal is still partial.
+
+Sep8 18:16: checked save-status7 integrated, uncompiled/unrun. Config save
+returns phase/confirmed destinations/owned Agent identity and stops on errors.
+Audio import and chrome save use it to withhold false persistence success;
+missing registry rows also fail. Six direct orchestration cases prepared.
+Manifest .claude/menu0908/save-status-review/applied-seven.json. Full Apply/UI
+retry, matching client and ordinary input/runtime remain open.
+
+Sep8 18:10: component persistence IO8 + actual catalog6 + family1 PASS,
+tests build0/37s and native source guard PASS; zero source/binary drift.
+Receipts .claude/menu0908/component-{io8,catalog6,family1}-exit.json and
+component-native-guard-exit.json. Full source C9A6A2C9, tests331490B9,
+catalog1C803756. Matching client and ordinary runtime/UI remain pending;
+full checked Apply/retry and complete menu/input acceptance still open.
+
+Sep8 18:03: component-state nine paths integrated after MP source release;
+manifest .claude/menu0908/component-state-review/applied-nine.json. File IO
+uses complete validation and atomic merged saves; real catalog adapter includes
+disabled entries, excludes session ownership, and reports checked replay failures.
+Rebuild replay now follows final package registration. Compilation, IO8/catalog6/
+family1, matching client and guard pending coordinated freeze. Full Apply/UI and
+ordinary runtime acceptance remain open. This supersedes private-candidate status.
+
+Sep8 17:16: enabled-list exact-capacity repair passes four direct cases/26
+assertions on tests189B1644/full native2093EA1D, zero drift. Complete2047-byte
+legacy lists keep the final ID, failed preparation preserves output and stops
+before persistence. .claude/menu0908/legacy-list4-exit.json; native guard PASS
+exit0/unchanged source, matching client B56D8334 verified build0 at17:26 with own
+four hashes unchanged. Installed command admission red remains separate runtime
+evidence. Component-state integration status is recorded above.
+
+Sep8 16:30: catalog toggle defect repaired at both mutation/rollback lookups.
+Disabled rows can re-enable and failed teardown restores the selected bit.
+New checked toggle/clear APIs preserve failure truth and retain void wrappers.
+Actual catalog10 + affected lifecycle1 + native guard PASS on frozen2087E5AC;
+tests0CF0DC7E/055E7589. Receipts menu0908/catalog-mutation10-exit.json,
+catalog-lifecycle1-exit.json, catalog-native-guard-exit.json. Matching client
+verified16:46: batch11 client980529BE includes selected_id diagnostic correction;
+full native2090/8B2CFF2A unchanged. Full Apply persistence/rebuild/UI retry remains open.
+
+Sep8 16:04: matching clientE36F3211 buildPASS and common387 manifest6C79C9F1
+independently unchanged; shared native guard reports ok. Persistence14 remains
+PASS. `modmgr-state-review/client-postcheck.json` plus the direct receipt close
+the bounded source/build/helper-IO repair, with ordinary UI/restart, disabled
+components and full checked Apply still open.
+
+Sep8 16:02: Mod Manager persistence14 PASS (256 assertions) on frozen
+source3876C79C9F1/tests56796CE5, zero drift. Actual production reader/writer
+helpers and atomic-file failure/retry are covered. Receipt
+`.claude/menu0908/modmgr-persistence14-exit.json`. Client build/native guard
+pending; ordinary UI, restart and complete checked Apply remain open.
+
+Sep8 15:56: T-MENUS-006 strict ordered selection load and escaped atomic save
+applied on four owned paths after source release, exact draft hashes verified.
+Receipt `.claude/menu0908/modmgr-state-review/applied-four.json`. Shared CMake
+and joint build are coordinator-owned; fourteen focused cases UNRUN. Invalid
+existing primary files preserve selection and do not permit legacy fallback;
+session-only row positions/state remain unchanged. Disabled component state
+and full checked Apply/error presentation still remain open.
+
+Sep8 15:29 terminal: menu2 compiles in clientFA930431/source3607EB79621.
+Changed-source desktop Agent verbose gate RED9/22,0events/no GL captures;
+supported activation failed twice including refreshed-target recovery. No
+focus-gain/provenance edge; source/client/fixture unchanged. Layout/nav/black
+preview remain unvalidated. Root stops startup retries and releases shared
+resources for asset seed/MP14 work. `agent-layout-provenance-exit.json` and
+the menu audit retain the boundary; full menu accessibility remains partial.
+
+Sep8 15:21: two-path AgentCreate layout repair and verbose ActionMap edge
+diagnostics applied/frozen after explicit source handoff, awaiting joint client
+build. Receipt `.claude/menu0908/agent-layout-review/applied-two-paths.json`:
+AgentCreate23AF9A96, ActionMap9872D522. Long names now wrap inside a scrollable
+controls child, counts/reset text stay within that column; callbacks unchanged.
+Runtime layout/nav verification remains open. Desktop1 proved real window focus
+but finished11/22 with zero fixture events: a global Accept independently pushed
+Create before AgentSelect's250ms stability gate. Input provenance and black
+character preview remain separate open findings (N-0126); no ordinary pass.
+
+Sep8 14:30 ordinary gate: unchanged Agent Create/Cancel timed out90s before
+menu admission (boot0,0of10 events,no captures,8of22 assertions) while normal
+startup still activated weapon metadata. ClientBB6F/source347EFF/fixtureEF129
+unchanged; `.claude/menu0908/current-agent-exit.json`. Direct350+save11+FR4
+remain accepted separately. Common freeze released for promised MP20 integration;
+root menu edits held, no further runtime/Settings/virtual retry in this window.
+
+Sep8 14:24 direct acceptance:350 selected source/native cases pass as an exact
+named union; dedicated real Settings/config save11 and actual FR renderer4
+also pass, with no source/binary drift. Current receipt:
+`.claude/menu0908/accepted350.json`. Runtime/visual/hardware remain distinct and
+open. Asset owner has the released build/runtime lane for metadata-owner repair
+validation, then root runs unchanged ordinary Agent Create/Cancel and Settings.
+
+Current Sep8 gate: shared tests build passes after dedicated-target configure
+and COFF isolation corrections. Menu350 stops with140 exact passes, one stale
+right-stick source assertion failure and209 unrun (zero source drift). The
+assertion-only correction is applied; incremental rebuild and210 remaining
+cases are next. Dedicated save11/FR4 and all newer client journeys are unrun.
+Evidence: `.claude/menu0908/current-menu-exit.json` and adjacent JUnit/names.
+
+Sep8 readiness addition: Main Menu records its actually submitted view/tab and
+native Play/Settings item IDs without changing focus. The smoke policy requires
+a completed current render, visible navigation focus, no editor/popup/capture,
+current dialog/pools, settled input and an active Agent. Seven named conditions
+support `menu_settings_keyboard.json`, a disposable-profile keyboard route with
+five GL captures. Native focus/freshness and policy cases are authored but unrun.
+The first runtime prerequisites remain asset boot and unchanged Agent Cancel;
+this fixture does not establish editing, persistence, hardware or visual acceptance.
+
+## 2026-09-08 integrated menu37 - verification pending
+
+The reviewed remaining navigation, Settings Interface/save/departure, Results,
+controller keyboard and virtual-controller fixture unit is now applied.
+Dedicated real-config-save and native Firing Range targets are wired into the
+queued tests build. All37 files match reviewed cumulative candidate text;
+`.claude/menu0908/integration-verified.json` records current hashes. Current
+compile, behavior and runtime checks are pending. The302 below is prior-unit
+evidence; ordinary menus still cannot be validated past the asset hand-source
+boot failure. Full inventory, visual/hardware and ModManager core work remain.
+
+## 2026-09-06 next batch - focused cases pass, client proof pending
+
+Stable outer-window popup requests now connect Solo Restart, Agent Copy/Delete
+and Room Change Character to their rendering owners. Room child Back no longer
+arms Leave, and shared theme/mod deletion has visible default Cancel, owned
+Back, cancel precedence and a correctly scoped result popup. Complete binding
+persistence and reachable legacy binding-menu repairs are integrated alongside
+the native widget ownership helper and actual completed-frame menu-readiness
+barriers. All302 selected cases pass cumulatively on final312-path46DAC86C /
+testsEA58CA28; `.claude/menu0906-next/accepted302.json` records exact cohorts.
+The 235-case acceptance below applies to the preceding frozen source unit.
+
+T-MENUS-006 now stages Installed enable/order edits by stable ID, guards Hub
+departures with Apply/Discard/Cancel, and makes child Back/default focus explicit.
+UI collections no longer silently stop at the old entry/category/error caps.
+The production staging helper's ten cases pass within this cohort. Core
+Apply/save status and disabled-component persistence remain separate open gaps;
+the UI does not claim rollback after disk/runtime failure.
+
+Ordinary Agent Create/Cancel verification remains red before the intended route:
+the first fixture's Select preceded menu readiness. Its three captures establish
+only picker display and Back. The revised readiness fixture on client2E4448B3
+stops during asset boot at90s, before any key/capture, with repeated typed
+body/head mesh hash failures. See the menu acceptance audit; asset owner diagnoses.
+
+## 2026-09-06 focus and Settings ownership correction
+
+T-MENUS-004 replaces dialog-wide Accept overrides with actual focused ImGui
+button activation in destructive confirmations and the shared action bar.
+Back wins simultaneous cancel/confirm; dynamic hints identify Select and Back
+using current bindings. T-MENUS-005 owns binding capture as a modal listening,
+candidate-review and explicit-Apply transaction, exposes all occupied slots,
+and provides controller-accessible clearing without replacing another device's
+binding when the mapping is full. Forced default focus is also explicitly
+visible, allowing Enter/controller activation after mouse/programmatic opening.
+The affected 235-case gate passes, including actual ImGui confirmations and
+action-bar isolation. Full physical, ordinary-client and graphical acceptance
+remains V-004/T-MENUS-003; remaining popup caller defects are in the menu audit.
+
 ## 2026-08-26 B-1076 stage-transition ownership
 
 `mpStartMatch` is the single Combat Simulator stage-request owner. Before any

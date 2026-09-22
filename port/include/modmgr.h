@@ -153,10 +153,9 @@ s32 modmgrValidateArchiveFile(const char *archive_path,
                               s32 error_len);
 
 // Install a validated .pdmod archive into mods/installed, rescan the registry,
-// and optionally enable/apply it immediately. Returns the registry index on
-// success, or -1 with out_error populated on failure.
+// without activating it. Returns the registry index on success, or -1 with
+// out_error populated on failure. Activation uses a caller-owned Apply plan.
 s32 modmgrInstallArchiveFile(const char *archive_path,
-                             s32 enable_now,
                              char *out_error,
                              s32 error_len);
 

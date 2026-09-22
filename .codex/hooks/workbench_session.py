@@ -252,7 +252,9 @@ def coordination_session_exists(root: Path, meta: dict[str, Any] | None, owner: 
         if not path.is_file():
             continue
         try:
-            state = json.loads(path.read_text(encoding="utf-8"))
+            # Windows PowerShell's UTF8 writer may prefix the coordination
+            # JSON with a BOM; both encodings are the same registered state.
+            state = json.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, json.JSONDecodeError):
             continue
         return any(session.get("sessionId") == owner for session in state.get("sessions", []))

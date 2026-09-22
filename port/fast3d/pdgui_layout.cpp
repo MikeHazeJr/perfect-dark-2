@@ -20,6 +20,7 @@
 #include "pdgui_style.h"
 #include "pdgui_audio.h"
 #include "pdgui_nav.h"
+#include "pdgui_glyphs.h"
 
 /* Action bar metrics (1080p baseline, matching pdgui_scaling.h reference and
  * the d5-full-menu-overhaul.md UI Scaling table).
@@ -101,6 +102,9 @@ void pdguiEndActionBar(void)
 
 s32 pdguiActionBarButton(const char *label, s32 isFocused, f32 width)
 {
+    /* Retain the argument for existing callers, but their layout/default
+     * hints cannot grant input authority to an unfocused button. */
+    (void)isFocused;
     if (width < 1.0f) width = 1.0f;
 
     /* Button height = bar height minus a small vertical breathing pad. */
@@ -117,27 +121,17 @@ s32 pdguiActionBarButton(const char *label, s32 isFocused, f32 width)
 
     ImVec2 cp = ImGui::GetCursorScreenPos();
 
-    /* Focus highlight behind the button (palette-derived ring + fill). */
-    if (isFocused) {
-        pdguiDrawItemHighlight(cp.x, cp.y, width, btnH);
+    bool clicked = ImGui::Button(label, ImVec2(width, btnH));
+    if (ImGui::IsItemFocused() || ImGui::IsItemHovered() || ImGui::IsItemActive()) {
+        pdguiDrawButtonEdgeGlow(cp.x, cp.y, width, btnH,
+                                ImGui::IsItemActive() ? 1 : 0);
     }
 
-    bool clicked = ImGui::Button(label, ImVec2(width, btnH));
-
-    /* Enter confirms the focused button. */
-    bool doActivate = (isFocused != 0) &&
-        pdguiMenuAcceptPressed();
-
-    if (clicked || doActivate) {
+    /* ImGui owns pointer and focused keyboard/controller activation. This
+     * also prevents a background action bar from accepting a modal's input. */
+    if (clicked) {
         pdguiPlaySound(PDGUI_SND_SELECT);
         return 1;
-    }
-
-    /* Mouse hover also claims focus so keyboard/gamepad + mouse play nice. */
-    if (ImGui::IsItemHovered()) {
-        /* Only play hover sound on edge-trigger to avoid spam; ImGui's
-         * IsItemHovered fires every frame. The caller owns focus state
-         * and can decide whether to play SND_FOCUS on change. */
     }
 
     return 0;
@@ -346,6 +340,9 @@ s32 pdguiRenderConfirmModal(const char *popupId,
      * bypasses that race. */
     if (forceFocus) {
         ImGui::SetKeyboardFocusHere(0);
+        /* FocusApi preserves hidden mouse focus; a forced safe default must
+         * also be visible before Enter/controller activation can reach it. */
+        ImGui::SetNavCursorVisible(true);
     }
 
     if (ImGui::Button("Cancel##pdgui_confirm_cancel", ImVec2(btnW, btnH))) {
@@ -371,8 +368,14 @@ s32 pdguiRenderConfirmModal(const char *popupId,
 
     /* Footer hints. */
     {
-        const char *hintL = "[Enter/Space/(A)] Confirm";
-        const char *hintR = "[Esc/(B)] Cancel";
+        char acceptGlyph[64], cancelGlyph[64];
+        char hintL[96], hintR[96];
+        pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, acceptGlyph,
+                                 (s32)sizeof(acceptGlyph));
+        pdguiGlyphGetActionLabel(ACTION_MENU_CANCEL, cancelGlyph,
+                                 (s32)sizeof(cancelGlyph));
+        snprintf(hintL, sizeof(hintL), "[%s] Select", acceptGlyph);
+        snprintf(hintR, sizeof(hintR), "[%s] Cancel", cancelGlyph);
         f32 hintY = modalH - pdguiScale(22.0f);
         if (hintY < ImGui::GetCursorPosY() + pdguiScale(4.0f)) {
             hintY = ImGui::GetCursorPosY() + pdguiScale(4.0f);
@@ -387,28 +390,26 @@ s32 pdguiRenderConfirmModal(const char *popupId,
         ImGui::TextDisabled("%s", hintR);
     }
 
-    /* Keyboard / gamepad shortcuts.  Debounced for FRAME_DEBOUNCE frames
-     * so the Enter press that opened the popup cannot bleed through. */
+    /* Accept belongs to the focused ImGui button above, including Cancel.
+     * A dialog-wide Accept shortcut would override that safe default.
+     * Back remains a dialog-wide action after the opening debounce. */
     if (!inputDebounced) {
-        if (pdguiMenuAcceptPressed()) {
-            doConfirm = true;
-        }
         if (pdguiMenuCancelPressed()) {
             doCancel = true;
         }
     }
 
     s32 result = PDGUI_CONFIRM_PENDING;
-    if (doConfirm) {
-        pdguiPlaySound(PDGUI_SND_SELECT);
-        ImGui::CloseCurrentPopup();
-        *openFrame = -1;
-        result = PDGUI_CONFIRM_OK;
-    } else if (doCancel) {
+    if (doCancel) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         ImGui::CloseCurrentPopup();
         *openFrame = -1;
         result = PDGUI_CONFIRM_CANCEL;
+    } else if (doConfirm) {
+        pdguiPlaySound(PDGUI_SND_SELECT);
+        ImGui::CloseCurrentPopup();
+        *openFrame = -1;
+        result = PDGUI_CONFIRM_OK;
     }
 
     pdguiSetPalette(prevPalette);

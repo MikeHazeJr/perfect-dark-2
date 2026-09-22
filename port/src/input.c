@@ -6,6 +6,7 @@
 #include <PR/os_cont.h>
 #include "platform.h"
 #include "input.h"
+#include "input_vk.h"
 #include "video.h"
 #include "config.h"
 #include "utils.h"
@@ -129,41 +130,6 @@ static const char *vkMouseNames[] = {
 	"MOUSE_X2",
 	"MOUSE_WHEEL_UP",
 	"MOUSE_WHEEL_DN",
-};
-
-static const char *vkJoyNames[] = {
-	"JOY1_A",
-	"JOY1_B",
-	"JOY1_X",
-	"JOY1_Y",
-	"JOY1_BACK",
-	"JOY1_GUIDE",
-	"JOY1_START",
-	"JOY1_LSTICK",
-	"JOY1_RSTICK",
-	"JOY1_LSHOULDER",
-	"JOY1_RSHOULDER",
-	"JOY1_DPAD_UP",
-	"JOY1_DPAD_DOWN",
-	"JOY1_DPAD_LEFT",
-	"JOY1_DPAD_RIGHT",
-	"JOY1_BUTTON_15",
-	"JOY1_BUTTON_16",
-	"JOY1_BUTTON_17",
-	"JOY1_BUTTON_18",
-	"JOY1_BUTTON_19",
-	"JOY1_TOUCHPAD",
-	"JOY1_BUTTON_21",
-	"JOY1_LSTICK_LEFT",
-	"JOY1_LSTICK_RIGHT",
-	"JOY1_LSTICK_UP",
-	"JOY1_LSTICK_DOWN",
-	"JOY1_RSTICK_LEFT",
-	"JOY1_RSTICK_RIGHT",
-	"JOY1_RSTICK_UP",
-	"JOY1_RSTICK_DOWN",
-	"JOY1_LTRIGGER",
-	"JOY1_RTRIGGER",
 };
 
 static char vkNames[VK_TOTAL_COUNT][64];
@@ -446,50 +412,21 @@ static int inputEventFilter(void *data, SDL_Event *event)
 
 		case SDL_CONTROLLERBUTTONDOWN:
 			if (!lastKey) {
-				lastKey = VK_JOY1_BEGIN + event->cbutton.button;
 				SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
 				const s32 idx = inputControllerGetIndex(ctrl);
-				if (idx >= 0) {
-					lastKey += idx * INPUT_MAX_CONTROLLER_BUTTONS;
-				}
+				lastKey = inputVkRawButton(idx >= 0 ? idx : 0, event->cbutton.button);
 			}
 			break;
 
 		case SDL_CONTROLLERAXISMOTION:
 			if (!lastKey) {
-				if (event->caxis.axis >= SDL_CONTROLLER_AXIS_TRIGGERLEFT && event->caxis.value > TRIG_THRESHOLD) {
-					lastKey = VK_JOY1_LTRIG + (event->caxis.axis - SDL_CONTROLLER_AXIS_TRIGGERLEFT);
+				if (event->caxis.value > TRIG_THRESHOLD ||
+					(event->caxis.axis < SDL_CONTROLLER_AXIS_TRIGGERLEFT &&
+					 event->caxis.value < -TRIG_THRESHOLD)) {
 					SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
 					const s32 idx = inputControllerGetIndex(ctrl);
-					if (idx >= 0) {
-						lastKey += idx * INPUT_MAX_CONTROLLER_BUTTONS;
-					}
-				}
-				/* Stick axis directions — synthetic VKs for rebinding capture */
-				else if (event->caxis.value > TRIG_THRESHOLD || event->caxis.value < -TRIG_THRESHOLD) {
-					s32 vk = 0;
-					switch (event->caxis.axis) {
-					case SDL_CONTROLLER_AXIS_LEFTX:
-						vk = (event->caxis.value < 0) ? VK_JOY1_LSTICK_LEFT : VK_JOY1_LSTICK_RIGHT;
-						break;
-					case SDL_CONTROLLER_AXIS_LEFTY:
-						vk = (event->caxis.value < 0) ? VK_JOY1_LSTICK_UP : VK_JOY1_LSTICK_DOWN;
-						break;
-					case SDL_CONTROLLER_AXIS_RIGHTX:
-						vk = (event->caxis.value < 0) ? VK_JOY1_RSTICK_LEFT : VK_JOY1_RSTICK_RIGHT;
-						break;
-					case SDL_CONTROLLER_AXIS_RIGHTY:
-						vk = (event->caxis.value < 0) ? VK_JOY1_RSTICK_UP : VK_JOY1_RSTICK_DOWN;
-						break;
-					}
-					if (vk) {
-						lastKey = vk;
-						SDL_GameController *ctrl = SDL_GameControllerFromInstanceID(event->cdevice.which);
-						const s32 idx = inputControllerGetIndex(ctrl);
-						if (idx >= 0) {
-							lastKey += idx * INPUT_MAX_CONTROLLER_BUTTONS;
-						}
-					}
+					lastKey = inputVkDigitalAxis(idx >= 0 ? idx : 0, event->caxis.axis,
+						event->caxis.value < 0 ? -1 : 1);
 				}
 			}
 			break;
@@ -499,7 +436,7 @@ static int inputEventFilter(void *data, SDL_Event *event)
 				break;
 			}
 			if (!lastKey && event->jbutton.button < INPUT_MAX_CONTROLLER_BUTTONS) {
-				lastKey = VK_JOY1_BEGIN + event->jbutton.button;
+				lastKey = inputVkRawButton(0, event->jbutton.button);
 			}
 			break;
 
@@ -508,28 +445,8 @@ static int inputEventFilter(void *data, SDL_Event *event)
 				break;
 			}
 			if (!lastKey && (event->jaxis.value > TRIG_THRESHOLD || event->jaxis.value < -TRIG_THRESHOLD)) {
-				switch (event->jaxis.axis) {
-				case 0:
-					lastKey = (event->jaxis.value < 0) ? VK_JOY1_LSTICK_LEFT : VK_JOY1_LSTICK_RIGHT;
-					break;
-				case 1:
-					lastKey = (event->jaxis.value < 0) ? VK_JOY1_LSTICK_UP : VK_JOY1_LSTICK_DOWN;
-					break;
-				case 2:
-					lastKey = (event->jaxis.value < 0) ? VK_JOY1_RSTICK_LEFT : VK_JOY1_RSTICK_RIGHT;
-					break;
-				case 3:
-					lastKey = (event->jaxis.value < 0) ? VK_JOY1_RSTICK_UP : VK_JOY1_RSTICK_DOWN;
-					break;
-				case 4:
-					if (event->jaxis.value > TRIG_THRESHOLD) lastKey = VK_JOY1_LTRIG;
-					break;
-				case 5:
-					if (event->jaxis.value > TRIG_THRESHOLD) lastKey = VK_JOY1_RTRIG;
-					break;
-				default:
-					break;
-				}
+				lastKey = inputVkDigitalAxis(0, event->jaxis.axis,
+					event->jaxis.value < 0 ? -1 : 1);
 			}
 			break;
 
@@ -621,11 +538,7 @@ static inline void inputInitKeyNames(void)
 
 	// joystick names
 	for (u32 vk = VK_JOY1_BEGIN; vk < VK_TOTAL_COUNT; ++vk) {
-		const u32 jidx = (vk - VK_JOY1_BEGIN) / INPUT_MAX_CONTROLLER_BUTTONS;
-		const u32 jbtn = (vk - VK_JOY1_BEGIN) % INPUT_MAX_CONTROLLER_BUTTONS;
-		strncpy(vkNames[vk], vkJoyNames[jbtn], sizeof(vkNames[vk]) - 1);
-		vkNames[vk][sizeof(vkNames[vk]) - 1] = '\0';
-		vkNames[vk][3] = '1' + jidx;
+		inputVkControllerName(vk, vkNames[vk], sizeof(vkNames[vk]));
 	}
 }
 
@@ -1525,7 +1438,10 @@ const char *inputGetKeyName(s32 vk)
 		vk = 0;
 	}
 	if (!vkNames[vk][0]) {
-		snprintf(vkNames[vk], sizeof(vkNames[vk]), "UNKNOWN%d", vk);
+		if (vk < VK_JOY_BEGIN ||
+			!inputVkControllerName(vk, vkNames[vk], sizeof(vkNames[vk]))) {
+			snprintf(vkNames[vk], sizeof(vkNames[vk]), "UNKNOWN%d", vk);
+		}
 	}
 	return vkNames[vk];
 }
@@ -1535,12 +1451,9 @@ s32 inputGetKeyByName(const char *name)
 	s32 start = 0;
 	s32 end = 0;
 
-	if (!strncmp(name, "JOY", 3) && isdigit(name[3])) {
-		const s32 idx = name[3] - '1';
-		if (idx >= 0 && idx < INPUT_MAX_CONTROLLERS) {
-			start = VK_JOY1_BEGIN + idx * INPUT_MAX_CONTROLLER_BUTTONS;
-			end = start + INPUT_MAX_CONTROLLER_BUTTONS;
-		}
+	if (!strncmp(name, "JOY", 3)) {
+		const u32 vk = inputVkControllerByName(name);
+		return vk ? (s32)vk : -1;
 	} else if (!strncmp(name, "MOUSE", 5)) {
 		start = VK_MOUSE_BEGIN;
 		end = VK_JOY1_BEGIN;
