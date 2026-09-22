@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 
 #include <PR/ultratypes.h>
 
@@ -14,6 +15,25 @@
  */
 
 static char s_CustomModelCatalogIds[MODEL_CUSTOM_COUNT][CATALOG_ID_LEN];
+
+void *assetCatalogSnapshotCustomModelSlots(void)
+{
+    void *snapshot = malloc(sizeof(s_CustomModelCatalogIds));
+    if (snapshot) memcpy(snapshot, s_CustomModelCatalogIds, sizeof(s_CustomModelCatalogIds));
+    return snapshot;
+}
+
+s32 assetCatalogRestoreCustomModelSlots(const void *snapshot)
+{
+    if (!snapshot) return 0;
+    memcpy(s_CustomModelCatalogIds, snapshot, sizeof(s_CustomModelCatalogIds));
+    return 1;
+}
+
+void assetCatalogDestroyCustomModelSlotSnapshot(void *snapshot)
+{
+    free(snapshot);
+}
 
 _Static_assert(MODEL_CUSTOM_COUNT > 0,
     "model custom slot count must be positive");

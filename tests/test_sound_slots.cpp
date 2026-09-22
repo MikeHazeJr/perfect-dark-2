@@ -98,3 +98,26 @@ TEST_CASE("sound slots: admission snapshot restores reservations exactly",
 	REQUIRE(assetCatalogResolveSoundPrivateSlot("mod_x:replacement") == retained + 1);
 	REQUIRE(assetCatalogResolveSoundPrivateSlot("mod_x:retained") == retained);
 }
+
+TEST_CASE("sound generations retain leaf slots across catalog reset and rollback",
+        "[catalog][sound][slots][generation]") {
+    assetCatalogResetCustomSoundSlots();
+    const s32 ordinary = assetCatalogResolveSoundPrivateSlot("mod:sound_before");
+    void *snapshot = assetCatalogSnapshotCustomSoundSlots();
+    REQUIRE(snapshot != nullptr);
+    const s32 retained = assetCatalogReserveSoundGenerationSlot();
+    REQUIRE(retained == SND_CUSTOM_END - 1);
+    assetCatalogResetCustomSoundSlots();
+    const s32 second = assetCatalogReserveSoundGenerationSlot();
+    REQUIRE(second == retained - 1);
+    REQUIRE(assetCatalogRestoreCustomSoundSlots(snapshot));
+    REQUIRE(assetCatalogResolveSoundPrivateSlot("mod:sound_before") == ordinary);
+    REQUIRE(assetCatalogResolveSoundPrivateSlot("mod:sound_after") != retained);
+    assetCatalogReleaseSoundGenerationSlot(retained);
+    REQUIRE(assetCatalogReserveSoundGenerationSlot() == retained);
+    assetCatalogReleaseSoundGenerationSlot(retained);
+    assetCatalogReleaseSoundGenerationSlot(second);
+    REQUIRE(assetCatalogRestoreCustomSoundSlots(snapshot));
+    assetCatalogDestroyCustomSoundSlotSnapshot(snapshot);
+    assetCatalogResetCustomSoundSlots();
+}

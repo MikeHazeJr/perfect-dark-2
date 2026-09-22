@@ -270,7 +270,7 @@ TEST_CASE("every public ingestion boundary uses checked path-specific APIs",
 	REQUIRE(network.find("destination='%s' preserved") != std::string::npos);
 	REQUIRE(network.find("return assetPathKeyIsSource(key);") !=
 		std::string::npos);
-	REQUIRE(network.find("if (prior) *e = prior_entry;") != std::string::npos);
+	REQUIRE(network.find("assetCatalogRegisterAudioIni(slot->id,") != std::string::npos);
 	REQUIRE(network.find("if (existing) *e = preserved_entry;") !=
 		std::string::npos);
 	REQUIRE(network.find("else assetCatalogUnregister(slot->id);") !=
@@ -328,12 +328,13 @@ TEST_CASE("every public ingestion boundary uses checked path-specific APIs",
 	 * mesh member inside the same FS_MAXPATH contract used by the catalog,
 	 * rather than preflighting a shorter assumed model.obj suffix and then
 	 * publishing a row backed by an oversized temporary path. */
-	REQUIRE(scanner.find("sourceModelPathFromMeshArchive(mesh,\n\t\t\t\tsource_probe, sizeof(source_probe))")
-		!= std::string::npos);
+	const std::string binding = pathContractRead("port/src/body_head_source_bind.c");
+	REQUIRE(scanner.find("bodyHeadSourcePrepareMesh(source.mesh_archive") != std::string::npos);
+	REQUIRE(binding.find("fsFileSize(candidate.plan.source_path) <= 0") != std::string::npos);
+	REQUIRE(binding.find("loaderWalkerMeshSourcePlanManifest") != std::string::npos);
 	REQUIRE(scanner.find("char source_path[FS_MAXPATH + 32]") ==
 		std::string::npos);
 	REQUIRE(scanner.find("return assetPathJoinChecked(out, outsz, mesh_archive, \"::\", \"model.obj\")")
 		== std::string::npos);
-	REQUIRE(scanner.find("out[0] = '\\0';\n\treturn 0;") !=
-		std::string::npos);
+	REQUIRE(binding.find("candidate.plan.source_path") != std::string::npos);
 }

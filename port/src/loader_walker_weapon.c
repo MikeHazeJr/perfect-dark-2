@@ -199,6 +199,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
             if (s_WeaponArchiveCatalogMutex) {
                 SDL_LockMutex(s_WeaponArchiveCatalogMutex);
             }
+            e = assetCatalogGetMutable(id);
             if (e) {
                 e->enabled = 0;
                 e->load_state = ASSET_STATE_REGISTERED;
@@ -234,6 +235,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
             if (s_WeaponArchiveCatalogMutex) {
                 SDL_LockMutex(s_WeaponArchiveCatalogMutex);
             }
+            e = assetCatalogGetMutable(id);
             if (e) {
                 e->enabled = 0;
                 e->load_state = ASSET_STATE_REGISTERED;
@@ -245,7 +247,7 @@ static s32 s_register(const char *manifest, size_t manifest_len,
         }
     }
 
-    return e ? 1 : -1;
+    return assetCatalogResolve(id) ? 1 : -1;
 }
 
 void loaderWalkerScanWeapons(const char *tier_dir,

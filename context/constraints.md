@@ -11,6 +11,8 @@ from a constraint that has already been removed.
 
 These are things we must still respect:
 
+- **Executable modular behavior graphs (D-006 option A, 2026-09-08)**: Mike explicitly selected authored events, connections, gates and state driving reusable native modules. Implement the versioned executable graph layer and connect it to real production lifecycles; projecting graph parameters while ignoring topology is insufficient. Preserve editable public source and native gameplay parity. Existing v1 sources retain their explicit compatibility meaning until migrated; do not silently reinterpret or discard accepted behavior. The reviewed graph-v2 code remains an implementation candidate until its compiler, ownership, equipped adapters, dependency/copy hooks and actual gameplay paths pass their respective gates.
+
 - **1.0 product scope is complete base game plus Theater (D-004, 2026-08-12)**: The 1.0 release requires complete production implementation and gameplay parity for every shipped base-game mode and every accepted base-game graph surface. A graph may deliberately invoke a named native C routine as its production module, but graph data may not be inert, disconnected, or bypassed through hidden fallback. Theater is a 1.0 feature for Campaign and Combat Simulator and must save enough authoritative session data to list, load, and watch a coherent replay after process restart. Ship one deliberately small graph-backed sample mod weapon, such as a three-round-burst base-gun variant or alternate-projectile variant, and prove it works in Match Setup custom weapon slots. Forge map creation, map variants, Studio, broad modding-pipeline tooling, and Needler-specific polish are post-1.0. The Needler B-1054/B-1055/B-1056 visual proof remains a regression gate for future gameplay captures.
 
 - **Save file format compatibility**: Config values stored in `pd.ini` via configRegisterInt/UInt. Save migration framework (SAVE_VERSION) exists for future format changes.
@@ -109,6 +111,8 @@ These are things we must still respect:
 - **Room passwords are hashed at create time (SEC-14, S393, 2026-04-19)**: `roomCreateConfigured` accepts a plaintext password and immediately feeds it through `roomHashPassword` (domain-salted `"pd2-room-password-v1\n"` SHA-256) before storing. The plaintext is discarded. `roomCheckPassword(room, plaintext)` is the sole matcher — constant-time compare against `room->password_hash`. Open rooms have an all-zero hash and `roomCheckPassword` returns 1 for them unconditionally.
 
 ---
+
+- **Standard glTF buffer storage is authored source (2026-09-05, T-ASSETS-039)**: A `.bin` member is permitted only as the exact archive-local buffer declared by a structurally valid public glTF document, with checked URI resolution, buffer/view bounds, and declared byte length. This is standard glTF source storage, not permission for opaque engine-ready dumps or parallel authored/runtime payloads. Arbitrary `.bin` members and descriptor references remain forbidden. The provider consumes the same declared buffer bytes and includes them in cache identity; missing or changed bytes cannot reuse a JSON-only cache. Current importer admission supports one buffer and reports unsupported layouts explicitly. Existing embedded data URI and GLB sources remain supported.
 
 ## Removed Constraints
 

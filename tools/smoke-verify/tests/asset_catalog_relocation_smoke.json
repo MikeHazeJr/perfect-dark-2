@@ -1,0 +1,14 @@
+{
+  "scenario_name": "asset_catalog_relocation_smoke",
+  "description": "Warm real catalog runtime and MP ID caches, force the production pool resize to move storage without rebuilding caches, and verify fresh ID ownership, lifecycle self-marker rebasing and removed/late-row fallback. Functional catalog evidence only.",
+  "tags": ["runtime", "assets", "catalog", "relocation"],
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": ["--no-update-check", "--no-net", "--no-sound", "--portable", "--skip-intro", "--debug-asset-catalog-relocation"],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": ["ASSET\\.CATALOG\\.RELOCATION: cases=8 result=PASS", "SMOKE: result=scripted_exit"],
+    "forbidden_patterns": ["ASSET\\.CATALOG\\.RELOCATION: .*result=FAIL", "SMOKE: result=timeout", "EXCEPTION_ACCESS_VIOLATION"],
+    "required_counts": [{"pattern": "ASSET\\.CATALOG\\.RELOCATION: case=.*result=PASS", "min": 8, "max": 8}]
+  }
+}

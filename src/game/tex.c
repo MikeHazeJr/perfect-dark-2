@@ -3,6 +3,8 @@
 #include "constants.h"
 #include "game/dyntex.h"
 #include "game/tex.h"
+#include "catalog_texture_generation.h"
+#include "texture_source_runtime.h"
 #include "game/texdecompress.h"
 #include "bss.h"
 #include "data.h"
@@ -10,6 +12,13 @@
 #include "textures.h"
 #include "types.h"
 #include "platform.h"
+
+const struct texture *texGetDefinition(s32 texturenum)
+{
+    catalog_texture_generation_t *generation = catalogTextureGenerationForSlot(texturenum);
+    if (generation) return catalogTextureGenerationDefinition(generation);
+    return textureSourceRuntimeDefinition(texturenum);
+}
 
 #define TXMODE_WRAP   0
 #define TXMODE_CLAMP  1
@@ -417,7 +426,7 @@ s32 texModeToGbiMode(s32 txmode)
 
 Gfx *texWriteTileFromDefinition(Gfx *gdl, struct tex *tex, s32 offset, s32 shifts, s32 shiftt, s32 min)
 {
-	struct texture *s0 = &g_Textures[tex->texturenum];
+	const struct texture *s0 = texGetDefinition(tex->texturenum);
 	s32 masks;
 	s32 maskt;
 	s32 line;
@@ -431,6 +440,12 @@ Gfx *texWriteTileFromDefinition(Gfx *gdl, struct tex *tex, s32 offset, s32 shift
 	maskt = texDimensionToMask(tex->height);
 
 	line = texGetLineSizeInBytes(tex, 0);
+	if (s0->unk04_08 > masks || s0->unk04_0c > maskt
+			|| s0->unk04_00 + line * s0->unk04_04 > 0x1ff) {
+		sysFatalError("ASSET.SOURCE_ONLY: texture %d tile properties exceed image/native tile bounds",
+			tex->texturenum);
+		return gdl;
+	}
 
 	gDPSetPrimColorViaWord(gdl++, min, 0, 0xffffffff);
 

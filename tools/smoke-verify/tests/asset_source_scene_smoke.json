@@ -1,0 +1,29 @@
+{
+  "scenario_name": "asset_source_scene_smoke",
+  "description": "T-ASSETS-043 real public glTF/GLB source round trips through collision, generated modeldef vertices, and the production Scenario renderer CPU scene builder. Eleven independent expected-geometry cases cover scenes, TRS, matrices, instancing, reflection, edited buffers, cycles, JSON key scope/escapes, and native model coordinate rejection. A twelfth case edits only the external buffer and verifies source-hashed cache geometry refresh with unchanged JSON.",
+  "tags": ["runtime", "assets", "gltf", "source-authority"],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "boot_args": ["--no-update-check", "--no-net", "--no-sound", "--portable", "--skip-intro", "--debug-asset-source-scene"],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": [
+      "ASSET\\.SOURCE\\.SCENE: case=geometry_only result=PASS",
+      "ASSET\\.SOURCE\\.SCENE: case=selected_scene result=PASS",
+      "ASSET\\.SOURCE\\.SCENE: case=extras_cannot_shadow_meshes result=PASS",
+      "ASSET\\.SOURCE\\.SCENE: case=escaped_json_keys result=PASS",
+      "ASSET\\.SOURCE\\.SCENE: case=first_scene result=PASS",
+      "ASSET\\.SOURCE\\.SCENE: case=parent_trs result=PASS",
+      "ASSET\\.SOURCE\\.SCENE: case=matrix_instances_mirrored result=PASS",
+      "ASSET\\.SOURCE\\.SCENE: case=glb_scene result=PASS",
+      "ASSET\\.SOURCE\\.SCENE: case=edited_buffer result=PASS",
+      "ASSET\\.SOURCE\\.SCENE: case=cycle_rejected result=PASS",
+      "ASSET\\.SOURCE\\.SCENE: case=native_position_boundary result=PASS",
+      "ASSET\\.SOURCE\\.SCENE: case=buffer_only_cache_refresh result=PASS json_unchanged=1",
+      "ASSET\\.SOURCE\\.SCENE: passed=12 cases=12 result=PASS",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": ["ASSET\\.SOURCE\\.SCENE: .*result=FAIL", "SMOKE: result=timeout", "EXCEPTION_ACCESS_VIOLATION"],
+    "required_counts": [{"pattern":"ASSET\\.SOURCE\\.SCENE: case=.* result=PASS","min":12,"max":12}]
+  }
+}

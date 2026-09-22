@@ -516,15 +516,46 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 		if (bodymodeldef->skel == &g_SkelChr) {
 			node = modelGetPart(bodymodeldef, MODELPART_CHR_HEADSPOT);
 
+			/* B-183: an incomplete humanoid body cannot be published without
+			 * its authored attachment point.  The body/head catalog IDs are the
+			 * identity contract; silently instantiating a headless body here
+			 * turns a source/model mismatch into torn character geometry. */
+			if (node == NULL && headnum != 0) {
+				const char *head_source_id = headnum > 0
+					? catalogHeadIdByHeadnum(headnum) : "<random-head>";
+				bodyFatalSourceOnlyCharacterAssetFailure(ASSET_BODY,
+					body_source_id, bodynum, "headspot resolution");
+				sysLogPrintf(LOG_ERROR,
+					"BODY.HEADSPOT.REJECT: body_id='%s' bodynum=%d head_id='%s' headnum=%d missing_part=%d",
+					body_source_id, bodynum,
+					head_source_id ? head_source_id : "<missing-catalog-id>",
+					headnum, MODELPART_CHR_HEADSPOT);
+				return NULL;
+			}
+
+			if (node != NULL && headnum != 0) {
+				const char *head_source_id = headnum > 0
+					? catalogHeadIdByHeadnum(headnum) : "<random-head>";
+				sysLogPrintf(LOG_VERBOSE,
+					"BODY.HEADSPOT.RESOLVED: body_id='%s' bodynum=%d head_id='%s' headnum=%d part=%d",
+					body_source_id, bodynum,
+					head_source_id ? head_source_id : "<missing-catalog-id>",
+					headnum, MODELPART_CHR_HEADSPOT);
+			}
+
 			if (node != NULL) {
 				if (headnum < 0) {
 					headmodeldef = func0f18e57c(-1 - headnum, &headnum);
 					/* B-163: func0f18e57c returns from var800acc28[] which can be
 					 * NULL if random-head slot was never populated. */
 					if (headmodeldef == NULL) {
-						sysLogPrintf(LOG_WARNING,
-							"body0f02ce8c: random headmodeldef NULL (bodynum %d) -- skipping head merge",
-							bodynum);
+						bodyFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD,
+							catalogHeadIdByHeadnum(headnum), headnum,
+							"random head resolution");
+						sysLogPrintf(LOG_ERROR,
+							"BODY.HEAD.REJECT: body_id='%s' bodynum=%d random head resolution failed",
+							body_source_id, bodynum);
+						return NULL;
 					}
 				} else if (headnum > 0) {
 					/* SA-5f: bodyCalculateHeadOffset modifies the modeldef in-place
@@ -538,22 +569,31 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 						bodyFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD,
 							catalogHeadIdByHeadnum(headnum), headnum,
 							"head modeldef load");
-						headmodeldef = NULL;
+						sysLogPrintf(LOG_ERROR,
+							"BODY.HEAD.REJECT: body_id='%s' bodynum=%d head_id='%s' headnum=%d modeldef unavailable",
+							body_source_id, bodynum,
+							catalogHeadIdByHeadnum(headnum)
+								? catalogHeadIdByHeadnum(headnum) : "<missing-catalog-id>",
+							headnum);
+						return NULL;
 					}
 					if (head_needs_offset && headmodeldef != NULL) {
 						bodyCalculateHeadOffset(headmodeldef, headnum, bodynum);
 					}
 
-					/* B-163: catalogGetHeadModeldef may return NULL (out-of-range,
-					 * torn asset, or HEAD_RANDOM_GENDER). Skip the merge rather than
-					 * dereferencing NULL. */
+					/* B-163/B-183: a catalog lookup that reports success but returns
+					 * no model is still a failed identity transaction. */
 					if (headmodeldef == NULL) {
 						bodyFatalSourceOnlyCharacterAssetFailure(ASSET_HEAD,
 							catalogHeadIdByHeadnum(headnum), headnum,
 							"head merge");
-						sysLogPrintf(LOG_WARNING,
-							"body0f02ce8c: headmodeldef NULL for headnum %d (bodynum %d) -- skipping head merge",
-							headnum, bodynum);
+						sysLogPrintf(LOG_ERROR,
+							"BODY.HEAD.REJECT: body_id='%s' bodynum=%d head_id='%s' headnum=%d null modeldef",
+							body_source_id, bodynum,
+							catalogHeadIdByHeadnum(headnum)
+								? catalogHeadIdByHeadnum(headnum) : "<missing-catalog-id>",
+							headnum);
+						return NULL;
 					}
 
 					if (catalogGetBodyCanVaryHeight(bodynum) && varyheight) { /* SA-5d */
@@ -668,10 +708,6 @@ struct model *body0f02ce8c(s32 bodynum, s32 headnum, struct modeldef *bodymodeld
 					rwdata->toggle.visible = false;
 				}
 			}
-		} else if (headmodeldef && node == NULL && !catalogGetBodyIsComplete(bodynum)) { /* SA-5d */
-			sysLogPrintf(LOG_WARNING,
-				"body0f02ce8c: missing headspot for bodynum %d headnum %d -- skipping head attach",
-				bodynum, headnum);
 		}
 	}
 

@@ -6,6 +6,10 @@
 
 void mp3Init(ALHeap *heap);
 void mp3PlayFile(uintptr_t romaddr, s32 filesize);
+/* Borrow source-decoded stereo S16 PCM at 22050 Hz. The sound scheduler owns
+ * the allocation through completion/repeat; release the borrow before freeing. */
+void mp3PlayPcmStereo22050(const s16 *pcm, u32 frames);
+void mp3ReleasePcm(void);
 void func00037e1c(void);
 void func00037e38(void);
 void func00037e68(void);

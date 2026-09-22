@@ -14,6 +14,7 @@
 #include <string.h>
 #include <PR/ultratypes.h>
 #include "loader_enum_reverse.h"
+#include "constants.h"
 
 typedef struct { const char *name; s32 value; } enum_reverse_entry_t;
 
@@ -5606,21 +5607,17 @@ const char *loaderEnumNameForLangEnum(s32 value)
 const char *loaderEnumNameForFileEnum(s32 value)
 { return reverse_lookup(k_FileEnum, k_FileEnum_count, value); }
 
-/* Small-cardinality reverse lookups for HEADBODYTYPE_* / ARENA_LOADMODE_*.
- * Forward mapping lives inline in port/src/loader_pool.c
- * (s_resolveHeadbodyType, s_resolveArenaLoadMode). Both halves replicate
- * the same table because constants.h numbering for HEADBODYTYPE_MAIAN /
- * _CASS does not match what the per-asset JSON encodes; emitters MUST use
- * this table, not constants.h, for parity with the parser. */
+/* Public symbols describe the actual native value. Extraction and both
+ * public-source and legacy metadata readers use the same named constants. */
 const char *loaderEnumNameForHeadbodyType(s32 value)
 {
     switch (value) {
-    case 0: return "HEADBODYTYPE_DEFAULT";
-    case 1: return "HEADBODYTYPE_FEMALE";
-    case 2: return "HEADBODYTYPE_FEMALEGUARD";
-    case 3: return "HEADBODYTYPE_CASS";
-    case 4: return "HEADBODYTYPE_MAIAN";
-    case 5: return "HEADBODYTYPE_MRBLONDE";
+    case HEADBODYTYPE_DEFAULT: return "HEADBODYTYPE_DEFAULT";
+    case HEADBODYTYPE_FEMALE: return "HEADBODYTYPE_FEMALE";
+    case HEADBODYTYPE_FEMALEGUARD: return "HEADBODYTYPE_FEMALEGUARD";
+    case HEADBODYTYPE_CASS: return "HEADBODYTYPE_CASS";
+    case HEADBODYTYPE_MAIAN: return "HEADBODYTYPE_MAIAN";
+    case HEADBODYTYPE_MRBLONDE: return "HEADBODYTYPE_MRBLONDE";
     default: return NULL;
     }
 }

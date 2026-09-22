@@ -67,7 +67,8 @@ TEST_CASE("anim slots: range anchors (base adjacency + override-index ceiling)",
 	REQUIRE(ANIM_CUSTOM_START == ANIM_END);
 	REQUIRE(ANIM_CUSTOM_END_SLOT == ANIM_CUSTOM_START + ANIM_CUSTOM_COUNT);
 	/* LOAD_MAX_ANIMS bounds the animnum override reverse index. */
-	REQUIRE(ANIM_CUSTOM_END_SLOT <= 2048);
+	REQUIRE(ANIM_CUSTOM_END_SLOT == 0x8000);
+	REQUIRE(ANIM_CUSTOM_COUNT > 32);
 }
 
 TEST_CASE("weapon command graphs never consume character animation slots",
@@ -92,4 +93,27 @@ TEST_CASE("anim slots: admission snapshot restores reservations exactly",
 	REQUIRE(assetCatalogRestoreCustomAnimSlots(snapshot) == 1);
 	assetCatalogDestroyCustomAnimSlotSnapshot(snapshot);
 	REQUIRE(assetCatalogResolveAnimPrivateSlot("mod_x:anim_replacement") == retained + 1);
+}
+
+TEST_CASE("anim generations: catalog reset and rollback preserve reserved native slots",
+          "[catalog][anim][slots][generation]") {
+    assetCatalogResetCustomAnimSlots();
+    const s32 first = assetCatalogResolveAnimPrivateSlot("mod:generation_catalog");
+    void *snapshot = assetCatalogSnapshotCustomAnimSlots();
+    REQUIRE(snapshot != nullptr);
+    const s32 generation = assetCatalogReserveAnimGenerationSlot();
+    REQUIRE(generation == ANIM_CUSTOM_END_SLOT - 1);
+    assetCatalogResetCustomAnimSlots();
+    const s32 another = assetCatalogReserveAnimGenerationSlot();
+    REQUIRE(another == generation - 1);
+    REQUIRE(assetCatalogRestoreCustomAnimSlots(snapshot));
+    REQUIRE(assetCatalogResolveAnimPrivateSlot("mod:generation_catalog") == first);
+    REQUIRE(assetCatalogResolveAnimPrivateSlot("mod:ordinary_after_reset") != generation);
+    assetCatalogReleaseAnimGenerationSlot(generation);
+    REQUIRE(assetCatalogReserveAnimGenerationSlot() == generation);
+    assetCatalogReleaseAnimGenerationSlot(generation);
+    assetCatalogReleaseAnimGenerationSlot(another);
+    REQUIRE(assetCatalogRestoreCustomAnimSlots(snapshot));
+    assetCatalogDestroyCustomAnimSlotSnapshot(snapshot);
+    assetCatalogResetCustomAnimSlots();
 }

@@ -25,6 +25,16 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
 
+from asset_gltf_source import (
+    buffer_declaration as gltf_buffer_declaration,
+    declared_archive_buffers,
+    load_buffer as load_gltf_buffer,
+    parse_document as parse_gltf_document,
+)
+
+from audio_wave_source import parse_standard_wav_source_metadata
+from audio_ogg_source import parse_vorbis_source_metadata
+
 from pdmesh_render_stream import (
     MAX_MATRIX_INDEX,
     RENDER_NODE_TYPES,
@@ -760,13 +770,14 @@ SCHEMAS: dict[str, Schema] = {
         allowed=["animation.ini", "animation.gltf", "animation.glb", "commands.json"],
     ),
     ".pdsfx": schema(
-        required=["sound.ini", "sample.wav"],
-        allowed=["sound.ini", "sample.wav", "sample.ogg", "sample.flac"],
+        required=["sound.ini"],
+        require_any=[["sample.wav", "sample.mp3", "sample.ogg"]],
+        allowed=["sound.ini", "sample.wav", "sample.mp3", "sample.ogg"],
     ),
     ".pdvoice": schema(
         required=["voice.ini"],
-        require_any=[["sample.wav", "sample.mp3"]],
-        allowed=["voice.ini", "sample.wav", "sample.mp3", "subtitle.json"],
+        require_any=[["sample.wav", "sample.mp3", "sample.ogg"]],
+        allowed=["voice.ini", "sample.wav", "sample.mp3", "sample.ogg", "subtitle.json"],
         allowed_globs=["locales/*.wav", "locales/*.ogg", "locales/*.mp3"],
     ),
     ".pdsong": schema(
@@ -1050,16 +1061,18 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "commands.json": slot("semantic weapon animation command source", "animation importer", "builds native weapon animation commands from editable source", "another animation source slot must be present"),
     },
     ".pdsfx": {
-        "sample.ogg": slot("compressed sound source", "audio importer", "decodes standard audio into runtime sound cache", "sample.wav is authoritative"),
-        "sample.flac": slot("lossless sound source", "audio importer", "decodes standard audio into runtime sound cache", "sample.wav is authoritative"),
+        "sample.wav": slot("default WAV sound source", "audio importer", "decodes the public file_path source into runtime PCM", "another declared default sample must be present"),
+        "sample.mp3": slot("default MP3 sound source", "audio importer", "decodes the public file_path source into runtime PCM", "another declared default sample must be present"),
+        "sample.ogg": slot("default Ogg Vorbis sound source", "audio importer", "decodes the public file_path source into runtime PCM", "another declared default sample must be present"),
     },
     ".pdvoice": {
-        "sample.wav": slot("default WAV voice sample", "voice importer", "loads the default voice source", "sample.mp3 or a localized source must be present"),
-        "sample.mp3": slot("default MP3 voice sample", "voice importer", "loads the default voice source", "sample.wav or a localized source must be present"),
+        "sample.wav": slot("default WAV voice sample", "voice importer", "loads the default voice source", "another declared default sample must be present"),
+        "sample.mp3": slot("default MP3 voice sample", "voice importer", "loads the declared default voice source", "another declared default sample must be present"),
+        "sample.ogg": slot("default Ogg Vorbis voice sample", "voice importer", "loads the declared default voice source", "another declared default sample must be present"),
         "subtitle.json": slot("voice subtitle/source text", "voice importer", "loads subtitle strings for UI and localization", "voice line has no authored subtitle"),
-        "locales/*.wav": slot("localized WAV voice samples", "voice importer", "loads locale-specific voice source", "default sample.wav/sample.mp3 is used"),
-        "locales/*.ogg": slot("localized OGG voice samples", "voice importer", "loads locale-specific voice source", "default sample.wav/sample.mp3 is used"),
-        "locales/*.mp3": slot("localized MP3 voice samples", "voice importer", "loads locale-specific voice source", "default sample.wav/sample.mp3 is used"),
+        "locales/*.wav": slot("localized WAV voice samples", "voice importer", "loads locale-specific voice source", "the declared default sample is used"),
+        "locales/*.ogg": slot("localized OGG voice samples", "voice importer", "loads locale-specific voice source", "the declared default sample is used"),
+        "locales/*.mp3": slot("localized MP3 voice samples", "voice importer", "loads locale-specific voice source", "the declared default sample is used"),
     },
     ".pdsong": {
         "sequence.mid": slot("MIDI song source", "music importer", "loads authored sequence source", "track audio or sequence.json must supply playback source"),
@@ -1347,18 +1360,30 @@ def _glb_json_and_bin(data: bytes) -> tuple[dict[str, object], bytes]:
     offset = 12
     gltf_json: dict[str, object] | None = None
     bin_chunk = b""
+    saw_bin = False
+    chunks_seen = 0
 
     while offset + 8 <= len(data):
+        chunks_seen += 1
         chunk_length, chunk_type = struct.unpack_from("<II", data, offset)
         offset += 8
+        if chunk_length % 4 or chunk_length > len(data) - offset:
+            raise ValueError("glTF binary chunk has invalid bounds or alignment")
         chunk = data[offset:offset + chunk_length]
         offset += chunk_length
 
         if chunk_type == 0x4e4f534a:
-            gltf_json = json.loads(chunk.decode("utf-8").rstrip("\0 "))
+            if gltf_json is not None or offset - chunk_length != 20:
+                raise ValueError("glTF JSON must be the first and only JSON chunk")
+            gltf_json = parse_gltf_document(chunk)
         elif chunk_type == 0x004e4942:
+            if gltf_json is None or saw_bin or chunks_seen != 2:
+                raise ValueError("glTF binary has missing JSON or duplicate BIN chunk")
             bin_chunk = chunk
+            saw_bin = True
 
+    if offset != len(data):
+        raise ValueError("glTF binary has a partial trailing chunk")
     if gltf_json is None:
         raise ValueError("missing glTF JSON chunk")
     return gltf_json, bin_chunk
@@ -1644,6 +1669,21 @@ def is_finite_json_number(value: object) -> bool:
     )
 
 
+def is_native_prop_health(value: object) -> bool:
+    """Match float health admission before native signed-16-bit tenths storage."""
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        number = float(value)
+        if not math.isfinite(number):
+            return False
+        health = struct.unpack("<f", struct.pack("<f", number))[0]
+        maximum = struct.unpack("<f", struct.pack("<f", 32767.0 / 10.0))[0]
+    except (OverflowError, ValueError, struct.error):
+        return False
+    return 0.0 <= health <= maximum
+
+
 def validate_catalog_bound_json(
     label: str,
     member: str,
@@ -1704,9 +1744,10 @@ def validate_prop_source_contract(label: str, zf: zipfile.ZipFile,
                 "display_name"):
             errors.append(f"{label} prop.json display_name must be non-empty")
         health = prop.get("health")
-        if not is_finite_json_number(health) or float(health) < 0.0:
+        if not is_native_prop_health(health):
             errors.append(
                 f"{label} prop.json health must be a finite non-negative number"
+                " representable in native range 0..3276.7"
             )
         flags = prop.get("flags")
         if not isinstance(flags, int) or isinstance(flags, bool) or flags < 0:
@@ -1785,11 +1826,11 @@ def validate_prop_source_contract(label: str, zf: zipfile.ZipFile,
                     errors.append(
                         f"{label} {kind} requires boolean params.value"
                     )
-                if kind == "action.set_health" and (
-                        not is_finite_json_number(params.get("value")) or
-                        float(params.get("value", -1.0)) < 0.0):
+                if kind == "action.set_health" and not is_native_prop_health(
+                        params.get("value")):
                     errors.append(
                         f"{label} action.set_health requires non-negative numeric params.value"
+                        " representable in native range 0..3276.7"
                     )
                 if kind == "action.set_channel" and (
                         not isinstance(params.get("channel"), str) or
@@ -2924,11 +2965,29 @@ def validate_character_source_contract(label: str, zf: zipfile.ZipFile,
     descriptor_values: dict[str, str] = {}
     if "character.ini" in name_set:
         try:
-            descriptor_values = parse_ini_values(
-                zf.read("character.ini").decode("utf-8", errors="replace")
-            )
+            text = zf.read("character.ini").decode("utf-8")
+            descriptor_values = parse_ini_values(text)
+            seen: set[str] = set()
+            for raw in text.splitlines():
+                line = raw.strip()
+                if not line or line.startswith(("[", "#", ";")) or "=" not in line:
+                    continue
+                key = line.split("=", 1)[0].strip()
+                if key in seen:
+                    errors.append(f"{label} character.ini duplicate key {key}")
+                seen.add(key)
+            for canonical, alias in (("body_asset", "body_id"), ("head_asset", "head_id"),
+                                     ("body_archive", "bodyfile"), ("head_archive", "headfile")):
+                if canonical in descriptor_values and alias in descriptor_values:
+                    if descriptor_values[canonical] != descriptor_values[alias]:
+                        errors.append(f"{label} character.ini conflicting {canonical}/{alias}")
+                elif alias in descriptor_values:
+                    descriptor_values[canonical] = descriptor_values[alias]
         except KeyError:
             descriptor_values = {}
+        except UnicodeDecodeError:
+            errors.append(f"{label} character.ini must be valid UTF-8")
+            return
 
     archive_groups = [
         (
@@ -2961,11 +3020,27 @@ def validate_character_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} character.ini must declare {field} as one of {archives}"
             )
 
-    for field in ("body_asset", "head_asset"):
-        if not CATALOG_ID_RE.match(descriptor_values.get(field, "")):
-            errors.append(
-                f"{label} character.ini must declare catalog ID {field}"
-            )
+    if not CATALOG_ID_RE.match(descriptor_values.get("body_asset", "")):
+        errors.append(f"{label} character.ini must declare catalog ID body_asset")
+    # An empty head needs an explicit source policy. Missing policy preserves
+    # legacy fixed-head sources only; it never invents a random selection.
+    policy = descriptor_values.get("head_policy", "fixed")
+    if policy not in ("fixed", "random_gender", "integrated"):
+        errors.append(f"{label} character.ini head_policy must be fixed, random_gender, or integrated")
+    head_id = descriptor_values.get("head_asset", "" if policy in ("random_gender", "integrated") else None)
+    if head_id is None or (head_id and not CATALOG_ID_RE.match(head_id)):
+        errors.append(f"{label} character.ini head_asset must be a catalog ID or explicit empty value")
+    if policy == "fixed" and not head_id:
+        errors.append(f"{label} character.ini fixed policy requires a head catalog ID")
+    if policy in ("random_gender", "integrated") and head_id:
+        errors.append(f"{label} character.ini {policy} policy must not bind a separate head")
+    for field, required in (("body_archive", True), ("head_archive", policy == "fixed")):
+        if required and descriptor_values.get(field) not in name_set:
+            errors.append(f"{label} character.ini {field} must select an existing archive member")
+    if head_id == "" and (
+            archive_groups[1][1] or descriptor_values.get("head_archive") or
+            descriptor_values.get("headfile")):
+        errors.append(f"{label} character.ini unbound head must not declare a head archive")
 
     if ("portrait.png" in name_set and
             descriptor_values.get("portrait_file") != "portrait.png"):
@@ -2983,18 +3058,32 @@ def validate_character_source_contract(label: str, zf: zipfile.ZipFile,
         errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
         return
 
+    if not isinstance(manifest, dict):
+        errors.append(f"{label} _meta/manifest.json must be an object")
+        return
+    if "head_policy" in manifest and manifest["head_policy"] != policy:
+        errors.append(f"{label} _meta/manifest.json head_policy must match character.ini")
+
     for field, archives in archive_groups:
         if archives and manifest.get(field) not in archives:
             errors.append(
                 f"{label} _meta/manifest.json must declare {field} as one of "
                 f"{archives}"
             )
-    for field in ("body", "head"):
-        value = manifest.get(field)
-        if not isinstance(value, str) or not CATALOG_ID_RE.match(value):
-            errors.append(
-                f"{label} _meta/manifest.json must declare catalog ID {field}"
-            )
+    body_id = manifest.get("body")
+    if not isinstance(body_id, str) or not CATALOG_ID_RE.match(body_id):
+        errors.append(f"{label} _meta/manifest.json must declare catalog ID body")
+    elif body_id != descriptor_values.get("body_asset"):
+        errors.append(f"{label} _meta/manifest.json body must match character.ini body_asset")
+    if "head" not in manifest or (
+            manifest["head"] is not None and (
+                not isinstance(manifest["head"], str) or
+                not CATALOG_ID_RE.match(manifest["head"]))):
+        errors.append(f"{label} _meta/manifest.json head must be a catalog ID or explicit null")
+    elif manifest["head"] != (head_id if head_id else None):
+        errors.append(f"{label} _meta/manifest.json head must match character.ini head_asset")
+    if manifest.get("head") is None and manifest.get("head_archive") not in (None, ""):
+        errors.append(f"{label} _meta/manifest.json unbound head must not declare a head archive")
     if "portrait.png" in name_set and manifest.get("portrait_file") != "portrait.png":
         errors.append(
             f"{label} _meta/manifest.json must declare portrait_file = portrait.png"
@@ -4080,219 +4169,291 @@ def validate_pdanim_source_contract(label: str, zf: zipfile.ZipFile,
         errors.append(f"{label} has unknown animation category {category!r}")
 
 
-def validate_audio_wav_descriptor(label: str, descriptor: str, text: str,
-                                  errors: list[str]) -> None:
-    values = parse_ini_values(text)
-    missing = [field for field in AUDIO_WAV_NATIVE_FIELDS if field not in values]
-    if missing:
-        errors.append(
-            f"{label} {descriptor} missing WAV playback metadata fields: "
-            + ", ".join(missing)
-        )
-    file_path = values.get("file_path", "")
-    if file_path != "sample.wav":
-        errors.append(
-            f"{label} {descriptor} must declare file_path = sample.wav "
-            "for WAV-backed source playback"
-        )
-    has_loop = values.get("has_loop", "")
-    if has_loop and has_loop not in {"true", "false", "0", "1", "yes", "no"}:
-        errors.append(f"{label} {descriptor} has invalid has_loop value {has_loop!r}")
-    has_envelope = values.get("has_envelope", "")
-    if has_envelope and has_envelope not in {"true", "false", "0", "1", "yes", "no"}:
-        errors.append(
-            f"{label} {descriptor} has invalid has_envelope value {has_envelope!r}"
-        )
-
-
-def validate_audio_wav_manifest(label: str, text: str,
-                                errors: list[str]) -> None:
-    try:
-        manifest = json.loads(text)
-    except json.JSONDecodeError as exc:
-        errors.append(f"{label} _meta/manifest.json is invalid JSON: {exc}")
-        return
-    missing = [
-        field for field in AUDIO_WAV_MANIFEST_FIELDS
-        if field not in manifest
-    ]
-    if missing:
-        errors.append(
-            f"{label} _meta/manifest.json missing WAV playback metadata fields: "
-            + ", ".join(missing)
-        )
-    if manifest.get("data") != "sample.wav":
-        errors.append(
-            f"{label} _meta/manifest.json must declare data = sample.wav "
-            "for WAV-backed source playback"
-        )
-
-
-def int_field(values: dict[str, object], field: str) -> int | None:
-    raw = values.get(field)
-    try:
-        return int(raw)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return None
-
-
 def parse_wav_source_metadata(label: str, data: bytes,
                               errors: list[str]) -> dict[str, int] | None:
-    if len(data) < 44 or data[0:4] != b"RIFF" or data[8:12] != b"WAVE":
-        errors.append(f"{label} sample.wav must be a RIFF/WAVE file")
-        return None
+    """Standard editable WAV admission, independent of native extraction parity."""
+    return parse_standard_wav_source_metadata(label, data, errors)
 
-    offset = 12
-    fmt: dict[str, int] | None = None
-    data_bytes: int | None = None
 
-    while offset + 8 <= len(data):
-        chunk_id = data[offset:offset + 4]
-        chunk_size = struct.unpack_from("<I", data, offset + 4)[0]
-        chunk_start = offset + 8
-        chunk_end = chunk_start + chunk_size
-        if chunk_end > len(data):
-            errors.append(f"{label} sample.wav chunk exceeds file size")
+def audio_source_integer(value: object) -> int | None:
+    """Audio metadata integers must not silently coerce booleans or fractions."""
+    if type(value) is int:
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[+-]?[0-9]+", value):
+        try:
+            return int(value)
+        except ValueError:
             return None
+    return None
 
-        if chunk_id == b"fmt ":
-            if chunk_size < 16:
-                errors.append(f"{label} sample.wav fmt chunk is too small")
-                return None
-            audio_format, channels, sample_rate, byte_rate, block_align, bits_per_sample = (
-                struct.unpack_from("<HHIIHH", data, chunk_start)
-            )
-            fmt = {
-                "audio_format": audio_format,
-                "channels": channels,
-                "sample_rate_hz": sample_rate,
-                "byte_rate": byte_rate,
-                "block_align": block_align,
-                "bits_per_sample": bits_per_sample,
-            }
-        elif chunk_id == b"data":
-            data_bytes = chunk_size
 
-        offset = chunk_end + (chunk_size & 1)
+def parse_mp3_source_metadata(label: str, data: bytes,
+                              errors: list[str]) -> dict[str, int] | None:
+    """Validate standard Layer III framing; not a PCM decode.
 
-    if fmt is None:
-        errors.append(f"{label} sample.wav is missing fmt chunk")
-        return None
-    if data_bytes is None:
-        errors.append(f"{label} sample.wav is missing data chunk")
+    The shared minimp3 source path supports MPEG-1/2/2.5 Layer III with stable rate/channels,
+    positive table bitrate, and complete frames. Extracted file alignment may
+    leave zero bytes after the final frame. Leading ID3v2, appended ID3v2.4
+    with matching footer, and terminal ID3v1 metadata are not audio frames.
+    """
+    def fail(reason):
+        errors.append(f"{label} sample.mp3 {reason}")
         return None
 
-    channels = fmt["channels"]
-    bits_per_sample = fmt["bits_per_sample"]
-    expected_block_align = channels * bits_per_sample // 8
-    if fmt["audio_format"] != WAV_PCM_FORMAT:
-        errors.append(
-            f"{label} sample.wav must be PCM format {WAV_PCM_FORMAT}, "
-            f"got {fmt['audio_format']}"
-        )
-    if channels != WAV_NATIVE_CHANNELS:
-        errors.append(
-            f"{label} sample.wav must be mono for native SFX/voice parity, "
-            f"got {channels} channel(s)"
-        )
-    if bits_per_sample != WAV_PCM16_BITS:
-        errors.append(
-            f"{label} sample.wav must be PCM16 for native SFX/voice parity, "
-            f"got {bits_per_sample} bits"
-        )
-    if expected_block_align <= 0 or fmt["block_align"] != expected_block_align:
-        errors.append(
-            f"{label} sample.wav block_align {fmt['block_align']} does not match "
-            f"channels/bits {expected_block_align}"
-        )
-    if fmt["byte_rate"] != fmt["sample_rate_hz"] * fmt["block_align"]:
-        errors.append(
-            f"{label} sample.wav byte_rate {fmt['byte_rate']} does not match "
-            "sample_rate_hz * block_align"
-        )
-    if fmt["block_align"] <= 0:
-        return None
-    if data_bytes % fmt["block_align"] != 0:
-        errors.append(
-            f"{label} sample.wav data size {data_bytes} is not aligned to "
-            f"block_align {fmt['block_align']}"
-        )
-        return None
+    if not data or len(data) > 0x7fffffff:
+        return fail("must have a nonempty source within the runtime byte domain")
+    def id3_tag_end(offset, limit, probe=False):
+        reject = (lambda reason: None) if probe else fail
+        if offset + 10 > limit or data[offset:offset + 3] != b"ID3":
+            return reject("has a truncated ID3v2 header")
+        version, revision, flags = data[offset + 3:offset + 6]
+        size_bytes = data[offset + 6:offset + 10]
+        allowed_flags = {2: 0xc0, 3: 0xe0, 4: 0xf0}.get(version)
+        if (allowed_flags is None or revision == 255 or flags & ~allowed_flags
+                or any(value & 0x80 for value in size_bytes)):
+            return reject("has an invalid ID3v2 header")
+        size = 0
+        for value in size_bytes:
+            size = (size << 7) | value
+        tag_end = offset + 10 + size
+        if tag_end > limit:
+            return reject("has a truncated ID3v2 payload")
+        if version == 4 and flags & 0x10:
+            footer = data[tag_end:min(tag_end + 10, limit)]
+            if footer != b"3DI" + data[offset + 3:offset + 10]:
+                return reject("has an invalid ID3v2 footer")
+            tag_end += 10
+        return tag_end
 
-    fmt["decoded_sample_count"] = data_bytes // fmt["block_align"]
-    fmt["data_bytes"] = data_bytes
-    return fmt
+    def appended_id3_start(offset, end):
+        if end - offset < 20 or data[end - 10:end - 7] != b"3DI":
+            return None
+        footer = data[end - 10:end]
+        if (footer[3] != 4 or not footer[5] & 0x10
+                or any(value & 0x80 for value in footer[6:10])):
+            return None
+        body_size = 0
+        for value in footer[6:10]:
+            body_size = (body_size << 7) | value
+        if body_size > end - offset - 20:
+            return None
+        tag_start = end - 20 - body_size
+        tag_end = id3_tag_end(tag_start, end, probe=True)
+        if tag_end != end or data[tag_start + 3] != 4 or not data[tag_start + 5] & 0x10:
+            return None
+        return tag_start
+
+    offset = 0
+    while data[offset:offset + 3] == b"ID3":
+        tag_end = id3_tag_end(offset, len(data))
+        if tag_end is None:
+            return None
+        offset = tag_end
+
+    end = len(data)
+    # A complete v2.4 footer outranks a coincidental TAG string in its body.
+    if (end - offset >= 128 and data[end - 128:end - 125] == b"TAG"
+            and appended_id3_start(offset, end) is None):
+        end -= 128
+    while end - offset >= 10 and data[end - 10:end - 7] == b"3DI":
+        tag_start = appended_id3_start(offset, end)
+        if tag_start is None:
+            return fail("has an invalid or out-of-bounds appended ID3v2.4 header/footer")
+        end = tag_start
+    bitrate_tables = {
+        3: (0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320),
+        2: (0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160),
+        0: (0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160),
+    }
+    initial = None
+    frames = 0
+    sample_frames = 0
+    while offset < end:
+        if data[offset] == 0 and not any(data[offset:end]):
+            break  # ROM file alignment, not an incomplete MPEG frame.
+        if offset + 4 > end:
+            return fail("has a truncated MPEG frame header")
+        header = int.from_bytes(data[offset:offset + 4], "big")
+        if header >> 21 != 0x7ff:
+            return fail(f"has invalid MPEG frame synchronization at byte {offset}")
+        version = (header >> 19) & 3
+        layer = (header >> 17) & 3
+        protection = (header >> 16) & 1
+        bitrate_index = (header >> 12) & 15
+        rate_index = (header >> 10) & 3
+        padding = (header >> 9) & 1
+        channel_mode = (header >> 6) & 3
+        original = (header >> 2) & 1
+        if version not in bitrate_tables or layer != 1:
+            return fail("requires MPEG-1/2/2.5 Layer III format")
+        if bitrate_index in (0, 15) or rate_index == 3 or (header & 3) == 2:
+            return fail("has invalid or unsupported MPEG bitrate/rate/emphasis")
+        rate = (44100, 48000, 32000)[rate_index] // {3: 1, 2: 2, 0: 4}[version]
+        bitrate = bitrate_tables[version][bitrate_index]
+        frame_size = (144000 if version == 3 else 72000) * bitrate // rate + padding
+        channels = 1 if channel_mode == 3 else 2
+        side_size = (17 if channels == 1 else 32) if version == 3 else (9 if channels == 1 else 17)
+        if frame_size < 4 + (0 if protection else 2) + side_size:
+            return fail("has an undersized MPEG frame")
+        if offset + frame_size > end:
+            return fail(f"has a truncated MPEG frame at byte {offset}")
+        parameters = (version, layer, rate_index, channels)
+        if initial is not None and parameters != initial:
+            return fail("changes header parameters that the runtime decoder requires to stay fixed")
+        initial = parameters
+        frames += 1
+        sample_frames += 1152 if version == 3 else 576
+        offset += frame_size
+    if not frames:
+        return fail("contains no complete MPEG audio frame")
+    return {"sample_rate_hz": rate, "channels": channels,
+            "mpeg_frame_count": frames, "mpeg_sample_frames": sample_frames}
+
+
+def validate_audio_native_provenance(label: str, descriptor: str,
+                                     descriptor_values: dict[str, str],
+                                     manifest_values: dict[str, object],
+                                     errors: list[str]) -> None:
+    # Extraction provenance is conditional: authored mods never need numeric
+    # native source IDs. If an extraction mapping is present, it must agree.
+    kind = manifest_values.get("source_reference_kind")
+    if kind is not None:
+        filenum = audio_source_integer(manifest_values.get("source_filenum"))
+        source_index = audio_source_integer(manifest_values.get("source_index"))
+        mapped = audio_source_integer(manifest_values.get("mapped_soundnum"))
+        priority = audio_source_integer(manifest_values.get("mp3_priority"))
+        for field in ("source_index", "mapped_soundnum", "mp3_priority"):
+            if (audio_source_integer(descriptor_values.get(field)) is None or
+                    audio_source_integer(descriptor_values.get(field)) !=
+                    audio_source_integer(manifest_values.get(field))):
+                errors.append(f"{label} {descriptor} {field} must match MP3 manifest provenance")
+        for field in ("source_symbol", "source_file_symbol"):
+            if (not isinstance(manifest_values.get(field), str) or
+                    not manifest_values[field] or
+                    descriptor_values.get(field) != manifest_values[field]):
+                errors.append(f"{label} {descriptor} {field} must match MP3 manifest provenance")
+        if filenum is None or not 1 <= filenum <= 0x7ff:
+            errors.append(f"{label} MP3 provenance source_filenum is outside its native file domain")
+        if kind == "direct_file":
+            if (source_index, mapped, priority) != (-1, -1, 0):
+                errors.append(f"{label} direct_file MP3 provenance has inconsistent alias fields")
+        elif kind == "configured_alias":
+            if (source_index is None or not 0x8000 <= source_index <= 0xffff or
+                    mapped is None or not 0 <= mapped <= 0xffff or
+                    priority not in (1, 2, 3) or
+                    (mapped & 0x7ff) != filenum or ((mapped >> 11) & 3) != priority):
+                errors.append(f"{label} configured_alias MP3 provenance has inconsistent packed source mapping")
+        else:
+            errors.append(f"{label} MP3 provenance source_reference_kind is invalid")
+
+
+def validate_audio_playback_controls(label: str, descriptor: str,
+                                     values: dict[str, str], metadata: dict[str, int],
+                                     errors: list[str]) -> None:
+    """Public controls are optional and format-independent; no private echoes."""
+    parsed = {}
+    domains = {
+        **{key: (0, 127) for key in ("sample_pan", "sample_volume", "key_base",
+           "attack_volume", "decay_volume")},
+        # Native sample-bank ALKeyMap fields are packed flags/volume/chain/delay
+        # bytes, not ordered MIDI note/velocity ranges.
+        **{key: (0, 255) for key in ("key_min", "key_max", "velocity_min", "velocity_max")},
+        "key_detune": (-128, 127),
+        **{key: (0, 0xffffffff) for key in ("loop_start_samples", "loop_end_samples",
+           "loop_count", "attack_time_us", "decay_time_us", "release_time_us")},
+    }
+    for key, (minimum, maximum) in domains.items():
+        if key not in values:
+            continue
+        value = audio_source_integer(values[key])
+        # Existing signed native -1 loop/envelope sentinels are also encoded as UINT_MAX.
+        if value == -1 and key in {"loop_count", "attack_time_us", "decay_time_us", "release_time_us"}:
+            value = 0xffffffff
+        if value is None or not minimum <= value <= maximum:
+            errors.append(f"{label} {descriptor} {key} is outside its complete integer domain")
+        else:
+            parsed[key] = value
+    for key in ("has_loop", "has_envelope", "has_keymap"):
+        if key in values and values[key] not in {"true", "false", "0", "1", "yes", "no"}:
+            errors.append(f"{label} {descriptor} has invalid {key} value")
+    start = parsed.get("loop_start_samples", 0)
+    end = parsed.get("loop_end_samples", 0)
+    if (values.get("has_loop") in {"true", "1", "yes"} or end > start
+            or parsed.get("loop_count", 0)):
+        count = metadata.get("decoded_sample_count", metadata.get("mpeg_sample_frames", 0))
+        if not 0 <= start < end <= count:
+            errors.append(f"{label} {descriptor} loop interval exceeds complete source frames")
+
+
+def parse_selected_audio_source(label: str, member: str, data: bytes,
+                                errors: list[str]) -> dict[str, int] | None:
+    suffix = Path(member).suffix.lower()
+    parser = {".wav": parse_wav_source_metadata, ".mp3": parse_mp3_source_metadata,
+              ".ogg": parse_vorbis_source_metadata}.get(suffix)
+    if parser is None:
+        errors.append(f"{label} has unsupported audio source {member!r}")
+        return None
+    return parser(f"{label}::{member}", data, errors)
 
 
 def validate_audio_source_contract(label: str, ext: str, zf: zipfile.ZipFile,
-                                   name_set: set[str],
-                                   errors: list[str]) -> None:
+                                   name_set: set[str], errors: list[str]) -> None:
     descriptor = "sound.ini" if ext == ".pdsfx" else "voice.ini"
-    descriptor_values: dict[str, str] = {}
-    manifest_values: dict[str, object] = {}
-    if descriptor in name_set:
-        descriptor_text = zf.read(descriptor).decode("utf-8", errors="replace")
-        descriptor_values = parse_ini_values(descriptor_text)
-        validate_audio_wav_descriptor(label, descriptor, descriptor_text, errors)
-        if ext == ".pdvoice":
-            for field in ("actor", "transcript", "language", "context"):
-                if field not in descriptor_values:
-                    errors.append(
-                        f"{label} voice.ini must declare public voice field {field}"
-                    )
-            language = descriptor_values.get("language", "").lower()
-            if language and language not in {
-                    "en", "en-us", "en-gb", "fr", "de", "it", "es",
-                    "jp", "ja"}:
-                errors.append(
-                    f"{label} voice.ini language {language!r} is unsupported"
-                )
-            validate_voice_locale_source_contract(
-                label, zf, name_set, descriptor_values, errors
-            )
+    if descriptor not in name_set:
+        errors.append(f"{label} missing public audio descriptor {descriptor}")
+        return
+    try:
+        descriptor_text = zf.read(descriptor).decode("utf-8-sig")
+    except UnicodeDecodeError:
+        errors.append(f"{label} {descriptor} is not valid UTF-8")
+        return
+    seen = set()
+    for raw in descriptor_text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("[", "#", ";")) or "=" not in line:
+            continue
+        key = line.split("=", 1)[0].strip()
+        if key in seen:
+            errors.append(f"{label} {descriptor} has duplicate public key {key!r}")
+        seen.add(key)
+    descriptor_values = parse_ini_values(descriptor_text)
+    manifest_values = {}
     if "_meta/manifest.json" in name_set:
-        manifest_text = zf.read("_meta/manifest.json").decode("utf-8", errors="replace")
         try:
-            manifest_values = json.loads(manifest_text)
-        except json.JSONDecodeError:
-            manifest_values = {}
-        validate_audio_wav_manifest(
-            label,
-            manifest_text,
-            errors,
-        )
-    if "sample.wav" not in name_set:
+            # Generic strict lexical JSON reader: duplicate keys, nonfinite numbers,
+            # malformed UTF-8/escapes and trailing data fail before provenance use.
+            manifest_values = parse_gltf_document(zf.read("_meta/manifest.json"))
+        except (ValueError, UnicodeError) as exc:
+            errors.append(f"{label} _meta/manifest.json is invalid audio JSON: {exc}")
+    if ext == ".pdvoice":
+        for field in ("actor", "transcript", "language", "context"):
+            if field not in descriptor_values:
+                errors.append(f"{label} voice.ini must declare public voice field {field}")
+        language = descriptor_values.get("language", "").lower()
+        if language and language not in {"en", "en-us", "en-gb", "fr", "de", "it", "es", "jp", "ja"}:
+            errors.append(f"{label} voice.ini language {language!r} is unsupported")
+        validate_voice_locale_source_contract(label, zf, name_set, descriptor_values, errors)
+    source = descriptor_values.get("file_path", "")
+    if source not in {"sample.wav", "sample.mp3", "sample.ogg"}:
+        errors.append(f"{label} {descriptor} file_path must select a supported default audio source")
         return
-    wav_meta = parse_wav_source_metadata(label, zf.read("sample.wav"), errors)
-    if wav_meta is None:
+    if source not in name_set:
+        errors.append(f"{label} {descriptor} declares missing audio source {source}")
         return
-
-    expected_rate = wav_meta["sample_rate_hz"]
-    expected_count = wav_meta["decoded_sample_count"]
-    descriptor_rate = int_field(descriptor_values, "sample_rate_hz")
-    descriptor_count = int_field(descriptor_values, "decoded_sample_count")
-    manifest_rate = int_field(manifest_values, "sample_rate_hz")
-    manifest_count = int_field(manifest_values, "decoded_sample_count")
-    if descriptor_rate is not None and descriptor_rate != expected_rate:
-        errors.append(
-            f"{label} {descriptor} sample_rate_hz {descriptor_rate} does not "
-            f"match sample.wav rate {expected_rate}"
-        )
-    if descriptor_count is not None and descriptor_count != expected_count:
-        errors.append(
-            f"{label} {descriptor} decoded_sample_count {descriptor_count} "
-            f"does not match sample.wav frame count {expected_count}"
-        )
-    if manifest_rate is not None and manifest_rate != expected_rate:
-        errors.append(
-            f"{label} _meta/manifest.json sample_rate_hz {manifest_rate} does "
-            f"not match sample.wav rate {expected_rate}"
-        )
-    if manifest_count is not None and manifest_count != expected_count:
-        errors.append(
-            f"{label} _meta/manifest.json decoded_sample_count {manifest_count} "
-            f"does not match sample.wav frame count {expected_count}"
-        )
+    # Source selection and intrinsic format/rate/size/count come from the public
+    # descriptor and bytes. Private generated data/format/rate mirrors are not
+    # an additional authored representation. Native identity remains provenance.
+    validate_audio_native_provenance(label, descriptor, descriptor_values, manifest_values, errors)
+    metadata = parse_selected_audio_source(label, source, zf.read(source), errors)
+    if metadata:
+        validate_audio_playback_controls(label, descriptor, descriptor_values, metadata, errors)
+    # Declared optional locale sources must also be structurally usable. This
+    # does not claim runtime locale selection or PCM/semantic extraction parity.
+    if ext == ".pdvoice":
+        for locale in ("en", "fr", "de", "it", "es", "ja"):
+            member = descriptor_values.get(f"locale_{locale}_file", "")
+            if member in name_set and re.fullmatch(r"locales/[a-z]+\.(wav|mp3|ogg)", member):
+                parse_selected_audio_source(label, member, zf.read(member), errors)
 
 
 def validate_voice_locale_source_contract(
@@ -4648,12 +4809,14 @@ def validate_lang_descriptor(label: str, text: str,
     count_value: int | None = None
     if count_raw:
         try:
+            if not re.fullmatch(r"[0-9]+", count_raw.strip()):
+                raise ValueError("incomplete decimal count")
             count_value = int(count_raw, 10)
         except ValueError:
             errors.append(f"{label} lang.ini string_count must be an integer")
         else:
-            if count_value <= 0:
-                errors.append(f"{label} lang.ini string_count must be positive")
+            if not 0 <= count_value <= 512:
+                errors.append(f"{label} lang.ini string_count must be in 0..512")
 
     return bank_value, count_value
 
@@ -4679,16 +4842,18 @@ def validate_lang_manifest(label: str, text: str,
         )
 
     bank_value = manifest.get("source_bank")
-    if not isinstance(bank_value, int) or bank_value <= 0:
+    if (not is_finite_json_number(bank_value) or bank_value != int(bank_value)
+            or not 0 < bank_value < 69):
         errors.append(
             f"{label} _meta/manifest.json source_bank must be a positive integer"
         )
         bank_value = None
 
     count_value = manifest.get("string_count")
-    if not isinstance(count_value, int) or count_value <= 0:
+    if (not is_finite_json_number(count_value) or count_value != int(count_value)
+            or not 0 <= count_value <= 512):
         errors.append(
-            f"{label} _meta/manifest.json string_count must be a positive integer"
+            f"{label} _meta/manifest.json string_count must be an integer in 0..512"
         )
         count_value = None
 
@@ -4698,8 +4863,11 @@ def validate_lang_manifest(label: str, text: str,
 def validate_lang_strings_json(label: str, text: str,
                                errors: list[str]) -> int:
     try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError as exc:
+        # This shared lexical reader validates complete UTF-8 JSON, decoded
+        # duplicate keys, finite numbers and paired Unicode surrogates. Asset
+        # family/schema validation remains below; it requires no glTF fields.
+        parsed = parse_gltf_document(text.removeprefix("\ufeff").encode("utf-8"))
+    except (ValueError, UnicodeError) as exc:
         errors.append(f"{label} strings.json is invalid JSON: {exc}")
         return 0
     if not isinstance(parsed, dict):
@@ -4707,19 +4875,36 @@ def validate_lang_strings_json(label: str, text: str,
         return 0
     if parsed.get("pd_kind") != "language_strings":
         errors.append(f"{label} strings.json pd_kind must be language_strings")
+    version = parsed.get("pd_schema_version", 1)
+    if type(version) not in (int, float) or version != 1:
+        errors.append(f"{label} strings.json pd_schema_version must be 1")
     rows = parsed.get("strings")
-    if not isinstance(rows, list) or not rows:
-        errors.append(f"{label} strings.json must contain a non-empty strings array")
+    if not isinstance(rows, list) or len(rows) > 512:
+        errors.append(f"{label} strings.json must contain a strings array of at most 512 rows")
         return 0
+    indexes: set[int] = set()
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
             errors.append(f"{label} strings.json row {i} must be an object")
             continue
         index = row.get("index")
-        if not isinstance(index, int) or index < 0:
+        if (type(index) not in (int, float) or not math.isfinite(index)
+                or index != int(index) or not 0 <= index < len(rows)):
             errors.append(f"{label} strings.json row {i} has invalid index")
-        if "text" not in row or not isinstance(row.get("text"), str):
-            errors.append(f"{label} strings.json row {i} must contain text string")
+        elif int(index) in indexes:
+            errors.append(f"{label} strings.json row {i} duplicates index {int(index)}")
+        else:
+            indexes.add(int(index))
+        value = row.get("text")
+        if "text" not in row or (value is not None and not isinstance(value, str)):
+            errors.append(f"{label} strings.json row {i} must contain text string or null")
+        elif isinstance(value, str):
+            try:
+                value.encode("latin-1")
+            except UnicodeEncodeError:
+                errors.append(f"{label} strings.json row {i} contains characters unsupported by the native Latin1 bank codec")
+    if len(indexes) != len(rows):
+        errors.append(f"{label} strings.json must explicitly cover every index in its table; use text:null for null slots")
     return len(rows)
 
 
@@ -4757,7 +4942,7 @@ def validate_lang_source_contract(label: str, zf: zipfile.ZipFile,
             f"_meta/manifest.json source_bank {manifest_bank}"
         )
     for source, count in (("lang.ini", descriptor_count), ("_meta/manifest.json", manifest_count)):
-        if count is not None and strings_count and count != strings_count:
+        if count is not None and count != strings_count:
             errors.append(
                 f"{label} {source} string_count {count} does not match "
                 f"strings.json row count {strings_count}"
@@ -5817,23 +6002,17 @@ GLTF_TYPE_COMPONENT_COUNTS = {
 }
 
 
-def pdmesh_gltf_json_and_bin(data: bytes) -> tuple[dict[str, object], bytes]:
+def pdmesh_gltf_json_and_bin(data: bytes, archive=None,
+                            source_member: str = "") -> tuple[dict[str, object], bytes]:
     if len(data) >= 12 and data[:4] == b"glTF":
-        return _glb_json_and_bin(data)
+        gltf, buffer = _glb_json_and_bin(data)
+        _, declared = gltf_buffer_declaration(gltf, glb=True)
+        if not declared <= len(buffer) <= declared + 3:
+            raise ValueError("GLB BIN length differs from declared buffer length")
+        return gltf, buffer[:declared]
 
-    gltf = json.loads(data.decode("utf-8"))
-    buffers = gltf.get("buffers")
-    if not isinstance(buffers, list) or not buffers:
-        raise ValueError("missing embedded glTF buffer")
-    first_buffer = buffers[0]
-    if not isinstance(first_buffer, dict):
-        raise ValueError("glTF buffer 0 is not an object")
-    uri = first_buffer.get("uri")
-    if not isinstance(uri, str) or not uri.startswith("data:"):
-        raise ValueError("glTF external binary buffers are not allowed")
-    if "," not in uri:
-        raise ValueError("glTF data URI is malformed")
-    return gltf, base64.b64decode(uri.split(",", 1)[1], validate=True)
+    gltf = parse_gltf_document(data)
+    return gltf, load_gltf_buffer(gltf, source_member, archive)
 
 
 def gltf_accessor_view(label: str, gltf: dict[str, object],
@@ -5933,6 +6112,8 @@ def validate_pdmesh_gltf_integer_native_boundary(label: str,
                                                  name_set: set[str],
                                                  errors: list[str],
                                                  source_member: str = "") -> None:
+    from asset_gltf_source import scene_plan, transform_position
+
     if not source_member:
         source_member = "model.glb" if "model.glb" in name_set else (
             "model.gltf" if "model.gltf" in name_set else ""
@@ -5941,7 +6122,8 @@ def validate_pdmesh_gltf_integer_native_boundary(label: str,
         return
 
     try:
-        gltf, bin_chunk = pdmesh_gltf_json_and_bin(zf.read(source_member))
+        gltf, bin_chunk = pdmesh_gltf_json_and_bin(zf.read(source_member), zf, source_member)
+        plan = scene_plan(gltf)
     except (KeyError, ValueError, json.JSONDecodeError, UnicodeDecodeError,
             binascii.Error, struct.error) as exc:
         errors.append(f"{label} {source_member} is invalid glTF/GLB mesh source: {exc}")
@@ -5953,7 +6135,9 @@ def validate_pdmesh_gltf_integer_native_boundary(label: str,
         return
 
     saw_triangle = False
-    for mesh_index, mesh in enumerate(meshes):
+    for instance in plan.instances:
+        mesh_index = instance.mesh_index
+        mesh = meshes[mesh_index]
         if not isinstance(mesh, dict):
             errors.append(f"{label} {source_member} mesh {mesh_index} must be an object")
             continue
@@ -5996,7 +6180,15 @@ def validate_pdmesh_gltf_integer_native_boundary(label: str,
 
             quantized_positions: list[tuple[int, int, int]] = []
             for vertex_index, coords in enumerate(positions):
-                quantized = [quantize_s16(value) for value in coords[:3]]
+                try:
+                    transformed = transform_position(instance, coords[:3])
+                except ValueError as exc:
+                    errors.append(
+                        f"{label} {source_member} node {instance.node_index} POSITION "
+                        f"vertex {vertex_index} has invalid transformed coordinates: {exc}"
+                    )
+                    return
+                quantized = [quantize_s16(value) for value in transformed]
                 if any(value is None for value in quantized):
                     errors.append(
                         f"{label} {source_member} POSITION vertex {vertex_index} "
@@ -6064,6 +6256,8 @@ def validate_pdmesh_gltf_integer_native_boundary(label: str,
                 a = quantized_positions[face_indices[index + 0]]
                 b = quantized_positions[face_indices[index + 1]]
                 c = quantized_positions[face_indices[index + 2]]
+                if instance.mirrored:
+                    b, c = c, b
                 ab = (b[0] - a[0], b[1] - a[1], b[2] - a[2])
                 ac = (c[0] - a[0], c[1] - a[1], c[2] - a[2])
                 cross = (
@@ -6125,6 +6319,7 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
             name_set = set(names)
             public = [n for n in public_names(names) if not n.endswith("/")]
             public_set = set(public)
+            gltf_buffers = declared_archive_buffers(zf, result.errors, label)
             local_catalog_ids = collect_archive_catalog_ids(
                 data, ext, recurse=True
             )
@@ -6182,11 +6377,12 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
 
             for name in public:
                 leaf = name.rsplit("/", 1)[-1].lower()
-                if name in FORBIDDEN_COMMON_EXACT or leaf in FORBIDDEN_COMMON_EXACT:
+                standard_gltf_buffer = name in gltf_buffers and name.lower().endswith(".bin")
+                if not standard_gltf_buffer and (name in FORBIDDEN_COMMON_EXACT or leaf in FORBIDDEN_COMMON_EXACT):
                     result.errors.append(
                         f"{label} contains forbidden authored runtime/stale payload {name}"
                     )
-                if matches_any(name, FORBIDDEN_COMMON_GLOBS):
+                if not standard_gltf_buffer and matches_any(name, FORBIDDEN_COMMON_GLOBS):
                     result.errors.append(
                         f"{label} contains forbidden authored runtime/stale payload {name}"
                     )
@@ -6198,11 +6394,11 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                     result.errors.append(
                         f"{label} contains stale entry forbidden by {ext} schema: {name}"
                     )
-                if not public_entry_allowed(name, spec):
+                if not standard_gltf_buffer and not public_entry_allowed(name, spec):
                     result.errors.append(
                         f"{label} contains public entry outside definitive {ext} schema: {name}"
                     )
-                elif not public_entry_has_contract(name, ext, spec):
+                elif not standard_gltf_buffer and not public_entry_has_contract(name, ext, spec):
                     result.errors.append(
                         f"{label} contains undocumented optional public entry in {ext}: {name}"
                     )
@@ -8694,6 +8890,36 @@ def run_selftest() -> int:
     return 0
 
 
+def write_conformance_report(
+    path: Path | None,
+    roots: list[Path],
+    result: ConformanceResult,
+    definition_errors: list[str] | None = None,
+) -> bool:
+    """Retain every diagnostic independently of the console display limit."""
+    if path is None:
+        return True
+    schema_errors = definition_errors or []
+    report = {
+        "schema": "pd2.asset.conformance-report.v1",
+        "roots": [str(root.resolve()) for root in roots],
+        "passed": not schema_errors and not result.errors,
+        "root_archives": result.root_archives,
+        "checked_archives": result.checked_archives,
+        "families": sorted(result.families),
+        "schema_errors": schema_errors,
+        "error_count": len(schema_errors) + len(result.errors),
+        "errors": result.errors,
+    }
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    except (OSError, UnicodeError) as error:
+        print(f"could not write conformance report {path}: {error}", file=sys.stderr)
+        return False
+    return True
+
+
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -8724,6 +8950,11 @@ def main(argv: list[str]) -> int:
         default=200,
         help="Maximum detailed failures to print before summarizing the rest.",
     )
+    parser.add_argument(
+        "--report-json",
+        type=Path,
+        help="Write complete counts and all diagnostics to this JSON receipt.",
+    )
     args = parser.parse_args(argv)
 
     if args.selftest:
@@ -8734,6 +8965,7 @@ def main(argv: list[str]) -> int:
 
     definition_errors = validate_schema_definitions()
     if definition_errors:
+        write_conformance_report(args.report_json, args.root, ConformanceResult(), definition_errors)
         print("asset-archive schema contract is incomplete:", file=sys.stderr)
         for error in definition_errors:
             print(f"  - {error}", file=sys.stderr)
@@ -8746,6 +8978,9 @@ def main(argv: list[str]) -> int:
             require_all_families=args.require_all_families,
             recurse=not args.no_recursive_dependencies,
         ))
+
+    if not write_conformance_report(args.report_json, args.root, total):
+        return 2
 
     if total.errors:
         print("asset-archive conformance failed:", file=sys.stderr)

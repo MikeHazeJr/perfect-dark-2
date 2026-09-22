@@ -12,7 +12,7 @@
  *   s_HashTable[slot] -> entry pool index (or SENTINEL for empty)
  *   s_EntryPool[poolIdx] -> asset_entry_t with all metadata
  *
- * This allows realloc() of the entry pool without invalidating hash table.
+ * This allows relocation of the entry pool without invalidating hash table.
  * Hash collisions use linear probing — O(1) average, O(n) worst case.
  * At 256-512 entries with 2048 slots, load factor ~12-25%, probing is fast.
  *
@@ -23,6 +23,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
+#include <limits.h>
+#include "smoke_harness.h"
 #include <SDL.h>           /* Engine Phase 4: catalog mutex for parallel walker */
 #include "types.h"
 #include "assetcatalog.h"
@@ -70,6 +73,7 @@ typedef struct catalog_retire_row {
 static s32 *s_HashTable = NULL;        /* hash table: [slot] -> pool index or SENTINEL */
 static s32 s_HashTableSize = 0;        /* current size (always power of 2) */
 static s32 s_HashTableCapacity = 0;    /* allocated capacity */
+static s32 s_FailNextHashGrowthForSmoke = 0;
 
 static asset_entry_t *s_EntryPool = NULL;      /* array of entries */
 static s32 s_EntryPoolSize = 0;                /* current count */
@@ -224,8 +228,16 @@ static s32 findSlot(u32 id_hash, const char *id, s32 *out_poolidx)
  */
 static s32 rehashTable(void)
 {
-    s32 new_size = s_HashTableSize * 2;
-    s32 *new_table = (s32 *)malloc(new_size * sizeof(s32));
+    s32 new_size;
+    s32 *new_table;
+    if (s_FailNextHashGrowthForSmoke) {
+        s_FailNextHashGrowthForSmoke = 0;
+        return 0;
+    }
+    if (s_HashTableSize <= 0 || s_HashTableSize > INT32_MAX / 2) return 0;
+    new_size = s_HashTableSize * 2;
+    if ((size_t)new_size > SIZE_MAX / sizeof(s32)) return 0;
+    new_table = (s32 *)malloc((size_t)new_size * sizeof(s32));
 
     if (new_table == NULL) {
         return 0;  /* allocation failed */
@@ -263,34 +275,78 @@ static s32 rehashTable(void)
     return 1;
 }
 
-/**
- * Grow the entry pool when it's full.
- * Realloc to 2x capacity. Hash table remains valid (stores indices).
- */
-static s32 growEntryPool(void)
+/* Caller holds the catalog lock. Allocate before retiring the old storage:
+ * failure leaves all rows and aliases unchanged. Hash tables and lookup
+ * caches retain indices; only the lifecycle's exact self markers need rebasing.
+ * This shared resize also makes the smoke relocation deterministic. */
+static s32 resizeEntryPool(s32 new_capacity, s32 *rebased_count)
 {
-    s32 new_capacity = s_EntryPoolCapacity * 2;
-    asset_entry_t *new_pool = (asset_entry_t *)realloc(s_EntryPool,
-                                                         new_capacity * sizeof(asset_entry_t));
-
-    if (new_pool == NULL) {
-        return 0;  /* allocation failed */
+    asset_entry_t *new_pool;
+    s32 rebased = 0;
+    if (new_capacity < s_EntryPoolCapacity || new_capacity <= 0
+            || (size_t)new_capacity > SIZE_MAX / sizeof(asset_entry_t)) return 0;
+    new_pool = (asset_entry_t *)calloc((size_t)new_capacity, sizeof(asset_entry_t));
+    if (!new_pool) return 0;
+    if (s_EntryPoolCapacity) memcpy(new_pool, s_EntryPool,
+            (size_t)s_EntryPoolCapacity * sizeof(asset_entry_t));
+    for (s32 i = 0; i < s_EntryPoolSize; ++i) {
+        if (new_pool[i].occupied
+                && new_pool[i].payload_kind == ASSET_PAYLOAD_RUNTIME_ACTIVE
+                && new_pool[i].loaded_data == &s_EntryPool[i]) {
+            new_pool[i].loaded_data = &new_pool[i];
+            ++rebased;
+        }
     }
-
-    /* Zero the newly allocated entries */
-    memset(&new_pool[s_EntryPoolCapacity], 0,
-           (new_capacity - s_EntryPoolCapacity) * sizeof(asset_entry_t));
-
+    free(s_EntryPool);
     s_EntryPool = new_pool;
     s_EntryPoolCapacity = new_capacity;
+    if (rebased_count) *rebased_count = rebased;
+    return 1;
+}
 
+/* Grow by two without overflowing the index or allocation-size domain. */
+static s32 growEntryPool(void)
+{
+    if (s_EntryPoolCapacity > INT32_MAX / 2) return 0;
+    return resizeEntryPool(s_EntryPoolCapacity * 2, NULL);
+}
+
+/* Exercise the actual resize/alias path at unchanged capacity. This does not
+ * rebuild caches or change catalog identity, generation or slot assignments. */
+s32 assetCatalogDebugRelocatePoolForSmoke(s32 *rebased_count)
+{
+    s32 result;
+    if (rebased_count) *rebased_count = 0;
+    if (!smokeHarnessIsActive()) return 0;
+    CATALOG_LOCK();
+    result = s_EntryPool && resizeEntryPool(s_EntryPoolCapacity, rebased_count);
+    CATALOG_UNLOCK();
+    return result;
+}
+
+s32 assetCatalogDebugStorageForSmoke(s32 *pool_capacity, s32 *hash_size)
+{
+    if (!smokeHarnessIsActive() || !pool_capacity || !hash_size) return 0;
+    CATALOG_LOCK();
+    *pool_capacity = s_EntryPoolCapacity;
+    *hash_size = s_HashTableSize;
+    CATALOG_UNLOCK();
+    return 1;
+}
+
+s32 assetCatalogDebugFailNextHashGrowthForSmoke(void)
+{
+    if (!smokeHarnessIsActive()) return 0;
+    CATALOG_LOCK();
+    s_FailNextHashGrowthForSmoke = 1;
+    CATALOG_UNLOCK();
     return 1;
 }
 
 /**
- * Calculate the load factor percentage: (occupied_slots / total_slots) * 100
+ * Calculate the occupied-slot load factor after one prospective insert.
  */
-static s32 getLoadFactor(void)
+static s32 projectedLoadFactor(void)
 {
     if (s_HashTableSize == 0) {
         return 0;
@@ -303,7 +359,7 @@ static s32 getLoadFactor(void)
         }
     }
 
-    return (occupied * 100) / s_HashTableSize;
+    return (s32)((((uint64_t)occupied + 1) * 100) / (u32)s_HashTableSize);
 }
 
 /* ========================================================================
@@ -662,57 +718,40 @@ s32 assetCatalogGetPoolSize(void)
  * valid across the type-specific field fill. */
 static asset_entry_t *s_registerLocked(const char *id, asset_type_e type)
 {
-    if (id == NULL || s_HashTable == NULL || s_EntryPool == NULL) {
+    char stable_id[CATALOG_ID_LEN];
+    size_t id_length = 0;
+    s32 pool_idx = SENTINEL, slot, is_new;
+    asset_entry_t *entry;
+    u32 id_hash, net_hash;
+    if (!id || !s_HashTable || !s_EntryPool) return NULL;
+    /* Callers may supply a row's own ID (replacement) or another string in
+     * the pool (new child). Snapshot before clearing or moving that storage.
+     * Reject truncation: full-string hashes must describe the stored ID. */
+    while (id_length < sizeof(stable_id) && id[id_length]) ++id_length;
+    if (id_length == sizeof(stable_id)) return NULL;
+    memcpy(stable_id, id, id_length + 1);
+    id_hash = fnv1a(stable_id);
+    net_hash = crc32(stable_id);
+    slot = findSlot(id_hash, stable_id, &pool_idx);
+    is_new = pool_idx == SENTINEL;
+    if (is_new) {
+        /* Reserve before publication. Rehash only sees fully occupied rows;
+         * its allocation failure must not publish an uninitialized success. */
+        if (projectedLoadFactor() > LOAD_FACTOR_LIMIT) {
+            if (!rehashTable()) return NULL;
+            slot = findSlot(id_hash, stable_id, &pool_idx);
+        }
+        if (slot < 0 || pool_idx != SENTINEL) return NULL;
+        if (s_EntryPoolSize >= s_EntryPoolCapacity && !growEntryPool()) return NULL;
+        pool_idx = s_EntryPoolSize;
+    } else if (slot < 0) {
         return NULL;
     }
-
-    /* Compute both hashes. net_hash is an internal cache key (CRC32 of id);
-     * not wire/save/public API identity — use catalog ID strings at boundaries. */
-    u32 id_hash = fnv1a(id);
-    u32 net_hash = crc32(id);
-
-    /* Find slot (may be empty or existing entry) */
-    s32 pool_idx = 0;
-    s32 slot = findSlot(id_hash, id, &pool_idx);
-
-    if (slot < 0) {
-        /* Hash table completely full (shouldn't happen) */
-        return NULL;
-    }
-
-    asset_entry_t *entry = NULL;
-
-    if (pool_idx != SENTINEL) {
-        /* Existing entry — reuse it (last-write-wins override) */
-        entry = &s_EntryPool[pool_idx];
-        memset(entry, 0, sizeof(asset_entry_t));
-    } else {
-        /* New entry — allocate from pool */
-        if (s_EntryPoolSize >= s_EntryPoolCapacity) {
-            /* Pool full — grow it */
-            if (!growEntryPool()) {
-                return NULL;
-            }
-        }
-
-        pool_idx = s_EntryPoolSize++;
-        entry = &s_EntryPool[pool_idx];
-        memset(entry, 0, sizeof(asset_entry_t));
-
-        /* Insert into hash table */
-        s_HashTable[slot] = pool_idx;
-
-        /* Check if rehash is needed (load factor check) */
-        if (getLoadFactor() > LOAD_FACTOR_LIMIT) {
-            if (!rehashTable()) {
-                /* Rehash failed, but entry is still registered */
-                return entry;
-            }
-        }
-    }
+    entry = &s_EntryPool[pool_idx];
+    memset(entry, 0, sizeof(*entry));
 
     /* Fill in the entry */
-    strncpy(entry->id, id, CATALOG_ID_LEN - 1);
+    memcpy(entry->id, stable_id, id_length + 1);
     entry->id[CATALOG_ID_LEN - 1] = '\0';
     entry->id_hash = id_hash;
     entry->net_hash = net_hash;
@@ -743,6 +782,11 @@ static asset_entry_t *s_registerLocked(const char *id, asset_type_e type)
     entry->ref_count = 0;
     entry->occupied = 1;
 
+
+    if (is_new) {
+        ++s_EntryPoolSize;
+        s_HashTable[slot] = pool_idx;
+    }
     return entry;
 }
 
@@ -984,7 +1028,7 @@ asset_entry_t *assetCatalogRegisterBody(const char *id, s16 bodynum,
     CATALOG_LOCK();
     asset_entry_t *entry = s_registerLocked(id, ASSET_BODY);
     if (entry) {
-        s16 resolved_bodynum = s_resolveBodyRegistrationSlot(id, bodynum);
+        s16 resolved_bodynum = s_resolveBodyRegistrationSlot(entry->id, bodynum);
         entry->ext.body.bodynum = resolved_bodynum;
         if (resolved_bodynum >= 0) {
             entry->runtime_index = resolved_bodynum;
@@ -1037,7 +1081,7 @@ asset_entry_t *assetCatalogRegisterHead(const char *id, s16 headnum,
     CATALOG_LOCK();
     asset_entry_t *entry = s_registerLocked(id, ASSET_HEAD);
     if (entry) {
-        s16 resolved_headnum = s_resolveHeadRegistrationSlot(id, headnum);
+        s16 resolved_headnum = s_resolveHeadRegistrationSlot(entry->id, headnum);
         entry->ext.head.headnum = resolved_headnum;
         if (resolved_headnum >= 0) {
             entry->runtime_index = resolved_headnum;

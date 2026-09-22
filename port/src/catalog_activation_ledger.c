@@ -208,8 +208,14 @@ void catalogActivationLedgerRestoreRetiredSnapshot(asset_entry_t *entry,
 {
 	if (!entry || !snapshot) return;
 	*entry = *snapshot;
-	entry->load_state = entry->enabled
-		? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
+	/* A never-loaded row has no retired ownership to normalize. Preserve its
+	 * exact admission state, including enabled preference with REGISTERED state.
+	 * Loaded/active snapshots still lose every stale runtime pointer and count. */
+	if (snapshot->payload_kind != ASSET_PAYLOAD_NONE || snapshot->loaded_data
+			|| snapshot->ref_count || snapshot->stage_ref_count
+			|| snapshot->load_state > ASSET_STATE_ENABLED)
+		entry->load_state = entry->enabled
+			? ASSET_STATE_ENABLED : ASSET_STATE_REGISTERED;
 	entry->loaded_data = NULL;
 	entry->data_size_bytes = 0;
 	entry->payload_kind = ASSET_PAYLOAD_NONE;

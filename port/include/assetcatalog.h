@@ -232,6 +232,7 @@ typedef struct asset_entry {
         struct {
             char body_id[CATALOG_ID_LEN];
             char head_id[CATALOG_ID_LEN];
+            s32 head_policy; /* character_head_policy_e; zero is legacy fixed only */
             char display_name[64];
             char bodyfile[FS_MAXPATH];
             char headfile[FS_MAXPATH];
@@ -496,6 +497,7 @@ typedef struct asset_entry {
             char locale[16];           /* locale tag for this language source */
             char lang_category[32];    /* stage / mp_ui / system */
             u32 string_count;          /* authored strings.json row count */
+            s32 string_count_declared; /* distinguish absent count from declared zero */
             char strings_file[FS_MAXPATH];
         } lang;
         struct {
@@ -610,6 +612,14 @@ const asset_entry_t *assetCatalogGetByIndex(s32 index);
  * to visit all entries (skipping NULL returns for holes / unoccupied slots).
  */
 s32 assetCatalogGetPoolSize(void);
+
+/* Smoke-only deterministic relocation through the production resize helper.
+ * Preserves indices, generation and ownership; invalidates borrowed row/ID
+ * pointers exactly as registration growth does. Returns 0 outside smoke. */
+s32 assetCatalogDebugRelocatePoolForSmoke(s32 *rebased_count);
+s32 assetCatalogDebugStorageForSmoke(s32 *pool_capacity, s32 *hash_size);
+/* One-shot allocation failure at the actual hash-growth boundary. */
+s32 assetCatalogDebugFailNextHashGrowthForSmoke(void);
 
 /**
  * Mutable resolve by string ID.
@@ -1273,7 +1283,9 @@ const asset_entry_t *catalogResolveByNetHash(u32 net_hash);
 /* ── Phase 8: cached runtime lookups ────────────────────────────────────
  * Built once by catalogBuildRuntimeCaches() after catalog population.
  * Integer-to-string resolution is cached for normal runtime use; body/head
- * selector helpers may scan mp_index as a late-rebuild fallback. */
+ * selector helpers may scan mp_index as a late-rebuild fallback.
+ * Caches retain pool indices and survive pool relocation. Returned strings
+ * remain borrowed: copy them before any catalog mutation. */
 
 /**
  * Build all runtime↔catalog-ID caches (mp body/head, stage, weapon, model).
@@ -1722,6 +1734,9 @@ s32 catalogGetMpWeaponPriAmmoQtyChecked(s32 mpweapon_idx, s32 *out_value);
 s32 catalogGetBodyScaleChecked(s32 bodynum, f32 *out_value);
 s32 catalogGetBodyAnimScaleChecked(s32 bodynum, f32 *out_value);
 s32 catalogGetBodyHandFilenumChecked(s32 bodynum, s32 *out_value);
+/* Copies the selected public hand identity and effective source. A body with
+ * no hands succeeds with an empty ID/null handle; a missing selected mesh fails. */
+s32 catalogGetBodyHandSourceChecked(s32 bodynum, char out_id[64], asset_data_handle_t *out_handle);
 
 #if !defined(PD_SERVER)
 s32 catalogGetBodyModeldefChecked(s32 bodynum, struct modeldef **out_md);

@@ -65,6 +65,7 @@
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
+#include "romextract_texture_stage.h"
 #include "sha256.h"
 #include "system.h"
 #include "texture_decode_pure.h"
@@ -9713,6 +9714,49 @@ static void s_pdarenaWork(int i, void *user)
 	}
 }
 
+
+/* Add public material rules without re-emitting authored geometry/graphs. Also
+ * upgrade each arena's own embedded scenario, preserving edits in that copy. */
+static s32 s_upgradeStageTextureProperties(const char *arenas_dir,
+    const char *scenarios_dir, const pdscenario_stage_specs_t *standalone)
+{
+    s32 upgraded = 0, failed = 0;
+    for (s32 i = 0; i < g_ArenaDataCount + standalone->count; ++i) {
+        char scenario_id[128], rel[FS_MAXPATH], full_buf[FS_MAXPATH + 1], error[192];
+        s32 stagenum;
+        const arena_authored_record_t *arena = NULL;
+        if (i < g_ArenaDataCount) {
+            arena = &g_ArenaData[i];
+            stagenum = arena->stagenum;
+            if (s_arenaStageIndexForScenario(stagenum) < 0) continue;
+            s_scenarioCatalogIdFromSlug(arena->slug, scenario_id, sizeof(scenario_id));
+        } else {
+            const pdscenario_emit_spec_t *spec = &standalone->specs[i - g_ArenaDataCount];
+            stagenum = spec->stagenum;
+            snprintf(scenario_id, sizeof(scenario_id), "%s", spec->scenario_id);
+        }
+        const char *stage_id = catalogStageIdByStagenum(stagenum);
+        s_scenarioArchiveRelPath(scenarios_dir, scenario_id, rel, sizeof(rel));
+        const char *full = fsFullPath(rel, full_buf, sizeof(full_buf));
+        s32 result = romExtractTextureStageProperties(full, NULL, stage_id, error, sizeof(error));
+        if (result < 0) { ++failed; sysLoudFailf("EXTRACT.STAGE.TEXTURE", "%s: %s", rel, error); }
+        else upgraded += result;
+        if (arena) {
+            char filename[128], member[FS_MAXPATH];
+            s_idToFilename(arena->catalog_id, filename, sizeof(filename));
+            snprintf(rel, sizeof(rel), "%s/%s.pdarena", arenas_dir, filename);
+            s_idToFilename(scenario_id, filename, sizeof(filename));
+            snprintf(member, sizeof(member), "dependencies/assets/scenarios/%s.pdscenario", filename);
+            full = fsFullPath(rel, full_buf, sizeof(full_buf));
+            result = romExtractTextureStageProperties(full, member, stage_id, error, sizeof(error));
+            if (result < 0) { ++failed; sysLoudFailf("EXTRACT.STAGE.TEXTURE", "%s: %s", rel, error); }
+            else upgraded += result;
+        }
+    }
+    sysLogPrintf(LOG_NOTE, "EXTRACT.STAGE.TEXTURE: upgraded=%d failed=%d", upgraded, failed);
+    return failed ? -1 : upgraded;
+}
+
 s32 romExtractAllPdarena(s32 force_rewrite)
 {
 	/* BYOR completion (2026-05-03): walks g_ArenaData[] from the
@@ -9774,7 +9818,12 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		sysLogPrintf(LOG_NOTE,
 			"romextract pdscenario: written=0 skipped=%d failed=0 standalone=%d (fast-cache)",
 			g_ArenaDataCount + stage_specs.count, stage_specs.count);
-		return 0;
+		const s32 upgraded = s_upgradeStageTextureProperties(arenas_dir, scenarios_dir, &stage_specs);
+		if (upgraded > 0) {
+			romExtractPdFastCacheWrite(ROMEXTRACT_PDARENA_FAST_CACHE_KIND, arenas_dir, ".pdarena");
+			romExtractPdFastCacheWrite(ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND, scenarios_dir, ".pdscenario");
+		}
+		return upgraded;
 	}
 
 	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite of
@@ -9830,6 +9879,11 @@ s32 romExtractAllPdarena(s32 force_rewrite)
 		"romextract pdscenario: written=%d skipped=%d failed=%d standalone=%d",
 		scenarios_written, scenarios_skipped, scenarios_failed,
 		stage_specs.count);
+
+	if (arenas_failed == 0 && scenarios_failed == 0
+			&& s_upgradeStageTextureProperties(arenas_dir, scenarios_dir, &stage_specs) < 0) {
+		scenarios_failed++;
+	}
 
 	if (arenas_failed == 0 && scenarios_failed == 0) {
 		romExtractPdFastCacheWrite(ROMEXTRACT_PDARENA_FAST_CACHE_KIND,

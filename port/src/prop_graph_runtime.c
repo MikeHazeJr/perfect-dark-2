@@ -8,6 +8,7 @@
  */
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -31,6 +32,20 @@ static s32 s_asset_capacity;
 static prop_graph_instance_t *s_instances;
 static s32 s_instance_count;
 static s32 s_instance_capacity;
+
+s32 propGraphHealthIsRepresentable(f32 health)
+{
+	return health >= 0.0f && health <= (f32)INT16_MAX / 10.0f;
+}
+
+s16 propGraphHealthToMaxDamage(f32 health)
+{
+	/* Ordered comparisons handle NaN and infinities without the math shim.
+	 * Keep the native float multiply and truncation for ordinary values. */
+	if (!(health > 0.0f)) return 0;
+	if (health >= (f32)INT16_MAX / 10.0f) return INT16_MAX;
+	return (s16)(health * 10.0f);
+}
 
 static void setErr(char *err, size_t cap, const char *message)
 {
@@ -90,9 +105,11 @@ static s32 validateNode(const weapon_graph_ir_t *ir,
 		return 0;
 	case WEAPON_GRAPH_OP_PROP_ACTION_SET_HEALTH:
 		p = findParam(ir, node, "value");
-		if (p && (p->type == WEAPON_GRAPH_PARAM_FLOAT ||
-				p->type == WEAPON_GRAPH_PARAM_INT) && p->f_value >= 0.0f) return 1;
-		setErr(err, err_cap, "action.set_health requires non-negative numeric params.value");
+		if (p && ((p->type == WEAPON_GRAPH_PARAM_INT &&
+				propGraphHealthIsRepresentable((f32)p->i_value)) ||
+				(p->type == WEAPON_GRAPH_PARAM_FLOAT &&
+				propGraphHealthIsRepresentable(p->f_value)))) return 1;
+		setErr(err, err_cap, "action.set_health params.value must be in native health range 0..3276.7");
 		return 0;
 	case WEAPON_GRAPH_OP_PROP_ACTION_SET_CHANNEL:
 		p = findParam(ir, node, "channel");

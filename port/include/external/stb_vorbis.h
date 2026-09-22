@@ -1,9 +1,9 @@
 /**
- * stb_vorbis.h — Minimal public API for OGG Vorbis decoding (Batch A-6)
+ * stb_vorbis.h — C ABI for the vendored upstream Ogg Vorbis decoder.
  *
  * Wraps stb_vorbis (public domain, Sean Barrett) for use by the mod music
- * system. Only the decode-from-file API is exposed; the full stb_vorbis
- * header is in the implementation file.
+ * system. The complete upstream implementation and license are retained in
+ * port/external/stb_vorbis.c (commit 1ee679ca2ef753a528db5ba6801e1067b40481b8).
  *
  * License: Public Domain / MIT (dual-licensed by original author)
  */
@@ -15,25 +15,40 @@
 extern "C" {
 #endif
 
-/**
- * Decode an entire OGG Vorbis file to interleaved S16 PCM.
- *
- * @param filename   Path to .ogg file
- * @param channels   Output: number of channels (1 or 2)
- * @param sample_rate Output: sample rate in Hz
- * @param output     Output: malloc'd buffer of interleaved S16 samples
- * @return           Total number of samples decoded (across all channels),
- *                   or -1 on failure. Caller must free(*output).
- */
-int stb_vorbis_decode_filename(const char *filename, int *channels,
-                               int *sample_rate, short **output);
+typedef struct stb_vorbis stb_vorbis;
 
-/**
- * Decode an entire OGG Vorbis memory buffer to interleaved S16 PCM.
- * Same output contract as stb_vorbis_decode_filename().
- */
-int stb_vorbis_decode_memory(const unsigned char *data, int data_len,
-                             int *channels, int *sample_rate, short **output);
+/* Exact layouts from the pinned upstream public header. */
+typedef struct {
+    char *alloc_buffer;
+    int alloc_buffer_length_in_bytes;
+} stb_vorbis_alloc;
+
+typedef struct {
+    unsigned int sample_rate;
+    int channels;
+    unsigned int setup_memory_required;
+    unsigned int setup_temp_memory_required;
+    unsigned int temp_memory_required;
+    int max_frame_size;
+} stb_vorbis_info;
+
+/* Memory input remains owned by the caller and must outlive the decoder.
+ * Filename input is opened and closed by the decoder. NULL means failure. */
+stb_vorbis *stb_vorbis_open_memory(const unsigned char *data, int data_len,
+    int *error, const stb_vorbis_alloc *alloc_buffer);
+stb_vorbis *stb_vorbis_open_filename(const char *filename, int *error,
+    const stb_vorbis_alloc *alloc_buffer);
+stb_vorbis_info stb_vorbis_get_info(stb_vorbis *decoder);
+void stb_vorbis_close(stb_vorbis *decoder);
+
+/* Decode into caller-owned S16 storage. num_shorts is the total interleaved
+ * capacity. The return value is frames per channel, not interleaved samples;
+ * zero means no further frames. Check get_error after each call. */
+int stb_vorbis_get_samples_short_interleaved(stb_vorbis *decoder,
+    int channels, short *buffer, int num_shorts);
+
+/* Return and clear the decoder's last error; zero means no reported error. */
+int stb_vorbis_get_error(stb_vorbis *decoder);
 
 #ifdef __cplusplus
 }

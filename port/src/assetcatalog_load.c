@@ -19,6 +19,7 @@
 #include "constants.h"
 #include "types.h"
 #include "assetcatalog.h"
+#include "assetcatalog_anim_slots.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_deps.h"
 #include "catalog_stage_ownership.h"
@@ -30,6 +31,8 @@
 #include "assetload.h"
 #include "mod.h"
 #include "modasset_compiler.h"
+#include "model_source_path.h"
+#include "catalog_model_generation.h"
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_heads.h"
 #include "loader_pool.h"
@@ -51,8 +54,10 @@
 
 #define LOAD_MAX_FILES   2048   /* matches ROMDATA_MAX_FILES in romdata.c */
 #define LOAD_MAX_TEXTURES 4096
-#define LOAD_MAX_ANIMS   2048
-#define LOAD_MAX_SOUNDS  4096
+#define LOAD_MAX_ANIMS   ANIM_CUSTOM_END_SLOT
+/* source_soundnum contains either a leaf slot or a complete unsigned packed
+ * configuration reference. The admission contract accepts all 16 bits. */
+#define LOAD_MAX_SOUNDS  65536
 
 /* ========================================================================
  * Reverse-index arrays
@@ -91,6 +96,8 @@ static s32 s_catalogTypeUsesMetadataRuntimePayload(asset_type_e type);
 static s32 s_catalogTypePreloadsBundledMetadataPayload(asset_type_e type);
 static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry);
 static s32 s_catalogPreloadBundledMetadataPayload(asset_entry_t *entry);
+static void s_catalogDetachRuntimeAdapters(asset_entry_t *entry,
+        const char *assetId);
 static s32 s_catalogLedgerReload(
 	const catalog_activation_root_t *root, void *userdata);
 
@@ -100,6 +107,8 @@ static s32 s_catalogLedgerReload(
 
 void catalogLoadInit(void)
 {
+    extern void textureSourceRuntimeInvalidate(void);
+    textureSourceRuntimeInvalidate();
     /* Reset all reverse-index arrays to "no entry" */
     for (s32 i = 0; i < LOAD_MAX_FILES;    i++) { s_FilenumOverride[i]   = -1; }
     for (s32 i = 0; i < LOAD_MAX_TEXTURES; i++) { s_TexnumOverride[i]    = -1; }
@@ -108,7 +117,7 @@ void catalogLoadInit(void)
 
     s32 bundled_count  = 0;
     s32 override_count = 0;
-    s32 total = assetCatalogGetCount();
+    s32 total = assetCatalogGetPoolSize();
 
     for (s32 i = 0; i < total; i++) {
         const asset_entry_t *e = assetCatalogGetByIndex(i);
@@ -187,7 +196,7 @@ void catalogSeedCustomAnimRows(void)
         return;
     }
 
-    total_entries = assetCatalogGetCount();
+    total_entries = assetCatalogGetPoolSize();
 
     for (i = 0; i < total_entries; i++) {
         const asset_entry_t *e = assetCatalogGetByIndex(i);
@@ -592,85 +601,6 @@ static s32 s_catalogTypeUsesModelPayload(asset_type_e type)
     }
 }
 
-static s32 s_catalogPathEndsWithNoCase(const char *path, const char *suffix)
-{
-    size_t path_len;
-    size_t suffix_len;
-
-    if (!path || !suffix) {
-        return 0;
-    }
-
-    path_len = strlen(path);
-    suffix_len = strlen(suffix);
-    if (path_len < suffix_len) {
-        return 0;
-    }
-
-    path += path_len - suffix_len;
-    for (size_t i = 0; i < suffix_len; i++) {
-        char a = path[i];
-        char b = suffix[i];
-        if (a >= 'A' && a <= 'Z') {
-            a = (char)(a - 'A' + 'a');
-        }
-        if (b >= 'A' && b <= 'Z') {
-            b = (char)(b - 'A' + 'a');
-        }
-        if (a != b) {
-            return 0;
-        }
-    }
-    return 1;
-}
-
-static s32 s_catalogModelPayloadSourcePath(const asset_entry_t *entry,
-                                           const char *source_path,
-                                           char *out,
-                                           size_t out_cap)
-{
-    static const char *const members[] = {
-        "model.obj",
-        "model.gltf",
-        "model.glb",
-    };
-
-    if (!out || out_cap == 0) {
-        return 0;
-    }
-    out[0] = '\0';
-
-    if (!source_path || !source_path[0]) {
-        return 0;
-    }
-
-    if (modAssetCompilerIsExternalSource(source_path)) {
-        snprintf(out, out_cap, "%s", source_path);
-        out[out_cap - 1] = '\0';
-        return 1;
-    }
-
-    if (!s_catalogPathEndsWithNoCase(source_path, ".pdmesh")) {
-        return 0;
-    }
-
-    for (size_t i = 0; i < sizeof(members) / sizeof(members[0]); i++) {
-        char candidate[FS_MAXPATH + 1];
-        snprintf(candidate, sizeof(candidate), "%s::%s", source_path, members[i]);
-        candidate[sizeof(candidate) - 1] = '\0';
-        if (fsFileSize(candidate) > 0) {
-            snprintf(out, out_cap, "%s", candidate);
-            out[out_cap - 1] = '\0';
-            return 1;
-        }
-    }
-
-    sysLogPrintf(LOG_WARNING,
-                 "CATALOG.LIFECYCLE.ACTIVATE: '%s' mesh archive source has no model.obj/model.gltf/model.glb member (%s)",
-                 entry ? entry->id : "?", source_path);
-    return 0;
-}
-
 static s32 s_catalogLoadEntryModelPayload(asset_entry_t *entry, asset_data_handle_t handle)
 {
     char desc[128];
@@ -678,14 +608,16 @@ static s32 s_catalogLoadEntryModelPayload(asset_entry_t *entry, asset_data_handl
     const char *source_path = NULL;
     char resolved_source_path[FS_MAXPATH + 1];
     struct modeldef *modeldef;
+    catalog_model_generation_t *generation;
+    char model_error[256];
     s32 loaded_size;
 
     if (handle.provider == fileProvider()) {
         source_path = fileProviderPath(handle);
     }
 
-    if (s_catalogModelPayloadSourcePath(entry, source_path,
-            resolved_source_path, sizeof(resolved_source_path))) {
+    if (modelSourceResolvePath(source_path, resolved_source_path,
+            sizeof(resolved_source_path), NULL, 0)) {
         s32 cache_result = modAssetCompilerCompileReadable(entry,
             s_catalogPayloadKind(entry->type), resolved_source_path, &compiled);
         if (cache_result < 0) {
@@ -696,12 +628,16 @@ static s32 s_catalogLoadEntryModelPayload(asset_entry_t *entry, asset_data_handl
             return 0;
         }
 
-        if (modAssetCompilerBuildModeldef(entry, resolved_source_path, &modeldef) <= 0
-                || !modeldef) {
+        model_error[0] = '\0';
+        generation = catalogModelGenerationAcquireSource(entry, source_path,
+            model_error, sizeof(model_error));
+        modeldef = catalogModelGenerationModeldef(generation);
+        if (!generation || !modeldef) {
             sysLogPrintf(LOG_WARNING,
-                         "CATALOG.LIFECYCLE.ACTIVATE: '%s' external %s modeldef conversion failed (%s)",
+                         "CATALOG.LIFECYCLE.ACTIVATE: '%s' external %s modeldef conversion failed (%s): %s",
                          entry->id, s_catalogPayloadKind(entry->type),
-                         assetDescribe(handle, desc, sizeof(desc)));
+                         assetDescribe(handle, desc, sizeof(desc)),
+                         model_error[0] ? model_error : "unknown error");
             return 0;
         }
 
@@ -720,6 +656,13 @@ static s32 s_catalogLoadEntryModelPayload(asset_entry_t *entry, asset_data_handl
                      compiled.descriptor_path[0] ? compiled.descriptor_path : "(no descriptor)",
                      compiled.normalized_path[0] ? compiled.normalized_path : "(no normalized model)");
         return 1;
+    }
+
+    if (handle.provider == fileProvider()) {
+        sysLogPrintf(LOG_WARNING,
+            "CATALOG.LIFECYCLE.ACTIVATE: '%s' public model source is invalid or missing (%s)",
+            entry->id, source_path ? source_path : "(null)");
+        return 0;
     }
 
     modeldef = modeldefLoadToNewFromHandle(handle, entry->source_filenum);
@@ -1374,7 +1317,13 @@ static s32 s_catalogLoadEntryAnimationPayload(asset_entry_t *entry)
 static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
 {
     const char *source_path = entryGetFilePath(entry);
-    modasset_compiled_result_t compiled;
+    const char *colmesh_source_path = source_path;
+    modasset_compiled_result_t compiled = {0};
+    struct colmesh *mesh = NULL;
+
+    /* B-1107: payload construction is private until every adapter accepts
+     * the selected source. In particular a Scenario owns both a colmesh and
+     * a typed runtime binding; neither one alone makes the row active. */
 
     if (modAssetCompilerIsExternalSource(source_path)) {
         s32 cache_result = modAssetCompilerCompileReadable(entry,
@@ -1387,9 +1336,9 @@ static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
         }
 
         if (s_catalogTypeCanUseObjColmeshPayload(entry->type)) {
-            struct colmesh *mesh = malloc(sizeof(*mesh));
             s32 mesh_result;
-            const char *colmesh_source_path = source_path;
+
+            mesh = calloc(1, sizeof(*mesh));
 
             if (!mesh) {
                 sysLogPrintf(LOG_WARNING,
@@ -1405,31 +1354,15 @@ static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
 
             mesh_result = modAssetCompilerBuildColmesh(colmesh_source_path, mesh);
             if (mesh_result < 0) {
-                free(mesh);
                 sysLogPrintf(LOG_WARNING,
                              "CATALOG.LIFECYCLE.ACTIVATE: '%s' authored colmesh build failed",
                              entry->id);
-                return 0;
+                goto rollback_payload;
             }
-            if (mesh_result > 0) {
-                entry->loaded_data      = mesh;
-                entry->data_size_bytes  = (u32)(sizeof(*mesh)
-                    + (mesh->numtris * (s32)sizeof(struct meshtri)));
-                entry->payload_kind     = ASSET_PAYLOAD_COLMESH;
-                entry->load_state       = ASSET_STATE_ACTIVE;
-                entry->ref_count        = 1;
-
-                sysLogPrintf(LOG_NOTE,
-                             "CATALOG.LIFECYCLE.ACTIVATE: activated %s authored colmesh '%s' source=%s tris=%d cache=%s mesh=%s",
-                             s_catalogPayloadKind(entry->type), entry->id,
-                             colmesh_source_path ? colmesh_source_path : "(none)",
-                             mesh->numtris,
-                             compiled.descriptor_path[0] ? compiled.descriptor_path : "(no descriptor)",
-                             compiled.normalized_path[0] ? compiled.normalized_path : "(no normalized mesh)");
-                return 1;
+            if (mesh_result == 0) {
+                free(mesh);
+                mesh = NULL;
             }
-
-            free(mesh);
         }
 
         sysLogPrintf(LOG_NOTE,
@@ -1438,40 +1371,22 @@ static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
                      compiled.descriptor_path[0] ? compiled.descriptor_path : "(no cache path)");
     }
 
-    entry->loaded_data      = entry;
-    entry->data_size_bytes  = 0;
-    entry->payload_kind     = ASSET_PAYLOAD_RUNTIME_ACTIVE;
-    entry->load_state       = ASSET_STATE_ACTIVE;
-    entry->ref_count        = 1;
-
     if (s_catalogTypeUsesWeaponGraphRuntime(entry->type)
             && !s_catalogActivateWeaponGraphRuntime(entry, source_path)) {
-        entry->loaded_data     = NULL;
-        entry->payload_kind    = ASSET_PAYLOAD_NONE;
-        entry->load_state      = ASSET_STATE_ENABLED;
-        entry->ref_count       = 0;
-        return 0;
+        goto rollback_adapters;
     }
 
     if (s_catalogTypeUsesEffectGraphRuntime(entry->type)
             && !s_catalogActivateEffectGraphRuntime(entry, source_path)) {
-        entry->loaded_data     = NULL;
-        entry->payload_kind    = ASSET_PAYLOAD_NONE;
-        entry->load_state      = ASSET_STATE_ENABLED;
-        entry->ref_count       = 0;
-        return 0;
+        goto rollback_adapters;
     }
 
     if (assetRuntimeSupportsType(entry->type)
             && !assetRuntimeActivateCatalogEntry(entry, source_path)) {
-        entry->loaded_data     = NULL;
-        entry->payload_kind    = ASSET_PAYLOAD_NONE;
-        entry->load_state      = ASSET_STATE_ENABLED;
-        entry->ref_count       = 0;
         sysLogPrintf(LOG_WARNING,
                      "CATALOG.LIFECYCLE.ACTIVATE: '%s' %s runtime adapter rejected missing authored payload",
                      entry->id, s_catalogPayloadKind(entry->type));
-        return 0;
+        goto rollback_adapters;
     }
 
     /*
@@ -1483,21 +1398,48 @@ static s32 s_catalogLoadEntryMetadataPayload(asset_entry_t *entry)
      */
     if (assetRuntimeSupportsType(entry->type)
             && !assetRuntimeHydrateCatalogEntry(entry)) {
-        assetRuntimeReleaseCatalogEntry(entry->id);
-        entry->loaded_data     = NULL;
-        entry->payload_kind    = ASSET_PAYLOAD_NONE;
-        entry->load_state      = ASSET_STATE_ENABLED;
-        entry->ref_count       = 0;
         sysLogPrintf(LOG_WARNING,
                      "CATALOG.LIFECYCLE.ACTIVATE: '%s' %s public source failed hydration",
                      entry->id, s_catalogPayloadKind(entry->type));
-        return 0;
+        goto rollback_adapters;
     }
 
+    /* Publish exactly once. Failed preparation has not altered the prior
+     * catalog state, including process-pinned and stage ownership. Already
+     * resident rows are retained by s_catalogLoadEntry before reaching here. */
+    entry->loaded_data      = mesh ? (void *)mesh : (void *)entry;
+    entry->data_size_bytes  = mesh ? (u32)(sizeof(*mesh)
+        + (mesh->numtris * (s32)sizeof(struct meshtri))) : 0;
+    entry->payload_kind     = mesh
+        ? ASSET_PAYLOAD_COLMESH : ASSET_PAYLOAD_RUNTIME_ACTIVE;
+    entry->load_state       = ASSET_STATE_ACTIVE;
+    entry->ref_count        = 1;
+
+    if (mesh) {
+        sysLogPrintf(LOG_NOTE,
+                     "CATALOG.LIFECYCLE.ACTIVATE: activated %s authored colmesh '%s' source=%s tris=%d cache=%s mesh=%s",
+                     s_catalogPayloadKind(entry->type), entry->id,
+                     colmesh_source_path ? colmesh_source_path : "(none)",
+                     mesh->numtris,
+                     compiled.descriptor_path[0] ? compiled.descriptor_path : "(no descriptor)",
+                     compiled.normalized_path[0] ? compiled.normalized_path : "(no normalized mesh)");
+    }
     sysLogPrintf(LOG_NOTE,
                  "CATALOG.LIFECYCLE.ACTIVATE: activated %s metadata payload '%s'",
                  s_catalogPayloadKind(entry->type), entry->id);
     return 1;
+
+rollback_adapters:
+    /* Graph programs, nested owner references, and typed bindings belong to
+     * the same attempt. Later adapter/hydration rejection must retire them
+     * together; source validation failures never enter this teardown. */
+    s_catalogDetachRuntimeAdapters(entry, entry->id);
+rollback_payload:
+    if (mesh) {
+        meshFree(mesh);
+        free(mesh);
+    }
+    return 0;
 }
 
 static s32 s_catalogLoadEntryTexturePayload(asset_entry_t *entry, asset_data_handle_t handle)
@@ -2027,6 +1969,8 @@ static void s_catalogUnloadEntryRawMode(const char *assetId,
         } else if (entry->payload_kind == ASSET_PAYLOAD_STAGE_MODELDEF) {
             asset_data_handle_t handle = catalogEffectiveHandle(entry);
             const char *source_path = NULL;
+            catalog_model_generation_t *generation =
+                catalogModelGenerationForModeldef((struct modeldef *)entry->loaded_data);
 
             if (handle.provider == fileProvider()) {
                 source_path = fileProviderPath(handle);
@@ -2038,12 +1982,15 @@ static void s_catalogUnloadEntryRawMode(const char *assetId,
                 catalogManagerResetHeadModeldef(entry->runtime_index);
             }
 
-            if (modAssetCompilerIsExternalSource(source_path)) {
+            if (generation) {
+                catalogModelGenerationRelease(generation);
+            } else if (modAssetCompilerIsExternalSource(source_path)) {
                 modAssetCompilerFreeModeldef((struct modeldef *)entry->loaded_data);
             } else {
                 assetUnload(handle);
             }
         } else if (entry->payload_kind == ASSET_PAYLOAD_COLMESH) {
+            s_catalogDetachRuntimeAdapters(entry, assetId);
             meshFree((struct colmesh *)entry->loaded_data);
             free(entry->loaded_data);
         } else if (entry->payload_kind == ASSET_PAYLOAD_ANIMATION_CLIP) {
@@ -2506,7 +2453,7 @@ s32 catalogComputeStageDiff(const char *newStageId,
     static const char *s_LoadedIds[DIFF_MAX_TRACKED];
     s32 loadedCount = 0;
 
-    s32 total = assetCatalogGetCount();
+    s32 total = assetCatalogGetPoolSize();
     for (s32 i = 0; i < total && loadedCount < DIFF_MAX_TRACKED; i++) {
         const asset_entry_t *e = assetCatalogGetByIndex(i);
         if (!e || !e->occupied || e->bundled) {

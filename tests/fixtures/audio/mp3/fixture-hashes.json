@@ -1,0 +1,18 @@
+[
+  {
+    "Path": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\tests\\fixtures\\audio\\mp3\\tone_mpeg1_stereo_44100.mp3",
+    "Hash": "444862D765D1BAB356CA901FA019BF84494553C01DCAD114865D64E393582329"
+  },
+  {
+    "Path": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\tests\\fixtures\\audio\\mp3\\tone_mpeg2_stereo_22050.mp3",
+    "Hash": "2E2EFA0A97DFDFA3EE5C4A53E99543B512C5C479D9640C8D57CD07CBEA78EE8C"
+  },
+  {
+    "Path": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\tests\\fixtures\\audio\\mp3\\tone_mpeg2_mono_22050.mp3",
+    "Hash": "E54E5E61E327F8C7ADB4DFE751326F9F8B186D0ABE721149B8696E6CAA69A092"
+  },
+  {
+    "Path": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\tests\\fixtures\\audio\\mp3\\tone_mpeg25_mono_11025.mp3",
+    "Hash": "FFF084E5A6DA0D2EF0E130E09371FD71D25BFA94A65602DD3A803C8D60CF5BA5"
+  }
+]

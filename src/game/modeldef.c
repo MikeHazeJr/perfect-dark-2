@@ -31,6 +31,7 @@
 #include "assetload.h"
 #include "fs.h"
 #include "modasset_compiler.h"
+#include "model_source_path.h"
 
 struct skeleton *g_Skeletons[] = {
 	&g_SkelChr,
@@ -307,90 +308,6 @@ static const char *modeldefCatalogSourcePath(asset_data_handle_t handle)
 	return fileProviderPath(handle);
 }
 
-static s32 modeldefPathEndsWithNoCase(const char *path, const char *suffix)
-{
-	size_t path_len;
-	size_t suffix_len;
-	size_t i;
-
-	if (path == NULL || suffix == NULL) {
-		return 0;
-	}
-
-	path_len = strlen(path);
-	suffix_len = strlen(suffix);
-
-	if (suffix_len > path_len) {
-		return 0;
-	}
-
-	path += path_len - suffix_len;
-
-	for (i = 0; i < suffix_len; i++) {
-		char a = path[i];
-		char b = suffix[i];
-
-		if (a >= 'A' && a <= 'Z') {
-			a = (char)(a - 'A' + 'a');
-		}
-
-		if (b >= 'A' && b <= 'Z') {
-			b = (char)(b - 'A' + 'a');
-		}
-
-		if (a != b) {
-			return 0;
-		}
-	}
-
-	return 1;
-}
-
-static s32 modeldefResolveExternalSourcePath(const char *source_path, char *out, size_t out_cap)
-{
-	static const char *const members[] = {
-		"model.obj",
-		"model.gltf",
-		"model.glb",
-	};
-	size_t i;
-
-	if (out == NULL || out_cap == 0) {
-		return 0;
-	}
-
-	out[0] = '\0';
-
-	if (source_path == NULL || source_path[0] == '\0') {
-		return 0;
-	}
-
-	if (modAssetCompilerIsExternalSource(source_path)) {
-		snprintf(out, out_cap, "%s", source_path);
-		out[out_cap - 1] = '\0';
-		return 1;
-	}
-
-	if (!modeldefPathEndsWithNoCase(source_path, ".pdmesh")) {
-		return 0;
-	}
-
-	for (i = 0; i < sizeof(members) / sizeof(members[0]); i++) {
-		char candidate[FS_MAXPATH + 1];
-
-		snprintf(candidate, sizeof(candidate), "%s::%s", source_path, members[i]);
-		candidate[sizeof(candidate) - 1] = '\0';
-
-		if (fsFileSize(candidate) > 0) {
-			snprintf(out, out_cap, "%s", candidate);
-			out[out_cap - 1] = '\0';
-			return 1;
-		}
-	}
-
-	return 0;
-}
-
 static asset_data_handle_t modeldefCatalogModelSourceHandle(s32 source_filenum)
 {
 	if (source_filenum <= 0) {
@@ -481,8 +398,8 @@ static struct modeldef *modeldefLoadExternalCatalogSource(asset_data_handle_t ha
 	struct modeldef *modeldef;
 	modasset_compiled_result_t compiled;
 
-	if (!modeldefResolveExternalSourcePath(source_path,
-			resolved_source_path, sizeof(resolved_source_path))) {
+	if (!modelSourceResolvePath(source_path, resolved_source_path,
+			sizeof(resolved_source_path), NULL, 0)) {
 		return NULL;
 	}
 
@@ -558,8 +475,8 @@ static asset_data_handle_t modeldefExternalCatalogSourceHandle(s32 source_filenu
 
 	handle = modeldefCatalogModelSourceHandle(source_filenum);
 	if (!assetHandleIsNull(handle)
-			&& modeldefResolveExternalSourcePath(modeldefCatalogSourcePath(handle),
-				resolved_source_path, sizeof(resolved_source_path))) {
+			&& modelSourceResolvePath(modeldefCatalogSourcePath(handle),
+				resolved_source_path, sizeof(resolved_source_path), NULL, 0)) {
 		return handle;
 	}
 
@@ -630,16 +547,23 @@ struct modeldef *modeldefLoadFromHandle(asset_data_handle_t handle, s32 source_f
 		return NULL;
 	}
 
-	external_handle = modeldefExternalCatalogSourceHandle(source_filenum);
-	if (!assetHandleIsNull(external_handle)) {
-		handle = external_handle;
+	/* A caller-selected public source owns its identity. Native filenums can
+	 * alias multiple catalog models; resolving them again redirects previews
+	 * to another source. Only legacy handles need the public-source bridge. */
+	if (handle.provider != fileProvider()) {
+		external_handle = modeldefExternalCatalogSourceHandle(source_filenum);
+		if (!assetHandleIsNull(external_handle)) {
+			handle = external_handle;
+		}
 	}
 
 	if (modeldefRefuseRomSource(handle, source_filenum)) {
 		return NULL;
 	}
 
-	if (modAssetCompilerIsExternalSource(modeldefCatalogSourcePath(handle))) {
+	/* All file sources use the public resolver, including typed containers.
+	 * A failed conversion returns here without interpreting ZIP/source bytes as a modeldef. */
+	if (handle.provider == fileProvider()) {
 		modeldef = modeldefLoadExternalCatalogSource(handle, source_filenum);
 
 		if (modeldef == NULL) {

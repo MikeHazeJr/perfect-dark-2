@@ -12,6 +12,7 @@
 #include "data.h"
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
+#include "catalog_animation_generation.h"
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "lib/anim.h"   /* c3849 Wave 2: animGetTotalCount */
 #include "modmusic.h"
@@ -1009,6 +1010,8 @@ static void modAnimationFatalPublicSourceFailure(
 
 void *modAnimationLoadData(u16 num)
 {
+    const void *generation = catalogAnimationGenerationData(num);
+    if (generation) return (void *)generation;
 	/* C-6: catalog is primary animation router.
 	 * catalogResolveAnim() returns the full routing decision: mod override
 	 * (load from path), base-game ROM (catalog_id >= 0), or not cataloged. */
@@ -1053,6 +1056,8 @@ void *modAnimationLoadData(u16 num)
 
 void *modAnimationTryCatalogOverride(u16 num)
 {
+    const void *generation = catalogAnimationGenerationData(num);
+    if (generation) return (void *)generation;
 	/* C-6 supplement: catalog-only check for ROM-based animations.
 	 * Called from animLoadFrame/animLoadHeader when data != 0xffffffff.
 	 * Returns file data if a mod override is registered, NULL otherwise.

@@ -32,16 +32,18 @@
  * the identity at every public boundary.
  */
 
-#define ANIM_CUSTOM_COUNT 0x20
+/* Native animation/cache records use signed 16-bit IDs. Keep that actual
+ * representation boundary; no separate 32-mod reservation is required. */
 #define ANIM_CUSTOM_START ANIM_END
-#define ANIM_CUSTOM_END_SLOT (ANIM_END + ANIM_CUSTOM_COUNT)
+#define ANIM_CUSTOM_END_SLOT 0x8000
+#define ANIM_CUSTOM_COUNT (ANIM_CUSTOM_END_SLOT - ANIM_CUSTOM_START)
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Reset all custom anim slot reservations. Called wherever the catalog is
- * rebuilt, beside the other custom-slot resets. */
+/* Reset catalog metadata reservations when rebuilding the catalog. Retained
+ * generation slots and in-flight rollback reservations remain owned. */
 void assetCatalogResetCustomAnimSlots(void);
 void *assetCatalogSnapshotCustomAnimSlots(void);
 s32 assetCatalogRestoreCustomAnimSlots(const void *snapshot);
@@ -57,6 +59,12 @@ s32 assetCatalogAnimationCategoryUsesCharacterClip(const char *category);
  * slot in [ANIM_CUSTOM_START, ANIM_CUSTOM_END_SLOT), or -1 when the private
  * range is exhausted (logs CATALOG.ANIM.CUSTOM_SLOT_FAIL). */
 s32 assetCatalogResolveAnimPrivateSlot(const char *catalog_id);
+
+/* Owned native generations reserve slots independently of catalog metadata.
+ * Reset/rollback never releases these reservations. Release only after the
+ * final runtime owner has detached and invalidated its animation caches. */
+s32 assetCatalogReserveAnimGenerationSlot(void);
+void assetCatalogReleaseAnimGenerationSlot(s32 slot);
 
 #ifdef __cplusplus
 }

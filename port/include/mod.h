@@ -2,6 +2,7 @@
 #define _IN_MOD_H
 
 #include <PR/ultratypes.h>
+#include <stddef.h>
 
 struct animtableentry;
 
@@ -16,6 +17,11 @@ typedef struct mod_texture_rgba32_source {
 } mod_texture_rgba32_source_t;
 
 s32 modTextureLoad(u16 num, void *dst, u32 dstSize);
+/* Decode exact borrowed image bytes into caller-owned native RGBA storage.
+ * No catalog lookup, file reopen, fatal error or ROM fallback; free with
+ * modTextureFreeRgba32Source. Uses the same decoder/layout as normal loading. */
+s32 modTextureDecodeRgba32Source(const void *bytes, u32 size,
+    mod_texture_rgba32_source_t *out, char *error, size_t cap);
 s32 modTextureLoadRgba32Source(u16 num, mod_texture_rgba32_source_t *out);
 void modTextureFreeRgba32Source(mod_texture_rgba32_source_t *source);
 

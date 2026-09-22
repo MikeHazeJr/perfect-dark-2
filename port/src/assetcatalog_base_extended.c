@@ -128,7 +128,7 @@ static const char *s_bodyCatalogIdForMpIndex(s32 mp_body_index)
 		return NULL;
 	}
 	s32 bodynum = (s32)g_MpBodies[mp_body_index].bodynum;
-	for (s32 i = 0; i < assetCatalogGetCount(); i++) {
+	for (s32 i = 0; i < assetCatalogGetPoolSize(); i++) {
 		const asset_entry_t *e = assetCatalogGetByIndex(i);
 		if (e && e->occupied && e->type == ASSET_BODY &&
 				e->runtime_index == bodynum) {
@@ -766,7 +766,7 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 	/* ---- default body skins ---- */
 	{
 		s32 n = 0;
-		s32 body_count_snapshot = assetCatalogGetCount();
+		s32 body_count_snapshot = assetCatalogGetPoolSize();
 		for (s32 i = 0; i < body_count_snapshot; i++) {
 			const asset_entry_t *body = assetCatalogGetByIndex(i);
 			if (!body || !body->occupied || body->type != ASSET_BODY ||
@@ -932,6 +932,9 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = i;
+			/* Native identity belongs to the seed. Public archive replacement
+			 * preserves this reverse route rather than trusting private echoes. */
+			e->source_soundnum = i;
 			e->load_state = ASSET_STATE_LOADED; e->ref_count = ASSET_REF_BUNDLED;
 			if (category == AUDIO_CAT_VOICE) voice_n++;
 			else                              sfx_n++;
@@ -966,6 +969,12 @@ s32 assetCatalogRegisterBaseGameExtended(void)
 			strncpy(e->category, "base", CATALOG_CATEGORY_LEN - 1);
 			e->bundled = 1; e->enabled = 1;
 			e->runtime_index = packed;
+			e->source_soundnum = packed;
+			/* Configured MP3 aliases additionally own a native file route.
+			 * PCM aliases must not reinterpret the same low bits as a file. */
+			union soundnumhack mapped;
+			mapped.packed = g_AudioRussMappings[r].soundnum;
+			e->source_filenum = mapped.mp3priority ? (s32)mapped.id : -1;
 			e->load_state = ASSET_STATE_LOADED;
 			e->ref_count = ASSET_REF_BUNDLED;
 			alias_n++;

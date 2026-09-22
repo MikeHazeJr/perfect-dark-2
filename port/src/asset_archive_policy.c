@@ -9,6 +9,8 @@
 #include <string.h>
 
 #include "asset_archive_policy.h"
+#include "modasset_gltf_document.h"
+#include "modasset_gltf_source.h"
 
 typedef struct asset_archive_family_rule {
 	const char *extension;
@@ -18,6 +20,8 @@ typedef struct asset_archive_family_rule {
 } asset_archive_family_rule_t;
 
 typedef struct asset_archive_mem_validate_ctx {
+	const void *archive_bytes;
+	u32 archive_size;
 	const char *archive_name;
 	const asset_archive_family_rule_t *rule;
 	asset_archive_validation_mode_e mode;
@@ -515,6 +519,158 @@ static char *extractMemEntryTextAlloc(const void *archive_bytes, u32 archive_siz
 	free(raw);
 	if (out_size) *out_size = size;
 	return text;
+}
+
+typedef struct gltf_archive_source {
+	mod_archive_t *opened;
+	const void *bytes;
+	u32 size;
+	const char *archive_name;
+	const char *entry_name;
+	const char *wanted_buffer;
+	s32 matched;
+	char *err;
+	size_t err_cap;
+} gltf_archive_source_t;
+
+typedef struct gltf_member_size {
+	const char *name;
+	u32 size;
+	s32 found;
+} gltf_member_size_t;
+
+static s32 gltfMemberSizeCb(const char *name, u32 size, void *userdata)
+{
+	gltf_member_size_t *member = (gltf_member_size_t *)userdata;
+	if (strcmp(name, member->name) == 0) {
+		member->found = 1;
+		member->size = size;
+		return 1;
+	}
+	return 0;
+}
+
+static s32 gltfMemberSize(gltf_archive_source_t *source,
+		const char *name, u32 *out_size)
+{
+	if (source->opened) {
+		s32 idx = modArchiveFindEntry(source->opened, name);
+		if (idx < 0) return 0;
+		*out_size = modArchiveGetEntrySize(source->opened, idx);
+		return 1;
+	}
+	gltf_member_size_t member = { name, 0, 0 };
+	(void)modArchiveMemForEachEntry(source->bytes, source->size,
+		gltfMemberSizeCb, &member);
+	*out_size = member.size;
+	return member.found;
+}
+
+static void *gltfMemberRead(gltf_archive_source_t *source,
+		const char *name, u32 *out_size)
+{
+	if (source->opened) {
+		return modArchiveExtractAlloc(source->opened,
+			modArchiveFindEntry(source->opened, name), out_size);
+	}
+	return modArchiveExtractMemAlloc(source->bytes, source->size, name, out_size);
+}
+
+static s32 validateGltfUri(const char *key, const char *uri, s32 is_buffer,
+		u32 declared_size, void *userdata)
+{
+	gltf_archive_source_t *source = (gltf_archive_source_t *)userdata;
+	char path[FS_MAXPATH + 1];
+	u32 size = 0;
+	if (strcmp(key, "uri") != 0 && !jsonKeyLooksLikeFileReference(key, uri)) return 0;
+	if (valueStartsWithNoCase(uri, "data:")) {
+		if (is_buffer && !modAssetGltfDataUriSize(uri, declared_size)) {
+			setErr(source->err, source->err_cap, "%s has invalid embedded glTF buffer in %s",
+				source->archive_name, source->entry_name);
+			return -1;
+		}
+		return 0;
+	}
+	if (!modAssetGltfBufferPath(source->entry_name, uri, path, sizeof(path))) {
+		setErr(source->err, source->err_cap, "%s has unsafe glTF URI in %s: %s",
+			source->archive_name, source->entry_name, uri);
+		return -1;
+	}
+	if (!is_buffer && assetArchiveEntryIsForbiddenBinPayload(path)) {
+		setErr(source->err, source->err_cap, "%s has forbidden non-buffer glTF URI in %s: %s",
+			source->archive_name, source->entry_name, uri);
+		return -1;
+	}
+	if (!gltfMemberSize(source, path, &size)) {
+		setErr(source->err, source->err_cap, "%s references missing internal file in %s: %s",
+			source->archive_name, source->entry_name, path);
+		return -1;
+	}
+	if (is_buffer) {
+		if (!modAssetGltfBufferSize(declared_size, size, 0)) {
+			setErr(source->err, source->err_cap, "%s glTF buffer size mismatch in %s: %s",
+				source->archive_name, source->entry_name, path);
+			return -1;
+		}
+		/* Verify the actual ZIP stream, not just its claimed central size. */
+		void *bytes = gltfMemberRead(source, path, &size);
+		s32 valid = bytes && modAssetGltfBufferSize(declared_size, size, 0);
+		free(bytes);
+		if (!valid) {
+			setErr(source->err, source->err_cap, "%s has unreadable glTF buffer in %s: %s",
+				source->archive_name, source->entry_name, path);
+			return -1;
+		}
+		if (source->wanted_buffer && strcmp(source->wanted_buffer, path) == 0) {
+			source->matched = 1;
+		}
+	}
+	return 0;
+}
+
+static s32 validateGltfDocument(gltf_archive_source_t *source)
+{
+	u32 size = 0;
+	if (!gltfMemberSize(source, source->entry_name, &size) || !size ||
+			size > MODASSET_GLTF_DOCUMENT_LIMIT) return 0;
+	char *text = (char *)gltfMemberRead(source, source->entry_name, &size);
+	if (!text) return 0;
+	s32 valid = modAssetGltfDocumentVisitStrings(text, size, validateGltfUri, source);
+	free(text);
+	return valid;
+}
+
+static s32 gltfBufferDeclarationCb(const char *name, u32 size, void *userdata)
+{
+	gltf_archive_source_t *source = (gltf_archive_source_t *)userdata;
+	if (!endsWithNoCase(name, ".gltf") || entryIsMetaPath(name) ||
+			!size || size > MODASSET_GLTF_DOCUMENT_LIMIT) return 0;
+	source->entry_name = name;
+	source->matched = 0;
+	if (!validateGltfDocument(source)) source->matched = 0;
+	return source->matched;
+}
+
+static s32 archiveHasDeclaredGltfBuffer(mod_archive_t *opened,
+		const void *bytes, u32 size, const char *archive_name,
+		const char *buffer_name)
+{
+	gltf_archive_source_t source = {0};
+	source.opened = opened;
+	source.bytes = bytes;
+	source.size = size;
+	source.archive_name = archive_name;
+	source.wanted_buffer = buffer_name;
+	if (opened) {
+		for (s32 i = 0; i < modArchiveGetEntryCount(opened); i++) {
+			if (gltfBufferDeclarationCb(modArchiveGetEntryName(opened, i),
+					modArchiveGetEntrySize(opened, i), &source)) return 1;
+		}
+	} else {
+		(void)modArchiveMemForEachEntry(bytes, size,
+			gltfBufferDeclarationCb, &source);
+	}
+	return source.matched;
 }
 
 static s32 openedArchiveHasEntry(mod_archive_t *archive, const char *entry)
@@ -1071,6 +1227,20 @@ static s32 validateOpenedTextEntryRefs(mod_archive_t *archive,
                                        const char *entry_name,
                                        char *err, size_t err_cap)
 {
+	if (endsWithNoCase(entry_name, ".gltf")) {
+		gltf_archive_source_t source = {0};
+		source.opened = archive;
+		source.archive_name = archive_path;
+		source.entry_name = entry_name;
+		source.err = err;
+		source.err_cap = err_cap;
+		if (!validateGltfDocument(&source)) {
+			if (!err || !err_cap || !err[0]) setErr(err, err_cap,
+				"%s has invalid glTF document: %s", archive_path, entry_name);
+			return -1;
+		}
+		return 0;
+	}
 	s32 idx = modArchiveFindEntry(archive, entry_name);
 	if (idx < 0) return 0;
 	u32 size = 0;
@@ -1080,9 +1250,6 @@ static s32 validateOpenedTextEntryRefs(mod_archive_t *archive,
 	s32 r = 0;
 	if (endsWithNoCase(entry_name, ".ini")) {
 		r = validateIniTextRefsOpened(archive, archive_path, entry_name,
-			text, err, err_cap);
-	} else if (endsWithNoCase(entry_name, ".gltf")) {
-		r = validateJsonTextRefsOpened(archive, archive_path, entry_name,
 			text, err, err_cap);
 	} else if (endsWithNoCase(entry_name, ".obj")) {
 		r = validateObjTextRefsOpened(archive, archive_path, entry_name,
@@ -1103,6 +1270,21 @@ static s32 validateMemTextEntryRefs(const void *archive_bytes, u32 archive_size,
                                     const char *entry_name,
                                     char *err, size_t err_cap)
 {
+	if (endsWithNoCase(entry_name, ".gltf")) {
+		gltf_archive_source_t source = {0};
+		source.bytes = archive_bytes;
+		source.size = archive_size;
+		source.archive_name = archive_name;
+		source.entry_name = entry_name;
+		source.err = err;
+		source.err_cap = err_cap;
+		if (!validateGltfDocument(&source)) {
+			if (!err || !err_cap || !err[0]) setErr(err, err_cap,
+				"%s has invalid glTF document: %s", archive_name, entry_name);
+			return -1;
+		}
+		return 0;
+	}
 	u32 size = 0;
 	char *text = extractMemEntryTextAlloc(archive_bytes, archive_size,
 		entry_name, &size);
@@ -1111,9 +1293,6 @@ static s32 validateMemTextEntryRefs(const void *archive_bytes, u32 archive_size,
 	s32 r = 0;
 	if (endsWithNoCase(entry_name, ".ini")) {
 		r = validateIniTextRefsMem(archive_bytes, archive_size,
-			archive_name, entry_name, text, err, err_cap);
-	} else if (endsWithNoCase(entry_name, ".gltf")) {
-		r = validateJsonTextRefsMem(archive_bytes, archive_size,
 			archive_name, entry_name, text, err, err_cap);
 	} else if (endsWithNoCase(entry_name, ".obj")) {
 		r = validateObjTextRefsMem(archive_bytes, archive_size,
@@ -1287,7 +1466,8 @@ s32 assetArchiveValidateOpened(mod_archive_t *archive,
 	for (s32 i = 0; i < count; i++) {
 		const char *entry = modArchiveGetEntryName(archive, i);
 		if (!entry) continue;
-		if (assetArchiveEntryIsForbiddenBinPayload(entry)) {
+		if (assetArchiveEntryIsForbiddenBinPayload(entry) &&
+				!archiveHasDeclaredGltfBuffer(archive, NULL, 0, archive_path, entry)) {
 			setErr(err, err_cap, "%s contains forbidden authored .bin payload: %s",
 				archive_path, entry);
 			return -1;
@@ -1364,7 +1544,9 @@ static s32 validateMemEntryCb(const char *entry_name, u32 uncompressed_size, voi
 			strcmp(entry_name, ctx->rule->legacy_descriptor) == 0) {
 		ctx->legacy_descriptor_seen = 1;
 	}
-	if (assetArchiveEntryIsForbiddenBinPayload(entry_name)) {
+	if (assetArchiveEntryIsForbiddenBinPayload(entry_name) &&
+			!archiveHasDeclaredGltfBuffer(NULL, ctx->archive_bytes,
+				ctx->archive_size, ctx->archive_name, entry_name)) {
 		setErr(ctx->err, ctx->err_cap, "%s contains forbidden authored .bin payload: %s",
 			ctx->archive_name, entry_name);
 		ctx->failed = 1;
@@ -1422,6 +1604,8 @@ static s32 assetArchiveValidateBytesDepth(const void *archive_bytes, u32 archive
 
 	asset_archive_mem_validate_ctx_t ctx;
 	memset(&ctx, 0, sizeof(ctx));
+	ctx.archive_bytes = archive_bytes;
+	ctx.archive_size = archive_size;
 	ctx.archive_name = archive_name;
 	ctx.rule = rule;
 	ctx.mode = mode;

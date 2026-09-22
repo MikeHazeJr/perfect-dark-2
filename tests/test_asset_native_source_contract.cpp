@@ -4656,9 +4656,9 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(walker_anim.find("e->source_animnum = (s32)source_index") !=
 	        std::string::npos);
-	REQUIRE(walker_anim.find("fsFileLoad(source_path, &command_size)") !=
+	REQUIRE(walker_anim.find("fsFileLoad(selected.path, &command_size)") !=
 	        std::string::npos);
-	REQUIRE(walker_anim.find("loaderPoolParseAnimationSourceJson(command_json, command_size") !=
+	REQUIRE(walker_anim.find("loaderPoolParseAnimationCatalogSourceJson(command_json, command_size") !=
 	        std::string::npos);
 	REQUIRE(walker_anim.find("loaderPoolParseAnimationJson(manifest, manifest_len)") ==
 	        std::string::npos);
@@ -9992,7 +9992,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(lv_runtime.find("scenarioSourceLevelGraphRecordTick(\"lvTick.start\")") !=
 	        std::string::npos);
-	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v15_source_faithful_effect_profiles\"") !=
+	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v16_botprofile_manifest\"") !=
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("PDMETA_SCENARIO_DEP_CACHE_KIND") !=
 	        std::string::npos);
@@ -12448,72 +12448,40 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	        std::string::npos);
 	REQUIRE(snd.find("falling back to ROM") == std::string::npos);
 	const std::string snd_start_mp3 = functionBlock(snd, "void sndStartMp3(s16");
-	const std::string snd_mp3_resolve =
-		functionBlock(snd, "static s32 sndMp3ResolvePublicSource");
-	REQUIRE(snd.find("#include \"asset_source_debug.h\"") ==
-	        std::string::npos);
-	REQUIRE(snd.find("#include \"fs.h\"") != std::string::npos);
-	REQUIRE(snd.find("#include \"romextract.h\"") == std::string::npos);
-	REQUIRE(snd.find("#include \"assetcatalog_load.h\"") !=
-	        std::string::npos);
-	REQUIRE(snd.find("static void *g_SndMp3SourceBytes = NULL") !=
-	        std::string::npos);
-	REQUIRE(snd.find("sndMp3FreeSourceBuffer()") != std::string::npos);
-	REQUIRE(snd.find("sndMp3LoadPublicSourceFile") != std::string::npos);
-	REQUIRE(snd.find("sndMp3ResolvePublicSource") != std::string::npos);
-	REQUIRE(snd.find("catalogResolveFile(filenum)") != std::string::npos);
-	REQUIRE(snd.find("fsFileLoad(source.path, &size)") !=
-	        std::string::npos);
-	REQUIRE(snd.find("romExtractRelPathForFilenum") == std::string::npos);
-	REQUIRE(snd.find("g_SndMp3SourceBytes = bytes") != std::string::npos);
-	REQUIRE(snd.find("ASSET.CHAIN: MP3 file") !=
-	        std::string::npos);
-	REQUIRE(snd.find("refusing loose extracted file or ROM playback fallback") !=
-	        std::string::npos);
-	REQUIRE(snd_start_mp3.find(
-		        "g_AudioRussMappings[sp24.confignum].audioconfig_index") !=
-	        std::string::npos);
-	REQUIRE(snd_start_mp3.find("g_AudioConfigs[sp24.confignum]") ==
-	        std::string::npos);
-	REQUIRE(snd_start_mp3.find("config->volpercentage") <
-	        snd_start_mp3.find("sndMp3ResolvePublicSource((s32)sp20.id"));
-	REQUIRE(snd_start_mp3.find(
-		        "config && (config->flags & AUDIOCONFIGFLAG_RESPONDHELLO)") !=
-	        std::string::npos);
-	REQUIRE(snd_start_mp3.find("sndMp3ResolvePublicSource((s32)sp20.id") <
-	        snd_start_mp3.find("mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize)"));
-	REQUIRE(snd_mp3_resolve.find(
-		"return sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)") !=
-	        std::string::npos);
-	const std::string snd_mp3_load =
-		functionBlock(snd, "static s32 sndMp3LoadPublicSourceFile");
-	REQUIRE(snd_mp3_load.find("catalogResolveFile(filenum)") <
-	        snd_mp3_load.find("fsFileLoad(source.path, &size)"));
-	REQUIRE(propsnd.find("#include \"asset_source_debug.h\"") ==
-	        std::string::npos);
-	REQUIRE(propsnd.find("#include \"fs.h\"") != std::string::npos);
-	REQUIRE(propsnd.find("#include \"romextract.h\"") == std::string::npos);
-	REQUIRE(propsnd.find("#include \"assetcatalog_load.h\"") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("psMp3DurationGetPublicSourceSize") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("catalogResolveFile(filenum)") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("fsFileSize(source.path)") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("romExtractRelPathForFilenum") ==
-	        std::string::npos);
-	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") ==
-	        std::string::npos);
-	REQUIRE(propsnd.find("ASSET.CHAIN: MP3 file") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("ROM/static file-size fallback.") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("psMp3DurationGetPublicSourceSize((s32)soundnum.id)") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("catalogResolveFile(filenum)") <
-	        propsnd.find("fsFileSize(source.path)"));
+	const std::string snd_mp3_resolve = functionBlock(snd, "static s32 sndMp3ResolvePublicSource");
+	const std::string snd_mp3_release = functionBlock(snd, "static void sndMp3FreeSourceBuffer(void)\n{");
+	for (const char *token : {"catalogResolveFile(filenum)", "modMusicLoadAudioPcm22050(source.path, &samples, NULL)",
+	        "samples >= 2 && samples % 2u == 0", "sndMp3FreeSourceBuffer()", "*out_pcm = pcm", "*out_frames = samples / 2u"})
+		REQUIRE(snd_mp3_resolve.find(token) != std::string::npos);
+	REQUIRE(snd_mp3_resolve.find("catalogResolveFile(filenum)") < snd_mp3_resolve.find("modMusicLoadAudioPcm22050"));
+	REQUIRE(snd_mp3_resolve.find("modMusicLoadAudioPcm22050") < snd_mp3_resolve.find("sndMp3FreeSourceBuffer()"));
+	REQUIRE(snd_mp3_resolve.find("sndMp3FreeSourceBuffer()") < snd_mp3_resolve.find("*out_pcm = pcm"));
+	REQUIRE(snd_mp3_release.find("mp3ReleasePcm()") != std::string::npos);
+	REQUIRE(snd_mp3_release.find("SDL_free(g_SndCurMp3.source_pcm)") != std::string::npos);
+	REQUIRE(snd_mp3_release.find("mp3ReleasePcm()") < snd_mp3_release.find("SDL_free"));
+	REQUIRE(snd_start_mp3.find("mp3PlayPcmStereo22050(g_SndCurMp3.source_pcm, g_SndCurMp3.source_frames)") != std::string::npos);
+	REQUIRE(snd_start_mp3.find("sndMp3ResolvePublicSource((s32)sp20.id") < snd_start_mp3.find("mp3PlayPcmStereo22050"));
+	REQUIRE(snd_start_mp3.find("mp3PlayFile(") == std::string::npos);
+	REQUIRE(snd_start_mp3.find("g_AudioRussMappings[sp24.confignum].audioconfig_index") != std::string::npos);
+	REQUIRE(snd_start_mp3.find("g_AudioConfigs[sp24.confignum]") == std::string::npos);
+	REQUIRE(snd_start_mp3.find("config->volpercentage") < snd_start_mp3.find("sndMp3ResolvePublicSource((s32)sp20.id"));
+	REQUIRE(snd_start_mp3.find("config && (config->flags & AUDIOCONFIGFLAG_RESPONDHELLO)") != std::string::npos);
+	for (const char *token : {"romExtractRelPathForFilenum", "fileGetRomAddress(filenum)", "fileGetRomSize(filenum)",
+	        "sndMp3LoadPublicSourceFile", "g_SndMp3SourceBytes", "assetSourceDebugIsEnabledFor(ASSET_AUDIO)"})
+		REQUIRE(snd.find(token) == std::string::npos);
+	REQUIRE(snd.find("ASSET.CHAIN: MP3 file") != std::string::npos);
+	REQUIRE(snd.find("refusing loose extracted file or ROM playback fallback") != std::string::npos);
+	const std::string mp3_duration = functionBlock(propsnd, "static s32 psMp3DurationGetPublicSource60");
+	REQUIRE(mp3_duration.find("catalogResolveFile(filenum)") != std::string::npos);
+	REQUIRE(mp3_duration.find("modMusicAudioSourceDuration60(source.path)") != std::string::npos);
+	REQUIRE(mp3_duration.find("catalogResolveFile(filenum)") < mp3_duration.find("modMusicAudioSourceDuration60"));
+	REQUIRE(propsnd.find("psMp3DurationGetPublicSource60((s32)soundnum.id)") != std::string::npos);
+	REQUIRE(propsnd.find("fsFileSize(source.path)") == std::string::npos);
 	REQUIRE(propsnd.find("fileGetRomSize(") == std::string::npos);
+	REQUIRE(propsnd.find("romExtractRelPathForFilenum") == std::string::npos);
+	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") == std::string::npos);
+	REQUIRE(propsnd.find("ASSET.CHAIN: MP3 file") != std::string::npos);
+	REQUIRE(propsnd.find("ROM/static file-size fallback.") != std::string::npos);
 	REQUIRE(main_c.find("strcmp(s, \"voice\") == 0") != std::string::npos);
 	REQUIRE(main_c.find("strcmp(s, \"song\") == 0") != std::string::npos);
 	REQUIRE(main_c.find("strcmp(s, \"music\") == 0") != std::string::npos);
@@ -12959,20 +12927,15 @@ TEST_CASE("public source families have explicit runtime load surfaces",
 		const std::string mod = readTextFile("port/src/mod.c");
 		REQUIRE(texture_source.find("assetSourceDebugIsEnabledFor(ASSET_TEXTURE)") ==
 		        std::string::npos);
-		REQUIRE(texture_source.find("the selected public source is not an editable image source") !=
-		        std::string::npos);
-		REQUIRE(texture_source.find("modTextureFindDirectPublicSource") !=
-		        std::string::npos);
-		REQUIRE(texture_source.find("assetCatalogGetCount()") !=
-		        std::string::npos);
-		REQUIRE(texture_source.find("entry->source_texnum != (s32)num") !=
-		        std::string::npos);
-		REQUIRE(texture_source.find("entry->source.primary.provider == fileProvider()") !=
-		        std::string::npos);
-		REQUIRE(texture_source.find("fileProviderPath(entry->source.primary)") !=
-		        std::string::npos);
-		REQUIRE(texture_source.find("modTextureFindDirectPublicSource(num, &source_path") !=
-		        std::string::npos);
+        const std::string texture_runtime = readTextFile("port/src/texture_source_runtime.cpp");
+        REQUIRE(texture_source.find("the selected provider is not an editable public image source") != std::string::npos);
+        REQUIRE(texture_source.find("textureSourceRuntimeCatalogIndex((s32)num)") != std::string::npos);
+        REQUIRE(texture_runtime.find("assetCatalogGetPoolSize()") != std::string::npos);
+        REQUIRE(texture_runtime.find("entry->occupied") != std::string::npos);
+        REQUIRE(texture_source.find("assetCatalogGetCount()") == std::string::npos);
+        REQUIRE(texture_runtime.find("assetCatalogGetCount()") == std::string::npos);
+        REQUIRE(texture_source.find("catalogEffectiveHandle(entry)") != std::string::npos);
+        REQUIRE(texture_source.find("handle.provider == fileProvider() ? fileProviderPath(handle) : NULL") != std::string::npos);
 		REQUIRE(mod.find("assetSourceDebugIsEnabledFor(ASSET_TEXTURE)") ==
 		        std::string::npos);
 		REQUIRE(mod.find("refusing legacy compressed texture fallback") !=
@@ -12982,31 +12945,43 @@ TEST_CASE("public source families have explicit runtime load surfaces",
 
 TEST_CASE("universal extracted archive walkers bind public source members",
           "[modding][pdxxx][c3844][source][static]") {
-	const std::string common_h = readTextFile("port/include/loader_walker_common.h");
-	const std::string common = readTextFile("port/src/loader_walker_common.c");
-	const std::string fs = readTextFile("port/src/fs.c");
-	const std::string load = readTextFile("port/src/assetcatalog_load.c");
-	const std::string meta_walker = readTextFile("port/src/loader_walker_meta.c");
-	const std::string provider = readTextFile("port/src/assetprovider_file.c");
-	const std::string player = readTextFile("src/game/player.c");
-	const std::string menu = readTextFile("src/game/menu.c");
-	const std::string mainmenu = readTextFile("src/game/mainmenu.c");
-	const std::string mplayer_setup = readTextFile("src/game/mplayer/setup.c");
-	const std::string title = readTextFile("src/game/title.c");
-	const std::string modelcatalog = readTextFile("port/src/modelcatalog.c");
-	const std::string forge_runtime = readTextFile("port/src/forge/forge_runtime.c");
-	const std::string setuputils = readTextFile("src/game/setuputils.c");
-	const std::string body_runtime = readTextFile("src/game/body.c");
-	const std::string chraction = readTextFile("src/game/chraction.c");
-	const std::string modeldef = readTextFile("src/game/modeldef.c");
-	const std::string setup = readTextFile("src/game/setup.c");
-	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
-	const std::string conformance = readTextFile("tools/asset_archive_conformance.py");
-	const std::string body_mgr = readTextFile("port/src/catalog_mgr_bodies.c");
-	const std::string head_mgr = readTextFile("port/src/catalog_mgr_heads.c");
-	const std::string scanner = readTextFile("port/src/assetcatalog_scanner.c");
-	const std::string netdistrib = readTextFile("port/src/net/netdistrib.c");
-	const std::string runtime = readTextFile("port/src/asset_runtime.c");
+	// This contract inspects C/C++ source, whose line endings vary by checkout.
+	// Normalize CRLF only; preserve all source tokens and standalone CR bytes.
+	const auto readSourceText = [](const char *path) {
+		const std::string raw = readTextFile(path);
+		std::string text;
+		text.reserve(raw.size());
+		for (size_t i = 0; i < raw.size(); ++i) {
+			if (raw[i] == '\r' && i + 1 < raw.size() && raw[i + 1] == '\n') continue;
+			text += raw[i];
+		}
+		return text;
+	};
+	const std::string common_h = readSourceText("port/include/loader_walker_common.h");
+	const std::string common = readSourceText("port/src/loader_walker_common.c");
+	const std::string fs = readSourceText("port/src/fs.c");
+	const std::string load = readSourceText("port/src/assetcatalog_load.c");
+	const std::string meta_walker = readSourceText("port/src/loader_walker_meta.c");
+	const std::string provider = readSourceText("port/src/assetprovider_file.c");
+	const std::string player = readSourceText("src/game/player.c");
+	const std::string menu = readSourceText("src/game/menu.c");
+	const std::string mainmenu = readSourceText("src/game/mainmenu.c");
+	const std::string mplayer_setup = readSourceText("src/game/mplayer/setup.c");
+	const std::string title = readSourceText("src/game/title.c");
+	const std::string modelcatalog = readSourceText("port/src/modelcatalog.c");
+	const std::string forge_runtime = readSourceText("port/src/forge/forge_runtime.c");
+	const std::string setuputils = readSourceText("src/game/setuputils.c");
+	const std::string body_runtime = readSourceText("src/game/body.c");
+	const std::string chraction = readSourceText("src/game/chraction.c");
+	const std::string modeldef = readSourceText("src/game/modeldef.c");
+	const std::string setup = readSourceText("src/game/setup.c");
+	const std::string guard = readSourceText("tools/asset_native_source_guard.py");
+	const std::string conformance = readSourceText("tools/asset_archive_conformance.py");
+	const std::string body_mgr = readSourceText("port/src/catalog_mgr_bodies.c");
+	const std::string head_mgr = readSourceText("port/src/catalog_mgr_heads.c");
+	const std::string scanner = readSourceText("port/src/assetcatalog_scanner.c");
+	const std::string netdistrib = readSourceText("port/src/net/netdistrib.c");
+	const std::string runtime = readSourceText("port/src/asset_runtime.c");
 
 	REQUIRE(common_h.find("loaderWalkerArchiveMemberPath") != std::string::npos);
 	REQUIRE(common_h.find("loaderWalkerMarkBaseArchiveEntry") != std::string::npos);
@@ -13044,7 +13019,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        load.find("CATALOG: retain bundled"));
 	REQUIRE(load.find("&& e->source.primary.provider == fileProvider()") !=
 	        std::string::npos);
-	const std::string compiler = readTextFile("port/src/modasset_compiler.c");
+	const std::string compiler = readSourceText("port/src/modasset_compiler.c");
 	REQUIRE(compiler.find("skipped_degenerate") != std::string::npos);
 	REQUIRE(compiler.find("len2 <= 0.000001f") != std::string::npos);
 	REQUIRE(compiler.find("continue;") != std::string::npos);
@@ -13064,14 +13039,41 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 		"port/src/loader_walker_voice.c",
 	};
 	for (const char *path : walkers) {
-		const std::string walker = readTextFile(path);
+		const std::string walker = readSourceText(path);
 		INFO(path);
-		REQUIRE(walker.find("(void)file_path") == std::string::npos);
+		const std::string registration = functionBlock(walker, "static s32 s_register");
+		REQUIRE(registration.find("(void)file_path") == std::string::npos);
+		if (std::string(path) == "port/src/loader_walker_anim.c") {
+			// Registration selects the public member; the second pass must compile
+			// the effective catalog selection after all registrations have finished.
+			REQUIRE(registration.find("loaderWalkerArchiveMemberPath(file_path, source_member,") != std::string::npos);
+			REQUIRE(registration.find("catalogSetPrimaryFile(e, source_path)") != std::string::npos);
+			const std::string compile = functionBlock(walker, "static s32 s_compile");
+			REQUIRE(compile.find("assetCatalogIterateByType(ASSET_ANIMATION, s_copyCommandSelection, &selected)") != std::string::npos);
+			requireTokenOrder(compile, "assetCatalogIterateByType", "fsFileLoad(selected.path, &command_size)");
+			REQUIRE(compile.find("loaderPoolParseAnimationCatalogSourceJson(command_json, command_size,") != std::string::npos);
+			REQUIRE(compile.find("selected.path, id)") != std::string::npos);
+			const std::string scan = functionBlock(walker, "void loaderWalkerScanAnimations");
+			requireTokenOrder(scan, "loaderWalkerScanKind(tier_dir, &desc, s_register, &registered)",
+				"loaderWalkerScanKind(tier_dir, &commands, s_compile, &compiled)");
+			REQUIRE(scan.find("if (!registered.envelope_failures && !registered.register_failures)") != std::string::npos);
+		}
 		if (std::string(path) == "port/src/loader_walker_mesh.c") {
 			REQUIRE(walker.find("meshPublicSourceFields") != std::string::npos);
 			REQUIRE(walker.find("loaderWalkerBindMeshSource") !=
 				std::string::npos);
 			REQUIRE(walker.find("catalogSetPrimaryFile") == std::string::npos);
+		} else if (std::string(path) == "port/src/loader_walker_body.c" ||
+		        std::string(path) == "port/src/loader_walker_head.c") {
+			REQUIRE(walker.find("assetCatalogRegisterBodyHeadArchive") != std::string::npos);
+			REQUIRE(scanner.find("loaderWalkerMarkBaseArchiveEntry(entry)") != std::string::npos);
+			continue;
+		} else if (std::string(path) == "port/src/loader_walker_sfx.c" ||
+		        std::string(path) == "port/src/loader_walker_voice.c") {
+			REQUIRE(walker.find("catalogAudioNativeIdentityParse") != std::string::npos);
+			REQUIRE(walker.find("loaderWalkerArchiveTextMember") != std::string::npos);
+			REQUIRE(walker.find("assetCatalogRegisterBaseAudioSource") != std::string::npos);
+			continue;
 		} else {
 			REQUIRE(walker.find("loaderWalkerArchiveMemberPath") !=
 				std::string::npos);
@@ -13084,12 +13086,16 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	const char *metadataExts[] = {
 		".pdarena", ".pdcharacter", ".pdskin", ".pdprop", ".pdvehicle", ".pdmission",
 		".pdgamemode", ".pdbotprofile", ".pdhud", ".pdeffect", ".pdmaterial",
-		".pdtheme", ".pdbody", ".pdhead",
+		".pdtheme",
 	};
 	for (const char *ext : metadataExts) {
 		INFO(ext);
 		REQUIRE(meta_walker.find(ext) != std::string::npos);
 	}
+	/* Specialized public admission is the sole body/head registration owner.
+	 * The later generic scan must not replace it from private metadata. */
+	REQUIRE(meta_walker.find(".pdbody") == std::string::npos);
+	REQUIRE(meta_walker.find(".pdhead") == std::string::npos);
 	REQUIRE(meta_walker.find("desc.always_invoke = 1") != std::string::npos);
 	REQUIRE(meta_walker.find("assetCatalogGetMutable(id)") != std::string::npos);
 	REQUIRE(meta_walker.find("entry->type != type") != std::string::npos);
@@ -13149,17 +13155,26 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(meta_walker.find("entry->ext.bot_profile.requirefeature") != std::string::npos);
 	REQUIRE(meta_walker.find("s_manifestBotType") != std::string::npos);
 	REQUIRE(meta_walker.find("s_manifestBotDifficulty") != std::string::npos);
-	REQUIRE(meta_walker.find("entry->ext.body.mesh_archive") != std::string::npos);
-	REQUIRE(meta_walker.find("entry->ext.body.hand_archive") != std::string::npos);
-	REQUIRE(meta_walker.find("entry->ext.head.mesh_archive") != std::string::npos);
-	REQUIRE(readTextFile("port/src/loader_walker_body.c").find("s64 bodynum = -1;") !=
-	        std::string::npos);
-	REQUIRE(readTextFile("port/src/loader_walker_body.c").find("s64 bodynum = 0;") ==
-	        std::string::npos);
-	REQUIRE(readTextFile("port/src/loader_walker_head.c").find("s64 headnum = -1;") !=
-	        std::string::npos);
-	REQUIRE(readTextFile("port/src/loader_walker_head.c").find("s64 headnum = 0;") ==
-	        std::string::npos);
+	REQUIRE(meta_walker.find("entry->ext.body.mesh_archive") == std::string::npos);
+	REQUIRE(meta_walker.find("entry->ext.body.hand_archive") == std::string::npos);
+	REQUIRE(meta_walker.find("entry->ext.head.mesh_archive") == std::string::npos);
+	/* Optional native metadata supplies only a checked private slot hint.
+	 * Missing/out-of-range hints must never silently select native slot zero. */
+	{
+		const std::string body_hint = functionBlock(readSourceText("port/src/loader_walker_body.c"), "static s32 s_register");
+		const std::string head_hint = functionBlock(readSourceText("port/src/loader_walker_head.c"), "static s32 s_register");
+		for (const std::string *walker : {&body_hint, &head_hint}) {
+			REQUIRE(walker->find("s64 hint = -1;") != std::string::npos);
+			REQUIRE(walker->find("s64 hint = 0;") == std::string::npos);
+			requireTokenOrder(*walker, "loaderWalkerEnvelopeInt", "assetCatalogRegisterBodyHeadArchive");
+		}
+		REQUIRE(body_hint.find("\"bodynum\", &hint") != std::string::npos);
+		REQUIRE(head_hint.find("\"headnum\", &hint") != std::string::npos);
+		REQUIRE(body_hint.find("hint < 0 || hint >= CATALOG_MGR_BODY_COUNT) hint = -1") != std::string::npos);
+		REQUIRE(head_hint.find("hint < 0 || hint >= CATALOG_MGR_HEAD_COUNT) hint = -1") != std::string::npos);
+		REQUIRE(body_hint.find("assetCatalogRegisterBodyHeadArchive(file_path, id, 0, (s32)hint") != std::string::npos);
+		REQUIRE(head_hint.find("assetCatalogRegisterBodyHeadArchive(file_path, id, 1, (s32)hint") != std::string::npos);
+	}
 	REQUIRE(conformance.find("\".pdmaterial\": schema(") != std::string::npos);
 	REQUIRE(conformance.find("required=[\"material.ini\", \"material.json\"]") !=
 	        std::string::npos);
@@ -13168,12 +13183,12 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(scanner.find("iniGet(ini, \"texture_archive\",\n\t\t\t\tiniGet(ini, \"texture_file\"") ==
 	        std::string::npos);
 	REQUIRE(scanner.find("e->ext.arena.scenario_archive") != std::string::npos);
-	REQUIRE(scanner.find("e->ext.body.mesh_archive") != std::string::npos);
-	REQUIRE(scanner.find("e->ext.body.hand_archive") != std::string::npos);
-	REQUIRE(scanner.find("e->ext.head.mesh_archive") != std::string::npos);
+	REQUIRE(scanner.find("entry->ext.body.mesh_archive") != std::string::npos);
+	REQUIRE(scanner.find("entry->ext.body.hand_archive") != std::string::npos);
+	REQUIRE(scanner.find("entry->ext.head.mesh_archive") != std::string::npos);
 	{
 		const size_t arena_start = scanner.find("case ASSET_ARENA:");
-		const size_t body_start = scanner.find("case ASSET_BODY:", arena_start);
+		const size_t body_start = scanner.find("case ASSET_MODEL:", arena_start);
 		REQUIRE(arena_start != std::string::npos);
 		REQUIRE(body_start != std::string::npos);
 		const std::string arena_case =
@@ -13184,43 +13199,20 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 		REQUIRE(arena_case.find("iniGet(ini, \"geometry\"") == std::string::npos);
 	}
 	{
-		const size_t body_start = scanner.find("case ASSET_BODY:");
-		const size_t head_start = scanner.find("case ASSET_HEAD:", body_start);
-		const size_t model_start = scanner.find("case ASSET_MODEL:", head_start);
-		REQUIRE(body_start != std::string::npos);
-		REQUIRE(head_start != std::string::npos);
-		REQUIRE(model_start != std::string::npos);
-		const std::string body_case =
-			scanner.substr(body_start, head_start - body_start);
-		const std::string head_case =
-			scanner.substr(head_start, model_start - head_start);
-		REQUIRE(body_case.find("resolveBodyRuntimeSlotForScan(") !=
-		        std::string::npos);
-		REQUIRE(body_case.find("e->runtime_index = e->ext.body.bodynum") !=
-		        std::string::npos);
-		REQUIRE(body_case.find("sourceModelPathFromMeshArchive(e->ext.body.mesh_archive") !=
-		        std::string::npos);
-		REQUIRE(body_case.find("parseBodyManifestForPrivateSlot(e->id") !=
-		        std::string::npos);
-		REQUIRE(body_case.find("model_file") == std::string::npos);
-		REQUIRE(head_case.find("resolveHeadRuntimeSlotForScan(") !=
-		        std::string::npos);
-		REQUIRE(head_case.find("e->runtime_index = e->ext.head.headnum") !=
-		        std::string::npos);
-		REQUIRE(head_case.find("sourceModelPathFromMeshArchive(e->ext.head.mesh_archive") !=
-		        std::string::npos);
-		REQUIRE(head_case.find("parseHeadManifestForPrivateSlot(e->id") !=
-		        std::string::npos);
-		REQUIRE(head_case.find("model_file") == std::string::npos);
+		const std::string shared = functionBlock(scanner, "static s32 registerBodyHeadPublicIni");
+		REQUIRE(shared.find("bodyHeadSourcePrepareMesh(source.mesh_archive") != std::string::npos);
+		REQUIRE(shared.find("bodyHeadSourcePrepareMesh(source.hand_archive") != std::string::npos);
+		REQUIRE(shared.find("loaderPoolInstallPublicBody(&body)") != std::string::npos);
+		REQUIRE(shared.find("loaderPoolInstallPublicHead(&head)") != std::string::npos);
+		REQUIRE(shared.find("catalogSetPrimary(entry, primary)") != std::string::npos);
+		REQUIRE(shared.find("parseBodyManifestForPrivateSlot") == std::string::npos);
+		REQUIRE(shared.find("parseHeadManifestForPrivateSlot") == std::string::npos);
 	}
 	REQUIRE(scanner.find("e->ext.gamemode.max_players") != std::string::npos);
 	REQUIRE(scanner.find("e->ext.bot_profile.target_body") != std::string::npos);
 	REQUIRE(scanner.find("const char *pf = e->ext.theme.theme_file") != std::string::npos);
 	REQUIRE(scanner.find("e->ext.theme.ui_archive[0] ?") == std::string::npos);
 	REQUIRE(netdistrib.find("e->ext.arena.scenario_archive") != std::string::npos);
-	REQUIRE(netdistrib.find("e->ext.body.mesh_archive") != std::string::npos);
-	REQUIRE(netdistrib.find("e->ext.body.hand_archive") != std::string::npos);
-	REQUIRE(netdistrib.find("e->ext.head.mesh_archive") != std::string::npos);
 	{
 		const size_t arena_start = netdistrib.find("case ASSET_ARENA:");
 		const size_t body_start = netdistrib.find("case ASSET_BODY:", arena_start);
@@ -13234,34 +13226,11 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 		REQUIRE(arena_case.find("iniGet(ini, \"geometry\"") == std::string::npos);
 	}
 	{
-		const size_t body_start = netdistrib.find("case ASSET_BODY:");
-		const size_t head_start = netdistrib.find("case ASSET_HEAD:", body_start);
-		const size_t model_start = netdistrib.find("case ASSET_MODEL:", head_start);
-		REQUIRE(body_start != std::string::npos);
-		REQUIRE(head_start != std::string::npos);
-		REQUIRE(model_start != std::string::npos);
-		const std::string body_case =
-			netdistrib.substr(body_start, head_start - body_start);
-		const std::string head_case =
-			netdistrib.substr(head_start, model_start - head_start);
-		REQUIRE(body_case.find("distribResolveBodyRuntimeSlot(") !=
-		        std::string::npos);
-		REQUIRE(body_case.find("e->runtime_index = e->ext.body.bodynum") !=
-		        std::string::npos);
-		REQUIRE(body_case.find("distribSourceModelPathFromMeshArchive(mesh_full") !=
-		        std::string::npos);
-		REQUIRE(body_case.find("distribParseBodyManifestForPrivateSlot(e->id") !=
-		        std::string::npos);
-		REQUIRE(body_case.find("model_file") == std::string::npos);
-		REQUIRE(head_case.find("distribResolveHeadRuntimeSlot(") !=
-		        std::string::npos);
-		REQUIRE(head_case.find("e->runtime_index = e->ext.head.headnum") !=
-		        std::string::npos);
-		REQUIRE(head_case.find("distribSourceModelPathFromMeshArchive(mesh_full") !=
-		        std::string::npos);
-		REQUIRE(head_case.find("distribParseHeadManifestForPrivateSlot(e->id") !=
-		        std::string::npos);
-		REQUIRE(head_case.find("model_file") == std::string::npos);
+		const std::string received = functionBlock(netdistrib, "static s32 distribPreparePublicBodyHead");
+		REQUIRE(received.find("assetCatalogPrepareBodyHeadDescriptor") != std::string::npos);
+		REQUIRE(netdistrib.find("distribParseBodyManifestForPrivateSlot") == std::string::npos);
+		REQUIRE(netdistrib.find("distribParseHeadManifestForPrivateSlot") == std::string::npos);
+		REQUIRE(netdistrib.find("assetCatalogFinishBodyHeadAdmission") != std::string::npos);
 	}
 	REQUIRE(netdistrib.find("e->ext.gamemode.max_players") != std::string::npos);
 	REQUIRE(netdistrib.find("e->ext.bot_profile.target_body") != std::string::npos);
@@ -13312,14 +13281,21 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 		        std::string::npos);
 		REQUIRE(character_case.find("binding->primary_path") ==
 		        std::string::npos);
-		REQUIRE(character_case.find("s_hasText(binding->character_body_id)") !=
-		        std::string::npos);
-		REQUIRE(character_case.find("s_hasText(binding->character_head_id)") !=
-		        std::string::npos);
-		REQUIRE(character_case.find("s_hasText(binding->authored_file)") !=
-		        std::string::npos);
-		REQUIRE(character_case.find("s_hasText(binding->dependency_a)") !=
-		        std::string::npos);
+		/* Shared policy validation requires body source for every template,
+		 * fixed head source only for fixed templates, and precedes publication. */
+		REQUIRE(character_case.find("binding->character_head_policy = character_policy") != std::string::npos);
+		REQUIRE(character_case.find("binding->character_head_policy != CHARACTER_HEAD_POLICY_INVALID") != std::string::npos);
+		const std::string activation = functionBlock(runtime, "s32 assetRuntimeActivateCatalogEntry");
+		requireTokenOrder(activation, "character_policy = characterSourcePolicy(entry)",
+			"if (character_policy == CHARACTER_HEAD_POLICY_INVALID) return 0");
+		requireTokenOrder(activation, "if (character_policy == CHARACTER_HEAD_POLICY_INVALID) return 0",
+			"s_allocBinding(entry->id)");
+		const std::string policy = functionBlock(readSourceText("port/src/character_head_policy.c"),
+			"character_head_policy_e characterHeadPolicyResolve");
+		REQUIRE(policy.find("!catalogIdValid(body_id) || !bodyfile || !bodyfile[0]") != std::string::npos);
+		REQUIRE(policy.find("if (resolved == CHARACTER_HEAD_POLICY_FIXED)") != std::string::npos);
+		REQUIRE(policy.find("!catalogIdValid(head_id) || !headfile || !headfile[0]") != std::string::npos);
+		REQUIRE(policy.find("else if ((head_id && head_id[0]) || (headfile && headfile[0]))") != std::string::npos);
 	}
 	{
 		const size_t body_start =
@@ -13556,7 +13532,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(runtime.find("entry->ext.lang.lang_category") != std::string::npos);
 	REQUIRE(runtime.find("entry->ext.lang.string_count") != std::string::npos);
 
-	const std::string scenario = readTextFile("port/src/loader_walker_scenario.c");
+	const std::string scenario = readSourceText("port/src/loader_walker_scenario.c");
 	REQUIRE(scenario.find("\"runtime_source\"") != std::string::npos);
 	REQUIRE(scenario.find("\"scene\"") != std::string::npos);
 	REQUIRE(scenario.find("e->ext.scenario.scene_file") != std::string::npos);
@@ -13564,9 +13540,9 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 
 	const std::string mesh_source =
-		readTextFile("port/src/loader_walker_mesh_source_plan.c");
+		readSourceText("port/src/loader_walker_mesh_source_plan.c");
 	const std::string mesh_bind =
-		readTextFile("port/src/loader_walker_mesh_source_bind.c");
+		readSourceText("port/src/loader_walker_mesh_source_bind.c");
 	REQUIRE(mesh_source.find("\"geometry\"") != std::string::npos);
 	REQUIRE(mesh_source.find("\"model.obj\"") != std::string::npos);
 	REQUIRE(mesh_source.find("\"source_filenum_symbol\"") != std::string::npos);
@@ -13579,7 +13555,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(mesh_bind.find("loaderWalkerMeshSourceMatchesEntry") !=
 		std::string::npos);
-	const std::string pdmesh_extract = readTextFile("port/src/romextract_pdmesh.c");
+	const std::string pdmesh_extract = readSourceText("port/src/romextract_pdmesh.c");
 	REQUIRE(pdmesh_extract.find("skeleton_symbol") !=
 	        std::string::npos);
 	REQUIRE(pdmesh_extract.find("\\\"source_filenum_symbol\\\"") !=
@@ -13594,24 +13570,28 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(pdmesh_extract.find("FILE_GHUDPIECE") !=
 	        std::string::npos);
 
-	const std::string body = readTextFile("port/src/loader_walker_body.c");
-	const std::string head = readTextFile("port/src/loader_walker_head.c");
-	REQUIRE(body.find("\"mesh_archive\"") != std::string::npos);
-	REQUIRE(body.find("\"hand_archive\"") != std::string::npos);
-	REQUIRE(body.find("\"mesh.pdmesh\"") != std::string::npos);
-	REQUIRE(body.find("mesh_archive_path") != std::string::npos);
-	REQUIRE(body.find("\"%s::model.obj\"") != std::string::npos);
-	REQUIRE(body.find("s_bindBodyHandModelSource") != std::string::npos);
-	REQUIRE(body.find("loaderEnumResolveFileEnum(symbol, -1)") !=
-	        std::string::npos);
-	REQUIRE(body.find("catalogReadableModelIdForFile(hand_filenum, \"hand\", \"hand\"") !=
-	        std::string::npos);
-	REQUIRE(body.find("catalogSetPrimaryFile(hand_entry, hand_source_path)") !=
-	        std::string::npos);
-	REQUIRE(head.find("\"mesh_archive\"") != std::string::npos);
-	REQUIRE(head.find("\"mesh.pdmesh\"") != std::string::npos);
-	REQUIRE(head.find("mesh_archive_path") != std::string::npos);
-	REQUIRE(head.find("\"%s::model.obj\"") != std::string::npos);
+	const std::string body = readSourceText("port/src/loader_walker_body.c");
+	const std::string head = readSourceText("port/src/loader_walker_head.c");
+	REQUIRE(body.find("assetCatalogRegisterBodyHeadArchive") != std::string::npos);
+	REQUIRE(head.find("assetCatalogRegisterBodyHeadArchive") != std::string::npos);
+	REQUIRE(body.find("s_bindBodyHandModelSource") == std::string::npos);
+	const std::string body_head_registration = functionBlock(scanner, "static s32 registerBodyHeadPublicIni");
+	const std::string body_head_binding = readSourceText("port/src/body_head_source_bind.c");
+	const std::string prepare_mesh = functionBlock(body_head_binding, "s32 bodyHeadSourcePrepareMesh");
+	const std::string bind_mesh = functionBlock(body_head_binding, "s32 bodyHeadSourceBindMesh");
+	requireTokenOrder(body_head_registration, "bodyHeadSourcePrepareMesh(source.mesh_archive", "externalScanTransactionBegin");
+	requireTokenOrder(body_head_registration, "bodyHeadSourcePrepareMesh(source.hand_archive", "externalScanTransactionBegin");
+	REQUIRE(prepare_mesh.find("loaderWalkerMeshSourcePlanManifest") != std::string::npos);
+	REQUIRE(prepare_mesh.find("fsFileSize(candidate.plan.source_path) <= 0") != std::string::npos);
+	REQUIRE(prepare_mesh.find("existing ? existing->source_filenum : -1") != std::string::npos);
+	REQUIRE(bind_mesh.find("assetCatalogResolveModelPrivateSlot(binding->id)") != std::string::npos);
+	REQUIRE(bind_mesh.find("assetCatalogModelPrivateSourceFilenum(runtime_slot)") != std::string::npos);
+	REQUIRE(bind_mesh.find("catalogIdBySourceFilenum(ASSET_MODEL, binding->plan.source_filenum)") != std::string::npos);
+	REQUIRE(bind_mesh.find("loaderWalkerBindMeshSource(entry, &binding->plan, 1") != std::string::npos);
+	REQUIRE(bind_mesh.find("reverse ownership mismatch") != std::string::npos);
+	REQUIRE(body_head_registration.find("hand.present && !bodyHeadSourceBindMesh(&hand") != std::string::npos);
+	REQUIRE(body_head_registration.find("bodyHeadSourceBuildBody(&source, slot, mesh_file, hand_file, &body)") != std::string::npos);
+	REQUIRE(body_head_registration.find("catalogDepRegisterTyped(id, hand.id, ASSET_MODEL, bundled)") != std::string::npos);
 
 	REQUIRE(body_mgr.find("catalogLoadStageAsset(ASSET_BODY, id)") !=
 	        std::string::npos);
@@ -13621,18 +13601,12 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(head_mgr.find("s_Heads[headnum].modeldef = catalogGetLoadedModeldef(id)") !=
 	        std::string::npos);
-	REQUIRE(load.find("s_catalogModelPayloadSourcePath") != std::string::npos);
-	REQUIRE(load.find("\"model.obj\"") != std::string::npos);
-	REQUIRE(load.find("\"model.gltf\"") != std::string::npos);
-	REQUIRE(load.find("\"model.glb\"") != std::string::npos);
-	REQUIRE(load.find("fsFileSize(candidate) > 0") != std::string::npos);
-	REQUIRE(load.find("s_catalogModelPayloadSourcePath(entry, source_path") <
+	REQUIRE(load.find("modelSourceResolvePath") != std::string::npos);
+	REQUIRE(load.find("public model source is invalid or missing") != std::string::npos);
+	REQUIRE(load.find("modelSourceResolvePath(source_path") <
 	        load.find("modeldefLoadToNewFromHandle(handle"));
-	const std::string modeldef_loader = readTextFile("src/game/modeldef.c");
-	REQUIRE(modeldef_loader.find("modeldefResolveExternalSourcePath") != std::string::npos);
-	REQUIRE(modeldef_loader.find("\"model.obj\"") != std::string::npos);
-	REQUIRE(modeldef_loader.find("\"model.gltf\"") != std::string::npos);
-	REQUIRE(modeldef_loader.find("\"model.glb\"") != std::string::npos);
+	const std::string modeldef_loader = readSourceText("src/game/modeldef.c");
+	REQUIRE(modeldef_loader.find("modelSourceResolvePath") != std::string::npos);
 	REQUIRE(modeldef_loader.find("entry->ext.weapon.model_file") != std::string::npos);
 	REQUIRE(modeldef_loader.find("entry->ext.prop.model_file") != std::string::npos);
 	REQUIRE(modeldef_loader.find("entry->ext.vehicle.model_file") != std::string::npos);
@@ -13773,7 +13747,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(setuputils.find("setupModelHandlePassesSourceOnlyCheck(modelnum, model_id, model_handle)") <
 	        setuputils.find("modeldefLoadToNewFromHandle(model_handle, source_filenum)"));
-	const std::string bondgun = readTextFile("src/game/bondgun.c");
+	const std::string bondgun = readSourceText("src/game/bondgun.c");
 	REQUIRE(bondgun.find("#include \"assetcatalog.h\"") !=
 	        std::string::npos);
 	REQUIRE(bondgun.find("#include \"asset_source_debug.h\"") !=
@@ -13797,9 +13771,9 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(bondgun.find("weapon model load-to-addr") !=
 	        std::string::npos);
-	REQUIRE(bondgun.find("bgunResolveCatalogModelSourcePath(") !=
+	REQUIRE(bondgun.find("modelSourceResolvePath") !=
 	        std::string::npos);
-	REQUIRE(bondgun.find("fsFileSize(candidate) > 0") !=
+	REQUIRE(bondgun.find("player->gunctrl.loadhandle.provider == fileProvider()") !=
 	        std::string::npos);
 	REQUIRE(bondgun.find("catalogIdBySourceHandle(ASSET_MODEL, player->gunctrl.loadhandle)") !=
 	        std::string::npos);
@@ -13880,7 +13854,11 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(modeldef.find("assetLoadRomToNew") == std::string::npos);
 	REQUIRE(modeldef.find("assetLoadRomToAddr") == std::string::npos);
-	REQUIRE(modeldef.find("modAssetCompilerIsExternalSource(modeldefCatalogSourcePath(handle))") !=
+	const std::string selected_model_load = functionBlock(modeldef, "struct modeldef *modeldefLoadFromHandle");
+	REQUIRE(selected_model_load.find("if (handle.provider == fileProvider())") != std::string::npos);
+	requireTokenOrder(selected_model_load, "modeldefLoadExternalCatalogSource(handle, source_filenum)",
+		"assetLoadToAddr(handle");
+	REQUIRE(selected_model_load.find("modAssetCompilerIsExternalSource(modeldefCatalogSourcePath(handle))") ==
 	        std::string::npos);
 	REQUIRE(modeldef.find("catalogIdBySourceHandle(model_payload_types[i], handle)") !=
 	        std::string::npos);
@@ -13912,14 +13890,14 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(body_runtime.find("modelmgrInstantiateModelWithAnim(bodymodeldef)") !=
 	        std::string::npos);
-	const std::string modasset_compiler = readTextFile("port/src/modasset_compiler.c");
-	const std::string modasset_compiler_h = readTextFile("port/include/modasset_compiler.h");
-	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_VERSION 7") !=
+	const std::string modasset_compiler = readSourceText("port/src/modasset_compiler.c");
+	const std::string modasset_compiler_h = readSourceText("port/include/modasset_compiler.h");
+	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_VERSION 9") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler_h.find(
-	        "#define MODASSET_COMPILER_ANIMATION_VERSION 8") !=
+	        "#define MODASSET_COMPILER_ANIMATION_VERSION 9") !=
 	        std::string::npos);
-	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_MODELDEF_VERSION 12") !=
+	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_MODELDEF_VERSION 14") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("modAssetCompilerSkeletonForSymbol") !=
 	        std::string::npos);
@@ -13965,8 +13943,11 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("tri->matrix_index >= 0 ? tri->matrix_index") !=
 	        std::string::npos);
-	REQUIRE(modasset_compiler.find("\"_meta/manifest.json\"") !=
-	        std::string::npos);
+	// Private extraction provenance cannot override edited public mesh metadata.
+    REQUIRE(modasset_compiler.find("\"_meta/manifest.json\"") ==
+            std::string::npos);
+    REQUIRE(modasset_compiler.find("modAssetCompilerBuildModeldefWithInputs") != std::string::npos);
+    REQUIRE(modasset_compiler.find("modelInputRead(inputs, metadata_path") != std::string::npos);
 	REQUIRE(modasset_compiler.find("\"mesh.ini\"") != std::string::npos);
 	REQUIRE(pdmesh_extract.find("model_scale = %.9g") != std::string::npos);
 	REQUIRE(pdmesh_extract.find("\\\"model_scale\\\": %.9g") != std::string::npos);
@@ -13976,7 +13957,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(pdmesh_extract.find("\\\"faces\\\": \\\"model.faces.tsv\\\"") == std::string::npos);
 	REQUIRE(modasset_compiler.find("generatedModeldefScaleFromMetadata") !=
 	        std::string::npos);
-	REQUIRE(modasset_compiler.find("owner->def.scale = generatedModeldefScaleFromMetadata(source_path)") !=
+	REQUIRE(modasset_compiler.find("owner->def.scale = generatedModeldefScaleFromMetadata(inputs, source_path)") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("strstr(sep + 2, \"::\")") !=
 	        std::string::npos);
@@ -14086,7 +14067,7 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(chraction.find("static model has no animation controller") !=
 	        std::string::npos);
-	const std::string chr_runtime = readTextFile("src/game/chr.c");
+	const std::string chr_runtime = readSourceText("src/game/chr.c");
 	REQUIRE(chr_runtime.find("bool model_has_anim") != std::string::npos);
 	REQUIRE(chr_runtime.find("if (!model_has_anim)") != std::string::npos);
 	REQUIRE(chr_runtime.find("!model_has_anim || chr->actiontype != ACT_STAND") !=
@@ -14095,28 +14076,35 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	REQUIRE(setup.find("invalid path pads pointer") != std::string::npos);
 
-	const std::string sfx = readTextFile("port/src/loader_walker_sfx.c");
-	const std::string voice = readTextFile("port/src/loader_walker_voice.c");
-	const std::string song = readTextFile("port/src/loader_walker_song.c");
-	const std::string font = readTextFile("port/src/loader_walker_font.c");
-	REQUIRE(sfx.find("\"sample.wav\"") != std::string::npos);
-	REQUIRE(sfx.find("always_invoke = 1") != std::string::npos);
-	REQUIRE(sfx.find("e->source_soundnum") != std::string::npos);
-	REQUIRE(sfx.find("loaderWalkerEnvelopeInt(manifest, manifest_len, \"sample_rate_hz\"") !=
-	        std::string::npos);
-	REQUIRE(sfx.find("loaderWalkerEnvelopeInt(manifest, manifest_len, \"decoded_sample_count\"") !=
-	        std::string::npos);
-	REQUIRE(sfx.find("(decoded_sample_count * 1000 + sample_rate_hz / 2) / sample_rate_hz") !=
-	        std::string::npos);
-	REQUIRE(voice.find("\"sample.wav\"") != std::string::npos);
-	REQUIRE(voice.find("always_invoke = 1") != std::string::npos);
-	REQUIRE(voice.find("e->source_soundnum") != std::string::npos);
-	REQUIRE(voice.find("loaderWalkerEnvelopeInt(manifest, manifest_len, \"sample_rate_hz\"") !=
-	        std::string::npos);
-	REQUIRE(voice.find("loaderWalkerEnvelopeInt(manifest, manifest_len, \"decoded_sample_count\"") !=
-	        std::string::npos);
-	REQUIRE(voice.find("(decoded_sample_count * 1000 + sample_rate_hz / 2) / sample_rate_hz") !=
-	        std::string::npos);
+	const std::string sfx = readSourceText("port/src/loader_walker_sfx.c");
+	const std::string voice = readSourceText("port/src/loader_walker_voice.c");
+	const std::string song = readSourceText("port/src/loader_walker_song.c");
+	const std::string font = readSourceText("port/src/loader_walker_font.c");
+	const std::string audio_source = readSourceText("port/src/catalog_audio_public_source.cpp");
+	const std::string audio_registration = functionBlock(scanner, "s32 assetCatalogRegisterBaseAudioSource");
+	for (const std::string *walker : {&sfx, &voice}) {
+		REQUIRE(walker->find("always_invoke = 1") != std::string::npos);
+		REQUIRE(walker->find("catalogAudioNativeIdentityParse") != std::string::npos);
+		REQUIRE(walker->find("loaderWalkerArchiveTextMember") != std::string::npos);
+		REQUIRE(walker->find("iniParseBuffer") != std::string::npos);
+		REQUIRE(walker->find("assetCatalogRegisterBaseAudioSource") != std::string::npos);
+		REQUIRE(walker->find("loaderWalkerEnvelopeInt") == std::string::npos);
+		REQUIRE(walker->find("decoded_sample_count") == std::string::npos);
+		REQUIRE(walker->find("sample_rate_hz") == std::string::npos);
+	}
+	REQUIRE(sfx.find("\"sound.ini\"") != std::string::npos);
+	REQUIRE(voice.find("\"voice.ini\"") != std::string::npos);
+	for (const char *token : {"catalogAudioPublicSourceParse(source, 1, &parsed)", "catalogAudioSourceIdentityPrepare",
+	        "catalogHandleForSourceFile(parsed.file_path)", "assetCatalogRegisterAudio", "catalogAudioSourceIdentityApply",
+	        "catalogAudioPublicSourceApply(entry, &parsed)", "catalogSetPrimary(entry, prepared_handle)",
+	        "loaderWalkerMarkBaseArchiveEntry(entry)", "externalScanTransactionRollback", "*restored = *passive_backup"})
+		REQUIRE(audio_registration.find(token) != std::string::npos);
+	requireTokenOrder(audio_registration, "catalogAudioPublicSourceParse(source, 1, &parsed)", "assetCatalogRegisterAudio");
+	requireTokenOrder(audio_registration, "catalogAudioSourceIdentityPrepare", "assetCatalogRegisterAudio");
+	requireTokenOrder(audio_registration, "catalogHandleForSourceFile(parsed.file_path)", "assetCatalogRegisterAudio");
+	REQUIRE(audio_registration.find("if (!prior)") < audio_registration.find("identity.source_filenum = source_filenum"));
+	REQUIRE(audio_source.find("modAssetJsonReadValue") != std::string::npos);
+	REQUIRE(audio_source.find("source_index") != std::string::npos);
 	REQUIRE(song.find("\"sequence.mid\"") != std::string::npos);
 	REQUIRE(song.find("always_invoke = 1") != std::string::npos);
 	REQUIRE(song.find("assetCatalogResolve(id)") != std::string::npos);
@@ -14125,9 +14113,11 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	REQUIRE(font.find("e->ext.font.font_file") != std::string::npos);
 	REQUIRE(font.find("e->ext.font.metrics_file") != std::string::npos);
 
-	const std::string lang = readTextFile("port/src/loader_walker_lang.c");
-	REQUIRE(lang.find("\"source_bank\"") != std::string::npos);
-	REQUIRE(lang.find("\"string_count\"") != std::string::npos);
+	const std::string lang = readSourceText("port/src/loader_walker_lang.c");
+	const std::string lang_source = readSourceText("port/src/lang_source.cpp");
+	REQUIRE(lang.find("langSourceParseManifestFields") != std::string::npos);
+	REQUIRE(lang_source.find("\"source_bank\"") != std::string::npos);
+	REQUIRE(lang_source.find("\"string_count\"") != std::string::npos);
 	REQUIRE(lang.find("\"locale\"") != std::string::npos);
 	REQUIRE(lang.find("\"category\"") != std::string::npos);
 	REQUIRE(lang.find("e->ext.lang.bank_id") != std::string::npos);
@@ -14172,38 +14162,20 @@ TEST_CASE("custom body/head assembly chain stays source-backed through the priva
 	const std::string main_c = readTextFile("port/src/main.c");
 	const std::string types = readTextFile("src/include/types.h");
 
-	/* Custom archives with no legacy bodynum/headnum must allocate a private
-	 * catalog-owned slot before catalog registration, then parse public source
-	 * into that exact slot. Otherwise body0f02ce8c can only see an unbound
-	 * integer and either fails or silently renders the wrong base body. */
-	REQUIRE(body_walker.find("assetCatalogResolveBodyPrivateSlot(id)") !=
-	        std::string::npos);
-	REQUIRE(head_walker.find("assetCatalogResolveHeadPrivateSlot(id)") !=
-	        std::string::npos);
-	requireTokenOrder(body_walker,
-		"assetCatalogResolveBodyPrivateSlot(id)",
-		"assetCatalogRegisterBody(");
-	requireTokenOrder(head_walker,
-		"assetCatalogResolveHeadPrivateSlot(id)",
-		"assetCatalogRegisterHead(");
-	REQUIRE(body_walker.find("e->runtime_index = (s32)bodynum") !=
-	        std::string::npos);
-	REQUIRE(head_walker.find("e->runtime_index = (s32)headnum") !=
-	        std::string::npos);
-	REQUIRE(body_walker.find("catalogSetPrimaryFile(e, source_path)") !=
-	        std::string::npos);
-	REQUIRE(head_walker.find("catalogSetPrimaryFile(e, source_path)") !=
-	        std::string::npos);
-	REQUIRE(body_walker.find("loaderPoolParseBodyJsonForSlot(manifest, manifest_len, (s32)bodynum)") !=
-	        std::string::npos);
-	REQUIRE(head_walker.find("loaderPoolParseHeadJsonForSlot(manifest, manifest_len, (s32)headnum)") !=
-	        std::string::npos);
-	requireTokenOrder(body_walker,
-		"e->runtime_index = (s32)bodynum",
-		"loaderPoolParseBodyJsonForSlot(manifest, manifest_len, (s32)bodynum)");
-	requireTokenOrder(head_walker,
-		"e->runtime_index = (s32)headnum",
-		"loaderPoolParseHeadJsonForSlot(manifest, manifest_len, (s32)headnum)");
+	/* Both ordinary walkers use the same public parser, checked private slot,
+	 * typed mesh binding and native-pool publication as mod scanner ingress. */
+	REQUIRE(body_walker.find("assetCatalogRegisterBodyHeadArchive") != std::string::npos);
+	REQUIRE(head_walker.find("assetCatalogRegisterBodyHeadArchive") != std::string::npos);
+	const std::string shared = functionBlock(scanner, "static s32 registerBodyHeadPublicIni");
+	requireTokenOrder(shared, "bodyHeadSourceParseIni", "externalScanTransactionBegin");
+	requireTokenOrder(shared, "assetCatalogResolveBodyPrivateSlot(id)", "bodyHeadSourceBindMesh");
+	requireTokenOrder(shared, "assetCatalogResolveHeadPrivateSlot(id)", "bodyHeadSourceBindMesh");
+	requireTokenOrder(shared, "bodyHeadSourceBindMesh", "assetCatalogRegister(id, type)");
+	requireTokenOrder(shared, "entry->runtime_index = slot", "loaderPoolInstallPublicBody(&body)");
+	REQUIRE(shared.find("loaderPoolInstallPublicHead(&head)") != std::string::npos);
+	REQUIRE(shared.find("externalScanTransactionRollback") != std::string::npos);
+	REQUIRE(body_walker.find("loaderPoolParseBodyJson") == std::string::npos);
+	REQUIRE(head_walker.find("loaderPoolParseHeadJson") == std::string::npos);
 
 	/* Direct typed registration is also a custom-body path: a later
 	 * assetCatalogRegisterBody/Head call must not wipe runtime_index back to
@@ -14227,34 +14199,19 @@ TEST_CASE("custom body/head assembly chain stays source-backed through the priva
 	 * activate the loader-pool rows immediately. */
 	REQUIRE(scanner.find("#include \"assetcatalog_body_head_slots.h\"") !=
 	        std::string::npos);
-	REQUIRE(scanner.find("ASSETCATALOG.SCANNER.BODY.CUSTOM_SLOT") !=
-	        std::string::npos);
-	REQUIRE(scanner.find("ASSETCATALOG.SCANNER.HEAD.CUSTOM_SLOT") !=
-	        std::string::npos);
-	REQUIRE(scanner.find("\"model.gltf\"") != std::string::npos);
-	REQUIRE(scanner.find("\"model.glb\"") != std::string::npos);
-	REQUIRE(scanner.find("fsFileSize(out) > 0") != std::string::npos);
-	requireTokenOrder(scanner,
-		"resolveBodyRuntimeSlotForScan(",
-		"parseBodyManifestForPrivateSlot(e->id");
-	requireTokenOrder(scanner,
-		"resolveHeadRuntimeSlotForScan(",
-		"parseHeadManifestForPrivateSlot(e->id");
-	REQUIRE(scanner.find("loaderPoolParseBodyJsonForSlot(json, json_size, bodynum)") !=
-	        std::string::npos);
-	REQUIRE(scanner.find("loaderPoolParseHeadJsonForSlot(json, json_size, headnum)") !=
-	        std::string::npos);
-	REQUIRE(scanner.find("loaderPoolFinalize()") != std::string::npos);
-	REQUIRE(scanner.find("catalogManagerRegisterBody(id, body)") !=
-	        std::string::npos);
-	REQUIRE(scanner.find("catalogManagerRegisterHead(id, head)") !=
-	        std::string::npos);
-	requireTokenOrder(scanner,
-		"loaderPoolFinalize();",
-		"catalogManagerRegisterBody(id, body)");
-	requireTokenOrder(scanner,
-		"loaderPoolFinalize();",
-		"catalogManagerRegisterHead(id, head)");
+	const std::string binding = readTextFile("port/src/body_head_source_bind.c");
+	const std::string pool = readTextFile("port/src/loader_pool.c");
+	REQUIRE(scanner.find("registerBodyHeadPublicDescriptor") != std::string::npos);
+	REQUIRE(scanner.find("bodyHeadSourceReadIniBytes") != std::string::npos);
+	REQUIRE(binding.find("loaderWalkerMeshSourcePlanManifest") != std::string::npos);
+	REQUIRE(binding.find("loaderWalkerBindMeshSource") != std::string::npos);
+	REQUIRE(binding.find("fsFileSize(candidate.plan.source_path) <= 0") != std::string::npos);
+	REQUIRE(binding.find("catalogIdBySourceFilenum(ASSET_MODEL") != std::string::npos);
+	REQUIRE(pool.find("loaderPoolInstallPublicBody") != std::string::npos);
+	REQUIRE(pool.find("loaderPoolInstallPublicHead") != std::string::npos);
+	REQUIRE(scanner.find("catalogManagerRegisterBody(id, body)") == std::string::npos);
+	REQUIRE(scanner.find("catalogManagerRegisterHead(id, head)") == std::string::npos);
+
 	requireTokenOrder(main_c,
 		"catalogManagerHeadInit();",
 		"assetCatalogScanComponents(modsdir);");
@@ -14266,28 +14223,15 @@ TEST_CASE("custom body/head assembly chain stays source-backed through the priva
 
 	REQUIRE(netdistrib.find("#include \"assetcatalog_body_head_slots.h\"") !=
 	        std::string::npos);
-	REQUIRE(netdistrib.find("NETDISTRIB.BODY.CUSTOM_SLOT") !=
-	        std::string::npos);
-	REQUIRE(netdistrib.find("NETDISTRIB.HEAD.CUSTOM_SLOT") !=
-	        std::string::npos);
-	REQUIRE(netdistrib.find("\"model.gltf\"") != std::string::npos);
-	REQUIRE(netdistrib.find("\"model.glb\"") != std::string::npos);
-	REQUIRE(netdistrib.find("fsFileSize(out) > 0") != std::string::npos);
-	requireTokenOrder(netdistrib,
-		"distribResolveBodyRuntimeSlot(",
-		"distribParseBodyManifestForPrivateSlot(e->id");
-	requireTokenOrder(netdistrib,
-		"distribResolveHeadRuntimeSlot(",
-		"distribParseHeadManifestForPrivateSlot(e->id");
-	REQUIRE(netdistrib.find("loaderPoolParseBodyJsonForSlot(json, json_size, bodynum)") !=
-	        std::string::npos);
-	REQUIRE(netdistrib.find("loaderPoolParseHeadJsonForSlot(json, json_size, headnum)") !=
-	        std::string::npos);
-	REQUIRE(netdistrib.find("loaderPoolFinalize()") != std::string::npos);
-	REQUIRE(netdistrib.find("catalogManagerRegisterBody(id, body)") !=
-	        std::string::npos);
-	REQUIRE(netdistrib.find("catalogManagerRegisterHead(id, head)") !=
-	        std::string::npos);
+	REQUIRE(netdistrib.find("distribPreparePublicBodyHead(destdir, slot->id") != std::string::npos);
+	REQUIRE(netdistrib.find("distribPreparePublicBodyHead(candidates[i].dirpath") != std::string::npos);
+	REQUIRE(netdistrib.find("assetCatalogPrepareBodyHeadDescriptor") != std::string::npos);
+	REQUIRE(netdistrib.find("assetCatalogFinishBodyHeadAdmission(body_head_admission, 0)") != std::string::npos);
+	REQUIRE(netdistrib.find("assetCatalogFinishBodyHeadAdmission(body_head_admission, commit_result > 0)") != std::string::npos);
+	REQUIRE(netdistrib.find("loaderPoolParseBodyJsonForSlot") == std::string::npos);
+	REQUIRE(netdistrib.find("loaderPoolParseHeadJsonForSlot") == std::string::npos);
+	REQUIRE(netdistrib.find("catalogManagerRegisterBody(id, body)") == std::string::npos);
+	REQUIRE(netdistrib.find("catalogManagerRegisterHead(id, head)") == std::string::npos);
 
 	/* Private custom head slots begin above the signed 8-bit range. chrdata is
 	 * the render-time handoff field, so it must not narrow slot 152 to -104. */
@@ -14490,7 +14434,7 @@ TEST_CASE("language runtime loads public pdlang strings source",
 	REQUIRE(lang_extract.find("rzipIs1173") != std::string::npos);
 	REQUIRE(lang_extract.find("rzipInflate") != std::string::npos);
 	REQUIRE(lang_extract.find("PDLANG_EXTRACT_VERSION") != std::string::npos);
-	REQUIRE(lang_extract.find("pdlang_strings_json_rzip_v1") !=
+	REQUIRE(lang_extract.find("pdlang_strings_json_rzip_v2_null_extent_codec") !=
 	        std::string::npos);
 	REQUIRE(lang_extract.find("extract_version = %s\\n") != std::string::npos);
 	REQUIRE(lang_extract.find("s_existingArchiveEntryContains(dst_rel, \"lang.ini\"") !=
@@ -14501,7 +14445,7 @@ TEST_CASE("language runtime loads public pdlang strings source",
 	REQUIRE(conformance.find("validate_lang_source_contract") != std::string::npos);
 	REQUIRE(conformance.find("source_bank must be a positive integer") !=
 	        std::string::npos);
-	REQUIRE(conformance.find("strings.json must contain a non-empty strings array") !=
+	REQUIRE(conformance.find("strings.json must contain a strings array of at most 512 rows") !=
 	        std::string::npos);
 
 	REQUIRE(lang.find("langManifestLoadBankFromCatalog(bank)") !=
@@ -15033,7 +14977,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("s_emitEffect") != std::string::npos);
 	REQUIRE(meta.find("s_emitProp") != std::string::npos);
 	REQUIRE(meta.find("s_emitVehicle") != std::string::npos);
-	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v15_source_faithful_effect_profiles\"") !=
+	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v16_botprofile_manifest\"") !=
 	        std::string::npos);
 	REQUIRE(texture_extractor.find("texture.png") != std::string::npos);
 	REQUIRE(meta.find("material.json") != std::string::npos);
@@ -15427,12 +15371,11 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	        std::string::npos);
 	REQUIRE(scanner.find("iniGet(ini, \"music_file\", iniGet(ini, \"midi_file\", \"\"))") !=
 	        std::string::npos);
-	REQUIRE(distrib.find("iniGet(ini, \"music_file\", iniGet(ini, \"midi_file\", \"\"))") !=
-	        std::string::npos);
-	REQUIRE(scanner.find("strncpy(e->ext.audio.file_path, audio_file") !=
-	        std::string::npos);
-	REQUIRE(distrib.find("strncpy(e->ext.audio.file_path, audio_file") !=
-	        std::string::npos);
+	REQUIRE(distrib.find("assetCatalogRegisterAudioIni(slot->id") != std::string::npos);
+	REQUIRE(scanner.find("catalogAudioPublicSourceParse(ini, audio_category != AUDIO_CAT_MUSIC") != std::string::npos);
+	REQUIRE(scanner.find("catalogAudioPublicSourceApply(e, &audio_public)") != std::string::npos);
+	const std::string audio_public_fields = readTextFile("port/src/catalog_audio_public_source.cpp");
+	REQUIRE(audio_public_fields.find("COPY(file_path)") != std::string::npos);
 	REQUIRE(scanner.find("strncpy(e->ext.font.font_file, pf") !=
 	        std::string::npos);
 	REQUIRE(scanner.find("strncpy(e->ext.font.metrics_file, mf") !=
@@ -16004,7 +15947,10 @@ TEST_CASE("B-959 HUD material skin and vehicle public source owns production beh
 		"assetRuntimeVehicleAllows(vehicle->modelnum, \"dismount\")") !=
 	        std::string::npos);
 	REQUIRE(chr.find("assetRuntimeSkinAppearance") != std::string::npos);
-	REQUIRE(forge.find("source->prop_health * 10.0f") != std::string::npos);
+	REQUIRE(forge.find("propGraphHealthToMaxDamage(source->prop_health)") != std::string::npos);
+	REQUIRE(forge.find("propGraphHealthToMaxDamage(health)") != std::string::npos);
+	REQUIRE(forge.find("propGraphHealthIsRepresentable(source->prop_health)") != std::string::npos);
+	REQUIRE(runtime.find("propGraphHealthIsRepresentable(binding->prop_health)") != std::string::npos);
 	REQUIRE(forge.find("source->prop_flags") != std::string::npos);
 	REQUIRE(scenarios.find("!binding || !binding->source_hydrated") !=
 	        std::string::npos);
@@ -16043,11 +15989,14 @@ TEST_CASE("pdvoice public metadata feeds production subtitles",
 
 	REQUIRE(walker.find("loaderWalkerArchiveTextMember(file_path, \"voice.ini\"") !=
 	        std::string::npos);
-	REQUIRE(walker.find("loaderWalkerIniValueCopy(voice_ini") !=
-	        std::string::npos);
+	REQUIRE(walker.find("assetCatalogRegisterBaseAudioSource") != std::string::npos);
+	REQUIRE(walker.find("iniParseBuffer(\"voice.ini\"") != std::string::npos);
 	REQUIRE(common.find("modArchiveFindEntry(arc, member)") != std::string::npos);
-	REQUIRE(scanner.find("e->ext.audio.voice_transcript") != std::string::npos);
-	REQUIRE(distrib.find("e->ext.audio.voice_transcript") != std::string::npos);
+	REQUIRE(scanner.find("catalogAudioPublicSourceApply") != std::string::npos);
+	REQUIRE(distrib.find("assetCatalogRegisterAudioIni(slot->id") != std::string::npos);
+	const std::string audio_parser = readTextFile("port/src/catalog_audio_public_source.cpp");
+	REQUIRE(audio_parser.find("COPY(\"transcript\", voice_transcript, 0)") != std::string::npos);
+	REQUIRE(audio_parser.find("COPY(voice_transcript)") != std::string::npos);
 	REQUIRE(runtime.find("s_voiceSourceSubtitle(audio_source_id") !=
 	        std::string::npos);
 	REQUIRE(runtime.find("audio.voice_actor, audio.voice_transcript") !=

@@ -11,6 +11,7 @@
 #include "textureconfig.h"
 #include "types.h"
 #include "video.h"
+#include "texture_source_runtime.h"
 
 void texSetBitstring(u8 *bitstring)
 {
@@ -46,6 +47,7 @@ extern s32 bootEnsureUiArchivesReadyAfterTextureInit(void);
 
 void texReset(void)
 {
+	textureSourceRuntimeResetStage();
 	s32 stage;
 	s32 i;
 

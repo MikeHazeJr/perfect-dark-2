@@ -29,8 +29,8 @@
 extern "C" {
 #endif
 
-/* Reset all custom sound slot reservations. Called wherever the catalog is
- * rebuilt, beside the other custom-slot resets. */
+/* Reset catalog metadata slots; retained generations and rollback snapshot
+ * reservations remain owned across catalog rebuild. */
 void assetCatalogResetCustomSoundSlots(void);
 void *assetCatalogSnapshotCustomSoundSlots(void);
 s32 assetCatalogRestoreCustomSoundSlots(const void *snapshot);
@@ -43,6 +43,10 @@ void assetCatalogDestroyCustomSoundSlotSnapshot(void *snapshot);
  * remaining identity in soundnumhack's 11-bit id field; it is a wire-safe
  * runtime ceiling rather than a PC-only arbitrary reservation. */
 s32 assetCatalogResolveSoundPrivateSlot(const char *catalog_id);
+
+/* Immutable generations own leaf slots independently of catalog rows. */
+s32 assetCatalogReserveSoundGenerationSlot(void);
+void assetCatalogReleaseSoundGenerationSlot(s32 slot);
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,4 @@
+#ifndef PD_ASSET_CATALOG_RELOCATION_HARNESS_H
+#define PD_ASSET_CATALOG_RELOCATION_HARNESS_H
+int assetCatalogRelocationHarnessRun(void);
+#endif

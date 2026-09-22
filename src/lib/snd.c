@@ -28,9 +28,13 @@
 #include "fs.h"
 #include "assetcatalog_load.h"
 #include "audio.h"
+#include "catalog_audio_generation.h"
 #include "preprocess.h"
 #include "mod.h"
-#include "mp3_source_bounds.h"
+#include "modmusic.h"
+#include "asset_mp3_harness.h"
+#include "smoke_harness.h"
+#include <SDL.h>
 
 #define MAX_SEQ_SIZE_8MB 1024 * 18
 
@@ -60,8 +64,8 @@ struct curmp3 {
 	s32 prevwhisper;
 	s32 prevacknowledge;
 	s32 prevgreeting;
-	uintptr_t romaddr;
-	u32 romsize;
+	s16 *source_pcm;
+	u32 source_frames;
 	s32 responsetype;
 };
 
@@ -70,8 +74,6 @@ uintptr_t *g_ALSoundRomOffsets;
 s32 g_SndMaxFxBusses;
 u32 var80094eac;
 struct curmp3 g_SndCurMp3;
-static void *g_SndMp3SourceBytes = NULL;
-static u32 g_SndMp3SourceSize = 0;
 static void sndMp3FreeSourceBuffer(void);
 struct seqinstance g_SeqInstances[3];
 ALHeap g_SndHeap;
@@ -979,6 +981,24 @@ bool sndIsPlayingMp3(void)
 	return g_SndCurMp3.playing;
 }
 
+s32 sndMp3HarnessWitness(asset_mp3_witness_t *out)
+{
+	if (!smokeHarnessIsActive() || !out || g_SndDisabled || !g_SndMp3Enabled) return 0;
+	out->pcm = g_SndCurMp3.source_pcm;
+	out->frames = g_SndCurMp3.source_frames;
+	out->playing = g_SndCurMp3.playing;
+	out->soundnum = g_SndCurMp3.sfxref.packed;
+	out->response_timer240 = g_SndCurMp3.responsetimer240;
+	return 1;
+}
+
+s32 sndMp3HarnessRepeat(s32 enabled)
+{
+	if (!smokeHarnessIsActive() || (enabled != 0 && enabled != 1)) return 0;
+	g_SndCurMp3.unk08 = enabled;
+	return 1;
+}
+
 u16 snd0000e9dc(void)
 {
 #if VERSION >= VERSION_NTSC_1_0
@@ -1030,6 +1050,7 @@ void snd0000ea80(u16 volume)
 
 void sndResetCurMp3(void)
 {
+	sndMp3FreeSourceBuffer();
 	g_SndCurMp3.sfxref.id = 0;
 	g_SndCurMp3.sfxref.mp3priority = 0;
 	g_SndCurMp3.sfxref.unk02 = 0;
@@ -1965,7 +1986,7 @@ void sndTick(void)
 
 		if (func00037ea4() == 0 && g_SndCurMp3.playing) {
 			if (g_SndCurMp3.unk08) {
-				mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize);
+				mp3PlayPcmStereo22050(g_SndCurMp3.source_pcm, g_SndCurMp3.source_frames);
 				return;
 			}
 
@@ -2274,6 +2295,11 @@ struct sndstate *sndStart(s32 arg0, s16 sound, struct sndstate **handle, s32 vol
 
 	sp40.packed = sp44.hasconfig ? g_AudioRussMappings[sp44.confignum].soundnum : sp44.packed;
 
+    /* Retained graph sounds bypass mutable catalog rows and provider paths. */
+    catalog_audio_generation_t *generation = catalogAudioGenerationForSlot(sp40.packed);
+    if (generation) return catalogAudioGenerationStart(generation, volume, pan,
+        pitch, fxmix, fxbus, handle);
+
 	/* C-7: catalog is primary sound router — resolve every sound through it.
 	 * catalogResolveSound() returns the full routing decision: mod override
 	 * (file-based SFX TBD), base-game ROM (cataloged), or not cataloged.
@@ -2387,70 +2413,45 @@ const char var70053c5c[] = "Snd_Play_Mpeg  : Chunk size -> Adr=%x\n";
 
 static void sndMp3FreeSourceBuffer(void)
 {
-	if (g_SndMp3SourceBytes) {
-		sysMemFree(g_SndMp3SourceBytes);
-		g_SndMp3SourceBytes = NULL;
-		g_SndMp3SourceSize = 0;
-	}
+	/* Stop the borrow before releasing the scheduler-owned source PCM. */
+	mp3ReleasePcm();
+	SDL_free(g_SndCurMp3.source_pcm);
+	g_SndCurMp3.source_pcm = NULL;
+	g_SndCurMp3.source_frames = 0;
 }
 
-static s32 sndMp3LoadPublicSourceFile(s32 filenum, uintptr_t *outaddr, u32 *outsize)
+static s32 sndMp3ResolvePublicSource(s32 filenum, s16 **out_pcm, u32 *out_frames)
 {
-	u32 size = 0;
-	u32 allocation_size = 0;
-	void *bytes;
-	void *guarded_bytes;
 	CatalogResolveResult source;
-
-	if (!outaddr || !outsize) {
-		return 0;
-	}
+	s16 *pcm = NULL;
+	u32 samples = 0;
+	if (!out_pcm || !out_frames) return 0;
 
 	source = catalogResolveFile(filenum);
 	if (source.path && source.path[0]) {
-		bytes = fsFileLoad(source.path, &size);
-		if (bytes && mp3SourceAllocationSize(size, &allocation_size)) {
-			guarded_bytes = sysMemRealloc(bytes, allocation_size);
-
-			if (!guarded_bytes) {
-				sysMemFree(bytes);
-				bytes = NULL;
-			} else {
-				bytes = guarded_bytes;
-				bzero((u8 *)bytes + size, allocation_size - size);
-			}
-		}
-
-		if (bytes && size > 0 && allocation_size > size) {
+		pcm = modMusicLoadAudioPcm22050(source.path, &samples, NULL);
+		if (pcm && samples >= 2 && samples % 2u == 0) {
+			/* Candidate decoding cannot disturb the current singleton. */
 			sndMp3FreeSourceBuffer();
-			g_SndMp3SourceBytes = bytes;
-			g_SndMp3SourceSize = size;
-			*outaddr = (uintptr_t)g_SndMp3SourceBytes;
-			*outsize = g_SndMp3SourceSize;
+			*out_pcm = pcm;
+			*out_frames = samples / 2u;
 			sysLogPrintf(LOG_NOTE,
-				"CATALOG: MP3 file %d -> typed public source \"%s\" (%u bytes)",
-				filenum, source.path, g_SndMp3SourceSize);
+				"CATALOG: MP3 file %d -> typed public source \"%s\" (%u stereo frames)",
+				filenum, source.path, *out_frames);
 			return 1;
 		}
-		if (bytes) {
-			sysMemFree(bytes);
-		}
+		SDL_free(pcm);
 	}
 
 	{
 		const asset_entry_t *entry = assetCatalogGetByIndex(source.catalog_id);
-		sysFatalError("ASSET.CHAIN: MP3 file %d has no readable typed "
+		sysFatalError("ASSET.CHAIN: MP3 file %d has no decodable typed "
 			"public audio source%s%s; refusing loose extracted file or ROM playback fallback.",
 			filenum,
 			entry ? " for " : "",
 			entry ? entry->id : "");
 	}
 	return 0;
-}
-
-static s32 sndMp3ResolvePublicSource(s32 filenum, uintptr_t *outaddr, u32 *outsize)
-{
-	return sndMp3LoadPublicSourceFile(filenum, outaddr, outsize);
 }
 
 void sndStartMp3(s16 soundnum, s32 volume, s32 pan, s32 responseflags)
@@ -2492,14 +2493,14 @@ void sndStartMp3(s16 soundnum, s32 volume, s32 pan, s32 responseflags)
 			volume = volume * snd0000e9dc() / AL_VOL_FULL;
 
 			if (!sndMp3ResolvePublicSource((s32)sp20.id,
-					&g_SndCurMp3.romaddr, &g_SndCurMp3.romsize)) {
+					&g_SndCurMp3.source_pcm, &g_SndCurMp3.source_frames)) {
 				return;
 			}
 
 			func00037f08(volume, true);
 			func00037f5c(pan, true);
 
-			mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize);
+			mp3PlayPcmStereo22050(g_SndCurMp3.source_pcm, g_SndCurMp3.source_frames);
 
 			func00037f08(volume, true);
 			func00037f5c(pan, true);

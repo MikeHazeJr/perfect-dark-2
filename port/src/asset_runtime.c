@@ -4,6 +4,7 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include "asset_runtime.h"
+#include "modasset_json.h"
 #include "asset_path_contract.h"
 #include "prop_graph_runtime.h"
 #ifndef PD_TESTS
@@ -76,11 +77,15 @@ static s32 s_jsonReadFloat(const char *json, u32 size, const char *key,
 static s32 s_jsonReadInt(const char *json, u32 size, const char *key,
                          s32 *out)
 {
-    f32 value = 0.0f;
-    if (!out || !s_jsonReadFloat(json, size, key, &value)) {
+    const char *p = s_jsonFindValue(json, size, key);
+    const char *end = json ? json + size : NULL;
+    const char *token_end = NULL;
+    s32 value;
+    if (!out || !p || !end || !modAssetJsonParseS32Token(p, end, &value, &token_end)
+            || !modAssetJsonTokenHasContainerBoundary(token_end, end, '}')) {
         return 0;
     }
-    *out = (s32)value;
+    *out = value;
     return 1;
 }
 
@@ -480,9 +485,15 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
                                      const char *primary_path)
 {
     asset_runtime_binding_t *binding;
+    character_head_policy_e character_policy = CHARACTER_HEAD_POLICY_INVALID;
 
     if (!entry || !entry->id[0] || !assetRuntimeSupportsType(entry->type)) {
         return 0;
+    }
+    if (entry->type == ASSET_CHARACTER) {
+        character_policy = characterSourcePolicy(entry);
+        /* An invalid replacement must not overwrite an existing binding. */
+        if (character_policy == CHARACTER_HEAD_POLICY_INVALID) return 0;
     }
 
     binding = s_allocBinding(entry->id);
@@ -538,6 +549,7 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
             s_hasAnyFile(binding->authored_file, NULL, NULL, NULL));
 
     case ASSET_CHARACTER:
+		binding->character_head_policy = character_policy;
 		s_copy(binding->character_body_id,
 		       sizeof(binding->character_body_id),
 		       entry->ext.character.body_id);
@@ -553,10 +565,7 @@ s32 assetRuntimeActivateCatalogEntry(const asset_entry_t *entry,
         s_copy(binding->dependency_b, sizeof(binding->dependency_b),
                entry->ext.character.portrait_file);
         return s_finishFileBinding(binding,
-            s_hasText(binding->character_body_id) &&
-            s_hasText(binding->character_head_id) &&
-            s_hasText(binding->authored_file) &&
-            s_hasText(binding->dependency_a));
+            binding->character_head_policy != CHARACTER_HEAD_POLICY_INVALID);
 
     case ASSET_SKIN:
         s_copy(binding->authored_file, sizeof(binding->authored_file),
@@ -1076,7 +1085,7 @@ static s32 s_hydrateProp(asset_runtime_binding_t *binding)
         s_jsonReadString(json, size, "display_name", binding->display_name,
             sizeof(binding->display_name)) &&
         s_jsonReadFloat(json, size, "health", &binding->prop_health) &&
-        binding->prop_health >= 0.0f &&
+        propGraphHealthIsRepresentable(binding->prop_health) &&
         s_jsonReadInt(json, size, "flags", &flags) && flags >= 0;
     free(json);
     if (ok) {
@@ -1292,6 +1301,32 @@ static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
     return ok;
 }
 
+static s32 s_hydrateCharacter(asset_runtime_binding_t *binding)
+{
+    if (binding->character_head_policy == CHARACTER_HEAD_POLICY_INTEGRATED) {
+        const asset_entry_t *body = assetCatalogResolve(binding->character_body_id);
+        const char *runtime_owner;
+        /* Dependencies are loaded before character hydration. Completeness
+         * comes from the selected body's source-backed manager record; an
+         * absent head is never evidence that a body contains its own head. */
+        if (!body || !body->occupied || !body->enabled ||
+                body->type != ASSET_BODY ||
+                !memchr(body->id, 0, sizeof(body->id)) ||
+                strcmp(body->id, binding->character_body_id) != 0 ||
+                body->runtime_index < 0 ||
+                body->runtime_index != body->ext.body.bodynum ||
+                !catalogGetBodyIsComplete(body->runtime_index)) return 0;
+        runtime_owner = catalogBodyIdByBodynum(body->runtime_index);
+        if (!runtime_owner || strcmp(runtime_owner, binding->character_body_id) != 0)
+            return 0;
+    } else if (binding->character_head_policy != CHARACTER_HEAD_POLICY_FIXED &&
+            binding->character_head_policy != CHARACTER_HEAD_POLICY_RANDOM_GENDER) {
+        return 0;
+    }
+    binding->source_hydrated = 1;
+    return 1;
+}
+
 s32 assetRuntimeHydrateCatalogEntry(const asset_entry_t *entry)
 {
     asset_runtime_binding_t *binding;
@@ -1302,6 +1337,7 @@ s32 assetRuntimeHydrateCatalogEntry(const asset_entry_t *entry)
     if (!binding || binding->type != entry->type) return 0;
 
     switch (entry->type) {
+    case ASSET_CHARACTER: ok = s_hydrateCharacter(binding); break;
     case ASSET_HUD:      ok = s_hydrateHud(binding); break;
     case ASSET_MATERIAL: ok = s_hydrateMaterial(binding); break;
     case ASSET_SKIN:     ok = s_hydrateSkin(binding); break;

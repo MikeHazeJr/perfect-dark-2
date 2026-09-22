@@ -40,8 +40,8 @@ const char *loaderWalkerMeshPublicGeometryKey(size_t index);
  * Build one canonical FileProvider source plan for a typed .pdmesh.
  *
  * public_geometry is the game-facing mesh.ini geometry member when the
- * caller has it.  The private manifest geometry may only confirm that value;
- * disagreement fails closed. Production top-level and nested walkers pass the
+ * caller has it. The private geometry echo does not override or veto a public
+ * edit. Production top-level and nested walkers pass the
  * public descriptor value; callers without one retain the legacy manifest
  * fallback. Both sources default to model.obj when absent.
  *

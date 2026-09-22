@@ -1,0 +1,19 @@
+{
+  "scenario_name": "asset_source_audio_smoke",
+  "description": "Real synthetic Ogg Vorbis enters an editable pdsong archive, catalog folder ingress, nested ZIP source decoding, and the gameplay synchronized playlist route. Exact stereo samples and EOF are compared with loose-file decode. No network transport, audio device or audible-output claim.",
+  "tags": ["runtime", "assets", "audio", "source-authority"],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "fixtures": [
+    {"src": "tests/fixtures/audio/vorbis/tone_stereo_22050.ogg", "dst": "asset-source-tone.ogg"}
+  ],
+  "boot_args": ["--no-update-check", "--no-net", "--no-sound", "--portable", "--skip-intro", "--debug-asset-source-audio"],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": [
+      "ASSET\\.SOURCE\\.AUDIO: archive=1 catalog=1 nested_pcm=1 playlist_pcm=1 frames=4410 result=PASS",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": ["ASSET\\.SOURCE\\.AUDIO: .*result=FAIL", "SMOKE: result=timeout", "EXCEPTION_ACCESS_VIOLATION"]
+  }
+}

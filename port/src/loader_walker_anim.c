@@ -4,8 +4,8 @@
  *
  * Walks animation .pdanim files. The .pdanim kind is a ZIP compound
  * per Section 2.6:
- *   - weapon_animation: _meta/manifest.json carries command source for
- *     loaderPoolParseAnimationJson; commands.json is the editable source.
+ *   - weapon_animation: descriptor selects editable commands.json; all catalog
+ *     rows are registered before the command reader binds exact references.
  *   - character_animation: animation.gltf is the editable source; the
  *     catalog row carries enough envelope info for consumers; no pool payload.
  *
@@ -87,13 +87,12 @@ static s32 s_register(const char *manifest, size_t manifest_len,
          * workers; re-resolve under-lock via the helper instead of
          * dereferencing `e` (could dangle if a concurrent register
          * triggered a realloc). */
-        if (category[0]) {
-            assetCatalogSetCategoryById(id, category);
-        }
     }
     e = assetCatalogGetMutable(id);
     if (e) {
         loaderWalkerMarkBaseArchiveEntry(e);
+        /* Bundled provenance must not replace the animation's semantic kind. */
+        if (category[0]) assetCatalogSetCategoryById(id, category);
         if (!uses_character_clip) {
             /* A weapon_animation source is a loader-pool command graph. Its
              * source_index, when present in the editable descriptor, indexes
@@ -120,35 +119,72 @@ static s32 s_register(const char *manifest, size_t manifest_len,
         e->ext.anim.header_len = (s32)header_len;
         e->ext.anim.framelen = (s32)framelen;
         e->ext.anim.flags = (s32)flags;
-        if (loaderWalkerArchiveMemberPath(file_path, source_member,
-                                          source_path, sizeof(source_path))) {
-            catalogSetPrimaryFile(e, source_path);
-        }
-    }
+        if (!loaderWalkerArchiveMemberPath(file_path, source_member,
+                                          source_path, sizeof(source_path))) return -1;
+        catalogSetPrimaryFile(e, source_path);
+    } else return -1;
 
-    /* Pool payload (Step 5): only weapon_animation envelopes carry the
-     * command array that loaderPoolParseAnimationJson expects. Character
-     * animations are byte-stream-only and have no pool slot. */
-    if (strcmp(category, "weapon_animation") == 0) {
+    return 1;
+}
+
+typedef struct animation_command_selection {
+    const char *id;
+    char category[CATALOG_CATEGORY_LEN];
+    char path[FS_MAXPATH + 1];
+    s32 found;
+} animation_command_selection_t;
+
+static void s_copyCommandSelection(const asset_entry_t *entry, void *opaque)
+{
+    animation_command_selection_t *selection = opaque;
+    if (strcmp(entry->id, selection->id)) return;
+    const char *path = fileProviderPath(entry->source.primary);
+    if (!path || strlen(path) >= sizeof(selection->path)) return;
+    strcpy(selection->category, entry->category);
+    strcpy(selection->path, path);
+    selection->found = 1;
+}
+
+static s32 s_compile(const char *manifest, size_t manifest_len,
+                      const char *pd_kind, const char *id, const char *file_path)
+{
+    (void)pd_kind; (void)file_path;
+    char expected_category[CATALOG_CATEGORY_LEN] = {0};
+    loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "category",
+        expected_category, sizeof(expected_category));
+    animation_command_selection_t selected = {0};
+    selected.id = id;
+    assetCatalogIterateByType(ASSET_ANIMATION, s_copyCommandSelection, &selected);
+    if (!selected.found || strcmp(selected.category, expected_category)) {
+        sysLogPrintf(LOG_WARNING, "LOADER.POOL.ANIMATION.SOURCE_FAIL: id=%s selected category differs from source", id);
+        return -1;
+    }
+    if (strcmp(selected.category, "weapon_animation") == 0) {
         u32 command_size = 0;
-        char *command_json = (char *)fsFileLoad(source_path, &command_size);
+        char *command_json = (char *)fsFileLoad(selected.path, &command_size);
         if (!command_json || command_size == 0) {
             if (command_json) free(command_json);
             sysLogPrintf(LOG_WARNING,
                 "LOADER.POOL.ANIMATION.SOURCE_FAIL: id=%s source=%s",
-                id ? id : "", source_path);
+                id ? id : "", selected.path);
             return -1;
         }
-        loaderPoolParseAnimationSourceJson(command_json, command_size,
-            source_path);
+        if (!loaderPoolParseAnimationCatalogSourceJson(command_json, command_size,
+                selected.path, id)) {
+            free(command_json);
+            sysLogPrintf(LOG_WARNING, "LOADER.POOL.ANIMATION.SOURCE_FAIL: id=%s source=%s", id ? id : "", selected.path);
+            return -1;
+        }
         sysLogPrintf(LOG_NOTE,
             "LOADER.POOL.ANIMATION.SOURCE: id=%s source=%s bytes=%u",
-            id ? id : "", source_path, (unsigned)command_size);
+            id ? id : "", selected.path, (unsigned)command_size);
         free(command_json);
+        return 1;
     }
 
-    return 1;
+    return 0; /* Character clips have no command-pool payload. */
 }
+
 
 void loaderWalkerScanAnimations(const char *tier_dir,
                                  loader_walker_kind_result_t *out)
@@ -156,5 +192,18 @@ void loaderWalkerScanAnimations(const char *tier_dir,
     static const loader_walker_kind_desc_t desc = {
         "animation", "animations", ".pdanim", /* always_invoke: */ 1,
     };
-    loaderWalkerScanKind(tier_dir, &desc, s_register, out);
+    loader_walker_kind_result_t registered = {0}, compiled = {0};
+    loaderWalkerScanKind(tier_dir, &desc, s_register, &registered);
+    if (!registered.envelope_failures && !registered.register_failures) {
+        /* The first blocking pass finishes every catalog row before the second
+         * binds includes, regardless of archive enumeration or worker order. */
+        static const loader_walker_kind_desc_t commands = {
+            "animation", "animations", ".pdanim", 1,
+        };
+        loaderWalkerScanKind(tier_dir, &commands, s_compile, &compiled);
+        registered.envelope_failures += compiled.envelope_failures;
+        registered.register_failures += compiled.register_failures;
+        registered.entries_registered -= compiled.envelope_failures + compiled.register_failures;
+    }
+    if (out) *out = registered;
 }

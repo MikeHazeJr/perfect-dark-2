@@ -155,7 +155,9 @@ TEST_CASE("SP-74 mesh source plan rejects ambiguous or unsafe ownership",
 		"\"geometry\":\"model.obj\"}";
 	REQUIRE(loaderWalkerMeshSourcePlanManifest(mismatched_geometry,
 		sizeof(mismatched_geometry) - 1, "sample:model", "sample.pdmesh",
-		"model.gltf", -1, &plan, error, sizeof(error)) == 0);
+		"model.gltf", -1, &plan, error, sizeof(error)) == 1);
+	REQUIRE(std::string(plan.geometry_member) == "model.gltf");
+	REQUIRE(std::string(plan.source_path) == "sample.pdmesh::model.gltf");
 
 	const char unknown_symbol[] =
 		"{\"pd_kind\":\"mesh\",\"id\":\"sample:model\","

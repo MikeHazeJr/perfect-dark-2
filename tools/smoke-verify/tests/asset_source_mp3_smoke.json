@@ -1,0 +1,14 @@
+{
+  "scenario_name": "asset_source_mp3_smoke",
+  "description": "Normal sound initialization with SDL_AUDIODRIVER=dummy; extracted public MP3 source enters actual native singleton scheduler, main-bus pulls, priority, pause/resume, stop, repeat and response-after-EOF. No audible/hardware proof.",
+  "tags": ["runtime", "assets", "audio", "source-authority"],
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": ["--no-update-check", "--no-net", "--portable", "--skip-intro", "--debug-asset-source-mp3"],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": ["ASSET\\.SOURCE\\.MP3: cases=10 result=PASS", "SMOKE: result=scripted_exit"],
+    "forbidden_patterns": ["ASSET\\.SOURCE\\.MP3: .*result=FAIL", "SMOKE: result=timeout", "EXCEPTION_ACCESS_VIOLATION"],
+    "required_counts": [{"pattern": "ASSET\\.SOURCE\\.MP3: case=.*result=PASS", "min": 10, "max": 10}]
+  }
+}

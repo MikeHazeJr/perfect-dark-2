@@ -113,6 +113,6 @@ TEST_CASE("readable cache and runtime modeldef share material reconciliation",
 	std::ostringstream header_contents;
 	header_contents << header_file.rdbuf();
 	REQUIRE(header_contents.str().find(
-		"#define MODASSET_COMPILER_MODELDEF_VERSION 12") !=
+		"#define MODASSET_COMPILER_MODELDEF_VERSION 14") !=
 		std::string::npos);
 }

@@ -1,0 +1,14 @@
+{
+  "scenario_name": "asset_source_numeric_smoke",
+  "description": "Standard glTF source room floats reach collision and native-model consumers; finite endpoints are accepted and nonfinite/out-of-range source is rejected before integer conversion.",
+  "tags": ["runtime", "assets", "source-authority"],
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": ["--no-update-check", "--no-net", "--no-sound", "--portable", "--skip-intro", "--debug-asset-source-numeric"],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": ["ASSET\\.SOURCE\\.NUMERIC: cases=7 result=PASS", "SMOKE: result=scripted_exit"],
+    "forbidden_patterns": ["ASSET\\.SOURCE\\.NUMERIC: .*result=FAIL", "SMOKE: result=timeout", "EXCEPTION_ACCESS_VIOLATION"],
+    "required_counts": [{"pattern": "ASSET\\.SOURCE\\.NUMERIC: room_bits=.*result=PASS", "min": 7, "max": 7}]
+  }
+}

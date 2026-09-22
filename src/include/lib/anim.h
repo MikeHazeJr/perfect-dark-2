@@ -16,6 +16,8 @@ enum {
 void animsInit(void);
 void animsInitTables(void);
 void animsReset(void);
+/* Forget decoded data before a private generation slot is reused. */
+void animInvalidateCacheEntry(s16 animnum);
 s32 animGetNumFrames(s16 anim_id);
 bool animHasFrames(s16 animnum);
 s32 animGetNumAnimations(void);

@@ -32,7 +32,7 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v15_source_faithful_effect_profiles"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
 	"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
@@ -1006,7 +1006,9 @@ static s32 s_emitBotProfile(const asset_entry_t *e, const char *out_dir,
 			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
 				"\"type_key\"") &&
 			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
-				"\"difficulty_key\"")) {
+				"\"difficulty_key\"") &&
+			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+				"\"requirefeature\"")) {
 		return 0;
 	}
 
@@ -1051,9 +1053,11 @@ static s32 s_emitBotProfile(const asset_entry_t *e, const char *out_dir,
 		"  \"type_key\": \"%s\",\n"
 		"  \"difficulty_key\": \"%s\",\n"
 		"  \"target_body\": \"%s\",\n"
+		"  \"requirefeature\": %u,\n"
 		"  \"profile_file\": \"profile.json\"\n"
 		"}\n",
-		e->id, type_key, diff_key, body_id);
+		e->id, type_key, diff_key, body_id,
+		(unsigned)e->ext.bot_profile.requirefeature);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
 		return -1;
 	}
@@ -1906,7 +1910,7 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 	SDL_AtomicSet(&ctx.skipped, 0);
 	SDL_AtomicSet(&ctx.failed, 0);
 
-	s32 total = assetCatalogGetCount();
+	s32 total = assetCatalogGetPoolSize();
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdmeta: begin entries=%d missions=%d",
 		total, g_ArenaDataCount);

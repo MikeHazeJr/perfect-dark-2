@@ -570,14 +570,11 @@ TEST_CASE("typed catalog model lifecycle activates model payloads", "[catalog][p
 
 	REQUIRE(catalog.find("ASSET_PAYLOAD_STAGE_MODELDEF") != std::string::npos);
 	REQUIRE(catalogLoad.find("s_catalogLoadEntryModelPayload") != std::string::npos);
-	REQUIRE(catalogLoad.find("s_catalogModelPayloadSourcePath") != std::string::npos);
-	REQUIRE(catalogLoad.find("\"model.obj\"") != std::string::npos);
-	REQUIRE(catalogLoad.find("\"model.gltf\"") != std::string::npos);
-	REQUIRE(catalogLoad.find("\"model.glb\"") != std::string::npos);
-	REQUIRE(catalogLoad.find("fsFileSize(candidate) > 0") != std::string::npos);
+	REQUIRE(catalogLoad.find("modelSourceResolvePath") != std::string::npos);
+	REQUIRE(catalogLoad.find("public model source is invalid or missing") != std::string::npos);
 	REQUIRE(catalogLoad.find("modeldefLoadToNewFromHandle") != std::string::npos);
 	REQUIRE(catalogLoad.find("model payload has no provider handle") != std::string::npos);
-	REQUIRE(catalogLoad.find("s_catalogModelPayloadSourcePath(entry, source_path") <
+	REQUIRE(catalogLoad.find("modelSourceResolvePath(source_path") <
 	        catalogLoad.find("modeldefLoadToNewFromHandle(handle"));
 	REQUIRE(catalogLoad.find("modAssetCompilerCompileReadable(entry") <
 	        catalogLoad.find("modeldefLoadToNewFromHandle(handle"));
@@ -826,10 +823,7 @@ TEST_CASE("Forge runtime model spawns enforce source-only family handles", "[cat
 	REQUIRE(forge.find("forge door modeldef") != std::string::npos);
 	REQUIRE(forge.find("forge weapon pad modeldef") != std::string::npos);
 	REQUIRE(forge.find("forge prop modeldef") != std::string::npos);
-	REQUIRE(modeldef.find("modeldefResolveExternalSourcePath") != std::string::npos);
-	REQUIRE(modeldef.find("\"model.obj\"") != std::string::npos);
-	REQUIRE(modeldef.find("\"model.gltf\"") != std::string::npos);
-	REQUIRE(modeldef.find("\"model.glb\"") != std::string::npos);
+	REQUIRE(modeldef.find("modelSourceResolvePath") != std::string::npos);
 	REQUIRE(modeldef.find("entry->ext.weapon.model_file") != std::string::npos);
 	REQUIRE(modeldef.find("entry->ext.prop.model_file") != std::string::npos);
 	REQUIRE(modeldef.find("entry->ext.vehicle.model_file") != std::string::npos);
@@ -1063,88 +1057,58 @@ TEST_CASE("MP3 file use enforces bounded source-only audio before ROM fallback",
 {
 	const std::string snd = readTextFile("src/lib/snd.c");
 	const std::string mp3 = readTextFile("src/lib/mp3.c");
-	const std::string adma = readTextFile("src/lib/audiodma.c");
 	const std::string propsnd = readTextFile("src/game/propsnd.c");
 	const std::string guard = readTextFile("tools/asset_native_source_guard.py");
 	const std::string snd_start_mp3 = functionBlock(snd, "void sndStartMp3(s16");
-	const std::string snd_mp3_resolve =
-		functionBlock(snd, "static s32 sndMp3ResolvePublicSource");
-
-	REQUIRE(snd.find("#include \"asset_source_debug.h\"") ==
-	        std::string::npos);
-	REQUIRE(snd.find("#include \"fs.h\"") != std::string::npos);
-	REQUIRE(snd.find("#include \"romextract.h\"") == std::string::npos);
-	REQUIRE(snd.find("#include \"assetcatalog_load.h\"") !=
-	        std::string::npos);
-	REQUIRE(snd.find("static void *g_SndMp3SourceBytes = NULL") !=
-	        std::string::npos);
-	REQUIRE(snd.find("static void sndMp3FreeSourceBuffer(void)") !=
-	        std::string::npos);
-	REQUIRE(snd.find("static s32 sndMp3LoadPublicSourceFile") !=
-	        std::string::npos);
-	REQUIRE(snd.find("static s32 sndMp3ResolvePublicSource") !=
-	        std::string::npos);
-	REQUIRE(snd.find("catalogResolveFile(filenum)") != std::string::npos);
-	REQUIRE(snd.find("fsFileLoad(source.path, &size)") != std::string::npos);
-	REQUIRE(snd.find("romExtractRelPathForFilenum") == std::string::npos);
-	REQUIRE(snd.find("g_SndMp3SourceBytes = bytes") != std::string::npos);
-	REQUIRE(snd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") ==
-	        std::string::npos);
-	REQUIRE(snd.find("ASSET.CHAIN: MP3 file") !=
-	        std::string::npos);
-	REQUIRE(snd.find("refusing loose extracted file or ROM playback fallback") !=
-	        std::string::npos);
-	REQUIRE(snd_start_mp3.find("sndMp3ResolvePublicSource((s32)sp20.id") <
-	        snd_start_mp3.find("mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize)"));
-	REQUIRE(snd_mp3_resolve.find(
-		"return sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)") !=
-	        std::string::npos);
-	const std::string snd_mp3_load =
-		functionBlock(snd, "static s32 sndMp3LoadPublicSourceFile");
-	REQUIRE(snd_mp3_load.find("catalogResolveFile(filenum)") <
-	        snd_mp3_load.find("fsFileLoad(source.path, &size)"));
-	REQUIRE(snd_mp3_load.find("mp3SourceAllocationSize(size, &allocation_size)") !=
-	        std::string::npos);
-	REQUIRE(snd_mp3_load.find("sysMemRealloc(bytes, allocation_size)") !=
-	        std::string::npos);
-	REQUIRE(snd_mp3_load.find("bzero((u8 *)bytes + size, allocation_size - size)") !=
-	        std::string::npos);
-	const std::string mp3_read = functionBlock(mp3,
-		"s32 func00038ba8(s32 arg0, u8 *arg1, s32 arg2, s32 arg3)\n{");
-	const std::string mp3_prefetch = functionBlock(mp3, "void mp3Dma(void)");
-	REQUIRE(mp3_read.find("mp3SourceClampRead(g_Mp3Vars.filesize") !=
-	        std::string::npos);
-	REQUIRE(mp3_read.find("if (arg2 == 0)") != std::string::npos);
-	REQUIRE(mp3_prefetch.find("mp3SourceClampRead(g_Mp3Vars.filesize") !=
-	        std::string::npos);
-	REQUIRE(mp3_prefetch.find("if (length == 0)") != std::string::npos);
-	REQUIRE(mp3_prefetch.find("g_Mp3Vars.var8009c3c4, length, 0") !=
-	        std::string::npos);
-	REQUIRE(adma.find("ADMA_ITEM_SIZE 0x400") != std::string::npos);
-	REQUIRE(adma.find("foundbuffer, ADMA_ITEM_SIZE") != std::string::npos);
-	REQUIRE(propsnd.find("#include \"asset_source_debug.h\"") ==
-	        std::string::npos);
-	REQUIRE(propsnd.find("#include \"fs.h\"") != std::string::npos);
-	REQUIRE(propsnd.find("#include \"romextract.h\"") == std::string::npos);
-	REQUIRE(propsnd.find("#include \"assetcatalog_load.h\"") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("static s32 psMp3DurationGetPublicSourceSize") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("catalogResolveFile(filenum)") != std::string::npos);
-	REQUIRE(propsnd.find("fsFileSize(source.path)") != std::string::npos);
-	REQUIRE(propsnd.find("romExtractRelPathForFilenum") ==
-	        std::string::npos);
-	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") ==
-	        std::string::npos);
-	REQUIRE(propsnd.find("ASSET.CHAIN: MP3 file") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("ROM/static file-size fallback.") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("psMp3DurationGetPublicSourceSize((s32)soundnum.id)") !=
-	        std::string::npos);
-	REQUIRE(propsnd.find("catalogResolveFile(filenum)") <
-	        propsnd.find("fsFileSize(source.path)"));
+	const std::string snd_mp3_resolve = functionBlock(snd, "static s32 sndMp3ResolvePublicSource");
+	const std::string snd_mp3_release = functionBlock(snd, "static void sndMp3FreeSourceBuffer(void)\n{");
+	for (const char *token : {"catalogResolveFile(filenum)", "modMusicLoadAudioPcm22050(source.path, &samples, NULL)",
+	        "samples >= 2 && samples % 2u == 0", "sndMp3FreeSourceBuffer()", "*out_pcm = pcm", "*out_frames = samples / 2u"})
+		REQUIRE(snd_mp3_resolve.find(token) != std::string::npos);
+	REQUIRE(snd_mp3_resolve.find("catalogResolveFile(filenum)") < snd_mp3_resolve.find("modMusicLoadAudioPcm22050"));
+	REQUIRE(snd_mp3_resolve.find("modMusicLoadAudioPcm22050") < snd_mp3_resolve.find("sndMp3FreeSourceBuffer()"));
+	REQUIRE(snd_mp3_resolve.find("sndMp3FreeSourceBuffer()") < snd_mp3_resolve.find("*out_pcm = pcm"));
+	REQUIRE(snd_mp3_release.find("mp3ReleasePcm()") != std::string::npos);
+	REQUIRE(snd_mp3_release.find("SDL_free(g_SndCurMp3.source_pcm)") != std::string::npos);
+	REQUIRE(snd_mp3_release.find("mp3ReleasePcm()") < snd_mp3_release.find("SDL_free"));
+	REQUIRE(snd_start_mp3.find("mp3PlayPcmStereo22050(g_SndCurMp3.source_pcm, g_SndCurMp3.source_frames)") != std::string::npos);
+	REQUIRE(snd_start_mp3.find("sndMp3ResolvePublicSource((s32)sp20.id") < snd_start_mp3.find("mp3PlayPcmStereo22050"));
+	REQUIRE(snd_start_mp3.find("mp3PlayFile(") == std::string::npos);
+	REQUIRE(snd_start_mp3.find("g_AudioRussMappings[sp24.confignum].audioconfig_index") != std::string::npos);
+	REQUIRE(snd_start_mp3.find("g_AudioConfigs[sp24.confignum]") == std::string::npos);
+	REQUIRE(snd_start_mp3.find("config->volpercentage") < snd_start_mp3.find("sndMp3ResolvePublicSource((s32)sp20.id"));
+	REQUIRE(snd_start_mp3.find("config && (config->flags & AUDIOCONFIGFLAG_RESPONDHELLO)") != std::string::npos);
+	for (const char *token : {"romExtractRelPathForFilenum", "fileGetRomAddress(filenum)", "fileGetRomSize(filenum)",
+	        "sndMp3LoadPublicSourceFile", "g_SndMp3SourceBytes", "assetSourceDebugIsEnabledFor(ASSET_AUDIO)"})
+		REQUIRE(snd.find(token) == std::string::npos);
+	REQUIRE(snd.find("ASSET.CHAIN: MP3 file") != std::string::npos);
+	REQUIRE(snd.find("refusing loose extracted file or ROM playback fallback") != std::string::npos);
+	const std::string mp3_duration = functionBlock(propsnd, "static s32 psMp3DurationGetPublicSource60");
+	REQUIRE(mp3_duration.find("catalogResolveFile(filenum)") != std::string::npos);
+	REQUIRE(mp3_duration.find("modMusicAudioSourceDuration60(source.path)") != std::string::npos);
+	REQUIRE(mp3_duration.find("catalogResolveFile(filenum)") < mp3_duration.find("modMusicAudioSourceDuration60"));
+	REQUIRE(propsnd.find("psMp3DurationGetPublicSource60((s32)soundnum.id)") != std::string::npos);
+	REQUIRE(propsnd.find("fsFileSize(source.path)") == std::string::npos);
 	REQUIRE(propsnd.find("fileGetRomSize(") == std::string::npos);
+	REQUIRE(propsnd.find("romExtractRelPathForFilenum") == std::string::npos);
+	REQUIRE(propsnd.find("assetSourceDebugIsEnabledFor(ASSET_AUDIO)") == std::string::npos);
+	REQUIRE(propsnd.find("ASSET.CHAIN: MP3 file") != std::string::npos);
+	REQUIRE(propsnd.find("ROM/static file-size fallback.") != std::string::npos);
+
+	const std::string pcm_start = functionBlock(mp3, "void mp3PlayPcmStereo22050");
+	REQUIRE(pcm_start.find("frames > 0x7fffffffu") != std::string::npos);
+	REQUIRE(pcm_start.find("!g_Mp3Vars.var8009c398") != std::string::npos);
+	const std::string pcm_pull = functionBlock(mp3, "static s32 mp3PullPcm");
+	REQUIRE(pcm_pull.find("s_Mp3PcmFrames - s_Mp3PcmPosition") != std::string::npos);
+	REQUIRE(pcm_pull.find("aEnvMixerStereoImpl") != std::string::npos);
+	REQUIRE(pcm_pull.find("s_Mp3PcmPosition += count") != std::string::npos);
+	const std::string decoder = readTextFile("port/src/modmusic.c");
+	const std::string decode_mp3 = functionBlock(decoder, "static s16 *modmusic_loadMp3");
+	REQUIRE(decode_mp3.find("frameBytes > maxSourceBytes - usedBytes") != std::string::npos);
+	REQUIRE(decode_mp3.find("frameBytes > maxSourceBytes - usedBytes") < decode_mp3.find("SDL_realloc(pcm, grown)"));
+	const std::string finish_pcm = functionBlock(decoder, "static s16 *modmusic_finishPcm");
+	REQUIRE(finish_pcm.find("bytes > (size_t)INT_MAX / (size_t)cvt->len_mult") != std::string::npos);
+	REQUIRE(finish_pcm.find("bytes > (size_t)INT_MAX / (size_t)cvt->len_mult") < finish_pcm.find("SDL_realloc(pcm, capacity)"));
 
 	REQUIRE(guard.find("scan_mp3_audio_source_only_guard(root)") !=
 	        std::string::npos);
@@ -1221,7 +1185,7 @@ TEST_CASE("file-source sound handles preserve native keymap pan volume and fx st
 	const std::string modmusic = readTextFile("port/src/modmusic.c");
 	const std::string modmusic_h = readTextFile("port/include/modmusic.h");
 	const std::string file_sound_mix =
-		functionBlock(audio, "static void audioMixFileSoundsInto");
+		functionBlock(audio, "void audioMixFileSoundsInto");
 	const std::string file_sound_load =
 		functionBlock(audio, "static s32 audioLoadFilePcmStereo22050");
 
@@ -1235,25 +1199,26 @@ TEST_CASE("file-source sound handles preserve native keymap pan volume and fx st
 	        std::string::npos);
 	REQUIRE(modmusic.find("s16 *modMusicLoadAudioPcm22050") !=
 	        std::string::npos);
-	REQUIRE(modmusic.find("modmusic_loadMp3(path, outLen, outSourceRate)") !=
+	REQUIRE(modmusic.find("modmusic_loadMp3(path, outLen, outSourceRate, snapshot)") !=
 	        std::string::npos);
-	REQUIRE(modmusic.find("modmusic_loadOgg(path, outLen, outSourceRate)") !=
+	REQUIRE(modmusic.find("modmusic_loadOgg(path, outLen, outSourceRate, snapshot)") !=
 	        std::string::npos);
-	REQUIRE(modmusic.find("samplesPerChannel = stb_vorbis_decode_memory") !=
-	        std::string::npos);
-	REQUIRE(modmusic.find("samplesPerChannel = stb_vorbis_decode_filename") !=
-	        std::string::npos);
-	REQUIRE(modmusic.find("u32 totalSourceSamples = (u32)samplesPerChannel * (u32)channels") !=
-	        std::string::npos);
-	REQUIRE(modmusic.find("u32 rawBytes = totalSourceSamples * sizeof(s16)") !=
-	        std::string::npos);
-	REQUIRE(modmusic.find("*outLen = (u32)samplesPerChannel * (u32)channels") !=
-	        std::string::npos);
+	const std::string ogg_load = functionBlock(modmusic, "static s16 *modmusic_loadOggBounded");
+	REQUIRE(ogg_load.find("stb_vorbis_open_memory") != std::string::npos);
+	REQUIRE(ogg_load.find("stb_vorbis_open_filename") != std::string::npos);
+	REQUIRE(ogg_load.find("stb_vorbis_get_samples_short_interleaved") != std::string::npos);
+	REQUIRE(ogg_load.find("stb_vorbis_close") != std::string::npos);
+	REQUIRE(ogg_load.find("chunkBytes > maxSourceBytes - usedBytes") <
+	        ogg_load.find("SDL_realloc(pcm, grown)"));
+	REQUIRE(ogg_load.find("maxPcmBytes / conversionMultiplier") != std::string::npos);
+	REQUIRE(ogg_load.find("SDL_free(pcm)") != std::string::npos);
+	REQUIRE(modmusic.find("stb_vorbis_decode_memory") == std::string::npos);
+	REQUIRE(modmusic.find("stb_vorbis_decode_filename") == std::string::npos);
 	REQUIRE(modmusic.find("rawBytes = (u32)totalSamples * sizeof(s16)") ==
 	        std::string::npos);
-	REQUIRE(file_sound_load.find("SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavLen)") <
-	        file_sound_load.find("modMusicLoadAudioPcm22050(path, &decoded_samples"));
-	REQUIRE(file_sound_load.find("*out_frames = decoded_samples / 2u") !=
+	REQUIRE(file_sound_load.find("SDL_LoadWAV") == std::string::npos);
+	REQUIRE(file_sound_load.find("modMusicLoadAudioPcm22050(path, &samples, &source_rate)") != std::string::npos);
+	REQUIRE(file_sound_load.find("*out_frames = samples / 2u") !=
 	        std::string::npos);
 	REQUIRE(audio.find("u8 sample_pan;") != std::string::npos);
 	REQUIRE(audio.find("u8 sample_volume;") != std::string::npos);
@@ -1297,13 +1262,13 @@ TEST_CASE("file-source sound handles preserve native keymap pan volume and fx st
 	REQUIRE(audio.find("slot->state.fxmix = fxmix") != std::string::npos);
 	REQUIRE(audio.find("slot->state.fxbus = (fxbus >= 2) ? 0 : fxbus") !=
 	        std::string::npos);
-	REQUIRE(audio.find("slot->sample_pan = sample_pan") != std::string::npos);
-	REQUIRE(audio.find("slot->sample_volume = sample_volume") != std::string::npos);
-	REQUIRE(audio.find("slot->key_volume_index = key_volume_index & 0x1f") !=
+	REQUIRE(audio.find("slot->sample_pan = params.sample_pan") != std::string::npos);
+	REQUIRE(audio.find("slot->sample_volume = params.sample_volume") != std::string::npos);
+	REQUIRE(audio.find("slot->key_volume_index = params.key_volume_index & 0x1f") !=
 	        std::string::npos);
-	REQUIRE(audio.find("slot->volume = audioFileSoundEffectiveVolume(volume, sample_volume,") !=
+	REQUIRE(audio.find("slot->volume = audioFileSoundEffectiveVolume(volume, params.sample_volume,") !=
 	        std::string::npos);
-	REQUIRE(audio.find("slot->pan = audioFileSoundEffectivePan(pan, sample_pan)") !=
+	REQUIRE(audio.find("slot->pan = audioFileSoundEffectivePan(pan, params.sample_pan)") !=
 	        std::string::npos);
 	REQUIRE(audio.find("slot->volume = audioFileSoundEffectiveVolume((u16)data,") !=
 	        std::string::npos);
@@ -1315,9 +1280,9 @@ TEST_CASE("file-source sound handles preserve native keymap pan volume and fx st
 	        std::string::npos);
 	REQUIRE(audio.find("slot->pan = audioFileSoundEffectivePan((u8)data, slot->sample_pan)") !=
 	        std::string::npos);
-	REQUIRE(audio.find("slot->base_pitch = base_pitch") != std::string::npos);
-	REQUIRE(audio.find("slot->step = pitch * base_pitch") != std::string::npos);
-	REQUIRE(audio.find("slot->state.basepitch = base_pitch") !=
+	REQUIRE(audio.find("slot->base_pitch = params.base_pitch") != std::string::npos);
+	REQUIRE(audio.find("slot->step = pitch * params.base_pitch") != std::string::npos);
+	REQUIRE(audio.find("slot->state.basepitch = params.base_pitch") !=
 	        std::string::npos);
 	REQUIRE(audio.find("slot->step = slot->state.pitch * slot->base_pitch") !=
 	        std::string::npos);
@@ -1341,29 +1306,18 @@ TEST_CASE("base first-person hand model files populate provider handles", "[cata
 	REQUIRE(baseExtended.find("e->runtime_index = -handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("e->source_filenum = handfilenum") != std::string::npos);
 	REQUIRE(baseExtended.find("catalogBindPrimaryFromDiskOrRom(e, e->source_filenum)") != std::string::npos);
-	REQUIRE(bodyWalker.find("loaderWalkerEnvelopePathCopy(manifest, manifest_len, \"hand_archive\"") != std::string::npos);
-	REQUIRE(bodyWalker.find("s64 bodynum = -1;") != std::string::npos);
-	REQUIRE(bodyWalker.find("s64 bodynum = 0;") == std::string::npos);
-	REQUIRE(bodyWalker.find("LOADER.WALKER.BODY.RUNTIME_SLOT_MISSING") != std::string::npos);
-	REQUIRE(headWalker.find("s64 headnum = -1;") != std::string::npos);
-	REQUIRE(headWalker.find("s64 headnum = 0;") == std::string::npos);
-	REQUIRE(headWalker.find("LOADER.WALKER.HEAD.RUNTIME_SLOT_MISSING") != std::string::npos);
-	REQUIRE(bodyWalker.find("s_bodyWalkerManifestFileEnum(manifest, manifest_len, \"hand\")") != std::string::npos);
-	REQUIRE(bodyWalker.find("catalogReadableModelIdForFile(hand_filenum, \"hand\", \"hand\"") != std::string::npos);
-	REQUIRE(bodyWalker.find("assetCatalogRegister(hand_model_id, ASSET_MODEL)") != std::string::npos);
-	REQUIRE(bodyWalker.find("hand_entry->source_filenum = hand_filenum") != std::string::npos);
-	REQUIRE(bodyWalker.find("s_sourceModelPathFromMeshArchive") != std::string::npos);
-	REQUIRE(bodyWalker.find("\"model.gltf\"") != std::string::npos);
-	REQUIRE(bodyWalker.find("\"model.glb\"") != std::string::npos);
-	REQUIRE(bodyWalker.find("fsFileSize(out)") != std::string::npos);
-	REQUIRE(bodyWalker.find("s_sourceModelPathFromMeshArchive(hand_archive_path") != std::string::npos);
-	REQUIRE(bodyWalker.find("s_sourceModelPathFromMeshArchive(mesh_archive_path") != std::string::npos);
-	REQUIRE(bodyWalker.find("catalogSetPrimaryFile(hand_entry, hand_source_path)") != std::string::npos);
-	REQUIRE(headWalker.find("s_sourceModelPathFromMeshArchive") != std::string::npos);
-	REQUIRE(headWalker.find("\"model.gltf\"") != std::string::npos);
-	REQUIRE(headWalker.find("\"model.glb\"") != std::string::npos);
-	REQUIRE(headWalker.find("fsFileSize(out)") != std::string::npos);
-	REQUIRE(headWalker.find("s_sourceModelPathFromMeshArchive(mesh_archive_path") != std::string::npos);
+	const std::string shared = readTextFile("port/src/assetcatalog_scanner.c");
+	const std::string binding = readTextFile("port/src/body_head_source_bind.c");
+	REQUIRE(bodyWalker.find("assetCatalogRegisterBodyHeadArchive") != std::string::npos);
+	REQUIRE(headWalker.find("assetCatalogRegisterBodyHeadArchive") != std::string::npos);
+	REQUIRE(shared.find("bodyHeadSourcePrepareMesh(source.hand_archive") != std::string::npos);
+	REQUIRE(shared.find("bodyHeadSourceBindMesh(&hand") != std::string::npos);
+	REQUIRE(binding.find("assetCatalogRegister(binding->id, ASSET_MODEL)") != std::string::npos);
+	REQUIRE(binding.find("assetCatalogModelPrivateSourceFilenum") != std::string::npos);
+	REQUIRE(binding.find("catalogIdBySourceFilenum(ASSET_MODEL") != std::string::npos);
+	REQUIRE(binding.find("loaderWalkerMeshSourcePlanManifest") != std::string::npos);
+	REQUIRE(binding.find("loaderWalkerBindMeshSource") != std::string::npos);
+	REQUIRE(bodyWalker.find("s_bodyWalkerManifestFileEnum") == std::string::npos);
 	REQUIRE(bondgun.find("catalogHandleByModelSourceFilenum(ASSET_NONE, filenum)") != std::string::npos);
 	REQUIRE(bondgun.find("bgunQueuedLoadPassesSourceOnlyCheck") != std::string::npos);
 	REQUIRE(bondgun.find("assetSourceDebugFatalHandleFallback(ASSET_MODEL") != std::string::npos);

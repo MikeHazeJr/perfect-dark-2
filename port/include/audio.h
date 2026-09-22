@@ -29,8 +29,30 @@ u16 audioGetUiVolumeScaled(void);
 /* Load and play a standard audio file through the SDL audio device.
  * volume: 0–0x7fff (AL_VOL_FULL = 0x7fff).
  * pan:    0–127   (AL_PAN_CENTER = 64; 0 = full left, 127 = full right).
- * Returns 1 on success, 0 if the file could not be loaded or converted.
- * On failure the caller should fall back to the ROM sound path. */
+ * Returns 1 when queued, 0 on source/conversion/device failure.
+ * A declared source failure must not fall back to a native or ROM source. */
+/* Immutable sample parameters, separate from per-voice volume/pan/pitch.
+ * Loop points remain in source sample frames and are converted at voice start. */
+typedef struct audio_sample_parameters {
+    f32 base_pitch;
+    u8 sample_pan, sample_volume, key_volume_index, fxmix_key_offset;
+    s32 has_loop;
+    u32 loop_start_samples, loop_end_samples, loop_count;
+    s32 has_envelope;
+    u32 attack_time_us, decay_time_us, release_time_us;
+    s32 attack_volume, decay_volume;
+} audio_sample_parameters_t;
+struct asset_entry;
+void audioSampleParametersFromCatalog(const struct asset_entry *, audio_sample_parameters_t *);
+/* Copy immutable decoded PCM into a new ordinary voice. The voice owns its copy
+ * until completion, so the source generation may retire while playback runs. */
+struct sndstate *audioStartPcmSound(const s16 *pcm, u32 frames, s32 source_rate,
+    const audio_sample_parameters_t *, u16 volume, u8 pan, f32 pitch,
+    u8 fxmix, u8 fxbus, struct sndstate **handle);
+/* Main audio-update thread mixer, shared by device output and deterministic
+ * captures. Mixes into existing stereo output, capped at the engine block size. */
+void audioMixFileSoundsInto(s16 *output, u32 frames);
+
 s32 audioPlayFileSound(const char *path, u16 volume, u8 pan, f32 pitch);
 struct sndstate *audioStartFileSound(const char *path, u16 volume, u8 pan,
 		f32 pitch, f32 base_pitch, u8 sample_pan, u8 sample_volume,

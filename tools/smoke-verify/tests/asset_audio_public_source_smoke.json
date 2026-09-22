@@ -1,0 +1,47 @@
+{
+  "scenario_name": "asset_audio_public_source_smoke",
+  "description": "Actual base SFX/voice walkers consume public typed source selection and controls despite stale private mirrors; native reverse mapping and exact decoded PCM survive valid edits, and an active row survives malformed controls/missing members. No audible output or full scheduler claim.",
+  "tags": [
+    "runtime",
+    "assets",
+    "audio",
+    "source-authority",
+    "transaction"
+  ],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--portable",
+    "--skip-intro",
+    "--debug-asset-audio-public-source"
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": [
+      "ASSET\\.AUDIO\\.PUBLIC: case=base_packed_keymap_source_controls_and_provider result=PASS",
+      "ASSET\\.AUDIO\\.PUBLIC: witness=base_packed_keymap id=base:sfx_unlabeled_avrm .*provider=FileProvider .*result=PASS",
+      "ASSET\\.AUDIO\\.PUBLIC: case=sfx_walker_public_source_controls result=PASS",
+      "ASSET\\.AUDIO\\.PUBLIC: case=voice_walker_public_source_and_metadata result=PASS",
+      "ASSET\\.AUDIO\\.PUBLIC: case=walker_replacement_ignores_stale_private_echoes result=PASS",
+      "ASSET\\.AUDIO\\.PUBLIC: case=malformed_public_control_preserves_live_row result=PASS",
+      "ASSET\\.AUDIO\\.PUBLIC: case=missing_public_member_preserves_live_row result=PASS",
+      "ASSET\\.AUDIO\\.PUBLIC: passed=6 cases=6 result=PASS",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "ASSET\\.AUDIO\\.PUBLIC: .*result=FAIL",
+      "SMOKE: result=timeout",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "refusing native bank fallback"
+    ],
+    "required_counts": [
+      {
+        "pattern": "ASSET\\.AUDIO\\.PUBLIC: case=.* result=PASS",
+        "min": 6,
+        "max": 6
+      }
+    ]
+  }
+}

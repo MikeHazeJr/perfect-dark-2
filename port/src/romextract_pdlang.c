@@ -22,18 +22,11 @@
  * "FILE_L" prefix and the trailing locale char yields the bank
  * name (e.g. FILE_LGUNE -> "gun").
  *
- * Locale scope (NTSC primary target, this build):
- *   NTSC final  -> 1 locale (English) per bank, 68 .pdlang files.
- *   PAL final   -> up to 5 locales (E/G/F/S/I) per bank (~340 files).
- *                  langGetFileNumOffset() picks the active locale at
- *                  runtime; emitter walks all available locale slots.
- *   JPN final   -> Japanese single locale.
- *
- * For Step 3b initial ship, emit only the canonical English bank
- * (locale="en") per the build's langGetFileId(bank) result. The
- * remaining PAL/JPN locales fold in as a curation pass at Step 5
- * cleanup (or a follow-up worktree); the catalog ID stays stable
- * across that follow-up because it includes the locale suffix.
+ * Current locale scope: 68 canonical English banks (locale="en")
+ * in each supported ROM build, selected through g_LangFiles[].
+ * This emitter does not yet publish the available regional variants.
+ * Their extraction, locale selection, and Japanese text/glyph codec
+ * integration remain a separate incomplete chain (T-ASSETS-042).
  *
  * The emitted JSON is decoded from the RAW pre-preprocess file as
  * extracted to disk by Pass A. The raw file starts with a big-endian
@@ -63,11 +56,12 @@
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
+#include "lang_source.h"
 #include "system.h"
 
 #define PDLANG_OUT_DIR "lang"
-#define PDLANG_EXTRACT_VERSION "strings_json_rzip_v1"
-#define PDLANG_FAST_CACHE_KIND "pdlang_strings_json_rzip_v1"
+#define PDLANG_EXTRACT_VERSION "strings_json_rzip_v2_null_extent_codec"
+#define PDLANG_FAST_CACHE_KIND "pdlang_strings_json_rzip_v2_null_extent_codec"
 
 /* Walk range. g_LangFiles[] is sized 69 in src/game/lang.c (bank 0
  * is a sentinel zero entry, banks 1..68 carry real files). The
@@ -208,140 +202,21 @@ static s32 s_prepareLangSource(const u8 *src, u32 src_size,
 	return 1;
 }
 
-static u32 s_readBe32(const u8 *p)
-{
-	return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3];
-}
-
-static u32 s_nextNonZeroOffset(const u8 *src, u32 offset, u32 len)
-{
-	for (u32 pos = offset; pos + 4u <= len; pos += 4u) {
-		u32 value = s_readBe32(src + pos);
-		if (value != 0) return value;
-	}
-	return 0;
-}
-
-static u32 s_langStringCount(const u8 *src, u32 len)
-{
-	if (!src || len < 4) return 0;
-	u32 table_len = s_nextNonZeroOffset(src, 0, len);
-	if (table_len != 0 && table_len <= len && (table_len % 4u) == 0) {
-		return table_len / 4u;
-	}
-	return 1;
-}
-
-static u32 s_escapeJsonText(char *dst, u32 dst_cap, const u8 *src, u32 len)
-{
-	u32 w = 0;
-	for (u32 i = 0; i < len && w + 1u < dst_cap; i++) {
-		u8 ch = src[i];
-		if (ch == '"') {
-			if (w + 2u >= dst_cap) break;
-			dst[w++] = '\\';
-			dst[w++] = '"';
-		} else if (ch == '\\') {
-			if (w + 2u >= dst_cap) break;
-			dst[w++] = '\\';
-			dst[w++] = '\\';
-		} else if (ch == '\n') {
-			if (w + 2u >= dst_cap) break;
-			dst[w++] = '\\';
-			dst[w++] = 'n';
-		} else if (ch == '\t') {
-			if (w + 2u >= dst_cap) break;
-			dst[w++] = '\\';
-			dst[w++] = 't';
-		} else if (ch >= 0x20 && ch < 0x7f) {
-			dst[w++] = (char)ch;
-		} else {
-			static const char hex[] = "0123456789abcdef";
-			if (w + 6u >= dst_cap) break;
-			dst[w++] = '\\';
-			dst[w++] = 'u';
-			dst[w++] = '0';
-			dst[w++] = '0';
-			dst[w++] = hex[(ch >> 4) & 0x0f];
-			dst[w++] = hex[ch & 0x0f];
-		}
-	}
-	if (dst_cap) dst[w] = '\0';
-	return w;
-}
-
 static s32 s_buildStringsJson(const u8 *src, u32 src_size,
                               char **out_text, u32 *out_size,
                               u32 *out_count)
 {
-	*out_text = NULL;
-	*out_size = 0;
-	*out_count = 0;
-
-	u32 count = s_langStringCount(src, src_size);
-	if (count == 0 || count > 512) return 0;
-
-	u32 cap = src_size * 7u + count * 48u + 128u;
-	char *json = (char *)malloc(cap);
-	if (!json) return 0;
-	u32 w = 0;
-
-	int header = snprintf(json + w, cap - w,
-		"{\n"
-		"  \"pd_kind\": \"language_strings\",\n"
-		"  \"pd_schema_version\": 1,\n"
-		"  \"strings\": [\n");
-	if (header <= 0 || (u32)header >= cap - w) {
-		free(json);
-		return 0;
+	const char *error = NULL;
+	/* This emitter currently selects the canonical English E file. That
+	 * source uses Latin-1 in every region; Japanese J files need a different
+	 * codec and remain a separate extraction/selection unit. */
+	s32 ok = langSourceExportNative(src, src_size, -1, LANG_SOURCE_LATIN1,
+		out_text, out_size, out_count, &error);
+	if (!ok) {
+		sysLogPrintf(LOG_WARNING, "EXTRACT.PDLANG: native source rejected: %s",
+			error ? error : "invalid language source");
 	}
-	w += (u32)header;
-
-	for (u32 i = 0; i < count && w + 32u < cap; i++) {
-		u32 offset = (i * 4u + 4u <= src_size) ? s_readBe32(src + i * 4u) : 0;
-		u32 end = 0;
-		if (offset != 0 && offset < src_size) {
-			end = s_nextNonZeroOffset(src, (i + 1u) * 4u, count * 4u);
-			if (end == 0 || end > src_size) end = src_size;
-			if (end < offset) end = offset;
-			while (end > offset && src[end - 1u] == 0) end--;
-		} else {
-			offset = 0;
-			end = 0;
-		}
-
-		int n = snprintf(json + w, cap - w,
-			"    { \"index\": %u, \"text\": \"", (unsigned)i);
-		if (n <= 0 || (u32)n >= cap - w) {
-			free(json);
-			return 0;
-		}
-		w += (u32)n;
-		if (end > offset) {
-			w += s_escapeJsonText(json + w, cap - w, src + offset, end - offset);
-		}
-		n = snprintf(json + w, cap - w, "\" }%s\n",
-			(i + 1u < count) ? "," : "");
-		if (n <= 0 || (u32)n >= cap - w) {
-			free(json);
-			return 0;
-		}
-		w += (u32)n;
-	}
-
-	int footer = snprintf(json + w, cap - w,
-		"  ]\n"
-		"}\n");
-	if (footer <= 0 || (u32)footer >= cap - w) {
-		free(json);
-		return 0;
-	}
-	w += (u32)footer;
-
-	*out_text = json;
-	*out_size = w;
-	*out_count = count;
-	return 1;
+	return ok;
 }
 
 /* Emit one .pdlang ZIP for (bank, locale). Returns 1 written, 0

@@ -5,17 +5,15 @@
  * per-kind walker in dependency order:
  *
  *   1. meshes        (no cross-references; primitives for weapons / heads / bodies)
- *   2. animations    (no cross-references at the catalog row layer)
+ *   2. audio + animation catalog rows, then animation command compilation
  *   3. weapons       (refer to meshes + animations; refs resolve at consume-time)
  *   4. heads + bodies + arenas + scenarios   (refer to meshes / scenarios)
- *   5. audio (sfx/voice/song)
  *   6. ui + fonts + lang
  *   7. metadata families added after the original 13-kind walker
  *
- * Cross-references between catalog IDs do NOT need to resolve at scan
- * time; consumers (e.g. catalog managers, weapon spawn paths) resolve
- * IDs lazily via assetCatalogResolve. The dependency order above is a
- * convention for log readability, not a correctness requirement.
+ * Public command compilation validates exact typed dependencies. Audio providers
+ * and the complete animation catalog must exist before any command is compiled;
+ * filesystem enumeration order must never determine reference resolution.
  */
 
 #include <stdio.h>
@@ -70,6 +68,25 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
     local.total_envelope_failures += kr.envelope_failures;
     local.total_register_failures += kr.register_failures;
 
+    /* Audio providers must exist before command source binding. */
+    loaderWalkerScanSfx(data_root, &kr);
+    local.sfx_registered        += kr.entries_registered;
+    local.total_files_scanned   += kr.entries_scanned;
+    local.total_envelope_failures += kr.envelope_failures;
+    local.total_register_failures += kr.register_failures;
+
+    loaderWalkerScanVoices(data_root, &kr);
+    local.voices_registered     += kr.entries_registered;
+    local.total_files_scanned   += kr.entries_scanned;
+    local.total_envelope_failures += kr.envelope_failures;
+    local.total_register_failures += kr.register_failures;
+
+    loaderWalkerScanSongs(data_root, &kr);
+    local.songs_registered      += kr.entries_registered;
+    local.total_files_scanned   += kr.entries_scanned;
+    local.total_envelope_failures += kr.envelope_failures;
+    local.total_register_failures += kr.register_failures;
+
     loaderWalkerScanAnimations(data_root, &kr);
     local.animations_registered  += kr.entries_registered;
     local.total_files_scanned    += kr.entries_scanned;
@@ -97,25 +114,6 @@ s32 loaderWalkerLoadAll(loader_walker_result_t *out)
 
     loaderWalkerScanArenas(data_root, &kr);
     local.arenas_registered     += kr.entries_registered;
-    local.total_files_scanned   += kr.entries_scanned;
-    local.total_envelope_failures += kr.envelope_failures;
-    local.total_register_failures += kr.register_failures;
-
-    /* Dependency tier 3: audio. */
-    loaderWalkerScanSfx(data_root, &kr);
-    local.sfx_registered        += kr.entries_registered;
-    local.total_files_scanned   += kr.entries_scanned;
-    local.total_envelope_failures += kr.envelope_failures;
-    local.total_register_failures += kr.register_failures;
-
-    loaderWalkerScanVoices(data_root, &kr);
-    local.voices_registered     += kr.entries_registered;
-    local.total_files_scanned   += kr.entries_scanned;
-    local.total_envelope_failures += kr.envelope_failures;
-    local.total_register_failures += kr.register_failures;
-
-    loaderWalkerScanSongs(data_root, &kr);
-    local.songs_registered      += kr.entries_registered;
     local.total_files_scanned   += kr.entries_scanned;
     local.total_envelope_failures += kr.envelope_failures;
     local.total_register_failures += kr.register_failures;

@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <stddef.h>
 #include <n_libaudio.h>
 #include "naudio/n_abi.h"
 #include "ultra/audio/synthInternals.h"
@@ -21,6 +22,10 @@
 
 struct mp3vars g_Mp3Vars;
 struct asistream *g_AsiStream;
+static const s16 *s_Mp3Pcm;
+static u32 s_Mp3PcmFrames;
+static u32 s_Mp3PcmPosition;
+static bool s_Mp3PcmSelected;
 
 s32 func00038ba8(s32 arg0, u8 *arg1, s32 arg2, s32 arg3);
 
@@ -31,6 +36,7 @@ extern f32 *var8009c644;
 
 void mp3Init(ALHeap *heap)
 {
+	mp3ReleasePcm();
 	bzero(&g_Mp3Vars, sizeof(struct mp3vars));
 
 #if VERSION < VERSION_NTSC_1_0
@@ -77,6 +83,7 @@ void mp3Init(ALHeap *heap)
 
 void mp3PlayFile(uintptr_t romaddr, s32 filesize)
 {
+	mp3ReleasePcm();
 	if (g_Mp3Vars.var8009c3dc == NULL) {
 		return;
 	}
@@ -94,8 +101,36 @@ void mp3PlayFile(uintptr_t romaddr, s32 filesize)
 	g_Mp3Vars.var8009c3e0 = 4;
 }
 
+void mp3ReleasePcm(void)
+{
+	if (s_Mp3PcmSelected) {
+		g_Mp3Vars.var8009c3e0 = 0;
+	}
+	s_Mp3Pcm = NULL;
+	s_Mp3PcmFrames = 0;
+	s_Mp3PcmPosition = 0;
+	s_Mp3PcmSelected = false;
+}
+
+void mp3PlayPcmStereo22050(const s16 *pcm, u32 frames)
+{
+	mp3ReleasePcm();
+	g_Mp3Vars.var8009c3e0 = 0;
+	if (!pcm || frames == 0 || frames > 0x7fffffffu
+			|| !g_Mp3Vars.var8009c398) return;
+	s_Mp3Pcm = pcm;
+	s_Mp3PcmFrames = frames;
+	s_Mp3PcmSelected = true;
+	/* Preserve the singleton's initial volume and five-pull start delay. */
+	g_Mp3Vars.var8009c3e8 = 0;
+	g_Mp3Vars.var8009c3e4 = 0x7fff;
+	g_Mp3Vars.var8009c3f0 = 5;
+	g_Mp3Vars.var8009c3e0 = 4;
+}
+
 void func00037e1c(void)
 {
+	mp3ReleasePcm();
 	g_Mp3Vars.var8009c3e0 = 3;
 }
 
@@ -161,6 +196,66 @@ void func00037fa8(s32 arg0, s32 arg1)
 	// empty
 }
 
+/* Consume source PCM at the same main-bus cadence and through the same
+ * envelope as base MP3. Priority, repeat and response timers stay in snd.c. */
+static s32 mp3PullPcm(s32 frames, Acmd **cmd)
+{
+	u32 count;
+	if (frames <= 0 || frames > SAMPLES) return 0;
+	if (g_Mp3Vars.var8009c3e0 == 4 || g_Mp3Vars.var8009c3e0 == 5) {
+		if (g_Mp3Vars.var8009c3f0 != 0) {
+			g_Mp3Vars.var8009c3f0--;
+			return 0;
+		}
+		if (g_Mp3Vars.var8009c3e0 == 4) {
+			g_Mp3Vars.var8009c3b4 = 1;
+		}
+		g_Mp3Vars.var8009c3e0 = 1;
+	}
+	if (g_Mp3Vars.var8009c3e0 != 1) return 0;
+	if (!s_Mp3Pcm || s_Mp3PcmPosition >= s_Mp3PcmFrames) {
+		mp3ReleasePcm();
+		return 0;
+	}
+	count = s_Mp3PcmFrames - s_Mp3PcmPosition;
+	if (count > (u32)frames) count = (u32)frames;
+
+	func00038924(&g_Mp3Vars);
+	aClearBuffer((*cmd)++, N_AL_MAIN_L_OUT, N_AL_TEMP_2);
+	if (g_Mp3Vars.var8009c3b4) {
+		g_Mp3Vars.var8009c3b4 = 0;
+		g_Mp3Vars.var8009c3ac = n_eqpower[g_Mp3Vars.var8009c39c & 0x7f]
+			* g_Mp3Vars.var8009c39e >> 15;
+		g_Mp3Vars.ratem1 = _getRate(g_Mp3Vars.ivol1, g_Mp3Vars.var8009c3ac,
+			g_Mp3Vars.var8009c3bc, &g_Mp3Vars.ratel1);
+		g_Mp3Vars.var8009c3b2 = n_eqpower[127 - (g_Mp3Vars.var8009c39c & 0x7f)]
+			* g_Mp3Vars.var8009c39e >> 15;
+		g_Mp3Vars.ratem2 = _getRate(g_Mp3Vars.ivol2, g_Mp3Vars.var8009c3b2,
+			g_Mp3Vars.var8009c3bc, &g_Mp3Vars.ratel2);
+		n_aSetVolume((*cmd)++, A_VOL | A_LEFT, g_Mp3Vars.ivol1,
+			g_Mp3Vars.var8009c3a4, g_Mp3Vars.var8009c3a6);
+		n_aSetVolume((*cmd)++, A_VOL | A_RIGHT, g_Mp3Vars.var8009c3b2,
+			g_Mp3Vars.ratem2, g_Mp3Vars.ratel2);
+		n_aSetVolume((*cmd)++, A_RATE, g_Mp3Vars.var8009c3ac,
+			g_Mp3Vars.ratem1, g_Mp3Vars.ratel1);
+		aEnvMixerStereoImpl(A_INIT, (void *)g_Mp3Vars.var8009c398,
+			g_Mp3Vars.ivol2, s_Mp3Pcm + (size_t)s_Mp3PcmPosition * 2u, count);
+	} else {
+		aEnvMixerStereoImpl(0, (void *)g_Mp3Vars.var8009c398, 0,
+			s_Mp3Pcm + (size_t)s_Mp3PcmPosition * 2u, count);
+	}
+	g_Mp3Vars.samples += SAMPLES;
+	if (g_Mp3Vars.samples > g_Mp3Vars.var8009c3bc) {
+		g_Mp3Vars.samples = g_Mp3Vars.var8009c3bc;
+	}
+	s_Mp3PcmPosition += count;
+	if (s_Mp3PcmPosition == s_Mp3PcmFrames) {
+		/* sndTick sees completion only after the final samples reach the bus. */
+		mp3ReleasePcm();
+	}
+	return 1;
+}
+
 s32 func00037fc0(s32 arg0, Acmd **cmd)
 {
 	s32 i;
@@ -182,6 +277,10 @@ s32 func00037fc0(s32 arg0, Acmd **cmd)
 		} else {
 			g_Mp3Vars.var8009c3ec -= 2;
 		}
+	}
+
+	if (s_Mp3PcmSelected) {
+		return mp3PullPcm(arg0, cmd);
 	}
 
 	if (g_Mp3Vars.var8009c3e0 == 4) {

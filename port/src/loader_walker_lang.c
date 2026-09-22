@@ -14,6 +14,7 @@
 #include "fs.h"
 #include "loader_walker.h"
 #include "loader_walker_common.h"
+#include "lang_source.h"
 
 static s32 s_register(const char *manifest, size_t manifest_len,
                       const char *pd_kind, const char *id,
@@ -21,20 +22,21 @@ static s32 s_register(const char *manifest, size_t manifest_len,
 {
     (void)pd_kind;
 
-    asset_entry_t *e = assetCatalogRegister(id, ASSET_LANG);
-    if (!e) return -1;
-    loaderWalkerMarkBaseArchiveEntry(e);
-
-    s64 source_bank = -1;
-    s64 string_count = 0;
+    s32 source_bank = -1;
+    u32 string_count = 0;
+    s32 count_declared = 0;
     char source_member[FS_MAXPATH];
     char source_path[FS_MAXPATH + 1];
     char locale[16];
     char category[32];
-    loaderWalkerEnvelopeInt(manifest, manifest_len, "source_bank", &source_bank);
-    loaderWalkerEnvelopeInt(manifest, manifest_len, "string_count", &string_count);
-    e->ext.lang.bank_id = (s32)source_bank;
-    e->ext.lang.string_count = (u32)string_count;
+    if (!langSourceParseManifestFields(manifest, manifest_len,
+            &source_bank, &string_count, &count_declared)) return -1;
+    asset_entry_t *e = assetCatalogRegister(id, ASSET_LANG);
+    if (!e) return -1;
+    loaderWalkerMarkBaseArchiveEntry(e);
+    e->ext.lang.bank_id = source_bank;
+    e->ext.lang.string_count = string_count;
+    e->ext.lang.string_count_declared = count_declared;
     if (loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "locale",
                                      locale, sizeof(locale))) {
         strncpy(e->ext.lang.locale, locale, sizeof(e->ext.lang.locale) - 1);

@@ -18,9 +18,9 @@
 extern "C" {
 #endif
 
-#define MODASSET_COMPILER_VERSION 7
-#define MODASSET_COMPILER_ANIMATION_VERSION 8
-#define MODASSET_COMPILER_MODELDEF_VERSION 12
+#define MODASSET_COMPILER_VERSION 9
+#define MODASSET_COMPILER_ANIMATION_VERSION 9
+#define MODASSET_COMPILER_MODELDEF_VERSION 14
 #define MODASSET_SHA256_HEX_LEN 65
 
 struct colmesh;
@@ -103,6 +103,23 @@ s32 modAssetCompilerBuildObjColmesh(const char *source_path,
  * Returns 1 when a modeldef was built, 0 when the source is not a supported
  * external model source, and -1 on parse/allocation/conversion failure.
  */
+/* Explicit transaction inputs for an immutable model generation. read returns
+ * an owned malloc-compatible buffer (including a trailing NUL), or NULL for an
+ * absent optional member. texture resolves a declared exact catalog ID or source-
+ * relative image path into a slot in the caller's prepopulated private pool.
+ * The owner retains that pool and pixel memory for the entire model lifetime.
+ * Callbacks must not throw. NULL inputs preserve the ordinary catalog loader. */
+struct texpool;
+typedef struct modasset_model_inputs {
+    void *context;
+    void *(*read)(void *context, const char *path, u32 *size);
+    s32 (*texture)(void *context, const char *source_path, const char *reference,
+        s32 is_catalog_id, s32 secondary);
+    struct texpool *texture_pool;
+} modasset_model_inputs_t;
+s32 modAssetCompilerBuildModeldefWithInputs(const modasset_model_inputs_t *inputs,
+    const asset_entry_t *entry, const char *source_path, struct modeldef **out_modeldef);
+
 s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
                                   const char *source_path,
                                   struct modeldef **out_modeldef);
@@ -158,6 +175,11 @@ s32 modAssetCompilerBuildAnimationClip(const asset_entry_t *entry,
                                        u8 **out_data,
                                        u32 *out_data_size);
 
+/* Same owned payload plus a digest of the exact consumed source, resolved
+ * glTF buffer and selected frame count, without a second source read. */
+s32 modAssetCompilerBuildAnimationClipHashed(const asset_entry_t *entry,
+    const char *source_path, struct animtableentry *out_entry,
+    u8 **out_data, u32 *out_data_size, char source_sha256[65]);
 void modAssetCompilerFreeAnimationClip(void *data);
 
 #ifdef __cplusplus

@@ -19,6 +19,7 @@
 #include "assetcatalog_deps.h"
 #include "assetcatalog_load.h"
 #include "assetcatalog_scanner.h"
+#include "character_head_policy.h"
 #include "constants.h"
 #include "effect_dependencies.h"
 #include "fs.h"
@@ -363,6 +364,38 @@ static s32 s_applyEffectPublicDescriptor(asset_entry_t *entry,
 	return 1;
 }
 
+static s32 s_applyCharacterPublicDescriptor(asset_entry_t *entry,
+	const char *archive_path)
+{
+	char *text = NULL;
+	size_t text_len = 0;
+	ini_section_t ini;
+	char qualified[FS_MAXPATH];
+	s32 ok = 0;
+	if (!entry || !loaderWalkerArchiveTextMember(archive_path, "character.ini",
+			&text, &text_len)) return 0;
+	if (text_len > UINT32_MAX || memchr(text, 0, text_len) ||
+			!iniParseBuffer(archive_path, text, (u32)text_len, &ini) ||
+			strcmp(iniGet(&ini, "catalog_id", iniGet(&ini, "id", "")), entry->id) != 0)
+		goto done;
+	for (s32 i = 0; i < ini.count; ++i) {
+		ini_pair_t *pair = &ini.pairs[i];
+		if (strcmp(pair->key, "body_archive") != 0 &&
+				strcmp(pair->key, "bodyfile") != 0 &&
+				strcmp(pair->key, "head_archive") != 0 &&
+				strcmp(pair->key, "headfile") != 0 &&
+				strcmp(pair->key, "portrait_file") != 0) continue;
+		if (!pair->value[0]) continue;
+		if (!loaderWalkerArchiveMemberPath(archive_path, pair->value,
+				qualified, sizeof(qualified))) goto done;
+		strcpy(pair->value, qualified);
+	}
+	ok = characterSourceApplyIni(entry, &ini);
+done:
+	sysMemFree(text);
+	return ok;
+}
+
 static asset_entry_t *s_getOrRegisterMetaEntry(const char *id, asset_type_e type)
 {
 	asset_entry_t *entry = assetCatalogGetMutable(id);
@@ -404,62 +437,7 @@ static void s_applyTypeFields(asset_entry_t *entry,
 			sizeof(entry->ext.arena.scenario_archive));
 		break;
 	case ASSET_CHARACTER:
-		s_clearPath(entry->ext.character.body_id,
-			sizeof(entry->ext.character.body_id));
-		s_clearPath(entry->ext.character.head_id,
-			sizeof(entry->ext.character.head_id));
-		s_clearPath(entry->ext.character.bodyfile,
-			sizeof(entry->ext.character.bodyfile));
-		s_clearPath(entry->ext.character.headfile,
-			sizeof(entry->ext.character.headfile));
-		s_clearPath(entry->ext.character.portrait_file,
-			sizeof(entry->ext.character.portrait_file));
-		if (s_manifestStr(manifest, manifest_len, "body",
-				value, sizeof(value))) {
-			strncpy(entry->ext.character.body_id, value,
-				sizeof(entry->ext.character.body_id) - 1);
-		}
-		if (s_manifestStr(manifest, manifest_len, "head",
-				value, sizeof(value))) {
-			strncpy(entry->ext.character.head_id, value,
-				sizeof(entry->ext.character.head_id) - 1);
-		}
-		if (!s_copyManifestMemberPath(manifest, manifest_len, "body_archive",
-				archive_path, entry->ext.character.bodyfile,
-				sizeof(entry->ext.character.bodyfile))) {
-			s_copyManifestMemberPath(manifest, manifest_len, "bodyfile",
-				archive_path, entry->ext.character.bodyfile,
-				sizeof(entry->ext.character.bodyfile));
-		}
-		if (!s_copyManifestMemberPath(manifest, manifest_len, "head_archive",
-				archive_path, entry->ext.character.headfile,
-				sizeof(entry->ext.character.headfile))) {
-			s_copyManifestMemberPath(manifest, manifest_len, "headfile",
-				archive_path, entry->ext.character.headfile,
-				sizeof(entry->ext.character.headfile));
-		}
-		s_copyManifestMemberPath(manifest, manifest_len, "portrait_file",
-			archive_path, entry->ext.character.portrait_file,
-			sizeof(entry->ext.character.portrait_file));
-		break;
-	case ASSET_BODY:
-		s_clearPath(entry->ext.body.mesh_archive,
-			sizeof(entry->ext.body.mesh_archive));
-		s_clearPath(entry->ext.body.hand_archive,
-			sizeof(entry->ext.body.hand_archive));
-		s_copyManifestMemberPath(manifest, manifest_len, "mesh_archive",
-			archive_path, entry->ext.body.mesh_archive,
-			sizeof(entry->ext.body.mesh_archive));
-		s_copyManifestMemberPath(manifest, manifest_len, "hand_archive",
-			archive_path, entry->ext.body.hand_archive,
-			sizeof(entry->ext.body.hand_archive));
-		break;
-	case ASSET_HEAD:
-		s_clearPath(entry->ext.head.mesh_archive,
-			sizeof(entry->ext.head.mesh_archive));
-		s_copyManifestMemberPath(manifest, manifest_len, "mesh_archive",
-			archive_path, entry->ext.head.mesh_archive,
-			sizeof(entry->ext.head.mesh_archive));
+		/* Public character.ini is admitted before this manifest dispatcher. */
 		break;
 	case ASSET_SKIN:
 		if (s_manifestStr(manifest, manifest_len, "target",
@@ -725,7 +703,31 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 		return -1;
 	}
 
-	if (meta->type == ASSET_EFFECT) {
+	if (meta->type == ASSET_CHARACTER) {
+		if (!s_applyCharacterPublicDescriptor(entry, file_path)) {
+			entry->enabled = 0;
+			entry->load_state = ASSET_STATE_REGISTERED;
+			sysLogPrintf(LOG_ERROR,
+				"LOADER.UNIVERSAL.META: invalid public character source '%s'", file_path);
+			return -1;
+		}
+		strcpy(source_path, entry->ext.character.bodyfile);
+		char dependency_error[256];
+		char owner_id[CATALOG_ID_LEN];
+		strcpy(owner_id, entry->id);
+		s32 dependency_result = assetCatalogRegisterCharacterDependencies(entry, 1,
+			dependency_error, sizeof(dependency_error));
+		entry = assetCatalogGetMutable(owner_id);
+		if (dependency_result < 0 || !entry) {
+			if (entry) {
+				entry->enabled = 0;
+				entry->load_state = ASSET_STATE_REGISTERED;
+			}
+			sysLogPrintf(LOG_ERROR, "LOADER.UNIVERSAL.META: character dependency failure %s: %s",
+				owner_id, dependency_error);
+			return -1;
+		}
+	} else if (meta->type == ASSET_EFFECT) {
 		if (!s_applyEffectPublicDescriptor(entry, file_path)) {
 			entry->enabled = 0;
 			entry->load_state = ASSET_STATE_REGISTERED;
@@ -745,7 +747,7 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 		return -1;
 	}
 
-	if (meta->type != ASSET_EFFECT) {
+	if (meta->type != ASSET_EFFECT && meta->type != ASSET_CHARACTER) {
 		if (!loaderWalkerArchiveMemberPath(file_path, member,
 				source_path, sizeof(source_path))) {
 			return -1;
@@ -793,10 +795,11 @@ static s32 s_registerMeta(const char *manifest, size_t manifest_len,
 }
 
 static const meta_walker_desc_t s_MetaFamilies[] = {
+	/* Body/head public descriptors and selected mesh providers are admitted
+	 * transactionally by their specialized walkers. A second metadata pass
+	 * must not overwrite them with private paths or typed-container handles. */
 	{ ASSET_ARENA,       "arena",      "arenas",      ".pdarena",      "arena.ini",     { "scenario_archive", NULL, NULL, NULL, NULL, NULL } },
 	{ ASSET_CHARACTER,   "character",  "characters",  ".pdcharacter",  "character.ini", { "body_archive", "head_archive", "portrait_file", NULL, NULL, NULL } },
-	{ ASSET_BODY,        "body",       "bodies",      ".pdbody",       "body.ini",      { "mesh_archive", "hand_archive", NULL, NULL, NULL, NULL } },
-	{ ASSET_HEAD,        "head",       "heads",       ".pdhead",       "head.ini",      { "mesh_archive", NULL, NULL, NULL, NULL, NULL } },
 	{ ASSET_SKIN,        "skin",       "skins",       ".pdskin",       "skin.ini",      { "skin_file", "swatches_file", "material_archive", "texture_archive" } },
 	{ ASSET_PROP,        "prop",       "props",       ".pdprop",       "prop.ini",      { "model_file", "prop_file", "behavior_graph", NULL } },
 	{ ASSET_VEHICLE,     "vehicle",    "vehicles",    ".pdvehicle",    "vehicle.ini",   { "model_file", "behavior_graph", "physics_file", NULL } },

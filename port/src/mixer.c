@@ -504,7 +504,8 @@ void aResampleImpl(uint8_t flags, uint16_t pitch, RESAMPLE_STATE state, uint16_t
     memcpy(state + 8, in, 8 * sizeof(int16_t));
 }
 
-void aEnvMixerImpl(uint8_t flags, ENVMIX_STATE state, int16_t rvol) {
+static void aEnvMixerInputImpl(uint8_t flags, ENVMIX_STATE state, int16_t rvol,
+        const int16_t *stereo, uint32_t frames) {
     int16_t *in = BUF_S16(OFS_BASE);
     int16_t *dry[2] = {BUF_S16(OFS_MAIN_L), BUF_S16(OFS_MAIN_R)};
     int16_t *wet[2] = {BUF_S16(OFS_AUX_L), BUF_S16(OFS_AUX_R)};
@@ -580,8 +581,11 @@ void aEnvMixerImpl(uint8_t flags, ENVMIX_STATE state, int16_t rvol) {
         gain[2] = clamp16((vol[0] * volwet + 0x4000) >> 15);
         gain[3] = clamp16((vol[1] * volwet + 0x4000) >> 15);
 
-        const int16_t insamp = in[i^XOR];
         for (int j = 0; j < 4; ++j) {
+            const uint32_t sample = (uint32_t)(i^XOR);
+            const int16_t insamp = stereo
+                ? (sample < frames ? stereo[sample * 2u + (j & 1)] : 0)
+                : in[sample];
             *outptr[j] = clamp16(*outptr[j] + ((insamp * gain[j]) >> 15));
         }
     }
@@ -595,6 +599,16 @@ void aEnvMixerImpl(uint8_t flags, ENVMIX_STATE state, int16_t rvol) {
     }
     savedstate->voldry = voldry;
     savedstate->volwet = volwet;
+}
+
+void aEnvMixerImpl(uint8_t flags, ENVMIX_STATE state, int16_t rvol) {
+    aEnvMixerInputImpl(flags, state, rvol, NULL, 0);
+}
+
+void aEnvMixerStereoImpl(uint8_t flags, ENVMIX_STATE state, int16_t rvol,
+        const int16_t *stereo, uint32_t frames) {
+    if (!stereo || frames > NUM_SAMPLES) return;
+    aEnvMixerInputImpl(flags, state, rvol, stereo, frames);
 }
 
 // flags is always 0 in PD

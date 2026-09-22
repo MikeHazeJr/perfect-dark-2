@@ -17,6 +17,11 @@ typedef struct prop_graph_runtime_target {
 	void (*set_channel)(void *context, const char *channel, s32 enabled);
 } prop_graph_runtime_target_t;
 
+/* Native defaultobj.maxdamage is signed 16-bit tenths of health. Authored
+ * values must pass validation; dynamic callers use the bounded conversion. */
+s32 propGraphHealthIsRepresentable(f32 health);
+s16 propGraphHealthToMaxDamage(f32 health);
+
 /* Compiles and retains the public behavior.graph.json for one .pdprop.
  * Registration is fail-closed: unsupported modules, invalid topology,
  * catalog identity mismatches, or graphs without a production event root

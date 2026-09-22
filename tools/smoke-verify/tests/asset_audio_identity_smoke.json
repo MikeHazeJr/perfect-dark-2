@@ -1,0 +1,25 @@
+{
+  "scenario_name": "asset_audio_identity_smoke",
+  "description": "Real base walker identities survive folder replacements and real received PDCA admission/rollback. Generated editable WAV sources are checked byte-for-byte and as exact PCM; native sound lookup starts and owns a file-backed handle. Checks active root restoration after late scanner and received-file rejection. No real peer transport, device-output, audible parity, or direct-MP3 scheduler claim.",
+  "tags": ["runtime", "assets", "audio", "source-authority", "transaction"],
+  "timeout_seconds": 90,
+  "install_state": "clean",
+  "boot_args": ["--no-update-check", "--no-net", "--portable", "--skip-intro", "--debug-asset-audio-identity"],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": [
+      "ASSET\\.AUDIO\\.IDENTITY: case=folder_native_reverse_and_file_handle result=PASS",
+      "ASSET\\.AUDIO\\.IDENTITY: case=second_same_id_source_replacement result=PASS",
+      "ASSET\\.AUDIO\\.IDENTITY: case=new_private_slot_file_handle result=PASS",
+      "ASSET\\.AUDIO\\.IDENTITY: case=category_collision_preserves_live_mapping result=PASS",
+      "ASSET\\.AUDIO\\.IDENTITY: case=late_scanner_rejection_restores_live_mapping result=PASS",
+      "ASSET\\.AUDIO\\.IDENTITY: case=received_typed_native_reverse_and_file_handle result=PASS",
+      "ASSET\\.AUDIO\\.IDENTITY: case=received_late_rejection_restores_catalog_and_bytes result=PASS",
+      "ASSET\\.AUDIO\\.IDENTITY: case=received_audio_ini_ignores_numeric_identity result=PASS",
+      "ASSET\\.AUDIO\\.IDENTITY: passed=8 cases=8 result=PASS",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": ["ASSET\\.AUDIO\\.IDENTITY: .*result=FAIL", "SMOKE: result=timeout", "EXCEPTION_ACCESS_VIOLATION", "refusing native bank fallback"],
+    "required_counts": [{"pattern":"ASSET\\.AUDIO\\.IDENTITY: case=.* result=PASS","min":8,"max":8}]
+  }
+}

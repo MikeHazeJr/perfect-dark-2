@@ -1,0 +1,46 @@
+{
+  "scenario_name": "asset_source_body_head_smoke",
+  "description": "Exercise public body/head scalars, identity, mesh/hand closure and native geometry through actual scanner, specialized walkers and received PDCA. Verify stale private copies do not win, resident edits reject intact, release/reload consumes edited bytes and geometry_file, and failed child admission restores slots/providers/pools. No graphical or multiplayer-selection claim.",
+  "tags": [
+    "runtime",
+    "assets",
+    "body-head",
+    "source-authority"
+  ],
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--no-sound",
+    "--portable",
+    "--skip-intro",
+    "--debug-asset-source-body-head"
+  ],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": [
+      "ASSET\\.SOURCE\\.BODYHEAD: cases=10 result=PASS",
+      "ASSET\\.SOURCE\\.BODYHEAD: witness=late_metadata body_source=preserved head_source=preserved stale_private=ignored result=PASS",
+      "ASSET\\.SOURCE\\.BODYHEAD: witness=native_alias base_body=base:sp_body_108 filenum=75 selected_geometry=1 preview_geometry=1 filenum_collision=rejected private_collision=rejected both_orders=1 missing_source=rejected result=PASS",
+      "ASSET\\.SOURCE\\.BODYHEAD: witness=hand_alias base_identity=1 selected_geometry=11 fists_geometry=13 shared_handle_identity=1 source_change_invalidates=1 stale_queue=rejected missing_source=rejected result=PASS",
+      "ASSET\\.SOURCE\\.BODYHEAD: witness=base_head_identity id=base:sp_head_21 native=21 mp=75 owners=1 type=MAIAN requirefeature=0 result=PASS",
+      "ASSET\\.SOURCE\\.BODYHEAD: witness=nested_first_owner .*nonresident=1 hash_inequality=1 divergent=rejected result=PASS",
+      "SMOKE: result=scripted_exit",
+      "ASSET\\.SOURCE\\.BODYHEAD: witness=direct_model custom_geometry=17 wrong_sibling=3 stale_private=ignored nested=1 missing=rejected conflicts=rejected unsafe=rejected binary=rejected catalog_preview_queue=1 result=PASS"
+    ],
+    "forbidden_patterns": [
+      "LOUDFAIL\\.LOAD\\.BODYHEAD\\.PUBLIC_SOURCE: base:",
+      "ASSET\\.SOURCE\\.BODYHEAD: .*result=FAIL",
+      "SMOKE: result=timeout",
+      "EXCEPTION_ACCESS_VIOLATION"
+    ],
+    "required_counts": [
+      {
+        "pattern": "ASSET\\.SOURCE\\.BODYHEAD: case=.*result=PASS",
+        "min": 10,
+        "max": 10
+      }
+    ]
+  }
+}

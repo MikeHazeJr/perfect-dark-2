@@ -15,6 +15,11 @@
  */
 
 static char s_CustomTextureCatalogIds[TEXTURE_CUSTOM_COUNT][CATALOG_ID_LEN];
+static u8 s_GenerationSlots[TEXTURE_CUSTOM_COUNT];
+static u32 s_SnapshotReservations[TEXTURE_CUSTOM_COUNT];
+typedef struct texture_slot_snapshot {
+    char ids[TEXTURE_CUSTOM_COUNT][CATALOG_ID_LEN];
+} texture_slot_snapshot_t;
 
 _Static_assert(TEXTURE_CUSTOM_COUNT > 0,
     "texture custom slot count must be positive");
@@ -30,22 +35,28 @@ void assetCatalogResetCustomTextureSlots(void)
 
 void *assetCatalogSnapshotCustomTextureSlots(void)
 {
-    void *snapshot = malloc(sizeof(s_CustomTextureCatalogIds));
-    if (snapshot) memcpy(snapshot, s_CustomTextureCatalogIds,
-        sizeof(s_CustomTextureCatalogIds));
-    return snapshot;
+    texture_slot_snapshot_t *saved = malloc(sizeof(*saved));
+    if (!saved) return NULL;
+    memcpy(saved->ids, s_CustomTextureCatalogIds, sizeof(saved->ids));
+    for (s32 i = 0; i < TEXTURE_CUSTOM_COUNT; ++i)
+        if (saved->ids[i][0]) ++s_SnapshotReservations[i];
+    return saved;
 }
-
 s32 assetCatalogRestoreCustomTextureSlots(const void *snapshot)
 {
     if (!snapshot) return 0;
-    memcpy(s_CustomTextureCatalogIds, snapshot,
-        sizeof(s_CustomTextureCatalogIds));
+    const texture_slot_snapshot_t *saved = snapshot;
+    for (s32 i = 0; i < TEXTURE_CUSTOM_COUNT; ++i)
+        if (saved->ids[i][0] && s_GenerationSlots[i]) return 0;
+    memcpy(s_CustomTextureCatalogIds, saved->ids, sizeof(s_CustomTextureCatalogIds));
     return 1;
 }
-
 void assetCatalogDestroyCustomTextureSlotSnapshot(void *snapshot)
 {
+    if (!snapshot) return;
+    const texture_slot_snapshot_t *saved = snapshot;
+    for (s32 i = 0; i < TEXTURE_CUSTOM_COUNT; ++i)
+        if (saved->ids[i][0]) --s_SnapshotReservations[i];
     free(snapshot);
 }
 
@@ -67,7 +78,7 @@ static s32 s_allocate(char ids[][CATALOG_ID_LEN], s32 count,
     }
 
     for (i = 0; i < count; i++) {
-        if (!ids[i][0]) {
+        if (!ids[i][0] && !s_GenerationSlots[i]) {
             strncpy(ids[i], catalog_id, CATALOG_ID_LEN - 1);
             ids[i][CATALOG_ID_LEN - 1] = '\0';
             return i;
@@ -93,4 +104,20 @@ s32 assetCatalogResolveTexturePrivateSlot(const char *catalog_id)
     }
 
     return TEXTURE_CUSTOM_START + idx;
+}
+
+s32 assetCatalogReserveTextureGenerationSlot(void)
+{
+    for (s32 i = TEXTURE_CUSTOM_COUNT; i-- > 0;) {
+        if (!s_CustomTextureCatalogIds[i][0] && !s_GenerationSlots[i] && !s_SnapshotReservations[i]) {
+            s_GenerationSlots[i] = 1;
+            return TEXTURE_CUSTOM_START + i;
+        }
+    }
+    return -1;
+}
+void assetCatalogReleaseTextureGenerationSlot(s32 slot)
+{
+    if (slot >= TEXTURE_CUSTOM_START && slot < TEXTURE_CUSTOM_END)
+        s_GenerationSlots[slot - TEXTURE_CUSTOM_START] = 0;
 }

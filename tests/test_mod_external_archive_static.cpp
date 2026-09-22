@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <cstdlib>
 #include <filesystem>
@@ -30,12 +31,16 @@ extern "C" {
 #include "constants.h"
 #include "effect_graph_runtime.h"
 #include "modarchive.h"
+#include "loader_walker_mesh_source.h"
 #include "modpack_pdmod.h"
 #include "modvfs.h"
+#include "prop_graph_runtime.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
 
 void testStubAssetCatalogResolveWith(const asset_entry_t *entry);
+void testStubAssetCatalogResolvePair(const asset_entry_t *first, const asset_entry_t *second);
+void testStubEffectAudio(const char *id, s32 category, s32 sound_id);
 void testStubFsFileLoadWith(const char *path, const void *bytes, u32 size);
 }
 
@@ -44,6 +49,34 @@ struct ScopedCatalogSourceStub {
 	{
 		testStubAssetCatalogResolveWith(nullptr);
 		testStubFsFileLoadWith(nullptr, nullptr, 0);
+	}
+};
+
+struct ScopedGraphCatalogSources {
+	asset_entry_t first{};
+	asset_entry_t second{};
+	ScopedGraphCatalogSources(const char *first_id = nullptr, s32 first_model = 0,
+			const char *second_id = nullptr, s32 second_model = 0,
+			const char *audio_id = nullptr, s32 sound_id = 0)
+	{
+		if (first_id) {
+			std::snprintf(first.id, sizeof(first.id), "%s", first_id);
+			first.type = ASSET_MODEL;
+			first.runtime_index = first_model;
+		}
+		if (second_id) {
+			std::snprintf(second.id, sizeof(second.id), "%s", second_id);
+			second.type = ASSET_MODEL;
+			second.runtime_index = second_model;
+		}
+		testStubAssetCatalogResolvePair(first_id ? &first : nullptr,
+			second_id ? &second : nullptr);
+		testStubEffectAudio(audio_id, 0, sound_id);
+	}
+	~ScopedGraphCatalogSources()
+	{
+		testStubAssetCatalogResolveWith(nullptr);
+		testStubEffectAudio(nullptr, 0, 0);
 	}
 };
 
@@ -545,7 +578,7 @@ TEST_CASE("selected public sources never fall through to native or opaque data",
 		std::string::npos);
 	REQUIRE(propsnd.find("fileGetRomSize(filenum)") ==
 		std::string::npos);
-	REQUIRE(propsnd.find("psMp3DurationGetPublicSourceSize") !=
+	REQUIRE(propsnd.find("psMp3DurationGetPublicSource60") !=
 		std::string::npos);
 	REQUIRE(propsnd.find("ASSET.CHAIN: MP3 file") != std::string::npos);
 }
@@ -1993,12 +2026,14 @@ TEST_CASE("component enable state persists every user-manageable catalog family"
 	std::string modmgr = readFile("port/src/modmgr.c");
 	REQUIRE(!modmgr.empty());
 
-	const std::string marker = "static const asset_type_e types[] = {";
-	const size_t begin = modmgr.find(marker);
+	const std::string adapter = readFile("port/src/modmgr_component_catalog.cpp");
+	REQUIRE(!adapter.empty());
+	const std::string marker = "const asset_type_e manageable[] = {";
+	const size_t begin = adapter.find(marker);
 	REQUIRE(begin != std::string::npos);
-	const size_t end = modmgr.find("};", begin);
+	const size_t end = adapter.find("};", begin);
 	REQUIRE(end != std::string::npos);
-	const std::string saveList = modmgr.substr(begin, end - begin);
+	const std::string saveList = adapter.substr(begin, end - begin);
 
 	const char *families[] = {
 		"ASSET_MAP",
@@ -2039,7 +2074,20 @@ TEST_CASE("component enable state persists every user-manageable catalog family"
 	}
 
 	REQUIRE(modmgr.find("modmgrLoadComponentState") != std::string::npos);
-	REQUIRE(modmgr.find("assetCatalogSetEnabled(line, 0)") != std::string::npos);
+	REQUIRE(adapter.find("assetCatalogSetEnabledChecked(id, 0)") != std::string::npos);
+    REQUIRE(adapter.find("assetCatalogIterateByTypeIncludingDisabled") != std::string::npos);
+    REQUIRE(modmgr.find("modmgrSaveCatalogComponentState(") != std::string::npos);
+    REQUIRE(modmgr.find("modmgrReplayCatalogComponentState(") != std::string::npos);
+    const size_t rebuildBegin = modmgr.rfind("static int modmgrRebuildCatalogChecked(");
+    REQUIRE(rebuildBegin != std::string::npos);
+    const size_t rebuildEnd = modmgr.find("void modmgrSyncCatalogToRegistry", rebuildBegin);
+    REQUIRE(rebuildEnd != std::string::npos);
+    const auto rebuild = modmgr.substr(rebuildBegin, rebuildEnd - rebuildBegin);
+    const auto registration = rebuild.find("modmgrLoadMod(");
+    const auto replay = rebuild.find("modmgrLoadComponentStateChecked(");
+    REQUIRE(registration != std::string::npos);
+    REQUIRE(replay != std::string::npos);
+    REQUIRE(registration < replay);
 }
 
 TEST_CASE("network catalog info advertises every user-manageable catalog family",
@@ -2258,7 +2306,17 @@ TEST_CASE("legacy pd asset walkers remain registered during external pdmod migra
 		INFO(pin.first);
 		std::string src = readFile(pin.first);
 		REQUIRE(src.find(pin.second) != std::string::npos);
-		REQUIRE(src.find("loaderWalkerScanKind(tier_dir, &desc, s_register, out)") != std::string::npos);
+		if (std::string(pin.first) == "port/src/loader_walker_anim.c") {
+			const auto registration = src.find("loaderWalkerScanKind(tier_dir, &desc, s_register, &registered)");
+			const auto compilation = src.find("loaderWalkerScanKind(tier_dir, &commands, s_compile, &compiled)");
+			REQUIRE(registration != std::string::npos);
+			REQUIRE(compilation != std::string::npos);
+			REQUIRE(registration < compilation);
+			REQUIRE(walker.find("loaderWalkerScanSfx(data_root, &kr)") < walker.find("loaderWalkerScanAnimations(data_root, &kr)"));
+			REQUIRE(walker.find("loaderWalkerScanVoices(data_root, &kr)") < walker.find("loaderWalkerScanAnimations(data_root, &kr)"));
+		} else {
+			REQUIRE(src.find("loaderWalkerScanKind(tier_dir, &desc, s_register, out)") != std::string::npos);
+		}
 	}
 
 	const std::string metaWalker = readFile("port/src/loader_walker_meta.c");
@@ -2284,8 +2342,10 @@ TEST_CASE("legacy pd asset walkers remain registered during external pdmod migra
 	REQUIRE(metaWalker.find("\"body_archive\"") != std::string::npos);
 	REQUIRE(metaWalker.find("\"head_archive\"") != std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.character.bodyfile") != std::string::npos);
-	REQUIRE(metaWalker.find("entry->ext.character.headfile") != std::string::npos);
-	REQUIRE(metaWalker.find("entry->ext.character.portrait_file") != std::string::npos);
+	REQUIRE(metaWalker.find("characterSourceApplyIni(entry, &ini)") != std::string::npos);
+	const std::string characterSource = readFile("port/src/character_head_policy.c");
+	REQUIRE(characterSource.find("entry->ext.character.headfile") != std::string::npos);
+	REQUIRE(characterSource.find("entry->ext.character.portrait_file") != std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.character.headfile, source_path") == std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.prop.model_file") != std::string::npos);
 	REQUIRE(metaWalker.find("entry->ext.prop.behavior_graph") != std::string::npos);
@@ -2762,6 +2822,50 @@ TEST_CASE("weapon graph canonical archive SHA ignores entry order",
 	REQUIRE(weaponGraphArchiveCanonicalSha256Bytes(bytes.data(),
 		static_cast<u32>(bytes.size()), hbBytes) == 0);
 	REQUIRE(std::string(hbBytes) == std::string(hb));
+}
+
+TEST_CASE("canonical archive hash accepts filesystem resolved nested archive bytes",
+          "[modding][pdxxx][weapon_graph][sha256][nested-source]") {
+	TempArchive mesh = writeArchiveEntries("canonical-nested-mesh", {
+		{"mesh.ini", "[model]\ncatalog_id=example:shared\nkind=mesh\ngeometry_file=model.obj\n"},
+		{"model.obj", "v 0 0 0\nv 2 0 0\nv 0 2 0\nf 1 2 3\n"},
+	});
+	const std::string meshBytes = readFile(mesh.path.string().c_str());
+	TempArchive body = writeArchiveEntries("canonical-nested-body", {
+		{"mesh.pdmesh", meshBytes},
+	});
+	const std::string bodyBytes = readFile(body.path.string().c_str());
+	u32 nestedSize = 0;
+	void *nested = modArchiveExtractMemAlloc(bodyBytes.data(),
+		static_cast<u32>(bodyBytes.size()), "mesh.pdmesh", &nestedSize);
+	REQUIRE(nested != nullptr);
+	const std::string resolvedBytes(static_cast<const char *>(nested), nestedSize);
+	std::free(nested);
+	REQUIRE(resolvedBytes == meshBytes);
+	const std::string nestedPath = body.path.string() + "::mesh.pdmesh";
+	char diskHash[SHA256_HEX_SIZE] = {}, bytesHash[SHA256_HEX_SIZE] = {};
+	char nestedHash[SHA256_HEX_SIZE] = {};
+	REQUIRE(weaponGraphArchiveCanonicalSha256File(mesh.path.string().c_str(), diskHash) == 0);
+	REQUIRE(weaponGraphArchiveCanonicalSha256Bytes(resolvedBytes.data(),
+		static_cast<u32>(resolvedBytes.size()), bytesHash) == 0);
+	/* pd-tests supplies filesystem bytes through its existing seam. The
+	 * installed body/head harness exercises the real nested fs reader/binder. */
+	ScopedCatalogSourceStub reset;
+	testStubFsFileLoadWith(nestedPath.c_str(), resolvedBytes.data(),
+		static_cast<u32>(resolvedBytes.size()));
+	REQUIRE(weaponGraphArchiveCanonicalSha256File(nestedPath.c_str(), nestedHash) == 0);
+	REQUIRE(std::string(nestedHash) == diskHash);
+	REQUIRE(std::string(nestedHash) == bytesHash);
+
+	const char malformed[] = "not a ZIP archive";
+	testStubFsFileLoadWith(nestedPath.c_str(), malformed, sizeof(malformed) - 1);
+	std::strcpy(nestedHash, "stale");
+	REQUIRE(weaponGraphArchiveCanonicalSha256File(nestedPath.c_str(), nestedHash) < 0);
+	REQUIRE(nestedHash[0] == '\0');
+	testStubFsFileLoadWith(nullptr, nullptr, 0);
+	std::strcpy(nestedHash, "stale");
+	REQUIRE(weaponGraphArchiveCanonicalSha256File(nestedPath.c_str(), nestedHash) < 0);
+	REQUIRE(nestedHash[0] == '\0');
 }
 
 TEST_CASE("weapon graph nested payload inventory derives IDs and content hashes",
@@ -3287,6 +3391,8 @@ TEST_CASE("weapon graph runtime cutover retires the user-facing toggle",
 
 TEST_CASE("weapon graph runtime registers held weapon IR for gameplay gate",
           "[modding][pdxxx][weapon_graph][runtime][held][c3814]") {
+	ScopedGraphCatalogSources sources(nullptr, 0, nullptr, 0,
+		"base:sfx_test_shot", SFX_804D);
 	const std::string graph =
 		"{\n"
 		"  \"schema\": \"pd.weapon_graph.v1\",\n"
@@ -3312,7 +3418,7 @@ TEST_CASE("weapon graph runtime registers held weapon IR for gameplay gate",
 		"        \"slidemax\": 8.5,\n"
 		"        \"impactforce\": 2.25,\n"
 		"        \"duration_ticks60\": 5,\n"
-		"        \"shootsound\": \"SFX_804D\",\n"
+		"        \"shoot_sound_catalog_id\": \"base:sfx_test_shot\",\n"
 		"        \"penetration\": 3\n"
 		"      }\n"
 		"    },\n"
@@ -3398,6 +3504,9 @@ TEST_CASE("weapon graph runtime registers held weapon IR for gameplay gate",
 
 TEST_CASE("weapon graph runtime captures projectile and entity adapter payloads",
           "[modding][pdxxx][weapon_graph][runtime][projectile][entity][c3814]") {
+	ScopedGraphCatalogSources sources("base:model_chrdyrocketmis", MODEL_CHRDYROCKETMIS,
+		"base:model_chrautogun", MODEL_CHRAUTOGUN,
+		"base:sfx_launch_rocket", SFX_LAUNCH_ROCKET_8053);
 	const std::string graph =
 		"{\n"
 		"  \"schema\": \"pd.weapon_graph.v1\",\n"
@@ -3494,6 +3603,9 @@ TEST_CASE("weapon graph runtime captures projectile and entity adapter payloads"
 
 TEST_CASE("weapon graph runtime registers projectile and entity behavior assets",
           "[modding][pdxxx][weapon_graph][runtime][projectile][entity][c3814][c3838]") {
+	ScopedGraphCatalogSources sources("base:model_chrskrocketmis", MODEL_CHRSKROCKETMIS,
+		"base:model_chrproximitymine", MODEL_CHRPROXIMITYMINE,
+		"base:sfx_launch_rocket", SFX_LAUNCH_ROCKET_8053);
 	const std::string projectileGraph =
 		"{\n"
 		"  \"schema\": \"pd.projectile_graph.v1\",\n"
@@ -3534,7 +3646,7 @@ TEST_CASE("weapon graph runtime registers projectile and entity behavior assets"
 		"      \"post_fall_timer60\": 360\n"
 		"    } },\n"
 		"    { \"id\": \"impact\", \"kind\": \"projectile.impact\", \"params\": {\n"
-		"      \"impact_filter\": \"solid_or_chr\",\n"
+		"      \"impact_filter\": \"any\",\n"
 		"      \"hit_sound\": \"base:sfx_launch_rocket\",\n"
 		"      \"consume_on_hit\": true,\n"
 		"      \"stick_on_hit\": false\n"
@@ -3756,6 +3868,8 @@ TEST_CASE("weapon graph runtime registers projectile and entity behavior assets"
 
 TEST_CASE("weapon graph runtime captures special and device adapter payloads",
           "[modding][pdxxx][weapon_graph][runtime][special][device][c3814]") {
+	ScopedGraphCatalogSources sources(nullptr, 0, nullptr, 0,
+		"base:sfx_launch_rocket", SFX_LAUNCH_ROCKET_8053);
 	const std::string graph =
 		"{\n"
 		"  \"schema\": \"pd.weapon_graph.v1\",\n"
@@ -3841,7 +3955,7 @@ TEST_CASE("weapon graph runtime captures presentation adapter payloads",
 		"        \"zoom_fov\": 12.5,\n"
 		"        \"reticle_ref\": \"base:hud_zoom_reticle\",\n"
 		"        \"overlay_ref\": \"base:hud_zoom_overlay\",\n"
-		"        \"camera_effect\": \"runtime_existing_zoom\"\n"
+		"        \"camera_effect\": \"none\"\n"
 		"      }\n"
 		"    }\n"
 		"  ],\n"
@@ -3871,7 +3985,7 @@ TEST_CASE("weapon graph runtime captures presentation adapter payloads",
 	REQUIRE(primary->zoom_fov == Approx(12.5f));
 	REQUIRE(std::string(primary->reticle_ref) == "base:hud_zoom_reticle");
 	REQUIRE(std::string(primary->overlay_ref) == "base:hud_zoom_overlay");
-	REQUIRE(std::string(primary->camera_effect) == "runtime_existing_zoom");
+	REQUIRE(std::string(primary->camera_effect) == "none");
 
 	weaponGraphRuntimeSetEnabled(0);
 	weaponGraphRuntimeClearAll();
@@ -4316,7 +4430,7 @@ TEST_CASE("effect sources activate before weapon admission with exact allocator 
 	REQUIRE(loader.find("s_catalogResolveDeactivationNode") != std::string::npos);
 	REQUIRE(loader.find("root->ref_count > 0 ? root->ref_count : 0") !=
 		std::string::npos);
-	const auto setEnabledStart = catalog.find("void assetCatalogSetEnabled(");
+const auto setEnabledStart = catalog.find("asset_catalog_change_e assetCatalogSetEnabledChecked(");
 	const auto setEnabledEnd = catalog.find("\nvoid assetCatalogSetCategoryById", setEnabledStart);
 	REQUIRE(setEnabledStart != std::string::npos);
 	REQUIRE(setEnabledEnd != std::string::npos);
@@ -4497,19 +4611,11 @@ TEST_CASE("wave 5 unit 1c latches derived projectile fields at registration",
 		"}\n";
 	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE,
 		"base:test_derived_projectile_garbage", garbageGraph.data(),
-		static_cast<u32>(garbageGraph.size()), err, sizeof(err)) == 0);
+		static_cast<u32>(garbageGraph.size()), err, sizeof(err)) != 0);
 
 	const weapon_graph_projectile_runtime_t *garbage =
 		weaponGraphRuntimeGetProjectile("base:test_derived_projectile_garbage");
-	REQUIRE(garbage != nullptr);
-	REQUIRE(garbage->timer_start_policy == 0);
-	REQUIRE(garbage->timer_expire_policy == 0);
-	REQUIRE(garbage->wall_fall_vec[0] == Approx(0.0f));
-	REQUIRE(garbage->wall_fall_vec[1] == Approx(-10.0f));
-	REQUIRE(garbage->wall_fall_vec[2] == Approx(0.0f));
-	REQUIRE(garbage->trail_smoketype == SMOKETYPE_ROCKETTAIL);
-	/* randomize_rotation authored true -> 1. */
-	REQUIRE(garbage->bounce_randomize_rotation == 1);
+	REQUIRE(garbage == nullptr);
 
 	/* Minimal fixture: sentinels hold without the source nodes. */
 	const std::string minimalGraph =
@@ -4739,6 +4845,19 @@ const char *kW5fWeaponIni =
 	"settings_file = behavior/settings.json\n"
 	"variables_file = behavior/variables.json\n"
 	"presentation_file = bindings/presentation.json\n";
+
+TempArchive writeW5fTunablesArchive(const std::string &settings,
+		const std::string &variables, const std::string &primary = kW5fPrimaryGraph) {
+	return writeArchiveEntries("tunables-source-contract", {
+		{ "weapon.ini", kW5fWeaponIni },
+		{ "behavior/primary.graph.json", primary },
+		{ "behavior/secondary.graph.json", kW5fSecondaryGraph },
+		{ "behavior/shared-context.json", kW5fSharedContext },
+		{ "behavior/settings.json", settings },
+		{ "behavior/variables.json", variables },
+		{ "bindings/presentation.json", "{\"schema\":\"pd.weapon.presentation.v1\"}" },
+	});
+}
 
 }  /* anonymous namespace */
 
@@ -5188,7 +5307,7 @@ TEST_CASE("base-shaped empty tunables layer zero defaults",
 	weaponGraphRuntimeClearAll();
 }
 
-TEST_CASE("camera_effect latches xray to 1 and garbage to 0 at parse",
+TEST_CASE("camera_effect selects supported modes and rejects unknown authored modes",
           "[modding][pdxxx][weapon_graph][c3849][settings]") {
 	const std::string graph =
 		"{\n"
@@ -5199,7 +5318,7 @@ TEST_CASE("camera_effect latches xray to 1 and garbage to 0 at parse",
 		"    { \"id\": \"primary_action\", \"kind\": \"fire.beam_tick\","
 		" \"params\": { \"mode\": \"primary\", \"camera_effect\": \"xray\" } },\n"
 		"    { \"id\": \"secondary_action\", \"kind\": \"fire.beam_tick\","
-		" \"params\": { \"mode\": \"secondary\", \"camera_effect\": \"wobble\" } }\n"
+		" \"params\": { \"mode\": \"secondary\", \"camera_effect\": \"none\" } }\n"
 		"  ],\n"
 		"  \"exports\": [\n"
 		"    { \"name\": \"primary\", \"node\": \"primary_action\" },\n"
@@ -5221,9 +5340,686 @@ TEST_CASE("camera_effect latches xray to 1 and garbage to 0 at parse",
 	REQUIRE(primary != nullptr);
 	REQUIRE(secondary != nullptr);
 	REQUIRE(primary->camera_effect_mode == WEAPON_GRAPH_CAMERA_EFFECT_XRAY);
-	/* Unknown value: one-time LOG_NOTE, mode latches NONE. */
 	REQUIRE(secondary->camera_effect_mode == WEAPON_GRAPH_CAMERA_EFFECT_NONE);
+	weaponGraphIrFree(&ir);
+	std::string invalid = graph;
+	invalid.replace(invalid.find("\"none\""), std::strlen("\"none\""), "\"wobble\"");
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, invalid.data(),
+		static_cast<u32>(invalid.size()), &ir, err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("camera_effect") != std::string::npos);
 	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("graph catalog references reject numeric identities and preserve optional nulls",
+		"[modding][pdxxx][weapon_graph][c3842][source_authority]") {
+	const char *keys[] = { "projectile_ref", "entity_ref", "payload_ref",
+		"explosion_ref", "spark_ref", "recover_weapon_ref", "detonator_ref",
+		"model_catalog_id", "model_ref", "projectile_model_catalog_id",
+		"projectile_model_ref", "shoot_sound_catalog_id", "shoot_sound_ref",
+		"shootsound", "projectile_sound_catalog_id", "special_sound_catalog_id",
+		"sound_catalog_id", "soundnum", "hit_sound", "sound" };
+	for (const char *key : keys) {
+		for (const char *value : { "42", "42.0", "true", "[]", "{}",
+				"\"MODEL_rocket\"", "\"SFX_804D\"", "null", "\"\"", "\"mod:source\"" }) {
+			CAPTURE(key, value);
+			const std::string graph = std::string(
+				"{\"schema\":\"pd.weapon_graph.v1\",\"asset_id\":\"mod:refs\","
+				"\"graph_id\":\"primary\",\"nodes\":[{\"id\":\"fire\",\"kind\":\"fire.hitscan\","
+				"\"params\":{\"mode\":\"primary\",\"") + key + "\":" + value +
+				"}}],\"exports\":[{\"name\":\"primary\",\"node\":\"fire\"}]}";
+			weapon_graph_ir_t ir;
+			char err[256] = {};
+			const s32 result = weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+				static_cast<u32>(graph.size()), &ir, err, sizeof(err));
+			const bool valid = std::string(value) == "null" ||
+				std::string(value) == "\"\"" || std::string(value) == "\"mod:source\"";
+			if (valid) {
+				REQUIRE(result == 0);
+				weaponGraphIrFree(&ir);
+			} else {
+				REQUIRE(result != 0);
+				REQUIRE(std::string(err).find(key) != std::string::npos);
+			}
+		}
+	}
+}
+
+TEST_CASE("graph model and audio activation requires catalog resolution for base and mod IDs",
+		"[modding][pdxxx][weapon_graph][runtime][c3842][source_authority]") {
+	struct Family { asset_type_e type; const char *schema; const char *kind; const char *model_key; };
+	const Family families[] = {
+		{ ASSET_WEAPON, "pd.weapon_graph.v1", "spawn.fired_projectile", "projectile_model_catalog_id" },
+		{ ASSET_PROJECTILE, "pd.projectile_graph.v1", "projectile.spawn_state", "model_catalog_id" },
+		{ ASSET_ENTITY, "pd.entity_graph.v1", "entity.armed_explosive", "model_catalog_id" },
+	};
+	for (const auto &family : families) {
+		for (const char *model_id : { "base:model_chrdyrocketmis", "mod:rocket_mesh" }) {
+			CAPTURE(family.schema, model_id);
+			weaponGraphRuntimeClearAll();
+			ScopedGraphCatalogSources sources;
+			const std::string audio_node = family.type == ASSET_WEAPON ?
+				",\"sound_catalog_id\":\"base:sfx_launch_rocket\"}}" :
+				std::string("}},{\"id\":\"audio\",\"kind\":\"") +
+				(family.type == ASSET_PROJECTILE ? "projectile.impact" : "entity.interaction") +
+				"\",\"params\":{\"" + (family.type == ASSET_PROJECTILE ? "hit_sound" : "sound") +
+				"\":\"base:sfx_launch_rocket\"}}";
+			const std::string graph = std::string("{\"schema\":\"") + family.schema +
+				"\",\"asset_id\":\"mod:resolved_graph\",\"graph_id\":\"primary\",\"nodes\":["
+				"{\"id\":\"module\",\"kind\":\"" + family.kind + "\",\"params\":{"
+				"\"mode\":\"primary\",\"" + family.model_key + "\":\"" + model_id +
+				"\"" + audio_node + "],"
+				"\"exports\":[{\"name\":\"primary\",\"node\":\"module\"}]}";
+			weapon_graph_ir_t ir;
+			char err[256] = {};
+			REQUIRE(weaponGraphCompileJson(family.type, graph.data(),
+				static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+			auto activate = [&]() {
+				if (family.type == ASSET_WEAPON) return weaponGraphRuntimeRegisterHeldIr(7, &ir, err, sizeof(err));
+				if (family.type == ASSET_PROJECTILE) return weaponGraphRuntimeRegisterProjectileIr(&ir, err, sizeof(err));
+				return weaponGraphRuntimeRegisterEntityIr(&ir, err, sizeof(err));
+			};
+			REQUIRE(activate() != 0);
+			std::snprintf(sources.first.id, sizeof(sources.first.id), "%s", model_id);
+			sources.first.type = ASSET_MODEL;
+			sources.first.runtime_index = 117;
+			testStubAssetCatalogResolveWith(&sources.first);
+			REQUIRE(activate() != 0);
+			REQUIRE(std::string(err).find("base:sfx_launch_rocket") != std::string::npos);
+			testStubEffectAudio("base:sfx_launch_rocket", 0, -1);
+			REQUIRE(activate() != 0);
+			testStubEffectAudio("base:sfx_launch_rocket", 0, 901);
+			REQUIRE(activate() == 0);
+			if (family.type == ASSET_WEAPON) {
+				const auto *runtime = weaponGraphRuntimeGetHeldFunction(7, 0);
+				REQUIRE(runtime != nullptr);
+				REQUIRE(runtime->projectile_modelnum == 117);
+				REQUIRE(runtime->soundnum == 901);
+			} else if (family.type == ASSET_PROJECTILE) {
+				const auto *runtime = weaponGraphRuntimeGetProjectile("mod:resolved_graph");
+				REQUIRE(runtime != nullptr);
+				REQUIRE(runtime->projectile_modelnum == 117);
+				REQUIRE(runtime->impact_hit_sound == 901);
+			} else {
+				const auto *runtime = weaponGraphRuntimeGetEntity("mod:resolved_graph");
+				REQUIRE(runtime != nullptr);
+				REQUIRE(runtime->projectile_modelnum == 117);
+				REQUIRE(runtime->interaction_sound == 901);
+			}
+			weaponGraphIrFree(&ir);
+			weaponGraphRuntimeClearAll();
+		}
+	}
+}
+
+TEST_CASE("graph policy vocabularies reject authored fallback and retain supported values",
+		"[modding][pdxxx][weapon_graph][c3842][source_authority]") {
+	struct Policy { asset_type_e type; const char *schema; const char *kind; const char *key; const char *good; const char *bad; };
+	const Policy cases[] = {
+		{ ASSET_PROJECTILE, "pd.projectile_graph.v1", "projectile.timer", "timer_starts", "on_attach", "whenever" },
+		{ ASSET_PROJECTILE, "pd.projectile_graph.v1", "projectile.timer", "on_expire", "delete", "confetti" },
+		{ ASSET_PROJECTILE, "pd.projectile_graph.v1", "projectile.impact", "impact_filter", "chr", "solid_or_chr" },
+		{ ASSET_PROJECTILE, "pd.projectile_graph.v1", "projectile.trail", "trail_type", "rocket", "sparkles" },
+		{ ASSET_PROJECTILE, "pd.projectile_graph.v1", "projectile.wall_hugger", "fall_vector", "1,2,3", "1,2,3junk" },
+		{ ASSET_PROJECTILE, "pd.projectile_graph.v1", "projectile.wall_hugger", "fall_vector", "down", "NaN,2,3" },
+		{ ASSET_ENTITY, "pd.entity_graph.v1", "entity.armed_explosive", "damage_response", "ignore", "maybe" },
+		{ ASSET_ENTITY, "pd.entity_graph.v1", "entity.proxy_trigger", "on_trigger", "storm", "maybe" },
+		{ ASSET_ENTITY, "pd.entity_graph.v1", "entity.proxy_trigger", "target_filter", "hostile_chr", "friendly_chr" },
+		{ ASSET_ENTITY, "pd.entity_graph.v1", "entity.proxy_trigger", "team_filter", "enemy_only", "maybe" },
+		{ ASSET_ENTITY, "pd.entity_graph.v1", "entity.proxy_trigger", "owner_filter", "owner_only", "maybe" },
+		{ ASSET_ENTITY, "pd.entity_graph.v1", "entity.remote_detonatable", "on_remote_signal", "create_storm", "maybe" },
+		{ ASSET_ENTITY, "pd.entity_graph.v1", "entity.timed_detonatable", "on_expire", "delete", "maybe" },
+		{ ASSET_ENTITY, "pd.entity_graph.v1", "entity.timed_detonatable", "starts_when", "armed", "maybe" },
+		{ ASSET_ENTITY, "pd.entity_graph.v1", "entity.autogun", "net_authority", "server", "client" },
+	};
+	for (const auto &policy : cases) {
+		for (bool valid : { true, false }) {
+			CAPTURE(policy.kind, policy.key, valid);
+			const std::string graph = std::string("{\"schema\":\"") + policy.schema +
+				"\",\"asset_id\":\"mod:policy\",\"graph_id\":\"main\",\"nodes\":["
+				"{\"id\":\"module\",\"kind\":\"" + policy.kind + "\",\"params\":{\"" +
+				policy.key + "\":\"" + (valid ? policy.good : policy.bad) + "\"}}]}";
+			weapon_graph_ir_t ir;
+			char err[256] = {};
+			const s32 result = weaponGraphCompileJson(policy.type, graph.data(),
+				static_cast<u32>(graph.size()), &ir, err, sizeof(err));
+			if (valid) {
+				REQUIRE(result == 0);
+				weaponGraphIrFree(&ir);
+			} else {
+				REQUIRE(result != 0);
+				REQUIRE(std::string(err).find(policy.key) != std::string::npos);
+			}
+		}
+	}
+}
+
+TEST_CASE("weapon settings cadence units select real native timing or reject the archive",
+		"[modding][pdxxx][weapon_graph][settings][c3842][source_authority]") {
+	for (const char *shape : { "flat", "array", "nested_array" }) {
+	for (const char *unit : { "rpm", "centiseconds", "ticks60", "frames_maybe" }) {
+		CAPTURE(shape, unit);
+		weaponGraphRuntimeClearAll();
+		const std::string settingValue = std::string("{\"value\":60,\"unit\":\"") + unit + "\"}";
+		const std::string settings = std::string("{\"schema\":\"pd.weapon_settings.v1\",") +
+			(std::string(shape) == "flat" ? "\"fire_cadence\":" + settingValue :
+			 std::string(shape) == "array" ?
+			 std::string("\"settings\":[{\"name\":\"fire_cadence\",\"value\":60,\"unit\":\"") + unit + "\"}]" :
+			 "\"settings\":[{\"name\":\"fire_cadence\",\"value\":" + settingValue +
+			 ",\"unit\":\"ignored_outer_unit\"}]") + "}";
+		TempArchive weapon = writeArchiveEntries("source-authority-cadence", {
+			{ "weapon.ini", kW5fWeaponIni },
+			{ "behavior/primary.graph.json", kW5fPrimaryGraph },
+			{ "behavior/secondary.graph.json", kW5fSecondaryGraph },
+			{ "behavior/shared-context.json", kW5fSharedContext },
+			{ "behavior/settings.json", settings },
+			{ "behavior/variables.json", "{\"schema\":\"pd.weapon_variables.v1\",\"base_damage\":1,\"pierce\":0,\"cam\":\"none\"}" },
+			{ "bindings/presentation.json", "{\"schema\":\"pd.weapon.presentation.v1\"}" },
+		});
+		char err[256] = {};
+		const s32 result = weaponGraphRuntimeRegisterWeaponArchive(70,
+			weapon.path.string().c_str(), err, sizeof(err));
+		if (std::string(unit) == "frames_maybe") {
+			REQUIRE(result != 0);
+			REQUIRE(std::string(err).find("fire_cadence") != std::string::npos);
+			REQUIRE(weaponGraphRuntimeGetHeldFunction(70, 0) == nullptr);
+		} else {
+			REQUIRE(result == 0);
+			const auto *primary = weaponGraphRuntimeGetHeldFunction(70, 0);
+			const auto *secondary = weaponGraphRuntimeGetHeldFunction(70, 1);
+			REQUIRE(primary != nullptr);
+			REQUIRE(secondary != nullptr);
+			const float rpm = std::string(unit) == "centiseconds" ? 100.0f : 60.0f;
+			REQUIRE(primary->recoverytime_ticks60 == static_cast<s32>(3600.0f / rpm));
+			REQUIRE(secondary->max_rpm == Approx(rpm));
+		}
+		weaponGraphRuntimeClearAll();
+	}
+	}
+}
+
+TEST_CASE("weapon tunables validate complete scalar values before runtime publication",
+		"[modding][pdxxx][weapon_graph][settings][source_authority][T-ASSETS-041]") {
+	for (const char *shape : { "flat", "array" }) {
+	for (const char *source : { "settings", "variables" }) {
+	for (const char *value : { "0", "9", "9.25", "1e20", "9oops", "1e1000", "1e100",
+			"1e-1000", "1e-100", "4294967296", "-2147483649", "01", "+1", "0x10",
+			".5", "1.", "truejunk", "falsejunk", "nulljunk" }) {
+		CAPTURE(shape, source, value);
+		weaponGraphRuntimeClearAll();
+		const bool variables = std::string(source) == "variables";
+		const bool valid = std::string(value) == "0" || std::string(value) == "9" ||
+			std::string(value) == "9.25" || std::string(value) == "1e20";
+		const std::string key = variables ? "base_damage" : "zoom_fov";
+		std::string authored = std::string("{\"schema\":\"pd.weapon_") + source + ".v1\",";
+		if (std::string(shape) == "array") {
+			authored += std::string("\"") + source + "\":[{\"name\":\"" + key + "\",\"value\":" + value + "}]";
+		} else {
+			authored += "\"" + key + "\":" + value;
+		}
+		if (variables) authored += ",\"pierce\":0,\"cam\":\"none\"";
+		authored += "}";
+		TempArchive weapon = writeW5fTunablesArchive(
+			variables ? "{\"schema\":\"pd.weapon_settings.v1\"}" : authored,
+			variables ? authored : "{\"schema\":\"pd.weapon_variables.v1\",\"base_damage\":1,\"pierce\":0,\"cam\":\"none\"}");
+		char err[256] = {};
+		const s32 result = weaponGraphRuntimeRegisterWeaponArchive(70,
+			weapon.path.string().c_str(), err, sizeof(err));
+		INFO(err);
+		if (valid) {
+			REQUIRE(result == 0);
+			const auto *held = weaponGraphRuntimeGetHeldFunction(70, 0);
+			REQUIRE(held != nullptr);
+			REQUIRE((variables ? held->damage : held->zoom_fov) == Approx(std::stof(value)));
+		} else {
+			REQUIRE(result != 0);
+			const std::string token(value);
+			const bool invalidDocument = token == "9oops" || token == "1e1000" ||
+				token == "1e-1000" || token == "01" || token == "+1" || token == "0x10" ||
+				token == ".5" || token == "1." || token == "truejunk" ||
+				token == "falsejunk" || token == "nulljunk";
+			REQUIRE(std::string(err).find(invalidDocument ?
+				std::string("weapon ") + source + " source must be a complete strict JSON object" : key)
+				!= std::string::npos);
+			REQUIRE(weaponGraphRuntimeGetHeldFunction(70, 0) == nullptr);
+		}
+		weaponGraphRuntimeClearAll();
+	}
+	}
+	}
+}
+
+TEST_CASE("weapon variable units and integer destinations validate before native capture",
+		"[modding][pdxxx][weapon_graph][settings][source_authority][T-ASSETS-041]") {
+	const std::string settings = "{\"schema\":\"pd.weapon_settings.v1\"}";
+	const std::string baseVariables = "{\"schema\":\"pd.weapon_variables.v1\",\"base_damage\":1,\"pierce\":0,\"cam\":\"none\",";
+	for (const char *unit : { "\"ticks60\"", "12", "null" }) {
+		CAPTURE(unit);
+		weaponGraphRuntimeClearAll();
+		const std::string variables = baseVariables +
+			"\"variables\":[{\"name\":\"warmup_time\",\"value\":12,\"unit\":" + unit + "}]}";
+		std::string primary = kW5fPrimaryGraph;
+		primary.replace(primary.find("\"camera_effect\":"), 16,
+			"\"activation_time_ticks60\":\"$warmup_time\",\"camera_effect\":");
+		TempArchive weapon = writeW5fTunablesArchive(settings, variables, primary);
+		char err[256] = {};
+		const s32 result = weaponGraphRuntimeRegisterWeaponArchive(70,
+			weapon.path.string().c_str(), err, sizeof(err));
+		if (std::string(unit) == "\"ticks60\"") {
+			REQUIRE(result == 0);
+			const auto *held = weaponGraphRuntimeGetHeldFunction(70, 0);
+			REQUIRE(held != nullptr);
+			REQUIRE(held->activation_time_ticks60 == 12);
+		} else {
+			REQUIRE(result != 0);
+			REQUIRE(std::string(err).find("unit") != std::string::npos);
+		}
+		weaponGraphRuntimeClearAll();
+	}
+	for (const char *value : { "12.75", "\"12\"", "null", "\"\"",
+			"2147483648.0", "\"2147483648\"", "\"12junk\"" }) {
+		CAPTURE(value);
+		weaponGraphRuntimeClearAll();
+		std::string primary = kW5fPrimaryGraph;
+		primary.replace(primary.find("\"camera_effect\":"), 16,
+			std::string("\"flags\":\"$mask\",\"burst_count\":") + value + ",\"camera_effect\":");
+		TempArchive weapon = writeW5fTunablesArchive(settings,
+			baseVariables + "\"mask\":4294967295}", primary);
+		char err[256] = {};
+		const s32 result = weaponGraphRuntimeRegisterWeaponArchive(70,
+			weapon.path.string().c_str(), err, sizeof(err));
+		const bool omitted = std::string(value) == "null" || std::string(value) == "\"\"";
+		if (std::string(value) == "12.75" || std::string(value) == "\"12\"" || omitted) {
+			REQUIRE(result == 0);
+			const auto *held = weaponGraphRuntimeGetHeldFunction(70, 0);
+			REQUIRE(held != nullptr);
+			REQUIRE(held->has_burst_count == (omitted ? 0 : 1));
+			if (!omitted) REQUIRE(held->burst_count == 12);
+			REQUIRE(held->flags == 0xffffffffu);
+		} else {
+			REQUIRE(result != 0);
+			REQUIRE(std::string(err).find("burst_count") != std::string::npos);
+		}
+		weaponGraphRuntimeClearAll();
+	}
+}
+
+TEST_CASE("weapon cadence conversion stays inside native counter and float ranges",
+		"[modding][pdxxx][weapon_graph][settings][source_authority][T-ASSETS-041]") {
+	for (const auto &setting : std::vector<std::pair<std::string, std::string>>{
+			{ "1e-30", "rpm" }, { "1e-40", "centiseconds" }, { "1e30", "ticks60" } }) {
+		CAPTURE(setting.first, setting.second);
+		weaponGraphRuntimeClearAll();
+		TempArchive weapon = writeW5fTunablesArchive(
+			"{\"schema\":\"pd.weapon_settings.v1\",\"fire_cadence\":{\"value\":" +
+			setting.first + ",\"unit\":\"" + setting.second + "\"}}",
+			"{\"schema\":\"pd.weapon_variables.v1\",\"base_damage\":1,\"pierce\":0,\"cam\":\"none\"}");
+		char err[256] = {};
+		REQUIRE(weaponGraphRuntimeRegisterWeaponArchive(70,
+			weapon.path.string().c_str(), err, sizeof(err)) != 0);
+		REQUIRE(std::string(err).find("timing range") != std::string::npos);
+		REQUIRE(weaponGraphRuntimeGetHeldFunction(70, 0) == nullptr);
+		weaponGraphRuntimeClearAll();
+	}
+	REQUIRE(weaponGraphAutogunFireInterval(1e-30f) == 2147483647);
+	REQUIRE(weaponGraphAutogunFireInterval(900.0f) == 2);
+}
+
+TEST_CASE("graph compiler decodes semantic keys and IDs before runtime registration",
+		"[modding][pdxxx][weapon_graph][compiler][source_authority][T-ASSETS-045]") {
+	const std::string escaped = R"({
+		"extras":{"schema":"ignored nested metadata","nodes":[false]},
+		"sch\u0065ma":"pd.weapon_graph.v1","asset_id":"base:w5f_weapon","graph_id":"primary",
+		"no\u0064es":[{"i\u0064":"fi\u0072e\u00e9","kind":"fire.hitscan",
+		"pa\u0072ams":{"mode":"primary","function_type":"shoot_single","\u0064amage":9.25,
+		"curve":[1,2.50,-3e0],"label":"line\nquote\"slash\\"}}],
+		"exports":[{"name":"pri\u006dary","node":"fire\u00e9"}]})";
+	std::string literal = escaped;
+	for (const auto &pair : std::vector<std::pair<std::string, std::string>>{
+			{ "\\u0065", "e" }, { "\\u0064", "d" }, { "\\u0072", "r" },
+			{ "\\u006d", "m" }, { "\\u00e9", "\xc3\xa9" } }) {
+		size_t pos;
+		while ((pos = literal.find(pair.first)) != std::string::npos)
+			literal.replace(pos, pair.first.size(), pair.second);
+	}
+	weapon_graph_ir_t a{}, b{};
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, escaped.data(),
+		static_cast<u32>(escaped.size()), &a, err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, literal.data(),
+		static_cast<u32>(literal.size()), &b, err, sizeof(err)) == 0);
+	REQUIRE(std::string(a.nodes[0].id) == "fire\xc3\xa9");
+	REQUIRE(std::string(a.exports[0].name) == "primary");
+	REQUIRE(a.exports[0].node == 0);
+	REQUIRE(std::string(a.ir_sha256) == b.ir_sha256);
+	REQUIRE(std::string(a.source_sha256) != b.source_sha256);
+	bool sawArray = false, sawLabel = false;
+	for (s32 i = 0; i < a.param_count; i++) {
+		if (std::string(a.params[i].key) == "curve") {
+			sawArray = true;
+			REQUIRE(a.params[i].type == WEAPON_GRAPH_PARAM_ARRAY);
+			REQUIRE(std::string(a.params[i].value) == "[1,2.50,-3e0]");
+		}
+		if (std::string(a.params[i].key) == "label") {
+			sawLabel = true;
+			REQUIRE(std::string(a.params[i].value) == "line\nquote\"slash\\");
+		}
+	}
+	REQUIRE(sawArray);
+	REQUIRE(sawLabel);
+	weaponGraphIrFree(&a);
+	weaponGraphIrFree(&b);
+	weaponGraphRuntimeClearAll();
+	REQUIRE(weaponGraphRuntimeRegisterWeaponGraphJson(70, "base:w5f_weapon",
+		escaped.data(), static_cast<u32>(escaped.size()), err, sizeof(err)) == 0);
+	const auto *held = weaponGraphRuntimeGetHeldFunction(70, 0);
+	REQUIRE(held != nullptr);
+	REQUIRE(held->damage == Approx(9.25f));
+	REQUIRE(std::string(held->node_id) == "fire\xc3\xa9");
+	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("graph JSON validation preserves numeric token types and unsigned masks",
+		"[modding][pdxxx][weapon_graph][compiler][source_authority][T-ASSETS-045]") {
+	std::string integerDigest;
+	for (const char *number : { "1", "1.0", "1e0" }) {
+		const std::string graph = std::string(R"({"schema":"pd.weapon_graph.v1",
+			"asset_id":"base:w5f_weapon","graph_id":"primary","nodes":[{"id":"fire",
+			"kind":"fire.hitscan","params":{"mode":"primary","flags":4294967295,"damage":)") +
+			number + R"(}}],"exports":[{"name":"primary","node":"fire"}]})";
+		weapon_graph_ir_t ir{};
+		char err[256] = {};
+		REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+			static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+		REQUIRE(std::string(ir.params[0].key) == "damage");
+		REQUIRE(ir.params[0].type == (std::string(number) == "1" ?
+			WEAPON_GRAPH_PARAM_INT : WEAPON_GRAPH_PARAM_FLOAT));
+		REQUIRE(std::string(ir.params[1].key) == "flags");
+		REQUIRE(ir.params[1].type == WEAPON_GRAPH_PARAM_INT);
+		REQUIRE(ir.params[1].i_value == -1);
+		REQUIRE(std::string(ir.params[1].value) == "4294967295");
+		if (std::string(number) == "1") integerDigest = ir.ir_sha256;
+		else REQUIRE(std::string(ir.ir_sha256) != integerDigest);
+		weaponGraphIrFree(&ir);
+	}
+}
+
+TEST_CASE("decoded graph channel strings reach actual prop lifecycle callbacks",
+		"[modding][pdxxx][weapon_graph][prop_graph][source_authority][T-ASSETS-045]") {
+	const std::string graph = R"({"sch\u0065ma":"pd.prop_behavior.v1","asset_id":"mod:decoded_prop",
+		"graph_id":"runtime","nodes":[{"id":"sp\u0061wn","kind":"event.spawn"},
+		{"id":"channel\u00e9","kind":"action.set_channel",
+		"params":{"ch\u0061nnel":"ready\n\u00e9\ud83d\ude80\/\\\"","value":true}}],
+		"edges":[{"from":"spawn","to":"channel\u00e9"}]})";
+	propGraphRuntimeReset();
+	char err[256] = {};
+	REQUIRE(propGraphRuntimeRegisterJson("mod:decoded_prop", graph.data(),
+		static_cast<u32>(graph.size()), err, sizeof(err)) == 0);
+	struct State { std::string channel; s32 value = 0; } state;
+	prop_graph_runtime_target_t target = {
+		&state, [](void *) -> s32 { return 1; }, [](void *, s32) {},
+		[](void *, f32) {}, [](void *, s32) {},
+		[](void *context, const char *channel, s32 value) {
+			auto *state = static_cast<State *>(context);
+			state->channel = channel;
+			state->value = value;
+		}
+	};
+	REQUIRE(propGraphRuntimeBind("mod:decoded_prop", 45, &target) == 1);
+	REQUIRE(state.channel == "ready\n\xc3\xa9\xf0\x9f\x9a\x80/\\\"");
+	REQUIRE(state.value == 1);
+	propGraphRuntimeReset();
+}
+
+TEST_CASE("graph compiler rejects malformed documents rows exports and retained strings",
+		"[modding][pdxxx][weapon_graph][compiler][source_authority][T-ASSETS-045]") {
+	const std::string prefix = R"({"schema":"pd.weapon_graph.v1","asset_id":"base:w5f_weapon","graph_id":"primary",)";
+	const std::string nodes = R"("nodes":[{"id":"fire","kind":"fire.hitscan","params":{"mode":"primary"}}])";
+	const std::string exports = R"("exports":[{"name":"primary","node":"fire"}])";
+	const std::string valid = prefix + nodes + ',' + exports + '}';
+	std::vector<std::pair<std::string, std::string>> invalid = {
+		{ valid + " trailing", "strict JSON" },
+		{ prefix + nodes + ',' + exports + ",}", "strict JSON" },
+		{ prefix + nodes + R"(,"no\u0064es":[],)" + exports + '}', "strict JSON" },
+		{ prefix + nodes + ',' + exports + R"(,"ignored":{"x":1,"x":2}})", "strict JSON" },
+		{ prefix + nodes + ',' + exports + R"(,"ignored":"\q"})", "strict JSON" },
+		{ prefix + nodes + ',' + exports + R"(,"ignored":"\ud800"})", "strict JSON" },
+		{ prefix + nodes + ',' + exports + R"(,"ignored":"\u0000"})", "strict JSON" },
+		{ prefix + nodes + R"(,"exports":[{"name":"primary","node":"fire"},{"name":"pri\u006dary","node":"fire"}]})", "duplicate export name" },
+		{ prefix + nodes + R"(,"exports":[{"name":"","node":"fire"}]})", "export missing name/node" },
+		{ prefix + nodes + R"(,"exports":[{"name":"primary","node":"absent"}]})", "references missing node" },
+		{ prefix + R"("nodes":[{"id":"fire","kind":"fire.hitscan","params":[]}],)" + exports + '}', "params must be an object" },
+		{ prefix + R"("nodes":[{"id":"fire","kind":"fire.hitscan"},{"id":"fi\u0072e","kind":"fire.hitscan"}],)" + exports + '}', "duplicate graph node id" },
+	};
+	for (const char *key : { "nodes", "edges", "exports", "subgraphs", "shared_context" }) {
+		for (const char *rows : { "false", "{}", "[false]", "[{},false]", "[1,2]" }) {
+			std::string graph = prefix;
+			if (std::string(key) != "nodes") graph += nodes + ',';
+			if (std::string(key) != "exports") graph += exports + ',';
+			graph += '"' + std::string(key) + "\":" + rows + '}';
+			invalid.emplace_back(graph, key);
+		}
+	}
+	for (const auto &entry : std::vector<std::pair<std::string, std::string>>{
+			{ "id", std::string(WEAPON_GRAPH_IR_ID_LEN, 'x') },
+			{ "subgraph", std::string(WEAPON_GRAPH_IR_ID_LEN, 'x') } }) {
+		std::string graph = prefix + R"("nodes":[{)";
+		if (entry.first != "id") graph += R"("id":"fire",)";
+		graph += '"' + entry.first + "\":\"" + entry.second + R"(","kind":"fire.hitscan"}],)" + exports + '}';
+		invalid.emplace_back(graph, entry.first == "id" ? "missing id" : "subgraph");
+	}
+	invalid.emplace_back(prefix + R"("nodes":[{"id":"fire","kind":"fire.hitscan","params":{")" +
+		std::string(WEAPON_GRAPH_IR_KEY_LEN, 'x') + R"(":1}}],)" + exports + '}', "parameter key");
+	invalid.emplace_back(prefix + R"("nodes":[{"id":"fire","kind":"fire.hitscan","params":{"label":")" +
+		std::string(WEAPON_GRAPH_IR_VALUE_LEN, 'x') + R"("}}],)" + exports + '}', "string param label");
+	for (const char *key : { "asset_id", "graph_id" }) {
+		std::string graph = valid;
+		const std::string oldValue = std::string(key) == "asset_id" ? "base:w5f_weapon" : "primary";
+		const size_t valueStart = graph.find(std::string("\"") + key + "\":\"") + std::strlen(key) + 4;
+		graph.replace(valueStart, oldValue.size(), std::string(CATALOG_ID_LEN + WEAPON_GRAPH_IR_ID_LEN, 'x'));
+		invalid.emplace_back(graph, key);
+	}
+	for (const auto &entry : invalid) {
+		INFO(entry.first);
+		weapon_graph_ir_t ir{};
+		char err[256] = {};
+		REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, entry.first.data(),
+			static_cast<u32>(entry.first.size()), &ir, err, sizeof(err)) != 0);
+		INFO(err);
+		REQUIRE(std::string(err).find(entry.second) != std::string::npos);
+		weaponGraphRuntimeClearAll();
+		REQUIRE(weaponGraphRuntimeRegisterWeaponGraphJson(70, "base:w5f_weapon",
+			entry.first.data(), static_cast<u32>(entry.first.size()), err, sizeof(err)) != 0);
+		REQUIRE(weaponGraphRuntimeGetHeldFunction(70, 0) == nullptr);
+		weaponGraphRuntimeClearAll();
+	}
+}
+
+TEST_CASE("graph decoded identifier capacity is measured in UTF8 bytes without truncation",
+		"[modding][pdxxx][weapon_graph][compiler][source_authority][T-ASSETS-045]") {
+	for (size_t bytes : { WEAPON_GRAPH_IR_ID_LEN - 1u, WEAPON_GRAPH_IR_ID_LEN + 0u }) {
+		const std::string id = std::string(bytes - 2, 'a') + "\xc3\xa9";
+		const std::string escapedId = std::string(bytes - 2, 'a') + "\\u00e9";
+		const std::string graph = std::string(R"({"schema":"pd.weapon_graph.v1","asset_id":"base:w5f_weapon",
+			"graph_id":"primary","nodes":[{"id":")") + escapedId +
+			R"(","kind":"fire.hitscan","params":{"mode":"primary"}}],"exports":[{"name":"primary","node":")" + id + R"("}]})";
+		weapon_graph_ir_t ir{};
+		char err[256] = {};
+		const s32 result = weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+			static_cast<u32>(graph.size()), &ir, err, sizeof(err));
+		if (bytes < WEAPON_GRAPH_IR_ID_LEN) {
+			REQUIRE(result == 0);
+			REQUIRE(std::string(ir.nodes[0].id) == id);
+			REQUIRE(ir.exports[0].node == 0);
+			weaponGraphIrFree(&ir);
+		} else {
+			REQUIRE(result != 0);
+			REQUIRE(std::string(err).find("missing id") != std::string::npos);
+		}
+	}
+}
+
+TEST_CASE("weapon source registration validates every split document and decodes tunables",
+		"[modding][pdxxx][weapon_graph][settings][source_authority][T-ASSETS-045]") {
+	const std::string settings = R"({"sch\u0065ma":"pd.weapon_settings.v1","settings":[{"n\u0061me":"fire_cadence","value":12,"unit":"ticks60"}]})";
+	const std::string variables = R"({"schema":"pd.weapon_variables.v1","variables":[{"name":"caf\u00e9","value":7.25}],"pierce":0,"cam":"none"})";
+	const std::string presentation = R"({"schema":"pd.weapon.presentation.v1","zoom_\u0066ov":33.5,"crosshair":"de\u0066ault"})";
+	std::string primary = kW5fPrimaryGraph;
+	primary.replace(primary.find("$base_damage"), std::strlen("$base_damage"), "$caf\xc3\xa9");
+	const std::vector<std::string> sources = { primary, kW5fSecondaryGraph,
+		kW5fSharedContext, settings, variables, presentation };
+	auto registerSources = [](const std::vector<std::string> &s, char *err, size_t cap) {
+		return weaponGraphRuntimeRegisterWeaponSourceJson(70, "base:w5f_weapon",
+			s[0].data(), static_cast<u32>(s[0].size()), s[1].data(), static_cast<u32>(s[1].size()),
+			s[2].data(), static_cast<u32>(s[2].size()), s[3].data(), static_cast<u32>(s[3].size()),
+			s[4].data(), static_cast<u32>(s[4].size()), s[5].data(), static_cast<u32>(s[5].size()), err, cap);
+	};
+	weaponGraphRuntimeClearAll();
+	char err[256] = {};
+	for (const std::string &variableSource : std::vector<std::string>{ variables,
+			R"({"schema":"pd.weapon_variables.v1","caf\u00e9":7.25,"pierce":0,"cam":"none"})" }) {
+		auto positive = sources;
+		positive[4] = variableSource;
+		REQUIRE(registerSources(positive, err, sizeof(err)) == 0);
+		const auto *held = weaponGraphRuntimeGetHeldFunction(70, 0);
+		REQUIRE(held != nullptr);
+		REQUIRE(held->damage == Approx(7.25f));
+		REQUIRE(held->zoom_fov == Approx(33.5f));
+		REQUIRE(held->recoverytime_ticks60 == 12);
+		weaponGraphRuntimeClearAll();
+	}
+	for (size_t file = 0; file < sources.size(); file++) {
+		for (const char *suffix : { " trailing", R"(,"ignored":{"duplicate":1,"dupli\u0063ate":2}})" }) {
+			auto invalid = sources;
+			if (suffix[0] == ',') {
+				invalid[file].erase(invalid[file].find_last_of('}'));
+				invalid[file] += suffix;
+			} else invalid[file] += suffix;
+			CAPTURE(file, suffix);
+			REQUIRE(registerSources(invalid, err, sizeof(err)) != 0);
+			REQUIRE(std::string(err).find("strict JSON") != std::string::npos);
+			REQUIRE(weaponGraphRuntimeGetHeldFunction(70, 0) == nullptr);
+		}
+	}
+	for (size_t file : { 3u, 4u }) {
+		const std::string label = file == 3 ? "settings" : "variables";
+		for (const std::string &rows : std::vector<std::string>{ "null", "[false]", "[{},3]",
+				R"([{"name":false,"key":"zoom_fov","value":12}])",
+				R"([{"name":"","value":12}])",
+				R"([{"name":")" + std::string(WEAPON_GRAPH_IR_KEY_LEN, 'x') + R"(","value":12}])" }) {
+			auto invalid = sources;
+			invalid[file] = "{\"schema\":\"pd.weapon_" + label + ".v1\",\"" + label + "\":" + rows + '}';
+			INFO(invalid[file]);
+			REQUIRE(registerSources(invalid, err, sizeof(err)) != 0);
+			REQUIRE(std::string(err).find(label) != std::string::npos);
+			REQUIRE(weaponGraphRuntimeGetHeldFunction(70, 0) == nullptr);
+		}
+	}
+	for (const auto &row : std::vector<std::pair<size_t, std::string>>{
+			{ 0, "nodes" }, { 1, "exports" }, { 0, "edges" }, { 2, "contexts" } }) {
+		auto invalid = sources;
+		const size_t keyStart = invalid[row.first].find('"' + row.second + '"');
+		if (keyStart == std::string::npos) {
+			invalid[row.first].erase(invalid[row.first].find_last_of('}'));
+			invalid[row.first] += ",\"" + row.second + "\":[false]}";
+		} else {
+			const size_t arrayStart = invalid[row.first].find('[', keyStart);
+			invalid[row.first].insert(arrayStart + 1, "false,");
+		}
+		REQUIRE(registerSources(invalid, err, sizeof(err)) != 0);
+		REQUIRE(std::string(err).find(row.second) != std::string::npos);
+		REQUIRE(weaponGraphRuntimeGetHeldFunction(70, 0) == nullptr);
+	}
+	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("graph catalog reference boundaries preserve exact projectile selection",
+		"[modding][pdxxx][weapon_graph][source_authority][T-ASSETS-045]") {
+	weaponGraphRuntimeClearAll();
+	weaponGraphRuntimeSetEnabled(1);
+	const std::string id = "mod:" + std::string(CATALOG_ID_LEN - 7, 'a') + "\xc3\xa9";
+	REQUIRE(id.size() == CATALOG_ID_LEN - 1);
+	const std::string projectile = std::string(R"({"schema":"pd.projectile_graph.v1","asset_id":")") + id +
+		R"(","graph_id":"motion","nodes":[{"id":"motion","kind":"projectile.motion","params":{"motion_kind":"ballistic"}}]})";
+	char err[256] = {};
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, id.c_str(),
+		projectile.data(), static_cast<u32>(projectile.size()), err, sizeof(err)) == 0);
+	const auto *selected = weaponGraphRuntimeGetProjectile(id.c_str());
+	REQUIRE(selected != nullptr);
+	for (const std::string &reference : { id, id + 'x' }) {
+		weaponGraphRuntimeClearWeapon(70);
+		const std::string graph = std::string(R"({"schema":"pd.weapon_graph.v1","asset_id":"base:w5f_weapon",
+			"graph_id":"primary","nodes":[{"id":"fire","kind":"fire.hitscan","params":{"mode":"primary","projectile_ref":")") +
+			reference + R"("}}],"exports":[{"name":"primary","node":"fire"}]})";
+		const s32 result = weaponGraphRuntimeRegisterWeaponGraphJson(70, "base:w5f_weapon",
+			graph.data(), static_cast<u32>(graph.size()), err, sizeof(err));
+		if (reference == id) {
+			REQUIRE(result == 0);
+			const auto *held = weaponGraphRuntimeGetHeldFunction(70, 0);
+			REQUIRE(held != nullptr);
+			REQUIRE(std::string(held->projectile_ref) == id);
+			REQUIRE(weaponGraphRuntimeGetProjectileForHeldFunction(held) == selected);
+		} else {
+			REQUIRE(result != 0);
+			REQUIRE(std::string(err).find("projectile_ref") != std::string::npos);
+			REQUIRE(weaponGraphRuntimeGetHeldFunction(70, 0) == nullptr);
+			REQUIRE(weaponGraphRuntimeGetProjectile(id.c_str()) == selected);
+		}
+	}
+	weaponGraphRuntimeClearAll();
+}
+
+TEST_CASE("graph finite fall vectors fit the exact runtime destination before capture",
+		"[modding][pdxxx][weapon_graph][source_authority][T-ASSETS-045]") {
+	for (size_t bytes : { 63u, 64u, 77u }) {
+		weaponGraphRuntimeClearAll();
+		const std::string vector = std::string(bytes - 7, ' ') + "0,-2,-3";
+		const std::string graph = std::string(R"({"schema":"pd.projectile_graph.v1","asset_id":"mod:vector",
+			"graph_id":"wall","nodes":[{"id":"wall","kind":"projectile.wall_hugger","params":{"fall_vector":")") + vector + R"("}}]})";
+		char err[256] = {};
+		const s32 result = weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_PROJECTILE, "mod:vector",
+			graph.data(), static_cast<u32>(graph.size()), err, sizeof(err));
+		if (bytes == 63) {
+			REQUIRE(result == 0);
+			const auto *runtime = weaponGraphRuntimeGetProjectile("mod:vector");
+			REQUIRE(runtime != nullptr);
+			REQUIRE(std::string(runtime->wall_fall_vector) == vector);
+			REQUIRE(runtime->wall_fall_vec[0] == Approx(0.0f));
+			REQUIRE(runtime->wall_fall_vec[1] == Approx(-2.0f));
+			REQUIRE(runtime->wall_fall_vec[2] == Approx(-3.0f));
+		} else {
+			REQUIRE(result != 0);
+			REQUIRE(std::string(err).find("fall_vector exceeds runtime string capacity") != std::string::npos);
+			REQUIRE(weaponGraphRuntimeGetProjectile("mod:vector") == nullptr);
+		}
+		weaponGraphRuntimeClearAll();
+	}
+}
+
+TEST_CASE("graph runtime string fields reject overflow while retaining full metadata capacity",
+		"[modding][pdxxx][weapon_graph][source_authority][T-ASSETS-045]") {
+	for (size_t bytes : { 63u, 64u }) {
+		weaponGraphRuntimeClearAll();
+		const std::string policy(bytes, 'x');
+		const std::string detail(WEAPON_GRAPH_IR_VALUE_LEN - 1, 'd');
+		const std::string graph = std::string(R"({"schema":"pd.entity_graph.v1","asset_id":"mod:owner",
+			"graph_id":"cleanup","nodes":[{"id":"owner","kind":"entity.owner_cleanup",
+			"params":{"owner_lost_behavior":")") + policy + R"(","runtime_detail":")" + detail + R"("}}]})";
+		char err[256] = {};
+		const s32 result = weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_ENTITY, "mod:owner",
+			graph.data(), static_cast<u32>(graph.size()), err, sizeof(err));
+		if (bytes == 63) {
+			REQUIRE(result == 0);
+			const auto *runtime = weaponGraphRuntimeGetEntity("mod:owner");
+			REQUIRE(runtime != nullptr);
+			REQUIRE(std::string(runtime->owner_lost_behavior) == policy);
+			REQUIRE(std::string(runtime->runtime_detail) == detail);
+		} else {
+			REQUIRE(result != 0);
+			REQUIRE(std::string(err).find("owner_lost_behavior exceeds runtime string capacity") != std::string::npos);
+			REQUIRE(weaponGraphRuntimeGetEntity("mod:owner") == nullptr);
+		}
+		weaponGraphRuntimeClearAll();
+	}
 }
 
 TEST_CASE("weapon graph runtime test override remains scoped to pd-tests",
@@ -5253,11 +6049,11 @@ TEST_CASE("weapon graph MP agreement is protocol-versioned after cutover",
 	REQUIRE(net.find("weaponGraphRuntimeNetRestoreEnabled()") == std::string::npos);
 
 	const std::string netHeader = readFile("port/include/net/net.h");
-	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 58") != std::string::npos);
+	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 59") != std::string::npos);
 	REQUIRE(netHeader.find("v54/v55") != std::string::npos);
 
 	const std::string versions = readFile("tests/test_versions.cpp");
-	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 58") != std::string::npos);
+	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 59") != std::string::npos);
 }
 
 TEST_CASE("bot-profile catalog identity reaches UI save wire manifest and runtime",
@@ -5422,9 +6218,9 @@ TEST_CASE("archive-backed typed weapon sources keep transport-root chain",
 	REQUIRE(bondgun.find("weaponnum >= WEAPON_CUSTOM_START && weaponnum < WEAPON_CUSTOM_END") != std::string::npos);
 	REQUIRE(bondgun.find("gunctrl.customgunfuncs") != std::string::npos);
 	REQUIRE(bondgun.find("bgunCanStoreFunctionSelection(g_Vars.currentplayer->gunctrl.weaponnum)") != std::string::npos);
-	REQUIRE(bondgun.find("bgunResolveCatalogModelSourcePath") != std::string::npos);
-	REQUIRE(bondgun.find("bgunPathEndsWithNoCase(source_path, \".pdmesh\")") != std::string::npos);
-	REQUIRE(bondgun.find("fsFileSize(candidate) > 0") != std::string::npos);
+	REQUIRE(bondgun.find("modelSourceResolvePath") != std::string::npos);
+	REQUIRE(bondgun.find("#include \"model_source_path.h\"") != std::string::npos);
+	REQUIRE(bondgun.find("player->gunctrl.loadhandle.provider == fileProvider()") != std::string::npos);
 	REQUIRE(bondgun.find("BONDGUN.SOURCE: loaded catalog model source") != std::string::npos);
 	REQUIRE(bondgun.find("player->gunctrl.gunmodeldef == NULL") != std::string::npos);
 	REQUIRE(bondgun.find("noModel=%d") != std::string::npos);
@@ -5446,13 +6242,16 @@ TEST_CASE("archive-backed typed weapon sources keep transport-root chain",
 	REQUIRE(modelSlots.find("_Static_assert(MODEL_CUSTOM_SOURCE_FILENUM_END <= 0x800") != std::string::npos);
 
 	const std::string runtime = readFile("port/src/weapon_graph_runtime.c");
-	REQUIRE(runtime.find("assetCatalogGetMutable(mesh->catalog_id)") != std::string::npos);
-	REQUIRE(runtime.find("e && e->type != ASSET_MODEL") != std::string::npos);
-	REQUIRE(runtime.find("s_registerEmbeddedMeshDeps(archive_path, \"\", archive_bytes") != std::string::npos);
-	REQUIRE(runtime.find("bind_weapon_model_source || e->source.primary.provider == NULL") != std::string::npos);
-	REQUIRE(runtime.find("assetCatalogModelPrivateSourceFilenum(slot)") != std::string::npos);
-	REQUIRE(runtime.find("parent->source_filenum = source_filenum") != std::string::npos);
-	REQUIRE(runtime.find("WEAPONGRAPH.MESH.INGEST: id=%s slot=%d filenum=%d source=%s") != std::string::npos);
+	REQUIRE(runtime.find("s_registerEmbeddedMeshDeps") == std::string::npos);
+	REQUIRE(runtime.find("assetCatalogResolveModelPrivateSlot") == std::string::npos);
+	const std::string meshScanner = readFile("port/src/assetcatalog_scanner.c");
+	REQUIRE(meshScanner.find("weaponNestedPrepareRecursiveMeshes(&pending") != std::string::npos);
+	REQUIRE(meshScanner.find("weaponNestedPrepareMember(p, *pending, *count") != std::string::npos);
+	REQUIRE(meshScanner.find("weaponNestedPrepareMember(p, pending, pending_count") != std::string::npos);
+	REQUIRE(meshScanner.find("assetCatalogSnapshotCustomModelSlots()") != std::string::npos);
+	REQUIRE(meshScanner.find("assetCatalogRestoreCustomModelSlots(model_slot_checkpoint)") != std::string::npos);
+	REQUIRE(meshScanner.find("owner->source_filenum = mesh->source_filenum") != std::string::npos);
+	REQUIRE(meshScanner.find("loaderWalkerBindMeshSource(entry, &p->mesh_source") != std::string::npos);
 
 	const std::string weaponFile = readFile("src/game/game_0b0fd0.c");
 	REQUIRE(weaponFile.find("if (weaponnum >= WEAPON_CUSTOM_START)") != std::string::npos);
@@ -5743,16 +6542,20 @@ TEST_CASE("external audio descriptors use standard files through VFS-capable loa
 	REQUIRE(scanner.find("iniGet(ini, \"audio_category\"") != std::string::npos);
 
 	std::string audio = readFile("port/src/audio.c");
-	REQUIRE(audio.find("fsFileLoad(path, &fileSize)") != std::string::npos);
-	REQUIRE(audio.find("SDL_LoadWAV_RW") != std::string::npos);
+	REQUIRE(audio.find("modMusicLoadAudioPcm22050(path, &samples, &source_rate)") != std::string::npos);
+	REQUIRE(audio.find("SDL_LoadWAV_RW") == std::string::npos);
 
 	std::string modmusic = readFile("port/src/modmusic.c");
 	REQUIRE(modmusic.find("modVfsCanResolve(file_path)") != std::string::npos);
 	REQUIRE(modmusic.find("fsFileLoad(path, &fileSize)") != std::string::npos);
-	REQUIRE(modmusic.find("stb_vorbis_decode_memory") != std::string::npos);
+	REQUIRE(modmusic.find("SDL_LoadWAV_RW") != std::string::npos);
+	REQUIRE(modmusic.find("stb_vorbis_open_memory") != std::string::npos);
+	REQUIRE(modmusic.find("stb_vorbis_get_samples_short_interleaved") != std::string::npos);
+	REQUIRE(modmusic.find("stb_vorbis_close") != std::string::npos);
 
 	std::string vorbis = readFile("port/include/external/stb_vorbis.h");
-	REQUIRE(vorbis.find("stb_vorbis_decode_memory") != std::string::npos);
+	REQUIRE(vorbis.find("stb_vorbis_open_memory") != std::string::npos);
+	REQUIRE(vorbis.find("stb_vorbis_get_samples_short_interleaved") != std::string::npos);
 
 	std::string distrib = readFile("port/src/net/netdistrib.c");
 	REQUIRE(distrib.find("distribParseAudioCategoryValue") != std::string::npos);
@@ -6138,6 +6941,12 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(compiler.find("$S/mod-cache") != std::string::npos);
 	REQUIRE(compiler.find("$B/mod-cache") != std::string::npos);
 	REQUIRE(compiler.find("cacheBuildPaths") != std::string::npos);
+	REQUIRE(compiler.find("cacheBuildCompactPaths") != std::string::npos);
+	REQUIRE(compiler.find("cacheHashField(&hash, entry->category)") != std::string::npos);
+	REQUIRE(compiler.find("cacheHashField(&hash, entry->id)") != std::string::npos);
+	REQUIRE(compiler.find("cacheHashField(&hash, source_digest_hex)") != std::string::npos);
+	REQUIRE(compiler.find("\"$H/mc\", \"$S/mc\", \"$B/mc\"") != std::string::npos);
+	REQUIRE(compiler.find("if (!selected) {\n\t\t\tstatic const char *compact_roots[]") != std::string::npos);
 	REQUIRE(compiler.find("private cache root '%s' exceeds the platform path budget") !=
 	        std::string::npos);
 	REQUIRE(compiler.find(".pdmc") != std::string::npos);
@@ -6240,7 +7049,9 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(conformance.find("validate_mission_source_contract") != std::string::npos);
 	REQUIRE(conformance.find("validate_mission_briefing_json_schema") == std::string::npos);
 	REQUIRE(conformance.find("pdmesh_gltf_json_and_bin") != std::string::npos);
-	REQUIRE(conformance.find("glTF external binary buffers are not allowed") != std::string::npos);
+	// Standard glTF buffers use the shared source loader and archive-relative
+	// validation; rejecting every external buffer is an obsolete source policy.
+	REQUIRE(conformance.find("load_gltf_buffer(gltf, source_member, archive)") != std::string::npos);
 	REQUIRE(conformance.find("POSITION vertex") != std::string::npos);
 	REQUIRE(conformance.find("model.glb") != std::string::npos);
 	REQUIRE(conformance.find("model.gltf") != std::string::npos);
@@ -6571,9 +7382,9 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(scanner.find("e->source_animnum = -1") != std::string::npos);
 	REQUIRE(scanner.find("e->source_animnum = slot") != std::string::npos);
 	REQUIRE(scanner.find("#include \"loader_pool.h\"") != std::string::npos);
-	REQUIRE(scanner.find("registerAnimationCommandSource(e->id, cf)") != std::string::npos);
-	REQUIRE(scanner.find("loaderPoolParseAnimationSourceJson(json, json_size, source_path)") != std::string::npos);
-	REQUIRE(scanner.find("loaderPoolFinalize()") != std::string::npos);
+	REQUIRE(scanner.find("registerAnimationCommandSource(e->id, cf, batch)") != std::string::npos);
+	REQUIRE(scanner.find("loaderAnimationSourceBatchStage(batch, json, json_size, source_path, id)") != std::string::npos);
+	REQUIRE(scanner.find("loaderAnimationSourceBatchCommit(batch)") != std::string::npos);
 
 	std::string distrib = readFile("port/src/net/netdistrib.c");
 	REQUIRE(distrib.find("\"head.ini\"") != std::string::npos);
@@ -6585,7 +7396,7 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(distrib.find("#include \"loader_pool.h\"") != std::string::npos);
 	REQUIRE(distrib.find("if (!distribRegisterAnimationCommandSource(e->id, dirpath,") != std::string::npos);
 	REQUIRE(distrib.find("cf)) return 0;") != std::string::npos);
-	REQUIRE(distrib.find("loaderPoolParseAnimationSourceJson(json, json_size, path)") != std::string::npos);
+	REQUIRE(distrib.find("loaderAnimationSourceBatchStage(batch, json, json_size, path, id)") != std::string::npos);
 	REQUIRE(distrib.find("e->ext.anim.bytes_per_frame = iniGetInt(ini, \"bytes_per_frame\", 0)") != std::string::npos);
 	REQUIRE(distrib.find("e->ext.anim.header_len = iniGetInt(ini, \"header_len\", 0)") != std::string::npos);
 	REQUIRE(distrib.find("e->ext.anim.framelen = iniGetInt(ini, \"framelen\", 0)") != std::string::npos);
@@ -7268,8 +8079,24 @@ TEST_CASE("modder examples are zip-openable typed pdxxx asset archives",
 	{
 		weapon_graph_ir_t weaponIr;
 		char err[256] = {};
-		REQUIRE(weaponGraphCompileArchiveFile(weaponArchiveFullPath.c_str(),
-			ASSET_WEAPON, &weaponIr, err, sizeof(err)) == 0);
+		const s32 exampleCompileResult = weaponGraphCompileArchiveFile(weaponArchiveFullPath.c_str(),
+			ASSET_WEAPON, &weaponIr, err, sizeof(err));
+		INFO(err);
+		REQUIRE(exampleCompileResult == 0);
+		REQUIRE(weaponIr.context_count == 4);
+		REQUIRE(std::string(weaponIr.contexts[0].name) == "owner_player");
+		REQUIRE(std::string(weaponIr.contexts[0].source) == "equipped_player");
+		REQUIRE(std::string(weaponIr.contexts[3].lifetime) == "projectile_life");
+		weapon_graph_ir_t needlerIr;
+		const std::string needlerPath = std::string(PD_SOURCE_DIR) + "/dev-mods/needler/needler.pdweapon";
+		const s32 needlerCompileResult = weaponGraphCompileArchiveFile(needlerPath.c_str(),
+			ASSET_WEAPON, &needlerIr, err, sizeof(err));
+		INFO(err);
+		REQUIRE(needlerCompileResult == 0);
+		REQUIRE(needlerIr.context_count == 4);
+		REQUIRE(std::string(needlerIr.contexts[1].source) == "equipped_player_team");
+		REQUIRE(std::string(needlerIr.contexts[2].type) == "weapon_instance_ref");
+		weaponGraphIrFree(&needlerIr);
 		asset_entry_t reticle = {};
 		strncpy(reticle.id, "example:tri_reticle", sizeof(reticle.id) - 1);
 		reticle.type = ASSET_UI;
@@ -7993,7 +8820,7 @@ TEST_CASE("Modding Hub weapon tool supports template imports and pdweapon save",
 	REQUIRE(hub.find("Create + Enable") != std::string::npos);
 	REQUIRE(hub.find("identityGetActiveProfile") != std::string::npos);
 	REQUIRE(hub.find("modmgrGetModValid") != std::string::npos);
-	REQUIRE(hub.find("modmgrApplyChanges();") != std::string::npos);
+	REQUIRE(hub.find("modmgrApplyChangesChecked(1, &applyResult)") != std::string::npos);
 	REQUIRE(hub.find("Saved, enabled, and catalog updated") != std::string::npos);
 	REQUIRE(hub.find("s_WeaponEditWeaponId") == std::string::npos);
 	REQUIRE(hub.find("InputInt(\"Weapon ID\"") == std::string::npos);
@@ -9131,7 +9958,10 @@ TEST_CASE("base language extractor emits editable json payloads",
 	REQUIRE(!lang.empty());
 
 	REQUIRE(lang.find("s_buildStringsJson") != std::string::npos);
-	REQUIRE(lang.find("s_langStringCount") != std::string::npos);
+	REQUIRE(lang.find("langSourceExportNative") != std::string::npos);
+	const std::string source = readFile("port/src/lang_source.cpp");
+	REQUIRE(source.find("language_native_table_extent_ambiguous") != std::string::npos);
+	REQUIRE(source.find("if (!offset) json += \"null\"") != std::string::npos);
 	REQUIRE(lang.find("rzipIs1173") != std::string::npos);
 	REQUIRE(lang.find("rzipInflate") != std::string::npos);
 	REQUIRE(lang.find("PDLANG_EXTRACT_VERSION") != std::string::npos);
@@ -9278,22 +10108,48 @@ TEST_CASE("animation compiler reads full embedded gltf buffer uris",
 	const std::string compiler = readFile("port/src/modasset_compiler.c");
 	REQUIRE(!compiler.empty());
 
-	REQUIRE(compiler.find("jsonObjectStringAlloc") != std::string::npos);
 	REQUIRE(compiler.find("char uri[4096]") == std::string::npos);
 	REQUIRE(compiler.find("char uri[8192]") == std::string::npos);
 
-	const auto animationParser =
-		compiler.find("static s32 parseGltfTextAnimationClip");
-	REQUIRE(animationParser != std::string::npos);
-	const auto animationAlloc =
-		compiler.find("jsonObjectStringAlloc(buffer_object, \"uri\")",
-			animationParser);
-	REQUIRE(animationAlloc != std::string::npos);
-	const auto decode =
-		compiler.find("decodeGltfDataUri(uri, &bin_size)", animationAlloc);
+	const std::string animationParser = sourceFunctionBlock(compiler,
+		"static s32 parseGltfTextAnimationClip");
+	const auto animationLoad = animationParser.find(
+		"gltfLoadTextBuffer(NULL, root, source_path, 1, &bin, &bin_size, &error)");
+	const auto animationParse = animationParser.find(
+		"parseGltfAnimationClipFromJson(json, size, bin, bin_size, 1, clip)");
+	REQUIRE(animationLoad != std::string::npos);
+	REQUIRE(animationParse != std::string::npos);
+	REQUIRE(animationLoad < animationParse);
+
+	const std::string loader = sourceFunctionBlock(compiler,
+		"static s32 gltfLoadTextBuffer");
+	REQUIRE(loader.find("json_size = (size_t)(root.end - root.start)") !=
+		std::string::npos);
+	const auto uriAlloc = loader.find("uri = malloc(json_size + 1)");
+	const auto declaration = loader.find(
+		"modAssetGltfOptionalBufferDocument(root.start, json_size, 0,");
+	const auto decode = loader.find("decodeGltfDataUri(uri, declared, &size)");
+	REQUIRE(uriAlloc != std::string::npos);
+	REQUIRE(declaration != std::string::npos);
 	REQUIRE(decode != std::string::npos);
-	const auto uriFree = compiler.find("free(uri)", decode);
-	REQUIRE(uriFree != std::string::npos);
+	REQUIRE(uriAlloc < declaration);
+	REQUIRE(declaration < decode);
+	const auto bufferless = loader.find("if (declared == 0)");
+	REQUIRE(bufferless != std::string::npos);
+	REQUIRE(declaration < bufferless);
+	REQUIRE(bufferless < decode);
+	REQUIRE(loader.find("jsonFindKeyInSpan(root, \"buffers\")") ==
+		std::string::npos);
+	REQUIRE(loader.find("uri, json_size + 1, &declared") != std::string::npos);
+	REQUIRE(loader.find("free(uri)", decode) != std::string::npos);
+	REQUIRE(loader.find("modAssetGltfBufferSize(declared, size, 0)", decode) !=
+		std::string::npos);
+	const std::string decoder = sourceFunctionBlock(compiler,
+		"static u8 *decodeGltfDataUri");
+	REQUIRE(decoder.find("modAssetGltfDataUriSize(uri, declared_size)") !=
+		std::string::npos);
+	REQUIRE(decoder.find("base64DecodeAlloc(comma + 1, strlen(comma + 1), out_size)") !=
+		std::string::npos);
 
 	REQUIRE(compiler.find("parseGltfAnimationNativeExtras") !=
 	        std::string::npos);
@@ -9700,146 +10556,64 @@ TEST_CASE("base mesh extractor emits standard obj geometry payloads",
 	        std::string::npos);
 }
 
-TEST_CASE("B-911 embedded mesh scan discovers nested .pdmesh dependencies",
-          "[modding][pdxxx][model_slots][c3848]") {
-	/* A .pdprojectile embedding its visual mesh, the way the Needler's
-	 * primary/secondary projectiles embed needle.pdmesh. The scan must find
-	 * the mesh, read its declared catalog_id + geometry member from mesh.ini,
-	 * and apply the parent-namespace gate. */
-	TempArchive mesh = writeTypedArchiveEntries("b911-mesh", ".pdmesh", {
-		{"mesh.ini",
-		 "; embedded needle-style mesh\n"
-		 "[mesh]\n"
-		 "catalog_id = example:proj_mesh\n"
-		 "model_file = model.gltf\n"},
-		{"model.gltf", "{\"asset\":{\"version\":\"2.0\"}}\n"},
-		{"_meta/manifest.json", "{}\n"},
+TEST_CASE("embedded mesh public model descriptor selects standard geometry",
+          "[modding][pdxxx][mesh-ingress][source]") {
+	TempArchive mesh = writeTypedArchiveEntries("mesh-ingress-public", ".pdmesh", {
+		{"mesh.ini", "[model]\ncatalog_id = example:visual\nkind = mesh\ngeometry_file = selected.obj\n"},
+		{"selected.obj", "v 0 0 0\nv 3 0 0\nv 0 3 0\nf 1 2 3\n"},
 	});
-	const std::string meshBytes = readFile(mesh.path.string().c_str());
-
-	TempArchive projectile = writeTypedArchiveEntries("b911-proj", ".pdprojectile", {
-		{"projectile.ini",
-		 "[projectile]\n"
-		 "catalog_id = example:proj\n"
-		 "behavior_graph = behavior.graph.json\n"},
-		{"behavior.graph.json", "{}\n"},
-		{"dependencies/assets/models/proj.pdmesh", meshBytes},
-	});
-	const std::string projBytes = readFile(projectile.path.string().c_str());
-
-	weapon_graph_embedded_mesh_t found[WEAPON_GRAPH_EMBEDDED_MESH_MAX];
-	s32 count = weaponGraphArchiveScanEmbeddedMeshesBytes(projBytes.data(),
-		static_cast<u32>(projBytes.size()), "example:weapon", found,
-		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
-	REQUIRE(count == 1);
-	REQUIRE(std::string(found[0].archive_entry) ==
-		"dependencies/assets/models/proj.pdmesh");
-	REQUIRE(std::string(found[0].catalog_id) == "example:proj_mesh");
-	REQUIRE(std::string(found[0].geometry) == "model.gltf");
+	const std::string bytes = readFile(mesh.path.string().c_str());
+	char err[256] = {};
+	REQUIRE(assetArchiveValidateBytes(bytes.data(), static_cast<u32>(bytes.size()),
+		"visual.pdmesh", ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) == 0);
+	loader_walker_mesh_source_plan_t plan = {};
+	REQUIRE(loaderWalkerMeshSourcePlanManifest(nullptr, 0, "example:visual",
+		"weapon.pdweapon::round.pdprojectile::visual.pdmesh", "selected.obj", -1,
+		&plan, err, sizeof(err)) == 1);
+	REQUIRE(std::string(plan.source_path) ==
+		"weapon.pdweapon::round.pdprojectile::visual.pdmesh::selected.obj");
+	REQUIRE(plan.source_filenum == -1);
 }
 
-TEST_CASE("B-911 embedded mesh scan defaults geometry and gates namespace",
-          "[modding][pdxxx][model_slots][c3848]") {
-	/* model_file absent -> geometry defaults to model.obj (the loose-mesh
-	 * walker default). */
-	TempArchive defaulted = writeTypedArchiveEntries("b911-mesh-default", ".pdmesh", {
-		{"mesh.ini",
-		 "[mesh]\n"
-		 "catalog_id = example:defaulted_mesh\n"},
-		{"model.obj", "v 0 0 0\n"},
+TEST_CASE("embedded mesh admission rejects its missing selected public source",
+          "[modding][pdxxx][mesh-ingress][source]") {
+	TempArchive mesh = writeTypedArchiveEntries("mesh-ingress-missing", ".pdmesh", {
+		{"mesh.ini", "[model]\ncatalog_id = example:visual\ngeometry_file = missing.obj\n"},
+		{"model.obj", "v 0 0 0\nv 3 0 0\nv 0 3 0\nf 1 2 3\n"},
 	});
-	const std::string defaultedBytes = readFile(defaulted.path.string().c_str());
-
-	TempArchive container = writeTypedArchiveEntries("b911-proj-default", ".pdprojectile", {
-		{"projectile.ini", "[projectile]\ncatalog_id = example:proj\n"},
-		{"dependencies/assets/models/defaulted.pdmesh", defaultedBytes},
-	});
-	const std::string containerBytes = readFile(container.path.string().c_str());
-
-	weapon_graph_embedded_mesh_t found[WEAPON_GRAPH_EMBEDDED_MESH_MAX];
-	s32 count = weaponGraphArchiveScanEmbeddedMeshesBytes(containerBytes.data(),
-		static_cast<u32>(containerBytes.size()), "example:weapon", found,
-		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
-	REQUIRE(count == 1);
-	REQUIRE(std::string(found[0].geometry) == "model.obj");
-
-	/* Foreign namespace -> loud-skipped, not returned. */
-	TempArchive foreign = writeTypedArchiveEntries("b911-mesh-foreign", ".pdmesh", {
-		{"mesh.ini",
-		 "[mesh]\n"
-		 "catalog_id = other_ns:stolen_mesh\n"
-		 "model_file = model.gltf\n"},
-		{"model.gltf", "{}\n"},
-	});
-	const std::string foreignBytes = readFile(foreign.path.string().c_str());
-
-	TempArchive foreignContainer = writeTypedArchiveEntries(
-		"b911-proj-foreign", ".pdprojectile", {
-		{"projectile.ini", "[projectile]\ncatalog_id = example:proj\n"},
-		{"dependencies/assets/models/foreign.pdmesh", foreignBytes},
-	});
-	const std::string foreignContainerBytes =
-		readFile(foreignContainer.path.string().c_str());
-
-	count = weaponGraphArchiveScanEmbeddedMeshesBytes(foreignContainerBytes.data(),
-		static_cast<u32>(foreignContainerBytes.size()), "example:weapon", found,
-		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
-	REQUIRE(count == 0);
-
-	/* No declared catalog_id -> loud-skipped (mesh ids are never derived). */
-	TempArchive anonymous = writeTypedArchiveEntries("b911-mesh-anon", ".pdmesh", {
-		{"mesh.ini", "[mesh]\nmodel_file = model.gltf\n"},
-		{"model.gltf", "{}\n"},
-	});
-	const std::string anonymousBytes = readFile(anonymous.path.string().c_str());
-
-	TempArchive anonymousContainer = writeTypedArchiveEntries(
-		"b911-proj-anon", ".pdprojectile", {
-		{"projectile.ini", "[projectile]\ncatalog_id = example:proj\n"},
-		{"dependencies/assets/models/anon.pdmesh", anonymousBytes},
-	});
-	const std::string anonymousContainerBytes =
-		readFile(anonymousContainer.path.string().c_str());
-
-	count = weaponGraphArchiveScanEmbeddedMeshesBytes(anonymousContainerBytes.data(),
-		static_cast<u32>(anonymousContainerBytes.size()), "example:weapon", found,
-		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
-	REQUIRE(count == 0);
+	const std::string bytes = readFile(mesh.path.string().c_str());
+	char err[256] = {};
+	REQUIRE(assetArchiveValidateBytes(bytes.data(), static_cast<u32>(bytes.size()),
+		"visual.pdmesh", ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) < 0);
+	REQUIRE(std::string(err).find("missing.obj") != std::string::npos);
 }
 
-TEST_CASE("B-911 embedded mesh scan dedups by id and survives non-archives",
-          "[modding][pdxxx][model_slots][c3848]") {
-	/* The same mesh id embedded twice (the Needler embeds needle.pdmesh in
-	 * BOTH projectiles) must yield one result. */
-	TempArchive mesh = writeTypedArchiveEntries("b911-mesh-dup", ".pdmesh", {
-		{"mesh.ini",
-		 "[mesh]\n"
-		 "catalog_id = example:shared_mesh\n"
-		 "model_file = model.gltf\n"},
-		{"model.gltf", "{}\n"},
+TEST_CASE("mesh sharing compares complete canonical source identity",
+          "[modding][pdxxx][mesh-ingress][source]") {
+	TempArchive a = writeTypedArchiveEntries("mesh-ingress-hash-a", ".pdmesh", {
+		{"mesh.ini", "[model]\ncatalog_id = example:shared\ngeometry_file = model.obj\n"},
+		{"model.obj", "v 0 0 0\nv 3 0 0\nv 0 3 0\nf 1 2 3\n"},
 	});
-	const std::string meshBytes = readFile(mesh.path.string().c_str());
-
-	TempArchive container = writeTypedArchiveEntries("b911-proj-dup", ".pdprojectile", {
-		{"projectile.ini", "[projectile]\ncatalog_id = example:proj\n"},
-		{"dependencies/assets/models/a.pdmesh", meshBytes},
-		{"dependencies/assets/models/b.pdmesh", meshBytes},
+	TempArchive b = writeTypedArchiveEntries("mesh-ingress-hash-b", ".pdmesh", {
+		{"model.obj", "v 0 0 0\nv 3 0 0\nv 0 3 0\nf 1 2 3\n"},
+		{"mesh.ini", "[model]\ncatalog_id = example:shared\ngeometry_file = model.obj\n"},
 	});
-	const std::string containerBytes = readFile(container.path.string().c_str());
-
-	weapon_graph_embedded_mesh_t found[WEAPON_GRAPH_EMBEDDED_MESH_MAX];
-	s32 count = weaponGraphArchiveScanEmbeddedMeshesBytes(containerBytes.data(),
-		static_cast<u32>(containerBytes.size()), "example:weapon", found,
-		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
-	REQUIRE(count == 1);
-	REQUIRE(std::string(found[0].catalog_id) == "example:shared_mesh");
-
-	/* Non-archive container bytes: no crash, nothing found. */
-	const std::string garbage = "this is not a zip archive at all";
-	count = weaponGraphArchiveScanEmbeddedMeshesBytes(garbage.data(),
-		static_cast<u32>(garbage.size()), "example:weapon", found,
-		WEAPON_GRAPH_EMBEDDED_MESH_MAX);
-	REQUIRE(count == 0);
+	TempArchive c = writeTypedArchiveEntries("mesh-ingress-hash-c", ".pdmesh", {
+		{"mesh.ini", "[model]\ncatalog_id = example:shared\ngeometry_file = model.obj\n"},
+		{"model.obj", "v 0 0 0\nv 4 0 0\nv 0 4 0\nf 1 2 3\n"},
+	});
+	char ah[SHA256_HEX_SIZE] = {}, bh[SHA256_HEX_SIZE] = {}, ch[SHA256_HEX_SIZE] = {};
+	REQUIRE(weaponGraphArchiveCanonicalSha256File(a.path.string().c_str(), ah) == 0);
+	REQUIRE(weaponGraphArchiveCanonicalSha256File(b.path.string().c_str(), bh) == 0);
+	REQUIRE(weaponGraphArchiveCanonicalSha256File(c.path.string().c_str(), ch) == 0);
+	REQUIRE(std::string(ah) == bh);
+	REQUIRE(std::string(ah) != ch);
+	const std::string harness = readFile("port/src/weapon_nested_runtime_harness.c");
+	REQUIRE(harness.find("harnessMeshAccept") != std::string::npos);
+	REQUIRE(harness.find("harnessMeshVertices(catalogGetLoadedModeldef(mesh_id)") != std::string::npos);
+	REQUIRE(harness.find("projectile->projectile_modelnum != mesh->runtime_index") != std::string::npos);
+	REQUIRE(harness.find("held->source_filenum != held_mesh->source_filenum") != std::string::npos);
+	REQUIRE(harness.find("harnessMeshSlotRollback") != std::string::npos);
 }
 
 TEST_CASE("nested weapon distribution ships parent archive and rebuilds hot indexes",
@@ -9895,9 +10669,9 @@ TEST_CASE("SP-74 nested meshes hydrate compatible stable rows transactionally",
 
 	/* Reused rows retain full identity/lifecycle state on success and restore
 	 * that exact state, dependency edges, and provider paths on late failure. */
-	REQUIRE(scanner.find("p->existing_snapshot = *entry") !=
+	REQUIRE(scanner.find("catalogEntrySnapshotCapture(&p->existing_snapshot, entry)") !=
 		std::string::npos);
-	REQUIRE(scanner.find("*entry = pending[i].existing_snapshot") !=
+	REQUIRE(scanner.find("catalogEntrySnapshotRestorePreserved(entry, &pending[i].existing_snapshot)") !=
 		std::string::npos);
 	REQUIRE(scanner.find("fileProviderCheckpointCreate(&provider_checkpoint)") !=
 		std::string::npos);
@@ -9913,7 +10687,10 @@ TEST_CASE("SP-74 nested meshes hydrate compatible stable rows transactionally",
 TEST_CASE("pdeffect embedded typed dependencies publish through every ingress",
 		"[modding][network][pdxxx][pdeffect][dependencies][b1025][v009]") {
 	const std::string header = readFile("port/include/assetcatalog_scanner.h");
-	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
+	/* Source call-chain checks accept checkout CRLF as well as LF. Keep the
+	 * binary archive reader byte-exact for the archive mutation tests. */
+	scanner.erase(std::remove(scanner.begin(), scanner.end(), '\r'), scanner.end());
 	const std::string walker = readFile("port/src/loader_walker_meta.c");
 
 	REQUIRE(header.find("assetCatalogRegisterEffectNestedDependencies") !=
@@ -9938,7 +10715,7 @@ TEST_CASE("pdeffect embedded typed dependencies publish through every ingress",
 		std::string::npos);
 	REQUIRE(scanner.find("typed_archive_entry && ini_type == ASSET_WEAPON") !=
 		std::string::npos);
-	REQUIRE(scanner.find("assetCatalogRegisterWeaponNestedDependencies(weapon_id,\n\t\t\t\t\t\t\tentry_ref") !=
+	REQUIRE(scanner.find("registerWeaponNestedDependenciesWithAnimationBatch(weapon_id,\n\t\t\t\t\t\t\tentry_ref") !=
 		std::string::npos);
 	REQUIRE(scanner.find("assetCatalogRegisterEffectNestedDependencies(effect_id,\n\t\t\t\t\t\t\tentry_ref") !=
 		std::string::npos);

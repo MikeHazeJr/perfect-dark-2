@@ -1,0 +1,4 @@
+#ifndef ASSET_AUDIO_PUBLIC_SOURCE_HARNESS_H
+#define ASSET_AUDIO_PUBLIC_SOURCE_HARNESS_H
+int assetAudioPublicSourceHarnessRun(void);
+#endif

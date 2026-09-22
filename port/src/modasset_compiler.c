@@ -29,6 +29,9 @@
 #include "lib/model.h"
 #include "modasset_compiler.h"
 #include "modasset_json.h"
+#include "modasset_gltf_source.h"
+#include "modasset_gltf_document.h"
+#include "modasset_gltf_scene.h"
 #include "modasset_material_order.h"
 #include "modasset_render_stream.h"
 #include "sha256.h"
@@ -39,6 +42,11 @@ extern double atan2(double, double);
 extern double asin(double);
 extern double floor(double);
 extern double ceil(double);
+
+static void *modelInputRead(const modasset_model_inputs_t *inputs, const char *path, u32 *size)
+{
+    return inputs && inputs->read ? inputs->read(inputs->context, path, size) : fsFileLoad(path, size);
+}
 
 static s32 endsWithNoCase(const char *path, const char *ext)
 {
@@ -1086,7 +1094,6 @@ typedef struct gltf_anim_channel {
 	s32 translation_base[3];
 } gltf_anim_channel_t;
 
-#define GLTF_ANIM_MAX_TAIL_VALUES 512
 #define GLTF_ANIM_SPECIAL_PARTS_SCHEMA_VERSION 5
 
 /* Per-part raw field cap: 4 (ANIMFIELD_08 x/y/z/angle) + 3 (rotate) + 1
@@ -1096,11 +1103,6 @@ typedef struct gltf_anim_channel {
 /* Cap on the verbatim per-part header descriptor byte length: ANIMFIELD_08
  * (12) + S16_ROTATE (9) + CAMERA (5) = 26; round up for safety. */
 #define GLTF_ANIM_MAX_PART_HEADER 32
-
-typedef struct gltf_anim_repeat_range {
-	s16 repeattoframe;
-	s16 repeatfromframe;
-} gltf_anim_repeat_range_t;
 
 /* Schema-v5 verbatim capture of a single native animation part (used when
  * the clip contains ANIMFIELD_08 / ANIMFIELD_CAMERA fields). header[] holds
@@ -1121,14 +1123,15 @@ typedef struct gltf_animation_clip {
 	gltf_animation_info_t info;
 	gltf_anim_channel_t *channels;
 	u8 *owned_bin;
+	u32 owned_bin_size;
 	s32 channel_count;
 	s32 part_count;
 	s32 declared_part_count;
 	s32 frame_count;
 	s32 native_flags;
-	gltf_anim_repeat_range_t repeat_ranges[GLTF_ANIM_MAX_TAIL_VALUES];
+	modasset_gltf_repeat_range_t *repeat_ranges;
 	s32 repeat_range_count;
-	s16 cut_skip_frames[GLTF_ANIM_MAX_TAIL_VALUES];
+	s16 *cut_skip_frames;
 	s32 cut_skip_count;
 	/* Schema v5: verbatim per-part capture (NULL when absent). When present,
 	 * it covers ALL parts and the native frame stream is rebuilt from it. */
@@ -1214,35 +1217,56 @@ static const char *jsonValueEnd(const char *p, const char *end)
 
 static const char *jsonFindKeyInSpan(json_span_t span, const char *key)
 {
-	size_t key_len;
 	const char *p;
+	const char *end = span.end;
+	const char *found = NULL;
 
-	if (!key) {
+	if (!key || !span.start || !end || span.start > end) {
 		return NULL;
 	}
 
-	key_len = strlen(key);
-	p = span.start;
-	while (p < span.end) {
-		if (*p == '"') {
-			const char *str_start = p + 1;
-			const char *str_end = jsonSkipString(p, span.end);
-			const char *q = str_end;
-
-			if (str_end > str_start
-					&& (size_t)(str_end - str_start - 1) == key_len
-					&& memcmp(str_start, key, key_len) == 0) {
-				q = jsonSkipWs(q, span.end);
-				if (q < span.end && *q == ':') {
-					return q + 1;
-				}
-			}
-			p = str_end;
-			continue;
-		}
+	/* Root callers include braces; nested object spans exclude them. The
+	 * strict document reader owns lexical validity. Here lookup must keep
+	 * object scope, so extras or child objects cannot shadow authored keys. */
+	p = jsonSkipWs(span.start, end);
+	if (p < end && *p == '{') {
+		const char *close = jsonFindMatching(p, end, '{', '}');
+		if (!close || jsonSkipWs(close + 1, end) != end) return NULL;
 		p++;
+		end = close;
 	}
-	return NULL;
+	p = jsonSkipWs(p, end);
+	while (p < end) {
+		const char *after_key;
+		const char *colon;
+		const char *value;
+		const char *after_value;
+		s32 match;
+		if (*p != '"') return NULL;
+		after_key = jsonSkipString(p, end);
+		if (after_key > end || after_key <= p + 1 || after_key[-1] != '"') return NULL;
+		match = modAssetJsonStringEquals(p, after_key, key);
+		if (match < 0) return NULL;
+		colon = jsonSkipWs(after_key, end);
+		if (colon >= end || *colon != ':') return NULL;
+		value = jsonSkipWs(colon + 1, end);
+		if (value >= end) return NULL;
+		after_value = jsonValueEnd(value, end);
+		if (after_value <= value || after_value > end) return NULL;
+		if ((*value == '{' && after_value[-1] != '}') ||
+				(*value == '[' && after_value[-1] != ']') ||
+				(*value == '"' && after_value[-1] != '"')) return NULL;
+		if (match) {
+			if (found) return NULL;
+			found = colon + 1;
+		}
+		p = jsonSkipWs(after_value, end);
+		if (p == end) break;
+		if (*p != ',') return NULL;
+		p = jsonSkipWs(p + 1, end);
+		if (p == end) return NULL;
+	}
+	return found;
 }
 
 static s32 jsonReadArrayValue(const char *value, const char *end,
@@ -1672,40 +1696,6 @@ static s32 jsonObjectU32Array3(json_span_t object, const char *key,
 	return jsonArrayNextU32Strict(array, &cursor, &extra) == 0;
 }
 
-static s32 jsonArrayNextInt(json_span_t array, const char **cursor,
-                            s32 *out)
-{
-	const char *p;
-	char *endptr;
-	long parsed;
-
-	if (!cursor || !out) {
-		return 0;
-	}
-
-	p = *cursor ? *cursor : array.start;
-	while (p < array.end) {
-		p = jsonSkipWs(p, array.end);
-		if (p < array.end && *p == ',') {
-			p++;
-			continue;
-		}
-		if (p >= array.end) {
-			break;
-		}
-		parsed = strtol(p, &endptr, 10);
-		if (endptr == p) {
-			return 0;
-		}
-		*out = (s32)parsed;
-		*cursor = endptr;
-		return 1;
-	}
-
-	*cursor = array.end;
-	return 0;
-}
-
 static s32 base64Value(char c)
 {
 	if (c >= 'A' && c <= 'Z') {
@@ -1782,29 +1772,113 @@ static u8 *base64DecodeAlloc(const char *src, size_t len, u32 *out_size)
 	return out;
 }
 
-static u8 *decodeGltfDataUri(const char *uri, u32 *out_size)
+static u8 *decodeGltfDataUri(const char *uri, u32 declared_size, u32 *out_size)
 {
 	const char *comma;
-	const char *base64_tag;
 
 	if (out_size) {
 		*out_size = 0;
 	}
-	if (!uri || strncmp(uri, "data:", 5) != 0) {
+	if (!modAssetGltfDataUriSize(uri, declared_size)) {
 		return NULL;
 	}
 
 	comma = strchr(uri, ',');
-	if (!comma) {
-		return NULL;
-	}
-
-	base64_tag = strstr(uri, ";base64");
-	if (!base64_tag || base64_tag > comma) {
-		return NULL;
-	}
 
 	return base64DecodeAlloc(comma + 1, strlen(comma + 1), out_size);
+}
+
+/* One public buffer source is authoritative for this importer. Both embedded
+ * data and relative members pass this same boundary before parsing or hashing. */
+static s32 gltfLoadTextBuffer(const modasset_model_inputs_t *inputs, json_span_t root, const char *source_path,
+		s32 optional, u8 **out_bin, u32 *out_size, const char **out_error)
+{
+	char *uri = NULL;
+	char path[FS_MAXPATH + 1];
+	u8 *bytes = NULL;
+	u32 declared = 0, size = 0;
+	s32 parsed;
+	size_t json_size = (size_t)(root.end - root.start);
+	*out_bin = NULL;
+	*out_size = 0;
+	*out_error = "gltf_buffer_declaration_invalid";
+	uri = malloc(json_size + 1);
+	if (!uri) return 0;
+	parsed = optional
+		? modAssetGltfOptionalBufferDocument(root.start, json_size, 0,
+			uri, json_size + 1, &declared)
+		: modAssetGltfBufferDocument(root.start, json_size, 0,
+			uri, json_size + 1, &declared);
+	if (!parsed) {
+		free(uri);
+		return 0;
+	}
+	if (declared == 0) {
+		free(uri);
+		return 1;
+	}
+	if (strncmp(uri, "data:", 5) == 0) {
+		bytes = decodeGltfDataUri(uri, declared, &size);
+	} else {
+		if (!modAssetGltfBufferPath(source_path, uri, path, sizeof(path))) {
+			/* Unsafe external sources remain forbidden; local archive members
+			 * are now resolved through the same fsFileLoad provider as JSON. */
+			*out_error = "gltf_external_binary_buffers_are_not_allowed";
+			free(uri);
+			return 0;
+		}
+		bytes = modelInputRead(inputs, path, &size);
+	}
+	free(uri);
+	if (!bytes || !modAssetGltfBufferSize(declared, size, 0)) {
+		free(bytes);
+		*out_error = "gltf_buffer_missing_or_byte_length_mismatch";
+		return 0;
+	}
+	*out_bin = bytes;
+	*out_size = declared;
+	return 1;
+}
+
+static s32 gltfValidateGlbBuffer(json_span_t root, u32 bin_size,
+		s32 optional, u32 *out_size)
+{
+	u32 declared = 0;
+	char uri[1];
+	s32 parsed;
+	size_t json_size = (size_t)(root.end - root.start);
+	*out_size = 0;
+	parsed = optional
+		? modAssetGltfOptionalBufferDocument(root.start, json_size,
+			1, uri, sizeof(uri), &declared)
+		: modAssetGltfBufferDocument(root.start, json_size,
+			1, uri, sizeof(uri), &declared);
+	if (!parsed) return 0;
+	if (declared == 0) return bin_size == 0;
+	if (!modAssetGltfBufferSize(declared, bin_size, 1)) return 0;
+	*out_size = declared;
+	return 1;
+}
+
+static s32 gltfTextSourceFingerprint(const char *source_path,
+		const u8 *source, u32 source_size, u8 digest[SHA256_DIGEST_SIZE],
+		u8 **out_bin, u32 *out_bin_size)
+{
+	json_span_t root = {(const char *)source, (const char *)source + source_size};
+	u8 *bin = NULL;
+	u32 bin_size = 0;
+	const char *error;
+	*out_bin = NULL;
+	*out_bin_size = 0;
+	if (!gltfLoadTextBuffer(NULL, root, source_path, 1, &bin, &bin_size, &error)) {
+		sysLogPrintf(LOG_WARNING, "MODASSET.COMPILER: source closure invalid: %s (%s)",
+			source_path, error);
+		return 0;
+	}
+	modAssetGltfSourceHash(source, source_size, bin, bin_size, digest);
+	*out_bin = bin;
+	*out_bin_size = bin_size;
+	return 1;
 }
 
 static void gltfFreeParsed(gltf_buffer_view_t *views,
@@ -2019,7 +2093,6 @@ static s32 gltfAccessorData(const gltf_accessor_t *accessor,
 	u32 element_size;
 	u32 stride;
 	u32 start;
-	u32 last_offset;
 
 	if (!accessor || !views || !bin || !out_data || !out_stride
 			|| !out_element_size) {
@@ -2046,20 +2119,13 @@ static s32 gltfAccessorData(const gltf_accessor_t *accessor,
 		return 0;
 	}
 
-	if (view->byte_offset > bin_size || view->byte_length > bin_size
-			|| view->byte_offset + view->byte_length > bin_size) {
-		return 0;
-	}
-	if (accessor->byte_offset > view->byte_length) {
+	if (!modAssetGltfAccessorBounds(bin_size, view->byte_offset,
+			view->byte_length, accessor->byte_offset, (u32)accessor->count,
+			stride, element_size)) {
 		return 0;
 	}
 
 	start = view->byte_offset + accessor->byte_offset;
-	last_offset = accessor->byte_offset
-		+ (u32)(accessor->count - 1) * stride + element_size;
-	if (last_offset > view->byte_length || start + element_size > bin_size) {
-		return 0;
-	}
 
 	*out_data = bin + start;
 	*out_stride = stride;
@@ -2380,7 +2446,7 @@ static s32 gltfApplyRoomTags(const gltf_accessor_t *accessor,
 		u32 room = 0;
 		if (accessor->component_type == 5126) {
 			f32 value = readLeFloat(p);
-			if (value < 0.0f || value > 32767.0f) {
+			if (!modAssetFloatIsFinite(value) || value < 0.0f || value > 32767.0f) {
 				objMeshSetError(mesh, 0, "gltf_room_value_out_of_range");
 				return 0;
 			}
@@ -2572,6 +2638,9 @@ static s32 parseGltfMeshFromJson(const char *json,
 	json_span_t meshes_array;
 	json_span_t mesh_object;
 	const char *mesh_cursor = NULL;
+	json_span_t *mesh_objects = NULL;
+	modasset_gltf_scene_plan_t scene_plan = {0};
+	char scene_error[128] = {0};
 	gltf_buffer_view_t *views = NULL;
 	gltf_accessor_t *accessors = NULL;
 	s32 view_count = 0;
@@ -2585,19 +2654,47 @@ static s32 parseGltfMeshFromJson(const char *json,
 	memset(mesh, 0, sizeof(*mesh));
 	root.start = json;
 	root.end = json + json_size;
+	if (!modAssetGltfScenePlanBuild(json, json_size, &scene_plan,
+			scene_error, sizeof(scene_error))) {
+		objMeshSetError(mesh, 0, scene_error[0] ? scene_error
+			: "gltf_invalid_scene");
+		return 0;
+	}
 
 	if (!parseGltfBufferViews(root, &views, &view_count)
 			|| !parseGltfAccessors(root, &accessors, &accessor_count)
 			|| !jsonObjectArray(root, "meshes", &meshes_array)) {
 		objMeshSetError(mesh, 0, "gltf_missing_mesh_buffers_or_accessors");
 		gltfFreeParsed(views, accessors);
+		modAssetGltfScenePlanFree(&scene_plan);
 		return 0;
 	}
 
-	while (ok && jsonArrayNextObject(meshes_array, &mesh_cursor, &mesh_object)) {
+	mesh_objects = calloc(scene_plan.mesh_count, sizeof(*mesh_objects));
+	if (!mesh_objects && scene_plan.mesh_count) {
+		objMeshSetError(mesh, 0, "gltf_mesh_instances_alloc_failed");
+		ok = 0;
+	}
+	for (u32 i = 0; ok && i < scene_plan.mesh_count; i++) {
+		if (!jsonArrayNextObject(meshes_array, &mesh_cursor, &mesh_objects[i])) {
+			objMeshSetError(mesh, 0, "gltf_invalid_mesh_array");
+			ok = 0;
+		}
+	}
+	for (u32 instance_index = 0; ok && instance_index < scene_plan.count;
+			instance_index++) {
+		const modasset_gltf_scene_instance_t *instance =
+			&scene_plan.instances[instance_index];
 		json_span_t primitives_array;
 		json_span_t primitive;
 		const char *primitive_cursor = NULL;
+		if (instance->mesh_index < 0
+				|| (u32)instance->mesh_index >= scene_plan.mesh_count) {
+			objMeshSetError(mesh, 0, "gltf_invalid_mesh_instance");
+			ok = 0;
+			break;
+		}
+		mesh_object = mesh_objects[instance->mesh_index];
 
 		if (!jsonObjectArray(mesh_object, "primitives", &primitives_array)) {
 			continue;
@@ -2612,6 +2709,7 @@ static s32 parseGltfMeshFromJson(const char *json,
 			s32 indices_accessor_index = -1;
 			s32 vertex_base = 0;
 			s32 vertex_count = 0;
+			s32 triangle_base = mesh->triangle_count;
 
 			jsonObjectInt(primitive, "mode", &mode);
 			if (mode != 4) {
@@ -2636,6 +2734,20 @@ static s32 parseGltfMeshFromJson(const char *json,
 				ok = 0;
 				break;
 			}
+			for (s32 i = 0; i < vertex_count; i++) {
+				obj_vertex_t *vertex = &mesh->vertices[vertex_base + i];
+				float source[3] = {vertex->x, vertex->y, vertex->z};
+				float transformed[3];
+				if (!modAssetGltfSceneTransformPoint(instance, source, transformed)) {
+					objMeshSetError(mesh, 0, "gltf_transformed_position_out_of_range");
+					ok = 0;
+					break;
+				}
+				vertex->x = transformed[0];
+				vertex->y = transformed[1];
+				vertex->z = transformed[2];
+			}
+			if (!ok) break;
 			if (!gltfApplyPrimitiveBaseColor(root, primitive, mesh,
 					vertex_base, vertex_count)) {
 				ok = 0;
@@ -2670,6 +2782,22 @@ static s32 parseGltfMeshFromJson(const char *json,
 			} else {
 				ok = gltfAppendSequentialTriangles(mesh, vertex_base, vertex_count);
 			}
+			/* Reflection changes the orientation of the transformed positions.
+			 * Preserve glTF front faces for collision and generated models alike. */
+			if (ok && instance->mirrored) {
+				for (s32 i = triangle_base; i < mesh->triangle_count; i++) {
+					obj_triangle_t *triangle = &mesh->triangles[i];
+					s32 swap = triangle->b;
+					triangle->b = triangle->c;
+					triangle->c = swap;
+					swap = triangle->tb;
+					triangle->tb = triangle->tc;
+					triangle->tc = swap;
+					swap = triangle->vtx_matrix[1];
+					triangle->vtx_matrix[1] = triangle->vtx_matrix[2];
+					triangle->vtx_matrix[2] = swap;
+				}
+			}
 		}
 	}
 
@@ -2679,20 +2807,23 @@ static s32 parseGltfMeshFromJson(const char *json,
 	}
 
 	gltfFreeParsed(views, accessors);
+	free(mesh_objects);
+	modAssetGltfScenePlanFree(&scene_plan);
 	if (!ok) {
+		char error[sizeof(mesh->error)];
+		memcpy(error, mesh->error, sizeof(error));
 		objMeshFree(mesh);
+		memcpy(mesh->error, error, sizeof(error));
 	}
 	return ok;
 }
 
-static s32 parseGltfTextMesh(const u8 *data, u32 size, obj_mesh_t *mesh)
+static s32 parseGltfTextMesh(const modasset_model_inputs_t *inputs, const char *source_path, const u8 *data,
+		u32 size, obj_mesh_t *mesh)
 {
 	char *json;
 	json_span_t root;
-	json_span_t buffers_array;
-	json_span_t buffer_object;
-	const char *cursor = NULL;
-	char *uri = NULL;
+	const char *error;
 	u8 *bin;
 	u32 bin_size = 0;
 	s32 ok;
@@ -2711,22 +2842,9 @@ static s32 parseGltfTextMesh(const u8 *data, u32 size, obj_mesh_t *mesh)
 
 	root.start = json;
 	root.end = json + size;
-	if (!jsonObjectArray(root, "buffers", &buffers_array)
-			|| !jsonArrayNextObject(buffers_array, &cursor, &buffer_object)
-			|| !(uri = jsonObjectStringAlloc(buffer_object, "uri"))) {
+	if (!gltfLoadTextBuffer(inputs, root, source_path, 0, &bin, &bin_size, &error)) {
 		free(json);
-		objMeshSetError(mesh, 0, "gltf_missing_embedded_buffer_uri");
-		return 0;
-	}
-
-	bin = decodeGltfDataUri(uri, &bin_size);
-	free(uri);
-	if (!bin || bin_size == 0) {
-		free(json);
-		if (bin) {
-			free(bin);
-		}
-		objMeshSetError(mesh, 0, "gltf_external_binary_buffers_are_not_allowed");
+		objMeshSetError(mesh, 0, error);
 		return 0;
 	}
 
@@ -2738,102 +2856,28 @@ static s32 parseGltfTextMesh(const u8 *data, u32 size, obj_mesh_t *mesh)
 
 static s32 parseGlbMesh(const u8 *data, u32 size, obj_mesh_t *mesh)
 {
-	u32 declared_len;
-	u32 offset = 12;
-	char *json = NULL;
-	u32 json_size = 0;
-	const u8 *bin = NULL;
-	u32 bin_size = 0;
-	s32 ok;
-
-	if (!data || size < 20 || !mesh) {
+	modasset_gltf_glb_chunks_t chunks;
+	json_span_t root;
+	u32 bin_size;
+	if (!mesh || !modAssetGltfGlbChunks(data, size, &chunks)) {
+		if (mesh) objMeshSetError(mesh, 0, "glb_invalid_container");
 		return 0;
 	}
-	if (memcmp(data, "glTF", 4) != 0 || readLe32(data + 4) < 2) {
-		objMeshSetError(mesh, 0, "glb_invalid_header");
+	root.start = (const char *)chunks.json;
+	root.end = root.start + chunks.json_size;
+	if (!gltfValidateGlbBuffer(root, chunks.bin_size, 0, &bin_size)) {
+		objMeshSetError(mesh, 0, "glb_buffer_declaration_invalid");
 		return 0;
 	}
-
-	declared_len = readLe32(data + 8);
-	if (declared_len > size) {
-		objMeshSetError(mesh, 0, "glb_declared_size_exceeds_source");
-		return 0;
-	}
-
-	while (offset + 8 <= declared_len) {
-		u32 chunk_len = readLe32(data + offset);
-		u32 chunk_type = readLe32(data + offset + 4);
-		const u8 *chunk_data = data + offset + 8;
-
-		offset += 8;
-		if (chunk_len > declared_len || offset + chunk_len > declared_len) {
-			objMeshSetError(mesh, 0, "glb_chunk_out_of_bounds");
-			free(json);
-			return 0;
-		}
-
-		if (chunk_type == 0x4e4f534a) {
-			free(json);
-			json = malloc((size_t)chunk_len + 1);
-			if (!json) {
-				objMeshSetError(mesh, 0, "glb_json_alloc_failed");
-				return 0;
-			}
-			memcpy(json, chunk_data, chunk_len);
-			json[chunk_len] = '\0';
-			json_size = chunk_len;
-		} else if (chunk_type == 0x004e4942) {
-			bin = chunk_data;
-			bin_size = chunk_len;
-		}
-
-		offset += (chunk_len + 3u) & ~3u;
-	}
-
-	if (!json || !bin || bin_size == 0) {
-		objMeshSetError(mesh, 0, "glb_missing_json_or_binary_chunk");
-		free(json);
-		return 0;
-	}
-
-	ok = parseGltfMeshFromJson(json, json_size, bin, bin_size, mesh);
-	free(json);
-	return ok;
+	return parseGltfMeshFromJson(root.start, chunks.json_size,
+		chunks.bin, bin_size, mesh);
 }
-
 static void gltfAnimationSetError(gltf_animation_info_t *info, const char *error)
 {
 	if (!info || info->error[0]) {
 		return;
 	}
 	snprintf(info->error, sizeof(info->error), "%s", error ? error : "parse_failed");
-}
-
-static s32 gltfValidateTextBuffersAreEmbedded(json_span_t root,
-                                              gltf_animation_info_t *info)
-{
-	json_span_t buffers_array;
-	json_span_t buffer_object;
-	const char *cursor = NULL;
-
-	if (!jsonObjectArray(root, "buffers", &buffers_array)) {
-		return 1;
-	}
-
-	while (jsonArrayNextObject(buffers_array, &cursor, &buffer_object)) {
-		char uri[192] = {0};
-
-		if (!jsonObjectString(buffer_object, "uri", uri, sizeof(uri))) {
-			gltfAnimationSetError(info, "gltf_text_buffer_missing_data_uri");
-			return 0;
-		}
-		if (strncmp(uri, "data:", 5) != 0) {
-			gltfAnimationSetError(info, "gltf_external_binary_buffers_are_not_allowed");
-			return 0;
-		}
-	}
-
-	return 1;
 }
 
 static s32 parseGltfAnimationInfoFromJson(const char *json, u32 json_size,
@@ -2864,9 +2908,7 @@ static s32 parseGltfAnimationInfoFromJson(const char *json, u32 json_size,
 		gltfAnimationSetError(info, "gltf_missing_animations");
 		return 0;
 	}
-	if (text_gltf && !gltfValidateTextBuffersAreEmbedded(root, info)) {
-		return 0;
-	}
+	(void)text_gltf; /* The source loader validates the complete buffer envelope. */
 
 	(void)parseGltfAccessors(root, &accessors, &accessor_count);
 
@@ -2918,10 +2960,14 @@ static s32 parseGltfAnimationInfoFromJson(const char *json, u32 json_size,
 	return 1;
 }
 
-static s32 parseGltfTextAnimationInfo(const u8 *data, u32 size,
+static s32 parseGltfTextAnimationInfo(const char *source_path, const u8 *data, u32 size,
                                       gltf_animation_info_t *info)
 {
 	char *json;
+	u8 *bin = NULL;
+	u32 bin_size = 0;
+	const char *error;
+	json_span_t root;
 	s32 ok;
 
 	if (!data || size == 0 || !info) {
@@ -2937,86 +2983,47 @@ static s32 parseGltfTextAnimationInfo(const u8 *data, u32 size,
 
 	memcpy(json, data, size);
 	json[size] = '\0';
+	root.start = json;
+	root.end = json + size;
+	if (!gltfLoadTextBuffer(NULL, root, source_path, 1, &bin, &bin_size, &error)) {
+		memset(info, 0, sizeof(*info));
+		gltfAnimationSetError(info, error);
+		free(json);
+		return 0;
+	}
+	free(bin);
 	ok = parseGltfAnimationInfoFromJson(json, size, 1, info);
 	free(json);
 	return ok;
 }
 
 static s32 parseGlbAnimationInfo(const u8 *data, u32 size,
-                                 gltf_animation_info_t *info)
+                                  gltf_animation_info_t *info)
 {
-	u32 declared_len;
-	u32 offset = 12;
-	char *json = NULL;
-	u32 json_size = 0;
-	s32 ok;
-
-	if (!data || size < 20 || !info) {
-		if (info) {
-			memset(info, 0, sizeof(*info));
-			gltfAnimationSetError(info, "glb_invalid_header");
-		}
+	modasset_gltf_glb_chunks_t chunks;
+	json_span_t root;
+	u32 bin_size;
+	if (!info) return 0;
+	memset(info, 0, sizeof(*info));
+	if (!modAssetGltfGlbChunks(data, size, &chunks)) {
+		gltfAnimationSetError(info, "glb_invalid_container");
 		return 0;
 	}
-	if (memcmp(data, "glTF", 4) != 0 || readLe32(data + 4) < 2) {
-		memset(info, 0, sizeof(*info));
-		gltfAnimationSetError(info, "glb_invalid_header");
+	root.start = (const char *)chunks.json;
+	root.end = root.start + chunks.json_size;
+	if (!gltfValidateGlbBuffer(root, chunks.bin_size, 1, &bin_size)) {
+		gltfAnimationSetError(info, "glb_buffer_declaration_invalid");
 		return 0;
 	}
-
-	declared_len = readLe32(data + 8);
-	if (declared_len > size) {
-		memset(info, 0, sizeof(*info));
-		gltfAnimationSetError(info, "glb_declared_size_exceeds_source");
-		return 0;
-	}
-
-	while (offset + 8 <= declared_len) {
-		u32 chunk_len = readLe32(data + offset);
-		u32 chunk_type = readLe32(data + offset + 4);
-		const u8 *chunk_data = data + offset + 8;
-
-		offset += 8;
-		if (chunk_len > declared_len || offset + chunk_len > declared_len) {
-			memset(info, 0, sizeof(*info));
-			gltfAnimationSetError(info, "glb_chunk_out_of_bounds");
-			free(json);
-			return 0;
-		}
-		if (chunk_type == 0x4e4f534a) {
-			free(json);
-			json = malloc((size_t)chunk_len + 1);
-			if (!json) {
-				memset(info, 0, sizeof(*info));
-				gltfAnimationSetError(info, "glb_json_alloc_failed");
-				return 0;
-			}
-			memcpy(json, chunk_data, chunk_len);
-			json[chunk_len] = '\0';
-			json_size = chunk_len;
-		}
-		offset += (chunk_len + 3u) & ~3u;
-	}
-
-	if (!json || json_size == 0) {
-		memset(info, 0, sizeof(*info));
-		gltfAnimationSetError(info, "glb_missing_json_chunk");
-		free(json);
-		return 0;
-	}
-
-	ok = parseGltfAnimationInfoFromJson(json, json_size, 0, info);
-	free(json);
-	return ok;
+	return parseGltfAnimationInfoFromJson(root.start, chunks.json_size, 0, info);
 }
-
 static s32 parseGltfLikeAnimationInfo(const char *path,
                                       const u8 *data,
                                       u32 size,
                                       gltf_animation_info_t *info)
 {
 	if (endsWithNoCase(path, ".gltf")) {
-		return parseGltfTextAnimationInfo(data, size, info);
+		return parseGltfTextAnimationInfo(path, data, size, info);
 	}
 	if (endsWithNoCase(path, ".glb")) {
 		return parseGlbAnimationInfo(data, size, info);
@@ -3049,6 +3056,8 @@ static void gltfAnimationClipFree(gltf_animation_clip_t *clip)
 	}
 	free(clip->channels);
 	free(clip->owned_bin);
+	free(clip->repeat_ranges);
+	free(clip->cut_skip_frames);
 	gltfAnimationSpecialPartsClear(clip);
 	memset(clip, 0, sizeof(*clip));
 }
@@ -3314,8 +3323,6 @@ static s32 parseGltfAnimationNativeExtras(json_span_t root,
 	json_span_t extras;
 	json_span_t repeat_array;
 	json_span_t skip_array;
-	const char *cursor;
-	json_span_t object;
 	s32 value;
 
 	if (!clip || !jsonObjectObject(root, "extras", &extras)) {
@@ -3356,31 +3363,21 @@ static s32 parseGltfAnimationNativeExtras(json_span_t root,
 		clip->zero_frame_placeholder = value;
 	}
 
-	if (jsonObjectArray(extras, "pd_repeat_ranges", &repeat_array)) {
-		cursor = NULL;
-		while (clip->repeat_range_count < GLTF_ANIM_MAX_TAIL_VALUES
-				&& jsonArrayNextObject(repeat_array, &cursor, &object)) {
-			s32 repeattoframe;
-			s32 repeatfromframe;
-			if (!jsonObjectInt(object, "repeat_to_frame", &repeattoframe)
-					|| !jsonObjectInt(object, "repeat_from_frame",
-						&repeatfromframe)) {
-				continue;
-			}
-			clip->repeat_ranges[clip->repeat_range_count].repeattoframe =
-				(s16)repeattoframe;
-			clip->repeat_ranges[clip->repeat_range_count].repeatfromframe =
-				(s16)repeatfromframe;
-			clip->repeat_range_count++;
-		}
+	if (jsonFindKeyInSpan(extras, "pd_repeat_ranges")
+			&& (!jsonObjectArray(extras, "pd_repeat_ranges", &repeat_array)
+				|| !modAssetGltfRepeatRanges(repeat_array.start - 1,
+					(size_t)(repeat_array.end - repeat_array.start) + 2,
+					&clip->repeat_ranges, &clip->repeat_range_count))) {
+		gltfAnimationSetError(&clip->info, "gltf_animation_repeat_ranges_invalid");
+		return 0;
 	}
-
-	if (jsonObjectArray(extras, "pd_cut_skip_frames", &skip_array)) {
-		cursor = NULL;
-		while (clip->cut_skip_count < GLTF_ANIM_MAX_TAIL_VALUES
-				&& jsonArrayNextInt(skip_array, &cursor, &value)) {
-			clip->cut_skip_frames[clip->cut_skip_count++] = (s16)value;
-		}
+	if (jsonFindKeyInSpan(extras, "pd_cut_skip_frames")
+			&& (!jsonObjectArray(extras, "pd_cut_skip_frames", &skip_array)
+				|| !modAssetGltfCutSkipFrames(skip_array.start - 1,
+					(size_t)(skip_array.end - skip_array.start) + 2,
+					&clip->cut_skip_frames, &clip->cut_skip_count))) {
+		gltfAnimationSetError(&clip->info, "gltf_animation_cut_skip_frames_invalid");
+		return 0;
 	}
 
 	/* Schema v5: verbatim per-part native capture (ANIMFIELD_08 root-motion
@@ -3443,9 +3440,7 @@ static s32 parseGltfAnimationClipFromJson(const char *json,
 		gltfAnimationSetError(&clip->info, "gltf_missing_animations");
 		return 0;
 	}
-	if (text_gltf && !gltfValidateTextBuffersAreEmbedded(root, &clip->info)) {
-		return 0;
-	}
+	(void)text_gltf; /* The source loader validates the complete buffer envelope. */
 	if (!parseGltfAnimationNativeExtras(root, clip)) {
 		return 0;
 	}
@@ -3698,14 +3693,13 @@ cleanup:
 	return ok;
 }
 
-static s32 parseGltfTextAnimationClip(const u8 *data,
+static s32 parseGltfTextAnimationClip(const char *source_path, const u8 *data,
                                       u32 size,
                                       gltf_animation_clip_t *clip)
 {
 	char *json;
 	json_span_t root;
-	json_span_t buffers_array;
-	json_span_t buffer_object;
+	const char *error;
 	u8 *bin = NULL;
 	u32 bin_size = 0;
 	s32 ok;
@@ -3726,21 +3720,17 @@ static s32 parseGltfTextAnimationClip(const u8 *data,
 
 	root.start = json;
 	root.end = json + size;
-	if (jsonObjectArray(root, "buffers", &buffers_array)) {
-		const char *buffer_cursor = NULL;
-		if (jsonArrayNextObject(buffers_array, &buffer_cursor,
-				&buffer_object)) {
-			char *uri = jsonObjectStringAlloc(buffer_object, "uri");
-			if (uri) {
-				bin = decodeGltfDataUri(uri, &bin_size);
-				free(uri);
-			}
-		}
+	if (!gltfLoadTextBuffer(NULL, root, source_path, 1, &bin, &bin_size, &error)) {
+		memset(clip, 0, sizeof(*clip));
+		gltfAnimationSetError(&clip->info, error);
+		free(json);
+		return 0;
 	}
 
 	ok = parseGltfAnimationClipFromJson(json, size, bin, bin_size, 1, clip);
 	if (ok) {
 		clip->owned_bin = bin;
+		clip->owned_bin_size = bin_size;
 		bin = NULL;
 	}
 	free(bin);
@@ -3748,88 +3738,34 @@ static s32 parseGltfTextAnimationClip(const u8 *data,
 	return ok;
 }
 
-static s32 parseGlbAnimationClip(const u8 *data,
-                                 u32 size,
-                                 gltf_animation_clip_t *clip)
+static s32 parseGlbAnimationClip(const u8 *data, u32 size,
+                                  gltf_animation_clip_t *clip)
 {
-	u32 declared_len;
-	u32 offset = 12;
-	char *json = NULL;
-	u32 json_size = 0;
-	const u8 *bin = NULL;
-	u32 bin_size = 0;
-	s32 ok;
-
-	if (!data || size < 20 || !clip) {
-		if (clip) {
-			memset(clip, 0, sizeof(*clip));
-			gltfAnimationSetError(&clip->info, "glb_invalid_header");
-		}
+	modasset_gltf_glb_chunks_t chunks;
+	json_span_t root;
+	u32 bin_size;
+	if (!clip) return 0;
+	memset(clip, 0, sizeof(*clip));
+	if (!modAssetGltfGlbChunks(data, size, &chunks)) {
+		gltfAnimationSetError(&clip->info, "glb_invalid_container");
 		return 0;
 	}
-	if (memcmp(data, "glTF", 4) != 0 || readLe32(data + 4) < 2) {
-		memset(clip, 0, sizeof(*clip));
-		gltfAnimationSetError(&clip->info, "glb_invalid_header");
+	root.start = (const char *)chunks.json;
+	root.end = root.start + chunks.json_size;
+	if (!gltfValidateGlbBuffer(root, chunks.bin_size, 1, &bin_size)) {
+		gltfAnimationSetError(&clip->info, "glb_buffer_declaration_invalid");
 		return 0;
 	}
-
-	declared_len = readLe32(data + 8);
-	if (declared_len > size) {
-		memset(clip, 0, sizeof(*clip));
-		gltfAnimationSetError(&clip->info, "glb_declared_size_exceeds_source");
-		return 0;
-	}
-
-	while (offset + 8 <= declared_len) {
-		u32 chunk_len = readLe32(data + offset);
-		u32 chunk_type = readLe32(data + offset + 4);
-		const u8 *chunk_data = data + offset + 8;
-
-		offset += 8;
-		if (chunk_len > declared_len || offset + chunk_len > declared_len) {
-			memset(clip, 0, sizeof(*clip));
-			gltfAnimationSetError(&clip->info, "glb_chunk_out_of_bounds");
-			free(json);
-			return 0;
-		}
-		if (chunk_type == 0x4e4f534a) {
-			free(json);
-			json = malloc((size_t)chunk_len + 1);
-			if (!json) {
-				memset(clip, 0, sizeof(*clip));
-				gltfAnimationSetError(&clip->info,
-					"glb_json_alloc_failed");
-				return 0;
-			}
-			memcpy(json, chunk_data, chunk_len);
-			json[chunk_len] = '\0';
-			json_size = chunk_len;
-		} else if (chunk_type == 0x004e4942) {
-			bin = chunk_data;
-			bin_size = chunk_len;
-		}
-		offset += (chunk_len + 3u) & ~3u;
-	}
-
-	if (!json || json_size == 0) {
-		memset(clip, 0, sizeof(*clip));
-		gltfAnimationSetError(&clip->info, "glb_missing_json_chunk");
-		free(json);
-		return 0;
-	}
-
-	ok = parseGltfAnimationClipFromJson(json, json_size, bin, bin_size, 0, clip);
-	free(json);
-	return ok;
+	return parseGltfAnimationClipFromJson(root.start, chunks.json_size,
+		chunks.bin, bin_size, 0, clip);
 }
-
 static s32 parseGltfLikeAnimationClip(const char *path,
                                       const u8 *data,
                                       u32 size,
                                       gltf_animation_clip_t *clip)
 {
 	if (endsWithNoCase(path, ".gltf")) {
-		return parseGltfTextAnimationClip(data, size, clip);
+		return parseGltfTextAnimationClip(path, data, size, clip);
 	}
 	if (endsWithNoCase(path, ".glb")) {
 		return parseGlbAnimationClip(data, size, clip);
@@ -3841,13 +3777,13 @@ static s32 parseGltfLikeAnimationClip(const char *path,
 	return 0;
 }
 
-static s32 parseGltfLikeMeshSource(const char *path,
+static s32 parseGltfLikeMeshSource(const modasset_model_inputs_t *inputs, const char *path,
                                    const u8 *data,
                                    u32 size,
                                    obj_mesh_t *mesh)
 {
 	if (endsWithNoCase(path, ".gltf")) {
-		return parseGltfTextMesh(data, size, mesh);
+		return parseGltfTextMesh(inputs, path, data, size, mesh);
 	}
 	if (endsWithNoCase(path, ".glb")) {
 		return parseGlbMesh(data, size, mesh);
@@ -4141,6 +4077,64 @@ static s32 cacheBuildPaths(const char *cache_root,
 				MODASSET_COMPILER_VERSION, digest_key)) return 0;
 	}
 
+	return cachePathFitsPlatform(cache_path)
+		&& (!normalized_path[0] || cachePathFitsPlatform(normalized_path));
+}
+
+static void cacheHashField(sha256_ctx *hash, const char *value)
+{
+	const char *field = value ? value : "";
+	sha256Update(hash, field, strlen(field) + 1);
+}
+
+/* A long install can leave too little CRT path budget for the readable
+ * category/id hierarchy. The fallback remains private and source-hashed:
+ * full catalog identity, format, source digest and every compiler version are
+ * framed into one SHA-256 key. Public archive paths are never shortened. */
+static s32 cacheBuildCompactPaths(const char *cache_root,
+		const asset_entry_t *entry, const char *asset_kind,
+		const char *source_kind, const char *source_digest_hex,
+		char *cache_path, size_t cache_path_size,
+		char *normalized_path, size_t normalized_path_size)
+{
+	sha256_ctx hash;
+	u8 digest[SHA256_DIGEST_SIZE];
+	char key[SHA256_HEX_SIZE];
+	char versions[64];
+	const char *normalized_suffix = NULL;
+	s32 mesh_source = strcmp(source_kind, "obj") == 0
+		|| strcmp(source_kind, "gltf") == 0
+		|| strcmp(source_kind, "glb") == 0;
+
+	if (!cache_root || !entry || !source_kind || !source_digest_hex) return 0;
+	if (!cacheFormatPath(versions, sizeof(versions), "%d/%d/%d",
+			MODASSET_COMPILER_VERSION,
+			MODASSET_COMPILER_MODELDEF_VERSION,
+			MODASSET_COMPILER_ANIMATION_VERSION)) return 0;
+	sha256Init(&hash);
+	cacheHashField(&hash, "modasset-compact-cache-v1");
+	cacheHashField(&hash, entry->category);
+	cacheHashField(&hash, entry->id);
+	cacheHashField(&hash, asset_kind);
+	cacheHashField(&hash, source_kind);
+	cacheHashField(&hash, source_digest_hex);
+	cacheHashField(&hash, versions);
+	sha256Final(&hash, digest);
+	sha256ToHex(digest, key);
+
+	if (!cacheFormatPath(cache_path, cache_path_size, "%s/%s.pdmc",
+			cache_root, key)) return 0;
+	if (mesh_source && assetKindUsesGeneratedModeldef(asset_kind)) {
+		normalized_suffix = ".pdmodel.json";
+	} else if (mesh_source && assetKindUsesGeneratedAnimationClip(asset_kind)) {
+		normalized_suffix = ".pdanimation.json";
+	} else if (mesh_source) {
+		normalized_suffix = ".pdmesh.json";
+	}
+	normalized_path[0] = '\0';
+	if (normalized_suffix && !cacheFormatPath(normalized_path,
+			normalized_path_size, "%s/%s%s", cache_root, key,
+			normalized_suffix)) return 0;
 	return cachePathFitsPlatform(cache_path)
 		&& (!normalized_path[0] || cachePathFitsPlatform(normalized_path));
 }
@@ -4508,7 +4502,7 @@ static void fillCompileResult(modasset_compiled_result_t *out,
 	}
 }
 
-static s32 generatedModeldefLoadMaterialMetadata(const char *source_path,
+static s32 generatedModeldefLoadMaterialMetadata(const modasset_model_inputs_t *inputs, const char *source_path,
 	obj_mesh_t *mesh);
 
 s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
@@ -4518,6 +4512,8 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 {
 	u32 source_size = 0;
 	void *source_bytes;
+	u8 *gltf_bin = NULL;
+	u32 gltf_bin_size = 0;
 	u8 digest[SHA256_DIGEST_SIZE];
 	char digest_hex[SHA256_HEX_SIZE];
 	char digest_key[33];
@@ -4555,12 +4551,22 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 			"MODASSET.COMPILER: source missing for '%s': %s",
 			entry->id, source_path ? source_path : "(null)");
 		if (source_bytes) {
+			free(gltf_bin);
 			free(source_bytes);
 		}
 		return -1;
 	}
 
-	sha256Hash(source_bytes, (size_t)source_size, digest);
+	if (endsWithNoCase(source_path, ".gltf")) {
+		if (!gltfTextSourceFingerprint(source_path, source_bytes, source_size, digest,
+				&gltf_bin, &gltf_bin_size)) {
+			free(gltf_bin);
+			free(source_bytes);
+			return -1;
+		}
+	} else {
+		sha256Hash(source_bytes, (size_t)source_size, digest);
+	}
 	sha256ToHex(digest, digest_hex);
 	memcpy(digest_key, digest_hex, sizeof(digest_key) - 1);
 	digest_key[sizeof(digest_key) - 1] = '\0';
@@ -4595,6 +4601,25 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 			selected = 1;
 			break;
 		}
+		if (!selected) {
+			static const char *compact_roots[] = {
+				"$H/mc", "$S/mc", "$B/mc",
+			};
+			for (size_t i = 0;
+					i < sizeof(compact_roots) / sizeof(compact_roots[0]); i++) {
+				if (!cacheFormatPath(cache_root, sizeof(cache_root), "%s",
+						compact_roots[i])) continue;
+				if (!cacheBuildCompactPaths(cache_root, entry, asset_kind,
+						source_kind, digest_hex, cache_rel, sizeof(cache_rel),
+						normalized_rel, sizeof(normalized_rel))) continue;
+				if (!fsCreateDir(cache_root)) continue;
+				sysLogPrintf(LOG_NOTE,
+					"MODASSET.COMPILER: compact private cache for '%s' root=%s",
+					entry->id, cache_root);
+				selected = 1;
+				break;
+			}
+		}
 
 		if (!selected) {
 			cache_root[0] = '\0';
@@ -4605,12 +4630,14 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 		sysLogPrintf(LOG_WARNING,
 			"MODASSET.COMPILER: could not select a writable private cache path for '%s'",
 			entry->id);
+		free(gltf_bin);
 		free(source_bytes);
 		return -1;
 	}
 
 	if (cachePathExists(cache_rel)
 			&& (normalized_rel[0] == '\0' || cachePathExists(normalized_rel))) {
+		free(gltf_bin);
 		free(source_bytes);
 		fillCompileResult(out, cache_rel, normalized_rel, digest_hex,
 			source_size, 0, 0, "cache_hit");
@@ -4632,6 +4659,7 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 				"MODASSET.COMPILER: invalid external source for '%s': %s (%s)",
 				entry->id, source_path, validation);
 			objMeshFree(&obj_mesh);
+			free(gltf_bin);
 			free(source_bytes);
 			return -1;
 		}
@@ -4639,7 +4667,7 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 			obj_mesh.vertex_count, obj_mesh.triangle_count);
 		has_obj_mesh = 1;
 		if (assetKindUsesGeneratedModeldef(asset_kind)) {
-			if (!generatedModeldefLoadMaterialMetadata(source_path, &obj_mesh)) {
+			if (!generatedModeldefLoadMaterialMetadata(NULL, source_path, &obj_mesh)) {
 				snprintf(validation, sizeof(validation),
 					"format=obj invalid %s",
 					obj_mesh.error[0] ? obj_mesh.error :
@@ -4648,6 +4676,7 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 					"MODASSET.COMPILER: invalid external model material identity for '%s': %s (%s)",
 					entry->id, source_path, validation);
 				objMeshFree(&obj_mesh);
+				free(gltf_bin);
 				free(source_bytes);
 				return -1;
 			}
@@ -4658,14 +4687,19 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 		}
 	} else if ((strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0)
 			&& assetKindUsesGeneratedModeldef(asset_kind)) {
-		if (!parseGltfLikeMeshSource(source_path, (const u8 *)source_bytes,
-				source_size, &model_mesh)) {
+		s32 parsed = strcmp(source_kind, "gltf") == 0
+			? parseGltfMeshFromJson(source_bytes, source_size, gltf_bin,
+				gltf_bin_size, &model_mesh)
+			: parseGltfLikeMeshSource(NULL, source_path, (const u8 *)source_bytes,
+				source_size, &model_mesh);
+		if (!parsed) {
 			snprintf(validation, sizeof(validation), "format=%s invalid %s",
 				source_kind, model_mesh.error[0] ? model_mesh.error : "parse_failed");
 			sysLogPrintf(LOG_WARNING,
 				"MODASSET.COMPILER: invalid external model source for '%s': %s (%s)",
 				entry->id, source_path, validation);
 			objMeshFree(&model_mesh);
+			free(gltf_bin);
 			free(source_bytes);
 			return -1;
 		}
@@ -4675,13 +4709,18 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 		has_model_mesh = 1;
 	} else if ((strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0)
 			&& assetKindUsesGeneratedAnimationClip(asset_kind)) {
-		if (!parseGltfLikeAnimationInfo(source_path, (const u8 *)source_bytes,
-				source_size, &animation_info)) {
+		s32 parsed = strcmp(source_kind, "gltf") == 0
+			? parseGltfAnimationInfoFromJson(source_bytes, source_size, 1,
+				&animation_info)
+			: parseGltfLikeAnimationInfo(source_path, (const u8 *)source_bytes,
+				source_size, &animation_info);
+		if (!parsed) {
 			snprintf(validation, sizeof(validation), "format=%s invalid %s",
 				source_kind, animation_info.error[0] ? animation_info.error : "parse_failed");
 			sysLogPrintf(LOG_WARNING,
 				"MODASSET.COMPILER: invalid external animation source for '%s': %s (%s)",
 				entry->id, source_path, validation);
+			free(gltf_bin);
 			free(source_bytes);
 			return -1;
 		}
@@ -4696,14 +4735,19 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 			animation_frame_count, animation_info.channel_count);
 		has_animation_clip = 1;
 	} else if (strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0) {
-		if (!parseGltfLikeMeshSource(source_path, (const u8 *)source_bytes,
-				source_size, &obj_mesh)) {
+		s32 parsed = strcmp(source_kind, "gltf") == 0
+			? parseGltfMeshFromJson(source_bytes, source_size, gltf_bin,
+				gltf_bin_size, &obj_mesh)
+			: parseGltfLikeMeshSource(NULL, source_path, (const u8 *)source_bytes,
+				source_size, &obj_mesh);
+		if (!parsed) {
 			snprintf(validation, sizeof(validation), "format=%s invalid %s",
 				source_kind, obj_mesh.error[0] ? obj_mesh.error : "parse_failed");
 			sysLogPrintf(LOG_WARNING,
 				"MODASSET.COMPILER: invalid external mesh source for '%s': %s (%s)",
 				entry->id, source_path, validation);
 			objMeshFree(&obj_mesh);
+			free(gltf_bin);
 			free(source_bytes);
 			return -1;
 		}
@@ -4715,10 +4759,12 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 		sysLogPrintf(LOG_WARNING,
 			"MODASSET.COMPILER: invalid external source for '%s': %s (%s)",
 			entry->id, source_path, validation);
+		free(gltf_bin);
 		free(source_bytes);
 		return -1;
 	}
 
+	free(gltf_bin);
 	free(source_bytes);
 
 	if (has_obj_mesh) {
@@ -5999,9 +6045,15 @@ static s32 generatedModeldefMetadataPath(const char *source_path,
 	}
 
 	sep = strstr(source_path, "::");
-	if (!sep) {
-		return 0;
-	}
+    if (!sep) {
+        const char *slash = strrchr(source_path, '/');
+        const char *backslash = strrchr(source_path, '\\');
+        if (backslash && (!slash || backslash > slash)) slash = backslash;
+        size_t prefix = slash ? (size_t)(slash - source_path + 1) : 0;
+        int wrote = snprintf(out, out_n, "%.*s%s", (int)prefix, source_path, member);
+        if (wrote < 0 || (size_t)wrote >= out_n) { out[0] = 0; return 0; }
+        return 1;
+    }
 	while ((next = strstr(sep + 2, "::")) != NULL) {
 		sep = next;
 	}
@@ -6322,7 +6374,7 @@ static void objMaterialSetTextureEntry(obj_material_t *material,
 	}
 }
 
-static void objMaterialSetTextureCatalog(obj_material_t *material,
+static s32 objMaterialSetTextureCatalog(const modasset_model_inputs_t *inputs, obj_material_t *material,
                                          const char *catalog_id,
                                          s32 secondary)
 {
@@ -6330,25 +6382,34 @@ static void objMaterialSetTextureCatalog(obj_material_t *material,
 	char id[CATALOG_ID_LEN];
 
 	if (!material || !catalog_id) {
-		return;
+		return 1;
 	}
 
 	copyObjToken(id, sizeof(id), catalog_id);
 	if (!id[0]) {
-		return;
+		return 1;
 	}
+
+    if (inputs && inputs->texture) {
+        s32 slot = inputs->texture(inputs->context, NULL, id, 1, secondary);
+        if (slot < 0 || slot > 4095) return 0;
+        if (secondary) material->secondary_texture_num = slot;
+        else material->texture_num = slot;
+        return 1;
+    }
 
 	entry = assetCatalogResolve(id);
 	if (!entry || entry->type != ASSET_TEXTURE) {
 		sysLogPrintf(LOG_WARNING,
 			"MODASSET.COMPILER: material '%s' references unknown texture catalog id '%s'",
 			material->name, id);
-		return;
+		return 1;
 	}
 	objMaterialSetTextureEntry(material, entry, secondary);
+	return 1;
 }
 
-static void objMaterialSetTextureMapPath(obj_material_t *material,
+static s32 objMaterialSetTextureMapPath(const modasset_model_inputs_t *inputs, obj_material_t *material,
                                          const char *source_path,
                                          const char *map_path)
 {
@@ -6356,20 +6417,28 @@ static void objMaterialSetTextureMapPath(obj_material_t *material,
 	char path[FS_MAXPATH + 1];
 
 	if (!material || !map_path) {
-		return;
+		return 1;
 	}
 	copyObjToken(path, sizeof(path), map_path);
 	if (!path[0]) {
-		return;
+		return 1;
 	}
+    if (inputs && inputs->texture) {
+        s32 slot = inputs->texture(inputs->context, source_path, path, 0, 0);
+        if (slot < 0 || slot > 4095) return 0;
+        material->texture_num = slot;
+        return 1;
+    }
+
 	entry = objResolveTextureMapPath(source_path, path);
 	if (!entry) {
 		sysLogPrintf(LOG_WARNING,
 			"MODASSET.COMPILER: material '%s' map_Kd '%s' did not resolve to a catalog texture",
 			material->name, path);
-		return;
+		return 1;
 	}
 	objMaterialSetTextureEntry(material, entry, 0);
+	return 1;
 }
 
 static s32 generatedModeldefReconcileMaterialOrder(const char *mtl_text,
@@ -6461,7 +6530,7 @@ cleanup:
 	return ok;
 }
 
-static s32 generatedModeldefLoadMaterialMetadata(const char *source_path,
+static s32 generatedModeldefLoadMaterialMetadata(const modasset_model_inputs_t *inputs, const char *source_path,
 	obj_mesh_t *mesh)
 {
 	char mtl_path[FS_MAXPATH + 1];
@@ -6478,7 +6547,7 @@ static s32 generatedModeldefLoadMaterialMetadata(const char *source_path,
 		return 1;
 	}
 
-	text = (char *)fsFileLoad(mtl_path, &size);
+	text = (char *)modelInputRead(inputs, mtl_path, &size);
 	if (!text || size == 0) {
 		if (text) {
 			free(text);
@@ -6530,17 +6599,23 @@ static s32 generatedModeldefLoadMaterialMetadata(const char *source_path,
 		} else if (current && strncmp(p, "pd_texture_catalog", 18) == 0) {
 			char *value = strchr(p, '=');
 			if (value) {
-				objMaterialSetTextureCatalog(current, value + 1, 0);
+				if (!objMaterialSetTextureCatalog(inputs, current, value + 1, 0)) {
+                free(copy); objMeshSetError(mesh, 0, "material_source_resolution_failed"); return 0;
+            }
 			}
 		} else if (current && strncmp(p, "map_Kd", 6) == 0 &&
 				isspace((u8)p[6])) {
-			objMaterialSetTextureMapPath(current, source_path,
-				skipSpaces(p + 6));
+			if (!objMaterialSetTextureMapPath(inputs, current, source_path,
+				skipSpaces(p + 6))) {
+                free(copy); objMeshSetError(mesh, 0, "material_source_resolution_failed"); return 0;
+            }
 		} else if (current &&
 				strncmp(p, "pd_secondary_texture_catalog", 28) == 0) {
 			char *value = strchr(p, '=');
 			if (value) {
-				objMaterialSetTextureCatalog(current, value + 1, 1);
+				if (!objMaterialSetTextureCatalog(inputs, current, value + 1, 1)) {
+                free(copy); objMeshSetError(mesh, 0, "material_source_resolution_failed"); return 0;
+            }
 			}
 		} else if (current && strncmp(p, "pd_texture_subcmd", 17) == 0) {
 			char *value = strchr(p, '=');
@@ -6578,13 +6653,11 @@ static s32 generatedModeldefLoadMaterialMetadata(const char *source_path,
 	return 1;
 }
 
-static struct skeleton *generatedModeldefSkeletonFromMetadata(
+static struct skeleton *generatedModeldefSkeletonFromMetadata(const modasset_model_inputs_t *inputs,
 	const char *source_path)
 {
-	static const char *members[] = {
-		"_meta/manifest.json",
-		"mesh.ini",
-	};
+	/* Public descriptor is authoritative; generated/private metadata is not source. */
+    static const char *members[] = {"mesh.ini"};
 	char metadata_path[FS_MAXPATH + 1];
 	char skeleton_symbol[64];
 
@@ -6597,7 +6670,7 @@ static struct skeleton *generatedModeldefSkeletonFromMetadata(
 			continue;
 		}
 
-		text = (char *)fsFileLoad(metadata_path, &size);
+		text = (char *)modelInputRead(inputs, metadata_path, &size);
 		if (!text || size == 0) {
 			if (text) {
 				free(text);
@@ -6623,12 +6696,10 @@ static struct skeleton *generatedModeldefSkeletonFromMetadata(
 	return NULL;
 }
 
-static f32 generatedModeldefScaleFromMetadata(const char *source_path)
+static f32 generatedModeldefScaleFromMetadata(const modasset_model_inputs_t *inputs, const char *source_path)
 {
-	static const char *members[] = {
-		"mesh.ini",
-		"_meta/manifest.json",
-	};
+	/* Public descriptor is authoritative; generated/private metadata is not source. */
+    static const char *members[] = {"mesh.ini"};
 	char metadata_path[FS_MAXPATH + 1];
 	char scale_text[64];
 
@@ -6641,7 +6712,7 @@ static f32 generatedModeldefScaleFromMetadata(const char *source_path)
 			continue;
 		}
 
-		text = (char *)fsFileLoad(metadata_path, &size);
+		text = (char *)modelInputRead(inputs, metadata_path, &size);
 		if (!text || size == 0) {
 			if (text) {
 				free(text);
@@ -6757,7 +6828,7 @@ static s32 generatedRenderStreamGrow(generated_render_stream_t *stream,
 	return 1;
 }
 
-static s32 generatedModeldefReadRenderStream(const char *source_path,
+static s32 generatedModeldefReadRenderStream(const modasset_model_inputs_t *inputs, const char *source_path,
                                              const obj_mesh_t *mesh,
                                              generated_render_stream_t *stream)
 {
@@ -6785,7 +6856,7 @@ static s32 generatedModeldefReadRenderStream(const char *source_path,
 		return 0;
 	}
 
-	text = (char *)fsFileLoad(render_path, &size);
+	text = (char *)modelInputRead(inputs, render_path, &size);
 	if (!text || size == 0) {
 		if (text) {
 			free(text);
@@ -7030,7 +7101,7 @@ static s32 generatedModeldefReadRenderStream(const char *source_path,
 	return parsed_rows > 0 ? 1 : 0;
 }
 
-static s32 generatedModeldefReadHierarchy(const char *source_path,
+static s32 generatedModeldefReadHierarchy(const modasset_model_inputs_t *inputs, const char *source_path,
                                           generated_hierarchy_t *hierarchy)
 {
 	char hierarchy_path[FS_MAXPATH + 1];
@@ -7053,7 +7124,7 @@ static s32 generatedModeldefReadHierarchy(const char *source_path,
 		return 0;
 	}
 
-	text = (char *)fsFileLoad(hierarchy_path, &size);
+	text = (char *)modelInputRead(inputs, hierarchy_path, &size);
 	if (!text || size == 0) {
 		if (text) {
 			free(text);
@@ -7240,7 +7311,7 @@ static s32 generatedRenderStreamTriCount(
 	return count;
 }
 
-static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
+static s32 generatedModeldefBuildPayload(const modasset_model_inputs_t *inputs, const obj_mesh_t *mesh,
                                          s32 group_index,
                                          const char *group_name,
                                          s32 matrix_index,
@@ -7862,7 +7933,7 @@ static s32 generatedModeldefBuildPayload(const obj_mesh_t *mesh,
 		s32 output_bytes = source_bytes;
 		if (textured_material_count > 0) {
 			output_bytes = texLoadFromGdl(source_gdl, source_bytes,
-				payload->gdl, NULL, (u8 *)payload->vertices);
+				payload->gdl, inputs ? inputs->texture_pool : NULL, (u8 *)payload->vertices);
 			if (output_bytes <= 0 ||
 					output_bytes > output_gdl_count * (s32)sizeof(Gfx)) {
 				free(source_gdl);
@@ -7967,7 +8038,7 @@ static s32 generatedModeldefPartEntriesGrow(generated_part_entry_t **entries,
 	return 1;
 }
 
-static s32 generatedModeldefReadParts(const char *source_path,
+static s32 generatedModeldefReadParts(const modasset_model_inputs_t *inputs, const char *source_path,
                                       struct modelnode *nodes,
                                       s32 node_count,
                                       generated_part_entry_t **out_parts,
@@ -8000,7 +8071,7 @@ static s32 generatedModeldefReadParts(const char *source_path,
 		return 0;
 	}
 
-	text = (char *)fsFileLoad(parts_path, &size);
+	text = (char *)modelInputRead(inputs, parts_path, &size);
 	if (!text || size == 0) {
 		if (text) {
 			free(text);
@@ -8060,7 +8131,7 @@ static s32 generatedModeldefReadParts(const char *source_path,
 	return 1;
 }
 
-static s32 generatedModeldefReadFaces(const char *source_path,
+static s32 generatedModeldefReadFaces(const modasset_model_inputs_t *inputs, const char *source_path,
                                       obj_mesh_t *mesh)
 {
 	char faces_path[FS_MAXPATH + 1];
@@ -8083,7 +8154,7 @@ static s32 generatedModeldefReadFaces(const char *source_path,
 		return 0;
 	}
 
-	text = (char *)fsFileLoad(faces_path, &size);
+	text = (char *)modelInputRead(inputs, faces_path, &size);
 	if (!text || size == 0) {
 		if (text) {
 			free(text);
@@ -8513,7 +8584,7 @@ static void generatedModeldefFreePayloads(generated_modeldef_t *owner)
 	owner->dynamic_payload_count = 0;
 }
 
-static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
+static s32 buildGeneratedModeldefFromMeshHierarchy(const modasset_model_inputs_t *inputs, const asset_entry_t *entry,
                                                    const char *source_path,
                                                    obj_mesh_t *mesh,
                                                    struct modeldef **out_modeldef)
@@ -8533,7 +8604,7 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 	if (out_modeldef) {
 		*out_modeldef = NULL;
 	}
-	read_rc = generatedModeldefReadHierarchy(source_path, &hierarchy);
+	read_rc = generatedModeldefReadHierarchy(inputs, source_path, &hierarchy);
 	if (read_rc <= 0) {
 		return read_rc;
 	}
@@ -8541,11 +8612,11 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 		generatedHierarchyFree(&hierarchy);
 		return -1;
 	}
-	if (generatedModeldefReadFaces(source_path, mesh) <= 0) {
+	if (generatedModeldefReadFaces(inputs, source_path, mesh) <= 0) {
 		generatedHierarchyFree(&hierarchy);
 		return -1;
 	}
-	render_stream_rc = generatedModeldefReadRenderStream(source_path, mesh,
+	render_stream_rc = generatedModeldefReadRenderStream(inputs, source_path, mesh,
 		&render_stream);
 	if (render_stream_rc <= 0) {
 		generatedHierarchyFree(&hierarchy);
@@ -8580,7 +8651,7 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 	owner->dynamic_payload_count = hierarchy.row_count;
 	chr_root = generatedModeldefNeedsChrRoot(entry);
 	skeleton = chr_root ? &g_SkelChr :
-		generatedModeldefSkeletonFromMetadata(source_path);
+		generatedModeldefSkeletonFromMetadata(inputs, source_path);
 
 	if (entry && entry->id[0]) {
 		strncpy(owner->catalog_id, entry->id, sizeof(owner->catalog_id) - 1);
@@ -8619,7 +8690,7 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 			s32 payload_segment = node_type == MODELNODETYPE_GUNDL ?
 				SPSEGMENT_MODEL_COL1 : SPSEGMENT_MODEL_VTX;
 			row->payload_index = payload_count++;
-			if (!generatedModeldefBuildPayload(mesh, group_index,
+			if (!generatedModeldefBuildPayload(inputs, mesh, group_index,
 					row->group, row->render_mtx, payload_segment,
 					&render_stream,
 					&owner->dynamic_payloads[row->payload_index],
@@ -8789,7 +8860,7 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 	}
 
 	{
-		s32 parts_rc = generatedModeldefReadParts(source_path,
+		s32 parts_rc = generatedModeldefReadParts(inputs, source_path,
 			owner->dynamic_nodes, hierarchy.row_count, &parts, &part_count);
 		if (parts_rc <= 0) {
 			free(parts);
@@ -8830,7 +8901,7 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 	owner->def.rootnode = &owner->dynamic_nodes[0];
 	owner->def.skel = skeleton;
 	owner->def.nummatrices = (s16)(max_mtx >= 0 ? max_mtx + 1 : 1);
-	owner->def.scale = generatedModeldefScaleFromMetadata(source_path);
+	owner->def.scale = generatedModeldefScaleFromMetadata(inputs, source_path);
 	owner->def.numtexconfigs = 0;
 	owner->def.texconfigs = NULL;
 	owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);
@@ -8851,7 +8922,7 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const asset_entry_t *entry,
 	return 1;
 }
 
-static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
+static s32 buildGeneratedModeldefFromMesh(const modasset_model_inputs_t *inputs, const asset_entry_t *entry,
                                           const char *source_path,
                                           const obj_mesh_t *mesh,
                                           struct modeldef **out_modeldef)
@@ -9021,7 +9092,7 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 		s32 output_bytes = source_bytes;
 		if (textured_material_count > 0) {
 			output_bytes = texLoadFromGdl(source_gdl, source_bytes,
-				owner->gdl, NULL, (u8 *)owner->vertices);
+				owner->gdl, inputs ? inputs->texture_pool : NULL, (u8 *)owner->vertices);
 			if (output_bytes <= 0 ||
 					output_bytes > output_gdl_count * (s32)sizeof(Gfx)) {
 				sysLogPrintf(LOG_WARNING,
@@ -9053,7 +9124,7 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 
 	chr_root = generatedModeldefNeedsChrRoot(entry);
 	skeleton = chr_root ? &g_SkelChr :
-		generatedModeldefSkeletonFromMetadata(source_path);
+		generatedModeldefSkeletonFromMetadata(inputs, source_path);
 	owner->root_node.type = chr_root ? MODELNODETYPE_CHRINFO : MODELNODETYPE_POSITION;
 	owner->root_node.rodata = &owner->root_rodata;
 	owner->root_node.child = &owner->dl_node;
@@ -9092,7 +9163,7 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	owner->def.parts = NULL;
 	owner->def.numparts = 0;
 	owner->def.nummatrices = 1;
-	owner->def.scale = generatedModeldefScaleFromMetadata(source_path);
+	owner->def.scale = generatedModeldefScaleFromMetadata(inputs, source_path);
 	owner->def.numtexconfigs = 0;
 	owner->def.texconfigs = NULL;
 	owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);
@@ -9117,7 +9188,8 @@ static s32 buildGeneratedModeldefFromMesh(const asset_entry_t *entry,
 	return 1;
 }
 
-s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
+s32 modAssetCompilerBuildModeldefWithInputs(const modasset_model_inputs_t *inputs,
+                                  const asset_entry_t *entry,
                                   const char *source_path,
                                   struct modeldef **out_modeldef)
 {
@@ -9136,7 +9208,7 @@ s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
 		return -1;
 	}
 
-	source_bytes = fsFileLoad(source_path, &source_size);
+	source_bytes = modelInputRead(inputs, source_path, &source_size);
 	if (!source_bytes || source_size == 0) {
 		if (source_bytes) {
 			free(source_bytes);
@@ -9148,7 +9220,7 @@ s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
 	if (endsWithNoCase(source_path, ".obj")) {
 		rc = parseObjSource((const u8 *)source_bytes, source_size, &mesh);
 	} else {
-		rc = parseGltfLikeMeshSource(source_path, (const u8 *)source_bytes,
+		rc = parseGltfLikeMeshSource(inputs, source_path, (const u8 *)source_bytes,
 			source_size, &mesh);
 	}
 
@@ -9170,7 +9242,7 @@ s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
 		return -1;
 	}
 
-	if (!generatedModeldefLoadMaterialMetadata(source_path, &mesh)) {
+	if (!generatedModeldefLoadMaterialMetadata(inputs, source_path, &mesh)) {
 		sysLogPrintf(LOG_WARNING,
 			"MODASSET.COMPILER: modeldef material identity failed for '%s': %s (%s)",
 			entry->id, source_path,
@@ -9178,14 +9250,20 @@ s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
 		objMeshFree(&mesh);
 		return -1;
 	}
-	rc = buildGeneratedModeldefFromMeshHierarchy(entry, source_path, &mesh,
+	rc = buildGeneratedModeldefFromMeshHierarchy(inputs, entry, source_path, &mesh,
 		out_modeldef);
 	if (rc == 0) {
-		rc = buildGeneratedModeldefFromMesh(entry, source_path, &mesh,
+		rc = buildGeneratedModeldefFromMesh(inputs, entry, source_path, &mesh,
 			out_modeldef);
 	}
 	objMeshFree(&mesh);
 	return rc;
+}
+
+s32 modAssetCompilerBuildModeldef(const asset_entry_t *entry,
+    const char *source_path, struct modeldef **out_modeldef)
+{
+    return modAssetCompilerBuildModeldefWithInputs(NULL, entry, source_path, out_modeldef);
 }
 
 void modAssetCompilerFreeModeldef(struct modeldef *modeldef)
@@ -9414,7 +9492,7 @@ s32 modAssetCompilerBuildColmesh(const char *source_path,
 	if (strcmp(source_kind, "obj") == 0) {
 		parsed = parseObjSource((const u8 *)source_bytes, source_size, &obj_mesh);
 	} else if (strcmp(source_kind, "gltf") == 0 || strcmp(source_kind, "glb") == 0) {
-		parsed = parseGltfLikeMeshSource(source_path,
+		parsed = parseGltfLikeMeshSource(NULL, source_path,
 			(const u8 *)source_bytes, source_size, &obj_mesh);
 	}
 
@@ -10062,11 +10140,12 @@ fail:
 	return 0;
 }
 
-s32 modAssetCompilerBuildAnimationClip(const asset_entry_t *entry,
+s32 modAssetCompilerBuildAnimationClipHashed(const asset_entry_t *entry,
                                        const char *source_path,
                                        struct animtableentry *out_entry,
                                        u8 **out_data,
-                                       u32 *out_data_size)
+                                       u32 *out_data_size,
+                                       char source_sha256[65])
 {
 	u32 source_size = 0;
 	void *source_bytes;
@@ -10074,6 +10153,7 @@ s32 modAssetCompilerBuildAnimationClip(const asset_entry_t *entry,
 	s32 frame_count;
 	s32 ok;
 
+	if (source_sha256) source_sha256[0] = 0;
 	if (!source_path || !source_path[0]) {
 		return 0;
 	}
@@ -10133,6 +10213,23 @@ s32 modAssetCompilerBuildAnimationClip(const asset_entry_t *entry,
 		return -1;
 	}
 
+    if (source_sha256) {
+        u8 source_digest[32], digest[32];
+        /* GLB contains its buffer; text glTF owns the exact parsed snapshot. */
+        modAssetGltfSourceHash(source_bytes, source_size, clip.owned_bin,
+            clip.owned_bin_size, source_digest);
+        sha256_ctx hash;
+        sha256Init(&hash);
+        const char version[] = "pd.animation.generation.v1";
+        sha256Update(&hash, version, sizeof(version));
+        sha256Update(&hash, source_digest, sizeof(source_digest));
+        const u8 framing[] = {(u8)(frame_count >> 24), (u8)(frame_count >> 16),
+            (u8)(frame_count >> 8), (u8)frame_count};
+        sha256Update(&hash, framing, sizeof(framing));
+        sha256Final(&hash, digest);
+        sha256ToHex(digest, source_sha256);
+    }
+
 	sysLogPrintf(LOG_NOTE,
 		"MODASSET.COMPILER: built animation clip '%s' source=%s clips=%d channels=%d frames=%d boundary=animtableentry",
 		entry ? entry->id : "(unknown)", source_path,
@@ -10140,6 +10237,14 @@ s32 modAssetCompilerBuildAnimationClip(const asset_entry_t *entry,
 	gltfAnimationClipFree(&clip);
 	free(source_bytes);
 	return 1;
+}
+
+s32 modAssetCompilerBuildAnimationClip(const asset_entry_t *entry,
+    const char *source_path, struct animtableentry *out_entry,
+    u8 **out_data, u32 *out_data_size)
+{
+    return modAssetCompilerBuildAnimationClipHashed(entry, source_path,
+        out_entry, out_data, out_data_size, NULL);
 }
 
 void modAssetCompilerFreeAnimationClip(void *data)

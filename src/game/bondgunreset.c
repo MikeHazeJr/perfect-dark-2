@@ -147,6 +147,12 @@ void bgunReset(void)
 
 	g_Vars.currentplayer->gunctrl.gunmem = mempAlloc(i, MEMPOOL_STAGE);
 	g_Vars.currentplayer->gunctrl.handfilenum = 0;
+	g_Vars.currentplayer->gunctrl.handcatalogid[0] = 0;
+	g_Vars.currentplayer->gunctrl.handhandle = (asset_data_handle_t){0};
+	g_Vars.currentplayer->gunctrl.handcataloggeneration = 0;
+	g_Vars.currentplayer->gunctrl.loadcatalogid[0] = 0;
+	g_Vars.currentplayer->gunctrl.loadhandle = (asset_data_handle_t){0};
+	g_Vars.currentplayer->gunctrl.loadbodyhand = false;
 	g_Vars.currentplayer->gunctrl.handmemloadptr = 0;
 	g_Vars.currentplayer->gunctrl.handmemloadremaining = 0;
 	g_Vars.currentplayer->gunctrl.masterloadstate = 0;

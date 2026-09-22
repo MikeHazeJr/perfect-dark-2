@@ -66,6 +66,13 @@ s32 loaderPoolParseBodyJson(const char *json, size_t json_len);
  * absent bodynum/headnum. Parallels loaderPoolParseWeaponJsonWithRuntimeSlot. */
 s32 loaderPoolParseBodyJsonForSlot(const char *json, size_t json_len, s32 forced_slot);
 s32 loaderPoolParseHeadJsonForSlot(const char *json, size_t json_len, s32 forced_slot);
+struct body_data;
+struct head_data;
+/* Public source candidates already carry the catalog-owned native slot and
+ * resolved private file bridges. Installs preserve loader snapshot coverage;
+ * callers must retire live source changes before installing replacements. */
+s32 loaderPoolInstallPublicBody(const struct body_data *body);
+s32 loaderPoolInstallPublicHead(const struct head_data *head);
 s32 loaderPoolParseArenaJson(const char *json, size_t json_len);
 
 /* Per-asset .pdanim parser. Used by loader_walker_anim.c for public
@@ -75,6 +82,24 @@ s32 loaderPoolParseArenaJson(const char *json, size_t json_len);
 s32 loaderPoolParseAnimationJson(const char *json, size_t json_len);
 s32 loaderPoolParseAnimationSourceJson(const char *json, size_t json_len,
                 const char *source_path);
+/* Public source admission carries the descriptor's exact catalog ID. Native
+ * records are prepared transactionally; legacy pool pointers are not leases. */
+s32 loaderPoolParseAnimationCatalogSourceJson(const char *json, size_t json_len,
+                const char *source_path, const char *catalog_id);
+const struct guncmd *loaderPoolFindAnimationByCatalogId(const char *catalog_id);
+
+/* Explicit import-owned command batch. Stage validates and copies source bytes;
+ * callers finish registering all sibling metadata before Commit. Commit restores
+ * the entire previous native pool on failure and resolves every staged command
+ * reference before publication. Caller owns catalog/provider/slot rollback.
+ * These are import transactions, not immutable gameplay dependency leases. */
+typedef struct loader_animation_source_batch loader_animation_source_batch_t;
+loader_animation_source_batch_t *loaderAnimationSourceBatchCreate(void);
+s32 loaderAnimationSourceBatchStage(loader_animation_source_batch_t *batch,
+                const char *json, size_t json_len, const char *source_path,
+                const char *catalog_id);
+s32 loaderAnimationSourceBatchCommit(loader_animation_source_batch_t *batch);
+void loaderAnimationSourceBatchDestroy(loader_animation_source_batch_t *batch);
 
 /* Finalize: seed default aim / noise sentinels, flip s_LoaderActive,
  * emit the LOADER.POOL.*.OK summary line. Called once at the end of

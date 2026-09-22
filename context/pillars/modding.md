@@ -1,5 +1,310 @@
 # Modding
 
+2026-09-22 19:36 ET accepted private cache path repair: a long portable
+install now compiles extracted public glTF animation through a short flat
+source-hashed private cache after readable roots cannot fit. The smoke runner
+honors a fixture-required per-test install so this path is covered by a
+repeatable 10/10 installed source-only smoke on client `76CA2D10`. Full
+catalog identity, source digest and compiler versions key the cache; mod
+authoring files do not change. Broader graph gameplay and mod pack remain open.
+
+2026-09-22 19:15 ET pending verification: standard external glTF/OBJ source
+under a long portable install can exhaust the private readable cache path.
+The compiler now tries short flat private roots only after the readable
+hierarchy cannot fit, with a full identity/source/version SHA-256 key and
+the same generated JSON descriptor semantics. A long-install public
+animation source-only smoke is prepared. This changes no mod authoring
+format; ordinary gameplay and full behavior graph migration remain open.
+
+2026-09-22 19:07 ET accepted v2 state component: authored
+`gate.state_bool` and `state.bool_set` route named boolean state within one
+bound hand. Keys use short ASCII names; state starts false on bind, persists
+across activations, and retires with the hand. Setter `exec` and gate
+`pass`/`blocked` edges are executable, including a setter reached from an
+asynchronous native action completion. Compiler rejects missing setters,
+malformed values and unsupported ports; compiler version v2.2 invalidates
+prior native closure caches. Combined menu0922 client/updater/tests builds,
+freshly built graph-v2 43/43 cases with 582 assertions, and asset native
+source guard passed on unchanged graph hashes. Ordinary equipped gameplay
+remains open.
+
+2026-09-22 18:51 ET accepted v2 bridge: catalog candidates now
+admit extracted base identities and reject second-colon ambiguity. Native
+`gset` selected/copy action ownership follows exact primary or secondary
+entry function and program mode. Focused base and secondary retirement cases
+passed with the complete graph-v2 suite (41 cases, 547 assertions). Isolated
+client/updater and explicit tests builds plus source guard passed. Ordinary
+weapon activation still uses the v1 runtime, so full graph gameplay remains
+open.
+
+2026-09-22 18:08 ET accepted component: ordinary catalog model activation retains
+captured public model source and texture generations until their last leases
+retire. Isolated client/tests builds and source guard pass; installed nested25/25
+and smoke35/35 include edited-image/old-generation retention and rejection.
+The subsequent ordinary catalog-entry mutation proof passed installed
+nested25/25 and smoke35/35 (results-20260922T222736Z.json). This supplies
+a model lifetime prerequisite for equipped v2 graph publication; actual input,
+attack/copy/retirement, bot/network/Theater parity and the mod pack remain open.
+
+2026-09-08 23:06 batch22 connected texture/source pipeline ACCEPTED within scope (source35).
+Full2145 24440303AB0D8D1EB47802A8BA52AA3D71F7D10FCFB818CFDCDB1135EE097BD2;
+changed488 BAF7FC71; client6D4FE54E/tests233ECA5C unchanged through final audits.
+Client/tests build0, native26 PASS (unchanged helper inputs), affected source-contract1
+PASS, source guard0, warm installed24 PASS35/35 in39.1s using completed fresh
+extraction20260909T025106Z. Actual texLoad pixels, descriptor edit, stage modes,
+GBI tile fields, rejection/reset, sparse reverse index, custom menu texture and
+suppressed/enabled base-overlay image/material selection all pass. Audit PASS all
+3503 original texture material records,169 stage assignments,87 standalone+45 nested
+scenario graphs,132 unchanged nonmaterial graph comparisons and coherent hashes.
+All110 public command IDs/593 commands exact, no source/fixup failures.
+Additive atomic upgrades preserve edited descriptors/images/graph topology and
+versioned omissions; incomplete archive views reject rewrite. All12 occupied-count
+index-bound mistakes fixed or removed across8 extraction/loading paths. Suppressed
+base overlays now select public base sources through shared image/material policy.
+Earlier compile/link reds, initial legacy-DMA crash, safe rejections and120s extraction
+timeout remain in batch22 receipts; timeout allowance is now bounded240s. This is
+native/source acceptance, not rendered appearance, full graph gameplay or all-family
+parity. Full equipped model-generation ownership/graph publication, palette/mipmap
+parity, larger textures and requested pack remain open. No staging/commit/push.
+Evidence: .claude/asset0905-continuation/batch22-r9-{client-build,tests-build,
+affected1,native-guard,texture-pipeline-installed24}-exit.json; batch22-combined26
+JUnit/name audit; batch22-r9-{texture-material-audit,base-command-coverage,
+post-runtime-freeze}.json; results-20260909T030500Z.json. Root queues finished;
+source holds released. MP storage remains private/paused; menu native work idle.
+
+
+2026-09-08 23:04 batch22 r9 source35 frozen: full2145 24440303/changed488 BAF7FC71; client6D4FE54E/tests233ECA5C builds0; affected source-contract1 PASS and source guard0. Previous native26 actual helper tests remain unchanged/accepted. Full warm installed24 live queueq_20260909030404070_ef1f010e/session98579 using completed extraction20260909T025106Z. All12 sparse catalog index bounds corrected or removed; shared public source image/material selection tests custom and suppressed base overrides. No final runtime acceptance yet.
+
+
+2026-09-08 22:30 N-0191 source28 connected texture swath SETTLED, UNVERIFIED, batch22 gates pending. Added atomic source-preserving texture and stage graph migrations (including nested scenarios), public material versioning, ordinary native property lookup, mode-scoped graph rules, level transition reset, effective texture provider selection, invalid tile rejection and complete-view archive rewrite protection. Removed 169 authored C surface assignments after moving extraction defaults into a dedicated emitter. New tests cover descriptors, archives, nested topology, hash records and mode/transaction semantics; installed24 adds actual ordinary texLoad, edited metadata, native tile command and stage reset. One combined client/tests/native26/guard/installed24 campaign; no per-change tests run. Full original pipeline/graph/pack goal remains active.
+
+2026-09-08 22:08 N-0191: Root begins one larger connected texture batch: source-preserving extraction upgrades, versioned material properties, ordinary runtime metadata, stage-owned public overrides and propagation. User explicitly requests implementation of the connected swath before a single combined test campaign. Source changes below are UNVERIFIED until that combined batch; batch21 remains prior accepted evidence. No root build/test/runtime is live.
+
+2026-09-08 21:58 texture generation/source-properties component ACCEPTED (batch21).
+Source20 r2 83677B33; full2136 CC3BAE06/changed4731F8F2D7F/clientE23B7EEF/
+tests5D62ADA3 unchanged. Client/tests build0, native texture7 PASS, source guard0,
+fresh installed23 PASS33/33 in75.3s with DummyAudio. Actual catalog acquisitions
+retain image+descriptor hashes, pixels/native identities and tile/surface data;
+image-only and property-only edits coexist; retirement/reset/empty pool preserve
+old users; actual model G_SETTIMG/G_SETTILE use selected retained generations.
+Malformed image, bad/duplicate/wrong-ID properties and incomplete bundled legacy
+metadata reject; final release permits reuse. Base110 command sources/593 commands
+exact, no missing/source/fixup failures. Receipts batch21-* in asset0905-continuation;
+install 20260909T015641Z-weapon_mesh_ingress_smoke, results-20260909T015757Z.json.
+All root queues finished and source holds released. MP storage6 stays private,
+paused and excluded. Base texture metadata migration, ordinary/stage override
+source authority, palette/mipmap parity, larger images, complete equipped graph
+and requested pack remain open. This proves native consumers, not rendered output.
+
+2026-09-08 21:18 model source-input component ACCEPTED (batch20).
+Explicit read/texture/pool inputs feed the actual model compiler, external glTF
+buffers and sidecars; ordinary image loading shares the exact-byte RGBA decoder.
+Public mesh.ini alone supplies skeleton/scale; loose source sidecars now resolve.
+Fresh installed22 PASS31/31 in72.9s with DummyAudio: captured OBJ/INI/MTL/TGA
+remain geometry2/scale2/red after disk edits; a second capture becomes7/3/blue;
+actual G_SETTIMG points to each supplied image, failed resolver rejects, malformed
+image returns an error. Reads4,4/textures1,1/private_reads0,0. Prior command/clip/
+audio generation regressions pass, base110 command sources/593 commands exact,
+zero missing/source/fixup failures. Full2125 049E558F/changed456075DB3DE/client
+811BE779/tests38BED245 unchanged. Root focused4 within common12 and source guard
+PASS. Three stale contract reds retained; same-case CRLF normalization fixed the
+last source-read mismatch. Receipts .claude/asset0905-continuation/batch20-*;
+installed20260909T011559Z, results20260909T011712Z. No complete retained model/
+texture ownership, equipped graph gameplay, rendered or hardware acceptance.
+
+Menu activation component also ACCEPTED: actual core2 PASS35/35 in79.5s, same
+full/client; real new/already-enabled persistence retries, late missing-archive
+failure retaining original loaded1 restart baseline, FT retained pending retry
+and explicit no-rollback discard with saved JSON readback. Core1 setup red
+(fopen exclusive mode) retained; explicit CRT exclusive-open correction verified.
+N-0185, activation-focused12-acceptance.json and activation-core2-exit.json.
+Ordinary UI/input/Agent-switch/network-transfer/process-restart and pre-install
+existing-archive rescan proof remain open. Root installed queue finished; all
+root holds released. MP owns next exact FT wire8/CMake repair ahead of VAD;
+root native QUIESCENT while folding context and preparing private texture work.
+
+Root next: public texture properties and stage-owned overrides (169 hardcoded
+writes/90 native identities), source-preserving migration, retained native texture
+identity/pixels and complete model closure/slot routing, then equipped publication/
+input/attack/copy/retirement. Private drafts in .claude/asset0908-drafts/texture-generation
+are UNAPPLIED/UNCOMPILED. Palette/mipmap utilization, inherited image-size limits,
+all-family extraction/runtime parity and full authored graph behavior remain open.
+D006A is explicitly approved; requested T-MODDING-009 pack remains required.
+No full goal completion or Git mutation. Model GPT-6 / Codex.
+
+2026-09-08 20:22 command generation component ACCEPTED (batch19). Full2124
+19F5FAEF / changed451 71720393 / clientA88A88A3 / tests86BFB2D2. Client/tests
+build0 (3s each), exact MP playout13/701 assertions and source guard0. Fresh
+installed21 PASS29/29 in78.0s, SDL dummy audio. Actual catalogGraphNativeResolve
+prepares native actions with immutable dynamic command arrays and retained
+clip/audio generations. Diamond child identity, separate commands.json/glTF
+buffer/WAV edits, cycle/missing/type rejection, late decode cleanup and native
+consumer use after catalog retirement all pass. Motion300->600 and ordinary
+sndStart/mixer620,1259->2480,3149 remain distinct; final native-owner release
+frees old slots, final new-owner release frees new slots. Base110 public source
+IDs/593 commands exact, zero source/fixup failures, full source/client/tests
+unchanged. Receipts .claude/asset0905-continuation/batch19-*; installed run
+20260909T001936Z-weapon_mesh_ingress_smoke. No equipped graph gameplay/rendered/
+hardware claim. Legacy scanner command-pool capacity remains migration debt.
+
+Root next: immutable model source closure, native model ownership/slot routing,
+then complete equipped graph publication/input/attack/copy/retirement. All-family
+extraction/runtime parity and full authored graph behavior remain required.
+Command closure is complete for this component; do not restart its prior draft.
+Next handoff .claude/asset0908-drafts/command-generation/accepted-next.md.
+
+Peer menu Core2 actual API PASS16/16 in64.1s, full67A85250/clientC2A2A4B4 stable;
+failed real component save preserved state and the same-plan retry completed.
+Initial60s readiness timeout retained red, no UI/input/restart claim. Menu owns
+next helper late-persistence/restart-baseline repair; root native QUIESCENT for
+that exact window, next model work PRIVATE. MP playout13/701 now accepted on
+batch19, no microphone/socket/device claim. No Git mutation. Model gpt-6.
+
+2026-09-08 20:16 batch19 command generation APPLIED, UNVERIFIED. Dynamic iterative public command closure owns native arrays plus proven clip/audio leases; real catalogGraphNativeResolve now supplies wgV2NativePrepare. Installed21 fixture drafted for diamond identity, separate command/glTF/WAV edits, cycle/missing/type rejection, late decoder rollback, native action dependencies after source retirement, actual decoder/mixer and final slot release. No equipped gameplay claim; immutable model/equipment publication and broader source parity/pack remain open. Menu core2 PASS16/16 (64.1s) on unchanged full67A85250/clientC2A2A4B4 proves actual component-save failure and same-plan retry at API boundary; prior readiness timeout remains red. MP disjoint playout4/13 application underway. All owners must freeze before combined client/tests/guard and installed21. Model gpt-6.
+
+2026-09-08 19:57 ACCEPTED sound generation component: batch18 r3 full2121 80E30B41 / changed448 6DE5EEA2 / clientCF294A6D / testsFEE7C21E. Actual audio36/11781 assertions and MP voice9/102 passed on unchanged tested inputs; client r3 build0 (4s), native source guard0. Fresh installed20 PASS27/27 outer73.5s with SDL dummy audio. Ordinary sndStart and actual file-voice mixer prove exact public WAV source edit creates a new generation, retained source bytes/PCM and leaf slots survive unregister/reset, a playing voice survives final generation release, released slot reuse plays new PCM, declared two-frame loop extends sixteen source frames to eighteen, and overflowing effective pitch rejects without leaking an allocation. Mixer first312,634 / second1249,1587 / remaining loop-tail17 frames. Animation generation case remains PASS. Independent base command audit110 IDs/593 commands passes, zero missing/unexpected/base source/fixup failures; full source/client unchanged through acceptance. Retain original isfinite compile red and r2 menu C++ linkage red; corrected r3 evidence does not relabel them. Receipts .claude/asset0905-continuation/batch18-{audio36-exit,voice9-exit,client-r3-receipt,native-guard-exit,audio-generation-installed20-result,base-command-coverage,post-runtime-freeze}.json. No audible hardware, rendered motion or complete graph gameplay claim. Next immutable command closure and actual equipped graph resolver/model/publication/input/attack/copy/retirement integration remain mandatory, with all-family extraction/runtime parity and T-MODDING-009 pack unchanged. Model gpt-6.
+
+2026-09-08 19:45 sound generation15 applied, UNVERIFIED. WAV/MP3/Ogg snapshot decode uses supplied bytes with no file fallback; retained source hash covers exact bytes, decoder format and playback parameters. Catalog-independent leaf slot and PCM survive catalog reset; ordinary sndStart routes generations to the existing mixer through per-voice owned PCM copies. Shared voice start rejects nonfinite/overflowing effective pitch. Decoder27, sound slots8 and existing provider1 focused cases prepared; installed20 with dummy audio adds source edit, catalog retirement, final-generation release while voice plays, slot reuse and loop timing. No CMake edits. Root source quiescent after apply, waiting granted MP voice4 settle before full snapshot. Prior CALLERS+VOICE peer checkpoint passed fullFBCC1DBA/clientFB499E55, Weapon1/100 and voice5/55 + guard, no runtime. Menu InterfaceDelete1 applied and quiescent, included in next client. T-MODDING-002 and all original fullgraph/parity/pack scope remain partial. Model gpt-6.
+
+2026-09-08 19:25 ACCEPTED animation generation unit: batch17 full2117 663551BD / changed440 55C2E5CF / client7A203806 / testsF2D69E5E. Tests build0, actual slot8/31590 assertions pass, client build0 (7s), native source guard0. Fresh installed19 PASS25/25 outer69.2s; ordinary animLoadHeader/Frame/GetRotTranslateScale proves buffer-only edit selects distinct generation, retained original bytes and decoded motion survive catalog unregister/reset, final release frees its slot, and reused slot decodes replacement motion without fixture-forced cache invalidation. Independent base command audit110 IDs/593 commands passes, zero missing/unexpected/base source/fixup failures. Full source and client unchanged through acceptance. Receipts .claude/asset0905-continuation/batch17-{client-receipt,slots8-exit,native-guard-exit,animation-generation-installed19-result,base-command-coverage,post-runtime-freeze}.json. Clip ownership/ordinary decoder component is verified; immutable command/audio/model closure and actual equipped graph publication/input/attack/copy/retirement integration remain open, along with full all-family extraction/runtime parity and requested T-MODDING-009 pack. No rendered motion, fired weapon or complete behavior-graph claim. Model gpt-6.
+
+2026-09-08 19:20 ET: generation14 applied from verified 12-path baseline plus two new module files. Owned glTF/GLB animation generations retain consumed source/buffer hash and native clip bytes, reserve private signed-16-bit slots across catalog reset/rollback, and route ordinary animation reads through the retained payload. Final release invalidates frame/header caches before slot reuse. Base DMA scratch sizes do not limit this direct-pointer decode path. Existing allocator tests now include generation reservation; installed fixture adds buffer-only edit, unregister/reset, exact retained bytes/decoded motion and cache reuse. Source applied, UNVERIFIED; full equipped graph resolver/publication remains open. Menu apply-r3 client/tests/main5/policy6/guard passed unchanged D9048BFF/clientE69F3AF4 and released; root owns next frozen checkpoint. Model gpt-6.
+
+
+2026-09-08 18:46 current asset acceptance: batch16 explicit command import
+transactions verified on full2111639A68A8/changed425FA815CB2/client6C12FA9B.
+Actual ledger rollback2 and native guard pass; installed18 passes23/23 outer
+in72.3s. Folder/loose/typed imports cover forward command/clip/sound references,
+exact namespaced identity, late dependency failure and cycle rollback with
+exact prior rows/native pointers/provider counts. Direct batch checks cover
+conflicting identities, source edits, rollback and valid edge reversal. Separate
+public base110 IDs/593 command audit passes, zero missing/source/fixup failures;
+full source and binary unchanged. Retain batch15 FAILED15/18 and its CRLF test
+failure; batch16 is the corrected evidence, not a relabel of that run.
+MP numeric5 and Join-r3 PASS37/37 (209.9s) accepted on this same client with
+zero drift. Global native/client hold released18:52. Ordinary graph v2 gameplay, immutable
+command/clip/audio/model leases, complete extraction-to-runtime parity and the
+follow-on T-MODDING-009 pack remain open. No full-task completion claim.
+
+
+2026-09-08 18:36 current implementation: command imports own explicit
+Create/Stage/Commit/Destroy batches, propagated through folder, legacy, archive,
+weapon-nested and standalone received command admission. Staged source owns
+ID/path/bytes and strict parsed commands; commit rejects changed bytes, orders
+the effective submitted dependency graph, resolves typed sources and finalizes
+once. Scanners own outer catalog/provider/private-slot rollback. These are
+admission transactions, not immutable gameplay dependency leases. Full manifest
+3B8304A3/clientB52B721F builds green; source-contract correction only changes one
+test (fullD0FE92DF), remaining3 and native guard green. Installed18 adversarial
+fixture still unrun. Earlier batch14 base110/593 acceptance remains historical;
+ordinary graph v2 gameplay and stable equipped source lifetimes remain open.
+This paragraph supersedes stale active-freeze/Join-r2 scheduling below.
+
+17:54 current acceptance: command source loading is verified. Fresh installed
+weapon15 passes18/18 outer in58.904s; public-source/log/native-pool review matches
+all110 base command IDs and593 commands, with zero missing IDs, source failures
+or unresolved fixups. Source408ABDB78B8/full20965BC637B3/clientD988EC27 unchanged.
+Reader7/affected3 and native guard accepted; prior kernel37/equipped7 remain
+component evidence. Full graph gameplay, immutable command/clip/audio/model
+lifetimes and mod/nested/distribution transaction ordering are still open.
+Root runtime is released; MP owns the next Join-r2 runtime on accepted D988EC27,
+with120s boot readiness and source drift checks, max360s. Product sources/binary
+stay frozen until MP releases that run. Menu component-state9 remains private.
+MP native28 and menu legacy4 are accepted within their recorded evidence.
+
+
+## 2026-09-08 exact command admission under installed repair
+
+Exact-ID reader/admission is connected to the base walker, scanner and
+received-content caller. Reader6/affected2, builds and guard pass, but installed
+batch12 stops61 command admissions (7/17 outer,97s). Retained unchanged source
+4036A3E/full2093EA1D, tests189B/clientB56D. Reader omitted the emitted trigger=z
+shape, and compilation preceded complete animation/audio registration.
+Repair is applied; revised focused and installed gates are pending. The public
+reader now preserves optional zero slot and the walker registers every row
+before compiling commands, after audio providers exist. No full graph gameplay
+or native dependency lease acceptance follows from this source-admission unit.
+
+## 2026-09-08 native empty visibility accepted
+
+The real weapon visibility consumer now honors END before dispatch. Installed
+weapon14/16 outer assertions pass54.0s, including null and terminator-only native
+no-op proof. Tests/client/native guard pass on399078794E7/full20908B2CFF2A,
+client980529BE/tests0F79510B. Public mesh selection/native record/cleanup remains
+green. Equipped-source7 is accepted below; actual executable gameplay stays open.
+
+## 2026-09-08 equipped source preparation in progress
+
+D006A equipped-source component now prepares public settings JSON with descriptor-owned
+model placement, owned ammo/aim/visibility, exact command leases and a pinned model
+lease. Its catalog factory prepares actions and equipment against the same program
+generation before publication. Seven focused cases/248 assertions, tests/client builds and the native-source
+guard pass on399/7C31C708 (full native2090/830F0AE4), client1D528826/tests13E9848E. Gameplay/pool attachment and the production dependency resolver remain open.
+Existing v1 content is unchanged; this is not playable v2 acceptance.
+
+## 2026-09-08 executable kernel and strict MP3 admission
+
+D006A is decided. The executable graph compiler/executor, source-generation
+catalog and owner lifetimes, native action records and explicit copied-action
+registry are integrated. All37 focused cases/472 assertions pass on387/6C79C9F1,
+tests56796CE5; clientE36F3211 builds. Equipped definitions, immutable production
+dependency leases, gameplay/copy lifecycle hooks and base/network/Theater parity
+remain open. Kernel evidence is not playable graph evidence.
+Strict MP3 framing is also integrated: actual decoder25 and archive conformance18
+pass with the native source guard. Corrupt gaps/truncated tails and malformed
+ID3 envelopes cannot silently publish partial PCM. Installed scheduler10/6 outer
+passes55.3s and the fresh8610root/9611total/27family corpus has zero conformance
+errors on unchanged clientE36F3211/source6C79C9F1. Mod persistence14 passes in the
+menu lane, separately. No audible/hardware or all-family gameplay claim.
+
+## 2026-09-06 source conformance accepted; audio runtime integration
+
+Batch3 passes full fresh 8,610-root/9,611-total conformance with zero errors,
+18/18 scene source-consumer assertions and cumulative 306 affected C++ cases.
+Strict graph source admission preserves complete exports/context objects and
+rejects truncated final captures. The triangle and Needler producers/examples
+now carry the four canonical shared-context objects. Graph execution is still
+D006 work: the review-only v2 draft has 37 written, unrun cases plus native
+idle/held-trigger, immutable lease and delayed-action copy designs. The equipped
+production adapter and complete gameplay parity remain unfinished.
+
+T049 applies pinned real Vorbis decoding, bounded incremental SDL PCM ownership,
+and mixer final-frame/replay/sync cursor corrections. Eleven actual codec/mixer
+tests pass. Fresh installed client C3A64691 passes5/5 assertions from an editable
+song archive through ordinary catalog, nested ZIP decode and synchronized
+playlist mixing of4410 stereo frames. Source207-path02A5C91A stays unchanged.
+Three generated tone fixtures have encoder/hash receipts.
+This does not claim device output, network transport or complete corrupt-tail
+admission. Base MP3 scheduler/reverse-map repair remains T046. T048 character
+policy/runtime closure work is described in the catalog pillar.
+
+## 2026-09-05 source authority and authoring audit
+
+T-ASSETS-040 repairs numeric/missing catalog-reference fallback and typed graph
+value validation. T-ASSETS-039 adds standard glTF buffer closure and exact
+animation-tail handling. The current source/compiler/consumer map and separate
+remaining graph execution, base-ID bypass, glTF visual-semantic, animation
+round-trip, regional language, and game-font limitations are recorded in the
+[asset contract audit](../audits/2026/asset-source-runtime-contract-2026-09-05.md).
+D-006 was decided as option A on September 8: executable modular graphs with
+authored events, connections, gates and state driving reusable native modules.
+The review4 implementation remains unapplied and requires production integration
+and base gameplay parity. Isolated client,
+updater, and test targets build; source/conformance and affected automated
+contracts pass with retained initial failures and focused corrections. The
+ordinary client now passes the corrected Scenario smoke 32/32, including its
+19-case matrix and clean exit; the original timeout receipt remains retained.
+T-ASSETS-041/042 focused numeric/language contracts pass; T-ASSETS-043 also passes
+18/18 real collision/model/renderer-source smoke assertions, with no GPU or
+human visual claim. The fresh extracted-corpus conformance gate is red at 2,700
+diagnostics. T-ASSETS-044 repairs MP3/WAV validation; T-ASSETS-045 repairs strict
+graph JSON and decoded exported-entry parsing. Regional languages/fonts and
+full graph execution remain separate active fronts. The concrete graph,
+language, and glTF material designs are linked from the audit.
+The [author guide](../../docs/modding/standard-source-authoring.md)
+describes supported formats and current limits. Full base-game graph and
+creator parity remain open.
+
 ## D-004 release boundary
 
 The 1.0 modding requirement is deliberately narrow. Every accepted base-game
@@ -1394,7 +1699,41 @@ The Asset Pipeline migration, weapon graph parity lane, c3842 native-source corr
 
 ## Where to look
 
+2026-09-22 T-MODDING-002 source component accepted: the executable held-single-shot
+v2 path has exact primary/secondary source generations and native mode/
+ammo-slot preparation. Its catalog selects each function independently and
+retires either function or the complete weapon by exact generation. This is
+not an ordinary equipped gameplay cutover; production loading still uses the
+older graph runtime, and bot, networking, Theater, and broader behavior modules
+remain separate work. Isolated incremental client/tests builds, focused v2
+39 cases/501 assertions, and the native source guard pass. A separate fresh
+parallel clean build failed on MinGW out-of-memory before source diagnostics.
+
 - For catalog registration model: [pillars/catalog.md](catalog.md).
 - For wire protocol, `SVC_DISTRIB_*`, `SVC_CATALOG_INFO` flow: [pillars/connectivity.md](connectivity.md).
 - For mod-supplied themes/chrome/fonts: [pillars/menus.md](menus.md) Theme System section.
 - For host vs client manifest discipline: [pillars/server.md](server.md).
+
+Asset runtime boundary Sep6 14:12 ET: body/head native alias retry on314/DAB3EDD8/client72FBED1D is terminal red100.5s,3/10 assertions,0/8 cases. Full owner scan exposes2 first-pass body hand conflicts (dark_combat and sp_body132 selecting model_combathandslod_hand) plus1 dependent character; second-pass summaries do not erase failures. Inventory of733 mesh rows finds31 aliased native symbols, with one hand group shared by those bodies. Worker owns exact selected hand catalog ID/provider propagation through actual Bondgun queue, UNARMED path and same-filnum cached hand reload. Draft only; no new gate until coherent repair/refreeze. Current five affected source cases/native guard/client builds pass, cumulative80 helper cases retained separately. Standard-source authoring guide now documents current selected audio formats/public descriptor authority, body/head editable sources and explicit pending graph/audio/hand semantics. Source files remain frozen; documentation changes only.
+
+### September 8 hand-source continuation
+The body manager retains the public hand catalog ID through actual Bondgun hand/fists queues, effective-source and generation checks, and reset paths. Fourteen focused source/ingress/failure-latch cases passed; native source guard passed. Nine-case installed proof remains pending shared menu gates/client build. The last installed result still failed before body/head cases. See the canonical asset audit and batch6-hand-focused14-recovered-exit.json for exact source/binary identity and the separately recovered runner receipt. Direct typed-container override filename resolution, native PCM indexing/chain playback, complete character selection/language/graph execution remain open.
+
+Sep8 14:25: hand identity source gate14/14 and native guard pass. Fresh installed boot now registers68 bodies/84heads/63characters and releases ROM, but first probe stopped on duplicate body/head metadata registration overriding specialized source handles. loader_walker_meta now excludes both specialized families/private writers; existing runtime walker case executes the later metadata pass and checks source preservation. Required guard and incremental client BB6F044D pass on347 EFF4FE2C. Corrected installed9 is running; no hand/fists runtime acceptance yet. Direct typed-container model resolver/runtime proof remains an unapplied seven-path draft, and Arena duplicate metadata authority remains a separate open propagation finding. D006 remains open; executable-vs-native-module choice was surfaced again while independent asset work continues.
+
+Sep8 14:27 verdict: corrected installed body/head/hand probe passes9/9 and12/12 outer assertions on clientBB6F044D, unchanged347/EFF4FE2C; required native guard passes. Exact catalog identity reaches hand/fists queued geometry, metadata rescans preserve admitted sources, scanner/walker/received edits and rollback execute successfully. Full gameplay visuals, complete character selectors/network exchange and other pending families remain separate. Receipt batch6-body-head-single-owner-installed9-exit/result.json.
+
+Sep8 14:56 direct mesh source resolution is connected and verified: shared model_source_path resolves descriptor-selected OBJ/glTF/GLB paths across catalog, preview and queued gun consumers; invalid FileProvider sources cannot fall into raw-byte loading. Specialized installed10/13outer assertions pass on client1B938609/source360F43883E4, including custom OBJ geometry, nested archives and negative-source cases. Four affected source contracts and native guard pass. Other public mesh scalar/identity admission, full ordinary gameplay and pending families remain separate work.
+# September 8, 15:29 - Native audio seed correction
+
+Installed target diagnostics exposed unset base SFX reverse identity despite
+public sources being admitted. Base seeding now initializes native sound IDs
+and configured MP3 file IDs; public source replacement preserves that ownership.
+The two-path fix passes focused8, native guard and installed8/15 outer on
+unchanged371/F0A104AC/client21C5C296. Actual folder/received rollback passes.
+The next public-audio6 gate fails because configured32928 exceeds the4096-entry
+reverse sound table; the full16-bit correction passes installed6/14 outer,
+guard and client build15:50 on371/9D551466/client5A39CAD6.
+Native PCM extraction indexing and
+source-preserving migration remain separate unapplied work. D-006 option A is
+now decided: executable modular graph integration is authorized.

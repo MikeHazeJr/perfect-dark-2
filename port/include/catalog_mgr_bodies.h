@@ -87,6 +87,7 @@ typedef struct body_data {
     f32 scale;                /* body scale; chr->model->scale source */
     f32 animscale;            /* per-body animation rate scaling */
     u16 handfilenum;          /* first-person hand model file ID; B-275 dependency */
+    char hand_catalog_id[64]; /* Resolved public mesh identity; file numbers can alias. */
 
     /* Manager-owned lazy modeldef cache. Populated on first
      * catalogManagerGetBodyModeldef call; reset by

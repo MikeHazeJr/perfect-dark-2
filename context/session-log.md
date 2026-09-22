@@ -1,5 +1,1272 @@
 # Session Log (Active)
 
+2026-09-22 19:43 ET Mike requested a scoped asset/graph commit and push,
+followed by a pause while other sessions work. The long-install source-only
+animation cache gate passed 10/10. The checkpoint branch is
+`codex/asset-graph-pause-20260922`; remaining goal scope stays partial and
+will resume only on explicit request.
+
+2026-09-22 19:36 ET T-RUNTIME-001 long-install private-cache repair accepted
+within scope on settled HEAD `e3ffedbb`. Isolated client/updater/tests builds,
+focused metadata source contract 1/81, and native source guard passed. Fresh
+client `76CA2D10` ran the fixture-required per-test install and passed 10/10:
+log proves `base:animation_character_ao` chose `$H/mc`, ordinary catalog
+animation load returned OK, and scripted exit code 0. Receipt
+`.claude/smoke-verify-runs/results-20260922T233640Z.json`. The earlier
+short shared-install 9/10 miss is retained as a fixture mistake. Complete
+base extraction/production coverage, graph cutover and the requested pack
+remain open. Mike has directed this root session to commit/push owned work
+then pause; this entry records the verification state before the checkpoint.
+
+2026-09-22 19:27 ET first cache smoke ran on the runner's short shared
+install and stopped RED9/10: public animation loaded, compact-cache marker
+was correctly absent. The fixture now declares required per-test layout;
+the runner honors that declaration before launch and rejects an incompatible
+explicit `-Install`. The corrected long-path gate is pending. Combined
+client/updater/tests builds, focused contract1/81 and native source guard
+passed on HEAD6044d0fa with root and MP frozen paths.
+
+2026-09-22 19:22 ET peer menu T-INPUT-008 paused by explicit user request
+after scoped menu/input commit `6044d0fa` was pushed to `origin/dev` on the
+exclusive Git lane. Root/MP paths were not staged. Latest combined build and
+focused12/957 menu contracts passed; prior broad red4/9679 and ordinary
+hardware/visual/UI evidence remain open. The peer will not restart work
+until Mike resumes it. Root asset build gate may now freeze HEAD 6044d0fa.
+
+2026-09-22 19:15 ET T-RUNTIME-001 long-install private-cache repair applied,
+awaiting one combined gate. The compiler retains its readable cache layout
+when it fits; when all normal roots exceed the CRT budget, a short flat
+private root uses a SHA-256 key over full catalog identity, source format,
+full source digest and compiler versions. New installed smoke names a long
+portable directory and requires source-only activation of
+`base:animation_character_ao` through the compact cache. This is private
+rebuildable output, with no parallel authored source. MP's byte-identical
+short-root two-process retry passed initial source activation but stopped
+red35/67 before transfer at invalid weapon-set lobby start; MP owns that
+separate gate. Build, focused tests, guard and long-install smoke pending.
+
+2026-09-22 19:04 ET peer MP F12 distribution budget source component passed
+isolated client/tests builds, allocation/budget4/4 and asset guard on frozen
+source3623. The ordinary two-process typed pdmod real-peer smoke stopped
+red20/44 before any transfer when the host public animation cache path for
+`base:animation_character_ao` exceeded the private path budget under a long
+smoke install root. This may be a product path-length limit. MP retained
+results-20260922T225929Z.json, recorded owned audit/connectivity/bug/
+UNRELEASED evidence, and prepared a byte-identical short-root retry after
+the combined graph/menu gate. No real-peer distribution acceptance.
+
+2026-09-22 19:07 ET T-MODDING-002 authored boolean state batch accepted
+within scope. The v2 compiler accepts strict `gate.state_bool` and
+`state.bool_set` nodes with named keys and boolean values; the executor owns
+each bound hand's state without global mutation, and routes setter `exec`
+and gate `pass`/`blocked` edges. Native action completion may clear state.
+Two focused cases cover cross-activation state, hand separation, source
+edits, reset and malformed source. The combined menu0922 client/updater/tests
+builds passed; freshly built graph-v2 43/43 cases and 582 assertions plus
+asset native source guard passed on unchanged graph source hashes. Root
+released test/source holds. No ordinary equipped gameplay acceptance.
+
+2026-09-22 18:52 ET peer menu T-INPUT-008 raw key-source component remains
+partial. Isolated client/updater/tests builds and direct raw836 plus
+input/actionmap/glyph/custom1582 assertions passed; broad input/menu/settings
+gate stopped red on four of 9,679 assertions (protocol59, catalog reset,
+Agent save literal, shared delete OK literal). Menu owns the stale assertion
+audit and glyph winner-source label edge for a later source window. Root
+folded only shared context; no controller/UI acceptance claimed.
+
+2026-09-22 18:36 ET peer MP T-NETWORKING-011 VAD8 component passed on
+frozen source2156: isolated clean client/tests builds, voice native17/17
+including synthetic SDL Opus/Ed25519 and no-codec branch, and asset guard.
+The peer recorded owned audit/connectivity/bugs/UNRELEASED evidence and
+released its build/source holds. Audible device/UI/socket and full MP proof
+remain open. Root folded this into shared context while menu holds a separate
+source freeze.
+
+2026-09-22 18:51 ET T-MODDING-002 v2 bridge accepted within scope.
+Catalog candidates accept `base:` with exact one-colon identity. Native
+`gset` selection and lookup now match the catalog entry's function and
+compiled program mode for both primary and secondary. Tests cover base
+source admission, cross-mode fail-closed behavior, copied secondary action
+and generation replacement. Isolated client/updater and explicit tests builds
+passed; freshly rebuilt graph-v2 41/41 cases and 547 assertions passed, as
+did the asset source guard. Initial 39/501 run was a stale tests binary, so
+it does not evidence the two added cases. Root released native/CMake/test
+holds. This is not ordinary equipped gameplay acceptance.
+
+2026-09-22 18:28 ET T-RUNTIME-001 follow-on accepted within scope: the
+installed model-generation case now drives the ordinary ASSET_MODEL stage
+activation, release, source edit and invalid-image rejection path. Isolated
+client/updater/tests build and source guard passed; installed nested25/25,
+smoke35/35 and clean exit prove ordinary catalog mutation. Evidence:
+.claude/smoke-verify-runs/results-20260922T222736Z.json. Root released its
+source and runtime holds. Peer MP
+reported localhost signed socket6/6, bidirectional 4097-byte payloads, final
+ACK replay, installed SHA/JSON and one publication; full UI/WAN acceptance is
+separate. Menu owns its foreground runner change. Full equipped v2 graph,
+model-family visual parity, complete extraction and the requested pack remain
+open. No staging, commit or push.
+
+2026-09-22 18:08 ET T-MODDING-002/T-RUNTIME-001 model-generation component
+passed its combined gate: public selected model files and texture bindings now
+form retained generations in the ordinary catalog model activation/unload path.
+The installed weapon-mesh fixture passed edited source selection, retained
+old/new native models and fail-closed bad image: nested25/25, smoke35/35,
+clean exit. Isolated client/updater/tests builds and native source guard passed.
+Evidence is .claude/smoke-verify-runs/results-20260922T220654Z.json and
+.claude/session-builds/asset0905b/_build-session.out.log. Shared menu/MP paths
+were not edited; all root queues/source freeze released to MP. A dedicated
+ordinary catalog-entry mutation case remains open. This does not yet connect
+v2 graphs to held attack admission or complete extraction and the mod pack. Peer MP
+reported its receiver storage five-case component green; actual socket proof
+remains pending and separate. No staging, commit or push.
+
+2026-09-22 17:35 ET T-MODDING-002 component: primary and secondary executable
+held graph candidates now publish, acquire, and retire independently, with
+whole-weapon retirement and exact source generations. Native actions prepare
+either authored mode and ammo slot -1..1. Five source/test paths changed.
+Incremental isolated client/tests builds pass; focused v2 39 cases/501 assertions
+and public native-source guard pass. Fresh parallel isolated clean build failed
+with MinGW out-of-memory before source diagnostics; queue released and log kept.
+Production still uses the older graph runtime. Model generation lifetime,
+ordinary equipped publication/input/attack/copy/retirement, bot/net/Theater,
+full behavior-module parity, all-family extraction/use and requested mod pack
+remain open. Evidence: .claude/asset0905-continuation/batch23-graph-v2-focused.log,
+batch23-native-source-guard.log, and isolated build logs under asset0905b and
+asset0922graph. No staging, commit, or push.
+
+2026-09-08 23:06 batch22 connected texture/source pipeline ACCEPTED within scope (source35).
+Full2145 24440303AB0D8D1EB47802A8BA52AA3D71F7D10FCFB818CFDCDB1135EE097BD2;
+changed488 BAF7FC71; client6D4FE54E/tests233ECA5C unchanged through final audits.
+Client/tests build0, native26 PASS (unchanged helper inputs), affected source-contract1
+PASS, source guard0, warm installed24 PASS35/35 in39.1s using completed fresh
+extraction20260909T025106Z. Actual texLoad pixels, descriptor edit, stage modes,
+GBI tile fields, rejection/reset, sparse reverse index, custom menu texture and
+suppressed/enabled base-overlay image/material selection all pass. Audit PASS all
+3503 original texture material records,169 stage assignments,87 standalone+45 nested
+scenario graphs,132 unchanged nonmaterial graph comparisons and coherent hashes.
+All110 public command IDs/593 commands exact, no source/fixup failures.
+Additive atomic upgrades preserve edited descriptors/images/graph topology and
+versioned omissions; incomplete archive views reject rewrite. All12 occupied-count
+index-bound mistakes fixed or removed across8 extraction/loading paths. Suppressed
+base overlays now select public base sources through shared image/material policy.
+Earlier compile/link reds, initial legacy-DMA crash, safe rejections and120s extraction
+timeout remain in batch22 receipts; timeout allowance is now bounded240s. This is
+native/source acceptance, not rendered appearance, full graph gameplay or all-family
+parity. Full equipped model-generation ownership/graph publication, palette/mipmap
+parity, larger textures and requested pack remain open. No staging/commit/push.
+Evidence: .claude/asset0905-continuation/batch22-r9-{client-build,tests-build,
+affected1,native-guard,texture-pipeline-installed24}-exit.json; batch22-combined26
+JUnit/name audit; batch22-r9-{texture-material-audit,base-command-coverage,
+post-runtime-freeze}.json; results-20260909T030500Z.json. Root queues finished;
+source holds released. MP storage remains private/paused; menu native work idle.
+
+
+2026-09-08 23:04 batch22 r9 source35 frozen: full2145 24440303/changed488 BAF7FC71; client6D4FE54E/tests233ECA5C builds0; affected source-contract1 PASS and source guard0. Previous native26 actual helper tests remain unchanged/accepted. Full warm installed24 live queueq_20260909030404070_ef1f010e/session98579 using completed extraction20260909T025106Z. All12 sparse catalog index bounds corrected or removed; shared public source image/material selection tests custom and suppressed base overrides. No final runtime acceptance yet.
+
+
+2026-09-08 22:59 source33 settled r8: all12 occupied-count/index-bound mistakes repaired or removed across8 loading/extraction paths. Shared ordinary texture selection now chooses public base sources when overlays are suppressed; image/material policies match, cache tracks suppression mode. Installed24 fixture checks sparse reverse index before texLoad and exercises custom/menu source plus enabled/suppressed base overlay pixels/properties. Client/guard/warm24 next; native26 inputs unchanged. No full equipped-graph or rendered acceptance.
+
+
+2026-09-08 22:57 batch22 r7 installed warm24 TERMINAL RED32/35: custom slot now safely rejected, not legacy DMA crash. Actual sparse catalog root cause:12 index loops used occupied count instead of pool high-water index; valid later rows skipped after removal. Corrected full class across8 sources (root additionally owns base_extended/langmanifest/romextract_pdmeta), each already checks occupied rows. Fixture enables its texture and next asserts actual reverse-index binding before texLoad. Native26 unchanged; source33 pending combined client/guard/installed24. Prior r3/r4/r5/r6/r7 reds preserved.
+
+
+2026-09-08 22:49 batch22 corrected r5 client build0 (03B54A7A), guard0; full2145 30B57F69/changed48815549604 frozen. All-material audit PASS3503 texture records,169 original assignments,87 standalone+45 embedded scenarios,132 graph topology/data comparisons and hash records. Native26 remains accepted unchanged. Installed24 r5 running under q_20260909024753538_4668b684, install20260909T024805Z. Earlier r3 runtime crash and r4 missing system.h compile red retained; source30 corrected, runtime acceptance pending.
+
+
+2026-09-08 22:45 batch22 r3 client/tests build0, combined native26 PASS, source guard0. Installed24 TERMINAL RED32/35 (98.9s): new ordinary custom texture case reached legacy DMA after g_NotLoadMod suppressed its public source. Exact addr2line traces texLoad:2361 from harnessTextureRuntime:839. Corrected custom-versus-base-overlay suppression and added a custom-slot boundary before any legacy directory lookup. Source30 now settled for r4 client/guard/installed24; native26 inputs unaffected, no unchanged rerun. Original red receipts retained; full texture/material acceptance pending.
+
+
+2026-09-08 22:33 batch22 first client build TERMINAL RED (exit1, full98841D3E unchanged), no tests/guard/runtime run. Compiler caught legacy bool/stdio header ordering in new C++ runtime adapter and missing texWriteTileFromDefinition declaration. Corrected only adapter include boundary plus public tex.h prototype. Source29 now frozen: r2 full2145 B16F3654/changed488 D193D99A. Build queue q_20260909023309010_5df40974 running via asset0905b official wrapper. Preserve first red; same combined26/guard/installed24 remains pending after successful builds.
+
+2026-09-08 22:30 N-0191 source28 connected texture swath SETTLED, UNVERIFIED, batch22 gates pending. Added atomic source-preserving texture and stage graph migrations (including nested scenarios), public material versioning, ordinary native property lookup, mode-scoped graph rules, level transition reset, effective texture provider selection, invalid tile rejection and complete-view archive rewrite protection. Removed 169 authored C surface assignments after moving extraction defaults into a dedicated emitter. New tests cover descriptors, archives, nested topology, hash records and mode/transaction semantics; installed24 adds actual ordinary texLoad, edited metadata, native tile command and stage reset. One combined client/tests/native26/guard/installed24 campaign; no per-change tests run. Full original pipeline/graph/pack goal remains active.
+
+2026-09-08 22:08 N-0191: Root begins one larger connected texture batch: source-preserving extraction upgrades, versioned material properties, ordinary runtime metadata, stage-owned public overrides and propagation. User explicitly requests implementation of the connected swath before a single combined test campaign. Source changes below are UNVERIFIED until that combined batch; batch21 remains prior accepted evidence. No root build/test/runtime is live.
+
+2026-09-08 21:58 texture generation/source-properties component ACCEPTED (batch21).
+Source20 r2 83677B33; full2136 CC3BAE06/changed4731F8F2D7F/clientE23B7EEF/
+tests5D62ADA3 unchanged. Client/tests build0, native texture7 PASS, source guard0,
+fresh installed23 PASS33/33 in75.3s with DummyAudio. Actual catalog acquisitions
+retain image+descriptor hashes, pixels/native identities and tile/surface data;
+image-only and property-only edits coexist; retirement/reset/empty pool preserve
+old users; actual model G_SETTIMG/G_SETTILE use selected retained generations.
+Malformed image, bad/duplicate/wrong-ID properties and incomplete bundled legacy
+metadata reject; final release permits reuse. Base110 command sources/593 commands
+exact, no missing/source/fixup failures. Receipts batch21-* in asset0905-continuation;
+install 20260909T015641Z-weapon_mesh_ingress_smoke, results-20260909T015757Z.json.
+All root queues finished and source holds released. MP storage6 stays private,
+paused and excluded. Base texture metadata migration, ordinary/stage override
+source authority, palette/mipmap parity, larger images, complete equipped graph
+and requested pack remain open. This proves native consumers, not rendered output.
+
+2026-09-08 21:18 model source-input component ACCEPTED (batch20).
+Explicit read/texture/pool inputs feed the actual model compiler, external glTF
+buffers and sidecars; ordinary image loading shares the exact-byte RGBA decoder.
+Public mesh.ini alone supplies skeleton/scale; loose source sidecars now resolve.
+Fresh installed22 PASS31/31 in72.9s with DummyAudio: captured OBJ/INI/MTL/TGA
+remain geometry2/scale2/red after disk edits; a second capture becomes7/3/blue;
+actual G_SETTIMG points to each supplied image, failed resolver rejects, malformed
+image returns an error. Reads4,4/textures1,1/private_reads0,0. Prior command/clip/
+audio generation regressions pass, base110 command sources/593 commands exact,
+zero missing/source/fixup failures. Full2125 049E558F/changed456075DB3DE/client
+811BE779/tests38BED245 unchanged. Root focused4 within common12 and source guard
+PASS. Three stale contract reds retained; same-case CRLF normalization fixed the
+last source-read mismatch. Receipts .claude/asset0905-continuation/batch20-*;
+installed20260909T011559Z, results20260909T011712Z. No complete retained model/
+texture ownership, equipped graph gameplay, rendered or hardware acceptance.
+
+Menu activation component also ACCEPTED: actual core2 PASS35/35 in79.5s, same
+full/client; real new/already-enabled persistence retries, late missing-archive
+failure retaining original loaded1 restart baseline, FT retained pending retry
+and explicit no-rollback discard with saved JSON readback. Core1 setup red
+(fopen exclusive mode) retained; explicit CRT exclusive-open correction verified.
+N-0185, activation-focused12-acceptance.json and activation-core2-exit.json.
+Ordinary UI/input/Agent-switch/network-transfer/process-restart and pre-install
+existing-archive rescan proof remain open. Root installed queue finished; all
+root holds released. MP owns next exact FT wire8/CMake repair ahead of VAD;
+root native QUIESCENT while folding context and preparing private texture work.
+
+Root next: public texture properties and stage-owned overrides (169 hardcoded
+writes/90 native identities), source-preserving migration, retained native texture
+identity/pixels and complete model closure/slot routing, then equipped publication/
+input/attack/copy/retirement. Private drafts in .claude/asset0908-drafts/texture-generation
+are UNAPPLIED/UNCOMPILED. Palette/mipmap utilization, inherited image-size limits,
+all-family extraction/runtime parity and full authored graph behavior remain open.
+D006A is explicitly approved; requested T-MODDING-009 pack remains required.
+No full goal completion or Git mutation. Model GPT-6 / Codex.
+
+2026-09-08 20:22 command generation component ACCEPTED (batch19). Full2124
+19F5FAEF / changed451 71720393 / clientA88A88A3 / tests86BFB2D2. Client/tests
+build0 (3s each), exact MP playout13/701 assertions and source guard0. Fresh
+installed21 PASS29/29 in78.0s, SDL dummy audio. Actual catalogGraphNativeResolve
+prepares native actions with immutable dynamic command arrays and retained
+clip/audio generations. Diamond child identity, separate commands.json/glTF
+buffer/WAV edits, cycle/missing/type rejection, late decode cleanup and native
+consumer use after catalog retirement all pass. Motion300->600 and ordinary
+sndStart/mixer620,1259->2480,3149 remain distinct; final native-owner release
+frees old slots, final new-owner release frees new slots. Base110 public source
+IDs/593 commands exact, zero source/fixup failures, full source/client/tests
+unchanged. Receipts .claude/asset0905-continuation/batch19-*; installed run
+20260909T001936Z-weapon_mesh_ingress_smoke. No equipped graph gameplay/rendered/
+hardware claim. Legacy scanner command-pool capacity remains migration debt.
+
+Root next: immutable model source closure, native model ownership/slot routing,
+then complete equipped graph publication/input/attack/copy/retirement. All-family
+extraction/runtime parity and full authored graph behavior remain required.
+Command closure is complete for this component; do not restart its prior draft.
+Next handoff .claude/asset0908-drafts/command-generation/accepted-next.md.
+
+Peer menu Core2 actual API PASS16/16 in64.1s, full67A85250/clientC2A2A4B4 stable;
+failed real component save preserved state and the same-plan retry completed.
+Initial60s readiness timeout retained red, no UI/input/restart claim. Menu owns
+next helper late-persistence/restart-baseline repair; root native QUIESCENT for
+that exact window, next model work PRIVATE. MP playout13/701 now accepted on
+batch19, no microphone/socket/device claim. No Git mutation. Model gpt-6.
+
+2026-09-08 20:16 batch19 command generation APPLIED, UNVERIFIED. Dynamic iterative public command closure owns native arrays plus proven clip/audio leases; real catalogGraphNativeResolve now supplies wgV2NativePrepare. Installed21 fixture drafted for diamond identity, separate command/glTF/WAV edits, cycle/missing/type rejection, late decoder rollback, native action dependencies after source retirement, actual decoder/mixer and final slot release. No equipped gameplay claim; immutable model/equipment publication and broader source parity/pack remain open. Menu core2 PASS16/16 (64.1s) on unchanged full67A85250/clientC2A2A4B4 proves actual component-save failure and same-plan retry at API boundary; prior readiness timeout remains red. MP disjoint playout4/13 application underway. All owners must freeze before combined client/tests/guard and installed21. Model gpt-6.
+
+2026-09-08 19:57 ACCEPTED sound generation component: batch18 r3 full2121 80E30B41 / changed448 6DE5EEA2 / clientCF294A6D / testsFEE7C21E. Actual audio36/11781 assertions and MP voice9/102 passed on unchanged tested inputs; client r3 build0 (4s), native source guard0. Fresh installed20 PASS27/27 outer73.5s with SDL dummy audio. Ordinary sndStart and actual file-voice mixer prove exact public WAV source edit creates a new generation, retained source bytes/PCM and leaf slots survive unregister/reset, a playing voice survives final generation release, released slot reuse plays new PCM, declared two-frame loop extends sixteen source frames to eighteen, and overflowing effective pitch rejects without leaking an allocation. Mixer first312,634 / second1249,1587 / remaining loop-tail17 frames. Animation generation case remains PASS. Independent base command audit110 IDs/593 commands passes, zero missing/unexpected/base source/fixup failures; full source/client unchanged through acceptance. Retain original isfinite compile red and r2 menu C++ linkage red; corrected r3 evidence does not relabel them. Receipts .claude/asset0905-continuation/batch18-{audio36-exit,voice9-exit,client-r3-receipt,native-guard-exit,audio-generation-installed20-result,base-command-coverage,post-runtime-freeze}.json. No audible hardware, rendered motion or complete graph gameplay claim. Next immutable command closure and actual equipped graph resolver/model/publication/input/attack/copy/retirement integration remain mandatory, with all-family extraction/runtime parity and T-MODDING-009 pack unchanged. Model gpt-6.
+
+2026-09-08 19:52: corrected root sound C2 compiles on batch18 r2 fullAE0180F6/changed884292D2, but client link FAILED2s on menu InterfaceDelete1 C++ declarations for modmgrRescanDirectory and pdguiModManagerRefreshSnapshot. Retain batch18-client-r2-link-red-build.log. Menu owns sole exact declaration fix under root grant; all other native sources held. Audio36 and MP voice9/102 remain accepted for unchanged test inputs; no guard or installed runtime started. Root resumes r3 full snapshot/client only after menu explicit QUIESCENT.
+
+2026-09-08 19:50: batch18 native audio36 and MP voice9 PASS on testsFEE7C21E, unchanged full3F22B541. Client build FAILED3s because project math header did not expose isfinite in audio.c/catalog_audio_generation.c; retained log batch18-client-red-build.log. Corrected only those two owned client files to established ordered finite bounds and checked double pitch product before narrowing. Native test inputs unchanged; retain36+9 without repeat. New r2 full/changed manifests captured, client rebuild then guard/runtime pending. No runtime acceptance or source guard claim yet.
+
+2026-09-08 19:45 sound generation15 applied, UNVERIFIED. WAV/MP3/Ogg snapshot decode uses supplied bytes with no file fallback; retained source hash covers exact bytes, decoder format and playback parameters. Catalog-independent leaf slot and PCM survive catalog reset; ordinary sndStart routes generations to the existing mixer through per-voice owned PCM copies. Shared voice start rejects nonfinite/overflowing effective pitch. Decoder27, sound slots8 and existing provider1 focused cases prepared; installed20 with dummy audio adds source edit, catalog retirement, final-generation release while voice plays, slot reuse and loop timing. No CMake edits. Root source quiescent after apply, waiting granted MP voice4 settle before full snapshot. Prior CALLERS+VOICE peer checkpoint passed fullFBCC1DBA/clientFB499E55, Weapon1/100 and voice5/55 + guard, no runtime. Menu InterfaceDelete1 applied and quiescent, included in next client. T-MODDING-002 and all original fullgraph/parity/pack scope remain partial. Model gpt-6.
+
+2026-09-08 19:25 ACCEPTED animation generation unit: batch17 full2117 663551BD / changed440 55C2E5CF / client7A203806 / testsF2D69E5E. Tests build0, actual slot8/31590 assertions pass, client build0 (7s), native source guard0. Fresh installed19 PASS25/25 outer69.2s; ordinary animLoadHeader/Frame/GetRotTranslateScale proves buffer-only edit selects distinct generation, retained original bytes and decoded motion survive catalog unregister/reset, final release frees its slot, and reused slot decodes replacement motion without fixture-forced cache invalidation. Independent base command audit110 IDs/593 commands passes, zero missing/unexpected/base source/fixup failures. Full source and client unchanged through acceptance. Receipts .claude/asset0905-continuation/batch17-{client-receipt,slots8-exit,native-guard-exit,animation-generation-installed19-result,base-command-coverage,post-runtime-freeze}.json. Clip ownership/ordinary decoder component is verified; immutable command/audio/model closure and actual equipped graph publication/input/attack/copy/retirement integration remain open, along with full all-family extraction/runtime parity and requested T-MODDING-009 pack. No rendered motion, fired weapon or complete behavior-graph claim. Model gpt-6.
+
+2026-09-08 19:23 peer checkpoint: apply-r3 full D9048BFF/client E69F3AF4/tests 09DD35F0 stable, main5/139 assertions + MP policy6/40 assertions + source guard PASS. Historical catalog-plan4/51 retained without repeat. All holds released to root generation14; menu and MP explicitly quiescent through root verification. N-0153/N-0154 folded. Actual Apply failure UI/core journeys and live voice socket/Agent transition remain unverified. Next menu checked reload/sync/install/weapon-save propagation and MP voice transport4 remain private.
+
+## 2026-09-08 19:20 ET - Retained animation source generation applied
+
+2026-09-08 19:20 ET: generation14 applied from verified 12-path baseline plus two new module files. Owned glTF/GLB animation generations retain consumed source/buffer hash and native clip bytes, reserve private signed-16-bit slots across catalog reset/rollback, and route ordinary animation reads through the retained payload. Final release invalidates frame/header caches before slot reuse. Base DMA scratch sizes do not limit this direct-pointer decode path. Existing allocator tests now include generation reservation; installed fixture adds buffer-only edit, unregister/reset, exact retained bytes/decoded motion and cache reuse. Source applied, UNVERIFIED; full equipped graph resolver/publication remains open. Menu apply-r3 client/tests/main5/policy6/guard passed unchanged D9048BFF/clientE69F3AF4 and released; root owns next frozen checkpoint. Model gpt-6.
+
+## 2026-09-08 19:18 ET - Coherent peer source checkpoint
+
+N-0152: MP group-owner7 source settled, SHA774288F4 manifest at
+.claude/mp0908-repairs/followups/voice/source-owner7-settled.json. Root and
+menu explicitly quiescent before apply-r3 full snapshot. Preserve earlier
+menu main5 PRECHECK FAILED23:01:45 for group source drift; no tests executed
+in that attempt and no menu defect inferred. Group5 source was retained,
+then MP completed exact voice/CMake2 under sole-source grant. Client build
+with Opus exited0; native menu5/policy6/guard are pending under menu ownership.
+No live socket/audio/Agent transition acceptance. Root generation remains
+private. All other Workbench fronts and original asset/graph/pack scope persist.
+
+## 2026-09-08 19:15 ET - Private immutable animation generation checkpoint
+
+Animation generation work is PRIVATE at .claude/asset0908-drafts/animation-generation with 12-path baseline hashes and two new module files. Own compiled glTF/GLB bytes and source-plus-buffer hash, pin a private animation slot until final release, route ordinary decoder through retained generation, invalidate frame/header caches on slot reuse. Native slot range expands to signed 16-bit domain; ordinary replacement decoding borrows owned bytes directly and has no base DMA scratch-size ceiling. Installed nineteenth case exercises external-buffer-only edits, retained decoded motion after unregister/reset and released-slot reuse. No canonical product edits or verification yet. Menu owns coherent apply-r3 client/tests/main5+MP policy6+guard; all root native sources quiescent. Next apply exact root draft after terminal release, then native slot tests, source guard and installed decoder proof. Full equipped graph dependency/publication integration and all original extraction/mod-pack scope remain open.
+
+
+## 2026-09-08 18:52 ET - Shared client runtime checkpoint released
+
+MP independently completed Join-r3 PASS37/37 in209.9s on full639A68A8/client
+6C12FA9B with zero source/binary/fixture drift. Both initial roster packets
+accepted, no malformed warning. Model reviewed three images: global2, joined
+room2, leader/local labels and guest waiting footer. Identical default profiles
+do not prove distinct portrait mapping; no match/third-peer/WAN/controller claim.
+Receipt .claude/mp0908-repairs/runtime/roster-join-pair-r3-exit.json. Runtime
+FIFO released; root released global native/client hold and menu may resume
+reviewed checked Apply/retry. Root resumes graph dependency ownership only after
+recording exact scope. All original asset/graph and user-requested pack tasks
+remain active; current verified import unit does not complete the goal.
+
+
+## 2026-09-08 18:46 ET - Installed import transactions accepted
+
+2026-09-08 18:46 current asset acceptance: batch16 explicit command import
+transactions verified on full2111639A68A8/changed425FA815CB2/client6C12FA9B.
+Actual ledger rollback2 and native guard pass; installed18 passes23/23 outer
+in72.3s. Folder/loose/typed imports cover forward command/clip/sound references,
+exact namespaced identity, late dependency failure and cycle rollback with
+exact prior rows/native pointers/provider counts. Direct batch checks cover
+conflicting identities, source edits, rollback and valid edge reversal. Separate
+public base110 IDs/593 command audit passes, zero missing/source/fixup failures;
+full source and binary unchanged. Retain batch15 FAILED15/18 and its CRLF test
+failure; batch16 is the corrected evidence, not a relabel of that run.
+MP numeric5 accepted; MP now owns distinct Join-r3 on this client. Native source
+and client remain held until MP releases. Ordinary graph v2 gameplay, immutable
+command/clip/audio/model leases, complete extraction-to-runtime parity and the
+follow-on T-MODDING-009 pack remain open. No full-task completion claim.
+
+Receipts: asset0905-continuation/batch16-{client-receipt,snapshot2-exit,
+native-guard-exit,command-import-installed18-exit,command-import-installed18-result,
+base-command-coverage,post-runtime-freeze}.json. Installed source:
+.claude/smoke-verify-runs/20260908T224423Z-weapon_mesh_ingress_smoke.
+Root updated public authoring guide, concise UNRELEASED bullets, bug/pillar/task
+state. No Git mutation, no shipping install update. Model gpt-6.
+
+
+## 2026-09-08 18:34 ET - Batch15 client green, source contract newline correction
+
+Complete import batching and installed18 fixture sources frozen with shared
+menu save/scanner and MP numeric7. Source423E4F7EC1C/full21113B8304A3;
+client B52B721F compiled0/6s; tests compiled0/22s. Affected4 stopped at second
+case: multiline effect source assertion compared LF to checkout CRLF; standard
+source case passed, two provider guards unrun. Fixed only that test's source
+text normalization, keeping binary archive reads exact; retained failed receipt.
+New testfix full D0FE92DF/changed423FB9873D8 differs ONLY in the test source;
+client sources/binary remain exact. Rebuild tests then remaining3; no unchanged
+passing-case rerun. Native guard/installed18 and MP numeric5/Join-r3 still unrun.
+N-0144 menu native save6/79 passed its older source; N-0146 scanner-status2 now
+compiled in this client but dedicated filesystem proof pending. N-0145 MP
+numeric7 included in current source/client, direct5 still pending. Larger full
+Apply remains deferred during the global freeze. Goal and pack unchanged.
+
+
+## 2026-09-08 18:24 ET - Complete import propagation applied, verification pending
+
+Explicit command batches now propagate through folder, legacy, archive and
+nested weapon scanners; public standalone wrappers restore catalog and native
+pool on rejection. Archive mod load honors negative scan results, cleans mounts
+and handles, and defers manifest publication until admission succeeds. Loose
+archive descriptors bind sources to the selected archive. Standalone wire
+command admission now also uses the batch commit. These edits are UNVERIFIED;
+next is actual installed out-of-order and late-failure rollback coverage.
+Menu component15 and MP corrected codec9 passed on tests331490/fullC9A6 with
+zero drift. N-0142 records actual Join-r2 failed35/37; fixed empty identity
+encoding passed native9, matching client/Join-r3 remains unrun. Menu save-status7
+awaits its six native cases at the next common source freeze. Root source edits
+resumed18:12; no runtime acceptance transfers to this new source automatically.
+
+## 2026-09-08 18:07 ET - Import batch implementation checkpoint
+
+Root added explicit loaderAnimationSourceBatch Create/Stage/Commit/Destroy
+APIs in loader_pool.c/.h. Stage strictly validates and owns bytes/ID/path;
+Commit detects source edits, snapshots native pool, admits all rows, verifies
+command targets, finalizes once and restores on failure. Scanner private
+registerComponentWithAnimationBatch stages commands; standalone wrapper owns
+a batch and animation catalog transaction. Folder/archive/nested propagation
+remains unimplemented, no new native/installed acceptance. Avoid global pending
+state: pass the explicit batch through recursive scanner calls.
+Menu requested bounded evidence for applied9, so root paused product edits
+and granted tests-only build/IO8/catalog6/family1 then MP codec9. Menu owns
+fresh full freeze and asset0905b tests build. No client/runtime on this partial
+import cohort. Resume production propagation after both terminal gates.
+N-0140 records menu9; MP fixes initial roster empty-ID size in2 files and
+requires native9 before a distinct Join-r3. Last accepted asset client remains
+D988EC27/batch14; do not equate it to current in-progress source.
+
+
+18:03 user goal expansion: T-MODDING-009 additionally includes a Warthog-like
+vehicle with functional driver, passenger and turret roles for players. Verify
+entry/exit, role-specific controls and multiple-player occupancy. All earlier
+mod-pack and original asset/graph requirements remain mandatory.
+
+## 2026-09-08 17:58 ET - User expands goal with playable mod pack
+
+User explicitly requested a follow-on custom mod after the original pipeline/
+graph work: Needler-like weapon; Ghost-like hover vehicle with alternating
+blasters; Master Chief, Sergeant Johnson, Brute and Grunt inspired characters.
+Created server-assigned T-MODDING-009, dependent on T-MODDING-002 and existing
+T-MODDING-003. Updated the existing Needler item to reflect this new authority
+without erasing its historical deferral/evidence. Current dev-mods/needler has
+version0.4.4 manifest and a typed weapon archive; do not duplicate its catalog ID
+or accept old runtime receipts as final new-pack evidence. Preserve the complete
+original objective and implement the pack through the final public-source and
+modular graph pipeline. No new content implementation/runtime verdict yet.
+
+
+## 2026-09-08 17:54 ET - Base command utilization and exact mod identity accepted
+
+17:55 coordination update: MP Join-r2 is ready/reserved on accepted D988EC27.
+Prior host needed76s, beyond its75s readiness bound; distinct r2 uses120s plus
+native110/593 evidence on both clients and10s source drift checks, max360s.
+Keep every product source and binary frozen until MP terminal/release. Menu9
+remains private. Root may update only owned context/receipts while this runs.
+
+
+Batch14 corrects animation category after base provenance marking and rejects
+category disagreement. Its stronger installed weapon15/18 outer assertions pass
+58.904s on a fresh install. Independent coverage reads public animation.ini and
+commands.json from every command archive, compares successful exact-ID loads,
+and verifies the first native pool:110 sources,593 commands,110 unique loaded
+IDs, zero missing/unexpected/source failures/fixup misses. This is admission and
+native pool proof, not played animation, fired weapon or full executable gameplay.
+Namespace/deferred binding, replacement rollback, missing clip and include-cycle
+cases pass in the actual client; original visibility/mesh/native/cleanup cases
+remain green. Native guard passes; no source/client drift. Changed408 SHA
+ABDB78B883445292AF87122F5B8D955C11954C4747E606136269F625447D0C23;
+full2096 SHA5BC637B37944D54819C2C87B3C470732A163F2CB5C21B0F88CF0C6B38A15A7D8;
+clientD988EC277244CCFDFABFE9C42A5264C36F53E6E4019779B5181368F05808ECAC.
+Current tests16EEFA8B; reader7 and affected3 were accepted on their respective
+unchanged reader/test inputs. No unchanged native component reruns in batch14.
+Receipts .claude/asset0905-continuation/batch14-client-receipt.json,
+batch14-native-guard-exit.json, batch14-command-installed15-exit/result.json,
+batch14-base-command-coverage.json, batch14-post-runtime-freeze.json.
+Retain batch12 installed61 failure and batch13 fixture-pass/base-coverage failure.
+
+Root queuef2ab677e released. MP prior Join attempt26fb87d1 was invalidated and
+cancelled: source messages crossed and host independently timed out at readiness;
+its original11/19/77.7s and source drift are retained, with no roster verdict.
+Root holds product sources while MP decides whether a diagnosed new fixture is
+ready; otherwise menu9 receives a brief integration window. Menu state9 remains
+private, legacy4/26 accepted; MP native28 accepted. No Git operations.
+Next required source transaction and immutable dependency/native gameplay cuts
+are in .claude/asset0908-drafts/equipped/production-dependency-next.md. D006A is
+implemented as kernel/equipment components; complete gameplay remains required.
+
+
+## 2026-09-08 17:47 ET - Installed pass rejected for missing base coverage
+
+Fresh batch13 client825BC441/full2096B28DAEC1 passes15 custom fixture cases and
+17/17 outer assertions59.8s. Root inspected the full native boot log and found
+animations=0/guncmds=0: loaderWalkerMarkBaseArchiveEntry replaces semantic category
+with base, so the second compilation pass benignly skipped all110 command sources.
+This is a failed base-content acceptance, despite a genuine custom fixture pass.
+Retained batch13-command-installed15-exit/result and supplemental
+batch13-installed-base-coverage-review.json; no full acceptance claimed.
+Moved semantic category assignment after base marking, added category mismatch
+rejection, and strengthened installed fixture with110 native base command records.
+Only animation walker/fixture product paths changed. MP Join pair started while
+root correction/hold messages crossed; cancellation requested and root waits for
+its terminal before any further build. Binary825B remains unchanged.
+MP N-0137 records native28 (roster7/363,versions4,remaining17); menu N-0138 keeps
+component-state9 private. Both peers require next corrected client/source hold.
+
+
+## 2026-09-08 17:35 ET - Exact command source admission and installed repair
+
+Shared strict public command reader and exact-ID loader entry point now serve
+base extraction walker, local scanner and distribution. Complete scalar/type
+checks precede pool mutation; includes/random fixups preserve namespaces; failed
+replacement and cycles reject before publication. Installed fixture15 is staged
+for exact namespace/deferred/replacement/cycle proof. Batch12 reader6, affected2,
+tests/client and guard pass but installed boot stops61 admissions (7/17 outer,97s)
+on source4036A3E/full2093EA1D/clientB56D, with failure receipt retained.
+Cause: missing emitted trigger=z support and command compilation before complete
+audio providers/animation rows. Reader parity and two-phase registration repair
+are applied; all110 extracted command documents contain593 rows in12 known types.
+Batch13 reader7 passes; old walker structural assertions needed two corrections
+(single-pass shape and prior inline character fields now delegated). Both red
+receipts remain. Corrected affected3 and native guard now pass with source408
+08FD80E3/full20965985038B/testsD52CC21E. Client and installed verification pending.
+Reader7 was accepted separately without unchanged reruns.
+Menu legacy4/26 plus matching batch12 client/guard is bounded accepted; component
+state candidate remains private. MP roster18/protocol61 applied and frozen;
+new7/affected gates are MP-owned and pending, full18 requirements remain active.
+Shared tasks/log remain root-owned. No Git mutation or full-goal claim.
+
+
+## 2026-09-08 16:46 ET - Native visibility propagation accepted
+
+Fixed bgunExecuteGunVisCommands to stop before dispatching END, including a
+terminator-only list. Existing installed weapon harness calls null and a single
+END row with no valid hand/model context; its required log assertion passes.
+All14 weapon cases/16 outer assertions pass53.991s on a fresh isolated install.
+The public mesh/native record/malformed-source/cleanup cases remain green.
+This proves native empty-list behavior, not rendered pixels or graph firing.
+Also applied menu owner's selected_id diagnostic copy after catalog reload.
+MP readiness4 is included in the same build; its new readiness1 passes and14
+existing policy cases pass, with a retained wrapper expected13-count discrepancy
+reviewed by MP (no native failure and no unchanged rerun).
+
+Current source399 SHA078794E7274DA9D8CCAC524D6ADC552A33814A322A2B2C1FEC6DFA6F6D4D801A;
+full native2090 SHA8B2CFF2A925F9B08A9FCB2222CDF03DED6668358BA196AFDBD47E46DDD0479C1;
+client980529BEAA5E221B2DE1ECB26DE161B40E7D73F2F03277D999AFF3EDF4717B81;
+tests0F79510B22F1572516360C805CEA3F596117C75470BC6ACBAE68243CB284084A.
+Tests/client builds and native-source guard pass. Receipt batch11-client-receipt,
+batch11-native-guard-exit, batch11-visibility-installed14-exit/result under
+.claude/asset0905-continuation. Fresh install20260908T204410Z and aggregate
+results20260908T204504Z are retained. No source/client drift during installed run.
+Root runtime788d4ab7 completed/released. MP pair-r2 can use current client next;
+root preserves source while reviewing immutable dependency closure implementation.
+The first peer two-client capture27/30 was a fixture timing red before observer
+authentication; it is not evidence of broken room-list transport. Menu legacy
+list4 remains draft-only. Root shared task/log ownership remains active.
+
+Next critical graph unit is actual immutable command/clip/audio/model dependency
+ownership and slot retirement. Plain catalog retain cannot protect forced resets.
+See .claude/asset0908-drafts/equipped/production-dependency-next.md for exact source
+findings. Full source/utilization/modding/graph request remains partial, without a
+new D006 decision or approval requirement. No Git operation was performed.
+
+## 2026-09-08 16:36 ET - Equipped public source candidate verified
+
+D006A continues under T-MODDING-002. Added weapon_graph_v2_equipped.h/.cpp,
+seven focused tests and two CMake entries. Public settings JSON produces owned
+ammo, aim, sway, visibility and exact equip/reload command leases. Public descriptor
+owns model placement; the provider-supplied model lease must pin exact source and
+slot identity. Same-generation catalog factory prepares native actions plus
+common equipment before publication. Functions remain unselected until actual
+graph dispatch; no first-branch approximation is installed. v1 remains unchanged.
+Seven cases/248 assertions pass, tests/client builds and native-source guard pass.
+Source399 SHA7C31C708165515E71A0939720233F2808C1CE9740F831C349586F0802AD2FA93;
+full native2090 SHA830F0AE41142A4B41C40879DAA15556ED61D14FEAA8B050FACB3624E06C7F583;
+client1D52882644C6604512B2E70891EE6A873723BE3466E650E8AF0BE25091CD24C1;
+tests13E9848EF8D02ACF20B7A4A7E6A41E94F70C58AE34946ACF231B6355A394CCA0.
+Receipts: .claude/asset0905-continuation/batch10-equipped7-exit/name-audit/junit,
+batch10-native-guard-exit and batch10-client-receipt. Workbench N-0131 incorporated.
+
+Independent peers integrated social9/defaults2/catalog7; their MP27 and menu11
+native gates plus guard pass before this additive unit. Matching client includes
+those sources. Root released runtime to MP and holds product source while reviewing
+next dependencies. No unchanged peer reruns or Git mutations. Full graph/pipeline
+request remains partial: actual provider pinning and gameplay/copy lifetimes are
+not attached. catalogRetainTypedAsset alone is insufficient: forced deactivation
+consumes all root refs and animation teardown replaces global clip slots.
+
+Propagation found native bgunExecuteGunVisCommands executes END before checking
+the next row; terminator-only public visibility can overread. New equipped builder
+uses NULL for empty lists, but consumer fix and installed no-op proof remain
+pending current runtime hold. Root claims exact consumer/harness seam; menu requests
+one diagnostic selected_id snapshot fix in assetcatalog.c next window.
+
+## 2026-09-08 16:12 ET - Validated graph kernel and asset source checkpoint
+
+Completed current bounded batch: graph37 exact cases/472 assertions, actual
+decoder25, audio archive conformance18, native guard and menu persistence14 pass.
+Tests56796CE5/clientE36F3211 build on387/6C79C9F1. Installed weapon14/15outer55.1s
+and strict MP3 scheduler10/6outer55.3s pass with unchanged sources/client. Fresh
+extraction8610root/9611total/27families has zero conformance diagnostics. Root
+runtime/source holds released after final receipt; no Git operations or commit.
+Keep shared isolated asset0905b for peers/continuation. MP Create acceptance
+separately passes18/18: one host commit, assignment, Room OPEN; remote peers and
+controller proof remain open. Root did not independently validate post-room art.
+
+Receipts: `.claude/asset0905-continuation/batch9-graph37-exit.json`,
+`batch9-mp3-decoder25-exit.json`, `batch9-audio-conformance-exit.json`,
+`batch9-client-receipt.json`, `batch9-weapon-mesh-installed14-exit/result.json`,
+`batch9-fresh-corpus-exit/report.json`, `batch9-mp3-installed10-exit/result.json`.
+Menu receipt `.claude/menu0908/modmgr-persistence14-exit.json`; MP receipt
+`.claude/mp0908-repairs/runtime/host-create-accept-exit.json`. The incorrect
+scheduler selector launched no client; that infrastructure receipt is retained.
+The earlier native-header and weapon fixture/cleanup failures are resolved.
+
+D006A remains explicitly decided. Kernel proof is not v2 gameplay proof.
+Next root unit must complete public equipped weapon preparation, immutable exact
+command/audio closure and slot leases, then atomic publication plus all native
+input/idle/attack/gset copy/retirement hooks. Do not attach only a getter or return
+fake native success. Broader base/state/module/net/Theater parity remains open.
+Other source gaps: PCM indexing with edit-preserving migration (review2 stale
+after seed fix; no blanket refusal/overwrite), packed-audio caller identity,
+native chain/delay/restart, Arena private metadata, character policy consumers,
+regional language/font and glTF/UV semantics. Menu owns draft checked Apply
+assetcatalog.c/.h seams; MP owns social transport9 draft. Both need coordinated
+CMake/source boundaries before their next builds. Task remains active/partial.
+
+## 2026-09-08 15:56 ET - Graph kernel integration and weapon fixture cleanup
+
+Configured audio reverse-domain repair passes installed6/14 outer70.1s with
+native guard and unchanged371/9D551466/client5A39CAD6. Weapon14 first fails before
+launch because its PowerShell wrapper passes Windows absolute paths to MSYS
+Python; the existing relative-path/Push-Location pattern fixes fixture creation.
+Corrected run reaches9/14,11/15 outer57.6s on371/541D155E and unchanged5A39 client.
+All five source/model assertions pass before cleanup; reverse fixture deletion
+removes a child mesh while projectile edges still reference it. Harness cleanup
+now deactivates payloads with all edges intact, prunes the full fixture graph,
+then unregisters rows. Final pass logging includes cleanup/slot/edge recovery.
+This corrects the test lifecycle without weakening production preflight.
+Root applies authorized graph14/37 kernel and strict MP3 framing4 candidates;
+menu applies settled persistence4, root adds its two CMake lines. Source freeze
+and focused gates follow. Graph kernel is not yet attached to equipped gameplay;
+no full D006/base parity claim. MP room Create acceptance is held at first red.
+
+## 2026-09-08 15:48 ET - Packed audio reverse range and graph continuation
+
+Public-audio source installed6 fails0/6,3/14 outer in65.205s on unchanged371
+F0A104AC/client21C5C296. Source inspection confirms correct public keymap data
+and configured identity32928 outside the4096 reverse table. Root expands the
+table to the complete unsigned16-bit source identity domain and adds installed
+checks for exact packed identity and rejected negative/wider inputs. Guard and
+client build pass on371/9D551466/client5A39CAD6; installed6 repair is running.
+Weapon14/MP Create acceptance are held at first red. Earlier seed8/15 outer
+and MP scheduler10 acceptance remain distinct. MP host Create-open/Cancel passes
+14/14 with3 retained images and real SDL events; actual room commit/peers remain
+open. D006A remains decided/authorized; graph kernel14/37 and strict MP3 framing4
+stay prepared until the current runtime boundary finishes. Propagation audit
+finds packed-to-leaf source loss in sndStart/Scenario callers; it remains open
+beside native PCM indexing/migration/chains and full graph gameplay attachment.
+
+## 2026-09-08 15:37 - Native reverse audio source identity verified
+
+Corrected seed identity passes the actual installed8 fixture and15/15 outer
+assertions on unchanged source371/F0A104AC/client21C5C296. The fixture now admits
+base SFX, voice-file and music targets; native source lookups own real file-backed
+handles. Repeated same-ID edits, new custom slots, category-conflict rejection,
+late folder rollback, received typed archive admission, received byte/catalog
+rollback and compatibility descriptor identity preservation all pass. Eight
+focused cases, required native guard and matching client build pass separately.
+Receipt: batch8-audio-seed-installed8-exit/result.json, install193538Z,
+aggregate193637Z. MP lobby5+affected36 pass on the same source; its UI capture
+follows in FIFO. Public-audio6 and weapon14 remain pending before source release.
+Native PCM indexing/migration/chains and graph gameplay attachment remain open.
+
+## 2026-09-08 15:33 - Native audio seed identity focused gate
+
+The two-path seed correction matches its reviewed candidates. Joint source
+371/F0A104AC includes the separately owned lobby14 changes. Tests build passes;
+all8 exact audio identity cases pass on tests99B6BB23, no missing/unmatched/failed
+names or source drift. Required native-source guard passes on the same source.
+Matching client/installed8 remain pending. Evidence: batch8-audio-seed-focused8
+exit/JUnit/name-audit and batch8-audio-seed-native-guard-exit.json.
+
+Menu handoff: AgentCreate contained/wrapped controls23AF9A96 and verbose-only
+ActionMap provenance9872D522 compile in prior clientFA930431/source3607EB79621.
+Changed-source desktop diagnostic stopped9/22,0 events/no GL captures after two
+supported activation failures, no focus-gain or edge witness. Prior desktop1
+observed real focus then independent globalAccept-to-Create with0 fixture events
+(11/22); provenance and black preview remain unresolved. Startup retries stopped.
+Menu goal stays partial; root retains shared task/log ownership.
+
+MP handoff: first20 unit retains13+49 direct cases and host capture11 assertions;
+render evidence is not room-button/peer qualification. Lobby14 is now integrated
+with receipt80E12362; five new cases await the matching tests handoff. F01-F18
+remain partial, and swarm/social follow-ups remain private drafts.
+
+## 2026-09-08 15:22 - Executable graph architecture selected
+
+Mike answered the pending D-006 question with option A: executable modular
+graphs, with authored events, connections, gates and state driving reusable
+native modules. Workbench now records the decision and constraints.md carries
+the active contract. The graph-v2 review4 remains unapplied and unvalidated;
+compiler/ownership helpers alone do not prove equipped weapon adapters, copied
+action lifetimes, network/Theater continuity or base gameplay parity. Continue
+implementation after the current bounded audio identity diagnostic.
+
+## 2026-09-08 15:17 - Audio identity first-red, remaining probes stopped
+
+Numeric7 and relocation8 pass (6/6 outer each). MP3 scheduler10 passes6/6 outer
+in65.159s with dummy audio, reaching actual native scheduler/main bus consumers.
+All use source360/F43883E4/client1B938609. Audio identity8 fails preflight before
+case1 (0/8,3/15 outer,64.292s), install191356Z, aggregate191501Z; matching exit
+and result receipts are `.claude/asset0905-continuation/batch7-audio-identity-installed8-*.json`.
+No public-audio6 or weapon14 launch followed this red. Runtime FIFO released.
+Root added bounded candidate/route/owner counters in asset_audio_identity_harness.c;
+acceptance conditions unchanged, not yet compiled or run. Menu may integrate
+its separately reviewed narrow unit before the next joint client freeze.
+
+Native audio indexing scratch review2 now covers15 paths, with native5 installed
+hook/fixture, CMake linkage, direct voice classification checks and corrected
+packed-control expectations. Four original product baselines match; the shared
+archive test was rebased by exact anchors to preserve current model changes.
+This candidate remains unapplied: old-generation refusal is not a complete
+edit-preserving upgrade. Strict MP3 framing also remains a separate draft.
+
+## 2026-09-08 15:07 - Numeric source runtime boundary verified
+
+The current installed numeric probe passes all7 cases and6 outer assertions in
+51.475s on unchanged client1B938609/source360 F43883E4. Actual room collision and
+generated-model consumers accept finite endpoints and reject nonfinite or
+out-of-range source coordinates. Receipt: `.claude/asset0905-continuation/batch7-numeric-installed7-exit.json`
+and matching result.json; install20260908T190531Z, aggregate190623Z. Relocation8
+is queued behind the menu owner's desktop-context focus diagnostic. No product
+source changes or builds occurred. Model draft README now distinguishes verified
+canonical code from historical proposed files. Workbench remains partial; parent
+context mirrors were hash-synchronized at15:04 before this new checkpoint.
+
+## 2026-09-08 14:55 - Direct typed mesh source consumers verified
+
+Shared model_source_path now resolves the public mesh descriptor's geometry
+selection for catalog activation, previews and Bondgun loads. Invalid FileProvider
+sources fail before raw/preprocessed model-byte loading; fixed-filename probing is
+removed. Actual installed10 passes13/13 outer assertions on client1B938609 and
+unchanged360/F43883E4. It proves custom geometry beside a wrong default sibling,
+nested archives, stale private echo independence, and rejection of missing,
+conflicting, unsafe and unsupported selections through all three consumers.
+Four affected source contracts pass (one retained plus three current), as does
+the native source guard. Earlier stale ownership/preview assertions and runner
+preflight failure remain recorded. Evidence: `.claude/asset0905-continuation/`
+`batch7-direct-model-installed10-exit.json` and matching result.json.
+
+MP13 plus49 affected contracts passed on this same source state; live MP remains
+unqualified. Menu receives one revised150s/200s Agent startup fixture, with all
+readiness conditions and10events unchanged. Root holds source/build/runtime work
+through its terminal result. Other asset probes, audio native identity/chains,
+language extraction, character selection, Arena admission and D006 graph execution
+remain open. No Git, ordinary-menu, visual, controller or full-pipeline acceptance.
+
+## 2026-09-08 - First multiplayer repair candidate integrated
+
+At14:31 root integrated20 exact reviewed paths after the Agent fixture's
+terminal8/22 readiness failure and the source owners' release. No unrelated
+menu or asset-identity code changed. Every product/verifier file matches its
+reviewed draft hash; strict patch applicability and edited tracked whitespace
+checks pass. This is source evidence only: no build/test/runtime has run.
+Settled receipt `.claude/mp0908-repairs/source-room-safety-settled.json`, SHA-256
+1F0EA26C4F3A5A37C1BFED1321E997E5E30D9A36F1F12A8FC74A7D99A546E542.
+Protocol60 and its compatibility documentation are updated; the13 focused
+cases and changed lifecycle/version contracts await a joint freeze/build with
+the asset owner's10 disjoint direct-model paths. No build, Git or swarm
+follow-up integration until that handoff. Workbench remains partial; the full
+movement, consent/accounting/pacing, social/voice, NAT and swarm requirements
+are not closed by this source batch.
+
+## 2026-09-08 14:30 - Ordinary Agent admission timeout; MP integration window released
+
+Direct menu acceptance is350 selected source/native cases plus real save11 and
+actual FR4, all passing with exact receipts. Specialized asset body/head/hand9
+also passes on client BB6F044D/source347 EFF4FE2C. The ONE unchanged ordinary
+Agent Create/Cancel fixture then stopped at its90s agent_select_ready deadline:
+boot0,0of10 events,no captures,8of22 assertions. At92.12s the normal client was
+still activating weapon metadata; input authority was ready. No navigation
+behavior was exercised. `.claude/menu0908/current-agent-exit.json` confirms
+unchanged source, client and EF129FCD fixture; results-20260908T183022Z.json and
+the retained20260908T182842Z-menu_agent_create_cancel install contain logs.
+Root released source/build/runtime freeze for the promised MP20-path integration
+after the terminal result; no Settings/virtual or unchanged Agent rerun. Menu
+edits remain held pending the next coordinated source unit. The specialized
+asset probe's early exit is distinct from normal Main Menu boot admission.
+No runtime/visual/hardware acceptance is implied; full goal remains active.
+
+## 2026-09-08 14:27 - Selected hand sources and body/head scan ownership verified
+
+Root implemented exact selected hand catalog identity through native body records,
+Bondgun hand/fists queues, cache invalidation and resets. Fourteen focused cases
+pass (81 cumulative with retained evidence). Fresh installed diagnostics exposed a
+later generic metadata pass overwriting specialized body/head source providers;
+removed those duplicate registrations and private-field writers. The strengthened
+installed probe now passes9/9 and12/12 outer assertions, including actual queue,
+preview and native geometry; edited scanner/walker/PDCA source use; stale/missing
+rejection; resident reload and failed-child rollback. ClientBB6F044D on unchanged347
+EFF4FE2C; native guard and client build pass. Evidence:
+`.claude/asset0905-continuation/batch6-body-head-single-owner-installed9-exit.json`
+and matching result.json. Earlier terminal reds remain retained separately.
+
+Menu350 plus dedicated11/4 are accepted separately; its one unchanged Agent runtime
+fixture receives this client next. MP's reviewed20-path integration window follows
+that terminal receipt. No Git operations. Direct typed-container source resolver
+and seven-path runtime draft remain unapplied; native audio indexing/chain runtime,
+language extraction, character selection and Arena source admission remain open.
+D006 graph architecture is still a user-owned decision; no graph-v2 integration or
+full pipeline, graphical, hardware, multiplayer or release acceptance is claimed.
+
+## 2026-09-08 14:24 - Menu350 plus real-save11 and actual-FR4 accepted
+
+The integrated unit's selected source/native cohort is green:350 distinct cases
+across140+56+2+11+87+54, exact original selection equality, no duplicate/missing
+names or source/binary drift. Dedicated real Settings/config save11/11 and
+actual Firing Range renderer4/4 also pass. `.claude/menu0908/accepted350.json`
+maps case evidence and separate binary receipts. The prior302 was not reused.
+The final Agent source contract now checks suppression at popup boundaries.
+Current common347 source EFF4FE2C includes the asset owner's duplicate generic
+body/head metadata writer removal. Root released temporary asset0905b build
+ownership and runtime lane after all direct gates passed; asset owner runs its
+guard/client/installed9 retry. All menu source/tests remain frozen. Next root
+gate: unchanged ordinary Agent Create/Cancel, then Settings and virtual-device
+journeys. Workbench003/004/005/006 and INPUT007 remain partial; full runtime,
+human-visual, physical-controller and remaining core ModManager/alias work open.
+
+## 2026-09-08 - Multiplayer swarm follow-up prepared during verified live hold
+
+At14:22 T-NETWORKING-011 prepared a separate seven-path F17 draft at
+`.claude/mp0908-repairs/followups/swarm/`: live GPU dispatch count, correct
+full-texture stride, no per-chunk row copies, loaded active-room recipients,
+and two additional quantizer cases through4096 bots. It depends on the first
+20-path candidate for netmsg/lifecycle inputs and does not change that patch.
+No integration or executable check. Receiver ordering, empty/shrinking pools,
+readback cost and actual scaling proof remain open. Direct app task handles
+confirmed the asset/menu tasks remain inProgress; a30-second wait was bounded
+and timed out without any terminal observation. Asset14:14 reports hand9 red
+and continued source hold, so no multiplayer integration/restart is authorized
+by that receipt. The complete repair goal remains active.
+
+## 2026-09-08 14:14 - Pointer cause fixed;209 current menu passes
+
+Pointer diagnostics proved NavRectRel was stale for mouse hit-testing: intended
+Actions ID matched, but center(212,48) missed its submitted row. Test-only
+submission-position geometry and exact press-ID checks fixed Actions and Editor
+Close; all8 Settings helper cases now have passing evidence. Five initial OSK
+cases also pass. Current total209/350,141 remaining, mapped in
+`.claude/menu0908/accepted209-partial.json` and outstanding141.txt.
+Next OSK test failed because CreateContext restores the prior current context;
+the fixture now explicitly switches and restores its replacement with scoped
+cleanup. This correction is uncompiled. Root has temporary asset0905b incremental
+tests-build ownership; asset owner holds other builds until release.
+The one released installed hand9 run completed boot and first case, then failed
+its second native-alias case; source and clientA05B unchanged. Root held all
+edits/builds through that run. Asset owner now owns narrow harness diagnostics;
+root waits for those to settle before shared refreeze/test build. Save11/FR4,
+ordinary Agent/Settings/controller journeys and full acceptance remain open.
+
+## 2026-09-08 14:02 - Client linked; pointer diagnostic pending build handoff
+
+Current client A05B4141230D38D8C40BA7455D6C510E87D75B8E5107C725B542C89655800583
+builds on347-path source3F891670. MainMenu and hand-witness declaration includes
+were corrected at their terminal compile failures. No client/runtime was run.
+Current menu350 campaign retains198 exact passes (140+56+2);152 remain. The
+pointer Actions test failed again after a hover-frame change, disproving that
+candidate explanation. Root added native pointer/hover/active-ID diagnostics
+only in tests/test_pdgui_settings_ui.cpp; those diagnostics are not compiled.
+Asset owner was asked to hand over temporary asset0905b incremental test-build
+ownership; wait for explicit handoff/current build state before starting.
+Root source edits otherwise held, no active root gate and no Git mutations.
+`.claude/menu0908/accepted198-partial.json` maps every retained case to its
+source/binary/JUnit receipt; outstanding152.txt preserves remaining names.
+Next: diagnostic build and single pointer case, resolve actual hit-state cause,
+remaining menu cases, dedicated real save11/FR4, then asset boot/Agent/Settings
+client journeys. The full menu/controller/MKB/visual goal remains open.
+
+## 2026-09-08 - Multiplayer repairs authorized, first room candidate in draft
+
+Mike authorized the complete multiplayer audit repair program under
+T-NETWORKING-011. The requirement/evidence matrix is in
+`context/audits/2026/multiplayer-repairs-2026-09-08.md`. During the asset/menu
+common source freeze, this lane only prepared `.claude/mp0908-repairs` drafts:
+atomic room create/join, accepted room snapshots, initial remote creator
+configuration, structured results, password/capacity controls and seven room
+transaction/reconnect/snapshot cases. No product/test/CMake edits are integrated
+and no new gate ran. Baseline hashes must be reconciled before integration.
+Exact ownership overlap was sent to the asset owner; typed archive admission
+and Room character-selection work remain theirs. Next: finish review, obtain
+explicit freeze release, integrate exact hunks, then queue the smallest gate.
+The full movement/distribution/chat/voice/NAT/scaling rows remain open; no
+feature was marked implemented or validated by draft preparation.
+
+14:05 continuation: the first candidate now has a review patch and 20-path
+manifest at `.claude/mp0908-repairs/integration.patch` and
+`integration-manifest.json`. Thirteen new focused cases cover room transactions,
+reservations/snapshots, wire round-trip/all truncations, and allocation failure.
+The candidate also includes single-channel distribution framing and the two-axis
+movement correction. No integration or executable check; canonical original
+hashes remain unchanged. The source-release request and exact patch were sent
+to the asset owner. The full repair goal remains active and incomplete.
+
+At14:04:55 ET the asset owner confirmed no direct overlap with their planned
+character-identity hunks. Their release point is after menu direct/dedicated
+gates and the nine-case body/hand installed receipt. No release yet; integrate
+reviewed hunks only after rechecking canonical drift, never stale full files.
+
+Sep8 13:37 menu gate: shared tests build now passes after configure/COFF test
+target corrections. Frozen347 376CCD11, binary416F174E:140/350 cases passed,
+one stale capture-only right-stick source assertion failed,209 unrun; zero
+filesystem source drift. Root updated only that assertion for integrated OSK
+release ownership. Asset owner performs one incremental rebuild, then root
+runs210 failed/unrun cases plus dedicated save11/FR4. No client gate yet.
+`.claude/menu0908/current-menu-exit.json` retains exact evidence and names.
+
+Sep8 13:28 shared configure red: the new dedicated menu targets queried an
+unavailable CMake compiler feature table under the supported forced-compiler
+wrapper. Root removed only the redundant target_compile_features call; global
+C11/C++20 settings remain. Asset owner will refreeze and retry the shared build.
+No compiler/tests ran in the failed attempt. Details are in context/bugs.md.
+
+## 2026-09-08 - Settings observations ready for shared compilation
+
+Root menu owner added read-only rendered-view/tab and native focus observations,
+seven smoke readiness conditions, actual Agent/device/glyph diagnostics and
+focused policy/native ImGui cases. The disposable `menu_settings_keyboard.json`
+journey has 28 events, 155000ms total bounded waits and final script time6750ms
+within its190s process budget. It uses normal Agent load, keyboard traversal and
+five native GL captures. No new gate has run. Asset owner reports its hand unit
+ready; both owners must freeze before one shared asset0905b tests build. Existing
+302-case evidence predates this unit. Root owns MainMenu/readiness/harness/tests;
+no asset source or further CMake changes were introduced by this addition.
+
+## 2026-09-08 - Hand source identity implementation, validation pending
+
+T-ASSETS-048 resumes from the installed boot failure on the combat hand mesh's
+shared native file number. The body manager now retains the selected public
+hand catalog ID. Bondgun queues that ID and its effective provider through both
+hand attachments and unarmed fists, checks cache identity and catalog generation,
+and rejects stale or missing selected sources. Reset paths clear the new state.
+The body/head smoke now has nine cases, including actual queued-loader geometry,
+shared file-number/provider identities, edited sources and failed requests.
+All fourteen affected C++ cases passed on source347 376CCD11/tests416F174E.
+The native source guard passed. The runner's post-test Git ownership failure
+was preserved separately and its source receipt recovered by an independent
+fresh-shell hash comparison. Installed validation is still pending the shared
+menu gates and client build; the last installed verdict is the earlier boot red.
+No Git operations occurred. See the canonical asset audit for evidence and the
+remaining extraction, standard-source, graph, language and character work.
+
+## 2026-09-08 - Multiplayer source audit delivered before repairs
+
+T-NETWORKING-010 audited the current working tree across social/lobby,
+room settings, distribution, movement authority, voice/chat and reconnect.
+[The report](audits/2026/multiplayer-audit-2026-09-08.md) records 18 findings,
+source locations, evidence limits and ordered repair batches. No production
+code, tests, builds, game runs, captures or Git operations were performed.
+Historical peer passes remain regression evidence, not current v59 proof.
+Existing menu and asset lanes continue independently. Next: Mike selects
+repairs; begin with room/authority/state safety and distribution correctness.
+
+## 2026-09-08 13:07 ET - Reviewed menu37 integrated, validation pending
+
+Resumed after shell/approval interruptions. The first six navigation paths had
+landed; all remaining reviewed patches and the late Settings source assertion
+are now applied, including CMake dedicated Settings-save and Firing Range tests.
+All37 canonical files match the cumulative rehearsal text; three have only
+line-ending differences. Exact hashes are in
+`.claude/menu0908/integration-verified.json`. No build/test/runtime has run for
+this batch. Earlier302 acceptance remains evidence for the prior source unit.
+
+This unit adds deferred navigation/Back ownership, native Settings Interface
+controls, atomic checked machine saves and Agent failure status/departure guard,
+Results single-intent dispatch, controller text keyboard with native field and
+pointer/lifecycle ownership, and genuine SDL virtual-controller smoke support.
+The full ordinary menu inventory, runtime/visual/hardware acceptance, raw-VK
+domain repair and ModManager core failure/persistence work remain unfinished.
+
+The Sep6 source-freeze release proposal was accepted in coordination chat
+m_20260908014650622_4d656454. Root owns menu37/CMake additive targets only;
+asset main/Room/hand/bondgun/types/catalog/extractor paths are untouched. The
+asset thread is currently stopped and its unresolved hand-source boot failure
+still blocks ordinary menu runtime. Establish a fresh common manifest before
+focused compilation/tests; do not reuse the old whole-source acceptance claim.
+
+## 2026-09-06 14:10 ET - Preview source fix compiled, hand identity blocks boot
+
+Source review found two alias defects: first-row lookup missed later conflicting
+hand/private owners, and Room previews redirected an explicit FileProvider
+through native filenum lookup. Asset root added all-owner checks and preserved
+explicit sources in modeldefLoadFromHandle; five affected contracts, guard and
+client72FBED1D build pass on314-pathDAB3EDD8. Fresh installed body/head gate is
+red3/10 at100.5s,0/8 cases: three legitimate hand aliases now fail registration,
+first base:dark_combat/model_combathandslod_hand. No menu input or capture ran.
+The asset lane now owns producer/API/bondgun propagation of the exact selected
+public hand source and its direct geometry proof. Do not relax ownership or
+repeat the unchanged menu fixture while boot is incomplete. Receipt:
+`.claude/asset0905-continuation/batch5-body-head-smoke-mesh-alias-exit.json`;
+result `.claude/smoke-verify-runs/results-20260906T180811Z.json`.
+
+Menu302 remains recorded with its sources unchanged. The next eight menu
+patches rehearse without conflicts across37 paths in scratch; final hashes and
+one additional Settings assertion patch are in
+`.claude/menu0906-next/integration-rehearsal/README.md`. No next-unit source,
+CMake, build or runtime acceptance is implied. ModManager atomic-copy and
+checked Apply/save/disabled-component proposals are separate preparatory work.
+
+## 2026-09-06 13:59 ET - Menu runtime held on one body alias registration
+
+Asset SFX correction313-path9CB05A8E passes its six affected C++ cases,
+16 Python conformance cases and source guard; client9C2057D9 builds. Fresh
+installed body/head retry is red3/9 before any of seven harness cases.
+SFX1768/1768 and its dependent effect now register, but the first body scan
+rejects base:sp_body_108 because model_ceyespy shares native filenum75 with
+legitimate hi/lo model aliases. The asset owner is correcting only established
+catalog-selected primary aliases; hand and private bridge uniqueness remain
+required. Two independent source reviews are checking policy and consumers.
+Receipt: `.claude/asset0905-continuation/batch5-body-head-smoke-sfx-correction-exit.json`;
+result `.claude/smoke-verify-runs/results-20260906T174837Z.json`.
+No new menu run, source changes or captures. Menu302 remains recorded, Agent
+fixture EF129FCD is unchanged and all next-menu proposals remain scratch only.
+
+## 2026-09-06 13:39 ET - Menu sources held on remaining asset boot correction
+
+Menu302 focused acceptance and its client build remain recorded. After the
+body/head hash/type/native-slot correction, fresh boot registers68 bodies,
+84 heads and63 characters, but209 other registrations prevent harness/menu
+admission. Asset owner traced208 to packed SFX bytes incorrectly constrained
+as MIDI ranges; the remaining effect depends on a rejected sound. Its bounded
+parser/conformance/proof correction is in preparation. No menu retry or timeout
+extension. The Agent fixture stays EF129FCD and menu product sources stay frozen.
+
+Next caller/results, Settings UI/save, OSK and virtual-controller proposals are
+scratch only; independent source reviews and the CMake integration draft are
+complete. `.claude/menu0906-next/next-unit-integration.md` gives prerequisite
+order, hashes, dedicated test dependencies and remaining runtime limits.
+The raw-controller overlap audit separately recommends additive precise keys,
+retained legacy aliases and held-source ownership; no raw-domain fix is applied.
+
+13:31 ET dependency update: asset correction313-path1A3EC5A6 passes12 affected
+cases (current asset76=64 retained+12), guard and client3D1EBB6A build. Fresh
+installed body/head gate stops before its seven harness cases: old base
+BODYHEAD.PUBLIC_SOURCE warnings are absent, but boot authoritatively rejects
+209 other catalog registrations at50s. No installed acceptance. Asset owner
+traces the first remaining registration failure. Menu302 remains recorded,
+menu sources frozen and unchanged Agent readiness fixture pending; no retry
+or timeout extension. Asset receipt `batch5-body-head-smoke-exit.json` and
+`.claude/smoke-verify-runs/results-20260906T173007Z.json` retain this result.
+
+13:21 ET asset evidence correction: the asset owner found one retained body
+archive case still pinned authored MAIAN to the old numeric type4. The earlier
+asset74 cumulative claim below over-retained that affected case and is
+superseded pending seven body-source cases plus affected model/hash contracts.
+Menu302 is unaffected. Exact loader/export/native21 repairs and their direct
+installed proof remain in the asset lane; menu product sources stay frozen.
+
+## 2026-09-06 13:10 ET - Client builds, readiness run stops in asset boot
+
+Current native-source guard and shared client build pass; client2E4448B3,
+37s build, unchanged312-path46DAC86C. The revised ordinary Agent fixture stops
+red8/22 at90s before menu admission, boot0/agent_select0,0/10 events fired.
+The log repeatedly reports BODYHEAD.PUBLIC_SOURCE failure to hash nested
+typed mesh archives, from head_alex through bodies such as steward. No menu
+key or native capture ran. Source/client/fixture hashes remain unchanged.
+Receipt `.claude/menu0906-next/next-agent-smoke-exit.json`; result
+`.claude/smoke-verify-runs/results-20260906T170953Z.json`; installed log under
+`.claude/smoke-verify-runs/20260906T170821Z-menu_agent_create_cancel/logs/game client/`.
+Root returned the runtime lane to the asset owner for an exact loader diagnosis
+and correction, without repeating the fixture or broader asset probes. Menu302
+and asset74 focused evidence are retained; menu product/test sources held.
+
+## 2026-09-06 13:05 ET - All302 next-batch menu cases accepted
+
+The continuation retained69 passes before native menu readiness failed its
+physical-focus test. ImGui clears IO.AppFocusLost at EndFrame; root corrected
+the query to take the production caller's persistent input-authority focus
+fact. Only helper/header, two smoke-harness callsites and its three native cases
+changed. The affected earlier native pass was superseded and rerun with125
+failed/unrun cases. Incremental tests build and126-case continuation pass on
+312-path46DAC86C / testsEA58CA28, no source/binary drift. Exact union is302:
+108+68 retained+126 fresh, no missing or extra names. Receipt:
+`.claude/menu0906-next/accepted302.json`. Asset74 also pass cumulatively.
+
+Shared freeze remains active for native-source guard, client build and revised
+ordinary Agent readiness smoke. OSK, remaining caller/results, Settings UI/save
+and virtual-controller changes remain reviewed or in-review scratch drafts.
+No next-batch client, inspected capture or physical-controller pass yet.
+
+## 2026-09-06 12:57 ET - Next menu gate retains108, stale identity contract red
+
+Shared test compilation passes after the bounded navigation macro correction
+and asset-owned mixer linkage fixes. Asset body-type and stale audio-pin gates
+required their own exact corrections; asset57 are retained with17 unrun.
+The menu302 cohort on immutable `source-batch5-audio-pin-before-build.json`
+(311-path23ACF241) / tests02294A4B stops after108 passes at the raw-joystick
+static contract's deleted `s_LastInputClass` expectation. Other193 cases are
+unrun. Empty source/binary drift and exact names are preserved in
+`.claude/menu0906-next/next-menu-compact-exit.json`, JUnit, passed and remaining
+files. The original receipt includes excess PowerShell5 provider metadata;
+the compact receipt removes that metadata, without changing test results.
+
+Root corrects only `tests/test_custom_controller_static.cpp`, including the
+neighboring unrun custom-glyph contract, to the identity helper/adapter. Asset
+owner has an agreed two-hunk client witness compile correction. Re-freeze and
+incrementally build, then run only the194 menu remainder. Subsequent Settings,
+caller/results, OSK and virtual-controller smoke changes remain scratch drafts.
+
+## 2026-09-06 12:29 ET - Common next-batch freeze established
+
+Both roots hold 311 product/test/build inputs on B7F793B7 in
+`.claude/asset0905-continuation/source-batch5-initial-freeze.json`. Root checked
+all hashes with no drift and confirmed new menu sources are included. Asset
+source contracts, native-source guard and conformance self-tests pass; isolated
+asset0905b tests build is active. Menu focused tests and revised ordinary Agent
+readiness smoke have not run. Subsequent caller/results/OSK/Settings drafts are
+scratch only, with their remaining evidence and core-save gaps in the menu audit.
+
+The first tests build stopped red37s before any C++ case on menu uses of
+context-dependent ImGui navigation macros outside local `g` scope. Root corrected
+only nav_input.cpp and the widget-test assertions; other309 hashes remain fixed.
+Replacement hashes are in `.claude/menu0906-next/build-alias-correction.json`.
+Asset source/Python passes remain retained; incremental build awaits its queue.
+
+## 2026-09-06 12:17 ET - Next menu source batch integrated, awaiting common gate
+
+Native widget/opening ownership, InputText and Agent Create cancel priority,
+stable caller popups, complete binding/profile persistence with legacy row/save
+repairs, SDL identity/capability glyphs, completed-frame readiness, and Mod Manager
+staging/Hub departure guards are integrated. New test sources and revised Agent
+fixture are ready; no new build/test/runtime pass is claimed. Asset root owns
+final shared CMake/source edits and the next build requires explicit joint freeze.
+
+Remaining caller audit found Social raw Back, competing forward/Back dispatch,
+Firing Range duplicate activation and Cinema footer selection defects. Bounded
+caller/results and controller text-keyboard drafts remain scratch only. Mod
+Manager core status/persistence limitations remain open. Prior235 and the first
+runtime timing failure remain tied to their original sources and receipts.
+
+## 2026-09-06 11:42 ET - Client builds; menu runtime fixture misses readiness
+
+The shared client passes on C3A64691 / 207-path 02A5C91A. The keyboard Agent
+Create/Cancel smoke is red 8/13 because Select at50s preceded picker readiness
+at53.10s. Back at60s closed the picker. Three actual captures confirm the states;
+the intended Create route was never entered. Logs, results, captures and empty
+pre/post source drift are retained in `.claude/menu0906-evidence/menu-agent-smoke-exit.json`
+and the referenced smoke run. The prior235 affected cases remain accepted;
+ordinary-client menu acceptance remains open. No unchanged rerun or broader gate.
+
+Root released the common freeze for the reviewed next source batch after its
+runtime result; both roots must explicitly refreeze before the next build.
+Navigation/native ownership, complete profile persistence with reachable legacy
+caller fixes, and device identity/capability glyph drafts are under review.
+Asset root reserves only audio Modding UI's stale C declaration to canonical
+audio.h, plus its own asset/main/CMake additions. Software keyboard, Mod Manager
+transactions and full inventory/visual/hardware acceptance remain outstanding.
+
+## 2026-09-06 11:23 ET - Menu affected gate accepted, client build pending
+
+The first T-MENUS-003 repair unit passes all 235 distinct selected
+menu/input/settings cases. Exact case-name reconciliation and cumulative
+receipts are in `.claude/menu0906-evidence/menu-accepted235.json` and its case
+list. Passing cohorts are 116 + 1 + 50 + 53 + 15; unchanged passes were retained.
+Catch JUnit section rows were normalized to original test names, and comma
+names required escaped filters. No requested case is omitted from acceptance.
+
+The actual ImGui gate exposed hidden safe-default navigation focus; the bounded
+eight-path correction makes that focus visibly actionable and also removes
+Cheats' remaining global Accept override. Stale Room/pause source assertions
+were corrected. Asset root repaired the unrelated network-settings test fixture
+to provide required rig metadata; the identity writer's rejection stayed intact.
+The accepted shared freeze is 207 paths `7BC9FB68...`, latest tests binary
+`DD6141B8...`. Asset root owns the queued client/updater build and two asset
+smokes; all product/test/CMake sources remain frozen through that boundary.
+
+The next-unit drafts under `.claude/menu0906-next/` remain unapplied. Reconcile
+navigation draft bases with the new focus/source-assertion changes; finish
+glyph candidate availability; review legacy profile save-error callers. Shared
+controller text keyboard and Mod Manager transactions are still unimplemented.
+No ordinary menu journey, visual, physical-controller, release, or Git proof is
+claimed. Workbench source evidence and new receipts are both preserved.
+
+## 2026-09-06 - Menu input and confirmation source batch
+
+T-MENUS-003 owns Mike's complete menu/controller/MKB/glyph objective. Parallel
+source audits found and repaired unsafe global Accept in seven confirmation
+variants and the shared action bar (T-MENUS-004), modal binding capture and all
+four slot visibility (T-MENUS-005), authoritative active binding lookup and a
+menu-only physical scroll axis (T-INPUT-005). Root separated physical keyboard
+from mapped ImGui navigation, preserved text editing and key releases, added
+capture release/neutral/focus/device lifetime, and delayed mouse Back until a
+non-drag release. Actual headless ImGui and production binding tests are added.
+
+The first isolated tests build passed, but the first gate stopped after 16
+passing cases on a stale Observer glyph source assertion. That exact assertion
+is corrected. Independent asset sources changed during compilation, so the
+initial 201-path artifact does not prove an aggregate frozen build. The 25
+menu-owned paths remain frozen in `.claude/menu0906-evidence/menu-refreeze.json`;
+asset root is coordinating the next common freeze/build. No ordinary client or
+physical acceptance has run for this batch; no Git mutations occurred.
+
+The [menu audit](audits/2026/menu-accessibility-2026-09-06.md) records the full
+remaining matrix and source-proven next unit: binding persistence/replacement
+and transactional profile load, shared controller text entry, device observation
+and family glyphs, Mod Manager staged changes/exit ownership/full catalog, and
+remaining opening/back route consistency. The broad goal remains partial.
+
+## 2026-09-06 - Full fresh corpus conformance accepted; runtime follow-up
+
+Batch3 closes its corrected example gate (one case, 688 assertions), then passes
+isolated client/updater build, fresh source-consumer smoke 18/18, and full corpus
+conformance 8,610 root / 9,611 total archives across all 27 families with zero
+errors. All 157 frozen paths remain unchanged (`0CF630E3`), client `4F016CF4`.
+Earlier red receipts are retained. Source/schema and CPU consumer proof remains
+distinct from all-content completeness, graphical/human/audio-device and release
+proof. Details and receipt paths are in the asset source/runtime audit.
+
+Next source batch: reviewed complete-body player identity is applied; worker
+finishes explicit character head-policy ingress/runtime metadata. Real pinned
+Vorbis replaces the WAV stub with bounded incremental PCM decoding. Mixer final
+frame/replay and sync seek/rate defects are repaired; eleven tests await build.
+Three synthetic Vorbis fixtures were encoded under the asset-import queue.
+Graph v2 and base MP3 remain draft work. No Git mutation; unrelated frozen release
+lanes remain retained. New menu session notified about shared-file ownership.
+
+## 2026-09-05 - Shared scene consumers verified; fresh-corpus defects exposed
+
+T-ASSETS-041/042/043 pass 22 Python cases, native-source guard, conformance
+selftest, cumulative 295 affected C++ cases (294 plus one corrected static case),
+and isolated client/updater builds. On unchanged 148-path manifest `F1500A6F...`,
+client `87D74D0D...` passes the clean-install scene smoke 18/18 across 12 real
+collision/model/renderer-source cases. No GPU or human visual proof is claimed.
+Receipts and retained initial failures: `.claude/asset0905-continuation/`.
+
+The next full fresh-extracted-corpus conformance gate stops at 2,700 diagnostics;
+its first 200 all impose WAV requirements on MP3 voices. T-ASSETS-044 now owns
+format-specific audio validation. T-ASSETS-045 owns strict graph documents and
+decoded/unambiguous exported entries. T-ASSETS-042 prepares comparison of all
+published language archives with their actual provenance-linked raw sources.
+Root owns complete conformance JSON receipts. No unchanged corpus rerun follows
+the terminal red. Wider language/font, glTF material, and executable-graph work
+remain active scope; D-006 is still open, with concrete reviewable designs saved.
+No Git mutation or unrelated frozen release edits occurred.
+
+The next frozen Python gate passes seven audio and 16 language-verifier cases,
+selftest, and 68/68 actual English archive/native-table comparisons. Corrected
+full conformance stops at 92 errors (8,610 root/9,611 total archives), now fully
+retained in `batch3-fresh-conformance.json`, with zero scoped source drift.
+T-ASSETS-047 repairs bot-profile manifest/reuse and explicit optional-head source
+contracts. Runtime tracing shows 37 templates also need native head-selection
+semantics in binding/UI; this remains T-ASSETS-048, not hidden by schema repair.
+T-ASSETS-045 receives a final oversized catalog-ID/fall-vector capture correction
+before its first build. MP3 wiring's initial false blocker was retracted; real
+legacy scheduling/reverse-map and Vorbis-stub findings remain for the next unit.
+
+## 2026-09-05 - Asset pipeline continuation after the fixture failure
+
+T-TESTS-003 corrected both V-006 fixture root timeout fields to the supported
+`timeout_seconds=125`; all 141 fixture roots were inspected and only these two
+had the incorrect key. The replacement Scenario smoke passes 32/32, including
+all 19 transaction cases, ordinary match start, and clean scripted exit in
+96.3 seconds. It used retained client SHA-256 `2097E1C8...` without rebuilding;
+the 121-path source manifest `44186EA3...` was unchanged before/after. Durable
+receipt: `.claude/asset0905-continuation/v006-result.json`; the original rejected
+receipt is preserved. No visual or controller proof is claimed.
+
+Next owned source batch: T-ASSETS-041 graph numeric/unit tunables;
+T-ASSETS-042 exact language null/empty and Unicode/native encoding round trips;
+T-ASSETS-043 shared glTF scenes, hierarchy transforms, and instances in the
+Scenario renderer and generic collision/model compiler. Wider language locale
+and glyph coverage, glTF material/attribute semantics, and D-006 graph control
+flow remain open. No unrelated frozen release lane is being edited.
+
+## 2026-09-05 - User-directed asset source/runtime repair batch
+
+Recovered canonical Workbench and the retained `fadf9ff6` working tree. Mike's
+request selects complete extraction/use, standard authoring formats, and modular
+graphs. T-ASSETS-038 owns B-1107's shared colmesh/runtime lifecycle correction;
+T-ASSETS-039 owns local glTF buffer admission/provider/cache closure and exact
+animation tails; T-ASSETS-040 owns graph source-reference and typed parameter
+validation. Exact delegated surfaces are recorded in N-0090. No other frozen
+release lane is being claimed or reset.
+
+The audit maps all 27 source families and distinguishes missing runtime
+semantics from missing proof. Graph control-flow and base-ID bypasses require
+an explicit execution model; D-006 asks whether to implement executable modular
+graphs or restrict authoring to native-module composition. Complete glTF visual
+semantics, special-animation channel round-trip, regional language extraction,
+and vector fonts in legacy game text remain separate open gaps. See
+[the current asset audit](audits/2026/asset-source-runtime-contract-2026-09-05.md)
+for producers, consumers, ownership, and verification. The batch passes 10
+Python regressions, native-source guard, conformance selftest and all 27 example
+families (52 archives). Affected C++ evidence is cumulative: 273 initial cases
+passed; obsolete cache-version assertions were corrected and pass 6 focused
+cases/743 assertions. A production math-header mismatch required portable finite
+bounds; those pass 7 focused cases/502 assertions. Client, updater, and tests
+build successfully. All initial failures remain in `.claude/asset0905-evidence/`.
+
+The single ordinary-client V-006 run passes all 19 Scenario transaction cases
+and starts the match, but its complete receipt is rejected at 30/32: the fixture
+uses top-level timeout_ms while the harness reads timeout_seconds, so the default
+90-second watchdog fires before the 95-second exit. No rerun followed this
+terminal red. Final 120-path source fingerprint `85609312...` stayed unchanged
+through final tests/build/smoke. B-1107 is implemented; V-006 remains partial.
+The author guide is `docs/modding/standard-source-authoring.md`; release notes
+record only the bounded repairs. D-006 awaits Mike's graph architecture choice.
+All-family source-edit parity, full graph execution, and visual/physical proof
+remain open; unrelated frozen release lanes and Git state were preserved.
+
 ## 2026-08-26 - B-1105/SP-74 production closure accepted
 
 The final shared-alias source was refrozen and accepted as one coherent unit.
@@ -6463,3 +7730,56 @@ V-009 no-huge-white-first-person-obstruction gate. Representative Campaign and
 Combat Simulator propagation remains required afterward. Do not stage the
 unrelated Workbench-hook lane or `.claude`; commit only after these production
 gates and a final source-freeze check.
+
+## 2026-08-27 - V-006 pauses at confirmed B-1107 catalog split authority
+
+Milestone 1 remains 3 validated, 9 partial, and 4 missing leaves out of 16.
+The coherent Scenario source unit passed the isolated incremental client/tests
+build, focused `[b1068]` coverage at 182 assertions in 19 cases, and the
+public-native-source guard. No full suite was run. Its replacement ordinary
+smoke then retained a second source-stable rejection at
+`.claude/smoke-verify-runs/results-20260827T194121Z.json` (runner 1, client 2,
+5/32): production compiled `base:scenario_chicago`, installed its authored
+colmesh, and the exact readiness predicate rejected the missing
+`ASSET_SCENARIO` runtime binding before case 1. The 97-path fingerprint remained
+`27d13ef6bbed5ede82b9afac54c4f4a455d99cb8db0f9557ee5581d0c52dda39`.
+
+Source tracing confirms B-1107: the successful colmesh branch in
+`s_catalogLoadEntryMetadataPayload` returns before typed runtime-adapter
+activation and hydration, while colmesh unload omits adapter detach. This is a
+shared catalog lifecycle defect, not a reason to loosen Scenario validation.
+Workbench V-006 remains `partial` / `not_run`; N-0089 contains the exact failed
+receipt and cause. No B-1107 source, test, CMake, release-note, stage, commit,
+or push change was made. All coordination queues are empty. The next action is
+one atomic colmesh plus runtime-binding activation/rollback/unload correction,
+then one isolated incremental client/tests build, focused B-1068/B-1107 tests,
+the native-source guard, and one replacement V-006 smoke. Preserve all other
+source-frozen lanes and do not touch or stage the active Workbench-hook files.
+
+Asset continuation September 6, 09:45 ET: T048/049 focused C++ passed cumulatively65cases (33 retained +32 corrected/unrun; 8759 assertions), six character-source Python cases, native source guard and conformance selftest passed. Common product/test205path freeze BD2F74FB and tests38C97FB3. Installed-client Vorbis typed-archive/playlist and all63 character-template activation gates await shared menu confirmation correction and client build. Public body/head scalar metadata authority, complete selector/net identity, base MP3/reverse mappings, standard material/animation and graph execution remain open. Broader asset request remains partial; all new graph/audio/body integration copies are draft-only. No device/visual/network/release proof claimed.
+
+### Asset batch4 installed acceptance — 2026-09-06 11:37 ET
+
+Common207-path source02A5C91A9A97E7EC84C7102DF1901432C683B2B3EA5434B1F6466236C0FBD863 remains frozen. Client C3A64691C58EB63C935BBD43DF93299E3674A8C3B990380B41328085626E73C9 builds after vendor-only PCH exclusion; tests DD6141B8 and updater D4F51449 retain passing receipts. Asset C++ cumulative65 distinct cases are exact-name audited (33 retained plus corrected/unrun32); menu owner reports cumulative235 distinct cases. Fresh audio install passes5/5 with4410 stereo frames through public song/catalog/nested ZIP/actual synchronized playlist. Fresh character install passes6/6: all63 extracted typed templates activate,26fixed35random_gender2integrated. Both receipts prove unchanged source and scripted clean exit. See .claude/asset0905-continuation/batch4-audio-smoke-result.json and batch4-character-smoke-result.json plus matching exit/source files. No visual, audible-device, multiplayer or release acceptance. T048/T049 remain partial: public body/head scalar authority, selector/network identity, remaining standard audio paths and behavior graph execution are still open. Menu owner now owns the next bounded installed check on the same client; asset workers prepare unapplied body/head, MP3/reverse-map/conformance and graph closure drafts. No Git operations or completion claim.
+
+### Asset batch5 integration and catalog growth repair — 2026-09-06 12:14 ET
+
+The common source freeze remains released for this coherent batch. Root integrated public body/head scalar and selected mesh/hand authority through base walkers, catalog scans and received PDCA transactions; model slot rollback and native payload lifetime remain explicit. Public audio reverse identities now survive override chains and received content; common public controls replace stale private mirrors. WAV/MP3/Vorbis conformance follows selected standard source files, including PCM24/32 and float WAV, bounded MPEG frame streams and CRC-checked Vorbis containers. Base MP3 now uses decoded stereo PCM through the native scheduler/mixer, actual voice duration and standard theme one-shots. New installed probes cover these routes; no batch5 build, test, guard or runtime acceptance yet. Four synthetic MP3 fixture encodes are the only executed batch5 gate so far.
+
+Root source review found catalog registration inserts an unoccupied new row before rehash: successful rehash skips and loses that row, while allocation failure may return an incomplete row. Catalog worker owns a bounded draft correcting publication order, checked pool growth, stale reverse-ID caches and exact metadata self-pointer rebasing, with actual threshold/relocation probes. Weapon graph embedded mesh ingress still needs its reviewed draft integrated. D006 architecture remains open and graph-v2 gameplay draft remains unapplied. Batch4 verified audio5/5 and all63 character activations remain accepted independently. No Git lane or broad completion claim.
+
+Batch5 final integration September 6 12:25 ET: catalog core/cache and scanner snapshot fixes are integrated. Registration copies bounded IDs before mutation, reserves hash capacity before row publication, and only publishes initialized rows; exact runtime metadata self markers are rebased during checked pool relocation. Reverse caches store pool indexes and validate reacquired rows. Snapshot comparison normalizes self markers, while preserved metadata rollback rebases them without reviving retired payloads. Five helper regressions and eight real threshold/relocation cases remain unrun. Weapon meshes now share direct/deep public-descriptor preparation, exact selected held source, native identity preservation and model slot rollback; obsolete eight-mesh mutation removed. Portable installed gate includes13mod cases plus fresh Falcon2 identity preservation. Root moved native audio and weapon model probes into mainProc after mainInit/sndInit, so sound/memory pools and boot-failure handling precede proof. Audio timing probe now ticks while active/paused and consumes repeat PCM fully. Remaining static assertions are being aligned; common freeze and all batch5 validation remain pending. No graph-v2 implementation or D006 resolution is claimed.
+
+Batch5 first frozen gate accepted — 2026-09-06 12:29 ET: final common311-path manifest B7F793B7FF0AB55CB40565E3A819D840189445B9F51FD102414D81810B6FDDE0 includes final audio source assertions. All15 Python audio-conformance cases, native-source guard and conformance selftest16parity+recursion+9structured contracts pass. Receipt .claude/asset0905-continuation/batch5-contracts-exit.json proves unchanged source and complete ordered gate. Product/tests/CMake remain frozen. Isolated asset0905b pd-tests build is active under q_20260906162848221_821355ae with120s watchdog for this substantial batch;74exact asset testcase names and menu owner selection are next. No new C++/client/runtime acceptance yet. Earlier batch4 evidence remains separately retained.
+
+Batch5 first build terminal red — 2026-09-06 12:30 ET: pd-tests compilation stops after37s at port/fast3d/imgui/imgui_internal.h:1385/1386 because g is not declared in this scope, affecting pdgui_nav_input and widget-navigation test objects. Receipt batch5-build-tests-exit.json exit1; exact first-red compiler log preserved as .claude/asset0905-continuation/batch5-build-tests-first-red.log. Source311/B7F793B7 unchanged. No C++ cases or client gates ran. Shared menu owner receives exact header correction ownership; asset production/CMake remain frozen. Earlier15audio Python/native guard/selftest passes retained, not rerun unchanged. Coordination build queue finished/cleared; this is a compile failure, not watchdog124.
+
+Batch5 focused terminal red and correction — 2026-09-06 12:42 ET: tests DE8C2ADA on unchanged311/C65DF594 execute47 distinct selected cases,46pass and1fail. Actual public symbolic type mapping incorrectly interchanges native MAIAN3 and CASS4; expected maian_tall_neck becomes cass_neck. Root replaces positional name-table assignment with explicit native constants and expands the same regression across all six named/numeric types for both body and head. Existing explicit rig override/empty-value assertions remain. Source propagation search finds no other identical symbolic mapping table. Common311 now F8064E27817D528D443C5EA8D388E41FE3E26170AFBBC6DD9A85B26CCB9770F5. JUnit/audit preserve46passed and28failed/unrun names exactly; incremental tests rebuild active. All builds earlier than corrected3 remain preserved terminal reds; no client/installed acceptance yet.
+
+Batch5 shared runner handoff — 2026-09-06 12:48 ET: two corrected audio source assertions PASS, exact2/2 JUnit coverage with no missing/unmatched/failing names. Source311/23ACF24129D8B278E7788875F1764608E06D92BF67DD900B96DDDE49308F5731 unchanged, tests02294A4B5571652A4FCBBDC57D39B19F1FAAB02CC6F84C284F73B2BA38472EDF. Asset cumulative57passes (46retained +9continuation +2corrected), not a fresh57case run. Remaining17 names saved; menu owner now receives frozen binary and test-runner for its cohort before the asset continuation. Current production/CMake/tests remain held. Full source guard refresh after body parser correction, client build and all batch5 installed probes remain pending; no runtime acceptance or task completion claim.
+
+Asset batch5 checkpoint — 2026-09-06 13:03 ET: all74 selected C++ cases accepted cumulatively with exact JUnit coverage (46+9+2+17), including the corrected native CASS/MAIAN mapping and actual standard audio decoding/mixer helpers. Current source312/825AFB40, tests3CEF96FC; source remained unchanged through the last gate. Python audio15 and earlier source contracts retain passes. Shared menu owner is applying only its diagnosed persistent-focus readiness correction before the next common freeze/build. Native source guard refresh, client build and seven installed asset probes remain pending. Workbench T046/T048/T050 details now reflect current source/helper evidence and explicit runtime limits. Character selection, strict MP3 framing, language lifetime and D006 graph drafts are unapplied. Full asset/graph task remains partial.
+
+Asset batch5 SFX correction boundary — 2026-09-06 13:45 ET: current C++ acceptance is76 distinct cases (64 unaffected plus12 direct; historical74 over-retention withdrawn). Source313/1A3EC5A6 and client3D1EBB6A direct body/head install registers68 bodies,84 heads and63 characters but aborts209 failures before0/7 harness cases:208 SFX packed control bytes incorrectly treated as MIDI ranges, plus dependent explosion profile. Exact six-path public parser/conformance/proof correction is now frozen313/9CB05A8EFF71196219505A1E085E40C7851E20EE4924F3BDFCD16BF1B347FD3C; installed proof original-rate pin is44100, decoded output22050. Tests build active; six affected C++ cases,16 Python contracts, guard/selftest, client and direct boot retry pending. Native source audit independently confirms file-route start delays, linked clips and restart groups remain unimplemented; a semantic catalog-ID public source/runtime draft is authorized, not applied. Menu302 remains independently accepted and source-frozen; unchanged Agent retry follows direct asset boot success. Character selection, language, UV, eligibility and strict MPEG next drafts remain unapplied. D-006 remains open, graph-v2 draft unapplied. No Git, audible, visual, hardware, multiplayer, release or overall completion claim.
+
+Batch5 native mesh alias correction — Sep6 14:04 ET: source314 DAB3EDD889FE7BB58E2DF3D111D407A77863F4EA34659EE91ED57878C5DEABFB freezes seven exact paths. Body/head primary can retain an established native model mapping despite legitimate aliases because it loads selected catalog/provider bytes. Hand and private bridges scan every occupied model row for conflicting ownership; no first-row/order blind spot. Shared modeldefLoadFromHandle preserves an explicit FileProvider rather than replacing it by a filenum sibling, covering ordinary character preview. Eight-case installed fixture adds real CamSpy source ownership, selected synthetic geometry through both body and preview loaders, missing selected-source rejection and both-order hand/private conflicts. No installed verdict yet. First static gate found one stale old audio rollback source pin, corrected to actual transactional registrar; direct5 now pass exact names, source unchanged, cumulative80=77 prior plus3 additional distinct cases (two affected prior cases refreshed). Guards/client/direct installed retry next. Menu source freeze unchanged; no next draft integration or Git.

@@ -505,13 +505,22 @@ extern struct mphead g_MpHeads[];
 #define CATALOG_MP_SELECT_CACHE_COUNT 256
 #define RT_CACHE_SIZE 1024
 
-/* Forward caches: mp table position → catalog ID string */
-static const char *s_MpBodyIdCache[CATALOG_MP_SELECT_CACHE_COUNT];
-static const char *s_MpHeadIdCache[CATALOG_MP_SELECT_CACHE_COUNT];
+/* Cache pool index + 1 (zero is absent), never borrowed row pointers.
+ * Catalog growth can relocate its contiguous pool during child admission. */
+static s32 s_MpBodyIdCache[CATALOG_MP_SELECT_CACHE_COUNT];
+static s32 s_MpHeadIdCache[CATALOG_MP_SELECT_CACHE_COUNT];
+static s32 s_RuntimeCache[ASSET_TYPE_COUNT][RT_CACHE_SIZE];
 
-/* General cache: (type, runtime_index) → catalog ID string.
- * Indexed as s_RuntimeCache[type][runtime_index]. */
-static const char *s_RuntimeCache[ASSET_TYPE_COUNT][RT_CACHE_SIZE];
+static const asset_entry_t *catalogCachedRow(s32 encoded_index,
+        asset_type_e type, s32 requested_index, s32 mp_selector)
+{
+    const asset_entry_t *entry = encoded_index > 0
+        ? assetCatalogGetByIndex(encoded_index - 1) : NULL;
+    if (!entry || entry->type != type) return NULL;
+    if ((mp_selector ? (s32)entry->mp_index : entry->runtime_index) != requested_index)
+        return NULL;
+    return entry;
+}
 
 static int s_RuntimeCacheBuilt = 0;
 
@@ -532,6 +541,9 @@ static const char *catalogFindMpIndexedAssetId(asset_type_e type, s32 mp_idx)
 
 typedef struct catalog_mp_index_ctx {
     s32 idx;
+    /* Build-local only: callbacks execute under the catalog iteration lock.
+     * Do not call a locking catalog getter again from these callbacks. */
+    const asset_entry_t *pool_base;
 } catalog_mp_index_ctx_t;
 
 static void catalogAssignBodyMpIndex(const asset_entry_t *entry, void *userdata)
@@ -548,7 +560,7 @@ static void catalogAssignBodyMpIndex(const asset_entry_t *entry, void *userdata)
 
     mutable_entry = (asset_entry_t *)entry;
     mutable_entry->mp_index = (s16)ctx->idx;
-    s_MpBodyIdCache[ctx->idx] = entry->id;
+    s_MpBodyIdCache[ctx->idx] = (s32)(entry - ctx->pool_base) + 1;
     ctx->idx++;
 }
 
@@ -566,7 +578,7 @@ static void catalogAssignHeadMpIndex(const asset_entry_t *entry, void *userdata)
 
     mutable_entry = (asset_entry_t *)entry;
     mutable_entry->mp_index = (s16)ctx->idx;
-    s_MpHeadIdCache[ctx->idx] = entry->id;
+    s_MpHeadIdCache[ctx->idx] = (s32)(entry - ctx->pool_base) + 1;
     ctx->idx++;
 }
 
@@ -576,6 +588,7 @@ void catalogBuildRuntimeCaches(void)
     const asset_entry_t *e;
     catalog_mp_index_ctx_t mp_body_ctx;
     catalog_mp_index_ctx_t mp_head_ctx;
+    const asset_entry_t *pool_base = NULL;
 
     memset(s_MpBodyIdCache, 0, sizeof(s_MpBodyIdCache));
     memset(s_MpHeadIdCache, 0, sizeof(s_MpHeadIdCache));
@@ -585,43 +598,44 @@ void catalogBuildRuntimeCaches(void)
     for (i = 0; i < assetCatalogGetPoolSize(); i++) {
         e = assetCatalogGetByIndex(i);
         if (!e) continue;
+        if (!pool_base) pool_base = e - i;
         s32 t = (s32)e->type;
         s32 ri = e->runtime_index;
         if (t >= 0 && t < ASSET_TYPE_COUNT && ri >= 0 && ri < RT_CACHE_SIZE) {
-            s_RuntimeCache[t][ri] = e->id;
+            s_RuntimeCache[t][ri] = i + 1;
         }
     }
 
     /* Pass 2: seed legacy base MP body/head cache positions. */
     for (i = 0; i < MP_BODY_BASE_COUNT; i++) {
         s32 bodynum = (s32)g_MpBodies[i].bodynum;
-        const char *cid = (bodynum >= 0 && bodynum < RT_CACHE_SIZE)
-                          ? s_RuntimeCache[ASSET_BODY][bodynum] : NULL;
-        s_MpBodyIdCache[i] = cid;
-        if (cid) {
-            asset_entry_t *ae = (asset_entry_t *)assetCatalogResolve(cid);
-            if (ae) ae->mp_index = (s16)i;
-        }
+        s32 encoded = (bodynum >= 0 && bodynum < RT_CACHE_SIZE)
+                          ? s_RuntimeCache[ASSET_BODY][bodynum] : 0;
+        s_MpBodyIdCache[i] = encoded;
+        asset_entry_t *ae = (asset_entry_t *)catalogCachedRow(encoded,
+                ASSET_BODY, bodynum, 0);
+        if (ae && ae->enabled) ae->mp_index = (s16)i;
     }
 
     for (i = 0; i < MP_HEAD_BASE_COUNT; i++) {
         s32 headnum = (s32)g_MpHeads[i].headnum;
-        const char *cid = (headnum >= 0 && headnum < RT_CACHE_SIZE)
-                          ? s_RuntimeCache[ASSET_HEAD][headnum] : NULL;
-        s_MpHeadIdCache[i] = cid;
-        if (cid) {
-            asset_entry_t *ae = (asset_entry_t *)assetCatalogResolve(cid);
-            if (ae) ae->mp_index = (s16)i;
-        }
+        s32 encoded = (headnum >= 0 && headnum < RT_CACHE_SIZE)
+                          ? s_RuntimeCache[ASSET_HEAD][headnum] : 0;
+        s_MpHeadIdCache[i] = encoded;
+        asset_entry_t *ae = (asset_entry_t *)catalogCachedRow(encoded,
+                ASSET_HEAD, headnum, 0);
+        if (ae && ae->enabled) ae->mp_index = (s16)i;
     }
 
     /* Pass 3: rebuild the selector caches from catalog iteration order so
      * base rows and custom source-backed rows share the same private
      * mp_index domain that modmgrGetBody/Head exposes. */
     mp_body_ctx.idx = 0;
+    mp_body_ctx.pool_base = pool_base;
     assetCatalogIterateByType(ASSET_BODY, catalogAssignBodyMpIndex, &mp_body_ctx);
 
     mp_head_ctx.idx = 0;
+    mp_head_ctx.pool_base = pool_base;
     assetCatalogIterateByType(ASSET_HEAD, catalogAssignHeadMpIndex, &mp_head_ctx);
 
     s_RuntimeCacheBuilt = 1;
@@ -632,14 +646,18 @@ void catalogBuildRuntimeCaches(void)
 const char *catalogMpBodyId(s32 mp_idx)
 {
     if (mp_idx < 0 || mp_idx >= CATALOG_MP_SELECT_CACHE_COUNT) return NULL;
-    if (s_MpBodyIdCache[mp_idx]) return s_MpBodyIdCache[mp_idx];
+    const asset_entry_t *entry = catalogCachedRow(s_MpBodyIdCache[mp_idx],
+            ASSET_BODY, mp_idx, 1);
+    if (entry) return entry->id;
     return catalogFindMpIndexedAssetId(ASSET_BODY, mp_idx);
 }
 
 const char *catalogMpHeadId(s32 mp_idx)
 {
     if (mp_idx < 0 || mp_idx >= CATALOG_MP_SELECT_CACHE_COUNT) return NULL;
-    if (s_MpHeadIdCache[mp_idx]) return s_MpHeadIdCache[mp_idx];
+    const asset_entry_t *entry = catalogCachedRow(s_MpHeadIdCache[mp_idx],
+            ASSET_HEAD, mp_idx, 1);
+    if (entry) return entry->id;
     return catalogFindMpIndexedAssetId(ASSET_HEAD, mp_idx);
 }
 
@@ -650,9 +668,9 @@ const char *catalogIdByRuntime(asset_type_e type, s32 runtime_index)
 
     if ((s32)type < 0 || (s32)type >= ASSET_TYPE_COUNT) return NULL;
     if (runtime_index < 0 || runtime_index >= RT_CACHE_SIZE) return NULL;
-    if (s_RuntimeCache[(s32)type][runtime_index]) {
-        return s_RuntimeCache[(s32)type][runtime_index];
-    }
+    const asset_entry_t *entry = catalogCachedRow(
+            s_RuntimeCache[(s32)type][runtime_index], type, runtime_index, 0);
+    if (entry) return entry->id;
 
     /* Extractors run before catalogBuildRuntimeCaches() during boot.  Fall
      * back to the registered catalog pool so public archives still serialize
@@ -1119,8 +1137,9 @@ const char *catalogGetBodyDisplayName(s32 mpbodynum)
  *      it during iteration of a previous result will corrupt the prior
  *      view.
  *   3. The pointers inside are owned by the catalog (asset_entry_t::id),
- *      so they remain valid across the next assetCatalog* mutation only
- *      if the entry itself is not removed; treat them as borrowed.
+ *      and expire on catalog mutation, including pool growth during new
+ *      registration. Copy IDs before any mutation; removal is not required
+ *      to invalidate these borrowed pointers.
  */
 #define VALID_HEAD_BUF_CAP 256
 static const char *s_ValidHeadBuf[VALID_HEAD_BUF_CAP];
@@ -1923,6 +1942,28 @@ s32 catalogGetBodyAnimScaleChecked(s32 bodynum, f32 *out_value)
     }
     /* Catalog Gate 3 Bodies F2: route through manager. */
     if (out_value) { *out_value = catalogGetBodyAnimScale(bodynum); }
+    return 1;
+}
+
+s32 catalogGetBodyHandSourceChecked(s32 bodynum, char out_id[64], asset_data_handle_t *out_handle)
+{
+    const body_data_t *body = s_bodyFieldRecordChecked(bodynum, "catalogGetBodyHandSourceChecked");
+    const asset_entry_t *mesh;
+    asset_data_handle_t handle = {0};
+    if (out_id) out_id[0] = 0;
+    if (out_handle) *out_handle = handle;
+    if (!body || !out_id || !out_handle) return 0;
+    if (!memchr(body->hand_catalog_id, 0, sizeof(body->hand_catalog_id))) return 0;
+    const asset_entry_t *owner = assetCatalogResolve(body->catalog_id);
+    if (!owner || owner->type != ASSET_BODY || owner->runtime_index != bodynum) return 0;
+    if (!body->handfilenum) return !body->hand_catalog_id[0];
+    if (!body->hand_catalog_id[0]) return 0;
+    mesh = assetCatalogResolve(body->hand_catalog_id);
+    if (!mesh || mesh->type != ASSET_MODEL || mesh->source_filenum != body->handfilenum) return 0;
+    handle = catalogEffectiveHandle(mesh);
+    if (handle.provider != fileProvider()) return 0;
+    strcpy(out_id, body->hand_catalog_id);
+    *out_handle = handle;
     return 1;
 }
 

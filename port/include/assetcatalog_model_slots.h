@@ -37,6 +37,11 @@ extern "C" {
  * assetCatalogResetCustomBodyHeadSlots(). */
 void assetCatalogResetCustomModelSlots(void);
 
+/* Opaque identity-map snapshot for existing catalog admission transactions. */
+void *assetCatalogSnapshotCustomModelSlots(void);
+s32 assetCatalogRestoreCustomModelSlots(const void *snapshot);
+void assetCatalogDestroyCustomModelSlotSnapshot(void *snapshot);
+
 /* Resolve a catalog-owned private runtime slot for a custom model (an embedded
  * .pdmesh with no base g_ModelStates index). Dedups by catalog id (same id ->
  * same slot). Returns a slot in [MODEL_CUSTOM_START, MODEL_CUSTOM_END), or -1

@@ -2,6 +2,7 @@
 #define _IN_ASSET_RUNTIME_H
 
 #include "assetcatalog.h"
+#include "character_head_policy.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -49,6 +50,7 @@ typedef struct asset_runtime_binding {
     char target_id[CATALOG_ID_LEN];
     char character_body_id[CATALOG_ID_LEN];
     char character_head_id[CATALOG_ID_LEN];
+    character_head_policy_e character_head_policy;
     char shader_id[64];
     char gamemode_name[64];
     char gamemode_description[256];

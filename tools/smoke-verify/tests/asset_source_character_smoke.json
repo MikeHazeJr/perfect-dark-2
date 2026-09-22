@@ -1,0 +1,17 @@
+{
+  "scenario_name": "asset_source_character_smoke",
+  "description": "Freshly extract all 63 multiplayer character templates and activate their public fixed/random_gender/integrated policies through the real typed dependency lifecycle. Verify body/head edges, hydrated records and complete-body identity preparation. Does not prove selector/spawn, graphical, or multiplayer identity behavior.",
+  "tags": ["runtime", "assets", "character", "source-authority"],
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "boot_args": ["--no-update-check", "--no-net", "--no-sound", "--portable", "--skip-intro", "--debug-asset-source-character"],
+  "input_sequence": [],
+  "assertions": {
+    "required_lines": [
+      "ASSET\\.SOURCE\\.CHARACTER: total=63 fixed=26 random_gender=35 integrated=2 result=PASS",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": ["ASSET\\.SOURCE\\.CHARACTER: .*result=FAIL", "SMOKE: result=timeout", "EXCEPTION_ACCESS_VIOLATION"],
+    "required_counts": [{"pattern": "ASSET\\.SOURCE\\.CHARACTER: id=.*result=PASS", "min": 63, "max": 63}]
+  }
+}

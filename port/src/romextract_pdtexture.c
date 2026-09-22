@@ -44,10 +44,13 @@
 #include "modarchive.h"
 #include "romextract_pd.h"
 #include "system.h"
+#include "types.h"
+#include "romdata.h"
+#include "texture_source_upgrade.h"
 
 /* Stamp kind is read by romextract_pd_cache.c with a 511-wide fscanf into a
- * 512-byte buffer (PDEXTRACT_CACHE_KIND_MAX); bump the label to invalidate and
- * re-emit the whole family. The _cipalfix_b943 token forces a one-time
+ * 512-byte buffer (PDEXTRACT_CACHE_KIND_MAX); bump the label to invalidate the scan cache. Existing editable archives
+ * are upgraded additively; only an explicit re-extraction replaces sources. The _cipalfix_b943 token forces a one-time
  * re-decode so the CI palette-offset fix (B-943) propagates to texture.png.
  * The _iafix_b945 token propagates the RDP-parity decode fixes: I4/I8
  * intensity-replicated alpha (credits motes were solid squares), IA16 I/A
@@ -58,7 +61,7 @@
  * accessible format; *.bin payloads are forbidden in public archives -- the v2
  * intermediate that wrote palette.bin is superseded by this token). */
 #define ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND \
-	"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943_iafix_b945_fmtmeta_palv3_json"
+	"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943_iafix_b945_fmtmeta_palv3_json_properties_v1"
 
 static const u8 k_Transparent1x1Png[] = {
 	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
@@ -83,18 +86,6 @@ static void s_archiveRelPath(const char *dir, const char *id,
 	char slug[CATALOG_ID_LEN];
 	catalogIdToFilenameSlug(id, slug, sizeof(slug));
 	snprintf(out, out_n, "%s/%s%s", dir, slug, ext);
-}
-
-static s32 s_existingArchiveHasEntry(const char *relpath, const char *entry)
-{
-	char full_buf[FS_MAXPATH + 1];
-	const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
-	if (!full || !full[0]) return 0;
-	mod_archive_t *arc = modArchiveOpen(full);
-	if (!arc) return 0;
-	s32 has_entry = modArchiveFindEntry(arc, entry) >= 0;
-	modArchiveClose(arc);
-	return has_entry;
 }
 
 static s32 s_openWriter(const char *relpath, const char *family,
@@ -158,10 +149,33 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
 {
 	char relpath[FS_MAXPATH];
 	s_archiveRelPath(out_dir, e->id, ".pdtexture", relpath, sizeof(relpath));
-	if (!force_rewrite && fsFileSize(relpath) > 0 &&
-			s_existingArchiveHasEntry(relpath, "texture.ini") &&
-			s_existingArchiveHasEntry(relpath, "texture.png")) {
-		return 0;
+	const struct texture *table = (const struct texture *)romdataSegGetData("textureslist");
+	const u32 table_size = romdataSegGetSize("textureslist");
+	const s32 index = e->ext.texture.texture_id;
+	if (!table || index < 0 || (u32)index >= table_size / sizeof(*table)) {
+		sysLoudFailf("EXTRACT.PDTEXTURE", "missing original material properties for %s", e->id);
+		return -1;
+	}
+	texture_source_properties_t properties = {0};
+	properties.surface_type = table[index].surfacetype;
+	properties.sound_surface_type = table[index].soundsurfacetype;
+	properties.tile_column_offset = table[index].unk04_00;
+	properties.tile_row_offset = table[index].unk04_04;
+	properties.mask_s_reduction = table[index].unk04_08;
+	properties.mask_t_reduction = table[index].unk04_0c;
+	if (!textureSourceSurfaceName(properties.surface_type)
+			|| !textureSourceSurfaceName(properties.sound_surface_type)) {
+		sysLoudFailf("EXTRACT.PDTEXTURE", "unknown original material properties for %s", e->id);
+		return -1;
+	}
+	if (!force_rewrite && fsFileSize(relpath) >= 0) {
+		char full_buf[FS_MAXPATH + 1], error[192];
+		const char *full = fsFullPath(relpath, full_buf, sizeof(full_buf));
+		const s32 result = full ? textureSourceUpgradeArchive(full, e->id,
+			&properties, error, sizeof(error)) : -1;
+		if (result < 0) sysLoudFailf("EXTRACT.PDTEXTURE",
+			"preserving rejected archive %s: %s", relpath, full ? error : "path resolution failed");
+		return result;
 	}
 
 	u8 *tga = NULL;
@@ -209,8 +223,19 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
 		"name = %s\n"
 		"width = %u\n"
 		"height = %u\n"
-		"texture_file = texture.png\n",
-		e->id, e->id, (unsigned)width, (unsigned)height);
+		"texture_file = texture.png\n"
+		"properties_version = 1\n"
+		"surface_type = %s\n"
+		"sound_surface_type = %s\n"
+		"tile_column_offset = %u\n"
+		"tile_row_offset = %u\n"
+		"mask_s_reduction = %u\n"
+		"mask_t_reduction = %u\n",
+		e->id, e->id, (unsigned)width, (unsigned)height,
+		textureSourceSurfaceName(properties.surface_type),
+		textureSourceSurfaceName(properties.sound_surface_type),
+		(unsigned)properties.tile_column_offset, (unsigned)properties.tile_row_offset,
+		(unsigned)properties.mask_s_reduction, (unsigned)properties.mask_t_reduction);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) {
 		free(tga);
 		free(png);
@@ -333,7 +358,7 @@ static s32 s_emitTexture(const asset_entry_t *e, const char *out_dir,
  * and the fast-cache skip path (~3,500 stats, negligible). */
 static void s_verifyTextureBinds(void)
 {
-	s32 total = assetCatalogGetCount();
+	s32 total = assetCatalogGetPoolSize();
 	s32 checked = 0;
 	s32 missing = 0;
 
@@ -402,7 +427,7 @@ s32 romExtractAllPdtexture(s32 force_rewrite)
 
 	/* Bundled ASSET_TEXTURE count comes from the catalog, never a
 	 * hardcoded 3503 -- JPN registers 3511 (NUM_TEXTURES is per-romid). */
-	s32 total = assetCatalogGetCount();
+	s32 total = assetCatalogGetPoolSize();
 	s32 tex_total = 0;
 	for (s32 i = 0; i < total; i++) {
 		const asset_entry_t *e = assetCatalogGetByIndex(i);
@@ -428,12 +453,9 @@ s32 romExtractAllPdtexture(s32 force_rewrite)
 		return 0;
 	}
 
-	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
-	 * the stored kind differs from the current one (no-op on clean install or
-	 * unchanged kind). See romExtractPdFastCacheKindMismatch. */
-	s32 effective_force = force_rewrite |
-		romExtractPdFastCacheKindMismatch(ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND,
-			textures_dir);
+	/* A cache-kind change never authorizes replacing editable public source.
+	 * Existing archives receive an atomic additive descriptor migration. */
+	s32 effective_force = force_rewrite;
 
 	s32 written = 0;
 	s32 skipped = 0;

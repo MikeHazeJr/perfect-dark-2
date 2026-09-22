@@ -24,6 +24,7 @@
 #include "types.h"
 #include "constants.h"
 #include "assetcatalog.h"
+#include "head_body_rig.h"
 #include "assetcatalog_scanner.h"
 #include "system.h"
 #include "data.h"
@@ -397,6 +398,9 @@ static const struct {
 	{ 72, "head_griffey",      "Griffey" },
 	{ 73, "head_moto",         "Moto" },
 	{ 74, "head_winner",       "Winner" },
+	/* MP slot 75 is HEAD_GREY. Share its authored/extracted identity so
+	 * the SP coverage pass cannot publish a second owner of native slot 21. */
+	{ 75, "sp_head_21",        "Joanna (JP version)" },
 };
 
 #define NUM_BASE_HEADS (sizeof(s_BaseHeads) / sizeof(s_BaseHeads[0]))
@@ -426,19 +430,6 @@ extern struct mphead g_MpHeads[];
  * Unknown / out-of-range types return "" which means "not riggable";
  * the valid-head query will refuse to pair such an entry with anything.
  */
-static const char *rigClassForHeadBodyType(u8 type)
-{
-	switch (type) {
-	case HEADBODYTYPE_DEFAULT:     return "human_male_neck_standard";
-	case HEADBODYTYPE_FEMALE:      return "human_female_neck_standard";
-	case HEADBODYTYPE_FEMALEGUARD: return "human_female_neck_standard";
-	case HEADBODYTYPE_MAIAN:       return "maian_tall_neck";
-	case HEADBODYTYPE_CASS:        return "cass_neck";
-	case HEADBODYTYPE_MRBLONDE:    return "mrblonde_neck";
-	default:                       return "";
-	}
-}
-
 s32 assetCatalogRegisterBaseGame(void)
 {
 	s32 count = 0;
@@ -528,7 +519,7 @@ s32 assetCatalogRegisterBaseGame(void)
 		 * Subdivisions (e.g. splitting DEFAULT into neck-variant sub-buckets
 		 * when audit reveals drift) land as data edits here -- no code
 		 * changes needed. */
-		catalogSetBodyRigClass(e, rigClassForHeadBodyType(
+		catalogSetBodyRigClass(e, catalogRigClassForHeadBodyType(
 			bd ? bd->type : 0));
 		/* P4 (2026-04-24): promote the catalog display_name to authoritative
 		 * for every base body.  B-226 fixed only indices 57-62 (bodies with
@@ -611,7 +602,7 @@ s32 assetCatalogRegisterBaseGame(void)
 		/* Phase 3 Pass B: disk-or-ROM bind. */
 		catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
 		/* Issue 10: rig_class for this head from HEADBODYTYPE bucket. */
-		catalogSetHeadRigClass(e, rigClassForHeadBodyType(
+		catalogSetHeadRigClass(e, catalogRigClassForHeadBodyType(
 			hd ? hd->type : 0));
 		head_count++;
 	}
@@ -717,7 +708,7 @@ s32 assetCatalogRegisterBaseGame(void)
 				e->ref_count = ASSET_REF_BUNDLED;
 				e->source_filenum = (s32)hd->filenum;
 				catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
-				catalogSetHeadRigClass(e, rigClassForHeadBodyType(hd->type));
+				catalogSetHeadRigClass(e, catalogRigClassForHeadBodyType(hd->type));
 				sp_head_count++;
 			}
 		}
@@ -740,7 +731,7 @@ s32 assetCatalogRegisterBaseGame(void)
 				e->ref_count = ASSET_REF_BUNDLED;
 				e->source_filenum = (s32)bd->filenum;
 				catalogBindPrimaryFromDiskOrRom(e, e->source_filenum);
-				catalogSetBodyRigClass(e, rigClassForHeadBodyType(bd->type));
+				catalogSetBodyRigClass(e, catalogRigClassForHeadBodyType(bd->type));
 				sp_body_count++;
 			}
 		}

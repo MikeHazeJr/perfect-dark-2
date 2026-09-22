@@ -14,12 +14,17 @@
  */
 
 static char s_CustomAnimCatalogIds[ANIM_CUSTOM_COUNT][CATALOG_ID_LEN];
+static u8 s_GenerationSlots[ANIM_CUSTOM_COUNT];
+static u32 s_SnapshotReservations[ANIM_CUSTOM_COUNT];
+typedef struct anim_slot_snapshot {
+    char ids[ANIM_CUSTOM_COUNT][CATALOG_ID_LEN];
+} anim_slot_snapshot_t;
 
 _Static_assert(ANIM_CUSTOM_COUNT > 0,
     "anim custom slot count must be positive");
 /* LOAD_MAX_ANIMS (assetcatalog_load.c) bounds the animnum override index. */
-_Static_assert(ANIM_CUSTOM_END_SLOT <= 2048,
-    "anim custom slots must fit the LOAD_MAX_ANIMS override index");
+_Static_assert(ANIM_CUSTOM_END_SLOT == 0x8000,
+    "animation slots must fit signed native cache and command records");
 
 void assetCatalogResetCustomAnimSlots(void)
 {
@@ -28,21 +33,30 @@ void assetCatalogResetCustomAnimSlots(void)
 
 void *assetCatalogSnapshotCustomAnimSlots(void)
 {
-    void *snapshot = malloc(sizeof(s_CustomAnimCatalogIds));
-    if (snapshot) memcpy(snapshot, s_CustomAnimCatalogIds,
-        sizeof(s_CustomAnimCatalogIds));
+    anim_slot_snapshot_t *snapshot = malloc(sizeof(*snapshot));
+    if (!snapshot) return NULL;
+    memcpy(snapshot->ids, s_CustomAnimCatalogIds, sizeof(snapshot->ids));
+    for (s32 i = 0; i < ANIM_CUSTOM_COUNT; ++i)
+        if (snapshot->ids[i][0]) ++s_SnapshotReservations[i];
     return snapshot;
 }
 
 s32 assetCatalogRestoreCustomAnimSlots(const void *snapshot)
 {
     if (!snapshot) return 0;
-    memcpy(s_CustomAnimCatalogIds, snapshot, sizeof(s_CustomAnimCatalogIds));
+    const anim_slot_snapshot_t *saved = snapshot;
+    for (s32 i = 0; i < ANIM_CUSTOM_COUNT; ++i)
+        if (s_GenerationSlots[i] && saved->ids[i][0]) return 0;
+    memcpy(s_CustomAnimCatalogIds, saved->ids, sizeof(s_CustomAnimCatalogIds));
     return 1;
 }
 
 void assetCatalogDestroyCustomAnimSlotSnapshot(void *snapshot)
 {
+    if (!snapshot) return;
+    const anim_slot_snapshot_t *saved = snapshot;
+    for (s32 i = 0; i < ANIM_CUSTOM_COUNT; ++i)
+        if (saved->ids[i][0]) --s_SnapshotReservations[i];
     free(snapshot);
 }
 
@@ -69,7 +83,7 @@ static s32 s_allocate(char ids[][CATALOG_ID_LEN], s32 count,
     }
 
     for (i = 0; i < count; i++) {
-        if (!ids[i][0]) {
+        if (!ids[i][0] && !s_GenerationSlots[i]) {
             strncpy(ids[i], catalog_id, CATALOG_ID_LEN - 1);
             ids[i][CATALOG_ID_LEN - 1] = '\0';
             return i;
@@ -95,4 +109,22 @@ s32 assetCatalogResolveAnimPrivateSlot(const char *catalog_id)
     }
 
     return ANIM_CUSTOM_START + idx;
+}
+
+s32 assetCatalogReserveAnimGenerationSlot(void)
+{
+    /* Snapshot reservations prevent in-flight rollback reclaiming this slot. */
+    for (s32 i = ANIM_CUSTOM_COUNT; i-- > 0;) {
+        if (!s_CustomAnimCatalogIds[i][0] && !s_GenerationSlots[i] && !s_SnapshotReservations[i]) {
+            s_GenerationSlots[i] = 1;
+            return ANIM_CUSTOM_START + i;
+        }
+    }
+    return -1;
+}
+
+void assetCatalogReleaseAnimGenerationSlot(s32 slot)
+{
+    if (slot >= ANIM_CUSTOM_START && slot < ANIM_CUSTOM_END_SLOT)
+        s_GenerationSlots[slot - ANIM_CUSTOM_START] = 0;
 }

@@ -71,6 +71,7 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "modasset_compiler.h"
+#include "model_source_path.h"
 #include "fs.h"
 #include "loader_pool.h"
 #include "system.h" /* B-246 instrumentation: sysLogPrintf for LOG.WPN.DIAG lines */
@@ -577,13 +578,12 @@ void bgunSetPartVisible(s16 partnum, bool visible, struct hand *hand, struct mod
 void bgunExecuteGunVisCommands(struct hand *hand, struct modeldef *modeldef, struct gunviscmd *commands)
 {
 	struct gunviscmd *cmd = commands;
-	bool done = false;
 
 	if (cmd == NULL) {
 		return;
 	}
 
-	while (!done) {
+	while (cmd->type != GUNVISCMD_END) {
 		if (bgunTestGunVisCommand(cmd, hand)) {
 			if (cmd->op == GUNVISOP_IFTRUE_SETVISIBLE) {
 				bgunSetPartVisible(cmd->partnum, true, hand, modeldef);
@@ -604,9 +604,6 @@ void bgunExecuteGunVisCommands(struct hand *hand, struct modeldef *modeldef, str
 
 		cmd++;
 
-		if (cmd->type == GUNVISCMD_END) {
-			done = true;
-		}
 	}
 }
 
@@ -4227,6 +4224,9 @@ void bgunEnterFlux(void)
 	}
 
 	g_Vars.currentplayer->gunctrl.handfilenum = 0xffff;
+	g_Vars.currentplayer->gunctrl.handcatalogid[0] = 0;
+	g_Vars.currentplayer->gunctrl.handhandle = (asset_data_handle_t){0};
+	g_Vars.currentplayer->gunctrl.handcataloggeneration = 0;
 	g_Vars.currentplayer->gunctrl.handmodeldef = NULL;
 	g_Vars.currentplayer->gunctrl.handmemloadptr = 0;
 	g_Vars.currentplayer->gunctrl.handmemloadremaining = 0;
@@ -4425,6 +4425,9 @@ static void bgunQueueModelLoad(struct player *player, u16 filenum, struct modeld
 {
 	player->gunctrl.loadfilenum = filenum;
 	player->gunctrl.loadhandle = bgunResolveQueuedModelHandle((s32)filenum);
+	const char *id = catalogIdBySourceHandle(ASSET_MODEL, player->gunctrl.loadhandle);
+	snprintf(player->gunctrl.loadcatalogid, sizeof(player->gunctrl.loadcatalogid), "%s", id ? id : "");
+	player->gunctrl.loadbodyhand = false;
 	player->gunctrl.loadcataloggeneration = assetCatalogGetGeneration();
 	player->gunctrl.loadtomodeldef = modeldef;
 	player->gunctrl.loadmemptr = memptr;
@@ -4433,9 +4436,65 @@ static void bgunQueueModelLoad(struct player *player, u16 filenum, struct modeld
 	player->gunctrl.fileinfo.allocsize = 0;
 }
 
+static bool bgunSameSourceHandle(asset_data_handle_t a, asset_data_handle_t b)
+{
+	return a.provider == b.provider && a.opaque[0] == b.opaque[0] && a.opaque[1] == b.opaque[1];
+}
+
+bool bgunBodyHandSourceIsCurrent(struct player *player, s32 bodynum)
+{
+	char id[64];
+	asset_data_handle_t handle;
+	return player && catalogGetBodyHandSourceChecked(bodynum, id, &handle) &&
+		!strcmp(id, player->gunctrl.handcatalogid) &&
+		bgunSameSourceHandle(handle, player->gunctrl.handhandle) &&
+		player->gunctrl.handcataloggeneration == assetCatalogGetGeneration();
+}
+
+bool bgunQueueBodyHandModelLoad(struct player *player, s32 bodynum,
+		struct modeldef **modeldef, uintptr_t *memptr, uintptr_t *memremaining)
+{
+	char id[64];
+	asset_data_handle_t handle;
+    s32 filenum = 0;
+	if (!player || !modeldef) return false;
+	*modeldef = NULL;
+	player->gunctrl.loadcatalogid[0] = 0;
+	player->gunctrl.loadhandle = bgunNullAssetHandle();
+	player->gunctrl.loadfilenum = 0;
+	player->gunctrl.loadbodyhand = false;
+	player->gunctrl.loadtomodeldef = modeldef;
+	if (!catalogGetBodyHandSourceChecked(bodynum, id, &handle) || !id[0] ||
+			!catalogGetBodyHandFilenumChecked(bodynum, &filenum)) {
+		player->gunctrl.gunloadstate = GUNLOADSTATE_FAILED;
+		player->gunctrl.loadcataloggeneration = assetCatalogGetGeneration();
+		return false;
+	}
+	player->gunctrl.loadfilenum = filenum;
+	player->gunctrl.loadhandle = handle;
+	strcpy(player->gunctrl.loadcatalogid, id);
+	player->gunctrl.loadbodyhand = true;
+	player->gunctrl.loadcataloggeneration = assetCatalogGetGeneration();
+	player->gunctrl.loadtomodeldef = modeldef;
+	player->gunctrl.loadmemptr = memptr;
+	player->gunctrl.loadmemremaining = memremaining;
+	player->gunctrl.fileinfo.loadedsize = 0;
+	player->gunctrl.fileinfo.allocsize = 0;
+	player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
+	return true;
+}
+
 static bool bgunQueuedLoadCanUseHandle(struct player *player)
 {
-	return !assetHandleIsNull(player->gunctrl.loadhandle);
+	if (assetHandleIsNull(player->gunctrl.loadhandle)) return false;
+	if (player->gunctrl.loadcatalogid[0]) {
+		const asset_entry_t *entry = assetCatalogResolve(player->gunctrl.loadcatalogid);
+		return entry && entry->type == ASSET_MODEL &&
+			entry->source_filenum == player->gunctrl.loadfilenum &&
+			player->gunctrl.loadcataloggeneration == assetCatalogGetGeneration() &&
+			bgunSameSourceHandle(catalogEffectiveHandle(entry), player->gunctrl.loadhandle);
+	}
+	return true;
 }
 
 static bool bgunQueuedLoadPassesSourceOnlyCheck(struct player *player, const char *context)
@@ -4446,7 +4505,7 @@ static bool bgunQueuedLoadPassesSourceOnlyCheck(struct player *player, const cha
 		return false;
 	}
 
-	model_id = catalogIdBySourceHandle(ASSET_MODEL, player->gunctrl.loadhandle);
+	model_id = player->gunctrl.loadcatalogid;
 	assetSourceDebugFatalHandleFallback(ASSET_MODEL, context, model_id,
 		player->gunctrl.loadhandle);
 
@@ -4463,98 +4522,12 @@ static const char *bgunQueuedModelSourcePath(struct player *player)
 	return fileProviderPath(player->gunctrl.loadhandle);
 }
 
-static bool bgunPathEndsWithNoCase(const char *path, const char *suffix)
-{
-	size_t path_len;
-	size_t suffix_len;
-	size_t i;
-
-	if (!path || !suffix) {
-		return false;
-	}
-
-	path_len = strlen(path);
-	suffix_len = strlen(suffix);
-
-	if (suffix_len > path_len) {
-		return false;
-	}
-
-	path += path_len - suffix_len;
-
-	for (i = 0; i < suffix_len; i++) {
-		char a = path[i];
-		char b = suffix[i];
-
-		if (a >= 'A' && a <= 'Z') {
-			a = (char)(a - 'A' + 'a');
-		}
-
-		if (b >= 'A' && b <= 'Z') {
-			b = (char)(b - 'A' + 'a');
-		}
-
-		if (a != b) {
-			return false;
-		}
-	}
-
-	return true;
-}
-
-static bool bgunResolveCatalogModelSourcePath(const char *source_path, char *out, size_t out_cap)
-{
-	static const char *const members[] = {
-		"model.obj",
-		"model.gltf",
-		"model.glb",
-	};
-	size_t i;
-
-	if (!out || out_cap == 0) {
-		return false;
-	}
-
-	out[0] = '\0';
-
-	if (!source_path || source_path[0] == '\0') {
-		return false;
-	}
-
-	if (modAssetCompilerIsExternalSource(source_path)) {
-		snprintf(out, out_cap, "%s", source_path);
-		out[out_cap - 1] = '\0';
-		return true;
-	}
-
-	if (!bgunPathEndsWithNoCase(source_path, ".pdmesh")) {
-		return false;
-	}
-
-	for (i = 0; i < sizeof(members) / sizeof(members[0]); i++) {
-		char candidate[FS_MAXPATH + 1];
-
-		snprintf(candidate, sizeof(candidate), "%s::%s", source_path, members[i]);
-		candidate[sizeof(candidate) - 1] = '\0';
-
-		if (fsFileSize(candidate) > 0) {
-			snprintf(out, out_cap, "%s", candidate);
-			out[out_cap - 1] = '\0';
-			return true;
-		}
-	}
-
-	return false;
-}
-
 static bool bgunQueuedLoadUsesExternalModelSource(struct player *player)
 {
 	char resolved_source_path[FS_MAXPATH + 1];
 
-	return bgunResolveCatalogModelSourcePath(
-		bgunQueuedModelSourcePath(player),
-		resolved_source_path,
-		sizeof(resolved_source_path));
+	return modelSourceResolvePath(bgunQueuedModelSourcePath(player),
+		resolved_source_path, sizeof(resolved_source_path), NULL, 0);
 }
 
 static struct modeldef *bgunQueuedLoadCatalogModelSource(struct player *player)
@@ -4564,14 +4537,14 @@ static struct modeldef *bgunQueuedLoadCatalogModelSource(struct player *player)
 	const char *model_id;
 	struct modeldef *modeldef;
 
-	if (!bgunResolveCatalogModelSourcePath(source_path,
-			resolved_source_path, sizeof(resolved_source_path))) {
+	if (!modelSourceResolvePath(source_path, resolved_source_path,
+			sizeof(resolved_source_path), NULL, 0)) {
 		return NULL;
 	}
 
-	model_id = catalogIdBySourceHandle(ASSET_MODEL, player->gunctrl.loadhandle);
+	model_id = player->gunctrl.loadcatalogid;
 
-	if (model_id == NULL) {
+	if (!model_id[0]) {
 		sysLogPrintf(LOG_WARNING,
 			"BONDGUN.SOURCE: external model source filenum=%d path=%s has no ASSET_MODEL catalog id",
 			(s32)player->gunctrl.loadfilenum,
@@ -4730,6 +4703,10 @@ void bgunTickGunLoad(void)
 
 	if (player->gunctrl.gunloadstate == GUNLOADSTATE_MODEL) {
 		osSyncPrintf("BriGun:  BriGunLoadTick process GUN_LOADSTATE_LOAD_OBJ\n");
+		if (!bgunQueuedLoadCanUseHandle(player)) {
+			bgunFailQueuedModelLoad(player);
+			return;
+		}
 
 		if (bgunQueuedLoadUsesExternalModelSource(player)) {
 			modeldef = bgunQueuedLoadCatalogModelSource(player);
@@ -4741,6 +4718,19 @@ void bgunTickGunLoad(void)
 			}
 
 			player->gunctrl.gunloadstate = GUNLOADSTATE_LOADED;
+			if (player->gunctrl.loadbodyhand) {
+				player->gunctrl.handfilenum = player->gunctrl.loadfilenum;
+				strcpy(player->gunctrl.handcatalogid, player->gunctrl.loadcatalogid);
+				player->gunctrl.handhandle = player->gunctrl.loadhandle;
+				player->gunctrl.handcataloggeneration = player->gunctrl.loadcataloggeneration;
+			}
+			return;
+		}
+
+		/* FileProvider models are editable sources. A rejected archive or
+		 * unsupported file must never enter preprocessed model-byte loading. */
+		if (player->gunctrl.loadhandle.provider == fileProvider()) {
+			bgunFailQueuedModelLoad(player);
 			return;
 		}
 
@@ -4967,27 +4957,33 @@ void bgunTickMasterLoad(void)
 		if (player->gunctrl.gunlocktimer == 0) {
 			newweaponnum = player->gunctrl.gunmemnew;
 
-			/* INV-1 / Cohort A.4 (player-init-architectural-fixes-2026-04-26):
-			 * checked variant surfaces catalog miss as CATALOG.MISS WARNING
-			 * with the bodynum that resolved out-of-bounds or unpopulated. On
-			 * miss handfilenum stays 0 which causes the master loader's HANDS
-			 * state to skip the hand-model load (hashands stays false); the
-			 * gun renders without hand attachment. Existing behavior preserved;
-			 * loud signal added. handfilenum is u16 in struct gunctrl; the
-			 * checked accessor returns s32 so use an s32 intermediate. */
+			/* File numbers retain native provenance; the public hand ID selects
+			 * the actual source. A missing selected source cannot silently turn
+			 * an authored body into a body with no hands. */
 			{
 				s32 hf32 = 0;
-				if (playerChooseBodyAndHead(&bodynum, &headnum, NULL)) {
-					(void)catalogGetBodyHandFilenumChecked(bodynum, &hf32);
-				} else {
+				char hand_id[64];
+				asset_data_handle_t hand_source;
+				if (!playerChooseBodyAndHead(&bodynum, &headnum, NULL) ||
+						!catalogGetBodyHandFilenumChecked(bodynum, &hf32) ||
+						!catalogGetBodyHandSourceChecked(bodynum, hand_id, &hand_source)) {
 					sysLogPrintf(LOG_ERROR,
 						"PLAYER.INIT.ROLLBACK hands identity player=%d",
 						g_Vars.currentplayernum);
+					return;
 				}
 				handfilenum = (u16)hf32;
 			}
 
 			filenum = weaponGetFileNum(newweaponnum);
+			/* Rebuild attachments when a selected source changes even if its
+			 * native file number and equipped weapon remain unchanged. Fists
+			 * acquire their cache identity in GUN, other hands acquire it in HANDS. */
+			if ((newweaponnum == WEAPON_UNARMED ||
+					weaponHasFlag(newweaponnum, WEAPONFLAG_HASHANDS)) &&
+					player->gunctrl.masterloadstate >= (newweaponnum == WEAPON_UNARMED
+						? MASTERLOADSTATE_CARTS : MASTERLOADSTATE_GUN) &&
+					!bgunBodyHandSourceIsCurrent(player, bodynum)) bgunEnterFlux();
 
 			/* B-246 round-6 instrumentation: log entry into the active load
 			 * tick. This is the inner gate where bodynum, handfilenum, and
@@ -5018,7 +5014,7 @@ void bgunTickMasterLoad(void)
 				if (filenum) {
 					hashands = false;
 
-					if (weaponHasFlag(newweaponnum, WEAPONFLAG_HASHANDS)) {
+					if (handfilenum && weaponHasFlag(newweaponnum, WEAPONFLAG_HASHANDS)) {
 						hashands = true;
 					}
 
@@ -5026,7 +5022,7 @@ void bgunTickMasterLoad(void)
 						// For unarmed, the fists are implemented
 						// as weapon models rather than hand models
 						filenum = handfilenum;
-						handfilenum = 0 * (player->gunctrl.gunloadstate == 4);
+							handfilenum = 0;
 						hashands = false;
 					}
 
@@ -5064,15 +5060,23 @@ void bgunTickMasterLoad(void)
 						}
 					} else if (player->gunctrl.masterloadstate == MASTERLOADSTATE_HANDS) {
 						if (hashands) {
-							if (handfilenum != player->gunctrl.handfilenum) {
+							if (handfilenum != player->gunctrl.handfilenum ||
+									!bgunBodyHandSourceIsCurrent(player, bodynum)) {
+								char hand_id[64];
+								asset_data_handle_t hand_source;
+								if (!catalogGetBodyHandSourceChecked(bodynum, hand_id, &hand_source)) return;
+								if (strcmp(player->gunctrl.loadcatalogid, hand_id) ||
+										!bgunSameSourceHandle(player->gunctrl.loadhandle, hand_source) ||
+										player->gunctrl.loadcataloggeneration != assetCatalogGetGeneration())
+									player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
 								if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX) {
 									player->gunctrl.handmemloadptr = bgunGetGunMem();
 									player->gunctrl.handmemloadremaining = bgunCalculateGunMemCapacity();
 									player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
-									bgunQueueModelLoad(player, handfilenum,
+									if (!bgunQueueBodyHandModelLoad(player, bodynum,
 										&player->gunctrl.handmodeldef,
 										(uintptr_t *) &player->gunctrl.handmemloadptr,
-										(uintptr_t *) &player->gunctrl.handmemloadremaining);
+										(uintptr_t *) &player->gunctrl.handmemloadremaining)) return;
 								}
 
 								bgunTickGunLoad();
@@ -5085,6 +5089,9 @@ void bgunTickMasterLoad(void)
 							}
 						} else {
 							player->gunctrl.handfilenum = 0;
+							player->gunctrl.handcatalogid[0] = 0;
+							player->gunctrl.handhandle = (asset_data_handle_t){0};
+							player->gunctrl.handcataloggeneration = assetCatalogGetGeneration();
 							player->gunctrl.handmodeldef = NULL;
 							player->gunctrl.handmemloadptr = bgunGetGunMem();
 							player->gunctrl.handmemloadremaining = bgunCalculateGunMemCapacity();
@@ -5104,7 +5111,12 @@ void bgunTickMasterLoad(void)
 							player->gunctrl.memloadptr = (u8 *) player->gunctrl.handmemloadptr;
 							player->gunctrl.memloadremaining = player->gunctrl.handmemloadremaining;
 							player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
-							bgunQueueModelLoad(player, filenum,
+							if (newweaponnum == WEAPON_UNARMED) {
+								if (!bgunQueueBodyHandModelLoad(player, bodynum,
+									&player->gunctrl.gunmodeldef,
+									(uintptr_t *) &player->gunctrl.memloadptr,
+									(uintptr_t *) &player->gunctrl.memloadremaining)) return;
+							} else bgunQueueModelLoad(player, filenum,
 								&player->gunctrl.gunmodeldef,
 								(uintptr_t *) &player->gunctrl.memloadptr,
 								(uintptr_t *) &player->gunctrl.memloadremaining);
@@ -12722,8 +12734,8 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 		return;
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES
-			&& g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds == 0) {
+	if (texturenum >= 0 && texturenum < TEXTURE_CUSTOM_END
+			&& g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]->numsounds == 0) {
 		return;
 	}
 
@@ -12838,15 +12850,15 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 		}
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]) {
+	if (texturenum >= 0 && texturenum < TEXTURE_CUSTOM_END && g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]) {
 		s16 soundnum = -1;
 
 		handle = bgunAllocateAudioHandle();
 
 		if (handle) {
-			if (g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds > 0) {
-				s32 index = rand2 % g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds;
-				soundnum = g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->sounds[index];
+			if (g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]->numsounds > 0) {
+				s32 index = rand2 % g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]->numsounds;
+				soundnum = g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]->sounds[index];
 
 				if (soundnum != -1) {
 					sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
@@ -12867,8 +12879,8 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 		return;
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES
-			&& g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds == 0) {
+	if (texturenum >= 0 && texturenum < TEXTURE_CUSTOM_END
+			&& g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]->numsounds == 0) {
 		return;
 	}
 
@@ -12971,15 +12983,15 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 		}
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]) {
+	if (texturenum >= 0 && texturenum < TEXTURE_CUSTOM_END && g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]) {
 		s16 soundnum = -1;
 
 		handle = bgunAllocateAudioHandle();
 
 		if (handle) {
-			if (g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds > 0) {
-				s32 index = rand2 % g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds;
-				soundnum = g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->sounds[index];
+			if (g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]->numsounds > 0) {
+				s32 index = rand2 % g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]->numsounds;
+				soundnum = g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]->sounds[index];
 
 				sndStart(var80095200, soundnum, handle, -1, -1, -1, -1, -1);
 			}
@@ -13021,7 +13033,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 		return;
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds == 0) {
+	if (texturenum >= 0 && texturenum < TEXTURE_CUSTOM_END && g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]->numsounds == 0) {
 		return;
 	}
 
@@ -13089,9 +13101,9 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 	if (playdefault) {
 		handle = bgunAllocateAudioHandle();
 
-		if (handle != NULL && texturenum >= 0 && texturenum < NUM_TEXTURES) {
+		if (handle != NULL && texturenum >= 0 && texturenum < TEXTURE_CUSTOM_END) {
 			s16 soundnum;
-			struct surfacetype *type = g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype];
+			struct surfacetype *type = g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype];
 
 			if (type->numsounds > 0) {
 				soundnum = -1;
@@ -13119,7 +13131,7 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 		return;
 	}
 
-	if (texturenum >= 0 && texturenum < NUM_TEXTURES && g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype]->numsounds == 0) {
+	if (texturenum >= 0 && texturenum < TEXTURE_CUSTOM_END && g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype]->numsounds == 0) {
 		return;
 	}
 
@@ -13182,9 +13194,9 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 	// Play default surface hit sound
 	handle = bgunAllocateAudioHandle();
 
-	if (handle != NULL && texturenum >= 0 && texturenum < NUM_TEXTURES) {
+	if (handle != NULL && texturenum >= 0 && texturenum < TEXTURE_CUSTOM_END) {
 		s16 soundnum;
-		struct surfacetype *type = g_SurfaceTypes[g_Textures[texturenum].soundsurfacetype];
+		struct surfacetype *type = g_SurfaceTypes[texGetDefinition(texturenum)->soundsurfacetype];
 
 		if (type->numsounds > 0) {
 			soundnum = -1;

@@ -6,20 +6,22 @@
  */
 
 #include <ctype.h>
+#include <errno.h>
+#include <float.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "assetcatalog_model_slots.h"  /* B-911: custom-model private slots for embedded meshes */
-#include "system.h"  /* B-911/B-912: sysLogPrintf for the embedded-mesh ingest (pd-tests has no PCH) */
+#include "system.h"  /* pd-tests has no game PCH */
 #include "constants.h"
 #include "effect_executor.h"
 #include "effect_graph_runtime.h"  /* c3849 Unit 8: nested .pdeffect ingestion */
 #include "fs.h"
 #include "loader_enum_reverse.h"
 #include "modarchive.h"
+#include "modasset_json.h"
 #include "platform.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
@@ -293,8 +295,7 @@ static s32 jsonReadArray(const char *value, const char *end, json_span_t *out)
 static const char *jsonFindKeyInObject(json_span_t object, const char *key)
 {
 	const char *p = object.start;
-	const size_t key_len = key ? strlen(key) : 0;
-	if (!key || key_len == 0) return NULL;
+	if (!key) return NULL;
 
 	while (p < object.end) {
 		p = jsonSkipWs(p, object.end);
@@ -303,20 +304,15 @@ static const char *jsonFindKeyInObject(json_span_t object, const char *key)
 			continue;
 		}
 		if (p >= object.end) break;
-		if (*p != '"') {
-			p = jsonValueEnd(p, object.end);
-			continue;
-		}
-		const char *s = p + 1;
+		if (*p != '"') return NULL;
 		const char *after = jsonSkipString(p, object.end);
-		const char *close = after > s ? after - 1 : after;
 		const char *colon = jsonSkipWs(after, object.end);
-		if (colon < object.end && *colon == ':' &&
-				(size_t)(close - s) == key_len &&
-				memcmp(s, key, key_len) == 0) {
+		s32 match = modAssetJsonStringEquals(p, after, key);
+		if (match < 0 || colon >= object.end || *colon != ':') return NULL;
+		if (match) {
 			return colon + 1;
 		}
-		p = jsonValueEnd(colon < object.end ? colon + 1 : after, object.end);
+		p = jsonValueEnd(colon + 1, object.end);
 	}
 	return NULL;
 }
@@ -326,21 +322,18 @@ static s32 jsonObjectString(json_span_t object, const char *key,
 {
 	const char *value = jsonFindKeyInObject(object, key);
 	const char *p;
-	size_t written = 0;
 	if (!value || !out || out_len == 0) return 0;
-
 	p = jsonSkipWs(value, object.end);
-	if (p >= object.end || *p != '"') return 0;
-	p++;
-	while (p < object.end && *p != '"') {
-		char c = *p++;
-		if (c == '\\' && p < object.end) {
-			c = *p++;
-		}
-		if (written + 1 < out_len) out[written++] = c;
-	}
-	out[written] = '\0';
-	return p < object.end && *p == '"';
+	return modAssetJsonDecodeString(p, jsonValueEnd(p, object.end), out, out_len);
+}
+
+static s32 jsonOptionalString(json_span_t object, const char *key,
+		char *out, size_t cap, char *err, size_t err_cap)
+{
+	if (!jsonFindKeyInObject(object, key)) return 1;
+	if (jsonObjectString(object, key, out, cap)) return 1;
+	setErr(err, err_cap, "%s must be a string shorter than %zu bytes", key, cap);
+	return 0;
 }
 
 static s32 jsonObjectObject(json_span_t object, const char *key, json_span_t *out)
@@ -349,10 +342,30 @@ static s32 jsonObjectObject(json_span_t object, const char *key, json_span_t *ou
 	return jsonReadObject(value, object.end, out);
 }
 
-static s32 jsonObjectArray(json_span_t object, const char *key, json_span_t *out)
+/* Only schema-declared object rows use this check; numeric parameter arrays
+ * retain their original spelling and are not interpreted as object rows. */
+static s32 jsonObjectRows(json_span_t object, const char *key, s32 required,
+		json_span_t *out, char *err, size_t err_cap)
 {
 	const char *value = jsonFindKeyInObject(object, key);
-	return jsonReadArray(value, object.end, out);
+	const char *p;
+	s32 row = 0;
+	if (!value && !required) return 0;
+	if (!value || !jsonReadArray(value, object.end, out)) {
+		setErr(err, err_cap, "%s must be an array of objects", key);
+		return -1;
+	}
+	p = jsonSkipWs(out->start, out->end);
+	while (p < out->end) {
+		if (*p != '{') {
+			setErr(err, err_cap, "%s row %d must be an object", key, row);
+			return -1;
+		}
+		p = jsonSkipWs(jsonValueEnd(p, out->end), out->end);
+		row++;
+		if (p < out->end) p = jsonSkipWs(p + 1, out->end);
+	}
+	return 1;
 }
 
 static s32 jsonArrayNextObject(json_span_t array, const char **cursor,
@@ -387,8 +400,7 @@ static s32 jsonObjectNextMember(json_span_t object, const char **cursor,
                                 json_span_t *value, char *type)
 {
 	const char *p;
-	size_t written = 0;
-	if (!cursor || !key || key_cap == 0 || !value || !type) return 0;
+	if (!cursor || !key || key_cap == 0 || !value || !type) return -1;
 	p = *cursor ? *cursor : object.start;
 	while (p < object.end) {
 		p = jsonSkipWs(p, object.end);
@@ -397,18 +409,12 @@ static s32 jsonObjectNextMember(json_span_t object, const char **cursor,
 			continue;
 		}
 		if (p >= object.end) break;
-		if (*p != '"') return 0;
-		p++;
-		while (p < object.end && *p != '"') {
-			char c = *p++;
-			if (c == '\\' && p < object.end) c = *p++;
-			if (written + 1 < key_cap) key[written++] = c;
-		}
-		if (p >= object.end || *p != '"') return 0;
-		key[written] = '\0';
-		p++;
+		if (*p != '"') return -1;
+		const char *after = jsonSkipString(p, object.end);
+		if (!modAssetJsonDecodeString(p, after, key, key_cap)) return -1;
+		p = after;
 		p = jsonSkipWs(p, object.end);
-		if (p >= object.end || *p != ':') return 0;
+		if (p >= object.end || *p != ':') return -1;
 		p++;
 		p = jsonSkipWs(p, object.end);
 		value->start = p;
@@ -533,19 +539,17 @@ s32 weaponGraphResolveExplosionRef(const char *ref)
  * cadence can never divide by zero or stall the gun. */
 s32 weaponGraphAutogunFireInterval(f32 rpm)
 {
-	s32 interval;
+	double interval;
 
-	if (rpm <= 0.0f) {
+	if (!(rpm > 0.0f && rpm <= FLT_MAX)) {
 		return 1;
 	}
 
-	interval = (s32)((1800.0f / rpm) + 0.5f);
+	interval = (1800.0 / (double)rpm) + 0.5;
+	/* The native tick counter has a signed range; never overflow its cast. */
+	if (interval >= INT_MAX) return INT_MAX;
 
-	if (interval < 1) {
-		interval = 1;
-	}
-
-	return interval;
+	return interval < 1.0 ? 1 : (s32)interval;
 }
 
 /* c3849 Wave 5 Unit 6: detonator provenance predicate for the custom remote
@@ -928,9 +932,30 @@ static s32 keyHasUnit(const char *key)
 		strcmp(key, "max_rpm") == 0;
 }
 
+static s32 paramIsModelRefKey(const char *key)
+{
+	return strcmp(key, "model_catalog_id") == 0 ||
+		strcmp(key, "model_ref") == 0 ||
+		strcmp(key, "projectile_model_catalog_id") == 0 ||
+		strcmp(key, "projectile_model_ref") == 0;
+}
+
+static s32 paramIsAudioRefKey(const char *key)
+{
+	return strcmp(key, "shoot_sound_catalog_id") == 0 ||
+		strcmp(key, "shoot_sound_ref") == 0 ||
+		strcmp(key, "shootsound") == 0 ||
+		strcmp(key, "projectile_sound_catalog_id") == 0 ||
+		strcmp(key, "special_sound_catalog_id") == 0 ||
+		strcmp(key, "sound_catalog_id") == 0 ||
+		strcmp(key, "soundnum") == 0 || strcmp(key, "hit_sound") == 0 ||
+		strcmp(key, "sound") == 0;
+}
+
 static s32 paramIsCatalogRefKey(const char *key)
 {
-	return strcmp(key, "projectile_ref") == 0 ||
+	return paramIsModelRefKey(key) || paramIsAudioRefKey(key) ||
+		strcmp(key, "projectile_ref") == 0 ||
 		strcmp(key, "entity_ref") == 0 ||
 		strcmp(key, "explosion_ref") == 0 ||
 		strcmp(key, "spark_ref") == 0 ||
@@ -941,12 +966,12 @@ static s32 paramIsCatalogRefKey(const char *key)
 
 static s32 catalogRefLooksValid(const char *value)
 {
+	if (!value || !value[0] || strlen(value) >= CATALOG_ID_LEN) return 0;
 	const char *colon = strchr(value, ':');
-	if (!value || !value[0]) return 0;
 	return colon && colon != value && colon[1] != '\0';
 }
 
-static void trimRawValue(json_span_t span, char *out, size_t out_cap)
+static s32 trimRawValue(json_span_t span, char *out, size_t out_cap)
 {
 	const char *a = span.start;
 	const char *b = span.end;
@@ -954,29 +979,100 @@ static void trimRawValue(json_span_t span, char *out, size_t out_cap)
 	while (a < b && isspace((unsigned char)*a)) a++;
 	while (b > a && isspace((unsigned char)*(b - 1))) b--;
 	n = (size_t)(b - a);
-	if (n >= out_cap) n = out_cap - 1;
+	if (n >= out_cap) return 0;
 	if (out_cap > 0) {
 		memcpy(out, a, n);
 		out[n] = '\0';
 	}
+	return 1;
 }
 
 static s32 readJsonStringSpan(json_span_t span, char *out, size_t out_cap)
 {
-	const char *p;
-	size_t written = 0;
-	if (!out || out_cap == 0) return 0;
-	out[0] = '\0';
-	p = jsonSkipWs(span.start, span.end);
-	if (p >= span.end || *p != '"') return 0;
-	p++;
-	while (p < span.end && *p != '"') {
-		char c = *p++;
-		if (c == '\\' && p < span.end) c = *p++;
-		if (written + 1 < out_cap) out[written++] = c;
+	return modAssetJsonDecodeString(span.start, span.end, out, out_cap);
+}
+
+/* Shared scalar boundary for direct parameters, tunables, and substitutions.
+ * strtod alone accepts prefixes and non-JSON spellings such as hex numbers. */
+static s32 graphNumberToken(json_span_t value, double *out, s32 *is_integer)
+{
+	const char *start = jsonSkipWs(value.start, value.end);
+	const char *p = start;
+	char *parsed_end;
+	*is_integer = 1;
+	if (p < value.end && *p == '-') p++;
+	if (p >= value.end || *p < '0' || *p > '9') return 0;
+	if (*p == '0') p++;
+	else while (p < value.end && *p >= '0' && *p <= '9') p++;
+	if (p < value.end && *p == '.') {
+		*is_integer = 0;
+		p++;
+		if (p >= value.end || *p < '0' || *p > '9') return 0;
+		while (p < value.end && *p >= '0' && *p <= '9') p++;
 	}
-	out[written] = '\0';
-	return p < span.end && *p == '"';
+	if (p < value.end && (*p == 'e' || *p == 'E')) {
+		*is_integer = 0;
+		p++;
+		if (p < value.end && (*p == '+' || *p == '-')) p++;
+		if (p >= value.end || *p < '0' || *p > '9') return 0;
+		while (p < value.end && *p >= '0' && *p <= '9') p++;
+	}
+	if (jsonSkipWs(p, value.end) != value.end) return 0;
+	errno = 0;
+	*out = strtod(start, &parsed_end);
+	return parsed_end == p && errno != ERANGE &&
+		*out >= -DBL_MAX && *out <= DBL_MAX;
+}
+
+static s32 graphLiteralToken(json_span_t value, const char *literal)
+{
+	const char *p = jsonSkipWs(value.start, value.end);
+	size_t length = strlen(literal);
+	return (size_t)(value.end - p) >= length && !memcmp(p, literal, length) &&
+		jsonSkipWs(p + length, value.end) == value.end;
+}
+
+static s32 graphScalarValue(json_span_t value, char value_type,
+		weapon_graph_ir_param_t *p, s32 allow_unsigned, char *err, size_t err_cap)
+{
+	if (value_type == '"') {
+		p->type = WEAPON_GRAPH_PARAM_STRING;
+		if (readJsonStringSpan(value, p->value, sizeof(p->value))) return 0;
+	} else if (graphLiteralToken(value, "true") || graphLiteralToken(value, "false")) {
+		p->type = WEAPON_GRAPH_PARAM_BOOL;
+		p->b_value = graphLiteralToken(value, "true");
+		copyStr(p->value, sizeof(p->value), p->b_value ? "true" : "false");
+		return 0;
+	} else if (graphLiteralToken(value, "null")) {
+		p->type = WEAPON_GRAPH_PARAM_NULL;
+		copyStr(p->value, sizeof(p->value), "null");
+		return 0;
+	} else {
+		double d;
+		s32 integer;
+		if (graphNumberToken(value, &d, &integer)) {
+			if (!integer) {
+				if (!(d >= -FLT_MAX && d <= FLT_MAX)) goto invalid;
+				p->f_value = (f32)d;
+				if (d != 0.0 && p->f_value == 0.0f) goto invalid;
+				p->type = WEAPON_GRAPH_PARAM_FLOAT;
+				snprintf(p->value, sizeof(p->value), "%.9g", d);
+			} else {
+				const long long upper = allow_unsigned ? (long long)UINT_MAX : INT_MAX;
+				errno = 0;
+				long long i = strtoll(jsonSkipWs(value.start, value.end), NULL, 10);
+				if (errno == ERANGE || i < INT_MIN || i > upper) goto invalid;
+				p->type = WEAPON_GRAPH_PARAM_INT;
+				/* Preserve full unsigned masks in the existing signed storage. */
+				p->i_value = (s32)(i > INT_MAX ? i - ((long long)UINT_MAX + 1) : i);
+				snprintf(p->value, sizeof(p->value), "%lld", i);
+			}
+			return 0;
+		}
+	}
+invalid:
+	setErr(err, err_cap, "invalid scalar value or runtime range for %s", p->key);
+	return -1;
 }
 
 static int cmpParam(const void *a, const void *b)
@@ -1025,11 +1121,18 @@ static s32 compileParamSubstituteVariable(weapon_graph_ir_param_t *p,
 
 	switch (var->type) {
 	case WEAPON_GRAPH_PARAM_INT:
-		p->type = WEAPON_GRAPH_PARAM_INT;
-		p->i_value = var->i_value;
-		snprintf(p->value, sizeof(p->value), "%d", var->i_value);
-		break;
+		{
+			json_span_t value = { var->value, var->value + strlen(var->value) };
+			return graphScalarValue(value, *var->value, p,
+				strcmp(p->key, "flags") == 0 || strcmp(p->key, "device") == 0,
+				err, err_cap);
+		}
 	case WEAPON_GRAPH_PARAM_FLOAT:
+		if (!(var->f_value >= -FLT_MAX && var->f_value <= FLT_MAX)) {
+			setErr(err, err_cap, "weapon variable %s exceeds float range for %s",
+				var->key, p->key);
+			return -1;
+		}
 		p->type = WEAPON_GRAPH_PARAM_FLOAT;
 		p->f_value = var->f_value;
 		snprintf(p->value, sizeof(p->value), "%.9g", (double)var->f_value);
@@ -1055,8 +1158,6 @@ static s32 compileParam(json_span_t value, char value_type,
                         weapon_graph_ir_param_t *p,
                         char *err, size_t err_cap)
 {
-	char *endptr = NULL;
-	const char *v = jsonSkipWs(value.start, value.end);
 	if (!p) return -1;
 
 	if (value_type == '"') {
@@ -1072,44 +1173,29 @@ static s32 compileParam(json_span_t value, char value_type,
 				compileParamSubstituteVariable(p, err, err_cap) != 0) {
 			return -1;
 		}
-		if (p->type == WEAPON_GRAPH_PARAM_STRING &&
-				paramIsCatalogRefKey(p->key) && p->value[0] &&
-				!catalogRefLooksValid(p->value)) {
-			setErr(err, err_cap, "%s must be a catalog id, got %s",
-				p->key, p->value);
-			return -1;
-		}
 	} else if (value_type == '{') {
 		p->type = WEAPON_GRAPH_PARAM_OBJECT;
-		trimRawValue(value, p->value, sizeof(p->value));
-	} else if (value_type == '[') {
-		p->type = WEAPON_GRAPH_PARAM_ARRAY;
-		trimRawValue(value, p->value, sizeof(p->value));
-	} else if (startsWith(v, "true") || startsWith(v, "false")) {
-		p->type = WEAPON_GRAPH_PARAM_BOOL;
-		p->b_value = startsWith(v, "true") ? 1 : 0;
-		copyStr(p->value, sizeof(p->value), p->b_value ? "true" : "false");
-	} else if (startsWith(v, "null")) {
-		p->type = WEAPON_GRAPH_PARAM_NULL;
-		copyStr(p->value, sizeof(p->value), "null");
-	} else {
-		double d = strtod(v, &endptr);
-		if (endptr == v) {
-			setErr(err, err_cap, "unsupported param value for %s", p->key);
+		if (!trimRawValue(value, p->value, sizeof(p->value))) {
+			setErr(err, err_cap, "object param %s exceeds retained source size", p->key);
 			return -1;
 		}
-		if (memchr(v, '.', (size_t)(endptr - v)) ||
-				memchr(v, 'e', (size_t)(endptr - v)) ||
-				memchr(v, 'E', (size_t)(endptr - v))) {
-			p->type = WEAPON_GRAPH_PARAM_FLOAT;
-			p->f_value = (f32)d;
-			snprintf(p->value, sizeof(p->value), "%.9g", d);
-		} else {
-			long i = strtol(v, NULL, 10);
-			p->type = WEAPON_GRAPH_PARAM_INT;
-			p->i_value = (s32)i;
-			snprintf(p->value, sizeof(p->value), "%ld", i);
+	} else if (value_type == '[') {
+		p->type = WEAPON_GRAPH_PARAM_ARRAY;
+		if (!trimRawValue(value, p->value, sizeof(p->value))) {
+			setErr(err, err_cap, "array param %s exceeds retained source size", p->key);
+			return -1;
 		}
+	} else if (graphScalarValue(value, value_type, p,
+			strcmp(p->key, "flags") == 0 || strcmp(p->key, "device") == 0,
+			err, err_cap) != 0) return -1;
+	/* Optional references may be null/empty. Every authored identity must be
+	 * a catalog string, including values supplied through weapon variables. */
+	if (paramIsCatalogRefKey(p->key) && p->type != WEAPON_GRAPH_PARAM_NULL &&
+			(p->type != WEAPON_GRAPH_PARAM_STRING ||
+			 (p->value[0] && !catalogRefLooksValid(p->value)))) {
+		setErr(err, err_cap, "%s must be a catalog id or null, got %s",
+			p->key, p->value);
+		return -1;
 	}
 	return 0;
 }
@@ -1124,13 +1210,18 @@ static s32 compileParams(json_span_t node_obj, weapon_graph_ir_t *ir,
 	json_span_t value;
 	char value_type;
 	s32 start = ir->param_count;
+	s32 member_result;
 
 	node->param_start = start;
 	node->param_count = 0;
 
-	if (!jsonObjectObject(node_obj, "params", &params)) return 0;
+	if (!jsonObjectObject(node_obj, "params", &params)) {
+		if (!jsonFindKeyInObject(node_obj, "params")) return 0;
+		setErr(err, err_cap, "node %s params must be an object", node->id);
+		return -1;
+	}
 
-	while (jsonObjectNextMember(params, &cursor, key, sizeof(key), &value, &value_type)) {
+	while ((member_result = jsonObjectNextMember(params, &cursor, key, sizeof(key), &value, &value_type)) == 1) {
 		if (ir->param_count >= WEAPON_GRAPH_IR_MAX_PARAMS) {
 			setErr(err, err_cap, "too many graph params");
 			return -1;
@@ -1148,6 +1239,10 @@ static s32 compileParams(json_span_t node_obj, weapon_graph_ir_t *ir,
 		ir->param_count++;
 		node->param_count++;
 	}
+	if (member_result < 0) {
+		setErr(err, err_cap, "node %s has an invalid or oversized parameter key", node->id);
+		return -1;
+	}
 
 	if (node->param_count > 1) {
 		qsort(&ir->params[start], (size_t)node->param_count,
@@ -1162,7 +1257,11 @@ static s32 compileSharedContexts(json_span_t root, weapon_graph_ir_t *ir,
 	json_span_t contexts;
 	const char *cursor = NULL;
 	json_span_t obj;
-	if (!jsonObjectArray(root, "shared_context", &contexts)) return 0;
+	const char *context_value = jsonFindKeyInObject(root, "shared_context");
+	/* Split authoring graphs refer to the separately composed context file. */
+	if (context_value && *jsonSkipWs(context_value, root.end) == '"') return 0;
+	s32 rows_result = jsonObjectRows(root, "shared_context", 0, &contexts, err, err_cap);
+	if (rows_result <= 0) return rows_result;
 
 	while (jsonArrayNextObject(contexts, &cursor, &obj)) {
 		if (ir->context_count == INT_MAX) {
@@ -1200,9 +1299,135 @@ static s32 compileSharedContexts(json_span_t root, weapon_graph_ir_t *ir,
 			setErr(err, err_cap, "duplicate shared context %s", ctx->name);
 			return -1;
 		}
-		jsonObjectString(obj, "type", ctx->type, sizeof(ctx->type));
-		jsonObjectString(obj, "lifetime", ctx->lifetime, sizeof(ctx->lifetime));
+		if (!jsonOptionalString(obj, "type", ctx->type, sizeof(ctx->type), err, err_cap) ||
+				!jsonOptionalString(obj, "lifetime", ctx->lifetime, sizeof(ctx->lifetime), err, err_cap)) return -1;
 		ir->context_count++;
+	}
+	return 0;
+}
+
+/* These are the vocabularies actually implemented by the native modules.
+ * Absence retains their documented default; an authored typo cannot select
+ * a different behavior through a parser fallback. */
+typedef struct graph_policy_rule {
+	weapon_graph_opcode_e opcode;
+	const char *key;
+	const char *values;
+} graph_policy_rule_t;
+
+static s32 graphPolicyValueAllowed(const char *values, const char *value)
+{
+	const size_t length = strlen(value);
+	for (const char *p = values; p && *p; ) {
+		const char *end = strchr(p, '|');
+		const size_t n = end ? (size_t)(end - p) : strlen(p);
+		if (n == length && strncmp(p, value, n) == 0) return 1;
+		p = end ? end + 1 : NULL;
+	}
+	return 0;
+}
+
+/* Match every string projection below before publishing a record. Unknown
+ * authoring parameters keep the IR capacity; metadata is not a native field.
+ * Catalog identities have their own common bound in catalogRefLooksValid. */
+static size_t graphRuntimeStringCapacity(asset_type_e type, const char *key)
+{
+	if (type == ASSET_WEAPON) {
+		if (strcmp(key, "mode") == 0)
+			return sizeof(((weapon_graph_held_function_t *)0)->mode);
+		if (strcmp(key, "function_type") == 0 || strcmp(key, "trigger_policy") == 0 ||
+				strcmp(key, "sight") == 0 || strcmp(key, "sight_type") == 0)
+			return sizeof(((weapon_graph_held_function_t *)0)->function_type);
+		if (strcmp(key, "reticle_ref") == 0 || strcmp(key, "overlay_ref") == 0)
+			return CATALOG_ID_LEN;
+	} else if (type == ASSET_PROJECTILE || type == ASSET_ENTITY) {
+		static const char *keys64[] = {
+			"motion_kind", "aim_source", "target_source", "target_filter",
+			"lost_target_behavior", "retarget_policy", "runtime_constants", "control_source",
+			"bot_route_policy", "owner_death_behavior", "stick_surface_filter", "fall_vector",
+			"surface_filter", "prop_filter", "embed_policy", "on_attach", "timer_starts",
+			"on_expire", "impact_filter", "trail_type", "when", "allowed_owner",
+			"recover_ammo_policy", "archetype", "detonation_policy", "owner_filter",
+			"damage_response", "team_filter", "on_trigger", "owner_slot_source",
+			"coop_policy", "anti_policy", "self_attached_policy", "on_remote_signal",
+			"starts_when", "pause_policy", "storm_ref", "owner_transfer", "activation_policy",
+			"team_policy", "net_authority", "attachment_filter", "mission_behavior_ref",
+			"pickup_policy", "disable_policy", "visible_state", "owner_lost_behavior",
+			"replace_existing_policy", "interact_filter", "action", "prompt_ref", "transfer_payload"
+		};
+		if (strcmp(key, "source_mode") == 0)
+			return sizeof(((weapon_graph_projectile_runtime_t *)0)->source_mode);
+		if (strcmp(key, "source_function_type") == 0)
+			return sizeof(((weapon_graph_projectile_runtime_t *)0)->source_function_type);
+		if (strcmp(key, "model_archive") == 0)
+			return sizeof(((weapon_graph_projectile_runtime_t *)0)->model_archive);
+		for (size_t i = 0; i < sizeof(keys64) / sizeof(keys64[0]); i++)
+			if (strcmp(key, keys64[i]) == 0)
+				return sizeof(((weapon_graph_projectile_runtime_t *)0)->wall_fall_vector);
+	}
+	if (paramIsCatalogRefKey(key)) return CATALOG_ID_LEN;
+	return WEAPON_GRAPH_IR_VALUE_LEN;
+}
+
+static s32 validateNodePolicies(const weapon_graph_ir_t *ir,
+	const weapon_graph_ir_node_t *node, char *err, size_t err_cap)
+{
+	static const graph_policy_rule_t rules[] = {
+		{ WEAPON_GRAPH_OP_PROJECTILE_TIMER, "timer_starts", "on_spawn|on_impact|on_attach" },
+		{ WEAPON_GRAPH_OP_PROJECTILE_TIMER, "on_expire", "explode|delete" },
+		{ WEAPON_GRAPH_OP_PROJECTILE_IMPACT, "impact_filter", "any|background|props|chr" },
+		{ WEAPON_GRAPH_OP_PROJECTILE_TRAIL, "trail_type", "none|rocket|homing|grenade" },
+		{ WEAPON_GRAPH_OP_ENTITY_ARMED_EXPLOSIVE, "damage_response", "detonate|ignore" },
+		{ WEAPON_GRAPH_OP_ENTITY_PROXY_TRIGGER, "on_trigger", "detonate|storm|create_storm" },
+		{ WEAPON_GRAPH_OP_ENTITY_PROXY_TRIGGER, "target_filter", "all|any|hostile_chr" },
+		{ WEAPON_GRAPH_OP_ENTITY_PROXY_TRIGGER, "team_filter", "all|any|enemy_only" },
+		{ WEAPON_GRAPH_OP_ENTITY_PROXY_TRIGGER, "owner_filter", "all|any|exclude_owner|owner_only" },
+		{ WEAPON_GRAPH_OP_ENTITY_REMOTE_DETONATABLE, "on_remote_signal", "detonate|storm|create_storm" },
+		{ WEAPON_GRAPH_OP_ENTITY_TIMED_DETONATABLE, "on_expire", "detonate|storm|create_storm|delete" },
+		{ WEAPON_GRAPH_OP_ENTITY_TIMED_DETONATABLE, "starts_when", "thrown|armed" },
+		{ WEAPON_GRAPH_OP_ENTITY_AUTOGUN, "net_authority", "server" },
+	};
+	for (s32 i = 0; i < node->param_count; i++) {
+		const weapon_graph_ir_param_t *p = &ir->params[node->param_start + i];
+		const char *values = NULL;
+		const size_t string_cap = graphRuntimeStringCapacity(ir->asset_type, p->key);
+		if (p->type == WEAPON_GRAPH_PARAM_STRING && strlen(p->value) >= string_cap) {
+			setErr(err, err_cap, "%s node %s %s exceeds runtime string capacity (%zu bytes)",
+				node->kind, node->id, p->key, string_cap - 1);
+			return -1;
+		}
+		if (ir->asset_type == ASSET_WEAPON && strcmp(p->key, "camera_effect") == 0) {
+			values = "none|xray";
+		}
+		for (size_t j = 0; j < sizeof(rules) / sizeof(rules[0]); j++) {
+			if (node->opcode == rules[j].opcode && strcmp(p->key, rules[j].key) == 0) {
+				values = rules[j].values;
+				break;
+			}
+		}
+		if (values && (p->type != WEAPON_GRAPH_PARAM_STRING ||
+				(p->value[0] && !graphPolicyValueAllowed(values, p->value)))) {
+			setErr(err, err_cap, "%s node %s has unsupported %s: %s",
+				node->kind, node->id, p->key, p->value);
+			return -1;
+		}
+		if (node->opcode == WEAPON_GRAPH_OP_PROJECTILE_WALL_HUGGER &&
+				strcmp(p->key, "fall_vector") == 0) {
+			f32 x, y, z;
+			int used = 0;
+			if (p->type == WEAPON_GRAPH_PARAM_STRING && (!p->value[0] ||
+					strcmp(p->value, "down") == 0)) continue;
+			if (p->type != WEAPON_GRAPH_PARAM_STRING ||
+					sscanf(p->value, " %f , %f , %f %n", &x, &y, &z, &used) != 3 ||
+					p->value[used] != '\0' ||
+					!(x >= -FLT_MAX && x <= FLT_MAX) ||
+					!(y >= -FLT_MAX && y <= FLT_MAX) ||
+					!(z >= -FLT_MAX && z <= FLT_MAX)) {
+				setErr(err, err_cap, "%s node %s requires fall_vector down or a finite x,y,z triple",
+					node->kind, node->id);
+				return -1;
+			}
+		}
 	}
 	return 0;
 }
@@ -1213,10 +1438,7 @@ static s32 compileNodes(asset_type_e graph_type, json_span_t root,
 	json_span_t nodes;
 	const char *cursor = NULL;
 	json_span_t obj;
-	if (!jsonObjectArray(root, "nodes", &nodes)) {
-		setErr(err, err_cap, "graph missing nodes array");
-		return -1;
-	}
+	if (jsonObjectRows(root, "nodes", 1, &nodes, err, err_cap) != 1) return -1;
 
 	while (jsonArrayNextObject(nodes, &cursor, &obj)) {
 		if (ir->node_count >= WEAPON_GRAPH_IR_MAX_NODES) {
@@ -1239,7 +1461,7 @@ static s32 compileNodes(asset_type_e graph_type, json_span_t root,
 			setErr(err, err_cap, "graph node %s missing kind", node->id);
 			return -1;
 		}
-		jsonObjectString(obj, "subgraph", node->subgraph, sizeof(node->subgraph));
+		if (!jsonOptionalString(obj, "subgraph", node->subgraph, sizeof(node->subgraph), err, err_cap)) return -1;
 		node->opcode = weaponGraphOpcodeForKind(graph_type, node->kind);
 		if (node->opcode == WEAPON_GRAPH_OP_INVALID) {
 			setErr(err, err_cap, "unsupported %s graph module %s",
@@ -1247,6 +1469,7 @@ static s32 compileNodes(asset_type_e graph_type, json_span_t root,
 			return -1;
 		}
 		if (compileParams(obj, ir, node, err, err_cap) != 0) return -1;
+		if (validateNodePolicies(ir, node, err, err_cap) != 0) return -1;
 		ir->node_count++;
 	}
 
@@ -1263,7 +1486,8 @@ static s32 compileSubgraphs(json_span_t root, weapon_graph_ir_t *ir,
 	json_span_t subgraphs;
 	const char *cursor = NULL;
 	json_span_t obj;
-	if (!jsonObjectArray(root, "subgraphs", &subgraphs)) return 0;
+	s32 rows_result = jsonObjectRows(root, "subgraphs", 0, &subgraphs, err, err_cap);
+	if (rows_result <= 0) return rows_result;
 
 	while (jsonArrayNextObject(subgraphs, &cursor, &obj)) {
 		if (ir->subgraph_count == INT_MAX) {
@@ -1299,7 +1523,7 @@ static s32 compileSubgraphs(json_span_t root, weapon_graph_ir_t *ir,
 			setErr(err, err_cap, "duplicate subgraph %s", subgraph->id);
 			return -1;
 		}
-		jsonObjectString(obj, "entry", subgraph->entry, sizeof(subgraph->entry));
+		if (!jsonOptionalString(obj, "entry", subgraph->entry, sizeof(subgraph->entry), err, err_cap)) return -1;
 		if (subgraph->entry[0]) {
 			subgraph->entry_node = graphNodeIndex(ir, subgraph->entry);
 			if (subgraph->entry_node < 0) {
@@ -1319,7 +1543,8 @@ static s32 compileEdges(json_span_t root, weapon_graph_ir_t *ir,
 	json_span_t edges;
 	const char *cursor = NULL;
 	json_span_t obj;
-	if (!jsonObjectArray(root, "edges", &edges)) return 0;
+	s32 rows_result = jsonObjectRows(root, "edges", 0, &edges, err, err_cap);
+	if (rows_result <= 0) return rows_result;
 
 	while (jsonArrayNextObject(edges, &cursor, &obj)) {
 		char from_id[WEAPON_GRAPH_IR_ID_LEN];
@@ -1384,7 +1609,8 @@ static s32 compileExports(json_span_t root, weapon_graph_ir_t *ir,
 	json_span_t exports;
 	const char *cursor = NULL;
 	json_span_t obj;
-	if (!jsonObjectArray(root, "exports", &exports)) return 0;
+	s32 rows_result = jsonObjectRows(root, "exports", 0, &exports, err, err_cap);
+	if (rows_result <= 0) return rows_result;
 
 	while (jsonArrayNextObject(exports, &cursor, &obj)) {
 		char node_id[WEAPON_GRAPH_IR_ID_LEN];
@@ -1411,9 +1637,15 @@ static s32 compileExports(json_span_t root, weapon_graph_ir_t *ir,
 		weapon_graph_ir_export_t *ex = &ir->exports[ir->export_count];
 		memset(ex, 0, sizeof(*ex));
 		if (!jsonObjectString(obj, "name", ex->name, sizeof(ex->name)) ||
-				!jsonObjectString(obj, "node", node_id, sizeof(node_id))) {
+				!ex->name[0] || !jsonObjectString(obj, "node", node_id, sizeof(node_id)) || !node_id[0]) {
 			setErr(err, err_cap, "export missing name/node");
 			return -1;
+		}
+		for (s32 i = 0; i < ir->export_count; i++) {
+			if (strcmp(ir->exports[i].name, ex->name) == 0) {
+				setErr(err, err_cap, "duplicate export name %s", ex->name);
+				return -1;
+			}
 		}
 		ex->node = graphNodeIndex(ir, node_id);
 		if (ex->node < 0) {
@@ -1515,8 +1747,9 @@ s32 weaponGraphCompileJson(asset_type_e graph_type, const char *json,
 		setErr(err, err_cap, "compile called with empty graph input");
 		return -1;
 	}
-	if (!jsonReadObject(json, json + json_size, &root)) {
-		setErr(err, err_cap, "graph root must be a JSON object");
+	if (!modAssetJsonValidateObject(json, json_size) ||
+			!jsonReadObject(json, json + json_size, &root)) {
+		setErr(err, err_cap, "graph must be a complete strict JSON object (invalid syntax, duplicate keys, or trailing input)");
 		return -1;
 	}
 
@@ -1540,12 +1773,12 @@ s32 weaponGraphCompileJson(asset_type_e graph_type, const char *json,
 			return -1;
 		}
 	}
-	jsonObjectString(root, "asset_id", out->asset_id, sizeof(out->asset_id));
+	if (!jsonOptionalString(root, "asset_id", out->asset_id, sizeof(out->asset_id), err, err_cap)) return -1;
 	if (!out->asset_id[0] && graph_type == ASSET_EFFECT) {
 		/* Base s_emitEffect writes the catalog_id spelling. */
-		jsonObjectString(root, "catalog_id", out->asset_id, sizeof(out->asset_id));
+		if (!jsonOptionalString(root, "catalog_id", out->asset_id, sizeof(out->asset_id), err, err_cap)) return -1;
 	}
-	jsonObjectString(root, "graph_id", out->graph_id, sizeof(out->graph_id));
+	if (!jsonOptionalString(root, "graph_id", out->graph_id, sizeof(out->graph_id), err, err_cap)) return -1;
 	if (!out->graph_id[0]) {
 		if (graph_type == ASSET_EFFECT) {
 			/* Neither the base emitter nor the needler proving asset authors
@@ -1667,11 +1900,14 @@ static s32 builderAppendArrayMembers(graph_source_builder_t *b,
 	json_span_t root;
 	json_span_t array;
 	if (!json || json_size == 0 ||
+			!modAssetJsonValidateObject(json, json_size) ||
 			!jsonReadObject(json, json + json_size, &root)) {
-		setErr(err, err_cap, "source graph is not a JSON object");
+		setErr(err, err_cap, "source graph must be a complete strict JSON object");
 		return -1;
 	}
-	if (!jsonObjectArray(root, key, &array) || !spanHasJsonContent(array)) {
+	s32 rows_result = jsonObjectRows(root, key, required, &array, err, err_cap);
+	if (rows_result < 0) return -1;
+	if (rows_result == 0 || !spanHasJsonContent(array)) {
 		if (required) {
 			setErr(err, err_cap, "source graph missing non-empty %s array", key);
 			return -1;
@@ -1694,12 +1930,14 @@ static s32 builderAppendSharedContexts(graph_source_builder_t *b,
 	json_span_t root;
 	json_span_t contexts;
 	if (!json || json_size == 0) return 0;
-	if (!jsonReadObject(json, json + json_size, &root)) {
-		setErr(err, err_cap, "shared context source is not a JSON object");
+	if (!modAssetJsonValidateObject(json, json_size) ||
+			!jsonReadObject(json, json + json_size, &root)) {
+		setErr(err, err_cap, "shared context source must be a complete strict JSON object");
 		return -1;
 	}
-	if (!jsonObjectArray(root, "contexts", &contexts) ||
-			!spanHasJsonContent(contexts)) {
+	s32 rows_result = jsonObjectRows(root, "contexts", 0, &contexts, err, err_cap);
+	if (rows_result < 0) return -1;
+	if (rows_result == 0 || !spanHasJsonContent(contexts)) {
 		return 0;
 	}
 	if (wrote_any && *wrote_any) {
@@ -1913,45 +2151,17 @@ fail:
 
 static s32 weaponGraphSettingScalar(json_span_t value, char value_type,
                                     weapon_graph_setting_entry_t *e,
+                                    s32 allow_unsigned,
                                     char *err, size_t err_cap)
 {
-	char *endptr = NULL;
-	const char *v = jsonSkipWs(value.start, value.end);
-
-	if (value_type == '"') {
-		e->type = WEAPON_GRAPH_PARAM_STRING;
-		if (!readJsonStringSpan(value, e->value, sizeof(e->value))) {
-			setErr(err, err_cap, "bad string value for tunable %s", e->key);
-			return -1;
-		}
-	} else if (startsWith(v, "true") || startsWith(v, "false")) {
-		e->type = WEAPON_GRAPH_PARAM_BOOL;
-		e->b_value = startsWith(v, "true") ? 1 : 0;
-		copyStr(e->value, sizeof(e->value), e->b_value ? "true" : "false");
-	} else if (startsWith(v, "null")) {
-		e->type = WEAPON_GRAPH_PARAM_NULL;
-		copyStr(e->value, sizeof(e->value), "null");
-	} else {
-		double d = strtod(v, &endptr);
-		if (endptr == v) {
-			setErr(err, err_cap, "unsupported value for tunable %s", e->key);
-			return -1;
-		}
-		if (memchr(v, '.', (size_t)(endptr - v)) ||
-				memchr(v, 'e', (size_t)(endptr - v)) ||
-				memchr(v, 'E', (size_t)(endptr - v))) {
-			e->type = WEAPON_GRAPH_PARAM_FLOAT;
-			e->f_value = (f32)d;
-			e->i_value = (s32)d;
-			snprintf(e->value, sizeof(e->value), "%.9g", d);
-		} else {
-			long i = strtol(v, NULL, 10);
-			e->type = WEAPON_GRAPH_PARAM_INT;
-			e->i_value = (s32)i;
-			e->f_value = (f32)i;
-			snprintf(e->value, sizeof(e->value), "%ld", i);
-		}
-	}
+	weapon_graph_ir_param_t parsed = { 0 };
+	copyStr(parsed.key, sizeof(parsed.key), e->key);
+	if (graphScalarValue(value, value_type, &parsed, allow_unsigned, err, err_cap) != 0) return -1;
+	e->type = parsed.type;
+	e->i_value = parsed.i_value;
+	e->f_value = parsed.f_value;
+	e->b_value = parsed.b_value;
+	copyStr(e->value, sizeof(e->value), parsed.value);
 	return 0;
 }
 
@@ -1977,6 +2187,7 @@ static s32 weaponGraphSettingKeyKnown(const char *key)
 static s32 weaponGraphTunableAppend(const char *label, s32 is_variables,
                                     const char *key,
                                     json_span_t value, char value_type,
+                                    const char *row_unit,
                                     weapon_graph_setting_entry_t *out,
                                     s32 cap, s32 *count,
                                     char *err, size_t err_cap)
@@ -1999,21 +2210,29 @@ static s32 weaponGraphTunableAppend(const char *label, s32 is_variables,
 		char member_type;
 		const char *cursor = NULL;
 		s32 saw_value = 0;
+		s32 member_result;
 		if (!jsonReadObject(value.start, value.end, &obj)) {
 			setErr(err, err_cap, "bad object value for tunable %s", key);
 			return -1;
 		}
-		while (jsonObjectNextMember(obj, &cursor, member_key,
-				sizeof(member_key), &member, &member_type)) {
+		while ((member_result = jsonObjectNextMember(obj, &cursor, member_key,
+				sizeof(member_key), &member, &member_type)) == 1) {
 			if (strcmp(member_key, "value") == 0) {
-				if (weaponGraphSettingScalar(member, member_type, e,
+				if (weaponGraphSettingScalar(member, member_type, e, is_variables,
 						err, err_cap) != 0) {
 					return -1;
 				}
 				saw_value = 1;
 			} else if (strcmp(member_key, "unit") == 0) {
-				readJsonStringSpan(member, e->unit, sizeof(e->unit));
+				if (!readJsonStringSpan(member, e->unit, sizeof(e->unit))) {
+					setErr(err, err_cap, "tunable %s unit must be a string", key);
+					return -1;
+				}
 			}
+		}
+		if (member_result < 0) {
+			setErr(err, err_cap, "tunable %s has an invalid or oversized member key", key);
+			return -1;
 		}
 		if (!saw_value) {
 			setErr(err, err_cap, "tunable %s object form requires a value member",
@@ -2024,10 +2243,12 @@ static s32 weaponGraphTunableAppend(const char *label, s32 is_variables,
 		setErr(err, err_cap, "tunable %s must be a scalar or {value, unit} object",
 			key);
 		return -1;
-	} else if (weaponGraphSettingScalar(value, value_type, e,
+	} else if (weaponGraphSettingScalar(value, value_type, e, is_variables,
 			err, err_cap) != 0) {
 		return -1;
 	}
+	/* Preserve nested-unit precedence, but fold a row unit before validation. */
+	if (!e->unit[0] && row_unit) copyStr(e->unit, sizeof(e->unit), row_unit);
 
 	/* Explicit-unit enforcement on time-like keys, mirroring the graph
 	 * param validator (keyNeedsUnit/keyHasUnit). The unit row satisfies it. */
@@ -2042,6 +2263,30 @@ static s32 weaponGraphTunableAppend(const char *label, s32 is_variables,
 			"weapon %s key %s has no production consumer",
 			label, e->key);
 		return -1;
+	}
+	if (!is_variables && strcmp(e->key, "fire_cadence") == 0 &&
+			e->unit[0] && !graphPolicyValueAllowed("rpm|centiseconds|ticks60", e->unit)) {
+		setErr(err, err_cap, "weapon fire_cadence has unsupported unit %s", e->unit);
+		return -1;
+	}
+	if (!is_variables && (strcmp(e->key, "spread") == 0 ||
+			strcmp(e->key, "zoom_fov") == 0 || strcmp(e->key, "fire_cadence") == 0) &&
+			e->type != WEAPON_GRAPH_PARAM_INT && e->type != WEAPON_GRAPH_PARAM_FLOAT &&
+			e->type != WEAPON_GRAPH_PARAM_NULL &&
+			!(e->type == WEAPON_GRAPH_PARAM_STRING && !e->value[0])) {
+		setErr(err, err_cap, "weapon setting %s requires a numeric value", e->key);
+		return -1;
+	}
+	if (!is_variables && strcmp(e->key, "fire_cadence") == 0) {
+		double value = e->type == WEAPON_GRAPH_PARAM_FLOAT ? e->f_value : e->i_value;
+		if (value > 0.0) {
+			double rpm = strcmp(e->unit, "centiseconds") == 0 ? 6000.0 / value :
+				strcmp(e->unit, "ticks60") == 0 ? 3600.0 / value : value;
+			if (!(rpm > 0.0 && rpm <= FLT_MAX) || 3600.0 / rpm + 0.5 > INT_MAX) {
+				setErr(err, err_cap, "weapon fire_cadence exceeds native timing range");
+				return -1;
+			}
+		}
 	}
 
 	(*count)++;
@@ -2093,13 +2338,15 @@ static s32 weaponGraphParseTunablesJson(const char *json, u32 json_size,
 	char key[WEAPON_GRAPH_IR_KEY_LEN];
 	json_span_t value;
 	char value_type;
+	s32 member_result;
 
 	*count = 0;
 	if (!json || json_size == 0) {
 		return 0;
 	}
-	if (!jsonReadObject(json, json + json_size, &root)) {
-		setErr(err, err_cap, "weapon %s source is not a JSON object", label);
+	if (!modAssetJsonValidateObject(json, json_size) ||
+			!jsonReadObject(json, json + json_size, &root)) {
+		setErr(err, err_cap, "weapon %s source must be a complete strict JSON object", label);
 		return -1;
 	}
 	if (weaponGraphTunablesSchemaOk(root, is_variables, err, err_cap) != 0) {
@@ -2108,15 +2355,19 @@ static s32 weaponGraphParseTunablesJson(const char *json, u32 json_size,
 
 	/* Shape 1: "settings"/"variables" array of {name|key, value, unit} rows
 	 * (the base emitter's variables shape). */
-	if (jsonObjectArray(root, label, &rows)) {
+	s32 rows_result = jsonObjectRows(root, label, 0, &rows, err, err_cap);
+	if (rows_result < 0) return -1;
+	if (rows_result == 1) {
 		json_span_t row;
 		while (jsonArrayNextObject(rows, &cursor, &row)) {
 			char name[WEAPON_GRAPH_IR_KEY_LEN];
+			char unit[sizeof(out[0].unit)] = { 0 };
 			const char *value_start;
 			name[0] = '\0';
-			if (!jsonObjectString(row, "name", name, sizeof(name)) &&
-					!jsonObjectString(row, "key", name, sizeof(name))) {
-				setErr(err, err_cap, "weapon %s row missing name", label);
+			const char *name_key = jsonFindKeyInObject(row, "name") ? "name" : "key";
+			if (!jsonObjectString(row, name_key, name, sizeof(name)) || !name[0]) {
+				setErr(err, err_cap, "weapon %s row requires a non-empty name shorter than %zu bytes",
+					label, sizeof(name));
 				return -1;
 			}
 			value_start = jsonFindKeyInObject(row, "value");
@@ -2128,15 +2379,14 @@ static s32 weaponGraphParseTunablesJson(const char *json, u32 json_size,
 			value.start = jsonSkipWs(value_start, row.end);
 			value.end = jsonValueEnd(value.start, row.end);
 			value_type = value.start < row.end ? *value.start : '\0';
-			if (weaponGraphTunableAppend(label, is_variables, name,
-					value, value_type, out, cap, count, err, err_cap) != 0) {
+			if (jsonFindKeyInObject(row, "unit") &&
+					!jsonObjectString(row, "unit", unit, sizeof(unit))) {
+				setErr(err, err_cap, "tunable %s unit must be a string", name);
 				return -1;
 			}
-			/* Row-level unit overrides nothing if absent: the append above
-			 * captured a {value,unit} object when authored that way. */
-			if (*count > 0 && !out[*count - 1].unit[0]) {
-				jsonObjectString(row, "unit", out[*count - 1].unit,
-					sizeof(out[*count - 1].unit));
+			if (weaponGraphTunableAppend(label, is_variables, name,
+					value, value_type, unit, out, cap, count, err, err_cap) != 0) {
+				return -1;
 			}
 		}
 	}
@@ -2144,15 +2394,19 @@ static s32 weaponGraphParseTunablesJson(const char *json, u32 json_size,
 	/* Shape 2: flat object keys (the needler shape). Reserved envelope keys
 	 * and the array member itself are skipped. */
 	cursor = NULL;
-	while (jsonObjectNextMember(root, &cursor, key, sizeof(key),
-			&value, &value_type)) {
+	while ((member_result = jsonObjectNextMember(root, &cursor, key, sizeof(key),
+			&value, &value_type)) == 1) {
 		if (weaponGraphTunableKeyReserved(key) || strcmp(key, label) == 0) {
 			continue;
 		}
 		if (weaponGraphTunableAppend(label, is_variables, key,
-				value, value_type, out, cap, count, err, err_cap) != 0) {
+				value, value_type, NULL, out, cap, count, err, err_cap) != 0) {
 			return -1;
 		}
+	}
+	if (member_result < 0) {
+		setErr(err, err_cap, "weapon %s has an invalid or oversized key", label);
+		return -1;
 	}
 
 	return 0;
@@ -2171,12 +2425,14 @@ static s32 weaponGraphParsePresentationJson(const char *json, u32 json_size,
 	char key[WEAPON_GRAPH_IR_KEY_LEN];
 	json_span_t value;
 	char value_type;
+	s32 member_result;
 
 	if (!json || json_size == 0) {
 		return 0;
 	}
-	if (!jsonReadObject(json, json + json_size, &root)) {
-		setErr(err, err_cap, "weapon presentation source is not a JSON object");
+	if (!modAssetJsonValidateObject(json, json_size) ||
+			!jsonReadObject(json, json + json_size, &root)) {
+		setErr(err, err_cap, "weapon presentation source must be a complete strict JSON object");
 		return -1;
 	}
 	{
@@ -2190,8 +2446,8 @@ static s32 weaponGraphParsePresentationJson(const char *json, u32 json_size,
 		}
 	}
 
-	while (jsonObjectNextMember(root, &cursor, key, sizeof(key),
-			&value, &value_type)) {
+	while ((member_result = jsonObjectNextMember(root, &cursor, key, sizeof(key),
+			&value, &value_type)) == 1) {
 		if (weaponGraphTunableKeyReserved(key)) {
 			continue;
 		}
@@ -2228,7 +2484,7 @@ static s32 weaponGraphParsePresentationJson(const char *json, u32 json_size,
 				continue;
 			}
 			if (weaponGraphTunableAppend("presentation", 0, key, value,
-					value_type, table->settings, WEAPON_GRAPH_SETTINGS_MAX,
+					value_type, NULL, table->settings, WEAPON_GRAPH_SETTINGS_MAX,
 					&table->setting_count, err, err_cap) != 0) {
 				return -1;
 			}
@@ -2236,6 +2492,10 @@ static s32 weaponGraphParsePresentationJson(const char *json, u32 json_size,
 		}
 		setErr(err, err_cap,
 			"weapon presentation key %s has no production consumer", key);
+		return -1;
+	}
+	if (member_result < 0) {
+		setErr(err, err_cap, "weapon presentation has an invalid or oversized key");
 		return -1;
 	}
 
@@ -2479,14 +2739,17 @@ static s32 heldParamInt(const weapon_graph_ir_t *ir,
 		return 1;
 	}
 	if (p->type == WEAPON_GRAPH_PARAM_FLOAT) {
+		if (!((double)p->f_value >= INT_MIN && (double)p->f_value <= INT_MAX)) return 0;
 		*out = (s32)p->f_value;
 		return 1;
 	}
 	if (p->type == WEAPON_GRAPH_PARAM_STRING && p->value[0]) {
-		char *end = NULL;
-		long v = strtol(p->value, &end, 10);
-		if (end && *end == '\0') {
-			*out = (s32)v;
+		json_span_t value = { p->value, p->value + strlen(p->value) };
+		double number;
+		s32 integer;
+		if (graphNumberToken(value, &number, &integer) && integer &&
+				number >= INT_MIN && number <= INT_MAX) {
+			*out = (s32)number;
 			return 1;
 		}
 	}
@@ -2502,10 +2765,13 @@ static s32 heldParamU32(const weapon_graph_ir_t *ir,
 	if (p->type == WEAPON_GRAPH_PARAM_INT ||
 			p->type == WEAPON_GRAPH_PARAM_FLOAT ||
 			p->type == WEAPON_GRAPH_PARAM_STRING) {
-		char *end = NULL;
-		unsigned long v = strtoul(p->value, &end, 10);
-		if (end && *end == '\0') {
-			*out = (u32)v;
+		json_span_t value = { p->value, p->value + strlen(p->value) };
+		double number;
+		s32 integer;
+		if (graphNumberToken(value, &number, &integer) && integer &&
+				number >= INT_MIN && number <= UINT_MAX) {
+			/* Negative signed masks intentionally retain their bit pattern. */
+			*out = number < 0 ? (u32)(s32)number : (u32)number;
 			return 1;
 		}
 	}
@@ -2519,6 +2785,7 @@ static s32 heldParamFloat(const weapon_graph_ir_t *ir,
 	const weapon_graph_ir_param_t *p = heldParam(ir, node, key);
 	if (!p || !out) return 0;
 	if (p->type == WEAPON_GRAPH_PARAM_FLOAT) {
+		if (!(p->f_value >= -FLT_MAX && p->f_value <= FLT_MAX)) return 0;
 		*out = p->f_value;
 		return 1;
 	}
@@ -2535,10 +2802,10 @@ static s32 heldParamString(const weapon_graph_ir_t *ir,
 {
 	const weapon_graph_ir_param_t *p = heldParam(ir, node, key);
 	if (!p || !out || out_cap == 0 ||
-			p->type != WEAPON_GRAPH_PARAM_STRING) {
+			p->type != WEAPON_GRAPH_PARAM_STRING || strlen(p->value) >= out_cap) {
 		return 0;
 	}
-	copyStr(out, out_cap, p->value);
+	memcpy(out, p->value, strlen(p->value) + 1);
 	return 1;
 }
 
@@ -2613,196 +2880,92 @@ static s32 heldSightId(const char *sight)
 	return -1;
 }
 
-static s32 heldParseHexSuffix(const char *value, s32 *out)
-{
-	const char *end;
-	const char *start;
-	char buf[16];
-	size_t len;
-	char *parse_end = NULL;
-	long parsed;
-
-	if (!value || !value[0] || !out) return 0;
-	end = value + strlen(value);
-	start = end;
-	while (start > value && isxdigit((unsigned char)*(start - 1))) {
-		start--;
-	}
-	if (start == end || (start > value && *(start - 1) != '_')) {
-		return 0;
-	}
-	len = (size_t)(end - start);
-	if (len == 0 || len >= sizeof(buf)) return 0;
-	memcpy(buf, start, len);
-	buf[len] = '\0';
-	parsed = strtol(buf, &parse_end, 16);
-	if (!parse_end || *parse_end != '\0') return 0;
-	*out = (s32)parsed;
-	return 1;
-}
-
+/* Public graph references resolve only through the active catalog. Omitted
+ * source remains distinct from an authored ID whose provider is missing. */
 static s32 heldResolveSfxParam(const weapon_graph_ir_t *ir,
                                const weapon_graph_ir_node_t *node,
                                const char *key, s32 *out)
 {
 	const weapon_graph_ir_param_t *p = heldParam(ir, node, key);
-	s32 resolved;
-	char *end = NULL;
-	long parsed;
-
-	if (!p || !out) return 0;
-	if (heldParamInt(ir, node, key, out)) return 1;
-	if (p->type != WEAPON_GRAPH_PARAM_STRING || !p->value[0]) return 0;
-
-	if (strchr(p->value, ':')) {
-		catalog_audio_result_t audio;
-		/* c3849 Wave 2: only accept a RESOLVED soundnum. An unallocated
-		 * custom row carries sound_id = -1; downstream consumers clamp
-		 * negatives to 0, which would silently play SFX_0000. Fall through
-		 * so the miss stays loud (no shootsound) instead. */
-		if (catalogResolveAudio(p->value, &audio) && audio.sound_id >= 0) {
-			*out = audio.sound_id;
-			return 1;
-		}
-		if (strcmp(p->value, "base:sfx_launch_rocket") == 0) {
-			*out = SFX_LAUNCH_ROCKET_8053;
-			return 1;
-		}
-	}
-
-	resolved = loaderEnumResolveSfxEnum(p->value, -1);
-	if (resolved >= 0) {
-		*out = resolved;
-		return 1;
-	}
-
-	parsed = strtol(p->value, &end, 0);
-	if (end && *end == '\0') {
-		*out = (s32)parsed;
-		return 1;
-	}
-
-	return heldParseHexSuffix(p->value, out);
+	catalog_audio_result_t audio;
+	if (!p || !out || p->type != WEAPON_GRAPH_PARAM_STRING ||
+			!p->value[0]) return 0;
+	if (!catalogResolveAudio(p->value, &audio) || audio.sound_id < 0) return 0;
+	*out = audio.sound_id;
+	return 1;
 }
 
 static s32 heldResolveProjectileModelRef(const char *ref, s32 *out)
 {
-	const char *hex;
-	char *end = NULL;
-	long parsed;
+	catalog_model_result_t model;
+	if (!ref || !ref[0] || !out ||
+			!catalogResolveModel(ref, &model) || model.modelnum < 0) return 0;
+	*out = model.modelnum;
+	return 1;
+}
 
-	if (!ref || !out) return 0;
-	if (strchr(ref, ':')) {
-		catalog_model_result_t model;
-		if (catalogResolveModel(ref, &model)) {
-			*out = model.modelnum;
-			return 1;
+/* Validate before publishing any runtime record. Compile-time validation
+ * checks authored identities and policies without requiring loaded assets;
+ * activation additionally requires every selected model/audio source to
+ * resolve, including aliases that would otherwise be skipped by projection. */
+static s32 weaponGraphValidateRuntimeIr(const weapon_graph_ir_t *ir,
+	char *err, size_t err_cap)
+{
+	for (s32 i = 0; i < ir->node_count; i++) {
+		const weapon_graph_ir_node_t *node = &ir->nodes[i];
+		if (validateNodePolicies(ir, node, err, err_cap) != 0) return -1;
+		for (s32 j = 0; j < node->param_count; j++) {
+			const weapon_graph_ir_param_t *p = &ir->params[node->param_start + j];
+			s32 resolved = 0;
+			/* The native adapters below consume these fields as signed integers.
+			 * Validate authored conversions before any record is published. */
+			static const char *integer_keys[] = {
+				"travel_distance", "timer60", "timer_ticks60", "activation_time60",
+				"activation_time_ticks60", "recovery_time60", "recovery_time_ticks60",
+				"lost_target_timeout_ticks60", "smoke_interval_ticks60", "stick_timer_ticks60",
+				"post_fall_timer60", "post_fall_timer_ticks60", "bounce_limit", "timer",
+				"interval", "interval_ticks60", "pickup_timer", "pickup_timer_ticks60",
+				"arm_delay", "arm_delay_ticks60", "alternate_muzzles", "beam_interval",
+				"beam_interval_ticks60", "ammo_reserve", "max_active_per_owner", "ammo_slot",
+				"burst_count", "recoil_anim_unk24", "recoil_anim_unk25", "recoil_anim_unk26",
+				"recoil_anim_unk27", "duration_ticks60", "penetration", "turret_accel",
+				"turret_decel", "recoverytime_ticks60", "specialfunc", "sight"
+			};
+			s32 integer_key = 0;
+			for (size_t key = 0; key < sizeof(integer_keys) / sizeof(integer_keys[0]); key++) {
+				if (strcmp(p->key, integer_keys[key]) == 0) integer_key = 1;
+			}
+			if (p->type != WEAPON_GRAPH_PARAM_NULL &&
+					!(p->type == WEAPON_GRAPH_PARAM_STRING && !p->value[0])) {
+				u32 mask;
+				if ((integer_key && !(strcmp(p->key, "sight") == 0 &&
+						p->type == WEAPON_GRAPH_PARAM_STRING && heldSightId(p->value) >= 0) &&
+						!heldParamInt(ir, node, p->key, &resolved)) ||
+						((strcmp(p->key, "flags") == 0 || strcmp(p->key, "device") == 0) &&
+						!heldParamU32(ir, node, p->key, &mask))) {
+					setErr(err, err_cap, "%s node %s has invalid runtime integer %s",
+						node->kind, node->id, p->key);
+					return -1;
+				}
+			}
+			if (!paramIsModelRefKey(p->key) && !paramIsAudioRefKey(p->key)) continue;
+			if (p->type == WEAPON_GRAPH_PARAM_NULL ||
+					(p->type == WEAPON_GRAPH_PARAM_STRING && !p->value[0])) continue;
+			if (p->type != WEAPON_GRAPH_PARAM_STRING ||
+					!catalogRefLooksValid(p->value)) {
+				setErr(err, err_cap, "%s node %s requires catalog reference %s",
+					node->kind, node->id, p->key);
+				return -1;
+			}
+			if (paramIsModelRefKey(p->key)) {
+				if (heldResolveProjectileModelRef(p->value, &resolved)) continue;
+			} else if (heldResolveSfxParam(ir, node, p->key, &resolved)) {
+				continue;
+			}
+			setErr(err, err_cap, "%s node %s cannot resolve %s catalog source %s",
+				node->kind, node->id, p->key, p->value);
+			return -1;
 		}
-		if (strcmp(ref, "base:model_chrdyrocketmis") == 0 ||
-				strcmp(ref, "base:model_dyrocket") == 0) {
-			*out = MODEL_CHRDYROCKETMIS;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrskrocketmis") == 0 ||
-				strcmp(ref, "base:model_skrocket") == 0) {
-			*out = MODEL_CHRSKROCKETMIS;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrcrossbolt") == 0 ||
-				strcmp(ref, "base:model_crossbow_bolt") == 0) {
-			*out = MODEL_CHRCROSSBOLT;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrdevgrenade") == 0 ||
-				strcmp(ref, "base:model_devastator_grenade") == 0) {
-			*out = MODEL_CHRDEVGRENADE;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrdraggrenade") == 0 ||
-				strcmp(ref, "base:model_dragon_grenade") == 0) {
-			*out = MODEL_CHRDRAGGRENADE;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrknife") == 0 ||
-				strcmp(ref, "base:model_knife") == 0) {
-			*out = MODEL_CHRKNIFE;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrbug") == 0 ||
-				strcmp(ref, "base:model_bug") == 0) {
-			*out = MODEL_CHRBUG;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_targetamp") == 0 ||
-				strcmp(ref, "base:model_target_amplifier") == 0) {
-			*out = MODEL_TARGETAMP;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrautogun") == 0 ||
-				strcmp(ref, "base:model_autogun") == 0) {
-			*out = MODEL_CHRAUTOGUN;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrdragon") == 0 ||
-				strcmp(ref, "base:model_dragon") == 0) {
-			*out = MODEL_CHRDRAGON;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrgrenade") == 0 ||
-				strcmp(ref, "base:model_grenade") == 0) {
-			*out = MODEL_CHRGRENADE;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrnbomb") == 0 ||
-				strcmp(ref, "base:model_nbomb") == 0) {
-			*out = MODEL_CHRNBOMB;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrtimedmine") == 0 ||
-				strcmp(ref, "base:model_timed_mine") == 0) {
-			*out = MODEL_CHRTIMEDMINE;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrproximitymine") == 0 ||
-				strcmp(ref, "base:model_proximity_mine") == 0) {
-			*out = MODEL_CHRPROXIMITYMINE;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrremotemine") == 0 ||
-				strcmp(ref, "base:model_remote_mine") == 0) {
-			*out = MODEL_CHRREMOTEMINE;
-			return 1;
-		}
-		if (strcmp(ref, "base:model_chrecmmine") == 0 ||
-				strcmp(ref, "base:model_ecm_mine") == 0) {
-			*out = MODEL_CHRECMMINE;
-			return 1;
-		}
-	}
-	if (strcmp(ref, "MODEL_dyrocket") == 0) { *out = MODEL_CHRDYROCKETMIS; return 1; }
-	if (strcmp(ref, "MODEL_skrocket") == 0) { *out = MODEL_CHRSKROCKETMIS; return 1; }
-	if (strcmp(ref, "MODEL_crossbow_bolt") == 0) { *out = MODEL_CHRCROSSBOLT; return 1; }
-	if (strcmp(ref, "MODEL_devastator_grenade") == 0) { *out = MODEL_CHRDEVGRENADE; return 1; }
-	if (strcmp(ref, "MODEL_dragon_grenade") == 0) { *out = MODEL_CHRDRAGGRENADE; return 1; }
-	if (strcmp(ref, "MODEL_knife") == 0) { *out = MODEL_CHRKNIFE; return 1; }
-	if (strcmp(ref, "MODEL_bug") == 0) { *out = MODEL_CHRBUG; return 1; }
-	if (strcmp(ref, "MODEL_target_amplifier") == 0) { *out = MODEL_TARGETAMP; return 1; }
-	if (strcmp(ref, "MODEL_autogun") == 0) { *out = MODEL_CHRAUTOGUN; return 1; }
-	if (strcmp(ref, "MODEL_dragon") == 0) { *out = MODEL_CHRDRAGON; return 1; }
-	if (strcmp(ref, "MODEL_grenade") == 0) { *out = MODEL_CHRGRENADE; return 1; }
-	if (strcmp(ref, "MODEL_nbomb") == 0) { *out = MODEL_CHRNBOMB; return 1; }
-	if (strcmp(ref, "MODEL_timed_mine") == 0) { *out = MODEL_CHRTIMEDMINE; return 1; }
-	if (strcmp(ref, "MODEL_proximity_mine") == 0) { *out = MODEL_CHRPROXIMITYMINE; return 1; }
-	if (strcmp(ref, "MODEL_remote_mine") == 0) { *out = MODEL_CHRREMOTEMINE; return 1; }
-	if (strcmp(ref, "MODEL_ecm_mine") == 0) { *out = MODEL_CHRECMMINE; return 1; }
-
-	if (!startsWith(ref, "MODEL_")) return 0;
-	hex = ref + 6;
-	if (!isxdigit((unsigned char)hex[0])) return 0;
-	parsed = strtol(hex, &end, 16);
-	if (end && *end == '\0') {
-		*out = (s32)parsed;
-		return 1;
 	}
 	return 0;
 }
@@ -2819,10 +2982,10 @@ static void runtimeCopyIrIdentity(const weapon_graph_ir_t *ir,
 	copyStr(ir_sha256, ir_cap, ir ? ir->ir_sha256 : "");
 }
 
-/* c3849 Unit 1c: string policies latch to s32 enums at registration so no
- * weaponTick/projectileTick consumer ever strcmps per event (binding spec
- * B3). Unknown values latch the OG default LOUDLY so authoring mistakes
- * surface at registration time. */
+/* Native modules consume enum latches rather than strings per event.
+ * validateNodePolicies rejects unknown authored values before any projection;
+ * this diagnostic therefore indicates invalid internal IR, not an accepted
+ * authoring fallback. Missing optional policies retain module defaults. */
 static s32 policyLatchUnknown(const char *field, const char *value,
                               s32 og_default)
 {
@@ -3682,22 +3845,11 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 		sizeof(out->overlay_ref));
 	heldParamString(ir, node, "camera_effect", out->camera_effect,
 		sizeof(out->camera_effect));
-	/* c3849 Wave 5f Unit 9: latch camera_effect to an s32 enum at parse so
-	 * the bgunTick vision arm never strcmps per tick (B3). Unknown values
-	 * get a one-time LOG_NOTE and stay NONE. */
+	/* Activation already validated the authored vocabulary. The gameplay
+	 * vision arm consumes this enum without comparing strings per tick. */
 	out->camera_effect_mode = WEAPON_GRAPH_CAMERA_EFFECT_NONE;
-	if (out->camera_effect[0]) {
-		if (strcmp(out->camera_effect, "xray") == 0) {
-			out->camera_effect_mode = WEAPON_GRAPH_CAMERA_EFFECT_XRAY;
-		} else if (strcmp(out->camera_effect, "none") != 0) {
-			static s32 s_noted_camera_effect = 0;
-			if (!s_noted_camera_effect) {
-				s_noted_camera_effect = 1;
-				sysLogPrintf(LOG_NOTE,
-					"WEAPONGRAPH.PARSE: camera_effect '%s' has no backend yet; latching none",
-					out->camera_effect);
-			}
-		}
+	if (strcmp(out->camera_effect, "xray") == 0) {
+		out->camera_effect_mode = WEAPON_GRAPH_CAMERA_EFFECT_XRAY;
 	}
 }
 
@@ -3803,7 +3955,8 @@ static void weaponGraphApplySettingsDefaults(s32 weaponnum)
 							held->max_rpm = rpm;
 						}
 					} else if (!held->has_recoverytime_ticks60) {
-						s32 ticks = (s32)((3600.0f / rpm) + 0.5f);
+						double period = (3600.0 / (double)rpm) + 0.5;
+						s32 ticks = period >= INT_MAX ? INT_MAX : (s32)period;
 						if (ticks < 1) {
 							ticks = 1;
 						}
@@ -3884,6 +4037,7 @@ s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
 		setErr(err, err_cap, "held IR registration requires a weapon graph");
 		return -1;
 	}
+	if (weaponGraphValidateRuntimeIr(ir, err, err_cap) != 0) return -1;
 
 	weaponGraphRuntimeClearWeapon(weaponnum);
 
@@ -3923,105 +4077,6 @@ s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
 		return -1;
 	}
 	return 0;
-}
-
-/* B-911 (c3848): register a nested payload's embedded .pdmesh dependencies as
- * mod-category ASSET_MODEL rows on catalog-owned private custom slots, BEFORE
- * the payload's IR is registered, so the graph's catalog-ID model_ref resolves
- * to a usable g_ModelStates index (heldResolveProjectileModelRef ->
- * catalogResolveModel -> entry->runtime_index). The bound source handle is a
- * multi-level "::" member chain into the loose on-disk weapon archive, which
- * fsLoadNestedArchiveEntry resolves recursively (fs.c) -- the same mechanism
- * the .pdbody mesh chain ships with, one level deeper. Failures are loud but
- * non-fatal: the weapon still registers minus its custom model, which is the
- * pre-B-911 behavior. The private slot never crosses wire/save/manifest/UI. */
-static void s_registerEmbeddedMeshDeps(const char *archive_path,
-		const char *container_entry, const void *container_bytes,
-		u32 container_size, const char *parent_id,
-		s32 bind_weapon_model_source)
-{
-	weapon_graph_embedded_mesh_t meshes[WEAPON_GRAPH_EMBEDDED_MESH_MAX];
-	s32 count = weaponGraphArchiveScanEmbeddedMeshesBytes(container_bytes,
-		container_size, parent_id, meshes, WEAPON_GRAPH_EMBEDDED_MESH_MAX);
-
-	for (s32 i = 0; i < count; i++) {
-		const weapon_graph_embedded_mesh_t *mesh = &meshes[i];
-
-		if (strcmp(mesh->catalog_id, parent_id) == 0) {
-			sysLogPrintf(LOG_WARNING,
-				"WEAPONGRAPH.MESH.INGEST: embedded mesh %s reuses parent id %s; skipped",
-				mesh->archive_entry, parent_id);
-			continue;
-		}
-
-		asset_entry_t *e = assetCatalogGetMutable(mesh->catalog_id);
-		if (e && e->type != ASSET_MODEL) {
-			sysLogPrintf(LOG_WARNING,
-				"WEAPONGRAPH.MESH.INGEST: catalog id %s is type=%d, not ASSET_MODEL; skipped",
-				mesh->catalog_id, (s32)e->type);
-			continue;
-		}
-
-		if (!e) {
-			e = assetCatalogRegister(mesh->catalog_id, ASSET_MODEL);
-		}
-		if (!e) {
-			sysLogPrintf(LOG_WARNING,
-				"WEAPONGRAPH.MESH.INGEST: catalog register failed for %s",
-				mesh->catalog_id);
-			continue;
-		}
-
-		s32 slot = assetCatalogResolveModelPrivateSlot(mesh->catalog_id);
-		if (slot < 0) {
-			/* Allocator already logged CATALOG.MODEL.CUSTOM_SLOT_FAIL. */
-			continue;
-		}
-		e->runtime_index = slot;
-
-		/* Mod-category, never base/bundled: the row must be evicted by
-		 * assetCatalogClearMods like every other mod asset. A fresh register
-		 * already defaults bundled=0; inherit the owning weapon's category. */
-		const asset_entry_t *parent = assetCatalogResolve(parent_id);
-		if (parent && parent->category[0]) {
-			copyStr(e->category, sizeof(e->category), parent->category);
-		}
-
-		char source_path[FS_MAXPATH + 1];
-		int written = container_entry && container_entry[0]
-			? snprintf(source_path, sizeof(source_path),
-				"%s::%s::%s::%s", archive_path, container_entry,
-				mesh->archive_entry, mesh->geometry)
-			: snprintf(source_path, sizeof(source_path),
-				"%s::%s::%s", archive_path, mesh->archive_entry,
-				mesh->geometry);
-		if (written < 0 || (size_t)written >= sizeof(source_path)) {
-			sysLogPrintf(LOG_WARNING,
-				"WEAPONGRAPH.MESH.INGEST: source path for %s exceeds FS_MAXPATH; mesh not bound",
-				mesh->catalog_id);
-			continue;
-		}
-
-		if (bind_weapon_model_source || e->source.primary.provider == NULL) {
-			catalogSetPrimaryFile(e, source_path);
-		}
-
-		if (bind_weapon_model_source) {
-			s32 source_filenum = assetCatalogModelPrivateSourceFilenum(slot);
-			if (source_filenum > 0) {
-				asset_entry_t *parent = assetCatalogGetMutable(parent_id);
-				e->source_filenum = source_filenum;
-				if (parent && parent->type == ASSET_WEAPON
-						&& parent->source_filenum <= 0) {
-					parent->source_filenum = source_filenum;
-				}
-			}
-		}
-
-		sysLogPrintf(LOG_NOTE,
-			"WEAPONGRAPH.MESH.INGEST: id=%s slot=%d filenum=%d source=%s",
-			mesh->catalog_id, slot, e->source_filenum, source_path);
-	}
 }
 
 /* c3849 Unit 8: embedded .pdeffect discovery inside nested payload bytes.
@@ -4326,11 +4381,6 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 		return -1;
 	}
 
-	if (archive_bytes && archive_size > 0) {
-		s_registerEmbeddedMeshDeps(archive_path, "", archive_bytes,
-			archive_size, parent_id, 1);
-	}
-
 	if (count == 0) {
 		free(archive_bytes);
 		if (arc) {
@@ -4388,11 +4438,9 @@ static s32 weaponGraphRuntimeRegisterWeaponArchiveDependencies(
 			continue;
 		}
 
-		/* B-911: register the payload's embedded mesh dependencies before the
-		 * payload IR is compiled/registered, so its model_ref resolves to the
-		 * custom slot during projectileRuntimeFromNode. */
-		s_registerEmbeddedMeshDeps(archive_path, payload->archive_entry,
-			nested, nested_size, parent_id, 0);
+		/* Catalog ingress owns the complete mesh closure before this runtime
+		 * projection. Model references below fail if that admission did not
+		 * provide a native model identity; graph activation never mints slots. */
 
 		/* Register effects embedded one level deeper before compiling the
 		 * projectile/entity. Any failure rejects and rolls back the parent. */
@@ -4654,6 +4702,9 @@ static s32 weaponGraphRejectRetiredWeaponBindings(const char *archive_path,
 	return 0;
 }
 
+/* Catalog/scanner ingress must admit the source dependency closure before this
+ * projection. This function validates selected graph references and owns runtime
+ * records; it never registers mesh rows or changes their native/source identity. */
 s32 weaponGraphRuntimeRegisterWeaponArchive(s32 weaponnum,
                                             const char *archive_path,
                                             char *err, size_t err_cap)
@@ -4811,6 +4862,7 @@ static s32 weaponGraphRuntimeRegisterProjectileIrOwned(
 			"projectile IR registration requires a projectile graph with asset_id");
 		return -1;
 	}
+	if (weaponGraphValidateRuntimeIr(ir, err, err_cap) != 0) return -1;
 
 	weapon_graph_projectile_runtime_t *runtime =
 		projectileRuntimeAlloc(ir->asset_id);
@@ -4879,6 +4931,7 @@ static s32 weaponGraphRuntimeRegisterEntityIrOwned(
 			"entity IR registration requires an entity graph with asset_id");
 		return -1;
 	}
+	if (weaponGraphValidateRuntimeIr(ir, err, err_cap) != 0) return -1;
 
 	weapon_graph_entity_runtime_t *runtime = entityRuntimeAlloc(ir->asset_id);
 	if (!runtime) {

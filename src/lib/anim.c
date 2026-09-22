@@ -136,6 +136,25 @@ void animsInitTables(void)
 	}
 }
 
+void animInvalidateCacheEntry(s16 animnum)
+{
+    if (animnum < 0 || animnum >= animGetTotalCount()) return;
+    if (g_AnimToHeaderSlot) g_AnimToHeaderSlot[animnum] = 0xff;
+    if (var8005f014) var8005f014[animnum] = 0;
+    if (g_AnimReplacements) g_AnimReplacements[animnum] = NULL;
+    if (g_AnimFrameAnimNums) for (s32 i = 0; i < ANIM_FRAME_CACHE_SIZE; ++i) {
+        if (g_AnimFrameAnimNums[i] != animnum) continue;
+        g_AnimFrameAnimNums[i] = 0;
+        g_AnimFrameFrameNums[i] = 0;
+        g_AnimFrameBirths[i] = 0;
+    }
+    if (g_AnimHeaderAnimNums) for (s32 i = 0; i < ANIM_HEADER_CACHE_SIZE; ++i) {
+        if (g_AnimHeaderAnimNums[i] != animnum) continue;
+        g_AnimHeaderAnimNums[i] = 0;
+        g_AnimHeaderBirths[i] = -2;
+    }
+}
+
 void animsReset(void)
 {
 	g_NumAnimations = g_NumRomAnimations;

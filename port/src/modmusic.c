@@ -2,7 +2,7 @@
  * modmusic.c -- Mod music stream playback (Batch A-2)
  *
  * Parallel PCM playback path for mod music tracks. Runs alongside the
- * existing N64 ADPCM/sequencer pipeline. Audio is loaded from WAV files,
+ * existing ADPCM/sequencer pipeline. WAV, MP3 and Ogg Vorbis are decoded,
  * decoded to S16 stereo at device sample rate (22050 Hz), and mixed into
  * the output buffer in audioEndFrame() via modMusicMixInto().
  *
@@ -19,6 +19,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <limits.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
 #include "modmusic.h"
@@ -56,232 +57,327 @@ static inline f32 modmusic_clampf(f32 v, f32 lo, f32 hi)
     return v;
 }
 
-/**
- * Load a WAV file and convert it to the device format (22050 Hz, S16, stereo).
- * Returns a malloc'd buffer of S16 samples on success, NULL on failure.
- * *outLen receives the total number of s16 samples (frames * 2).
- */
+/* Build a conversion plan before accumulating source PCM. Every owned byte
+ * count and intermediate SDL buffer must fit its signed int API. */
+static s32 modmusic_planPcmConversion(SDL_AudioFormat format, u8 channels,
+        s32 rate, SDL_AudioCVT *cvt, size_t *maxSourceBytes)
+{
+    int result;
+    size_t frameBytes;
+    if (!channels || rate <= 0 || SDL_AUDIO_BITSIZE(format) == 0
+            || SDL_AUDIO_BITSIZE(format) % 8 != 0) return 0;
+    frameBytes = (size_t)channels * (SDL_AUDIO_BITSIZE(format) / 8);
+    result = SDL_BuildAudioCVT(cvt, format, channels, rate,
+        AUDIO_S16SYS, 2, 22050);
+    if (result < 0 || (result > 0 && cvt->len_mult <= 0)) return 0;
+    *maxSourceBytes = (size_t)INT_MAX / (result > 0 ? (size_t)cvt->len_mult : 1);
+    *maxSourceBytes -= *maxSourceBytes % frameBytes;
+    return *maxSourceBytes != 0;
+}
+
+/* Takes SDL ownership on every path. The caller supplies complete source
+ * frames within the conversion plan's already-checked source byte limit. */
+static s16 *modmusic_finishPcm(Uint8 *pcm, size_t bytes, SDL_AudioCVT *cvt,
+        s32 sourceRate, u32 *outLen, s32 *outSourceRate)
+{
+    if (!pcm || bytes == 0 || bytes > (size_t)INT_MAX) goto fail;
+    if (cvt->needed) {
+        size_t capacity;
+        Uint8 *replacement;
+        if (cvt->len_mult <= 0 || bytes > (size_t)INT_MAX / (size_t)cvt->len_mult) {
+            goto fail;
+        }
+        capacity = bytes * (size_t)cvt->len_mult;
+        replacement = (Uint8 *)SDL_realloc(pcm, capacity);
+        if (!replacement) goto fail;
+        pcm = replacement;
+        cvt->buf = pcm;
+        cvt->len = (int)bytes;
+        if (SDL_ConvertAudio(cvt) < 0 || cvt->len_cvt <= 0
+                || (size_t)cvt->len_cvt > capacity) goto fail;
+        bytes = (size_t)cvt->len_cvt;
+    }
+    if (bytes % (2 * sizeof(s16)) != 0) goto fail;
+    *outLen = (u32)(bytes / sizeof(s16));
+    if (outSourceRate) *outSourceRate = sourceRate;
+    return (s16 *)pcm;
+fail:
+    SDL_free(pcm);
+    return NULL;
+}
+
+typedef struct modmusic_audio_snapshot {
+    const void *bytes;
+    u32 size;
+} modmusic_audio_snapshot_t;
+
 static s16 *modmusic_loadWav(const char *path, u32 *outLen,
-        s32 *outSourceRate)
+        s32 *outSourceRate, const modmusic_audio_snapshot_t *snapshot)
 {
     SDL_AudioSpec wavSpec;
     Uint8 *wavBuf = NULL;
     Uint32 wavRawLen = 0;
     SDL_AudioCVT cvt;
-    s32 cvtResult;
-    Uint8 *pcm;
-    Uint32 pcmLen;
+    size_t maxSourceBytes;
+    size_t frameBytes;
     u32 fileSize = 0;
     void *fileBytes = NULL;
-
     *outLen = 0;
 
-    fileBytes = fsFileLoad(path, &fileSize);
-    if (fileBytes && fileSize > 0 && fileSize <= 0x7fffffffU) {
-        SDL_RWops *rw = SDL_RWFromConstMem(fileBytes, (int)fileSize);
-        if (rw) {
-            SDL_LoadWAV_RW(rw, 1, &wavSpec, &wavBuf, &wavRawLen);
-        }
-        free(fileBytes);
-    } else if (fileBytes) {
-        free(fileBytes);
-    }
-
-    if (!wavBuf && SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavRawLen) == NULL) {
-        sysLogPrintf(LOG_WARNING, "modmusic: failed to load WAV '%s': %s",
-                     path, SDL_GetError());
-        return NULL;
-    }
-    if (outSourceRate) {
-        *outSourceRate = wavSpec.freq > 0 ? wavSpec.freq : 22050;
-    }
-
-    /* Convert to device format: 22050 Hz, AUDIO_S16SYS, 2 channels */
-    cvtResult = SDL_BuildAudioCVT(&cvt,
-        wavSpec.format, wavSpec.channels, wavSpec.freq,
-        AUDIO_S16SYS, 2, 22050);
-
-    if (cvtResult < 0) {
-        sysLogPrintf(LOG_WARNING, "modmusic: SDL_BuildAudioCVT failed for '%s': %s",
-                     path, SDL_GetError());
-        SDL_FreeWAV(wavBuf);
-        return NULL;
-    }
-
-    if (cvtResult > 0) {
-        /* Conversion required */
-        Uint32 cvtBufLen = wavRawLen * (Uint32)cvt.len_mult;
-        pcm = (Uint8 *)SDL_malloc(cvtBufLen);
-        if (!pcm) {
-            SDL_FreeWAV(wavBuf);
-            return NULL;
-        }
-        memcpy(pcm, wavBuf, wavRawLen);
-        SDL_FreeWAV(wavBuf);
-        cvt.buf = pcm;
-        cvt.len = (int)wavRawLen;
-        if (SDL_ConvertAudio(&cvt) < 0) {
-            sysLogPrintf(LOG_WARNING, "modmusic: SDL_ConvertAudio failed for '%s': %s",
-                         path, SDL_GetError());
-            SDL_free(pcm);
-            return NULL;
-        }
-        pcmLen = (Uint32)cvt.len_cvt;
+    if (snapshot) {
+        SDL_RWops *rw = SDL_RWFromConstMem(snapshot->bytes, (int)snapshot->size);
+        if (rw) SDL_LoadWAV_RW(rw, 1, &wavSpec, &wavBuf, &wavRawLen);
     } else {
-        /* Already in target format */
-        pcm = wavBuf;
-        pcmLen = wavRawLen;
+        fileBytes = fsFileLoad(path, &fileSize);
+        if (fileBytes && fileSize > 0 && fileSize <= INT_MAX) {
+            SDL_RWops *rw = SDL_RWFromConstMem(fileBytes, (int)fileSize);
+            if (rw) SDL_LoadWAV_RW(rw, 1, &wavSpec, &wavBuf, &wavRawLen);
+        }
+        free(fileBytes);
+        if (!wavBuf) SDL_LoadWAV(path, &wavSpec, &wavBuf, &wavRawLen);
     }
-
-    *outLen = pcmLen / sizeof(s16); /* total S16 samples */
-    return (s16 *)pcm;
+    if (!wavBuf) {
+        sysLogPrintf(LOG_WARNING, "modmusic: failed to decode WAV '%s': %s", path, SDL_GetError());
+        return NULL;
+    }
+    if (!modmusic_planPcmConversion(wavSpec.format, wavSpec.channels,
+            wavSpec.freq, &cvt, &maxSourceBytes)) {
+        SDL_FreeWAV(wavBuf);
+        return NULL;
+    }
+    frameBytes = (size_t)wavSpec.channels * (SDL_AUDIO_BITSIZE(wavSpec.format) / 8);
+    if (wavRawLen == 0 || wavRawLen > maxSourceBytes || wavRawLen % frameBytes != 0) {
+        SDL_FreeWAV(wavBuf);
+        return NULL;
+    }
+    return modmusic_finishPcm(wavBuf, wavRawLen, &cvt, wavSpec.freq,
+        outLen, outSourceRate);
 }
 
-/* ========================================================================
- * A-6: MP3 decoding via minimp3
- * ======================================================================== */
+typedef struct modmusic_mp3_frame {
+    u32 bytes;
+    s32 rate, channels, version, samples;
+} modmusic_mp3_frame_t;
 
-/**
- * Load an MP3 file and decode to S16 PCM at 22050 Hz stereo.
- * Uses minimp3 frame-by-frame decoding, then SDL_AudioCVT for resampling.
- * Returns a malloc'd buffer, NULL on failure. *outLen = total S16 samples.
- */
-static s16 *modmusic_loadMp3(const char *path, u32 *outLen,
-        s32 *outSourceRate)
+/* Match the public archive's Layer III framing contract before the decoder
+ * can silently resynchronize past a broken frame. This does not validate
+ * Huffman data, reservoir contents, CRC values or gapless metadata. */
+static s32 modmusic_mp3Frame(const u8 *data, u32 size, modmusic_mp3_frame_t *out)
 {
-    FILE *f;
-    long fsize;
-    u8 *mp3data;
-    u32 fileSize = 0;
-    mp3dec_t dec;
-    mp3dec_frame_info_t info;
-    mp3d_sample_t frame_pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
-    s16 *accum = NULL;
-    u32 accumLen = 0;   /* total S16 samples written */
-    u32 accumCap = 0;   /* allocated capacity in S16 samples */
-    u32 mp3pos = 0;
-    s32 mp3remaining;
-    s32 srcRate = 0, srcCh = 0;
+    static const u16 rates[3] = {44100, 48000, 32000};
+    static const u16 bitrate[2][15] = {
+        {0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160},
+        {0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320}
+    };
+    u32 version, rate_index, bitrate_index, side_bytes, frame_bytes;
+    if (size < 4 || data[0] != 0xff || (data[1] & 0xe0) != 0xe0) return 0;
+    version = (data[1] >> 3) & 3;
+    rate_index = (data[2] >> 2) & 3;
+    bitrate_index = data[2] >> 4;
+    if (version == 1 || ((data[1] >> 1) & 3) != 1 || rate_index == 3
+            || bitrate_index == 0 || bitrate_index == 15 || (data[3] & 3) == 2) return 0;
+    out->version = (s32)version;
+    out->rate = rates[rate_index] >> (version == 3 ? 0 : version == 2 ? 1 : 2);
+    out->channels = (data[3] >> 6) == 3 ? 1 : 2;
+    out->samples = version == 3 ? 1152 : 576;
+    frame_bytes = (version == 3 ? 144000u : 72000u)
+        * bitrate[version == 3][bitrate_index] / (u32)out->rate + ((data[2] >> 1) & 1);
+    side_bytes = version == 3 ? (out->channels == 1 ? 17 : 32)
+        : (out->channels == 1 ? 9 : 17);
+    if (frame_bytes < 4 + ((data[1] & 1) ? 0 : 2) + side_bytes || frame_bytes > size) return 0;
+    out->bytes = frame_bytes;
+    return 1;
+}
 
+/* Validate tag framing only; body bytes remain opaque metadata. */
+static s32 modmusic_mp3Id3TagEnd(const u8 *data, u32 size, u32 position, u32 *end)
+{
+    u32 version, flags, allowed, body_size = 0, next;
+    if (position > size || size - position < 10 || memcmp(data + position, "ID3", 3)) return 0;
+    version = data[position + 3];
+    flags = data[position + 5];
+    allowed = version == 2 ? 0xc0 : version == 3 ? 0xe0 : version == 4 ? 0xf0 : 0;
+    if (!allowed || data[position + 4] == 255 || (flags & ~allowed)) return 0;
+    for (u32 i = 6; i < 10; ++i) {
+        if (data[position + i] & 0x80) return 0;
+        body_size = (body_size << 7) | data[position + i];
+    }
+    if (body_size > size - position - 10) return 0;
+    next = position + 10 + body_size;
+    if (version == 4 && (flags & 0x10)) {
+        if (size - next < 10 || memcmp(data + next, "3DI", 3)
+                || memcmp(data + next + 3, data + position + 3, 7)) return 0;
+        next += 10;
+    }
+    *end = next;
+    return 1;
+}
+
+static s32 modmusic_mp3Id3SuffixStart(const u8 *data, u32 lower, u32 limit, u32 *start)
+{
+    const u8 *footer;
+    u32 body_size = 0, tag_start, tag_end;
+    if (lower > limit || limit - lower < 20) return 0;
+    footer = data + limit - 10;
+    if (memcmp(footer, "3DI", 3) || footer[3] != 4 || !(footer[5] & 0x10)) return 0;
+    for (u32 i = 6; i < 10; ++i) {
+        if (footer[i] & 0x80) return 0;
+        body_size = (body_size << 7) | footer[i];
+    }
+    if (body_size > limit - lower - 20) return 0;
+    tag_start = limit - 20 - body_size;
+    if (!modmusic_mp3Id3TagEnd(data, limit, tag_start, &tag_end)
+            || tag_end != limit || data[tag_start + 3] != 4
+            || !(data[tag_start + 5] & 0x10)) return 0;
+    *start = tag_start;
+    return 1;
+}
+
+/* Accepted metadata: leading ID3v2.2/2.3/2.4, appended ID3v2.4 with matching
+ * footer, then optional terminal ID3v1. Zero alignment may follow the last
+ * MPEG frame before appended tags. Xing/Info/LAME remain decoder input. */
+static s32 modmusic_mp3SourceSpan(const u8 *data, u32 size, u32 *start, u32 *end)
+{
+    u32 position = 0, limit = size, audio_start, tag_start;
+    modmusic_mp3_frame_t first = {0};
+    while (size - position >= 3 && !memcmp(data + position, "ID3", 3)) {
+        if (!modmusic_mp3Id3TagEnd(data, size, position, &position)) return 0;
+    }
+    /* A checked v2.4 footer takes precedence over a coincidental TAG string
+     * inside its opaque body at the ID3v1 candidate position. */
+    if (limit - position >= 128 && !memcmp(data + limit - 128, "TAG", 3)
+            && !modmusic_mp3Id3SuffixStart(data, position, limit, &tag_start)) limit -= 128;
+    while (limit - position >= 10 && !memcmp(data + limit - 10, "3DI", 3)) {
+        if (!modmusic_mp3Id3SuffixStart(data, position, limit, &tag_start)) return 0;
+        limit = tag_start;
+    }
+    audio_start = position;
+    while (position < limit) {
+        modmusic_mp3_frame_t frame;
+        if (!data[position]) {
+            for (u32 i = position; i < limit; ++i) if (data[i]) return 0;
+            limit = position;
+            break;
+        }
+        if (!modmusic_mp3Frame(data + position, limit - position, &frame)) return 0;
+        if (first.bytes && (first.version != frame.version || first.rate != frame.rate
+                || first.channels != frame.channels)) return 0;
+        first = frame;
+        position += frame.bytes;
+    }
+    if (audio_start == limit) return 0;
+    *start = audio_start;
+    *end = limit;
+    return 1;
+}
+
+/* Decode every frame/channel into SDL-owned storage. Format changes inside
+ * one stream reject the candidate rather than mixing incompatible PCM. */
+static s16 *modmusic_loadMp3(const char *path, u32 *outLen,
+        s32 *outSourceRate, const modmusic_audio_snapshot_t *snapshot)
+{
+    u32 fileSize = 0;
+    u8 *mp3data = NULL;
+    u32 position = 0;
+    u32 audioEnd = 0;
+    mp3dec_t decoder;
+    mp3d_sample_t framePcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
+    SDL_AudioCVT cvt;
+    u8 *pcm = NULL;
+    size_t usedBytes = 0;
+    size_t capacity = 0;
+    size_t maxSourceBytes = 0;
+    s32 sourceRate = 0;
+    s32 sourceChannels = 0;
     *outLen = 0;
 
-    mp3data = (u8 *)fsFileLoad(path, &fileSize);
-    fsize = (long)fileSize;
-
-    if (!mp3data) {
-        f = fopen(path, "rb");
-        if (!f) {
-            sysLogPrintf(LOG_WARNING, "modmusic: cannot open MP3 '%s'", path);
-            return NULL;
-        }
-
-        fseek(f, 0, SEEK_END);
-        fsize = ftell(f);
-        fseek(f, 0, SEEK_SET);
-
-        if (fsize <= 0 || fsize > 256 * 1024 * 1024) {
-            fclose(f);
-            return NULL;
-        }
-
-        mp3data = (u8 *)malloc((size_t)fsize);
-        if (!mp3data) { fclose(f); return NULL; }
-
-        if ((long)fread(mp3data, 1, (size_t)fsize, f) != fsize) {
-            free(mp3data);
-            fclose(f);
-            return NULL;
-        }
-        fclose(f);
-    } else if (fsize <= 0 || fsize > 256 * 1024 * 1024) {
-        free(mp3data);
-        return NULL;
-    }
-
-    mp3dec_init(&dec);
-    mp3remaining = (s32)fsize;
-
-    /* Initial allocation — ~5 minutes of stereo 44100 Hz audio */
-    accumCap = 44100 * 2 * 300;
-    accum = (s16 *)malloc(accumCap * sizeof(s16));
-    if (!accum) { free(mp3data); return NULL; }
-
-    while (mp3remaining > 0) {
-        s32 samples = mp3dec_decode_frame(&dec,
-            mp3data + mp3pos, mp3remaining, frame_pcm, &info);
-
-        if (info.frame_bytes == 0) break; /* no more frames */
-
-        mp3pos += (u32)info.frame_bytes;
-        mp3remaining -= info.frame_bytes;
-
-        if (samples > 0 && info.channels > 0) {
-            if (srcRate == 0) {
-                srcRate = info.hz;
-                srcCh = info.channels;
+    if (snapshot) {
+        mp3data = (u8 *)snapshot->bytes;
+        fileSize = snapshot->size;
+    } else {
+        mp3data = (u8 *)fsFileLoad(path, &fileSize);
+        if (!mp3data) {
+            FILE *file = fopen(path, "rb");
+            long size;
+            if (!file) return NULL;
+            if (fseek(file, 0, SEEK_END) != 0 || (size = ftell(file)) <= 0
+                    || size > INT_MAX || fseek(file, 0, SEEK_SET) != 0) {
+                fclose(file);
+                return NULL;
             }
-
-            u32 frameSamples = (u32)(samples * info.channels);
-
-            /* Grow accumulator if needed */
-            while (accumLen + frameSamples > accumCap) {
-                accumCap *= 2;
-                s16 *newBuf = (s16 *)realloc(accum, accumCap * sizeof(s16));
-                if (!newBuf) { free(accum); free(mp3data); return NULL; }
-                accum = newBuf;
+            mp3data = (u8 *)malloc((size_t)size);
+            if (!mp3data || fread(mp3data, 1, (size_t)size, file) != (size_t)size) {
+                fclose(file);
+                free(mp3data);
+                return NULL;
             }
-
-            memcpy(accum + accumLen, frame_pcm, frameSamples * sizeof(s16));
-            accumLen += frameSamples;
+            fclose(file);
+            fileSize = (u32)size;
         }
     }
-
-    free(mp3data);
-
-    if (accumLen == 0 || srcRate == 0) {
-        free(accum);
-        sysLogPrintf(LOG_WARNING, "modmusic: MP3 decode yielded no audio '%s'", path);
-        return NULL;
-    }
-    if (outSourceRate) {
-        *outSourceRate = srcRate;
-    }
-
-    /* Convert to device format: 22050 Hz, S16, stereo */
-    SDL_AudioCVT cvt;
-    s32 cvtResult = SDL_BuildAudioCVT(&cvt,
-        AUDIO_S16SYS, (Uint8)srcCh, srcRate,
-        AUDIO_S16SYS, 2, 22050);
-
-    if (cvtResult < 0) {
-        free(accum);
-        sysLogPrintf(LOG_WARNING, "modmusic: MP3 AudioCVT build failed '%s'", path);
-        return NULL;
-    }
-
-    if (cvtResult > 0) {
-        u32 rawBytes = accumLen * sizeof(s16);
-        u32 cvtBufLen = rawBytes * (u32)cvt.len_mult;
-        u8 *cvtBuf = (u8 *)malloc(cvtBufLen);
-        if (!cvtBuf) { free(accum); return NULL; }
-        memcpy(cvtBuf, accum, rawBytes);
-        free(accum);
-
-        cvt.buf = cvtBuf;
-        cvt.len = (s32)rawBytes;
-        if (SDL_ConvertAudio(&cvt) < 0) {
-            free(cvtBuf);
-            sysLogPrintf(LOG_WARNING, "modmusic: MP3 AudioCVT failed '%s'", path);
-            return NULL;
+    if (fileSize == 0 || fileSize > INT_MAX) goto fail;
+    if (!modmusic_mp3SourceSpan(mp3data, fileSize, &position, &audioEnd)) goto fail;
+    mp3dec_init(&decoder);
+    while (position < audioEnd) {
+        mp3dec_frame_info_t info = {0};
+        modmusic_mp3_frame_t frame;
+        int frames;
+        size_t frameBytes;
+        size_t needed;
+        if (!modmusic_mp3Frame(mp3data + position, audioEnd - position, &frame)) goto fail;
+        /* Keep reservoir state across exact complete frames. The decoder may
+         * not search forward into a later frame or consume metadata as audio. */
+        frames = mp3dec_decode_frame(&decoder, mp3data + position,
+            (int)frame.bytes, framePcm, &info);
+        if (info.frame_offset != 0 || info.frame_bytes != (int)frame.bytes
+                || info.layer != 3 || info.hz != frame.rate || info.channels != frame.channels
+                || (frames != 0 && frames != frame.samples)) goto fail;
+        position += frame.bytes;
+        /* Pinned minimp3 clears its public header on invalid side information;
+         * reservoir priming returns zero with the admitted header retained. */
+        if (frames == 0) {
+            if (decoder.header[0] != 0xff) goto fail;
+            continue;
         }
-
-        *outLen = (u32)cvt.len_cvt / sizeof(s16);
-        return (s16 *)cvtBuf;
+        if (info.channels < 1 || info.channels > 2 || info.hz <= 0
+                || frames > MINIMP3_MAX_SAMPLES_PER_FRAME / info.channels) goto fail;
+        if (!sourceRate) {
+            sourceRate = info.hz;
+            sourceChannels = info.channels;
+            if (!modmusic_planPcmConversion(AUDIO_S16SYS, (u8)sourceChannels,
+                    sourceRate, &cvt, &maxSourceBytes)) goto fail;
+        } else if (sourceRate != info.hz || sourceChannels != info.channels) {
+            goto fail;
+        }
+        frameBytes = (size_t)frames * (size_t)info.channels * sizeof(s16);
+        if (frameBytes > maxSourceBytes - usedBytes) goto fail;
+        needed = usedBytes + frameBytes;
+        if (needed > capacity) {
+            size_t grown = capacity ? capacity : frameBytes;
+            u8 *replacement;
+            while (grown < needed) {
+                grown = grown > maxSourceBytes / 2 ? maxSourceBytes : grown * 2;
+            }
+            replacement = (u8 *)SDL_realloc(pcm, grown);
+            if (!replacement) goto fail;
+            pcm = replacement;
+            capacity = grown;
+        }
+        memcpy(pcm + usedBytes, framePcm, frameBytes);
+        usedBytes = needed;
     }
-
-    /* Already in target format (unlikely but possible) */
-    *outLen = accumLen;
-    return accum;
+    if (!snapshot) free(mp3data);
+    if (!sourceRate || usedBytes == 0) {
+        SDL_free(pcm);
+        return NULL;
+    }
+    return modmusic_finishPcm(pcm, usedBytes, &cvt, sourceRate,
+        outLen, outSourceRate);
+fail:
+    if (!snapshot) free(mp3data);
+    SDL_free(pcm);
+    sysLogPrintf(LOG_WARNING, "modmusic: MP3 decode/format/size failure '%s'", path);
+    return NULL;
 }
 
 /* ========================================================================
@@ -289,80 +385,169 @@ static s16 *modmusic_loadMp3(const char *path, u32 *outLen,
  * ======================================================================== */
 
 /**
- * Load an OGG Vorbis file and decode to S16 PCM at 22050 Hz stereo.
- * Uses stb_vorbis_decode_filename(), then SDL_AudioCVT for resampling.
- * Returns a malloc'd buffer, NULL on failure. *outLen = total S16 samples.
+ * Incrementally decode OGG Vorbis into SDL-owned S16 storage, then convert
+ * to 22050 Hz stereo. The ceiling bounds every PCM allocation, including
+ * SDL's intermediate conversion storage. It never exceeds INT_MAX bytes.
  */
-static s16 *modmusic_loadOgg(const char *path, u32 *outLen,
-        s32 *outSourceRate)
+static s16 *modmusic_loadOggBounded(const char *path, u32 *outLen,
+        s32 *outSourceRate, size_t maxPcmBytes,
+        const modmusic_audio_snapshot_t *snapshot)
 {
-    int channels = 0, sample_rate = 0;
-    short *decoded = NULL;
-    s32 samplesPerChannel;
+    stb_vorbis *decoder = NULL;
+    stb_vorbis_info info;
+    SDL_AudioCVT cvt;
+    s32 cvtResult;
+    short chunk[4096];
+    int chunkFrames;
+    int decoderError = 0;
+    size_t frameBytes;
+    size_t conversionMultiplier;
+    size_t maxSourceBytes;
+    size_t usedBytes = 0;
+    size_t capacity = 0;
+    u8 *pcm = NULL;
     u32 fileSize = 0;
     void *fileBytes = NULL;
+    const char *failure = "invalid input size";
 
     *outLen = 0;
+    if (maxPcmBytes > (size_t)INT_MAX) maxPcmBytes = (size_t)INT_MAX;
+    if (maxPcmBytes == 0) goto fail;
 
-    fileBytes = fsFileLoad(path, &fileSize);
-    if (fileBytes && fileSize > 0 && fileSize <= 0x7fffffffU) {
-        samplesPerChannel = stb_vorbis_decode_memory((const unsigned char *)fileBytes,
-                                                (int)fileSize,
-                                                &channels, &sample_rate,
-                                                &decoded);
-        free(fileBytes);
+    if (snapshot) {
+        fileBytes = (void *)snapshot->bytes;
+        fileSize = snapshot->size;
+    } else fileBytes = fsFileLoad(path, &fileSize);
+    if (fileBytes) {
+        if (fileSize == 0 || fileSize > INT_MAX) goto fail;
+        decoder = stb_vorbis_open_memory((const unsigned char *)fileBytes,
+            (int)fileSize, &decoderError, NULL);
     } else {
-        if (fileBytes) {
-            free(fileBytes);
-        }
-        samplesPerChannel = stb_vorbis_decode_filename(path, &channels, &sample_rate,
-                                                   &decoded);
+        decoder = stb_vorbis_open_filename(path, &decoderError, NULL);
     }
-    if (samplesPerChannel <= 0 || channels <= 0 || !decoded) {
-        sysLogPrintf(LOG_WARNING, "modmusic: OGG decode failed '%s'", path);
-        return NULL;
-    }
-    if (outSourceRate) {
-        *outSourceRate = sample_rate > 0 ? sample_rate : 22050;
+    failure = "decoder open";
+    if (!decoder) goto fail;
+
+    info = stb_vorbis_get_info(decoder);
+    failure = "invalid decoded format";
+    if (info.channels <= 0 || info.channels > UCHAR_MAX
+            || info.sample_rate == 0 || info.sample_rate > (unsigned int)INT_MAX) {
+        goto fail;
     }
 
-    /* Convert to device format: 22050 Hz, S16, stereo */
-    SDL_AudioCVT cvt;
-    s32 cvtResult = SDL_BuildAudioCVT(&cvt,
-        AUDIO_S16SYS, (Uint8)channels, sample_rate,
+    cvtResult = SDL_BuildAudioCVT(&cvt,
+        AUDIO_S16SYS, (Uint8)info.channels, (int)info.sample_rate,
         AUDIO_S16SYS, 2, 22050);
+    failure = "SDL conversion format";
+    if (cvtResult < 0 || (cvtResult > 0 && cvt.len_mult <= 0)) goto fail;
 
-    if (cvtResult < 0) {
-        free(decoded);
-        sysLogPrintf(LOG_WARNING, "modmusic: OGG AudioCVT build failed '%s'", path);
-        return NULL;
+    /* SDL's len and len_cvt are signed byte counts. Bound decoded input
+     * before allocating it, accounting for the eventual conversion growth. */
+    conversionMultiplier = cvtResult > 0 ? (size_t)cvt.len_mult : 1;
+    frameBytes = (size_t)info.channels * sizeof(s16);
+    maxSourceBytes = maxPcmBytes / conversionMultiplier;
+    maxSourceBytes -= maxSourceBytes % frameBytes;
+    failure = "PCM exceeds SDL byte limit";
+    if (maxSourceBytes == 0) goto fail;
+    chunkFrames = (int)(sizeof(chunk) / sizeof(chunk[0])) / info.channels;
+
+    for (;;) {
+        int frames = stb_vorbis_get_samples_short_interleaved(decoder,
+            info.channels, chunk, chunkFrames * info.channels);
+        size_t chunkBytes;
+        size_t needed;
+        decoderError = stb_vorbis_get_error(decoder);
+        failure = "Vorbis decode";
+        if (decoderError != 0 || frames < 0 || frames > chunkFrames) goto fail;
+        if (frames == 0) break;
+
+        /* This product is bounded by the fixed chunk buffer. The subtraction
+         * check precedes addition and every accumulator allocation. */
+        chunkBytes = (size_t)frames * frameBytes;
+        failure = "PCM exceeds SDL byte limit";
+        if (chunkBytes > maxSourceBytes - usedBytes) goto fail;
+        needed = usedBytes + chunkBytes;
+        if (needed > capacity) {
+            size_t grown = capacity ? capacity : chunkBytes;
+            u8 *replacement;
+            while (grown < needed) {
+                grown = grown > maxSourceBytes / 2 ? maxSourceBytes : grown * 2;
+            }
+            failure = "PCM allocation";
+            replacement = (u8 *)SDL_realloc(pcm, grown);
+            if (!replacement) goto fail;
+            pcm = replacement;
+            capacity = grown;
+        }
+        memcpy(pcm + usedBytes, chunk, chunkBytes);
+        usedBytes = needed;
     }
+
+    /* The memory decoder borrows fileBytes through its last decode and close. */
+    stb_vorbis_close(decoder);
+    decoder = NULL;
+    if (!snapshot) free(fileBytes);
+    fileBytes = NULL;
+    failure = "empty Vorbis stream";
+    if (usedBytes == 0) goto fail;
 
     if (cvtResult > 0) {
-        u32 totalSourceSamples = (u32)samplesPerChannel * (u32)channels;
-        u32 rawBytes = totalSourceSamples * sizeof(s16);
-        u32 cvtBufLen = rawBytes * (u32)cvt.len_mult;
-        u8 *cvtBuf = (u8 *)malloc(cvtBufLen);
-        if (!cvtBuf) { free(decoded); return NULL; }
-        memcpy(cvtBuf, decoded, rawBytes);
-        free(decoded);
-
-        cvt.buf = cvtBuf;
-        cvt.len = (s32)rawBytes;
-        if (SDL_ConvertAudio(&cvt) < 0) {
-            free(cvtBuf);
-            sysLogPrintf(LOG_WARNING, "modmusic: OGG AudioCVT failed '%s'", path);
-            return NULL;
+        size_t convertedCapacity;
+        /* Keep the local narrowing/allocation proof explicit at conversion. */
+        failure = "PCM conversion exceeds SDL byte limit";
+        if (usedBytes > maxPcmBytes / conversionMultiplier) goto fail;
+        convertedCapacity = usedBytes * conversionMultiplier;
+        if (convertedCapacity > capacity) {
+            u8 *replacement = (u8 *)SDL_realloc(pcm, convertedCapacity);
+            failure = "PCM conversion allocation";
+            if (!replacement) goto fail;
+            pcm = replacement;
+            capacity = convertedCapacity;
         }
-
-        *outLen = (u32)cvt.len_cvt / sizeof(s16);
-        return (s16 *)cvtBuf;
+        cvt.buf = pcm;
+        cvt.len = (int)usedBytes;
+        failure = "SDL audio conversion";
+        if (SDL_ConvertAudio(&cvt) < 0 || cvt.len_cvt <= 0
+                || (size_t)cvt.len_cvt > convertedCapacity) {
+            goto fail;
+        }
+        usedBytes = (size_t)cvt.len_cvt;
     }
 
-    /* Already in target format */
-    *outLen = (u32)samplesPerChannel * (u32)channels;
-    return (s16 *)decoded;
+    failure = "incomplete stereo PCM frame";
+    if (usedBytes % (2 * sizeof(s16)) != 0) goto fail;
+    if (outSourceRate) *outSourceRate = (s32)info.sample_rate;
+    *outLen = (u32)(usedBytes / sizeof(s16));
+    return (s16 *)pcm;
+
+fail:
+    if (decoder) stb_vorbis_close(decoder);
+    if (!snapshot) free(fileBytes);
+    SDL_free(pcm);
+    sysLogPrintf(LOG_WARNING, "modmusic: OGG '%s' failed: %s (decoder=%d)",
+        path, failure, decoderError);
+    return NULL;
 }
+
+static s16 *modmusic_loadOgg(const char *path, u32 *outLen,
+        s32 *outSourceRate, const modmusic_audio_snapshot_t *snapshot)
+{
+    return modmusic_loadOggBounded(path, outLen, outSourceRate, (size_t)INT_MAX, snapshot);
+}
+
+#ifdef PD_TESTS
+/* Exercise the production allocation boundary using ordinary small fixtures.
+ * Tests can only tighten the real SDL limit, never replace the decoder. */
+s16 *modMusicTestLoadOggWithByteLimit(const char *path, u32 *outLen,
+        s32 *outSourceRate, u32 maxPcmBytes)
+{
+    if (outLen) *outLen = 0;
+    if (outSourceRate) *outSourceRate = 22050;
+    if (!outLen || !path || !path[0]) return NULL;
+    return modmusic_loadOggBounded(path, outLen, outSourceRate,
+        (size_t)maxPcmBytes, NULL);
+}
+#endif
 
 /* ========================================================================
  * A-6: Format-detecting loader
@@ -371,10 +556,10 @@ static s16 *modmusic_loadOgg(const char *path, u32 *outLen,
 /**
  * Detect audio format by file extension and load accordingly.
  * Supports .wav, .mp3, and .ogg.
- * Returns a malloc'd S16 PCM buffer, NULL on failure.
+ * Returns an SDL-owned S16 PCM buffer, NULL on failure.
  */
 static s16 *modmusic_loadAudio(const char *path, u32 *outLen,
-        s32 *outSourceRate)
+        s32 *outSourceRate, const modmusic_audio_snapshot_t *snapshot)
 {
     const char *ext;
 
@@ -394,17 +579,17 @@ static s16 *modmusic_loadAudio(const char *path, u32 *outLen,
         if ((ext[1] == 'm' || ext[1] == 'M') &&
             (ext[2] == 'p' || ext[2] == 'P') &&
             ext[3] == '3' && ext[4] == '\0') {
-            return modmusic_loadMp3(path, outLen, outSourceRate);
+            return modmusic_loadMp3(path, outLen, outSourceRate, snapshot);
         }
         if ((ext[1] == 'o' || ext[1] == 'O') &&
             (ext[2] == 'g' || ext[2] == 'G') &&
             (ext[3] == 'g' || ext[3] == 'G') && ext[4] == '\0') {
-            return modmusic_loadOgg(path, outLen, outSourceRate);
+            return modmusic_loadOgg(path, outLen, outSourceRate, snapshot);
         }
     }
 
     /* Default: try WAV */
-    return modmusic_loadWav(path, outLen, outSourceRate);
+    return modmusic_loadWav(path, outLen, outSourceRate, snapshot);
 }
 
 s16 *modMusicLoadAudioPcm22050(const char *file_path, u32 *out_len,
@@ -419,7 +604,18 @@ s16 *modMusicLoadAudioPcm22050(const char *file_path, u32 *out_len,
     if (!out_len) {
         return NULL;
     }
-    return modmusic_loadAudio(file_path, out_len, out_source_rate);
+    return modmusic_loadAudio(file_path, out_len, out_source_rate, NULL);
+}
+
+s16 *modMusicDecodeAudioPcm22050(const char *source_name, const void *bytes,
+        u32 size, u32 *out_len, s32 *out_source_rate)
+{
+    if (out_len) *out_len = 0;
+    if (out_source_rate) *out_source_rate = 22050;
+    if (!out_len || !source_name || !source_name[0] || !bytes || !size || size > INT_MAX)
+        return NULL;
+    const modmusic_audio_snapshot_t snapshot = {bytes, size};
+    return modmusic_loadAudio(source_name, out_len, out_source_rate, &snapshot);
 }
 
 /**
@@ -453,6 +649,20 @@ static void modmusic_restoreBaseMusic(void)
  * Public API
  * ======================================================================== */
 
+s32 modMusicAudioSourceDuration60(const char *file_path)
+{
+    u32 samples = 0;
+    s16 *pcm = modMusicLoadAudioPcm22050(file_path, &samples, NULL);
+    u64 ticks;
+    if (!pcm || samples < 2 || samples % 2u) {
+        SDL_free(pcm);
+        return -1;
+    }
+    ticks = ((u64)(samples / 2u) * 60u + 22049u) / 22050u;
+    SDL_free(pcm);
+    return ticks <= INT_MAX ? (s32)ticks : -1;
+}
+
 void modMusicPlay(const char *file_path)
 {
     s16 *pcm;
@@ -465,8 +675,8 @@ void modMusicPlay(const char *file_path)
         return;
     }
 
-    /* Stop any current mod track first */
-    if (s_ModMusicPlaying) {
+    /* EOF retains PCM until replacement or stop. Release that owner too. */
+    if (s_ModMusicPCM) {
         modMusicStop();
     }
 
@@ -486,8 +696,9 @@ void modMusicPlay(const char *file_path)
     sysLogPrintf(LOG_NOTE, "modmusic: loading '%s' (resolved from '%s')",
                  resolved, file_path);
 
-    pcm = modmusic_loadAudio(resolved, &len, NULL);
+    pcm = modmusic_loadAudio(resolved, &len, NULL, NULL);
     if (!pcm || len == 0) {
+        SDL_free(pcm);
         sysLogPrintf(LOG_WARNING, "modmusic: could not load '%s'", resolved);
         return;
     }
@@ -545,7 +756,6 @@ void modMusicMixInto(s16 *outBuf, u32 numFrames)
     f64 rate;
     u32 i;
     u32 framesAvail;
-    u32 framesProduced;
     u32 framesToWrite;
     s32 mixed;
     f64 cursor;
@@ -577,12 +787,11 @@ void modMusicMixInto(s16 *outBuf, u32 numFrames)
         return;
     }
 
-    /* How many output frames can we produce before running out of
-     * source? Solve `cursor + step * N <= framesAvail - 1` for N. */
-    framesProduced = (u32)(((f64)(framesAvail - 1) - cursor) / step);
-    framesToWrite = (numFrames < framesProduced) ? numFrames : framesProduced;
-
-    for (i = 0; i < framesToWrite; i++) {
+    /* Every cursor within the source duration contributes a frame, including
+     * the final frame. Its interpolation neighbour is clamped below. Bound
+     * using the same accumulated cursor that samples the source, avoiding
+     * differing roundoff from a separate division-based frame prediction. */
+    for (i = 0; i < numFrames && cursor < (f64)framesAvail; i++) {
         u32 idx0 = (u32)cursor;
         u32 idx1 = idx0 + 1u;
         if (idx1 >= framesAvail) idx1 = idx0;
@@ -611,6 +820,8 @@ void modMusicMixInto(s16 *outBuf, u32 numFrames)
 
         cursor += step;
     }
+
+    framesToWrite = i;
 
     /* Write back integer + fractional position. */
     {
@@ -642,6 +853,8 @@ void modMusicMixInto(s16 *outBuf, u32 numFrames)
 
 void modMusicSetRate(f32 rate)
 {
+    /* An unordered network/user value must not reach the PCM cursor cast. */
+    if (!(rate >= 0.0f || rate < 0.0f)) rate = 1.0f;
     /* Clamp to [0.97, 1.03] -- ~50 cents of pitch shift max, well
      * under the threshold where listeners hear a noticeable bend. */
     if (rate < 0.97f) rate = 0.97f;
@@ -668,10 +881,13 @@ void modMusicSetPositionMs(u32 ms)
 {
     if (!s_ModMusicPlaying || s_ModMusicSampleRate == 0 || s_ModMusicLen == 0) return;
     f64 frames = ((f64)ms * (f64)s_ModMusicSampleRate) / 1000.0;
-    u32 frameIdx = (u32)frames;
     u32 maxFrame = s_ModMusicLen / 2u;
+    u32 frameIdx;
     if (maxFrame == 0) return;
-    if (frameIdx >= maxFrame) frameIdx = maxFrame - 1;
+    if (frames >= (f64)maxFrame) {
+        frameIdx = maxFrame - 1;
+        frames = (f64)frameIdx;
+    } else frameIdx = (u32)frames;
     s_ModMusicPos     = frameIdx * 2u;
     s_ModMusicPosFrac = frames - (f64)frameIdx;
     sysLogPrintf(LOG_NOTE, "modmusic: hard-seek to %u ms (frame %u of %u)",

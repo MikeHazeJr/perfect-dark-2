@@ -38,6 +38,11 @@ void assetCatalogDestroyCustomTextureSlotSnapshot(void *snapshot);
  * exhausted (logs CATALOG.TEXTURE.CUSTOM_SLOT_FAIL). */
 s32 assetCatalogResolveTexturePrivateSlot(const char *catalog_id);
 
+/* Main client thread: generation reservations survive ordinary reset and
+ * cannot reclaim IDs retained by an in-flight catalog snapshot. */
+s32 assetCatalogReserveTextureGenerationSlot(void);
+void assetCatalogReleaseTextureGenerationSlot(s32 slot);
+
 #ifdef __cplusplus
 }
 #endif

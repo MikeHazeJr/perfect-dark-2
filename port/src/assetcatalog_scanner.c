@@ -25,17 +25,26 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <limits.h>
+#include <errno.h>
 #include <dirent.h>
 #include <sys/stat.h>
 #include "types.h"
 #include "constants.h"
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
+#include "catalog_audio_source_identity.h"
+#include "catalog_audio_public_source.h"
+#include "loader_walker_common.h"
+#include "lang_source.h"
 #include "assetcatalog_load.h"
 #include "catalog_activation_ledger.h"
+#include "catalog_entry_snapshot.h"
 #include "assetprovider.h"
 #include "assetprovider_internal.h"
 #include "assetcatalog_body_head_slots.h"
+#include "assetcatalog_model_slots.h"
+#include "body_head_source.h"
+#include "body_head_source_bind.h"
 #include "assetcatalog_weapon_slots.h"
 #include "catalog_mgr_bodies.h"
 #include "catalog_mgr_heads.h"
@@ -46,24 +55,28 @@
 #include "game/stagetable.h" /* c3849 Wave 2: stageTableAppend for minted stagenums */
 #include "assetcatalog_deps.h"
 #include "assetcatalog_scanner.h"
+#include "character_head_policy.h"
 #include "asset_path_contract.h"
 #include "loader_pool.h"
 #include "loader_walker_mesh_source.h"
+#include "loader_walker_common.h"
 #include "modarchive.h"
 #include "pdeffect_source.h"
 #include "effect_dependencies.h"
 #include "weapon_graph_archive.h"
+#include "weapon_graph_runtime.h"
 #include "romdata.h"
 #include "system.h"
 #include "fs.h"
 
 typedef struct external_scan_transaction {
-	asset_entry_t *rows;
+	catalog_entry_snapshot_t *rows;
 	s32 row_count;
 	catalog_dep_snapshot_t deps;
 	file_provider_checkpoint_t provider;
 	void *weapon_slots;
 	void *body_head_slots;
+	void *model_slots;
 	void *sound_slots;
 	void *texture_slots;
 	void *anim_slots;
@@ -75,13 +88,13 @@ typedef struct external_scan_transaction {
 	s32 active;
 } external_scan_transaction_t;
 
-static const asset_entry_t *externalScanPriorRow(
+static const catalog_entry_snapshot_t *externalScanPriorRow(
 		const external_scan_transaction_t *transaction, const char *id)
 {
 	if (!transaction || !id || !id[0]) return NULL;
 	for (s32 i = 0; i < transaction->row_count; i++) {
-		const asset_entry_t *row = &transaction->rows[i];
-		if (row->occupied && strcmp(row->id, id) == 0) return row;
+		const catalog_entry_snapshot_t *snapshot = &transaction->rows[i];
+		if (snapshot->row.occupied && strcmp(snapshot->row.id, id) == 0) return snapshot;
 	}
 	return NULL;
 }
@@ -98,7 +111,7 @@ static s32 externalScanTransactionBegin(
 		if (!transaction->rows) goto fail;
 		for (s32 i = 0; i < transaction->row_count; i++) {
 			const asset_entry_t *row = assetCatalogGetByIndex(i);
-			if (row) transaction->rows[i] = *row;
+			if (row) catalogEntrySnapshotCapture(&transaction->rows[i], row);
 		}
 	}
 	if (!catalogDepSnapshotCreate(&transaction->deps)
@@ -107,6 +120,7 @@ static s32 externalScanTransactionBegin(
 				assetCatalogSnapshotCustomWeaponSlots())
 			|| !(transaction->body_head_slots =
 				assetCatalogSnapshotCustomBodyHeadSlots())
+			|| !(transaction->model_slots = assetCatalogSnapshotCustomModelSlots())
 			|| !(transaction->sound_slots =
 				assetCatalogSnapshotCustomSoundSlots())
 			|| !(transaction->texture_slots =
@@ -125,6 +139,7 @@ static s32 externalScanTransactionBegin(
 	return 1;
 
 fail:
+	assetCatalogDestroyCustomModelSlotSnapshot(transaction->model_slots);
 	assetCatalogDestroyCustomWeaponSlotSnapshot(transaction->weapon_slots);
 	assetCatalogDestroyCustomBodyHeadSlotSnapshot(transaction->body_head_slots);
 	assetCatalogDestroyCustomSoundSlotSnapshot(transaction->sound_slots);
@@ -145,6 +160,7 @@ static void externalScanTransactionDestroy(
 		external_scan_transaction_t *transaction)
 {
 	if (!transaction) return;
+	assetCatalogDestroyCustomModelSlotSnapshot(transaction->model_slots);
 	assetCatalogDestroyCustomWeaponSlotSnapshot(transaction->weapon_slots);
 	assetCatalogDestroyCustomBodyHeadSlotSnapshot(transaction->body_head_slots);
 	assetCatalogDestroyCustomSoundSlotSnapshot(transaction->sound_slots);
@@ -172,22 +188,22 @@ static s32 externalScanTransactionRollback(
 	for (s32 i = assetCatalogGetPoolSize(); i-- > 0;) {
 		const asset_entry_t *current = assetCatalogGetByIndex(i);
 		asset_entry_t current_copy;
-		const asset_entry_t *prior;
+		const catalog_entry_snapshot_t *prior;
 		if (!current) continue;
 		current_copy = *current;
 		prior = externalScanPriorRow(transaction, current_copy.id);
 		if (!prior) {
 			if (!assetCatalogRollbackUnactivatedRegistration(current_copy.id)) ok = 0;
-		} else if (memcmp(&current_copy, prior, sizeof(current_copy)) != 0) {
+		} else if (!catalogEntrySnapshotMatches(prior, current)) {
 			asset_entry_t *mutable_row = assetCatalogGetMutable(current_copy.id);
 			if (!mutable_row) ok = 0;
-			else catalogActivationLedgerRestoreRetiredSnapshot(mutable_row, prior);
+			else catalogActivationLedgerRestoreRetiredSnapshot(mutable_row, &prior->row);
 		}
 	}
 	/* Scanner registration never intentionally deletes a prior row, but restore
 	 * it defensively if a failed nested transaction did. */
 	for (s32 i = 0; i < transaction->row_count; i++) {
-		const asset_entry_t *prior = &transaction->rows[i];
+		const asset_entry_t *prior = &transaction->rows[i].row;
 		if (!prior->occupied || assetCatalogResolve(prior->id)) continue;
 		asset_entry_t *row = assetCatalogRegister(prior->id, prior->type);
 		if (!row) ok = 0;
@@ -197,6 +213,7 @@ static s32 externalScanTransactionRollback(
 	if (!fileProviderCheckpointRestore(&transaction->provider)) ok = 0;
 	if (!assetCatalogRestoreCustomWeaponSlots(transaction->weapon_slots)) ok = 0;
 	if (!assetCatalogRestoreCustomBodyHeadSlots(transaction->body_head_slots)) ok = 0;
+	if (!assetCatalogRestoreCustomModelSlots(transaction->model_slots)) ok = 0;
 	if (!assetCatalogRestoreCustomSoundSlots(transaction->sound_slots)) ok = 0;
 	if (!assetCatalogRestoreCustomTextureSlots(transaction->texture_slots)) ok = 0;
 	if (!assetCatalogRestoreCustomAnimSlots(transaction->anim_slots)) ok = 0;
@@ -1647,7 +1664,8 @@ static void registerDependencyList(const char *owner_id, const char *deps,
 }
 
 static s32 registerAnimationCommandSource(const char *id,
-                                          const char *source_path)
+                                          const char *source_path,
+                                          loader_animation_source_batch_t *batch)
 {
 	char *json;
 	u32 json_size = 0;
@@ -1667,7 +1685,7 @@ static s32 registerAnimationCommandSource(const char *id,
 		return 0;
 	}
 
-	if (!loaderPoolParseAnimationSourceJson(json, json_size, source_path)) {
+	if (!loaderAnimationSourceBatchStage(batch, json, json_size, source_path, id)) {
 		sysLogPrintf(LOG_WARNING,
 			"assetcatalog_scanner: animation command source rejected for '%s': %s",
 			id ? id : "", source_path);
@@ -1675,9 +1693,8 @@ static s32 registerAnimationCommandSource(const char *id,
 		return 0;
 	}
 
-	loaderPoolFinalize();
 	sysLogPrintf(LOG_NOTE,
-		"assetcatalog_scanner: animation command source registered for '%s': %s",
+		"assetcatalog_scanner: animation command source staged for '%s': %s",
 		id ? id : "", source_path);
 	free(json);
 	return 1;
@@ -1698,224 +1715,6 @@ static const char *findLastArchiveSeparator(const char *path)
 	}
 
 	return last;
-}
-
-static s32 sourceModelPathFromMeshArchive(const char *mesh_archive,
-                                           char *out,
-                                           size_t outsz)
-{
-	static const char *candidates[] = {
-		"model.obj",
-		"model.gltf",
-		"model.glb",
-	};
-	size_t i;
-
-	if (!out || outsz == 0) {
-		return 0;
-	}
-
-	out[0] = '\0';
-
-	if (!mesh_archive || !mesh_archive[0]) {
-		return 0;
-	}
-
-	for (i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
-		if (!assetPathJoinChecked(out, outsz, mesh_archive, "::",
-				candidates[i])) continue;
-		if (fsFileSize(out) > 0) {
-			return 1;
-		}
-	}
-
-	out[0] = '\0';
-	return 0;
-}
-
-static s32 manifestPathFromMeshArchive(const char *mesh_archive,
-                                       char *out,
-                                       size_t outsz)
-{
-	if (!out || outsz == 0) {
-		return 0;
-	}
-
-	out[0] = '\0';
-
-	if (!mesh_archive || !mesh_archive[0]) {
-		return 0;
-	}
-
-	const char *sep = findLastArchiveSeparator(mesh_archive);
-	if (sep) {
-		size_t prefix_len = (size_t)(sep - mesh_archive);
-		if (prefix_len == 0 || prefix_len + strlen("::_meta/manifest.json") >= outsz) {
-			return 0;
-		}
-		snprintf(out, outsz, "%.*s::_meta/manifest.json",
-			(int)prefix_len, mesh_archive);
-		out[outsz - 1] = '\0';
-		return 1;
-	}
-
-	const char *slash = strrchr(mesh_archive, '/');
-	const char *backslash = strrchr(mesh_archive, '\\');
-	if (!slash || (backslash && backslash > slash)) {
-		slash = backslash;
-	}
-	if (!slash) {
-		return 0;
-	}
-
-	size_t dir_len = (size_t)(slash - mesh_archive);
-	if (dir_len == 0 || dir_len + strlen("/_meta/manifest.json") >= outsz) {
-		return 0;
-	}
-	snprintf(out, outsz, "%.*s/_meta/manifest.json",
-		(int)dir_len, mesh_archive);
-	out[outsz - 1] = '\0';
-	return 1;
-}
-
-static void parseBodyManifestForPrivateSlot(const char *id,
-                                            const char *mesh_archive,
-                                            s32 bodynum)
-{
-	char manifest_path[FS_MAXPATH + 64];
-	char *json;
-	u32 json_size = 0;
-
-	if (bodynum < CATALOG_MGR_BODY_CUSTOM_START) {
-		return;
-	}
-
-	if (!manifestPathFromMeshArchive(mesh_archive, manifest_path,
-			sizeof(manifest_path))) {
-		sysLogPrintf(LOG_WARNING,
-			"ASSETCATALOG.SCANNER.BODY.MANIFEST_PATH_MISSING: id=%s mesh=%s",
-			id ? id : "(null)", mesh_archive ? mesh_archive : "(null)");
-		return;
-	}
-
-	json = (char *)fsFileLoad(manifest_path, &json_size);
-	if (!json || json_size == 0) {
-		if (json) {
-			free(json);
-		}
-		sysLogPrintf(LOG_WARNING,
-			"ASSETCATALOG.SCANNER.BODY.MANIFEST_MISSING: id=%s path=%s",
-			id ? id : "(null)", manifest_path);
-		return;
-	}
-
-	if (loaderPoolParseBodyJsonForSlot(json, json_size, bodynum)) {
-		loaderPoolFinalize();
-		{
-			const body_data_t *body = loaderPoolGetBody(bodynum);
-			if (body) {
-				catalogManagerRegisterBody(id, body);
-			}
-		}
-		sysLogPrintf(LOG_NOTE,
-			"ASSETCATALOG.SCANNER.BODY.LOADER_SLOT: id=%s slot=%d manifest=%s",
-			id ? id : "(null)", bodynum, manifest_path);
-	}
-
-	free(json);
-}
-
-static void parseHeadManifestForPrivateSlot(const char *id,
-                                            const char *mesh_archive,
-                                            s32 headnum)
-{
-	char manifest_path[FS_MAXPATH + 64];
-	char *json;
-	u32 json_size = 0;
-
-	if (headnum < CATALOG_MGR_HEAD_CUSTOM_START) {
-		return;
-	}
-
-	if (!manifestPathFromMeshArchive(mesh_archive, manifest_path,
-			sizeof(manifest_path))) {
-		sysLogPrintf(LOG_WARNING,
-			"ASSETCATALOG.SCANNER.HEAD.MANIFEST_PATH_MISSING: id=%s mesh=%s",
-			id ? id : "(null)", mesh_archive ? mesh_archive : "(null)");
-		return;
-	}
-
-	json = (char *)fsFileLoad(manifest_path, &json_size);
-	if (!json || json_size == 0) {
-		if (json) {
-			free(json);
-		}
-		sysLogPrintf(LOG_WARNING,
-			"ASSETCATALOG.SCANNER.HEAD.MANIFEST_MISSING: id=%s path=%s",
-			id ? id : "(null)", manifest_path);
-		return;
-	}
-
-	if (loaderPoolParseHeadJsonForSlot(json, json_size, headnum)) {
-		loaderPoolFinalize();
-		{
-			const head_data_t *head = loaderPoolGetHead(headnum);
-			if (head) {
-				catalogManagerRegisterHead(id, head);
-			}
-		}
-		sysLogPrintf(LOG_NOTE,
-			"ASSETCATALOG.SCANNER.HEAD.LOADER_SLOT: id=%s slot=%d manifest=%s",
-			id ? id : "(null)", headnum, manifest_path);
-	}
-
-	free(json);
-}
-
-static s32 resolveBodyRuntimeSlotForScan(const char *id,
-                                         s32 declared_bodynum,
-                                         const char *dirpath)
-{
-	if (declared_bodynum >= 0 && declared_bodynum < CATALOG_MGR_BODY_COUNT) {
-		return declared_bodynum;
-	}
-
-	s32 custom = assetCatalogResolveBodyPrivateSlot(id);
-	if (custom >= 0) {
-		sysLogPrintf(LOG_NOTE,
-			"ASSETCATALOG.SCANNER.BODY.CUSTOM_SLOT: id=%s slot=%d path=%s",
-			id ? id : "(null)", custom, dirpath ? dirpath : "(null)");
-	} else {
-		sysLogPrintf(LOG_WARNING,
-			"ASSETCATALOG.SCANNER.BODY.RUNTIME_SLOT_MISSING: id=%s bodynum=%d path=%s",
-			id ? id : "(null)", declared_bodynum,
-			dirpath ? dirpath : "(null)");
-	}
-
-	return custom;
-}
-
-static s32 resolveHeadRuntimeSlotForScan(const char *id,
-                                         s32 declared_headnum,
-                                         const char *dirpath)
-{
-	if (declared_headnum >= 0 && declared_headnum < CATALOG_MGR_HEAD_COUNT) {
-		return declared_headnum;
-	}
-
-	s32 custom = assetCatalogResolveHeadPrivateSlot(id);
-	if (custom >= 0) {
-		sysLogPrintf(LOG_NOTE,
-			"ASSETCATALOG.SCANNER.HEAD.CUSTOM_SLOT: id=%s slot=%d path=%s",
-			id ? id : "(null)", custom, dirpath ? dirpath : "(null)");
-	} else {
-		sysLogPrintf(LOG_WARNING,
-			"ASSETCATALOG.SCANNER.HEAD.RUNTIME_SLOT_MISSING: id=%s headnum=%d path=%s",
-			id ? id : "(null)", declared_headnum,
-			dirpath ? dirpath : "(null)");
-	}
-
-	return custom;
 }
 
 /**
@@ -1966,8 +1765,310 @@ static s32 s_mintCustomStagenum(asset_entry_t *e, const char *mint_key)
 	return stagenum;
 }
 
-static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
-                              const char *mod_id, const char *descriptor_path)
+/* Shared public body/head transaction. Scanner and specialized walker both
+ * enter here before registering or clearing the owner catalog row. */
+typedef struct body_head_public_dependencies {
+    char owner[CATALOG_ID_LEN];
+    char mesh[CATALOG_ID_LEN], hand[CATALOG_ID_LEN];
+    char declared[sizeof(((ini_pair_t *)0)->value)];
+    s32 invalid;
+} body_head_public_dependencies_t;
+
+static s32 bodyHeadDeclaredDependencyContains(const char *list, const char *id)
+{
+    const char *p = list;
+    while (p && *p) {
+        const char *end = p;
+        while (*end && *end != ',' && *end != '|') ++end;
+        const char *a = p, *b = end;
+        while (a < b && (*a == ' ' || *a == '\t')) ++a;
+        while (b > a && (b[-1] == ' ' || b[-1] == '\t')) --b;
+        if (strlen(id) == (size_t)(b - a) && !memcmp(a, id, (size_t)(b - a))) return 1;
+        p = *end ? end + 1 : end;
+    }
+    return 0;
+}
+
+static s32 bodyHeadKeepDependency(const char *id, asset_type_e type, void *opaque)
+{
+    body_head_public_dependencies_t *deps = opaque;
+    const asset_entry_t *row = assetCatalogResolveAny(id);
+    if (!strcmp(id, deps->mesh) || !strcmp(id, deps->hand)) {
+        if (type != ASSET_MODEL || !row || !row->occupied || row->type != ASSET_MODEL) deps->invalid = 1;
+        return 1;
+    }
+    if (bodyHeadDeclaredDependencyContains(deps->declared, id)) {
+        if (row && type != ASSET_NONE && row->type != type) deps->invalid = 1;
+        return 1;
+    }
+    /* Preserve a reverse declaration only when its actual source still names
+     * this owner, and its recorded expected type agrees with that source. */
+    if (row && row->occupied &&
+            ((row->type == ASSET_ANIMATION && !strcmp(row->ext.anim.target_body, deps->owner)) ||
+             (row->type == ASSET_BOT_PROFILE && !strcmp(row->ext.bot_profile.target_body, deps->owner)))) {
+        if (type != ASSET_NONE && type != row->type) deps->invalid = 1;
+        return 1;
+    }
+    return 0;
+}
+
+static s32 bodyHeadRegisterDeclaredDependencies(const char *owner, const char *list,
+    s32 bundled)
+{
+    char text[sizeof(((ini_pair_t *)0)->value)];
+    if (!assetPathCopyChecked(text, sizeof(text), list)) return 0;
+    char *p = text;
+    while (p && *p) {
+        char *end = strpbrk(p, ",|");
+        if (end) *end++ = 0;
+        char *id = trimWhitespace(p);
+        const asset_entry_t *row = id[0] ? assetCatalogResolveAny(id) : NULL;
+        if (id[0] && (!bodyHeadSourceCatalogIdValid(id) || !strcmp(owner, id) ||
+                !catalogDepRegisterTyped(owner, id, row ? row->type : ASSET_NONE, bundled))) return 0;
+        p = end;
+    }
+    return 1;
+}
+
+static s32 bodyHeadNativeSlotAvailable(asset_type_e type, const char *id, s32 slot)
+{
+    for (s32 i = 0; i < assetCatalogGetPoolSize(); ++i) {
+        const asset_entry_t *row = assetCatalogGetByIndex(i);
+        if (row && row->occupied && row->type == type && row->runtime_index == slot &&
+                strcmp(row->id, id)) return 0;
+    }
+    return 1;
+}
+
+static s32 registerBodyHeadPublicIni(const ini_section_t *ini, const char *id,
+    const char *dirpath, const char *descriptor_path, const char *category,
+    s32 base_slot_hint, s32 force_bundled, s32 temporary,
+    external_scan_transaction_t *retained_transaction, char *error, size_t error_capacity)
+{
+    body_head_source_t source;
+    body_head_mesh_binding_t mesh = {0}, hand = {0};
+    body_head_public_dependencies_t deps = {0};
+    external_scan_transaction_t transaction = {0};
+    asset_type_e type = !strcmp(ini->type, "head") ? ASSET_HEAD : ASSET_BODY;
+    s32 is_head = type == ASSET_HEAD;
+    s32 slot = -1, mesh_file = 0, hand_file = 0, ok = 0;
+    const asset_entry_t *existing;
+    asset_entry_t *entry;
+    body_data_t body = {0};
+    head_data_t head = {0};
+    s32 bundled, enabled;
+    if (error && error_capacity) error[0] = 0;
+    if (!bodyHeadSourceParseIni(ini, id, is_head, &source, error, error_capacity)) return 0;
+    bundled = force_bundled < 0 ? 0 : (force_bundled || source.bundled);
+    enabled = source.enabled;
+    if (!source.mesh_archive[0] || !dirpath || !descriptor_path ||
+            strlen(dirpath) >= FS_MAXPATH || strlen(descriptor_path) >= FS_MAXPATH ||
+            !category || strlen(category) >= CATALOG_CATEGORY_LEN ||
+            !assetPathCopyChecked(deps.declared, sizeof(deps.declared), iniGet(ini, "deps", ""))) {
+        if (error && error_capacity) snprintf(error, error_capacity, "missing/oversized public body/head source fields: %s", id);
+        return 0;
+    }
+    if (!bodyHeadSourcePrepareMesh(source.mesh_archive, source.mesh_id, 1, &mesh, error, error_capacity) ||
+            (source.hand_archive[0] && !bodyHeadSourcePrepareMesh(source.hand_archive,
+                source.hand_id, 1, &hand, error, error_capacity))) return 0;
+    if (!strcmp(id, mesh.id) || (hand.present && !strcmp(id, hand.id))) goto done;
+    strcpy(deps.owner, id);
+    strcpy(deps.mesh, mesh.id);
+    if (hand.present) strcpy(deps.hand, hand.id);
+    existing = assetCatalogResolveAny(id);
+    if (existing && (!existing->occupied || existing->type != type)) goto done;
+    if (existing && (!loaderWalkerMeshSourceChangeAllowed(existing->load_state,
+            existing->bundled, existing->ref_count, existing->loaded_data != NULL, existing->payload_kind) ||
+            (existing->runtime_index >= 0 && (is_head ? catalogManagerHeadIsModeldefLoaded(existing->runtime_index) :
+                catalogManagerBodyIsModeldefLoaded(existing->runtime_index))))) {
+        if (error && error_capacity) snprintf(error, error_capacity,
+            "resident body/head must be retired before source admission: %s", id);
+        goto done;
+    }
+    if (existing && existing->runtime_index >= 0) {
+        slot = existing->runtime_index;
+        if ((is_head ? existing->ext.head.headnum : existing->ext.body.bodynum) != slot) goto done;
+    } else if (force_bundled > 0 && !strncmp(id, "base:", 5) &&
+            base_slot_hint >= 0 && base_slot_hint < (is_head ? CATALOG_MGR_HEAD_COUNT : CATALOG_MGR_BODY_COUNT)) {
+        slot = base_slot_hint;
+    }
+    if (slot >= (is_head ? CATALOG_MGR_HEAD_TOTAL : CATALOG_MGR_BODY_TOTAL) ||
+            (slot >= 0 && !bodyHeadNativeSlotAvailable(type, id, slot))) goto done;
+    if (!externalScanTransactionBegin(&transaction)) goto done;
+    if (slot < 0) slot = is_head ? assetCatalogResolveHeadPrivateSlot(id) : assetCatalogResolveBodyPrivateSlot(id);
+    if (slot < 0 || !bodyHeadNativeSlotAvailable(type, id, slot)) goto done;
+    if (!catalogDepReserve(2 + ini->count)) goto done;
+    /* Each call can grow the catalog pool. Never retain the owner pointer. */
+    if (!bodyHeadSourceBindMesh(&mesh, bundled, temporary > 0, &mesh_file, error, error_capacity) ||
+            (hand.present && !bodyHeadSourceBindMesh(&hand, bundled, temporary > 0, &hand_file, error, error_capacity))) goto done;
+    if (hand.present) strcpy(source.hand_id, hand.id);
+    if (is_head ? !bodyHeadSourceBuildHead(&source, slot, mesh_file, &head) :
+            !bodyHeadSourceBuildBody(&source, slot, mesh_file, hand_file, &body)) goto done;
+    existing = assetCatalogResolveAny(id);
+    const asset_entry_t *model = assetCatalogResolve(mesh.id);
+    if (!model || model->type != ASSET_MODEL || model->source.primary.provider != fileProvider()) goto done;
+    asset_data_handle_t primary = model->source.primary;
+    entry = existing ? assetCatalogGetMutable(id) : assetCatalogRegister(id, type);
+    if (!entry) goto done;
+    /* Keep existing selector indices, default-head relationship, and loaded
+     * ownership. Only source-owned fields are published on the stable row. */
+    if (!existing && !is_head) entry->ext.body.headnum = -1;
+    strcpy(entry->category, category);
+    strcpy(entry->dirpath, dirpath);
+    strcpy(entry->descriptor_path, descriptor_path);
+    entry->model_scale = source.model_scale;
+    entry->enabled = enabled;
+    entry->runtime_index = slot;
+    entry->source_filenum = mesh_file;
+    entry->bundled = bundled;
+    if (temporary >= 0) entry->temporary = !!temporary;
+    if (is_head) {
+        entry->ext.head.headnum = slot;
+        entry->ext.head.requirefeature = source.requirefeature;
+        strcpy(entry->ext.head.mesh_archive, source.mesh_archive);
+        catalogSetHeadRigClass(entry, source.rig_class);
+    } else {
+        entry->ext.body.bodynum = slot;
+        if (source.has_name_langid) entry->ext.body.name_langid = source.name_langid;
+        entry->ext.body.requirefeature = source.requirefeature;
+        strcpy(entry->ext.body.mesh_archive, source.mesh_archive);
+        strcpy(entry->ext.body.hand_archive, source.hand_archive);
+        if (source.has_display_name || !existing) catalogSetBodyDisplayName(entry, source.display_name);
+        catalogSetBodyRigClass(entry, source.rig_class);
+    }
+    catalogSetPrimary(entry, primary);
+    if (force_bundled > 0) loaderWalkerMarkBaseArchiveEntry(entry);
+    if (is_head ? !loaderPoolInstallPublicHead(&head) : !loaderPoolInstallPublicBody(&body)) goto done;
+    if (!catalogDepRegisterTyped(id, mesh.id, ASSET_MODEL, bundled) ||
+            (hand.present && !catalogDepRegisterTyped(id, hand.id, ASSET_MODEL, bundled)) ||
+            !bodyHeadRegisterDeclaredDependencies(id, deps.declared, bundled)) goto done;
+    catalogDepPruneOwner(id, bodyHeadKeepDependency, &deps);
+    if (deps.invalid) goto done;
+    ok = 1;
+done:
+    if (!ok) {
+        if (transaction.active && !externalScanTransactionRollback(&transaction))
+            sysLoudFailf("BODYHEAD.SOURCE.ROLLBACK", "could not restore failed public source admission for %s", id);
+        if (error && error_capacity && !error[0]) snprintf(error, error_capacity, "public body/head source admission failed: %s", id);
+    }
+    if (ok && retained_transaction) {
+        *retained_transaction = transaction;
+        memset(&transaction, 0, sizeof(transaction));
+    }
+    externalScanTransactionDestroy(&transaction);
+    return ok;
+}
+
+/* Re-read the selected descriptor before admission: the general INI scanner
+ * intentionally flattens sections and cannot be the strict body/head parser. */
+static s32 registerBodyHeadPublicDescriptor(const char *descriptor_path,
+    const char *expected_id, const char *fallback_dir, const char *default_category, s32 is_head,
+    s32 temporary, external_scan_transaction_t *retained_transaction,
+    char *error, size_t error_capacity)
+{
+    u32 size = 0;
+    char *text = descriptor_path ? fsFileLoad(descriptor_path, &size) : NULL;
+    ini_section_t *ini = calloc(1, sizeof(*ini));
+    char root[FS_MAXPATH];
+    const char *separator = "/", *last_archive = NULL, *p;
+    s32 ok = 0;
+    if (error && error_capacity) error[0] = 0;
+    if (!bodyHeadSourceReadIniBytes(text, size, is_head ? "head" : "body", ini,
+            error, error_capacity) || !assetPathCopyChecked(root, sizeof(root), descriptor_path)) goto done;
+    for (p = root; (p = strstr(p, "::")) != NULL; p += 2) last_archive = p;
+    char *leaf = root + (last_archive ? last_archive - root + 2 : 0);
+    char *slash = strrchr(leaf, '/'), *backslash = strrchr(leaf, '\\');
+    if (backslash && (!slash || backslash > slash)) slash = backslash;
+    if (slash) *slash = 0;
+    else if (last_archive) { root[last_archive - root] = 0; separator = "::"; }
+    else if (!assetPathCopyChecked(root, sizeof(root), fallback_dir)) goto done;
+    for (s32 i = 0; i < ini->count; ++i) {
+        if (strcmp(ini->pairs[i].key, "mesh_archive") && strcmp(ini->pairs[i].key, "hand_archive")) continue;
+        const char *value = ini->pairs[i].value;
+        char qualified[FS_MAXPATH];
+        if (!value[0]) continue;
+        if (assetPathHasParentTraversal(value) ||
+                (last_archive && assetPathIsAbsolute(value))) goto done;
+        if (strstr(value, "::") || assetPathIsAbsolute(value)) {
+            if (!assetPathCopyChecked(qualified, sizeof(qualified), value)) goto done;
+        } else if (!assetPathJoinChecked(qualified, sizeof(qualified), root, separator, value)) goto done;
+        if (!assetPathCopyChecked(ini->pairs[i].value, sizeof(ini->pairs[i].value), qualified)) goto done;
+    }
+    const char *id = iniGet(ini, "catalog_id", iniGet(ini, "id", ""));
+    if (expected_id && strcmp(expected_id, id)) goto done;
+    ok = registerBodyHeadPublicIni(ini, id, root, descriptor_path,
+        iniGet(ini, "category", default_category), -1, temporary >= 0 ? -1 : 0,
+        temporary, retained_transaction, error, error_capacity);
+done:
+    if (text) sysMemFree(text);
+    free(ini);
+    if (!ok && error && error_capacity && !error[0]) snprintf(error, error_capacity,
+        "invalid selected public body/head descriptor: %s", descriptor_path ? descriptor_path : "");
+    return ok;
+}
+
+s32 assetCatalogRegisterBodyHeadArchive(const char *archive_path, const char *expected_id,
+    s32 is_head, s32 base_slot_hint, s32 bundled, char *error, size_t error_capacity)
+{
+    u32 size = 0, descriptor_size = 0;
+    void *bytes = NULL;
+    char *text = NULL;
+    ini_section_t *ini = calloc(1, sizeof(*ini));
+    char descriptor_path[FS_MAXPATH];
+    s32 ok = 0;
+    if (error && error_capacity) error[0] = 0;
+    if (!archive_path || !archive_path[0] || !bodyHeadSourceCatalogIdValid(expected_id) ||
+            assetArchiveTypeForPath(archive_path) != (is_head ? ASSET_HEAD : ASSET_BODY)) goto done;
+    bytes = fsFileLoad(archive_path, &size);
+    if (!bytes || !ini || assetArchiveValidateBytes(bytes, size, archive_path,
+            ASSET_ARCHIVE_VALIDATE_RELEASE, error, error_capacity) != 0) goto done;
+    text = modArchiveExtractMemAlloc(bytes, size, is_head ? "head.ini" : "body.ini", &descriptor_size);
+    if (!bodyHeadSourceReadIniBytes(text, descriptor_size, is_head ? "head" : "body", ini,
+            error, error_capacity) || !qualifyTypedArchiveSourcePaths(ini, archive_path) ||
+            !assetPathJoinChecked(descriptor_path, sizeof(descriptor_path), archive_path,
+                "::", is_head ? "head.ini" : "body.ini")) goto done;
+    ok = registerBodyHeadPublicIni(ini, expected_id, archive_path, descriptor_path,
+        bundled ? "base" : iniGet(ini, "category", "custom"), base_slot_hint, bundled, -1, NULL,
+        error, error_capacity);
+done:
+    free(text);
+    free(ini);
+    if (bytes) sysMemFree(bytes);
+    if (!ok && error && error_capacity && !error[0]) snprintf(error, error_capacity,
+        "could not read selected public body/head archive: %s", archive_path ? archive_path : "");
+    return ok;
+}
+
+void *assetCatalogPrepareBodyHeadDescriptor(const char *descriptor_path,
+    const char *expected_id, const char *component_dir, const char *category,
+    s32 is_head, s32 temporary, char *error, size_t error_capacity)
+{
+    if (error && error_capacity) error[0] = 0;
+    external_scan_transaction_t *transaction = calloc(1, sizeof(*transaction));
+    if (!transaction || !bodyHeadSourceCatalogIdValid(expected_id) ||
+            !registerBodyHeadPublicDescriptor(descriptor_path, expected_id, component_dir,
+                category, is_head, temporary, transaction, error, error_capacity)) {
+        free(transaction);
+        if (error && error_capacity && !error[0]) snprintf(error, error_capacity,
+            "could not prepare public body/head descriptor: %s", expected_id ? expected_id : "");
+        return NULL;
+    }
+    return transaction;
+}
+
+s32 assetCatalogFinishBodyHeadAdmission(void *admission, s32 commit)
+{
+    external_scan_transaction_t *transaction = admission;
+    if (!transaction) return 1;
+    s32 ok = commit || externalScanTransactionRollback(transaction);
+    externalScanTransactionDestroy(transaction);
+    free(transaction);
+    return ok;
+}
+
+static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const char *dirpath,
+                              const char *mod_id, const char *descriptor_path,
+                              loader_animation_source_batch_t *batch)
 {
 	enum { WEAPON_ID_UNASSIGNED = -1 };
 	ini_section_t local_ini;
@@ -1988,18 +2089,6 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			ini->type, dirpath);
 		return 0;
 	}
-	if (type == ASSET_BODY || type == ASSET_HEAD) {
-		const char *mesh = iniGet(ini, "mesh_archive", "");
-		char source_probe[FS_MAXPATH];
-		if (mesh[0] && !sourceModelPathFromMeshArchive(mesh,
-				source_probe, sizeof(source_probe))) {
-			sysLogPrintf(LOG_WARNING,
-				"ASSET.PATH.REJECT: mesh source is missing or exceeds repository capacity in %s",
-				dirpath ? dirpath : "<unknown>");
-			return 0;
-		}
-	}
-
 	/* T-ASSETS-024: these proposed binding files never acquired a production
 	 * renderer or hand-animation consumer. Reject them instead of qualifying
 	 * and silently dropping them. Nested .pdmesh owns rendered materials and
@@ -2026,9 +2115,18 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	/* Build ID: use category + folder name, or just folder if category matches */
 	char idbuf[CATALOG_ID_LEN];
+	if (type == ASSET_AUDIO && strlen(explicit_id[0] ? explicit_id : folder)
+			>= sizeof(idbuf)) return 0;
 	snprintf(idbuf, sizeof(idbuf), "%s", explicit_id[0] ? explicit_id : folder);
 
 	s32 preserved_weapon_id = WEAPON_ID_UNASSIGNED;
+	if (type == ASSET_BODY || type == ASSET_HEAD) {
+		char source_error[256];
+		s32 result = registerBodyHeadPublicDescriptor(descriptor_path, NULL, dirpath,
+			mod_id, type == ASSET_HEAD, -1, NULL, source_error, sizeof(source_error));
+		if (!result) sysLogPrintf(LOG_WARNING, "BODYHEAD.SOURCE.REJECT: %s: %s", idbuf, source_error);
+		return result;
+	}
 	s32 preserved_runtime_index = -1;
 	s16 preserved_mp_index = -1;
 	u8 preserved_weapon_requirefeature = 0;
@@ -2049,12 +2147,55 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		}
 	}
 
+	catalog_audio_source_identity_t audio_identity;
+	catalog_audio_public_source_t audio_public;
+	void *audio_slot_snapshot = NULL;
+	if (type == ASSET_AUDIO) {
+		s32 audio_category = parseAudioCategoryValue(
+			iniGet(ini, "audio_category", iniGet(ini, "kind",
+				iniGet(ini, "category", ""))), audioCategoryForSection(ini));
+		if (!catalogAudioPublicSourceParse(ini, audio_category != AUDIO_CAT_MUSIC, &audio_public)) {
+			sysLogPrintf(LOG_WARNING, "CATALOG.AUDIO.SOURCE.REJECT: invalid public controls %s", idbuf);
+			return 0;
+		}
+		if (!catalogAudioSourceIdentityPrepare(assetCatalogResolve(idbuf),
+				idbuf, audio_category, &audio_identity)) {
+			sysLogPrintf(LOG_WARNING,
+				"CATALOG.AUDIO.IDENTITY.REJECT: conflicting source identity %s", idbuf);
+			return 0;
+		}
+		const char *audio_file = iniGet(ini, "file_path", "");
+		const char *primary_file = audio_file[0] ? audio_file :
+			iniGet(ini, "music_file", iniGet(ini, "midi_file", ""));
+		if (!primary_file[0]) return 0;
+		/* Reserve new private identity before touching a prior row. Older
+		 * component/archive scanners do not all hold a folder transaction. */
+		if (audio_identity.sound_id < 0 && audio_identity.source_soundnum < 0
+				&& audio_identity.source_filenum < 0
+				&& audio_category != AUDIO_CAT_MUSIC && primary_file[0]) {
+			audio_slot_snapshot = assetCatalogSnapshotCustomSoundSlots();
+			if (!audio_slot_snapshot) return 0;
+			s32 slot = assetCatalogResolveSoundPrivateSlot(idbuf);
+			if (slot < 0) {
+				assetCatalogRestoreCustomSoundSlots(audio_slot_snapshot);
+				assetCatalogDestroyCustomSoundSlotSnapshot(audio_slot_snapshot);
+				return 0;
+			}
+			audio_identity.sound_id = audio_identity.source_soundnum = slot;
+		}
+	}
+
 	/* Register the base entry */
 	asset_entry_t *e = assetCatalogRegister(idbuf, type);
 	if (!e) {
+		if (audio_slot_snapshot) {
+			assetCatalogRestoreCustomSoundSlots(audio_slot_snapshot);
+			assetCatalogDestroyCustomSoundSlotSnapshot(audio_slot_snapshot);
+		}
 		sysLogPrintf(LOG_ERROR, "assetcatalog_scanner: failed to register '%s'", idbuf);
 		return 0;
 	}
+	assetCatalogDestroyCustomSoundSlotSnapshot(audio_slot_snapshot);
 
 	/* Common fields */
 	strncpy(e->category, category, CATALOG_CATEGORY_LEN - 1);
@@ -2085,30 +2226,27 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 
 	case ASSET_CHARACTER:
 		{
-			const char *body_id = iniGet(ini, "body_asset",
-				iniGet(ini, "body_id", ""));
-			const char *head_id = iniGet(ini, "head_asset",
-				iniGet(ini, "head_id", ""));
-			const char *display_name = iniGet(ini, "display_name", "");
-			const char *bf = iniGet(ini, "body_archive",
-				iniGet(ini, "bodyfile", ""));
-			const char *hf = iniGet(ini, "head_archive",
-				iniGet(ini, "headfile", ""));
-			const char *pf = iniGet(ini, "portrait_file", "");
-			strncpy(e->ext.character.body_id, body_id, CATALOG_ID_LEN - 1);
-			e->ext.character.body_id[CATALOG_ID_LEN - 1] = '\0';
-			strncpy(e->ext.character.head_id, head_id, CATALOG_ID_LEN - 1);
-			e->ext.character.head_id[CATALOG_ID_LEN - 1] = '\0';
-			strncpy(e->ext.character.display_name, display_name,
-				sizeof(e->ext.character.display_name) - 1);
-			e->ext.character.display_name[
-				sizeof(e->ext.character.display_name) - 1] = '\0';
-			strncpy(e->ext.character.bodyfile, bf, FS_MAXPATH - 1);
-			strncpy(e->ext.character.headfile, hf, FS_MAXPATH - 1);
-			strncpy(e->ext.character.portrait_file, pf, FS_MAXPATH - 1);
-			e->ext.character.bodyfile[FS_MAXPATH - 1] = '\0';
-			e->ext.character.headfile[FS_MAXPATH - 1] = '\0';
-			e->ext.character.portrait_file[FS_MAXPATH - 1] = '\0';
+			if (!characterSourceApplyIni(e, ini)) {
+				e->enabled = 0;
+				sysLogPrintf(LOG_WARNING,
+					"PDCHARACTER.SOURCE.REJECT: invalid head policy or dependencies in %s",
+					dirpath ? dirpath : "<unknown>");
+				return 0;
+			}
+			char dependency_error[256];
+			char owner_id[CATALOG_ID_LEN];
+			strcpy(owner_id, e->id);
+			s32 dependency_result = assetCatalogRegisterCharacterDependencies(e, e->bundled,
+				dependency_error, sizeof(dependency_error));
+			/* Nested registration and rollback can both move the catalog pool. */
+			e = assetCatalogGetMutable(owner_id);
+			if (dependency_result < 0 || !e) {
+				if (e) e->enabled = 0;
+				sysLogPrintf(LOG_WARNING, "PDCHARACTER.DEPENDENCY.REJECT: %s: %s",
+					owner_id, dependency_error);
+				return 0;
+			}
+			const char *bf = e->ext.character.bodyfile;
 
 			/* C-2-ext: resolve bodyfile basename to ROM filenum for reverse-index.
 			 * INI path is like "files/Cbond_bodyZ" — basename matches fileSlots[n].name. */
@@ -2188,69 +2326,6 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		e->ext.arena.load_mode = iniGetInt(ini, "load_mode", ARENA_LOADMODE_PLAYABLE);
 		if (e->ext.arena.scenario_archive[0]) {
 			catalogSetPrimaryFile(e, e->ext.arena.scenario_archive);
-		}
-		break;
-
-	case ASSET_BODY:
-		e->ext.body.bodynum = (s16)resolveBodyRuntimeSlotForScan(
-			e->id, -1, dirpath);
-		if (e->ext.body.bodynum >= 0) {
-			e->runtime_index = e->ext.body.bodynum;
-		}
-		e->ext.body.name_langid = (s16)iniGetInt(ini, "name_langid", 0);
-		e->ext.body.headnum = -1;
-		e->ext.body.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
-		catalogSetBodyDisplayName(e, iniGet(ini, "display_name",
-			iniGet(ini, "name", "")));
-		catalogSetBodyRigClass(e, iniGet(ini, "rig_class", ""));
-		{
-			const char *mesh = iniGet(ini, "mesh_archive", "");
-			const char *hand = iniGet(ini, "hand_archive", "");
-			if (mesh[0]) {
-				char source_path[FS_MAXPATH];
-				strncpy(e->ext.body.mesh_archive, mesh,
-					sizeof(e->ext.body.mesh_archive) - 1);
-				e->ext.body.mesh_archive[
-					sizeof(e->ext.body.mesh_archive) - 1] = '\0';
-				if (!sourceModelPathFromMeshArchive(e->ext.body.mesh_archive,
-						source_path, sizeof(source_path))) return 0;
-				catalogSetPrimaryFile(e, source_path);
-				parseBodyManifestForPrivateSlot(e->id,
-					e->ext.body.mesh_archive,
-					e->ext.body.bodynum);
-			}
-			if (hand[0]) {
-				strncpy(e->ext.body.hand_archive, hand,
-					sizeof(e->ext.body.hand_archive) - 1);
-				e->ext.body.hand_archive[
-					sizeof(e->ext.body.hand_archive) - 1] = '\0';
-			}
-		}
-		break;
-
-	case ASSET_HEAD:
-		e->ext.head.headnum = (s16)resolveHeadRuntimeSlotForScan(
-			e->id, -1, dirpath);
-		if (e->ext.head.headnum >= 0) {
-			e->runtime_index = e->ext.head.headnum;
-		}
-		e->ext.head.requirefeature = (u8)iniGetInt(ini, "requirefeature", 0);
-		catalogSetHeadRigClass(e, iniGet(ini, "rig_class", ""));
-		{
-			const char *mesh = iniGet(ini, "mesh_archive", "");
-			if (mesh[0]) {
-				char source_path[FS_MAXPATH];
-				strncpy(e->ext.head.mesh_archive, mesh,
-					sizeof(e->ext.head.mesh_archive) - 1);
-				e->ext.head.mesh_archive[
-					sizeof(e->ext.head.mesh_archive) - 1] = '\0';
-				if (!sourceModelPathFromMeshArchive(e->ext.head.mesh_archive,
-						source_path, sizeof(source_path))) return 0;
-				catalogSetPrimaryFile(e, source_path);
-				parseHeadManifestForPrivateSlot(e->id,
-					e->ext.head.mesh_archive,
-					e->ext.head.headnum);
-			}
 		}
 		break;
 
@@ -2403,7 +2478,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 				catalogSetPrimaryFile(e, af);
 			}
 			const char *cf = iniGet(ini, "commands_file", "");
-			if (cf[0] && !registerAnimationCommandSource(e->id, cf)) {
+			if (cf[0] && !registerAnimationCommandSource(e->id, cf, batch)) {
 				/* The public command source is the runtime source. Keeping a
 				 * catalog row alive after it fails to parse would silently expose
 				 * an unusable animation or let a legacy pool entry win. */
@@ -2555,74 +2630,11 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 		break;
 
 	case ASSET_AUDIO:
-		e->ext.audio.sound_id = -1;
+		if (!catalogAudioSourceIdentityApply(e, &audio_identity)) return 0;
 		strncpy(e->ext.audio.name, iniGet(ini, "name", ""), sizeof(e->ext.audio.name) - 1);
-		e->ext.audio.category = parseAudioCategoryValue(
-			iniGet(ini, "audio_category",
-				iniGet(ini, "kind",
-					iniGet(ini, "category", ""))),
-			audioCategoryForSection(ini));
 		e->ext.audio.duration_ms = iniGetInt(ini, "duration_ms", 0);
-		strncpy(e->ext.audio.voice_actor, iniGet(ini, "actor", ""),
-			sizeof(e->ext.audio.voice_actor) - 1);
-		strncpy(e->ext.audio.voice_transcript, iniGet(ini, "transcript", ""),
-			sizeof(e->ext.audio.voice_transcript) - 1);
-		strncpy(e->ext.audio.voice_language, iniGet(ini, "language", ""),
-			sizeof(e->ext.audio.voice_language) - 1);
-		strncpy(e->ext.audio.voice_context, iniGet(ini, "context", ""),
-			sizeof(e->ext.audio.voice_context) - 1);
-		strncpy(e->ext.audio.subtitle_file, iniGet(ini, "subtitle_file", ""),
-			sizeof(e->ext.audio.subtitle_file) - 1);
-		strncpy(e->ext.audio.fallback_locale, iniGet(ini, "fallback_locale", ""),
-			sizeof(e->ext.audio.fallback_locale) - 1);
-		{
-			static const char *locale_keys[6] = {
-				"locale_en_file", "locale_fr_file", "locale_de_file",
-				"locale_it_file", "locale_es_file", "locale_ja_file"
-			};
-			for (s32 i = 0; i < 6; i++) {
-				strncpy(e->ext.audio.locale_audio_files[i],
-					iniGet(ini, locale_keys[i], ""),
-					sizeof(e->ext.audio.locale_audio_files[i]) - 1);
-			}
-		}
-		e->ext.audio.has_keymap = iniGetInt(ini, "has_keymap",
-			iniGet(ini, "key_base", NULL) != NULL ? 1 : 0);
-		e->ext.audio.key_min = iniGetInt(ini, "key_min", 0);
-		e->ext.audio.key_max = iniGetInt(ini, "key_max", 127);
-		e->ext.audio.key_base = iniGetInt(ini, "key_base", 60);
-		e->ext.audio.key_detune = iniGetInt(ini, "key_detune", 0);
-		e->ext.audio.velocity_min = iniGetInt(ini, "velocity_min", 0);
-		e->ext.audio.velocity_max = iniGetInt(ini, "velocity_max", 0);
-		e->ext.audio.sample_pan = iniGetInt(ini, "sample_pan", 64);
-		e->ext.audio.sample_volume = iniGetInt(ini, "sample_volume", 127);
-		e->ext.audio.loop_start_samples = (u32)iniGetInt(ini, "loop_start_samples", 0);
-		e->ext.audio.loop_end_samples = (u32)iniGetInt(ini, "loop_end_samples", 0);
-		e->ext.audio.loop_count = (u32)iniGetInt(ini, "loop_count", 0);
-		{
-			const char *has_loop = iniGet(ini, "has_loop", "0");
-			e->ext.audio.has_loop = iniGetInt(ini, "has_loop", 0)
-				|| strcmp(has_loop, "true") == 0
-				|| strcmp(has_loop, "yes") == 0
-				|| e->ext.audio.loop_end_samples > e->ext.audio.loop_start_samples
-				|| e->ext.audio.loop_count != 0;
-		}
-		e->ext.audio.attack_time_us = (u32)iniGetInt(ini, "attack_time_us", 0);
-		e->ext.audio.decay_time_us = (u32)iniGetInt(ini, "decay_time_us", 0);
-		e->ext.audio.release_time_us = (u32)iniGetInt(ini, "release_time_us", 0);
-		e->ext.audio.attack_volume = iniGetInt(ini, "attack_volume", 127);
-		e->ext.audio.decay_volume = iniGetInt(ini, "decay_volume", 127);
-		{
-			const char *has_envelope = iniGet(ini, "has_envelope", "0");
-			e->ext.audio.has_envelope = iniGetInt(ini, "has_envelope", 0)
-				|| strcmp(has_envelope, "true") == 0
-				|| strcmp(has_envelope, "yes") == 0
-				|| e->ext.audio.attack_time_us != 0
-				|| e->ext.audio.decay_time_us != 0
-				|| e->ext.audio.release_time_us != 0
-				|| e->ext.audio.attack_volume != 127
-				|| e->ext.audio.decay_volume != 127;
-		}
+		catalogAudioPublicSourceApply(e, &audio_public);
+
 		{
 			const char *audio_file = iniGet(ini, "file_path", "");
 			const char *primary_file = audio_file[0] ? audio_file :
@@ -2632,21 +2644,7 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			if (primary_file[0]) {
 				catalogSetPrimaryFile(e, primary_file);
 			}
-			/* c3849 Wave 2: a net-new custom SFX/VOICE row (no authored
-			 * sound_id) with a public sample primary gets a catalog-owned
-			 * private soundnum so the existing resolve chain reaches it.
-			 * Never for MUSIC: catalogResolveMusicSequence reuses sound_id
-			 * as a tracknum. Slot exhaustion already logged loud; the row
-			 * then stays -1 (unplayable, pre-existing behavior). */
-			if (e->ext.audio.sound_id < 0 &&
-					e->ext.audio.category != AUDIO_CAT_MUSIC &&
-					primary_file[0]) {
-				s32 slot = assetCatalogResolveSoundPrivateSlot(e->id);
-				if (slot >= 0) {
-					e->ext.audio.sound_id = slot;
-					e->source_soundnum = slot;
-				}
-			}
+			/* Private/native source identity was prepared before registration. */
 		}
 		break;
 
@@ -2773,7 +2771,13 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 			strncpy(e->ext.lang.lang_category, category,
 				sizeof(e->ext.lang.lang_category) - 1);
 			e->ext.lang.lang_category[sizeof(e->ext.lang.lang_category) - 1] = '\0';
-			e->ext.lang.string_count = (u32)iniGetInt(ini, "string_count", 0);
+			const char *count_text = iniGet(ini, "string_count", NULL);
+			e->ext.lang.string_count_declared = count_text != NULL;
+			e->ext.lang.string_count = 0;
+			if (count_text && !langSourceParseCount(count_text, &e->ext.lang.string_count)) {
+				/* Keep invalid presence visible until activation rejects it. */
+				e->ext.lang.string_count = UINT32_MAX;
+			}
 			strncpy(e->ext.lang.strings_file, sf, sizeof(e->ext.lang.strings_file) - 1);
 			e->ext.lang.strings_file[sizeof(e->ext.lang.strings_file) - 1] = '\0';
 			if (sf[0]) {
@@ -2886,6 +2890,203 @@ static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
 	return 1;
 }
 
+static s32 registerComponent(const ini_section_t *ini, const char *dirpath,
+                              const char *mod_id, const char *descriptor_path)
+{
+	loader_animation_source_batch_t *batch = loaderAnimationSourceBatchCreate();
+	if (!batch) return 0;
+	external_scan_transaction_t transaction = {0};
+	const s32 owns_animation = ini && sectionToType(ini->type) == ASSET_ANIMATION;
+	if (owns_animation && !externalScanTransactionBegin(&transaction)) {
+		loaderAnimationSourceBatchDestroy(batch);
+		return 0;
+	}
+	s32 ok = registerComponentWithAnimationBatch(ini, dirpath, mod_id, descriptor_path, batch);
+	if (ok) ok = loaderAnimationSourceBatchCommit(batch);
+	if (!ok && owns_animation && !externalScanTransactionRollback(&transaction))
+		sysLoudFailf("CATALOG.ANIMATION.ROLLBACK", "could not restore standalone command admission");
+	if (owns_animation) externalScanTransactionDestroy(&transaction);
+	loaderAnimationSourceBatchDestroy(batch);
+	return ok;
+}
+
+/* Legacy audio.ini callers supply a stable ID explicitly: filesystem
+ * storage segments are not catalog identities. Share the scanner transaction
+ * with typed audio, including provider paths and private-slot reservations. */
+s32 assetCatalogRegisterAudioIni(const char *catalog_id, const char *mod_id,
+	const char *dirpath, const ini_section_t *source, s32 default_category,
+	s32 defer_reloads)
+{
+	ini_section_t ini;
+	external_scan_transaction_t transaction;
+	char descriptor[FS_MAXPATH];
+	if (!catalog_id || !catalog_id[0]
+			|| !memchr(catalog_id, '\0', CATALOG_ID_LEN)
+			|| !mod_id || !mod_id[0] || !dirpath || !source
+			|| source->count < 0 || source->count > INI_MAX_PAIRS
+			|| sectionToType(source->type) != ASSET_AUDIO
+			|| default_category < AUDIO_CAT_SFX || default_category > AUDIO_CAT_VOICE
+			|| !assetPathJoinChecked(descriptor, sizeof(descriptor), dirpath,
+				"/", "audio.ini")) return -1;
+	ini = *source;
+	for (s32 i = 0; i < ini.count; i++) {
+		if ((strcmp(ini.pairs[i].key, "catalog_id") == 0
+				|| strcmp(ini.pairs[i].key, "id") == 0)
+				&& strcmp(ini.pairs[i].value, catalog_id) != 0) return -1;
+	}
+	if (!iniGet(&ini, "catalog_id", NULL) && !iniGet(&ini, "id", NULL)) {
+		if (ini.count == INI_MAX_PAIRS) return -1;
+		strcpy(ini.pairs[ini.count].key, "catalog_id");
+		strcpy(ini.pairs[ini.count++].value, catalog_id);
+	}
+	/* Normalize the caller's established default once, preserving the shared
+	 * category aliases. This prevents an empty key from shadowing a default. */
+	s32 category = parseAudioCategoryValue(iniGet(&ini, "audio_category",
+		iniGet(&ini, "kind", iniGet(&ini, "category", ""))), default_category);
+	s32 category_pair = -1;
+	for (s32 i = 0; i < ini.count; i++) {
+		if (strcmp(ini.pairs[i].key, "audio_category") == 0) {
+			category_pair = i;
+			break;
+		}
+	}
+	if (category_pair < 0) {
+		if (ini.count == INI_MAX_PAIRS) return -1;
+		category_pair = ini.count++;
+		strcpy(ini.pairs[category_pair].key, "audio_category");
+	}
+	snprintf(ini.pairs[category_pair].value, sizeof(ini.pairs[0].value), "%d", category);
+	if (!iniGet(&ini, "file_path", "")[0]
+			&& !iniGet(&ini, "music_file", "")[0]
+			&& !iniGet(&ini, "midi_file", "")[0]) return -1;
+	if (!externalScanTransactionBegin(&transaction)) return -1;
+	s32 result = registerComponent(&ini, dirpath, mod_id, descriptor) ? 1 : -1;
+	if (result < 0) {
+		s32 restored = externalScanTransactionRollback(&transaction);
+		sysLogPrintf(restored ? LOG_WARNING : LOG_ERROR,
+			"CATALOG.AUDIO.TRANSACTION.ROLLBACK: id=%s result=%s",
+			catalog_id, restored ? "restored" : "failed");
+	}
+	externalScanTransactionDestroy(&transaction);
+	if (result < 0 && !defer_reloads) (void)catalogReloadInvalidatedTypedAssets();
+	return result;
+}
+
+/* Base walkers supply only validated private native identity. Everything
+ * playable/editable is prepared from the public descriptor before retirement. */
+static void baseAudioHasDependency(const char *id, asset_type_e type, void *userdata)
+{
+    (void)id; (void)type;
+    *(s32 *)userdata = 1;
+}
+
+s32 assetCatalogRegisterBaseAudioSource(const char *catalog_id,
+    const char *archive_ref, const ini_section_t *source, s32 category,
+    s32 source_soundnum, s32 source_filenum)
+{
+    ini_section_t ini;
+    catalog_audio_public_source_t parsed;
+    catalog_audio_source_identity_t identity;
+    external_scan_transaction_t transaction = {0};
+    asset_entry_t *passive_backup = NULL;
+    asset_data_handle_t prepared_handle = ASSET_HANDLE_NULL_INIT;
+    s32 has_dependency = 0;
+    char full[FS_MAXPATH];
+    const char *resolved;
+    mod_archive_t *archive = NULL;
+    asset_entry_t *entry;
+    const asset_entry_t *prior;
+    const char *member;
+    s32 result = -1;
+    if (!catalog_id || !catalog_id[0] || !memchr(catalog_id, '\0', CATALOG_ID_LEN)
+            || !archive_ref || !source || source_soundnum < -1 || source_soundnum > 65535
+            || source_filenum < -1 || source_filenum == 0 || source_filenum > 2047
+            || (source_soundnum < 0 && source_filenum < 0)
+            || (category != AUDIO_CAT_SFX && category != AUDIO_CAT_VOICE)
+            || !catalogAudioPublicSourceParse(source, 1, &parsed)) return -1;
+    member = parsed.file_path;
+    if (strcmp(member, "sample.wav") && strcmp(member, "sample.mp3") && strcmp(member, "sample.ogg")) return -1;
+    for (s32 i = 0; i < source->count; i++) {
+        if ((!strcmp(source->pairs[i].key, "catalog_id") || !strcmp(source->pairs[i].key, "id"))
+                && strcmp(source->pairs[i].value, catalog_id)) return -1;
+    }
+    resolved = fsFullPath(archive_ref, full, sizeof(full));
+    if (!resolved || !(archive = modArchiveOpen(resolved))) return -1;
+    /* Source and every declared voice companion must remain inside this archive.
+     * Prove membership before qualification; arbitrary prequalified refs reject. */
+    const char *members[8] = { parsed.file_path, parsed.subtitle_file,
+        parsed.locale_audio_files[0], parsed.locale_audio_files[1], parsed.locale_audio_files[2],
+        parsed.locale_audio_files[3], parsed.locale_audio_files[4], parsed.locale_audio_files[5] };
+    for (s32 i = 0; i < 8; i++) {
+        if (!members[i][0]) continue;
+        s32 index;
+        if (!archiveInnerPathIsSafe(members[i])
+                || (index = modArchiveFindEntry(archive, members[i])) < 0
+                || modArchiveGetEntrySize(archive, index) == 0) goto done;
+    }
+    ini = *source;
+    if (!qualifyTypedArchiveSourcePaths(&ini, archive_ref)
+            || !catalogAudioPublicSourceParse(&ini, 1, &parsed)) goto done;
+    prior = assetCatalogResolve(catalog_id);
+    if (!catalogAudioSourceIdentityPrepare(prior, catalog_id, category, &identity)) goto done;
+    if (!prior) {
+        identity.sound_id = source_soundnum;
+        identity.source_soundnum = source_soundnum;
+        identity.source_filenum = source_filenum;
+    }
+    /* Intern the only allocating provider binding before any retirement. The
+     * committed primary handle is then an infallible value copy. */
+    prepared_handle = catalogHandleForSourceFile(parsed.file_path);
+    if (assetHandleIsNull(prepared_handle)) goto done;
+    if (prior) {
+        catalogDepForEachTyped(catalog_id, baseAudioHasDependency, &has_dependency);
+        if (prior->loaded_data || prior->payload_kind != ASSET_PAYLOAD_NONE
+                || prior->stage_ref_count || (prior->ref_count > 0 && prior->ref_count != ASSET_REF_BUNDLED)
+                || has_dependency || catalogActivationLedgerActiveCount()
+                || catalogActivationLedgerPendingCount()) {
+            if (!externalScanTransactionBegin(&transaction)) goto done;
+        } else {
+            /* Ordinary boot rows have no payload/closure to retire. A bounded
+             * single-row backup avoids copying the entire catalog per sample. */
+            passive_backup = malloc(sizeof(*passive_backup));
+            if (!passive_backup) goto done;
+            *passive_backup = *prior;
+        }
+    }
+    entry = assetCatalogRegisterAudio(catalog_id, identity.sound_id,
+        iniGet(&ini, "name", ""), category, 0, "");
+    if (entry) {
+        /* Every remaining publication is a bounded copy from the candidate. */
+        if (catalogAudioSourceIdentityApply(entry, &identity)) {
+            catalogAudioPublicSourceApply(entry, &parsed);
+            catalogSetPrimary(entry, prepared_handle);
+            loaderWalkerMarkBaseArchiveEntry(entry);
+            result = 1;
+        }
+    }
+    if (result < 0 && transaction.active) {
+        s32 restored = externalScanTransactionRollback(&transaction);
+        sysLogPrintf(restored ? LOG_WARNING : LOG_ERROR,
+            "CATALOG.AUDIO.BASE.ROLLBACK: id=%s result=%s", catalog_id,
+            restored ? "restored" : "failed");
+    } else if (result < 0 && passive_backup) {
+        asset_entry_t *restored = assetCatalogGetMutable(catalog_id);
+        if (restored) *restored = *passive_backup;
+        else sysLogPrintf(LOG_ERROR, "CATALOG.AUDIO.BASE.ROLLBACK: passive row missing %s", catalog_id);
+    } else if (result < 0 && !prior) {
+        (void)assetCatalogRollbackUnactivatedRegistration(catalog_id);
+    }
+    if (result < 0 && transaction.active) {
+        externalScanTransactionDestroy(&transaction);
+        (void)catalogReloadInvalidatedTypedAssets();
+    }
+done:
+    externalScanTransactionDestroy(&transaction);
+    free(passive_backup);
+    modArchiveClose(archive);
+    return result;
+}
+
 /* ========================================================================
  * Nested weapon animation/audio registration
  * ======================================================================== */
@@ -2958,9 +3159,10 @@ static s32 collectWeaponNestedMedia(const char *entry_name,
 		scan->entries = grown;
 		scan->capacity = next;
 	}
-	strncpy(scan->entries[scan->count], entry_name,
-		sizeof(scan->entries[scan->count]) - 1);
-	scan->entries[scan->count][sizeof(scan->entries[scan->count]) - 1] = '\0';
+	if (!assetPathCopyChecked(scan->entries[scan->count],
+			sizeof(scan->entries[scan->count]), entry_name)) {
+		return MODARCHIVE_ERR_FORMAT;
+	}
 	scan->count++;
 	return 0;
 }
@@ -3032,6 +3234,204 @@ static s32 nestedContentMatchesExisting(const asset_entry_t *existing,
 		&& strcmp(existing_digest, nested_digest) == 0;
 	sysMemFree(existing_bytes);
 	return ok;
+}
+
+typedef struct character_nested_dependency {
+	char id[CATALOG_ID_LEN];
+	char archive_ref[FS_MAXPATH];
+	char descriptor_ref[FS_MAXPATH];
+	ini_section_t ini;
+	asset_type_e type;
+	s32 existing;
+} character_nested_dependency_t;
+
+static s32 characterDependencyMatchesExisting(const asset_entry_t *existing,
+	const void *bytes, u32 size)
+{
+	char archive_ref[FS_MAXPATH];
+	char old_digest[SHA256_HEX_SIZE], new_digest[SHA256_HEX_SIZE];
+	const char *mesh, *separator;
+	u32 old_size = 0;
+	void *old_bytes;
+	if (nestedContentMatchesExisting(existing, bytes, size)) return 1;
+	/* Base body/head walkers bind the nested mesh directly and may have no
+	 * descriptor_path. Its containing archive is still the exact public source. */
+	mesh = existing->type == ASSET_BODY ? existing->ext.body.mesh_archive
+		: existing->ext.head.mesh_archive;
+	separator = findLastArchiveSeparator(mesh);
+	if (!separator || separator == mesh ||
+			(size_t)(separator - mesh) >= sizeof(archive_ref)) return 0;
+	memcpy(archive_ref, mesh, (size_t)(separator - mesh));
+	archive_ref[separator - mesh] = 0;
+	old_bytes = fsFileLoad(archive_ref, &old_size);
+	if (!old_bytes) return 0;
+	s32 same = weaponGraphArchiveCanonicalSha256Bytes(old_bytes, old_size, old_digest) == 0
+		&& weaponGraphArchiveCanonicalSha256Bytes(bytes, size, new_digest) == 0
+		&& strcmp(old_digest, new_digest) == 0;
+	sysMemFree(old_bytes);
+	return same;
+}
+
+typedef struct character_dependency_owner {
+	char id[CATALOG_ID_LEN];
+	char body_id[CATALOG_ID_LEN];
+	char head_id[CATALOG_ID_LEN];
+	char bodyfile[FS_MAXPATH];
+	char headfile[FS_MAXPATH];
+	s32 temporary;
+} character_dependency_owner_t;
+
+static s32 keepCharacterDependency(const char *id, asset_type_e type, void *userdata)
+{
+	const character_dependency_owner_t *owner = userdata;
+	if (type == ASSET_BODY) return strcmp(id, owner->body_id) == 0;
+	if (type == ASSET_HEAD) return strcmp(id, owner->head_id) == 0;
+	return 1;
+}
+
+int assetCatalogRegisterCharacterDependencies(const asset_entry_t *entry,
+	int bundled, char *error, size_t error_capacity)
+{
+	character_nested_dependency_t *pending = NULL;
+	character_dependency_owner_t owner;
+	external_scan_transaction_t transaction;
+	character_head_policy_e policy = characterSourcePolicy(entry);
+	s32 count, result = -1, needs_registration = 0;
+	catalog_dep_snapshot_t edges = {0};
+	s32 have_edges = 0;
+	memset(&transaction, 0, sizeof(transaction));
+	if (error && error_capacity) error[0] = 0;
+	if (policy == CHARACTER_HEAD_POLICY_INVALID) {
+		nestedSetErr(error, error_capacity, "invalid character policy %s%s", "", "");
+		return -1;
+	}
+	/* Catalog registration may realloc its pool. Keep only the immutable
+	 * operation inputs, never a row pointer or a row to republish afterward. */
+	strcpy(owner.id, entry->id);
+	strcpy(owner.body_id, entry->ext.character.body_id);
+	strcpy(owner.head_id, entry->ext.character.head_id);
+	strcpy(owner.bodyfile, entry->ext.character.bodyfile);
+	strcpy(owner.headfile, entry->ext.character.headfile);
+	owner.temporary = entry->temporary;
+	count = policy == CHARACTER_HEAD_POLICY_FIXED ? 2 : 1;
+	pending = calloc((size_t)count, sizeof(*pending));
+	if (!pending) goto done;
+	/* Validate both declarations and every collision before publishing a child
+	 * or edge. Empty-head policies never inspect or acquire a head archive. */
+	for (s32 i = 0; i < count; ++i) {
+		character_nested_dependency_t *dep = &pending[i];
+		const char *id = i ? owner.head_id : owner.body_id;
+		const char *path = i ? owner.headfile : owner.bodyfile;
+		const char *leaf = NULL;
+		const asset_entry_t *existing;
+		u32 size = 0, descriptor_size = 0;
+		void *bytes;
+		char *descriptor;
+		dep->type = i ? ASSET_HEAD : ASSET_BODY;
+		strcpy(dep->id, id);
+		strcpy(dep->archive_ref, path);
+		if (strcmp(id, owner.id) == 0 ||
+				(i && strcmp(id, owner.body_id) == 0) ||
+				!pathEndsWithNoCase(path, i ? ".pdhead" : ".pdbody")) {
+			nestedSetErr(error, error_capacity, "invalid character dependency %s source %s", id, path);
+			goto done;
+		}
+		bytes = fsFileLoad(path, &size);
+		if (!bytes || !size) {
+			if (bytes) sysMemFree(bytes);
+			nestedSetErr(error, error_capacity, "missing character dependency %s source %s", id, path);
+			goto done;
+		}
+		if (assetArchiveValidateBytes(bytes, size, path,
+				ASSET_ARCHIVE_VALIDATE_RELEASE, error, error_capacity) != 0) {
+			sysMemFree(bytes);
+			goto done;
+		}
+		descriptor = assetArchiveExtractDescriptorMemAlloc(bytes, size, path,
+			ASSET_ARCHIVE_VALIDATE_RELEASE, &descriptor_size, &leaf);
+		if (!descriptor || !leaf || memchr(descriptor, 0, descriptor_size) ||
+				!iniParseBuffer(path, descriptor, descriptor_size, &dep->ini) ||
+				!characterDependencySourceMatches(&dep->ini, id, i != 0,
+					i == 0 && policy == CHARACTER_HEAD_POLICY_INTEGRATED) ||
+				!assetPathJoinChecked(dep->descriptor_ref, sizeof(dep->descriptor_ref),
+					path, "::", leaf)) {
+			free(descriptor);
+			sysMemFree(bytes);
+			nestedSetErr(error, error_capacity,
+				"character dependency ID/type/completeness mismatch %s source %s", id, path);
+			goto done;
+		}
+		free(descriptor);
+		existing = assetCatalogResolveAny(id);
+		if (existing && (!existing->occupied || !existing->enabled || existing->type != dep->type ||
+				!characterDependencyMatchesExisting(existing, bytes, size))) {
+			sysMemFree(bytes);
+			nestedSetErr(error, error_capacity, "character dependency ID/content collision %s source %s", id, path);
+			goto done;
+		}
+		sysMemFree(bytes);
+		dep->existing = existing != NULL;
+		if (!dep->existing) {
+			needs_registration = 1;
+			if (!qualifyTypedArchiveSourcePaths(&dep->ini, path)) {
+				nestedSetErr(error, error_capacity, "character dependency source path exceeds capacity %s%s", path, "");
+				goto done;
+			}
+		}
+	}
+	/* Existing base dependencies need only a small edge snapshot. New custom
+	 * rows use the established full scanner transaction, including managers and
+	 * private slots, so a failed second child cannot strand the first. */
+	if (needs_registration) {
+		if (!externalScanTransactionBegin(&transaction)) goto done;
+	} else {
+		if (!catalogDepSnapshotCreate(&edges)) goto done;
+		have_edges = 1;
+	}
+	if (!catalogDepReserve(count)) goto done;
+	for (s32 i = 0; i < count; ++i) {
+		character_nested_dependency_t *dep = &pending[i];
+		if (!dep->existing) {
+			if (!registerComponent(&dep->ini, dep->archive_ref,
+					bundled ? "base" : owner.id, dep->descriptor_ref)) {
+				nestedSetErr(error, error_capacity, "could not register character dependency %s%s", dep->id, "");
+				goto done;
+			}
+			asset_entry_t *child = assetCatalogGetMutable(dep->id);
+			if (!child || child->type != dep->type || child->runtime_index < 0) {
+				nestedSetErr(error, error_capacity, "unbound character dependency %s%s", dep->id, "");
+				goto done;
+			}
+			child->enabled = 0;
+			child->bundled = bundled ? 1 : 0;
+			child->temporary = owner.temporary;
+		}
+	}
+	for (s32 i = 0; i < count; ++i) {
+		character_nested_dependency_t *dep = &pending[i];
+		if (!catalogDepRegisterTyped(owner.id, dep->id, dep->type, bundled)) {
+			nestedSetErr(error, error_capacity, "could not register character ownership %s -> %s", owner.id, dep->id);
+			goto done;
+		}
+	}
+	for (s32 i = 0; i < count; ++i) {
+		if (!pending[i].existing) assetCatalogGetMutable(pending[i].id)->enabled = 1;
+	}
+	catalogDepPruneOwner(owner.id, keepCharacterDependency, &owner);
+	result = count;
+done:
+	if (result < 0) {
+		if (transaction.active && !externalScanTransactionRollback(&transaction))
+			sysLoudFailf("PDCHARACTER.ROLLBACK", "could not restore character dependency state for %s", owner.id);
+		if (have_edges && !catalogDepSnapshotRestore(&edges))
+			sysLoudFailf("PDCHARACTER.ROLLBACK", "could not restore character dependency edges for %s", owner.id);
+		if (error && error_capacity && !error[0])
+			nestedSetErr(error, error_capacity, "could not prepare character dependencies %s%s", owner.id, "");
+	}
+	externalScanTransactionDestroy(&transaction);
+	catalogDepSnapshotDestroy(&edges);
+	free(pending);
+	return result;
 }
 
 /* ========================================================================
@@ -3498,8 +3898,8 @@ typedef struct weapon_nested_preflight {
 	s32 edge_created;
 	loader_walker_mesh_source_plan_t mesh_source;
 	s32 has_mesh_source;
-	s32 keep_existing_mesh_source;
-	asset_entry_t existing_snapshot;
+	s32 needs_graph_model;
+	catalog_entry_snapshot_t existing_snapshot;
 	s32 existing_snapshot_valid;
 	effect_nested_registration_t effect_nested;
 	u8 *effect_dep_edges_created;
@@ -3513,7 +3913,7 @@ static const char *weaponNestedMeshPublicGeometry(const ini_section_t *ini)
 			loaderWalkerMeshPublicGeometryKey(i), NULL);
 		if (value && value[0]) return value;
 	}
-	return "";
+	return "model.obj";
 }
 
 static s32 weaponNestedPendingReserve(weapon_nested_preflight_t **pending,
@@ -3535,6 +3935,367 @@ static s32 weaponNestedPendingReserve(weapon_nested_preflight_t **pending,
 		(next - *capacity) * sizeof(*grown));
 	*pending = grown;
 	*capacity = next;
+	return 1;
+}
+
+/* Shared preparation for direct and projectile/entity-owned members. No
+ * second mesh descriptor parser or catalog mutation is allowed at graph time.
+ * Return 2 only for a byte-equivalent mesh already present in pending. */
+static s32 weaponNestedPrepareMember(weapon_nested_preflight_t *p,
+		weapon_nested_preflight_t *pending, size_t pending_count,
+		const char *weapon_id, const char *container_archive,
+		const void *container_bytes, u32 container_size,
+		const char *entry_name, asset_type_e expected_type,
+		char *err, size_t err_cap)
+{
+	u32 descriptor_size = 0;
+	const char *descriptor_leaf = NULL;
+	char *descriptor = NULL;
+	const char *catalog_id;
+	p->expected_type = expected_type;
+	p->bytes = modArchiveExtractMemAlloc(container_bytes, container_size,
+		entry_name, &p->size);
+	if (!p->bytes || p->size == 0) {
+		nestedSetErr(err, err_cap, "could not read nested dependency %s%s",
+			entry_name, "");
+		return 0;
+	}
+	if (assetArchiveValidateBytes(p->bytes, p->size, entry_name,
+			ASSET_ARCHIVE_VALIDATE_RELEASE, err, err_cap) != 0) return 0;
+	descriptor = assetArchiveExtractDescriptorMemAlloc(p->bytes, p->size,
+		entry_name, ASSET_ARCHIVE_VALIDATE_RELEASE, &descriptor_size,
+		&descriptor_leaf);
+	if (!descriptor || !iniParseBuffer(descriptor_leaf, descriptor,
+			descriptor_size, &p->ini)) {
+		free(descriptor);
+		nestedSetErr(err, err_cap, "invalid public descriptor in %s%s",
+			entry_name, "");
+		return 0;
+	}
+	free(descriptor);
+	if (sectionToType(p->ini.type) != expected_type) {
+		nestedSetErr(err, err_cap, "nested dependency type mismatch %s%s",
+			entry_name, "");
+		return 0;
+	}
+	catalog_id = iniGet(&p->ini, "catalog_id", iniGet(&p->ini, "id", ""));
+	if (!catalog_id[0] || !catalogIdSharesNamespace(weapon_id, catalog_id)) {
+		nestedSetErr(err, err_cap,
+			"nested dependency %s has missing or foreign catalog ID %s",
+			entry_name, catalog_id);
+		return 0;
+	}
+	for (size_t prior = 0; prior < pending_count; prior++) {
+		if (strcmp(pending[prior].catalog_id, catalog_id) == 0) {
+			char a[SHA256_HEX_SIZE], b[SHA256_HEX_SIZE];
+			if (expected_type == ASSET_MODEL
+					&& pending[prior].expected_type == ASSET_MODEL
+					&& weaponGraphArchiveCanonicalSha256Bytes(pending[prior].bytes,
+						pending[prior].size, a) == 0
+					&& weaponGraphArchiveCanonicalSha256Bytes(p->bytes, p->size, b) == 0
+					&& strcmp(a, b) == 0) {
+				/* Multiple payload owners may share exactly one immutable source. */
+				assetPathCopyChecked(p->catalog_id, sizeof(p->catalog_id), catalog_id);
+				return 2;
+			}
+			nestedSetErr(err, err_cap, "duplicate nested dependency ID %s%s",
+				catalog_id, "");
+			return 0;
+		}
+	}
+	if (!assetPathCopyChecked(p->catalog_id, sizeof(p->catalog_id),
+			catalog_id)) {
+		nestedSetErr(err, err_cap,
+			"nested dependency catalog ID exceeds capacity %s%s",
+			catalog_id, "");
+		return 0;
+	}
+	if (!assetPathJoinChecked(p->archive_ref, FS_MAXPATH, container_archive,
+			"::", entry_name) ||
+			!assetPathJoinChecked(p->descriptor_ref, FS_MAXPATH,
+				p->archive_ref, "::", descriptor_leaf ? descriptor_leaf
+					: assetArchiveDescriptorForPath(entry_name))) {
+		nestedSetErr(err, err_cap,
+			"nested dependency archive chain exceeds capacity: %s%s",
+			entry_name, "");
+		return 0;
+	}
+	if (expected_type == ASSET_EFFECT
+			&& !effectNestedPrepareBytes(&p->effect_nested, p->catalog_id,
+				p->archive_ref, p->bytes, p->size, err, err_cap)) {
+		return 0;
+	}
+	const asset_entry_t *existing = assetCatalogResolve(p->catalog_id);
+	if (existing) {
+		if (existing->type != expected_type || (!existing->bundled
+				&& !nestedContentMatchesExisting(existing, p->bytes,
+					p->size))) {
+			nestedSetErr(err, err_cap,
+				"nested dependency ID collision %s%s", p->catalog_id, "");
+			return 0;
+		}
+		p->existing = 1;
+	}
+	if (expected_type == ASSET_MODEL) {
+		const char *kind = iniGet(&p->ini, "kind", "mesh");
+		if (strcmp(kind, "mesh") != 0) {
+			nestedSetErr(err, err_cap, "nested mesh %s has incompatible public kind %s",
+				p->catalog_id, kind);
+			return 0;
+		}
+		u32 manifest_size = 0;
+		void *manifest = modArchiveExtractMemAlloc(p->bytes, p->size,
+			ASSET_ARCHIVE_META_MANIFEST_PATH, &manifest_size);
+		if (!loaderWalkerMeshSourcePlanManifest((const char *)manifest,
+				manifest_size, p->catalog_id, p->archive_ref,
+				weaponNestedMeshPublicGeometry(&p->ini),
+				existing ? existing->source_filenum : -1,
+				&p->mesh_source, err, err_cap)) {
+			free(manifest);
+			if (!err || !err[0]) {
+				nestedSetErr(err, err_cap,
+					"could not plan nested mesh source %s%s",
+					p->catalog_id, "");
+			}
+			return 0;
+		}
+		free(manifest);
+		/* Planning does not read geometry. Verify the exact selected member
+		 * now so a missing source cannot publish an otherwise valid catalog row.
+		 * Geometry semantics remain the production model compiler's authority. */
+		{
+			u32 geometry_size = 0;
+			void *geometry = modArchiveExtractMemAlloc(p->bytes, p->size,
+				p->mesh_source.geometry_member, &geometry_size);
+			s32 present = geometry && geometry_size > 0;
+			free(geometry);
+			if (!present) {
+				nestedSetErr(err, err_cap, "nested mesh %s has no selected geometry %s",
+					p->catalog_id, p->mesh_source.geometry_member);
+				return 0;
+			}
+		}
+		p->has_mesh_source = 1;
+		if (existing && existing->source.primary.provider == fileProvider()) {
+			const char *current_path = fileProviderPath(existing->source.primary);
+			if ((!current_path
+					|| strcmp(current_path, p->mesh_source.source_path) != 0)
+					&& !loaderWalkerMeshSourceMatchesEntry(existing,
+						p->archive_ref, p->bytes, p->size, err, err_cap)) {
+				if (!err || !err[0]) {
+					nestedSetErr(err, err_cap,
+						"nested typed mesh source collision %s%s",
+						p->catalog_id, "");
+				}
+				return 0;
+			}
+			/* The shared binder owns first-archive retention and retired-member
+			 * changes. Do not bypass its resident-source checks here. */
+		}
+	}
+	return 1;
+}
+
+/* Included in the scanner draft after weaponNestedPrepareMember. */
+typedef struct weapon_nested_mesh_edge {
+	char owner[CATALOG_ID_LEN];
+	char child[CATALOG_ID_LEN];
+	s32 created;
+} weapon_nested_mesh_edge_t;
+
+typedef struct weapon_nested_mesh_edges {
+	weapon_nested_mesh_edge_t *items;
+	size_t count;
+	size_t capacity;
+} weapon_nested_mesh_edges_t;
+
+static s32 weaponNestedAddMeshEdge(weapon_nested_mesh_edges_t *edges,
+		const char *owner, const char *child, char *err, size_t err_cap)
+{
+	for (size_t i = 0; i < edges->count; i++) {
+		if (strcmp(edges->items[i].owner, owner) == 0
+				&& strcmp(edges->items[i].child, child) == 0) return 1;
+	}
+	if (edges->count == edges->capacity) {
+		size_t next = edges->capacity ? edges->capacity * 2 : 16;
+		if (next < edges->count + 1 || next > SIZE_MAX / sizeof(*edges->items)) {
+			nestedSetErr(err, err_cap, "nested mesh edge capacity overflow %s%s", owner, "");
+			return 0;
+		}
+		weapon_nested_mesh_edge_t *grown = realloc(edges->items,
+			next * sizeof(*edges->items));
+		if (!grown) {
+			nestedSetErr(err, err_cap, "out of memory tracking mesh owners %s%s", owner, "");
+			return 0;
+		}
+		edges->items = grown;
+		edges->capacity = next;
+	}
+	weapon_nested_mesh_edge_t *edge = &edges->items[edges->count];
+	memset(edge, 0, sizeof(*edge));
+	if (!assetPathCopyChecked(edge->owner, sizeof(edge->owner), owner)
+			|| !assetPathCopyChecked(edge->child, sizeof(edge->child), child)) {
+		nestedSetErr(err, err_cap, "nested mesh owner ID exceeds capacity %s%s", owner, child);
+		return 0;
+	}
+	edges->count++;
+	return 1;
+}
+
+static s32 collectWeaponEmbeddedMesh(const char *entry, u32 size, void *user)
+{
+	if (assetArchiveTypeForPath(entry) != ASSET_MODEL
+			|| !pathEndsWithNoCase(entry, ".pdmesh")) return 0;
+	return collectWeaponNestedMedia(entry, size, user);
+}
+
+static s32 weaponNestedPrepareRecursiveMeshes(weapon_nested_preflight_t **pending,
+		size_t *count, size_t *capacity, weapon_nested_mesh_edges_t *edges,
+		const char *weapon_id, char *err, size_t err_cap)
+{
+	/* The executable v1 payload inventory owns direct projectile/entity archives.
+	 * Enumerate their mesh children through the same public descriptor preflight.
+	 * Capture values before reserve: pending itself may relocate. */
+	const size_t container_count = *count;
+	for (size_t i = 0; i < container_count; i++) {
+		weapon_nested_media_scan_t scan = {0};
+		char container_archive[FS_MAXPATH], owner[CATALOG_ID_LEN];
+		const void *bytes = (*pending)[i].bytes;
+		u32 size = (*pending)[i].size;
+		if ((*pending)[i].expected_type != ASSET_PROJECTILE
+				&& (*pending)[i].expected_type != ASSET_ENTITY) continue;
+		if (!assetPathCopyChecked(container_archive, sizeof(container_archive),
+				(*pending)[i].archive_ref)
+				|| !assetPathCopyChecked(owner, sizeof(owner), (*pending)[i].catalog_id)) return 0;
+		if (modArchiveMemForEachEntry(bytes, size, collectWeaponEmbeddedMesh, &scan)
+				!= MODARCHIVE_OK) {
+			nestedSetErr(err, err_cap, "could not enumerate payload meshes in %s%s", owner, "");
+			free(scan.entries);
+			return 0;
+		}
+		for (size_t j = 0; j < scan.count; j++) {
+			if (!weaponNestedPendingReserve(pending, capacity, *count + 1)) {
+				nestedSetErr(err, err_cap, "out of memory preparing payload meshes %s%s", owner, "");
+				free(scan.entries);
+				return 0;
+			}
+			weapon_nested_preflight_t *p = &(*pending)[*count];
+			s32 result = weaponNestedPrepareMember(p, *pending, *count,
+				weapon_id, container_archive, bytes, size, scan.entries[j], ASSET_MODEL,
+				err, err_cap);
+			if (!result || !weaponNestedAddMeshEdge(edges, owner, p->catalog_id, err, err_cap)) {
+				free(scan.entries);
+				return 0;
+			}
+			if (result == 2) {
+				free(p->bytes);
+				memset(p, 0, sizeof(*p));
+			} else {
+				(*count)++;
+			}
+		}
+		free(scan.entries);
+	}
+	return 1;
+}
+
+static s32 weaponNestedSelectGraphModels(weapon_nested_preflight_t *pending,
+		size_t count, weapon_nested_mesh_edges_t *edges,
+		const char *owner_id, const char *archive, asset_type_e type,
+		char *err, size_t err_cap)
+{
+	weapon_graph_ir_t *ir = calloc(1, sizeof(*ir));
+	if (!ir) {
+		nestedSetErr(err, err_cap, "out of memory preparing graph model references %s%s", owner_id, "");
+		return 0;
+	}
+	s32 ok = weaponGraphCompileArchiveFile(archive, type, ir, err, err_cap) == 0;
+	for (s32 i = 0; ok && i < ir->param_count; i++) {
+		const weapon_graph_ir_param_t *param = &ir->params[i];
+		if (strcmp(param->key, "model_ref") != 0
+				&& strcmp(param->key, "model_catalog_id") != 0
+				&& strcmp(param->key, "projectile_model_ref") != 0
+				&& strcmp(param->key, "projectile_model_catalog_id") != 0) continue;
+		if (param->type == WEAPON_GRAPH_PARAM_NULL
+				|| (param->type == WEAPON_GRAPH_PARAM_STRING && !param->value[0])) continue;
+		if (param->type != WEAPON_GRAPH_PARAM_STRING) { ok = 0; break; }
+		size_t j;
+		for (j = 0; j < count; j++) {
+			if (strcmp(pending[j].catalog_id, param->value) != 0) continue;
+			if (pending[j].expected_type != ASSET_MODEL) { ok = 0; break; }
+			pending[j].needs_graph_model = 1;
+			break;
+		}
+		if (j == count) {
+			const asset_entry_t *existing = assetCatalogResolve(param->value);
+			if (!existing || existing->type != ASSET_MODEL || existing->runtime_index < 0) ok = 0;
+		}
+		if (ok) ok = weaponNestedAddMeshEdge(edges, owner_id, param->value, err, err_cap);
+		if (!ok && (!err || !err[0])) {
+			nestedSetErr(err, err_cap, "graph %s has unresolved native model reference %s",
+				owner_id, param->value);
+		}
+	}
+	weaponGraphIrFree(ir);
+	free(ir);
+	return ok;
+}
+
+static s32 weaponNestedPrepareMeshConsumers(weapon_nested_preflight_t *pending,
+		size_t count, weapon_nested_mesh_edges_t *edges,
+		const char *weapon_id, const char *weapon_archive,
+		const void *weapon_bytes, u32 weapon_size, char *held_mesh_id,
+		char *err, size_t err_cap)
+{
+	weapon_graph_archive_descriptor_t desc;
+	s32 has_mesh = 0;
+	held_mesh_id[0] = '\0';
+	for (size_t i = 0; i < count; i++) if (pending[i].has_mesh_source) has_mesh = 1;
+	if (weaponGraphArchiveReadDescriptorBytes(weapon_bytes, weapon_size, ASSET_WEAPON,
+			&desc, err, err_cap) != 0) return 0;
+	if (pathEndsWithNoCase(desc.model_file, ".pdmesh")) {
+		char selected[FS_MAXPATH];
+		if (!assetPathJoinChecked(selected, sizeof(selected), weapon_archive, "::", desc.model_file)) return 0;
+		for (size_t i = 0; i < count; i++) {
+			if (pending[i].has_mesh_source && strcmp(pending[i].archive_ref, selected) == 0) {
+				assetPathCopyChecked(held_mesh_id, CATALOG_ID_LEN, pending[i].catalog_id);
+				break;
+			}
+		}
+		/* A duplicate byte-equivalent member may use another member path. Resolve
+		 * its public ID through the same INI parser, then require a prepared row. */
+		if (!held_mesh_id[0]) {
+			u32 mesh_size = 0, descriptor_size = 0;
+			const char *leaf = NULL;
+			void *mesh = modArchiveExtractMemAlloc(weapon_bytes, weapon_size, desc.model_file, &mesh_size);
+			char *descriptor = mesh ? assetArchiveExtractDescriptorMemAlloc(mesh, mesh_size,
+				desc.model_file, ASSET_ARCHIVE_VALIDATE_RELEASE, &descriptor_size, &leaf) : NULL;
+			ini_section_t ini;
+			if (descriptor && iniParseBuffer(leaf, descriptor, descriptor_size, &ini)) {
+				const char *id = iniGet(&ini, "catalog_id", iniGet(&ini, "id", ""));
+				for (size_t i = 0; i < count; i++) {
+					if (pending[i].has_mesh_source && strcmp(pending[i].catalog_id, id) == 0) {
+						assetPathCopyChecked(held_mesh_id, CATALOG_ID_LEN, id);
+						break;
+					}
+				}
+			}
+			free(descriptor);
+			free(mesh);
+		}
+		if (!held_mesh_id[0]) {
+			nestedSetErr(err, err_cap, "weapon %s selected mesh was not prepared: %s", weapon_id, desc.model_file);
+			return 0;
+		}
+	}
+	if (!has_mesh) return 1;
+	if (!weaponNestedSelectGraphModels(pending, count, edges, weapon_id,
+			weapon_archive, ASSET_WEAPON, err, err_cap)) return 0;
+	for (size_t i = 0; i < count; i++) {
+		if (pending[i].expected_type != ASSET_PROJECTILE && pending[i].expected_type != ASSET_ENTITY) continue;
+		if (!weaponNestedSelectGraphModels(pending, count, edges, pending[i].catalog_id,
+				pending[i].archive_ref, pending[i].expected_type, err, err_cap)) return 0;
+	}
 	return 1;
 }
 
@@ -3732,8 +4493,9 @@ static s32 weaponNestedPrepareRecursiveEffects(
 	return 1;
 }
 
-s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
-		const char *weapon_archive, s32 bundled, char *err, size_t err_cap)
+static s32 registerWeaponNestedDependenciesWithAnimationBatch(const char *weapon_id,
+		const char *weapon_archive, s32 bundled, char *err, size_t err_cap,
+		loader_animation_source_batch_t *batch)
 {
 	u32 weapon_size = 0;
 	void *weapon_bytes = NULL;
@@ -3743,6 +4505,11 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 	size_t pending_capacity = 0;
 	file_provider_checkpoint_t provider_checkpoint;
 	s32 provider_checkpoint_valid = 0;
+	void *model_slot_checkpoint = NULL;
+	weapon_nested_mesh_edges_t mesh_edges = {0};
+	char held_mesh_id[CATALOG_ID_LEN] = {0};
+	char owner_copy[CATALOG_ID_LEN], archive_copy[FS_MAXPATH];
+	s32 previous_held_filenum = -1, held_filenum_changed = 0;
 	s32 result = -1;
 
 	if (err && err_cap) err[0] = '\0';
@@ -3752,6 +4519,14 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			weapon_id, weapon_archive);
 		return -1;
 	}
+	/* Registration may grow the catalog that owns either incoming string. */
+	if (!assetPathCopyChecked(owner_copy, sizeof(owner_copy), weapon_id)
+			|| !assetPathCopyChecked(archive_copy, sizeof(archive_copy), weapon_archive)) {
+		nestedSetErr(err, err_cap, "weapon closure input exceeds capacity %s%s", weapon_id, "");
+		return -1;
+	}
+	weapon_id = owner_copy;
+	weapon_archive = archive_copy;
 	weapon_bytes = fsFileLoad(weapon_archive, &weapon_size);
 	if (!weapon_bytes || weapon_size == 0) {
 		nestedSetErr(err, err_cap, "could not read weapon archive %s%s",
@@ -3793,11 +4568,6 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		asset_type_e expected_type = ASSET_NONE;
 		const char *entry_name = scan.entries[i];
 		weapon_nested_preflight_t *p;
-		u32 descriptor_size = 0;
-		const char *descriptor_leaf = NULL;
-		char *descriptor = NULL;
-		const char *catalog_id;
-
 		weaponNestedMediaType(entry_name, &expected_type);
 		if ((pass == 0 && expected_type != ASSET_UI)
 				|| (pass == 1 && expected_type != ASSET_AUDIO)
@@ -3807,120 +4577,23 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 				|| (pass == 5 && expected_type != ASSET_PROJECTILE)
 				|| (pass == 6 && expected_type != ASSET_EFFECT)) continue;
 		p = &pending[pending_count];
-		p->expected_type = expected_type;
-		p->bytes = modArchiveExtractMemAlloc(weapon_bytes, weapon_size,
-			entry_name, &p->size);
-		if (!p->bytes || p->size == 0) {
-			nestedSetErr(err, err_cap, "could not read nested dependency %s%s",
-				entry_name, "");
-			goto rollback;
-		}
-		if (assetArchiveValidateBytes(p->bytes, p->size, entry_name,
-				ASSET_ARCHIVE_VALIDATE_RELEASE, err, err_cap) != 0) goto rollback;
-		descriptor = assetArchiveExtractDescriptorMemAlloc(p->bytes, p->size,
-			entry_name, ASSET_ARCHIVE_VALIDATE_RELEASE, &descriptor_size,
-			&descriptor_leaf);
-		if (!descriptor || !iniParseBuffer(descriptor_leaf, descriptor,
-				descriptor_size, &p->ini)) {
-			free(descriptor);
-			nestedSetErr(err, err_cap, "invalid public descriptor in %s%s",
-				entry_name, "");
-			goto rollback;
-		}
-		free(descriptor);
-		if (sectionToType(p->ini.type) != expected_type) {
-			nestedSetErr(err, err_cap, "nested dependency type mismatch %s%s",
-				entry_name, "");
-			goto rollback;
-		}
-		catalog_id = iniGet(&p->ini, "catalog_id", iniGet(&p->ini, "id", ""));
-		if (!catalog_id[0] || !catalogIdSharesNamespace(weapon_id, catalog_id)) {
-			nestedSetErr(err, err_cap,
-				"nested dependency %s has missing or foreign catalog ID %s",
-				entry_name, catalog_id);
-			goto rollback;
-		}
-		for (size_t prior = 0; prior < pending_count; prior++) {
-			if (strcmp(pending[prior].catalog_id, catalog_id) == 0) {
-				nestedSetErr(err, err_cap, "duplicate nested dependency ID %s%s",
-					catalog_id, "");
-				goto rollback;
-			}
-		}
-		if (!assetPathCopyChecked(p->catalog_id, sizeof(p->catalog_id),
-				catalog_id)) {
-			nestedSetErr(err, err_cap,
-				"nested dependency catalog ID exceeds capacity %s%s",
-				catalog_id, "");
-			goto rollback;
-		}
-		if (!assetPathJoinChecked(p->archive_ref, FS_MAXPATH, weapon_archive,
-				"::", entry_name) ||
-				!assetPathJoinChecked(p->descriptor_ref, FS_MAXPATH,
-					p->archive_ref, "::", descriptor_leaf ? descriptor_leaf
-						: assetArchiveDescriptorForPath(entry_name))) {
-			nestedSetErr(err, err_cap,
-				"nested dependency archive chain exceeds capacity: %s%s",
-				entry_name, "");
-			goto rollback;
-		}
-		if (expected_type == ASSET_EFFECT
-				&& !effectNestedPrepareBytes(&p->effect_nested, p->catalog_id,
-					p->archive_ref, p->bytes, p->size, err, err_cap)) {
-			goto rollback;
-		}
-		const asset_entry_t *existing = assetCatalogResolve(p->catalog_id);
-		if (existing) {
-			if (existing->type != expected_type || (!existing->bundled
-					&& !nestedContentMatchesExisting(existing, p->bytes,
-						p->size))) {
-				nestedSetErr(err, err_cap,
-					"nested dependency ID collision %s%s", p->catalog_id, "");
-				goto rollback;
-			}
-			p->existing = 1;
-		}
-		if (expected_type == ASSET_MODEL) {
-			u32 manifest_size = 0;
-			void *manifest = modArchiveExtractMemAlloc(p->bytes, p->size,
-				ASSET_ARCHIVE_META_MANIFEST_PATH, &manifest_size);
-			if (!loaderWalkerMeshSourcePlanManifest((const char *)manifest,
-					manifest_size, p->catalog_id, p->archive_ref,
-					weaponNestedMeshPublicGeometry(&p->ini),
-					existing ? existing->source_filenum : -1,
-					&p->mesh_source, err, err_cap)) {
-				free(manifest);
-				if (!err || !err[0]) {
-					nestedSetErr(err, err_cap,
-						"could not plan nested mesh source %s%s",
-						p->catalog_id, "");
-				}
-				goto rollback;
-			}
-			free(manifest);
-			p->has_mesh_source = 1;
-			if (existing && existing->source.primary.provider == fileProvider()) {
-				const char *current_path = fileProviderPath(existing->source.primary);
-				if ((!current_path
-						|| strcmp(current_path, p->mesh_source.source_path) != 0)
-						&& !loaderWalkerMeshSourceMatchesEntry(existing,
-							p->archive_ref, p->bytes, p->size, err, err_cap)) {
-					if (!err || !err[0]) {
-						nestedSetErr(err, err_cap,
-							"nested typed mesh source collision %s%s",
-							p->catalog_id, "");
-					}
-					goto rollback;
-				}
-				/* Multiple weapon owners may embed the same byte-identical
-				 * model. Keep the first typed owner and add only dependency
-				 * edges; source paths must not churn with owner order. */
-				p->keep_existing_mesh_source = 1;
-			}
+		s32 prepared = weaponNestedPrepareMember(p, pending, pending_count,
+			weapon_id, weapon_archive, weapon_bytes, weapon_size,
+			entry_name, expected_type, err, err_cap);
+		if (!prepared) goto rollback;
+		if (prepared == 2) {
+			free(p->bytes);
+			memset(p, 0, sizeof(*p));
+			continue;
 		}
 		pending_count++;
 	}
 	}
+	if (!weaponNestedPrepareRecursiveMeshes(&pending, &pending_count,
+			&pending_capacity, &mesh_edges, weapon_id, err, err_cap)
+			|| !weaponNestedPrepareMeshConsumers(pending, pending_count, &mesh_edges,
+				weapon_id, weapon_archive, weapon_bytes, weapon_size, held_mesh_id,
+				err, err_cap)) goto rollback;
 	if (!weaponNestedPrepareRecursiveEffects(&pending, &pending_count,
 			&pending_capacity, weapon_id, weapon_archive, weapon_bytes,
 			weapon_size, err, err_cap)) {
@@ -3939,7 +4612,8 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		}
 	}
 	{
-		size_t edge_count = pending_count;
+		if (mesh_edges.count > SIZE_MAX - pending_count) goto rollback;
+		size_t edge_count = pending_count + mesh_edges.count;
 		for (size_t i = 0; i < pending_count; i++) {
 			if (pending[i].effect_nested.deps.count >
 					(SIZE_MAX - edge_count) / 2) {
@@ -3963,13 +4637,18 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 		goto rollback;
 	}
 	provider_checkpoint_valid = 1;
+	model_slot_checkpoint = assetCatalogSnapshotCustomModelSlots();
+	if (!model_slot_checkpoint) {
+		nestedSetErr(err, err_cap, "could not checkpoint graph model slots for %s%s", weapon_id, "");
+		goto rollback;
+	}
 
 	for (size_t i = 0; i < pending_count; i++) {
 		weapon_nested_preflight_t *p = &pending[i];
 		if (!p->existing) {
 			p->created = 1; /* rollback even if registerComponent fails late */
-			if (!registerComponent(&p->ini, p->archive_ref,
-					bundled ? "base" : weapon_id, p->descriptor_ref)) {
+			if (!registerComponentWithAnimationBatch(&p->ini, p->archive_ref,
+					bundled ? "base" : weapon_id, p->descriptor_ref, batch)) {
 				nestedSetErr(err, err_cap,
 					"could not register nested dependency %s%s", p->catalog_id, "");
 				goto rollback;
@@ -3996,20 +4675,38 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 				goto rollback;
 			}
 			if (p->existing) {
-				p->existing_snapshot = *entry;
+				catalogEntrySnapshotCapture(&p->existing_snapshot, entry);
 				p->existing_snapshot_valid = 1;
 			}
-			if (p->keep_existing_mesh_source) {
-				if (p->mesh_source.source_filenum > 0) {
-					entry->source_filenum = p->mesh_source.source_filenum;
+			s32 selected_held = held_mesh_id[0]
+				&& strcmp(p->catalog_id, held_mesh_id) == 0;
+			if ((p->needs_graph_model && entry->runtime_index < 0)
+					|| (selected_held && p->mesh_source.source_filenum <= 0)) {
+				if (bundled || entry->bundled) {
+					nestedSetErr(err, err_cap,
+						"base mesh %s has no required native model identity %s",
+						p->catalog_id, "");
+					goto rollback;
 				}
-				source_action = "kept";
-				source_path = fileProviderPath(entry->source.primary);
-			} else if (!loaderWalkerBindMeshSource(entry, &p->mesh_source, 1,
-					err, err_cap)) {
-				goto rollback;
+				s32 slot = entry->runtime_index >= 0 ? entry->runtime_index
+					: assetCatalogResolveModelPrivateSlot(p->catalog_id);
+				if (slot < 0) {
+					nestedSetErr(err, err_cap, "no private model slot for %s%s", p->catalog_id, "");
+					goto rollback;
+				}
+				entry->runtime_index = slot;
+				if (p->mesh_source.source_filenum <= 0) {
+					p->mesh_source.source_filenum = assetCatalogModelPrivateSourceFilenum(slot);
+					if (p->mesh_source.source_filenum <= 0) goto rollback;
+				}
 			}
-			if (p->existing && !p->keep_existing_mesh_source) {
+			if (!loaderWalkerBindMeshSource(entry, &p->mesh_source, 1,
+					err, err_cap)) goto rollback;
+			source_path = fileProviderPath(entry->source.primary);
+			if (p->existing) {
+				source_action = "kept";
+			}
+			if (p->existing && strcmp(source_path, p->mesh_source.source_path) == 0) {
 				/* Preserve runtime identity/lifecycle while making the typed
 				 * source and its public descriptor discoverable diagnostics. */
 				if (!assetPathCopyChecked(entry->dirpath,
@@ -4070,6 +4767,28 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 			"PDWEAPON.NESTED.REGISTER: owner=%s id=%s type=%d source=%s",
 			weapon_id, p->catalog_id, (s32)p->expected_type, p->archive_ref);
 	}
+	for (size_t i = 0; i < mesh_edges.count; i++) {
+		weapon_nested_mesh_edge_t *edge = &mesh_edges.items[i];
+		if (catalogDepContains(edge->owner, edge->child)) continue;
+		if (!catalogDepRegisterTyped(edge->owner, edge->child, ASSET_MODEL, bundled ? 1 : 0)) {
+			nestedSetErr(err, err_cap, "could not register payload mesh edge %s -> %s", edge->owner, edge->child);
+			goto rollback;
+		}
+		edge->created = 1;
+	}
+	if (held_mesh_id[0]) {
+		const asset_entry_t *mesh = assetCatalogResolve(held_mesh_id);
+		asset_entry_t *owner = assetCatalogGetMutable(weapon_id);
+		if (!owner || owner->type != ASSET_WEAPON || !mesh || mesh->source_filenum <= 0
+				|| ((bundled || owner->bundled) && owner->source_filenum > 0
+					&& owner->source_filenum != mesh->source_filenum)) {
+			nestedSetErr(err, err_cap, "weapon %s has invalid selected held mesh %s", weapon_id, held_mesh_id);
+			goto rollback;
+		}
+		previous_held_filenum = owner->source_filenum;
+		held_filenum_changed = 1;
+		owner->source_filenum = mesh->source_filenum;
+	}
 	for (size_t i = 0; i < pending_count; i++) {
 		if (pending[i].expected_type == ASSET_EFFECT) {
 			catalogDepPruneOwner(pending[i].catalog_id,
@@ -4080,6 +4799,14 @@ s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
 	goto done;
 
 rollback:
+	if (held_filenum_changed) {
+		asset_entry_t *owner = assetCatalogGetMutable(weapon_id);
+		if (owner) owner->source_filenum = previous_held_filenum;
+	}
+	for (size_t i = mesh_edges.count; i-- > 0;) {
+		if (mesh_edges.items[i].created)
+			catalogDepUnregister(mesh_edges.items[i].owner, mesh_edges.items[i].child);
+	}
 	for (size_t i = pending_count; i-- > 0; ) {
 		for (size_t j = pending[i].effect_nested.deps.count; j-- > 0; ) {
 			if (pending[i].effect_dep_edges_created
@@ -4096,8 +4823,14 @@ rollback:
 			assetCatalogUnregister(pending[i].catalog_id);
 		} else if (pending[i].existing_snapshot_valid) {
 			asset_entry_t *entry = assetCatalogGetMutable(pending[i].catalog_id);
-			if (entry) *entry = pending[i].existing_snapshot;
+			if (entry && !catalogEntrySnapshotRestorePreserved(entry, &pending[i].existing_snapshot))
+				sysLoudFailf("PDWEAPON.NESTED.ROLLBACK",
+					"cannot restore source metadata for %s: runtime ownership changed; current owner preserved",
+					pending[i].catalog_id);
 		}
+	}
+	if (model_slot_checkpoint && !assetCatalogRestoreCustomModelSlots(model_slot_checkpoint)) {
+		sysLoudFailf("PDWEAPON.NESTED.ROLLBACK", "could not restore graph model slots for owner=%s", weapon_id);
 	}
 	if (provider_checkpoint_valid) {
 		if (!fileProviderCheckpointRestore(&provider_checkpoint)) {
@@ -4112,6 +4845,8 @@ rollback:
 		}
 	}
 done:
+	assetCatalogDestroyCustomModelSlotSnapshot(model_slot_checkpoint);
+	free(mesh_edges.items);
 	for (size_t i = 0; i < pending_capacity; i++) {
 		free(pending ? pending[i].bytes : NULL);
 		free(pending ? pending[i].effect_dep_edges_created : NULL);
@@ -4122,6 +4857,31 @@ done:
 	if (weapon_bytes) sysMemFree(weapon_bytes);
 	return result;
 }
+
+s32 assetCatalogRegisterWeaponNestedDependencies(const char *weapon_id,
+        const char *weapon_archive, s32 bundled, char *err, size_t err_cap)
+{
+    char owner[CATALOG_ID_LEN];
+    if (!weapon_id || !assetPathCopyChecked(owner, sizeof(owner), weapon_id)) return -1;
+    external_scan_transaction_t transaction = {0};
+    loader_animation_source_batch_t *batch = loaderAnimationSourceBatchCreate();
+    if (!batch || !externalScanTransactionBegin(&transaction)) {
+        loaderAnimationSourceBatchDestroy(batch);
+        return -1;
+    }
+    s32 result = registerWeaponNestedDependenciesWithAnimationBatch(owner,
+        weapon_archive, bundled, err, err_cap, batch);
+    if (result >= 0 && !loaderAnimationSourceBatchCommit(batch)) {
+        nestedSetErr(err, err_cap, "weapon command closure rejected: %s%s", owner, "");
+        result = -1;
+    }
+    if (result < 0 && !externalScanTransactionRollback(&transaction))
+        sysLoudFailf("PDWEAPON.NESTED.ROLLBACK", "could not restore complete nested source transaction");
+    externalScanTransactionDestroy(&transaction);
+    loaderAnimationSourceBatchDestroy(batch);
+    return result;
+}
+
 
 /* ========================================================================
  * Nested theme dependency registration
@@ -4443,7 +5203,8 @@ static s32 registerComponentIniFile(const char *component_dir,
                                     const char *ini_path,
                                     asset_type_e expected,
                                     const char *label,
-                                    const char *mod_id)
+                                    const char *mod_id,
+		loader_animation_source_batch_t *batch)
 {
 	ini_section_t ini;
 	if (!iniParse(ini_path, &ini)) {
@@ -4462,13 +5223,14 @@ static s32 registerComponentIniFile(const char *component_dir,
 		return -1;
 	}
 
-	return registerComponent(&ini, component_dir, mod_id, ini_path) ? 1 : -1;
+	return registerComponentWithAnimationBatch(&ini, component_dir, mod_id, ini_path, batch) ? 1 : -1;
 }
 
 static s32 scanExternalDescriptorChildren(const char *base_dir,
                                           const char *leaf,
                                           asset_type_e expected,
-                                          const char *mod_id)
+                                          const char *mod_id,
+		loader_animation_source_batch_t *batch)
 {
 	if (!isDirectory(base_dir)) {
 		return 0;
@@ -4514,7 +5276,7 @@ static s32 scanExternalDescriptorChildren(const char *base_dir,
 			continue;
 		}
 		s32 candidate_result = registerComponentIniFile(component_dir, ini_path,
-			expected, label, mod_id);
+			expected, label, mod_id, batch);
 		if (candidate_result < 0) rejected = 1;
 		else count += candidate_result;
 	}
@@ -4527,18 +5289,20 @@ static s32 scanExternalDescriptorPath(const char *mod_dir,
                                       const char *relative_dir,
                                       const char *leaf,
                                       asset_type_e expected,
-                                      const char *mod_id)
+                                      const char *mod_id,
+		loader_animation_source_batch_t *batch)
 {
 	char base_dir[FS_MAXPATH];
 	if (!assetPathJoinChecked(base_dir, sizeof(base_dir), mod_dir, "/",
 			relative_dir)) return -1;
-	return scanExternalDescriptorChildren(base_dir, leaf, expected, mod_id);
+	return scanExternalDescriptorChildren(base_dir, leaf, expected, mod_id, batch);
 }
 
 static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
                                          asset_type_e expected,
                                          const char *mod_id,
-										 s32 defer_reloads)
+										 s32 defer_reloads,
+		loader_animation_source_batch_t *batch)
 {
 	pd_effect_source_info_t effect_source;
 	asset_entry_t prior_effect;
@@ -4638,7 +5402,7 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 				assetArchiveDescriptorForPath(descriptor_path))) {
 			goto effect_publish_fail;
 		}
-		if (!registerComponent(&ini, component_dir, mod_id, descriptor_ref)) {
+		if (!registerComponentWithAnimationBatch(&ini, component_dir, mod_id, descriptor_ref, batch)) {
 			goto effect_publish_fail;
 		}
 		if (has_effect_source) {
@@ -4673,9 +5437,9 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 			char nested_err[256];
 			nested_err[0] = '\0';
 			if (!weapon_id[0]
-					|| assetCatalogRegisterWeaponNestedDependencies(weapon_id,
+					|| registerWeaponNestedDependenciesWithAnimationBatch(weapon_id,
 						descriptor_path, 0, nested_err,
-						sizeof(nested_err)) < 0) {
+						sizeof(nested_err), batch) < 0) {
 				asset_entry_t *weapon = weapon_id[0]
 					? assetCatalogGetMutable(weapon_id) : NULL;
 				if (weapon) {
@@ -4733,7 +5497,8 @@ effect_publish_fail:
 static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
                                          const char *rel_dir,
                                          const char *mod_id,
-										 s32 defer_reloads)
+										 s32 defer_reloads,
+		loader_animation_source_batch_t *batch)
 {
 	char abs_dir[FS_MAXPATH];
 	if (rel_dir && rel_dir[0]) {
@@ -4779,7 +5544,7 @@ static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
 
 		if (isDirectory(child_abs)) {
 			s32 child_result = scanTypedPdDescriptorsRecurse(root_dir, child_rel,
-				mod_id, defer_reloads);
+				mod_id, defer_reloads, batch);
 			if (child_result < 0) rejected = 1;
 			else count += child_result;
 			continue;
@@ -4795,7 +5560,7 @@ static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
 		}
 
 		s32 candidate_result = registerTypedPdDescriptorFile(child_abs, expected,
-			mod_id, defer_reloads);
+			mod_id, defer_reloads, batch);
 		if (candidate_result < 0) rejected = 1;
 		else count += candidate_result;
 	}
@@ -4816,7 +5581,8 @@ static s32 scanTypedPdDescriptorsRecurse(const char *root_dir,
  * @return Number of components registered
  */
 static s32 scanCategoryDir(const char *category_dir, const char *category_name,
-                            const char *mod_id)
+                            const char *mod_id,
+		loader_animation_source_batch_t *batch)
 {
 	asset_type_e expected = categoryToType(category_name);
 	if (expected == ASSET_NONE) {
@@ -4830,7 +5596,7 @@ static s32 scanCategoryDir(const char *category_dir, const char *category_name,
 		return 0;
 	}
 
-	s32 count = 0;
+	s32 count = 0, rejected = 0;
 	struct dirent *ent;
 	char pathbuf[FS_MAXPATH];
 
@@ -4868,13 +5634,13 @@ static s32 scanCategoryDir(const char *category_dir, const char *category_name,
 			/* Register anyway -- the INI section type takes precedence */
 		}
 
-		if (registerComponent(&ini, pathbuf, mod_id, descriptor_path)) {
+		if (registerComponentWithAnimationBatch(&ini, pathbuf, mod_id, descriptor_path, batch)) {
 			count++;
-		}
+		} else rejected = 1;
 	}
 
 	closedir(dp);
-	return count;
+	return rejected ? -(count + 1) : count;
 }
 
 /**
@@ -4899,7 +5665,13 @@ static s32 scanModDir(const char *mod_dir, const char *mod_id)
 		return 0;
 	}
 
-	s32 count = 0;
+    external_scan_transaction_t transaction = {0};
+    loader_animation_source_batch_t *batch = loaderAnimationSourceBatchCreate();
+    if (!batch || !externalScanTransactionBegin(&transaction)) {
+        loaderAnimationSourceBatchDestroy(batch); closedir(dp); return -1;
+    }
+
+	s32 count = 0, rejected = 0;
 	struct dirent *ent;
 	char pathbuf[FS_MAXPATH];
 
@@ -4915,16 +5687,22 @@ static s32 scanModDir(const char *mod_dir, const char *mod_id)
 			continue;
 		}
 
-		s32 n = scanCategoryDir(pathbuf, ent->d_name, mod_id);
+		s32 n = scanCategoryDir(pathbuf, ent->d_name, mod_id, batch);
 		if (n > 0) {
 			sysLogPrintf(LOG_NOTE, "assetcatalog_scanner: %s/%s: %d components",
 				mod_id, ent->d_name, n);
 		}
-		count += n;
+		if (n < 0) { rejected = 1; count += -n - 1; }
+		else count += n;
 	}
 
 	closedir(dp);
-	return count;
+    if (!rejected && !loaderAnimationSourceBatchCommit(batch)) rejected = 1;
+    if (rejected && !externalScanTransactionRollback(&transaction))
+        sysLoudFailf("CATALOG.COMPONENT.ROLLBACK", "could not restore legacy mod import");
+    externalScanTransactionDestroy(&transaction);
+    loaderAnimationSourceBatchDestroy(batch);
+    return rejected ? -(count + 1) : count;
 }
 
 typedef struct external_descriptor_spec {
@@ -5011,6 +5789,7 @@ static s32 assetCatalogScanExternalLayoutFolderInternal(const char *mod_id,
 		{ "animations/character", "animation.ini", ASSET_ANIMATION },
 	};
 	external_scan_transaction_t transaction;
+	loader_animation_source_batch_t *batch = NULL;
 	s32 total = 0;
 	s32 rejected = 0;
 
@@ -5021,6 +5800,9 @@ static s32 assetCatalogScanExternalLayoutFolderInternal(const char *mod_id,
 			mod_id);
 		return -1;
 	}
+
+	batch = loaderAnimationSourceBatchCreate();
+	if (!batch) { externalScanTransactionDestroy(&transaction); return -1; }
 
 	/* Received PDCA candidates place a single editable descriptor directly at
 	 * the component root. Route those through the same scanner transaction as
@@ -5035,18 +5817,20 @@ static s32 assetCatalogScanExternalLayoutFolderInternal(const char *mod_id,
 		}
 		if (!isRegularFile(descriptor)) continue;
 		externalScanAccumulate(registerComponentIniFile(mod_dir, descriptor,
-			root_specs[i].expected, root_specs[i].leaf, mod_id),
+			root_specs[i].expected, root_specs[i].leaf, mod_id, batch),
 			&total, &rejected);
 	}
 
 	for (size_t i = 0; i < sizeof(specs) / sizeof(specs[0]); i++) {
 		externalScanAccumulate(scanExternalDescriptorPath(mod_dir,
-			specs[i].relative_dir, specs[i].leaf, specs[i].expected, mod_id),
+			specs[i].relative_dir, specs[i].leaf, specs[i].expected, mod_id, batch),
 			&total, &rejected);
 	}
 	externalScanAccumulate(scanTypedPdDescriptorsRecurse(mod_dir, "", mod_id,
-		defer_reloads), &total, &rejected);
+		defer_reloads, batch), &total, &rejected);
 
+	if (!rejected && !loaderAnimationSourceBatchCommit(batch)) rejected = 1;
+	loaderAnimationSourceBatchDestroy(batch);
 	if (rejected) {
 		s32 rollback_ok = externalScanTransactionRollback(&transaction);
 		sysLogPrintf(rollback_ok ? LOG_WARNING : LOG_ERROR,
@@ -5420,7 +6204,7 @@ s32 assetCatalogScanComponents(const char *modsdir)
 		return -1;
 	}
 
-	s32 total = 0;
+	s32 total = 0, rejected = 0;
 	struct dirent *ent;
 	char pathbuf[FS_MAXPATH];
 
@@ -5431,7 +6215,11 @@ s32 assetCatalogScanComponents(const char *modsdir)
 		}
 
 		if (!assetPathJoinChecked(pathbuf, sizeof(pathbuf), modsdir, "/",
-				ent->d_name)) continue;
+				ent->d_name)) {
+			rejected = 1;
+			sysLogPrintf(LOG_WARNING, "assetcatalog_scanner: component path is too long: '%s'", ent->d_name);
+			continue;
+		}
 
 		if (!isDirectory(pathbuf)) {
 			continue;
@@ -5442,13 +6230,14 @@ s32 assetCatalogScanComponents(const char *modsdir)
 			sysLogPrintf(LOG_NOTE, "assetcatalog_scanner: %s: %d total components",
 				ent->d_name, n);
 		}
-		total += n;
+		if (n < 0) { rejected = 1; total += -n - 1; }
+		else total += n;
 	}
 
 	closedir(dp);
 	sysLogPrintf(LOG_NOTE, "assetcatalog_scanner: scan complete, %d mod components registered",
 		total);
-	return total;
+	return rejected ? -(total + 1) : total;
 }
 
 s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *archive)
@@ -5462,6 +6251,12 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 		return 0;
 	}
 
+    external_scan_transaction_t transaction = {0};
+    loader_animation_source_batch_t *batch = loaderAnimationSourceBatchCreate();
+    if (!batch || !externalScanTransactionBegin(&transaction)) {
+        loaderAnimationSourceBatchDestroy(batch); return -1;
+    }
+    s32 rejected = 0;
 	s32 total = 0;
 	s32 entries = modArchiveGetEntryCount(archive);
 
@@ -5474,20 +6269,20 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 		char entry_ref[FS_MAXPATH * 2 + 4];
 		if (archive_path && archive_path[0]) {
 			if (!assetPathJoinChecked(entry_ref, FS_MAXPATH, archive_path, "::",
-					entry_name)) continue;
+					entry_name)) { rejected = 1; continue; }
 		} else if (!assetPathCopyChecked(entry_ref, FS_MAXPATH, entry_name)) {
-			continue;
+			{ rejected = 1; continue; }
 		}
 
 		char component_dir[FS_MAXPATH];
 		if (typedPdContentTypeForPath(entry_name) != ASSET_NONE) {
 			if (!typedPdDescriptorComponentDir(entry_name, component_dir,
-					sizeof(component_dir))) continue;
+					sizeof(component_dir))) { rejected = 1; continue; }
 		} else {
 			pathDirname(entry_name, component_dir, sizeof(component_dir));
 		}
 		if (!component_dir[0]) {
-			continue;
+			{ rejected = 1; continue; }
 		}
 
 		u32 ini_size = 0;
@@ -5496,7 +6291,7 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 			sysLogPrintf(LOG_WARNING,
 				"assetcatalog_scanner: could not read archive INI '%s' for '%s'",
 				entry_name, mod_id);
-			continue;
+			{ rejected = 1; continue; }
 		}
 
 		ini_section_t ini;
@@ -5522,7 +6317,7 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 								"ASSET.PATH.REJECT: nested archive chain exceeds repository capacity: %s",
 								entry_ref);
 							free(ini_bytes);
-							continue;
+							{ rejected = 1; continue; }
 						}
 						typed_archive_sources_qualified = 1;
 					}
@@ -5534,7 +6329,7 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 				"assetcatalog_scanner: invalid archive descriptor '%s' for '%s'",
 				entry_name, mod_id);
 			free(ini_bytes);
-			continue;
+			{ rejected = 1; continue; }
 		}
 		free(ini_bytes);
 
@@ -5545,10 +6340,13 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 				"assetcatalog_scanner: archive type mismatch in '%s': "
 				"expected %d, got [%s]=%d",
 				entry_name, expected, ini.type, ini_type);
+			rejected = 1;
+			continue;
 		}
 
 		if (!typed_archive_sources_qualified) {
-			if (!qualifyArchiveIniPaths(&ini, component_dir)) continue;
+			if (!qualifyArchiveIniPaths(&ini, component_dir)
+					|| !qualifyTypedArchiveSourcePaths(&ini, archive_path)) { rejected = 1; continue; }
 		}
 
 		char descriptor_ref[FS_MAXPATH * 2 + 132];
@@ -5556,9 +6354,9 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 			const char *descriptor_leaf =
 				assetArchiveDescriptorForPath(entry_name);
 			if (!assetPathJoinChecked(descriptor_ref, FS_MAXPATH, entry_ref, "::",
-					descriptor_leaf ? descriptor_leaf : "")) continue;
+					descriptor_leaf ? descriptor_leaf : "")) { rejected = 1; continue; }
 		} else {
-			if (!assetPathCopyChecked(descriptor_ref, FS_MAXPATH, entry_ref)) continue;
+			if (!assetPathCopyChecked(descriptor_ref, FS_MAXPATH, entry_ref)) { rejected = 1; continue; }
 		}
 
 		asset_entry_t prior_effect;
@@ -5586,19 +6384,19 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 			}
 		}
 
-		if (registerComponent(&ini, component_dir, mod_id, descriptor_ref)) {
+		if (registerComponentWithAnimationBatch(&ini, component_dir, mod_id, descriptor_ref, batch)) {
 			s32 accepted = 1;
 			if (typed_archive_entry && ini_type == ASSET_WEAPON) {
 				char nested_err[256];
 				nested_err[0] = '\0';
 				if (!weapon_id || !weapon_id[0]
-						|| assetCatalogRegisterWeaponNestedDependencies(weapon_id,
-							entry_ref, 0, nested_err, sizeof(nested_err)) < 0) {
+						|| registerWeaponNestedDependenciesWithAnimationBatch(weapon_id,
+							entry_ref, 0, nested_err, sizeof(nested_err), batch) < 0) {
 					asset_entry_t *weapon = weapon_id && weapon_id[0]
 						? assetCatalogGetMutable(weapon_id) : NULL;
-					if (had_prior_weapon && weapon) *weapon = prior_weapon;
+					if (had_prior_weapon && weapon) catalogActivationLedgerRestoreRetiredSnapshot(weapon, &prior_weapon);
 					else if (!had_prior_weapon && weapon) assetCatalogUnregister(weapon_id);
-					if (had_prior_weapon) (void)catalogReloadInvalidatedTypedAssets();
+					/* Defer restoration reload until the entire archive rolls back. */
 					sysLogPrintf(LOG_WARNING,
 						"PDWEAPON.NESTED.REJECT: owner=%s source=%s error=%s",
 						weapon_id && weapon_id[0] ? weapon_id : "<missing>",
@@ -5619,7 +6417,7 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 						catalogActivationLedgerRestoreRetiredSnapshot(effect, &prior_effect);
 					}
 					else if (!had_prior_effect && effect) assetCatalogUnregister(effect_id);
-					if (had_prior_effect) (void)catalogReloadInvalidatedTypedAssets();
+					/* Defer restoration reload until the entire archive rolls back. */
 					sysLogPrintf(LOG_WARNING,
 						"PDEFFECT.NESTED.REJECT: owner=%s source=%s error=%s",
 						effect_id && effect_id[0] ? effect_id : "<missing>",
@@ -5652,7 +6450,8 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 				}
 			}
 			if (accepted) total++;
-		}
+			else rejected = 1;
+		} else rejected = 1;
 	}
 
 	if (total > 0) {
@@ -5660,7 +6459,12 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 			"assetcatalog_scanner: archive %s: %d component descriptors registered",
 			mod_id, total);
 	}
-	return total;
+    if (!rejected && !loaderAnimationSourceBatchCommit(batch)) rejected = 1;
+    if (rejected && !externalScanTransactionRollback(&transaction))
+        sysLoudFailf("CATALOG.ARCHIVE.ROLLBACK", "could not restore complete archive import");
+    externalScanTransactionDestroy(&transaction);
+    loaderAnimationSourceBatchDestroy(batch);
+    return rejected ? -(total + 1) : total;
 #endif
 }
 
@@ -5680,37 +6484,53 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
  * New variants saved this session are hot-registered via botVariantSave().
  *
  * @param modsdir  Path to the mods directory (e.g., "mods/")
- * @return Number of bot variants registered, or 0 if directory doesn't exist.
+ * @return Registered count, optional absence 0, or -(admitted + 1) on failure.
  */
 s32 assetCatalogScanBotVariants(const char *modsdir)
 {
 	if (!modsdir || !modsdir[0]) {
-		return 0;
+		return -1;
 	}
 
 	char bot_variants_dir[FS_MAXPATH];
 	if (!assetPathJoinChecked(bot_variants_dir, sizeof(bot_variants_dir), modsdir,
-			"/", "bot_variants")) return 0;
+			"/", "bot_variants")) return -1;
 
 	DIR *dp = opendir(bot_variants_dir);
 	if (!dp) {
-		/* Directory doesn't exist yet — created on first save, not an error */
-		return 0;
+		/* Absence is optional; unreadable/non-directory paths are failures. */
+		if (errno == ENOENT) return 0;
+		sysLogPrintf(LOG_WARNING, "assetcatalog_scanner: cannot open bot variants '%s'", bot_variants_dir);
+		return -1;
 	}
 
-	s32 count = 0;
+	s32 count = 0, rejected = 0;
 	struct dirent *ent;
 	char pathbuf[FS_MAXPATH];
 
-	while ((ent = readdir(dp)) != NULL) {
+	for (;;) {
+		errno = 0;
+		ent = readdir(dp);
+		if (!ent) {
+			if (errno) rejected = 1;
+			break;
+		}
 		if (ent->d_name[0] == '.') {
 			continue;
 		}
 
 		if (!assetPathJoinChecked(pathbuf, sizeof(pathbuf), bot_variants_dir, "/",
-				ent->d_name)) continue;
+				ent->d_name)) {
+			rejected = 1;
+			continue;
+		}
 
-		if (!isDirectory(pathbuf)) {
+		struct stat child;
+		if (stat(pathbuf, &child) != 0) {
+			rejected = 1;
+			continue;
+		}
+		if (!S_ISDIR(child.st_mode)) {
 			continue;
 		}
 
@@ -5721,20 +6541,22 @@ s32 assetCatalogScanBotVariants(const char *modsdir)
 			sysLogPrintf(LOG_WARNING,
 				"assetcatalog_scanner: no valid .ini in bot_variants/%s",
 				ent->d_name);
+			rejected = 1;
 			continue;
 		}
 
 		/* Use "custom" as the mod_id for user-created variants */
 		if (registerComponent(&ini, pathbuf, "custom", descriptor_path)) {
 			count++;
-		}
+		} else rejected = 1;
 	}
 
-	closedir(dp);
+	if (closedir(dp) != 0) rejected = 1;
 
 	if (count > 0) {
 		sysLogPrintf(LOG_NOTE,
 			"assetcatalog_scanner: bot_variants: %d variant(s) registered", count);
 	}
-	return count;
+	/* Preserve admitted-count information without claiming atomic rollback. */
+	return rejected ? -(count + 1) : count;
 }

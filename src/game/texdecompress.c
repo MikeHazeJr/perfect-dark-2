@@ -11,7 +11,9 @@
 #include "data.h"
 #include "types.h"
 #include "mod.h"
+#include "catalog_texture_generation.h"
 #include "platform.h"
+#include "system.h"
 
 struct texture *g_Textures;
 u32 var800aabc4;
@@ -2079,6 +2081,9 @@ void texInitPool(struct texpool *pool, u8 *start, s32 len)
 
 struct tex *texFindInPool(s32 texturenum, struct texpool *pool)
 {
+    catalog_texture_generation_t *generation = catalogTextureGenerationForSlot(texturenum);
+    if (generation) return catalogTextureGenerationTexture(generation);
+
 	struct tex *end;
 	struct tex *cur;
 	s32 i;
@@ -2326,6 +2331,12 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 			}
 			if (source_result < 0) {
 				*updateword = osVirtualToPhysical(pool->start);
+				return;
+			}
+
+			/* Custom identities never index the original texture directory. */
+			if (g_TexNumToLoad >= NUM_TEXTURES) {
+				sysFatalError("ASSET.SOURCE_ONLY: custom texture %d has no public image source; refusing legacy texture lookup.", g_TexNumToLoad);
 				return;
 			}
 

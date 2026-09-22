@@ -609,6 +609,7 @@ $ResultsFile = ""
 . (Join-Path $LibDir "Install-Harness.ps1")
 . (Join-Path $LibDir "Catalog-Ingress-Fixtures.ps1")
 . (Join-Path $LibDir "Temporary-Recovery-Fixtures.ps1")
+. (Join-Path $LibDir "Weapon-Mesh-Fixtures.ps1")
 . (Join-Path $LibDir "Test-MemorySafety.ps1")
 
 function New-NeedlerEffectReplacementFixtures {
@@ -1460,6 +1461,12 @@ function Invoke-SmokeTestMultiProcess {
                 -and $Definition.v006_corrupt_source_fixtures) {
             New-V006CorruptSourceFixtures -InstallDir $InstallDir
         }
+        if ($Definition.PSObject.Properties.Match('weapon_mesh_ingress_fixtures').Count -gt 0 `
+                -and $Definition.weapon_mesh_ingress_fixtures) {
+            $includeFalcon = $Definition.PSObject.Properties.Match('weapon_mesh_ingress_base_falcon2').Count -gt 0 `
+                -and [bool]$Definition.weapon_mesh_ingress_base_falcon2
+            New-WeaponMeshIngressFixtures -ProjectRoot $ProjectRoot -InstallDir $InstallDir -IncludeBaseFalcon2:$includeFalcon
+        }
         if ($Definition.PSObject.Properties.Match('temporary_recovery_fixtures').Count -gt 0 `
                 -and $Definition.temporary_recovery_fixtures) {
             New-TemporaryRecoveryFixtures -ProjectRoot $ProjectRoot -InstallDir $InstallDir
@@ -2136,6 +2143,12 @@ function Invoke-SmokeTest {
             -and $def.v006_corrupt_source_fixtures) {
         New-V006CorruptSourceFixtures -InstallDir $installInfo.InstallDir
     }
+    if ($def.PSObject.Properties.Match('weapon_mesh_ingress_fixtures').Count -gt 0 `
+            -and $def.weapon_mesh_ingress_fixtures) {
+        $includeFalcon = $def.PSObject.Properties.Match('weapon_mesh_ingress_base_falcon2').Count -gt 0 `
+            -and [bool]$def.weapon_mesh_ingress_base_falcon2
+        New-WeaponMeshIngressFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir -IncludeBaseFalcon2:$includeFalcon
+    }
     if ($def.PSObject.Properties.Match('temporary_recovery_fixtures').Count -gt 0 `
             -and $def.temporary_recovery_fixtures) {
         New-TemporaryRecoveryFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir
@@ -2535,6 +2548,18 @@ if ($useSharedInstall) {
 
 $results = @()
 foreach ($t in $selected) {
+    $testSharedInstall = $useSharedInstall
+    if ($t.Definition.PSObject.Properties.Match('required_install_layout').Count -gt 0) {
+        $requiredLayout = [string]$t.Definition.required_install_layout
+        if ($requiredLayout -ne 'per-test') {
+            throw "Smoke test '$($t.Name)' has unsupported required_install_layout '$requiredLayout'."
+        }
+        if ($Install) {
+            throw "Smoke test '$($t.Name)' requires a per-test install; -Install cannot supply its path-length contract."
+        }
+        $testSharedInstall = $false
+        Write-Info ("Fixture install mode: per-test (required by {0})" -f $t.Name)
+    }
     # Some native/helper calls inside Invoke-SmokeTest can write auxiliary
     # objects to the success pipeline. Capture the complete stream, then keep
     # exactly the typed scenario result instead of assuming every emitted
@@ -2547,7 +2572,7 @@ foreach ($t in $selected) {
         -VerboseEval:$VerboseAssertions `
         -BinaryOverride $SourceBinary `
         -RomOverride $SourceRom `
-        -Shared:$useSharedInstall)
+        -Shared:$testSharedInstall)
     $resultCandidates = @($invokeOutput | Where-Object {
         $_ -and $_.PSObject -and
         $_.PSObject.Properties.Match('Passed').Count -gt 0 -and

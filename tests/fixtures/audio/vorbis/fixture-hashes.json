@@ -1,0 +1,14 @@
+[
+  {
+    "Path": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\tests\\fixtures\\audio\\vorbis\\tone_mono_22050.ogg",
+    "Hash": "33710B628E1D6491F16C867E628E1A74E597A5FA83B37B664806D306639DD318"
+  },
+  {
+    "Path": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\tests\\fixtures\\audio\\vorbis\\tone_stereo_44100.ogg",
+    "Hash": "1D0DE49FEC4C95A0E740BC8315F00847C68E8F710846D9FBD11DAE8387B1B8BE"
+  },
+  {
+    "Path": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\tests\\fixtures\\audio\\vorbis\\tone_stereo_22050.ogg",
+    "Hash": "9B9B13A25CC3B89762663488B8958690E69E0ECE07DEC06888A36825D07CA296"
+  }
+]

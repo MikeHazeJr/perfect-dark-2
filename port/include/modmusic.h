@@ -29,6 +29,17 @@ extern "C" {
 s16 *modMusicLoadAudioPcm22050(const char *file_path, u32 *out_len,
 		s32 *out_source_rate);
 
+/** Decode only the supplied immutable bytes using the source-name extension.
+ * No filesystem/provider lookup or fallback occurs. Borrows bytes only during
+ * this call; resulting stereo PCM is independent and owned by the caller. */
+s16 *modMusicDecodeAudioPcm22050(const char *source_name, const void *bytes,
+        u32 size, u32 *out_len, s32 *out_source_rate);
+
+/** Decode the selected source and return its frame duration in 60 Hz ticks,
+ * rounded up so the last frame remains covered. Returns -1 on decode failure.
+ * This owns and releases a temporary PCM buffer without changing playback. */
+s32 modMusicAudioSourceDuration60(const char *file_path);
+
 /** Load an audio file from disk and begin playback. Stops any current mod track.
  *  Accepts WAV, MP3, and OGG formats (detected by extension). */
 void modMusicPlay(const char *file_path);

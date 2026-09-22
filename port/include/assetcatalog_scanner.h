@@ -224,7 +224,9 @@ s32 assetCatalogRegisterThemeNestedDependencies(const char *theme_id,
  * during a session are hot-registered immediately via botVariantSave() and
  * do not require this scan to be called again.
  *
- * Returns number of variants registered, or 0 if the directory doesn't exist.
+ * Returns number of variants registered, or 0 if the optional directory is
+ * absent. On any path/read/parse/registration failure returns -(count + 1),
+ * retaining the number already admitted; earlier registrations are not undone.
  */
 s32 assetCatalogScanBotVariants(const char *modsdir);
 
@@ -246,6 +248,20 @@ typedef struct ini_section {
 	ini_pair_t pairs[INI_MAX_PAIRS];
 	s32 count;
 } ini_section_t;
+
+/* Transactional legacy audio.ini admission using the caller's stable ID.
+ * Returns 1 on success, -1 on rejection with prior metadata/slots restored.
+ * defer_reloads is required while the network filesystem transaction is live. */
+s32 assetCatalogRegisterAudioIni(const char *catalog_id, const char *mod_id,
+	const char *dirpath, const ini_section_t *source, s32 default_category,
+	s32 defer_reloads);
+
+/* Base typed audio publication. Identity parameters are private extraction
+ * provenance, never authored numeric fields. Public source/control failures
+ * reject before replacement; allocation/publication failures roll back. */
+s32 assetCatalogRegisterBaseAudioSource(const char *catalog_id,
+    const char *archive_ref, const ini_section_t *source, s32 category,
+    s32 source_soundnum, s32 source_filenum);
 
 /**
  * Parse a .ini file into an ini_section_t.

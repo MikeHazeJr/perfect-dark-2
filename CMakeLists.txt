@@ -628,6 +628,11 @@ endif()
 # Precompiled header for the "core 4" game headers (C only -- C++ port files differ).
 # types.h, ultra64.h, data.h, constants.h are included by >50% of game TUs.
 # PCH saves parsing them ~350x per clean build (~5-8s on 24 cores).
+# The standalone upstream decoder must include its standard headers itself.
+# The game PCH's legacy math.h guard otherwise hides double-precision math
+# declarations; the tests already compile this same source without that PCH.
+set_source_files_properties("${CMAKE_SOURCE_DIR}/port/external/stb_vorbis.c"
+  PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 if(CMAKE_VERSION VERSION_GREATER_EQUAL "3.16")
   target_precompile_headers(pd PRIVATE
     "$<$<COMPILE_LANGUAGE:C>:${CMAKE_SOURCE_DIR}/src/include/types.h>"
@@ -664,6 +669,10 @@ add_executable(scenario-scene-probe
   "${CMAKE_SOURCE_DIR}/port/fast3d/glad/glad.c"
   "${CMAKE_SOURCE_DIR}/port/external/imgui-node-editor/crude_json.cpp"
   "${CMAKE_SOURCE_DIR}/port/src/modarchive.c"
+  "${CMAKE_SOURCE_DIR}/port/src/modasset_gltf_source.c"
+  "${CMAKE_SOURCE_DIR}/port/src/modasset_json.c"
+  "${CMAKE_SOURCE_DIR}/port/src/modasset_json_document.cpp"
+  "${CMAKE_SOURCE_DIR}/port/src/modasset_gltf_document.cpp"
   "${CMAKE_SOURCE_DIR}/port/src/sha256.c")
 add_dependencies(scenario-scene-probe pd_headers)
 set_target_properties(scenario-scene-probe PROPERTIES CXX_SCAN_FOR_MODULES OFF)
@@ -982,6 +991,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_cutscene_layer.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_observer_layer.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_metadata_lifecycle.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_runtime_adapters.cpp
 	${CMAKE_SOURCE_DIR}/tests/test_prop_graph_runtime.cpp
@@ -1004,6 +1014,15 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_json.c
   ${CMAKE_SOURCE_DIR}/tests/test_modasset_json.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/modasset_json_document.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/modasset_gltf_source.c
+  ${CMAKE_SOURCE_DIR}/port/src/modasset_gltf_document.cpp
+  ${CMAKE_SOURCE_DIR}/port/external/imgui-node-editor/crude_json.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_modasset_gltf_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_modasset_gltf_scene.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/lang_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_lang_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_archive_gltf_buffers.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_render_stream.c
   ${CMAKE_SOURCE_DIR}/tests/test_modasset_render_stream.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_material_order.c
@@ -1016,6 +1035,15 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/voice_archive_authoring.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_mod_utility_contract.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_runtime.c
+  ${CMAKE_SOURCE_DIR}/port/src/character_head_policy.c
+  ${CMAKE_SOURCE_DIR}/port/src/body_head_source.c
+  ${CMAKE_SOURCE_DIR}/port/src/texture_source_properties.c
+  ${CMAKE_SOURCE_DIR}/port/src/texture_stage_source.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/texture_source_upgrade.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_texture_source_upgrade.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_body_head_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_entry_snapshot.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_character_head_policy.cpp
 	${CMAKE_SOURCE_DIR}/port/src/prop_graph_runtime.c
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_deps.c
   ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_gameplay_graph_editor.cpp
@@ -1023,6 +1051,18 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/modpack_pdmod.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
+  ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_catalog.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_owners.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_native.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_equipped.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/weapon_command_source.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_gset.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_v2.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_v2_catalog.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_v2_native.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_v2_equipped.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_weapon_command_source.cpp
   # c3849 Wave 6b Unit 8: full .pdeffect runtime (compiler, records, bridges)
   # plus the custom spark-row registry it allocates tinted rows from.
   # sparks_custom.c is pure (table + constants + log); the base g_SparkTypes
@@ -1048,6 +1088,18 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_pdeffect_source_parser.cpp
   ${CMAKE_SOURCE_DIR}/port/src/loader_enum_reverse.c
   ${CMAKE_SOURCE_DIR}/port/src/modvfs.c
+  # Real codecs, SDL conversion and CPU mixer; one-shot tests use a dummy device.
+  ${CMAKE_SOURCE_DIR}/port/src/modmusic.c
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_audio_source_identity.c
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_audio_source_identity.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/catalog_audio_public_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_catalog_audio_public_source.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/audio_pcm_oneshot.c
+  ${CMAKE_SOURCE_DIR}/port/src/mixer.c
+  ${CMAKE_SOURCE_DIR}/tests/test_base_mp3_pcm_mixer.cpp
+  ${CMAKE_SOURCE_DIR}/port/external/minimp3.c
+  ${CMAKE_SOURCE_DIR}/port/external/stb_vorbis.c
+  ${CMAKE_SOURCE_DIR}/tests/test_modmusic_decode.cpp
   ${CMAKE_SOURCE_DIR}/port/src/sha256.c
   ${CMAKE_SOURCE_DIR}/tests/test_fast3d_blender_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_credits_texture_static.cpp

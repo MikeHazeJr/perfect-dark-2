@@ -14,6 +14,7 @@
  */
 
 #include "catch.hpp"
+#include <vector>
 
 #include <cstdio>
 
@@ -83,4 +84,31 @@ TEST_CASE("texture slots: admission snapshot restores reservations exactly",
 	REQUIRE(assetCatalogRestoreCustomTextureSlots(snapshot) == 1);
 	assetCatalogDestroyCustomTextureSlotSnapshot(snapshot);
 	REQUIRE(assetCatalogResolveTexturePrivateSlot("mod_x:tex_replacement") == retained + 1);
+}
+
+TEST_CASE("texture generation reservations survive reset and protect snapshot rollback", "[catalog][texture-slots]")
+{
+    assetCatalogResetCustomTextureSlots();
+    const s32 owner = assetCatalogResolveTexturePrivateSlot("mod:snapshot");
+    void *saved = assetCatalogSnapshotCustomTextureSlots();
+    REQUIRE(saved);
+    assetCatalogResetCustomTextureSlots();
+    std::vector<s32> generations;
+    for (s32 i = 0; i < TEXTURE_CUSTOM_COUNT - 1; ++i) {
+        s32 slot = assetCatalogReserveTextureGenerationSlot();
+        REQUIRE(slot >= TEXTURE_CUSTOM_START);
+        REQUIRE(slot < TEXTURE_CUSTOM_END);
+        REQUIRE(slot != owner);
+        generations.push_back(slot);
+    }
+    REQUIRE(assetCatalogReserveTextureGenerationSlot() == -1);
+    REQUIRE(assetCatalogRestoreCustomTextureSlots(saved));
+    REQUIRE(assetCatalogResolveTexturePrivateSlot("mod:snapshot") == owner);
+    REQUIRE(assetCatalogResolveTexturePrivateSlot("mod:cannot_steal") == -1);
+    const s32 reuse = generations.back(); generations.pop_back();
+    assetCatalogReleaseTextureGenerationSlot(reuse);
+    REQUIRE(assetCatalogResolveTexturePrivateSlot("mod:released") == reuse);
+    for (s32 slot : generations) assetCatalogReleaseTextureGenerationSlot(slot);
+    assetCatalogDestroyCustomTextureSlotSnapshot(saved);
+    assetCatalogResetCustomTextureSlots();
 }

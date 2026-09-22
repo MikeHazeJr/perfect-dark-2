@@ -1,0 +1,2818 @@
+{
+  "cell_count": 60,
+  "cells": [
+    {
+      "catalog_id": "base:defection",
+      "cell_id": "solo.000",
+      "dimensions": {
+        "difficulty": "agent",
+        "difficulty_symbol": "DIFF_A",
+        "difficulty_value": 0,
+        "solo_stage_index": 0
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "solo",
+      "indices": {
+        "solo_stage_index": 0,
+        "stage_table_index": 28,
+        "stagenum": 48
+      },
+      "ordinal": 0,
+      "proof_scope": "ordinary-client-campaign",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_DEFECTION"
+    },
+    {
+      "catalog_id": "base:extraction",
+      "cell_id": "solo.007",
+      "dimensions": {
+        "difficulty": "special-agent",
+        "difficulty_symbol": "DIFF_SA",
+        "difficulty_value": 1,
+        "solo_stage_index": 2
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "solo",
+      "indices": {
+        "solo_stage_index": 2,
+        "stage_table_index": 14,
+        "stagenum": 34
+      },
+      "ordinal": 7,
+      "proof_scope": "ordinary-client-campaign",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_EXTRACTION"
+    },
+    {
+      "catalog_id": "base:chicago",
+      "cell_id": "solo.014",
+      "dimensions": {
+        "difficulty": "perfect-agent",
+        "difficulty_symbol": "DIFF_PA",
+        "difficulty_value": 2,
+        "solo_stage_index": 4
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "solo",
+      "indices": {
+        "solo_stage_index": 4,
+        "stage_table_index": 9,
+        "stagenum": 29
+      },
+      "ordinal": 14,
+      "proof_scope": "ordinary-client-campaign",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_CHICAGO"
+    },
+    {
+      "catalog_id": "base:rescue",
+      "cell_id": "solo.021",
+      "dimensions": {
+        "difficulty": "agent",
+        "difficulty_symbol": "DIFF_A",
+        "difficulty_value": 0,
+        "solo_stage_index": 7
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "solo",
+      "indices": {
+        "solo_stage_index": 7,
+        "stage_table_index": 33,
+        "stagenum": 53
+      },
+      "ordinal": 21,
+      "proof_scope": "ordinary-client-campaign",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_RESCUE"
+    },
+    {
+      "catalog_id": "base:airbase",
+      "cell_id": "solo.028",
+      "dimensions": {
+        "difficulty": "special-agent",
+        "difficulty_symbol": "DIFF_SA",
+        "difficulty_value": 1,
+        "solo_stage_index": 9
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "solo",
+      "indices": {
+        "solo_stage_index": 9,
+        "stage_table_index": 19,
+        "stagenum": 39
+      },
+      "ordinal": 28,
+      "proof_scope": "ordinary-client-campaign",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_AIRBASE"
+    },
+    {
+      "catalog_id": "base:crashsite",
+      "cell_id": "solo.035",
+      "dimensions": {
+        "difficulty": "perfect-agent",
+        "difficulty_symbol": "DIFF_PA",
+        "difficulty_value": 2,
+        "solo_stage_index": 11
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "solo",
+      "indices": {
+        "solo_stage_index": 11,
+        "stage_table_index": 8,
+        "stagenum": 28
+      },
+      "ordinal": 35,
+      "proof_scope": "ordinary-client-campaign",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_CRASHSITE"
+    },
+    {
+      "catalog_id": "base:defense",
+      "cell_id": "solo.042",
+      "dimensions": {
+        "difficulty": "agent",
+        "difficulty_symbol": "DIFF_A",
+        "difficulty_value": 0,
+        "solo_stage_index": 14
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "solo",
+      "indices": {
+        "solo_stage_index": 14,
+        "stage_table_index": 25,
+        "stagenum": 45
+      },
+      "ordinal": 42,
+      "proof_scope": "ordinary-client-campaign",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_DEFENSE"
+    },
+    {
+      "catalog_id": "base:skedarruins",
+      "cell_id": "solo.049",
+      "dimensions": {
+        "difficulty": "special-agent",
+        "difficulty_symbol": "DIFF_SA",
+        "difficulty_value": 1,
+        "solo_stage_index": 16
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "solo",
+      "indices": {
+        "solo_stage_index": 16,
+        "stage_table_index": 22,
+        "stagenum": 42
+      },
+      "ordinal": 49,
+      "proof_scope": "ordinary-client-campaign",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_SKEDARRUINS"
+    },
+    {
+      "catalog_id": "base:maiansos",
+      "cell_id": "solo.056",
+      "dimensions": {
+        "difficulty": "perfect-agent",
+        "difficulty_symbol": "DIFF_PA",
+        "difficulty_value": 2,
+        "solo_stage_index": 18
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "solo",
+      "indices": {
+        "solo_stage_index": 18,
+        "stage_table_index": 0,
+        "stagenum": 9
+      },
+      "ordinal": 56,
+      "proof_scope": "ordinary-client-campaign",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MAIANSOS"
+    },
+    {
+      "catalog_id": "base:arena_mp_skedar",
+      "cell_id": "combat-simulator.000",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 0,
+        "scenario": "combat",
+        "scenario_symbol": "MPSCENARIO_COMBAT",
+        "scenario_value": 0
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 30,
+        "stagenum": 50
+      },
+      "ordinal": 0,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_SKEDAR"
+    },
+    {
+      "catalog_id": "base:arena_mp_pipes",
+      "cell_id": "combat-simulator.007",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 1,
+        "scenario": "hold-the-briefcase",
+        "scenario_symbol": "MPSCENARIO_HOLDTHEBRIEFCASE",
+        "scenario_value": 1
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 21,
+        "stagenum": 41
+      },
+      "ordinal": 7,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_PIPES"
+    },
+    {
+      "catalog_id": "base:arena_mp_ravine",
+      "cell_id": "combat-simulator.014",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 2,
+        "scenario": "hacker-central",
+        "scenario_symbol": "MPSCENARIO_HACKERCENTRAL",
+        "scenario_value": 2
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 3,
+        "stagenum": 23
+      },
+      "ordinal": 14,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_RAVINE"
+    },
+    {
+      "catalog_id": "base:arena_mp_g5building",
+      "cell_id": "combat-simulator.021",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 3,
+        "scenario": "pop-a-cap",
+        "scenario_symbol": "MPSCENARIO_POPACAP",
+        "scenario_value": 3
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 12,
+        "stagenum": 32
+      },
+      "ordinal": 21,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_G5BUILDING"
+    },
+    {
+      "catalog_id": "base:arena_mp_sewers",
+      "cell_id": "combat-simulator.028",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 4,
+        "scenario": "king-of-the-hill",
+        "scenario_symbol": "MPSCENARIO_KINGOFTHEHILL",
+        "scenario_value": 4
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 50,
+        "stagenum": 66
+      },
+      "ordinal": 28,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_SEWERS"
+    },
+    {
+      "catalog_id": "base:arena_mp_warehouse",
+      "cell_id": "combat-simulator.035",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 5,
+        "scenario": "capture-the-case",
+        "scenario_symbol": "MPSCENARIO_CAPTURETHECASE",
+        "scenario_value": 5
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 44,
+        "stagenum": 60
+      },
+      "ordinal": 35,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_WAREHOUSE"
+    },
+    {
+      "catalog_id": "base:arena_mp_ruins",
+      "cell_id": "combat-simulator.042",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 7,
+        "scenario": "combat",
+        "scenario_symbol": "MPSCENARIO_COMBAT",
+        "scenario_value": 0
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 49,
+        "stagenum": 65
+      },
+      "ordinal": 42,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_RUINS"
+    },
+    {
+      "catalog_id": "base:arena_mp_area52",
+      "cell_id": "combat-simulator.049",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 8,
+        "scenario": "hold-the-briefcase",
+        "scenario_symbol": "MPSCENARIO_HOLDTHEBRIEFCASE",
+        "scenario_value": 1
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 43,
+        "stagenum": 59
+      },
+      "ordinal": 49,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_AREA52"
+    },
+    {
+      "catalog_id": "base:arena_mp_base",
+      "cell_id": "combat-simulator.056",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 9,
+        "scenario": "hacker-central",
+        "scenario_symbol": "MPSCENARIO_HACKERCENTRAL",
+        "scenario_value": 2
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 41,
+        "stagenum": 57
+      },
+      "ordinal": 56,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_BASE"
+    },
+    {
+      "catalog_id": "base:arena_mp_fortress",
+      "cell_id": "combat-simulator.063",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 10,
+        "scenario": "pop-a-cap",
+        "scenario_symbol": "MPSCENARIO_POPACAP",
+        "scenario_value": 3
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 52,
+        "stagenum": 68
+      },
+      "ordinal": 63,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_FORTRESS"
+    },
+    {
+      "catalog_id": "base:arena_mp_villa",
+      "cell_id": "combat-simulator.070",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 11,
+        "scenario": "king-of-the-hill",
+        "scenario_symbol": "MPSCENARIO_KINGOFTHEHILL",
+        "scenario_value": 4
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 53,
+        "stagenum": 69
+      },
+      "ordinal": 70,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_VILLA"
+    },
+    {
+      "catalog_id": "base:arena_mp_carpark",
+      "cell_id": "combat-simulator.077",
+      "dimensions": {
+        "arena_category": "Dark",
+        "arena_index": 12,
+        "scenario": "capture-the-case",
+        "scenario_symbol": "MPSCENARIO_CAPTURETHECASE",
+        "scenario_value": 5
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 45,
+        "stagenum": 61
+      },
+      "ordinal": 77,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_CARPARK"
+    },
+    {
+      "catalog_id": "base:arena_mp_complex",
+      "cell_id": "combat-simulator.084",
+      "dimensions": {
+        "arena_category": "Classic",
+        "arena_index": 28,
+        "scenario": "combat",
+        "scenario_symbol": "MPSCENARIO_COMBAT",
+        "scenario_value": 0
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 11,
+        "stagenum": 31
+      },
+      "ordinal": 84,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_COMPLEX"
+    },
+    {
+      "catalog_id": "base:arena_mp_grid6",
+      "cell_id": "combat-simulator.091",
+      "dimensions": {
+        "arena_category": "Classic",
+        "arena_index": 29,
+        "scenario": "hold-the-briefcase",
+        "scenario_symbol": "MPSCENARIO_HOLDTHEBRIEFCASE",
+        "scenario_value": 1
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 46,
+        "stagenum": 62
+      },
+      "ordinal": 91,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_TEST_MP6"
+    },
+    {
+      "catalog_id": "base:arena_mp_grid2",
+      "cell_id": "combat-simulator.098",
+      "dimensions": {
+        "arena_category": "Classic",
+        "arena_index": 30,
+        "scenario": "hacker-central",
+        "scenario_symbol": "MPSCENARIO_HACKERCENTRAL",
+        "scenario_value": 2
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 42,
+        "stagenum": 58
+      },
+      "ordinal": 98,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_TEST_MP2"
+    },
+    {
+      "catalog_id": "base:arena_mp_felicity",
+      "cell_id": "combat-simulator.105",
+      "dimensions": {
+        "arena_category": "Classic",
+        "arena_index": 31,
+        "scenario": "pop-a-cap",
+        "scenario_symbol": "MPSCENARIO_POPACAP",
+        "scenario_value": 3
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "combat-simulator",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": 51,
+        "stagenum": 67
+      },
+      "ordinal": 105,
+      "proof_scope": "ordinary-client-combat-simulator",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MP_FELICITY"
+    },
+    {
+      "cell_id": "challenge.004",
+      "dimensions": {
+        "challenge_index": 1,
+        "config_symbol": "MPCONFIG_CHALLENGE02",
+        "config_value": 15,
+        "name_langid": "L_OPTIONS_407",
+        "player_count": 1
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 4,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.011",
+      "dimensions": {
+        "challenge_index": 2,
+        "config_symbol": "MPCONFIG_CHALLENGE03",
+        "config_value": 16,
+        "name_langid": "L_OPTIONS_408",
+        "player_count": 4
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 11,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.018",
+      "dimensions": {
+        "challenge_index": 4,
+        "config_symbol": "MPCONFIG_CHALLENGE05",
+        "config_value": 18,
+        "name_langid": "L_OPTIONS_410",
+        "player_count": 3
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 18,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.025",
+      "dimensions": {
+        "challenge_index": 6,
+        "config_symbol": "MPCONFIG_CHALLENGE07",
+        "config_value": 20,
+        "name_langid": "L_OPTIONS_412",
+        "player_count": 2
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 25,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.032",
+      "dimensions": {
+        "challenge_index": 8,
+        "config_symbol": "MPCONFIG_CHALLENGE09",
+        "config_value": 22,
+        "name_langid": "L_OPTIONS_414",
+        "player_count": 1
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 32,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.039",
+      "dimensions": {
+        "challenge_index": 9,
+        "config_symbol": "MPCONFIG_CHALLENGE10",
+        "config_value": 23,
+        "name_langid": "L_OPTIONS_415",
+        "player_count": 4
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 39,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.046",
+      "dimensions": {
+        "challenge_index": 11,
+        "config_symbol": "MPCONFIG_CHALLENGE12",
+        "config_value": 25,
+        "name_langid": "L_OPTIONS_417",
+        "player_count": 3
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 46,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.053",
+      "dimensions": {
+        "challenge_index": 13,
+        "config_symbol": "MPCONFIG_CHALLENGE14",
+        "config_value": 27,
+        "name_langid": "L_OPTIONS_419",
+        "player_count": 2
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 53,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.060",
+      "dimensions": {
+        "challenge_index": 15,
+        "config_symbol": "MPCONFIG_CHALLENGE16",
+        "config_value": 29,
+        "name_langid": "L_OPTIONS_421",
+        "player_count": 1
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 60,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.067",
+      "dimensions": {
+        "challenge_index": 16,
+        "config_symbol": "MPCONFIG_CHALLENGE17",
+        "config_value": 30,
+        "name_langid": "L_OPTIONS_422",
+        "player_count": 4
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 67,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.074",
+      "dimensions": {
+        "challenge_index": 18,
+        "config_symbol": "MPCONFIG_CHALLENGE19",
+        "config_value": 32,
+        "name_langid": "L_OPTIONS_424",
+        "player_count": 3
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 74,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.081",
+      "dimensions": {
+        "challenge_index": 20,
+        "config_symbol": "MPCONFIG_CHALLENGE21",
+        "config_value": 34,
+        "name_langid": "L_OPTIONS_426",
+        "player_count": 2
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 81,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.088",
+      "dimensions": {
+        "challenge_index": 22,
+        "config_symbol": "MPCONFIG_CHALLENGE23",
+        "config_value": 36,
+        "name_langid": "L_OPTIONS_428",
+        "player_count": 1
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 88,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.095",
+      "dimensions": {
+        "challenge_index": 23,
+        "config_symbol": "MPCONFIG_CHALLENGE24",
+        "config_value": 37,
+        "name_langid": "L_OPTIONS_429",
+        "player_count": 4
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 95,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.102",
+      "dimensions": {
+        "challenge_index": 25,
+        "config_symbol": "MPCONFIG_CHALLENGE26",
+        "config_value": 39,
+        "name_langid": "L_OPTIONS_431",
+        "player_count": 3
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 102,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.109",
+      "dimensions": {
+        "challenge_index": 27,
+        "config_symbol": "MPCONFIG_CHALLENGE28",
+        "config_value": 41,
+        "name_langid": "L_OPTIONS_433",
+        "player_count": 2
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 109,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.116",
+      "dimensions": {
+        "challenge_index": 29,
+        "config_symbol": "MPCONFIG_CHALLENGE30",
+        "config_value": 43,
+        "name_langid": "L_OPTIONS_435",
+        "player_count": 1
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "challenge",
+      "indices": {
+        "solo_stage_index": null,
+        "stage_table_index": null,
+        "stagenum": null
+      },
+      "ordinal": 116,
+      "proof_scope": "ordinary-client-challenge",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing"
+    },
+    {
+      "catalog_id": "base:defection",
+      "cell_id": "network.003",
+      "dimensions": {
+        "difficulty": "agent",
+        "difficulty_symbol": "DIFF_A",
+        "difficulty_value": 0,
+        "mode": "counter-op",
+        "mode_symbol": "GAMEMODE_ANTI",
+        "solo_stage_index": 0
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 0,
+        "stage_table_index": 28,
+        "stagenum": 48
+      },
+      "ordinal": 3,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_DEFECTION"
+    },
+    {
+      "catalog_id": "base:investigation",
+      "cell_id": "network.010",
+      "dimensions": {
+        "difficulty": "special-agent",
+        "difficulty_symbol": "DIFF_SA",
+        "difficulty_value": 1,
+        "mode": "counter-op",
+        "mode_symbol": "GAMEMODE_ANTI",
+        "solo_stage_index": 1
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 1,
+        "stage_table_index": 31,
+        "stagenum": 51
+      },
+      "ordinal": 10,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_INVESTIGATION"
+    },
+    {
+      "catalog_id": "base:extraction",
+      "cell_id": "network.017",
+      "dimensions": {
+        "difficulty": "perfect-agent",
+        "difficulty_symbol": "DIFF_PA",
+        "difficulty_value": 2,
+        "mode": "counter-op",
+        "mode_symbol": "GAMEMODE_ANTI",
+        "solo_stage_index": 2
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 2,
+        "stage_table_index": 14,
+        "stagenum": 34
+      },
+      "ordinal": 17,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_EXTRACTION"
+    },
+    {
+      "catalog_id": "base:chicago",
+      "cell_id": "network.024",
+      "dimensions": {
+        "difficulty": "agent",
+        "difficulty_symbol": "DIFF_A",
+        "difficulty_value": 0,
+        "mode": "co-op",
+        "mode_symbol": "GAMEMODE_COOP",
+        "solo_stage_index": 4
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 4,
+        "stage_table_index": 9,
+        "stagenum": 29
+      },
+      "ordinal": 24,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_CHICAGO"
+    },
+    {
+      "catalog_id": "base:g5building",
+      "cell_id": "network.031",
+      "dimensions": {
+        "difficulty": "special-agent",
+        "difficulty_symbol": "DIFF_SA",
+        "difficulty_value": 1,
+        "mode": "co-op",
+        "mode_symbol": "GAMEMODE_COOP",
+        "solo_stage_index": 5
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 5,
+        "stage_table_index": 10,
+        "stagenum": 30
+      },
+      "ordinal": 31,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_G5BUILDING"
+    },
+    {
+      "catalog_id": "base:infiltration",
+      "cell_id": "network.038",
+      "dimensions": {
+        "difficulty": "perfect-agent",
+        "difficulty_symbol": "DIFF_PA",
+        "difficulty_value": 2,
+        "mode": "co-op",
+        "mode_symbol": "GAMEMODE_COOP",
+        "solo_stage_index": 6
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 6,
+        "stage_table_index": 27,
+        "stagenum": 47
+      },
+      "ordinal": 38,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_INFILTRATION"
+    },
+    {
+      "catalog_id": "base:rescue",
+      "cell_id": "network.045",
+      "dimensions": {
+        "difficulty": "agent",
+        "difficulty_symbol": "DIFF_A",
+        "difficulty_value": 0,
+        "mode": "counter-op",
+        "mode_symbol": "GAMEMODE_ANTI",
+        "solo_stage_index": 7
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 7,
+        "stage_table_index": 33,
+        "stagenum": 53
+      },
+      "ordinal": 45,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_RESCUE"
+    },
+    {
+      "catalog_id": "base:escape",
+      "cell_id": "network.052",
+      "dimensions": {
+        "difficulty": "special-agent",
+        "difficulty_symbol": "DIFF_SA",
+        "difficulty_value": 1,
+        "mode": "counter-op",
+        "mode_symbol": "GAMEMODE_ANTI",
+        "solo_stage_index": 8
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 8,
+        "stage_table_index": 5,
+        "stagenum": 25
+      },
+      "ordinal": 52,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_ESCAPE"
+    },
+    {
+      "catalog_id": "base:airbase",
+      "cell_id": "network.059",
+      "dimensions": {
+        "difficulty": "perfect-agent",
+        "difficulty_symbol": "DIFF_PA",
+        "difficulty_value": 2,
+        "mode": "counter-op",
+        "mode_symbol": "GAMEMODE_ANTI",
+        "solo_stage_index": 9
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 9,
+        "stage_table_index": 19,
+        "stagenum": 39
+      },
+      "ordinal": 59,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_AIRBASE"
+    },
+    {
+      "catalog_id": "base:crashsite",
+      "cell_id": "network.066",
+      "dimensions": {
+        "difficulty": "agent",
+        "difficulty_symbol": "DIFF_A",
+        "difficulty_value": 0,
+        "mode": "co-op",
+        "mode_symbol": "GAMEMODE_COOP",
+        "solo_stage_index": 11
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 11,
+        "stage_table_index": 8,
+        "stagenum": 28
+      },
+      "ordinal": 66,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_CRASHSITE"
+    },
+    {
+      "catalog_id": "base:pelagic",
+      "cell_id": "network.073",
+      "dimensions": {
+        "difficulty": "special-agent",
+        "difficulty_symbol": "DIFF_SA",
+        "difficulty_value": 1,
+        "mode": "co-op",
+        "mode_symbol": "GAMEMODE_COOP",
+        "solo_stage_index": 12
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 12,
+        "stage_table_index": 13,
+        "stagenum": 33
+      },
+      "ordinal": 73,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_PELAGIC"
+    },
+    {
+      "catalog_id": "base:deepsea",
+      "cell_id": "network.080",
+      "dimensions": {
+        "difficulty": "perfect-agent",
+        "difficulty_symbol": "DIFF_PA",
+        "difficulty_value": 2,
+        "mode": "co-op",
+        "mode_symbol": "GAMEMODE_COOP",
+        "solo_stage_index": 13
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 13,
+        "stage_table_index": 36,
+        "stagenum": 56
+      },
+      "ordinal": 80,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_DEEPSEA"
+    },
+    {
+      "catalog_id": "base:defense",
+      "cell_id": "network.087",
+      "dimensions": {
+        "difficulty": "agent",
+        "difficulty_symbol": "DIFF_A",
+        "difficulty_value": 0,
+        "mode": "counter-op",
+        "mode_symbol": "GAMEMODE_ANTI",
+        "solo_stage_index": 14
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 14,
+        "stage_table_index": 25,
+        "stagenum": 45
+      },
+      "ordinal": 87,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_DEFENSE"
+    },
+    {
+      "catalog_id": "base:attackship",
+      "cell_id": "network.094",
+      "dimensions": {
+        "difficulty": "special-agent",
+        "difficulty_symbol": "DIFF_SA",
+        "difficulty_value": 1,
+        "mode": "counter-op",
+        "mode_symbol": "GAMEMODE_ANTI",
+        "solo_stage_index": 15
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 15,
+        "stage_table_index": 32,
+        "stagenum": 52
+      },
+      "ordinal": 94,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_ATTACKSHIP"
+    },
+    {
+      "catalog_id": "base:skedarruins",
+      "cell_id": "network.101",
+      "dimensions": {
+        "difficulty": "perfect-agent",
+        "difficulty_symbol": "DIFF_PA",
+        "difficulty_value": 2,
+        "mode": "counter-op",
+        "mode_symbol": "GAMEMODE_ANTI",
+        "solo_stage_index": 16
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 16,
+        "stage_table_index": 22,
+        "stagenum": 42
+      },
+      "ordinal": 101,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_SKEDARRUINS"
+    },
+    {
+      "catalog_id": "base:maiansos",
+      "cell_id": "network.108",
+      "dimensions": {
+        "difficulty": "agent",
+        "difficulty_symbol": "DIFF_A",
+        "difficulty_value": 0,
+        "mode": "co-op",
+        "mode_symbol": "GAMEMODE_COOP",
+        "solo_stage_index": 18
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 18,
+        "stage_table_index": 0,
+        "stagenum": 9
+      },
+      "ordinal": 108,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_MAIANSOS"
+    },
+    {
+      "catalog_id": "base:war",
+      "cell_id": "network.115",
+      "dimensions": {
+        "difficulty": "special-agent",
+        "difficulty_symbol": "DIFF_SA",
+        "difficulty_value": 1,
+        "mode": "co-op",
+        "mode_symbol": "GAMEMODE_COOP",
+        "solo_stage_index": 19
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 19,
+        "stage_table_index": 2,
+        "stagenum": 22
+      },
+      "ordinal": 115,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_WAR"
+    },
+    {
+      "catalog_id": "base:duel",
+      "cell_id": "network.122",
+      "dimensions": {
+        "difficulty": "perfect-agent",
+        "difficulty_symbol": "DIFF_PA",
+        "difficulty_value": 2,
+        "mode": "co-op",
+        "mode_symbol": "GAMEMODE_COOP",
+        "solo_stage_index": 20
+      },
+      "execution_status": "not_executable_until_fixture_exists",
+      "family": "network",
+      "indices": {
+        "solo_stage_index": 20,
+        "stage_table_index": 39,
+        "stagenum": 79
+      },
+      "ordinal": 122,
+      "proof_scope": "ordinary-client-real-peer",
+      "runner_fixture": null,
+      "runner_fixture_status": "missing",
+      "stage_symbol": "STAGE_DUEL"
+    }
+  ],
+  "execution_policy": {
+    "fixture_generation_and_runtime_driver_required": true,
+    "ordinary_gameplay_only_for_validation": true,
+    "static_and_accelerated_are_recorded_but_never_promoted": true,
+    "timeout_or_crash_requires_retry": true
+  },
+  "gameplay_commands": [],
+  "gameplay_runner": "tools/smoke-verify/run.ps1",
+  "matrix_fingerprint": "75EAB92F6B3D830183E468A1B318165CD51FC8F35F1817365D2E74638F2B3A24",
+  "plan_kind": "deterministic-coverage-work-plan",
+  "receipt_commands": [
+    {
+      "cell_id": "solo.000",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "solo.000",
+        "--observation",
+        "observations/solo.000.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/solo.000.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "solo.007",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "solo.007",
+        "--observation",
+        "observations/solo.007.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/solo.007.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "solo.014",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "solo.014",
+        "--observation",
+        "observations/solo.014.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/solo.014.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "solo.021",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "solo.021",
+        "--observation",
+        "observations/solo.021.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/solo.021.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "solo.028",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "solo.028",
+        "--observation",
+        "observations/solo.028.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/solo.028.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "solo.035",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "solo.035",
+        "--observation",
+        "observations/solo.035.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/solo.035.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "solo.042",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "solo.042",
+        "--observation",
+        "observations/solo.042.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/solo.042.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "solo.049",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "solo.049",
+        "--observation",
+        "observations/solo.049.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/solo.049.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "solo.056",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "solo.056",
+        "--observation",
+        "observations/solo.056.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/solo.056.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.000",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.000",
+        "--observation",
+        "observations/combat-simulator.000.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.000.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.007",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.007",
+        "--observation",
+        "observations/combat-simulator.007.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.007.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.014",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.014",
+        "--observation",
+        "observations/combat-simulator.014.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.014.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.021",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.021",
+        "--observation",
+        "observations/combat-simulator.021.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.021.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.028",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.028",
+        "--observation",
+        "observations/combat-simulator.028.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.028.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.035",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.035",
+        "--observation",
+        "observations/combat-simulator.035.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.035.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.042",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.042",
+        "--observation",
+        "observations/combat-simulator.042.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.042.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.049",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.049",
+        "--observation",
+        "observations/combat-simulator.049.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.049.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.056",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.056",
+        "--observation",
+        "observations/combat-simulator.056.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.056.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.063",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.063",
+        "--observation",
+        "observations/combat-simulator.063.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.063.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.070",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.070",
+        "--observation",
+        "observations/combat-simulator.070.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.070.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.077",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.077",
+        "--observation",
+        "observations/combat-simulator.077.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.077.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.084",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.084",
+        "--observation",
+        "observations/combat-simulator.084.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.084.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.091",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.091",
+        "--observation",
+        "observations/combat-simulator.091.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.091.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.098",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.098",
+        "--observation",
+        "observations/combat-simulator.098.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.098.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "combat-simulator.105",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "combat-simulator.105",
+        "--observation",
+        "observations/combat-simulator.105.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/combat-simulator.105.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.004",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.004",
+        "--observation",
+        "observations/challenge.004.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.004.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.011",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.011",
+        "--observation",
+        "observations/challenge.011.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.011.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.018",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.018",
+        "--observation",
+        "observations/challenge.018.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.018.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.025",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.025",
+        "--observation",
+        "observations/challenge.025.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.025.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.032",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.032",
+        "--observation",
+        "observations/challenge.032.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.032.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.039",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.039",
+        "--observation",
+        "observations/challenge.039.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.039.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.046",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.046",
+        "--observation",
+        "observations/challenge.046.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.046.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.053",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.053",
+        "--observation",
+        "observations/challenge.053.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.053.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.060",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.060",
+        "--observation",
+        "observations/challenge.060.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.060.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.067",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.067",
+        "--observation",
+        "observations/challenge.067.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.067.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.074",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.074",
+        "--observation",
+        "observations/challenge.074.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.074.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.081",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.081",
+        "--observation",
+        "observations/challenge.081.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.081.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.088",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.088",
+        "--observation",
+        "observations/challenge.088.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.088.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.095",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.095",
+        "--observation",
+        "observations/challenge.095.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.095.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.102",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.102",
+        "--observation",
+        "observations/challenge.102.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.102.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.109",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.109",
+        "--observation",
+        "observations/challenge.109.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.109.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "challenge.116",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "challenge.116",
+        "--observation",
+        "observations/challenge.116.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/challenge.116.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.003",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.003",
+        "--observation",
+        "observations/network.003.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.003.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.010",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.010",
+        "--observation",
+        "observations/network.010.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.010.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.017",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.017",
+        "--observation",
+        "observations/network.017.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.017.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.024",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.024",
+        "--observation",
+        "observations/network.024.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.024.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.031",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.031",
+        "--observation",
+        "observations/network.031.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.031.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.038",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.038",
+        "--observation",
+        "observations/network.038.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.038.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.045",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.045",
+        "--observation",
+        "observations/network.045.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.045.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.052",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.052",
+        "--observation",
+        "observations/network.052.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.052.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.059",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.059",
+        "--observation",
+        "observations/network.059.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.059.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.066",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.066",
+        "--observation",
+        "observations/network.066.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.066.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.073",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.073",
+        "--observation",
+        "observations/network.073.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.073.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.080",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.080",
+        "--observation",
+        "observations/network.080.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.080.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.087",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.087",
+        "--observation",
+        "observations/network.087.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.087.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.094",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.094",
+        "--observation",
+        "observations/network.094.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.094.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.101",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.101",
+        "--observation",
+        "observations/network.101.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.101.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.108",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.108",
+        "--observation",
+        "observations/network.108.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.108.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.115",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.115",
+        "--observation",
+        "observations/network.115.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.115.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    },
+    {
+      "cell_id": "network.122",
+      "gameplay_command": null,
+      "receipt_command": [
+        "python",
+        "tools/base_content_coverage.py",
+        "receipt",
+        "--matrix",
+        "tools/base-content-coverage/matrix-v1.json",
+        "--cell-id",
+        "network.122",
+        "--observation",
+        "observations/network.122.json",
+        "--artifact-base",
+        "<run-root>",
+        "--binary",
+        "<client-binary>",
+        "--out",
+        "receipts/network.122.receipt.json"
+      ],
+      "receipt_role": "convert a retained smoke observation into a durable receipt",
+      "runner": "tools/smoke-verify/run.ps1",
+      "runner_fixture_status": "missing"
+    }
+  ],
+  "schema": "pd2.base-content.coverage-work-plan",
+  "schema_version": 1,
+  "shard_count": 7,
+  "shard_index": 0,
+  "source_fingerprint": "FBCDF2245BFF2BA8EA82D69AFB5B8B6BFD086FFD83B06C3C324C6056B80E717B",
+  "status": "not_executable"
+}

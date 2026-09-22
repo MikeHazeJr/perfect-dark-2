@@ -44,6 +44,10 @@ typedef struct {
      * to 0 (Step 4 non-destructive overlay) for row-only kinds that do
      * not need to refresh existing handles. */
     s32         always_invoke;
+    /* Optional public source identity. The private envelope is then only
+     * generated provenance and may be absent; existing kinds default NULL. */
+    const char *public_descriptor;
+    const char *public_section;
 } loader_walker_kind_desc_t;
 
 /* Per-kind result counters. */
@@ -61,9 +65,12 @@ typedef struct {
  *                         (full JSON file for plain-kind .pd<ext>; the
  *                         "_meta/manifest.json" entry's bytes for ZIP compounds;
  *                         migration readers still accept legacy root manifest.json)
+ *                         May be an empty string for public-source kinds.
  *   manifest_json_len    bytes of JSON (excluding the appended NUL)
- *   pd_kind              value of "pd_kind" field from envelope
- *   id                   value of "id" field from envelope (catalog ID)
+ *   pd_kind              descriptor kind when public_descriptor is selected;
+ *                         otherwise the private envelope pd_kind
+ *   id                   public catalog_id/id when public_descriptor is selected;
+ *                         otherwise the private envelope id (catalog ID)
  *   file_path            relative path under data/<romid>/ for diagnostics
  *
  * Returns: 1 = registered, 0 = skip (e.g. duplicate / unknown), -1 = failure.

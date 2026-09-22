@@ -17,6 +17,8 @@
 #include "boot_pool.h"
 #include "boot_progress.h"
 #include "bodydata_authored.h"
+#include "character_head_policy.h"
+#include "constants.h"
 #include "data.h"
 #include "fs.h"
 #include "headdata_authored.h"
@@ -27,10 +29,9 @@
 #include "types.h"
 
 #define PDCHARACTER_MP_BODY_COUNT 63
-/* Bump the fast-cache kind to force re-extraction when the emitted field
- * set changes. _b943fields adds the additive "name_langid" (mpbody::name
- * display-name langbank id) to manifest.json + character.ini. */
-#define PDCHARACTER_FAST_CACHE_KIND "pdcharacter_b943fields"
+/* Both directory and per-archive reuse must acquire explicit head policy. */
+#define PDCHARACTER_FAST_CACHE_KIND "pdcharacter_head_policy_v1"
+#define PDCHARACTER_SOURCE_CONTRACT "character.head_policy.v1"
 
 static void s_idToFilename(const char *id, char *out, size_t n)
 {
@@ -142,10 +143,31 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 	const struct mpbody *mpbody = &g_MpBodies[mpbody_idx];
 	const body_authored_record_t *body =
 		bodyDataLookupByBodynum((s32)mpbody->bodynum);
-	if (!body || !body->catalog_id || !body->catalog_id[0]) return 0;
+	if (!body || !body->catalog_id || !body->catalog_id[0]) {
+		sysLoudFailf("EXTRACT.PDCHARACTER",
+			"MP character %d has no authored body %d", mpbody_idx, mpbody->bodynum);
+		return -1;
+	}
 
-	const head_authored_record_t *head =
-		headDataLookupByHeadnum((s32)mpbody->headnum);
+	const head_authored_record_t *head = NULL;
+	character_head_policy_e policy;
+	/* Complete-body metadata takes precedence over the legacy head sentinel.
+	 * Only fixed policy resolves and embeds a separate head dependency. */
+	if (body->unk00_01) {
+		policy = CHARACTER_HEAD_POLICY_INTEGRATED;
+	} else if (mpbody->headnum == HEAD_RANDOM_GENDER) {
+		policy = CHARACTER_HEAD_POLICY_RANDOM_GENDER;
+	} else {
+		policy = CHARACTER_HEAD_POLICY_FIXED;
+		head = headDataLookupByHeadnum((s32)mpbody->headnum);
+		if (!head || !head->catalog_id || !head->catalog_id[0]) {
+			sysLoudFailf("EXTRACT.PDCHARACTER",
+				"MP character %d fixed head %d cannot resolve authored head source",
+				mpbody_idx, mpbody->headnum);
+			return -1;
+		}
+	}
+	const char *head_policy = characterHeadPolicyName(policy);
 
 	char character_id[128];
 	s_characterIdForBody(body->catalog_id, character_id, sizeof(character_id));
@@ -182,6 +204,8 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
 	    s_existingArchiveEntryContains(dst_rel, "character.ini",
 		    "dependency_closure = embedded.v2") &&
+	    s_existingArchiveEntryContains(dst_rel, "character.ini",
+		    "source_contract = " PDCHARACTER_SOURCE_CONTRACT "\n") &&
 	    s_existingArchiveHasEntry(dst_rel, "body.pdbody") &&
 	    (!head || s_existingArchiveHasEntry(dst_rel, "head.pdhead"))) {
 		return 0;
@@ -194,8 +218,10 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		"  \"pd_schema_version\": 1,\n"
 		"  \"id\": \"%s\",\n"
 		"  \"dependency_closure\": \"embedded.v2\",\n"
+		"  \"source_contract\": \"" PDCHARACTER_SOURCE_CONTRACT "\",\n"
 		"  \"body\": \"%s\",\n"
 		"  \"head\": %s%s%s,\n"
+		"  \"head_policy\": \"%s\",\n"
 		"  \"mp_body_index\": %d,\n"
 		"  \"name_langid\": %d,\n"
 		"  \"body_archive\": \"body.pdbody\",\n"
@@ -204,6 +230,7 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		character_id,
 		body->catalog_id,
 		head ? "\"" : "", head ? head->catalog_id : "null", head ? "\"" : "",
+		head_policy,
 		mpbody_idx,
 		(s32)mpbody->name,
 		head ? "\"" : "", head ? "head.pdhead" : "null", head ? "\"" : "");
@@ -219,8 +246,10 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		"catalog_id = %s\n"
 		"schema = character.v1\n"
 		"dependency_closure = embedded.v2\n"
+		"source_contract = " PDCHARACTER_SOURCE_CONTRACT "\n"
 		"body_asset = %s\n"
 		"head_asset = %s\n"
+		"head_policy = %s\n"
 		"bodyfile = body.pdbody\n"
 		"headfile = %s\n"
 		"mp_body_index = %d\n"
@@ -231,6 +260,7 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		character_id,
 		body->catalog_id,
 		head && head->catalog_id ? head->catalog_id : "",
+		head_policy,
 		head ? "head.pdhead" : "",
 		mpbody_idx,
 		(s32)mpbody->bodynum,

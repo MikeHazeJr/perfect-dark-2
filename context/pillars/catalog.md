@@ -1,5 +1,85 @@
 # Catalog System
 
+2026-09-22 19:36 ET accepted long-install cache fallback: standard public
+animation source activates through the ordinary catalog on a portable install
+whose readable cache hierarchy exceeds the Windows CRT path budget. The
+compiler selects flat `$H/mc` private source-hashed cache, with full SHA-256
+catalog/source/version identity; the public typed archive remains the source.
+Fresh installed source-only smoke passed 10/10 on client `76CA2D10`, with
+isolated builds, focused contract and native guard also green. Other asset
+families and complete runtime coverage remain separate work.
+
+2026-09-22 19:15 ET pending verification: a long install can exceed the
+Windows CRT cache path budget for an otherwise valid public base animation.
+`modasset_compiler` now retains readable private cache paths when they fit
+and falls back to flat short-root private cache files keyed by full SHA-256
+catalog/source/compiler identity. Public typed source remains the only
+authoring input; a dedicated long-install source-only smoke is prepared.
+No runtime acceptance is claimed until the combined gate passes.
+
+2026-09-22 18:51 ET accepted graph catalog bridge: the executable v2
+candidate registry now admits exact `base:` IDs while rejecting ambiguous
+multi-colon identities, and exposes the prepared primary/secondary function
+for native `gset` selection. Isolated builds, source guard, and freshly rebuilt
+graph-v2 41/41 cases with 547 assertions passed. Actual base weapon extraction
+and ordinary gameplay activation remain v1 and require separate migration.
+
+2026-09-22 18:28 ET accepted follow-on: installed model-generation proof now
+registers and activates an ordinary ASSET_MODEL row from selected public OBJ,
+releases stage ownership while an independent generation remains live, and
+expects a malformed replacement image to fail closed. Isolated client/tests
+builds, native source guard, installed nested25/25 and smoke35/35 passed;
+the ordinary catalog row activated the edited generation and rejected the bad
+image. Evidence: .claude/smoke-verify-runs/results-20260922T222736Z.json.
+Rendered and complete base model-family parity remain open.
+
+2026-09-22 18:08 ET accepted component: selected public models compile into
+retained source-captured generations with exact texture generation leases.
+Ordinary catalog model load/unload owns that generation instead of freeing a
+bare editable-source modeldef. Isolated builds/guard and installed nested25/25,
+smoke35/35 pass the edited-image/retirement case. The subsequent ordinary
+catalog-entry mutation proof is recorded above; full model-family parity and
+graph gameplay remain open.
+
+## 2026-09-06 current asset evidence and character policy unit
+
+Batch3 fresh conformance passes 8,610 root / 9,611 total archives across all 27
+families with zero errors; client `4F016CF4` passes source-consumer smoke 18/18 on
+unchanged 157-path `0CF630E3`. These supersede the intermediate corpus failures
+below; complete extraction/runtime/rendering remains open. Exact receipts are in
+the [asset audit](../audits/2026/asset-source-runtime-contract-2026-09-05.md).
+
+T048 now adds explicit fixed/random_gender/integrated character policy and shared
+strict ingress, plus transactional registration of embedded body/head children
+and typed owner edges. Integrated policy requires public complete-body source
+and checked selected manager ownership; the public identity planner accepts an
+empty head only for that complete body. Six Python source cases and the ten
+focused policy/runtime plus six added identity cases pass. Fresh installed
+client C3A64691 on unchanged207-path source02A5C91A passes6/6 smoke assertions,
+including all63 typed activations (26fixed35random_gender2integrated). Random UI
+selection, private body-manager source authority, and network empty-head identity
+remain distinct follow-ups; template activation alone does not close them.
+
+## 2026-09-05 asset lifecycle and standard-source correction
+
+T-ASSETS-038 source now prepares collision and typed runtime adapters before
+publishing one active catalog payload, rolls back acquired adapters and private
+geometry on rejection, and detaches adapters before final colmesh release.
+T-ASSETS-039 connects archive-local glTF buffers to the provider and cache
+fingerprint with checked declarations and byte bounds. Isolated builds and
+the affected automated contracts pass. V-006's 19 transaction cases and match
+start pass on source `85609312...`; the corrected fixture now passes 32/32 on
+unchanged client `2097E1C8...` in the explicitly resumed batch. T-ASSETS-043 now
+passes 18/18 real collision/model/renderer-source assertions on client
+`87D74D0D...`, unchanged source `F1500A6F...`. This is CPU/source-consumer proof;
+GPU and human visual acceptance remain separate. The fresh corpus gate then
+stopped at 2,700 diagnostics; T-ASSETS-044 corrects MP3/WAV contract dispatch and
+the corrected gate will retain every diagnostic in JSON. T-ASSETS-042's initial
+language contracts pass; regional source selection and game-font work remain.
+Full glTF visual import and
+all-family edited-source proof remain open in the
+[current asset audit](../audits/2026/asset-source-runtime-contract-2026-09-05.md).
+
 ## 2026-08-12 custom-model live render closure
 
 Workbench `T-CATALOG-001` is implemented. The catalog-owned private model-slot

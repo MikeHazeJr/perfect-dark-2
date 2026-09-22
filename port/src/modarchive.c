@@ -77,6 +77,7 @@ struct mod_archive {
 	FILE *fp;
 	u32   file_size;
 	s32   entry_count;
+	s32   source_view_complete;
 	struct mod_archive_entry *entries;
 	char *names_pool;        /* freed at close */
 	u32   names_pool_used;
@@ -368,6 +369,10 @@ mod_archive_t *modArchiveOpen(const char *path)
 	arc->fp = fp;
 	arc->file_size = fileSize;
 	arc->comment = commentBuf;
+	arc->source_view_complete = validEntries == totalEntries && walked == cdSize
+		&& !memchr(commentBuf, 0, commentLen)
+		&& readU16LE(&eocd[4]) == 0 && readU16LE(&eocd[6]) == 0
+		&& readU16LE(&eocd[8]) == totalEntries;
 
 	/* Second pass: populate entries. Skip records with bad names / encryption /
 	 * unsupported compression rather than failing the whole archive. */
@@ -416,6 +421,8 @@ mod_archive_t *modArchiveOpen(const char *path)
 			continue;
 		}
 		arc->names_pool_used += (u32)strlen(namePtr) + 1;
+		if (strlen(namePtr) != nameLen || memcmp(namePtr, &p[46], nameLen))
+			arc->source_view_complete = 0;
 
 		struct mod_archive_entry *e = &arc->entries[keep++];
 		e->name = namePtr;
@@ -428,6 +435,7 @@ mod_archive_t *modArchiveOpen(const char *path)
 		walked += recordLen;
 	}
 	arc->entry_count = keep;
+	if (keep != totalEntries) arc->source_view_complete = 0;
 
 	free(cdBuf);
 
@@ -449,6 +457,11 @@ void modArchiveClose(mod_archive_t *arc)
 	free(arc->names_pool);
 	free(arc->comment);
 	free(arc);
+}
+
+s32 modArchiveCanRewriteSources(const mod_archive_t *arc)
+{
+	return arc && arc->source_view_complete;
 }
 
 /* ---------------------------------------------------------- Reader: lookups */
@@ -1271,6 +1284,10 @@ s32 modArchiveReplaceFileMem(const char *path, const char *name,
 	source = modArchiveOpen(path);
 	if (!source) {
 		return modArchiveLastError();
+	}
+	if (!modArchiveCanRewriteSources(source)) {
+		modArchiveClose(source);
+		return MODARCHIVE_ERR_FORMAT;
 	}
 	if (modArchiveFindEntry(source, name) < 0) {
 		modArchiveClose(source);

@@ -80,6 +80,9 @@ const char *modArchiveGetPath(const mod_archive_t *arc);
 
 /** Number of entries indexed in the central directory. */
 s32 modArchiveGetEntryCount(const mod_archive_t *arc);
+/** True when the reader retained every original member name and the full
+ * archive comment. Rewriters must reject filtered/sanitised partial views. */
+s32 modArchiveCanRewriteSources(const mod_archive_t *arc);
 
 /** Look up an entry index by sanitised name (forward slashes). Returns -1. */
 s32 modArchiveFindEntry(const mod_archive_t *arc, const char *name);

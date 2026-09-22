@@ -50,6 +50,9 @@
 #include "savefile.h"
 #include "agent_session.h"
 #include "v006_save_harness.h"
+#include "asset_source_harness.h"
+#include "asset_catalog_relocation_harness.h"
+#include "body_head_source_harness.h"
 #include "testscenarios.h"
 #include "net/matchsetup.h"
 #include "prefs_agent.h"
@@ -2699,6 +2702,36 @@ static void bootApplyCliFastPaths(void)
 	bootApplyDebugInstallReceivedMod();
 	bootApplyDebugRejectCatalogIngressList();
 	bootApplyDebugReceivePdcaList();
+	if (sysArgCheck("--debug-asset-source-scene") && smokeHarnessIsActive()) {
+		s32 result = assetSourceSceneHarnessRun();
+		smokeHarnessExit(result == 0 ? 0 : 2,
+			result == 0 ? "scripted_exit" : "asset_source_scene_failure");
+	}
+	if (sysArgCheck("--debug-asset-source-audio") && smokeHarnessIsActive()) {
+		s32 result = assetSourceAudioHarnessRun();
+		smokeHarnessExit(result == 0 ? 0 : 2,
+			result == 0 ? "scripted_exit" : "asset_source_audio_failure");
+	}
+	if (sysArgCheck("--debug-asset-source-character") && smokeHarnessIsActive()) {
+		s32 result = assetSourceCharacterHarnessRun();
+		smokeHarnessExit(result == 0 ? 0 : 2,
+			result == 0 ? "scripted_exit" : "asset_source_character_failure");
+	}
+	if (sysArgCheck("--debug-asset-source-numeric") && smokeHarnessIsActive()) {
+		s32 result = assetSourceNumericHarnessRun();
+		smokeHarnessExit(result == 0 ? 0 : 2,
+			result == 0 ? "scripted_exit" : "asset_source_numeric_failure");
+	}
+	if (sysArgCheck("--debug-asset-catalog-relocation") && smokeHarnessIsActive()) {
+		s32 result = assetCatalogRelocationHarnessRun();
+		smokeHarnessExit(result == 0 ? 0 : 2,
+			result == 0 ? "scripted_exit" : "asset_catalog_relocation_failure");
+	}
+	if (sysArgCheck("--debug-asset-source-body-head") && smokeHarnessIsActive()) {
+		s32 result = bodyHeadSourceHarnessRun();
+		smokeHarnessExit(result == 0 ? 0 : 2,
+			result == 0 ? "scripted_exit" : "asset_source_body_head_failure");
+	}
 	if (sysArgCheck("--debug-v006-save-failclosed")) {
 		s32 result = v006SaveFailclosedRun();
 		if (smokeHarnessIsActive()) {

@@ -1,0 +1,40 @@
+{
+  "scenario_name": "asset_compiler_long_install_public_animation_source_smoke",
+  "description": "A long portable install still compiles the extracted public animation through a source-hashed private cache within the Windows CRT path budget.",
+  "tags": ["runtime", "assets", "animation", "source-authority", "cache-path"],
+  "log_channel_mask": "game,catalog,system",
+  "required_install_layout": "per-test",
+  "timeout_seconds": 180,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-net",
+    "--no-sound",
+    "--portable",
+    "--skip-intro",
+    "--debug-load-catalog-assets-source-only",
+    "--debug-exit-after-catalog-probes",
+    "--debug-load-catalog-assets",
+    "animation=base:animation_character_ao"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait" },
+    { "at_ms": 90000, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=asset_compiler_long_install_public_animation_source_smoke",
+      "MODASSET\\.COMPILER: compact private cache for 'base:animation_character_ao' root=\\$H/mc",
+      "BOOT: --debug-load-catalog-assets result type=animation id='base:animation_character_ao' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "FATAL: ",
+      "ASSET\\.SOURCE_ONLY",
+      "result=FAIL",
+      "result=MISSING",
+      "RomProvider:filenum",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

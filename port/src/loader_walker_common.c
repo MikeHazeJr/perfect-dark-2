@@ -16,6 +16,7 @@
  */
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
@@ -26,6 +27,7 @@
 
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
+#include "body_head_source.h"
 #include "boot_pool.h"
 #include "boot_progress.h"
 #include "fs.h"
@@ -468,7 +470,8 @@ static void s_walkerOneFile(int idx, void *user_ctx)
     char *manifest = NULL;
     size_t manifest_len = 0;
     mod_archive_t *arc = NULL;
-    if (!s_loadManifest(rel_path, &manifest, &manifest_len, &arc)) {
+    s32 have_manifest = s_loadManifest(rel_path, &manifest, &manifest_len, &arc);
+    if (!have_manifest && !ctx->desc->public_descriptor) {
         sysLoudFailf("LOAD.UNIVERSAL.PARSE_FAIL",
             "manifest unreadable for kind=%s file=\"%s\"",
             ctx->desc->kind_str, rel_path);
@@ -478,6 +481,31 @@ static void s_walkerOneFile(int idx, void *user_ctx)
 
     char kind_buf[32];
     char id_buf[128];
+    if (ctx->desc->public_descriptor) {
+        char *text = NULL;
+        size_t text_len = 0;
+        ini_section_t *ini = calloc(1, sizeof(*ini));
+        s32 public_ok = ini && ctx->desc->public_section &&
+            loaderWalkerArchiveTextMember(rel_path, ctx->desc->public_descriptor, &text, &text_len) &&
+            text_len <= UINT32_MAX && bodyHeadSourceReadIniBytes(text, (u32)text_len,
+                ctx->desc->public_section, ini, NULL, 0);
+        const char *id = public_ok ? iniGet(ini, "catalog_id", NULL) : NULL;
+        const char *alias = public_ok ? iniGet(ini, "id", NULL) : NULL;
+        if (!id) id = alias;
+        public_ok = public_ok && bodyHeadSourceCatalogIdValid(id) &&
+            (!alias || !strcmp(alias, id)) &&
+            assetPathCopyChecked(id_buf, sizeof(id_buf), id) &&
+            assetPathCopyChecked(kind_buf, sizeof(kind_buf), ctx->desc->kind_str);
+        if (text) sysMemFree(text);
+        free(ini);
+        if (!public_ok) {
+            sysLoudFailf("LOAD.UNIVERSAL.PUBLIC_SOURCE", "invalid public descriptor in %s", rel_path);
+            lenv++;
+            goto cleanup;
+        }
+        /* Source-aware callbacks accept empty provenance when absent. */
+        if (!have_manifest) { manifest_len = 0; }
+    } else {
     if (!loaderWalkerEnvelopeStrCopy(manifest, manifest_len, "pd_kind",
                                       kind_buf, sizeof(kind_buf))) {
         sysLoudFailf("LOAD.UNIVERSAL.PARSE_FAIL",
@@ -499,6 +527,7 @@ static void s_walkerOneFile(int idx, void *user_ctx)
         lenv++;
         goto cleanup;
     }
+    }
 
     if (ctx->register_mutex) {
         SDL_LockMutex(ctx->register_mutex);
@@ -514,7 +543,7 @@ static void s_walkerOneFile(int idx, void *user_ctx)
     if (!ctx->desc->always_invoke && assetCatalogResolve(id_buf) != NULL) {
         lreg++;
     } else {
-        s32 r = ctx->register_fn(manifest, manifest_len, kind_buf, id_buf, rel_path);
+        s32 r = ctx->register_fn(manifest ? manifest : "", manifest_len, kind_buf, id_buf, rel_path);
         if (r > 0)      lreg++;
         else if (r < 0) lregfail++;
         /* r == 0 is a benign skip. */

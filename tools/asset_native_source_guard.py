@@ -2463,9 +2463,10 @@ def scan_texture_source_fail_closed_guard(root: Path) -> list[str]:
     required = [
         "s32 modTextureLoadRgba32Source(u16 num",
         "modTextureFatalPublicEntryFailure(num, entry, source_path",
-        "the catalog entry has no public FileProvider image source",
-        "modTextureFatalPublicSourceFailure(num, &r",
-        "the selected public source is not an editable image source",
+        "source_catalog_id = textureSourceRuntimeCatalogIndex((s32)num)",
+        "const asset_data_handle_t handle = catalogEffectiveHandle(entry)",
+        "handle.provider == fileProvider() ? fileProviderPath(handle) : NULL",
+        "the selected provider is not an editable public image source",
         "the image file could not be read",
         "the image could not be decoded",
     ]
@@ -2489,8 +2490,7 @@ def scan_texture_source_fail_closed_guard(root: Path) -> list[str]:
     }
     block = blocks.get("modTextureLoadRgba32Source", "")
     for reason in (
-        "the catalog entry has no public FileProvider image source",
-        "the selected public source is not an editable image source",
+        "the selected provider is not an editable public image source",
     ):
         reason_index = block.find(reason)
         fail_index = block.find("return -1;", reason_index)
@@ -2749,29 +2749,31 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
     snd_required = [
         '#include "fs.h"',
         '#include "assetcatalog_load.h"',
-        "static void *g_SndMp3SourceBytes = NULL",
+        "s16 *source_pcm",
         "static void sndMp3FreeSourceBuffer(void)",
-        "static s32 sndMp3LoadPublicSourceFile(s32 filenum",
         "static s32 sndMp3ResolvePublicSource(s32 filenum",
         "catalogResolveFile(filenum)",
-        "fsFileLoad(source.path, &size)",
-        "g_SndMp3SourceBytes = bytes",
+        "modMusicLoadAudioPcm22050(source.path, &samples, NULL)",
+        "samples >= 2 && samples % 2u == 0",
+        "*out_pcm = pcm",
+        "mp3ReleasePcm()",
+        "SDL_free(g_SndCurMp3.source_pcm)",
         "sndMp3FreeSourceBuffer()",
         "ASSET.CHAIN: MP3 file",
         "refusing loose extracted file or ROM playback fallback",
         "sndMp3ResolvePublicSource((s32)sp20.id",
-        "mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize)",
+        "mp3PlayPcmStereo22050(g_SndCurMp3.source_pcm, g_SndCurMp3.source_frames)",
     ]
 
     propsnd_required = [
         '#include "fs.h"',
         '#include "assetcatalog_load.h"',
-        "static s32 psMp3DurationGetPublicSourceSize(s32 filenum)",
+        "static s32 psMp3DurationGetPublicSource60(s32 filenum)",
         "catalogResolveFile(filenum)",
-        "fsFileSize(source.path)",
+        "modMusicAudioSourceDuration60(source.path)",
         "ASSET.CHAIN: MP3 file",
         "ROM/static file-size fallback.",
-        "psMp3DurationGetPublicSourceSize((s32)soundnum.id)",
+        "psMp3DurationGetPublicSource60((s32)soundnum.id)",
     ]
 
     missing = [needle for needle in snd_required if needle not in snd_text]
@@ -2793,7 +2795,7 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
               for name, start, end in iter_c_function_blocks(snd_text)}
     start_block = blocks.get("sndStartMp3", "")
     resolve_block = blocks.get("sndMp3ResolvePublicSource", "")
-    load_block = blocks.get("sndMp3LoadPublicSourceFile", "")
+    free_block = blocks.get("sndMp3FreeSourceBuffer", "")
 
     if "g_AudioConfigs[sp24.confignum]" in start_block:
         errors.append(
@@ -2822,25 +2824,31 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
             "sndStartMp3",
             start_block,
             "sndMp3ResolvePublicSource((s32)sp20.id",
-            "mp3PlayFile(g_SndCurMp3.romaddr, g_SndCurMp3.romsize)",
+            "mp3PlayPcmStereo22050(g_SndCurMp3.source_pcm, g_SndCurMp3.source_frames)",
         ),
         (
             "sndMp3ResolvePublicSource",
             resolve_block,
-            "return sndMp3LoadPublicSourceFile",
-            "sndMp3LoadPublicSourceFile(filenum, outaddr, outsize)",
-        ),
-        (
-            "sndMp3LoadPublicSourceFile",
-            load_block,
             "catalogResolveFile(filenum)",
-            "fsFileLoad(source.path, &size)",
+            "modMusicLoadAudioPcm22050(source.path, &samples, NULL)",
         ),
         (
-            "sndMp3LoadPublicSourceFile",
-            load_block,
-            "fsFileLoad(source.path, &size)",
-            "g_SndMp3SourceBytes = bytes",
+            "sndMp3ResolvePublicSource",
+            resolve_block,
+            "samples >= 2 && samples % 2u == 0",
+            "sndMp3FreeSourceBuffer()",
+        ),
+        (
+            "sndMp3ResolvePublicSource",
+            resolve_block,
+            "sndMp3FreeSourceBuffer()",
+            "*out_pcm = pcm",
+        ),
+        (
+            "sndMp3FreeSourceBuffer",
+            free_block,
+            "mp3ReleasePcm()",
+            "SDL_free(g_SndCurMp3.source_pcm)",
         ),
     ]
     for block_name, block, before, after in order_checks:
@@ -2856,20 +2864,20 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
         name: propsnd_text[start:end]
         for name, start, end in iter_c_function_blocks(propsnd_text)
     }
-    duration_block = blocks.get("psMp3DurationGetPublicSourceSize", "")
+    duration_block = blocks.get("psMp3DurationGetPublicSource60", "")
     ps_block = blocks.get("psGetDuration60", "")
     duration_checks = [
         (
-            "psMp3DurationGetPublicSourceSize",
+            "psMp3DurationGetPublicSource60",
             duration_block,
             "catalogResolveFile(filenum)",
-            "fsFileSize(source.path)",
+            "modMusicAudioSourceDuration60(source.path)",
         ),
         (
             "psGetDuration60",
             ps_block,
-            "psMp3DurationGetPublicSourceSize((s32)soundnum.id)",
-            "* 60 / (1024 * 24 / 8)",
+            "channelnum < 0 || channelnum >= CHANNELCOUNT()",
+            "psMp3DurationGetPublicSource60((s32)soundnum.id)",
         ),
     ]
     for block_name, block, before, after in duration_checks:
@@ -2892,6 +2900,7 @@ def scan_mp3_audio_source_only_guard(root: Path) -> list[str]:
             "fileGetRomSize(filenum)",
             "sndMp3ResolveSourceOrFallback",
             "psMp3DurationGetSourceOrFallbackSize",
+            "* 60 / (1024 * 24 / 8)",
         ):
             if forbidden in text:
                 errors.append(
@@ -6944,7 +6953,8 @@ def scan_structured_family_runtime_guards(root: Path) -> list[str]:
             "assetRuntimeSkinAppearance",
         ),
         "port/src/forge/forge_runtime.c": (
-            "source->prop_health * 10.0f",
+            "propGraphHealthIsRepresentable(source->prop_health)",
+            "propGraphHealthToMaxDamage(source->prop_health)",
             "source->prop_flags",
         ),
         "src/game/mplayer/scenarios.c": (

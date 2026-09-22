@@ -8,6 +8,7 @@
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
+#include "asset_path_contract.h"
 #include "assetprovider.h"
 #include "fs.h"
 #include "loader_walker_mesh_source.h"
@@ -109,6 +110,16 @@ s32 loaderWalkerBindMeshSource(
 		meshSourceBindSetErr(err, err_cap, "invalid mesh source bind", NULL);
 		return 0;
 	}
+	/* Current file bytes are not an immutable fingerprint of a loaded model.
+	 * A caller requesting safe source replacement must retire it first. */
+	if (reject_live_source_change
+			&& !loaderWalkerMeshSourceChangeAllowed(entry->load_state,
+				entry->bundled, entry->ref_count, entry->loaded_data != NULL,
+				entry->payload_kind)) {
+		meshSourceBindSetErr(err, err_cap,
+			"cannot change a resident or active mesh source", entry->id);
+		return 0;
+	}
 	if (entry->source_filenum > 0 && plan->source_filenum > 0
 			&& entry->source_filenum != plan->source_filenum) {
 		meshSourceBindSetErr(err, err_cap,
@@ -132,8 +143,24 @@ s32 loaderWalkerBindMeshSource(
 	if (current_path) {
 		if (!loaderWalkerMeshSourceMatchesEntry(entry, plan->archive_path,
 				NULL, 0, err, err_cap)) return 0;
-		/* Equal public archives share one stable first owner. Only provenance
-		 * is merged; registration order never churns the provider path. */
+		/* Equal public archives share one stable first owner. The owning
+		 * archive stays stable, but its public geometry selection can change
+		 * after retirement; retaining the previous member would hide edits. */
+		char owning_archive[FS_MAXPATH], selected_path[FS_MAXPATH];
+		if (!meshSourceArchivePath(current_path, owning_archive, sizeof(owning_archive)) ||
+				!assetPathJoinChecked(selected_path, sizeof(selected_path), owning_archive,
+					"::", plan->geometry_member)) {
+			meshSourceBindSetErr(err, err_cap, "selected public mesh path exceeds capacity", entry->id);
+			return 0;
+		}
+		if (strcmp(selected_path, current_path)) {
+			handle = catalogHandleForSourceFile(selected_path);
+			if (assetHandleIsNull(handle)) {
+				meshSourceBindSetErr(err, err_cap, "could not bind selected public mesh member", selected_path);
+				return 0;
+			}
+			catalogSetPrimary(entry, handle);
+		}
 		if (plan->source_filenum > 0) {
 			entry->source_filenum = plan->source_filenum;
 		}
@@ -143,14 +170,6 @@ s32 loaderWalkerBindMeshSource(
 			&& entry->source.primary.provider != romProvider()) {
 		meshSourceBindSetErr(err, err_cap,
 			"unsupported provider already owns mesh source", entry->id);
-		return 0;
-	}
-	if (reject_live_source_change
-			&& !loaderWalkerMeshSourceChangeAllowed(entry->load_state,
-				entry->bundled, entry->ref_count, entry->loaded_data != NULL,
-				entry->payload_kind)) {
-		meshSourceBindSetErr(err, err_cap,
-			"cannot change a resident or active mesh source", entry->id);
 		return 0;
 	}
 	handle = catalogHandleForSourceFile(plan->source_path);

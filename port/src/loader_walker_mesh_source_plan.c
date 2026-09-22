@@ -340,13 +340,8 @@ s32 loaderWalkerMeshSourcePlanManifest(
 	geometry = public_geometry && public_geometry[0]
 		? public_geometry
 		: (fields.geometry_result > 0 ? fields.geometry : "model.obj");
-	if (fields.geometry_result > 0 && public_geometry && public_geometry[0]
-			&& strcmp(public_geometry, fields.geometry) != 0) {
-		meshSourceSetErr(err, err_cap,
-			"mesh public/manifest geometry mismatch in %s: %s",
-			archive_path, fields.geometry);
-		return 0;
-	}
+	/* A present public geometry member is authored truth. The private echo
+	 * may be stale after an ordinary source edit and cannot veto that edit. */
 	if (!geometryMemberIsSafe(geometry)
 			|| !assetPathCopyChecked(out->geometry_member,
 				sizeof(out->geometry_member), geometry)

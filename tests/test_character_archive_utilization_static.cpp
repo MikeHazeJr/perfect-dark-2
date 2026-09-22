@@ -21,6 +21,8 @@ TEST_CASE("pdcharacter catalog identities feed selection and portrait consumers"
         readCharacterSource("port/src/assetcatalog_scanner.c");
     const std::string walker =
         readCharacterSource("port/src/loader_walker_meta.c");
+    const std::string source =
+        readCharacterSource("port/src/character_head_policy.c");
     const std::string runtime =
         readCharacterSource("port/src/asset_runtime.c");
     const std::string portrait =
@@ -30,17 +32,19 @@ TEST_CASE("pdcharacter catalog identities feed selection and portrait consumers"
 
     REQUIRE(extractor.find("body_asset = %s") != std::string::npos);
     REQUIRE(extractor.find("head_asset = %s") != std::string::npos);
-    REQUIRE(scanner.find("iniGet(ini, \"body_asset\"") != std::string::npos);
-    REQUIRE(scanner.find("iniGet(ini, \"head_asset\"") != std::string::npos);
-    REQUIRE(walker.find("s_manifestStr(manifest, manifest_len, \"body\"") !=
+    REQUIRE(scanner.find("characterSourceApplyIni(e, ini)") != std::string::npos);
+    REQUIRE(walker.find("characterSourceApplyIni(entry, &ini)") != std::string::npos);
+    REQUIRE(walker.find("loaderWalkerArchiveTextMember(archive_path, \"character.ini\"") !=
             std::string::npos);
-    REQUIRE(walker.find("s_manifestStr(manifest, manifest_len, \"head\"") !=
+    REQUIRE(source.find("sourceValue(ini, \"body_asset\", \"body_id\"") !=
+            std::string::npos);
+    REQUIRE(source.find("sourceValue(ini, \"head_asset\", \"head_id\"") !=
             std::string::npos);
     REQUIRE(runtime.find("binding->character_body_id") != std::string::npos);
     REQUIRE(runtime.find("binding->character_head_id") != std::string::npos);
-    REQUIRE(runtime.find("s_hasText(binding->character_body_id)") !=
+    REQUIRE(runtime.find("characterSourcePolicy(entry)") !=
             std::string::npos);
-    REQUIRE(runtime.find("s_hasText(binding->character_head_id)") !=
+    REQUIRE(runtime.find("binding->character_head_policy != CHARACTER_HEAD_POLICY_INVALID") !=
             std::string::npos);
 
     REQUIRE(portrait.find("assetCatalogFindCharacterByBodyHead") !=

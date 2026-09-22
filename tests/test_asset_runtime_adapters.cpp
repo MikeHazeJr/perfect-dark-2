@@ -10,6 +10,9 @@
 extern "C" {
 #include "asset_runtime.h"
 #include "prop_graph_runtime.h"
+void testStubAssetCatalogResolveWith(const asset_entry_t *entry);
+void testStubAssetCatalogResolvePair(const asset_entry_t *first, const asset_entry_t *second);
+void testStubCatalogCompleteBodyNum(s32 bodynum);
 }
 
 static void initEntry(asset_entry_t &entry, asset_type_e type, const char *id)
@@ -116,6 +119,82 @@ static void fillStrictScenario(asset_entry_t &scenario)
 		sizeof(scenario.ext.scenario.navigation_paths_file) - 1);
 	std::strncpy(scenario.ext.scenario.level_graph_file, "level.graph.json",
 		sizeof(scenario.ext.scenario.level_graph_file) - 1);
+}
+
+TEST_CASE("runtime integer source fields reject overflow fractions and non JSON spellings",
+          "[modding][pdxxx][runtime][numeric-source]") {
+    TempRuntimeDir dir("pd2_runtime_integer_source");
+    for (const char *token : {"0", "255", "256", "-1", "1.5", "1e2", "NaN",
+            "Infinity", "-Infinity", "1e1000", "2147483648", "-2147483649",
+            "+1", "01", "0x10", "3junk"}) {
+        CAPTURE(token);
+        assetRuntimeReset();
+        asset_entry_t entry;
+        initEntry(entry, ASSET_BOT_PROFILE, "mod:integer_source");
+        std::strcpy(entry.ext.bot_profile.profile_file, "profile.json");
+        const std::string json = std::string("{\"schema\":\"pd2.botprofile.v2\","
+            "\"catalog_id\":\"mod:integer_source\",\"type_key\":\"venge\","
+            "\"difficulty_key\":\"hard\",\"target_body\":\"base:body_dark_combat\","
+            "\"requirefeature\":") + token + "}";
+        const std::string path = dir.write("profile.json", json.c_str());
+        REQUIRE(assetRuntimeActivateCatalogEntry(&entry, path.c_str()) == 1);
+        const bool valid = std::strcmp(token, "0") == 0 || std::strcmp(token, "255") == 0;
+        REQUIRE(assetRuntimeHydrateCatalogEntry(&entry) == (valid ? 1 : 0));
+        const auto *binding = assetRuntimeFind(entry.id);
+        if (valid) {
+            REQUIRE(binding != nullptr);
+            REQUIRE(binding->bot_profile_requirefeature == std::atoi(token));
+        } else {
+            REQUIRE(binding == nullptr);
+        }
+    }
+    assetRuntimeReset();
+}
+
+TEST_CASE("prop source hydration admits only health representable by native objects",
+          "[modding][pdxxx][runtime][source_authority][T-ASSETS-041]") {
+	struct HealthCase {
+		const char *source;
+		bool valid;
+		s16 maxdamage;
+	};
+	const HealthCase cases[] = {
+		{ "0", true, 0 }, { "125.55", true, 1255 },
+		{ "3276.69971", true, 32766 }, { "3276.7", true, 32767 },
+		{ "3276.7002", false, 0 }, { "3277", false, 0 },
+		{ "1e20", false, 0 }, { "1e1000", false, 0 }, { "-1", false, 0 }
+	};
+	TempRuntimeDir dir("pd2_asset_runtime_prop_health_boundary");
+	const std::string modelPath = dir.write("model.gltf",
+		"{\"asset\":{\"version\":\"2.0\"}}");
+	for (const HealthCase &test : cases) {
+		CAPTURE(test.source);
+		assetRuntimeReset();
+		asset_entry_t prop;
+		initEntry(prop, ASSET_PROP, "mod:prop_health_boundary");
+		std::strncpy(prop.ext.prop.model_file, "model.gltf",
+			sizeof(prop.ext.prop.model_file) - 1);
+		std::strncpy(prop.ext.prop.prop_file, "prop.json",
+			sizeof(prop.ext.prop.prop_file) - 1);
+		const std::string json = std::string(
+			"{\"schema\":\"pd2.prop.v2\",\"catalog_id\":\"mod:prop_health_boundary\","
+			"\"prop_key\":\"object\",\"display_name\":\"Health boundary\",\"health\":") +
+			test.source + ",\"flags\":0}";
+		dir.write("prop.json", json.c_str());
+		REQUIRE(assetRuntimeActivateCatalogEntry(&prop, modelPath.c_str()) == 1);
+		REQUIRE(assetRuntimeHydrateCatalogEntry(&prop) == (test.valid ? 1 : 0));
+		const asset_runtime_binding_t *binding =
+			assetRuntimeFindByTypeAndId(ASSET_PROP, "mod:prop_health_boundary");
+		if (test.valid) {
+			REQUIRE(binding != nullptr);
+			REQUIRE(binding->source_hydrated == 1);
+			REQUIRE(binding->prop_health == Approx(std::stof(test.source)));
+			REQUIRE(propGraphHealthToMaxDamage(binding->prop_health) == test.maxdamage);
+		} else {
+			REQUIRE(binding == nullptr);
+		}
+	}
+	assetRuntimeReset();
 }
 
 TEST_CASE("B-959 structured metadata source hydrates production-facing state",
@@ -382,6 +461,7 @@ TEST_CASE("asset runtime adapters bind C-3838 file-backed families",
 	REQUIRE(str(characterBinding->dependency_b) == "portrait.png");
 	REQUIRE(str(characterBinding->character_body_id) == "mod:body_triangle");
 	REQUIRE(str(characterBinding->character_head_id) == "mod:head_triangle");
+	REQUIRE(characterBinding->character_head_policy == CHARACTER_HEAD_POLICY_FIXED);
 	REQUIRE(str(characterBinding->display_name) == "Triangle Character");
 
 	asset_entry_t arena;
@@ -1467,6 +1547,102 @@ TEST_CASE("asset runtime adapters reject file-backed families without accessible
  * native-shaped ext fields and require the binding fields to equal the
  * inputs exactly (critic ruling: value-identity assertions ship in the
  * same commit as the consumers). */
+namespace {
+struct CharacterRuntimeScope {
+	CharacterRuntimeScope() { assetRuntimeReset(); testStubAssetCatalogResolveWith(nullptr); }
+	~CharacterRuntimeScope() { assetRuntimeReset(); testStubAssetCatalogResolveWith(nullptr); }
+};
+
+asset_entry_t integratedCharacter()
+{
+	asset_entry_t character;
+	initEntry(character, ASSET_CHARACTER, "mod:integrated_character");
+	std::strcpy(character.ext.character.body_id, "mod:complete_body");
+	std::strcpy(character.ext.character.bodyfile, "mod/character.pdcharacter::body.pdbody");
+	character.ext.character.head_policy = CHARACTER_HEAD_POLICY_INTEGRATED;
+	return character;
+}
+
+asset_entry_t completeBody()
+{
+	asset_entry_t body;
+	initEntry(body, ASSET_BODY, "mod:complete_body");
+	body.occupied = 1;
+	body.runtime_index = body.ext.body.bodynum = 19;
+	return body;
+}
+}
+
+TEST_CASE("integrated character hydration consumes selected complete body metadata",
+          "[modding][character][head-policy][runtime][adapters]")
+{
+	CharacterRuntimeScope scope;
+	auto character = integratedCharacter();
+	auto body = completeBody();
+	testStubAssetCatalogResolveWith(&body);
+	testStubCatalogCompleteBodyNum(19);
+	REQUIRE(assetRuntimeActivateCatalogEntry(&character, character.ext.character.bodyfile) == 1);
+	REQUIRE(assetRuntimeFind(character.id)->source_hydrated == 0);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&character) == 1);
+	const auto *binding = assetRuntimeFind(character.id);
+	REQUIRE(binding != nullptr);
+	REQUIRE(binding->character_head_policy == CHARACTER_HEAD_POLICY_INTEGRATED);
+	REQUIRE(binding->source_hydrated == 1);
+	REQUIRE(str(binding->character_body_id) == "mod:complete_body");
+	REQUIRE(str(binding->character_head_id).empty());
+	REQUIRE(str(binding->dependency_a).empty());
+}
+
+TEST_CASE("integrated character hydration fails closed on unavailable or inconsistent body",
+          "[modding][character][head-policy][runtime][adapters]")
+{
+	CharacterRuntimeScope scope;
+	auto character = integratedCharacter();
+	auto body = completeBody();
+	testStubAssetCatalogResolveWith(&body);
+	testStubCatalogCompleteBodyNum(19);
+	SECTION("missing") { testStubAssetCatalogResolveWith(nullptr); }
+	SECTION("unoccupied") { body.occupied = 0; }
+	SECTION("disabled") { body.enabled = 0; }
+	SECTION("wrong type") { body.type = ASSET_HEAD; }
+	SECTION("unbound") { body.runtime_index = -1; }
+	SECTION("inconsistent slot") { body.ext.body.bodynum = 20; }
+	SECTION("ordinary body is not integrated") { testStubCatalogCompleteBodyNum(-1); }
+	SECTION("different slot owner") {
+		static asset_entry_t other;
+		other = body;
+		std::strcpy(other.id, "mod:other_body");
+		testStubAssetCatalogResolvePair(&other, &body);
+		testStubCatalogCompleteBodyNum(19);
+	}
+	REQUIRE(assetRuntimeActivateCatalogEntry(&character, character.ext.character.bodyfile) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&character) == 0);
+	REQUIRE(assetRuntimeFind(character.id) == nullptr);
+}
+
+TEST_CASE("character runtime preserves random policy and refuses invalid replacements",
+          "[modding][character][head-policy][runtime][adapters]")
+{
+	CharacterRuntimeScope scope;
+	auto character = integratedCharacter();
+	character.ext.character.head_policy = CHARACTER_HEAD_POLICY_RANDOM_GENDER;
+	REQUIRE(assetRuntimeActivateCatalogEntry(&character, character.ext.character.bodyfile) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&character) == 1);
+	REQUIRE(assetRuntimeFind(character.id)->character_head_policy == CHARACTER_HEAD_POLICY_RANDOM_GENDER);
+	/* No selection is performed here: the binding retains the authored policy
+	 * for the later selector integration. Rejected edits preserve this binding. */
+	std::strcpy(character.ext.character.head_id, "mod:conflicting_head");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&character, "wrong.pdhead") == 0);
+	const auto *binding = assetRuntimeFind(character.id);
+	REQUIRE(binding != nullptr);
+	REQUIRE(binding->character_head_policy == CHARACTER_HEAD_POLICY_RANDOM_GENDER);
+	REQUIRE(str(binding->character_head_id).empty());
+	REQUIRE(str(binding->primary_path) == "mod/character.pdcharacter::body.pdbody");
+	character.ext.character.head_id[0] = 0;
+	character.ext.character.head_policy = CHARACTER_HEAD_POLICY_UNSPECIFIED;
+	REQUIRE(assetRuntimeActivateCatalogEntry(&character, character.ext.character.bodyfile) == 0);
+}
+
 TEST_CASE("c3849 meta-family bindings are value-identical to native-shaped inputs",
           "[modding][pdxxx][runtime][c3849][adapters]") {
 	assetRuntimeReset();

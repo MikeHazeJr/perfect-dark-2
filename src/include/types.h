@@ -2387,6 +2387,9 @@ struct gunctrl {
 	/*0x1594*/ struct modeldef *handmodeldef;
 	/*0x1598*/ struct modeldef *cartmodeldef;
 	/*0x159c*/ u16 handfilenum;
+	char handcatalogid[64]; /* Cached selected hand source, including unarmed fists. */
+	asset_data_handle_t handhandle;
+	u32 handcataloggeneration;
 	/*0x15a0*/ u8 *handmemloadptr;
 	/*0x15a4*/ s32 handmemloadremaining;
 	/*0x15a8*/ u8 *memloadptr;
@@ -2395,6 +2398,8 @@ struct gunctrl {
 	/*0x15b1*/ u8 gunloadstate;
 	/*0x15b2*/ u16 loadfilenum;
 	asset_data_handle_t loadhandle; /* Catalog/provider source for loadfilenum. */
+	char loadcatalogid[64]; /* Stable identity; never infer it from an aliased handle. */
+	bool loadbodyhand; /* This request also supplies the hand/fists cache identity. */
 	u32 loadcataloggeneration; /* Catalog generation captured for this request. */
 	/*0x15b4*/ struct modeldef **loadtomodeldef;
 	/*0x15b8*/ uintptr_t *loadmemptr;

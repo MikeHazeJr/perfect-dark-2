@@ -39,6 +39,7 @@
 #include <ultra64.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <ctype.h>
 #include <SDL.h>            /* Engine Phase 4: parser mutex for parallel walker */
@@ -48,8 +49,10 @@
 #include "loader_pool.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
+#include "weapon_command_source.h"
 #include "loader_enum_reverse.h"
 #include "assetcatalog.h"
+#include "assetprovider.h"
 #include "assetcatalog_weapon_slots.h"
 #include "catalog_mgr_weapons.h"
 #include "catalog_mgr_heads.h"
@@ -90,7 +93,8 @@ typedef union {
 } weaponfunc_any_t;
 
 typedef struct {
-	char  name[64];
+	char  name[CATALOG_ID_LEN];
+	char  catalog_id[CATALOG_ID_LEN];
 	char  source_path[FS_MAXPATH + 1];
 	s32   cmd_offset;
 	s32   cmd_count;
@@ -104,7 +108,7 @@ typedef struct {
  * defensive NULL guard prevents the crash class. */
 typedef struct {
 	struct guncmd *slot;
-	char           anim_name[64];
+	char           anim_name[CATALOG_ID_LEN];
 } pool_anim_fixup_t;
 
 static struct weapon                  s_Weapons[CATALOG_MGR_WEAPON_COUNT];
@@ -527,20 +531,28 @@ const char *loaderPoolAnimationSourceForCmds(const struct guncmd *cmds)
 
 static struct guncmd *resolveAnimByName(const char *name)
 {
-	if (name == NULL) return NULL;
-	/* B-329 (2026-05-16): tolerate a leading "<ns>:" namespace prefix on
-	 * the caller's name in case a future .pdweapon emitter ships catalog-ID
-	 * form. Pool storage is bare (parseAnimation strips), so compare the
-	 * bare part of the inbound name. */
-	const char *bare = name;
-	const char *colon = strchr(name, ':');
-	if (colon != NULL) bare = colon + 1;
+	char qualified[CATALOG_ID_LEN];
+	if (name == NULL || !name[0]) return NULL;
+	/* Bare names are confined to the original base cache parser. Public
+	 * command references always retain their explicit namespace. */
+	if (strchr(name, ':')) {
+		if (strlen(name) >= sizeof(qualified)) return NULL;
+		strcpy(qualified, name);
+	} else {
+		if (snprintf(qualified, sizeof(qualified), "base:%s", name) >= sizeof(qualified)) return NULL;
+	}
 	for (s32 i = 0; i < s_AnimationsUsed; i++) {
-		if (strcmp(s_Animations[i].name, bare) == 0) {
+		if (strcmp(s_Animations[i].catalog_id, qualified) == 0) {
 			return &s_Guncmds[s_Animations[i].cmd_offset];
 		}
 	}
 	return NULL;
+}
+
+const struct guncmd *loaderPoolFindAnimationByCatalogId(const char *id)
+{
+	if (!id || !strchr(id, ':')) return NULL;
+	return resolveAnimByName(id);
 }
 
 /* Register a forward-reference fixup so loaderPoolFinalize can resolve
@@ -559,16 +571,13 @@ static void registerAnimFixup(struct guncmd *slot, const char *anim_name)
 			anim_name, POOL_ANIM_FIXUPS);
 		return;
 	}
+	if (strlen(anim_name) >= sizeof(s_AnimFixups[0].anim_name)) {
+		sysLogPrintf(LOG_WARNING, "LOADER.POOL.WEAPON.RESOLVE_FAIL: animation identity too long");
+		return;
+	}
 	pool_anim_fixup_t *fx = &s_AnimFixups[s_AnimFixupsUsed++];
 	fx->slot = slot;
-	/* Strip optional namespace prefix to match resolveAnimByName policy. */
-	const char *bare = anim_name;
-	const char *colon = strchr(anim_name, ':');
-	if (colon != NULL) bare = colon + 1;
-	size_t n = strlen(bare);
-	if (n >= sizeof(fx->anim_name)) n = sizeof(fx->anim_name) - 1;
-	memcpy(fx->anim_name, bare, n);
-	fx->anim_name[n] = '\0';
+	strcpy(fx->anim_name, anim_name);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1280,6 +1289,11 @@ static void parseAnimation(jstream_t *s)
 
 	if (anim_name[0] != '\0' && s_AnimationsUsed < POOL_ANIMATIONS) {
 		pool_anim_entry_t *e = &s_Animations[s_AnimationsUsed++];
+		if (strchr(anim_name, ':')) {
+			strncpy(e->catalog_id, anim_name, sizeof(e->catalog_id) - 1);
+		} else {
+			snprintf(e->catalog_id, sizeof(e->catalog_id), "base:%s", anim_name);
+		}
 		/* B-329 (2026-05-16): the .pdanim emitter writes the catalog ID
 		 * with a namespace prefix (e.g. "base:invanim_falcon2_equip"),
 		 * but the .pdweapon emitter writes anim refs as the bare symbol
@@ -2161,12 +2175,12 @@ static void parseWeapon(jstream_t *s)
 static s32 s_resolveHeadbodyType(const char *name)
 {
 	if (!name || !name[0]) return 0;
-	if (strcmp(name, "HEADBODYTYPE_DEFAULT")     == 0) return 0;
-	if (strcmp(name, "HEADBODYTYPE_FEMALE")      == 0) return 1;
-	if (strcmp(name, "HEADBODYTYPE_FEMALEGUARD") == 0) return 2;
-	if (strcmp(name, "HEADBODYTYPE_CASS")        == 0) return 3;
-	if (strcmp(name, "HEADBODYTYPE_MAIAN")       == 0) return 4;
-	if (strcmp(name, "HEADBODYTYPE_MRBLONDE")    == 0) return 5;
+	if (strcmp(name, "HEADBODYTYPE_DEFAULT")     == 0) return HEADBODYTYPE_DEFAULT;
+	if (strcmp(name, "HEADBODYTYPE_FEMALE")      == 0) return HEADBODYTYPE_FEMALE;
+	if (strcmp(name, "HEADBODYTYPE_FEMALEGUARD") == 0) return HEADBODYTYPE_FEMALEGUARD;
+	if (strcmp(name, "HEADBODYTYPE_CASS")        == 0) return HEADBODYTYPE_CASS;
+	if (strcmp(name, "HEADBODYTYPE_MAIAN")       == 0) return HEADBODYTYPE_MAIAN;
+	if (strcmp(name, "HEADBODYTYPE_MRBLONDE")    == 0) return HEADBODYTYPE_MRBLONDE;
 	return -1;
 }
 
@@ -2564,6 +2578,50 @@ s32 loaderPoolParseWeaponJsonWithRuntimeSlot(const char *json, size_t json_len,
 	return r;
 }
 
+s32 loaderPoolInstallPublicBody(const body_data_t *body)
+{
+	if (!body || body->bodynum < 0 || body->bodynum >= CATALOG_MGR_BODY_TOTAL ||
+			!memchr(body->catalog_id, 0, sizeof(body->catalog_id)) || !body->catalog_id[0]) return 0;
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	if (s_BodiesPoolPopulated[body->bodynum] &&
+			s_BodiesPool[body->bodynum].catalog_id[0] &&
+			strcmp(s_BodiesPool[body->bodynum].catalog_id, body->catalog_id)) {
+		POOL_UNLOCK();
+		return 0;
+	}
+	s_BodiesPool[body->bodynum] = *body;
+	/* The native manager owns loaded models. Authored candidates and loader
+	 * scalar records never acquire or clear its modeldef pointer. */
+	s_BodiesPool[body->bodynum].modeldef = NULL;
+	if (!s_BodiesPoolPopulated[body->bodynum]) ++s_BodiesRegistered;
+	s_BodiesPoolPopulated[body->bodynum] = 1;
+	s_BodiesLoaderActive = 1;
+	POOL_UNLOCK();
+	return 1;
+}
+
+s32 loaderPoolInstallPublicHead(const head_data_t *head)
+{
+	if (!head || head->headnum < 0 || head->headnum >= CATALOG_MGR_HEAD_TOTAL ||
+			!memchr(head->catalog_id, 0, sizeof(head->catalog_id)) || !head->catalog_id[0]) return 0;
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	if (s_HeadsPoolPopulated[head->headnum] &&
+			s_HeadsPool[head->headnum].catalog_id[0] &&
+			strcmp(s_HeadsPool[head->headnum].catalog_id, head->catalog_id)) {
+		POOL_UNLOCK();
+		return 0;
+	}
+	s_HeadsPool[head->headnum] = *head;
+	s_HeadsPool[head->headnum].modeldef = NULL;
+	if (!s_HeadsPoolPopulated[head->headnum]) ++s_HeadsRegistered;
+	s_HeadsPoolPopulated[head->headnum] = 1;
+	s_HeadsLoaderActive = 1;
+	POOL_UNLOCK();
+	return 1;
+}
+
 s32 loaderPoolParseHeadJson(const char *json, size_t json_len)
 {
 	s_poolEnsureMutex();
@@ -2621,6 +2679,311 @@ s32 loaderPoolParseArenaJson(const char *json, size_t json_len)
 s32 loaderPoolParseAnimationJson(const char *json, size_t json_len)
 {
 	return loaderPoolParseAnimationSourceJson(json, json_len, NULL);
+}
+
+typedef struct command_source_binding {
+	const char *id;
+	weapon_command_reference kind;
+	s32 found;
+	s32 index;
+} command_source_binding_t;
+
+static s32 s_commandReferenceCycles(const char *id, const char *candidate_id,
+		u8 visited[POOL_ANIMATIONS])
+{
+	char qualified[CATALOG_ID_LEN];
+	if (strchr(id, ':')) {
+		if (strlen(id) >= sizeof(qualified)) return 1;
+		strcpy(qualified, id);
+	} else if (snprintf(qualified, sizeof(qualified), "base:%s", id) >= sizeof(qualified)) return 1;
+	if (!strcmp(qualified, candidate_id)) return 1;
+	for (s32 i = 0; i < s_AnimationsUsed; ++i) {
+		const pool_anim_entry_t *entry = &s_Animations[i];
+		if (strcmp(entry->catalog_id, qualified)) continue;
+		if (visited[i] == 1) return 1;
+		if (visited[i] == 2) return 0;
+		visited[i] = 1;
+		if (entry->cmd_offset < 0 || entry->cmd_count <= 0
+				|| entry->cmd_offset > POOL_GUNCMDS - entry->cmd_count) return 1;
+		const uintptr_t start = (uintptr_t)&s_Guncmds[entry->cmd_offset];
+		const uintptr_t end = (uintptr_t)&s_Guncmds[entry->cmd_offset + entry->cmd_count];
+		for (s32 f = 0; f < s_AnimFixupsUsed; ++f) {
+			const uintptr_t slot = (uintptr_t)s_AnimFixups[f].slot;
+			if (slot >= start && slot < end
+					&& s_commandReferenceCycles(s_AnimFixups[f].anim_name, candidate_id, visited)) return 1;
+		}
+		visited[i] = 2;
+		return 0;
+	}
+	return 0; /* A registered forward source will check this graph when admitted. */
+}
+
+static void s_copyCommandBinding(const asset_entry_t *entry, void *userdata)
+{
+	command_source_binding_t *binding = userdata;
+	if (strcmp(entry->id, binding->id)) return;
+	/* This callback copies scalar metadata while the catalog lock is held;
+	 * no catalog row pointer survives pool relocation. */
+	if (binding->kind == WEAPON_COMMAND_SOUND) {
+		binding->index = entry->ext.audio.sound_id;
+		binding->found = (entry->ext.audio.category == AUDIO_CAT_SFX || entry->ext.audio.category == AUDIO_CAT_VOICE)
+			&& binding->index > 0 && binding->index <= UINT16_MAX
+			&& entry->source.primary.provider == fileProvider();
+	} else if (binding->kind == WEAPON_COMMAND_CLIP) {
+		binding->index = entry->ext.anim.anim_id;
+		binding->found = strcmp(entry->category, "weapon_animation") != 0
+			&& binding->index >= 0 && binding->index <= INT16_MAX
+			&& entry->source.primary.provider == fileProvider();
+	} else {
+		binding->found = strcmp(entry->category, "weapon_animation") == 0;
+	}
+}
+
+s32 loaderPoolParseAnimationCatalogSourceJson(const char *json, size_t json_len,
+		const char *source_path, const char *catalog_id)
+{
+	char error[512] = {0};
+	weapon_command_source *source = weaponCommandSourceRead(catalog_id, json,
+		json_len, error, sizeof(error));
+	if (!source) {
+		sysLogPrintf(LOG_WARNING, "LOADER.POOL.ANIMATION.SOURCE_FAIL: id=%s error=%s",
+			catalog_id ? catalog_id : "", error);
+		return 0;
+	}
+	const size_t count = weaponCommandSourceCount(source);
+	struct guncmd *prepared = calloc(count, sizeof(*prepared));
+	s32 ok = 0, entry_index = -1;
+	size_t fixups = 0;
+	if (!prepared || !source_path || strlen(source_path) >= sizeof(s_Animations[0].source_path)
+			|| strlen(weaponCommandSourceName(source)) >= sizeof(s_Animations[0].name)) goto done;
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	for (s32 i = 0; i < s_AnimationsUsed; ++i) {
+		if (!strcmp(s_Animations[i].catalog_id, catalog_id)) { entry_index = i; break; }
+	}
+	if (count > (size_t)(POOL_GUNCMDS - s_GuncmdsUsed)
+			|| (entry_index < 0 && s_AnimationsUsed >= POOL_ANIMATIONS)) goto unlock;
+	for (size_t i = 0; i < count; ++i) {
+		weapon_command_source_item item;
+		if (!weaponCommandSourceItem(source, i, &item)) goto unlock;
+		prepared[i].type = item.type; prepared[i].unk01 = item.selector;
+		prepared[i].unk02 = item.trigger; prepared[i].unk04 = item.value;
+		if (item.reference_kind == WEAPON_COMMAND_NO_REFERENCE) continue;
+		command_source_binding_t binding = {item.reference, item.reference_kind, 0, -1};
+		assetCatalogIterateByType(item.reference_kind == WEAPON_COMMAND_SOUND
+			? ASSET_AUDIO : ASSET_ANIMATION, s_copyCommandBinding, &binding);
+		if (!binding.found) {
+			sysLogPrintf(LOG_WARNING, "LOADER.POOL.ANIMATION.SOURCE_FAIL: id=%s unresolved typed reference=%s",
+				catalog_id, item.reference);
+			goto unlock;
+		}
+		if (item.reference_kind == WEAPON_COMMAND_COMMANDS) {
+			u8 visited[POOL_ANIMATIONS] = {0};
+			if (s_commandReferenceCycles(item.reference, catalog_id, visited)) {
+				sysLogPrintf(LOG_WARNING, "LOADER.POOL.ANIMATION.SOURCE_FAIL: id=%s recursive command reference=%s",
+					catalog_id, item.reference);
+				goto unlock;
+			}
+			prepared[i].unk04 = (intptr_t)resolveAnimByName(item.reference);
+			++fixups;
+		} else if (item.reference_kind == WEAPON_COMMAND_CLIP) prepared[i].unk02 = (u16)binding.index;
+		else prepared[i].unk04 = (intptr_t)binding.index;
+	}
+	if (fixups > (size_t)(POOL_ANIM_FIXUPS - s_AnimFixupsUsed)) goto unlock;
+	/* No mutation above this point. All storage and references passed preflight.
+	 * Existing native borrowers keep their old command range until their real
+	 * owner retires; lookup of this identity now selects the replacement. */
+	const s32 offset = s_GuncmdsUsed;
+	memcpy(&s_Guncmds[offset], prepared, count * sizeof(*prepared));
+	s_GuncmdsUsed += (s32)count;
+	if (entry_index < 0) entry_index = s_AnimationsUsed++;
+	pool_anim_entry_t *entry = &s_Animations[entry_index];
+	memset(entry, 0, sizeof(*entry));
+	strcpy(entry->catalog_id, catalog_id);
+	strcpy(entry->name, weaponCommandSourceName(source));
+	strcpy(entry->source_path, source_path);
+	entry->cmd_offset = offset; entry->cmd_count = (s32)count;
+	for (size_t i = 0; i < count; ++i) {
+		weapon_command_source_item item;
+		weaponCommandSourceItem(source, i, &item);
+		if (item.reference_kind == WEAPON_COMMAND_COMMANDS)
+			registerAnimFixup(&s_Guncmds[offset + i], item.reference);
+	}
+	ok = 1;
+unlock:
+	POOL_UNLOCK();
+done:
+	if (!ok) sysLogPrintf(LOG_WARNING, "LOADER.POOL.ANIMATION.SOURCE_FAIL: id=%s admission rolled back", catalog_id);
+	free(prepared); weaponCommandSourceFree(source);
+	return ok;
+}
+
+typedef struct animation_source_pending {
+	struct animation_source_pending *next;
+	char id[CATALOG_ID_LEN];
+	char path[FS_MAXPATH + 1];
+	char *json;
+	size_t size;
+	weapon_command_source *source;
+	u8 visit;
+} animation_source_pending_t;
+
+struct loader_animation_source_batch {
+	animation_source_pending_t *first, *last;
+	s32 state; /* 0 staging, 1 rejected, 2 committed */
+};
+
+loader_animation_source_batch_t *loaderAnimationSourceBatchCreate(void)
+{
+	return calloc(1, sizeof(loader_animation_source_batch_t));
+}
+
+s32 loaderAnimationSourceBatchStage(loader_animation_source_batch_t *batch,
+		const char *json, size_t json_len, const char *source_path, const char *catalog_id)
+{
+	char error[512] = {0};
+	if (!batch || batch->state) return 0;
+	if (!source_path || !source_path[0] || strlen(source_path) > FS_MAXPATH) goto fail;
+	weapon_command_source *source = weaponCommandSourceRead(catalog_id, json,
+		json_len, error, sizeof(error));
+	if (!source) goto fail;
+	for (animation_source_pending_t *p = batch->first; p; p = p->next) {
+		if (strcmp(p->id, catalog_id)) continue;
+		const s32 identical = !strcmp(p->path, source_path) && p->size == json_len
+			&& !memcmp(p->json, json, json_len);
+		weaponCommandSourceFree(source);
+		if (identical) return 1; /* Same descriptor found by overlapping scans. */
+		strcpy(error, "duplicate command identity selects different sources");
+		goto fail;
+	}
+	animation_source_pending_t *pending = calloc(1, sizeof(*pending));
+	if (!pending) { weaponCommandSourceFree(source); goto fail; }
+	pending->json = malloc(json_len);
+	if (!pending->json) { free(pending); weaponCommandSourceFree(source); goto fail; }
+	memcpy(pending->json, json, json_len);
+	pending->size = json_len; pending->source = source;
+	strcpy(pending->id, catalog_id); strcpy(pending->path, source_path);
+	if (batch->last) batch->last->next = pending;
+	else batch->first = pending;
+	batch->last = pending;
+	return 1;
+fail:
+	batch->state = 1;
+	sysLogPrintf(LOG_WARNING, "LOADER.POOL.ANIMATION.BATCH_REJECT: id=%s error=%s",
+		catalog_id ? catalog_id : "", error[0] ? error : "invalid input or allocation failure");
+	return 0;
+}
+
+/* Walk the effective submitted graph, preferring staged source over the old
+ * native row. Compile dependencies first so replacing A->B with B->A while
+ * removing A's edge is independent of descriptor/ZIP order. */
+static s32 s_orderAnimationSource(loader_animation_source_batch_t *batch,
+        const char *id, u8 visited[POOL_ANIMATIONS],
+        animation_source_pending_t **ordered, size_t *count)
+{
+    for (animation_source_pending_t *p = batch->first; p; p = p->next) {
+        if (strcmp(p->id, id)) continue;
+        if (p->visit == 1) return 0;
+        if (p->visit == 2) return 1;
+        p->visit = 1;
+        for (size_t i = 0; i < weaponCommandSourceCount(p->source); ++i) {
+            weapon_command_source_item item;
+            if (!weaponCommandSourceItem(p->source, i, &item)) return 0;
+            if (item.reference_kind == WEAPON_COMMAND_COMMANDS
+                    && !s_orderAnimationSource(batch, item.reference, visited, ordered, count)) return 0;
+        }
+        p->visit = 2;
+        ordered[(*count)++] = p;
+        return 1;
+    }
+    for (s32 i = 0; i < s_AnimationsUsed; ++i) {
+        const pool_anim_entry_t *entry = &s_Animations[i];
+        if (strcmp(entry->catalog_id, id)) continue;
+        if (visited[i] == 1) return 0;
+        if (visited[i] == 2) return 1;
+        visited[i] = 1;
+        if (entry->cmd_offset < 0 || entry->cmd_count <= 0
+                || entry->cmd_offset > POOL_GUNCMDS - entry->cmd_count) return 0;
+        const uintptr_t start = (uintptr_t)&s_Guncmds[entry->cmd_offset];
+        const uintptr_t end = (uintptr_t)&s_Guncmds[entry->cmd_offset + entry->cmd_count];
+        for (s32 f = 0; f < s_AnimFixupsUsed; ++f) {
+            const uintptr_t slot = (uintptr_t)s_AnimFixups[f].slot;
+            if (slot >= start && slot < end
+                    && !s_orderAnimationSource(batch, s_AnimFixups[f].anim_name, visited, ordered, count)) return 0;
+        }
+        visited[i] = 2;
+        return 1;
+    }
+    return 0; /* A metadata-only commands row cannot satisfy the closure. */
+}
+
+s32 loaderAnimationSourceBatchCommit(loader_animation_source_batch_t *batch)
+{
+	if (!batch || batch->state == 1) return 0;
+	if (batch->state == 2) return 1;
+	if (!batch->first) { batch->state = 2; return 1; }
+	/* Detect an external source edit while metadata registration was in flight.
+	 * Compilation below uses only the owned bytes validated by Stage. */
+	for (animation_source_pending_t *p = batch->first; p; p = p->next) {
+		u32 size = 0;
+		char *current = (char *)fsFileLoad(p->path, &size);
+		const s32 same = current && size == p->size && !memcmp(current, p->json, size);
+		free(current);
+		if (!same) {
+			batch->state = 1;
+			sysLogPrintf(LOG_WARNING, "LOADER.POOL.ANIMATION.BATCH_REJECT: source changed id=%s", p->id);
+			return 0;
+		}
+	}
+	s_poolEnsureMutex();
+	POOL_LOCK();
+	size_t staged_count = 0, ordered_count = 0;
+	for (animation_source_pending_t *p = batch->first; p; p = p->next) ++staged_count;
+	animation_source_pending_t **ordered = calloc(staged_count, sizeof(*ordered));
+	u8 visited[POOL_ANIMATIONS] = {0};
+	s32 ok = ordered != NULL;
+	for (animation_source_pending_t *p = batch->first; ok && p; p = p->next)
+		ok = s_orderAnimationSource(batch, p->id, visited, ordered, &ordered_count);
+	if (!ok) sysLogPrintf(LOG_WARNING, "LOADER.POOL.ANIMATION.BATCH_REJECT: cyclic or missing command closure");
+	loader_pool_snapshot_t *before = ok ? loaderPoolSnapshotCreate() : NULL;
+	ok = ok && before != NULL;
+	for (size_t i = 0; ok && i < ordered_count; ++i) {
+		animation_source_pending_t *p = ordered[i];
+		ok = loaderPoolParseAnimationCatalogSourceJson(p->json, p->size, p->path, p->id);
+	}
+	free(ordered);
+	/* Registered metadata alone is insufficient: every selected command source
+	 * must now have a native target, including forward references. */
+	for (animation_source_pending_t *p = batch->first; ok && p; p = p->next) {
+		for (size_t i = 0; i < weaponCommandSourceCount(p->source); ++i) {
+			weapon_command_source_item item;
+			weaponCommandSourceItem(p->source, i, &item);
+			if (item.reference_kind == WEAPON_COMMAND_COMMANDS && !resolveAnimByName(item.reference)) {
+				sysLogPrintf(LOG_WARNING, "LOADER.POOL.ANIMATION.BATCH_REJECT: id=%s command target has no source=%s",
+					p->id, item.reference);
+				ok = 0; break;
+			}
+		}
+	}
+	if (ok) loaderPoolFinalize();
+	else if (before && !loaderPoolSnapshotRestore(before))
+		sysLoudFailf("LOADER.POOL.ANIMATION.BATCH_ROLLBACK", "native pool restoration failed");
+	loaderPoolSnapshotDestroy(before);
+	POOL_UNLOCK();
+	batch->state = ok ? 2 : 1;
+	return ok;
+}
+
+void loaderAnimationSourceBatchDestroy(loader_animation_source_batch_t *batch)
+{
+	if (!batch) return;
+	animation_source_pending_t *p = batch->first;
+	while (p) {
+		animation_source_pending_t *next = p->next;
+		weaponCommandSourceFree(p->source); free(p->json); free(p);
+		p = next;
+	}
+	free(batch);
 }
 
 s32 loaderPoolParseAnimationSourceJson(const char *json, size_t json_len,

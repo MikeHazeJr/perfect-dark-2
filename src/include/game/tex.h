@@ -5,6 +5,13 @@
 #include "types.h"
 
 void texInit(void);
+/* Retained generations carry their own material definition. Unknown/untextured
+ * identities return the default definition; ordinary rows keep stage semantics. */
+const struct texture *texGetDefinition(s32 texturenum);
+Gfx *texWriteTileFromDefinition(Gfx *gdl, struct tex *tex, s32 offset,
+    s32 shifts, s32 shiftt, s32 min);
+s32 texDimensionToMask(s32 dimension);
+void texResetTiles(void);
 
 void surfaceReset(void);
 

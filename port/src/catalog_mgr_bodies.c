@@ -98,6 +98,7 @@ static void s_populateFromAuthored(s32 bodynum)
 	dst = &s_Bodies[bodynum];
 	dst->bodynum = (s16)bodynum;
 	dst->catalog_id[0] = '\0';
+	dst->hand_catalog_id[0] = '\0';
 	if (!src) {
 		dst->ismale = 0;
 		dst->unk00_01 = 0;

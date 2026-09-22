@@ -20,6 +20,10 @@
 #undef aLoadADPCM
 #undef aADPCMdec
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 void aClearBufferImpl(uint16_t addr, int nbytes);
 void aLoadADPCMImpl(int num_entries_times_16, const int16_t *book_source_addr);
 void aDMEMMoveImpl(uint16_t in_addr, uint16_t out_addr, int nbytes);
@@ -31,10 +35,18 @@ void aSaveBufferImpl(uint16_t source_addr, int16_t *dest_addr, uint16_t nbytes);
 void aInterleaveImpl(void);
 void aMixImpl(uint8_t flags, int16_t gain, uint16_t in_addr, uint16_t out_addr);
 void aEnvMixerImpl(uint8_t flags, ENVMIX_STATE state, int16_t some_vol);
+/* Same envelope, pan and dry/wet gains, with native interleaved stereo input.
+ * At most 184 frames are consumed; the rest of the synthesis block is silent. */
+void aEnvMixerStereoImpl(uint8_t flags, ENVMIX_STATE state, int16_t some_vol,
+    const int16_t *stereo, uint32_t frames);
 void aSetVolumeImpl(uint8_t flags, int16_t v, int16_t t, int16_t r);
 void aPoleFilterImpl(uint8_t flags, int16_t gain, uint32_t t, uint32_t addr);
 void aDisableImpl(uint16_t outp, uint32_t b, uint32_t c);
 void aPlayMP3Impl(const void *mp3file, u32 mp3size, void *out, int reset);
+
+#ifdef __cplusplus
+}
+#endif
 
 #define aDisable(pkt, o, b, c) aDisableImpl(o, b, c)
 #define aClearBuffer(pkt, d, c) aClearBufferImpl(d, c)
