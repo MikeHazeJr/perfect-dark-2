@@ -1696,7 +1696,8 @@ TEST_CASE("net manifest distribution: failed active transfer declines instead of
           "[net][manifest][static][c3813]")
 {
     const std::string distrib = read_text_file("port/src/net/netdistrib.c");
-    const std::string decline = function_block(distrib, "static void netDistribClientDeclineActiveManifest");
+    const std::string decline = function_definition_block(distrib,
+        "static void netDistribClientDeclineActiveManifest");
     const std::string end = function_block(distrib, "void netDistribClientHandleEnd");
 
     const size_t client_gate = decline.find("g_NetMode != NETMODE_CLIENT || !g_NetLocalClient");

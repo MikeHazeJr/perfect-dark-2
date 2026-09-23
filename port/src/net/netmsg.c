@@ -10390,6 +10390,10 @@ static void readyGateAbort(const char *canceller_name)
 
 	sysLogPrintf(LOG_NOTE, "NET: ready gate aborted by '%s'",
 	             canceller_name ? canceller_name : "?");
+	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+		if (expected_mask & (1u << i))
+			netDistribServerCancelClient(&g_NetClients[i]);
+	}
 
 	if (s_LobbyStartTxn.active) {
 		lobbyStartTransactionRollback(canceller_name);

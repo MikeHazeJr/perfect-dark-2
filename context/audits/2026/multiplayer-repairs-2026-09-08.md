@@ -756,3 +756,28 @@ to transfer, with duplicate requests ignored and the short deadline restored
 when all transfer requests resolve. This candidate requires an isolated build,
 focused tests, the asset-source guard, and ordinary-client transfer proof; F11
 and large-content acceptance remain open until those gates pass.
+
+The follow-up sends a failure END when an admitted transfer is cancelled and
+cancels every participant's pending work when match preparation aborts. The
+current combined source built both client and `pd-tests` in isolated
+`mpfinish0923` with `-Jobs 2`. Focused lifecycle 31/3,110,
+room/distribution/manifest 16/380, v61 graph agreement 1/17, and the native
+asset-source guard passed. The peer full-suite run exposed an obsolete v59
+static assertion and a test parser that selected a forward declaration; both
+focused tests now pass. That peer full suite remains red on unrelated menu and
+asset cases and has not been replaced by a full passing suite.
+
+The first post-change Needler receipt `results-20260923T153017Z.json` passed
+89/89 on binary `F1CB8AAC...`, but a Forge source edit landed after the MP
+source-hold announcement. It is binary evidence only, not the final combined
+source receipt. After rebuilding, `results-20260923T153846Z.json` passed
+89/89 on binary SHA-256
+`3B1ECF9D8155EC57D60A00505625C23EC87B69212F2C3CC77949BB7546154E99`.
+Its two clean installs exercised catalog and manifest consent before transfer,
+match readiness, and Needler gameplay/effect use. A 1,678-file tracked client
+source manifest plus runner and fixture had identical pre/post SHA-256
+`62D03A8FBCC6CFFA8B70F1100992B1BCB2EF38622D34B394D4CC26EA71889748`
+(zero changed entries). F11's large-content frame time, queue memory and WAN
+bandwidth remain unmeasured; synchronous archive construction/compression and
+the broader F01-F18 multiplayer acceptance matrix remain open. Mike requested
+pause after this validation; do not start more MP work until resumed.

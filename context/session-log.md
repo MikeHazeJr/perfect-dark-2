@@ -7879,3 +7879,29 @@ ordinary client. Then continue all-family edited-source witnesses and the
 remaining plan. The peer-run full `pd-tests` suite is red on 25 cases,
 including stale asset static expectations and independent menu/networking
 failures. Mike requested this goal pause after the audit and validation.
+
+## 2026-09-23 - Multiplayer content admission and pacing; paused
+
+T-NETWORKING-011 committed and pushed `39502184` (consent before catalog and
+manifest transfer, Room prepared-settings adoption) and `0176cfda` (bounded
+reliable transfer submission and admitted-content ready deadline). A scoped
+follow-up in `netdistrib.c`/`netmsg.c` sends failure END on active cancel and
+cancels participant transfers when match preparation aborts. The current
+combined-source isolated client/tests builds pass, focused lifecycle 31/3,110,
+room/distribution/manifest 16/380, v61 graph agreement 1/17, and native-source
+guard pass. Final independent-install direct Needler smoke is
+`results-20260923T153846Z.json` PASS 89/89 on binary
+`3B1ECF9D8155EC57D60A00505625C23EC87B69212F2C3CC77949BB7546154E99`;
+1,678 tracked client source files plus runner/fixture had identical pre/post
+hash aggregate `62D03A8F...`. The earlier `153017Z` 89/89 receipt was
+binary-qualified only because a peer Forge edit overlapped its source hold.
+The menu peer's full suite remains red on separately owned failures; two
+networking stale static expectations now pass focused reruns.
+
+Mike requested pause after current validation. T-NETWORKING-011 remains
+`partial`: large-content pacing/frame/bandwidth proof, ordinary UI
+decline/timeout, third peer, movement authority, WAN/relay, real chat/voice,
+host migration, two-match and hardware/visual/audio acceptance remain open.
+On resume, recheck Workbench/coordination ownership and source freeze, then
+continue the 18-finding repair ledger without treating this direct-localhost
+smoke as final multiplayer acceptance.

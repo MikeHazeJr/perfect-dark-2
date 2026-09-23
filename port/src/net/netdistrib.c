@@ -1344,8 +1344,13 @@ void netDistribServerCancelClient(struct netclient *cl)
         if (s_Queue[i].active && s_Queue[i].cl == cl)
             s_Queue[i].active = 0;
     }
-    if (s_SendStream.active && s_SendStream.cl == cl)
+    if (s_SendStream.active && s_SendStream.cl == cl) {
+        if (cl->peer == s_SendStream.peer && cl->peer
+                && cl->peer->connectID == s_SendStream.peer_connect_id
+                && enet_peer_get_state(cl->peer) == ENET_PEER_STATE_CONNECTED)
+            distribSendEnd(cl, s_SendStream.id, 0);
         distribClearSendStream();
+    }
 }
 
 void netDistribServerGetClientStatus(s32 client_index,

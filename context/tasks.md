@@ -513,11 +513,16 @@ T-NETWORKING-010 delivered the [multiplayer source audit](audits/2026/multiplaye
 with 18 prioritized findings across lobby, settings, gameplay, content,
 social transport and continuity. Mike authorized the full recommended repair
 program under T-NETWORKING-011; see the [repair ledger](audits/2026/multiplayer-repairs-2026-09-08.md).
-Room authority and snapshot candidates are draft-only during the menu/asset
-common freeze; no production edits or checks yet. Existing
-networking statuses and menu/asset ownership remain unchanged. No current
-multiplayer binary, WAN, voice, graphical or physical-controller acceptance
-was added; the separate asset boot blocker still needs its owner's direct gate.
+The Sep23 `origin/dev` checkpoints `39502184` and `0176cfda` connect
+consent-before-transfer and bounded ENet content pacing. The final combined
+source passed isolated client/tests builds, focused MP tests, native-source
+guard, and independent-install direct Needler smoke 89/89 on binary
+`3B1ECF9D...` with an unchanged 1,678-file source manifest. See the repair
+ledger for the retained earlier red receipts and exact evidence. F11 large
+transfer measurements, third peer, movement authority, WAN relay, migration,
+voice hardware and the full acceptance matrix remain open; T-NETWORKING-011
+stays `partial`. Mike requested pause after this gate. Resume only on his
+instruction and recheck peer ownership/source before another build or run.
 
 ## User-directed menu accessibility work, 2026-09-06
 
