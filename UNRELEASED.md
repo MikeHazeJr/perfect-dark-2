@@ -3,6 +3,11 @@
 - Keep listen-host launch settings when the Room opens during guest join, including a selected custom spawn weapon.
 - Ask before downloading missing session content; approved catalog IDs gate transfers, and declined or unsent requests roll back.
 
+- Refresh unchanged base head, body, and character archives when their nested
+  public asset dependencies change, while preserving edited archives on conflict.
+- Retain obsolete untouched renderer-effect placeholders outside the active
+  effect catalog on upgraded installs; edited legacy archives stay available for repair.
+
 - Extract all seven available NTSC language variants into editable `.pdlang`
   sources and select a locale's banks together with English fallback. Validate
   every source at catalog load without changing the active language.

@@ -1833,6 +1833,64 @@ static void s_emitEntryArchive(const asset_entry_t *e, pdmeta_ctx_t *ctx)
 	else SDL_AtomicAdd(&ctx->failed, 1);
 }
 
+/* Early effect extraction emitted six renderer placeholders that are no
+ * longer backed by a production visual consumer. An upgraded install can
+ * still contain those archives even though the current source table emits
+ * only native effect profiles. Retire only exact untouched extractor output;
+ * preserve edited/unknown public source and report the conflict. */
+static s32 s_retireLegacyRendererEffects(const char *effects_dir)
+{
+	static const char *ids[] = {
+		"base:effect_shimmer", "base:effect_screen", "base:effect_tint",
+		"base:effect_glow", "base:effect_darken", "base:effect_particle",
+	};
+	char retired_dir[FS_MAXPATH];
+	int n = snprintf(retired_dir, sizeof(retired_dir), "%s/_retired", effects_dir);
+	if (n <= 0 || (size_t)n >= sizeof(retired_dir)) return -1;
+	s32 moved = 0, failed = 0;
+	for (size_t i = 0; i < sizeof(ids) / sizeof(ids[0]); ++i) {
+		char source[FS_MAXPATH], target[FS_MAXPATH];
+		s_archiveRelPath(effects_dir, ids[i], ".pdeffect", source, sizeof(source));
+		if (fsFileSize(source) <= 0) continue;
+		char id_marker[CATALOG_ID_LEN + 24];
+		snprintf(id_marker, sizeof(id_marker), "\"id\": \"%s\"", ids[i]);
+		if (!s_existingArchiveEntryContains(source, "_meta/provenance.json",
+				"\"source_path\": \"renderer_effect_defaults\"") ||
+				!s_existingArchiveEntryContains(source, "_meta/provenance.json", id_marker) ||
+				!romExtractPdArchivePublicUnmodified(source)) {
+			sysLoudFailf("EXTRACT.PDMETA",
+				"obsolete effect %s has edited/unknown public source; preserving for user resolution",
+				source);
+			++failed;
+			continue;
+		}
+		if (!fsCreateDir(retired_dir)) {
+			++failed;
+			continue;
+		}
+		s_archiveRelPath(retired_dir, ids[i], ".pdeffect", target, sizeof(target));
+		char source_full_buf[FS_MAXPATH + 1], target_full_buf[FS_MAXPATH + 1];
+		const char *source_full = fsFullPath(source, source_full_buf, sizeof(source_full_buf));
+		const char *target_full = fsFullPath(target, target_full_buf, sizeof(target_full_buf));
+		if (!source_full || !target_full || !source_full[0] || !target_full[0]) {
+			++failed;
+			continue;
+		}
+		FILE *existing = fopen(target_full, "rb");
+		if (existing) { fclose(existing); ++failed; continue; }
+		if (rename(source_full, target_full) != 0) {
+			sysLoudFailf("EXTRACT.PDMETA", "could not retain obsolete effect %s", source);
+			++failed;
+			continue;
+		}
+		++moved;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"romextract pdmeta: obsolete renderer effects retired=%d failed=%d",
+		moved, failed);
+	return failed ? -1 : moved;
+}
+
 s32 romExtractAllPdmeta(s32 force_rewrite)
 {
 #if defined(PD_SERVER)
@@ -1937,6 +1995,7 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 	s32 written = SDL_AtomicGet(&ctx.written);
 	s32 skipped = SDL_AtomicGet(&ctx.skipped);
 	s32 failed = SDL_AtomicGet(&ctx.failed);
+	if (s_retireLegacyRendererEffects(effects_dir) < 0) ++failed;
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdmeta: written=%d skipped=%d failed=%d",
 		written, skipped, failed);

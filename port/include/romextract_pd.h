@@ -474,6 +474,17 @@ s32 romExtractPdFastCacheKindMismatch(const char *kind, const char *abs_dir);
 void romExtractPdFastCacheWrite(const char *kind, const char *abs_dir,
                                 const char *ext);
 
+/* Nested typed dependencies must be checked against their current public
+ * source before reusing an enclosing base archive. Returns 1 for identical
+ * bytes, 0 for stale bytes, and -1 for a missing/unreadable source. */
+s32 romExtractPdNestedDependencyMatches(const char *archive_path,
+                                        const char *member,
+                                        const char *dependency_path);
+/* Only generated archives whose every public member still matches its own
+ * recorded digest may be automatically refreshed. Edited source is retained
+ * and reported as an extraction conflict instead of silently overwritten. */
+s32 romExtractPdArchivePublicUnmodified(const char *archive_path);
+
 #ifdef __cplusplus
 }
 #endif

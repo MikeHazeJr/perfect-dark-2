@@ -163,19 +163,6 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 
 	char relpath[FS_MAXPATH];
 	snprintf(relpath, sizeof(relpath), "%s/%s.pdbody", out_dir, filename);
-
-	if (!force_rewrite && fsFileSize(relpath) > 0 &&
-	    s_existingZipArchive(relpath) &&
-	    s_existingArchiveHasEntry(relpath, "body.ini") &&
-	    s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
-	    (b->filenum == 0 || s_existingArchiveHasEntry(relpath, "mesh.pdmesh")) &&
-	    (b->handfilenum == 0 || s_existingArchiveHasEntry(relpath, "hand.pdmesh")) &&
-	    !s_existingArchiveEntryContains(relpath, "body.ini", "bodynum") &&
-	    !s_existingArchiveEntryContains(relpath, "body.ini", "mesh = FILE_") &&
-	    !s_existingArchiveEntryContains(relpath, "body.ini", "hand = FILE_")) {
-		return 0;
-	}
-
 	char mesh_rel[FS_MAXPATH];
 	char hand_rel[FS_MAXPATH];
 	char mesh_id[128];
@@ -188,6 +175,32 @@ static s32 s_emitOneBody(const body_authored_record_t *b,
 		mesh_id, sizeof(mesh_id));
 	if (b->handfilenum != 0) s_meshCatalogId(b->handfilenum, "hand",
 		hand_id, sizeof(hand_id));
+
+	if (!force_rewrite && fsFileSize(relpath) > 0 &&
+	    s_existingZipArchive(relpath) &&
+	    s_existingArchiveHasEntry(relpath, "body.ini") &&
+	    s_existingArchiveHasEntry(relpath, "_meta/manifest.json") &&
+	    (b->filenum == 0 || s_existingArchiveHasEntry(relpath, "mesh.pdmesh")) &&
+	    (b->handfilenum == 0 || s_existingArchiveHasEntry(relpath, "hand.pdmesh")) &&
+	    !s_existingArchiveEntryContains(relpath, "body.ini", "bodynum") &&
+	    !s_existingArchiveEntryContains(relpath, "body.ini", "mesh = FILE_") &&
+	    !s_existingArchiveEntryContains(relpath, "body.ini", "hand = FILE_")) {
+		s32 mesh_match = b->filenum == 0 ? 1 :
+			romExtractPdNestedDependencyMatches(relpath, "mesh.pdmesh", mesh_rel);
+		s32 hand_match = b->handfilenum == 0 ? 1 :
+			romExtractPdNestedDependencyMatches(relpath, "hand.pdmesh", hand_rel);
+		if (mesh_match == 1 && hand_match == 1) return 0;
+		if (mesh_match < 0 || hand_match < 0 ||
+				!romExtractPdArchivePublicUnmodified(relpath)) {
+			sysLoudFailf("EXTRACT.PDBODY",
+				"nested mesh conflict in %s; preserving edited/unreadable public archive",
+				relpath);
+			return -1;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdbody: refreshing unchanged archive %s after mesh source changed",
+			relpath);
+	}
 
 	const char *type_str = loaderEnumNameForHeadbodyType(b->type);
 	const char *mesh_str = loaderEnumNameForFileEnum(b->filenum);
@@ -408,14 +421,9 @@ s32 romExtractAllPdbody(s32 force_rewrite)
 		return -1;
 	}
 
-	if (romExtractPdFastCacheCanSkip(PDBODY_FAST_CACHE_KIND, bodies_dir,
-			".pdbody", force_rewrite)) {
-		bootProgressUpdate(g_BodyDataCount, g_BodyDataCount);
-		sysLogPrintf(LOG_NOTE,
-			"romextract pdbody: written=0 skipped=%d failed=0 total=%d (fast-cache)",
-			g_BodyDataCount, g_BodyDataCount);
-		return 0;
-	}
+	/* Embedded meshes depend on the current public .pdmesh archives. A
+	 * head/body-directory fingerprint alone cannot authorize whole-family
+	 * reuse after the mesh extractor or a modded mesh source changes. */
 
 	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
 	 * the stored kind differs from the current one (no-op on clean install or

@@ -1,5 +1,20 @@
 # Systemic Bug Patterns — Architectural Issue Catalog
 
+## 2026-09-23 Parent archive reuse must include embedded public dependencies
+
+A typed archive that embeds another editable typed archive cannot be reused
+solely because its own directory stamp and required member names are unchanged.
+When the top-level public dependency changes, the nested copy can claim the
+same catalog ID with different source bytes and break a warm install while a
+fresh install passes. Search emitters with
+`rg -n -g 'romextract_*.c' 'assetArchiveWriterAddPublicDisk|FastCacheCanSkip|s_existingArchiveHasEntry' port/src`.
+Compare each embedded dependency with its current public source before reuse;
+refresh only a parent whose public members still match recorded hashes, and
+fail without overwriting edits otherwise. The 2026-09-23 head/body/character
+upgrade fixed 215 failures and retained six obsolete unedited effect sources
+outside the active catalog. Weapon, arena and metadata embedding remain a
+separate propagation audit, not accepted as fixed by this slice.
+
 2026-09-08 23:06 batch22 connected texture/source pipeline ACCEPTED within scope (source35).
 Full2145 24440303AB0D8D1EB47802A8BA52AA3D71F7D10FCFB818CFDCDB1135EE097BD2;
 changed488 BAF7FC71; client6D4FE54E/tests233ECA5C unchanged through final audits.

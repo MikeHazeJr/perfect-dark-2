@@ -13,7 +13,21 @@ sources with the same ID. Repair the extraction dependency lifecycle without
 overwriting user edits, then prove clean and upgraded installs both boot with
 zero catalog failures. Propagation check: head, body, and character extractors
 all embed dependent typed archives and share this stale-cache pattern.
-Receipt: `.claude/session-builds/asset0923lang/logs/game client/pd-client.log`.
+Initial failure receipt: `.claude/session-builds/asset0923lang/logs/game client/pd-client.3.log`.
+Upgrade retry refreshed all 84/68/63 and cleared those 215 failures. The
+remaining six were obsolete renderer-effect placeholder archives emitted by an
+older extractor but absent from a clean current install; their old shader IDs
+have no visual consumer. A strict provenance-and-public-digest migration now
+retains only those exact untouched archives under effects/_retired and refuses
+edited/unknown source. The migration client build passes; upgraded boot and
+edited-source negative receipts now pass: final client fresh and upgraded
+installs each register 5,562/5,562 active archives with zero failures, while
+the edited legacy archive retains its exact SHA-256 and is rejected loudly.
+The initial 221-failure boot is superseded for this migration scope. Full
+fresh conformance covers 9,018 root / 10,019 recursive archives in 27
+families. Propagation audit also found
+embedded typed sources in weapon, arena, and metadata extractors; their
+dependency invalidation policy still needs a separate source-consumer audit.
 
 2026-09-22 19:18 ET: T-NETWORKING-011 ordinary listen-host multiplayer start
 can reject a valid Random weapon selection. On the short-path real-peer

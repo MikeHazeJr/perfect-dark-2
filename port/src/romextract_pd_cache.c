@@ -1,11 +1,15 @@
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <dirent.h>
 
 #include <PR/ultratypes.h>
 
 #include "romextract_pd.h"
+#include "fs.h"
+#include "modarchive.h"
+#include "sha256.h"
 #include "system.h"
 
 #define PDEXTRACT_CACHE_SCHEMA "pdasset-fast-v1-20260521"
@@ -21,6 +25,71 @@
  * Keep the fscanf width specifiers (PDEXTRACT_CACHE_KIND_SCANF) in sync. */
 #define PDEXTRACT_CACHE_KIND_MAX 512
 #define PDEXTRACT_CACHE_KIND_SCANF "511"
+
+s32 romExtractPdNestedDependencyMatches(const char *archive_path,
+		const char *member, const char *dependency_path)
+{
+	char archive_full[FS_MAXPATH + 1], dependency_full[FS_MAXPATH + 1];
+	if (!archive_path || !member || !member[0] || !dependency_path) return -1;
+	const char *archive = fsFullPath(archive_path, archive_full, sizeof(archive_full));
+	const char *dependency = fsFullPath(dependency_path, dependency_full, sizeof(dependency_full));
+	mod_archive_t *parent = NULL;
+	void *nested = NULL;
+	u32 nested_size = 0;
+	u8 nested_digest[SHA256_DIGEST_SIZE], dependency_digest[SHA256_DIGEST_SIZE];
+	s32 result = -1;
+	if (!archive || !dependency || !archive[0] || !dependency[0]) return -1;
+	parent = modArchiveOpen(archive);
+	if (!parent) return -1;
+	s32 index = modArchiveFindEntry(parent, member);
+	if (index < 0) goto done;
+	nested = modArchiveExtractAlloc(parent, index, &nested_size);
+	if (!nested || sha256HashFile(dependency, dependency_digest) != 0) goto done;
+	sha256Hash(nested, nested_size, nested_digest);
+	result = memcmp(nested_digest, dependency_digest, sizeof(nested_digest)) == 0;
+done:
+	free(nested);
+	modArchiveClose(parent);
+	return result;
+}
+
+s32 romExtractPdArchivePublicUnmodified(const char *archive_path)
+{
+	char full_buf[FS_MAXPATH + 1];
+	if (!archive_path) return 0;
+	const char *full = fsFullPath(archive_path, full_buf, sizeof(full_buf));
+	if (!full || !full[0]) return 0;
+	mod_archive_t *archive = modArchiveOpen(full);
+	if (!archive) return 0;
+	s32 clean = modArchiveCanRewriteSources(archive);
+	s32 public_count = 0;
+	for (s32 i = 0; clean && i < modArchiveGetEntryCount(archive); ++i) {
+		const char *name = modArchiveGetEntryName(archive, i);
+		if (!name || !name[0]) { clean = 0; break; }
+		if (strncmp(name, "_meta/", 6) == 0) continue;
+		++public_count;
+		char sidecar[FS_MAXPATH + 1];
+		int n = snprintf(sidecar, sizeof(sidecar), "_meta/%s.sha256", name);
+		if (n <= 0 || (size_t)n >= sizeof(sidecar)) { clean = 0; break; }
+		s32 sidecar_index = modArchiveFindEntry(archive, sidecar);
+		if (sidecar_index < 0) { clean = 0; break; }
+		u32 member_size = 0, sidecar_size = 0;
+		void *member = modArchiveExtractAlloc(archive, i, &member_size);
+		char *recorded = modArchiveExtractAlloc(archive, sidecar_index, &sidecar_size);
+		if (!member || !recorded || sidecar_size < 64) clean = 0;
+		if (clean) {
+			u8 digest[SHA256_DIGEST_SIZE];
+			char hex[SHA256_HEX_SIZE];
+			sha256Hash(member, member_size, digest);
+			sha256ToHex(digest, hex);
+			if (memcmp(hex, recorded, 64) != 0) clean = 0;
+		}
+		free(member);
+		free(recorded);
+	}
+	modArchiveClose(archive);
+	return clean && public_count > 0;
+}
 
 typedef struct {
 	s32 count;

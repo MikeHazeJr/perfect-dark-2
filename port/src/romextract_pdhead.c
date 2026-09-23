@@ -158,6 +158,12 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 
 	char relpath[FS_MAXPATH];
 	snprintf(relpath, sizeof(relpath), "%s/%s.pdhead", out_dir, filename);
+	char mesh_rel[FS_MAXPATH];
+	char mesh_id[128];
+	mesh_id[0] = '\0';
+	s_meshArchiveRelPath(h->filenum, NULL, mesh_rel, sizeof(mesh_rel));
+	if (h->filenum != 0) s_meshCatalogId(h->filenum, NULL,
+		mesh_id, sizeof(mesh_id));
 
 	if (!force_rewrite && fsFileSize(relpath) > 0 &&
 	    s_existingZipArchive(relpath) &&
@@ -166,15 +172,19 @@ static s32 s_emitOneHead(const head_authored_record_t *h,
 	    (h->filenum == 0 || s_existingArchiveHasEntry(relpath, "mesh.pdmesh")) &&
 	    !s_existingArchiveEntryContains(relpath, "head.ini", "headnum") &&
 	    !s_existingArchiveEntryContains(relpath, "head.ini", "mesh = FILE_")) {
-		return 0;
+		s32 match = h->filenum == 0 ? 1 :
+			romExtractPdNestedDependencyMatches(relpath, "mesh.pdmesh", mesh_rel);
+		if (match == 1) return 0;
+		if (match < 0 || !romExtractPdArchivePublicUnmodified(relpath)) {
+			sysLoudFailf("EXTRACT.PDHEAD",
+				"nested mesh conflict in %s; preserving edited/unreadable public archive",
+				relpath);
+			return -1;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdhead: refreshing unchanged archive %s after mesh source changed",
+			relpath);
 	}
-
-	char mesh_rel[FS_MAXPATH];
-	char mesh_id[128];
-	mesh_id[0] = '\0';
-	s_meshArchiveRelPath(h->filenum, NULL, mesh_rel, sizeof(mesh_rel));
-	if (h->filenum != 0) s_meshCatalogId(h->filenum, NULL,
-		mesh_id, sizeof(mesh_id));
 
 	const char *type_str = loaderEnumNameForHeadbodyType(h->type);
 	const char *file_str = loaderEnumNameForFileEnum(h->filenum);
@@ -357,14 +367,9 @@ s32 romExtractAllPdhead(s32 force_rewrite)
 		return -1;
 	}
 
-	if (romExtractPdFastCacheCanSkip(PDHEAD_FAST_CACHE_KIND, heads_dir,
-			".pdhead", force_rewrite)) {
-		bootProgressUpdate(g_HeadDataCount, g_HeadDataCount);
-		sysLogPrintf(LOG_NOTE,
-			"romextract pdhead: written=0 skipped=%d failed=0 total=%d (fast-cache)",
-			g_HeadDataCount, g_HeadDataCount);
-		return 0;
-	}
+	/* A directory-only fingerprint cannot see a changed top-level .pdmesh.
+	 * Visit each archive so its embedded public dependency is checked before
+	 * reuse, including on a warm boot with an unchanged head directory. */
 
 	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
 	 * the stored kind differs from the current one (no-op on clean install or

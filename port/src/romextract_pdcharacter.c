@@ -208,7 +208,21 @@ static s32 s_emitOneCharacter(s32 mpbody_idx, const char *out_dir,
 		    "source_contract = " PDCHARACTER_SOURCE_CONTRACT "\n") &&
 	    s_existingArchiveHasEntry(dst_rel, "body.pdbody") &&
 	    (!head || s_existingArchiveHasEntry(dst_rel, "head.pdhead"))) {
-		return 0;
+		s32 body_match = romExtractPdNestedDependencyMatches(dst_rel,
+			"body.pdbody", body_rel);
+		s32 head_match = head ? romExtractPdNestedDependencyMatches(dst_rel,
+			"head.pdhead", head_rel) : 1;
+		if (body_match == 1 && head_match == 1) return 0;
+		if (body_match < 0 || head_match < 0 ||
+				!romExtractPdArchivePublicUnmodified(dst_rel)) {
+			sysLoudFailf("EXTRACT.PDCHARACTER",
+				"nested body/head conflict in %s; preserving edited/unreadable public archive",
+				dst_rel);
+			return -1;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdcharacter: refreshing unchanged archive %s after dependency source changed",
+			dst_rel);
 	}
 
 	char manifest_buf[1024];
@@ -382,14 +396,8 @@ s32 romExtractAllPdcharacter(s32 force_rewrite)
 		return -1;
 	}
 
-	if (romExtractPdFastCacheCanSkip(PDCHARACTER_FAST_CACHE_KIND, characters_dir,
-			".pdcharacter", force_rewrite)) {
-		bootProgressUpdate(PDCHARACTER_MP_BODY_COUNT, PDCHARACTER_MP_BODY_COUNT);
-		sysLogPrintf(LOG_NOTE,
-			"romextract pdcharacter: written=0 skipped=%d failed=0 total=%d (fast-cache)",
-			PDCHARACTER_MP_BODY_COUNT, PDCHARACTER_MP_BODY_COUNT);
-		return 0;
-	}
+	/* Character archives embed current body/head public archives; directory
+	 * fingerprints do not see updates to those source dependencies. */
 
 	/* In-place cache-kind bump (B-943): the directory fast-cache already
 	 * fell through above, but the per-file validator keys on its own

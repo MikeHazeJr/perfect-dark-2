@@ -18,6 +18,19 @@ graph lifecycle migration, the requested pack, and a source-frozen closure
 campaign. The September 22 pause instruction was explicitly lifted by Mike's
 "Continue the goal"; the other paused sessions retain their own holds.
 
+2026-09-23 T-EXTRACTION-001 upgraded-install repair accepted within scope:
+the final client passes both fresh ROM-only and upgraded installs with
+5,562/5,562 catalog registrations and zero failures. Dependency checks refresh
+84 unchanged heads, 68 bodies and 63 characters whose nested public sources
+lagged current top-level archives. Six obsolete untouched renderer-effect
+placeholders moved to effects/_retired; an edited-source negative kept its
+exact SHA-256 and failed explicitly. Focused C++ 18/18 (613 assertions),
+native-source guard, conformance selftest, and full fresh 27-family conformance
+(9,018 root / 10,019 recursive archives) pass. This resolves the 221
+upgrade-only boot failures above; lossless extraction, edited-source runtime
+proof for all families, D-006A graph gameplay and final play acceptance remain
+open.
+
 2026-09-22 root asset/graph session pause checkpoint: Mike requested a scoped
 commit and push, then a pause. The owned extraction, public-source runtime,
 modding, and modular graph changes are being checkpointed on

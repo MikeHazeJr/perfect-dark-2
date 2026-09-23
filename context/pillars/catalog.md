@@ -13,6 +13,17 @@ extract-only boot stopped on 221 head/body/character registrations whose stale
 nested meshes diverge from top-level public `.pdmesh` source; this is a
 separate full-chain blocker.
 
+2026-09-23 upgraded-install repair accepted within scope: both fresh ROM-only
+and upgraded final-client runs register 5,562/5,562 active catalog archives
+with zero errors. Head/body/character extractors check embedded typed source
+against the current top-level archive on every reuse, refresh only unchanged
+parents (84/68/63 in the upgrade), and reject edited parents without overwrite.
+Six obsolete generated renderer effects are retained under effects/_retired;
+an edited legacy source remains byte-identical and fails explicitly. Focused
+C++ 18/18, source guard, selftest and full fresh 27-family conformance pass
+(9,018 root / 10,019 recursive archives). Graph and edited-source gameplay
+gates remain separate.
+
 2026-09-22 19:36 ET accepted long-install cache fallback: standard public
 animation source activates through the ordinary catalog on a portable install
 whose readable cache hierarchy exceeds the Windows CRT path budget. The

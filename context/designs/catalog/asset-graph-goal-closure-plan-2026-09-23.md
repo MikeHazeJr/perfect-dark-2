@@ -66,6 +66,16 @@ blocked by 221 head/body/character nested-mesh source collisions. JPN-final,
 glyphs, PC locale preference, and actual UI selection remain open. The graph
 cutover in step 2 remains the next production critical path.
 
+Later progress 2026-09-23: the upgrade-only 221-failure boot blocker is
+resolved within this scope. Final-client fresh and upgraded extraction both
+register 5,562/5,562 active catalog archives; 84 head, 68 body and 63
+character sources refresh only when unchanged, six obsolete unedited effects
+are retained outside the active catalog, and an edited negative remains
+byte-identical on rejection. Full fresh 27-family archive conformance passes
+9,018 root and 10,019 recursive archives. This is extraction/catalog admission
+evidence; editable-source gameplay witnesses and D-006A graph execution remain
+open as specified in the finish line.
+
 1. Settle the unverified T-ASSETS-042 worktree edits to
    `romextract_pdlang.c`, `langmanifest.c`, `lang_source.cpp/.h`,
    `langmanifest.h`, `lang.c`, `assetcatalog_load.c`, and focused tests. They currently attempt all

@@ -1,5 +1,33 @@
 # Session Log (Active)
 
+2026-09-23 10:54 ET T-EXTRACTION-001 upgraded-install repair accepted within
+the extraction/boot scope. Final isolated client and tests builds pass.
+Fresh ROM-only and upgraded installs each register 5,562/5,562 active catalog
+archives with zero failures. The upgrade refreshed all 84 stale heads, 68
+bodies and 63 characters, then retained six obsolete unedited effect archives
+under effects/_retired. An edited legacy effect was rejected without changing
+its SHA-256; the negative fixture is retained at
+.claude/session-builds/asset0923lang/edited-effect-negative.json. Focused
+body/head plus language C++ passed 18 cases/613 assertions; native-source
+guard and conformance selftest passed. Full fresh corpus conformance passed
+9,018 root and 10,019 recursive archives across all 27 families at
+.claude/session-builds/asset0923freshfinal/conformance.json. Clean and
+upgrade logs are under asset0923freshfinal and asset0923lang respectively.
+Positive upgrade log: .claude/session-builds/asset0923lang/logs/game client/pd-client.1.log;
+negative edited-source log: pd-client.log in the same directory. Prior
+upgraded-failure logs remain historical evidence. This is source/catalog
+boot proof, not all-family edited-source gameplay or graph acceptance.
+
+2026-09-23 10:34 ET Clean ROM-only extraction passed 5,562/5,562 universal
+catalog registrations with zero failures, proving the nested-mesh collision
+is an upgrade-only dependency reuse defect. T-EXTRACTION-001 candidate now
+checks nested typed archives against current top-level public sources on each
+warm boot for heads, bodies, and characters. Unchanged generated parents can
+refresh; changed public parent members fail loudly and remain untouched.
+The asset0923lang incremental client build passed. Upgrade and edited-source
+negative runs await the shared game-client lane; no upgraded-install pass yet.
+Clean receipt: .claude/session-builds/asset0923fresh/logs/game client/pd-client.log.
+
 2026-09-23 10:15 ET T-ASSETS-042 seven-locale NTSC extraction is source-connected
 and focused-verified. Isolated `asset0923lang` client and test builds passed;
 `[lang-source]` passed 10 cases/291 assertions, Python source tests passed
