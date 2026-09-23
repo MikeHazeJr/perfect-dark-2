@@ -1,5 +1,18 @@
 # Catalog System
 
+2026-09-23 resumed goal plan: the full extraction/runtime/creator/graph/mod-pack
+finish line and ordered gates are in
+`context/designs/catalog/asset-graph-goal-closure-plan-2026-09-23.md`.
+T-ASSETS-042 now emits all 476 active NTSC-final Latin-1 language archives,
+68 banks in each of seven locales. Independent ROM-to-public semantic parity
+passed 476/476; the catalog registered all 476. Isolated client/tests builds,
+focused C++ 10/10, Python 17/17, source guard and conformance selftest pass.
+Locale ranking and atomic multi-bank reload have focused tests, but visual
+runtime/glyph and JPN-final packed Japanese acceptance remain open. The same
+extract-only boot stopped on 221 head/body/character registrations whose stale
+nested meshes diverge from top-level public `.pdmesh` source; this is a
+separate full-chain blocker.
+
 2026-09-22 19:36 ET accepted long-install cache fallback: standard public
 animation source activates through the ordinary catalog on a portable install
 whose readable cache hierarchy exceeds the Windows CRT path budget. The

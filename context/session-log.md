@@ -1,5 +1,37 @@
 # Session Log (Active)
 
+2026-09-23 10:15 ET T-ASSETS-042 seven-locale NTSC extraction is source-connected
+and focused-verified. Isolated `asset0923lang` client and test builds passed;
+`[lang-source]` passed 10 cases/291 assertions, Python source tests passed
+17/17, the native-source guard and archive-conformance selftest passed.
+Actual extraction wrote 476 `.pdlang` archives across seven locales, failed
+zero, and the independent ROM/raw/public semantic receipt passed 476/476 with
+zero unreferenced raw candidates at
+`.claude/session-builds/asset0923lang/language-roundtrip.json`. The ordinary
+catalog registered 476/476 language sources. Full extract-only boot then
+halted on 221 unrelated registration failures: all 84 heads, 68 bodies, and
+63 characters failed because older nested mesh archives diverge from current
+top-level public mesh archives. This is an asset-chain failure, not language
+runtime or visual acceptance. JPN-final packed Japanese, glyphs, and OS locale
+preference remain open; D-006A equipped gameplay is the next critical path.
+
+2026-09-23 09:37 ET Mike resumed the asset/graph goal and requested an actual
+completion plan. The integrated plan is
+`context/designs/catalog/asset-graph-goal-closure-plan-2026-09-23.md`: complete
+active-ROM semantic extraction, all 27 edited-source production witnesses,
+standard creator formats, D-006A graph gameplay cutover, requested seven-part
+mod pack, and source-frozen end-to-end gates. T-ASSETS-042 is the first live
+batch. The language source/API files have unverified in-progress changes toward
+seven active-name variants where Latin-1 applies and locale-aware selection.
+Python parity17/17, native guard, and conformance selftest pass; the isolated
+client build stopped on peer-owned `pdguiNavSuppressActivation` declaration,
+updater passed, and language C++/extraction/runtime remain unverified.
+JPN-final packed codec/glyphs and PC locale preference
+remain open; candidate atomic multi-bank reload is also unverified. The previous
+root pause ended on Mike's explicit continuation;
+other sessions' independent pauses remain. Workbench and coordination own the
+durable operational state.
+
 2026-09-22 19:43 ET Mike requested a scoped asset/graph commit and push,
 followed by a pause while other sessions work. The long-install source-only
 animation cache gate passed 10/10. The checkpoint branch is

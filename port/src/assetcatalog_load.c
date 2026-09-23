@@ -696,7 +696,8 @@ static s32 s_catalogLoadEntryLangPayload(asset_entry_t *entry)
 {
     const char *source_path = entryGetFilePath(entry);
 
-    if (!langManifestEnsureId(entry->id)) {
+    if (!langManifestValidateId(entry->id) ||
+            !langManifestEnsureId(entry->id)) {
         sysLogPrintf(LOG_WARNING,
                      "CATALOG.LIFECYCLE.ACTIVATE: '%s' language payload activation failed",
                      entry->id);

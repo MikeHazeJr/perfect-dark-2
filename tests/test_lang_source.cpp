@@ -196,6 +196,27 @@ TEST_CASE("language valid unsupported Unicode is rejected after scalar decoding"
     REQUIRE(std::string(error) == "language_native_encoding_unsupported");
 }
 
+TEST_CASE("language locale suitability is exact then English whole-bank fallback",
+    "[modding][pdxxx][pdlang][lang-source]")
+{
+    REQUIRE(langSourceLocaleRank("", "fr") == 1);
+    REQUIRE(langSourceLocaleRank("en-US", "en") == 2);
+    REQUIRE(langSourceLocaleRank("en", "FR") == 1);
+    REQUIRE(langSourceLocaleRank("fr", "fr") == 2);
+    REQUIRE(langSourceLocaleRank("de", "fr") == 0);
+    REQUIRE(langSourceLocaleRank("en-GB", "gb") == 2);
+    REQUIRE(langSourceLocaleRank("en_gb", "en-GB") == 2);
+    REQUIRE(langSourceLocaleRank("en", "en-GB") == 1);
+    REQUIRE(langSourceLocaleRank("gb", "en") == 0);
+    REQUIRE(langSourceLocaleRank("ja", "jp") == 2);
+    REQUIRE(langSourceLocaleRank("ja-JP", "ja") == 2);
+    REQUIRE(langSourceLocaleRank("en", "jp") == 1);
+    for (const char *invalid : {"fr-CA", "eng", "en-GB-extra", "en GB", "en-GB trailing"}) {
+        REQUIRE(langSourceLocaleRank(invalid, "fr") == 0);
+        REQUIRE(langSourceLocaleRank("fr", invalid) == 0);
+    }
+}
+
 TEST_CASE("language declared counts include zero and never accept numeric prefixes",
     "[modding][pdxxx][pdlang][lang-source]")
 {

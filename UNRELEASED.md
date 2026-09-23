@@ -1,5 +1,9 @@
 # Unreleased Changes
 
+- Extract all seven available NTSC language variants into editable `.pdlang`
+  sources and select a locale's banks together with English fallback. Validate
+  every source at catalog load without changing the active language.
+
 - Keep menu actions held until all simultaneous bound inputs release. Wheel pulses retire independently, while focus loss and controller removal clear stale physical holds.
 - Let custom controllers bind buttons 23-32 separately from stick directions and triggers. Existing bindings keep working and show when an older shared control needs rebinding.
 

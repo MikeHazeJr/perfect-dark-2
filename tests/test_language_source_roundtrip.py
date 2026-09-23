@@ -212,6 +212,23 @@ class LanguageRoundtripTests(unittest.TestCase):
         self.assertEqual(english["summary"]["extracted_raw_candidates"], 2)
         self.assertFalse(self.check(locales=("de",))["passed"])
 
+    def test_all_seven_active_name_variants_have_independent_semantic_receipts(self):
+        for locale, suffix, slug in (
+                ("en", "E", "en"), ("ja", "J", "ja"),
+                ("en-GB", "P", "en_gb"), ("fr", "_str_f", "fr"),
+                ("de", "_str_g", "de"), ("it", "_str_i", "it"),
+                ("es", "_str_s", "es")):
+            self.archive(locale=locale, suffix=suffix,
+                         filename=f"base_lang_gun_{slug}.pdlang")
+        receipt = self.check()
+        self.assertTrue(receipt["passed"], receipt)
+        self.assertEqual(receipt["summary"]["passed"], 7)
+        self.assertEqual(receipt["summary"]["extracted_raw_candidates"], 7)
+        self.assertEqual(set(receipt["summary"]["published_archives_by_locale"]),
+                         {"en", "ja", "en-GB", "fr", "de", "it", "es"})
+        self.assertTrue(all(row["native_semantic_sha256"] == row["public_semantic_sha256"]
+                            for row in receipt["archives"]))
+
     def test_japanese_codec_is_explicitly_unsupported_only_in_japanese_rom(self):
         self.archive(locale="ja", suffix="J")
         self.assertTrue(self.check()["passed"])

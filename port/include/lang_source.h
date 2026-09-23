@@ -30,6 +30,10 @@ typedef struct lang_source_bank {
 lang_source_encoding_t langSourceEncodingForLocale(const char *rom_id,
     const char *locale);
 
+/* Locale suitability for whole-bank catalog selection. Exact=2, English
+ * fallback=1, unrelated or malformed=0. Legacy blank locale means en. */
+s32 langSourceLocaleRank(const char *candidate, const char *requested);
+
 /* Descriptor integer boundary: one complete nonnegative decimal count. */
 s32 langSourceParseCount(const char *text, u32 *out_count);
 /* Strict manifest fields, validated before catalog publication. A missing

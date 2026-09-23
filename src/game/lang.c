@@ -478,6 +478,7 @@ void langSetEuropean(u32 arg0)
 {
 	u8 teams;
 	bool hasoptionslang = false;
+	s32 previous_language = g_LanguageId;
 
 	if (g_LangBanks[LANGBANK_OPTIONS] != NULL) {
 		hasoptionslang = true;
@@ -508,7 +509,10 @@ void langSetEuropean(u32 arg0)
 		break;
 	}
 
-	langReload();
+	if (!langManifestReload()) {
+		g_LanguageId = previous_language;
+		return;
+	}
 
 	if (hasoptionslang) {
 		mpSetTeamNamesToDefault(teams);
@@ -519,8 +523,11 @@ void langSetEuropean(u32 arg0)
 #if VERSION == VERSION_JPN_FINAL
 void langSetJpnEnabled(bool enable)
 {
+	bool previous_jpn = g_Jpn;
 	g_Jpn = enable ? true : false;
 
-	langReload();
+	if (!langManifestReload()) {
+		g_Jpn = previous_jpn;
+	}
 }
 #endif

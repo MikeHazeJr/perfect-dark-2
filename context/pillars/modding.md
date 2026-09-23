@@ -1,5 +1,17 @@
 # Modding
 
+2026-09-23 resumed goal plan: D-006A executable graph production cutover is
+the critical path after the current T-ASSETS-042 batch. The ordered native
+lifecycles, 27-family public-source proofs, requested Needler/Ghost/Warthog
+and four-character pack, and final evidence gates are in
+`context/designs/catalog/asset-graph-goal-closure-plan-2026-09-23.md`.
+Existing v2 executor/module tests do not yet prove ordinary equipped gameplay.
+The regional language batch now preserves 476/476 editable NTSC-final public
+sources and passes independent source parity; ordinary catalog ingestion saw
+all 476. Runtime language UI, Japanese packed text/glyphs, and locale preference
+still need production proof. A separate stale nested mesh conflict blocks the
+full asset-chain boot and must be resolved without discarding public edits.
+
 2026-09-22 19:36 ET accepted private cache path repair: a long portable
 install now compiles extracted public glTF animation through a short flat
 source-hashed private cache after readable roots cannot fit. The smoke runner

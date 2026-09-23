@@ -22,11 +22,8 @@
  * "FILE_L" prefix and the trailing locale char yields the bank
  * name (e.g. FILE_LGUNE -> "gun").
  *
- * Current locale scope: 68 canonical English banks (locale="en")
- * in each supported ROM build, selected through g_LangFiles[].
- * This emitter does not yet publish the available regional variants.
- * Their extraction, locale selection, and Japanese text/glyph codec
- * integration remain a separate incomplete chain (T-ASSETS-042).
+ * Locale scope: all seven active-name-table variants when their native codec
+ * is Latin-1. JPN-final's packed Japanese J source/glyph codec remains open.
  *
  * The emitted JSON is decoded from the RAW pre-preprocess file as
  * extracted to disk by Pass A. The raw file starts with a big-endian
@@ -57,20 +54,68 @@
 #include "romextract.h"
 #include "romextract_pd.h"
 #include "lang_source.h"
+#include "sha256.h"
 #include "system.h"
+#include "versioninfo.h"
 
 #define PDLANG_OUT_DIR "lang"
-#define PDLANG_EXTRACT_VERSION "strings_json_rzip_v2_null_extent_codec"
-#define PDLANG_FAST_CACHE_KIND "pdlang_strings_json_rzip_v2_null_extent_codec"
+#define PDLANG_EXTRACT_VERSION "strings_json_rzip_v3_regional_source_hash"
+#define PDLANG_FAST_CACHE_KIND "pdlang_strings_json_rzip_v3_regional_source_hash"
 
 /* Walk range. g_LangFiles[] is sized 69 in src/game/lang.c (bank 0
  * is a sentinel zero entry, banks 1..68 carry real files). The
  * LANGBANK_* enum tops out at 0x44 = 68. */
 #define PDLANG_BANK_MAX 68
+#define PDLANG_LOCALE_COUNT 7
 
 #if !defined(PD_SERVER)
 
 extern u16 g_LangFiles[];
+
+typedef struct {
+	const char *locale;
+	const char *source_suffix;
+} pdlang_locale_t;
+
+static const pdlang_locale_t s_locales[PDLANG_LOCALE_COUNT] = {
+	{ "en", "E" }, { "ja", "J" }, { "en-GB", "P" }, { "fr", "_str_f" },
+	{ "de", "_str_g" }, { "it", "_str_i" }, { "es", "_str_s" }
+};
+
+static s32 s_extractBankName(const char *file_sym, char *out, size_t out_n);
+
+/* Resolve through the active ROM file-name table. Enum adjacency is not
+ * sufficient evidence that a regional file belongs to this ROM. */
+static s32 s_resolveLocaleFile(s32 bank, s32 locale_index, char *bank_name,
+	size_t bank_name_size)
+{
+	const s32 english = g_LangFiles[bank];
+	const char *canonical = romdataFileGetName(english);
+	const char *symbol = loaderEnumNameForFileEnum(english);
+	char stem[128];
+	char candidate[160];
+	s32 found = -1;
+	size_t len;
+
+	if (!canonical || !(len = strlen(canonical)) || canonical[len - 1] != 'E'
+			|| len >= sizeof(stem)) return -2;
+	if (!s_extractBankName(symbol, bank_name, bank_name_size)) return -2;
+	memcpy(stem, canonical, len - 1);
+	stem[len - 1] = '\0';
+	if (locale_index == 0) return english;
+	for (s32 spelling = 0; spelling < 2; spelling++) {
+		/* The active table may name compiled _str_*Z files with or without
+		 * the trailing Z. Ambiguous aliases must not select by order. */
+		if (spelling && s_locales[locale_index].source_suffix[0] != '_') break;
+		snprintf(candidate, sizeof(candidate), "%s%s%s", stem,
+			s_locales[locale_index].source_suffix, spelling ? "Z" : "");
+		s32 id = romdataFileGetNumForName(candidate);
+		if (id < 0) continue;
+		if (found >= 0 && found != id) return -2;
+		found = id;
+	}
+	return found;
+}
 
 /* Strip "FILE_L" prefix and trailing locale-char suffix from a
  * symbolic FILE_* enum string, write lowercase result to out. The
@@ -202,15 +247,13 @@ static s32 s_prepareLangSource(const u8 *src, u32 src_size,
 	return 1;
 }
 
-static s32 s_buildStringsJson(const u8 *src, u32 src_size,
+static s32 s_buildStringsJson(const u8 *src, u32 src_size, const char *locale,
                               char **out_text, u32 *out_size,
                               u32 *out_count)
 {
 	const char *error = NULL;
-	/* This emitter currently selects the canonical English E file. That
-	 * source uses Latin-1 in every region; Japanese J files need a different
-	 * codec and remain a separate extraction/selection unit. */
-	s32 ok = langSourceExportNative(src, src_size, -1, LANG_SOURCE_LATIN1,
+	s32 ok = langSourceExportNative(src, src_size, -1,
+		langSourceEncodingForLocale(VERSION_ROMID, locale),
 		out_text, out_size, out_count, &error);
 	if (!ok) {
 		sysLogPrintf(LOG_WARNING, "EXTRACT.PDLANG: native source rejected: %s",
@@ -221,33 +264,28 @@ static s32 s_buildStringsJson(const u8 *src, u32 src_size,
 
 /* Emit one .pdlang ZIP for (bank, locale). Returns 1 written, 0
  * skipped (file not on disk for this build), -1 failed. */
-static s32 s_emitOneLang(s32 bank, const char *locale_tag,
+static s32 s_emitOneLang(s32 bank, const char *bank_name, const char *locale_tag,
                          u16 file_id, const char *out_dir,
                          s32 force_rewrite)
 {
-	if (file_id == 0) return 0;
+	if (file_id == 0) return -1;
 
 	char src_rel[FS_MAXPATH];
 	if (romExtractRelPathForFilenum((s32)file_id, src_rel, sizeof(src_rel)) <= 0) {
-		return 0;
+		return -1;
 	}
 	if (fsFileSize(src_rel) <= 0) {
-		/* File not extracted for this build; skip silently. Lang banks
-		 * are sometimes ROM-region-specific. */
-		return 0;
+		sysLoudFailf("EXTRACT.PDLANG", "mapped bank=%d locale=%s has no extracted source %s",
+			bank, locale_tag, src_rel);
+		return -1;
 	}
 
 	const char *file_sym = loaderEnumNameForFileEnum((s32)file_id);
-	char bank_name[64];
-	if (!s_extractBankName(file_sym, bank_name, sizeof(bank_name))
-	    || bank_name[0] == '\0') {
-		/* No symbolic name; fall back to hex bank index (Q-4 Bucket 2). */
-		snprintf(bank_name, sizeof(bank_name), "%02x", (unsigned)bank);
-	}
 
 	char catalog_id[128];
+	const char *id_locale = strcmp(locale_tag, "en-GB") == 0 ? "en_gb" : locale_tag;
 	snprintf(catalog_id, sizeof(catalog_id),
-		"base:lang_%s_%s", bank_name, locale_tag);
+		"base:lang_%s_%s", bank_name, id_locale);
 
 	char filename_slug[128];
 	{
@@ -262,13 +300,6 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	snprintf(dst_rel, sizeof(dst_rel),
 		"%s/%s.pdlang", out_dir, filename_slug);
 
-	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
-	    s_existingArchiveHasEntry(dst_rel, "lang.ini") &&
-	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
-	    s_existingArchiveHasEntry(dst_rel, "strings.json") &&
-	    s_existingArchiveEntryContains(dst_rel, "lang.ini",
-		    "extract_version = " PDLANG_EXTRACT_VERSION)) return 0;
-
 	u32 src_size = (u32)fsFileSize(src_rel);
 	u32 src_bytes_size = 0;
 	void *src_bytes = fsFileLoad(src_rel, &src_bytes_size);
@@ -277,6 +308,22 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 			"fsFileLoad failed for bank=%d source \"%s\"", bank, src_rel);
 		if (src_bytes) sysMemFree(src_bytes);
 		return -1;
+	}
+	u8 source_digest[SHA256_DIGEST_SIZE];
+	char source_hash[SHA256_HEX_SIZE];
+	sha256Hash(src_bytes, src_bytes_size, source_digest);
+	sha256ToHex(source_digest, source_hash);
+	char hash_field[SHA256_HEX_SIZE + 32];
+	snprintf(hash_field, sizeof(hash_field), "source_sha256 = %s", source_hash);
+	if (!force_rewrite && fsFileSize(dst_rel) > 0 &&
+	    s_existingArchiveHasEntry(dst_rel, "lang.ini") &&
+	    s_existingArchiveHasEntry(dst_rel, "_meta/manifest.json") &&
+	    s_existingArchiveHasEntry(dst_rel, "strings.json") &&
+	    s_existingArchiveEntryContains(dst_rel, "lang.ini",
+		    "extract_version = " PDLANG_EXTRACT_VERSION) &&
+	    s_existingArchiveEntryContains(dst_rel, "lang.ini", hash_field)) {
+		sysMemFree(src_bytes);
+		return 0;
 	}
 
 	u8 *lang_source = NULL;
@@ -295,7 +342,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 	char *json_text = NULL;
 	u32 json_size = 0;
 	u32 string_count = 0;
-	if (!s_buildStringsJson(lang_source, lang_source_size,
+	if (!s_buildStringsJson(lang_source, lang_source_size, locale_tag,
 	                        &json_text, &json_size, &string_count)) {
 		sysLoudFailf("EXTRACT.PDLANG",
 			"could not build strings.json for bank=%d source \"%s\"",
@@ -331,6 +378,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		"  \"extract_version\": \"%s\",\n"
 		"  \"source_bank\": %d,\n"
 		"  \"source_filenum\": %u,\n"
+		"  \"source_sha256\": \"%s\",\n"
 		"  \"source_symbol\": \"%s\"\n"
 		"}\n",
 		catalog_id, locale_tag, category,
@@ -339,7 +387,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		(unsigned)lang_source_size,
 		(unsigned)string_count,
 		PDLANG_EXTRACT_VERSION,
-		bank, (unsigned)file_id,
+		bank, (unsigned)file_id, source_hash,
 		file_sym ? file_sym : "");
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest_buf)) {
 		sysLoudFailf("EXTRACT.PDLANG",
@@ -363,6 +411,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		"string_count = %u\n"
 		"extract_version = %s\n"
 		"source_bank = %d\n"
+		"source_sha256 = %s\n"
 		"source_symbol = %s\n",
 		catalog_id, locale_tag, category,
 		(unsigned)json_size,
@@ -370,7 +419,7 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 		(unsigned)lang_source_size,
 		(unsigned)string_count,
 		PDLANG_EXTRACT_VERSION,
-		bank,
+		bank, source_hash,
 		file_sym ? file_sym : "");
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDLANG",
@@ -476,13 +525,13 @@ static s32 s_emitOneLang(s32 bank, const char *locale_tag,
 
 /* Engine Phase 4: per-lang fan-out context. */
 typedef struct {
-	const char  *locale_tag;
 	const char  *lang_dir;
 	s32          force_rewrite;
 	s32          count;
 	SDL_atomic_t written;
 	SDL_atomic_t skipped;
 	SDL_atomic_t failed;
+	SDL_atomic_t unsupported_japanese;
 	SDL_atomic_t processed;
 } pdlang_fanout_ctx_t;
 
@@ -491,11 +540,17 @@ static void s_pdlangWork(int idx, void *user)
 	pdlang_fanout_ctx_t *c = (pdlang_fanout_ctx_t *)user;
 	if (idx < 0 || idx >= c->count) return;
 
-	/* Bank index is 1-based: idx 0 -> bank 1. */
-	s32 bank = idx + 1;
-	u16 file_id = g_LangFiles[bank];
-	s32 r = s_emitOneLang(bank, c->locale_tag, file_id,
-	                      c->lang_dir, c->force_rewrite);
+	s32 bank = idx / PDLANG_LOCALE_COUNT + 1;
+	s32 locale_index = idx % PDLANG_LOCALE_COUNT;
+	char bank_name[64] = {0};
+	s32 file_id = s_resolveLocaleFile(bank, locale_index, bank_name,
+		sizeof(bank_name));
+	s32 unsupported = file_id >= 0 && langSourceEncodingForLocale(VERSION_ROMID,
+		s_locales[locale_index].locale) != LANG_SOURCE_LATIN1;
+	s32 r = unsupported || file_id == -1 ? 0 : file_id < 0 ? -1 :
+		s_emitOneLang(bank, bank_name, s_locales[locale_index].locale,
+			(u16)file_id, c->lang_dir, c->force_rewrite);
+	if (unsupported) SDL_AtomicAdd(&c->unsupported_japanese, 1);
 	if (r > 0)       SDL_AtomicAdd(&c->written, 1);
 	else if (r == 0) SDL_AtomicAdd(&c->skipped, 1);
 	else             SDL_AtomicAdd(&c->failed,  1);
@@ -529,21 +584,8 @@ s32 romExtractAllPdlang(s32 force_rewrite)
 		return -1;
 	}
 
-	/* For Step 3b initial ship, emit canonical English locale only.
-	 * PAL/JPN extension lands as Step 5 cleanup or a follow-up
-	 * worktree. The catalog ID includes the locale suffix so the
-	 * follow-up's IDs don't collide with these. */
-	const char *locale_tag = "en";
-
-	if (romExtractPdFastCacheCanSkip(PDLANG_FAST_CACHE_KIND, lang_dir,
-			".pdlang", force_rewrite)) {
-		bootProgressUpdate(PDLANG_BANK_MAX, PDLANG_BANK_MAX);
-		sysLogPrintf(LOG_NOTE,
-			"romextract pdlang: written=0 skipped=%d failed=0 "
-			"banks=%d locale=%s (out=%s, fast-cache)",
-			PDLANG_BANK_MAX, PDLANG_BANK_MAX, locale_tag, lang_dir);
-		return 0;
-	}
+	/* Source hashes must be checked on each pass; a directory-only output
+	 * fingerprint cannot detect a changed extracted input. */
 
 	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
 	 * the stored kind differs from the current one (no-op on clean install or
@@ -553,27 +595,29 @@ s32 romExtractAllPdlang(s32 force_rewrite)
 
 	pdlang_fanout_ctx_t lctx;
 	memset(&lctx, 0, sizeof(lctx));
-	lctx.locale_tag    = locale_tag;
 	lctx.lang_dir      = lang_dir;
 	lctx.force_rewrite = effective_force;
-	lctx.count         = PDLANG_BANK_MAX;
+	lctx.count         = PDLANG_BANK_MAX * PDLANG_LOCALE_COUNT;
 	SDL_AtomicSet(&lctx.written,   0);
 	SDL_AtomicSet(&lctx.skipped,   0);
 	SDL_AtomicSet(&lctx.failed,    0);
+	SDL_AtomicSet(&lctx.unsupported_japanese, 0);
 	SDL_AtomicSet(&lctx.processed, 0);
 
-	bootProgressUpdate(0, PDLANG_BANK_MAX);
-	bootPoolForRangeBlocking(0, PDLANG_BANK_MAX, s_pdlangWork, &lctx);
-	bootProgressUpdate(PDLANG_BANK_MAX, PDLANG_BANK_MAX);
+	bootProgressUpdate(0, lctx.count);
+	bootPoolForRangeBlocking(0, lctx.count, s_pdlangWork, &lctx);
+	bootProgressUpdate(lctx.count, lctx.count);
 
 	s32 written = SDL_AtomicGet(&lctx.written);
 	s32 skipped = SDL_AtomicGet(&lctx.skipped);
 	s32 failed  = SDL_AtomicGet(&lctx.failed);
+	s32 unsupported_japanese = SDL_AtomicGet(&lctx.unsupported_japanese);
 
 	sysLogPrintf(LOG_NOTE,
 		"romextract pdlang: written=%d skipped=%d failed=%d "
-		"banks=%d locale=%s (out=%s)",
-		written, skipped, failed, PDLANG_BANK_MAX, locale_tag, lang_dir);
+		"banks=%d source_locales=%d unsupported_japanese=%d (out=%s)",
+		written, skipped, failed, PDLANG_BANK_MAX, PDLANG_LOCALE_COUNT,
+		unsupported_japanese, lang_dir);
 
 	if (failed == 0) {
 		romExtractPdFastCacheWrite(PDLANG_FAST_CACHE_KIND, lang_dir, ".pdlang");

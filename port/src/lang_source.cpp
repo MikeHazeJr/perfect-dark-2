@@ -82,17 +82,40 @@ void appendText(std::string &out, const u8 *text, size_t size)
     }
     out += '"';
 }
+
+int localeIndex(const char *tag)
+{
+    if (!tag || !tag[0]) return 0;
+    std::string value(tag);
+    if (value.size() > 15) return -1;
+    for (char &c : value) {
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c + ('a' - 'A'));
+    }
+    if (value == "en" || value == "en-us" || value == "en_us") return 0;
+    if (value == "en-gb" || value == "en_gb" || value == "gb") return 1;
+    if (value == "fr") return 2;
+    if (value == "de") return 3;
+    if (value == "it") return 4;
+    if (value == "es") return 5;
+    if (value == "ja" || value == "jp" || value == "ja-jp" || value == "ja_jp") return 6;
+    return -1;
+}
+}
+
+extern "C" s32 langSourceLocaleRank(const char *candidate, const char *requested)
+{
+    const int source = localeIndex(candidate);
+    const int target = localeIndex(requested);
+    if (source < 0 || target < 0) return 0;
+    if (source == target) return 2;
+    return source == 0 ? 1 : 0;
 }
 
 extern "C" lang_source_encoding_t langSourceEncodingForLocale(
     const char *rom_id, const char *locale)
 {
-    if (rom_id && std::strcmp(rom_id, "jpn-final") == 0 && locale) {
-        const bool japanese = ((locale[0] == 'j' || locale[0] == 'J') &&
-            (locale[1] == 'a' || locale[1] == 'A' || locale[1] == 'p' || locale[1] == 'P') &&
-            (locale[2] == '\0' || locale[2] == '-' || locale[2] == '_'));
-        if (japanese) return LANG_SOURCE_JAPANESE_UNSUPPORTED;
-    }
+    if (rom_id && std::strcmp(rom_id, "jpn-final") == 0 &&
+            localeIndex(locale) == 6) return LANG_SOURCE_JAPANESE_UNSUPPORTED;
     return LANG_SOURCE_LATIN1;
 }
 

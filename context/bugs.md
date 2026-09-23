@@ -1,5 +1,20 @@
 # Bug Tracker
 
+2026-09-23 T-ASSETS-001/T-EXTRACTION-001: Isolated NTSC-final extract-only
+boot produced 476/476 regional language sources and registered all 476, but
+then stopped on 221 catalog registration failures. All 84 `.pdhead`, 68
+`.pdbody`, and 63 `.pdcharacter` archives failed admission. One traced example,
+`base:head_carrington`, contains `mesh.pdmesh` with an older public export
+than `meshes/base_model_cheadcarrington.pdmesh`; both claim
+`base:model_cheadcarrington`. Head/body/character fast caches use only their
+own stamp/entry presence, so a changed top-level dependency does not
+invalidate its nested copy. The catalog correctly rejects divergent public
+sources with the same ID. Repair the extraction dependency lifecycle without
+overwriting user edits, then prove clean and upgraded installs both boot with
+zero catalog failures. Propagation check: head, body, and character extractors
+all embed dependent typed archives and share this stale-cache pattern.
+Receipt: `.claude/session-builds/asset0923lang/logs/game client/pd-client.log`.
+
 2026-09-22 19:18 ET: T-NETWORKING-011 ordinary listen-host multiplayer start
 can reject a valid Random weapon selection. On the short-path real-peer
 distribution fixture, `matchConfigSelectWeaponSet(6)` resolved to Random set 13;

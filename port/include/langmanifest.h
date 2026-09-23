@@ -9,12 +9,10 @@
  *     last langManifestReset() call.
  *   - langManifestRecordBank() is called by langReset() after each langLoad()
  *     to keep tracking in sync with the existing load path.
- *   - langManifestEnsureId() lets a screen or stage declare "I need this bank"
- *     using a catalog ID like "base:lang_options".  If the bank is not yet
- *     loaded it calls langLoad() and records it.
- *   - langManifestReload() reloads all tracked banks in the current language.
- *     Used by langSetEuropean() / langSetJpnEnabled() instead of langReload()
- *     so the manifest stays authoritative.
+ *   - langManifestEnsureId() uses a catalog ID to identify the bank, then
+ *     binds the best enabled source for the active locale.
+ *   - langManifestReload() prepares every live bank for the current language
+ *     before publishing any replacement.
  *
  * Runtime source:
  *   langReset(), langLoad(), and langLoadToAddr() should load the selected
@@ -74,9 +72,9 @@ void langManifestRecordBank(s32 bank);
 /**
  * Ensure a lang bank identified by catalog ID is loaded.
  *
- * Resolves the catalog ID (e.g. "base:lang_options") to a LANGBANK_* value
- * via the asset catalog.  If the bank is not yet loaded (g_LangBanks[bank]
- * is NULL), calls langLoad() and records the bank in g_LangManifest.
+ * Resolves the catalog ID to a LANGBANK_* value via the asset catalog, then
+ * loads the selected locale source for that bank and records it. The requested
+ * ID is a bank dependency, not a command to display that archive's locale.
  *
  * Returns 1 if the bank is now loaded.
  * Returns 0 if the catalog ID is unknown, the entry is not ASSET_LANG, or
@@ -93,12 +91,17 @@ void langManifestRecordBank(s32 bank);
  */
 s32 langManifestEnsureId(const char *lang_id);
 
+/* Validate one public archive without changing the displayed bank. Generic
+ * catalog preload uses this for every locale before binding the selection. */
+s32 langManifestValidateId(const char *lang_id);
+
 /**
  * Load a LANGBANK_* slot from the best enabled catalog ASSET_LANG entry.
  *
  * This is the bank-index bridge for legacy game code paths that still carry
- * LANGBANK_* values. It prefers enabled mod entries over bundled base entries,
- * then loads that entry's public FileProvider strings.json source into the
+ * LANGBANK_* values. Exact locale wins, then whole-bank English fallback;
+ * within one locale, enabled mods win over bundled base entries. Equal-score
+ * IDs use lexical order. It loads public FileProvider strings.json into the
  * g_LangBanks[] runtime table.
  *
  * Returns 1 when the bank is loaded from catalog/FileProvider source.
@@ -108,15 +111,15 @@ s32 langManifestLoadBankFromCatalog(s32 bank);
 /**
  * Reload all tracked banks in the current language.
  *
- * Iterates g_LangManifest and calls langLoad() for each recorded bank.
- * Use this in langSetEuropean() / langSetJpnEnabled() (PAL/JPN builds) in
- * place of the raw langReload() so that banks added via langManifestEnsureId
- * are also reloaded.
+ * Prepares selected source for each tracked live bank, aborts all new
+ * candidates on a failure, then publishes every replacement. The language
+ * setters revert the requested language when this returns 0.
  *
  * On builds where langReload() is not available (NTSC without PAL_BETA),
  * this provides the same reload behaviour for the PC port.
  */
-void langManifestReload(void);
+/* Returns 0 if any candidate fails; all old banks remain published. */
+s32 langManifestReload(void);
 
 /** Return the number of currently-tracked banks. */
 s32 langManifestGetCount(void);

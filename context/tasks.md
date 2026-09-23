@@ -1,5 +1,23 @@
 # Tasks
 
+2026-09-23 asset/graph goal resumed. The executable closure sequence and
+definition of done are in
+[asset-graph-goal-closure-plan-2026-09-23.md](designs/catalog/asset-graph-goal-closure-plan-2026-09-23.md).
+T-ASSETS-042's seven active NTSC locale sources now emit 476/476 public
+`.pdlang` archives (68 banks per locale). Independent ROM-to-public-source
+parity passed 476/476 with every raw candidate represented; isolated client
+and tests builds, focused language C++ 10/10 (291 assertions), Python 17/17,
+native-source guard, and conformance selftest passed. The ordinary catalog
+registered all 476 language archives, but full extract-only boot stopped on
+221 separate head/body/character registration failures caused by divergent
+top-level and nested mesh sources. JPN-final packed Japanese, native glyphs,
+OS locale preference, and visual locale acceptance remain open. Next critical
+path is ordinary equipped graph-v2
+single-shot gameplay, then all 27 edited-source production witnesses, full
+graph lifecycle migration, the requested pack, and a source-frozen closure
+campaign. The September 22 pause instruction was explicitly lifted by Mike's
+"Continue the goal"; the other paused sessions retain their own holds.
+
 2026-09-22 root asset/graph session pause checkpoint: Mike requested a scoped
 commit and push, then a pause. The owned extraction, public-source runtime,
 modding, and modular graph changes are being checkpointed on

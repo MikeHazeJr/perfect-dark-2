@@ -9,11 +9,8 @@
  * additional deps call langManifestEnsureId("base:lang_title") to load and
  * track the bank on demand.
  *
- * Language-change reload:
- *   langManifestReload() iterates g_LangManifest.bank_ids[] and calls
- *   langLoad() for each tracked bank.  Used by langSetEuropean() /
- *   langSetJpnEnabled() in lang.c so that manifest-declared banks are
- *   reloaded when the player switches language.
+ * Language-change reload prepares all live tracked banks before publication;
+ * a malformed selected source leaves the prior language pointers intact.
  */
 
 #include <stdint.h>
@@ -21,6 +18,7 @@
 #include <string.h>
 #include "platform.h"
 #include "versioninfo.h"
+#include "constants.h"
 #include "system.h"
 #include "types.h"
 #include "langmanifest.h"
@@ -29,6 +27,7 @@
 #include "assetprovider.h"
 #include "fs.h"
 #include "game/lang.h"
+#include "data.h"
 
 /* =========================================================================
  * Module state
@@ -40,6 +39,21 @@ extern uintptr_t *g_LangBanks[LANG_MANIFEST_MAX_BANKS];
 
 static void *s_ModLangBuffers[LANG_MANIFEST_MAX_BANKS];
 static char s_ModLangCatalogIds[LANG_MANIFEST_MAX_BANKS][CATALOG_ID_LEN];
+
+static const char *langManifestRequestedLocale(void)
+{
+#if VERSION == VERSION_JPN_FINAL
+    if (g_Jpn) return "ja";
+#endif
+#if VERSION >= VERSION_PAL_BETA
+    if (g_LanguageId == LANGUAGE_PAL_FR) return "fr";
+    if (g_LanguageId == LANGUAGE_PAL_DE) return "de";
+    if (g_LanguageId == LANGUAGE_PAL_IT) return "it";
+    if (g_LanguageId == LANGUAGE_PAL_ES) return "es";
+    if (VERSION == VERSION_PAL_FINAL || VERSION == VERSION_PAL_BETA) return "en-GB";
+#endif
+    return "en";
+}
 
 /* =========================================================================
  * Editable JSON source loader
@@ -65,7 +79,8 @@ static const char *langEntryFilePath(const asset_entry_t *entry)
     return NULL;
 }
 
-static s32 langManifestLoadExternalJson(const asset_entry_t *entry)
+static s32 langManifestPrepareExternalJson(const asset_entry_t *entry,
+    lang_source_bank_t *candidate)
 {
     const char *path;
     const char *error = NULL;
@@ -73,9 +88,10 @@ static s32 langManifestLoadExternalJson(const asset_entry_t *entry)
     s32 expected_count;
     u32 raw_size = 0;
     char *raw;
-    lang_source_bank_t candidate;
     lang_source_encoding_t encoding;
 
+    if (!candidate) return 0;
+    memset(candidate, 0, sizeof(*candidate));
     if (!entry || entry->type != ASSET_LANG) return 0;
     bank = entry->ext.lang.bank_id;
     if (bank <= 0 || bank >= LANG_MANIFEST_MAX_BANKS) return 0;
@@ -98,7 +114,7 @@ static s32 langManifestLoadExternalJson(const asset_entry_t *entry)
         ? (s32)entry->ext.lang.string_count : -1;
     encoding = langSourceEncodingForLocale(VERSION_ROMID, entry->ext.lang.locale);
     if (!langSourceParseJson(raw, raw_size, expected_count, encoding,
-            &candidate, &error)) {
+            candidate, &error)) {
         sysLogPrintf(LOG_WARNING, "LANG-MANIFEST: rejected JSON bank '%s' (%s): %s",
                      entry->id, path, error ? error : "invalid source");
         free(raw);
@@ -106,15 +122,29 @@ static s32 langManifestLoadExternalJson(const asset_entry_t *entry)
     }
     free(raw);
 
-    /* Publish only a completely validated candidate. Rejection above keeps
-     * the previously loaded bank and its catalog identity untouched. */
+    return 1;
+}
+
+static void langManifestPublishExternalJson(const asset_entry_t *entry,
+    lang_source_bank_t *candidate)
+{
+    s32 bank = entry->ext.lang.bank_id;
+    const char *path = langEntryFilePath(entry);
     free(s_ModLangBuffers[bank]);
-    g_LangBanks[bank] = candidate.data;
-    s_ModLangBuffers[bank] = candidate.data;
+    g_LangBanks[bank] = candidate->data;
+    s_ModLangBuffers[bank] = candidate->data;
+    candidate->data = NULL;
     strncpy(s_ModLangCatalogIds[bank], entry->id, CATALOG_ID_LEN - 1);
     s_ModLangCatalogIds[bank][CATALOG_ID_LEN - 1] = '\0';
     sysLogPrintf(LOG_NOTE, "LANG-MANIFEST: loaded JSON bank %d (%s) strings=%u from %s",
-                 bank, entry->id, candidate.string_count, path);
+                 bank, entry->id, candidate->string_count, path);
+}
+
+static s32 langManifestLoadExternalJson(const asset_entry_t *entry)
+{
+    lang_source_bank_t candidate;
+    if (!langManifestPrepareExternalJson(entry, &candidate)) return 0;
+    langManifestPublishExternalJson(entry, &candidate);
     return 1;
 }
 
@@ -147,8 +177,12 @@ static const asset_entry_t *langManifestFindBestEntryForBank(s32 bank)
             continue;
         }
 
-        score = entry->bundled ? 1 : 2;
-        if (score >= best_score) {
+        score = langSourceLocaleRank(entry->ext.lang.locale,
+            langManifestRequestedLocale());
+        if (!score) continue;
+        score = score * 2 + (entry->bundled ? 0 : 1);
+        if (score > best_score || (score == best_score &&
+                best && strcmp(entry->id, best->id) < 0)) {
             best = entry;
             best_score = score;
         }
@@ -168,7 +202,9 @@ s32 langManifestLoadBankFromCatalog(s32 bank)
         return 0;
     }
 
-    return langManifestLoadExternalJson(entry);
+    if (!langManifestLoadExternalJson(entry)) return 0;
+    langManifestRecordBank(bank);
+    return 1;
 }
 
 /* =========================================================================
@@ -210,11 +246,20 @@ void langManifestRecordBank(s32 bank)
     }
 }
 
+s32 langManifestValidateId(const char *lang_id)
+{
+    const asset_entry_t *entry = lang_id ? assetCatalogResolve(lang_id) : NULL;
+    lang_source_bank_t candidate;
+    if (!entry || !langManifestPrepareExternalJson(entry, &candidate)) return 0;
+    free(candidate.data);
+    return 1;
+}
+
 s32 langManifestEnsureId(const char *lang_id)
 {
     const asset_entry_t *entry;
+    const asset_entry_t *selected;
     s32 bank;
-    const char *path;
 
     if (!lang_id || !lang_id[0]) {
         return 0;
@@ -232,59 +277,53 @@ s32 langManifestEnsureId(const char *lang_id)
         return 0;
     }
 
-    path = langEntryFilePath(entry);
-    if (path && path[0]) {
-        if (!langIsBankLoaded(bank)
-                || s_ModLangBuffers[bank] == NULL
-                || strcmp(s_ModLangCatalogIds[bank], entry->id) != 0) {
-            if (!langManifestLoadExternalJson(entry)) {
-                return 0;
-            }
-        }
-    } else if (!langIsBankLoaded(bank)) {
+    selected = langManifestFindBestEntryForBank(bank);
+    if (!selected) return 0;
+    if (!langIsBankLoaded(bank) || s_ModLangBuffers[bank] == NULL ||
+            strcmp(s_ModLangCatalogIds[bank], selected->id) != 0) {
         if (!langManifestLoadBankFromCatalog(bank)) {
             sysLogPrintf(LOG_WARNING,
                          "LANG-MANIFEST: failed to load catalog bank %d (%s)",
                          bank, lang_id);
             return 0;
         }
-        sysLogPrintf(LOG_NOTE, "LANG-MANIFEST: loaded catalog bank %d (%s)",
-                     bank, lang_id);
     }
 
     langManifestRecordBank(bank);
     return 1;
 }
 
-void langManifestReload(void)
+s32 langManifestReload(void)
 {
-    s32 i;
-    s32 bank;
+    lang_source_bank_t pending[LANG_MANIFEST_MAX_BANKS] = {{0}};
+    const asset_entry_t *selected[LANG_MANIFEST_MAX_BANKS] = {0};
+    s32 failed_bank = -1;
 
-    for (i = 0; i < g_LangManifest.count; i++) {
-        bank = g_LangManifest.bank_ids[i];
-        if (bank > 0 && bank < LANG_MANIFEST_MAX_BANKS) {
-            const asset_entry_t *entry = NULL;
-            if (s_ModLangCatalogIds[bank][0]) {
-                entry = assetCatalogResolve(s_ModLangCatalogIds[bank]);
-            }
-            if (entry && entry->type == ASSET_LANG && langEntryFilePath(entry)) {
-                langManifestLoadExternalJson(entry);
-            } else {
-                if (s_ModLangBuffers[bank]) {
-                    free(s_ModLangBuffers[bank]);
-                    s_ModLangBuffers[bank] = NULL;
-                    s_ModLangCatalogIds[bank][0] = '\0';
-                    g_LangBanks[bank] = NULL;
-                }
-                if (!langManifestLoadBankFromCatalog(bank)) {
-                    sysLogPrintf(LOG_WARNING,
-                                 "LANG-MANIFEST: reload failed for catalog bank %d",
-                                 bank);
-                }
-            }
+    /* Prepare every live bank before publishing any replacement. The old
+     * pointers and IDs survive a malformed second (or later) bank. */
+    for (s32 i = 0; i < g_LangManifest.count; i++) {
+        s32 bank = g_LangManifest.bank_ids[i];
+        if (bank <= 0 || bank >= LANG_MANIFEST_MAX_BANKS ||
+                !g_LangBanks[bank] || selected[bank]) continue;
+        selected[bank] = langManifestFindBestEntryForBank(bank);
+        if (!selected[bank] ||
+                !langManifestPrepareExternalJson(selected[bank], &pending[bank])) {
+            failed_bank = bank;
+            break;
         }
     }
+    if (failed_bank >= 0) {
+        for (s32 bank = 1; bank < LANG_MANIFEST_MAX_BANKS; bank++)
+            free(pending[bank].data);
+        sysLogPrintf(LOG_WARNING,
+            "LANG-MANIFEST: locale reload rejected at bank %d; old banks retained",
+            failed_bank);
+        return 0;
+    }
+    for (s32 bank = 1; bank < LANG_MANIFEST_MAX_BANKS; bank++) {
+        if (selected[bank]) langManifestPublishExternalJson(selected[bank], &pending[bank]);
+    }
+    return 1;
 }
 
 s32 langManifestGetCount(void)
