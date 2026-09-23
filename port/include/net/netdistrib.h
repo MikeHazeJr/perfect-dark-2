@@ -196,8 +196,8 @@ void netDistribSendKillFeed(const char *attacker, const char *victim,
 
 /**
  * Client received SVC_CATALOG_INFO from server.
- * Computes diff (which components are missing locally), updates UI state,
- * and sends CLC_CATALOG_DIFF. If nothing is missing, sends empty diff.
+ * Computes the complete diff and holds missing IDs until the user consents.
+ * If nothing is missing, sends an empty diff immediately.
  * v27: resolved by catalog ID string only — no net_hash.
  * Called by netmsgSvcCatalogInfoRead().
  */
@@ -207,8 +207,14 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
                                        u16 batch_offset,
                                        u16 total_count);
 
-/** Begin a match-manifest transfer set before NEED_ASSETS is sent. */
-void netDistribClientBeginManifestTransferSet(u16 missing_count);
+/** Hold a match-manifest transfer request until the user consents. */
+s32 netDistribClientBeginManifestTransferSet(const char (*missing_ids)[64],
+                                            u16 missing_count, u32 manifest_hash);
+
+/** Resolve the pending request. Declining a match sends DECLINE; declining an
+ * initial catalog request disconnects rather than claiming content is ready. */
+s32 netDistribClientConsentPending(void);
+s32 netDistribClientResolveConsent(s32 accept, s32 temporary);
 
 /** Return the local request policy for the current receive set (session-only
  * by default). SVC_DISTRIB_BEGIN does not let a server choose persistence. */

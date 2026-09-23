@@ -59,6 +59,11 @@ param(
 
     [switch]$Verbose,
 
+    # Limit Ninja compiler concurrency on memory-constrained hosts. Zero keeps
+    # Ninja's default parallelism for ordinary builds.
+    [ValidateRange(0, 64)]
+    [int]$Jobs = 0,
+
     [string]$OutputDir = "",
 
     [switch]$UseNextVersion,
@@ -1002,6 +1007,7 @@ foreach ($t in $targets) {
     $cmakeTarget = $cmakeTargetMap[$t]
     $label       = $t.Substring(0,1).ToUpper() + $t.Substring(1)
     $buildArgs   = "-C `"$BuildDir`" -v $cmakeTarget"
+    if ($Jobs -gt 0) { $buildArgs += " -j$Jobs" }
 
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor DarkCyan

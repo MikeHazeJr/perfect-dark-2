@@ -1881,7 +1881,7 @@ TEST_CASE("manifest distribution preserves package identity and waits for the co
     REQUIRE(distrib.find("DISTRIB_PACKAGE_CATEGORY \"pdmod\"") !=
         std::string::npos);
 
-    REQUIRE(manifest.find("netDistribClientBeginManifestTransferSet((u16)num_missing)") !=
+    REQUIRE(manifest.find("netDistribClientBeginManifestTransferSet(") !=
         std::string::npos);
     REQUIRE(distrib.find("transfer set awaiting next item") !=
         std::string::npos);
@@ -1954,7 +1954,7 @@ TEST_CASE("received catalog identities use collision-free storage names and loca
     REQUIRE(distrib.find("\"/\", id_segment") != std::string::npos);
     REQUIRE(distrib.find("static s32 s_PendingTemporary = 1") != std::string::npos);
     REQUIRE(distrib.find("s_PendingTemporary = 1;", distrib.find(
-        "void netDistribClientBeginManifestTransferSet")) != std::string::npos);
+        "s32 netDistribClientBeginManifestTransferSet")) != std::string::npos);
     REQUIRE(distrib_h.find("netDistribClientGetTransferTemporary") != std::string::npos);
     REQUIRE(netmsg.find("netDistribClientGetTransferTemporary()") != std::string::npos);
     REQUIRE(netmsg.find("expected_sha256, 0") == std::string::npos);

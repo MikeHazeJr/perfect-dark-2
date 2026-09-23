@@ -1271,6 +1271,13 @@ static void bootApplyLaunchMpRoom(void)
 	if (g_StageNum == STAGE_TITLE) {
 		g_StageNum = STAGE_CITRAINING;
 	}
+	/* The listen-host Room renders while the remote peer authenticates. Its
+	 * first-frame initializer would otherwise call matchConfigInit() again and
+	 * discard the stage, weapon, and roster seeded above before autostart. */
+	if (g_BootHostAutostartArmed) {
+		extern void pdguiRoomScreenAdoptMatchConfig(void);
+		pdguiRoomScreenAdoptMatchConfig();
+	}
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --launch-mp-room arena='%s' scenario='%s' bots=%d (seeded g_MatchConfig)",
 		g_BootLaunchMpArena,

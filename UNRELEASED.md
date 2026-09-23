@@ -1,5 +1,8 @@
 # Unreleased Changes
 
+- Keep listen-host launch settings when the Room opens during guest join, including a selected custom spawn weapon.
+- Ask before downloading missing session content; approved catalog IDs gate transfers, and declined or unsent requests roll back.
+
 - Extract all seven available NTSC language variants into editable `.pdlang`
   sources and select a locale's banks together with English fallback. Validate
   every source at catalog load without changing the active language.

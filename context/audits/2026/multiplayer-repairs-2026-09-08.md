@@ -698,3 +698,45 @@ source hold. No restart or source release is inferred from a polling timeout.
    prerequisites remain explicit; never redefine the objective around a subset.
 
 End of repair program.
+
+## 2026-09-23 resumed integrated qualification
+
+The current canonical checkout was rebuilt in an isolated `mpfinish0923`
+session. Default Ninja parallelism exhausted memory on the first fresh build;
+`devtools/build-headless.ps1` and `build-session.ps1` now accept an optional
+bounded `-Jobs` value. `-Jobs 2` passed the client and explicit `pd-tests`
+targets. Current focused lifecycle tests passed 31 cases / 3,109 assertions;
+room/distribution tests passed 15 cases / 260 assertions. The initial
+`all`-target build did not refresh `pd-tests.exe`, so its two stale static
+expectation failures are retained separately from the passing explicit test
+rebuild.
+
+The ordinary independent-install Needler run exposed a Room first-frame reset
+that discarded `--launch-mp-room`'s requested spawn weapon while a guest was
+joining. The listen-host boot path now adopts its prepared Room configuration.
+The fixture uses a valid Combat Simulator arena and waits for both network
+stages to become live before scripted firing. Earlier r1/r2/r3 red receipts
+remain in `.claude/smoke-verify-runs/`; the corrected direct-localhost run
+`results-20260923T141947Z.json` passed 87/87 with content transfer, 2/2 ready,
+Needler spawn, and gameplay/presentation effect on both peers. This is
+executable evidence for that path, not WAN, visual, audible, controller, or
+three-peer acceptance.
+
+F04 consent was still broken in that passing run: catalog diffs and manifest
+`NEED_ASSETS` were sent before the lobby Download/This Session/Skip choice.
+The current source now holds both requests until a choice, checks exact
+approved IDs at transfer BEGIN, and sends manifest DECLINE or disconnects an
+incompatible initial catalog on Skip. An explicit smoke-only
+`--debug-approve-downloads` opt-in drives the positive automated path. Client
+and focused test builds pass. The replacement ordinary two-process receipt
+`results-20260923T143639Z.json` passed 89/89: approval preceded each
+catalog-component and manifest-package BEGIN, and both peers exercised the
+Needler gameplay/presentation effect. The subsequent send-failure rollback
+hardening edit passed isolated client and `pd-tests` builds, lifecycle
+31/3,109, room/distribution 15/260, and the required asset-source guard.
+The exact post-hardening binary passed another independent-install smoke,
+`results-20260923T144400Z.json`, 89/89 with the same admission ordering and
+effect. Ordinary
+mouse/controller choice, decline/timeout rollback, large-transfer
+consent/completion, pacing and bandwidth measurements remain unproven, so F04
+is still open pending direct evidence.

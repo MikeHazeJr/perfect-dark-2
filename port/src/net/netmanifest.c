@@ -2583,7 +2583,14 @@ void manifestCheck(const match_manifest_t *manifest)
         sysLogPrintf(LOG_NOTE,
                      "MANIFEST: check found %d missing component(s) of %d entries, sending NEED_ASSETS",
                      num_missing, (int)manifest->num_entries);
-		netDistribClientBeginManifestTransferSet((u16)num_missing);
+		if (netDistribClientBeginManifestTransferSet(
+				(const char (*)[64])missing_ids, (u16)num_missing,
+				manifest->manifest_hash)) {
+			free(missing_ids);
+			return; /* UI consent sends NEED_ASSETS or DECLINE. */
+		}
+		status = MANIFEST_STATUS_DECLINE;
+		num_missing = 0;
     }
 
     netbufStartWrite(&g_NetMsgRel);

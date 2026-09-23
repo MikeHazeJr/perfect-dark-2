@@ -9,8 +9,8 @@
  *    - Phase 2 (RECEIVING): Component name, byte progress bar, component counter.
  *    - First-connect prompt (before CLC_CATALOG_DIFF sent): shows missing count
  *      with [Download Permanently] / [This Session Only] / [Skip] buttons.
- *    - Calls netDistribClientSetTemporary() before the diff is sent if the player
- *      has chosen Session Only; skip sends an empty diff.
+ *    - Resolves the admission transaction before requesting content. Skip
+ *      declines the match manifest or leaves an incompatible initial catalog.
  *
  * 2. KILL FEED (client in CLSTATE_GAME, active entries present):
  *    - Semi-transparent panel in the top-right corner.
@@ -79,7 +79,8 @@ typedef struct {
 
 void netDistribClientGetStatus(distrib_client_status_t *out);
 s32  netDistribClientGetKillFeed(killfeed_entry_t *out, s32 maxout);
-void netDistribClientSetTemporary(s32 temporary);
+s32  netDistribClientConsentPending(void);
+s32  netDistribClientResolveConsent(s32 accept, s32 temporary);
 
 /* Server-side per-client download status (v34) */
 typedef struct {
@@ -180,18 +181,6 @@ extern "C" void pdguiKillFeedRender(s32 winW, s32 winH)
  * Download overlay
  * ======================================================================== */
 
-/* Prompt state: shown once when we first discover missing components. */
-static bool  s_PromptShown  = false;   /* have we shown the initial prompt? */
-static bool  s_PromptDone   = false;   /* has the user made a choice? */
-static s32   s_PromptChoice = 0;       /* 0=permanent, 1=session, 2=skip */
-
-static void resetPromptState(void)
-{
-    s_PromptShown  = false;
-    s_PromptDone   = false;
-    s_PromptChoice = 0;
-}
-
 /* Format bytes as human-readable (KB/MB) */
 static const char *fmtBytes(u32 bytes, char *buf, s32 bufsz)
 {
@@ -210,9 +199,7 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
     distrib_client_status_t st;
     netDistribClientGetStatus(&st);
 
-    /* Reset prompt state when download goes idle again */
     if (st.state == DISTRIB_CSTATE_IDLE || st.state == DISTRIB_CSTATE_DONE) {
-        resetPromptState();
         return;
     }
 
@@ -246,7 +233,7 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
      * Phase 1: DIFFING — show initial prompt if components are missing
      * ------------------------------------------------------------------- */
     if (st.state == DISTRIB_CSTATE_DIFFING) {
-        if (st.missing_count > 0 && !s_PromptShown) {
+        if (st.missing_count > 0 && netDistribClientConsentPending()) {
             /* Show modal-ish prompt centred on screen */
             float promptW = floorf(420.0f * scale);
             float promptH = floorf(140.0f * scale);
@@ -281,24 +268,15 @@ extern "C" void pdguiDistribOverlayRender(s32 winW, s32 winH)
                 float btnH = floorf(22.0f * scale);
 
                 if (ImGui::Button("Download", ImVec2(btnW, btnH))) {
-                    netDistribClientSetTemporary(0);
-                    s_PromptChoice = 0;
-                    s_PromptShown  = true;
-                    s_PromptDone   = true;
+                    netDistribClientResolveConsent(1, 0);
                 }
                 ImGui::SameLine(0.0f, floorf(6.0f * scale));
                 if (ImGui::Button("This Session", ImVec2(btnW, btnH))) {
-                    netDistribClientSetTemporary(1);
-                    s_PromptChoice = 1;
-                    s_PromptShown  = true;
-                    s_PromptDone   = true;
+                    netDistribClientResolveConsent(1, 1);
                 }
                 ImGui::SameLine(0.0f, floorf(6.0f * scale));
                 if (ImGui::Button("Skip", ImVec2(btnW * 0.6f, btnH))) {
-                    s_PromptChoice = 2;
-                    s_PromptShown  = true;
-                    s_PromptDone   = true;
-                    /* Caller will send empty diff on next tick */
+                    netDistribClientResolveConsent(0, 1);
                 }
 
                 ImGui::SetWindowFontScale(1.0f);

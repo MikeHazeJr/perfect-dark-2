@@ -38,6 +38,8 @@ param(
     [switch]$Clean,
     [switch]$Verbose,
     [switch]$NoQueue,
+    [ValidateRange(0, 64)]
+    [int]$Jobs = 0,
     [int]$QueueStatusSeconds = 30,
     # Idle-based watchdog (2026-07-02): a queued build is treated as hung only
     # after it produces NO output (no log/ninja growth) for this many seconds --
@@ -1048,6 +1050,7 @@ try {
     )
     if ($Version -ne "") { $buildArgs += @("-Version", $Version) }
     if ($DevMods -ne "") { $buildArgs += @("-DevMods", $DevMods) }
+    if ($Jobs -gt 0) { $buildArgs += @("-Jobs", $Jobs) }
     if ($Clean) { $buildArgs += "-Clean" }
     if ($Verbose) { $buildArgs += "-Verbose" }
 

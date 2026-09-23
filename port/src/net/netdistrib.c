@@ -157,6 +157,43 @@ static s32 s_KillFeedNext = 0;  /* circular write head */
 /* Pending diff decision (before user confirms) */
 static s32 s_PendingTemporary = 1;
 
+/* Missing content is an admission transaction. No request may reach the host
+ * until the player has chosen its persistence policy. */
+enum distrib_consent_kind { DISTRIB_CONSENT_NONE, DISTRIB_CONSENT_CATALOG,
+                            DISTRIB_CONSENT_MANIFEST };
+static enum distrib_consent_kind s_ConsentKind;
+static char (*s_ConsentIds)[64];
+static u16 s_ConsentCount;
+static u16 s_CatalogExpected;
+static u16 s_CatalogSeen;
+static u32 s_ConsentManifestHash;
+static char (*s_ApprovedIds)[64];
+static u16 s_ApprovedCount;
+
+static void distribClearConsent(void)
+{
+    free(s_ConsentIds);
+    s_ConsentIds = NULL;
+    s_ConsentKind = DISTRIB_CONSENT_NONE;
+    s_ConsentCount = s_CatalogExpected = s_CatalogSeen = 0;
+    s_ConsentManifestHash = 0;
+}
+
+static void distribClearApproved(void)
+{
+    free(s_ApprovedIds);
+    s_ApprovedIds = NULL;
+    s_ApprovedCount = 0;
+}
+
+static s32 distribIdWasApproved(const char *id)
+{
+    for (u16 i = 0; i < s_ApprovedCount; i++) {
+        if (strcmp(s_ApprovedIds[i], id) == 0) return 1;
+    }
+    return 0;
+}
+
 /* B-1044: mods/.temp is quarantined across process startup. A dirty tree is
  * admitted only after the user chooses Keep and every receive receipt still
  * matches the editable files on disk. */
@@ -1071,6 +1108,8 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
 
 void netDistribInit(void)
 {
+    distribClearConsent();
+    distribClearApproved();
     if (distribEnsureQueueCapacity(DISTRIB_INITIAL_QUEUE)) {
         memset(s_Queue, 0, (size_t)s_QueueCap * sizeof(*s_Queue));
     }
@@ -1303,6 +1342,21 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
     (void)categories;
 
     if (batch_offset == 0) {
+        distribClearConsent();
+        distribClearApproved();
+        if (total_count > 4096) {
+            s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+            sysLogPrintf(LOG_WARNING, "DISTRIB: catalog offer exceeds 4096 entries");
+            return;
+        }
+        s_CatalogExpected = total_count;
+        if (total_count) {
+            s_ConsentIds = (char (*)[64])calloc(total_count, sizeof(*s_ConsentIds));
+            if (!s_ConsentIds) {
+                s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+                return;
+            }
+        }
         s_ClientStatus.missing_count = 0;
         s_ClientStatus.received_count = 0;
         s_ClientStatus.current_id[0] = '\0';
@@ -1312,34 +1366,29 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
         s_ClientStatus.current_chunks_total = 0;
     }
 
-    /* v27: diff by catalog ID string — no net_hash lookup. */
-    char (*missing_ids)[64] = NULL;
-    u16 missing_count = 0;
-    if (count > 0) {
-        missing_ids = (char (*)[64])calloc(count, sizeof(*missing_ids));
-        if (!missing_ids) {
-            s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
-            sysLogPrintf(LOG_WARNING,
-                         "DISTRIB: OOM while diffing %u catalog entries",
-                         count);
-            return;
-        }
+    if (batch_offset != s_CatalogSeen || total_count != s_CatalogExpected
+            || (u32)batch_offset + count > total_count
+            || (total_count && !s_ConsentIds)) {
+        s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+        distribClearConsent();
+        sysLogPrintf(LOG_WARNING, "DISTRIB: malformed catalog offer batch");
+        return;
     }
 
     for (u16 i = 0; i < count; i++) {
         const asset_entry_t *e = assetCatalogResolve(ids[i]);
         if (!e) {
-            strncpy(missing_ids[missing_count], ids[i], 63);
-            missing_ids[missing_count][63] = '\0';
-            missing_count++;
+            strncpy(s_ConsentIds[s_ConsentCount], ids[i], 63);
+            s_ConsentIds[s_ConsentCount][63] = '\0';
+            s_ConsentCount++;
             sysLogPrintf(LOG_NOTE, "DISTRIB: missing component '%s'", ids[i]);
         }
     }
-
-    s_ClientStatus.missing_count += missing_count;
+    s_CatalogSeen = (u16)(batch_offset + count);
+    s_ClientStatus.missing_count = s_ConsentCount;
 
     const s32 final_batch = ((u32)batch_offset + (u32)count >= (u32)total_count);
-    if (final_batch && s_ClientStatus.missing_count == 0) {
+    if (final_batch && s_ConsentCount == 0) {
         sysLogPrintf(LOG_NOTE, "DISTRIB: local catalog satisfies server requirements");
         s_ClientStatus.state = DISTRIB_CSTATE_IDLE;
 
@@ -1347,36 +1396,35 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
         netbufStartWrite(&g_NetMsgRel);
         netmsgClcCatalogDiffWrite(&g_NetMsgRel, NULL, 0, 0);
         netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL);
-        free(missing_ids);
+        distribClearConsent();
         return;
     }
 
-    if (missing_count > 0) {
+    if (final_batch) {
+        s_ConsentKind = DISTRIB_CONSENT_CATALOG;
         s_ClientStatus.state = DISTRIB_CSTATE_DIFFING;
         sysLogPrintf(LOG_NOTE,
-                     "DISTRIB: requesting %u missing components from catalog batch "
-                     "%u..%u of %u (total missing so far %d)",
-                     missing_count, (unsigned)batch_offset,
-                     (unsigned)(batch_offset + count),
-                     (unsigned)total_count, s_ClientStatus.missing_count);
-
-        /* Send CLC_CATALOG_DIFF for this batch. */
-        netbufStartWrite(&g_NetMsgRel);
-        netmsgClcCatalogDiffWrite(&g_NetMsgRel, (const char (*)[64])missing_ids,
-                                  missing_count, (u8)s_PendingTemporary);
-        netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL);
-    } else if (final_batch) {
-        sysLogPrintf(LOG_NOTE,
-                     "DISTRIB: catalog diff complete, total missing=%d",
-                     s_ClientStatus.missing_count);
+                     "DISTRIB: %u missing catalog components await consent",
+                     (unsigned)s_ConsentCount);
+        if (sysArgCheck("--debug-approve-downloads")) {
+            netDistribClientResolveConsent(1, 1);
+        }
     }
-
-    free(missing_ids);
 }
 
-void netDistribClientBeginManifestTransferSet(u16 missing_count)
+s32 netDistribClientBeginManifestTransferSet(const char (*missing_ids)[64],
+                                             u16 missing_count, u32 manifest_hash)
 {
-	if (!s_Initialized || missing_count == 0) return;
+	if (!s_Initialized || !missing_ids || missing_count == 0
+			|| missing_count > 4096 || s_ConsentKind != DISTRIB_CONSENT_NONE) return 0;
+	distribClearConsent();
+	distribClearApproved();
+	s_ConsentIds = (char (*)[64])calloc(missing_count, sizeof(*s_ConsentIds));
+	if (!s_ConsentIds) return 0;
+	memcpy(s_ConsentIds, missing_ids, (size_t)missing_count * sizeof(*s_ConsentIds));
+	s_ConsentCount = missing_count;
+	s_ConsentManifestHash = manifest_hash;
+	s_ConsentKind = DISTRIB_CONSENT_MANIFEST;
 	s_PendingTemporary = 1;
 	s_ClientStatus.missing_count = (s32)missing_count;
 	s_ClientStatus.received_count = 0;
@@ -1388,8 +1436,89 @@ void netDistribClientBeginManifestTransferSet(u16 missing_count)
 	s_ClientStatus.temporary = 1;
 	s_ClientStatus.state = DISTRIB_CSTATE_DIFFING;
 	sysLogPrintf(LOG_NOTE,
-		"DISTRIB: manifest transfer set armed (%u entries)",
+		"DISTRIB: manifest transfer set awaiting consent (%u entries)",
 		(unsigned)missing_count);
+	if (sysArgCheck("--debug-approve-downloads")) {
+		netDistribClientResolveConsent(1, 1);
+	}
+	return 1;
+}
+
+s32 netDistribClientConsentPending(void)
+{
+    return s_ConsentKind != DISTRIB_CONSENT_NONE;
+}
+
+s32 netDistribClientResolveConsent(s32 accept, s32 temporary)
+{
+    enum distrib_consent_kind kind = s_ConsentKind;
+    u32 manifest_hash = s_ConsentManifestHash;
+    s32 sent_ok = 1;
+    if (kind == DISTRIB_CONSENT_NONE || !s_ConsentCount) return 0;
+    if (accept) {
+        s_PendingTemporary = temporary ? 1 : 0;
+        if (kind == DISTRIB_CONSENT_CATALOG) {
+            for (u16 offset = 0; offset < s_ConsentCount; offset += 32) {
+                u16 batch = (u16)(s_ConsentCount - offset);
+                if (batch > 32) batch = 32;
+                netbufStartWrite(&g_NetMsgRel);
+                netmsgClcCatalogDiffWrite(&g_NetMsgRel,
+                    (const char (*)[64])&s_ConsentIds[offset], batch,
+                    (u8)s_PendingTemporary);
+                if (g_NetMsgRel.error
+                        || !netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL)) {
+                    sent_ok = 0;
+                    break;
+                }
+            }
+        } else {
+            netbufStartWrite(&g_NetMsgRel);
+            netmsgClcManifestStatusWrite(&g_NetMsgRel, manifest_hash,
+                MANIFEST_STATUS_NEED_ASSETS,
+                (const char (*)[64])s_ConsentIds, s_ConsentCount);
+            if (g_NetMsgRel.error
+                    || !netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL)) {
+                sent_ok = 0;
+            }
+        }
+        if (!sent_ok) {
+            sysLogPrintf(LOG_WARNING,
+                "DISTRIB: consented request could not be sent; rolling back");
+            s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+            distribClearConsent();
+            if (kind == DISTRIB_CONSENT_CATALOG) {
+                netDisconnect();
+            } else {
+                netbufStartWrite(&g_NetMsgRel);
+                netmsgClcManifestStatusWrite(&g_NetMsgRel, manifest_hash,
+                    MANIFEST_STATUS_DECLINE, NULL, 0);
+                if (!g_NetMsgRel.error)
+                    netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+                if (g_NetLocalClient) g_NetLocalClient->state = CLSTATE_LOBBY;
+            }
+            return 0;
+        }
+        sysLogPrintf(LOG_NOTE, "DISTRIB: player approved %u %s entries temporary=%d",
+            (unsigned)s_ConsentCount,
+            kind == DISTRIB_CONSENT_CATALOG ? "catalog" : "manifest",
+            s_PendingTemporary);
+        distribClearApproved();
+        s_ApprovedIds = s_ConsentIds;
+        s_ApprovedCount = s_ConsentCount;
+        s_ConsentIds = NULL;
+    } else if (kind == DISTRIB_CONSENT_MANIFEST) {
+        netbufStartWrite(&g_NetMsgRel);
+        netmsgClcManifestStatusWrite(&g_NetMsgRel, manifest_hash,
+            MANIFEST_STATUS_DECLINE, NULL, 0);
+        if (!g_NetMsgRel.error) netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+        if (g_NetLocalClient) g_NetLocalClient->state = CLSTATE_LOBBY;
+        s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+    } else {
+        s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+    }
+    distribClearConsent();
+    if (!accept && kind == DISTRIB_CONSENT_CATALOG) netDisconnect();
+    return 1;
 }
 
 s32 netDistribClientGetTransferTemporary(void)
@@ -1418,6 +1547,14 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
         sysLogPrintf(LOG_WARNING,
                      "DISTRIB: rejecting BEGIN -- invalid catalog/category identity");
         netDistribClientRejectBegin("invalid transfer identity");
+        return;
+    }
+
+    if (g_NetMode == NETMODE_CLIENT && !s_SmokeReceiveActive
+            && !distribIdWasApproved(catalog_id)) {
+        sysLogPrintf(LOG_WARNING,
+            "DISTRIB: rejecting unapproved BEGIN '%s'", catalog_id);
+        netDistribClientRejectBegin("transfer was not admitted by player");
         return;
     }
 
@@ -1523,7 +1660,8 @@ void netDistribClientHandleBegin(const char *catalog_id, const char *category,
      * of proceeding silently. The transfer is still staged so chunks can be buffered
      * after the user approves — the UI should call netDistribApproveTransfer(). */
     u64 threshold_bytes = (u64)s_TrustThresholdMb * 1024u * 1024u;
-    if ((u64)archive_bytes > threshold_bytes) {
+    if ((u64)archive_bytes > threshold_bytes
+            && !distribIdWasApproved(catalog_id)) {
         slot->needs_approval = 1;
         strncpy(slot->mod_name, catalog_id, sizeof(slot->mod_name) - 1);
         slot->archive_bytes_pending = archive_bytes;

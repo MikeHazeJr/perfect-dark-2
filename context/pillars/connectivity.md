@@ -2,6 +2,19 @@
 
 > ENet UDP transport. Listen-authority wire protocol at v61 (native roster and corrected two-client Join37/37 passed; broader multiplayer proof remains partial); remote movement authority remains an open audit finding. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v5). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
+Sep23 T-NETWORKING-011: the listen-host Room now adopts prepared launch
+settings before rendering, preserving a custom spawn weapon while a guest joins.
+Initial catalog and match-manifest content requests wait for a player choice;
+approved IDs gate transfer BEGIN, and declined/failed requests roll back. The
+exact post-hardening independent-install direct Needler smoke passed 89/89
+(`.claude/smoke-verify-runs/results-20260923T144400Z.json`), including both
+approval-before-BEGIN orders, 2/2 ready, custom weapon spawn, and both peers'
+effect path. Isolated client/tests builds, focused lifecycle and distribution
+selectors, and native asset-source guard passed. UI choice and decline/timeout
+with real input, third peer, WAN relay, host migration, audible/visual/hardware
+review, and the full acceptance matrix remain open. The networking goal stays
+partial; see the Sep23 section of the multiplayer repair ledger.
+
 ---
 
 ## What it is
