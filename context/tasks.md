@@ -8,9 +8,9 @@ T-ASSETS-042's seven active NTSC locale sources now emit 476/476 public
 parity passed 476/476 with every raw candidate represented; isolated client
 and tests builds, focused language C++ 10/10 (291 assertions), Python 17/17,
 native-source guard, and conformance selftest passed. The ordinary catalog
-registered all 476 language archives, but full extract-only boot stopped on
-221 separate head/body/character registration failures caused by divergent
-top-level and nested mesh sources. JPN-final packed Japanese, native glyphs,
+registered all 476 language archives. The later upgraded-install repair below
+resolved the separate 221 head/body/character registration failures. JPN-final
+packed Japanese, native glyphs,
 OS locale preference, and visual locale acceptance remain open. Next critical
 path is ordinary equipped graph-v2
 single-shot gameplay, then all 27 edited-source production witnesses, full
@@ -43,6 +43,16 @@ admission. Three edited-parent negatives retained exact SHA-256 and stopped
 the incomplete boot. Receipt:
 `.claude/session-builds/asset0923deps/dependency-batch-receipt.json`.
 Graph production cutover and all-family edited-source gameplay remain open.
+
+2026-09-23 D-006A graph audit and pause: v2 compilation, equipped preparation,
+per-owner instances and selected-action gset copies have harness coverage,
+but no ordinary client caller publishes or binds them. `assetcatalog_load.c`
+still registers v1 held records, and `bgunTickIncIdle` admits attacks from
+`hand->triggeron`. Resume with one complete public-v2 catalog to per-hand
+single-shot lifecycle, proving input/gates, shot/debit/sound/animation,
+selected-action copy and retirement using a base gun and edited branching
+custom gun. No graph source changed or graph validation ran in this audit.
+Mike requested a pause; do not restart this goal until he resumes it.
 
 2026-09-22 root asset/graph session pause checkpoint: Mike requested a scoped
 commit and push, then a pause. The owned extraction, public-source runtime,

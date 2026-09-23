@@ -7856,3 +7856,26 @@ Asset batch5 checkpoint — 2026-09-06 13:03 ET: all74 selected C++ cases accept
 Asset batch5 SFX correction boundary — 2026-09-06 13:45 ET: current C++ acceptance is76 distinct cases (64 unaffected plus12 direct; historical74 over-retention withdrawn). Source313/1A3EC5A6 and client3D1EBB6A direct body/head install registers68 bodies,84 heads and63 characters but aborts209 failures before0/7 harness cases:208 SFX packed control bytes incorrectly treated as MIDI ranges, plus dependent explosion profile. Exact six-path public parser/conformance/proof correction is now frozen313/9CB05A8EFF71196219505A1E085E40C7851E20EE4924F3BDFCD16BF1B347FD3C; installed proof original-rate pin is44100, decoded output22050. Tests build active; six affected C++ cases,16 Python contracts, guard/selftest, client and direct boot retry pending. Native source audit independently confirms file-route start delays, linked clips and restart groups remain unimplemented; a semantic catalog-ID public source/runtime draft is authorized, not applied. Menu302 remains independently accepted and source-frozen; unchanged Agent retry follows direct asset boot success. Character selection, language, UV, eligibility and strict MPEG next drafts remain unapplied. D-006 remains open, graph-v2 draft unapplied. No Git, audible, visual, hardware, multiplayer, release or overall completion claim.
 
 Batch5 native mesh alias correction — Sep6 14:04 ET: source314 DAB3EDD889FE7BB58E2DF3D111D407A77863F4EA34659EE91ED57878C5DEABFB freezes seven exact paths. Body/head primary can retain an established native model mapping despite legitimate aliases because it loads selected catalog/provider bytes. Hand and private bridges scan every occupied model row for conflicting ownership; no first-row/order blind spot. Shared modeldefLoadFromHandle preserves an explicit FileProvider rather than replacing it by a filenum sibling, covering ordinary character preview. Eight-case installed fixture adds real CamSpy source ownership, selected synthetic geometry through both body and preview loaders, missing selected-source rejection and both-order hand/private conflicts. No installed verdict yet. First static gate found one stale old audio rollback source pin, corrected to actual transactional registrar; direct5 now pass exact names, source unchanged, cumulative80=77 prior plus3 additional distinct cases (two affected prior cases refreshed). Guards/client/direct installed retry next. Menu source freeze unchanged; no next draft integration or Git.
+## 2026-09-23 - Asset extraction accepted; D-006A graph cutover paused
+
+T-EXTRACTION-001 commits `534bce00` and `bb0baf47` are pushed to
+`origin/dev`. Fresh and upgraded extract-only clients admitted 5,562/5,562
+catalog archives. A changed-public-source batch refreshed 11 weapons, one
+arena and one mission, with five inspected nested dependencies byte-matching
+editable top-level sources. Three edited-parent negatives preserved exact
+SHA-256 and failed loudly. Isolated all-target build, focused 18/18 C++ cases
+(613 assertions), native-source guard, conformance selftest, and fresh
+27-family archive conformance passed. Receipt:
+`.claude/session-builds/asset0923deps/dependency-batch-receipt.json`.
+
+Graph boundary audit: v2 candidate compilation/equipment/owner/action-copy
+components remain harness-only. `assetcatalog_load.c` registers v1 held
+records, and `bgunTickIncIdle` admits attacks from the trigger directly. No
+graph source or tests changed in this audit. Resume with one complete public
+v2 catalog to per-hand native single-shot path, including input gates,
+shot/debit/sound/animation, selected action copy and generation retirement;
+prove an extracted base gun plus an edited branching custom gun in the
+ordinary client. Then continue all-family edited-source witnesses and the
+remaining plan. The peer-run full `pd-tests` suite is red on 25 cases,
+including stale asset static expectations and independent menu/networking
+failures. Mike requested this goal pause after the audit and validation.

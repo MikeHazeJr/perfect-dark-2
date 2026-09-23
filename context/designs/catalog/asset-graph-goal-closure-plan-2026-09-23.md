@@ -61,9 +61,9 @@ after a coherent batch is source-frozen, as Mike requested.
 
 Progress 2026-09-23: the NTSC-final seven-locale Latin-1 slice of step 1
 passed isolated build, focused tests, actual 476-archive extraction, and
-independent 476/476 ROM-to-public semantic parity. Full extract-only boot is
-blocked by 221 head/body/character nested-mesh source collisions. JPN-final,
-glyphs, PC locale preference, and actual UI selection remain open. The graph
+independent 476/476 ROM-to-public semantic parity. The later upgraded-install
+repair below resolved the 221 head/body/character nested-mesh collisions.
+JPN-final, glyphs, PC locale preference, and actual UI selection remain open. The graph
 cutover in step 2 remains the next production critical path.
 
 Later progress 2026-09-23: the upgrade-only 221-failure boot blocker is
@@ -86,18 +86,10 @@ guard, and conformance selftest pass. This closes these warm-cache propagation
 cases only; the field-level, production-usage, graph and creator-pack finish
 line remains open.
 
-1. Settle the unverified T-ASSETS-042 worktree edits to
-   `romextract_pdlang.c`, `langmanifest.c`, `lang_source.cpp/.h`,
-   `langmanifest.h`, `lang.c`, `assetcatalog_load.c`, and focused tests. They currently attempt all
-   seven active-name variants where the native codec is Latin-1 and
-   locale ranking. The independent Python parity suite passed 17/17, the
-   native-source guard passed, and conformance selftest passed. The first
-   isolated all-target build stopped on a peer-owned menu declaration error;
-   this language batch has **not** passed client/test build, extraction, or
-   runtime gates.
-   Correct active-name resolution, source-hash reuse, preload neutrality, and
-   atomic multi-bank reload before calling this language unit implemented.
-   JPN-final packed text, native/ImGui glyphs, and PC locale preference remain open.
+1. Extend the accepted 476/476 NTSC-final language extraction to JPN-final
+   packed text, native/ImGui glyphs, PC locale preference, and an actual UI
+   selection witness. The accepted language and upgraded-install receipts
+   do not establish these remaining locale gates.
 2. Connect one graph v2 held single-shot to ordinary catalog/equipped gameplay.
    This is the critical path. Use the already implemented candidate, state,
    native-module and source-generation components; do not create a third graph
@@ -112,6 +104,15 @@ line remains open.
    the pack and run the closure campaign. No fixed calendar date is promised;
    each package has a measured acceptance gate and may reveal additional
    source-owned gaps.
+
+Pause checkpoint 2026-09-23: source inspection found no ordinary-client caller
+of `wgV2EquippedCatalogPrepare`, `wgV2Press`, `wgV2NativeIdle`, or
+`wgV2GsetCopy`. `assetcatalog_load.c` still publishes the v1 held record and
+`bgunTickIncIdle` admits attacks directly from `hand->triggeron`. Treat v2 as a
+tested candidate, not production behavior. The next coherent source batch is
+the complete catalog-to-per-hand single-shot lifecycle in step 2, with base
+and edited-branching creator sources and positive/negative gameplay evidence.
+Do not start it until Mike resumes this goal.
 
 ## Coordination and evidence rules
 
