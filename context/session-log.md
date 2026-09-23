@@ -1,5 +1,19 @@
 # Session Log (Active)
 
+2026-09-23 T-MENUS-003/004/006 and T-INPUT-008 bounded pause unit:
+retired the reachable Room Level Editor shell by Mike's choice; repaired
+generic typed-dialog open/close dispatch, false social profile preview,
+Forge Bots request/status/difficulty/freeze and live bot teardown, and
+cross-session smoke cleanup. Final fixed-source `menu0923` client/updater/tests
+builds pass with zero drift across 23 changed production/test/runner files.
+Menu graph passed 846/846, adjacent menu/tooling/cutscene 89/89, and broad
+input/menu/settings 9,732/9,732. Full r7 red 25/131,208 remains historical;
+final full red 20/131,286 has no menu/input/tooling failure and retains
+asset/catalog and engine/character source failures. Ordinary Agent runs
+reached the picker but Windows foreground remained 0, so no scripted input
+fired. User requested pause after the scoped commit;
+all physical/MKB, screenshot, and full journey gates remain open.
+
 2026-09-23 11:18 ET T-EXTRACTION-001 nested-dependency propagation batch:
 `port/src/romextract_pdweapon.c`, `romextract_pdarena.c`, and
 `romextract_pdmeta.c` now invalidate warm parent reuse when embedded editable

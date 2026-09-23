@@ -1,5 +1,6 @@
 #include <ultra64.h>
 #include <stdint.h>
+#include <string.h>
 #include "constants.h"
 #include "memsizes.h"
 #include "system.h"
@@ -57,6 +58,14 @@ u8 g_BotCount = 0;
 
 /* F6 (pdgui): freeze bot AI/movement to inspect spawn layout and team grouping */
 s32 g_BotUpdatesDisabled;
+static u8 s_BotSlotFrozen[MAX_BOTS];
+
+void botSetSlotFrozen(s32 aibotnum, s32 frozen)
+{
+	if (aibotnum >= 0 && aibotnum < MAX_BOTS) {
+		s_BotSlotFrozen[aibotnum] = frozen ? 1 : 0;
+	}
+}
 
 void botToggleUpdatesDisabled(void)
 {
@@ -108,6 +117,7 @@ void botSpawnWaveReset(void)
 	s_BotSpawnWaveNextUncommitted = 0;
 	s_BotSpawnFailsafeDone = false;
 	s_BotSpawnFailsafeRetryPending = false;
+	memset(s_BotSlotFrozen, 0, sizeof(s_BotSlotFrozen));
 }
 
 /* B-174: choose a recovery point from authored navigation data without any
@@ -1732,7 +1742,8 @@ s32 botTick(struct prop *prop)
 			}
 		}
 
-		if (g_BotUpdatesDisabled) {
+		if (g_BotUpdatesDisabled || (aibot->aibotnum < MAX_BOTS
+				&& s_BotSlotFrozen[aibot->aibotnum])) {
 			/* B-217 v2 (2026-04-23): prior fix (return TICKOP_NONE) made bots
 			 * invisible because chrTick is what maintains the model's per-frame
 			 * render/transform state. Call chrTick so bots stay visible, but

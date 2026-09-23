@@ -1,5 +1,24 @@
 # Tasks
 
+2026-09-23 T-MENUS-003/004/006 and T-INPUT-006/007/008 pause checkpoint:
+Mike requested that the current menu unit finish validation, commit, and
+pause. Source now removes the data-only Room Level Editor tab by his choice,
+routes generic dialog open/close actions correctly, removes a false social
+profile preview, repairs Forge bot request and live-character teardown, and
+isolates smoke cleanup to its own child processes. The previous fixed-source
+`menu0923` r7 client, focused menu 846/846, and broad input/menu/settings
+9,732/9,732 pass. The newer Forge lifecycle and static-test corrections pass
+a final isolated client/updater/tests build, focused menu 846/846, adjacent
+menu/tooling/cutscene 89/89, and broad input/menu/settings 9,732/9,732. The
+full suite remains red 20/131,286 on asset/catalog and engine/character
+source guards; retain both r7 and final full red receipts. Ordinary Agent
+virtual-controller input never fired because this
+host desktop reported no foreground window, so physical controller, MKB,
+scaled captures, full journeys, and all reachable-menu acceptance remain
+open. See `context/audits/2026/menu-accessibility-2026-09-06.md` and the
+current menu/input pillars. Do not restart menu implementation after this
+checkpoint until Mike resumes it.
+
 2026-09-23 asset/graph goal resumed. The executable closure sequence and
 definition of done are in
 [asset-graph-goal-closure-plan-2026-09-23.md](designs/catalog/asset-graph-goal-closure-plan-2026-09-23.md).

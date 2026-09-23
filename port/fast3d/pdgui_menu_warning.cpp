@@ -26,6 +26,7 @@
 #include "pdgui_audio.h"
 #include "pdgui_layout.h"
 #include "pdgui_nav.h"
+#include "pdgui_nav_input.h"
 #include "pdgui_glyphs.h"
 #include "menugraph.h"
 #include "system.h"
@@ -53,6 +54,8 @@ extern "C" {
 
 /* Menu item flags (from src/include/constants.h) */
 #define MENUITEMFLAG_LITERAL_TEXT 0x08000000
+#define MENUITEMFLAG_SELECTABLE_OPENSDIALOG  0x00000004
+#define MENUITEMFLAG_SELECTABLE_CLOSESDIALOG 0x00000008
 
 /* Menu operations (subset actually used by the typed-dialog renderer;
  * full list in src/include/constants.h). */
@@ -538,6 +541,8 @@ static s32 renderTypedDialog(struct menudialog *dialog,
     /* Get dialog definition from the live dialog struct (offset 0x00) */
     struct menudialogdef *def = *(struct menudialogdef **)((u8 *)dialog);
     if (!def) return 0;
+    struct menuitem *activatedSelectable = nullptr;
+    bool fallbackConfirm = false;
 
     /* S192 popup scrim primitive — dim the full viewport behind the modal
      * so the player's focus is on the dialog, not the game scene behind it.
@@ -797,11 +802,7 @@ static s32 renderTypedDialog(struct menudialog *dialog,
                     ImGui::PushID(selectableIdx);
                     if (ImGui::Button(label, ImVec2(buttonW, buttonH))) {
                         pdguiPlaySound(PDGUI_SND_SELECT);
-                        if (item->handler) {
-                            union handlerdata hd;
-                            memset(&hd, 0, sizeof(hd));
-                            item->handler(MENUOP_SET, item, &hd);
-                        }
+                        activatedSelectable = item;
                     }
 
                     if (selectableIdx == 0) {
@@ -975,7 +976,7 @@ static s32 renderTypedDialog(struct menudialog *dialog,
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (availW - buttonW) * 0.5f);
             if (ImGui::Button("OK", ImVec2(buttonW, 28.0f * scale))) {
                 pdguiPlaySound(PDGUI_SND_SELECT);
-                menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "confirm");
+                fallbackConfirm = true;
             }
             ImGui::SetItemDefaultFocus();
         }
@@ -985,15 +986,46 @@ static s32 renderTypedDialog(struct menudialog *dialog,
      * pdguiDrawPdDialog(..., 1) above; pdguiConsumeTitleClose() pops
      * the click here so the modal closes on mouse X-click parity with
      * controller B (Mike directive 2026-05-17). */
-    if (pdguiConsumeTitleClose() || pdguiMenuCancelPressed()) {
+    const bool cancelRequested = pdguiConsumeTitleClose() || pdguiMenuCancelPressed();
+    ImGui::End();
+    pdguiSetPalette(prevPalette);
+
+    /* A selectable can store a dialog definition instead of a function.
+     * Apply the same flag precedence as menuitemSelectableTick after the
+     * ImGui window has ended, and let Cancel win if both arrive together. */
+    if (cancelRequested) {
+        pdguiNavSuppressActivation();
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
         s_KbdInitialised = false;
         s_KbdDialogDef = nullptr;
         menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "cancel");
+    } else if (activatedSelectable) {
+        pdguiNavSuppressActivation();
+        const bool closeDialog =
+            (activatedSelectable->flags & MENUITEMFLAG_SELECTABLE_CLOSESDIALOG) != 0;
+        const bool openDialog =
+            (activatedSelectable->flags & MENUITEMFLAG_SELECTABLE_OPENSDIALOG) != 0;
+        if (closeDialog || openDialog) {
+            s_KbdInitialised = false;
+            s_KbdDialogDef = nullptr;
+        }
+        if (closeDialog && openDialog) {
+            menuGraphFireReplaceDialog(MENU_TYPE_WARNING_MODAL, "open_child",
+                (struct menudialogdef *)activatedSelectable->handler);
+        } else if (closeDialog) {
+            menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "confirm");
+        } else if (openDialog) {
+            menuGraphFirePushDialog(MENU_TYPE_WARNING_MODAL, "open_child",
+                (struct menudialogdef *)activatedSelectable->handler);
+        } else if (activatedSelectable->handler) {
+            union handlerdata hd;
+            memset(&hd, 0, sizeof(hd));
+            activatedSelectable->handler(MENUOP_SET, activatedSelectable, &hd);
+        }
+    } else if (fallbackConfirm) {
+        pdguiNavSuppressActivation();
+        menuGraphFirePop(MENU_TYPE_WARNING_MODAL, "confirm");
     }
-
-    ImGui::End();
-    pdguiSetPalette(prevPalette);
     return 1;
 }
 

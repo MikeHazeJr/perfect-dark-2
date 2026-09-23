@@ -33,6 +33,7 @@
 
 extern "C" {
 #include "game/forgemode.h"
+#include "pdgui_constants.h"
 #include "forge/forge_core.h"
 /* Issue 8b (2026-04-24): direct actionmap reads for the editor's
  * sidebar / tab-cycle actions. The enum and query API are extern "C"
@@ -1148,10 +1149,7 @@ static void forgeDrawMissionTab(void)
  * Spawn mode picks whether respawns happen anywhere, near the
  * requesting player, or bias toward combat flow.
  *
- * Engine integration is deferred -- this tab publishes intent and
- * logs actions.  The runtime tick that consumes `pending_*` counters
- * + drives botmgrAllocateBot / botmgrRemoveAll lands in a follow-up
- * polish pass so gameplay doesn't destabilise mid-edit.
+ * Requests are consumed by forgeRuntimeTick while the playtest is active.
  * ============================================================ */
 
 static void forgeDrawBotsTab(void)
@@ -1162,21 +1160,25 @@ static void forgeDrawBotsTab(void)
 	ImGui::TextWrapped(
 			"Spawn bots on-the-fly without a match restart.  Active bots fight; "
 			"frozen bots hold their spawn spot so you can validate placement "
-			"without combat noise.  Spawn-mode controls respawn behaviour.");
+			"without combat noise. Spawn mode controls placement or bot skill.");
 	ImGui::Spacing();
 
 	/* Live counter readout. */
-	ImGui::Text("Active: %d    Frozen: %d    Global freeze: %s",
+	ImGui::Text("Requested active: %d    Requested frozen: %d    Global freeze: %s",
 			(int)bs->active_count, (int)bs->frozen_count,
 			bs->all_frozen ? "YES" : "no");
 
 	ImGui::SeparatorText("Add / Remove");
+	const bool atCapacity = (int)bs->active_count + (int)bs->frozen_count >= MAX_BOTS;
+	if (atCapacity) ImGui::BeginDisabled();
 	if (ImGui::Button("+ Add Active Bot", ImVec2(-1, 0))) {
 		forgeBotAddRequest(1);
 	}
 	if (ImGui::Button("+ Add Frozen Bot", ImVec2(-1, 0))) {
 		forgeBotAddRequest(0);
 	}
+	if (atCapacity) ImGui::EndDisabled();
+	if (atCapacity) ImGui::TextDisabled("Maximum of %d requested bots reached.", MAX_BOTS);
 	if (ImGui::Button("Remove All Bots", ImVec2(-1, 0))) {
 		forgeBotRemoveAll();
 	}
@@ -1191,9 +1193,9 @@ static void forgeDrawBotsTab(void)
 
 	ImGui::SeparatorText("Spawn Mode");
 	const char *modes[] = {
-			"Any -- bots respawn at any valid spawn point (default)",
-			"Spawn Near Me -- respawn within radius of the requesting player",
-			"Spawn Smart -- bots aggressively seek combat (flow testing)"
+			"Any valid spawn point (default)",
+			"Near Me -- place ahead of the player",
+			"Smart -- choose skill from Aggression"
 	};
 	int sm = bs->spawn_mode;
 	if (ImGui::Combo("Mode", &sm, modes, 3)) bs->spawn_mode = (u8)sm;
@@ -1201,25 +1203,29 @@ static void forgeDrawBotsTab(void)
 	if (bs->spawn_mode == FORGE_BOT_SPAWN_NEAR_ME) {
 		ImGui::SliderFloat("Near-Me Radius (units)",
 				&bs->near_me_radius, 100.0f, 5000.0f, "%.0f");
-		ImGui::TextDisabled("Bots respawn within this radius of the requesting "
-				"player.  Useful for testing contested-area flow.");
+		ImGui::TextDisabled("New bots spawn this far ahead of the player.");
 	} else if (bs->spawn_mode == FORGE_BOT_SPAWN_SMART) {
 		ImGui::SliderFloat("Smart Aggression",
 				&bs->smart_aggression, 0.0f, 1.0f, "%.2f");
-		ImGui::TextDisabled("0 = passive roam, 1 = full sprint at the nearest "
-				"human.  Higher values surface combat-flow issues faster.");
+		ImGui::TextDisabled("0 = Meat bot skill, 1 = Dark bot skill. "
+				"Applied when each new bot is created.");
 	}
 
 	ImGui::SeparatorText("Bot Defaults");
 	ImGui::InputText("Default Body ID", bs->default_body_id, FORGE_ID_LEN);
-	ImGui::InputText("Difficulty",      bs->default_difficulty, FORGE_NAME_LEN);
-	ImGui::TextDisabled("valid difficulties: meat, easy, normal, hard, perfect, dark");
+	const char *difficulties[] = { "meat", "easy", "normal", "hard", "perfect", "dark" };
+	int difficulty = 2;
+	for (int i = 0; i < 6; ++i) {
+		if (strcmp(bs->default_difficulty, difficulties[i]) == 0) difficulty = i;
+	}
+	if (ImGui::Combo("Difficulty", &difficulty, difficulties, 6)) {
+		snprintf(bs->default_difficulty, FORGE_NAME_LEN, "%s", difficulties[difficulty]);
+	}
+	ImGui::TextDisabled("Used for Any and Near Me; Smart uses Aggression instead.");
 
-	ImGui::SeparatorText("Runtime Hook Status");
-	ImGui::TextDisabled("Pending engine sync: +%d active  +%d frozen  %d remove-all",
+	ImGui::SeparatorText("Runtime Requests");
+	ImGui::TextDisabled("Pending: +%d active  +%d frozen  %d remove-all",
 			bs->pending_add_active, bs->pending_add_frozen, bs->pending_remove_all);
-	ImGui::TextDisabled("Engine botmgr wire (allocate / remove / freeze) is a "
-			"follow-up polish pass.  Current session captures intent + logs.");
 }
 
 static void forgeDrawSettingsTab(void)

@@ -17,6 +17,8 @@
 
 - Keep menu actions held until all simultaneous bound inputs release. Wheel pulses retire independently, while focus loss and controller removal clear stale physical holds.
 - Let custom controllers bind buttons 23-32 separately from stick directions and triggers. Existing bindings keep working and show when an older shared control needs rebinding.
+- Make generic menu dialog actions open and close the intended screen, and retire the unfinished Room Level Editor tab in favor of Forge.
+- Keep Forge bot Add and Remove All aligned with live characters, and scope smoke-runner cleanup to its own game processes.
 
 - Expose original texture materials and stage-specific surface rules in editable texture descriptors and level graphs; automatic upgrades preserve existing source edits.
 - Keep texture, animation, language, and stage assets discoverable after other catalog entries are removed. Suppressed texture overrides now use public base images and matching materials.

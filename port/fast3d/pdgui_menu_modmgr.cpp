@@ -15,8 +15,7 @@
  * Apply Changes:
  *   1. Validates staged installed-mod identity/order and catalog generation.
  *   2. Publishes registry and component selections only after Apply.
- *   3. Calls modmgrApplyChanges() — saves .modstate and rebuilds catalogs
- *      in-place (no forced title restart).
+ *   3. Applies the prepared plan, saves state, and rebuilds catalogs in-place.
  *
  * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
  * Forward-declare all C symbols via extern "C" blocks.
@@ -54,7 +53,6 @@ extern "C" {
 #include "modmgr.h"
 
 /* Mod manager lifecycle */
-void modmgrApplyChanges(void);
 void modmgrSaveComponentState(void);
 const char *modmgrGetModsDir(void);
 

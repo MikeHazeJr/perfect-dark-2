@@ -1,5 +1,16 @@
 # Input System
 
+Sep23 T-INPUT-008: fixed-source `menu0923` r7 input/menu/settings gate passes
+9,732/9,732 assertions after the prior four-failure broad receipt. The
+ordinary virtual-Agent fixture now reserves player 0 with a process-local
+SDL exclusion, but the game window could not acquire OS foreground
+(`GetForegroundWindow=0` after visible/active/focus checks). No scripted
+controller event fired. Physical-controller, MKB, glyph switching, and
+normal/scaled UI acceptance remain open. The replacement full suite is red
+25/131,208, mostly source contracts outside this lane; see the menu audit.
+The later final test binary also passes the same broad gate 9,732/9,732;
+the full suite improves to red 20/131,286 with no failed menu/input test.
+
 Sep22 T-INPUT-008 raw-key repair is source-connected and scoped-compiled:
 `input_vk.c` keeps old controller values 519-646 and saved names intact, adds
 precise raw buttons 23-32 and digital axes after them, and resolves one winner

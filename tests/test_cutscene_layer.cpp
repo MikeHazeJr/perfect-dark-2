@@ -378,7 +378,9 @@ TEST_CASE("cutscene skip uses hold prompt and suppresses interact prompts", "[cu
     REQUIRE(prompt.find("actionHoldProgress(player, action, ACTION_SKIP_CUTSCENE_HOLD_THRESHOLD_MS)") != std::string::npos);
     REQUIRE(backend.find("pdguiCutsceneSkipPromptShouldRender()") != std::string::npos);
     REQUIRE(backend.find("pdguiCutsceneSkipPromptRender((s32)winW, (s32)winH)") != std::string::npos);
-    REQUIRE(glyphs.find("&g_ImcCutscene") != std::string::npos);
+    const std::string holdPrompt = functionBlock(glyphs, "pdguiDrawActionPromptCenteredWithHold");
+    REQUIRE_FALSE(holdPrompt.empty());
+    REQUIRE(holdPrompt.find("pdguiGlyphGetActionLabel(action, keyText") != std::string::npos);
 
     REQUIRE(interactSuppress.find("g_Vars.tickmode == TICKMODE_CUTSCENE") != std::string::npos);
     REQUIRE(interactSuppress.find("playerAnyInCutscene()") != std::string::npos);

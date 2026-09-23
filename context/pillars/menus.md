@@ -1,5 +1,45 @@
 # Menus / UI / UX
 
+Sep23 T-MENUS-003: Mike retired the Room Level Editor tab after source audit
+showed Spawn at Camera only appended UI rows with a fixed fake camera. Room now
+exposes its three live mode tabs; its dead editor state/renderers are removed.
+Forge remains the creator route. Fixed-source `menu0923` r7 client and focused
+menu/broad tests pass with this removal; Room input walkthrough is pending.
+The r7 full test suite remains red (25 cases, mostly peer-owned asset/network
+contracts); see the menu accessibility audit for exact receipts.
+
+Mike chose to repair Forge bot lifecycle. The subsequent source change retires
+tracked live character props and compacts MP bot/character rosters on Remove
+All and exit-play; Add now checks actual publication and clears partial
+allocations. Near-Me now receives the published roster index. This newer Forge
+source compiles in final isolated client/tests builds; menu graph 846/846,
+adjacent menu/tooling/cutscene 89/89, and broad input/menu/settings 9,732/9,732
+pass. Full `pd-tests` stays red 20/131,286 on unrelated source contracts.
+Forge ordinary play and physical-device validation remain open.
+
+Sep23 T-MENUS-003 social Player Profile no longer advertises a head/body
+preview that peer `share_profile_t` cannot supply. Stats and public-mod controls
+remain. Replacement isolated client build passes; device walkthrough remains.
+Forge Bots tab now labels requested counts, shows pending commands instead of
+claiming the runtime wire is absent, avoids double increments, and rolls back
+failed bot allocations; Remove All cancels queued Adds. Isolated client build
+passes for that first repair. A follow-up now connects validated difficulty
+and Smart Aggression to native bot skill, uses per-slot freeze for Frozen bots,
+caps requests, and frees Forge bot slots on Remove All. That follow-up now
+compiles in fixed-source r7 and remains unplayed because the host desktop
+could not grant foreground to the ordinary client.
+
+Sep23 T-MENUS-004 current-source repair: generic typed-dialog SELECTABLE
+dispatch now honors OPENSDIALOG/CLOSESDIALOG flags after ending the ImGui
+window. Previously an OPENSDIALOG target pointer was called as a function and
+a CLOSESDIALOG button with no handler did nothing. This is a source-confirmed
+repair routed through menu-graph edges. Replacement client/tests compile,
+focused `[menu_graph]` PASS846/846 and broad `[input],[menu],[settings]`
+PASS9732/9732 on fixed menu0923 source. Ordinary-client navigation remains.
+The live reachability/gate matrix is being refreshed in
+`context/audits/2026/menu-accessibility-2026-09-06.md`; the April inventory is
+historical, not an acceptance record.
+
 Sep8 21:15 activation core2 PASS35/35,79.5s, full049E558F/client811BE779 unchanged.
 Actual early persistence retries (new and already-enabled package), late archive
 load failure retaining original loaded1 restart baseline, FT retained failure/

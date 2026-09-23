@@ -285,7 +285,7 @@ typedef enum forge_map_variant_mode {
  * placed at runtime during live testing.  Gameplay code is not yet
  * wired to act on these -- they are a forge-side data capture so the
  * editor can publish intent today, and the runtime hook lands in a
- * follow-up polish pass alongside engine botmgr integration. */
+ * applied by forgeRuntimeTick during playtest. */
 typedef enum forge_bot_spawn_mode {
 	FORGE_BOT_SPAWN_ANY       = 0, /* default -- respawn at any spawn point */
 	FORGE_BOT_SPAWN_NEAR_ME   = 1, /* spawn within radius of requesting player */
@@ -729,8 +729,7 @@ typedef struct forge_map_settings {
 
 /* S313 -- Author-side live bot testing settings.  Exposed via the
  * "Bots" tab so mid-test the author can add/remove bots without a
- * match restart.  Runtime hook to engine botmgr is deferred; today
- * the data model captures intent and logs actions. */
+ * match restart. Runtime tick consumes requests through botmgr. */
 typedef struct forge_bot_settings {
 	u8 spawn_mode;                       /* forge_bot_spawn_mode_t */
 	u8 active_count;                     /* desired bots fighting */
@@ -920,8 +919,7 @@ forge_atmosphere_t *forgeAtmosphere(void);
 /* Map settings (F3) */
 forge_map_settings_t *forgeMapSettings(void);
 
-/* S313 -- Live bot testing (author-side data + log-only runtime today;
- * engine botmgr wire is a follow-up polish pass). */
+/* S313 -- Live bot testing; forgeRuntimeTick consumes these requests. */
 forge_bot_settings_t *forgeBotSettings(void);
 void forgeBotAddRequest(s32 active);  /* active != 0 -> fighting bot; else frozen */
 void forgeBotRemoveAll(void);

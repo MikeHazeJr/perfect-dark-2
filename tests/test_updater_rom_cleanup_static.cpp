@@ -178,6 +178,11 @@ TEST_CASE("game client crash init suppresses modal fault dialogs for smoke runs"
 	REQUIRE(smoke_runner.find("Stop-SmokeOwnedFaultProcesses") != std::string::npos);
 	REQUIRE(smoke_runner.find("name = 'PerfectDark.exe' OR name = 'PerfectDarkServer.exe' OR name = 'WerFault.exe'") !=
 	        std::string::npos);
+	REQUIRE(smoke_runner.find("if ($KnownPids.Count -eq 0) { return }") != std::string::npos);
+	REQUIRE(smoke_runner.find("$script:SmokeOwnedPids += [int]$proc.Id") != std::string::npos);
+	REQUIRE(smoke_runner.find("$script:SmokeOwnedPids += [int]$p.Id") != std::string::npos);
+	REQUIRE(smoke_runner.find("$cmd -match '--smoke'") == std::string::npos);
+	REQUIRE(smoke_runner.find("$cmd -like \"*.claude\\smoke-verify*\"") == std::string::npos);
 	REQUIRE(smoke_runner.find("$crashArgs = @()") != std::string::npos);
 	REQUIRE(smoke_runner.find("$env:PD_SMOKE_DISABLE_CRASH_HANDLER -eq \"1\"") !=
 	        std::string::npos);

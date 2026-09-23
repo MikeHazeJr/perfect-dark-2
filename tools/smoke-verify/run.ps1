@@ -649,6 +649,9 @@ function New-V006CorruptSourceFixtures {
 function Stop-SmokeOwnedFaultProcesses {
     [CmdletBinding()] param([int[]] $KnownPids = @())
 
+    # A second smoke runner may be active in another coordination lane. Never
+    # sweep all --smoke processes: that terminates the other runner's client.
+    if ($KnownPids.Count -eq 0) { return }
     $known = @{}
     foreach ($pidValue in @($KnownPids)) {
         if ($pidValue -gt 0) { $known[[int]$pidValue] = $true }
@@ -675,21 +678,12 @@ function Stop-SmokeOwnedFaultProcesses {
         if ($known.ContainsKey($pidValue) -or ($parent -gt 0 -and $known.ContainsKey($parent))) {
             $owned = $true
         }
-        if (-not $owned -and ($cmd -match '--smoke')) {
-            $owned = $true
-        }
-        if (-not $owned -and ($cmd -like "*.claude\smoke-verify*" -or $path -like "*.claude\smoke-verify*")) {
-            $owned = $true
-        }
         if (-not $owned -and $name -ieq "WerFault.exe") {
             foreach ($pidKey in $known.Keys) {
                 if ($cmd -match "(^|\D)$pidKey(\D|$)") {
                     $owned = $true
                     break
                 }
-            }
-            if (-not $owned -and $cmd -match 'PerfectDark(\.exe|Server\.exe)') {
-                $owned = $true
             }
         }
 
@@ -702,7 +696,7 @@ function Stop-SmokeOwnedFaultProcesses {
     }
 }
 
-Stop-SmokeOwnedFaultProcesses
+$script:SmokeOwnedPids = @()
 
 try {
 
@@ -1648,6 +1642,7 @@ function Invoke-SmokeTestMultiProcess {
             Assertions = $(if ($pdef.PSObject.Properties.Match('assertions').Count -gt 0) { $pdef.assertions } else { $null })
             RequiredSequenceStartLines = @{}
         }
+        $script:SmokeOwnedPids += [int]$p.Id
 
         # Optional barrier: poll the just-launched process's log for the
         # `wait_for` marker before launching the next process.
@@ -1803,6 +1798,7 @@ function Invoke-SmokeTestMultiProcess {
     }
     $launchedPids = @($procs | ForEach-Object { try { [int]$_.Process.Id } catch { 0 } } | Where-Object { $_ -gt 0 })
     Stop-SmokeOwnedFaultProcesses -KnownPids $launchedPids
+    $script:SmokeOwnedPids = @()
 
     $elapsed = ((Get-Date) - $started).TotalSeconds
 
@@ -2269,6 +2265,7 @@ function Invoke-SmokeTest {
         if (-not $proc) {
             throw "ProcessStartInfo returned null Process"
         }
+        $script:SmokeOwnedPids += [int]$proc.Id
         if ($runtimeStrategy -eq "timeout-kill") {
             # c115 server-pillar extension (2026-05-14): the binary is
             # expected to run forever (pd-server has no auto-exit path);
@@ -2315,6 +2312,9 @@ function Invoke-SmokeTest {
                                 $focused = [PdSmokeWindowCapture]::Focus($window, 500)
                                 if ($focused) {
                                     Write-Info ("  window-focus: acquired pid={0} attempt={1}" -f $proc.Id, $focusAttempts)
+                                } elseif ($focusAttempts -eq 3) {
+                                    Write-Warn ("  window-focus live diagnostics: {0}" -f `
+                                        [PdSmokeWindowCapture]::LastFocusDiagnostics)
                                 }
                             }
                             if ($focused) { $focusObserved = $true }
@@ -2328,6 +2328,10 @@ function Invoke-SmokeTest {
                 if ($MaintainForeground) {
                     Write-Info ("  window-focus: visible={0} acquired={1} attempts={2}" -f `
                         $focusWindowObserved, $focusObserved, $focusAttempts)
+                    if ($focusWindowObserved -and -not $focusObserved) {
+                        Write-Warn ("  window-focus diagnostics: {0}" -f `
+                            [PdSmokeWindowCapture]::LastFocusDiagnostics)
+                    }
                 }
                 if (-not $proc.HasExited) {
                     Write-Warn ("Watchdog firing after {0}s; terminating {1} (pid {2})." -f $watchdogSeconds, $exeLeaf, $proc.Id)
@@ -2353,8 +2357,9 @@ function Invoke-SmokeTest {
     if ($proc) {
         Stop-SmokeOwnedFaultProcesses -KnownPids @([int]$proc.Id)
     } else {
-        Stop-SmokeOwnedFaultProcesses
+        Stop-SmokeOwnedFaultProcesses -KnownPids $script:SmokeOwnedPids
     }
+    $script:SmokeOwnedPids = @()
     $elapsed = ((Get-Date) - $started).TotalSeconds
 
     # c115 (2026-05-14) belt-and-braces: parse the harness's own
@@ -2616,6 +2621,6 @@ Write-Info ("Results written to: {0}" -f $ResultsFile)
 
 exit $(if ($failCount -eq 0) { 0 } else { 1 })
 } finally {
-    Stop-SmokeOwnedFaultProcesses
+    Stop-SmokeOwnedFaultProcesses -KnownPids $script:SmokeOwnedPids
     [void][PdSmokeWinErrorMode]::SetErrorMode($previousErrorMode)
 }

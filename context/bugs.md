@@ -1,5 +1,48 @@
 # Bug Tracker
 
+2026-09-23 T-MENUS-003 Forge Remove All previously called `botmgrRemoveAll`,
+which clears bot roster pointers and count without retiring live character
+props. Those characters continued in the world and occupied the character
+roster even though the Bots tab reported zero. Forge now retires its tracked
+characters through `chrRemove`/prop teardown, compacts both MP rosters, then
+releases only its config slots; non-Forge roster entries remain. Add checks
+actual roster publication and cleans a partial legacy allocation before it
+reports success. Propagation check: stage reset still uses the old
+`botmgrRemoveAll` contract, while both Forge exit-play and Bots-tab Remove All
+use live retirement. Final isolated client/tests builds pass; ordinary play
+validation remains pending.
+
+The same Forge review found Spawn Near Me passed the high config-slot index
+returned by `s_spawnBot` to `s_teleportBotNearPlayer`, which indexes the
+sequential `g_MpBotChrPtrs` roster. A newly added bot could therefore miss the
+teleport. `s_spawnBot` now returns the published roster index. Ordinary
+placement and room-membership behavior still need a client walkthrough.
+
+2026-09-23 T-MENUS-003 reachable Room Level Editor is a data-only shell. The
+Room tab's "Launch Level Editor" makes `s_LEActive` true, "Spawn at Camera"
+only appends to `s_LESpawned`, and the overlay shows a fixed stub camera with
+free-fly "in development" text. `s_LESpawned` is referenced only inside the
+same UI renderer, so no world object is created. This is an advertised dead
+creator action in a reachable multiplayer room, not validated Forge behavior.
+Mike chose to retire this data-only Room tab and keep Forge as the creator
+route. The tab, launch action, overlay, and their private 518-line shell have
+been removed; the three live Room tabs retain their order and Back behavior.
+Propagation check: searched all `s_LESpawned` references and the separate Forge
+entry; no production bridge was found. Fixed-source `menu0923` r7 client and
+focused menu tests pass; Room walkthrough remains pending.
+
+2026-09-23 T-INPUT-008 smoke-runner isolation: `run.ps1` globally reaped every
+`PerfectDark.exe --smoke` process on entry and exit. The 14:32:29Z menu Agent
+run exited -1 during extraction when a separately queued multiplayer runner
+started at 14:32:32Z. Both runners used valid but different coordination
+resources. Cleanup is now restricted to process IDs launched by this runner
+and their fault children; a source regression guard rejects global smoke-path
+matching. Propagation check: both single-client and multi-process cleanup
+sites were inspected. Parser and mocked two-runner process isolation passed;
+fixed-source r7 `[b927]` passed 21/21. Ordinary runner behavior remains
+blocked at foreground ownership, independent of cleanup;
+the failed receipt is `.claude/smoke-verify-runs/results-20260923T143229Z.json`.
+
 2026-09-23 T-ASSETS-001/T-EXTRACTION-001: Isolated NTSC-final extract-only
 boot produced 476/476 regional language sources and registered all 476, but
 then stopped on 221 catalog registration failures. All 84 `.pdhead`, 68
@@ -36,6 +79,40 @@ Three directly edited parents failed loudly and retained exact SHA-256. This
 closes the identified warm-cache dependency class for these five parent
 families, while the broader emitter inventory and gameplay source use remain
 open. Receipt: `.claude/session-builds/asset0923deps/dependency-batch-receipt.json`.
+
+2026-09-23 T-MENUS-003 social Player Profile displayed a 3D head/body preview
+placeholder that could never resolve: `share_profile_t` carries only statistics,
+with no appearance/catalog IDs. The preview promise has been removed from the
+reachable modal; actual received stats and public-mod actions remain. Propagation
+check found no other `charpreview` use in the social UI. Client build and
+ordinary social-device walkthrough is still pending for this edit. The isolated
+client build and broad input/menu/settings gate pass on this source.
+
+2026-09-23 T-MENUS-003 Forge Bots tab had stale status text: `forgeRuntimeTick`
+already consumes Add/Remove requests, but the UI called the botmgr wire a
+future pass. The core incremented desired active/frozen counts on request and
+runtime incremented them again after successful spawn. Source repair removes
+runtime double increments, rolls back failed requests, and lets Remove All
+cancel pending Adds; the UI now labels requested counts and pending commands.
+The follow-up now maps Smart Aggression to native bot difficulty, applies the
+selected default difficulty for Any/Near-Me spawns, freezes added Frozen bots
+by slot, and frees Forge config slots on Remove All so later Adds can use them.
+The Bots tab uses a validated difficulty combo and disables Add at capacity.
+This follow-up compiles in fixed-source `menu0923` r7 client and remains
+unexercised in ordinary play because foreground ownership is unavailable.
+
+2026-09-23 T-MENUS-004: The generic ImGui typed-dialog renderer treated every
+SELECTABLE `handler` as a callable function. For `MENUITEMFLAG_SELECTABLE_OPENSDIALOG`
+the game ABI stores a dialog-definition pointer there, and for
+`MENUITEMFLAG_SELECTABLE_CLOSESDIALOG` the handler can be null. Thus reachable
+fallback buttons could call data as code or leave Done inert. The renderer now
+defers the selected action until after `ImGui::End`, applies close/open flags
+through menu-graph push/replace/pop edges, and gives Cancel precedence for a
+simultaneous press. Propagation check: inspected the purpose-built ImGui dialog
+registrations and the legacy `menuitemSelectableTick` contract; remaining
+generic selectable handlers require current ordinary-client coverage. Isolated
+client and tests build, focused `[menu_graph]` PASS846/846 and broad
+`[input],[menu],[settings]` PASS9732/9732; controller/MKB runtime remains open.
 
 2026-09-22 19:18 ET: T-NETWORKING-011 ordinary listen-host multiplayer start
 can reject a valid Random weapon selection. On the short-path real-peer

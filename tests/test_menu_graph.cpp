@@ -357,13 +357,16 @@ TEST_CASE("Mod Manager Apply owns a native modal and preflights staged publicati
 {
     const std::string source = readTextFile("port/fast3d/pdgui_menu_modmgr.cpp");
     const std::string body = functionBlock(source, "renderModManagerBody");
+    const std::string attempt = functionBlock(source, "runPreparedApplyAttempt");
 
     REQUIRE_FALSE(body.empty());
+    REQUIRE_FALSE(attempt.empty());
     REQUIRE(body.find("ImGui::BeginPopupModal(\"Applying Changes\"") != std::string::npos);
     REQUIRE(body.find("ImGui::Begin(\"Applying Changes\"") == std::string::npos);
     REQUIRE(body.find("ImGui::BeginDisabled(idleBack || s_ApplyFlowState > 0 || s_LeaveRequested)") != std::string::npos);
-    const auto publish = body.find("s_InstalledSelection.publish(");
-    const auto apply = body.find("modmgrApplyChanges();");
+    REQUIRE(body.find("runPreparedApplyAttempt() ? 3 : 4") != std::string::npos);
+    const auto publish = attempt.find("s_InstalledSelection.publish(");
+    const auto apply = attempt.find("modmgrApplyPreparedChanges(");
     REQUIRE(publish != std::string::npos);
     REQUIRE(apply != std::string::npos);
     REQUIRE(publish < apply);
@@ -1115,8 +1118,11 @@ TEST_CASE("menu graph: warning modal close paths use graph pop edges", "[input][
     requireNoRawMenuShortcutPolling(endgame);
     requireNoRawMenuShortcutPolling(filemgr);
 
-    REQUIRE(warning.find("menuPopDialog()") == std::string::npos);
-    REQUIRE(warning.find("void menuPopDialog") == std::string::npos);
+    REQUIRE(typed.find("activatedSelectable->flags & MENUITEMFLAG_SELECTABLE_CLOSESDIALOG") != std::string::npos);
+    REQUIRE(typed.find("activatedSelectable->flags & MENUITEMFLAG_SELECTABLE_OPENSDIALOG") != std::string::npos);
+    REQUIRE(typed.find("menuGraphFireReplaceDialog(MENU_TYPE_WARNING_MODAL, \"open_child\"") != std::string::npos);
+    REQUIRE(typed.find("menuGraphFirePushDialog(MENU_TYPE_WARNING_MODAL, \"open_child\"") != std::string::npos);
+    REQUIRE(typed.find("} else if (activatedSelectable->handler)") != std::string::npos);
 }
 
 TEST_CASE("generic typed dialogs render list, carousel, ranking, and stats without placeholders",

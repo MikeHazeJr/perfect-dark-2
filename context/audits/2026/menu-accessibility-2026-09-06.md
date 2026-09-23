@@ -1,5 +1,124 @@
 # Menu accessibility and functionality
 
+## Current verification - 2026-09-23
+
+Final bounded pause unit on fixed HEAD `842663b4` compiled the Forge live-bot
+retirement and Near-Me roster-index correction. Isolated client SHA-256
+`16A3CF0E328A8FAB141BF9DFD68A3E5D38E57C653B5F31012A18479E90A83E3F`
+and tests SHA-256
+`BECCD4FCEBFF4F11405CBC065721F3A809C8DB7ED54D81AEA42F0881932495E3`
+match pre/post manifests under `.claude/session-builds/menu0923/` (23 changed
+production/test/runner files, zero hash or HEAD drift). The final receipts
+pass menu graph 846/846, adjacent menu/tooling/cutscene 89/89, and broad
+input/menu/settings 9,732/9,732. Full `full-final-junit.xml` remains RED
+20/131,286: the earlier five menu/tooling/network source-contract failures
+are cleared, while 18 asset/catalog and two engine/character source
+contracts remain outside this lane. No Forge bot runtime or ordinary menu
+journey ran on this final binary. Mike requested pause after this validation;
+the reachable-screen matrix remains open.
+
+Post-r7 Forge lifecycle source now retires live bot props on Remove All and
+exit-play, preserving other MP roster entries, and checks whether Add actually
+published a bot. The r7 binary predates this change. User requested a bounded
+validation/commit checkpoint followed by pause; no wider ordinary menu journey
+will start until resume.
+The Forge source edit overlapped the MP owner's 15:24Z smoke source hold. That
+owner rejected the otherwise passing MP receipt for source drift and started
+a fresh exact-source rebuild/run; menu code was then held. This overlap is not
+usable runtime evidence for either acceptance claim.
+
+Replacement fixed-source `menu0923` r7 on HEAD `0176cfda` compiled the Room
+Level Editor retirement, Forge native bot behavior, and scoped smoke cleanup.
+The client SHA-256 is `23540AA7A9F0521A4E986C360B59AC5F1F9E08C6A83E02C42F37A91FCC5A3161`;
+the test SHA-256 is `B3159214FBD6F10C185E2DB6ABD12F651C5BFC15B3C5094CE60EDD30EDFCC4A8`.
+Pre/post source manifests `preclient-r7-manifest.json`,
+`postclient-r7-manifest.json`, and `posttests-r7-manifest.json` show zero drift.
+`menu-graph-r7-junit.xml` passed 846 assertions, broad
+`input-menu-settings-r7-junit.xml` passed 9,732, and
+`smoke-cleanup-r7-junit.xml` passed 21. Full `full-r7-junit.xml` remains RED:
+25 failed cases in 131,208 assertions. Most are asset and networking source
+contracts reported to their active owners. Three menu/tooling/cutscene guards
+were stale after prepared Mod Manager Apply, action-map glyph lookup, and the
+separate single-client smoke launch; current-source corrections are awaiting
+a stable-source rebuild and replacement full result. Keep the full red receipt.
+
+Ordinary virtual-Agent r5/r6 reached the Agent Select pool but never acquired
+Windows foreground ownership: the live probe found a visible/enabled target
+HWND with game-thread active/focus while `GetForegroundWindow` returned 0 and
+`SetForegroundWindow` failed. No scripted input event fired, so there is no
+controller, MKB, or visual acceptance from those runs. The probe receipt is
+`.claude/session-builds/menu0923/virtual-agent-focus-probe-r2-console.log`;
+the original failing receipts remain in `.claude/smoke-verify-runs/`. A
+process-local SDL controller exclusion kept the user's physical assignment
+unchanged. Physical controller must be tested separately with it removed.
+
+On fixed HEAD `55ca686c34b76451cb6d285774bd0fafe58b48d9`, isolated
+`menu0923` client SHA-256 `BE50884F8751F57AA88508093B7AB134FB21187F12093CC6C28AD6D371FD6772`
+and tests SHA-256 `543371AB0F79FC5C007EA553AAEB9358B57301EF5E5F7ADBDD3C0D169544DDF0`
+compiled after the generic dialog graph repair, social placeholder removal,
+and Forge count repair. Source hashes were unchanged during the client build;
+only context/Workbench state moved during the tests build. Focused
+`[menu_graph]` passed 846/846 assertions, and current-source broad
+`[input],[menu],[settings]` passed 9,732/9,732 assertions across 234 cases.
+Receipts are under `.claude/session-builds/menu0923/` as
+`menu-graph-r2-junit.xml`, `input-menu-settings-broad-junit.xml`, and the
+pre/post source manifests. The first client compile failure (missing nav-input
+include) and first focused static-guard failure (1/844) remain in the build
+log and `menu-graph-junit.xml`. The 2026-09-22 broad RED4 is superseded for
+this current source by the fresh broad pass; it is still historical evidence,
+not a runtime claim. Ordinary journeys and device/visual proof remain open.
+
+The first 2026-09-23 virtual-Agent rerun accidentally installed a stale
+non-session binary and cannot be counted. The exact `BE50884F` run reached the
+CI intro but its 90-second Agent readiness wait expired before the cutscene;
+the fixture now waits up to 180 seconds for Agent readiness without changing
+events or assertions. The next exact-binary run was terminated during
+extraction by another session's smoke runner: `run.ps1` swept all `--smoke`
+clients globally even though the sessions had different FIFO resources. That
+cleanup is now scoped to PIDs launched by each runner, with parser, mocked
+process isolation, and `[b927]` PASS21/21. Replacement ordinary menu results
+are pending. Red receipts remain under `.claude/smoke-verify-runs/` for
+`results-20260923T142548Z.json`, `results-20260923T143003Z.json`, and
+`results-20260923T143229Z.json`.
+
+## Live source matrix refresh - 2026-09-23 (in progress)
+
+The 2026-04-03 `context/designs/menus/menu-inventory.md` is a historical
+replacement plan, not a current rendering or acceptance verdict: its OG,
+forced OG, and Stub labels predate the ImGui hotswap and current menu graph.
+The table below is seeded from the **current** `port/src/menugraph.c` node/edge
+registry and `pdguiHotswapRegister` calls. Entries are routes, not a claim
+that every child popup or widget has passed. `Open` means the full focus order,
+scroll, editor, glyph, persistence, failure, and two-device checks remain to
+be recorded. A node with no direct graph parent may still be pushed by legacy
+game flow or a named ImGui renderer; registration alone is not reachability.
+
+| Reachable route family | Live entry and exit | Action/widget surface to walk | Current gate |
+| --- | --- | --- | --- |
+| Main Menu, Solo view, Stats view, Grid | Main root Play/Stats/Grid; Back or scene/quit edge | Top-level cards, subview return focus, close/quit | Open: controller/MKB and rendered sizes |
+| Settings, CI Options | Main root Settings or pause Settings; Back | Tabs, every binding slot, profiles, save failure/retry/leave, sliders, combo, glyphs | Open: restart, failed save, physical input |
+| Agent Select/Create | Main Change Agent or startup picker; Back/Create/Save/Cancel | Profile list/context menu/delete confirm, name editor, body/head selection | Open: virtual and physical journeys |
+| Solo mission, pause, inventory, options, result | Play > Solo Missions; gameplay pause; continue/retry/menu | Mission/difficulty/briefing, abort confirm, inventory, options, results | Open: ordinary transitions and scale captures |
+| Room, MP setup/settings/team/bot/player config | Play > Combat Simulator or host/join room; Back/Leave/Start | Lobby slots, modes, weapons, map, team, bot, match start/leave | Open: MP owner coordination and two-process flow; data-only Room Level Editor retired per Mike, three live tabs need rebuild/walkthrough |
+| MP pause, soundtrack/tunes/team names, advanced, results | Match pause or room setup; Resume/End/Done/Back | In-game controls, music lists, team text, advanced panels, result return | Open: room/result journey |
+| Social shell/lobby, network/joining | Main Social or Network; Back/Disconnect | Friends, invitations, lobby, host/join/reconnect and errors | Open: MP owner coordination and failures |
+| Cheats and generic warning/success dialogs | Main Cheats or contextual push; Done/Cancel/Confirm | Category selection, checkboxes, modal flags, focused choice | Client + static gate pass; ordinary modal journey open |
+| Training, Firing Range, Device/Help, Hangar | Training routes from main and contextual lists; Back/Begin/Continue | List selection, difficulty, info, details, result return | Open: focus/scroll and ordinary flow |
+| Mod Manager, Modding Hub, Forge | Main Mods/Hub/creator entry; Back/Apply/Discard/Retry | Installed mods and partial failures, all editor tabs/text/numeric inputs, export | Open: Agent switch, restart and asset-owner coordination |
+
+The [per-node matrix](menu-node-matrix-2026-09-23.csv) lists all 45 current
+graph nodes, exact graph actions, inbound graph edges, and the still-open
+widget/focus/scroll/edit/glyph/save/failure/runtime checks. Source registration
+also covers typed dialogs and popups outside those nodes. The
+[registration matrix](menu-dialog-matrix-2026-09-23.csv) lists 145 named
+hotswap dialog definitions and marks reachability and controls unverified;
+registration alone is not a player route. The old local 2-player
+split-screen routes and debug-only screens remain outside player-facing
+acceptance. The matrix must be split down to individual reachable child
+screens and completed with focus order, glyph, save, and failure observations
+before T-MENUS-003 can be marked validated. The current-source broad pass above
+replaces the prior broad RED4 test verdict; it cannot replace runtime evidence.
+
 ## Pause checkpoint - 2026-09-22
 
 Mike requested a scoped commit and push, then a pause while other sessions

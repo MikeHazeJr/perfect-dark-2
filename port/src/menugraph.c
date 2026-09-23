@@ -308,6 +308,7 @@ static const MenuGraphEdge s_HtResultEdges[] = {
 };
 
 static const MenuGraphEdge s_WarningModalEdges[] = {
+    EDGE_PUSH_ANY("open_child", ACTION_MENU_ACCEPT, "Open Typed Dialog Child"),
     EDGE_POP("confirm", ACTION_MENU_ACCEPT, "Confirm"),
     EDGE_POP("cancel", ACTION_MENU_CANCEL, "Cancel"),
 };

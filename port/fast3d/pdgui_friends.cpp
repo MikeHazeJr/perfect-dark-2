@@ -778,11 +778,8 @@ static void renderChatPanel(s32 winW, s32 winH)
 }
 
 /* Player Profile modal -- per-friend page (Q11 Halo 3 File Share lineage).
- * Shows agent + connect code + nickname + last-seen, links to subscribe
- * to their listening room, and reserves panels for stats + character
- * preview + public mods list. The character render box ships from
- * Priority Q (`03f44cb0` already in dev); this modal will pull that
- * widget in a follow-up wiring commit. */
+ * Shows the profile data actually received from the peer: identity,
+ * presence, stats and public mods. Appearance is not in share_profile_t. */
 static void renderProfileModal(void)
 {
 	if (s_ProfileFriendHandle == 0) return;
@@ -818,19 +815,8 @@ static void renderProfileModal(void)
 		ImGui::Spacing();
 		ImGui::Separator();
 
-		/* Section 7 placeholders -- character render + stats + mods.
-		 * Each pulls a widget that lives elsewhere (Priority Q render,
-		 * playerstats.h totals, the Public Mods Page aggregator). The
-		 * follow-up wiring commit replaces these placeholders. */
-		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
-		ImGui::TextUnformatted("Character preview");
-		ImGui::PopStyleColor();
-		ImGui::Indent(12.0f);
-		ImGui::TextDisabled("(3D head + body render -- pulls Priority Q render box "
-		                    "via charpreview when the wiring commit lands.)");
-		ImGui::Unindent(12.0f);
-
-		ImGui::Spacing();
+		/* Show received stats and public mods without an appearance placeholder:
+		 * the current peer profile contains no head/body catalog identity. */
 		ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TintInfo(255));
 		ImGui::TextUnformatted("Stats");
 		ImGui::PopStyleColor();

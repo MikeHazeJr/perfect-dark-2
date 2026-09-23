@@ -12,7 +12,7 @@
  *   - Props / weapons / zones -> logged; model / trigger wire deferred.
  *
  * On forgeRuntimeExitPlay():
- *   - Forge-spawned bots removed via botmgrRemoveAll().
+ *   - Forge-spawned bots retired from the live world and both MP rosters.
  *   - Spawn pool rebuilt without forge-injected points.
  *   - Any directly-allocated props freed via propFree().
  *

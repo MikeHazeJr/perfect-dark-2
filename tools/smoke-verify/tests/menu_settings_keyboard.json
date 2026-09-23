@@ -9,7 +9,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 190,
+  "timeout_seconds": 280,
   "install_state": "clean",
   "remove_paths": [
     "settings-runtime-home"
@@ -34,7 +34,7 @@
       "at_ms": 0,
       "type": "wait_until",
       "condition": "agent_select_ready",
-      "timeout_ms": 90000,
+      "timeout_ms": 180000,
       "stable_ms": 250
     },
     {

@@ -20,6 +20,7 @@ enum bot_spawn_wave_result botSpawnAll(void);
 void botSpawnWaveReset(void);
 void botToggleUpdatesDisabled(void);
 s32 botGetUpdatesDisabled(void);
+void botSetSlotFrozen(s32 aibotnum, s32 frozen);
 u32 add87654321(u32 value);
 u32 botPickupProp(struct prop *prop, struct chrdata *chr);
 bool botTestPropForPickup(struct prop *prop, struct chrdata *chr);

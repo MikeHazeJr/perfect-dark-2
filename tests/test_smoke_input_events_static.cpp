@@ -1002,7 +1002,9 @@ TEST_CASE("multi-process smoke isolates process installs and assertions",
     requireContains(runner, "$processExe = Join-Path $processInstallInfo.InstallDir $exeLeaf");
     requireContains(runner, "$psi.FileName         = $processExe");
     requireContains(runner, "pd-identity.dat");
-    REQUIRE(runner.find("$psi.FileName         = $exe\n") == std::string::npos);
+    const std::string multiProcess = requireSlice(runner,
+        "function Invoke-SmokeTestMultiProcess {", "function Invoke-SmokeTest {");
+    REQUIRE(multiProcess.find("$psi.FileName         = $exe\n") == std::string::npos);
     requireContains(runner, "\"--basedir\", [string]$processInstallInfo.InstallDir");
     requireContains(runner, "\"--savedir\", [string]$processInstallInfo.InstallDir");
     requireContains(runner, "\"--moddir\", [string]$processModsDir");

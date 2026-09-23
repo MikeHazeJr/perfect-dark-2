@@ -15,6 +15,7 @@
 #include <string.h>
 #include <math.h>
 
+#include "constants.h"
 #include "system.h"
 
 #ifndef countof
@@ -1168,10 +1169,8 @@ forge_map_settings_t *forgeMapSettings(void) { return &s_settings; }
 /* ============================================================
  * S313 -- Live bot testing
  *
- * The forge-side data captures what the author has asked for.  Engine
- * integration (botmgrAllocateBot / botmgrRemoveAll) is a follow-up
- * polish pass -- today these entry points log intent and bump pending
- * counters that can be consumed by a runtime tick once wired up.
+ * The forge-side data captures the author's requests. forgeRuntimeTick
+ * consumes the pending commands while the playtest is active.
  * ============================================================ */
 
 forge_bot_settings_t *forgeBotSettings(void) { return &s_bot_settings; }
@@ -1179,6 +1178,10 @@ forge_bot_settings_t *forgeBotSettings(void) { return &s_bot_settings; }
 void forgeBotAddRequest(s32 active)
 {
 	if (!s_initialized) forgeCoreInit();
+	if ((s32)s_bot_settings.active_count + (s32)s_bot_settings.frozen_count >= MAX_BOTS) {
+		sysLogPrintf(LOG_WARNING, "GRID.BOT: add rejected -- max %d requested bots", MAX_BOTS);
+		return;
+	}
 	if (active) {
 		s_bot_settings.active_count++;
 		s_bot_settings.pending_add_active++;
@@ -1202,6 +1205,9 @@ void forgeBotRemoveAll(void)
 	if (!s_initialized) forgeCoreInit();
 	s_bot_settings.active_count = 0;
 	s_bot_settings.frozen_count = 0;
+	/* Remove wins over Add commands queued earlier in the same UI frame. */
+	s_bot_settings.pending_add_active = 0;
+	s_bot_settings.pending_add_frozen = 0;
 	s_bot_settings.pending_remove_all++;
 	sysLogPrintf(LOG_NOTE, "GRID.BOT: remove all (pending_engine_sync=%d)",
 			s_bot_settings.pending_remove_all);
@@ -1221,7 +1227,7 @@ void forgeBotFreezeAll(s32 frozen)
  * currently-placed object with `from_base=1` on import, so the save
  * path can elide them from the delta.  Full engine-side import of the
  * base stage's intro-commands / pads / props into forge objects is a
- * follow-up polish pass.
+ * applied by forgeRuntimeTick during playtest.
  * ============================================================ */
 
 void forgeImportBaseStageObjects(void)

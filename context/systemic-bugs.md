@@ -17,6 +17,18 @@ an isolated build, 5,562/5,562 changed-source catalog admission, five nested
 byte matches, and three edited-parent fail-closed negatives. Other
 dependency-bearing emitters still need an audit.
 
+## 2026-09-23 Scope smoke cleanup to the launching runner
+
+Two independent runners may use different coordination resources while both
+launch `PerfectDark.exe --smoke`. A runner-wide name, command-line, or path
+sweep can terminate the peer's live client, producing a misleading early exit
+with no game fatal log. Search runner cleanup with
+`rg -n 'Stop-Process|--smoke|smoke-verify\*|KnownPids' tools/smoke-verify`.
+Cleanup must use only process IDs launched by the current invocation and their
+fault children. Verify a single-client run and a two-process run can overlap
+without either reaping the other; the 2026-09-23 Agent/Needler overlap is the
+regression case. Runtime recheck is pending.
+
 2026-09-08 23:06 batch22 connected texture/source pipeline ACCEPTED within scope (source35).
 Full2145 24440303AB0D8D1EB47802A8BA52AA3D71F7D10FCFB818CFDCDB1135EE097BD2;
 changed488 BAF7FC71; client6D4FE54E/tests233ECA5C unchanged through final audits.

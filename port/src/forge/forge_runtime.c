@@ -19,7 +19,7 @@
  *                              checked per-tick for enter/exit events.
  *
  * On forgeRuntimeExitPlay (NORMAL -> FREEFLY):
- *   - Forge bots removed (botmgrRemoveAll).
+ *   - Forge bots retired from the live world and MP rosters.
  *   - Spawn pool rebuilt without forge-injected points.
  *   - Any directly-allocated props freed via propFree.
  *   - Zone runtime cleared.
@@ -38,6 +38,8 @@
 #include "asset_source_debug.h"
 
 #include "game/botmgr.h"
+#include "game/bot.h"
+#include "game/chr.h"
 #include "game/mplayer/mplayer.h"
 #include "game/prop.h"
 #include "game/propobj.h"
@@ -72,6 +74,7 @@ static s32                 s_handle_count;
 static s32                 s_active;
 static s32                 s_spawn_injected; /* number of points added to pool */
 static s32                 s_bots_spawned;   /* running forge-bot count */
+static u8                  s_forge_bot_slots[MAX_BOTS];
 
 /* Prop pool: defaultobj instances for forge-placed props/geometry.
  * Allocated once from MEMPOOL_STAGE (survives FREEFLY<->NORMAL toggles,
@@ -198,13 +201,92 @@ static s32 s_findFreeBotSlot(void)
     return -1;
 }
 
+static s32 s_requestedBotDifficulty(const forge_bot_settings_t *bs)
+{
+    if (bs->spawn_mode == FORGE_BOT_SPAWN_SMART) {
+        f32 aggression = bs->smart_aggression;
+        if (!(aggression >= 0.0f)) aggression = 0.0f;
+        if (aggression > 1.0f) aggression = 1.0f;
+        return (s32)(aggression * (f32)BOTDIFF_DARK + 0.5f);
+    }
+    static const char *names[] = { "meat", "easy", "normal", "hard", "perfect", "dark" };
+    for (s32 i = BOTDIFF_MEAT; i <= BOTDIFF_DARK; ++i) {
+        if (strcmp(bs->default_difficulty, names[i]) == 0) return i;
+    }
+    return BOTDIFF_NORMAL;
+}
+
+static void s_releaseForgeBotSlots(void)
+{
+    for (s32 i = 0; i < MAX_BOTS; ++i) {
+        if (!s_forge_bot_slots[i]) continue;
+        g_BotConfigsArray[i].base.body_id[0] = '\0';
+        g_BotConfigsArray[i].base.head_id[0] = '\0';
+        botSetSlotFrozen(i, 0);
+        s_forge_bot_slots[i] = 0;
+    }
+}
+
+/* botmgrRemoveAll only clears roster pointers; it is a stage-reset helper,
+ * not a live-world teardown. Retire the actual Forge characters before
+ * releasing their config slots, preserving any non-Forge roster entries. */
+static s32 s_retireBotSlots(const u8 *slots)
+{
+    struct chrdata *victims[MAX_BOTS] = {0};
+    s32 victim_count = 0;
+    s32 kept = 0;
+    for (s32 i = 0; i < g_MpNumChrs; ++i) {
+        s32 owned = 0;
+        for (s32 slot = 0; slot < MAX_BOTS; ++slot) {
+            if (slots[slot] && g_MpAllChrConfigPtrs[i] == &g_BotConfigsArray[slot].base) {
+                owned = 1;
+                break;
+            }
+        }
+        if (owned && g_MpAllChrPtrs[i] && victim_count < MAX_BOTS) {
+            victims[victim_count++] = g_MpAllChrPtrs[i];
+        } else {
+            g_MpAllChrPtrs[kept] = g_MpAllChrPtrs[i];
+            g_MpAllChrConfigPtrs[kept++] = g_MpAllChrConfigPtrs[i];
+        }
+    }
+    for (s32 i = kept; i < g_MpNumChrs; ++i) {
+        g_MpAllChrPtrs[i] = NULL;
+        g_MpAllChrConfigPtrs[i] = NULL;
+    }
+    g_MpNumChrs = kept;
+
+    kept = 0;
+    for (s32 i = 0; i < g_BotCount; ++i) {
+        struct chrdata *chr = g_MpBotChrPtrs[i];
+        s32 removed = 0;
+        for (s32 j = 0; j < victim_count; ++j) {
+            if (chr == victims[j]) { removed = 1; break; }
+        }
+        if (!removed) g_MpBotChrPtrs[kept++] = chr;
+    }
+    for (s32 i = kept; i < g_BotCount; ++i) g_MpBotChrPtrs[i] = NULL;
+    g_BotCount = (u8)kept;
+
+    for (s32 i = 0; i < victim_count; ++i) {
+        struct chrdata *chr = victims[i];
+        struct prop *prop = chr->prop;
+        if (!prop || prop->type != PROPTYPE_CHR || prop->chr != chr) continue;
+        chrRemove(prop, true);
+        propDelist(prop);
+        propDisable(prop);
+        propFree(prop);
+    }
+    return victim_count;
+}
+
 /*
  * Fill a g_BotConfigsArray slot with body/head/name derived from the
  * forge AI object.  Uses catalog mp_index (the established pattern from
  * matchsetup.c) for the legacy mpbodynum/mpheadnum fields that
  * botmgrAllocateBot still reads.
  */
-static void s_fillBotSlot(s32 slot, const forge_object_t *o)
+static void s_fillBotSlot(s32 slot, const forge_object_t *o, s32 difficulty_override)
 {
     struct mpbotconfig *bc  = &g_BotConfigsArray[slot];
     struct mpchrconfig *cfg = &bc->base;
@@ -253,6 +335,9 @@ static void s_fillBotSlot(s32 slot, const forge_object_t *o)
     case 2:  bc->difficulty = BOTDIFF_NORMAL; break;
     default: bc->difficulty = BOTDIFF_EASY;   break;
     }
+    if (difficulty_override >= BOTDIFF_MEAT && difficulty_override <= BOTDIFF_DARK) {
+        bc->difficulty = (u8)difficulty_override;
+    }
     bc->type = BOTTYPE_GENERAL;
     {
         const char *profile_id = mpBotProfileIdForTraits(
@@ -269,24 +354,24 @@ static void s_fillBotSlot(s32 slot, const forge_object_t *o)
 
 /*
  * Attempt to allocate one AI forge object as a live bot.
- * Returns the aibotnum (slot) on success, -1 on failure.
+ * Returns the sequential bot-roster index on success, -1 on failure.
  *
- * P7 (2026-04-24): return the slot so callers (e.g. the Playtest HUD bot
+ * P7 (2026-04-24): return the roster index so callers (e.g. the Playtest HUD bot
  * spawner) can teleport the newly live bot to a specific world position
  * via s_teleportBotNearPlayer().  Previously returned 0/1 for
  * success/failure which discarded that identity.
  */
-static s32 s_spawnBot(const forge_object_t *o)
+static s32 s_spawnBot(const forge_object_t *o, s32 difficulty_override, s32 frozen)
 {
     s32 slot = s_findFreeBotSlot();
-    if (slot < 0) {
+    if (slot < 0 || g_BotCount >= MAX_BOTS || g_MpNumChrs >= MAX_MPCHRS) {
         sysLogPrintf(LOG_WARNING,
-                "GRID.RUNTIME: no free bot config slot for AI uid=%u '%s'",
+                "GRID.RUNTIME: no bot/character capacity for AI uid=%u '%s'",
                 o->uid, o->catalog_id);
         return -1;
     }
 
-    s_fillBotSlot(slot, o);
+    s_fillBotSlot(slot, o, difficulty_override);
 
     /* chrnum: use the current bot count as the sequential ID, matching how
      * setup.c allocates simulants (each gets a unique chrnum 0, 1, 2...). */
@@ -298,20 +383,37 @@ static s32 s_spawnBot(const forge_object_t *o)
             g_BotConfigsArray[slot].base.body_id,
             o->pos[0], o->pos[1], o->pos[2]);
 
+    const s32 old_bot_count = g_BotCount;
+    const s32 old_chr_count = g_MpNumChrs;
     botmgrAllocateBot(chrnum, slot);
+    if (g_BotCount != old_bot_count + 1 ||
+        g_MpNumChrs != old_chr_count + 1 ||
+        !g_MpBotChrPtrs[old_bot_count]) {
+        /* The legacy allocator returns void. Its late aibot allocation
+         * failure can leave a registered chr; retire that partial attempt. */
+        u8 attempted[MAX_BOTS] = {0};
+        attempted[slot] = 1;
+        s_retireBotSlots(attempted);
+        g_BotConfigsArray[slot].base.body_id[0] = '\0';
+        g_BotConfigsArray[slot].base.head_id[0] = '\0';
+        sysLogPrintf(LOG_WARNING, "GRID.RUNTIME: bot allocation failed for slot=%d", slot);
+        return -1;
+    }
+    s_forge_bot_slots[slot] = 1;
+    botSetSlotFrozen(slot, frozen);
 
     forge_prop_handle_t *h = s_alloc(o->uid);
     if (h) h->is_bot = 1;
 
     ++s_bots_spawned;
-    return slot;
+    return old_bot_count;
 }
 
 /*
  * P7 (2026-04-24): teleport a just-spawned bot to the player's current
  * position offset by `radius` units along the player's forward vector.
  * Safe to call any time after botmgrAllocateBot populates g_MpBotChrPtrs
- * for that slot.  Returns 1 on success, 0 on miss (bot not live yet /
+ * for that roster index. Returns 1 on success, 0 on miss (bot not live yet /
  * no player / pointer issue).
  *
  * Math mirrors forgemode.c::forgeUpdateFreefly: PD yaw 0 points down +Z
@@ -319,12 +421,12 @@ static s32 s_spawnBot(const forge_object_t *o)
  * We only offset on the XZ plane so the bot lands at the player's eye
  * height; gravity + collision resolve from there.
  */
-static s32 s_teleportBotNearPlayer(s32 aibotnum, f32 radius)
+static s32 s_teleportBotNearPlayer(s32 roster_index, f32 radius)
 {
-    if (aibotnum < 0 || aibotnum >= MAX_BOTS) return 0;
+    if (roster_index < 0 || roster_index >= g_BotCount) return 0;
     if (!g_Vars.currentplayer || !g_Vars.currentplayer->prop) return 0;
 
-    struct chrdata *bchr = g_MpBotChrPtrs[aibotnum];
+    struct chrdata *bchr = g_MpBotChrPtrs[roster_index];
     if (!bchr || !bchr->prop) return 0;
 
     const struct player *p = g_Vars.currentplayer;
@@ -349,9 +451,9 @@ static s32 s_teleportBotNearPlayer(s32 aibotnum, f32 radius)
      * by construction. */
 
     sysLogPrintf(LOG_NOTE,
-            "GRID.RUNTIME: Spawn Near Me -- teleported aibotnum=%d to "
+            "GRID.RUNTIME: Spawn Near Me -- teleported roster_index=%d to "
             "(%.0f,%.0f,%.0f) (radius=%.0f from player yaw=%.0fdeg)",
-            aibotnum,
+            roster_index,
             bchr->prop->pos.x, bchr->prop->pos.y, bchr->prop->pos.z,
             radius, p->vv_theta);
     return 1;
@@ -902,7 +1004,7 @@ void forgeRuntimeEnterPlay(void)
                  * a success returning slot=0, doubly wrong as a counter.
                  * Increment by 1 only on success, log on failure (s_spawnBot
                  * already logs the warning internally so don't double-log). */
-                s32 slot = s_spawnBot(o);
+                s32 slot = s_spawnBot(o, -1, 0);
                 if (slot >= 0) {
                     ++n_bots;
                 }
@@ -983,12 +1085,10 @@ void forgeRuntimeExitPlay(void)
 
     /* Remove all forge-spawned bots.  In forge mode every bot is editor-
      * managed; they'll be recreated the next time the author enters NORMAL. */
-    if (s_bots_spawned > 0) {
-        botmgrRemoveAll();
-        sysLogPrintf(LOG_NOTE,
-                "GRID.RUNTIME: removed %d forge bots via botmgrRemoveAll",
-                s_bots_spawned);
-    }
+    const s32 bots_removed = s_retireBotSlots(s_forge_bot_slots);
+    if (bots_removed > 0) sysLogPrintf(LOG_NOTE,
+            "GRID.RUNTIME: retired %d live forge bots", bots_removed);
+    s_releaseForgeBotSlots();
 
     /* Rebuild the spawn pool without forge-injected points. */
     if (s_spawn_injected > 0) {
@@ -1004,7 +1104,7 @@ void forgeRuntimeExitPlay(void)
 
     sysLogPrintf(LOG_NOTE,
             "GRID.RUNTIME: exitPlay -- freed=%d bots_removed=%d spawns_flushed=%d zones_cleared=%d doors_cleared=%d",
-            freed, s_bots_spawned, s_spawn_injected, s_zone_count, s_door_count);
+            freed, bots_removed, s_spawn_injected, s_zone_count, s_door_count);
 
     s_handle_count   = 0;
     s_spawn_injected = 0;
@@ -1029,6 +1129,27 @@ void forgeRuntimeTick(void)
      * the dev F6 keybind and the HUD share the same underlying state. */
     g_BotUpdatesDisabled = bs->all_frozen ? 1 : 0;
 
+    /* Remove queued before Add: an Add made after Remove All in the same
+     * frame must survive, while earlier Adds were canceled by the core. */
+    if (bs->pending_remove_all > 0) {
+        bs->pending_remove_all = 0;
+        if (s_bots_spawned > 0) {
+            const s32 bots_removed = s_retireBotSlots(s_forge_bot_slots);
+            s_releaseForgeBotSlots();
+            sysLogPrintf(LOG_NOTE,
+                    "GRID.RUNTIME: Bots-tab removeAll -- retired %d live forge bots",
+                    bots_removed);
+            s_bots_spawned = 0;
+            for (s32 i = 0; i < s_handle_count; ) {
+                if (s_handles[i].is_bot) {
+                    s_handles[i] = s_handles[--s_handle_count];
+                } else {
+                    ++i;
+                }
+            }
+        }
+    }
+
     /* Consume pending add-active (fighting) bot requests from the HUD /
      * Bots-tab.  P7: after each spawn, apply the current spawn_mode to
      * the newly live bot (Spawn Near Me -> teleport to player forward;
@@ -1049,24 +1170,22 @@ void forgeRuntimeTick(void)
                 FORGE_ID_LEN - 1);
         strncpy(tmp.props.ai.head_id, "base:head_dd_guard", FORGE_ID_LEN - 1);
         tmp.props.ai.faction = 1; /* hostile */
-        s32 slot = s_spawnBot(&tmp);
+        s32 slot = s_spawnBot(&tmp, s_requestedBotDifficulty(bs), 0);
         if (slot >= 0) {
-            bs->active_count++;
             if (bs->spawn_mode == FORGE_BOT_SPAWN_NEAR_ME) {
                 s_teleportBotNearPlayer(slot, bs->near_me_radius);
             }
-            /* FORGE_BOT_SPAWN_SMART: the difficulty selection inside
-             * s_fillBotSlot already biases to HARD on hostile bots;
-             * s_fillBotSlot reads bs->smart_aggression as a future
-             * hook.  Any = no post-spawn tweak. */
+            /* Smart maps its aggression slider to the bot's native difficulty
+             * before allocation; Any retains the selected default difficulty. */
+        } else if (bs->active_count > 0) {
+            /* The core counted this request when the author made it. A
+             * rejected allocation must not remain in the visible count. */
+            --bs->active_count;
         }
     }
 
-    /* Consume pending add-frozen bot requests.  Frozen bots are meant to
-     * hold their spawn spot for placement validation, so the freeze flag
-     * is set per-bot via faction=2 (neutral) today; combined with the
-     * global Freeze All toggle, users can stand up a quiet group of
-     * targets to stress-test cover / LoS. */
+    /* Frozen bots use the same per-slot movement/AI hold as Freeze All;
+     * neutral faction alone did not stop them from leaving their spawn. */
     while (bs->pending_add_frozen > 0) {
         --bs->pending_add_frozen;
         forge_object_t tmp;
@@ -1078,37 +1197,15 @@ void forgeRuntimeTick(void)
                     ? bs->default_body_id : "base:body_dd_guard",
                 FORGE_ID_LEN - 1);
         strncpy(tmp.props.ai.head_id, "base:head_dd_guard", FORGE_ID_LEN - 1);
-        tmp.props.ai.faction = 2; /* neutral */
-        s32 slot = s_spawnBot(&tmp);
+        tmp.props.ai.faction = 1; /* freeze is per-bot, not neutral AI */
+        s32 slot = s_spawnBot(&tmp, s_requestedBotDifficulty(bs), 1);
         if (slot >= 0) {
-            bs->frozen_count++;
             if (bs->spawn_mode == FORGE_BOT_SPAWN_NEAR_ME) {
                 s_teleportBotNearPlayer(slot, bs->near_me_radius);
             }
+        } else if (bs->frozen_count > 0) {
+            --bs->frozen_count;
         }
-    }
-
-    /* Consume remove-all request. */
-    if (bs->pending_remove_all > 0) {
-        bs->pending_remove_all = 0;
-        if (s_bots_spawned > 0) {
-            botmgrRemoveAll();
-            sysLogPrintf(LOG_NOTE,
-                    "GRID.RUNTIME: Bots-tab removeAll -- cleared %d forge bots",
-                    s_bots_spawned);
-            s_bots_spawned = 0;
-
-            /* Compact handle registry -- drop bot entries. */
-            for (s32 i = 0; i < s_handle_count; ) {
-                if (s_handles[i].is_bot) {
-                    s_handles[i] = s_handles[--s_handle_count];
-                } else {
-                    ++i;
-                }
-            }
-        }
-        bs->active_count = 0;
-        bs->frozen_count = 0;
     }
 
     /* Zone intersection checks for the current player. */
@@ -1198,5 +1295,5 @@ void forgeRuntimeSpawnBotAt(u32 forge_uid)
                 "GRID.RUNTIME: spawnBotAt uid=%u -- object not found", forge_uid);
         return;
     }
-    s_spawnBot(o);
+    s_spawnBot(o, -1, 0);
 }
