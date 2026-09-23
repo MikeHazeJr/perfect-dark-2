@@ -7,6 +7,8 @@
   public asset dependencies change, while preserving edited archives on conflict.
 - Retain obsolete untouched renderer-effect placeholders outside the active
   effect catalog on upgraded installs; edited legacy archives stay available for repair.
+- Refresh generated weapon, arena, and mission archives when their editable
+  nested dependencies change; reject conflicts with edited parent sources.
 
 - Extract all seven available NTSC language variants into editable `.pdlang`
   sources and select a locale's banks together with English fallback. Validate

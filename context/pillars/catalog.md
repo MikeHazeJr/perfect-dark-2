@@ -1,5 +1,19 @@
 # Catalog System
 
+2026-09-23 T-EXTRACTION-001 dependency propagation accepted within extraction
+and catalog scope:
+weapon parents compare embedded public mesh, animation, and audio archives to
+their current top-level sources on warm reuse. Arena and mission parents check
+embedded scenario archives. A stale generated parent refreshes only when its
+public members match recorded hashes; edited parents fail without overwrite.
+Isolated all-target build, focused C++ 18/18 (613 assertions), source guard and
+conformance selftest pass. Four source-only edits refreshed 11 weapons, one
+arena, and one mission; all five checked nested pairs match current source and
+the ordinary catalog registered 5,562/5,562. Three edited-parent negatives
+kept exact archive hashes and stopped boot. Receipts are under
+`.claude/session-builds/asset0923deps/dependency-batch-receipt.json`.
+This is extraction/catalog admission, not gameplay or graph execution.
+
 2026-09-23 resumed goal plan: the full extraction/runtime/creator/graph/mod-pack
 finish line and ordered gates are in
 `context/designs/catalog/asset-graph-goal-closure-plan-2026-09-23.md`.

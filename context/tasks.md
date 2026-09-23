@@ -31,6 +31,19 @@ upgrade-only boot failures above; lossless extraction, edited-source runtime
 proof for all families, D-006A graph gameplay and final play acceptance remain
 open.
 
+2026-09-23 T-EXTRACTION-001 dependency propagation accepted within scope:
+weapon mesh/animation/audio and arena/mission scenario parents now check
+embedded bytes against current
+top-level public archives before reuse. Changed dependencies refresh only
+recorded-unmodified parents; edited parents fail intact. Isolated all-target
+build, focused 18/18 (613 assertions), guard and conformance selftest pass.
+Four source-only edits refreshed 11 weapons, one arena and one mission, with
+5/5 nested bytes matching current public dependencies and 5,562/5,562 catalog
+admission. Three edited-parent negatives retained exact SHA-256 and stopped
+the incomplete boot. Receipt:
+`.claude/session-builds/asset0923deps/dependency-batch-receipt.json`.
+Graph production cutover and all-family edited-source gameplay remain open.
+
 2026-09-22 root asset/graph session pause checkpoint: Mike requested a scoped
 commit and push, then a pause. The owned extraction, public-source runtime,
 modding, and modular graph changes are being checkpointed on

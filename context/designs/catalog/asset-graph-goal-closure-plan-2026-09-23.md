@@ -76,6 +76,16 @@ byte-identical on rejection. Full fresh 27-family archive conformance passes
 evidence; editable-source gameplay witnesses and D-006A graph execution remain
 open as specified in the finish line.
 
+Further progress 2026-09-23: weapon mesh/animation/audio and arena/mission
+scenario parent archives now invalidate reuse against current editable public
+dependencies. A changed-source installed run refreshed 11 weapons, one arena
+and one mission, matched all five inspected nested pairs, and registered
+5,562/5,562 catalog entries. Three edited-parent negatives retained exact
+archive hashes and stopped boot. The isolated all-target build, focused 18/18,
+guard, and conformance selftest pass. This closes these warm-cache propagation
+cases only; the field-level, production-usage, graph and creator-pack finish
+line remains open.
+
 1. Settle the unverified T-ASSETS-042 worktree edits to
    `romextract_pdlang.c`, `langmanifest.c`, `lang_source.cpp/.h`,
    `langmanifest.h`, `lang.c`, `assetcatalog_load.c`, and focused tests. They currently attempt all

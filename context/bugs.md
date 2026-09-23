@@ -28,6 +28,14 @@ fresh conformance covers 9,018 root / 10,019 recursive archives in 27
 families. Propagation audit also found
 embedded typed sources in weapon, arena, and metadata extractors; their
 dependency invalidation policy still needs a separate source-consumer audit.
+Follow-up 2026-09-23: weapon mesh/animation/audio and arena/mission scenario
+parents now check current public dependencies before warm reuse. Four edited
+top-level sources refreshed 11 weapons, one arena and one mission; 5/5 sampled
+nested copies match and full catalog registration remained 5,562/5,562.
+Three directly edited parents failed loudly and retained exact SHA-256. This
+closes the identified warm-cache dependency class for these five parent
+families, while the broader emitter inventory and gameplay source use remain
+open. Receipt: `.claude/session-builds/asset0923deps/dependency-batch-receipt.json`.
 
 2026-09-22 19:18 ET: T-NETWORKING-011 ordinary listen-host multiplayer start
 can reject a valid Random weapon selection. On the short-path real-peer

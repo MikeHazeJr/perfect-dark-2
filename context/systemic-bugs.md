@@ -12,8 +12,10 @@ Compare each embedded dependency with its current public source before reuse;
 refresh only a parent whose public members still match recorded hashes, and
 fail without overwriting edits otherwise. The 2026-09-23 head/body/character
 upgrade fixed 215 failures and retained six obsolete unedited effect sources
-outside the active catalog. Weapon, arena and metadata embedding remain a
-separate propagation audit, not accepted as fixed by this slice.
+outside the active catalog. The weapon, arena and mission propagation passed
+an isolated build, 5,562/5,562 changed-source catalog admission, five nested
+byte matches, and three edited-parent fail-closed negatives. Other
+dependency-bearing emitters still need an audit.
 
 2026-09-08 23:06 batch22 connected texture/source pipeline ACCEPTED within scope (source35).
 Full2145 24440303AB0D8D1EB47802A8BA52AA3D71F7D10FCFB818CFDCDB1135EE097BD2;

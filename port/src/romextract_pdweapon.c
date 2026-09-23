@@ -714,6 +714,47 @@ static s32 s_addWeaponAudioDependency(asset_archive_writer_t *writer,
 	return s_addArchiveFileDiskRel(writer, entry, src_rel, catalog_id, "audio");
 }
 
+/* A complete parent archive can still contain an older copy of an editable
+ * mesh, animation, or sound. Check every top-level public dependency before
+ * reusing it; the archive-directory stamp cannot observe these files. */
+static s32 s_embeddedWeaponSourcesMatch(const char *archive,
+		const struct weapon *wpn, const pdweapon_anim_deps_t *animations,
+		const pdweapon_audio_deps_t *audio)
+{
+	for (s32 mode = 0; mode < 2; ++mode) {
+		u16 filenum = mode == 0 ? wpn->hi_model : wpn->lo_model;
+		if (!filenum) continue;
+		char source[FS_MAXPATH];
+		if (!s_meshRelForFilenum(filenum, mode == 0 ? "hi" : "lo",
+				source, sizeof(source))) return -1;
+		const char *member = mode == 0 ?
+			PDWEAPON_DEP_MODELS "/held_hi.pdmesh" :
+			PDWEAPON_DEP_MODELS "/held_lo.pdmesh";
+		s32 match = romExtractPdNestedDependencyMatches(archive, member, source);
+		if (match != 1) return match;
+	}
+	for (s32 i = 0; i < animations->count; ++i) {
+		char rel[FS_MAXPATH], source[FS_MAXPATH], member[FS_MAXPATH];
+		snprintf(rel, sizeof(rel), "animations/base_%s.pdanim", animations->names[i]);
+		fsDataPathFor(rel, source, sizeof(source));
+		snprintf(member, sizeof(member), "%s/%s.pdanim",
+			PDWEAPON_DEP_ANIMATIONS, animations->names[i]);
+		s32 match = romExtractPdNestedDependencyMatches(archive, member, source);
+		if (match != 1) return match;
+	}
+	for (s32 i = 0; i < audio->count; ++i) {
+		char source[FS_MAXPATH], member[FS_MAXPATH];
+		char ref_id[128], sample_id[128], ext[16];
+		if (!s_audioDependencyInfoForSfx(audio->sfx[i], source,
+				sizeof(source), member, sizeof(member), ref_id,
+				sizeof(ref_id), sample_id, sizeof(sample_id), ext,
+				sizeof(ext))) return -1;
+		s32 match = romExtractPdNestedDependencyMatches(archive, member, source);
+		if (match != 1) return match;
+	}
+	return 1;
+}
+
 static s32 s_addDependencyManifests(asset_archive_writer_t *writer,
                                     const pdweapon_anim_deps_t *anim_deps,
                                     const pdweapon_audio_deps_t *audio_deps)
@@ -2394,14 +2435,26 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 		out_dir, filename, removed_ext);
 	s_removeRelpathIfExists(old_relpath);
 
-	if (!force_rewrite) {
-		s32 sz = fsFileSize(relpath);
-		if (sz > 0 && s_existingWeaponArchiveComplete(relpath, wpn)) return 0;
-	}
-
 	pdweapon_anim_deps_t anim_deps;
 	pdweapon_audio_deps_t audio_deps;
 	s_collectWeaponDependencies(wpn, &anim_deps, &audio_deps);
+	if (!force_rewrite) {
+		s32 sz = fsFileSize(relpath);
+		if (sz > 0 && s_existingWeaponArchiveComplete(relpath, wpn)) {
+			s32 match = s_embeddedWeaponSourcesMatch(relpath, wpn,
+				&anim_deps, &audio_deps);
+			if (match == 1) return 0;
+			if (match < 0 || !romExtractPdArchivePublicUnmodified(relpath)) {
+				sysLoudFailf("EXTRACT.PDWEAPON",
+					"nested source conflict in %s; preserving edited/unreadable public archive",
+					relpath);
+				return -1;
+			}
+			sysLogPrintf(LOG_NOTE,
+				"romextract pdweapon: refreshing unchanged archive %s after public dependency changed",
+				relpath);
+		}
+	}
 
 	char manifest_tmp_relpath[FS_MAXPATH];
 	snprintf(manifest_tmp_relpath, sizeof(manifest_tmp_relpath),
@@ -2915,14 +2968,8 @@ s32 romExtractAllPdweapon(s32 force_rewrite)
 
 	s_cleanupLegacyBaseWeaponSlugArchives(weapons_dir);
 
-	if (romExtractPdFastCacheCanSkip(PDWEAPON_FAST_CACHE_KIND, weapons_dir,
-			".pdweapon", force_rewrite)) {
-		bootProgressUpdate(g_WeaponDataCount, g_WeaponDataCount);
-		sysLogPrintf(LOG_NOTE,
-			"romextract pdweapon: written=0 skipped=%d failed=0 total=%d (fast-cache)",
-			g_WeaponDataCount, g_WeaponDataCount);
-		return 0;
-	}
+	/* Weapon archives embed independently editable public meshes, animations,
+	 * and audio. Always visit each parent before accepting warm-cache reuse. */
 
 	/* In-place cache-kind bump (B-943): force a one-time per-file rewrite when
 	 * the stored kind differs from the current one (no-op on clean install or

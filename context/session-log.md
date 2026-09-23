@@ -1,5 +1,18 @@
 # Session Log (Active)
 
+2026-09-23 11:18 ET T-EXTRACTION-001 nested-dependency propagation batch:
+`port/src/romextract_pdweapon.c`, `romextract_pdarena.c`, and
+`romextract_pdmeta.c` now invalidate warm parent reuse when embedded editable
+weapon mesh/animation/audio or arena/mission scenario differs from top-level
+source. The isolated all-target build, focused 18 C++ cases/613 assertions,
+native-source guard and conformance selftest pass. Four edited top-level
+sources refreshed 11 weapon archives, one arena and one mission. All five
+checked nested pairs equal current public source; full catalog admission was
+5,562/5,562. Three edited-parent negatives remained SHA-256 identical and
+forced incomplete-chain boot stop. Receipt:
+`.claude/session-builds/asset0923deps/dependency-batch-receipt.json`.
+No ordinary gameplay or executable-v2 graph acceptance follows from this.
+
 2026-09-23 10:54 ET T-EXTRACTION-001 upgraded-install repair accepted within
 the extraction/boot scope. Final isolated client and tests builds pass.
 Fresh ROM-only and upgraded installs each register 5,562/5,562 active catalog

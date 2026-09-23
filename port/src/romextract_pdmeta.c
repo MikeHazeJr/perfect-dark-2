@@ -1701,7 +1701,22 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 	}
 
 	if (archive_current) {
-		return 0;
+		char member[FS_MAXPATH];
+		int n = snprintf(member, sizeof(member),
+			"dependencies/assets/scenarios/%s.pdscenario", scenario_file);
+		if (n <= 0 || (size_t)n >= sizeof(member)) return -1;
+		s32 match = romExtractPdNestedDependencyMatches(relpath,
+			member, scenario_rel);
+		if (match == 1) return 0;
+		if (match < 0 || !romExtractPdArchivePublicUnmodified(relpath)) {
+			sysLoudFailf("EXTRACT.PDMETA",
+				"mission scenario conflict in %s; preserving edited/unreadable public archive",
+				relpath);
+			return -1;
+		}
+		sysLogPrintf(LOG_NOTE,
+			"romextract pdmission: refreshing unchanged archive %s after scenario source changed",
+			relpath);
 	}
 
 	char ini[1536];
