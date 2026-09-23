@@ -223,6 +223,14 @@ so global/per-room roster replication remains open. Chat's live peer/UI delivery
 remote room Join and full settings/gameplay acceptance also remain open.
 The swarm follow-up remains private and has no runtime acceptance.
 
+Sep23 F11 transfer pacing is an applied but unqualified source candidate:
+the host submits bounded transfer-channel chunks across ticks, caps ENet's
+unsent-command backlog, and cancels active/queued work on admission decline.
+The initial ready deadline remains 30 seconds; missing manifest content gets a
+five-minute transfer deadline, with duplicate NEED_ASSETS suppressed. Archive
+construction/compression is still synchronous, and large-content/network
+performance acceptance has not run. See the repair audit for exact gates.
+
 The networking subsystem covers transport, protocol, NAT traversal, presence, voice, and the peer-to-peer orchestrator. Server-authoritative model: one peer is the host; all gameplay state flows through it.
 
 Code:

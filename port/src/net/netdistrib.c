@@ -17,8 +17,8 @@
  *   1. Server sends SVC_CATALOG_INFO (list of non-bundled enabled entries).
  *   2. Client diffs, sends CLC_CATALOG_DIFF with missing catalog ID strings (v27: no net_hash).
  *   3. Server queues each missing component for transfer.
- *   4. Per frame: server calls netDistribServerTick() which sends the next
- *      pending component (SVC_DISTRIB_BEGIN then all SVC_DISTRIB_CHUNK).
+ *   4. Per frame: server calls netDistribServerTick() which prepares one
+ *      component, then queues bounded CHUNK batches on the transfer channel.
  *   5. After last chunk: server sends SVC_DISTRIB_END.
  *   6. Client decompresses, extracts to mods/.temp/ (or mods/ if permanent).
  *   7. Client hot-registers the component in the Asset Catalog.
@@ -110,6 +110,31 @@ typedef struct distrib_queue_entry {
 static distrib_queue_entry_t *s_Queue = NULL;
 static s32 s_QueueCap = 0;
 static s32 s_Initialized = 0;
+
+/* ENet retains reliable packet copies until its service/ACK cycle advances.
+ * Keep only one compressed component in preparation and cap the number of
+ * transfer packets submitted in a frame as well as the peer's unsent command
+ * backlog. The 50 MiB component limit also bounds this retained buffer. */
+#define DISTRIB_CHUNKS_PER_TICK 4
+#define DISTRIB_MAX_OUTGOING_COMMANDS 128
+typedef struct distrib_send_stream {
+    struct netclient *cl;
+    ENetPeer *peer;
+    u32 peer_connect_id;
+    char id[64];
+    u8 *compressed;
+    u32 compressed_len;
+    u32 next_chunk;
+    u32 total_chunks;
+    s32 active;
+} distrib_send_stream_t;
+static distrib_send_stream_t s_SendStream;
+
+static void distribClearSendStream(void)
+{
+    free(s_SendStream.compressed);
+    memset(&s_SendStream, 0, sizeof(s_SendStream));
+}
 
 /* ========================================================================
  * Client Receive State
@@ -945,6 +970,7 @@ static void distribSendEnd(struct netclient *cl, const char *id, u8 success)
 static void streamComponentToClient(struct netclient *cl, const char *catalog_id,
 		u8 kind, s32 temporary)
 {
+	if (!cl || !cl->peer || !catalog_id || !catalog_id[0]) return;
 	const char *id = catalog_id;
 	const char *category = NULL;
 	u32 raw_len = 0;
@@ -1060,46 +1086,76 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
         return;
     }
 
-    /* SVC_DISTRIB_CHUNK × total_chunks on NETCHAN_TRANSFER.
-     * v27: packet format: msgid(1) + id_str(2+idlen) + chunk_idx(2) + compression(1)
-     *                   + data_len(2) + data(this_len).
-     * String format mirrors netbufWriteStr: u16 length (incl. null) + bytes. */
-	u16 id_wire_len = (u16)(strlen(id) + 1);   /* include null terminator */
-	s32 sent_ok = 1;
-    for (u32 i = 0; i < total_chunks; i++) {
-        u32 offset = i * chunk_size;
-        u16 this_len = (u16)((offset + chunk_size <= compressed_len)
-                             ? chunk_size
-                             : compressed_len - offset);
+    /* BEGIN has entered the ordered transfer channel. Retain the compressed
+     * bytes until later ticks have submitted every CHUNK and END. A peer
+     * replacement cannot inherit a half-sent component. */
+    s_SendStream.cl = cl;
+    s_SendStream.peer = cl->peer;
+    s_SendStream.peer_connect_id = cl->peer->connectID;
+    strncpy(s_SendStream.id, id, sizeof(s_SendStream.id) - 1);
+    s_SendStream.id[sizeof(s_SendStream.id) - 1] = '\0';
+    s_SendStream.compressed = compressed;
+    s_SendStream.compressed_len = (u32)compressed_len;
+    s_SendStream.next_chunk = 0;
+    s_SendStream.total_chunks = total_chunks;
+    s_SendStream.active = 1;
+}
 
-        u32 pkt_len = 1 + sizeof(u16) + id_wire_len + 2 + 1 + 2 + this_len;
+static void distribTickSendStream(void)
+{
+    if (!s_SendStream.active) return;
+    struct netclient *cl = s_SendStream.cl;
+    ENetPeer *peer = s_SendStream.peer;
+    if (!cl || cl->state < CLSTATE_LOBBY || cl->peer != peer
+            || !peer || peer->connectID != s_SendStream.peer_connect_id
+            || enet_peer_get_state(peer) != ENET_PEER_STATE_CONNECTED) {
+        distribClearSendStream();
+        return;
+    }
+
+    /* A 16 KiB reliable packet becomes multiple ENet commands. Count the
+     * unsent commands, including gameplay/control traffic, before adding
+     * more bulk work. ENet's own window limits the in-flight commands. */
+    for (u32 sent = 0; sent < DISTRIB_CHUNKS_PER_TICK
+            && s_SendStream.next_chunk < s_SendStream.total_chunks; sent++) {
+        if (enet_list_size(&peer->outgoingCommands)
+                >= DISTRIB_MAX_OUTGOING_COMMANDS) break;
+        const u32 i = s_SendStream.next_chunk;
+        const u32 offset = i * NET_DISTRIB_CHUNK_SIZE;
+        const u32 remaining = s_SendStream.compressed_len - offset;
+        const u16 this_len = (u16)(remaining < NET_DISTRIB_CHUNK_SIZE
+            ? remaining : NET_DISTRIB_CHUNK_SIZE);
+        const u16 id_wire_len = (u16)(strlen(s_SendStream.id) + 1);
+        const u32 pkt_len = 1 + sizeof(u16) + id_wire_len + 2 + 1 + 2 + this_len;
         u8 *pkt = (u8 *)malloc(pkt_len);
         if (!pkt) {
-            sysLogPrintf(LOG_ERROR, "DISTRIB: OOM for chunk packet");
-			sent_ok = 0;
-            break;
+            distribSendEnd(cl, s_SendStream.id, 0);
+            distribClearSendStream();
+            return;
         }
         u8 *p = pkt;
         *p++ = SVC_DISTRIB_CHUNK;
-        memcpy(p, &id_wire_len, 2);             p += 2;
-		memcpy(p, id, id_wire_len);             p += id_wire_len;
-        u16 cidx = (u16)i;
-        memcpy(p, &cidx, 2);                    p += 2;
+        memcpy(p, &id_wire_len, 2); p += 2;
+        memcpy(p, s_SendStream.id, id_wire_len); p += id_wire_len;
+        const u16 chunk_index = (u16)i;
+        memcpy(p, &chunk_index, 2); p += 2;
         *p++ = NET_DISTRIB_COMP_DEFLATE;
-        memcpy(p, &this_len, 2);                p += 2;
-        memcpy(p, compressed + offset, this_len);
-
-		if (!distribSendPacketToPeer(cl->peer, pkt, pkt_len,
-				NETCHAN_TRANSFER)) {
-			sent_ok = 0;
-		}
+        memcpy(p, &this_len, 2); p += 2;
+        memcpy(p, s_SendStream.compressed + offset, this_len);
+        const s32 ok = distribSendPacketToPeer(peer, pkt, pkt_len,
+            NETCHAN_TRANSFER);
         free(pkt);
-		if (!sent_ok) break;
+        if (!ok) {
+            distribSendEnd(cl, s_SendStream.id, 0);
+            distribClearSendStream();
+            return;
+        }
+        s_SendStream.next_chunk++;
     }
-
-    free(compressed);
-
-	distribSendEnd(cl, id, sent_ok ? 1 : 0);
+    if (s_SendStream.next_chunk == s_SendStream.total_chunks) {
+        distribSendEnd(cl, s_SendStream.id, 1);
+        distribClearSendStream();
+    }
 }
 
 /* ========================================================================
@@ -1108,6 +1164,7 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
 
 void netDistribInit(void)
 {
+    distribClearSendStream();
     distribClearConsent();
     distribClearApproved();
     if (distribEnsureQueueCapacity(DISTRIB_INITIAL_QUEUE)) {
@@ -1243,6 +1300,11 @@ void netDistribServerTick(void)
 {
     if (!s_Initialized || g_NetMode != NETMODE_SERVER) return;
 
+    if (s_SendStream.active) {
+        distribTickSendStream();
+        return;
+    }
+
     /* Process one pending entry per tick to avoid stalling the frame */
     for (s32 i = 0; i < s_QueueCap; i++) {
         if (!s_Queue[i].active) continue;
@@ -1257,7 +1319,8 @@ void netDistribServerTick(void)
         /* Check client is still connected */
         s32 valid = 0;
         for (s32 j = 0; j <= NET_MAX_CLIENTS; j++) {
-            if (&g_NetClients[j] == cl && cl->state >= CLSTATE_LOBBY) {
+            if (&g_NetClients[j] == cl && cl->state >= CLSTATE_LOBBY
+                    && cl->peer) {
                 valid = 1;
                 break;
             }
@@ -1265,12 +1328,24 @@ void netDistribServerTick(void)
 
         s_Queue[i].active = 0;  /* consume immediately */
 
-        if (valid) {
+		if (valid) {
 			streamComponentToClient(cl, catalog_id, kind, temporary);
-        }
+			if (s_SendStream.active) distribTickSendStream();
+		}
 
         break;  /* one transfer per tick */
     }
+}
+
+void netDistribServerCancelClient(struct netclient *cl)
+{
+    if (!cl) return;
+    for (s32 i = 0; i < s_QueueCap; i++) {
+        if (s_Queue[i].active && s_Queue[i].cl == cl)
+            s_Queue[i].active = 0;
+    }
+    if (s_SendStream.active && s_SendStream.cl == cl)
+        distribClearSendStream();
 }
 
 void netDistribServerGetClientStatus(s32 client_index,
@@ -1282,6 +1357,11 @@ void netDistribServerGetClientStatus(s32 client_index,
     if (!s_Initialized || client_index < 0 || client_index > NET_MAX_CLIENTS) return;
 
     const struct netclient *target = &g_NetClients[client_index];
+    if (s_SendStream.active && s_SendStream.cl == target) {
+        out->queue_remaining = 1;
+        strncpy(out->current_id, s_SendStream.id,
+            sizeof(out->current_id) - 1);
+    }
     for (s32 i = 0; i < s_QueueCap; i++) {
         if (s_Queue[i].active && s_Queue[i].cl == target) {
             out->queue_remaining++;

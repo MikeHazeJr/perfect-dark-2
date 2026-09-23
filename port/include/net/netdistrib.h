@@ -123,6 +123,8 @@ typedef struct distrib_server_client_status {
  */
 void netDistribServerGetClientStatus(s32 client_index,
                                      distrib_server_client_status_t *out);
+/* Drop queued and active transfers after an explicit admission decline. */
+void netDistribServerCancelClient(struct netclient *cl);
 
 /* ========================================================================
  * Server API

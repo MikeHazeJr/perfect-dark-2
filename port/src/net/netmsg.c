@@ -93,6 +93,7 @@
 
 /* Phase E: Ready gate — timeout before forcing SVC_STAGE_START (30s at 60fps) */
 #define READY_GATE_TIMEOUT_TICKS 1800
+#define READY_GATE_TRANSFER_TIMEOUT_TICKS 18000
 
 static s32 netmsgCutsceneAuthorityBeginMatch(u8 room_id,
 	const net_cutscene_participant_t *participants, size_t participant_count);
@@ -326,6 +327,7 @@ static struct {
 	u32 expected_mask;       /* clients that were in CLSTATE_LOBBY when manifest broadcast */
 	u32 ready_mask;          /* clients that replied MANIFEST_STATUS_READY */
 	u32 declined_mask;       /* clients that replied MANIFEST_STATUS_DECLINE */
+	u32 transfer_mask;       /* clients with one admitted content transfer */
 	u32 deadline_ticks;      /* g_NetTick value at which timeout fires */
 	u8  stagenum;            /* saved for mainChangeToStage() when gate fires */
 	u8  total_count;         /* popcount(expected_mask) */
@@ -12368,6 +12370,9 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 					return 1;
 				}
 				s_ReadyGate.ready_mask |= bit;
+				s_ReadyGate.transfer_mask &= ~bit;
+				if (!s_ReadyGate.transfer_mask)
+					s_ReadyGate.deadline_ticks = g_NetTick + READY_GATE_TIMEOUT_TICKS;
 				sysLogPrintf(LOG_NOTE, "NET: ready gate: client %d READY (%u/%u)",
 				             ci, (unsigned)readyGatePopcount(s_ReadyGate.ready_mask),
 				             (unsigned)s_ReadyGate.total_count);
@@ -12375,12 +12380,18 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 
 			} else if (status == MANIFEST_STATUS_NEED_ASSETS) {
 				if ((s_ReadyGate.ready_mask | s_ReadyGate.declined_mask) & bit
+						|| (s_ReadyGate.transfer_mask & bit)
 						|| missing_count == 0) {
 					free(missing_ids);
 					return 1;
 				}
 				/* Phase D: queue missing components; client re-sends READY when done */
 				if (missing_count > 0) {
+					s_ReadyGate.transfer_mask |= bit;
+					const u32 transfer_deadline = g_NetTick
+						+ READY_GATE_TRANSFER_TIMEOUT_TICKS;
+					if (transfer_deadline > s_ReadyGate.deadline_ticks)
+						s_ReadyGate.deadline_ticks = transfer_deadline;
 					sysLogPrintf(LOG_NOTE,
 					             "NET: ready gate: client %d NEED_ASSETS (%u missing), queuing transfer",
 					             ci, (unsigned)missing_count);
@@ -12396,6 +12407,10 @@ u32 netmsgClcManifestStatusRead(struct netbuf *src, struct netclient *srccl)
 					return 1;
 				}
 				s_ReadyGate.declined_mask |= bit;
+				s_ReadyGate.transfer_mask &= ~bit;
+				netDistribServerCancelClient(srccl);
+				if (!s_ReadyGate.transfer_mask)
+					s_ReadyGate.deadline_ticks = g_NetTick + READY_GATE_TIMEOUT_TICKS;
 				srccl->state = CLSTATE_LOBBY;  /* spectator — excluded from match */
 				sysLogPrintf(LOG_NOTE, "NET: ready gate: client %d DECLINED (spectate)", ci);
 				readyGateBroadcastCountdown(MANIFEST_PHASE_CHECKING);

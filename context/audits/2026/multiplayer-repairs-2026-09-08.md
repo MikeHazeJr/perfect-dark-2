@@ -740,3 +740,19 @@ effect. Ordinary
 mouse/controller choice, decline/timeout rollback, large-transfer
 consent/completion, pacing and bandwidth measurements remain unproven, so F04
 is still open pending direct evidence.
+
+## 2026-09-23 bounded transfer pacing candidate
+
+The host previously compressed one component and queued every reliable 16 KiB
+chunk in one frame. The current F11 candidate retains one compressed component,
+submits at most four chunks per tick, and pauses while ENet has 128 unsent
+commands. It preserves BEGIN/CHUNK/END ordering on the transfer channel,
+rejects a replaced peer, cancels queued and active content on explicit match
+admission decline, and keeps the active component visible in host UI status.
+Preparation/compression still runs synchronously in one frame and is a
+remaining stall. The match ready gate keeps its 30-second initial consent
+deadline and gives a peer that reports missing manifest content five minutes
+to transfer, with duplicate requests ignored and the short deadline restored
+when all transfer requests resolve. This candidate requires an isolated build,
+focused tests, the asset-source guard, and ordinary-client transfer proof; F11
+and large-content acceptance remain open until those gates pass.

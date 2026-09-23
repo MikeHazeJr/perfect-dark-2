@@ -1889,7 +1889,15 @@ TEST_CASE("manifest distribution preserves package identity and waits for the co
     REQUIRE(distrib.find("missing_count") != std::string::npos);
     REQUIRE(distrib.find("distribSendEnd(cl, catalog_id, 0)") !=
         std::string::npos);
-    REQUIRE(distrib.find("sent_ok ? 1 : 0") != std::string::npos);
+    REQUIRE(distrib.find("DISTRIB_CHUNKS_PER_TICK 4") != std::string::npos);
+    REQUIRE(distrib.find("enet_list_size(&peer->outgoingCommands)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("distribSendEnd(cl, s_SendStream.id, 0)") !=
+        std::string::npos);
+    REQUIRE(distrib.find("distribSendEnd(cl, s_SendStream.id, 1)") !=
+        std::string::npos);
+    REQUIRE(netmsg.find("netDistribServerCancelClient(srccl)") !=
+        std::string::npos);
 
     REQUIRE(distrib.find("distribManifestComponentSha(slot->id)") !=
         std::string::npos);
