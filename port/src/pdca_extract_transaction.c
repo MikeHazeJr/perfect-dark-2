@@ -20,6 +20,7 @@
 #include "asset_path_contract.h"
 #include "fs.h"
 #include "pdca_extract_transaction.h"
+#include "system.h"
 
 static u16 readLe16(const u8 *p)
 {
@@ -35,21 +36,42 @@ static u32 readLe32(const u8 *p)
 static s32 pathIsDirectory(const char *path)
 {
 	struct stat st;
-	return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+	const int result = stat(path, &st);
+	return result == 0 && S_ISDIR(st.st_mode);
 }
 
 static s32 createDirOne(const char *path)
 {
+	/* Traversing an existing parent requires read access, not permission to
+	 * create it again. Protected ancestors may report EACCES rather than
+	 * EEXIST when mkdir is attempted on an already present directory. */
+	if (pathIsDirectory(path)) return 1;
 	if (pdca_mkdir(path) == 0) return 1;
-	return errno == EEXIST && pathIsDirectory(path);
+	const int create_error = errno;
+	if (pathIsDirectory(path)) return 1; /* another creator may have won the race */
+	sysLogPrintf(LOG_WARNING, "PDCA: directory creation failed errno=%d path='%s'",
+		create_error, path);
+	return 0;
 }
 
 static s32 createDirRecursive(const char *path)
 {
 	char current[FS_MAXPATH];
 	if (!assetPathCopyChecked(current, sizeof(current), path)) return 0;
+	if (pathIsDirectory(current)) return 1;
 	size_t len = strlen(current);
-	for (size_t i = 1; i < len; i++) {
+	/* Create only the missing suffix. A writable destination need not grant
+	 * metadata access to every ancestor outside that destination. */
+	size_t start = 1;
+	for (size_t i = len; i > 0; --i) {
+		if (current[i - 1] != '/' && current[i - 1] != '\\') continue;
+		char saved = current[i - 1];
+		current[i - 1] = '\0';
+		const s32 exists = pathIsDirectory(current);
+		current[i - 1] = saved;
+		if (exists) { start = i; break; }
+	}
+	for (size_t i = start; i < len; i++) {
 		if (current[i] != '/' && current[i] != '\\') continue;
 		if (i == 2 && current[1] == ':') continue;
 		char saved = current[i];
@@ -106,7 +128,12 @@ static s32 uniqueSibling(char *out, size_t out_cap, const char *parent,
 	for (u32 attempt = 0; attempt < 256; attempt++) {
 		if (!siblingPath(out, out_cap, parent, kind, hash, attempt)) return 0;
 		struct stat st;
-		if (stat(out, &st) != 0 && errno == ENOENT) return 1;
+		const int probe_result = stat(out, &st);
+		if (probe_result != 0 && errno == ENOENT) return 1;
+		if (probe_result != 0) {
+			sysLogPrintf(LOG_WARNING, "PDCA: sibling probe errno=%d path='%s'", errno, out);
+			return 0;
+		}
 	}
 	if (out && out_cap) out[0] = '\0';
 	return 0;

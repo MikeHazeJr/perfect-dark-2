@@ -1,5 +1,14 @@
 # Tasks
 
+2026-09-26 T-NETWORKING-011 resumed: connection-bound, deduplicated and
+bounded transfer admission plus missing-directory-suffix extraction repair
+pass isolated client/tests builds, 80 focused cases/12,431 assertions and the
+native guard. The unchanged two-install direct content fixture passes 89/89
+(results-20260926T201254Z.json, binary D42279ED; 1,892-file source diff0).
+Retain first runtime red60/89 and native PDCA red6 receipts. Next is the
+source-confirmed declined-content room audience defect; movement authority,
+third peer/fault matrix, relay/WAN, migration and device/audio gates remain open.
+
 2026-09-26 asset goal paused at Mike's request after the current validation.
 T-MODDING-002 captured-archive equipped preparation and complete ammo-reference
 validation pass client/tests builds, 59 graph cases/1,057 assertions and the

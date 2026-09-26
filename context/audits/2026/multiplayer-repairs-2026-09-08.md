@@ -699,6 +699,40 @@ source hold. No restart or source release is inferred from a polling timeout.
 
 End of repair program.
 
+## 2026-09-26 resumed transfer admission hardening
+
+Mike explicitly resumed the complete plan. A source review found that pending
+catalog and manifest transfers retained only reusable client slots, accepted
+duplicate requests, and grew without a memory cap. The active stream already
+checked peer identity, but queued entries did not. The shared production queue
+now captures client, peer and connectID, coalesces duplicates while preserving
+the first storage choice, and preserves FIFO order. Budgets are 8,192 pending
+entries per connection and 32,768 globally; rejection sends a failed transfer
+result without evicting admitted work. Client reset clears queued and active
+work before slot reuse. Native behavioral and production integration checks
+are added; build/runtime evidence is pending. The complete multiplayer gate
+remains partial, including F05 authority, F11 large-content work and WAN/relay,
+three-peer, migration, audio/device and fault acceptance.
+
+The first Sep26 ordinary pair failed 60/89 (`results-20260926T195912Z.json`),
+with PDCA stage creation failure after verified download and subsequent guest
+disconnect. Existing short-path extraction tests reproduced six failures;
+long-path limits were not established as the cause. A native CRT probe could
+not stat an ancestor (AppData), while the actual destination below it was
+usable. A precheck alone did not resolve the retained red tests. Creation now
+finds the nearest existing directory and creates only the missing suffix,
+with specific directory/sibling failure diagnostics. The final focused cohort
+passes 80 cases/12,431 assertions and native guard0; client/tests builds pass.
+The second unchanged-fixture ordinary run passed 89/89 in 210 seconds at
+`.claude/smoke-verify-runs/results-20260926T201254Z.json`: binary
+`D42279ED55ABB63B9A91DC72729A9EE4AD9D2A570A71B39923A1F281CB768F2B`,
+fixture `14F28016...`, 1,892 source/test files unchanged with aggregate
+`CEE62D9C038A87B7BCF9A7972FDBCB80B507D9D35D5AB5B68B0791B17DF77CAB`.
+Full receipt: `.claude/session-builds/mpfinish0923/mp0926-r3-validation.json`.
+No earlier failure is erased. This qualifies the direct positive path only;
+the first failure also exposed declined clients receiving stage-start traffic
+after roster removal, which is the next open transactional boundary.
+
 ## 2026-09-23 resumed integrated qualification
 
 The current canonical checkout was rebuilt in an isolated `mpfinish0923`

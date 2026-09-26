@@ -838,6 +838,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/net/room_wire.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_transfer_buffer.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/transfer_buffer.c
+  ${CMAKE_SOURCE_DIR}/tests/test_net_distrib_queue.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/distrib_queue.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_reconnect.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/net_reconnect.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_cutscene_authority.cpp

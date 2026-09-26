@@ -1899,6 +1899,14 @@ TEST_CASE("manifest distribution preserves package identity and waits for the co
         std::string::npos);
     REQUIRE(netmsg.find("netDistribServerCancelClient(srccl)") !=
         std::string::npos);
+    REQUIRE(distrib.find("distribRequestSameConnection(&request, cl, cl->peer,") !=
+        std::string::npos);
+    REQUIRE(distrib.find("distribQueuePush(&s_Queue, &request)") !=
+        std::string::npos);
+    const auto reset = function_definition_block(
+        read_text_file("port/src/net/net.c"), "static inline void netClientReset(");
+    REQUIRE(reset.find("netDistribServerCancelClient(cl)") <
+        reset.find("memset(cl, 0, sizeof(*cl))"));
 
     REQUIRE(distrib.find("distribManifestComponentSha(slot->id)") !=
         std::string::npos);

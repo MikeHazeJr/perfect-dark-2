@@ -43,6 +43,7 @@
 #include "net/netmsg.h"
 #include "net/netlobby.h"
 #include "net/netdistrib.h"
+#include "net/distrib_queue.h"
 #include "net/transfer_buffer.h"
 #include "net/netenet.h"
 #include "net/netmanifest.h"
@@ -84,9 +85,6 @@
 #define RECOVERY_RECEIPT_FILE ".pd2-recovery"
 #define RECOVERY_RECEIPT_VERSION 1
 
-/* Initial pending transfer slots. The queue grows for large mod packs. */
-#define DISTRIB_INITIAL_QUEUE 128
-
 /* Default trust threshold in MB — transfers above this require user approval.
  * Configurable via Net.DistribTrustThresholdMB in pd.ini (range 16–4096). */
 #define DISTRIB_TRUST_THRESHOLD_DEFAULT_MB  256
@@ -95,20 +93,11 @@
  * Server Transfer Queue
  * ======================================================================== */
 
-typedef struct distrib_queue_entry {
-    struct netclient *cl;        /* destination client */
-    char catalog_id[64];         /* v27: component to send — catalog ID string */
-    u8   kind;                   /* DISTRIB_QUEUE_* identity domain */
-    s32  active;
-    s32  temporary;              /* client requested session-only */
-} distrib_queue_entry_t;
-
 #define DISTRIB_QUEUE_ASSET    0
 #define DISTRIB_QUEUE_PACKAGE  1
 #define DISTRIB_PACKAGE_CATEGORY "pdmod"
 
-static distrib_queue_entry_t *s_Queue = NULL;
-static s32 s_QueueCap = 0;
+static distrib_queue s_Queue;
 static s32 s_Initialized = 0;
 
 /* ENet retains reliable packet copies until its service/ACK cycle advances.
@@ -121,6 +110,7 @@ typedef struct distrib_send_stream {
     struct netclient *cl;
     ENetPeer *peer;
     u32 peer_connect_id;
+    u8 kind;
     char id[64];
     u8 *compressed;
     u32 compressed_len;
@@ -251,35 +241,6 @@ static s32 distribMarkRecoveryLaunchingAt(const char *tempdir,
 /* Configurable trust threshold (MB) — transfers above this need user approval.
  * Bound to Net.DistribTrustThresholdMB in pd.ini. */
 static s32 s_TrustThresholdMb = DISTRIB_TRUST_THRESHOLD_DEFAULT_MB;
-
-static s32 distribEnsureQueueCapacity(s32 min_cap)
-{
-    if (min_cap <= s_QueueCap) {
-        return 1;
-    }
-
-    s32 old_cap = s_QueueCap;
-    s32 new_cap = s_QueueCap ? s_QueueCap : DISTRIB_INITIAL_QUEUE;
-    while (new_cap < min_cap) {
-        new_cap *= 2;
-    }
-
-    distrib_queue_entry_t *new_queue =
-        (distrib_queue_entry_t *)realloc(s_Queue,
-            (size_t)new_cap * sizeof(*new_queue));
-    if (!new_queue) {
-        sysLogPrintf(LOG_ERROR,
-                     "DISTRIB: failed to grow transfer queue to %d entries",
-                     new_cap);
-        return 0;
-    }
-
-    s_Queue = new_queue;
-    memset(s_Queue + old_cap, 0,
-           (size_t)(new_cap - old_cap) * sizeof(*s_Queue));
-    s_QueueCap = new_cap;
-    return 1;
-}
 
 /* Catalog IDs and categories are protocol identities, not filesystem names.
  * Encode every byte so distinct public identities remain distinct without
@@ -525,25 +486,6 @@ fail:
     if (fp) fclose(fp);
     free(members);
     return 0;
-}
-
-static distrib_queue_entry_t *distribAllocQueueSlot(void)
-{
-    if (!distribEnsureQueueCapacity(DISTRIB_INITIAL_QUEUE)) {
-        return NULL;
-    }
-
-    for (s32 i = 0; i < s_QueueCap; i++) {
-        if (!s_Queue[i].active) {
-            return &s_Queue[i];
-        }
-    }
-
-    s32 old_cap = s_QueueCap;
-    if (!distribEnsureQueueCapacity(s_QueueCap + 1)) {
-        return NULL;
-    }
-    return &s_Queue[old_cap];
 }
 
 /* ========================================================================
@@ -1092,6 +1034,7 @@ static void streamComponentToClient(struct netclient *cl, const char *catalog_id
     s_SendStream.cl = cl;
     s_SendStream.peer = cl->peer;
     s_SendStream.peer_connect_id = cl->peer->connectID;
+    s_SendStream.kind = kind;
     strncpy(s_SendStream.id, id, sizeof(s_SendStream.id) - 1);
     s_SendStream.id[sizeof(s_SendStream.id) - 1] = '\0';
     s_SendStream.compressed = compressed;
@@ -1167,9 +1110,7 @@ void netDistribInit(void)
     distribClearSendStream();
     distribClearConsent();
     distribClearApproved();
-    if (distribEnsureQueueCapacity(DISTRIB_INITIAL_QUEUE)) {
-        memset(s_Queue, 0, (size_t)s_QueueCap * sizeof(*s_Queue));
-    }
+    distribQueueClear(&s_Queue);
     memset(s_RecvSlots, 0, sizeof(s_RecvSlots));
     memset(&s_ClientStatus, 0, sizeof(s_ClientStatus));
     s_SessionArchiveBytesReserved = 0;
@@ -1213,41 +1154,42 @@ void netDistribServerSendCatalogInfo(struct netclient *cl)
                  cl->settings.name, (unsigned)total, batches);
 }
 
+static void distribQueueRequest(struct netclient *cl, const char *id,
+        u8 kind, u8 temporary)
+{
+    if (!cl || !cl->peer || cl->state < CLSTATE_LOBBY || !id
+            || enet_peer_get_state(cl->peer) != ENET_PEER_STATE_CONNECTED) return;
+    /* Retransmission of an admitted request must not restart its stream. */
+    if (s_SendStream.active && s_SendStream.cl == cl
+            && s_SendStream.peer == cl->peer
+            && s_SendStream.peer_connect_id == cl->peer->connectID
+            && s_SendStream.kind == kind && strcmp(s_SendStream.id, id) == 0) return;
+    distrib_request request = {0};
+    request.client = cl;
+    request.peer = cl->peer;
+    request.connection = cl->peer->connectID;
+    request.kind = kind;
+    request.temporary = temporary;
+    strncpy(request.id, id, sizeof(request.id) - 1);
+    if (distribQueuePush(&s_Queue, &request) == DISTRIB_QUEUE_REJECTED) {
+        sysLogPrintf(LOG_WARNING, "DISTRIB: transfer queue rejected '%s'", id);
+        distribSendEnd(cl, id, 0);
+    }
+}
+
 void netDistribServerHandleDiff(struct netclient *cl,
                                 const char (*missing_ids)[64],
-                                u16 count,
-                                u8 temporary)
+                                u16 count, u8 temporary)
 {
-    if (!s_Initialized || !cl || !count) {
-        sysLogPrintf(LOG_NOTE, "DISTRIB: client %s has all required components", cl->settings.name);
-        return;
-    }
-
-    sysLogPrintf(LOG_NOTE, "DISTRIB: client %s missing %u components (temporary=%d)",
-                 cl->settings.name, count, (s32)temporary);
-
-    for (u16 i = 0; i < count; i++) {
-        distrib_queue_entry_t *slot = distribAllocQueueSlot();
-        if (!slot) {
-            sysLogPrintf(LOG_WARNING,
-                         "DISTRIB: transfer queue allocation failed for '%s'",
-                         missing_ids[i]);
-			distribSendEnd(cl, missing_ids[i], 0);
-            continue;
-        }
-        slot->cl = cl;
-        strncpy(slot->catalog_id, missing_ids[i], sizeof(slot->catalog_id) - 1);
-        slot->catalog_id[sizeof(slot->catalog_id) - 1] = '\0';
-        slot->temporary = (s32)temporary;
-		slot->kind = DISTRIB_QUEUE_ASSET;
-        slot->active = 1;
-    }
+    if (!s_Initialized || !cl || !missing_ids || !count) return;
+    for (u16 i = 0; i < count; i++)
+        distribQueueRequest(cl, missing_ids[i], DISTRIB_QUEUE_ASSET, temporary);
 }
 
 void netDistribServerHandleManifestDiff(struct netclient *cl,
 		const char (*missing_ids)[64], u16 count, u8 temporary)
 {
-	if (!s_Initialized || !cl || !count) {
+	if (!s_Initialized || !cl || !missing_ids || !count) {
 		return;
 	}
 	sysLogPrintf(LOG_NOTE,
@@ -1274,25 +1216,7 @@ void netDistribServerHandleManifestDiff(struct netclient *cl,
 			continue;
 		}
 
-		distrib_queue_entry_t *slot = distribAllocQueueSlot();
-		if (!slot) {
-			sysLogPrintf(LOG_WARNING,
-				"DISTRIB: transfer queue allocation failed for manifest id '%s'",
-				missing_ids[i]);
-			distribSendEnd(cl, missing_ids[i], 0);
-			continue;
-		}
-		slot->cl = cl;
-		strncpy(slot->catalog_id, missing_ids[i],
-			sizeof(slot->catalog_id) - 1);
-		slot->catalog_id[sizeof(slot->catalog_id) - 1] = '\0';
-		slot->temporary = (s32)temporary;
-		slot->kind = kind;
-		slot->active = 1;
-		sysLogPrintf(LOG_NOTE,
-			"DISTRIB: queued manifest id '%s' kind=%s",
-			slot->catalog_id,
-			kind == DISTRIB_QUEUE_PACKAGE ? "package" : "asset");
+		distribQueueRequest(cl, missing_ids[i], kind, temporary);
 	}
 }
 
@@ -1305,45 +1229,25 @@ void netDistribServerTick(void)
         return;
     }
 
-    /* Process one pending entry per tick to avoid stalling the frame */
-    for (s32 i = 0; i < s_QueueCap; i++) {
-        if (!s_Queue[i].active) continue;
-
-        struct netclient *cl = s_Queue[i].cl;
-        char catalog_id[64];
-        strncpy(catalog_id, s_Queue[i].catalog_id, sizeof(catalog_id) - 1);
-        catalog_id[sizeof(catalog_id) - 1] = '\0';
-        s32 temporary = s_Queue[i].temporary;
-		u8 kind = s_Queue[i].kind;
-
-        /* Check client is still connected */
-        s32 valid = 0;
-        for (s32 j = 0; j <= NET_MAX_CLIENTS; j++) {
-            if (&g_NetClients[j] == cl && cl->state >= CLSTATE_LOBBY
-                    && cl->peer) {
-                valid = 1;
-                break;
-            }
+    /* FIFO admission prevents a client refilling a free slot from jumping
+     * ahead of already accepted requests. Retire stale generations silently. */
+    distrib_request request;
+    if (distribQueuePop(&s_Queue, &request)) {
+        struct netclient *cl = request.client;
+        if (cl && cl->state >= CLSTATE_LOBBY && cl->peer
+                && distribRequestSameConnection(&request, cl, cl->peer,
+                    cl->peer->connectID)
+                && enet_peer_get_state(cl->peer) == ENET_PEER_STATE_CONNECTED) {
+            streamComponentToClient(cl, request.id, request.kind, request.temporary);
+            if (s_SendStream.active) distribTickSendStream();
         }
-
-        s_Queue[i].active = 0;  /* consume immediately */
-
-		if (valid) {
-			streamComponentToClient(cl, catalog_id, kind, temporary);
-			if (s_SendStream.active) distribTickSendStream();
-		}
-
-        break;  /* one transfer per tick */
     }
 }
 
 void netDistribServerCancelClient(struct netclient *cl)
 {
     if (!cl) return;
-    for (s32 i = 0; i < s_QueueCap; i++) {
-        if (s_Queue[i].active && s_Queue[i].cl == cl)
-            s_Queue[i].active = 0;
-    }
+    distribQueueRemoveClient(&s_Queue, cl);
     if (s_SendStream.active && s_SendStream.cl == cl) {
         if (cl->peer == s_SendStream.peer && cl->peer
                 && cl->peer->connectID == s_SendStream.peer_connect_id
@@ -1367,13 +1271,13 @@ void netDistribServerGetClientStatus(s32 client_index,
         strncpy(out->current_id, s_SendStream.id,
             sizeof(out->current_id) - 1);
     }
-    for (s32 i = 0; i < s_QueueCap; i++) {
-        if (s_Queue[i].active && s_Queue[i].cl == target) {
+    for (size_t i = 0; i < s_Queue.count; i++) {
+        const distrib_request *request = &s_Queue.entries[i];
+        if (target->peer && distribRequestSameConnection(request, target,
+                target->peer, target->peer->connectID)) {
             out->queue_remaining++;
-            if (!out->current_id[0]) {
-                strncpy(out->current_id, s_Queue[i].catalog_id,
-                        sizeof(out->current_id) - 1);
-            }
+            if (!out->current_id[0])
+                strncpy(out->current_id, request->id, sizeof(out->current_id) - 1);
         }
     }
     out->queue_total = out->queue_remaining;

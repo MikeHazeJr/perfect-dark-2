@@ -1,5 +1,38 @@
 # Bug Tracker
 
+2026-09-26 T-NETWORKING-011 declined-content stage audience remains open:
+the red distribution run logged a guest DECLINE, then a malformed stage message
+and disconnect. Source confirms readyGateCompactDeclinedRoster restores the
+excluded client to its prior lobby binding and retains room membership, while
+netServerStageStart sends the stage packet through netSendToRoom to every
+connected room member. Next unit must target the committed match audience and
+prove a declining peer remains connected in its room; do not relabel a missing
+content peer as a working spectator. No repair or negative-path pass yet.
+
+2026-09-26 T-NETWORKING-011 received-content extraction failed in the
+ordinary pair (60/89) and six existing native PDCA tests. Both long install
+and short temporary paths failed stage creation. Directory creation traversed
+all ancestors even when a nearer existing destination was usable; a native
+CRT probe could not stat the AppData ancestor even though the test destination
+beneath it was accessible. The initial existing-directory precheck alone did
+not fix this. PDCA now finds the nearest existing prefix and creates only the
+missing suffix. Client/tests builds and 80 focused cases/12,431 assertions plus
+native guard pass; unchanged ordinary pair retry passed 89/89 at
+results-20260926T201254Z.json. Keep the red runtime receipt
+results-20260926T195912Z.json and native mp0926-pdca-before/r2/diagnostic receipts.
+Propagation: fsCreateDir also avoids redundant creation of existing directories;
+modpack's helper already checks existence first. No path-length closure claimed.
+
+2026-09-26 T-NETWORKING-011 distribution queue lifecycle: pending requests
+retained reusable client pointers without transport generation, accepted
+unbounded duplicates, and survived client reset. Source now binds queued work
+to client/peer/connectID, coalesces admitted duplicates, preserves FIFO order,
+and rejects explicit global/per-connection budget overflow. Client reset
+retires pending and active transfers before slot reuse. Both catalog and
+manifest producers share the same queue. Native/focused 80 cases/12,431
+assertions, builds/guard and unchanged two-install89/89 pass; this does not
+close large-transfer performance or WAN acceptance.
+
 2026-09-23 T-MENUS-003 Forge Remove All previously called `botmgrRemoveAll`,
 which clears bot roster pointers and count without retiring live character
 props. Those characters continued in the world and occupied the character

@@ -420,6 +420,8 @@ u32 netUploadKbpsEstimate(void)
 
 static inline void netClientReset(struct netclient *cl)
 {
+	/* Retire queued and active content before this stable slot can be reused. */
+	netDistribServerCancelClient(cl);
 	if (cl->state >= CLSTATE_GAME && cl->player) {
 		cl->player->client = NULL;
 		cl->player->isremote = false;

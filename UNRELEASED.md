@@ -7,6 +7,8 @@
 - Keep listen-host launch settings when the Room opens during guest join, including a selected custom spawn weapon.
 - Ask before downloading missing session content; approved catalog IDs gate transfers, and declined or unsent requests roll back.
 - Pace reliable content chunks across frames, cancel transfers on match abort, and give approved downloads time to finish before match start.
+- Bind queued downloads to their original connection, coalesce repeated requests, and bound pending work without evicting accepted transfers.
+- Install received content by creating only missing destination folders, allowing writable installs beneath restricted ancestor directories.
 
 - Refresh unchanged base head, body, and character archives when their nested
   public asset dependencies change, while preserving edited archives on conflict.

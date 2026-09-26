@@ -700,6 +700,9 @@ s32 fsCreateDir(const char *path)
 	 * trash each other's path. */
 	char fullBuf[FS_MAXPATH + 1];
 	const char *full = fsFullPath(path, fullBuf, sizeof(fullBuf));
+	struct stat existing;
+	/* Already-present directories need no write access to their parents. */
+	if (stat(full, &existing) == 0 && S_ISDIR(existing.st_mode)) return 1;
 #ifdef PLATFORM_WIN32
 	if (_mkdir(full) == 0) {
 		return 1;

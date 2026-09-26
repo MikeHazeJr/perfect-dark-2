@@ -1,5 +1,17 @@
 # Session Log (Active)
 
+2026-09-26 T-NETWORKING-011 resumed and completed a bounded content unit:
+connection-bound FIFO admission, duplicate coalescing, explicit queue budgets
+and reset cancellation. A red ordinary pair60/89 and native PDCA red6 exposed
+ancestor metadata access during extraction. Creation now starts at the nearest
+existing prefix; unchanged fixture rerun passed89/89 in210s on D42279ED, with
+1,892-file source diff0 CEE62D9C. Isolated client/tests, focused80/12,431 and
+native guard pass. Receipts: results-20260926T195912Z.json (red),
+results-20260926T201254Z.json (pass), mpfinish0923/mp0926-r3-validation.json.
+Next: declining content must preserve a connected lobby and exclude that peer
+from stage traffic. Full movement/three-peer/WAN/relay/migration/device matrix
+remains partial; goal stays active. Peer graph commit4de0e1c2 remains separate.
+
 2026-09-26 T-MODDING-002 graph preparation pause checkpoint:
 captured public weapon ZIPs now prepare an unpublished equipped candidate from
 their descriptor, selected graph and settings, with canonical source hashing.

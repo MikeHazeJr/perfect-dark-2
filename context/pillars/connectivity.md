@@ -2,6 +2,18 @@
 
 > ENet UDP transport. Listen-authority wire protocol at v61 (native roster and corrected two-client Join37/37 passed; broader multiplayer proof remains partial); remote movement authority remains an open audit finding. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v5). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
+Sep26 T-NETWORKING-011 resumed: pending content requests bind to exact
+client/peer/connectID, coalesce duplicates and preserve FIFO admission with
+per-connection/global budgets. Reset cancels queued and active work before
+slot reuse. Extraction creates only missing directory suffixes, avoiding
+unnecessary inaccessible-ancestor probes. Isolated builds, native/focused
+80 cases/12,431 assertions and the asset-source guard pass. The unchanged
+ordinary two-install direct transfer/ready/stage/effect fixture passes 89/89
+(results-20260926T201254Z.json, binary D42279ED, source1,892 diff0). Earlier
+runtime red60/89 and native PDCA red6 receipts remain visible. Declined-content
+room audience, F05 movement, F11 performance, relay/migration and wider
+multiplayer acceptance remain open.
+
 Sep23 T-NETWORKING-011: the listen-host Room now adopts prepared launch
 settings before rendering, preserving a custom spawn weapon while a guest joins.
 Initial catalog and match-manifest content requests wait for a player choice;
