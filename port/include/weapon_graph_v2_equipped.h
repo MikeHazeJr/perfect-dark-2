@@ -18,7 +18,10 @@ typedef struct wg_v2_equipped_model {
     void *lease;
     void (*release)(void *);
 } wg_v2_equipped_model;
-/* settings_file is public pd.weapon_settings.v2 JSON. The public descriptor
+/* settings_file is public pd.weapon_settings.v2 JSON. equipped.ammo is either
+ * the original slot-zero object or exactly [slot_zero, slot_one], where null
+ * explicitly marks an unused slot. Every action/gate ammo reference must have
+ * an equipped slot; -1 explicitly requires no ammunition. The public descriptor
  * owns model placement/track type; JSON must not duplicate those fields.
  * Source preparation only: no pool publication or gameplay mutation. Native
  * functions remain NULL: actual action selection must supply the graph's
@@ -41,6 +44,17 @@ wg_v2_catalog_entry *wgV2EquippedCatalogPrepare(wg_v2_catalog *, const char *cat
     const char *graph_json, size_t graph_size, const char *dependency_sha256,
     const wg_v2_use *, const weapon_graph_archive_descriptor_t *,
     const char *source_sha256, const char *settings_json, size_t settings_size,
+    const wg_v2_equipped_model *, wg_v2_native_resolver, void *host,
+    wg_v2_equipped **out_equipped, char *error, size_t cap);
+/* Public .pdweapon snapshot ingress. Descriptor, selected function graph,
+ * settings and canonical archive hash are read from the SAME captured ZIP.
+ * The caller supplies the model/dependency leases prepared from that source
+ * closure. No private manifest or separately authored runtime file is read.
+ * Like Prepare, failure leaves the model lease caller-owned; success transfers
+ * it to the returned candidate. This does not publish or bind gameplay. */
+wg_v2_catalog_entry *wgV2EquippedCatalogPrepareArchive(wg_v2_catalog *,
+    const char *catalog_id, const void *archive_bytes, uint32_t archive_size,
+    const char *dependency_sha256, const wg_v2_use *,
     const wg_v2_equipped_model *, wg_v2_native_resolver, void *host,
     wg_v2_equipped **out_equipped, char *error, size_t cap);
 #ifdef __cplusplus

@@ -1,5 +1,15 @@
 # Tasks
 
+2026-09-26 asset goal paused at Mike's request after the current validation.
+T-MODDING-002 captured-archive equipped preparation and complete ammo-reference
+validation pass client/tests builds, 59 graph cases/1,057 assertions and the
+native-source guard. Required c3842 cohort remains red: 3 static-contract
+failures across 52 cases/2,825 assertions. See the graph preparation receipt in
+context/audits/2026/graph-preparation-2026-09-26.md. On explicit resume, repair
+the remaining validation contracts, then implement ordinary catalog publication,
+per-hand input/admission/native lifecycle and selected-action retirement.
+Full closure-plan scope remains unchanged; no ordinary graph gameplay proof.
+
 2026-09-23 T-MENUS-003/004/006 and T-INPUT-006/007/008 pause checkpoint:
 Mike requested that the current menu unit finish validation, commit, and
 pause. Source now removes the data-only Room Level Editor tab by his choice,

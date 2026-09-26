@@ -363,6 +363,26 @@ extern "C" int wgV2ProgramAction(const wg_v2_program *p, size_t i, wg_v2_action 
     return 1;
 }
 
+extern "C" int wgV2ProgramAmmoSlot(const wg_v2_program *p, size_t i,
+        const char **node_id, int *slot) {
+    if (node_id) *node_id = nullptr;
+    if (slot) *slot = -1;
+    if (!p || !slot || i >= p->nodes.size()) return 0;
+    const Node &node = p->nodes[i];
+    if (node.kind == Kind::Ammo) *slot = node.ammo_slot;
+    else if (node.kind == Kind::Hitscan) {
+        for (s32 n = 0; n < node.typed->param_count; ++n) {
+            const auto &param = node.typed->params[n];
+            if (std::strcmp(param.key, "ammo_slot") == 0) {
+                *slot = param.i_value;
+                break;
+            }
+        }
+    } else return 0;
+    if (node_id) *node_id = node.id.c_str();
+    return 1;
+}
+
 struct wg_v2_instance {
     struct Job { wg_v2_result status = WG_V2_IGNORED; uint64_t ticket = 0; void *state = nullptr; };
     wg_v2_program *program;

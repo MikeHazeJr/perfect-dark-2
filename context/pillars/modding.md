@@ -1,5 +1,18 @@
 # Modding
 
+2026-09-26 D-006A preparation batch applied, paused by Mike: captured public
+weapon archives now supply descriptor, selected primary/secondary graph,
+settings and canonical source hash to one equipped catalog candidate. Explicit
+two-slot ammo settings preserve independent or absent slots; every action and
+ammo gate must resolve its slot before publication. This repairs acceptance of
+an action using slot 1 with no equipped ammos[1]. Failure preserves the active
+generation and caller-owned model lease. The new snapshot ingress still needs
+ordinary catalog publication and per-hand gameplay integration; it does not
+establish graph gameplay acceptance. Client/tests builds, 59 graph cases/1,057
+assertions and native-source guard pass; required c3842 cohort remains red on
+three static checks. Receipt: context/audits/2026/graph-preparation-2026-09-26.md.
+Do not resume this goal until Mike explicitly resumes it.
+
 2026-09-23 resumed goal plan: D-006A executable graph production cutover is
 the critical path after the current T-ASSETS-042 batch. The ordered native
 lifecycles, 27-family public-source proofs, requested Needler/Ghost/Warthog

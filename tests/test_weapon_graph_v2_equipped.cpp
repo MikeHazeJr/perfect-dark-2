@@ -1,8 +1,15 @@
 #include "catch.hpp"
 #include "weapon_graph_v2_equipped.h"
+#include "modarchive.h"
+#include <chrono>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 #include "types.h"
 extern "C" {
 #include "constants.h"
@@ -49,12 +56,15 @@ struct Fixture {
     weapon_graph_archive_descriptor_t descriptor{};
     wg_v2_equipped_model model{};
     Native native{nullptr, wgV2NativeRelease};
-    Fixture() {
+    void actions(const std::string &source) {
         char error[512]{};
-        Program p(wgV2Compile(graph, std::strlen(graph), 102, digest, error, sizeof(error)), wgV2ProgramRelease);
+        Program p(wgV2Compile(source.data(), source.size(), 102, digest, error, sizeof(error)), wgV2ProgramRelease);
         INFO(error); REQUIRE(p);
         native.reset(wgV2NativePrepare(p.get(), nullptr, nullptr, error, sizeof(error)));
         INFO(error); REQUIRE(native);
+    }
+    Fixture() {
+        actions(graph);
         descriptor.type = ASSET_WEAPON; std::strcpy(descriptor.catalog_id, "mod:single");
         std::strcpy(descriptor.model_file, "meshes/held.pdmodel");
         descriptor.has_muzzlez = descriptor.has_posx = descriptor.has_posy = descriptor.has_posz = descriptor.has_track_type = 1;
@@ -73,6 +83,153 @@ struct Fixture {
 std::string replace(std::string text, const std::string &from, const std::string &to) {
     const auto at = text.find(from); REQUIRE(at != std::string::npos); text.replace(at, from.size(), to); return text;
 }
+}
+
+TEST_CASE("v2 equipped validates every action ammo dependency before publication", "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    Fixture f;
+    f.actions(replace(graph, "\"ammo_slot\":0", "\"ammo_slot\":1"));
+    f.prepare(settings, false);
+    REQUIRE(f.host.models == 0);
+    REQUIRE(f.host.acquired == f.host.released);
+}
+
+TEST_CASE("v2 equipped two-slot ammo retains independent definitions and null semantics", "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    const std::string ammo = R"({"type":"pistol","casing":"none","clip_size":13,"flags":["incremental_reload"],"reload_animation":"mod:reload"})";
+    Fixture f;
+    f.actions(replace(graph, "\"ammo_slot\":0", "\"ammo_slot\":1"));
+    const auto second = replace(replace(ammo, "\"pistol\"", "\"rifle\""), "\"clip_size\":13", "\"clip_size\":7");
+    SECTION("both slots") {
+        auto prepared = f.prepare(replace(settings, "\"ammo\":" + ammo, "\"ammo\":[" + ammo + "," + second + "]"));
+        const auto *weapon = wgV2EquippedWeapon(prepared.get());
+        REQUIRE(weapon->ammos[0]->clipsize == 13);
+        REQUIRE(weapon->ammos[1]->clipsize == 7);
+        REQUIRE(weapon->ammos[1]->type == AMMOTYPE_RIFLE);
+        REQUIRE(weapon->ammos[0]->reload_animation == weapon->ammos[1]->reload_animation);
+        REQUIRE(f.host.acquired == 2); // shared reload plus shared equip command.
+    }
+    SECTION("secondary-only") {
+        auto prepared = f.prepare(replace(settings, "\"ammo\":" + ammo, "\"ammo\":[null," + second + "]"));
+        REQUIRE_FALSE(wgV2EquippedWeapon(prepared.get())->ammos[0]);
+        REQUIRE(wgV2EquippedWeapon(prepared.get())->ammos[1]->clipsize == 7);
+    }
+    SECTION("no ammo is explicit") {
+        f.actions(replace(graph, "\"ammo_slot\":0", "\"ammo_slot\":-1"));
+        auto prepared = f.prepare(replace(settings, "\"ammo\":" + ammo, "\"ammo\":[null,null]"));
+        REQUIRE_FALSE(wgV2EquippedWeapon(prepared.get())->ammos[0]);
+        REQUIRE_FALSE(wgV2EquippedWeapon(prepared.get())->ammos[1]);
+    }
+    SECTION("bad slot count or absent referenced slot") {
+        for (const auto &slots : {"[]", "[null]", "[null,null,null]", "[null,null]"})
+            f.prepare(replace(settings, "\"ammo\":" + ammo, std::string("\"ammo\":") + slots), false);
+        REQUIRE(f.host.models == 0);
+        REQUIRE(f.host.acquired == f.host.released);
+    }
+}
+
+TEST_CASE("v2 equipped validates ammo gates even when the action uses another slot", "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    Fixture f;
+    auto source = replace(graph, "\"nodes\":[", R"("nodes":[{"id":"ammo","kind":"gate.ammo_available","params":{"ammo_slot":1,"required":1}},)");
+    source = replace(source, R"({"from":"press","output":"exec","to":"shot","input":"exec"})",
+        R"({"from":"press","output":"exec","to":"ammo","input":"exec"},{"from":"ammo","output":"pass","to":"shot","input":"exec"})");
+    f.actions(source);
+    f.prepare(settings, false);
+    REQUIRE(f.host.models == 0);
+    REQUIRE(f.host.acquired == f.host.released);
+}
+
+namespace {
+using ArchiveEntries = std::vector<std::pair<std::string, std::string>>;
+std::string snapshot(const ArchiveEntries &entries) {
+    static unsigned serial = 0;
+    const auto path = std::filesystem::temp_directory_path() / ("pd2-equipped-" +
+        std::to_string(std::chrono::high_resolution_clock::now().time_since_epoch().count()) +
+        "-" + std::to_string(serial++) + ".pdweapon");
+    struct Remove { std::filesystem::path path; ~Remove() { std::error_code e; std::filesystem::remove(path, e); } } cleanup{path};
+    auto *writer = modArchiveBegin(path.string().c_str()); REQUIRE(writer);
+    for (const auto &entry : entries) {
+        if (modArchiveAddFileMem(writer, entry.first.c_str(), entry.second.data(), static_cast<u32>(entry.second.size())) != MODARCHIVE_OK) {
+            modArchiveAbort(writer); FAIL("failed to write equipped source fixture");
+        }
+    }
+    REQUIRE(modArchiveFinish(writer) == MODARCHIVE_OK);
+    std::ifstream input(path, std::ios::binary); REQUIRE(input.good());
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+const char *descriptorSource = "[weapon]\ncatalog_id=mod:single\nprimary_graph=graphs/primary.json\n"
+    "secondary_graph=graphs/secondary.json\nsettings_file=bindings/settings.json\n"
+    "model_file=meshes/held.pdmodel\nmuzzlez=-25\nposx=3\nposy=-4\nposz=-6\ntrack_type=default\n";
+ArchiveEntries archiveEntries() {
+    return {{"weapon.ini", descriptorSource}, {"graphs/primary.json", graph},
+        {"graphs/secondary.json", replace(replace(graph, "\"mode\":\"primary\"", "\"mode\":\"secondary\""),
+            "\"mode\":\"primary\"", "\"mode\":\"secondary\"")}, {"bindings/settings.json", settings}};
+}
+}
+
+TEST_CASE("v2 captured public archive prepares selected graph and equipment atomically", "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    Fixture f; char error[512]{}; wg_v2_use use{};
+    using Catalog = std::unique_ptr<wg_v2_catalog, decltype(&wgV2CatalogDestroy)>;
+    using Entry = std::unique_ptr<wg_v2_catalog_entry, decltype(&wgV2CatalogEntryRelease)>;
+    Catalog catalog(wgV2CatalogCreate([](void *, const char *, uint64_t) {}, nullptr), wgV2CatalogDestroy);
+    auto entries = archiveEntries();
+    auto prepare = [&](const ArchiveEntries &sources, bool valid) {
+        auto bytes = snapshot(sources); wg_v2_equipped *equipped = nullptr;
+        Entry candidate(wgV2EquippedCatalogPrepareArchive(catalog.get(), "mod:single", bytes.data(),
+            static_cast<u32>(bytes.size()), digest, &use, &f.model, resolve, &f.host,
+            &equipped, error, sizeof(error)), wgV2CatalogEntryRelease);
+        INFO(error);
+        if (valid) { REQUIRE(candidate); REQUIRE(equipped); }
+        else { REQUIRE_FALSE(candidate); REQUIRE_FALSE(equipped); REQUIRE(error[0]); }
+        return candidate;
+    };
+    auto first = prepare(entries, true);
+    auto *old = static_cast<wg_v2_equipped *>(wgV2CatalogEntryLease(first.get()));
+    REQUIRE(wgV2CatalogCount(catalog.get()) == 0);
+    REQUIRE(wgV2CatalogPublish(catalog.get(), first.get(), error, sizeof(error)));
+    entries[1].second = replace(entries[1].second, "\"damage\":1.5", "\"damage\":6");
+    entries[3].second = replace(entries[3].second, "\"clip_size\":13", "\"clip_size\":21");
+    auto next = prepare(entries, true);
+    auto *fresh = static_cast<wg_v2_equipped *>(wgV2CatalogEntryLease(next.get()));
+    REQUIRE(std::string(wgV2EquippedClosureHash(old)) != wgV2EquippedClosureHash(fresh));
+    REQUIRE(wgV2NativeHeld(wgV2NativeFind(wgV2EquippedActions(old), "shot"))->damage == Approx(1.5));
+    REQUIRE(wgV2NativeHeld(wgV2NativeFind(wgV2EquippedActions(fresh), "shot"))->damage == 6);
+    REQUIRE(wgV2EquippedWeapon(old)->ammos[0]->clipsize == 13);
+    REQUIRE(wgV2EquippedWeapon(fresh)->ammos[0]->clipsize == 21);
+    auto broken = entries; broken[3].second = "{";
+    prepare(broken, false);
+    Entry active(wgV2CatalogAcquire(catalog.get(), "mod:single"), wgV2CatalogEntryRelease);
+    REQUIRE(wgV2CatalogEntryGeneration(active.get()) == wgV2CatalogEntryGeneration(first.get()));
+    use.function = 1;
+    auto secondary = prepare(entries, true);
+    REQUIRE(wgV2CatalogEntryFunction(secondary.get()) == 1);
+    REQUIRE(std::string(wgV2ProgramMode(wgV2CatalogEntryProgram(secondary.get()))) == "secondary");
+    wgV2CatalogRetireAll(catalog.get()); active.reset(); first.reset(); next.reset(); secondary.reset();
+    REQUIRE(f.host.models == 3);
+    REQUIRE(f.host.acquired == f.host.released);
+}
+
+TEST_CASE("v2 archive rejects missing mismatched or unsupported authored sources", "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    const int variant = GENERATE(0, 1, 2, 3, 4, 5, 6, 7);
+    Fixture f; auto entries = archiveEntries(); wg_v2_use use{}; char error[512]{};
+    switch (variant) {
+    case 0: entries[0].second = replace(entries[0].second, "mod:single", "mod:wrong"); break;
+    case 1: entries.erase(entries.begin() + 1); break;
+    case 2: entries[0].second = replace(entries[0].second, "graphs/primary.json", "../graphs/primary.json"); break;
+    case 3: entries[0].second += "variables_file=bindings/variables.json\n"; break;
+    case 4: entries[1].second = replace(entries[1].second, "pd.weapon_graph.v2", "pd.weapon_graph.v1"); break;
+    case 5: entries[3].second = replace(entries[3].second, "mod:single", "mod:wrong"); break;
+    case 6: entries[0].second = replace(entries[0].second, "bindings/settings.json", "missing.json"); break;
+    case 7: use.network_active = 1; break;
+    }
+    const auto bytes = snapshot(entries);
+    using Catalog = std::unique_ptr<wg_v2_catalog, decltype(&wgV2CatalogDestroy)>;
+    Catalog catalog(wgV2CatalogCreate([](void *, const char *, uint64_t) {}, nullptr), wgV2CatalogDestroy);
+    wg_v2_equipped *out = nullptr;
+    auto *candidate = wgV2EquippedCatalogPrepareArchive(catalog.get(), "mod:single", bytes.data(),
+        static_cast<u32>(bytes.size()), digest, &use, &f.model, resolve, &f.host, &out, error, sizeof(error));
+    INFO(error); REQUIRE_FALSE(candidate); REQUIRE_FALSE(out); REQUIRE(error[0]);
+    REQUIRE(wgV2CatalogCount(catalog.get()) == 0);
+    REQUIRE(f.host.models == 0);
+    REQUIRE(f.host.acquired == f.host.released);
 }
 TEST_CASE("v2 equipped source owns ammo aim visibility placement and exact command dependencies", "[graph-v2-equipped]") {
     Fixture f; std::string source = settings; auto out = f.prepare(source);

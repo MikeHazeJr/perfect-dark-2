@@ -1,4 +1,5 @@
 #include "weapon_graph_v2_equipped.h"
+#include "modarchive.h"
 #include "modasset_gltf_document.h"
 #include "crude_json.h"
 #include <algorithm>
@@ -6,6 +7,7 @@
 #include <cfloat>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <stdexcept>
@@ -89,7 +91,7 @@ struct Command {
 struct wg_v2_equipped {
     std::atomic<size_t> refs{1};
     struct weapon weapon{};
-    struct inventory_ammo ammo{};
+    struct inventory_ammo ammo[2]{};
     struct invaimsettings aim{};
     std::vector<struct gunviscmd> visibility;
     std::vector<struct modelpartvisibility> parts;
@@ -125,6 +127,23 @@ struct guncmd *command(wg_v2_equipped &out, const Json &v,
     out.commands.push_back(std::move(dep));
     return result;
 }
+void prepareAmmo(wg_v2_equipped &out, int slot, const Json &a,
+        wg_v2_native_resolver resolver, void *host) {
+    if (a.is_null()) return;
+    auto &ammo = out.ammo[slot];
+    keys(a, {"type", "casing", "clip_size", "flags", "reload_animation"});
+    ammo.type = named(field(a, "type"), {
+        {"pistol", AMMOTYPE_PISTOL}, {"smg", AMMOTYPE_SMG}, {"rifle", AMMOTYPE_RIFLE},
+        {"shotgun", AMMOTYPE_SHOTGUN}, {"magnum", AMMOTYPE_MAGNUM}, {"reaper", AMMOTYPE_REAPER}});
+    ammo.casingeject = named(field(a, "casing"), {{"none", CASING_NONE}, {"standard", CASING_STANDARD},
+        {"rifle", CASING_RIFLE}, {"shotgun", CASING_SHOTGUN}, {"reaper", CASING_REAPER}});
+    ammo.clipsize = static_cast<s16>(integer(field(a, "clip_size"), 1, INT16_MAX));
+    ammo.flags = static_cast<u8>(flags(field(a, "flags"), {
+        {"no_reserve", AMMOFLAG_NORESERVE}, {"equipped_is_reserve", AMMOFLAG_EQUIPPEDISRESERVE},
+        {"incremental_reload", AMMOFLAG_INCREMENTALRELOAD}, {"quantity_controls_visibility", AMMOFLAG_QTYAFFECTSPARTVIS}}));
+    ammo.reload_animation = command(out, field(a, "reload_animation"), resolver, host);
+    out.weapon.ammos[slot] = &ammo;
+}
 void prepare(wg_v2_equipped &out, const Json &root, wg_v2_native_resolver resolver, void *host) {
     keys(root, {"schema", "asset_id", "equipped"});
     if (string(field(root, "schema")) != "pd.weapon_settings.v2") bad("equipped source requires pd.weapon_settings.v2");
@@ -132,18 +151,21 @@ void prepare(wg_v2_equipped &out, const Json &root, wg_v2_native_resolver resolv
     const auto &e = field(root, "equipped");
     keys(e, {"ammo", "aim", "sway", "flags", "equip_animation", "unequip_animation", "visibility", "parts"});
     const auto &a = field(e, "ammo");
-    keys(a, {"type", "casing", "clip_size", "flags", "reload_animation"});
-    out.ammo.type = named(field(a, "type"), {
-        {"pistol", AMMOTYPE_PISTOL}, {"smg", AMMOTYPE_SMG}, {"rifle", AMMOTYPE_RIFLE},
-        {"shotgun", AMMOTYPE_SHOTGUN}, {"magnum", AMMOTYPE_MAGNUM}, {"reaper", AMMOTYPE_REAPER}});
-    out.ammo.casingeject = named(field(a, "casing"), {{"none", CASING_NONE}, {"standard", CASING_STANDARD},
-        {"rifle", CASING_RIFLE}, {"shotgun", CASING_SHOTGUN}, {"reaper", CASING_REAPER}});
-    out.ammo.clipsize = static_cast<s16>(integer(field(a, "clip_size"), 1, INT16_MAX));
-    out.ammo.flags = static_cast<u8>(flags(field(a, "flags"), {
-        {"no_reserve", AMMOFLAG_NORESERVE}, {"equipped_is_reserve", AMMOFLAG_EQUIPPEDISRESERVE},
-        {"incremental_reload", AMMOFLAG_INCREMENTALRELOAD}, {"quantity_controls_visibility", AMMOFLAG_QTYAFFECTSPARTVIS}}));
-    out.ammo.reload_animation = command(out, field(a, "reload_animation"), resolver, host);
-    out.weapon.ammos[0] = &out.ammo;
+    if (a.is_array()) {
+        const auto &slots = array(a);
+        if (slots.size() != 2) bad("equipped ammo requires exactly two slots, with null for unused slots");
+        for (int slot = 0; slot < 2; ++slot) prepareAmmo(out, slot, slots[slot], resolver, host);
+    } else {
+        /* The original v2 object remains an explicit shorthand for slot zero. */
+        if (!a.is_object()) bad("equipped ammo requires an object or two-slot array");
+        prepareAmmo(out, 0, a, resolver, host);
+    }
+    auto *program = wgV2NativeProgram(out.actions);
+    for (size_t i = 0; i < wgV2ProgramNodeCount(program); ++i) {
+        const char *node = nullptr; int slot = -1;
+        if (wgV2ProgramAmmoSlot(program, i, &node, &slot) && slot >= 0 && !out.weapon.ammos[slot])
+            bad(std::string(node) + ": ammo_slot references an absent equipped ammo definition");
+    }
     const auto &aim = field(e, "aim");
     keys(aim, {"zoom_fov", "transition_up", "transition_down", "transition_side", "damping_pal", "damping", "flags"});
     out.aim.zoomfov = number(field(aim, "zoom_fov"), 1, 179);
@@ -223,7 +245,7 @@ extern "C" wg_v2_equipped *wgV2EquippedPrepare(wg_v2_native_bundle *actions,
         out->aim.tracktype = static_cast<u32>(descriptor->track_type);
         std::sort(out->commands.begin(), out->commands.end(), [](const auto &a, const auto &b) { return a->id < b->id; });
         sha256_ctx ctx; sha256Init(&ctx);
-        hashField(ctx, "pd.weapon_graph.equipped.v2.1"); hashField(ctx, source_hash);
+        hashField(ctx, "pd.weapon_graph.equipped.v2.2"); hashField(ctx, source_hash);
         hashField(ctx, wgV2NativeClosureHash(actions));
         /* Exact settings bytes are included even if a caller reuses an archive
          * hash during candidate preparation. Runtime slot integers are not IDs. */
@@ -274,4 +296,61 @@ extern "C" wg_v2_catalog_entry *wgV2EquippedCatalogPrepare(wg_v2_catalog *catalo
         use, prepareLease, &factory, releaseLease, error, cap);
     if (entry && out_equipped) *out_equipped = factory.result;
     return entry;
+}
+
+namespace {
+std::string archiveText(const void *bytes, u32 size, const char *member) {
+    /* Descriptor references must name an exact member of the captured archive.
+     * Nested assets belong to the source resolver, not this text entry reader. */
+    const std::string path = member ? member : "";
+    if (path.empty() || path.front() == '/' || path.back() == '/' ||
+            path.find_first_of("\\:") != std::string::npos)
+        bad("equipped archive requires a relative source member: " + path);
+    size_t begin = 0;
+    while (begin < path.size()) {
+        const auto end = path.find('/', begin);
+        const auto part = path.substr(begin, end == std::string::npos ? end : end - begin);
+        if (part.empty() || part == "." || part == "..") bad("invalid equipped source member: " + path);
+        if (end == std::string::npos) break;
+        begin = end + 1;
+    }
+    u32 length = 0;
+    std::unique_ptr<void, decltype(&std::free)> data(
+        modArchiveExtractMemAlloc(bytes, size, path.c_str(), &length), std::free);
+    if (!data || !length) bad("missing or empty equipped archive source: " + path);
+    return std::string(static_cast<const char *>(data.get()), length);
+}
+}
+extern "C" wg_v2_catalog_entry *wgV2EquippedCatalogPrepareArchive(wg_v2_catalog *catalog,
+        const char *id, const void *bytes, uint32_t size, const char *dependencies,
+        const wg_v2_use *use, const wg_v2_equipped_model *model,
+        wg_v2_native_resolver resolver, void *host, wg_v2_equipped **out_equipped,
+        char *error, size_t cap) {
+    if (out_equipped) *out_equipped = nullptr;
+    if (error && cap) error[0] = 0;
+    try {
+        if (!catalog || !catalogId(id) || !bytes || !size || !hash(dependencies))
+            bad("equipped archive preparation requires catalog identity and captured source closure");
+        if (!wgV2CheckUse(use, error, cap)) return nullptr;
+        weapon_graph_archive_descriptor_t descriptor{};
+        if (weaponGraphArchiveReadDescriptorBytes(bytes, size, ASSET_WEAPON,
+                &descriptor, error, cap) != 0) return nullptr;
+        if (std::strcmp(id, descriptor.catalog_id)) bad("equipped archive catalog identity mismatch");
+        /* These v1 bindings are not implemented by the v2 profile. Accepting
+         * them here would silently ignore part of the authored behavior. */
+        if (descriptor.variables[0] || descriptor.shared_context[0] || descriptor.presentation[0])
+            bad("equipped v2 archive has unsupported variables/shared-context/presentation bindings");
+        const char *selected = use->function == 1 ? descriptor.secondary_graph :
+            (descriptor.primary_graph[0] ? descriptor.primary_graph : descriptor.behavior_graph);
+        const auto graph = archiveText(bytes, size, selected);
+        const auto settings = archiveText(bytes, size, descriptor.settings);
+        char source_hash[SHA256_HEX_SIZE]{};
+        if (weaponGraphArchiveCanonicalSha256Bytes(bytes, size, source_hash) != 0)
+            bad("cannot hash complete equipped archive source");
+        return wgV2EquippedCatalogPrepare(catalog, id, graph.data(), graph.size(), dependencies,
+            use, &descriptor, source_hash, settings.data(), settings.size(), model,
+            resolver, host, out_equipped, error, cap);
+    } catch (const std::exception &e) { if (error && cap) std::snprintf(error, cap, "%s", e.what()); }
+    catch (...) { if (error && cap) std::snprintf(error, cap, "%s", "equipped archive preparation failed"); }
+    return nullptr;
 }

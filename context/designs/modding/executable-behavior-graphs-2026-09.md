@@ -310,11 +310,28 @@ queued build/test/runtime boundary; this proposal itself ran none.
 
 ## Decisions and next action
 
-D-006A versus B remains Mike's architectural choice. The review of A should include
-the proposed port/routing policy and v1 migration strategy above. Correcting emitted
-events to preserve source-traced base behavior is an implementation obligation, not
-a new request to choose different gameplay. Do not infer approval from elapsed time,
-an unrelated message, a build result, or creation of this proposal.
+D-006A was explicitly selected by Mike on September 8. No architecture choice
+remains pending. Correcting emitted events to preserve source-traced base behavior
+is an implementation obligation. Keep v1 compatibility explicit until the complete
+replacement lifecycle has production parity evidence.
+
+September 26 preparation contract: `wgV2EquippedCatalogPrepareArchive` consumes
+one captured public `.pdweapon` ZIP, selecting the declared primary/secondary JSON
+and settings from that same snapshot. It computes the canonical source hash,
+prepares all native dependencies, and returns an unpublished owned candidate.
+Model ownership transfers only on success. Existing active generations survive a
+failed candidate. Unsupported v1 variable/context/presentation bindings reject
+explicitly rather than disappearing during conversion. Actual catalog publication
+and per-hand lifecycle callers are still required.
+
+The equipped v2 `ammo` field accepts the original slot-zero object or exactly
+`[slot_zero, slot_one]`, using `null` for an absent slot. Action and ammo-gate
+references must resolve to a declared slot; `ammo_slot: -1` explicitly uses none.
+This preserves native per-function ammo selection without fabricating a default
+ammo record for missing source. Client/tests builds and the graph cohort pass
+(59 cases/1,057 assertions). The native-source guard passes; the required c3842
+cohort retains three static-contract failures. See the September 26 preparation
+receipt. Mike requested pause at this boundary; resume only on his instruction.
 
 After the current asset correctness batch reaches its validation boundary, prepare
 the first executable held unit as concrete reviewable work, preserving the ownership

@@ -1145,3 +1145,15 @@ at17:26 with owned hashes unchanged. Installed asset admission red remains separ
 Receipt .claude/menu0908/legacy-list4-exit.json.
 Propagation: only one builder/caller in modmgr.c; primary JSON has separate
 maximum-domain roundtrip coverage. Full Apply failure propagation remains open.
+### 2026-09-26 T-MODDING-002 - Equipped graph ammo reference mismatch
+
+Source-confirmed: v2 actions admitted ammo_slot=1 but the equipped adapter
+constructed only ammos[0], leaving an accepted action without its ammo record.
+The applied correction accepts explicit [slot0, slot1] source records with
+null for unused slots, retains the original slot-zero object shorthand, and
+validates all action and gate references before publication. Focused archive,
+secondary-slot, missing-slot, gate, and rollback tests pass in the 59-case,
+1,057-assertion graph cohort. Ordinary graph gameplay integration remains open.
+Separate required c3842 static checks remain red on scanner comment/newline
+matching, centralized voice registration, and superseded WAV metadata wording;
+retain the failures until their current production contracts are tested.

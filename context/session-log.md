@@ -1,5 +1,18 @@
 # Session Log (Active)
 
+2026-09-26 T-MODDING-002 graph preparation pause checkpoint:
+captured public weapon ZIPs now prepare an unpublished equipped candidate from
+their descriptor, selected graph and settings, with canonical source hashing.
+Independent ammo slots and all action/gate references are validated before
+publication; replacement failure retains the prior generation/model ownership.
+Frozen client/tests builds and graph 59 cases/1,057 assertions pass; the native
+source guard passes. Required c3842 cohort remains red (3 static failures,
+52 cases/2,825 assertions); no full-suite or ordinary gameplay claim. Initial
+all-target build failed during a peer's transient CMake edit; subsequent shared
+frozen client/tests compilation passed. Receipt and exact remaining steps:
+context/audits/2026/graph-preparation-2026-09-26.md. Mike requested this pause;
+no next integration batch, test repair, build or game run until explicit resume.
+
 2026-09-23 T-MENUS-003/004/006 and T-INPUT-008 bounded pause unit:
 retired the reachable Room Level Editor shell by Mike's choice; repaired
 generic typed-dialog open/close dispatch, false social profile preview,

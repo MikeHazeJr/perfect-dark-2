@@ -65,6 +65,11 @@ uint64_t wgV2ProgramGeneration(const wg_v2_program *);
 /* Borrowed action view for source preparation. Returns 0 for a non-action node
  * or invalid index; its pointers live as long as the retained program. */
 int wgV2ProgramAction(const wg_v2_program *, size_t node_index, wg_v2_action *out);
+/* Action and ammo-gate references must resolve against the complete equipped
+ * definition, including branches that have not run. -1 explicitly uses no ammo.
+ * Returns zero for other nodes; node_id is borrowed from the program. */
+int wgV2ProgramAmmoSlot(const wg_v2_program *, size_t node_index,
+    const char **node_id, int *slot);
 
 wg_v2_instance *wgV2Bind(wg_v2_program *, const wg_v2_host *, void *host,
                         uint64_t owner_generation, char *error, size_t cap);
