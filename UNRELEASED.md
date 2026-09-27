@@ -4,6 +4,9 @@
   default on a failed toggle, and offers retry after deleted-default cleanup.
   Native focus now owns row activation instead of a competing global Accept.
 
+- Keep guests who decline match downloads in their connected lobby and restrict
+  stage/gameplay traffic to admitted players. Final regression qualification is pending.
+
 - Prepare executable graph equipment from one public archive snapshot and reject
   missing action/gate ammo definitions. Two explicit ammo slots are supported;
   ordinary equipped graph gameplay integration remains in progress.

@@ -1,5 +1,15 @@
 # Connectivity / Online
 
+Sep27 admission checkpoint: match publishers filter the committed admitted
+roster while declined guests retain their room. Consent owns the final local
+state, and Campaign autostart retains its mission. Builds/focused194/16838 and
+guard pass; runtime94/101 missing effects and90/96 obsolete spawn assertions
+remain retained red. Spawn fixtures now require prepare plus commit. Concurrent
+menu-source drift prevents current-source acceptance; next integrated rerun
+follows the graph source window. Full MP goal remains active and partial.
+See ../audits/2026/multiplayer-admission-2026-09-27.md.
+
+
 > ENet UDP transport. Listen-authority wire protocol at v61 (native roster and corrected two-client Join37/37 passed; broader multiplayer proof remains partial); remote movement authority remains an open audit finding. 6-tier P2P NAT traversal (LAN -> DIRECT -> STUN -> UPnP -> ICE -> TURN). Connect codes hide raw IPs. Presence service (Ed25519 v5). Voice (libopus, optional). Listen-host is the current shipping target; dedicated server deferred.
 
 Sep26 T-NETWORKING-011 resumed: pending content requests bind to exact

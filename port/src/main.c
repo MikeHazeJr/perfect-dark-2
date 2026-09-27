@@ -391,6 +391,7 @@ static s32         g_BootLaunchMpMatchPending = 0;
  * minutes-only (6-bit), so this overrides g_MpTimeLimit60 directly at the
  * lv.c time-limit gate (test-only, gated on the latch). */
 static bool        g_BootHostAutostartArmed = false;
+static s32         g_BootHostAutostartPeers = 1;
 static u8          g_BootHostAutostartGameMode = NETGAMEMODE_MP;
 static s32         g_BootHostAutostartFired = 0;
 static s32         g_BootHostAutostartSettleFrames = 0;
@@ -3635,11 +3636,10 @@ s32 bootHostAutostartTick(void)
 			continue;
 		}
 		if (cl->state >= CLSTATE_LOBBY) {
-			remoteInLobby = 1;
-			break;
+			remoteInLobby++;
 		}
 	}
-	if (!remoteInLobby) {
+	if (remoteInLobby < g_BootHostAutostartPeers) {
 		g_BootHostAutostartSettleFrames = 0; /* reset settle if peer drops pre-fire */
 		return 0;
 	}
@@ -3710,6 +3710,10 @@ s32 bootHostAutostartTick(void)
 	g_BootHostAutostartFired = 1;
 
 	const u8 mode = g_BootHostAutostartGameMode;
+	/* Room creation publishes Combat Simulator defaults. Campaign autostart
+	 * keeps its explicitly requested mission instead of consuming that arena. */
+	const char *stageId = mode == NETGAMEMODE_MP
+		? g_MatchConfig.stage_id : g_BootLaunchMpArena;
 	const u8 difficulty = mode == NETGAMEMODE_MP
 		? 0 : (u8)bootResolveDifficulty(g_BootLaunchDifficulty);
 	u8 antiClientId = NET_NULL_CLIENT;
@@ -3768,7 +3772,7 @@ s32 bootHostAutostartTick(void)
 	}
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --host-autostart firing: mode=%u stage='%s' difficulty=%u anti_client=%u scenario=%u timelimit=%u sims=%u",
-		(unsigned)mode, g_MatchConfig.stage_id, (unsigned)difficulty,
+		(unsigned)mode, stageId, (unsigned)difficulty,
 		(unsigned)antiClientId,
 		(unsigned)(mode == NETGAMEMODE_MP ? g_MatchConfig.scenario : 0),
 		(unsigned)(mode == NETGAMEMODE_MP ? g_MatchConfig.timelimit : 0),
@@ -3776,7 +3780,7 @@ s32 bootHostAutostartTick(void)
 
 	s32 rc = netLobbyRequestStartWithSims(
 		mode,
-		g_MatchConfig.stage_id,
+		stageId,
 		difficulty,
 		antiClientId,
 		numSims,
@@ -4007,6 +4011,11 @@ int main(int argc, const char **argv)
 	g_BootDebugAutoStartMatch = sysArgCheck("--debug-auto-start-match") ? true : false;
 	/* c3845 (2026-06-23): listen-host two-process match smoke infra. */
 	g_BootHostAutostartArmed = sysArgCheck("--host-autostart") ? true : false;
+	g_BootHostAutostartPeers = sysArgGetInt("--host-autostart-peers", 1);
+	if (g_BootHostAutostartPeers < 1 || g_BootHostAutostartPeers >= MAX_PLAYERS) {
+		sysLogPrintf(LOG_WARNING, "BOOT: invalid --host-autostart-peers; autostart disabled");
+		g_BootHostAutostartArmed = false;
+	}
 	if (g_BootHostAutostartArmed) {
 		const char *mode = sysArgGetString("--host-autostart-mode");
 		if (!bootResolveHostAutostartMode(mode,

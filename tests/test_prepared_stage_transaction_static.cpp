@@ -579,7 +579,7 @@ TEST_CASE("host autostart selects network mission metadata through the ordinary 
 	require_text(tick.text, "antiClientId=client->id;",
 		"Counter-Op identity comes from the exact joined room member");
 	require_text(tick.text,
-		"netLobbyRequestStartWithSims(mode,g_MatchConfig.stage_id,"
+		"netLobbyRequestStartWithSims(mode,stageId,"
 		"difficulty,antiClientId,",
 		"all modes replay the ordinary high-level lobby start transaction");
 	REQUIRE(tick.text.find("netServerCoopStageStart(") == std::string::npos);

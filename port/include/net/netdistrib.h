@@ -209,6 +209,9 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
                                        u16 batch_offset,
                                        u16 total_count);
 
+/** Begin a newly validated offer, including one with all content present. */
+void netDistribClientBeginManifestOffer(void);
+
 /** Hold a match-manifest transfer request until the user consents. */
 s32 netDistribClientBeginManifestTransferSet(const char (*missing_ids)[64],
                                             u16 missing_count, u32 manifest_hash);
@@ -216,6 +219,7 @@ s32 netDistribClientBeginManifestTransferSet(const char (*missing_ids)[64],
 /** Resolve the pending request. Declining a match sends DECLINE; declining an
  * initial catalog request disconnects rather than claiming content is ready. */
 s32 netDistribClientConsentPending(void);
+s32 netDistribClientManifestDeclined(void);
 s32 netDistribClientResolveConsent(s32 accept, s32 temporary);
 
 /** Return the local request policy for the current receive set (session-only

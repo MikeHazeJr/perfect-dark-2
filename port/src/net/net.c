@@ -632,6 +632,7 @@ static void netClientCommitPreparedSettings(struct netclient *cl,
 	memcpy(cl->settings.name, plan->name, sizeof(cl->settings.name));
 }
 
+
 static inline void netFlushSendBuffers(void)
 {
 	if (g_NetMsgRel.wp) {
@@ -639,7 +640,10 @@ static inline void netFlushSendBuffers(void)
 			sysLogPrintf(LOG_WARNING, "NET: reliable out buffer overflow");
 		}
 		g_NetReliableFrameLen += g_NetMsgRel.wp;
-		netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+		if (g_NetMode == NETMODE_SERVER && netmsgCutsceneAuthorityHasMatch())
+			netSendToMatch(g_NetMatchRoomId, &g_NetMsgRel, true, NETCHAN_DEFAULT);
+		else
+			netSend(NULL, &g_NetMsgRel, true, NETCHAN_DEFAULT);
 	}
 
 	if (g_NetMsg.wp) {
@@ -647,7 +651,10 @@ static inline void netFlushSendBuffers(void)
 			sysLogPrintf(LOG_WARNING, "NET: unreliable out buffer overflow");
 		}
 		g_NetUnreliableFrameLen += g_NetMsg.wp;
-		netSend(NULL, &g_NetMsg, false, NETCHAN_DEFAULT);
+		if (g_NetMode == NETMODE_SERVER && netmsgCutsceneAuthorityHasMatch())
+			netSendToMatch(g_NetMatchRoomId, &g_NetMsg, false, NETCHAN_DEFAULT);
+		else
+			netSend(NULL, &g_NetMsg, false, NETCHAN_DEFAULT);
 	}
 }
 
@@ -899,7 +906,7 @@ static bool netServerPublishPendingResyncs(void)
 	}
 
 	bytes = wire.wp;
-	if (netSendToRoom(g_NetMatchRoomId, &wire, true,
+	if (netSendToMatch(g_NetMatchRoomId, &wire, true,
 			NETCHAN_DEFAULT) != bytes) {
 		sysLogPrintf(LOG_WARNING,
 			"NET: baseline transaction queue failed flags=0x%x bytes=%u; request retained for retry",
@@ -1530,7 +1537,7 @@ s32 netServerStageStart(void)
 
 	{
 		const u32 stage_wire_len = g_NetMsgRel.wp;
-		if (netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true,
+		if (netSendToMatch(g_NetMatchRoomId, &g_NetMsgRel, true,
 				NETCHAN_DEFAULT) != stage_wire_len) {
 			for (s32 ci = 0; ci < NET_MAX_CLIENTS; ci++) {
 				g_NetClients[ci].state = state_before[ci];
@@ -1780,7 +1787,7 @@ s32 netServerCoopStageStart(u8 stagenum, u8 difficulty)
 	}
 	{
 		const u32 stage_wire_len = g_NetMsgRel.wp;
-		if (netSendToRoom(g_NetMatchRoomId, &g_NetMsgRel, true,
+		if (netSendToMatch(g_NetMatchRoomId, &g_NetMsgRel, true,
 				NETCHAN_DEFAULT) != stage_wire_len) {
 			for (s32 i = 0; i < g_NetMaxClients; i++) {
 				g_NetClients[i].state = state_before[i];
@@ -1881,10 +1888,9 @@ static bool netServerFlushCutsceneAuthorityPacket(const char *reason,
 		}
 	}
 	const u32 bytes = wire.wp;
-	/* Destination scope remains the match room, deliberately including a
-	 * same-room observer. The frozen participant mask inside SVC_CUTSCENE owns
-	 * gameplay identity; unrelated lounge peers and probe endpoints never do. */
-	if (netSendToRoom(room_id, &wire, true, NETCHAN_DEFAULT) != bytes) {
+	/* The committed match roster owns this stream. Same-room guests that
+	 * declined content remain in the lobby and cannot consume stage events. */
+	if (netSendToMatch(room_id, &wire, true, NETCHAN_DEFAULT) != bytes) {
 		sysLogPrintf(LOG_ERROR,
 			"NET: CUTSCENE.AUTHORITY room send failed reason=%s room=%u events=%u; idempotent retry retained",
 			reason ? reason : "unspecified", (unsigned)room_id,
@@ -4034,6 +4040,43 @@ u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, con
 	netbufStartWrite(buf);
 
 	return ret;
+}
+
+u32 netSendToMatch(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan)
+{
+	if (!g_NetHost || !buf || !buf->wp || buf->error) return 0;
+	const u32 admitted = netmsgServerMatchClientMask(room_id);
+	if (!admitted) return 0;
+	const u32 bytes = buf->wp;
+	if (!reliable && g_NetSimPacketLoss && (rand() % g_NetSimPacketLoss) != 0) {
+		netbufStartWrite(buf);
+		return bytes;
+	}
+	const u32 flags = reliable ? ENET_PACKET_FLAG_RELIABLE : 0;
+	u32 sent_mask = 0;
+	u32 lobby_count = 0;
+	bool failed = false;
+	for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
+		struct netclient *cl = &g_NetClients[i];
+		if (!cl->peer || cl->room_id != room_id) continue;
+		if (cl->state == CLSTATE_LOBBY) ++lobby_count;
+		if (!(admitted & (1u << (u32)i)) || cl->state != CLSTATE_GAME
+				|| (cl->flags & CLFLAG_SPECTATOR)) continue;
+		ENetPacket *packet = enet_packet_create(buf->data, bytes, flags);
+		if (!packet || enet_peer_send(cl->peer, chan, packet) != 0) {
+			if (packet) enet_packet_destroy(packet);
+			failed = true;
+		} else {
+			sent_mask |= 1u << (u32)i;
+		}
+	}
+	if (buf->data[0] == SVC_STAGE_START) {
+		sysLogPrintf(LOG_NOTE,
+			"NET.MATCH.AUDIENCE room=%u admitted=0x%08x sent=0x%08x lobby_retained=%u failed=%d",
+			(unsigned)room_id, admitted, sent_mask, lobby_count, failed);
+	}
+	netbufStartWrite(buf);
+	return failed ? 0 : bytes;
 }
 
 u32 netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan)

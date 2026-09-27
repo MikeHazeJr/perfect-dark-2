@@ -8874,6 +8874,13 @@ bool netmsgCutsceneAuthorityHasMatch(void)
 	return s_CutsceneAuthority.match_active;
 }
 
+u32 netmsgServerMatchClientMask(u8 room_id)
+{
+	if (g_NetMode != NETMODE_SERVER || !s_CutsceneAuthority.match_active
+			|| s_CutsceneAuthority.room_id != room_id) return 0;
+	return s_CutsceneAuthority.full_client_mask;
+}
+
 bool netmsgCutsceneAuthorityHasPendingEvents(void)
 {
 	return s_CutsceneAuthority.match_active
@@ -12145,13 +12152,13 @@ u32 netmsgSvcMatchManifestRead(struct netbuf *src, struct netclient *srccl)
 	sysLogPrintf(LOG_NOTE, "NET: SVC_MATCH_MANIFEST hash=0x%08x entries=%u",
 	             (unsigned)manifest_hash, (unsigned)g_ClientManifest.num_entries);
 
-	/* Phase C: check local catalog against manifest, send CLC_MANIFEST_STATUS */
-	manifestCheck(&g_ClientManifest);
-
-	/* Local client is now in match-start prep (manifest check/transfer/countdown). */
+	/* Enter preparation before checking: a synchronous consent decision may
+	 * return us to the lobby and must own the final local state. */
+	netDistribClientBeginManifestOffer();
 	if (g_NetMode == NETMODE_CLIENT && g_NetLocalClient) {
 		g_NetLocalClient->state = CLSTATE_PREPARING;
 	}
+	manifestCheck(&g_ClientManifest);
 
 	return src->error;
 }
@@ -12464,7 +12471,8 @@ u32 netmsgSvcMatchCountdownRead(struct netbuf *src, struct netclient *srccl)
 	g_MatchCountdownState.total_count    = total_count;
 	g_MatchCountdownState.phase          = phase;
 	g_MatchCountdownState.countdown_secs = countdown_secs;
-	g_MatchCountdownState.active         = 1;
+	/* A declined guest stays in the room without entering its loading flow. */
+	g_MatchCountdownState.active = !netDistribClientManifestDeclined();
 
 	return src->error;
 }
@@ -13452,7 +13460,7 @@ void netSendGpuSwarmState(void)
 		netmsgSvcGpuSwarmStateWrite(&g_NetMsg, s_FrameSeq,
 			(u16)total_count, (u16)chunk_start, (u16)chunk_count,
 			s_PackedScratch);
-		netSend(NULL, &g_NetMsg, false /* unreliable */, NETCHAN_DEFAULT);
+		netSendToMatch(g_NetMatchRoomId, &g_NetMsg, false /* unreliable */, NETCHAN_DEFAULT);
 		chunks_sent++;
 	}
 

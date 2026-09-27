@@ -530,3 +530,22 @@ TEST_CASE("menu readiness names round-trip and incomplete ownership fails closed
         REQUIRE_FALSE(smokeReadinessConditionMet(condition, nullptr));
     }
 }
+
+TEST_CASE("Declined-content lobby witness requires the accepted decision and live connection",
+          "[smoke][readiness][network][distribution]")
+{
+    const auto condition = SMOKE_READINESS_NETWORK_DECLINED_LOBBY;
+    REQUIRE(smokeReadinessConditionFromName("network_declined_lobby") == condition);
+    REQUIRE(std::string(smokeReadinessConditionName(condition)) == "network_declined_lobby");
+    smoke_readiness_facts_t facts{};
+    facts.boot_complete = facts.network_active = facts.local_client_in_lobby = 1;
+    REQUIRE_FALSE(smokeReadinessConditionMet(condition, &facts));
+    facts.manifest_declined = 1;
+    REQUIRE(smokeReadinessConditionMet(condition, &facts));
+    for (auto field : {&facts.boot_complete, &facts.network_active,
+                      &facts.local_client_in_lobby, &facts.manifest_declined}) {
+        *field = 0;
+        REQUIRE_FALSE(smokeReadinessConditionMet(condition, &facts));
+        *field = 1;
+    }
+}

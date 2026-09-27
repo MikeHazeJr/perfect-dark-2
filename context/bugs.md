@@ -1,5 +1,12 @@
 # Bug Tracker
 
+Sep27 MP admission qualification remains open (T-NETWORKING-011): binary4A3BA1AC
+transfers and spawns Needler but omits impact-effect witnesses on both accepted
+peers (94/101). Do not weaken these assertions. Campaign90/96 failures instead
+reference obsolete spawn apply logs; fixtures now require prepare and commit,
+with retained-log positive and missing-commit negative checks. Current-source
+reruns remain pending after concurrent menu drift and the graph source window.
+
 Sep27 T-MENUS-003 Agent Select candidate: default toggles and deleted-default
 cleanup ignored configSave failure, displaying success without persistence.
 All three call sites now check the result; toggles roll back and deletion
@@ -17,7 +24,13 @@ excluded client to its prior lobby binding and retains room membership, while
 netServerStageStart sends the stage packet through netSendToRoom to every
 connected room member. Next unit must target the committed match audience and
 prove a declining peer remains connected in its room; do not relabel a missing
-content peer as a working spectator. No repair or negative-path pass yet.
+content peer as a working spectator. Candidate now routes stage/baseline/cutscene/frame packets through the frozen
+match mask and live admitted state. Failed decline sends retain consent for
+retry; successful decline keeps a connected lobby without loading countdown.
+R1 red95/100 retained: synchronous decline was overwritten by PREPARING;
+co-op red47/96 also exposed the smoke driver consuming a room-default arena.
+Corrections and direct-swarm audience propagation pass the Sep27 build and
+focused cohort. Full runtime qualification remains open as detailed above.
 
 2026-09-26 T-NETWORKING-011 received-content extraction failed in the
 ordinary pair (60/89) and six existing native PDCA tests. Both long install

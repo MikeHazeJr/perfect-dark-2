@@ -2005,6 +2005,7 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
     facts.network_reconnect_available = netClientReconnectAvailable();
     facts.local_client_in_game = g_NetLocalClient
         && g_NetLocalClient->state == CLSTATE_GAME;
+    facts.manifest_declined = netDistribClientManifestDeclined();
     facts.local_client_in_lobby = g_NetLocalClient
         && g_NetLocalClient->state == CLSTATE_LOBBY;
     facts.gameplay_stage = g_StageNum == g_Vars.stagenum
@@ -2094,6 +2095,11 @@ static void smokeLogReadinessWait(s32 level, const char *status,
         const SmokeEvent *ev, u32 waited_ms, u32 real_elapsed_ms,
 		u32 stable_elapsed_ms, const smoke_readiness_facts_t *facts)
 {
+    if (ev->readiness_condition == SMOKE_READINESS_NETWORK_DECLINED_LOBBY) {
+        sysLogPrintf(level, "SMOKE.WAIT.DECLINE: boot=%d net=%d client_lobby=%d declined=%d room=%u",
+            facts->boot_complete, facts->network_active, facts->local_client_in_lobby,
+            facts->manifest_declined, g_NetLocalClient ? (unsigned)g_NetLocalClient->room_id : 255u);
+    }
     if (ev->readiness_condition == SMOKE_READINESS_NETWORK_LOBBY_READY) {
         sysLogPrintf(level, "SMOKE.WAIT.LOBBY: boot=%d net=%d client_lobby=%d",
             facts->boot_complete, facts->network_active, facts->local_client_in_lobby);

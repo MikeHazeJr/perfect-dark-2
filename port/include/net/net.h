@@ -629,6 +629,8 @@ s32 netStartClient(const char *addr);
 
 u32 netSend(struct netclient *dstcl, struct netbuf *buf, const s32 reliable, const s32 chan);
 u32 netSendToRoom(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan);
+/* Match traffic targets the committed roster; connected lobby guests stay out. */
+u32 netSendToMatch(u8 room_id, struct netbuf *buf, s32 reliable, s32 chan);
 s32 netServerSendReconnectState(struct netclient *dstcl);
 
 void netChat(struct netclient *dst, const char *text);

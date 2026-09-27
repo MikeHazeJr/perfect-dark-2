@@ -386,6 +386,8 @@ u32 netmsgServerPrepareCutsceneAuthorityPacket(struct netbuf *dst,
 s32 netmsgServerCommitCutsceneAuthorityPacket(u32 event_count);
 bool netmsgCutsceneAuthorityIsActive(void);
 bool netmsgCutsceneAuthorityHasMatch(void);
+/* Exact roster committed with SVC_STAGE_START; room membership is not admission. */
+u32 netmsgServerMatchClientMask(u8 room_id);
 bool netmsgCutsceneAuthorityHasPendingEvents(void);
 void netmsgCutsceneAuthorityRetireClient(u8 client_id);
 void netmsgCutsceneAuthorityReset(void);

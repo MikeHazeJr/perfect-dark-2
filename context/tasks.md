@@ -1,5 +1,12 @@
 # Tasks
 
+2026-09-27 T-NETWORKING-011 resumed after canonical Workbench recovery.
+Integrated builds,194 focused cases/16,838 assertions and native guard pass.
+Runtime remains red94/101 (missing Needler effects) and90/96 (obsolete spawn
+log assertions, now corrected with both prepare/commit required). Menu source
+drift is recorded; fresh current-source qualification remains required after
+the graph session's source window. See multiplayer-admission-2026-09-27.md.
+
 Sep27 menu goal resumed. T-MENUS-003 Agent Select default-save failure and
 native-focus candidate is applied, with current source-contract expectations
 updated. Next: actual Agent save-failure/retry and focus/scroll journeys, then
@@ -12,6 +19,7 @@ Ordinary Agent journey was refused before launch by B-801 memory guard
 headroom. r3 receipt: .claude/menu0927/validation-r3.json. Native sources are
 preserved under .claude/menu0927/source-snapshot-r3 for the805E2213 binary.
 The Sep23 full red and unverified physical/controller/MKB gates remain open.
+
 
 2026-09-26 T-NETWORKING-011 resumed: connection-bound, deduplicated and
 bounded transfer admission plus missing-directory-suffix extraction repair

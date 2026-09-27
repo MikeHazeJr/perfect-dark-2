@@ -1,0 +1,26 @@
+{
+  "scenario_name": "mp_content_decline_lobby",
+  "timeout_seconds": 600,
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_declined_lobby",
+      "timeout_ms": 450000,
+      "stable_ms": 25000,
+      "comment": "Require successful manifest decline and a continuous live lobby while the admitted pair starts gameplay."
+    },
+    {
+      "at_ms": 10000,
+      "type": "wait_until",
+      "condition": "network_declined_lobby",
+      "timeout_ms": 15000,
+      "stable_ms": 10000,
+      "comment": "Recheck connected lobby after a further interval; neither stage admission nor disconnect may satisfy this."
+    },
+    {
+      "at_ms": 20000,
+      "type": "exit"
+    }
+  ]
+}

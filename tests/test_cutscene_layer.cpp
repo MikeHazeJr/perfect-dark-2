@@ -649,14 +649,14 @@ TEST_CASE("cutscene network semantics: v56 owns one ordered match authority stre
     REQUIRE(flush.find("netmsgServerPrepareCutsceneAuthorityPacket") !=
         std::string::npos);
     REQUIRE(flush.find(
-        "netSendToRoom(room_id, &wire, true, NETCHAN_DEFAULT)") !=
+        "netSendToMatch(room_id, &wire, true, NETCHAN_DEFAULT)") !=
         std::string::npos);
     REQUIRE(flush.find("netmsgServerCommitCutsceneAuthorityPacket") !=
         std::string::npos);
-    REQUIRE(flush.find("netSendToRoom") <
+    REQUIRE(flush.find("netSendToMatch") <
         flush.find("netmsgServerCommitCutsceneAuthorityPacket"));
     REQUIRE(flush.find("netmsgSvcStageEndWrite") <
-        flush.find("netSendToRoom"));
+        flush.find("netSendToMatch"));
     const std::string serverStart = functionBlock(net,
         "netServerStageStart");
     const std::string coopStart = functionBlock(net,

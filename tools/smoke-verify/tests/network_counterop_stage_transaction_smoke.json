@@ -42,8 +42,10 @@
           "PLAYER.INIT.ORDER position=1 player=1 client=1 mode=1",
           "PLAYER.INIT.COMMIT phase=stage player=0",
           "PLAYER.INIT.COMMIT phase=stage player=1",
-          "SPAWN.ORCH: apply player=0 client=0 role=bond pool=\\d+ duplicate=0",
-          "SPAWN.ORCH: apply player=1 client=1 role=anti pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: prepare player=0 client=0 role=bond pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: prepare player=1 client=1 role=anti pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: commit player=0 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+          "SPAWN.ORCH: commit player=1 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
           "PLAYER.INIT.COMMIT phase=chrbody player=0",
           "PLAYER.INIT.COMMIT phase=chrbody player=1",
           "NET.STAGE.REPLICATION phase=waiting epoch=[1-9]\\d* room=\\d+ wait_mask=0x00000002 authority_ready=0 reason=coop-stage-start",
@@ -61,8 +63,10 @@
             "patterns": [
               "PLAYER.INIT.ORDER position=0 player=0 client=0 mode=1",
               "PLAYER.INIT.ORDER position=1 player=1 client=1 mode=1",
-              "SPAWN.ORCH: apply player=0 client=0 role=bond pool=\\d+ duplicate=0",
-              "SPAWN.ORCH: apply player=1 client=1 role=anti pool=\\d+ duplicate=0"
+              "SPAWN.ORCH: prepare player=0 client=0 role=bond pool=\\d+ duplicate=0",
+              "SPAWN.ORCH: prepare player=1 client=1 role=anti pool=\\d+ duplicate=0",
+              "SPAWN.ORCH: commit player=0 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+              "SPAWN.ORCH: commit player=1 pool=\\d+ pos=\\([^)]+\\) room=\\d+"
             ]
           },
           {
@@ -117,8 +121,10 @@
           "PLAYER.INIT.ORDER position=1 player=0 client=1 mode=2",
           "PLAYER.INIT.COMMIT phase=stage player=0",
           "PLAYER.INIT.COMMIT phase=stage player=1",
-          "SPAWN.ORCH: apply player=1 client=0 role=bond pool=\\d+ duplicate=0",
-          "SPAWN.ORCH: apply player=0 client=1 role=anti pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: prepare player=1 client=0 role=bond pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: prepare player=0 client=1 role=anti pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: commit player=1 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+          "SPAWN.ORCH: commit player=0 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
           "PLAYER.INIT.COMMIT phase=chrbody player=0",
           "PLAYER.INIT.COMMIT phase=chrbody player=1",
           "NET: sent CLC_STAGE_READY epoch=[1-9]\\d* post_load=1 stage=0x[0-9a-f]+",
@@ -132,8 +138,10 @@
             "patterns": [
               "PLAYER.INIT.ORDER position=0 player=1 client=0 mode=2",
               "PLAYER.INIT.ORDER position=1 player=0 client=1 mode=2",
-              "SPAWN.ORCH: apply player=1 client=0 role=bond pool=\\d+ duplicate=0",
-              "SPAWN.ORCH: apply player=0 client=1 role=anti pool=\\d+ duplicate=0",
+              "SPAWN.ORCH: prepare player=1 client=0 role=bond pool=\\d+ duplicate=0",
+              "SPAWN.ORCH: prepare player=0 client=1 role=anti pool=\\d+ duplicate=0",
+              "SPAWN.ORCH: commit player=1 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+              "SPAWN.ORCH: commit player=0 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
               "NET: sent CLC_STAGE_READY epoch=[1-9]\\d* post_load=1",
               "NET: SVC_NPC_RESYNC read \\d+ npcs at tick \\d+ epoch=[1-9]\\d* snapshot_pending=1",
               "NET: SVC_NPC_SYNC snapshot verified epoch=[1-9]\\d*"

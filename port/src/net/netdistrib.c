@@ -99,6 +99,7 @@
 
 static distrib_queue s_Queue;
 static s32 s_Initialized = 0;
+static s32 s_ManifestDeclined = 0;
 
 /* ENet retains reliable packet copies until its service/ACK cycle advances.
  * Keep only one compressed component in preparation and cap the number of
@@ -1107,6 +1108,7 @@ static void distribTickSendStream(void)
 
 void netDistribInit(void)
 {
+	s_ManifestDeclined = 0;
     distribClearSendStream();
     distribClearConsent();
     distribClearApproved();
@@ -1401,11 +1403,18 @@ void netDistribClientHandleCatalogInfo(const char (*ids)[64],
     }
 }
 
+void netDistribClientBeginManifestOffer(void)
+{
+    /* Also reset for an all-present offer, which never opens a transfer set. */
+    s_ManifestDeclined = 0;
+}
+
 s32 netDistribClientBeginManifestTransferSet(const char (*missing_ids)[64],
                                              u16 missing_count, u32 manifest_hash)
 {
 	if (!s_Initialized || !missing_ids || missing_count == 0
 			|| missing_count > 4096 || s_ConsentKind != DISTRIB_CONSENT_NONE) return 0;
+	s_ManifestDeclined = 0;
 	distribClearConsent();
 	distribClearApproved();
 	s_ConsentIds = (char (*)[64])calloc(missing_count, sizeof(*s_ConsentIds));
@@ -1427,7 +1436,9 @@ s32 netDistribClientBeginManifestTransferSet(const char (*missing_ids)[64],
 	sysLogPrintf(LOG_NOTE,
 		"DISTRIB: manifest transfer set awaiting consent (%u entries)",
 		(unsigned)missing_count);
-	if (sysArgCheck("--debug-approve-downloads")) {
+	if (sysArgCheck("--debug-decline-manifest")) {
+		netDistribClientResolveConsent(0, 1);
+	} else if (sysArgCheck("--debug-approve-downloads")) {
 		netDistribClientResolveConsent(1, 1);
 	}
 	return 1;
@@ -1436,6 +1447,11 @@ s32 netDistribClientBeginManifestTransferSet(const char (*missing_ids)[64],
 s32 netDistribClientConsentPending(void)
 {
     return s_ConsentKind != DISTRIB_CONSENT_NONE;
+}
+
+s32 netDistribClientManifestDeclined(void)
+{
+    return s_ManifestDeclined;
 }
 
 s32 netDistribClientResolveConsent(s32 accept, s32 temporary)
@@ -1499,9 +1515,16 @@ s32 netDistribClientResolveConsent(s32 accept, s32 temporary)
         netbufStartWrite(&g_NetMsgRel);
         netmsgClcManifestStatusWrite(&g_NetMsgRel, manifest_hash,
             MANIFEST_STATUS_DECLINE, NULL, 0);
-        if (!g_NetMsgRel.error) netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL);
+        if (g_NetMsgRel.error || !netSend(NULL, &g_NetMsgRel, 1, NETCHAN_CONTROL)) {
+            sysLogPrintf(LOG_WARNING, "DISTRIB: decline could not be sent; consent retained for retry");
+            return 0;
+        }
         if (g_NetLocalClient) g_NetLocalClient->state = CLSTATE_LOBBY;
-        s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
+        s_ClientStatus.state = DISTRIB_CSTATE_IDLE;
+        s_ClientStatus.missing_count = 0;
+        s_ManifestDeclined = 1;
+        sysLogPrintf(LOG_NOTE, "DISTRIB: player declined manifest; connected lobby room=%u",
+            g_NetLocalClient ? (unsigned)g_NetLocalClient->room_id : 255u);
     } else {
         s_ClientStatus.state = DISTRIB_CSTATE_ERROR;
     }

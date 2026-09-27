@@ -26,7 +26,8 @@ typedef enum smoke_readiness_condition {
 	SMOKE_READINESS_SETTINGS_INPUT_READY,
 	SMOKE_READINESS_SETTINGS_GAME_READY,
 	SMOKE_READINESS_NETWORK_LOBBY_READY,
-	SMOKE_READINESS_CORE_BOOT_READY
+	SMOKE_READINESS_CORE_BOOT_READY,
+	SMOKE_READINESS_NETWORK_DECLINED_LOBBY
 } smoke_readiness_condition_t;
 
 /* Production state is projected into this pure decision seam by the smoke
@@ -43,6 +44,7 @@ typedef struct smoke_readiness_facts {
 	int network_reconnect_available;
 	int local_client_in_game;
 	int local_client_in_lobby;
+	int manifest_declined;
 	int gameplay_stage;
 	int stage_ready_epoch;
 	int multiplayer_running;

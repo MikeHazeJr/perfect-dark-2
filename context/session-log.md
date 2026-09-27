@@ -1,5 +1,16 @@
 # Session Log (Active)
 
+2026-09-27 T-NETWORKING-011 resumed; admission/audience checkpoint remains
+partial. Builds,194 focused cases/16,838 assertions and native guard pass.
+Three-install runtime94/101 retains missing Needler effect witnesses; co-op90/96
+retains stale spawn-log assertions. Corrected co-op/Counter-Op fixtures require
+both prepare and commit; retained co-op logs pass and missing-commit negatives
+fail. Decline logs pass ordered normal teardown and reject premature disconnect.
+Runtime binary4A3BA1AC reached both modes, but menu product/test changes caused
+source drift; no current-source/release acceptance. All queues/holds released.
+Graph has the next source window; integrate and repeat before qualification.
+Evidence and full open scope: context/audits/2026/multiplayer-admission-2026-09-27.md.
+
 2026-09-27 T-MENUS-003 follow-up r3: copied/deleted Agent rows now request
 native focus plus scrolling; context-menu Load is deferred until End, like
 row Load. Client/tests builds and broad234/9745 pass,1916source diff0.
@@ -42,6 +53,24 @@ assertions pass; Python real-archive audio18 and native-source guard pass.
 Source receipt covers 2,083 unchanged files. No ordinary v2 gameplay acceptance;
 next is catalog/equipped/hand/action-copy/retirement integration. Detailed receipt:
 context/audits/2026/asset-contracts-2026-09-27.md. Peer MP/menu changes preserved.
+
+2026-09-26 16:55 ET T-NETWORKING-011 PAUSED at Mike's request.
+Current admission/audience source remains uncommitted atop f7e4a7f2. Client
+and tests build; focused141 cases/13,821 assertions and asset-source guard
+pass. Frozen1,934-file source had zero drift, binary29303E81. Runtime receipt
+results-20260926T205515Z.json is RED99/100 for the completed three-install
+case: both accepted players reached gameplay; declining guest passed25s and
+later10s connected-lobby checks and scripted exit. Its sole failed assertion
+forbids the normal disconnect logged during scripted shutdown; retain red and
+correct only the teardown-aware assertion on resume before claiming acceptance.
+The ongoing co-op retry was intentionally stopped (owned PIDs37060/40596),
+so its47/96 is INTERRUPTED, not a current production verdict. Runtime FIFOs
+are released; no builds/runs continue. R1 decline95/100, co-op47/96 and the
+intermediate static-contract failure remain retained. Resume: qualify the
+corrected decline fixture and preserved Campaign mission path, then scoped
+commit/push; continue the full MP plan. Movement authority, relay/WAN,
+migration, real voice/input and wider matrix remain open. No work until resume.
+
 
 2026-09-26 T-NETWORKING-011 resumed and completed a bounded content unit:
 connection-bound FIFO admission, duplicate coalescing, explicit queue budgets

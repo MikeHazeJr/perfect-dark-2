@@ -1,5 +1,17 @@
 # Multiplayer repair program, 2026-09-08
 
+Latest checkpoint: [Sep27 admission qualification](multiplayer-admission-2026-09-27.md).
+Integrated native checks pass; runtime94/101 and90/96 plus menu-source drift
+remain explicit. Corrected spawn assertions require both transaction phases;
+missing effect witnesses remain an open runtime gap. Goal active, not complete.
+
+Sep27 04:08 ET: user resumed and canonical Workbench preflight passed.
+The decline fixture now requires exactly one disconnect after both sustained
+lobby witnesses and scripted exit. The retained log passes 11/11; moving its
+single disconnect before readiness fails the ordered assertion. Earlier red
+receipts remain unchanged. Current-source integrated build and fresh decline
+and co-op runtime checks are queued with the resumed menu/asset sessions.
+
 Goal: implement the recommendations from the multiplayer audit, with full
 production and verification coverage. Workbench T-NETWORKING-011 owns the
 program; T-NETWORKING-010 preserves the original 18-finding audit.
@@ -815,3 +827,58 @@ source manifest plus runner and fixture had identical pre/post SHA-256
 bandwidth remain unmeasured; synchronous archive construction/compression and
 the broader F01-F18 multiplayer acceptance matrix remain open. Mike requested
 pause after this validation; do not start more MP work until resumed.
+
+## 2026-09-26 declined-content admission candidate
+
+The retained red60/89 run exposed a second failure after the extraction error:
+a declined guest received a stage-start packet that excluded its own roster
+identity, then disconnected. Match publishers now use the immutable roster
+committed with SVC_STAGE_START plus current matching room/game state; room
+countdowns and settings retain room scope. The same audience owns baseline,
+cutscene/stage-end and per-frame gameplay buffers. A failed decline send
+leaves consent pending; a successful decline returns idle lobby status and
+suppresses a misleading personal loading countdown. No protocol change.
+
+The new ordinary `mp_content_decline` fixture uses three independent installs:
+host and one guest approve the distributed package; the other guest declines
+through the production consent API and must retain connected lobby state for
+25 seconds plus a later recheck while the admitted pair plays. Autostart peer
+count and explicit decline flag are opt-in test drivers; readiness only reads
+production state. Native/focused/build and actual three-peer proof are pending.
+
+R1 retained RED95/100 (decline) and RED47/96 (co-op) in
+`.claude/smoke-verify-runs/results-20260926T204156Z.json`; frozen 1,934
+files had zero drift, binary1DA4C8F9. The decline guest avoided stage traffic
+and remained until host shutdown, but manifestCheck returned to a caller that
+overrode its synchronous decline with PREPARING. The co-op driver consumed a
+Combat arena published by room creation instead of its requested mission.
+Candidate corrections enter preparation before manifestCheck, reset decline
+on each valid offer, retain the explicit Campaign mission in autostart, and
+route direct GPU swarm sends through the same committed match audience. The
+fixture scenario-count regex is anchored to avoid counting the decline helper.
+Build/focused and both ordinary retries remain pending.
+
+## User-directed pause, 2026-09-26 16:55 ET
+
+2026-09-26 16:55 ET T-NETWORKING-011 PAUSED at Mike's request.
+Current admission/audience source remains uncommitted atop f7e4a7f2. Client
+and tests build; focused141 cases/13,821 assertions and asset-source guard
+pass. Frozen1,934-file source had zero drift, binary29303E81. Runtime receipt
+results-20260926T205515Z.json is RED99/100 for the completed three-install
+case: both accepted players reached gameplay; declining guest passed25s and
+later10s connected-lobby checks and scripted exit. Its sole failed assertion
+forbids the normal disconnect logged during scripted shutdown; retain red and
+correct only the teardown-aware assertion on resume before claiming acceptance.
+The ongoing co-op retry was intentionally stopped (owned PIDs37060/40596),
+so its47/96 is INTERRUPTED, not a current production verdict. Runtime FIFOs
+are released; no builds/runs continue. R1 decline95/100, co-op47/96 and the
+intermediate static-contract failure remain retained. Resume: qualify the
+corrected decline fixture and preserved Campaign mission path, then scoped
+commit/push; continue the full MP plan. Movement authority, relay/WAN,
+migration, real voice/input and wider matrix remain open. No work until resume.
+
+Receipts: `.claude/session-builds/mpfinish0923/mp0926-audience-pause.json`,
+`mp0926-audience-r3-focused.xml`, `mp0926-audience-r2-guard.log`, and
+`.claude/smoke-verify-runs/results-20260926T204156Z.json` (r1).
+Source/static and loopback executable observations are separate from visual,
+audio, physical input, WAN and release acceptance, which remain unclaimed.

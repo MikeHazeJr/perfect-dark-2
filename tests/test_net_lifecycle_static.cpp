@@ -978,7 +978,7 @@ TEST_CASE("NPC replication shares one complete-owner and transactional resync bo
 		REQUIRE(publish.find(writer) != std::string::npos);
 	}
 	const size_t baseline_queue = publish.find(
-		"netSendToRoom(g_NetMatchRoomId, &wire");
+		"netSendToMatch(g_NetMatchRoomId, &wire");
 	const size_t baseline_clear = publish.find(
 		"g_NetPendingResyncFlags &= (u8)~requested", baseline_queue);
 	REQUIRE(baseline_queue != std::string::npos);
@@ -1991,7 +1991,7 @@ TEST_CASE("listen host starts one authoritative local and remote Combat Simulato
     const size_t game_state = start.find("g_NetClients[ci].state = CLSTATE_GAME");
     const size_t stage_validate = start.find("netmsgSvcStageStartValidate()", game_state);
     const size_t stage_write = start.find("netmsgServerStageStartWrite", stage_validate);
-    const size_t stage_send = start.find("netSendToRoom(", stage_write);
+    const size_t stage_send = start.find("netSendToMatch(", stage_write);
     const size_t local_start = start.find("mpStartMatch();", stage_send);
 
     REQUIRE(game_state != std::string::npos);
@@ -3574,7 +3574,7 @@ TEST_CASE("B-1104 ordinary gameplay waits for the real post-load stage barrier",
         "netServerStageReplicationBlocked()");
     const size_t gpu_readback = gpu_send.find("swarmGpuReadbackTextureRows");
     const size_t gpu_broadcast = gpu_send.find(
-        "netSend(NULL, &g_NetMsg, false");
+        "netSendToMatch(g_NetMatchRoomId, &g_NetMsg, false");
     REQUIRE(gpu_barrier != std::string::npos);
     REQUIRE(gpu_readback != std::string::npos);
     REQUIRE(gpu_broadcast != std::string::npos);
@@ -3656,4 +3656,60 @@ TEST_CASE("Listen server publishes its successful bound port before discovery an
     REQUIRE(discovery != std::string::npos);
     REQUIRE(create < failure); REQUIRE(failure < bound); REQUIRE(bound < publish);
     REQUIRE(publish < discovery);
+}
+
+TEST_CASE("Match packets exclude connected room guests outside the committed roster",
+          "[net][distribution][lifecycle][audience][static]")
+{
+    const auto net = read_text_file("port/src/net/net.c");
+    const auto msg = read_text_file("port/src/net/netmsg.c");
+    const auto send = function_definition_block(net, "u32 netSendToMatch(");
+    const auto roster = function_definition_block(msg, "u32 netmsgServerMatchClientMask(");
+    REQUIRE(roster.find("s_CutsceneAuthority.full_client_mask") != std::string::npos);
+    REQUIRE(roster.find("s_CutsceneAuthority.room_id != room_id") != std::string::npos);
+    REQUIRE(send.find("netmsgServerMatchClientMask(room_id)") != std::string::npos);
+    REQUIRE(send.find("!(admitted & (1u << (u32)i))") < send.find("enet_peer_send"));
+    REQUIRE(send.find("cl->state != CLSTATE_GAME") < send.find("enet_peer_send"));
+    REQUIRE(send.find("cl->room_id != room_id") < send.find("enet_peer_send"));
+    const auto flush = function_definition_block(net, "static inline void netFlushSendBuffers(");
+    REQUIRE(flush.find("netSendToMatch(g_NetMatchRoomId, &g_NetMsgRel") != std::string::npos);
+    REQUIRE(flush.find("netSendToMatch(g_NetMatchRoomId, &g_NetMsg,") != std::string::npos);
+    REQUIRE(send.find("g_NetSimPacketLoss") != std::string::npos);
+    const auto distrib = read_text_file("port/src/net/netdistrib.c");
+    const auto decline = function_definition_block(distrib, "s32 netDistribClientResolveConsent(");
+    const auto failure = decline.find("decline could not be sent; consent retained for retry");
+    const auto committed = decline.find("s_ManifestDeclined = 1", failure);
+    REQUIRE(failure != std::string::npos);
+    REQUIRE(committed != std::string::npos);
+    REQUIRE(failure < committed);
+    REQUIRE(decline.find("return 0;", failure) < committed);
+}
+
+TEST_CASE("Manifest consent owns the final local preparation state",
+          "[net][distribution][lifecycle][manifest][static]")
+{
+    const auto msg = read_text_file("port/src/net/netmsg.c");
+    const auto read = function_definition_block(msg, "u32 netmsgSvcMatchManifestRead(");
+    const auto offer = read.find("netDistribClientBeginManifestOffer()");
+    const auto prepare = read.find("g_NetLocalClient->state = CLSTATE_PREPARING");
+    const auto check = read.find("manifestCheck(&g_ClientManifest)");
+    REQUIRE(offer != std::string::npos);
+    REQUIRE(prepare != std::string::npos);
+    REQUIRE(check != std::string::npos);
+    REQUIRE(offer < prepare);
+    REQUIRE(prepare < check);
+    REQUIRE(read.find("CLSTATE_PREPARING", check) == std::string::npos);
+    const auto distrib = read_text_file("port/src/net/netdistrib.c");
+    const auto reset = function_definition_block(distrib, "void netDistribClientBeginManifestOffer(");
+    REQUIRE(reset.find("s_ManifestDeclined = 0") != std::string::npos);
+}
+
+TEST_CASE("Campaign autostart retains its mission across room default publication",
+          "[net][lifecycle][coop][static]")
+{
+    const auto main = read_text_file("port/src/main.c");
+    const auto stage = main.find("const char *stageId = mode == NETGAMEMODE_MP");
+    REQUIRE(stage != std::string::npos);
+    REQUIRE(main.find("? g_MatchConfig.stage_id : g_BootLaunchMpArena", stage) != std::string::npos);
+    REQUIRE(main.find("netLobbyRequestStartWithSims(\n\t\tmode,\n\t\tstageId,", stage) != std::string::npos);
 }
