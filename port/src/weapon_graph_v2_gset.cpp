@@ -29,11 +29,17 @@ struct Slot {
     const void *owner = nullptr;
     uint64_t owner_generation = 0;
     int weapon = 0, function = 0;
+    wg_v2_catalog_entry *entry = nullptr;
     wg_v2_native_bundle *bundle = nullptr;
     const wg_v2_native_action *action = nullptr;
-    ~Slot() { wgV2NativeRelease(bundle); }
-    void assign(wg_v2_native_bundle *b, const wg_v2_native_action *a) {
-        wgV2NativeRetain(b); wgV2NativeRelease(bundle); bundle = b; action = a;
+    ~Slot() { wgV2NativeRelease(bundle); wgV2CatalogEntryRelease(entry); }
+    void assign(wg_v2_catalog_entry *e, wg_v2_native_bundle *b, const wg_v2_native_action *a) {
+        /* The action bundle alone does not own equipped ammo, model or slot
+         * leases. Deferred shot consumers must retain the entire source entry.
+         * Retain both before releasing either, including self-copy/reselection. */
+        wgV2CatalogEntryRetain(e); wgV2NativeRetain(b);
+        wgV2NativeRelease(bundle); wgV2CatalogEntryRelease(entry);
+        entry = e; bundle = b; action = a;
     }
 };
 }
@@ -82,7 +88,8 @@ extern "C" wg_v2_gset_status wgV2GsetLookup(const wg_v2_gsets *r,
     if (!identity(slot)) return WG_V2_GSET_INVALID;
     if (!slot.action) return id ? WG_V2_GSET_UNSELECTED : WG_V2_GSET_BASE;
     const char *mode = slot.function == 0 ? "primary" : slot.function == 1 ? "secondary" : nullptr;
-    if (!id || !slot.bundle || !mode ||
+    if (!id || !slot.entry || !slot.bundle || !mode ||
+            wgV2CatalogEntryProgram(slot.entry) != wgV2NativeProgram(slot.bundle) ||
             std::strcmp(mode, wgV2ProgramMode(wgV2NativeProgram(slot.bundle))) ||
             std::strcmp(id, wgV2ProgramAssetId(wgV2NativeProgram(slot.bundle)))) return WG_V2_GSET_INVALID;
     if (out) *out = slot.action;
@@ -101,7 +108,7 @@ extern "C" int wgV2GsetSelect(wg_v2_gsets *r, wg_v2_gset_token token,
     const char *id = r->classify(r->host, slot->weapon);
     if (!id || std::strcmp(id, wgV2CatalogEntryAssetId(entry)))
         return fail(error, cap, "gset numeric slot does not identify the selected v2 catalog source");
-    slot->assign(bundle, action); return 1;
+    slot->assign(entry, bundle, action); return 1;
 }
 extern "C" int wgV2GsetCopy(wg_v2_gsets *r, wg_v2_gset_token token,
         const struct gset *source, char *error, size_t cap) {
@@ -112,14 +119,23 @@ extern "C" int wgV2GsetCopy(wg_v2_gsets *r, wg_v2_gset_token token,
     const auto status = wgV2GsetLookup(r, source, &action);
     if (status == WG_V2_GSET_INVALID) return fail(error, cap, "gset copy source lacks valid explicit v2 identity");
     wg_v2_native_bundle *bundle = nullptr;
-    if (status == WG_V2_GSET_SELECTED) bundle = r->slots.find(source)->second->bundle;
+    wg_v2_catalog_entry *entry = nullptr;
+    if (status == WG_V2_GSET_SELECTED) {
+        const auto &selected = *r->slots.find(source)->second;
+        bundle = selected.bundle; entry = selected.entry;
+    }
     /* Capture bytes before assignment, permitting a self-copy. Retain precedes
      * release, so two slots already sharing the last bundle ref remain safe. */
     const struct gset bytes = *source;
-    destination->assign(bundle, action);
+    destination->assign(entry, bundle, action);
     *destination->address = bytes;
     destination->weapon = bytes.weaponnum; destination->function = bytes.weaponfunc;
     return 1;
+}
+extern "C" wg_v2_catalog_entry *wgV2GsetSource(const wg_v2_gsets *r,
+        const struct gset *value) {
+    if (wgV2GsetLookup(r, value, nullptr) != WG_V2_GSET_SELECTED) return nullptr;
+    return r->slots.find(value)->second->entry;
 }
 extern "C" void wgV2GsetClose(wg_v2_gsets *r, wg_v2_gset_token token) {
     Slot *slot = findToken(r, token);

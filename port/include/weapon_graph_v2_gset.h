@@ -33,7 +33,9 @@ wg_v2_gset_token wgV2GsetOpen(wg_v2_gsets *, struct gset *, const void *owner,
 int wgV2GsetSelect(wg_v2_gsets *, wg_v2_gset_token, wg_v2_catalog_entry *,
     wg_v2_native_bundle *, const wg_v2_native_action *, char *error, size_t cap);
 /* Copy all four native bytes AND selected immutable bundle/action into an
- * already-open destination lifetime. Base copies clear old action identity.
+ * already-open destination lifetime. Retains the complete source entry (and
+ * thus equipment/model/slot leases), not just its action bundle. Base copies
+ * clear old action identity and release both retained owners.
  * A missing v2 source registration, mismatched identity or foreign token fails
  * without modifying destination. Copies remain valid after source retirement
  * and subsequent hand selection; they never consult the firing hand again. */
@@ -41,6 +43,10 @@ int wgV2GsetCopy(wg_v2_gsets *, wg_v2_gset_token destination,
     const struct gset *source, char *error, size_t cap);
 wg_v2_gset_status wgV2GsetLookup(const wg_v2_gsets *, const struct gset *,
     const wg_v2_native_action **out_action);
+/* Borrowed exact selected source for equipment/ammo consumers. Valid until
+ * this gset is changed or closed, even after catalog retirement. Never returns
+ * the current catalog replacement or an idle/default action's equipment. */
+wg_v2_catalog_entry *wgV2GsetSource(const wg_v2_gsets *, const struct gset *);
 void wgV2GsetClose(wg_v2_gsets *, wg_v2_gset_token);
 void wgV2GsetsRetireOwner(wg_v2_gsets *, const void *owner, uint64_t generation);
 void wgV2GsetsRetireAll(wg_v2_gsets *);

@@ -1,5 +1,13 @@
 # Tasks
 
+2026-09-27 T-MODDING-002 ownership/publication checkpoint: delayed gset copies
+retain whole equipment generations; captured archives prepare both modes with
+one shared model lease; publication is atomic and removed modes reject stale
+candidates. Client/updater/tests builds,108 cases/4,018 assertions and guard pass.
+Next: production catalog activation, explicit idle policy, native model/weapon
+slot ownership, hand dispatch and deferred shot delivery. Full goal stays partial.
+Receipt: context/audits/2026/graph-ownership-2026-09-27.md.
+
 2026-09-27 T-NETWORKING-011 resumed after canonical Workbench recovery.
 Integrated builds,194 focused cases/16,838 assertions and native guard pass.
 Runtime remains red94/101 (missing Needler effects) and90/96 (obsolete spawn

@@ -1,5 +1,17 @@
 # Session Log (Active)
 
+2026-09-27 T-MODDING-002 source window after MP/menu hold release: repaired
+selected-gset retention of complete equipment/model/command source ownership.
+Added all-or-nothing primary/secondary preparation from one captured archive,
+one shared model lease transferred only on success, and atomic publication with
+stale-secondary resurrection fencing. Client/updater/tests builds pass; combined
+explicit graph/c3842 selectors108/4018 and guard0;2010 source paths unchanged.
+First tag-wildcard attempt covered only58/3188 and is superseded by the explicit
+combined selector. No ordinary gameplay or full-goal acceptance. Integration
+seams and remaining work: held-graph-production-seams-2026-09-27.md; receipt:
+context/audits/2026/graph-ownership-2026-09-27.md. Peer menu uses frozen binary for
+its next selector run; peer files and Workbench aggregate data stay unstaged.
+
 2026-09-27 T-NETWORKING-011 resumed; admission/audience checkpoint remains
 partial. Builds,194 focused cases/16,838 assertions and native guard pass.
 Three-install runtime94/101 retains missing Needler effect witnesses; co-op90/96

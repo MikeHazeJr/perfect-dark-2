@@ -1,5 +1,13 @@
 # Modding
 
+September 27 ownership/publication follow-up: selected gset copies retain the
+whole source entry, including equipped ammo/model/command leases. One captured
+archive prepares both graph modes atomically with a shared model lease, and
+complete publication fences removed modes against stale candidates. Builds,
+108 graph/c3842 cases with4,018 assertions and guard pass. Ordinary catalog,
+idle/hand, deferred-shot and native-slot integration remains open. See
+context/audits/2026/graph-ownership-2026-09-27.md.
+
 2026-09-27 resumed after canonical Workbench preflight recovery. The three
 retained c3842 static checks now follow function bodies, shared audio parsing
 and source-derived WAV/MP3/Vorbis metadata. The required cohort also covers all

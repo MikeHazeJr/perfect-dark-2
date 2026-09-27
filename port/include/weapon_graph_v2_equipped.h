@@ -57,6 +57,16 @@ wg_v2_catalog_entry *wgV2EquippedCatalogPrepareArchive(wg_v2_catalog *,
     const char *dependency_sha256, const wg_v2_use *,
     const wg_v2_equipped_model *, wg_v2_native_resolver, void *host,
     wg_v2_equipped **out_equipped, char *error, size_t cap);
+/* Prepare a complete weapon mode set from one captured archive. out_entries
+ * must have two elements; success returns caller-owned primary and optional
+ * secondary entries, ready for wgV2CatalogPublishModes. A failed mode releases
+ * all candidates and leaves the single model lease caller-owned. On success
+ * that lease is shared by both equipment generations and released exactly once
+ * after their final consumer. use.function must be primary (0). */
+int wgV2EquippedCatalogPrepareArchiveModes(wg_v2_catalog *, const char *catalog_id,
+    const void *archive_bytes, uint32_t archive_size, const char *dependency_sha256,
+    const wg_v2_use *, const wg_v2_equipped_model *, wg_v2_native_resolver, void *host,
+    wg_v2_catalog_entry *out_entries[2], char *error, size_t cap);
 #ifdef __cplusplus
 }
 #endif

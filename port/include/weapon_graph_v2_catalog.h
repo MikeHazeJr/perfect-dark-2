@@ -60,6 +60,15 @@ wg_v2_catalog_entry *wgV2CatalogPrepareWithLease(wg_v2_catalog *, const char *ca
 int wgV2CatalogCanPublish(const wg_v2_catalog *, const wg_v2_catalog_entry *,
     char *error, size_t cap);
 int wgV2CatalogPublish(wg_v2_catalog *, wg_v2_catalog_entry *, char *error, size_t cap);
+/* Replace a complete weapon's mode set in one transaction. Primary is required;
+ * NULL secondary removes the previous secondary. All candidates must be fresh,
+ * owned by this catalog, and refer to the same weapon and correct mode. Both
+ * slots change before retirement callbacks. Any failed preflight changes none.
+ * Prepared candidates reserve storage; successful publication allocates none. */
+int wgV2CatalogCanPublishModes(const wg_v2_catalog *, wg_v2_catalog_entry *primary,
+    wg_v2_catalog_entry *secondary, char *error, size_t cap);
+int wgV2CatalogPublishModes(wg_v2_catalog *, wg_v2_catalog_entry *primary,
+    wg_v2_catalog_entry *secondary, char *error, size_t cap);
 wg_v2_catalog_entry *wgV2CatalogAcquire(wg_v2_catalog *, const char *catalog_id);
 /* Exact mode selection. The legacy Acquire entry point selects primary. */
 wg_v2_catalog_entry *wgV2CatalogAcquireFunction(wg_v2_catalog *,

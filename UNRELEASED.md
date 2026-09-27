@@ -1,5 +1,9 @@
 # Unreleased Changes
 
+- Preserve complete equipment ownership for deferred executable-graph shots;
+  prepare and publish primary/secondary modes together from one public archive.
+  Ordinary gameplay integration of executable graphs remains in progress.
+
 - Agent Select reports failed default-preference saves, preserves the previous
   default on a failed toggle, and offers retry after deleted-default cleanup.
   Native focus now owns row activation instead of a competing global Accept.

@@ -1217,3 +1217,20 @@ September 27 resolution: function-body inspection, shared voice registration
 and format-derived conformance checks pass the combined 130-case/9,749-assertion
 cohort; 18 real-archive audio tests and native-source guard pass. Prior red
 receipts remain historical; ordinary graph gameplay is still open.
+
+### 2026-09-27 T-MODDING-002 - Idle admission and deferred shot ownership
+
+Source-confirmed integration gaps, not a reported shipped-v1 regression:
+the prepared v2 weapon's NULL function slots make native function counting and
+idle ammo checks reject before graph admission. Separately, native attack
+debits ammo/sets firing before handsTickAttack performs hit processing; selected
+action lifetime must cover that delayed delivery and all gset snapshots.
+Propagation audit found four gsetPopulateFromCurrentPlayer calls across noise,
+hit calculation and attack dispatch. Full source map and mandatory production
+proof are in context/designs/modding/held-graph-production-seams-2026-09-27.md.
+September 27 ownership repair applied: selected gset copies now retain the
+complete source entry, preventing premature equipped/model/command release.
+Complete captured-archive mode preparation/publication also rejects partial
+replacement and fences removed secondary modes against stale candidates.
+Builds, 108 cases/4,018 assertions and native-source guard pass. Idle admission, ordinary deferred-delivery wiring
+and native slot lifetime remain open; preserve topology and per-hand identity.

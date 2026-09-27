@@ -333,6 +333,12 @@ ammo record for missing source. Client/tests builds and the graph cohort pass
 cohort retains three static-contract failures. See the September 26 preparation
 receipt. Mike requested pause at this boundary; resume only on his instruction.
 
+September 27 update: Mike resumed; the three c3842 static failures are repaired
+and validated in `context/audits/2026/asset-contracts-2026-09-27.md`. The next
+complete production unit must handle both native idle metadata and deferred
+shot delivery. Exact source seams and acceptance requirements are recorded in
+`held-graph-production-seams-2026-09-27.md`; no ordinary v2 gameplay pass exists.
+
 After the current asset correctness batch reaches its validation boundary, prepare
 the first executable held unit as concrete reviewable work, preserving the ownership
 and source-freeze workflow. Keep the entire extraction/use/modding objective visible

@@ -1,5 +1,6 @@
 #include "catch.hpp"
 #include "weapon_graph_v2_equipped.h"
+#include "weapon_graph_v2_gset.h"
 #include "modarchive.h"
 #include <chrono>
 #include <cstring>
@@ -91,6 +92,46 @@ TEST_CASE("v2 equipped validates every action ammo dependency before publication
     f.prepare(settings, false);
     REQUIRE(f.host.models == 0);
     REQUIRE(f.host.acquired == f.host.released);
+}
+
+TEST_CASE("deferred graph shot keeps complete equipment after catalog and hand retirement",
+        "[graph-v2-equipped][graph-v2-gset][modding][pdxxx][c3842]") {
+    Fixture f; char error[512]{}; wg_v2_use use{}; wg_v2_equipped *equipped = nullptr;
+    using Catalog = std::unique_ptr<wg_v2_catalog, decltype(&wgV2CatalogDestroy)>;
+    using Entry = std::unique_ptr<wg_v2_catalog_entry, decltype(&wgV2CatalogEntryRelease)>;
+    using Gsets = std::unique_ptr<wg_v2_gsets, decltype(&wgV2GsetsDestroy)>;
+    Catalog catalog(wgV2CatalogCreate([](void *, const char *, uint64_t) {}, nullptr), wgV2CatalogDestroy);
+    Entry entry(wgV2EquippedCatalogPrepare(catalog.get(), "mod:single", graph, std::strlen(graph), digest, &use,
+        &f.descriptor, digest, settings, std::strlen(settings), &f.model, resolve, &f.host,
+        &equipped, error, sizeof(error)), wgV2CatalogEntryRelease);
+    INFO(error); REQUIRE(entry); REQUIRE(equipped);
+    REQUIRE(wgV2CatalogPublish(catalog.get(), entry.get(), error, sizeof(error)));
+    Gsets copies(wgV2GsetsCreate([](void *, int weapon) -> const char * {
+        return weapon == 100 ? "mod:single" : nullptr;
+    }, nullptr), wgV2GsetsDestroy);
+    REQUIRE(copies);
+    struct gset hand{100, 0, 0, 0}, deferred{}, base{2, 0, 0, 0};
+    const auto h = wgV2GsetOpen(copies.get(), &hand, &hand, 1, error, sizeof(error));
+    const auto d = wgV2GsetOpen(copies.get(), &deferred, &deferred, 2, error, sizeof(error));
+    REQUIRE(h); REQUIRE(d);
+    auto *actions = wgV2EquippedActions(equipped);
+    REQUIRE(wgV2GsetSelect(copies.get(), h, entry.get(), actions, wgV2NativeFind(actions, "shot"), error, sizeof(error)));
+    REQUIRE(wgV2GsetCopy(copies.get(), d, &hand, error, sizeof(error)));
+    REQUIRE(wgV2GsetCopy(copies.get(), d, &deferred, error, sizeof(error))); // self-copy retains before release
+    const auto generation = wgV2CatalogEntryGeneration(entry.get());
+    catalog.reset(); entry.reset(); wgV2GsetClose(copies.get(), h);
+    REQUIRE(f.host.models == 0); REQUIRE(f.host.released == 0);
+    auto *source = wgV2GsetSource(copies.get(), &deferred);
+    REQUIRE(source); REQUIRE(wgV2CatalogEntryGeneration(source) == generation);
+    REQUIRE_FALSE(wgV2CatalogEntryAccepting(source));
+    auto *retained = static_cast<wg_v2_equipped *>(wgV2CatalogEntryLease(source));
+    REQUIRE(wgV2EquippedWeapon(retained)->ammos[0]->clipsize == 13);
+    const int retirement = GENERATE(0, 1, 2);
+    if (retirement == 0) wgV2GsetClose(copies.get(), d);
+    else if (retirement == 1) wgV2GsetsRetireOwner(copies.get(), &deferred, 2);
+    else REQUIRE(wgV2GsetCopy(copies.get(), d, &base, error, sizeof(error)));
+    REQUIRE_FALSE(wgV2GsetSource(copies.get(), &deferred));
+    REQUIRE(f.host.models == 1); REQUIRE(f.host.released == f.host.acquired);
 }
 
 TEST_CASE("v2 equipped two-slot ammo retains independent definitions and null semantics", "[graph-v2-equipped][modding][pdxxx][c3842]") {
@@ -205,6 +246,60 @@ TEST_CASE("v2 captured public archive prepares selected graph and equipment atom
     wgV2CatalogRetireAll(catalog.get()); active.reset(); first.reset(); next.reset(); secondary.reset();
     REQUIRE(f.host.models == 3);
     REQUIRE(f.host.acquired == f.host.released);
+}
+
+TEST_CASE("complete captured graph archive prepares both modes with one shared model owner",
+        "[graph-v2-equipped][graph-v2-catalog][modding][pdxxx][c3842]") {
+    Fixture f; char error[512]{}; wg_v2_use use{};
+    using Catalog = std::unique_ptr<wg_v2_catalog, decltype(&wgV2CatalogDestroy)>;
+    using Entry = std::unique_ptr<wg_v2_catalog_entry, decltype(&wgV2CatalogEntryRelease)>;
+    Catalog catalog(wgV2CatalogCreate([](void *, const char *, uint64_t) {}, nullptr), wgV2CatalogDestroy);
+    auto sources = archiveEntries();
+    const bool secondary = GENERATE(false, true);
+    if (!secondary) sources[0].second = replace(sources[0].second, "secondary_graph=graphs/secondary.json\n", "");
+    auto bytes = snapshot(sources);
+    wg_v2_catalog_entry *prepared[2]{};
+    REQUIRE(wgV2EquippedCatalogPrepareArchiveModes(catalog.get(), "mod:single", bytes.data(),
+        static_cast<u32>(bytes.size()), digest, &use, &f.model, resolve, &f.host, prepared, error, sizeof(error)));
+    INFO(error);
+    Entry primary(prepared[0], wgV2CatalogEntryRelease), alternate(prepared[1], wgV2CatalogEntryRelease);
+    REQUIRE(primary); REQUIRE(static_cast<bool>(alternate) == secondary);
+    REQUIRE(wgV2CatalogCount(catalog.get()) == 0);
+    REQUIRE(wgV2CatalogPublishModes(catalog.get(), primary.get(), alternate.get(), error, sizeof(error)));
+    REQUIRE(wgV2CatalogCount(catalog.get()) == (secondary ? 2 : 1));
+    auto *equipment = static_cast<wg_v2_equipped *>(wgV2CatalogEntryLease(primary.get()));
+    REQUIRE(wgV2EquippedWeapon(equipment)->ammos[0]->clipsize == 13);
+    catalog.reset(); primary.reset();
+    REQUIRE(f.host.models == (secondary ? 0 : 1));
+    if (secondary) {
+        equipment = static_cast<wg_v2_equipped *>(wgV2CatalogEntryLease(alternate.get()));
+        REQUIRE(wgV2EquippedWeapon(equipment)->ammos[0]->clipsize == 13);
+    }
+    alternate.reset(); REQUIRE(f.host.models == 1); REQUIRE(f.host.acquired == f.host.released);
+}
+
+TEST_CASE("failed secondary preparation leaves complete active weapon and caller model lease intact",
+        "[graph-v2-equipped][graph-v2-catalog][modding][pdxxx][c3842]") {
+    Fixture f; char error[512]{}; wg_v2_use use{};
+    using Catalog = std::unique_ptr<wg_v2_catalog, decltype(&wgV2CatalogDestroy)>;
+    Catalog catalog(wgV2CatalogCreate([](void *, const char *, uint64_t) {}, nullptr), wgV2CatalogDestroy);
+    auto sources = archiveEntries(); auto bytes = snapshot(sources);
+    wg_v2_catalog_entry *prior[2]{};
+    REQUIRE(wgV2EquippedCatalogPrepareArchiveModes(catalog.get(), "mod:single", bytes.data(),
+        static_cast<u32>(bytes.size()), digest, &use, &f.model, resolve, &f.host, prior, error, sizeof(error)));
+    REQUIRE(wgV2CatalogPublishModes(catalog.get(), prior[0], prior[1], error, sizeof(error)));
+    const int acquired = f.host.acquired;
+    sources[2].second = "{}"; bytes = snapshot(sources);
+    wg_v2_catalog_entry *failed[2]{prior[0], prior[1]};
+    REQUIRE_FALSE(wgV2EquippedCatalogPrepareArchiveModes(catalog.get(), "mod:single", bytes.data(),
+        static_cast<u32>(bytes.size()), digest, &use, &f.model, resolve, &f.host, failed, error, sizeof(error)));
+    REQUIRE(error[0]); REQUIRE_FALSE(failed[0]); REQUIRE_FALSE(failed[1]);
+    REQUIRE(f.host.models == 0); REQUIRE(f.host.acquired - f.host.released == acquired);
+    for (int mode = 0; mode < 2; ++mode) {
+        auto *current = wgV2CatalogAcquireFunction(catalog.get(), "mod:single", mode);
+        REQUIRE(current == prior[mode]); wgV2CatalogEntryRelease(current); wgV2CatalogEntryRelease(prior[mode]);
+    }
+    catalog.reset(); REQUIRE(f.host.models == 1); REQUIRE(f.host.acquired == f.host.released);
 }
 
 TEST_CASE("v2 archive rejects missing mismatched or unsupported authored sources", "[graph-v2-equipped][modding][pdxxx][c3842]") {

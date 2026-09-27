@@ -90,6 +90,48 @@ TEST_CASE("v2 primary and secondary catalog functions retain and retire independ
     REQUIRE_FALSE(wgV2CatalogEntryAccepting(selectedSecondary.get()));
 }
 
+TEST_CASE("complete graph mode replacement rejects partial updates and retires removed modes",
+        "[graph-v2-draft][graph-v2-catalog][modding][pdxxx][c3842]") {
+    Host h; auto c = registry(h); char error[256]{};
+    auto primary = prepare(c.get(), h), secondary = prepareSecondary(c.get(), h);
+    REQUIRE(wgV2CatalogPublishModes(c.get(), primary.get(), secondary.get(), error, sizeof(error)));
+    auto next = prepare(c.get(), h);
+    REQUIRE_FALSE(wgV2CatalogPublishModes(c.get(), next.get(), secondary.get(), error, sizeof(error)));
+    Entry unchanged(wgV2CatalogAcquire(c.get(), "mod:single"), wgV2CatalogEntryRelease);
+    REQUIRE(unchanged.get() == primary.get()); REQUIRE(h.retired.empty());
+    REQUIRE(wgV2CatalogEntryAccepting(secondary.get()));
+    auto stale_secondary = prepareSecondary(c.get(), h);
+    auto replacement = prepare(c.get(), h);
+    REQUIRE(wgV2CatalogCanPublishModes(c.get(), replacement.get(), nullptr, error, sizeof(error)));
+    REQUIRE(wgV2CatalogPublishModes(c.get(), replacement.get(), nullptr, error, sizeof(error)));
+    REQUIRE(wgV2CatalogCount(c.get()) == 1);
+    REQUIRE(h.retired.size() == 2);
+    REQUIRE_FALSE(wgV2CatalogEntryAccepting(primary.get()));
+    REQUIRE_FALSE(wgV2CatalogEntryAccepting(secondary.get()));
+    REQUIRE_FALSE(wgV2CatalogAcquireFunction(c.get(), "mod:single", 1));
+    REQUIRE_FALSE(wgV2CatalogPublish(c.get(), stale_secondary.get(), error, sizeof(error)));
+    auto fresh_secondary = prepareSecondary(c.get(), h);
+    REQUIRE(wgV2CatalogPublish(c.get(), fresh_secondary.get(), error, sizeof(error)));
+}
+
+TEST_CASE("graph mode replacement validates catalog ownership and mode order before mutation",
+        "[graph-v2-draft][graph-v2-catalog][modding][pdxxx][c3842]") {
+    Host h, foreign_host; auto c = registry(h), foreign = registry(foreign_host);
+    char error[256]{};
+    auto primary = prepare(c.get(), h), secondary = prepareSecondary(c.get(), h);
+    auto foreign_secondary = prepareSecondary(foreign.get(), foreign_host);
+    REQUIRE_FALSE(wgV2CatalogPublishModes(c.get(), primary.get(), foreign_secondary.get(), error, sizeof(error)));
+    REQUIRE_FALSE(wgV2CatalogPublishModes(c.get(), secondary.get(), primary.get(), error, sizeof(error)));
+    REQUIRE_FALSE(wgV2CatalogPublishModes(c.get(), nullptr, secondary.get(), error, sizeof(error)));
+    REQUIRE(wgV2CatalogCount(c.get()) == 0);
+    REQUIRE(h.retired.empty());
+    REQUIRE(wgV2CatalogPublishModes(c.get(), primary.get(), secondary.get(), error, sizeof(error)));
+    auto older_primary = prepare(c.get(), h), newer_secondary = prepareSecondary(c.get(), h);
+    REQUIRE(wgV2CatalogPublish(c.get(), newer_secondary.get(), error, sizeof(error)));
+    REQUIRE_FALSE(wgV2CatalogPublishModes(c.get(), older_primary.get(), nullptr, error, sizeof(error)));
+    REQUIRE(wgV2CatalogCount(c.get()) == 2);
+}
+
 TEST_CASE("v2 catalog accepts extracted base weapon identity without weakening exact ID checks",
         "[graph-v2-draft][graph-v2-catalog]") {
     Host h; auto c = registry(h); REQUIRE(c);

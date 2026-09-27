@@ -175,6 +175,45 @@ extern "C" int wgV2CatalogPublish(wg_v2_catalog *catalog, wg_v2_catalog_entry *e
 extern "C" wg_v2_catalog_entry *wgV2CatalogAcquire(wg_v2_catalog *catalog, const char *id) {
     return wgV2CatalogAcquireFunction(catalog, id, 0);
 }
+extern "C" int wgV2CatalogCanPublishModes(const wg_v2_catalog *catalog,
+        wg_v2_catalog_entry *primary, wg_v2_catalog_entry *secondary,
+        char *error, size_t cap) {
+    if (!primary || primary->function != 0 ||
+            (secondary && (secondary->function != 1 || secondary->id != primary->id))) {
+        fail(error, cap, "v2 mode publication requires primary and matching optional secondary");
+        return 0;
+    }
+    if (!wgV2CatalogCanPublish(catalog, primary, error, cap)) return 0;
+    if (secondary && !wgV2CatalogCanPublish(catalog, secondary, error, cap)) return 0;
+    /* A removed secondary still needs a freshness fence. Otherwise an older
+     * candidate prepared before this complete replacement could resurrect it. */
+    const auto &modes = catalog->slots.find(primary->id)->second;
+    if (!secondary && modes.functions[1].last_published >= wgV2ProgramGeneration(primary->program)) {
+        fail(error, cap, "v2 replacement predates the secondary generation"); return 0;
+    }
+    return 1;
+}
+extern "C" int wgV2CatalogPublishModes(wg_v2_catalog *catalog,
+        wg_v2_catalog_entry *primary, wg_v2_catalog_entry *secondary,
+        char *error, size_t cap) {
+    if (!wgV2CatalogCanPublishModes(catalog, primary, secondary, error, cap)) return 0;
+    auto &modes = catalog->slots.find(primary->id)->second;
+    wg_v2_catalog_entry *next[2]{primary, secondary};
+    wg_v2_catalog_entry *old[2]{modes.functions[0].active, modes.functions[1].active};
+    for (int mode = 0; mode < 2; ++mode) {
+        auto &slot = modes.functions[mode];
+        if (old[mode]) { old[mode]->accepting = false; --catalog->active_count; }
+        slot.active = next[mode];
+        slot.last_published = wgV2ProgramGeneration(next[mode] ? next[mode]->program : primary->program);
+        if (next[mode]) {
+            wgV2CatalogEntryRetain(next[mode]);
+            next[mode]->accepting = true; next[mode]->published_once = true;
+            ++catalog->active_count;
+        }
+    }
+    for (auto *entry : old) if (entry) retireEntry(catalog, entry);
+    return 1;
+}
 extern "C" wg_v2_catalog_entry *wgV2CatalogAcquireFunction(wg_v2_catalog *catalog,
         const char *id, int function) {
     if (!catalog || !id || function < 0 || function > 1) return nullptr;

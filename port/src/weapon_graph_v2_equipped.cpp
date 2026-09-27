@@ -354,3 +354,52 @@ extern "C" wg_v2_catalog_entry *wgV2EquippedCatalogPrepareArchive(wg_v2_catalog 
     catch (...) { if (error && cap) std::snprintf(error, cap, "%s", "equipped archive preparation failed"); }
     return nullptr;
 }
+
+namespace {
+struct SharedModel {
+    void *lease = nullptr;
+    void (*release)(void *) = nullptr;
+    bool owned = false;
+    ~SharedModel() { if (owned) release(lease); }
+};
+using ModelReference = std::shared_ptr<SharedModel>;
+void releaseModelReference(void *v) { delete static_cast<ModelReference *>(v); }
+}
+extern "C" int wgV2EquippedCatalogPrepareArchiveModes(wg_v2_catalog *catalog,
+        const char *id, const void *bytes, uint32_t size, const char *dependencies,
+        const wg_v2_use *use, const wg_v2_equipped_model *model,
+        wg_v2_native_resolver resolver, void *host, wg_v2_catalog_entry *out[2],
+        char *error, size_t cap) {
+    if (error && cap) error[0] = 0;
+    if (out) out[0] = out[1] = nullptr;
+    try {
+        if (!out || !catalog || !catalogId(id) || !bytes || !size || !hash(dependencies) ||
+                !model || !model->lease || !model->release || !use || use->function != 0)
+            bad("complete equipped archive preparation requires primary context and owned model binding");
+        if (!wgV2CheckUse(use, error, cap)) return 0;
+        weapon_graph_archive_descriptor_t descriptor{};
+        if (weaponGraphArchiveReadDescriptorBytes(bytes, size, ASSET_WEAPON, &descriptor, error, cap) != 0) return 0;
+        auto shared = std::make_shared<SharedModel>();
+        shared->lease = model->lease; shared->release = model->release;
+        using Entry = std::unique_ptr<wg_v2_catalog_entry, decltype(&wgV2CatalogEntryRelease)>;
+        Entry candidates[2]{{nullptr, wgV2CatalogEntryRelease}, {nullptr, wgV2CatalogEntryRelease}};
+        const int count = descriptor.secondary_graph[0] ? 2 : 1;
+        for (int mode = 0; mode < count; ++mode) {
+            auto reference = std::make_unique<ModelReference>(shared);
+            auto binding = *model; binding.lease = reference.get(); binding.release = releaseModelReference;
+            auto context = *use; context.function = mode;
+            candidates[mode].reset(wgV2EquippedCatalogPrepareArchive(catalog, id, bytes, size,
+                dependencies, &context, &binding, resolver, host, nullptr, error, cap));
+            if (!candidates[mode]) return 0;
+            reference.release(); // The prepared equipment now owns this reference.
+        }
+        if (!wgV2CatalogCanPublishModes(catalog, candidates[0].get(), candidates[1].get(), error, cap)) return 0;
+        /* Only now does the complete preparation transfer the caller's lease.
+         * Every prior failure destroys references without releasing that lease. */
+        shared->owned = true;
+        out[0] = candidates[0].release(); out[1] = candidates[1].release();
+        return 1;
+    } catch (const std::exception &e) { if (error && cap) std::snprintf(error, cap, "%s", e.what()); }
+    catch (...) { if (error && cap) std::snprintf(error, cap, "%s", "complete equipped archive preparation failed"); }
+    return 0;
+}
