@@ -89,15 +89,21 @@ TEST_CASE("pdvoice localized source is wired through every production registrati
 	const std::string distrib = readVoiceSourceFile("port/src/net/netdistrib.c");
 	const std::string resolver = readVoiceSourceFile("port/src/assetcatalog_load.c");
 	const std::string dialogue = readVoiceSourceFile("port/src/scenario_source_runtime.c");
+	const std::string publicSource = readVoiceSourceFile("port/src/catalog_audio_public_source.cpp");
 
-	for (const std::string *source : { &walker, &scanner, &distrib }) {
-		REQUIRE(source->find("subtitle_file") != std::string::npos);
-		REQUIRE(source->find("locale_en_file") != std::string::npos);
-		REQUIRE(source->find("fallback_locale") != std::string::npos);
-	}
+	// Registration delegates to the shared parser; field literals belong there.
+	// Behavioral candidate tests cover the values copied into the runtime row.
+	REQUIRE(walker.find("assetCatalogRegisterBaseAudioSource(id, file_path, &ini,") != std::string::npos);
+	REQUIRE(scanner.find("catalogAudioPublicSourceParse(source, 1, &parsed)") != std::string::npos);
+	REQUIRE(scanner.find("catalogAudioPublicSourceApply(entry, &parsed)") != std::string::npos);
+	REQUIRE(scanner.find("catalogAudioPublicSourceParse(ini, audio_category != AUDIO_CAT_MUSIC, &audio_public)") != std::string::npos);
+	REQUIRE(scanner.find("catalogAudioPublicSourceApply(e, &audio_public)") != std::string::npos);
+	REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolderDeferred(") != std::string::npos);
+	REQUIRE(distrib.find("assetCatalogRegisterAudioIni(slot->id,") != std::string::npos);
+	for (const char *field : {"subtitle_file", "fallback_locale", "locale_en_file",
+			"locale_fr_file", "locale_de_file", "locale_it_file", "locale_es_file", "locale_ja_file"})
+		REQUIRE(publicSource.find(field) != std::string::npos);
 	REQUIRE(resolver.find("voiceLocaleSelectAudioPath") != std::string::npos);
 	REQUIRE(dialogue.find("voiceLocaleActiveTag") != std::string::npos);
 	REQUIRE(scanner.find("audioCategoryForSection(ini)") != std::string::npos);
-	REQUIRE(distrib.find("distribAudioCategoryForSection(ini)") !=
-		std::string::npos);
 }

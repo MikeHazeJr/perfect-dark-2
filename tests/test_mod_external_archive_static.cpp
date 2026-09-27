@@ -1701,23 +1701,13 @@ TEST_CASE("typed archive source path qualification covers strict archive members
           "[modding][pdxxx][c3842][source][static]") {
 	const std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	const std::string pathContract = readFile("port/include/asset_path_contract.h");
-	const auto typedStart = scanner.find("static s32 qualifyTypedArchiveSourcePaths");
-	const auto typedEnd = scanner.find("/* ========================================================================\n * Component Registration", typedStart);
-	const auto folderStart = scanner.find("static s32 qualifyIniSourcePaths");
-	const auto folderEnd = scanner.find("static s32 archiveInnerPathIsSafe", folderStart);
-	const auto archiveStart = scanner.find("static s32 qualifyArchiveIniPaths");
-	const auto archiveEnd = scanner.find("#endif", archiveStart);
-
-	REQUIRE(typedStart != std::string::npos);
-	REQUIRE(typedEnd != std::string::npos);
-	REQUIRE(folderStart != std::string::npos);
-	REQUIRE(folderEnd != std::string::npos);
-	REQUIRE(archiveStart != std::string::npos);
-	REQUIRE(archiveEnd != std::string::npos);
-
-	const std::string typedBlock = scanner.substr(typedStart, typedEnd - typedStart);
-	const std::string folderBlock = scanner.substr(folderStart, folderEnd - folderStart);
-	const std::string archiveBlock = scanner.substr(archiveStart, archiveEnd - archiveStart);
+	// Inspect each function, independent of checkout newlines or nearby comments.
+	const auto typedBlock = sourceFunctionBlock(scanner,
+		"static s32 qualifyTypedArchiveSourcePaths");
+	const auto folderBlock = sourceFunctionBlock(scanner,
+		"static s32 qualifyIniSourcePaths");
+	const auto archiveBlock = sourceFunctionBlock(scanner,
+		"static s32 qualifyArchiveIniPaths");
 	const char *requiredKeys[] = {
 		"\"scenario_archive\"",
 		"\"mesh_archive\"",

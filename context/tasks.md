@@ -9,15 +9,14 @@ Retain first runtime red60/89 and native PDCA red6 receipts. Next is the
 source-confirmed declined-content room audience defect; movement authority,
 third peer/fault matrix, relay/WAN, migration and device/audio gates remain open.
 
-2026-09-26 asset goal paused at Mike's request after the current validation.
-T-MODDING-002 captured-archive equipped preparation and complete ammo-reference
-validation pass client/tests builds, 59 graph cases/1,057 assertions and the
-native-source guard. Required c3842 cohort remains red: 3 static-contract
-failures across 52 cases/2,825 assertions. See the graph preparation receipt in
-context/audits/2026/graph-preparation-2026-09-26.md. On explicit resume, repair
-the remaining validation contracts, then implement ordinary catalog publication,
-per-hand input/admission/native lifecycle and selected-action retirement.
-Full closure-plan scope remains unchanged; no ordinary graph gameplay proof.
+2026-09-27 asset goal resumed after canonical Workbench recovery. All three
+retained c3842 static failures are resolved against current source contracts.
+Isolated tests build, combined asset/graph/audio 130 cases/9,749 assertions,
+18 Python archive audio tests and native-source guard pass, with zero drift
+across 2,083 compiled/test files. Receipt: context/audits/2026/asset-contracts-2026-09-27.md.
+Next: ordinary catalog publication, per-hand input/admission/native lifecycle
+and selected-action retirement. Full closure-plan scope remains unchanged;
+no ordinary executable graph gameplay proof yet.
 
 2026-09-23 T-MENUS-003/004/006 and T-INPUT-006/007/008 pause checkpoint:
 Mike requested that the current menu unit finish validation, commit, and

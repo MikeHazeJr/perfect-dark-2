@@ -674,26 +674,19 @@ TEST_CASE("asset native-source guard is tracked by tests and source docs",
 	REQUIRE(conformance.find("total.errors[:max_errors]") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("more error(s)") != std::string::npos);
-	REQUIRE(conformance.find("AUDIO_WAV_NATIVE_FIELDS") !=
-	        std::string::npos);
 	REQUIRE(conformance.find("validate_audio_source_contract") !=
 	        std::string::npos);
-	REQUIRE(conformance.find("missing WAV playback metadata fields") !=
+	// Intrinsic format/rate/frame counts come from the selected public bytes.
+	// Real archive positives and corruptions live in test_audio_source_conformance.py.
+	REQUIRE(conformance.find("parse_selected_audio_source(label, source, zf.read(source), errors)") !=
 	        std::string::npos);
-	REQUIRE(conformance.find("file_path = sample.wav") !=
+	REQUIRE(conformance.find("validate_audio_playback_controls(label, descriptor, descriptor_values, metadata, errors)") !=
 	        std::string::npos);
-	REQUIRE(conformance.find("AUDIO_WAV_MANIFEST_FIELDS") !=
+	REQUIRE(conformance.find("validate_audio_native_provenance(label, descriptor, descriptor_values, manifest_values, errors)") !=
 	        std::string::npos);
-	REQUIRE(conformance.find("parse_wav_source_metadata") !=
-	        std::string::npos);
-	REQUIRE(conformance.find("sample.wav must be a RIFF/WAVE file") !=
-	        std::string::npos);
-	REQUIRE(conformance.find("must be mono for native SFX/voice parity") !=
-	        std::string::npos);
-	REQUIRE(conformance.find("not match sample.wav rate") !=
-	        std::string::npos);
-	REQUIRE(conformance.find("does not match sample.wav frame count") !=
-	        std::string::npos);
+	for (const char *parser : {"parse_wav_source_metadata", "parse_mp3_source_metadata",
+			"parse_vorbis_source_metadata"})
+		REQUIRE(conformance.find(parser) != std::string::npos);
 	REQUIRE(conformance.find("SONG_SEQUENCE_NATIVE_FIELDS") !=
 	        std::string::npos);
 	REQUIRE(conformance.find("validate_song_source_contract") !=

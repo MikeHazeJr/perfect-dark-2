@@ -1190,3 +1190,7 @@ secondary-slot, missing-slot, gate, and rollback tests pass in the 59-case,
 Separate required c3842 static checks remain red on scanner comment/newline
 matching, centralized voice registration, and superseded WAV metadata wording;
 retain the failures until their current production contracts are tested.
+September 27 resolution: function-body inspection, shared voice registration
+and format-derived conformance checks pass the combined 130-case/9,749-assertion
+cohort; 18 real-archive audio tests and native-source guard pass. Prior red
+receipts remain historical; ordinary graph gameplay is still open.

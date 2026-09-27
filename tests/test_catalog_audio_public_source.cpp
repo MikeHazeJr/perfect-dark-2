@@ -146,7 +146,7 @@ TEST_CASE("public sample keymap preserves packed native bytes without MIDI range
 }
 
 TEST_CASE("public voice metadata and declared companions share the source candidate",
-        "[audio][source][voice][T-ASSETS-046]")
+        "[audio][source][voice][T-ASSETS-046][modding][pdxxx][c3842]")
 {
     auto ini = source();
     pair(ini, "actor", "Edited actor");
@@ -154,7 +154,12 @@ TEST_CASE("public voice metadata and declared companions share the source candid
     pair(ini, "language", "en");
     pair(ini, "context", "greeting");
     pair(ini, "subtitle_file", "archive.pdvoice::subtitle.json");
-    pair(ini, "locale_fr_file", "archive.pdvoice::locales/fr.ogg");
+    const char *locales[] = {"en", "fr", "de", "it", "es", "ja"};
+    for (const char *locale : locales) {
+        const auto key = std::string("locale_") + locale + "_file";
+        const auto path = std::string("archive.pdvoice::locales/") + locale + ".ogg";
+        pair(ini, key.c_str(), path.c_str());
+    }
     pair(ini, "fallback_locale", "en");
     catalog_audio_public_source_t parsed;
     REQUIRE(catalogAudioPublicSourceParse(&ini, 1, &parsed) == 1);
@@ -164,7 +169,21 @@ TEST_CASE("public voice metadata and declared companions share the source candid
     REQUIRE(std::string(row->ext.audio.voice_actor) == "Edited actor");
     REQUIRE(std::string(row->ext.audio.voice_transcript) == "Public words");
     REQUIRE(std::string(row->ext.audio.subtitle_file) == "archive.pdvoice::subtitle.json");
-    REQUIRE(std::string(row->ext.audio.locale_audio_files[1]) == "archive.pdvoice::locales/fr.ogg");
+    REQUIRE(std::string(row->ext.audio.voice_language) == "en");
+    REQUIRE(std::string(row->ext.audio.voice_context) == "greeting");
+    REQUIRE(std::string(row->ext.audio.fallback_locale) == "en");
+    for (int i = 0; i < 6; ++i)
+        REQUIRE(std::string(row->ext.audio.locale_audio_files[i]) ==
+            std::string("archive.pdvoice::locales/") + locales[i] + ".ogg");
+
+    // A replacement omitting optional companions must retire the prior values.
+    const auto replacement = source();
+    REQUIRE(catalogAudioPublicSourceParse(&replacement, 1, &parsed) == 1);
+    catalogAudioPublicSourceApply(row.get(), &parsed);
+    REQUIRE(row->ext.audio.subtitle_file[0] == '\0');
+    REQUIRE(row->ext.audio.fallback_locale[0] == '\0');
+    for (const auto &path : row->ext.audio.locale_audio_files)
+        REQUIRE(path[0] == '\0');
 }
 
 TEST_CASE("private native audio identity uses complete strict JSON and bounded integers",

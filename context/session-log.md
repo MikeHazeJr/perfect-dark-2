@@ -1,5 +1,16 @@
 # Session Log (Active)
 
+2026-09-27 T-MODDING-002 resumed after canonical Workbench recovery. Repaired
+three stale c3842 contracts without changing production behavior: function-body
+inspection replaces newline-sensitive delimiters, voice checks follow shared
+public parsing, and audio conformance checks follow source-derived format data.
+Behavioral coverage verifies six voice locales, fallback, and clearing old
+companions on replacement. Isolated tests build and combined 130 cases/9,749
+assertions pass; Python real-archive audio18 and native-source guard pass.
+Source receipt covers 2,083 unchanged files. No ordinary v2 gameplay acceptance;
+next is catalog/equipped/hand/action-copy/retirement integration. Detailed receipt:
+context/audits/2026/asset-contracts-2026-09-27.md. Peer MP/menu changes preserved.
+
 2026-09-26 T-NETWORKING-011 resumed and completed a bounded content unit:
 connection-bound FIFO admission, duplicate coalescing, explicit queue budgets
 and reset cancellation. A red ordinary pair60/89 and native PDCA red6 exposed

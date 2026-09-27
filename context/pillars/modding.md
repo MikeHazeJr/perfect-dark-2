@@ -1,5 +1,15 @@
 # Modding
 
+2026-09-27 resumed after canonical Workbench preflight recovery. The three
+retained c3842 static checks now follow function bodies, shared audio parsing
+and source-derived WAV/MP3/Vorbis metadata. The required cohort also covers all
+six voice locale mappings, fallback, and stale-companion removal on replacement.
+The isolated tests build and combined 130 cases/9,749 assertions pass, as do
+18 real-archive Python audio tests and the native-source guard. All 2,083
+recorded compiled/test sources stayed unchanged. The three September 26 static
+failures are resolved; ordinary equipped graph catalog/hand integration remains
+the next production task. Receipt: context/audits/2026/asset-contracts-2026-09-27.md.
+
 2026-09-26 D-006A preparation batch applied, paused by Mike: captured public
 weapon archives now supply descriptor, selected primary/secondary graph,
 settings and canonical source hash to one equipped catalog candidate. Explicit
