@@ -1,5 +1,37 @@
 # Session Log (Active)
 
+2026-09-27 T-MENUS-003 follow-up r3: copied/deleted Agent rows now request
+native focus plus scrolling; context-menu Load is deferred until End, like
+row Load. Client/tests builds and broad234/9745 pass,1916source diff0.
+Receipt .claude/menu0927/validation-r3.json maps client805E2213/testsF9031B30.
+Ordinary virtual-controller Agent journey was refused before launch by B-801:
+923MB commit available against2048MB floor. No controller event fired; the
+process-local SDL exclusion was restored and runtime lane released. Desktop
+foreground probe was nonzero, so the old foreground-zero blocker has changed.
+Console: .claude/menu0927/virtual-agent-r3-console.log. A verified immutable
+1916-file source snapshot is preserved with r3 so graph work can continue.
+Menu edits overlapped the peer multiplayer source hold; owner was notified
+immediately after the late queue check, with durable N-0236. Peer runtime
+must retain that drift rather than claim live-source stability. No additional
+product changes while the shared hold remained active. The hold is now released.
+Full18-failure receipt
+and all ordinary/physical/menu-matrix acceptance gaps remain open.
+
+2026-09-27 T-MENUS-003 resumed and reviewed the delayed Agent Select patch.
+Canonical Workbench and coordination are healthy; N-0231 was incorporated.
+Agent default toggles roll back on configSave failure; deleted-default cleanup
+exposes explicit Retry. Native row focus/activation replaces the conflicting
+manual index movement/global Accept; row transitions occur after ImGui End.
+Client/tests builds pass. Focused98/5091, broad234/9742 and real Settings-save
+11/123 pass. Initial broad red2/9670 retained as stale global-Accept guards;
+corrected guards pass. Full suite remains red18/140071 over1817 cases.
+Receipt: .claude/menu0927/validation.json; 1916 native/build source hashes
+unchanged through final validation, while peer commit8cd8f800 advanced HEAD.
+No Agent-renderer failure injection or ordinary/physical walkthrough accepted.
+Next: restore focus to copied/deleted rows, defer context-menu Load, validate
+Retry/scrolling and Agent create/cancel with ordinary client, then complete
+the remaining reachable menu matrix and device gates. Full goal remains active.
+
 2026-09-27 T-MODDING-002 resumed after canonical Workbench recovery. Repaired
 three stale c3842 contracts without changing production behavior: function-body
 inspection replaces newline-sensitive delimiters, voice checks follow shared

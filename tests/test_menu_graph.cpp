@@ -282,10 +282,12 @@ TEST_CASE("menu action helpers replace priority navigation and tab polling", "[i
     REQUIRE(agent.find("#include \"pdgui_nav.h\"") != std::string::npos);
     REQUIRE(stats.find("#include \"pdgui_nav.h\"") != std::string::npos);
 
-    REQUIRE(agentRender.find("pdguiMenuAcceptPressed()") != std::string::npos);
+    REQUIRE(agentRender.find("ImGui::Selectable(") != std::string::npos);
+    REQUIRE(agentRender.find("pdguiMenuAcceptPressed()") == std::string::npos);
     REQUIRE(agentRender.find("pdguiMenuCancelPressed()") != std::string::npos);
-    REQUIRE(agentRender.find("pdguiMenuDownRepeat()") != std::string::npos);
-    REQUIRE(agentRender.find("pdguiMenuUpRepeat()") != std::string::npos);
+    REQUIRE(agentRender.find("pdguiMenuDownRepeat()") == std::string::npos);
+    REQUIRE(agentRender.find("pdguiMenuUpRepeat()") == std::string::npos);
+    REQUIRE(agentRender.find("ImGui::IsItemFocused()") != std::string::npos);
     requireNoRawMenuShortcutPolling(agentRender);
     requireNoRawMenuNavigationPolling(agentRender);
 
@@ -1895,7 +1897,8 @@ TEST_CASE("Agent popup requests open in the parent scope that renders them",
     REQUIRE(confirmOpens[0] < confirmBegin);
     REQUIRE(confirmBegin < render.rfind("ImGui::End();"));
     REQUIRE(render.find("!confirmActive &&") == std::string::npos);
-    REQUIRE(render.find("!agentChildOpen && pdguiMenuAcceptPressed()") != std::string::npos);
+    REQUIRE(render.find("if (!agentChildOpen && requestCreate)") != std::string::npos);
+    REQUIRE(render.find("else if (requestedLoad[0] && (!agentChildOpen || requestLoadFromContext))") != std::string::npos);
     REQUIRE(render.find("!agentChildOpen && pdguiMenuCancelPressed()") != std::string::npos);
     // Each popup suppresses its opening gesture before submitting its body.
     // Other graph transitions may also suppress activation (including Back).
@@ -1986,11 +1989,21 @@ TEST_CASE("Cinema keeps footer selection and dispatches a single native outcome"
     REQUIRE(render.find("if (wantClose)", render.rfind("ImGui::End();")) < render.find("else if (selectedCutscene >= 0)"));
 }
 
-TEST_CASE("Agent Select resolves Back before accepting a profile", "[input][menu_graph][remaining_navigation][static]")
+TEST_CASE("Agent Select gives native focus activation authority and defers transitions", "[input][menu_graph][remaining_navigation][static]")
 {
     const std::string render = functionBlock(readTextFile("port/fast3d/pdgui_menu_agentselect.cpp"), "renderAgentSelect");
     REQUIRE_FALSE(render.empty());
-    REQUIRE(render.find("if (!agentChildOpen && pdguiMenuCancelPressed())") < render.find("if (!agentChildOpen && pdguiMenuAcceptPressed())"));
+    REQUIRE(render.find("pdguiMenuAcceptPressed()") == std::string::npos);
+    REQUIRE(render.find("pdguiMenuDownRepeat()") == std::string::npos);
+    REQUIRE(render.find("pdguiMenuUpRepeat()") == std::string::npos);
+    REQUIRE(render.find("ImGui::IsItemFocused()") != std::string::npos);
+    REQUIRE(render.find("ImGui::SetItemDefaultFocus()") != std::string::npos);
+    REQUIRE(render.find("if (!agentChildOpen && pdguiMenuCancelPressed())") < render.find("ImGui::Selectable("));
+    REQUIRE(render.rfind("ImGui::End();") < render.find("if (!agentChildOpen && requestCreate)"));
+    REQUIRE(render.rfind("ImGui::End();") < render.find("else if (requestedLoad[0] && (!agentChildOpen || requestLoadFromContext))"));
+    REQUIRE(render.find("const s32 restoreFocusIndex = s_FocusListPending ? s_SelectedIdx : -1;") != std::string::npos);
+    REQUIRE(render.find("if (i == restoreFocusIndex) ImGui::SetKeyboardFocusHere();") < render.find("ImGui::Selectable("));
+    REQUIRE(render.find("if (i == restoreFocusIndex) ImGui::SetScrollHereY();") != std::string::npos);
 }
 
 TEST_CASE("Social shell evaluates Back in its windows and retains child ownership", "[input][menu_graph][remaining_navigation][static]")

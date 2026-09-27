@@ -1,5 +1,15 @@
 # Bug Tracker
 
+Sep27 T-MENUS-003 Agent Select candidate: default toggles and deleted-default
+cleanup ignored configSave failure, displaying success without persistence.
+All three call sites now check the result; toggles roll back and deletion
+cleanup exposes Retry. Propagation audit also found manual Up/Down and global
+Accept competing with native Selectable focus. Candidate uses native row
+activation/focus and defers graph transitions until End. Client/tests build and
+broad234/9745 pass; actual Agent renderer failure injection and physical-device
+validation remain pending. Ordinary virtual journey stopped before launch at
+the B-801 memory guard (923MB available commit); no input acceptance is claimed.
+
 2026-09-26 T-NETWORKING-011 declined-content stage audience remains open:
 the red distribution run logged a guest DECLINE, then a malformed stage message
 and disconnect. Source confirms readyGateCompactDeclinedRoster restores the

@@ -1,5 +1,18 @@
 # Tasks
 
+Sep27 menu goal resumed. T-MENUS-003 Agent Select default-save failure and
+native-focus candidate is applied, with current source-contract expectations
+updated. Next: actual Agent save-failure/retry and focus/scroll journeys, then
+remaining menu matrix. Builds pass; final r3 broad234/9745 and real-save11/123
+pass. Full suite stays red
+18/140071; original broad red2/9670 retained. See .claude/menu0927/validation.json.
+Copied/deleted row focus and context-menu Load dispatch are repaired and built.
+Ordinary Agent journey was refused before launch by B-801 memory guard
+(923MB available commit,2048MB floor); no input ran. Retry only after adequate
+headroom. r3 receipt: .claude/menu0927/validation-r3.json. Native sources are
+preserved under .claude/menu0927/source-snapshot-r3 for the805E2213 binary.
+The Sep23 full red and unverified physical/controller/MKB gates remain open.
+
 2026-09-26 T-NETWORKING-011 resumed: connection-bound, deduplicated and
 bounded transfer admission plus missing-directory-suffix extraction repair
 pass isolated client/tests builds, 80 focused cases/12,431 assertions and the

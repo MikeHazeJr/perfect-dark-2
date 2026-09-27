@@ -1,5 +1,24 @@
 # Menus / UI / UX
 
+Sep27 T-MENUS-003 resumed after canonical Workbench recovery. Agent Select's
+default preference toggles now restore the prior selection if configSave fails;
+deleted-default cleanup retains a visible, explicit Retry. Row activation is
+native ImGui navigation, with highlighted selection following focus and graph
+transitions deferred until the window closes. This removes the global Accept
+path that could load an Agent while Retry was focused. Source candidate only:
+failure injection, ordinary journeys and device acceptance remain pending.
+Isolated client/tests builds pass, broad234 cases/9742 assertions and real
+Settings/config-save11/123 pass. Full1817-case suite remains red18/140071.
+The real save suite does not exercise Agent Select's Retry renderer. Receipt:
+.claude/menu0927/validation.json. Copy/delete focus restoration and context-menu
+Load dispatch are now connected: one pending focus request preserves the target
+through row traversal, scrolls it into view, and context Load joins post-End
+dispatch. r3 client/tests builds and broad234/9745 pass with1916 source hashes
+unchanged (.claude/menu0927/validation-r3.json). Ordinary-client verification
+was refused before launch by B-801 memory guard (923MB available commit against
+2048MB minimum); no runtime/device acceptance follows. Frozen source snapshot
+preserved for805E2213 while other sessions proceed with canonical source work.
+
 Sep23 T-MENUS-003: Mike retired the Room Level Editor tab after source audit
 showed Spawn at Camera only appended UI rows with a fixed fake camera. Room now
 exposes its three live mode tabs; its dead editor state/renderers are removed.

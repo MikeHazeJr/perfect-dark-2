@@ -117,6 +117,7 @@ static s32 agentSelectGraphLoad(void *userdata)
 
 static s32 s_SelectedIdx = 0;
 static s32 s_PrevSelectedIdx = -1;
+static bool s_FocusListPending = false;
 static bool s_Registered = false;
 static struct agentprofilesummary s_Profiles[AGENT_PROFILE_CAPACITY];
 static s32 s_ProfileCount = 0;
@@ -125,6 +126,7 @@ static bool s_ProfileListInitialized = false;
 static char s_DefaultAgentName[AGENT_PROFILE_NAME_MAX] = {0};
 static bool s_DefaultAgentConfigured = false;
 static bool s_AutoLoadTriggered = false;
+static bool s_DefaultCleanupPending = false;
 
 /* Confirmation prompt state — M-4 (2026-04-19): upgraded from inline dimmed
  * overlay to BeginPopupModal. Delete defaults to Cancel focus (destructive),
@@ -155,6 +157,24 @@ static s32 findProfileByName(const char *name)
         if (strcmp(s_Profiles[i].name, name) == 0) return i;
     }
     return -1;
+}
+
+static void toggleDefaultAgent(const char *name)
+{
+    char previous[sizeof(s_DefaultAgentName)];
+    memcpy(previous, s_DefaultAgentName, sizeof(previous));
+    if (strcmp(s_DefaultAgentName, name) == 0) s_DefaultAgentName[0] = '\0';
+    else snprintf(s_DefaultAgentName, sizeof(s_DefaultAgentName), "%s", name);
+    if (!configSave("pd.ini")) {
+        memcpy(s_DefaultAgentName, previous, sizeof(s_DefaultAgentName));
+        snprintf(s_StatusMessage, sizeof(s_StatusMessage),
+                 "Could not save the default Agent. Previous selection retained; try again.");
+        pdguiPlaySound(PDGUI_SND_ERROR);
+        return;
+    }
+    s_DefaultCleanupPending = false;
+    s_StatusMessage[0] = '\0';
+    pdguiPlaySound(PDGUI_SND_SELECT);
 }
 
 static void refreshAgentProfiles(bool force)
@@ -358,6 +378,16 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.55f, 1.0f),
                            "%s", s_StatusMessage);
     }
+    if (s_DefaultCleanupPending) {
+        ImGui::TextWrapped("Agent deleted, but its default preference could not be saved.");
+        ImGui::BeginDisabled(pdguiMenuCancelPressed());
+        if (ImGui::Button("Retry saving default preference")) {
+            s_DefaultCleanupPending = !configSave("pd.ini");
+            pdguiPlaySound(s_DefaultCleanupPending ? PDGUI_SND_ERROR : PDGUI_SND_SELECT);
+            pdguiNavSuppressActivation();
+        }
+        ImGui::EndDisabled();
+    }
     ImGui::Separator();
 
     /* Defer popup opens until the agent window's ID scope. A context menu
@@ -380,28 +410,11 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         menuGraphFirePop(MENU_TYPE_AGENT_SELECT, "back");
         return 1;
     }
-    /* Menu Accept = load/select — disabled while confirm modal is open so
-     * the modal owns input. */
-    if (!agentChildOpen && pdguiMenuAcceptPressed()) {
-        if (s_SelectedIdx == s_ProfileCount) {
-            pdguiPlaySound(PDGUI_SND_SELECT);
-            /* B-124 / S300: pop owned ctx before transitioning away */
-            menupoolReleaseDialog(menupoolDialogDef(dialog));
-            menuGraphFirePushDialog(MENU_TYPE_AGENT_SELECT, "create",
-                &g_FilemgrEnterNameMenuDialog);
-        } else if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
-            pdguiPlaySound(PDGUI_SND_SELECT);
-            AgentSelectLoadPayload payload = {{0}, menupoolDialogDef(dialog)};
-            snprintf(payload.name, sizeof(payload.name), "%s",
-                     s_Profiles[s_SelectedIdx].name);
-            menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load",
-                agentSelectGraphLoad, &payload);
-        }
-        /* A graph transition must not also activate this frame's list row. */
-        pdguiNavSuppressActivation();
-        ImGui::End();
-        return 1;
-    }
+    /* Native Selectable activation owns Accept. Dispatch only after End so
+     * a focused Retry button cannot also load the highlighted Agent. */
+    bool requestCreate = false;
+    bool requestLoadFromContext = false;
+    char requestedLoad[AGENT_PROFILE_NAME_MAX] = {0};
     /* X / C / right-click on row = open context menu (Mike directive
      * 2026-05-17 + menu-input-interaction-grammar Rule 5 X-context).
      * Items inside the popup: Load, Copy, Delete, Set Default, Cancel.
@@ -431,25 +444,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     if (!agentChildOpen && pdguiMenuTertiaryPressed()) {
         if (s_SelectedIdx >= 0 && s_SelectedIdx < s_ProfileCount) {
             const char *name = s_Profiles[s_SelectedIdx].name;
-            if (strcmp(s_DefaultAgentName, name) == 0) {
-                s_DefaultAgentName[0] = '\0';
-            } else {
-                snprintf(s_DefaultAgentName, sizeof(s_DefaultAgentName), "%s", name);
-            }
-            configSave("pd.ini");
-            pdguiPlaySound(PDGUI_SND_SELECT);
+            toggleDefaultAgent(name);
         }
-    }
-    /* Arrow key navigation for MKB — frozen while modal is open. */
-    if (!agentChildOpen && pdguiMenuDownRepeat()) {
-        s_SelectedIdx++;
-        if (s_SelectedIdx >= totalEntries) s_SelectedIdx = 0;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
-    }
-    if (!agentChildOpen && pdguiMenuUpRepeat()) {
-        s_SelectedIdx--;
-        if (s_SelectedIdx < 0) s_SelectedIdx = totalEntries - 1;
-        pdguiPlaySound(PDGUI_SND_FOCUS);
     }
 
     /* ================================================================
@@ -471,20 +467,23 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     float rowH = 64.0f * scale;
 
     if (ImGui::BeginChild("##agent_list", ImVec2(0, listH), true, 0)) {
+        const s32 restoreFocusIndex = s_FocusListPending ? s_SelectedIdx : -1;
         for (s32 i = 0; i < totalEntries; i++) {
             bool isSelected = (i == s_SelectedIdx);
 
             ImGui::PushID(i);
+            if (i == restoreFocusIndex) ImGui::SetKeyboardFocusHere();
 
             if (i == s_ProfileCount) {
                 if (ImGui::Selectable("  + New Agent...", isSelected,
                                       ImGuiSelectableFlags_None,
                                       ImVec2(0, 40.0f * scale))) {
                     pdguiPlaySound(PDGUI_SND_SELECT);
-                    menuGraphFirePushDialog(MENU_TYPE_AGENT_SELECT, "create",
-                        &g_FilemgrEnterNameMenuDialog);
+                    requestCreate = true;
                 }
-                if (ImGui::IsItemHovered()) s_SelectedIdx = i;
+                if (isSelected) ImGui::SetItemDefaultFocus();
+                if (!s_FocusListPending && !agentChildOpen && (ImGui::IsItemHovered() || ImGui::IsItemFocused()))
+                    s_SelectedIdx = i;
             } else {
                 const struct agentprofilesummary *profile = &s_Profiles[i];
                 const char *name = profile->name;
@@ -513,12 +512,11 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                                       ImGuiSelectableFlags_AllowDoubleClick,
                                       ImVec2(0, rowH))) {
                     pdguiPlaySound(PDGUI_SND_SELECT);
-                    AgentSelectLoadPayload payload = {{0}, NULL};
-                    snprintf(payload.name, sizeof(payload.name), "%s", name);
-                    menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load",
-                        agentSelectGraphLoad, &payload);
+                    snprintf(requestedLoad, sizeof(requestedLoad), "%s", name);
                 }
-                if (ImGui::IsItemHovered()) s_SelectedIdx = i;
+                if (isSelected) ImGui::SetItemDefaultFocus();
+                if (!s_FocusListPending && !agentChildOpen && (ImGui::IsItemHovered() || ImGui::IsItemFocused()))
+                    s_SelectedIdx = i;
 
                 /* Right-click on this row opens the per-row context
                  * menu (parallel path to controller X / keyboard C).
@@ -591,8 +589,10 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                 dl->AddText(ImVec2(textX, lineY), IM_COL32(140, 140, 160, 180), timeLine);
             }
 
+            if (i == restoreFocusIndex) ImGui::SetScrollHereY();
             ImGui::PopID();
         }
+        s_FocusListPending = false;
     }
     ImGui::EndChild();
 
@@ -616,10 +616,8 @@ static s32 renderAgentSelect(struct menudialog *dialog,
 
         if (ImGui::MenuItem("Load")) {
             ImGui::CloseCurrentPopup();
-            AgentSelectLoadPayload payload = {{0}, NULL};
-            snprintf(payload.name, sizeof(payload.name), "%s", cname);
-            menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load",
-                agentSelectGraphLoad, &payload);
+            snprintf(requestedLoad, sizeof(requestedLoad), "%s", cname);
+            requestLoadFromContext = true;
             pdguiPlaySound(PDGUI_SND_SELECT);
         }
         if (ImGui::MenuItem("Copy")) {
@@ -641,10 +639,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         const bool isDefault = (strcmp(cname, s_DefaultAgentName) == 0);
         if (ImGui::MenuItem(isDefault ? "Clear Default Agent" : "Set as Default Agent")) {
             ImGui::CloseCurrentPopup();
-            if (isDefault) s_DefaultAgentName[0] = '\0';
-            else snprintf(s_DefaultAgentName, sizeof(s_DefaultAgentName), "%s", cname);
-            configSave("pd.ini");
-            pdguiPlaySound(PDGUI_SND_SELECT);
+            toggleDefaultAgent(cname);
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Cancel")) {
@@ -875,15 +870,16 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                     if (agentSessionDelete(deletedName) == 0) {
                         if (strcmp(s_DefaultAgentName, deletedName) == 0) {
                             s_DefaultAgentName[0] = '\0';
-                            configSave("pd.ini");
+                            s_DefaultCleanupPending = !configSave("pd.ini");
                         }
                         snprintf(s_StatusMessage, sizeof(s_StatusMessage),
                                  "Deleted agent '%s'.", deletedName);
-                        pdguiPlaySound(PDGUI_SND_SELECT);
+                        pdguiPlaySound(s_DefaultCleanupPending ? PDGUI_SND_ERROR : PDGUI_SND_SELECT);
                         refreshAgentProfiles(true);
                         if (s_SelectedIdx > s_ProfileCount) {
                             s_SelectedIdx = s_ProfileCount;
                         }
+                        s_FocusListPending = true;
                     } else {
                         snprintf(s_StatusMessage, sizeof(s_StatusMessage),
                                  "Could not delete '%s'.", deletedName);
@@ -908,6 +904,7 @@ static s32 renderAgentSelect(struct menudialog *dialog,
                         refreshAgentProfiles(true);
                         s32 copiedIndex = findProfileByName(destinationName);
                         if (copiedIndex >= 0) s_SelectedIdx = copiedIndex;
+                        s_FocusListPending = true;
                     } else {
                         snprintf(s_StatusMessage, sizeof(s_StatusMessage),
                                  "Could not copy '%s'.", sourceName);
@@ -939,6 +936,17 @@ static s32 renderAgentSelect(struct menudialog *dialog,
     }
 
     ImGui::End();
+    if (!agentChildOpen && requestCreate) {
+        pdguiNavSuppressOpeningGesture();
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
+        menuGraphFirePushDialog(MENU_TYPE_AGENT_SELECT, "create",
+            &g_FilemgrEnterNameMenuDialog);
+    } else if (requestedLoad[0] && (!agentChildOpen || requestLoadFromContext)) {
+        pdguiNavSuppressOpeningGesture();
+        AgentSelectLoadPayload payload = {{0}, menupoolDialogDef(dialog)};
+        snprintf(payload.name, sizeof(payload.name), "%s", requestedLoad);
+        menuGraphFireLocalOp(MENU_TYPE_AGENT_SELECT, "load", agentSelectGraphLoad, &payload);
+    }
     return 1;
 }
 

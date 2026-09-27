@@ -1,5 +1,9 @@
 # Unreleased Changes
 
+- Agent Select reports failed default-preference saves, preserves the previous
+  default on a failed toggle, and offers retry after deleted-default cleanup.
+  Native focus now owns row activation instead of a competing global Accept.
+
 - Prepare executable graph equipment from one public archive snapshot and reject
   missing action/gate ammo definitions. Two explicit ammo slots are supported;
   ordinary equipped graph gameplay integration remains in progress.
