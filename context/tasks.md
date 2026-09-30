@@ -1,5 +1,13 @@
 # Tasks
 
+2026-09-29 asset/graph goal resumed after canonical Workbench recovery.
+T-RUNTIME-001 held model stage lifetime passes client/tests builds, 109 cases/
+4,040 assertions, guard and installed source/lifetime harness 37/37. Retained
+source fingerprint rechecked: 2,011 files, zero changes. Commit only the owned
+unit; menu and MP candidates remain preserved and paused. Next ordinary graph
+catalog/idle/hand/deferred-hit integration; full closure-plan goal stays partial.
+Receipt: context/audits/2026/model-stage-lifetime-2026-09-29.md.
+
 2026-09-27 T-MODDING-002 ownership/publication checkpoint: delayed gset copies
 retain whole equipment generations; captured archives prepare both modes with
 one shared model lease; publication is atomic and removed modes reject stale

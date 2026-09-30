@@ -709,8 +709,18 @@ static s32 harnessModelGeneration(const char *id, const char *folder)
     if (rejected || !error[0] || old_pixels[0] != 0xff0000ffu
             || new_pixels[0] != 0x0000ffffu) goto done;
     step = "retirement";
+    if (!catalogModelGenerationPinStage(first)
+            || !catalogModelGenerationPinStage(alias)
+            || !catalogModelGenerationPinStage(second)) goto done;
     catalogModelGenerationRelease(alias); alias = NULL;
     catalogModelGenerationRelease(first); first = NULL;
+    /* Native held pointers remain valid after all old catalog/caller owners
+     * retire. Repeated pins above must not leak an extra stage reference. */
+    if (!catalogModelGenerationForModeldef(old_model)
+            || old_pixels[0] != 0xff0000ffu || new_pixels[0] != 0x0000ffffu) goto done;
+    step = "stage_retirement";
+    catalogModelGenerationReleaseStagePins();
+    catalogModelGenerationReleaseStagePins();
     if (catalogModelGenerationForModeldef(old_model)
             || catalogModelGenerationForModeldef(new_model) != second
             || new_pixels[0] != 0x0000ffffu) goto done;
@@ -723,6 +733,7 @@ done:
     catalogModelGenerationRelease(first);
     catalogModelGenerationRelease(second);
     catalogModelGenerationRelease(rejected);
+    catalogModelGenerationReleaseStagePins();
     if (original && !harnessWriteBytes(image, original, image_size)) ok = 0;
     free(original); free(edited); free(entry);
     catalogBuildRuntimeCaches(); catalogLoadInit();

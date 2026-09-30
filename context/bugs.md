@@ -1234,3 +1234,17 @@ Complete captured-archive mode preparation/publication also rejects partial
 replacement and fences removed secondary modes against stale candidates.
 Builds, 108 cases/4,018 assertions and native-source guard pass. Idle admission, ordinary deferred-delivery wiring
 and native slot lifetime remain open; preserve topology and per-hand identity.
+
+### 2026-09-27 T-RUNTIME-001 - Held model generation lifetime
+
+The ordinary public-source held loader published raw model/texture pointers
+into gun, hand and casing models without a separate native lifetime reference.
+Catalog replacement could release its row while those pointers or cached
+command lists remained stage-owned. Added an idempotent exact-generation stage
+pin before native publication; playermgrReset releases pins only after player
+roots are invalidated. Source-edit/rejection/retirement harness now requires
+old pixels to survive caller retirement, and both repeated pin/release and
+last-reference cleanup. Client/tests builds, 109 cases/4,040 assertions,
+native-source guard and installed 37/37 source/lifetime harness pass. September
+29 recheck confirms zero drift across all 2,011 recorded source files. This protects source
+storage, not the separate v2 weapon/model numeric-slot identity contract.

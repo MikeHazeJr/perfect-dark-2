@@ -14,6 +14,7 @@
 #include "system.h"
 #include "net/net.h"
 #include "assetcatalog.h"
+#include "catalog_model_generation.h"
 
 void playermgrInit(void)
 {
@@ -55,6 +56,9 @@ void playermgrReset(void)
 	g_Vars.anti = NULL;
 	g_Vars.bondvisible = false;
 	g_Vars.bondcollisions = false;
+	/* The native stage/player pointer roots above are invalid before releasing
+	 * held-model generations that outlived their catalog source rows. */
+	catalogModelGenerationReleaseStagePins();
 }
 
 static void playermgrInitializePlayer(struct player *player, s32 index);

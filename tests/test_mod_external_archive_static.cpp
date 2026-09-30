@@ -243,6 +243,22 @@ TEST_CASE("pdmod archive size clamp widens signed off_t before comparison",
 	REQUIRE(modmgr.find("(off_t)0xFFFFFFFFu") == std::string::npos);
 }
 
+TEST_CASE("ordinary held public model publication retains its generation through stage teardown",
+        "[modding][pdxxx][c3842][model-generation][static]") {
+    const auto load = sourceFunctionBlock(readFile("src/game/bondgun.c"),
+        "static struct modeldef *bgunQueuedLoadCatalogModelSource(");
+    const auto pin = load.find("catalogModelGenerationPinStage(");
+    const auto publish = load.find("*player->gunctrl.loadtomodeldef = modeldef;");
+    REQUIRE(pin != std::string::npos); REQUIRE(publish != std::string::npos);
+    REQUIRE(pin < publish);
+    REQUIRE(load.substr(pin, publish - pin).find("return NULL;") != std::string::npos);
+    const auto reset = sourceFunctionBlock(readFile("src/game/playermgr.c"), "void playermgrReset(");
+    const auto release = reset.find("catalogModelGenerationReleaseStagePins();");
+    REQUIRE(release != std::string::npos);
+    const auto lastRoot = reset.rfind("= NULL;");
+    REQUIRE(lastRoot != std::string::npos); REQUIRE(lastRoot < release);
+}
+
 struct TempArchive {
 	std::filesystem::path path;
 

@@ -1,5 +1,13 @@
 # Session Log (Active)
 
+2026-09-29 asset/graph goal resumed. Canonical Workbench/coordination preflight
+restored; no targeted new notes remain. Reviewed held model stage pin and
+player-root teardown ordering. Retained client/tests builds0, native109/4040,
+guard0 and installed37/37 pass; fresh 2,011-source fingerprint comparison has
+zero changes. Owned model checkpoint prepared separately from peer menu/MP
+changes. Ordinary executable graph integration and full asset scope remain
+partial. Receipt: context/audits/2026/model-stage-lifetime-2026-09-29.md.
+
 2026-09-27 T-MODDING-002 source window after MP/menu hold release: repaired
 selected-gset retention of complete equipment/model/command source ownership.
 Added all-or-nothing primary/secondary preparation from one captured archive,

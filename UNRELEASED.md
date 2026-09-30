@@ -1,5 +1,8 @@
 # Unreleased Changes
 
+- Keep held public model and texture sources alive through stage teardown,
+  including when a catalog replacement releases the previous source.
+
 - Preserve complete equipment ownership for deferred executable-graph shots;
   prepare and publish primary/secondary modes together from one public archive.
   Ordinary gameplay integration of executable graphs remains in progress.

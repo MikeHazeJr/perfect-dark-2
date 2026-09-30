@@ -53,6 +53,7 @@
     "src/game/texdecompress.c",
     "src/game/bg.c",
     "src/game/bondgun.c",
+    "src/game/playermgr.c",
     "src/game/chr.c",
     "src/game/propobj.c",
     "src/game/prop.c",
@@ -108,6 +109,7 @@
       "AUDIO\\.GENERATION\\.HARNESS: .*result=PASS",
       "COMMAND\\.GENERATION\\.HARNESS: .*result=PASS",
       "MODEL\\.INPUTS\\.HARNESS: .*result=PASS",
+      "MODEL\\.GENERATION\\.HARNESS: step=stage_retirement result=PASS",
       "TEXTURE\\.GENERATION\\.HARNESS: .*result=PASS",
       "TEXTURE\\.SOURCE\\.RUNTIME\\.HARNESS: .*result=PASS"
     ],
@@ -124,6 +126,7 @@
       "AUDIO\\.GENERATION\\.HARNESS: .*result=FAIL",
       "COMMAND\\.GENERATION\\.HARNESS: .*result=FAIL",
       "MODEL\\.INPUTS\\.HARNESS: .*result=FAIL",
+      "MODEL\\.GENERATION\\.HARNESS: .*result=FAIL",
       "TEXTURE\\.GENERATION\\.HARNESS: .*result=FAIL",
       "TEXTURE\\.SOURCE\\.RUNTIME\\.HARNESS: .*result=FAIL"
     ]

@@ -181,6 +181,7 @@ struct catalog_model_generation {
     struct modeldef *model = nullptr;
     std::vector<std::unique_ptr<Texture>> textures;
     unsigned references = 1;
+    bool stage_pinned = false;
 };
 
 extern "C" catalog_model_generation_t *catalogModelGenerationAcquireSource(
@@ -267,4 +268,24 @@ extern "C" catalog_model_generation_t *catalogModelGenerationForModeldef(const s
     if (!model || !onClientThread()) return nullptr;
     for (auto *g = generations; g; g = g->next) if (g->model == model) return g;
     return nullptr;
+}
+extern "C" int catalogModelGenerationPinStage(catalog_model_generation_t *g) {
+    if (!g || !onClientThread()) return 0;
+    if (g->stage_pinned) return 1;
+    if (g->references == std::numeric_limits<unsigned>::max()) {
+        sysLoudFailf("MODEL.GENERATION.REFCOUNT", "model stage pin reference count overflow"); return 0;
+    }
+    ++g->references; g->stage_pinned = true;
+    return 1;
+}
+extern "C" void catalogModelGenerationReleaseStagePins(void) {
+    if (!onClientThread()) return;
+    for (auto *g = generations; g; ) {
+        auto *next = g->next;
+        if (g->stage_pinned) {
+            g->stage_pinned = false;
+            catalogModelGenerationRelease(g);
+        }
+        g = next;
+    }
 }

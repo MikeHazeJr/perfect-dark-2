@@ -23,6 +23,12 @@ const char *catalogModelGenerationHash(const catalog_model_generation_t *generat
 struct modeldef *catalogModelGenerationModeldef(catalog_model_generation_t *generation);
 /* Borrowed lookup for the ordinary catalog unload path. */
 catalog_model_generation_t *catalogModelGenerationForModeldef(const struct modeldef *modeldef);
+/* Native held models and their cached command lists borrow pointers for the
+ * stage lifetime. Pin the exact source generation once, independently of a
+ * mutable catalog row. Repeated pins are idempotent and allocate nothing.
+ * Release pins only after all stage/player handles are invalidated. */
+int catalogModelGenerationPinStage(catalog_model_generation_t *generation);
+void catalogModelGenerationReleaseStagePins(void);
 
 #ifdef __cplusplus
 }

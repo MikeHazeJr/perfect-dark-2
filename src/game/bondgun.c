@@ -64,6 +64,7 @@
 #include "lib/lib_317f0.h"
 #include "data.h"
 #include "types.h"
+#include "catalog_model_generation.h"
 #include "weapon_graph_runtime.h"
 #include "platform.h"
 #include "game/stagetable.h"
@@ -4572,6 +4573,14 @@ static struct modeldef *bgunQueuedLoadCatalogModelSource(struct player *player)
 		return NULL;
 	}
 
+	/* The catalog owns its current row, not every native pointer already
+	 * handed to gun/hand/casing models and cached command lists. Keep this
+	 * exact compiled source (including textures) until stage teardown even
+	 * if a catalog replacement releases the row during play. */
+	if (!catalogModelGenerationPinStage(catalogModelGenerationForModeldef(modeldef))) {
+		sysLogPrintf(LOG_ERROR, "BONDGUN.SOURCE: model generation could not be retained id=%s", model_id);
+		return NULL;
+	}
 	*player->gunctrl.loadtomodeldef = modeldef;
 	player->gunctrl.fileinfo.loadedsize = 0;
 	player->gunctrl.fileinfo.allocsize = 0;

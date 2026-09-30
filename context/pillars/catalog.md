@@ -1,5 +1,14 @@
 # Catalog System
 
+2026-09-29 T-RUNTIME-001 held model lifetime checkpoint: ordinary gun, hand
+and casing loading pins the exact public model/texture generation before
+publishing native pointers. Stage/player reset invalidates player roots before
+releasing those pins. Client/tests builds, 109 cases/4,040 assertions and
+native-source guard pass; installed source/lifetime harness passes 37/37.
+All 2,011 recorded source files still match the validated batch. This protects
+source storage; executable graph gameplay and reusable slot identity remain
+open. Receipt: context/audits/2026/model-stage-lifetime-2026-09-29.md.
+
 2026-09-23 T-EXTRACTION-001 dependency propagation accepted within extraction
 and catalog scope:
 weapon parents compare embedded public mesh, animation, and audio archives to
