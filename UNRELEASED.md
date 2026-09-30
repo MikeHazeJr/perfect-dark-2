@@ -1,5 +1,7 @@
 # Unreleased Changes
 
+- Run public v2 single-shot weapon graphs through native hand firing, with independent state, graph-selected ammo, retained equipment and deferred shots. Reject invalid replacements atomically; the first profile supports offline custom weapons.
+
 - Settings now reports and retries failed saves for display, gameplay and mouse edits. Agent options save/load the active local-player slot, co-op returns preserve those options, disconnected binding capture releases input, and the retired split-screen setting is removed. Native tests pass; full controller/MKB journeys remain under validation.
 
 - Retain exact graph equipment model/weapon identity through deferred consumers and catalog rollback; add explicit idle ammo metadata without selecting a graph branch.

@@ -343,3 +343,21 @@ After the current asset correctness batch reaches its validation boundary, prepa
 the first executable held unit as concrete reviewable work, preserving the ownership
 and source-freeze workflow. Keep the entire extraction/use/modding objective visible
 until the subsequent family units and independent gameplay proofs are complete.
+
+September 29 production update: the scanner and typed catalog activation now
+route captured v2 sources to an explicit client-thread host. Offline custom
+held_single_shot.v1 uses real physical trigger transitions, graph idle admission,
+native attack timing and sole native ammo debit. Per-hand equipment and scoped
+hit/noise copies retain exact source entries. Pending delivery freezes further
+native attack ticks until both consumers finish. Replacement cancels old hosts;
+death and stage retirement release explicit lifetimes before native storage.
+Both mode candidates and model/command/audio/casing closure prepare before
+publication. Failed candidates preserve the old generation.
+
+Isolated builds, native148/4941 and guard pass; installed41/41,26/26 cases prove
+native hand firing, graph state/dual ammo routing, skipped delivery, failed edits,
+source replacement and retained copies through death. Source3408 drift0. This
+is a first profile; base single-shot parity, actual world hits, later actions,
+projectile/entity graphs, network/bots/Theater and creator UI remain open. No
+full graph or full asset goal acceptance is implied. Receipt:
+../../audits/2026/graph-production-cutover-2026-09-29.md.

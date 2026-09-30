@@ -27,6 +27,7 @@
 #include "catalog_mgr_weapons.h"
 #include "catalog_mgr_weapons_pure.h"
 #include "loader_pool.h"
+#include "weapon_graph_v2_runtime.h"
 #include "lang.h"
 
 _Static_assert(CATALOG_MGR_WEAPON_COUNT == WEAPON_CUSTOM_END,
@@ -66,7 +67,7 @@ struct weapon *catalogManagerGetWeaponByIndex(s32 weapon_id)
 	/* F13: loader-owned pool is the sole data source. Returns NULL
 	 * if the loader hasn't initialised yet (very early startup) -- the
 	 * caller's existing NULL handling kicks in. */
-	return (struct weapon *)loaderPoolGetWeapon(weapon_id);
+	return wgV2RuntimeIsWeapon(weapon_id) ? (struct weapon *)wgV2RuntimeWeapon(weapon_id) : (struct weapon *)loaderPoolGetWeapon(weapon_id);
 }
 
 struct weapon *catalogManagerGetWeaponAt(s32 iter_index)
@@ -74,7 +75,7 @@ struct weapon *catalogManagerGetWeaponAt(s32 iter_index)
 	if (iter_index < 0 || iter_index >= CATALOG_MGR_WEAPON_COUNT) {
 		return NULL;
 	}
-	return (struct weapon *)loaderPoolGetWeapon(iter_index);
+	return catalogManagerGetWeaponByIndex(iter_index);
 }
 
 struct weapon *catalogManagerGetWeaponById(const char *catalog_id)

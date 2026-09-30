@@ -48,6 +48,7 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "actionmap.h"
+#include "weapon_graph_v2_runtime.h"
 
 #include <stdint.h>
 
@@ -715,6 +716,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 	shotdata.gundir2d.z = gundir2d->z;
 
 	gsetPopulateFromCurrentPlayer(handnum, &shotdata.gset);
+	uint64_t graph_scope = wgV2RuntimeScopeOpen(g_Vars.currentplayer, handnum, &shotdata.gset);
 	func = gsetGetWeaponFunction(&shotdata.gset);
 
 	if (func) {
@@ -1094,6 +1096,7 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 		}
 	}
 
+	wgV2RuntimeScopeClose(graph_scope);
 	return result;
 }
 
@@ -1546,13 +1549,14 @@ void handTickAttack(s32 handnum)
 		g_Vars.currentplayer->hands[handnum].activatesecondary = false;
 
 		gsetPopulateFromCurrentPlayer(handnum, &gset);
+		uint64_t graph_scope = wgV2RuntimeScopeOpen(g_Vars.currentplayer, handnum, &gset);
 		frIncrementNumShots();
 
 		switch (type) {
 		case HANDATTACKTYPE_SHOOT:
 			// Always execute if right hand, but if left hand then execute if
 			// right hand is not (ie. prevent firing both guns on the same tick)
-			if (handnum == HAND_RIGHT || !bgunIsFiring(HAND_RIGHT)) {
+			if (handnum == HAND_RIGHT || !bgunIsFiring(HAND_RIGHT) || wgV2RuntimeIsWeapon(weaponnum)) {
 				chrUncloakTemporarily(g_Vars.currentplayer->prop->chr);
 				mpstatsIncrementPlayerShotCount2(&gset, 0);
 
@@ -1616,6 +1620,8 @@ void handTickAttack(s32 handnum)
 			}
 			break;
 		}
+		wgV2RuntimeScopeClose(graph_scope);
+		wgV2RuntimeShotConsumed(g_Vars.currentplayer, handnum);
 	}
 }
 

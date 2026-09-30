@@ -65,6 +65,7 @@
 #include "effect_dependencies.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
+#include "weapon_graph_v2_ingress.h"
 #include "romdata.h"
 #include "system.h"
 #include "fs.h"
@@ -4251,8 +4252,8 @@ static s32 weaponNestedPrepareMeshConsumers(weapon_nested_preflight_t *pending,
 	s32 has_mesh = 0;
 	held_mesh_id[0] = '\0';
 	for (size_t i = 0; i < count; i++) if (pending[i].has_mesh_source) has_mesh = 1;
-	if (weaponGraphArchiveReadDescriptorBytes(weapon_bytes, weapon_size, ASSET_WEAPON,
-			&desc, err, err_cap) != 0) return 0;
+	s32 version = wgV2ArchiveInspect(weapon_bytes, weapon_size, &desc, err, err_cap);
+	if (version < 0) return 0;
 	if (pathEndsWithNoCase(desc.model_file, ".pdmesh")) {
 		char selected[FS_MAXPATH];
 		if (!assetPathJoinChecked(selected, sizeof(selected), weapon_archive, "::", desc.model_file)) return 0;
@@ -4289,7 +4290,7 @@ static s32 weaponNestedPrepareMeshConsumers(weapon_nested_preflight_t *pending,
 		}
 	}
 	if (!has_mesh) return 1;
-	if (!weaponNestedSelectGraphModels(pending, count, edges, weapon_id,
+	if (version == 0 && !weaponNestedSelectGraphModels(pending, count, edges, weapon_id,
 			weapon_archive, ASSET_WEAPON, err, err_cap)) return 0;
 	for (size_t i = 0; i < count; i++) {
 		if (pending[i].expected_type != ASSET_PROJECTILE && pending[i].expected_type != ASSET_ENTITY) continue;

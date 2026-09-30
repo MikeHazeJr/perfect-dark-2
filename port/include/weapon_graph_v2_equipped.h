@@ -24,6 +24,8 @@ typedef struct wg_v2_equipped_model {
     /* Private catalog allocation, never public authored identity. Zero leaves
      * allocation to a later adapter; custom values pin the exact weapon ID. */
     int runtime_weapon;
+    /* Borrowed exact per-ammo casing models, owned by the same model lease. */
+    struct modeldef *casing_modeldefs[2];
 
 } wg_v2_equipped_model;
 /* settings_file is public pd.weapon_settings.v2 JSON. equipped.ammo is either
@@ -47,6 +49,7 @@ void wgV2EquippedRetain(wg_v2_equipped *);
 void wgV2EquippedRelease(wg_v2_equipped *);
 const struct weapon *wgV2EquippedWeapon(const wg_v2_equipped *);
 struct modeldef *wgV2EquippedModeldef(const wg_v2_equipped *);
+struct modeldef *wgV2EquippedCasingModeldef(const wg_v2_equipped *, int ammo_slot);
 /* True only when this compiled mode has explicit idle metadata. */
 int wgV2EquippedHasIdleMode(const wg_v2_equipped *);
 wg_v2_native_bundle *wgV2EquippedActions(const wg_v2_equipped *);

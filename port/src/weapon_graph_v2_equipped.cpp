@@ -96,6 +96,7 @@ struct wg_v2_equipped {
     struct weaponfunc idle[2]{};
     struct noisesettings idle_noise{};
     struct modeldef *modeldef = nullptr;
+    struct modeldef *casing_modeldefs[2]{};
     std::string weapon_id;
     int private_weapon_slot = -1;
     struct invaimsettings aim{};
@@ -280,6 +281,8 @@ extern "C" wg_v2_equipped *wgV2EquippedPrepare(wg_v2_native_bundle *actions,
         for (const auto &dep : out->commands) { hashField(ctx, dep->id.c_str()); hashField(ctx, dep->digest.c_str()); }
         u8 digest[SHA256_DIGEST_SIZE]; sha256Final(&ctx, digest); sha256ToHex(digest, out->closure);
         out->modeldef = model->modeldef;
+        out->casing_modeldefs[0] = model->casing_modeldefs[0];
+        out->casing_modeldefs[1] = model->casing_modeldefs[1];
         if (model->runtime_weapon >= WEAPON_CUSTOM_START) {
             out->weapon_id = descriptor->catalog_id;
             if (!assetCatalogPinWeaponPrivateSlot(out->weapon_id.c_str(), model->runtime_weapon))
@@ -296,6 +299,9 @@ extern "C" void wgV2EquippedRetain(wg_v2_equipped *v) { if (v) ++v->refs; }
 extern "C" void wgV2EquippedRelease(wg_v2_equipped *v) { if (v && --v->refs == 0) delete v; }
 extern "C" const struct weapon *wgV2EquippedWeapon(const wg_v2_equipped *v) { return v ? &v->weapon : nullptr; }
 extern "C" struct modeldef *wgV2EquippedModeldef(const wg_v2_equipped *v) { return v ? v->modeldef : nullptr; }
+extern "C" struct modeldef *wgV2EquippedCasingModeldef(const wg_v2_equipped *v, int slot) {
+    return v && slot >= 0 && slot < 2 ? v->casing_modeldefs[slot] : nullptr;
+}
 extern "C" int wgV2EquippedHasIdleMode(const wg_v2_equipped *v) {
     if (!v) return 0;
     const int mode = !std::strcmp(wgV2ProgramMode(wgV2NativeProgram(v->actions)), "secondary") ? 1 : 0;

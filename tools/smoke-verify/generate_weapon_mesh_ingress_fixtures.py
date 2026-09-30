@@ -251,6 +251,54 @@ def texture_generation_source(output):
     return "texture_generation|texgen:paint|./asset-mesh-ingress/texture-generation|unused"
 
 
+def executable_weapon_sources(output):
+    owner = "graphproof:weapon"
+    def action(node, mode, ammo, damage):
+        return {"id": node, "kind": "fire.hitscan", "module": "og.fire.hitscan", "module_version": 1,
+            "params": {"mode": mode, "function_type": "shoot_single", "ammo_slot": ammo, "flags": 0,
+                "damage": damage, "spread": 0, "recoil_anim_unk24": 0, "recoil_anim_unk25": 0,
+                "recoil_anim_unk26": -1, "recoil_anim_unk27": -1, "recoverytime_ticks60": 0,
+                "recoildist": 0, "recoilangle": 0, "slidemax": 0, "impactforce": 1,
+                "duration_ticks60": 0, "penetration": 1,
+                "noisesettings": {"minradius": 0, "maxradius": 100, "incradius": 3, "decbasespeed": 2, "decremspeed": 8},
+                "recoilsettings": {"xrange": 0, "yrange": 0, "zrange": 0},
+                "fire_animation": None, "shoot_sound_catalog_id": None}}
+    def edge(node, port, target):
+        return {"from": node, "output": port, "to": target, "input": "exec"}
+    primary = {"schema": "pd.weapon_graph.v2", "profile": "held_single_shot.v1", "asset_id": owner,
+        "graph_id": "primary", "mode": "primary", "nodes": [
+            {"id": "press", "kind": "event.trigger_pressed"},
+            {"id": "state", "kind": "gate.state_bool", "params": {"key": "alternate", "equals": True}},
+            {"id": "alternate", "kind": "state.bool_set", "params": {"key": "alternate", "value": True}},
+            action("first", "primary", 0, 3), action("next", "primary", 1, 7)],
+        "edges": [edge("press", "exec", "state"), edge("state", "blocked", "first"),
+                  edge("state", "pass", "next"), edge("first", "completed", "alternate")],
+        "exports": [{"name": "trigger_pressed", "node": "press"}]}
+    secondary = {"schema": "pd.weapon_graph.v2", "profile": "held_single_shot.v1", "asset_id": owner,
+        "graph_id": "secondary", "mode": "secondary",
+        "nodes": [{"id": "press", "kind": "event.trigger_pressed"}, action("secondary", "secondary", 1, 9)],
+        "edges": [edge("press", "exec", "secondary")], "exports": [{"name": "trigger_pressed", "node": "press"}]}
+    def ammo(kind):
+        return {"type": kind, "casing": "none", "clip_size": 7, "flags": [], "reload_animation": None}
+    settings = {"schema": "pd.weapon_settings.v2", "asset_id": owner, "equipped": {
+        "modes": [{"ammo_slot": 0}, {"ammo_slot": 1}], "ammo": [ammo("pistol"), ammo("smg")],
+        "aim": {"zoom_fov": 60, "transition_up": 0, "transition_down": 0, "transition_side": 0,
+                "damping_pal": 0.9, "damping": 0.9, "flags": []},
+        "sway": 0, "flags": ["one_handed", "dual_wield"], "equip_animation": None, "unequip_animation": None,
+        "visibility": [], "parts": []}}
+    members = {"weapon.ini": f"[weapon]\ncatalog_id={owner}\nprimary_graph=primary.json\nsecondary_graph=secondary.json\nsettings_file=settings.json\nmodel_file=dependencies/assets/models/held.pdmesh\nmuzzlez=-25\nposx=3\nposy=-4\nposz=-6\ntrack_type=default\n",
+        "primary.json": json.dumps(primary), "secondary.json": json.dumps(secondary), "settings.json": json.dumps(settings),
+        "dependencies/assets/models/held.pdmesh": mesh(owner + "_held", section="model")}
+    (output / "executable.pdweapon").write_bytes(archive(members))
+    primary["nodes"][3]["params"]["damage"] = 6
+    members["primary.json"] = json.dumps(primary)
+    (output / "executable_edit.pdweapon").write_bytes(archive(members))
+    secondary["nodes"][1]["params"]["damage"] = "invalid"
+    members["secondary.json"] = json.dumps(secondary)
+    (output / "executable_bad.pdweapon").write_bytes(archive(members))
+    return f"executable_graph|{owner}|./asset-mesh-ingress/executable.pdweapon|unused"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--install-dir", type=Path, required=True)
@@ -315,6 +363,7 @@ def main():
     lines.append("model_generation|modelgen:mesh|./asset-mesh-ingress/model-inputs|unused")
     lines.append(texture_generation_source(args.output))
     lines.append("texture_runtime|texgen:paint|./asset-mesh-ingress/texture-generation|unused")
+    lines.append(executable_weapon_sources(args.output))
     (args.output / "plan.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

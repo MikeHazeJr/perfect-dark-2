@@ -1,5 +1,18 @@
 # Modding
 
+2026-09-29 T-MODDING-002 first production v2 profile passes isolated client/tests,
+148 native cases/4941 assertions, source guard, and installed41/41 with26/26
+harness cases. Frozen3408 source paths show zero drift; binary873C547A.
+Captured public source selects real native single-shot actions, per-hand state
+and ammo, with neutral idle equipment, exact model/command/audio/casing leases,
+deferred shot retention, failed-replacement rollback and death retirement.
+held_single_shot.v1 currently admits offline custom weapons only. Base overrides,
+automatic/burst/beam/charge/throw/melee/device, projectile/entity cutover,
+network/bot/Theater execution and v2-to-v1 demotion remain open. Actual world-hit,
+render/controller/Modding Hub acceptance and the full six-condition asset goal
+remain partial. Next: base single-shot parity and ordinary world-hit delivery.
+Receipt: context/audits/2026/graph-production-cutover-2026-09-29.md.
+
 2026-09-29 T-MODDING-002 retained equipment batch passes client/tests0,
 native143cases/4754assertions,guard0,installed39/39 and2012-path drift0. Exact
 compiled model queue delivers old source after newer same-ID catalog loading;

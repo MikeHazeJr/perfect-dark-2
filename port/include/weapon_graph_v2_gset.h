@@ -32,6 +32,10 @@ wg_v2_gset_token wgV2GsetOpen(wg_v2_gsets *, struct gset *, const void *owner,
  * Allocations are finished by Open/NativePrepare; Select performs no allocation. */
 int wgV2GsetSelect(wg_v2_gsets *, wg_v2_gset_token, wg_v2_catalog_entry *,
     wg_v2_native_bundle *, const wg_v2_native_action *, char *error, size_t cap);
+/* Attach equipment to an idle lifetime without selecting a fire action.
+ * Copies retain this exact source, including after catalog retirement. */
+int wgV2GsetBindSource(wg_v2_gsets *, wg_v2_gset_token,
+    wg_v2_catalog_entry *, char *error, size_t cap);
 /* Drop a finished hand selection without allocating, closing its explicit
  * lifetime, or mutating native bytes. Existing deferred copies retain their
  * exact source/action. Reject a changed/foreign lifetime without mutation. */

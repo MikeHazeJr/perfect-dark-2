@@ -1091,6 +1091,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_equipped.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_command_source.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_gset.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_ingress.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_v2.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_v2_catalog.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_v2_native.cpp

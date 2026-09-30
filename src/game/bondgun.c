@@ -66,6 +66,7 @@
 #include "types.h"
 #include "catalog_model_generation.h"
 #include "weapon_graph_runtime.h"
+#include "weapon_graph_v2_runtime.h"
 #include "platform.h"
 #include "game/stagetable.h"
 #include "video.h"
@@ -1055,7 +1056,8 @@ void bgunGetWeaponInfo(struct handweaponinfo *info, s32 handnum)
 	s32 weaponnum = bgunGetWeaponNum2(handnum);
 
 	info->weaponnum = weaponnum;
-	info->definition = weaponFindById(weaponnum); /* S484 F4 */
+	if (wgV2RuntimeIsWeapon(weaponnum)) wgV2RuntimeEnsureHand(g_Vars.currentplayer, handnum);
+	info->definition = wgV2RuntimeIsWeapon(weaponnum) ? (struct weapon *)wgV2RuntimeGsetWeapon(&g_Vars.currentplayer->hands[handnum].gset) : weaponFindById(weaponnum);
 	info->gunctrl = &g_Vars.currentplayer->gunctrl;
 }
 
@@ -1307,6 +1309,15 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 			}
 		}
 
+		if (wgV2RuntimeIsWeapon(info->weaponnum)) {
+			/* Idle ammo is reload policy, never a graph branch selection. */
+			if (wgV2RuntimeIdle(g_Vars.currentplayer, handnum)) return lvupdate;
+			if ((hand->modenext == HANDMODE_RELOAD || (!hand->triggeron && sp34 == 0)) && sp34 >= 0 && sp34 < 2) {
+				hand->modenext = HANDMODE_NONE;
+				if (bgunSetState(handnum, HANDSTATE_RELOAD)) return lvupdate;
+			}
+			return 0;
+		}
 		if (sp34 < 0) {
 			// Attempted to shoot with no ammo
 
@@ -1802,6 +1813,7 @@ s32 bgunTickIncChangeFunc(struct handweaponinfo *info, s32 handnum, struct hand 
 
 static const weapon_graph_held_function_t *bgunGetHeldGraph(struct gset *gset)
 {
+	if (wgV2RuntimeIsWeapon(gset->weaponnum)) return wgV2RuntimeGsetHeld(gset);
 	return weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum,
 		gset->weaponfunc);
 }
@@ -3063,6 +3075,35 @@ s32 bgunTickIncAttackEmpty(struct handweaponinfo *info, s32 handnum, struct hand
 	return 0;
 }
 
+int bgunGraphV2Accept(struct player *player, int handnum)
+{
+	if (!player || player != g_Vars.currentplayer || handnum < 0 || handnum > 1) return 0;
+	struct hand *hand = &player->hands[handnum];
+	if (!hand->inuse || hand->state != HANDSTATE_IDLE || !wgV2RuntimeGsetHeld(&hand->gset)) return 0;
+	hand->mode = HANDMODE_ATTACK; hand->count = hand->count60 = 0;
+	hand->triggerreleased = false; hand->activatesecondary = false; player->doautoselect = false;
+	return bgunSetState(handnum, HANDSTATE_ATTACK);
+}
+int bgunGraphV2Tick(struct player *player, int handnum)
+{
+	if (!player || player != g_Vars.currentplayer || handnum < 0 || handnum > 1) return 1;
+	struct hand *hand = &player->hands[handnum]; struct handweaponinfo info;
+	info.weaponnum = hand->gset.weaponnum; info.definition = (struct weapon *)wgV2RuntimeGsetWeapon(&hand->gset);
+	info.gunctrl = &player->gunctrl;
+	return !info.definition || bgunTickIncAttackingShoot(&info, handnum, hand);
+}
+void bgunGraphV2Cancel(struct player *player, int handnum)
+{
+	if (!player || handnum < 0 || handnum > 1) return;
+	struct hand *hand = &player->hands[handnum];
+	bgunResetAnim(hand); hand->anim.animnum = hand->anim.animnum2 = 0;
+	hand->firing = hand->flashon = false; hand->shotstotake = 0;
+	if (hand->state == HANDSTATE_ATTACK) {
+		hand->state = HANDSTATE_IDLE; hand->stateframes = hand->statecycles = 0;
+		hand->stateflags = hand->stateminor = hand->statelastframe = 0;
+	}
+}
+
 s32 bgunTickIncAttack(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
 {
 	u32 stack;
@@ -3648,6 +3689,8 @@ s32 bgunTickInc(struct handweaponinfo *info, s32 handnum, s32 lvupdate)
 	s32 result = 0;
 	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
 	s32 prevstate = hand->state;
+	/* Preserve shots when drawing skips deferred delivery. */
+	if (wgV2RuntimeDeliveryPending(g_Vars.currentplayer, handnum)) return 0;
 
 	hand->firing = false;
 	hand->flashon = false;
@@ -3668,7 +3711,7 @@ s32 bgunTickInc(struct handweaponinfo *info, s32 handnum, s32 lvupdate)
 		result = bgunTickIncReload(info, handnum, hand, lvupdate);
 		break;
 	case HANDSTATE_ATTACK:
-		result = bgunTickIncAttack(info, handnum, hand, lvupdate);
+		result = wgV2RuntimeIsWeapon(info->weaponnum) ? wgV2RuntimeAdvance(g_Vars.currentplayer, handnum) : bgunTickIncAttack(info, handnum, hand, lvupdate);
 		break;
 	case HANDSTATE_2:
 		result = bgunTickIncState2(info, handnum, hand, lvupdate);
@@ -3784,6 +3827,7 @@ void bgunInitHandAnims(void)
 {
 	struct hand *hand;
 	s32 i;
+	wgV2RuntimePlayerBegin(g_Vars.currentplayer);
 
 	for (i = 0; i < 2; i++) {
 		if (i == 0) {
@@ -3834,12 +3878,14 @@ void bgunDecreaseNoiseRadius(void)
 
 	gsetPopulateFromCurrentPlayer(HAND_LEFT, &gsetleft);
 	gsetPopulateFromCurrentPlayer(HAND_RIGHT, &gsetright);
+	uint64_t left_scope = wgV2RuntimeScopeOpen(player, HAND_LEFT, &gsetleft);
+	uint64_t right_scope = wgV2RuntimeScopeOpen(player, HAND_RIGHT, &gsetright);
 
 	gsetGetNoiseSettings(&gsetleft, &noisesettingsleft);
 	gsetGetNoiseSettings(&gsetright, &noisesettingsright);
 
 	// Right hand
-	if (bgunIsFiring(HAND_RIGHT)) {
+	if (bgunIsFiring(HAND_RIGHT) && wgV2RuntimeNoiseAdmit(player, HAND_RIGHT)) {
 		player->hands[HAND_RIGHT].noiseradius += noisesettingsright.incradius;
 
 		if (player->hands[HAND_RIGHT].noiseradius > noisesettingsright.maxradius) {
@@ -3861,7 +3907,7 @@ void bgunDecreaseNoiseRadius(void)
 	}
 
 	// Left hand
-	if (bgunIsFiring(HAND_LEFT)) {
+	if (bgunIsFiring(HAND_LEFT) && wgV2RuntimeNoiseAdmit(player, HAND_LEFT)) {
 		player->hands[HAND_LEFT].noiseradius += noisesettingsleft.incradius;
 
 		if (player->hands[HAND_LEFT].noiseradius > noisesettingsleft.maxradius) {
@@ -3881,6 +3927,8 @@ void bgunDecreaseNoiseRadius(void)
 	if (player->hands[HAND_LEFT].noiseradius < noisesettingsleft.minradius) {
 		player->hands[HAND_LEFT].noiseradius = noisesettingsleft.minradius;
 	}
+	wgV2RuntimeScopeClose(left_scope); wgV2RuntimeScopeClose(right_scope);
+	wgV2RuntimeNoiseConsumed(player, HAND_LEFT); wgV2RuntimeNoiseConsumed(player, HAND_RIGHT);
 }
 
 void bgunCalculateBlend(s32 handnum)
@@ -5030,6 +5078,9 @@ void bgunTickMasterLoad(void)
 			}
 
 			filenum = weaponGetFileNum(newweaponnum);
+			/* A new source generation must refresh an already loaded held model. */
+			if (wgV2RuntimeIsWeapon(newweaponnum) && player->gunctrl.masterloadstate == MASTERLOADSTATE_LOADED
+					&& player->gunctrl.gunmodeldef != wgV2RuntimeModel(newweaponnum)) bgunEnterFlux();
 			/* Rebuild attachments when a selected source changes even if its
 			 * native file number and equipped weapon remain unchanged. Fists
 			 * acquire their cache identity in GUN, other hands acquire it in HANDS. */
@@ -5065,7 +5116,7 @@ void bgunTickMasterLoad(void)
 			}
 
 			if (player->gunctrl.masterloadstate != MASTERLOADSTATE_LOADED || newweaponnum != player->gunctrl.gunmemtype) {
-				if (filenum) {
+				if (filenum || wgV2RuntimeModel(newweaponnum)) {
 					hashands = false;
 
 					if (handfilenum && weaponHasFlag(newweaponnum, WEAPONFLAG_HASHANDS)) {
@@ -5170,6 +5221,8 @@ void bgunTickMasterLoad(void)
 									&player->gunctrl.gunmodeldef,
 									(uintptr_t *) &player->gunctrl.memloadptr,
 									(uintptr_t *) &player->gunctrl.memloadremaining)) return;
+							} else if (wgV2RuntimeIsWeapon(newweaponnum)) {
+								if (!bgunQueueRetainedModelLoad(player, wgV2RuntimeModel(newweaponnum), &player->gunctrl.gunmodeldef)) return;
 							} else bgunQueueModelLoad(player, filenum,
 								&player->gunctrl.gunmodeldef,
 								(uintptr_t *) &player->gunctrl.memloadptr,
@@ -6656,6 +6709,7 @@ void bgunFreeWeapon(s32 handnum)
 	}
 
 	bgunFreeHeldRocket(handnum);
+	wgV2RuntimeRetireHand(player, handnum, "native weapon freed");
 
 	if (g_Vars.currentplayernum == 0) {
 		sysLogPrintf(LOG_NOTE,
@@ -13275,6 +13329,7 @@ void bgunSetTriggerOn(s32 handnum, bool on)
 
 	hand->triggerprev = hand->triggeron;
 	hand->triggeron = on;
+	wgV2RuntimeInput(g_Vars.currentplayer, handnum, on && !hand->triggerprev, !on && hand->triggerprev);
 
 	if (!on) {
 		hand->triggerreleased = true;
@@ -13714,6 +13769,10 @@ void bgunTickGameplay(bool triggeron)
 	}
 
 	bgunDecreaseNoiseRadius();
+	if (player->isdead) {
+		wgV2RuntimeRetireHand(player, HAND_RIGHT, "native owner died");
+		wgV2RuntimeRetireHand(player, HAND_LEFT, "native owner died");
+	}
 
 	if (player->resetshadecol) {
 		propCalculateShadeColour(g_Vars.currentplayer->prop, player->gunshadecol, player->floorcol);

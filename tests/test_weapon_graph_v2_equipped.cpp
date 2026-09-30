@@ -1,6 +1,8 @@
 #include "catch.hpp"
 #include "weapon_graph_v2_equipped.h"
 #include "weapon_graph_v2_gset.h"
+#include "weapon_graph_v2_ingress.h"
+#include "body_head_source.h"
 #include "modarchive.h"
 #include "assetcatalog_weapon_slots.h"
 #include <chrono>
@@ -560,4 +562,97 @@ TEST_CASE("captured graph mode set validates idle availability transactionally",
         wgV2CatalogEntryRelease(out[0]); wgV2CatalogEntryRelease(out[1]); REQUIRE(f.host.models == 1);
     } else { REQUIRE_FALSE(out[0]); REQUIRE_FALSE(out[1]); REQUIRE(f.host.models == 0); REQUIRE(error[0]); }
     REQUIRE(wgV2CatalogCount(catalog.get()) == 0); REQUIRE(f.host.acquired == f.host.released);
+}
+
+
+namespace {
+ArchiveEntries productionSources() {
+    auto sources = archiveEntries();
+    sources[0].second = replace(sources[0].second, "meshes/held.pdmodel", "meshes/held.pdmesh");
+    sources[3].second = replace(sources[3].second, "\"aim\":", "\"modes\":[{\"ammo_slot\":0},{\"ammo_slot\":0}],\"aim\":");
+    sources.push_back({"meshes/held.pdmesh", "captured selected public model bytes"});
+    return sources;
+}
+}
+TEST_CASE("production version dispatch inspects both exact captured graph modes", "[graph-v2-equipped][graph-v2-ingress][modding][pdxxx][c3842]") {
+    auto sources = productionSources(); char error[512]{}; weapon_graph_archive_descriptor_t out{};
+    auto bytes = snapshot(sources);
+    REQUIRE(wgV2ArchiveInspect(bytes.data(), static_cast<u32>(bytes.size()), &out, error, sizeof(error)) == 1);
+    REQUIRE(std::string(out.catalog_id) == "mod:single"); REQUIRE(std::string(out.model_file) == "meshes/held.pdmesh");
+    sources[0].second = replace(sources[0].second, "secondary_graph=graphs/secondary.json\n", "");
+    sources[3].second = replace(sources[3].second, "[{\"ammo_slot\":0},{\"ammo_slot\":0}]", "[{\"ammo_slot\":0},null]");
+    bytes = snapshot(sources);
+    REQUIRE(wgV2ArchiveInspect(bytes.data(), static_cast<u32>(bytes.size()), &out, error, sizeof(error)) == 1);
+    REQUIRE_FALSE(out.secondary_graph[0]);
+    sources[1].second = "{\"schema\":\"pd.weapon_graph.v1\"}"; bytes = snapshot(sources);
+    REQUIRE(wgV2ArchiveInspect(bytes.data(), static_cast<u32>(bytes.size()), &out, error, sizeof(error)) == 0);
+}
+TEST_CASE("production source dispatch rejects invalid secondary and unsupported bindings before publication", "[graph-v2-equipped][graph-v2-ingress][modding][pdxxx][c3842]") {
+    auto sources = productionSources(); char error[512]{}; weapon_graph_archive_descriptor_t out{};
+    const auto variant = GENERATE(0,1,2,3,4,5,6,7,8,9,10,11);
+    switch (variant) {
+    case 0: sources[2].second = "{"; break;
+    case 1: sources[2].second = replace(sources[2].second, "\"mode\":\"secondary\"", "\"mode\":\"primary\""); break;
+    case 2: sources[2].second = replace(sources[2].second, "mod:single", "mod:wrong"); break;
+    case 3: sources[0].second += "variables_file=variables.json\n"; break;
+    case 4: sources[0].second += "shared_context=shared.json\n"; break;
+    case 5: sources[0].second += "presentation_file=presentation.json\n"; break;
+    case 6: sources[3].second = settings; break;
+    case 7: sources[3].second = replace(sources[3].second, "[{\"ammo_slot\":0},{\"ammo_slot\":0}]", "[{\"ammo_slot\":0},null]"); break;
+    case 8: sources[3].second = replace(sources[3].second, "[{\"ammo_slot\":0},{\"ammo_slot\":0}]", "[{\"ammo_slot\":0.5},{\"ammo_slot\":0}]"); break;
+    case 9: sources.pop_back(); break;
+    case 10: sources[0].second = replace(sources[0].second, "primary_graph=graphs/primary.json", "primary_graph=../primary.json"); break;
+    case 11: sources[0].second += "behavior_graph=graphs/secondary.json\n"; break;
+    }
+    const auto bytes = snapshot(sources);
+    REQUIRE(wgV2ArchiveInspect(bytes.data(), static_cast<u32>(bytes.size()), &out, error, sizeof(error)) == -1);
+    REQUIRE(error[0]); REQUIRE_FALSE(out.catalog_id[0]);
+}
+TEST_CASE("idle gset copies retain exact equipment after source retirement without selecting an action", "[graph-v2-equipped][graph-v2-gset][modding][pdxxx][c3842]") {
+    Fixture f; char error[512]{}; wg_v2_use use{};
+    using Catalog = std::unique_ptr<wg_v2_catalog, decltype(&wgV2CatalogDestroy)>;
+    using Entry = std::unique_ptr<wg_v2_catalog_entry, decltype(&wgV2CatalogEntryRelease)>;
+    using Gsets = std::unique_ptr<wg_v2_gsets, decltype(&wgV2GsetsDestroy)>;
+    Catalog catalog(wgV2CatalogCreate([](void *,const char *,uint64_t){},nullptr), wgV2CatalogDestroy);
+    Entry entry(wgV2EquippedCatalogPrepare(catalog.get(), "mod:single", graph, std::strlen(graph), digest, &use,
+        &f.descriptor, digest, settings, std::strlen(settings), &f.model, resolve, &f.host, nullptr, error, sizeof(error)), wgV2CatalogEntryRelease);
+    REQUIRE(entry); REQUIRE(wgV2CatalogPublish(catalog.get(), entry.get(), error, sizeof(error)));
+    Gsets copies(wgV2GsetsCreate([](void *,int weapon)->const char * { return weapon == 100 ? "mod:single" : nullptr; }, nullptr), wgV2GsetsDestroy);
+    gset idle{100,0,0,0}, deferred{};
+    const auto h = wgV2GsetOpen(copies.get(), &idle, &idle, 1, error, sizeof(error));
+    const auto d = wgV2GsetOpen(copies.get(), &deferred, &deferred, 2, error, sizeof(error)); REQUIRE(h); REQUIRE(d);
+    REQUIRE(wgV2GsetBindSource(copies.get(), h, entry.get(), error, sizeof(error)));
+    const wg_v2_native_action *action = nullptr;
+    REQUIRE(wgV2GsetLookup(copies.get(), &idle, &action) == WG_V2_GSET_UNSELECTED); REQUIRE_FALSE(action);
+    REQUIRE(wgV2GsetCopy(copies.get(), d, &idle, error, sizeof(error)));
+    auto *exact = entry.get(); catalog.reset(); entry.reset(); wgV2GsetClose(copies.get(), h);
+    REQUIRE(wgV2GsetSource(copies.get(), &deferred) == exact); REQUIRE(f.host.models == 0);
+    REQUIRE(wgV2EquippedWeapon(static_cast<wg_v2_equipped *>(wgV2CatalogEntryLease(exact)))->ammos[0]->clipsize == 13);
+    REQUIRE_FALSE(wgV2GsetBindSource(copies.get(), d, exact, error, sizeof(error)));
+    REQUIRE(wgV2GsetSource(copies.get(), &deferred) == exact);
+    REQUIRE(wgV2GsetCopy(copies.get(), d, &deferred, error, sizeof(error)));
+    ++deferred.weaponfunc; REQUIRE_FALSE(wgV2GsetSource(copies.get(), &deferred)); --deferred.weaponfunc;
+    wgV2GsetClose(copies.get(), d); REQUIRE(f.host.models == 1); REQUIRE(f.host.acquired == f.host.released);
+}
+TEST_CASE("equipped casing models follow exact per-ammo lease rather than a mutable global cart model", "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    Fixture f; modeldef first{}, second{}; f.model.casing_modeldefs[0] = &first; f.model.casing_modeldefs[1] = &second;
+    auto out = f.prepare(settings);
+    REQUIRE(wgV2EquippedCasingModeldef(out.get(),0) == &first); REQUIRE(wgV2EquippedCasingModeldef(out.get(),1) == &second);
+    REQUIRE_FALSE(wgV2EquippedCasingModeldef(out.get(),-1)); REQUIRE_FALSE(wgV2EquippedCasingModeldef(out.get(),2));
+    f.model.casing_modeldefs[0] = &second;
+    REQUIRE(wgV2EquippedCasingModeldef(out.get(),0) == &first); REQUIRE(f.host.models == 0);
+    out.reset(); REQUIRE(f.host.models == 1);
+}
+
+TEST_CASE("captured nested mesh descriptor uses the shared strict source reader", "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    const auto mesh = snapshot({{"mesh.ini", "[model]\nkind = mesh\ncatalog_id = graphproof:weapon_held\ngeometry_file = selected.obj\n"}});
+    const auto archive = snapshot({{"model.pdmesh", mesh}});
+    uint32_t mesh_size = 0, ini_size = 0; char error[256]{};
+    std::unique_ptr<void, decltype(&std::free)> selected(modArchiveExtractMemAlloc(archive.data(),static_cast<u32>(archive.size()),"model.pdmesh",&mesh_size),std::free);
+    REQUIRE(selected); REQUIRE(mesh_size == mesh.size());
+    std::unique_ptr<void, decltype(&std::free)> ini(modArchiveExtractMemAlloc(selected.get(),mesh_size,"mesh.ini",&ini_size),std::free);
+    REQUIRE(ini); ini_section_t parsed{};
+    REQUIRE(bodyHeadSourceReadIniBytes(static_cast<const char *>(ini.get()),ini_size,"model",&parsed,error,sizeof(error)));
+    REQUIRE(std::string(iniGet(&parsed,"catalog_id","")) == "graphproof:weapon_held");
+    REQUIRE_FALSE(bodyHeadSourceReadIniBytes(static_cast<const char *>(ini.get()),ini_size,"mesh",&parsed,error,sizeof(error)));
 }

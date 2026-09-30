@@ -377,3 +377,36 @@ New voices copy retained PCM and preserve loop/envelope/source-rate settings, so
 playing voices remain valid after catalog removal or final generation release.
 The ordinary native sound router and mixer are installed-client verified with
 dummy output; complete equipped graph command preparation remains in progress.
+
+## Executable single-shot weapon graphs
+
+The first production profile is `pd.weapon_graph.v2` with
+`profile: "held_single_shot.v1"` for offline custom weapons. Give the `.pdweapon`
+a unique catalog ID; select `primary_graph`, optional `secondary_graph`, and
+`settings_file` in `[weapon]`. Both graph modes and equipment prepare together
+from the same captured ZIP. Each graph uses that asset ID and its matching
+`primary` or `secondary` mode. Graph events, edges, gates and state choose the
+native action; idle metadata never chooses a branch.
+
+Use `pd.weapon_settings.v2` equipment with exactly two `modes` entries:
+`[{"ammo_slot": 0}, null]` for primary only, or one object per declared mode.
+An idle mode names only `ammo_slot` (-1, 0 or 1). Declare the actual ammo slots
+separately under `ammo`; actions and ammo gates must reference declared slots.
+Equipment also declares aim, flags, sway, animation references and visibility.
+The [executable graph contract](../../context/designs/modding/executable-behavior-graphs-2026-09.md)
+describes the accepted node and equipment grammar.
+
+Select an archive-local nested `.pdmesh` through `model_file`. Its `mesh.ini`
+uses `[model]`, `kind=mesh`, its catalog ID and `geometry_file` selecting editable
+OBJ/glTF/GLB source. Commands, clips and sounds use catalog IDs resolving to
+public sources. No authored numeric weapon/model/sound slots are required.
+A valid replacement retires old hands and installs a fresh graph state; pending
+copies keep their exact old equipment until released. A rejected replacement
+keeps the previous active generation.
+
+This profile currently rejects base-number overrides, bots, network and Theater
+execution, automatic/burst/beam/charge/throw/melee/device actions, and v1
+variable/context/presentation bindings. Loading an executable weapon blocks
+unsupported network/Theater entry. The installed native gate covers hand firing
+and retained delivery data; actual world hits, appearance, input-device journeys
+and the Modding Hub creator workflow remain to be qualified.

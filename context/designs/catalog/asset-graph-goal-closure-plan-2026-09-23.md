@@ -130,3 +130,14 @@ the [graph contract](../modding/executable-behavior-graphs-2026-09.md),
 the [regional-language design](regional-language-source-and-runtime-2026-09.md),
 and Workbench T-ASSETS-001, T-EXTRACTION-001, T-RUNTIME-001, T-MODDING-002,
 T-MODDING-009, V-003, V-005, V-006, V-007, and V-010.
+
+Progress September29: package4 now has its first production offline custom
+single-shot profile. Captured v2 source dispatch, real native hand firing,
+graph-selected state/dual ammo, exact equipment/deferred generations and
+replacement/death retirement pass client/tests,148/4941 native,guard and
+installed41/41 (26/26 harness cases), source3408 drift0. This does not replace
+the planned base single-shot plus edited-graph parity gate: actual world hits,
+base policy seams, subsequent action/projectile/entity families and network/UI
+acceptance remain open. Next unit is base single-shot and ordinary world-hit
+lifecycle parity, retaining all six original finish conditions. Receipt:
+../../audits/2026/graph-production-cutover-2026-09-29.md.

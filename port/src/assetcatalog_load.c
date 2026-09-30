@@ -38,6 +38,8 @@
 #include "loader_pool.h"
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
+#include "weapon_graph_v2_runtime.h"
+#include "weapon_graph_v2_ingress.h"
 #include "effect_graph_runtime.h"  /* c3849 Unit 8: ASSET_EFFECT activation/clear hooks */
 #include "data.h"
 #include "game/modeldef.h"
@@ -1035,6 +1037,30 @@ static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
             return 0;
         }
 
+        /* Dispatch from the same captured public archive before the legacy
+         * scalar adapter sees its graph. v2 never enters that projection. */
+        u32 snapshot_size = 0;
+        void *snapshot = fsFileLoad(archive_path, &snapshot_size);
+        err[0] = '\0';
+        s32 version = wgV2ArchiveInspect(snapshot, snapshot_size, NULL, err, sizeof(err));
+        if (snapshot) sysMemFree(snapshot);
+        if (version < 0) {
+            sysLogPrintf(LOG_WARNING, "CATALOG.GRAPH.SOURCE: %s: %s", entry->id, err);
+            return 0;
+        }
+        if (version == 1) {
+            if (!wgV2RuntimeRegisterArchive(entry->runtime_index, entry->id, archive_path, err, sizeof(err))) {
+                sysLogPrintf(LOG_WARNING, "CATALOG.GRAPH.V2: %s: %s", entry->id, err);
+                return 0;
+            }
+            weaponGraphRuntimeClearWeapon(entry->runtime_index);
+            loaderPoolClearPublicWeaponAdapter(entry->runtime_index);
+            return 1;
+        }
+        if (wgV2RuntimeIsWeapon(entry->runtime_index)) {
+            sysLogPrintf(LOG_WARNING, "CATALOG.GRAPH.V2: %s cannot demote a retained executable identity to v1 before catalog reset", entry->id);
+            return 0;
+        }
         active_archive = archive_path;
         err[0] = '\0';
         result = weaponGraphRuntimeRegisterWeaponArchive(entry->runtime_index,
@@ -1129,6 +1155,7 @@ static void s_catalogClearWeaponGraphRuntime(asset_entry_t *entry,
 
     if (entry->type == ASSET_WEAPON) {
         if (entry->runtime_index >= 0) {
+            wgV2RuntimeRetireWeapon(entry->runtime_index, assetId);
 			loaderPoolClearPublicWeaponAdapter(entry->runtime_index);
             weaponGraphRuntimeClearWeapon(entry->runtime_index);
         }

@@ -15,6 +15,7 @@
 #include "net/net.h"
 #include "assetcatalog.h"
 #include "catalog_model_generation.h"
+#include "weapon_graph_v2_runtime.h"
 
 void playermgrInit(void)
 {
@@ -31,6 +32,7 @@ void playermgrInit(void)
 
 void playermgrReset(void)
 {
+	wgV2RuntimeRetirePlayers();
 #if MAX_PLAYERS > 4
 	for (s32 i = 0; i < MAX_PLAYERS; ++i) {
 		g_Vars.players[i] = NULL;

@@ -16,6 +16,7 @@
 #include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
+#include "weapon_graph_v2_runtime.h"
 
 #define BOLTBEAMTICKMODE_MANUAL    0
 #define BOLTBEAMTICKMODE_AUTOMATIC 1
@@ -671,15 +672,15 @@ void casingCreateForHand(s32 handnum, f32 ground, Mtxf *mtx)
 	s32 weaponnum = bgunGetWeaponNum(handnum);
 	s32 casingtype = -1;
 	struct weaponfunc *func = gsetGetWeaponFunction2(&player->hands[handnum].gset);
-	struct weapon *weapondef = weaponFindById(player->gunctrl.weaponnum);
+	struct weapon *weapondef = wgV2RuntimeIsWeapon(weaponnum) ? (struct weapon *)wgV2RuntimeGsetWeapon(&player->hands[handnum].gset) : weaponFindById(player->gunctrl.weaponnum);
 	struct weaponfunc_shoot *shootfunc = NULL;
 	struct modeldef *modeldef;
 
-	if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
 		shootfunc = (struct weaponfunc_shoot *)func;
 	}
 
-	if (func->ammoindex < 0) {
+	if (!func || func->ammoindex < 0 || func->ammoindex >= 2) {
 		return;
 	}
 
@@ -699,7 +700,7 @@ void casingCreateForHand(s32 handnum, f32 ground, Mtxf *mtx)
 
 	mtx4Copy(mtx, &spec);
 
-	modeldef = bgunGetCartModeldef();
+	modeldef = wgV2RuntimeIsWeapon(weaponnum) ? wgV2RuntimeCasing(&player->hands[handnum].gset) : bgunGetCartModeldef();
 
 	if (modeldef != NULL) {
 		casing = casingCreate(modeldef, &spec);

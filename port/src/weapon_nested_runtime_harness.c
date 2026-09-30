@@ -35,6 +35,8 @@
 #include "modarchive.h"
 #include "types.h"
 #include "weapon_graph_runtime.h"
+#include "weapon_graph_v2_runtime.h"
+#include "game/game_0b0fd0.h"
 #include "bss.h"
 #include "constants.h"
 #include "fs.h"
@@ -1789,6 +1791,116 @@ static s32 harnessMeshSlotRollback(const char *owner, const char *archive, char 
 	return ok;
 }
 
+static s32 harnessExecutableGraph(const char *owner, const char *archive)
+{
+    char error[512] = {0}; const char *step = "registration";
+    harness_deps_t deps = {0}; s32 slot = -1, mp = -1, loaded = 0, ok = 0;
+    void *weapon_slots = assetCatalogSnapshotCustomWeaponSlots();
+    void *model_slots = assetCatalogSnapshotCustomModelSlots();
+    struct player *temporary = calloc(1, sizeof(*temporary));
+    struct g_vars saved = g_Vars;
+    struct gset copy = {0}; uint64_t copy_token = 0;
+    void *original = NULL, *edited = NULL, *bad = NULL; u32 size = 0, edit_size = 0, bad_size = 0;
+    if (!temporary || !weapon_slots || !model_slots) goto done;
+    original = fsFileLoad(archive, &size);
+    edited = fsFileLoad("./asset-mesh-ingress/executable_edit.pdweapon", &edit_size);
+    bad = fsFileLoad("./asset-mesh-ingress/executable_bad.pdweapon", &bad_size);
+    if (!original || !edited || !bad) goto done;
+    if (!assetCatalogResolveWeaponPrivateSlots(owner, -1, 0, &slot, &mp)) goto done;
+    asset_entry_t *entry = harnessRegisterOwner(owner, archive);
+    if (!entry) goto done;
+    entry->runtime_index = slot; entry->mp_index = mp;
+    if (assetCatalogRegisterWeaponNestedDependencies(owner, archive, 0, error, sizeof(error)) < 0) goto done;
+    catalogDepForEach(owner, harnessCollectDep, &deps);
+    if (deps.invalid || !catalogLoadTypedAsset(ASSET_WEAPON, owner)) goto done;
+    loaded = 1;
+    if (!wgV2RuntimeIsWeapon(slot) || !wgV2RuntimeWeapon(slot) || !wgV2RuntimeModel(slot)
+            || weaponGraphRuntimeGetHeldFunction(slot, 0)) goto done;
+    if (wgV2RuntimeCanEnterUse(1, 0, error, sizeof(error)) || wgV2RuntimeCanEnterUse(0, 1, error, sizeof(error))) goto done;
+    step = "idle_source";
+    g_Vars.currentplayer = temporary; g_Vars.currentplayernum = 0;
+    g_Vars.currentplayerstats = &g_Vars.playerstats[0]; g_Vars.currentplayerstats->mpindex = 0;
+    g_Vars.lvupdate60 = 1; g_Vars.lvupdate240 = 4; g_Vars.lvupdate60freal = 1;
+    temporary->gunctrl.weaponnum = slot; temporary->gunctrl.switchtoweaponnum = -1;
+    temporary->gunctrl.ammotypes[0] = AMMOTYPE_PISTOL; temporary->gunctrl.ammotypes[1] = AMMOTYPE_SMG;
+    temporary->ammoheldarr[AMMOTYPE_PISTOL] = temporary->ammoheldarr[AMMOTYPE_SMG] = 20;
+    bgunInitHandAnims();
+    for (s32 hand = 0; hand < 2; ++hand) {
+        temporary->hands[hand].gset.weaponnum = slot; temporary->hands[hand].gset.weaponfunc = 0;
+        temporary->hands[hand].inuse = 1; temporary->hands[hand].loadedammo[0] = temporary->hands[hand].loadedammo[1] = 4;
+        temporary->hands[hand].clipsizes[0] = temporary->hands[hand].clipsizes[1] = 7;
+        if (!wgV2RuntimeEnsureHand(temporary, hand) || gsetGetAmmoDefinition(&temporary->hands[hand].gset)->clipsize != 7
+                || gsetGetWeaponFunction(&temporary->hands[hand].gset)->type != INVENTORYFUNCTYPE_NONE) goto done;
+    }
+    step = "native_fire";
+    for (s32 hand = 0; hand < 2; ++hand) {
+        struct handweaponinfo info; bgunGetWeaponInfo(&info, hand);
+        bgunSetTriggerOn(hand, true); bgunTickInc(&info, hand, 1); bgunTickInc(&info, hand, 1);
+        if (!temporary->hands[hand].firing || temporary->hands[hand].loadedammo[0] != 3
+                || temporary->hands[hand].loadedammo[1] != 4 || !wgV2RuntimeDeliveryPending(temporary, hand)) goto done;
+        gsetPopulateFromCurrentPlayer(hand, &copy); copy_token = wgV2RuntimeScopeOpen(temporary, hand, &copy);
+        if (!copy_token || gsetGetDamage(&copy) != 3) goto done;
+        wgV2RuntimeScopeClose(copy_token); copy_token = 0;
+    }
+    step = "skipped_delivery";
+    bgunDecreaseNoiseRadius(); f32 radius = temporary->hands[0].noiseradius;
+    for (s32 i = 0; i < 3; ++i) {
+        struct handweaponinfo info; bgunGetWeaponInfo(&info, 0); bgunTickInc(&info, 0, 1); bgunDecreaseNoiseRadius();
+    }
+    if (!temporary->hands[0].firing || temporary->hands[0].loadedammo[0] != 3 || temporary->hands[0].noiseradius > radius) goto done;
+    wgV2RuntimeShotConsumed(temporary, 0); wgV2RuntimeShotConsumed(temporary, 1);
+    for (s32 hand = 0; hand < 2; ++hand) {
+        struct handweaponinfo info; bgunGetWeaponInfo(&info, hand); bgunSetTriggerOn(hand, false); bgunTickInc(&info, hand, 1);
+        if (temporary->hands[hand].state != HANDSTATE_IDLE || temporary->hands[hand].loadedammo[0] != 3) goto done;
+    }
+    step = "state_ammo_route";
+    bgunSetTriggerOn(0, true);
+    struct handweaponinfo info; bgunGetWeaponInfo(&info, 0); bgunTickInc(&info, 0, 1); bgunTickInc(&info, 0, 1);
+    if (!temporary->hands[0].firing || temporary->hands[0].loadedammo[0] != 3 || temporary->hands[0].loadedammo[1] != 3) goto done;
+    gsetPopulateFromCurrentPlayer(0, &copy); copy_token = wgV2RuntimeScopeOpen(temporary, 0, &copy);
+    if (!copy_token || gsetGetDamage(&copy) != 7) goto done;
+    step = "failed_replacement";
+    const struct weapon *prior = wgV2RuntimeWeapon(slot);
+    if (!harnessWriteBytes(archive, bad, bad_size) || wgV2RuntimeRegisterArchive(slot, owner, archive, error, sizeof(error))
+            || wgV2RuntimeWeapon(slot) != prior || gsetGetDamage(&copy) != 7) goto done;
+    step = "source_replacement";
+    if (!harnessWriteBytes(archive, edited, edit_size) || !wgV2RuntimeRegisterArchive(slot, owner, archive, error, sizeof(error))
+            || wgV2RuntimeWeapon(slot) == prior || temporary->hands[0].firing || gsetGetDamage(&copy) != 7) goto done;
+    wgV2RuntimeScopeClose(copy_token); copy_token = 0;
+    if (!wgV2RuntimeEnsureHand(temporary, 0)) goto done;
+    bgunSetTriggerOn(0, false); bgunSetTriggerOn(0, true); bgunGetWeaponInfo(&info, 0);
+    bgunTickInc(&info, 0, 1); bgunTickInc(&info, 0, 1);
+    if (temporary->hands[0].loadedammo[0] != 2 || temporary->hands[0].loadedammo[1] != 3) goto done;
+    gsetPopulateFromCurrentPlayer(0, &copy); copy_token = wgV2RuntimeScopeOpen(temporary, 0, &copy);
+    if (!copy_token || gsetGetDamage(&copy) != 6) goto done;
+    step = "retirement";
+    temporary->isdead = 1;
+    if (wgV2RuntimeEnsureHand(temporary, 0)) goto done;
+    if (temporary->hands[0].firing || gsetGetDamage(&copy) != 6) goto done;
+    wgV2RuntimeScopeClose(copy_token); copy_token = 0;
+    ok = 1;
+done:
+    wgV2RuntimeScopeClose(copy_token);
+    if (temporary) {
+        wgV2RuntimeRetireHand(temporary, 0, "harness cleanup"); wgV2RuntimeRetireHand(temporary, 1, "harness cleanup");
+    }
+    wgV2RuntimeRetireWeapon(slot, owner);
+    if (loaded) catalogReleaseTypedAsset(ASSET_WEAPON, owner);
+    if (!harnessCleanup(owner, &deps)) ok = 0;
+    /* This fixture runs before gameplay. Retire its explicit owner before
+     * restoring the real native roots; no temporary player may remain live. */
+    wgV2RuntimeRetirePlayers(); g_Vars = saved; free(temporary);
+    catalogModelGenerationReleaseStagePins();
+    if (original && !harnessWriteBytes(archive, original, size)) ok = 0;
+    sysMemFree(original); sysMemFree(edited); sysMemFree(bad);
+    if (weapon_slots && !assetCatalogRestoreCustomWeaponSlots(weapon_slots)) ok = 0;
+    if (model_slots && !assetCatalogRestoreCustomModelSlots(model_slots)) ok = 0;
+    assetCatalogDestroyCustomWeaponSlotSnapshot(weapon_slots); assetCatalogDestroyCustomModelSlotSnapshot(model_slots);
+    catalogBuildRuntimeCaches(); catalogLoadInit();
+    sysLogPrintf(ok ? LOG_NOTE : LOG_WARNING, "GRAPH.V2.PRODUCTION.HARNESS: step=%s result=%s error=%s", step, ok ? "PASS" : "FAIL", error);
+    return ok;
+}
+
 s32 weaponNestedRuntimeHarnessRun(const char *plan_path)
 {
     FILE *f;
@@ -1851,6 +1963,8 @@ s32 weaponNestedRuntimeHarnessRun(const char *plan_path)
                 && harnessAnimationGeneration(owner, archive)) passed++;
         else if (strcmp(mode, "command_import") == 0
                 && harnessCommandImport(owner, archive, arg1)) passed++;
+        else if (strcmp(mode, "executable_graph") == 0
+                && harnessExecutableGraph(owner, archive)) passed++;
         else if (strcmp(mode, "command_source") == 0
                 && harnessCommandSources(archive)) passed++;
     }

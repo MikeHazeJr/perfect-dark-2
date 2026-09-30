@@ -18,6 +18,7 @@
 #include "assetcatalog.h"
 #include "catalog_mgr_weapons.h" /* S484 F2: route weaponFindById through catalog manager */
 #include "weapon_graph_runtime.h"
+#include "weapon_graph_v2_runtime.h"
 
 /**
  * Canonical weapon accessor. Routes through the Catalog Manager
@@ -31,6 +32,15 @@ struct weapon *weaponFindById(s32 itemid)
 	return catalogManagerGetWeaponByIndex(itemid);
 }
 
+static struct weapon *gsetWeapon(const struct gset *gset)
+{
+	return wgV2RuntimeIsWeapon(gset->weaponnum) ? (struct weapon *)wgV2RuntimeGsetWeapon(gset) : weaponFindById(gset->weaponnum);
+}
+static const weapon_graph_held_function_t *gsetHeld(const struct gset *gset)
+{
+	return wgV2RuntimeIsWeapon(gset->weaponnum) ? wgV2RuntimeGsetHeld(gset) : weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+}
+
 struct weaponfunc *weaponGetFunctionById(u32 weaponnum, u32 which)
 {
 	struct weapon *weapon = weaponFindById(weaponnum);
@@ -39,7 +49,7 @@ struct weaponfunc *weaponGetFunctionById(u32 weaponnum, u32 which)
 		return NULL;
 	}
 
-	if (weapon) {
+	if (weapon && which >= 0 && which < 2) {
 		return weapon->functions[which];
 	}
 
@@ -48,7 +58,8 @@ struct weaponfunc *weaponGetFunctionById(u32 weaponnum, u32 which)
 
 struct weaponfunc *gsetGetWeaponFunction2(struct gset *gset)
 {
-	struct weapon *weapon = weaponFindById(gset->weaponnum);
+	if (wgV2RuntimeIsWeapon(gset->weaponnum)) return (struct weaponfunc *)wgV2RuntimeGsetFunction(gset);
+	struct weapon *weapon = gsetWeapon(gset);
 
 	if (weapon) {
 		return weapon->functions[gset->weaponfunc];
@@ -59,7 +70,8 @@ struct weaponfunc *gsetGetWeaponFunction2(struct gset *gset)
 
 struct weaponfunc *gsetGetWeaponFunction(struct gset *gset)
 {
-	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
+	if (wgV2RuntimeIsWeapon(gset->weaponnum)) return (struct weaponfunc *)wgV2RuntimeGsetFunction(gset);
+	struct weapon *weapon = gsetWeapon(gset); /* S484 F3 */
 
 	if (weapon) {
 #ifdef AVOID_UB
@@ -76,9 +88,9 @@ struct weaponfunc *gsetGetWeaponFunction(struct gset *gset)
 
 struct weaponfunc *weaponGetFunction(struct gset *gset, s32 which)
 {
-	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
+	struct weapon *weapon = gsetWeapon(gset); /* S484 F3 */
 
-	if (weapon) {
+	if (weapon && which >= 0 && which < 2) {
 		return weapon->functions[which];
 	}
 
@@ -87,13 +99,7 @@ struct weaponfunc *weaponGetFunction(struct gset *gset, s32 which)
 
 struct weaponfunc *currentPlayerGetWeaponFunction(u32 hand)
 {
-	struct weapon *weapon = weaponFindById(g_Vars.currentplayer->hands[hand].gset.weaponnum);
-
-	if (weapon) {
-		return weapon->functions[g_Vars.currentplayer->hands[hand].gset.weaponfunc];
-	}
-
-	return NULL;
+	return hand < 2 ? gsetGetWeaponFunction(&g_Vars.currentplayer->hands[hand].gset) : NULL;
 }
 
 u32 weaponGetNumFunctions(u32 weaponnum)
@@ -116,12 +122,13 @@ u32 weaponGetNumFunctions(u32 weaponnum)
 
 struct invaimsettings *gsetGetAimSettings(struct gset *gset)
 {
-	struct weapon *weapon = weaponFindById(gset->weaponnum);
+	struct weapon *weapon = gsetWeapon(gset);
 
 	if (weapon) {
 		return weapon->aimsettings;
 	}
 
+	if (wgV2RuntimeIsWeapon(gset->weaponnum)) return NULL;
 	/* S484 F8: default routes through manager. */
 	return (struct invaimsettings *)catalogManagerWeaponDefaultAimSettings();
 }
@@ -436,6 +443,7 @@ void currentPlayerSetDeviceActive(s32 weaponnum, bool active)
 
 u16 weaponGetFileNum(s32 weaponnum)
 {
+	if (wgV2RuntimeIsWeapon(weaponnum)) return 0;
 	/* S484 F3: route through manager. weaponFindById handles -1 silently
 	 * (legitimate "no weapon" sentinel) so the explicit guard collapses. */
 	struct weapon *weapon = weaponFindById(weaponnum);
@@ -480,9 +488,9 @@ void gsetPopulateFromCurrentPlayer(s32 handnum, struct gset *gset)
 struct inventory_ammo *gsetGetAmmoDefinition(struct gset *gset)
 {
 	struct weaponfunc *func = gsetGetWeaponFunction(gset);
-	struct weapon *weapon = weaponFindById(gset->weaponnum);
+	struct weapon *weapon = gsetWeapon(gset);
 
-	if (func && func->ammoindex >= 0) {
+	if (func && weapon && func->ammoindex >= 0 && func->ammoindex < 2) {
 		return weapon->ammos[func->ammoindex];
 	}
 
@@ -492,7 +500,7 @@ struct inventory_ammo *gsetGetAmmoDefinition(struct gset *gset)
 u8 gsetGetSinglePenetration(struct gset *gset)
 {
 	const weapon_graph_held_function_t *graph =
-		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+		gsetHeld(gset);
 
 	if (graph && graph->has_penetration) {
 		return graph->penetration;
@@ -523,7 +531,7 @@ s32 handGetCasingEject(struct gset *gset)
 f32 gsetGetImpactForce(struct gset *gset)
 {
 	const weapon_graph_held_function_t *graph =
-		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+		gsetHeld(gset);
 	if (graph && graph->has_impactforce) {
 		return graph->impactforce;
 	}
@@ -542,7 +550,7 @@ f32 gsetGetImpactForce(struct gset *gset)
 f32 gsetGetDamage(struct gset *gset)
 {
 	const weapon_graph_held_function_t *graph =
-		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+		gsetHeld(gset);
 	struct weaponfunc *func = NULL;
 	f32 damage = 0;
 
@@ -588,7 +596,7 @@ f32 gsetGetDamage(struct gset *gset)
 		damage = (gset->unk063a / 3.0f + 1.0f) * damage;
 	}
 
-	if (bgunIsFiring(HAND_LEFT) && bgunIsFiring(HAND_RIGHT)) {
+	if (!wgV2RuntimeIsWeapon(gset->weaponnum) && bgunIsFiring(HAND_LEFT) && bgunIsFiring(HAND_RIGHT)) {
 		damage += damage;
 	}
 
@@ -599,7 +607,7 @@ u8 gsetGetFireslotDuration(struct gset *gset)
 {
 #if VERSION >= VERSION_PAL_FINAL
 	const weapon_graph_held_function_t *graph =
-		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+		gsetHeld(gset);
 	struct weaponfunc *func = NULL;
 	u8 result = 0;
 
@@ -621,7 +629,7 @@ u8 gsetGetFireslotDuration(struct gset *gset)
 	return result;
 #else
 	const weapon_graph_held_function_t *graph =
-		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+		gsetHeld(gset);
 	if (graph && graph->has_duration_ticks60) {
 		return graph->duration_ticks60;
 	}
@@ -640,7 +648,7 @@ u8 gsetGetFireslotDuration(struct gset *gset)
 u16 gsetGetSingleShootSound(struct gset *gset)
 {
 	const weapon_graph_held_function_t *graph =
-		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+		gsetHeld(gset);
 	if (graph && graph->has_shootsound) {
 		return graph->shootsound;
 	}
@@ -658,7 +666,7 @@ u16 gsetGetSingleShootSound(struct gset *gset)
 bool gsetHasFunctionFlags(struct gset *gset, u32 flags)
 {
 	const weapon_graph_held_function_t *graph =
-		weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+		gsetHeld(gset);
 	if (graph) {
 		return (graph->flags & flags) == flags;
 	}
@@ -784,6 +792,11 @@ void gsetGetNoiseSettings(struct gset *gset, struct noisesettings *dst)
 		settings = func->noisesettings;
 	}
 
+	if (settings == NULL && wgV2RuntimeIsWeapon(gset->weaponnum)) {
+		/* Invalid/unselected source never borrows a mutable replacement. */
+		dst->minradius = dst->maxradius = dst->incradius = 0;
+		dst->decbasespeed = 1; dst->decremspeed = 6; return;
+	}
 	if (settings == NULL) {
 		/* S484 F8: silent fallback routes through manager. */
 		settings = (struct noisesettings *)catalogManagerWeaponDefaultNoiseSettings();
@@ -798,7 +811,7 @@ void gsetGetNoiseSettings(struct gset *gset, struct noisesettings *dst)
 
 struct guncmd *handGetEquipAnim(struct gset *gset)
 {
-	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
+	struct weapon *weapon = gsetWeapon(gset); /* S484 F3 */
 
 	if (weapon) {
 		return weapon->equip_animation;
@@ -809,7 +822,7 @@ struct guncmd *handGetEquipAnim(struct gset *gset)
 
 struct guncmd *handGetUnequipAnim(struct gset *gset)
 {
-	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
+	struct weapon *weapon = gsetWeapon(gset); /* S484 F3 */
 
 	if (weapon) {
 		return weapon->unequip_animation;
@@ -820,7 +833,7 @@ struct guncmd *handGetUnequipAnim(struct gset *gset)
 
 struct guncmd *gsetGetPriToSecAnim(struct gset *gset)
 {
-	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
+	struct weapon *weapon = gsetWeapon(gset); /* S484 F3 */
 
 	if (weapon) {
 		return weapon->pritosec_animation;
@@ -831,7 +844,7 @@ struct guncmd *gsetGetPriToSecAnim(struct gset *gset)
 
 struct guncmd *gsetGetSecToPriAnim(struct gset *gset)
 {
-	struct weapon *weapon = weaponFindById(gset->weaponnum); /* S484 F3 */
+	struct weapon *weapon = gsetWeapon(gset); /* S484 F3 */
 
 	if (weapon) {
 		return weapon->sectopri_animation;

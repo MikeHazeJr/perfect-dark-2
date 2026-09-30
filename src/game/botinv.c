@@ -19,6 +19,7 @@
 #include "lib/rng.h"
 #include "data.h"
 #include "types.h"
+#include "weapon_graph_v2_runtime.h"
 
 /* S484 F13: g_AibotWeaponPreferences[] retired 2026-04-30. Bot AI
  * preference data per weapon now lives in the per-asset envelope
@@ -156,6 +157,7 @@ u32 botinvGetItemType(struct chrdata *chr, u32 weaponnum)
  */
 bool botinvGiveSingleWeapon(struct chrdata *chr, u32 weaponnum)
 {
+	if (wgV2RuntimeIsWeapon(weaponnum)) return false;
 	if (!chr || !chr->aibot) {
 		return false;
 	}
@@ -187,6 +189,7 @@ bool botinvGiveSingleWeapon(struct chrdata *chr, u32 weaponnum)
  */
 void botinvGiveDualWeapon(struct chrdata *chr, u32 weaponnum)
 {
+	if (wgV2RuntimeIsWeapon(weaponnum)) return;
 	struct invitem *item = botinvGetItem(chr, weaponnum);
 
 	if (item) {

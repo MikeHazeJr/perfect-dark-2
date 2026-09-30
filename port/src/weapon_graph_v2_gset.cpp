@@ -86,7 +86,11 @@ extern "C" wg_v2_gset_status wgV2GsetLookup(const wg_v2_gsets *r,
     if (found == r->slots.end()) return id ? WG_V2_GSET_INVALID : WG_V2_GSET_BASE;
     const Slot &slot = *found->second;
     if (!identity(slot)) return WG_V2_GSET_INVALID;
-    if (!slot.action) return id ? WG_V2_GSET_UNSELECTED : WG_V2_GSET_BASE;
+    if (!slot.action) {
+        if (slot.entry && (!id || std::strcmp(id, wgV2CatalogEntryAssetId(slot.entry)) ||
+                slot.function != wgV2CatalogEntryFunction(slot.entry))) return WG_V2_GSET_INVALID;
+        return id ? WG_V2_GSET_UNSELECTED : WG_V2_GSET_BASE;
+    }
     const char *mode = slot.function == 0 ? "primary" : slot.function == 1 ? "secondary" : nullptr;
     if (!id || !slot.entry || !slot.bundle || !mode ||
             wgV2CatalogEntryProgram(slot.entry) != wgV2NativeProgram(slot.bundle) ||
@@ -117,6 +121,18 @@ extern "C" int wgV2GsetClearSelection(wg_v2_gsets *r, wg_v2_gset_token token,
     if (!slot || !identity(*slot)) return fail(error, cap, "gset clear requires unchanged explicit lifetime");
     slot->assign(nullptr, nullptr, nullptr); return 1;
 }
+extern "C" int wgV2GsetBindSource(wg_v2_gsets *r, wg_v2_gset_token token,
+        wg_v2_catalog_entry *entry, char *error, size_t cap) {
+    if (error && cap) error[0] = 0;
+    Slot *slot = findToken(r, token);
+    if (!slot || !identity(*slot) || !entry || !wgV2CatalogEntryAccepting(entry) ||
+            wgV2CatalogEntryFunction(entry) != slot->function)
+        return fail(error, cap, "idle equipment requires unchanged lifetime and accepting exact mode");
+    const char *id = r->classify(r->host, slot->weapon);
+    if (!id || std::strcmp(id, wgV2CatalogEntryAssetId(entry)))
+        return fail(error, cap, "idle equipment does not match registered catalog identity");
+    slot->assign(entry, nullptr, nullptr); return 1;
+}
 extern "C" int wgV2GsetCopy(wg_v2_gsets *r, wg_v2_gset_token token,
         const struct gset *source, char *error, size_t cap) {
     if (error && cap) error[0] = 0;
@@ -127,7 +143,7 @@ extern "C" int wgV2GsetCopy(wg_v2_gsets *r, wg_v2_gset_token token,
     if (status == WG_V2_GSET_INVALID) return fail(error, cap, "gset copy source lacks valid explicit v2 identity");
     wg_v2_native_bundle *bundle = nullptr;
     wg_v2_catalog_entry *entry = nullptr;
-    if (status == WG_V2_GSET_SELECTED) {
+    if (status == WG_V2_GSET_SELECTED || status == WG_V2_GSET_UNSELECTED) {
         const auto &selected = *r->slots.find(source)->second;
         bundle = selected.bundle; entry = selected.entry;
     }
@@ -141,7 +157,8 @@ extern "C" int wgV2GsetCopy(wg_v2_gsets *r, wg_v2_gset_token token,
 }
 extern "C" wg_v2_catalog_entry *wgV2GsetSource(const wg_v2_gsets *r,
         const struct gset *value) {
-    if (wgV2GsetLookup(r, value, nullptr) != WG_V2_GSET_SELECTED) return nullptr;
+    const auto status = wgV2GsetLookup(r, value, nullptr);
+    if (status != WG_V2_GSET_SELECTED && status != WG_V2_GSET_UNSELECTED) return nullptr;
     return r->slots.find(value)->second->entry;
 }
 extern "C" void wgV2GsetClose(wg_v2_gsets *r, wg_v2_gset_token token) {

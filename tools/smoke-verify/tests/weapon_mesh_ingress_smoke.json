@@ -1,6 +1,6 @@
 {
   "scenario_name": "weapon_mesh_ingress_smoke",
-  "description": "Twenty-five installed cases: source imports and retained generations, including selected model source and texture lifetime, plus ordinary native texture loading from public material properties, descriptor edits, mode-scoped level graph overrides, transactional rejection and transition reset. Fresh extraction also upgrades base texture and stage sources. One combined gate; no rendered appearance or complete equipped-graph acceptance claim.",
+  "description": "Twenty-six installed cases: source imports and retained generations, including selected model source and texture lifetime, plus ordinary native texture loading from public material properties, descriptor edits, mode-scoped level graph overrides, transactional rejection and transition reset. Fresh extraction also upgrades base texture and stage sources. Also exercises actual v2 native hand firing, graph state, dual-hand ammo, deferred shot lifetime and replacement rejection. One combined gate; no world hit, rendered appearance or full graph acceptance claim.",
   "tags": [
     "runtime",
     "assets",
@@ -109,7 +109,7 @@
       "PDWEAPON\\.MESH\\.HARNESS: owner=meshproof:equal case=source_to_native_record result=PASS",
       "PDWEAPON\\.MESH\\.HARNESS: owner=meshproof:legacy case=source_to_native_record result=PASS",
       "PDWEAPON\\.MESH\\.HARNESS: owner=meshproof:malformed_obj case=malformed_geometry result=PASS",
-      "PDWEAPON\\.NESTED\\.HARNESS: passed=25 cases=25 result=PASS",
+      "PDWEAPON\\.NESTED\\.HARNESS: passed=26 cases=26 result=PASS",
       "SMOKE: result=weapon_nested_harness_pass .*code=0",
       "PDWEAPON\\.MESH\\.HARNESS: owner=base:falcon2 case=base_identity result=PASS",
       "PDWEAPON\\.COMMAND_BATCH\\.HARNESS: duplicate_edit_rollback=PASS",
@@ -124,13 +124,15 @@
       "MODEL\\.SLOT\\.GENERATION\\.HARNESS: retained_after_catalog_reset=PASS",
       "TEXTURE\\.GENERATION\\.HARNESS: .*result=PASS",
       "TEXTURE\\.SOURCE\\.RUNTIME\\.HARNESS: .*result=PASS",
-      "MODEL\\.QUEUE\\.GENERATION\\.HARNESS: exact_retained_source=PASS"
+      "MODEL\\.QUEUE\\.GENERATION\\.HARNESS: exact_retained_source=PASS",
+      "GRAPH\\.V2\\.PRODUCTION\\.HARNESS: step=retirement result=PASS"
     ],
     "forbidden_patterns": [
       "PDWEAPON\\.MESH\\.HARNESS: .*result=FAIL",
       "PDWEAPON\\.NESTED\\.HARNESS\\.FAIL:",
       "PDWEAPON\\.NESTED\\.HARNESS: .*result=FAIL",
       "SMOKE: result=timeout",
+      "GRAPH\\.V2\\.PRODUCTION\\.HARNESS: .*result=FAIL",
       "SMOKE: result=weapon_nested_harness_fail",
       "EXCEPTION_ACCESS_VIOLATION",
       "BOOT:.*stopped:",

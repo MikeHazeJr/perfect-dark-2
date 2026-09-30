@@ -50,6 +50,9 @@ void catalogTypedLifecycleClear(void) {}
 void catalogTypedLifecycleClearMods(void) {}
 void assetRuntimeReset(void) {}
 void weaponGraphRuntimeClearAll(void) {}
+/* This catalog-mutation executable owns no native graph/player registry.
+ * Production graph lifecycle is exercised by the installed client harness. */
+void wgV2RuntimeReset(void) {}
 void effectGraphRuntimeClearAll(void) {}
 void assetCatalogResetCustomAnimSlots(void) {}
 void assetCatalogResetCustomBodyHeadSlots(void) {}

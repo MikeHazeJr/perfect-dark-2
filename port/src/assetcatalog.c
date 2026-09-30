@@ -36,6 +36,7 @@
 #include "assetcatalog_weapon_slots.h"
 #include "effect_graph_runtime.h"
 #include "weapon_graph_runtime.h"
+#include "weapon_graph_v2_runtime.h"
 #include "asset_runtime.h"
 #include "catalog_reset_plan.h"
 #include "assetcatalog_body_head_slots.h"  /* c3844 Gate 2: reset custom body/head slots on rebuild */
@@ -506,6 +507,7 @@ void assetCatalogInit(void)
             return;
         }
         assetRuntimeReset();
+        wgV2RuntimeReset();
         weaponGraphRuntimeClearAll();
         effectGraphRuntimeClearAll();
         catalogTypedLifecycleClear();
@@ -565,7 +567,8 @@ void assetCatalogClear(void)
         return;
     }
     assetRuntimeReset();
-    weaponGraphRuntimeClearAll();
+    wgV2RuntimeReset();
+        weaponGraphRuntimeClearAll();
     effectGraphRuntimeClearAll();
     catalogTypedLifecycleClear();
     catalogDepClear();

@@ -1,5 +1,15 @@
 # Bug Tracker
 
+Sep29 T-MODDING-002 fixture/production descriptor mismatch FIXED: new mesh.ini
+used [mesh] while modelSourceResolvePath requires [model]. Host and fixture now
+share canonical [model]; strict-reader negative regression prevents permissive
+admission before failed conversion. Propagation check found no other new graph
+fixture using the wrong section; existing intentional legacy/rejection cases
+remain unchanged. Death retirement and replacement-held-model refresh are also
+connected. Client/tests0, native148/4941, guard0, installed41/41 (26/26 cases),
+frozen3408 drift0. Real world-hit/render acceptance still OPEN. Both installed
+red receipts and final pass retained under asset0923lang/graph0929-*; see audit.
+
 Sep29 T-MENUS-005: confirmed the Settings/Agent option mismatch is retired
 save-side indexing, not current UI indexing: lvReset uses slot0. P1 save,
 load and defaults now use0; obsolete co-op return swaps removed. Candidate

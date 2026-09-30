@@ -12,6 +12,7 @@
 #include "platform.h"
 #include "net/netenet.h"
 #include "net/net.h"
+#include "weapon_graph_v2_runtime.h"
 #include "net/netbuf.h"
 #include "net/netmsg.h"
 #include "net/net_client_settings_wire.h"
@@ -1316,6 +1317,10 @@ s32 netStartServer(u16 port, s32 maxclients)
 	if (g_NetMode || !g_NetInit) {
 		return -1;
 	}
+	char graph_error[256];
+	if (!wgV2RuntimeCanEnterUse(1, 0, graph_error, sizeof(graph_error))) {
+		sysLogPrintf(LOG_WARNING, "NET.GRAPH.V2: %s", graph_error); return -1;
+	}
 
 	/* Reserve the complete shipping participant domain before publishing an
 	 * ENet listen host.  Lobby-start transactions must not discover that the
@@ -2040,6 +2045,10 @@ s32 netStartClient(const char *addr)
 
 	if (g_NetMode || !g_NetInit) {
 		return -1;
+	}
+	char graph_error[256];
+	if (!wgV2RuntimeCanEnterUse(1, 0, graph_error, sizeof(graph_error))) {
+		sysLogPrintf(LOG_WARNING, "NET.GRAPH.V2: %s", graph_error); return -1;
 	}
 
 	if (!netParseAddr(&g_NetRemoteAddr, addr)) {

@@ -3,6 +3,7 @@
  */
 
 #include "theater.h"
+#include "weapon_graph_v2_runtime.h"
 
 #include "assetcatalog.h"
 #include "bss.h"
@@ -1018,6 +1019,10 @@ static theater_format_result_t captureCheckpoint(void)
 
 s32 theaterStartRecording(const char *filename)
 {
+	char graph_error[256];
+	if (!wgV2RuntimeCanEnterUse(0, 1, graph_error, sizeof(graph_error))) {
+		sysLogPrintf(LOG_WARNING, "THEATER.GRAPH.V2: %s", graph_error); return -1;
+	}
 	if (s_Recorder.writer) return -1;
 	if (!theaterEntityLifecycleIdentityAvailable()) {
 		sysLogPrintf(LOG_WARNING,
@@ -1226,6 +1231,10 @@ void theaterTick(void)
 
 s32 theaterStartReplay(const char *filename)
 {
+	char graph_error[256];
+	if (!wgV2RuntimeCanEnterUse(0, 1, graph_error, sizeof(graph_error))) {
+		sysLogPrintf(LOG_WARNING, "THEATER.GRAPH.V2: %s", graph_error); return -1;
+	}
 	char path[512];
 	if (!buildReplayPath(filename, path, sizeof(path))) return -1;
 	theater_format_info_t info;

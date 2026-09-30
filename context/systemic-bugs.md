@@ -1,5 +1,16 @@
 # Systemic Bug Patterns — Architectural Issue Catalog
 
+## 2026-09-29 Admission and conversion must select the same public descriptor
+
+A permissive graph-host [mesh] read accepted a fixture that the canonical model
+converter rejected because public mesh.ini requires [model]. Pure section parsing
+was green and did not prove the complete asset chain. Use the same family contract
+at both boundaries and retain installed prepare/activate/use evidence. Propagation:
+`rg -n 'section="mesh"|ReadIniBytes' port/src tools/smoke-verify`; distinguish
+intentional legacy/rejection fixtures from new supported source. Canonical section
+negative coverage and installed26/26 prove this repair; world-hit/render remain
+separate gates. See graph-production-cutover-2026-09-29.md.
+
 ## 2026-09-29 Source lifetime and private slot identity are separate leases
 
 Retaining compiled public model bytes does not protect a reusable native
