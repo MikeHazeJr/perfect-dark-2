@@ -171,6 +171,12 @@ void pdguiNavSuppressOpeningGesture()
 void pdguiSubmitNavInput(const PdguiNavInput &input)
 {
     ImGuiIO &io = ImGui::GetIO();
+    /* Mouse activity hides native navigation. A mapped menu gesture must
+     * reveal its focused target before NewFrame evaluates activation, so
+     * the first Accept after switching devices is not silently discarded.
+     * This does not move focus, activate an item, or release input owners. */
+    if (input.active && (input.accept || input.cancel || input.up || input.down || input.left || input.right))
+        ImGui::SetNavCursorVisible(true);
     /* The action map supplies this virtual navigation device even when the
      * selected binding is a keyboard key. The SDL gamepad poller is disabled. */
     io.BackendFlags |= ImGuiBackendFlags_HasGamepad;

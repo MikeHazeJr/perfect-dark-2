@@ -320,6 +320,10 @@ static s32 renderAgentSelect(struct menudialog *dialog,
         refreshAgentProfiles(true);
         totalEntries = s_ProfileCount + 1;
         ImGui::SetWindowFocus();
+        /* The selected row lives inside a child navigation region. Focus it
+         * on entry so the first Accept activates the row instead of merely
+         * entering that region. Copy/delete use this same restoration path. */
+        s_FocusListPending = true;
         s_ConfirmMode = CONFIRM_NONE;
         s_ConfirmIdx = -1;
 

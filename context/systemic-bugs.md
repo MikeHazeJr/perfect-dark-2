@@ -1,5 +1,13 @@
 # Systemic Bug Patterns — Architectural Issue Catalog
 
+Sep29 T-MENUS-004: A renderer that also handles input must not run for a
+background legacy transition dialog. Agent Select consumed Back while Create
+owned the current menu. Shared menuRenderDialog now admits only menu->curdialog
+to pdguiHotswapCheck. Propagation search: rg -n 'pdguiHotswapCheck\(' src port;
+there is one production queue-admission caller. Keep background drawing and
+interactive callback dispatch distinct. Current ordinary verification is
+blocked by OS foreground access; do not infer it from native tests alone.
+
 ## 2026-09-29 Admission and conversion must select the same public descriptor
 
 A permissive graph-host [mesh] read accepted a fixture that the canonical model

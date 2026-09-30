@@ -1,5 +1,24 @@
 # Tasks
 
+Sep29 22:32 T-MENUS-003/004 continuation: first mapped Accept now reveals
+native navigation, Agent Select requests its selected row on entry, and the
+virtual SDL fixture maps every advertised button (including Touchpad) without
+changing hardware mappings. Combined client/tests and broad241/9995 pass.
+Current full1857 cases/141173 assertions retains the same18 failing names;
+zero source drift. Both old and new full receipts remain; no passing full gate.
+Isolated873C ordinary run reaches Create with one A, but fails26/29 because
+background Agent Select consumes the second Back (results-20260930T022335Z).
+The shared menuRenderDialog admission now queues only menu->curdialog.
+Client2649B339 and the current broad241/9995 pass with3408 source paths unchanged.
+The unchanged runtime retry times out11/29 before attachment because Windows
+reports foreground=0; it does not test the new Back fix. Receipt:
+results-20260930T023149Z; immutable source/binaries and sep29-r3 receipts under
+.claude/menu0927. Normal captures show a black character preview and stretched
+background geometry, handed to asset owner. 150% fixture prepared, not run;
+Settings keyboard traversal, save/restart/failure, other reachable menus and
+physical devices remain open. User resumed work; complete-plan acceptance is
+still partial. A foreground-access question is pending; all client lanes freed.
+
 Sep29 T-MENUS-005 Settings/input candidate passes shared isolated client/tests
 builds, broad238 cases/9829 assertions and real settings-save11/123, with3405
 source paths unchanged. Full suite remains red18/140987 across1853 cases;

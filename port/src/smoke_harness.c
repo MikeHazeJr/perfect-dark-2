@@ -142,6 +142,7 @@
 #include "smoke_harness.h"
 #include "smoke_readiness.h"
 #include "smoke_transition.h"
+#include "smoke_virtual_mapping.h"
 #include "system.h"
 #include "actionmap.h"   /* actionmapResolveByName, actionmapInjectStateForSmoke */
 #include "assetcatalog.h"
@@ -2269,9 +2270,8 @@ static s32 smokePadFail(const char *reason)
     return 0;
 }
 
-/* The complete descriptor gives SDL an identity virtual mapping. Verify that
- * mapping explicitly before using logical enum values as raw virtual indices;
- * do not install a substitute mapping or alter the user's bindings. */
+/* Verify the fixture-owned identity mapping before using logical enum values
+ * as raw virtual indices. No physical-device mapping or user binding changes. */
 static s32 smokePadMappingValid(SDL_GameController *pad)
 {
     for (s32 i = 0; i < SDL_CONTROLLER_BUTTON_MAX; ++i) {
@@ -2312,9 +2312,14 @@ static s32 smokePadObserve(void)
     SDL_GameController *pad = smokePadController();
     if (!pad || !smokePadStateMatches(pad)) return smokePadFail("state_or_player_route");
     if (s_SmokePad.pending_state) {
+        InputCtxDebugAuthority authority;
+        inputCtxDebugSnapshotAuthority(&authority);
         sysLogPrintf(LOG_NOTE,
-            "SMOKE.PAD: event=state_observed instance=%d player=0 virtual=1",
-            (int)s_SmokePad.instance);
+            "SMOKE.PAD: event=state_observed instance=%d player=0 virtual=1 accept=%d cancel=%d last_device=%d focus_lost=%d settle_ms=%u context=%s",
+            (int)s_SmokePad.instance, actionHeld(0, ACTION_MENU_ACCEPT),
+            actionHeld(0, ACTION_MENU_CANCEL), actionmapGetLastDevice(),
+            authority.window_focus_lost, authority.focus_settle_remaining_ms,
+            authority.effective_top_name ? authority.effective_top_name : "none");
         s_SmokePad.pending_state = 0;
     }
     return 1;
@@ -2360,7 +2365,7 @@ static s32 smokePadTickTransition(const SmokeEvent *ev, u32 now)
             if (index >= 0) {
                 s_SmokePad.instance = SDL_JoystickGetDeviceInstanceID(index);
                 s_SmokePad.joystick = SDL_JoystickOpen(index);
-                is_controller = SDL_IsGameController(index);
+                is_controller = smokeInstallVirtualMapping(index) && SDL_IsGameController(index);
                 if (s_SmokePad.instance < 0) {
                     /* No stable identity: roll back only this just-created
                      * index while still holding the unchanged SDL list. */

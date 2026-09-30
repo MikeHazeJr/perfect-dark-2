@@ -4044,7 +4044,11 @@ Gfx *menuRenderDialog(Gfx *gdl, struct menudialog *dialog, struct menu *menu, bo
 	 * dialog for ImGui rendering, and the native PD render path has been
 	 * removed.  Character preview FBOs are still rendered here so ImGui
 	 * screens can display 3D character textures. */
-	if (dialog && dialog->definition) {
+	/* Legacy transitions also render the previous dialog. ImGui callbacks
+	 * contain live controls, so only the authoritative current dialog may be
+	 * queued: otherwise a parent's Back can pop its child before that child
+	 * handles the same gesture. Character preview rendering remains below. */
+	if (menu && dialog && dialog == menu->curdialog && dialog->definition) {
 		pdguiHotswapCheck(dialog->definition, dialog, menu);
 	}
 

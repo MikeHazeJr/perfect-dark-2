@@ -1,5 +1,6 @@
 #include "catch.hpp"
 #include "pdgui_nav_input.h"
+#include "smoke_virtual_mapping.h"
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include <cstring>
@@ -7,6 +8,60 @@
 #include <sstream>
 #include <string>
 #include <SDL.h>
+
+TEST_CASE("Smoke virtual controller maps every advertised button and neutral trigger", "[input][smoke][sdl]")
+{
+    struct VirtualPad {
+        int initialized = SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
+        int index = -1;
+        SDL_Joystick *joystick = nullptr;
+        SDL_GameController *controller = nullptr;
+        ~VirtualPad() {
+            if (controller) SDL_GameControllerClose(controller);
+            if (joystick) SDL_JoystickClose(joystick);
+            if (index >= 0) SDL_JoystickDetachVirtual(index);
+            if (initialized == 0) SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER);
+        }
+    } pad;
+    REQUIRE(pad.initialized == 0);
+    SDL_VirtualJoystickDesc desc{};
+    desc.version = SDL_VIRTUAL_JOYSTICK_DESC_VERSION;
+    desc.type = SDL_JOYSTICK_TYPE_GAMECONTROLLER;
+    desc.naxes = SDL_CONTROLLER_AXIS_MAX;
+    desc.nbuttons = SDL_CONTROLLER_BUTTON_MAX;
+    desc.name = "PD2 Smoke Virtual Controller";
+    desc.axis_mask = (1u << SDL_CONTROLLER_AXIS_MAX) - 1;
+    desc.button_mask = (1u << SDL_CONTROLLER_BUTTON_MAX) - 1;
+    pad.index = SDL_JoystickAttachVirtualEx(&desc);
+    REQUIRE(pad.index >= 0);
+    REQUIRE(smokeInstallVirtualMapping(pad.index));
+    pad.joystick = SDL_JoystickOpen(pad.index);
+    REQUIRE(pad.joystick != nullptr);
+    pad.controller = SDL_GameControllerOpen(pad.index);
+    REQUIRE(pad.controller != nullptr);
+    for (int axis = 0; axis < SDL_CONTROLLER_AXIS_MAX; ++axis) {
+        const auto bind = SDL_GameControllerGetBindForAxis(pad.controller, (SDL_GameControllerAxis)axis);
+        REQUIRE(bind.bindType == SDL_CONTROLLER_BINDTYPE_AXIS);
+        REQUIRE(bind.value.axis == axis);
+        REQUIRE(SDL_JoystickSetVirtualAxis(pad.joystick, axis,
+            axis >= SDL_CONTROLLER_AXIS_TRIGGERLEFT ? SDL_JOYSTICK_AXIS_MIN : 0) == 0);
+    }
+    SDL_GameControllerUpdate();
+    for (int axis = 0; axis < SDL_CONTROLLER_AXIS_MAX; ++axis)
+        REQUIRE(SDL_GameControllerGetAxis(pad.controller, (SDL_GameControllerAxis)axis) == 0);
+    for (int button = 0; button < SDL_CONTROLLER_BUTTON_MAX; ++button) {
+        CAPTURE(button);
+        const auto bind = SDL_GameControllerGetBindForButton(pad.controller, (SDL_GameControllerButton)button);
+        REQUIRE(bind.bindType == SDL_CONTROLLER_BINDTYPE_BUTTON);
+        REQUIRE(bind.value.button == button);
+        REQUIRE(SDL_JoystickSetVirtualButton(pad.joystick, button, 1) == 0);
+        SDL_GameControllerUpdate();
+        REQUIRE(SDL_GameControllerGetButton(pad.controller, (SDL_GameControllerButton)button) == 1);
+        REQUIRE(SDL_JoystickSetVirtualButton(pad.joystick, button, 0) == 0);
+        SDL_GameControllerUpdate();
+        REQUIRE(SDL_GameControllerGetButton(pad.controller, (SDL_GameControllerButton)button) == 0);
+    }
+}
 
 TEST_CASE("Binding capture detects lost mapped and raw SDL handles without rejecting unseen devices",
           "[input][settings][capture][sdl]")
@@ -311,6 +366,68 @@ TEST_CASE("Text Back wins simultaneous validation through keyboard and controlle
         REQUIRE(std::strcmp(h.text, "abc") == 0);
         REQUIRE(GImGui->ActiveId == 0);
         REQUIRE_FALSE(h.parentActionAllowed);
+    }
+}
+
+TEST_CASE("First mapped Accept restores hidden navigation and activates the focused control", "[input][menus][imgui][widgets]")
+{
+    WidgetHarness h(WidgetHarness::Repeat);
+    ImGui::SetNavCursorVisible(false);
+    REQUIRE_FALSE(GImGui->NavCursorVisible);
+    h.accept();
+    REQUIRE(GImGui->NavCursorVisible);
+    REQUIRE(h.repeatCount == 1);
+}
+
+TEST_CASE("Agent list entry focus activates its row on the first controller or keyboard Accept", "[input][menus][imgui][widgets]")
+{
+    for (bool keyboard : {false, true}) {
+        CAPTURE(keyboard);
+        ImGuiContext *previous = ImGui::GetCurrentContext();
+        ImGuiContext *context = ImGui::CreateContext();
+        struct Cleanup {
+            ImGuiContext *current, *previous;
+            ~Cleanup() { ImGui::DestroyContext(current); ImGui::SetCurrentContext(previous); }
+        } cleanup{context, previous};
+        auto &io = ImGui::GetIO();
+        io.DisplaySize = ImVec2(1280, 720);
+        io.DeltaTime = 1.0f / 60.0f;
+        io.IniFilename = nullptr;
+        io.LogFilename = nullptr;
+        io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+        unsigned char *pixels; int width, height;
+        io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+        int activations = 0;
+        ImGuiID row = 0;
+        auto frame = [&](bool accept) {
+            pdguiNavCaptureOwners();
+            pdguiSubmitNavInput({true, accept, false, false, false, false, false});
+            ImGui::NewFrame();
+            pdguiNavFinishOwners();
+            ImGui::SetNextWindowSize(ImVec2(600, 400));
+            ImGui::Begin("Agent list entry");
+            const bool entering = ImGui::IsWindowAppearing();
+            if (entering) ImGui::SetWindowFocus();
+            ImGui::TextUnformatted("Choose Your Reality");
+            if (ImGui::BeginChild("##agent_list", ImVec2(0, 240), true)) {
+                if (entering) ImGui::SetKeyboardFocusHere();
+                if (ImGui::Selectable("+ New Agent...", true, 0, ImVec2(0, 40))) ++activations;
+                row = ImGui::GetItemID();
+                ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndChild();
+            ImGui::End();
+            ImGui::Render();
+        };
+        frame(false); frame(false); frame(false);
+        REQUIRE(context->NavId == row);
+        REQUIRE(activations == 0);
+        if (keyboard) io.AddKeyEvent(ImGuiKey_Enter, true);
+        frame(true);
+        REQUIRE(activations == 1);
+        if (keyboard) io.AddKeyEvent(ImGuiKey_Enter, false);
+        frame(false);
+        REQUIRE(activations == 1);
     }
 }
 

@@ -1,5 +1,28 @@
 # Bug Tracker
 
+Sep29 T-MENUS-004 ordinary virtual-controller receipt873C is red26/29:
+first A enters Create and first B leaves the editor, but second B logs
+agent_select.back while releasing agent_create. menuRenderDialog queued the
+legacy background/transition dialog as an interactive ImGui screen. Candidate
+now admits only menu->curdialog to that queue for every dialog-backed menu;
+character-preview rendering remains independent. Exact failed receipt:
+.claude/smoke-verify-runs/results-20260930T022335Z.json. Native first-A/mapping
+gate241/9995 and client2649B339 pass after this queue-admission fix. The ordinary
+retry (results-20260930T023149Z.json) times out before attachment with Windows
+foreground=0, so runtime validation of Back ownership remains open.
+
+Sep29 T-MENUS-003 first-A investigation: native ImGui suppresses activation
+when its navigation cursor is hidden; Agent Select's selected row also lived
+inside an unfocused child region. Candidate now requests selected-row focus
+on entry and reveals native navigation for mapped menu gestures. Native first
+Accept and child-row regressions pass; isolated873C now enters Create with one
+A. The earlier virtual15/29 run remains retained as a failed overlapping run.
+SDL2.32.10 also omits Touchpad from its automatic virtual mapping. The smoke
+fixture now installs an identity mapping only for its owned virtual device,
+keeps strict binding/state checks, and records action/focus observations.
+Hardware mappings and user bindings are unchanged. Complete-flow acceptance
+remains open for the separate Back-ownership and foreground-access gates above.
+
 Sep29 T-MODDING-002 fixture/production descriptor mismatch FIXED: new mesh.ini
 used [mesh] while modelSourceResolvePath requires [model]. Host and fixture now
 share canonical [model]; strict-reader negative regression prevents permissive
