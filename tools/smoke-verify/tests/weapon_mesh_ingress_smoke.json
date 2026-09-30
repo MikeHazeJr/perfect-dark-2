@@ -41,6 +41,8 @@
     "port/include/catalog_texture_generation.h",
     "port/src/catalog_model_generation.cpp",
     "port/include/catalog_model_generation.h",
+    "port/src/assetcatalog_model_slots.c",
+    "port/include/assetcatalog_model_slots.h",
     "port/src/assetcatalog_load.c",
     "port/src/texture_source_properties.c",
     "port/include/texture_source_properties.h",
@@ -110,6 +112,7 @@
       "COMMAND\\.GENERATION\\.HARNESS: .*result=PASS",
       "MODEL\\.INPUTS\\.HARNESS: .*result=PASS",
       "MODEL\\.GENERATION\\.HARNESS: step=stage_retirement result=PASS",
+      "MODEL\\.SLOT\\.GENERATION\\.HARNESS: retained_after_catalog_reset=PASS",
       "TEXTURE\\.GENERATION\\.HARNESS: .*result=PASS",
       "TEXTURE\\.SOURCE\\.RUNTIME\\.HARNESS: .*result=PASS"
     ],

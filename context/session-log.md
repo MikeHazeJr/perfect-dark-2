@@ -1,5 +1,15 @@
 # Session Log (Active)
 
+2026-09-29 model slot identity batch applied and validated. Compiled public
+model generations pin their exact private slot until final destruction; reset
+preserves live leases and rollback rejects conflicting/reordered identities
+atomically. Six native lifetime/rollback tests and installed source-generation
+reset witness added. First client build red from legacy header macro ordering,
+corrected and retained. Final client/tests0, native123/4163, dependent body/head
+8/322, guard0, installed38/38 and source2011 drift0. Model stage checkpoint
+c7c22a38 pushed separately; peer menu/MP source preserved. Full graph/runtime
+goal remains partial. Receipt: model-slot-lifetime-2026-09-29.md.
+
 2026-09-29 asset/graph goal resumed. Canonical Workbench/coordination preflight
 restored; no targeted new notes remain. Reviewed held model stage pin and
 player-root teardown ordering. Retained client/tests builds0, native109/4040,

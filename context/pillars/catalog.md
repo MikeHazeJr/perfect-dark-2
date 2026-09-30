@@ -1,5 +1,14 @@
 # Catalog System
 
+2026-09-29 model private slot identity now follows the compiled model source
+generation's final release. Catalog reset preserves live pins; rollback checks
+all pinned identities before mutation and never rewinds reference counts.
+Client/tests builds, native123/4163 plus dependent body/head8/322, native guard
+and installed38/38 pass; 2,011 source files unchanged. Receipt:
+context/audits/2026/model-slot-lifetime-2026-09-29.md. This prevents identity
+reuse, but does not bind a v2 queued load to its exact immutable source version
+or protect weapon slots. Ordinary graph gameplay remains open.
+
 2026-09-29 T-RUNTIME-001 held model lifetime checkpoint: ordinary gun, hand
 and casing loading pins the exact public model/texture generation before
 publishing native pointers. Stage/player reset invalidates player roots before

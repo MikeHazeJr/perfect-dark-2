@@ -661,11 +661,15 @@ static s32 harnessModelGeneration(const char *id, const char *folder)
     file_provider_checkpoint_t provider;
     const char *step = "source";
     s32 checkpoint = fileProviderCheckpointCreate(&provider);
+    void *slot_snapshot = assetCatalogSnapshotCustomModelSlots();
     s32 registered = 0, stage_loaded = 0, ok = 0;
-    if (!checkpoint || !entry || assetCatalogResolveAny(id) || strlen(id) >= sizeof(entry->id)
+    if (!checkpoint || !slot_snapshot || !entry || assetCatalogResolveAny(id) || strlen(id) >= sizeof(entry->id)
             || snprintf(source, sizeof(source), "%s/model.obj", folder) >= sizeof(source)
             || snprintf(image, sizeof(image), "%s/sample.tga", folder) >= sizeof(image)) goto done;
     strcpy(entry->id, id); entry->type = ASSET_MODEL;
+    entry->runtime_index = assetCatalogResolveModelPrivateSlot(id);
+    entry->source_filenum = assetCatalogModelPrivateSourceFilenum(entry->runtime_index);
+    if (entry->runtime_index < MODEL_CUSTOM_START || entry->source_filenum <= 0) goto done;
     original = fsFileLoad(image, &image_size);
     if (!original || image_size != 34) goto done;
     edited = malloc(image_size);
@@ -693,6 +697,8 @@ static s32 harnessModelGeneration(const char *id, const char *folder)
     asset_entry_t *catalog_entry = assetCatalogRegister(id, ASSET_MODEL);
     if (!catalog_entry) goto done;
     registered = 1;
+    catalog_entry->runtime_index = entry->runtime_index;
+    catalog_entry->source_filenum = entry->source_filenum;
     catalogSetPrimaryFile(catalog_entry, source);
     if (!catalogLoadStageAsset(ASSET_MODEL, id)) goto done;
     stage_loaded = 1;
@@ -714,6 +720,10 @@ static s32 harnessModelGeneration(const char *id, const char *folder)
             || !catalogModelGenerationPinStage(second)) goto done;
     catalogModelGenerationRelease(alias); alias = NULL;
     catalogModelGenerationRelease(first); first = NULL;
+    assetCatalogResetCustomModelSlots();
+    if (assetCatalogResolveModelPrivateSlot("meshproof:model_slot_other") == entry->runtime_index
+            || !assetCatalogPinModelPrivateSlot(id, entry->runtime_index)) goto done;
+    if (!assetCatalogReleaseModelPrivateSlot(id, entry->runtime_index)) goto done;
     /* Native held pointers remain valid after all old catalog/caller owners
      * retire. Repeated pins above must not leak an extra stage reference. */
     if (!catalogModelGenerationForModeldef(old_model)
@@ -724,6 +734,9 @@ static s32 harnessModelGeneration(const char *id, const char *folder)
     if (catalogModelGenerationForModeldef(old_model)
             || catalogModelGenerationForModeldef(new_model) != second
             || new_pixels[0] != 0x0000ffffu) goto done;
+    if (!assetCatalogPinModelPrivateSlot(id, entry->runtime_index)) goto done;
+    if (!assetCatalogReleaseModelPrivateSlot(id, entry->runtime_index)) goto done;
+    sysLogPrintf(LOG_NOTE, "MODEL.SLOT.GENERATION.HARNESS: retained_after_catalog_reset=PASS");
     ok = 1;
 done:
     if (stage_loaded) catalogReleaseStageAsset(ASSET_MODEL, id);
@@ -734,6 +747,8 @@ done:
     catalogModelGenerationRelease(second);
     catalogModelGenerationRelease(rejected);
     catalogModelGenerationReleaseStagePins();
+    if (slot_snapshot && !assetCatalogRestoreCustomModelSlots(slot_snapshot)) ok = 0;
+    assetCatalogDestroyCustomModelSlotSnapshot(slot_snapshot);
     if (original && !harnessWriteBytes(image, original, image_size)) ok = 0;
     free(original); free(edited); free(entry);
     catalogBuildRuntimeCaches(); catalogLoadInit();

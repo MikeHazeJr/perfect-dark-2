@@ -17,10 +17,131 @@
 #include "catch.hpp"
 
 #include <cstdio>
+#include <memory>
+#include <string>
 
 extern "C" {
 #include "constants.h" /* MODEL_CUSTOM_START / MODEL_CUSTOM_COUNT / MODEL_CUSTOM_END */
 #include "assetcatalog_model_slots.h"
+}
+
+namespace {
+using SlotSnapshot = std::unique_ptr<void, decltype(&assetCatalogDestroyCustomModelSlotSnapshot)>;
+struct ModelSlotPin {
+    const char *id;
+    s32 slot;
+    bool held;
+    ModelSlotPin(const char *id, s32 slot) : id(id), slot(slot),
+        held(assetCatalogPinModelPrivateSlot(id, slot) != 0) {}
+    ~ModelSlotPin() { release(); }
+    void release() {
+        if (held) { assetCatalogReleaseModelPrivateSlot(id, slot); held = false; }
+    }
+};
+}
+
+TEST_CASE("model slot generations prevent reuse through reset until the final lease",
+          "[catalog][model][slots][modding][pdxxx][c3842]") {
+    assetCatalogResetCustomModelSlots();
+    const auto slot = assetCatalogResolveModelPrivateSlot("mod_pin:model_old");
+    ModelSlotPin first("mod_pin:model_old", slot), second("mod_pin:model_old", slot);
+    REQUIRE(first.held); REQUIRE(second.held);
+    assetCatalogResetCustomModelSlots();
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_new") != slot);
+    first.release();
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_third") != slot);
+    second.release();
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_reuse") == slot);
+}
+
+TEST_CASE("model slot empty rollback preserves live pins without restoring reference counts",
+          "[catalog][model][slots][modding][pdxxx][c3842]") {
+    assetCatalogResetCustomModelSlots();
+    SlotSnapshot empty(assetCatalogSnapshotCustomModelSlots(), assetCatalogDestroyCustomModelSlotSnapshot);
+    REQUIRE(empty);
+    const auto slot = assetCatalogResolveModelPrivateSlot("mod_pin:model_child");
+    ModelSlotPin pin("mod_pin:model_child", slot);
+    REQUIRE(pin.held);
+    REQUIRE(assetCatalogRestoreCustomModelSlots(empty.get()));
+    REQUIRE(assetCatalogRestoreCustomModelSlots(empty.get()));
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_other") != slot);
+    pin.release();
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_reuse") == slot);
+}
+
+TEST_CASE("model slot restored catalog reservation survives its last generation release",
+          "[catalog][model][slots][modding][pdxxx][c3842]") {
+    assetCatalogResetCustomModelSlots();
+    const auto slot = assetCatalogResolveModelPrivateSlot("mod_pin:model_reserved");
+    SlotSnapshot saved(assetCatalogSnapshotCustomModelSlots(), assetCatalogDestroyCustomModelSlotSnapshot);
+    REQUIRE(saved);
+    ModelSlotPin pin("mod_pin:model_reserved", slot);
+    REQUIRE(pin.held);
+    assetCatalogResetCustomModelSlots();
+    REQUIRE(assetCatalogRestoreCustomModelSlots(saved.get()));
+    pin.release();
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_other") != slot);
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_reserved") == slot);
+}
+
+TEST_CASE("model slot conflicting rollback rejects atomically until live source retirement",
+          "[catalog][model][slots][modding][pdxxx][c3842]") {
+    assetCatalogResetCustomModelSlots();
+    const auto old = assetCatalogResolveModelPrivateSlot("mod_pin:model_before");
+    SlotSnapshot saved(assetCatalogSnapshotCustomModelSlots(), assetCatalogDestroyCustomModelSlotSnapshot);
+    REQUIRE(saved);
+    assetCatalogResetCustomModelSlots();
+    const auto newer = assetCatalogResolveModelPrivateSlot("mod_pin:model_after");
+    REQUIRE(newer == old);
+    ModelSlotPin pin("mod_pin:model_after", newer);
+    REQUIRE(pin.held);
+    const auto other = assetCatalogResolveModelPrivateSlot("mod_pin:model_other");
+    CHECK(assetCatalogRestoreCustomModelSlots(saved.get()) == 0);
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_after") == newer);
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_other") == other);
+    pin.release();
+    REQUIRE(assetCatalogRestoreCustomModelSlots(saved.get()));
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_before") == old);
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_reuse_other") == other);
+}
+
+TEST_CASE("model slot rollback rejects moving a retained identity to a different slot",
+          "[catalog][model][slots][modding][pdxxx][c3842]") {
+    assetCatalogResetCustomModelSlots();
+    assetCatalogResolveModelPrivateSlot("mod_pin:model_blocker");
+    const auto old = assetCatalogResolveModelPrivateSlot("mod_pin:model_move");
+    ModelSlotPin original("mod_pin:model_move", old);
+    REQUIRE(original.held);
+    assetCatalogResetCustomModelSlots();
+    REQUIRE(assetCatalogResolveModelPrivateSlot("mod_pin:model_move") == old);
+    SlotSnapshot saved(assetCatalogSnapshotCustomModelSlots(), assetCatalogDestroyCustomModelSlotSnapshot);
+    REQUIRE(saved);
+    original.release();
+    assetCatalogResetCustomModelSlots();
+    const auto moved = assetCatalogResolveModelPrivateSlot("mod_pin:model_move");
+    REQUIRE(moved != old);
+    ModelSlotPin pin("mod_pin:model_move", moved);
+    REQUIRE(pin.held);
+    CHECK(assetCatalogRestoreCustomModelSlots(saved.get()) == 0);
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_move") == moved);
+}
+
+TEST_CASE("model slot leases require exact allocated identity and balanced releases",
+          "[catalog][model][slots][modding][pdxxx][c3842]") {
+    assetCatalogResetCustomModelSlots();
+    const auto slot = assetCatalogResolveModelPrivateSlot("mod_pin:model_exact");
+    CHECK(assetCatalogPinModelPrivateSlot("mod_pin:model_foreign", slot) == 0);
+    CHECK(assetCatalogPinModelPrivateSlot(nullptr, slot) == 0);
+    CHECK(assetCatalogPinModelPrivateSlot("mod_pin:model_exact", MODEL_CUSTOM_END) == 0);
+    CHECK(assetCatalogReleaseModelPrivateSlot("mod_pin:model_exact", slot) == 0);
+    ModelSlotPin pin("mod_pin:model_exact", slot);
+    REQUIRE(pin.held);
+    CHECK(assetCatalogReleaseModelPrivateSlot("mod_pin:model_foreign", slot) == 0);
+    assetCatalogResetCustomModelSlots();
+    pin.release();
+    CHECK(assetCatalogReleaseModelPrivateSlot("mod_pin:model_exact", slot) == 0);
+    CHECK(assetCatalogResolveModelPrivateSlot("mod_pin:model_reuse") == slot);
+    CHECK(assetCatalogResolveModelPrivateSlot(std::string(1024, 'x').c_str()) == -1);
 }
 
 TEST_CASE("model slots: allocation is in the private custom range",

@@ -1248,3 +1248,18 @@ last-reference cleanup. Client/tests builds, 109 cases/4,040 assertions,
 native-source guard and installed 37/37 source/lifetime harness pass. September
 29 recheck confirms zero drift across all 2,011 recorded source files. This protects source
 storage, not the separate v2 weapon/model numeric-slot identity contract.
+
+### 2026-09-29 T-RUNTIME-001 - Retained model slot identity
+
+Custom model slot reset and rollback previously overwrote identity regardless
+of retained compiled-source users. Model generations now acquire an exact-ID
+slot pin on publication and release it at final destruction. Reset removes
+catalog reservations while preserving live pins; rollback preflights all live
+identities before mutation and never restores operational reference counts.
+Native tests cover final release, repeated rollback, reserved vs retained
+ownership, conflicting/reordered identity, invalid pins and malformed IDs.
+Installed source-generation harness now uses a real custom slot and checks
+old/new source retention through slot reset. Client/tests builds, native123/
+4,163, dependent body/head8/322, native guard and installed38/38 pass on
+2,011 unchanged sources. Retain first header-ordering build red and correction.
+Weapon slot lifetime and ordinary executable-graph cutover remain separate.

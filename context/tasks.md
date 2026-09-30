@@ -1,5 +1,12 @@
 # Tasks
 
+2026-09-29 T-RUNTIME-001 model slot lifetime follow-up passes isolated client/
+tests builds, native123/4163, body/head8/322, guard and installed38/38. Real
+source generations retain exact private slot identity through reset/rollback;
+2,011 recorded sources unchanged. Next: exact v2 queued model generation,
+weapon slot lifetime and complete ordinary catalog/idle/hand/deferred-hit
+cutover. Receipt: context/audits/2026/model-slot-lifetime-2026-09-29.md.
+
 2026-09-29 asset/graph goal resumed after canonical Workbench recovery.
 T-RUNTIME-001 held model stage lifetime passes client/tests builds, 109 cases/
 4,040 assertions, guard and installed source/lifetime harness 37/37. Retained

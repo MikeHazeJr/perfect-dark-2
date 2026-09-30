@@ -32,7 +32,9 @@
 extern "C" {
 #endif
 
-/* Reset all custom model slot reservations. Called wherever the catalog is
+/* Reset catalog reservations, preserving identities with live generation pins.
+ * Their slots become reusable only after the final pin is released.
+ * Called wherever the catalog is
  * rebuilt, beside assetCatalogResetCustomWeaponSlots() /
  * assetCatalogResetCustomBodyHeadSlots(). */
 void assetCatalogResetCustomModelSlots(void);
@@ -47,6 +49,13 @@ void assetCatalogDestroyCustomModelSlotSnapshot(void *snapshot);
  * same slot). Returns a slot in [MODEL_CUSTOM_START, MODEL_CUSTOM_END), or -1
  * when the private range is exhausted (logs CATALOG.MODEL.CUSTOM_SLOT_FAIL). */
 s32 assetCatalogResolveModelPrivateSlot(const char *catalog_id);
+
+/* Main-thread private identity lease. Pins only an already allocated exact ID
+ * and slot, never allocates or changes identity. Each success needs one release.
+ * Snapshots restore catalog reservations, never live reference counts; a
+ * conflicting live identity rejects the entire restore without mutation. */
+s32 assetCatalogPinModelPrivateSlot(const char *catalog_id, s32 runtime_model_slot);
+s32 assetCatalogReleaseModelPrivateSlot(const char *catalog_id, s32 runtime_model_slot);
 
 /* Map a private model runtime slot to its matching private source_filenum.
  * This is only for legacy loaders that still ask for a model by filenum

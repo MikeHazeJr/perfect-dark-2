@@ -1,5 +1,8 @@
 # Unreleased Changes
 
+- Preserve private model slot identity while retained source generations are
+  in use; reject catalog rollback that would rebind a live model slot.
+
 - Keep held public model and texture sources alive through stage teardown,
   including when a catalog replacement releases the previous source.
 

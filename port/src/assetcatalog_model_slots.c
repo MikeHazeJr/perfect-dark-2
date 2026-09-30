@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
 
 #include <PR/ultratypes.h>
 
@@ -15,18 +16,50 @@
  */
 
 static char s_CustomModelCatalogIds[MODEL_CUSTOM_COUNT][CATALOG_ID_LEN];
+static unsigned s_CustomModelPins[MODEL_CUSTOM_COUNT];
+static unsigned char s_CustomModelReserved[MODEL_CUSTOM_COUNT];
+
+typedef struct model_slot_snapshot {
+    char ids[MODEL_CUSTOM_COUNT][CATALOG_ID_LEN];
+    unsigned char reserved[MODEL_CUSTOM_COUNT];
+} model_slot_snapshot_t;
 
 void *assetCatalogSnapshotCustomModelSlots(void)
 {
-    void *snapshot = malloc(sizeof(s_CustomModelCatalogIds));
-    if (snapshot) memcpy(snapshot, s_CustomModelCatalogIds, sizeof(s_CustomModelCatalogIds));
+    model_slot_snapshot_t *snapshot = malloc(sizeof(*snapshot));
+    if (snapshot) {
+        memcpy(snapshot->ids, s_CustomModelCatalogIds, sizeof(snapshot->ids));
+        memcpy(snapshot->reserved, s_CustomModelReserved, sizeof(snapshot->reserved));
+    }
     return snapshot;
 }
 
 s32 assetCatalogRestoreCustomModelSlots(const void *snapshot)
 {
     if (!snapshot) return 0;
-    memcpy(s_CustomModelCatalogIds, snapshot, sizeof(s_CustomModelCatalogIds));
+    const model_slot_snapshot_t *saved = snapshot;
+    /* Preflight every slot before changing any reservation. A retained source
+     * cannot be rebound, including by restoring the same ID at another slot. */
+    for (s32 i = 0; i < MODEL_CUSTOM_COUNT; ++i) {
+        if (!s_CustomModelPins[i]) continue;
+        if (saved->reserved[i] && strcmp(saved->ids[i], s_CustomModelCatalogIds[i])) {
+            sysLogPrintf(LOG_ERROR, "CATALOG.MODEL.SLOT_RESTORE_FAIL: live source identity at slot=%d", MODEL_CUSTOM_START + i);
+            return 0;
+        }
+        for (s32 j = 0; j < MODEL_CUSTOM_COUNT; ++j) {
+            if (j != i && saved->reserved[j] && !strcmp(saved->ids[j], s_CustomModelCatalogIds[i])) {
+                sysLogPrintf(LOG_ERROR, "CATALOG.MODEL.SLOT_RESTORE_FAIL: live source would move slot=%d", MODEL_CUSTOM_START + i);
+                return 0;
+            }
+        }
+    }
+    for (s32 i = 0; i < MODEL_CUSTOM_COUNT; ++i) {
+        s_CustomModelReserved[i] = saved->reserved[i];
+        if (!s_CustomModelPins[i]) {
+            if (saved->reserved[i]) memcpy(s_CustomModelCatalogIds[i], saved->ids[i], CATALOG_ID_LEN);
+            else s_CustomModelCatalogIds[i][0] = 0;
+        }
+    }
     return 1;
 }
 
@@ -40,7 +73,10 @@ _Static_assert(MODEL_CUSTOM_COUNT > 0,
 
 void assetCatalogResetCustomModelSlots(void)
 {
-    memset(s_CustomModelCatalogIds, 0, sizeof(s_CustomModelCatalogIds));
+    memset(s_CustomModelReserved, 0, sizeof(s_CustomModelReserved));
+    for (s32 i = 0; i < MODEL_CUSTOM_COUNT; ++i) {
+        if (!s_CustomModelPins[i]) s_CustomModelCatalogIds[i][0] = 0;
+    }
 }
 
 /* Dedup-or-allocate a private slot index in [0, count). Returns the local
@@ -50,7 +86,7 @@ static s32 s_allocate(char ids[][CATALOG_ID_LEN], s32 count,
 {
     s32 i;
 
-    if (!catalog_id || !catalog_id[0]) {
+    if (!catalog_id || !catalog_id[0] || strlen(catalog_id) >= CATALOG_ID_LEN) {
         return -1;
     }
 
@@ -86,7 +122,39 @@ s32 assetCatalogResolveModelPrivateSlot(const char *catalog_id)
         return -1;
     }
 
+    s_CustomModelReserved[idx] = 1;
     return MODEL_CUSTOM_START + idx;
+}
+
+static s32 s_exactSlot(const char *id, s32 slot)
+{
+    if (!id || !id[0] || strlen(id) >= CATALOG_ID_LEN
+            || slot < MODEL_CUSTOM_START || slot >= MODEL_CUSTOM_END) return -1;
+    s32 local = slot - MODEL_CUSTOM_START;
+    return strcmp(s_CustomModelCatalogIds[local], id) == 0 ? local : -1;
+}
+
+s32 assetCatalogPinModelPrivateSlot(const char *id, s32 slot)
+{
+    s32 local = s_exactSlot(id, slot);
+    if (local < 0 || s_CustomModelPins[local] == UINT_MAX) {
+        sysLogPrintf(LOG_ERROR, "CATALOG.MODEL.SLOT_PIN_FAIL: exact source identity required slot=%d", slot);
+        return 0;
+    }
+    ++s_CustomModelPins[local];
+    return 1;
+}
+
+s32 assetCatalogReleaseModelPrivateSlot(const char *id, s32 slot)
+{
+    s32 local = s_exactSlot(id, slot);
+    if (local < 0 || !s_CustomModelPins[local]) {
+        sysLogPrintf(LOG_ERROR, "CATALOG.MODEL.SLOT_RELEASE_FAIL: no matching live pin slot=%d", slot);
+        return 0;
+    }
+    if (--s_CustomModelPins[local] == 0 && !s_CustomModelReserved[local])
+        s_CustomModelCatalogIds[local][0] = 0;
+    return 1;
 }
 
 s32 assetCatalogModelPrivateSourceFilenum(s32 runtime_model_slot)

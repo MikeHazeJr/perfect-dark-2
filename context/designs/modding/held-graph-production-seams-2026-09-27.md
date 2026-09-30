@@ -75,3 +75,19 @@ this batch is not ordinary gameplay completion. Client/updater/tests builds,
 108 combined graph/c3842 cases (4,018 assertions), and native-source guard pass.
 No changes across 2,010 recorded source/header/test/CMake files. Receipt:
 context/audits/2026/graph-ownership-2026-09-27.md.
+
+## September 29 model lifetime follow-up
+
+Ordinary held loading pins compiled model/texture storage until player/stage
+reset. Custom model generations additionally pin their private slot's catalog
+identity until their final release; reset and snapshot rollback cannot rebind
+that live identity. Client/tests, native123/4163, dependent body/head8/322,
+native guard and installed38/38 pass on 2,011 unchanged recorded sources.
+Receipt: context/audits/2026/model-slot-lifetime-2026-09-29.md.
+
+This does not solve the v2 queued-load source-version boundary: two retained
+generations of the same catalog ID share the private identity slot. Resolving
+that filenum through the mutable catalog can still select the current source
+instead of the equipment's retained source. The v2 held adapter must route
+directly to its retained model generation. Weapon slot classification lifetime
+and the remaining ordinary catalog/idle/hand/deferred-hit seams remain open.

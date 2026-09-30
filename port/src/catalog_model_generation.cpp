@@ -8,6 +8,7 @@
 #include <vector>
 #include <SDL.h>
 #include "catalog_model_generation.h"
+#include "assetcatalog_model_slots.h"
 #include "catalog_texture_generation.h"
 #include "asset_path_contract.h"
 #include "assetprovider.h"
@@ -18,6 +19,7 @@
 #include "sha256.h"
 #include "system.h"
 #include "types.h"
+#include "constants.h"
 #undef bool
 
 namespace {
@@ -182,6 +184,10 @@ struct catalog_model_generation {
     std::vector<std::unique_ptr<Texture>> textures;
     unsigned references = 1;
     bool stage_pinned = false;
+    int private_slot = -1;
+    ~catalog_model_generation() {
+        if (private_slot >= 0) assetCatalogReleaseModelPrivateSlot(id.c_str(), private_slot);
+    }
 };
 
 extern "C" catalog_model_generation_t *catalogModelGenerationAcquireSource(
@@ -222,8 +228,13 @@ extern "C" catalog_model_generation_t *catalogModelGenerationAcquireSource(
             return nullptr;
         }
         const std::string hash = closureHash(build, selected);
+        const int private_slot = entry->runtime_index >= MODEL_CUSTOM_START
+            && entry->runtime_index < MODEL_CUSTOM_END ? entry->runtime_index : -1;
         for (auto *old = generations; old; old = old->next) {
             if (old->id == entry->id && old->hash == hash) {
+                if (old->private_slot != private_slot) {
+                    message(error, cap, "retained model source has a different native identity"); return nullptr;
+                }
                 if (old->references == std::numeric_limits<unsigned>::max()) {
                     message(error, cap, "model generation reference count overflow"); return nullptr;
                 }
@@ -234,6 +245,12 @@ extern "C" catalog_model_generation_t *catalogModelGenerationAcquireSource(
         auto generation = std::make_unique<catalog_model_generation>();
         generation->id = entry->id;
         generation->hash = hash;
+        if (private_slot >= 0) {
+            if (!assetCatalogPinModelPrivateSlot(entry->id, private_slot)) {
+                message(error, cap, "model source private slot identity could not be retained"); return nullptr;
+            }
+            generation->private_slot = private_slot;
+        }
         generation->model = candidate.release();
         generation->textures = std::move(build.textures);
         generation->next = generations;

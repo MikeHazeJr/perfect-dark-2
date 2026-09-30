@@ -1,5 +1,25 @@
 # Systemic Bug Patterns — Architectural Issue Catalog
 
+## 2026-09-29 Source lifetime and private slot identity are separate leases
+
+Retaining compiled public model bytes does not protect a reusable native
+slot's identity. Catalog reset and snapshot rollback can otherwise rebind the
+slot while native pointers or deferred actions still use its old meaning.
+Generation owners must retain exact slot identity, reset must preserve those
+leases, rollback must validate before mutation, and final release must retire
+the pin without restoring historical reference counts. The model generation
+and slot allocator now enforce this together; validation is recorded under
+T-RUNTIME-001. Source-hashed storage and catalog IDs remain public authority.
+
+Propagation searches: `rg -n -g 'assetcatalog_*_slots.c' 'ResetCustom|RestoreCustom|GenerationSlots|Pins' port/src`
+and `rg -n -g 'catalog_*_generation*' 'Slot|Release|Retain' port/src`.
+Weapon and body/head allocators still reset plain identity maps; audit their
+actual retained consumers before applying equivalent ownership changes.
+Audio, animation and texture use separate generation-slot reservations and
+must be audited against those contracts rather than assuming model parity.
+The graph seam matrix already requires weapon slot protection through gset
+retirement. Model repair alone does not close that graph or all-family gap.
+
 ## 2026-09-23 Parent archive reuse must include embedded public dependencies
 
 A typed archive that embeds another editable typed archive cannot be reused
