@@ -1,5 +1,7 @@
 # Unreleased Changes
 
+- Retain exact graph equipment model/weapon identity through deferred consumers and catalog rollback; add explicit idle ammo metadata without selecting a graph branch.
+
 - Preserve private model slot identity while retained source generations are
   in use; reject catalog rollback that would rebind a live model slot.
 

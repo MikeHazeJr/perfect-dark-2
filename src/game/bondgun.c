@@ -4424,6 +4424,7 @@ static asset_data_handle_t bgunResolveQueuedModelHandle(s32 filenum)
 static void bgunQueueModelLoad(struct player *player, u16 filenum, struct modeldef **modeldef,
 		uintptr_t *memptr, uintptr_t *memremaining)
 {
+	player->gunctrl.loadretainedmodel = NULL;
 	player->gunctrl.loadfilenum = filenum;
 	player->gunctrl.loadhandle = bgunResolveQueuedModelHandle((s32)filenum);
 	const char *id = catalogIdBySourceHandle(ASSET_MODEL, player->gunctrl.loadhandle);
@@ -4435,6 +4436,30 @@ static void bgunQueueModelLoad(struct player *player, u16 filenum, struct modeld
 	player->gunctrl.loadmemremaining = memremaining;
 	player->gunctrl.fileinfo.loadedsize = 0;
 	player->gunctrl.fileinfo.allocsize = 0;
+}
+
+bool bgunQueueRetainedModelLoad(struct player *player, struct modeldef *source,
+        struct modeldef **destination)
+{
+    catalog_model_generation_t *generation = catalogModelGenerationForModeldef(source);
+    const char *id = catalogModelGenerationId(generation);
+    if (!player || !destination || !generation || !id || !id[0]
+            || strlen(id) >= sizeof(player->gunctrl.loadcatalogid)
+            || !catalogModelGenerationPinStage(generation)) return false;
+    /* All preflight precedes publication; numeric file slots and mutable
+     * provider handles cannot substitute a newer same-ID source here. */
+    player->gunctrl.loadretainedmodel = source;
+    player->gunctrl.loadfilenum = 0;
+    player->gunctrl.loadhandle = bgunNullAssetHandle();
+    strcpy(player->gunctrl.loadcatalogid, id);
+    player->gunctrl.loadbodyhand = false;
+    player->gunctrl.loadcataloggeneration = assetCatalogGetGeneration();
+    player->gunctrl.loadtomodeldef = destination;
+    player->gunctrl.loadmemptr = NULL;
+    player->gunctrl.loadmemremaining = NULL;
+    player->gunctrl.fileinfo.loadedsize = player->gunctrl.fileinfo.allocsize = 0;
+    player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
+    return true;
 }
 
 static bool bgunSameSourceHandle(asset_data_handle_t a, asset_data_handle_t b)
@@ -4460,6 +4485,7 @@ bool bgunQueueBodyHandModelLoad(struct player *player, s32 bodynum,
     s32 filenum = 0;
 	if (!player || !modeldef) return false;
 	*modeldef = NULL;
+	player->gunctrl.loadretainedmodel = NULL;
 	player->gunctrl.loadcatalogid[0] = 0;
 	player->gunctrl.loadhandle = bgunNullAssetHandle();
 	player->gunctrl.loadfilenum = 0;
@@ -4612,6 +4638,7 @@ static void bgunFailQueuedModelLoad(struct player *player)
 	if (player->gunctrl.loadtomodeldef) {
 		*player->gunctrl.loadtomodeldef = NULL;
 	}
+	player->gunctrl.loadretainedmodel = NULL;
 	player->gunctrl.gunloadstate = GUNLOADSTATE_FAILED;
 }
 
@@ -4712,6 +4739,24 @@ void bgunTickGunLoad(void)
 
 	if (player->gunctrl.gunloadstate == GUNLOADSTATE_MODEL) {
 		osSyncPrintf("BriGun:  BriGunLoadTick process GUN_LOADSTATE_LOAD_OBJ\n");
+        if (player->gunctrl.loadretainedmodel) {
+            modeldef = player->gunctrl.loadretainedmodel;
+            catalog_model_generation_t *generation = catalogModelGenerationForModeldef(modeldef);
+            const char *id = catalogModelGenerationId(generation);
+            if (!player->gunctrl.loadtomodeldef || !id
+                    || strcmp(id, player->gunctrl.loadcatalogid)) {
+                bgunFailQueuedModelLoad(player); return;
+            }
+            modelAllocateRwData(modeldef);
+            *player->gunctrl.loadtomodeldef = modeldef;
+            player->gunctrl.loadretainedmodel = NULL;
+            player->gunctrl.nexttexturetoload = 0;
+            player->gunctrl.fileinfo.loadedsize = player->gunctrl.fileinfo.allocsize = 0;
+            player->gunctrl.gunloadstate = GUNLOADSTATE_LOADED;
+            sysLogPrintf(LOG_NOTE, "BONDGUN.SOURCE: consumed retained model id=%s hash=%s",
+                id, catalogModelGenerationHash(generation));
+            return;
+        }
 		if (!bgunQueuedLoadCanUseHandle(player)) {
 			bgunFailQueuedModelLoad(player);
 			return;

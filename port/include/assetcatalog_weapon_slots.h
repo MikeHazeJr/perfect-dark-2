@@ -11,6 +11,11 @@ extern "C" {
 #endif
 
 void assetCatalogResetCustomWeaponSlots(void);
+/* Main-thread, exact already-allocated identity. Each immutable equipment
+ * generation owns a balanced pin. Reset drops catalog/MP reservations while
+ * live pins prevent rebinding; rollback never restores operational counts. */
+s32 assetCatalogPinWeaponPrivateSlot(const char *catalog_id, s32 runtime_weapon_id);
+s32 assetCatalogReleaseWeaponPrivateSlot(const char *catalog_id, s32 runtime_weapon_id);
 void *assetCatalogSnapshotCustomWeaponSlots(void);
 s32 assetCatalogRestoreCustomWeaponSlots(const void *snapshot);
 void assetCatalogDestroyCustomWeaponSlotSnapshot(void *snapshot);

@@ -3140,3 +3140,16 @@ ownership proof.
 ## Specialized source admission overwritten by a later generic scan
 
 Found under T-ASSETS-048 on2026-09-08: a valid public descriptor can feed the specialized registrar and pass focused tests, yet a later metadata pass replaces its provider/path from stale private metadata. Audit the entire boot sequence, not just each registrar independently. Compare specialized loaderWalkerScan calls with s_MetaFamilies; verify each public source has one registration owner. Required runtime proof runs the later scan and then loads selected geometry, with divergent private echoes and metadata-free public files. Body/head duplicate registration is removed; Arena remains a recorded separate source-authority gap. Search: rg -n 'loaderWalkerScan|s_MetaFamilies|catalogSetPrimary' port/src/loader_walker*.c (use rg -g 'loader_walker*.c' port/src on PowerShell).
+
+### September29 retained equipment propagation - T-MODDING-002
+
+Custom weapon identity now follows exact equipped generation pins; reset and
+rollback never overwrite live consumer identities or restore operational
+counts. Real allocator and deferred source tests cover MP reservation teardown,
+atomic conflicting rollback, identity movement and final reuse. Queue retained
+public modeldef directly before mutable source checks; file identity alone
+cannot distinguish multiple versions of one ID. Native143/4754 and installed
+39/39 pass. Body/head retained identity audit and v2 ordinary hand wiring remain
+open. Search: rg -n 'ResetCustom.*Slots|RestoreCustom.*Slots' port/src; inspect
+every retained native pointer/copy, its exact identity pin, snapshot semantics,
+request publication and final cleanup. See equipment-native-lifetime audit.

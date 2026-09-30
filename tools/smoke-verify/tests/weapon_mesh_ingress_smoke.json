@@ -70,7 +70,16 @@
     "src/game/lv.c",
     "src/game/mplayer/mplayer.c",
     "port/src/scenario_source_runtime.c",
-    "port/src/modarchive.c"
+    "port/src/modarchive.c",
+    "src/include/game/bondgun.h",
+    "src/include/types.h",
+    "src/game/bondgunreset.c",
+    "port/src/assetcatalog_weapon_slots.c",
+    "port/include/assetcatalog_weapon_slots.h",
+    "port/src/weapon_graph_v2_equipped.cpp",
+    "port/include/weapon_graph_v2_equipped.h",
+    "port/src/weapon_graph_v2_gset.cpp",
+    "port/include/weapon_graph_v2_gset.h"
   ],
   "timeout_seconds": 240,
   "install_state": "clean",
@@ -114,7 +123,8 @@
       "MODEL\\.GENERATION\\.HARNESS: step=stage_retirement result=PASS",
       "MODEL\\.SLOT\\.GENERATION\\.HARNESS: retained_after_catalog_reset=PASS",
       "TEXTURE\\.GENERATION\\.HARNESS: .*result=PASS",
-      "TEXTURE\\.SOURCE\\.RUNTIME\\.HARNESS: .*result=PASS"
+      "TEXTURE\\.SOURCE\\.RUNTIME\\.HARNESS: .*result=PASS",
+      "MODEL\\.QUEUE\\.GENERATION\\.HARNESS: exact_retained_source=PASS"
     ],
     "forbidden_patterns": [
       "PDWEAPON\\.MESH\\.HARNESS: .*result=FAIL",

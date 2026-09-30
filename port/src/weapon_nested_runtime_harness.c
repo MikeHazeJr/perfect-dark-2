@@ -658,12 +658,14 @@ static s32 harnessModelGeneration(const char *id, const char *folder)
     catalog_model_generation_t *first = NULL, *alias = NULL, *second = NULL, *rejected = NULL;
     struct modeldef *old_model = NULL, *new_model = NULL;
     const u32 *old_pixels = NULL, *new_pixels = NULL;
+    struct player *queued_player = calloc(1, sizeof(*queued_player));
+    struct modeldef *queued_result = NULL;
     file_provider_checkpoint_t provider;
     const char *step = "source";
     s32 checkpoint = fileProviderCheckpointCreate(&provider);
     void *slot_snapshot = assetCatalogSnapshotCustomModelSlots();
     s32 registered = 0, stage_loaded = 0, ok = 0;
-    if (!checkpoint || !slot_snapshot || !entry || assetCatalogResolveAny(id) || strlen(id) >= sizeof(entry->id)
+    if (!checkpoint || !slot_snapshot || !entry || !queued_player || assetCatalogResolveAny(id) || strlen(id) >= sizeof(entry->id)
             || snprintf(source, sizeof(source), "%s/model.obj", folder) >= sizeof(source)
             || snprintf(image, sizeof(image), "%s/sample.tga", folder) >= sizeof(image)) goto done;
     strcpy(entry->id, id); entry->type = ASSET_MODEL;
@@ -684,6 +686,11 @@ static s32 harnessModelGeneration(const char *id, const char *folder)
             || old_pixels[0] != 0xff0000ffu
             || catalogModelGenerationForModeldef(old_model) != first) goto done;
     strcpy(prior_hash, catalogModelGenerationHash(first));
+    step = "queued_source";
+    if (!bgunQueueRetainedModelLoad(queued_player, old_model, &queued_result)
+            || queued_result || queued_player->gunctrl.loadretainedmodel != old_model
+            || bgunQueueRetainedModelLoad(queued_player, NULL, &queued_result)
+            || queued_player->gunctrl.loadretainedmodel != old_model) goto done;
     step = "edit";
     for (u32 i = 18; i < 34; i += 4) { edited[i] = 255; edited[i + 2] = 0; }
     if (!harnessWriteBytes(image, edited, image_size)) goto done;
@@ -702,6 +709,18 @@ static s32 harnessModelGeneration(const char *id, const char *folder)
     catalogSetPrimaryFile(catalog_entry, source);
     if (!catalogLoadStageAsset(ASSET_MODEL, id)) goto done;
     stage_loaded = 1;
+    /* The queued old version must survive a same-ID ordinary catalog load
+     * of the edited version and caller retirement. Execute the real load tick. */
+    catalogModelGenerationRelease(alias); alias = NULL;
+    catalogModelGenerationRelease(first); first = NULL;
+    struct player *saved_player = g_Vars.currentplayer;
+    g_Vars.currentplayer = queued_player;
+    bgunTickGunLoad();
+    g_Vars.currentplayer = saved_player;
+    if (queued_result != old_model || queued_player->gunctrl.loadretainedmodel
+            || queued_player->gunctrl.gunloadstate != 4
+            || old_pixels[0] != 0xff0000ffu) goto done;
+    sysLogPrintf(LOG_NOTE, "MODEL.QUEUE.GENERATION.HARNESS: exact_retained_source=PASS");
     if (catalogGetLoadedModeldef(id) != new_model
             || catalogModelGenerationForModeldef(new_model) != second
             || new_pixels[0] != 0x0000ffffu) goto done;
@@ -715,8 +734,7 @@ static s32 harnessModelGeneration(const char *id, const char *folder)
     if (rejected || !error[0] || old_pixels[0] != 0xff0000ffu
             || new_pixels[0] != 0x0000ffffu) goto done;
     step = "retirement";
-    if (!catalogModelGenerationPinStage(first)
-            || !catalogModelGenerationPinStage(alias)
+    if (!catalogModelGenerationPinStage(catalogModelGenerationForModeldef(old_model))
             || !catalogModelGenerationPinStage(second)) goto done;
     catalogModelGenerationRelease(alias); alias = NULL;
     catalogModelGenerationRelease(first); first = NULL;
@@ -729,6 +747,7 @@ static s32 harnessModelGeneration(const char *id, const char *folder)
     if (!catalogModelGenerationForModeldef(old_model)
             || old_pixels[0] != 0xff0000ffu || new_pixels[0] != 0x0000ffffu) goto done;
     step = "stage_retirement";
+    queued_result = NULL; queued_player->gunctrl.loadtomodeldef = NULL;
     catalogModelGenerationReleaseStagePins();
     catalogModelGenerationReleaseStagePins();
     if (catalogModelGenerationForModeldef(old_model)
@@ -746,11 +765,12 @@ done:
     catalogModelGenerationRelease(first);
     catalogModelGenerationRelease(second);
     catalogModelGenerationRelease(rejected);
+    free(queued_player); queued_player = NULL; queued_result = NULL;
     catalogModelGenerationReleaseStagePins();
     if (slot_snapshot && !assetCatalogRestoreCustomModelSlots(slot_snapshot)) ok = 0;
     assetCatalogDestroyCustomModelSlotSnapshot(slot_snapshot);
     if (original && !harnessWriteBytes(image, original, image_size)) ok = 0;
-    free(original); free(edited); free(entry);
+    free(original); free(edited); free(entry); free(queued_player);
     catalogBuildRuntimeCaches(); catalogLoadInit();
     sysLogPrintf(ok ? LOG_NOTE : LOG_WARNING,
         "MODEL.GENERATION.HARNESS: step=%s result=%s error=%s",

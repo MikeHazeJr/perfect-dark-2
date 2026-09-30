@@ -2,6 +2,7 @@
 #include "weapon_graph_v2_equipped.h"
 #include "weapon_graph_v2_gset.h"
 #include "modarchive.h"
+#include "assetcatalog_weapon_slots.h"
 #include <chrono>
 #include <cstring>
 #include <filesystem>
@@ -84,6 +85,111 @@ struct Fixture {
 std::string replace(std::string text, const std::string &from, const std::string &to) {
     const auto at = text.find(from); REQUIRE(at != std::string::npos); text.replace(at, from.size(), to); return text;
 }
+}
+
+TEST_CASE("explicit graph idle metadata supplies reload defaults without choosing an action",
+        "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    Fixture f;
+    const auto source = replace(settings, "\"aim\":", "\"modes\":[{\"ammo_slot\":0},null],\"aim\":");
+    auto out = f.prepare(source);
+    auto *weapon = wgV2EquippedWeapon(out.get());
+    REQUIRE(wgV2EquippedHasIdleMode(out.get()));
+    REQUIRE(weapon->functions[0]); REQUIRE_FALSE(weapon->functions[1]);
+    const auto *idle = static_cast<const weaponfunc *>(weapon->functions[0]);
+    REQUIRE(idle->type == INVENTORYFUNCTYPE_NONE); REQUIRE(idle->ammoindex == 0);
+    REQUIRE_FALSE(idle->fire_animation); REQUIRE(idle->noisesettings);
+    REQUIRE(idle->noisesettings->minradius == 0); REQUIRE(idle->noisesettings->maxradius == 0);
+    REQUIRE(idle->noisesettings->decbasespeed == 1); REQUIRE(idle->noisesettings->decremspeed == 6);
+    REQUIRE(wgV2NativeFunction(wgV2NativeFind(wgV2EquippedActions(out.get()), "shot")) != idle);
+    auto plain = f.prepare(settings); REQUIRE_FALSE(wgV2EquippedHasIdleMode(plain.get()));
+}
+
+TEST_CASE("graph idle metadata rejects invalid absent ammo and undeclared compiled modes",
+        "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    Fixture f;
+    const auto bad_modes = GENERATE("[]", "[null,null]", "[{\"ammo_slot\":1},null]",
+        "[{\"ammo_slot\":2},null]", "[{\"ammo_slot\":0,\"damage\":4},null]");
+    f.prepare(replace(settings, "\"aim\":", std::string("\"modes\":") + bad_modes + ",\"aim\":"), false);
+    const auto secondary = replace(replace(graph, "\"mode\":\"primary\"", "\"mode\":\"secondary\""),
+        "\"mode\":\"primary\"", "\"mode\":\"secondary\"");
+    f.actions(secondary);
+    f.prepare(replace(settings, "\"aim\":", "\"modes\":[{\"ammo_slot\":0},null],\"aim\":"), false);
+    REQUIRE(f.host.models == 0); REQUIRE(f.host.acquired == f.host.released);
+}
+
+TEST_CASE("equipment preserves exact direct model generation and source hashes exclude native bindings",
+        "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    Fixture f; modeldef first{}, second{};
+    f.model.modeldef = &first; f.model.file_id = 0;
+    auto before = f.prepare(settings);
+    REQUIRE(wgV2EquippedModeldef(before.get()) == &first);
+    REQUIRE(wgV2EquippedWeapon(before.get())->hi_model == 0);
+    f.model.modeldef = &second; f.model.file_id = 123;
+    auto after = f.prepare(settings);
+    REQUIRE(wgV2EquippedModeldef(after.get()) == &second);
+    REQUIRE(wgV2EquippedModeldef(before.get()) == &first);
+    REQUIRE(std::string(wgV2EquippedClosureHash(before.get())) == wgV2EquippedClosureHash(after.get()));
+    f.model.modeldef = nullptr; f.model.file_id = 0; f.prepare(settings, false);
+}
+
+TEST_CASE("deferred graph source retains private weapon identity after allocation-free hand clear",
+        "[graph-v2-equipped][graph-v2-gset][modding][pdxxx][c3842]") {
+    using Snapshot = std::unique_ptr<void, decltype(&assetCatalogDestroyCustomWeaponSlotSnapshot)>;
+    Snapshot snapshot(assetCatalogSnapshotCustomWeaponSlots(), assetCatalogDestroyCustomWeaponSlotSnapshot);
+    REQUIRE(snapshot); assetCatalogResetCustomWeaponSlots();
+    Fixture f; char error[512]{}; wg_v2_use use{}; wg_v2_equipped *equipment = nullptr;
+    s32 slot = -1, mp = -1;
+    REQUIRE(assetCatalogResolveWeaponPrivateSlots("mod:single", -1, 0, &slot, &mp));
+    f.model.runtime_weapon = slot;
+    using Catalog = std::unique_ptr<wg_v2_catalog, decltype(&wgV2CatalogDestroy)>;
+    using Entry = std::unique_ptr<wg_v2_catalog_entry, decltype(&wgV2CatalogEntryRelease)>;
+    using Gsets = std::unique_ptr<wg_v2_gsets, decltype(&wgV2GsetsDestroy)>;
+    Catalog catalog(wgV2CatalogCreate([](void *, const char *, uint64_t) {}, nullptr), wgV2CatalogDestroy);
+    Entry entry(wgV2EquippedCatalogPrepare(catalog.get(), "mod:single", graph, std::strlen(graph), digest, &use,
+        &f.descriptor, digest, settings, std::strlen(settings), &f.model, resolve, &f.host,
+        &equipment, error, sizeof(error)), wgV2CatalogEntryRelease);
+    INFO(error); REQUIRE(entry); REQUIRE(wgV2CatalogPublish(catalog.get(), entry.get(), error, sizeof(error)));
+    Gsets copies(wgV2GsetsCreate([](void *v, int weapon) -> const char * {
+        return weapon == *static_cast<int *>(v) ? "mod:single" : nullptr;
+    }, &slot), wgV2GsetsDestroy);
+    gset hand{static_cast<u8>(slot), 0, 0, 0}, shot{};
+    const auto h = wgV2GsetOpen(copies.get(), &hand, &hand, 1, error, sizeof(error));
+    const auto d = wgV2GsetOpen(copies.get(), &shot, &shot, 2, error, sizeof(error));
+    REQUIRE(h); REQUIRE(d);
+    auto *actions = wgV2EquippedActions(equipment);
+    REQUIRE(wgV2GsetSelect(copies.get(), h, entry.get(), actions, wgV2NativeFind(actions, "shot"), error, sizeof(error)));
+    REQUIRE(wgV2GsetCopy(copies.get(), d, &hand, error, sizeof(error)));
+    const auto count = wgV2GsetsCount(copies.get());
+    REQUIRE(wgV2GsetClearSelection(copies.get(), h, error, sizeof(error)));
+    REQUIRE(wgV2GsetClearSelection(copies.get(), h, error, sizeof(error)));
+    REQUIRE(wgV2GsetsCount(copies.get()) == count);
+    REQUIRE(wgV2GsetLookup(copies.get(), &hand, nullptr) == WG_V2_GSET_UNSELECTED);
+    REQUIRE(wgV2GsetLookup(copies.get(), &shot, nullptr) == WG_V2_GSET_SELECTED);
+    catalog.reset(); entry.reset(); assetCatalogResetCustomWeaponSlots();
+    s32 other = -1;
+    REQUIRE(assetCatalogResolveWeaponPrivateSlots("mod:other", -1, 0, &other, nullptr)); REQUIRE(other != slot);
+    REQUIRE(f.host.models == 0);
+    ++hand.weaponfunc;
+    REQUIRE_FALSE(wgV2GsetClearSelection(copies.get(), h, error, sizeof(error))); --hand.weaponfunc;
+    REQUIRE_FALSE(wgV2GsetClearSelection(copies.get(), UINT64_MAX, error, sizeof(error)));
+    wgV2GsetClose(copies.get(), d); REQUIRE(f.host.models == 1);
+    REQUIRE(assetCatalogResolveWeaponPrivateSlots("mod:reuse", -1, 0, &other, nullptr)); REQUIRE(other == slot);
+    copies.reset(); assetCatalogResetCustomWeaponSlots(); REQUIRE(assetCatalogRestoreCustomWeaponSlots(snapshot.get()));
+}
+
+TEST_CASE("failed equipment weapon pin leaves model caller-owned and cleans prepared dependencies",
+        "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    using Snapshot = std::unique_ptr<void, decltype(&assetCatalogDestroyCustomWeaponSlotSnapshot)>;
+    Snapshot saved(assetCatalogSnapshotCustomWeaponSlots(), assetCatalogDestroyCustomWeaponSlotSnapshot);
+    REQUIRE(saved); assetCatalogResetCustomWeaponSlots();
+    s32 slot = -1;
+    REQUIRE(assetCatalogResolveWeaponPrivateSlots("mod:foreign", -1, 0, &slot, nullptr));
+    Fixture f; f.model.runtime_weapon = WEAPON_CUSTOM_END; f.prepare(settings, false);
+    REQUIRE(f.host.models == 0); REQUIRE(f.host.acquired == f.host.released);
+    f.model.runtime_weapon = slot;
+    // An allocated slot belongs to another exact catalog identity.
+    f.prepare(settings, false); REQUIRE(f.host.models == 0); REQUIRE(f.host.acquired == f.host.released);
+    assetCatalogResetCustomWeaponSlots(); REQUIRE(assetCatalogRestoreCustomWeaponSlots(saved.get()));
 }
 
 TEST_CASE("v2 equipped validates every action ammo dependency before publication", "[graph-v2-equipped][modding][pdxxx][c3842]") {
@@ -434,4 +540,24 @@ TEST_CASE("v2 equipped catalog candidate retains exact program and failed replac
     REQUIRE_FALSE(wgV2CatalogEntryAccepting(entry.get())); REQUIRE(f.host.models == 0);
     REQUIRE(wgV2EquippedWeapon(equipped)->ammos[0]->clipsize == 13);
     active.reset(); entry.reset(); REQUIRE(f.host.models == 1); REQUIRE(f.host.acquired == f.host.released);
+}
+
+TEST_CASE("captured graph mode set validates idle availability transactionally",
+        "[graph-v2-equipped][modding][pdxxx][c3842]") {
+    Fixture f; char error[512]{}; wg_v2_use use{};
+    using Catalog = std::unique_ptr<wg_v2_catalog, decltype(&wgV2CatalogDestroy)>;
+    Catalog catalog(wgV2CatalogCreate([](void *, const char *, uint64_t) {}, nullptr), wgV2CatalogDestroy);
+    auto sources = archiveEntries();
+    sources[3].second = replace(settings, "\"aim\":", "\"modes\":[{\"ammo_slot\":0},{\"ammo_slot\":0}],\"aim\":");
+    const bool secondary = GENERATE(false, true);
+    if (!secondary) sources[0].second = replace(sources[0].second, "secondary_graph=graphs/secondary.json\n", "");
+    auto bytes = snapshot(sources); wg_v2_catalog_entry *out[2]{};
+    const auto result = wgV2EquippedCatalogPrepareArchiveModes(catalog.get(), "mod:single", bytes.data(),
+        static_cast<u32>(bytes.size()), digest, &use, &f.model, resolve, &f.host, out, error, sizeof(error));
+    INFO(error); REQUIRE(result == (secondary ? 1 : 0));
+    if (secondary) {
+        REQUIRE(out[0]); REQUIRE(out[1]);
+        wgV2CatalogEntryRelease(out[0]); wgV2CatalogEntryRelease(out[1]); REQUIRE(f.host.models == 1);
+    } else { REQUIRE_FALSE(out[0]); REQUIRE_FALSE(out[1]); REQUIRE(f.host.models == 0); REQUIRE(error[0]); }
+    REQUIRE(wgV2CatalogCount(catalog.get()) == 0); REQUIRE(f.host.acquired == f.host.released);
 }

@@ -644,3 +644,12 @@ size_t effectPresentationRenderableParticleCount(void)
 
     return renderable;
 }
+
+/* Private weapon-slot tests use the real allocator with an isolated MP table.
+ * No base catalog is linked: base mappings are deliberately unavailable. */
+struct mpweapon g_MpWeapons[NUM_MPWEAPONS];
+s32 catalogGetMpWeaponNum(s32 index)
+{
+    return index >= MPWEAPON_CUSTOM_START && index < MPWEAPON_CUSTOM_END
+        ? g_MpWeapons[index].weaponnum : -1;
+}

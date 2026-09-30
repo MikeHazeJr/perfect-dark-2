@@ -91,3 +91,45 @@ that filenum through the mutable catalog can still select the current source
 instead of the equipment's retained source. The v2 held adapter must route
 directly to its retained model generation. Weapon slot classification lifetime
 and the remaining ordinary catalog/idle/hand/deferred-hit seams remain open.
+
+## September 29 retained equipment batch (validated seams, incomplete gameplay)
+
+Equipment now carries an exact leased modeldef alongside its source identity
+and closure hash. bgunQueueRetainedModelLoad validates the real generation,
+takes a stage pin before request publication, and the ordinary bgunTickGunLoad
+consumes that exact source before any mutable catalog handle check. Queued old
+public image source versus newly loaded same-ID edited source is exercised in
+the installed harness. Legacy queue/body-hand/reset paths clear this request.
+
+Each custom equipped generation pins its exact allocated private weapon ID.
+Reset retires MP reservations while retaining occupied identities; rollback
+preflights all pinned identities and never rolls back live reference counts.
+Deferred gset copies keep this pin until their final source release. Finished
+hands can clear selection without allocating or destroying the registration.
+
+Optional equipped.modes is an explicit two-element array of null or
+{ammo_slot:-1|0|1}; primary metadata is required when the field is present.
+Native idle functions have type NONE, silent noise, no fire animation, and no
+selected action. Reload metadata is authored independently of graph branches.
+Source-only older preparation may omit modes and the direct pointer; the
+production v2 adapter must require both. No first-node scalar projection.
+
+Remaining integration: captured-archive v2 scanner admission, immutable catalog
+publication, ordinary weapon/hand equipment selection, input/idle/action host,
+exact scoped shot/noise gsets and deferred native hit wake, owner teardown,
+mode-transition guards, and actual played graph evidence. Do not classify
+these new supported seams as full ordinary v2 gameplay acceptance.
+
+Client/tests0, native143/4754, guard0, installed39/39, source2012 drift0.
+Receipt: context/audits/2026/equipment-native-lifetime-2026-09-29.md.
+Production idle admission must evaluate graph routes independently of neutral
+reload metadata: a branch using another equipped ammo slot cannot be hidden
+by the idle slot's empty-clip logic. Native action acceptance checks the actual
+selected action ammo; debit stays in the existing native fire lifecycle.
+
+Client/tests0, native143/4754, guard0, installed39/39, source2012 drift0.
+Receipt: context/audits/2026/equipment-native-lifetime-2026-09-29.md.
+Production idle admission must evaluate graph routes independently of neutral
+reload metadata: a branch using another equipped ammo slot cannot be hidden
+by the idle slot's empty-clip logic. Native action acceptance checks the actual
+selected action ammo; debit stays in the existing native fire lifecycle.

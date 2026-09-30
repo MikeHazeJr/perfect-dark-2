@@ -4,6 +4,12 @@
 #include "data.h"
 #include "types.h"
 
+/* Queue an exact compiled public-source generation. The caller owns a live
+ * generation until this returns; success takes an idempotent stage pin before
+ * exposing the request. Failure preserves the prior request/destination.
+ * The ordinary load tick consumes this pointer without catalog/ROM lookup. */
+bool bgunQueueRetainedModelLoad(struct player *player, struct modeldef *source,
+    struct modeldef **destination);
 void bgunReset(void);
 
 void bgunStop(void);

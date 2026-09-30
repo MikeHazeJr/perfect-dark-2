@@ -6,6 +6,7 @@
 extern "C" {
 #endif
 struct weapon;
+struct modeldef;
 typedef struct wg_v2_equipped wg_v2_equipped;
 /* Prepared from descriptor.model_file by the catalog/provider transaction.
  * The lease pins the model slot and immutable source closure. Ownership moves
@@ -17,6 +18,13 @@ typedef struct wg_v2_equipped_model {
     int file_id;
     void *lease;
     void (*release)(void *);
+    /* Exact immutable model owned by lease. NULL remains source-preparation
+     * compatibility only; production queued loading requires this pointer. */
+    struct modeldef *modeldef;
+    /* Private catalog allocation, never public authored identity. Zero leaves
+     * allocation to a later adapter; custom values pin the exact weapon ID. */
+    int runtime_weapon;
+
 } wg_v2_equipped_model;
 /* settings_file is public pd.weapon_settings.v2 JSON. equipped.ammo is either
  * the original slot-zero object or exactly [slot_zero, slot_one], where null
@@ -24,7 +32,10 @@ typedef struct wg_v2_equipped_model {
  * an equipped slot; -1 explicitly requires no ammunition. The public descriptor
  * owns model placement/track type; JSON must not duplicate those fields.
  * Source preparation only: no pool publication or gameplay mutation. Native
- * functions remain NULL: actual action selection must supply the graph's
+ * functions remain NULL unless optional equipped.modes explicitly declares
+ * exactly two null/idle {ammo_slot} records. Idle records have type NONE and
+ * cannot fire; they supply reload/function-switch metadata, never a branch.
+ * Actual action selection must supply the graph's
  * immutable function rather than silently choosing its first branch.
  * source_sha256 is the canonical complete public archive hash, not private
  * manifest identity. Resolver has the same pinned command contract as actions. */
@@ -35,6 +46,9 @@ wg_v2_equipped *wgV2EquippedPrepare(wg_v2_native_bundle *,
 void wgV2EquippedRetain(wg_v2_equipped *);
 void wgV2EquippedRelease(wg_v2_equipped *);
 const struct weapon *wgV2EquippedWeapon(const wg_v2_equipped *);
+struct modeldef *wgV2EquippedModeldef(const wg_v2_equipped *);
+/* True only when this compiled mode has explicit idle metadata. */
+int wgV2EquippedHasIdleMode(const wg_v2_equipped *);
 wg_v2_native_bundle *wgV2EquippedActions(const wg_v2_equipped *);
 const char *wgV2EquippedClosureHash(const wg_v2_equipped *);
 /* Reserves the actual catalog program generation first, then prepares actions

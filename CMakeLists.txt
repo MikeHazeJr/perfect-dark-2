@@ -1177,6 +1177,9 @@ set(SRC_TESTS
   # test_mod_external_archive_static.cpp), so it is behaviorally testable here.
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_model_slots.c
   ${CMAKE_SOURCE_DIR}/tests/test_model_slots.cpp
+  # Equipment generations retain exact private weapon identities through reset.
+  ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_weapon_slots.c
+  ${CMAKE_SOURCE_DIR}/tests/test_weapon_slots.cpp
   # c3849 Wave 1: asset fallback telemetry. Pure counters + sysLogPrintf
   # (stubbed) + asset_type_e; globals-light and behaviorally testable here.
   ${CMAKE_SOURCE_DIR}/port/src/asset_fallback_telemetry.c

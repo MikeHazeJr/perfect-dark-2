@@ -1,20 +1,24 @@
 #include <string.h>
 #include <stdlib.h>
+#include <limits.h>
 
 #include <PR/ultratypes.h>
 
 #include "assetcatalog.h"
 #include "assetcatalog_weapon_slots.h"
-#include "constants.h"
 #include "types.h"
+#include "constants.h"
 #include "data.h"
 #include "system.h"
 
 static char s_CustomWeaponCatalogIds[MPWEAPON_CUSTOM_COUNT][CATALOG_ID_LEN];
+static unsigned s_CustomWeaponPins[MPWEAPON_CUSTOM_COUNT];
+static unsigned char s_CustomWeaponReserved[MPWEAPON_CUSTOM_COUNT];
 
 typedef struct weapon_slot_snapshot {
     char ids[MPWEAPON_CUSTOM_COUNT][CATALOG_ID_LEN];
     struct mpweapon rows[MPWEAPON_CUSTOM_COUNT];
+    unsigned char reserved[MPWEAPON_CUSTOM_COUNT];
 } weapon_slot_snapshot_t;
 
 _Static_assert(MPWEAPON_CUSTOM_END == 64,
@@ -50,10 +54,11 @@ static s32 s_customMpWeaponIdForRuntimeWeapon(s32 runtime_weapon_id)
 
 void assetCatalogResetCustomWeaponSlots(void)
 {
-    memset(s_CustomWeaponCatalogIds, 0, sizeof(s_CustomWeaponCatalogIds));
+    memset(s_CustomWeaponReserved, 0, sizeof(s_CustomWeaponReserved));
 
     for (s32 i = 0; i < MPWEAPON_CUSTOM_COUNT; i++) {
         s32 mp_weapon_id = MPWEAPON_CUSTOM_START + i;
+        if (!s_CustomWeaponPins[i]) s_CustomWeaponCatalogIds[i][0] = 0;
         memset(&g_MpWeapons[mp_weapon_id], 0, sizeof(g_MpWeapons[mp_weapon_id]));
         g_MpWeapons[mp_weapon_id].weaponnum = WEAPON_DISABLED;
     }
@@ -64,6 +69,7 @@ void *assetCatalogSnapshotCustomWeaponSlots(void)
     weapon_slot_snapshot_t *snapshot = malloc(sizeof(*snapshot));
     if (!snapshot) return NULL;
     memcpy(snapshot->ids, s_CustomWeaponCatalogIds, sizeof(snapshot->ids));
+    memcpy(snapshot->reserved, s_CustomWeaponReserved, sizeof(snapshot->reserved));
     memcpy(snapshot->rows, &g_MpWeapons[MPWEAPON_CUSTOM_START],
         sizeof(snapshot->rows));
     return snapshot;
@@ -73,10 +79,33 @@ s32 assetCatalogRestoreCustomWeaponSlots(const void *opaque)
 {
     const weapon_slot_snapshot_t *snapshot = opaque;
     if (!snapshot) return 0;
-    memcpy(s_CustomWeaponCatalogIds, snapshot->ids,
-        sizeof(s_CustomWeaponCatalogIds));
-    memcpy(&g_MpWeapons[MPWEAPON_CUSTOM_START], snapshot->rows,
-        sizeof(snapshot->rows));
+    /* Reference counts are live consumers, never rollback state. Preflight
+     * the entire map before changing reservations or multiplayer rows. */
+    for (s32 i = 0; i < MPWEAPON_CUSTOM_COUNT; ++i) {
+        if (!s_CustomWeaponPins[i]) continue;
+        if (snapshot->reserved[i] && strcmp(snapshot->ids[i], s_CustomWeaponCatalogIds[i])) {
+            sysLogPrintf(LOG_ERROR, "CATALOG.WEAPON.SLOT_RESTORE_FAIL: live identity slot=%d", WEAPON_CUSTOM_START + i);
+            return 0;
+        }
+        for (s32 j = 0; j < MPWEAPON_CUSTOM_COUNT; ++j) {
+            if (j != i && snapshot->reserved[j] && !strcmp(snapshot->ids[j], s_CustomWeaponCatalogIds[i])) {
+                sysLogPrintf(LOG_ERROR, "CATALOG.WEAPON.SLOT_RESTORE_FAIL: retained identity would move slot=%d", WEAPON_CUSTOM_START + i);
+                return 0;
+            }
+        }
+    }
+    for (s32 i = 0; i < MPWEAPON_CUSTOM_COUNT; ++i) {
+        s_CustomWeaponReserved[i] = snapshot->reserved[i];
+        if (!s_CustomWeaponPins[i]) {
+            if (snapshot->reserved[i]) memcpy(s_CustomWeaponCatalogIds[i], snapshot->ids[i], CATALOG_ID_LEN);
+            else s_CustomWeaponCatalogIds[i][0] = 0;
+        }
+        if (snapshot->reserved[i]) g_MpWeapons[MPWEAPON_CUSTOM_START + i] = snapshot->rows[i];
+        else {
+            memset(&g_MpWeapons[MPWEAPON_CUSTOM_START + i], 0, sizeof(struct mpweapon));
+            g_MpWeapons[MPWEAPON_CUSTOM_START + i].weaponnum = WEAPON_DISABLED;
+        }
+    }
     return 1;
 }
 
@@ -87,7 +116,7 @@ void assetCatalogDestroyCustomWeaponSlotSnapshot(void *snapshot)
 
 static s32 s_allocateCustomWeaponSlot(const char *catalog_id)
 {
-    if (!catalog_id || !catalog_id[0]) {
+    if (!catalog_id || !catalog_id[0] || strlen(catalog_id) >= CATALOG_ID_LEN) {
         return -1;
     }
 
@@ -95,6 +124,13 @@ static s32 s_allocateCustomWeaponSlot(const char *catalog_id)
         if (s_CustomWeaponCatalogIds[i][0] &&
                 strncmp(s_CustomWeaponCatalogIds[i], catalog_id,
                     CATALOG_ID_LEN) == 0) {
+            if (!s_CustomWeaponReserved[i]) {
+                struct mpweapon *row = &g_MpWeapons[MPWEAPON_CUSTOM_START + i];
+                memset(row, 0, sizeof(*row));
+                row->weaponnum = (u8)(WEAPON_CUSTOM_START + i);
+                row->hasweapon = 1; row->extrascale = 256;
+            }
+            s_CustomWeaponReserved[i] = 1;
             return i;
         }
     }
@@ -109,6 +145,7 @@ static s32 s_allocateCustomWeaponSlot(const char *catalog_id)
             g_MpWeapons[mp_weapon_id].weaponnum = (u8)runtime_weapon_id;
             g_MpWeapons[mp_weapon_id].hasweapon = 1;
             g_MpWeapons[mp_weapon_id].extrascale = 256;
+            s_CustomWeaponReserved[i] = 1;
             return i;
         }
     }
@@ -117,6 +154,37 @@ static s32 s_allocateCustomWeaponSlot(const char *catalog_id)
         "CATALOG.WEAPON.CUSTOM_SLOT_FAIL: id=\"%s\" no private custom weapon slots available",
         catalog_id);
     return -1;
+}
+
+static s32 s_exactWeaponSlot(const char *id, s32 slot)
+{
+    if (!id || !id[0] || strlen(id) >= CATALOG_ID_LEN
+            || slot < WEAPON_CUSTOM_START || slot >= WEAPON_CUSTOM_END) return -1;
+    s32 local = slot - WEAPON_CUSTOM_START;
+    return strcmp(s_CustomWeaponCatalogIds[local], id) == 0 ? local : -1;
+}
+
+s32 assetCatalogPinWeaponPrivateSlot(const char *id, s32 slot)
+{
+    s32 local = s_exactWeaponSlot(id, slot);
+    if (local < 0 || s_CustomWeaponPins[local] == UINT_MAX) {
+        sysLogPrintf(LOG_ERROR, "CATALOG.WEAPON.SLOT_PIN_FAIL: exact identity required slot=%d", slot);
+        return 0;
+    }
+    ++s_CustomWeaponPins[local];
+    return 1;
+}
+
+s32 assetCatalogReleaseWeaponPrivateSlot(const char *id, s32 slot)
+{
+    s32 local = s_exactWeaponSlot(id, slot);
+    if (local < 0 || !s_CustomWeaponPins[local]) {
+        sysLogPrintf(LOG_ERROR, "CATALOG.WEAPON.SLOT_RELEASE_FAIL: matching live pin required slot=%d", slot);
+        return 0;
+    }
+    if (--s_CustomWeaponPins[local] == 0 && !s_CustomWeaponReserved[local])
+        s_CustomWeaponCatalogIds[local][0] = 0;
+    return 1;
 }
 
 s32 assetCatalogResolveWeaponPrivateSlots(const char *catalog_id,

@@ -110,6 +110,13 @@ extern "C" int wgV2GsetSelect(wg_v2_gsets *r, wg_v2_gset_token token,
         return fail(error, cap, "gset numeric slot does not identify the selected v2 catalog source");
     slot->assign(entry, bundle, action); return 1;
 }
+extern "C" int wgV2GsetClearSelection(wg_v2_gsets *r, wg_v2_gset_token token,
+        char *error, size_t cap) {
+    if (error && cap) error[0] = 0;
+    Slot *slot = findToken(r, token);
+    if (!slot || !identity(*slot)) return fail(error, cap, "gset clear requires unchanged explicit lifetime");
+    slot->assign(nullptr, nullptr, nullptr); return 1;
+}
 extern "C" int wgV2GsetCopy(wg_v2_gsets *r, wg_v2_gset_token token,
         const struct gset *source, char *error, size_t cap) {
     if (error && cap) error[0] = 0;

@@ -275,6 +275,9 @@ extern "C" void catalogModelGenerationRelease(catalog_model_generation_t *g) {
     modAssetCompilerFreeModeldef(g->model);
     delete g;
 }
+extern "C" const char *catalogModelGenerationId(const catalog_model_generation_t *g) {
+    return g ? g->id.c_str() : nullptr;
+}
 extern "C" const char *catalogModelGenerationHash(const catalog_model_generation_t *g) {
     return g ? g->hash.c_str() : nullptr;
 }

@@ -1263,3 +1263,14 @@ old/new source retention through slot reset. Client/tests builds, native123/
 4,163, dependent body/head8/322, native guard and installed38/38 pass on
 2,011 unchanged sources. Retain first header-ordering build red and correction.
 Weapon slot lifetime and ordinary executable-graph cutover remain separate.
+
+### 2026-09-29 T-MODDING-002 - Equipment identity and queued model source
+
+Deferred v2 consumers retain equipment, but custom weapon slot reset/rollback
+can still rebind its private identity. Equipment also carries only a numeric
+model file binding, allowing a later queued load to select a newer same-ID
+model. Implementing exact weapon pins and retained-generation queued loading;
+explicit idle reload metadata must never project the first graph action.
+Client/tests0, native143/4754, guard0, installed39/39 and source2012 drift0.
+Exact model queue and weapon pin seams pass; ordinary v2 hand/action cutover
+remains incomplete. Receipt: equipment-native-lifetime-2026-09-29.md.

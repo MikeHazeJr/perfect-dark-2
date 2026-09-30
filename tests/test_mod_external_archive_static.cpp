@@ -259,6 +259,21 @@ TEST_CASE("ordinary held public model publication retains its generation through
     REQUIRE(lastRoot != std::string::npos); REQUIRE(lastRoot < release);
 }
 
+TEST_CASE("retained native model queue bypasses mutable catalog only for a pinned source",
+        "[modding][pdxxx][c3842][model-generation][static]") {
+    const auto source = readFile("src/game/bondgun.c");
+    const auto queue = sourceFunctionBlock(source, "bool bgunQueueRetainedModelLoad(");
+    const auto pin = queue.find("catalogModelGenerationPinStage(generation)");
+    const auto publish = queue.find("player->gunctrl.loadretainedmodel = source;");
+    REQUIRE(pin != std::string::npos); REQUIRE(publish != std::string::npos); REQUIRE(pin < publish);
+    REQUIRE(queue.substr(0, publish).find("return false;") != std::string::npos);
+    const auto tick = sourceFunctionBlock(source, "void bgunTickGunLoad(");
+    const auto consume = tick.find("if (player->gunctrl.loadretainedmodel)");
+    const auto mutableCheck = tick.find("if (!bgunQueuedLoadCanUseHandle(player))");
+    REQUIRE(consume != std::string::npos); REQUIRE(mutableCheck != std::string::npos); REQUIRE(consume < mutableCheck);
+    REQUIRE(readFile("src/game/bondgunreset.c").find("gunctrl.loadretainedmodel = NULL") != std::string::npos);
+}
+
 struct TempArchive {
 	std::filesystem::path path;
 

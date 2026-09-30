@@ -1,5 +1,16 @@
 # Session Log (Active)
 
+2026-09-29 T-MODDING-002 retained equipment batch passes client/tests0,
+native143cases/4754assertions,guard0,installed39/39 and2012-path drift0. Exact
+compiled model queue delivers old source after newer same-ID catalog loading;
+custom weapon identity follows equipment/deferred lifetime through reset and
+atomic rollback. Public explicit idle ammo metadata never chooses a branch;
+hand selection clear preserves deferred copies. Full v2 scanner/catalog/hand/
+action/shot wiring and all-family closure remain open. Receipt:
+context/audits/2026/equipment-native-lifetime-2026-09-29.md.
+Three standalone native-test header/linkage compile reds corrected and retained.
+Owned source will be committed separately; paused peer MP/menu candidates stay intact.
+
 2026-09-29 model slot identity batch applied and validated. Compiled public
 model generations pin their exact private slot until final destruction; reset
 preserves live leases and rollback rejects conflicting/reordered identities

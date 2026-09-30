@@ -19,6 +19,7 @@ catalog_model_generation_t *catalogModelGenerationAcquireSource(
     const asset_entry_t *entry, const char *source, char *error, size_t capacity);
 void catalogModelGenerationRetain(catalog_model_generation_t *generation);
 void catalogModelGenerationRelease(catalog_model_generation_t *generation);
+const char *catalogModelGenerationId(const catalog_model_generation_t *generation);
 const char *catalogModelGenerationHash(const catalog_model_generation_t *generation);
 struct modeldef *catalogModelGenerationModeldef(catalog_model_generation_t *generation);
 /* Borrowed lookup for the ordinary catalog unload path. */

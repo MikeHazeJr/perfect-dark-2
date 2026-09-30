@@ -1,5 +1,6 @@
 #include "weapon_graph_v2_equipped.h"
 #include "modarchive.h"
+#include "assetcatalog_weapon_slots.h"
 #include "modasset_gltf_document.h"
 #include "crude_json.h"
 #include <algorithm>
@@ -92,6 +93,11 @@ struct wg_v2_equipped {
     std::atomic<size_t> refs{1};
     struct weapon weapon{};
     struct inventory_ammo ammo[2]{};
+    struct weaponfunc idle[2]{};
+    struct noisesettings idle_noise{};
+    struct modeldef *modeldef = nullptr;
+    std::string weapon_id;
+    int private_weapon_slot = -1;
     struct invaimsettings aim{};
     std::vector<struct gunviscmd> visibility;
     std::vector<struct modelpartvisibility> parts;
@@ -103,6 +109,8 @@ struct wg_v2_equipped {
     ~wg_v2_equipped() {
         wgV2NativeRelease(actions);
         if (model_lease) model_release(model_lease);
+        if (private_weapon_slot >= 0)
+            assetCatalogReleaseWeaponPrivateSlot(weapon_id.c_str(), private_weapon_slot);
     }
 };
 namespace {
@@ -149,7 +157,7 @@ void prepare(wg_v2_equipped &out, const Json &root, wg_v2_native_resolver resolv
     if (string(field(root, "schema")) != "pd.weapon_settings.v2") bad("equipped source requires pd.weapon_settings.v2");
     if (string(field(root, "asset_id")) != wgV2ProgramAssetId(wgV2NativeProgram(out.actions))) bad("equipped source asset identity mismatch");
     const auto &e = field(root, "equipped");
-    keys(e, {"ammo", "aim", "sway", "flags", "equip_animation", "unequip_animation", "visibility", "parts"});
+    keys(e, {"ammo", "aim", "sway", "flags", "equip_animation", "unequip_animation", "visibility", "parts", "modes"});
     const auto &a = field(e, "ammo");
     if (a.is_array()) {
         const auto &slots = array(a);
@@ -165,6 +173,23 @@ void prepare(wg_v2_equipped &out, const Json &root, wg_v2_native_resolver resolv
         const char *node = nullptr; int slot = -1;
         if (wgV2ProgramAmmoSlot(program, i, &node, &slot) && slot >= 0 && !out.weapon.ammos[slot])
             bad(std::string(node) + ": ammo_slot references an absent equipped ammo definition");
+    }
+    if (e.contains("modes")) {
+        const auto &modes = array(e["modes"]);
+        if (modes.size() != 2 || modes[0].is_null()) bad("equipped modes require primary and optional secondary idle metadata");
+        out.idle_noise.decbasespeed = 1; out.idle_noise.decremspeed = 6;
+        for (int mode = 0; mode < 2; ++mode) {
+            if (modes[mode].is_null()) continue;
+            keys(modes[mode], {"ammo_slot"});
+            const int slot = integer(field(modes[mode], "ammo_slot"), -1, 1);
+            if (slot >= 0 && !out.weapon.ammos[slot]) bad("idle mode references absent equipped ammo");
+            out.idle[mode].type = INVENTORYFUNCTYPE_NONE;
+            out.idle[mode].ammoindex = static_cast<s8>(slot);
+            out.idle[mode].noisesettings = &out.idle_noise;
+            out.weapon.functions[mode] = &out.idle[mode];
+        }
+        const int mode = !std::strcmp(wgV2ProgramMode(program), "secondary") ? 1 : 0;
+        if (!out.weapon.functions[mode]) bad("compiled graph mode has no declared idle metadata");
     }
     const auto &aim = field(e, "aim");
     keys(aim, {"zoom_fov", "transition_up", "transition_down", "transition_side", "damping_pal", "damping", "flags"});
@@ -229,7 +254,8 @@ extern "C" wg_v2_equipped *wgV2EquippedPrepare(wg_v2_native_bundle *actions,
         if (!std::memchr(descriptor->model_file, 0, sizeof(descriptor->model_file)) || !descriptor->model_file[0] ||
                 !model || !model->source_reference || std::strcmp(model->source_reference, descriptor->model_file) ||
                 !catalogId(model->catalog_id) || !hash(model->source_closure_sha256) ||
-                model->file_id <= 0 || model->file_id > UINT16_MAX || !model->lease || !model->release) bad("equipped model requires an exact source reference and pinned native binding");
+                model->file_id < 0 || model->file_id > UINT16_MAX || (!model->file_id && !model->modeldef) ||
+                model->runtime_weapon < 0 || model->runtime_weapon >= WEAPON_CUSTOM_END || !model->lease || !model->release) bad("equipped model requires an exact source reference and pinned native binding");
         if (!descriptor->has_muzzlez || !descriptor->has_posx || !descriptor->has_posy || !descriptor->has_posz ||
                 !descriptor->has_track_type || !std::isfinite(descriptor->muzzlez) || !std::isfinite(descriptor->posx) ||
                 !std::isfinite(descriptor->posy) || !std::isfinite(descriptor->posz) || descriptor->track_type < 0 ||
@@ -245,7 +271,7 @@ extern "C" wg_v2_equipped *wgV2EquippedPrepare(wg_v2_native_bundle *actions,
         out->aim.tracktype = static_cast<u32>(descriptor->track_type);
         std::sort(out->commands.begin(), out->commands.end(), [](const auto &a, const auto &b) { return a->id < b->id; });
         sha256_ctx ctx; sha256Init(&ctx);
-        hashField(ctx, "pd.weapon_graph.equipped.v2.2"); hashField(ctx, source_hash);
+        hashField(ctx, "pd.weapon_graph.equipped.v2.3"); hashField(ctx, source_hash);
         hashField(ctx, wgV2NativeClosureHash(actions));
         /* Exact settings bytes are included even if a caller reuses an archive
          * hash during candidate preparation. Runtime slot integers are not IDs. */
@@ -253,6 +279,13 @@ extern "C" wg_v2_equipped *wgV2EquippedPrepare(wg_v2_native_bundle *actions,
         hashField(ctx, model->source_reference); hashField(ctx, model->catalog_id); hashField(ctx, model->source_closure_sha256);
         for (const auto &dep : out->commands) { hashField(ctx, dep->id.c_str()); hashField(ctx, dep->digest.c_str()); }
         u8 digest[SHA256_DIGEST_SIZE]; sha256Final(&ctx, digest); sha256ToHex(digest, out->closure);
+        out->modeldef = model->modeldef;
+        if (model->runtime_weapon >= WEAPON_CUSTOM_START) {
+            out->weapon_id = descriptor->catalog_id;
+            if (!assetCatalogPinWeaponPrivateSlot(out->weapon_id.c_str(), model->runtime_weapon))
+                bad("equipped private weapon identity could not be retained");
+            out->private_weapon_slot = model->runtime_weapon;
+        }
         out->model_lease = model->lease; out->model_release = model->release;
         return out.release();
     } catch (const std::exception &e) { if (error && cap) std::snprintf(error, cap, "%s", e.what()); }
@@ -262,6 +295,12 @@ extern "C" wg_v2_equipped *wgV2EquippedPrepare(wg_v2_native_bundle *actions,
 extern "C" void wgV2EquippedRetain(wg_v2_equipped *v) { if (v) ++v->refs; }
 extern "C" void wgV2EquippedRelease(wg_v2_equipped *v) { if (v && --v->refs == 0) delete v; }
 extern "C" const struct weapon *wgV2EquippedWeapon(const wg_v2_equipped *v) { return v ? &v->weapon : nullptr; }
+extern "C" struct modeldef *wgV2EquippedModeldef(const wg_v2_equipped *v) { return v ? v->modeldef : nullptr; }
+extern "C" int wgV2EquippedHasIdleMode(const wg_v2_equipped *v) {
+    if (!v) return 0;
+    const int mode = !std::strcmp(wgV2ProgramMode(wgV2NativeProgram(v->actions)), "secondary") ? 1 : 0;
+    return v->weapon.functions[mode] != nullptr;
+}
 extern "C" wg_v2_native_bundle *wgV2EquippedActions(const wg_v2_equipped *v) { return v ? v->actions : nullptr; }
 extern "C" const char *wgV2EquippedClosureHash(const wg_v2_equipped *v) { return v ? v->closure : ""; }
 namespace {
@@ -393,6 +432,11 @@ extern "C" int wgV2EquippedCatalogPrepareArchiveModes(wg_v2_catalog *catalog,
             if (!candidates[mode]) return 0;
             reference.release(); // The prepared equipment now owns this reference.
         }
+        const auto *primary_equipment = static_cast<const wg_v2_equipped *>(wgV2CatalogEntryLease(candidates[0].get()));
+        const auto *weapon = wgV2EquippedWeapon(primary_equipment);
+        if (wgV2EquippedHasIdleMode(primary_equipment) &&
+                (weapon->functions[1] != nullptr) != (count == 2))
+            bad("declared idle modes must match the complete archive graph mode set");
         if (!wgV2CatalogCanPublishModes(catalog, candidates[0].get(), candidates[1].get(), error, cap)) return 0;
         /* Only now does the complete preparation transfer the caller's lease.
          * Every prior failure destroys references without releasing that lease. */

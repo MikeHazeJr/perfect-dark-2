@@ -2403,6 +2403,7 @@ struct gunctrl {
 	char loadcatalogid[64]; /* Stable identity; never infer it from an aliased handle. */
 	bool loadbodyhand; /* This request also supplies the hand/fists cache identity. */
 	u32 loadcataloggeneration; /* Catalog generation captured for this request. */
+	struct modeldef *loadretainedmodel; /* Exact stage-pinned source, independent of current catalog rows. */
 	/*0x15b4*/ struct modeldef **loadtomodeldef;
 	/*0x15b8*/ uintptr_t *loadmemptr;
 	/*0x15bc*/ uintptr_t*loadmemremaining;
