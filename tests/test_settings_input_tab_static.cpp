@@ -249,6 +249,14 @@ TEST_CASE("Settings capture previews every input before committing and owns pare
     requireContains(menu, "if (oldView == 2 && view != 2) inputUiCancelCapture();");
     requireContains(menu, "s_CaptureActive && !menupoolIsActive(MENU_TYPE_MAIN_SETTINGS_VIEW)");
     requireContains(menu, "&& !menupoolIsActive(MENU_TYPE_CI_OPTIONS)");
+    const std::string listening = sliceBetween(menu,
+        "extern \"C\" s32 pdguiMainMenuBindingCaptureListening(void)",
+        "/* Logical groupings.");
+    requireContains(listening, "s_CaptureActive && s_CaptureColumn == 1");
+    requireContains(listening, "pdguiCaptureControllerLost(s_CaptureControllerInstance,");
+    requireContains(listening, "inputGetConnectedInputDevices(NULL)");
+    requireContains(listening, "inputUiCancelCapture();");
+    requireContains(listening, "Binding unchanged;");
 
     /* Both ordinary Main Menu Settings and the legacy CI redirect render the
      * modal from their owning window after the scroll child has ended. */
@@ -300,4 +308,72 @@ TEST_CASE("Vehicle direct-use and Forge camera keys have distinct production con
 	requireContains(forge, "addBind(imc, ACTION_FORGE_DESCEND,          VKL_Q)");
 	requireContains(bondmove, "actionPressed(actionPlayer, ACTION_VEHICLE_USE)");
 	requireContains(bondmove, "bmoveHandleActivate();");
+}
+
+TEST_CASE("Settings Video machine edits use the checked save path and expose no local split control",
+          "[input][menu][settings][static]")
+{
+    const std::string menu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+    const std::string video = sliceBetween(menu, "static void renderSettingsVideo(",
+                                          "/* ========================================================================");
+    REQUIRE(!video.empty());
+    const char *machineEdits[] = {
+        "videoSetFullscreen(", "videoSetFullscreenMode(", "videoSetDisplayMode(",
+        "videoSetUiScaleMult(", "videoSetCenterWindow(", "videoSetMaximizeWindow(",
+        "videoSetVsync(", "videoSetFramerateLimit(", "g_TickRateDiv =",
+        "videoSetDisplayFPS(", "videoSetMSAA(", "videoSetTextureFilter(",
+        "videoSetTextureFilter2D(", "videoSetDetailTextures(",
+        "pdguiThemeSetScanlineVerticalScale("
+    };
+    for (const char *edit : machineEdits) {
+        INFO(edit);
+        const size_t start = video.find(edit);
+        REQUIRE(start != std::string::npos);
+        const size_t blockEnd = video.find('}', start);
+        REQUIRE(video.find("settingsRequestMachineSave();", start) < blockEnd);
+    }
+    requireNotContains(video, "2-Player Screen Split");
+    requireNotContains(video, "optionsSetScreenSplit");
+    requireNotContains(video, "configSave("); // shared status owns error/retry/departure
+}
+
+TEST_CASE("Settings game option edits invalidate the Agent preference-only save cache",
+          "[input][menu][settings][static]")
+{
+    const std::string menu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+    const std::regex edits(R"((optionsSet\w+|sndSetSoundMode)\([^;]*\);)");
+    const size_t begin = menu.find("static void renderSettingsVideo(");
+    REQUIRE(begin != std::string::npos);
+    const std::string renderers = menu.substr(begin);
+    int count = 0;
+    for (auto it = std::sregex_iterator(renderers.begin(), renderers.end(), edits);
+         it != std::sregex_iterator(); ++it) {
+        INFO(it->str());
+        const size_t end = it->position() + it->length();
+        REQUIRE(renderers.find("prefsAgentMarkDirty();", end) < renderers.find('}', end));
+        ++count;
+    }
+    REQUIRE(count >= 16);
+    const std::string prefs = readTextFile("port/src/prefs_agent.c");
+    const std::string dirty = sliceBetween(prefs, "void prefsAgentMarkDirty(void)", "s32 prefsAgentSave(void)");
+    requireContains(dirty, "if (s_ActiveAgent[0]) s_LastSavedValid = 0;");
+    const std::string save = sliceBetween(prefs, "s32 prefsAgentSave(void)", "static void prefsBuildLegacyPath");
+    REQUIRE(save.find("saveSaveAgent(s_ActiveAgent) != 0") < save.find("s_LastSavedValid = 1;"));
+    REQUIRE(save.find("return -1;", save.find("saveSaveAgent(s_ActiveAgent) != 0")) < save.find("s_LastSavedValid = 1;"));
+}
+
+TEST_CASE("Agent option persistence and match return retain local player zero",
+          "[input][menu][settings][agent][static]")
+{
+    for (const char *path : {"src/game/gamefile.c", "port/src/savefile.c"}) {
+        const std::string source = readTextFile(path);
+        REQUIRE(!source.empty());
+        requireNotContains(source, "player1 = (g_Vars.coopplayernum");
+        requireContains(source, "player1 = 0;");
+    }
+    const std::string menu = readTextFile("src/game/menutick.c");
+    requireNotContains(menu, "coopRestorePlayerConfigs");
+    requireNotContains(menu, "g_PlayerConfigsArray[0] = tmp");
+    const std::string level = readTextFile("src/game/lv.c");
+    requireContains(level, "g_Vars.playerstats[0].mpindex = 0;");
 }

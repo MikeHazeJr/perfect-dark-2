@@ -19,6 +19,11 @@ struct PdguiNavInput {
 
 void pdguiSubmitNavInput(const PdguiNavInput &input);
 
+/* Binding capture retains its starting device when known. A raw device may
+ * have no observed identity yet, so an unknown instance alone is not a loss.
+ * Uses existing SDL handles only; never opens or reassigns hardware. */
+bool pdguiCaptureControllerLost(int instance, int connectedDeviceCount);
+
 /* Snapshot before NewFrame: ImGui may consume Cancel and remove a popup
  * before the application's parent menu gets a chance to query its actions. */
 void pdguiNavCaptureOwners();

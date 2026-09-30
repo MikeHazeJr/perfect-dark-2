@@ -42,20 +42,6 @@
 extern void pdguiSoloRoomOpen(void);
 extern void pdguiSoloRoomReturn(void); /* Mike directive 2026-05-17: preserve CS rematch config. */
 
-/* M-CO5: restore co-op/anti player configs (swap slots 0↔4, 1↔5) */
-static void coopRestorePlayerConfigs(void)
-{
-	struct mpplayerconfig tmp;
-
-	tmp = g_PlayerConfigsArray[4];
-	g_PlayerConfigsArray[4] = g_PlayerConfigsArray[0];
-	g_PlayerConfigsArray[0] = tmp;
-
-	tmp = g_PlayerConfigsArray[5];
-	g_PlayerConfigsArray[5] = g_PlayerConfigsArray[1];
-	g_PlayerConfigsArray[1] = tmp;
-}
-
 u8 g_FileState = 0;
 u8 var80062944 = 0;
 u8 var80062948 = 0;
@@ -894,8 +880,6 @@ void menuTick(void)
 			case MENUROOT_MPENDSCREEN:
 				if (g_Vars.normmplayerisrunning) {
 					var80087260 = 3;
-				} else if (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) {
-					coopRestorePlayerConfigs();
 				}
 
 				if (g_Vars.coopplayernum >= 0
@@ -962,7 +946,6 @@ void menuTick(void)
 				break;
 			case MENUROOT_COOPCONTINUE:
 				if (g_Vars.coopplayernum >= 0) {
-					coopRestorePlayerConfigs();
 					mpSetPaused(MPPAUSEMODE_UNPAUSED);
 					g_Vars.mplayerisrunning = false;
 					g_Vars.normmplayerisrunning = false;

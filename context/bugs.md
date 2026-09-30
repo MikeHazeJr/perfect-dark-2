@@ -1,5 +1,20 @@
 # Bug Tracker
 
+Sep29 T-MENUS-005: confirmed the Settings/Agent option mismatch is retired
+save-side indexing, not current UI indexing: lvReset uses slot0. P1 save,
+load and defaults now use0; obsolete co-op return swaps removed. Candidate
+UNVALIDATED pending combined build and restart/return journeys. No save schema
+change. Existing paused source7 hashes match. See Sep27 Settings coverage audit.
+
+Sep27 T-MENUS-005 candidate: controller capture disconnect releases input and
+preserves bindings; frozen asset0923lang gate passes235/9765, zero2010-file
+drift (.claude/menu0927/capture-broad.xml). Subsequent Video/Game/mouse save
+requests, retired split control removal and Agent dirty trigger await the
+next integrated build. Propagation found indexed Settings options use slot0
+while solo gamefile capture/apply uses slot4; this remains OPEN and requires
+an adapter repair, not a claim that dirty invalidation alone fixes persistence.
+Details: context/audits/2026/settings-control-coverage-2026-09-27.md.
+
 Sep27 MP admission qualification remains open (T-NETWORKING-011): binary4A3BA1AC
 transfers and spawns Needler but omits impact-effect witnesses on both accepted
 peers (94/101). Do not weaken these assertions. Campaign90/96 failures instead

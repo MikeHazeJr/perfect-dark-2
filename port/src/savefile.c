@@ -703,7 +703,7 @@ static void saveCaptureAgentDocument(const char *name,
 		struct agent_profile_document *document)
 {
 	struct gamefile captured = g_GameFile;
-	s32 player1 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 0 : 4;
+	s32 player1 = 0; /* Single local player: same slot as Settings and lvReset. */
 	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : 5;
 
 	memset(document, 0, sizeof(*document));
@@ -730,7 +730,7 @@ static void saveCommitAgentDocument(
 		const struct agent_profile_document *document)
 {
 	struct gamefile committed;
-	s32 player1 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 0 : 4;
+	s32 player1 = 0; /* Single local player: same slot as Settings and lvReset. */
 	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : 5;
 
 	prefsAgentCommitSnapshot(&document->preferences);

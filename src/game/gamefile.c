@@ -54,7 +54,7 @@ void gamefilePrintFlags(void)
 
 void gamefileApplyOptions(struct gamefile *file)
 {
-	s32 player1 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 0 : 4;
+	s32 player1 = 0; /* Single local player: same slot as Settings and lvReset. */
 	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : 5;
 
 	optionsSetForwardPitch(player1, pakHasBitflag(GAMEFILEFLAG_P1_FORWARDPITCH, file->flags));
@@ -203,7 +203,7 @@ void gamefileSetDefaultState(struct gamefile *file)
 
 void gamefileLoadDefaults(struct gamefile *file)
 {
-	s32 player1 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 0 : 4;
+	s32 player1 = 0; /* Single local player: same slot as Settings and lvReset. */
 	s32 player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : 5;
 	s32 i;
 	s32 j;
@@ -250,7 +250,7 @@ void gamefileCaptureOptions(struct gamefile *file)
 		return;
 	}
 
-	player1 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 0 : 4;
+	player1 = 0; /* Single local player: same slot as Settings and lvReset. */
 	player2 = (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0) ? 1 : 5;
 
 	pakSetBitflag(GAMEFILEFLAG_P1_FORWARDPITCH, file->flags, optionsGetForwardPitch(player1));

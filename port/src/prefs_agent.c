@@ -422,6 +422,13 @@ void prefsAgentRefreshVisualsBaseline(void)
 	s_Baseline.scanline_alpha = pdguiThemeGetScanlineAlpha();
 }
 
+void prefsAgentMarkDirty(void)
+{
+	/* Agent publication establishes a new clean identity. Never carry a dirty
+	 * request made before sign-in into another Agent. */
+	if (s_ActiveAgent[0]) s_LastSavedValid = 0;
+}
+
 s32 prefsAgentSave(void)
 {
 	struct agent_profile_preferences captured;

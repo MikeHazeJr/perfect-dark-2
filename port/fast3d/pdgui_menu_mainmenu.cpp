@@ -196,6 +196,7 @@ MenuItemHandlerResult menuhandlerChangeAgent(s32 operation, struct menuitem *ite
  * prefs_agent.h lives in port/include/ and C++ ABI guard (#define bool
  * s32) blocks including it directly. */
 s32 prefsAgentSave(void);
+void prefsAgentMarkDirty(void);
 const char *prefsAgentGetActive(void);
 /* B-172: refresh pd.ini baseline after a pre-sign-in visual change so
  * the next Agent Select reset doesn't clobber the user's new theme. */
@@ -441,8 +442,6 @@ extern s32 g_OsMemSizeMb;
 /* Screen size / screen split — options.c */
 s32  optionsGetScreenSize(void);
 void optionsSetScreenSize(s32 size);
-u8   optionsGetScreenSplit(void);
-void optionsSetScreenSplit(u8 split);
 
 /* Subtitle options — options.c */
 u8   optionsGetInGameSubtitles(void);
@@ -516,8 +515,6 @@ void menuStop(void);
 #define PD_SCREENSIZE_FULL    0
 #define PD_SCREENSIZE_WIDE    1
 #define PD_SCREENSIZE_CINEMA  2
-#define PD_SCREENSPLIT_HORIZ  0
-#define PD_SCREENSPLIT_VERT   1
 
 /* ========================================================================
  * State
@@ -716,6 +713,7 @@ static void renderSettingsVideo(float scale)
     bool fullscreen = videoGetFullscreen() != 0;
     if (PdCheckbox("Fullscreen", &fullscreen)) {
         videoSetFullscreen(fullscreen ? 1 : 0);
+        settingsRequestMachineSave();
     }
 
     if (fullscreen) {
@@ -723,6 +721,7 @@ static void renderSettingsVideo(float scale)
         const char *fsModes[] = { "Borderless", "Exclusive" };
         if (PdCombo("Fullscreen Mode", &fsMode, fsModes, 2)) {
             videoSetFullscreenMode(fsMode);
+            settingsRequestMachineSave();
         }
     }
 
@@ -756,6 +755,7 @@ static void renderSettingsVideo(float scale)
                 bool selected = (i == curIdx);
                 if (ImGui::Selectable(label, selected)) {
                     videoSetDisplayMode(i);
+                    settingsRequestMachineSave();
                 }
                 if (selected) ImGui::SetItemDefaultFocus();
             }
@@ -772,18 +772,21 @@ static void renderSettingsVideo(float scale)
         snprintf(uiScaleLabel, sizeof(uiScaleLabel), "%.0f%%", uiScale);
         if (PdSliderFloat("UI Scale", &uiScale, 50.0f, 200.0f, uiScaleLabel)) {
             videoSetUiScaleMult(uiScale / 100.0f);
+            settingsRequestMachineSave();
         }
     }
 
     bool centerWin = videoGetCenterWindow() != 0;
     if (PdCheckbox("Center Window", &centerWin)) {
         videoSetCenterWindow(centerWin ? 1 : 0);
+        settingsRequestMachineSave();
     }
 
     if (!fullscreen) {
         bool maximize = videoGetMaximizeWindow() != 0;
         if (PdCheckbox("Maximize Window", &maximize)) {
             videoSetMaximizeWindow(maximize ? 1 : 0);
+            settingsRequestMachineSave();
         }
     }
 
@@ -802,6 +805,7 @@ static void renderSettingsVideo(float scale)
         if (vsyncIdx > 2) vsyncIdx = 2;
         if (PdCombo("VSync", &vsyncIdx, vsyncOpts, 3)) {
             videoSetVsync(vsyncIdx - 1);
+            settingsRequestMachineSave();
         }
     }
 
@@ -816,17 +820,20 @@ static void renderSettingsVideo(float scale)
         }
         if (PdSliderInt("Framerate Limit", &fpsLimit, 0, 480, fpsLabel)) {
             videoSetFramerateLimit(fpsLimit);
+            settingsRequestMachineSave();
         }
     }
 
     bool uncapTick = (g_TickRateDiv == 0);
     if (PdCheckbox("Uncap Tickrate", &uncapTick)) {
         g_TickRateDiv = uncapTick ? 0 : 1;
+        settingsRequestMachineSave();
     }
 
     bool showFps = videoGetDisplayFPS() != 0;
     if (PdCheckbox("Display FPS", &showFps)) {
         videoSetDisplayFPS(showFps ? 1 : 0);
+        settingsRequestMachineSave();
     }
 
     ImGui::Spacing();
@@ -847,6 +854,7 @@ static void renderSettingsVideo(float scale)
         const char *msaaOpts[] = { "Off", "2x MSAA", "4x MSAA", "8x MSAA", "16x MSAA" };
         if (PdCombo("Anti-aliasing *", &msaaIdx, msaaOpts, 5)) {
             videoSetMSAA(1 << msaaIdx);
+            settingsRequestMachineSave();
         }
         ImGui::SameLine();
         ImGui::TextDisabled("(restart required)");
@@ -858,17 +866,20 @@ static void renderSettingsVideo(float scale)
         const char *texOpts[] = { "Nearest", "Bilinear", "Three Point" };
         if (PdCombo("Texture Filtering", &texFilter, texOpts, 3)) {
             videoSetTextureFilter((u32)texFilter);
+            settingsRequestMachineSave();
         }
     }
 
     bool guiTexFilter = videoGetTextureFilter2D() != 0;
     if (PdCheckbox("GUI Texture Filtering", &guiTexFilter)) {
         videoSetTextureFilter2D(guiTexFilter ? 1 : 0);
+        settingsRequestMachineSave();
     }
 
     bool detailTex = videoGetDetailTextures() != 0;
     if (PdCheckbox("Detail Textures", &detailTex)) {
         videoSetDetailTextures(detailTex ? 1 : 0);
+        settingsRequestMachineSave();
     }
 
     /* CRT Filter */
@@ -888,6 +899,7 @@ static void renderSettingsVideo(float scale)
         float crtV = pdguiThemeGetScanlineVerticalScale();
         if (PdSliderFloat("CRT Line Spacing", &crtV, 0.25f, 4.0f, "%.2fx")) {
             pdguiThemeSetScanlineVerticalScale(crtV);
+            settingsRequestMachineSave();
         }
     }
 
@@ -936,6 +948,7 @@ static void renderSettingsVideo(float scale)
         const char *szOpts[] = { "Full", "Wide", "Cinema" };
         if (PdCombo("Screen Size", &sz, szOpts, 3)) {
             optionsSetScreenSize(sz);
+            prefsAgentMarkDirty();
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip(
@@ -945,15 +958,6 @@ static void renderSettingsVideo(float scale)
         }
     }
 
-    /* 2-Player Screen Split — orientation when two local players are active */
-    {
-        int sp = (int)optionsGetScreenSplit();
-        if (sp < 0 || sp > 1) sp = PD_SCREENSPLIT_HORIZ;
-        const char *spOpts[] = { "Horizontal", "Vertical" };
-        if (PdCombo("2-Player Screen Split", &sp, spOpts, 2)) {
-            optionsSetScreenSplit((u8)sp);
-        }
-    }
 }
 
 /* ========================================================================
@@ -1616,6 +1620,7 @@ static void renderSettingsAudio(float scale)
         const char *modeOpts[] = { "Mono", "Stereo", "Headphone", "Surround" };
         if (PdCombo("Sound Mode", &mode, modeOpts, 4)) {
             sndSetSoundMode(mode);
+            prefsAgentMarkDirty();
         }
     }
 
@@ -1671,8 +1676,11 @@ static bool inputUiPersistBindings(void)
     return true;
 }
 
+static char s_CaptureStatus[128] = "";
+
 static void inputUiBindingPersistenceStatus(void)
 {
+    if (s_CaptureStatus[0]) ImGui::TextWrapped("%s", s_CaptureStatus);
     const char *error = actionmapGetPersistenceError();
     if (error && *error) ImGui::TextWrapped("%s", error);
 }
@@ -1688,6 +1696,7 @@ static u32                  s_CaptureCandidate = 0;
 static bool                 s_CaptureOpenPending = false;
 static bool                 s_CaptureReviewFocus = false;
 static int                  s_CaptureReviewFrame = -1;
+static int                  s_CaptureControllerInstance = -1;
 static void inputUiCancelCapture(void);
 
 static void inputUiFlushCaptureActions(void)
@@ -1703,6 +1712,13 @@ static void inputUiFlushCaptureActions(void)
 
 extern "C" s32 pdguiMainMenuBindingCaptureListening(void)
 {
+    if (s_CaptureActive && s_CaptureColumn == 1 &&
+            pdguiCaptureControllerLost(s_CaptureControllerInstance,
+                inputGetConnectedInputDevices(NULL))) {
+        inputUiCancelCapture();
+        snprintf(s_CaptureStatus, sizeof(s_CaptureStatus),
+            "Controller unavailable. Binding unchanged; reconnect and start capture again.");
+    }
     /* The pool owns external stage/menu teardown, including the CI redirect. */
     if (s_CaptureActive && !menupoolIsActive(MENU_TYPE_MAIN_SETTINGS_VIEW)
             && !menupoolIsActive(MENU_TYPE_CI_OPTIONS)) {
@@ -2310,6 +2326,11 @@ static void renderBindButton(InputMappingContext *imc, InputAction action, const
         s_CaptureImc      = imc;
         s_CaptureName     = rowName ? rowName : "(unnamed)";
         s_CaptureCandidate = 0;
+        s_CaptureStatus[0] = '\0';
+        InputDeviceIdentity captureDevice = {};
+        s_CaptureControllerInstance = captureCol == 1 &&
+            actionmapGetBindingDeviceIdentity(0, &captureDevice)
+                ? captureDevice.instance_id : -1;
         s_CaptureOpenPending = true;
         s_CaptureReviewFrame = -1;
         inputClearLastKey();
@@ -3241,43 +3262,51 @@ static void renderControlsGlobalMouse(void)
         inputMouseGetSpeed(&mx, &my);
         if (PdSliderFloat("Mouse Sensitivity X", &mx, 0.0f, 10.0f, "%.2f")) {
             inputMouseSetSpeed(mx, my);
+            settingsRequestMachineSave();
         }
         inputMouseGetSpeed(&mx, &my);
         if (PdSliderFloat("Mouse Sensitivity Y", &my, 0.0f, 10.0f, "%.2f")) {
             inputMouseSetSpeed(mx, my);
+            settingsRequestMachineSave();
         }
     }
     {
         float aimX = g_PlayerExtCfg[0].mouseaimspeedx;
         if (PdSliderFloat("Crosshair Speed X", &aimX, 0.0f, 10.0f, "%.2f")) {
             g_PlayerExtCfg[0].mouseaimspeedx = aimX;
+            settingsRequestMachineSave();
         }
         float aimY = g_PlayerExtCfg[0].mouseaimspeedy;
         if (PdSliderFloat("Crosshair Speed Y", &aimY, 0.0f, 10.0f, "%.2f")) {
             g_PlayerExtCfg[0].mouseaimspeedy = aimY;
+            settingsRequestMachineSave();
         }
     }
     {
         bool invertY = optionsGetForwardPitch(0) == 0;
         if (PdCheckbox("Invert Y (mouse)", &invertY)) {
             optionsSetForwardPitch(0, invertY ? 0 : 1);
+            prefsAgentMarkDirty();
         }
     }
 
     bool mouseAimLock = g_PlayerExtCfg[0].mouseaimmode != 0;
     if (PdCheckbox("Mouse Aim Lock", &mouseAimLock)) {
         g_PlayerExtCfg[0].mouseaimmode = mouseAimLock ? 1 : 0;
+        settingsRequestMachineSave();
     }
     {
         int lockMode = inputGetMouseLockMode();
         const char *lockOpts[] = { "Always Off", "Always On", "Auto" };
         if (PdCombo("Mouse Lock Mode", &lockMode, lockOpts, 3)) {
             inputSetMouseLockMode(lockMode);
+            settingsRequestMachineSave();
         }
     }
     bool mouseEnabled = inputMouseIsEnabled() != 0;
     if (PdCheckbox("Mouse Enabled", &mouseEnabled)) {
         inputMouseEnable(mouseEnabled ? 1 : 0);
+        settingsRequestMachineSave();
     }
     bool menuMouse = g_MenuMouseControl != 0;
     if (PdCheckbox("Mouse Menu Navigation", &menuMouse)) {
@@ -3785,6 +3814,7 @@ static void inputUiCancelCapture(void)
     s_CaptureOpenPending = false;
     s_CaptureReviewFocus = false;
     s_CaptureReviewFrame = -1;
+    s_CaptureControllerInstance = -1;
     inputClearLastKey();
     inputUiFlushCaptureActions();
 }
@@ -3872,6 +3902,7 @@ static void renderSettingsGame(float scale)
         const char *crouchOpts[] = { "Hold", "Analog", "Toggle", "Toggle + Analog" };
         if (PdCombo("Crouch Mode", &crouchMode, crouchOpts, 4)) {
             g_PlayerExtCfg[0].crouchmode = crouchMode;
+            settingsRequestMachineSave();
         }
     }
 
@@ -3880,6 +3911,7 @@ static void renderSettingsGame(float scale)
         float fov = g_PlayerExtCfg[0].fovy;
         if (PdSliderFloat("Vertical FOV", &fov, 15.0f, 170.0f, "%.0f")) {
             g_PlayerExtCfg[0].fovy = fov;
+            settingsRequestMachineSave();
         }
     }
 
@@ -3888,6 +3920,7 @@ static void renderSettingsGame(float scale)
         float sway = g_PlayerExtCfg[0].crosshairsway;
         if (PdSliderFloat("Crosshair Sway", &sway, 0.0f, 2.0f, "%.1f")) {
             g_PlayerExtCfg[0].crosshairsway = sway;
+            settingsRequestMachineSave();
         }
     }
 
@@ -3896,6 +3929,7 @@ static void renderSettingsGame(float scale)
         int chSize = g_PlayerExtCfg[0].crosshairsize;
         if (PdSliderInt("Crosshair Size", &chSize, 0, 4)) {
             g_PlayerExtCfg[0].crosshairsize = chSize;
+            settingsRequestMachineSave();
         }
     }
 
@@ -3914,6 +3948,7 @@ static void renderSettingsGame(float scale)
                 ((u32)(rgba[1] * 255.0f) << 16) |
                 ((u32)(rgba[2] * 255.0f) << 8) |
                 ((u32)(rgba[3] * 255.0f));
+            settingsRequestMachineSave();
         }
     }
 
@@ -3923,6 +3958,7 @@ static void renderSettingsGame(float scale)
         const char *chHealthOpts[] = { "Off", "On (Green)", "On (White)" };
         if (PdCombo("Crosshair Colour by Health", &chHealth, chHealthOpts, 3)) {
             g_PlayerExtCfg[0].crosshairhealth = chHealth;
+            settingsRequestMachineSave();
         }
     }
 
@@ -3937,6 +3973,7 @@ static void renderSettingsGame(float scale)
     bool useKeyReloads = g_PlayerExtCfg[0].usereloads != 0;
     if (PdCheckbox("Use Key Reloads", &useKeyReloads)) {
         g_PlayerExtCfg[0].usereloads = useKeyReloads ? 1 : 0;
+            settingsRequestMachineSave();
     }
 
     /* Jump Height */
@@ -3950,6 +3987,7 @@ static void renderSettingsGame(float scale)
         }
         if (PdSliderFloat("Jump Height", &jump, 0.0f, 20.0f, jumpLabel)) {
             g_PlayerExtCfg[0].jumpheight = jump;
+            settingsRequestMachineSave();
         }
     }
 
@@ -3977,6 +4015,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetSightOnScreen(0) != 0;
         if (PdCheckbox("Sight on Screen", &v)) {
             optionsSetSightOnScreen(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
     }
 
@@ -3984,6 +4023,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetAmmoOnScreen(0) != 0;
         if (PdCheckbox("Ammo on Screen", &v)) {
             optionsSetAmmoOnScreen(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
     }
 
@@ -3991,6 +4031,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetShowGunFunction(0) != 0;
         if (PdCheckbox("Show Gun Function", &v)) {
             optionsSetShowGunFunction(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
     }
 
@@ -3998,6 +4039,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetAlwaysShowTarget(0) != 0;
         if (PdCheckbox("Always Show Target", &v)) {
             optionsSetAlwaysShowTarget(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
     }
 
@@ -4005,6 +4047,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetShowZoomRange(0) != 0;
         if (PdCheckbox("Show Zoom Range", &v)) {
             optionsSetShowZoomRange(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
     }
 
@@ -4012,6 +4055,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetShowMissionTime(0) != 0;
         if (PdCheckbox("Show Mission Time", &v)) {
             optionsSetShowMissionTime(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
     }
 
@@ -4019,6 +4063,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetHeadRoll(0) != 0;
         if (PdCheckbox("Head Roll", &v)) {
             optionsSetHeadRoll(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
     }
 
@@ -4032,6 +4077,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetInGameSubtitles() != 0;
         if (PdCheckbox("In-Game Subtitles", &v)) {
             optionsSetInGameSubtitles(v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
     }
 
@@ -4039,6 +4085,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetCutsceneSubtitles() != 0;
         if (PdCheckbox("Cutscene Subtitles", &v)) {
             optionsSetCutsceneSubtitles(v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
     }
 
@@ -4052,6 +4099,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetPaintball(0) != 0;
         if (PdCheckbox("Paintball Mode", &v)) {
             optionsSetPaintball(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Replace bullet wounds with coloured paint splatters");
@@ -4070,6 +4118,7 @@ static void renderSettingsGame(float scale)
         const char *aimOpts[] = { "Hold", "Toggle" };
         if (PdCombo("Aim Mode", &aimMode, aimOpts, 2)) {
             optionsSetAimControl(0, aimMode);
+            prefsAgentMarkDirty();
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip(
@@ -4082,6 +4131,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetAutoAim(0) != 0;
         if (PdCheckbox("Auto Aim", &v)) {
             optionsSetAutoAim(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
     }
 
@@ -4089,6 +4139,7 @@ static void renderSettingsGame(float scale)
         bool v = optionsGetLookAhead(0) != 0;
         if (PdCheckbox("Look Ahead", &v)) {
             optionsSetLookAhead(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
         }
         if (ImGui::IsItemHovered()) {
             ImGui::SetTooltip("Camera tilts forward slightly when moving");

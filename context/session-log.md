@@ -1,5 +1,35 @@
 # Session Log (Active)
 
+Sep29 T-MENUS-005 Settings/input candidate passes shared isolated client/tests
+builds, broad238 cases/9829 assertions and real settings-save11/123, with3405
+source paths unchanged. Full suite remains red18/140987 across1853 cases;
+the18 failure names match the prior receipt. Capture loss, checked Video/Game/
+mouse saves, Agent dirty invalidation, retired split removal, local P1 save/load
+slot0 and obsolete co-op swap removal are connected. Ordinary save/restart/
+return, physical controller and scaled acceptance remain open. Artifacts:
+.claude/menu0927/sep29-validation.json and sep29-full-result.json. Frozen older
+Agent805E2213 virtual run now attaches player0 with process-local SDL native
+driver exclusion plus explicit touchpad mapping, but A does not enter Create:
+red15/29, results-20260930T015959Z.json. It overlapped the asset session's separate
+resource named game, so focus isolation is unproven; screenshot inspected.
+No hardware/system assignment changed. Goal remains active and partial.
+
+2026-09-27 04:46 ET T-MENUS-005 USER PAUSE. Source remains frozen and
+uncommitted in seven owned source/test files (mainmenu, nav_input cpp/h,
+prefs_agent c/h, widget-navigation and Settings static tests). Backup patch
+and hashes: .claude/menu0927/pause-owned-source.*. Agent checkpoint4db5233a
+was already pushed. Capture disconnect passed235 cases/9765 assertions on
+asset0923lang with2010 source hashes unchanged; capture-broad.xml is that
+receipt. Later Video/Game/mouse save requests, retired split removal and
+Agent dirty invalidation are UNVALIDATED, awaiting the peers' combined build.
+No new tests/builds/client runs authorized until resume. No owned FIFO remains.
+Open persistence finding: Settings indexed legacy options use slot0 but solo
+Agent capture/apply uses slot4; repair the adapter, not only save triggers.
+Runtime memory guard remains below2GB available commit; no bypass/hardware
+changes. Full18-failure receipt and all ordinary/scaled/physical/full-matrix
+acceptance remain open. Resume from settings-control-coverage-2026-09-27.md,
+refresh ownership/peer build results and exact hashes before further edits.
+
 2026-09-29 T-MODDING-002 retained equipment batch passes client/tests0,
 native143cases/4754assertions,guard0,installed39/39 and2012-path drift0. Exact
 compiled model queue delivers old source after newer same-ID catalog loading;

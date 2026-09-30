@@ -6,6 +6,42 @@
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <SDL.h>
+
+TEST_CASE("Binding capture detects lost mapped and raw SDL handles without rejecting unseen devices",
+          "[input][settings][capture][sdl]")
+{
+    REQUIRE(pdguiCaptureControllerLost(-1, 0));
+    REQUIRE_FALSE(pdguiCaptureControllerLost(-1, 1));
+    REQUIRE(pdguiCaptureControllerLost(0x7fffffff, 2));
+    for (auto type : {SDL_JOYSTICK_TYPE_UNKNOWN, SDL_JOYSTICK_TYPE_GAMECONTROLLER}) {
+        struct Device {
+            int init = SDL_InitSubSystem(SDL_INIT_JOYSTICK);
+            int index = -1;
+            SDL_Joystick *handle = nullptr;
+            explicit Device(SDL_JoystickType type) {
+                if (init == 0) {
+                    index = SDL_JoystickAttachVirtual(type, 2, 4, 0);
+                    if (index >= 0) handle = SDL_JoystickOpen(index);
+                }
+            }
+            ~Device() {
+                if (handle) SDL_JoystickClose(handle);
+                if (index >= 0) SDL_JoystickDetachVirtual(index);
+                if (init == 0) SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
+            }
+        } device(type);
+        REQUIRE(device.init == 0);
+        REQUIRE(device.index >= 0);
+        REQUIRE(device.handle != nullptr);
+        const int instance = SDL_JoystickInstanceID(device.handle);
+        REQUIRE_FALSE(pdguiCaptureControllerLost(instance, 2));
+        REQUIRE(SDL_JoystickDetachVirtual(device.index) == 0);
+        device.index = -1;
+        // Other connected hardware must not conceal loss of the captured one.
+        REQUIRE(pdguiCaptureControllerLost(instance, 2));
+    }
+}
 
 namespace {
 struct WidgetHarness {

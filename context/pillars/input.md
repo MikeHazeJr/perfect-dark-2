@@ -1,5 +1,28 @@
 # Input System
 
+Sep29 T-MENUS-005 Settings/input candidate passes shared isolated client/tests
+builds, broad238 cases/9829 assertions and real settings-save11/123, with3405
+source paths unchanged. Full suite remains red18/140987 across1853 cases;
+the18 failure names match the prior receipt. Capture loss, checked Video/Game/
+mouse saves, Agent dirty invalidation, retired split removal, local P1 save/load
+slot0 and obsolete co-op swap removal are connected. Ordinary save/restart/
+return, physical controller and scaled acceptance remain open. Artifacts:
+.claude/menu0927/sep29-validation.json and sep29-full-result.json. Frozen older
+Agent805E2213 virtual run now attaches player0 with process-local SDL native
+driver exclusion plus explicit touchpad mapping, but A does not enter Create:
+red15/29, results-20260930T015959Z.json. It overlapped the asset session's separate
+resource named game, so focus isolation is unproven; screenshot inspected.
+No hardware/system assignment changed. Goal remains active and partial.
+
+Sep27 T-MENUS-005 controller-capture disconnect candidate records the initial
+SDL instance and releases capture when that handle detaches or no devices
+remain. It does not open/reassign devices and permits connected raw devices
+before their first identity event. Prior bindings remain unchanged and a
+reconnect message appears. Native SDL virtual-handle coverage passed with235 cases/9765 assertions and
+zero drift in2010 source hashes (capture-broad.xml). Later Settings save
+follow-ups await integrated validation; physical unplug/UI capture remains
+open. See the Sep27 Settings coverage audit.
+
 Sep23 T-INPUT-008: fixed-source `menu0923` r7 input/menu/settings gate passes
 9,732/9,732 assertions after the prior four-failure broad receipt. The
 ordinary virtual-Agent fixture now reserves player 0 with a process-local

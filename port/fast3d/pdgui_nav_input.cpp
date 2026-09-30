@@ -2,6 +2,15 @@
 #include "imgui/imgui.h"
 #include "imgui/imgui_internal.h"
 #include <array>
+#include <SDL.h>
+
+bool pdguiCaptureControllerLost(int instance, int connectedDeviceCount)
+{
+    if (connectedDeviceCount <= 0) return true;
+    if (instance < 0) return false;
+    SDL_Joystick *joystick = SDL_JoystickFromInstanceID(instance);
+    return !joystick || SDL_JoystickGetAttached(joystick) != SDL_TRUE;
+}
 
 namespace {
 ImGuiContext *s_OwnerContext = nullptr;

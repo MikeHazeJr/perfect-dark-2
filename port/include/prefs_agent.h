@@ -50,6 +50,10 @@ void prefsAgentApplyMachineBaseline(void);
 /** Re-capture machine visuals after a pre-sign-in pd.ini change. */
 void prefsAgentRefreshVisualsBaseline(void);
 
+/** Mark non-preference Agent fields (game options) for the next checked save.
+ * Does not write immediately; a failed save remains dirty until Retry succeeds. */
+void prefsAgentMarkDirty(void);
+
 /** Save changed active preferences through the unified Agent JSON writer. */
 s32 prefsAgentSave(void);
 
