@@ -1,5 +1,8 @@
 # Unreleased Changes
 
+- Isolate model previews from main-window viewport and projection state, and
+  clear unavailable selections while replacement models load.
+
 - Preserve all sixteen Settings device-profile rules through save and restart,
   including long device keys and aliases. Reject incomplete edits before saving.
 

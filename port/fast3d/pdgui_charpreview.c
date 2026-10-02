@@ -30,6 +30,8 @@
 #include "video.h"
 #include "gbiex.h"
 #include "game/menu.h"
+#include "game/camera.h"
+#include "game/gfxmemory.h"
 #include "system.h"
 #include "constants.h"
 #include "assetcatalog.h"
@@ -37,6 +39,7 @@
 #include "modelcatalog.h"
 #include "pdgui.h"
 #include "pdgui_charpreview.h"
+#include "pdgui_model_preview.h"
 
 /* Forward declarations for VI functions (vi.c) — needed to restore
  * scissor and viewport after FBO render.  Cannot include lib/vi.h
@@ -69,6 +72,10 @@ extern s32 g_MenuScissorX1;
 extern s32 g_MenuScissorX2;
 extern s32 g_MenuScissorY1;
 extern s32 g_MenuScissorY2;
+extern Vp var800a2048[MAX_PLAYERS][2];
+extern Mtxf var80092830;
+extern Mtx *var80092870;
+extern u16 g_ViPerspScale;
 
 /* ========================================================================
  * State
@@ -88,6 +95,7 @@ static u32 s_PreviewFilenum = 0;     /* Filenum (weapon/vehicle/prop mode) */
 static s32 s_PreviewType    = PDGUI_PREVIEW_CHARACTER; /* Current model type */
 static u32 s_PreviewTexId = 0;       /* GL texture ID of the rendered preview */
 static s32 s_PreviewReady = 0;       /* Non-zero if texture has valid content */
+static s32 s_RenderingPreview = 0;
 static f32 s_PreviewRotY = 0.0f;     /* Y rotation in radians (set by caller) */
 static f32 s_PreviewAspect = 1.0f;   /* Projection aspect for FBO render (B-253 follow-up) */
 static Vp  s_PreviewVp;              /* Viewport for FBO render (must NOT be inline in display list) */
@@ -175,9 +183,12 @@ static void charPreviewSubmitParams(u32 params, s32 type)
     s_PreviewType = type;
     s_PreviewRequested = 1;
 
-    s32 playernum = g_MpPlayerNum;
-    if (playernum < 0) playernum = 0;
-    if (playernum >= MAX_PLAYERS) playernum = 0;
+    /* The singleton render hook consumes g_Menus[0], independent of the
+     * legacy dialog's current multiplayer menu slot. */
+    s32 playernum = 0;
+    if (params != g_Menus[playernum].menumodel.curparams) {
+        s_PreviewReady = 0;
+    }
 
     g_Menus[playernum].menumodel.newparams = params;
     g_Menus[playernum].menumodel.newroty  = s_PreviewRotY;
@@ -251,6 +262,15 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
             }
         }
 
+        /* Do not substitute an unrelated slot-zero body or retain the
+         * previous selection's texture after catalog resolution fails. */
+        if (!be || ((id1 && id1[0]) && !he
+                && !catalogGetBodyIsComplete(be->runtime_index))) {
+            s_PreviewReady = 0;
+            s_PreviewRequested = 0;
+            return;
+        }
+
         /* B-241 (2026-04-25): rig_class compatibility gate. The render
          * pipeline blindly applies the head's skeletal data to the body's
          * skeleton; if the rigs are mismatched (e.g. head_davec on
@@ -261,13 +281,14 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
          * that declare `complete` (integrated head per
          * `catalogGetBodyIsComplete`) skip the separate head load entirely
          * by clearing headnum -- the body's own head geometry covers it. */
-        if (be && bodynum != 0) {
-            if (catalogGetBodyIsComplete(bodynum)) {
+        if (be) {
+            /* The accessor consumes the native body domain, not mp_index. */
+            if (catalogGetBodyIsComplete(be->runtime_index)) {
                 /* Integrated-head body (Skedar, Dr Carroll). The body
                  * model carries its own head -- drop the requested head
                  * so the render path uses the integrated geometry. */
                 headnum = 0;
-            } else if (he && headnum != 0) {
+            } else if (he) {
                 const char *bodyRig = be->ext.body.rig_class;
                 const char *headRig = he->ext.head.rig_class;
                 if (!bodyRig[0] || !headRig[0] || strcmp(bodyRig, headRig) != 0) {
@@ -330,8 +351,9 @@ void pdguiCharPreviewRequestEx(PdguiPreviewType type,
     }
 
     if (filenum == 0) {
-        /* Resolution failed -- don't touch pending state; leave the
-         * existing preview / placeholder on screen. */
+        /* Failed selections cannot keep the previous model visible. */
+        s_PreviewReady = 0;
+        s_PreviewRequested = 0;
         sysLogPrintf(LOG_WARNING,
                      "pdgui_charpreview: request non-character resolve failed type=%d id='%s'",
                      type, id1 ? id1 : "");
@@ -377,9 +399,7 @@ void pdguiCharPreviewRequestHandle(PdguiPreviewType type,
     s_PreviewBodynum = 0;
     s_PreviewFilenum = request_key;
 
-    s32 playernum = g_MpPlayerNum;
-    if (playernum < 0) playernum = 0;
-    if (playernum >= MAX_PLAYERS) playernum = 0;
+    s32 playernum = 0;
 
     menuSetModelFileHandle(&g_Menus[playernum].menumodel,
                            (s32)request_key,
@@ -629,6 +649,11 @@ s32 pdguiCharPreviewNeedsMenuModel(void)
     return 0;
 }
 
+s32 pdguiCharPreviewIsRendering(void)
+{
+    return s_RenderingPreview;
+}
+
 /* ========================================================================
  * GBI-Phase Render Hook
  * ======================================================================== */
@@ -648,8 +673,7 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
 {
     /* B-253: `menu` parameter is retained for API compatibility, but
      * the render path always operates on g_Menus[0]'s menumodel so the
-     * request submit (which writes to g_Menus[g_MpPlayerNum] — always 0
-     * on PC) and the render reader stay in agreement.  The legacy
+     * request submit and the render reader stay in agreement. The legacy
      * menuRenderDialog hook used to pass the dialog's owning menu, which
      * could differ from the request target in edge cases.  Locking on
      * g_Menus[0] removes that class of mismatch. */
@@ -699,6 +723,7 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
                 s_AcquireFailures = 0;
                 return gdl;
             }
+            return gdl;
         }
     }
 
@@ -719,23 +744,17 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
      *   2. Rendering: when curparams != 0 and the model is loaded, it
      *      actually renders geometry.
      *
-     * We must call menuRenderModel even when curparams == 0 so the loading
-     * path can execute. But we only set up the FBO render target and mark
-     * the preview as ready when the model has actually loaded (curparams != 0
-     * after the call). If the model is still loading, we keep
-     * s_PreviewRequested alive so the next frame tries again. */
+     * Call both phases inside the FBO because loading can fall through to
+     * rendering. Publish only a loaded model with no pending replacement.
+     * Keep s_PreviewRequested alive while the replacement is loading. */
 
     s32 renderModelType = MENUMODELTYPE_DEFAULT;
     if (s_PreviewType == PDGUI_PREVIEW_WEAPON) {
         renderModelType = MENUMODELTYPE_HUDPIECE;
     }
 
-    if (mm->curparams == 0) {
-        /* Model not loaded yet — let menuRenderModel run the loading path
-         * without FBO setup. Keep s_PreviewRequested alive for next frame. */
-        gdl = menuRenderModel(gdl, mm, renderModelType);
-        return gdl;
-    }
+    /* Loading can fall through to drawing in the same call. It must run
+     * inside the isolated FBO pass too, even when curparams starts at zero. */
 
     /* B-253 follow-up: pin the chr-skel zoom oscillator to its FAR end so
      * the preview shows a comfortable full-body framing instead of a
@@ -817,6 +836,14 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
     s16 savedVh    = viGetViewHeight();
     f32 savedFovy  = viGetFovY();
     f32 savedAspct = viGetAspect();
+    Mtx *savedPerspective = camGetPerspectiveMtxL();
+    Mtxf *savedPerspectiveF = camGetMtxF1754();
+    Mtxf savedViPerspectiveF = var80092830;
+    Mtx *savedViPerspective = var80092870;
+    u16 savedPerspScale = g_ViPerspScale;
+    Vp savedMenuViewports[MAX_PLAYERS][2];
+    memcpy(savedMenuViewports, var800a2048, sizeof(savedMenuViewports));
+    bool savedMenuUseZbuf = g_MenuData.usezbuf;
 
     /* Override scissor to FBO bounds — menuRenderModel reads these for both
      * its DEFAULT-branch viewport calc and its menuApplyScissor emit. */
@@ -869,7 +896,9 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
     s_PreviewVp.vp.vtrans[2] = G_MAXZ / 2;
     s_PreviewVp.vp.vtrans[3] = 0;
 
-    gSPViewport(gdl++, &s_PreviewVp);
+    Vp *frameViewport = gfxAllocate(sizeof(Vp));
+    *frameViewport = s_PreviewVp;
+    gSPViewport(gdl++, frameViewport);
 
     /* Set scissor to the FBO size */
     gDPSetScissor(gdl++, G_SC_NON_INTERLACE,
@@ -879,7 +908,11 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
     gSPSetGeometryMode(gdl++, G_ZBUFFER);
 
     /* Render the loaded model */
+    Gfx *modelCommands = gdl;
+    s_RenderingPreview = 1;
     gdl = menuRenderModel(gdl, mm, renderModelType);
+    s_RenderingPreview = 0;
+    pdguiModelPreviewPinViewports(modelCommands, gdl, frameViewport);
 
     /* Disable Z-buffer */
     gSPClearGeometryMode(gdl++, G_ZBUFFER);
@@ -898,6 +931,13 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
     }
     viSetViewPosition(savedVl, savedVt);
     viSetFovAspectAndSize(savedFovy, savedAspct, savedVw, savedVh);
+    memcpy(var800a2048, savedMenuViewports, sizeof(savedMenuViewports));
+    var80092830 = savedViPerspectiveF;
+    var80092870 = savedViPerspective;
+    g_ViPerspScale = savedPerspScale;
+    camSetPerspectiveMtxL(savedPerspective);
+    camSetMtxF1754(savedPerspectiveF);
+    g_MenuData.usezbuf = savedMenuUseZbuf;
 
     /* B-135: Restore scissor to full screen after FBO render.
      * The FBO pass set scissor to CHARPREVIEW_WIDTH x CHARPREVIEW_HEIGHT.
@@ -931,13 +971,13 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
      * `PREVIEW.FBO.BLACK:` channel here so any "preview is black on
      * screen X" report (Mike's playtest of New Agent screen, etc.)
      * lights up at this seam without needing per-call-site grep.  The
-     * diagnostic is gated by `s_PreviewReady=1 && bodymodeldef==NULL`
-     * so it only fires when the user is actually about to see a black
-     * panel; routine loading frames stay quiet. */
-    if (mm->bodymodeldef == NULL) {
+     * diagnostic is gated by a settled request with bodymodeldef==NULL;
+     * routine loading frames stay quiet and failed models are not published. */
+    if (mm->bodymodeldef == NULL && mm->curparams != 0
+            && (mm->newparams == 0 || mm->newparams == mm->curparams)) {
         sysLogPrintf(LOG_WARNING,
                      "PREVIEW.FBO.BLACK: type=%d head=%u body=%u file=0x%08x params=0x%08x -- "
-                     "model render skipped, FBO will display black",
+                     "model render skipped, preview remains unavailable",
                      s_PreviewType,
                      (unsigned)s_PreviewHeadnum,
                      (unsigned)s_PreviewBodynum,
@@ -945,11 +985,12 @@ Gfx *pdguiCharPreviewRenderGBI(Gfx *gdl, struct menu *menu)
                      (unsigned)mm->curparams);
     }
 
-    /* Mark preview as ready. The texture ID was cached at init time.
+    /* Publish only a loaded model. The texture ID was cached at init time.
      * The GBI commands above will be processed by gfx_run_dl before
      * the ImGui phase, so the texture will have valid content. */
-    s_PreviewReady = 1;
-    s_PreviewRequested = 0;
+    s_PreviewReady = pdguiModelPreviewContentReady(mm->bodymodeldef,
+        mm->curparams, mm->newparams);
+    s_PreviewRequested = mm->newparams != 0 && mm->newparams != mm->curparams;
 
     return gdl;
 }

@@ -182,6 +182,7 @@ static void drawPanelImpl(ModelPreviewKind kind,
 
         /* Reset idle rotation on selection change */
         s_IdleAngle = 0.0f;
+        pdguiCharPreviewSetRotY(s_IdleAngle);
 
         requestPreview(kind, id1, id2);
     }

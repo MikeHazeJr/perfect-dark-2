@@ -102,6 +102,10 @@ s32 pdguiCharPreviewIsReady(void);
  * open). Used from menu.c — B-213 standalone ImGui + Skin Editor. */
 s32 pdguiCharPreviewNeedsMenuModel(void);
 
+/* True only while the isolated FBO pass is building menu-model commands.
+ * Its view dimensions/aspect are already configured in FBO coordinates. */
+s32 pdguiCharPreviewIsRendering(void);
+
 /* Get preview dimensions. */
 void pdguiCharPreviewGetSize(s32 *w, s32 *h);
 

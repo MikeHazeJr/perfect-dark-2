@@ -2615,6 +2615,13 @@ Gfx *menuRenderModel(Gfx *gdl, struct menumodel *menumodel, s32 modeltype)
 			if (modeltype != MENUMODELTYPE_DEFAULT) {
 				gdl = func0f0d49c8(gdl);
 				gSPMatrix(gdl++, osVirtualToPhysical(camGetPerspectiveMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+			} else if (pdguiCharPreviewIsRendering()) {
+				/* The preview owns an FBO-local view and the displayed pane's
+				 * aspect. Screen/dialog conversion would overwrite that aspect
+				 * and shift the model outside its offscreen viewport. */
+				gdl = func0f0d49c8(gdl);
+				gdl = vi0000af00(gdl, var800a2048[g_MpPlayerNum]);
+				gdl = vi0000aca4(gdl, 10, 300);
 			} else {
 				s32 halfScreenWidth = SCREEN_WIDTH_LO >> 1;
 				f32 scale = SCREEN_ASPECT / videoGetAspect();

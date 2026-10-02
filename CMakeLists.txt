@@ -1076,6 +1076,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/texture_source_upgrade.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_texture_source_upgrade.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_body_head_source.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_model_preview_fidelity.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_entry_snapshot.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_character_head_policy.cpp
 	${CMAKE_SOURCE_DIR}/port/src/prop_graph_runtime.c

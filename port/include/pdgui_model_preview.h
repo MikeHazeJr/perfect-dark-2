@@ -39,6 +39,30 @@ typedef enum {
     PDGUI_MP_PROP      = 3
 } ModelPreviewKind;
 
+/* GBI executes after CPU-side menu state is restored. Bind this pass's
+ * viewport commands to a snapshot allocated for the lifetime of the frame,
+ * rather than to mutable player/menu viewport storage. Other commands keep
+ * their original data pointers. */
+static inline void pdguiModelPreviewPinViewports(Gfx *begin, Gfx *end,
+        const Vp *frameViewport)
+{
+    for (Gfx *cmd = begin; cmd < end; ++cmd) {
+        if (((cmd->words.w0 >> 24) & 0xffu) == G_MOVEMEM
+                && ((cmd->words.w0 >> 16) & 0xffu) == G_MV_VIEWPORT) {
+            cmd->words.w1 = (uintptr_t)frameViewport;
+        }
+    }
+}
+
+/* A request can finish loading without producing a model. Do not publish
+ * the cleared FBO, or an old selection still waiting to be replaced. */
+static inline s32 pdguiModelPreviewContentReady(const void *modeldef,
+        u32 currentParams, u32 pendingParams)
+{
+    return modeldef != 0 && currentParams != 0
+        && (pendingParams == 0 || pendingParams == currentParams);
+}
+
 /* -----------------------------------------------------------------------
  * Configuration
  * --------------------------------------------------------------------- */

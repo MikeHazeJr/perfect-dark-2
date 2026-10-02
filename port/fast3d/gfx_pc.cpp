@@ -32,6 +32,7 @@
 #include "gfx_window_manager_api.h"
 #include "gfx_rendering_api.h"
 #include "gfx_screen_config.h"
+#include "gfx_framebuffer_coords.h"
 #include "pdgui_charpreview.h"
 
 uintptr_t gfxFramebuffer;
@@ -2170,7 +2171,21 @@ static void gfx_sp_extra_geometry_mode(uint32_t clear, uint32_t set) {
 }
 
 static void gfx_adjust_viewport_or_scissor(XYWidthHeight* area, bool preserve_aspect = false) {
-    // HACK: assume all target framebuffers have the same aspect
+    if (fbActive && active_fb != framebuffers.end()) {
+        const FBInfo& target = active_fb->second;
+        const GfxFramebufferCoords mapped = gfxFramebufferMapCoords(
+            { (float)area->x, (float)area->y,
+                (float)area->width, (float)area->height },
+            target.orig_width, target.orig_height,
+            target.applied_width, target.applied_height);
+        area->x = mapped.x;
+        area->y = mapped.y;
+        area->width = mapped.width;
+        area->height = mapped.height;
+        return;
+    }
+
+    // Main target retains the native screen mapping and window offsets.
     area->width *= RATIO_X;
     area->x *= RATIO_X;
     area->height *= RATIO_Y;
