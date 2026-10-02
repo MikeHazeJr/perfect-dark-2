@@ -623,6 +623,7 @@ Initialize-SmokeStoragePolicy -Path $StoragePolicy
 . (Join-Path $LibDir "Test-MemorySafety.ps1")
 . (Join-Path $LibDir "Native-Consumer.ps1")
 . (Join-Path $LibDir "Console-Capture.ps1")
+. (Join-Path $LibDir "Owned-Process.ps1")
 
 function New-NeedlerEffectReplacementFixtures {
     [CmdletBinding()] param([Parameter(Mandatory)] [string] $InstallDir)
@@ -669,12 +670,19 @@ function Stop-SmokeOwnedFaultProcesses {
         if ($pidValue -gt 0) { $known[[int]$pidValue] = $true }
     }
 
-    $processes = @()
-    try {
-        $processes = @(Get-CimInstance Win32_Process -Filter "name = 'PerfectDark.exe' OR name = 'PerfectDarkServer.exe' OR name = 'WerFault.exe'" -ErrorAction SilentlyContinue)
-    } catch {
-        $processes = @()
+    foreach ($pidKey in $known.Keys) {
+        if (-not $script:SmokeOwnedProcesses.ContainsKey($pidKey)) {
+            throw "Missing launch identity for smoke-owned pid=$pidKey; retain resource leases"
+        }
+        $stopped = Stop-SmokeOwnedProcess -Ownership $script:SmokeOwnedProcesses[$pidKey]
+        if ($stopped.termination_requested) {
+            Write-Host ("  reaped smoke-owned process: pid={0}" -f $pidKey) -ForegroundColor Yellow
+        }
     }
+
+    # Query failure is not evidence of absence. The game identities above
+    # were individually checked; only related fault reporters remain here.
+    $processes = @(Get-CimInstance Win32_Process -Filter "name = 'WerFault.exe'" -ErrorAction Stop)
 
     foreach ($procInfo in $processes) {
         $pidValue = [int]$procInfo.ProcessId
@@ -687,12 +695,12 @@ function Stop-SmokeOwnedFaultProcesses {
         }
 
         $owned = $false
-        if ($known.ContainsKey($pidValue) -or ($parent -gt 0 -and $known.ContainsKey($parent))) {
+        if ($parent -gt 0 -and $known.ContainsKey($parent)) {
             $owned = $true
         }
         if (-not $owned -and $name -ieq "WerFault.exe") {
             foreach ($pidKey in $known.Keys) {
-                if ($cmd -match "(^|\D)$pidKey(\D|$)") {
+                if ($cmd -match "(?i)(^|\s)-p\s+$pidKey(\s|$)") {
                     $owned = $true
                     break
                 }
@@ -700,15 +708,25 @@ function Stop-SmokeOwnedFaultProcesses {
         }
 
         if ($owned) {
+            $fault = Get-Process -Id $pidValue -ErrorAction SilentlyContinue
+            if (-not $fault) {
+                if (Get-CimInstance Win32_Process -Filter "ProcessId = $pidValue" -ErrorAction Stop) {
+                    throw "Related fault process metadata unavailable: pid=$pidValue"
+                }
+                continue
+            }
             try {
-                Stop-Process -Id $pidValue -Force -ErrorAction Stop
+                $faultOwner = New-SmokeProcessOwnership -Process $fault -ExpectedExecutable $path `
+                    -CommandLineToken $cmd -ParentProcessId $parent
+                [void](Stop-SmokeOwnedProcess -Ownership $faultOwner)
                 Write-Host ("  reaped smoke-owned lingering process: {0} pid={1}" -f $name, $pidValue) -ForegroundColor Yellow
-            } catch {}
+            } finally { $fault.Dispose() }
         }
     }
 }
 
 $script:SmokeOwnedPids = @()
+$script:SmokeOwnedProcesses = @{}
 
 try {
 
@@ -1635,9 +1653,14 @@ function Invoke-SmokeTestMultiProcess {
         try {
             $p = [System.Diagnostics.Process]::Start($psi)
             if (-not $p) { throw "ProcessStartInfo returned null Process" }
+            $ownership = New-SmokeProcessOwnership -Process $p -ExpectedExecutable $processExe `
+                -CommandLineToken $processSmokePath
+            $script:SmokeOwnedProcesses[[int]$p.Id] = $ownership
             $script:SmokeOwnedPids += [int]$p.Id
             $consoleCapture = Start-SmokeConsoleCapture -Process $p `
                 -Directory (Join-Path $processInstallInfo.InstallDir 'logs/smoke-console')
+            $ownershipPath = Write-SmokeProcessOwnership -Ownership $ownership -InstallDir $processInstallInfo.InstallDir
+            Write-Info ("    owned process identity: {0}" -f $ownershipPath)
         } catch {
             if ($p) {
                 try { if (-not $p.HasExited) { $p.Kill() } } catch {}
@@ -2300,9 +2323,14 @@ function Invoke-SmokeTest {
         if (-not $proc) {
             throw "ProcessStartInfo returned null Process"
         }
+        $ownership = New-SmokeProcessOwnership -Process $proc -ExpectedExecutable $exe `
+            -CommandLineToken $Test.Path
+        $script:SmokeOwnedProcesses[[int]$proc.Id] = $ownership
         $script:SmokeOwnedPids += [int]$proc.Id
         $consoleCapture = Start-SmokeConsoleCapture -Process $proc `
             -Directory (Join-Path $installInfo.InstallDir 'logs/smoke-console')
+        $ownershipPath = Write-SmokeProcessOwnership -Ownership $ownership -InstallDir $installInfo.InstallDir
+        Write-Info ("  owned process identity: {0}" -f $ownershipPath)
         if ($runtimeStrategy -eq "timeout-kill") {
             # c115 server-pillar extension (2026-05-14): the binary is
             # expected to run forever (pd-server has no auto-exit path);
