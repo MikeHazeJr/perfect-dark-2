@@ -1,0 +1,4063 @@
+{
+  "schema": "pd.graph_operation_inventory.v1",
+  "date": "2026-10-01",
+  "workbench": "T-MODDING-010",
+  "model": "gpt-6.1-sol",
+  "scope": "Reviewed initial native operation boundary inventory, not automatic function-to-node conversion, full migration or parity certification.",
+  "references": [
+    "context/designs/modding/weapon-graph-module-parameters.md",
+    "context/designs/modding/held-graph-production-seams-2026-09-27.md"
+  ],
+  "baseline": {
+    "current_profile": "held_single_shot.v1",
+    "admission": "Custom private-slot offline only; network/bots/Theater rejected; variables/shared-context/presentation bindings unsupported.",
+    "prior_evidence": "September 29/30 native 148 cases / 4941 assertions; installed native gate 41/41. Historical receipts, not rerun by this inventory.",
+    "base_migration": "Base numeric policy remains private; no completed v2 base-graph parity."
+  },
+  "interpretation": {
+    "observed": "Named native field/unit/effect observed in referenced source; not an authored value decision.",
+    "proposed": "Candidate typed operation contract from prior module design; implementation and semantic validation still required.",
+    "unresolved": "Unknown semantic unit/value/policy is intentionally not guessed.",
+    "source_evidence": "Definition anchors and reviewed identifier tokens; scan recomputes line numbers, lexical calls/globals/state/timing and bounded callers. No semantic parser or exhaustive call-graph claim."
+  },
+  "source_snapshot": {
+    "date": "2026-10-01",
+    "scope": "Lexical findings in ledger-referenced files only; not semantic or exhaustive call graph proof.",
+    "extraction_limits": "All textual preprocessor arms are included; no build condition evaluation. Column-zero fallback flagged on handInflictMeleeDamage. Caller search bounded to these seven reviewed files, not exhaustive repository callers.",
+    "counts": {
+      "operations": 27,
+      "references": 67,
+      "source_files": 7,
+      "cohorts": {
+        "ammo": 2,
+        "base_firing": 7,
+        "cross_domain_dependency": 5,
+        "melee_devices": 3,
+        "motion_contact": 4,
+        "presentation": 2,
+        "projectile_thrown": 4
+      },
+      "unique_definitions": 53
+    },
+    "definitions": [
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunSetTriggerOn",
+        "line": 13326,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "triggeron",
+          "triggerprev",
+          "triggerreleased"
+        ],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickGameplay",
+            "definition_line": 13541
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunTickIncIdle",
+        "line": 1247,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "activatesecondary",
+          "animframeinc",
+          "animframeincfreal",
+          "burstbullets",
+          "count",
+          "count60",
+          "gset",
+          "inuse",
+          "lastdirvalid",
+          "mode",
+          "modenext",
+          "shotremainder",
+          "triggeron",
+          "triggerreleased",
+          "unk0cc8_01",
+          "unk0cc8_07",
+          "unk0cc8_08"
+        ],
+        "timing_tokens": [
+          "lvupdate"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickInc",
+            "definition_line": 3687
+          }
+        ]
+      },
+      {
+        "path": "port/src/weapon_graph_v2_runtime.cpp",
+        "symbol": "wgV2RuntimeCanEnterUse",
+        "line": 304,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "port/src/weapon_graph_v2_runtime.cpp",
+            "symbol": "wgV2RuntimeEnsureHand",
+            "definition_line": 322
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunTickIncAttackingShoot",
+        "line": 2535,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [
+          "animmode",
+          "burstbullets",
+          "finalmult",
+          "gs_float1",
+          "gset",
+          "matmot1",
+          "matmot2",
+          "statecycles",
+          "stateflags",
+          "stateminor",
+          "triggeron",
+          "triggerreleased",
+          "unk0cc8_01",
+          "upgrademult"
+        ],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunGraphV2Tick",
+            "definition_line": 3087
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncAttack",
+            "definition_line": 3107
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgun0f09a6f8",
+        "line": 2211,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_AudioManager",
+          "g_BgunGeMuzzleFlashes",
+          "g_Vars"
+        ],
+        "state_fields": [
+          "allowshootframe",
+          "attacktype",
+          "audiohandle2",
+          "audiohandle3",
+          "burstbullets",
+          "firing",
+          "flashon",
+          "gs_float1",
+          "gset",
+          "lastshootframe60",
+          "loadedammo",
+          "loadslide",
+          "matmot1",
+          "shotremainder",
+          "shotstotake",
+          "stateflags",
+          "stateframes",
+          "statevar1"
+        ],
+        "timing_tokens": [
+          "LVUPDATE60FREAL",
+          "has_initial_rpm",
+          "has_max_rpm",
+          "initial_rpm",
+          "initialrpm",
+          "max_rpm",
+          "maxrpm",
+          "stateframes"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncAttackingShoot",
+            "definition_line": 2535
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgun0f09a3f8",
+        "line": 2073,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "ammotypes",
+          "burstbullets",
+          "gs_float1",
+          "gset",
+          "loadedammo",
+          "stateflags",
+          "stateframes",
+          "triggeron"
+        ],
+        "timing_tokens": [
+          "LVUPDATE60FREAL",
+          "TICKS",
+          "has_max_rpm",
+          "stateframes"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncAttackingShoot",
+            "definition_line": 2535
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunTickMaulerCharge",
+        "line": 9658,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "audiohandle",
+          "gset",
+          "inuse",
+          "loadedammo",
+          "matmot1"
+        ],
+        "timing_tokens": [
+          "lvupdate240",
+          "lvupdate60freal"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickGameplay2",
+            "definition_line": 9735
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunUpdateLaser",
+        "line": 8549,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "audiohandle",
+          "firing",
+          "gset",
+          "matmot1"
+        ],
+        "timing_tokens": [
+          "LVUPDATE60FREAL",
+          "lvupdate240"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgun0f0a5550",
+            "definition_line": 8947
+          }
+        ]
+      },
+      {
+        "path": "src/game/prop.c",
+        "symbol": "shotCalculateHits",
+        "line": 654,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_SurfaceTypes",
+          "g_Vars"
+        ],
+        "state_fields": [
+          "type"
+        ],
+        "timing_tokens": [
+          "lvupdate240"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/prop.c",
+            "symbol": "propFindAimingAt",
+            "definition_line": 1212
+          },
+          {
+            "path": "src/game/prop.c",
+            "symbol": "shotCreate",
+            "definition_line": 1231
+          }
+        ]
+      },
+      {
+        "path": "src/game/prop.c",
+        "symbol": "handsTickAttack",
+        "line": 1628,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [],
+        "timing_tokens": [
+          "lvupdate240"
+        ],
+        "callers_in_reviewed_files": []
+      },
+      {
+        "path": "src/game/prop.c",
+        "symbol": "handTickAttack",
+        "line": 1526,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/prop.c",
+            "symbol": "handsTickAttack",
+            "definition_line": 1628
+          }
+        ]
+      },
+      {
+        "path": "src/game/prop.c",
+        "symbol": "shotCreate",
+        "line": 1231,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/prop.c",
+            "symbol": "handTickAttack",
+            "definition_line": 1526
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunTickIncReload",
+        "line": 1577,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_PlayerInvincible",
+          "g_Vars"
+        ],
+        "state_fields": [
+          "animload",
+          "animmode",
+          "count",
+          "count60",
+          "ejectstate",
+          "gs_int1",
+          "gs_int2",
+          "gset",
+          "incrementalreloading",
+          "mode",
+          "pausetime60",
+          "statecycles",
+          "stateflags",
+          "stateframes",
+          "statelastframe",
+          "stateminor",
+          "triggeron",
+          "unk0cc8_02",
+          "unk0d0e_07",
+          "visible"
+        ],
+        "timing_tokens": [
+          "TICKS",
+          "lvupdate",
+          "lvupdate240",
+          "stateframes"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickInc",
+            "definition_line": 3687
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunTickUnequippedReload",
+        "line": 510,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [],
+        "timing_tokens": [
+          "lvupdate60"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickGameplay2",
+            "definition_line": 9735
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunSetAmmoQuantity",
+        "line": 13918,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_AmmoTypes",
+          "g_Vars"
+        ],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunGiveMaxAmmo",
+            "definition_line": 14036
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunSetAmmoQtyForWeapon",
+            "definition_line": 14083
+          },
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "ammoHandlePickup",
+            "definition_line": 19216
+          },
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "propPickupByPlayer",
+            "definition_line": 19460
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunGetAmmoCount",
+        "line": 13981,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgun0f0990b0",
+            "definition_line": 1196
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunHasAmmoForWeapon",
+            "definition_line": 7048
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickGameplay",
+            "definition_line": 13541
+          },
+          {
+            "path": "src/game/chraicommands.c",
+            "symbol": "aiIfChrAmmoQuantityLessThan",
+            "definition_line": 6421
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "ammoHandlePickup",
+        "line": 19216,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "propPickupByPlayer",
+            "definition_line": 19460
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "propPickupByPlayer",
+        "line": 19460,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_AmmoQuantityScale",
+          "g_NetMode",
+          "g_NetMsgRel",
+          "g_Vars"
+        ],
+        "state_fields": [
+          "hidden",
+          "hidden2",
+          "type",
+          "weaponnum"
+        ],
+        "timing_tokens": [
+          "lvupdate240"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "propobjInteract",
+            "definition_line": 18352
+          },
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "objTestForPickup",
+            "definition_line": 19773
+          },
+          {
+            "path": "src/game/chraicommands.c",
+            "symbol": "aiGiveObjectToChr",
+            "definition_line": 2809
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunCreateFiredProjectile",
+        "line": 5949,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_NetMode",
+          "g_NetMsgRel",
+          "g_Vars"
+        ],
+        "state_fields": [
+          "base",
+          "dotpos",
+          "firedrocket",
+          "flags",
+          "gset",
+          "gunfunc",
+          "hasdotinfo",
+          "muzzlepos",
+          "pickuptimer240",
+          "powerlimit240",
+          "rocket",
+          "speed",
+          "targetprop",
+          "timer240",
+          "unk010",
+          "unk014",
+          "unk018",
+          "unk08c",
+          "unk098",
+          "unk0a8",
+          "unk0ac",
+          "weaponnum"
+        ],
+        "timing_tokens": [
+          "TICKS",
+          "bgunGetProjectileTimerFromGraph",
+          "lvupdate240",
+          "lvupdate60freal",
+          "pickuptimer240",
+          "timer240",
+          "timer60"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/prop.c",
+            "symbol": "handTickAttack",
+            "definition_line": 1526
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "projectileApplyGraphRuntime",
+        "line": 1390,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [
+          "flags",
+          "flyaccel",
+          "flylosttimeout240",
+          "flymaxaltitude",
+          "flyproxradius",
+          "flysmokeinterval240",
+          "flyturnrate",
+          "graphtrailinterval240",
+          "graphtrailsmoketype",
+          "hidden",
+          "homingdamping",
+          "hominggain",
+          "pickuptimer240",
+          "projectile",
+          "type",
+          "unk08c",
+          "unk098"
+        ],
+        "timing_tokens": [
+          "has_timer",
+          "has_timer60",
+          "hastimer",
+          "pickup_timer_ticks60",
+          "pickuptimer240",
+          "timer240",
+          "timer60",
+          "timer_start_policy",
+          "timer_ticks60"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunCreateThrownProjectile2",
+            "definition_line": 5515
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunCreateHeldRocket",
+            "definition_line": 5908
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunCreateFiredProjectile",
+            "definition_line": 5949
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunTickIncAttackingThrow",
+        "line": 2636,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "attacktype",
+          "firing",
+          "gset",
+          "loadedammo",
+          "primetimer60",
+          "statecycles",
+          "stateframes",
+          "stateminor",
+          "triggeron",
+          "triggerreleased",
+          "unk0cc8_01"
+        ],
+        "timing_tokens": [
+          "TICKS",
+          "primetimer60",
+          "stateframes"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncAttack",
+            "definition_line": 3107
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunCreateThrownProjectile",
+        "line": 5648,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_NetMode",
+          "g_NetMsgRel",
+          "g_Vars"
+        ],
+        "state_fields": [
+          "base",
+          "dotpos",
+          "flags",
+          "gset",
+          "gunfunc",
+          "hasdotinfo",
+          "hidden",
+          "pickuptimer240",
+          "primetimer60",
+          "projectile",
+          "prop",
+          "timer240",
+          "type",
+          "unk08c"
+        ],
+        "timing_tokens": [
+          "TICKS",
+          "lvupdate240",
+          "lvupdate60freal",
+          "pickuptimer240",
+          "primetimer60",
+          "timer240"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunDisarm",
+            "definition_line": 7657
+          },
+          {
+            "path": "src/game/prop.c",
+            "symbol": "handTickAttack",
+            "definition_line": 1526
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunCreateThrownProjectile2",
+        "line": 5515,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "functions",
+          "hidden",
+          "projectile",
+          "prop"
+        ],
+        "timing_tokens": [
+          "TICKS",
+          "pickuptimer240",
+          "timer240"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunCreateThrownProjectile",
+            "definition_line": 5648
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "projectileTick",
+        "line": 7732,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_EmbedHitPart",
+          "g_EmbedModel",
+          "g_EmbedNode",
+          "g_EmbedProp",
+          "g_EmbedSide",
+          "g_NetMode",
+          "g_NetMsgRel",
+          "g_Vars"
+        ],
+        "state_fields": [
+          "bouncecount",
+          "bounceframe",
+          "flags",
+          "flags3",
+          "flighttime240",
+          "floorcol",
+          "graphtrailinterval240",
+          "graphtrailsmoketype",
+          "gset",
+          "gunfunc",
+          "hidden",
+          "homingdamping",
+          "hominggain",
+          "homingpreverr",
+          "losttimer240",
+          "modelnum",
+          "mtx",
+          "ownerprop",
+          "pad",
+          "pickuptimer240",
+          "powerlimit240",
+          "projectile",
+          "prop",
+          "realrot",
+          "smoketimer240",
+          "speed",
+          "targetprop",
+          "timer240",
+          "type",
+          "unk010",
+          "unk014",
+          "unk018",
+          "unk01c",
+          "unk060",
+          "unk064",
+          "unk068",
+          "unk078",
+          "unk08c",
+          "unk098",
+          "unk0a4",
+          "unk0a8",
+          "unk0ac",
+          "unk0b8",
+          "unk0dc",
+          "unk0e0",
+          "unk0e4",
+          "unk0ec",
+          "unk0f0",
+          "weaponnum"
+        ],
+        "timing_tokens": [
+          "LVUPDATE60FREAL",
+          "TICKS",
+          "has_timer",
+          "losttimer240",
+          "lvupdate240",
+          "lvupdate60",
+          "lvupdate60freal",
+          "pickuptimer240",
+          "smoketimer240",
+          "timer240",
+          "timer_start_policy",
+          "timer_ticks60",
+          "wall_stick_timer_ticks60"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "objTickPlayer",
+            "definition_line": 12822
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "projectileLaunch",
+        "line": 7676,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [
+          "flags",
+          "nextsteppos",
+          "ownerprop",
+          "prop",
+          "timer240",
+          "type",
+          "weaponnum"
+        ],
+        "timing_tokens": [
+          "timer240"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunCreateFiredProjectile",
+            "definition_line": 5949
+          },
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "projectileTick",
+            "definition_line": 7732
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "projectileFindCollidingProp",
+        "line": 3993,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "flags2",
+          "hidden"
+        ],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "func0f06cd00",
+            "definition_line": 4109
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "projectileSetSticky",
+        "line": 1354,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [
+          "embedment",
+          "flags",
+          "hidden",
+          "projectile"
+        ],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgun0f09ebcc",
+            "definition_line": 5447
+          },
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "weaponTick",
+            "definition_line": 5181
+          },
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "objDrop",
+            "definition_line": 16290
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "projectilesUnrefOwner",
+        "line": 1146,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_MaxProjectiles",
+          "g_Projectiles"
+        ],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/prop.c",
+            "symbol": "propExecuteTickOperation",
+            "definition_line": 1636
+          },
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "objFree",
+            "definition_line": 3189
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "rocketTickFbw",
+        "line": 7471,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_MpNumChrs",
+          "g_Vars"
+        ],
+        "state_fields": [
+          "flyaccel",
+          "flylosttimeout240",
+          "flymaxaltitude",
+          "flyproxradius",
+          "flysmokeinterval240",
+          "flyturnrate",
+          "losttimer240",
+          "nextsteppos",
+          "numwaypads",
+          "ownerprop",
+          "smoketimer240",
+          "step",
+          "unk010",
+          "unk014",
+          "unk018",
+          "waypads"
+        ],
+        "timing_tokens": [
+          "TICKS",
+          "losttimer240",
+          "lvupdate240",
+          "lvupdate60",
+          "smoketimer240",
+          "timer240"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "projectileTick",
+            "definition_line": 7732
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "weaponTick",
+        "line": 5181,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_PlayersDetonatingMines",
+          "g_PlayersDetonatingWeaponnum",
+          "g_PlayersOwnerCleanupPending",
+          "g_Vars"
+        ],
+        "state_fields": [
+          "bouncecount",
+          "embedment",
+          "fadeouttimer60",
+          "flags",
+          "flags2",
+          "flags3",
+          "gset",
+          "gunfunc",
+          "hidden",
+          "model",
+          "mtx",
+          "obj",
+          "ownerprop",
+          "projectile",
+          "realrot",
+          "speed",
+          "timer240",
+          "unk0d8",
+          "weaponnum"
+        ],
+        "timing_tokens": [
+          "TICKS",
+          "fadeouttimer60",
+          "has_timer",
+          "lvupdate240",
+          "lvupdate60",
+          "timer240",
+          "timer_expire_policy"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "func0f07063c",
+            "definition_line": 6125
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "projectileFall",
+        "line": 4511,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "flags",
+          "flags3",
+          "hidden",
+          "model",
+          "ownerprop",
+          "projectile",
+          "realrot",
+          "type",
+          "unk060",
+          "unk064",
+          "unk068",
+          "unk078",
+          "unk0b8"
+        ],
+        "timing_tokens": [
+          "lvupdate60freal"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "projectileTick",
+            "definition_line": 7732
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "weaponRegisterProxy",
+        "line": 20601,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Proxies"
+        ],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "weaponTick",
+            "definition_line": 5181
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "coordTriggerProxies",
+        "line": 20625,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Proxies"
+        ],
+        "state_fields": [
+          "base",
+          "timer240",
+          "weaponnum"
+        ],
+        "timing_tokens": [
+          "timer240"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "func0f069c70",
+            "definition_line": 2563
+          },
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "chrsTriggerProxies",
+            "definition_line": 20655
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "playerActivateRemoteMineDetonator",
+        "line": 20544,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_PlayersDetonatingMines",
+          "g_PlayersDetonatingWeaponnum"
+        ],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/prop.c",
+            "symbol": "handTickAttack",
+            "definition_line": 1526
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "autogunTick",
+        "line": 10253,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_ChrSlots",
+          "g_MpAllChrPtrs",
+          "g_MpNumChrs",
+          "g_MpSetup",
+          "g_NetMode",
+          "g_Vars"
+        ],
+        "state_fields": [
+          "flags",
+          "flags2",
+          "hidden",
+          "modelnum"
+        ],
+        "timing_tokens": [
+          "TICKS",
+          "lvupdate60",
+          "lvupdate60freal"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "objTickPlayer",
+            "definition_line": 12822
+          }
+        ]
+      },
+      {
+        "path": "src/game/propobj.c",
+        "symbol": "autogunTickShoot",
+        "line": 10795,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_AutogunAccuracyScale",
+          "g_AutogunDamageTxScale",
+          "g_NetMode",
+          "g_Vars"
+        ],
+        "state_fields": [
+          "flags",
+          "hidden",
+          "model"
+        ],
+        "timing_tokens": [
+          "TICKS",
+          "lvupdate240",
+          "lvupdate60freal"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/propobj.c",
+            "symbol": "objTickPlayer",
+            "definition_line": 12822
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunTickIncAttackingMelee",
+        "line": 2764,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [
+          "attacktype",
+          "burstbullets",
+          "firing",
+          "gset",
+          "loadedammo",
+          "matmot2",
+          "statecycles",
+          "stateframes",
+          "stateminor",
+          "triggeron",
+          "triggerreleased",
+          "unk0cc8_01"
+        ],
+        "timing_tokens": [
+          "LVUPDATE60FREAL",
+          "TICKS",
+          "stateframes"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncAttack",
+            "definition_line": 3107
+          }
+        ]
+      },
+      {
+        "path": "src/game/prop.c",
+        "symbol": "handInflictMeleeDamage",
+        "line": 1363,
+        "boundary": "column-zero end; conditional arms have unbalanced lexical braces",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "model",
+          "type"
+        ],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/prop.c",
+            "symbol": "handTickAttack",
+            "definition_line": 1526
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunTickIncAttackingSpecial",
+        "line": 2876,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [
+          "attacktype",
+          "firing",
+          "gset",
+          "loadedammo",
+          "stateframes",
+          "stateminor"
+        ],
+        "timing_tokens": [
+          "TICKS",
+          "stateframes"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncAttack",
+            "definition_line": 3107
+          }
+        ]
+      },
+      {
+        "path": "src/game/game_0b0fd0.c",
+        "symbol": "currentPlayerSetDeviceActive",
+        "line": 396,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "functions"
+        ],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": []
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunStartAnimation",
+        "line": 909,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [
+          "animload",
+          "animloopcount",
+          "animmode",
+          "gset",
+          "incrementalreloading",
+          "unk0cc8_01",
+          "unk0cc8_02",
+          "unk0ce8",
+          "unk0d0e_07",
+          "unk0d80"
+        ],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunStartAnimation",
+            "definition_line": 909
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncReload",
+            "definition_line": 1577
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncChangeFunc",
+            "definition_line": 1780
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncAttackingShoot",
+            "definition_line": 2535
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncAttackingThrow",
+            "definition_line": 2636
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncAttackingMelee",
+            "definition_line": 2764
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncAttackEmpty",
+            "definition_line": 2920
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncChangeGun",
+            "definition_line": 3302
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunStartDetonateAnimation",
+            "definition_line": 7962
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunTestGunVisCommand",
+        "line": 530,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "gset"
+        ],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunExecuteGunVisCommands",
+            "definition_line": 580
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunExecuteGunVisCommands",
+        "line": 580,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgun0f098030",
+            "definition_line": 612
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgun0f09aba4",
+        "line": 2377,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [
+          "aimpos",
+          "gset",
+          "posend",
+          "posoffset",
+          "posrotmtx",
+          "posstart",
+          "rotxend",
+          "rotxoffset",
+          "rotxstart",
+          "stateflags",
+          "stateframes",
+          "statevar1",
+          "triggeron",
+          "triggerreleased",
+          "useposrot"
+        ],
+        "timing_tokens": [
+          "TICKS",
+          "frames",
+          "stateframes"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickIncAttackingShoot",
+            "definition_line": 2535
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunCreateFx",
+        "line": 8839,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "burstbullets",
+          "numfires",
+          "posmtx"
+        ],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgun0f0a5550",
+            "definition_line": 8947
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunDecreaseNoiseRadius",
+        "line": 3869,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [],
+        "timing_tokens": [
+          "lvupdate60freal"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickGameplay",
+            "definition_line": 13541
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunFreeWeapon",
+        "line": 6663,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [],
+        "timing_tokens": [
+          "wgV2RuntimeRetireHand"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunCreateThrownProjectile",
+            "definition_line": 5648
+          },
+          {
+            "path": "src/game/bondgun.c",
+            "symbol": "bgunTickSwitch2",
+            "definition_line": 6723
+          }
+        ]
+      },
+      {
+        "path": "src/game/bondgun.c",
+        "symbol": "bgunHandlePlayerDead",
+        "line": 7600,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": []
+      },
+      {
+        "path": "port/src/weapon_graph_v2_runtime.cpp",
+        "symbol": "wgV2RuntimeRetirePlayers",
+        "line": 266,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "port/src/weapon_graph_v2_runtime.cpp",
+            "symbol": "wgV2RuntimeReset",
+            "definition_line": 270
+          }
+        ]
+      },
+      {
+        "path": "port/src/weapon_graph_v2_runtime.cpp",
+        "symbol": "wgV2RuntimeRetireWeapon",
+        "line": 262,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": []
+      },
+      {
+        "path": "src/game/menu.c",
+        "symbol": "menuPushDialog",
+        "line": 1525,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_AllowMouseHeld",
+          "g_Menus",
+          "g_MpPlayerNum"
+        ],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/menu.c",
+            "symbol": "func0f0f3704",
+            "definition_line": 1947
+          },
+          {
+            "path": "src/game/menu.c",
+            "symbol": "menuPushRootDialog",
+            "definition_line": 3937
+          },
+          {
+            "path": "src/game/menu.c",
+            "symbol": "dialogTick",
+            "definition_line": 4481
+          },
+          {
+            "path": "src/game/menu.c",
+            "symbol": "menuProcessInput",
+            "definition_line": 5085
+          },
+          {
+            "path": "src/game/menu.c",
+            "symbol": "menuPushPakDialogForPlayer",
+            "definition_line": 6387
+          },
+          {
+            "path": "src/game/menu.c",
+            "symbol": "menuhandlerWarnRepairPak",
+            "definition_line": 6623
+          }
+        ]
+      },
+      {
+        "path": "src/game/chraicommands.c",
+        "symbol": "aiIfPlayerUsingDevice",
+        "line": 10934,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [],
+        "timing_tokens": [],
+        "callers_in_reviewed_files": []
+      },
+      {
+        "path": "src/game/prop.c",
+        "symbol": "propExecuteTickOperation",
+        "line": 1636,
+        "boundary": "balanced lexical braces; conditional arms not evaluated",
+        "globals": [
+          "g_Vars"
+        ],
+        "state_fields": [
+          "damage",
+          "hidden",
+          "hidden2"
+        ],
+        "timing_tokens": [
+          "TICKS"
+        ],
+        "callers_in_reviewed_files": [
+          {
+            "path": "src/game/prop.c",
+            "symbol": "currentPlayerInteract",
+            "definition_line": 1953
+          },
+          {
+            "path": "src/game/prop.c",
+            "symbol": "propsTickPlayer",
+            "definition_line": 2180
+          },
+          {
+            "path": "src/game/prop.c",
+            "symbol": "propsTestForPickup",
+            "definition_line": 2833
+          },
+          {
+            "path": "src/game/chraicommands.c",
+            "symbol": "aiGiveObjectToChr",
+            "definition_line": 2809
+          }
+        ]
+      }
+    ]
+  },
+  "operations": [
+    {
+      "id": "held.input_admission",
+      "cohort": "base_firing",
+      "modules": [
+        "event.trigger_pressed",
+        "event.trigger_held",
+        "event.trigger_released",
+        "gate.cooldown_ready"
+      ],
+      "parameters": [
+        {
+          "name": "press_sequence",
+          "type": "uint64",
+          "unit": "monotonic identity",
+          "semantic_status": "observed"
+        },
+        {
+          "name": "idle_visit",
+          "type": "uint64",
+          "unit": "native admission identity",
+          "semantic_status": "observed"
+        },
+        {
+          "name": "requires_equipped",
+          "type": "bool",
+          "unit": "none",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: per-hand triggeron/triggerreleased and native idle state; v2 host owns queued press, pending delivery and owner generation."
+      ],
+      "phases": [
+        "physical edge queues",
+        "switch handling",
+        "unique native idle visit admits graph",
+        "native action accepted"
+      ],
+      "cancellation": [
+        "Release drops pending input, not accepted attack; switch/death/source retirement cancel outstanding ownership."
+      ],
+      "timing": [
+        "Native idle visits may repeat inside one simulation update; frame identity alone is insufficient."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v2_custom_offline_partial",
+        "boundary": "Custom private-slot offline held_single_shot.v1 topology executes; base numeric policy migration absent."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunSetTriggerOn",
+          "requires": [
+            "wgV2RuntimeInput"
+          ]
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunTickIncIdle",
+          "requires": []
+        },
+        {
+          "path": "port/src/weapon_graph_v2_runtime.cpp",
+          "symbol": "wgV2RuntimeCanEnterUse",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.menu",
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Exact per-base-user parameter values, hidden branches and parity fixtures require a focused migration pass; this row is an operation boundary, not a migrated graph."
+      ]
+    },
+    {
+      "id": "held.fire_commit",
+      "cohort": "base_firing",
+      "modules": [
+        "og.fire.hitscan",
+        "ammo.consume"
+      ],
+      "parameters": [
+        {
+          "name": "ammo_slot",
+          "type": "enum:none|primary|secondary",
+          "unit": "slot",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "damage",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "recovery",
+          "type": "int",
+          "unit": "ticks60",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: hand stateminor/stateflags/firing/shotstotake/loadedammo; native commit owns sole debit."
+      ],
+      "phases": [
+        "animation readiness",
+        "cadence decision",
+        "commit debit/audio/firing",
+        "recover"
+      ],
+      "cancellation": [
+        "Missing function completes native attack; owner teardown must also retire graph selection and pending shot."
+      ],
+      "timing": [
+        "LVUPDATE60FREAL drives cadence; stateframes owns recovery."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v2_custom_offline_partial",
+        "boundary": "Custom single-shot selected native action connected; does not demonstrate base weapon parity, ordinary world-hit/render/controller closure."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunTickIncAttackingShoot",
+          "requires": [
+            "bgun0f09a6f8"
+          ]
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgun0f09a6f8",
+          "requires": [
+            "loadedammo",
+            "shotstotake",
+            "firing"
+          ]
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Exact per-base-user parameter values, hidden branches and parity fixtures require a focused migration pass; this row is an operation boundary, not a migrated graph."
+      ]
+    },
+    {
+      "id": "held.auto_burst",
+      "cohort": "base_firing",
+      "modules": [
+        "fire.auto_cadence",
+        "fire.burst"
+      ],
+      "parameters": [
+        {
+          "name": "initial_rpm",
+          "type": "float",
+          "unit": "rpm",
+          "semantic_status": "observed"
+        },
+        {
+          "name": "max_rpm",
+          "type": "float",
+          "unit": "rpm",
+          "semantic_status": "observed"
+        },
+        {
+          "name": "spinup",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "count",
+          "type": "int",
+          "unit": "shots",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "spacing",
+          "type": "int",
+          "unit": "ticks60",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: hand gs_float1, burstbullets, shotremainder, trigger state and loaded clip."
+      ],
+      "phases": [
+        "spinup/hold or burst continuation",
+        "accumulate fractional shots",
+        "commit capped clip debit",
+        "spindown"
+      ],
+      "cancellation": [
+        "Trigger release can continue spindown/burst; empty clip returns stop. Do not cancel all continuation on input release."
+      ],
+      "timing": [
+        "RPM divided by 60 twice with LVUPDATE60FREAL; shotgun burst uses TICKS(13), other small bursts native delay 3."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgun0f09a3f8",
+          "requires": [
+            "burstbullets",
+            "gs_float1"
+          ]
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgun0f09a6f8",
+          "requires": [
+            "shotremainder"
+          ]
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Meaning and units of turretaccel/turretdecel and version-adjusted delay 3 require explicit normalization; aim-dependent automatic BURST3 behavior must be authored.",
+        "No v2 automatic/burst production profile or parity proof."
+      ]
+    },
+    {
+      "id": "held.charge",
+      "cohort": "base_firing",
+      "modules": [
+        "fire.charge_release"
+      ],
+      "parameters": [
+        {
+          "name": "charge_max",
+          "type": "float",
+          "unit": "charge steps",
+          "semantic_status": "observed"
+        },
+        {
+          "name": "charge_rate",
+          "type": "float",
+          "unit": "charge steps per ticks60",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "ammo_per_step",
+          "type": "int",
+          "unit": "rounds",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "decay_rate",
+          "type": "float",
+          "unit": "charge steps per ticks60",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: each hand matmot1 charge, loadedammo[0], charging local and looping audiohandle."
+      ],
+      "phases": [
+        "secondary charge",
+        "integer-step debit",
+        "primary decay",
+        "charge audio pitch/stop",
+        "shoot recovery clears charge"
+      ],
+      "cancellation": [
+        "Reload resets charge; below threshold/not charging stops audio. Hand retirement needs cancellation of retained loop."
+      ],
+      "timing": [
+        "Native charge +0.05 * lvupdate60freal, decay -0.005; cap 5; integer crossings debit only while clip >=2."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "native_only",
+        "boundary": "Native behavior exists; this operation's executable v2 topology is absent. Related equipped/v1 metadata must not be counted as operation migration."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunTickMaulerCharge",
+          "requires": [
+            "matmot1",
+            "loadedammo",
+            "audiohandle"
+          ]
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Release-to-damage curve and gset Mauler byte transformation must be connected to exact action generation; charge isn't simply trigger_held.",
+        "Observed literals are current native behavior, not endorsed authored defaults."
+      ]
+    },
+    {
+      "id": "held.beam",
+      "cohort": "base_firing",
+      "modules": [
+        "fire.beam_tick"
+      ],
+      "parameters": [
+        {
+          "name": "damage_per_tick",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "tick_rate",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "range",
+          "type": "float",
+          "unit": "world units",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "sound_loop",
+          "type": "catalog_ref:audio",
+          "unit": "none",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: native Laser identity bypasses ammo in fire commit; hand beam presentation and shot damage consumers remain separate."
+      ],
+      "phases": [
+        "admit",
+        "damage tick",
+        "beam presentation",
+        "release/recovery"
+      ],
+      "cancellation": [
+        "Must stop continuous damage and loop when released/dead/switched; current v2 profile does not expose this contract."
+      ],
+      "timing": [
+        "Laser/Watch Laser damage cadence and visual update clocks need separate explicit contracts."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "native_only",
+        "boundary": "Native behavior exists; this operation's executable v2 topology is absent. Related equipped/v1 metadata must not be counted as operation migration."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunUpdateLaser",
+          "requires": []
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgun0f09a6f8",
+          "requires": [
+            "WEAPON_LASER"
+          ]
+        },
+        {
+          "path": "src/game/prop.c",
+          "symbol": "shotCalculateHits",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Watch Laser path and all beam-specific gset transformations need deeper tracing; no inferred tick frequency or damage units."
+      ]
+    },
+    {
+      "id": "held.deferred_hit",
+      "cohort": "base_firing",
+      "modules": [
+        "fire.hitscan",
+        "native.attack_delivery"
+      ],
+      "parameters": [
+        {
+          "name": "spread",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "penetration",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "impact_force",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "shot_count",
+          "type": "int",
+          "unit": "shots",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: selected gset copies/scopes pin original action through deferred shot/noise/damage; hand firing flags route dispatch."
+      ],
+      "phases": [
+        "commit earlier in hand tick",
+        "capture selected gset",
+        "create spread rays",
+        "world hit/damage",
+        "close scope and wake delivery consumed"
+      ],
+      "cancellation": [
+        "Cancel must reject stale generation without substituting current action; close every temporary scope exit."
+      ],
+      "timing": [
+        "handsTickAttack dispatches only if lvupdate240>0; shotgun creates six rays and dual-hand exclusion has v2 exception."
+      ],
+      "network_determinism": "Native hit/damage includes authority and player-stat effects; target network profile must split prediction/presentation from server acceptance and record ordered replay inputs.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v2_custom_offline_partial",
+        "boundary": "Scoped selected delivery is connected for custom single-shot; ordinary world-hit/full base parity remains open."
+      },
+      "evidence": [
+        {
+          "path": "src/game/prop.c",
+          "symbol": "handsTickAttack",
+          "requires": [
+            "lvupdate240"
+          ]
+        },
+        {
+          "path": "src/game/prop.c",
+          "symbol": "handTickAttack",
+          "requires": [
+            "wgV2RuntimeScopeOpen",
+            "wgV2RuntimeShotConsumed"
+          ]
+        },
+        {
+          "path": "src/game/prop.c",
+          "symbol": "shotCreate",
+          "requires": [
+            "shotCalculateHits"
+          ]
+        },
+        {
+          "path": "src/game/prop.c",
+          "symbol": "shotCalculateHits",
+          "requires": [
+            "gsetPopulateFromCurrentPlayer"
+          ]
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Exact per-base-user parameter values, hidden branches and parity fixtures require a focused migration pass; this row is an operation boundary, not a migrated graph."
+      ]
+    },
+    {
+      "id": "ammo.reload",
+      "cohort": "ammo",
+      "modules": [
+        "ammo.reload",
+        "gate.ammo_available"
+      ],
+      "parameters": [
+        {
+          "name": "clip_capacity",
+          "type": "int",
+          "unit": "rounds",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "ammo_slot",
+          "type": "enum",
+          "unit": "slot",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "reload_animation",
+          "type": "catalog_ref:animation",
+          "unit": "none",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: hand loaded clips and gunctrl reserve types; equipped/unequipped reload paths and animation commands."
+      ],
+      "phases": [
+        "admit reload",
+        "animation readiness",
+        "reserve-to-clip transfer",
+        "return idle"
+      ],
+      "cancellation": [
+        "Switch/death/empty reserve and native animation gates require source-owned phase cancellation."
+      ],
+      "timing": [
+        "Native lvupdate/stateframes and command timing; per-base reload command sequence must be preserved."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "native_only",
+        "boundary": "Native behavior exists; this operation's executable v2 topology is absent. Related equipped/v1 metadata must not be counted as operation migration."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunTickIncReload",
+          "requires": [
+            "bgun0f098df8"
+          ]
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunTickUnequippedReload",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Per-shell versus full-clip transfer, dual reload, cheat behavior and unequipped timers need exhaustive base-user mapping; v2 equipped metadata exists but doesn't migrate reload topology."
+      ]
+    },
+    {
+      "id": "ammo.reserve_pickup",
+      "cohort": "ammo",
+      "modules": [
+        "ammo.reserve_transfer",
+        "ammo.pickup",
+        "ammo.capacity"
+      ],
+      "parameters": [
+        {
+          "name": "quantity",
+          "type": "int",
+          "unit": "rounds",
+          "semantic_status": "observed"
+        },
+        {
+          "name": "capacity",
+          "type": "int",
+          "unit": "rounds",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "cheat_policy",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "ammo_ref",
+          "type": "catalog_ref:ammo",
+          "unit": "none",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: current player reserve/clip inventory, pickups/HUD/audio and object ownership."
+      ],
+      "phases": [
+        "validate pickup/capacity",
+        "inventory transfer",
+        "HUD/audio",
+        "retire/reparent picked prop"
+      ],
+      "cancellation": [
+        "Pickup must atomically transfer then retire object links; failed pickup must preserve inventory and prop."
+      ],
+      "timing": [
+        "Pickup lockout belongs to projectile pickuptimer240; inventory transfer is event ordered."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "native_only",
+        "boundary": "Native behavior exists; this operation's executable v2 topology is absent. Related equipped/v1 metadata must not be counted as operation migration."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunSetAmmoQuantity",
+          "requires": []
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunGetAmmoCount",
+          "requires": []
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "ammoHandlePickup",
+          "requires": []
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "propPickupByPlayer",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.menu",
+        "domain.world",
+        "domain.ai",
+        "domain.network",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Public ammo identity mapping, cheat exceptions, per-entity Laptop reserve transfer and all pickup callers remain migration dependencies."
+      ]
+    },
+    {
+      "id": "spawn.fired",
+      "cohort": "projectile_thrown",
+      "modules": [
+        "spawn.fired_projectile",
+        "projectile.spawn_state",
+        "projectile.trajectory_correction"
+      ],
+      "parameters": [
+        {
+          "name": "projectile_ref",
+          "type": "catalog_ref:projectile",
+          "unit": "none",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "speed",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "trajectory_max_angle",
+          "type": "float",
+          "unit": "degrees",
+          "semantic_status": "observed"
+        },
+        {
+          "name": "timer",
+          "type": "int",
+          "unit": "ticks60",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: native weapon/projectile/prop allocations, owner/target and spawn transforms."
+      ],
+      "phases": [
+        "authority guard",
+        "aim/trajectory correction",
+        "allocate native physical",
+        "apply parameter adapter",
+        "publish spawn"
+      ],
+      "cancellation": [
+        "Allocation/trajectory failure and owner teardown need transaction rollback before publication."
+      ],
+      "timing": [
+        "Current native speed conversion projectilespeed *1.6666666/60; timer conversion to ticks240 is separate. Do not label source speed world units/sec without resolving this conversion."
+      ],
+      "network_determinism": "Observed: NETMODE_CLIENT returns before fired spawn. Target must preserve listen-server spawn authority, sync identity and deterministic prediction policy.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunCreateFiredProjectile",
+          "requires": [
+            "NETMODE_CLIENT",
+            "projectilespeed"
+          ]
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "projectileApplyGraphRuntime",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Direct weapon->functions lookup and legacy weapon branches remain; fired angle default 10 degrees is native evidence only; v2 projectile topology unsupported."
+      ]
+    },
+    {
+      "id": "spawn.thrown",
+      "cohort": "projectile_thrown",
+      "modules": [
+        "spawn.thrown_physical"
+      ],
+      "parameters": [
+        {
+          "name": "payload_ref",
+          "type": "catalog_ref:projectile|entity",
+          "unit": "none",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "throw_speed",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "discard_weapon",
+          "type": "bool",
+          "unit": "none",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "activation",
+          "type": "int",
+          "unit": "ticks60",
+          "semantic_status": "observed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: hand prime timer, loaded clip, throwing state; allocated carrier projectile and weapon object."
+      ],
+      "phases": [
+        "prime animation",
+        "release or force throw",
+        "debit once",
+        "spawn",
+        "recover/grenade wait"
+      ],
+      "cancellation": [
+        "Discard removes inventory and switches; overheld grenade force-throws then waits activation+240 ticks60. Death can invoke thrown creation with alternate hand index."
+      ],
+      "timing": [
+        "primetimer60/stateframes vs activation TICKS(); grenade post-explosion wait 240 ticks60."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunTickIncAttackingThrow",
+          "requires": [
+            "primetimer60"
+          ]
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunCreateThrownProjectile",
+          "requires": []
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunCreateThrownProjectile2",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Grenade/mines/knife/Dragon/Laptop per-user velocity, owner inheritance and carrier/entity transfer need explicit contracts; no v2 thrown profile."
+      ]
+    },
+    {
+      "id": "projectile.motion_contact",
+      "cohort": "motion_contact",
+      "modules": [
+        "projectile.motion",
+        "projectile.bounce_slide",
+        "projectile.sticky_attach",
+        "projectile.impact"
+      ],
+      "parameters": [
+        {
+          "name": "gravity",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "slide_friction",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "reflect_angle",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "surface_filter",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: projectile speed/flags, embedded ownership, prop rooms, rotation and unnamed native friction fields."
+      ],
+      "phases": [
+        "launch",
+        "integrate",
+        "collision sweep",
+        "bounce/slide/embed",
+        "rest/pickup or impact event"
+      ],
+      "cancellation": [
+        "Free embedment/projectile before pickup/reparent; retiring props must clear owner and target pointers."
+      ],
+      "timing": [
+        "Native integration mixes lvupdate240, lvupdate60 and lvupdate60freal; pickup timer is ticks240."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "projectileTick",
+          "requires": [
+            "pickuptimer240",
+            "PROJECTILEFLAG_SLIDING"
+          ]
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "projectileLaunch",
+          "requires": []
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "projectileFindCollidingProp",
+          "requires": []
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "projectileSetSticky",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Unnamed unk098/unk0dc/unk0e0/unk0e4/unk0ec/unk0f0 need semantic extraction before authored parameters; broad function must be split by state/effect boundaries, not one node per C function."
+      ]
+    },
+    {
+      "id": "projectile.homing",
+      "cohort": "motion_contact",
+      "modules": [
+        "projectile.homing"
+      ],
+      "parameters": [
+        {
+          "name": "target_filter",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "steering_gain",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "steering_damping",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "lost_target_behavior",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: projectile targetprop, hominggain/homingdamping/homingpreverr and native flag."
+      ],
+      "phases": [
+        "capture target policy",
+        "steer",
+        "target loss",
+        "impact"
+      ],
+      "cancellation": [
+        "Owner/target retirement clears pointers, including pickup prop freeing; never keep raw graph-visible prop pointers across generation reuse."
+      ],
+      "timing": [
+        "Steering update clock and default constants require focused mapping."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "projectileApplyGraphRuntime",
+          "requires": [
+            "hominggain",
+            "homingdamping"
+          ]
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "projectileTick",
+          "requires": [
+            "PROJECTILEFLAG_HOMING"
+          ]
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "projectilesUnrefOwner",
+          "requires": [
+            "targetprop"
+          ]
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "0 adapter values mean unauthored fallback, not explicit zero behavior; topology migration must preserve distinction and define target loss/retarget semantics."
+      ]
+    },
+    {
+      "id": "projectile.fly_by_wire",
+      "cohort": "motion_contact",
+      "modules": [
+        "projectile.fly_by_wire"
+      ],
+      "parameters": [
+        {
+          "name": "control_source",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "turn_rate",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "lost_target_timeout",
+          "type": "int",
+          "unit": "ticks240",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "smoke_interval",
+          "type": "int",
+          "unit": "ticks240",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: Slayer rocket object/projectile, player control and bot route state."
+      ],
+      "phases": [
+        "launch/control handoff",
+        "steer",
+        "smoke/proximity",
+        "detonate or lost-owner cleanup"
+      ],
+      "cancellation": [
+        "Owner death/lost control and bot-route fallback need explicit typed graph exits."
+      ],
+      "timing": [
+        "losttimer240/smoketimer240 are distinct from render/turn clocks."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "rocketTickFbw",
+          "requires": []
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "projectileTick",
+          "requires": [
+            "rocketTickFbw"
+          ]
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Control camera, bot route, turn/acceleration, altitude, timeout and proximity values require body-level focused extraction; no v2 supported operation."
+      ]
+    },
+    {
+      "id": "projectile.timer_wallhugger",
+      "cohort": "motion_contact",
+      "modules": [
+        "projectile.timer",
+        "projectile.wall_hugger",
+        "projectile.trail"
+      ],
+      "parameters": [
+        {
+          "name": "timer",
+          "type": "int",
+          "unit": "ticks240",
+          "semantic_status": "observed"
+        },
+        {
+          "name": "timer_starts",
+          "type": "enum",
+          "unit": "spawn|attach|arm",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "on_expire",
+          "type": "enum",
+          "unit": "explode|storm|fall|delete",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "explosion_ref",
+          "type": "catalog_ref:effect",
+          "unit": "none",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: weapon timer240, projectile state and attachment/fall transitions."
+      ],
+      "phases": [
+        "spawn/attach arms timer",
+        "wait",
+        "fall or expiry",
+        "effect/delete"
+      ],
+      "cancellation": [
+        "Pause/stage teardown must retire timer/attachment state; expiry must occur once under chosen authority."
+      ],
+      "timing": [
+        "Public adapter ticks60 converted/clamped to bounded ticks240; timer sentinel meaning and attach-start need preservation."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "weaponTick",
+          "requires": [
+            "timer240"
+          ]
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "projectileFall",
+          "requires": []
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "projectileApplyGraphRuntime",
+          "requires": [
+            "weaponGraphTicks60To240"
+          ]
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Devastator stick/fall and trail ownership not yet isolated into callable v2 modules; negative/zero/one/two native timer sentinels must become named states."
+      ]
+    },
+    {
+      "id": "entity.explosive",
+      "cohort": "projectile_thrown",
+      "modules": [
+        "entity.armed_explosive",
+        "entity.proxy_trigger",
+        "entity.timed_detonatable",
+        "entity.nbomb_storm"
+      ],
+      "parameters": [
+        {
+          "name": "arm_delay",
+          "type": "int",
+          "unit": "ticks60",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "radius",
+          "type": "float",
+          "unit": "world units",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "team_filter",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "storm_ref",
+          "type": "catalog_ref:effect",
+          "unit": "none",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: native weapon timers, g_Proxies registry, owner bits and detonation/storm effects."
+      ],
+      "phases": [
+        "carrier lands/arms",
+        "register proxy or wait timer",
+        "owner/team/LOS test",
+        "detonate/storm",
+        "unregister/delete"
+      ],
+      "cancellation": [
+        "Proxy registration must be removed before prop free; owner cleanup and replacement need explicit graph exits."
+      ],
+      "timing": [
+        "Timer ticks240; proxy poll cadence and Dragon alternate radii require extraction."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "weaponTick",
+          "requires": []
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "weaponRegisterProxy",
+          "requires": []
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "coordTriggerProxies",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Proxy eligibility/team/owner/LOS policies and N-Bomb effect ownership span AI/world domains; no executable v2 entity graph profile."
+      ]
+    },
+    {
+      "id": "entity.remote_signal",
+      "cohort": "melee_devices",
+      "modules": [
+        "special.remote_detonator",
+        "entity.remote_detonatable"
+      ],
+      "parameters": [
+        {
+          "name": "detonator_ref",
+          "type": "catalog_ref:weapon",
+          "unit": "none",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "owner_filter",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "signal_group",
+          "type": "typed_context",
+          "unit": "identity",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: global owner bitmask plus per-player detonator weapon provenance; entity match consumes signal."
+      ],
+      "phases": [
+        "held special commit",
+        "publish owner/provenance signal",
+        "entity match",
+        "detonate",
+        "clear signal at owning frame boundary"
+      ],
+      "cancellation": [
+        "Mask/sidecar clearing must remain paired; no provenance wildcard for graph requiring authored detonator identity."
+      ],
+      "timing": [
+        "Signal is transient shared frame state; precise publish/clear phase is a migration dependency."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "playerActivateRemoteMineDetonator",
+          "requires": [
+            "g_PlayersDetonatingMines",
+            "g_PlayersDetonatingWeaponnum"
+          ]
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "weaponTick",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Map private weapon provenance to catalog/generation-aware shared link group; cooperative/anti/self-attachment policies require explicit parameters."
+      ]
+    },
+    {
+      "id": "entity.autogun",
+      "cohort": "projectile_thrown",
+      "modules": [
+        "entity.autogun",
+        "entity.owner_cleanup",
+        "entity.interaction"
+      ],
+      "parameters": [
+        {
+          "name": "target_filter",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "turn_speed",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "fire_cadence",
+          "type": "float",
+          "unit": "rpm",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "ammo_reserve",
+          "type": "int",
+          "unit": "rounds",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: deployed autogun native object, target/ammo state and owner association."
+      ],
+      "phases": [
+        "throw/carrier deployment",
+        "target acquire",
+        "aim/fire",
+        "pickup/recover",
+        "replace/owner cleanup"
+      ],
+      "cancellation": [
+        "Laptop one-per-owner replacement/explosion, pickup reserve recovery and owner loss require one transaction contract."
+      ],
+      "timing": [
+        "Aim cadence, alternate muzzle and beam interval remain separate timing domains."
+      ],
+      "network_determinism": "Native autogun authority/team/friendly-line checks need explicit authored policies; server damage and visual prediction must share ordered shot identity.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "autogunTick",
+          "requires": []
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "autogunTickShoot",
+          "requires": []
+        },
+        {
+          "path": "src/game/propobj.c",
+          "symbol": "propPickupByPlayer",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "MP damage scaling, friendly fire suppression and Laptop transfer values need source-grounded per-base fixtures; v1 data adaptation is not executable entity topology."
+      ]
+    },
+    {
+      "id": "held.melee",
+      "cohort": "melee_devices",
+      "modules": [
+        "melee.strike"
+      ],
+      "parameters": [
+        {
+          "name": "damage",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "range",
+          "type": "float",
+          "unit": "world units",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "uncloak_policy",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "disarm_policy",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "stun_policy",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: hand melee minor states, fire-animation command readiness, Reaper spin state and selected gset."
+      ],
+      "phases": [
+        "non-uncloak probe",
+        "animation gate",
+        "strike",
+        "repeat/finish/recover"
+      ],
+      "cancellation": [
+        "Trigger release stops Reaper continuous strike; other melee phases await animation or TICKS(60); tranq secondary spends min clip quantity."
+      ],
+      "timing": [
+        "Reaper uses LVUPDATE60FREAL; melee timeout TICKS(60); animation commands 2/3 gate phase transitions."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunTickIncAttackingMelee",
+          "requires": [
+            "HANDATTACKTYPE_MELEENOUNCLOAK"
+          ]
+        },
+        {
+          "path": "src/game/prop.c",
+          "symbol": "handInflictMeleeDamage",
+          "requires": []
+        },
+        {
+          "path": "src/game/prop.c",
+          "symbol": "handTickAttack",
+          "requires": [
+            "handInflictMeleeDamage"
+          ]
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Probe boolean arg2 exact contract, disarm/stun damage and Reaper repeated delivery need explicit action versions; no v2 melee profile."
+      ]
+    },
+    {
+      "id": "held.special_device",
+      "cohort": "melee_devices",
+      "modules": [
+        "special.combat_boost",
+        "special.weapon_state",
+        "device.activate"
+      ],
+      "parameters": [
+        {
+          "name": "device_type",
+          "type": "enum",
+          "unit": "named device",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "toggle_policy",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "duration",
+          "type": "int",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "recovery",
+          "type": "int",
+          "unit": "ticks60",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: hand attacktype/recovery, player devicesactive/devicesinhibit, boost/crouch/Uplink side effects."
+      ],
+      "phases": [
+        "held commit/debit",
+        "dispatch special",
+        "device/mission/player effect",
+        "recover"
+      ],
+      "cancellation": [
+        "Cancel must stop owned device/loop/camera state according to authored policy; device activation also occurs outside held attack path."
+      ],
+      "timing": [
+        "Special recovery TICKS(recoverytime60); device energy/boost duration require separate clocks."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunTickIncAttackingSpecial",
+          "requires": [
+            "specialfunc"
+          ]
+        },
+        {
+          "path": "src/game/prop.c",
+          "symbol": "handTickAttack",
+          "requires": [
+            "devicesactive"
+          ]
+        },
+        {
+          "path": "src/game/game_0b0fd0.c",
+          "symbol": "currentPlayerSetDeviceActive",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.menu",
+        "domain.ai",
+        "domain.world",
+        "domain.network",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "EyeSpy, suicide pill, scanners/cloak energy, hacking and mission devices are broader than hand special dispatcher; no inferred universal special-function schema."
+      ]
+    },
+    {
+      "id": "presentation.animation_visibility",
+      "cohort": "presentation",
+      "modules": [
+        "presentation.weapon_visibility",
+        "presentation.animation"
+      ],
+      "parameters": [
+        {
+          "name": "animation_ref",
+          "type": "catalog_ref:animation",
+          "unit": "none",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "part",
+          "type": "string",
+          "unit": "named model part",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "ammo_threshold",
+          "type": "int",
+          "unit": "rounds",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "lock_policy",
+          "type": "enum",
+          "unit": "policy",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: hand animation command pointers/busy state and model-part visibility."
+      ],
+      "phases": [
+        "select exact equipment source",
+        "start commands",
+        "readiness gates",
+        "visibility evaluation",
+        "finish/retire"
+      ],
+      "cancellation": [
+        "Clear animation pointers before source storage release; part/model generation must remain pinned through deferred consumers."
+      ],
+      "timing": [
+        "Command waits/gates belong to native animation clock; don't independently advance executor and native commands."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunStartAnimation",
+          "requires": []
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunTestGunVisCommand",
+          "requires": []
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunExecuteGunVisCommands",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "v2 equipped native commands are supported, but authored presentation bindings/variables are rejected; all visibility branches and named part mapping need migration."
+      ]
+    },
+    {
+      "id": "presentation.fx_audio_recoil",
+      "cohort": "presentation",
+      "modules": [
+        "presentation.recoil",
+        "presentation.muzzle_fx",
+        "presentation.audio",
+        "presentation.casing",
+        "presentation.reticle_overlay_camera"
+      ],
+      "parameters": [
+        {
+          "name": "recoil_angle",
+          "type": "float",
+          "unit": "degrees",
+          "semantic_status": "observed"
+        },
+        {
+          "name": "recoil_distance",
+          "type": "float",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        },
+        {
+          "name": "audio_ref",
+          "type": "catalog_ref:audio",
+          "unit": "none",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "casing_ref",
+          "type": "catalog_ref:model",
+          "unit": "none",
+          "semantic_status": "proposed"
+        },
+        {
+          "name": "reticle_ref",
+          "type": "catalog_ref:ui",
+          "unit": "none",
+          "semantic_status": "proposed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: hand recoil transforms, muzzle FX/casing buffers, audio handles and temporary noise gsets."
+      ],
+      "phases": [
+        "commit audiovisual effects",
+        "update recoil",
+        "emit casing/noise",
+        "camera/overlay update",
+        "stop/retire"
+      ],
+      "cancellation": [
+        "Owned audio loops/FX and model/source leases must survive pending native delivery then retire; cosmetic effects cannot duplicate gameplay debit."
+      ],
+      "timing": [
+        "Recoil unk24..unk27 timing semantics not normalized; duration/audio inter-hand frame guards are separate."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "v1_parameter_adapter",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgun0f09aba4",
+          "requires": [
+            "recoilangle"
+          ]
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunCreateFx",
+          "requires": []
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunDecreaseNoiseRadius",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Model/noise/audio direct source generation is supported in custom profile; reticle/overlay/camera and authored presentation topology remain unsupported.",
+        "Noise AI propagation and recoil distance scaling /1000 require explicit contract before schema normalization."
+      ]
+    },
+    {
+      "id": "lifecycle.retirement",
+      "cohort": "base_firing",
+      "modules": [
+        "native.owner_cleanup",
+        "native.source_retirement"
+      ],
+      "parameters": [
+        {
+          "name": "owner_generation",
+          "type": "uint64",
+          "unit": "generation",
+          "semantic_status": "observed"
+        },
+        {
+          "name": "source_generation",
+          "type": "uint64",
+          "unit": "generation",
+          "semantic_status": "observed"
+        },
+        {
+          "name": "action_ticket",
+          "type": "uint64",
+          "unit": "identity",
+          "semantic_status": "observed"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Observed: retained catalog entries/equipment/native actions/gset copies; hand/player owners and private numeric slot pins."
+      ],
+      "phases": [
+        "stop accepting source",
+        "cancel owner/action",
+        "close copies",
+        "retire queued equipment",
+        "release final leases"
+      ],
+      "cancellation": [
+        "Replacement validates before publication; invalid replacement retains old source. Death, switch, player/stage reset and final copied-gset release are distinct exits."
+      ],
+      "timing": [
+        "Retirement is event ordered, not elapsed-time cleanup."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Observed custom v2 generation/equipment/slot ownership exists. Target later operation profiles must extend it across spawned entities, authority/replay and shared contexts.",
+      "migration": {
+        "status": "v2_custom_offline_partial",
+        "boundary": "Native implementation exists with some parameter adapters; executable v2 topology authority for this cohort is not implemented or proved."
+      },
+      "evidence": [
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunFreeWeapon",
+          "requires": []
+        },
+        {
+          "path": "src/game/bondgun.c",
+          "symbol": "bgunHandlePlayerDead",
+          "requires": []
+        },
+        {
+          "path": "port/src/weapon_graph_v2_runtime.cpp",
+          "symbol": "wgV2RuntimeRetirePlayers",
+          "requires": []
+        },
+        {
+          "path": "port/src/weapon_graph_v2_runtime.cpp",
+          "symbol": "wgV2RuntimeRetireWeapon",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "domain.world",
+        "domain.network",
+        "domain.ai",
+        "domain.theater"
+      ],
+      "unresolved": [
+        "Base numeric slots have no completed v2 source-policy migration; spawned ownership/shared contexts need operation-specific retirement proofs."
+      ]
+    },
+    {
+      "id": "domain.menu",
+      "cohort": "cross_domain_dependency",
+      "modules": [
+        "inventory.dependency"
+      ],
+      "parameters": [
+        {
+          "name": "domain_contract",
+          "type": "typed_contract",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Menu transitions/equipment choice/device activation and input contexts must author accepted behavior; current graph inventory is not full menu operation coverage."
+      ],
+      "phases": [
+        "source trace",
+        "dependency contract",
+        "production adapter",
+        "parity gate"
+      ],
+      "cancellation": [
+        "Each domain needs its own generation/cancellation contract before all-behavior completion."
+      ],
+      "timing": [
+        "Domain update/event ordering unresolved."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "dependency_inventory",
+        "boundary": "Menu transitions/equipment choice/device activation and input contexts must author accepted behavior; current graph inventory is not full menu operation coverage."
+      },
+      "evidence": [
+        {
+          "path": "src/game/menu.c",
+          "symbol": "menuPushDialog",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "T-MODDING-002",
+        "T-TOOLING-008"
+      ],
+      "unresolved": [
+        "Only dependency seam recorded; complete domain operation inventory remains required."
+      ]
+    },
+    {
+      "id": "domain.ai",
+      "cohort": "cross_domain_dependency",
+      "modules": [
+        "inventory.dependency"
+      ],
+      "parameters": [
+        {
+          "name": "domain_contract",
+          "type": "typed_contract",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "AI commands/Combat Simulator bots target, fire, collect, deploy and observe devices through additional paths; current custom v2 rejects bots."
+      ],
+      "phases": [
+        "source trace",
+        "dependency contract",
+        "production adapter",
+        "parity gate"
+      ],
+      "cancellation": [
+        "Each domain needs its own generation/cancellation contract before all-behavior completion."
+      ],
+      "timing": [
+        "Domain update/event ordering unresolved."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "dependency_inventory",
+        "boundary": "AI commands/Combat Simulator bots target, fire, collect, deploy and observe devices through additional paths; current custom v2 rejects bots."
+      },
+      "evidence": [
+        {
+          "path": "src/game/chraicommands.c",
+          "symbol": "aiIfPlayerUsingDevice",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "T-MODDING-002",
+        "T-TOOLING-008"
+      ],
+      "unresolved": [
+        "Only dependency seam recorded; complete domain operation inventory remains required."
+      ]
+    },
+    {
+      "id": "domain.world",
+      "cohort": "cross_domain_dependency",
+      "modules": [
+        "inventory.dependency"
+      ],
+      "parameters": [
+        {
+          "name": "domain_contract",
+          "type": "typed_contract",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "World damage/props/rooms/interactions/mission/scenario graphs are dependencies for complete accepted behavior; prop removal must clear projectile owner/target pointers."
+      ],
+      "phases": [
+        "source trace",
+        "dependency contract",
+        "production adapter",
+        "parity gate"
+      ],
+      "cancellation": [
+        "Each domain needs its own generation/cancellation contract before all-behavior completion."
+      ],
+      "timing": [
+        "Domain update/event ordering unresolved."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "dependency_inventory",
+        "boundary": "World damage/props/rooms/interactions/mission/scenario graphs are dependencies for complete accepted behavior; prop removal must clear projectile owner/target pointers."
+      },
+      "evidence": [
+        {
+          "path": "src/game/prop.c",
+          "symbol": "propExecuteTickOperation",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "T-MODDING-002",
+        "T-TOOLING-008"
+      ],
+      "unresolved": [
+        "Only dependency seam recorded; complete domain operation inventory remains required."
+      ]
+    },
+    {
+      "id": "domain.network",
+      "cohort": "cross_domain_dependency",
+      "modules": [
+        "inventory.dependency"
+      ],
+      "parameters": [
+        {
+          "name": "domain_contract",
+          "type": "typed_contract",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Initial custom profile rejects network and existing active selections; future authority, prediction, replication/version negotiation and deterministic replay contract required."
+      ],
+      "phases": [
+        "source trace",
+        "dependency contract",
+        "production adapter",
+        "parity gate"
+      ],
+      "cancellation": [
+        "Each domain needs its own generation/cancellation contract before all-behavior completion."
+      ],
+      "timing": [
+        "Domain update/event ordering unresolved."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "dependency_inventory",
+        "boundary": "Initial custom profile rejects network and existing active selections; future authority, prediction, replication/version negotiation and deterministic replay contract required."
+      },
+      "evidence": [
+        {
+          "path": "port/src/weapon_graph_v2_runtime.cpp",
+          "symbol": "wgV2RuntimeCanEnterUse",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "T-MODDING-002",
+        "T-TOOLING-008"
+      ],
+      "unresolved": [
+        "Only dependency seam recorded; complete domain operation inventory remains required."
+      ]
+    },
+    {
+      "id": "domain.theater",
+      "cohort": "cross_domain_dependency",
+      "modules": [
+        "inventory.dependency"
+      ],
+      "parameters": [
+        {
+          "name": "domain_contract",
+          "type": "typed_contract",
+          "unit": "unresolved",
+          "semantic_status": "unresolved"
+        }
+      ],
+      "inputs": [
+        "owner identity/generation",
+        "selected mode/action",
+        "simulation update"
+      ],
+      "outputs": [
+        "typed completion/running/blocked/cancelled result",
+        "operation-specific native effects"
+      ],
+      "state": [
+        "Initial custom profile rejects Theater; restart-safe recording must preserve topology/source closure, action/owner generations, ordered simulation/input/RNG and outcomes."
+      ],
+      "phases": [
+        "source trace",
+        "dependency contract",
+        "production adapter",
+        "parity gate"
+      ],
+      "cancellation": [
+        "Each domain needs its own generation/cancellation contract before all-behavior completion."
+      ],
+      "timing": [
+        "Domain update/event ordering unresolved."
+      ],
+      "network_determinism": "Target contract, not implemented: declare authority, random stream, update ordering and authoritative replay events; current held_single_shot.v1 rejects network/bot/Theater use.",
+      "catalog_refs": [
+        "Target: resolve every cross-asset reference by declared catalog ID and typed dependency closure; numeric C identities are private migration evidence only."
+      ],
+      "lifetime_versioning": "Target: version this module contract; retain owner/source/dependency generations through pending work and copied payloads; cancel before releasing state. This cohort has no demonstrated v2 lifetime/parity closure.",
+      "migration": {
+        "status": "dependency_inventory",
+        "boundary": "Initial custom profile rejects Theater; restart-safe recording must preserve topology/source closure, action/owner generations, ordered simulation/input/RNG and outcomes."
+      },
+      "evidence": [
+        {
+          "path": "port/src/weapon_graph_v2_runtime.cpp",
+          "symbol": "wgV2RuntimeCanEnterUse",
+          "requires": []
+        }
+      ],
+      "dependencies": [
+        "T-MODDING-002",
+        "T-TOOLING-008"
+      ],
+      "unresolved": [
+        "Only dependency seam recorded; complete domain operation inventory remains required."
+      ]
+    }
+  ]
+}
