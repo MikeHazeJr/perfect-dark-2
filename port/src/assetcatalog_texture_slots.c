@@ -17,20 +17,20 @@
 static char s_CustomTextureCatalogIds[TEXTURE_CUSTOM_COUNT][CATALOG_ID_LEN];
 static u8 s_GenerationSlots[TEXTURE_CUSTOM_COUNT];
 static u32 s_SnapshotReservations[TEXTURE_CUSTOM_COUNT];
+static s32 s_GenerationSearchCeiling = TEXTURE_CUSTOM_COUNT;
 typedef struct texture_slot_snapshot {
     char ids[TEXTURE_CUSTOM_COUNT][CATALOG_ID_LEN];
 } texture_slot_snapshot_t;
 
 _Static_assert(TEXTURE_CUSTOM_COUNT > 0,
     "texture custom slot count must be positive");
-/* struct tex texturenum is a 12-bit field and the G_NOOP marker pack
- * clamps at 4096; a slot past that would silently alias another texture. */
-_Static_assert(TEXTURE_CUSTOM_END <= 4096,
-    "texture custom slots must fit the 12-bit texturenum field");
+_Static_assert(TEXTURE_CUSTOM_END <= TEXTURE_NATIVE_SLOT_LIMIT,
+    "texture custom slots must fit the unsigned native identity carrier");
 
 void assetCatalogResetCustomTextureSlots(void)
 {
     memset(s_CustomTextureCatalogIds, 0, sizeof(s_CustomTextureCatalogIds));
+    s_GenerationSearchCeiling = TEXTURE_CUSTOM_COUNT;
 }
 
 void *assetCatalogSnapshotCustomTextureSlots(void)
@@ -49,6 +49,7 @@ s32 assetCatalogRestoreCustomTextureSlots(const void *snapshot)
     for (s32 i = 0; i < TEXTURE_CUSTOM_COUNT; ++i)
         if (saved->ids[i][0] && s_GenerationSlots[i]) return 0;
     memcpy(s_CustomTextureCatalogIds, saved->ids, sizeof(s_CustomTextureCatalogIds));
+    s_GenerationSearchCeiling = TEXTURE_CUSTOM_COUNT;
     return 1;
 }
 void assetCatalogDestroyCustomTextureSlotSnapshot(void *snapshot)
@@ -58,6 +59,7 @@ void assetCatalogDestroyCustomTextureSlotSnapshot(void *snapshot)
     for (s32 i = 0; i < TEXTURE_CUSTOM_COUNT; ++i)
         if (saved->ids[i][0]) --s_SnapshotReservations[i];
     free(snapshot);
+    s_GenerationSearchCeiling = TEXTURE_CUSTOM_COUNT;
 }
 
 /* Dedup-or-allocate a private slot index in [0, count). Returns the local
@@ -78,7 +80,7 @@ static s32 s_allocate(char ids[][CATALOG_ID_LEN], s32 count,
     }
 
     for (i = 0; i < count; i++) {
-        if (!ids[i][0] && !s_GenerationSlots[i]) {
+        if (!ids[i][0] && !s_GenerationSlots[i] && !s_SnapshotReservations[i]) {
             strncpy(ids[i], catalog_id, CATALOG_ID_LEN - 1);
             ids[i][CATALOG_ID_LEN - 1] = '\0';
             return i;
@@ -108,16 +110,35 @@ s32 assetCatalogResolveTexturePrivateSlot(const char *catalog_id)
 
 s32 assetCatalogReserveTextureGenerationSlot(void)
 {
-    for (s32 i = TEXTURE_CUSTOM_COUNT; i-- > 0;) {
+    for (s32 i = s_GenerationSearchCeiling; i-- > 0;) {
         if (!s_CustomTextureCatalogIds[i][0] && !s_GenerationSlots[i] && !s_SnapshotReservations[i]) {
             s_GenerationSlots[i] = 1;
+            s_GenerationSearchCeiling = i;
             return TEXTURE_CUSTOM_START + i;
         }
     }
+    s_GenerationSearchCeiling = 0;
     return -1;
 }
 void assetCatalogReleaseTextureGenerationSlot(s32 slot)
 {
-    if (slot >= TEXTURE_CUSTOM_START && slot < TEXTURE_CUSTOM_END)
+    if (slot >= TEXTURE_CUSTOM_START && slot < TEXTURE_CUSTOM_END) {
         s_GenerationSlots[slot - TEXTURE_CUSTOM_START] = 0;
+        if (slot - TEXTURE_CUSTOM_START + 1 > s_GenerationSearchCeiling)
+            s_GenerationSearchCeiling = slot - TEXTURE_CUSTOM_START + 1;
+    }
+}
+
+void assetCatalogGetTextureSlotUsage(texture_slot_usage_t *usage)
+{
+    if (!usage) return;
+    memset(usage, 0, sizeof(*usage));
+    usage->capacity = TEXTURE_CUSTOM_COUNT;
+    for (s32 i = 0; i < TEXTURE_CUSTOM_COUNT; ++i) {
+        if (s_CustomTextureCatalogIds[i][0]) ++usage->custom;
+        if (s_GenerationSlots[i]) ++usage->generations;
+        if (s_SnapshotReservations[i]) ++usage->snapshots;
+        if (!s_CustomTextureCatalogIds[i][0] && !s_GenerationSlots[i]
+                && !s_SnapshotReservations[i]) ++usage->free;
+    }
 }

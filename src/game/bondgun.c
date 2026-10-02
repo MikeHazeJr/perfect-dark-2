@@ -12911,7 +12911,7 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 			s32 pan;
 			u32 stack;
 
-			if (texturenum == 10000) {
+			if (texturenum == TEXTURE_HIT_GLASS) {
 				soundnum = SFX_SHIELD_DAMAGE;
 			} else if (gset->weaponnum == WEAPON_LASER) {
 				if (gset->weaponfunc == FUNC_PRIMARY || ((gset->unk063a % 4) == 0 && (rngRandom() % 2))) {
@@ -13048,7 +13048,7 @@ void bgunPlayPropHitSound(struct gset *gset, struct prop *prop, s32 texturenum)
 			bool overridden = false;
 			u32 stack;
 
-			if (texturenum == 10000) {
+			if (texturenum == TEXTURE_HIT_GLASS) {
 				sndStart(var80095200, SFX_SHIELD_DAMAGE, handle, -1, -1, -1, -1, -1);
 				soundnum = SFX_SHIELD_DAMAGE;
 			} else if (gset->weaponnum == WEAPON_LASER) {

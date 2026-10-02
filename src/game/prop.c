@@ -1196,7 +1196,7 @@ bool shotTestLos(struct coord *gunpos2d, struct coord *gundir2d, struct coord *g
 			}
 			if (shotdata.hits[0].prop) {
 				// ignore some glass parts and shields
-				if (shotdata.hits[0].slowsbullet && shotdata.hits[0].hitthing.texturenum != 10000) {
+				if (shotdata.hits[0].slowsbullet && shotdata.hits[0].hitthing.texturenum != TEXTURE_HIT_GLASS) {
 					return false;
 				}
 			}

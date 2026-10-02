@@ -4442,7 +4442,7 @@ bool bgTestHitOnObj(struct coord *arg0, struct coord *arg1,
 										texturenum = -1;
 									} else {
 										uintptr_t tmp = PHYS_TO_K0(UNSEGADDR(imggdl->words.w1) - 8);
-										texturenum = *(s16 *) tmp;
+										texturenum = *(u16 *) tmp;
 									}
 
 									lowestsqdist = sqdist;
@@ -5011,7 +5011,7 @@ bool bgTestHitInVtxBatch(struct coord *arg0, struct coord *arg1, struct coord *a
 												texturenum = -1;
 											} else {
 												uintptr_t tmp = UNSEGADDR(tmpgdl->words.w1) - 8;
-												texturenum = *(s16 *) PHYS_TO_K0(tmp);
+												texturenum = *(u16 *) PHYS_TO_K0(tmp);
 											}
 
 #ifdef AVOID_UB

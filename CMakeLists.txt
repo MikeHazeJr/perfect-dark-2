@@ -1192,6 +1192,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_sound_slots.cpp
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_texture_slots.c
   ${CMAKE_SOURCE_DIR}/tests/test_texture_slots.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_native_texture_marker.cpp
   ${CMAKE_SOURCE_DIR}/port/src/assetcatalog_anim_slots.c
   ${CMAKE_SOURCE_DIR}/tests/test_anim_slots.cpp
   # B-1036: exact typed-public MP3 buffers versus fixed 0x400-byte DMA cache.

@@ -10,7 +10,7 @@
  * texconfigs can reach it; g_Textures grows by the custom range with
  * zero-init rows. Pinned: in-range, dedup-by-id, distinct slots, empty/null
  * reject, exhaustion loud-fail, reset, and the range anchors (base adjacency
- * + the hard 12-bit texturenum ceiling).
+ * + the native unsigned 16-bit identity ceiling).
  */
 
 #include "catch.hpp"
@@ -47,14 +47,17 @@ TEST_CASE("texture slots: empty / null id rejected; exhaustion loud-fails",
 	REQUIRE(assetCatalogResolveTexturePrivateSlot("") == -1);
 	REQUIRE(assetCatalogResolveTexturePrivateSlot(nullptr) == -1);
 
-	for (s32 i = 0; i < TEXTURE_CUSTOM_COUNT; i++) {
-		char id[32];
-		snprintf(id, sizeof(id), "mod_x:tex_%d", i);
-		REQUIRE(assetCatalogResolveTexturePrivateSlot(id) >= TEXTURE_CUSTOM_START);
-	}
+	/* Fill the shared range with retained generations, leaving one custom row.
+	 * This exercises real exhaustion without quadratic string dedup setup. */
+	std::vector<s32> generations;
+	for (s32 i = 0; i < TEXTURE_CUSTOM_COUNT - 1; ++i)
+		generations.push_back(assetCatalogReserveTextureGenerationSlot());
+	REQUIRE(generations.back() == TEXTURE_CUSTOM_START + 1);
+	REQUIRE(assetCatalogResolveTexturePrivateSlot("mod_x:tex_0") == TEXTURE_CUSTOM_START);
 	REQUIRE(assetCatalogResolveTexturePrivateSlot("mod_x:tex_overflow") == -1);
 	/* Dedup still works when full. */
 	REQUIRE(assetCatalogResolveTexturePrivateSlot("mod_x:tex_0") == TEXTURE_CUSTOM_START);
+	for (s32 slot : generations) assetCatalogReleaseTextureGenerationSlot(slot);
 }
 
 TEST_CASE("texture slots: reset clears reservations",
@@ -65,13 +68,55 @@ TEST_CASE("texture slots: reset clears reservations",
 	REQUIRE(assetCatalogResolveTexturePrivateSlot("mod_x:tex_b") == first);
 }
 
-TEST_CASE("texture slots: range anchors (base adjacency + 12-bit ceiling)",
+TEST_CASE("texture slots: range anchors (base adjacency + native identity ceiling)",
           "[catalog][texture][slots][c3849]") {
 	REQUIRE(TEXTURE_CUSTOM_START == NUM_TEXTURES);
 	REQUIRE(TEXTURE_CUSTOM_END == TEXTURE_CUSTOM_START + TEXTURE_CUSTOM_COUNT);
-	/* struct tex texturenum is a 12-bit field; the G_NOOP marker pack clamps
-	 * at 4096 -- a slot past that would silently alias another texture. */
-	REQUIRE(TEXTURE_CUSTOM_END <= 4096);
+	REQUIRE(TEXTURE_CUSTOM_END == TEXTURE_NATIVE_SLOT_LIMIT);
+	REQUIRE(TEXTURE_CUSTOM_COUNT > NUM_TEXTURES);
+	REQUIRE(TEXTURE_HIT_GLASS >= TEXTURE_CUSTOM_END);
+}
+
+TEST_CASE("custom texture allocation cannot steal a snapshot row after reset", "[catalog][texture-slots]")
+{
+    assetCatalogResetCustomTextureSlots();
+    const s32 retained = assetCatalogResolveTexturePrivateSlot("mod:retained");
+    void *saved = assetCatalogSnapshotCustomTextureSlots();
+    REQUIRE(saved);
+    assetCatalogResetCustomTextureSlots();
+    REQUIRE(assetCatalogResolveTexturePrivateSlot("mod:new") != retained);
+    texture_slot_usage_t usage;
+    assetCatalogGetTextureSlotUsage(&usage);
+    REQUIRE(usage.custom == 1);
+    REQUIRE(usage.snapshots == 1);
+    REQUIRE(usage.free == TEXTURE_CUSTOM_COUNT - 2);
+    REQUIRE(assetCatalogRestoreCustomTextureSlots(saved));
+    REQUIRE(assetCatalogResolveTexturePrivateSlot("mod:retained") == retained);
+    assetCatalogResetCustomTextureSlots();
+    assetCatalogDestroyCustomTextureSlotSnapshot(saved);
+    REQUIRE(assetCatalogResolveTexturePrivateSlot("mod:released") == retained);
+    assetCatalogResetCustomTextureSlots();
+}
+
+TEST_CASE("generation texture capacity retains a complete base-sized cohort", "[catalog][texture-slots]")
+{
+    assetCatalogResetCustomTextureSlots();
+    std::vector<s32> generations;
+    for (s32 i = 0; i < NUM_TEXTURES; ++i) {
+        const s32 slot = assetCatalogReserveTextureGenerationSlot();
+        REQUIRE(slot == TEXTURE_CUSTOM_END - i - 1);
+        generations.push_back(slot);
+    }
+    texture_slot_usage_t usage;
+    assetCatalogGetTextureSlotUsage(&usage);
+    REQUIRE(usage.generations == NUM_TEXTURES);
+    REQUIRE(usage.free == TEXTURE_CUSTOM_COUNT - NUM_TEXTURES);
+    assetCatalogResetCustomTextureSlots();
+    assetCatalogGetTextureSlotUsage(&usage);
+    REQUIRE(usage.generations == NUM_TEXTURES);
+    for (s32 slot : generations) assetCatalogReleaseTextureGenerationSlot(slot);
+    REQUIRE(assetCatalogReserveTextureGenerationSlot() == generations.front());
+    assetCatalogReleaseTextureGenerationSlot(generations.front());
 }
 
 TEST_CASE("texture slots: admission snapshot restores reservations exactly",

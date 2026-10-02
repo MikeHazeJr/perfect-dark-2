@@ -2194,14 +2194,14 @@ static struct tex *texLoadPublicRgba32Source(
 
 		tex = (struct tex *)ptr;
 		ptr += sizeof(struct tex);
-		*(s16 *)ptr = (s16)texturenum;
+		*(u16 *)ptr = (u16)texturenum;
 		ptr += 8;
 	} else {
 		if ((u32)texGetPoolFreeBytes(pool) < needed) {
 			return NULL;
 		}
 
-		*(s16 *)pool->leftpos = (s16)texturenum;
+		*(u16 *)pool->leftpos = (u16)texturenum;
 		pool->leftpos += 8;
 		pool->rightpos--;
 		tex = pool->rightpos;
@@ -2288,7 +2288,7 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 	s8 buffer5kb[5 * 1024 + 0x40];
 	s32 thisoffset;
 	s32 nextoffset;
-	s16 *texnumptr;
+	u16 *texnumptr;
 	s32 bytesout;
 
 	usingsharedpool = 0;
@@ -2412,7 +2412,7 @@ void texLoad(texnum_t *updateword, struct texpool *pool, bool unusedarg)
 			}
 
 			// Write the texturenum into the allocation
-			texnumptr = (s16 *) pool->leftpos;
+			texnumptr = (u16 *) pool->leftpos;
 			*texnumptr = g_TexNumToLoad;
 			pool->leftpos += 8;
 

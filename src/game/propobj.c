@@ -3578,7 +3578,7 @@ bool func0f06b610(struct defaultobj *obj, struct coord *arg1, struct coord *arg2
 							thing1 = thing2;
 							mtxindex1 = mtxindex2;
 							node1 = node2;
-							thing1.texturenum = 10000;
+							thing1.texturenum = TEXTURE_HIT_GLASS;
 						}
 					}
 				}
@@ -3620,7 +3620,7 @@ bool func0f06b610(struct defaultobj *obj, struct coord *arg1, struct coord *arg2
 
 						result = true;
 
-						if (thing1.texturenum == 10000) {
+						if (thing1.texturenum == TEXTURE_HIT_GLASS) {
 							g_EmbedSide = thing1.unk28 / 2;
 							var8006993c[0] = thing1.pos.x;
 							var8006993c[1] = thing1.pos.y;
@@ -8565,7 +8565,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 										stick = false;
 									}
 
-									if (var80069944 == 10000) {
+									if (var80069944 == TEXTURE_HIT_GLASS) {
 										stick = false;
 									}
 
@@ -8650,7 +8650,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								} else if (hitprop->type == PROPTYPE_OBJ) {
 									struct defaultobj *hitobj = hitprop->obj;
 
-									if (var80069944 == 10000) {
+									if (var80069944 == TEXTURE_HIT_GLASS) {
 										shield = (hitobj->flags3 & OBJFLAG3_SHOWSHIELD) ? 4 : 8;
 
 										shieldhitCreate(hitprop, shield, g_EmbedProp, g_EmbedNode, g_EmbedModel, g_EmbedSide, var8006993c);
@@ -8688,7 +8688,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 											&var8009ce78, &weapon->gset, ownerprop2,
 											g_EmbedHitPart, g_EmbedProp, g_EmbedNode, g_EmbedModel, g_EmbedSide, var8006993c);
 								} else if (g_EmbedProp->type == PROPTYPE_OBJ || g_EmbedProp->type == PROPTYPE_WEAPON) {
-									if (var80069944 == 10000) {
+									if (var80069944 == TEXTURE_HIT_GLASS) {
 										f32 shield = (g_EmbedProp->obj->flags3 & OBJFLAG3_SHOWSHIELD) ? 4 : 8;
 
 										shieldhitCreate(hitprop, shield, g_EmbedProp, g_EmbedNode, g_EmbedModel, g_EmbedSide, var8006993c);
@@ -8704,7 +8704,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								if (hitprop->type == PROPTYPE_CHR || (hitprop->type == PROPTYPE_PLAYER && hitprop->chr)) {
 									struct chrdata *chr = hitprop->chr;
 									func0f034080(chr, g_EmbedNode, g_EmbedProp, g_EmbedModel, g_EmbedSide, var8006993c);
-								} else if ((hitprop->type == PROPTYPE_OBJ || hitprop->type == PROPTYPE_WEAPON) && var80069944 == 10000) {
+								} else if ((hitprop->type == PROPTYPE_OBJ || hitprop->type == PROPTYPE_WEAPON) && var80069944 == TEXTURE_HIT_GLASS) {
 									shield = (hitprop->obj->flags3 & OBJFLAG3_SHOWSHIELD) ? 4 : 8;
 
 									shieldhitCreate(hitprop, shield, g_EmbedProp, g_EmbedNode, g_EmbedModel, g_EmbedSide, var8006993c);
@@ -17645,7 +17645,7 @@ void func0f0859a0(struct prop *prop, struct shotdata *shotdata)
 				node1 = node3;
 				spe4 = sp90;
 				node2 = node4;
-				hitthing1.texturenum = 10000;
+				hitthing1.texturenum = TEXTURE_HIT_GLASS;
 			}
 		}
 	}
@@ -17780,7 +17780,7 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 	}
 
 	// Create shield hit if object is shielded
-	if (hit->hitthing.texturenum == 10000) {
+	if (hit->hitthing.texturenum == TEXTURE_HIT_GLASS) {
 		spdc[0] = hit->hitthing.pos.x;
 		spdc[1] = hit->hitthing.pos.y;
 		spdc[2] = hit->hitthing.pos.z;
@@ -17802,7 +17802,7 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 
 	// Create wall hit (bullet hole)
 	if (!ismeleefunc
-			&& hit->hitthing.texturenum != 10000
+			&& hit->hitthing.texturenum != TEXTURE_HIT_GLASS
 			&& shotdata->gset.weaponnum != WEAPON_UNARMED
 			&& shotdata->gset.weaponnum != WEAPON_LASER
 			&& shotdata->gset.weaponnum != WEAPON_TRANQUILIZER
@@ -17869,7 +17869,7 @@ void objHit(struct shotdata *shotdata, struct hit *hit)
 			|| PLAYER_IS_NOT_ANTI(g_Vars.currentplayer)
 			|| (obj->flags2 & OBJFLAG2_IMMUNETOANTI) == 0) {
 
-		if (hit->hitthing.texturenum != 10000) {
+		if (hit->hitthing.texturenum != TEXTURE_HIT_GLASS) {
 			f32 damage = gsetGetDamage(&shotdata->gset);
 
 			if (obj->type == OBJTYPE_AUTOGUN) {

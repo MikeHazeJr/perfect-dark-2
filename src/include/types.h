@@ -5825,7 +5825,7 @@ struct hitthing {
 	Vtx *unk20;
 	Gfx *tricmd;
 	s16 unk28;
-	s16 texturenum;
+	s32 texturenum;
 	s16 unk2c;
 };
 
@@ -6107,7 +6107,7 @@ struct awardmetrics {
 };
 
 struct tex {
-	/*0x00*/ u16 texturenum : 12;
+	/*0x00*/ u16 texturenum;
 	/*0x04*/ u8 *data;
 	/*0x08*/ u8 width;
 	/*0x09*/ u8 height;
@@ -6122,7 +6122,7 @@ struct tex {
 };
 
 struct texcacheitem {
-	s16 texturenum;
+	u16 texturenum;
 	u8 widths[7];
 	u8 heights[7];
 };

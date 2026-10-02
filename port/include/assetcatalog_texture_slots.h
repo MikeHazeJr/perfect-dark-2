@@ -43,6 +43,12 @@ s32 assetCatalogResolveTexturePrivateSlot(const char *catalog_id);
 s32 assetCatalogReserveTextureGenerationSlot(void);
 void assetCatalogReleaseTextureGenerationSlot(s32 slot);
 
+/* Read-only occupancy diagnostic; categories can overlap snapshot reservations. */
+typedef struct texture_slot_usage {
+    u32 capacity, custom, generations, snapshots, free;
+} texture_slot_usage_t;
+void assetCatalogGetTextureSlotUsage(texture_slot_usage_t *usage);
+
 #ifdef __cplusplus
 }
 #endif

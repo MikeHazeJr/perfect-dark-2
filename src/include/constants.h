@@ -6,6 +6,7 @@
 #include "files.h"
 #include "sequences.h"
 #include "sfx.h"
+#include "texture_marker.h"
 
 #define FALSE 0
 #define TRUE  1
@@ -66,9 +67,9 @@
 
 /* c3849 Wave 2: catalog-owned private custom-texture slots. g_Textures storage
  * (texinit.c) + the texLoad/texconfig gates grow to TEXTURE_CUSTOM_END; base
- * registration/extraction stay at NUM_TEXTURES; runtime material lookup covers the tail. Hard 12-bit
- * ceiling: struct tex texturenum:12 + the G_NOOP marker pack clamp at 4096. */
-#define TEXTURE_CUSTOM_COUNT  (0x1000 - NUM_TEXTURES)
+ * registration/extraction stay at NUM_TEXTURES. Native PC markers and pixel
+ * prefixes carry unsigned 16-bit IDs; reserve 0xffff for nontexture hit state. */
+#define TEXTURE_CUSTOM_COUNT  (TEXTURE_NATIVE_SLOT_LIMIT - NUM_TEXTURES)
 #define TEXTURE_CUSTOM_START  NUM_TEXTURES
 #define TEXTURE_CUSTOM_END    (NUM_TEXTURES + TEXTURE_CUSTOM_COUNT)
 

@@ -104,9 +104,16 @@ catalog_texture_generation_t *catalogTextureGenerationAcquireSource(
         errorText(error, cap, "texture tile properties exceed decoded image or native tile range"); goto fail;
     }
     g->slot = assetCatalogReserveTextureGenerationSlot();
-    if (g->slot < 0) { errorText(error, cap, "no retained native texture slot available"); goto fail; }
+    if (g->slot < 0) {
+        texture_slot_usage_t usage;
+        assetCatalogGetTextureSlotUsage(&usage);
+        sysLogPrintf(LOG_WARNING,
+            "TEXTURE.GENERATION.CAPACITY: id=\"%s\" capacity=%u custom=%u generations=%u snapshots=%u free=%u",
+            id, usage.capacity, usage.custom, usage.generations, usage.snapshots, usage.free);
+        errorText(error, cap, "no retained native texture slot available"); goto fail;
+    }
     g->texture.texturenum = (u32)g->slot;
-    *(s16 *)(g->texture.data - 8) = (s16)g->slot;
+    *(u16 *)(g->texture.data - 8) = (u16)g->slot;
     strcpy(g->hash, hex); g->references = 1;
     g->next = s_Generations; s_Generations = g; s_BySlot[g->slot] = g;
     modTextureFreeRgba32Source(&rgba);

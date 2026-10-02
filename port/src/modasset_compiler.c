@@ -5446,7 +5446,7 @@ static void emitGeneratedTextureMarker(Gfx **gdlptr,
 {
 	Gfx *gdl;
 	u32 w0;
-	u32 w1;
+	uintptr_t w1;
 	s32 subcmd;
 
 	if (!gdlptr || !*gdlptr || !objMaterialHasTexture(material)) {
@@ -5499,12 +5499,11 @@ static void emitGeneratedTextureMarker(Gfx **gdlptr,
 		| (((u32)material->shiftt & 0x0fu) << 10)
 		| (material->flag ? 0x200u : 0u)
 		| ((u32)subcmd & 7u);
-	w1 = (((u32)material->min & 0xffu) << 24)
-		| (((u32)(material->secondary_texture_num >= 0
-				? material->secondary_texture_num : 0) & 0xfffu) << 12)
-		| ((u32)material->texture_num & 0xfffu);
+	w1 = textureMarkerNativePayload((u16)material->texture_num,
+		(u16)(material->secondary_texture_num >= 0
+			? material->secondary_texture_num : 0), (u8)material->min);
 
-	gdl->words.w0 = w0;
+	gdl->words.w0 = textureMarkerNativeControl(w0);
 	gdl->words.w1 = w1;
 	gdl++;
 	*gdlptr = gdl;
@@ -6392,7 +6391,7 @@ static s32 objMaterialSetTextureCatalog(const modasset_model_inputs_t *inputs, o
 
     if (inputs && inputs->texture) {
         s32 slot = inputs->texture(inputs->context, NULL, id, 1, secondary);
-        if (slot < 0 || slot > 4095) return 0;
+        if (slot < 0 || slot >= TEXTURE_CUSTOM_END) return 0;
         if (secondary) material->secondary_texture_num = slot;
         else material->texture_num = slot;
         return 1;
@@ -6425,7 +6424,7 @@ static s32 objMaterialSetTextureMapPath(const modasset_model_inputs_t *inputs, o
 	}
     if (inputs && inputs->texture) {
         s32 slot = inputs->texture(inputs->context, source_path, path, 0, 0);
-        if (slot < 0 || slot > 4095) return 0;
+        if (slot < 0 || slot >= TEXTURE_CUSTOM_END) return 0;
         material->texture_num = slot;
         return 1;
     }

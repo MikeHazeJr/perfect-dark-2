@@ -905,7 +905,7 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 				spe8 = true;
 			}
 
-			texturenum = ingdl->words.w1 & 0xfff;
+			texturenum = textureMarkerDecode(ingdl->words.w0, ingdl->words.w1).primary;
 			flag = ingdl->words.w0 & 0x200;
 
 			texLoadFromTextureNum(texturenum, pool);
@@ -946,7 +946,7 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 
 				switch (ingdl->unkc0.subcmd) {
 				case 0:
-					min = (ingdl->words.w1 >> 24) & 0xff;
+					min = textureMarkerDecode(ingdl->words.w0, ingdl->words.w1).minimum;
 					smode = (ingdl->words.w0 >> 22) & 3;
 					tmode = (ingdl->words.w0 >> 20) & 3;
 					offset = (ingdl->words.w0 >> 18) & 3;
@@ -956,12 +956,12 @@ s32 texLoadFromGdl(Gfx *instart, s32 gdlsizeinbytes, Gfx *outstart, struct texpo
 					outgdl = texHandleType0(outgdl, tex1, smode, tmode, offset, shifts, shiftt, min, flag);
 					break;
 				case 1:
-					texturenum2 = (ingdl->words.w1 >> 12) & 0xfff;
+					texturenum2 = textureMarkerDecode(ingdl->words.w0, ingdl->words.w1).secondary;
 					texLoadFromTextureNum(texturenum2, pool);
 					tex2 = texFindInPool(texturenum2, pool);
 
 					if (tex2 != NULL) {
-						min = (ingdl->words.w1 >> 24) & 0xff;
+						min = textureMarkerDecode(ingdl->words.w0, ingdl->words.w1).minimum;
 						smode = (ingdl->words.w0 >> 22) & 3;
 						tmode = (ingdl->words.w0 >> 20) & 3;
 						offset = (ingdl->words.w0 >> 18) & 3;

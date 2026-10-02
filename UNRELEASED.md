@@ -1,5 +1,8 @@
 # Unreleased Changes
 
+- Keep retained model textures distinct across large asset catalogs without
+  recycling sources that are still in use.
+
 - Isolate model previews from main-window viewport and projection state, and
   clear unavailable selections while replacement models load.
 
