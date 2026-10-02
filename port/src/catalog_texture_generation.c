@@ -10,6 +10,7 @@
 #include "assetcatalog_texture_slots.h"
 #include "assetprovider.h"
 #include "catalog_texture_generation.h"
+#include "native_asset_consumer_trace.h"
 #include "texture_source_properties.h"
 #include "mod.h"
 #include "game/tex.h"
@@ -179,6 +180,17 @@ catalog_texture_generation_t *catalogTextureGenerationAcquire(const char *id, ch
                 && properties.present_mask != TEXTURE_SOURCE_ALL_PROPERTIES)
             errorText(error, cap, "base texture lacks public material properties; extraction upgrade required");
         else g = catalogTextureGenerationAcquireSource(id, image, image_size, ini, ini_size, error, cap);
+    }
+    if (g && getenv("PD_ASSET_CONSUMER_MANIFEST") && nativeAssetConsumerTextureRequested(id)) {
+        texture_selection_t current = {0}; current.id = id;
+        assetCatalogIterateByType(ASSET_TEXTURE, captureTexture, &current);
+        if (current.found && !strcmp(selected.image, current.image)
+                && !strcmp(selected.descriptor, current.descriptor)) {
+            nativeAssetConsumerEmitTexture(id, selected.image, image, image_size,
+                selected.descriptor, ini, ini_size, g->hash, g->slot,
+                g->texture.width, g->texture.height, g->texture.data,
+                (size_t)g->texture.width * g->texture.height * 4u);
+        }
     }
     free(ini); free(image); return g;
 }

@@ -14,6 +14,7 @@
 #include "assetprovider.h"
 #include "model_source_path.h"
 #include "modasset_compiler.h"
+#include "native_asset_consumer_trace.h"
 #include "fs.h"
 #include "game/tex.h"
 #include "sha256.h"
@@ -21,23 +22,31 @@
 #include "types.h"
 #include "constants.h"
 #undef bool
+#include "native_asset_consumer_trace_contract.h"
 
 namespace {
 struct Read {
     std::string path;
     std::string bytes;
     bool present = false;
+    bool consumed = false;
 };
 struct Texture {
     catalog_texture_generation_t *generation = nullptr;
     ~Texture() { catalogTextureGenerationRelease(generation); }
 };
+struct TraceTextureBinding { std::string id, hash; int slot; };
 struct Build {
     const asset_entry_t *entry = nullptr;
+    const char *trace_model_source = nullptr;
     std::vector<Read> reads;
     std::vector<std::unique_ptr<Texture>> textures;
     std::string failure;
     struct texpool pool{};
+    std::vector<std::string> external_textures;
+    std::vector<TraceTextureBinding> texture_bindings;
+    bool trace_complete = true;
+    Read trace_archive;
 };
 SDL_threadID client_thread;
 catalog_model_generation *generations;
@@ -80,6 +89,7 @@ void *readModel(void *context, const char *path, u32 *size) {
         std::memcpy(copy, read->bytes.data(), read->bytes.size());
         static_cast<char *>(copy)[read->bytes.size()] = 0;
         if (size) *size = static_cast<u32>(read->bytes.size());
+        read->consumed = true; // Only after the compiler receives a valid copy.
         return copy;
     } catch (...) { build.failure = "model source capture failed"; return nullptr; }
 }
@@ -106,7 +116,16 @@ int bindTexture(void *context, const char *source, const char *reference,
         char error[256]{};
         catalog_texture_generation_t *generation = nullptr;
         const asset_entry_t *catalog = assetCatalogResolve(reference);
-        if (is_catalog_id || (catalog && catalog->type == ASSET_TEXTURE)) {
+        const bool catalog_texture = is_catalog_id || (catalog && catalog->type == ASSET_TEXTURE);
+        if (catalog_texture) {
+            if (std::getenv("PD_ASSET_CONSUMER_MANIFEST")) {
+                try {
+                    build.external_textures.emplace_back(reference);
+                    // Catalog-ID callbacks intentionally supply no source path.
+                    nativeAssetConsumerExpectTexture(build.entry->id, build.trace_model_source, reference);
+                }
+                catch (...) { build.trace_complete = false; } // Diagnostic failure cannot fail the game load.
+            }
             generation = catalogTextureGenerationAcquire(reference, error, sizeof(error));
         } else {
             char path[FS_MAXPATH + 1]{};
@@ -120,6 +139,7 @@ int bindTexture(void *context, const char *source, const char *reference,
             std::string id = std::string(build.entry->id) + "/" + path;
             generation = catalogTextureGenerationAcquireSource(id.c_str(), read->bytes.data(),
                 static_cast<u32>(read->bytes.size()), nullptr, 0, error, sizeof(error));
+            if (generation) read->consumed = true;
         }
         if (!generation) { build.failure = error[0] ? error : "model texture generation failed"; return -1; }
         std::unique_ptr<catalog_texture_generation_t, decltype(&catalogTextureGenerationRelease)>
@@ -128,6 +148,12 @@ int bindTexture(void *context, const char *source, const char *reference,
         retained->generation = owned.release();
         const int slot = catalogTextureGenerationSlot(generation);
         build.textures.push_back(std::move(retained));
+        if (catalog_texture && std::getenv("PD_ASSET_CONSUMER_MANIFEST")) {
+            try {
+                build.texture_bindings.push_back({catalogTextureGenerationId(generation),
+                    catalogTextureGenerationHash(generation), slot});
+            } catch (...) { build.trace_complete = false; }
+        }
         return slot;
     } catch (...) { build.failure = "model texture binding failed"; return -1; }
 }
@@ -175,6 +201,58 @@ std::string closureHash(const Build &build, const char *selected) {
     sha256ToHex(digest, hex);
     return hex;
 }
+void captureTraceArchive(Build &build, const char *source) noexcept {
+    if (!std::getenv("PD_ASSET_CONSUMER_MANIFEST") || build.entry->type != ASSET_MODEL
+        || !nativeAssetConsumerModelRequested(build.entry->id, source)) return;
+    void *raw = nullptr;
+    try {
+        build.trace_archive.path = pdtrace::modelOrigin(source);
+        const s32 expected_size = fsFileSize(build.trace_archive.path.c_str());
+        if (expected_size <= 0 || static_cast<size_t>(expected_size) > pdtrace::archive_limit) {
+            build.trace_complete = false; return;
+        }
+        u32 size = 0;
+        raw = fsFileLoad(build.trace_archive.path.c_str(), &size);
+        if (raw && size && size <= pdtrace::archive_limit) {
+            build.trace_archive.bytes.assign(static_cast<const char *>(raw), size);
+            build.trace_archive.present = true;
+        } else build.trace_complete = false;
+    } catch (...) { build.trace_complete = false; }
+    free(raw); // Diagnostic capture never changes compiler success or generation identity.
+}
+void emitModelTrace(const Build &build, const char *source, const char *closure) noexcept {
+    if (!std::getenv("PD_ASSET_CONSUMER_MANIFEST") || !build.trace_complete
+        || build.entry->type != ASSET_MODEL) return;
+    const asset_data_handle_t handle = catalogEffectiveHandle(build.entry);
+    if (handle.provider != fileProvider()) return;
+    const char *selected = fileProviderPath(handle);
+    if (!selected || std::strcmp(selected, source)) return;
+    try {
+        const Read *archive = &build.trace_archive;
+        if (!archive->present) return;
+        u32 current_size = 0;
+        void *current = fsFileLoad(archive->path.c_str(), &current_size);
+        const bool same = current && current_size == archive->bytes.size()
+            && !std::memcmp(current, archive->bytes.data(), current_size);
+        free(current);
+        if (!same) return;
+        std::vector<native_asset_consumer_model_read> consumed;
+        std::vector<const char *> dependencies;
+        std::vector<native_asset_consumer_texture_binding> bindings;
+        for (const auto &texture : build.external_textures) dependencies.push_back(texture.c_str());
+        for (const auto &binding : build.texture_bindings)
+            bindings.push_back({binding.id.c_str(), binding.hash.c_str(), binding.slot});
+        for (const auto &read : build.reads) {
+            if (read.present && read.consumed)
+                consumed.push_back({read.path.c_str(), read.bytes.data(), read.bytes.size()});
+        }
+        nativeAssetConsumerEmitModel(build.entry->id, archive->path.c_str(),
+            archive->bytes.data(), archive->bytes.size(), consumed.data(), consumed.size(), closure,
+            dependencies.data(), dependencies.size(), bindings.data(), bindings.size());
+    } catch (...) {
+        sysLogPrintf(LOG_WARNING, "ASSET.CONSUMER.TRACE: snapshot allocation failed; evidence pending");
+    }
+}
 }
 
 struct catalog_model_generation {
@@ -201,6 +279,7 @@ extern "C" catalog_model_generation_t *catalogModelGenerationAcquireSource(
         if (!modelSourceResolvePath(source, selected, sizeof(selected), error, cap)) return nullptr;
         Build build;
         build.entry = entry;
+        build.trace_model_source = source;
         /* The archive descriptor selects the mesh. Capture both it and every
          * subsequent compiler read so a concurrent edit cannot mix sources. */
         Read *archive = capture(build, source);
@@ -218,6 +297,7 @@ extern "C" catalog_model_generation_t *catalogModelGenerationAcquireSource(
             message(error, cap, build.failure.empty() ? "public model conversion failed" : build.failure.c_str());
             return nullptr;
         }
+        captureTraceArchive(build, source);
         std::unique_ptr<struct modeldef, decltype(&modAssetCompilerFreeModeldef)>
             candidate(model, modAssetCompilerFreeModeldef);
         char selected_again[FS_MAXPATH + 1]{};
@@ -239,6 +319,7 @@ extern "C" catalog_model_generation_t *catalogModelGenerationAcquireSource(
                     message(error, cap, "model generation reference count overflow"); return nullptr;
                 }
                 ++old->references;
+                emitModelTrace(build, source, hash.c_str());
                 return old;
             }
         }
@@ -255,6 +336,7 @@ extern "C" catalog_model_generation_t *catalogModelGenerationAcquireSource(
         generation->textures = std::move(build.textures);
         generation->next = generations;
         generations = generation.get();
+        emitModelTrace(build, source, hash.c_str());
         return generation.release();
     } catch (...) {
         message(error, cap, "model generation allocation failed"); return nullptr;
