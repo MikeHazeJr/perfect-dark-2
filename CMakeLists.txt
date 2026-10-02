@@ -982,6 +982,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_social_toggle_imc.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_custom_controller_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_settings_input_tab_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_pdgui_input_profile_state.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_smoke_input_events_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_action_read_authority.cpp
   ${CMAKE_SOURCE_DIR}/port/src/action_read_authority.c
@@ -1352,7 +1353,8 @@ endif()
 set_target_properties(pd-tests PROPERTIES OUTPUT_NAME "pd-tests")
 
 # Focused executables keep their filesystem/action adapters out of pd-tests.
-# Build through the existing queued -Target tests path; run each separately.
+# Settings save uses queued -Target settings-tests; run via run-pd-tests.ps1
+# with -TestTarget settings-tests for the canonical DLL environment.
 add_executable(pd-settings-save-tests EXCLUDE_FROM_ALL
   ${CMAKE_SOURCE_DIR}/tests/main.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_config_save.cpp

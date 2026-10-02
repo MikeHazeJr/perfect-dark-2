@@ -1,5 +1,8 @@
 # Unreleased Changes
 
+- Preserve all sixteen Settings device-profile rules through save and restart,
+  including long device keys and aliases. Reject incomplete edits before saving.
+
 - Restore the first mapped menu Accept after mouse input, focus the selected Agent on entry, and prevent background dialogs from handling Back.
 
 - Run public v2 single-shot weapon graphs through native hand firing, with independent state, graph-selected ammo, retained equipment and deferred shots. Reject invalid replacements atomically; the first profile supports offline custom weapons.

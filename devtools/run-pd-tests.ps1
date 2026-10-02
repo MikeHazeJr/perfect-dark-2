@@ -1,16 +1,19 @@
 #Requires -Version 5.1
 <#
 .SYNOPSIS
-    Build and run pd-tests from an isolated per-session build directory.
+    Build and run native tests from an isolated per-session build directory.
 
 .DESCRIPTION
     Concurrent AI/code sessions should not share Build/. This helper builds
-    only the pd-tests CMake target through devtools/build-session.ps1, then
-    runs pd-tests.exe with an optional Catch2 selector such as "[manifest]" or
+    the selected CMake target through devtools/build-session.ps1, then
+    runs its executable with an optional Catch2 selector such as "[manifest]" or
     "[catalog][provider][static]".
 
 .EXAMPLE
     .\devtools\run-pd-tests.ps1 -Session qnet1 -Selector "[netbuf]"
+
+.EXAMPLE
+    .\devtools\run-pd-tests.ps1 -Session qsettings -TestTarget settings-tests
 
 .EXAMPLE
     .\devtools\run-pd-tests.ps1 -Session qcat1 -Selector "[catalog][provider][static]"
@@ -34,6 +37,9 @@
 param(
     [Parameter(Mandatory = $false)]
     [string]$Session,
+
+    [ValidateSet("tests", "settings-tests")]
+    [string]$TestTarget = "tests",
 
     [string]$Selector = "",
 
@@ -160,11 +166,12 @@ if (-not (Test-Path -LiteralPath $BuildSession)) {
 
 $sessionName = ConvertTo-SafeSessionName $Session
 $buildDir = Join-Path $SessionBuildRoot $sessionName
-$testsExe = Join-Path $buildDir "pd-tests.exe"
+$testsExeName = if ($TestTarget -eq "settings-tests") { "pd-settings-save-tests.exe" } else { "pd-tests.exe" }
+$testsExe = Join-Path $buildDir $testsExeName
 $effectiveSelector = if ($Scope -ne "") { $ScopeSelectors[$Scope] } else { $Selector }
 
 if (-not $NoBuild) {
-    $buildArgs = @("-Session", $sessionName, "-Target", "tests", "-BuildTimeoutSeconds", ([string]$BuildTimeoutSeconds))
+    $buildArgs = @("-Session", $sessionName, "-Target", $TestTarget, "-BuildTimeoutSeconds", ([string]$BuildTimeoutSeconds))
     if ($Clean) { $buildArgs += "-Clean" }
     if ($BuildVerbose) { $buildArgs += "-Verbose" }
 
@@ -177,7 +184,7 @@ if (-not $NoBuild) {
 }
 
 if (-not (Test-Path -LiteralPath $testsExe)) {
-    throw "pd-tests.exe not found at $testsExe. Run without -NoBuild first."
+    throw "$testsExeName not found at $testsExe. Run without -NoBuild first."
 }
 
 $mingwBin = "C:\msys64\mingw64\bin"

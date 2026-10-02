@@ -1,9 +1,11 @@
 #include "catch.hpp"
 #include "config.h"
 #include "save_atomic.h"
+#include "pdgui_input_profile_state.h"
 
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -138,4 +140,122 @@ TEST_CASE("Real config replacement denial keeps a directory destination and remo
     REQUIRE(bytes(destination / "sentinel") == "preserved");
     REQUIRE(signedValue == 500);
     REQUIRE(candidates(dir.path) == 0);
+}
+
+TEST_CASE("Real config retains all sixteen maximum device rules across delayed registration and reload",
+          "[settings-save][config-save][input][profile-state]")
+{
+    // Registry pointers must survive all later tests and save operations.
+    static char restoredRules[4][INPUT_DEVICE_PROFILES_STR_MAX] = {};
+    static char restoredNames[4][INPUT_PROFILE_NAMES_STR_MAX] = {};
+    static s32 following[4] = {};
+    char profiles[INPUT_PROFILE_COUNT][INPUT_PROFILE_NAME_CAPACITY] = {};
+    PdguiInputDeviceRule devices[INPUT_DEVICE_RULE_COUNT] = {};
+    for (int i = 0; i < INPUT_PROFILE_COUNT; ++i)
+        std::memset(profiles[i], 'A' + i, sizeof(profiles[i]) - 1);
+    for (int i = 0; i < INPUT_DEVICE_RULE_COUNT; ++i) {
+        devices[i].profile = i % INPUT_PROFILE_COUNT;
+        std::memset(devices[i].alias, 'A' + i, sizeof(devices[i].alias) - 1);
+        std::memset(devices[i].key, 'a' + i, sizeof(devices[i].key) - 1);
+    }
+    // Literal quotes/backslashes inside fields remain content in the existing
+    // delimiter format; they must not split or unquote the complete rule list.
+    devices[15].alias[12] = '"';
+    devices[15].alias[13] = '\\';
+    char names[INPUT_PROFILE_NAMES_STR_MAX], rules[INPUT_DEVICE_PROFILES_STR_MAX];
+    REQUIRE(pdguiInputProfileStateSerialize(profiles, INPUT_PROFILE_COUNT,
+        devices, INPUT_DEVICE_RULE_COUNT, names, sizeof(names), rules, sizeof(rules)));
+    REQUIRE(std::strlen(rules) == 3103);
+    for (int variant = 0; variant < 4; ++variant) {
+        CAPTURE(variant);
+        Directory dir;
+        const auto source = dir.path / "source.ini";
+        const auto saved = dir.path / "saved.ini";
+        const std::string section = "InputMax" + std::to_string(variant);
+        const std::string newline = variant & 1 ? "\r\n" : "\n";
+        std::ofstream(source, std::ios::binary) << '[' << section << ']' << newline
+            << "DeviceProfiles=" << rules << newline
+            << "ProfileNames=" << names << newline << "Following=7"
+            << (variant & 2 ? "" : newline);
+        // Production startup reads pd.ini before inputInit registers strings.
+        REQUIRE(configLoad(source.string().c_str()) == 1);
+        // Saving while still pending must also preserve the complete payload.
+        REQUIRE(configSave(saved.string().c_str()) == 1);
+        REQUIRE(bytes(saved).find(std::string("DeviceProfiles=") + rules + '\n') != std::string::npos);
+        configRegisterString((section + ".DeviceProfiles").c_str(), restoredRules[variant], sizeof(restoredRules[variant]));
+        configRegisterString((section + ".ProfileNames").c_str(), restoredNames[variant], sizeof(restoredNames[variant]));
+        configRegisterInt((section + ".Following").c_str(), &following[variant], 0, 10);
+        REQUIRE(std::string(restoredRules[variant]) == rules);
+        REQUIRE(std::string(restoredNames[variant]) == names);
+        REQUIRE(following[variant] == 7);
+        REQUIRE(configSave(saved.string().c_str()) == 1);
+        restoredRules[variant][0] = '\0';
+        restoredNames[variant][0] = '\0';
+        following[variant] = 0;
+        REQUIRE(configLoad(saved.string().c_str()) == 1);
+        REQUIRE(std::string(restoredRules[variant]) == rules);
+        REQUIRE(std::string(restoredNames[variant]) == names);
+        REQUIRE(following[variant] == 7);
+        const std::string accepted = bytes(saved);
+        restoredRules[variant][0] = 'Z';
+        saveAtomicDebugFailNextCommit();
+        REQUIRE(configSave(saved.string().c_str()) == 0);
+        REQUIRE(bytes(saved) == accepted);
+        REQUIRE(restoredRules[variant][0] == 'Z');
+        REQUIRE(candidates(dir.path) == 0);
+        REQUIRE(configSave(saved.string().c_str()) == 1);
+        restoredRules[variant][0] = '\0';
+        REQUIRE(configLoad(saved.string().c_str()) == 1);
+        REQUIRE(restoredRules[variant][0] == 'Z');
+        REQUIRE(std::string(restoredRules[variant] + 1) == std::string(rules + 1));
+    }
+}
+
+TEST_CASE("Real config replaces complete pending values before registration without disturbing following keys",
+          "[settings-save][config-save][input][profile-state]")
+{
+    Directory dir;
+    const auto source = dir.path / "pending.ini";
+    static char replacement[9000] = {};
+    static s32 following = 0;
+    const std::string first(3000, 'a'), last(8500, 'b');
+    std::ofstream(source, std::ios::binary) << "[PendingLong]\nValue=" << first
+        << "\nValue=" << last << "\nFollowing=9";
+    REQUIRE(configLoad(source.string().c_str()) == 1);
+    configRegisterString("PendingLong.Value", replacement, sizeof(replacement));
+    configRegisterInt("PendingLong.Following", &following, 0, 10);
+    REQUIRE(std::string(replacement) == last);
+    REQUIRE(following == 9);
+}
+
+TEST_CASE("Real config preserves quoted and boundary whitespace field content through save and replay",
+          "[settings-save][config-save][input][profile-state]")
+{
+    Directory dir;
+    const auto source = dir.path / "quoted.ini";
+    const auto saved = dir.path / "saved.ini";
+    static char registered[4][128] = {};
+    const std::string values[] = {
+        "\"Agent\"|Second|Third", " Agent|Second|Third ",
+        "Agent\\Path|\"Second\"|Third", "Agent|Second|Third\""
+    };
+    for (int i = 0; i < 4; ++i) {
+        CAPTURE(i);
+        const std::string section = "InputLiteral" + std::to_string(i);
+        // Seed an explicitly quoted value just as the established parser
+        // already supports, then require pending and registered save parity.
+        std::ofstream(source, std::ios::binary) << '[' << section << "]\r\nNames=\""
+            << values[i] << "\"\r\n";
+        REQUIRE(configLoad(source.string().c_str()) == 1);
+        REQUIRE(configSave(saved.string().c_str()) == 1);
+        configRegisterString((section + ".Names").c_str(), registered[i], sizeof(registered[i]));
+        REQUIRE(std::string(registered[i]) == values[i]);
+        registered[i][0] = '\0';
+        REQUIRE(configLoad(saved.string().c_str()) == 1);
+        REQUIRE(std::string(registered[i]) == values[i]);
+        REQUIRE(configSave(saved.string().c_str()) == 1);
+        registered[i][0] = '\0';
+        REQUIRE(configLoad(saved.string().c_str()) == 1);
+        REQUIRE(std::string(registered[i]) == values[i]);
+    }
 }

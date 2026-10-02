@@ -3,6 +3,7 @@
 
 #include <PR/ultratypes.h>
 #include <PR/os_cont.h>
+#include "input_profile_metadata.h"
 
 #ifdef __cplusplus
 extern "C" {

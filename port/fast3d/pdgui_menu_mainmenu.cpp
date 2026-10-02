@@ -57,6 +57,7 @@
 #include "pdgui_widgets.h"   /* Priority L: shared label-left widget helpers */
 #include "pdgui_settings_ui.h"
 #include "pdgui_settings_save_status.h"
+#include "pdgui_input_profile_state.h"
 #include "modmgr_apply.h"
 #include "config.h"
 #include "system.h"
@@ -3461,19 +3462,15 @@ static void renderImcTabBody(float scale, const ImcTabDesc *tab)
     }
 }
 
-#define INPUT_UI_MAX_PROFILES 6
-#define INPUT_UI_MAX_DEVICE_RULES 16
+#define INPUT_UI_MAX_PROFILES INPUT_PROFILE_COUNT
+#define INPUT_UI_MAX_DEVICE_RULES INPUT_DEVICE_RULE_COUNT
 #define INPUT_UI_MAX_CONNECTED_DEVICES 8
 
-struct InputUiDeviceRule {
-    char key[128];
-    char alias[64];
-    s32 profile;
-};
+using InputUiDeviceRule = PdguiInputDeviceRule;
 
 static s32 s_InputSchemeIndex = 0;
 static s32 s_InputDeviceColumn = 1;
-static char s_InputProfileNames[INPUT_UI_MAX_PROFILES][32];
+static char s_InputProfileNames[INPUT_UI_MAX_PROFILES][INPUT_PROFILE_NAME_CAPACITY];
 static InputUiDeviceRule s_InputDeviceRules[INPUT_UI_MAX_DEVICE_RULES];
 static s32 s_InputDeviceRuleCount = 0;
 static bool s_InputProfileStateLoaded = false;
@@ -3493,27 +3490,7 @@ static void inputUiCopy(char *dst, size_t dstSize, const char *src)
 
 static void inputUiSanitizeField(char *str)
 {
-    if (!str) {
-        return;
-    }
-    for (char *p = str; *p; ++p) {
-        unsigned char ch = (unsigned char)*p;
-        if (ch < 0x20 || ch >= 0x7f || ch == '|' || ch == ';' || ch == '~' || ch == '=') {
-            *p = ' ';
-        }
-    }
-}
-
-static void inputUiAppend(char *dst, size_t dstSize, const char *src)
-{
-    if (!dst || dstSize == 0 || !src) {
-        return;
-    }
-    size_t len = strlen(dst);
-    if (len >= dstSize - 1) {
-        return;
-    }
-    strncat(dst, src, dstSize - len - 1);
+    pdguiInputProfileSanitizeField(str);
 }
 
 static void inputUiSetDefaultProfiles(void)
@@ -3533,19 +3510,19 @@ static void inputUiProfilePath(s32 profile, char *out, size_t outSize)
     snprintf(out, outSize, "$S/input-profiles/profile%d.ini", (int)profile + 1);
 }
 
-static void inputUiProfileStateSave(void)
+static void inputUiProfileStateLoad(void);
+
+static bool inputUiProfileStateSave(void)
 {
-    char names[256] = "";
+    char names[INPUT_PROFILE_NAMES_STR_MAX] = "";
     for (s32 i = 0; i < INPUT_UI_MAX_PROFILES; i++) {
         inputUiSanitizeField(s_InputProfileNames[i]);
         if (s_InputProfileNames[i][0] == '\0') {
             snprintf(s_InputProfileNames[i], sizeof(s_InputProfileNames[i]), "Profile %d", (int)i + 1);
         }
-        if (i > 0) inputUiAppend(names, sizeof(names), "|");
-        inputUiAppend(names, sizeof(names), s_InputProfileNames[i]);
     }
 
-    char rules[1024] = "";
+    char rules[INPUT_DEVICE_PROFILES_STR_MAX] = "";
     for (s32 i = 0; i < s_InputDeviceRuleCount; i++) {
         InputUiDeviceRule *rule = &s_InputDeviceRules[i];
         inputUiSanitizeField(rule->key);
@@ -3555,15 +3532,24 @@ static void inputUiProfileStateSave(void)
         }
         if (rule->profile < 0) rule->profile = 0;
         if (rule->profile >= INPUT_UI_MAX_PROFILES) rule->profile = INPUT_UI_MAX_PROFILES - 1;
-        char entry[240];
-        snprintf(entry, sizeof(entry), "%s%d~%s~%s",
-                 rules[0] ? ";" : "", (int)rule->profile, rule->alias, rule->key);
-        inputUiAppend(rules, sizeof(rules), entry);
+    }
+
+    if (!pdguiInputProfileStateSerialize(s_InputProfileNames, INPUT_UI_MAX_PROFILES,
+            s_InputDeviceRules, s_InputDeviceRuleCount,
+            names, sizeof(names), rules, sizeof(rules))) {
+        // Restore the accepted in-memory config, which may itself be waiting
+        // for checked machine-save retry. Do not publish a truncated prefix.
+        s_InputProfileStateLoaded = false;
+        inputUiProfileStateLoad();
+        snprintf(s_InputStatus, sizeof(s_InputStatus),
+                 "Device profile edit was not applied: storage is full. Shorten device names and try again.");
+        return false;
     }
 
     inputProfilesSetNamesIni(names);
     inputProfilesSetDeviceRulesIni(rules);
     settingsRequestMachineSave();
+    return true;
 }
 
 static void inputUiProfileStateLoad(void)
@@ -3575,7 +3561,7 @@ static void inputUiProfileStateLoad(void)
     inputUiSetDefaultProfiles();
     s_InputDeviceRuleCount = 0;
 
-    char names[256];
+    char names[INPUT_PROFILE_NAMES_STR_MAX];
     inputUiCopy(names, sizeof(names), inputProfilesGetNamesIni());
     char *tok = strtok(names, "|");
     for (s32 i = 0; tok && i < INPUT_UI_MAX_PROFILES; i++) {
@@ -3584,7 +3570,7 @@ static void inputUiProfileStateLoad(void)
         tok = strtok(NULL, "|");
     }
 
-    char rules[1024];
+    char rules[INPUT_DEVICE_PROFILES_STR_MAX];
     inputUiCopy(rules, sizeof(rules), inputProfilesGetDeviceRulesIni());
     char *entry = strtok(rules, ";");
     while (entry && s_InputDeviceRuleCount < INPUT_UI_MAX_DEVICE_RULES) {
@@ -3633,7 +3619,7 @@ static InputUiDeviceRule *inputUiFindDeviceRule(const char *key, const char *def
     rule->profile = inputProfilesGetActive();
     inputUiSanitizeField(rule->key);
     inputUiSanitizeField(rule->alias);
-    inputUiProfileStateSave();
+    if (!inputUiProfileStateSave()) return NULL;
     return rule;
 }
 

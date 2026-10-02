@@ -113,6 +113,24 @@ TEST_CASE("Settings Input tab names controllers and assigns binding profiles",
 	requireContains(inputC, "actionmapClassifyDeviceName");
 }
 
+TEST_CASE("Settings publishes complete profile metadata before requesting persistence",
+          "[input][settings][static][profile-state]")
+{
+    const std::string menu = readTextFile("port/fast3d/pdgui_menu_mainmenu.cpp");
+    const std::string save = sliceBetween(menu, "static bool inputUiProfileStateSave(void)",
+        "static void inputUiProfileStateLoad(void)");
+    REQUIRE(!save.empty());
+    requireContains(save, "pdguiInputProfileStateSerialize(");
+    requireContains(save, "inputUiProfileStateLoad();");
+    requireContains(save, "return false;");
+    REQUIRE(save.find("return false;") < save.find("inputProfilesSetNamesIni(names)"));
+    REQUIRE(save.find("return false;") < save.find("inputProfilesSetDeviceRulesIni(rules)"));
+    REQUIRE(save.find("inputProfilesSetDeviceRulesIni(rules)") < save.find("settingsRequestMachineSave()"));
+    requireNotContains(menu, "char rules[1024]");
+    requireContains(menu, "char rules[INPUT_DEVICE_PROFILES_STR_MAX]");
+    requireContains(menu, "if (!inputUiProfileStateSave()) return NULL;");
+}
+
 TEST_CASE("Input profiles save and load real action-map bindings",
           "[input][settings][static][c3819]")
 {

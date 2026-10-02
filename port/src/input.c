@@ -87,9 +87,6 @@ static s32 numJoysticks = 0;
 static s32 useHIDAPI = 1;
 static s32 useRawInput = 1;
 
-#define INPUT_PROFILE_NAMES_STR_MAX 256
-#define INPUT_DEVICE_PROFILES_STR_MAX 1024
-
 static char inputProfileNamesIni[INPUT_PROFILE_NAMES_STR_MAX] =
 	"Default|Shooter|Accessibility|HOTAS/HOSAS|MKB|Custom";
 static char inputDeviceProfilesIni[INPUT_DEVICE_PROFILES_STR_MAX] = "";

@@ -12,7 +12,6 @@
 #define CONFIG_MAX_SECNAME 128
 #define CONFIG_MAX_KEYNAME 256
 #define CONFIG_MAX_SETTINGS 2048
-#define CONFIG_PENDING_VAL_MAX 256
 
 typedef enum {
 	CFG_NONE,
@@ -40,7 +39,7 @@ struct configentry {
 	 * pd.ini is read (in configInit) before pdguiThemeInit registers its
 	 * Video.* keys — the saved value was silently dropped and the next
 	 * restart reverted to defaults. */
-	char pending[CONFIG_PENDING_VAL_MAX];
+	char *pending;
 	u8 has_pending;
 } settings[CONFIG_MAX_SETTINGS];
 
@@ -114,7 +113,7 @@ static inline const char *configGetSection(char *sec, const struct configentry *
 
 /* Forward declarations for S305 pending-value replay plumbing. */
 static void configApplyEntry(struct configentry *cfg, const char *val);
-static void configStashPending(struct configentry *cfg, const char *val);
+static s32 configStashPending(struct configentry *cfg, const char *val);
 
 /* S305: replay a pending raw value (stashed by configLoad before this
  * entry was registered).  Called at the tail of every configRegister*. */
@@ -123,7 +122,8 @@ static void configReplayPending(struct configentry *cfg)
 	if (cfg && cfg->has_pending) {
 		configApplyEntry(cfg, cfg->pending);
 		cfg->has_pending = 0;
-		cfg->pending[0] = '\0';
+		free(cfg->pending);
+		cfg->pending = NULL;
 	}
 }
 
@@ -213,31 +213,39 @@ static void configApplyEntry(struct configentry *cfg, const char *val)
 	}
 }
 
-static void configStashPending(struct configentry *cfg, const char *val)
+static s32 configStashPending(struct configentry *cfg, const char *val)
 {
-	if (!cfg || !val) return;
-	const size_t maxlen = CONFIG_PENDING_VAL_MAX - 1;
-	strncpy(cfg->pending, val, maxlen);
-	cfg->pending[maxlen] = '\0';
+	if (!cfg || !val) return 0;
+	const size_t length = strlen(val);
+	if (length == (size_t)-1) return 0;
+	char *pending = malloc(length + 1);
+	if (!pending) {
+		sysLogPrintf(LOG_ERROR, "configLoad: cannot retain complete pending value for %s", cfg->key);
+		return 0;
+	}
+	memcpy(pending, val, length + 1);
+	free(cfg->pending);
+	cfg->pending = pending;
 	cfg->has_pending = 1;
+	return 1;
 }
 
-static void configSetFromString(const char *key, const char *val)
+static s32 configSetFromString(const char *key, const char *val)
 {
 	/* S305: use FindOrAdd so keys loaded from pd.ini BEFORE the owning
 	 * subsystem has registered their ptr still retain the raw value.
 	 * configRegister* will replay pending values when the entry type
 	 * gets set. */
 	struct configentry *cfg = configFindOrAddEntry(key);
-	if (!cfg) return;
+	if (!cfg) return 0;
 
 	if (cfg->type == CFG_NONE) {
 		/* Not yet registered — stash raw value for later replay. */
-		configStashPending(cfg, val);
-		return;
+		return configStashPending(cfg, val);
 	}
 
 	configApplyEntry(cfg, val);
+	return 1;
 }
 
 /* Capture normalized numeric values without changing live settings before the
@@ -274,6 +282,19 @@ static void configCaptureSaveValues(union configsavevalue *values, s32 count)
     }
 }
 
+static s32 configWriteString(FILE *f, const char *key, const char *text)
+{
+    const size_t length = strlen(text);
+    /* The existing reader trims outside whitespace and removes a leading
+     * quote plus the final quote. Add an outer pair only when needed to keep
+     * those characters as literal field content. Inner quotes/backslashes
+     * have no escape semantics in this established format. */
+    const s32 quote = length && (text[0] == '"' ||
+        isspace((unsigned char)text[0]) || isspace((unsigned char)text[length - 1]));
+    return quote ? fprintf(f, "%s=\"%s\"\n", key, text) >= 0
+                 : fprintf(f, "%s=%s\n", key, text) >= 0;
+}
+
 static s32 configSaveEntry(const struct configentry *cfg, FILE *f,
                           const union configsavevalue *value)
 {
@@ -282,10 +303,10 @@ static s32 configSaveEntry(const struct configentry *cfg, FILE *f,
     case CFG_S32: return fprintf(f, "%s=%d\n", key, value->int_value) >= 0;
     case CFG_F32: return fprintf(f, "%s=%f\n", key, value->float_value) >= 0;
     case CFG_U32: return fprintf(f, "%s=%u\n", key, value->uint_value) >= 0;
-    case CFG_STR: return fprintf(f, "%s=%s\n", key, (const char *)cfg->ptr) >= 0;
+    case CFG_STR: return configWriteString(f, key, (const char *)cfg->ptr);
     default:
         /* Keep late-registered subsystem values and their existing format. */
-        return !cfg->has_pending || fprintf(f, "%s=%s\n", key, cfg->pending) >= 0;
+        return !cfg->has_pending || configWriteString(f, key, cfg->pending);
     }
 }
 
@@ -347,6 +368,29 @@ s32 configSave(const char *fname)
     return 1;
 }
 
+/* Read one complete logical line. EOF without a newline is a valid final
+ * line; allocation/stream failures reject loading instead of parsing a prefix. */
+static s32 configReadLine(FILE *stream, char **buffer, size_t *capacity)
+{
+	size_t length = 0;
+	int ch;
+	while ((ch = fgetc(stream)) != EOF) {
+		if (length >= *capacity - 1) {
+			if (*capacity > (size_t)-1 / 2) return -1;
+			const size_t grownCapacity = *capacity * 2;
+			char *grown = realloc(*buffer, grownCapacity);
+			if (!grown) return -1;
+			*buffer = grown;
+			*capacity = grownCapacity;
+		}
+		(*buffer)[length++] = (char)ch;
+		if (ch == '\n') break;
+	}
+	if (ferror(stream)) return -1;
+	(*buffer)[length] = '\0';
+	return length ? 1 : 0;
+}
+
 s32 configLoad(const char *fname)
 {
 	FILE *f = fsFileOpenRead(fname);
@@ -357,11 +401,18 @@ s32 configLoad(const char *fname)
 	char curSec[CONFIG_MAX_SECNAME + 1] = { 0 };
 	char keyBuf[CONFIG_MAX_SECNAME * 2 + 2] = { 0 }; // SECTION + . + KEY + \0
 	char token[UTIL_MAX_TOKEN + 1] = { 0 };
-	char lineBuf[2048] = { 0 };
+	size_t lineCapacity = 2048;
+	char *lineBuf = malloc(lineCapacity);
+	if (!lineBuf) {
+		fsFileFree(f);
+		sysLogPrintf(LOG_ERROR, "configLoad: cannot allocate line buffer");
+		return 0;
+	}
 	char *line = lineBuf;
-	s32 lineLen = 0;
+	s32 readResult;
+	s32 loaded = 1;
 
-	while (fgets(lineBuf, sizeof(lineBuf), f)) {
+	while ((readResult = configReadLine(f, &lineBuf, &lineCapacity)) > 0) {
 		line = lineBuf;
 
 		line = strParseToken(line, token, NULL);
@@ -394,13 +445,21 @@ s32 configLoad(const char *fname)
 			if (line[0] == '"') {
 				line = strUnquote(line);
 			}
-			configSetFromString(keyBuf, line);
+			if (!configSetFromString(keyBuf, line)) {
+				loaded = 0;
+				break;
+			}
 		}
 	}
 
+	if (readResult < 0) {
+		sysLogPrintf(LOG_ERROR, "configLoad: cannot read complete configuration line");
+		loaded = 0;
+	}
+	free(lineBuf);
 	fsFileFree(f);
 
-	return 1;
+	return loaded;
 }
 
 void configInit(void)
