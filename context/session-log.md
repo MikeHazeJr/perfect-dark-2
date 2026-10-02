@@ -1,5 +1,43 @@
 # Session Log (Active)
 
+2026-10-02 04:33 UTC, model gpt-6: V2normal-frame exit polling and bounded native
+stdout/stderr fixes pass queuedclient/tests, focused12/488 andpreview1/4. PS5.1/7
+each35tinyconsolechecks pass. Canonicalaudio23/23, animation20/20 andMP36/6 with
+10nativecases pass on7CB077E3/client,454EBDC7/tests,seed28b2cf25,public46807f6b.
+Actualaudio710587consolebytes drainswith131072retained,1006ms scheduler/nativeexit0;
+animation15parts/15nondefault/5changed, no layoutreject. First03:28-03:54 window's
+transportabort preserved failed/pinned with exactV1compiledsource, no verdict
+fabrication. V2actualheavy04:19:15-04:33:44, upper04:49:15, zeroownedprocess/FIFO.
+Fourrecord operationalledger9781bytes/SHA6792ccca binds nativewitnesses and seed
+identities, keeps strictmember/fidelity pending. Light source/currentWorkbench
+publication follows; CUAexecutor/app-inputapproval and parent15m canonicalpreview
+remain required before actualdraw/contact/ordinaryUI/device acceptance. Full
+corpus/listening/animationfidelity and latergraph migration remain open. Existing
+Default readinessJSON unchanged;11:00UTC nightdeadline active. No broadreset/stage,
+unrelated control or historicalcleanup. Evidence20261002-night/probe-native-v2/.
+
+2026-10-02 02:56 UTC, model gpt-6: six exact scoped commits pushed to origin/dev,
+remote8bda44832c4a3959108b9273699229b6a92f4716 verified. Graph/Settings/preview/
+texture/native-consumer/immutable-tooling audits and index proofs retained.
+Fresh lightweight FIFO checks93asset/19storage/17Windows plus27native/10JSON/
+5readiness eachPS5.1/7 passed; MSYS-firstPATH still selects native Windows Python.
+No production rebuild needed; retained accepted4AE22FA3 native cohort27/27 intact.
+Compact Workbench current truth replaces stale nested readiness/producer blockers,
+preserving append-only history/evidence. No heavy operation this night; parent
+requested Astral10m lease02:51UTC and PD confirmed0heavy, yielded. NextPD15m
+unchanged canonical audio source gate needs explicit parent handoff, followed
+by separate CUA app approval/preview window. Full draw/fidelity/ordinary UI/
+physical-device acceptance open. Night deadline07:00Eastern/11:00UTC preserved.
+
+2026-10-02 02:20 UTC, model gpt-6: resumed approved night work at21:51:51Eastern,
+deadline07:00Eastern. N0315 records scope/Git authorization; N0316 claims exact
+Settings publication surfaces. Graph inventory11 tests/source checker/guardPASS;
+four-file commit b0db47d7 pushed and origin/dev SHA verified. Review confirms
+Settings complete16-rule/config pending-value repair with retained native proof;
+ordinary UI edit/restart/device gates remain open. No heavy launch or cleanup.
+Requested bounded15m audio/source then separate30m interactive preview handoff;
+native app approval remains separate. Evidence20261002-night/graph-publication.
+
 Sep29 22:32 T-MENUS-003/004 continuation: first mapped Accept now reveals
 native navigation, Agent Select requests its selected row on entry, and the
 virtual SDL fixture maps every advertised button (including Touchpad) without

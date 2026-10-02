@@ -12333,11 +12333,14 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	        std::string::npos);
 	REQUIRE(main_c.find("track = modSequenceVirtualTrackForCatalogId(asset_id)") !=
 	        std::string::npos);
-	REQUIRE(main_c.find("modSequenceLoad((u16)track, &compiled_size)") !=
-	        std::string::npos);
-	REQUIRE(main_c.find("sysMemFree(compiled)") != std::string::npos);
-	REQUIRE(main_c.find("modSequenceLoad((u16)track, &compiled_size)") <
-	        main_c.find("BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK track=%d state=registered"));
+	{
+		const std::string song_probe = functionBlock(main_c,
+			"static s32 bootDebugPlayCatalogSong");
+		REQUIRE(song_probe.find("n_alCSPGetState(seq->seqp) != AL_STOPPED") != std::string::npos);
+		REQUIRE(song_probe.find("seqPlay(seq, track)") < song_probe.find("playback=native_sequence"));
+		REQUIRE(song_probe.find("modSequenceLoad(") == std::string::npos);
+		REQUIRE(song_probe.find("state=registered") == std::string::npos);
+	}
 	REQUIRE(mod.find("modSequencePathHasAudioExtension(r.path)") !=
 	        std::string::npos);
 	REQUIRE(mod.find("modMusicPlay(r.path)") != std::string::npos);
@@ -12563,10 +12566,17 @@ TEST_CASE("Settings Debug can force one asset family to public file source",
 	        std::string::npos);
 	REQUIRE(main_c.find("bootDebugPlayCatalogSong(kind, asset_id, &audio)") !=
 	        std::string::npos);
-	REQUIRE(main_c.find("state=registered") != std::string::npos);
+	REQUIRE(main_c.find("sndIsPlayingPublicMp3Sound((s16)audio->sound_id)") != std::string::npos);
+	REQUIRE(main_c.find("audioFileSoundOwnsHandle(state)") != std::string::npos);
+	REQUIRE(main_c.find("state=registered") == std::string::npos);
 	REQUIRE(main_c.find("state=unassigned") != std::string::npos);
 	REQUIRE(main_c.find("static void bootExitAfterCatalogProbesIfRequested(void)") !=
 	        std::string::npos);
+	REQUIRE(functionBlock(main_c, "void bootCatalogProbeExitTick(void)").find(
+		"bootExitAfterCatalogProbesIfRequested();") != std::string::npos);
+	const std::string regular_tick = functionBlock(readTextFile("port/src/pdmain.c"),
+		"void mainTick(void)");
+	requireTokenOrder(regular_tick, "smokeHarnessTick();", "bootCatalogProbeExitTick();");
 	REQUIRE(main_c.find("--debug-load-catalog-assets-file") !=
 	        std::string::npos);
 	REQUIRE(main_c.find("bootApplyDebugLoadCatalogAssetsFile") !=

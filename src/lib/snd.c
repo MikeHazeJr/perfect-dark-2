@@ -981,6 +981,20 @@ bool sndIsPlayingMp3(void)
 	return g_SndCurMp3.playing;
 }
 
+bool sndIsPlayingPublicMp3Sound(s16 soundnum)
+{
+	union soundnumhack requested;
+	requested.packed = soundnum;
+	if (requested.hasconfig) {
+		requested.packed = g_AudioRussMappings[requested.confignum].soundnum;
+		requested.hasconfig = false;
+	}
+	return !g_SndDisabled && g_SndMp3Enabled && requested.mp3priority != 0
+		&& g_SndCurMp3.playing && g_SndCurMp3.source_pcm != NULL
+		&& g_SndCurMp3.source_frames > 0 && func00037ea4() != 0
+		&& requested.packed == g_SndCurMp3.sfxref.packed;
+}
+
 s32 sndMp3HarnessWitness(asset_mp3_witness_t *out)
 {
 	if (!smokeHarnessIsActive() || !out || g_SndDisabled || !g_SndMp3Enabled) return 0;

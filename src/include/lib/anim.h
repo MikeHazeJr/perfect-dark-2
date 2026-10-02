@@ -29,6 +29,7 @@ bool animIsFrameCutSkipped(s16 animnum, s32 frame);
 u8 animLoadFrame(s16 animnum, s32 framenum);
 void animForgetFrameBirths(void);
 void animLoadHeader(s16 animnum);
+enum anim_frame_layout_result animGetLoadedPartCount(s16 animnum, u32 *partcount);
 void animGetRotTranslateScale(s32 part, bool flip, struct skeleton *skel, s16 animnum, u8 frameslot, struct coord *rot, struct coord *translate, struct coord *scale);
 u16 animGetPosAngleAsInt(s32 part, bool flip, struct skeleton *skel, s16 animnum, s32 framenum, s16 inttranslate[3], bool arg6);
 f32 animGetTranslateAngle(s32 part, bool flip, struct skeleton *skel, s16 animnum, s32 framenum, struct coord *pos, bool arg6);

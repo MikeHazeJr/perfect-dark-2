@@ -1,5 +1,36 @@
 # Tasks
 
+2026-10-02 04:33 UTC: corrected native gates pass audio23/23, clip-bounded
+animation20/20 and MP36/6 with10nativecases on client7CB077E3/seed28b2cf25.
+Queued client/tests pass; focused12cases488assert pluspreview1/4 pass. Console
+drains710587bytes with131072retained; scheduler1006ms/nativeexit0. Prior transport
+abort stays failed/pinned. Actual heavy04:19:15-04:33:44, upper04:49:15; released
+zeroownedprocess/FIFO. Four-record operational ledger9781bytes/hash6792ccca reads
+receipt/seedmetadata only; strictmembers/draw/fidelity pending. Light scoped probe,
+harness and current Workbench publication follows six pushed units latest8bda4483.
+Supported CUA/app-input executor plus parent15m canonical preview remains needed;
+keep180s readiness/240s nativecap/fourcaptures. UI/restart/physicaldevices and full
+corpus/contact acceptance remain open. Deadline11:00UTC; no cleanup/bulk staging.
+
+2026-10-02 02:56 UTC: six scoped initial units are pushed and remote verified,
+latest8bda4483: graphb0db47d7, Settings81fc120d, preview289d6ca1, texturesa2648384,
+native producer382b50af, bounded tooling8bda4483. Fresh93/19/17 tiny checks and
+27/10/5 eachPS5.1/7 pass; retained native client4AE22FA3/seed6b8d0268 proof unchanged.
+Current Workbench summaries preserve history and clearly leave actual draw,
+contact sheets, animation/audio/nonvisual fidelity and ordinary UI/devices open.
+PD0heavy processes/leases; parent requested Astral10m window02:51UTC and PD yielded.
+NextPD15m canonical sound-enabled audio source gate awaits explicit handoff;
+preview follows separate native app approval/window. Deadline07:00Eastern/11:00UTC.
+See audits/2026/pd-initial-night-checkpoint-2026-10-02.md. No cleanup/bulk staging.
+
+2026-10-02 02:20 UTC: night work resumed21:51:51Eastern under N0315; release
+deadline07:00Eastern/11:00UTC. Graph inventory four-file unit b0db47d7 is pushed
+and verified on origin/dev after11 tests/source checker/guardPASS. Settings unit
+review/publication is active under N0316; retained native config/profile proof
+remains separate from unrun ordinary UI/restart/device acceptance. No heavy
+launch this night yet; awaiting bounded15m audio/source and separate preview
+handoff with Astral. No unrelated source, historical cleanup or broad staging.
+
 Sep29 22:32 T-MENUS-003/004 continuation: first mapped Accept now reveals
 native navigation, Agent Select requests its selected row on entry, and the
 virtual SDL fixture maps every advertised button (including Touchpad) without

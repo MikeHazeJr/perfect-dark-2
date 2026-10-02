@@ -273,8 +273,8 @@ TEST_CASE("charpreview: LOUDFAIL channel for silent black FBO",
 
 	REQUIRE(src.find("PREVIEW.FBO.BLACK:") != std::string::npos);
 	/* Gated by bodymodeldef==NULL so routine loading frames stay quiet. */
-	REQUIRE(src.find("if (mm->bodymodeldef == NULL) {") != std::string::npos);
-	REQUIRE(src.find("model render skipped, FBO will display black")
+	REQUIRE(src.find("if (mm->bodymodeldef == NULL && mm->curparams != 0") != std::string::npos);
+	REQUIRE(src.find("model render skipped, preview remains unavailable")
 	        != std::string::npos);
 }
 

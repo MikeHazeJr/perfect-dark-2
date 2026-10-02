@@ -9,6 +9,89 @@ extern "C" {
 
 #include "lib/anim_bits.h"
 
+TEST_CASE("animation probe counts only complete bounded parts",
+		"[anim][layout][probe-boundaries]")
+{
+	const u8 header[] = {
+		0, ANIMFIELD_S16_ROTATE,
+		0, 0, 8, 0, 0, 8, 0, 0, 8, 0,
+	};
+	u32 count = 99;
+	REQUIRE(animFrameCountPartsBounded(header, sizeof(header), 3, &count)
+		== ANIM_FRAME_LAYOUT_OK);
+	REQUIRE(count == 3u);
+	anim_frame_part_layout layout{};
+	for (u32 part = 0; part < count; part++) {
+		REQUIRE(animFrameLocatePartBounded(header, sizeof(header), 3, part,
+			&layout) == ANIM_FRAME_LAYOUT_OK);
+	}
+	REQUIRE(animFrameLocatePartBounded(header, sizeof(header), 3, count,
+		&layout) == ANIM_FRAME_LAYOUT_HEADER_TRUNCATED);
+}
+
+TEST_CASE("animation probe preserves short zero-width descriptor streams",
+		"[anim][layout][probe-boundaries]")
+{
+	const std::array<u8, 15> header{};
+	u32 count = 99;
+	REQUIRE(animFrameCountPartsBounded(header.data(), header.size(), 0, &count)
+		== ANIM_FRAME_LAYOUT_OK);
+	REQUIRE(count == header.size());
+	const u8 one_part = 0;
+	REQUIRE(animFrameCountPartsBounded(&one_part, 1, 0, &count)
+		== ANIM_FRAME_LAYOUT_OK);
+	REQUIRE(count == 1u);
+}
+
+TEST_CASE("animation probe rejects malformed streams without a partial count",
+		"[anim][layout][probe-boundaries]")
+{
+	const u8 truncated[] = {0, ANIMFIELD_S16_ROTATE, 0, 0, 8};
+	const u8 invalid_flags[] = {0, 0x04};
+	const u8 invalid_width[] = {0, ANIMFIELD_S16_ROTATE,
+		0, 0, 17, 0, 0, 0, 0, 0, 0};
+	const u8 exact[] = {0, ANIMFIELD_S16_ROTATE,
+		0, 0, 8, 0, 0, 8, 0, 0, 8};
+	u32 count = 99;
+	REQUIRE(animFrameCountPartsBounded(truncated, sizeof(truncated), 3, &count)
+		== ANIM_FRAME_LAYOUT_HEADER_TRUNCATED);
+	REQUIRE(count == 0u);
+	count = 99;
+	REQUIRE(animFrameCountPartsBounded(invalid_flags, sizeof(invalid_flags), 0, &count)
+		== ANIM_FRAME_LAYOUT_INVALID_FLAGS);
+	REQUIRE(count == 0u);
+	count = 99;
+	REQUIRE(animFrameCountPartsBounded(invalid_width, sizeof(invalid_width), 3, &count)
+		== ANIM_FRAME_LAYOUT_FIELD_WIDTH_INVALID);
+	REQUIRE(count == 0u);
+	count = 99;
+	REQUIRE(animFrameCountPartsBounded(exact, sizeof(exact), 2, &count)
+		== ANIM_FRAME_LAYOUT_PAYLOAD_TRUNCATED);
+	REQUIRE(count == 0u);
+	REQUIRE(animFrameCountPartsBounded(exact, sizeof(exact), 3, &count)
+		== ANIM_FRAME_LAYOUT_OK);
+	REQUIRE(count == 2u);
+}
+
+TEST_CASE("animation probe rejects missing inputs and uses wide bit capacity",
+		"[anim][layout][probe-boundaries]")
+{
+	const u8 header[] = {ANIMFIELD_F32_ROTATE};
+	u32 count = 99;
+	REQUIRE(animFrameCountPartsBounded(nullptr, 1, 1, &count)
+		== ANIM_FRAME_LAYOUT_INVALID_ARGUMENT);
+	REQUIRE(count == 0u);
+	count = 99;
+	REQUIRE(animFrameCountPartsBounded(header, 0, 1, &count)
+		== ANIM_FRAME_LAYOUT_INVALID_ARGUMENT);
+	REQUIRE(count == 0u);
+	REQUIRE(animFrameCountPartsBounded(header, sizeof(header), 12, nullptr)
+		== ANIM_FRAME_LAYOUT_INVALID_ARGUMENT);
+	REQUIRE(animFrameCountPartsBounded(header, sizeof(header), 0xffffffffu, &count)
+		== ANIM_FRAME_LAYOUT_OK);
+	REQUIRE(count == 1u);
+}
+
 TEST_CASE("bounded animation bit reader preserves big-endian fields",
 		"[anim][bitstream][B-1101]")
 {

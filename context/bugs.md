@@ -1,5 +1,17 @@
 # Bug Tracker
 
+2026-10-02 T-TOOLING-008 native probe boundary corrections: audio registration
+and sequence compilation formerly passed without a player. Native public file
+voice/MP3 ownership and seqPlay now replace that success path; the corrected
+audio gate passes23/23 with three native starts,1006ms scheduler window and exit0.
+An unpolled delayed exit and inherited console flood aborted the first run; it
+remains failed/pinned. The regular frame loop now polls the armed exit, and both
+wrapper launch paths drain bounded stdout/stderr independently of game assertions.
+Actual audio console710587bytes drains with131072 retained. Tiny35checks pass
+eachPS5.1/7. Animation's fixed128part probe requested beyond valid short clips;
+bounded full-stream counting observes15actualparts for BigSneeze. Fidelity and
+ordinary UI remain open. Evidence: audits/2026/pd-initial-night-checkpoint-2026-10-02.md.
+
 Sep29 T-MENUS-004 ordinary virtual-controller receipt873C is red26/29:
 first A enters Create and first B leaves the editor, but second B logs
 agent_select.back while releasing agent_create. menuRenderDialog queued the

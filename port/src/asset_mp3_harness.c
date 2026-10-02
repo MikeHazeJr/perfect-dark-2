@@ -115,8 +115,11 @@ int assetSourceMp3HarnessRun(void)
     sndResetCurMp3();
     sndStartMp3(mp3SoundForSmoke(files[0], 2), 0x7fff, 64, 0);
     if (!sndMp3HarnessWitness(&first) || !mp3CheckForSmoke("actual_source_pcm",
-            first.playing && first.frames == samples / 2u && first.pcm
-            && !memcmp(first.pcm, expected, samples * sizeof(s16)))) goto done;
+	    first.playing && first.frames == samples / 2u && first.pcm
+	    && !memcmp(first.pcm, expected, samples * sizeof(s16))
+	    && sndIsPlayingPublicMp3Sound(mp3SoundForSmoke(files[0], 2))
+	    && !sndIsPlayingPublicMp3Sound(mp3SoundForSmoke(files[1], 2))
+	    && !sndIsPlayingPublicMp3Sound(0))) goto done;
     ++passed;
     if (!mp3CheckForSmoke("five_pull_start_delay", mp3DelayForSmoke(4) && mp3PullForSmoke() == 1)) goto done;
     ++passed;
@@ -131,14 +134,17 @@ int assetSourceMp3HarnessRun(void)
     ++passed;
     sndTick();
     if (!sndMp3HarnessWitness(&witness) || !mp3CheckForSmoke("completion_releases_owner",
-            !witness.playing && !witness.pcm && witness.frames == 0)) goto done;
+	    !witness.playing && !witness.pcm && witness.frames == 0
+	    && !sndIsPlayingPublicMp3Sound(mp3SoundForSmoke(files[0], 2)))) goto done;
     ++passed;
 
     sndStartMp3(mp3SoundForSmoke(files[0], 1), 0x7fff, 64, 0);
     if (!sndMp3HarnessWitness(&first)) goto done;
     sndStartMp3(mp3SoundForSmoke(files[1], 1), 0x7fff, 64, 0);
     if (!sndMp3HarnessWitness(&witness) || !mp3CheckForSmoke("equal_high_priority_rejected",
-            witness.playing && witness.pcm == first.pcm && witness.soundnum == first.soundnum)) goto done;
+	    witness.playing && witness.pcm == first.pcm && witness.soundnum == first.soundnum
+	    && sndIsPlayingPublicMp3Sound(mp3SoundForSmoke(files[0], 1))
+	    && !sndIsPlayingPublicMp3Sound(mp3SoundForSmoke(files[1], 1)))) goto done;
     ++passed;
     if (!sndStopMp3(0)) goto done;
     sndStartMp3(mp3SoundForSmoke(files[0], 3), 0x7fff, 64, 0);
@@ -149,7 +155,8 @@ int assetSourceMp3HarnessRun(void)
     ++passed;
     if (!sndStopMp3(0) || !sndMp3HarnessWitness(&witness)
             || !mp3CheckForSmoke("explicit_stop_releases", !witness.playing && !witness.pcm
-                && !witness.frames && func00037ea4() == 0)) goto done;
+	        && !witness.frames && func00037ea4() == 0
+	        && !sndIsPlayingPublicMp3Sound(mp3SoundForSmoke(files[1], 2)))) goto done;
     ++passed;
 
     sndStartMp3(mp3SoundForSmoke(files[0], 2), 0x7fff, 64, 0);

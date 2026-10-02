@@ -5,6 +5,7 @@
 #include <math.h>
 #define SDL_MAIN_HANDLED
 #include <SDL.h>
+#include <n_libaudio.h>
 #include <PR/ultratypes.h>
 #include <PR/ultrasched.h>
 #include <PR/os_message.h>
@@ -2097,6 +2098,8 @@ static const char *g_BootDebugProbeAnimationSourceArg = NULL;
 static s32 g_BootDebugProbeAnimationSourceOnly = 0;
 static const char *g_BootDebugPlayCatalogAudioArg = NULL;
 static s32 g_BootDebugPlayCatalogAudioSourceOnly = 0;
+static s32 g_BootDebugAudioPlaybackStarted = 0;
+static u32 g_BootDebugAudioPlaybackStartTicks = 0;
 
 static const char *bootDebugAudioCategoryName(s32 category)
 {
@@ -2132,16 +2135,17 @@ static s32 bootDebugPlayCatalogSound(const char *kind, const char *asset_id,
 	struct sndstate *state;
 
 	state = sndStart(0, (s16)audio->sound_id, &handle, -1, -1, -1.0f, -1, -1);
-	if (state) {
+	if (state && audioFileSoundOwnsHandle(state)
+			&& audioFileSoundGetState(state) == AL_PLAYING) {
 		sysLogPrintf(LOG_NOTE,
-			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK sound=%d handle=%p state=%p",
+			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK sound=%d playback=file_voice handle=%p state=%p",
 			kind, asset_id, audio->sound_id, (void *)handle, (void *)state);
 		return 1;
 	}
-	if (audio->entry && audio->entry->load_state >= ASSET_STATE_LOADED) {
+	if (sndIsPlayingPublicMp3Sound((s16)audio->sound_id)) {
 		sysLogPrintf(LOG_NOTE,
-			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK sound=%d handle=%p state=registered",
-			kind, asset_id, audio->sound_id, (void *)handle);
+			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK sound=%d playback=public_mp3 state=native_started",
+			kind, asset_id, audio->sound_id);
 		return 1;
 	}
 	sysLogPrintf(LOG_WARNING,
@@ -2159,19 +2163,31 @@ static s32 bootDebugPlayCatalogSong(const char *kind, const char *asset_id,
 		track = modSequenceVirtualTrackForCatalogId(asset_id);
 	}
 	if (track >= 0) {
-		u32 compiled_size = 0;
-		void *compiled = modSequenceLoad((u16)track, &compiled_size);
-		if (!compiled) {
+		if (g_SndDisabled) {
 			sysLogPrintf(LOG_WARNING,
-				"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=FAIL track=%d state=compile_failed",
+				"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=FAIL track=%d state=audio_disabled",
 				kind, asset_id, track);
 			return 0;
 		}
-		sysMemFree(compiled);
+		for (s32 i = 0; i < ARRAYCOUNT(g_SeqInstances); i++) {
+			struct seqinstance *seq = &g_SeqInstances[i];
+			if (seq->seqp == NULL || n_alCSPGetState(seq->seqp) != AL_STOPPED) {
+				continue;
+			}
+			if (seqPlay(seq, track)) {
+				seqSetVolume(seq, musicGetVolume());
+				sysLogPrintf(LOG_NOTE,
+					"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK track=%d playback=native_sequence player=%d state=native_started",
+					kind, asset_id, track, i);
+				return 1;
+			}
+			/* A rejected source must not be retried in a different player. */
+			break;
+		}
 		sysLogPrintf(LOG_NOTE,
-			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=OK track=%d state=registered",
+			"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=FAIL track=%d state=playback_rejected",
 			kind, asset_id, track);
-		return 1;
+		return 0;
 	}
 	sysLogPrintf(LOG_WARNING,
 		"BOOT: --debug-play-catalog-audio result kind=%s id='%s' result=FAIL track=%d state=unassigned",
@@ -2242,6 +2258,10 @@ static void bootApplyDebugPlayCatalogAudioToken(char *token,
 	} else if (loaded) {
 		loaded = bootDebugPlayCatalogSound(kind, asset_id, &audio);
 	}
+	if (loaded) {
+		g_BootDebugAudioPlaybackStarted = 1;
+		g_BootDebugAudioPlaybackStartTicks = SDL_GetTicks();
+	}
 	if (force_source_only) {
 		assetSourceDebugSetOnlyType(prior_source_only);
 	}
@@ -2254,10 +2274,25 @@ static void bootApplyDebugPlayCatalogAudioToken(char *token,
 
 static void bootExitAfterCatalogProbesIfRequested(void)
 {
-	if (sysArgCheck("--debug-exit-after-catalog-probes")
+	if (g_BootDebugLoadCatalogAssetsApplied
+			&& sysArgCheck("--debug-exit-after-catalog-probes")
 			&& smokeHarnessIsActive()) {
+		if (g_BootDebugAudioPlaybackStarted) {
+			u32 elapsed = SDL_GetTicks() - g_BootDebugAudioPlaybackStartTicks;
+			/* Let the normal audio scheduler run before ending a playback probe. */
+			if (elapsed < 1000u) {
+				return;
+			}
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: catalog audio native playback scheduler window elapsed_ms=%u", elapsed);
+		}
 		smokeHarnessExit(0, "scripted_exit");
 	}
+}
+
+void bootCatalogProbeExitTick(void)
+{
+	bootExitAfterCatalogProbesIfRequested();
 }
 
 static void bootApplyDebugPlayCatalogAudio(const char *arg,
@@ -2562,6 +2597,8 @@ static void bootApplyDebugProbeAnimationSource(void)
 	s32 non_default = 0;
 	s32 changed = 0;
 	s32 samples = 0;
+	u32 part_count = 0;
+	enum anim_frame_layout_result layout_result;
 
 	if (!asset_id || !asset_id[0]) {
 		return;
@@ -2613,7 +2650,19 @@ static void bootApplyDebugProbeAnimationSource(void)
 	second_frame = g_Anims[animnum].numframes > 1 ? 1 : 0;
 	frame1 = animLoadFrame((s16)animnum, second_frame);
 
-	for (s32 part = 0; part < 128; part++) {
+	layout_result = animGetLoadedPartCount((s16)animnum, &part_count);
+	if (layout_result != ANIM_FRAME_LAYOUT_OK
+			|| frame0 >= ANIM_FRAME_CACHE_SIZE || frame1 >= ANIM_FRAME_CACHE_SIZE) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --debug-probe-animation-source result id='%s' result=FAIL layout=%s frame0_slot=%u frame1_slot=%u",
+			asset_id, animFrameLayoutResultString(layout_result), (unsigned)frame0, (unsigned)frame1);
+		if (g_BootDebugProbeAnimationSourceOnly) {
+			assetSourceDebugSetOnlyType((asset_type_e)old_source_only);
+		}
+		return;
+	}
+
+	for (s32 part = 0; part < (s32)part_count; part++) {
 		struct coord rot0;
 		struct coord translate0;
 		struct coord scale0;
@@ -2654,6 +2703,10 @@ static void bootApplyDebugProbeAnimationSource(void)
 
 s32 bootApplyDeferredDebugLoadCatalogAssets(void)
 {
+	if (g_BootDebugLoadCatalogAssetsApplied) {
+		bootExitAfterCatalogProbesIfRequested();
+		return 0;
+	}
 	if (!g_BootDebugLoadCatalogAssetsPending) {
 		return 0;
 	}
@@ -2663,6 +2716,10 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void)
 		return 0;
 	}
 	if (bootDebugCatalogProbesNeedAnimationTable()) {
+		return 0;
+	}
+	if (g_BootDebugPlayCatalogAudioArg && !g_SndDisabled
+			&& g_SeqInstances[0].seqp == NULL) {
 		return 0;
 	}
 

@@ -159,6 +159,43 @@ enum anim_frame_layout_result animFrameMeasureDescriptorStreamBounded(
 	return ANIM_FRAME_LAYOUT_OK;
 }
 
+enum anim_frame_layout_result animFrameCountPartsBounded(
+		const u8 *header, u32 headerlen, u32 framebytelen, u32 *partcount)
+{
+	u32 offset = 0;
+	u32 count = 0;
+	u64 bits = 0;
+	u64 capacity = (u64)framebytelen * 8u;
+
+	if (partcount == NULL) {
+		return ANIM_FRAME_LAYOUT_INVALID_ARGUMENT;
+	}
+	*partcount = 0;
+	if (header == NULL || headerlen == 0) {
+		return ANIM_FRAME_LAYOUT_INVALID_ARGUMENT;
+	}
+
+	while (offset < headerlen) {
+		u32 headerbytes;
+		u32 framebits;
+		u8 flags = header[offset++];
+		enum anim_frame_layout_result result = animFrameMeasurePartBounded(
+			header + offset, headerlen - offset, flags, &headerbytes, &framebits);
+		if (result != ANIM_FRAME_LAYOUT_OK) {
+			return result;
+		}
+		if (bits + framebits > capacity) {
+			return ANIM_FRAME_LAYOUT_PAYLOAD_TRUNCATED;
+		}
+		offset += headerbytes;
+		bits += framebits;
+		count++;
+	}
+
+	*partcount = count;
+	return ANIM_FRAME_LAYOUT_OK;
+}
+
 /**
  * Read one big-endian bit-field from a frame payload without crossing the
  * payload boundary. Unlike animReadBits, this entry point owns the complete

@@ -784,6 +784,13 @@ void mainTick(void)
 	 * input dispatch downstream picks them up this frame. */
 	smokeHarnessTick();
 
+	/* Continue the bounded audio scheduler window after startup probes finish.
+	 * The smoke watchdog runs first; ordinary launches have no armed probe. */
+	{
+		extern void bootCatalogProbeExitTick(void);
+		bootCatalogProbeExitTick();
+	}
+
 	/* Navigation-only Mod Manager boot shortcut. Wait until the normal CI
 	 * hotswap menu owns the ImGui input context, then open the same production
 	 * hub/tool used by the main-menu Mods button. */

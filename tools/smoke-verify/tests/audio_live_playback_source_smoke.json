@@ -1,6 +1,6 @@
 {
   "scenario_name": "audio_live_playback_source_smoke",
-  "description": "c3844 B-801 runtime smoke: source-only live playback proof for representative SFX, voice, and music archives.",
+  "description": "Source-only representative SFX, voice and song native player starts with a normal scheduler window; registration/compilation alone cannot pass. Listening quality and full audio corpus fidelity remain separate.",
   "tags": ["modding", "pdxxx", "audio", "source-gate", "c3844", "b801", "smoke", "pillar:modding"],
   "paths_of_interest": [
     "port/src/main.c",
@@ -31,12 +31,13 @@
     "required_lines": [
       "SMOKE: scenario=audio_live_playback_source_smoke",
       "BOOT: --debug-play-catalog-audio request kind=sfx id='base:sfx_alarm_2' source_only=1",
-      "BOOT: --debug-play-catalog-audio result kind=sfx id='base:sfx_alarm_2' result=OK",
+      "BOOT: --debug-play-catalog-audio result kind=sfx id='base:sfx_alarm_2' result=OK .*playback=(file_voice|public_mp3)",
       "BOOT: --debug-play-catalog-audio request kind=voice id='base:voice_cover_me_aiw' source_only=1",
-      "BOOT: --debug-play-catalog-audio result kind=voice id='base:voice_cover_me_aiw' result=OK",
+      "BOOT: --debug-play-catalog-audio result kind=voice id='base:voice_cover_me_aiw' result=OK .*playback=(file_voice|public_mp3)",
       "BOOT: --debug-play-catalog-audio request kind=song id='base:song_sequence_a' source_only=1",
       "CATALOG: music sequence .* -> public sequence source mid=.*base_song_sequence_a\\.pdsong::sequence\\.mid.*events=.*base_song_sequence_a\\.pdsong::sequence\\.json",
-      "BOOT: --debug-play-catalog-audio result kind=song id='base:song_sequence_a' result=OK",
+      "BOOT: --debug-play-catalog-audio result kind=song id='base:song_sequence_a' result=OK .*playback=native_sequence .*state=native_started",
+      "BOOT: catalog audio native playback scheduler window elapsed_ms=[1-9]\\d{3,}",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -50,6 +51,7 @@
       "result=MISSING",
       "CATEGORY_MISMATCH",
       "RomProvider:filenum",
+      "state=registered",
       "--no-sound"
     ],
     "required_counts": [

@@ -39,6 +39,9 @@ enum anim_frame_layout_result animFrameMeasurePartBounded(
 enum anim_frame_layout_result animFrameMeasureDescriptorStreamBounded(
 		const u8 *header, u32 headerlen, u32 framebytelen, u32 partcount,
 		struct anim_frame_stream_layout *layout);
+/* Count the complete validated stream; never publish a partial count. */
+enum anim_frame_layout_result animFrameCountPartsBounded(
+		const u8 *header, u32 headerlen, u32 framebytelen, u32 *partcount);
 enum anim_frame_layout_result animFrameLocatePartBounded(
 		const u8 *header, u32 headerlen, u32 framebytelen, s32 part,
 		struct anim_frame_part_layout *layout);

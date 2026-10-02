@@ -826,7 +826,9 @@ static s32 harnessTextureGeneration(const char *id, const char *folder)
     first_slot = catalogTextureGenerationSlot(first);
     strcpy(first_hash, catalogTextureGenerationHash(first));
     struct tex *first_native = catalogTextureGenerationTexture(first);
-    if (first_slot < TEXTURE_CUSTOM_START || *(s16 *)(first_native->data - 8) != first_slot
+    if (first_slot < TEXTURE_CUSTOM_START || first_slot >= TEXTURE_CUSTOM_END
+            || first_native->texturenum != first_slot
+            || *(u16 *)(first_native->data - 8) != first_slot
             || ((u32 *)first_native->data)[0] != 0xff0000ffu
             || texGetDefinition(first_slot)->surfacetype != SURFACETYPE_WOOD
             || texGetDefinition(first_slot)->soundsurfacetype != SURFACETYPE_METAL) goto done;
@@ -906,6 +908,7 @@ static s32 harnessTextureGeneration(const char *id, const char *folder)
             || texFindInPool(first_slot, &empty_pool) != first_native
             || texGetDefinition(first_slot)->surfacetype != SURFACETYPE_WOOD) goto done;
     step = "native_model";
+    error[0] = 0;
     harness_texture_model_t binding = {&sources, first, 0};
     modasset_model_inputs_t inputs = {&binding, harnessTextureModelRead, harnessTextureModelBind, &empty_pool};
     texResetTiles();

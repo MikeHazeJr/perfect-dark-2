@@ -1,5 +1,26 @@
 # Systemic Bug Patterns — Architectural Issue Catalog
 
+## 2026-10-02 Probes must witness the requested native consumer and its real bounds
+
+Loaded registration and compiled sequence buffers did not establish audio player
+starts. Audio probes now require the exact public file-voice/MP3 owner or seqPlay,
+then allow a normal scheduler window before exit. A fixed128part animation probe
+manufactured high-part errors on a15part clip; full bounded descriptor counting
+rejects malformed streams without partial counts and limits actual native decode.
+Keep these results separate from listening, played poses and visual fidelity.
+T-TOOLING-008 source/evidence: audits/2026/pd-initial-night-checkpoint-2026-10-02.md.
+
+## 2026-10-02 Native console transport needs independent bounded drainage
+
+Inherited stdout overflowed the execution transport before a canonical verdict.
+The first run remains failed/pinned. Both single and multiple process launches
+now drain stdout/stderr continuously into bounded first/final-byte logs; errors
+fail the wrapper independently of SDK exit sentinels. The ordinary game log
+remains authoritative. Synthetic dual1MiB pipes and read failures pass35checks
+eachPS5.1/7; actual native audio drains710587stdoutbytes with131072retained and
+exits cleanly. A deferred exit also needs recurring normal-frame polling after
+the smoke watchdog; invoking it only once at startup cannot close a timed window.
+
 Sep29 T-MENUS-004: A renderer that also handles input must not run for a
 background legacy transition dialog. Agent Select consumed Back while Create
 owned the current menu. Shared menuRenderDialog now admits only menu->curdialog

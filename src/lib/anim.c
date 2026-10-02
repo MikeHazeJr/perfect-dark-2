@@ -455,6 +455,22 @@ void animLoadHeader(s16 animnum)
  *
  * Both the anim header and frame data must be loaded already.
  */
+enum anim_frame_layout_result animGetLoadedPartCount(s16 animnum, u32 *partcount)
+{
+	if (partcount == NULL) {
+		return ANIM_FRAME_LAYOUT_INVALID_ARGUMENT;
+	}
+	*partcount = 0;
+	if (animnum < 0 || animnum >= animGetTotalCount() || g_Anims == NULL
+			|| g_AnimToHeaderSlot == NULL || g_AnimHeaderBytes == NULL
+			|| g_AnimToHeaderSlot[animnum] >= ANIM_HEADER_CACHE_SIZE) {
+		return ANIM_FRAME_LAYOUT_INVALID_ARGUMENT;
+	}
+	return animFrameCountPartsBounded(
+		g_AnimHeaderBytes[g_AnimToHeaderSlot[animnum]],
+		g_Anims[animnum].headerlen, g_Anims[animnum].bytesperframe, partcount);
+}
+
 static u32 animReadBe32(const u8 *ptr)
 {
 	return (u32)ptr[0] << 24 | (u32)ptr[1] << 16

@@ -622,6 +622,7 @@ Initialize-SmokeStoragePolicy -Path $StoragePolicy
 . (Join-Path $LibDir "Weapon-Mesh-Fixtures.ps1")
 . (Join-Path $LibDir "Test-MemorySafety.ps1")
 . (Join-Path $LibDir "Native-Consumer.ps1")
+. (Join-Path $LibDir "Console-Capture.ps1")
 
 function New-NeedlerEffectReplacementFixtures {
     [CmdletBinding()] param([Parameter(Mandatory)] [string] $InstallDir)
@@ -1626,13 +1627,22 @@ function Invoke-SmokeTestMultiProcess {
         $psi.WorkingDirectory = $processInstallInfo.InstallDir
         $psi.UseShellExecute  = $false
         $psi.CreateNoWindow      = $false
-        $psi.RedirectStandardError  = $false
-        $psi.RedirectStandardOutput = $false
+        $psi.RedirectStandardError  = $true
+        $psi.RedirectStandardOutput = $true
 
         $p = $null
+        $consoleCapture = $null
         try {
             $p = [System.Diagnostics.Process]::Start($psi)
+            if (-not $p) { throw "ProcessStartInfo returned null Process" }
+            $script:SmokeOwnedPids += [int]$p.Id
+            $consoleCapture = Start-SmokeConsoleCapture -Process $p `
+                -Directory (Join-Path $processInstallInfo.InstallDir 'logs/smoke-console')
         } catch {
+            if ($p) {
+                try { if (-not $p.HasExited) { $p.Kill() } } catch {}
+                try { [void]$p.WaitForExit(5000) } catch {}
+            }
             Write-Fail ("    launch failed: {0}" -f $_.Exception.Message)
             $launchFailed = $true
             break
@@ -1641,13 +1651,13 @@ function Invoke-SmokeTestMultiProcess {
         $procs += [PSCustomObject]@{
             Name = $pname
             Process = $p
+            ConsoleCapture = $consoleCapture
             LogPath = $logPath
             InstallDir = $processInstallInfo.InstallDir
             ExpectedExitCode = $(if ($pdef.PSObject.Properties.Match('expected_exit_code').Count -gt 0) { [int]$pdef.expected_exit_code } else { 0 })
             Assertions = $(if ($pdef.PSObject.Properties.Match('assertions').Count -gt 0) { $pdef.assertions } else { $null })
             RequiredSequenceStartLines = @{}
         }
-        $script:SmokeOwnedPids += [int]$p.Id
 
         # Optional barrier: poll the just-launched process's log for the
         # `wait_for` marker before launching the next process.
@@ -1805,6 +1815,19 @@ function Invoke-SmokeTestMultiProcess {
     Stop-SmokeOwnedFaultProcesses -KnownPids $launchedPids
     $script:SmokeOwnedPids = @()
 
+    $consolePassed = $true
+    $consoleResults = @()
+    foreach ($entry in $procs) {
+        try {
+            $captureResult = Complete-SmokeConsoleCapture -Capture $entry.ConsoleCapture
+            $consoleResults += [pscustomobject]@{Name=$entry.Name;Capture=$captureResult}
+            if (-not $captureResult.Passed) { $consolePassed = $false }
+        } catch {
+            $consolePassed = $false
+            $consoleResults += [pscustomobject]@{Name=$entry.Name;Error=$_.Exception.Message}
+        }
+    }
+
     $elapsed = ((Get-Date) - $started).TotalSeconds
 
     # Build the aggregated log: concatenate every process's log file with
@@ -1919,7 +1942,7 @@ function Invoke-SmokeTestMultiProcess {
     $binarySha256 = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash
     $definitionSha256 = (Get-FileHash -LiteralPath $Test.Path -Algorithm SHA256).Hash
     $testOk = $assertResult.Passed -and -not $launchFailed -and
-        $allExited -and $allExitCodesExpected -and $artifactsOk
+        $allExited -and $allExitCodesExpected -and $artifactsOk -and $consolePassed
 
     foreach ($line in (Format-AssertionFailures -Result $assertResult)) {
         if ($testOk) { Write-Info $line } else { Write-Fail $line }
@@ -1933,6 +1956,7 @@ function Invoke-SmokeTestMultiProcess {
     if (-not $allExitCodesExpected) {
         Write-Fail "  one or more processes returned an unexpected exit code"
     }
+    if (-not $consolePassed) { Write-Fail "  native console capture did not complete" }
 
     $storageReceipts = @()
     $managedInfos = @($installInfo) + @($processPlans | ForEach-Object { $_.InstallInfo })
@@ -1946,6 +1970,7 @@ function Invoke-SmokeTestMultiProcess {
                 assertions_met=$assertResult.Met; assertions_total=$assertResult.Total
                 failures=@($assertResult.Failures); operational_failures=@($operationalFailures)
                 artifacts=@($artifactPaths)
+                console_capture=@($consoleResults)
             }
         $completedIds[$managedInfo.StorageId] = $true
     }
@@ -2228,6 +2253,9 @@ function Invoke-SmokeTest {
     $started = Get-Date
     $proc = $null
     $exitCode = -1
+    $consoleCapture = $null
+    $consoleResult = $null
+    $consolePassed = $false
 
     # c115 (2026-05-14): Start-Process -PassThru returns a Process object
     # whose .ExitCode property is unreliable for non-console GUI apps --
@@ -2265,14 +2293,16 @@ function Invoke-SmokeTest {
         # foreground window. Hiding it forces SDL into a background
         # mode that confuses focus tracking and breaks ImGui nav.
         $psi.CreateNoWindow      = $false
-        $psi.RedirectStandardError  = $false
-        $psi.RedirectStandardOutput = $false
+        $psi.RedirectStandardError  = $true
+        $psi.RedirectStandardOutput = $true
 
         $proc = [System.Diagnostics.Process]::Start($psi)
         if (-not $proc) {
             throw "ProcessStartInfo returned null Process"
         }
         $script:SmokeOwnedPids += [int]$proc.Id
+        $consoleCapture = Start-SmokeConsoleCapture -Process $proc `
+            -Directory (Join-Path $installInfo.InstallDir 'logs/smoke-console')
         if ($runtimeStrategy -eq "timeout-kill") {
             # c115 server-pillar extension (2026-05-14): the binary is
             # expected to run forever (pd-server has no auto-exit path);
@@ -2359,6 +2389,10 @@ function Invoke-SmokeTest {
         }
     } catch {
         Write-Fail ("Failed to launch {0}: {1}" -f $exeLeaf, $_.Exception.Message)
+        if ($proc) {
+            try { if (-not $proc.HasExited) { $proc.Kill() } } catch {}
+            try { [void]$proc.WaitForExit(5000) } catch {}
+        }
         $exitCode = -3
     }
     if ($proc) {
@@ -2367,6 +2401,14 @@ function Invoke-SmokeTest {
         Stop-SmokeOwnedFaultProcesses -KnownPids $script:SmokeOwnedPids
     }
     $script:SmokeOwnedPids = @()
+    if ($consoleCapture) {
+        try {
+            $consoleResult = Complete-SmokeConsoleCapture -Capture $consoleCapture
+            $consolePassed = $consoleResult.Passed
+        } catch {
+            $consoleResult = @{Passed=$false;Error=$_.Exception.Message}
+        }
+    }
     $elapsed = ((Get-Date) - $started).TotalSeconds
 
     # c115 (2026-05-14) belt-and-braces: parse the harness's own
@@ -2443,6 +2485,10 @@ function Invoke-SmokeTest {
     if ($reasonExitNonZero) {
         Write-Fail "  exit code non-zero: harness force-exited (timeout or fatal)"
     }
+    if (-not $consolePassed) {
+        $testOk = $false
+        Write-Fail "  native console capture did not complete"
+    }
 
     $nativeConsumerResult = $null
     if ($nativeManifestInfo) {
@@ -2458,6 +2504,7 @@ function Invoke-SmokeTest {
             assertions_met=$assertResult.Met; assertions_total=$assertResult.Total
             failures=@($assertResult.Failures)
             native_consumer=$nativeConsumerResult
+            console_capture=$consoleResult
             screenshots=@($screenshotSchedule | Where-Object { $_.Captured -and $_.Success } | ForEach-Object { $_.Path })
         }
     Write-Info ("  retained reconstructable receipt: {0}" -f $storageReceipt.Receipt)

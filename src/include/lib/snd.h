@@ -6,6 +6,8 @@
 
 bool sndIsFiltered(s32 audioid);
 bool sndIsPlayingMp3(void);
+/* Exact requested public PCM owner, including its native start delay. */
+bool sndIsPlayingPublicMp3Sound(s16 soundnum);
 f32 sndApplyTinyVoicePitch(s16 sound, s32 channeltype, f32 pitch);
 f32 sndApplyTinyVoicePitchForProp(struct prop *prop, s16 sound, s32 channeltype, f32 pitch);
 s32 sndApplyTinyVoiceVolumeForProp(struct prop *prop, s16 sound, s32 channeltype, s32 volume);
