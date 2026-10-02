@@ -1,4 +1,4 @@
-# Smoke verify
+﻿# Smoke verify
 
 Scripted boot / menu / input scenarios that exercise the client end-to-end and
 parse stdout for required + forbidden patterns. The harness lives in
@@ -32,10 +32,98 @@ concatenated process logs and checks the test's `assertions` block.
 .\tools\smoke-verify\run.ps1 -Test boot_smoke
 ```
 
-The runner copies the binary into a sandboxed `.claude/smoke-verify-runs/<test>/`
-directory, drops a minimal install harness alongside (data/ROM placeholder),
-and runs the smoke from there so the live `Build/dist/` install is not
-disturbed.
+The runner stages private ordinary files under `.claude/smoke-storage/`.
+Build outputs, historical smoke runs/cache/shared install, and explicit
+`-Install` templates are read-only inputs. `-Install` now creates a private copy.
+
+## Storage policy and evidence
+
+`lib/Storage-Harness.ps1` connects both install modes and single/multi-process
+completion to `storage.py`. Completed runs retain exact binary/ROM/asset/cache/
+fixture/save bytes in compressed SHA-256 blobs, one immutable seed map, and a
+per-run reconstruction recipe with changed/deleted paths. Definitions, verdicts,
+assertion failures, source HEAD/dirty-patch provenance, and readable logs remain.
+Screenshots and requested artifacts live in the receipt directory. Source
+provenance is diagnostic: the archived executable is the exact tested binary.
+No archive blob is exposed to the game through a hardlink or junction.
+
+For an explicitly frozen single-process batch, pass `-SourceSeed <StorageSeed>`
+returned by the first import of the exact binary and asset inputs. This validates
+the seed manifest's canonical SHA-256 identity and every immutable blob, then
+reconstructs private files without rereading mutable parent inputs. It cannot be
+combined with `-Build`, `-Install`, `-SourceBinary` or `-SourceRom`. After any binary
+or source change, import normally to obtain a new seed. Normal source mode still
+hashes current input bytes. Failed full copies, reuse checks and budgets apply
+equally to frozen batches. `StorageSeedPhases` reports source snapshot, workspace
+transition and checkout seconds separately; large setup time cannot be attributed
+to copying alone.
+
+Default shared mode leases a stable `shared/client` workspace exclusively.
+Before reuse, every file and its identity is checked against the complete prior
+receipt. Changed/deleted/new files and empty directories are reset to the selected
+seed; unchanged private files may be reused. Failed or pinned copies move into
+managed `installs/`. Concurrent, incomplete, edited, locked or aliased work blocks
+reuse. `-PerTestInstall` always creates a separate private working copy. A new
+stable executable path may require the existing firewall allow helper; no firewall
+settings were changed by this storage implementation or its tests.
+
+Checked-in defaults in `storage-policy.json` are:
+
+| Budget | Default |
+|---|---:|
+| Free-space floor after pending growth | 300 GiB |
+| Additional growth reserve | 2 GiB |
+| Pending run / queued smoke build | 2 GiB / 4 GiB |
+| Managed full installs, including active/pinned/restored copies | 3 total, 8 GiB |
+| Compact archive, receipts, screenshots and artifacts | 8 GiB |
+
+Use `-StoragePolicy <policy.json>` for an explicit policy. Unknown fields, invalid
+numbers and nonpositive caps are refused. Before a new copy, only completed,
+unchanged, unpinned managed private installs with verified complete reconstruction
+records may yield space. Older successes yield first, then oldest failures;
+the newest successful copy is preferred. All content and receipts remain in the
+archive. `-Keep` pins the full install. Pins/active work, missing or corrupt records,
+locks, or exhausted archive/free-space budgets stop the next copy without
+evicting evidence. Historical outputs are never registered or pruned by a default.
+
+These are preflight and prospective retention controls, not an OS disk quota.
+Unexpected runtime growth is preserved and can block subsequent runs. Interrupted
+work remains active/protected; review it rather than editing the registry to bypass
+the block. Multi-process tests requesting separate installs need capacity for the
+parent plus each process. These controls cover this smoke runner, including its
+optional queued build. Direct `devtools/build-session.ps1` calls also check
+free space at actual queue/lock acquisition, before invoking the builder. Its
+`-StoragePolicy` uses the same configuration; maintenance modes are unchanged.
+Other package/extraction tools should adopt the generic preflight before large copies.
+
+Read-only inventory and restoration (restore reserves a pinned full-install slot
+and never overwrites an existing directory):
+
+```powershell
+. ./tools/smoke-verify/lib/Storage-Harness.ps1
+$project = (Get-Location).Path
+Invoke-SmokeStorage -Action dry-run -ProjectRoot $project
+Invoke-SmokeStorage -Action restore -ProjectRoot $project -Request @{
+    id = '<StorageId from result>'
+    destination = "$project/.claude/smoke-storage/restored/<new-name>"
+}
+# Other tooling can check its expected growth without deleting anything:
+Invoke-SmokeStorage -Action preflight -ProjectRoot $project -Request @{pending_bytes=4GB}
+```
+
+The inventory lists unverified candidates; actual retention checks every content
+reference, file hash/identity, containment and exclusive file handle again.
+There is no manual destructive cleanup CLI. Small isolated checks:
+
+```powershell
+python -B tools/smoke-verify/test-storage.py
+powershell -NoProfile -File tools/smoke-verify/test-storage.ps1
+```
+
+Tests use tiny fixtures inside canonical `.claude`, never launch the native game,
+and save results under `.claude/smoke-storage-validation/`. Python removes only its
+validated disposable fixture tree; the few KiB of PowerShell fixtures stay as
+inspectable integration evidence.
 
 ## Test JSON schema
 

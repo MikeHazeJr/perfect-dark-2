@@ -29,6 +29,9 @@ param(
     # one session; choose a different value for simultaneous sessions.
     [string]$Session = "",
 
+    # Prospective free-space floor and pending build growth; no evidence eviction.
+    [string]$StoragePolicy = "",
+
     [string]$Version = "",
 
     # Dev-mod selection passed through to build-headless.ps1 (copied into
@@ -1043,6 +1046,12 @@ try {
     }
 
     $lock = Enter-SessionBuildLock $sessionName
+
+    # Check at actual start, after the existing queues/lock, before build copies.
+    # Maintenance modes returned above; historical build outputs stay untouched.
+    . (Join-Path $ProjectDir "tools\smoke-verify\lib\Storage-Harness.ps1")
+    Initialize-SmokeStoragePolicy -Path $StoragePolicy
+    [void](Assert-SmokeStoragePreflight -ProjectRoot $ProjectDir -Build)
 
     $buildArgs = @(
         "-Target", $Target,

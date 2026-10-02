@@ -76,7 +76,9 @@ function Invoke-SmokeAssertions {
                 $result.Failures.Add([PSCustomObject]@{
                     Kind = "forbidden_pattern_matched"
                     Pattern = $pat
-                    Line = $line
+                    # Get-Content attaches filesystem metadata to strings.
+                    # PS 5.1 deep JSON walks that metadata unless we copy text.
+                    Line = "$line"
                 })
                 $hit = $true
                 break

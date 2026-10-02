@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "min_free_gib": 300,
+  "max_full_installs": 3,
+  "max_full_install_gib": 8,
+  "max_archive_gib": 8,
+  "peak_run_gib": 2,
+  "extra_growth_gib": 2,
+  "peak_build_gib": 4
+}

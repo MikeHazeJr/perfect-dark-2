@@ -32,26 +32,29 @@
     Session id passed to the queued build. Default: smoke-<utc>.
 
 .PARAMETER Install
-    Use an existing install directory instead of a per-test fresh copy.
-    Implies -Keep; never used in CI.
+    Treat an existing install as a read-only template; stage a private copy.
 
 .PARAMETER SharedInstall
-    Re-seed a single canonical install at .claude/smoke-verify-install/
-    for every test, instead of a fresh per-test directory. Closes the
-    Windows Defender Firewall prompt class because the same
-    PerfectDark.exe path is launched every time. Default ON. To force
-    the legacy per-test layout pass -PerTestInstall (e.g. for tests
-    that genuinely require pristine isolation).
+    Exclusively reuse .claude/smoke-storage/shared/client after byte verification
+    and reset to immutable inputs. Default ON; active or incomplete work blocks reuse.
+
+.PARAMETER SourceSeed
+    Explicit immutable StorageSeed from a prior import of this exact binary and
+    asset source snapshot. Reconstructs private files without rereading parent
+    sources. Single-process fixtures only; conflicts with Build/Install/source overrides.
 
 .PARAMETER PerTestInstall
-    Force the legacy per-test install layout
-    (.claude/smoke-verify-runs/<utc>-<test>/PerfectDark.exe). Disables
-    -SharedInstall. Every fresh path will retrigger the Windows Defender
-    Firewall prompt; pair with --no-net or pre-seed the firewall allow
-    rule manually.
+    Always stage a private .claude/smoke-storage/installs/<id> directory.
+
+.PARAMETER NativeAssetManifest
+    Optional bounded one-model native consumer controls. Copied privately and
+    bound to this client hash; complete member events required. Single process only.
 
 .PARAMETER Keep
-    Do not delete the per-run dir on success.
+    Pin the full managed install; receipts are retained for every completed run.
+
+.PARAMETER StoragePolicy
+    Optional JSON policy overriding the checked-in storage-policy.json defaults.
 
 .PARAMETER MaintainForeground
     For a single-process client smoke, keep its unique visible window focused
@@ -97,6 +100,9 @@ param(
     [string]   $TestsDir = "",
     [string]   $SourceBinary = "",
     [string]   $SourceRom = "",
+    [string]   $SourceSeed = "",
+    [string]   $NativeAssetManifest = "",
+    [string]   $StoragePolicy = "",
     [switch]   $VerboseAssertions
 )
 
@@ -110,6 +116,9 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 $LibDir = Join-Path $ScriptDir "lib"
+if ($SourceSeed -and ($Build -or $Install -or $SourceBinary -or $SourceRom)) {
+    throw 'SourceSeed requires a frozen batch: omit Build/Install/SourceBinary/SourceRom.'
+}
 if (-not $TestsDir) { $TestsDir = Join-Path $ScriptDir "tests" }
 
 . (Join-Path $ProjectRoot "devtools\_build-env-prelude.ps1")
@@ -607,10 +616,12 @@ $ResultsFile = ""
 
 . (Join-Path $LibDir "Test-Assertions.ps1")
 . (Join-Path $LibDir "Install-Harness.ps1")
+Initialize-SmokeStoragePolicy -Path $StoragePolicy
 . (Join-Path $LibDir "Catalog-Ingress-Fixtures.ps1")
 . (Join-Path $LibDir "Temporary-Recovery-Fixtures.ps1")
 . (Join-Path $LibDir "Weapon-Mesh-Fixtures.ps1")
 . (Join-Path $LibDir "Test-MemorySafety.ps1")
+. (Join-Path $LibDir "Native-Consumer.ps1")
 
 function New-NeedlerEffectReplacementFixtures {
     [CmdletBinding()] param([Parameter(Mandatory)] [string] $InstallDir)
@@ -1330,14 +1341,8 @@ function Invoke-SmokeTestMultiProcess {
 
     $installInfo = $null
     if ($ExistingInstall) {
-        $installInfo = [PSCustomObject]@{
-            InstallDir = (Resolve-Path -LiteralPath $ExistingInstall).Path
-            SourceBinary = ""
-            SourceRom = ""
-            RomId = ""
-            InstallState = "current"
-            ExeName = "PerfectDark.exe"
-        }
+        $installInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $name `
+            -TemplateInstall $ExistingInstall -Target $target
     } elseif ($Shared) {
         $installInfo = New-SmokeSharedInstall `
             -ProjectRoot $ProjectRoot `
@@ -1828,7 +1833,7 @@ function Invoke-SmokeTestMultiProcess {
     $artifactsOk = $true
     if ($def.PSObject.Properties.Match('retain_artifacts').Count -gt 0 -and
             $def.retain_artifacts) {
-        $artifactDir = Join-Path $RunRoot ("artifacts\{0:yyyyMMddTHHmmssfffZ}-{1}" -f `
+        $artifactDir = Join-Path $installInfo.StorageReceiptDir ("artifacts\{0:yyyyMMddTHHmmssfffZ}-{1}" -f `
             (Get-Date).ToUniversalTime(), ($name -replace '[^A-Za-z0-9._-]+', '-'))
         New-Item -ItemType Directory -Path $artifactDir -Force | Out-Null
         $trimSeparators = [char[]]@(
@@ -1929,41 +1934,22 @@ function Invoke-SmokeTestMultiProcess {
         Write-Fail "  one or more processes returned an unexpected exit code"
     }
 
-    if ($testOk -and -not $KeepOnSuccess -and -not $ExistingInstall -and -not $Shared) {
-        try {
-            Remove-Item -LiteralPath $installInfo.InstallDir -Recurse -Force -ErrorAction Stop
-            Write-Info "  cleaned install dir"
-        } catch {
-            Write-Warn ("  cleanup skipped: {0}" -f $_.Exception.Message)
-        }
-    } elseif (-not $testOk) {
-        Write-Info ("  retained for debugging: {0}" -f $installInfo.InstallDir)
-        try {
-            $tail = Get-Content -LiteralPath $aggLogPath -Tail 60 -ErrorAction SilentlyContinue
-            if ($tail) {
-                Write-Host "  --- aggregated log tail (last 60 lines) ---" -ForegroundColor DarkGray
-                foreach ($t in $tail) { Write-Host ("    {0}" -f $t) -ForegroundColor DarkGray }
+    $storageReceipts = @()
+    $managedInfos = @($installInfo) + @($processPlans | ForEach-Object { $_.InstallInfo })
+    $completedIds = @{}
+    foreach ($managedInfo in $managedInfos) {
+        if ($completedIds.ContainsKey($managedInfo.StorageId)) { continue }
+        $storageReceipts += Complete-SmokeManagedInstall -ProjectRoot $ProjectRoot -InstallInfo $managedInfo `
+            -DefinitionPath $Test.Path -Passed $testOk -Keep ([bool]$KeepOnSuccess) -Outcome @{
+                name=$name; passed=$testOk; elapsed_seconds=$elapsed
+                binary_sha256=$binarySha256; definition_sha256=$definitionSha256
+                assertions_met=$assertResult.Met; assertions_total=$assertResult.Total
+                failures=@($assertResult.Failures); operational_failures=@($operationalFailures)
+                artifacts=@($artifactPaths)
             }
-        } catch {}
+        $completedIds[$managedInfo.StorageId] = $true
     }
-
-    if ($separateProcessInstalls) {
-        $uniqueProcessInstallDirs = @($processPlans | ForEach-Object { $_.InstallInfo.InstallDir } | Select-Object -Unique)
-        if ($testOk -and -not $KeepOnSuccess) {
-            foreach ($processInstallDir in $uniqueProcessInstallDirs) {
-                try {
-                    Remove-Item -LiteralPath $processInstallDir -Recurse -Force -ErrorAction Stop
-                    Write-Info ("  cleaned process install: {0}" -f $processInstallDir)
-                } catch {
-                    Write-Warn ("  process cleanup skipped: {0}" -f $_.Exception.Message)
-                }
-            }
-        } elseif (-not $testOk) {
-            foreach ($processInstallDir in $uniqueProcessInstallDirs) {
-                Write-Info ("  retained process install for debugging: {0}" -f $processInstallDir)
-            }
-        }
-    }
+    Write-Info ("  retained reconstructable receipts: {0}" -f $storageReceipts.Count)
 
     $bugId = $null
     if ($Test.PSObject.Properties.Match('BugId').Count -gt 0) { $bugId = $Test.BugId }
@@ -1981,6 +1967,7 @@ function Invoke-SmokeTestMultiProcess {
         ExitCode = $(if ($testOk) { 0 } else { 1 })
         ElapsedSeconds = $elapsed
         InstallDir = $installInfo.InstallDir
+        StorageReceipts = @($storageReceipts)
         ProcessInstallDirs = @($processPlans | ForEach-Object { $_.InstallInfo.InstallDir })
         BinarySha256 = $binarySha256
         DefinitionSha256 = $definitionSha256
@@ -2020,6 +2007,8 @@ function Invoke-SmokeTest {
     # process's log and runs the top-level assertions against the
     # concatenation. Used for the listen_host_peer_smoke (host + client).
     if ($def.PSObject.Properties.Match('processes').Count -gt 0 -and $def.processes) {
+        if ($SourceSeed) { throw 'SourceSeed supports single-process frozen batch fixtures only.' }
+        if ($NativeAssetManifest) { throw 'NativeAssetManifest supports single-process client fixtures only.' }
         return Invoke-SmokeTestMultiProcess `
             -Test $Test `
             -ExistingInstall $ExistingInstall `
@@ -2067,20 +2056,27 @@ function Invoke-SmokeTest {
     } elseif ($target -eq "pd-server") {
         $runtimeStrategy = "timeout-kill"
     }
+    if ($NativeAssetManifest) {
+        if ($target -ne 'pd') { throw 'NativeAssetManifest requires the game client.' }
+        foreach ($property in @('remove_paths','fixtures','packed_fixtures','catalog_ingress_boundary_fixtures',
+                'needler_effect_replacement_fixtures','v006_corrupt_source_fixtures','weapon_mesh_ingress_fixtures','temporary_recovery_fixtures')) {
+            if ($def.PSObject.Properties.Match($property).Count -and $def.$property) {
+                throw 'NativeAssetManifest initial handoff requires unchanged frozen inputs; fixture mutations need their own source generation.'
+            }
+        }
+    }
 
     if (-not (Test-Path -LiteralPath $RunRoot)) {
         New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
     }
 
     $installInfo = $null
-    if ($ExistingInstall) {
-        $installInfo = [PSCustomObject]@{
-            InstallDir = (Resolve-Path -LiteralPath $ExistingInstall).Path
-            SourceBinary = ""
-            SourceRom = ""
-            RomId = ""
-            InstallState = "current"
-        }
+    if ($SourceSeed) {
+        $installInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $name `
+            -SourceSeed $SourceSeed -Target $target -Shared:$Shared
+    } elseif ($ExistingInstall) {
+        $installInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $name `
+            -TemplateInstall $ExistingInstall -Target $target
     } elseif ($Shared) {
         # Single canonical install path; firewall rule seeded inside.
         $installInfo = New-SmokeSharedInstall `
@@ -2103,6 +2099,14 @@ function Invoke-SmokeTest {
 
     Write-Info ("  install dir: {0}" -f $installInfo.InstallDir)
     Write-Info ("  state: {0}" -f $installInfo.InstallState)
+    $nativeManifestInfo = $null
+    if ($NativeAssetManifest) {
+        if ($target -ne 'pd') { throw 'NativeAssetManifest requires the game client.' }
+        [void](Assert-SmokeStoragePreflight -ProjectRoot $ProjectRoot -ArchivePendingBytes 48MB)
+        $nativeManifestInfo = Copy-SmokeNativeConsumerManifest -InstallDir $installInfo.InstallDir `
+            -ManifestPath $NativeAssetManifest -BinaryPath (Join-Path $installInfo.InstallDir 'PerfectDark.exe')
+        Assert-SmokeNativeConsumerSeed -ProjectRoot $ProjectRoot -InstallInfo $installInfo -Manifest $nativeManifestInfo
+    }
 
     # Stage test-declared fixtures (mods, save files, etc.) into the
     # install dir before launching the binary. Optional `fixtures` array
@@ -2201,9 +2205,10 @@ function Invoke-SmokeTest {
     # (focus/size/occlusion-independent) can OWN the standard `screenshots`
     # array via --smoke-screenshot-dir. The PrintWindow path stays as a
     # fallback for any shot the harness didn't write.
-    $screenshotSchedule = @(New-SmokeScreenshotSchedule -Definition $def -RunRoot $RunRoot -TestName $name)
+    $screenshotSchedule = @(New-SmokeScreenshotSchedule -Definition $def -RunRoot $installInfo.StorageReceiptDir -TestName $name)
     $screenshotDir = $null
     if ($screenshotSchedule.Count -gt 0) {
+        [void](Assert-SmokeStoragePreflight -ProjectRoot $ProjectRoot -ArchivePendingBytes ([long]$screenshotSchedule.Count * 32MB))
         $screenshotDir = Split-Path -Parent ([string]$screenshotSchedule[0].Path)
         try { New-Item -ItemType Directory -Force -Path $screenshotDir | Out-Null } catch {}
     }
@@ -2254,6 +2259,8 @@ function Invoke-SmokeTest {
         $psi.Arguments        = ($quotedArgs -join ' ')
         $psi.WorkingDirectory = $installInfo.InstallDir
         $psi.UseShellExecute  = $false
+        $psi.EnvironmentVariables.Remove('PD_ASSET_CONSUMER_MANIFEST')
+        if ($nativeManifestInfo) { $psi.EnvironmentVariables['PD_ASSET_CONSUMER_MANIFEST'] = 'native-asset-consumer.ini' }
         # Keep the window visible so SDL initialises with a real
         # foreground window. Hiding it forces SDL into a background
         # mode that confuses focus tracking and breaks ImGui nav.
@@ -2437,26 +2444,23 @@ function Invoke-SmokeTest {
         Write-Fail "  exit code non-zero: harness force-exited (timeout or fatal)"
     }
 
-    # Cleanup: only nuke per-test dirs. Shared install survives across
-    # tests because deleting it would defeat the firewall-rule pinning
-    # and force re-elevation; -ExistingInstall is user-managed.
-    if ($testOk -and -not $KeepOnSuccess -and -not $ExistingInstall -and -not $Shared) {
-        try {
-            Remove-Item -LiteralPath $installInfo.InstallDir -Recurse -Force -ErrorAction Stop
-            Write-Info "  cleaned install dir"
-        } catch {
-            Write-Warn ("  cleanup skipped: {0}" -f $_.Exception.Message)
+    $nativeConsumerResult = $null
+    if ($nativeManifestInfo) {
+        $nativeConsumerResult = Get-SmokeNativeConsumerResult -Manifest $nativeManifestInfo -ReceiptDir $installInfo.StorageReceiptDir
+        if (-not $nativeConsumerResult.Passed) {
+            $testOk = $false
+            Write-Fail ("  native attribution: {0}" -f $nativeConsumerResult.Failure)
         }
-    } elseif (-not $testOk) {
-        Write-Info ("  retained for debugging: {0}" -f $installInfo.InstallDir)
-        try {
-            $tail = Get-Content -LiteralPath $logPath -Tail 30 -ErrorAction SilentlyContinue
-            if ($tail) {
-                Write-Host "  --- log tail (last 30 lines) ---" -ForegroundColor DarkGray
-                foreach ($t in $tail) { Write-Host ("    {0}" -f $t) -ForegroundColor DarkGray }
-            }
-        } catch {}
     }
+    $storageReceipt = Complete-SmokeManagedInstall -ProjectRoot $ProjectRoot -InstallInfo $installInfo `
+        -DefinitionPath $Test.Path -Passed $testOk -Keep ([bool]$KeepOnSuccess) -Outcome @{
+            name=$name; passed=$testOk; exit_code=$exitCode; elapsed_seconds=$elapsed
+            assertions_met=$assertResult.Met; assertions_total=$assertResult.Total
+            failures=@($assertResult.Failures)
+            native_consumer=$nativeConsumerResult
+            screenshots=@($screenshotSchedule | Where-Object { $_.Captured -and $_.Success } | ForEach-Object { $_.Path })
+        }
+    Write-Info ("  retained reconstructable receipt: {0}" -f $storageReceipt.Receipt)
 
     $bugId = $null
     if ($Test.PSObject.Properties.Match('BugId').Count -gt 0) { $bugId = $Test.BugId }
@@ -2474,6 +2478,8 @@ function Invoke-SmokeTest {
         ExitCode = $exitCode
         ElapsedSeconds = $elapsed
         InstallDir = $installInfo.InstallDir
+        StorageReceipt = $storageReceipt
+        NativeConsumer = $nativeConsumerResult
         Screenshots = @($screenshotSchedule | Where-Object { $_.Captured -and $_.Success } | ForEach-Object { $_.Path })
         AssertionsTotal = $assertResult.Total
         AssertionsMet = $assertResult.Met
@@ -2486,6 +2492,7 @@ function Invoke-SmokeTest {
 # ----------------------------------------------------------------
 
 if ($Build) {
+    [void](Assert-SmokeStoragePreflight -ProjectRoot $ProjectRoot -Build)
     if (-not $Session) {
         $Session = "smoke-{0:yyyyMMddHHmmss}" -f (Get-Date)
     }
@@ -2494,7 +2501,9 @@ if ($Build) {
     if (-not (Test-Path -LiteralPath $buildScript)) {
         throw "Cannot find queued build wrapper: $buildScript"
     }
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $buildScript -Session $Session -Target client
+    $buildStorageArgs = @()
+    if ($StoragePolicy) { $buildStorageArgs = @('-StoragePolicy', [IO.Path]::GetFullPath($StoragePolicy)) }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $buildScript -Session $Session -Target client @buildStorageArgs
     $rc = $LASTEXITCODE
     if ($rc -ne 0) {
         Write-Fail ("Build failed with exit code {0}. Aborting smoke run." -f $rc)
@@ -2544,11 +2553,11 @@ foreach ($t in $selected) {
 # ----------------------------------------------------------------
 
 if ($useSharedInstall) {
-    Write-Info "Install mode: shared (.claude/smoke-verify-install/). Firewall rule pinned to canonical path."
+    Write-Info "Install mode: exclusive reusable workspace (.claude/smoke-storage/shared/)."
 } elseif ($Install) {
-    Write-Info ("Install mode: existing dir at {0}" -f $Install)
+    Write-Info ("Install mode: private copy of read-only template {0}" -f $Install)
 } else {
-    Write-Info "Install mode: per-test (.claude/smoke-verify-runs/<utc>-<test>/). Firewall prompt may appear on each new path."
+    Write-Info "Install mode: private managed install (.claude/smoke-storage/installs/)."
 }
 
 $results = @()

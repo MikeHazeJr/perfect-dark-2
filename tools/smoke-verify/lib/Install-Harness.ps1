@@ -1,35 +1,20 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Clean-install harness for the smoke verify gate.
 
 .DESCRIPTION
-    Builds an install directory from a known source binary and a known
-    ROM, then exposes the run path. Two seeding modes:
-
-      shared (default)  one canonical install at
-                        .claude/smoke-verify-install/. Every test re-seeds
-                        binary + ROM + data/ in this single location.
-                        Windows Defender Firewall only ever sees ONE
-                        PerfectDark.exe path; the inbound allow rule
-                        added by Add-SmokeFirewallAllowRule is keyed on
-                        it. Use this for everything except deliberate
-                        per-test isolation.
-
-      per-test          fresh dir at
-                        .claude/smoke-verify-runs/<utc>-<test>/.
-                        Pre-c115 default; retained for the rare case
-                        where two tests must not share state. Each new
-                        path re-triggers the firewall prompt; pair with
-                        --no-net or run with -SourceBinary pointing at a
-                        binary already in the firewall allow list.
+    Seeds private ordinary files from immutable content-addressed inputs.
+    Shared mode exclusively reuses a stable workspace after complete byte
+    verification and reset; failed installs move to bounded retained storage.
+    Per-test mode always uses an isolated managed install. Historical inputs
+    and explicit -Install templates are read-only. Receipts remain reconstructable.
 
     Three install states (orthogonal to mode):
 
       clean       fresh dir, no data/<romid>/, no pd.ini
       prefilled   fresh dir with data/<romid>/ from .claude/smoke-verify-cache
-      current     points at an existing install (only via -Install on
-                  the runner; never the default)
+      current     reads existing baseline data; -Install copies its template
 
     The runner module dot-sources this script and calls one of:
       New-SmokeSharedInstall  (shared mode -- default)
@@ -44,16 +29,7 @@
 #>
 
 Set-StrictMode -Version Latest
-
-# c115 follow-up (2026-05-14): shared-install inter-test settle counter.
-# Tracks how many tests have already re-seeded the shared install during
-# this run.ps1 invocation. The second-and-later New-SmokeSharedInstall
-# call inserts a brief Start-Sleep before wiping pd-client.log so the
-# prior process's atexit flush has time to land on disk -- otherwise
-# trailing harness sentinel writes can race with the wipe and the next
-# test sees a polluted log header. Single-test runs increment to 1 but
-# never trigger the delay (counter is checked BEFORE increment).
-$script:SmokeSharedInstallCount = 0
+. (Join-Path $PSScriptRoot "Storage-Harness.ps1")
 
 function Get-SmokeProjectRoot {
     [CmdletBinding()] param()
@@ -174,204 +150,26 @@ function New-SmokeInstall {
     [CmdletBinding()] param(
         [Parameter(Mandatory)] [string] $RunRoot,
         [Parameter(Mandatory)] [string] $TestName,
-        [string] $InstallState = "clean",
-        [string] $SourceBinary = "",
-        [string] $SourceRom = "",
-        [string] $ProjectRoot = "",
-        [string] $Target = "pd"
+        [string] $InstallState = "clean", [string] $SourceBinary = "",
+        [string] $SourceRom = "", [string] $ProjectRoot = "", [string] $Target = "pd"
     )
-
     if (-not $ProjectRoot) { $ProjectRoot = Get-SmokeProjectRoot }
 
-    $stampedName = "{0}-{1}" -f ((Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssZ")), $TestName
-    $installDir = Join-Path $RunRoot $stampedName
-    New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-
-    $exeName = if ($Target -eq "pd-server") { "PerfectDarkServer.exe" } else { "PerfectDark.exe" }
-    $bin = Find-SourceBinary -ProjectRoot $ProjectRoot -ExplicitPath $SourceBinary -Target $Target
-    if (-not $bin) {
-        throw "Cannot find $exeName to seed the smoke install. Build the corresponding target first or pass -SourceBinary."
-    }
-    Copy-Item -LiteralPath $bin -Destination (Join-Path $installDir $exeName) -Force
-    [void](Copy-SmokeRuntimeDlls -SourceBinary $bin -InstallDir $installDir -ProjectRoot $ProjectRoot)
-
-    # c115 server-pillar extension (2026-05-14): dedicated server target has
-    # no ROM-load path (CLC_AUTH skips the ROM hash check when g_NetDedicated
-    # is set). Skip the ROM seed for pd-server so tests do not gate on a
-    # ROM being present; for the client target the ROM remains mandatory.
-    $rom = $null
-    $romId = ""
-    if ($Target -ne "pd-server") {
-        $rom = Find-SourceRom -ProjectRoot $ProjectRoot -ExplicitPath $SourceRom
-        if (-not $rom) {
-            throw "Cannot find pd.<romid>.z64 to seed the smoke install. Place a ROM in the project root or pass -SourceRom."
-        }
-        Copy-Item -LiteralPath $rom -Destination (Join-Path $installDir ([System.IO.Path]::GetFileName($rom))) -Force
-        $romId = Get-RomIdFromName -RomPath $rom
-
-        if ($InstallState -eq "prefilled") {
-            $cache = Join-Path $ProjectRoot (".claude\smoke-verify-cache\$romId")
-            if (Test-Path -LiteralPath $cache) {
-                $dataDir = Join-Path $installDir "data"
-                New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
-                Copy-Item -LiteralPath $cache -Destination (Join-Path $dataDir $romId) -Recurse -Force
-            } else {
-                Write-Warning ("Prefilled cache not found at {0}; falling back to clean state for this run." -f $cache)
-            }
-        }
-    }
-
-    return [PSCustomObject]@{
-        InstallDir = $installDir
-        SourceBinary = $bin
-        SourceRom = $rom
-        RomId = $romId
-        InstallState = $InstallState
-        Target = $Target
-        ExeName = $exeName
-    }
+    return New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $TestName `
+        -InstallState $InstallState -SourceBinary $SourceBinary -SourceRom $SourceRom -Target $Target
 }
 
 function New-SmokeSharedInstall {
-    <#
-    .SYNOPSIS
-        Re-seed a single canonical install directory shared across smoke tests.
-
-    .DESCRIPTION
-        Used by the runner's -SharedInstall mode (default). The path
-        .claude/smoke-verify-install/ is created once per project; on
-        every test the binary, ROM, and (optional) prefilled data/ are
-        refreshed from the source. Per-test artefacts (logs, crash dumps)
-        still land in .claude/smoke-verify-runs/<utc>-<test>/, but the
-        executable lives at a stable path so Windows Defender Firewall
-        only ever sees ONE PerfectDark.exe.
-
-        Idempotent: if the shared dir already has the right binary +
-        ROM with newer or equal mtime, the copy is skipped (mtime + size
-        comparison). data/ is re-seeded every time because tests may
-        mutate it.
-
-    .OUTPUTS
-        Same shape as New-SmokeInstall (InstallDir, SourceBinary,
-        SourceRom, RomId, InstallState).
-    #>
     [CmdletBinding()] param(
-        [Parameter(Mandatory)] [string] $ProjectRoot,
+        [string] $SharedDir = "",
         [Parameter(Mandatory)] [string] $TestName,
-        [string] $InstallState = "clean",
-        [string] $SourceBinary = "",
-        [string] $SourceRom = "",
-        [string] $Target = "pd"
+        [string] $InstallState = "clean", [string] $SourceBinary = "",
+        [string] $SourceRom = "", [string] $ProjectRoot = "", [string] $Target = "pd"
     )
-
-    $installDir = Join-Path $ProjectRoot ".claude\smoke-verify-install"
-    if (-not (Test-Path -LiteralPath $installDir)) {
-        New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-    }
-
-    # c115 follow-up (2026-05-14): inter-test settle delay. The prior
-    # PerfectDark.exe writes its harness atexit sentinel ("SMOKE: result=...")
-    # to pd-client.log via a buffered stream; the buffer flush is racing
-    # with the next test's wipe-log step further down. A 1-second pause
-    # at the START of every second-or-later shared-install seed gives the
-    # OS time to settle the prior write before we delete the file. First
-    # call (counter == 0) skips the sleep so single-test runs are not
-    # penalised.
-    if ($script:SmokeSharedInstallCount -gt 0) {
-        Start-Sleep -Milliseconds 1000
-    }
-    $script:SmokeSharedInstallCount++
-
-    $exeName = if ($Target -eq "pd-server") { "PerfectDarkServer.exe" } else { "PerfectDark.exe" }
-    $bin = Find-SourceBinary -ProjectRoot $ProjectRoot -ExplicitPath $SourceBinary -Target $Target
-    if (-not $bin) {
-        throw "Cannot find $exeName to seed the shared smoke install. Build the corresponding target first or pass -SourceBinary."
-    }
-
-    $destBin = Join-Path $installDir $exeName
-
-    # Explicit -SourceBinary means "run this exact build". Always refresh it:
-    # a shared smoke install can contain a newer timestamp from an older
-    # session, and skipping the copy would exercise stale extractor code.
-    $copyBin = $true
-    if (-not $SourceBinary -and (Test-Path -LiteralPath $destBin)) {
-        $srcInfo = Get-Item -LiteralPath $bin
-        $dstInfo = Get-Item -LiteralPath $destBin
-        if ($srcInfo.Length -eq $dstInfo.Length -and $srcInfo.LastWriteTimeUtc -le $dstInfo.LastWriteTimeUtc) {
-            $copyBin = $false
-        }
-    }
-    if ($copyBin) {
-        Copy-Item -LiteralPath $bin -Destination $destBin -Force
-    }
-    [void](Copy-SmokeRuntimeDlls -SourceBinary $bin -InstallDir $installDir -ProjectRoot $ProjectRoot)
-
-    # c115 server-pillar extension (2026-05-14): dedicated server has no
-    # ROM-load path -- pd-server's CLC_AUTH skips the ROM hash check
-    # because no ROM is loaded. Skip the ROM seed for pd-server so the
-    # test does not gate on a ROM being present. The client target keeps
-    # the ROM seed mandatory.
-    $rom = $null
-    $romId = ""
-    $logFileName = if ($Target -eq "pd-server") { "pd-server.log" } else { "pd-client.log" }
-    if ($Target -ne "pd-server") {
-        $rom = Find-SourceRom -ProjectRoot $ProjectRoot -ExplicitPath $SourceRom
-        if (-not $rom) {
-            throw "Cannot find pd.<romid>.z64 to seed the shared smoke install. Place a ROM in the project root or pass -SourceRom."
-        }
-        $destRom = Join-Path $installDir ([System.IO.Path]::GetFileName($rom))
-        # Always refresh ROM file (cheap; ensures tests start consistent).
-        Copy-Item -LiteralPath $rom -Destination $destRom -Force
-        $romId = Get-RomIdFromName -RomPath $rom
-
-        # B-945 harness fix: only reset the extracted data tree for states that
-        # re-seed deterministically. "current" means REUSE the existing
-        # extracted install (its whole point is skipping the multi-minute
-        # clean re-extract); unconditionally deleting here made every
-        # install_state=current smoke re-extract from ROM each run, so timed
-        # captures landed on the extraction progress UI instead of gameplay.
-        $existingDataDir = Join-Path $installDir "data\$romId"
-        if ($InstallState -ne "current" -and (Test-Path -LiteralPath $existingDataDir)) {
-            Remove-Item -LiteralPath $existingDataDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-
-        if ($InstallState -eq "prefilled") {
-            $cache = Join-Path $ProjectRoot (".claude\smoke-verify-cache\$romId")
-            if (Test-Path -LiteralPath $cache) {
-                $dataDir = Join-Path $installDir "data"
-                New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
-                Copy-Item -LiteralPath $cache -Destination (Join-Path $dataDir $romId) -Recurse -Force
-            } else {
-                Write-Warning ("Prefilled cache not found at {0}; falling back to clean state for this run." -f $cache)
-            }
-        }
-    }
-
-    # Stale prior test artefacts in the shared dir: nuke the relevant log
-    # so the test sees a fresh log file. Current clients write under
-    # logs/game client/, but keep clearing the historical root-level path
-    # so older installs and hand-authored test runs stay deterministic.
-    foreach ($logPath in (Get-SmokeLogCandidatePaths -InstallDir $installDir -Leaf $logFileName)) {
-        if (Test-Path -LiteralPath $logPath) {
-            Remove-Item -LiteralPath $logPath -Force -ErrorAction SilentlyContinue
-        }
-    }
-
-    # Seed the firewall allow rule against the canonical path (idempotent).
-    # Add a separate rule entry for the server binary so the OS doesn't
-    # prompt on the first pd-server smoke run. The client and server rules
-    # are independent (different DisplayName + program path).
-    Add-SmokeFirewallAllowRule -Program $destBin | Out-Null
-
-    return [PSCustomObject]@{
-        InstallDir = $installDir
-        SourceBinary = $bin
-        SourceRom = $rom
-        RomId = $romId
-        InstallState = $InstallState
-        Target = $Target
-        ExeName = $exeName
-    }
+    if (-not $ProjectRoot) { $ProjectRoot = Get-SmokeProjectRoot }
+    if ($SharedDir) { throw "Custom shared path unsupported; use -Install as a read-only template." }
+    return New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $TestName `
+        -InstallState $InstallState -SourceBinary $SourceBinary -SourceRom $SourceRom -Target $Target -Shared
 }
 
 function Add-SmokeFirewallAllowRule {
@@ -511,6 +309,7 @@ function Remove-SmokePaths {
         if (-not $rel) { continue }
 
         $absPath = Join-Path $InstallDir $rel
+        Assert-SmokePlainTree -Path $absPath -Descendants
         $installRoot = [System.IO.Path]::GetFullPath($InstallDir)
         $targetRoot = [System.IO.Path]::GetFullPath($absPath)
         $installRootWithSep = $installRoot.TrimEnd([char[]]@(
@@ -611,7 +410,9 @@ function Copy-SmokeFixtures {
             continue
         }
 
-        $absDst = Join-Path $InstallDir $dst
+        $absDst = Get-SmokeFixtureDestination -InstallDir $InstallDir -RelativePath $dst
+        Assert-SmokePlainTree -Path $absSrc -Descendants
+        Assert-SmokePlainTree -Path $absDst -Descendants
         $installRoot = [System.IO.Path]::GetFullPath($InstallDir)
         $targetRoot = [System.IO.Path]::GetFullPath($absDst)
         $installRootWithSep = $installRoot.TrimEnd([char[]]@(
@@ -700,7 +501,9 @@ function Pack-SmokePdmodFixtures {
             continue
         }
 
-        $absDst = Join-Path $InstallDir $dst
+        $absDst = Get-SmokeFixtureDestination -InstallDir $InstallDir -RelativePath $dst
+        Assert-SmokePlainTree -Path $absSrc -Descendants
+        Assert-SmokePlainTree -Path $absDst -Descendants
         $absDstParent = Split-Path -Parent $absDst
         if ($absDstParent -and -not (Test-Path -LiteralPath $absDstParent)) {
             New-Item -ItemType Directory -Path $absDstParent -Force | Out-Null
