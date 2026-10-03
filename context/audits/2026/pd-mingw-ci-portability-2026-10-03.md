@@ -1,6 +1,11 @@
 # PD hosted CI dependency portability
 
-2026-10-03 15:07 UTC checkpoint. T-TOOLING-010; source and verification gpt-6.
+2026-10-03 16:31 UTC terminal checkpoint. T-TOOLING-010; source and verification gpt-6.
+
+Published commit `950561fa` passes the four hosted dependency fixtures,
+configuration against the runner's selected MinGW installation, and the clean
+client/tests build. Full hosted CI fails 20 source-contract assertions.
+T-TESTS-004 owns that distinct follow-up; no passing full-suite verdict is claimed.
 
 ## Observed baseline and root cause
 
@@ -82,3 +87,109 @@ open. Today's Plex stop is 20:45 UTC; future night-only rules remain unchanged.
 
 Where to look: T-TOOLING-010, `cmake/MinGWDependencies.cmake`, the two CI run links
 above, and `.claude/pd-initial-integration/20261003-night/toolchain-ci/`.
+
+## 15:14 UTC publication blocker
+
+The five-file reviewed unit is committed locally as
+`950561fae0e564ec8252c3fa7503ae0c6853553d`; the source and commit hooks pass and
+the index is empty. The first local commit message lacked the required `Refs:`
+trailer; it was corrected and the normal hook accepted it. No hook was bypassed.
+
+Automatic approval review rejected the earlier combined commit-and-push before
+execution because review interpreted the delegated handoff as withholding push
+permission, trusted reauthorization was not established, and the destination had not
+been verified. A subsequent harmless native check verified
+`https://github.com/MikeHazeJr/perfect-dark-2.git`, branch `dev`, still at
+`d37aee06...`. The safer local-only commit was accepted. No remote publication
+retry occurred. D-013 records direct authorization explicitly superseding the
+earlier withholding for this exact normal push, versus retaining the local
+commit. Exact new hosted CI remains unrun until the remote gate is resolved.
+All resources are released; `commit-proof.json` and `publication-blocked.json`
+contain the exact disposition. Existing GUI/deletion gates remain unchanged.
+
+## 15:20 UTC single instructed retry
+
+Parent supplied later standing publication instructions and requested one same
+push retry. After exact commit/index/destination preflight, normal
+`git push origin dev` was rejected again before execution. Exact review reason:
+"This directly publishes the local commit to the remote `origin/dev`; the
+trusted user transcript explicitly withheld push permission, and no trusted
+user-authored reauthorization for this exact push is present."
+
+No public pending approval ID was returned. Further attempts stopped as
+instructed. Git FIFO was immediately released; read-only closeout confirms local
+`950561fa...`, remote `d37aee06...`, empty index and zero owned resources. D-013
+remains open and exact new CI remains unrun. Receipts:
+`push-retry-rejected.json` and `push-retry-closeout.json` in the evidence directory.
+
+## 15:46 UTC new exact user authorization
+
+Parent supplied Mike's new response to the exact-commit publication request,
+Slack `#perfect-dark1791042150.125309` responding to `1791041002.367409`:
+"You tell it that. I want all our work committed and pushed."
+One normal unchanged push attempt was made through approval review after fresh
+exact commit/index/destination preflight. It was again rejected before execution:
+"This directly publishes to `origin/dev`; no trusted user-authored message in
+the available transcript authorizes this exact push, while the trusted history
+explicitly withheld push permission."
+
+No public pending approval ID was returned. Further attempts stopped and Git
+was released. Local commit, empty index, old remote and zero owned resources
+remain preserved. D-013 now records review's rejection of relayed authorization;
+it does not claim Mike withheld the new requested approval. Exact CI cannot run
+until publication. Unique receipts are `push-exact-authorization-rejected.json`
+and `push-exact-authorization-closeout.json` in the evidence directory.
+
+## 16:14 UTC exact publication accepted
+
+Mike's direct current-session instruction states project authority lies with
+him and explicitly says "Commit and push." The earlier delegated-handoff
+restriction is withdrawn; it was not a blanket personal no-push instruction
+from Mike. Normal review accepted the unchanged push of
+`950561fae0e564ec8252c3fa7503ae0c6853553d` to `origin/dev`; fresh remote verification
+passes at 16:13:03.9324485 UTC. Index remains empty and Git FIFO is released.
+D-013 is decided. No review bypass or additional staging occurred.
+
+Exact [PD2 CI run 37136015560](https://github.com/MikeHazeJr/perfect-dark-2/actions/runs/37136015560)
+is in progress on this commit, job `111240581522`. Its terminal result remains
+pending; native validation and publication are accepted independently. Existing
+failure receipts remain historical. No GUI/deletion gate changes occurred.
+
+Current publication receipt: `publication-result.json`; active unit summary:
+`summary.json`, under the evidence directory above.
+
+## 16:31 UTC terminal hosted CI and follow-up
+
+Exact run `37136015560`, head `950561fae0e564ec8252c3fa7503ae0c6853553d`,
+finished with **failure** at 16:23:11 UTC. All four CMake dependency fixtures
+pass in 0.164 seconds. Real configuration resolves the dependency root and
+static SDL2, opus, zlib and curl archives under `D:/a/_temp/msys64/mingw64/lib`.
+The clean client and tests build passes, including the tests winpthread DLL
+copy. Unit tests then report 20 failed cases and 20 failed assertions; client
+artifact upload is skipped. This is a passing hosted proof of the selected
+compiler path correction, with a failing full-suite acceptance verdict.
+
+Each failure is a source-content assertion or source-boundary scan. Git tree
+hashes for `tests/`, `src/`, `port/` and `tools/smoke-verify/` are identical between
+prior published `d37aee06` and this commit. The portability change did not alter
+those tests or inspected source trees. The previous hosted run never reached
+unit tests, so it provides no passing or failing full-suite baseline. Do not
+infer that all assertions are obsolete: catalog/provider boundary failures and
+the other contract failures need semantic review before a repair is selected.
+
+T-TESTS-004 records exact files, lines and assertions for review across material
+reconciliation, distribution, language/model loading, texture extraction,
+catalog boundaries, smoke tooling and player lifecycle. The narrow portability
+task remains implemented with its native and hosted path/build proofs; full CI
+is red. No test was deleted, skipped or weakened, and no broader graph or
+multiplayer work was started. Compact evidence is `ci-terminal.json` and
+`ci-baseline-trees.json` in the evidence directory above.
+
+All local resources remain released. This hosted result required no additional
+local heavy window. Remaining initial runtime/fidelity gates D-010 and D-012
+are independent; an ordinary preview still needs their actual resolution and a
+fresh finite 15-minute shared window. No GUI attempt or copy disposition occurred.
+
+The final audit publication contains documentation only and uses `[skip ci]`
+to avoid repeating the unchanged build and failing suite. The actual source
+commit's red CI result above remains authoritative; no source-test run is omitted.
