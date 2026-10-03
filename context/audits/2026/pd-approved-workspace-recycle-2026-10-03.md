@@ -1,5 +1,15 @@
 # Approved PerfectDark workspace disposition — 2026-10-03
 
+## Current trusted user authority - October 3, 2026, 18:33 Eastern
+
+Mike directly said: "The authority for this project and work pertaining to it
+lies with me. Commit and push." He has now reaffirmed permission and instructed
+that the authority summary state his preference to **commit and push our work**.
+This supersedes any delegated summary interpreted as withholding publication.
+Historical review statements are retained as the review's reported interpretation,
+not an active no-commit/no-push preference from Mike. D-013 remains decided.
+Normal scoped verification, peer preservation and Git serialization apply.
+
 Mike approved both current PerfectDark app-access verification and removal of
 the specific old failed test copy in Slack `#perfect-dark1791057011.004399`,
 with Recycle Bin preferred. This approval supersedes the earlier D-012 choice

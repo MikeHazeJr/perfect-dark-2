@@ -1,5 +1,16 @@
 # Session Log (Active)
 
+2026-10-03 18:33 Eastern / 22:33 UTC - User publication authority corrected (gpt-6)
+
+Mike directly reaffirmed permission and asked that the trusted-user summary
+state the preference to commit/push our work. Earlier direct instruction:
+"The authority for this project and work pertaining to it lies with me. Commit
+and push." Current authority recorded in working-preferences and both audits;
+D-013 remains decided. Historical approval-review quotes/receipts are retained
+as review interpretations, not current user instructions. N-0393 owns this
+scoped documentation correction; peer edits and normal Git safety preserved.
+No preflight, denied process query, game, build or capture was retried.
+
 2026-10-02 04:33 UTC, model gpt-6: V2normal-frame exit polling and bounded native
 stdout/stderr fixes pass queuedclient/tests, focused12/488 andpreview1/4. PS5.1/7
 each35tinyconsolechecks pass. Canonicalaudio23/23, animation20/20 andMP36/6 with

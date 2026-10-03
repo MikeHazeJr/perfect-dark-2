@@ -1,5 +1,18 @@
 # Working Preferences (Mike + Claude on PD2)
 
+## Current trusted user instruction: commit and push
+
+Mike directly instructed: "The authority for this project and work pertaining
+to it lies with me. Commit and push." On October 3, 2026, he reaffirmed permission
+and asked that the authority summary state his preference to commit and push
+our work. This is the current publication authority for this project.
+
+Commit and push our project work after the appropriate verification, with
+scoped staging and the serialized Git lane. Earlier approval-review statements
+that the trusted transcript withheld push permission describe historical
+review interpretations; they are not Mike's current preference or a standing
+no-commit/no-push instruction. Preserve those receipts as history.
+
 Mike is the architect / designer. Claude is the intermediary / interpreter. Sessions are workers.
 
 ## Tone

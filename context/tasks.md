@@ -1,5 +1,13 @@
 # Tasks
 
+2026-10-03 18:33 Eastern / 22:33 UTC: Mike reaffirmed permission and directed
+correction of the authority summary: **commit and push our project work**.
+His direct instruction is authoritative; D-013 remains decided. Historical
+review claims that the trusted transcript withheld push permission must not
+be replayed as current user preference. Scoped verification, peer preservation
+and the serialized Git lane continue. Runtime admission remains a separate
+recorded blocker. [Current authority](working-preferences.md).
+
 2026-10-02 04:33 UTC: corrected native gates pass audio23/23, clip-bounded
 animation20/20 and MP36/6 with10nativecases on client7CB077E3/seed28b2cf25.
 Queued client/tests pass; focused12cases488assert pluspreview1/4 pass. Console
