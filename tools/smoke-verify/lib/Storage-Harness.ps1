@@ -129,6 +129,39 @@ function Complete-SmokeManagedInstall {
     }
 }
 
+function Get-SmokeReusePlan {
+    param([Parameter(Mandatory)][string]$ProjectRoot, [Parameter(Mandatory)][string]$InstallId,
+          [Parameter(Mandatory)][string]$Seed, [Parameter(Mandatory)][string]$BinarySha256)
+    return Invoke-SmokeStorage -Action reuse-plan -ProjectRoot $ProjectRoot -Request @{
+        id=$InstallId; seed_id=$Seed; binary_sha256=$BinarySha256
+    }
+}
+
+function Assert-SmokeReuseRuntimeSupported {
+    # Save/home/capture overrides do not isolate extraction sidecars and the
+    # asset-directory .pdextract-cache stamp. No current client contract can
+    # prevent those writes. Never substitute a caller promise or a hash check
+    # after launch for enforcement of immutable inputs.
+    throw 'Runtime reuse refused: current client can write extraction sidecars and .pdextract-cache in the base. Supported immutable-base write isolation is required; no game, profile, reset, eviction or copy was started.'
+}
+
+function New-SmokeReadOnlyProfile {
+    # Storage-only registration for a read-only consumer, not a game launcher.
+    param([Parameter(Mandatory)][string]$ProjectRoot, [Parameter(Mandatory)][string]$InstallId,
+          [Parameter(Mandatory)][string]$Seed, [Parameter(Mandatory)][string]$BinarySha256)
+    return Invoke-SmokeStorage -Action reuse-acquire -ProjectRoot $ProjectRoot -Request @{
+        id=$InstallId; seed_id=$Seed; binary_sha256=$BinarySha256; owner_pid=$PID
+    }
+}
+
+function Complete-SmokeReadOnlyProfile {
+    param([Parameter(Mandatory)][string]$ProjectRoot, [Parameter(Mandatory)]$Profile,
+          [hashtable]$Outcome=@{})
+    return Invoke-SmokeStorage -Action reuse-release -ProjectRoot $ProjectRoot -Request @{
+        id=$Profile.ReuseId; owner_pid=$PID; outcome=$Outcome
+    }
+}
+
 function Assert-SmokePlainTree {
     param([Parameter(Mandatory)][string] $Path, [switch] $Descendants)
     $absolute = [IO.Path]::GetFullPath($Path)

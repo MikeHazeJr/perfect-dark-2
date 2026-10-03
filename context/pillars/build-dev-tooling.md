@@ -1,5 +1,15 @@
 # Build / Dev Tooling
 
+2026-10-03 19:46 Eastern / 23:46 UTC: exact-base read-only lease/profile storage
+foundation validated16Python +14checks eachPS5.1/7. New run.ps1 reuse mode
+strictly refuses the current client before launch because extraction sidecars
+and .pdextract-cache have no supported immutable-base write isolation. Exact
+seed/blob/live-byte/owner checks, exclusive PID/creation lease, fresh external
+writable directories and retained separate receipts preserve the failed verdict.
+Leases block storage reset/retention; profile bytes stay under existing budgets.
+No game/build/fullcopy/delete or cap/pin relaxation. Initial acceptance partial,
+V014fail; [source and evidence](../audits/2026/pd-existing-base-reuse-2026-10-03.md).
+
 > CMake + MSYS2/MinGW + Ninja. Active targets: `pd` (game), `pd-tests` (Catch2), and `pd-updater` (Updater.exe). Standalone `pd-server` / `PerfectDarkServer.exe` is removed/deprecated; listen-host inside the client is the server path. Static linking; only `opengl32.dll` is dynamic. Headless build wrapper + per-session isolated builds + queued watchdog. Self-updating release pipeline with Ed25519 signing.
 
 ---

@@ -1,5 +1,13 @@
 # Tasks
 
+2026-10-03 19:46 Eastern / 23:46 UTC: read-only reuse lease/profile foundation
+validated16Python +14checks eachPS5.1/7, preserving failed base/receipts and
+existing caps/pins. Current run.ps1 reuse refuses before launch: native base
+write isolation is absent for extraction sidecars/.pdextract-cache. No new
+build/game/fullcopy/delete. Initialscopepartial/V014fail stays11/29,1/17,0captures;
+controller/app/window and supported immutable-base contract remain needed.
+[Reuse unit](audits/2026/pd-existing-base-reuse-2026-10-03.md).
+
 2026-10-03 18:56 Eastern / 22:56 UTC: renewed admission passed; actual current
 client fixture failed11/29,1/17events,0captures after85-second menu readiness.
 Xbox One controller occupied player0; virtual attach guard correctly refused.

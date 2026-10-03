@@ -46,6 +46,15 @@
 .PARAMETER PerTestInstall
     Always stage a private .claude/smoke-storage/installs/<id> directory.
 
+.PARAMETER ReuseInstallId
+    Exact completed unpinned storage install to inspect without a full copy.
+    Requires ReuseSeed and ReuseBinarySha256. Runtime reuse currently refuses
+    because this client has no supported immutable-base write isolation.
+
+.PARAMETER ReusePlan
+    Validate the exact existing base and prior receipts, print the plan, and exit.
+    Creates no profile or lease; does not launch the game or change its verdict.
+
 .PARAMETER NativeAssetManifest
     Optional bounded one-model native consumer controls. Copied privately and
     bound to this client hash; complete member events required. Single process only.
@@ -101,6 +110,10 @@ param(
     [string]   $SourceBinary = "",
     [string]   $SourceRom = "",
     [string]   $SourceSeed = "",
+    [string]   $ReuseInstallId = "",
+    [string]   $ReuseSeed = "",
+    [string]   $ReuseBinarySha256 = "",
+    [switch]   $ReusePlan,
     [string]   $NativeAssetManifest = "",
     [string]   $StoragePolicy = "",
     [switch]   $VerboseAssertions
@@ -116,6 +129,20 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 $LibDir = Join-Path $ScriptDir "lib"
+if ($ReuseInstallId) {
+    if (-not $ReuseSeed -or -not $ReuseBinarySha256 -or $Build -or $Install -or
+            $SourceSeed -or $SourceBinary -or $SourceRom -or $SharedInstall -or $PerTestInstall -or $Keep -or $NativeAssetManifest) {
+        throw 'ReuseInstallId requires ReuseSeed/ReuseBinarySha256 and conflicts with build/copy/source/mutation modes.'
+    }
+    . (Join-Path $LibDir 'Storage-Harness.ps1')
+    Initialize-SmokeStoragePolicy -Path $StoragePolicy
+    if ($ReusePlan) {
+        Get-SmokeReusePlan -ProjectRoot $ProjectRoot -InstallId $ReuseInstallId -Seed $ReuseSeed -BinarySha256 $ReuseBinarySha256 | ConvertTo-Json
+        return
+    }
+    Assert-SmokeReuseRuntimeSupported
+}
+if ($ReusePlan -or $ReuseSeed -or $ReuseBinarySha256) { throw 'Reuse parameters require ReuseInstallId.' }
 if ($SourceSeed -and ($Build -or $Install -or $SourceBinary -or $SourceRom)) {
     throw 'SourceSeed requires a frozen batch: omit Build/Install/SourceBinary/SourceRom.'
 }

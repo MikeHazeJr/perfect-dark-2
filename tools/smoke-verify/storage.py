@@ -34,6 +34,28 @@ class StorageError(RuntimeError):
 def utc():
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="microseconds")
 
+def process_identity(pid):
+    """Bind a lease to the live Windows caller, including PID reuse protection."""
+    if os.name != "nt" or type(pid) is not int or pid <= 0:
+        raise StorageError("Reuse leases require a live native Windows owner PID")
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+    kernel.OpenProcess.restype = w.HANDLE
+    kernel.GetProcessTimes.argtypes = [w.HANDLE, *([ctypes.POINTER(w.FILETIME)] * 4)]
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle: raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        creation, exit_time, system, user = (w.FILETIME() for _ in range(4))
+        if not kernel.GetProcessTimes(handle, creation, exit_time, system, user):
+            raise ctypes.WinError(ctypes.get_last_error())
+        if exit_time.dwHighDateTime or exit_time.dwLowDateTime:
+            raise StorageError("Reuse owner has exited; preserve lease for review")
+        return {"pid": pid, "creation_ticks": creation.dwHighDateTime << 32 | creation.dwLowDateTime}
+    finally:
+        kernel.CloseHandle(handle)
+
 def plain(path):
     path = Path(os.path.abspath(path))
     for ancestor in [*reversed(path.parents), path]:
@@ -194,7 +216,7 @@ class Storage:
 
     def usage(self):
         total = 0
-        for name in ["blobs", "seeds", "receipts"]:
+        for name in ["blobs", "seeds", "receipts", "reuse-receipts"]:
             base = self.root / name
             if base.exists(): total += sum(s.st_size for _, s in walk(base))
         return total
@@ -341,6 +363,7 @@ class Storage:
         return directory
 
     def eligible(self, install, allow_pin=False):
+        if self.reuse_held(install["id"]): return False
         if install["status"] != "completed" or (install.get("pin") and not allow_pin): return False
         directory = self.install_path(install)
         marker = json.loads(plain(directory / ".pd-storage-owner.json").read_text())
@@ -350,6 +373,143 @@ class Storage:
         if actual != expected or metadata != receipt["metadata"]:
             raise StorageError("Completed workspace changed; preserve and review: " + str(directory))
         return True
+
+    def reuse_held(self, identifier):
+        return any(x["base_id"] == identifier and x["status"] != "completed"
+                   for x in self.state.get("reuse_runs", {}).values())
+
+    def profile_bytes(self):
+        # Small profiles never consume another full-copy slot, but their bytes
+        # and reservations count against the existing storage byte budget.
+        return sum(x["reserved_bytes"] for x in self.state.get("reuse_runs", {}).values())
+
+    def reuse_snapshot(self, install):
+        directory = self.install_path(install)
+        if install["status"] != "completed" or install.get("pin"):
+            raise StorageError("Reuse requires completed unpinned evidence; verdict is unchanged")
+        marker_path = directory / ".pd-storage-owner.json"
+        marker = json.loads(plain(marker_path).read_text())
+        if marker != {"schema": 1, "id": install["id"], "prospective": True}:
+            raise StorageError("Reuse base ownership marker mismatch")
+        self.read_seed(install["seed"])
+        expected, recipe = self.recipe(install)
+        if recipe.get("id") != install["id"] or recipe.get("seed") != install["seed"]:
+            raise StorageError("Reuse recipe identity mismatch")
+        actual, metadata = self.inspect(directory)
+        if actual != expected or metadata != recipe["metadata"]:
+            raise StorageError("Reuse base differs from complete byte/identity receipt")
+        # Include owner marker and every original receipt, not only asset bytes.
+        def tree_snapshot(root):
+            result = {}
+            for path, _ in walk(root):
+                digest, info = self.digest(path)
+                result[path.relative_to(root).as_posix()] = [digest, signature(info)]
+            for parent, dirs, _ in os.walk(plain(root), followlinks=False):
+                path = plain(parent)
+                result[path.relative_to(root).as_posix() + "/"] = ["directory", signature(path.stat())]
+            return result
+        base_snapshot = tree_snapshot(directory)
+        base_files = {name: entry for name, entry in base_snapshot.items() if not name.endswith("/") and name != ".pd-storage-owner.json"}
+        if set(base_files) != set(expected) or any(base_files[name] != [entry["sha256"], recipe["metadata"][name]] for name, entry in expected.items()):
+            raise StorageError("Reuse base changed during verified snapshot")
+        return {"base": base_snapshot,
+                "receipts": tree_snapshot(plain(self.root / "receipts" / install["id"])),
+                "record": dict(install)}
+
+    def reuse_plan(self, request):
+        install = self.state["installs"][request["id"]]
+        if self.reuse_held(install["id"]): raise StorageError("Existing exclusive reuse lease; no concurrent owner")
+        if request.get("seed_id") != install["seed"]:
+            raise StorageError("Reuse seed identity mismatch")
+        for path, _ in walk(self.install_path(install)): exclusive_file(path)
+        snapshot = self.reuse_snapshot(install)
+        directory = self.install_path(install)
+        if any(x["id"] != install["id"] and x["status"] != "compacted" and self.install_path(x) == directory
+               for x in self.state["installs"].values()):
+            raise StorageError("Ambiguous registry ownership of reuse base")
+        binary = snapshot["base"].get("PerfectDark.exe")
+        if not binary or request.get("binary_sha256") != binary[0]:
+            raise StorageError("Reuse tested binary hash mismatch")
+        full = [x for x in self.state["installs"].values() if x["status"] != "compacted"]
+        if len(full) > self.policy["max_full_installs"]:
+            raise StorageError("Existing full-copy count exceeds policy; no relaxation")
+        reserve = self.policy["peak_run_gib_bytes"]
+        if sum(x["full_bytes"] for x in full) + self.profile_bytes() + reserve > self.policy["max_full_install_gib_bytes"]:
+            raise StorageError("Reuse profile reservation exceeds existing byte budget")
+        self.preflight(reserve)
+        return install, snapshot
+
+    def acquire_reuse(self, request):
+        """Storage-only lease, not permission to launch a mutating consumer.
+
+        Cooperating storage operations cannot reset, move or evict the base.
+        External consumers need a separately verified immutable-base contract;
+        a post-run snapshot detects mutation but does not prevent it.
+        """
+        owner = process_identity(request.get("owner_pid"))
+        install, snapshot = self.reuse_plan(request)
+        identifier = "reuse-" + uuid.uuid4().hex
+        directory = plain(self.root / "profiles" / identifier)
+        receipt_dir = plain(self.root / "reuse-receipts" / identifier)
+        record = {"id": identifier, "base_id": install["id"], "status": "active", "created": utc(),
+                  "owner": owner, "path": directory.relative_to(self.root).as_posix(),
+                  "reserved_bytes": self.policy["peak_run_gib_bytes"],
+                  "snapshot_sha256": hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
+        self.state.setdefault("reuse_runs", {})[identifier] = record
+        self.save()  # Interrupted setup retains its exclusive lease for review.
+        for name in ["profile", "logs", "captures"]: (directory / name).mkdir(parents=True)
+        marker = {"schema": 1, "id": identifier, "base_id": install["id"], "owner": owner}
+        (directory / ".pd-reuse-owner.json").write_text(json.dumps(marker), encoding="utf-8")
+        receipt_dir.mkdir(parents=True)
+        admission = {"lease": dict(record), "snapshot": snapshot}
+        length = len(json.dumps(admission).encode()) + 1024
+        self.preflight(length, length)
+        json_gzip(receipt_dir / "admission.json.gz", admission)
+        return {"ReuseId": identifier, "InstallDir": str(self.install_path(install)),
+                "ProfileDir": str(directory / "profile"), "LogDir": str(directory / "logs"),
+                "CaptureDir": str(directory / "captures"), "ReuseReceiptDir": str(receipt_dir),
+                "StorageCopiedBytes": 0, "PriorPassed": install["passed"], "RuntimeAdmitted": False}
+
+    def release_reuse(self, request):
+        record = self.state["reuse_runs"][request["id"]]
+        if record["status"] != "active": raise StorageError("Only an active reuse lease can close")
+        if process_identity(request.get("owner_pid")) != record["owner"]:
+            raise StorageError("Reuse lease owner identity mismatch")
+        directory = plain(self.root / str(relative(record["path"])))
+        if directory != plain(self.root / "profiles" / record["id"]):
+            raise StorageError("Reuse profile path escaped its registered scope")
+        marker = json.loads(plain(directory / ".pd-reuse-owner.json").read_text())
+        expected_marker = {"schema": 1, "id": record["id"], "base_id": record["base_id"], "owner": record["owner"]}
+        if marker != expected_marker: raise StorageError("Reuse profile owner marker mismatch")
+        try:
+            admission = read_gzip(self.root / "reuse-receipts" / record["id"] / "admission.json.gz")
+            if admission["lease"] != record:
+                raise StorageError("Reuse admission lease ownership mismatch")
+            saved = admission["snapshot"]
+            if hashlib.sha256(json.dumps(saved, sort_keys=True, separators=(",", ":")).encode()).hexdigest() != record["snapshot_sha256"]:
+                raise StorageError("Reuse admission snapshot hash mismatch")
+            snapshot = self.reuse_snapshot(self.state["installs"][record["base_id"]])
+            if snapshot != saved:
+                raise StorageError("Immutable reuse base or prior failure evidence changed")
+            for path, _ in walk(directory): exclusive_file(path)
+            files, metadata = self.inspect(directory)
+        except (OSError, ValueError, KeyError, StorageError) as error:
+            record.update(status="integrity_failed", error=str(error))
+            self.save()  # Keep the lease held; never reset/delete changed evidence.
+            raise
+        receipt = {"schema": 1, "id": record["id"], "base_id": record["base_id"], "completed": utc(),
+                   "base_unchanged": True, "files": files, "metadata": metadata,
+                   "profile_path": record["path"], "outcome": request.get("outcome", {}),
+                   "deletion_performed": False, "runtime_admitted": False}
+        length = len(json.dumps(receipt).encode()) + 1024
+        self.preflight(length, length)
+        path = self.root / "reuse-receipts" / record["id"] / "completion.json.gz"
+        json_gzip(path, receipt)
+        record.update(status="completed", completed=receipt["completed"],
+                      reserved_bytes=sum(x["bytes"] for x in files.values()))
+        self.save()
+        return {"Receipt": str(path), "BaseUnchanged": True, "ProfileRetained": str(directory),
+                "DeletionPerformed": False, "PriorPassed": self.state["installs"][record["base_id"]]["passed"]}
 
     def remove(self, install):
         if not self.eligible(install): raise StorageError("Workspace is active or pinned; no removal")
@@ -383,13 +543,13 @@ class Storage:
         limit_bytes = self.policy["max_full_install_gib_bytes"]
         while True:
             full = [x for x in self.state["installs"].values() if x["status"] != "compacted"]
-            if len(full) + 1 <= limit_count and sum(x["full_bytes"] for x in full) + required <= limit_bytes:
+            if len(full) + 1 <= limit_count and sum(x["full_bytes"] for x in full) + self.profile_bytes() + required <= limit_bytes:
                 return
             # Prefer retaining the newest successful copy; older successes and
             # then oldest failures yield slots first. Receipts never pruned.
             successes = [x for x in full if x["status"] == "completed" and x.get("passed")]
             latest_success = max(successes, key=lambda x: x["created"])["id"] if successes else None
-            victims = sorted((x for x in full if x["status"] == "completed" and not x.get("pin")
+            victims = sorted((x for x in full if x["status"] == "completed" and not x.get("pin") and not self.reuse_held(x["id"])
                               and self.install_path(x).is_relative_to(self.root / "installs")),
                              key=lambda x: (2 if x["id"] == latest_success else 0 if x.get("passed") else 1, x["created"]))
             if not victims: raise StorageError("Full-install budget blocked by active/pinned evidence; no new copy")
@@ -579,7 +739,7 @@ def re_safe(name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["seed", "complete", "preflight", "status", "restore", "dry-run"])
+    parser.add_argument("action", choices=["seed", "complete", "preflight", "status", "restore", "dry-run", "reuse-plan", "reuse-acquire", "reuse-release"])
     args = parser.parse_args()
     request = json.load(sys.stdin)
     if os.name == "nt":
@@ -594,15 +754,21 @@ def main():
         if args.action == "seed": result = storage.seed(request)
         elif args.action == "complete": result = storage.complete(request)
         elif args.action == "restore": result = storage.restore(request["id"], Path(request["destination"]))
+        elif args.action == "reuse-plan":
+            install, _ = storage.reuse_plan(request)
+            result = {"InstallDir": str(storage.install_path(install)), "PriorPassed": install["passed"],
+                      "StorageCopiedBytes": 0, "RuntimeAdmitted": False}
+        elif args.action == "reuse-acquire": result = storage.acquire_reuse(request)
+        elif args.action == "reuse-release": result = storage.release_reuse(request)
         elif args.action == "preflight": result = storage.preflight(request.get("pending_bytes", 0), request.get("archive_pending_bytes", 0))
         else:
             rows = list(storage.state["installs"].values())
-            result = {"ArchiveBytes": storage.usage(), "Installs": rows, "Policy": storage.policy,
+            result = {"ArchiveBytes": storage.usage(), "Installs": rows, "ReuseRuns": list(storage.state.get("reuse_runs", {}).values()), "Policy": storage.policy,
                       "HistoricalPruning": False, "DeletionPerformed": False}
             if args.action == "dry-run":
                 result["CandidateVerification"] = "Inventory only; retention re-verifies complete recipes, every file, and exclusive handles before removal"
                 result["Candidates"] = [{"id": x["id"], "path": str(storage.root / x["path"]), "bytes": x["full_bytes"]}
-                                         for x in rows if x["status"] == "completed" and not x.get("pin")]
+                                         for x in rows if x["status"] == "completed" and not x.get("pin") and not storage.reuse_held(x["id"])]
         print(json.dumps(result, ensure_ascii=True))
 
 if __name__ == "__main__":

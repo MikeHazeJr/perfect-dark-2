@@ -1,5 +1,29 @@
 ﻿# Smoke verify
 
+## Exact-base reuse: read-only profiles and current runtime refusal
+
+`-ReuseInstallId <id> -ReuseSeed <sha256> -ReuseBinarySha256 <sha256> -ReusePlan`
+verifies a completed unpinned registered base, its canonical seed/blobs, exact
+executable, complete live bytes/identities and original receipts without another
+full copy. Its failed verdict stays failed. Planning creates no profile or lease.
+Omit `-ReusePlan` and the current runner refuses before launch: extraction
+sidecars and `.pdextract-cache` still write beneath the base. Save/home/log/capture
+flags alone do not provide supported immutable-base write isolation.
+
+Storage-only `New-SmokeReadOnlyProfile` / `Complete-SmokeReadOnlyProfile` APIs
+register one exclusive live PID/creation-bound lease and fresh small writable
+profile/log/capture directories outside the base. Cooperating storage cannot
+reset, move or evict a leased base. Pins and the existing count/byte/archive/free
+budgets remain enforced; closed profile bytes stay budgeted. Close re-verifies
+the entire base and prior receipts and retains the profile/new receipt. Mutation
+keeps the lease held for review. There is no deletion, forced lease stealing or
+permission to launch a mutating consumer. These checks detect mutation; native
+write isolation is required before a game can use this mode.
+
+Focused proof: `test-storage-reuse.py` (16 tiny retained cases) and
+`test-storage-reuse.ps1` (14 checks each PS5.1/7), also in Windows CI. No game or
+full-game copy is needed. See [the implementation audit](../../context/audits/2026/pd-existing-base-reuse-2026-10-03.md).
+
 Scripted boot / menu / input scenarios that exercise the client end-to-end and
 parse stdout for required + forbidden patterns. The harness lives in
 `port/src/smoke_harness.c`; the runner is `tools/smoke-verify/run.ps1`; the

@@ -59,6 +59,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -B tools/smoke-verify/test-storage.py
 
+      - name: Check read-only smoke reuse and runtime refusal
+        shell: pwsh
+        run: |
+          python -B tools/smoke-verify/test-storage-reuse.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/smoke-verify/test-storage-reuse.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tools/smoke-verify/test-storage-reuse.ps1
+
       - name: Configure (CMake + Ninja)
         run: cmake -G Ninja -B Build .
 

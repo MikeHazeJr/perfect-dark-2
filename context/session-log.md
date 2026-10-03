@@ -1,5 +1,19 @@
 # Session Log (Active)
 
+2026-10-03 19:46 Eastern / 23:46 UTC - Safe existing-base reuse foundation (gpt-6)
+
+Registered exact-base read-only leases and fresh small profile/log/capture
+namespaces; source/recipe/blob/live-file/owner proof, PID+creation ownership,
+concurrent refusal, lease-aware storage retention and budgeted retained profiles.
+Prior failed verdict/receipts are unchanged. Close retains every profile file;
+base/directory/receipt mutation keeps lease held.16Python cases and14checks each
+PS5.1/7 pass in tiny retained fixtures; parser/diff/sourceguard pass. New CI gate.
+Current native client cannot guarantee base immutability (sidecars/stamps), so
+run.ps1 reuse strictly refuses before native setup/build/launch; plan-only and
+storage APIs do not admit a game. No real game/build/fullcopy/delete, cap/pin
+change or controller/security action. Initialpartial/V014fail11/29,1/17,0captures
+and prepared-only watcher remain. [Audit](audits/2026/pd-existing-base-reuse-2026-10-03.md).
+
 2026-10-03 18:56 Eastern / 22:56 UTC - Current native fixture failure (gpt-6)
 
 Normal renewed storage204GiB/root managedCIM admission passed; nativeSky runner
