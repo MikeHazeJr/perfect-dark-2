@@ -113,3 +113,51 @@ is already recorded. Next establish the actual PerfectDark app prompt/access
 through that supported flow, then run the unchanged prepared gate in a fresh
 coordinated 15-minute window with the unchanged 200-GiB floor/reserves.
 No ordinary-client acceptance is inferred from capability discovery.
+
+## 21:48 UTC continuation: admission blocked before launch
+
+The granted runtime window ended at **21:27 UTC**. The worker's first clock
+left **466.979 seconds**, below the unchanged 240-second native run,
+138-second finalization and 90-second cleanup reserve, plus setup. It refused
+before launching a wrapper, game or managed install. Actual app access was
+not requested; there were **zero native assertions and captures**. Native
+Sky initialization/listing succeeded, but no PerfectDark target existed.
+This attempt is unqualified and does not prove runtime or visual acceptance.
+
+Two execution restrictions are preserved separately. The root combined
+coordination/Workbench and canonical storage-preflight batch was rejected
+at CreateProcess before any component ran: **`rejected: blocked by policy`**.
+The returned record supplies no detailed reason, rule or request ID, so it
+does not identify a storage-backend failure. The worker's scoped
+`Get-CimInstance Win32_Process` query for `PerfectDark.exe`, filtered to the
+managed shared/client executable, returned **`Access denied`**. This is a
+process-query restriction; no actual app-permission denial occurred here.
+Read-only readiness preparation did not retry either denied action through
+another route or change configuration, grants, hooks or security settings.
+
+CLI PID 7196 started **21:18:56 UTC**, exited zero **21:21:37 UTC**, and its
+owned-process absence was verified **21:29:14 UTC**. Owned queues were empty.
+These receipts establish cleanup of that executor and that it launched no
+game; they do not prove a fresh successful managed-game process query.
+The unchanged canonical ownership helper records actual PID, executable,
+start time, parent and command token, then requires fresh verification for
+cleanup. Its earlier **22 passing checks** do not prove permissions for this
+restricted worker. No ownership record was invented for an unlaunched game.
+
+Readiness is **BLOCKED**. The 20:08:49 storage receipt remains historical;
+fresh canonical admission has not passed. Read-only registry inspection
+shows two pinned managed copies and an absent shared/client directory,
+providing slot capacity but no fresh disk/process admission. The minimum
+operator step is resolution of the exact preflight and owned-process-query
+restrictions through supported execution approval, or actual canonical
+checks and receipts from a coordinated normal operator session. No request
+ID is available to quote and no security-setting change is requested.
+
+Private evidence is `preview-current-1/{result,worker-owner,worker-exit,
+root-closeout}.json` and `readiness-closeout/{readiness.json,
+two-phase-protocol.txt}` under this night's evidence directory. The prepared
+protocol initializes a persistent supported executor and completes legitimate
+admission **before** requesting a new 15-minute runtime window; its deadline
+comes from that new grant. It has not been executed. D-012, both pins,
+immutable archives and current binaries remain preserved. V-014 remains
+blocked and the overall initial asset/menu scope remains partial.
