@@ -48,6 +48,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Check MinGW dependency resolution
+        run: python tools/tests/test_mingw_dependencies.py
+
       - name: Configure (CMake + Ninja)
         run: cmake -G Ninja -B Build .
 
