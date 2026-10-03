@@ -1,5 +1,18 @@
 # Session Log (Active)
 
+2026-10-03 18:56 Eastern / 22:56 UTC - Current native fixture failure (gpt-6)
+
+Normal renewed storage204GiB/root managedCIM admission passed; nativeSky runner
+initialized/live before parent window. Current43a602 client PID17056 launched
+22:51:26, exited1 after86.8s;11/29assertions,1/17events,0captures. Xbox assigned
+player0 at00:00.50; smoke virtual attach guard refused occupiedslot0. Sky found
+realwindow3082418 then get_window found it gone; no appaccess/permissiondenial.
+Ownership cue was53.188s late; prepared immediate watcher syntaxPASS, unexecuted.
+Exact game/CLI absence22:56:18 and all FIFOs finished before23:07. New failedcopy
+retained with recipe/logs;3fullcopies/2pins/archive881170023. No rerun/deletion,
+fixture weakening, physicaldevice/grant/security/history changes. Initialpartial,
+V014fail; nativeconsumerproofnull. [Evidence](audits/2026/pd-approved-workspace-recycle-2026-10-03.md).
+
 2026-10-03 18:33 Eastern / 22:33 UTC - User publication authority corrected (gpt-6)
 
 Mike directly reaffirmed permission and asked that the trusted-user summary

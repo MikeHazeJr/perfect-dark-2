@@ -1,5 +1,14 @@
 # Tasks
 
+2026-10-03 18:56 Eastern / 22:56 UTC: renewed admission passed; actual current
+client fixture failed11/29,1/17events,0captures after85-second menu readiness.
+Xbox One controller occupied player0; virtual attach guard correctly refused.
+NativeSky found realwindow3082418, then it vanished before appaccess; no app
+permission denial/requestID. Game17056 and CLI13744 absence verified22:56:18,
+all FIFOs finished before23:07. Failedcopy/recipe preserved,3fullcopies/2pins.
+Immediate verified ownership-cue watcher prepared only; no relaunch/deletion.
+Initial scopepartial, V014fail. [Actual runtime](audits/2026/pd-approved-workspace-recycle-2026-10-03.md).
+
 2026-10-03 18:33 Eastern / 22:33 UTC: Mike reaffirmed permission and directed
 correction of the authority summary: **commit and push our project work**.
 His direct instruction is authoritative; D-013 remains decided. Historical

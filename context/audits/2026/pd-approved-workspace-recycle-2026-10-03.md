@@ -171,3 +171,55 @@ admission **before** requesting a new 15-minute runtime window; its deadline
 comes from that new grant. It has not been executed. D-012, both pins,
 immutable archives and current binaries remain preserved. V-014 remains
 blocked and the overall initial asset/menu scope remains partial.
+
+## 18:56 Eastern / 22:56 UTC: actual current-client runtime failure
+
+Renewed direct user permission enabled one normal admission attempt. Canonical
+storage preflight passed **22:40:10 UTC** at the unchanged 204-GiB threshold;
+normal root process verification passed **22:40:33 UTC** with no managed client
+or active install. The first native-runner launcher omitted a dependency import;
+its exact CLI PID 30164 was verified exited **22:43:58 UTC**. The corrected
+separate runner retained native Node/Sky on Windows/Shadowbane and was actually
+live/matched as PID 13744 when READY was reported **22:46:40 UTC**. The parent
+then granted the runtime window with a hard **23:07 UTC / 19:07 Eastern** cleanup
+deadline. No security, grant, configuration or conversation-history change occurred.
+
+The unchanged ordinary-client fixture launched the tested `43a602...` client
+as PID 17056 at **22:51:26 UTC**, in new managed run
+`20261003T225125084026Z-menu_virtual_controller_agent_cancel-439f0cfe`.
+Actual PID/path/start/parent/fixture token and private install marker matched;
+the live executable hash matched the tested source. The client reached stable
+`agent_select_ready`, then exited **1** after **86.8 seconds**: **11/29 assertions**,
+**1/17 events**, **zero captures**. This is failed acceptance, not a partial pass.
+
+The actual log assigns an **Xbox One controller to player 0** at 00:00.50.
+`port/src/smoke_harness.c:2354` explicitly refuses virtual attachment when
+`inputGetPad(0)` is occupied. The failure at 01:25.71 is
+`attach_readiness_or_player0_occupied`. No physical controller was disconnected,
+its assignment changed, or fixture assertion weakened. The next virtual-controller
+check requires a free player-0 slot in the private test process.
+
+Native Sky returned the real matching PerfectDark window **3082418**, then
+`get_window` reported it gone as the client exited. `get_window_state` was never
+called. **Actual app permission remains unverified**; this was no permission
+denial and no app approval request ID was returned. Root's ownership cue arrived
+53.188 seconds after launch. The prepared `publish-game-ready.ps1` watches the
+canonical newly written ownership record and publishes its verified cue immediately,
+removing the manual handoff delay on the next attempt. Its syntax passes; it has
+not been executed or measured in a subsequent game run.
+
+The failed fixture's result, reconstruction recipe, logs and full copy are retained.
+There are now **three managed full copies**, including the two existing pins;
+archive usage is **881,170,023 bytes**. No new deletion or relaunch occurred.
+Any next copy mutation must respect this capacity and the Recycle Bin policy.
+The native-consumer field is null and there is no captured visual fidelity proof.
+Initial asset/menu scope remains partial; V-014 records a current **fail** verdict.
+
+Both game PID 17056 and native runner PID 13744 were freshly verified absent
+at **22:56:18 UTC**. The wrapper completed and all heavy/runtime/capture FIFOs
+were immediately finished before the deadline. Evidence under
+`.claude/pd-initial-integration/20261003-night/renewed-admission-1/` includes
+`storage-preflight.json`, `process-admission.json`, `ready.json`, `game-ready.json`,
+`runtime-result.json`, `native-window-access-tool-results.json`,
+`owned-release-proof.json` and the runner owner/exit/final receipts. Canonical
+fixture results are `.claude/smoke-verify-runs/results-20261003T225416Z.json`.
