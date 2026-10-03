@@ -18,6 +18,7 @@ std::string readTextFile(const char *path)
 
 void requireContains(const std::string &text, const char *needle)
 {
+    CAPTURE(needle);
     REQUIRE(text.find(needle) != std::string::npos);
 }
 
@@ -1068,8 +1069,10 @@ TEST_CASE("multi-process smoke isolates process installs and assertions",
     requireContains(runner, "Copy-Item -LiteralPath $logPath -Destination $snapshotPath -Force");
     requireContains(runner, "$psi.WorkingDirectory = $processInstallInfo.InstallDir");
     requireContains(runner, "Invoke-SmokeAssertions -LogPath $entry.LogPath");
-    requireContains(runner, "retained process install for debugging");
-    requireContains(runner, "cleaned process install:");
+    requireContains(multiProcess, "Complete-SmokeManagedInstall");
+    requireContains(multiProcess, "-Passed $testOk -Keep ([bool]$KeepOnSuccess)");
+    requireContains(multiProcess, "$completedIds.ContainsKey($managedInfo.StorageId)");
+    requireContains(multiProcess, "$completedIds[$managedInfo.StorageId] = $true");
 
     requireContains(systemSource, "if (sysArgCheck(\"--smoke\"))");
     requireContains(systemSource, "sysArgGetString(\"--debug-home-path\")");

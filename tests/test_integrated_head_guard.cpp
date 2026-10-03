@@ -167,7 +167,11 @@ TEST_CASE("charpreview: request seam clears head for integrated body",
 	const std::string src =
 		readTextFile("port/fast3d/pdgui_charpreview.c");
 
-	REQUIRE(src.find("if (catalogGetBodyIsComplete(bodynum)) {")
+	REQUIRE(src.find("if (catalogGetBodyIsComplete(be->runtime_index)) {")
+	        != std::string::npos);
+	REQUIRE(src.find("if (catalogGetBodyIsComplete(be->mp_index)) {")
+	        == std::string::npos);
+	REQUIRE(src.find("headnum = 0;", src.find("if (catalogGetBodyIsComplete(be->runtime_index)) {"))
 	        != std::string::npos);
 	REQUIRE(src.find("Integrated-head body (Skedar, Dr Carroll)")
 	        != std::string::npos);

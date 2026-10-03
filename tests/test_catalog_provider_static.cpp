@@ -375,6 +375,9 @@ TEST_CASE("source-filenum provider handle reverse lookups stay catalog-owned", "
 	REQUIRE(helperBlock.find("ASSET_WEAPON") != std::string::npos);
 	REQUIRE(helperBlock.find("ASSET_PROP") != std::string::npos);
 	REQUIRE(helperBlock.find("ASSET_VEHICLE") != std::string::npos);
+	const std::string bondgun = readTextFile("src/game/bondgun.c");
+	REQUIRE(bondgun.find("catalogResolveModel(player->gunctrl.loadcatalogid, &resolved)") != std::string::npos);
+	REQUIRE(bondgun.find("bgunSameSourceHandle(resolved.handle, player->gunctrl.loadhandle)") != std::string::npos);
 
 	for (const char *path : files) {
 		const std::string stripped = stripComments(readTextFile(path), true);
@@ -411,7 +414,9 @@ TEST_CASE("typed weapon model source survives the later legacy coverage pass",
 	REQUIRE(preserve_call != std::string::npos);
 	REQUIRE(legacy_register != std::string::npos);
 	REQUIRE(preserve_call < legacy_register);
-	REQUIRE(scanner.find("entry->source_filenum = p->mesh_source.source_filenum") !=
+	REQUIRE(scanner.find("loaderWalkerBindMeshSource(entry, &p->mesh_source, 1,") !=
+		std::string::npos);
+	REQUIRE(binder.find("entry->source_filenum = plan->source_filenum") !=
 		std::string::npos);
 	REQUIRE(scanner.find("nested typed mesh source collision") !=
 		std::string::npos);
@@ -1431,13 +1436,23 @@ TEST_CASE("texture audio and hud file fields populate provider handles", "[catal
 	REQUIRE(scanner.find("catalogSetPrimaryFile(e, primary_file)") != std::string::npos);
 	REQUIRE(scanner.find("catalogSetPrimaryFile(e, e->ext.hud.layout_file)") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.texture.file_path)") != std::string::npos);
-	REQUIRE(distrib.find("const char *primary_file = audio_file[0] ? audio_file :") != std::string::npos);
-	REQUIRE(distrib.find("iniGet(ini, \"music_file\", iniGet(ini, \"midi_file\", \"\"))") != std::string::npos);
-	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, primary_file)") != std::string::npos);
 	REQUIRE(distrib.find("distribSetPrimaryFromFile(e, dirpath, e->ext.hud.layout_file)") != std::string::npos);
-	REQUIRE(distrib.find("slot->id, 0, aname, cat, dur, fpath[0] ? fullfile : \"\")") != std::string::npos);
-	REQUIRE(distrib.find("if (!populateExtFromIni(e, ASSET_AUDIO, destdir, &ini,") != std::string::npos);
-	REQUIRE(distrib.find("if (prior) *e = prior_entry;") != std::string::npos);
+	/* Received audio shares scanner admission, identity and rollback instead
+	 * of duplicating a reset-then-fill audio implementation. */
+	REQUIRE(distrib.find("assetCatalogScanExternalLayoutFolderDeferred(") != std::string::npos);
+	REQUIRE(distrib.find("assetCatalogRegisterAudioIni(slot->id,") != std::string::npos);
+	REQUIRE(scanner.find("catalogAudioSourceIdentityPrepare(assetCatalogResolve(idbuf),") != std::string::npos);
+	REQUIRE(scanner.find("catalogAudioPublicSourceParse(ini,") != std::string::npos);
+	const size_t populate = distrib.find("static s32 populateExtFromIni(");
+	const size_t audio_begin = distrib.find("case ASSET_AUDIO:", populate);
+	const size_t audio_end = distrib.find("case ASSET_GAMEMODE:", audio_begin);
+	REQUIRE(populate != std::string::npos);
+	REQUIRE(audio_begin != std::string::npos);
+	REQUIRE(audio_end != std::string::npos);
+	const std::string audio_fallback = distrib.substr(audio_begin, audio_end - audio_begin);
+	REQUIRE(audio_fallback.find("return 0;") != std::string::npos);
+	REQUIRE(audio_fallback.find("assetCatalogRegister") == std::string::npos);
+	REQUIRE(audio_fallback.find("distribSetPrimaryFromFile") == std::string::npos);
 	REQUIRE(distrib.find("distribParseAudioCategoryValue(") != std::string::npos);
 }
 
@@ -1743,9 +1758,11 @@ TEST_CASE("typed catalog texture lifecycle activates texture payloads", "[catalo
 	REQUIRE(scanner.find("e->source_texnum = e->ext.texture.texture_id") != std::string::npos);
 	REQUIRE(netdistrib.find("e->source_texnum = e->ext.texture.texture_id") != std::string::npos);
 	REQUIRE(source.find("stbi_load_from_memory") != std::string::npos);
-	REQUIRE(source.find("g_NotLoadMod && (!entry || !entry->bundled)") != std::string::npos);
+	REQUIRE(source.find("textureSourceRuntimeCatalogIndex((s32)num)") != std::string::npos);
+	REQUIRE(source.find("catalogEffectiveHandle(entry)") != std::string::npos);
+	REQUIRE(source.find("g_NotLoadMod") == std::string::npos);
 	REQUIRE(source.find("assetSourceDebugIsEnabledFor(ASSET_TEXTURE)") == std::string::npos);
-	REQUIRE(source.find("the selected public source is not an editable image source") != std::string::npos);
+	REQUIRE(source.find("the selected provider is not an editable public image source") != std::string::npos);
 	REQUIRE(tex.find("texLoadPublicRgba32Source") != std::string::npos);
 	REQUIRE(tex.find("tex->gbiformat = G_IM_FMT_RGBA") != std::string::npos);
 	REQUIRE(tex.find("tex->depth = G_IM_SIZ_32b") != std::string::npos);

@@ -90,6 +90,25 @@ class StorageTests(unittest.TestCase):
         MEASUREMENTS['shared_reset_copied_bytes'] = b['StorageCopiedBytes']
         MEASUREMENTS['shared_reset_reused_bytes'] = b['StorageReusedBytes']
 
+    def test_shared_explicit_binary_bytes_refresh_despite_older_timestamp(self):
+        first = self.seed(shared=True)
+        source = self.source / 'PerfectDark.exe'
+        original = source.read_bytes()
+        original_time = source.stat().st_mtime_ns
+        self.complete(first)
+        replacement = b'X' + original[1:]
+        source.write_bytes(replacement)
+        older_time = original_time - 10_000_000_000
+        os.utime(source, ns=(older_time, older_time))
+        second = self.seed(shared=True)
+        self.assertEqual(second['InstallDir'], first['InstallDir'])
+        self.assertEqual((Path(second['InstallDir']) / 'PerfectDark.exe').read_bytes(), replacement)
+        self.assertNotEqual(second['StorageSeed'], first['StorageSeed'])
+        self.assertEqual(source.read_bytes(), replacement)
+        self.complete(second)
+        frozen = self.frozen(first['StorageSeed'])
+        self.assertEqual((Path(frozen['InstallDir']) / 'PerfectDark.exe').read_bytes(), original)
+
     def frozen(self, seed_id, shared=False, **extra):
         with self.operation() as s:
             return s.seed(dict(name='frozen-test', target='pd', seed_id=seed_id,

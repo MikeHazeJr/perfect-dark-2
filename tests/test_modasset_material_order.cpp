@@ -98,10 +98,10 @@ TEST_CASE("readable cache and runtime modeldef share material reconciliation",
 	const std::string compiler = compiler_contents.str();
 
 	REQUIRE(compiler.find(
-		"generatedModeldefLoadMaterialMetadata(source_path, &obj_mesh)") !=
+		"generatedModeldefLoadMaterialMetadata(NULL, source_path, &obj_mesh)") !=
 		std::string::npos);
 	REQUIRE(compiler.find(
-		"generatedModeldefLoadMaterialMetadata(source_path, &mesh)") !=
+		"generatedModeldefLoadMaterialMetadata(inputs, source_path, &mesh)") !=
 		std::string::npos);
 	REQUIRE(compiler.find(
 		"row.material < 0 || row.material >= mesh->material_count") !=

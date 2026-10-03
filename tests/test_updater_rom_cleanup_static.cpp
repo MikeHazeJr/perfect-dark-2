@@ -176,7 +176,11 @@ TEST_CASE("game client crash init suppresses modal fault dialogs for smoke runs"
 	REQUIRE(smoke_runner.find("$loaderErrorMode = $SEM_FAILCRITICALERRORS -bor $SEM_NOGPFAULTERRORBOX -bor $SEM_NOOPENFILEERRORBOX") !=
 	        std::string::npos);
 	REQUIRE(smoke_runner.find("Stop-SmokeOwnedFaultProcesses") != std::string::npos);
-	REQUIRE(smoke_runner.find("name = 'PerfectDark.exe' OR name = 'PerfectDarkServer.exe' OR name = 'WerFault.exe'") !=
+	REQUIRE(smoke_runner.find("Stop-SmokeOwnedProcess -Ownership $script:SmokeOwnedProcesses[$pidKey]") !=
+	        std::string::npos);
+	REQUIRE(smoke_runner.find("Missing launch identity for smoke-owned pid=$pidKey; retain resource leases") !=
+	        std::string::npos);
+	REQUIRE(smoke_runner.find("Get-CimInstance Win32_Process -Filter \"name = 'WerFault.exe'\" -ErrorAction Stop") !=
 	        std::string::npos);
 	REQUIRE(smoke_runner.find("if ($KnownPids.Count -eq 0) { return }") != std::string::npos);
 	REQUIRE(smoke_runner.find("$script:SmokeOwnedPids += [int]$proc.Id") != std::string::npos);

@@ -169,7 +169,7 @@ TEST_CASE("B-1101 private player candidates own explicit chr targets",
 	const std::string get_target = player_init_function(
 		chr_source, "struct prop *chrGetTargetProp");
 	const std::string reset = player_init_function(
-		reset_source, "enum player_reset_result playerReset");
+		reset_source, "enum player_reset_result playerReset(void)");
 	const std::string bind_eyespy = player_init_function(
 		reset_source, "static bool playerBindEyespyTarget");
 
@@ -188,8 +188,8 @@ TEST_CASE("B-1101 private player candidates own explicit chr targets",
 		std::string::npos);
 	REQUIRE(get_target.find("chr->target < 0") != std::string::npos);
 	REQUIRE(get_target.find("return NULL;") != std::string::npos);
-	REQUIRE(reset.find("currentplayer->prop = NULL;") != std::string::npos);
-	REQUIRE(reset.find("currentplayer->eyespy = NULL;") != std::string::npos);
+	REQUIRE(reset.find("g_Vars.currentplayer->prop = NULL;") != std::string::npos);
+	REQUIRE(reset.find("g_Vars.currentplayer->eyespy = NULL;") != std::string::npos);
 	REQUIRE(reset.find(
 		"player_target_bound = chrInitWithTargetProp(playerprop, NULL, playerprop)") !=
 		std::string::npos);
@@ -325,14 +325,20 @@ TEST_CASE("B-1064 runtime identity permits headless bodies only when complete",
 	const std::string source = read_player_init_source("port/src/player_identity.c");
 	const std::string body_only = player_init_function(source,
 		"static player_identity_status_e playerIdentityPrepareRuntimeBodyOnly");
+	const std::string resolved = player_init_function(source,
+		"static player_identity_status_e playerIdentityPrepareBodyOnlyResolved");
 	const std::string runtime = player_init_function(source,
 		"player_identity_status_e playerIdentityPrepareRuntime(");
 
-	REQUIRE(body_only.find("catalogGetBodyIsComplete(runtime_bodynum)") !=
+	REQUIRE(body_only.find("playerIdentityPrepareBodyOnlyResolved(body_id, body_entry,") !=
 		std::string::npos);
-	REQUIRE(body_only.find("PLAYER_IDENTITY_UNBOUND_HEAD_RUNTIME_INDEX") !=
+	REQUIRE(resolved.find("catalogGetBodyIsComplete(body_entry->runtime_index)") !=
 		std::string::npos);
-	REQUIRE(body_only.find("candidate.runtime_headnum") == std::string::npos);
+	REQUIRE(resolved.find("body_entry->runtime_index != runtime_bodynum") !=
+		std::string::npos);
+	REQUIRE(resolved.find("PLAYER_IDENTITY_UNBOUND_HEAD_RUNTIME_INDEX") !=
+		std::string::npos);
+	REQUIRE(resolved.find("candidate.runtime_headnum") == std::string::npos);
 	REQUIRE(runtime.find("runtime_headnum == -1") != std::string::npos);
 	REQUIRE(runtime.find("playerIdentityPrepareRuntimeBodyOnly") !=
 		std::string::npos);

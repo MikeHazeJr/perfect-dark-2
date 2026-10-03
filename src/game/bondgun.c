@@ -4563,11 +4563,11 @@ static bool bgunQueuedLoadCanUseHandle(struct player *player)
 {
 	if (assetHandleIsNull(player->gunctrl.loadhandle)) return false;
 	if (player->gunctrl.loadcatalogid[0]) {
-		const asset_entry_t *entry = assetCatalogResolve(player->gunctrl.loadcatalogid);
-		return entry && entry->type == ASSET_MODEL &&
-			entry->source_filenum == player->gunctrl.loadfilenum &&
+		catalog_model_result_t resolved;
+		return catalogResolveModel(player->gunctrl.loadcatalogid, &resolved) &&
+			resolved.entry->source_filenum == player->gunctrl.loadfilenum &&
 			player->gunctrl.loadcataloggeneration == assetCatalogGetGeneration() &&
-			bgunSameSourceHandle(catalogEffectiveHandle(entry), player->gunctrl.loadhandle);
+			bgunSameSourceHandle(resolved.handle, player->gunctrl.loadhandle);
 	}
 	return true;
 }

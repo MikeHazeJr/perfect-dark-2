@@ -22,7 +22,16 @@ std::string readTextFile(const char *path)
 	REQUIRE(in.good());
 	std::ostringstream ss;
 	ss << in.rdbuf();
-	return ss.str();
+	std::string text = ss.str();
+	/* Checkout line endings are not a source contract. Preserve every other
+	 * byte, including lone carriage returns, for the existing content pins. */
+	std::size_t write = 0;
+	for (std::size_t read = 0; read < text.size(); ++read) {
+		if (text[read] == '\r' && read + 1 < text.size() && text[read + 1] == '\n') continue;
+		text[write++] = text[read];
+	}
+	text.resize(write);
+	return text;
 }
 
 TEST_CASE("scenario room domain preserves portal-only rooms and fails closed",
@@ -11199,16 +11208,25 @@ TEST_CASE("shared smoke install refreshes explicit source binaries",
           "[modding][pdxxx][c3844][smoke][static]") {
 	const std::string harness =
 		readTextFile("tools/smoke-verify/lib/Install-Harness.ps1");
+	const std::string managed =
+		readTextFile("tools/smoke-verify/lib/Storage-Harness.ps1");
+	const std::string storage = readTextFile("tools/smoke-verify/storage.py");
 	const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
-	REQUIRE(harness.find("Explicit -SourceBinary means \"run this exact build\"") !=
-	        std::string::npos);
 	REQUIRE(harness.find("if ($ExplicitPath) {") != std::string::npos);
 	REQUIRE(harness.find("return $null") != std::string::npos);
-	REQUIRE(harness.find("if (-not $SourceBinary -and (Test-Path -LiteralPath $destBin))") !=
+	REQUIRE(harness.find("New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $TestName") !=
 	        std::string::npos);
-	REQUIRE(harness.find("Copy-Item -LiteralPath $bin -Destination $destBin -Force") !=
+	REQUIRE(harness.find("-SourceRom $SourceRom -Target $Target -Shared") !=
 	        std::string::npos);
-	REQUIRE(harness.find("$srcInfo.LastWriteTimeUtc -le $dstInfo.LastWriteTimeUtc") !=
+	REQUIRE(managed.find("Find-SourceBinary -ProjectRoot $ProjectRoot -ExplicitPath $SourceBinary") !=
+	        std::string::npos);
+	REQUIRE(managed.find("$sources.Add(@($bin, $exeName))") != std::string::npos);
+	REQUIRE(managed.find("Invoke-SmokeStorage -Action seed") != std::string::npos);
+	REQUIRE(storage.find("files[str(relative(destination))] = self.put(plain(source))") !=
+	        std::string::npos);
+	REQUIRE(storage.find("digest = hashlib.file_digest(f, \"sha256\").hexdigest()") !=
+	        std::string::npos);
+	REQUIRE(harness.find("$srcInfo.LastWriteTimeUtc -le $dstInfo.LastWriteTimeUtc") ==
 	        std::string::npos);
 	REQUIRE(harness.find("New-NetFirewallRule -DisplayName $displayName `") !=
 	        std::string::npos);
@@ -14428,8 +14446,12 @@ TEST_CASE("language runtime loads public pdlang strings source",
 	        std::string::npos);
 	REQUIRE(lang_manifest.find("langManifestLoadExternalJson(entry)") !=
 	        std::string::npos);
-	REQUIRE(lang_manifest.find("score = entry->bundled ? 1 : 2") !=
+	REQUIRE(lang_manifest.find("score = langSourceLocaleRank(entry->ext.lang.locale,") !=
 	        std::string::npos);
+	REQUIRE(lang_manifest.find("if (!score) continue;") != std::string::npos);
+	REQUIRE(lang_manifest.find("score = score * 2 + (entry->bundled ? 0 : 1)") !=
+	        std::string::npos);
+	REQUIRE(lang_manifest.find("strcmp(entry->id, best->id) < 0") != std::string::npos);
 	REQUIRE(lang_manifest.find("JSON bank") !=
 	        std::string::npos);
 
@@ -14437,7 +14459,10 @@ TEST_CASE("language runtime loads public pdlang strings source",
 	REQUIRE(lang_extract.find("rzipIs1173") != std::string::npos);
 	REQUIRE(lang_extract.find("rzipInflate") != std::string::npos);
 	REQUIRE(lang_extract.find("PDLANG_EXTRACT_VERSION") != std::string::npos);
-	REQUIRE(lang_extract.find("pdlang_strings_json_rzip_v2_null_extent_codec") !=
+	REQUIRE(lang_extract.find("pdlang_strings_json_rzip_v3_regional_source_hash") !=
+	        std::string::npos);
+	REQUIRE(lang_extract.find("s_resolveLocaleFile(bank, locale_index") != std::string::npos);
+	REQUIRE(lang_extract.find("s_existingArchiveEntryContains(dst_rel, \"lang.ini\", hash_field)") !=
 	        std::string::npos);
 	REQUIRE(lang_extract.find("extract_version = %s\\n") != std::string::npos);
 	REQUIRE(lang_extract.find("s_existingArchiveEntryContains(dst_rel, \"lang.ini\"") !=
@@ -14960,11 +14985,11 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	 * gates on the family fast-cache stamp pdmeta wrote but never read. */
 	REQUIRE(texture_extractor.find("s_emitTexture") != std::string::npos);
 	REQUIRE(meta.find("s_emitTexture") == std::string::npos);
-	/* Full-parity Phase 1a (2026-07-07): token gained _fmtmeta_palv3_json when
-	 * the schema-v2 manifest + palette.json emission landed (commit 8180fa04). */
+	/* Public properties extend the schema-v2/palette cache stamp so older
+	 * archives cannot hide newly editable texture controls. */
 	REQUIRE(texture_extractor.find(
 	                "ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND \\\n"
-	                "\t\"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943_iafix_b945_fmtmeta_palv3_json\"") !=
+	                "\t\"pdtexture_png_v1_decoded_rom_rgba_manifest_texture_file_cipalfix_b943_iafix_b945_fmtmeta_palv3_json_properties_v1\"") !=
 	        std::string::npos);
 	REQUIRE(texture_extractor.find(
 	                "romExtractPdFastCacheCanSkip(ROMEXTRACT_PDTEXTURE_FAST_CACHE_KIND") !=

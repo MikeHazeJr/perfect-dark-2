@@ -199,7 +199,15 @@ TEST_CASE("body0f02ce8c requires a headspot node before attaching a head",
 	const std::string body = readTextFile("src/game/body.c");
 
 	REQUIRE(body.find("if (headmodeldef && node != NULL && !catalogGetBodyIsComplete(bodynum))") != std::string::npos);
-	REQUIRE(body.find("missing headspot for bodynum") != std::string::npos);
+	const size_t missing_headspot = body.find("if (node == NULL && headnum != 0)");
+	const size_t reject = body.find("BODY.HEADSPOT.REJECT:", missing_headspot);
+	const size_t attach = body.find("if (node != NULL && headnum != 0)", missing_headspot);
+	REQUIRE(missing_headspot != std::string::npos);
+	REQUIRE(reject != std::string::npos);
+	REQUIRE(attach != std::string::npos);
+	REQUIRE(missing_headspot < reject);
+	REQUIRE(reject < body.find("return NULL;", reject));
+	REQUIRE(body.find("return NULL;", reject) < attach);
 }
 
 TEST_CASE("catalogHealthShouldFatal: only fails on miss AND enforcement",

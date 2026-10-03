@@ -51,6 +51,9 @@ jobs:
       - name: Check MinGW dependency resolution
         run: python tools/tests/test_mingw_dependencies.py
 
+      - name: Check isolated smoke storage contracts
+        run: python tools/smoke-verify/test-storage.py
+
       - name: Configure (CMake + Ninja)
         run: cmake -G Ninja -B Build .
 

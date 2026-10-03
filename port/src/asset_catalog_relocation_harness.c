@@ -21,7 +21,11 @@ static s32 selectWitness(asset_type_e type, cache_witness_t *out)
         const asset_entry_t *entry = assetCatalogGetByIndex(i);
         if (!entry || entry->type != type || entry->runtime_index < 0
                 || entry->runtime_index >= 1024) continue;
-        const char *runtime_id = catalogIdByRuntime(type, entry->runtime_index);
+        const char *runtime_id = type == ASSET_BODY
+            ? catalogBodyIdByBodynum(entry->runtime_index)
+            : type == ASSET_HEAD ? catalogHeadIdByHeadnum(entry->runtime_index)
+            : type == ASSET_MODEL ? catalogModelIdByModelnum(entry->runtime_index)
+            : NULL;
         if (!runtime_id || strcmp(runtime_id, entry->id)) continue;
         if (type == ASSET_BODY || type == ASSET_HEAD) {
             const char *mp_id = type == ASSET_BODY
@@ -130,9 +134,9 @@ int assetCatalogRelocationHarnessRun(void)
     if (!assetCatalogDebugRelocatePoolForSmoke(&rebased)) goto done;
     /* No cache rebuild after relocation: these are the actual public getters. */
     if (!record("runtime_cache_relocation",
-            matchesFresh(&body, catalogIdByRuntime(ASSET_BODY, body.runtime_index))
-            && matchesFresh(&head, catalogIdByRuntime(ASSET_HEAD, head.runtime_index))
-            && matchesFresh(&model, catalogIdByRuntime(ASSET_MODEL, model.runtime_index)))) goto done;
+            matchesFresh(&body, catalogBodyIdByBodynum(body.runtime_index))
+            && matchesFresh(&head, catalogHeadIdByHeadnum(head.runtime_index))
+            && matchesFresh(&model, catalogModelIdByModelnum(model.runtime_index)))) goto done;
     if (!record("body_selector_relocation", matchesFresh(&body, catalogMpBodyId(body.mp_index)))) goto done;
     if (!record("head_selector_relocation", matchesFresh(&head, catalogMpHeadId(head.mp_index)))) goto done;
     marker = assetCatalogGetMutable(marker_id);

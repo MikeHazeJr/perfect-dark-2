@@ -497,7 +497,7 @@ static s32 nativeMeshAliasCase(void)
     checkpoint = "missing_preview";
     selected = assetCatalogGetMutable(mesh_id);
     if (!selected) goto done;
-    asset_data_handle_t missing = fileProviderHandle("$S/body-head-source-smoke/native-alias/missing.obj");
+    asset_data_handle_t missing = catalogHandleForSourceFile("$S/body-head-source-smoke/native-alias/missing.obj");
     asset_data_handle_t no_override = {0};
     catalogSetOverride(selected, missing);
     preview = modeldefLoadFromHandle(missing, FILE_CEYESPY, NULL, 0, NULL);
@@ -617,7 +617,7 @@ static s32 handSourceIdentityCase(void)
     if (fclose(file) || !wrote) goto done;
     selected = assetCatalogGetMutable(hand_id);
     if (!selected) goto done;
-    catalogSetOverride(selected, fileProviderHandle(edited_path));
+    catalogSetOverride(selected, catalogHandleForSourceFile(edited_path));
     if (bgunBodyHandSourceIsCurrent(player, slot) ||
             !bgunQueueBodyHandModelLoad(player, slot, &player->gunctrl.gunmodeldef, NULL, NULL)) goto done;
     bgunTickGunLoad();
@@ -630,7 +630,7 @@ static s32 handSourceIdentityCase(void)
     if (!bgunQueueBodyHandModelLoad(player, slot, &player->gunctrl.handmodeldef, NULL, NULL)) goto done;
     selected = assetCatalogGetMutable(hand_id);
     if (!selected) goto done;
-    catalogSetOverride(selected, fileProviderHandle("$S/body-head-source-smoke/hand-alias/missing.obj"));
+    catalogSetOverride(selected, catalogHandleForSourceFile("$S/body-head-source-smoke/hand-alias/missing.obj"));
     bgunTickGunLoad();
     if (player->gunctrl.handmodeldef || player->gunctrl.gunloadstate != 5 ||
             bgunBodyHandSourceIsCurrent(player, slot)) goto done;
@@ -753,7 +753,7 @@ static s32 checkDirectMeshConsumers(const char *id, s32 body_slot,
 {
     asset_entry_t *entry = assetCatalogGetMutable(id);
     if (!entry) return 0;
-    asset_data_handle_t handle = fileProviderHandle(path);
+    asset_data_handle_t handle = catalogHandleForSourceFile(path);
     catalogSetOverride(entry, handle);
     s32 loaded = catalogLoadStageAsset(ASSET_MODEL, id);
     s32 matches = accepted ? loaded && nativeTriangle(catalogGetLoadedModeldef(id), 17) : !loaded;

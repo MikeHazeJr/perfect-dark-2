@@ -2169,8 +2169,15 @@ TEST_CASE("network catalog info advertises every user-manageable catalog family"
 	REQUIRE(netmsg.find("CATALOG_COLLECT_MAX") == std::string::npos);
 	REQUIRE(netmsg.find("count > 256") == std::string::npos);
 	REQUIRE(netmsg.find("missing_ids[256]") == std::string::npos);
-	REQUIRE(distrib.find("distribEnsureQueueCapacity") != std::string::npos);
-	REQUIRE(distrib.find("DISTRIB_INITIAL_QUEUE") != std::string::npos);
+	const std::string queue = readFile("port/src/net/distrib_queue.c");
+	const std::string queue_header = readFile("port/include/net/distrib_queue.h");
+	REQUIRE(distrib.find("distribQueuePush(&s_Queue, &request)") != std::string::npos);
+	REQUIRE(distrib.find("distribQueuePop(&s_Queue, &request)") != std::string::npos);
+	REQUIRE(queue.find("realloc(queue->entries, capacity * sizeof(*entries))") != std::string::npos);
+	REQUIRE(queue.find("queue->capacity * 2") != std::string::npos);
+	REQUIRE(queue_header.find("DISTRIB_QUEUE_MAX_PENDING 32768") != std::string::npos);
+	REQUIRE(queue_header.find("DISTRIB_QUEUE_MAX_PER_CONNECTION 8192") != std::string::npos);
+	REQUIRE(distrib.find("distribSendEnd(cl, id, 0)") != std::string::npos);
 	REQUIRE(distrib.find("transfer queue full, dropping") == std::string::npos);
 	REQUIRE(distrib.find("missing_ids[256]") == std::string::npos);
 }
@@ -2601,7 +2608,14 @@ TEST_CASE("projectile and entity asset kinds are catalog and manifest visible",
 	}
 	REQUIRE(distrib.find("const asset_entry_t *existing = assetCatalogResolve(slot->id)") != std::string::npos);
 	REQUIRE(distrib.find("preserved_entry = *existing") != std::string::npos);
-	REQUIRE(distrib.find("if (!populateExtFromIni(e, type, destdir, &ini,") != std::string::npos);
+	const size_t populate = distrib.find("s32 populated = populateExtFromIni(e, type, destdir, &ini,");
+	const size_t refreshed = distrib.find("e = assetCatalogGetMutable(slot->id)", populate);
+	const size_t rejected = distrib.find("if (!populated)", populate);
+	REQUIRE(populate != std::string::npos);
+	REQUIRE(refreshed != std::string::npos);
+	REQUIRE(rejected != std::string::npos);
+	REQUIRE(populate < refreshed);
+	REQUIRE(refreshed < rejected);
 	REQUIRE(distrib.find("if (existing) *e = preserved_entry;") != std::string::npos);
 	REQUIRE(distrib.find("else assetCatalogUnregister(slot->id);") != std::string::npos);
 	REQUIRE(distrib.find("preserved_weapon_requirefeature") != std::string::npos);
@@ -6632,7 +6646,10 @@ TEST_CASE("external UI font and language descriptors use standard files",
 	std::string lang = readFile("port/src/langmanifest.c");
 	REQUIRE(lang.find("langManifestLoadExternalJson") != std::string::npos);
 	REQUIRE(lang.find("fsFileLoad(path, &raw_size)") != std::string::npos);
-	REQUIRE(lang.find("g_LangBanks[bank] = bank_data") != std::string::npos);
+	REQUIRE(lang.find("langManifestPrepareExternalJson(entry, &candidate)") != std::string::npos);
+	REQUIRE(lang.find("langManifestPublishExternalJson(entry, &candidate)") != std::string::npos);
+	REQUIRE(lang.find("g_LangBanks[bank] = candidate->data") != std::string::npos);
+	REQUIRE(lang.find("candidate->data = NULL") != std::string::npos);
 
 	std::string distrib = readFile("port/src/net/netdistrib.c");
 	REQUIRE(distrib.find("\"ui.ini\"") != std::string::npos);
@@ -7167,7 +7184,10 @@ TEST_CASE("external models maps and animations compile from standard sources",
 	REQUIRE(load.find("#include \"modasset_compiler.h\"") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerIsAnimationSource(source_path)") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerCompileReadable(entry") != std::string::npos);
-	REQUIRE(load.find("modAssetCompilerBuildModeldef(entry") != std::string::npos);
+	REQUIRE(load.find("catalogModelGenerationAcquireSource(entry, source_path,") != std::string::npos);
+	REQUIRE(load.find("modeldef = catalogModelGenerationModeldef(generation)") != std::string::npos);
+	const std::string generation = readFile("port/src/catalog_model_generation.cpp");
+	REQUIRE(generation.find("modAssetCompilerBuildModeldefWithInputs(&inputs, entry, selected, &model)") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerBuildColmesh(colmesh_source_path, mesh)") != std::string::npos);
 	REQUIRE(load.find("modAssetCompilerBuildAnimationClip(entry") != std::string::npos);
 	REQUIRE(load.find("ASSET_PAYLOAD_COLMESH") != std::string::npos);
