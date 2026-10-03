@@ -119,3 +119,33 @@ cases pass locally in 3.297 seconds; the source guard passes. Receipts are
 `native-interpreter-closeout.json`. The seconds-long headless window is released
 early at 17:34 UTC after executor absence. Exact three-path follow-up publication
 and CI remain pending; the prior C++ full-suite/source proof is unchanged.
+
+## Passing exact acceptance
+
+Final source commit `620456a7a46e58a474a1a41232398166a99d5f05` was normally
+pushed and freshly verified on `origin/dev` at 17:36:14 UTC. Exact
+[PD2 CI 37141120356](https://github.com/MikeHazeJr/perfect-dark-2/actions/runs/37141120356)
+completed successfully at 17:47:04 UTC. All four dependency fixtures pass in
+0.188 seconds; standard Windows Python 3.12.10 runs all 20 storage cases in
+2.499 seconds. Selected-compiler configuration, the clean client/tests build
+and the full published-source suite pass: 1,813 cases, 333,814 assertions.
+The local 1,817-case/335,458-assertion result includes preserved peer edits and
+is a separate receipt; no passing evidence is inherited between the two trees.
+
+The client artifact `PerfectDark-x86_64-windows`, ID `11281085075`, is uploaded,
+nonexpired and 33,498,961 bytes. Its zip SHA-256 is
+`3f4cdf15defa92c657b6de8404061313a23b61131b4239124fcdbd458357555a`;
+artifact metadata identifies the same source commit. The bounded terminal
+receipt is `contract-ci/ci-terminal.json`, SHA-256
+`87b6e461d6209229fb6fc9cf299d82a2be529a35749cd53c8b7be007738ef5cf`.
+The two intervening hosted junction failures remain preserved above.
+
+T-TESTS-004 satisfies its exact-CI acceptance contract; T-TOOLING-010's
+selected-compiler portability contract also has passing hosted evidence.
+Initial asset/menu integration remains partial. D-010 Computer Use access
+and D-012 retained-workspace handling remain unresolved before ordinary-client
+preview, followed by a fresh finite 15-minute shared runtime window. No GUI,
+asset-corpus visual/animation/audio fidelity, multiplayer or release acceptance
+is inferred from these source/unit checks. All local resources are released;
+peer changes and unique binary witnesses are preserved. This terminal audit
+update is documentation only and may use `[skip ci]`; code commits above did not.
