@@ -97,3 +97,25 @@ guard passes. Receipts are `contract-ci/junction-storage-tests-result.json`
 and `junction-closeout.json`. The seconds-long headless window is released after
 verifying test executor absence. Exact follow-up publication and CI are pending;
 client/C++ source and the prior full native pass are unchanged.
+
+The two-path follow-up `e0f957ac70d508291dac641fdb236c69a42fc3e9` was normally
+pushed and freshly verified at 17:27:51 UTC. Its [exact CI 37140595483](https://github.com/MikeHazeJr/perfect-dark-2/actions/runs/37140595483)
+still fails the same junction setup, with 19 other storage cases passing.
+`contract-ci/ci-second-terminal.json` preserves the failure.
+The [MinGW Python 3.14.8 ntpath implementation](https://raw.githubusercontent.com/msys2-contrib/cpython-mingw/mingw-v3.14.8/Lib/ntpath.py)
+changes its preferred separator in an active MSYS2 environment, so its
+`normpath` does not guarantee backslashes. This matches the
+[MSYS2 Python portability documentation](https://www.msys2.org/docs/python/).
+
+The fixture now converts separators explicitly. The CI storage step uses
+PowerShell and requires standard native Windows CPython, matching the existing
+Storage-Harness interpreter boundary; its interpreter path/platform is logged
+and an unsuitable interpreter fails before tests. The [exact runner image](https://raw.githubusercontent.com/actions/runner-images/win25-vs2026/20260925.250/images/windows/Windows2025-VS2026-Readme.md)
+already supplies Python 3.12.10. No interpreter installation, local PATH mutation
+or test skip is needed. The build and dependency fixtures retain their existing
+MSYS2 environment. The final native-interpreter guard and all 20 tiny storage
+cases pass locally in 3.297 seconds; the source guard passes. Receipts are
+`contract-ci/native-interpreter-storage-tests-result.json` and
+`native-interpreter-closeout.json`. The seconds-long headless window is released
+early at 17:34 UTC after executor absence. Exact three-path follow-up publication
+and CI remain pending; the prior C++ full-suite/source proof is unchanged.

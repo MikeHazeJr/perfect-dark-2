@@ -52,7 +52,12 @@ jobs:
         run: python tools/tests/test_mingw_dependencies.py
 
       - name: Check isolated smoke storage contracts
-        run: python tools/smoke-verify/test-storage.py
+        # Match the native Windows interpreter required by Storage-Harness.ps1.
+        shell: pwsh
+        run: |
+          python -c "import os, sys, sysconfig; print(f'Storage Python: {sys.executable} ({sysconfig.get_platform()})'); assert os.name == 'nt' and not sysconfig.get_platform().startswith('mingw'), 'Storage contracts require native Windows CPython'"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B tools/smoke-verify/test-storage.py
 
       - name: Configure (CMake + Ninja)
         run: cmake -G Ninja -B Build .
