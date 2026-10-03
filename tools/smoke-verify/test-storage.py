@@ -5,6 +5,7 @@ import gzip
 import hashlib
 import importlib.util
 import json
+import ntpath
 import os
 from pathlib import Path
 import shutil
@@ -289,7 +290,11 @@ class StorageTests(unittest.TestCase):
     def test_junction_traversal_refused(self):
         if os.name!='nt': self.skipTest('Windows junction gate')
         alias=self.project/'junction'
-        result=subprocess.run(['cmd','/c','mklink','/J',str(alias),str(self.source)],capture_output=True,text=True)
+        # MinGW Python uses forward-slash paths; cmd treats them as switches.
+        # Normalize the same slash form on every Windows Python implementation.
+        alias_native=ntpath.normpath(alias.as_posix())
+        source_native=ntpath.normpath(self.source.as_posix())
+        result=subprocess.run(['cmd','/c','mklink','/J',alias_native,source_native],capture_output=True,text=True)
         self.assertEqual(result.returncode,0,result.stderr)
         try:
             with self.assertRaises(storage.StorageError): storage.plain(alias/'PerfectDark.exe')

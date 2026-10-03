@@ -74,3 +74,26 @@ The local build includes preserved peer changes, so exact published-source CI
 must independently pass. Preserve peer edits and unique binary witnesses. No GUI, real
 smoke install, retained-copy rotation/deletion, asset extraction or broader graph/
 multiplayer implementation is part of this unit.
+
+## Published-source follow-up
+
+Scoped commit `5ab68aab81c2e4b151b67f003268d85316ea3e0b` was normally pushed
+and freshly verified on `origin/dev` at 17:20:22 UTC. The index is empty;
+all 33 preserved peer files and the 14 source-freeze hashes match.
+[Exact CI 37140142730](https://github.com/MikeHazeJr/perfect-dark-2/actions/runs/37140142730)
+passes dependency fixtures, then fails one of the 20 storage cases before
+configuration. MinGW Python emits forward-slash `D:/a/...` paths; `cmd` reads
+their path components as switches in the junction fixture. The other 19 cases,
+including the new byte-change regression, pass. The terminal receipt is
+`contract-ci/ci-first-terminal.json`.
+
+The fixture now explicitly converts both paths to native Windows separators
+before `mklink`, using forward-slash inputs under every Windows Python so the
+same conversion is exercised locally. Actual junction creation and both
+traversal-rejection assertions remain required. No skip or production policy
+change is introduced. The native 20-case small suite passes in 3.266 seconds,
+including actual junction creation from the normalized slash inputs. The source
+guard passes. Receipts are `contract-ci/junction-storage-tests-result.json`
+and `junction-closeout.json`. The seconds-long headless window is released after
+verifying test executor absence. Exact follow-up publication and CI are pending;
+client/C++ source and the prior full native pass are unchanged.
