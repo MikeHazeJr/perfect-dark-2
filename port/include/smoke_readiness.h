@@ -86,6 +86,16 @@ typedef struct smoke_readiness_facts {
 	int main_menu_play_focused;
 	int main_menu_settings_focused;
 	int active_agent;
+	/* Captured once for both admission and wait logging. Suppression/capture
+	 * are -1 if an earlier keyboard predicate short-circuited their query.
+	 * In particular, the existing binding query may cancel stale capture;
+	 * diagnostics must never invoke it across a rejected focus aperture. */
+	int menu_focus_lost;
+	unsigned int menu_focus_settle_remaining_ms;
+	int menu_key_suppressed;
+	int menu_binding_capture;
+	unsigned int agent_select_imgui_rejection_mask;
+	unsigned int agent_create_imgui_rejection_mask;
 } smoke_readiness_facts_t;
 
 smoke_readiness_condition_t smokeReadinessConditionFromName(

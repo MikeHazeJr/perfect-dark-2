@@ -355,6 +355,56 @@ TEST_CASE("smoke readiness barriers pause virtual time on production state",
         std::string::npos);
 }
 
+TEST_CASE("readiness wait diagnostics log captured admission observations without new input queries",
+    "[smoke][input][readiness][static]")
+{
+    const std::string source = readTextFile("port/src/smoke_harness.c");
+    const std::string projection = requireSlice(source,
+        "static smoke_readiness_facts_t smokeCaptureReadinessFacts",
+        "static void smokeLogReadinessWait");
+    const std::string logger = requireSlice(source,
+        "static void smokeLogReadinessWait", "/* One smoke-owned SDL device.");
+    const std::string ownership = readTextFile("port/fast3d/pdgui_menu_readiness.cpp");
+    requireContains(ownership, "int pdguiMenuWindowOwnsInput(");
+    const std::string wrapper = ownership.substr(ownership.find("int pdguiMenuWindowOwnsInput("));
+
+    requireContains(projection, "facts.menu_focus_lost = input_authority.window_focus_lost;");
+    requireContains(projection,
+        "facts.menu_focus_settle_remaining_ms = input_authority.focus_settle_remaining_ms;");
+    requireContains(projection, "facts.menu_key_suppressed = -1;");
+    requireContains(projection, "facts.menu_binding_capture = -1;");
+    // Keep the original short circuit: the binding query can cancel stale
+    // capture, so an earlier rejection must not cause an extra query.
+    requireContains(projection,
+        "facts.menu_keyboard_ready = !facts.menu_focus_lost\n"
+        "        && facts.menu_focus_settle_remaining_ms == 0\n"
+        "        && !(facts.menu_key_suppressed = inputCtxShouldSuppressKey(&menu_key_probe))\n"
+        "        && !(facts.menu_binding_capture = pdguiMainMenuBindingCaptureListening());");
+    requireContains(projection, "agent_select_input = pdguiMenuObserveInput(");
+    requireContains(projection, "agent_create_input = pdguiMenuObserveInput(");
+    requireContains(projection, "facts.agent_select_imgui_rejection_mask = agent_select_input.rejection_mask;");
+    requireContains(projection, "facts.agent_create_imgui_rejection_mask = agent_create_input.rejection_mask;");
+    requireContains(projection, "facts.agent_select_imgui_owner = facts.agent_select_imgui_rejection_mask == 0;");
+    requireContains(projection, "facts.agent_create_imgui_owner = facts.agent_create_imgui_rejection_mask == 0;");
+    requireContains(wrapper, "return pdguiMenuObserveInput(window_name, application_focused).rejection_mask == 0;");
+    REQUIRE(wrapper.find("FindWindowByName") == std::string::npos);
+    REQUIRE(wrapper.find("NavWindow") == std::string::npos);
+
+    requireContains(logger, "SMOKE.WAIT: %s condition=%s");
+    requireContains(logger, "focus_lost=%d focus_settle_ms=%u key_suppressed=%d binding_capture=%d");
+    requireContains(logger, "agent_select_imgui_reject=0x%x agent_create_imgui_reject=0x%x");
+    requireContains(logger, "facts->menu_focus_lost, facts->menu_focus_settle_remaining_ms");
+    requireContains(logger, "facts->menu_key_suppressed, facts->menu_binding_capture");
+    requireContains(logger, "facts->agent_select_imgui_rejection_mask, facts->agent_create_imgui_rejection_mask");
+    for (const char *query : {"inputCtxDebugSnapshotAuthority", "inputCtxShouldSuppressKey",
+            "pdguiMainMenuBindingCaptureListening", "pdguiMenuObserveInput", "pdguiMenuWindowOwnsInput"})
+        REQUIRE(logger.find(query) == std::string::npos);
+    for (const char *mutation : {"AddFocusEvent", "SetWindowFocus", "SetNavID", "inputCtxNotifyFocus"}) {
+        REQUIRE(projection.find(mutation) == std::string::npos);
+        REQUIRE(ownership.find(mutation) == std::string::npos);
+    }
+}
+
 TEST_CASE("smoke-owned action reads bypass only gameplay focus suppression",
     "[input][smoke][tooling][b1085][static]")
 {

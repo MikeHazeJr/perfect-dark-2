@@ -47,21 +47,41 @@ int pdguiMenuViewReadiness(const char *window_name, int application_focused,
     return out->view >= 0;
 }
 
-int pdguiMenuWindowOwnsInput(const char *window_name, int application_focused)
+pdgui_menu_input_observation_t pdguiMenuObserveInput(
+    const char *window_name, int application_focused)
 {
+    pdgui_menu_input_observation_t observation{};
     ImGuiContext *context = ImGui::GetCurrentContext();
-    if (!application_focused || !context || !window_name || !window_name[0]) return 0;
+    if (!application_focused) observation.rejection_mask |= PDGUI_MENU_INPUT_FOCUS_LOST;
+    if (!context) observation.rejection_mask |= PDGUI_MENU_INPUT_NO_CONTEXT;
+    if (!window_name || !window_name[0]) observation.rejection_mask |= PDGUI_MENU_INPUT_NO_NAME;
+    if (!context || !window_name || !window_name[0]) return observation;
     ImGuiWindow *window = ImGui::FindWindowByName(window_name);
-    if (!window || !window->Active || window->Hidden || window->Collapsed || window->SkipItems)
-        return 0;
+    if (!window) {
+        observation.rejection_mask |= PDGUI_MENU_INPUT_NO_WINDOW;
+        return observation;
+    }
+    if (!window->Active) observation.rejection_mask |= PDGUI_MENU_INPUT_INACTIVE;
+    if (window->Hidden) observation.rejection_mask |= PDGUI_MENU_INPUT_HIDDEN;
+    if (window->Collapsed) observation.rejection_mask |= PDGUI_MENU_INPUT_COLLAPSED;
+    if (window->SkipItems) observation.rejection_mask |= PDGUI_MENU_INPUT_SKIP_ITEMS;
     /* Pool acquisition or Begin() alone is not a completed visible frame.
      * Cached windows from a prior menu visit must fail this freshness check. */
     if (context->FrameCountRendered < 1 ||
         context->FrameCountRendered != context->FrameCountEnded ||
-        window->LastFrameActive != context->FrameCountRendered) return 0;
-    if (context->OpenPopupStack.Size != 0 ||
-        context->NavWindowingTarget || !context->NavWindow) return 0;
+        window->LastFrameActive != context->FrameCountRendered)
+        observation.rejection_mask |= PDGUI_MENU_INPUT_RENDER_STALE;
+    if (context->OpenPopupStack.Size != 0) observation.rejection_mask |= PDGUI_MENU_INPUT_POPUP;
+    if (context->NavWindowingTarget) observation.rejection_mask |= PDGUI_MENU_INPUT_WINDOW_SWITCH;
+    if (!context->NavWindow) observation.rejection_mask |= PDGUI_MENU_INPUT_NO_NAV_WINDOW;
     /* Agent Select handles its clamped row index through mapped menu actions.
      * Its focused root owns input even before a widget NavId is initialized. */
-    return context->NavWindow->RootWindow == window->RootWindow;
+    if (context->NavWindow && context->NavWindow->RootWindow != window->RootWindow)
+        observation.rejection_mask |= PDGUI_MENU_INPUT_ROOT_MISMATCH;
+    return observation;
+}
+
+int pdguiMenuWindowOwnsInput(const char *window_name, int application_focused)
+{
+    return pdguiMenuObserveInput(window_name, application_focused).rejection_mask == 0;
 }

@@ -2069,14 +2069,24 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
     facts.agent_select_pool_active = menupoolIsActive(MENU_TYPE_AGENT_SELECT);
     facts.agent_create_pool_active = menupoolIsActive(MENU_TYPE_AGENT_CREATE);
     facts.menu_input_top = inputCtxGetTop() == &g_CtxImGuiMenu;
-    facts.menu_keyboard_ready = !input_authority.window_focus_lost
-        && input_authority.focus_settle_remaining_ms == 0
-        && !inputCtxShouldSuppressKey(&menu_key_probe)
-        && !pdguiMainMenuBindingCaptureListening();
-    facts.agent_select_imgui_owner = pdguiMenuWindowOwnsInput("##agent_select",
-        !input_authority.window_focus_lost);
-    facts.agent_create_imgui_owner = pdguiMenuWindowOwnsInput("##agent_create",
-        !input_authority.window_focus_lost);
+    facts.menu_focus_lost = input_authority.window_focus_lost;
+    facts.menu_focus_settle_remaining_ms = input_authority.focus_settle_remaining_ms;
+    facts.menu_key_suppressed = -1;
+    facts.menu_binding_capture = -1;
+    /* Preserve the existing short-circuit boundary: binding capture can
+     * cancel stale state, so it must not be queried just for diagnostics. */
+    facts.menu_keyboard_ready = !facts.menu_focus_lost
+        && facts.menu_focus_settle_remaining_ms == 0
+        && !(facts.menu_key_suppressed = inputCtxShouldSuppressKey(&menu_key_probe))
+        && !(facts.menu_binding_capture = pdguiMainMenuBindingCaptureListening());
+    const pdgui_menu_input_observation_t agent_select_input = pdguiMenuObserveInput(
+        "##agent_select", !facts.menu_focus_lost);
+    const pdgui_menu_input_observation_t agent_create_input = pdguiMenuObserveInput(
+        "##agent_create", !facts.menu_focus_lost);
+    facts.agent_select_imgui_rejection_mask = agent_select_input.rejection_mask;
+    facts.agent_create_imgui_rejection_mask = agent_create_input.rejection_mask;
+    facts.agent_select_imgui_owner = facts.agent_select_imgui_rejection_mask == 0;
+    facts.agent_create_imgui_owner = facts.agent_create_imgui_rejection_mask == 0;
     pdgui_menu_view_readiness_t menu_view;
     facts.main_menu_current = menu_type == MENU_TYPE_MAIN_MENU;
     facts.main_menu_pool_active = menupoolIsActive(MENU_TYPE_MAIN_MENU);
@@ -2106,7 +2116,8 @@ static void smokeLogReadinessWait(s32 level, const char *status,
             facts->boot_complete, facts->network_active, facts->local_client_in_lobby);
     }
     sysLogPrintf(level,
-		"SMOKE.WAIT: %s condition=%s at_ms=%d timeout_ms=%u waited_ms=%u real_elapsed_ms=%u stable_ms=%u stable_elapsed_ms=%u assist_action=%d assist_condition=%s assist_hold_ms=%u facts=boot:%d/title:%d/title_initial:%d/title_idle:%d/title_stage_idle:%d/net:%d/listen:%d/reconnect:%d/client_game:%d/stage:%d/ready:%d/mp:%d/player:%d/spawn:%d/tick:%d/layer_cut:%d/layer_game:%d/cut:%d/cut_progress:%d/cut_frame:%d/cut_auth:%d/normal:%d/update:%d/control:%d/unpaused:%d/alive:%d/walk:%d/bike:%d/hoverbike:%d/vehicle_layer_top:%d/end:%d/end_menu:%d/menu_input:%d/agent_select:%d/agent_select_pool:%d/agent_create:%d/agent_create_pool:%d/menu_top:%d/menu_key_ready:%d/agent_select_imgui:%d/agent_create_imgui:%d",
+		"SMOKE.WAIT: %s condition=%s at_ms=%d timeout_ms=%u waited_ms=%u real_elapsed_ms=%u stable_ms=%u stable_elapsed_ms=%u assist_action=%d assist_condition=%s assist_hold_ms=%u facts=boot:%d/title:%d/title_initial:%d/title_idle:%d/title_stage_idle:%d/net:%d/listen:%d/reconnect:%d/client_game:%d/stage:%d/ready:%d/mp:%d/player:%d/spawn:%d/tick:%d/layer_cut:%d/layer_game:%d/cut:%d/cut_progress:%d/cut_frame:%d/cut_auth:%d/normal:%d/update:%d/control:%d/unpaused:%d/alive:%d/walk:%d/bike:%d/hoverbike:%d/vehicle_layer_top:%d/end:%d/end_menu:%d/menu_input:%d/agent_select:%d/agent_select_pool:%d/agent_create:%d/agent_create_pool:%d/menu_top:%d/menu_key_ready:%d/agent_select_imgui:%d/agent_create_imgui:%d"
+        " focus_lost=%d focus_settle_ms=%u key_suppressed=%d binding_capture=%d agent_select_imgui_reject=0x%x agent_create_imgui_reject=0x%x",
         status, smokeReadinessConditionName(ev->readiness_condition), ev->at_ms,
         ev->wait_timeout_ms, waited_ms, real_elapsed_ms, ev->stable_ms,
 		stable_elapsed_ms,
@@ -2135,7 +2146,10 @@ static void smokeLogReadinessWait(s32 level, const char *status,
         facts->agent_select_current, facts->agent_select_pool_active,
         facts->agent_create_current, facts->agent_create_pool_active,
         facts->menu_input_top, facts->menu_keyboard_ready,
-        facts->agent_select_imgui_owner, facts->agent_create_imgui_owner);
+        facts->agent_select_imgui_owner, facts->agent_create_imgui_owner,
+        facts->menu_focus_lost, facts->menu_focus_settle_remaining_ms,
+        facts->menu_key_suppressed, facts->menu_binding_capture,
+        facts->agent_select_imgui_rejection_mask, facts->agent_create_imgui_rejection_mask);
     if (ev->readiness_condition >= SMOKE_READINESS_MAIN_MENU_PLAY_READY &&
             ev->readiness_condition <= SMOKE_READINESS_SETTINGS_GAME_READY) {
         char accept[96], back[96], previous[96], next[96];
