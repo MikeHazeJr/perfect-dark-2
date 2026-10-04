@@ -87,3 +87,26 @@ Wire receipts are under
 the exact pre-fix reproduction is `../ci-wire-reproduction-exact.json` and the
 old hosted failure is `../ci-failure.log`. Python gate receipt:
 `.claude/smoke-storage-validation/reuse-1652e18c08a344768a7790299796eaea/results.json`.
+
+
+## Exact hosted closeout — October 3, 20:24 Eastern / October 4, 00:24 UTC
+
+[Exact source CI37164271400](https://github.com/MikeHazeJr/perfect-dark-2/actions/runs/37164271400)
+for `e74a679567cd187f0584e0eba1ad063dc2b9c428` completed **success** at
+00:23:53 UTC. It passes4dependency,20storage and17reuse Python cases;19checks
+each on hostedPS5.1/7.6.6; cleanclient/tests build;1813native cases/333814
+assertions; andclientartifact upload. Previous37163228953 failure remains
+preserved and separate. Local17Python/19eachPS5.1/7.6.5 proof is also retained.
+
+Normalsource commit/push/freshremote/index/scopedcontent verification passed;
+35othermodifiedfile hashes andallownedworkingbytes were preserved. CI receipts
+andbounded relevantlogs: `utf8-wire/ci-success.json`, `ci-focused.log` and
+`publication-success.json` under the private evidence root cited above.
+Finalcontext publication is docs-only; acceptedsource bytes remain exacte74.
+
+This closes the narrow storage/wrapper unit, not initial asset/menu acceptance.
+Currentclient runtime reuse remains refused: no supportednative immutable-base
+write isolation. No realgame/full-game copy/deletion or cap/pin relaxation was
+performed. Lastactual result remains11/29,1/17,0captures/nativeconsumer absent;
+immediatewatcher stays prepared/unexecuted. Nativewriteisolation, actualfreeXbox
+slot, appapproval andfreshparent runtimewindow remain prerequisites.

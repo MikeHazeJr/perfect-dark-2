@@ -1,5 +1,17 @@
 # Session Log (Active)
 
+2026-10-03 20:24 Eastern / 2026-10-04 00:24 UTC - Exact hosted CI closeout (gpt-6)
+
+Exactsourcee74a6795 CI37164271400 completedgreen00:23:53UTC:4dependency,
+20storage,17reusePython,19checks eachhostedPS5.1/7.6.6; cleanclient/tests,
+1813cases333814assertions anduploadPASS. Failedd6 run retained. Nativebytewire
+root fix confirmed acrosshosts; sourcepublished/freshremote/indexempty/35peer
+bytes andallownworkingbytes preserved. No game/localnativebuild/fullcopy/delete
+or caps/pins/globalconsole/env changes. Storage-only thinprofiles cannot admit
+currentmutatingclient. Initialpartial/V014fail11/29,1/17,0captures/nativeconsumer
+absent, immediatewatcherprepared-only remain. Nativebasewriteisolation andactual
+controller/app/window are nextprerequisites. [Evidence](audits/2026/pd-existing-base-reuse-2026-10-03.md).
+
 2026-10-03 20:08 Eastern / 2026-10-04 00:08 UTC - Native UTF8 wire repair (gpt-6)
 
 Hosted37163228953 failedPS5 JSONdecode after4dependency/20storage/16Python

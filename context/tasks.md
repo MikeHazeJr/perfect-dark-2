@@ -1,5 +1,13 @@
 # Tasks
 
+2026-10-03 20:24 Eastern / 2026-10-04 00:24 UTC: exacte74a6795 CI37164271400
+completedSUCCESS:4dependency/20storage/17reusePython,19checks eachhostedPS5/7,
+cleanclient/tests/full1813cases333814assertions/uploadPASS. NativeUTF8/BOM wire
+repair accepted; priorhostedfailure retained. Read-only lease/profile foundation
+validated, currentgame reuseREFUSED untilnativebasewrite isolation. No realgame,
+fullcopy/delete or caps/pins change. Initialpartial/V014fail11/29,1/17,0captures,
+watcherunexecuted; actualcontroller/app/window stillneeded. [Closeout](audits/2026/pd-existing-base-reuse-2026-10-03.md).
+
 2026-10-03 20:08 Eastern / 2026-10-04 00:08 UTC: hosted d6b59982 reuse gate
 failedPS5 JSON transport after4dependency/20storage/16Python passes; preserved.
 ExactBOM/Unicode corruption reproduced. BackendUTF8-sig plus nativeProcess

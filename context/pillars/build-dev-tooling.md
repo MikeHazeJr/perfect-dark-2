@@ -1,5 +1,12 @@
 # Build / Dev Tooling
 
+2026-10-03 20:24 Eastern / 2026-10-04 00:24 UTC: exacte74a6795 hosted
+CI37164271400 fullygreen:4dependency/20storage/17reusePython +19eachPS5/7,
+cleanclient/tests/full1813cases333814assertions/upload. UTF8 bytewire repair
+confirmed; failedpriorCI preserved. Storage-only lease/profile mode validated,
+currentgame mode stillrefuses missingnative immutable-base writer isolation.
+No realgame/fullcopy/delete or policyrelaxation. [Proof](../audits/2026/pd-existing-base-reuse-2026-10-03.md).
+
 2026-10-03 20:08 Eastern / 2026-10-04 00:08 UTC: storage request wire now uses
 explicit UTF8 byte stdin/concurrent output drains and UTF8-sig backend decoding.
 ExacthostedPS5 BOM failure andUnicode corruption reproduced, then17Python+
