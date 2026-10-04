@@ -1,6 +1,6 @@
 # Session Log (Active)
 
-2026-10-04 04:04 UTC - Native retained-profile isolation (gpt-6.1-sol + gpt-6)
+2026-10-04 04:20 UTC - Native retained-profile isolation (gpt-6.1-sol + gpt-6)
 
 Night scope advances T-TOOLING-011 without another full-game copy or cleanup.
 Native direct/IAT write guards, profile-derived caches, boot/UI migration gates
@@ -13,7 +13,11 @@ and asset-source guard pass. Debug-root routing fixed; fresh result retained.
 Heavy released04:03 after requested window/latest availability/fresh admission.
 No realgame/deviceprobe/deletion;
 initial11/29,1/17,0capture acceptance and Xbox/app prerequisites unchanged.
-Scoped publication/exact-source CI pending. [Audit](audits/2026/pd-native-reuse-isolation-2026-10-04.md).
+Published c6b3e2ec with30 scoped paths/indexempty/freshremote/all peer bytes
+preserved. Exact CI37176234687 success04:18:51UTC: clean client/tests/full1835
+cases334167 assertions,4/6/20/17 Python,19 storage+adapter eachPS host, hosted
+790units1478files64routes and artifact upload. No realgame acceptance claim.
+[Audit](audits/2026/pd-native-reuse-isolation-2026-10-04.md).
 
 2026-10-03 20:24 Eastern / 2026-10-04 00:24 UTC - Exact hosted CI closeout (gpt-6)
 

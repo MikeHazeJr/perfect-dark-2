@@ -1,13 +1,15 @@
 # Tasks
 
-2026-10-04 04:04 UTC: T-TOOLING-011 native retained-profile isolation and
+2026-10-04 04:20 UTC: T-TOOLING-011 native retained-profile isolation and
 single-process wrapper verified locally. Final client/explicit-tests builds and
 22 cases/321 assertions pass; actual locked-consumer query passes PS5.1/7.6.
 Six guard cases,789 configured units/1477 files/64 routes and public-native-source
 guard pass. Boot debug-root routing and inherited outputs fixed; fresh per-run
 result/captures retained. Heavy released04:03, no game/copy/cleanup.
-Scoped commit/push is authorized; exact-source CI remains pending. Ordinary
-controller/app/capture acceptance remains partial.
+Published c6b3e2ec; exact CI37176234687 success04:18:51UTC: clean client/tests,
+full1835 cases334167 assertions,4/6/20/17 Python,19 storage+adapter eachPS host,
+hosted790units/1478files/64routes and artifact upload. Ordinary retained-profile
+game/controller/app/capture acceptance remains partial.
 [Native reuse checkpoint](audits/2026/pd-native-reuse-isolation-2026-10-04.md).
 
 2026-10-03 20:24 Eastern / 2026-10-04 00:24 UTC: exacte74a6795 CI37164271400

@@ -1,6 +1,6 @@
 # Native retained-profile reuse isolation
 
-T-TOOLING-011, 2026-10-04 04:04 UTC verification checkpoint. Implementation attribution:
+T-TOOLING-011, 2026-10-04 04:20 UTC published verification. Implementation attribution:
 `gpt-6.1-sol` (boot/cache/UI adapters and PowerShell adapter), `gpt-6`
 (native write policy, integration, source guard and verification).
 
@@ -83,14 +83,32 @@ Private evidence root:
 - `source-freeze-4.json` binds 26 source paths. Earlier failed verification
   receipts are retained, including the corrected path comparison assertion.
 
+## Publication and hosted verification
+
+Source commit [c6b3e2ec](https://github.com/MikeHazeJr/perfect-dark-2/commit/c6b3e2ece8b3e2855ed820534b03925ef799a7b9)
+is published on `origin/dev`; fresh remote equality, empty index and all owned/
+peer working snapshot bytes were verified. Its 30 paths contain 26 source files,
+this audit and only root-owned additions in three mixed context documents.
+
+Exact [CI 37176234687](https://github.com/MikeHazeJr/perfect-dark-2/actions/runs/37176234687)
+completed **success**, recorded at 04:18:51 UTC: 4 dependency/6 source-guard/
+20 storage/17 reuse Python cases, 19 storage checks plus adapter checks on both
+hosted PS versions, configured inventory **790 client units / 1,478 files / 64
+routes**, clean client/tests build, actual linked capability query, full **1,835
+cases / 334,167 assertions**, and client artifact upload. Hosted configured
+counts differ from the local 789/1,477 configuration; both inventories pass.
+Compact `ci-c6b3-success.json`, `ci-c6b3-compact.log` and `ci-c6b3-summary.log`
+retain exact source, step verdicts and counts. Sol6.1's final read-only review
+found both boot/output corrections sound within that limited scope.
+
 ## Remaining gates
 
 Root requested the new shared window, used the latest parent availability
 with fresh storage/process admission and normal FIFO, and released it at
 04:03 UTC after the bounded headless checks. Free space was 270,119,858,176 bytes,
 floor 214,748,364,800, pending build 4 GiB; archive stayed 881,170,023 bytes.
-Scoped publication and exact-source CI completion follow verification; they
-require no further push approval. Hosted success is not yet claimed.
+Scoped source publication and exact-source CI are complete. T-TOOLING-011 stays
+partial until ordinary retained-profile game integration is actually exercised.
 
 No real game, full-game copy, deletion, cap/pin change or controller takeover
 occurred. Initial asset/menu acceptance remains partial: the last ordinary run
