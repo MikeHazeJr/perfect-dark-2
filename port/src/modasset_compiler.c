@@ -21,6 +21,7 @@
 #include "assetcatalog.h"
 #include "data.h"
 #include "fs.h"
+#include "native_write_policy.h"
 #include "game/tex.h"
 #include "gbiex.h"
 #include "gdl_span.h"
@@ -4586,6 +4587,8 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 		s32 selected = 0;
 
 		for (size_t i = 0; i < sizeof(cache_roots) / sizeof(cache_roots[0]); i++) {
+			/* Reuse caches must never fall back to home or immutable source. */
+			if (nativeWritePolicyActive() && strcmp(cache_roots[i], "$S/mod-cache")) continue;
 			if (!cacheFormatPath(cache_root, sizeof(cache_root), "%s",
 					cache_roots[i])) continue;
 			if (!cacheBuildPaths(cache_root, mod_part, asset_part, kind_part,
@@ -4607,6 +4610,7 @@ s32 modAssetCompilerCompileReadable(const asset_entry_t *entry,
 			};
 			for (size_t i = 0;
 					i < sizeof(compact_roots) / sizeof(compact_roots[0]); i++) {
+				if (nativeWritePolicyActive() && strcmp(compact_roots[i], "$S/mc")) continue;
 				if (!cacheFormatPath(cache_root, sizeof(cache_root), "%s",
 						compact_roots[i])) continue;
 				if (!cacheBuildCompactPaths(cache_root, entry, asset_kind,

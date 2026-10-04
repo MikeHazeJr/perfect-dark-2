@@ -18,6 +18,7 @@
 #include "config.h"
 #include "system.h"
 #include "fs.h"
+#include "native_write_policy.h"
 #include "modmgr.h"   /* B-238 follow-up: MODMGR_RESERVED_NAMES_LIST */
 #include "assetcatalog.h"
 #include "assetprovider.h"
@@ -262,10 +263,15 @@ static void rescan(void)
 
     /* Match modmgr search order for mods/ roots. */
     char cands[4][FONTMOD_PATH_LEN];
+    if (nativeWritePolicyActive()) {
+        fsFullPath("$B/mods", cands[0], sizeof(cands[0]));
+        cands[1][0] = cands[2][0] = cands[3][0] = '\0';
+    } else {
     fsFullPath("$E/../mods", cands[0], sizeof(cands[0]));
     snprintf(cands[1], sizeof(cands[1]), "%s", "mods");
     fsFullPath("$E/mods", cands[2], sizeof(cands[2]));
     fsFullPath("mods",    cands[3], sizeof(cands[3]));
+    }
 
     for (int i = 0; i < 4; i++) {
         if (!cands[i][0]) continue;

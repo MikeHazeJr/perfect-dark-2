@@ -1,5 +1,30 @@
 # Systemic Bug Patterns — Architectural Issue Catalog
 
+## 2026-10-04 Native write guards must cover actual link routes and device visibility
+
+MinGW client objects contain direct symbols and imported-pointer references;
+wrapping one spelling does not establish coverage of the other or its POSIX
+alias. A configured-source inventory caught real `rmdir` references in map
+import/distribution after `_rmdir` was guarded. The common policy now inventories
+64 routes; an actual link witness and behavioral tests separately prove them.
+The known-API source guard binds reviewed exception call contexts and fails on
+new known write/dynamic routes. Static library versions need separate audit.
+
+Filesystem policy also intercepts SDL HID opens. Denied/unknown devices must
+latch failure before controller admission and smoke success, since silent
+enumeration loss could falsely report a free player slot. Preserve ordinary
+OS failures such as missing optional Discord pipes. Synthetic policy/IPC tests
+pass; physical device acceptance remains unverified. The wrapper locks both
+consumer and canonical fixture against replacement through launch and release.
+Inherited outputs require separate Win32 and CRT identity checks before boot
+diagnostics; an already-open base handle otherwise bypasses path-open guards.
+Output refusal keeps interception active until exit. Nonmutating debug-home
+routing may name the declared root while disk mutations require descendants.
+These cases pass the final22-case/321-assertion suite and both actual PS queries.
+`build-session -Target all` currently builds client/updater, so invoke explicit
+`-Target tests` for test rebuild evidence. T-TOOLING-011
+[audit](audits/2026/pd-native-reuse-isolation-2026-10-04.md).
+
 ## 2026-10-03 Native JSON transport must define its byte encoding
 
 PowerShell5 native pipelines can use the caller encoding despite a local

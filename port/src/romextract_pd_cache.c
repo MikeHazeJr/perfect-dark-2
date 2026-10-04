@@ -8,6 +8,7 @@
 
 #include "romextract_pd.h"
 #include "fs.h"
+#include "native_write_policy.h"
 #include "modarchive.h"
 #include "sha256.h"
 #include "system.h"
@@ -111,6 +112,14 @@ static s32 s_hasSuffix(const char *s, const char *suffix)
 static s32 s_cachePath(const char *abs_dir, char *out, size_t out_len)
 {
 	if (abs_dir == NULL || out == NULL || out_len == 0) return 0;
+	if (nativeWritePolicyActive()) {
+		char cache[PDEXTRACT_CACHE_PATH_LEN];
+		if (!nativeWritePolicyCachePath("pdextract-stamp", abs_dir, cache, sizeof(cache))) return 0;
+		if (fsFileSize(cache) >= 0) {
+			int n = snprintf(out, out_len, "%s", cache);
+			return n > 0 && (size_t)n < out_len;
+		}
+	}
 	int n = snprintf(out, out_len, "%s/%s", abs_dir, PDEXTRACT_CACHE_NAME);
 	if (n <= 0 || (size_t)n >= out_len) {
 		out[0] = '\0';
@@ -284,7 +293,10 @@ void romExtractPdFastCacheWrite(const char *kind, const char *abs_dir,
 	}
 
 	char stamp_path[PDEXTRACT_CACHE_PATH_LEN];
-	if (!s_cachePath(abs_dir, stamp_path, sizeof(stamp_path))) {
+	s32 resolved = nativeWritePolicyActive()
+		? nativeWritePolicyCachePath("pdextract-stamp", abs_dir, stamp_path, sizeof(stamp_path))
+		: s_cachePath(abs_dir, stamp_path, sizeof(stamp_path));
+	if (!resolved) {
 		return;
 	}
 

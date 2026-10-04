@@ -1,5 +1,20 @@
 # Session Log (Active)
 
+2026-10-04 04:04 UTC - Native retained-profile isolation (gpt-6.1-sol + gpt-6)
+
+Night scope advances T-TOOLING-011 without another full-game copy or cleanup.
+Native direct/IAT write guards, profile-derived caches, boot/UI migration gates
+and strict external-consumer/fixture locks are verified locally. Device denial
+cannot hide an occupied controller and produce a smoke PASS; ordinary absent
+IPC failures retain normal behavior. Final client/explicit-tests and22 cases321
+assertions pass, including plain rmdir and inherited-output refusal. Actual
+linked query passes PS5.1/7.6; six source-guard cases/789units/1477files/64routes
+and asset-source guard pass. Debug-root routing fixed; fresh result retained.
+Heavy released04:03 after requested window/latest availability/fresh admission.
+No realgame/deviceprobe/deletion;
+initial11/29,1/17,0capture acceptance and Xbox/app prerequisites unchanged.
+Scoped publication/exact-source CI pending. [Audit](audits/2026/pd-native-reuse-isolation-2026-10-04.md).
+
 2026-10-03 20:24 Eastern / 2026-10-04 00:24 UTC - Exact hosted CI closeout (gpt-6)
 
 Exactsourcee74a6795 CI37164271400 completedgreen00:23:53UTC:4dependency,

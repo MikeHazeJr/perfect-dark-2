@@ -34,6 +34,7 @@
 #include <PR/ultratypes.h>
 
 #include "fs.h"
+#include "native_write_policy.h"
 #include "romdata.h"
 #include "romextract.h"
 #include "sha256.h"
@@ -153,7 +154,15 @@ static s32 romExtractWriteSidecar(const char *binRel, const u8 *data, u32 size)
     char hex[SHA256_HEX_SIZE];
     sha256ToHex(digest, hex);
 
-    FILE *f = fsFileOpenWrite(sidecarRel);
+    FILE *f;
+    if (nativeWritePolicyActive()) {
+        char full[FS_MAXPATH + 1], cache[FS_MAXPATH + 1];
+        if (!nativeWritePolicyCachePath("extraction-sha256",
+                fsFullPath(binRel, full, sizeof(full)), cache, sizeof(cache))) return 0;
+        f = fopen(cache, "wb");
+    } else {
+        f = fsFileOpenWrite(sidecarRel);
+    }
     if (f == NULL) {
         sysLoudFailf("EXTRACT",
             "fsFileOpenWrite failed for sidecar \"%s\"", sidecarRel);
@@ -179,6 +188,13 @@ static s32 romExtractReadSidecar(const char *binRel, char dst[SHA256_HEX_SIZE])
 
     u32 size = 0;
     void *bytes = fsFileLoad(sidecarRel, &size);
+    if (!bytes && nativeWritePolicyActive()) {
+        char full[FS_MAXPATH + 1], cache[FS_MAXPATH + 1];
+        if (nativeWritePolicyCachePath("extraction-sha256",
+                fsFullPath(binRel, full, sizeof(full)), cache, sizeof(cache))) {
+            bytes = fsFileLoad(cache, &size);
+        }
+    }
     if (bytes == NULL || size < 64) {
         if (bytes) sysMemFree(bytes);
         return 0;
@@ -197,6 +213,20 @@ static s32 romExtractReadSidecar(const char *binRel, char dst[SHA256_HEX_SIZE])
     return 1;
 }
 
+/* A missing legacy sidecar must not turn an unverified base byte stream into
+ * an accepted baseline. Compare the retained raw extraction to ROM provenance
+ * before writing derived integrity metadata into the fresh profile. */
+static s32 romExtractReuseDigestMatches(const char *path, const u8 *source,
+        u32 size, const u8 diskDigest[SHA256_DIGEST_SIZE])
+{
+    if (!nativeWritePolicyActive()) return 1;
+    u8 expected[SHA256_DIGEST_SIZE];
+    sha256Hash(source, (size_t)size, expected);
+    if (memcmp(expected, diskDigest, sizeof(expected)) == 0) return 1;
+    sysLoudFailf("LOAD", "immutable reuse refuses raw asset repair: %s", path);
+    return 0;
+}
+
 /* Move a corrupted extracted file to the quarantine area before
  * re-extracting it.  Quarantine path layout (Pass D, 2026-05-02):
  *   data/_quarantine/<romid>/<unixtime>_<basename>
@@ -211,6 +241,7 @@ static s32 romExtractReadSidecar(const char *binRel, char dst[SHA256_HEX_SIZE])
  * re-extract that follows. */
 static void romExtractQuarantine(const char *binRel, const char *binFull)
 {
+    if (nativeWritePolicyActive()) return;
     char quarTopRel[ROMEXTRACT_PATH_LEN];
     snprintf(quarTopRel, sizeof(quarTopRel), "data/_quarantine");
     fsCreateDir(quarTopRel);
@@ -472,6 +503,12 @@ s32 romExtractAllFiles(void)
             continue;
         }
 
+        if (nativeWritePolicyActive()) {
+            sysLoudFailf("EXTRACT", "immutable reuse requires existing raw file: %s", outFull);
+            failed++;
+            continue;
+        }
+
         FILE *f = fsFileOpenWrite(outRel);
         if (f == NULL) {
             sysLoudFailf("EXTRACT",
@@ -677,13 +714,19 @@ static void s_verifyOneFile(s32 fileNum, verify_thread_state_t *th)
      * romExtractAllFiles first; verify is per-file, not first-run). */
     struct stat st;
     if (stat(outFull, &st) != 0) {
-        th->skippedEmpty++;
+        if (nativeWritePolicyActive()) th->failed++;
+        else th->skippedEmpty++;
         return;
     }
 
     /* Hash the on-disk file. */
     u8 diskDigest[SHA256_DIGEST_SIZE];
     if (sha256HashFile(outFull, diskDigest) != 0) {
+        if (nativeWritePolicyActive()) {
+            sysLoudFailf("LOAD", "immutable reuse cannot hash raw file: %s", outFull);
+            th->failed++;
+            return;
+        }
         sysLoudFailf("LOAD",
             "sha256HashFile failed for \"%s\"; re-extracting", outFull);
         romExtractQuarantine(outRel, outFull);
@@ -700,6 +743,10 @@ static void s_verifyOneFile(s32 fileNum, verify_thread_state_t *th)
         }
         return;
     }
+    if (!romExtractReuseDigestMatches(outFull, romData, (u32)romSize, diskDigest)) {
+        th->failed++;
+        return;
+    }
     char diskHex[SHA256_HEX_SIZE];
     sha256ToHex(diskDigest, diskHex);
 
@@ -707,12 +754,21 @@ static void s_verifyOneFile(s32 fileNum, verify_thread_state_t *th)
     if (!romExtractReadSidecar(outRel, sideHex)) {
         /* Legacy file from pre-A.4 extraction: write a baseline
          * sidecar from the current on-disk content's hash. */
-        romExtractWriteSidecar(outRel, romData, (u32)romSize);
+        if (!romExtractWriteSidecar(outRel, romData, (u32)romSize)
+                && nativeWritePolicyActive()) {
+            th->failed++;
+            return;
+        }
         th->baselined++;
         return;
     }
 
     if (strncmp(diskHex, sideHex, 64) != 0) {
+        if (nativeWritePolicyActive()) {
+            sysLoudFailf("LOAD", "immutable reuse refuses sidecar mismatch: %s", outFull);
+            th->failed++;
+            return;
+        }
         sysLoudFailf("LOAD",
             "SHA-256 mismatch on \"%s\" (expected %s, got %s); "
             "quarantining + re-extracting",
@@ -995,6 +1051,12 @@ s32 romExtractAllSegments(void)
             continue;
         }
 
+        if (nativeWritePolicyActive()) {
+            sysLoudFailf("EXTRACT", "immutable reuse requires existing raw segment: %s", outFull);
+            failed++;
+            continue;
+        }
+
         FILE *f = fsFileOpenWrite(outRel);
         if (f == NULL) {
             sysLoudFailf("EXTRACT",
@@ -1076,12 +1138,18 @@ s32 romExtractVerifyAllSegments(void)
         if (stat(outFull, &st) != 0) {
             /* Segment not yet on disk -- caller should have run
              * romExtractAllSegments first; not a verify failure. */
-            skippedEmpty++;
+            if (nativeWritePolicyActive()) failed++;
+            else skippedEmpty++;
             continue;
         }
 
         u8 diskDigest[SHA256_DIGEST_SIZE];
         if (sha256HashFile(outFull, diskDigest) != 0) {
+            if (nativeWritePolicyActive()) {
+                sysLoudFailf("LOAD", "immutable reuse cannot hash raw segment: %s", outFull);
+                failed++;
+                continue;
+            }
             sysLoudFailf("LOAD",
                 "sha256HashFile failed for seg \"%s\"; re-extracting", outFull);
             romExtractQuarantine(outRel, outFull);
@@ -1101,10 +1169,19 @@ s32 romExtractVerifyAllSegments(void)
             continue;
         }
 
+        if (!romExtractReuseDigestMatches(outFull, segData, segSize, diskDigest)) {
+            failed++;
+            continue;
+        }
+
         char sideHex[SHA256_HEX_SIZE];
         if (romExtractReadSidecar(outRel, sideHex) == 0) {
             /* No sidecar -- baseline from on-disk content's hash. */
-            romExtractWriteSidecar(outRel, segData, segSize);
+            if (!romExtractWriteSidecar(outRel, segData, segSize)
+                    && nativeWritePolicyActive()) {
+                failed++;
+                continue;
+            }
             baselined++;
             continue;
         }
@@ -1115,6 +1192,11 @@ s32 romExtractVerifyAllSegments(void)
         }
 
         if (strncmp(diskHex, sideHex, 64) != 0) {
+            if (nativeWritePolicyActive()) {
+                sysLoudFailf("LOAD", "immutable reuse refuses segment sidecar mismatch: %s", outFull);
+                failed++;
+                continue;
+            }
             sysLoudFailf("LOAD",
                 "SHA-256 mismatch on seg \"%s\" (expected %s, got %s); "
                 "quarantining + re-extracting",

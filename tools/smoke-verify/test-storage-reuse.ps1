@@ -3,6 +3,7 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'lib/Storage-Harness.ps1')
+. (Join-Path $PSScriptRoot 'lib/Reuse-Runtime.ps1')
 $pythonExe = Get-SmokeStoragePython
 $fixture = & $pythonExe -B (Join-Path $PSScriptRoot 'test-storage-reuse.py') --fixture | ConvertFrom-Json
 if ($LASTEXITCODE -ne 0) { throw 'Fixture setup failed' }
@@ -62,7 +63,7 @@ $refused = $false
 try {
     & (Join-Path $PSScriptRoot 'run.ps1') -ReuseInstallId $fixture.id -ReuseSeed $fixture.seed_id -ReuseBinarySha256 $fixture.binary_sha256
 } catch {
-    if ($_.Exception.Message -notlike '*Runtime reuse refused*extraction sidecars*.pdextract-cache*') { throw }
+    if ($_.Exception.Message -notlike '*Runtime reuse refused*explicit verified native consumer*') { throw }
     $refused = $true
 }
 if (-not $refused) { throw 'Current mutating game runtime was admitted' }
@@ -74,7 +75,48 @@ try {
     $conflictRefused = $true
 }
 if (-not $conflictRefused) { throw 'Reuse invoked a build' }
-$report = @{passed=$true;checks=19;fixture_root=$fixture.project;python=$pythonExe;
+$vetted=[pscustomobject]@{Name='menu_virtual_controller_agent_cancel';Path=[IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'tests/menu_virtual_controller_agent_cancel.json'));Definition=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'tests/menu_virtual_controller_agent_cancel.json') -Raw | ConvertFrom-Json)}
+Assert-SmokeReuseDefinition -Test $vetted
+foreach ($property in @('fixtures','remove_paths','processes','packed_fixtures','fault_processes','target','runtime_strategy','custom_fixtures')) {
+    $copy=$vetted | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+    $copy.Definition | Add-Member -NotePropertyName $property -NotePropertyValue @()
+    $denied=$false
+    try { Assert-SmokeReuseDefinition -Test $copy } catch { $denied=$true }
+    if (!$denied) { throw "Reuse admitted declaration $property" }
+}
+$keyboard=[pscustomobject]@{Name='menu_settings_keyboard';Definition=(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'tests/menu_settings_keyboard.json') -Raw | ConvertFrom-Json)}
+$denied=$false
+try { Assert-SmokeReuseDefinition -Test $keyboard } catch { $denied=$true }
+if (!$denied) { throw 'Mutating keyboard fixture admitted' }
+$modified=$vetted | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+$modified.Definition.timeout_seconds=1
+$denied=$false
+try { Assert-SmokeReuseDefinition -Test $modified } catch { $denied=$true }
+if (!$denied) { throw 'Changed canonical fixture caps admitted' }
+$modified=$vetted | ConvertTo-Json -Depth 30 | ConvertFrom-Json
+$modified.Path=Join-Path $fixture.project 'menu_virtual_controller_agent_cancel.json'
+$denied=$false
+try { Assert-SmokeReuseDefinition -Test $modified } catch { $denied=$true }
+if (!$denied) { throw 'Unvetted alternate fixture path admitted' }
+$tiny=Join-Path $fixture.project 'retained-consumer-identity.txt'
+[IO.File]::WriteAllText($tiny,'synthetic identity; never executed')
+$tinyHash=(Get-FileHash -LiteralPath $tiny -Algorithm SHA256).Hash
+$lock=Open-SmokeReuseConsumer -Path $tiny -Sha256 $tinyHash
+try {
+    if ($lock.Hash() -ne $tinyHash.ToLowerInvariant()) { throw 'Locked consumer hash incorrect' }
+    $denied=$false
+    try { [IO.File]::WriteAllText($tiny,'must refuse') } catch { $denied=$true }
+    if (!$denied) { throw 'Consumer byte lock permitted overwrite' }
+} finally { $lock.Dispose() }
+$denied=$false
+try { $bad=Open-SmokeReuseConsumer -Path $tiny -Sha256 ('0'*64); $bad.Dispose() } catch { $denied=$true }
+if (!$denied) { throw 'Consumer SHA mismatch admitted' }
+$alias=Join-Path $fixture.project 'retained-consumer-hardlink.txt'
+[void](New-Item -ItemType HardLink -Path $alias -Value $tiny)
+$denied=$false
+try { $bad=Open-SmokeReuseConsumer -Path $alias -Sha256 $tinyHash; $bad.Dispose() } catch { $denied=$true }
+if (!$denied) { throw 'Consumer hardlink admitted' }
+$report = @{passed=$true;storage_checks=19;adapter_fixture_admission=$true;consumer_lock_and_alias_refusals=$true;fixture_root=$fixture.project;python=$pythonExe;
     powershell=$PSVersionTable.PSVersion.ToString();game_launched=$false;full_game_copied=$false;
     deletion_performed=$false;prior_failure_preserved=$true;current_runtime_refused=$true;receipt=$closed.Receipt;
     utf8_transport_independent_of_caller=$true;caller_output_encoding_preserved=$true}

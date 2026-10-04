@@ -37,6 +37,7 @@
 #include "playerstats.h"
 #include "achievements.h"
 #include "system.h"
+#include "native_write_policy.h"
 #include "console.h"
 #include "utils.h"
 #include "net/net.h"
@@ -4004,16 +4005,79 @@ s32 bootDumpSwarmStateTick(void)
 	return 1;
 }
 
+/* Reuse is deliberately limited to the smoke adapter. Asset admission below
+ * still runs normally: an immutable base needing repair must fail boot. */
+static s32 bootReuseAbsolutePath(const char *path)
+{
+	return path && strlen(path) >= 3 && strlen(path) < FS_MAXPATH
+		&& isalpha((unsigned char)path[0])
+		&& path[1] == ':' && (path[2] == '/' || path[2] == '\\');
+}
+
+static s32 bootInitNativeReuse(int argc, const char **argv)
+{
+	const char *root = sysArgGetString("--reuse-write-root");
+	if (!sysArgCheck("--reuse-write-root")) return 1;
+	const char *base = sysArgGetString("--basedir");
+	const char *outputs[] = { "--savedir", "--debug-home-path", "--smoke-screenshot-dir" };
+	if (!bootReuseAbsolutePath(root) || !bootReuseAbsolutePath(base) || !sysArgGetString("--smoke")
+			|| !sysArgCheck("--no-net") || !sysArgCheck("--no-update-check")) {
+		/* Refusal must stay silent until inherited output handles are checked. */
+		return 0;
+	}
+	for (int i = 1; i < argc; ++i) {
+		const char *arg = argv[i];
+		if (!strcmp(arg, "--portable") || !strcmp(arg, "--moddir")
+				|| !strcmp(arg, "--dedicated")
+				|| !strncmp(arg, "--extract-", 10) || !strncmp(arg, "--import-", 9)
+				|| !strncmp(arg, "--migrate-", 10) || !strncmp(arg, "--bench-", 8)
+				|| !strncmp(arg, "--dump-", 7) || !strncmp(arg, "--listen-", 9)
+				|| !strncmp(arg, "--connect-", 10) || !strncmp(arg, "--host-", 7)
+				|| (!strncmp(arg, "--debug-", 8) && strcmp(arg, "--debug-home-path"))) {
+			return 0;
+		}
+		/* Avoid first/last-argument disagreements between adapter and client. */
+		if (!strcmp(arg, "--reuse-write-root") || !strcmp(arg, "--basedir")
+				|| !strcmp(arg, "--smoke") || !strcmp(arg, "--savedir")
+				|| !strcmp(arg, "--debug-home-path") || !strcmp(arg, "--smoke-screenshot-dir")) {
+			if (i + 1 >= argc || !argv[i + 1][0] || !strncmp(argv[i + 1], "--", 2)) return 0;
+			for (int j = i + 2; j < argc; ++j) {
+				if (!strcmp(arg, argv[j])) return 0;
+			}
+		}
+	}
+	if (!nativeWritePolicyInit(base, root)) return 0;
+	for (size_t i = 0; i < sizeof(outputs) / sizeof(outputs[0]); ++i) {
+		const char *path = sysArgGetString(outputs[i]);
+		/* Debug home routes logs into root/logs; it never writes the root
+		 * directory itself. The mutation policy still requires descendants. */
+		const bool debugRoot = path && !strcmp(outputs[i], "--debug-home-path") && !strcmp(path, root);
+		if (!bootReuseAbsolutePath(path) || (!debugRoot && !nativeWritePolicyAllowsPath(path))) {
+			fprintf(stderr, "NATIVE.REUSE: profile-scoped %s required\n", outputs[i]);
+			return 0;
+		}
+	}
+	return 1;
+}
+
 int main(int argc, const char **argv)
 {
 	sysInitArgs(argc, argv);
+	if (sysArgCheck("--reuse-write-policy-info")) {
+		if (argc != 2) return 2;
+		const bool supported = nativeWritePolicyLinkContract();
+		printf("{\"schema\":\"pd2.native-write-policy.v1\",\"supported\":%s}\n",
+			supported ? "true" : "false");
+		return supported ? 0 : 2;
+	}
+	if (!bootInitNativeReuse(argc, argv)) return 2;
 
 	/* D13: Apply pending update VERY EARLY — before any subsystem init.
 	 * If an update was downloaded previously, this renames the .update file
 	 * into place and re-execs. If no pending update, this is a no-op.
 	 * NOTE: sysLogPrintf is safe to call before sysInit (uses static buffers).
 	 * detectExePath uses only stdlib — no SDL or game init required. */
-	updaterApplyPending();
+	if (!nativeWritePolicyActive()) updaterApplyPending();
 
 	if (!sysArgCheck("--no-crash-handler")) {
 		crashInit();
@@ -4262,6 +4326,10 @@ int main(int argc, const char **argv)
 	 * test-declared channel mask + verbose flag override pd.ini cleanly.
 	 * No-op when --smoke is not present. */
 	if (!g_BootExtractAssetsOnly) {
+		if (nativeWritePolicyRefused()) {
+			sysLogPrintf(LOG_ERROR, "NATIVE.REUSE: device admission refused; controller visibility unverified");
+			return 2;
+		}
 		(void)smokeHarnessInit();
 	}
 
@@ -4296,6 +4364,7 @@ int main(int argc, const char **argv)
 		 * mode. Does not push input events here -- the boot overlay frame
 		 * does not consume SDL key events. */
 		if (!g_BootExtractAssetsOnly) {
+			if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
 			smokeHarnessTick();
 		}
 		/* Cooperative pause when not in dedicated mode; the dedicated

@@ -21,6 +21,7 @@
 
 #include "system.h"
 #include "fs.h"
+#include "native_write_policy.h"
 #include "updater.h"
 #include "versioninfo.h"
 #include "updateversion.h"
@@ -1278,6 +1279,7 @@ void updaterTick(void)
 
 void updaterCheckAsync(void)
 {
+	if (nativeWritePolicyActive()) return;
 	SDL_LockMutex(s_Updater.mutex);
 
 	if (s_Updater.status == UPDATER_CHECKING || s_Updater.status == UPDATER_DOWNLOADING) {
@@ -1353,6 +1355,7 @@ s32 updaterIsUpdateAvailable(void)
 
 void updaterDownloadAsync(const updater_release_t *release)
 {
+	if (nativeWritePolicyActive()) return;
 	if (!release || !release->assetUrl[0]) return;
 
 	SDL_LockMutex(s_Updater.mutex);
@@ -1715,6 +1718,7 @@ static void cleanupStaleFiles(const char *installDir, const char *stagingDir, co
 
 s32 updaterApplyPending(void)
 {
+	if (nativeWritePolicyActive()) return 0;
 	detectExePath();
 
 	/* Diagnostics: always log what we're looking for, even before sysInit.
@@ -1868,6 +1872,7 @@ s32 updaterApplyPending(void)
 
 void updaterCleanupOld(void)
 {
+	if (nativeWritePolicyActive()) return;
 	/* Try to remove .old from previous update */
 	remove(s_Updater.oldPath);
 }

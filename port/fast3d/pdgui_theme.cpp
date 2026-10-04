@@ -57,6 +57,7 @@
 #include "assetcatalog.h"
 #include "assetprovider.h"
 #include "fs.h"
+#include "native_write_policy.h"
 #include "config.h"
 #include "modarchive.h"
 #include "../external/stb_image.h"
@@ -1726,6 +1727,11 @@ static void s_scanChromeStylesInDir(const char *dir_path, int allow_recurse)
 
 static void s_scanModChromeStyles(void)
 {
+    if (nativeWritePolicyActive()) {
+        char root[FS_MAXPATH + 1];
+        s_scanChromeStylesInDir(fsFullPath("$B/mods", root, sizeof(root)), 1);
+        return;
+    }
     char buf0[FS_MAXPATH + 1];
     char buf2[FS_MAXPATH + 1];
     char buf3[FS_MAXPATH + 1];

@@ -12,6 +12,7 @@ if(APPLE)
 endif()
 
 project(pd C CXX)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 include(TargetArch)
 include(FindPkgConfig)
@@ -607,7 +608,28 @@ add_custom_target(pd_headers ALL DEPENDS ${JSON_HEADERS})
 set(BIN_NAME "PerfectDark")
 add_executable(pd ${SRC})
 add_dependencies(pd pd_headers)
-target_link_libraries(pd ${LIBS})
+target_link_libraries(pd PRIVATE ${LIBS})
+
+# Existing-install smoke reuse confines native mutations to a retained profile.
+# MinGW emits both direct calls and references to __imp_* pointers; intercept
+# both. Ordinary launches delegate to the original imports without policy.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${CMAKE_SOURCE_DIR}/port/include/native_write_policy_symbols.inc")
+file(STRINGS "${CMAKE_SOURCE_DIR}/port/include/native_write_policy_symbols.inc"
+  PD_NATIVE_WRITE_LINES REGEX "^NWP_SYMBOL\\([A-Za-z0-9_]+\\)$")
+set(PD_NATIVE_WRITE_SYMBOLS)
+foreach(line IN LISTS PD_NATIVE_WRITE_LINES)
+  string(REGEX REPLACE "^NWP_SYMBOL\\(([A-Za-z0-9_]+)\\)$" "\\1" symbol "${line}")
+  list(APPEND PD_NATIVE_WRITE_SYMBOLS "${symbol}")
+endforeach()
+function(pd_native_write_policy_link target)
+  target_link_libraries(${target} PRIVATE shell32)
+  foreach(symbol IN LISTS PD_NATIVE_WRITE_SYMBOLS)
+    target_link_options(${target} PRIVATE
+      "-Wl,--wrap=${symbol}" "-Wl,--wrap=__imp_${symbol}")
+  endforeach()
+endfunction()
+pd_native_write_policy_link(pd)
 set_target_properties(pd PROPERTIES OUTPUT_NAME "${BIN_NAME}")
 
 # Stable release builds omit dev-only debug hotkeys (F6/F7/F12), dev HUD banners,
@@ -1279,6 +1301,13 @@ set(SRC_TESTS
 )
 
 add_executable(pd-tests ${SRC_TESTS})
+target_sources(pd-tests PRIVATE
+  ${CMAKE_SOURCE_DIR}/port/src/native_write_policy.c
+  ${CMAKE_SOURCE_DIR}/port/src/native_write_policy_windows.c
+  ${CMAKE_SOURCE_DIR}/tests/test_native_write_policy.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_native_reuse_boot_static.cpp)
+target_compile_definitions(pd-tests PRIVATE PD_NATIVE_WRITE_POLICY_TESTING=1)
+pd_native_write_policy_link(pd-tests)
 add_dependencies(pd-tests pd_headers)
 target_include_directories(pd-tests PRIVATE
   ${CMAKE_SOURCE_DIR}/port/fast3d

@@ -161,11 +161,11 @@ function Get-SmokeReusePlan {
 }
 
 function Assert-SmokeReuseRuntimeSupported {
-    # Save/home/capture overrides do not isolate extraction sidecars and the
-    # asset-directory .pdextract-cache stamp. No current client contract can
-    # prevent those writes. Never substitute a caller promise or a hash check
-    # after launch for enforcement of immutable inputs.
-    throw 'Runtime reuse refused: current client can write extraction sidecars and .pdextract-cache in the base. Supported immutable-base write isolation is required; no game, profile, reset, eviction or copy was started.'
+    param($PolicyQuery)
+    if (!$PolicyQuery -or $PolicyQuery.schema -ne 'pd2.native-write-policy.v1' -or
+        $PolicyQuery.supported -ne $true -or $PolicyQuery.exit_code -ne 0) {
+        throw 'Runtime reuse refused: actual verified native consumer policy query required.'
+    }
 }
 
 function New-SmokeReadOnlyProfile {

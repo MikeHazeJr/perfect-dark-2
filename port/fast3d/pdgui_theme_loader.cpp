@@ -45,6 +45,7 @@
 #include "config.h"
 #include "system.h"
 #include "fs.h"
+#include "native_write_policy.h"
 #include "modmgr.h"           /* B-238 follow-up: MODMGR_RESERVED_NAMES_LIST */
 #include "modarchive.h"       /* B-238 follow-up: read theme.json from .pdmod archives */
 #include "romextract_pd.h"
@@ -1716,10 +1717,15 @@ static void scan_mods_for_themes(void)
     /* Match modmgr search order so theme discovery follows the same roots:
      * $E/../mods, ./mods, $E/mods, then base-dir mods fallback. */
     char candidateBufs[4][THEME_FILEPATH_LEN];
+    if (nativeWritePolicyActive()) {
+        fsFullPath("$B/mods", candidateBufs[0], sizeof(candidateBufs[0]));
+        candidateBufs[1][0] = candidateBufs[2][0] = candidateBufs[3][0] = '\0';
+    } else {
     fsFullPath("$E/../mods", candidateBufs[0], sizeof(candidateBufs[0]));
     snprintf(candidateBufs[1], sizeof(candidateBufs[1]), "%s", "mods");
     fsFullPath("$E/mods", candidateBufs[2], sizeof(candidateBufs[2]));
     fsFullPath("mods",    candidateBufs[3], sizeof(candidateBufs[3]));
+    }
 
     int walked = 0;
     for (int ci = 0; ci < 4; ci++) {

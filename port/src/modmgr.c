@@ -20,6 +20,7 @@
 #include "system.h"
 #include "config.h"
 #include "fs.h"
+#include "native_write_policy.h"
 #include "modmgr.h"
 #include "modmgr_enabled_state.h"
 #include "modmgr_component_catalog.h"
@@ -1736,7 +1737,7 @@ static void modmgrScanDirectory(void)
 	g_ModRegistryCount = 0;
 
 	// Ensure mods directory exists on fresh install
-	fsCreateDir("./" MODMGR_MODS_DIR);
+	if (!nativeWritePolicyActive()) fsCreateDir("./" MODMGR_MODS_DIR);
 
 	// PC: multiple roots are valid depending on launch dir:
 	// - $E/../mods (repo root when exe is in Build/)
@@ -1755,7 +1756,13 @@ static void modmgrScanDirectory(void)
 	 * The prior dynamic scanner ignored fsGetModDir() and still walked every
 	 * executable/CWD/base root, which made two canonical-executable peers see
 	 * each other's mods even with distinct base/save directories. */
-	if (explicitModsDir && explicitModsDir[0]) {
+	if (nativeWritePolicyActive()) {
+		/* Reuse may only mount mods from the exact verified asset base. */
+		fsFullPath("$B/" MODMGR_MODS_DIR, candidateBufs[0], sizeof(candidateBufs[0]));
+		candidateBufs[1][0] = '\0';
+		candidateBufs[2][0] = '\0';
+		candidateBufs[3][0] = '\0';
+	} else if (explicitModsDir && explicitModsDir[0]) {
 		strncpy(candidateBufs[0], explicitModsDir, sizeof(candidateBufs[0]) - 1);
 		candidateBufs[0][sizeof(candidateBufs[0]) - 1] = '\0';
 		candidateBufs[1][0] = '\0';
@@ -1804,7 +1811,7 @@ static void modmgrScanDirectory(void)
 	 * unconditionally. */
 	{
 		mod_migrate_summary_t mig = { 0 };
-		modMigrateRun(modsdir, &mig);
+		if (!nativeWritePolicyActive()) modMigrateRun(modsdir, &mig);
 	}
 
 	sysLogPrintf(LOG_NOTE, "modmgr: scanning '%s' for mods...", modsdir);

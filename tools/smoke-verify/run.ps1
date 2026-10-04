@@ -48,8 +48,9 @@
 
 .PARAMETER ReuseInstallId
     Exact completed unpinned storage install to inspect without a full copy.
-    Requires ReuseSeed and ReuseBinarySha256. Runtime reuse currently refuses
-    because this client has no supported immutable-base write isolation.
+    Requires ReuseSeed and ReuseBinarySha256, plus a separately verified native
+    ReuseConsumerBinary/ReuseConsumerSha256 for the retained-profile adapter.
+    Only the vetted single-process controller cancel fixture is admitted.
 
 .PARAMETER ReusePlan
     Validate the exact existing base and prior receipts, print the plan, and exit.
@@ -113,6 +114,8 @@ param(
     [string]   $ReuseInstallId = "",
     [string]   $ReuseSeed = "",
     [string]   $ReuseBinarySha256 = "",
+    [string]   $ReuseConsumerBinary = "",
+    [string]   $ReuseConsumerSha256 = "",
     [switch]   $ReusePlan,
     [string]   $NativeAssetManifest = "",
     [string]   $StoragePolicy = "",
@@ -129,6 +132,10 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 $LibDir = Join-Path $ScriptDir "lib"
+$script:ReuseConsumerLock = $null
+$script:ReuseDefinitionLock = $null
+$script:ReusePolicyQuery = $null
+$script:ReuseQueryUnverified = $false
 if ($ReuseInstallId) {
     if (-not $ReuseSeed -or -not $ReuseBinarySha256 -or $Build -or $Install -or
             $SourceSeed -or $SourceBinary -or $SourceRom -or $SharedInstall -or $PerTestInstall -or $Keep -or $NativeAssetManifest) {
@@ -140,9 +147,9 @@ if ($ReuseInstallId) {
         Get-SmokeReusePlan -ProjectRoot $ProjectRoot -InstallId $ReuseInstallId -Seed $ReuseSeed -BinarySha256 $ReuseBinarySha256 | ConvertTo-Json
         return
     }
-    Assert-SmokeReuseRuntimeSupported
+    if (-not $ReuseConsumerBinary -or -not $ReuseConsumerSha256) { throw 'Runtime reuse refused: explicit verified native consumer required.' }
 }
-if ($ReusePlan -or $ReuseSeed -or $ReuseBinarySha256) { throw 'Reuse parameters require ReuseInstallId.' }
+elseif ($ReusePlan -or $ReuseSeed -or $ReuseBinarySha256 -or $ReuseConsumerBinary -or $ReuseConsumerSha256) { throw 'Reuse parameters require ReuseInstallId.' }
 if ($SourceSeed -and ($Build -or $Install -or $SourceBinary -or $SourceRom)) {
     throw 'SourceSeed requires a frozen batch: omit Build/Install/SourceBinary/SourceRom.'
 }
@@ -651,6 +658,7 @@ Initialize-SmokeStoragePolicy -Path $StoragePolicy
 . (Join-Path $LibDir "Native-Consumer.ps1")
 . (Join-Path $LibDir "Console-Capture.ps1")
 . (Join-Path $LibDir "Owned-Process.ps1")
+. (Join-Path $LibDir "Reuse-Runtime.ps1")
 
 function New-NeedlerEffectReplacementFixtures {
     [CmdletBinding()] param([Parameter(Mandatory)] [string] $InstallDir)
@@ -2146,7 +2154,19 @@ function Invoke-SmokeTest {
     }
 
     $installInfo = $null
-    if ($SourceSeed) {
+    if ($ReuseInstallId) {
+        Assert-SmokeReuseDefinition -Test $Test
+        $originalFixtureHash=(Get-FileHash -LiteralPath $Test.Path -Algorithm SHA256).Hash
+        $installInfo = New-SmokeReadOnlyProfile -ProjectRoot $ProjectRoot -InstallId $ReuseInstallId -Seed $ReuseSeed -BinarySha256 $ReuseBinarySha256
+        $reuseProfile = $installInfo
+        $baseDir = $installInfo.InstallDir
+        $runtimeRoot = Split-Path -Parent $installInfo.ProfileDir
+        $installInfo | Add-Member -NotePropertyName BaseDir -NotePropertyValue $baseDir
+        $installInfo.InstallDir = $runtimeRoot
+        $installInfo | Add-Member -NotePropertyName StorageReceiptDir -NotePropertyValue $runtimeRoot
+        $installInfo | Add-Member -NotePropertyName InstallState -NotePropertyValue 'immutable-reuse'
+        $installInfo | Add-Member -NotePropertyName ExePath -NotePropertyValue $script:ReuseConsumerLock.Path
+    } elseif ($SourceSeed) {
         $installInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $name `
             -SourceSeed $SourceSeed -Target $target -Shared:$Shared
     } elseif ($ExistingInstall) {
@@ -2246,6 +2266,7 @@ function Invoke-SmokeTest {
         $exeLeaf = [string]$installInfo.ExeName
     }
     $exe = Join-Path $installInfo.InstallDir $exeLeaf
+    if ($ReuseInstallId) { $exe = $installInfo.ExePath }
     if (-not (Test-Path -LiteralPath $exe)) {
         throw "$exeLeaf missing inside install dir after seeding: $exe"
     }
@@ -2298,6 +2319,12 @@ function Invoke-SmokeTest {
         $allArgs = @() + $bootArgs
     }
     Write-Info ("  target: {0} ({1})" -f $target, $exeLeaf)
+    if ($ReuseInstallId) {
+        $allArgs = @('--smoke', [IO.Path]::GetFullPath($Test.Path)) + @($bootArgs | Where-Object { $_ -ne '--portable' }) + @(
+            '--basedir', $installInfo.BaseDir, '--reuse-write-root', $installInfo.InstallDir,
+            '--savedir', $installInfo.ProfileDir, '--debug-home-path', $installInfo.InstallDir,
+            '--smoke-screenshot-dir', $installInfo.CaptureDir)
+    }
     Write-Info ("  strategy: {0}" -f $runtimeStrategy)
 
     $started = Get-Date
@@ -2346,6 +2373,10 @@ function Invoke-SmokeTest {
         $psi.RedirectStandardError  = $true
         $psi.RedirectStandardOutput = $true
 
+        if ($ReuseInstallId) {
+            if ($script:ReuseConsumerLock.Hash() -ne $ReuseConsumerSha256.ToLowerInvariant() -or
+                (Get-FileHash -LiteralPath $Test.Path -Algorithm SHA256).Hash -ne $originalFixtureHash) { throw 'Consumer or fixture changed before launch.' }
+        }
         $proc = [System.Diagnostics.Process]::Start($psi)
         if (-not $proc) {
             throw "ProcessStartInfo returned null Process"
@@ -2553,6 +2584,35 @@ function Invoke-SmokeTest {
             Write-Fail ("  native attribution: {0}" -f $nativeConsumerResult.Failure)
         }
     }
+    $retainedScreenshots=@($screenshotSchedule | Where-Object { $_.Captured -and $_.Success } | ForEach-Object { $_.Path })
+    if ($ReuseInstallId) {
+        $retainedScreenshots=@()
+        foreach ($event in @($def.input_sequence | Where-Object { $_.type -eq 'screenshot' })) {
+            $capture=Join-Path $installInfo.CaptureDir $event.path
+            if (!(Test-Path -LiteralPath $capture -PathType Leaf)) { $testOk=$false; Write-Fail "Missing retained capture: $capture" }
+            else { $retainedScreenshots+=$capture }
+        }
+    }
+    $outcome = @{
+            name=$name; passed=$testOk; exit_code=$exitCode; elapsed_seconds=$elapsed
+            assertions_met=$assertResult.Met; assertions_total=$assertResult.Total
+            failures=@($assertResult.Failures); native_consumer=$nativeConsumerResult
+            console_capture=$consoleResult
+            screenshots=@($screenshotSchedule | Where-Object { $_.Captured -and $_.Success } | ForEach-Object { $_.Path })
+        }
+    if ($ReuseInstallId) {
+        if ($proc -and (!$ownership -or (Get-SmokeOwnedProcessState $ownership).status -ne 'absent')) { throw 'Reuse actor absence unverified; lease retained.' }
+        if ($consoleCapture -and !$consolePassed) { throw 'Reuse console drain unverified; lease retained.' }
+        $outcome.base_binary_sha256=$ReuseBinarySha256; $outcome.consumer_sha256=$ReuseConsumerSha256
+        $outcome.policy_query=$script:ReusePolicyQuery; $outcome.effective_argv=@($allArgs)
+        $outcome.original_fixture_sha256=$originalFixtureHash
+        $outcome.profile_id=$installInfo.ReuseId
+        $outcome.screenshots=$retainedScreenshots
+        $outcome.result_file=Join-Path $installInfo.ProfileDir 'result.json'
+        $outcome | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $outcome.result_file -Encoding UTF8
+        Write-Info ("Results written to: {0}" -f $outcome.result_file)
+        $storageReceipt=Complete-SmokeReadOnlyProfile -ProjectRoot $ProjectRoot -Profile $reuseProfile -Outcome $outcome
+    } else {
     $storageReceipt = Complete-SmokeManagedInstall -ProjectRoot $ProjectRoot -InstallInfo $installInfo `
         -DefinitionPath $Test.Path -Passed $testOk -Keep ([bool]$KeepOnSuccess) -Outcome @{
             name=$name; passed=$testOk; exit_code=$exitCode; elapsed_seconds=$elapsed
@@ -2562,6 +2622,7 @@ function Invoke-SmokeTest {
             console_capture=$consoleResult
             screenshots=@($screenshotSchedule | Where-Object { $_.Captured -and $_.Success } | ForEach-Object { $_.Path })
         }
+    }
     Write-Info ("  retained reconstructable receipt: {0}" -f $storageReceipt.Receipt)
 
     $bugId = $null
@@ -2581,8 +2642,9 @@ function Invoke-SmokeTest {
         ElapsedSeconds = $elapsed
         InstallDir = $installInfo.InstallDir
         StorageReceipt = $storageReceipt
+        ResultFile = if ($ReuseInstallId) { $outcome.result_file } else { $null }
         NativeConsumer = $nativeConsumerResult
-        Screenshots = @($screenshotSchedule | Where-Object { $_.Captured -and $_.Success } | ForEach-Object { $_.Path })
+        Screenshots = $retainedScreenshots
         AssertionsTotal = $assertResult.Total
         AssertionsMet = $assertResult.Met
         Failures = @($assertResult.Failures)
@@ -2643,6 +2705,18 @@ $selected = @(Select-SmokeTests `
 
 if ($selected.Count -eq 0) {
     throw "No tests matched the selection criteria."
+}
+if ($ReuseInstallId) {
+    if ($selected.Count -ne 1) { throw 'Reuse requires exactly one vetted fixture.' }
+    Assert-SmokeReuseDefinition -Test $selected[0]
+    $fixtureSha = (Get-FileHash -LiteralPath $selected[0].Path -Algorithm SHA256).Hash
+    $script:ReuseDefinitionLock = Open-SmokeReuseConsumer -Path $selected[0].Path -Sha256 $fixtureSha
+    $plan=Get-SmokeReusePlan -ProjectRoot $ProjectRoot -InstallId $ReuseInstallId -Seed $ReuseSeed -BinarySha256 $ReuseBinarySha256
+    $script:ReuseConsumerLock=Open-SmokeReuseConsumer -Path $ReuseConsumerBinary -Sha256 $ReuseConsumerSha256
+    if ($script:ReuseConsumerLock.Path.StartsWith(([IO.Path]::GetFullPath($plan.InstallDir).TrimEnd([char[]]'\/') + '\'), [StringComparison]::OrdinalIgnoreCase)) { throw 'Consumer must remain outside verified base.' }
+    $script:ReusePolicyQuery=Get-SmokeReuseConsumerPolicy -Consumer $script:ReuseConsumerLock
+    Assert-SmokeReuseRuntimeSupported -PolicyQuery $script:ReusePolicyQuery
+    $useSharedInstall=$false
 }
 
 Write-Info ("Selected {0} of {1} tests." -f $selected.Count, $all.Count)
@@ -2726,12 +2800,17 @@ Write-Host ("  Total: {0} pass, {1} fail" -f $passCount, $failCount) -Foreground
 if (-not (Test-Path -LiteralPath $RunRoot)) {
     New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
 }
+if (-not $ReuseInstallId) {
 $ResultsFile = Join-Path $RunRoot ("results-{0:yyyyMMddTHHmmssZ}.json" -f ((Get-Date).ToUniversalTime()))
 $results | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ResultsFile -Encoding UTF8
 Write-Info ("Results written to: {0}" -f $ResultsFile)
+}
 
 exit $(if ($failCount -eq 0) { 0 } else { 1 })
 } finally {
     Stop-SmokeOwnedFaultProcesses -KnownPids $script:SmokeOwnedPids
+    if ($script:ReuseQueryUnverified) { throw 'Policy query actor unverified; consumer identity lock retained.' }
+    if ($script:ReuseConsumerLock) { $script:ReuseConsumerLock.Dispose() }
+    if ($script:ReuseDefinitionLock) { $script:ReuseDefinitionLock.Dispose() }
     [void][PdSmokeWinErrorMode]::SetErrorMode($previousErrorMode)
 }

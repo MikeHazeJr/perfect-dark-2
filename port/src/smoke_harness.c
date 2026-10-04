@@ -144,6 +144,7 @@
 #include "smoke_transition.h"
 #include "smoke_virtual_mapping.h"
 #include "system.h"
+#include "native_write_policy.h"
 #include "actionmap.h"   /* actionmapResolveByName, actionmapInjectStateForSmoke */
 #include "assetcatalog.h"
 #include "assetcatalog_deps.h"
@@ -1823,6 +1824,7 @@ extern s32 g_JumpLoggingEnabled;
 
 int smokeHarnessInit(void)
 {
+    if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
     const SceneFireCounts *scene_counts;
 
     memset(&s_State, 0, sizeof(s_State));
@@ -2343,6 +2345,7 @@ static s32 smokePadObserve(void)
  * Only attachment/removal pauses script time. The global watchdog stays live. */
 static s32 smokePadTickTransition(const SmokeEvent *ev, u32 now)
 {
+    if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
     if (s_SmokePad.phase != SMOKE_PAD_IDLE
             && now - s_SmokePad.started_ms >= SMOKE_PAD_TRANSITION_MS)
         return smokePadFail("transition_timeout");
@@ -2350,6 +2353,7 @@ static s32 smokePadTickTransition(const SmokeEvent *ev, u32 now)
     if (ev->type == SMOKE_EVENT_CONTROLLER_ATTACH) {
         if (s_SmokePad.phase == SMOKE_PAD_IDLE) {
             smoke_readiness_facts_t facts = smokeCaptureReadinessFacts();
+            if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
             if (!smokeReadinessConditionMet(SMOKE_READINESS_AGENT_SELECT_READY, &facts)
                     || s_SmokePad.instance >= 0 || inputGetPad(0)
                     || !(SDL_WasInit(SDL_INIT_GAMECONTROLLER) & SDL_INIT_GAMECONTROLLER))
@@ -2677,6 +2681,7 @@ static s32 smokeTickReadinessWait(SmokeEvent *ev, u32 now,
 
 void smokeHarnessTick(void)
 {
+    if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
     if (!s_State.active || s_State.exited) return;
 
     u32 now = SDL_GetTicks();
@@ -2691,6 +2696,7 @@ void smokeHarnessTick(void)
     }
 
     if (!smokePadObserve()) return;
+    if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
     smokeObserveStageReadyEpoch();
     u32 script_elapsed_ms = real_elapsed_ms >= s_State.timeline_pause_ms
         ? real_elapsed_ms - s_State.timeline_pause_ms : 0;
@@ -2729,6 +2735,7 @@ void smokeHarnessTick(void)
     s32 controller_group_at = -1;
     /* Dispatch any events whose at_ms has come due. */
     while (s_State.next_event_idx < s_State.event_count) {
+        if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
         SmokeEvent *ev = &s_State.events[s_State.next_event_idx];
         if (ev->at_ms > elapsed) break;
         if (controller_group_at >= 0 && ev->at_ms != controller_group_at) break;
@@ -2739,6 +2746,7 @@ void smokeHarnessTick(void)
                 return;
             }
             if (!smokePadTickTransition(ev, now)) return;
+            if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
             s_State.next_event_idx++;
             s_State.events_fired++;
             script_elapsed_ms = real_elapsed_ms >= s_State.timeline_pause_ms
@@ -3056,6 +3064,10 @@ void smokeHarnessTick(void)
 
 void smokeHarnessExit(int code, const char *reason)
 {
+    if (nativeWritePolicyRefused()) {
+        code = 2;
+        reason = "native_write_policy_refused";
+    }
     u32 now;
     s32 elapsed;
 

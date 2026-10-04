@@ -14,6 +14,7 @@
 #include "platform.h"
 #include "utils.h"
 #include "fs.h"
+#include "native_write_policy.h"
 #include "modmgr.h"
 #include "versioninfo.h"  /* VERSION_ROMID for fsDataDir / fsDataPathFor */
 #include "modarchive.h"
@@ -53,6 +54,7 @@ static char exeDir[FS_MAXPATH + 1];  // replaces $E
 
 static s32 fsPathIsWritable(const char *path)
 {
+	if (nativeWritePolicyActive() && !nativeWritePolicyAllowsPath(path)) return 0;
 #ifdef PLATFORM_WIN32
 	// on windows access() on directories will only check if the directory exists, so
 	char tmp[FS_MAXPATH + 1] = { 0 };
@@ -424,8 +426,10 @@ s32 fsInit(void)
 	 * Migration: if saves exist in the old location (exe dir or working dir)
 	 * but not in the new AppData location, copy them over automatically.
 	 * This ensures existing players don't lose their saves after updating.
+	 * Existing-install reuse keeps its fresh profile independent of retained
+	 * user state in the old install.
 	 */
-	if (!portable) {
+	if (!portable && !nativeWritePolicyActive()) {
 		static const char *migrateFiles[] = { "eeprom.bin", CONFIG_FNAME, NULL };
 		const char *oldDirs[] = { exeDir, "." };
 
