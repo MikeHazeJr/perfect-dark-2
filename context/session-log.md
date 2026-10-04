@@ -1,5 +1,16 @@
 # Session Log (Active)
 
+2026-10-03 20:08 Eastern / 2026-10-04 00:08 UTC - Native UTF8 wire repair (gpt-6)
+
+Hosted37163228953 failedPS5 JSONdecode after4dependency/20storage/16Python
+passes; fullbuild/PS7 not reached. ExactUTF8BOM signature andUnicode corruption
+reproduced. Backendexplicit UTF8-sig decoding; nativeProcess byte stdin and
+concurrent stdout/stderr drains avoid PS5 callerencoding, child-localUTF8mode.
+17Python +19checks eachPS5/7 pass, includingUnicode paths/ASCII+UTF8BOM caller
+encodings/read-only actions. No globalenv/console/settings changes or game,
+fullcopy/delete. Runtimeimmutablebaseguard unchanged. Scopedfollowup andexact
+newCIcompletion required; historical failure retained. [Audit](audits/2026/pd-existing-base-reuse-2026-10-03.md).
+
 2026-10-03 19:46 Eastern / 23:46 UTC - Safe existing-base reuse foundation (gpt-6)
 
 Registered exact-base read-only leases and fresh small profile/log/capture

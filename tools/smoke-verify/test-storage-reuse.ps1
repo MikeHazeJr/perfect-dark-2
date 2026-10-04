@@ -9,6 +9,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Fixture setup failed' }
 $script:SmokeStoragePolicy = @{schema=1;min_free_gib=0;max_full_installs=1;max_full_install_gib=65536/1GB;
     max_archive_gib=0.004;peak_run_gib=1024/1GB;extra_growth_gib=0;peak_build_gib=0}
 $arguments = @{ProjectRoot=$fixture.project;InstallId=$fixture.id;Seed=$fixture.seed_id;BinarySha256=$fixture.binary_sha256}
+$callerEncoding = $OutputEncoding
 $storageRoot = Join-Path $fixture.project '.claude/smoke-storage'
 $statePath = Join-Path $storageRoot 'state.json'
 $priorRecipe = Join-Path $storageRoot 'receipts/completed-failure/recipe.json.gz'
@@ -44,6 +45,17 @@ if (@($state.installs.PSObject.Properties).Count -ne 1 -or $state.installs.'comp
 $next = New-SmokeReadOnlyProfile @arguments
 if ($next.ProfileDir -eq $profile.ProfileDir) { throw 'New run reused writable evidence' }
 [void](Complete-SmokeReadOnlyProfile -ProjectRoot $fixture.project -Profile $next)
+foreach ($wireCallerEncoding in @([Text.Encoding]::ASCII, (New-Object Text.UTF8Encoding($true)))) {
+    try {
+        $OutputEncoding = $wireCallerEncoding
+        $encodedProfile = New-SmokeReadOnlyProfile @arguments
+        [void](Complete-SmokeReadOnlyProfile -ProjectRoot $fixture.project -Profile $encodedProfile)
+        if ($OutputEncoding -ne $wireCallerEncoding) { throw 'Storage changed caller output encoding' }
+    } finally { $OutputEncoding = $callerEncoding }
+}
+foreach ($action in 'preflight','status','dry-run') {
+    [void](Invoke-SmokeStorage -Action $action -ProjectRoot $fixture.project)
+}
 
 # Execute the production entry-point refusal, before build/native helpers/storage setup.
 $refused = $false
@@ -62,8 +74,9 @@ try {
     $conflictRefused = $true
 }
 if (-not $conflictRefused) { throw 'Reuse invoked a build' }
-$report = @{passed=$true;checks=14;fixture_root=$fixture.project;python=$pythonExe;
+$report = @{passed=$true;checks=19;fixture_root=$fixture.project;python=$pythonExe;
     powershell=$PSVersionTable.PSVersion.ToString();game_launched=$false;full_game_copied=$false;
-    deletion_performed=$false;prior_failure_preserved=$true;current_runtime_refused=$true;receipt=$closed.Receipt}
+    deletion_performed=$false;prior_failure_preserved=$true;current_runtime_refused=$true;receipt=$closed.Receipt;
+    utf8_transport_independent_of_caller=$true;caller_output_encoding_preserved=$true}
 $report | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $fixture.project 'wrapper-results.json') -Encoding UTF8
 $report | ConvertTo-Json

@@ -57,3 +57,33 @@ run requires supported native immutable-base write isolation and appropriate
 verification first, plus confirmed free Xbox player slot, actual app approval
 and a fresh parent runtime window. No runtime window is requested for this
 storage-only unit. Mike's current commit/push authority remains D-013.
+
+## UTF-8 transport repair — October 3, 20:08 Eastern / October 4, 00:08 UTC
+
+Published foundation `d6b59982` passed local16Python and14checks eachPS5/7, but
+hosted CI37163228953 failed after4dependency/20storage/16reusePython passes.
+PS5 reuse-plan stopped at JSON `Expecting value: line 1 column 1 (char 0)`;
+PS7 and the native build were not reached. The original failure is preserved.
+
+An actual native CLI fixture reproduced that exact signature with a UTF-8 BOM
+and separately reproduced Unicode path corruption under locale decoding. The
+backend now decodes stdin bytes as UTF-8 with an optional preamble. A Unicode
+wrapper fixture then proved PS5's native pipeline ignored the function-local
+`$OutputEncoding` assignment and sent a question mark in the path. The wrapper
+now sends explicit UTF-8 bytes through a native Process stdin stream, uses
+child-local Python UTF-8 mode and drains stdout/stderr concurrently. It does not
+change console, PATH, TEMP or caller encoding defaults.
+
+The corrected gate passes **17 Python cases**, including CLI ASCII/Unicode paths
+with/without BOM, and **19 checks each on PS5.1/7**, including Unicode directories,
+ASCII/BOM-bearing caller encodings, restored caller encoding and all read-only
+storage actions. These remain tiny retained fixtures, with no game/full copy or
+deletion. Runtime immutable-base refusal is unchanged. Only storage.py matched
+the locale-dependent stdin JSON pattern in the scoped tools/devtools search.
+Exact new hosted CI must complete before a hosted-green claim.
+
+Wire receipts are under
+`.claude/pd-initial-integration/20261003-night/reuse-profile/utf8-wire/`;
+the exact pre-fix reproduction is `../ci-wire-reproduction-exact.json` and the
+old hosted failure is `../ci-failure.log`. Python gate receipt:
+`.claude/smoke-storage-validation/reuse-1652e18c08a344768a7790299796eaea/results.json`.

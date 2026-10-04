@@ -1,5 +1,12 @@
 # Build / Dev Tooling
 
+2026-10-03 20:08 Eastern / 2026-10-04 00:08 UTC: storage request wire now uses
+explicit UTF8 byte stdin/concurrent output drains and UTF8-sig backend decoding.
+ExacthostedPS5 BOM failure andUnicode corruption reproduced, then17Python+
+19checks eachPS5/7 pass underUnicode paths/ASCII/BOM callerencodings. No global
+console/envsettings changed. CI37163228953 failure preserved; exactnewCIpending.
+Runtime basewrite-isolation refusal remains. [Evidence](../audits/2026/pd-existing-base-reuse-2026-10-03.md).
+
 2026-10-03 19:46 Eastern / 23:46 UTC: exact-base read-only lease/profile storage
 foundation validated16Python +14checks eachPS5.1/7. New run.ps1 reuse mode
 strictly refuses the current client before launch because extraction sidecars

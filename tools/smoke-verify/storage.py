@@ -741,7 +741,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=["seed", "complete", "preflight", "status", "restore", "dry-run", "reuse-plan", "reuse-acquire", "reuse-release"])
     args = parser.parse_args()
-    request = json.load(sys.stdin)
+    # Storage-Harness sends UTF-8 bytes. Windows' locale text decoder can
+    # corrupt Unicode paths and read a PowerShell UTF-8 BOM as mojibake.
+    # Decode this wire format explicitly; accept an optional UTF-8 preamble.
+    request = json.loads(sys.stdin.buffer.read().decode("utf-8-sig"))
     if os.name == "nt":
         kernel = ctypes.WinDLL("kernel32")
         kernel.GetCurrentProcess.restype = ctypes.c_void_p

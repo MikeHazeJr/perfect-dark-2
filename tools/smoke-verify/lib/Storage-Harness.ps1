@@ -35,19 +35,42 @@ function Initialize-SmokeStoragePolicy {
 }
 
 function Invoke-SmokeStorage {
-    param([Parameter(Mandatory)][string] $Action,
+    param([Parameter(Mandatory)][ValidateSet('seed','complete','preflight','status','restore','dry-run','reuse-plan','reuse-acquire','reuse-release')][string] $Action,
           [Parameter(Mandatory)][string] $ProjectRoot, [hashtable] $Request = @{})
     $Request.project = $ProjectRoot
     $Request.policy = $script:SmokeStoragePolicy
-    $oldEncoding = $OutputEncoding
+    $storageProcess = New-Object System.Diagnostics.Process
     try {
-        $OutputEncoding = New-Object System.Text.UTF8Encoding($false)
         $payload = ConvertTo-Json -InputObject $Request -Depth 50 -Compress
-        $pythonExe = Get-SmokeStoragePython
-        $output = $payload | & $pythonExe -B $script:SmokeStorageBackend $Action
-        if ($LASTEXITCODE -ne 0) { throw "Smoke storage $Action refused (exit $LASTEXITCODE); existing evidence preserved." }
+        $utf8 = New-Object System.Text.UTF8Encoding($false)
+        $storageStart = New-Object System.Diagnostics.ProcessStartInfo
+        $storageStart.FileName = Get-SmokeStoragePython
+        $storageStart.Arguments = '-X utf8 -B "' + $script:SmokeStorageBackend + '" ' + $Action
+        $storageStart.UseShellExecute = $false
+        $storageStart.CreateNoWindow = $true
+        $storageStart.RedirectStandardInput = $true
+        $storageStart.RedirectStandardOutput = $true
+        $storageStart.RedirectStandardError = $true
+        $storageStart.StandardOutputEncoding = $utf8
+        $storageStart.StandardErrorEncoding = $utf8
+        $storageProcess.StartInfo = $storageStart
+        if (-not $storageProcess.Start()) { throw 'Storage process did not start' }
+        # PS5 native pipelines can use the caller's encoding despite a local
+        # $OutputEncoding assignment. Send actual UTF-8 bytes, independently
+        # of console/codepage defaults. Drain both output streams concurrently.
+        $outputTask = $storageProcess.StandardOutput.ReadToEndAsync()
+        $errorTask = $storageProcess.StandardError.ReadToEndAsync()
+        $inputBytes = $utf8.GetBytes($payload)
+        $storageProcess.StandardInput.BaseStream.Write($inputBytes, 0, $inputBytes.Length)
+        $storageProcess.StandardInput.Close()
+        $storageProcess.WaitForExit()
+        $output = $outputTask.GetAwaiter().GetResult()
+        $errors = $errorTask.GetAwaiter().GetResult()
+        if ($storageProcess.ExitCode -ne 0) {
+            throw "Smoke storage $Action refused (exit $($storageProcess.ExitCode)); existing evidence preserved. $($errors.Trim())"
+        }
         return ($output | ConvertFrom-Json)
-    } finally { $OutputEncoding = $oldEncoding }
+    } finally { $storageProcess.Dispose() }
 }
 
 function Assert-SmokeStoragePreflight {

@@ -20,8 +20,8 @@ keeps the lease held for review. There is no deletion, forced lease stealing or
 permission to launch a mutating consumer. These checks detect mutation; native
 write isolation is required before a game can use this mode.
 
-Focused proof: `test-storage-reuse.py` (16 tiny retained cases) and
-`test-storage-reuse.ps1` (14 checks each PS5.1/7), also in Windows CI. No game or
+Focused proof: `test-storage-reuse.py` (17 tiny retained cases) and
+`test-storage-reuse.ps1` (19 checks each PS5.1/7), also in Windows CI. No game or
 full-game copy is needed. See [the implementation audit](../../context/audits/2026/pd-existing-base-reuse-2026-10-03.md).
 
 Scripted boot / menu / input scenarios that exercise the client end-to-end and
@@ -35,6 +35,11 @@ its end-of-script marker or the timeout fires. A test can also declare a
 `processes` array for coordinated multi-process coverage, such as the
 listen-host/client loopback smoke. The runner then re-reads one log or the
 concatenated process logs and checks the test's `assertions` block.
+
+
+Storage requests use explicit UTF-8 bytes and optional-BOM UTF-8 decoding,
+independently of caller/console encoding. Unicode paths and ASCII/BOM-bearing
+caller encodings are covered; no global encoding or environment defaults change.
 
 ## Lifecycle
 

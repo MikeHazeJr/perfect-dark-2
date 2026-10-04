@@ -8,6 +8,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import subprocess
+import sys
 import threading
 import time
 import unittest
@@ -197,6 +199,17 @@ class ReuseTests(unittest.TestCase):
         finally:
             kernel.CloseHandle(handle)
 
+    def test_native_utf8_json_transport_accepts_bom_and_unicode(self):
+        unicode_request = fixture(self.project / "Unicode \u03a9 path with spaces")
+        for request in (self.request, unicode_request):
+            payload = json.dumps({**request, "policy": self.policy}, ensure_ascii=False).encode("utf-8")
+            for prefix in (b"", b"\xef\xbb\xbf"):
+                with self.subTest(project=request["project"], bom=bool(prefix)):
+                    result = subprocess.run([sys.executable, "-B", str(Path(__file__).with_name("storage.py")), "reuse-plan"],
+                                            input=prefix + payload, capture_output=True)
+                    self.assertEqual(result.returncode, 0, result.stderr.decode("utf-8", errors="replace"))
+                    self.assertFalse(json.loads(result.stdout)["RuntimeAdmitted"])
+
     def test_manifest_tamper_and_timestamp_only_mutation_refuse(self):
         source = self.project / ".claude/smoke-storage/shared/client/PerfectDark.exe"
         info = source.stat()
@@ -248,7 +261,7 @@ class ReuseTests(unittest.TestCase):
 if __name__ == "__main__":
     import sys
     if "--fixture" in sys.argv:
-        print(json.dumps(fixture(BASE / "PowerShell path with spaces")))
+        print(json.dumps(fixture(BASE / "PowerShell \u03a9 path with spaces")))
     else:
         began = time.monotonic()
         result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(ReuseTests))

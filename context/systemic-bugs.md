@@ -1,5 +1,18 @@
 # Systemic Bug Patterns — Architectural Issue Catalog
 
+## 2026-10-03 Native JSON transport must define its byte encoding
+
+PowerShell5 native pipelines can use the caller encoding despite a local
+OutputEncoding assignment, and Python stdin's Windows locale decoder can
+misread UTF8 BOMs or silently corrupt Unicode paths. CI37163228953 exposed the
+first failure; actual tiny fixtures reproduced both. Storage-Harness now sends
+UTF8 bytes through Process stdin and drains both outputs concurrently; child
+Python uses UTF8 mode and storage.py decodes the byte request as utf-8-sig.
+Do not change global console/env settings or rely on ASCII-only fixtures.
+17Python cases and19checks eachPS5/7 cover ASCII/Unicode paths, BOM/noBOM and
+caller ASCII/BOM encodings. tools/devtools pattern search found only storage.py.
+[Evidence](audits/2026/pd-existing-base-reuse-2026-10-03.md). T-TOOLING-008.
+
 ## 2026-10-02 Probes must witness the requested native consumer and its real bounds
 
 Loaded registration and compiled sequence buffers did not establish audio player

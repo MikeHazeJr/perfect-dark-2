@@ -1,5 +1,13 @@
 # Tasks
 
+2026-10-03 20:08 Eastern / 2026-10-04 00:08 UTC: hosted d6b59982 reuse gate
+failedPS5 JSON transport after4dependency/20storage/16Python passes; preserved.
+ExactBOM/Unicode corruption reproduced. BackendUTF8-sig plus nativeProcess
+UTF8 byte transport now passes17Python +19checks eachPS5/7, independent of
+callerencoding. Scopedfollowup/requiredexactCIcompletion pending; no greenclaim.
+Native immutable-base refusal and11/29,1/17,0capture acceptance truth unchanged.
+[Wire repair](audits/2026/pd-existing-base-reuse-2026-10-03.md).
+
 2026-10-03 19:46 Eastern / 23:46 UTC: read-only reuse lease/profile foundation
 validated16Python +14checks eachPS5.1/7, preserving failed base/receipts and
 existing caps/pins. Current run.ps1 reuse refuses before launch: native base
