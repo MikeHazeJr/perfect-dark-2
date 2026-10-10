@@ -1,5 +1,19 @@
 # Tasks
 
+2026-10-10: T-TOOLING-011 startup repair follows published cue commit 2e1fbecf
+and successful exact CI 38094051174 (1835 cases / 334167 assertions). Approved
+scope replaces immediate Process.Path ownership reads with retained-handle PID,
+Win32 image path and creation time, and adds independent registration-failure
+closeout at all three callers. PS5.1 and PS7.6.6 startup proof passes 90 checks
+each, including 20 immediate launches per host and actual production failure,
+lease and verdict gates. Ownership/cue/console/reuse 22/47/35/19 each and Python
+reuse 17 pass. Candidate stays uncommitted for independent Astra review; no
+game or native/controller/storage-policy edits. Actual caller desktop preflight
+passed session 1 / WinSta0 / Default; this executor exposes no native app API,
+app permission and player 0 remain unverified. Evidence:
+`.claude/pd-initial-integration/20261010-startup-repair/`. T-TOOLING-011 and V-014
+remain partial; ordinary game and four-frame manual acceptance have not run.
+
 2026-10-10: T-TOOLING-011 optional retained-profile ownership cue is connected
 and locally tested, pending Astra integrated review. Cue 47 checks each PS5.1/7;
 ownership/reuse/console 22/19/35 each host, Python reuse 17 and safe storage subset

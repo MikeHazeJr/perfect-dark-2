@@ -1,5 +1,40 @@
 # Session Log (Active)
 
+2026-10-10 - T-TOOLING-011 retained-handle startup repair candidate (Codex / GPT-6)
+
+Following published 2e1fbecf and exact CI 38094051174 success, the independent
+no-sleep diagnostic reproduced empty Process.Path on PS5.1 attempt 2 and PS7
+attempt 3. N-0429/N-0430 retain the failure and cleanup propagation evidence;
+all five diagnostic children exited cooperatively with pipes drained. Mike's
+specific stale-lock removal was recoverable through Windows Recycle Bin and
+verified by original metadata, exact writer absence and zero-byte payload hash.
+No broader cleanup, native build, game or controller action occurred locally.
+
+Astra approved the bounded next repair: handle-based PID, Win32 image name and
+creation time; exact expected-path and serialized parent/token/PID-reuse checks;
+independent retention before registration; bounded failure closeout for main,
+multi and independently bound related-reporter callers. The original launch
+failure and cleanup history are retained, native success cannot override a
+registration failure, and an unverified closeout cannot reach profile completion.
+No sleeps precede identity; cue tests no longer depend on startup waits.
+
+Local PS5.1 and PS7.6.6 each pass 90 startup checks with 20 immediate launches,
+independent CIM agreement, negative metadata and actual production failure,
+lease-retention and verdict code. Ownership/cue/console/reuse pass 22/47/35/19
+per host; native Python reuse passes 17. Tiny fixtures and failure evidence are
+retained under `.claude/pd-initial-integration/20261010-startup-repair/`.
+This candidate is frozen for independent review before commit/push; the earlier
+CI covers only published 2e1fbecf and does not qualify this new dirty candidate.
+
+Actual existing caller-only desktop Probe passed session 1 / WinSta0 / Default,
+read-only input-desktop access and foreground presence. The actual 398-tool local
+catalog exposes no native computer/app API or tool-search entry point; Codex UI
+tabs and voice-only screen context do not inspect PerfectDark. No app denial was
+retried or grant changed. App access and game player-0 assignment are unverified;
+user-managed availability must precede the unchanged game-level virtual attach
+and neutral/removed detach proof. Ordinary game, captures and manual acceptance
+remain unrun; Claude stays paused until October 10 21:00 Eastern.
+
 2026-10-10 - T-TOOLING-011 retained-profile owned-process cue candidate (gpt-6.1-sol)
 
 Mike temporarily resumed this worker while Claude is stopped, with a conservative

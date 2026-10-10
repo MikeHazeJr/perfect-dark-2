@@ -76,10 +76,10 @@ try {
     $psi.UseShellExecute=$false; $psi.CreateNoWindow=$true; $psi.RedirectStandardInput=$true
     $psi.RedirectStandardOutput=$true; $psi.RedirectStandardError=$true
     $child=[Diagnostics.Process]::Start($psi); $children+= $child
-    Check (!$child.WaitForExit(300)) 'first hidden fixture startup'
+    Check (!$child.HasExited) 'first hidden fixture startup'
     $owned=New-SmokeProcessOwnership -Process $child -ExpectedExecutable $hostPath -CommandLineToken $fixturePath
     $ownerships+= $owned
-    Check (!$child.WaitForExit(400)) 'hidden owned child remains alive'
+    Check (!$child.HasExited) 'hidden owned child remains alive'
     $context=Fresh-Context; $contexts+= $context
     $publish=@{Context=$context;Ownership=$owned;Binding=$binding;ConsumerLock=$consumerLock;FixtureLock=$fixtureLock}
     $cuePath=Publish-SmokeOwnedProcessCue @publish
@@ -129,12 +129,16 @@ try {
     # Exercise the actual canonical runner publication statements with a real
     # launched child, actual locked files, profile lease and real pipe drains.
     $runnerText=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'run.ps1'))
-    $begin=$runnerText.IndexOf('        $ownership = New-SmokeProcessOwnership -Process $proc')
+    $begin=$runnerText.IndexOf('        $launch=New-SmokeRetainedLaunch -Process $proc')
     $end=$runnerText.IndexOf('        if ($runtimeStrategy -eq "timeout-kill")',$begin)
     Check ($begin -gt 0 -and $end -gt $begin) 'production publication precedes readiness/wait branch'
     $launchBlock=[scriptblock]::Create($runnerText.Substring($begin,$end-$begin))
     $tokens=$null; $parseErrors=$null
     $runnerAst=[Management.Automation.Language.Parser]::ParseInput($runnerText,[ref]$tokens,[ref]$parseErrors)
+    foreach($functionName in @('New-SmokeRetainedLaunch','Close-SmokeRetainedLaunch','Get-SmokeLaunchCloseoutSummary')) {
+        $functionAst=$runnerAst.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $functionName},$true)
+        . ([scriptblock]::Create($functionAst.Extent.Text))
+    }
     $launchTry=$runnerAst.FindAll({param($node) $node -is [Management.Automation.Language.TryStatementAst] -and
         $node.Body.Extent.Text.Contains('$ownership = New-SmokeProcessOwnership -Process $proc')},$true) |
         Sort-Object { $_.Extent.Text.Length } | Select-Object -First 1
@@ -144,6 +148,7 @@ try {
     function Write-Fail($Message) {}
     $proc=$child; $exe=$hostPath; $Test=[pscustomobject]@{Path=$fixturePath}
     $script:SmokeOwnedProcesses=@{}; $script:SmokeOwnedPids=@()
+    $script:SmokeRetainedLaunches=@{}
     $script:ReuseConsumerLock=$consumerLock; $script:ReuseDefinitionLock=$fixtureLock
     $ReuseConsumerSha256=$hostHash; $originalFixtureHash=$fixtureHash; $name=$binding.fixture_name
     $ReuseInstallId=$fixture.id; $ReuseSeed=$fixture.seed_id; $ReuseBinarySha256=$fixture.binary_sha256
@@ -153,7 +158,7 @@ try {
     [void](Stop-SmokeOwnedProcess $owned)
     Check ((Complete-SmokeConsoleCapture -Capture $consoleCapture).Passed) 'absent option console drained'
     $child=[Diagnostics.Process]::Start($psi); $children+=$child
-    Check (!$child.WaitForExit(300)) 'optional cue hidden fixture startup'
+    Check (!$child.HasExited) 'optional cue hidden fixture startup'
     $owned=New-SmokeProcessOwnership -Process $child -ExpectedExecutable $hostPath -CommandLineToken $fixturePath
     $ownerships+=$owned; $proc=$child
     $live=Fresh-Context; $contexts+=$live; $cueContext=$live
@@ -165,7 +170,7 @@ try {
     Close-SmokeOwnedProcessCueContext $live
     Refuses { Read-SmokeOwnedProcessCue -Directory $live.Directory -ExpectedContext $live.Identity -ExpectedBinding $binding } 'closed'
     $child=[Diagnostics.Process]::Start($psi); $children+=$child
-    Check (!$child.WaitForExit(300)) 'output-failure hidden fixture startup'
+    Check (!$child.HasExited) 'output-failure hidden fixture startup'
     $owned=New-SmokeProcessOwnership -Process $child -ExpectedExecutable $hostPath -CommandLineToken $fixturePath
     $ownerships+=$owned; $proc=$child
     # Output failure after launch: use an occupied destination, preserving it.

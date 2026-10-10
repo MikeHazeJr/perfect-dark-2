@@ -1,4 +1,93 @@
 # Exact launch identities for native smoke cancellation. No UI/input APIs.
+function Initialize-SmokeProcessHandleReader {
+    if ('PdSmokeProcessHandleIdentity' -as [type]) { return }
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+public static class PdSmokeProcessHandleIdentity {
+    [DllImport("kernel32.dll", SetLastError=true)] static extern uint GetProcessId(IntPtr handle);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] static extern bool QueryFullProcessImageNameW(IntPtr handle, uint flags, StringBuilder path, ref uint length);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool GetProcessTimes(IntPtr handle, out long creation, out long exit, out long kernel, out long user);
+    [DllImport("kernel32.dll", SetLastError=true)] static extern bool TerminateProcess(IntPtr handle, uint exitCode);
+    public sealed class Identity { public int ProcessId; public string ExecutablePath; public string CreationUtc; public bool TerminationRequested; }
+    static Identity ReadBasic(IntPtr handle, int expectedPid) {
+        if(handle==IntPtr.Zero || handle==new IntPtr(-1)) throw new IOException("Invalid retained process handle");
+        uint pid=GetProcessId(handle);
+        if(pid==0) throw new Win32Exception(Marshal.GetLastWin32Error(), "Process handle PID query failed");
+        if(expectedPid<=0 || pid!=(uint)expectedPid) throw new IOException("Process handle PID mismatch");
+        long c,e,k,u;
+        if(!GetProcessTimes(handle,out c,out e,out k,out u) || c<=0) throw new Win32Exception(Marshal.GetLastWin32Error(), "Process handle creation query failed");
+        return new Identity { ProcessId=(int)pid, CreationUtc=DateTime.FromFileTimeUtc(c).ToString("o") };
+    }
+    public static Identity ReadNative(IntPtr handle, int expectedPid) {
+        Identity value=ReadBasic(handle,expectedPid);
+        StringBuilder path=new StringBuilder(32768); uint length=(uint)path.Capacity;
+        if(!QueryFullProcessImageNameW(handle,0,path,ref length) || length==0 || length>=path.Capacity)
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "Process handle executable query failed");
+        value.ExecutablePath=path.ToString();
+        if(String.IsNullOrWhiteSpace(value.ExecutablePath)) throw new IOException("Missing process handle executable path");
+        return value;
+    }
+    public static Identity Read(Process process) {
+        var handle=process.SafeHandle; bool held=false;
+        try {
+            handle.DangerousAddRef(ref held);
+            if(process.HasExited) throw new IOException("Launched process has exited");
+            Identity result=ReadNative(handle.DangerousGetHandle(),process.Id);
+            if(process.HasExited) throw new IOException("Launched process has exited");
+            return result;
+        } finally { if(held)handle.DangerousRelease(); }
+    }
+    // Only callers holding the Process from their own launch may use this
+    // backstop. It never reacquires a process by PID or supplies authored identity.
+    public static Identity CloseRetained(Process process, int waitMilliseconds) {
+        var handle=process.SafeHandle; bool held=false;
+        try {
+            handle.DangerousAddRef(ref held);
+            IntPtr raw=handle.DangerousGetHandle();
+            Identity result=ReadBasic(raw,process.Id);
+            if(!process.HasExited) {
+                if(!TerminateProcess(raw,1) && !process.HasExited)
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Retained process termination failed");
+                result.TerminationRequested=true;
+            }
+            if(!process.WaitForExit(waitMilliseconds) || !process.HasExited)
+                throw new IOException("Retained process did not exit before closeout deadline");
+            return result;
+        } finally { if(held)handle.DangerousRelease(); }
+    }
+}
+'@
+}
+
+function Get-SmokeProcessHandleIdentity {
+    param([Parameter(Mandatory)][Diagnostics.Process]$Process)
+    Initialize-SmokeProcessHandleReader
+    return [PdSmokeProcessHandleIdentity]::Read($Process)
+}
+
+function Stop-SmokeRetainedProcess {
+    param([Parameter(Mandatory)][Diagnostics.Process]$Process,
+          [ValidateRange(1,30000)][int]$WaitMilliseconds=5000)
+    Initialize-SmokeProcessHandleReader
+    $identity=[PdSmokeProcessHandleIdentity]::CloseRetained($Process,$WaitMilliseconds)
+    # Query failure retains the launch/lease. PID reuse does not select the new
+    # process: the retained handle has already proven this launch exited.
+    $current=Get-CimInstance Win32_Process -Filter ("ProcessId = {0}" -f $identity.ProcessId) -ErrorAction Stop
+    if($current) {
+        if(!$current.CreationDate -or [math]::Abs(((ConvertTo-SmokeProcessUtc $current.CreationDate)-
+                (ConvertTo-SmokeProcessUtc $identity.CreationUtc)).TotalMilliseconds) -le 1) {
+            throw 'Retained process absence unverified; retain resource leases'
+        }
+    }
+    return [pscustomobject]@{status='exited';process_id=$identity.ProcessId;creation_utc=$identity.CreationUtc;
+        termination_requested=$identity.TerminationRequested;verified_utc=[DateTime]::UtcNow.ToString('o')}
+}
+
 function ConvertTo-SmokeProcessPath {
     param([Parameter(Mandatory)][string]$Path)
     $windowsPath = $Path.Replace('/', '\')
@@ -25,15 +114,15 @@ function New-SmokeProcessOwnership {
     )
     # The actual Process returned by Start supplies identity, rather than a
     # later time-window guess or a process-name sweep.
-    [void]$Process.Handle
+    $identity = Get-SmokeProcessHandleIdentity -Process $Process
     $expected = ConvertTo-SmokeProcessPath $ExpectedExecutable
-    if (-not [string]::Equals((ConvertTo-SmokeProcessPath $Process.Path), $expected,
+    if (-not [string]::Equals((ConvertTo-SmokeProcessPath $identity.ExecutablePath), $expected,
             [StringComparison]::OrdinalIgnoreCase)) { throw 'Launched executable identity mismatch' }
     return [pscustomobject]@{
         schema = 1
-        process_id = $Process.Id
+        process_id = $identity.ProcessId
         executable_path = $expected
-        creation_utc = $Process.StartTime.ToUniversalTime().ToString('o')
+        creation_utc = $identity.CreationUtc
         parent_process_id = $ParentProcessId
         command_line_token = $CommandLineToken
     }
@@ -105,16 +194,15 @@ function Stop-SmokeOwnedProcess {
             if ($process) {
                 # Open the specific process handle, then recheck identity before
                 # terminating it. A recycled PID must not select another client.
-                [void]$process.Handle
-                if (-not [string]::Equals((ConvertTo-SmokeProcessPath $process.Path),
+                $identity = Get-SmokeProcessHandleIdentity -Process $process
+                if (-not [string]::Equals((ConvertTo-SmokeProcessPath $identity.ExecutablePath),
                         (ConvertTo-SmokeProcessPath $Ownership.executable_path), [StringComparison]::OrdinalIgnoreCase) -or
-                        [math]::Abs(((ConvertTo-SmokeProcessUtc $process.StartTime) -
+                        [math]::Abs(((ConvertTo-SmokeProcessUtc $identity.CreationUtc) -
                         (ConvertTo-SmokeProcessUtc $Ownership.creation_utc)).TotalMilliseconds) -gt 1) {
                     throw 'Process handle no longer matches launch identity'
                 }
-                $process.Kill()
-                $requested = $true
-                if (-not $process.WaitForExit($WaitMilliseconds)) { throw 'Owned process did not exit before cleanup deadline' }
+                $closeout=Stop-SmokeRetainedProcess -Process $process -WaitMilliseconds $WaitMilliseconds
+                $requested=$closeout.termination_requested
             }
         } finally { if ($process) { $process.Dispose() } }
     }

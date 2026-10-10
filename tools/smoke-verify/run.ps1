@@ -711,6 +711,54 @@ function New-V006CorruptSourceFixtures {
     }
 }
 
+function New-SmokeRetainedLaunch {
+    param([Parameter(Mandatory)][Diagnostics.Process]$Process,
+          [string]$ConsoleDirectory='', $CueContext=$null)
+    $launch=[pscustomobject]@{Process=$Process;ProcessId=$Process.Id;ConsoleDirectory=$ConsoleDirectory;
+        ConsoleCapture=$null;ConsoleResult=$null;Ownership=$null;Closeout=$null;
+        CueContext=$CueContext;Cancelled=$false;OriginalError=$null;
+        CleanupErrors=@();Verified=$false}
+    # Registration is independent of identity establishment and pipe startup.
+    $script:SmokeRetainedLaunches[[int]$Process.Id]=$launch
+    return $launch
+}
+
+function Close-SmokeRetainedLaunch {
+    param([Parameter(Mandatory)]$Launch, [string]$OriginalError='', [switch]$CancelCue)
+    if($OriginalError) { $Launch.OriginalError=$OriginalError }
+    $errors=New-Object 'Collections.Generic.List[string]'
+    if($Launch.ConsoleDirectory -and !$Launch.ConsoleCapture) {
+        try { $Launch.ConsoleCapture=Start-SmokeConsoleCapture -Process $Launch.Process -Directory $Launch.ConsoleDirectory }
+        catch { $errors.Add('Console startup: '+$_.Exception.ToString()) }
+    }
+    try { $Launch.Closeout=Stop-SmokeRetainedProcess -Process $Launch.Process }
+    catch { $errors.Add('Retained child closeout: '+$_.Exception.ToString()) }
+    if($Launch.ConsoleCapture) {
+        try {
+            $Launch.ConsoleResult=Complete-SmokeConsoleCapture -Capture $Launch.ConsoleCapture
+            if(!$Launch.ConsoleResult.Passed) { $errors.Add('Console drain did not complete') }
+        } catch { $errors.Add('Console drain: '+$_.Exception.ToString()) }
+    }
+    if($CancelCue -and $Launch.CueContext -and !$Launch.Cancelled) {
+        try { Close-SmokeOwnedProcessCueContext -Context $Launch.CueContext -Cancelled; $Launch.Cancelled=$true }
+        catch { $errors.Add('Cue cancellation: '+$_.Exception.ToString()) }
+    }
+    $Launch.CleanupErrors=@($Launch.CleanupErrors)+@($errors.ToArray())
+    $Launch.Verified=$null -ne $Launch.Closeout -and $errors.Count -eq 0
+    if(!$Launch.Verified) {
+        throw ("Launch failure: {0}; closeout unverified, retain leases: {1}" -f $Launch.OriginalError, ($errors -join '; '))
+    }
+    return $Launch.Closeout
+}
+
+function Get-SmokeLaunchCloseoutSummary {
+    param($Launch)
+    if(!$Launch) { return $null }
+    return [pscustomobject]@{process_id=$Launch.ProcessId;ownership_established=($null -ne $Launch.Ownership);
+        verified=$Launch.Verified;original_error=$Launch.OriginalError;cleanup_errors=@($Launch.CleanupErrors);
+        closeout=$Launch.Closeout;console_capture=$Launch.ConsoleResult}
+}
+
 function Stop-SmokeOwnedFaultProcesses {
     [CmdletBinding()] param([int[]] $KnownPids = @())
 
@@ -767,18 +815,53 @@ function Stop-SmokeOwnedFaultProcesses {
                 }
                 continue
             }
+            $faultOwner=$null
+            $faultIdentity=$null
+            $faultBindingVerified=$false
+            $faultRecord=[pscustomobject]@{Process=$fault;ProcessId=$pidValue;BindingVerified=$false;
+                Verified=$false;OriginalError=$null;CleanupError=$null}
+            $script:SmokeRetainedFaults += $faultRecord
             try {
+                # This is a related reporter, not a Process returned by our
+                # Start. Bind its retained handle to the exact CIM candidate
+                # before allowing the registration-failure backstop to stop it.
+                $faultIdentity=Get-SmokeProcessHandleIdentity -Process $fault
+                $faultBindingVerified=$faultIdentity.ProcessId -eq $pidValue -and
+                    [string]::Equals((ConvertTo-SmokeProcessPath $faultIdentity.ExecutablePath),
+                        (ConvertTo-SmokeProcessPath $path),[StringComparison]::OrdinalIgnoreCase) -and
+                    [math]::Abs(((ConvertTo-SmokeProcessUtc $faultIdentity.CreationUtc)-
+                        (ConvertTo-SmokeProcessUtc $procInfo.CreationDate)).TotalMilliseconds) -le 1
+                if(!$faultBindingVerified) { throw 'Related fault handle no longer matches CIM identity' }
+                $faultRecord.BindingVerified=$true
                 $faultOwner = New-SmokeProcessOwnership -Process $fault -ExpectedExecutable $path `
                     -CommandLineToken $cmd -ParentProcessId $parent
                 [void](Stop-SmokeOwnedProcess -Ownership $faultOwner)
+                $faultRecord.Verified=$true
                 Write-Host ("  reaped smoke-owned lingering process: {0} pid={1}" -f $name, $pidValue) -ForegroundColor Yellow
-            } finally { $fault.Dispose() }
+            } catch {
+                $original=$_.Exception.ToString()
+                $faultRecord.OriginalError=$original
+                if($faultBindingVerified) {
+                    try { [void](Stop-SmokeRetainedProcess -Process $fault); $faultRecord.Verified=$true }
+                    catch {
+                        $faultRecord.CleanupError=$_.Exception.ToString()
+                        throw ("Fault registration failure: {0}; retained closeout: {1}; retain leases" -f $original,$faultRecord.CleanupError)
+                    }
+                }
+                throw $original
+            } finally {
+                # Keep an unverifiable reporter handle for the outer closeout
+                # rather than disposing the only identity witness.
+                if($faultRecord.Verified) { $fault.Dispose() }
+            }
         }
     }
 }
 
 $script:SmokeOwnedPids = @()
 $script:SmokeOwnedProcesses = @{}
+$script:SmokeRetainedLaunches = @{}
+$script:SmokeRetainedFaults = @()
 
 try {
 
@@ -1599,6 +1682,7 @@ function Invoke-SmokeTestMultiProcess {
 
     $started = Get-Date
     $procs = @()  # array of @{ Name; Process; LogPath; }
+    $retainedForTest = @()
     $launchFailed = $false
     $operationalFailures = New-Object System.Collections.Generic.List[psobject]
 
@@ -1701,24 +1785,29 @@ function Invoke-SmokeTestMultiProcess {
         $psi.RedirectStandardOutput = $true
 
         $p = $null
+        $ownership = $null
+        $launch = $null
         $consoleCapture = $null
         try {
             $p = [System.Diagnostics.Process]::Start($psi)
             if (-not $p) { throw "ProcessStartInfo returned null Process" }
+            $launch=New-SmokeRetainedLaunch -Process $p `
+                -ConsoleDirectory (Join-Path $processInstallInfo.InstallDir 'logs/smoke-console')
+            $retainedForTest += $launch
+            $consoleCapture = Start-SmokeConsoleCapture -Process $p -Directory $launch.ConsoleDirectory
+            $launch.ConsoleCapture=$consoleCapture
             $ownership = New-SmokeProcessOwnership -Process $p -ExpectedExecutable $processExe `
                 -CommandLineToken $processSmokePath
+            $launch.Ownership=$ownership
             $script:SmokeOwnedProcesses[[int]$p.Id] = $ownership
             $script:SmokeOwnedPids += [int]$p.Id
-            $consoleCapture = Start-SmokeConsoleCapture -Process $p `
-                -Directory (Join-Path $processInstallInfo.InstallDir 'logs/smoke-console')
             $ownershipPath = Write-SmokeProcessOwnership -Ownership $ownership -InstallDir $processInstallInfo.InstallDir
             Write-Info ("    owned process identity: {0}" -f $ownershipPath)
         } catch {
-            if ($p) {
-                try { if (-not $p.HasExited) { $p.Kill() } } catch {}
-                try { [void]$p.WaitForExit(5000) } catch {}
-            }
-            Write-Fail ("    launch failed: {0}" -f $_.Exception.Message)
+            $original=$_.Exception.ToString()
+            $launchFailed = $true
+            if($launch) { [void](Close-SmokeRetainedLaunch -Launch $launch -OriginalError $original) }
+            Write-Fail ("    launch failed: {0}" -f $original)
             $launchFailed = $true
             break
         }
@@ -1727,6 +1816,7 @@ function Invoke-SmokeTestMultiProcess {
             Name = $pname
             Process = $p
             ConsoleCapture = $consoleCapture
+            RetainedLaunch = $launch
             LogPath = $logPath
             InstallDir = $processInstallInfo.InstallDir
             ExpectedExitCode = $(if ($pdef.PSObject.Properties.Match('expected_exit_code').Count -gt 0) { [int]$pdef.expected_exit_code } else { 0 })
@@ -1854,11 +1944,11 @@ function Invoke-SmokeTestMultiProcess {
         $launchFailed = $true
     }
 
-    # If a launch failed, mass-kill any survivors and let the assertion
+    # If a launch failed, close only our retained launches and let the assertion
     # pass below report on whatever log content exists.
     if ($launchFailed) {
         foreach ($entry in $procs) {
-            try { if (-not $entry.Process.HasExited) { $entry.Process.Kill() } } catch {}
+            [void](Close-SmokeRetainedLaunch -Launch $entry.RetainedLaunch)
         }
     }
 
@@ -1887,6 +1977,7 @@ function Invoke-SmokeTestMultiProcess {
         }
     }
     $launchedPids = @($procs | ForEach-Object { try { [int]$_.Process.Id } catch { 0 } } | Where-Object { $_ -gt 0 })
+    foreach($entry in $procs) { [void](Close-SmokeRetainedLaunch -Launch $entry.RetainedLaunch) }
     Stop-SmokeOwnedFaultProcesses -KnownPids $launchedPids
     $script:SmokeOwnedPids = @()
 
@@ -1894,7 +1985,7 @@ function Invoke-SmokeTestMultiProcess {
     $consoleResults = @()
     foreach ($entry in $procs) {
         try {
-            $captureResult = Complete-SmokeConsoleCapture -Capture $entry.ConsoleCapture
+            $captureResult = $entry.RetainedLaunch.ConsoleResult
             $consoleResults += [pscustomobject]@{Name=$entry.Name;Capture=$captureResult}
             if (-not $captureResult.Passed) { $consolePassed = $false }
         } catch {
@@ -2046,6 +2137,7 @@ function Invoke-SmokeTestMultiProcess {
                 failures=@($assertResult.Failures); operational_failures=@($operationalFailures)
                 artifacts=@($artifactPaths)
                 console_capture=@($consoleResults)
+                launch_closeout=@($retainedForTest | ForEach-Object { Get-SmokeLaunchCloseoutSummary -Launch $_ })
             }
         $completedIds[$managedInfo.StorageId] = $true
     }
@@ -2346,6 +2438,8 @@ function Invoke-SmokeTest {
 
     $started = Get-Date
     $proc = $null
+    $ownership = $null
+    $launch = $null
     $exitCode = -1
     $consoleCapture = $null
     $consoleResult = $null
@@ -2353,6 +2447,7 @@ function Invoke-SmokeTest {
     $cueContext = $null
     $cueCloseoutError = $null
     $cueFailure = $null
+    $launchFailure = $null
 
     # c115 (2026-05-14): Start-Process -PassThru returns a Process object
     # whose .ExitCode property is unreliable for non-console GUI apps --
@@ -2405,12 +2500,15 @@ function Invoke-SmokeTest {
         if (-not $proc) {
             throw "ProcessStartInfo returned null Process"
         }
+        $launch=New-SmokeRetainedLaunch -Process $proc `
+            -ConsoleDirectory (Join-Path $installInfo.InstallDir 'logs/smoke-console') -CueContext $cueContext
+        $consoleCapture = Start-SmokeConsoleCapture -Process $proc -Directory $launch.ConsoleDirectory
+        $launch.ConsoleCapture=$consoleCapture
         $ownership = New-SmokeProcessOwnership -Process $proc -ExpectedExecutable $exe `
             -CommandLineToken $Test.Path
+        $launch.Ownership=$ownership
         $script:SmokeOwnedProcesses[[int]$proc.Id] = $ownership
         $script:SmokeOwnedPids += [int]$proc.Id
-        $consoleCapture = Start-SmokeConsoleCapture -Process $proc `
-            -Directory (Join-Path $installInfo.InstallDir 'logs/smoke-console')
         $ownershipPath = Write-SmokeProcessOwnership -Ownership $ownership -InstallDir $installInfo.InstallDir
         Write-Info ("  owned process identity: {0}" -f $ownershipPath)
         if ($cueContext) {
@@ -2510,27 +2608,29 @@ function Invoke-SmokeTest {
             }
         }
     } catch {
-        Write-Fail ("Failed to launch {0}: {1}" -f $exeLeaf, $_.Exception.Message)
-        if ($OwnedProcessCueDirectory) { $cueFailure = $_.Exception.Message }
-        if ($cueContext) {
+        $original=$_.Exception.ToString()
+        $launchFailure=$original
+        Write-Fail ("Failed to launch {0}: {1}" -f $exeLeaf, $original)
+        if ($OwnedProcessCueDirectory) { $cueFailure = $original }
+        if($launch) {
+            [void](Close-SmokeRetainedLaunch -Launch $launch -OriginalError $original -CancelCue)
+        } elseif ($cueContext) {
             try { Close-SmokeOwnedProcessCueContext -Context $cueContext -Cancelled }
             catch { $cueCloseoutError = $_.Exception.Message }
-        }
-        if ($proc) {
-            try { if (-not $proc.HasExited) { $proc.Kill() } } catch {}
-            try { [void]$proc.WaitForExit(5000) } catch {}
         }
         $exitCode = -3
     }
     if ($proc) {
-        Stop-SmokeOwnedFaultProcesses -KnownPids @([int]$proc.Id)
+        if($launch) { [void](Close-SmokeRetainedLaunch -Launch $launch) }
+        if($ownership) { Stop-SmokeOwnedFaultProcesses -KnownPids @([int]$proc.Id) }
     } else {
         Stop-SmokeOwnedFaultProcesses -KnownPids $script:SmokeOwnedPids
     }
     $script:SmokeOwnedPids = @()
+    if($launch) { $consoleCapture=$launch.ConsoleCapture }
     if ($consoleCapture) {
         try {
-            $consoleResult = Complete-SmokeConsoleCapture -Capture $consoleCapture
+            $consoleResult = $launch.ConsoleResult
             $consolePassed = $consoleResult.Passed
         } catch {
             $consoleResult = @{Passed=$false;Error=$_.Exception.Message}
@@ -2628,6 +2728,10 @@ function Invoke-SmokeTest {
         $testOk = $false
         Write-Fail ("  owned process cue failed: {0}" -f $cueFailure)
     }
+    if ($launchFailure) {
+        $testOk = $false
+        Write-Fail ("  launch failed: {0}" -f $launchFailure)
+    }
 
     $nativeConsumerResult = $null
     if ($nativeManifestInfo) {
@@ -2651,13 +2755,16 @@ function Invoke-SmokeTest {
             assertions_met=$assertResult.Met; assertions_total=$assertResult.Total
             failures=@($assertResult.Failures); native_consumer=$nativeConsumerResult
             console_capture=$consoleResult
+            launch_error=$launchFailure
+            launch_closeout=(Get-SmokeLaunchCloseoutSummary -Launch $launch)
             screenshots=@($screenshotSchedule | Where-Object { $_.Captured -and $_.Success } | ForEach-Object { $_.Path })
         }
     if ($cueContext) {
         $outcome.owned_process_cue = @{directory=$cueContext.Directory;context=$cueContext.Identity;failure=$cueFailure}
     }
     if ($ReuseInstallId) {
-        if ($proc -and (!$ownership -or (Get-SmokeOwnedProcessState $ownership).status -ne 'absent')) { throw 'Reuse actor absence unverified; lease retained.' }
+        if ($proc -and (!$launch -or !$launch.Verified)) { throw 'Reuse actor closeout unverified; lease retained.' }
+        if ($ownership -and (Get-SmokeOwnedProcessState $ownership).status -ne 'absent') { throw 'Reuse actor absence unverified; lease retained.' }
         if ($consoleCapture -and !$consolePassed) { throw 'Reuse console drain unverified; lease retained.' }
         $outcome.base_binary_sha256=$ReuseBinarySha256; $outcome.consumer_sha256=$ReuseConsumerSha256
         $outcome.policy_query=$script:ReusePolicyQuery; $outcome.effective_argv=@($allArgs)
@@ -2676,6 +2783,8 @@ function Invoke-SmokeTest {
             failures=@($assertResult.Failures)
             native_consumer=$nativeConsumerResult
             console_capture=$consoleResult
+            launch_error=$launchFailure
+            launch_closeout=(Get-SmokeLaunchCloseoutSummary -Launch $launch)
             screenshots=@($screenshotSchedule | Where-Object { $_.Captured -and $_.Success } | ForEach-Object { $_.Path })
         }
     }
@@ -2864,7 +2973,25 @@ Write-Info ("Results written to: {0}" -f $ResultsFile)
 
 exit $(if ($failCount -eq 0) { 0 } else { 1 })
 } finally {
-    Stop-SmokeOwnedFaultProcesses -KnownPids $script:SmokeOwnedPids
+    $closeoutErrors=New-Object 'Collections.Generic.List[string]'
+    foreach($retained in @($script:SmokeRetainedLaunches.Values)) {
+        try {
+            if(!$retained.Verified) { [void](Close-SmokeRetainedLaunch -Launch $retained -CancelCue) }
+            $retained.Process.Dispose()
+        } catch { $closeoutErrors.Add($_.Exception.ToString()) }
+    }
+    try { Stop-SmokeOwnedFaultProcesses -KnownPids $script:SmokeOwnedPids }
+    catch { $closeoutErrors.Add($_.Exception.ToString()) }
+    foreach($faultRecord in $script:SmokeRetainedFaults) {
+        if($faultRecord.Verified) { continue }
+        try {
+            if(!$faultRecord.BindingVerified) { throw ('Related fault binding unverified: '+$faultRecord.OriginalError) }
+            [void](Stop-SmokeRetainedProcess -Process $faultRecord.Process)
+            $faultRecord.Verified=$true
+            $faultRecord.Process.Dispose()
+        } catch { $closeoutErrors.Add(('Fault failure: '+$faultRecord.OriginalError+'; cleanup: '+$_.Exception.ToString())) }
+    }
+    if($closeoutErrors.Count) { throw ('Outer launch closeout unverified; retain leases: '+($closeoutErrors -join '; ')) }
     if ($script:ReuseQueryUnverified) { throw 'Policy query actor unverified; consumer identity lock retained.' }
     if ($script:ReuseConsumerLock) { $script:ReuseConsumerLock.Dispose() }
     if ($script:ReuseDefinitionLock) { $script:ReuseDefinitionLock.Dispose() }

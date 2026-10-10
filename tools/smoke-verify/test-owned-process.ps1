@@ -65,7 +65,7 @@ try {
         $start.UseShellExecute=$false; $start.CreateNoWindow=$true; $start.RedirectStandardInput=$true
         $child=[Diagnostics.Process]::Start($start)
         $children += $child
-        Assert-Check (-not $child.WaitForExit(300)) "Disposable $ordinal remains alive"
+        Assert-Check (-not $child.HasExited) "Disposable $ordinal remains alive"
     }
     $owned = New-SmokeProcessOwnership -Process $children[0] -ExpectedExecutable $hostExecutable.Replace('\','/') -CommandLineToken $helper.Replace('\','/')
     $path = Write-SmokeProcessOwnership -Ownership $owned -InstallDir $EvidenceDirectory

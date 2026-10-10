@@ -1,5 +1,21 @@
 # Build / Dev Tooling
 
+2026-10-10: the next T-TOOLING-011 candidate derives immediate launch identity
+from a retained SafeProcessHandle using GetProcessId, QueryFullProcessImageNameW
+with flags 0, and GetProcessTimes. Both ownership creation and cancellation use
+the same actual-path reader; missing metadata or mismatch refuses. The canonical
+runner separately retains main/multi launch Process objects before ownership
+registration and binds related-reporter handles to exact CIM metadata. Failure
+closeout preserves original/cleanup errors, drains pipes, cancels the cue and
+retains leases until exact child exit is proven. Unregistered PIDs never enter
+the registered ownership reaper, and clean native sentinels cannot erase launch
+failure. PS5.1/7.6.6 startup 90 checks each (20 immediate launches each), existing
+ownership/cue/console/reuse 22/47/35/19 each and Python reuse 17 pass. Review
+evidence is `.claude/pd-initial-integration/20261010-startup-repair/`; this repair
+is not published or covered by prior cue CI 38094051174. Caller desktop readiness
+passed, while supported native app access and player-0 proof remain unresolved.
+No native product build, game, controller, storage-policy or peer source change.
+
 2026-10-10: `tools/smoke-verify/run.ps1` has an optional retained-profile
 `-OwnedProcessCueDirectory` / `-OwnedProcessCueExpiresUtc` path using explicit
 `-Session`. It publishes exact ownership before readiness wait through
