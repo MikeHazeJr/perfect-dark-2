@@ -56,6 +56,15 @@
     Validate the exact existing base and prior receipts, print the plan, and exit.
     Creates no profile or lease; does not launch the game or change its verdict.
 
+.PARAMETER OwnedProcessCueDirectory
+    Optional fresh .claude/smoke-process-cues/<Session>/<run> evidence directory.
+    Retained-profile runs only. Publishes exact ownership before readiness wait.
+    Requires Session and OwnedProcessCueExpiresUtc; grants no desktop permission.
+
+.PARAMETER OwnedProcessCueExpiresUtc
+    Explicit offset-bearing expiry within the next 15 minutes, beyond the
+    unchanged fixture timeout. Receivers must revalidate before every use.
+
 .PARAMETER NativeAssetManifest
     Optional bounded one-model native consumer controls. Copied privately and
     bound to this client hash; complete member events required. Single process only.
@@ -117,6 +126,8 @@ param(
     [string]   $ReuseConsumerBinary = "",
     [string]   $ReuseConsumerSha256 = "",
     [switch]   $ReusePlan,
+    [string]   $OwnedProcessCueDirectory = "",
+    [string]   $OwnedProcessCueExpiresUtc = "",
     [string]   $NativeAssetManifest = "",
     [string]   $StoragePolicy = "",
     [switch]   $VerboseAssertions
@@ -136,6 +147,11 @@ $script:ReuseConsumerLock = $null
 $script:ReuseDefinitionLock = $null
 $script:ReusePolicyQuery = $null
 $script:ReuseQueryUnverified = $false
+if ($OwnedProcessCueDirectory -or $OwnedProcessCueExpiresUtc) {
+    if (!$OwnedProcessCueDirectory -or !$OwnedProcessCueExpiresUtc -or !$Session -or !$ReuseInstallId -or $ReusePlan) {
+        throw 'Owned process cue requires runtime ReuseInstallId, Session, fresh directory and explicit expiry.'
+    }
+}
 if ($ReuseInstallId) {
     if (-not $ReuseSeed -or -not $ReuseBinarySha256 -or $Build -or $Install -or
             $SourceSeed -or $SourceBinary -or $SourceRom -or $SharedInstall -or $PerTestInstall -or $Keep -or $NativeAssetManifest) {
@@ -659,6 +675,7 @@ Initialize-SmokeStoragePolicy -Path $StoragePolicy
 . (Join-Path $LibDir "Console-Capture.ps1")
 . (Join-Path $LibDir "Owned-Process.ps1")
 . (Join-Path $LibDir "Reuse-Runtime.ps1")
+. (Join-Path $LibDir "Owned-Process-Cue.ps1")
 
 function New-NeedlerEffectReplacementFixtures {
     [CmdletBinding()] param([Parameter(Mandatory)] [string] $InstallDir)
@@ -2333,6 +2350,9 @@ function Invoke-SmokeTest {
     $consoleCapture = $null
     $consoleResult = $null
     $consolePassed = $false
+    $cueContext = $null
+    $cueCloseoutError = $null
+    $cueFailure = $null
 
     # c115 (2026-05-14): Start-Process -PassThru returns a Process object
     # whose .ExitCode property is unreliable for non-console GUI apps --
@@ -2346,6 +2366,10 @@ function Invoke-SmokeTest {
     # synchronously). UseShellExecute=$false keeps the call out of
     # ShellExecuteEx so the parent owns the process handle directly.
     try {
+        if ($OwnedProcessCueDirectory) {
+            $cueContext = Open-SmokeOwnedProcessCueContext -ProjectRoot $ProjectRoot -Directory $OwnedProcessCueDirectory `
+                -SessionId $Session -ExpiresUtc $OwnedProcessCueExpiresUtc -TimeoutSeconds $timeoutSeconds
+        }
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName         = $exe
         # ProcessStartInfo.ArgumentList exists on .NET Core but not on
@@ -2389,6 +2413,18 @@ function Invoke-SmokeTest {
             -Directory (Join-Path $installInfo.InstallDir 'logs/smoke-console')
         $ownershipPath = Write-SmokeProcessOwnership -Ownership $ownership -InstallDir $installInfo.InstallDir
         Write-Info ("  owned process identity: {0}" -f $ownershipPath)
+        if ($cueContext) {
+            $cueBinding = [pscustomobject]@{
+                consumer_path=$script:ReuseConsumerLock.Path; consumer_sha256=$ReuseConsumerSha256.ToLowerInvariant();
+                fixture_path=$script:ReuseDefinitionLock.Path; fixture_sha256=$originalFixtureHash.ToLowerInvariant(); fixture_name=$name;
+                base_install_id=$ReuseInstallId; seed_id=$ReuseSeed.ToLowerInvariant(); base_binary_sha256=$ReuseBinarySha256.ToLowerInvariant();
+                base_directory=$installInfo.BaseDir; runtime_root=$installInfo.InstallDir;
+                profile_directory=$installInfo.ProfileDir; reuse_id=$installInfo.ReuseId
+            }
+            $cuePath = Publish-SmokeOwnedProcessCue -Context $cueContext -Ownership $ownership -Binding $cueBinding `
+                -ConsumerLock $script:ReuseConsumerLock -FixtureLock $script:ReuseDefinitionLock
+            Write-Info ("  owned process cue (ownership only): {0}" -f $cuePath)
+        }
         if ($runtimeStrategy -eq "timeout-kill") {
             # c115 server-pillar extension (2026-05-14): the binary is
             # expected to run forever (pd-server has no auto-exit path);
@@ -2475,6 +2511,11 @@ function Invoke-SmokeTest {
         }
     } catch {
         Write-Fail ("Failed to launch {0}: {1}" -f $exeLeaf, $_.Exception.Message)
+        if ($OwnedProcessCueDirectory) { $cueFailure = $_.Exception.Message }
+        if ($cueContext) {
+            try { Close-SmokeOwnedProcessCueContext -Context $cueContext -Cancelled }
+            catch { $cueCloseoutError = $_.Exception.Message }
+        }
         if ($proc) {
             try { if (-not $proc.HasExited) { $proc.Kill() } } catch {}
             try { [void]$proc.WaitForExit(5000) } catch {}
@@ -2494,6 +2535,14 @@ function Invoke-SmokeTest {
         } catch {
             $consoleResult = @{Passed=$false;Error=$_.Exception.Message}
         }
+    }
+    if ($cueContext) {
+        try {
+            if (!(Test-Path -LiteralPath (Join-Path $cueContext.Directory 'cancelled.json'))) {
+                Close-SmokeOwnedProcessCueContext -Context $cueContext
+            }
+        } finally { $cueContext.Guard.Dispose() }
+        if ($cueCloseoutError) { throw "Cue cancellation output failed; evidence and lease retained: $cueCloseoutError" }
     }
     $elapsed = ((Get-Date) - $started).TotalSeconds
 
@@ -2575,6 +2624,10 @@ function Invoke-SmokeTest {
         $testOk = $false
         Write-Fail "  native console capture did not complete"
     }
+    if ($cueFailure) {
+        $testOk = $false
+        Write-Fail ("  owned process cue failed: {0}" -f $cueFailure)
+    }
 
     $nativeConsumerResult = $null
     if ($nativeManifestInfo) {
@@ -2600,6 +2653,9 @@ function Invoke-SmokeTest {
             console_capture=$consoleResult
             screenshots=@($screenshotSchedule | Where-Object { $_.Captured -and $_.Success } | ForEach-Object { $_.Path })
         }
+    if ($cueContext) {
+        $outcome.owned_process_cue = @{directory=$cueContext.Directory;context=$cueContext.Identity;failure=$cueFailure}
+    }
     if ($ReuseInstallId) {
         if ($proc -and (!$ownership -or (Get-SmokeOwnedProcessState $ownership).status -ne 'absent')) { throw 'Reuse actor absence unverified; lease retained.' }
         if ($consoleCapture -and !$consolePassed) { throw 'Reuse console drain unverified; lease retained.' }

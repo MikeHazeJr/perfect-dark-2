@@ -1,14 +1,16 @@
 ﻿# Smoke verify
 
-## Exact-base reuse: read-only profiles and current runtime refusal
+## Exact-base reuse: read-only profiles and native runtime adapter
 
 `-ReuseInstallId <id> -ReuseSeed <sha256> -ReuseBinarySha256 <sha256> -ReusePlan`
 verifies a completed unpinned registered base, its canonical seed/blobs, exact
 executable, complete live bytes/identities and original receipts without another
 full copy. Its failed verdict stays failed. Planning creates no profile or lease.
-Omit `-ReusePlan` and the current runner refuses before launch: extraction
-sidecars and `.pdextract-cache` still write beneath the base. Save/home/log/capture
-flags alone do not provide supported immutable-base write isolation.
+Runtime reuse requires a separately locked `-ReuseConsumerBinary` with exact
+`-ReuseConsumerSha256` and a passing production native-write-policy query. The
+adapter redirects generated writes into a fresh private root and admits only
+the unchanged canonical `menu_virtual_controller_agent_cancel` fixture. Other
+fixtures, mutation modes and unsupported native consumers still refuse.
 
 Storage-only `New-SmokeReadOnlyProfile` / `Complete-SmokeReadOnlyProfile` APIs
 register one exclusive live PID/creation-bound lease and fresh small writable
@@ -19,6 +21,19 @@ the entire base and prior receipts and retains the profile/new receipt. Mutation
 keeps the lease held for review. There is no deletion, forced lease stealing or
 permission to launch a mutating consumer. These checks detect mutation; native
 write isolation is required before a game can use this mode.
+
+Optional `-OwnedProcessCueDirectory <absolute-path>` plus `-Session <owner>` and
+`-OwnedProcessCueExpiresUtc <offset-bearing-time>` publishes `owned-process.json`
+before readiness wait. The directory must be fresh under
+`.claude/smoke-process-cues/<owner>/<run>`; expiry must cover the fixture timeout
+and be within 15 minutes. No option preserves existing runner behavior.
+The cue distinguishes the base, external consumer and private profile, and binds
+their hashes/lease to the exact PID, creation time, parent, fixture token and
+finite runner context. Cancellation/closeout markers and all evidence are retained.
+Receivers call `Read-SmokeOwnedProcessCue` with independently expected context
+and binding immediately before use. A cue proves ownership only, not app access,
+HWND, foreground, controller availability, readiness or passing gameplay.
+Ordinary retained-profile integration and four-frame manual review remain unqualified.
 
 Focused proof: `test-storage-reuse.py` (17 tiny retained cases) and
 `test-storage-reuse.ps1` (19 checks each PS5.1/7), also in Windows CI. No game or

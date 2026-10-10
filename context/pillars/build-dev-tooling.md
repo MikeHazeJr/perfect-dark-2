@@ -1,5 +1,19 @@
 # Build / Dev Tooling
 
+2026-10-10: `tools/smoke-verify/run.ps1` has an optional retained-profile
+`-OwnedProcessCueDirectory` / `-OwnedProcessCueExpiresUtc` path using explicit
+`-Session`. It publishes exact ownership before readiness wait through
+`lib/Owned-Process-Cue.ps1`; output must be fresh in the session evidence tree.
+Receivers revalidate the finite context, locked identities, profile lease and live
+actor through `Read-SmokeOwnedProcessCue`. Publication is no app/readiness or
+gameplay claim. No option retains prior behavior; the native adapter still admits
+only the vetted unchanged controller fixture. Local cue proof is 47 checks each
+PS5.1/7, including actual production publication/catch statements and hidden tiny
+processes. Ownership/reuse/console and safe Python evidence are retained under
+`.claude/pd-initial-integration/20261010-cue/`. Full storage/reset tests are blocked
+by their deletions. Candidate awaits Astra review; no new CI or ordinary game proof.
+Earlier unconditional runtime refusals below retain their historical scope.
+
 2026-10-03 20:24 Eastern / 2026-10-04 00:24 UTC: exacte74a6795 hosted
 CI37164271400 fullygreen:4dependency/20storage/17reusePython +19eachPS5/7,
 cleanclient/tests/full1813cases333814assertions/upload. UTF8 bytewire repair

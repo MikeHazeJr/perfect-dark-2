@@ -1,5 +1,32 @@
 # Session Log (Active)
 
+2026-10-10 - T-TOOLING-011 retained-profile owned-process cue candidate (gpt-6.1-sol)
+
+Mike temporarily resumed this worker while Claude is stopped, with a conservative
+handoff boundary of October 10 20:15 EDT / October 11 00:15 UTC. N-0422 records
+authority and exact file ownership. Local host is Shadowbane, canonical dev HEAD
+e7624402, initially 41 tracked dirty paths and empty index. Workbench was already
+running; normal approved execution reached canonical /api/meta after the restricted
+command environment denied localhost sockets. No security or service changes.
+
+Optional canonical runner notification now binds the locked external consumer,
+canonical fixture, retained base, private profile lease and exact launched actor
+to an expiring context before readiness wait. Fresh output, directory/file alias
+guards and cancellation/closeout receipts preserve evidence. The receiver checks
+live identity immediately before use. PS7 ISO DateTime conversion is compared as
+UTC ticks through the existing helper. Cue failure remains failed despite a native
+exit sentinel. Native isolation, fixtures, controllers and timeouts are unchanged.
+
+Final queued local tests: cue 47 checks each PS5.1/7.6.6; ownership 22, reuse 19,
+console 35 each host; Python reuse 17 and deletion-safe storage subset 2, all exit 0.
+Failed fixture/setup and PS7 timestamp attempts are retained. Full storage/reset
+aggregates are blocked because their fixture cleanup/reset deletes files; no
+retention switch exists. No native product build, game, desktop input, capture,
+manual acceptance, commit, push or new CI. T-TOOLING-011 stays partial; V-014's
+historical failed 11/29, 1/17, zero captures is unchanged. Scope is frozen for
+Astra review; evidence and baseline-relative patch live in
+`.claude/pd-initial-integration/20261010-cue/`. All peer source witnesses unchanged.
+
 2026-10-04 04:20 UTC - Native retained-profile isolation (gpt-6.1-sol + gpt-6)
 
 Night scope advances T-TOOLING-011 without another full-game copy or cleanup.

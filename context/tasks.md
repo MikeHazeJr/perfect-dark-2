@@ -1,5 +1,14 @@
 # Tasks
 
+2026-10-10: T-TOOLING-011 optional retained-profile ownership cue is connected
+and locally tested, pending Astra integrated review. Cue 47 checks each PS5.1/7;
+ownership/reuse/console 22/19/35 each host, Python reuse 17 and safe storage subset
+2 pass. Full storage/reset aggregates remain blocked by the no-deletion boundary.
+No native product build, real game, manual acceptance or publication. V-014 and
+ordinary retained-profile acceptance remain partial/failed at their historical
+receipt. Mike's temporary takeover is N-0422, ending by October 10 20:15 EDT.
+Review evidence: `.claude/pd-initial-integration/20261010-cue/`.
+
 2026-10-04 04:20 UTC: T-TOOLING-011 native retained-profile isolation and
 single-process wrapper verified locally. Final client/explicit-tests builds and
 22 cases/321 assertions pass; actual locked-consumer query passes PS5.1/7.6.
