@@ -290,7 +290,7 @@ TEST_CASE("net move: client weapon select is server inventory-gated",
         return ss.str();
     };
 
-    const std::string netmsg = read_file("port/src/net/netmsg.c");
+    const std::string netmsg = read_file("port/src/net/net_player_move_ingress.c");
 
     REQUIRE(netmsg.find("static bool netmsgClientCanSelectWeapon") != std::string::npos);
     REQUIRE(netmsg.find("invHasSingleWeaponIncAllGuns(weaponnum)") != std::string::npos);

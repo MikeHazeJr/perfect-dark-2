@@ -432,6 +432,7 @@ static inline void netClientReset(struct netclient *cl)
 		cl->config->client = NULL;
 	}
 	memset(cl, 0, sizeof(*cl));
+	netPlayerMoveReset(cl);
 	cl->out.data = cl->out_data;
 	cl->out.size = sizeof(cl->out_data);
 	cl->id = cl - g_NetClients;
@@ -483,9 +484,9 @@ static inline void netClientRecordMove(struct netclient *cl, const struct player
 
 	move->ucmd = pl->ucmd;
 
-	if (g_NetMode == NETMODE_SERVER && pl->isremote && cl->inmove[0].tick) {
+	if (g_NetMode == NETMODE_SERVER && pl->isremote && cl->inmove_valid) {
 		// carry some of the client inputs over to the outmove
-		move->ucmd |= (cl->inmove[0].ucmd & (UCMD_FIRE | UCMD_RELOAD | UCMD_AIMMODE | UCMD_EYESSHUT | UCMD_SELECT | UCMD_SELECT_DUAL));
+		move->ucmd |= netPlayerMoveForwardCommands(cl);
 		move->crosspos[0] = cl->inmove[0].crosspos[0];
 		move->crosspos[1] = cl->inmove[0].crosspos[1];
 	}

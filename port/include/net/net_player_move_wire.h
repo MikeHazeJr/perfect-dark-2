@@ -15,10 +15,21 @@ struct netclient;
 /* Existing v61 payload layout. Decoder publishes only a complete finite record. */
 u32 netbufWritePlayerMove(struct netbuf *, const struct netplayermove *);
 u32 netbufReadPlayerMove(struct netbuf *, struct netplayermove *);
+/* Shared existing room decoder used by snapshots and other net messages. */
+u32 netbufReadRooms(struct netbuf *, s16 *rooms, s32 num);
 /* Commit a decoded, policy-checked record atomically. Stale/duplicate records
  * do not change history, acknowledgement, or interpolation state. */
 bool netPlayerMoveCommit(struct netclient *, const struct netplayermove *, u32 ack);
 bool netPlayerMoveAcknowledged(const struct netclient *, u32 tick);
+/* Receipt, application, and previous-record validity are independent of zero.
+ * Pending receipt is explicit: several admitted records can collectively pass
+ * half-range or wrap back to the last applied tick before the next application. */
+bool netPlayerMovePending(const struct netclient *);
+bool netPlayerMoveConsume(struct netclient *);
+s32 netPlayerMoveInterval(const struct netclient *, s32 max_ticks);
+/* Held presentation input persists; selection/reload edges require fresh input. */
+u32 netPlayerMoveForwardCommands(const struct netclient *);
+void netPlayerMoveReset(struct netclient *);
 #ifdef __cplusplus
 }
 #endif

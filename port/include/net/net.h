@@ -504,6 +504,9 @@ struct netclient {
 	u32 inmovetick; // last inmove tick which was applied to the player
 	u32 outmoveack; // last acked outmove tick
 	bool inmove_valid; // tick zero is a valid record after serial wrap
+	bool inmove_pending; // accepted receipt has not been applied, independent of tick distance
+	bool inmoveprev_valid; // previous received record exists, including tick zero
+	bool inmovetick_valid; // last applied tick exists, including tick zero
 	bool outmoveack_valid; // zero before the first acknowledgement is not an ACK
 	u32 forcetick; // tick on which the client's position was forced, or 0 if not forcing
 	u32 lerpticks; // how many ticks we've been lerping the position

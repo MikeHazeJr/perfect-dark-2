@@ -2395,7 +2395,7 @@ TEST_CASE("net lifecycle: reconnect commits after post-load ack and ordered exac
 	const std::string client_receive = function_definition_block(
 		net, "static void netClientEvReceive");
 	const std::string move = function_definition_block(
-		netmsg, "u32 netmsgClcMoveRead");
+		read_text_file("port/src/net/net_player_move_ingress.c"), "u32 netmsgClcMoveRead");
 	const std::string cutscene_retire = function_definition_block(
 		netmsg, "void netmsgCutsceneAuthorityRetireClient");
 	const std::string stage_end = function_definition_block(
@@ -2805,7 +2805,8 @@ TEST_CASE("net lifecycle: reconnect commits after post-load ack and ordered exac
 	REQUIRE(fire_witness < authoritative_fire);
 	REQUIRE(move.find("newmove.ucmd & UCMD_FIRE", fire_witness) !=
 		std::string::npos);
-	const std::string snapshot = function_block(netmsg,
+	const std::string snapshot = function_block(
+		read_text_file("port/src/net/net_player_move_ingress.c"),
 		"u32 netmsgSvcPlayerMoveRead(");
 	const size_t snapshot_commit = snapshot.find(
 		"if (!netPlayerMoveCommit(movecl, &newmove, outmoveack))");

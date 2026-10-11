@@ -48,6 +48,7 @@
 #include "system.h"
 #include "utils.h"
 #include "net/net.h"
+#include "net/net_player_move_wire.h"
 #include "net/netmsg.h"
 #include "weapon_graph_runtime.h"
 
@@ -311,14 +312,16 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 
 	struct netplayermove *inmove = &pl->client->inmove[0];
 	struct netplayermove *inmoveprev = &pl->client->inmove[1];
-	s32 moveticks = inmove->tick - inmoveprev->tick;
-	if (moveticks > g_NetInterpTicks) {
-		moveticks = g_NetInterpTicks;
-	}
+	const s32 moveticks = netPlayerMoveInterval(pl->client, g_NetInterpTicks);
 
-	const bool handled = (pl->client->inmovetick >= inmove->tick);
+	const bool handled = !netPlayerMovePending(pl->client);
+	/* Carry consumed presentation edges for this frame's server publication.
+	 * Clear them next frame while held fire/aim remain in the received record. */
+	pl->ucmd &= ~(UCMD_RELOAD | UCMD_SELECT | UCMD_SELECT_DUAL);
+	pl->ucmd |= netPlayerMoveForwardCommands(pl->client)
+		& (UCMD_RELOAD | UCMD_SELECT | UCMD_SELECT_DUAL);
 
-	if (!inmove->tick) {
+	if (!pl->client->inmove_valid) {
 		// no input
 		inmove->pos = inmoveprev->pos = pl->prop->pos;
 		inmove->angles[0] = inmoveprev->angles[0] = pl->vv_theta;
@@ -338,7 +341,7 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 		if (!pl->jumpconsumed) {
 			pl->wantsjump = true;
 		}
-	} else {
+	} else if (!(inmove->ucmd & UCMD_JUMP)) {
 		/* Button released — allow next press to trigger a jump */
 		pl->jumpconsumed = false;
 	}
@@ -395,7 +398,7 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 		pl->hands[h].crosspos[1] = pl->crosspos[1];
 	}
 
-	if (inmove->ucmd & UCMD_SELECT) {
+	if (!handled && (inmove->ucmd & UCMD_SELECT)) {
 		pl->gunctrl.dualwielding = (inmove->ucmd & UCMD_SELECT_DUAL) != 0;
 		if (inmove->weaponnum >= 0) {
 			bgunEquipWeapon(inmove->weaponnum);
@@ -444,9 +447,6 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 			} else {
 				pl->bondactivateorreload |= JO_ACTION_ACTIVATE;
 			}
-			/* A bike has no bwalkUpdate path to advance this acknowledgement;
-			 * advance it at the authoritative intent-consumption boundary. */
-			pl->client->inmovetick = inmove->tick;
 		}
 
 		if (g_Vars.bondvisible && (bgunIsFiring(HAND_RIGHT) || bgunIsFiring(HAND_LEFT))) {
@@ -463,7 +463,7 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 
 	bgunSetSightVisible(GUNSIGHTREASON_NOTAIMING, pl->insightaimmode);
 
-	const bool forcepos = !inmoveprev->tick || !moveticks || (inmove->ucmd & UCMD_FL_FORCEANGLE);
+	const bool forcepos = !pl->client->inmoveprev_valid || !moveticks || (inmove->ucmd & UCMD_FL_FORCEANGLE);
 
 	// lerp towards the current speeds and angles
 	const f32 dt = (forcepos ? 1.f : (1.f / (f32)moveticks));
@@ -495,6 +495,9 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 	} else {
 		pl->speedmaxtime60 = 0;
 	}
+	/* Every movement mode consumes edges here, including bike/grab without a
+	 * walking update. The received record remains available for held input. */
+	netPlayerMoveConsume(pl->client);
 }
 
 

@@ -1335,6 +1335,20 @@ target_compile_definitions(pd-tests PRIVATE
 target_compile_options(pd-tests PRIVATE
   $<$<COMPILE_LANGUAGE:C>:-Wno-pointer-sign>
 )
+# Compile the exact production ingress with a logger observer only in this
+# test object. The game target retains its normal system logger.
+add_library(pd-move-ingress-tests OBJECT
+  ${CMAKE_SOURCE_DIR}/port/src/net/net_player_move_ingress.c)
+add_dependencies(pd-move-ingress-tests pd_headers)
+target_include_directories(pd-move-ingress-tests PRIVATE
+  $<TARGET_PROPERTY:pd-tests,INCLUDE_DIRECTORIES>)
+target_compile_definitions(pd-move-ingress-tests PRIVATE
+  $<TARGET_PROPERTY:pd-tests,COMPILE_DEFINITIONS>
+  sysLogPrintf=moveFixtureLog)
+target_compile_options(pd-move-ingress-tests PRIVATE
+  $<TARGET_PROPERTY:pd-tests,COMPILE_OPTIONS>)
+target_sources(pd-tests PRIVATE $<TARGET_OBJECTS:pd-move-ingress-tests>)
+
 target_link_libraries(pd-tests PRIVATE ${PD_SDL2_CORE_LIB} ${PD_SDL2_SUPPORT_LIBS})
 target_sources(pd-tests PRIVATE
   ${CMAKE_SOURCE_DIR}/port/src/file_transfer_storage.c

@@ -141,7 +141,8 @@ TEST_CASE("hoverbike operability keeps one validated mount transaction", "[vehic
     const std::string vehicleAbort = functionBlock(netmsg, "netmsgSvcVehicleStateAbort");
     const std::string vehicleWrite = functionBlock(netmsg, "netmsgSvcVehicleStateWrite");
     const std::string vehicleRead = functionBlock(netmsg, "netmsgSvcVehicleStateRead");
-    const std::string moveRead = functionBlock(netmsg, "netmsgClcMoveRead");
+    const std::string moveRead = functionBlock(
+        readTextFile("port/src/net/net_player_move_ingress.c"), "netmsgClcMoveRead");
     const std::string sequenceOrder = functionBlock(netmsg, "netmsgVehicleSequenceIsNewer");
     REQUIRE_FALSE(mount.empty());
     REQUIRE_FALSE(committed.empty());
@@ -255,12 +256,12 @@ TEST_CASE("hoverbike operability keeps one validated mount transaction", "[vehic
     REQUIRE(remoteInput.find("pl->activatetimelast = pl->activatetimethis") != std::string::npos);
     REQUIRE(remoteInput.find("bbikeHandleActivate(pcVehicleIntent)") != std::string::npos);
     REQUIRE(remoteInput.find("bbikeHandleActivate(true)") == std::string::npos);
-    REQUIRE(remoteInput.find("pl->client->inmovetick = inmove->tick") != std::string::npos);
+    REQUIRE(remoteInput.find("netPlayerMoveConsume(pl->client)") != std::string::npos);
     REQUIRE(remoteInput.find("pl->pcinteractusekind = 0") != std::string::npos);
     REQUIRE(remoteInput.find("const bool handled") <
         remoteInput.find("!handled && (inmove->ucmd & UCMD_ACTIVATE)"));
     REQUIRE(remoteInput.find("bbikeHandleActivate(pcVehicleIntent)") <
-        remoteInput.find("pl->client->inmovetick = inmove->tick"));
+        remoteInput.find("netPlayerMoveConsume(pl->client)"));
     REQUIRE(bondmove.find("bondactivateorreload &= ~JO_ACTION_ACTIVATE") != std::string::npos);
     REQUIRE(bondmove.find("if (vehicleExitIntent)") != std::string::npos);
     REQUIRE(bondmove.find("g_Vars.currentplayer->ucmd |= UCMD_ACTIVATE") != std::string::npos);

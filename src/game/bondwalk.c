@@ -30,6 +30,7 @@
 #include "data.h"
 #include "types.h"
 #include "net/net.h"
+#include "net/net_player_move_wire.h"
 #include "system.h"
 #include "crashbreadcrumb.h"
 #include "utils.h"
@@ -45,23 +46,18 @@ static inline void lerpcoord(struct coord *c, const struct coord *a, const struc
 static void bwalkUpdateRemote(void)
 {
 	struct player *pl = g_Vars.currentplayer;
+	if (!pl->client->inmove_valid) return;
 	const struct netplayermove *inmove = &pl->client->inmove[0];
-	const struct netplayermove *inmoveprev = &pl->client->inmove[1];
 	struct coord delta;
 	u16 cdtype = CDTYPE_ALL;
-	s32 moveticks = inmove->tick - inmoveprev->tick;
-	if (moveticks > g_NetInterpTicks) {
-		moveticks = g_NetInterpTicks;
-	}
-
-	pl->client->inmovetick = inmove->tick;
+	const s32 moveticks = netPlayerMoveInterval(pl->client, g_NetInterpTicks);
 
 	pl->bondshotspeed.x = 0.f;
 	pl->bondshotspeed.y = 0.f;
 	pl->bondshotspeed.z = 0.f;
 	pl->bondbreathing = 0.f;
 
-	const bool forcepos = !inmoveprev->tick ||
+	const bool forcepos = !pl->client->inmoveprev_valid ||
 		(inmove->ucmd & UCMD_FL_FORCEPOS) ||
 		(fabsf(pl->prop->pos.x - inmove->pos.x) > 512.f) ||
 		(fabsf(pl->prop->pos.y - inmove->pos.y) > 512.f) ||
@@ -94,6 +90,7 @@ static void bwalkUpdateRemote(void)
 		bwalk0f0c63bc(&delta, pl->swaytarget == 0.0f, cdtype);
 		pl->client->lerpticks += g_Vars.lvupdate60;
 	}
+	netPlayerMoveConsume(pl->client);
 }
 
 void bwalkInit(void)
