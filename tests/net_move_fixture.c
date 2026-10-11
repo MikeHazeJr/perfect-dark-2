@@ -3,6 +3,46 @@
 #include "net/net_player_move_wire.h"
 #include "net_move_fixture.h"
 #include <string.h>
+#include <stdlib.h>
+
+struct move_admission_fixture {
+    struct netclient client, before;
+};
+
+void *moveFixtureCreate(void)
+{
+    return calloc(1, sizeof(struct move_admission_fixture));
+}
+
+void moveFixtureDestroy(void *fixture)
+{
+    free(fixture);
+}
+
+void moveFixtureCommit(void *fixture, uint32_t tick, uint32_t ack,
+        float position, uint32_t command, uint32_t checkAckTick,
+        move_admission_result *result)
+{
+    struct move_admission_fixture *f = fixture;
+    struct netplayermove move = {0};
+    move.tick = tick;
+    move.pos.x = position;
+    move.ucmd = command;
+    /* Model interpolation elapsed since the preceding packet. */
+    f->client.lerpticks = 17;
+    memcpy(&f->before, &f->client, sizeof(f->client));
+    memset(result, 0, sizeof(*result));
+    result->accepted = netPlayerMoveCommit(&f->client, &move, ack);
+    result->unchanged = memcmp(&f->before, &f->client, sizeof(f->client)) == 0;
+    result->tick = f->client.inmove[0].tick;
+    result->previousTick = f->client.inmove[1].tick;
+    result->position = f->client.inmove[0].pos.x;
+    result->command = f->client.inmove[0].ucmd;
+    result->ack = f->client.outmoveack;
+    result->ackValid = f->client.outmoveack_valid;
+    result->lerp = f->client.lerpticks;
+    result->acknowledged = netPlayerMoveAcknowledged(&f->client, checkAckTick);
+}
 
 int moveFixtureRead(const void *wire, uint32_t size, move_fixture_result *result)
 {

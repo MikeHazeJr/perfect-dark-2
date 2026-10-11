@@ -503,6 +503,8 @@ struct netclient {
 	struct netplayermove inmove[2]; // last 2 incoming player inputs, newest one first
 	u32 inmovetick; // last inmove tick which was applied to the player
 	u32 outmoveack; // last acked outmove tick
+	bool inmove_valid; // tick zero is a valid record after serial wrap
+	bool outmoveack_valid; // zero before the first acknowledgement is not an ACK
 	u32 forcetick; // tick on which the client's position was forced, or 0 if not forcing
 	u32 lerpticks; // how many ticks we've been lerping the position
 

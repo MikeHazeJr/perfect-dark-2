@@ -1866,18 +1866,15 @@ u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 		}
 	}
 
-	srccl->outmoveack = outmoveack;
-
 	if (!src->error) {
-		if (srccl->inmove[0].tick != 0
-				&& (s32)(newmove.tick - srccl->inmove[0].tick) <= 0) {
-			/* Drop stale/out-of-order moves to prevent rollback snaps. */
+		if (!netPlayerMoveCommit(srccl, &newmove, outmoveack)) {
+			/* Rejection preserves the ACK and interpolation history too. */
 			return src->error;
 		}
 
 		// enforce teleports and such
 		if (srccl->forcetick && srccl->player) {
-			if (srccl->outmoveack >= srccl->forcetick) {
+			if (netPlayerMoveAcknowledged(srccl, srccl->forcetick)) {
 				// client has acknowledged our last sent move, clear the force flags
 				srccl->forcetick = 0;
 				srccl->player->ucmd &= ~UCMD_FL_FORCEMASK;
@@ -1885,18 +1882,14 @@ u32 netmsgClcMoveRead(struct netbuf *src, struct netclient *srccl)
 			} else {
 				// client hasn't teleported yet, discard the new position from the input command
 				if (srccl->player->ucmd & UCMD_FL_FORCEPOS) {
-					newmove.pos = srccl->player->prop->pos;
+					srccl->inmove[0].pos = srccl->player->prop->pos;
 				}
 				if (srccl->player->ucmd & UCMD_FL_FORCEANGLE) {
-					newmove.angles[0] = srccl->player->vv_theta;
-					newmove.angles[1] = srccl->player->vv_verta;
+					srccl->inmove[0].angles[0] = srccl->player->vv_theta;
+					srccl->inmove[0].angles[1] = srccl->player->vv_verta;
 				}
 			}
 		}
-		// make space in the move stack
-		memmove(srccl->inmove + 1, srccl->inmove, sizeof(srccl->inmove) - sizeof(*srccl->inmove));
-		srccl->inmove[0] = newmove;
-		srccl->lerpticks = 0;
 		if (srccl->reconnect_gameplay_witness_pending
 				&& (newmove.ucmd & UCMD_FIRE)
 				&& srccl->player && srccl->player->prop) {
@@ -4152,11 +4145,9 @@ u32 netmsgSvcPlayerMoveRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	// make space in the move stack
-	memmove(movecl->inmove + 1, movecl->inmove, sizeof(movecl->inmove) - sizeof(*movecl->inmove));
-	movecl->inmove[0] = newmove;
-	movecl->outmoveack = outmoveack;
-	movecl->lerpticks = 0;
+	if (!netPlayerMoveCommit(movecl, &newmove, outmoveack)) {
+		return src->error;
+	}
 
 	if (movecl == g_NetLocalClient && (newmove.ucmd & UCMD_FL_FORCEMASK)) {
 		// server wants to teleport us

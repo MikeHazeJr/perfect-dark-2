@@ -5,6 +5,38 @@
 #include "net/netbuf.h"
 #include "net/net_player_move_wire.h"
 
+static bool moveTickAfter(u32 candidate, u32 current)
+{
+    const u32 distance = candidate - current;
+    /* Half-range jumps are ambiguous; never treat them as newer. */
+    return distance != 0 && distance < 0x80000000u;
+}
+
+bool netPlayerMoveAcknowledged(const struct netclient *client, u32 tick)
+{
+    return client && client->outmoveack_valid
+        && (client->outmoveack == tick || moveTickAfter(client->outmoveack, tick));
+}
+
+bool netPlayerMoveCommit(struct netclient *client,
+        const struct netplayermove *move, u32 ack)
+{
+    if (!client || !move || (client->inmove_valid
+            && !moveTickAfter(move->tick, client->inmove[0].tick))) return false;
+
+    memmove(client->inmove + 1, client->inmove,
+        sizeof(client->inmove) - sizeof(*client->inmove));
+    client->inmove[0] = *move;
+    client->inmove_valid = true;
+    client->lerpticks = 0;
+    if ((!client->outmoveack_valid && ack != 0)
+            || (client->outmoveack_valid && moveTickAfter(ack, client->outmoveack))) {
+        client->outmoveack = ack;
+        client->outmoveack_valid = true;
+    }
+    return true;
+}
+
 u32 netbufWritePlayerMove(struct netbuf *buf, const struct netplayermove *in)
 {
 	netbufWriteU32(buf, in->tick);

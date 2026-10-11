@@ -2790,9 +2790,8 @@ TEST_CASE("net lifecycle: reconnect commits after post-load ack and ordered exac
 		std::string::npos);
 
 	const size_t stale_move_gate = move.find(
-		"newmove.tick - srccl->inmove[0].tick");
-	const size_t move_commit = move.find("srccl->inmove[0] = newmove",
-		stale_move_gate);
+		"if (!netPlayerMoveCommit(srccl, &newmove, outmoveack))");
+	const size_t move_commit = move.find("return src->error;", stale_move_gate);
 	const size_t fire_witness = move.find(
 		"srccl->reconnect_gameplay_witness_pending", move_commit);
 	const size_t authoritative_fire = move.find(
@@ -2806,6 +2805,17 @@ TEST_CASE("net lifecycle: reconnect commits after post-load ack and ordered exac
 	REQUIRE(fire_witness < authoritative_fire);
 	REQUIRE(move.find("newmove.ucmd & UCMD_FIRE", fire_witness) !=
 		std::string::npos);
+	const std::string snapshot = function_block(netmsg,
+		"u32 netmsgSvcPlayerMoveRead(");
+	const size_t snapshot_commit = snapshot.find(
+		"if (!netPlayerMoveCommit(movecl, &newmove, outmoveack))");
+	const size_t snapshot_reject = snapshot.find("return src->error;", snapshot_commit);
+	const size_t teleport = snapshot.find("chrSetPos(");
+	REQUIRE(snapshot_commit != std::string::npos);
+	REQUIRE(snapshot_reject != std::string::npos);
+	REQUIRE(teleport != std::string::npos);
+	REQUIRE(snapshot_commit < snapshot_reject);
+	REQUIRE(snapshot_reject < teleport);
 
 	/* A transport retirement clears only transient skip state. The frozen
 	 * match roster remains authoritative and becomes usable again after the

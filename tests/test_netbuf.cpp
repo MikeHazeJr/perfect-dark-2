@@ -303,7 +303,7 @@ TEST_CASE("net move: client weapon select is server inventory-gated",
     const size_t parse_error = netmsg.find("if (src->error)", parse_move);
     const size_t state_gate = netmsg.find("srccl->state != CLSTATE_GAME", parse_error);
     const size_t weapon_gate = netmsg.find("netmsgClientCanSelectWeapon", parse_error);
-    const size_t ack_commit = netmsg.find("srccl->outmoveack = outmoveack", parse_error);
+    const size_t ack_commit = netmsg.find("netPlayerMoveCommit(srccl, &newmove, outmoveack)", parse_error);
     REQUIRE(move_read != std::string::npos);
     REQUIRE(parse_move != std::string::npos);
     REQUIRE(parse_error != std::string::npos);
@@ -314,6 +314,7 @@ TEST_CASE("net move: client weapon select is server inventory-gated",
     REQUIRE(parse_error < state_gate);
     REQUIRE(parse_error < weapon_gate);
     REQUIRE(parse_error < ack_commit);
+    REQUIRE(weapon_gate < ack_commit);
 }
 
 TEST_CASE("netbuf: mixed-type sequence preserves order", "[netbuf]") {

@@ -13,6 +13,7 @@
 #include "net/netenet.h"
 #include "net/net.h"
 #include "weapon_graph_v2_runtime.h"
+#include "net/net_player_move_wire.h"
 #include "net/netbuf.h"
 #include "net/netmsg.h"
 #include "net/net_client_settings_wire.h"
@@ -547,7 +548,7 @@ static inline s32 netClientNeedMove(const struct netclient *cl)
 	}
 	const struct netplayermove *move = &cl->outmove[0];
 	const struct netplayermove *moveprev = &cl->outmove[1];
-	if (move->tick && cl->outmoveack >= move->tick) {
+	if (move->tick && netPlayerMoveAcknowledged(cl, move->tick)) {
 		return false;
 	}
 	const u8 *cmpa = (const u8 *)move + sizeof(move->tick);
