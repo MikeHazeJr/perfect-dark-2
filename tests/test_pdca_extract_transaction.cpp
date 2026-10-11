@@ -227,12 +227,17 @@ TEST_CASE("PDCA preflight reaches 127 128 and 1023 final-path boundaries",
 {
 	for (size_t total : {size_t(127), size_t(128), size_t(FS_MAXPATH - 1)}) {
 		PdcaTempRoot temp;
-		fs::path parent = temp.root / "received-components/effects";
-		fs::create_directories(parent);
+		/* Keep the destination leaf longer than the 21-character recv sibling
+		 * so the 1023-byte final path also fits the staging path budget. */
+		fs::path parent = temp.root;
 		std::string dest = (parent / "mod_effect_with_long_identity").string();
+		INFO("final path target=" << total << ", destination length=" << dest.size());
+		REQUIRE(dest.size() + 1 < total);
 		const size_t memberLength = total - dest.size() - 1;
 		REQUIRE(memberLength > 0);
-		auto archive = makePdca({{std::string(memberLength, 'm'), "data"}});
+		const std::string member(memberLength, 'm');
+		REQUIRE(dest.size() + 1 + member.size() == total);
+		auto archive = makePdca({{member, "data"}});
 		pdca_extract_faults_t fault{0, -1, 0};
 		/* OPEN_FAILED proves the complete envelope and destination preflight
 		 * passed without depending on host long-path policy for the final open. */
