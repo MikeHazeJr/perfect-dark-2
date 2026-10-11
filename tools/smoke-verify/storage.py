@@ -92,12 +92,40 @@ def walk(root):
 def signature(s):
     return [s.st_size, s.st_mtime_ns, s.st_dev, s.st_ino, s.st_nlink]
 
-def json_gzip(path, value):
+def retention_from(value):
+    if value is None:
+        return False
+    if not isinstance(value, dict) or set(value) - {"retain_housekeeping"}:
+        raise StorageError("Unknown retention options")
+    enabled = value.get("retain_housekeeping", False)
+    if type(enabled) is not bool:
+        raise StorageError("retain_housekeeping must be a boolean")
+    return enabled
+
+
+def gzip_bound(size):
+    # Deflate may expand incompressible input; include block and gzip framing.
+    return size + ((size + 16382) // 16383) * 5 + 1024
+
+
+def row_retained(row):
+    if "retention" in row and row["retention"] is None:
+        raise StorageError("Persisted retention options must be an object")
+    return retention_from(row.get("retention"))
+
+
+def json_gzip(path, value, retain=False, operation_id=None, before_publish=None):
+    path = plain(path)
+    if retain and path.exists():
+        raise StorageError("Retained receipt collision: " + str(path))
     plain(path.parent).mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + "." + uuid.uuid4().hex + ".tmp")
-    with gzip.open(temporary, "wt", encoding="utf-8", compresslevel=1) as f:
+    temporary = path.with_name(path.name + "." + (operation_id or uuid.uuid4().hex) + "." + uuid.uuid4().hex + ".tmp")
+    with gzip.open(temporary, "xt" if retain else "wt", encoding="utf-8", compresslevel=1) as f:
         json.dump(value, f, separators=(",", ":"), sort_keys=True)
-    os.replace(temporary, path)
+    if before_publish is not None: before_publish()
+    # Native Windows rename refuses an existing destination, including races.
+    if retain: os.rename(temporary, path)
+    else: os.replace(temporary, path)
 
 def read_gzip(path):
     with gzip.open(plain(path), "rt", encoding="utf-8") as f:
@@ -167,7 +195,11 @@ def exclusive_file(path, delete=False, expected=None, metadata=None):
         close(handle)
 
 class Storage:
-    def __init__(self, project, policy=None):
+    def __init__(self, project, policy=None, retention=None):
+        self.retain_housekeeping = retention_from(retention)
+        if self.retain_housekeeping and os.name != "nt":
+            raise StorageError("Retained housekeeping requires native Windows storage")
+        self.operation_id = uuid.uuid4().hex
         self.project = plain(project)
         allowed = plain(CHECKOUT / ".claude")
         if self.project != CHECKOUT and not self.project.is_relative_to(allowed):
@@ -203,23 +235,87 @@ class Storage:
             try:
                 if self.state_path.exists(): self.state = json.loads(self.state_path.read_text(encoding="utf-8"))
                 if self.state.get("schema") != 1: raise StorageError("Unknown prospective storage registry")
+                for row in [*self.state["installs"].values(), *self.state.get("reuse_runs", {}).values()]:
+                    row_retained(row)
                 self.archive_used = self.usage()
                 yield self
+            except (OSError, ValueError, KeyError, StorageError) as error:
+                if self.retain_housekeeping:
+                    # Partial checkout/receipt writes are still real retained bytes.
+                    # An inventory failure must not replace the original refusal.
+                    try: self.archive_used = self.usage()
+                    except (OSError, StorageError): pass
+                    # Preserve the original failure and make the effective mode explicit.
+                    raise StorageError(str(error) + "; retention=" + json.dumps(self.retention_metadata())) from error
+                raise
             finally:
                 if os.name == "nt":
                     lock.seek(0); msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
     def save(self):
+        preserve = self.retain_housekeeping or any(row_retained(x)
+            for x in [*self.state["installs"].values(), *self.state.get("reuse_runs", {}).values()])
+        if preserve:
+            self.archive_used = self.usage()
+            if self.state_path.with_suffix(".tmp").exists():
+                raise StorageError("Legacy registry candidate retained; refuse replacement")
+            directory = plain(self.root / "protocol-artifacts" / self.operation_id)
+            payload = json.dumps(self.state, separators=(",", ":")).encode("utf-8")
+            prior = self.state_path.read_bytes() if self.state_path.exists() else b""
+            self.archive_used = self.usage()
+            self.preflight(len(payload) + len(prior), len(payload) + len(prior))
+            directory.mkdir(parents=True, exist_ok=True)
+            temporary = directory / ("state-" + uuid.uuid4().hex + ".tmp")
+            try:
+                if self.state_path.exists():
+                    with open(directory / ("state-before-" + uuid.uuid4().hex + ".json"), "xb") as f:
+                        f.write(prior)
+                with open(temporary, "xb") as f: f.write(payload)
+                self.archive_used = self.usage()
+                self.preflight()
+                # Existing locked atomic registry protocol, with prior exact bytes retained.
+                os.replace(temporary, self.state_path)
+            finally:
+                self.archive_used = self.usage()
+            return
         temporary = self.state_path.with_suffix(".tmp")
         temporary.write_text(json.dumps(self.state, separators=(",", ":")), encoding="utf-8")
         os.replace(temporary, self.state_path)
 
     def usage(self):
         total = 0
-        for name in ["blobs", "seeds", "receipts", "reuse-receipts"]:
+        for name in ["blobs", "seeds", "receipts", "reuse-receipts", "protocol-artifacts"]:
             base = self.root / name
             if base.exists(): total += sum(s.st_size for _, s in walk(base))
+        legacy = plain(self.state_path.with_suffix(".tmp"))
+        if legacy.exists(): total += legacy.stat().st_size
         return total
+
+    def inherit_retention(self, row, reject_late=False):
+        inherited = row_retained(row)
+        if reject_late and self.retain_housekeeping and not inherited:
+            raise StorageError("Late retention promotion refused; create a retained install first")
+        self.retain_housekeeping = self.retain_housekeeping or inherited
+        if self.retain_housekeeping and os.name != "nt":
+            raise StorageError("Retained housekeeping requires native Windows storage")
+
+    def retention_metadata(self):
+        return {"retain_housekeeping": self.retain_housekeeping, "operation_id": self.operation_id}
+
+    def write_receipt(self, path, value):
+        if not self.retain_housekeeping:
+            return json_gzip(path, value)
+        bound = gzip_bound(len(json.dumps(value, separators=(",", ":"), sort_keys=True).encode("utf-8")))
+        self.archive_used = self.usage()
+        self.preflight(bound, bound)
+        def verify_candidate_budget():
+            self.archive_used = self.usage()
+            self.preflight()
+        try:
+            json_gzip(path, value, True, self.operation_id, verify_candidate_budget)
+        finally:
+            self.archive_used = self.usage()
+        self.preflight()
 
     def preflight(self, pending=0, archive_pending=0):
         if not isinstance(pending, int) or not isinstance(archive_pending, int) or pending < 0 or archive_pending < 0:
@@ -269,25 +365,31 @@ class Storage:
         if destination.exists():
             self.verify_blob(digest)
             return {"sha256": digest, "bytes": s.st_size, "mtime_ns": s.st_mtime_ns}
-        self.preflight(s.st_size * 2 + 1024, s.st_size + 1024)
+        bound = gzip_bound(s.st_size) if self.retain_housekeeping else s.st_size + 1024
+        self.preflight(s.st_size + bound, bound)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        temporary = destination.with_suffix("." + uuid.uuid4().hex + ".tmp")
+        temporary = destination.with_suffix("." + self.operation_id + "." + uuid.uuid4().hex + ".tmp")
         try:
-            with io.sequential_open(path) as source, gzip.open(temporary, "wb", compresslevel=1) as out:
+            with io.sequential_open(path) as source, gzip.open(temporary, "xb" if self.retain_housekeeping else "wb", compresslevel=1) as out:
                 io.verify_opened_path(source, Path(path))
                 copied = hashlib.sha256()
                 while block := source.read(262144): copied.update(block); out.write(block)
             if copied.hexdigest() != digest or signature(s) != signature(os.stat(path, follow_symlinks=False)):
                 raise StorageError("Input changed before archiving: " + str(path))
             # The global storage lock prevents another writer. Existing blobs never overwritten.
+            if self.retain_housekeeping:
+                self.archive_used = self.usage()
+                self.preflight()
             os.rename(temporary, destination)
             stored = destination.stat().st_size
             self.new_blob_bytes += stored
-            self.archive_used += stored
+            if self.retain_housekeeping: self.archive_used = self.usage()
+            else: self.archive_used += stored
             self.state["blobs"][digest] = {"bytes": s.st_size, "stored_bytes": stored}
             self.validated.add(digest)
         finally:
-            if temporary.exists(): temporary.unlink()  # Only our newly created prospective temp.
+            if self.retain_housekeeping: self.archive_used = self.usage()
+            elif temporary.exists(): temporary.unlink()  # Only our newly created prospective temp.
         return {"sha256": digest, "bytes": s.st_size, "mtime_ns": s.st_mtime_ns}
 
     def checkout(self, entry, destination):
@@ -295,11 +397,14 @@ class Storage:
         destination.parent.mkdir(parents=True, exist_ok=True)
         digest = entry["sha256"]
         h = hashlib.sha256()
-        with gzip.open(self.blob_path(digest), "rb") as source, open(destination, "xb") as out:
-            while block := source.read(262144): h.update(block); out.write(block)
-        if h.hexdigest() != digest or destination.stat().st_size != entry["bytes"]:
-            raise StorageError("Reconstruction hash mismatch: " + str(destination))
-        os.utime(destination, ns=(entry["mtime_ns"], entry["mtime_ns"]))
+        try:
+            with gzip.open(self.blob_path(digest), "rb") as source, open(destination, "xb") as out:
+                while block := source.read(262144): h.update(block); out.write(block)
+            if h.hexdigest() != digest or destination.stat().st_size != entry["bytes"]:
+                raise StorageError("Reconstruction hash mismatch: " + str(destination))
+            os.utime(destination, ns=(entry["mtime_ns"], entry["mtime_ns"]))
+        finally:
+            if self.retain_housekeeping: self.archive_used = self.usage()
 
     def capture(self, directory):
         answer = {}
@@ -448,6 +553,7 @@ class Storage:
         """
         owner = process_identity(request.get("owner_pid"))
         install, snapshot = self.reuse_plan(request)
+        self.inherit_retention(install)
         identifier = "reuse-" + uuid.uuid4().hex
         directory = plain(self.root / "profiles" / identifier)
         receipt_dir = plain(self.root / "reuse-receipts" / identifier)
@@ -455,6 +561,8 @@ class Storage:
                   "owner": owner, "path": directory.relative_to(self.root).as_posix(),
                   "reserved_bytes": self.policy["peak_run_gib_bytes"],
                   "snapshot_sha256": hashlib.sha256(json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode()).hexdigest()}
+        if self.retain_housekeeping:
+            record.update(retention={"retain_housekeeping": True}, operation_id=self.operation_id)
         self.state.setdefault("reuse_runs", {})[identifier] = record
         self.save()  # Interrupted setup retains its exclusive lease for review.
         for name in ["profile", "logs", "captures"]: (directory / name).mkdir(parents=True)
@@ -464,7 +572,7 @@ class Storage:
         admission = {"lease": dict(record), "snapshot": snapshot}
         length = len(json.dumps(admission).encode()) + 1024
         self.preflight(length, length)
-        json_gzip(receipt_dir / "admission.json.gz", admission)
+        self.write_receipt(receipt_dir / "admission.json.gz", admission)
         return {"ReuseId": identifier, "InstallDir": str(self.install_path(install)),
                 "ProfileDir": str(directory / "profile"), "LogDir": str(directory / "logs"),
                 "CaptureDir": str(directory / "captures"), "ReuseReceiptDir": str(receipt_dir),
@@ -472,6 +580,7 @@ class Storage:
 
     def release_reuse(self, request):
         record = self.state["reuse_runs"][request["id"]]
+        self.inherit_retention(record, reject_late=True)
         if record["status"] != "active": raise StorageError("Only an active reuse lease can close")
         if process_identity(request.get("owner_pid")) != record["owner"]:
             raise StorageError("Reuse lease owner identity mismatch")
@@ -504,7 +613,7 @@ class Storage:
         length = len(json.dumps(receipt).encode()) + 1024
         self.preflight(length, length)
         path = self.root / "reuse-receipts" / record["id"] / "completion.json.gz"
-        json_gzip(path, receipt)
+        self.write_receipt(path, receipt)
         record.update(status="completed", completed=receipt["completed"],
                       reserved_bytes=sum(x["bytes"] for x in files.values()))
         self.save()
@@ -512,6 +621,8 @@ class Storage:
                 "DeletionPerformed": False, "PriorPassed": self.state["installs"][record["base_id"]]["passed"]}
 
     def remove(self, install):
+        if self.retain_housekeeping or row_retained(install):
+            raise StorageError("Retained housekeeping refuses install removal")
         if not self.eligible(install): raise StorageError("Workspace is active or pinned; no removal")
         directory = self.install_path(install)
         if not directory.is_relative_to(self.root / "installs"):
@@ -545,11 +656,13 @@ class Storage:
             full = [x for x in self.state["installs"].values() if x["status"] != "compacted"]
             if len(full) + 1 <= limit_count and sum(x["full_bytes"] for x in full) + self.profile_bytes() + required <= limit_bytes:
                 return
+            if self.retain_housekeeping:
+                raise StorageError("Retained housekeeping refuses eviction; full-install budget exceeded")
             # Prefer retaining the newest successful copy; older successes and
             # then oldest failures yield slots first. Receipts never pruned.
             successes = [x for x in full if x["status"] == "completed" and x.get("passed")]
             latest_success = max(successes, key=lambda x: x["created"])["id"] if successes else None
-            victims = sorted((x for x in full if x["status"] == "completed" and not x.get("pin") and not self.reuse_held(x["id"])
+            victims = sorted((x for x in full if x["status"] == "completed" and not x.get("pin") and not row_retained(x) and not self.reuse_held(x["id"])
                               and self.install_path(x).is_relative_to(self.root / "installs")),
                              key=lambda x: (2 if x["id"] == latest_success else 0 if x.get("passed") else 1, x["created"]))
             if not victims: raise StorageError("Full-install budget blocked by active/pinned evidence; no new copy")
@@ -558,6 +671,15 @@ class Storage:
     def seed(self, request):
         started = time.perf_counter()
         phases = {}
+        shared = bool(request.get("shared"))
+        target = "server" if request.get("target") == "pd-server" else "client"
+        directory = self.root / "shared" / target if shared else None
+        previous = next((x for x in self.state["installs"].values()
+                         if directory and x["status"] != "compacted" and self.install_path(x) == directory), None)
+        if shared and (self.retain_housekeeping or previous and row_retained(previous)):
+            raise StorageError("Retained housekeeping refuses shared workspace reset")
+        if self.retain_housekeeping:
+            self.make_room(self.policy["peak_run_gib_bytes"])
         self.preflight(self.policy["peak_run_gib_bytes"])
         files = {}
         if request.get("seed_id"):
@@ -585,22 +707,19 @@ class Storage:
                     files[str(relative(name))] = self.put(path)
         seed_digest = hashlib.sha256(json.dumps(files, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         seed_path = self.root / "seeds" / (seed_digest + ".json.gz")
+        if self.retain_housekeeping and seed_path.exists() and read_gzip(seed_path) != files:
+            raise StorageError("Existing immutable seed evidence differs; refuse replacement")
         if not seed_path.exists():
             length = len(json.dumps(files).encode())
             self.preflight(length + 1024, length + 1024)
-            json_gzip(seed_path, files)
-            self.archive_used += seed_path.stat().st_size
+            self.write_receipt(seed_path, files)
+            if not self.retain_housekeeping: self.archive_used += seed_path.stat().st_size
             self.preflight()
         actual_bytes = sum(x["bytes"] for x in files.values())
         phases["source_snapshot_seconds"] = time.perf_counter() - started
         transition_started = time.perf_counter()
         reserve = max(actual_bytes, self.policy["peak_run_gib_bytes"])
         self.preflight(reserve)
-        shared = bool(request.get("shared"))
-        target = "server" if request.get("target") == "pd-server" else "client"
-        directory = self.root / "shared" / target if shared else None
-        previous = next((x for x in self.state["installs"].values()
-                         if directory and x["status"] != "compacted" and self.install_path(x) == directory), None)
         reusable = None
         if directory and directory.exists():
             if previous is None: raise StorageError("Unregistered shared workspace; preserve existing files")
@@ -619,11 +738,13 @@ class Storage:
         identifier = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ-") + re_safe(request["name"]) + "-" + uuid.uuid4().hex[:8]
         if directory is None: directory = self.root / "installs" / identifier
         directory = plain(directory)
-        directory.mkdir(parents=True, exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=not self.retain_housekeeping)
         copied = reused = 0
         record = {"id": identifier, "path": directory.relative_to(self.root).as_posix(), "seed": seed_digest,
                   "created": utc(), "status": "active", "owner_pid": request.get("owner_pid"),
                   "full_bytes": reserve, "pin": False, "shared": shared}
+        if self.retain_housekeeping:
+            record.update(retention={"retain_housekeeping": True}, operation_id=self.operation_id)
         self.state["installs"][identifier] = record
         self.save()  # Reserve before any copy; interrupted work remains bounded and protected.
         phases["workspace_transition_seconds"] = time.perf_counter() - transition_started
@@ -644,7 +765,10 @@ class Storage:
             else:
                 self.checkout(entry, destination); copied += entry["bytes"]
         marker = {"schema": 1, "id": identifier, "prospective": True}
-        (directory / ".pd-storage-owner.json").write_text(json.dumps(marker), encoding="utf-8")
+        marker_path = directory / ".pd-storage-owner.json"
+        if self.retain_housekeeping:
+            with open(marker_path, "x", encoding="utf-8") as f: json.dump(marker, f)
+        else: marker_path.write_text(json.dumps(marker), encoding="utf-8")
         (self.root / "receipts" / identifier / "artifacts").mkdir(parents=True, exist_ok=True)
         self.state["installs"][identifier] = record; self.save()
         phases["checkout_seconds"] = time.perf_counter() - checkout_started
@@ -656,16 +780,24 @@ class Storage:
 
     def complete(self, request):
         install = self.state["installs"][request["id"]]
+        self.inherit_retention(install, reject_late=True)
         if install["status"] != "active": raise StorageError("Only the owning active run may complete")
         if install.get("owner_pid") != request.get("owner_pid"): raise StorageError("Completion owner mismatch")
         directory = self.install_path(install)
         marker = json.loads(plain(directory / ".pd-storage-owner.json").read_text())
         if marker.get("id") != install["id"]: raise StorageError("Completion owner marker mismatch")
+        receipt_dir = plain(self.root / "receipts" / install["id"])
+        if self.retain_housekeeping:
+            destinations = [receipt_dir / n for n in ("recipe.json.gz", "outcome.json.gz", "definition.json")]
+            destinations += [receipt_dir / "logs" / p.relative_to(directory)
+                             for p, _ in walk(directory) if p.name.endswith(".log")]
+            for destination in destinations:
+                if plain(destination).exists():
+                    raise StorageError("Retained completion receipt collision: " + str(destination))
         files = self.capture(directory)
         actual, metadata = self.inspect(directory)
         if actual != files: raise StorageError("Workspace changed during evidence capture; leave active/preserved")
         seed = read_gzip(self.root / "seeds" / (install["seed"] + ".json.gz"))
-        receipt_dir = self.root / "receipts" / install["id"]
         definition = plain(request["definition"])
         definition_record = self.put(definition)
         patch = subprocess.run(["git", "diff", "--binary", "HEAD", "--", "src", "port", "include", "tests", "CMakeLists.txt", "tools/smoke-verify"],
@@ -675,33 +807,36 @@ class Storage:
                       "git_dirty_patch_available": patch.returncode == 0,
                       "binary_reproduction": "Exact binary bytes are in the recipe; HEAD/patch is diagnostic provenance, not a claim about the binary build"}
         if patch.returncode == 0:
-            self.preflight(len(patch.stdout) + 1024)
-            patch_path = plain(receipt_dir / ("source-diff-" + uuid.uuid4().hex + ".tmp"))
+            self.preflight(len(patch.stdout) + 1024, len(patch.stdout) if self.retain_housekeeping else 0)
+            patch_path = plain(receipt_dir / ("source-diff-" + self.operation_id + "-" + uuid.uuid4().hex + (".patch" if self.retain_housekeeping else ".tmp")))
             try:
-                patch_path.write_bytes(patch.stdout)
+                with open(patch_path, "xb") as f: f.write(patch.stdout)
+                if self.retain_housekeeping: self.archive_used = self.usage()
                 provenance["source_patch"] = self.put(patch_path)
             finally:
-                if patch_path.exists(): exclusive_file(patch_path, delete=True)
+                if self.retain_housekeeping: self.archive_used = self.usage()
+                elif patch_path.exists(): exclusive_file(patch_path, delete=True)
         outcome = request.get("outcome", {})
         recipe = {"schema": 1, "complete": True, "id": install["id"], "seed": install["seed"],
                   "changed": {n: e for n, e in files.items() if seed.get(n) != e},
                   "deleted": sorted(seed.keys() - files.keys()), "metadata": metadata,
                   "definition": definition_record, "outcome": outcome, "provenance": provenance, "completed": utc()}
+        if self.retain_housekeeping: recipe["retention"] = self.retention_metadata()
         serialized = json.dumps(recipe, separators=(",", ":")).encode()
         self.preflight(len(serialized) + 1024, len(serialized) + 1024)
-        json_gzip(receipt_dir / "recipe.json.gz", recipe)
-        self.archive_used += (receipt_dir / "recipe.json.gz").stat().st_size
+        self.write_receipt(receipt_dir / "recipe.json.gz", recipe)
+        if not self.retain_housekeeping: self.archive_used += (receipt_dir / "recipe.json.gz").stat().st_size
         log_files = []
         for name, entry in files.items():
             if name.endswith(".log"):
                 destination = receipt_dir / "logs" / str(relative(name))
                 self.preflight(entry["bytes"], entry["bytes"])
-                if not destination.exists(): self.checkout(entry, destination)
-                self.archive_used += entry["bytes"]
+                if self.retain_housekeeping or not destination.exists(): self.checkout(entry, destination)
+                if not self.retain_housekeeping: self.archive_used += entry["bytes"]
                 log_files.append(str(destination))
         outcome_length = len(json.dumps(outcome).encode()) + 1024
         self.preflight(outcome_length + definition_record["bytes"], outcome_length + definition_record["bytes"])
-        json_gzip(receipt_dir / "outcome.json.gz", outcome)
+        self.write_receipt(receipt_dir / "outcome.json.gz", outcome)
         definition_path = receipt_dir / "definition.json"
         self.checkout(definition_record, definition_path)
         self.archive_used = self.usage()
@@ -714,6 +849,7 @@ class Storage:
 
     def restore(self, identifier, destination):
         install = self.state["installs"][identifier]
+        self.inherit_retention(install)
         files, _ = self.recipe(install)
         destination = plain(destination)
         if not destination.is_relative_to(self.root / "restored"):
@@ -727,6 +863,8 @@ class Storage:
         self.state["installs"][restored_id] = {"id": restored_id, "created": utc(), "status": "restoring",
             "pin": True, "full_bytes": full_bytes, "seed": install["seed"], "source_receipt": identifier,
             "path": destination.relative_to(self.root).as_posix()}
+        if self.retain_housekeeping:
+            self.state["installs"][restored_id].update(retention={"retain_housekeeping": True}, operation_id=self.operation_id)
         self.save()
         for name, entry in files.items(): self.checkout(entry, destination / str(relative(name)))
         self.state["installs"][restored_id]["status"] = "restored"
@@ -750,7 +888,11 @@ def main():
         kernel.GetCurrentProcess.restype = ctypes.c_void_p
         kernel.SetPriorityClass.argtypes = [ctypes.c_void_p, ctypes.c_uint32]
         kernel.SetPriorityClass(kernel.GetCurrentProcess(), 0x4000)
-    storage = Storage(request["project"], request.get("policy"))
+    if "retention" in request and request["retention"] is None:
+        raise StorageError("Retention options must be an object")
+    storage = Storage(request["project"], request.get("policy"), request.get("retention"))
+    if args.action == "seed" and storage.retain_housekeeping and request.get("shared"):
+        raise StorageError("Retained housekeeping refuses shared workspace reset; retention=" + json.dumps(storage.retention_metadata()))
     readonly = args.action in {"status", "dry-run"}
     if readonly and storage.state_path.exists(): storage.state = json.loads(storage.state_path.read_text(encoding="utf-8"))
     with (contextlib.nullcontext(storage) if readonly else storage.locked()):
@@ -772,6 +914,7 @@ def main():
                 result["CandidateVerification"] = "Inventory only; retention re-verifies complete recipes, every file, and exclusive handles before removal"
                 result["Candidates"] = [{"id": x["id"], "path": str(storage.root / x["path"]), "bytes": x["full_bytes"]}
                                          for x in rows if x["status"] == "completed" and not x.get("pin") and not storage.reuse_held(x["id"])]
+        if storage.retain_housekeeping: result["Retention"] = storage.retention_metadata()
         print(json.dumps(result, ensure_ascii=True))
 
 if __name__ == "__main__":

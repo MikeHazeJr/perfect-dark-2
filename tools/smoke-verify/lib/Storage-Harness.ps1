@@ -3,6 +3,12 @@
 $script:SmokeStoragePolicy = @{}
 $script:SmokeStorageBackend = Join-Path (Split-Path -Parent $PSScriptRoot) 'storage.py'
 $script:SmokeStoragePython = ''
+$script:SmokeRetainHousekeeping = $false
+
+function Set-SmokeStorageRetention {
+    param([switch] $RetainHousekeeping)
+    $script:SmokeRetainHousekeeping = [bool]$RetainHousekeeping
+}
 
 function Get-SmokeStoragePython {
     if ($script:SmokeStoragePython) { return $script:SmokeStoragePython }
@@ -37,6 +43,22 @@ function Initialize-SmokeStoragePolicy {
 function Invoke-SmokeStorage {
     param([Parameter(Mandatory)][ValidateSet('seed','complete','preflight','status','restore','dry-run','reuse-plan','reuse-acquire','reuse-release')][string] $Action,
           [Parameter(Mandatory)][string] $ProjectRoot, [hashtable] $Request = @{})
+    $retain = $script:SmokeRetainHousekeeping
+    if ($Request.ContainsKey('retention')) {
+        $options = $Request.retention
+        if ($null -eq $options -or $options -isnot [System.Collections.IDictionary]) {
+            throw 'Retention options must be an object.'
+        }
+        foreach ($key in $options.Keys) {
+            if ($key -cne 'retain_housekeeping') { throw "Unknown retention option: $key" }
+        }
+        if ($options.Contains('retain_housekeeping')) {
+            if ($options.retain_housekeeping -isnot [bool]) { throw 'retain_housekeeping must be a boolean.' }
+            if ($retain -and -not $options.retain_housekeeping) { throw 'Selected retained housekeeping cannot be downgraded by a request.' }
+            $retain = $retain -or $options.retain_housekeeping
+        }
+    }
+    if ($retain) { $Request.retention = @{ retain_housekeeping = $true } }
     $Request.project = $ProjectRoot
     $Request.policy = $script:SmokeStoragePolicy
     $storageProcess = New-Object System.Diagnostics.Process
