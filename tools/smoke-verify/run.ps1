@@ -72,6 +72,11 @@
 .PARAMETER Keep
     Pin the full managed install; receipts are retained for every completed run.
 
+.PARAMETER RetainHousekeeping
+    Opt in to preserved housekeeping and collision-refusing result output.
+    Requires a private frozen single-process install or the vetted reuse path.
+    Build, shared reset and unintegrated fixture mutations are refused.
+
 .PARAMETER StoragePolicy
     Optional JSON policy overriding the checked-in storage-policy.json defaults.
 
@@ -113,6 +118,7 @@ param(
     [switch]   $SharedInstall,
     [switch]   $PerTestInstall,
     [switch]   $Keep,
+    [switch]   $RetainHousekeeping,
     [switch]   $MaintainForeground,
     [int]      $Timeout = 0,
 
@@ -143,6 +149,11 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
 $LibDir = Join-Path $ScriptDir "lib"
+$script:RunnerRetentionContext = $null
+. (Join-Path $LibDir 'Runner-Retention.ps1')
+Assert-SmokeRunnerRetentionOptions -Retained ([bool]$RetainHousekeeping) -BuildRequested ([bool]$Build) `
+    -SharedRequested ([bool]$SharedInstall) -PrivateRequested ([bool]$PerTestInstall) `
+    -TemplateRequested ([bool]$Install) -ReuseRequested ([bool]$ReuseInstallId)
 $script:ReuseConsumerLock = $null
 $script:ReuseDefinitionLock = $null
 $script:ReusePolicyQuery = $null
@@ -158,6 +169,7 @@ if ($ReuseInstallId) {
         throw 'ReuseInstallId requires ReuseSeed/ReuseBinarySha256 and conflicts with build/copy/source/mutation modes.'
     }
     . (Join-Path $LibDir 'Storage-Harness.ps1')
+    Set-SmokeStorageRetention -RetainHousekeeping:$RetainHousekeeping
     Initialize-SmokeStoragePolicy -Path $StoragePolicy
     if ($ReusePlan) {
         Get-SmokeReusePlan -ProjectRoot $ProjectRoot -InstallId $ReuseInstallId -Seed $ReuseSeed -BinarySha256 $ReuseBinarySha256 | ConvertTo-Json
@@ -666,6 +678,7 @@ $ResultsFile = ""
 
 . (Join-Path $LibDir "Test-Assertions.ps1")
 . (Join-Path $LibDir "Install-Harness.ps1")
+Set-SmokeStorageRetention -RetainHousekeeping:$RetainHousekeeping
 Initialize-SmokeStoragePolicy -Path $StoragePolicy
 . (Join-Path $LibDir "Catalog-Ingress-Fixtures.ps1")
 . (Join-Path $LibDir "Temporary-Recovery-Fixtures.ps1")
@@ -863,6 +876,7 @@ $script:SmokeOwnedProcesses = @{}
 $script:SmokeRetainedLaunches = @{}
 $script:SmokeRetainedFaults = @()
 
+try {
 try {
 
 # ----------------------------------------------------------------
@@ -2185,6 +2199,10 @@ function Invoke-SmokeTest {
 
     $name = $Test.Name
     $def = $Test.Definition
+    if ($RetainHousekeeping) {
+        Assert-SmokeRetainedDefinition -Definition $def
+        if ($Shared) { throw 'Retained runner refuses shared install setup.' }
+    }
     Write-Host ""
     Write-Host ("=== {0} ===" -f $name) -ForegroundColor Cyan
     if ($def.PSObject.Properties.Match('description').Count -gt 0) {
@@ -2411,6 +2429,10 @@ function Invoke-SmokeTest {
     # array via --smoke-screenshot-dir. The PrintWindow path stays as a
     # fallback for any shot the harness didn't write.
     $screenshotSchedule = @(New-SmokeScreenshotSchedule -Definition $def -RunRoot $installInfo.StorageReceiptDir -TestName $name)
+    if ($RetainHousekeeping) {
+        Assert-SmokeRetainedLaunchOutputs -InstallDir $installInfo.InstallDir `
+            -ScreenshotPaths @($screenshotSchedule | ForEach-Object { $_.Path })
+    }
     $screenshotDir = $null
     if ($screenshotSchedule.Count -gt 0) {
         [void](Assert-SmokeStoragePreflight -ProjectRoot $ProjectRoot -ArchivePendingBytes ([long]$screenshotSchedule.Count * 32MB))
@@ -2772,7 +2794,14 @@ function Invoke-SmokeTest {
         $outcome.profile_id=$installInfo.ReuseId
         $outcome.screenshots=$retainedScreenshots
         $outcome.result_file=Join-Path $installInfo.ProfileDir 'result.json'
-        $outcome | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $outcome.result_file -Encoding UTF8
+        if ($RetainHousekeeping) {
+            $outcome.retention=@{run_id=$script:RunnerRetentionContext.RunId;retain_housekeeping=$true}
+            $profilePublication=Write-SmokeRunnerRetainedProfileResult -Context $script:RunnerRetentionContext `
+                -ReuseId $installInfo.ReuseId -Value $outcome
+            $outcome.result_file=$profilePublication.Path
+        } else {
+            $outcome | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath $outcome.result_file -Encoding UTF8
+        }
         Write-Info ("Results written to: {0}" -f $outcome.result_file)
         $storageReceipt=Complete-SmokeReadOnlyProfile -ProjectRoot $ProjectRoot -Profile $reuseProfile -Outcome $outcome
     } else {
@@ -2797,7 +2826,7 @@ function Invoke-SmokeTest {
     $category = "scenario"
     if ($Test.PSObject.Properties.Match('Category').Count -gt 0 -and $Test.Category) { $category = $Test.Category }
 
-    return [PSCustomObject]@{
+    $testResult = [PSCustomObject]@{
         Name = $name
         Category = $category
         BugId = $bugId
@@ -2814,6 +2843,11 @@ function Invoke-SmokeTest {
         AssertionsMet = $assertResult.Met
         Failures = @($assertResult.Failures)
     }
+    if ($RetainHousekeeping) {
+        $testResult | Add-Member -NotePropertyName Retention -NotePropertyValue `
+            (Get-SmokeRunnerRetentionEvidence -Context $script:RunnerRetentionContext -StorageReceipt $storageReceipt)
+    }
+    return $testResult
 }
 
 # ----------------------------------------------------------------
@@ -2870,6 +2904,11 @@ $selected = @(Select-SmokeTests `
 
 if ($selected.Count -eq 0) {
     throw "No tests matched the selection criteria."
+}
+if ($RetainHousekeeping) {
+    foreach ($candidate in $selected) { Assert-SmokeRetainedDefinition -Definition $candidate.Definition }
+    $script:RunnerRetentionContext=New-SmokeRunnerRetentionContext -ProjectRoot $ProjectRoot
+    $RunRoot=$script:RunnerRetentionContext.RunRoot
 }
 if ($ReuseInstallId) {
     if ($selected.Count -ne 1) { throw 'Reuse requires exactly one vetted fixture.' }
@@ -2966,8 +3005,14 @@ if (-not (Test-Path -LiteralPath $RunRoot)) {
     New-Item -ItemType Directory -Path $RunRoot -Force | Out-Null
 }
 if (-not $ReuseInstallId) {
+if ($RetainHousekeeping) {
+    $summaryPublication=Write-SmokeRunnerRetainedJson -Context $script:RunnerRetentionContext `
+        -Name ('results-'+[guid]::NewGuid().ToString('N')+'.json') -Value @($results)
+    $ResultsFile=$summaryPublication.Path
+} else {
 $ResultsFile = Join-Path $RunRoot ("results-{0:yyyyMMddTHHmmssZ}.json" -f ((Get-Date).ToUniversalTime()))
 $results | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $ResultsFile -Encoding UTF8
+}
 Write-Info ("Results written to: {0}" -f $ResultsFile)
 }
 
@@ -2996,4 +3041,17 @@ exit $(if ($failCount -eq 0) { 0 } else { 1 })
     if ($script:ReuseConsumerLock) { $script:ReuseConsumerLock.Dispose() }
     if ($script:ReuseDefinitionLock) { $script:ReuseDefinitionLock.Dispose() }
     [void][PdSmokeWinErrorMode]::SetErrorMode($previousErrorMode)
+}
+} catch {
+    $runnerError=$_
+    if ($RetainHousekeeping -and $script:RunnerRetentionContext) {
+        try {
+            [void](Write-SmokeRunnerRetainedJson -Context $script:RunnerRetentionContext `
+                -Name ('runner-error-'+[guid]::NewGuid().ToString('N')+'.json') -Value @{
+                    run_id=$script:RunnerRetentionContext.RunId;passed=$false;error=$runnerError.Exception.ToString()
+                    actor_closeout='no successful closeout claimed by this failure receipt'
+                })
+        } catch { Write-Warning ('Retained runner error publication also failed: '+$_.Exception.Message) }
+    }
+    throw $runnerError
 }
