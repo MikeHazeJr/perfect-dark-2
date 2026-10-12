@@ -32,6 +32,10 @@ param(
     # Prospective free-space floor and pending build growth; no evidence eviction.
     [string]$StoragePolicy = "",
 
+    # Preserve accounted wrapper protocol and per-invocation logs. Native child
+    # admission stays closed until its exact retained capability is reviewed.
+    [switch]$RetainHousekeeping,
+
     [string]$Version = "",
 
     # Dev-mod selection passed through to build-headless.ps1 (copied into
@@ -77,6 +81,12 @@ $QueueLockPath = Join-Path $QueueDir "queue.lock"
 $QueueActivePath = Join-Path $QueueDir "active.json"
 $QueueDurationsPath = Join-Path $QueueDir "durations.json"
 $QueueTimeoutExitCode = 124
+
+. (Join-Path $ScriptDir 'Build-Retention.ps1')
+Assert-BuildRetentionOptions -Retained ([bool]$RetainHousekeeping) -DevMods $DevMods -Session $Session -Modes @{
+    Clean=[bool]$Clean;NoQueue=[bool]$NoQueue;Remove=[bool]$Remove;RemoveAll=[bool]$RemoveAll;
+    SelfTest=[bool]$SelfTest;Force=[bool]$Force;List=[bool]$List
+}
 
 function Write-Info([string]$text) { Write-Host $text -ForegroundColor Gray }
 function Write-Warn([string]$text) { Write-Host $text -ForegroundColor Yellow }
@@ -214,10 +224,12 @@ function Show-ProcessTreeSnapshot([int]$rootPid) {
 }
 
 function Get-BuildStdoutLogPath([string]$buildDir) {
+    if($script:BuildRetentionContext){return Join-Path $script:BuildRetentionContext.RunRoot '_build-session.out.log'}
     return Join-Path $buildDir "_build-session.out.log"
 }
 
 function Get-BuildStderrLogPath([string]$buildDir) {
+    if($script:BuildRetentionContext){return Join-Path $script:BuildRetentionContext.RunRoot '_build-session.err.log'}
     return Join-Path $buildDir "_build-session.err.log"
 }
 
@@ -287,6 +299,7 @@ function Show-HeadlessStepLogTail([string]$buildDir, [int]$lines = 40, [int]$max
 }
 
 function Write-JsonFile([string]$path, $value) {
+    if($script:BuildRetentionContext){Write-BuildRetainedProtocol $path $value;return}
     $value | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $path -Encoding UTF8
 }
 
@@ -301,7 +314,9 @@ function Enter-QueueStateLock {
     $deadline = [DateTime]::UtcNow.AddSeconds(30)
     while ($true) {
         try {
-            return [System.IO.File]::Open($QueueLockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+            $stream=[System.IO.File]::Open($QueueLockPath, [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+            if($script:BuildRetentionContext){$script:BuildRetentionQueueLock=$stream}
+            return $stream
         } catch [System.IO.IOException] {
             if ([DateTime]::UtcNow -ge $deadline) {
                 throw "Timed out waiting for build queue state lock: $QueueLockPath"
@@ -314,6 +329,7 @@ function Enter-QueueStateLock {
 function Exit-QueueStateLock($stream) {
     if ($null -ne $stream) {
         try { $stream.Dispose() } catch {}
+        if($script:BuildRetentionContext){$script:BuildRetentionQueueLock=$null}
     }
 }
 
@@ -368,12 +384,19 @@ function Clear-StaleQueueState {
         $entry = Read-QueueJson $file.FullName
         $wrapperPid = Get-ObjectValue $entry "WrapperPid" 0
         if ($null -eq $entry -or -not (Test-PidAlive $wrapperPid)) {
+            if($RetainHousekeeping -or (Test-BuildProtocolRetained $file.FullName)){
+                throw "Retained build refuses stale or malformed queue request: $($file.FullName)"
+            }
             Remove-Item -LiteralPath $file.FullName -Force -ErrorAction SilentlyContinue
         }
     }
 
     $active = Read-QueueJson $QueueActivePath
     if ($null -eq $active) {
+        if(Test-Path -LiteralPath $QueueActivePath){
+            if($RetainHousekeeping -or (Test-BuildProtocolRetained $QueueActivePath)){throw 'Retained build refuses malformed active queue state.'}
+        }
+        if($RetainHousekeeping){return}
         Remove-Item -LiteralPath $QueueActivePath -Force -ErrorAction SilentlyContinue
         return
     }
@@ -382,6 +405,7 @@ function Clear-StaleQueueState {
     $childPid = [int](Get-ObjectValue $active "ChildPid" 0)
     $childAlive = Test-PidAlive $childPid
     if (-not $wrapperAlive -and $childAlive) {
+        if($RetainHousekeeping -or (Test-BuildProtocolRetained $QueueActivePath)){throw 'Retained build refuses orphaned queue actor; state and actors preserved.'}
         $timeoutSeconds = Get-QueueTimeoutSeconds $active
         if ($timeoutSeconds -gt 0) {
             # Orphaned child (its wrapper died) but still alive: only reap it if
@@ -408,6 +432,7 @@ function Clear-StaleQueueState {
         }
     }
     if (-not $wrapperAlive -and -not $childAlive) {
+        if($RetainHousekeeping -or (Test-BuildProtocolRetained $QueueActivePath)){throw 'Retained build refuses stale active queue state.'}
         $session = Get-ObjectValue $active "Session" "unknown"
         Write-Warn "Clearing stale build queue active record for '$session' (owner process is gone)."
         Remove-Item -LiteralPath $QueueActivePath -Force -ErrorAction SilentlyContinue
@@ -490,7 +515,11 @@ function Enter-BuildQueue([string]$sessionName, [string]$target, [string]$buildD
         Host = $env:COMPUTERNAME
         TimeoutSeconds = $timeoutSeconds
     }
-    Write-JsonFile $requestPath $request
+    if($script:BuildRetentionContext){$request|Add-Member -NotePropertyName RetentionRunId -NotePropertyValue $script:BuildRetentionContext.RunId}
+    if($script:BuildRetentionContext){
+        $stateLock=Enter-QueueStateLock
+        try {Write-JsonFile $requestPath $request} finally {Exit-QueueStateLock $stateLock}
+    }else{Write-JsonFile $requestPath $request}
     Write-Info "Build queue: queued '$sessionName' for target '$target'. Do not use -NoQueue unless Mike explicitly asks."
 
     $lastStatusUtc = [DateTime]::MinValue
@@ -504,6 +533,7 @@ function Enter-BuildQueue([string]$sessionName, [string]$target, [string]$buildD
             $front = ($entries.Count -gt 0 -and $entries[0].FullName -eq $requestPath)
 
             if ($front -and $null -eq $active) {
+                if($script:BuildRetentionContext){Save-BuildOwnedProtocolRelease $requestPath $requestId}
                 Remove-Item -LiteralPath $requestPath -Force -ErrorAction SilentlyContinue
                 $now = [DateTime]::UtcNow
                 $activeRecord = [PSCustomObject]@{
@@ -518,6 +548,7 @@ function Enter-BuildQueue([string]$sessionName, [string]$target, [string]$buildD
                     QueueWaitSeconds = ($now - $enqueuedUtc).TotalSeconds
                     TimeoutSeconds = $timeoutSeconds
                 }
+                if($script:BuildRetentionContext){$activeRecord|Add-Member -NotePropertyName RetentionRunId -NotePropertyValue $script:BuildRetentionContext.RunId}
                 Write-JsonFile $QueueActivePath $activeRecord
                 Write-Ok ("Build queue: starting '{0}' after waiting {1}." -f $sessionName, (Format-DurationShort $activeRecord.QueueWaitSeconds))
                 return [PSCustomObject]@{
@@ -580,9 +611,13 @@ function Add-BuildDurationRecord($queueToken, [int]$exitCode) {
         CompletedUtc = [DateTime]::UtcNow.ToString("o")
     }
 
-    $history = @(Read-QueueJson $QueueDurationsPath)
-    if ($history.Count -eq 1 -and $null -eq $history[0]) { $history = @() }
-    $history = @($history + $record) | Select-Object -Last 40
+    if($script:BuildRetentionContext){$history=@(Read-BuildRetainedDurationHistory)}
+    else{
+        $history = @(Read-QueueJson $QueueDurationsPath)
+        if ($history.Count -eq 1 -and $null -eq $history[0]) { $history = @() }
+    }
+    $history = @($history + $record)
+    if(-not $script:BuildRetentionContext){$history=$history|Select-Object -Last 40}
     Write-JsonFile $QueueDurationsPath $history
 }
 
@@ -594,6 +629,7 @@ function Exit-BuildQueue($queueToken, [int]$exitCode) {
         Add-BuildDurationRecord $queueToken $exitCode
         $active = Read-QueueJson $QueueActivePath
         if ($null -ne $active -and [string](Get-ObjectValue $active "RequestId" "") -eq [string]$queueToken.RequestId) {
+            if($script:BuildRetentionContext){Save-BuildOwnedProtocolRelease $QueueActivePath ([string]$queueToken.RequestId)}
             Remove-Item -LiteralPath $QueueActivePath -Force -ErrorAction SilentlyContinue
         }
     } finally {
@@ -609,8 +645,16 @@ function Invoke-QueuedBuildChild([string[]]$childArgs, $queueToken, [int]$timeou
 
     $stdoutLog = Get-BuildStdoutLogPath $buildDir
     $stderrLog = Get-BuildStderrLogPath $buildDir
-    Set-Content -LiteralPath $stdoutLog -Value "" -Encoding UTF8
-    Set-Content -LiteralPath $stderrLog -Value "" -Encoding UTF8
+    if($script:BuildRetentionContext){
+        foreach($path in @($stdoutLog,$stderrLog)){
+            Assert-SmokePlainTree -Path $path
+            $log=[IO.File]::Open($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+            $log.Dispose()
+        }
+    }else{
+        Set-Content -LiteralPath $stdoutLog -Value "" -Encoding UTF8
+        Set-Content -LiteralPath $stderrLog -Value "" -Encoding UTF8
+    }
 
     Write-Info "Build output: $stdoutLog"
     Write-Info "Build errors: $stderrLog"
@@ -623,6 +667,7 @@ function Invoke-QueuedBuildChild([string[]]$childArgs, $queueToken, [int]$timeou
     # that made build-headless.ps1 report a failed ninja compile as SUCCESS. Without
     # this, the queue could mark a FAILED child build as exit 0 = success. Additive.
     try { $childHandle = $child.Handle } catch {}
+    if($script:BuildRetentionContext){$script:BuildRetentionChild=$child}
     $startedUtc = [DateTime]::UtcNow
     # Idle-based watchdog: $timeoutSeconds is the max time with NO build output
     # (compile stalled / cc1 wedged), not a cap on total build time. A build
@@ -728,12 +773,20 @@ function Enter-SessionBuildLock([string]$name) {
     }
 
     $lockPath = Get-LockPath $name
+    if($script:BuildRetentionContext){
+        [void](Assert-BuildProtocolPath $lockPath)
+        if(Test-Path -LiteralPath $lockPath){throw 'Retained session lock collision; existing lock untouched.'}
+        New-BuildProtocolBinding $lockPath
+    }
     try {
-        $stream = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        $access=if($script:BuildRetentionContext){[IO.FileAccess]::ReadWrite}else{[IO.FileAccess]::Write}
+        $stream = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::CreateNew, $access, [System.IO.FileShare]::None)
         $bytes = [System.Text.Encoding]::UTF8.GetBytes("pid=$PID`nstarted=$([DateTime]::Now.ToString('s'))`nproject=$ProjectDir`n")
         $stream.Write($bytes, 0, $bytes.Length)
         $stream.Flush()
-        return @{ Path = $lockPath; Stream = $stream }
+        $held=@{Path=$lockPath;Stream=$stream}
+        if($script:BuildRetentionContext){$held.OwnerPid=$PID;$held.RetentionRunId=$script:BuildRetentionContext.RunId}
+        return $held
     } catch [System.IO.IOException] {
         throw "Session build '$name' is already locked. Use a unique -Session for parallel builds, or remove stale lock '$lockPath' after confirming no build is running."
     }
@@ -741,6 +794,7 @@ function Enter-SessionBuildLock([string]$name) {
 
 function Exit-SessionBuildLock($lock) {
     if ($null -eq $lock) { return }
+    if($script:BuildRetentionContext){Save-BuildOwnedSessionLock $lock}
     try { $lock.Stream.Dispose() } catch {}
     try { Remove-Item -LiteralPath $lock.Path -Force -ErrorAction SilentlyContinue } catch {}
 }
@@ -992,7 +1046,8 @@ if ($SelfTest) {
 }
 
 if ($Tail) {
-    Show-BuildLogTail
+    if($RetainHousekeeping){Show-BuildRetainedTail -SessionName $Session -Lines $TailLines -Follow ([bool]$Follow)}
+    else{Show-BuildLogTail}
     exit 0
 }
 
@@ -1027,6 +1082,13 @@ $gitForWindows = "C:\Program Files\Git\cmd"
 if (-not (Test-Path -LiteralPath $headless)) {
     throw "Missing canonical build script: $headless"
 }
+if($RetainHousekeeping){Assert-BuildRetainedChild $headless}
+if($RetainHousekeeping){
+    Set-SmokeStorageRetention -RetainHousekeeping
+    Initialize-SmokeStoragePolicy -Path $StoragePolicy
+    [void](Assert-SmokeStoragePreflight -ProjectRoot $ProjectDir -Build)
+    $script:BuildRetentionContext=New-BuildRetentionInvocation -BuildDir $buildDir -SessionName $sessionName
+}
 
 Write-Host ""
 Write-Host "  Perfect Dark PC Port - Session Build" -ForegroundColor Cyan
@@ -1050,6 +1112,7 @@ try {
     # Check at actual start, after the existing queues/lock, before build copies.
     # Maintenance modes returned above; historical build outputs stay untouched.
     . (Join-Path $ProjectDir "tools\smoke-verify\lib\Storage-Harness.ps1")
+    Set-SmokeStorageRetention -RetainHousekeeping:$RetainHousekeeping
     Initialize-SmokeStoragePolicy -Path $StoragePolicy
     [void](Assert-SmokeStoragePreflight -ProjectRoot $ProjectDir -Build)
 
@@ -1062,6 +1125,7 @@ try {
     if ($Jobs -gt 0) { $buildArgs += @("-Jobs", $Jobs) }
     if ($Clean) { $buildArgs += "-Clean" }
     if ($Verbose) { $buildArgs += "-Verbose" }
+    if($RetainHousekeeping){$buildArgs+=@('-RetainHousekeeping','-BuildRetentionContextFile',$script:BuildRetentionContext.BuildContextPath)}
 
     # build-headless.ps1 intentionally calls exit; run it in a child process so
     # this wrapper can always release the per-session lock afterward.
@@ -1076,6 +1140,7 @@ try {
         $exitCode = Invoke-QueuedBuildChild $childArgs $queueToken $BuildTimeoutSeconds $buildDir
     }
 } finally {
+    Assert-BuildRetainedCloseout $queueToken
     Exit-SessionBuildLock $lock
     Exit-BuildQueue $queueToken $exitCode
 }
