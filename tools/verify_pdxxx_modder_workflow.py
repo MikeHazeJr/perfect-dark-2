@@ -202,12 +202,16 @@ def validate_manifest(source_root: Path, errors: list[str]) -> None:
         return
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         errors.append(f"{manifest_path}: unreadable JSON: {exc}")
         return
+    if not isinstance(manifest, dict):
+        errors.append(f"{manifest_path}: expected a JSON object")
+        return
     for field_name in ("id", "name", "version"):
-        if not str(manifest.get(field_name, "")).strip():
-            errors.append(f"{manifest_path}: missing non-empty {field_name}")
+        value = manifest.get(field_name)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"{manifest_path}: missing non-empty string {field_name}")
 
 
 def verify_roundtrip(source_root: Path, work_root: Path,
@@ -252,6 +256,10 @@ def validate_workflow(source_root: Path, keep_output: Path | None = None) -> int
     stats = WorkflowStats()
 
     validate_manifest(source_root, errors)
+    if errors:
+        for error in errors:
+            print(f"ERROR: {error}", file=sys.stderr)
+        return 1
     archives = typed_archives(source_root)
     if not archives:
         errors.append(f"{source_root}: no typed .pdxxx archives found")
