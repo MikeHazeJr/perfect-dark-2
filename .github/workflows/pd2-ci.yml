@@ -53,6 +53,9 @@ jobs:
           python tools/tests/test_mingw_dependencies.py
           python -B tools/tests/test_native_write_policy_guard.py
 
+      - name: Check modder workflow regressions
+        run: python -B tools/tests/test_pdxxx_modder_workflow.py -v
+
       - name: Check isolated smoke storage contracts
         # Match the native Windows interpreter required by Storage-Harness.ps1.
         shell: pwsh

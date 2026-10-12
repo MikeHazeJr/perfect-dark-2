@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import shutil
 import sys
@@ -137,7 +138,7 @@ def extract_pdmod(pdmod: Path, output_root: Path) -> None:
 
 
 def validate_archive(path: Path, stats: WorkflowStats, errors: list[str],
-                     prefix: str = "") -> None:
+                     prefix: str = "", *, source_bytes: bytes | None = None) -> None:
     ext = path.suffix.lower()
     if ext not in TYPED_DESCRIPTORS:
         errors.append(f"{prefix}{path}: unknown typed archive extension")
@@ -146,7 +147,8 @@ def validate_archive(path: Path, stats: WorkflowStats, errors: list[str],
     stats.families.add(ext)
 
     try:
-        with zipfile.ZipFile(path, "r") as zf:
+        archive_source = io.BytesIO(source_bytes) if source_bytes is not None else path
+        with zipfile.ZipFile(archive_source, "r") as zf:
             names = [n for n in zf.namelist() if n and not n.endswith("/")]
             name_set = set(names)
             descriptor = TYPED_DESCRIPTORS[ext]
@@ -174,25 +176,16 @@ def validate_archive(path: Path, stats: WorkflowStats, errors: list[str],
                 entry_ext = Path(lower).suffix
                 if entry_ext in TYPED_DESCRIPTORS:
                     stats.nested_archives += 1
-                    nested_tmp = tempfile.NamedTemporaryFile(delete=False,
-                                                            suffix=entry_ext)
-                    nested_path = Path(nested_tmp.name)
-                    try:
-                        nested_tmp.write(zf.read(name))
-                        nested_tmp.close()
-                        validate_archive(nested_path, stats, errors,
-                                         prefix=f"{prefix}{path.name}::{name}: ")
-                    finally:
-                        try:
-                            nested_tmp.close()
-                        except Exception:
-                            pass
-                        nested_path.unlink(missing_ok=True)
+                    validate_archive(Path(name), stats, errors,
+                                     prefix=f"{prefix}{path.name}::{name}: ",
+                                     source_bytes=zf.read(name))
 
             if not public_sources:
                 errors.append(f"{prefix}{path}: no editable public source entries")
     except zipfile.BadZipFile:
         errors.append(f"{prefix}{path}: not a zip-openable typed archive")
+    except OSError as exc:
+        errors.append(f"{prefix}{path}: unreadable typed archive: {exc}")
 
 
 def validate_manifest(source_root: Path, errors: list[str]) -> None:
@@ -275,6 +268,13 @@ def validate_workflow(source_root: Path, keep_output: Path | None = None) -> int
         errors.append("no standard DCC/media source entries found")
     if stats.semantic_source_entries == 0:
         errors.append("no semantic INI/JSON source entries found")
+
+    if errors:
+        for error in errors[:80]:
+            print(f"ERROR: {error}", file=sys.stderr)
+        if len(errors) > 80:
+            print(f"ERROR: ... {len(errors) - 80} more error(s)", file=sys.stderr)
+        return 1
 
     if keep_output:
         keep_output.mkdir(parents=True, exist_ok=True)
