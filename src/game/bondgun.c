@@ -4931,14 +4931,16 @@ void bgunTickGunLoad(void)
 
 			numthistick++;
 
+			// The cursor advances before the three-per-tick return. The original
+			// advanced it after, so every later tick revisited the third entry and
+			// spent one of its three slots on a texture that was already loaded.
+			// When the count is an exact multiple of three the move to the DLS
+			// state still happens on the following tick, as before.
+			player->gunctrl.nexttexturetoload++;
+
 			if (numthistick == 3) {
 				return;
 			}
-
-			// @bug: This should be incremented prior to the return, otherwise
-			// subsequent ticks will waste time loading a texture that's already
-			// been loaded.
-			player->gunctrl.nexttexturetoload++;
 		}
 
 		osSyncPrintf("BriGun:  Set Load State: GUN_LOADSTATE_DECOMPRESS_DLS\n");
