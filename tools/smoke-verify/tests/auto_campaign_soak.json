@@ -78,6 +78,7 @@
   ],
   "assertions": {
     "required_lines": [
+      "MISSION\\.GRAPH: objective object state updated from graph source '.*base_mission_defense\\.pdmission::objectives\\.json' .*tag=5 present=1",
       "CAMPAIGN\\.AUTO: plan profile='smoke' difficulty=0 start=0 final=16 missions=17",
       "CAMPAIGN\\.AUTO: soak start plan=0 stage_id='base:defection' seconds=60",
       "CAMPAIGN\\.AUTO: soak done plan=16 stage_id='base:skedarruins' game_seconds=60",
@@ -99,6 +100,10 @@
       "numeric fallback",
       "MISSION\\.GRAPH: cannot ",
       "objective flag probe: ",
+      "SCENARIO\\.SOURCE: B-1113 no usable rooms\\.json",
+      "SCENARIO\\.SOURCE: B-1114 ",
+      "does not fit 16-bit world coordinates",
+      "have no readable quad",
       "soak: "
     ],
     "required_counts": [
@@ -109,7 +114,9 @@
       { "pattern": "CAMPAIGN\\.AUTO: routed plan=", "min": 17, "max": 17 },
       { "pattern": "CAMPAIGN\\.AUTO: persisted plan=", "min": 17, "max": 17 },
       { "pattern": "MISSION\\.GRAPH: activated mission graph 'base:mission_", "min": 17, "max": 17 },
-      { "pattern": "CAMPAIGN\\.AUTO: objective flag probe stage_id='base:", "min": 17, "max": 17 }
+      { "pattern": "CAMPAIGN\\.AUTO: objective flag probe stage_id='base:", "min": 17, "max": 17 },
+      { "pattern": "SCENARIO\\.SOURCE: B-1113 room table 'base:scenario_", "min": 17, "max": 40 },
+      { "pattern": "outside_room=0 source=room_lights\\.json", "min": 17, "max": 40 }
     ]
   }
 }

@@ -284,6 +284,18 @@ TEST_CASE("campaign smoke requires clean exits and retains restart evidence",
 	REQUIRE(release.find("\"CAMPAIGN\\\\.AUTO: objective flag probe stage_id='base:\", \"min\": 17, \"max\": 17") !=
 		std::string::npos);
 	REQUIRE(release.find("\"MISSION\\\\.GRAPH: cannot \"") != std::string::npos);
+	// Every stage takes its room boxes from the authored table and has every
+	// room light inside its room (B-1113, B-1114), and the RC-P120 a Defense
+	// objective asks for exists when the mission starts.
+	REQUIRE(release.find("\"SCENARIO\\\\.SOURCE: B-1113 room table 'base:scenario_\", \"min\": 17, \"max\": 40") !=
+		std::string::npos);
+	REQUIRE(release.find("\"outside_room=0 source=room_lights\\\\.json\", \"min\": 17, \"max\": 40") !=
+		std::string::npos);
+	REQUIRE(release.find("\"SCENARIO\\\\.SOURCE: B-1113 no usable rooms\\\\.json\"") !=
+		std::string::npos);
+	REQUIRE(release.find("\"SCENARIO\\\\.SOURCE: B-1114 \"") != std::string::npos);
+	REQUIRE(release.find("base_mission_defense\\\\.pdmission::objectives\\\\.json' .*tag=5 present=1") !=
+		std::string::npos);
 
 	// The soak fixture keeps every mission alive for a minute and holds the
 	// same graph and probe requirements as the release fixture.
@@ -297,6 +309,11 @@ TEST_CASE("campaign smoke requires clean exits and retains restart evidence",
 	REQUIRE(soak.find("\"CAMPAIGN\\\\.AUTO: objective flag probe stage_id='base:\", \"min\": 17, \"max\": 17") !=
 		std::string::npos);
 	REQUIRE(soak.find("\"soak: \"") != std::string::npos);
+	REQUIRE(soak.find("\"SCENARIO\\\\.SOURCE: B-1113 room table 'base:scenario_\", \"min\": 17, \"max\": 40") !=
+		std::string::npos);
+	REQUIRE(soak.find("\"outside_room=0 source=room_lights\\\\.json\", \"min\": 17, \"max\": 40") !=
+		std::string::npos);
+	REQUIRE(soak.find("\"SCENARIO\\\\.SOURCE: B-1114 \"") != std::string::npos);
 	REQUIRE(soak.find("campaign_soak_run_process.json") != std::string::npos);
 
 	REQUIRE(skedar.find("start=16 final=16 missions=1") != std::string::npos);

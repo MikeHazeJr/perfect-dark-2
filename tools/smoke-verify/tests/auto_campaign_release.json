@@ -78,6 +78,7 @@
   ],
   "assertions": {
     "required_lines": [
+      "MISSION\\.GRAPH: objective object state updated from graph source '.*base_mission_defense\\.pdmission::objectives\\.json' .*tag=5 present=1",
       "CAMPAIGN\\.AUTO: plan profile='smoke' difficulty=0 start=0 final=16 missions=17",
       "CAMPAIGN\\.AUTO: loaded plan=0 idx=0 stage_id='base:defection'",
       "CAMPAIGN\\.AUTO: completed plan=16 idx=16 stage_id='base:skedarruins'",
@@ -98,7 +99,11 @@
       "catalog miss.*fallback",
       "numeric fallback",
       "MISSION\\.GRAPH: cannot ",
-      "objective flag probe: "
+      "objective flag probe: ",
+      "SCENARIO\\.SOURCE: B-1113 no usable rooms\\.json",
+      "SCENARIO\\.SOURCE: B-1114 ",
+      "does not fit 16-bit world coordinates",
+      "have no readable quad"
     ],
     "required_counts": [
       { "pattern": "CAMPAIGN\\.AUTO: loaded plan=", "min": 17, "max": 17 },
@@ -108,7 +113,9 @@
       { "pattern": "SAVE: Agent Profile v3 committed name='smoke'", "min": 18, "max": 18 },
       { "pattern": "BOOT: --launch-load-agent consumed: name='smoke' result=OK", "min": 2, "max": 2 },
       { "pattern": "MISSION\\.GRAPH: activated mission graph 'base:mission_", "min": 17, "max": 17 },
-      { "pattern": "CAMPAIGN\\.AUTO: objective flag probe stage_id='base:", "min": 17, "max": 17 }
+      { "pattern": "CAMPAIGN\\.AUTO: objective flag probe stage_id='base:", "min": 17, "max": 17 },
+      { "pattern": "SCENARIO\\.SOURCE: B-1113 room table 'base:scenario_", "min": 17, "max": 40 },
+      { "pattern": "outside_room=0 source=room_lights\\.json", "min": 17, "max": 40 }
     ]
   }
 }
