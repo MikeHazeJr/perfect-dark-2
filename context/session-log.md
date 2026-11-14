@@ -1,5 +1,799 @@
 # Session Log (Active)
 
+2026-10-26 gun source contract correction following N0828 audit. asset_source_debug defaults ASSET_NONE; its source-only predicate is debug-selected, so the old non-FileProvider return0 allowed normal legacy model loading. fileProviderPath(nonfile)=NULL and modelSourceResolvePath(NULL) rejects; no supported public source can use that branch. Owned gunSourceRouteSource now fails unsupported/non-external requests and all exits return1; retained and supported external routes preserved. This intentionally supersedes original donor continuation under c3844/public-source constraint, not a compatibility claim. Native legacy block untouched but now unreachable through source routing. Updated source-route donor fixtures and added one explicit unsupported-provider case UNRUN. Independent review found no defect. Guard q_20261026205529526_c939af23/diff PASS; other8 pins and ORACLE suffix unchanged. 531 bindings/98 programs;47 whole entries/146 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Next audit/remove unreachable legacy MODEL/TEXTURES/DLS machinery and obsolete state producers, preserving source artifacts; public graph source/dependencies/ALL closure remain open. Latest .claude/gameplay-gun-source-closed-20261026/source-receipt.json. N-0829
+
+2026-10-26 corrected gun TEXTURES stage COMPONENT connected through GGV_GUN_TEXTURES. Three graph iteration gates retain N0826 cursor-before-budget fix, visit at most3 entries and leave exact-multiple completion to next tick. Captured model/player, fresh texture array after texLoad, s16 count/u32 cursor/u8 mark preserved. uintptr texture words use full64-bit representation; sign gate plus positive-limit comparison implements unsigned cutoff without32-bit truncation. Native limit verified65535. Three donor cases authored UNRUN cover counts0..7, mixed resident entries, exact3 timing, all unsigned high-bit regions and callback array/target changes. Source/fixture review found no correctness/lifetime defect; reviewer suggested count5, added. Guard q_20261026205120546_9a0732a2 PASS; scoped diff/parent delta/ORACLE suffix/six non-core pins preserved. 531 bindings/98 programs;47 whole entries/145 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Legacy MODEL/DLS, child helper qualification, public authored graph source and ALL closure remain open. Latest .claude/gameplay-gun-textures-20261026/source-receipt.json. N-0827
+
+2026-10-26 pre-conversion TEXTURES root repair: persistent nexttexturetoload now increments before the three-entry budget return, removing the documented third-entry revisit. Both loadable and resident/skipped entries advance; exact multiples3 retain existing next-tick DLS transition. Only this statement/order/comment changed; before/after native donor artifacts retained. Source review confirms fix by inspection. Static guard q_20261026204705964_1b110bb3 and diff PASS; other9 source pins unchanged. Regression requirements authored, no new executable cases this checkpoint; 525 bindings/97 programs,47 whole entries/142 authored cases unchanged. No compiler/gameplay execution; not runtime validated. Next graph conversion must preserve uintptr_t texture/pointer union full unsigned width, s16 numtexconfigs, u32 cursor, captured model/player and fresh texture-array access after texLoad. Legacy MODEL/DLS/dependencies, public graph source and ALL closure remain open. Latest .claude/gameplay-texture-cursor-fix-20261026/source-receipt.json. N-0826
+
+2026-10-26 gun MODEL source-routing COMPONENT connected through GGV_GUN_SOURCE_ROUTE. Preserves usable-handle and external-source gates; failed external load clears u8 g_LoadType before failure handling; successful load sets LOADED then conditionally copies fresh hand file/ID/typed handle/generation; FileProvider rejection cannot fall into preprocessed loading. Return0 retains the existing non-FileProvider continuation, explicitly NOT runtime ROM fallback acceptance. Three donor cases authored UNRUN cover failure order, complete64-byte ID tail/typed handle transfer, u16/U32 widths and captured player with fresh callback source fields. Reviewer found fixture loadType int versus nativeu8; corrected declaration and write narrowing, production already narrows. No other source/fixture defect found. Guard q_20261026204443749_7072fd99/scoped diff PASS after correction; exact parent delta, ORACLE suffix and six non-core pins preserved. 525 bindings/97 programs;47 whole entries/142 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Legacy path classification, TEXTURES cursor repair/conversion, DLS/helpers and public graph source/ALL closure open. Latest .claude/gameplay-gun-source-20261026/source-receipt.json. N-0825
+
+2026-10-26 retained gun-model MODEL component connected through GGV_GUN_RETAINED_LOAD. Preserves generation and ID query before target/null-ID/strcmp OR checks, failure exit, captured model identity through RW allocation with fresh destination pointer publication, retained clear, U32 texture/allocsize/loadedsize zeroing (allocsize before loadedsize), LOADED before captured-generation hash/ID log. Three donor cases authored UNRUN cover actual strcmp/empty IDs, pointer identity/redirect, full-width counters and per-write traces. Independent source/fixture review found no concrete defect. Guard q_20261026204106642_560d4d6d/scoped diff PASS; exact parent delta, ORACLE suffix and six non-core pins preserved. 521 bindings/96 programs;47 whole entries/139 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. External MODEL route, legacy preprocessed path classification, TEXTURES cursor repair/conversion, DLS/helpers and public graph source/ALL closure remain open. Provider/generation/allocator integration remains unqualified. Latest .claude/gameplay-gun-retained-20261026/source-receipt.json. N-0824
+
+2026-10-26 gun-loader FAILED-state recovery COMPONENT connected through GGV_GUN_FAILURE_RECOVERY. Full U32 catalog generation comparison, diagnostic before captured-player FLUX reset, no stored-generation update; native parent return preserved. Two donor cases authored UNRUN, generation high bits and captured player through synthetic query/log callbacks. Independent source/fixture review found no concrete defect. Guard q_20261026203742102_028d29df and scoped diff PASS; exact parent delta, ORACLE suffix and six non-core pins preserved. 515 bindings/95 programs;47 whole entries/136 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Retained and external MODEL loading, legacy preprocessed path (not acceptable runtime ROM fallback), documented TEXTURES cursor-repeat bug, DLS and all dependencies remain open. Public source constraint re-read; no new asset representation introduced. Latest .claude/gameplay-gun-failure-20261026/source-receipt.json. N-0823
+
+2026-10-26 whole bgunTickMasterLoad parent source-connected through GGV_MASTER_LOAD_PARENT. Preserves captured admission/preparation, persistent tuple-key diagnostic gate, loaded/type and file/runtime short circuits, hands/unarmed adaptation, exclusive child stage dispatch, CARTS refusal and versioned no-file shortcut. Existing graph components retained. Key bit construction qualified to native-defined weapon shift domain; weaponHasFlag remains a lookup boundary, no fabricated mutations of unsequenced diagnostic arguments. Four parent cases authored UNRUN with scripted children, persistent state, current-player changes and exact call witness. Nested child integration/provider/model acceptance remains open. Independent production/fixture source review found no concrete defect. Guard q_20261026203436173_eab0d983/scoped diff PASS; ORACLE07 suffix and six non-core pins preserved. Bindings515/programs94;whole source-connected entries47 sinceOct23;134 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Gun loader and helper/dependency conversion, semantic census, public editable graph source and ALL closure remain incomplete. Latest .claude/gameplay-master-parent-20261026/source-receipt.json. N-0822
+
+2026-10-26 master finalization COMPONENT source-connected through GGV_MASTER_FINALIZE. Both hands now graph-dispatch gun/optional hand model initialization, fresh root/cursor command-list calls, captured command pointers, signed bounded sum and byte cursor/unsigned capacity accounting. Preserved strict remaining >50*sizeof(Mtxf) matrix reservation for hand0, hand1 matrix state unchanged, discarded fresh-global capacity call, captured loaded/type/pending writes and fresh-current-player log gate. Typed REF byte offset and three-REF model primitives retain engine child boundary; no hidden branch policy added. Four donor cases authored UNRUN cover explicit order/112-byte offset witnesses, exact 3200 boundary/full U32 scalar capacity, clone-local model/static root witnesses and synthetic callback stress. Model/capacity/allocator dependencies remain unqualified; signed sum cases are native-defined. Independent production/fixture source review found no concrete defect. Parent edit bounded to full finalization block plus four unused locals. Guard q_20261026203108751_8d91862d/scoped diff PASS; ORACLE07 suffix and six non-core pins unchanged. Bindings513/programs93. Whole entries remain46 sinceOct23;130 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Whole-parent entry diagnostics/outer gates/dispatch, gun loader/dependencies, public editable graph source and ALL closure open. Latest .claude/gameplay-master-finalize-20261026/source-receipt.json. N-0821
+
+2026-10-26 master CARTS-selection COMPONENT source-connected through GGV_MASTER_CARTS_SELECT. Preserved loaded-to-flux reset; cart/null/player-count gates; two-hand ordered function then weapon query including null functions; low-byte s32 function type, s8 ammo index, U32 casing-to-s32 conversion; first eligible casing break including existing cart; MODEL setup and typed queue targets; fresh-global tick then unconditional return when gun state is not FLUX. Four donor cases authored UNRUN, including explicit call-order witnesses and bounded synthetic callback stress. Native array-valid input domains only; this does not qualify source validation or lookup/provider children. Independent production/fixture source review found no concrete defect. Parent edit only selection block plus five unused declarations removed. Guard q_20261026202339823_3a00a4c6/scoped diff PASS; ORACLE07 suffix and six non-core pins unchanged. Bindings499/programs92. Whole entries remain46 sinceOct23;126 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Final two-hand model setup/command lists/memory accounting and loaded transition, parent entry/dispatch, gun loader/dependencies, public editable graph source and ALL closure open. Latest .claude/gameplay-master-carts-20261026/source-receipt.json. N-0820
+
+2026-10-26 master HANDS-stage COMPONENT source-connected through GGV_MASTER_HANDS_STAGE. Preserved handfile/source-current OR and ID/handle/generation OR short-circuiting, queue/tick refusal exits, captured-player field writes with current-player memory/tick calls, no-hands first-byte/typed-handle reset and unsigned capacity to native signed storage. Four donor cases authored UNRUN cover exact strcmp/handle/generation behavior, native widths, high-bit scalar transfers and callback changes. Independent source review found no concrete defect. Parent changed only at HANDS branch; previous storage-width/header/CMake pins unchanged. Guard q_20261026201701739_ecf8196d/scoped diff PASS; ORACLE07 suffix unchanged. Bindings492/programs91. Whole entries remain46 sinceOct23;122 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Whole master parent, CARTS/finalization, gun loader/dependencies and public editable graph source/ALL closure open. Latest .claude/gameplay-master-hands-20261026/source-receipt.json. N-0819
+
+2026-10-26 master GUN-stage COMPONENT source-connected through GGV_MASTER_GUN_STAGE. Graph owns hand cursor/capacity transfer, exclusive unarmed/body, V2/retained and static queue paths, failure-before-tick returns, fresh-current gun tick and captured-player LOADED-to-CARTS/reset/log. Queue targets retain N-0817 u8**/u32* repair. Four donor cases authored UNRUN cover exclusive failures, REF/native s32-to-u32 transfer, byte states and callback current/captured distinctions; negative capacities test scalar transfer only, not allocation acceptance. Independent source review found no concrete defect. Parent changed only at this branch; existing target-width/header/CMake pins unchanged. Guard q_20261026201124964_1a320ad2/scoped diff PASS; ORACLE07 suffix unchanged. Bindings490/programs90. Whole entries remain46 sinceOct23;118 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Whole master parent, HANDS/CARTS/finalization, gun loader/dependencies and public editable graph source/ALL closure open. Latest .claude/gameplay-master-gun-20261026/source-receipt.json. N-0818
+
+2026-10-26 loader storage-width source repair discovered during GUN conversion. uintptr_t capacity targets addressed s32/u32 fields on x64; wide writes could overwrite adjacent master/gun/loadfile state. Queue cursors now u8** and capacities u32*, with matching API/static signatures, all4 production callers and loader pointer conversions; signed hand capacity uses corresponding unsigned alias. Field widths/layout and prior dirty header/CMake content preserved. N-0815/0816 narrow claims. Two actual gunctrl storage/signature regression cases authored UNRUN and connected to explicit pd-tests source list. Independent source review found no concrete defect; guard q_20261026200645567_7fcc32bc PASS; scoped diff and target-list readback PASS. Existing core/parser/fixture source pins and ORACLE07 suffix unchanged. No compiler/gameplay execution. Source repair is NOT runtime validated or a new conversion. Whole entries46, authored cases114, accepted/complete0; bindings488/programs89. Master GUN/HANDS/CARTS/parent and all gameplay/public source closure remain open. Latest .claude/gameplay-loader-target-width-20261026/source-receipt.json. N-0817
+
+2026-10-26 master FLUX-to-HANDS COMPONENT source-connected through GGV_MASTER_FLUX_TRANSITION. Preserved two20-casing passes: matching cart references including null equality are cleared; active clears then writes true for each surviving model. Captured cart/master fields update before fresh-player-gated diagnostic; inputs preserved. Three donor cases authored UNRUN cover null/mixed identity, repeated active writes, captured/current player, casing canaries and diagnostic fields. Independent production/fixture review found no concrete defect. Parent changes bounded to transition call and unused casing local removal. Static guard q_20261026200153205_23dfca34/scoped diff PASS; ORACLE07 suffix unchanged. Bindings488/programs89. Whole entries remain46 sinceOct23;112 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Whole master loader, remaining hands/gun/carts/finalization, gun loader/dependencies and public editable graph source/ALL closure open. Latest .claude/gameplay-master-flux-20261026/source-receipt.json. N-0814
+
+2026-10-26 master source-preparation COMPONENT source-connected through GGV_MASTER_SOURCE_PREPARE. Graph owns pending weapon capture, three short-circuit body/file/source checks with rollback diagnostic, u16 file outputs, V2 model refresh and independent unarmed/hands source freshness thresholds. Captured player remains distinct from current-player flux target. Three donor cases authored UNRUN cover failures, null/model identity, output widths and callback mutations. Runtime model query treated readonly; no invented mutation of C comparison operands. Independent production/fixture source review found no concrete defect. Retained master tail byte-preserved; whole loader remains OPEN and not counted. Static guard q_20261026195820729_ca4bfd00/scoped diff PASS; ORACLE07 suffix unchanged. Bindings487/programs88. Whole entries remain46 sinceOct23;109 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Master state dispatch/hands/gun/carts/finalization, gun loader/dependencies and public editable graph source/ALL closure open. Latest .claude/gameplay-master-source-20261026/source-receipt.json. N-0813
+
+2026-10-26 master-loader admission COMPONENT source-connected through GGV_MASTER_LOAD_ADMISSION/bgunMasterLoadReady. Preserved owner OR child-return short-circuit, captured-player pending AND gate, zero-timer admission and signed-byte decrement/readback/reset. Three donor cases authored UNRUN compose actual ownership graph across ticks and callback mutations. Independent source review found no concrete defect. Retained master body byte-preserved; whole master-loader conversion remains OPEN and is not counted. Static guard q_20261026195209875_8f6c5afc/scoped diff PASS; ORACLE07 suffix unchanged. Bindings482/programs87. Whole entries remain46 sinceOct23;106 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Remaining master/gun loader, dependencies and public editable graph source/ALL closure open. Latest .claude/gameplay-master-admission-20261026/source-receipt.json. N-0812
+
+2026-10-26 bgunEnterFlux source-connected through GGV_ENTER_FLUX. Preserved fresh-player ordered resets after logging, first catalog byte only, complete typed handle zeroing, u32 generation, null model/load pointers, native load states, all20 casing model references then active clear. Handle primitive is one aggregate store with no provider lookup/loading. Three donor cases authored UNRUN include catalog tails, casing boundary canaries/neighbors, callback-selected player and repeated clearing. Independent production/fixture source review found no concrete defect. Static guard q_20261026194826372_44be9c3b/scoped diff PASS; ORACLE07 suffix unchanged. Binding/type/name482; stock/program86. Whole entries46 sinceOct23;103 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Master/gun loader, dependencies and public editable graph source/ALL gameplay closure remain open. Latest .claude/gameplay-flux-20261026/source-receipt.json. N-0811
+
+2026-10-26 bgunLoadAll source-connected through GGV_LOAD_ALL. Preserved PAL-beta+ Eyespy/inhibit mask, fresh player after flux, pending assignment before type early return, actual owner recheck independent of ownership-child return, lockscreen retry, uncapped tick-before-loaded loop and callback-current loadall clear. Four donor cases authored UNRUN including real GGV_IS_LOADED child composition; required write callback supplied for read-only child. Independent production/fixture review found no concrete defect. Static guard q_20261026194437375_90b563cf/scoped diff PASS; ORACLE07 suffix unchanged. Binding/type/name472; stock/program85. Whole entries45 sinceOct23;100 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Flux/master/gun loader, native dependencies and public editable graph source/ALL gameplay closure remain open. Latest .claude/gameplay-load-all-20261026/source-receipt.json. N-0810
+
+2026-10-26 bgunChangeGunMem source-connected through GGV_CHANGE_MEMORY_OWNER. Graph owns pair/wild/success diagnostic throttles, post-callback state rechecks, full signed request pair bits, signed-byte timer decrement/readback, u8 owner assignment, exclusive owner switch and captured-player loadall/unlock stores after fresh-global flux/body removal. Four donor cases authored UNRUN with repeated calls, raw boolean fields and u32 multiplayer high bit. Review found/corrected fixed-register type conflicts and nonexistent builder helper; re-review found no concrete remaining defect. Static guard q_20261026194043811_9f46c0f8/scoped diff PASS; ORACLE07 suffix unchanged. Binding/type/name471; stock/program84. Whole entries44 sinceOct23;96 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Flux/load-all/master loader, dependencies and public editable graph source/ALL gameplay closure remain open. Latest .claude/gameplay-memory-owner-20261026/source-receipt.json. N-0809
+
+2026-10-26 memory control: bgunFreeGunMem, bgunSetGunMemWeapon, bgunTickLoad source-connected through three graph programs. Preserved fresh-player free after logging/unconditional texture reset, captured-player pending assignment with native u8 states/s8 timer/s32 request, callback-fresh signed budget/eight-tick stride. Three donor cases authored UNRUN, bounded to defined loop arithmetic. Source review found/fixed malformed service label; root fixed type-table separator. Static guard q_20261026193522461_b04b1bed/scoped diff PASS; ORACLE07 suffix unchanged. Bindings463/programs83;43 whole entries sinceOct23;92 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Master loader, ownership transitions, remaining gameplay/dependencies and public editable graph source/ALL closure remain open. Latest .claude/gameplay-memory-control-20261026/source-receipt.json. N-0808
+
+2026-10-26 equip/init source-connected: bgunEquipWeapon, bgunEquipWeapon2, bgunInitHandAnims. Preserved post-log predicate recheck, captured inner owner/fresh outer player, left dual versus non-left clamp, and callback-fresh hand selection with captured model links. Five donor cases authored UNRUN; production/fixture source review and static guard q_20261026193105736_c8c69e00/scoped diff PASS. ORACLE07 suffix unchanged. Bindings456/programs80;40 whole entries sinceOct23;89 authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Public graph source and dependency/ALL gameplay closure remain open. Latest .claude/gameplay-equip-init-20261026/source-receipt.json. N-0807
+
+2026-10-26 bgunFreeWeapon source-connected through GGV_FREE_WEAPON. Preserved captured player/hand and pre-callback clip space, regional JPN/PAL/older counter formulas and u16 storage, fresh loaded/ammo-target reads, source compound assignment, full u32 multiplayer truth, delete/rocket/retire ordering and fresh log gates. No direct inuse write invented from stale comment. Four donor cases authored UNRUN; native arithmetic inputs bounded to defined domains (negative space only PAL). Independent production/fixture/native-width review and static guard q_20261026192125369_02d1acda/scoped diff PASS; original ORACLE07 suffix preserved. Bindings446/programs77. Whole entries37 sinceOct23;84 new authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Latest .claude/gameplay-free-weapon-20261026/source-receipt.json. Equip/init/load/inventory/model/native-child and ALL gameplay/public graph source closure remain open. N-0806
+
+2026-10-26 hand configuration bgun0f0abd30 and ammo-display bgunResetAbmag source-connected through GGV_HAND_CONFIGURE/GGV_ABMAG_RESET. Preserved optional source definitions, right ammo clearing, u32 ammo type to native s8, s16 clip to s32 hand, fresh captured-hand remote check, only first2of12 multipliers, captured gauge targets and alignment. Five donor cases authored UNRUN, including actual graph-child composition. Native declaration audit corrected earlier SwitchParentHost widened fields: hand inuse/ctrl ammotypes s8, ctrl dual/prev/invert/throw one-bit, use timer s16, disguised one-bit; impossible dual2 data removed. Production parent adapter already used native fields; earlier raw-dual fixture claims superseded. Independent production/fixture/type review and static guard q_20261026191051403_7e3b83be/scoped diff PASS. Bindings438/programs76; original ORACLE07 suffix preserved. Whole entries36 sinceOct23;80 new authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Latest .claude/gameplay-hand-config-20261026/source-receipt.json. Free/equip/init/load/inventory/model dependencies and ALL gameplay/public graph source closure remain open. N-0805
+
+2026-10-26 bgunTickSwitch2 whole parent source-connected through GGV_SWITCH_DRIVER, composing the prior hand reset component. Preserves signed diagnostic cadence, diagnostic versus short-circuit readiness calls, captured player/controller/old weapon, fresh global scanner/reset accesses, reserve compound target, fresh pending after memory setup, previous/dual state, captured character before disguise sound, inventory/cycle ordering and raw no-pending dual assignment. Four donor cases authored UNRUN; independent production/fixture source reviews found no concrete defect, then root added retained-dual and device-lookup mutation coverage. Static guard q_20261026185913755_d10553a9 and scoped diff PASS; binding/type/name423 and stock/program74 agree. Original ORACLE07 suffix preserved. Whole entries34 sinceOct23;75 new authored cases;zero accepted/complete conversions. No compiler/gameplay execution. Latest .claude/gameplay-switch-parent-20261026/parent-source-receipt.json. Native hand configuration bgun0f0abd30, free/load/inventory/model dependencies and ALL gameplay/public graph source closure remain open. N-0804
+
+2026-10-26 switch-hand reset component source-connected through GGV_SWITCH_HAND_RESET inside native bgunTickSwitch2. Preserved17 stores, signed controller weapon to unsigned gset byte, upgrade nibbles, captured hand/controller, fresh-global bgun0f0abd30 boundary, captured-hand animInit and fresh audio handles before state/stop. Three donor cases authored UNRUN; independent production/fixture review and static source guard q_20261026184412384_584844d6/scoped diff PASS. Original ORACLE07 suffix preserved; binding/type/name count381, stock/program count73 agree. Whole-entry count remains33;71 new authored cases sinceOct23;zero accepted/complete conversions. Parent switch decisions/disguise/load and ALL gameplay/public-source/dependency closure remain open. No compiler/gameplay execution. Latest .claude/gameplay-switch-parent-20261026/hand-reset-source-receipt.json; same owner continues parent. N-0803
+
+2026-10-26 visibility source checkpoint: bgunExecuteGunVisCommands, bgunSetPartVisible and bgun0f098030 now dispatch typed graph traversal/part storage/ammo visibility programs. Preserved three independent operation checks and callback-fresh fields, u16 command part to s16 setter narrowing, raw s32 visibility storage, captured weapon and fresh s32 clip/loaded queries. Six independent donor cases authored UNRUN, including mutation and40000 clip boundary; child/engine calls remain separately unvalidated. Independent production+fixture source review, static source guard q_20261026183347515_3a412698 and scoped diff PASS. Static binding/type/name count371 and stock/program count72 agree. Whole entries33 since Oct23;68 new authored cases;zero accepted/complete conversions. Original ORACLE07 suffix preserved. No compiler/gameplay execution. Latest .claude/gameplay-visibility-20261026/source-receipt.json. Native switch/load/dependency and ALL gameplay/public graph source closure remain open. N-0802
+
+2026-10-26 N0796 repeat admission source fix: public parser rejects full packed target>=slot (including nonzero high word); valid stock backward loops unchanged. Both catalog generation and loader_pool copy full words without later span checks, so source rejection reaches both routes before materialization. Reader rejection/boundary and edited-public-source-to-production-first-pass graph fixtures authored UNRUN (mirrored scalar transfer; live catalog/provider integration unvalidated). Independent source review and static source guard PASS q_20261026181610038_aba70941; original ORACLE07 test suffix preserved. Whole entries30;62 new authored cases total;zero accepted/complete conversions. No compiler/gameplay execution. Latest .claude/gameplay-repeat-admission-20261026/source-receipt.json. ALL gameplay/public graph source/dependency closure remains open. N-0801
+
+2026-10-26 animation root bgun0f0981e8 now dispatches GGV_ANIMATION_DRIVER, composing converted first traversal, dynamic part accumulation and sound traversal. Setup/RNG/reverse animation/regional increments/model ticking/post-tick bounds are source-connected; invocation cleanup remains outside graph. Callee audit restored legacy tick version guard because modelTickAnim is absent in newer builds. Three root donor cases authored UNRUN; independent source review/static asset guard/scoped diff PASS. Original ORACLE07 suffix preserved. Source-connected whole entries30;60 new authored cases;zero completed/accepted conversions. No compiler/gameplay tests. Latest .claude/gameplay-animation-commands-20261026/driver-source-receipt.json. N0796 public repeat admission, native child/dependency qualification and full ALL-gameplay/public-source closure remain open; same owner continues.
+
+2026-10-26 first animation traversal now dispatches GGV_ANIMATION_FIRST_COMMANDS: initial/zero-corrected frames, ordered visibility accumulation/application, release clamps with repeated speed queries, distinct regional repeat formulas, cursor advancement and callback stores. Checked I64 arithmetic and explicit modern backward/progress checks reject undefined arithmetic/nonterminating repeat inputs; no iteration cap or rollback claim. Four donor/rejection cases authored UNRUN. Independent source review/static guard/diff PASS; original ORACLE07 suffix preserved. Parent setup/model tick remains native, whole-entry count stays29;57 new authored cases,zero accepted conversions. No compiler/gameplay execution. Latest .claude/gameplay-animation-commands-20261026/first-source-receipt.json. N0796 parser admission gap remains open despite runtime failure guard. Same owner continues root setup/tick conversion.
+
+2026-10-26 animation continuation: part lookup/update now dispatches GGV_ANIMATION_PART_COMMAND. Native15-part scratch replaced with checked growable invocation storage; preserves first-seen order, last-match lookup, full-width comparison before s32 insertion narrowing, and strict newer-frame replacement. Failure stops invocation and frees retained storage; no rollback claim. Three cases authored UNRUN: native<=15 parity, separate1024-entry extension, mocked growth failure. Production allocation/cleanup have source review only. Independent source review/static asset guard/scoped diff PASS; original ORACLE07 body preserved. Interpreter setup/visibility traversal/wait/repeat/tick still native, whole-entry count29;53 new authored cases,zero accepted conversions. No compiler/gameplay execution. Latest receipt .claude/gameplay-animation-commands-20261026/part-source-receipt.json. Repeat source-admission gap N0796 remains open. Same owner continues full conversion.
+
+2026-10-26 13:29 ET: bgun0f0981e8 sound/speed/output second traversal now dispatches GGV_ANIMATION_SOUND_COMMANDS. Full-width signed speed conversion, separate integer/float frame domains, version-specific latch lifetime, engine sound-ID narrowing, captured cursor and three-bit wrap preserved. Three donor cases authored UNRUN; source review/static guard PASS; original ORACLE07 body preserved. Interpreter setup/visibility/wait/repeat/model tick still native, so whole-entry count remains29;50 new authored cases,zero completed conversions. No compiler/gameplay execution. Receipt .claude/gameplay-animation-commands-20261026/sound-source-receipt.json. New open finding: repeat_until_full public parser accepts packed targets without backward-span validation; inspect complete admission and ownership before fixing. Dynamic visibility scratch and repeat-domain work next; same owner continues.
+
+2026-10-26 13:15 ET continuation: bgunTickIncChangeGun now dispatches GGV_CHANGE_GUN (411 source operations), including all five consecutive phases and the separate GGV_EQUIP_SOUND component. Preserves captured/fresh definitions, raw true checks, regional pitch timing, LOAD diagnostics and mode6-to7 deferral, callback ownership and early returns. Five parent plus two sound donor cases authored UNRUN; review gaps for flag80 and animation mutation filled. Independent source review, static asset guard and scoped diff check PASS; ORACLE-07 original body unchanged. 29 session entries source-connected,47 new authored cases,zero completed/accepted conversions. Dependency/public editable source and ALL-gameplay closure remain open; no compiler/gameplay execution. Receipt .claude/gameplay-change-gun-20261026/parent-source-receipt.json. Owner codex-pd-resume-20261023 continues animation command execution.
+
+2026-10-26 change-gun continuation: extracted equip sound policy into GGV_EQUIP_SOUND at its original parent gate, preserving lazy loaded/camera/dead reads, every weapon case, version-dependent necklace/briefcase2 IDs, sound allocation, pitch bits and priority restoration. Two native-donor cases authored UNRUN; independent source review and static asset guard PASS. Original ORACLE-07 test body preserved. Parent change-gun state machine remains native/incomplete; full gameplay/dependency/public-source closure open. No compiler or gameplay tests run. Receipt .claude/gameplay-change-gun-20261026/source-receipt.json. Same owner codex-pd-resume-20261023 continues parent phases.
+
+2026-10-26 resume: verified prior seven source pins, unchanged HEAD a8ab67f3,63 tracked dirty files,65140 untracked and empty index. Workbench N-0792 reuses exact owner. bgunAutoSwitchWeapon now dispatches GGV_AUTO_SELECT_WEAPON; preserves preference-array rereads, repeated SuperDragon checks, full fallback scan, captured current weapon and fresh dualwield/equip/wantammo ownership. Three donor-derived cases authored UNRUN. Independent source review and asset guard PASS; compilation still gated. This brings source-connected entries since Oct23 to28, with zero completed/accepted conversions. Full gameplay conversion and public-source/dependency closure remain open. Receipt: .claude/gameplay-auto-selector-20261026/source-receipt.json. Previous pause lifted by direct user resume; next change-gun and command execution.
+
+
+2026-10-23 18:00 ET: PAUSED at Mike's requested stop. No builds, agents, gameplay tests or native launches remain running for this lane. Resume requires explicit user direction. Final source receipt: .claude/gameplay-all-inventory-20261023-v4/session-continuation-receipt.json; next-source-units.md carries the next native dependencies. Workbench N-0791 remains the durable source checkpoint; status stays partial.
+
+
+2026-10-23 late-session checkpoint: 27 native entries are source-connected to GGV during this resume, including parent hand/idle/autoswitch dispatch, readiness/ammo/info predicates, rocket cleanup, stored-function query/set/eligibility, inversion reset and function-toggle policy. Idle and subsequent differential fixtures are now authored (37 new cases total), UNRUN. Independent source reviews completed; two concrete review findings corrected. Source guard and scoped diff check PASS. The v4 census maps these 27 separately from 34 older dispatches awaiting semantic review; zero complete/accepted conversions. Original ORACLE07 pins and prior test body preserved; no definitions removed. Compiler remains unstarted because the retained child capability is unreleased. ALL conversion/public-source/dependency closure stays open and no gameplay tests ran. Current receipt: .claude/gameplay-all-inventory-20261023-v4/session-continuation-receipt.json; dependency-frontier.json records remaining calls. Work continues until Mike's18:00 ET stop. Earlier checkpoints below retain their original time/scope; their pending idle-fixture statements are superseded here.
+
+
+2026-10-23 continuation: bgunTickInc, bgunTickHand, bgunTickIncAutoSwitch and bgunTickIncIdle now dispatch stock graph programs. Preserved deferred delivery, captured owners, regional integer/float timing, 21-call cap, same-call autoswitch fallthrough and idle/V2 policy. Independent source review and source guard PASS; parent/autoswitch tests authored UNRUN, idle fixture still pending. Receipt: .claude/gameplay-all-inventory-20261023-v2/parent-idle-autoswitch-continuation.json. Remaining dependency/public-source/ALL closure is open; no compiler or gameplay execution.
+
+
+2026-10-23 16:00 ET: Animation wait, wait-key and recursive start now dispatch typed graph programs. Repeat preserves initialized registers without claiming termination; I64 comparisons, regional float gates, RNG, recursion and diagnostic/store order retain donor semantics. Differential cases authored, unrun. Independent source review and asset source guard passed; no compiler or gameplay execution. Receipt: .claude/gameplay-all-inventory-20261023-v2/animation-wait-start-continuation.json. Parent/idle/autoswitch, public source and ALL closure remain open. Mike requested continued work until 18:00 ET.
+
+
+2026-10-23 15:38 ET - Animation frame dependency source conversion
+
+Reverified all seven prior receipt hashes unchanged before editing, existing
+T-MODDING-011 ownership, canonical Workbench identity and no targeted new notes.
+Sandbox blocked localhost and MSYS Git named-object access; the exact read-only
+commands succeeded after user-approved escalation. No alternate access path.
+
+Converted bgun0f09815c using append-only I64 type/comparison, graph-owned
+busy/null/sign policy and float subtraction, two native model query services,
+and invocation-local float output. Added independent C donor oracle plus
+boundary, typing and missing-service cases. Independent lifecycle_review
+found no concrete defect in the source; source guard and scoped diff check
+pass. No compiler, gameplay tests or client/editor launched. Prior retained
+build capability blocker remains; no retry or bypass. Evidence:
+.claude/gameplay-all-inventory-20261023-v2/animation-frame-continuation.json.
+Remaining: wait/start/parent closure, public graph publication and complete
+semantic inventory. Seven source-connected entries are not ALL conversion.
+
+2026-10-23 13:52 ET - Resumed gameplay conversion, source checkpoint
+
+Direct user resume in 01a169d9-64ed-7123-9cb1-269349bd90b6; coordination
+codex-pd-resume-20261023 owns T-MODDING-011. Verified dev a8ab67f3,
+63 initial dirty tracked paths, 65,096 untracked, empty index. Canonical
+Workbench restarted; prior PD chats idle/no current Claude process/queue empty.
+Preserved all unrelated work and the original six-file frozen candidate.
+
+ORACLE-07 hashes matched; four existing targets equaled its baseline.
+Integrated the five reviewed driver/predicate programs, native wrappers,
+three enum-name collision repairs and test-only C oracle. Added explicit
+CMake registration and authored lifecycle differential cases. Converted
+bgun0f098884 animation eligibility separately, preserving raw equality and
+lazy reads. Independent lifecycle_review source review reported no concrete
+mismatch; all three identified coverage gaps were addressed and re-reviewed.
+Prior existing test body remains exact after the candidate enum repair.
+
+Final asset-native-source guard and scoped diff checks pass; source freeze
+matches receipt. Retained all-target build failed preflight at
+devtools/Build-Retention.ps1:578, before compiler/native launch, because its
+reviewed child capability is empty. Queue slots released. No alternate build,
+gameplay test, game/editor launch, commit or push. Everything remains
+source-only/uncompiled/unrun, not a parity or playable acceptance claim.
+
+Current census: 1,313 files / 15,888 lexical candidates / 360 diagnostics.
+Six entries mapped to source-connected programs with dependencies open;
+full semantic inventory and ALL conversion are incomplete. Evidence:
+.claude/gameplay-all-inventory-20261023-v2/lifecycle-integration-receipt.json.
+Next: animation frame/wait/start, parent hand/idle/autoswitch, public editable
+graph publication, remaining gameplay call/dispatch closure. The shared build
+capability needs separate qualification. Gameplay tests remain gated until
+ALL conversion completes.
+
+2026-10-13 15:22 UTC - Four V6 WIP images delivered to Mike's new thread
+
+N-0702 supersedes the PNG share hold. Actual identified Mike message
+1791904634.919999 says Share the screenshots here; fresh read confirmed
+the destination and no V6 duplicates after the initial rejected attempt.
+Normal automatic approval permitted same supported flow: four exact PNG
+POSTs HTTP200, tool62000 exit0, native finalizations and subsequent thread
+read confirmed sideF0C8W6AGD5Y/threequarterF0C8W6BFWTC/frontF0C8UCE671C/
+clayF0C8R2MQXRB in C0C5S3S2F33/thread1791904634.919999. Captions explicitly
+state visual/native holds and actual V6 Claude review pending. No source/DOCX
+shared; original rejection preserved and old-thread question superseded.
+
+Parent exact frozen review packet98404B SHA29a205ab... and scoped diff36072B
+7b9edaf5... are in weapon/resume-20261013/ under the Maian packet. It binds
+complete V6 source,17actual images,30unchanged input/source/publication rows,
+technical/source/pixel reviews and specific primary-form questions. Delivery
+addendum/finalized-slack-delivery-v2.json carry current delivery without
+rewriting the earlier frozen snapshot. Parent sole realClaude coordinator
+can invoke that source/pixel critique; no V6 Claude review happened here.
+
+Actual art run exited0/source parity passed; visual review remains HOLD and
+10hidden transform/BVH rows remain unqualified. Corrected rawUTC172.363239s
+bounded first controller-absent observation; negativeV1invalid/preserved,
+noOSjob/canonicalcapability claim. Protected native owners/Graph13 claims
+preserved; no further model/native/graph/build/game/testing/otherasset work,
+commit/push/worktree/cleanup/security. ALL conversion-before-gameplay gate.
+
+2026-10-13 14:53 UTC - Pistol-only V6 source and reviewed render preparation
+
+Mike explicitly resumed crystal pistol only via1791900180.771749; N-0699
+claims the same existing writer's five NEW V6 files and root's scoped
+weapon/resume-20261013/ intake/operator/review/evidence files. SHADOWBANE and
+canonical readable checkout verified; HEADa8ab67f/indexempty/63tracked dirty
+preserved. Complete receiver/jaws/grip/lens/pockets and rigid local-axis
+retract/sequential actual-credit rise are artist source only. Builder23699B
+32278129 and sourcefreeze faf2033f bind16inputs/11oldpublications/full raw
+V5/V6 inverse. Independent source SOURCE_PASS dd37f731, driver SOURCE_PASS
+f095067a for17 planned images, full indexed save/reopen and finite sampled
+surface readback. Native stock hand/gun/reload intake f5934e77 confirms shared
+33hand/43gun matrices but no raw-unit calibration or posed hand fit.
+
+N-0700 supersedes stale Ship running hold: actual R137 completion11c57c10
+proves exit0/all attempted jobsclosed; parent clearedreservation14:06 and
+permits fresh normal finite pistol admission when reviewed. Shared queueempty
+14:44, PDempty14:52; memory/actor census14:53 requires normal permitted CIM
+read after sandbox denied access, and shows11.7GiB physical/12.1GiB virtual,
+291.2GiB Cfree/no heavy actor. These observations are not workload admission.
+No Blender launch yet. Existing reviewer found original finite operator V1
+retention/NoExit/closeout/review-marker defects; V1/V2 retained and NEW V3
+e9186435 requires actual NoProfile/NoExit/File, original-controller preservation,
+exact JSON review/source pins and whole180second closeout reserve. V3 review
+pending. Raw-inverse preparation assertion stopped before writes and was
+corrected; no native retry or claimed execution.
+
+Protected T-ASSETS-051/T-MODDING-002/009 owners remain unchanged and must be
+reconciled before native source integration. Parent owns actual frozen-source
+and subsequent pixel Claude critique; no new Claude dispatch here. ALL
+conversion-before-gameplay-test gate preserved; no vehicle/veteran/bulk resume,
+tests/build/game, stage/commit/push/worktree/cleanup/security changes. Technical
+DOCX upload remains separately rejected/unfinalized; parent outbound route
+thread-not-found remains undelivered. Parent review request packet saved.
+
+2026-10-13 native Word delivery blocked by automatic approval review
+
+Parent authorized currentnativeattachment exactPDthread. Root clarified
+planning-only commit pause does not revoke existing production permissions,
+regeneratedXML/packagecheckedDOCX13675bytes/e6cd4b3b (MD9c5ca7e7). Supported
+Slack URL allocatedF0C8VAD73LJ; hash-checked raw-bytePOST command rejected by
+automatic approval before processcreation because source-derived internal
+paths/hashes/implementation/capability contents lacked exactpayload approval.
+No bytesposted/finalized/permalink, no bypass/retry. Explicit content-aware
+approval requested; native-upload-rejection.json preserves exactreason/status.
+Local plan ready; parent fulltextalreadyreturned; source/runtimepause unchanged.
+
+2026-10-13 13:48 UTC - Third actualClaude consult folded, final plan returned
+
+Root read/hash verified actual text-only Opus5.5 PID71056 exit0 response
+9fdef3ff; no new images/source/rig inspected byClaude. Final local-axis rigid
+retract/pockets/sequentialcreditedrise supersedescarrier. Conceal before
+visibilitycutoff, nozero-scale/degen/normalsUVfailure, fullpocketsweep preserves
+receiver; native incrementalvsatomiccommit governsrise timing, no refund/delay.
+Acceptedsecondarystart irrevocablethroughdeath. Final MDe20a3c38 and DOCX
+13602bytes3dfea244, XML/package/contentcheckedonly; no render/native/build.
+Parent asked immediatefulltextfinal for own inspection/Slackpublication by14.
+Upload NOT performed; original unusedF0C8YVC97AQ still no bytes/finalize.
+Manifest a4b14040 and reconciliationevidenceupdated. NoClaudeconsult pending;
+all original source/evidence/protectedownership and productionpause retained.
+
+2026-10-13 13:42 UTC - Planning-only joint asset rework and native audit
+
+N-0694/N-0695/N-0696/N-0697 exact disjoint planning reports completed, then
+root merged parent-supplied actualClaude two-pass evidence with current native
+contracts into joint-reconciled-plan.md/DOCX. SHADOWBANE/canonical readable;
+HEADa8ab67f unchanged. Forty-two audit source pins and 68 art input pins match;
+63 tracked dirty baseline only Workbench API notes/changelog changed before
+these owned context checkpoints. Protected051 and modding002/009 unchanged.
+Actual V4 veteran readbackPASS/VISUAL_HOLD and unrendered weapon/vehicleV5
+remain distinct from Claude's published V3/V4 image review. Full native audit
+58d22120/db2e267e separates working g_SkelChr/native parts/toggles/reload/bike
+paths from missing stock rest/hand/clip evidence, generic skin receiving,
+tandem/heat and real persistent release adapters. No execution proof added.
+Latest Mike1791898282.903189 makes crystal retraction/sequential rise the
+leading reload design, bound to actual ammo revisions; carrier alternative
+is history. Accepted secondary start cannot cancel, including death during
+charge, and no post-accept precommit windup is allowed. Canonical ea978834
+already binds small below-threshold proxy pops, without new balance choice.
+Root completed veteran final audit binding after reviewer model-capacity
+failure, preserving report/history; no model switch/retry. Vehicle plan initial
+oversize-command206 failed before write, normal file-edit completed13:26;
+local workspace dependency helper unavailable, installed Python standard
+library made DOCX with XML/package/content checks and no renderer/newsoftware.
+Initial unused Slack uploadF0C8YVC97AQ has no posted bytes/finalization; exact
+document changed before transfer. Final requested thread delivery and actual
+shortmechanismcritique pending. Source/runtime/manual gates and ALL testing
+hold preserved. Production remains paused until parent20:30Eastern window.
+
+2026-10-13 night schedule pause - Native qualification closed and WIP preserved
+
+Latest human/parent direction pauses PD daytime production, with parent night
+handoff about20:30 America/New_York. No new implementation/build/render/Claude
+dispatch after pause. Completed V7 native aggregate60b6480f independently
+reviewed45ce289c/36947264 NATIVE_COHORT_PASS6/6. Original73308/FileTime
+134363682474777926 normalexit0 and absence verified; both owned FIFOs done/
+cleared, helpers/publications/admissions/byte worker/native and capture/pin/job
+closeouts complete. Root closeout33f66e11 preserved. No capability release.
+Historical V6 Unknown, blocked sourceV4/V5 and pure fixtures retained; current
+canonical runner9 unchangedbc49. HEADa8ab67f/indexempty/no new commit or push.
+All source/model WIP remains. Vehicle5/weapon5 actual renders not started;
+veteran4 actual readbackPASS/VISUAL_HOLD. Remainder supplied parent handoff
+hashes recorded but no exact local path/import before pause. Durable saved
+handoff paused-night-handoff-20261013-v1.md carries exact actors, receipts,
+ownership, source freezes, visual defects and bounded night next actions.
+
+2026-10-13 11:49 UTC - Original native failure reconciled, minimal repair scoped
+
+Actual pure UTC8 qualification74abf990 passed8/8 under ordinary selectedPS7;
+independent967e4d0a confirms timestamps/fractions and exact refusal boundaries.
+Root initially reserved wrong resource storage; preparer refused before owner/
+holders and same original54780 exited1. That failure and secondary readback
+errors are retained. Correct test-runner/smoke-storage FIFOs admitted a new1135
+owner; original60804 published two closed streams and exited0. Actual V6 native
+Run caller12208 reached physical creation, fixture managed loading, IPC, old
+controller exit/adoption, late-accounting continuation, native/outer closeouts,
+refusals and destination collision. It failed before first formal case output:
+literal Hashtable Facts entered a strict PSCustomObject field validator.
+
+Original Unknown40917334/holderfec06f8f retained; independent a603be49 checked
+three finished helpers/admissions, completed RPCs, checked native root/handle
+and capture/pin/job closeouts, unlocked completed byte worker, no pending
+publication. The deliberate no-child failed operation's Complete=false is
+preserved. Root manually exited the SAME shell1 (chunked5579), verified caller
+and recorded positive native actors absent, then closed both FIFOs failed
+(994d23) at11:46:07. No aggregate, native/capability PASS, renewal or replay.
+N0688 gives disjoint source-only minimal V7 producer DTO correction, pure12
+regression author and independent reviewer scopes. Canonical runner9 unchanged.
+Recovery/Shoot2 consolidated SOURCE_PASS717d87a6 and Quantity4 SOURCE_PASS
+34b373e8 consumed; all gameplay tests remain UNCOMPILED/UNRUN/ALL held.
+
+2026-10-13 11:24 UTC - Completed handoffs and finite admission gates
+
+N0685 consumes CountdownVisibility2 SOURCE_PASS c74b41ad and QueryV14
+SOURCE_DERIVATION_PASS 6b06ec8c; source tests remain UNCOMPILED/UNRUN. The exact
+next four complete weapon-getter/ammo-setter donors have one source writer,
+with protected owners and prior frozen programs/executor/test prefix retained.
+Recovery/Shoot2 consolidation and UTC8 fixture independent reviews are active.
+Completed shootingV2 handoff stays incorporated N0617; stale root heartbeat
+is corrected. Local host/cwd/readability reconfirmed normally at11:21 UTC.
+
+Actual V4 tooling fixture18/18 passes independently; V3 preparation published
+two closed streams and original actor exited0. RunV1 refused before child on
+strict UTC parsing, not a native failure. Original1043 owner expired and both
+FIFOs closed failed. V2 launcher source passes; no fresh owner or six-family
+native proof until the pure UTC fixture has source and actual qualification.
+No gameplay compile/test/build/client/manual acceptance occurred.
+
+Actual veteranV4 source study fb3e63f4 and12 images completed Blender5.2.2
+exit0; original actor absence and queue closeout verified. Independent actual
+review remains pending. Shared vehicle/weapon driverV7 remains SOURCE_BLOCK;
+fresh V8 source-only correction is frozen for review. Three actual native WIP
+attachments delivered to #updates at11:02:07 UTC, official receipt file
+report-1100-native-delivery-receipts-v1.json retained. Parent owns prose.
+Source-only helper checkpoint a8ab67f preserved62 tracked peer dirty hashes;
+index empty/no push. No security, cleanup, worktree, unrelated owner change or
+additional external Claude invocation.
+
+2026-10-13 09:51 UTC - Actual tooling failure and completed source/art handoffs
+
+Canonical Shadowbane local reads succeed in PowerShell7.6.5; no setup failure.
+Same coordination identity and canonical Workbench reused; N0671 acknowledges
+and incorporates completed V12 oracle, V3 source reviews and actual diagnostic.
+Ammo independent reviewer veteran_art, frozen V11/V12 oracle reviewer
+model_corrections, Ammo V13 oracle author classify_flow and actual V3 failure
+reviewer review_amendment_plan received exact source-only scopes. No competing
+shared source writer, gameplay workload, native run, commit or push introduced.
+
+Actual selected PS51 pure producer/reader fixture used granted test FIFO
+q_20261013094546049_f51f25bf. Original PTY33868 returned normalexit1, receipt
+qualification-root-20261013T0946.json contains eighteen original cases with
+seventeen passes and R08 failure: Supervisor JSON is not canonical lossless data.
+Fixture950d99/helperc5ec6/manifestff0f unchanged. Test FIFO finished failed after
+the synchronous process returned; no separately captured child generation or
+fresh CIM absence is claimed. No owner window, managed load, native operation,
+compilation or capability publication occurred. Failure remains authoritative;
+independent source diagnosis must precede any separately reviewed retry.
+
+Earlier actual V2 preparation failure occurred before owner/holder publication;
+the direct reference was OrderedDictionary and strict reader saw collection
+properties. V3 adds two PSCustomObject casts with unchanged wire/path and exact
+inverse. Source approval does not qualify the subsequent R08 data boundary.
+Actual component30 mock qualification and managed-only Inspect remain distinct.
+Current native6/capability/build/game gates stay closed and gameplay tests remain
+UNCOMPILED/UNRUN under Mike's ALL-first ordering.
+
+Completed standalone Bool/E2/E1 imports, frozen complete melee/special/empty/
+attack/state/reset/input source reviews and V7-V10 oracle reviews are consumed.
+V11/V12 now receive independent audits; Ammo4 f626 source is frozen and V13
+complete original/current derivation starts from preserved V12 H/C. No historical
+reset gap, invalid native index, provider lifetime or current whole-file parity
+is silently promoted to runtime proof. Anonymous B32 contract48c975 was relayed
+by the sole parent coordinator; no duplicate Claude invocation.
+
+All three current WIP images were finalized in PD thread1791825776.683799 with
+source hashes and visual holds. Actual veteran diagnostic twelve captures and
+saved probe readback complete, original source55d09050 unchanged. Independent
+review05eefb/bindings0803e7 establishes ordinary byte quantization, brighter lit
+response and exact checker alias; no production color-space change. Original
+startup dcc_mcp_core warning and failed probe history remain. Source/native/
+physics/VFX/creator/manual acceptance remains open; protected owners retained.
+
+2026-10-13 08:02 UTC - Exact source handoffs, managed proof and corrected art run
+
+Local execution confirms SHADOWBANE/canonical cwd/readability. Existing trusted
+coord identity codex-pd-local-cue-20261010 reused. N0656-N0658 canonical metadata
+checked before each API mutation, notes acknowledged/incorporated and exact
+disjoint source/review scopes released promptly. Melee/MinClip production writer,
+Throw oracle writer, Bool importer, anonymous effect2 contract author and native
+changed-admission fixture author remain active; workers perform no workloads.
+Completed Throw SOURCE_PASS6946d1f1 consumed. Its immutable d589 epoch remains
+distinct from authorized live Melee edits; oracle guard reconciliation records
+whole-file drift and requires unchanged exact Throw units before continuation.
+Completed shootingV2 source review was already incorporated N0617, not pending.
+
+Source-only helper commit2a66629d includes exactly six integer/effect4 files,
+normal asset-source hook passed and62 peer dirty hashes unchanged/index empty.
+No push: dev workflow would run gameplay tests before ALL source conversion.
+Float/effect3 standalone source passes and exact imported provenance retained;
+zero caller behavior/compilation/runtime pass inferred. Matrix oracleV7 root
+supplemental audit remains open; matrix testV6 source pass is separate evidence.
+
+Actual retained V6 PS51 managed Inspect returned3 loads/9 exact type identities
+and4 bounded admission observations, accepted current records result9ee27583.
+Original PID64500 exited0/absence verified; independent reportf0f480fa explicitly
+limits verdict to MANAGED_LOAD_TYPE_IDENTITY_PASS. No native/cohort/capability
+factory ran. New V6 changed-admission tooling fixture source is assigned under
+N0657 before any actual six-family proof; release-fault Unknown exclusions stay.
+
+Corrected veteran study launched07:53:26 under existing serialized Blender queue
+after fresh11.6GiB physical/9.6GiB virtual/293GiB disk admission and no heavy
+actors. Builder3d89b388a/driver4c54bd58b/fixture90b106ed match reviewed pins.
+Blender5.2.2 normalexit0; editable blend55d09050 saved, nine views captured, source
+reopened with packed-material receiving path exact and no persisted diagnostics.
+Actual Blender absence verified, queue finished. The first launch gate stopped
+before start on an operator-truncated fixture hash; repository fixture unchanged.
+Root viewed three-quarter pixels; independent full pixel review active. Failed
+earlier fullrun and both tiny probes retained; no native/export/body-head proof.
+
+VehicleV4 builder source independently passes30dbc72d, replacing canoe/slab
+construction while preserving controls/riders/turret source. New root shared
+driver6 uses three exact pin substitutions, byte-inverses to approved byte-bound
+driver5 and retains loader1/frozen dependencies. Source review pending; old
+shared4 cached-import directive explicitly excluded. Inherited duplicate camera
+angles and count-only reopen remain disclosed, requiring separate actual parity
+and pixel assessment. No current Slack WIP human artifact grant established:
+verified Mike message1791864060.197189 approves only old published three images.
+Parent owns human decision/update; no current upload attempted or inferred grant.
+
+2026-10-13 06:35 UTC - Recovery, bounded source corrections and art admission
+
+Actual local command exit0 reconfirmed SHADOWBANE, canonical working directory
+and repository readability. Windows Git confirms HEAD8f9a3530, empty index,
+unrelated dirty files preserved. Workbench meta canonicaltrue/isolatedfalse,
+exact project/data roots; no targeted new notes. Same-host approved read-only
+API route resolved sandbox socket denial without security changes. Existing
+coord identity reused, stale05:34 heartbeat refreshed. N0647/N0648 record exact
+disjoint test/oracle and native loader successor scopes, acknowledged/incorporated.
+
+Effect4 genuine Claude R2 exact three files imported06:03:37, source review
+dde63692 APPLIED_STANDALONE_SOURCE_PASS. Root CMake adds only implementation
+entry at1107; before874eae0f/currentb3f5fd93 and single-line inverse match.
+Standalone e4_run_tests has no Catch registration; five authored groups remain
+uncompiled/unrun. No new external author/invocation or private source transfer.
+Complete generic float contract4754B/e25783d5 is in permitted Temp at
+pd-anonymous-float-implementation-20261013-v1/anonymous-contract.md. Parent
+reports exact packet relayed to sole Claude coordinator and turn admitted;
+dispatch is not inferred from publication and completion has not been observed.
+
+Attack V4 SOURCE_BLOCK43afe7d9 found invented vibration extent12 (actual2) and
+expected-minus1 fixture enabling first shot/actual2. Separate original writers
+corrected tests only938a6245 and oracle2c0cc/bc60. Test V5 independent source
+reviewcd8f2f9e resolves both findings, verifies whole inverse/old739-line prefix
+and unchanged production3. Oracle V6 freeze2bdd1585 binds26 rows/native leaf
+body extent; whole V5 inverse exact. Supplied arithmetic remains mocked; tail
+canaries and all eight attack groups authored only. Root oracle audit pending.
+Full/hand/shooting V2 completion was previously consumed; no stale pending claim.
+
+Native retained loader V5 remains SOURCE_PLAN_BLOCK278ac22e: memory can block
+after FIFO sample. Original writer now authors only new driver6/support6 and
+receipts: bounded30s observation/current post-memory FIFO, held-DLL hash before
+final admission, started/own/child witness bounds. Native literals/retained DLLs
+unchanged; all actual V6 load/native/inert/capability gates pending. No blocked
+V5 execution or private native factory/actor/resource was started.
+
+Existing art source handoffs (veteranV2, vehicleV3, weaponV4) are complete even
+though worker provider labels ended capacity-error. Independent source review
+identified missing dedicated veteran texture fixture in shareddriver4 and
+unbound existing bytecode in spec.loader.exec_module. N0649/N0650 root owns new
+dedicated veteran adapter and private byte-bound shared successor/helper only;
+original adapters/builders/geometry/cache files preserved. Veteran driver3
+b194b219 and shared5 738dfd6d source-parse only, independent source review open.
+Only explicitly owned fresh scenes/outputs, no deletion/global scene reset,
+source save before diagnostic clones and exact packed-material reopen checks.
+No Blender process/render yet for these sources; no visual/native/game claim.
+
+No running root resource slot, native/game actor, commit/push, cleanup, permission
+or other-project change. ALL inventory/conversion remains incomplete, all
+gameplay execution held. Next: independent oracle/source-adapter reviews,
+source-reviewed scoped recovery checkpoint, then fresh queued art execution and
+corrected loader qualification only after its independent source/admission gates.
+
+2026-10-13 05:33 UTC - Retained tooling evidence and next source pair
+
+N0641 records actual PS51 managed Inspect V3 exit0/three retained compiler
+frames at05:00:32; exact result a8380f6e under
+.claude/pd-retained-native-candidate-20261012/parent-closeout-v1/native-managed-inspect-v3-20261013T0500/.
+The prior V2 parameter-conflict failure remains intact. Per-entry keep flags
+were observed true; created DLL/CS/response/output/temp files remain. Optional
+uncreated PDB registration is not described as a deletion or retained file.
+Fresh read-only Workbench/CIM sandbox denials were resolved through the normal
+approved same-host route, without policy/security or interpreter changes.
+
+Aligned inert V4/one-suite wrapper independently SOURCE_PLAN_PASS d8b2a7b2,
+then actual PS51 exit0 INERT_COMPONENTS_PASS49 at05:10:29. Result597f33e6 and
+fixture37ccd4e8 under native-components-v3/run-v4-20261013T0510/. One actual DLL
+and all created compiler/fixture evidence retained; FIFO finished. These are
+managed mocks/extracted source witnesses, not kernel/job/pipe/controller proof.
+No native factories/synthetic kernel calls/gameplay tests/capability publication.
+
+Fresh-process retention candidate V4 was authored, inverse-preserved and
+independently SOURCE_PLAN_BLOCK3fa6751d before execution. Two findings:
+compiler work preceded per-process finite/FIFO/memory admission, and actual
+caller/fixture compiler artifacts lacked generation-bound ready/final references.
+Independent retained-DLL assessment2273e29c confirms exact three original
+DLL/CS hashes and current native literal mapping; reuse is conditionally viable,
+not a loader/source/runtime pass. N0643 assigns vehicle_motion only NEW private
+V5 driver/support/compact manifest and receipts; review_amendment_plan remains
+independent, root alone executes/admit resources. All V4/rejected/old evidence
+retained, production supervisor bundle bc49c442 unchanged, no native selection.
+
+Hand implementation V2 freeze4098c8a8 has independent scoped source PASSb09a69a6.
+Root oracle review798bc0af and independent audit V3 recover full original/control
+commit, actual full adapter/pair and original/current hand bodies/adapter exactly;
+old46169B C prefix retained. Root found one R2 stale prelude hash/path; NEW R3
+freeze6dc3e191 corrects it and all25 references match. Audit V1 newline assumption
+and V2 omitted observer inverse diagnostics are separately retained; oracle source
+was not changed to pass the audit. Four hand groups and all C++ remain UNRUN.
+
+Parent05:23 explicitly requested immediate independent continuation. N0642
+records concrete next full functions bgun0f09aba4 and bgunTickIncAttackingShoot,
+review_install_cap implementation4 scoped hunks and classify_flow disjoint
+oracle2/new V5 receipts; both actual turns running. Prior hand/full bytes frozen,
+no additional gameplay functions/graph13/catalog/compiler/net/CMake transferred.
+Native math/matrix/animation/config leaves and public-profile/callee/ALL gaps
+must stay explicit. No compile/gameplay tests before ALL source-conversion gate.
+
+Sole external dispatcher delivered genuine Claude effect4 PID30456 closedexit0,
+198.456s, actualclaude-opus-5-5, original response7f2b4982. Root independently
+validated local provenance; leaf source reviewer returned STANDALONE_SOURCE_PASS.
+Parent reports a test-only correction of two forbidden namespace-scope arrays
+in progress by the same author; canonical3 import remains pending corrected
+packet. No duplicate invocation, private-source/art egress or substitute helper.
+Needler/graph read-only boundary note c0c0e569 distinguishes historical V009
+validated/pass from current source-only graph/world-hit/weapon work and lists
+exact owner13 plus explicit N0610 extension. Current read11/13 match old graph
+V5; later owned bondgun and harness deltas are not relabeled unchanged.
+
+Root has no running resource slot/native/game actor. No worktree, commit/push,
+cleanup/deletion/security change or other-project workload occurred. October12
+Plex exception expired and was not extended. Approved preview delivery receipts
+remain unchanged; no new image/version uploaded. Next: review/source-freeze
+the new attack pair and native loader; qualify loader/inert boundaries before
+finite native proof and capability. Runtime/manual/ALL acceptance remain open.
+
+2026-10-13 04:50 UTC - Native preview delivery and full shooting source review
+
+N0639 records exact Mike approval1791864060.197189 read/verified and three
+native Slack file uploads finalized04:04–04:05 in PD thread1791825776.683799:
+F0C8QUNHXB4 weaponV2,F0C8UQNDUUU soldierV1,F0C8KR72NTF vehicleV1. Earlier
+rejection retained/resolved; no extra version or external-Claude image sent.
+Current later weaponV3/vehicleV2 source studies saved/reopened/sevenviews and
+independent visual holds;147vehicle samples min0.279686m is not live/continuous
+clearance. Native actor exits0 and all root slots finished. October12 waiver
+expired; latest new source-compile admission at00:33Eastern used fresh
+11139MiBphysical/11277MiBvirtual/293.85GiBdisk, no peer heavy processes.
+
+Full shooting four-file candidate freeze6c72d351 independently scoped
+SOURCE_PASS470287d3,207/284nodes/cap512/maxreg28, preserved other sourcebytes.
+Oracle2 original/actual C full bodies mechanically derived/staticinverse exact,
+root independent audit pending. Authored four parity groups UNRUN. Genuine
+Claude source review PID65200exit0/116.62sec no blockers, testgaps consumed;
+integer testV2c74f1d54/freeze722a8831 adds1471 authoredinvocations, independently
+SOURCE_PASS, originalseven groups/main and header/cpp preserved. No CPPcompile/
+gameplay execution. N0640 records exact next rumble/slide/hand-program writer,
+disjoint oracle writer and anonymous4005byte effect4 helper contractef15dc57
+in permitted Temp, three absent helpers for solecoordinator, not dispatched.
+Publicprofile/ALL/transitive/mode/runtime acceptance incomplete.
+
+Current V5 supervisor exactsource remains sourcequalified, nativeclosed.
+Private native V3 recipe0b0eec6a/b7d173e4 independently SOURCE_PLAN_PASS010c4fb8;
+failed mutex cleanup permanentlyUnknown excluded from success. InertV3 source
+BLOCK compiler defaultcleanup/outputancestry/serializationwitness; newV4 repairs
+lasttwo, compiler setup alignment/review pending. Normal approved read-only
+installed CodeDOM IL inspection623e4fbd confirmed generated in-memory DLL
+keepfalse; root explicit retained output setup authored, no security changes.
+Exact managed Inspect first actual queued attempt failed at Add-Type mutual
+CompilerParameters/OutputAssembly validation BEFOREcompiler/native. Marker/
+error retained, failed FIFO finished; newwrapperV3 sets output only in
+CompilerParameters, source review pending. No actual six-case proof/capability/
+child/build/game or historicalCI promotion. See scoped-handoff-20261013T0450.md
+for exact current source epochs, delivery receipts, actors and next gates.
+
+2026-10-13 03:40 UTC - Exact integer integration and actual model-source studies
+
+Verified actual SHADOWBANE/canonical cwd and readable continuation plan. Windows
+Git read under the Git FIFO confirms HEAD8f9a353, empty index and63 tracked dirty
+paths; unrelated work preserved. Returned genuine claude-opus-5-5 integer patch
+a5d1a77a reconstructed and installed only three absent N0631 paths. Independent
+integer review c8a0f8af STANDALONE_SOURCE_PASS binds e6bf8b48/9a7a356e/99d9e627.
+Seven authored groups UNRUN; no active graph caller or gameplay acceptance.
+Exact integration freeze and scoped diff retained. Next actual GGV integer
+caller packet exported locally to permitted Temp, manifest7faafc86; no private
+source send/provider invocation. N0636 claims the minimal future SRC_TESTS link
+entry without transferring other CMake hunks or other owners.
+
+Semantic workers returned weapons260 rows plus recovered bgunRender, actors25
+rows, and flow45 rows/294 outstanding plus64 real scenario include definitions.
+Supplements remain separately bound; frozenr3 census not retroactively altered.
+Full two-shooting-function configuration/commit/audio recipe records lazy reads,
+ammo clamp/burst order, GE flash preservation, cross-hand audio and Mauler quirks.
+No whole-native-function node or transitive ALL conversion claim is made.
+
+Actual Slack concept references downloaded/inspected using native attachment
+delivery. Prior Library os.setxattr failure remains unchanged. Blender5.2.2
+LTS/d13f752e3b9c actual queued vehicle study-v1 saved/reopened source274e924b,
+3436tri/seven previews/zero boundary-overfull-zeroarea counts.147 vertex samples
+min driver gap0.329686m versus provisional0.24m; continuous/live rider unproven.
+Independent image review5feb80b6 VISUAL_HOLD: tall mast, overhead gunner reach,
+thin cradle and schematic seat/pod support. Weapon new builder_v2 and driver_v2
+preserve all V1 source/dependencies; study-v2 sourcea1686ea3/684tri/seven images
+saved/reopened. Root inspected side/threequarter/clay, deeper body/compact arch
+improve silhouette. Independent reviewb6b49e97 VISUAL_HOLD finds substantial
+improvement but crystal seating, emitter size and jaw/eye contour gaps remain.
+Veteran source2160tri exists; posed rig/textured/game creator proof unqualified.
+Both native actors exited0 and exact Blender FIFO slots finished. Optional
+user-thumbnail writes were refused; no permission change or retry outside roots.
+
+Current supervisor V5 bundlebc49c442/host1656fe67 exact13 rows rechecked unchanged;
+source/component PASS102/171/22 per host andbroker31 remain separate from native.
+Completed shooting V2 SOURCE_PASS consumed N0617; current native full recipe and
+qualification remain unrun. Worker classify_flow sole owns NEW private V2 recipe
+repair files for D1 original-task retention, D2 atomic control publication and
+D3 serialized byte-lock recovery, preserving blocked V1. No worker native work.
+ALL source conversion precedes gameplay test execution.
+
+Automatic approval review rejected two specific weapon/veteran Slack upload-URL
+requests for lack of specific artifact/destination human approval. No URLs,
+bytes, posts or delivery receipts; direct concise approval question pending.
+Local work continued, no alternate publication route. First checkpoint script
+attempt stopped before API mutation because an artifact-relative freeze row
+was resolved from repo root; bounded path resolution fixed, retry created and
+consumed N0636 after fresh canonical metadata verification. No security bypass.
+
+2026-10-13 02:49 UTC - Inventory corrections and genuine Claude source integration
+
+Actual SHADOWBANE/canonical cwd/readable repository verified; failed idle task
+untouched. Completed shooting V2 SOURCE_PASS consumed N0617, stale heartbeat
+corrected; seven source/test/build paths and derivation receipts remain frozen.
+Current supervisor V5 bundlebc49c442/PS51host1656fe67 exact13 rows unchanged,
+independent SOURCE_PASS and102/171/22 per-host source checks plus broker31.
+Historical actual preliminary native proof remains bound only to older1b8784cd.
+Current native-cohort-draft-review-v1.md SOURCE_DRAFT_BLOCK identifies fast-RPC
+consumption, visible-before-complete control files and racing byte cleanup;
+delay/collision/full-six-case recipe and physical proof remain unrun. No
+capability/retained child/build/game admission.
+
+Inventory V2 adds fast3d/setups/include, branch witnesses recover bgunDisarm
+and actual training callbacks, removes return-call false positives, unions
+alternative sensitive hints and records single-read source/config/tool/path
+drift. New unresolved-obligation ledger prevents macros/unknowns disappearing.
+First non-UTF8 failure preserved; lossless byte-preserving decode records its
+encoding obligation. Frozen r3 census1602/19736/23112 remains incomplete;
+conditional witnesses are bounded/sampled and omitted interactions remain
+explicit. Latest guard-only fix refuses dangling links before existence.
+PASS30 current hash-bound parser checks and PASS1602 source/CMake/membership
+recheck preserve r3 without a redundant full rerun. Independent V3 review
+70628f10 SOURCE_REVIEW_PASS, inventory incomplete. ALL source conversion precedes
+gameplay tests; zero verified conversions/acceptance in this unreconciled ledger
+does not assert that existing graph execution is absent.
+
+Parent relay resolved broken/direct denied internal handoff; original uncertain
+thread/private metadata auto-review denial preserved, no alternate send.
+Existing coordinator alone returned genuine claude-opus-5-5 vehicle patch,
+PID25620 closed exit0/111.858sec. Owner handoff/actual result read, patch97ec8808
+and three body hashes reconstructed/installed exactly through apply_patch.
+No MSYS Git startup/access failure retry. Independent installed source review
+STANDALONE_SOURCE_PASS. Boost refuses new launch and does not stow; maintained
+lock selects symbolic slower cadence; target/generation or lock loss permanently
+stops steering permission. No velocity/engine/network/clock/asset policy is
+implemented. Two new port files/eight lexical definitions are an explicit delta,
+not a rewrite of prior evidence. Twelve test groups remain authored/uncompiled;
+standalone main must be adapted/registered separately before shared Catch use.
+Next disjoint integer API packet8e76c6e3 is a proposal for the same dispatcher,
+not an invocation/whole-graph conversion. N0631 records exact writer boundary.
+
+N0630 gives root isolated weapon/character authoring scopes under
+.claude/pd-maian-models-20261013, preserving production Pipeline/creator/graph/
+skeleton owners. Library image reads returned pointers/text, not inspected
+pixels. Supported helper initially failed download under network restriction;
+ordinary scoped transfer approval then reached metadata apply and failed:
+AttributeError module os has no attribute setxattr. Helper/failure preserved;
+no metadata bypass, character repeat, duplicate concept or Blender process.
+Source-scope-and-facets-v1.md records physical/model/interface obligations and
+reference/style/engine/runtime acceptance still Not evaluated.
+
+Read-only serialized Windows Git verifies HEAD8f9a353, empty index,63 tracked
+dirty paths before vehicle integration, exact V5 freeze unchanged; current
+nine-source baseline diff/preservation receipt captured. Scoped source leases
+finished after original inert processes exited. No cleanup, deletion, global
+kill, security/account changes, game/build/test/Blender or commit/push. V-009's
+historical effect requirement is validated/pass, clarified separately from new
+scatter mechanics and current dirty v1/v2 graph/stock migration proof.
+
+2026-10-13 00:54 UTC - Reviewed preliminary native receipt slice passes (Codex)
+
+V3 SOURCE_PLAN_PASS9302b4b3 consumed after PS51 source23 regression PASS.
+Fresh actual running FIFO/owner/memory admission admitted recipe0e1c6ec4 on
+unchanged production1b8784cd/PS51host1656fe67. Original controller67432 and
+broker73284/FILETIME134363258893557641 maintained operation
+2c1c5ca489515cd39eee0f2b8643ae80. Native borrowed job membership and transferred
+witnesses, exact95-byte accounted synthetic receipt and terminal, omitted/wrong
+ACK producer faults with held root alive, and final canonical exit0/job0/
+checked handle closeout are preserved. Original context, RPC, stimulus and
+status tasks completed; terminal81845 exited normally0 before q_20261013004408840_3d5fee65
+finished done. No workload remains from either attempted slice.
+
+Partial result7e9cb922 is independently PRELIMINARY_SLICE_EVIDENCE_PASS via
+native-preflight-evidence-review-v1.md0449fcef. Terminal/FIFO orchestration
+remains primary operator platform-tool evidence, distinct from inspected
+hash-bound native receipts. Earlier V2 failure and its same-operation recovery
+remain failed/history. This does not establish outer capture membership,
+controller adoption, late accounting, collision conflicts, six complete cases
+or capability. Concrete continuation design39f9dea7 is under independent
+critique; actual work-began observation is unresolved, proposed production
+status seam unapplied. Retained child/client gate and shooting differential
+build/runtime/GPU/manual/commit/push/release remain closed or unrun.
+
+Workbench N-0623 and scoped-handoff-20261013.md bind source diff/reviews and
+actual evidence for integrated review. Source export stays local; automatic
+approval rejected internal handoff messages on unaccepted relayed sharing
+authorization. Pending direct public question remains the only sharing path.
+Completed continuation review20507b79 is DESIGN_BLOCK: same-object adoption
+refinement is supported; outer creation admission, Fixture Unknown retention,
+collision contexts and checked lock lifetime need concrete corrections before
+a next executable recipe. No new Mike product decision is required. Current
+production and preliminary native receipt remain frozen; no next workload ran.
+
+2026-10-13 00:42 UTC - First actual retained receipt slice, failure preserved (Codex)
+
+SHADOWBANE/canonical cwd/readability verified; sole scoped receipt queue and
+fresh CIM memory/process observations retained. Independent preliminary V2
+SOURCE_PLAN_PASS consumed. Real Windows PS51 operation
+d4fb2e156c9c2bd89a1c388a09338c10 created broker72592 under controller46372,
+observed supervisor job membership and transferred handles, and published an
+accounted terminal. Before ACK probes the driver hit a Mode parameter/loop
+variable collision. Same original holder completed canonical closeout:
+root exited0, job active0, handles closed; context complete and no RPC/probe.
+Normal terminal exit followed definitive closure. Queue finished FAILED.
+unknown.json and failed-slice-closeout.json remain under
+native-preflight-9b5c852d376d45bcade72a0ee22fac93; no native PASS claimed.
+
+V2 raw driver/support/manifest/review/test archived before V3 correction.
+Distinct ackFault loop variable and explicit Events.ToArray fix the two
+observed PS51 language faults. Actual source regressions pass23 with zero
+native factories; manifest1a672be3 and source receipt5849e41a are frozen.
+Independent V3 review requested before retry. Production nine-source bundle
+1b8784cd/host1656fe67 unchanged. Full six cases, accounted capability release,
+retained build, authored shooting differential cohort, game/GPU/manual proof,
+commit/push/release remain open. Internal source-sharing handoff remains
+approval-blocked pending direct human answer; no alternate transmission.
+Workbench N-0622 and parent-closeout-v1 artifacts preserve exact evidence.
+
+2026-10-12 23:50 UTC - Retained supervisor V3 and shooting review checkpoint (Codex)
+
+Actual local SHADOWBANE/canonical checkout/readability reverified. Sole writer
+codex-pd-local-cue-20261010 preserved HEAD8f9a3530, unrelated Pipeline glTF and
+earlier graph/component/observer dirty work. Completed shooting V2 SOURCE_PASS
+handoff consumed; stale heartbeat corrected. Seven production/test/build
+files and two source-derived oracle receipts are unchanged. All five authored
+C/C++ cases, native parity, live ABI/public archive/profile/gameplay/performance
+remain unrun or incomplete.
+
+Capability V2 source review found five lifecycle/guard gaps. Corrected actual
+client request/ACK and broker rebind/ACK finite admission boundaries; no mutex
+across pipe reads. Added idle same-operation renewal, completed-faulted cleanup
+retry preserving original startup, abandoned-mutex acquired/refused/released
+handling, same-byte module state preservation and wrapper pre-dependency stamp.
+Added ninth raw critical Storage-Harness dependency/stamp without weakening
+fixture alias restrictions; qualified host files permit serviced nonredirecting
+hard links. Native collision error183 and source-bound creation-call inputs
+are retained. Independent V3 SOURCE_PASS binds all12 frozen/current rows.
+Bundle1b8784cd45f48920dd62979da05892298526ec080832616e6ef6e23d83427c5d;
+actual PS5.1host1656fe6706f1fc8ff86cb0ce905a8afca28ae356827a469a76085f375d160018.
+
+Exact PS7v10/PS51v11 capability102 PASS, full PS7v19/PS51v20 retention171 PASS,
+broker-source-v4 29 PASS, asset-source-guard-v3 PASS, scoped diff checks pass.
+Managed/inert/frontend/accounting only: zero native factory, no C/C++ build,
+game/GPU/capture/capability publication. Historical hard-link refusal, wrong
+baseline, wrapped-delegate and child-scope fixture errors remain preserved.
+All owned test slots finished; no native admission created. Initial native
+contract V1 is SOURCE_PLAN_BLOCK and must be concretely corrected/frozen before
+physical qualification. Child capability and retained client/install-copy
+remain separate gates. Current memory read showed about11GiB free physical;
+it is an observation, not admission. No October12 Plex hold; damaged Shanties
+hub is not availability, other projects remain paused.
+
+Claude source exportv1 preserved; fresh v2 corrects only external Catch header
+path metadata to port/include/catch.hpp. Local Temp v2 manifestSHA
+a968d8c0039cc4819baee773144bfb8b92826dddd983429e8214a9ec7c1a174b,
+three complete UTF8 sections26001/30354/19590 bytes; no transmission. Automatic
+approval review rejected both packet handoff messages, treating relayed sharing
+authorization as untrusted against earlier no-Claude-contact instruction.
+Direct scoped human question pending. Separate code-free parent status message
+returned thread-not-found, not delivery; no route/permission workaround. Parent
+may consume canonical Workbench N-0619/N-0620. No commit, push, native runtime,
+manual acceptance or release. Continue bounded native driver/qualification,
+then canonical queued gameplay build/differential tests, attributed no-input
+GPU capture, reviewed commit/push and logging dev release.
+
+2026-10-12 - T-ASSETS-052 glTF feature admission candidate (Pipeline / GPT-6)
+
+Mike resumed the full asset goal. N-0609/N-0610 preserve the receiver's sole
+native shooting writer; Pipeline selected an unclaimed standard-source batch.
+Required versions/extensions, sparse overlays and normalized accessors now
+reject before unsupported conversion, with shared runtime/archive policy,
+empty failed outputs, no rejected reference callbacks and cache invalidation
+10/10/15. Generic lexical JSON remains available to language/audio families.
+The source-frozen batch passes Python20/20, conformance16 parity plus recursion
+and9 structured contracts, and native-source guard with zero owned-file drift.
+Canonical -RetainHousekeeping all-target admission exits1 at the unreleased
+native child capability, before compiler/output/native launch. Both FIFO items
+were finished immediately. No capability/policy bypass, native gameplay or Git
+publication. Candidate remains partial/uncompiled pending the tooling owner's
+qualification. Receipts: .claude/asset1012-gltf-features/; detailed scope and
+remaining gates: audits/2026/gltf-feature-admission-2026-10-12.md.
+
 2026-10-10 - T-TOOLING-011 retained-handle startup repair candidate (Codex / GPT-6)
 
 Following published 2e1fbecf and exact CI 38094051174 success, the independent
@@ -142,6 +936,375 @@ as review interpretations, not current user instructions. N-0393 owns this
 scoped documentation correction; peer edits and normal Git safety preserved.
 No preflight, denied process query, game, build or capture was retried.
 
+2026-10-03 21:48 UTC - Read-only runtime admission closeout (gpt-6)
+
+21:27 window expired with no launch/assertions/captures: first worker clock
+466.979 seconds versus 468-second unchanged reserve plus setup. CLI7196
+exited zero; owned absence receipt21:29:14/queues0. Combined root preflight
+CreateProcess policy rejection supplied no reason/rule/request ID; worker
+scoped CIM Access denied preserved separately, neither retried in preparation.
+Historical20:08 admission/22 cleanup checks are insufficient for fresh READY.
+Prepared two-phase protocol only, no new actor/game/build/test or bypass.
+V-014 remains blocked, initial scope partial, D-012/pins/archive preserved.
+[Evidence and smallest operator step](audits/2026/pd-approved-workspace-recycle-2026-10-03.md).
+
+2026-10-03 21:00 UTC - Supported local Computer Use capability passes (gpt-6)
+
+Mike#general1791060142.951179 edit/1791060214.886569 cancels TODAY Plexpause,
+future defaults unchanged; all project deletions recoverable through Recycle Bin.
+Existing official app-managed be3CLI0.159.0-alpha.12.1 supports normal automatic
+review/native node_repl. Current Computer Use26.930.21537 skill/docs read.
+One bounded read-only worker20:53:46-20:55:03, codex-03b22d69-c4a45a7e,
+native Sky import PASS, node:os win32/Shadowbane, list_apps40/PerfectDark0.
+Initial unavailable process-global probe corrected through node:os; no app
+denial/list retry. Exit0/owned worker+children0/noheavy/game/state/input/capture.
+No config/grant/security/hook changes. Capability gate resolved; actual app
+permission/window still unverified and no prompt ID emitted. D012 preserved.
+Parent needs actual supported app-access flow then fresh15m shared runtime.
+[Observed native results](audits/2026/pd-approved-workspace-recycle-2026-10-03.md).
+
+2026-10-03 20:23 UTC - Approved recoverable copy disposition (gpt-6)
+
+Mike Slack1791057011.004399 approved both actual app verification and only
+shared/client run d8f83de6 removal, preferring Recycle Bin. Identity/completed
+archive/live content+metadata/13,450 exclusive file probes/12,389 blobs PASS.
+Registry payload bytes exclude the separately verified 112-byte owner marker;
+initial total check refused before mutation, corrected to verify both counts.
+Native recycle at20:18:43 creates $RXMU22N/$IXMU22N; complete recovered payload
+verified20:18:51, only registry row's status/full_bytes/recycled changed.
+Two pins/current builds/archive/logs intact, managed copies2; no permanent
+fallback/Binempty/diskspace claim. Native executors0 and leases released20:19:44.
+D-010 consent decided, actual app-access unverified: no exposed Computer Use
+interface/live prompt. No denied retry/grant rewrite/game/capture. Route to
+capable executor; fresh15m ordinary gate after actual access, cleanup by20:45UTC.
+Initial scope partial; scoped audit publication uses existing commit/push authority.
+[Actual evidence](audits/2026/pd-approved-workspace-recycle-2026-10-03.md).
+
+2026-10-03 17:47 UTC - Exact published acceptance passes (gpt-6)
+
+Scoped5ab68aab repairs original16stale expectations+1selector+3APIboundaries.
+Its CI fails junction setup only; e0f957ac normalization is insufficient because
+MinGW ntpath swaps preferredsep. Both hosted reds retained. Final620456a7 uses
+explicit fixture separators and pwsh/logged standardWindowsCPython, matching
+Storage-Harness. ExactCI37141120356/head620456a7 terminalsuccess17:47:04UTC:
+four dependency fixtures0.188s,20storage2.499s,config/cleanclient+tests/full
+1,813cases/333,814assertions PASS. Clientartifact11281085075 is nonexpired,
+33,498,961bytes/zipSHA3f4cdf15. Local1,817/335,458 includes peer code and remains
+separate. Narrow portability/contract items validated; initial scope still
+partial at D-010/D-012 then fresh15m runtime. No GUI/corpus-fidelity/gameplay
+claim. All resources0,peer33hashes/unique witnesses preserved. Final dated audit
+publication is docs-only; source commits run CI normally.
+[Terminal proof](audits/2026/pd-source-contract-ci-repair-2026-10-03.md).
+
+2026-10-03 17:16 UTC - Source-contract acceptance repair (gpt-6)
+
+All20 exact CI failures categorized as16obsolete expectations, one incorrect
+playerReset selector and three catalog/provider boundary violations. Typed
+resolver/source-handle routing preserves exact identity and bans. Source checks
+follow current transaction/source policy; new tiny byte-change/old-timestamp
+storage regression proves immutable seeds and shared refresh. First fullnative
+five remaining failures retained; corrected CRLF reader, exact selector and
+regional language-cache stamp. Client/tests builds, full1,817/335,458, storage20
+and native-source guard PASS. Both finite heavy windows released early after
+native executor absence; final14sourcehashes stable. Corrected verifier45c37aa6,
+client43a60276 and logs retained. Scoped15path publication/exactCI next, direct
+Mike authorization applies. Peer work, immutable archives and GUI/deletion gates
+preserved. [Audit](audits/2026/pd-source-contract-ci-repair-2026-10-03.md).
+
+2026-10-03 16:31 UTC - Published portability fix reaches full hosted tests
+
+Exact 950561fa run37136015560 finished failure at16:23:11 UTC. All four tiny
+dependency contracts PASS0.164s; configure uses D:/a/_temp/msys64/mingw64/lib
+for static archives; clean client/tests build and verifier DLL copy PASS. Full
+unit suite fails20 cases/20 assertions, so upload is skipped. Saved compact
+ci-terminal.json and native Git ci-baseline-trees.json: tests/src/port/smoke
+trees equal prior d37aee06, whose configure failure never reached tests.
+T-TESTS-004 records semantic review of those source-content/boundary contracts;
+no assertion skip, weakening or family repair. T-TOOLING-010 remains implemented
+with native/hosted path-build proof, not full CI validation. Local resources0;
+runtime D-010/D-012 and fresh finite15m shared window remain separate. Peer work,
+unique binaries, archive/evidence budgets and Plex cutoff are preserved.
+
+2026-10-03 16:14 UTC - Exact portability publication accepted
+
+Mike directcurrentuserturn: The authority for this project and work pertaining
+to it lies with me. Commit and push. Normalreview accepted unchanged950561fa
+pushorigin/dev; freshremote matches16:13:03.932UTC, indexempty/GitFIFOreleased/
+allresources0. D013decided; earlierwithholding wasfromdelegatedhandoff, notMike's
+blanketpersonal instruction, andiswithdrawn. Exactpush-triggeredPD2CIrun37136015560
+head950561fa inprogress (job111240581522). MonitoringactualterminalCI afternative
+unitPASS, no successclaimyet. No extrasource stage/forcepush/reviewbypass/settings
+orGUI/delete. Canonicalpublication-result.json andsummaryupdated; oldfailure
+receipts preserved. Parentnotifiedthroughcoordination; allpeerworkkept.
+
+2026-10-03 15:46 UTC - New exact authorization still rejected by review
+
+Parent relayed NEWMikeSlack#perfect-dark1791042150.125309 responding to exact
+commit approval request1791041002.367409: You tell it that. I want all our work
+committed and pushed. One unchangednormal950561fa push attempted throughreview
+afterfreshnativeHEAD/index/origin/devpreflightPASS. Again rejected beforeexecution:
+no trusteduser-authored exactauthorization in availabletranscript; trustedhistory
+withholdspermission. No publicpendingapprovalID returned. No furtherattempt or
+indirectexecution; Gitreleased, local950561fa preserved/remoted37aee06/indexempty/
+resources0. Unique receipts push-exact-authorization-rejected.json and closeout
+under toolchain-ci/. D013 remainsopen because approvalreview doesnotrecognize
+relayedauthorization; userauthorizationwas actuallyrelayed. ExactCI notrun since
+remote prerequisite remainsblocked. Nativeunit remainsPASS; noGUI/delete.
+
+2026-10-03 15:20 UTC - Single instructed push retry rejected
+
+Parent supplied verbatim later Mike standing publication instructions and asked
+one SAMEpush retry ofvalidated950561fa withoutscopechange/reviewbypass. Acquired
+GitFIFO, read-only checked exactlocalcommit/indexempty/verifiedorigin/dev remote
+d37aee06. Normalpush again rejected beforeprocesscreation: trusted transcript
+withholds permission, no trusteduser-authoredexactreauthorization. Tool returned
+no publicpendingapprovalID. Stoppedperinstruction, releasedGit immediately, fresh
+readonlycloseout local950561fa/remoteold/indexempty/resources0. Preservedreceipt
+toolchain-ci/push-retry-rejected.json + push-retry-closeout.json. D013open; exact
+newCI cannotstart untilpublication. No furtherpush/indirectexecution/GUI/delete.
+
+2026-10-03 15:14 UTC - Native portability PASS; local commit, remote gated
+
+Parent15m window approved through15:17UTC. Mandatory200+4+2GiB admissionPASS,
+nativeexternalheavy0, retained68d9client+8dfdverifier hash-checked beforeincremental
+build. Actualheavy15:01:52.398->15:04:55.290UTC, early release/native0/resources0.
+Queuedclient+explicit testsPASS; testtarget no work since local flags/paths same.
+Focusedcrypto/voice/readiness1655/50PASS; PEimports keep clientstatic andexpected
+test winpthread DLL, copiedDLL matchescompiler; explicit/commitguardPASS. New
+clientb4929c0c, verifier8dfd unchanged. Nextordinary SourceBinary points retained
+68d9 path, fixture/ROM/GUI/deletiongates unchanged. First combinedcommit/push
+automaticreview rejected beforeprocesscreation: earlierwithheldpushpermission,
+no exactuserreauthorization, destinationunverified. Readonlyverifiedorigin
+MikeHazeJr/perfect-dark-2.git/dev stilld37aee06. Saferlocal-only commit accepted;
+normalhook requestedmissingRefs trailer, corrected then950561fa exact5files
+committed/indexempty, no remote retry. D-013 explicitsupersedingauthorization
+versuskeeplocal, exactnewCI notrun. Allpeer edits/temporarypolicy/evidence remain.
+[Receipts](audits/2026/pd-mingw-ci-portability-2026-10-03.md).
+
+2026-10-03 14:56 UTC - Hosted CI portability repair prepared (gpt-6)
+
+Parent assigned independent nonGUI acceptance work after exact diagnostic CI
+failed configuration. Direct job logs confirm prior0ca5f1ab fails identically:
+actual compiler D:/a/_temp/msys64/mingw64 versus hard-coded C:/msys64 root.
+T-TOOLING-010 owns CMake dependency block/new helper/four production CMake script
+fixtures/PD2 CI tiny test step and narrow context additions. Exact static archive
+and runtime DLL checks remain; shared static dependency consumers now follow the
+selected compiler. Four tiny cases PASS0.144s; test FIFO released. Native-account
+source snapshot protects peer edits after sandbox/prelude Git discovery refused.
+No Git settings/reset/staging or deletion; rejected empty snapshot retained.
+Native compile/link remains pending fresh parent15m shared window with206GiB
+storage admission, retained unique binaries, queued client and explicit tests,
+focused native checks and zero-process release. Scoped commit/push then exactCI
+required. No GUI/capture or D010/D012 change; todayPlex20:45UTC stop preserved.
+N-0366; [source/evidence](audits/2026/pd-mingw-ci-portability-2026-10-03.md).
+
+2026-10-03 13:44 UTC - Remaining gate handoff (gpt-6)
+
+Reviewed agreedinitialcohort withoutnewsource/nativepassrepeats. PreparednonGUI
+gates complete; strictaudio/animation/corpus/fidelity gaps remain, not cut or
+promoted. Saved concise ordinarygate checklist and next-ordinary-gate.json with
+tested68d9a501/d37aee06 binary, unchangedcanonicalfixture, exactconditionalnewseed
+launch andsupporteduser-initiatedComputerUse/PerfectDarkAllow flow. No liveprompt
+or pendingID confirmed; no deniedretry/GUI/worker/game/capture/archive scan.
+Freshmanagedmetadata3/3 fullcopies:2pinned failures+failedunpinshared. Existing
+seed would require one guardedfullcopycompaction; D-012records explicitrotation
+versusretain/defer undernoautomaticdeletion. D-010 appapproval independent. Two
+activeREADME stale300GiB passages corrected; temporary200/run204/build206, caps/
+pins unchanged. Allresourcesreleased; pausedawaitinggates, todaycut20:45UTC.
+N-0364; [gate checklist](audits/2026/pd-readiness-diagnostics-2026-10-03.md).
+
+2026-10-03 13:15 UTC - Temporary PD floor and diagnostic publication
+
+Mike explicitly authorized temporary200GiB floor, unchanged4GiB build+2GiB
+reserve =>206GiB threshold. Onlymin_free_gib configuration andlive retention
+lines changed; D-011 decided/N-0362, noexpiry/global/Astralcap/cleanup/GUI change.
+MandatorynativepreflightPASS12:58:39UTC, externalheavy0/FIFOnext. Actualheavy
+13:00:30UTC,30m deadline13:30:30. Queuedallclient/updaterPASS; actualall excludes
+tests, so explicitqueuedtesttarget rebuilt fresh verifier before focusedunion
+PASS1498assertions/49cases. Native0ownedbuild/test/game13:07:21; heavyreleased
+early13:07:46UTC/Astral notified. No game/GUI/capture/deletion; newbuildretained
+as uniquewitness. Explicit+trackedprecommitguardPASS, exact6sourcecommitd37aee06
+normalpush accepted/freshorigin/dev verified13:14:27UTC. Indexempty/31peerbyte
+snapshots unchanged/Gitlane released. Temporarypolicy/context/Workbench excluded
+from diagnosticcommit; localconfig remains200 until later userdecision. Source
+gpt-6.1-sol; verificationgpt-6. D-010 preview/fidelity stillpending; no deniedretry.
+[Current audit](audits/2026/pd-readiness-diagnostics-2026-10-03.md) and
+03night/diagnostic-source/daytime-verification/ holdcompactreceipts. Todaypause
+16:45Eastern/20:45UTC; future daysnight-only unchanged.
+
+2026-10-03 12:47 UTC - Today-only PD daytime resume (gpt-6)
+
+Parent relayed Mike's explicit October3 daytime approval alongside Astral;
+today07:00Eastern stop superseded, daily16:45Eastern/20:45UTC pause remains,
+future days night-only. One read-only canonical disk prerequisite check at
+12:41:45UTC:270630682624bytes free,306GiB required,57934315520bytes
+(53.956GiB) deficit. No compiler/test/game/GUI/archive traversal or failed-build
+loop. Six frozen source hashes unchanged, HEAD0ca5f1ab/indexempty, all FIFOs
+released. Independent four-file21,927-byte retained evidence audit confirms
+operational ledger hash/client/seed and seven texture receipts/five archives;
+draw/fidelity/listening/playedpose/device/fullcorpus remain pending. Oversized
+contact metadata skipped; zero payload bytes read. GroupA last parent verified
+deletion0; no cleanup/move/policy/pin/grant/settings/Plex/userpreview action.
+D-011 storage and D-010 GUI remain open. N-0360/0361 and
+[current dated audit](audits/2026/pd-readiness-diagnostics-2026-10-03.md).
+After headroom admission, need fresh finite shared30m headless build/test turn.
+
+2026-10-03 03:07 UTC - PD bounded storage investigation (gpt-6)
+
+Parent-authorized metadata-only inspection reached its 250,000-entry cap and
+released asset-evidence FIFO. Observed 23.143 GiB across selected known PD pools
+is a lower bound; five selected roots were not reached. Historical compiler
+products 2.504 GiB remain conditional, current 0.347 GiB retained, Build
+0.164 GiB report only. Empty exact removal proposal; no safe sufficient set
+for the 40.429 GiB admission deficit. Correct managed pin/full_bytes records
+retain two pinned failures and failed shared/client, plus receipts/manual
+previews/archives and the completed 93.063 GiB cleanup witnesses. No delete,
+move, broad scan, floor/budget/pin/grant/settings/source change; user Steam
+actions are separate. Six source hashes stay frozen; native validation paused
+under D-011, GUI under D-010. Evidence: 03night/storage-investigation/ and
+[dated audit](audits/2026/pd-readiness-diagnostics-2026-10-03.md). N-0358/0359.
+Fresh finite 30-minute headless window needed only after storage admission.
+
+2026-10-03 02:47 UTC: parent-confirmed Astral early release granted PD finite
+headless turn. Actual start02:42:55UTC; mandatory isolated-build storage
+preflight refused before compiler/tests (265.57GiB free,300GiB floor+6GiB
+reserve/growth; observed additional40.43GiB needed). Native0ownedbuild/test/game
+verified02:44:41; allPDqueues/heavyreleased02:44:43UTC, Astral notified. Six-file
+Sol6.1 diagnostics stillfrozen/unbuilt/untested/unpublished; indexempty/HEAD0ca5f1ab.
+No repeatcleanup orbudget/pin/grant/settings change; evidence/peer edits preserved.
+D-011 restoreapprovedheadroom vsdefervalidation; D-010 GUIapproval separate.
+N-0356/0357 supersede earlierqueuedwait; [actual audit and resume evidence](audits/2026/pd-readiness-diagnostics-2026-10-03.md).
+Need restoredstorage andfreshfinite turn beforebuildretry; no automatic launch.
+Stop/checkpoint by11:00UTC /07:00Eastern. Sourcegpt-6.1-sol/coordinatorgpt-6.
+
+2026-10-03 02:30 UTC: actual Sol6.1 six-file readiness diagnostics frozen;
+source executor exited0 and all owned launcher PIDs verified absent. Root
+hash/lines/LF/newline/footer/diff/source guard PASS; client/tests unbuilt/unrun.
+T008 ownership returned to root via N-0354; diagnostic admission remains strict.
+Heavy request q_20261003021948054_99e2bbeb queued, not started; next30m finite
+headless all+focused union awaits Astral verified release of03:20UTC window.
+D-010 still requires valid PerfectDark-specific app approval or explicit GUI
+deferral; no live prompt/public request ID, no denied retry/settings change.
+No new commit/push; HEAD0ca5f1ab, index empty. Failed evidence and peer edits
+preserved. [Dated audit](audits/2026/pd-readiness-diagnostics-2026-10-03.md) and
+03night/diagnostic-source/next-headless-batch.json carry the resume instructions.
+Hard stop11:00UTC /07:00Eastern, implementation gpt-6.1-sol/coordinator gpt-6.
+
+2026-10-03 02:21 UTC: parent resumed the authorized night scope; daytime pause
+superseded. Actual Sol6.1 diagnosis completed, focus LOST before Agent Select
+supports intended readiness gate, denial causality unproved. Sole Sol6.1 source
+worker codex-785df03e-ef90554c started six-file read-only rejection diagnostics;
+source unit unbuilt/untested, predicates/fixture unchanged. Astral heavy window
+through03:20UTC; PD30m headless request q_20261003021948054_99e2bbeb queued only,
+after verified release/FIFO-next. D-010 valid app approval remains absent; no
+GUI retry/settings/grants/Git/new game. HEAD/fresh remote0ca5f1ab verified, peer
+edits and incomplete evidence preserved. N-0349..0352 current. Details:
+[readiness diagnostics audit](audits/2026/pd-readiness-diagnostics-2026-10-03.md).
+Hard stop11:00UTC /07:00Eastern. Model implementation gpt-6.1-sol, coordinator gpt-6.
+
+Daytime pause checkpoint 2026-10-02 11:00 UTC / 07:00 Eastern, model gpt-6:
+user-directed pause is active. Native-account verification at 11:02:37.914 UTC
+confirms zero owned known workers/wrappers/disposables, managed games and session
+build processes; root plus its three closed workers own zero leases/queue entries.
+HEAD and fresh origin/dev are 0ca5f1ab471d2675ec14be2b9a900e84c3852efa; index empty.
+No new implementation, test, build, preview, permission change or publication.
+D-010 remains open; V-014 partial/blocked, 11/29 assertions, 0/17 events, 0 captures.
+Failed evidence/private installs, corrected 06:36:04 release, historical false-zero
+correction, retained build and peer edits preserved. No live app approval prompt
+or public pending request ID is confirmed. Ownership retained; N-0348 incorporated.
+Remain paused until next authorized 22:00 Eastern Oct2 / 02:00 UTC Oct3 or later
+explicit instruction; GUI work also needs changed app approval and a fresh parent
+window. Astral/unrelated sessions untouched. Durable proof directory:
+.claude/pd-initial-integration/20261002-night/daytime-pause/ (pause-checkpoint.json
+and native-process-check.json).
+
+2026-10-02 08:01 UTC, model gpt-6: cleanup/audit0ca5f1ab publishednormalorigin/dev,
+remoteverified,exact5files,indexempty/37peerfiles unchanged. Sourceguard/hooksPASS;
+firstsubjectformatrejected then corrected Workbenchformat+Refs accepted,nobypass.
+Prepublicationexec yielded while snapshot/claim stillrunning, so fivepathstaging
+precededclaimcompletion. Queue wasnext/uncontested, claim07:47:34 beforecommit/
+push; exactindex/peerproof recorded, nopeerfile mutations. Gitlane released;
+0ownedheavy/Git/test/capture/processes.44disposablechecks/nativeUIdenial/data
+review boundaries remainasbelow. N0347 currentdurablehandoff, D010open,noAPIretry/
+grant/settings changes. Parentcheckpointwith officialAllow step/publicrequestIDnull;
+no livehostprompt confirmed.11:00UTC/07:00Eastern pause kept; Astral window intact.
+
+2026-10-02 07:42 UTC, model gpt-6: sourcecleanupunit fixes escaped path/time and
+falsezero propagation in bothwrapper launches/ordinarycleanup. File-backed exact
+identity record and stop entry validate Windows paths/UTC/parent/fixture/current
+privateinstall; queryerrors propagate, exit confirmed.22checks eachPS5.1/PS7 pass
+using hidden disposables, unrelatedsameexe preserved;0Game/UI,guard/parser/diffPASS.
+New fivefile sourcefreeze/audit for scopedGitlane; no realPD cancellation yet.
+Independentmetadata review4texture joins/7traces12844bytes pass in oldgeneration,
+graph27/67/53 lexical/currentSettings16rule unchanged. First reviewcommand failed
+nullpipelineitem; nextexport lostfields via automatic Matches variable. Original
+invalidartifact/corrections retained; final rows shape checked. No native/fidelity
+promotion. OfficialAllow one-time step verified; publicpendingrequestIDnull, no
+liveprompt confirmed, workerclosed. D010 and failedpreview/correctedrelease remain.
+No denialretry/permissionchange/heavywindow. Model attribution retained.
+
+2026-10-02 06:45 UTC, model gpt-6: Attempt3 mandatory default shared gate passed
+and game launched. Actualstart06:31:06/upper06:46:06. Sky's realPD access call
+denied06:32:12.869Z: "Computer Use was not approved to use perfectdark". No
+activation/APIretry/alternateUI/grantsettings change. Worker path/time cleanup
+checks failed, then prematurely released queues06:33:13 with a wrong zero claim.
+I initially relayed that claim; corrected native-account verification/final
+release06:36:04 supersedes it. Native ended original180082ms readiness timeout,
+0/17events,11/29assertions,exit1,0captures; timeout causality remains unproved.
+Worker exited06:38:20; N0342 incorporated/root ownsV014, N0343 owns closeout and
+scoped bug paragraph. D010 actualappapproval decision open. Failed recipe/logs/
+fullinstall and corrected release preserved. Native/source passing evidence stays
+separate from blocked visual/input/fidelity. No source/Git/cleanup/budget/pin
+changes. Normalize and verify owned process cleanup before any future retry.
+
+2026-10-02 06:10 UTC, model gpt-6: second executor's actual preview resource
+window05:53:38-05:54:45 (upper06:08:38) closed immediately on storage refusal;
+native process check confirmed0 owned games. No PD access/denial or captures.
+Worker added PerTestInstall despite default command; count4 exceeds3. Light
+bounded metadata checks confirm default private shared replacement count3,
+completed unpinned same-seed success, matching marker/complete receipt and disk
+headroom. Native account06:05:59 previous wrapper26644 absent. Full eligibility
+byte/metadata/exclusive gate remains unperformed and mandatory inside next run.
+Prepared exact default command in Attempt3 with separate preserved outputs;
+launcher parser passed. No cleanup/budget/pin/archive/source/Git changes. N0338
+handoff already incorporated; root ownsV014. Astral next heavy window; need fresh
+parent15minute grant afterward. Original initial acceptance remains partial.
+
+2026-10-02 05:45 UTC, model gpt-6: parentprovidedapp-managed0.159.2 path/version
+verified, normalapprove-for-meflags parse; freshnativeexecutorSkyimport/listapps
+PASS. V014preflightclosed05:33:58 becausemy promptrequired guaranteed appcheck
+before nativefixtureinputs. NoactualPDappcheck/denial,install/game/heavy/capture;
+worker19924 exited05:34:19/quiescent. Grantreleasedunused05:42:32,0ownedqueues/
+processes; no actualstart/deadline. Correctedfutureprompt usesactualsupported
+checks/observedordering; no hypotheticaldenial orfixturebarrierchanges, actual
+denialstopswithnootherUIroute. V014handofftoroot afterquiescence; N0335processed,
+N0336incorporated. Needfreshparentwindow before game. Source999cbf13published,
+native23/20/6 remainaccepted, alloriginalinteractive/fidelitygoals stillopen.
+
+2026-10-02 05:05 UTC, model gpt-6: parentrequests one exactnormalpushretry with
+new explicit supersedinguserinstruction; auto-reviewaccepted andorigin/dev
+8bda4483..999cbf13PASS, exactremote999cbf13 verified. D009resolved/priorquestion
+needsnoresponse. EarlierretrievedSlack-only rejection retainedhistorically.
+Lightcanonicalpreviewprep readsCLIhelp/metadata only. Installedonlycodex.exe
+0.126.0-alpha.8 rejects --approve-for-me --help(exit2), no worker/UI/backendrun;
+currenttools lacknode_repl/CUA. Parentdifferentexecutorreceipt retains recorded
+Sky exposure; thispathdoesnotreproduceit.4284bytehandoff preservesfixture14606867,
+ready180s/cap240s/fourcaptures,seed28b2cf25; budget809/900s plus91margin. Needparent
+exactworkinglauncher/nativeexecutor, separatePDapp/inputapproval then15m preview
+window afterAstral. No denialrepeat/permissionfallback/desktopprobe/game/capture/
+config/grantsettingschanges. NormalDefaultlatestJSON unchanged; nativeproofdoes
+notimply visual/audibleacceptance. Heavy remainsreleased04:33:44,0ownedFIFOs.
+
+2026-10-02 04:50 UTC, model gpt-6: reviewed26path unit999cbf13 committed locally,
+trustedguardPASS,indexempty. Firstnormalpushreview rejected trustedrequestwithheld
+permission. Read originalMike#updates1790905788.584029 read-only; secondnormalpush
+review rejects retrievedSlackcontent as authorization. No bypass orremote mutation;
+D-009 open fordirectMikeapproval currentconversation. Exactlocalcommit/nativeproof
+and allpeerworkingbytes retained; heavyreleased04:33:44UTC withzeroownedheavy/FIFO.
+Publication blocker/currenttruth saved in Workbench and publication-blocked.json.
+Separate supportedCUA/app-inputexecutor plus parent15m canonicalpreview remains
+nextacceptancewindow need. No additionalheavy source/asset/UI operation occurred.
+
 2026-10-02 04:33 UTC, model gpt-6: V2normal-frame exit polling and bounded native
 stdout/stderr fixes pass queuedclient/tests, focused12/488 andpreview1/4. PS5.1/7
 each35tinyconsolechecks pass. Canonicalaudio23/23, animation20/20 andMP36/6 with
@@ -179,6 +1342,328 @@ Settings complete16-rule/config pending-value repair with retained native proof;
 ordinary UI edit/restart/device gates remain open. No heavy launch or cleanup.
 Requested bounded15m audio/source then separate30m interactive preview handoff;
 native app approval remains separate. Evidence20261002-night/graph-publication.
+
+2026-10-01 21:19 UTC, model gpt-6: recorded a new native runner recovery option.
+Parent transcript01a0f915-4c31-7792-81e2-4d1c1b9300ef reports official codex exec
+--ephemeral --approve-for-me under Mike's existing account with workspace-write,
+not earlier CodexSandboxOffline profile. Read-only receipt186bytes/SHAe32ba836
+confirms mcp__node_repl__js, @oai/sky import and sky.list_apps succeeded, Edge found;
+no UI actions. CLI flags/profile/sandbox are parent transcript facts, absent from
+the compact receipt. No config/install/grant/restart change reported. Copied tiny
+receipt and recorded proof boundary in20261001-desktop-recovery/summary.json.
+This session made no CLI/desktop/game/build call; Astral heavy lane and transcript
+research desktop remain untouched. Next PD use needs its own approved interactive
+window; real foreground/game input/menu/device proof remains open. Earlier normal
+Default readiness and child sandbox failure retain their separate observed scopes.
+
+2026-10-01 18:25 UTC, model gpt-6: read actual repo readiness/latest.json timestamp
+18:25:54.9072110Z, ready=true, caller/input desktops Default, WinSta0/session1,
+error0, foreground present. SHAfe705251. It differs from the child's18:23 saved
+Documents/Codex/task-2 result ready=false/CodexSandboxDesktop/error5, which is
+agent-context evidence only. Both original files/history preserved; this session
+only read them and made no probe retry or game launch. Missing-user-JSON blocker
+removed; actual game input/menu/Settings/device proof still unrun. Durable normal
+result snapshot user-ready-proof.json under20261001-readiness-file-output/.
+
+2026-10-01 18:06 UTC N0308/0309, model gpt-6: granted texture batch accepted.
+Queued client/tests and five C++ cases48assertions/guard PASS. New client4AE22FA3,
+seed6b8d0268 changes only actual binary; public sources unchanged. One canonical
+animation/CCTV gate27/27, native/runner exit0,91.446883s. Seven strict traces attest
+model and four unique texture sources; frozen five-archive/66-member ledger now
+has five native load passes and four parent source-generation/slot joins pass.
+Raw root pending list preserved; draw/fidelity remain pending. Candidate15 files
+unchanged through gate. Heavy finished18:06:23.4809UTC, wrapper33728 gone, no owned
+games/FIFO; Astral notified immediately before this checkpoint. Compact evidence
+20261001-dependency-native/summary.json. No further heavy launch/capture/probe.
+User readiness file-output follow-up N0310: no saved actual result found in known
+repo evidence; old probe was stdout-only. New cmd launcher keeps console open;
+default readiness/latest.json plus independent history persists success/failure.
+PS5 null-to-empty-string File.Replace failure fixed with NullString; first failure
+retained. Five synthetic file assertions and CompileOnly pass each PS5.1/7;
+desktop probe not executed. User action: double-click run-interactive-readiness.cmd.
+Ordinary menu/Settings/device/capture/audio/nonvisual/corpus gates remain open.
+
+2026-10-01 17:10 UTC N0306, model gpt-6: source-only dependency expansion complete.
+Actual successful texture PNG/descriptor buffers and native RGBA source generation
+are captured opt-in; parent compiler bindings join by catalog/source-hash/slot.
+Frozen same-run member receipts close only dependency-source coverage; draw and
+fidelity stay pending. No C/C++ build/native run yet; five cases48asserts expected.
+Final93Python/27synthetic helper assertions eachPS5.1/7/guardPASS. Joined ledger
+test caught omitted standard MTL texture references, fixed with regression; first
+failure logs retained. C5 accepted seven-member receipt/event artifacts unchanged.
+Retained five-row ledger now records1native load pass and4pending texture sources.
+Metadata-only9018top-level identities/3pending labeledviews/0images/3,855,105bytes;
+zero payloadblobreads/installcopies. Eleven static checks preserve original
+animation/CCTV input/timeout while adding4texturewitness requirements. Draw seam
+inventory records missing lifetime-safe identity through DL/VBO/GL submission;
+no GPU proof. New20m parent headless window needed for queued client/tests/newseed/
+single gate/join/release. Astral owns heavy; no new readinessprobe/build/game/
+capture/Git/cleanup. Evidence20261001-dependency-prep/. Initial scope remainspartial.
+
+2026-10-01 16:10 UTC N0304/0305, model gpt-6: corrected owner retry PASS.
+Queued client/tests pass; five cases39assertions and sourceguard pass. Client
+C5AEA61C/test3D6DCEDF/new seed1f3a0480; publicsource46807f6b unchanged. One exact
+animation/CCTV gate23/23/nativeexit0/runnerexit0; strict converter accepts one
+trace6522eventbytes/seven consumed publicmesh members, rom_fallback=false.
+Four texture dependencies/draw/fidelity remainpending. Heavy completed16:10:06.2659071Z
+(6.266s finalizer overrun); owned34660/34240gone/zeroqueues verified, Astralnotified.
+No additionalrun/input/capture/Git/cleanup. Priorfailure preserved; compact summary
+.claude/asset-inspection/20261001-owner-retry/summary.json. Broader initial scopepartial.
+
+2026-10-01 14:20 UTC N0303, model gpt-6: audited supported native Windows
+Computer Use before declaring a user-only readiness handoff. Local plugins are
+enabled and runtime skill/API/guidance require node_repl + @oai/sky. Delegated
+catalog334 has zero node_repl/native CUA APIs; executor skills empty. Ordinary
+desktop remains unobserved, exact probe unrun. Prior shell denied5 is not proof
+all routes deny access. Parent with native tools can perform already-authorized
+exact read-only probe; no shell workaround, settings/session change, game/capture.
+Compact evidence20261001-desktop-capability/summary.json + tool-catalog.json.
+Member correction still source-frozen/unbuilt; new15m headless window ungranted,
+heavy resources remain released. Existing proof and uncommitted work preserved.
+
+2026-10-01 granted12:52-13:27UTC headless window, model gpt-6/N0301: client11s
+PASS; test build failed wrong Catch header, fixed/rebuilt5sPASS; five cases35
+assertions PASS. Old/new binaries archived. Derivativefb8c3e9f changes onlyclient
+B2BE9DB2; public source/DLLs unchanged, normal backend verification retained.
+One planned animation/CCTV gate22/23FAIL, nativeexit0/animationOK, no member event.
+Loader binds selected public geometry member; initial producer needed typed owner.
+Source correction snapshots/verifies owner separately without changing selection,
+generation hash or lifetime. Four new assertions remain unbuilt within five cases.
+Cheap82 Python/guard/diffPASS. Heavy actualended13:19:23.6479115Z; next rebuild
+queue cancelled beforestart, runner18484gone, zero own heavyleases/processes.
+Astral notified. No interactive probe/captures/Git/cleanup. Failedrecipe/source
+freeze/native-proof summary retained. Request new15m headless validation only;
+parent says afterAstralbatch, no automaticgrant. Prior native proof preserved.
+
+2026-10-01 12:12 UTC T-TOOLING-008/009 continuation, model gpt-6; N0297-0299.
+Opt-in native model member source, bounded controls, five explicit C++ cases;
+prior CMake hunks preserved. Actual successful callback snapshots are checked
+against selected FileProvider archive. External texture and draw proof pending.
+Private runner binds frozen client/public-set/archive identities, child environment
+and complete converted events. New C++ unbuilt; no game/desktop/capture under hold.
+Explicit immutable CCTV inventory22 members/4 texture IDs,75,349 bytes read, zero
+installs, fidelity pending. Fixed descriptor-only dependency omission across
+bounded material/JSON/glTF references and ledger dependency obligation. Python81
+PASS; helper22 synthetic assertions each PS5.1/7 PASS; guardPASS. Two old test
+expectations corrected/retained. Later queue Git-discovery failure resolved by
+fresh-shell diffPASS. Original summary/character ledger hashes unchanged. Planned
+canonical native fixture only; boot/input/timeout retained. Parent35m headless need,
+ordinary user preflight then parent15m preview; no other known tool/code blocker.
+Integration partial; full corpus/fidelity/Settings/device gates open. No Git mutation/cleanup.
+12:21 supplement: four tiny referenced texture source archives also inventoried.
+Five archives/66 members,121,076 bytes read, real descriptor IDs, all load/fidelity
+pending; no image or native texture proof. Each inspection FIFO finished promptly.
+12:29 final Python82 PASS after bounded deep-JSON error case; guardPASS. Inventory
+emitting tool revision retained and current owned sources frozen separately.
+
+2026-10-01 10:32 UTC T-TOOLING-008/009 parent renewed lightweight preparation.
+ClaimsN0294/0295; new tools asset-inspection-receipts.py/plan.py and tests, read-only
+test-interactive-readiness.ps1, existinginspectionREADME/context and proof-boundary
+audit. No engine/CMake edit or heavy resource request; Astral owns heavy lane.
+Native begin/member/end converter enforces exact asset/origin/build/source identity,
+FileProvider hashes/size/activating source and native completion; missing terminal/
+descriptor-only stayspending, fallback/mixed/changed/unsafe events reject. Native
+emitter remains absent; no retrospective reads inferred from63 hydration passes.
+Synthetic end-to-end import proves tool wiring while fidelity remainspending.
+Final27receipt/17plan/22ledger cases PASS; sourceguardPASS. Readiness C# compiles in
+PS5.1/7, AST/no mutating desktop API checks pass; compile-only did not probe desktop.
+Verified retained seed manifest identity (704240 compressedbytes metadata only),
+indexed9018 top-level typed archives; raw blobs/members not reopened, IDs notguessed.
+Source-set hash46807f6b excludes caches/ROM/binary/mtime; modified fixture sources
+must define a new generation. Original63 ledger hash/log/clientD9CFC0B8/seed8227ba09
+carriedseparately, neverpromotespendingrows. Final12 labeled pending contactslots,
+51 unscheduled;384MiB futurecapture reservation, zeroimages. Exclusive metadata
+outputs under8MiB each, initial/finalpreparations retained. Existingfreefloorchecked.
+Smallest operator step: ordinary Defaultdesktop readonlypreflight, then newparent
+15m canonical preview/virtual-controller gate,827.845/900s admission, no rebuild.
+Do not retry deniedsandbox. Keyboard fixture thenprovestraversalonly; actualSettings
+edit/save/restart/physical-device/mouse/listening/corpus acceptance separate. Strict
+one-model producer needs later instrumentedbuild/headless window, newbinaryhash.
+Proof .claude/asset-inspection/20261001-receipt-prep/ and proof-boundary audit.
+All test FIFOs released, no game/build/capture/assetbytescan or Git/cleanup action.
+
+2026-10-01 09:53 UTC T-TOOLING-008/009 headless native window completed.
+Parent08:55-10:10 grant; client/updater and explicit tests build pass. CMake uses
+an explicit test list: initial9-case pass correctly failed12-case admission,
+registered marker source and rebuilt;12cases189649assertions PASS0.086s.
+First native source4/6 and base-animationAV revealed two leftover4095 material
+bind checks. Addr2line located setupCreateCctv after failed public CCTV material
+load; changed only catalog/map texture bounds and cleared harness stale-error
+buffer, then queued client rebuild/new seed. Final clientD9CFC0B81D27B491,
+seed8227ba09ad2c2ef1. Corrected source6/6 (15/15assert), animation19/19,
+body/head13/13, character63/63 (26fixed/35random_gender/2integrated;6/6assert)
+all native0. No live-slot recycling or source fallback. Four whole runs130.235,
+161.519,113.103,113.844s; final receipt09:40:56.623Z, heavy release09:40:56.814Z.
+Zero owned games/heavyqueues verified09:43; Astral notified to resume. Evidence
+aggregated from immutable recipe/log/result paths with hashes and exact phase
+timestamps;63-record operational ledger does not certify consumed member hashes
+or rendered/listening fidelity. Animation high-part header_truncated diagnostics
+retained. First failed wave/older35/1/27 and pinned preview evidence preserved;
+eligible unpinned full copies subject only to unchanged managed retention.
+No ordinary input/capture or denied-access bypass; authorized interactive executor
+still needed. Initial strict member/corpus/contact-sheet/device acceptance remains
+open. ClaimsN0289..0292; currentmodelgpt-6, inheritedattribution unchanged.
+SourceguardPASS, no Git stage/commit/push/reset or historical cleanup.
+Proof .claude/pd-initial-integration/20261001-native-validation/summary.json.
+
+2026-10-01 08:23 UTC T-TOOLING-008 lightweight handoff: propagated PC unsigned
+16-bit texture marker/tex/cache/prefix/collision/hit repair and glass sentinel,
+snapshot guard, occupancy diagnostic and generation cursor implemented in source;
+uncompiled/native proof pending. Claims N-0284..0287. Frozen seed and inner timing:
+Python19/19 PASS4.906s, PS17 PASS1.985s; large setup savings unmeasured. Own private
+CodexSandboxDesktop has foreground0/input read denied5; authorized interactive
+executor required before menu/capture retry, no bypass/control. Six-case source
+probe plus animation/body-head/character63 prepared,20 files11,140 bytes. Request
+75-minute parent window for queued all build/tests/four gates. No active leases.
+Prior35PASS/1FAIL/27untested retained. Proof20261001-texture-repair/summary.json.
+
+2026-10-01 07:22 UTC T-TOOLING-008 renewed-window handoff: actual commands
+advanced under 06:44-07:19 parent grant, no rebuild. Canonical preview wait180s
+fails 11/29, zero events/captures, boot/stage/Agent Select ready but keyboard and
+ImGui ownership false; valid live game HWND foreground0/acquisition failure.
+Timing wrapper accidentally used PS5.1; Get-Content failure text metadata expands
+under deep JSON. Owned wrapper3992 grew9.42GB after game exit, contained06:59:52;
+original owner receipt recovered in PS7 (137.803s), no relaunch/control weakening.
+Exact Line field copies plain text now; ten regression checks pass in both shells.
+N-0282 records scope. Independent character seed340.046s/native100.515s/complete
+67.607s/whole512.831s: native2, assertions2/6, 35 templates PASS then fbiguy FAIL
+because model_cfbiguy has no retained native texture slot. Source tail has593
+slots shared by custom IDs/generations, bounded by12-bit4096 packing. Lifetimes
+need measurement; no allocator/GBI/compiled source changes. Operational36-case
+ledger records one failure and27 untested, not member hashes/render proof.
+Failed full installs/immutable recipes preserved; failed transition requires new
+private checkout. Animation/keyboard could not fit canonical bounds, UNRUN.
+Batch finished07:12:54, heavy leases released07:14:30UTC, all owned native processes
+ended. Sourceguard/static handoff remains lightweight. No approval/executor
+blockage, cleanup, Git stage/commit/push or unrelated-session control. Evidence:
+.claude/pd-initial-integration/20261001-corrected-run/summary.json.
+
+2026-10-01 06:38 UTC T-TOOLING-008 combined-window handoff: parent granted
+35 minutes after Astral yielded at 06:20. Unchanged retained client attempted
+01-preview only: 10/29 assertions, 0/17 input events, no captures, native 30.940s,
+whole 184.818s. The private variant's shortened 30-second wait expired while
+weapon bootstrap was active; main-menu arming had not occurred. The preparation
+checked assertions/boot but omitted canonical wait limits. Corrected copies now
+restore entire canonical input sequences and timeouts; all four exact contracts,
+actual ordered discovery and source guard pass. Failed evidence/full install is
+preserved. Post-run invalid-window-handle diagnostics do not establish foreground
+as the readiness cause. Other three fixtures unlaunched. All heavy FIFOs released
+06:28:48 UTC and owned runner 33028 ended. No retry without a new parent window.
+Request 35 minutes, no rebuild; conservative cold overhead plus canonical native
+caps leaves 67.606s margin, although this warm overhead measured 153.878s.
+Native per-member ledger production, labeled visual/family/audio/nonvisual and
+ordinary Settings/device acceptance remain open. No cleanup, Git operations or
+unrelated session control. Summary and corrected static receipt:
+.claude/pd-initial-integration/20261001-combined-run/summary.json;
+.claude/pd-initial-integration/20261001-readiness-corrected-prep/proof.json.
+
+2026-10-01 06:14 UTC T-TOOLING-008/009 lightweight combined preparation:
+parent holds PD while Astral owns heavy lane. Existing compressed receipt/seed
+metadata only:13,105/13,119 files and99.99949% seedbytes reusable; reset14seed
+files/1,812bytes and remove99new files after actual full verification. Prepared
+four private fixture aliases preview,keyboard,character,animation; actual runner
+discovery/selection pass, native names/assertions/bootargs unchanged. Request35m
+combined window (4x318.099s observed cold overhead +595s native caps +232.606s
+margin); no measured warm-cost claim. Existing shared reset amortizes payload
+copying; all checks/receipts/private mutation boundaries remain. Native canonical
+archive digest/nonresident witness cannot substitute for actual member reads;
+one new negative makes22 ledger tests pass0.122s. Guardpass/test FIFO released.
+No native game/build/capture/sourceasset scan, large copy, storage behavior
+changes, cleanup or Git. Prepared plan and selection receipt:
+.claude/pd-initial-integration/20261001-combined-prep/.
+
+2026-10-01 05:51 UTC T-TOOLING-008 native window: parent grant after Astral
+yield05:38 UTC; exact retained client hash 636666B5..., no rebuild. Body/head
+passes13/13 assertions, ten native source cases, gameexit0/native48.437s. Real
+managed storage seed/reconstruction/completion now succeeds: 13,119 files/
+355,636,638 seed bytes and complete receipt. Whole command366.535s; setup and
+finalization consumed most budget. Four remaining fixtures UNRUN, no capture.
+All three FIFOs released and heavy lane explicitly returned05:51:17UTC; owned
+runner26268 ended, no owned native process remains. Next request15m preview+
+keyboard, separate15m character+animation; no retry without parent handoff.
+Guardpass. Native log witnesses show edits/selected geometry/rejection/rollback;
+no structured per-member ledger receipt or fidelity/device acceptance claim.
+No repeated cleanup/Git/unrelated-session control. Summary and exact log/recipe
+hashes: .claude/pd-initial-integration/20261001-runtime-window/summary.json.
+
+2026-10-01 04:48 UTC T-TOOLING-008 takeover: user explicitly continues approved
+initial scope from quiescent prior child; historical pause is not current direction.
+Registered real session 01a0f5c1-d031-77b0-a372-3391765df0d5 and transferred exact
+lane ownership through canonical Workbench (N-0275). Fixed native Python routing
+in storage and the owned ledger driver, leaving build TEMP/TMP/PATH intact.
+PS 13/1.547s, storage 14/2.859s, ledger 21/0.096s, tiny actual-driver inventory,
+three PS parsers and sourceguard pass. Test FIFO released. Existing compiled
+client and native regression receipts are preserved; no rebuild/game/capture or
+real inventory ran. Await parent 15-minute runtime/capture window because Astral
+coordinator 01a0f5ba-32ee-7205-85ef-d6c6d210b0ef owns heavy resources. Existing
+model generation read-capture callback is reviewed for actual-member receipts;
+producer and fidelity/runtime acceptance remain open. No unrelated session/Plex
+control, historical cleanup, stage/commit/push. Evidence:
+.claude/pd-initial-integration/20261001-routing-proof/.
+
+2026-10-01 04:34 UTC T-TOOLING-008 historical pause checkpoint (GPT-6): latest Mike request
+pauses Shadowbane for Plex. No owned compiler/build/test/game/scan process or
+active child worker remains; three owned smoke/capture FIFO leases cancelled,
+coordination idle, heavy lane released. Kept source edits, isolated build and
+failed build logs, exact binary hashes and native XML receipts. Client/tests/
+Settings-save compilation passed; native focused 10 cases/82 assertions,
+broad 246/10,033 and Settings-save 14/236 passed with zero failures. Do not add
+the overlapping selectors as unique coverage. First managed smoke exited 2
+before seed/game: MSYS Python rejected Windows storage.py path. This was an
+executed command failure, not an approval stall. No seed, extraction or game
+started. Narrow interpreter fix and runtime receipt/capture work remain pending
+explicit PD resume; Astral-only scheduling does not resume this assessment.
+No new historical cleanup, Git staging, commit, push or unrelated process control.
+Evidence: .claude/pd-initial-integration/20261001T041916343Z-naAive/.
+
+2026-10-01 T-TOOLING-008 (GPT-6 integration, four gpt-6.1-sol workers): applied
+Mike's current approval (Slack1790824183.987759, 03:09 UTC); stale N-0267 pause
+superseded by incorporated N-0268. Separate scopes produced bounded inspector
+and budgets (21 tiny tests), model-preview coordinate/state repair (three native
+cases written), lossless Settings profile/config persistence (eight native cases
+written), and a 27-boundary/67-reference graph inventory (11 tiny tests).
+Registered the two new pd-tests files and exposed the existing dedicated
+Settings save target through queued/DLL-safe wrappers. Scoped static checks and
+asset-source guard pass; no native build/test/game/capture/extraction or repeat
+cleanup. Retained earlier failed receipts and all preexisting peer work. Child
+handoffs N-0269 through N-0272/source hashes are durable; source units freeze
+pending parent Astral-serialized validation. No Git stage/commit/push.
+See audits/2026/pd-initial-integration-2026-10-01.md for acceptance and commands.
+
+2026-09-30 T-TOOLING-006 (GPT-6): Mike-approved prospective smoke controls
+implemented in production runner and install wrappers: immutable exact-content
+archive, private mutation copies, exclusive verified/reset shared reuse, compact
+reconstructable evidence, 3 full installs/8 GiB + 8 GiB archive budgets and
+configurable 300 GiB free-space floor with pending growth. Historical evidence
+untouched; completed cleanup not repeated. Active/pinned/changed/locked/aliased/
+incomplete evidence refuses more copies. Tiny gates: 14 Python cases in 2.687s,
+11 PowerShell checks in 1.586s; source guard and PowerShell parsing pass.
+Five 10,880-byte synthetic runs: only 3 full installs, archive 5,333 bytes;
+modified receipt 927 bytes. No native game/build, Git stage/commit/push or other
+session control. Direct build-session starts now check the policy; standalone package/extraction adoption is separate;
+preflight is not an OS quota. Audit: audits/2026/smoke-storage-prevention-2026-09-30.md.
+
+
+2026-09-30 T-TOOLING-005 (GPT-6): completed Mike's explicitly approved historical
+storage cleanup, strictly individual files inside canonical `.claude`. Removed
+3,333,693 files / 99,925,340,147 bytes (93.063 GiB): old May-August run data,
+staged ROMs/binaries and selected mod-cache files, plus pre-September CMakeFiles
+.obj/.gch. Preserved 48,633 candidate files (1.415 GiB), including all identified
+unique assets/binaries/cache and conservative JSON/evidence/config exclusions;
+all logs/receipts/screenshots/saves, September work, menu0927/source-freeze,
+shared install and extraction baseline stay. Exhaustive hashing stopped at
+Mike's direction; partial results and fully closed protected-witness ledger kept.
+71,691 retained-file metadata/identity checks and 3294 source SHA comparisons:
+zero drift. No locks/active-use or tool/approval blockers, no directory removal,
+permission changes, tests/builds/game runs or Git staging/commit/push. Action-time
+C: free 271.7->365.3 GiB; Mike's earlier Steam uninstalls are separate. Automatic
+age cleaner is now a no-op; manual -DryRun is unreviewed inventory; new preparer
+has no deletion operation. Immutable assets/private mutation copies, compact
+evidence, three new full installs/8 GiB budget and 300 GiB+peak-growth preflight
+are documented proposals; smoke runtime/copy behavior remains unchanged.
+Receipt: .claude/cleanup-manifests/20260930T164808Z-approved-cleanup/summary.json.
+Audit: context/audits/2026/smoke-storage-cleanup-2026-09-30.md. Git/publication
+lane untouched; recurrence runtime integration remains the scoped follow-up.
 
 Sep29 22:32 T-MENUS-003/004 continuation: first mapped Accept now reveals
 native navigation, Agent Select requests its selected row on entry, and the
@@ -226,22 +1711,6 @@ red15/29, results-20260930T015959Z.json. It overlapped the asset session's separ
 resource named game, so focus isolation is unproven; screenshot inspected.
 No hardware/system assignment changed. Goal remains active and partial.
 
-2026-09-27 04:46 ET T-MENUS-005 USER PAUSE. Source remains frozen and
-uncommitted in seven owned source/test files (mainmenu, nav_input cpp/h,
-prefs_agent c/h, widget-navigation and Settings static tests). Backup patch
-and hashes: .claude/menu0927/pause-owned-source.*. Agent checkpoint4db5233a
-was already pushed. Capture disconnect passed235 cases/9765 assertions on
-asset0923lang with2010 source hashes unchanged; capture-broad.xml is that
-receipt. Later Video/Game/mouse save requests, retired split removal and
-Agent dirty invalidation are UNVALIDATED, awaiting the peers' combined build.
-No new tests/builds/client runs authorized until resume. No owned FIFO remains.
-Open persistence finding: Settings indexed legacy options use slot0 but solo
-Agent capture/apply uses slot4; repair the adapter, not only save triggers.
-Runtime memory guard remains below2GB available commit; no bypass/hardware
-changes. Full18-failure receipt and all ordinary/scaled/physical/full-matrix
-acceptance remain open. Resume from settings-control-coverage-2026-09-27.md,
-refresh ownership/peer build results and exact hashes before further edits.
-
 2026-09-29 T-MODDING-002 retained equipment batch passes client/tests0,
 native143cases/4754assertions,guard0,installed39/39 and2012-path drift0. Exact
 compiled model queue delivers old source after newer same-ID catalog loading;
@@ -270,6 +1739,31 @@ guard0 and installed37/37 pass; fresh 2,011-source fingerprint comparison has
 zero changes. Owned model checkpoint prepared separately from peer menu/MP
 changes. Ordinary executable graph integration and full asset scope remain
 partial. Receipt: context/audits/2026/model-stage-lifetime-2026-09-29.md.
+
+2026-09-27 04:46 ET T-MENUS-005 USER PAUSE. Source remains frozen and
+uncommitted in seven owned source/test files (mainmenu, nav_input cpp/h,
+prefs_agent c/h, widget-navigation and Settings static tests). Backup patch
+and hashes: .claude/menu0927/pause-owned-source.*. Agent checkpoint4db5233a
+was already pushed. Capture disconnect passed235 cases/9765 assertions on
+asset0923lang with2010 source hashes unchanged; capture-broad.xml is that
+receipt. Later Video/Game/mouse save requests, retired split removal and
+Agent dirty invalidation are UNVALIDATED, awaiting the peers' combined build.
+No new tests/builds/client runs authorized until resume. No owned FIFO remains.
+Open persistence finding: Settings indexed legacy options use slot0 but solo
+Agent capture/apply uses slot4; repair the adapter, not only save triggers.
+Runtime memory guard remains below2GB available commit; no bypass/hardware
+changes. Full18-failure receipt and all ordinary/scaled/physical/full-matrix
+acceptance remain open. Resume from settings-control-coverage-2026-09-27.md,
+refresh ownership/peer build results and exact hashes before further edits.
+
+2026-09-27 04:50 ET T-NETWORKING-011 USER PAUSE. Implemented shared movement record admission
+for both receive paths, atomic stale/duplicate rejection, monotonic serial ACKs,
+and ACK-based force/send checks. Native ordering cases and existing ingress
+guards updated; integrated client/tests builds pass and native172/14417 plus guard0
+on source3432 drift0. Client5E7AB9AB. New runtime queues cancelled before start;
+changes remain uncommitted. No physics or wire-layout change. F05 input authority,
+prediction and full matrix remain open. Resume from multiplayer-movement-ordering
+audit only after explicit user continuation; all MP source/resource holds released.
 
 2026-09-27 T-MODDING-002 source window after MP/menu hold release: repaired
 selected-gset retention of complete equipment/model/command source ownership.
