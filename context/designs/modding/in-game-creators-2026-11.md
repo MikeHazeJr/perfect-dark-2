@@ -108,6 +108,20 @@ Foundation, in order. Each step lands with tests that run in CI.
    rewrite id references in public INI and JSON members, regenerate `_meta`
    sidecars, validate the result in release mode. Every creator needs this
    (weapon template, character body and head, vehicle, scenario).
+2b. DONE (`assetArchiveRebuildFile`, same file): the clone takes member
+   overrides (replace, add, remove; `outer.pdxxx::member` for embedded
+   archives; a typed override is a whole replacement archive) and can
+   rebuild an archive under its own id as an edit. Verified 2026-11-14 the
+   same way (8 cases; 6 authored archives pass conformance, 27 checked).
+   This is the one authoring primitive: template in, edited mod archive out.
+2c. NEXT: mod author core (`mod_author`): request (template path, mods
+   root, display name, author, version, overrides) to a complete mod
+   folder `mods/<Category>/<kind>_<slug>/` holding the rebuilt archive
+   (`mod:<kind>_<slug>`) and a validated `mod.json` (`mod.<kind>_<slug>`),
+   staged as a candidate and swapped in, refusing a folder owned by a
+   different mod id. Naming follows the existing weapon creator. Then a
+   headless recipe entry (`--mod-author <recipe.json>`) over the same
+   function, then the hub screens call it.
 3. Weapon author module (C, testable): editor state plus cloned template to a
    clean `.pdweapon`, staged, compiled with `weaponGraphCompileWeaponSourceJson`,
    release-validated, then renamed into place. The hub calls it; template
