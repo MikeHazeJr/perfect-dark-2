@@ -3683,6 +3683,29 @@ s32 bootConnectHostTick(void)
  *   - at least one OTHER client slot has reached CLSTATE_LOBBY
  *   - settle delay (~120 frames @ 60 fps ≈ 2 s) elapsed since that condition
  */
+/* While --host-autostart is armed and has not fired, say what it is waiting
+ * on: once when the reason changes and then about every three seconds. A
+ * two-process smoke that never starts its match otherwise leaves no trace of
+ * which condition was never met. Log only. */
+static void bootHostAutostartLogWaiting(const char *reason, s32 remote_in_lobby)
+{
+	static const char *last_reason = NULL;
+	static u32 calls_since_log = 0;
+
+	if (reason != last_reason || ++calls_since_log >= 300) {
+		extern s32 g_NetInit;
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --host-autostart waiting: reason=%s netinit=%d netmode=%d dedicated=%d "
+			"local_state=%d remote_in_lobby=%d peers_needed=%d settle=%d phase=%d",
+			reason, (s32)(g_NetInit != 0), (s32)g_NetMode, (s32)g_NetDedicated,
+			g_NetLocalClient ? (s32)g_NetLocalClient->state : -1,
+			remote_in_lobby, g_BootHostAutostartPeers,
+			g_BootHostAutostartSettleFrames, g_BootHostAutostartPhase);
+		last_reason = reason;
+		calls_since_log = 0;
+	}
+}
+
 s32 bootHostAutostartTick(void)
 {
 	if (!g_BootHostAutostartArmed || g_BootHostAutostartFired) {
@@ -3704,9 +3727,11 @@ s32 bootHostAutostartTick(void)
 	extern s32 netLobbyHostAddRemoteClientsToRoom(u8 room_id);
 
 	if (!g_NetInit || g_NetMode != NETMODE_SERVER || g_NetDedicated) {
+		bootHostAutostartLogWaiting("not-a-listen-host-yet", -1);
 		return 0;
 	}
 	if (!g_NetLocalClient || g_NetLocalClient->state < CLSTATE_LOBBY) {
+		bootHostAutostartLogWaiting("host-client-not-in-lobby", -1);
 		return 0;
 	}
 
@@ -3725,6 +3750,7 @@ s32 bootHostAutostartTick(void)
 	}
 	if (remoteInLobby < g_BootHostAutostartPeers) {
 		g_BootHostAutostartSettleFrames = 0; /* reset settle if peer drops pre-fire */
+		bootHostAutostartLogWaiting("waiting-for-remote-in-lobby", remoteInLobby);
 		return 0;
 	}
 
@@ -3732,6 +3758,7 @@ s32 bootHostAutostartTick(void)
 	 * exchange that follows CLC_AUTH has time to quiesce before we fire. */
 	if (g_BootHostAutostartSettleFrames < 120) {
 		g_BootHostAutostartSettleFrames++;
+		bootHostAutostartLogWaiting("settling-after-join", remoteInLobby);
 		return 0;
 	}
 
