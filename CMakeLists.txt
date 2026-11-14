@@ -977,6 +977,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_pdgui_menu_readiness.cpp
   ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_menu_readiness.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_actionmap_profile.cpp
+  # B-1116: every input action has a config name, so saved bindings are complete.
+  ${CMAKE_SOURCE_DIR}/tests/test_actionmap_names_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/actionmap_profile.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_input_device_identity.cpp
   ${CMAKE_SOURCE_DIR}/port/src/input_device_identity.cpp

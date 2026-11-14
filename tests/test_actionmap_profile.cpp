@@ -199,6 +199,48 @@ TEST_CASE("complete profile codec keeps legacy alias and precise controller keys
     REQUIRE(repeated == text);
 }
 
+// B-1116: the production name table named 105 of 121 actions. Encoding streamed
+// the first null name, which put the stream into a failed state, so the saved
+// file ended in the middle of the first context and every later start rejected
+// it. A registry with an unnamed action is now refused before anything is
+// written or read.
+TEST_CASE("A registry with an unnamed action is refused instead of writing a truncated file",
+          "[input][profile][persistence][b-1116]")
+{
+    Fixture fixture;
+    const auto defaults = profile::capture(fixture.registry(), -1);
+    const auto good = encoded(fixture, defaults);
+
+    for (const int missing : {0, ACTION_COUNT / 2, ACTION_COUNT - 1}) {
+        Fixture broken;
+        broken.actionNames[missing] = nullptr;
+        std::string text = "untouched";
+        std::string error;
+        REQUIRE_FALSE(profile::encode(broken.registry(), defaults, text, error));
+        REQUIRE(text == "untouched");
+        REQUIRE(error == "The action name table does not name every action.");
+
+        profile::Snapshot decoded;
+        error.clear();
+        REQUIRE_FALSE(profile::decode(broken.registry(), defaults, good, false, decoded, error));
+        REQUIRE(error == "The action name table does not name every action.");
+    }
+
+    Fixture empty;
+    empty.actionStrings[3].clear();
+    empty.actionNames[3] = empty.actionStrings[3].c_str();
+    std::string text;
+    std::string error;
+    REQUIRE_FALSE(profile::encode(empty.registry(), defaults, text, error));
+
+    // A complete table still round-trips every context and every action.
+    size_t rows = 0;
+    for (const char c : good) {
+        if (c == '\n') rows++;
+    }
+    REQUIRE(rows == 3 + fixture.contexts.size() * ACTION_COUNT);
+}
+
 TEST_CASE("Invalid profile documents never partially replace the output or live state",
           "[input][profile][persistence]")
 {

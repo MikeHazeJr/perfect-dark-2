@@ -75,6 +75,13 @@ void normalize(InputMapping &mapping, InputAction action)
 
 bool valid(const Registry &registry, const Snapshot &snapshot, std::string &error)
 {
+    // B-1116: every action needs a name. A null name was streamed and compared as
+    // a C string, which cut the saved file off at the first unnamed action and
+    // made every later start reject it.
+    for (int a = 0; a < ACTION_COUNT; ++a) {
+        if (!registry.actionNames || !registry.actionNames[a] || !registry.actionNames[a][0])
+            return fail(error, "The action name table does not name every action.");
+    }
     if (snapshot.contexts.size() != registry.count
         || snapshot.activeProfile < -1 || snapshot.activeProfile >= 6)
         return fail(error, "The binding snapshot has an invalid shape or profile slot.");

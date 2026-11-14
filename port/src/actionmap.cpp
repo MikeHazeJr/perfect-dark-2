@@ -307,7 +307,7 @@ static s32 actionmapGetVkByName(const char *name)
  * Action name table (must match InputAction enum order)
  * ============================================================ */
 
-static const char * const s_ActionNames[ACTION_COUNT] = {
+static const char * const s_ActionNames[] = {
     /* 0-5: movement */
     "MoveForward",
     "MoveBackward",
@@ -437,7 +437,31 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     /* 103-104: test-scenarios cycler reverse + visibility toggle (S594h-A2) */
     "TestScenCyclePrev",
     "TestScenVisToggle",
+    /* 105-120 (B-1116): these actions were added to the enum without a name.
+     * A nameless action shared the config key "(null)" with the others, so
+     * its binding could not be saved, pd.ini got a line the loader rejects,
+     * and the binding profile code compared and printed a null string. */
+    "MenuSkipUp",
+    "MenuSkipDown",
+    "DebugBotFreeze",
+    "DebugInvincibility",
+    "DebugOverlayToggle",
+    "DebugMeshToggle",
+    "DebugCullModeCycle",
+    "DebugTestFire",
+    "DebugWireframeToggle",
+    "HotswapToggle",
+    "ToggleFullscreen",
+    "TestScenGpuFullToggle",
+    "VehicleLookX",
+    "VehicleLookY",
+    "VehicleHandbrake",
+    "VehicleUse",
 };
+
+/* Every action has a name: a missing one is a null config key (B-1116). */
+static_assert(sizeof(s_ActionNames) / sizeof(s_ActionNames[0]) == ACTION_COUNT,
+    "s_ActionNames must name every InputAction, in enum order");
 
 /* ============================================================
  * Module state
