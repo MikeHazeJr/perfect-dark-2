@@ -134,7 +134,7 @@ The goal: if context is cleared right now, the next session picks up in under a 
 ## Critical Rules — Code
 
 - **PC-only target**: No N64 or Switch support. Modern hardware, no legacy constraints.
-- **New code types**: Standard C types fine (`bool`, `int`, `float`, `uint8_t`, `<stdbool.h>`).
+- **New code types**: Standard C types fine (`int`, `float`, `uint8_t`). `bool` is the project's `s32` macro (types.h); never include `<stdbool.h>`, and spell `s32` in declarations that C and C++ both see (SP-75, `context/constraints.md`).
 - **Legacy types**: `s32/u8/f32` from `PR/ultratypes.h` — typedefs, mix safely. Modernize organically.
 - **No platform guards**: Zero `PLATFORM_N64` remain. All new code unconditional.
 - **Memory**: `mempAlloc(size, MEMPOOL_STAGE)` for stage-lifetime. `IS4MB()` is compile-time `0`.
