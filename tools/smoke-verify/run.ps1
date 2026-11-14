@@ -1583,21 +1583,34 @@ function Invoke-SmokeTestMultiProcess {
         $processInstallInfo = $installInfo
         if ($separateProcessInstalls) {
             $processInstallState = $installState
+            $explicitProcessState = $false
             if ($pdef.PSObject.Properties.Match('install_state').Count -gt 0 -and $pdef.install_state) {
                 $processInstallState = [string]$pdef.install_state
+                $explicitProcessState = $true
             }
-            $processRom = $RomOverride
-            if (-not $processRom -and $installInfo.SourceRom) {
-                $processRom = [string]$installInfo.SourceRom
+            if ($ExistingInstall -and -not $explicitProcessState) {
+                # A template run seeds every process's own install from the same
+                # template as the shared install (state current, no extraction).
+                # Before, each peer started clean and re-extracted the whole game,
+                # which on a hard disk outlasted every network fixture's waits.
+                # A process that names its own install_state still gets that.
+                $processInstallInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot `
+                    -TestName ("{0}-{1}" -f $name, $pname) `
+                    -TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target
+            } else {
+                $processRom = $RomOverride
+                if (-not $processRom -and $installInfo.SourceRom) {
+                    $processRom = [string]$installInfo.SourceRom
+                }
+                $processInstallInfo = New-SmokeInstall `
+                    -RunRoot $RunRoot `
+                    -TestName ("{0}-{1}" -f $name, $pname) `
+                    -InstallState $processInstallState `
+                    -SourceBinary $exe `
+                    -SourceRom $processRom `
+                    -ProjectRoot $ProjectRoot `
+                    -Target $target
             }
-            $processInstallInfo = New-SmokeInstall `
-                -RunRoot $RunRoot `
-                -TestName ("{0}-{1}" -f $name, $pname) `
-                -InstallState $processInstallState `
-                -SourceBinary $exe `
-                -SourceRom $processRom `
-                -ProjectRoot $ProjectRoot `
-                -Target $target
             $processModsDir = Join-Path $processInstallInfo.InstallDir "mods"
             if (-not (Test-Path -LiteralPath $processModsDir)) {
                 New-Item -ItemType Directory -Path $processModsDir -Force | Out-Null
