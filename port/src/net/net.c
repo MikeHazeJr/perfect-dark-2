@@ -1936,6 +1936,20 @@ static void netServerCommitPendingStageEnd(void)
 	 * room/client reservation only after the terminal packet is published, so a
 	 * failed END send remains retryable against the still-live match. */
 	netServerClearPreservedPlayers("stage_end_commit");
+	/* Reopen the room that ran this match. The ready gate moved it to LOADING
+	 * at countdown; the only other code that advances a room (hubTick) runs in
+	 * the dedicated server main, which the client build does not include. On a
+	 * listen host the room therefore stayed LOADING after its first match, and
+	 * both the next start request and room joins require LOBBY. The terminal
+	 * packet is already published, so this is the committed end of the match
+	 * for the room as well. */
+	if (room_id != 0xFF) {
+		hub_room_t *ended_room = roomGetById(room_id);
+		if (ended_room) {
+			roomTransition(ended_room, ROOM_STATE_LOBBY);
+			netRoomListMarkDirty();
+		}
+	}
 	g_NetMatchRoomId = 0xFF;
 	g_NetCounterOpClientId = NET_NULL_CLIENT;
 	sessionCatalogTeardown();

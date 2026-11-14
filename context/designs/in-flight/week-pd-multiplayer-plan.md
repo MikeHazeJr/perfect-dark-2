@@ -15,7 +15,19 @@ Progress log:
   `mpStartMatch` initializes the chosen scenario on every start path. Addresses section 4 item 1 and the
   automation half of item 6. Known limit: Capture the Case still wraps teams 4-7 inside its own init on
   each peer after the network start is serialized; that normalization moves to the authority in the
-  Capture the Case unit.
+  Capture the Case unit. Hosted CI run 43630446515 green (1858 cases).
+- Unit B (2026-11-14, `71d37ef1`): `mpEndMatch` logs `MATCH.RESULT`, `MATCH.RESULT.CHR` and
+  `MATCH.RESULT.TEAM` on every peer; score-limit endings log their reason; `--match-scorelimit` and
+  `--match-teamscorelimit` seed real limits for a launched match. Addresses the witness half of
+  section 4 item 6.
+- Unit C (2026-11-14): the stage-end commit returns the match room to LOBBY, so a listen host can
+  start a second match in the same room. Addresses section 4 item 4 at source level; the runtime
+  confirmation is a two-match networked smoke once game runs are allowed.
+- All three units: local build on D: green and the full pd-tests suite green (1862 cases after unit C).
+  None has been run in a game.
+
+Next units, in order: the match result in the terminal packet (protocol v62), then the scenario state
+codec with unit tests, then King of the Hill as the first scenario on the seam.
 
 Evidence labels used below:
 - VERIFIED: I read the cited source lines myself.

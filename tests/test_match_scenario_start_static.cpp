@@ -251,3 +251,36 @@ TEST_CASE("boot automation can seed real score limits for a launched match",
 	REQUIRE(limits.find("lvSetMpScoreLimit(g_MpSetup.scorelimit + 1);") != std::string::npos);
 	REQUIRE(limits.find("lvSetMpTeamScoreLimit(mpCalculateTeamScoreLimit() + 1);") != std::string::npos);
 }
+
+TEST_CASE("stage end commit reopens the match room so a second match can start",
+          "[match][room][rematch][static]")
+{
+	const std::string net = read_text_file_scenario_start("port/src/net/net.c");
+	const std::string netmsg = read_text_file_scenario_start("port/src/net/netmsg.c");
+	const std::string commit = function_block_scenario_start(net,
+		"static void netServerCommitPendingStageEnd");
+
+	/* The facts that make this necessary on a listen host: the ready gate
+	 * parks the room in LOADING, and a start request from a room member is
+	 * refused unless the room is in LOBBY. */
+	REQUIRE(netmsg.find("roomTransition(room, ROOM_STATE_LOADING);") != std::string::npos);
+	REQUIRE(netmsg.find("!room || room->state != ROOM_STATE_LOBBY") != std::string::npos);
+
+	/* The reopen uses the room recorded for the ending match, happens only
+	 * after the terminal packet is committed, and before the match room id is
+	 * forgotten. */
+	const size_t room_id = require_position(commit, "const u8 room_id = s_NetStageEndPending.room_id;");
+	const size_t wire_commit = require_position(commit, "netmsgSvcStageEndCommit(room_id, mode);");
+	const size_t lookup = require_position(commit, "roomGetById(room_id)");
+	const size_t reopen = require_position(commit, "roomTransition(ended_room, ROOM_STATE_LOBBY);");
+	const size_t list_dirty = require_position(commit, "netRoomListMarkDirty();");
+	const size_t forget = require_position(commit, "g_NetMatchRoomId = 0xFF;");
+	REQUIRE(room_id < wire_commit);
+	REQUIRE(wire_commit < lookup);
+	REQUIRE(lookup < reopen);
+	REQUIRE(reopen < list_dirty);
+	REQUIRE(list_dirty < forget);
+
+	/* Lounge-scope matches (no room) are left alone. */
+	REQUIRE(commit.find("if (room_id != 0xFF) {") != std::string::npos);
+}
