@@ -256,104 +256,26 @@ static char *trimWhitespace(char *str)
 	return str;
 }
 
+/* The parser itself is iniParseText (ini_parse.c), which has no log and no
+ * catalog; this adds the log line. A text with no section header is not a
+ * descriptor and was never logged. */
 s32 iniParseBuffer(const char *label, const char *data, u32 len, ini_section_t *out)
 {
+	char why[160];
+
 	if (!data || !out) {
 		return 0;
 	}
 
-	memset(out, 0, sizeof(*out));
-
-	char *buf = (char *)malloc((size_t)len + 1);
-	if (!buf) {
-		sysLogPrintf(LOG_ERROR,
-			"assetcatalog_scanner: out of memory parsing INI '%s'",
-			label ? label : "(memory)");
-		return 0;
+	why[0] = '\0';
+	if (iniParseText(data, len, out, why, sizeof(why))) {
+		return 1;
 	}
-	memcpy(buf, data, len);
-	buf[len] = '\0';
-
-	s32 in_section = 0;
-	char *line = buf;
-
-	while (line && *line) {
-		char *next = strpbrk(line, "\r\n");
-		if (next) {
-			char eol = *next;
-			*next++ = '\0';
-			if (eol == '\r' && *next == '\n') {
-				next++;
-			}
-		}
-
-		char *p = trimWhitespace(line);
-
-		/* skip blank lines and comments */
-		if (*p == '\0' || *p == '#' || *p == ';') {
-			line = next;
-			continue;
-		}
-
-		/* section header: [type] */
-		if (*p == '[') {
-			char *end = strchr(p, ']');
-			if (end) {
-				*end = '\0';
-				if (out->type[0] == '\0') {
-					if (strlen(p + 1) >= sizeof(out->type)) {
-						sysLogPrintf(LOG_ERROR,
-							"assetcatalog_scanner: INI section name too long in '%s'",
-							label ? label : "(memory)");
-						free(buf);
-						return 0;
-					}
-					strncpy(out->type, p + 1, sizeof(out->type) - 1);
-				}
-				in_section = 1;
-			}
-			line = next;
-			continue;
-		}
-
-		/* key = value */
-		if (in_section) {
-			char *eq = strchr(p, '=');
-			if (!eq) {
-				continue;
-			}
-
-			*eq = '\0';
-			char *key = trimWhitespace(p);
-			char *val = trimWhitespace(eq + 1);
-
-			if (out->count >= INI_MAX_PAIRS) {
-				sysLogPrintf(LOG_ERROR,
-					"assetcatalog_scanner: INI pair limit %d exceeded in '%s'",
-					INI_MAX_PAIRS, label ? label : "(memory)");
-				free(buf);
-				return 0;
-			}
-			if (strlen(key) >= sizeof(out->pairs[0].key)
-					|| strlen(val) >= sizeof(out->pairs[0].value)) {
-				sysLogPrintf(LOG_ERROR,
-					"assetcatalog_scanner: INI key/value too long in '%s' (key '%s')",
-					label ? label : "(memory)", key);
-				free(buf);
-				return 0;
-			}
-			strncpy(out->pairs[out->count].key, key,
-				sizeof(out->pairs[0].key) - 1);
-			strncpy(out->pairs[out->count].value, val,
-				sizeof(out->pairs[0].value) - 1);
-			out->count++;
-		}
-
-		line = next;
+	if (why[0]) {
+		sysLogPrintf(LOG_ERROR, "assetcatalog_scanner: INI '%s' refused: %s",
+			label ? label : "(memory)", why);
 	}
-
-	free(buf);
-	return (out->type[0] != '\0') ? 1 : 0;
+	return 0;
 }
 
 s32 iniParse(const char *filepath, ini_section_t *out)

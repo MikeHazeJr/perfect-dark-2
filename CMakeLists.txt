@@ -1113,6 +1113,9 @@ set(SRC_TESTS
   # One in-game Validate: release validation plus the content of every member.
   ${CMAKE_SOURCE_DIR}/port/src/mod_asset_validate.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_asset_validate.cpp
+  # The descriptor INI parser the game uses (the scanner's own loop).
+  ${CMAKE_SOURCE_DIR}/port/src/ini_parse.c
+  ${CMAKE_SOURCE_DIR}/tests/test_ini_parse.cpp
   # The Weapons creator's graph document to and from the clean behavior files.
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_editor_io.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_editor_io.cpp

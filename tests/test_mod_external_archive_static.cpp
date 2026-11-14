@@ -1699,7 +1699,12 @@ TEST_CASE("archive mods scan INI descriptors through the shared catalog scanner"
 	std::string scanner = readFile("port/src/assetcatalog_scanner.c");
 	REQUIRE(scanner.find("iniParseBuffer") != std::string::npos);
 	REQUIRE(scanner.find("iniWriteBuffer") != std::string::npos);
-	REQUIRE(scanner.find("if (out->type[0] == '\\0')") != std::string::npos);
+	/* The parse loop is ini_parse.c (no log, no catalog; linked into the tests);
+	 * the scanner keeps the logging wrapper. The first section names the type. */
+	REQUIRE(scanner.find("iniParseText(data, len, out, why, sizeof(why))") != std::string::npos);
+	std::string iniParser = readFile("port/src/ini_parse.c");
+	REQUIRE(iniParser.find("if (out->type[0] == '\\0')") != std::string::npos);
+	REQUIRE(iniParser.find("is not a comment, a section or key = value") != std::string::npos);
 	REQUIRE(scanner.find("modArchiveExtractAlloc") != std::string::npos);
 	REQUIRE(scanner.find("archiveIniIsDescriptor") != std::string::npos);
 	REQUIRE(scanner.find("archiveEntryIsDescriptor") != std::string::npos);
