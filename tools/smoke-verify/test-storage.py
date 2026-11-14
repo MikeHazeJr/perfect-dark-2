@@ -300,6 +300,49 @@ class StorageTests(unittest.TestCase):
             with self.assertRaises(storage.StorageError): list(storage.walk(alias))
         finally: os.rmdir(alias)  # Remove our junction entry only, never its target.
 
+    def template_request(self, template, **extra):
+        return dict(name='template-test', target='pd', template=str(template), owner_pid=os.getpid(), **extra)
+
+    def test_template_with_explicit_binary_keeps_shared_data_and_swaps_binary(self):
+        # One pre-extracted template serves any build under test: explicit inputs
+        # replace same-named template members, everything else comes from the template.
+        template = self.project / 'template'
+        (template / 'data/unit').mkdir(parents=True)
+        (template / 'PerfectDark.exe').write_bytes(b'template-binary\0' * 64)
+        (template / 'pd.unit.z64').write_bytes(b'fake-rom\0' * 128)
+        (template / 'data/unit/editable.pdmesh').write_bytes(b'shared-extraction\0' * 256)
+        (template / 'logs').mkdir(); (template / 'logs/old.log').write_text('never copied\n')
+        tested = self.project / 'session-build'; tested.mkdir()
+        (tested / 'PerfectDark.exe').write_bytes(b'build-under-test\0' * 64)
+        (tested / 'runtime.dll').write_bytes(b'fake-dll\0' * 16)
+        with self.operation() as s: plain_run = s.seed(self.template_request(template))
+        with self.operation() as s:
+            swapped = s.seed(self.template_request(template, sources=[
+                [str(tested / 'PerfectDark.exe'), 'PerfectDark.exe'],
+                [str(tested / 'runtime.dll'), 'runtime.dll']]))
+        a, b = Path(plain_run['InstallDir']), Path(swapped['InstallDir'])
+        self.assertEqual((a / 'PerfectDark.exe').read_bytes(), (template / 'PerfectDark.exe').read_bytes())
+        self.assertFalse((a / 'runtime.dll').exists())
+        self.assertEqual((b / 'PerfectDark.exe').read_bytes(), (tested / 'PerfectDark.exe').read_bytes())
+        self.assertEqual((b / 'runtime.dll').read_bytes(), (tested / 'runtime.dll').read_bytes())
+        for install in (a, b):
+            self.assertEqual((install / 'data/unit/editable.pdmesh').read_bytes(),
+                             (template / 'data/unit/editable.pdmesh').read_bytes())
+            self.assertEqual((install / 'pd.unit.z64').read_bytes(), (template / 'pd.unit.z64').read_bytes())
+            self.assertFalse((install / 'logs/old.log').exists())
+        self.assertNotEqual(plain_run['StorageSeed'], swapped['StorageSeed'])
+        # The template itself is never written.
+        self.assertEqual((template / 'PerfectDark.exe').read_bytes(), b'template-binary\0' * 64)
+        self.assertEqual((template / 'logs/old.log').read_text(), 'never copied\n')
+        # A template is a complete install: it cannot also take a separate data source.
+        with self.operation() as s:
+            with self.assertRaises(storage.StorageError):
+                s.seed(self.template_request(template, data_source=str(self.data), rom_id='unit'))
+        # Explicit inputs still go through the same path and alias checks.
+        with self.operation() as s:
+            with self.assertRaises(storage.StorageError):
+                s.seed(self.template_request(template, sources=[[str(tested / 'PerfectDark.exe'), '../escape.exe']]))
+
     def test_dry_run_is_non_mutating(self):
         request=json.dumps({'project':str(self.project),'policy':POLICY})
         result=subprocess.run([os.sys.executable,'-B',str(Path(__file__).with_name('storage.py')),'dry-run'],input=request,text=True,capture_output=True)
