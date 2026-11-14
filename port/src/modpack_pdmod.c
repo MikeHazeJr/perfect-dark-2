@@ -30,6 +30,7 @@
 #include "asset_archive_policy.h"
 #include "assetcatalog_scanner.h"
 #include "modarchive.h"
+#include "mod_asset_validate.h"
 #include "mod_manifest_validate.h"
 #include "modpack_pdmod.h"
 
@@ -954,6 +955,14 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive validation failed");
 		return MODPACK_PDMOD_ERR_LAYOUT;
 	}
+	/* Release validation does not read member content; a pack must not carry
+	 * an archive its loader would refuse. This also runs before the
+	 * descriptor is handed to the shared INI parser below. */
+	if (modAssetValidateArchiveFile(descriptorAbs, policyErr, sizeof(policyErr))
+			!= MOD_ASSET_VALIDATE_OK) {
+		pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive content is malformed");
+		return MODPACK_PDMOD_ERR_LAYOUT;
+	}
 	mod_archive_t *typedArchive = modArchiveOpen(descriptorAbs);
 	if (!typedArchive) {
 		pdmodSetLastError("%s is not a zip-openable typed asset archive", descriptorRel);
@@ -1527,6 +1536,11 @@ s32 modpackPdmodWriteSingle(const char *out_path,
 					ASSET_ARCHIVE_VALIDATE_RELEASE,
 					policyErr, sizeof(policyErr)) != 0) {
 				pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive validation failed");
+				return MODPACK_PDMOD_ERR_LAYOUT;
+			}
+			if (modAssetValidateArchiveBytes(e->data, e->len, e->entry_name,
+					policyErr, sizeof(policyErr)) != MOD_ASSET_VALIDATE_OK) {
+				pdmodSetLastError("%s", policyErr[0] ? policyErr : "typed asset archive content is malformed");
 				return MODPACK_PDMOD_ERR_LAYOUT;
 			}
 			char badNested[FS_MAXPATH + 1];

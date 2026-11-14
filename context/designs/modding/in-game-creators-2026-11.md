@@ -150,16 +150,26 @@ Foundation, in order. Each step lands with tests that run in CI.
    - Not covered: any game run; what the mod manager shows (see B-1141).
    Known gap (B-1142): the author guarantees release validation only, and
    release validation does not read member content. Step 4 closes it.
-3. NEXT: one in-game Validate (`mod_asset_validate`): release validation plus
-   each family's real reader (weapon graph compile, strict body, head and
-   character readers, vehicle physics and behavior JSON). `modAuthorSave`
-   calls it on the staged archive; the packers and the enable path call it
-   too. Held to the offline validator by shared fixtures; C-produced archives
-   stay under `tools/asset_archive_conformance.py` in CI.
-4. Headless recipe entry (`--mod-author <recipe.json>`) over `modAuthorSave`,
-   and a smoke fixture that creates a weapon mod and proves the game loads
-   it. CORE's runner now takes a session's own client against the shared
-   base, so this is the first game-run proof for MODS.
+3. DONE for save and pack (`port/src/mod_asset_validate.cpp`,
+   `modAssetValidateArchiveBytes` / `File`), verified 2026-11-14 by unit tests
+   (5 cases; full pd-tests 1884 cases pass) and by the base sweep (unchanged,
+   308 of 349). Release validation first, then every public `.json`, `.gltf`
+   and `.ini` member read strictly in the archive and in every embedded
+   archive, then the family's own reader for bodies, heads and characters.
+   `modAuthorSave` runs it on the staged archive; both `.pdmod` packers run it
+   on every typed archive, before the descriptor reaches the shared INI
+   parser. Not yet: a content reader for weapons (graph compile) and
+   vehicles, and the enable path.
+4. DONE: recipe files (`port/src/mod_author_recipe.cpp`), the game-side save,
+   rescan, enable and apply (`port/src/mod_author_runtime.c`) and the launch
+   flag `--mod-author <recipe.json>`. RUN 2026-11-14 with this session's
+   client on the shared base: `mod_author_weapon_create_smoke` PASS 22/22
+   (one launch creates a weapon mod from `base:falcon2`, enables it and loads
+   it through the typed catalog loader). `mod_author_weapon_play_smoke` is a
+   known-red reproduction (20/21): the created weapon spawns in the player's
+   hand but has no view position, no name and does not fire, because a base
+   weapon archive carries none of what the mod weapon adapter needs for
+   those.
 5. Weapon author module (C, testable): editor state to the override list for
    a clean `.pdweapon` (split primary and secondary graphs, settings,
    variables, shared context, presentation, view position). The hub calls

@@ -1110,6 +1110,9 @@ set(SRC_TESTS
   # A mod described in a file: the same request, read strictly from JSON.
   ${CMAKE_SOURCE_DIR}/port/src/mod_author_recipe.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_author_recipe.cpp
+  # One in-game Validate: release validation plus the content of every member.
+  ${CMAKE_SOURCE_DIR}/port/src/mod_asset_validate.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_asset_validate.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2.cpp
