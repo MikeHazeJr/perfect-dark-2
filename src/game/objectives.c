@@ -528,6 +528,36 @@ static s32 objectiveEvaluateGraphRequirement(
 	return reqstatus;
 }
 
+/**
+ * B-1111: a graph criterion and the live setup command describe the same
+ * requirement from two members of one public source (objectives.json and
+ * setup.fields.json). The graph path may only be trusted when both name the
+ * same object tag or the same stage flag. Until this check existed the two
+ * could differ silently: the extractor wrote both with a swapped byte order,
+ * the setup loader swapped its copy back, and the graph copy stayed wrong, so
+ * graph-backed missions tested the wrong flags and looked up tags that do not
+ * exist. Pads are not compared here because a pad reference is resolved
+ * through the scenario's pad table, not used as a raw number.
+ */
+static bool objectiveGraphOperandMatchesCommand(
+	const scenario_source_objective_operand_t *operand, const u32 *cmd)
+{
+	switch (operand->type) {
+	case OBJECTIVETYPE_DESTROYOBJ:
+	case OBJECTIVETYPE_COLLECTOBJ:
+	case OBJECTIVETYPE_THROWOBJ:
+		return (u32)operand->tag_id == cmd[1];
+	case OBJECTIVETYPE_COMPFLAGS:
+	case OBJECTIVETYPE_FAILFLAGS:
+		return operand->stage_flag_mask == cmd[1];
+	case OBJECTIVETYPE_HOLOGRAPH:
+		return (u32)operand->tag_id ==
+			((const struct criteria_holograph *)cmd)->obj;
+	default:
+		return true;
+	}
+}
+
 static bool objectiveCheckGraphSource(s32 index, s32 *out_status)
 {
 	u32 *cmd;
@@ -585,6 +615,12 @@ static bool objectiveCheckGraphSource(s32 index, s32 *out_status)
 				&operand)) {
 			scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
 				"evaluate", "missing criteria graph operand");
+			return false;
+		}
+		if (!objectiveGraphOperandMatchesCommand(&operand, cmd)) {
+			scenarioSourceObjectiveGraphReportRuntimeMismatch(index,
+				"evaluate",
+				"criteria tag or stage flag differs from the setup command");
 			return false;
 		}
 		if (objectiveGraphRequirementUsesRuntimeStatus(operand.type) &&
