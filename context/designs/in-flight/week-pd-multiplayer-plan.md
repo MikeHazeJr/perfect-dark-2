@@ -23,11 +23,28 @@ Progress log:
 - Unit C (2026-11-14): the stage-end commit returns the match room to LOBBY, so a listen host can
   start a second match in the same room. Addresses section 4 item 4 at source level; the runtime
   confirmation is a two-match networked smoke once game runs are allowed.
-- All three units: local build on D: green and the full pd-tests suite green (1862 cases after unit C).
-  None has been run in a game.
+- Unit D (2026-11-14, `c040cc83`): the listen host sends one reliable `SVC_PLAYER_SCORES` packet to the
+  match roster right before the terminal packet, so every end screen ranks the same Combat result.
+  Existing message, no wire change, protocol stays v61. Addresses the score half of section 4 item 5;
+  the end reason on the wire waits for the v62 bundle.
+- All four units: local build on D: green and the full pd-tests suite green (1863 cases after unit D).
+  Hosted CI green for units A and B; one run covers C and D. None has been run in a game.
 
-Next units, in order: the match result in the terminal packet (protocol v62), then the scenario state
-codec with unit tests, then King of the Hill as the first scenario on the seam.
+Next units, in order:
+1. Unit E: `port/src/net/net_scenario_state_wire.c` and its header. A pure codec (no game globals, linked
+   into pd-tests the way `net_player_move_wire.c` is) for one envelope (scenario id, revision) plus the
+   King of the Hill body: occupying team, elapsed hold time, pending hill move, hill index and count,
+   two hill rooms, nine hill pads, hill position, hill time setting. Decode fully, bound every field,
+   then return a typed status. Catch2 round-trip, truncation and out-of-range cases.
+2. Unit F: King of the Hill on the seam. Split `kohTick` into a host-only part and a presentation part,
+   capture and apply between `g_ScenarioData.koh` and the wire struct, add `SVC_SCENARIO_STATE`, send it
+   in the stage baseline, on change and at a low rate while the hold timer runs, and bump the protocol
+   to v62 with the test pin in the same commit. This is the first unit that needs a game run to prove.
+3. Then Pop a Cap, Hold the Briefcase, Hacker Central and Capture the Case, each adding its body to the
+   codec first and its game side second.
+
+Held until game runs are allowed: the unchanged re-run of the existing multiplayer smokes (step 1 of
+section 6), and every per-mode smoke. Smoke fixtures can be written before then; they cannot be run.
 
 Evidence labels used below:
 - VERIFIED: I read the cited source lines myself.
