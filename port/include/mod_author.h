@@ -25,6 +25,12 @@
  * already holds a different mod, or an archive nobody claims, is never
  * touched.
  *
+ * A template extracted from the base game says so in its descriptor. Those
+ * marks are dropped when the mod takes ownership: `bundled`, a weapon's
+ * `category` (the catalog then files the weapon under the mod's own id), and
+ * the `requirefeature` unlock gate of characters, bodies, heads and arenas. A
+ * caller that overrides the descriptor decides for itself.
+ *
  * Text limits follow what the loaders keep, so nothing is cut on load:
  * display name 1 to 63 bytes, author up to 63, version up to 31, description
  * up to 255. Each is one line of valid UTF-8 with no control characters.

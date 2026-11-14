@@ -35,15 +35,23 @@ typedef struct author_family {
 	const char *category;    /* folder under the mods root */
 	const char *name_key;    /* descriptor key for the display name, or NULL */
 	const char *name_alias;  /* older spelling of that key, or NULL */
+	const char *base_keys;   /* space-separated descriptor keys that only a
+	                          * base-game asset should carry */
 } author_family_t;
 
+/*
+ * Keys a template extracted from the base game carries and a mod must not:
+ * `bundled` says the asset ships with the game, a weapon's `category` names
+ * its owner (the catalog falls back to the mod's own id), and
+ * `requirefeature` locks the asset behind base-game progress.
+ */
 static const author_family_t s_Families[] = {
-	{ ".pdweapon",    "weapon",    "Weapons",    "name",         NULL },
-	{ ".pdcharacter", "character", "Characters", "display_name", NULL },
-	{ ".pdbody",      "body",      "Characters", "display_name", "name" },
-	{ ".pdhead",      "head",      "Characters", "display_name", "name" },
-	{ ".pdvehicle",   "vehicle",   "Vehicles",   "name",         NULL },
-	{ ".pdarena",     "arena",     "MP Maps",    NULL,           NULL },
+	{ ".pdweapon",    "weapon",    "Weapons",    "name",         NULL,   "bundled category" },
+	{ ".pdcharacter", "character", "Characters", "display_name", NULL,   "bundled requirefeature" },
+	{ ".pdbody",      "body",      "Characters", "display_name", "name", "bundled requirefeature" },
+	{ ".pdhead",      "head",      "Characters", "display_name", "name", "bundled requirefeature" },
+	{ ".pdvehicle",   "vehicle",   "Vehicles",   "name",         NULL,   "bundled" },
+	{ ".pdarena",     "arena",     "MP Maps",    NULL,           NULL,   "bundled requirefeature" },
 };
 
 typedef struct author_buf {
@@ -323,6 +331,69 @@ static s32 authorLineHasKey(const char *line, u32 len, const char *key)
 	if (len <= key_len || memcmp(line, key, key_len) != 0) return 0;
 	while (i < len && (line[i] == ' ' || line[i] == '\t')) i++;
 	return i < len && line[i] == '=';
+}
+
+/* Is `key` (length `key_len`) one of the space-separated names in `list`? */
+static s32 authorKeyInList(const char *list, const char *key, u32 key_len)
+{
+	while (list && *list) {
+		const char *end = list;
+		while (*end && *end != ' ') end++;
+		if ((u32)(end - list) == key_len && memcmp(list, key, key_len) == 0) return 1;
+		list = *end ? end + 1 : end;
+	}
+	return 0;
+}
+
+/*
+ * Remove the lines of the first section that assign one of `keys`. Every
+ * other byte is kept. Returns a malloc'd copy even when nothing was removed;
+ * `*removed` counts the lines dropped.
+ */
+static char *authorDropDescriptorKeys(const char *text, u32 len, const char *keys,
+		u32 *out_len, u32 *removed)
+{
+	author_buf_t b;
+	u32 pos = 0;
+	u32 start = 0;
+	u32 end = 0;
+	s32 sections = 0;
+
+	memset(&b, 0, sizeof(b));
+	*out_len = 0;
+	*removed = 0;
+	while (authorNextLine(text, len, &pos, &start, &end)) {
+		u32 first = start;
+		u32 key_end;
+
+		while (first < end && (text[first] == ' ' || text[first] == '\t')) first++;
+		if (first < end && text[first] == '[' && memchr(text + first, ']', end - first)) {
+			sections++;
+		} else if (sections == 1 && first < end && text[first] != ';' && text[first] != '#') {
+			key_end = first;
+			while (key_end < end && text[key_end] != '=' && text[key_end] != ' ' &&
+					text[key_end] != '\t') {
+				key_end++;
+			}
+			if (key_end > first && memchr(text + key_end, '=', end - key_end) &&
+					authorKeyInList(keys, text + first, key_end - first)) {
+				(*removed)++;
+				continue;
+			}
+		}
+		authorBufAppend(&b, text + start, pos - start);
+	}
+	if (b.failed) {
+		free(b.data);
+		return NULL;
+	}
+	if (!b.data) {
+		/* Empty input or every line removed: still hand back a buffer. */
+		b.data = (char *)calloc(1, 1);
+		if (!b.data) return NULL;
+	}
+	*out_len = (u32)b.len;
+	return b.data;
 }
 
 /*
@@ -685,10 +756,13 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 	for (u32 i = 0; i < request->override_count; i++) overrides[i] = request->overrides[i];
 	override_count = request->override_count;
 
-	if (family->name_key && descriptor_name && !caller_sets_descriptor) {
+	if (descriptor_name && !caller_sets_descriptor) {
 		u32 template_size = 0;
 		u32 source_size = 0;
+		u32 owned_size = 0;
 		u32 patched_size = 0;
+		u32 dropped = 0;
+		char *owned;
 		const char *entry_name = NULL;
 		void *template_bytes = authorReadFile(request->template_path, &template_size);
 		char *source = template_bytes
@@ -703,19 +777,36 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 				"the template has no readable %s", descriptor_name);
 			goto done;
 		}
-		descriptor = authorSetDescriptorName(source, source_size, family->name_key,
-			family->name_alias, display, &patched_size);
+		/* The mod owns this asset now: drop what marks it as base content. */
+		owned = authorDropDescriptorKeys(source, source_size, family->base_keys,
+			&owned_size, &dropped);
 		free(source);
-		if (!descriptor) {
-			code = authorFail(err, err_cap, MOD_AUTHOR_ERR_TEMPLATE,
-				"the name could not be set in the template's %s", descriptor_name);
+		if (!owned) {
+			code = authorFail(err, err_cap, MOD_AUTHOR_ERR_WRITE, "out of memory");
 			goto done;
 		}
-		overrides[override_count].entry = descriptor_name;
-		overrides[override_count].data = descriptor;
-		overrides[override_count].len = patched_size;
-		overrides[override_count].remove = 0;
-		override_count++;
+		if (family->name_key) {
+			descriptor = authorSetDescriptorName(owned, owned_size, family->name_key,
+				family->name_alias, display, &patched_size);
+			free(owned);
+			if (!descriptor) {
+				code = authorFail(err, err_cap, MOD_AUTHOR_ERR_TEMPLATE,
+					"the name could not be set in the template's %s", descriptor_name);
+				goto done;
+			}
+		} else {
+			descriptor = owned;
+			patched_size = owned_size;
+		}
+		/* A family with no name key and nothing to drop keeps its descriptor
+		 * as it is, so the rebuild is not handed an empty edit. */
+		if (family->name_key || dropped > 0) {
+			overrides[override_count].entry = descriptor_name;
+			overrides[override_count].data = descriptor;
+			overrides[override_count].len = patched_size;
+			overrides[override_count].remove = 0;
+			override_count++;
+		}
 	}
 
 	snprintf(category_dir, sizeof(category_dir), "%s/%s", request->mods_root, family->category);

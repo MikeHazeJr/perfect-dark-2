@@ -575,6 +575,115 @@ TEST_CASE("mod author writes the name into descriptors of every line-ending styl
 	}
 }
 
+TEST_CASE("mod author drops what marks a template as base-game content",
+          "[modding][author]") {
+	AuthorTempDir work;
+	AuthorTempDir root;
+	char err[256] = {};
+
+	/* Rebuild an example under its own id with extra descriptor lines, the
+	 * way an archive extracted from the base game carries them. */
+	const auto baseLike = [&](const char *relative, const char *descriptorName,
+			const char *id, const char *extra, const char *leaf) {
+		const std::string source = authorExample(relative);
+		std::string descriptor = authorEntry(authorReadFile(source), descriptorName);
+		const size_t at = descriptor.find(std::string("catalog_id = ") + id);
+		REQUIRE(at != std::string::npos);
+		descriptor.insert(at, extra);
+		asset_archive_clone_override_t ov{};
+		ov.entry = descriptorName;
+		ov.data = descriptor.data();
+		ov.len = static_cast<u32>(descriptor.size());
+		const fs::path out = work.path / leaf;
+		const s32 built = assetArchiveRebuildFile(source.c_str(), out.string().c_str(),
+			id, "pd-tests", &ov, 1, nullptr, err, sizeof(err));
+		INFO("template " << leaf << " error: " << err);
+		REQUIRE(built == ASSET_ARCHIVE_CLONE_OK);
+		return out.string();
+	};
+
+	SECTION("weapon: bundled and its owner category go, look-alike keys stay") {
+		const std::string tmpl = baseLike(kWeaponTemplate, "weapon.ini",
+			"example:tri_weapon",
+			"schema = pd.weapon.v1\ncategory = base\nbundled = 1\n"
+			"bundled_note = keep me\n\tcategory\t=\tbase\n", "base_like.pdweapon");
+		AuthorRequest req(tmpl, root.path, "Owned Gun");
+		const AuthorCall saved = authorSave(req.request);
+		INFO("save error: " << saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		authorRequireReleaseValid(saved.result->archive_path);
+		const std::string written =
+			authorEntry(authorReadFile(saved.result->archive_path), "weapon.ini");
+		CHECK(authorIniValues(written, "bundled").empty());
+		CHECK(authorIniValues(written, "category").empty());
+		CHECK(authorIniValue(written, "bundled_note") == "keep me");
+		CHECK(authorIniValue(written, "schema") == "pd.weapon.v1");
+		CHECK(authorIniValue(written, "name") == "Owned Gun");
+		CHECK(authorIniValue(written, "catalog_id") == "mod:weapon_owned_gun");
+		CHECK(authorIniValue(written, "manifest") == "_meta/manifest.json");
+
+		/* A caller that supplies the descriptor decides for itself. */
+		const std::string templateDescriptor = authorEntry(authorReadFile(tmpl), "weapon.ini");
+		asset_archive_clone_override_t ov{};
+		ov.entry = "weapon.ini";
+		ov.data = templateDescriptor.data();
+		ov.len = static_cast<u32>(templateDescriptor.size());
+		AuthorRequest own(tmpl, root.path, "Callers Gun");
+		own.request.overrides = &ov;
+		own.request.override_count = 1;
+		const AuthorCall kept = authorSave(own.request);
+		INFO("save error: " << kept.err);
+		REQUIRE(kept.code == MOD_AUTHOR_OK);
+		const std::string keptDescriptor =
+			authorEntry(authorReadFile(kept.result->archive_path), "weapon.ini");
+		CHECK(authorIniValues(keptDescriptor, "bundled").size() == 1);
+		CHECK(authorIniValues(keptDescriptor, "category").size() == 2);
+	}
+
+	SECTION("character: the unlock requirement goes and the game's reader still accepts it") {
+		const std::string tmpl = baseLike(kCharacterTemplate, "character.ini",
+			"example:tri_character", "requirefeature = 58\nbundled = 1\n",
+			"base_like.pdcharacter");
+		AuthorRequest req(tmpl, root.path, "Owned Agent");
+		const AuthorCall saved = authorSave(req.request);
+		INFO("save error: " << saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		authorRequireReleaseValid(saved.result->archive_path);
+		const std::string written =
+			authorEntry(authorReadFile(saved.result->archive_path), "character.ini");
+		CHECK(authorIniValues(written, "requirefeature").empty());
+		CHECK(authorIniValues(written, "bundled").empty());
+		CHECK(authorIniValue(written, "display_name") == "Owned Agent");
+
+		auto ini = std::make_unique<ini_section_t>();
+		REQUIRE(bodyHeadSourceReadIniBytes(written.data(), static_cast<u32>(written.size()),
+			"character", ini.get(), err, sizeof(err)) == 1);
+		auto entry = std::make_unique<asset_entry_t>();
+		std::memset(entry.get(), 0, sizeof(asset_entry_t));
+		entry->type = ASSET_CHARACTER;
+		std::strcpy(entry->id, saved.result->catalog_id);
+		REQUIRE(characterSourceApplyIni(entry.get(), ini.get()) == 1);
+		CHECK(std::string(entry->ext.character.display_name) == "Owned Agent");
+	}
+
+	SECTION("body: the unlock requirement goes") {
+		const std::string tmpl = baseLike(kBodyTemplate, "body.ini",
+			"example:tri_body", "requirefeature = 61\nbundled = 1\n",
+			"base_like.pdbody");
+		AuthorRequest req(tmpl, root.path, "Owned Body");
+		const AuthorCall saved = authorSave(req.request);
+		INFO("save error: " << saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		const std::string archive = authorReadFile(saved.result->archive_path);
+		auto source = std::make_unique<body_head_source_t>();
+		REQUIRE(bodyHeadSourceParseArchiveBytes(archive.data(), static_cast<u32>(archive.size()),
+			saved.result->catalog_id, 0, source.get(), err, sizeof(err)) == 1);
+		CHECK(source->requirefeature == 0);
+		CHECK(source->bundled == 0);
+		CHECK(std::string(source->display_name) == "Owned Body");
+	}
+}
+
 TEST_CASE("mod author leaves the descriptor alone when the caller supplies it",
           "[modding][author]") {
 	AuthorTempDir root;
@@ -1061,14 +1170,24 @@ TEST_CASE("mod author sweep over base templates (local, needs PD2_BASE_TEMPLATE_
 			if (call.code == MOD_AUTHOR_OK) {
 				char err[256] = {};
 				const std::string bytes = authorReadFile(call.result->archive_path);
+				const char *descriptorName =
+					assetArchiveDescriptorForPath(call.result->archive_path);
+				const std::string descriptor =
+					descriptorName ? authorEntry(bytes, descriptorName) : std::string();
+				const bool ownerKeysLeft = !authorIniValues(descriptor, "bundled").empty() ||
+					!authorIniValues(descriptor, "requirefeature").empty() ||
+					(std::string(family.ext) == ".pdweapon" &&
+						!authorIniValues(descriptor, "category").empty());
 				if (assetArchiveValidateBytes(bytes.data(), static_cast<u32>(bytes.size()),
 						call.result->archive_path, ASSET_ARCHIVE_VALIDATE_RELEASE,
-						err, sizeof(err)) == 0) {
+						err, sizeof(err)) != 0) {
+					outcome = std::string("SAVED_BUT_INVALID\t") + err;
+				} else if (ownerKeysLeft) {
+					outcome = "SAVED_BUT_BASE_KEYS_LEFT";
+				} else {
 					saved++;
 					family_saved++;
 					outcome = "OK\tids=" + std::to_string(call.result->ids.id_count);
-				} else {
-					outcome = std::string("SAVED_BUT_INVALID\t") + err;
 				}
 			} else {
 				outcome = "REFUSED(" + std::to_string(call.code) + ")\t" + call.err;
@@ -1089,5 +1208,6 @@ TEST_CASE("mod author sweep over base templates (local, needs PD2_BASE_TEMPLATE_
 	/* A result that was written must always be valid; refusals are findings,
 	 * not failures, and are listed in the report. */
 	CHECK(report.find("SAVED_BUT_INVALID") == std::string::npos);
+	CHECK(report.find("SAVED_BUT_BASE_KEYS_LEFT") == std::string::npos);
 	CHECK(total > 0);
 }
