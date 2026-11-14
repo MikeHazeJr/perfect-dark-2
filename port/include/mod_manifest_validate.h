@@ -56,6 +56,19 @@ extern "C" {
 s32 modManifestValidateBytes(const void *json, size_t size,
 		char *error, size_t error_cap);
 
+/**
+ * Read one top-level string field of a root mod.json, for example `id`.
+ *
+ * Returns 1 and copies the value when the document passes the same strict
+ * reader, is an object, and `key` holds a string that fits in `out` with its
+ * terminator. Returns 0 and empties `out` in every other case. The value is
+ * copied as written: it is not trimmed.
+ *
+ * Pure: no globals, no I/O, no logging.
+ */
+s32 modManifestReadString(const void *json, size_t size, const char *key,
+		char *out, size_t out_cap);
+
 #ifdef __cplusplus
 }
 #endif

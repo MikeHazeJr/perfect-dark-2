@@ -1104,6 +1104,9 @@ set(SRC_TESTS
   # In-game root mod.json admission used by both .pdmod packers.
   ${CMAKE_SOURCE_DIR}/port/src/mod_manifest_validate.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_manifest_validate.cpp
+  # Template archive plus edits to a complete mod folder: the creators' Save.
+  ${CMAKE_SOURCE_DIR}/port/src/mod_author.c
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_author.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2.cpp

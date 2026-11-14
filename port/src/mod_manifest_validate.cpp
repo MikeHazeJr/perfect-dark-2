@@ -124,3 +124,40 @@ extern "C" s32 modManifestValidateBytes(const void *json, size_t size,
         return MOD_MANIFEST_ERR_UNREADABLE;
     }
 }
+
+extern "C" s32 modManifestReadString(const void *json, size_t size, const char *key,
+    char *out, size_t out_cap)
+{
+    if (out && out_cap) out[0] = '\0';
+    if (!json || size == 0 || size > MOD_MANIFEST_MAX_BYTES ||
+            !key || !key[0] || !out || out_cap == 0) {
+        return 0;
+    }
+
+    try {
+        crude_json::value root;
+
+        if (!modAssetJsonReadValue(static_cast<const char *>(json), size, root) ||
+                !root.is_object()) {
+            return 0;
+        }
+
+        const crude_json::value &manifest = root;
+        const crude_json::string name(key);
+
+        if (!manifest.contains(name)) return 0;
+
+        const crude_json::string *text = manifest[name].get_ptr<crude_json::string>();
+
+        if (!text || text->size() >= out_cap ||
+                text->find('\0') != crude_json::string::npos) {
+            return 0;
+        }
+        std::memcpy(out, text->data(), text->size());
+        out[text->size()] = '\0';
+        return 1;
+    } catch (...) {
+        if (out && out_cap) out[0] = '\0';
+        return 0;
+    }
+}

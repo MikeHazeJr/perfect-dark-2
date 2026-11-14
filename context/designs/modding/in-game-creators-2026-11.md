@@ -114,24 +114,56 @@ Foundation, in order. Each step lands with tests that run in CI.
    rebuild an archive under its own id as an edit. Verified 2026-11-14 the
    same way (8 cases; 6 authored archives pass conformance, 27 checked).
    This is the one authoring primitive: template in, edited mod archive out.
-2c. NEXT: mod author core (`mod_author`): request (template path, mods
-   root, display name, author, version, overrides) to a complete mod
-   folder `mods/<Category>/<kind>_<slug>/` holding the rebuilt archive
-   (`mod:<kind>_<slug>`) and a validated `mod.json` (`mod.<kind>_<slug>`),
-   staged as a candidate and swapped in, refusing a folder owned by a
-   different mod id. Naming follows the existing weapon creator. Then a
-   headless recipe entry (`--mod-author <recipe.json>`) over the same
-   function, then the hub screens call it.
-3. Weapon author module (C, testable): editor state plus cloned template to a
-   clean `.pdweapon`, staged, compiled with `weaponGraphCompileWeaponSourceJson`,
-   release-validated, then renamed into place. The hub calls it; template
-   loading merges clean primary and secondary graphs back into the editor.
-4. One in-game Validate used by every save, pack and enable, held to the
-   offline validator by shared fixtures. C-produced archives are also checked
-   by `tools/asset_archive_conformance.py` in CI.
-5. Recipe runner: a headless entry that drives the same author functions from
-   a recipe file, for reproducible mods and CI.
+2c. DONE (`port/src/mod_author.c`, `modAuthorSave` / `modAuthorPlan`),
+   verified 2026-11-14 by unit tests (9 cases; full pd-tests 1874 cases pass
+   locally) and by the offline validator on what the tests author. A request
+   (template archive, mods root, display name, optional author, version,
+   description, overrides) becomes `mods/<Category>/<kind>_<slug>/` holding
+   `<kind>_<slug>.pd<kind>` (catalog id `mod:<kind>_<slug>`) and a `mod.json`
+   (`mod.<kind>_<slug>`) the packers' gate accepts. Covered: weapon,
+   character, body, head, vehicle. Arena is in the table but untested.
+   - The display name is written into the descriptor (`name`, or
+     `display_name` for character, body, head), in the first section only,
+     keeping the file's line endings. The strict body/head and character
+     readers and both release validators accept the results.
+   - Saving again under the same name updates in place. A folder whose
+     `mod.json` has another id, cannot be read strictly, or is missing beside
+     an existing archive is refused untouched.
+   - The archive is staged as `<name>.pd<kind>.candidate`, which the scanner
+     does not pick up, validated as the archive it will become by the file
+     validator and the in-memory one the scanner loads with, then swapped in.
+     `mod.json` is staged and swapped the same way, archive first.
+   - Limits follow the loaders: display name 1 to 63 bytes of UTF-8 (catalog
+     `display_name[64]`), author 63, version 31, description 255 (modmgr).
+     The slug is capped at 48 so every embedded archive can still take a
+     derived id (`ASSET_ARCHIVE_CLONE_ROOT_ID_MAX`); longer names are
+     shortened with a hash.
+   - The in-game folder packer packs the authored folder as it stands.
+   - Not covered: any game run; a template extracted from the base game;
+     what the mod manager shows (see B-1141).
+   Known gap (B-1142): the author guarantees release validation only, and
+   release validation does not read member content. Step 4 closes it.
+3. NEXT: one in-game Validate (`mod_asset_validate`): release validation plus
+   each family's real reader (weapon graph compile, strict body, head and
+   character readers, vehicle physics and behavior JSON). `modAuthorSave`
+   calls it on the staged archive; the packers and the enable path call it
+   too. Held to the offline validator by shared fixtures; C-produced archives
+   stay under `tools/asset_archive_conformance.py` in CI.
+4. Headless recipe entry (`--mod-author <recipe.json>`) over `modAuthorSave`,
+   and a smoke fixture that creates a weapon mod and proves the game loads
+   it. CORE's runner now takes a session's own client against the shared
+   base, so this is the first game-run proof for MODS.
+5. Weapon author module (C, testable): editor state to the override list for
+   a clean `.pdweapon` (split primary and secondary graphs, settings,
+   variables, shared context, presentation, view position). The hub calls
+   `modAuthorSave` with it; template loading merges clean primary and
+   secondary graphs back into the editor.
 6. Characters tool, vehicle runtime binding plus Vehicles tool, level tools.
+
+Found along the way, recorded in `context/bugs.md`: B-1140 (shared INI parser
+hangs on a section line with no `=`), B-1141 (mod manager shows JSON escapes
+raw), B-1142 (above), B-1143 (pd-tests misreports when stdout is a file),
+B-1144 (theme and voice staging names are still typed archives).
 
 ## 5. Open questions
 
