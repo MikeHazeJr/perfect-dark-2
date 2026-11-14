@@ -1347,3 +1347,28 @@ TEST_CASE("virtual controller menu fixture demands observed production outcomes"
     requireContains(fixture, "virtual-after-editor-back.bmp");
     requireContains(fixture, "retain_artifacts");
 }
+
+// B-1124: a game process started with neither --portable nor --savedir uses the
+// player's real profile folder. Seven two-process fixtures on a shared install
+// did exactly that. The runner now refuses such a test before it stages or
+// launches anything; separate installs get explicit directories at launch.
+TEST_CASE("the multi-process smoke runner refuses a process that could reach the real profile",
+    "[smoke][tooling][isolation][b-1124][static]")
+{
+    const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+    const std::string guard = requireSlice(runner,
+        "function Invoke-SmokeTestMultiProcess {",
+        "$installState = \"clean\"");
+
+    // The check sits before the first install or directory is created.
+    requireContains(guard, "if (-not $separateProcessInstalls -and");
+    requireContains(guard, "foreach ($processDef in @($def.processes)) {");
+    requireContains(guard,
+        "if (-not (($processBootArgs -contains '--portable') -or ($processBootArgs -contains '--savedir'))) {");
+    requireContains(guard, "has neither --portable nor --savedir and the test does not set separate_process_installs");
+    REQUIRE(guard.find("New-Item") == std::string::npos);
+    REQUIRE(guard.find("New-SmokeManagedInstall") == std::string::npos);
+
+    // Separate installs still get their own base, save, mod and log directories.
+    requireContains(runner, "\"--savedir\", [string]$processInstallInfo.InstallDir,");
+}
