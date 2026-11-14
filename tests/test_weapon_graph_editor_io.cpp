@@ -17,9 +17,11 @@ extern "C" {
 #include "mod_author.h"
 #include "modarchive.h"
 #include "modasset_json.h"
-#include "weapon_graph_editor_io.h"
 #include "weapon_graph_runtime.h"
 }
+#include "../port/external/imgui-node-editor/crude_json.h"
+#include "modasset_gltf_document.h"
+#include "weapon_graph_editor_io.h"
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -590,6 +592,45 @@ TEST_CASE("weapon editor split reads the document the Weapons creator writes",
 	const weapon_graph_ir_param_t *label = graph.param("node_2", "label");
 	REQUIRE(label != nullptr);
 	CHECK(std::string(label->value) == "a \"loud\" one \\ two");
+}
+
+TEST_CASE("weapon editor shows a node's settings one per line with plain numbers",
+          "[modding][weapon-editor]") {
+	const std::string json = R"({ "spread": 0.6, "ammo_slot": -1,
+  "recoilsettings": { "xrange": 0.6, "unk10": 1.0 }, "tags": [ "a", 2 ],
+  "on": true, "none": null, "big": 4294967295 })";
+	crude_json::value value;
+	REQUIRE(modAssetJsonReadValue(json.data(), json.size(), value));
+	const std::string text = weaponGraphEditorValueText(value);
+	CHECK(text ==
+		"{\n"
+		"  \"ammo_slot\": -1,\n"
+		"  \"big\": 4294967295,\n"
+		"  \"none\": null,\n"
+		"  \"on\": true,\n"
+		"  \"recoilsettings\": { \"unk10\": 1, \"xrange\": 0.6 },\n"
+		"  \"spread\": 0.6,\n"
+		"  \"tags\": [ \"a\", 2 ]\n"
+		"}");
+
+	/* A very small number is written with an exponent and still reads back
+	 * to exactly the same value. */
+	const std::string tiny = "[" + weaponGraphEditorValueText(crude_json::value(1.5e-7)) + "]";
+	crude_json::value tinyBack;
+	REQUIRE(modAssetJsonReadValue(tiny.data(), tiny.size(), tinyBack));
+	REQUIRE(tinyBack.is_array());
+	CHECK(tinyBack[0].get<crude_json::number>() == 1.5e-7);
+
+	/* The text is strict JSON and showing it again changes nothing. */
+	crude_json::value again;
+	REQUIRE(modAssetJsonReadValue(text.data(), text.size(), again));
+	CHECK(weaponGraphEditorValueText(again) == text);
+
+	crude_json::value empty;
+	REQUIRE(modAssetJsonReadValue("{}", 2, empty));
+	CHECK(weaponGraphEditorValueText(empty) == "{}");
+	CHECK(weaponGraphEditorValueText(crude_json::value(0.1)) == "0.1");
+	CHECK(weaponGraphEditorValueText(crude_json::value(std::string("a\tb"))) == "\"a\\tb\"");
 }
 
 TEST_CASE("weapon editor split refuses a document it cannot place and returns nothing",

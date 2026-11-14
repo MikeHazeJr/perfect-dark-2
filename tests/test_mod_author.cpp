@@ -1254,6 +1254,43 @@ TEST_CASE("mod author sets and removes descriptor keys the creator asks for",
 	}
 }
 
+TEST_CASE("mod author names a save without looking at the mods folder",
+          "[modding][author]") {
+	mod_author_request_t request{};
+	request.template_path = "anything.pdweapon";
+	request.mods_root = "no/such/folder";
+	request.display_name = "Maian  Crystal-Pistol!";
+	auto names = std::make_unique<mod_author_result_t>();
+	char err[256] = "";
+	REQUIRE(modAuthorNames(&request, names.get(), err, sizeof(err)) == MOD_AUTHOR_OK);
+	CHECK(std::string(names->kind) == "weapon");
+	CHECK(std::string(names->slug) == "weapon_maian_crystal_pistol");
+	CHECK(std::string(names->mod_id) == "mod.weapon_maian_crystal_pistol");
+	CHECK(std::string(names->catalog_id) == "mod:weapon_maian_crystal_pistol");
+	CHECK(std::string(names->archive_path) ==
+		"no/such/folder/Weapons/weapon_maian_crystal_pistol/weapon_maian_crystal_pistol.pdweapon");
+
+	/* Planning the same save for a real folder gives the same names. */
+	AuthorTempDir tmp;
+	const std::string root = tmp.path.string();
+	request.mods_root = root.c_str();
+	auto plan = std::make_unique<mod_author_result_t>();
+	REQUIRE(modAuthorPlan(&request, plan.get(), err, sizeof(err)) == MOD_AUTHOR_OK);
+	CHECK(std::string(plan->slug) == names->slug);
+	CHECK(std::string(plan->mod_id) == names->mod_id);
+	CHECK(std::string(plan->catalog_id) == names->catalog_id);
+
+	request.display_name = "!!!";
+	CHECK(modAuthorNames(&request, names.get(), err, sizeof(err)) == MOD_AUTHOR_ERR_ARGS);
+	CHECK(names->slug[0] == '\0');
+	CHECK(err[0] != '\0');
+	request.display_name = "Fine";
+	request.template_path = "thing.pdunknown";
+	CHECK(modAuthorNames(&request, names.get(), err, sizeof(err)) == MOD_AUTHOR_ERR_TEMPLATE);
+	CHECK(modAuthorNames(&request, nullptr, err, sizeof(err)) == MOD_AUTHOR_ERR_ARGS);
+	CHECK(modAuthorNames(nullptr, names.get(), nullptr, 0) == MOD_AUTHOR_ERR_ARGS);
+}
+
 /*
  * Local sweep, off unless PD2_BASE_TEMPLATE_DIR names an extracted base data
  * folder (the one holding weapons/, characters/, bodies/, ...). Every base

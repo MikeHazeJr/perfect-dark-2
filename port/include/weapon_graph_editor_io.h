@@ -70,6 +70,17 @@ char *weaponGraphEditorCompose(const char *primary_json, const char *secondary_j
 
 #ifdef __cplusplus
 }
+
+#include <string>
+namespace crude_json { struct value; }
+
+/**
+ * A value as the editor shows it. An object has one member per line with
+ * everything inside a member on that line; any other value is one line.
+ * Numbers are written in the shortest form that reads back to the same
+ * value, the way Split writes them.
+ */
+std::string weaponGraphEditorValueText(const crude_json::value &value);
 #endif
 
 #endif /* _IN_WEAPON_GRAPH_EDITOR_IO_H */

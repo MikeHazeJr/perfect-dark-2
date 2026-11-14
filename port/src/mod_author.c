@@ -660,6 +660,19 @@ static s32 authorCheckOwner(mod_author_result_t *plan, char *err, size_t err_cap
 	return MOD_AUTHOR_OK;
 }
 
+s32 modAuthorNames(const mod_author_request_t *request, mod_author_result_t *result,
+		char *err, size_t err_cap)
+{
+	const author_family_t *family = NULL;
+	char display[MOD_AUTHOR_NAME_MAX];
+
+	if (err && err_cap) err[0] = '\0';
+	if (!result) {
+		return authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS, "result is required");
+	}
+	return authorPlan(request, result, &family, display, sizeof(display), err, err_cap);
+}
+
 s32 modAuthorPlan(const mod_author_request_t *request, mod_author_result_t *result,
 		char *err, size_t err_cap)
 {

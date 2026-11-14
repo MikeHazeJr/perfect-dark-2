@@ -191,6 +191,13 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       create a mod and then load or spawn what it made. Logged as
  *       MODAUTHOR.* lines.
  *
+ *   --debug-weapon-tool-create <weapon catalog id>
+ *   --debug-weapon-tool-name <display name>
+ *       Runs the Modding Hub's Weapons creator without the mouse: starts
+ *       from the named weapon as a template and saves it under the display
+ *       name, through the same two functions the Create and Save buttons
+ *       call. Runs right after --mod-author. Logged as WEAPONMOD.* lines.
+ *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
  *       credits (NOT the alt-title path): mainChangeToStage(
@@ -896,6 +903,7 @@ extern void creditsEnterNormalScroll(void);
 /* Production Modding Hub entry point. The boot shortcut only opens tool 0;
  * all state mutation remains owned by the ordinary Mod Manager UI. */
 extern void pdguiModdingHubShowTool(s32 tool);
+extern s32 pdguiModdingHubDebugWeaponCreate(const char *template_id, const char *display_name);
 extern s32 pdguiHotswapWasActive(void);
 
 /* Map a --difficulty string to the DIFF_* constants used by g_MissionConfig
@@ -1006,6 +1014,24 @@ static void bootApplyModAuthorRecipe(const char *recipe_path)
 	}
 	sysLogPrintf(LOG_NOTE, "BOOT: --mod-author recipe='%s' result=%s", recipe_path,
 		modAuthorRuntimeRunRecipe(recipe_path) ? "OK" : "FAIL");
+}
+
+/* --debug-weapon-tool-create <weapon id> [--debug-weapon-tool-name <name>]:
+ * the Weapons creator's own template start and save, without the mouse. */
+static void bootApplyDebugWeaponToolCreate(void)
+{
+	const char *template_id = sysArgGetString("--debug-weapon-tool-create");
+	const char *name = sysArgGetString("--debug-weapon-tool-name");
+
+	if (!template_id || !template_id[0]) {
+		return;
+	}
+	if (!name || !name[0]) {
+		name = "Debug Weapon";
+	}
+	sysLogPrintf(LOG_NOTE, "BOOT: --debug-weapon-tool-create template=%s name='%s' result=%s",
+		template_id, name,
+		pdguiModdingHubDebugWeaponCreate(template_id, name) ? "OK" : "FAIL");
 }
 
 /* Arm the real Mod Manager after the catalog and GUI registries are ready.
@@ -2768,6 +2794,7 @@ static void bootApplyCliFastPaths(void)
 	/* First, so every fast path below (spawn weapon, room launch, catalog
 	 * probes) already sees the mod a recipe creates. */
 	bootApplyModAuthorRecipe(sysArgGetString("--mod-author"));
+	bootApplyDebugWeaponToolCreate();
 
 	if (player_init_fault != NULL) {
 		const player_stage_init_fault_status_t status =

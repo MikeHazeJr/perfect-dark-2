@@ -110,6 +110,15 @@ typedef struct mod_author_result {
  * `updated`. Returns MOD_AUTHOR_ERR_EXISTS when the folder belongs to
  * something else, exactly as Save would.
  */
+/**
+ * The names a save of `request` would use, without looking at the mods
+ * folder: kind, slug, mod id, catalog id and the three paths. A creator
+ * shows these before saving. modAuthorPlan is this plus the check of what
+ * is already at that place.
+ */
+s32 modAuthorNames(const mod_author_request_t *request, mod_author_result_t *result,
+		char *err, size_t err_cap);
+
 s32 modAuthorPlan(const mod_author_request_t *request, mod_author_result_t *result,
 		char *err, size_t err_cap);
 

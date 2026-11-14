@@ -588,6 +588,28 @@ char *compose(const char *primary_json, const char *secondary_json,
 
 } // namespace
 
+std::string weaponGraphEditorValueText(const crude_json::value &value)
+{
+    std::string out;
+    const JsonObject *object = value.get_ptr<JsonObject>();
+    if (!object || object->empty()) {
+        writeValue(out, value);
+        return out;
+    }
+    bool first = true;
+    out = "{\n";
+    for (const auto &entry : *object) {
+        if (!first) out += ",\n";
+        first = false;
+        out += "  ";
+        writeString(out, entry.first);
+        out += ": ";
+        writeValue(out, entry.second);
+    }
+    out += "\n}";
+    return out;
+}
+
 extern "C" s32 weaponGraphEditorSplit(const char *editor_json, const char *asset_id,
     weapon_graph_editor_split_t *out, char *err, size_t err_cap)
 {
