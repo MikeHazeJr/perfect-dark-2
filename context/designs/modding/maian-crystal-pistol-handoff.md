@@ -121,39 +121,101 @@ as final.
   the "Graph schema change requests" table of
   `context/week-pd-coordination.md` (canonical checkout, untracked).
 
-## 4. Behavior graph vocabulary as it stands (READ: strings in the runtime sources)
+## 4. Behavior graph vocabulary as it stands
 
-- Weapon (`pd.weapon_graph.v1`): `event.trigger_pressed`,
-  `event.trigger_held`, `event.trigger_released`,
-  `event.native_ready_while_held`, `event.tick`, `event.spawn`,
-  `function.empty`, `spawn.fired_projectile`, `spawn.thrown_physical`,
-  `ammo.consume`, `ammo.reserve_transfer`, `state.bool_set`,
-  `presentation.reticle_overlay_camera`, `presentation.weapon_visibility`.
-- Projectile (`pd.projectile_graph.v1`): `projectile.spawn_state`, `motion`,
-  `homing`, `impact` (has `stick_on_hit`, `consume_on_hit`, `explosion_ref`,
-  `spark_ref`), `bounce_slide`, `fly_by_wire`, `pickup_recover`,
-  `sticky_attach`, `timer`, `trail`, `trajectory_correction`,
-  `transition_to_entity` (`entity_ref`, `when`, `transfer_owner`,
-  `transfer_position`), `wall_hugger`.
-- Entity (`pd.entity_graph.v1`): `entity.armed_explosive`, `autogun`,
-  `interaction`, `nbomb_storm`, `owner_cleanup` (`max_active_per_owner`),
-  `proxy_trigger`, `remote_detonatable`, `sticky_device`,
-  `timed_detonatable`.
-- Effect: `effect.explosion`, `glow`, `particle`, `screen`, `shimmer`,
-  `smoke`, `spark`, `tint`, `darken`.
+Source: a read-only survey of the runtime on 2026-11-14 (subagent, file and
+line as it reported them), with three claims re-read by the session itself:
+the mode projection rule (`weapon_graph_runtime.c` 3627-3649 and 4044-4073),
+the ammo clamp (`bondgun.c` 2286-2300) and the entity transition gate
+(`bondgun.c` 5560-5578). Abbreviations: WGR `port/src/weapon_graph_runtime.c`,
+WGA `port/src/weapon_graph_archive.c`, LP `port/src/loader_pool.c`, MC
+`port/src/modasset_compiler.c`, BG `src/game/bondgun.c`, PO
+`src/game/propobj.c`.
+
+- v1 weapon graphs are parameter sheets. For each mode exactly ONE node
+  reaches gameplay: the node exported as `primary` or `secondary` if its kind
+  is a function kind, otherwise the first function-kind node whose `mode`
+  param names the slot. Edges, shared contexts and event, gate and ammo nodes
+  never reach gameplay. A graph that yields no function at all is rejected.
+- v1 weapon function kinds: `function.empty`, `fire.hitscan`,
+  `fire.auto_cadence`, `fire.burst`, `fire.charge_release`, `fire.beam_tick`,
+  `spawn.fired_projectile`, `spawn.thrown_physical`, `melee.strike`,
+  `special.*`, `device.activate`, `presentation.*`. The kind itself is ignored
+  except for melee and auto cadence: `fire.charge_release` behaves like
+  `fire.hitscan`. Other v1 kinds (`event.trigger_pressed/held/released`,
+  `gate.*`, `ammo.consume`, `ammo.reserve_transfer`) compile and do nothing.
+  `event.tick` and `event.spawn` are prop-graph kinds and
+  `event.native_ready_while_held` and `state.bool_set` are v2 only: all four
+  are compile errors in a v1 weapon graph.
+- Params read from that one node (WGR 3651-3854): `mode`, `function_type`
+  (shoot_single, shoot_automatic, shoot_projectile, throw, melee, special,
+  device; a missing or `none` type rejects the whole weapon, so leave a mode
+  out rather than use `function.empty`), `ammo_slot` (default -1), `flags` (a
+  raw FUNCFLAG mask), damage, spread, recoil fields, `duration_ticks60`,
+  `penetration`, shoot and projectile sound ids, rpm and turret fields,
+  `recoverytime_ticks60`, `projectile_ref`, `entity_ref`, `payload_ref`,
+  `scale`, `speed`, `travel_distance`, `timer_ticks60`, `reflect_angle`,
+  `activation_time_ticks60`, `recovery_time_ticks60`, `range`, `specialfunc`,
+  `device`, sight, zoom, `reticle_ref`, `camera_effect`. `trigger_policy`,
+  `burst_count` and `overlay_ref` are parsed and unused. Time-like keys must
+  carry a unit suffix (`timer_ticks60`, not `timer`) or the compile fails.
+- `ammo_slot`: -1 means no ammo accounting and unlimited fire. 0 or 1 with no
+  ammo definition (the mod adapter sets none): a hitscan function fires zero
+  shots, projectile, throw and special functions still spawn, and reload can
+  never start. RUN: this is why the Falcon copy in
+  `mod_author_weapon_play_smoke` logged no shot.
+- `behavior/settings.json` accepts only `fire_cadence`, `spread`, `zoom_fov`,
+  `sight`; any other key rejects the weapon. `bindings/presentation.json`:
+  `crosshair`, `sight`, `zoom_fov`. `behavior/variables.json` is only used
+  for `$name` substitution into weapon-graph params; it does not reach
+  projectile or entity graphs, and `ammo_clip` / `ammo_reserve` are never
+  read.
+- Burst: flags BURST2 0x1000, BURST3 0x2, BURST5 0x20000, BURST50 0x20 give N
+  shots in sequence from the same muzzle and aim. There is no simultaneous
+  multi-spawn (the shotgun's pellets are hardcoded). The Mauler's charge is
+  hardcoded to its weapon number; the Reaper's spin-up (rpm ramp) is usable.
+- Projectile graph (`pd.projectile_graph.v1`): every node is folded into one
+  record, topology ignored, applied for custom weapon slots only.
+  `spawn_state` (model_ref, scale, damage, flags), `motion` (speed,
+  travel_distance, timer60, reflect_angle, powered, lightweight,
+  calculate_trajectory), `bounce_slide`, `trail`, `homing` (gains only),
+  `fly_by_wire`, `trajectory_correction`, `pickup_recover`, `timer` (start
+  on_spawn, on_impact or on_attach; on expiry a fixed rocket-class blast or a
+  delete), `impact` (consume_on_hit: a character takes spawn_state.damage,
+  then an explosion from `explosion_ref`), `sticky_attach`
+  (allow_background, allow_char, allow_obj). Sticking works on world, props
+  and characters and the stuck object stays alive; on a character it embeds
+  only while that character is on screen, otherwise the object is deleted;
+  sticking deals no damage. `transition_to_entity` only runs on the thrown
+  path and only when the entity is a laptop-gun type; on a fired projectile
+  it does nothing.
+- Entity graph (`pd.entity_graph.v1`): the entity record comes from the held
+  function's `entity_ref` / `payload_ref`. `proxy_trigger` (radius, default
+  250) is checked against the local human only; bots, NPCs and moving objects
+  set proxies off through a separate check with a fixed 250 radius.
+  `timed_detonatable` counts down only for primary-fired objects.
+  `armed_explosive` supplies the explosion. `owner_cleanup` on owner death:
+  explode, delete or persist (default persist); the death signal is raised
+  for players only. A `.pdeffect` explosion maps a class word (tiny to
+  massive) to a native explosion type, so blast radius and damage are that
+  native type's.
+- Limits: 100 weapon objects in the world (recycled when full), 120 proxies
+  (silent failure when full), 160 embedded objects, 200 projectiles; 128
+  projectile and 128 entity graph records; 64 nested payloads per archive.
+- Graph v2 executes one profile (`held_single_shot.v1`: single-shot hitscan,
+  offline human only, no projectiles, refuses network, Theater and bot
+  owners). It cannot express this weapon. CORE's ruling for the week: mods
+  stay on v1.
+- `weapon.ini` keys the weapon descriptor reader takes (WGA 401-489):
+  `catalog_id`, `primary_graph`, `secondary_graph`, `shared_context_file`,
+  `settings_file`, `variables_file`, `presentation_file`, `manifest`,
+  `nested_payloads`, `model_file`, `muzzlez`, `posx`, `posy`, `posz`,
+  `track_type` (none, default, beta_scanner, rocket_launcher, follow_lock_on,
+  threat_detector). `name` and `dual_wieldable` are read by the catalog
+  scanner. Embedded archives are found by scanning the zip, not through
+  descriptor keys.
 - Working examples to copy shapes from: `dev-mods/needler/needler.pdweapon`
-  (two projectile graphs, an embedded effect) and
-  `examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon` (a
-  projectile that turns into an entity at rest, an armed explosive entity).
-- CORE's ruling for this week: mod weapons stay on v1 graphs. v1 graphs are
-  parameter sheets (values are read, the topology is not executed).
-
-What v1 is NOT expected to express (to be confirmed, then asked of CORE):
-the three-crystal proximity rule, a committed charge that survives the
-wielder's death, launching one projectile per named socket, ammo as loaded
-crystals with regrowth, per-crystal visual states, and the charge glow. A
-read-only survey of the runtime was started on 2026-11-14 to pin each of
-these to file and line; its results belong in section 6.
+  and `examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon`.
 
 ## 5. What the mod tools can do today (RUN unless marked)
 
@@ -184,64 +246,93 @@ these to file and line; its results belong in section 6.
     `track_type = rocket_launcher`. The pistol's `weapon.ini` must carry these.
   - the adapter sets no weapon name, so the HUD name is empty
     (`SPAWN.WEAPON ... name=0`).
-  - the adapter sets no ammo definition. OPEN: whether a function with
-    `ammo_slot` 0 can fire at all; the Falcon copy logged no shot.
-  - no low-detail model, no equip, reload or fire animations are wired by the
-    adapter (OPEN: confirm).
+  - the adapter sets no ammo definition. A function with `ammo_slot` 0 or 1
+    then fires zero hitscan shots (section 4); the Falcon copy logged no shot
+    for that reason. Use `ammo_slot` -1 (unlimited) until ammo exists for mod
+    weapons.
+  - no low-detail model and no equip, reload or fire animations are wired by
+    the adapter, and it cannot toggle model parts.
 - Run commands, hub ids and the runner are in the coordination note
   (`context/week-pd-coordination.md`, Step 0 gate) and in
   `context/designs/modding/in-game-creators-2026-11.md`.
 
-## 6. Requirement by requirement (fill in from the survey)
+## 6. Requirement by requirement (from the 2026-11-14 survey)
 
-| Requirement | Expressible today? | How, or what is missing |
+| Requirement | Today on v1 | How, or what is missing |
 |---|---|---|
-| Crystal sticks where it lands | OPEN (nodes exist: `projectile.impact` `stick_on_hit`, `projectile.sticky_attach`) | |
-| Three landed crystals near each other detonate | OPEN (no node kind found for it) | |
-| Charge-up secondary | OPEN | |
-| Charge cannot be cancelled and survives death | OPEN | |
-| One launch per socket, fan follows gun roll | OPEN | |
-| Launched crystal becomes a proximity mine | OPEN (nodes exist: `projectile.transition_to_entity`, `entity.proxy_trigger`) | |
-| Ammo is the loaded crystals | OPEN | |
-| Reload is regrowth | OPEN | |
-| Per-crystal states (full, regrowing, charged, empty) | OPEN | |
-| Charge sound and brighter glow | OPEN | |
-| Tunables (damage, radii, charge time, regrow time) | OPEN (`behavior/settings.json`, `behavior/variables.json` exist) | |
+| Crystal sticks where it lands | Partly | `spawn.fired_projectile` (function_type shoot_projectile) with a projectile graph that has `projectile.sticky_attach` (allow_background, allow_char, allow_obj). Missing: a crystal stuck to a character that leaves the screen is deleted. |
+| Three landed crystals near each other detonate | No | Nothing counts same-kind objects within a radius. Needs a new entity or projectile module (count, radius, same asset, owner scope) with a group detonation. The nearest thing today is a proxy that pops when any object enters 250 units. |
+| Charge-up secondary | No | No held charge phase exists for mods. The Mauler's charge is hardcoded to its weapon number. |
+| Charge cannot be cancelled and survives death | No | Needs a pending action owned by the match, not by the hand state. |
+| One launch per socket, fan follows gun roll | No | One activation spawns one projectile, from the muzzle, along the camera aim. Needs a list of launch points (model parts), a count taken from the loaded crystals, and a direction from each point's matrix, in the player, bot and network spawn paths. |
+| Launched crystal becomes a proximity mine | Partly | The held function's `entity_ref` with `entity.proxy_trigger` and `entity.armed_explosive`. Missing: arming on landing (today the timer starts at launch) and a radius or filter for bots and objects (fixed 250 today). |
+| Ammo is the loaded crystals | No | The mod adapter sets no ammo definition. Needs a v1 ammo block (clip size, flags) feeding the weapon's ammo and the HUD. |
+| Reload is regrowth | No | Needs ammo regeneration over time with no reserve and no reload animation. |
+| Per-crystal states (full, regrowing, charged, empty) | No | The mesh can declare toggle parts, but the mod adapter passes no part visibility. The base game's quantity-driven part visibility only gives full or empty. Needs a v1 binding for part visibility and state looks. |
+| Charge sound and brighter glow | No | Effects only spawn at explosion and spark sites. Needs a charge sound and an effect attached to the gun or a socket. |
+| Tunables (damage, radii, charge time, regrow time) | Partly | Contact and hitscan damage and the proxy radius (local player only) can be set in the graphs. Blast size is a class word. No charge or regrow time exists. `$variables` reach weapon-graph params only. `settings.json` takes four fixed keys. |
 
-## 7. What the `.pdweapon` needs from the model (first cut, refine with the survey)
+So with the schema as it stands the pistol can be a pistol that fires single
+sticky crystals with unlimited ammo, plus a secondary that throws or fires one
+proximity mine. Everything that makes it the crystal pistol is a CORE ask;
+the asks are filed in the coordination note's schema table (2026-11-14).
 
-Write the final list here once the mesh importer's limits are confirmed. What
-is already certain from the format rules:
+## 7. What the `.pdweapon` needs from the model
 
-1. One held model, delivered as a source the nested `.pdmesh` accepts (glTF
-   `.gltf` with embedded buffers, or OBJ plus MTL; no loose `.bin`, which the
-   archive policy forbids unless declared as a glTF buffer). FBX is not a
-   `.pdmesh` source; the handoff should include glTF.
-2. Named nodes in the mesh hierarchy for: the muzzle, each crystal socket
-   (position plus launch axis), and the grip. Proposed names, matching the
-   October contract where it has one: `muzzle`, `crystal_slot_0` to
-   `crystal_slot_4` (or however many sockets the new model has), `grip`.
-   State for each socket node which local axis is the launch direction.
-3. Each crystal as its own named part, so it can be shown, hidden, moved
-   along its slot axis and recoloured per state without touching the rest:
-   `crystal_0` to `crystal_4`, plus the muzzle crystal as a static part.
-4. The four crystal states as something the game can switch per crystal:
-   either separate named parts per state or one part plus a material or
-   emissive variant per state. Which of these the engine can drive is OPEN.
-5. Forward and up axes, and the scale in game units, stated in the spec. The
-   October source is uncalibrated; the Needler's mesh and `posx/posy/posz`
-   are the working reference for size and view position.
+From the survey of the mesh compiler (MC) and the Needler builder:
+
+1. Source format: OBJ plus MTL is the format that keeps the most. It carries
+   per-vertex colour (`v x y z r g b a`, 0 to 255), `vt` UVs, groups (`g` /
+   `o`) and `usemtl`; the MTL may name a texture (`map_Kd` or
+   `pd_texture_catalog`) and a render class (opaque, xlu, tex_edge). A glTF
+   `.gltf` is accepted too, but only positions, indices and
+   `baseColorFactor` (turned into vertex colour) survive; UVs, vertex
+   colours, normals, skins, textures and node names are dropped. FBX is not a
+   `.pdmesh` source. So ask for OBJ plus MTL, or glTF with flat-colour
+   materials if textures are not needed yet. No loose `.bin`.
+2. Named parts and attachment points are NOT taken from node names. They
+   come from four sidecar files that must be supplied together inside the
+   `.pdmesh`: `model.nodes.json`, `model.parts.json`, `model.faces.json`,
+   `model.render.json` (the extractor writes these for base guns; see any
+   base weapon's `held_hi.pdmesh`). OBJ group names choose which display list
+   a triangle goes into. The game looks points up by PART NUMBER, never by
+   name: the muzzle is model part 0x32 if the mesh has it, otherwise the gun
+   origin. So the handoff must give, for each socket (muzzle, each crystal
+   socket, grip): a name, a position and a direction, and the converter turns
+   them into position parts with agreed part numbers. Proposed numbering to
+   agree with CORE: muzzle 0x32 (existing), crystal sockets as one contiguous
+   range.
+3. Each crystal as its own OBJ group, so it becomes its own toggle part. The
+   base game's quantity-driven visibility shows parts 100 + j while j is below
+   the loaded count; using that numbering for crystals 0 to N-1 keeps the door
+   open to the existing mechanism.
+4. The four crystal states. Today nothing can switch them for a mod weapon.
+   Deliver each state as a separate group per crystal (full, regrowing,
+   charged; empty is "hidden") so either part ranges per state or a later
+   tint binding can drive them.
+5. Size, axes and limits: forward is -Z in the Needler builder; author about
+   five times real size because first person applies a 0.1 scale; the view
+   position is `posx`, `posy`, `posz` in `weapon.ini` (the Needler uses 30,
+   -18, -45 and `muzzlez` 3). Coordinates become 16-bit integers, UVs are
+   16-bit at 32 units per texel, at most 32,767 vertices per node and 64
+   distinct vertex colours per model. The October source is in uncalibrated
+   artist units with forward -X and up +Z, so the spec must state the
+   conversion.
 6. Materials as named slots (teal body, dark blue grip, blue inlay, green
-   crystal, charged crystal), with textures, if any, as files that can become
-   `.pdtexture` dependencies of the mesh.
-7. A separate small crystal model for the fired projectile and the mine.
+   crystal, charged crystal). Emissive and normals are ignored by the
+   compiler, so "glow" has to be a brighter flat colour or a texture until a
+   glow effect exists.
+7. A separate small crystal model for the fired projectile and the mine
+   (`model_ref` of the projectile graph).
 8. Sounds as source audio for `.pdsfx` (fire, charge, launch, detonate,
-   regrow), or a statement that base sounds are to be referenced by catalog
-   id for now.
+   regrow), or base sounds referenced by catalog id for now.
+9. Not usable yet for any mod weapon: equip, reload and fire animations (the
+   mod adapter plays none), a low-detail model, a HUD name.
 
 ## 8. Suggested order when the tools are done
 
-1. Finish section 6 from the survey; file the schema asks with CORE.
+1. Schema asks are filed with CORE (coordination note, 2026-11-14). Watch
+   that table for answers; build against what exists meanwhile.
 2. Write the recipe folder under `dev-mods/maian_crystal_pistol/`
    (`recipe.json`, graphs, settings, variables, presentation, `weapon.ini`
    with view position, placeholder mesh sources with the socket nodes).
