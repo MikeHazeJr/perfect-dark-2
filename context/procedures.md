@@ -2,7 +2,7 @@
 
 > Operational rules for any AI or Mike-driven session. Build verification, git safety, worktree handling, isolated build sessions, commit discipline.
 
-These rules apply to all sessions working on this project, regardless of interface (Claude Code, Cursor, Codex, manual). They override default behavior.
+These rules apply to all sessions working on this project, regardless of interface (Claude Code, Cursor, Codex, manual). Follow them within the current user assignment and enforced runtime policy.
 
 ---
 
@@ -13,8 +13,8 @@ Every code change must be build-verified before being reported as complete.
 - After all changes are finalized, run a build covering the affected target(s).
 - If build errors occur, fix them before reporting.
 - Do not report "ready to build" or "done" until a clean compile is confirmed.
-- **Use `.\devtools\build-session.ps1 -Session <short-id> -Target all`** for AI verification when parallel sessions may build. The wrapper routes each session to `.claude/session-builds/<short-session-id>/` so concurrent sessions do not corrupt shared `Build/`.
-- The wrapper queues by default; sessions get queue position, ETA, and watchdog timeout (60s default per S582).
+- **Use `.\devtools\build-session.ps1 -Session <short-id> -Target <client|tests|all>`** for AI verification, choosing the affected target(s); use `all` when both client and tests need rebuilding. The wrapper routes each session to `.claude/session-builds/<short-session-id>/` so concurrent sessions do not corrupt shared `Build/`.
+- The wrapper queues by default; sessions get queue position, ETA, and watchdog timeout (120 seconds without output by default; total build duration is not the idle limit).
 - Do not pass `-NoQueue` unless Mike explicitly asks for it.
 - Reuse the same session id only inside the same active session. Parallel sessions must use different ids; the wrapper holds a lock and fails fast on accidental reuse.
 - Cleanup: `.\devtools\build-session.ps1 -Remove -Session <short-session-id>` when done. `-List` to inspect old directories. `-RemoveAll` only when no session build is running.
@@ -25,7 +25,7 @@ For test-only verification, use `.\devtools\run-pd-tests.ps1 -Session <id> [-Sco
 
 ## Build environment invariants
 
-Per the project's `CLAUDE.md`:
+Per the shared project rules in `AGENTS.md`:
 
 - `TEMP=C:\Users\mikeh\AppData\Local\Temp`
 - `/c/msys64/mingw64/bin` prepended to `PATH`
@@ -34,45 +34,18 @@ Per the project's `CLAUDE.md`:
 
 Both `devtools/_build-env-prelude.ps1` and `devtools/build-env.sh` set these idempotently and are dot-sourced everywhere. **Do not rediscover env. Do not invent alternatives.**
 
-From bash:
-
-```bash
-source devtools/build-env.sh && ninja -C Build pd pd-tests
-```
-
-From PowerShell:
-
-```powershell
-.\devtools\build-headless.ps1   # self-configures env
-```
+The isolated `build-session.ps1` wrapper supplies these invariants for AI verification. Bash operators use `devtools/build-env.sh`; the operator `build-headless.ps1` path self-configures through the same prelude. Do not use shared `Build/` for concurrent verification.
 
 ---
 
 ## Build tool architecture
 
-**One build tool, two interfaces.** The Dev Window v2 (`devtools/dev-window-v2.ps1`) and the headless script (`devtools/build-headless.ps1`) must produce identical builds from identical source. They share cmake flags, compiler, and post-build steps.
+Use the live entry points and flags in `devtools/build-session.ps1`, `devtools/build-headless.ps1`, `devtools/build-gui.ps1`, and `CMakeLists.txt`. `dev-window-v2.ps1` is absent from this checkout; its old synchronization/configuration recipe is historical and must not be invoked as a standing workflow.
 
-**Canonical cmake configure args:**
-
-```
-cmake -G "Unix Makefiles"
-      -DCMAKE_MAKE_PROGRAM="C:\msys64\usr\bin\make.exe"
-      -DCMAKE_C_COMPILER="C:/msys64/mingw64/bin/cc.exe"
-      -B "<buildDir>"
-      -S "<projectRoot>"
-      -DVERSION_SEM_MAJOR=X -DVERSION_SEM_MINOR=Y -DVERSION_SEM_PATCH=Z
-```
-
-Optional stable channel (same scripts / `CMakeLists.txt`): append `-DPD_STABLE_RELEASE=ON` to omit `PD_DEV_BUILD` (dev hotkeys, Settings Debug tab). Default is dev/local with `PD_DEV_BUILD` enabled.
-
-Rules:
-
-- `build-headless.ps1` mirrors `Get-BuildSteps` from `dev-window.ps1` exactly.
-- If you change cmake flags in one, change the other.
-- Headless accepts `-Version "X.Y.Z"` or reads `CMakeLists.txt`.
-- **Never run cmake directly from a worktree.** `build-headless.ps1` has a worktree guard that redirects to the main working copy.
-- `$ProjectDir` always resolves to the real git working tree, never a `.claude/worktrees/` path.
-- Always invoke: `powershell -File devtools/build-headless.ps1 -Target all` from the project root.
+- Keep configure/compiler/version/channel behavior consistent across the supported wrappers when changing build tooling.
+- The session wrapper owns isolated verification output and queued execution. Use its supported target and version parameters rather than inventing a parallel configure path.
+- Optional stable channel uses `-DPD_STABLE_RELEASE=ON` to omit `PD_DEV_BUILD`; default local/dev builds retain development controls.
+- Do not run CMake directly from a worktree or redirect verification over another owner's outputs. Inspect actual wrapper behavior before changing an operator build/release path.
 
 ---
 
@@ -84,24 +57,15 @@ ownership through Workbench and CodexCoordination, and serialize staging,
 commit, and push operations. The safeguards below remain mandatory if Mike
 explicitly re-enables a worktree workflow or another tool creates one.
 
-Claude Code may create git worktrees, placing changes in an isolated copy instead of the main working directory.
+If another tool creates a worktree, identify its branch/root and protect its owned changes. If Mike re-enables worktrees, integrate safely through the serialized Git lane, reconciling current canonical/user/peer edits. Do not copy files over the primary checkout as a substitute for integration. Compare intended diffs, line counts, and file endings before/after; unexpected loss or truncation must halt integration.
 
-- After completing code changes, verify they are in the main working copy.
-- If changes landed in a `.claude/worktrees/` path, they are NOT in the build directory.
-- Copy changed files from the worktree to the main working copy before declaring done.
-- Worktree writes can truncate files mid-line. After any merge: compare line counts (`wc -l`), check file endings (`tail -5`), restore from worktree or git history if truncated.
-- Git index corruption (`.git/index.lock`) is common; fix with: delete the lock file, then `git reset`.
+An existing `.git/index.lock` is not evidence of corruption. Check the owning operation before any repair; never delete a live lock or run `git reset` as a lock-repair shortcut. Validated stale-lock handling must follow the coordination guide and preserve unrelated work.
 
 ---
 
-## Solo-dev git before automated build / release
+## Git before automated build / release
 
-Dev Window v2 runs `git pull --rebase` inside `devtools/release.ps1` before pushing. A non-clean index (staged but uncommitted changes) makes that step fail with "cannot pull with rebase: Your index contains uncommitted changes".
-
-- Dev Window v2 calls `Invoke-GitSyncBeforeBuild` at the start of Build and Release: `git add -A`, commit only if the index has staged changes (`git diff --cached --quiet`), then `git push` to the current branch.
-- `release.ps1` uses the same `diff --cached` check before `git commit` (no longer relies on `git status --porcelain` alone, and does not swallow commit failures).
-
-**Rule**: let the Dev Window perform the sync step; avoid leaving staged edits mid-pipeline.
+AI verification does not authorize staging, committing, rebasing, or pushing unrelated work. Keep staging/commit/push serialized and scoped to the owning session. Do not apply the retired Dev Window v2 `git add -A`/auto-sync recipe. Operator build/release commands require their existing user authorization and a clean, reconciled Git lane.
 
 ---
 
@@ -153,7 +117,7 @@ Per [systemic-bugs.md](systemic-bugs.md) SP-9, two truncation modes affect this 
 **Discipline for AI sessions:**
 
 1. **Author in chunks** if a doc is going to exceed 500 lines. Sequence of `Write` calls or sequential `Edit` appends, each adding a section.
-2. **Verify after every write.** Read the file back end-to-end; confirm the closing `---` / final newline / final paragraph is intact. Match against intended outline. If the last line ends mid-thought, re-write or append.
+2. **Verify each coherent edit unit.** Inspect its diff, changed regions, and final newline/known footer against the intended content. Read a newly authored/replaced file end-to-end; use a full read when truncation or unexpected shrinkage is suspected. Do not repeatedly reload an unchanged large file after every small edit.
 3. **Line-count gate.** Capture intended line count vs actual line count post-write; large drift = truncation event, redo.
 4. **Sentinel marker at end of every authored doc** (e.g. a final "Where to look" section or known-stable footer). After each write, grep for the sentinel; absent = truncated.
 5. **No single-call writes > 500 lines.** Hard rule. Split.
@@ -209,17 +173,9 @@ If mid-task you realize you are going deeper than expected: **stop. Do not push 
 
 ## Session start checklist
 
-Before writing any code or making any changes:
+Use the scoped checklist in [README.md](README.md). Read current collaboration rules, relevant constraints/procedures, and the assigned Workbench lane/notes; load pillars and recent handoffs as needed. Reuse the trusted hook's exact identity and claim item/file ownership before editing.
 
-1. Read [README.md](README.md) (orientation).
-2. Read [working-preferences.md](working-preferences.md) (collaboration rules).
-3. Read [constraints.md](constraints.md) (active and removed invariants).
-4. Read this file (procedures.md).
-5. Read [tasks.md](tasks.md) (current punch list) and the relevant pillar(s) for whatever you are touching.
-6. Read `Tools/Workbench/data/roadmap.json`, fold `notes.jsonl`, process new notes affecting your lane, and review open decision items. Read Mike's resolved decisions first unless the newest user message specifically directs the session elsewhere.
-7. Run `Tools/CodexCoordination/CodexCoordination.ps1 status`, then register the session.
-8. Summarize to Mike: where we are, what's next, any blockers.
-9. Confirm direction before starting.
+An explicit user assignment already supplies direction. Give a concise orientation/update and proceed within that assignment; request a decision only when direction is missing, ambiguous, or grows beyond delegated scope. Do not resurvey every active front or require repeated confirmation for routine continuation.
 
 ---
 
@@ -240,7 +196,7 @@ When the user wraps up or a major task completes:
 - When a fix is clear, implement it; do not announce intent and wait for approval.
 - Update context files as part of the implementation, not as a separate follow-up.
 - Commit when asked or after significant milestones. Comprehensive commit messages.
-- Do not push to remote unless explicitly asked (note: Dev Window v2 push and pre-build sync are operator-initiated and exempt from this rule).
+- Follow current user publication authorization and the serialized Git lane. Verification alone does not grant permission to push; do not inherit a publication exemption from the retired Dev Window v2 recipe.
 
 ---
 

@@ -1,5 +1,13 @@
 # Catalog System
 
+2026-10-12 T-ASSETS-052 candidate: glTF public-source admission now rejects
+unsupported required features before provider reference walks or conversion;
+scene/animation diagnostics and Python conformance share the policy. Cache
+versions10/10/15 invalidate earlier conversions. Python20/selftest/guard pass;
+native build admission refused at unreleased retained child capability, so
+C++/client/runtime remain unvalidated. Full asset goal and graph cutover remain
+partial. See audits/2026/gltf-feature-admission-2026-10-12.md.
+
 2026-09-29 T-MODDING-002 first production v2 profile passes isolated client/tests,
 148 native cases/4941 assertions, source guard, and installed41/41 with26/26
 harness cases. Frozen3408 source paths show zero drift; binary873C547A.
