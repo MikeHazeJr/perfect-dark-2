@@ -1,5 +1,12 @@
 # Unreleased Changes
 
+- Create weapon mods inside the game: the Modding Hub's Weapons creator saves a
+  complete, validated mod from any weapon and keeps that weapon's own behavior.
+  A behavior graph the game cannot run is refused when a mod is saved or packed
+  instead of failing later at load.
+
+- Fix a hang when a mod's descriptor file had a line that was not `key = value`.
+
 - Keep retained model textures distinct across large asset catalogs without
   recycling sources that are still in use.
 

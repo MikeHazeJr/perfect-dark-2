@@ -32,6 +32,11 @@ has been proven by running the game unless it says so.
 
 ## 2. Weapon creator defects (read, not yet run)
 
+Status 2026-11-14 (c7d712d5, 59ee0fc6): 1, 2, 3 and 6 are fixed and proven by
+`weapon_tool_create_smoke` (26/26); see plan step 5. 4 is open (the seed
+buttons still write those defaults; a graph that does not compile is now
+refused at save). 5 is open as B-1149.
+
 1. Old layout. It writes `schema = pd.weapon.v1`,
    `behavior_graph = behavior.graph.json`, `nested_payloads = nested_payloads.json`
    and those two root members. `tools/asset_archive_conformance.py` rejects
@@ -158,8 +163,13 @@ Foundation, in order. Each step lands with tests that run in CI.
    archive, then the family's own reader for bodies, heads and characters.
    `modAuthorSave` runs it on the staged archive; both `.pdmod` packers run it
    on every typed archive, before the descriptor reaches the shared INI
-   parser. Not yet: a content reader for weapons (graph compile) and
-   vehicles, and the enable path.
+   parser.
+   Extended 2026-11-14 (59ee0fc6): every `.pdweapon`, `.pdprojectile` and
+   `.pdentity` in the tree is read by the compiler the game loads it with
+   (v2 weapons through `wgV2ArchiveInspect`). `modAssetValidateArchiveStaged`
+   judges a file on disk under the name it will have and also compiles a v1
+   weapon with its variables file; `modAuthorSave` uses it on the staged
+   candidate. Not yet: a content reader for vehicles, and the enable path.
 4. DONE: recipe files (`port/src/mod_author_recipe.cpp`), the game-side save,
    rescan, enable and apply (`port/src/mod_author_runtime.c`) and the launch
    flag `--mod-author <recipe.json>`. RUN 2026-11-14 with this session's
@@ -170,17 +180,48 @@ Foundation, in order. Each step lands with tests that run in CI.
    hand but has no view position, no name and does not fire, because a base
    weapon archive carries none of what the mod weapon adapter needs for
    those.
-5. Weapon author module (C, testable): editor state to the override list for
-   a clean `.pdweapon` (split primary and secondary graphs, settings,
-   variables, shared context, presentation, view position). The hub calls
-   `modAuthorSave` with it; template loading merges clean primary and
-   secondary graphs back into the editor.
+5. PARTLY DONE (cc8176e7, c7d712d5, f740bfee). The hub's Weapons creator
+   saves through `modAuthorRuntimeSave` in the clean layout and writes no
+   archive itself.
+   - `port/src/weapon_graph_editor_io.cpp`: the editor's one graph document
+     to and from `behavior/primary.graph.json`, `secondary.graph.json` and
+     `shared-context.json`, text to text. A mode with no function gets a
+     `function.empty` node (the base game's own form); shared nodes stay
+     shared; every link is kept; numbers are written in their shortest
+     exact form.
+   - Opening a template composes its three files into the editor. A
+     template whose behavior cannot be read or shown is refused.
+   - Save: split, compile with the game's compiler, overrides for the three
+     files, `dual_wieldable` in the descriptor, an imported typed `.pdmesh`
+     as a whole-archive override of the template's model member.
+   - Refused by name for now: a different catalog model, texture,
+     animation, sound, projectile or entity. The template's own assets are
+     kept. Swapping an existing dependency slot is the next step here;
+     adding a slot the template does not have also needs the archive's
+     `_meta/manifest.json` mirror updated, which the rebuild cannot do yet.
+   - The catalog name shown before saving is `modAuthorNames`, the author's
+     own answer.
+   - `--debug-weapon-tool-create <weapon id>` with
+     `--debug-weapon-tool-name <name>` runs the creator's own template
+     start and save without the mouse.
+   - RUN 2026-11-14 on shared base 3 at 40552210:
+     `weapon_tool_create_smoke` PASS 26/26 (the Falcon 2's own graph reaches
+     the editor: 4 nodes, 2 links; saved, enabled, typed load OK).
+   - Not covered: clicking through the hub's windows; settings, variables
+     and presentation editing; the view position (B-1149); a template whose
+     graph uses `$variables` (none exists; the creator's own check compiles
+     without the variables file).
 6. Characters tool, vehicle runtime binding plus Vehicles tool, level tools.
 
 Found along the way, recorded in `context/bugs.md`: B-1140 (shared INI parser
 hangs on a section line with no `=`), B-1141 (mod manager shows JSON escapes
 raw), B-1142 (above), B-1143 (pd-tests misreports when stdout is a file),
-B-1144 (theme and voice staging names are still typed archives).
+B-1144 (theme and voice staging names are still typed archives), B-1146 to
+B-1148 (Weapons creator: old layout, template behavior replaced by a
+default, editor cut settings at 512 bytes; all fixed), B-1149 to B-1152
+(what a mod weapon made from a base gun still lacks in play). B-1140 is
+fixed (d377380f). B-1145 is fixed by CORE: on shared base 3 all 349 base
+templates, the 47 arenas included, save as release-valid mods.
 
 ## 5. Open questions
 
