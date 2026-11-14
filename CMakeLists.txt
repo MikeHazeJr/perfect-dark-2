@@ -850,6 +850,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/room.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_room_wire.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/room_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_net_scenario_state_wire.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/net_scenario_state_wire.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_transfer_buffer.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/transfer_buffer.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_distrib_queue.cpp
