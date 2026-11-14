@@ -96,7 +96,14 @@ Foundation, in order. Each step lands with tests that run in CI.
 
 1. DONE (694fe9ff): in-game `mod.json` admission in both `.pdmod` packers,
    shared verdict table with the offline validator.
-2. Shared typed-archive clone: copy a typed archive to a new catalog ID,
+2. DONE (`port/src/asset_archive_clone.c`, `assetArchiveCloneFile`), verified
+   2026-11-14 by unit tests on the example weapon, character and vehicle and
+   on the Needler dev mod: each clone passes the C release policy and
+   `tools/asset_archive_conformance.py` (21 archives, 12 families). Not yet
+   proven on a base-extracted template or in a game run. Known limits: ids
+   inside binary `.glb` members cannot be rewritten and make the clone fail;
+   scenario archives are untested.
+   Original scope: copy a typed archive to a new catalog ID,
    re-identify nested typed archives into the new namespace with derived ids,
    rewrite id references in public INI and JSON members, regenerate `_meta`
    sidecars, validate the result in release mode. Every creator needs this

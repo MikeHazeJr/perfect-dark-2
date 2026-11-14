@@ -1079,6 +1079,9 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_loader_walker_mesh_source_plan.cpp
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_archive_writer.c
+  # Typed archive clone to a new catalog id, shared by the in-game creators.
+  ${CMAKE_SOURCE_DIR}/port/src/asset_archive_clone.c
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_archive_clone.cpp
   ${CMAKE_SOURCE_DIR}/port/src/theme_archive_authoring.c
   ${CMAKE_SOURCE_DIR}/port/src/voice_archive_authoring.c
   ${CMAKE_SOURCE_DIR}/port/src/asset_mod_utility_contract.c
