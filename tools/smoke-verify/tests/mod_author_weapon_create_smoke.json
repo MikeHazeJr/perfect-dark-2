@@ -1,0 +1,68 @@
+{
+  "scenario_name": "mod_author_weapon_create_smoke",
+  "description": "In-game mod author, first runtime proof: one ordinary client launch creates a weapon mod from the extracted base Falcon 2 through --mod-author (the save, rescan, enable and apply path the in-game creators use), finds it in the catalog under its mod-owned id, and loads it through the typed catalog loader in the same launch. No mod exists before the launch; mods-enabled.json starts empty. The recipe has no overrides, so this proves that a base weapon archive re-identified into the mod namespace is discovered, enabled and loadable. It does not prove gameplay with the weapon.",
+  "tags": ["modding", "mod-author", "pdweapon", "weapon", "recipe", "smoke", "pillar:modding", "boot"],
+  "paths_of_interest": [
+    "port/src/mod_author.c",
+    "port/src/mod_author_recipe.cpp",
+    "port/src/mod_author_runtime.c",
+    "port/src/asset_archive_clone.c",
+    "port/src/main.c",
+    "port/src/modmgr.c",
+    "tools/smoke-verify/fixtures/mod_author/weapon_from_base/recipe.json"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 120,
+  "install_state": "clean",
+  "remove_paths": ["mods/Weapons/weapon_smoke_falcon"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/mod_author/weapon_from_base/recipe.json", "dst": "mod-recipes/weapon_from_base/recipe.json" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--skip-intro",
+    "--mod-author",
+    "mod-recipes/weapon_from_base/recipe.json",
+    "--debug-load-catalog-assets",
+    "weapon=mod:weapon_smoke_falcon"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait", "comment": "The recipe runs as the first CLI fast path once the catalog is initialised: template lookup, archive rebuild into the mod namespace, mod.json, rescan, enable, apply. The catalog probe for the new id runs after it in the same dispatcher." },
+    { "at_ms": 45000, "type": "exit", "comment": "Scripted exit with headroom for the hard disk; the recipe and the probe are done within the first seconds after boot." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mod_author_weapon_create_smoke",
+      "MODAUTHOR\\.RECIPE\\.BEGIN path='.*recipe\\.json'",
+      "MODAUTHOR\\.TEMPLATE id=base:falcon2 archive='.*base_falcon2\\.pdweapon'",
+      "MODAUTHOR\\.SAVE\\.OK kind=weapon catalog=mod:weapon_smoke_falcon mod_id=mod\\.weapon_smoke_falcon updated=0 archives=[1-9]\\d* ids=[1-9]\\d* archive='.*weapon_smoke_falcon\\.pdweapon'",
+      "modmgr: parsed mod\\.json for 'mod\\.weapon_smoke_falcon'.*archive=no",
+      "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.weapon_smoke_falcon restart_count=0",
+      "MODAUTHOR\\.CATALOG\\.OK catalog=mod:weapon_smoke_falcon type=\\d+ enabled=1 bundled=0 category='mod\\.weapon_smoke_falcon' source='.*weapon_smoke_falcon\\.pdweapon::weapon\\.ini'",
+      "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:weapon_smoke_falcon mod_id=mod\\.weapon_smoke_falcon updated=0 restart_count=0",
+      "BOOT: --mod-author recipe='.*recipe\\.json' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=weapon id='mod:weapon_smoke_falcon'",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='mod:weapon_smoke_falcon' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "MODAUTHOR\\.RECIPE\\.RESULT result=FAIL",
+      "BOOT: --mod-author .* result=FAIL",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='mod:weapon_smoke_falcon' result=(FAIL|MISSING)",
+      "modmgr: mod\\.json validation failed for 'mod\\.weapon_smoke_falcon'"
+    ],
+    "required_counts": [
+      { "pattern": "MODAUTHOR\\.SAVE\\.OK kind=weapon catalog=mod:weapon_smoke_falcon", "min": 1, "max": 1 }
+    ]
+  }
+}

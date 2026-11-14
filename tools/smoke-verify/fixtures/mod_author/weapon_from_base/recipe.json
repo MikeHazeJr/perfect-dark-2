@@ -1,0 +1,8 @@
+{
+  "schema": "pd2.mod_author.recipe.v1",
+  "template": "base:falcon2",
+  "name": "Smoke Falcon",
+  "author": "PD2 smoke",
+  "version": "0.1.0",
+  "description": "Falcon 2 saved as a mod by the mod author, for the create-and-load smoke."
+}

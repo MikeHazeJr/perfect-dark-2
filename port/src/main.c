@@ -84,6 +84,7 @@
 #include "combat_sim_verify.h"
 #include "asset_source_debug.h"
 #include "modasset_compiler.h"
+#include "mod_author_runtime.h"
 #include "loader_pool.h"
 #include "loader_walker.h"
 #include "catalog_mgr_heads.h"
@@ -181,6 +182,14 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       after catalog initialization. This only shortcuts navigation to the
  *       existing UI; toggles, validation, Apply Changes, catalog rebuilds,
  *       and rollback continue through the ordinary Mod Manager path.
+ *
+ *   --mod-author <recipe.json>
+ *       Saves and enables the mod a recipe file describes
+ *       (mod_author_recipe.h) through the same save, rescan, enable and
+ *       apply path the in-game creators use. Runs once the catalog is ready
+ *       and before every other launch or debug flag, so one launch can
+ *       create a mod and then load or spawn what it made. Logged as
+ *       MODAUTHOR.* lines.
  *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
@@ -986,6 +995,17 @@ static void bootApplyMainMenu(void)
 	g_PostExitMainMenuView = 0;
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --main-menu armed g_PostExitMainMenuView=0 (top-level)");
+}
+
+/* --mod-author <recipe.json>: save and enable the mod a recipe describes,
+ * through the path the in-game creators use. */
+static void bootApplyModAuthorRecipe(const char *recipe_path)
+{
+	if (!recipe_path || !recipe_path[0]) {
+		return;
+	}
+	sysLogPrintf(LOG_NOTE, "BOOT: --mod-author recipe='%s' result=%s", recipe_path,
+		modAuthorRuntimeRunRecipe(recipe_path) ? "OK" : "FAIL");
 }
 
 /* Arm the real Mod Manager after the catalog and GUI registries are ready.
@@ -2744,6 +2764,10 @@ static void bootApplyCliFastPaths(void)
 {
 	const char *player_init_fault =
 		sysArgGetString("--debug-fail-stage-player-init");
+
+	/* First, so every fast path below (spawn weapon, room launch, catalog
+	 * probes) already sees the mod a recipe creates. */
+	bootApplyModAuthorRecipe(sysArgGetString("--mod-author"));
 
 	if (player_init_fault != NULL) {
 		const player_stage_init_fault_status_t status =
