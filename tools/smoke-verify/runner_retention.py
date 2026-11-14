@@ -75,9 +75,13 @@ class RunnerRetention(Storage):
             raise StorageError("Retained result exceeds existing reuse profile reservation")
         return used
 
-    def new_run(self, request):
+    def new_run(self, request, *, internal_run_id=None):
         owner = process_identity(request["owner_pid"])
-        self.run_id = "runner-" + uuid.uuid4().hex
+        # Internal supervisor identity only; the ordinary wire action cannot
+        # adopt/request another run. Exclusive mkdir still refuses collisions.
+        if internal_run_id is not None and not re.fullmatch(r"runner-[0-9a-f]{32}", internal_run_id):
+            raise StorageError("Invalid internal retained runner identity")
+        self.run_id = internal_run_id or ("runner-" + uuid.uuid4().hex)
         directory = plain(self.root / "receipts" / self.run_id)
         record = {"schema": SCHEMA, "run_id": self.run_id, "owner": owner, "retain_housekeeping": True}
         length = len(json.dumps(record, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))

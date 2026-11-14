@@ -1,4 +1,4 @@
-# Build / Dev Tooling
+﻿# Build / Dev Tooling
 
 2026-10-10: the next T-TOOLING-011 candidate derives immediate launch identity
 from a retained SafeProcessHandle using GetProcessId, QueryFullProcessImageNameW
@@ -54,6 +54,30 @@ Leases block storage reset/retention; profile bytes stay under existing budgets.
 No game/build/fullcopy/delete or cap/pin relaxation. Initial acceptance partial,
 V014fail; [source and evidence](../audits/2026/pd-existing-base-reuse-2026-10-03.md).
 
+2026-10-03 21:48 UTC: runtime admission BLOCKED before launch. Official
+runner capability exists, but no live initialized executor/fresh canonical
+admission; root combined preflight rejected before execution without reason
+or request ID, worker scoped CIM Access denied. Preserved without retry or
+permission bypass. Exact actor exit/absence receipts prove owned cleanup,
+not successful managed-game querying. Prepared two-phase protocol initializes
+and admits before a fresh15m grant; no new worker/build/test/game executed.
+[Admission closeout](../audits/2026/pd-approved-workspace-recycle-2026-10-03.md).
+
+2026-10-03 21:00 UTC: supported LOCAL Computer Use runner proven via official
+be3 app CLI0.159.0-alpha.12.1, native node_repl/Sky, win32/Shadowbane and
+list_apps40. No PerfectDark window returned; actual app access unverified.
+No configuration/security/helper bypass. Capability worker exited0 with no
+children/heavy/game/input/capture. Today's Plexpause cancelled by Mike only;
+future default unchanged, all project deletions require Recycle Bin recovery.
+[Current route and evidence](../audits/2026/pd-approved-workspace-recycle-2026-10-03.md).
+
+2026-10-03 20:23 UTC: explicitly approved failed shared/client test copy
+recoverably recycled with complete archive/live/exclusive proof. Only its
+registry row changed; managed copies2, two pins/new builds/archives preserved.
+Storage policy/caps unchanged, Recycle Bin retained, no disk bytes reclaimed.
+Actual Computer Use access remains capability-blocked in this executor;
+no GUI/game or repeated build. [Disposition audit](../audits/2026/pd-approved-workspace-recycle-2026-10-03.md).
+
 > CMake + MSYS2/MinGW + Ninja. Active targets: `pd` (game), `pd-tests` (Catch2), and `pd-updater` (Updater.exe). Standalone `pd-server` / `PerfectDarkServer.exe` is removed/deprecated; listen-host inside the client is the server path. Static linking; only `opengl32.dll` is dynamic. Headless build wrapper + per-session isolated builds + queued watchdog. Self-updating release pipeline with Ed25519 signing.
 
 ---
@@ -87,6 +111,41 @@ Code:
 
 ## Build environment invariants
 
+**Passing hosted acceptance (October 3 17:47 UTC):** Exact620456a7
+CI37141120356 passes selected-compiler dependency fixtures/configuration,
+20storage contracts under logged nativeWindowsCPython3.12.10, clean client/tests
+and full1,813cases/333,814assertions. Client artifact uploaded with matching
+source SHA. T-TESTS-004/T-TOOLING-010 validated; historical red receipts below
+remain evidence. Storage uses pwsh/native Python while CMake/build stays MSYS2.
+The local1,817/335,458 result includes preserved peer changes, a separate proof.
+See [passing audit](../audits/2026/pd-source-contract-ci-repair-2026-10-03.md).
+
+**Source-contract acceptance follow-up (T-TESTS-004, October 3 17:16 UTC):**
+Original20 failing cases resolve to16obsolete expectations, one test function
+selector and three catalog/provider API violations. Full native passes1,817
+cases/335,458assertions after narrowly aligning guards and existing typed APIs.
+Queued client/tests builds, 20 tiny isolated storage regressions and refreshed
+native-source guard pass. Storage suite now runs in hosted CI. Both headless
+windows released early, source freeze unchanged, native executors zero. Scoped
+publication and exact hosted CI remain pending; no runtime acceptance inherited.
+See [acceptance audit](../audits/2026/pd-source-contract-ci-repair-2026-10-03.md).
+
+**Hosted MinGW dependency portability (T-TOOLING-010, 2026-10-03):** Windows
+CMake archive and winpthread runtime paths derive from the selected compiler's
+MSYS2 prefix through `cmake/MinGWDependencies.cmake`. Exact static `.a` checks
+and missing runtime-DLL failures remain; an import-only `.dll.a` cannot satisfy
+the static winpthread requirement. Existing library/link/copy rules are retained.
+Four tiny CMake contracts and queued native client/tests targets pass; focused
+crypto/voice/readiness passes1,655assertions/50cases. PE imports/DLL copy preserve
+the previous behavior. Exact950561fa is pushed/remote-verified after Mike's
+direct Commitandpush instruction; D-013 decided. Exact hosted CI37136015560
+passes all four dependency fixtures, relocated configuration and the clean
+client/tests build. Its full unit suite fails 20 source-contract assertions;
+T-TESTS-004 owns semantic review and repair. Test and inspected source Git trees
+are identical to prior d37aee06; the prior run stopped at configure. Full CI is
+red, and no test has been weakened or skipped.
+See [portability audit](../audits/2026/pd-mingw-ci-portability-2026-10-03.md).
+
 Per [procedures.md](../procedures.md) and [CLAUDE.md](../../CLAUDE.md):
 
 - `TEMP=C:\Users\mikeh\AppData\Local\Temp` and `/c/msys64/mingw64/bin` prepended to PATH.
@@ -108,6 +167,37 @@ From PowerShell:
 ---
 
 ## Build wrappers
+
+**Storage retention (T-TOOLING-005, 2026-09-30):** automatic invocations of
+`clean-claude-workspace.ps1` no longer delete by age. Explicit `-DryRun` is only
+legacy inventory. `devtools/smoke-storage-manifest.py` prepares exact hashed
+historical `.claude` candidates without deleting; future removal requires explicit
+manifest authorization and fresh identity/containment/active-use checks. Mike
+specifically authorized September 30's bounded pools with reduced assurance,
+stopping exhaustive hashing; partial witnesses and identified unique files stay.
+Evidence, unique assets/binaries and current work remain excluded. See
+`context/retention.md`.
+
+**Prospective smoke storage (T-TOOLING-006, 2026-09-30):**
+`tools/smoke-verify/storage.py`, `lib/Storage-Harness.ps1`, install wrappers and
+`run.ps1` now use immutable reconstruction blobs plus private mutable copies,
+exclusive/reset/verified shared reuse, complete compact receipts, and prospective
+full-install/archive/free-space budgets. Defaults: 3 full installs/8 GiB, archive
+8 GiB, free floor 300 GiB + 2 GiB reserve + pending run/build growth. No historical
+pruning; active/pinned/changed/locked/aliased/incomplete evidence blocks copies.
+14 Python cases, 11 PowerShell wrapper checks, parsing and asset source guard
+pass. Direct `devtools/build-session.ps1` now checks the same policy after queue/lock
+acquisition, before building; maintenance modes and build evidence are unchanged.
+Native gameplay and standalone package/extraction adoption remain separate. Exact evidence: `../audits/2026/smoke-storage-prevention-2026-09-30.md`.
+
+**Native Python routing (T-TOOLING-008, 2026-10-01):**
+`tools/smoke-verify/lib/Storage-Harness.ps1:7` selects a verified native Windows
+Python, preferring the same `C:/Python312/python.exe` as build-headless. Storage
+requires Windows path/exclusive-handle semantics and cannot use MSYS Python from
+the canonical PATH. The ledger driver uses this resolver too. TEMP/TMP/PATH stay
+unchanged. Native wrapper 13, storage 14, ledger 21 and a tiny actual-driver inventory
+pass; real game seeding/runtime remain unrun. Evidence:
+`../audits/2026/pd-initial-integration-2026-10-01.md`.
 
 ### `build-headless.ps1`
 
@@ -298,7 +388,15 @@ Per [audits/infrastructure-pillars-status-2026-04-27.md](../audits/infrastructur
 
 ## Active design references
 
-None. Build tooling is operational, not under active design. Changes go directly via Dev Window v2 / `build-headless.ps1` PRs.
+2026-10-12: Workbench T-TOOLING-006/N-0619 owns the retained supervisor/parent
+qualification. V3 independent SOURCE_PASS and actual PS5.1/PS7 source checks
+102/171 plus broker29 are recorded under
+`.claude/pd-retained-native-candidate-20261012/parent-closeout-v1/`.
+Native job/IPC/controller-exit/closeout, accounted capability publication,
+retained child admission and client/install-copy remain pending; ordinary
+game/GPU/manual/release proof is separate. Use canonical queued
+`build-session.ps1`, existing policies and scoped coordination. Dev Window v2
+is absent; historical receipts do not qualify the current dirty checkout.
 
 ---
 

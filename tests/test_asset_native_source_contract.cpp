@@ -13913,12 +13913,12 @@ TEST_CASE("universal extracted archive walkers bind public source members",
 	        std::string::npos);
 	const std::string modasset_compiler = readSourceText("port/src/modasset_compiler.c");
 	const std::string modasset_compiler_h = readSourceText("port/include/modasset_compiler.h");
-	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_VERSION 9") !=
+	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_VERSION 10") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler_h.find(
-	        "#define MODASSET_COMPILER_ANIMATION_VERSION 9") !=
+	        "#define MODASSET_COMPILER_ANIMATION_VERSION 10") !=
 	        std::string::npos);
-	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_MODELDEF_VERSION 14") !=
+	REQUIRE(modasset_compiler_h.find("#define MODASSET_COMPILER_MODELDEF_VERSION 15") !=
 	        std::string::npos);
 	REQUIRE(modasset_compiler.find("modAssetCompilerSkeletonForSymbol") !=
 	        std::string::npos);

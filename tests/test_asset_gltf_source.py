@@ -12,6 +12,7 @@ from asset_gltf_source import (
     buffer_declaration, declared_archive_buffers, load_buffer,
     parse_document, resolve_buffer_member,
     scene_plan, transform_position,
+    validate_document_features,
 )
 from asset_archive_conformance import (
     pdmesh_gltf_json_and_bin, validate_archive_bytes,
@@ -20,6 +21,70 @@ from asset_archive_conformance import (
 
 
 class GltfSourceTests(unittest.TestCase):
+    def test_required_features_reject_across_archive_and_source_boundaries(self):
+        cases = [
+            ({"asset": {"version": "2.0", "minVersion": "2.1"}}, "minimum_version"),
+            ({"extensionsUsed": ["KHR_draco_mesh_compression"],
+              "extensionsRequired": ["KHR_draco_mesh_compression"]}, "required_extension"),
+            ({"accessors": [{"bufferView": 0, "sparse": {"count": 1}}]}, "sparse_accessor"),
+            ({"accessors": [{"normalized": True}]}, "normalized_accessor"),
+        ]
+        for fields, diagnostic in cases:
+            doc = copy.deepcopy(self.doc)
+            doc.update(fields)
+            with self.subTest(fields=fields):
+                for check in (validate_document_features, buffer_declaration, scene_plan):
+                    with self.assertRaisesRegex(ValueError, diagnostic):
+                        check(doc)
+                with self.assertRaisesRegex(ValueError, diagnostic):
+                    validate_document_features(parse_document(json.dumps(doc).encode()))
+                with zipfile.ZipFile(self.archive(doc)) as archive:
+                    errors = []
+                    self.assertEqual(declared_archive_buffers(archive, errors, "fixture"), set())
+                    self.assertTrue(any(diagnostic in error for error in errors), errors)
+                result = validate_archive_bytes(self.archive(doc).getvalue(),
+                                                "fixture.pdmesh", ".pdmesh")
+                self.assertTrue(any(diagnostic in error for error in result.errors), result.errors)
+                glb_doc = copy.deepcopy(doc)
+                del glb_doc["buffers"][0]["uri"]
+                encoded = json.dumps(glb_doc).encode()
+                encoded += b" " * (-len(encoded) % 4)
+                binary = self.data
+                glb = (struct.pack("<III", 0x46546c67, 2, 28 + len(encoded) + len(binary))
+                       + struct.pack("<II", len(encoded), 0x4e4f534a) + encoded
+                       + struct.pack("<II", len(binary), 0x004e4942) + binary)
+                with self.assertRaisesRegex(ValueError, diagnostic):
+                    pdmesh_gltf_json_and_bin(glb)
+
+    def test_feature_declarations_reject_wrong_types_duplicates_and_missing_used(self):
+        for fields in ({"extensionsUsed": value} for value in
+                       (None, [], [42], [""], ["KHR_x", "KHR_x"])):
+            with self.subTest(fields=fields), self.assertRaisesRegex(ValueError, "declaration_invalid"):
+                validate_document_features({**self.doc, **fields})
+        for fields in ({"extensionsRequired": ["KHR_x"]}, {"extensionsRequired": []},
+                       {"accessors": {}}, {"accessors": [None]},
+                       {"accessors": [{"normalized": 1}]},
+                       {"accessors": [{"normalized": "false"}]}):
+            with self.subTest(fields=fields), self.assertRaises(ValueError):
+                validate_document_features({**self.doc, **fields})
+
+    def test_optional_features_and_metadata_do_not_restrict_core_fallback(self):
+        doc = copy.deepcopy(self.doc)
+        doc["asset"]["minVersion"] = "2.0"
+        doc["extensionsUsed"] = ["VENDOR_optional"]
+        doc["accessors"][0]["normalized"] = False
+        doc["extras"] = {"sparse": {}, "normalized": True,
+                         "extensionsRequired": ["metadata"]}
+        self.assertEqual(parse_document(json.dumps(doc).encode()), doc)
+        with zipfile.ZipFile(self.archive(doc)) as archive:
+            self.assertEqual(load_buffer(doc, "model.gltf", archive), self.data)
+            self.assertEqual(scene_plan(doc).mesh_count, 1)
+
+    def test_shared_json_lexical_reader_preserves_non_gltf_asset_families(self):
+        for document in ({"pd_kind": "language_strings", "strings": ["Hello"]},
+                         {"source_sha256": "provenance", "normalized": True}):
+            self.assertEqual(parse_document(json.dumps(document).encode()), document)
+
     def setUp(self):
         self.data = struct.pack("<9f", 0, 0, 0, 8, 0, 0, 0, 8, 0)
         self.doc = {

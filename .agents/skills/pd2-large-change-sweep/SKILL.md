@@ -9,7 +9,7 @@ description: Use for Perfect Dark 2 when making or auditing broad cross-system c
 
 Use this skill to turn a broad change into a source-of-truth audit before or during implementation. The goal is to catch disconnects between runtime code, tests, context docs, Workbench state, release notes, and user-facing flow before they become follow-up bugs.
 
-Always use `context-manager` first when this repo's `context/` directory exists. Treat this skill as the sweep layer that runs after the normal context start, constraint check, and decision-request check.
+Start with AGENTS.md and context/README.md's scoped startup, relevant constraints, and the assigned Workbench lane/decision notes. Use `context-manager` for relevant context upkeep; a sweep does not require a full context-recovery audit on every invocation.
 
 ## Sweep Workflow
 

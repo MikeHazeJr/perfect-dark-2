@@ -46,6 +46,612 @@
 #include "loader_pool.h"
 #include "system.h"
 #include "weapon_nested_runtime_harness.h"
+#include "smoke_harness.h"
+#include "game/prop.h"
+#include "game/training.h"
+#include "game/chr.h"
+#include "game/inv.h"
+#include "game/camera.h"
+#include "game/chraction.h"
+#include "lib/mtx.h"
+#include "net/net.h"
+#include "theater.h"
+#include <math.h>
+extern u32 var80070590; /* Real mpstats shot-region marker. */
+
+static int graph_component_observe;
+static int graph_observer_fault_test;
+static wg_v2_observation graph_component_consumed, graph_observer_last;
+static wg_v2_delivery graph_component_noise[2];
+typedef struct graph_action_row {
+    wg_v2_delivery identity, shot_receipt, noise_receipt;
+    uint64_t press, last_reservation;
+    uint64_t dispatch_scope;
+    uintptr_t dispatch_destination;
+    int phase, mode, busy, disposition, admitted, debits[2], noises, consumes, effects, hits, damage;
+    int shot_begins, noise_begins, interrupted, stats;
+    float noise_delta;
+} graph_action_row;
+static struct {
+    graph_action_row rows[256];
+    int count, failed, accounted[2][2][2], blocked[2][2];
+    uint64_t events[WG_V2_OBS_SHOT_STATS + 1];
+} graph_ledger;
+
+/* Explicit smoke instrumentation. Admission and damage stay owned by the
+ * production runtime and ray/chrHit/objHit path. No fabricated hit records. */
+static struct {
+    int equipped, retired, reentry, phase, cells[2][2], trigger[2], observed_hits;
+    int qualified[2], context_switched, interrupted_shots, interrupted_hits, interruption_recovered;
+    struct player *interrupted_owner;
+    struct prop *oracle;
+    uint64_t oracle_generation;
+    int closed_shots, closed_ammo[2][2];
+    float closed_noise[2];
+    struct prop *target;
+    uint64_t target_generation;
+    int target_type;
+    float before, expected_delta;
+    int hitpart;
+    int stale_after_consumed;
+    float stale_damage;
+    int retirement_pending, retirement_shots, retirement_hits;
+    s32 retirement_regions[7];
+    wg_v2_delivery retirement_receipt;
+    wg_v2_runtime_snapshot retirement_native, retirement_other;
+    float retirement_damage;
+    uint64_t retirement_target_generation;
+} graph_world;
+static s32 harnessWriteBytes(const char *path, const void *bytes, size_t size);
+static int harnessGraphUnchanged(struct player *, int, const wg_v2_runtime_snapshot *,
+    int shots, const s32 regions[7], int hits, const struct gset *, float damage);
+
+static int graphWorldArmed(void)
+{
+    return smokeHarnessIsActive() && (sysArgCheck("--debug-graph-world-hit-proof")
+        || sysArgCheck("--debug-graph-world-target-qualify"));
+}
+
+int weaponGraphObservationArmed(void)
+{
+    return graph_component_observe || (smokeHarnessIsActive() && sysArgCheck("--debug-graph-world-hit-proof"));
+}
+
+static void graphLedgerFail(const char *reason)
+{
+    graph_ledger.failed = 1;
+    if (graph_observer_fault_test) {
+        sysLogPrintf(LOG_NOTE, "GRAPH.V2.OBSERVER.NEGATIVE: expected_reject=1 reason=%s", reason);
+        return;
+    }
+    sysLogPrintf(LOG_WARNING, "GRAPH.V2.LEDGER: result=FAIL reason=%s noise_events=%llu consumption_events=%llu", reason,
+        (unsigned long long)graph_ledger.events[WG_V2_OBS_NOISE_INCREMENT],
+        (unsigned long long)graph_ledger.events[WG_V2_OBS_CONSUMED]);
+    if (!graph_observer_fault_test) smokeHarnessExit(1, "graph_world_accounting_failed");
+}
+
+static int graphSameBinding(const wg_v2_delivery *a, const wg_v2_delivery *b)
+{
+    return a->owner == b->owner && a->owner_generation == b->owner_generation
+        && a->hand == b->hand && a->hand_generation == b->hand_generation
+        && a->source_generation == b->source_generation;
+}
+
+static graph_action_row *graphLedgerAction(const wg_v2_delivery *r)
+{
+    for (int i = 0; i < graph_ledger.count; ++i) {
+        graph_action_row *row = &graph_ledger.rows[i];
+        if (row->admitted && graphSameBinding(&row->identity, r)
+                && row->identity.action_ticket == r->action_ticket) return row;
+    }
+    return NULL;
+}
+
+static void graphLedgerConsumed(graph_action_row *row)
+{
+    const int slot = row->mode; /* The public world fixture authors primary=0, secondary=1. */
+    if (row->disposition || row->consumes != 1 || row->debits[slot] != 1 || row->debits[1-slot]
+            || row->noises != 1 || row->noise_begins != 1 || row->effects != 1 || row->hits != 1
+            || row->stats != 1 || !row->shot_begins || !row->damage) {
+        graphLedgerFail("missing_duplicate_or_unmatched_native_action"); return;
+    }
+    row->disposition = 1;
+    graph_ledger.accounted[row->phase][row->identity.hand][row->mode] = 1;
+    graph_world.cells[row->identity.hand][row->mode] = 1;
+    sysLogPrintf(LOG_NOTE, "GRAPH.V2.LEDGER: accounting=PASS phase=%d hand=%d mode=%d press=%llu ticket=%llu debit=1 other_debit=0 noise_increment=1 noise_delta=%g consumption=1 hit_effect=1 native_shots=1 interrupted=%d",
+        row->phase, row->identity.hand, row->mode, (unsigned long long)row->press,
+        (unsigned long long)row->identity.action_ticket, row->noise_delta, row->interrupted);
+    if (graph_world.cells[0][0] && graph_world.cells[0][1] && graph_world.cells[1][0] && graph_world.cells[1][1])
+        sysLogPrintf(LOG_NOTE, "GRAPH.V2.WORLD: both_hands_both_modes=PASS phase=%d actual_damage=1", row->phase);
+}
+
+/* Passive observer: no input, runtime mutation or synthetic acknowledgment. */
+void weaponGraphObserve(const wg_v2_observation *event)
+{
+    if (!event) return;
+    const wg_v2_runtime_snapshot *s = &event->value;
+    const wg_v2_delivery *r = &event->receipt;
+    if (graph_component_observe && !graph_observer_fault_test) {
+        if (event->kind == WG_V2_OBS_NOISE_BEGIN && r->hand >= 0 && r->hand < 2)
+            graph_component_noise[r->hand] = *r;
+        if (event->kind == WG_V2_OBS_CONSUMED) graph_component_consumed = *event;
+        return;
+    }
+    if (graph_observer_fault_test) graph_observer_last = *event;
+    if (!weaponGraphObservationArmed()) return;
+    if (event->kind < WG_V2_OBS_PRESS || event->kind > WG_V2_OBS_SHOT_STATS
+            || graph_ledger.events[event->kind] == UINT64_MAX) { graphLedgerFail("event_counter_overflow"); return; }
+    ++graph_ledger.events[event->kind];
+    if (graph_ledger.failed) return;
+    if (!s->host_present || r->hand < 0 || r->hand > 1 || s->mode < 0 || s->mode > 1 || !r->owner_generation
+            || !r->hand_generation || !r->source_generation || !isfinite(s->noise_radius)) {
+        graphLedgerFail("invalid_observation_identity_or_value"); return;
+    }
+    if ((event->kind == WG_V2_OBS_NOISE_INCREMENT || event->kind == WG_V2_OBS_HIT_EFFECT
+                || event->kind == WG_V2_OBS_SHOT_STATS || event->kind == WG_V2_OBS_DEBIT)
+            && (!graphSameBinding(r, &s->delivery) || r->action_ticket != s->delivery.action_ticket
+                || ((event->kind != WG_V2_OBS_DEBIT) && !s->pending))) {
+        graphLedgerFail("native_effect_with_obsolete_receipt"); return;
+    }
+    if ((event->kind == WG_V2_OBS_HIT_EFFECT || event->kind == WG_V2_OBS_SHOT_STATS)
+            && (!r->reservation_generation || r->reservation_generation != s->delivery.reservation_generation)) {
+        graphLedgerFail("native_effect_with_obsolete_shot_reservation"); return;
+    }
+    graph_action_row *row = NULL;
+    if (event->kind == WG_V2_OBS_PRESS || event->kind == WG_V2_OBS_BUSY_PRESS) {
+        if (!s->press_sequence || graph_ledger.count == 256) { graphLedgerFail("press_ledger_overflow"); return; }
+        for (int i = 0; i < graph_ledger.count; ++i)
+            if (graphSameBinding(&graph_ledger.rows[i].identity, r) && graph_ledger.rows[i].press == s->press_sequence) {
+                graphLedgerFail("duplicate_press"); return;
+            }
+        row = &graph_ledger.rows[graph_ledger.count++]; row->identity = *r; row->identity.action_ticket = 0;
+        row->press = s->press_sequence; row->phase = graph_world.phase; row->mode = s->mode;
+        row->busy = event->kind == WG_V2_OBS_BUSY_PRESS;
+        return;
+    }
+    if (event->kind == WG_V2_OBS_ADMITTED || event->kind == WG_V2_OBS_BLOCKED
+            || event->kind == WG_V2_OBS_COALESCED || event->kind == WG_V2_OBS_RELEASED) {
+        for (int i = 0; i < graph_ledger.count; ++i)
+            if (graphSameBinding(&graph_ledger.rows[i].identity, r) && graph_ledger.rows[i].press == s->press_sequence)
+                row = &graph_ledger.rows[i];
+        if (!row || row->admitted || row->disposition) { graphLedgerFail("unmatched_press_disposition"); return; }
+        if (event->kind == WG_V2_OBS_ADMITTED) {
+            if (!r->action_ticket || row->phase > 1) { graphLedgerFail("invalid_admission"); return; }
+            row->identity = *r; row->admitted = 1;
+            for (int i = 0; i < graph_ledger.count; ++i) {
+                const graph_action_row *prior = &graph_ledger.rows[i];
+                if (prior->interrupted && prior->disposition == 1 && graphSameBinding(&prior->identity, r)
+                        && r->action_ticket != prior->identity.action_ticket && row->press > prior->press) {
+                    graph_world.interruption_recovered = 1;
+                    sysLogPrintf(LOG_NOTE, "GRAPH.V2.WORLD: interruption_recovered=PASS same_binding=1 native_idle_admission=1 new_press_ticket=1");
+                }
+            }
+        } else {
+            row->disposition = event->kind == WG_V2_OBS_BLOCKED ? 2 : 3;
+            if (event->kind == WG_V2_OBS_BLOCKED && row->phase == 2) graph_ledger.blocked[r->hand][row->mode] = 1;
+        }
+        sysLogPrintf(LOG_NOTE, "GRAPH.V2.LEDGER: press=%llu hand=%d disposition=%s busy=%d",
+            (unsigned long long)row->press, r->hand, event->kind == WG_V2_OBS_ADMITTED ? "admitted" :
+            event->kind == WG_V2_OBS_BLOCKED ? "gate_blocked" : event->kind == WG_V2_OBS_RELEASED ? "released" : "coalesced", row->busy);
+        return;
+    }
+    /* Native recovery ticks can have no live action and no debit. */
+    if (event->kind == WG_V2_OBS_DEBIT && event->ammo_before[0] == event->ammo_after[0]
+            && event->ammo_before[1] == event->ammo_after[1]) return;
+    row = graphLedgerAction(r);
+    if (row && event->kind == WG_V2_OBS_CONSUMED) ++row->consumes;
+    if (row && event->kind == WG_V2_OBS_NOISE_INCREMENT) ++row->noises;
+    if (!row || row->disposition) {
+        if (event->kind == WG_V2_OBS_RETIRED && !s->pending) return;
+        graphLedgerFail("unmatched_or_post_terminal_effect"); return;
+    }
+    switch (event->kind) {
+    case WG_V2_OBS_DEBIT:
+        for (int slot = 0; slot < 2; ++slot) {
+            const int delta = event->ammo_before[slot] - event->ammo_after[slot];
+            if (delta < 0 || delta > 1 || row->debits[slot] + delta > 1) { graphLedgerFail("duplicate_or_invalid_debit"); return; }
+            row->debits[slot] += delta;
+        }
+        break;
+    case WG_V2_OBS_SHOT_BEGIN:
+        if (!r->reservation_generation || r->reservation_generation <= row->last_reservation) { graphLedgerFail("duplicate_shot_reservation"); return; }
+        row->last_reservation = r->reservation_generation; row->shot_receipt = *r;
+        row->dispatch_scope = event->scope_token; row->dispatch_destination = event->scope_destination;
+        if (!row->dispatch_scope || !row->dispatch_destination) { graphLedgerFail("missing_dispatch_scope"); return; }
+        if (++row->shot_begins > 16) graphLedgerFail("reservation_overflow");
+        break;
+    case WG_V2_OBS_NOISE_BEGIN:
+        if (++row->noise_begins != 1 || !r->noise_generation) { graphLedgerFail("duplicate_noise_reservation"); return; }
+        row->noise_receipt = *r; break;
+    case WG_V2_OBS_NOISE_INCREMENT: {
+        const float expected = fminf(event->noise_before + 3, event->maximum);
+        if (row->noises != 1 || row->noise_begins != 1 || r->noise_generation != row->noise_receipt.noise_generation
+                || !isfinite(event->noise_before) || !isfinite(event->noise_after) || !isfinite(event->increment)
+                || !isfinite(event->maximum) || event->increment != 3 || event->maximum != 100
+                || event->noise_before < 0 || event->maximum < event->noise_before
+                || fabsf(expected - event->noise_after) > 0.0001f) { graphLedgerFail("noise_arithmetic_or_duplicate"); return; }
+        row->noise_delta = event->noise_after - event->noise_before; break;
+    }
+    case WG_V2_OBS_EFFECT: if (++row->effects != 1) graphLedgerFail("duplicate_effect_commit"); break;
+    case WG_V2_OBS_HIT_EFFECT: if (++row->hits != 1) graphLedgerFail("duplicate_hit_effect"); break;
+    case WG_V2_OBS_SHOT_STATS:
+        if (++row->stats != 1 || event->shots_delta != 1 || event->region_delta != 1) graphLedgerFail("native_shot_statistics");
+        break;
+    case WG_V2_OBS_CONSUMED: graphLedgerConsumed(row); break;
+    case WG_V2_OBS_RETIRED:
+        if (row->consumes || row->debits[row->mode] != 1 || row->debits[1-row->mode]
+                || row->noises > 1 || row->effects || row->hits || row->stats) { graphLedgerFail("retirement_accounting"); return; }
+        row->disposition = 4; break;
+    default: graphLedgerFail("unexpected_event"); break;
+    }
+}
+
+static int graphWorldEligible(struct prop *target)
+{
+    return target && target->type == PROPTYPE_CHR && !target->parent && target->lifecycle_generation
+        && chrPtrIsValid(target->chr) && target->chr->aibot && CHRRACE(target->chr) == RACE_HUMAN
+        && !(target->chr->chrflags & (CHRCFLAG_HIDDEN | CHRCFLAG_INVINCIBLE))
+        && !target->chr->cutscene_protect && target->chr->actiontype != ACT_DIE && target->chr->actiontype != ACT_DEAD
+        && target->chr->damage >= 0 && target->chr->damage < target->chr->maxdamage && chrGetShield(target->chr) == 0;
+}
+
+static int graphWorldQualifyAim(struct player *p, int hand)
+{
+    if (g_NetMode || theaterIsRecording() || theaterIsReplaying() || !g_Vars.normmplayerisrunning
+            || g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0 || (g_MpSetup.options & MPOPTION_ONEHITKILLS)
+            || !camGetWorldToScreenMtxf() || !camGetProjectionMtxF() || !g_Vars.onscreenprops
+            || !g_Vars.endonscreenprops || !p->hands[hand].inuse) return 0;
+    const float saved[2] = {p->crosspos[0], p->crosspos[1]};
+    for (struct prop **ptr = g_Vars.onscreenprops; ptr < g_Vars.endonscreenprops; ++ptr) {
+        struct prop *target = *ptr;
+        if (graph_world.oracle && (target != graph_world.oracle || target->lifecycle_generation != graph_world.oracle_generation)) continue;
+        if (!graphWorldEligible(target)) continue;
+        for (int height = 30; height <= 110; height += 20) {
+            struct coord position = target->pos, view, gunpos2d = {0}, direction2d, gunpos3d, direction3d;
+            position.y += height;
+            mtx4TransformVec(camGetWorldToScreenMtxf(), &position, &view);
+            if (view.z >= -1) continue;
+            float screen[2]; cam0f0b4d04(&view, screen);
+            if (!isfinite(screen[0]) || !isfinite(screen[1]) || screen[0] < camGetScreenLeft()
+                    || screen[0] > camGetScreenLeft() + camGetScreenWidth() || screen[1] < camGetScreenTop()
+                    || screen[1] > camGetScreenTop() + camGetScreenHeight()) continue;
+            cam0f0b4c3c(screen, &direction2d, 1);
+            mtx4TransformVec(camGetProjectionMtxF(), &gunpos2d, &gunpos3d);
+            mtx4RotateVec(camGetProjectionMtxF(), &direction2d, &direction3d);
+            /* Real ordinary query/collision path qualifies a visible target
+             * before effects. It never inserts hits or invokes damage APIs. */
+            struct prop *queried = shotCalculateHits(hand, false, &gunpos2d, &direction2d,
+                &gunpos3d, &direction3d, 0, 4294836224, true);
+            while (queried && queried->parent) queried = queried->parent;
+            if (queried != target) continue;
+            if (!graph_world.oracle) {
+                graph_world.oracle = target; graph_world.oracle_generation = target->lifecycle_generation;
+                /* Explicit isolated fixture setup keeps one real bot alive;
+                 * no damage/shield value or hit list is fabricated. */
+                target->chr->maxdamage = 10000;
+            }
+            p->crosspos[0] = screen[0]; p->crosspos[1] = screen[1];
+            if (!graph_world.qualified[hand]) {
+                graph_world.qualified[hand] = 1;
+                sysLogPrintf(LOG_NOTE, "GRAPH.V2.WORLD: target_aim_qualified=PASS hand=%d target_generation=%llu oracle=human_unshielded_normal_mp actual_query=1 health_setup=10000",
+                    hand, (unsigned long long)target->lifecycle_generation);
+            }
+            return 1;
+        }
+    }
+    p->crosspos[0] = saved[0]; p->crosspos[1] = saved[1];
+    return 0;
+}
+
+int weaponGraphWorldHitAim(const wg_v2_delivery *receipt)
+{
+    if (!graphWorldArmed()) return 1;
+    return receipt && wgV2RuntimeDeliveryValid(receipt) && g_Vars.currentplayer == receipt->owner
+        && graphWorldQualifyAim(receipt->owner, receipt->hand);
+}
+
+void weaponGraphWorldHitTick(void)
+{
+    if (!graphWorldArmed() || graph_ledger.failed) return;
+    struct player *p = g_Vars.currentplayer;
+    if (!p || g_Vars.currentplayernum != 0 || p->isdead || !p->prop
+            || !chrPtrIsValid(p->prop->chr)) return;
+    const asset_entry_t *entry = assetCatalogResolve("graphproof:weapon");
+    if (!entry || !wgV2RuntimeIsWeapon(entry->runtime_index)
+            || p->gunctrl.weaponnum != entry->runtime_index) return;
+    if (!graph_world.equipped) {
+        /* Normal inventory/equip producers, never direct hand/gset/firing edits. */
+        invGiveDoubleWeapon(entry->runtime_index, entry->runtime_index);
+        bgunSetAmmoQuantity(AMMOTYPE_PISTOL, 80);
+        bgunSetAmmoQuantity(AMMOTYPE_SMG, 80);
+        bgunEquipWeapon2(HAND_LEFT, entry->runtime_index);
+        graph_world.equipped = 1;
+        sysLogPrintf(LOG_NOTE, "GRAPH.V2.WORLD: armed=1 equipped=dual source=graphproof:weapon");
+        return;
+    }
+    if (sysArgCheck("--debug-graph-world-target-qualify")) {
+        const float saved[2] = {p->crosspos[0], p->crosspos[1]};
+        int qualified = wgV2RuntimeEnsureHand(p, 0) && wgV2RuntimeEnsureHand(p, 1)
+            && graphWorldQualifyAim(p, 0) && graphWorldQualifyAim(p, 1);
+        p->crosspos[0] = saved[0]; p->crosspos[1] = saved[1];
+        if (qualified) smokeHarnessExit(0, "graph_world_target_qualified");
+        return;
+    }
+    if (graph_world.phase < 2 && graph_world.cells[0][0] && graph_world.cells[0][1]
+            && graph_world.cells[1][0] && graph_world.cells[1][1]) {
+        if (wgV2RuntimeDeliveryPending(p, 0) || wgV2RuntimeDeliveryPending(p, 1)
+                || p->hands[0].triggeron || p->hands[1].triggeron) return;
+        char public_path[FS_MAXPATH];
+        fsFullPath("./mods/mod_graph_world/weapons/graphproof.pdweapon", public_path, sizeof(public_path));
+        const char *source_path = entry->source.primary.provider == fileProvider()
+            ? fileProviderPath(entry->source.primary) : NULL;
+        u32 size = 0;
+        void *bytes = fsFileLoad(graph_world.phase == 0
+            ? "./asset-mesh-ingress/world_edit.pdweapon" : "./asset-mesh-ingress/world_closed.pdweapon", &size);
+        int changed = bytes && source_path && !strcmp(source_path, public_path)
+            && harnessWriteBytes(public_path, bytes, size)
+            && catalogPrepareTypedAssetReplacement(ASSET_WEAPON, "graphproof:weapon")
+            && catalogLoadTypedAsset(ASSET_WEAPON, "graphproof:weapon");
+        sysMemFree(bytes);
+        if (!changed || !wgV2RuntimeEnsureHand(p, 0) || !wgV2RuntimeEnsureHand(p, 1)) {
+            smokeHarnessExit(1, "graph_world_public_source_replacement_failed"); return;
+        }
+        ++graph_world.phase;
+        memset(graph_world.cells, 0, sizeof(graph_world.cells));
+        sysLogPrintf(LOG_NOTE, "GRAPH.V2.WORLD: public_source_replacement=PASS phase=%d", graph_world.phase);
+        if (graph_world.phase == 2) {
+            graph_world.closed_shots = frGetData()->numshots;
+            for (int hand = 0; hand < 2; ++hand) {
+                graph_world.trigger[hand] = p->hands[hand].triggeron;
+                graph_world.closed_noise[hand] = p->hands[hand].noiseradius;
+                for (int slot = 0; slot < 2; ++slot) graph_world.closed_ammo[hand][slot] = p->hands[hand].loadedammo[slot];
+            }
+        }
+    }
+    if (graph_world.phase == 2) {
+        if (frGetData()->numshots != graph_world.closed_shots) {
+            smokeHarnessExit(1, "graph_world_closed_gate_shot_statistics"); return;
+        }
+        for (int hand = 0; hand < 2; ++hand) {
+            if (p->hands[hand].loadedammo[0] != graph_world.closed_ammo[hand][0]
+                    || p->hands[hand].loadedammo[1] != graph_world.closed_ammo[hand][1]
+                    || p->hands[hand].noiseradius > graph_world.closed_noise[hand]
+                    || wgV2RuntimeDeliveryPending(p, hand)) {
+                smokeHarnessExit(1, "graph_world_closed_gate_native_effect"); return;
+            }
+            if (p->hands[hand].triggeron && !graph_world.trigger[hand] && p->hands[hand].gset.weaponfunc < 2)
+                graph_world.cells[hand][p->hands[hand].gset.weaponfunc] = 1;
+            graph_world.trigger[hand] = p->hands[hand].triggeron;
+        }
+        if (graph_ledger.blocked[0][0] && graph_ledger.blocked[0][1]
+                && graph_ledger.blocked[1][0] && graph_ledger.blocked[1][1]) {
+            for (int i = 0; i < graph_ledger.count; ++i) {
+                if (!graph_ledger.rows[i].disposition) { graphLedgerFail("unresolved_press_or_action"); return; }
+            }
+            if (!graph_world.retired || graph_world.retirement_pending || !graph_world.context_switched
+                    || !graph_world.interruption_recovered || !graph_world.stale_after_consumed) {
+                graphLedgerFail("missing_retirement_or_interruption"); return;
+            }
+            sysLogPrintf(LOG_NOTE, "GRAPH.V2.LEDGER: reconciled=PASS missing=0 duplicate=0 unmatched=0 overflow=0");
+            sysLogPrintf(LOG_NOTE, "GRAPH.V2.WORLD: closed_gate=PASS both_hands_both_modes=1 ammo_noise_shots_unchanged=1");
+            smokeHarnessExit(0, "graph_world_hit_pass");
+        }
+    }
+}
+
+void weaponGraphWorldHitDispatch(const wg_v2_delivery *receipt, struct gset *gset)
+{
+    if (!graphWorldArmed() || graph_ledger.failed || !receipt || graph_world.reentry) return;
+    if (graph_world.phase == 2) { smokeHarnessExit(1, "graph_world_closed_gate_dispatch"); return; }
+    if (!wgV2RuntimeDeliveryValid(receipt) || !receipt->owner->prop
+            || !chrPtrIsValid(receipt->owner->prop->chr)) return;
+    const int shots = frGetData()->numshots;
+    const int observed_hits = graph_world.observed_hits;
+    const int cloakpause = receipt->owner->prop->chr->cloakpause;
+    s32 shotcounts[7]; memcpy(shotcounts, g_Vars.currentplayerstats->shotcount, sizeof(shotcounts));
+    const u32 hidden = receipt->owner->prop->chr->hidden;
+    const int ammo0 = receipt->owner->hands[receipt->hand].loadedammo[0];
+    const int ammo1 = receipt->owner->hands[receipt->hand].loadedammo[1];
+    graph_action_row *current_row = graphLedgerAction(receipt);
+    if (!graph_world.stale_after_consumed && current_row) {
+        for (int i = 0; i < graph_ledger.count; ++i) {
+            const graph_action_row *old = &graph_ledger.rows[i];
+            if (old->disposition != 1 || !graphSameBinding(&old->identity, receipt)
+                    || old->identity.action_ticket == receipt->action_ticket
+                    || old->dispatch_destination != current_row->dispatch_destination) continue;
+            wg_v2_runtime_snapshot before = {0};
+            const float selected_damage = gsetGetDamage(gset);
+            if (!graph_world.oracle || graph_world.oracle->lifecycle_generation != graph_world.oracle_generation
+                    || !chrPtrIsValid(graph_world.oracle->chr)) { graphLedgerFail("stale_replay_damage_baseline"); return; }
+            graph_world.stale_damage = graph_world.oracle->chr->damage;
+            if (!wgV2RuntimeSnapshot(receipt->owner, receipt->hand, &before) || !before.pending
+                    || !before.shot_reserved || !before.temporary_scopes || var80070590) {
+                graphLedgerFail("stale_replay_live_b_baseline"); return;
+            }
+            for (int repeat = 0; repeat < 3; ++repeat) {
+                wgV2RuntimeShotComplete(&old->shot_receipt);
+                if (!harnessGraphUnchanged(receipt->owner, receipt->hand, &before, shots, shotcounts, observed_hits, gset, selected_damage)) { graphLedgerFail("stale_shot_completion"); return; }
+                wgV2RuntimeNoiseComplete(&old->noise_receipt);
+                if (!harnessGraphUnchanged(receipt->owner, receipt->hand, &before, shots, shotcounts, observed_hits, gset, selected_damage)) { graphLedgerFail("stale_noise_completion"); return; }
+                wgV2RuntimeShotAbort(&old->shot_receipt);
+                if (!harnessGraphUnchanged(receipt->owner, receipt->hand, &before, shots, shotcounts, observed_hits, gset, selected_damage)) { graphLedgerFail("stale_shot_abort"); return; }
+                if (wgV2RuntimeShotEffectsBegin(&old->shot_receipt)
+                        || !harnessGraphUnchanged(receipt->owner, receipt->hand, &before, shots, shotcounts, observed_hits, gset, selected_damage)) { graphLedgerFail("stale_effect_commit"); return; }
+                wgV2RuntimeScopeClose(old->dispatch_scope);
+                if (!harnessGraphUnchanged(receipt->owner, receipt->hand, &before, shots, shotcounts, observed_hits, gset, selected_damage)) { graphLedgerFail("stale_scope_close"); return; }
+            }
+            graph_world.stale_after_consumed = 1;
+            sysLogPrintf(LOG_NOTE, "GRAPH.V2.WORLD: post_consumed_stale_replay=PASS same_binding=1 new_ticket=1 reused_live_scope_storage=1 callbacks_separate_repeated=1 native_effects_unchanged=1");
+            break;
+        }
+    }
+    graph_world.reentry = 1;
+    handTickAttack(receipt->hand);
+    graph_world.reentry = 0;
+    if (frGetData()->numshots != shots || receipt->owner->prop->chr->hidden != hidden
+            || receipt->owner->prop->chr->cloakpause != cloakpause
+            || memcmp(shotcounts, g_Vars.currentplayerstats->shotcount, sizeof(shotcounts))
+            || graph_world.observed_hits != observed_hits
+            || receipt->owner->hands[receipt->hand].loadedammo[0] != ammo0
+            || receipt->owner->hands[receipt->hand].loadedammo[1] != ammo1
+            || !wgV2RuntimeDeliveryValid(receipt)) {
+        smokeHarnessExit(1, "graph_world_reentry_side_effect"); return;
+    }
+    sysLogPrintf(LOG_NOTE, "GRAPH.V2.WORLD: reentrant_dispatch=PASS hand=%d mode=%d", receipt->hand, gset->weaponfunc);
+    if (!graph_world.retired) {
+        /* One actual synchronous dispatch callback retires its binding. The
+         * retained gset remains readable while the obsolete permission fails. */
+        const float damage = gsetGetDamage(gset);
+        if (graph_world.retirement_pending || !wgV2RuntimeSnapshot(receipt->owner, receipt->hand, &graph_world.retirement_native)
+                || !wgV2RuntimeSnapshot(receipt->owner, 1-receipt->hand, &graph_world.retirement_other)
+                || !graph_world.oracle || graph_world.oracle->lifecycle_generation != graph_world.oracle_generation
+                || !chrPtrIsValid(graph_world.oracle->chr)) { graphLedgerFail("retirement_baseline_missing"); return; }
+        graph_world.retirement_receipt = *receipt;
+        graph_world.retirement_damage = graph_world.oracle->chr->damage;
+        graph_world.retirement_target_generation = graph_world.oracle_generation;
+        graph_world.retirement_shots = shots; graph_world.retirement_hits = observed_hits;
+        memcpy(graph_world.retirement_regions, shotcounts, sizeof(shotcounts));
+        wgV2RuntimeRetireHand(receipt->owner, receipt->hand, "armed world dispatch retirement");
+        if (!wgV2RuntimeEnsureHand(receipt->owner, receipt->hand)
+                || wgV2RuntimeDeliveryValid(receipt) || gsetGetDamage(gset) != damage
+                || frGetData()->numshots != shots || receipt->owner->prop->chr->cloakpause != cloakpause
+                || memcmp(shotcounts, g_Vars.currentplayerstats->shotcount, sizeof(shotcounts))
+                || graph_world.observed_hits != observed_hits) {
+            smokeHarnessExit(1, "graph_world_dispatch_retirement_failed"); return;
+        }
+        wgV2RuntimeShotComplete(receipt); wgV2RuntimeNoiseComplete(receipt);
+        graph_world.retirement_pending = 1;
+    }
+}
+
+static int graphWorldDamage(struct prop *root, float *damage)
+{
+    if (root->type == PROPTYPE_CHR || root->type == PROPTYPE_PLAYER) {
+        if (!chrPtrIsValid(root->chr)) return 0;
+        *damage = root->chr->damage; return 1;
+    }
+    if ((root->type == PROPTYPE_OBJ || root->type == PROPTYPE_WEAPON || root->type == PROPTYPE_DOOR) && root->obj) {
+        *damage = root->obj->damage; return 1;
+    }
+    return 0;
+}
+
+void weaponGraphWorldHitObserve(const wg_v2_delivery *receipt, struct gset *gset,
+        struct hit *record, int after)
+{
+    if (!graphWorldArmed() || graph_ledger.failed || !receipt || !record || !record->prop) return;
+    struct prop *hit = record->prop;
+    if (!after) {
+        ++graph_world.observed_hits;
+        while (hit->parent) hit = hit->parent;
+        graph_world.target = NULL;
+        if (hit != graph_world.oracle || hit->lifecycle_generation != graph_world.oracle_generation
+                || !graphWorldEligible(hit) || !graphWorldDamage(hit, &graph_world.before)) return;
+        /* Independent authored expectation, restricted to unshielded human
+         * bots in normal MP with no one-hit kills or special function flags.
+         * chrDamage doubles torso, quadruples head, maps general -> torso/2
+         * and generalhalf -> torso/4. Other body limbs apply the input once. */
+        float multiplier = 1;
+        if (record->hitpart == HITPART_HEAD) multiplier = 4;
+        else if (record->hitpart == HITPART_TORSO) multiplier = 2;
+        else if (record->hitpart == HITPART_GENERALHALF) multiplier = 0.5f;
+        else if (record->hitpart != HITPART_GENERAL && (record->hitpart < HITPART_LFOOT || record->hitpart > HITPART_RBICEP)) return;
+        if (receipt->hand < 0 || receipt->hand > 1 || gset->weaponfunc > 1 || graph_world.phase > 1) return;
+        const float authored = gset->weaponfunc == 0 ? (graph_world.phase == 0 ? 3 : 6) : (graph_world.phase == 0 ? 9 : 12);
+        struct weaponfunc *func = gsetGetWeaponFunction(gset);
+        if (!func || func->flags || gsetGetDamage(gset) != authored) {
+            smokeHarnessExit(1, "graph_world_oracle_function_mismatch"); return;
+        }
+        graph_world.expected_delta = authored * multiplier; graph_world.hitpart = record->hitpart;
+        if (graph_world.before + graph_world.expected_delta >= hit->chr->maxdamage) return;
+        graph_world.target = hit; graph_world.target_generation = hit->lifecycle_generation;
+        graph_world.target_type = hit->type;
+        return;
+    }
+    /* Compare allocation identity before touching the union after damage,
+     * which can synchronously free or replace an ordinary target. */
+    struct prop *root = graph_world.target; float damage;
+    graph_world.target = NULL;
+    if (!root || root->lifecycle_generation != graph_world.target_generation
+            || root->type != graph_world.target_type || !graphWorldDamage(root, &damage)
+            || !wgV2RuntimeDeliveryValid(receipt)) return;
+    if (receipt->hand < 0 || receipt->hand > 1 || gset->weaponfunc > 1) return;
+    const float delta = damage - graph_world.before;
+    if (fabsf(delta - graph_world.expected_delta) > 0.0001f * graph_world.expected_delta) {
+        sysLogPrintf(LOG_WARNING, "GRAPH.V2.WORLD: applied_delta=FAIL expected=%g actual=%g hitpart=%d", graph_world.expected_delta, delta, graph_world.hitpart);
+        smokeHarnessExit(1, "graph_world_applied_damage_mismatch"); return;
+    }
+    graph_action_row *row = graphLedgerAction(receipt);
+    if (!row || row->damage || row->disposition || !isfinite(damage) || !isfinite(delta)
+            || !isfinite(graph_world.before) || !isfinite(graph_world.expected_delta)) {
+        graphLedgerFail("duplicate_or_nonfinite_damage"); return;
+    }
+    row->damage = 1;
+    const float expected = gset->weaponfunc == 0 ? (graph_world.phase == 0 ? 3 : 6) : (graph_world.phase == 0 ? 9 : 12);
+    if (gsetGetDamage(gset) != expected) { smokeHarnessExit(1, "graph_world_selected_source_damage_mismatch"); return; }
+    sysLogPrintf(LOG_NOTE, "GRAPH.V2.WORLD: damage=PASS phase=%d hand=%d mode=%d source_generation=%llu ticket=%llu selected_damage=%g delta=%g target_generation=%llu expected_delta=%g hitpart=%d oracle=human_unshielded_normal_mp",
+        graph_world.phase, receipt->hand, gset->weaponfunc, (unsigned long long)receipt->source_generation,
+        (unsigned long long)receipt->action_ticket, gsetGetDamage(gset), damage - graph_world.before,
+        (unsigned long long)graph_world.target_generation, graph_world.expected_delta, graph_world.hitpart);
+    if (!graph_world.context_switched) {
+        /* Actual damage has happened. Lose the current-player context before
+         * returning through the production interruption/abort closeout. */
+        graph_world.context_switched = 1; graph_world.interrupted_owner = receipt->owner;
+        row->interrupted = 1;
+        graph_world.interrupted_shots = frGetData()->numshots; graph_world.interrupted_hits = graph_world.observed_hits;
+        g_Vars.currentplayer = NULL;
+    }
+}
+
+void weaponGraphWorldHitCloseout(const wg_v2_delivery *receipt)
+{
+    if (!graphWorldArmed() || graph_ledger.failed || !receipt) return;
+    if (graph_world.retirement_pending && graphSameBinding(receipt, &graph_world.retirement_receipt)
+            && receipt->action_ticket == graph_world.retirement_receipt.action_ticket) {
+        wg_v2_runtime_snapshot current = {0}, other = {0};
+        graph_action_row *row = graphLedgerAction(receipt);
+        const wg_v2_runtime_snapshot *before = &graph_world.retirement_native;
+        if (!wgV2RuntimeSnapshot(receipt->owner, receipt->hand, &current)
+                || !wgV2RuntimeSnapshot(receipt->owner, 1-receipt->hand, &other)
+                || before->temporary_scopes < 2 || other.temporary_scopes != before->temporary_scopes - 2
+                || current.pending || wgV2RuntimeDeliveryValid(receipt) || var80070590
+                || current.ammo[0] != before->ammo[0] || current.ammo[1] != before->ammo[1]
+                || current.noise_radius != before->noise_radius || !row || row->disposition != 4
+                || frGetData()->numshots != graph_world.retirement_shots
+                || graph_world.observed_hits != graph_world.retirement_hits
+                || memcmp(graph_world.retirement_regions, g_Vars.currentplayerstats->shotcount, sizeof(graph_world.retirement_regions))
+                || !graph_world.oracle || graph_world.oracle->lifecycle_generation != graph_world.retirement_target_generation
+                || !chrPtrIsValid(graph_world.oracle->chr) || graph_world.oracle->chr->damage != graph_world.retirement_damage) {
+            graphLedgerFail("retirement_after_outer_return"); return;
+        }
+        other.temporary_scopes = graph_world.retirement_other.temporary_scopes;
+        if (memcmp(&other, &graph_world.retirement_other, sizeof(other))) { graphLedgerFail("retirement_cross_hand_effect"); return; }
+        graph_world.retirement_pending = 0; graph_world.retired = 1;
+        sysLogPrintf(LOG_NOTE, "GRAPH.V2.WORLD: dispatch_retirement=PASS old_permission=denied after_outer_return=1 subsequent_damage_shots_hits=0 scopes_closed=1 shot_region_clear=1 other_hand_unchanged=1 committed_ammo_noise_preserved=1");
+    }
+    if (!graph_world.interrupted_owner) return;
+    struct player *owner = graph_world.interrupted_owner;
+    graph_world.interrupted_owner = NULL;
+    g_Vars.currentplayer = owner; // Restore only the one explicitly changed root.
+    if (!receipt || receipt->owner != owner || wgV2RuntimeDeliveryValid(receipt)) {
+        smokeHarnessExit(1, "graph_world_interruption_still_retryable"); return;
+    }
+    struct gset retry = {0}; uint64_t retry_scope = 0; wg_v2_delivery retry_receipt = {0};
+    int admitted = wgV2RuntimeShotBegin(owner, receipt->hand, &retry, &retry_scope, &retry_receipt);
+    wgV2RuntimeScopeClose(retry_scope);
+    if (admitted || retry_scope || retry_receipt.owner) { smokeHarnessExit(1, "graph_world_interruption_retry_admitted"); return; }
+    handTickAttack(receipt->hand);
+    if (frGetData()->numshots != graph_world.interrupted_shots || graph_world.observed_hits != graph_world.interrupted_hits) {
+        smokeHarnessExit(1, "graph_world_interruption_repeated_effect"); return;
+    }
+    wg_v2_runtime_snapshot terminal = {0};
+    graph_action_row *row = graphLedgerAction(receipt);
+    if (!wgV2RuntimeSnapshot(owner, receipt->hand, &terminal) || terminal.pending || terminal.firing
+            || !row || row->consumes != 1 || row->disposition != 1 || var80070590 || terminal.temporary_scopes) {
+        graphLedgerFail("interruption_not_consumed_once"); return;
+    }
+    sysLogPrintf(LOG_NOTE, "GRAPH.V2.WORLD: context_loss_after_actual_damage=PASS terminal=1 retry_denied=1 repeated_effects=0");
+}
 
 typedef struct harness_deps {
     char (*ids)[CATALOG_ID_LEN];
@@ -1794,6 +2400,303 @@ static s32 harnessMeshSlotRollback(const char *owner, const char *archive, char 
 	return ok;
 }
 
+static s32 harnessReceiptRetirement(struct player *p, s32 cause)
+{
+    struct gset retained = {0}, current = {0};
+    uint64_t retained_scope = 0, current_scope = 0;
+    wg_v2_delivery old = {0}, fresh = {0};
+    struct handweaponinfo info;
+    s32 ok = 0;
+    wgV2RuntimeRetireHand(p, 0, "receipt fixture setup");
+    p->isdead = 0; p->hands[0].gset.weaponfunc = 0;
+    p->hands[0].loadedammo[0] = p->hands[0].loadedammo[1] = 7;
+    if (!wgV2RuntimeEnsureHand(p, 0)) goto done;
+    bgunGetWeaponInfo(&info, 0); bgunSetTriggerOn(0, false); bgunTickInc(&info, 0, 1);
+    bgunSetTriggerOn(0, true); bgunTickInc(&info, 0, 1); bgunTickInc(&info, 0, 1);
+    if (!wgV2RuntimeShotBegin(p, 0, &retained, &retained_scope, &old)) goto done;
+    const float damage = gsetGetDamage(&retained);
+    if (cause == 0) { p->hands[0].gset.weaponfunc = 1; }
+    if (cause == 1) wgV2RuntimeRetireHand(p, 0, "receipt fixture same-mode rebind");
+    if (cause == 2) wgV2RuntimePlayerBegin(p);
+    if (cause == 3) { p->isdead = 1; if (wgV2RuntimeEnsureHand(p, 0)) goto done; p->isdead = 0; }
+    if (!wgV2RuntimeEnsureHand(p, 0) || wgV2RuntimeDeliveryValid(&old)
+            || gsetGetDamage(&retained) != damage) goto done;
+    bgunGetWeaponInfo(&info, 0); bgunSetTriggerOn(0, false); bgunTickInc(&info, 0, 1);
+    bgunSetTriggerOn(0, true); bgunTickInc(&info, 0, 1); bgunTickInc(&info, 0, 1);
+    if (!wgV2RuntimeShotBegin(p, 0, &current, &current_scope, &fresh)) goto done;
+    if (old.owner_generation == fresh.owner_generation && old.hand_generation == fresh.hand_generation) goto done;
+    wgV2RuntimeShotComplete(&old); wgV2RuntimeNoiseComplete(&old); wgV2RuntimeShotAbort(&old);
+    if (!wgV2RuntimeDeliveryValid(&fresh) || !wgV2RuntimeDeliveryPending(p, 0)) goto done;
+    wgV2RuntimeScopeClose(retained_scope); retained_scope = 0;
+    if (gsetGetDamage(&current) <= 0) goto done;
+    ok = 1;
+done:
+    wgV2RuntimeScopeClose(retained_scope); wgV2RuntimeScopeClose(current_scope);
+    wgV2RuntimeRetireHand(p, 0, "receipt fixture closeout");
+    return ok;
+}
+
+static s32 harnessSpreadCapture(struct player *p)
+{
+    struct handweaponinfo info; struct gset dispatch = {0};
+    uint64_t scope = 0; wg_v2_delivery receipt = {0}; s32 ok = 0;
+    p->hands[0].gset.weaponfunc = 0; p->hands[0].loadedammo[0] = p->hands[0].loadedammo[1] = 7;
+    if (!wgV2RuntimeEnsureHand(p, 0)) goto done;
+    bgunGetWeaponInfo(&info, 0); bgunSetTriggerOn(0, false); bgunTickInc(&info, 0, 1);
+    bgunSetTriggerOn(0, true); bgunTickInc(&info, 0, 1); bgunTickInc(&info, 0, 1);
+    /* This native field is the burst producer; the unrelated public gset byte
+     * deliberately disagrees. Mutating the hand after Begin must not change
+     * the captured spread input. No random-camera stand-in is used. */
+    p->hands[0].burstbullets = 1; p->hands[0].gset.unk063a = 17;
+    if (!wgV2RuntimeShotBegin(p, 0, &dispatch, &scope, &receipt) || receipt.burstbullets != 1) goto done;
+    p->hands[0].burstbullets = 2;
+    if (dispatch.unk063a != 17 || bgunGetPlayerShotSpreadFromGset(&dispatch, receipt.burstbullets) != 2
+            || bgunGetPlayerShotSpreadFromGset(&dispatch, p->hands[0].burstbullets) != 8
+            || bgunGetPlayerShotSpreadFromGset(&dispatch, 0) != 8) goto done;
+    sysLogPrintf(LOG_NOTE, "GRAPH.V2.PRODUCTION.HARNESS: component=captured_native_burst_spread authored_spread=8 aim=accurate_single_shot captured_burst=1 live_burst=2 gset_byte=17 expected_spread=2 result=PASS");
+    ok = 1;
+done:
+    wgV2RuntimeScopeClose(scope); wgV2RuntimeRetireHand(p, 0, "spread fixture closeout");
+    return ok;
+}
+
+static int harnessGraphRecover(struct player *p, int hand)
+{
+    struct handweaponinfo info;
+    bgunSetTriggerOn(hand, false);
+    for (int tick = 0; tick < 256; ++tick) {
+        bgunGetWeaponInfo(&info, hand); bgunTickInc(&info, hand, 1);
+        if (p->hands[hand].state == HANDSTATE_IDLE && !wgV2RuntimeDeliveryPending(p, hand)) return 1;
+    }
+    return 0;
+}
+
+static int harnessGraphPress(struct player *p, int hand)
+{
+    struct handweaponinfo info;
+    if (p->hands[hand].state != HANDSTATE_IDLE) return 0;
+    bgunSetTriggerOn(hand, true);
+    for (int tick = 0; tick < 32; ++tick) {
+        bgunGetWeaponInfo(&info, hand); bgunTickInc(&info, hand, 1);
+        if (wgV2RuntimeDeliveryPending(p, hand)) return p->hands[hand].firing;
+    }
+    return 0;
+}
+
+static int harnessGraphUnchanged(struct player *p, int hand, const wg_v2_runtime_snapshot *before,
+        int shots, const s32 regions[7], int hits, const struct gset *dispatch, float damage)
+{
+    wg_v2_runtime_snapshot after = {0};
+    const int target_unchanged = graph_component_observe || (graph_world.oracle
+        && graph_world.oracle->lifecycle_generation == graph_world.oracle_generation
+        && chrPtrIsValid(graph_world.oracle->chr) && graph_world.oracle->chr->damage == graph_world.stale_damage);
+    return target_unchanged && wgV2RuntimeSnapshot(p, hand, &after) && !memcmp(before, &after, sizeof(after))
+        && frGetData()->numshots == shots && !memcmp(regions, g_Vars.currentplayerstats->shotcount, 7*sizeof(s32))
+        && graph_world.observed_hits == hits && !var80070590 && gsetGetDamage((struct gset *)dispatch) == damage;
+}
+
+static void harnessObserverSeed(const wg_v2_delivery *receipt, int disposition)
+{
+    memset(&graph_ledger, 0, sizeof(graph_ledger));
+    graph_ledger.count = 1; graph_ledger.rows[0].identity = *receipt;
+    graph_ledger.rows[0].admitted = 1; graph_ledger.rows[0].disposition = disposition;
+    graph_observer_fault_test = 1;
+}
+
+/* Negative observer inputs only. No native noise, stats, hits or damage are
+ * fabricated as gameplay evidence; these calls test the fail-closed ledger. */
+static int harnessObserverFaults(struct player *p, const wg_v2_delivery *consumed_receipt,
+        const wg_v2_delivery *consumed_noise)
+{
+    void *saved_ledger = malloc(sizeof(graph_ledger));
+    wg_v2_observation consumed_event = graph_component_consumed;
+    wg_v2_delivery current = {0}, current_noise = {0};
+    struct gset storage = {0}; uint64_t scope = 0;
+    int ok = 0;
+    if (!saved_ledger) return 0;
+    memcpy(saved_ledger, &graph_ledger, sizeof(graph_ledger));
+    for (int kind = 0; kind < 3; ++kind) {
+        const wg_v2_delivery *r = kind == 0 ? consumed_noise : consumed_receipt;
+        harnessObserverSeed(r, 1);
+        const int event_kind = kind == 0 ? WG_V2_OBS_NOISE_INCREMENT : kind == 1 ? WG_V2_OBS_HIT_EFFECT : WG_V2_OBS_SHOT_STATS;
+        if (kind == 0) wgV2RuntimeObserveNoise(r, 0, 3, 3, 100);
+        if (kind == 1) wgV2RuntimeObserveHit(r);
+        if (kind == 2) wgV2RuntimeObserveShotStats(r, 1, 1);
+        if (!graph_ledger.failed || graph_ledger.events[event_kind] != 1
+                || graph_observer_last.receipt.action_ticket != r->action_ticket) goto done;
+    }
+    harnessObserverSeed(&consumed_event.receipt, 1);
+    graph_ledger.rows[0].consumes = 1; graph_ledger.events[WG_V2_OBS_CONSUMED] = 1;
+    weaponGraphObserve(&consumed_event);
+    if (!graph_ledger.failed || graph_ledger.rows[0].consumes != 2 || graph_ledger.events[WG_V2_OBS_CONSUMED] != 2) goto done;
+    graph_observer_fault_test = 0;
+    if (!harnessGraphPress(p, 0) || !wgV2RuntimeShotBegin(p, 0, &storage, &scope, &current)
+            || !wgV2RuntimeNoiseBegin(p, 0, &current_noise)) goto done;
+    const wg_v2_delivery aborted = current;
+    wgV2RuntimeShotAbort(&aborted); wgV2RuntimeScopeClose(scope); scope = 0;
+    if (!wgV2RuntimeShotBegin(p, 0, &storage, &scope, &current)
+            || current.reservation_generation == aborted.reservation_generation) goto done;
+    for (int kind = 0; kind < 2; ++kind) {
+        harnessObserverSeed(&aborted, 0);
+        const int event_kind = kind == 0 ? WG_V2_OBS_HIT_EFFECT : WG_V2_OBS_SHOT_STATS;
+        if (kind == 0) wgV2RuntimeObserveHit(&aborted);
+        else wgV2RuntimeObserveShotStats(&aborted, 1, 1);
+        if (!graph_ledger.failed || graph_ledger.events[event_kind] != 1
+                || graph_observer_last.receipt.reservation_generation != aborted.reservation_generation
+                || graph_observer_last.value.delivery.reservation_generation != current.reservation_generation
+                || graph_ledger.rows[0].hits || graph_ledger.rows[0].stats) goto done;
+    }
+    harnessObserverSeed(&current_noise, 0);
+    graph_ledger.rows[0].noise_begins = 1; graph_ledger.rows[0].noise_receipt = current_noise;
+    wgV2RuntimeObserveNoise(&current_noise, 0, NAN, 3, 100);
+    if (!graph_ledger.failed || graph_ledger.events[WG_V2_OBS_NOISE_INCREMENT] != 1
+            || !graph_observer_last.value.host_present || !isnan(graph_observer_last.noise_after)) goto done;
+    harnessObserverSeed(&current_noise, 0);
+    graph_ledger.rows[0].noise_begins = 1; graph_ledger.rows[0].noise_receipt = current_noise;
+    wgV2RuntimeObserveNoise(&current_noise, 0, 3, 3, 100);
+    if (graph_ledger.failed || graph_ledger.events[WG_V2_OBS_NOISE_INCREMENT] != 1) goto done;
+    wgV2RuntimeObserveNoise(&current_noise, 0, 3, 3, 100);
+    if (!graph_ledger.failed || graph_ledger.rows[0].noises != 2 || graph_ledger.events[WG_V2_OBS_NOISE_INCREMENT] != 2) goto done;
+    graph_observer_fault_test = 0;
+    wgV2RuntimeRetireHand(p, 0, "observer negative missing-host setup");
+    for (int kind = 0; kind < 4; ++kind) {
+        const wg_v2_delivery *r = kind == 0 || kind == 3 ? &current_noise : &current;
+        harnessObserverSeed(r, 4);
+        const int event_kind = kind == 0 || kind == 3 ? WG_V2_OBS_NOISE_INCREMENT : kind == 1 ? WG_V2_OBS_HIT_EFFECT : WG_V2_OBS_SHOT_STATS;
+        if (kind == 0 || kind == 3) wgV2RuntimeObserveNoise(r, 0, kind == 3 ? NAN : 3, 3, 100);
+        if (kind == 1) wgV2RuntimeObserveHit(r);
+        if (kind == 2) wgV2RuntimeObserveShotStats(r, 1, 1);
+        if (!graph_ledger.failed || graph_ledger.events[event_kind] != 1 || graph_observer_last.value.host_present
+                || graph_observer_last.receipt.action_ticket != r->action_ticket
+                || (kind == 3 && !isnan(graph_observer_last.noise_after))) goto done;
+    }
+    graph_observer_fault_test = 0;
+    if (!wgV2RuntimeEnsureHand(p, 0)) goto done;
+    harnessObserverSeed(&current, 4); wgV2RuntimeObserveHit(&current);
+    if (!graph_ledger.failed || graph_ledger.events[WG_V2_OBS_HIT_EFFECT] != 1
+            || !graph_observer_last.value.host_present
+            || graphSameBinding(&current, &graph_observer_last.value.delivery)) goto done;
+    sysLogPrintf(LOG_NOTE, "GRAPH.V2.PRODUCTION.HARNESS: component=observer_negative_inputs post_consumed_noise_hit_stats_rejected=1 duplicate_noise_consumption_counted=1 retired_missing_host_rejected=1 stale_new_binding_rejected=1 aborted_shot_reservation_rejected=1 independent_noise_survives_retry=1 nonfinite_live_payload_rejected=1 synthetic_observer_inputs_only=1 result=PASS world_hit=unproven");
+    ok = 1;
+done:
+    graph_observer_fault_test = 0;
+    memcpy(&graph_ledger, saved_ledger, sizeof(graph_ledger)); free(saved_ledger);
+    wgV2RuntimeScopeClose(scope);
+    wgV2RuntimeRetireHand(p, 0, "observer negative closeout");
+    return ok && wgV2RuntimeEnsureHand(p, 0) && harnessGraphRecover(p, 0);
+}
+
+/* Actual linked adapter, ordinary native ticks. Receipt acknowledgments are
+ * component permission proof; the separate world ledger proves real effects. */
+static s32 harnessConsumedLifecycle(struct player *p)
+{
+    struct gset storage = {0}, other_storage = {0};
+    uint64_t scope = 0, other_scope = 0;
+    wg_v2_delivery a = {0}, noise_a = {0}, b = {0}, noise_b = {0};
+    wg_v2_runtime_snapshot initial = {0}, consumed = {0}, before_b = {0}, after = {0};
+    int ok = 0; graph_component_observe = 1;
+    wgV2RuntimeRetireHand(p, 0, "lifecycle component setup");
+    wgV2RuntimeRetireHand(p, 1, "lifecycle component setup");
+    for (int hand = 0; hand < 2; ++hand) {
+        p->hands[hand].gset.weaponfunc = 0; p->hands[hand].loadedammo[0] = p->hands[hand].loadedammo[1] = 32;
+        p->hands[hand].noiseradius = 0;
+        if (!wgV2RuntimeEnsureHand(p, hand) || !harnessGraphRecover(p, hand)) goto done;
+    }
+    for (int order = 0; order < 3; ++order) {
+        if (!wgV2RuntimeSnapshot(p, 0, &initial) || !harnessGraphPress(p, 0)
+                || !wgV2RuntimeShotBegin(p, 0, &storage, &scope, &a)) goto done;
+        uint64_t old_scope = scope;
+        if (order == 2) {
+            /* A genuine noise admission survives a pre-effect shot retry. */
+            if (!wgV2RuntimeNoiseBegin(p, 0, &noise_a)) goto done;
+            wg_v2_delivery aborted = a;
+            wgV2RuntimeShotAbort(&aborted); wgV2RuntimeScopeClose(scope); scope = 0;
+            if (!wgV2RuntimeShotBegin(p, 0, &storage, &scope, &a)
+                    || a.reservation_generation == aborted.reservation_generation
+                    || !wgV2RuntimeSnapshot(p, 0, &before_b)) goto done;
+            wgV2RuntimeNoiseComplete(&aborted); wgV2RuntimeShotComplete(&aborted); wgV2RuntimeShotAbort(&aborted);
+            if (wgV2RuntimeShotEffectsBegin(&aborted)
+                    || !wgV2RuntimeSnapshot(p, 0, &after) || memcmp(&after, &before_b, sizeof(after))
+                    || !wgV2RuntimeShotEffectsBegin(&a)) goto done;
+            /* Still-live binding, terminal shot interruption with outstanding
+             * noise. Completion clears delivery once; ordinary ticks recover. */
+            g_Vars.currentplayer = NULL; wgV2RuntimeShotAbort(&a); g_Vars.currentplayer = p;
+            struct gset retry = {0}; uint64_t retry_scope = 0; wg_v2_delivery retry_receipt = {0};
+            if (!wgV2RuntimeDeliveryPending(p, 0) || wgV2RuntimeDeliveryValid(&a)
+                    || wgV2RuntimeShotBegin(p, 0, &retry, &retry_scope, &retry_receipt)) {
+                wgV2RuntimeScopeClose(retry_scope); goto done;
+            }
+            wgV2RuntimeNoiseComplete(&noise_a); wgV2RuntimeNoiseComplete(&noise_a);
+        } else {
+            if (!wgV2RuntimeShotEffectsBegin(&a)) goto done;
+            if (order == 1) wgV2RuntimeShotComplete(&a);
+            memset(&graph_component_noise[0], 0, sizeof(graph_component_noise[0]));
+            bgunDecreaseNoiseRadius(); noise_a = graph_component_noise[0];
+            if (!noise_a.noise_generation || !graphSameBinding(&a, &noise_a)
+                    || noise_a.action_ticket != a.action_ticket) goto done;
+            if (order == 0) wgV2RuntimeShotComplete(&a);
+        }
+        old_scope = scope;
+        wgV2RuntimeScopeClose(scope); scope = 0;
+        if (!wgV2RuntimeSnapshot(p, 0, &consumed) || consumed.pending || consumed.firing
+                || consumed.consumptions != initial.consumptions + 1 || !harnessGraphRecover(p, 0)
+                || !harnessGraphPress(p, 0) || !wgV2RuntimeShotBegin(p, 0, &storage, &scope, &b)
+                || !graphSameBinding(&a, &b) || b.action_ticket == a.action_ticket || scope == old_scope
+                || !wgV2RuntimeNoiseBegin(p, 0, &noise_b) || !wgV2RuntimeSnapshot(p, 0, &before_b)
+                || !before_b.pending || !before_b.noise_reserved || before_b.noise
+                || before_b.press_sequence <= consumed.press_sequence) goto done;
+        const float damage = gsetGetDamage(&storage);
+        const int shots = frGetData()->numshots, hits = graph_world.observed_hits;
+        s32 regions[7]; memcpy(regions, g_Vars.currentplayerstats->shotcount, sizeof(regions));
+        /* Reuse A's destination address with a NEW live generation for B.
+         * Check each old callback separately, then repeat the whole replay. */
+        for (int repeat = 0; repeat < 3; ++repeat) {
+            wgV2RuntimeShotComplete(&a);
+            if (!harnessGraphUnchanged(p, 0, &before_b, shots, regions, hits, &storage, damage)) goto done;
+            wgV2RuntimeNoiseComplete(&noise_a);
+            if (!harnessGraphUnchanged(p, 0, &before_b, shots, regions, hits, &storage, damage)) goto done;
+            wgV2RuntimeShotAbort(&a);
+            if (!harnessGraphUnchanged(p, 0, &before_b, shots, regions, hits, &storage, damage)) goto done;
+            if (wgV2RuntimeShotEffectsBegin(&a)
+                    || !harnessGraphUnchanged(p, 0, &before_b, shots, regions, hits, &storage, damage)) goto done;
+            wgV2RuntimeScopeClose(old_scope);
+            if (!harnessGraphUnchanged(p, 0, &before_b, shots, regions, hits, &storage, damage)) goto done;
+        }
+        if (!wgV2RuntimeShotEffectsBegin(&b)) goto done;
+        wgV2RuntimeNoiseComplete(&noise_b); wgV2RuntimeShotComplete(&b);
+        wgV2RuntimeNoiseComplete(&noise_b); wgV2RuntimeShotComplete(&b); wgV2RuntimeShotAbort(&b);
+        if (!wgV2RuntimeSnapshot(p, 0, &after) || after.pending || after.firing
+                || after.consumptions != consumed.consumptions + 1 || !harnessGraphRecover(p, 0)) goto done;
+        wgV2RuntimeScopeClose(scope); scope = 0;
+        sysLogPrintf(LOG_NOTE, "GRAPH.V2.PRODUCTION.HARNESS: component=post_consumed_same_binding order=%d new_ticket=1 reused_scope_storage=1 old_callbacks_separate_repeated=1 outstanding_noise=1 consumption_once=1 recovery_native_ticks=1 result=PASS world_hit=unproven", order);
+    }
+    if (!harnessObserverFaults(p, &b, &noise_b)) goto done;
+    /* Leave the other hand genuinely pending; retirement must not cancel it. */
+    if (!harnessGraphPress(p, 1) || !wgV2RuntimeShotBegin(p, 1, &other_storage, &other_scope, &b)
+            || !harnessGraphPress(p, 0) || !wgV2RuntimeShotBegin(p, 0, &storage, &scope, &a)) goto done;
+    bgunDecreaseNoiseRadius();
+    if (!wgV2RuntimeSnapshot(p, 1, &before_b) || !before_b.pending || before_b.shot || !before_b.noise
+            || !wgV2RuntimeSnapshot(p, 0, &initial) || !initial.noise || !initial.noise_increments) goto done;
+    wgV2RuntimeRetireHand(p, 0, "component pending-other-hand retirement");
+    if (!wgV2RuntimeSnapshot(p, 1, &after) || memcmp(&before_b, &after, sizeof(after))
+            || p->hands[0].loadedammo[0] != initial.ammo[0] || p->hands[0].loadedammo[1] != initial.ammo[1]
+            || p->hands[0].noiseradius != initial.noise_radius || wgV2RuntimeDeliveryValid(&a)) goto done;
+    wgV2RuntimeShotComplete(&a); wgV2RuntimeNoiseComplete(&graph_component_noise[0]); wgV2RuntimeShotAbort(&a);
+    if (wgV2RuntimeShotEffectsBegin(&a) || !wgV2RuntimeSnapshot(p, 1, &after)
+            || memcmp(&before_b, &after, sizeof(after)) || !wgV2RuntimeDeliveryValid(&b)) goto done;
+    wgV2RuntimeScopeClose(scope); scope = 0;
+    if (gsetGetDamage(&other_storage) <= 0 || !wgV2RuntimeShotEffectsBegin(&b)) goto done;
+    wgV2RuntimeShotComplete(&b);
+    if (wgV2RuntimeDeliveryPending(p, 1)) goto done;
+    sysLogPrintf(LOG_NOTE, "GRAPH.V2.PRODUCTION.HARNESS: component=retire_with_other_pending other_binding_source_ticket_halves_native_effects_unchanged=1 committed_ammo_noise_preserved=1 result=PASS world_hit=unproven");
+    ok = 1;
+done:
+    wgV2RuntimeScopeClose(scope); wgV2RuntimeScopeClose(other_scope);
+    wgV2RuntimeRetireHand(p, 0, "lifecycle component closeout"); wgV2RuntimeRetireHand(p, 1, "lifecycle component closeout");
+    graph_component_observe = 0;
+    return ok;
+}
+
 static s32 harnessExecutableGraph(const char *owner, const char *archive)
 {
     char error[512] = {0}; const char *step = "registration";
@@ -1803,12 +2706,17 @@ static s32 harnessExecutableGraph(const char *owner, const char *archive)
     struct player *temporary = calloc(1, sizeof(*temporary));
     struct g_vars saved = g_Vars;
     struct gset copy = {0}; uint64_t copy_token = 0;
-    void *original = NULL, *edited = NULL, *bad = NULL; u32 size = 0, edit_size = 0, bad_size = 0;
+    struct gset dispatch = {0}; uint64_t dispatch_token = 0;
+    wg_v2_delivery replaced_receipt = {0}, current_receipt = {0}, noise_receipt = {0};
+    void *original = NULL, *edited = NULL, *bad = NULL, *closed = NULL, *spread_source = NULL;
+    u32 size = 0, edit_size = 0, bad_size = 0, closed_size = 0, spread_size = 0;
     if (!temporary || !weapon_slots || !model_slots) goto done;
     original = fsFileLoad(archive, &size);
     edited = fsFileLoad("./asset-mesh-ingress/executable_edit.pdweapon", &edit_size);
     bad = fsFileLoad("./asset-mesh-ingress/executable_bad.pdweapon", &bad_size);
-    if (!original || !edited || !bad) goto done;
+    closed = fsFileLoad("./asset-mesh-ingress/executable_closed.pdweapon", &closed_size);
+    spread_source = fsFileLoad("./asset-mesh-ingress/executable_spread.pdweapon", &spread_size);
+    if (!original || !edited || !bad || !closed || !spread_source) goto done;
     if (!assetCatalogResolveWeaponPrivateSlots(owner, -1, 0, &slot, &mp)) goto done;
     asset_entry_t *entry = harnessRegisterOwner(owner, archive);
     if (!entry) goto done;
@@ -1851,7 +2759,55 @@ static s32 harnessExecutableGraph(const char *owner, const char *archive)
         struct handweaponinfo info; bgunGetWeaponInfo(&info, 0); bgunTickInc(&info, 0, 1); bgunDecreaseNoiseRadius();
     }
     if (!temporary->hands[0].firing || temporary->hands[0].loadedammo[0] != 3 || temporary->hands[0].noiseradius > radius) goto done;
-    wgV2RuntimeShotConsumed(temporary, 0); wgV2RuntimeShotConsumed(temporary, 1);
+    step = "delivery_receipts";
+    for (s32 hand = 0; hand < 2; ++hand) {
+        struct gset dispatch = {0}, duplicate = {0};
+        uint64_t scope = 0, duplicate_scope = 123;
+        wg_v2_delivery receipt = {0}, rejected = {0};
+        if (!wgV2RuntimeShotBegin(temporary, hand, &dispatch, &scope, &receipt)
+                || !scope || !wgV2RuntimeDeliveryValid(&receipt) || gsetGetDamage(&dispatch) != 3) {
+            wgV2RuntimeScopeClose(scope); goto done;
+        }
+        if (wgV2RuntimeShotBegin(temporary, hand, &duplicate, &duplicate_scope, &rejected)
+                || duplicate_scope || rejected.owner) {
+            wgV2RuntimeScopeClose(duplicate_scope); wgV2RuntimeScopeClose(scope); goto done;
+        }
+        wg_v2_delivery aborted = receipt;
+        wgV2RuntimeShotAbort(&aborted);
+        if (wgV2RuntimeDeliveryValid(&aborted)
+                || !wgV2RuntimeShotBegin(temporary, hand, &duplicate, &duplicate_scope, &receipt)
+                || receipt.reservation_generation == aborted.reservation_generation) {
+            wgV2RuntimeScopeClose(duplicate_scope); wgV2RuntimeScopeClose(scope); goto done;
+        }
+        wgV2RuntimeShotComplete(&aborted); wgV2RuntimeShotAbort(&aborted);
+        if (wgV2RuntimeShotEffectsBegin(&aborted) || !wgV2RuntimeDeliveryValid(&receipt)) {
+            wgV2RuntimeScopeClose(duplicate_scope); wgV2RuntimeScopeClose(scope); goto done;
+        }
+        wgV2RuntimeScopeClose(scope); scope = duplicate_scope;
+        if (!wgV2RuntimeShotEffectsBegin(&receipt) || wgV2RuntimeShotEffectsBegin(&receipt)) {
+            wgV2RuntimeScopeClose(scope); goto done;
+        }
+        sysLogPrintf(LOG_NOTE, "GRAPH.V2.PRODUCTION.HARNESS: component=abort_retry_reservation hand=%d old=%llu new=%llu result=PASS world_hit=unproven",
+            hand, (unsigned long long)aborted.reservation_generation, (unsigned long long)receipt.reservation_generation);
+        /* This installed adapter test acknowledges delivery as a component
+         * operation. Only the separate ordinary-world observer proves hits. */
+        for (s32 identity = 0; identity < 6; ++identity) {
+            wg_v2_delivery stale = receipt;
+            if (identity == 0) ++stale.owner_generation;
+            if (identity == 1) ++stale.hand_generation;
+            if (identity == 2) ++stale.source_generation;
+            if (identity == 3) ++stale.action_ticket;
+            if (identity == 4) stale.hand = 1 - hand;
+            if (identity == 5) ++stale.reservation_generation;
+            wgV2RuntimeShotComplete(&stale); wgV2RuntimeNoiseComplete(&stale);
+            if (wgV2RuntimeDeliveryValid(&stale) || !wgV2RuntimeDeliveryValid(&receipt)) {
+                wgV2RuntimeScopeClose(scope); goto done;
+            }
+        }
+        wgV2RuntimeScopeClose(scope);
+        wgV2RuntimeShotComplete(&receipt); wgV2RuntimeShotComplete(&receipt);
+        if (wgV2RuntimeDeliveryPending(temporary, hand) || wgV2RuntimeDeliveryValid(&receipt)) goto done;
+    }
     for (s32 hand = 0; hand < 2; ++hand) {
         struct handweaponinfo info; bgunGetWeaponInfo(&info, hand); bgunSetTriggerOn(hand, false); bgunTickInc(&info, hand, 1);
         if (temporary->hands[hand].state != HANDSTATE_IDLE || temporary->hands[hand].loadedammo[0] != 3) goto done;
@@ -1862,6 +2818,7 @@ static s32 harnessExecutableGraph(const char *owner, const char *archive)
     if (!temporary->hands[0].firing || temporary->hands[0].loadedammo[0] != 3 || temporary->hands[0].loadedammo[1] != 3) goto done;
     gsetPopulateFromCurrentPlayer(0, &copy); copy_token = wgV2RuntimeScopeOpen(temporary, 0, &copy);
     if (!copy_token || gsetGetDamage(&copy) != 7) goto done;
+    if (!wgV2RuntimeShotBegin(temporary, 0, &dispatch, &dispatch_token, &replaced_receipt)) goto done;
     step = "failed_replacement";
     const struct weapon *prior = wgV2RuntimeWeapon(slot);
     if (!harnessWriteBytes(archive, bad, bad_size) || wgV2RuntimeRegisterArchive(slot, owner, archive, error, sizeof(error))
@@ -1869,6 +2826,8 @@ static s32 harnessExecutableGraph(const char *owner, const char *archive)
     step = "source_replacement";
     if (!harnessWriteBytes(archive, edited, edit_size) || !wgV2RuntimeRegisterArchive(slot, owner, archive, error, sizeof(error))
             || wgV2RuntimeWeapon(slot) == prior || temporary->hands[0].firing || gsetGetDamage(&copy) != 7) goto done;
+    if (wgV2RuntimeDeliveryValid(&replaced_receipt) || gsetGetDamage(&dispatch) != 7) goto done;
+    wgV2RuntimeScopeClose(dispatch_token); dispatch_token = 0;
     wgV2RuntimeScopeClose(copy_token); copy_token = 0;
     if (!wgV2RuntimeEnsureHand(temporary, 0)) goto done;
     bgunSetTriggerOn(0, false); bgunSetTriggerOn(0, true); bgunGetWeaponInfo(&info, 0);
@@ -1876,13 +2835,66 @@ static s32 harnessExecutableGraph(const char *owner, const char *archive)
     if (temporary->hands[0].loadedammo[0] != 2 || temporary->hands[0].loadedammo[1] != 3) goto done;
     gsetPopulateFromCurrentPlayer(0, &copy); copy_token = wgV2RuntimeScopeOpen(temporary, 0, &copy);
     if (!copy_token || gsetGetDamage(&copy) != 6) goto done;
+    step = "stale_completion_and_noise_order";
+    if (!wgV2RuntimeShotBegin(temporary, 0, &dispatch, &dispatch_token, &current_receipt)) goto done;
+    wgV2RuntimeShotComplete(&replaced_receipt); wgV2RuntimeNoiseComplete(&replaced_receipt);
+    if (!wgV2RuntimeDeliveryValid(&current_receipt)) goto done;
+    if (!wgV2RuntimeShotEffectsBegin(&current_receipt)) goto done;
+    g_Vars.currentplayer = NULL;
+    wgV2RuntimeShotAbort(&current_receipt);
+    g_Vars.currentplayer = temporary;
+    if (!wgV2RuntimeDeliveryPending(temporary, 0) || wgV2RuntimeDeliveryValid(&current_receipt)) goto done;
+    struct gset forbidden_retry = {0}; uint64_t forbidden_scope = 0; wg_v2_delivery forbidden_receipt = {0};
+    if (wgV2RuntimeShotBegin(temporary, 0, &forbidden_retry, &forbidden_scope, &forbidden_receipt) || forbidden_scope || forbidden_receipt.owner) {
+        wgV2RuntimeScopeClose(forbidden_scope); goto done;
+    }
+    sysLogPrintf(LOG_NOTE, "GRAPH.V2.PRODUCTION.HARNESS: component=effects_abort_terminal current_player_changed=1 retry_denied=1 result=PASS world_hit=unproven");
+    if (!wgV2RuntimeNoiseBegin(temporary, 0, &noise_receipt)) goto done;
+    wg_v2_delivery duplicate_noise = {0};
+    if (wgV2RuntimeNoiseBegin(temporary, 0, &duplicate_noise) || duplicate_noise.owner) goto done;
+    wgV2RuntimeNoiseComplete(&current_receipt); // A shot receipt is not a noise admission.
+    if (!wgV2RuntimeDeliveryPending(temporary, 0)) goto done;
+    wgV2RuntimeNoiseComplete(&noise_receipt); wgV2RuntimeNoiseComplete(&noise_receipt);
+    if (wgV2RuntimeDeliveryPending(temporary, 0)) goto done;
+    wgV2RuntimeScopeClose(dispatch_token); dispatch_token = 0;
     step = "retirement";
     temporary->isdead = 1;
     if (wgV2RuntimeEnsureHand(temporary, 0)) goto done;
     if (temporary->hands[0].firing || gsetGetDamage(&copy) != 6) goto done;
     wgV2RuntimeScopeClose(copy_token); copy_token = 0;
+    step = "receipt_retirement";
+    temporary->isdead = 0;
+    for (s32 cause = 0; cause < 4; ++cause) if (!harnessReceiptRetirement(temporary, cause)) goto done;
+    step = "post_consumed_lifecycle";
+    if (!harnessConsumedLifecycle(temporary)) goto done;
+    step = "closed_gate";
+    temporary->isdead = 0;
+    if (!harnessWriteBytes(archive, closed, closed_size)
+            || !wgV2RuntimeRegisterArchive(slot, owner, archive, error, sizeof(error))) goto done;
+    for (s32 mode = 0; mode < 2; ++mode) {
+        for (s32 hand = 0; hand < 2; ++hand) {
+            temporary->hands[hand].gset.weaponfunc = mode;
+            if (!wgV2RuntimeEnsureHand(temporary, hand)) goto done;
+            const int ammo0 = temporary->hands[hand].loadedammo[0], ammo1 = temporary->hands[hand].loadedammo[1];
+            const float before_noise = temporary->hands[hand].noiseradius;
+            struct handweaponinfo closed_info; bgunGetWeaponInfo(&closed_info, hand);
+            bgunSetTriggerOn(hand, false); bgunTickInc(&closed_info, hand, 1);
+            bgunSetTriggerOn(hand, true); bgunTickInc(&closed_info, hand, 1); bgunTickInc(&closed_info, hand, 1);
+            bgunDecreaseNoiseRadius();
+            if (temporary->hands[hand].firing || wgV2RuntimeDeliveryPending(temporary, hand)
+                    || temporary->hands[hand].loadedammo[0] != ammo0 || temporary->hands[hand].loadedammo[1] != ammo1
+                    || temporary->hands[hand].noiseradius > before_noise) goto done;
+        }
+    }
+    sysLogPrintf(LOG_NOTE, "GRAPH.V2.PRODUCTION.HARNESS: component=receipt_orders_stale_identity_closed_gate result=PASS world_hit=unproven");
+    step = "captured_spread";
+    if (!harnessWriteBytes(archive, spread_source, spread_size)
+            || !wgV2RuntimeRegisterArchive(slot, owner, archive, error, sizeof(error))
+            || !harnessSpreadCapture(temporary)) goto done;
+    step = "retirement";
     ok = 1;
 done:
+    wgV2RuntimeScopeClose(dispatch_token);
     wgV2RuntimeScopeClose(copy_token);
     if (temporary) {
         wgV2RuntimeRetireHand(temporary, 0, "harness cleanup"); wgV2RuntimeRetireHand(temporary, 1, "harness cleanup");
@@ -1895,7 +2907,7 @@ done:
     wgV2RuntimeRetirePlayers(); g_Vars = saved; free(temporary);
     catalogModelGenerationReleaseStagePins();
     if (original && !harnessWriteBytes(archive, original, size)) ok = 0;
-    sysMemFree(original); sysMemFree(edited); sysMemFree(bad);
+    sysMemFree(original); sysMemFree(edited); sysMemFree(bad); sysMemFree(closed); sysMemFree(spread_source);
     if (weapon_slots && !assetCatalogRestoreCustomWeaponSlots(weapon_slots)) ok = 0;
     if (model_slots && !assetCatalogRestoreCustomModelSlots(model_slots)) ok = 0;
     assetCatalogDestroyCustomWeaponSlotSnapshot(weapon_slots); assetCatalogDestroyCustomModelSlotSnapshot(model_slots);

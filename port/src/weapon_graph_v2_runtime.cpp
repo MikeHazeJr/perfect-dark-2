@@ -11,6 +11,7 @@
 #include <unordered_map>
 #include <vector>
 #include "weapon_graph_v2_runtime.h"
+#include "weapon_nested_runtime_harness.h"
 #include "weapon_graph_v2_ingress.h"
 #include "weapon_graph_v2_equipped.h"
 #include "weapon_graph_v2_gset.h"
@@ -40,7 +41,7 @@ using Entry = std::unique_ptr<wg_v2_catalog_entry, decltype(&wgV2CatalogEntryRel
 struct Host;
 struct Player {
     struct player *native = nullptr;
-    uint64_t generation = 0, sequence[2]{};
+    uint64_t generation = 0, sequence[2]{}, bindings = 0;
     Host *hands[2]{};
 };
 struct Record {
@@ -94,13 +95,72 @@ struct Host {
     wg_v2_catalog_entry *entry;
     wg_v2_gset_token token = 0;
     wg_v2_instance *instance = nullptr;
-    uint64_t visit = 0, step = 0, ticket = 0;
+    uint64_t visit = 0, step = 0, ticket = 0, binding = 0, reservation = 0, noise_generation = 0;
     bool pending = false, noise = false, shot = false, finished = false;
+    bool noise_reserved = false, shot_reserved = false, shot_effects = false;
+    uint64_t queued_press = 0, press = 0, admitting_press = 0;
+    uint64_t consumptions = 0, noise_increments = 0, effect_commits = 0, hit_effects = 0, native_shots = 0, debits[2]{};
     struct hand &native() { return owner->native->hands[hand]; }
 };
 Host *hostFor(struct player *native, int hand) {
     auto *p = playerRecord(native);
     return p && hand >= 0 && hand < 2 ? p->hands[hand] : nullptr;
+}
+wg_v2_delivery receiptFor(const Host &h) {
+    return {h.owner->native, h.owner->generation, h.binding,
+        wgV2CatalogEntryGeneration(h.entry), h.ticket, h.reservation, 0,
+        h.hand, h.owner->native->hands[h.hand].burstbullets};
+}
+wg_v2_runtime_snapshot snapshot(const Host &h) {
+    wg_v2_runtime_snapshot out; std::memset(&out, 0, sizeof(out));
+    out.delivery = receiptFor(h); out.delivery.noise_generation = h.noise_generation;
+    out.host_present = 1;
+    out.press_sequence = h.press; out.queued_press = h.queued_press;
+    size_t bindings = 0;
+    if (runtime) for (const auto &p : runtime->players)
+        for (auto *hand : p.second->hands) if (hand) ++bindings;
+    out.temporary_scopes = runtime ? wgV2GsetsCount(runtime->gsets) - bindings : 0;
+    out.consumptions = h.consumptions; out.noise_increments = h.noise_increments;
+    out.effect_commits = h.effect_commits; out.hit_effects = h.hit_effects;
+    out.native_shots = h.native_shots;
+    out.debits[0] = h.debits[0]; out.debits[1] = h.debits[1];
+    const auto &native = h.owner->native->hands[h.hand];
+    out.mode = native.gset.weaponfunc; out.state = native.state; out.firing = native.firing;
+    out.weapon = native.gset.weaponnum; out.native_mode = native.mode;
+    out.state_minor = native.stateminor; out.state_cycles = native.statecycles;
+    out.state_frames = native.stateframes; out.state_flags = native.stateflags;
+    out.trigger_on = native.triggeron; out.trigger_previous = native.triggerprev;
+    out.trigger_released = native.triggerreleased; out.shots_to_take = native.shotstotake;
+    out.attack_type = native.attacktype;
+    out.pending = h.pending; out.shot = h.shot; out.noise = h.noise;
+    out.shot_reserved = h.shot_reserved; out.noise_reserved = h.noise_reserved;
+    out.ammo[0] = native.loadedammo[0]; out.ammo[1] = native.loadedammo[1]; out.noise_radius = native.noiseradius;
+    return out;
+}
+void observe(Host &h, wg_v2_observation_kind kind, uint64_t press = 0) {
+    if (!weaponGraphObservationArmed()) return;
+    wg_v2_observation out{}; out.kind = kind; out.value = snapshot(h);
+    out.receipt = out.value.delivery;
+    if (press) out.value.press_sequence = press;
+    weaponGraphObserve(&out);
+}
+Host *deliveryHost(const wg_v2_delivery *r) {
+    if (!r || !r->owner || !r->owner_generation || !r->hand_generation ||
+            !r->source_generation || !r->action_ticket) return nullptr;
+    auto *p = playerRecord(r->owner);
+    if (!p || p->generation != r->owner_generation) return nullptr;
+    auto *h = hostFor(r->owner, r->hand);
+    if (!h || h->binding != r->hand_generation || !h->pending ||
+            h->ticket != r->action_ticket ||
+            wgV2CatalogEntryGeneration(h->entry) != r->source_generation ||
+            !wgV2CatalogEntryAccepting(h->entry) || p->native->isdead ||
+            wgV2GsetSource(runtime->gsets, &h->native().gset) != h->entry ||
+            wgV2GsetLookup(runtime->gsets, &h->native().gset, nullptr) != WG_V2_GSET_SELECTED) return nullptr;
+    return h;
+}
+Host *shotHost(const wg_v2_delivery *r) {
+    auto *h = deliveryHost(r);
+    return h && r->reservation_generation && h->reservation == r->reservation_generation ? h : nullptr;
 }
 int alive(void *value, uint64_t generation) {
     auto &h = *static_cast<Host *>(value);
@@ -129,7 +189,10 @@ wg_v2_result start(void *value, const wg_v2_action *action, uint64_t ticket,
     if (function->ammoindex >= 0 && h.native().loadedammo[function->ammoindex] <= 0) return WG_V2_BLOCKED;
     if (!wgV2GsetSelect(runtime->gsets, h.token, h.entry, bundle, native, error, cap)) return WG_V2_FAILED;
     h.ticket = ticket; h.pending = h.noise = h.shot = h.finished = false;
+    h.noise_reserved = h.shot_reserved = h.shot_effects = false;
     if (!bgunGraphV2Accept(h.owner->native, h.hand)) return WG_V2_BLOCKED;
+    h.press = h.admitting_press;
+    observe(h, WG_V2_OBS_ADMITTED);
     *state = &h; return WG_V2_RUNNING;
 }
 wg_v2_result tick(void *value, const wg_v2_action *, uint64_t, void *, double, char *, size_t) {
@@ -146,7 +209,9 @@ wg_v2_result wake(void *value, const wg_v2_action *, uint64_t, void *, uint32_t,
     return h.pending ? WG_V2_WAITING : h.finished ? WG_V2_COMPLETED : WG_V2_RUNNING;
 }
 void cancel(void *value, const wg_v2_action *, uint64_t, void *, const char *) {
-    auto &h = *static_cast<Host *>(value); bgunGraphV2Cancel(h.owner->native, h.hand);
+    auto &h = *static_cast<Host *>(value);
+    observe(h, WG_V2_OBS_RETIRED);
+    bgunGraphV2Cancel(h.owner->native, h.hand);
     h.pending = false;
 }
 void cleanup(void *value, const wg_v2_action *, uint64_t, void *) {
@@ -157,6 +222,7 @@ void cleanup(void *value, const wg_v2_action *, uint64_t, void *) {
 }
 void destroyHost(void *value) {
     std::unique_ptr<Host> h(static_cast<Host *>(value));
+    if (h->queued_press) observe(*h, WG_V2_OBS_RELEASED, h->queued_press);
     bgunGraphV2Cancel(h->owner->native, h->hand);
     wgV2GsetClose(runtime->gsets, h->token);
     if (h->owner->hands[h->hand] == h.get()) h->owner->hands[h->hand] = nullptr;
@@ -164,8 +230,15 @@ void destroyHost(void *value) {
 const wg_v2_host operations{alive, prepare, gate, start, tick, wake, cancel, cleanup, nullptr};
 void consumed(Host *h) {
     if (!h || !h->pending || !h->noise || !h->shot) return;
-    h->pending = false; h->native().firing = false;
-    wgV2Wake(h->instance, h->ticket, 1, h->owner->generation, wgV2CatalogEntryGeneration(h->entry));
+    const auto receipt = receiptFor(*h);
+    auto *instance = h->instance;
+    ++h->consumptions;
+    observe(*h, WG_V2_OBS_CONSUMED);
+    h->pending = h->noise = h->shot = h->noise_reserved = h->shot_reserved = h->shot_effects = false;
+    h->ticket = 0; h->native().firing = false;
+    // The supported wake resumes RUNNING; recovery and a later idle seam admit
+    // the next press. Still never access Host fields across this callback.
+    wgV2Wake(instance, receipt.action_ticket, 1, receipt.owner_generation, receipt.source_generation);
 }
 std::string member(const void *archive, u32 size, const char *path) {
     u32 length = 0;
@@ -336,7 +409,9 @@ extern "C" int wgV2RuntimeEnsureHand(struct player *native, int hand) {
         wgV2RuntimeRetireHand(native, hand, "hand identity/function changed");
     }
     try {
+        if (p->bindings == UINT64_MAX) return 0;
         auto h = std::make_unique<Host>(); h->owner = p; h->hand = hand; h->entry = entry;
+        h->binding = ++p->bindings;
         h->token = wgV2GsetOpen(runtime->gsets, &gset, native, p->generation, error, sizeof(error));
         if (!h->token) return 0;
         if (!wgV2GsetBindSource(runtime->gsets, h->token, entry, error, sizeof(error))) {
@@ -352,16 +427,34 @@ extern "C" int wgV2RuntimeEnsureHand(struct player *native, int hand) {
 extern "C" void wgV2RuntimeInput(struct player *native, int hand, int pressed, int released) {
     if (!wgV2RuntimeEnsureHand(native, hand)) return;
     auto *h = hostFor(native, hand);
-    if (released) wgV2ReleasePendingPress(h->instance);
-    if (pressed && h->owner->sequence[hand] != UINT64_MAX) wgV2Press(h->instance, ++h->owner->sequence[hand],
-        h->owner->generation, wgV2CatalogEntryGeneration(h->entry));
+    if (released) {
+        if (h->queued_press) observe(*h, WG_V2_OBS_RELEASED, h->queued_press);
+        h->queued_press = 0; wgV2ReleasePendingPress(h->instance);
+    }
+    if (pressed && h->owner->sequence[hand] != UINT64_MAX) {
+        const auto sequence = ++h->owner->sequence[hand];
+        const auto result = wgV2Press(h->instance, sequence, h->owner->generation, wgV2CatalogEntryGeneration(h->entry));
+        if (result == WG_V2_QUEUED) {
+            if (h->queued_press) observe(*h, WG_V2_OBS_COALESCED, h->queued_press);
+            h->queued_press = sequence;
+            observe(*h, wgV2Busy(h->instance) || h->native().state != HANDSTATE_IDLE
+                ? WG_V2_OBS_BUSY_PRESS : WG_V2_OBS_PRESS, sequence);
+        }
+    }
 }
 extern "C" int wgV2RuntimeIdle(struct player *native, int hand) {
     if (!wgV2RuntimeEnsureHand(native, hand)) return 0;
     auto *h = hostFor(native, hand);
     if (h->visit == UINT64_MAX) return 0;
-    wgV2NativeIdle(h->instance, ++h->visit, h->native().triggeron,
+    const bool takes_press = h->native().triggeron && !wgV2Busy(h->instance);
+    h->admitting_press = takes_press ? h->queued_press : 0;
+    const auto press = h->admitting_press;
+    const auto result = wgV2NativeIdle(h->instance, ++h->visit, h->native().triggeron,
         h->owner->generation, wgV2CatalogEntryGeneration(h->entry));
+    if (takes_press || !h->native().triggeron) h->queued_press = 0;
+    if (press && result != WG_V2_RUNNING && result != WG_V2_WAITING)
+        observe(*h, result == WG_V2_BLOCKED ? WG_V2_OBS_BLOCKED : WG_V2_OBS_REFUSED, press);
+    h->admitting_press = 0;
     return h->native().state == HANDSTATE_ATTACK;
 }
 extern "C" int wgV2RuntimeAdvance(struct player *native, int hand) {
@@ -371,16 +464,133 @@ extern "C" int wgV2RuntimeAdvance(struct player *native, int hand) {
         h->owner->generation, wgV2CatalogEntryGeneration(h->entry)); return 0;
 }
 extern "C" int wgV2RuntimeDeliveryPending(struct player *native, int hand) { auto *h = hostFor(native, hand); return h && h->pending; }
-extern "C" int wgV2RuntimeNoiseAdmit(struct player *native, int hand) { auto *h = hostFor(native, hand); return !h || (h->pending && !h->noise); }
-extern "C" void wgV2RuntimeNoiseConsumed(struct player *native, int hand) { auto *h = hostFor(native, hand); if (h && h->pending) { h->noise = true; consumed(h); } }
-extern "C" void wgV2RuntimeShotConsumed(struct player *native, int hand) { auto *h = hostFor(native, hand); if (h && h->pending) { h->shot = true; consumed(h); } }
+extern "C" int wgV2RuntimeDeliveryValid(const wg_v2_delivery *r) {
+    auto *h = shotHost(r); return h && h->shot_reserved && !h->shot;
+}
+extern "C" int wgV2RuntimeShotBegin(struct player *native, int hand, struct gset *dispatch,
+        uint64_t *scope, wg_v2_delivery *out) {
+    if (scope) *scope = 0;
+    if (out) *out = {};
+    auto *h = hostFor(native, hand);
+    if (!h || !dispatch || !scope || !out) return 0;
+    auto receipt = receiptFor(*h);
+    if (!deliveryHost(&receipt) || h->shot || h->shot_reserved || h->reservation == UINT64_MAX) return 0;
+    ++h->reservation;
+    receipt = receiptFor(*h);
+    h->shot_reserved = true;
+    h->shot_effects = false;
+    *dispatch = h->native().gset;
+    *scope = wgV2RuntimeScopeCopy(&h->native().gset, dispatch, receipt.owner_generation);
+    if (!*scope) {
+        if (auto *current = deliveryHost(&receipt)) current->shot_reserved = false;
+        return 0;
+    }
+    *out = receipt;
+    if (weaponGraphObservationArmed()) {
+        wg_v2_observation event{}; event.kind = WG_V2_OBS_SHOT_BEGIN; event.value = snapshot(*h);
+        event.receipt = receipt;
+        event.scope_token = *scope; event.scope_destination = reinterpret_cast<uintptr_t>(dispatch);
+        weaponGraphObserve(&event);
+    }
+    return 1;
+}
+extern "C" void wgV2RuntimeShotComplete(const wg_v2_delivery *r) {
+    auto *h = shotHost(r);
+    if (!h || !h->shot_reserved || h->shot) return;
+    h->shot = true; consumed(h);
+}
+extern "C" int wgV2RuntimeShotEffectsBegin(const wg_v2_delivery *r) {
+    auto *h = shotHost(r);
+    if (!h || !h->shot_reserved || h->shot || h->shot_effects) return 0;
+    h->shot_effects = true; ++h->effect_commits; observe(*h, WG_V2_OBS_EFFECT); return 1;
+}
+extern "C" void wgV2RuntimeShotAbort(const wg_v2_delivery *r) {
+    auto *h = shotHost(r);
+    if (!h || !h->shot_reserved || h->shot) return;
+    if (h->shot_effects) {
+        h->shot = true; consumed(h); // Terminal after any admitted native effect.
+    } else {
+        h->shot_reserved = false; // Next begin increments reservation identity.
+    }
+}
+extern "C" int wgV2RuntimeNoiseBegin(struct player *native, int hand, wg_v2_delivery *out) {
+    if (out) *out = {};
+    auto *h = hostFor(native, hand);
+    if (!h || !out) return 0;
+    auto receipt = receiptFor(*h);
+    if (!deliveryHost(&receipt) || h->noise || h->noise_reserved || h->noise_generation == UINT64_MAX) return 0;
+    receipt.noise_generation = ++h->noise_generation;
+    h->noise_reserved = true; *out = receipt; observe(*h, WG_V2_OBS_NOISE_BEGIN); return 1;
+}
+extern "C" void wgV2RuntimeNoiseComplete(const wg_v2_delivery *r) {
+    auto *h = deliveryHost(r);
+    if (!h || !r->noise_generation || r->noise_generation != h->noise_generation || !h->noise_reserved || h->noise) return;
+    h->noise = true; consumed(h);
+}
 extern "C" uint64_t wgV2RuntimeScopeOpen(struct player *native, int hand, struct gset *destination) {
     auto *h = hostFor(native, hand);
     if (!h || !destination) return 0;
+    return wgV2RuntimeScopeCopy(&h->native().gset, destination, h->owner->generation);
+}
+extern "C" uint64_t wgV2RuntimeScopeCopy(const struct gset *source, struct gset *destination,
+        uint64_t owner_generation) {
+    if (!runtime || !source || !destination) return 0;
     char error[256]{};
-    const auto token = wgV2GsetOpen(runtime->gsets, destination, destination, h->owner->generation, error, sizeof(error));
-    if (token && wgV2GsetCopy(runtime->gsets, token, &h->native().gset, error, sizeof(error))) return token;
+    const auto token = wgV2GsetOpen(runtime->gsets, destination, destination, owner_generation, error, sizeof(error));
+    if (token && wgV2GsetCopy(runtime->gsets, token, source, error, sizeof(error))) {
+        return token;
+    }
     if (token) wgV2GsetClose(runtime->gsets, token);
     sysLogPrintf(LOG_WARNING, "GRAPH.V2.COPY: %s", error); return 0;
 }
-extern "C" void wgV2RuntimeScopeClose(uint64_t token) { if (runtime && token) wgV2GsetClose(runtime->gsets, token); }
+extern "C" void wgV2RuntimeScopeClose(uint64_t token) {
+    if (runtime && token) wgV2GsetClose(runtime->gsets, token);
+}
+extern "C" int wgV2RuntimeSnapshot(struct player *native, int hand, wg_v2_runtime_snapshot *out) {
+    if (out) *out = {};
+    auto *h = hostFor(native, hand);
+    if (!h || !out || !weaponGraphObservationArmed()) return 0;
+    *out = snapshot(*h); return 1;
+}
+namespace {
+/* Post-effect evidence must never use deliveryHost as an admission filter.
+ * Registry lookup does not dereference an obsolete owner address. A snapshot
+ * of a newer binding stays distinct from the original producer receipt. */
+wg_v2_observation effectObservation(const wg_v2_delivery *r, wg_v2_observation_kind kind) {
+    wg_v2_observation out{}; out.kind = kind;
+    if (r) {
+        out.receipt = *r;
+        if (auto *h = hostFor(r->owner, r->hand)) out.value = snapshot(*h);
+    }
+    return out;
+}
+}
+extern "C" void wgV2RuntimeObserveDebit(const wg_v2_delivery *r, const int before[2], const int after[2]) {
+    if (!weaponGraphObservationArmed()) return;
+    auto *h = r ? hostFor(r->owner, r->hand) : nullptr;
+    if (h && before && after) for (int slot = 0; slot < 2; ++slot)
+        if (before[slot] > after[slot]) h->debits[slot] += before[slot] - after[slot];
+    auto out = effectObservation(r, WG_V2_OBS_DEBIT);
+    if (before && after) for (int slot = 0; slot < 2; ++slot) {
+        out.ammo_before[slot] = before[slot]; out.ammo_after[slot] = after[slot];
+    }
+    weaponGraphObserve(&out);
+}
+extern "C" void wgV2RuntimeObserveNoise(const wg_v2_delivery *r, float before, float after, float increment, float maximum) {
+    if (!weaponGraphObservationArmed()) return;
+    if (r) if (auto *h = hostFor(r->owner, r->hand)) ++h->noise_increments;
+    auto out = effectObservation(r, WG_V2_OBS_NOISE_INCREMENT);
+    out.noise_before = before; out.noise_after = after; out.increment = increment; out.maximum = maximum;
+    weaponGraphObserve(&out);
+}
+extern "C" void wgV2RuntimeObserveHit(const wg_v2_delivery *r) {
+    if (!weaponGraphObservationArmed()) return;
+    if (r) if (auto *h = hostFor(r->owner, r->hand)) ++h->hit_effects;
+    const auto out = effectObservation(r, WG_V2_OBS_HIT_EFFECT); weaponGraphObserve(&out);
+}
+extern "C" void wgV2RuntimeObserveShotStats(const wg_v2_delivery *r, int shots_delta, int region_delta) {
+    if (!weaponGraphObservationArmed()) return;
+    if (r) if (auto *h = hostFor(r->owner, r->hand)) if (shots_delta > 0) h->native_shots += shots_delta;
+    auto out = effectObservation(r, WG_V2_OBS_SHOT_STATS);
+    out.shots_delta = shots_delta; out.region_delta = region_delta; weaponGraphObserve(&out);
+}

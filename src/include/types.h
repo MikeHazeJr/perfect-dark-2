@@ -2405,8 +2405,8 @@ struct gunctrl {
 	u32 loadcataloggeneration; /* Catalog generation captured for this request. */
 	struct modeldef *loadretainedmodel; /* Exact stage-pinned source, independent of current catalog rows. */
 	/*0x15b4*/ struct modeldef **loadtomodeldef;
-	/*0x15b8*/ uintptr_t *loadmemptr;
-	/*0x15bc*/ uintptr_t*loadmemremaining;
+	/*0x15b8*/ u8 **loadmemptr;
+	/*0x15bc*/ u32 *loadmemremaining; /* Capacity fields are 32-bit, including the signed hand counter. */
 	/*0x15c0*/ struct texpool texpool;
 	/*0x15d0*/ u32 nexttexturetoload;
 	/*0x15d4*/ struct fileinfo fileinfo; /* Queued model payload sizes, independent of g_FileInfo[]. */

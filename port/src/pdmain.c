@@ -783,6 +783,7 @@ void mainTick(void)
 	 * Runs at the top of mainTick so any pushed events land before the
 	 * input dispatch downstream picks them up this frame. */
 	smokeHarnessTick();
+	weaponGraphWorldHitTick();
 
 	/* Continue the bounded audio scheduler window after startup probes finish.
 	 * The smoke watchdog runs first; ordinary launches have no armed probe. */

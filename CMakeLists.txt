@@ -1100,6 +1100,16 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/modpack_pdmod.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
+  ${CMAKE_SOURCE_DIR}/port/src/graph_persistent_actor.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_graph_persistent_actor.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_values.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_integer.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_effect4.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_divshift.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_gameplay_graph_values.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_gun_load_target_storage.cpp
+  ${CMAKE_SOURCE_DIR}/tests/support/native_shooting_flow_oracle.c
+  ${CMAKE_SOURCE_DIR}/tests/support/native_hand_lifecycle_oracle.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_catalog.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_owners.cpp

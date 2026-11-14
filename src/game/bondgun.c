@@ -219,57 +219,84 @@ char var800700bc[][10] = {
 
 s32 g_BgunGeMuzzleFlashes = false;
 
+/* GGV hand services begin: borrowed current-player/device context. */
+#include "gameplay_graph_values.h"
+struct bgunhandcontext {
+    s32 handnum, weaponnum, contpad1, contpad2;
+};
+static ggv_value bgunHandRead(void *opaque, ggv_binding binding)
+{
+    struct bgunhandcontext *context = opaque;
+    ggv_value value = {0};
+    switch (binding) {
+    case GGV_HAND_NUMBER: value.i = context->handnum; break;
+    case GGV_HAND_LEFT_NUMBER: value.i = HAND_LEFT; break;
+    case GGV_PAD_1: value.i = context->contpad1; break;
+    case GGV_PAD_2: value.i = context->contpad2; break;
+    case GGV_CONTROL_MODE_21: value.i = CONTROLMODE_21; break;
+    case GGV_PAK_RUMBLE_TYPE: value.i = PAKTYPE_RUMBLE; break;
+    case GGV_CURRENT_HAND_SLIDEINC:
+        value.b = g_Vars.currentplayer->hands[context->handnum].slideinc;
+        break;
+    default: break;
+    }
+    return value;
+}
+static void bgunHandWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunhandcontext *context = opaque;
+    if (binding == GGV_CURRENT_HAND_SLIDEINC) {
+        g_Vars.currentplayer->hands[context->handnum].slideinc = value.b;
+    }
+}
+static ggv_value bgunHandCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value c)
+{
+    struct bgunhandcontext *context = opaque;
+    ggv_value value = {0};
+    (void)b; (void)c;
+    switch (service) {
+    case GGV_GET_PADS:
+        joyGetContpadNumsForPlayer(g_Vars.currentplayernum,
+            &context->contpad1, &context->contpad2);
+        break;
+    case GGV_CONTROL_MODE:
+        value.i = optionsGetControlMode(g_Vars.currentplayerstats->mpindex);
+        break;
+    /* The native s8 API narrowing occurs at the same leaf call boundary. */
+    case GGV_PAK_TYPE: value.i = pakGetType(a.i); break;
+    case GGV_WEAPON_DUALWIELD:
+        value.b = weaponHasFlag(context->weaponnum, WEAPONFLAG_DUALWIELD);
+        break;
+    default: break;
+    }
+    return value;
+}
+static ggv_value bgunHandCall4(void *opaque, ggv_service4 service,
+        ggv_value a, ggv_value b, ggv_value c, ggv_value d)
+{
+    ggv_value value = {0};
+    (void)opaque;
+    if (service == GGV_PAK_RUMBLE) {
+        /* PC VERSION>=NTSC1 device is s32; do not reuse pakGetType's s8. */
+        pakRumble(a.i, b.f, c.i, d.i);
+    }
+    return value;
+}
+/* GGV hand services end. */
+
 #if !MATCHING || VERSION >= VERSION_NTSC_1_0
 void bgunRumble(s32 handnum, s32 weaponnum)
 {
 #if VERSION >= VERSION_NTSC_1_0
-	u32 stack;
-	s32 contpadtouse1;
-	s32 contpadtouse2;
-	bool singlewield = false;
-	s32 contpad1;
-	s32 contpad2;
-	s32 contpad1hasrumble;
-	s32 contpad2hasrumble;
-
-	joyGetContpadNumsForPlayer(g_Vars.currentplayernum, &contpad1, &contpad2);
-
-	if (optionsGetControlMode(g_Vars.currentplayerstats->mpindex) >= CONTROLMODE_21
-			&& contpad1 >= 0 && contpad2 >= 0) {
-		contpad1hasrumble = pakGetType(contpad1) == PAKTYPE_RUMBLE;
-		contpad2hasrumble = pakGetType(contpad2) == PAKTYPE_RUMBLE;
-
-		if (!weaponHasFlag(weaponnum, WEAPONFLAG_DUALWIELD)) {
-			singlewield = true;
-		}
-
-		if (contpad1hasrumble && contpad2hasrumble) {
-			if (singlewield) {
-				pakRumble(contpad1, 0.2f, 2, 4);
-				pakRumble(contpad2, 0.2f, 2, 4);
-			} else {
-				s32 contpadtouse1 = contpad1;
-
-				if (handnum == HAND_LEFT) {
-					contpadtouse1 = contpad2;
-				}
-
-				pakRumble(contpadtouse1, 0.2f, 2, 4);
-			}
-		} else {
-			s32 contpadtouse2 = contpad1;
-
-			if (contpad2hasrumble) {
-				contpadtouse2 = contpad2;
-			}
-
-			pakRumble(contpadtouse2, 0.2f, 2, 4);
-		}
-	} else {
-		if (contpad1 >= 0) {
-			pakRumble(contpad1, 0.2f, 2, 4);
-		}
-	}
+    struct bgunhandcontext context = {0};
+    context.handnum = handnum;
+    context.weaponnum = weaponnum;
+    ggv_host host = { &context, bgunHandRead, bgunHandWrite, bgunHandCall, bgunHandCall4 };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_HAND_RUMBLE), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: hand rumble refused immutable program");
+    }
 #else
 	s32 stack1;
 	s32 stack2;
@@ -477,25 +504,17 @@ glabel bgunRumble
 );
 #endif
 
+/* GGV UnequippedReloadIndex services begin: immutable invocation scalar. */
+static ggv_value bgunReloadIndexRead(void *opaque, ggv_binding binding)
+{ ggv_value value = {0}; if (binding == GGV_WEAPON_NUMBER) value.i = *(s32 *)opaque; return value; }
+static void bgunReloadIndexWrite(void *opaque, ggv_binding binding, ggv_value value) {}
+/* GGV UnequippedReloadIndex services end. */
 s32 bgunGetUnequippedReloadIndex(s32 weaponnum)
 {
-	if (weaponnum == WEAPON_CROSSBOW) {
-		return 0;
-	}
-
-	if (weaponnum == WEAPON_SHOTGUN) {
-		return 1;
-	}
-
-	if (weaponnum == WEAPON_DY357MAGNUM) {
-		return 2;
-	}
-
-	if (weaponnum == WEAPON_DY357LX) {
-		return 3;
-	}
-
-	return -1;
+    ggv_host host = { &weaponnum, bgunReloadIndexRead, bgunReloadIndexWrite, NULL }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_UNEQUIPPED_RELOAD_INDEX), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: unequipped reload index refused immutable program"); return -1;
+    } return result;
 }
 
 /**
@@ -507,558 +526,687 @@ s32 bgunGetUnequippedReloadIndex(s32 weaponnum)
  * The gunroundsspent value is actually a countdown timer,
  * not the number of rounds as the name suggests.
  */
+/* GGV Countdown services begin: per-field fresh global owner observation. */
+struct bguncountdowncontext { s32 handindex; s32 slotindex; };
+static ggv_value bgunCountdownRead(void *opaque, ggv_binding binding)
+{
+    struct bguncountdowncontext *c = opaque; ggv_value value = {0};
+    if (binding == GGV_COUNTDOWN_SPENT) value.u = g_Vars.currentplayer->hands[c->handindex].gunroundsspent[c->slotindex];
+    if (binding == GGV_COUNTDOWN_UPDATE60) value.i = g_Vars.lvupdate60;
+    return value;
+}
+static void bgunCountdownWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bguncountdowncontext *c = opaque;
+    if (binding == GGV_COUNTDOWN_HAND_INDEX) c->handindex = value.i;
+    if (binding == GGV_COUNTDOWN_SLOT_INDEX) c->slotindex = value.i;
+    if (binding == GGV_COUNTDOWN_SPENT) g_Vars.currentplayer->hands[c->handindex].gunroundsspent[c->slotindex] = value.u;
+}
+/* GGV Countdown services end. */
 void bgunTickUnequippedReload(void)
 {
-	s32 i;
-	s32 j;
-
-	for (i = 0; i < 2; i++) {
-		for (j = 0; j < ARRAYCOUNT(g_Vars.currentplayer->hands[i].gunroundsspent); j++) {
-			u16 spent = g_Vars.currentplayer->hands[i].gunroundsspent[j];
-
-			if (spent > g_Vars.lvupdate60) {
-				spent -= g_Vars.lvupdate60;
-			} else {
-				spent = 0;
-			}
-
-			g_Vars.currentplayer->hands[i].gunroundsspent[j] = spent;
-		}
-	}
+    struct bguncountdowncontext context = {0};
+    ggv_host host = { &context, bgunCountdownRead, bgunCountdownWrite, NULL }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_UNEQUIPPED_COUNTDOWN), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: unequipped countdown refused immutable program");
+    }
 }
 
+/* GGV GunVisibility services begin: raw command and borrowed hand identity. */
+struct bgunvisibilitycontext {
+    struct gunviscmd *cmd; struct hand *hand; struct modeldef *modeldef;
+    struct weapon *weapon; s32 ammoSlot; s16 partnum; bool visible;
+};
+static ggv_value bgunVisibilityRead(void *opaque, ggv_binding binding)
+{
+    struct bgunvisibilitycontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_VIS_COMMAND_TYPE: value.i = c->cmd->type; break;
+    case GGV_VIS_CURSOR: value.ref = c->cmd; break;
+    case GGV_VIS_OPERATION: value.i = c->cmd->op; break;
+    case GGV_VIS_COMMAND_PART: value.i = c->cmd->partnum; break;
+    case GGV_VIS_PART: value.i = c->partnum; break;
+    case GGV_VIS_MODELDEF: value.ref = c->modeldef; break;
+    case GGV_VIS_HAND_MODEL: value.ref = g_Vars.currentplayer->gunctrl.handmodeldef; break;
+    case GGV_VIS_VISIBLE: value.b = c->visible; break;
+    case GGV_VIS_COMMANDS: value.ref = c->weapon->gunviscmds; break;
+    case GGV_VIS_WEAPON_ID: value.i = c->hand->gset.weaponnum; break;
+    case GGV_VIS_AMMO: value.ref = c->weapon->ammos[c->ammoSlot]; break;
+    case GGV_VIS_AMMO_FLAGS: value.u = c->weapon->ammos[c->ammoSlot]->flags; break;
+    case GGV_VIS_CLIP_SIZE: value.i = c->hand->clipsizes[c->ammoSlot]; break;
+    case GGV_VIS_LOADED: value.i = c->hand->loadedammo[c->ammoSlot]; break;
+    case GGV_VIS_UPGRADES: value.u = c->hand->gset.unk0639; break;
+    case GGV_VIS_PARAMETER: value.u = c->cmd->param; break;
+    case GGV_VIS_IS_LEFT_HAND: value.b = c->hand == &g_Vars.currentplayer->hands[HAND_LEFT]; break;
+    case GGV_VIS_IS_RIGHT_HAND: value.b = c->hand == &g_Vars.currentplayer->hands[HAND_RIGHT]; break;
+    default: break;
+    } return value;
+}
+static void bgunVisibilityWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunvisibilitycontext *c = opaque;
+    switch (binding) {
+    case GGV_VIS_CURSOR: c->cmd = value.ref; break;
+    case GGV_VIS_WEAPON: c->weapon = value.ref; break;
+    case GGV_VIS_AMMO_SLOT: c->ammoSlot = value.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunVisibilityCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunvisibilitycontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_VIS_TEST: value.b = bgunTestGunVisCommand(a.ref, c->hand); break;
+    case GGV_VIS_NEXT: value.ref = (struct gunviscmd *)a.ref + 1; break;
+    case GGV_VIS_MODEL_PART: value.ref = modelGetPart(a.ref, b.i); break;
+    case GGV_VIS_SAVE_HAND:
+        c->hand->handsavedata[((struct modelnode *)a.ref)->rodata->toggle.rwdataindex] = b.b; break;
+    case GGV_VIS_SAVE_GUN:
+        c->hand->unk0a6c[((struct modelnode *)a.ref)->rodata->toggle.rwdataindex] = b.b; break;
+    case GGV_VIS_RUN_COMMANDS: bgunExecuteGunVisCommands(c->hand, c->modeldef, a.ref); break;
+    case GGV_COMMAND_SET_PART: bgunSetPartVisible(a.i, b.b, c->hand, c->modeldef); break;
+    case GGV_QUERY_FIND_WEAPON: value.ref = weaponFindById(a.i); break;
+    default: break;
+    }
+    return value;
+}
+static void bgunRunVisibility(struct bgunvisibilitycontext *context, ggv_stock_program program)
+{
+    ggv_host host = { context, bgunVisibilityRead, bgunVisibilityWrite, bgunVisibilityCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(program), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: visibility refused immutable program");
+}
+/* GGV GunVisibility services end. */
 bool bgunTestGunVisCommand(struct gunviscmd *cmd, struct hand *hand)
 {
-	bool result = true;
-
-	switch (cmd->type) {
-	case GUNVISCMD_CHECKUPGRADE:
-		if (((hand->gset.unk0639 >> cmd->param) & 1) == 0) {
-			result = false;
-		}
-		break;
-	case GUNVISCMD_CHECKINLEFTHAND:
-		if (hand != &g_Vars.currentplayer->hands[HAND_LEFT]) {
-			result = false;
-		}
-		break;
-	case GUNVISCMD_CHECKINRIGHTHAND:
-		if (hand != &g_Vars.currentplayer->hands[HAND_RIGHT]) {
-			result = false;
-		}
-		break;
-	}
-
-	return result;
+    struct bgunvisibilitycontext context = {0}; context.cmd = cmd; context.hand = hand;
+    ggv_host host = { &context, bgunVisibilityRead, bgunVisibilityWrite, NULL }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_GUN_VISIBILITY), &host, &result)) {
+        // Native shift counts outside0..31 are not a newly qualified domain.
+        sysLogPrintf(LOG_WARNING, "GGV: gun visibility refused immutable program"); return false;
+    } return result;
 }
 
 void bgunSetPartVisible(s16 partnum, bool visible, struct hand *hand, struct modeldef *modeldef)
 {
-	struct modelnode *node;
-
-	if (partnum == MODELPART_HAND_LEFT || partnum == MODELPART_HAND_RIGHT) {
-		if (g_Vars.currentplayer->gunctrl.handmodeldef) {
-			node = modelGetPart(g_Vars.currentplayer->gunctrl.handmodeldef, partnum);
-
-			if (node) {
-				struct modelrodata_toggle *rodata = &node->rodata->toggle;
-				u32 *ptr = &hand->handsavedata[rodata->rwdataindex];
-				*ptr = visible;
-			}
-		}
-	} else {
-		node = modelGetPart(modeldef, partnum);
-
-		if (node) {
-			struct modelrodata_toggle *rodata = &node->rodata->toggle;
-			u32 *ptr = &hand->unk0a6c[rodata->rwdataindex];
-			*ptr = visible;
-		}
-	}
+    struct bgunvisibilitycontext context = {0}; context.partnum = partnum; context.visible = visible;
+    context.hand = hand; context.modeldef = modeldef;
+    bgunRunVisibility(&context, GGV_PART_VISIBILITY);
 }
 
 void bgunExecuteGunVisCommands(struct hand *hand, struct modeldef *modeldef, struct gunviscmd *commands)
 {
-	struct gunviscmd *cmd = commands;
-
-	if (cmd == NULL) {
-		return;
-	}
-
-	while (cmd->type != GUNVISCMD_END) {
-		if (bgunTestGunVisCommand(cmd, hand)) {
-			if (cmd->op == GUNVISOP_IFTRUE_SETVISIBLE) {
-				bgunSetPartVisible(cmd->partnum, true, hand, modeldef);
-			}
-
-			if (cmd->op == GUNVISOP_IFTRUE_SETHIDDEN) {
-				bgunSetPartVisible(cmd->partnum, false, hand, modeldef);
-			}
-
-			if (cmd->op == GUNVISOP_SETVISIBILITY) {
-				bgunSetPartVisible(cmd->partnum, true, hand, modeldef);
-			}
-		} else {
-			if (cmd->op == GUNVISOP_SETVISIBILITY) {
-				bgunSetPartVisible(cmd->partnum, false, hand, modeldef);
-			}
-		}
-
-		cmd++;
-
-	}
+    struct bgunvisibilitycontext context = {0}; context.cmd = commands; context.hand = hand; context.modeldef = modeldef;
+    bgunRunVisibility(&context, GGV_VISIBILITY_COMMANDS);
 }
 
 void bgun0f098030(struct hand *hand, struct modeldef *modeldef)
 {
-	struct weapon *weapon = weaponFindById(hand->gset.weaponnum);
-	s32 i;
-	s32 j;
-
-	bgunExecuteGunVisCommands(hand, modeldef, weapon->gunviscmds);
-	bgunSetPartVisible(MODELPART_0042, false, hand, modeldef);
-
-	for (i = 0; i < 2; i++) {
-		if (weapon->ammos[i] && (weapon->ammos[i]->flags & AMMOFLAG_QTYAFFECTSPARTVIS)) {
-			for (j = 0; j < hand->clipsizes[i]; j++) {
-				if (j >= hand->loadedammo[i]) {
-					bgunSetPartVisible(j + 100, false, hand, modeldef);
-				} else {
-					bgunSetPartVisible(j + 100, true, hand, modeldef);
-				}
-			}
-		}
-	}
+    struct bgunvisibilitycontext context = {0}; context.hand = hand; context.modeldef = modeldef;
+    bgunRunVisibility(&context, GGV_AMMO_VISIBILITY);
 }
 
+struct bgunanimframecontext { struct hand *hand; f32 result; };
+static ggv_value bgunAnimationFrameRead(void *opaque, ggv_binding binding)
+{
+    struct bgunanimframecontext *c = opaque;
+    ggv_value value = {0};
+    switch (binding) {
+    case GGV_EMPTY_ANIM_MODE: value.i = c->hand->animmode; break;
+    case GGV_ANIM_FRAME_COMMAND: value.ref = c->hand->unk0ce8; break;
+    case GGV_ANIM_FRAME_COMMAND_VALUE: value.i64 = c->hand->unk0ce8->unk04; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunAnimationFrameWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunanimframecontext *c = opaque;
+    if (binding == GGV_ANIM_FRAME_RESULT) c->result = value.f;
+}
+static ggv_value bgunAnimationFrameCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunanimframecontext *c = opaque; ggv_value value = {0};
+    (void)a; (void)b; (void)d;
+    switch (service) {
+    case GGV_MODEL_ANIM_FRAME_COUNT: value.i = modelGetNumAnimFrames(&c->hand->gunmodel); break;
+    case GGV_MODEL_ANIM_CURRENT_FRAME: value.f = modelGetCurAnimFrame(&c->hand->gunmodel); break;
+    default: break;
+    }
+    return value;
+}
 f32 bgun0f09815c(struct hand *hand)
 {
-	if (hand->animmode == HANDANIMMODE_BUSY && hand->unk0ce8 != NULL) {
-		if (hand->unk0ce8->unk04 < 0) {
-			return modelGetNumAnimFrames(&hand->gunmodel) - modelGetCurAnimFrame(&hand->gunmodel);
-		}
-
-		return modelGetCurAnimFrame(&hand->gunmodel);
-	}
-
-	return 0;
+    struct bgunanimframecontext context = { hand, 0.0f };
+    ggv_host host = { &context, bgunAnimationFrameRead, bgunAnimationFrameWrite, bgunAnimationFrameCall };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_ANIMATION_FRAME), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: animation frame refused immutable program");
+    }
+    return context.result;
 }
 
+struct bgunanimsoundcontext {
+    struct hand *hand;
+    struct guncmd *cursor;
+    // Every native f32 and s32 frame bound is exactly representable here.
+    double from, to;
+};
+static ggv_value bgunAnimationSoundRead(void *opaque, ggv_binding binding)
+{
+    struct bgunanimsoundcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_ANIM_FRAME_COMMAND: value.ref = c->hand->unk0ce8; break;
+    case GGV_ANIM_WAIT_CURSOR: value.ref = c->cursor; break;
+    case GGV_ANIM_WAIT_TYPE: value.i = c->cursor->type; break;
+    case GGV_ANIM_WAIT_KEY: value.i = c->cursor->unk02; break;
+    case GGV_ANIM_WAIT_VALUE: value.i64 = c->cursor->unk04; break;
+    case GGV_COMMAND_FLOAT_FRAMES: value.b = VERSION >= VERSION_PAL_BETA; break;
+    case GGV_COMMAND_FROM_FLOAT: value.f = (f32)c->from; break;
+    case GGV_COMMAND_TO_FLOAT: value.f = (f32)c->to; break;
+    case GGV_COMMAND_FROM_INT: value.i = (s32)c->from; break;
+    case GGV_COMMAND_TO_INT: value.i = (s32)c->to; break;
+    case GGV_VERSION_1_OR_LATER: value.b = VERSION >= VERSION_NTSC_1_0; break;
+    case GGV_COMMAND_OUTPUT: value.u = c->hand->unk0cc8_04; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunAnimationSoundWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunanimsoundcontext *c = opaque;
+    switch (binding) {
+    case GGV_ANIM_WAIT_CURSOR: c->cursor = value.ref; break;
+    case GGV_COMMAND_OUTPUT: c->hand->unk0cc8_04 = value.u; break;
+    default: break;
+    }
+}
+static ggv_value bgunAnimationSoundCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value value = {0}; (void)opaque; (void)d;
+    switch (service) {
+    case GGV_ANIM_CURSOR_NEXT: value.ref = (struct guncmd *)a.ref + 1; break;
+    case GGV_COMMAND_SOUND_MODERN: value.ref = snd00010718(0, 0, AL_VOL_FULL, AL_PAN_CENTER, a.i64, b.f, 1, -1, 1); break;
+    case GGV_COMMAND_SOUND_LEGACY: value.ref = sndStart(var80095200, a.i64, NULL, -1, -1, -1, -1, -1); break;
+    case GGV_SOUND_EVENT: audioPostEvent(a.ref, AL_SNDP_PITCH_EVT, b.i); break;
+    default: break;
+    }
+    return value;
+}
+static void bgunTickAnimationSounds(struct hand *hand, double from, double to)
+{
+    struct bgunanimsoundcontext context = { hand, NULL, from, to };
+    ggv_host host = { &context, bgunAnimationSoundRead, bgunAnimationSoundWrite, bgunAnimationSoundCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_ANIMATION_SOUND_COMMANDS), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: animation sound commands refused immutable program");
+    }
+}
+
+struct bgunanimationpart { s32 number, frame; bool visible; };
+struct bgunanimationparts { struct bgunanimationpart *entries; s32 count, index; u32 capacity; };
+struct bgunanimationpartcontext { struct guncmd *command; struct bgunanimationparts *parts; };
+static bool bgunReserveAnimationParts(struct bgunanimationparts *parts, s32 needed)
+{
+    const u32 limit = UINT32_MAX / sizeof(*parts->entries);
+    u32 capacity;
+    struct bgunanimationpart *grown;
+    if (needed < 0 || (u32)needed > limit) return false;
+    if ((u32)needed <= parts->capacity) return true;
+    capacity = parts->capacity ? parts->capacity : 16;
+    if (capacity > limit) capacity = limit;
+    while (capacity < (u32)needed) capacity = capacity > limit / 2 ? limit : capacity * 2;
+    grown = sysMemRealloc(parts->entries, capacity * sizeof(*parts->entries));
+    if (!grown) return false;
+    parts->entries = grown;
+    parts->capacity = capacity;
+    return true;
+}
+static ggv_value bgunAnimationPartRead(void *opaque, ggv_binding binding)
+{
+    struct bgunanimationpartcontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_PART_COUNT: v.i = c->parts->count; break;
+    case GGV_PART_NUMBER: v.i = c->parts->entries[c->parts->index].number; break;
+    case GGV_PART_FRAME: v.i = c->parts->entries[c->parts->index].frame; break;
+    case GGV_ANIM_WAIT_VALUE: v.i64 = c->command->unk04; break;
+    case GGV_ANIM_WAIT_KEY: v.i = c->command->unk02; break;
+    case GGV_ANIM_WAIT_TYPE: v.i = c->command->type; break;
+    default: break;
+    }
+    return v;
+}
+static void bgunAnimationPartWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunanimationpartcontext *c = opaque;
+    switch (binding) {
+    case GGV_PART_COUNT: c->parts->count = v.i; break;
+    case GGV_PART_INDEX: c->parts->index = v.i; break;
+    case GGV_PART_NUMBER: c->parts->entries[c->parts->index].number = v.i; break;
+    case GGV_PART_FRAME: c->parts->entries[c->parts->index].frame = v.i; break;
+    case GGV_PART_VISIBLE: c->parts->entries[c->parts->index].visible = v.b; break;
+    default: break;
+    }
+}
+static ggv_value bgunAnimationPartCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunanimationpartcontext *c = opaque; ggv_value v = {0}; (void)b; (void)d;
+    if (service == GGV_PART_RESERVE) v.b = bgunReserveAnimationParts(c->parts, a.i);
+    return v;
+}
+static bool bgunAccumulateAnimationPart(struct guncmd *command, struct bgunanimationparts *parts)
+{
+    struct bgunanimationpartcontext context = {command, parts};
+    ggv_host host = {&context, bgunAnimationPartRead, bgunAnimationPartWrite, bgunAnimationPartCall};
+    int32_t result = -1;
+    if (!ggvExecute(ggvStockProgram(GGV_ANIMATION_PART_COMMAND), &host, &result) || result != 0) {
+        sysLogPrintf(LOG_WARNING, "GGV: animation part storage failed; invocation stopped");
+        return false;
+    }
+    return true;
+}
+
+struct bgunanimationfirstcontext {
+    struct hand *hand;
+    struct modeldef *modeldef;
+    struct bgunanimationparts *parts;
+    struct guncmd *cursor;
+    double from, to;
+};
+static ggv_value bgunAnimationFirstRead(void *opaque, ggv_binding binding)
+{
+    struct bgunanimationfirstcontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_COMMAND_FLOAT_FRAMES: v.b = VERSION >= VERSION_PAL_BETA; break;
+    case GGV_RELOAD_PAL: v.b = PAL; break;
+    case GGV_COMMAND_FROM_FLOAT: v.f = (f32)c->from; break;
+    case GGV_COMMAND_TO_FLOAT: v.f = (f32)c->to; break;
+    case GGV_COMMAND_FROM_INT: v.i = (s32)c->from; break;
+    case GGV_COMMAND_TO_INT: v.i = (s32)c->to; break;
+    case GGV_ANIM_FRAME_COMMAND: v.ref = c->hand->unk0ce8; break;
+    case GGV_ANIM_WAIT_CURSOR: v.ref = c->cursor; break;
+    case GGV_ANIM_WAIT_TYPE: v.i = c->cursor->type; break;
+    case GGV_ANIM_WAIT_KEY: v.i = c->cursor->unk02; break;
+    case GGV_ANIM_WAIT_VALUE: v.i64 = c->cursor->unk04; break;
+    case GGV_ANIMATION_LATCH: v.b = c->hand->unk0cc8_01; break;
+    case GGV_ANIM_INCREMENTAL: v.b = c->hand->incrementalreloading; break;
+    case GGV_ANIM_WAIT_INCREMENT: v.i = c->hand->animframeinc; break;
+    case GGV_ANIM_WAIT_INCREMENT_REAL: v.f = c->hand->animframeincfreal; break;
+    case GGV_ANIM_LOOP_COUNT: v.i = c->hand->animloopcount; break;
+    case GGV_PART_COUNT: v.i = c->parts->count; break;
+    case GGV_PART_NUMBER: v.i = c->parts->entries[c->parts->index].number; break;
+    case GGV_PART_VISIBLE: v.b = c->parts->entries[c->parts->index].visible; break;
+    default: break;
+    }
+    return v;
+}
+static void bgunAnimationFirstWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunanimationfirstcontext *c = opaque;
+    switch (binding) {
+    case GGV_COMMAND_FROM_FLOAT: c->from = v.f; break;
+    case GGV_COMMAND_TO_FLOAT: c->to = v.f; break;
+    case GGV_COMMAND_FROM_INT: c->from = v.i; break;
+    case GGV_COMMAND_TO_INT: c->to = v.i; break;
+    case GGV_ANIM_WAIT_CURSOR: c->cursor = v.ref; break;
+    case GGV_ANIM_WAIT_INCREMENT: c->hand->animframeinc = v.i; break;
+    case GGV_ANIM_WAIT_INCREMENT_REAL: c->hand->animframeincfreal = v.f; break;
+    case GGV_ANIM_LOOP_COUNT: c->hand->animloopcount = v.i; break;
+    case GGV_PART_COUNT: c->parts->count = v.i; break;
+    case GGV_PART_INDEX: c->parts->index = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunAnimationFirstCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunanimationfirstcontext *c = opaque; ggv_value v = {0}; (void)d;
+    switch (service) {
+    case GGV_ANIM_WAIT_FRAME: v.f = bgun0f09815c(c->hand); break;
+    case GGV_MODEL_ABS_ANIM_SPEED: v.f = modelGetAbsAnimSpeed(&c->hand->gunmodel); break;
+    case GGV_ANIM_CURSOR_NEXT: v.ref = (struct guncmd *)a.ref + 1; break;
+    case GGV_COMMAND_ACCUMULATE_PART: v.b = bgunAccumulateAnimationPart(c->cursor, c->parts); break;
+    case GGV_COMMAND_SET_FRAME: modelSetAnimFrame(&c->hand->gunmodel, a.f); break;
+    case GGV_COMMAND_SET_PART: bgunSetPartVisible(a.i, b.b, c->hand, c->modeldef); break;
+    default: break;
+    }
+    return v;
+}
+static bool bgunProcessAnimationCommands(struct hand *hand, struct modeldef *modeldef,
+        struct bgunanimationparts *parts, double *previousframe)
+{
+    struct bgunanimationfirstcontext context = {hand, modeldef, parts, NULL, 0, 0};
+    ggv_host host = {&context, bgunAnimationFirstRead, bgunAnimationFirstWrite, bgunAnimationFirstCall};
+    int32_t result = -1;
+    if (!ggvExecute(ggvStockProgram(GGV_ANIMATION_FIRST_COMMANDS), &host, &result) || result != 0) {
+        sysLogPrintf(LOG_WARNING, "GGV: animation command arithmetic or storage failed; invocation stopped");
+        return false;
+    }
+    *previousframe = context.from;
+    return true;
+}
+
+struct bgunanimationdrivercontext {
+    struct hand *hand;
+    struct modeldef *modeldef;
+    struct bgunanimationparts parts;
+    double from, to;
+};
+static ggv_value bgunAnimationDriverRead(void *opaque, ggv_binding binding)
+{
+    struct bgunanimationdrivercontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_EMPTY_ANIM_MODE: v.i = c->hand->animmode; break;
+    case GGV_ANIM_LOAD: v.i = c->hand->animload; break;
+    case GGV_ANIM_GANGSTA: v.f = c->hand->gangstarot; break;
+    case GGV_COMMAND_FLOAT_FRAMES: v.b = VERSION >= VERSION_PAL_BETA; break;
+    case GGV_RELOAD_PAL: v.b = PAL; break;
+    case GGV_ANIM_FRAME_COMMAND_VALUE: v.i64 = c->hand->unk0ce8->unk04; break;
+    case GGV_ANIM_FRAME_COMMAND: v.ref = c->hand->unk0ce8; break;
+    case GGV_ANIM_BIT07: v.b = c->hand->unk0d0e_07; break;
+    case GGV_ANIM_ELIGIBILITY_LEFT_INUSE: v.i = g_Vars.currentplayer->hands[HAND_LEFT].inuse; break;
+    case GGV_ANIM_WAIT_INCREMENT: v.i = c->hand->animframeinc; break;
+    case GGV_ANIM_BIT02: v.b = c->hand->unk0cc8_02; break;
+    default: break;
+    }
+    return v;
+}
+static void bgunAnimationDriverWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunanimationdrivercontext *c = opaque;
+    switch (binding) {
+    case GGV_COMMAND_OUTPUT: c->hand->unk0cc8_04 = v.u; break;
+    case GGV_EMPTY_ANIM_MODE: c->hand->animmode = v.i; break;
+    case GGV_ANIM_LOAD: c->hand->animload = v.i; break;
+    case GGV_ANIM_WAIT_INCREMENT: c->hand->animframeinc = v.i; break;
+    case GGV_ANIM_WAIT_INCREMENT_REAL: c->hand->animframeincfreal = v.f; break;
+    case GGV_COMMAND_TO_FLOAT: c->to = v.f; break;
+    case GGV_COMMAND_TO_INT: c->to = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunAnimationDriverCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunanimationdrivercontext *c = opaque; ggv_value v = {0}; (void)d;
+    switch (service) {
+    case GGV_ANIM_WAIT_FRAME: v.f = bgun0f09815c(c->hand); break;
+    case GGV_MODEL_ANIM_FRAME_COUNT: v.i = modelGetNumAnimFrames(&c->hand->gunmodel); break;
+    case GGV_MODEL_ABS_ANIM_SPEED: v.f = modelGetAbsAnimSpeed(&c->hand->gunmodel); break;
+    case GGV_RNG_U32: v.u = rngRandom(); break;
+    case GGV_COMMAND_MODEL_ANIMATION: modelSetAnimation(&c->hand->gunmodel, a.i, false, 0.0f, b.f, 0.0f); break;
+    case GGV_COMMAND_SET_FRAME: modelSetAnimFrame(&c->hand->gunmodel, a.f); break;
+    case GGV_COMMAND_FIRST_PASS: v.b = bgunProcessAnimationCommands(c->hand, c->modeldef, &c->parts, &c->from); break;
+    case GGV_COMMAND_PLAY_SPEED: modelSetAnimPlaySpeed(&c->hand->gunmodel, a.f, 0); break;
+    case GGV_COMMAND_TICK_QUARTER: modelTickAnimQuarterSpeed(&c->hand->gunmodel, a.i, true); break;
+#if VERSION < VERSION_PAL_BETA
+    case GGV_COMMAND_TICK_LEGACY: modelTickAnim(&c->hand->gunmodel, a.i, true); break;
+#endif
+    case GGV_COMMAND_SOUND_PASS: bgunTickAnimationSounds(c->hand, c->from, c->to); break;
+    default: break;
+    }
+    return v;
+}
 void bgun0f0981e8(struct hand *hand, struct modeldef *modeldef)
 {
-#if VERSION >= VERSION_PAL_BETA
-	f32 s4;
-	f32 s2;
-#else
-	s32 s2;
-	s32 s4;
-#endif
-	struct guncmd *cmd;
-	f32 animspeed;
-	bool done;
-	f32 animspeedmult;
-	s32 partnums[15];
-	bool partsvisible[15];
-	s32 partframes[15];
-	s32 s0;
-	s32 index;
-
-	hand->unk0cc8_04 = false;
-
-	if (hand->animmode == HANDANIMMODE_BUSY && bgun0f09815c(hand) >= modelGetNumAnimFrames(&hand->gunmodel) - 1) {
-		hand->animmode = HANDANIMMODE_IDLE;
-	}
-
-	// This condition looks like a bug (using | instead of ||), but it happens
-	// to make no difference anyway. Brackets added for clarity.
-	if ((hand->animmode == (u32)HANDANIMMODE_BUSY) | (hand->animload >= 0)) {
-		if (hand->gangstarot > 0.0f) {
-			hand->animframeinc = 0;
-#if VERSION >= VERSION_PAL_BETA
-			hand->animframeincfreal = 0.0f;
-#endif
-		}
-
-		if (hand->animload >= 0) {
-			animspeedmult = 1.0f;
-			animspeed = hand->unk0ce8->unk04 / 10000.0f;
-
-			if (hand->unk0d0e_07 && g_Vars.currentplayer->hands[HAND_LEFT].inuse) {
-				animspeedmult = RANDOMFRAC() * 0.77f + 0.7f;
-			}
-
-			if (hand->unk0ce8 && animspeed < 0.0f) {
-				modelSetAnimation(&hand->gunmodel, hand->animload, false, 0.0f, animspeedmult * animspeed, 0.0f);
-				modelSetAnimFrame(&hand->gunmodel, modelGetNumAnimFrames(&hand->gunmodel));
-			} else {
-				modelSetAnimation(&hand->gunmodel, hand->animload, false, 0.0f, animspeedmult * animspeed, 0.0f);
-			}
-
-			hand->animload = -1;
-			hand->animmode = HANDANIMMODE_BUSY;
-#if VERSION >= VERSION_PAL_BETA
-			hand->animframeincfreal = modelGetAbsAnimSpeed(&hand->gunmodel) * PALUPF(hand->animframeinc);
-#endif
-		}
-
-		if (hand->unk0cc8_02) {
-			hand->animframeinc = 0;
-#if VERSION >= VERSION_PAL_BETA
-			hand->animframeincfreal = 0.0f;
-#endif
-		}
-
-		s4 = bgun0f09815c(hand);
-
-#if VERSION >= VERSION_PAL_BETA
-		s2 = hand->animframeincfreal + s4;
-#else
-		s2 = hand->animframeinc + s4;
-#endif
-
-		if (s4 == 0 && s2 > 0) {
-			s4--;
-		}
-
-		if (hand->unk0ce8) {
-			done = false;
-			cmd = hand->unk0ce8;
-
-			if (cmd) {
-				s0 = 0;
-
-				do {
-					if (cmd->type == GUNCMD_END) {
-						done = true;
-					} else if (cmd->type == GUNCMD_SHOWPART || cmd->type == GUNCMD_HIDEPART) {
-						if (s2 >= cmd->unk02) {
-							s32 i;
-							index = -1;
-
-							for (i = 0; i < s0; i++) {
-								if (cmd->unk04 == partnums[i]) {
-									index = i;
-								}
-							}
-
-							if (index == -1) {
-								index = s0;
-								s0++;
-
-								if (1);
-
-								partnums[index] = cmd->unk04;
-								partframes[index] = -1;
-							}
-
-							if (cmd->unk02 > partframes[index]) {
-								partframes[index] = cmd->unk02;
-								partsvisible[index] = cmd->type == GUNCMD_SHOWPART ? true : false;
-							}
-						}
-					} else {
-						switch (cmd->type) {
-						case GUNCMD_WAITFORZRELEASED:
-							if (hand->unk0cc8_01) {
-								if (s2 >= cmd->unk02 && s4 < cmd->unk02 && s4 < s2) {
-#if VERSION >= VERSION_PAL_BETA
-									f32 tmp = cmd->unk02 - bgun0f09815c(hand);
-									tmp /= 2;
-
-									if (hand->animframeincfreal > tmp) {
-#if PAL
-										hand->animframeinc = tmp * 0.83333333f / modelGetAbsAnimSpeed(&hand->gunmodel);
-#else
-										hand->animframeinc = tmp / modelGetAbsAnimSpeed(&hand->gunmodel);
-#endif
-										hand->animframeincfreal = modelGetAbsAnimSpeed(&hand->gunmodel) * PALUPF(hand->animframeinc);
-									}
-
-									s2 = hand->animframeincfreal + s4;
-#else
-									s32 tmp = cmd->unk02 - (s32) bgun0f09815c(hand);
-									tmp /= 2;
-
-									if (hand->animframeinc > tmp) {
-										hand->animframeinc = tmp;
-									}
-
-									s2 = hand->animframeinc + s4;
-#endif
-								}
-							}
-							break;
-						case GUNCMD_REPEATUNTILFULL:
-							if (hand->incrementalreloading && s2 >= cmd->unk02 && s4 < cmd->unk02 && s4 < s2) {
-#if VERSION >= VERSION_PAL_BETA
-								f32 sp78 = s2;
-
-								while (sp78 >= cmd->unk02) {
-									sp78 += cmd->unk04 - cmd->unk02;
-								}
-
-								s4 = sp78;
-								hand->animframeinc = 0;
-								hand->animframeincfreal = 0;
-#else
-								s32 sp78 = cmd->unk04 + (((s32)s2 - cmd->unk02) % ((cmd->unk02 - cmd->unk04) + 1));
-								s4 = sp78;
-								hand->animframeinc = 0;
-#endif
-
-								modelSetAnimFrame(&hand->gunmodel, sp78);
-								hand->animloopcount++;
-								s2 = sp78;
-							}
-							break;
-						}
-					}
-
-					cmd++;
-				} while (!done);
-
-				if (s0 > 0) {
-					s32 i;
-
-					for (i = 0; i < s0; i++) {
-						bgunSetPartVisible(partnums[i], partsvisible[i], hand, modeldef);
-					}
-				}
-			}
-		}
-
-#if VERSION >= VERSION_PAL_BETA
-		modelSetAnimPlaySpeed(&hand->gunmodel, PALUPF(4.0f), 0);
-		modelTickAnimQuarterSpeed(&hand->gunmodel, hand->animframeinc, true);
-#else
-		modelTickAnim(&hand->gunmodel, hand->animframeinc, true);
-#endif
-
-		s2 = bgun0f09815c(hand);
-
-		if (hand->unk0ce8) {
-			bool done = false;
-			struct guncmd *cmd = hand->unk0ce8;
-			f32 speed = 1.0f;
-			bool hasspeed = false;
-#if VERSION < VERSION_NTSC_1_0
-			struct sndstate *audiohandle;
-#endif
-
-			if (cmd) {
-				do {
-					if (cmd->type == GUNCMD_END) {
-						done = true;
-					} else {
-						if (s2 >= cmd->unk02 && s4 < cmd->unk02 && s4 < s2) {
-							switch (cmd->type) {
-							case GUNCMD_PLAYSOUND:
-#if VERSION >= VERSION_NTSC_1_0
-								if (hasspeed) {
-									snd00010718(0, 0, AL_VOL_FULL, AL_PAN_CENTER, cmd->unk04, speed, 1, -1, 1);
-									hasspeed = false;
-								} else {
-									snd00010718(0, 0, AL_VOL_FULL, AL_PAN_CENTER, cmd->unk04, 1.0f, 1, -1, 1);
-								}
-#else
-								audiohandle = sndStart(var80095200, cmd->unk04, NULL, -1, -1, -1, -1, -1);
-
-								if (hasspeed && audiohandle) {
-									hasspeed = false;
-									audioPostEvent(audiohandle, AL_SNDP_PITCH_EVT, *(s32 *)&speed);
-								}
-#endif
-								break;
-							case GUNCMD_SETSOUNDSPEED:
-								speed = cmd->unk04 / 1000.0f;
-								hasspeed = true;
-								break;
-							case GUNCMD_POPOUTSACKOFPILLS:
-								hand->unk0cc8_04++;
-								break;
-							}
-						}
-					}
-
-					cmd++;
-				} while (!done);
-			}
-		}
-	}
+    struct bgunanimationdrivercontext context = {0};
+    ggv_host host = {&context, bgunAnimationDriverRead, bgunAnimationDriverWrite, bgunAnimationDriverCall};
+    int32_t result = -1;
+    context.hand = hand; context.modeldef = modeldef;
+    if (!ggvExecute(ggvStockProgram(GGV_ANIMATION_DRIVER), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: animation driver refused immutable program");
+    }
+    // Child failures already report their cause. Scratch belongs to this invocation.
+    sysMemFree(context.parts.entries);
 }
 
+
+struct bgunanimeligibilitycontext { struct guncmd *cmd; struct gset *gset; };
+static ggv_value bgunAnimationEligibilityRead(void *opaque, ggv_binding binding)
+{
+    struct bgunanimeligibilitycontext *c = opaque;
+    ggv_value value = {0};
+    switch (binding) {
+    case GGV_ANIM_ELIGIBILITY_KIND: value.i = c->cmd->unk01; break;
+    case GGV_ANIM_ELIGIBILITY_LEFT_INUSE:
+        value.i = g_Vars.currentplayer->hands[HAND_LEFT].inuse; break;
+    case GGV_WEAPON_FUNCTION: value.i = c->gset->weaponfunc; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunAnimationEligibilityWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void)opaque; (void)binding; (void)value;
+}
 bool bgun0f098884(struct guncmd *cmd, struct gset *gset)
 {
-	s32 result = false;
-
-	if (cmd->unk01 == 0) {
-		return true;
-	}
-
-	if (cmd->unk01 == 1 && g_Vars.currentplayer->hands[HAND_LEFT].inuse == true) {
-		result = true;
-	}
-
-	if (cmd->unk01 == 2 && gset->weaponfunc == FUNC_SECONDARY) {
-		result = true;
-	}
-
-	return result;
+    struct bgunanimeligibilitycontext context = { cmd, gset };
+    ggv_host host = { &context, bgunAnimationEligibilityRead, bgunAnimationEligibilityWrite };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_ANIMATION_ELIGIBILITY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: animation eligibility refused immutable program");
+        return false;
+    }
+    return result;
 }
 
+/* Recursive invocations borrow the same hand but own independent cursors.
+ * Selection, RNG reduction, stopping and store order live in the graph. */
+struct bgunanimstartcontext {
+    struct guncmd *command;
+    struct guncmd *cursor;
+    s32 handnum;
+    struct hand *hand;
+};
+static void bgunAnimationWrite(void *opaque, ggv_binding binding, ggv_value value);
+static ggv_value bgunAnimationStartRead(void *opaque, ggv_binding binding)
+{
+    struct bgunanimstartcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_ANIM_START_COMMAND: value.ref = c->command; break;
+    case GGV_ANIM_WAIT_CURSOR: value.ref = c->cursor; break;
+    case GGV_ANIM_WAIT_TYPE: value.i = c->cursor->type; break;
+    case GGV_ANIM_WAIT_KEY: value.i = c->cursor->unk02; break;
+    case GGV_ANIM_START_CHILD: value.ref = (struct guncmd *)c->cursor->unk04; break;
+    case GGV_ANIM_START_PREVIOUS: value.ref = c->hand->unk0d80; break;
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_PASSED_HAND: value.ref = c->hand; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunAnimationStartWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunanimstartcontext *c = opaque;
+    if (binding == GGV_ANIM_WAIT_CURSOR) c->cursor = value.ref;
+    else if (binding == GGV_ANIM_START_PREVIOUS) c->hand->unk0d80 = value.ref;
+    else bgunAnimationWrite(c->hand, binding, value);
+}
+static ggv_value bgunAnimationStartCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunanimstartcontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_ANIM_START_NAME: value.ref = (void *)loaderPoolAnimationNameForCmds(a.ref); break;
+    case GGV_ANIM_START_SOURCE: value.ref = (void *)loaderPoolAnimationSourceForCmds(a.ref); break;
+    case GGV_ANIM_START_LOG_NULL:
+        sysLogPrintf(LOG_WARNING,
+            "BGUN.ANIM.NULL: bgunStartAnimation called with NULL cmd "
+            "(handnum=%d) -- skipping; likely an unresolved INCLUDE/RANDOM "
+            "animation reference in the active weapon", (s32)c->handnum);
+        break;
+    case GGV_ANIM_START_LOG_SOURCE:
+        sysLogPrintf(LOG_NOTE, "BGUN.ANIM.SOURCE: hand=%d animation=base:%s source=%s",
+            (s32)c->handnum, (const char *)a.ref, (const char *)b.ref);
+        break;
+    case GGV_RNG_U32: value.u = rngRandom(); break;
+    case GGV_ANIM_CURSOR_NEXT: value.ref = (struct guncmd *)a.ref + 1; break;
+    case GGV_ANIM_START_ELIGIBILITY: value.b = bgun0f098884(a.ref, &c->hand->gset); break;
+    case GGV_HAND_START_ANIMATION: bgunStartAnimation(a.ref, b.i, d.ref); break;
+    default: break;
+    }
+    return value;
+}
 void bgunStartAnimation(struct guncmd *cmd, s32 handnum, struct hand *hand)
 {
-	/* Defensive guard: cmd may be NULL when the equip/unequip/etc.
-	 * animation pointer on the weapondef is unresolved, OR when a
-	 * recursive GUNCMD_INCLUDE / GUNCMD_RANDOM has unk04=NULL because
-	 * the referenced animation hadn't been parsed into the loader pool
-	 * at the time decodeOpcode resolved the name. (The loader's
-	 * resolveAnimByName silently returns NULL for forward references;
-	 * loaderPoolFinalize now patches such references in a fixup pass,
-	 * but this guard keeps the crash class from coming back if any
-	 * future emitter or mod ships an unresolved animation name.) */
-	if (cmd == NULL) {
-		sysLogPrintf(LOG_WARNING,
-			"BGUN.ANIM.NULL: bgunStartAnimation called with NULL cmd "
-			"(handnum=%d) -- skipping; likely an unresolved INCLUDE/RANDOM "
-			"animation reference in the active weapon",
-			(s32)handnum);
-		return;
-	}
-	{
-		const char *anim_name = loaderPoolAnimationNameForCmds(cmd);
-		const char *anim_source = loaderPoolAnimationSourceForCmds(cmd);
-		if (anim_name && anim_source) {
-			sysLogPrintf(LOG_NOTE,
-				"BGUN.ANIM.SOURCE: hand=%d animation=base:%s source=%s",
-				(s32)handnum, anim_name, anim_source);
-		}
-	}
-	if (cmd->type != GUNCMD_PLAYANIMATION) {
-		struct guncmd *loopcmd = cmd;
-		s32 done = false;
-		u32 rand = rngRandom() % 100;
-
-		while (loopcmd->type != GUNCMD_END) {
-			if (bgun0f098884(loopcmd, &hand->gset) && !done) {
-				if (loopcmd->type == GUNCMD_INCLUDE) {
-					done = true;
-					bgunStartAnimation((struct guncmd *)loopcmd->unk04, handnum, hand);
-				} else if (loopcmd->type == GUNCMD_RANDOM) {
-					if ((struct guncmd *)loopcmd->unk04 != hand->unk0d80 && loopcmd->unk02 > rand) {
-						done = true;
-						bgunStartAnimation((struct guncmd *)loopcmd->unk04, handnum, hand);
-					}
-				}
-			}
-
-			loopcmd++;
-		}
-	} else {
-		hand->animload = cmd->unk02;
-		hand->animmode = HANDANIMMODE_IDLE;
-		hand->unk0cc8_01 = 0;
-		hand->incrementalreloading = false;
-		hand->unk0ce8 = cmd;
-		hand->animloopcount = 0;
-		hand->unk0cc8_02 = 0;
-		hand->unk0d0e_07 = false;
-		hand->unk0d80 = cmd;
-	}
+    struct bgunanimstartcontext context = { cmd, cmd, handnum, hand };
+    ggv_host host = { &context, bgunAnimationStartRead, bgunAnimationStartWrite, bgunAnimationStartCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_ANIMATION_START), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: animation start refused immutable program");
+    }
 }
 
+/* Each invocation owns its cursor; frame callbacks may mutate hand fields,
+ * which are read fresh at the original donor read sites. */
+struct bgunanimwaitcontext {
+    struct hand *hand;
+    struct guncmd *cursor;
+    s32 time;
+};
+static ggv_value bgunAnimationWaitRead(void *opaque, ggv_binding binding)
+{
+    struct bgunanimwaitcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_EMPTY_ANIM_MODE: value.i = c->hand->animmode; break;
+    case GGV_ANIM_LOAD: value.i = c->hand->animload; break;
+    case GGV_ANIMATION_LATCH: value.b = c->hand->unk0cc8_01; break;
+    case GGV_ANIM_WAIT_TIME: value.i = c->time; break;
+    case GGV_ANIM_WAIT_CURSOR: value.ref = c->cursor; break;
+    case GGV_ANIM_WAIT_TYPE: value.i = c->cursor->type; break;
+    case GGV_ANIM_WAIT_KEY: value.i = c->cursor->unk02; break;
+    case GGV_ANIM_WAIT_VALUE: value.i64 = c->cursor->unk04; break;
+    case GGV_ANIM_WAIT_INCREMENT: value.i = c->hand->animframeinc; break;
+#if VERSION >= VERSION_PAL_BETA
+    case GGV_ANIM_WAIT_INCREMENT_REAL: value.f = c->hand->animframeincfreal; break;
+    case GGV_RECOVERY_PAL: value.b = true; break;
+#else
+    case GGV_RECOVERY_PAL: value.b = false; break;
+#endif
+    default: break;
+    }
+    return value;
+}
+static void bgunAnimationWaitWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunanimwaitcontext *c = opaque;
+    if (binding == GGV_ANIM_WAIT_CURSOR) c->cursor = value.ref;
+}
+static ggv_value bgunAnimationWaitCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunanimwaitcontext *c = opaque; ggv_value value = {0};
+    (void)b; (void)d;
+    switch (service) {
+    case GGV_ANIM_CURSOR_NEXT: value.ref = (struct guncmd *)a.ref + 1; break;
+    case GGV_ANIM_WAIT_FRAME: value.f = bgun0f09815c(c->hand); break;
+    default: break;
+    }
+    return value;
+}
 bool bgun0f098a44(struct hand *hand, s32 time)
 {
-	struct guncmd *cmd = hand->unk0ce8;
-	s32 waittimekeyframe = -1;
-	s32 zreleasekeyframe = -1;
-
-	if (hand->animmode == HANDANIMMODE_IDLE) {
-		return (hand->animload == -1);
-	}
-
-	while (cmd->type != GUNCMD_END && waittimekeyframe == -1) {
-		if (cmd->type == GUNCMD_WAITFORZRELEASED) {
-			zreleasekeyframe = cmd->unk02;
-		}
-
-		if (cmd->type == GUNCMD_WAITTIME && time == cmd->unk04) {
-			waittimekeyframe = cmd->unk02;
-		}
-
-		cmd++;
-	}
-
-	if (waittimekeyframe >= 0) {
-#if VERSION >= VERSION_PAL_BETA
-		if (hand->unk0cc8_01 && bgun0f09815c(hand) <= zreleasekeyframe) {
-			return false;
-		}
-
-		return (bgun0f09815c(hand) + hand->animframeincfreal >= waittimekeyframe);
-#else
-		if (hand->unk0cc8_01 && (s32)bgun0f09815c(hand) <= zreleasekeyframe) {
-			return false;
-		}
-
-		return (bgun0f09815c(hand) + hand->animframeinc >= waittimekeyframe);
-#endif
-	}
-
-	return true;
+    struct bgunanimwaitcontext context = { hand, hand->unk0ce8, time };
+    ggv_host host = { &context, bgunAnimationWaitRead, bgunAnimationWaitWrite, bgunAnimationWaitCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_ANIMATION_WAIT), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: animation wait refused immutable program");
+    }
+    return result;
 }
-
 s32 bgun0f098b80(struct hand *hand, s32 arg1)
 {
-	struct guncmd *cmd = hand->unk0ce8;
-	s32 keyframe = -1;
-
-	if (hand->animmode == HANDANIMMODE_IDLE) {
-		return 0;
-	}
-
-	while (cmd->type != GUNCMD_END && keyframe == -1) {
-		if (cmd->type == GUNCMD_WAITTIME) {
-			if (cmd->unk04 == arg1) {
-				keyframe = cmd->unk02;
-			}
-		}
-
-		cmd++;
-	}
-
-	if (keyframe == -1) {
-		keyframe = 0;
-	}
-
-	return keyframe;
+    struct bgunanimwaitcontext context = { hand, hand->unk0ce8, arg1 };
+    ggv_host host = { &context, bgunAnimationWaitRead, bgunAnimationWaitWrite, bgunAnimationWaitCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_ANIMATION_WAIT_KEY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: animation wait key refused immutable program");
+    }
+    return result;
 }
 
+/* GGV Animation services begin: borrowed hand fields, no cleanup authority. */
+static ggv_value bgunAnimationRead(void *opaque, ggv_binding binding)
+{
+    struct hand *hand = opaque; ggv_value value = {0};
+    if (binding == GGV_EMPTY_ANIM_MODE) value.i = hand->animmode;
+    return value;
+}
+static void bgunAnimationWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct hand *hand = opaque;
+    switch (binding) {
+    case GGV_ANIM_LOAD: hand->animload = value.i; break;
+    case GGV_EMPTY_ANIM_MODE: hand->animmode = value.i; break;
+    case GGV_ANIMATION_LATCH: hand->unk0cc8_01 = value.b; break;
+    case GGV_ANIM_INCREMENTAL: hand->incrementalreloading = value.b; break;
+    case GGV_ANIM_COMMAND: hand->unk0ce8 = value.ref; break;
+    case GGV_ANIM_LOOP_COUNT: hand->animloopcount = value.i; break;
+    case GGV_ANIM_BIT02: hand->unk0cc8_02 = value.b; break;
+    case GGV_ANIM_BIT07: hand->unk0d0e_07 = value.b; break;
+    default: break;
+    }
+}
+/* GGV Animation services end. */
 bool bgunIsAnimBusy(struct hand *hand)
 {
-	return hand->animmode != HANDANIMMODE_IDLE;
+    ggv_host host = { hand, bgunAnimationRead, bgunAnimationWrite, NULL };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_ANIMATION_BUSY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: animation busy predicate refused immutable program");
+        return false;
+    }
+    return result;
 }
 
 void bgunResetAnim(struct hand *hand)
 {
-	hand->animload = -1;
-	hand->animmode = HANDANIMMODE_IDLE;
-	hand->unk0cc8_01 = false;
-	hand->incrementalreloading = false;
-	hand->unk0ce8 = NULL;
-	hand->animloopcount = 0;
-	hand->unk0cc8_02 = false;
-	hand->unk0d0e_07 = false;
+    ggv_host host = { hand, bgunAnimationRead, bgunAnimationWrite, NULL };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_ANIMATION_RESET), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: animation reset refused immutable program");
+    }
 }
 
+struct bgunweaponinfocontext { struct handweaponinfo *info; s32 handnum; };
+static ggv_value bgunWeaponInfoRead(void *opaque, ggv_binding binding)
+{
+    ggv_value value = {0}; (void)opaque;
+    if (binding == GGV_INFO_GUNCTRL) value.ref = &g_Vars.currentplayer->gunctrl;
+    return value;
+}
+static void bgunWeaponInfoWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunweaponinfocontext *c = opaque;
+    switch (binding) {
+    case GGV_INFO_WEAPON_RESULT: c->info->weaponnum = value.i; break;
+    case GGV_INFO_DEFINITION_RESULT: c->info->definition = value.ref; break;
+    case GGV_INFO_GUNCTRL: c->info->gunctrl = value.ref; break;
+    default: break;
+    }
+}
+static ggv_value bgunWeaponInfoCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunweaponinfocontext *c = opaque; ggv_value value = {0}; (void)b; (void)d;
+    switch (service) {
+    case GGV_INFO_WEAPON_QUERY: value.i = bgunGetWeaponNum2(c->handnum); break;
+    case GGV_INFO_IS_V2: value.b = wgV2RuntimeIsWeapon(a.i); break;
+    case GGV_INFO_ENSURE_V2: wgV2RuntimeEnsureHand(g_Vars.currentplayer, c->handnum); break;
+    case GGV_INFO_V2_DEFINITION: value.ref = (struct weapon *)wgV2RuntimeGsetWeapon(&g_Vars.currentplayer->hands[c->handnum].gset); break;
+    case GGV_QUERY_FIND_WEAPON: value.ref = weaponFindById(a.i); break;
+    default: break;
+    }
+    return value;
+}
 void bgunGetWeaponInfo(struct handweaponinfo *info, s32 handnum)
 {
-	s32 weaponnum = bgunGetWeaponNum2(handnum);
-
-	info->weaponnum = weaponnum;
-	if (wgV2RuntimeIsWeapon(weaponnum)) wgV2RuntimeEnsureHand(g_Vars.currentplayer, handnum);
-	info->definition = wgV2RuntimeIsWeapon(weaponnum) ? (struct weapon *)wgV2RuntimeGsetWeapon(&g_Vars.currentplayer->hands[handnum].gset) : weaponFindById(weaponnum);
-	info->gunctrl = &g_Vars.currentplayer->gunctrl;
+    struct bgunweaponinfocontext context = { info, handnum };
+    ggv_host host = { &context, bgunWeaponInfoRead, bgunWeaponInfoWrite, bgunWeaponInfoCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_WEAPON_INFO), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: weapon info refused immutable program");
+    }
 }
 
 /**
@@ -1069,746 +1217,660 @@ void bgunGetWeaponInfo(struct handweaponinfo *info, s32 handnum)
  * 2 = has ammo in clip but none in reserve
  * 3 = gun doesn't use ammo or clip is full
  */
+/* GGV AmmoStatus services begin: borrowed original hand/info/function. */
+struct bgunammostatuscontext { s32 funcnum; struct handweaponinfo *info; struct hand *hand; struct weaponfunc *func; s32 ammoindex; };
+static ggv_value bgunAmmoStatusRead(void *opaque, ggv_binding binding)
+{
+    struct bgunammostatuscontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_QUERY_FUNCTION_I32: value.i = c->funcnum; break;
+    case GGV_LEGACY_AMMO_INDEX: value.i = c->func->ammoindex; break;
+    case GGV_QUERY_EQUIPPED_TYPE: value.i = c->info->gunctrl->ammotypes[c->ammoindex]; break;
+    case GGV_LOADED_AMMO: value.i = c->hand->loadedammo[c->ammoindex]; break;
+    case GGV_QUERY_CLIP_CAPACITY: value.i = c->hand->clipsizes[c->ammoindex]; break;
+    case GGV_WEAPON_NUMBER: value.i = c->info->weaponnum; break;
+    case GGV_QUERY_RESERVE: value.i = g_Vars.currentplayer->ammoheldarr[c->info->gunctrl->ammotypes[c->ammoindex]]; break;
+    default: break;
+    } return value;
+}
+static void bgunAmmoStatusWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunammostatuscontext *c = opaque;
+    if (binding == GGV_AMMO_INDEX) c->ammoindex = value.i;
+}
+static ggv_value bgunAmmoStatusCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunammostatuscontext *c = opaque; ggv_value value = {0};
+    if (service == GGV_QUERY_RESOLVE_FUNCTION) { c->func = weaponGetFunction(&c->hand->gset, a.i); value.b = c->func != NULL; }
+    if (service == GGV_MELEE_MIN_CLIP) value.i = bgunGetMinClipQty(a.i, b.i);
+    return value;
+}
+/* GGV AmmoStatus services end. */
 s32 bgun0f098ca0(s32 funcnum, struct handweaponinfo *info, struct hand *hand)
 {
-	s32 result = 3;
-	struct weaponfunc *func = weaponGetFunction(&hand->gset, funcnum);
-
-	if (!func) {
-		return -1;
-	}
-
-	if (func->ammoindex != -1) {
-		s32 ammoindex = func->ammoindex;
-
-		if (info->gunctrl->ammotypes[ammoindex] >= 0
-				&& hand->loadedammo[ammoindex] < hand->clipsizes[ammoindex]) {
-			s32 minqty = 1;
-
-			if (info->weaponnum == WEAPON_SHOTGUN && funcnum == FUNC_SECONDARY) {
-				minqty = 2;
-			}
-
-			if (info->weaponnum == WEAPON_TRANQUILIZER && funcnum == FUNC_SECONDARY) {
-				minqty = bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY);
-			}
-
-			result = 1;
-
-			if (hand->loadedammo[ammoindex] < minqty) {
-				result = 0;
-
-				if (g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] == 0) {
-					result = -1;
-				}
-			} else {
-				if (g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] == 0) {
-					result = 2;
-				}
-			}
-		}
-	}
-
-	return result;
+    struct bgunammostatuscontext context = {0}; context.funcnum = funcnum; context.info = info; context.hand = hand;
+    ggv_host host = { &context, bgunAmmoStatusRead, bgunAmmoStatusWrite, bgunAmmoStatusCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_AMMO_STATUS), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: ammo status refused immutable program"); return -1;
+    }
+    return result;
 }
 
+/* GGV Reload services begin: borrowed hand/info/function; no player snapshot. */
+struct bgunreloadcontext { s32 weaponfunc; struct handweaponinfo *info; struct hand *hand; u8 onebullet; u8 checkunequipped; struct weaponfunc *func; s32 ammoindex; s32 reloadindex; s32 *reserve_target; };
+static ggv_value bgunReloadRead(void *opaque, ggv_binding binding)
+{
+    struct bgunreloadcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_RELOAD_FUNCTION: value.i = c->weaponfunc; break;
+    case GGV_LEGACY_AMMO_INDEX: value.i = c->func->ammoindex; break;
+    case GGV_QUERY_EQUIPPED_TYPE: value.i = c->info->gunctrl->ammotypes[c->ammoindex]; break;
+    case GGV_QUERY_CLIP_CAPACITY: value.i = c->hand->clipsizes[c->ammoindex]; break;
+    case GGV_LOADED_AMMO: value.i = c->hand->loadedammo[c->ammoindex]; break;
+    case GGV_WEAPON_NUMBER: value.i = c->info->weaponnum; break;
+    case GGV_RELOAD_VALID_WEAPON: value.b = g_FrIsValidWeapon; break;
+    case GGV_RELOAD_CHECK: value.b = c->checkunequipped; break;
+    case GGV_RELOAD_ONE: value.b = c->onebullet; break;
+    case GGV_RELOAD_ROUNDS: value.u = c->hand->gunroundsspent[c->reloadindex]; break;
+    case GGV_RELOAD_TICKS256: value.i = TICKS(256); break;
+    case GGV_RELOAD_PAL:
+#if VERSION >= VERSION_PAL_BETA
+        value.b = true;
+#else
+        value.b = false;
+#endif
+        break;
+    case GGV_RELOAD_JPN:
+#if VERSION >= VERSION_JPN_FINAL
+        value.b = true;
+#else
+        value.b = false;
+#endif
+        break;
+    case GGV_RELOAD_RESERVE:
+        // Re-evaluate the global player/type at each original statement. For
+        // compound assignment, retain that statement's exact lvalue until write.
+        c->reserve_target = &g_Vars.currentplayer->ammoheldarr[c->info->gunctrl->ammotypes[c->ammoindex]];
+        value.i = *c->reserve_target; break;
+    case GGV_RELOAD_AMMO_FLAGS: value.u = c->info->definition->ammos[c->ammoindex]->flags; break;
+    default: break;
+    } return value;
+}
+static void bgunReloadWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunreloadcontext *c = opaque;
+    switch (binding) {
+    case GGV_AMMO_INDEX: c->ammoindex = value.i; break;
+    case GGV_RELOAD_INDEX: c->reloadindex = value.i; break;
+    case GGV_LOADED_AMMO: c->hand->loadedammo[c->ammoindex] = value.i; break;
+    case GGV_RELOAD_RESERVE: *c->reserve_target = value.i; break;
+    case GGV_RELOAD_RESERVE_CLEAR: g_Vars.currentplayer->ammoheldarr[c->info->gunctrl->ammotypes[c->ammoindex]] = value.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunReloadCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunreloadcontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_QUERY_RESOLVE_FUNCTION: c->func = weaponGetFunction(&c->hand->gset, a.i); value.b = c->func != NULL; break;
+    case GGV_RELOAD_INDEX_FOR_WEAPON: value.i = bgunGetUnequippedReloadIndex(a.i); break;
+    case GGV_SVC_RELOAD_TRANSFER: bgun0f098df8(a.i, c->info, c->hand, 0, 1); break;
+    default: break;
+    } return value;
+}
+/* GGV Reload services end. */
 void bgun0f098df8(s32 weaponfunc, struct handweaponinfo *info, struct hand *hand, u8 onebullet, u8 checkunequipped)
 {
-	struct weaponfunc *func = weaponGetFunction(&hand->gset, weaponfunc);
-
-	if (func && func->ammoindex != -1) {
-		s32 ammoindex = func->ammoindex;
-
-		if (info->gunctrl->ammotypes[ammoindex] >= 0) {
-			s32 amount = hand->clipsizes[ammoindex] - hand->loadedammo[ammoindex];
-
-			s32 reloadindex = bgunGetUnequippedReloadIndex(info->weaponnum);
-
-			if (g_FrIsValidWeapon) {
-				reloadindex = -1;
-			}
-
-			if (checkunequipped && reloadindex >= 0) {
-#if VERSION >= VERSION_PAL_BETA
-				amount -= hand->gunroundsspent[reloadindex] / TICKS(256);
-#else
-				amount -= hand->gunroundsspent[reloadindex] >> 8;
-#endif
-			}
-
-			if (onebullet) {
-				amount = 1;
-			}
-
-			if (amount > g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]]) {
-				amount = g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]];
-			}
-
-#if VERSION >= VERSION_JPN_FINAL
-			// In most versions of the game, reloading the shotgun while going
-			// through a teleport in Deep Sea will cause the shotgun to load
-			// more ammo than its capacity. JPN Final fixes this here.
-			if (amount > hand->clipsizes[ammoindex] - hand->loadedammo[ammoindex]) {
-				amount = hand->clipsizes[ammoindex] - hand->loadedammo[ammoindex];
-			}
-#endif
-
-			hand->loadedammo[ammoindex] += amount;
-			g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] -= amount;
-
-			if (info->definition->ammos[ammoindex]->flags & AMMOFLAG_NORESERVE) {
-				g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] = 0;
-			}
-
-			if (func);
-		}
-	}
+    struct bgunreloadcontext context = {0}; context.weaponfunc = weaponfunc; context.info = info; context.hand = hand; context.onebullet = onebullet; context.checkunequipped = checkunequipped;
+    ggv_host host = { &context, bgunReloadRead, bgunReloadWrite, bgunReloadCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_RELOAD_TRANSFER), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: reload transfer refused immutable program");
+    }
+    // In most versions of the game, reloading the shotgun while going
+    // through a teleport in Deep Sea will cause the shotgun to load
+    // more ammo than its capacity. JPN Final fixes this here.
+    // The original `if (func);` has no observable effect.
 }
 
 void bgun0f098f8c(struct handweaponinfo *info, struct hand *hand)
 {
-	s32 i;
-
-	for (i = 0; i < 2; i++) {
-		if (weaponGetFunction(&hand->gset, i)) {
-			bgun0f098df8(i, info, hand, 0, 1);
-		}
-	}
+    struct bgunreloadcontext context = {0}; context.info = info; context.hand = hand;
+    ggv_host host = { &context, bgunReloadRead, bgunReloadWrite, bgunReloadCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_RELOAD_BOTH), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: both-slot reload refused immutable program");
+    }
 }
 
+struct bgunanyammocontext { s32 handnum; struct handweaponinfo info; };
+static ggv_value bgunAnyAmmoRead(void *opaque, ggv_binding binding)
+{
+    ggv_value value = {0}; (void)opaque; (void)binding; return value;
+}
+static void bgunAnyAmmoWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void)opaque; (void)binding; (void)value;
+}
+static ggv_value bgunAnyAmmoCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunanyammocontext *c = opaque; ggv_value value = {0}; (void)b; (void)d;
+    switch (service) {
+    case GGV_HAND_INFO_CAPTURE: bgunGetWeaponInfo(&c->info, c->handnum); break;
+    case GGV_RELOAD_AMMO_STATUS:
+        value.i = bgun0f098ca0(a.i, &c->info, &g_Vars.currentplayer->hands[c->handnum]); break;
+    default: break;
+    }
+    return value;
+}
 bool bgun0f099008(s32 handnum)
 {
-	struct handweaponinfo info;
-
-	bgunGetWeaponInfo(&info, handnum);
-
-	if (bgun0f098ca0(0, &info, &g_Vars.currentplayer->hands[handnum]) > 0) {
-		return true;
-	}
-
-	if (bgun0f098ca0(1, &info, &g_Vars.currentplayer->hands[handnum]) > 0) {
-		return true;
-	}
-
-	return false;
+    struct bgunanyammocontext context = {0}; context.handnum = handnum;
+    ggv_host host = { &context, bgunAnyAmmoRead, bgunAnyAmmoWrite, bgunAnyAmmoCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_ANY_AMMO), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: any-ammo predicate refused immutable program");
+    }
+    return result;
 }
 
+/* GGV AmmoEligibility services begin: borrowed metadata, no new index policy. */
+struct bgunammoeligibilitycontext { struct weaponfunc *func; struct weapon *weapon; };
+static ggv_value bgunAmmoEligibilityRead(void *opaque, ggv_binding binding)
+{
+    struct bgunammoeligibilitycontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_AMMO_FUNCTION_REF: value.ref = c->func; break;
+    case GGV_LEGACY_FUNCTION_TYPE: value.i = c->func->type; break;
+    case GGV_SPECIAL_LEGACY_VALUE: value.i = ((struct weaponfunc_special *) c->func)->specialfunc; break;
+    case GGV_LEGACY_AMMO_INDEX: value.i = c->func->ammoindex; break;
+    case GGV_AMMO_WEAPON_REF: value.ref = c->weapon->ammos[c->func->ammoindex]; break;
+    case GGV_AMMO_DEFINITION_TYPE: value.u = c->weapon->ammos[c->func->ammoindex]->type; break;
+    default: break;
+    } return value;
+}
+static void bgunAmmoEligibilityWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void) opaque; (void) binding; (void) value; /* Complete predicate has no stores. */
+}
+static ggv_value bgunAmmoEligibilityCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value value = {0}; (void) opaque;
+    if (service == GGV_AMMO_TOTAL_COUNT) value.i = bgunGetAmmoCount(a.i);
+    return value;
+}
+/* GGV AmmoEligibility services end. */
 bool bgun0f0990b0(struct weaponfunc *basefunc, struct weapon *weapon)
 {
-	if (!basefunc) {
-		return true;
-	}
-
-	if (basefunc->type == INVENTORYFUNCTYPE_NONE) {
-		return true;
-	}
-
-	if ((basefunc->type & 0xff) == INVENTORYFUNCTYPE_MELEE) {
-		return true;
-	}
-
-	if ((basefunc->type & 0xff) == INVENTORYFUNCTYPE_SPECIAL) {
-		struct weaponfunc_special *func = (struct weaponfunc_special *)basefunc;
-
-		if (func->specialfunc != HANDATTACKTYPE_DETONATE
-				&& func->specialfunc != HANDATTACKTYPE_BOOST
-				&& func->specialfunc != HANDATTACKTYPE_REVERTBOOST) {
-			return true;
-		}
-	}
-
-	if ((basefunc->type & 0xff) == INVENTORYFUNCTYPE_THROW) {
-		if (basefunc->ammoindex <= -1) {
-			return true;
-		}
-	}
-
-	if (basefunc->ammoindex >= 0
-			&& weapon->ammos[basefunc->ammoindex]
-			&& bgunGetAmmoCount(weapon->ammos[basefunc->ammoindex]->type) <= 0) {
-		return true;
-	}
-
-	return false;
+    struct bgunammoeligibilitycontext context = { basefunc, weapon };
+    ggv_host host = { &context, bgunAmmoEligibilityRead, bgunAmmoEligibilityWrite, bgunAmmoEligibilityCall };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_AMMO_ELIGIBILITY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: ammo exclusion predicate refused immutable program");
+        return false;
+    }
+    return result;
 }
 
+struct bgunhandexclusioncontext { struct hand *hand; s32 gunfunc; };
+static ggv_value bgunHandExclusionRead(void *opaque, ggv_binding binding)
+{
+    struct bgunhandexclusioncontext *c = opaque; ggv_value value = {0};
+    if (binding == GGV_QUERY_FUNCTION_I32) value.i = c->gunfunc;
+    return value;
+}
+static void bgunHandExclusionWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void)opaque; (void)binding; (void)value;
+}
+static ggv_value bgunHandExclusionCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunhandexclusioncontext *c = opaque; ggv_value value = {0}; (void)d;
+    switch (service) {
+    case GGV_EXCLUSION_FUNCTION: value.ref = weaponGetFunction(&c->hand->gset, c->gunfunc); break;
+    case GGV_EXCLUSION_WEAPON: value.ref = weaponFindById(c->hand->gset.weaponnum); break;
+    case GGV_HAND_CURRENT_FUNCTION: value.i = bgunIsUsingSecondaryFunction(); break;
+    case GGV_EXCLUSION_CHECK: value.b = bgun0f0990b0(a.ref, b.ref); break;
+    default: break;
+    }
+    return value;
+}
 bool bgun0f099188(struct hand *hand, s32 gunfunc)
 {
-	struct weaponfunc *func = weaponGetFunction(&hand->gset, gunfunc);
-	struct weapon *weapon = weaponFindById(hand->gset.weaponnum);
-
-	if (bgunIsUsingSecondaryFunction() == gunfunc) {
-		return false;
-	}
-
-	return bgun0f0990b0(func, weapon);
+    struct bgunhandexclusioncontext context = { hand, gunfunc };
+    ggv_host host = { &context, bgunHandExclusionRead, bgunHandExclusionWrite, bgunHandExclusionCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_HAND_EXCLUSION), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: hand exclusion refused immutable program");
+    }
+    return result;
 }
 
+struct bgunidlecontext {
+    struct handweaponinfo *info;
+    s32 handnum;
+    struct hand *hand;
+    s32 lvupdate;
+    struct hand *otherhand;
+    struct weaponfunc *func;
+};
+static ggv_value bgunIdleRead(void *opaque, ggv_binding binding)
+{
+    struct bgunidlecontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_STATE_INUSE: value.i = c->hand->inuse; break;
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_WEAPON_FUNCTION: value.i = c->hand->gset.weaponfunc; break;
+    case GGV_WEAPON_NUMBER: value.i = c->info->weaponnum; break;
+    case GGV_EMPTY_LVUPDATE: value.i = c->lvupdate; break;
+    case GGV_ANIM_WAIT_INCREMENT: value.i = c->hand->animframeinc; break;
+    case GGV_HAND_MODE_NEXT: value.u = c->hand->modenext; break;
+    case GGV_HAND_AUTO_BIT07: value.b = c->hand->unk0cc8_07; break;
+    case GGV_HAND_AUTO_BIT08: value.b = c->hand->unk0cc8_08; break;
+    case GGV_HAND_ACTIVATE_SECONDARY: value.b = c->hand->activatesecondary; break;
+    case GGV_GUNCTRL_WANTAMMO: value.b = c->info->gunctrl->wantammo; break;
+    case GGV_TRIGGER: value.b = c->hand->triggeron; break;
+    case GGV_IDLE_FUNCTION_TYPE: value.u = c->func->type; break;
+    case GGV_AUTO_OTHER_INUSE: value.i = c->otherhand->inuse; break;
+    case GGV_AUTO_OTHER_TRIGGER: value.b = c->otherhand->triggeron; break;
+    case GGV_AUTO_OTHER_BIT08: value.b = c->otherhand->unk0cc8_08; break;
+#if VERSION >= VERSION_PAL_BETA
+    case GGV_RECOVERY_PAL: value.b = true; break;
+#else
+    case GGV_RECOVERY_PAL: value.b = false; break;
+#endif
+    default: break;
+    }
+    return value;
+}
+static void bgunIdleWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunidlecontext *c = opaque;
+    switch (binding) {
+    case GGV_HAND_LASTDIRVALID: c->hand->lastdirvalid = value.b; break;
+    case GGV_BURST_BULLETS: c->hand->burstbullets = value.i; break;
+#if VERSION < VERSION_PAL_BETA
+    case GGV_ANIM_TICK_INCREMENT_LEGACY: c->hand->animframeincfreal = value.u; break;
+#endif
+    case GGV_REMAINDER: c->hand->shotremainder = value.f; break;
+    case GGV_WEAPON_FUNCTION: c->hand->gset.weaponfunc = value.i; break;
+    case GGV_RELOAD_MODE: c->hand->mode = value.u; break;
+    case GGV_HAND_MODE_NEXT: c->hand->modenext = value.u; break;
+    case GGV_RELOAD_COUNT: c->hand->count = value.i; break;
+    case GGV_RELOAD_COUNT60: c->hand->count60 = value.i; break;
+    case GGV_RELOAD_DOAUTOSELECT: g_Vars.currentplayer->doautoselect = value.i; break;
+    case GGV_HAND_AUTO_BIT07: c->hand->unk0cc8_07 = value.b; break;
+    case GGV_HAND_AUTO_BIT08: c->hand->unk0cc8_08 = value.b; break;
+    case GGV_HAND_ACTIVATE_SECONDARY: c->hand->activatesecondary = value.b; break;
+    case GGV_TRIGGER_RELEASED: c->hand->triggerreleased = value.b; break;
+    case GGV_ANIMATION_LATCH: c->hand->unk0cc8_01 = value.b; break;
+    case GGV_AUTO_OTHER_BIT08: c->otherhand->unk0cc8_08 = value.b; break;
+    default: break;
+    }
+}
+static ggv_value bgunIdleCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunidlecontext *c = opaque; ggv_value value = {0};
+    (void)d;
+    switch (service) {
+    case GGV_HAND_CURRENT_FUNCTION: value.i = bgunIsUsingSecondaryFunction(); break;
+    case GGV_HAND_READY_SWITCH: value.b = bgunIsReadyToSwitch(c->handnum); break;
+    case GGV_HAND_SET_STATE: value.b = bgunSetState(c->handnum, a.i); break;
+    case GGV_RELOAD_AMMO_STATUS: value.i = bgun0f098ca0(a.i, c->info, c->hand); break;
+    case GGV_TICK_IS_V2: value.b = wgV2RuntimeIsWeapon(c->info->weaponnum); break;
+    case GGV_IDLE_V2: value.b = wgV2RuntimeIdle(g_Vars.currentplayer, c->handnum); break;
+    case GGV_RELOAD_WEAPON_HAS_FLAG: value.b = weaponHasFlag(a.i, b.u); break;
+    /* Keep this at the donor's preprocessing location: the late local
+     * FUNCISSEC redefinition below uses a different storage adapter. */
+    case GGV_IDLE_STORED_FUNCTION: value.i = FUNCISSEC(); break;
+    case GGV_IDLE_ELIGIBILITY: value.b = bgun0f099188(c->hand, a.i); break;
+    case GGV_IDLE_CAPTURE_FUNCTION: c->func = weaponGetFunction(&c->hand->gset, a.i); break;
+    case GGV_IDLE_CAPTURE_OTHER: c->otherhand = &g_Vars.currentplayer->hands[1] - c->handnum; break;
+    case GGV_AUTO_SWITCH_WEAPON: bgunAutoSwitchWeapon(); break;
+    default: break;
+    }
+    return value;
+}
 s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
 {
-	bool usesec;
-	s32 gunfunc = bgunIsUsingSecondaryFunction();
-	s32 sp34;
-	s32 sp30;
-	bool changefunc;
-	s32 next;
-	struct hand *lhand;
-	struct weaponfunc *func;
+    struct bgunidlecontext context = { info, handnum, hand, lvupdate, NULL, NULL };
+    ggv_host host = { &context, bgunIdleRead, bgunIdleWrite, bgunIdleCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_IDLE), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: idle refused immutable program");
+    }
+    return result;
+}
 
-	hand->lastdirvalid = false;
-	hand->burstbullets = 0;
-#if VERSION < VERSION_PAL_BETA
-	hand->animframeincfreal = hand->animframeinc;
+/* Hand lifecycle hosts for the frozen GGV stock programs. Each context is
+ * invocation-borrowed: the passed info/hand/handnum/lvupdate, the captured
+ * func, the once-selected otherhand and the stack angle live only for one
+ * synchronous ggvExecute. Player and audio globals are reread at each binding
+ * or service. Animation/wait dispatch graph programs; cheat/catalog boundaries remain native. */
+struct bgunreloadtickcontext {
+    struct handweaponinfo *info; s32 handnum; struct hand *hand; s32 lvupdate;
+    struct weaponfunc *func; struct hand *otherhand;
+};
+
+struct bgunchangefunccontext {
+    struct handweaponinfo *info; s32 handnum; struct hand *hand; s32 lvupdate;
+};
+
+struct bgunarmpitchcontext { struct hand *hand; f32 angle; };
+
+static ggv_value bgunReloadTickRead(void *opaque, ggv_binding binding)
+{
+    struct bgunreloadtickcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_PASSED_HAND: value.ref = c->hand; break;
+    case GGV_EMPTY_LVUPDATE: value.i = c->lvupdate; break;
+    case GGV_WEAPON_NUMBER: value.i = c->info->weaponnum; break;
+    case GGV_WEAPON_FUNCTION: value.i = c->hand->gset.weaponfunc; break;
+    case GGV_STATE_CYCLES: value.i = c->hand->statecycles; break;
+    case GGV_STATE_MINOR: value.i = c->hand->stateminor; break;
+    case GGV_STATE_FLAGS: value.u = c->hand->stateflags; break;
+    case GGV_EMPTY_ANIM_MODE: value.i = c->hand->animmode; break;
+    case GGV_TRIGGER: value.b = c->hand->triggeron; break;
+    case GGV_RELOAD_PLAYER_DEAD: value.b = g_Vars.currentplayer->isdead; break;
+    case GGV_RELOAD_OTHER_STATE: value.i = c->otherhand->state; break;
+    case GGV_RELOAD_OTHER_STATEFRAMES: value.i = c->otherhand->stateframes; break;
+    case GGV_RELOAD_FUNC_AMMO_INDEX: value.i = c->func->ammoindex; break;
+    case GGV_RELOAD_AMMO_ANIMATION: value.ref = c->info->definition->ammos[c->func->ammoindex]->reload_animation; break;
+    case GGV_RELOAD_FUNC_AMMO_FLAGS: value.u = c->info->definition->ammos[c->func->ammoindex]->flags; break;
+    case GGV_RELOAD_JPN:
+#if VERSION >= VERSION_JPN_FINAL
+        value.b = true;
+#else
+        value.b = false;
 #endif
-	hand->shotremainder = 0;
+        break;
+    case GGV_RELOAD_DEVICES_ACTIVE: value.u = g_Vars.currentplayer->devicesactive; break;
+    case GGV_RELOAD_DEVICES_INHIBIT: value.u = g_Vars.currentplayer->devicesinhibit; break;
+    case GGV_RELOAD_COUNT60: value.i = c->hand->count60; break;
+    case GGV_RELOAD_COUNT: value.i = c->hand->count; break;
+    case GGV_RELOAD_VISIBLE: value.b = c->hand->visible; break;
+    case GGV_RELOAD_PAUSETIME60: value.i = c->hand->pausetime60; break;
+    case GGV_RELOAD_LVUPDATE240: value.i = g_Vars.lvupdate240; break;
+    case GGV_RELOAD_CAMERA_MODE: value.i = g_Vars.currentplayer->cameramode; break;
+    case GGV_RELOAD_PLAYER_INVINCIBLE: value.b = g_PlayerInvincible; break;
+    case GGV_RELOAD_WEAPON_BRIEFCASE2: value.i = WEAPON_BRIEFCASE2; break;
+    default: break;
+    } return value;
+}
 
-	// If ready to change gun due to manual switch, just do that
-	if (bgunIsReadyToSwitch(handnum) && bgunSetState(handnum, HANDSTATE_CHANGEGUN)) {
-		return lvupdate;
-	}
+static void bgunReloadTickWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunreloadtickcontext *c = opaque;
+    switch (binding) {
+    case GGV_EMPTY_ANIM_MODE: c->hand->animmode = value.i; break;
+    case GGV_ANIM_LOAD: c->hand->animload = value.i; break;
+    case GGV_RELOAD_GS_INT1: c->hand->gs_int1 = value.i; break;
+    case GGV_RELOAD_GS_INT2: c->hand->gs_int2 = value.i; break;
+    case GGV_STATE_MINOR: c->hand->stateminor = value.i; break;
+    case GGV_STATE_FRAMES: c->hand->stateframes = value.i; break;
+    case GGV_STATE_CYCLES: c->hand->statecycles = value.i; break;
+    case GGV_STATE_LAST_FRAME: c->hand->statelastframe = value.i; break;
+    case GGV_STATE_FLAGS: c->hand->stateflags = value.u; break;
+    case GGV_RELOAD_UNK0D0E_07: c->hand->unk0d0e_07 = value.b; break;
+    case GGV_RELOAD_INCREMENTAL: c->hand->incrementalreloading = value.b; break;
+    case GGV_RELOAD_EJECT_STATE: c->hand->ejectstate = value.i; break;
+    case GGV_RELOAD_MODE: c->hand->mode = value.u; break;
+    case GGV_RELOAD_PAUSETIME60: c->hand->pausetime60 = value.i; break;
+    case GGV_RELOAD_COUNT60: c->hand->count60 = value.i; break;
+    case GGV_RELOAD_COUNT: c->hand->count = value.i; break;
+    case GGV_RELOAD_UNK0CC8_02: c->hand->unk0cc8_02 = value.b; break;
+    case GGV_RELOAD_DOAUTOSELECT: g_Vars.currentplayer->doautoselect = value.i; break;
+    default: break;
+    }
+}
 
-	if (gunfunc == hand->gset.weaponfunc) {
-		hand->unk0cc8_07 = false;
-	}
+static ggv_value bgunReloadTickCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunreloadtickcontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_RELOAD_CAPTURE_FUNCTION: c->func = gsetGetWeaponFunction(&c->hand->gset); value.ref = c->func; break;
+    case GGV_RELOAD_SELECT_OTHER_HAND: c->otherhand = &g_Vars.currentplayer->hands[a.i]; break;
+    case GGV_EMPTY_SET_STATE: value.b = bgunSetState(a.i, b.i); break;
+    case GGV_RECOIL_TICKS: value.i = TICKS(a.i); break;
+    case GGV_HAND_START_ANIMATION: bgunStartAnimation(a.ref, b.i, d.ref); break;
+    case GGV_HAND_ANIM_A44: value.b = bgun0f098a44(a.ref, b.i); break;
+    case GGV_RELOAD_CHILD_TRANSFER: bgun0f098df8(a.i, c->info, c->hand, (u8)b.i, (u8)d.i); break;
+    case GGV_RELOAD_AMMO_STATUS: value.i = bgun0f098ca0(a.i, c->info, c->hand); break;
+    case GGV_RELOAD_SET_ARM_PITCH: bgunSetArmPitch(c->hand, a.f); break;
+    case GGV_RELOAD_IS_LOADED: value.b = bgunIsLoaded(); break;
+    case GGV_RELOAD_SOUND_START: sndStart(var80095200, SFX_RELOAD_DEFAULT, 0, -1, -1, -1, -1, -1); break;
+    case GGV_RELOAD_FILENUM2: value.i = weaponGetFileNum2(a.i); break;
+    case GGV_RELOAD_WEAPON_HAS_FLAG: value.b = weaponHasFlag(a.i, b.u); break;
+    default: break;
+    } return value;
+}
 
-	hand->unk0cc8_08 = false;
+static ggv_value bgunChangeFuncRead(void *opaque, ggv_binding binding)
+{
+    struct bgunchangefunccontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_PASSED_HAND: value.ref = c->hand; break;
+    case GGV_EMPTY_LVUPDATE: value.i = c->lvupdate; break;
+    case GGV_STATE_CYCLES: value.i = c->hand->statecycles; break;
+    case GGV_WEAPON_FUNCTION: value.i = c->hand->gset.weaponfunc; break;
+    case GGV_EMPTY_ANIM_MODE: value.i = c->hand->animmode; break;
+    default: break;
+    } return value;
+}
 
-	if (hand->inuse) {
-		sp34 = bgun0f098ca0(hand->gset.weaponfunc, info, hand);
+static void bgunChangeFuncWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunchangefunccontext *c = opaque;
+    switch (binding) {
+    case GGV_WEAPON_FUNCTION: c->hand->gset.weaponfunc = value.i; break;
+    case GGV_RIGHT_HAND_UNK0DD4: g_Vars.currentplayer->hands[HAND_RIGHT].unk0dd4 = value.i; break;
+    default: break;
+    }
+}
 
-		// Handle changing gun function
-		if (gunfunc != hand->gset.weaponfunc && hand->modenext != HANDMODE_RELOAD) {
-			changefunc = true;
+static ggv_value bgunChangeFuncCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunchangefunccontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_CHANGEFUNC_PRI_TO_SEC_ANIM: value.ref = gsetGetPriToSecAnim(&c->hand->gset); break;
+    case GGV_CHANGEFUNC_SEC_TO_PRI_ANIM: value.ref = gsetGetSecToPriAnim(&c->hand->gset); break;
+    case GGV_HAND_START_ANIMATION: bgunStartAnimation(a.ref, b.i, d.ref); break;
+    case GGV_EMPTY_SET_STATE: value.b = bgunSetState(a.i, b.i); break;
+    default: break;
+    } return value;
+}
 
-			if (hand->unk0cc8_07 && bgun0f098ca0(1 - hand->gset.weaponfunc, info, hand) < 0) {
-				changefunc = false;
-			}
+static ggv_value bgunArmPitchRead(void *opaque, ggv_binding binding)
+{
+    struct bgunarmpitchcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_ARM_PITCH_ANGLE: value.f = c->angle; break;
+    case GGV_ARM_PITCH_MATRIX: value.ref = &c->hand->posrotmtx; break;
+    default: break;
+    } return value;
+}
 
-			if (changefunc && info->weaponnum == WEAPON_COMBATKNIFE) {
-				if (sp34 == 0) {
-					hand->count60 = 0;
-					hand->count = 0;
-					hand->gset.weaponfunc = gunfunc;
+static void bgunArmPitchWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunarmpitchcontext *c = opaque;
+    switch (binding) {
+    case GGV_USE_POSROT: c->hand->useposrot = value.b; break;
+    case GGV_ARM_PITCH_M30: c->hand->posrotmtx.m[3][0] = value.f; break;
+    case GGV_ARM_PITCH_M31: c->hand->posrotmtx.m[3][1] = value.f; break;
+    case GGV_ARM_PITCH_M32: c->hand->posrotmtx.m[3][2] = value.f; break;
+    default: break;
+    }
+}
 
-					if (bgunSetState(handnum, HANDSTATE_RELOAD)) {
-						return lvupdate;
-					}
-				} else {
-					if (sp34 < 0) {
-						changefunc = false;
-					}
-				}
-			}
+static ggv_value bgunArmPitchCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value value = {0}; (void)opaque; (void)d;
+    switch (service) {
+    case GGV_ARM_PITCH_X_ROTATION: mtx4LoadXRotation(a.f, b.ref); break;
+    case GGV_ARM_PITCH_COSF: value.f = cosf(a.f); break;
+    case GGV_ARM_PITCH_SINF: value.f = sinf(a.f); break;
+    default: break;
+    } return value;
+}
 
-			if (changefunc) {
-				hand->unk0cc8_07 = false;
+static ggv_value bgunIsLoadedRead(void *opaque, ggv_binding binding)
+{
+    ggv_value value = {0}; (void)opaque;
+    switch (binding) {
+    case GGV_LOADED_GUNMEMOWNER: value.i = g_Vars.currentplayer->gunctrl.gunmemowner; break;
+    case GGV_LOADED_GUNMEMTYPE: value.i = g_Vars.currentplayer->gunctrl.gunmemtype; break;
+    case GGV_LOADED_GUNMEMNEW: value.i = g_Vars.currentplayer->gunctrl.gunmemnew; break;
+    case GGV_LOADED_MASTERLOADSTATE: value.i = g_Vars.currentplayer->gunctrl.masterloadstate; break;
+    default: break;
+    } return value;
+}
 
-				if (bgunSetState(handnum, HANDSTATE_CHANGEFUNC)) {
-					return lvupdate;
-				}
-			}
-		}
+static ggv_value bgunIsReloadingRead(void *opaque, ggv_binding binding)
+{
+    struct hand *hand = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_STATE_VALUE: value.i = hand->state; break;
+    default: break;
+    } return value;
+}
 
-		if (wgV2RuntimeIsWeapon(info->weaponnum)) {
-			/* Idle ammo is reload policy, never a graph branch selection. */
-			if (wgV2RuntimeIdle(g_Vars.currentplayer, handnum)) return lvupdate;
-			if ((hand->modenext == HANDMODE_RELOAD || (!hand->triggeron && sp34 == 0)) && sp34 >= 0 && sp34 < 2) {
-				hand->modenext = HANDMODE_NONE;
-				if (bgunSetState(handnum, HANDSTATE_RELOAD)) return lvupdate;
-			}
-			return 0;
-		}
-		if (sp34 < 0) {
-			// Attempted to shoot with no ammo
-
-			// Consider switching to another weapon
-			if (weaponHasFlag(info->weaponnum, WEAPONFLAG_THROWABLE)
-					&& (info->weaponnum != WEAPON_REMOTEMINE || handnum != HAND_LEFT)
-					&& bgunSetState(handnum, HANDSTATE_AUTOSWITCH)) {
-				return lvupdate;
-			}
-
-			// Consider switching to other gun function
-			usesec = FUNCISSEC();
-
-			if (usesec == gunfunc) {
-				sp30 = bgun0f098ca0(1 - hand->gset.weaponfunc, info, hand);
-
-				if (bgun0f099188(hand, 1 - hand->gset.weaponfunc)
-						&& info->weaponnum != WEAPON_REAPER) {
-					if (info->gunctrl->wantammo) {
-						func = weaponGetFunction(&hand->gset, 1 - hand->gset.weaponfunc);
-
-						if ((func->type & 0xff) != INVENTORYFUNCTYPE_MELEE) {
-							sp30 = -1;
-						}
-					} else {
-						sp30 = -1;
-					}
-				}
-
-				if (sp30 < 0) {
-					hand->unk0cc8_08 = true;
-				} else {
-					if (!weaponHasFlag(info->weaponnum, WEAPONFLAG_04000000)
-							|| hand->gset.weaponfunc == FUNC_SECONDARY) {
-						hand->unk0cc8_07 = true;
-
-						if (bgunSetState(handnum, HANDSTATE_CHANGEFUNC)) {
-							return lvupdate;
-						}
-					}
-				}
-			}
-		} else if (sp34 == 0) {
-			// Clip is empty
-			if (hand->triggeron && info->weaponnum != WEAPON_NONE) {
-				hand->unk0cc8_01 = false;
-
-				if (bgunSetState(handnum, HANDSTATE_ATTACKEMPTY)) {
-					return lvupdate;
-				}
-			} else {
-				hand->count60 = 0;
-				hand->count = 0;
-
-				if (bgunSetState(handnum, HANDSTATE_RELOAD)) {
-					hand->modenext = HANDMODE_NONE;
-					return lvupdate;
-				}
-			}
-		} else {
-			// Clip has ammo
-			if (hand->triggeron || (hand->activatesecondary && hand->gset.weaponfunc == FUNC_SECONDARY)) {
-				if (info->weaponnum != WEAPON_NONE) {
-					g_Vars.currentplayer->doautoselect = false;
-
-					hand->mode = HANDMODE_ATTACK;
-					hand->count = 0;
-					hand->count60 = 0;
-					hand->triggerreleased = false;
-					hand->activatesecondary = false;
-
-					if (bgunSetState(handnum, HANDSTATE_ATTACK)) {
-						return lvupdate;
-					}
-				}
-			}
-
-			// Not attacking, but the player may have attempted
-			// to change guns or reload while firing
-			if (hand->modenext != HANDMODE_NONE) {
-				next = hand->modenext;
-
-				hand->mode = hand->modenext;
-				hand->count60 = 0;
-				hand->count = 0;
-				hand->modenext = HANDMODE_NONE;
-
-				if (next == HANDMODE_RELOAD && sp34 < 2 && sp34 >= 0) {
-					if (bgunSetState(handnum, HANDSTATE_RELOAD)) {
-						if (handnum && handnum && handnum);
-						return lvupdate;
-					}
-				}
-			}
-		}
-	}
-
-	if (handnum == HAND_RIGHT) {
-		if (info->gunctrl->wantammo) {
-			bgunAutoSwitchWeapon();
-		} else {
-			lhand = &g_Vars.currentplayer->hands[1] - handnum;
-
-			if ((hand->unk0cc8_08 || !hand->inuse)
-					&& (lhand->unk0cc8_08 || !lhand->inuse)
-					&& (hand->triggeron || lhand->triggeron)) {
-				bgunAutoSwitchWeapon();
-			}
-
-			hand->unk0cc8_08 = lhand->unk0cc8_08 = false;
-		}
-	}
-
-	return 0;
+// The loaded/reloading predicates store nothing, but the executor requires a write callback.
+static void bgunHandPredicateWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void)opaque; (void)binding; (void)value;
 }
 
 void bgunSetArmPitch(struct hand *hand, f32 angle)
 {
-	hand->useposrot = true;
-
-	mtx4LoadXRotation(angle, &hand->posrotmtx);
-
-	hand->posrotmtx.m[3][0] = 0;
-	hand->posrotmtx.m[3][1] = (1.0f - cosf(angle)) * -80.0f;
-	hand->posrotmtx.m[3][2] = sinf(angle) * 15.0f;
+    struct bgunarmpitchcontext context = {0}; context.hand = hand; context.angle = angle;
+    ggv_host host = { &context, bgunArmPitchRead, bgunArmPitchWrite, bgunArmPitchCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_SET_ARM_PITCH), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: arm pitch refused immutable program");
+    }
 }
 
+struct bgunautoswitchcontext {
+    struct handweaponinfo *info;
+    s32 handnum;
+    struct hand *hand;
+    s32 lvupdate;
+    struct hand *otherhand;
+    struct handweaponinfo otherinfo;
+};
+static ggv_value bgunAutoSwitchRead(void *opaque, ggv_binding binding)
+{
+    struct bgunautoswitchcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_STATE_INUSE: value.i = c->hand->inuse; break;
+    case GGV_STATE_MINOR: value.i = c->hand->stateminor; break;
+    case GGV_STATE_FRAMES: value.i = c->hand->stateframes; break;
+    case GGV_WEAPON_FUNCTION: value.i = c->hand->gset.weaponfunc; break;
+    case GGV_WEAPON_NUMBER: value.i = c->info->weaponnum; break;
+    case GGV_EMPTY_LVUPDATE: value.i = c->lvupdate; break;
+    case GGV_ANIM_WAIT_INCREMENT: value.i = c->hand->animframeinc; break;
+    case GGV_HAND_MODE_NEXT: value.u = c->hand->modenext; break;
+    case GGV_RELOAD_PAL: value.b = PAL; break;
+    case GGV_NORMAL_MULTIPLAYER: value.b = g_Vars.normmplayerisrunning; break;
+    case GGV_MULTIPLAYER: value.b = g_Vars.mplayerisrunning; break;
+    case GGV_RELOAD_DOAUTOSELECT: value.i = g_Vars.currentplayer->doautoselect; break;
+    case GGV_AUTO_OTHER_INUSE: value.i = c->otherhand->inuse; break;
+    case GGV_AUTO_OTHER_FUNCTION: value.i = c->otherhand->gset.weaponfunc; break;
+    case GGV_RELOAD_OTHER_STATE: value.i = c->otherhand->state; break;
+    case GGV_AUTO_FRESH_OTHER_STATE: value.i = g_Vars.currentplayer->hands[1 - c->handnum].state; break;
+#if VERSION >= VERSION_PAL_BETA
+    case GGV_RECOVERY_PAL: value.b = true; break;
+#else
+    case GGV_RECOVERY_PAL: value.b = false; break;
+#endif
+    default: break;
+    }
+    return value;
+}
+static void bgunAutoSwitchWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunautoswitchcontext *c = opaque;
+    switch (binding) {
+    case GGV_STATE_MINOR: c->hand->stateminor = value.i; break;
+    case GGV_HAND_LASTDIRVALID: c->hand->lastdirvalid = value.b; break;
+#if VERSION < VERSION_PAL_BETA
+    case GGV_ANIM_TICK_INCREMENT_LEGACY: c->hand->animframeincfreal = value.u; break;
+#endif
+    case GGV_REMAINDER: c->hand->shotremainder = value.f; break;
+    case GGV_WEAPON_FUNCTION: c->hand->gset.weaponfunc = value.i; break;
+    case GGV_RELOAD_MODE: c->hand->mode = value.u; break;
+    case GGV_HAND_MODE_NEXT: c->hand->modenext = value.u; break;
+    case GGV_RELOAD_COUNT: c->hand->count = value.i; break;
+    case GGV_RELOAD_COUNT60: c->hand->count60 = value.i; break;
+    case GGV_RELOAD_PAUSETIME60: c->hand->pausetime60 = value.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunAutoSwitchCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunautoswitchcontext *c = opaque; ggv_value value = {0};
+    (void)b; (void)d;
+    switch (service) {
+    case GGV_HAND_CURRENT_FUNCTION: value.i = bgunIsUsingSecondaryFunction(); break;
+    case GGV_HAND_SET_STATE: value.b = bgunSetState(c->handnum, a.i); break;
+    case GGV_HAND_READY_SWITCH: value.b = bgunIsReadyToSwitch(c->handnum); break;
+    case GGV_RELOAD_SET_ARM_PITCH: bgunSetArmPitch(c->hand, a.f); break;
+    case GGV_HAND_DELETE_WEAPON: playermgrDeleteWeapon(c->handnum); break;
+    case GGV_HAND_FREE_ROCKET: bgunFreeHeldRocket(c->handnum); break;
+    case GGV_RELOAD_AMMO_STATUS: value.i = bgun0f098ca0(a.i, c->info, c->hand); break;
+    case GGV_AUTO_CAPTURE_OTHER:
+        c->otherhand = &g_Vars.currentplayer->hands[1 - c->handnum];
+        bgunGetWeaponInfo(&c->otherinfo, 1 - c->handnum);
+        break;
+    case GGV_AUTO_OTHER_AMMO_STATUS: value.i = bgun0f098ca0(a.i, &c->otherinfo, c->otherhand); break;
+    case GGV_AUTO_OTHER_ELIGIBILITY: value.b = bgun0f099188(c->otherhand, a.i); break;
+    case GGV_AUTO_SWITCH_WEAPON: bgunAutoSwitchWeapon(); break;
+    default: break;
+    }
+    return value;
+}
 s32 bgunTickIncAutoSwitch(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
 {
-	u32 stack;
-	s32 someval;
-	s32 gunfunc = bgunIsUsingSecondaryFunction();
-
-	if (!hand->inuse && bgunSetState(handnum, HANDSTATE_IDLE)) {
-		return lvupdate;
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_AUTOSWITCH_UNEQUIP) {
-		s32 delay = TICKS(16);
-
-		if (g_Vars.normmplayerisrunning) {
-			delay = TICKS(12);
-		}
-
-		if (hand->stateframes >= delay) {
-			hand->stateminor++; // to HANDSTATEMINOR_AUTOSWITCH_DELETE
-		} else {
-			bgunSetArmPitch(hand, hand->stateframes * MAX_PITCH / delay);
-		}
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_AUTOSWITCH_DELETE) {
-		hand->lastdirvalid = false;
-#if VERSION < VERSION_PAL_BETA
-		hand->animframeincfreal = hand->animframeinc;
-#endif
-		hand->shotremainder = 0;
-
-		if (bgunIsReadyToSwitch(handnum) && bgunSetState(handnum, HANDSTATE_CHANGEGUN)) {
-			if (g_Vars.mplayerisrunning) {
-				playermgrDeleteWeapon(handnum);
-			}
-
-			bgunFreeHeldRocket(handnum);
-
-			hand->mode = HANDMODE_6;
-			hand->stateminor = HANDSTATEMINOR_AUTOSWITCH_2;
-			hand->count = 0;
-			return 0;
-		}
-
-		if (hand->inuse) {
-			someval = bgun0f098ca0(gunfunc, info, hand);
-
-			if (info->weaponnum == WEAPON_TIMEDMINE || info->weaponnum == WEAPON_PROXIMITYMINE) {
-				hand->gset.weaponfunc = gunfunc;
-			}
-
-			if (info->weaponnum == WEAPON_REMOTEMINE
-					&& gunfunc != hand->gset.weaponfunc
-					&& bgunSetState(handnum, HANDSTATE_CHANGEFUNC)) {
-				return lvupdate;
-			}
-
-			if (g_Vars.currentplayer->doautoselect) {
-				struct hand *otherhand = &g_Vars.currentplayer->hands[1 - handnum];
-				struct handweaponinfo otherinfo;
-				bool ready = true;
-
-				bgunGetWeaponInfo(&otherinfo, 1 - handnum);
-
-				if (otherhand->inuse) {
-					if (bgun0f098ca0(0, &otherinfo, otherhand) >= 0) {
-						ready = false;
-					}
-
-					if (bgun0f098ca0(1, &otherinfo, otherhand) >= 0) {
-						ready = false;
-					}
-
-					if (bgun0f099188(otherhand, otherhand->gset.weaponfunc)) {
-						ready = true;
-					}
-				}
-
-				if (otherhand->state != HANDSTATE_IDLE && otherhand->state != HANDSTATE_AUTOSWITCH) {
-					ready = false;
-				}
-
-				if (ready) {
-					bgunAutoSwitchWeapon();
-				}
-			}
-
-			if (someval <= 1 && someval >= 0) {
-				if (g_Vars.currentplayer->hands[1 - handnum].state != HANDSTATE_RELOAD) {
-					hand->count60 = 0;
-					hand->count = 0;
-
-					if (bgunSetState(handnum, HANDSTATE_RELOAD)) {
-						if (info->weaponnum == WEAPON_COMBATKNIFE) {
-							hand->mode = HANDMODE_11;
-							hand->pausetime60 = TICKS(17);
-							hand->count60 = 0;
-							hand->count = -1;
-							hand->stateminor = HANDSTATEMINOR_AUTOSWITCH_2;
-						}
-
-						return lvupdate;
-					}
-				}
-			}
-
-			if (hand->modenext) {
-				hand->mode = hand->modenext;
-				hand->count60 = 0;
-				hand->count = 0;
-				hand->modenext = HANDMODE_NONE;
-			}
-		}
-
-		bgunSetArmPitch(hand, MAX_PITCH);
-	}
-
-	return 0;
+    struct bgunautoswitchcontext context = {0};
+    context.info = info; context.handnum = handnum; context.hand = hand; context.lvupdate = lvupdate;
+    ggv_host host = { &context, bgunAutoSwitchRead, bgunAutoSwitchWrite, bgunAutoSwitchCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_AUTO_SWITCH), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: autoswitch refused immutable program");
+    }
+    return result;
 }
 
 bool bgunIsReloading(struct hand *hand)
 {
-	if (hand->state == HANDSTATE_RELOAD) {
-		return true;
-	}
-
-	return false;
+    ggv_host host = { hand, bgunIsReloadingRead, bgunHandPredicateWrite }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_IS_RELOADING), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: reloading predicate refused immutable program"); return false;
+    }
+    return result;
 }
 
 s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
 {
-	u32 stack;
-	struct weaponfunc *func = gsetGetWeaponFunction(&hand->gset);
-
-	if (g_Vars.currentplayer->isdead) {
-		hand->animmode = HANDANIMMODE_IDLE;
-		hand->animload = -1;
-
-		if (bgunSetState(handnum, HANDSTATE_IDLE)) {
-			return lvupdate;
-		}
-	}
-
-	if (hand->statecycles == 0) {
-		struct hand *otherhand = &g_Vars.currentplayer->hands[1 - handnum];
-
-		hand->gs_int1 = -1;
-		hand->gs_int2 = 0;
-
-		if (otherhand->state == HANDSTATE_RELOAD && otherhand->stateframes < TICKS(20)) {
-			hand->stateminor = HANDSTATEMINOR_RELOAD_WAIT;
-		}
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_RELOAD_WAIT) {
-		struct hand *otherhand = &g_Vars.currentplayer->hands[1 - handnum];
-
-		if (otherhand->state == HANDSTATE_RELOAD && otherhand->stateframes < TICKS(20)) {
-			return 0;
-		}
-
-		hand->stateframes = 0;
-		hand->statecycles = 0;
-		hand->stateminor = HANDSTATEMINOR_RELOAD_MAIN;
-		hand->statelastframe = 0;
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_RELOAD_MAIN) {
-		if (hand->statecycles == 0) {
-			if (func && (func->ammoindex == 0 || func->ammoindex == 1)) {
-				if (info->definition->ammos[func->ammoindex]->reload_animation
-						&& info->weaponnum != WEAPON_COMBATKNIFE) {
-					bgunStartAnimation(info->definition->ammos[func->ammoindex]->reload_animation, handnum, hand);
-
-					hand->unk0d0e_07 = true;
-
-					if (info->definition->ammos[func->ammoindex]->flags & AMMOFLAG_INCREMENTALRELOAD) {
-						hand->incrementalreloading = true;
-					}
-
-					if (info->weaponnum == WEAPON_GRENADE || info->weaponnum == WEAPON_NBOMB) {
-						hand->ejectstate = EJECTSTATE_INACTIVE;
-					}
-				} else {
-					hand->stateminor++; // to HANDSTATEMINOR_RELOAD_LOWER
-				}
-			} else {
-				if (bgunSetState(handnum, HANDSTATE_IDLE)) {
-					return lvupdate;
-				}
-			}
-		} else {
-			if (info->definition->ammos[func->ammoindex]->flags & AMMOFLAG_INCREMENTALRELOAD) {
-				if (bgun0f098a44(hand, 1)) {
-					if ((hand->stateflags & HANDSTATEFLAG_00000010) == 0) {
-						s32 value;
-
-						bgun0f098df8(hand->gset.weaponfunc, info, hand, 1, 0);
-						hand->stateflags |= HANDSTATEFLAG_00000010;
-						value = bgun0f098ca0(hand->gset.weaponfunc, info, hand);
-
-						if (value >= 2) {
-							hand->incrementalreloading = false;
-						}
-
-						if (value == -1) {
-							hand->incrementalreloading = false;
-						}
-					}
-				} else {
-					hand->stateflags = 0;
-				}
-
-				if (hand->triggeron) {
-					hand->incrementalreloading = false;
-				}
-
-#if VERSION >= VERSION_JPN_FINAL
-				if (g_Vars.currentplayer->devicesactive & ~g_Vars.currentplayer->devicesinhibit & DEVICE_EYESPY) {
-					hand->incrementalreloading = false;
-				}
-#endif
-			} else {
-				if ((hand->stateflags & HANDSTATEFLAG_00000010) == 0) {
-					if (bgun0f098a44(hand, 1)) {
-						bgun0f098df8(hand->gset.weaponfunc, info, hand, 0, 0);
-						hand->stateflags |= HANDSTATEFLAG_00000010;
-					}
-				}
-			}
-
-			if (hand->animmode != HANDANIMMODE_BUSY) {
-				if (bgunSetState(handnum, HANDSTATE_IDLE)) {
-					return lvupdate;
-				}
-			}
-
-			if (1);
-		}
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_RELOAD_LOWER) {
-		if (hand->count60 > TICKS(15) || !hand->visible) {
-			hand->mode = HANDMODE_11;
-			hand->stateminor++; // to HANDSTATEMINOR_RELOAD_SOUND
-			hand->pausetime60 = TICKS(17);
-			hand->count60 = 0;
-			hand->count = 0;
-		} else {
-			bgunSetArmPitch(hand, hand->count60 * MAX_PITCH / TICKS(16));
-		}
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_RELOAD_SOUND) {
-		if (hand->count == 0) {
-			if (info->weaponnum == WEAPON_COMBATKNIFE
-					&& func->ammoindex >= 0
-					&& info->definition->ammos[func->ammoindex]->reload_animation) {
-				bgunStartAnimation(info->definition->ammos[func->ammoindex]->reload_animation, handnum, hand);
-				hand->unk0cc8_02 = true;
-			}
-
-			if ((hand->stateflags & HANDSTATEFLAG_00000010) == 0) {
-				bgun0f098df8(hand->gset.weaponfunc, info, hand, 0, 0);
-			}
-
-			if (g_Vars.lvupdate240 > 0
-					&& g_Vars.currentplayer->cameramode != CAMERAMODE_THIRDPERSON
-					&& bgunIsLoaded()
-					&& !g_PlayerInvincible
-					&& !g_Vars.currentplayer->isdead) {
-				switch (info->weaponnum) {
-				case WEAPON_NONE:
-				case WEAPON_UNARMED:
-				case WEAPON_COMBATKNIFE:
-				case WEAPON_LASER:
-				case WEAPON_GRENADE:
-				case WEAPON_TIMEDMINE:
-				case WEAPON_PROXIMITYMINE:
-				case WEAPON_REMOTEMINE:
-				case WEAPON_ECMMINE:
-				case WEAPON_COMMSRIDER:
-				case WEAPON_TRACERBUG:
-				case WEAPON_TARGETAMPLIFIER:
-				case WEAPON_BRIEFCASE2:
-					// No reload sound
-					break;
-				default:
-					sndStart(var80095200, SFX_RELOAD_DEFAULT, 0, -1, -1, -1, -1, -1);
-					break;
-				}
-			}
-		}
-
-		if (hand->count60 >= hand->pausetime60 && hand->count >= 2) {
-			hand->mode = HANDMODE_12;
-			hand->stateminor++; // to HANDSTATEMINOR_RELOAD_RAISE
-			hand->count60 = 0;
-			hand->count = 0;
-		} else {
-			bgunSetArmPitch(hand, MAX_PITCH);
-		}
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_RELOAD_RAISE) {
-		if (info->weaponnum == WEAPON_COMBATKNIFE) {
-			hand->animmode = HANDANIMMODE_IDLE;
-		}
-
-		if (hand->count == 0) {
-			g_Vars.currentplayer->doautoselect = false;
-		}
-
-		if (hand->count60 >= TICKS(23)
-				|| !weaponGetFileNum2(info->weaponnum)
-				|| !weaponHasFlag(info->weaponnum, WEAPONFLAG_00000040)
-				|| weaponHasFlag(info->weaponnum, WEAPONFLAG_00000080)) {
-			hand->mode = HANDMODE_NONE;
-			hand->count60 = 0;
-			hand->count = 0;
-
-			if (bgunSetState(handnum, HANDSTATE_IDLE)) {
-				return lvupdate;
-			}
-		} else {
-			bgunSetArmPitch(hand, (TICKS(23) - hand->count60) * MAX_PITCH / TICKS(23));
-		}
-	}
-
-	return 0;
+    struct bgunreloadtickcontext context = {0}; context.info = info; context.handnum = handnum; context.hand = hand; context.lvupdate = lvupdate;
+    ggv_host host = { &context, bgunReloadTickRead, bgunReloadTickWrite, bgunReloadTickCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_TICK_INC_RELOAD), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: reload tick refused immutable program"); return 0;
+    }
+    return result;
 }
 
 s32 bgunTickIncChangeFunc(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
 {
-	struct guncmd *cmd;
-	bool more = false;
-
-	if (hand->statecycles == 0) {
-		if (hand->gset.weaponfunc == FUNC_PRIMARY) {
-			cmd = gsetGetPriToSecAnim(&hand->gset);
-			hand->gset.weaponfunc = FUNC_SECONDARY;
-		} else {
-			cmd = gsetGetSecToPriAnim(&hand->gset);
-			hand->gset.weaponfunc = FUNC_PRIMARY;
-		}
-
-		more = false;
-
-		if (cmd != NULL) {
-			bgunStartAnimation(cmd, handnum, hand);
-			more = true;
-			g_Vars.currentplayer->hands[HAND_RIGHT].unk0dd4 = -1;
-		}
-	} else {
-		if (hand->animmode == HANDANIMMODE_BUSY) {
-			more = true;
-		}
-	}
-
-	if (!more && bgunSetState(handnum, HANDSTATE_IDLE)) {
-		return lvupdate;
-	}
-
-	return 0;
+    struct bgunchangefunccontext context = {0}; context.info = info; context.handnum = handnum; context.hand = hand; context.lvupdate = lvupdate;
+    ggv_host host = { &context, bgunChangeFuncRead, bgunChangeFuncWrite, bgunChangeFuncCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_TICK_INC_CHANGE_FUNC), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: function change tick refused immutable program"); return 0;
+    }
+    return result;
 }
 
 static const weapon_graph_held_function_t *bgunGetHeldGraph(struct gset *gset)
@@ -2070,687 +2132,477 @@ static void bgunApplyEntityGraphToWeapon(struct weaponobj *weapon,
 	}
 }
 
+/* Synchronous typed composition. Catalog generation/host/audio witnesses stay
+ * borrowed for this invocation only. Public-source profile selection remains
+ * a separately owned propagation gate; SLIDE/RUMBLE bodies are unconverted. */
+#include "gameplay_graph_values.h"
+struct bgunexpressioncontext {
+    struct hand *hand;
+    struct gunctrl *ctrl;
+    struct weaponfunc *func;
+    const weapon_graph_held_function_t *graph;
+    u32 flags;
+    s32 ammoindex;
+    bool legacyauto, automatic;
+    s32 acceleration, deceleration;
+    s32 functype, handnum;
+    struct handweaponinfo *info;
+    u32 *rontime, *rofftime;
+};
+static ggv_value bgunExpressionRead(void *opaque, ggv_binding binding)
+{
+    struct bgunexpressioncontext *context = opaque;
+    struct hand *hand = context->hand;
+    ggv_value value = {0};
+    switch (binding) {
+    case GGV_FUNCTION_FLAGS: value.u = context->flags; break;
+    case GGV_AMMO_INDEX: value.i = context->ammoindex; break;
+    case GGV_AUTOMATIC: value.b = context->automatic; break;
+    case GGV_ACCELERATION: value.i = context->acceleration; break;
+    case GGV_DECELERATION: value.i = context->deceleration; break;
+    case GGV_TRIGGER: value.b = hand->triggeron; break;
+    case GGV_STATE_FLAGS: value.u = hand->stateflags; break;
+    case GGV_BURST_BULLETS: value.i = hand->burstbullets; break;
+    case GGV_AIM: value.b = g_Vars.currentplayer->insightaimmode; break;
+    case GGV_LOADED_AMMO: value.i = hand->loadedammo[context->ammoindex]; break;
+    case GGV_AMMO_TYPE: value.i = context->ctrl->ammotypes[context->ammoindex]; break;
+    case GGV_SHOTGUN: value.b = hand->gset.weaponnum == WEAPON_SHOTGUN; break;
+    case GGV_SHOTGUN_DELAY: value.i = TICKS(13); break;
+    case GGV_LASER: value.b = hand->gset.weaponnum == WEAPON_LASER; break;
+    /* Kept for the separately addressable legacy prefix programs only. */
+    case GGV_INITIAL_RPM:
+        if (context->graph && context->graph->has_initial_rpm) value.f = context->graph->initial_rpm;
+        else if (context->legacyauto) value.f = ((struct weaponfunc_shootauto *)context->func)->initialrpm;
+        break;
+    case GGV_MAX_RPM:
+        if (context->graph && context->graph->has_max_rpm) value.f = context->graph->max_rpm;
+        else if (context->legacyauto) value.f = ((struct weaponfunc_shootauto *)context->func)->maxrpm;
+        break;
+    case GGV_CLOCK: value.f = LVUPDATE60FREAL(); break;
+    case GGV_SPOOL: value.f = hand->gs_float1; break;
+    case GGV_STATE_FRAMES: value.i = hand->stateframes; break;
+    case GGV_SHOTS: value.i = hand->shotstotake; break;
+    case GGV_REMAINDER: value.f = hand->shotremainder; break;
+    case GGV_FIRING: value.b = hand->firing; break;
+    case GGV_GRAPH_FLAGS: value.u = context->graph->flags; break;
+    case GGV_LEGACY_FLAGS: value.u = context->func->flags; break;
+    case GGV_GRAPH_AMMO_SLOT: value.i = context->graph->ammo_slot; break;
+    case GGV_LEGACY_AMMO_INDEX: value.i = context->func ? context->func->ammoindex : -1; break;
+    case GGV_GRAPH_HAS_TYPE: value.b = context->graph->has_function_type_id; break;
+    case GGV_GRAPH_FUNCTION_TYPE: value.i = context->graph->function_type_id; break;
+    case GGV_LEGACY_FUNCTION_TYPE: value.i = context->func ? context->func->type : INVENTORYFUNCTYPE_NONE; break;
+    case GGV_FUNCTION_TYPE: value.i = context->functype; break;
+    case GGV_LEGACY_AUTOMATIC: value.b = context->legacyauto; break;
+    case GGV_GRAPH_HAS_MAX_RPM: value.b = context->graph->has_max_rpm; break;
+    case GGV_GRAPH_HAS_ACCEL: value.b = context->graph->has_turret_accel; break;
+    case GGV_GRAPH_HAS_DECEL: value.b = context->graph->has_turret_decel; break;
+    case GGV_GRAPH_ACCEL: value.i = context->graph->turret_accel; break;
+    case GGV_GRAPH_DECEL: value.i = context->graph->turret_decel; break;
+    case GGV_LEGACY_ACCEL: value.i = ((struct weaponfunc_shootauto *)context->func)->turretaccel; break;
+    case GGV_LEGACY_DECEL: value.i = ((struct weaponfunc_shootauto *)context->func)->turretdecel; break;
+    case GGV_GRAPH_HAS_INITIAL_RPM: value.b = context->graph->has_initial_rpm; break;
+    case GGV_GRAPH_INITIAL_RPM: value.f = context->graph->initial_rpm; break;
+    case GGV_GRAPH_MAX_RPM: value.f = context->graph->max_rpm; break;
+    case GGV_LEGACY_INITIAL_RPM: value.f = ((struct weaponfunc_shootauto *)context->func)->initialrpm; break;
+    case GGV_LEGACY_MAX_RPM: value.f = ((struct weaponfunc_shootauto *)context->func)->maxrpm; break;
+    case GGV_GE_FLASH: value.b = g_BgunGeMuzzleFlashes; break;
+    case GGV_FLASH: value.b = hand->flashon; break;
+    case GGV_LOAD_SLIDE: value.f = hand->loadslide; break;
+    case GGV_STATE_VAR1: value.i = hand->statevar1; break;
+    case GGV_ATTACK_TYPE: value.i = hand->attacktype; break;
+    case GGV_BIND_ATTACK_SHOOT: value.i = HANDATTACKTYPE_SHOOT; break;
+    case GGV_ATTACK_PROJECTILE: value.i = HANDATTACKTYPE_SHOOTPROJECTILE; break;
+    case GGV_FUNCTION_SHOOT_LOW: value.i = INVENTORYFUNCTYPE_SHOOT; break;
+    case GGV_FUNCTION_SHOOT_SINGLE: value.i = INVENTORYFUNCTYPE_SHOOT_SINGLE; break;
+    case GGV_CURRENT_FRAME: value.i = g_Vars.lvframe60; break;
+    case GGV_OTHER_LAST_FRAME: value.i = g_Vars.currentplayer->hands[1-context->handnum].lastshootframe60; break;
+    case GGV_ALLOW_SHOOT_FRAME: value.i = hand->allowshootframe; break;
+    case GGV_LAST_SHOOT_FRAME: value.i = hand->lastshootframe60; break;
+    case GGV_AUDIO_SLOT_2: value.ref = hand->audiohandle2; break;
+    case GGV_AUDIO_SLOT_3: value.ref = hand->audiohandle3; break;
+    case GGV_MAULER: value.b = hand->gset.weaponnum == WEAPON_MAULER; break;
+    case GGV_MATMOT: value.f = hand->matmot1; break;
+    case GGV_PRIORITY_ENABLED:
+#if VERSION >= VERSION_NTSC_1_0
+        value.b = true;
+#endif
+        break;
+    case GGV_SOUND_STOPPED: value.i = AL_STOPPED; break;
+    case GGV_BINDING_COUNT: break;
+    }
+    return value;
+}
+static void bgunExpressionWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunexpressioncontext *context = opaque;
+    struct hand *hand = context->hand;
+    switch (binding) {
+    case GGV_FUNCTION_FLAGS: context->flags = value.u; break;
+    case GGV_AMMO_INDEX: context->ammoindex = value.i; break;
+    case GGV_FUNCTION_TYPE: context->functype = value.i; break;
+    case GGV_LEGACY_AUTOMATIC: context->legacyauto = value.b; break;
+    case GGV_AUTOMATIC: context->automatic = value.b; break;
+    case GGV_ACCELERATION: context->acceleration = value.i; break;
+    case GGV_DECELERATION: context->deceleration = value.i; break;
+    case GGV_SPOOL: hand->gs_float1 = value.f; break;
+    case GGV_STATE_FRAMES: hand->stateframes = value.i; break;
+    case GGV_SHOTS: hand->shotstotake = value.i; break;
+    case GGV_REMAINDER: hand->shotremainder = value.f; break;
+    case GGV_FIRING: hand->firing = value.b; break;
+    case GGV_BURST_BULLETS: hand->burstbullets = value.i; break;
+    case GGV_FLASH: hand->flashon = value.b; break;
+    case GGV_LOAD_SLIDE: hand->loadslide = value.f; break;
+    case GGV_STATE_VAR1: hand->statevar1 = value.i; break;
+    case GGV_STATE_FLAGS: hand->stateflags = value.u; break;
+    case GGV_LOADED_AMMO: hand->loadedammo[context->ammoindex] = value.i; break;
+    case GGV_ATTACK_TYPE: hand->attacktype = value.i; break;
+    case GGV_ALLOW_SHOOT_FRAME: hand->allowshootframe = value.i; break;
+    case GGV_LAST_SHOOT_FRAME: hand->lastshootframe60 = value.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunExpressionCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value c)
+{
+    struct bgunexpressioncontext *context = opaque;
+    struct hand *hand = context->hand;
+    ggv_value value = {0};
+    (void)c;
+    switch (service) {
+    case GGV_RESOLVE_GRAPH:
+        context->graph = bgunGetHeldGraph(&hand->gset);
+        value.b = context->graph != NULL;
+        break;
+    case GGV_OVERRIDE_ON: mainOverrideVariable("rontime", context->rontime); break;
+    case GGV_OVERRIDE_OFF: mainOverrideVariable("rofftime", context->rofftime); break;
+    case GGV_START_SLIDE: bgunStartSlide(context->handnum); break;
+    case GGV_RUMBLE: bgunRumble(context->handnum, context->info->weaponnum); break;
+    case GGV_FIRESLOT_DURATION: value.i = gsetGetFireslotDuration(&hand->gset); break;
+    case GGV_SINGLE_SOUND: value.i = gsetGetSingleShootSound(&hand->gset); break;
+    case GGV_CURRENT_PRIORITY: value.i = osGetThreadPri(0); break;
+    case GGV_AUDIO_PRIORITY: value.i = osGetThreadPri(&g_AudioManager.thread); break;
+    case GGV_SET_PRIORITY: osSetThreadPri(0, a.i); break;
+    case GGV_SOUND_STATE: value.i = a.ref ? sndGetState(a.ref) : AL_STOPPED; break;
+    case GGV_SOUND_STOP: if (a.ref) audioStop(a.ref); break;
+    case GGV_SOUND_START:
+        if (a.i == 2) value.ref = sndStart(var80095200, b.i, &hand->audiohandle2, -1, -1, -1, -1, -1);
+        else if (a.i == 3) value.ref = sndStart(var80095200, b.i, &hand->audiohandle3, -1, -1, -1, -1, -1);
+        break;
+    case GGV_SOUND_EVENT: if (a.ref) audioPostEvent(a.ref, AL_SNDP_PITCH_EVT, b.i); break;
+    case GGV_SERVICE_COUNT: break;
+    }
+    return value;
+}
 s32 bgun0f09a3f8(struct hand *hand, struct weaponfunc *func)
 {
-	bool burst = false;
-	bool smallburst = false;
-	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
-	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
-	u32 funcflags = graph ? graph->flags : func->flags;
-	s32 ammoindex = bgunGetAmmoIndexFromGraph(func, graph);
-	s32 functype = bgunGetFunctionTypeFromGraph(func, graph);
-	bool legacyauto = (functype & 0xff00) == 0x100;
-	bool isauto = (graph && graph->has_max_rpm) ? true : legacyauto;
-	s32 turretaccel = 0;
-	s32 turretdecel = 0;
-
-	if (isauto) {
-		if (graph && graph->has_turret_accel) {
-			turretaccel = graph->turret_accel;
-		} else if (legacyauto) {
-			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
-			turretaccel = autofunc->turretaccel;
-		}
-
-		if (graph && graph->has_turret_decel) {
-			turretdecel = graph->turret_decel;
-		} else if (legacyauto) {
-			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
-			turretdecel = autofunc->turretdecel;
-		}
-	}
-
-	if ((funcflags & FUNCFLAG_BURST3) && hand->burstbullets < 3) {
-		// Make automatics do single shot when holding aim
-		if (!g_Vars.currentplayer->insightaimmode || !isauto) {
-			// Not aiming and not an automatic weapon
-			smallburst = true;
-		}
-	}
-
-	if ((funcflags & FUNCFLAG_BURST2) && hand->burstbullets < 2) {
-		smallburst = true;
-	}
-
-	if ((funcflags & FUNCFLAG_BURST5) && hand->burstbullets < 5) {
-		smallburst = true;
-	}
-
-	if ((funcflags & FUNCFLAG_BURST50) && hand->burstbullets < 50) {
-		burst = true;
-	}
-
-	if (smallburst) {
-		burst = true;
-	}
-
-	if (hand->triggeron || (hand->stateflags & HANDSTATEFLAG_00000010) == 0 || burst) {
-		if (ammoindex >= 0
-				&& hand->loadedammo[ammoindex] == 0
-				&& ctrl->ammotypes[ammoindex] >= 0) {
-			// Clip is empty
-			return -1;
-		}
-
-		if (isauto) {
-			if (turretaccel > 0) {
-				if (hand->gs_float1 < 1) {
-					hand->gs_float1 += LVUPDATE60FREAL() / turretaccel;
-
-					if (hand->gs_float1 > 1) {
-						hand->gs_float1 = 1;
-						return 1;
-					}
-				}
-			} else {
-				hand->gs_float1 = 1;
-			}
-
-			return 1;
-		}
-
-		hand->gs_float1 = 1;
-
-		if (smallburst) {
-			if (hand->burstbullets > 0) {
-				s32 delay = 3;
-
-				if (hand->gset.weaponnum == WEAPON_SHOTGUN) {
-					delay = TICKS(13);
-				}
-
-				if (hand->stateframes < delay) {
-					return 0;
-				}
-			}
-
-			hand->stateframes = 0;
-		}
-
-		if ((funcflags & FUNCFLAG_BURST3) && hand->burstbullets == 2) {
-			smallburst = false;
-		}
-
-		if ((funcflags & FUNCFLAG_BURST2) && hand->burstbullets == 1) {
-			smallburst = false;
-		}
-
-		if ((funcflags & FUNCFLAG_BURST5) && hand->burstbullets == 4) {
-			smallburst = false;
-		}
-
-		if (smallburst) {
-			return 1;
-		}
-
-		return 2;
-	}
-
-	if (isauto) {
-		if (turretdecel > 0) {
-			if (hand->gs_float1 > 0) {
-				hand->gs_float1 -= LVUPDATE60FREAL() / turretdecel;
-
-				if (hand->gs_float1 < 0) {
-					hand->gs_float1 = 0;
-					return -1;
-				}
-
-				return 1;
-			}
-		} else {
-			hand->gs_float1 = 0;
-		}
-
-		return -1;
-	}
-
-	return -1;
+    struct bgunexpressioncontext context = {0};
+    context.hand = hand;
+    context.ctrl = &g_Vars.currentplayer->gunctrl;
+    context.func = func;
+    ggv_host host = { &context, bgunExpressionRead, bgunExpressionWrite, bgunExpressionCall };
+    int32_t result = -1;
+    /* Immutable preparation and service dependency checks precede effects. */
+    if (!ggvExecute(ggvStockProgram(GGV_SHOOT_CONTROL_FULL), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: shooting control refused immutable program");
+    }
+    return result;
 }
-
 void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, struct weaponfunc *func)
 {
-	bool usesammo = true;
-	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
-	u32 funcflags = graph ? graph->flags : func->flags;
-	s32 ammoindex = bgunGetAmmoIndexFromGraph(func, graph);
-	s32 functype = bgunGetFunctionTypeFromGraph(func, graph);
-	bool legacyauto = (functype & 0xff00) == 0x100;
-	bool isauto = (graph && graph->has_max_rpm) ? true : legacyauto;
-
-	static u32 rontime = 2;
-	static u32 rofftime = 4;
-
-	mainOverrideVariable("rontime", &rontime);
-	mainOverrideVariable("rofftime", &rofftime);
-
-	hand->firing = true;
-
-	if (isauto) {
-		f32 tmp;
-		f32 tmp2;
-		f32 initialrpm = graph && graph->has_initial_rpm ? graph->initial_rpm : 0.0f;
-		f32 maxrpm = graph && graph->has_max_rpm ? graph->max_rpm : 0.0f;
-
-		if (legacyauto) {
-			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
-			if (!graph || !graph->has_initial_rpm) {
-				initialrpm = autofunc->initialrpm;
-			}
-			if (!graph || !graph->has_max_rpm) {
-				maxrpm = autofunc->maxrpm;
-			}
-		}
-
-		tmp = initialrpm + (maxrpm - initialrpm) * hand->gs_float1;
-		tmp2 = tmp / 60.0f * (LVUPDATE60FREAL() / 60.0f) + hand->shotremainder;
-
-		hand->shotstotake = tmp2;
-		hand->shotremainder = tmp2 - hand->shotstotake;
-
-		if (hand->shotstotake <= 0) {
-			if ((hand->stateflags & HANDSTATEFLAG_00000010) == 0) {
-				hand->shotstotake++;
-			} else {
-				hand->firing = false;
-			}
-		}
-	} else {
-		hand->shotstotake = 1;
-
-		if (hand->gset.weaponnum == WEAPON_LASER) {
-			usesammo = false;
-		}
-	}
-
-	hand->burstbullets += hand->shotstotake;
-
-	if (funcflags & FUNCFLAG_NOMUZZLEFLASH) {
-		hand->flashon = false;
-	} else {
-		if (g_BgunGeMuzzleFlashes) {
-			if ((!isauto && (functype & 0xff) == INVENTORYFUNCTYPE_SHOOT)
-					|| functype == INVENTORYFUNCTYPE_SHOOT_SINGLE
-					|| (hand->shotstotake & 1)) {
-				hand->flashon = true;
-			}
-		} else {
-			hand->flashon = true;
-		}
-	}
-
-	bgunStartSlide(handnum);
-
-	hand->loadslide = 0;
-
-	if (hand->firing) {
-		hand->statevar1 = hand->stateframes;
-		hand->stateflags |= HANDSTATEFLAG_00000020;
-		hand->stateflags |= HANDSTATEFLAG_00000010;
-
-		bgunRumble(handnum, info->weaponnum);
-
-		if (usesammo && ammoindex >= 0) {
-			hand->loadedammo[ammoindex] -= hand->shotstotake;
-
-			if (hand->loadedammo[ammoindex] < 0) {
-				// Note: loadedammo is negative
-				hand->shotstotake += hand->loadedammo[ammoindex];
-				hand->loadedammo[ammoindex] = 0;
-			}
-		}
-
-		switch (functype & 0xff00) {
-		case 0:
-		case 0x100:
-			hand->attacktype = HANDATTACKTYPE_SHOOT;
-			break;
-		case 0x200:
-			hand->attacktype = HANDATTACKTYPE_SHOOTPROJECTILE;
-			break;
-		}
-	}
-
-	if (hand->firing) {
-		bool playsound = false;
-
-		if (gsetGetFireslotDuration(&hand->gset) > 0) {
-			if (g_Vars.lvframe60 != g_Vars.currentplayer->hands[1 - handnum].lastshootframe60
-					&& g_Vars.lvframe60 > hand->allowshootframe) {
-				hand->allowshootframe = g_Vars.lvframe60 + gsetGetFireslotDuration(&hand->gset);
-				playsound = true;
-			}
-		} else {
-			if (hand->firing) {
-				playsound = true;
-			}
-		}
-
-		if (playsound) {
-#if VERSION >= VERSION_NTSC_1_0
-			OSPri prevpri = osGetThreadPri(0);
-			osSetThreadPri(0, osGetThreadPri(&g_AudioManager.thread) + 1);
-#endif
-
-			if (hand->audiohandle2 && sndGetState(hand->audiohandle2) != AL_STOPPED) {
-				audioStop(hand->audiohandle2);
-			}
-
-			if (hand->audiohandle3 && sndGetState(hand->audiohandle3) != AL_STOPPED) {
-				audioStop(hand->audiohandle3);
-			}
-
-			if (gsetGetSingleShootSound(&hand->gset)) {
-				struct sndstate *handle = NULL;
-
-				if (hand->audiohandle2 == NULL) {
-					handle = sndStart(var80095200, gsetGetSingleShootSound(&hand->gset), &hand->audiohandle2, -1, -1, -1, -1, -1);
-				} else if (hand->audiohandle3 == NULL) {
-					handle = sndStart(var80095200, gsetGetSingleShootSound(&hand->gset), &hand->audiohandle3, -1, -1, -1, -1, -1);
-				}
-
-				hand->lastshootframe60 = g_Vars.lvframe60;
-
-				if (hand->gset.weaponnum == WEAPON_MAULER && handle) {
-					s32 matmot = hand->matmot1;
-					f32 tmp;
-					f32 frac = matmot / 3.0f;
-
-					if (frac > 1.0f) {
-						frac = 1.0f;
-					}
-
-					tmp = 1.0f - frac * 0.4f;
-
-					audioPostEvent(handle, AL_SNDP_PITCH_EVT, *(s32 *) &tmp);
-				}
-
-			}
-
-#if VERSION >= VERSION_NTSC_1_0
-			osSetThreadPri(0, prevpri);
-#endif
-		}
-	}
+    static u32 rontime = 2;
+    static u32 rofftime = 4;
+    struct bgunexpressioncontext context = {0};
+    context.hand = hand;
+    context.func = func;
+    context.handnum = handnum;
+    context.info = info;
+    context.rontime = &rontime;
+    context.rofftime = &rofftime;
+    ggv_host host = { &context, bgunExpressionRead, bgunExpressionWrite, bgunExpressionCall };
+    int32_t usesammo;
+    if (!ggvExecute(ggvStockProgram(GGV_SHOT_COMMIT_FULL), &host, &usesammo)) {
+        sysLogPrintf(LOG_WARNING, "GGV: shooting commit refused immutable program");
+    }
 }
 
+/* GGV attack services begin: synchronous borrowed recoil/animation context. */
+struct bgunattackcontext {
+    struct hand *hand; struct handweaponinfo *info; s32 handnum;
+    struct weaponfunc *func; const weapon_graph_held_function_t *graph;
+    struct weapon *definition; u32 *gkef; f32 vibration[12];
+};
+static ggv_value bgunAttackRead(void *opaque, ggv_binding binding)
+{
+    struct bgunattackcontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_RECOVERY_PAL: v.b = PAL; break;
+    case GGV_RECOVERY_JPN: v.b = VERSION >= VERSION_JPN_FINAL; break;
+    case GGV_GRAPH_RECOIL_24_HAS: v.b = c->graph->has_recoil_anim_unk24; break;
+    case GGV_GRAPH_RECOIL_24: v.i = c->graph->recoil_anim_unk24; break;
+    case GGV_LEGACY_RECOIL_24: v.i = ((struct weaponfunc_shoot *) c->func)->unk24; break;
+    case GGV_GRAPH_RECOIL_25_HAS: v.b = c->graph->has_recoil_anim_unk25; break;
+    case GGV_GRAPH_RECOIL_25: v.i = c->graph->recoil_anim_unk25; break;
+    case GGV_LEGACY_RECOIL_25: v.i = ((struct weaponfunc_shoot *) c->func)->unk25; break;
+    case GGV_GRAPH_RECOIL_26_HAS: v.b = c->graph->has_recoil_anim_unk26; break;
+    case GGV_GRAPH_RECOIL_26: v.i = c->graph->recoil_anim_unk26; break;
+    case GGV_LEGACY_RECOIL_26: v.i = ((struct weaponfunc_shoot *) c->func)->unk26; break;
+    case GGV_GRAPH_RECOIL_27_HAS: v.b = c->graph->has_recoil_anim_unk27; break;
+    case GGV_GRAPH_RECOIL_27: v.i = c->graph->recoil_anim_unk27; break;
+    case GGV_LEGACY_RECOIL_27: v.i = ((struct weaponfunc_shoot *) c->func)->unk27; break;
+    case GGV_GRAPH_RECOIL_TIME_HAS: v.b = c->graph->has_recoverytime_ticks60; break;
+    case GGV_GRAPH_RECOIL_TIME: v.i = c->graph->recoverytime_ticks60; break;
+    case GGV_LEGACY_RECOIL_TIME: v.i = ((struct weaponfunc_shoot *) c->func)->recoverytime60; break;
+    case GGV_GRAPH_RECOIL_DIST_HAS: v.b = c->graph->has_recoildist; break;
+    case GGV_GRAPH_RECOIL_DIST: v.f = c->graph->recoildist; break;
+    case GGV_LEGACY_RECOIL_DIST: v.f = ((struct weaponfunc_shoot *) c->func)->recoildist; break;
+    case GGV_GRAPH_RECOIL_ANGLE_HAS: v.b = c->graph->has_recoilangle; break;
+    case GGV_GRAPH_RECOIL_ANGLE: v.f = c->graph->recoilangle; break;
+    case GGV_LEGACY_RECOIL_ANGLE: v.f = ((struct weaponfunc_shoot *) c->func)->recoilangle; break;
+    case GGV_TRIGGER_RELEASED: v.b = c->hand->triggerreleased; break;
+    case GGV_ROTX_START: v.f = c->hand->rotxstart; break;
+    case GGV_ROTX_END: v.f = c->hand->rotxend; break;
+    case GGV_ROTX_OFFSET: v.f = c->hand->rotxoffset; break;
+    case GGV_USE_POSROT: v.b = c->hand->useposrot; break;
+    case GGV_STATE_MINOR: v.i = c->hand->stateminor; break;
+    case GGV_ANIMATION_LATCH: v.b = c->hand->unk0cc8_01; break;
+    case GGV_MATMOT2: v.f = c->hand->matmot2; break;
+    case GGV_MATMOT1: v.f = c->hand->matmot1; break;
+    case GGV_POS_START_X: v.f = c->hand->posstart.x; break;
+    case GGV_POS_START_Y: v.f = c->hand->posstart.y; break;
+    case GGV_POS_START_Z: v.f = c->hand->posstart.z; break;
+    case GGV_POS_END_X: v.f = c->hand->posend.x; break;
+    case GGV_POS_END_Y: v.f = c->hand->posend.y; break;
+    case GGV_POS_END_Z: v.f = c->hand->posend.z; break;
+    case GGV_POS_OFFSET_X: v.f = c->hand->posoffset.x; break;
+    case GGV_POS_OFFSET_Y: v.f = c->hand->posoffset.y; break;
+    case GGV_POS_OFFSET_Z: v.f = c->hand->posoffset.z; break;
+    case GGV_AIM_POS_X: v.f = c->hand->aimpos.x; break;
+    case GGV_AIM_POS_Z: v.f = c->hand->aimpos.z; break;
+    case GGV_DEFINITION_POS_Z: v.f = c->definition->posz; break;
+    case GGV_RECOIL_PI: v.f = M_PI; break;
+    case GGV_RECOIL_BAD_TAU: v.f = M_BADTAU; break;
+    case GGV_POS_MATRIX: v.ref = &c->hand->posrotmtx; break;
+    case GGV_POS_COORD: v.ref = &c->hand->posoffset; break;
+    case GGV_STATE_CYCLES: v.i = c->hand->statecycles; break;
+    case GGV_BIND_ANIMATION_BUSY: v.b = c->hand->animmode == HANDANIMMODE_BUSY; break;
+    case GGV_FIRE_ANIMATION: v.ref = c->func->fire_animation; break;
+    case GGV_PASSED_HAND: v.ref = c->hand; break;
+    case GGV_VIBRATION_START: v.ref = ((struct weaponfunc_shootauto *) c->func)->vibrationstart; break;
+    case GGV_VIBRATION_MAX: v.ref = ((struct weaponfunc_shootauto *) c->func)->vibrationmax; break;
+    case GGV_VIBRATION_SCRATCH: v.ref = c->vibration; break;
+    case GGV_VIBRATION_UPGRADE: v.ref = c->hand->upgrademult; break;
+    case GGV_VIBRATION_FINAL: v.ref = c->hand->finalmult; break;
+    case GGV_TRIGGER: v.b = c->hand->triggeron; break;
+    case GGV_STATE_FLAGS: v.u = c->hand->stateflags; break;
+    case GGV_STATE_VAR1: v.i = c->hand->statevar1; break;
+    case GGV_STATE_FRAMES: v.i = c->hand->stateframes; break;
+    case GGV_SPOOL: v.f = c->hand->gs_float1; break;
+    case GGV_BURST_BULLETS: v.i = c->hand->burstbullets; break;
+    case GGV_LEGACY_FUNCTION_TYPE: v.i = c->func->type; break;
+    case GGV_HAND_NUMBER: v.i = c->handnum; break;
+    case GGV_SHOTGUN: v.b = c->hand->gset.weaponnum == WEAPON_SHOTGUN; break;
+    case GGV_MAULER: v.b = c->hand->gset.weaponnum == WEAPON_MAULER; break;
+    default: break;
+    } return v;
+}
+static void bgunAttackWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunattackcontext *c = opaque;
+    switch (binding) {
+    case GGV_ROTX_START: c->hand->rotxstart = value.f; break;
+    case GGV_ROTX_END: c->hand->rotxend = value.f; break;
+    case GGV_ROTX_OFFSET: c->hand->rotxoffset = value.f; break;
+    case GGV_USE_POSROT: c->hand->useposrot = value.b; break;
+    case GGV_STATE_MINOR: c->hand->stateminor = value.i; break;
+    case GGV_ANIMATION_LATCH: c->hand->unk0cc8_01 = value.b; break;
+    case GGV_MATMOT2: c->hand->matmot2 = value.f; break;
+    case GGV_MATMOT1: c->hand->matmot1 = value.f; break;
+    case GGV_POS_START_X: c->hand->posstart.x = value.f; break;
+    case GGV_POS_START_Y: c->hand->posstart.y = value.f; break;
+    case GGV_POS_START_Z: c->hand->posstart.z = value.f; break;
+    case GGV_POS_END_X: c->hand->posend.x = value.f; break;
+    case GGV_POS_END_Y: c->hand->posend.y = value.f; break;
+    case GGV_POS_END_Z: c->hand->posend.z = value.f; break;
+    case GGV_POS_OFFSET_X: c->hand->posoffset.x = value.f; break;
+    case GGV_POS_OFFSET_Y: c->hand->posoffset.y = value.f; break;
+    case GGV_POS_OFFSET_Z: c->hand->posoffset.z = value.f; break;
+    case GGV_STATE_FLAGS: c->hand->stateflags = value.u; break;
+    case GGV_STATE_VAR1: c->hand->statevar1 = value.i; break;
+    case GGV_SPOOL: c->hand->gs_float1 = value.f; break;
+    case GGV_BURST_BULLETS: c->hand->burstbullets = value.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunAttackCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunattackcontext *c = opaque; ggv_value v = {0};
+    switch (service) {
+    case GGV_RECOIL_TICKS: v.i = TICKS(a.i); break;
+    case GGV_RECOIL_SIN: v.f = sinf(a.f); break;
+    case GGV_RECOIL_COS: v.f = cosf(a.f); break;
+    case GGV_RECOIL_TWEEN: v.f = modelTweenRotAxis(a.f, b.f, d.f); break;
+    case GGV_RECOIL_AIM_X: v.f = func0f0b131c(c->handnum); break;
+    case GGV_CAPTURE_DEFINITION: c->definition = c->info->definition; break;
+    case GGV_MATRIX_X: mtx4LoadXRotation(a.f, b.ref); break;
+    case GGV_MATRIX_TRANSLATION: mtx4SetTranslation(a.ref, b.ref); break;
+    case GGV_MATRIX_IDENTITY: mtx4LoadIdentity(a.ref); break;
+    case GGV_RESOLVE_FUNCTION: c->func = gsetGetWeaponFunction(&c->hand->gset); v.b = c->func != NULL; break;
+    case GGV_OVERRIDE_GKEF: mainOverrideVariable("gkef", c->gkef); break;
+    case GGV_FIRE_ANIMATION_START: bgunStartAnimation(a.ref, b.i, d.ref); break;
+    case GGV_ATTACK_READY: v.b = bgun0f098a44(a.ref, b.i); break;
+    case GGV_ATTACK_CONTROL: v.i = bgun0f09a3f8(c->hand, c->func); break;
+    case GGV_ATTACK_COMMIT: bgun0f09a6f8(c->info, c->handnum, c->hand, c->func); break;
+    case GGV_ATTACK_RECOVERY: v.b = bgun0f09aba4(c->hand, c->info, c->handnum, (struct weaponfunc_shoot *) c->func); break;
+    case GGV_VIBRATION_MULTIPLY: func0f097b40(a.ref, b.ref, d.ref); break;
+    case GGV_RESOLVE_GRAPH: c->graph = bgunGetHeldGraph(&c->hand->gset); v.b = c->graph != NULL; break;
+    default: break;
+    } return v;
+}
+static ggv_value bgunAttackCall4(void *opaque, ggv_service4 service, ggv_value a, ggv_value b, ggv_value c, ggv_value d)
+{
+    (void) opaque; ggv_value value = {0};
+    if (service == GGV_VIBRATION_INTERPOLATE) func0f097b64(a.ref, b.ref, c.f, d.ref);
+    return value;
+}
+/* GGV attack services end. */
 bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, struct weaponfunc_shoot *func)
 {
-	s32 unk24;
-	s32 unk25;
-	s32 sum;
-	s32 unk26;
-	s32 unk27;
-	s32 recoverytime60;
-	s32 frames;
-	struct weapon *weapondef;
-	f32 mult1;
-	f32 recoildist;
-	f32 recoilangle;
-	f32 mult2;
-	u32 stack;
-	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
-
-#if PAL
-	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
-	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
-	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
-	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
-	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
-	weapondef = info->definition;
-
-	if (unk24 >= 4) {
-		unk24 = TICKS(unk24);
-	}
-
-	if (unk25 >= 4) {
-		unk25 = TICKS(unk25);
-	}
-
-	if (unk26 >= 4) {
-		unk26 = TICKS(unk26);
-	}
-
-	if (unk27 >= 4) {
-		unk27 = TICKS(unk27);
-	}
-
-	if (recoverytime60 >= 4) {
-		recoverytime60 = TICKS(recoverytime60);
-	}
-
-	sum = unk24 + unk25;
-#elif VERSION >= VERSION_JPN_FINAL
-	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
-	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
-	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
-	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
-	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
-	weapondef = info->definition;
-	sum = unk24 + unk25;
-#else
-	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
-	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
-	sum = unk24 + unk25;
-	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
-	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
-	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
-	weapondef = info->definition;
-#endif
-
-	frames = hand->stateframes - hand->statevar1;
-
-	if (sum < 1) {
-		sum = 0;
-	} else {
-		if (hand->triggerreleased
-				&& hand->triggeron
-				&& frames >= unk26
-				&& unk26 > 0
-				&& unk27 >= 0
-				&& (hand->stateflags & HANDSTATEFLAG_00000040) == 0
-				&& frames + unk27 < sum) {
-			hand->stateflags |= HANDSTATEFLAG_00000040;
-			hand->statevar1 = frames;
-
-			hand->rotxstart = hand->rotxoffset;
-			hand->rotxend = 0;
-
-			hand->posend.x = 0;
-			hand->posend.y = 0;
-			hand->posend.z = 0;
-
-			hand->posstart.x = hand->posoffset.x;
-			hand->posstart.y = hand->posoffset.y;
-			hand->posstart.z = hand->posoffset.z;
-		}
-
-		if (hand->stateflags & HANDSTATEFLAG_00000040) {
-			if (unk27 > frames - hand->statevar1) {
-				mult1 = cosf((f32)(unk27 - frames + hand->statevar1) * 1.5707963705063f / (f32)unk27) * 0.5f + 0.5f;
-
-				hand->rotxoffset = modelTweenRotAxis(hand->rotxstart, hand->rotxend, mult1);
-				hand->useposrot = true;
-
-				hand->posoffset.x = (hand->posend.x - hand->posstart.x) * mult1 + hand->posstart.x;
-				hand->posoffset.y = (hand->posend.y - hand->posstart.y) * mult1 + hand->posstart.y;
-				hand->posoffset.z = (hand->posend.z - hand->posstart.z) * mult1 + hand->posstart.z;
-
-				mtx4LoadXRotation(hand->rotxoffset, &hand->posrotmtx);
-				mtx4SetTranslation(&hand->posoffset, &hand->posrotmtx);
-			} else {
-				mtx4LoadIdentity(&hand->posrotmtx);
-				hand->useposrot = false;
-				return true;
-			}
-		}
-
-		if (frames < sum && (hand->stateflags & HANDSTATEFLAG_00000040) == 0) {
-			recoildist = graph && graph->has_recoildist ? graph->recoildist : func->recoildist;
-			recoilangle = graph && graph->has_recoilangle ? graph->recoilangle : func->recoilangle;
-
-			if ((hand->stateflags & HANDSTATEFLAG_00000080) == 0) {
-				hand->stateflags |= HANDSTATEFLAG_00000080;
-				hand->rotxstart = hand->rotxoffset;
-				hand->posstart.x = hand->posoffset.x;
-				hand->posstart.y = hand->posoffset.y;
-				hand->posstart.z = hand->posoffset.z;
-			}
-
-			hand->rotxend = M_BADTAU - (recoilangle * M_BADTAU) / 360.0f;
-
-			hand->posend.x = (func0f0b131c(handnum) - hand->aimpos.x) * recoildist / 1000.0f;
-			hand->posend.y = 0;
-			hand->posend.z = (weapondef->posz - hand->aimpos.z) * recoildist / 1000.0f;
-
-			if (frames < unk24) {
-				mult2 = sinf(frames * 1.5707963705063f / (f32)unk24);
-			} else {
-				mult2 = cosf((f32)(frames - unk24) * M_PI / (f32)unk25) * 0.5f + 0.5f;
-			}
-
-			hand->rotxoffset = modelTweenRotAxis(hand->rotxstart, hand->rotxend, mult2);
-			hand->useposrot = true;
-
-			hand->posoffset.x = (hand->posend.x - hand->posstart.x) * mult2 + hand->posstart.x;
-			hand->posoffset.y = (hand->posend.y - hand->posstart.y) * mult2 + hand->posstart.y;
-			hand->posoffset.z = (hand->posend.z - hand->posstart.z) * mult2 + hand->posstart.z;
-
-			mtx4LoadXRotation(hand->rotxoffset, &hand->posrotmtx);
-			mtx4SetTranslation(&hand->posoffset, &hand->posrotmtx);
-		}
-	}
-
-	if (sum <= frames) {
-		if (unk27 >= 0 && hand->triggerreleased && hand->triggeron) {
-			return true;
-		} else if (sum + recoverytime60 <= frames) {
-			return true;
-		}
-	}
-
-	return false;
+    struct bgunattackcontext context = {0};
+    context.hand = hand; context.info = info; context.handnum = handnum;
+    context.func = (struct weaponfunc *) func;
+    ggv_host host = { &context, bgunAttackRead, bgunAttackWrite, bgunAttackCall };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_RECOIL_RECOVERY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: recoil recovery refused immutable program");
+        return false;
+    }
+    return result;
 }
 
 bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct hand *hand)
 {
-	static u32 var80070128 = 99;
-
-	struct weaponfunc *func = gsetGetWeaponFunction(&hand->gset);
-	bool sp68;
-	s32 sp64;
-	s32 sp60;
-
-	if (func == NULL) {
-		return true;
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_SHOOT_0) {
-		sp64 = 1;
-
-		mainOverrideVariable("gkef", &var80070128);
-
-		if (hand->statecycles == 0) {
-			hand->gs_float1 = 0;
-
-			if (func->fire_animation) {
-				bgunStartAnimation(func->fire_animation, handnum, hand);
-				hand->unk0cc8_01 = true;
-			}
-
-			hand->burstbullets = 0;
-		}
-
-		if (!bgun0f098a44(hand, 2)) {
-			sp64 = 0;
-		}
-
-		if (sp64) {
-			hand->stateminor = HANDSTATEMINOR_ATTACK_SHOOT_1;
-		}
-
-		hand->matmot2 = hand->gs_float1;
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_SHOOT_1) {
-		sp60 = bgun0f09a3f8(hand, func);
-
-		if ((func->type & 0xff00) == 0x100) {
-			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
-			f32 floats[12];
-
-			if (autofunc->vibrationstart != NULL && autofunc->vibrationmax != NULL) {
-				func0f097b64(autofunc->vibrationstart, autofunc->vibrationmax, hand->gs_float1, floats);
-				func0f097b40(hand->upgrademult, floats, hand->finalmult);
-			}
-		}
-
-		if (sp60 > 0) {
-			bgun0f09a6f8(info, handnum, hand, func);
-		}
-
-		if (sp60 < 0 || sp60 == 2) {
-			hand->stateminor = HANDSTATEMINOR_ATTACK_SHOOT_2;
-		}
-
-		hand->matmot2 = hand->gs_float1;
-
-		if (hand->triggeron && hand->matmot2 < 0.4f) {
-			hand->matmot2 = 0.4f;
-		}
-
-		if (hand->triggerreleased) {
-			hand->unk0cc8_01 = false;
-		}
-
-		return false;
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_SHOOT_2) {
-		if (hand->stateflags & HANDSTATEFLAG_00000020) {
-			sp68 = bgun0f09aba4(hand, info, handnum, (struct weaponfunc_shoot *) func);
-		} else {
-			sp68 = true;
-		}
-
-		if (hand->gset.weaponnum == WEAPON_SHOTGUN && hand->animmode == HANDANIMMODE_BUSY) {
-			sp68 = false;
-		}
-
-		hand->matmot2 = hand->gs_float1;
-
-		if (sp68 && !hand->triggeron) {
-			hand->matmot2 = 0;
-		}
-
-		if (hand->gset.weaponnum == WEAPON_MAULER) {
-			hand->matmot1 = 0;
-		}
-
-		return sp68;
-	}
-
-	return false;
+    static u32 var80070128 = 99;
+    struct bgunattackcontext context = {0};
+    context.hand = hand; context.info = info; context.handnum = handnum;
+    context.gkef = &var80070128;
+    ggv_host host = { &context, bgunAttackRead, bgunAttackWrite, bgunAttackCall, bgunAttackCall4 };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_ATTACK_SHOOT), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: attack driver refused immutable program");
+        return false;
+    }
+    return result;
 }
 
+/* GGV throw services begin: synchronous borrowed throw context. */
+struct bgunthrowcontext {
+    struct hand *hand; s32 handnum; struct weaponfunc_throw *func;
+    const weapon_graph_held_function_t *graph; s32 ammoindex;
+};
+static ggv_value bgunThrowRead(void *opaque, ggv_binding binding)
+{
+    struct bgunthrowcontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_THROW_GRAPH_HAS_ACTIVATION: v.b = c->graph->has_activation_time_ticks60; break;
+    case GGV_THROW_GRAPH_ACTIVATION: v.i = c->graph->activation_time_ticks60; break;
+    case GGV_THROW_LEGACY_ACTIVATION: v.i = c->func->activatetime60; break;
+    case GGV_THROW_GRAPH_HAS_RECOVERY: v.b = c->graph->has_recovery_time_ticks60; break;
+    case GGV_THROW_GRAPH_RECOVERY: v.i = c->graph->recovery_time_ticks60; break;
+    case GGV_THROW_LEGACY_RECOVERY: v.i = c->func->recoverytime60; break;
+    case GGV_PRIME_TIMER: v.i = c->hand->primetimer60; break;
+    case GGV_CURRENT_PLAYER_THROWING: v.b = g_Vars.currentplayer->gunctrl.throwing; break;
+    case GGV_WEAPON_NUMBER: v.i = c->hand->gset.weaponnum; break;
+    case GGV_WEAPON_FUNCTION: v.i = c->hand->gset.weaponfunc; break;
+    case GGV_VERSION_1_OR_LATER: v.b = VERSION >= VERSION_NTSC_1_0; break;
+    case GGV_GRAPH_FLAGS: v.u = c->graph->flags; break;
+    case GGV_LEGACY_FLAGS: v.u = c->func->base.flags; break;
+    case GGV_GRAPH_AMMO_SLOT: v.i = c->graph->ammo_slot; break;
+    case GGV_LEGACY_AMMO_INDEX: v.i = c->func->base.ammoindex; break;
+    case GGV_AMMO_INDEX: v.i = c->ammoindex; break;
+    case GGV_STATE_MINOR: v.i = c->hand->stateminor; break;
+    case GGV_STATE_CYCLES: v.i = c->hand->statecycles; break;
+    case GGV_STATE_FRAMES: v.i = c->hand->stateframes; break;
+    case GGV_FIRE_ANIMATION: v.ref = c->func->base.fire_animation; break;
+    case GGV_PASSED_HAND: v.ref = c->hand; break;
+    case GGV_HAND_NUMBER: v.i = c->handnum; break;
+    case GGV_TRIGGER_RELEASED: v.b = c->hand->triggerreleased; break;
+    case GGV_TRIGGER: v.b = c->hand->triggeron; break;
+    case GGV_LOADED_AMMO: v.i = c->hand->loadedammo[c->ammoindex]; break;
+    default: break;
+    } return v;
+}
+static void bgunThrowWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunthrowcontext *c = opaque;
+    switch (binding) {
+    case GGV_AMMO_INDEX: c->ammoindex = value.i; break;
+    case GGV_STATE_MINOR: c->hand->stateminor = value.i; break;
+    case GGV_ANIMATION_LATCH: c->hand->unk0cc8_01 = value.b; break;
+    case GGV_FIRING: c->hand->firing = value.b; break;
+    case GGV_ATTACK_TYPE: c->hand->attacktype = value.i; break;
+    case GGV_LOADED_AMMO: c->hand->loadedammo[c->ammoindex] = value.i; break;
+    case GGV_PRIME_TIMER: c->hand->primetimer60 = value.i; break;
+    case GGV_CURRENT_PLAYER_THROWING: g_Vars.currentplayer->gunctrl.throwing = value.b; break;
+    default: break;
+    }
+}
+static ggv_value bgunThrowCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunthrowcontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_RESOLVE_FUNCTION: c->func = (struct weaponfunc_throw *) gsetGetWeaponFunction(&c->hand->gset); value.b = c->func != NULL; break;
+    case GGV_RESOLVE_GRAPH: c->graph = bgunGetHeldGraph(&c->hand->gset); value.b = c->graph != NULL; break;
+    case GGV_THROW_REMOVE_ITEM: invRemoveItemByNum(a.i); break;
+    case GGV_THROW_SWITCH_PREVIOUS: bgunSwitchToPrevious(); break;
+    case GGV_THROW_AUTO_SWITCH: bgunAutoSwitchWeapon(); break;
+    case GGV_THROW_RESET_ANIMATION: bgunResetAnim(a.ref); break;
+    case GGV_THROW_SECONDARY_VALUE: value.i = bgunIsUsingSecondaryFunction(); break;
+    case GGV_FIRE_ANIMATION_START: bgunStartAnimation(a.ref, b.i, d.ref); break;
+    case GGV_ATTACK_READY: value.b = bgun0f098a44(a.ref, b.i); break;
+    case GGV_RECOIL_TICKS: value.i = TICKS(a.i); break;
+    default: break;
+    } return value;
+}
+/* GGV throw services end. */
 bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 {
-	struct weaponfunc_throw *func = (struct weaponfunc_throw *) gsetGetWeaponFunction(&hand->gset);
-	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
-	u32 funcflags;
-	s32 ammoindex;
-	s32 activationtime60;
-	s32 recoverytime60;
-
-	if (func == NULL) {
-		return true;
-	}
-
-	funcflags = graph ? graph->flags : func->base.flags;
-	ammoindex = bgunGetAmmoIndexFromGraph(&func->base, graph);
-	activationtime60 = graph && graph->has_activation_time_ticks60 ?
-		graph->activation_time_ticks60 : func->activatetime60;
-	recoverytime60 = graph && graph->has_recovery_time_ticks60 ?
-		graph->recovery_time_ticks60 : func->recoverytime60;
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_THROW_0) {
-		if (hand->statecycles == 0) {
-			if (funcflags & FUNCFLAG_DISCARDWEAPON) {
-				invRemoveItemByNum(hand->gset.weaponnum);
-				g_Vars.currentplayer->gunctrl.throwing = true;
-#if VERSION >= VERSION_NTSC_1_0
-				bgunSwitchToPrevious();
-#else
-				bgunAutoSwitchWeapon();
-#endif
-				hand->primetimer60 = 0;
-				return true;
-			}
-
-			if (func->base.fire_animation) {
-				bgunStartAnimation(func->base.fire_animation, handnum, hand);
-				hand->unk0cc8_01 = true;
-			}
-		}
-
-		if (func->base.fire_animation) {
-			if (hand->triggerreleased) {
-				hand->unk0cc8_01 = false;
-			}
-
-			if (bgun0f098a44(hand, 2)) {
-				hand->stateminor = HANDSTATEMINOR_ATTACK_THROW_1;
-				hand->unk0cc8_01 = false;
-			}
-		} else {
-			hand->stateminor = HANDSTATEMINOR_ATTACK_THROW_1;
-		}
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_THROW_1) {
-		hand->firing = true;
-		hand->attacktype = HANDATTACKTYPE_THROWPROJECTILE;
-		if (ammoindex >= 0) {
-			hand->loadedammo[ammoindex]--;
-		}
-		hand->stateminor = HANDSTATEMINOR_ATTACK_THROW_2;
-		return false;
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_THROW_2) {
-		if (hand->stateframes > TICKS(recoverytime60)) {
-			return true;
-		}
-
-		if (hand->gset.weaponnum == WEAPON_REMOTEMINE
-				&& bgunIsUsingSecondaryFunction() == true
-				&& hand->triggerreleased
-				&& hand->triggeron) {
-			return true;
-		}
-
-		return false;
-	}
-
-	// This state is only used after having a grenade explode in the player's
-	// hand. It waits 4 seconds before finishing, which means the player won't
-	// pull out another grenade until the flames have cleared.
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_THROW_GRENADEWAIT) {
-		bgunResetAnim(hand);
-
-		if (hand->stateframes > TICKS(activationtime60 + 240)) {
-			return true;
-		}
-
-		return false;
-	}
-
-	hand->primetimer60 = hand->stateframes;
-
-	// If held a grenade too long, force throw it and enter the wait state
-	if (hand->gset.weaponnum == WEAPON_GRENADE
-			&& hand->gset.weaponfunc == FUNC_PRIMARY
-			&& hand->primetimer60 > TICKS(activationtime60)) {
-		hand->firing = true;
-		hand->attacktype = HANDATTACKTYPE_THROWPROJECTILE;
-		if (ammoindex >= 0) {
-			hand->loadedammo[ammoindex]--;
-		}
-		hand->stateminor = HANDSTATEMINOR_ATTACK_THROW_GRENADEWAIT;
-
-		return false;
-	}
-
-	return false;
+    struct bgunthrowcontext context = {0};
+    context.hand = hand; context.handnum = handnum;
+    ggv_host host = { &context, bgunThrowRead, bgunThrowWrite, bgunThrowCall };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_THROW_CONTROL), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: throw driver refused immutable program");
+        return false;
+    }
+    return result;
 }
 
+/* GGV min-clip services begin: pure borrowed scalar utility arguments. */
+struct bgunminclipcontext { s32 weaponnum; s32 funcnum; };
+static ggv_value bgunMinClipRead(void *opaque, ggv_binding binding)
+{
+    struct bgunminclipcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_WEAPON_NUMBER: value.i = c->weaponnum; break;
+    case GGV_WEAPON_FUNCTION: value.i = c->funcnum; break;
+    default: break;
+    } return value;
+}
+/* GGV min-clip services end. */
+static void bgunMinClipWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void) opaque; (void) binding; (void) value; /* Prepared utility has no stores. */
+}
 s32 bgunGetMinClipQty(s32 weaponnum, s32 funcnum)
 {
-	if (weaponnum == WEAPON_TRANQUILIZER && funcnum == FUNC_SECONDARY) {
-		return 4;
-	}
-
-	return 1;
+    struct bgunminclipcontext context = { weaponnum, funcnum };
+    ggv_host host = { &context, bgunMinClipRead, bgunMinClipWrite, NULL };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_MIN_CLIP_QTY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: min-clip utility refused immutable program");
+        return 0;
+    }
+    return result;
 }
 
 const char var7f1ab8ac[] = "changegunmem type %d CurrentPlayer->gunctrl.gunmemtype %d\n";
@@ -2761,318 +2613,198 @@ const char var7f1ab938[] = "GiveMem: %d\n";
 u32 var8007012c = 0x00000000;
 u32 var80070130 = 0x00000000;
 
+/* GGV melee services begin: synchronous borrowed hand/configuration witnesses. */
+struct bgunmeleecontext {
+    struct hand *hand; s32 handnum; struct weaponfunc *func;
+    const weapon_graph_held_function_t *graph; s32 ammoindex;
+};
+static ggv_value bgunMeleeRead(void *opaque, ggv_binding binding)
+{
+    struct bgunmeleecontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_GRAPH_AMMO_SLOT: value.i = c->graph->ammo_slot; break;
+    case GGV_LEGACY_AMMO_INDEX: value.i = c->func->ammoindex; break;
+    case GGV_AMMO_INDEX: value.i = c->ammoindex; break;
+    case GGV_WEAPON_NUMBER: value.i = c->hand->gset.weaponnum; break;
+    case GGV_STATE_MINOR: value.i = c->hand->stateminor; break;
+    case GGV_STATE_CYCLES: value.i = c->hand->statecycles; break;
+    case GGV_STATE_FRAMES: value.i = c->hand->stateframes; break;
+    case GGV_MATMOT2: value.f = c->hand->matmot2; break;
+    case GGV_BURST_BULLETS: value.i = c->hand->burstbullets; break;
+    case GGV_TRIGGER: value.b = c->hand->triggeron; break;
+    case GGV_TRIGGER_RELEASED: value.b = c->hand->triggerreleased; break;
+    case GGV_FIRE_ANIMATION: value.ref = c->func->fire_animation; break;
+    case GGV_PASSED_HAND: value.ref = c->hand; break;
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_LOADED_AMMO: value.i = c->hand->loadedammo[c->ammoindex]; break;
+    default: break;
+    } return value;
+}
+static void bgunMeleeWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunmeleecontext *c = opaque;
+    switch (binding) {
+    case GGV_AMMO_INDEX: c->ammoindex = value.i; break;
+    case GGV_MATMOT2: c->hand->matmot2 = value.f; break;
+    case GGV_BURST_BULLETS: c->hand->burstbullets = value.i; break;
+    case GGV_FIRING: c->hand->firing = value.b; break;
+    case GGV_ATTACK_TYPE: c->hand->attacktype = value.i; break;
+    case GGV_STATE_MINOR: c->hand->stateminor = value.i; break;
+    case GGV_ANIMATION_LATCH: c->hand->unk0cc8_01 = value.b; break;
+    case GGV_LOADED_AMMO: c->hand->loadedammo[c->ammoindex] = value.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunMeleeCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunmeleecontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_RESOLVE_FUNCTION: c->func = gsetGetWeaponFunction(&c->hand->gset); value.b = c->func != NULL; break;
+    case GGV_RESOLVE_GRAPH: c->graph = bgunGetHeldGraph(&c->hand->gset); value.b = c->graph != NULL; break;
+    case GGV_MELEE_MIN_CLIP: value.i = bgunGetMinClipQty(a.i, b.i); break;
+    case GGV_MELEE_CLOCK: value.f = LVUPDATE60FREAL(); break;
+    case GGV_MELEE_CHEAT_ACTIVE: value.b = cheatIsActive(a.i); break;
+    case GGV_MELEE_ANIM_BUSY: value.b = bgunIsAnimBusy(a.ref); break;
+    case GGV_FIRE_ANIMATION_START: bgunStartAnimation(a.ref, b.i, d.ref); break;
+    case GGV_ATTACK_READY: value.b = bgun0f098a44(a.ref, b.i); break;
+    case GGV_RECOIL_TICKS: value.i = TICKS(a.i); break;
+    default: break;
+    } return value;
+}
+/* GGV melee services end. */
 bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 {
-	struct weaponfunc *func = gsetGetWeaponFunction(&hand->gset);
-	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
-	s32 ammoindex;
-
-	if (func == NULL) {
-		return true;
-	}
-
-	ammoindex = bgunGetAmmoIndexFromGraph(func, graph);
-
-	if (hand->gset.weaponnum == WEAPON_REAPER) {
-		if (hand->statecycles == 0) {
-			hand->matmot2 = 0.1f;
-			hand->burstbullets = 0;
-		}
-
-		hand->firing = true;
-		hand->attacktype = HANDATTACKTYPE_MELEE;
-		hand->burstbullets++;
-
-		if (hand->triggeron) {
-			hand->matmot2 += 0.01f * LVUPDATE60FREAL();
-
-			if (hand->matmot2 > 1) {
-				hand->matmot2 = 1;
-			}
-		} else {
-			hand->matmot2 = 0;
-			return true;
-		}
-
-		return false;
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_MELEE_0) {
-		if (hand->statecycles == 0) {
-			hand->firing = true;
-			hand->attacktype = HANDATTACKTYPE_MELEENOUNCLOAK;
-
-			if (func->fire_animation) {
-				bgunStartAnimation(func->fire_animation, handnum, hand);
-				hand->unk0cc8_01 = true;
-			}
-		}
-
-		if (func->fire_animation) {
-			if (hand->triggerreleased) {
-				hand->unk0cc8_01 = false;
-			}
-
-			if (bgun0f098a44(hand, 2)) {
-				hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_1;
-				hand->unk0cc8_01 = false;
-			}
-		} else {
-			hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_1;
-		}
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_MELEE_3 && bgun0f098a44(hand, 3)) {
-		hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_1;
-		hand->unk0cc8_01 = false;
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_MELEE_1) {
-		hand->firing = true;
-		hand->attacktype = HANDATTACKTYPE_MELEE;
-
-		if (hand->gset.weaponnum == WEAPON_TRANQUILIZER && ammoindex >= 0) {
-			if (hand->loadedammo[ammoindex] > bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY)) {
-				hand->loadedammo[ammoindex] -= bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY);
-			} else {
-				hand->loadedammo[ammoindex] = 0;
-			}
-		}
-
-		if (func->fire_animation) {
-			if (func->fire_animation && !bgun0f098a44(hand, 3)) {
-				hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_3;
-			} else {
-				hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_2;
-			}
-		}
-
-		if (cheatIsActive(CHEAT_HURRICANEFISTS)) {
-			hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_2;
-		}
-
-		return false;
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_MELEE_2) {
-		if (!bgunIsAnimBusy(hand)) {
-			return true;
-		}
-
-		if (cheatIsActive(CHEAT_HURRICANEFISTS) && hand->gset.weaponnum == WEAPON_UNARMED) {
-			return true;
-		}
-
-		if (hand->stateframes > TICKS(60)) {
-			return true;
-		}
-
-		return false;
-	}
-
-	return false;
+    struct bgunmeleecontext context = {0};
+    context.hand = hand; context.handnum = handnum;
+    ggv_host host = { &context, bgunMeleeRead, bgunMeleeWrite, bgunMeleeCall };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_MELEE_CONTROL), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: melee driver refused immutable program");
+        return false;
+    }
+    return result;
 }
 
+/* GGV Special services begin: borrowed synchronous context. */
+struct bgunspecialcontext { struct hand *hand; struct weaponfunc_special *func; const weapon_graph_held_function_t *graph; s32 ammoindex; };
+static ggv_value bgunSpecialRead(void *opaque, ggv_binding binding)
+{
+    struct bgunspecialcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_SPECIAL_GRAPH_HAS_VALUE: value.b = c->graph->has_specialfunc; break;
+    case GGV_SPECIAL_GRAPH_VALUE: value.i = c->graph->specialfunc; break;
+    case GGV_SPECIAL_LEGACY_VALUE: value.i = c->func->specialfunc; break;
+    case GGV_SPECIAL_GRAPH_HAS_RECOVERY: value.b = c->graph->has_recovery_time_ticks60; break;
+    case GGV_SPECIAL_GRAPH_RECOVERY: value.i = c->graph->recovery_time_ticks60; break;
+    case GGV_SPECIAL_LEGACY_RECOVERY: value.i = c->func->recoverytime60; break;
+    case GGV_GRAPH_AMMO_SLOT: value.i = c->graph->ammo_slot; break;
+    case GGV_LEGACY_AMMO_INDEX: value.i = c->func->base.ammoindex; break;
+    case GGV_AMMO_INDEX: value.i = c->ammoindex; break;
+    case GGV_STATE_MINOR: value.i = c->hand->stateminor; break;
+    case GGV_STATE_FRAMES: value.i = c->hand->stateframes; break;
+    case GGV_LOADED_AMMO: value.i = c->hand->loadedammo[c->ammoindex]; break;
+    default: break;
+    } return value;
+}
+static void bgunSpecialWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunspecialcontext *c = opaque;
+    switch (binding) {
+    case GGV_AMMO_INDEX: c->ammoindex = value.i; break;
+    case GGV_STATE_MINOR: c->hand->stateminor = value.i; break;
+    case GGV_FIRING: c->hand->firing = value.b; break;
+    case GGV_ATTACK_TYPE: c->hand->attacktype = value.i; break;
+    case GGV_LOADED_AMMO: c->hand->loadedammo[c->ammoindex] = value.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunSpecialCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunspecialcontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_RESOLVE_FUNCTION: c->func = (struct weaponfunc_special *) gsetGetWeaponFunction(&c->hand->gset); value.b = c->func != NULL; break;
+    case GGV_RESOLVE_GRAPH: c->graph = bgunGetHeldGraph(&c->hand->gset); value.b = c->graph != NULL; break;
+    case GGV_RECOIL_TICKS: value.i = TICKS(a.i); break;
+    default: break;
+    } return value;
+}
+/* GGV Special services end. */
 bool bgunTickIncAttackingSpecial(struct hand *hand)
 {
-	struct weaponfunc_special *func = (struct weaponfunc_special *) gsetGetWeaponFunction(&hand->gset);
-	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
-	s32 specialfunc;
-	s32 ammoindex;
-	s32 recoverytime60;
-
-	if (!func) {
-		return true;
-	}
-
-	specialfunc = graph && graph->has_specialfunc ? graph->specialfunc : func->specialfunc;
-	ammoindex = bgunGetAmmoIndexFromGraph(&func->base, graph);
-	recoverytime60 = graph && graph->has_recovery_time_ticks60 ?
-		graph->recovery_time_ticks60 : func->recoverytime60;
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_SPECIAL_START) {
-		hand->stateminor = HANDSTATEMINOR_ATTACK_SPECIAL_EXECUTE;
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_SPECIAL_EXECUTE) {
-		hand->firing = true;
-		hand->attacktype = specialfunc;
-
-		if (ammoindex >= 0) {
-			hand->loadedammo[ammoindex]--;
-		}
-
-		hand->stateminor = HANDSTATEMINOR_ATTACK_SPECIAL_RECOVER;
-		return false;
-	}
-
-	if (hand->stateminor == HANDSTATEMINOR_ATTACK_SPECIAL_RECOVER) {
-		if (hand->stateframes > TICKS(recoverytime60)) {
-			return true;
-		}
-
-		return false;
-	}
-
-	return false;
+    struct bgunspecialcontext context = {0}; context.hand = hand;
+    ggv_host host = { &context, bgunSpecialRead, bgunSpecialWrite, bgunSpecialCall };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_SPECIAL_CONTROL), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: special driver refused immutable program");
+        return false;
+    }
+    return result;
 }
 
+/* GGV Empty services begin: borrowed synchronous context. */
+struct bgunemptycontext { struct handweaponinfo *info; struct hand *hand; s32 handnum; s32 lvupdate; struct weaponfunc *func; };
+static ggv_value bgunEmptyRead(void *opaque, ggv_binding binding)
+{
+    struct bgunemptycontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_WEAPON_NUMBER: value.i = c->info->weaponnum; break;
+    case GGV_STATE_FRAMES: value.i = c->hand->stateframes; break;
+    case GGV_STATE_FLAGS: value.u = c->hand->stateflags; break;
+    case GGV_EMPTY_ANIM_MODE: value.i = c->hand->animmode; break;
+    case GGV_EMPTY_DEFINITION: value.ref = c->info->definition; break;
+    case GGV_FIRE_ANIMATION: value.ref = c->func->fire_animation; break;
+    case GGV_PASSED_HAND: value.ref = c->hand; break;
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_EMPTY_LVUPDATE: value.i = c->lvupdate; break;
+    case GGV_TRIGGER: value.b = c->hand->triggeron; break;
+    case GGV_PRIORITY_ENABLED: value.b = VERSION >= VERSION_NTSC_1_0; break;
+    case GGV_EMPTY_WATER_SOUND: value.i = SFX_HIT_WATER; break;
+    case GGV_EMPTY_CLICK_SOUND: value.i = SFX_FIREEMPTY; break;
+    default: break;
+    } return value;
+}
+static void bgunEmptyWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunemptycontext *c = opaque;
+    switch (binding) {
+    case GGV_STATE_FRAMES: c->hand->stateframes = value.i; break;
+    case GGV_STATE_FLAGS: c->hand->stateflags = value.u; break;
+    case GGV_EMPTY_MODE: c->hand->mode = value.u; break;
+    case GGV_EMPTY_COUNT60: c->hand->count60 = value.i; break;
+    case GGV_EMPTY_COUNT: c->hand->count = value.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunEmptyCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunemptycontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_RESOLVE_FUNCTION: c->func = gsetGetWeaponFunction(&c->hand->gset); value.b = c->func != NULL; break;
+    case GGV_RECOIL_TICKS: value.i = TICKS(a.i); break;
+    case GGV_EMPTY_RESET_ANIM: bgunResetAnim(a.ref); break;
+    case GGV_FIRE_ANIMATION_START: bgunStartAnimation(a.ref, b.i, d.ref); break;
+    case GGV_ATTACK_READY: value.b = bgun0f098a44(a.ref, b.i); break;
+    case GGV_EMPTY_SOUND_START: value.ref = sndStart(var80095200, a.i, NULL, -1, -1, -1, -1, -1); break;
+    case GGV_SOUND_EVENT: audioPostEvent(a.ref, AL_SNDP_PITCH_EVT, b.i); break;
+    case GGV_CURRENT_PRIORITY: value.i = osGetThreadPri(0); break;
+    case GGV_AUDIO_PRIORITY: value.i = osGetThreadPri(&g_AudioManager.thread); break;
+    case GGV_SET_PRIORITY: osSetThreadPri(0, a.i); break;
+    case GGV_EMPTY_SET_STATE: value.b = bgunSetState(a.i, b.i); break;
+    default: break;
+    } return value;
+}
+/* GGV Empty services end. */
 s32 bgunTickIncAttackEmpty(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
 {
-	u32 stack;
-	bool playsound = false;
-
-	switch (info->weaponnum) {
-	case WEAPON_FALCON2:
-	case WEAPON_FALCON2_SILENCER:
-	case WEAPON_FALCON2_SCOPE:
-	case WEAPON_MAGSEC4:
-	case WEAPON_MAULER:
-	case WEAPON_PHOENIX:
-	case WEAPON_DY357MAGNUM:
-	case WEAPON_DY357LX:
-	case WEAPON_CMP150:
-	case WEAPON_CYCLONE:
-	case WEAPON_CALLISTO:
-	case WEAPON_RCP120:
-	case WEAPON_LAPTOPGUN:
-	case WEAPON_REAPER:
-	case WEAPON_TRANQUILIZER:
-		// These weapons are weapons with visible finger trigger animations
-		if (hand->stateframes > TICKS(25)) {
-			hand->stateframes -= TICKS(25);
-			hand->stateflags = 0;
-
-			bgunResetAnim(hand);
-		}
-
-		if (hand->animmode != HANDANIMMODE_BUSY) {
-			bool restartedanim = false;
-
-			if ((hand->stateflags & HANDSTATEFLAG_00000010) == 0) {
-				struct weaponfunc *func = NULL;
-
-				if (info->definition) {
-					func = gsetGetWeaponFunction(&hand->gset);
-				}
-
-				if (func && func->fire_animation) {
-					bgunStartAnimation(func->fire_animation, handnum, hand);
-					restartedanim = true;
-				}
-			}
-
-			if (!restartedanim && hand->stateframes > TICKS(25)) {
-				playsound = true;
-			}
-		} else if (bgun0f098a44(hand, 5)) {
-			playsound = true;
-		}
-		break;
-	default:
-		// Weapons without visible trigger animations must
-		// still play the click sound every 25 frames
-		if (hand->stateframes > TICKS(25)) {
-			playsound = true;
-
-			hand->stateframes -= TICKS(25);
-			hand->stateflags = 0;
-
-			bgunResetAnim(hand);
-		}
-	}
-
-	hand->mode = HANDMODE_13;
-	hand->count60 = 0;
-	hand->count = 0;
-
-	if (playsound && (hand->stateflags & HANDSTATEFLAG_00000010) == 0) {
-		hand->stateflags |= HANDSTATEFLAG_00000010;
-
-		switch (info->weaponnum) {
-		case WEAPON_PHOENIX:
-		case WEAPON_CALLISTO:
-		case WEAPON_FARSIGHT:
-			{
-				// Maian weapons have a wet sounding click effect
-				f32 speed = 2.07f;
-
-#if VERSION >= VERSION_NTSC_1_0
-				OSPri prevpri = osGetThreadPri(0);
-				struct sndstate *handle;
-				osSetThreadPri(0, osGetThreadPri(&g_AudioManager.thread) + 1);
-#else
-				struct sndstate *handle;
-#endif
-
-				handle = sndStart(var80095200, SFX_HIT_WATER, NULL, -1, -1, -1, -1, -1);
-
-				if (handle) {
-					audioPostEvent(handle, AL_SNDP_PITCH_EVT, *(s32 *)&speed);
-				}
-
-#if VERSION >= VERSION_NTSC_1_0
-				osSetThreadPri(0, prevpri);
-#endif
-			}
-			// fall-through - unsure if intentional
-		case WEAPON_TRANQUILIZER:
-		case WEAPON_PSYCHOSISGUN:
-			{
-				// The tranquliser and psychosis gun use the standard click
-				// effect but slightly faster.
-				f32 speed = 1.5f;
-
-#if VERSION >= VERSION_NTSC_1_0
-				OSPri prevpri = osGetThreadPri(0);
-				struct sndstate *handle;
-				osSetThreadPri(0, osGetThreadPri(&g_AudioManager.thread) + 1);
-#else
-				struct sndstate *handle;
-#endif
-
-				handle = sndStart(var80095200, SFX_FIREEMPTY, NULL, -1, -1, -1, -1, -1);
-
-				if (handle) {
-					audioPostEvent(handle, AL_SNDP_PITCH_EVT, *(s32 *)&speed);
-				}
-
-#if VERSION >= VERSION_NTSC_1_0
-				osSetThreadPri(0, prevpri);
-#endif
-			}
-			break;
-		case WEAPON_UNARMED:
-		case WEAPON_COMBATKNIFE:
-		case WEAPON_GRENADE:
-		case WEAPON_NBOMB:
-		case WEAPON_TIMEDMINE:
-		case WEAPON_PROXIMITYMINE:
-		case WEAPON_REMOTEMINE:
-		case WEAPON_COMBATBOOST:
-			// No sound effect
-			break;
-		default:
-			// Default click sound effect
-			sndStart(var80095200, SFX_FIREEMPTY, NULL, -1, -1, -1, -1, -1);
-			break;
-		}
-	}
-
-	// Handle releasing trigger
-	if (!hand->triggeron) {
-		hand->mode = HANDMODE_NONE;
-		hand->count60 = 0;
-		hand->count = 0;
-
-		if (bgunSetState(handnum, HANDSTATE_IDLE)) {
-			return lvupdate;
-		}
-
-		bgunResetAnim(hand);
-	}
-
-	return 0;
+    struct bgunemptycontext context = {0};
+    context.info = info; context.hand = hand; context.handnum = handnum; context.lvupdate = lvupdate;
+    ggv_host host = { &context, bgunEmptyRead, bgunEmptyWrite, bgunEmptyCall };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_EMPTY_ATTACK), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: empty driver refused immutable program");
+        return 0;
+    }
+    return result;
 }
 
 int bgunGraphV2Accept(struct player *player, int handnum)
@@ -3090,7 +2822,13 @@ int bgunGraphV2Tick(struct player *player, int handnum)
 	struct hand *hand = &player->hands[handnum]; struct handweaponinfo info;
 	info.weaponnum = hand->gset.weaponnum; info.definition = (struct weapon *)wgV2RuntimeGsetWeapon(&hand->gset);
 	info.gunctrl = &player->gunctrl;
-	return !info.definition || bgunTickIncAttackingShoot(&info, handnum, hand);
+	const int before[2] = {hand->loadedammo[0], hand->loadedammo[1]};
+	wg_v2_runtime_snapshot observation = {0};
+	wgV2RuntimeSnapshot(player, handnum, &observation);
+	const int finished = !info.definition || bgunTickIncAttackingShoot(&info, handnum, hand);
+	const int after[2] = {hand->loadedammo[0], hand->loadedammo[1]};
+	wgV2RuntimeObserveDebit(&observation.delivery, before, after);
+	return finished;
 }
 void bgunGraphV2Cancel(struct player *player, int handnum)
 {
@@ -3104,109 +2842,106 @@ void bgunGraphV2Cancel(struct player *player, int handnum)
 	}
 }
 
+/* GGV Dispatch services begin: synchronous borrowed context. */
+struct bgundispatchcontext { struct handweaponinfo *info; struct hand *hand; s32 handnum; s32 lvupdate; struct weaponfunc *func; const weapon_graph_held_function_t *graph; };
+static ggv_value bgunDispatchRead(void *opaque, ggv_binding binding)
+{
+    struct bgundispatchcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_EMPTY_DEFINITION: value.ref = c->info->definition; break;
+    case GGV_GRAPH_HAS_TYPE: value.b = c->graph->has_function_type_id; break;
+    case GGV_GRAPH_FUNCTION_TYPE: value.i = c->graph->function_type_id; break;
+    case GGV_LEGACY_FUNCTION_TYPE: value.i = c->func->type; break;
+    case GGV_WEAPON_NUMBER: value.i = c->hand->gset.weaponnum; break;
+    case GGV_TRIGGER: value.b = c->hand->triggeron; break;
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_EMPTY_LVUPDATE: value.i = c->lvupdate; break;
+    default: break;
+    } return value;
+}
+static void bgunDispatchWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgundispatchcontext *c = opaque;
+    switch (binding) {
+    case GGV_WEAPON_FUNCTION: c->hand->gset.weaponfunc = value.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunDispatchCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgundispatchcontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_RESOLVE_GRAPH: c->graph = bgunGetHeldGraph(&c->hand->gset); value.b = c->graph != NULL; break;
+    case GGV_RESOLVE_FUNCTION: c->func = gsetGetWeaponFunction(&c->hand->gset); value.b = c->func != NULL; break;
+    case GGV_DISPATCH_SHOOT: value.b = bgunTickIncAttackingShoot(c->info, c->handnum, c->hand); break;
+    case GGV_DISPATCH_THROW: value.b = bgunTickIncAttackingThrow(c->handnum, c->hand); break;
+    case GGV_DISPATCH_MELEE: value.b = bgunTickIncAttackingMelee(c->handnum, c->hand); break;
+    case GGV_DISPATCH_SPECIAL: value.b = bgunTickIncAttackingSpecial(c->hand); break;
+    case GGV_EMPTY_SET_STATE: value.b = bgunSetState(a.i, b.i); break;
+    default: break;
+    } return value;
+}
+/* GGV Dispatch services end. */
 s32 bgunTickIncAttack(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
 {
-	u32 stack;
-	struct weaponfunc *func = NULL;
-	bool finished = true;
-	u32 stack2;
-	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
-	s32 functype;
-
-	if (info->definition) {
-		func = gsetGetWeaponFunction(&hand->gset);
-	}
-
-	if (func != NULL) {
-		functype = bgunGetFunctionTypeFromGraph(func, graph);
-		switch (functype & 0xff) {
-		case INVENTORYFUNCTYPE_SHOOT:
-			finished = bgunTickIncAttackingShoot(info, handnum, hand);
-			break;
-		case INVENTORYFUNCTYPE_THROW:
-			finished = bgunTickIncAttackingThrow(handnum, hand);
-			break;
-		case INVENTORYFUNCTYPE_MELEE:
-			finished = bgunTickIncAttackingMelee(handnum, hand);
-			break;
-		case INVENTORYFUNCTYPE_SPECIAL:
-			finished = bgunTickIncAttackingSpecial(hand);
-			break;
-		}
-	}
-
-	if (finished) {
-		if (hand->gset.weaponnum == WEAPON_REAPER && hand->triggeron) {
-			hand->gset.weaponfunc = FUNC_SECONDARY;
-			finished = false;
-		}
-
-		if (finished && bgunSetState(handnum, HANDSTATE_IDLE)) {
-			return lvupdate;
-		}
-	}
-
-	if (1);
-	if (1);
-
-	return 0;
+    struct bgundispatchcontext context = {0};
+    context.info = info; context.hand = hand; context.handnum = handnum; context.lvupdate = lvupdate;
+    ggv_host host = { &context, bgunDispatchRead, bgunDispatchWrite, bgunDispatchCall };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_ATTACK_DISPATCH), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: attack dispatcher refused immutable program");
+        return 0;
+    }
+    return result;
 }
 
+struct bgunreadytoswitchcontext { s32 handnum; struct player *player; };
+static ggv_value bgunReadyToSwitchRead(void *opaque, ggv_binding binding)
+{
+    struct bgunreadytoswitchcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_SWITCH_RANGE_VALID: value.b = g_FrIsValidWeapon; break;
+    case GGV_SWITCH_RIGHT_WEAPON: value.i = c->player->hands[HAND_RIGHT].gset.weaponnum; break;
+    case GGV_SWITCH_CURRENT_THROWING: value.i = g_Vars.currentplayer->gunctrl.throwing; break;
+    case GGV_SWITCH_LEFT_INUSE: value.i = c->player->hands[HAND_LEFT].inuse; break;
+    case GGV_SWITCH_LEFT_STATE: value.i = c->player->hands[HAND_LEFT].state; break;
+    case GGV_SWITCH_LEFT_MINOR: value.i = c->player->hands[HAND_LEFT].stateminor; break;
+    case GGV_SWITCH_PENDING_WEAPON: value.i = c->player->gunctrl.switchtoweaponnum; break;
+    case GGV_SWITCH_RIGHT_STATE: value.i = c->player->hands[HAND_RIGHT].state; break;
+    case GGV_STATE_INUSE: value.i = c->player->hands[c->handnum].inuse; break;
+    case GGV_SWITCH_DUALWIELD: value.b = c->player->gunctrl.dualwielding; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunReadyToSwitchWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void)opaque; (void)binding; (void)value;
+}
+static ggv_value bgunReadyToSwitchCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value value = {0}; (void)opaque; (void)b; (void)d;
+    switch (service) {
+    case GGV_RANGE_SLOT: value.i = frGetSlot(); break;
+    case GGV_RANGE_WEAPON: value.i = frGetWeaponBySlot(a.i); break;
+    default: break;
+    }
+    return value;
+}
 bool bgunIsReadyToSwitch(s32 handnum)
 {
-	struct player *player = g_Vars.currentplayer;
-
-	// Dont switch if... something firing range related
-	if (g_FrIsValidWeapon
-			&& frGetWeaponBySlot(frGetSlot()) == player->hands[HAND_RIGHT].gset.weaponnum
-			&& g_Vars.currentplayer->gunctrl.throwing == false) {
-		return false;
-	}
-
-	// Don't switch right hand if left hand is about to auto switch
-	if (handnum == HAND_RIGHT
-			&& player->hands[HAND_LEFT].inuse
-			&& player->hands[HAND_LEFT].state == HANDSTATE_AUTOSWITCH
-			&& player->hands[HAND_LEFT].stateminor == HANDSTATEMINOR_AUTOSWITCH_UNEQUIP) {
-		return false;
-	}
-
-	if (player->gunctrl.switchtoweaponnum >= 0) {
-		return true;
-	}
-
-	if (handnum == HAND_LEFT) {
-		if (handnum == HAND_LEFT) {
-			if (player->hands[HAND_RIGHT].state == HANDSTATE_RELOAD) {
-				return false;
-			}
-
-			if (player->hands[HAND_RIGHT].state == HANDSTATE_CHANGEFUNC) {
-				return false;
-			}
-
-			if (player->hands[HAND_RIGHT].state == HANDSTATE_ATTACK) {
-				return false;
-			}
-		}
-
-		if (player->hands[handnum].inuse && !player->gunctrl.dualwielding) {
-			return true;
-		}
-
-		if (!player->hands[handnum].inuse && player->gunctrl.dualwielding) {
-			return true;
-		}
-	}
-
-	return false;
+    struct bgunreadytoswitchcontext context = { handnum, g_Vars.currentplayer };
+    ggv_host host = { &context, bgunReadyToSwitchRead, bgunReadyToSwitchWrite, bgunReadyToSwitchCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_READY_TO_SWITCH), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: switch readiness refused immutable program");
+    }
+    return result;
 }
 
-bool bgunCanFreeWeapon(s32 handnum)
-{
-	struct player *player = g_Vars.currentplayer;
-
-	/* Issue 1 root cause (2026-04-25, B-246): the legacy `count >= 3` gate
+/* Issue 1 root cause (2026-04-25, B-246): the legacy `count >= 3` gate
 	 * was the actual blocker for the player FP weapon never appearing in
 	 * SP and MP. Mike's instrumented playtest log (`019dc325`) showed the
 	 * hand state machine reaching CHANGEGUN_LOAD (stateminor=2) cleanly,
@@ -3243,435 +2978,258 @@ bool bgunCanFreeWeapon(s32 handnum)
 	 * advances 6 -> 7 -> EQUIP -> stateminor advances LOAD -> RAISE -> EQUIP
 	 * -> hand->visible flips true -> FP weapon renders, fire fires, pickup
 	 * works. Bug spans SP and MP because both share this exact gate. */
-	{
-		bool result;
-		result = (player->hands[handnum].state == HANDSTATE_CHANGEGUN
-				&& player->hands[handnum].stateminor == HANDSTATEMINOR_CHANGEGUN_LOAD
-				&& player->gunctrl.throwing == false);
-
-		/* B-246 round-6 instrumentation: log only on transition. Each hand
-		 * has its own static so left and right are tracked independently. */
-		if (g_Vars.currentplayernum == 0) {
-			static s32 s_last_R = -1;
-			static s32 s_last_L = -1;
-			s32 *last = (handnum == HAND_RIGHT) ? &s_last_R : &s_last_L;
-			if (result != *last) {
-				*last = result;
-				sysLogPrintf(LOG_NOTE,
-					"LOG.WPN.DIAG: bgunCanFreeWeapon player=0 hand=%d -> %d state=%d sm=%d throwing=%d",
-					(s32)handnum,
-					(s32)result,
-					(s32)player->hands[handnum].state,
-					(s32)player->hands[handnum].stateminor,
-					(s32)player->gunctrl.throwing);
-			}
-		}
-
-		return result;
-	}
+struct bgunfreeweaponcontext {
+    s32 handnum;
+    struct player *player;
+    s32 *last_right;
+    s32 *last_left;
+};
+static ggv_value bgunFreeWeaponRead(void *opaque, ggv_binding binding)
+{
+    struct bgunfreeweaponcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_STATE_VALUE: value.i = c->player->hands[c->handnum].state; break;
+    case GGV_STATE_MINOR: value.i = c->player->hands[c->handnum].stateminor; break;
+    case GGV_FREE_THROWING: value.i = c->player->gunctrl.throwing; break;
+    case GGV_STATE_PLAYER_NUMBER: value.i = g_Vars.currentplayernum; break;
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_FREE_LAST_RIGHT: value.i = *c->last_right; break;
+    case GGV_FREE_LAST_LEFT: value.i = *c->last_left; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunFreeWeaponWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunfreeweaponcontext *c = opaque;
+    if (binding == GGV_FREE_LAST_RIGHT) *c->last_right = value.i;
+    else if (binding == GGV_FREE_LAST_LEFT) *c->last_left = value.i;
+}
+static ggv_value bgunFreeWeaponCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunfreeweaponcontext *c = opaque; ggv_value value = {0}; (void)b; (void)d;
+    if (service == GGV_FREE_LOG) {
+        sysLogPrintf(LOG_NOTE,
+            "LOG.WPN.DIAG: bgunCanFreeWeapon player=0 hand=%d -> %d state=%d sm=%d throwing=%d",
+            (s32)c->handnum, (s32)a.i, (s32)c->player->hands[c->handnum].state,
+            (s32)c->player->hands[c->handnum].stateminor, (s32)c->player->gunctrl.throwing);
+    }
+    return value;
+}
+bool bgunCanFreeWeapon(s32 handnum)
+{
+    static s32 s_last_R = -1;
+    static s32 s_last_L = -1;
+    struct bgunfreeweaponcontext context = { handnum, g_Vars.currentplayer, &s_last_R, &s_last_L };
+    ggv_host host = { &context, bgunFreeWeaponRead, bgunFreeWeaponWrite, bgunFreeWeaponCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_CAN_FREE_WEAPON), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: can-free predicate refused immutable program");
+    }
+    return result;
 }
 
+static ggv_value bgunSwitchCompleteRead(void *opaque, ggv_binding binding)
+{
+    struct bgunreadytoswitchcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_SWITCH_PENDING_WEAPON: value.i = c->player->gunctrl.switchtoweaponnum; break;
+    case GGV_SWITCH_DUALWIELD_RAW: value.i = c->player->gunctrl.dualwielding; break;
+    case GGV_STATE_INUSE: value.i = c->player->hands[c->handnum].inuse; break;
+    case GGV_LOADED_GUNMEMNEW: value.i = c->player->gunctrl.gunmemnew; break;
+    case GGV_RELOAD_OTHER_STATE: value.i = c->player->hands[1 - c->handnum].state; break;
+    default: break;
+    }
+    return value;
+}
+static ggv_value bgunSwitchCompleteCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value value = {0}; (void)opaque; (void)a; (void)b; (void)d;
+    if (service == GGV_RELOAD_IS_LOADED) value.b = bgunIsLoaded();
+    return value;
+}
 bool bgun0f09bf44(s32 handnum)
 {
-	bool result = true;
-	struct player *player = g_Vars.currentplayer;
-
-	if (!bgunIsLoaded()) {
-		result = false;
-	}
-
-	if (player->gunctrl.switchtoweaponnum != -1) {
-		result = false;
-	}
-
-	if (handnum == HAND_LEFT && player->gunctrl.dualwielding != player->hands[handnum].inuse) {
-		result = false;
-	}
-
-	if (player->gunctrl.gunmemnew >= 0) {
-		result = false;
-	}
-
-	if (player->hands[1 - handnum].state == HANDSTATE_RELOAD) {
-		result = false;
-	}
-
-	return result;
+    struct bgunreadytoswitchcontext context = { handnum, g_Vars.currentplayer };
+    ggv_host host = { &context, bgunSwitchCompleteRead, bgunReadyToSwitchWrite, bgunSwitchCompleteCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_SWITCH_COMPLETE), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: switch completion refused immutable program");
+    }
+    return result;
 }
 
+struct bgunequipsoundcontext { struct handweaponinfo *info; s32 handnum; };
+static ggv_value bgunEquipSoundRead(void *opaque, ggv_binding binding)
+{
+    struct bgunequipsoundcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_RELOAD_LVUPDATE240: value.i = g_Vars.lvupdate240; break;
+    case GGV_RELOAD_CAMERA_MODE: value.i = g_Vars.currentplayer->cameramode; break;
+    case GGV_RELOAD_PLAYER_INVINCIBLE: value.b = g_PlayerInvincible != 0; break;
+    case GGV_RELOAD_PLAYER_DEAD: value.b = g_Vars.currentplayer->isdead != 0; break;
+    case GGV_WEAPON_NUMBER: value.i = c->info->weaponnum; break;
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_VERSION_1_OR_LATER: value.b = VERSION >= VERSION_NTSC_1_0; break;
+    case GGV_EQUIP_SOUND_SCANNER: value.i = SFX_EQUIP_HORIZONSCANNER; break;
+    case GGV_EQUIP_SOUND_LASER: value.i = SFX_PICKUP_LASER; break;
+    case GGV_EQUIP_SOUND_KNIFE: value.i = SFX_PICKUP_KNIFE; break;
+    case GGV_EQUIP_SOUND_MINE: value.i = SFX_PICKUP_MINE; break;
+    case GGV_EQUIP_SOUND_GUN: value.i = SFX_PICKUP_GUN; break;
+    case GGV_EQUIP_WEAPON_NECKLACE: value.i = WEAPON_NECKLACE; break;
+    case GGV_EQUIP_WEAPON_BRIEFCASE2: value.i = WEAPON_BRIEFCASE2; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunEquipSoundWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void)opaque; (void)binding; (void)value;
+}
+static ggv_value bgunEquipSoundCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value value = {0}; (void)opaque; (void)d;
+    switch (service) {
+    case GGV_RELOAD_IS_LOADED: value.b = bgunIsLoaded(); break;
+    case GGV_EMPTY_SOUND_START: value.ref = sndStart(var80095200, a.i, NULL, -1, -1, -1, -1, -1); break;
+    case GGV_CURRENT_PRIORITY: value.i = osGetThreadPri(0); break;
+    case GGV_AUDIO_PRIORITY: value.i = osGetThreadPri(&g_AudioManager.thread); break;
+    case GGV_SET_PRIORITY: osSetThreadPri(0, a.i); break;
+    case GGV_SOUND_EVENT: audioPostEvent(a.ref, AL_SNDP_PITCH_EVT, b.i); break;
+    default: break;
+    }
+    return value;
+}
+static void bgunPlayEquipSound(struct handweaponinfo *info, s32 handnum)
+{
+    struct bgunequipsoundcontext context = { info, handnum };
+    ggv_host host = { &context, bgunEquipSoundRead, bgunEquipSoundWrite, bgunEquipSoundCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_EQUIP_SOUND), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: equip sound policy refused immutable program");
+    }
+}
+
+struct bgunchangecontext {
+    struct handweaponinfo *info;
+    struct hand *hand;
+    s32 handnum, lvupdate;
+    s32 diagloaded, diagswitchto, diaggunmem, diagother, diagresult;
+};
+static ggv_value bgunChangeRead(void *opaque, ggv_binding binding)
+{
+    struct bgunchangecontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_CHANGE_DEFINITION: value.ref = c->info->definition; break;
+    case GGV_PASSED_HAND: value.ref = c->hand; break;
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_EMPTY_LVUPDATE: value.i = c->lvupdate; break;
+    case GGV_STATE_CYCLES: value.i = c->hand->statecycles; break;
+    case GGV_STATE_MINOR: value.i = c->hand->stateminor; break;
+    case GGV_STATE_INUSE: value.i = c->hand->inuse; break;
+    case GGV_STATE_FRAMES: value.i = c->hand->stateframes; break;
+    case GGV_STATE_FLAGS: value.u = c->hand->stateflags; break;
+    case GGV_EMPTY_ANIM_MODE: value.i = c->hand->animmode; break;
+    case GGV_RELOAD_EJECT_STATE: value.i = c->hand->ejectstate; break;
+    case GGV_CHANGE_EJECT_TYPE: value.i = c->hand->ejecttype; break;
+    case GGV_WEAPON_NUMBER: value.i = c->info->weaponnum; break;
+    case GGV_AMMO_HAND_WEAPON: value.i = c->hand->gset.weaponnum; break;
+    case GGV_NORMAL_MULTIPLAYER: value.b = g_Vars.normmplayerisrunning != 0; break;
+    case GGV_MULTIPLAYER: value.b = g_Vars.mplayerisrunning != 0; break;
+    case GGV_SWITCH_CURRENT_THROWING: value.i = g_Vars.currentplayer->gunctrl.throwing; break;
+    case GGV_STATE_PLAYER_NUMBER: value.i = g_Vars.currentplayernum; break;
+    case GGV_CURRENT_FRAME: value.i = g_Vars.lvframenum; break;
+    case GGV_CHANGE_SWITCHTO: value.i = g_Vars.currentplayer->gunctrl.switchtoweaponnum; break;
+    case GGV_LOADED_GUNMEMNEW: value.i = g_Vars.currentplayer->gunctrl.gunmemnew; break;
+    case GGV_RELOAD_OTHER_STATE: value.i = g_Vars.currentplayer->hands[1 - c->handnum].state; break;
+    case GGV_CHANGE_PAUSECHANGE: value.i = c->hand->pausechange; break;
+    case GGV_RELOAD_PAUSETIME60: value.i = c->hand->pausetime60; break;
+    case GGV_RELOAD_COUNT60: value.i = c->hand->count60; break;
+    case GGV_RELOAD_COUNT: value.i = c->hand->count; break;
+    case GGV_RELOAD_MODE: value.u = c->hand->mode; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunChangeWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunchangecontext *c = opaque;
+    switch (binding) {
+    case GGV_RELOAD_PAUSETIME60: c->hand->pausetime60 = value.i; break;
+    case GGV_RELOAD_COUNT: c->hand->count = value.i; break;
+    case GGV_RELOAD_COUNT60: c->hand->count60 = value.i; break;
+    case GGV_STATE_FLAGS: c->hand->stateflags = value.u; break;
+    case GGV_STATE_MINOR: c->hand->stateminor = value.i; break;
+    case GGV_STATE_FRAMES: c->hand->stateframes = value.i; break;
+    case GGV_RELOAD_MODE: c->hand->mode = value.u; break;
+    case GGV_FIRING: c->hand->firing = value.b; break;
+    case GGV_ATTACK_TYPE: c->hand->attacktype = value.i; break;
+    case GGV_WEAPON_FUNCTION: c->hand->gset.weaponfunc = value.i; break;
+    case GGV_EMPTY_ANIM_MODE: c->hand->animmode = value.i; break;
+    case GGV_RELOAD_UNK0CC8_02: c->hand->unk0cc8_02 = value.b; break;
+    case GGV_RELOAD_DOAUTOSELECT: g_Vars.currentplayer->doautoselect = value.i; break;
+    case GGV_CHANGE_DIAG_LOADED: c->diagloaded = value.b != 0; break;
+    case GGV_CHANGE_DIAG_SWITCHTO: c->diagswitchto = value.b != 0; break;
+    case GGV_CHANGE_DIAG_GUNMEM: c->diaggunmem = value.b != 0; break;
+    case GGV_CHANGE_DIAG_OTHER: c->diagother = value.b != 0; break;
+    case GGV_CHANGE_DIAG_RESULT: c->diagresult = value.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunChangeCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunchangecontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_CHANGE_UNEQUIP_ANIM: value.ref = ((struct weapon *)a.ref)->unequip_animation; break;
+    case GGV_CHANGE_EQUIP_ANIM: value.ref = ((struct weapon *)a.ref)->equip_animation; break;
+    case GGV_RELOAD_WEAPON_HAS_FLAG: value.b = weaponHasFlag(a.i, b.u); break;
+    case GGV_RELOAD_AMMO_STATUS: value.i = bgun0f098ca0(a.i, c->info, c->hand); break;
+    case GGV_RECOIL_TICKS: value.i = TICKS(a.i); break;
+    case GGV_HAND_START_ANIMATION: bgunStartAnimation(a.ref, b.i, d.ref); break;
+    case GGV_HAND_DELETE_WEAPON: playermgrDeleteWeapon(c->handnum); break;
+    case GGV_HAND_FREE_ROCKET: bgunFreeHeldRocket(c->handnum); break;
+    case GGV_RELOAD_SET_ARM_PITCH: bgunSetArmPitch(c->hand, a.f); break;
+    case GGV_RELOAD_IS_LOADED: value.b = bgunIsLoaded(); break;
+    case GGV_CHANGE_COMPLETE: value.i = bgun0f09bf44(c->handnum); break;
+    case GGV_HAND_SET_STATE: value.b = bgunSetState(c->handnum, a.i); break;
+    case GGV_CHANGE_CREATE_WEAPON: playermgrCreateWeapon(c->handnum); break;
+    case GGV_CHANGE_ACTIVATE: bgun0f098f8c(c->info, c->hand); break;
+    case GGV_CHANGE_EQUIP_SOUND: bgunPlayEquipSound(c->info, c->handnum); break;
+    case GGV_RELOAD_FILENUM2: value.i = weaponGetFileNum2(a.i); break;
+    case GGV_CHANGE_LOG_LOAD:
+        sysLogPrintf(LOG_NOTE,
+            "LOG.WPN.DIAG: LOAD-mode6 player=0 hand=R frame=%d "
+            "hand_mode=%d sm=%d state=%d "
+            "cond_loaded=%d cond_switchto_neg=%d cond_gunmemnew_neg=%d cond_other_not_reload=%d "
+            "bgun0f09bf44=%d "
+            "L_state=%d L_sm=%d L_inuse=%d L_mode=%d "
+            "pausechange=%d pausetime60=%d count60=%d",
+            g_Vars.lvframenum, (s32)c->hand->mode, (s32)c->hand->stateminor, (s32)c->hand->state,
+            c->diagloaded, c->diagswitchto, c->diaggunmem, c->diagother, c->diagresult,
+            (s32)g_Vars.currentplayer->hands[HAND_LEFT].state,
+            (s32)g_Vars.currentplayer->hands[HAND_LEFT].stateminor,
+            (s32)g_Vars.currentplayer->hands[HAND_LEFT].inuse,
+            (s32)g_Vars.currentplayer->hands[HAND_LEFT].mode,
+            (s32)c->hand->pausechange, (s32)c->hand->pausetime60, (s32)c->hand->count60);
+        break;
+    default: break;
+    }
+    return value;
+}
 s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *hand, s32 lvupdate)
 {
-	u32 stack;
-	struct weapon *weapon = info->definition;
-
-	if (hand->statecycles == 0) {
-		if (g_Vars.normmplayerisrunning == false) {
-			hand->pausetime60 = 0;
-		} else {
-			hand->pausetime60 = 0;
-		}
-	}
-
-	// Handle unequip animation. Wait in this state until the animation is
-	// finished, or skip this state if there is no animation to play.
-	if (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_UNEQUIP) {
-		bool skipanim = false;
-
-		if (weaponHasFlag(info->weaponnum, WEAPONFLAG_THROWABLE)
-				&& !(info->weaponnum == WEAPON_REMOTEMINE && handnum == HAND_LEFT)
-				&& bgun0f098ca0(0, info, hand) < 0) {
-			skipanim = true;
-		}
-
-		hand->count = 0;
-
-		if (!skipanim) {
-			if (weapon->unequip_animation
-					&& hand->inuse == true
-					&& !(hand->ejectstate != EJECTSTATE_INACTIVE && hand->ejecttype == EJECTTYPE_GUN)) {
-				if (hand->statecycles == 0) {
-					bgunStartAnimation(weapon->unequip_animation, handnum, hand);
-				} else if (hand->animmode == HANDANIMMODE_IDLE) {
-					hand->stateminor++; // to HANDSTATEMINOR_CHANGEGUN_LOWER
-				}
-			} else {
-				hand->stateflags |= HANDSTATEFLAG_00000001;
-
-				if (hand->ejectstate == EJECTSTATE_INIT) {
-					return 0;
-				}
-
-				hand->stateminor++; // to HANDSTATEMINOR_CHANGEGUN_LOWER
-			}
-		} else {
-			hand->stateminor++; // to HANDSTATEMINOR_CHANGEGUN_LOWER
-		}
-
-		if (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_LOWER) {
-			hand->stateframes = 0;
-		}
-	}
-
-	// For classic guns, handle lowering it to offscreen.
-	// Throw the gun if that's what the player is doing.
-	if (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_LOWER) {
-		s32 delay = TICKS(16);
-		bool throwing = false;
-		u32 stack2;
-
-		hand->count = 0;
-
-		if (g_Vars.normmplayerisrunning) {
-			delay = TICKS(12);
-		}
-
-		if (weapon->unequip_animation && (hand->stateflags & HANDSTATEFLAG_00000001) == 0) {
-			delay = 1;
-		}
-
-		if (!hand->inuse) {
-			delay = 1;
-		}
-
-		if (hand->ejecttype == EJECTTYPE_GUN
-				&& (hand->ejectstate == EJECTSTATE_INIT || hand->ejectstate == EJECTSTATE_AIRBORNE)) {
-			throwing = true;
-		}
-
-		if (g_Vars.currentplayer->gunctrl.throwing == true) {
-			throwing = true;
-		}
-
-		if (hand->stateframes >= delay) {
-			if (!throwing) {
-				if (g_Vars.mplayerisrunning) {
-					playermgrDeleteWeapon(handnum);
-				}
-
-				bgunFreeHeldRocket(handnum);
-				hand->mode = HANDMODE_6;
-				hand->stateminor++; // to HANDSTATEMINOR_CHANGEGUN_LOAD
-			} else {
-				bgunSetArmPitch(hand, MAX_PITCH);
-
-				if (g_Vars.currentplayer->gunctrl.throwing == true && hand->inuse) {
-					hand->firing = true;
-					hand->attacktype = HANDATTACKTYPE_THROWPROJECTILE;
-					hand->gset.weaponfunc = FUNC_SECONDARY;
-				}
-			}
-		} else {
-			bgunSetArmPitch(hand, hand->stateframes * MAX_PITCH / delay);
-		}
-	}
-
-	// Wait for the new gun to be loaded, then start its equip animation
-	// (if any) and move on to the next state.
-	if (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_LOAD) {
-		hand->animmode = HANDANIMMODE_IDLE;
-
-		/* B-246 round-4 instrumentation: log the LOAD/HANDMODE_6 -> HANDMODE_7
-		 * decision so the next playtest reveals whether `bgun0f09bf44`
-		 * returns false in this codepath and which of its 5 conditions
-		 * trips. Player 0, hand 0 only, every ~120 frames while wedged. */
-		if (g_Vars.currentplayernum == 0 && handnum == HAND_RIGHT
-				&& (g_Vars.lvframenum % 120) == 13) {
-			s32 cond_loaded = bgunIsLoaded() ? 1 : 0;
-			s32 cond_switchto_neg = (g_Vars.currentplayer->gunctrl.switchtoweaponnum == -1) ? 1 : 0;
-			s32 cond_gunmemnew_neg = (g_Vars.currentplayer->gunctrl.gunmemnew < 0) ? 1 : 0;
-			s32 cond_other_not_reload = (g_Vars.currentplayer->hands[1 - handnum].state != HANDSTATE_RELOAD) ? 1 : 0;
-			s32 res = bgun0f09bf44(handnum);
-			sysLogPrintf(LOG_NOTE,
-				"LOG.WPN.DIAG: LOAD-mode6 player=0 hand=R frame=%d "
-				"hand_mode=%d sm=%d state=%d "
-				"cond_loaded=%d cond_switchto_neg=%d cond_gunmemnew_neg=%d cond_other_not_reload=%d "
-				"bgun0f09bf44=%d "
-				"L_state=%d L_sm=%d L_inuse=%d L_mode=%d "
-				"pausechange=%d pausetime60=%d count60=%d",
-				g_Vars.lvframenum,
-				(s32)hand->mode, (s32)hand->stateminor, (s32)hand->state,
-				cond_loaded, cond_switchto_neg, cond_gunmemnew_neg, cond_other_not_reload,
-				res,
-				(s32)g_Vars.currentplayer->hands[HAND_LEFT].state,
-				(s32)g_Vars.currentplayer->hands[HAND_LEFT].stateminor,
-				(s32)g_Vars.currentplayer->hands[HAND_LEFT].inuse,
-				(s32)g_Vars.currentplayer->hands[HAND_LEFT].mode,
-				(s32)hand->pausechange, (s32)hand->pausetime60, (s32)hand->count60);
-		}
-
-		if (hand->pausechange == 0 || hand->pausetime60 <= hand->count60) {
-			if (hand->mode == HANDMODE_6) {
-				if (bgun0f09bf44(handnum)) {
-					hand->mode = HANDMODE_7;
-
-					if (!hand->inuse && bgunSetState(handnum, HANDSTATE_IDLE)) {
-						return lvupdate;
-					}
-				}
-			} else {
-				if (bgunIsLoaded()) {
-					if (info->definition->equip_animation) {
-						bgunStartAnimation(info->definition->equip_animation, handnum, hand);
-						hand->unk0cc8_02 = true;
-					}
-
-					hand->mode = HANDMODE_EQUIP;
-					hand->stateminor++; // to HANDSTATEMINOR_CHANGEGUN_RAISE
-					hand->count60 = 0;
-					hand->count = 0;
-				}
-			}
-		}
-
-		if (hand->mode == HANDMODE_6 || hand->mode == HANDMODE_7) {
-			bgunSetArmPitch(hand, MAX_PITCH);
-		}
-	}
-
-	// Handle raising the new gun and playing the equipped sound effect.
-	if (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_RAISE) {
-		s32 delay = TICKS(23);
-
-		if (g_Vars.normmplayerisrunning) {
-			delay = TICKS(12);
-		}
-
-		if (weaponHasFlag(hand->gset.weaponnum, WEAPONFLAG_00004000)) {
-			hand->animmode = HANDANIMMODE_IDLE;
-		} else if (weapon->equip_animation) {
-			delay = 1;
-		}
-
-		if (hand->count == 0) {
-			if (g_Vars.mplayerisrunning) {
-				playermgrCreateWeapon(handnum);
-			}
-
-			bgun0f098f8c(info, hand);
-
-			if (weaponHasFlag(info->weaponnum, WEAPONFLAG_THROWABLE)
-					&& (info->weaponnum != WEAPON_REMOTEMINE || handnum != HAND_LEFT)
-					&& bgun0f098ca0(0, info, hand) < 0
-					&& bgunSetState(handnum, HANDSTATE_AUTOSWITCH)) {
-				hand->stateminor = HANDSTATEMINOR_AUTOSWITCH_DELETE;
-				return lvupdate;
-			}
-
-			g_Vars.currentplayer->doautoselect = false;
-
-			if (g_Vars.lvupdate240 > 0
-					&& g_Vars.currentplayer->cameramode != CAMERAMODE_THIRDPERSON
-					&& bgunIsLoaded()
-					&& !g_PlayerInvincible
-					&& !g_Vars.currentplayer->isdead) {
-#if VERSION >= VERSION_NTSC_1_0
-				struct sndstate *handle1;
-				f32 speed1;
-				struct sndstate *handle2;
-				OSPri prevpri1;
-				f32 speed2;
-				OSPri prevpri2;
-				struct sndstate *handle3;
-				f32 speed3;
-				OSPri prevpri3;
-#else
-				struct sndstate *handle1;
-				f32 speed1;
-				struct sndstate *handle2;
-				f32 speed2;
-				struct sndstate *handle3;
-				f32 speed3;
-#endif
-
-				switch (info->weaponnum) {
-				case WEAPON_HORIZONSCANNER:
-					speed1 = 3.5f;
-
-#if VERSION >= VERSION_NTSC_1_0
-					prevpri1 = osGetThreadPri(0);
-					osSetThreadPri(0, osGetThreadPri(&g_AudioManager.thread) + 1);
-#endif
-					handle1 = sndStart(var80095200, SFX_EQUIP_HORIZONSCANNER, 0, -1, -1, -1, -1, -1);
-
-					if (handle1) {
-						audioPostEvent(handle1, AL_SNDP_PITCH_EVT, *(s32 *)&speed1);
-					}
-
-#if VERSION >= VERSION_NTSC_1_0
-					osSetThreadPri(0, prevpri1);
-#endif
-					break;
-				case WEAPON_LASER:
-					sndStart(var80095200, SFX_PICKUP_LASER, 0, -1, -1, -1, -1, -1);
-					break;
-				case WEAPON_COMBATKNIFE:
-					sndStart(var80095200, SFX_PICKUP_KNIFE, 0, -1, -1, -1, -1, -1);
-					break;
-				case WEAPON_REMOTEMINE:
-					if (handnum == HAND_RIGHT) {
-						sndStart(var80095200, SFX_PICKUP_MINE, 0, -1, -1, -1, -1, -1);
-					}
-					break;
-				case WEAPON_TIMEDMINE:
-				case WEAPON_PROXIMITYMINE:
-				case WEAPON_ECMMINE:
-				case WEAPON_DATAUPLINK:
-				case WEAPON_RTRACKER:
-				case WEAPON_PRESIDENTSCANNER:
-				case WEAPON_DOORDECODER:
-				case WEAPON_AUTOSURGEON:
-				case WEAPON_COMMSRIDER:
-				case WEAPON_TRACERBUG:
-				case WEAPON_TARGETAMPLIFIER:
-					sndStart(var80095200, SFX_PICKUP_MINE, 0, -1, -1, -1, -1, -1);
-					break;
-				case WEAPON_TRANQUILIZER:
-				case WEAPON_PSYCHOSISGUN:
-					speed2 = 1.5f;
-
-#if VERSION >= VERSION_NTSC_1_0
-					prevpri2 = osGetThreadPri(0);
-					osSetThreadPri(0, osGetThreadPri(&g_AudioManager.thread) + 1);
-#endif
-
-					handle2 = sndStart(var80095200, SFX_PICKUP_GUN, 0, -1, -1, -1, -1, -1);
-
-					if (handle2) {
-						audioPostEvent(handle2, AL_SNDP_PITCH_EVT, *(s32 *)&speed2);
-					}
-
-#if VERSION >= VERSION_NTSC_1_0
-					osSetThreadPri(0, prevpri2);
-#endif
-					break;
-				case WEAPON_REAPER:
-					speed3 = 0.85f;
-
-#if VERSION >= VERSION_NTSC_1_0
-					prevpri3 = osGetThreadPri(0);
-					osSetThreadPri(0, osGetThreadPri(&g_AudioManager.thread) + 1);
-#endif
-
-					handle3 = sndStart(var80095200, SFX_PICKUP_GUN, 0, -1, -1, -1, -1, -1);
-
-					if (handle3) {
-						audioPostEvent(handle3, AL_SNDP_PITCH_EVT, *(s32 *)&speed3);
-					}
-
-#if VERSION >= VERSION_NTSC_1_0
-					osSetThreadPri(0, prevpri3);
-#endif
-					break;
-				case WEAPON_NONE:
-				case WEAPON_UNARMED:
-				case WEAPON_LAPTOPGUN:
-				case WEAPON_CROSSBOW:
-				case WEAPON_GRENADE:
-				case WEAPON_NBOMB:
-				case WEAPON_COMBATBOOST:
-				case WEAPON_CLOAKINGDEVICE:
-				case WEAPON_EXPLOSIVES:
-				case WEAPON_SKEDARBOMB:
-				case WEAPON_DISGUISE40:
-				case WEAPON_DISGUISE41:
-				case WEAPON_FLIGHTPLANS:
-				case WEAPON_RESEARCHTAPE:
-				case WEAPON_BACKUPDISK:
-				case WEAPON_KEYCARD45:
-				case WEAPON_KEYCARD46:
-				case WEAPON_KEYCARD47:
-				case WEAPON_KEYCARD48:
-				case WEAPON_KEYCARD49:
-				case WEAPON_KEYCARD4A:
-				case WEAPON_KEYCARD4B:
-				case WEAPON_KEYCARD4C:
-				case WEAPON_SUITCASE:
-				case WEAPON_BRIEFCASE:
-				case WEAPON_NECKLACE:
-				case WEAPON_BRIEFCASE2:
-					// No equip sound
-					break;
-				default:
-					sndStart(var80095200, SFX_PICKUP_GUN, 0, -1, -1, -1, -1, -1);
-					break;
-				}
-			}
-		}
-
-		if (hand->count60 >= delay
-				|| !weaponGetFileNum2(info->weaponnum)
-				|| !weaponHasFlag(info->weaponnum, WEAPONFLAG_00000040)
-				|| weaponHasFlag(info->weaponnum, WEAPONFLAG_00000080)) {
-			hand->mode = HANDMODE_NONE;
-			hand->stateminor++; // to HANDSTATEMINOR_CHANGEGUN_EQUIP
-
-			if (weaponHasFlag(hand->gset.weaponnum, WEAPONFLAG_00004000) == 0) {
-				hand->unk0cc8_02 = false;
-			}
-
-			hand->count60 = 0;
-			hand->count = 0;
-		} else {
-			bgunSetArmPitch(hand, (delay - hand->count60) * MAX_PITCH / delay);
-		}
-	}
-
-	// Wait for equip animation to finish then go to idle state
-	if (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_EQUIP) {
-		if (info->definition->equip_animation && !weaponHasFlag(hand->gset.weaponnum, WEAPONFLAG_00004000)) {
-			if (hand->animmode == HANDANIMMODE_IDLE) {
-				if (bgunSetState(handnum, HANDSTATE_IDLE)) {
-					return lvupdate;
-				}
-			}
-		} else {
-			if (bgunSetState(handnum, HANDSTATE_IDLE)) {
-				return lvupdate;
-			}
-		}
-	}
-
-	return 0;
+    struct bgunchangecontext context = {0};
+    ggv_host host = { &context, bgunChangeRead, bgunChangeWrite, bgunChangeCall };
+    int32_t result = 0;
+    context.info = info; context.hand = hand; context.handnum = handnum; context.lvupdate = lvupdate;
+    if (!ggvExecute(ggvStockProgram(GGV_CHANGE_GUN), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: change-gun driver refused immutable program");
+    }
+    return result;
 }
 
 /**
@@ -3684,138 +3242,189 @@ s32 bgunTickIncState2(struct handweaponinfo *info, s32 handnum, struct hand *han
 	return 0;
 }
 
+struct bgunhandtickcontext {
+    struct handweaponinfo *info;
+    s32 handnum;
+    s32 lvupdate;
+    struct hand *hand;
+};
+static ggv_value bgunHandTickRead(void *opaque, ggv_binding binding)
+{
+    struct bgunhandtickcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_STATE_VALUE: value.i = c->hand->state; break;
+    case GGV_STATE_FRAMES: value.i = c->hand->stateframes; break;
+    case GGV_STATE_CYCLES: value.i = c->hand->statecycles; break;
+    case GGV_EMPTY_LVUPDATE: value.i = c->lvupdate; break;
+    case GGV_RELOAD_LVUPDATE240: value.i = g_Vars.lvupdate240; break;
+    case GGV_COUNTDOWN_UPDATE60: value.i = g_Vars.lvupdate60; break;
+    case GGV_RELOAD_COUNT60: value.i = c->hand->count60; break;
+    case GGV_RELOAD_COUNT: value.i = c->hand->count; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunHandTickWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunhandtickcontext *c = opaque;
+    switch (binding) {
+    case GGV_FIRING: c->hand->firing = value.b; break;
+    case GGV_FLASH: c->hand->flashon = value.b; break;
+    case GGV_STATE_FRAMES: c->hand->stateframes = value.i; break;
+    case GGV_STATE_LAST_FRAME: c->hand->statelastframe = value.i; break;
+    case GGV_STATE_CYCLES: c->hand->statecycles = value.i; break;
+    case GGV_RELOAD_COUNT60: c->hand->count60 = value.i; break;
+    case GGV_RELOAD_COUNT: c->hand->count = value.i; break;
+    case GGV_USE_POSROT: c->hand->useposrot = value.b; break;
+    default: break;
+    }
+}
+static ggv_value bgunHandTickCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunhandtickcontext *c = opaque; ggv_value value = {0};
+    (void)a; (void)b; (void)d;
+    switch (service) {
+    case GGV_TICK_DELIVERY_PENDING: value.b = wgV2RuntimeDeliveryPending(g_Vars.currentplayer, c->handnum); break;
+    case GGV_TICK_IS_V2: value.b = wgV2RuntimeIsWeapon(c->info->weaponnum); break;
+    case GGV_TICK_ADVANCE_V2: value.i = wgV2RuntimeAdvance(g_Vars.currentplayer, c->handnum); break;
+    case GGV_TICK_IDLE: value.i = bgunTickIncIdle(c->info, c->handnum, c->hand, c->lvupdate); break;
+    case GGV_TICK_RELOAD: value.i = bgunTickIncReload(c->info, c->handnum, c->hand, c->lvupdate); break;
+    case GGV_TICK_ATTACK: value.i = bgunTickIncAttack(c->info, c->handnum, c->hand, c->lvupdate); break;
+    case GGV_TICK_CHANGE_GUN: value.i = bgunTickIncChangeGun(c->info, c->handnum, c->hand, c->lvupdate); break;
+    case GGV_TICK_EMPTY: value.i = bgunTickIncAttackEmpty(c->info, c->handnum, c->hand, c->lvupdate); break;
+    case GGV_TICK_AUTO_SWITCH: value.i = bgunTickIncAutoSwitch(c->info, c->handnum, c->hand, c->lvupdate); break;
+    case GGV_TICK_CHANGE_FUNC: value.i = bgunTickIncChangeFunc(c->info, c->handnum, c->hand, c->lvupdate); break;
+    default: break;
+    }
+    return value;
+}
 s32 bgunTickInc(struct handweaponinfo *info, s32 handnum, s32 lvupdate)
 {
-	s32 result = 0;
-	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
-	s32 prevstate = hand->state;
-	/* Preserve shots when drawing skips deferred delivery. */
-	if (wgV2RuntimeDeliveryPending(g_Vars.currentplayer, handnum)) return 0;
-
-	hand->firing = false;
-	hand->flashon = false;
-	hand->stateframes += lvupdate;
-
-	if (g_Vars.lvupdate240 > 0) {
-		hand->count60 += g_Vars.lvupdate60;
-		hand->count++;
-	}
-
-	hand->useposrot = false;
-
-	switch (hand->state) {
-	case HANDSTATE_IDLE:
-		result = bgunTickIncIdle(info, handnum, hand, lvupdate);
-		break;
-	case HANDSTATE_RELOAD:
-		result = bgunTickIncReload(info, handnum, hand, lvupdate);
-		break;
-	case HANDSTATE_ATTACK:
-		result = wgV2RuntimeIsWeapon(info->weaponnum) ? wgV2RuntimeAdvance(g_Vars.currentplayer, handnum) : bgunTickIncAttack(info, handnum, hand, lvupdate);
-		break;
-	case HANDSTATE_2:
-		result = bgunTickIncState2(info, handnum, hand, lvupdate);
-		break;
-	case HANDSTATE_CHANGEGUN:
-		result = bgunTickIncChangeGun(info, handnum, hand, lvupdate);
-		break;
-	case HANDSTATE_ATTACKEMPTY:
-		result = bgunTickIncAttackEmpty(info, handnum, hand, lvupdate);
-		break;
-	case HANDSTATE_AUTOSWITCH:
-		result = bgunTickIncAutoSwitch(info, handnum, hand, lvupdate);
-		break;
-	case HANDSTATE_CHANGEFUNC:
-		result = bgunTickIncChangeFunc(info, handnum, hand, lvupdate);
-		break;
-	}
-
-	hand->statelastframe = hand->stateframes;
-
-	if (hand->state != prevstate) {
-		hand->statelastframe = -result;
-	} else {
-		hand->stateframes -= result;
-		hand->statecycles++;
-	}
-
-	return result;
+    struct bgunhandtickcontext context = { info, handnum, lvupdate, &g_Vars.currentplayer->hands[handnum] };
+    ggv_host host = { &context, bgunHandTickRead, bgunHandTickWrite, bgunHandTickCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_HAND_TICK), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: hand tick refused immutable program");
+    }
+    return result;
 }
 
-bool bgunSetState(s32 handnum, s32 state)
+/* GGV State services begin: synchronous borrowed context. */
+struct bgunstatecontext { s32 handnum; s32 state; struct hand *hand; s32 logweapon; s32 loginuse; };
+static ggv_value bgunStateRead(void *opaque, ggv_binding binding)
 {
-	bool valid = true;
-	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
-	s32 prev_state;
-
-	prev_state = (s32)hand->state;
-
+    struct bgunstatecontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_STATE_REQUEST: value.i = c->state; break;
+    case GGV_STATE_VALUE: value.i = c->hand->state; break;
+    case GGV_WEAPON_FUNCTION: value.i = c->hand->gset.weaponfunc; break;
+    case GGV_STATE_PLAYER_NUMBER: value.i = g_Vars.currentplayernum; break;
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    case GGV_WEAPON_NUMBER: value.i = c->hand->gset.weaponnum; break;
+    case GGV_STATE_INUSE: value.i = c->hand->inuse; break;
+    default: break;
+    } return value;
+}
+static void bgunStateWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunstatecontext *c = opaque;
+    switch (binding) {
+    case GGV_STATE_VALUE: c->hand->state = value.i; break;
+    case GGV_STATE_FRAMES: c->hand->stateframes = value.i; break;
+    case GGV_STATE_FLAGS: c->hand->stateflags = value.u; break;
+    case GGV_STATE_CYCLES: c->hand->statecycles = value.i; break;
+    case GGV_STATE_MINOR: c->hand->stateminor = value.i; break;
+    case GGV_STATE_LAST_FRAME: c->hand->statelastframe = value.i; break;
+    case GGV_STATE_LOG_WEAPON: c->logweapon = value.i; break;
+    case GGV_STATE_LOG_INUSE: c->loginuse = value.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunStateCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunstatecontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_STATE_SELECT_HAND: c->hand = &g_Vars.currentplayer->hands[c->handnum]; break;
 	// Sanity check - don't allow changing function if there is no other
-	if (state == HANDSTATE_CHANGEFUNC && weaponGetFunction(&hand->gset, 1 - hand->gset.weaponfunc) == NULL) {
-		valid = false;
-	}
-
-	if (valid) {
-		hand->state = state;
-		hand->stateframes = 0;
-		hand->stateflags = 0;
-		hand->statecycles = 0;
-		hand->stateminor = 0;
-		hand->statelastframe = 0;
-	}
-
+    case GGV_STATE_ALTERNATE_FUNCTION: value.ref = weaponGetFunction(&c->hand->gset, a.i); break;
 	/* B-246 round-6 instrumentation: state transitions are the load-bearing
 	 * signal for the FP rig lifecycle. Log every accepted transition (and
 	 * any rejected one). Player 0 only. Low frequency by construction. */
-	if (g_Vars.currentplayernum == 0 && (valid || state == HANDSTATE_CHANGEFUNC)) {
-		sysLogPrintf(LOG_NOTE,
-			"LOG.WPN.DIAG: bgunSetState player=0 hand=%d %d->%d valid=%d wpn=%d inuse=%d",
-			(s32)handnum,
-			prev_state,
-			(s32)state,
-			(s32)valid,
-			(s32)hand->gset.weaponnum,
-			(s32)hand->inuse);
-	}
-
-	return valid;
+    case GGV_STATE_LOG: sysLogPrintf(LOG_NOTE, "LOG.WPN.DIAG: bgunSetState player=0 hand=%d %d->%d valid=%d wpn=%d inuse=%d", a.i, b.i, (s32) c->state, (s32) d.b, (s32) c->logweapon, (s32) c->loginuse); break;
+    default: break;
+    } return value;
+}
+/* GGV State services end. */
+bool bgunSetState(s32 handnum, s32 state)
+{
+    struct bgunstatecontext context = {0}; context.handnum = handnum; context.state = state;
+    ggv_host host = { &context, bgunStateRead, bgunStateWrite, bgunStateCall };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_SET_STATE), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: state utility refused immutable program");
+        return false;
+    }
+    return result;
 }
 
+struct bguntickhandcontext {
+    s32 handnum;
+    struct hand *hand;
+    struct handweaponinfo info;
+};
+static ggv_value bgunTickHandRead(void *opaque, ggv_binding binding)
+{
+    struct bguntickhandcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_COUNTDOWN_UPDATE60: value.i = g_Vars.lvupdate60; break;
+    case GGV_ANIM_WAIT_INCREMENT: value.i = c->hand->animframeinc; break;
+    case GGV_RELOAD_PAL: value.b = PAL; break;
+#if VERSION >= VERSION_PAL_BETA
+    case GGV_RECOVERY_PAL: value.b = true; break;
+#else
+    case GGV_RECOVERY_PAL: value.b = false; break;
+    case GGV_ANIM_TICK_INCREMENT_LEGACY: value.u = c->hand->animframeincfreal; break;
+#endif
+    default: break;
+    }
+    return value;
+}
+static void bgunTickHandWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bguntickhandcontext *c = opaque;
+    switch (binding) {
+    case GGV_ANIM_WAIT_INCREMENT: c->hand->animframeinc = value.i; break;
+#if VERSION >= VERSION_PAL_BETA
+    case GGV_ANIM_WAIT_INCREMENT_REAL: c->hand->animframeincfreal = value.f; break;
+#else
+    case GGV_ANIM_TICK_INCREMENT_LEGACY: c->hand->animframeincfreal = value.u; break;
+#endif
+    default: break;
+    }
+}
+static ggv_value bgunTickHandCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bguntickhandcontext *c = opaque; ggv_value value = {0};
+    (void)b; (void)d;
+    switch (service) {
+    case GGV_HAND_INFO_CAPTURE: bgunGetWeaponInfo(&c->info, c->handnum); break;
+    case GGV_MODEL_ABS_ANIM_SPEED: value.f = modelGetAbsAnimSpeed(&c->hand->gunmodel); break;
+    case GGV_HAND_TICK_CHILD: value.i = bgunTickInc(&c->info, c->handnum, a.i); break;
+    default: break;
+    }
+    return value;
+}
 void bgunTickHand(s32 handnum)
 {
-	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
-	struct handweaponinfo info;
-	s32 lvupdate;
-	s32 i = 20;
-
-	if (handnum);
-	if (handnum);
-	if (handnum);
-	if (handnum);
-
-#if VERSION >= VERSION_PAL_BETA
-	if (handnum);
-#endif
-
-	bgunGetWeaponInfo(&info, handnum);
-
-	lvupdate = g_Vars.lvupdate60;
-
-	hand->animframeinc = g_Vars.lvupdate60;
-#if VERSION >= VERSION_PAL_BETA
-	hand->animframeincfreal = modelGetAbsAnimSpeed(&hand->gunmodel) * PALUPF(hand->animframeinc);
-#else
-	hand->animframeincfreal += PALUPF(g_Vars.lvupdate60);
-#endif
-
-	while (i >= 0) {
-		lvupdate = bgunTickInc(&info, handnum, lvupdate);
-		i--;
-
-		if (lvupdate <= 0) {
-			break;
-		}
-	}
+    struct bguntickhandcontext context = {0};
+    context.handnum = handnum; context.hand = &g_Vars.currentplayer->hands[handnum];
+    ggv_host host = { &context, bgunTickHandRead, bgunTickHandWrite, bgunTickHandCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_TICK_HAND), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: hand frame refused immutable program");
+    }
 }
 
 void bgunTickSwitch(void)
@@ -3823,33 +3432,39 @@ void bgunTickSwitch(void)
 	bgunTickSwitch2();
 }
 
-void bgunInitHandAnims(void)
+struct bguninitanimscontext { struct hand *hand; };
+static ggv_value bgunInitAnimsRead(void *opaque, ggv_binding binding)
 {
-	struct hand *hand;
-	s32 i;
-	wgV2RuntimePlayerBegin(g_Vars.currentplayer);
-
-	for (i = 0; i < 2; i++) {
-		if (i == 0) {
-			hand = &g_Vars.currentplayer->hands[1];
-		} else {
-			hand = &g_Vars.currentplayer->hands[0];
-		}
-
-		hand->gangstarot = 0;
-		hand->state = HANDSTATE_IDLE;
-		hand->animload = -1;
-		hand->animmode = HANDANIMMODE_IDLE;
-
-		animInit(&hand->anim);
-
-		hand->gunmodel.anim = &hand->anim;
-		hand->handmodel.anim = &hand->anim;
-	}
-
-	/* B-246 round-6 instrumentation: every per-player init invokes this.
-	 * Confirms both hands enter IDLE state with anim cleared. */
-	if (g_Vars.currentplayernum == 0) {
+    struct bguninitanimscontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_INIT_PLAYER_REF: v.ref = g_Vars.currentplayer; break;
+    case GGV_INIT_ANIM_REF: v.ref = &c->hand->anim; break;
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    default: break;
+    } return v;
+}
+static void bgunInitAnimsWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bguninitanimscontext *c = opaque;
+    switch (binding) {
+    case GGV_INIT_HAND: c->hand = v.ref; break;
+    case GGV_ANIM_GANGSTA: c->hand->gangstarot = v.f; break;
+    case GGV_STATE_VALUE: c->hand->state = v.i; break;
+    case GGV_ANIM_LOAD: c->hand->animload = v.i; break;
+    case GGV_EMPTY_ANIM_MODE: c->hand->animmode = v.i; break;
+    case GGV_INIT_GUN_ANIM: c->hand->gunmodel.anim = v.ref; break;
+    case GGV_INIT_HAND_ANIM: c->hand->handmodel.anim = v.ref; break;
+    default: break;
+    }
+}
+static ggv_value bgunInitAnimsCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value v = {0};
+    switch (service) {
+    case GGV_INIT_PLAYER_BEGIN: wgV2RuntimePlayerBegin(a.ref); break;
+    case GGV_INIT_HAND_REF: v.ref = &g_Vars.currentplayer->hands[a.i]; break;
+    case GGV_INIT_ANIM: animInit(a.ref); break;
+    case GGV_INIT_LOG:
 		sysLogPrintf(LOG_NOTE,
 			"LOG.WPN.DIAG: bgunInitHandAnims player=0 R(state=%d animmode=%d animload=%d) L(state=%d animmode=%d animload=%d)",
 			(s32)g_Vars.currentplayer->hands[HAND_RIGHT].state,
@@ -3858,7 +3473,16 @@ void bgunInitHandAnims(void)
 			(s32)g_Vars.currentplayer->hands[HAND_LEFT].state,
 			(s32)g_Vars.currentplayer->hands[HAND_LEFT].animmode,
 			(s32)g_Vars.currentplayer->hands[HAND_LEFT].animload);
-	}
+        break;
+    default: break;
+    } return v;
+}
+void bgunInitHandAnims(void)
+{
+    struct bguninitanimscontext context = {0};
+    ggv_host host = { &context, bgunInitAnimsRead, bgunInitAnimsWrite, bgunInitAnimsCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_INIT_HAND_ANIMS), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: hand animation initialization refused immutable program");
 }
 
 f32 bgunGetNoiseRadius(s32 handnum)
@@ -3880,17 +3504,23 @@ void bgunDecreaseNoiseRadius(void)
 	gsetPopulateFromCurrentPlayer(HAND_RIGHT, &gsetright);
 	uint64_t left_scope = wgV2RuntimeScopeOpen(player, HAND_LEFT, &gsetleft);
 	uint64_t right_scope = wgV2RuntimeScopeOpen(player, HAND_RIGHT, &gsetright);
+	wg_v2_delivery left_receipt = {0}, right_receipt = {0};
 
 	gsetGetNoiseSettings(&gsetleft, &noisesettingsleft);
 	gsetGetNoiseSettings(&gsetright, &noisesettingsright);
 
 	// Right hand
-	if (bgunIsFiring(HAND_RIGHT) && wgV2RuntimeNoiseAdmit(player, HAND_RIGHT)) {
+	if (bgunIsFiring(HAND_RIGHT) && (!wgV2RuntimeIsWeapon(gsetright.weaponnum)
+			|| (right_scope && wgV2RuntimeNoiseBegin(player, HAND_RIGHT, &right_receipt)))) {
+		const float before = player->hands[HAND_RIGHT].noiseradius;
 		player->hands[HAND_RIGHT].noiseradius += noisesettingsright.incradius;
 
 		if (player->hands[HAND_RIGHT].noiseradius > noisesettingsright.maxradius) {
 			player->hands[HAND_RIGHT].noiseradius = noisesettingsright.maxradius;
 		}
+		if (wgV2RuntimeIsWeapon(gsetright.weaponnum))
+			wgV2RuntimeObserveNoise(&right_receipt, before, player->hands[HAND_RIGHT].noiseradius,
+				noisesettingsright.incradius, noisesettingsright.maxradius);
 	}
 
 	subamount = g_Vars.lvupdate60freal * noisesettingsright.incradius / (noisesettingsright.decbasespeed * 60.0f);
@@ -3907,12 +3537,17 @@ void bgunDecreaseNoiseRadius(void)
 	}
 
 	// Left hand
-	if (bgunIsFiring(HAND_LEFT) && wgV2RuntimeNoiseAdmit(player, HAND_LEFT)) {
+	if (bgunIsFiring(HAND_LEFT) && (!wgV2RuntimeIsWeapon(gsetleft.weaponnum)
+			|| (left_scope && wgV2RuntimeNoiseBegin(player, HAND_LEFT, &left_receipt)))) {
+		const float before = player->hands[HAND_LEFT].noiseradius;
 		player->hands[HAND_LEFT].noiseradius += noisesettingsleft.incradius;
 
 		if (player->hands[HAND_LEFT].noiseradius > noisesettingsleft.maxradius) {
 			player->hands[HAND_LEFT].noiseradius = noisesettingsleft.maxradius;
 		}
+		if (wgV2RuntimeIsWeapon(gsetleft.weaponnum))
+			wgV2RuntimeObserveNoise(&left_receipt, before, player->hands[HAND_LEFT].noiseradius,
+				noisesettingsleft.incradius, noisesettingsleft.maxradius);
 	}
 
 	subamount = g_Vars.lvupdate60freal * noisesettingsleft.incradius / (noisesettingsleft.decbasespeed * 60.0f);
@@ -3928,7 +3563,7 @@ void bgunDecreaseNoiseRadius(void)
 		player->hands[HAND_LEFT].noiseradius = noisesettingsleft.minradius;
 	}
 	wgV2RuntimeScopeClose(left_scope); wgV2RuntimeScopeClose(right_scope);
-	wgV2RuntimeNoiseConsumed(player, HAND_LEFT); wgV2RuntimeNoiseConsumed(player, HAND_RIGHT);
+	wgV2RuntimeNoiseComplete(&left_receipt); wgV2RuntimeNoiseComplete(&right_receipt);
 }
 
 void bgunCalculateBlend(s32 handnum)
@@ -4145,13 +3780,11 @@ void bgun0f09d8dc(f32 breathing, f32 arg1, f32 arg2, f32 arg3, f32 arg4)
 
 bool bgunIsLoaded(void)
 {
-	if (g_Vars.currentplayer->gunctrl.gunmemowner != GUNMEMOWNER_BONDGUN) {
-		return false;
-	}
-
-	return g_Vars.currentplayer->gunctrl.gunmemtype == WEAPON_NONE
-		|| (g_Vars.currentplayer->gunctrl.gunmemnew < 0
-				&& g_Vars.currentplayer->gunctrl.masterloadstate == MASTERLOADSTATE_LOADED);
+    ggv_host host = { NULL, bgunIsLoadedRead, bgunHandPredicateWrite }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_IS_LOADED), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: loaded predicate refused immutable program"); return false;
+    }
+    return result;
 }
 
 u32 bgunGetGunMemType(void)
@@ -4187,40 +3820,50 @@ u32 bgunCalculateGunMemCapacity(void)
 	return g_BgunGunMemBaseSizeDefault;
 }
 
-void bgunFreeGunMem(void)
+struct bgunmemorycontext { struct player *player; s32 weaponnum; };
+static ggv_value bgunMemoryRead(void *opaque, ggv_binding binding)
 {
-	/* B-246 round-7 instrumentation: only log when actually transitioning
-	 * away from a non-FREE owner. Repeated FREE->FREE no-ops are the bulk
-	 * of round-6's volume and provide no signal. */
-	if (g_Vars.currentplayernum == 0
-			&& g_Vars.currentplayer->gunctrl.gunmemowner != GUNMEMOWNER_FREE) {
-		sysLogPrintf(LOG_NOTE,
+    struct bgunmemorycontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    case GGV_MEM_CURRENT_OWNER: v.i = g_Vars.currentplayer->gunctrl.gunmemowner; break;
+    case GGV_LOADED_GUNMEMOWNER: v.i = c->player->gunctrl.gunmemowner; break;
+    case GGV_EQUIP_REQUEST: v.i = c->weaponnum; break;
+    case GGV_MEM_OWNER_FREE: v.i = GUNMEMOWNER_FREE; break;
+    case GGV_MEM_OWNER_BOND: v.i = GUNMEMOWNER_BONDGUN; break;
+    case GGV_MEM_MASTER_FLUX: v.i = MASTERLOADSTATE_FLUX; break;
+    case GGV_MEM_GUN_FLUX: v.i = GUNLOADSTATE_FLUX; break;
+    case GGV_RELOAD_LVUPDATE240: v.i = g_Vars.lvupdate240; break;
+    default: break;
+    } return v;
+}
+static void bgunMemoryWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunmemorycontext *c = opaque;
+    switch (binding) {
+    case GGV_MEM_CURRENT_OWNER: g_Vars.currentplayer->gunctrl.gunmemowner = v.i; break;
+    case GGV_LOADED_MASTERLOADSTATE: c->player->gunctrl.masterloadstate = v.i; break;
+    case GGV_MEM_GUNLOADSTATE: c->player->gunctrl.gunloadstate = v.i; break;
+    case GGV_LOADED_GUNMEMNEW: c->player->gunctrl.gunmemnew = v.i; break;
+    case GGV_MEM_LOCK_TIMER: c->player->gunctrl.gunlocktimer = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunMemoryCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunmemorycontext *c = opaque; ggv_value v = {0};
+    struct player *player = c->player; s32 weaponnum = c->weaponnum;
+    switch (service) {
+    case GGV_MEM_FREE_LOG:
+        sysLogPrintf(LOG_NOTE,
 			"LOG.WPN.DIAG: bgunFreeGunMem enter player=0 owner_was=%d gunmemtype=%d gunmemnew=%d masterload=%d",
 			(s32)g_Vars.currentplayer->gunctrl.gunmemowner,
 			(s32)g_Vars.currentplayer->gunctrl.gunmemtype,
 			(s32)g_Vars.currentplayer->gunctrl.gunmemnew,
 			(s32)g_Vars.currentplayer->gunctrl.masterloadstate);
-	}
-
-	g_Vars.currentplayer->gunctrl.gunmemowner = GUNMEMOWNER_FREE;
-	// gunmem is stale and so are the textures loaded from it.
-	// Selective purge isn't feasible: the fast3d texture cache is keyed by GBI load parameters
-	// (address, format, size), not by pointer range, and exposes no "purge by address range" API.
-	// Full cache clear is the only safe option — textures for the new weapon will be reloaded
-	// on next render. If this causes hitching, the fix is to add a ranged-evict API to gfx_pc.cpp.
-	videoResetTextureCache();
-}
-
-void bgunSetGunMemWeapon(s32 weaponnum)
-{
-	struct player *player = g_Vars.currentplayer;
-
-	/* B-246 round-6 instrumentation: this is the trigger for the master
-	 * load state machine. If we never see this log line during a stage, no
-	 * weapon load can advance. Log every call (low frequency: once per
-	 * commit-edge in bgunTickSwitch2). */
-	if (g_Vars.currentplayernum == 0) {
-		sysLogPrintf(LOG_NOTE,
+        break;
+    case GGV_MEM_SET_LOG_ENTER:
+        sysLogPrintf(LOG_NOTE,
 			"LOG.WPN.DIAG: bgunSetGunMemWeapon enter player=0 wpn=%d owner=%d gunmemnew_was=%d gunmemtype=%d masterload_was=%d gunloadstate_was=%d",
 			(s32)weaponnum,
 			(s32)player->gunctrl.gunmemowner,
@@ -4228,19 +3871,9 @@ void bgunSetGunMemWeapon(s32 weaponnum)
 			(s32)player->gunctrl.gunmemtype,
 			(s32)player->gunctrl.masterloadstate,
 			(s32)player->gunctrl.gunloadstate);
-	}
-
-	if (player->gunctrl.gunmemowner == GUNMEMOWNER_BONDGUN) {
-		player->gunctrl.masterloadstate = MASTERLOADSTATE_FLUX;
-		player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
-		player->gunctrl.gunmemnew = weaponnum;
-		player->gunctrl.gunlocktimer = -1;
-	} else {
-		player->gunctrl.gunmemnew = weaponnum;
-	}
-
-	if (g_Vars.currentplayernum == 0) {
-		sysLogPrintf(LOG_NOTE,
+        break;
+    case GGV_MEM_SET_LOG_EXIT:
+        sysLogPrintf(LOG_NOTE,
 			"LOG.WPN.DIAG: bgunSetGunMemWeapon exit  player=0 wpn=%d owner=%d gunmemnew=%d masterload=%d gunloadstate=%d gunlocktimer=%d",
 			(s32)weaponnum,
 			(s32)player->gunctrl.gunmemowner,
@@ -4248,67 +3881,137 @@ void bgunSetGunMemWeapon(s32 weaponnum)
 			(s32)player->gunctrl.masterloadstate,
 			(s32)player->gunctrl.gunloadstate,
 			(s32)player->gunctrl.gunlocktimer);
-	}
+        break;
+    case GGV_MEM_TEXTURE_RESET:
+        /* Gun memory and its textures are stale. The renderer exposes no
+         * address-range eviction, so preserve the full cache reset. */
+        videoResetTextureCache(); break;
+    case GGV_MEM_MASTER_TICK: bgunTickMasterLoad(); break;
+    default: break;
+    } return v;
+}
+static void bgunRunMemory(struct bgunmemorycontext *context, ggv_stock_program program)
+{
+    ggv_host host = { context, bgunMemoryRead, bgunMemoryWrite, bgunMemoryCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(program), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: gun memory control refused immutable program");
+}
+void bgunFreeGunMem(void)
+{
+    struct bgunmemorycontext context = {0};
+    bgunRunMemory(&context, GGV_FREE_GUN_MEMORY);
 }
 
-void bgunEnterFlux(void)
+void bgunSetGunMemWeapon(s32 weaponnum)
 {
-	s32 i;
-	struct casing *end;
-	struct casing *casing;
+    struct bgunmemorycontext context = { g_Vars.currentplayer, weaponnum };
+    bgunRunMemory(&context, GGV_SET_GUN_MEMORY_WEAPON);
+}
 
-	/* B-246 round-6 instrumentation: this clears handmodeldef to NULL. If
-	 * the FP rig is asked to render between this call and the next master-
-	 * load completion, the hand-render gate at bondgun.c:11368 will skip.
-	 * Log every call so we can correlate any handmodeldef=NULL render with
-	 * the most recent flux entry. */
-	if (g_Vars.currentplayernum == 0) {
-		sysLogPrintf(LOG_NOTE,
+struct bgunfluxcontext { s32 casingindex; };
+static ggv_value bgunFluxRead(void *opaque, ggv_binding binding)
+{
+    ggv_value v = {0};
+    switch (binding) {
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    case GGV_MEM_MASTER_FLUX: v.i = MASTERLOADSTATE_FLUX; break;
+    case GGV_MEM_GUN_FLUX: v.i = GUNLOADSTATE_FLUX; break;
+    case GGV_FLUX_CASING_COUNT: v.i = ARRAYCOUNT(g_Casings); break;
+    default: break;
+    } return v;
+}
+static void bgunFluxWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunfluxcontext *c = opaque;
+    switch (binding) {
+    case GGV_FLUX_FILE: g_Vars.currentplayer->gunctrl.handfilenum = v.i; break;
+    case GGV_FLUX_CATALOG_HEAD: g_Vars.currentplayer->gunctrl.handcatalogid[0] = v.i; break;
+    case GGV_FLUX_GENERATION: g_Vars.currentplayer->gunctrl.handcataloggeneration = v.u; break;
+    case GGV_FLUX_HAND_MODEL: g_Vars.currentplayer->gunctrl.handmodeldef = v.ref; break;
+    case GGV_FLUX_LOAD_PTR: g_Vars.currentplayer->gunctrl.handmemloadptr = v.ref; break;
+    case GGV_FLUX_LOAD_REMAINING: g_Vars.currentplayer->gunctrl.handmemloadremaining = v.i; break;
+    case GGV_LOADED_MASTERLOADSTATE: g_Vars.currentplayer->gunctrl.masterloadstate = v.i; break;
+    case GGV_MEM_GUNLOADSTATE: g_Vars.currentplayer->gunctrl.gunloadstate = v.i; break;
+    case GGV_FLUX_CASING_INDEX: c->casingindex = v.i; break;
+    case GGV_FLUX_CASING_MODEL: g_Casings[c->casingindex].modeldef = v.ref; break;
+    case GGV_FLUX_CASINGS_ACTIVE: g_CasingsActive = v.b; break;
+    default: break;
+    }
+}
+static ggv_value bgunFluxCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value v = {0};
+    switch (service) {
+    case GGV_FLUX_LOG:
+        sysLogPrintf(LOG_NOTE,
 			"LOG.WPN.DIAG: bgunEnterFlux enter player=0 handfilenum_was=%d handmodeldef_was=%p gunmodeldef_was=%p masterload_was=%d owner=%d",
 			(s32)g_Vars.currentplayer->gunctrl.handfilenum,
 			(void *)g_Vars.currentplayer->gunctrl.handmodeldef,
 			(void *)g_Vars.currentplayer->gunctrl.gunmodeldef,
 			(s32)g_Vars.currentplayer->gunctrl.masterloadstate,
 			(s32)g_Vars.currentplayer->gunctrl.gunmemowner);
-	}
-
-	g_Vars.currentplayer->gunctrl.handfilenum = 0xffff;
-	g_Vars.currentplayer->gunctrl.handcatalogid[0] = 0;
-	g_Vars.currentplayer->gunctrl.handhandle = (asset_data_handle_t){0};
-	g_Vars.currentplayer->gunctrl.handcataloggeneration = 0;
-	g_Vars.currentplayer->gunctrl.handmodeldef = NULL;
-	g_Vars.currentplayer->gunctrl.handmemloadptr = 0;
-	g_Vars.currentplayer->gunctrl.handmemloadremaining = 0;
-	g_Vars.currentplayer->gunctrl.masterloadstate = MASTERLOADSTATE_FLUX;
-	g_Vars.currentplayer->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
-
-	end = g_Casings + ARRAYCOUNT(g_Casings);
-	casing = g_Casings;
-
-	while (casing < end) {
-		casing->modeldef = NULL;
-		casing++;
-	}
-
-	g_CasingsActive = false;
+        break;
+    case GGV_FLUX_CLEAR_HANDLE:
+        /* One typed aggregate store, with no provider lookup or loading. */
+        g_Vars.currentplayer->gunctrl.handhandle = (asset_data_handle_t){0}; break;
+    default: break;
+    } return v;
+}
+void bgunEnterFlux(void)
+{
+    struct bgunfluxcontext context = {0};
+    ggv_host host = { &context, bgunFluxRead, bgunFluxWrite, bgunFluxCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_ENTER_FLUX), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: flux reset refused immutable program");
 }
 
-bool bgunChangeGunMem(s32 newowner)
+struct bgunmemoryownercontext { struct player *player; s32 newowner, wild; };
+/* Same process-lifetime diagnostic throttles as the native donor. */
+static s32 g_BgunMemoryLastPair = -1;
+static s32 g_BgunMemoryLastWild = 0;
+static s32 g_BgunMemoryLastOwner = -2;
+static ggv_value bgunMemoryOwnerRead(void *opaque, ggv_binding binding)
 {
-	struct player *player = g_Vars.currentplayer;
-	bool result;
-
-	/* B-246 round-7 instrumentation: only log when the (cur_owner, new_owner)
-	 * pair actually changes from the last logged pair. Round-6 full logging
-	 * produced 4366 entries because charpreview and the master loader
-	 * fight every frame for the pool. Transition-only logging captures the
-	 * topology of the fight without flooding. Player 0 only. */
-	if (g_Vars.currentplayernum == 0 && player->gunctrl.gunmemowner != newowner) {
-		static s32 s_last_pair = -1;
-		s32 pair = ((s32)player->gunctrl.gunmemowner << 8) | (s32)newowner;
-		if (pair != s_last_pair) {
-			s_last_pair = pair;
-			sysLogPrintf(LOG_NOTE,
+    struct bgunmemoryownercontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    case GGV_LOADED_GUNMEMOWNER: v.i = c->player->gunctrl.gunmemowner; break;
+    case GGV_LOADED_GUNMEMNEW: v.i = c->player->gunctrl.gunmemnew; break;
+    case GGV_LOADED_GUNMEMTYPE: v.i = c->player->gunctrl.gunmemtype; break;
+    case GGV_MEM_LOCK_TIMER: v.i = c->player->gunctrl.gunlocktimer; break;
+    case GGV_MEM_REQUEST_OWNER: v.i = c->newowner; break;
+    case GGV_MEM_LAST_PAIR: v.i = g_BgunMemoryLastPair; break;
+    case GGV_MEM_LAST_WILD: v.i = g_BgunMemoryLastWild; break;
+    case GGV_MEM_LAST_OWNER: v.i = g_BgunMemoryLastOwner; break;
+    case GGV_CLEAN_MULTIPLAYER: v.u = g_Vars.mplayerisrunning; break;
+    case GGV_MEM_HAS_BODY: v.i = c->player->haschrbody; break;
+    case GGV_MEM_REMOVE_BODY_FLAG: v.i = var8009dfc0; break;
+    default: break;
+    } return v;
+}
+static void bgunMemoryOwnerWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunmemoryownercontext *c = opaque;
+    switch (binding) {
+    case GGV_LOADED_GUNMEMOWNER: c->player->gunctrl.gunmemowner = v.i; break;
+    case GGV_LOADED_GUNMEMNEW: c->player->gunctrl.gunmemnew = v.i; break;
+    case GGV_LOADED_GUNMEMTYPE: c->player->gunctrl.gunmemtype = v.i; break;
+    case GGV_MEM_LOCK_TIMER: c->player->gunctrl.gunlocktimer = v.i; break;
+    case GGV_MEM_LOAD_ALL: c->player->gunctrl.loadall = v.b; break;
+    case GGV_MEM_LAST_PAIR: g_BgunMemoryLastPair = v.i; break;
+    case GGV_MEM_LAST_WILD: g_BgunMemoryLastWild = v.i; break;
+    case GGV_MEM_LAST_OWNER: g_BgunMemoryLastOwner = v.i; break;
+    case GGV_MEM_WILD_VALUE: c->wild = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunMemoryOwnerCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunmemoryownercontext *c = opaque; ggv_value v = {0};
+    struct player *player = c->player; s32 newowner = c->newowner, gmn = c->wild;
+    switch (service) {
+    case GGV_MEM_OWNER_LOG_ENTER:
+        sysLogPrintf(LOG_NOTE,
 				"LOG.WPN.DIAG: bgunChangeGunMem enter player=0 cur_owner=%d new_owner=%d gunlocktimer=%d gunmemnew=%d gunmemtype=%d haschrbody=%d mp=%d",
 				(s32)player->gunctrl.gunmemowner,
 				(s32)newowner,
@@ -4317,118 +4020,34 @@ bool bgunChangeGunMem(s32 newowner)
 				(s32)player->gunctrl.gunmemtype,
 				(s32)player->haschrbody,
 				(s32)g_Vars.mplayerisrunning);
-		}
-	}
-
-	/* B-246 round-7: gunmemnew range-watch. Round-5 log saw a transient
-	 * gunmemnew=-1314284637 (=0xB1B49363) at 00:50.85 in two consecutive
-	 * bgunChangeGunMem entries. The field should hold -1 (no pending) or a
-	 * small WEAPON_* enum (0..~35). Anything else is a wild value -- could
-	 * be uninit read, struct overlap write, or memory corruption. Logging
-	 * here at every entry catches the moment the wild value enters this
-	 * function so we can correlate with the call site. Limit to one log
-	 * per distinct wild value so a corrupted state doesn't flood. */
-	if (g_Vars.currentplayernum == 0) {
-		s32 gmn = (s32)player->gunctrl.gunmemnew;
-		if (gmn < -1 || gmn > 100) {
-			static s32 s_last_wild = 0;
-			if (gmn != s_last_wild) {
-				s_last_wild = gmn;
-				sysLogPrintf(LOG_NOTE,
+        break;
+    case GGV_MEM_OWNER_LOG_WILD:
+        sysLogPrintf(LOG_NOTE,
 					"LOG.WPN.DIAG: gunmemnew RANGE-WATCH player=0 wild_value=%d (0x%08x) site=bgunChangeGunMem cur_owner=%d new_owner=%d gunmemtype=%d gunmem=%p",
 					gmn, (u32)gmn,
 					(s32)player->gunctrl.gunmemowner, (s32)newowner,
 					(s32)player->gunctrl.gunmemtype,
 					(void *)player->gunctrl.gunmem);
-			}
-		}
-	}
-
-	if (player->gunctrl.gunmemowner == newowner) {
-		return true;
-	}
-
-	if (player->gunctrl.gunlocktimer < 0) {
-		player->gunctrl.gunlocktimer--;
-
-		if (player->gunctrl.gunlocktimer < -2) {
-			player->gunctrl.gunlocktimer = 0;
-			player->gunctrl.gunmemowner = newowner;
-
-			/* B-246 round-7 instrumentation: keep success-exit log (result=1)
-			 * since each timer-complete is a real ownership transition, but
-			 * rate-limit on owner change so a tight fight loop logs only when
-			 * the topology shifts. */
-			if (g_Vars.currentplayernum == 0) {
-				static s32 s_last_owner = -2;
-				if ((s32)player->gunctrl.gunmemowner != s_last_owner) {
-					s_last_owner = (s32)player->gunctrl.gunmemowner;
-					sysLogPrintf(LOG_NOTE,
+        break;
+    case GGV_MEM_OWNER_LOG_SUCCESS:
+        sysLogPrintf(LOG_NOTE,
 						"LOG.WPN.DIAG: bgunChangeGunMem exit  player=0 result=1 owner_now=%d gunlocktimer=%d branch=timer_complete",
 						(s32)player->gunctrl.gunmemowner,
 						(s32)player->gunctrl.gunlocktimer);
-				}
-			}
-
-			return true;
-		}
-	} else {
-		bool unlock = false;
-
-		switch (player->gunctrl.gunmemowner) {
-		case GUNMEMOWNER_BONDGUN:
-			if (player->gunctrl.gunmemtype != -1) {
-				player->gunctrl.gunmemnew = player->gunctrl.gunmemtype;
-			}
-
-			player->gunctrl.gunmemtype = -1;
-			bgunEnterFlux();
-			player->gunctrl.loadall = true;
-			unlock = true;
-			break;
-		case GUNMEMOWNER_CHRBODY:
-			if (g_Vars.mplayerisrunning) {
-				unlock = true;
-			}
-
-			if (!player->haschrbody) {
-				unlock = true;
-			}
-
-			if (newowner == GUNMEMOWNER_INVMENU && var8009dfc0 != 0) {
-				unlock = true;
-				playerRemoveChrBody();
-			}
-			break;
-		case GUNMEMOWNER_3:
-			unlock = true;
-			break;
-		case GUNMEMOWNER_CHANGING:
-		case GUNMEMOWNER_FREE:
-			unlock = true;
-			break;
-		}
-
-		if (unlock) {
-			player->gunctrl.gunlocktimer = -1;
-			player->gunctrl.gunmemowner = GUNMEMOWNER_CHANGING;
-		}
-
-		/* B-246 round-7: post-switch exit logs were redundant with the
-		 * round-7 throttled enter. Drop the per-call result=0 spam. The
-		 * enter log captures the state we'd see here. */
-		(void)unlock;
-
-		return false;
-	}
-
-	/* B-246 round-7: timer-pending exit was per-frame spam in fights. The
-	 * enter throttle now captures the topology; the timer ticking down is
-	 * implicit. */
-	result = false;
-	(void)result;
-
-	return false;
+        break;
+    case GGV_MEM_ENTER_FLUX: bgunEnterFlux(); break;
+    case GGV_MEM_REMOVE_BODY: playerRemoveChrBody(); break;
+    default: break;
+    } return v;
+}
+bool bgunChangeGunMem(s32 newowner)
+{
+    struct bgunmemoryownercontext context = { g_Vars.currentplayer, newowner, 0 };
+    ggv_host host = { &context, bgunMemoryOwnerRead, bgunMemoryOwnerWrite, bgunMemoryOwnerCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_CHANGE_MEMORY_OWNER), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: memory ownership transition refused immutable program"); return false;
+    }
+    return result;
 }
 
 static asset_data_handle_t bgunNullAssetHandle(void)
@@ -4470,7 +4089,7 @@ static asset_data_handle_t bgunResolveQueuedModelHandle(s32 filenum)
 }
 
 static void bgunQueueModelLoad(struct player *player, u16 filenum, struct modeldef **modeldef,
-		uintptr_t *memptr, uintptr_t *memremaining)
+		u8 **memptr, u32 *memremaining)
 {
 	player->gunctrl.loadretainedmodel = NULL;
 	player->gunctrl.loadfilenum = filenum;
@@ -4526,7 +4145,7 @@ bool bgunBodyHandSourceIsCurrent(struct player *player, s32 bodynum)
 }
 
 bool bgunQueueBodyHandModelLoad(struct player *player, s32 bodynum,
-		struct modeldef **modeldef, uintptr_t *memptr, uintptr_t *memremaining)
+		struct modeldef **modeldef, u8 **memptr, u32 *memremaining)
 {
 	char id[64];
 	asset_data_handle_t handle;
@@ -4753,10 +4372,176 @@ static struct modeldef *bgunQueuedLoadToAddr(struct player *player, void *ptr, u
  * Although the name contains "Gun", it's used for more than just the gun model.
  * It's used for the hand model, the gun model and the cartridge model.
  */
+static ggv_value bgunFailureRead(void *opaque, ggv_binding binding)
+{
+    struct player *player = opaque; ggv_value v = {0};
+    if (binding == GGV_MASTER_LOAD_GENERATION) v.u = player->gunctrl.loadcataloggeneration;
+    return v;
+}
+static void bgunFailureWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct player *player = opaque;
+    if (binding == GGV_MEM_GUNLOADSTATE) player->gunctrl.gunloadstate = v.i;
+}
+static ggv_value bgunFailureCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct player *player = opaque; ggv_value v = {0};
+    switch (service) {
+    case GGV_MASTER_CATALOG_GENERATION: v.u = assetCatalogGetGeneration(); break;
+    case GGV_GUN_FAILURE_LOG:
+        sysLogPrintf(LOG_NOTE,
+            "BONDGUN.SOURCE: releasing failed model request filenum=%d catalog_generation=%u->%u",
+            (s32)player->gunctrl.loadfilenum, (unsigned)player->gunctrl.loadcataloggeneration, (unsigned)a.u); break;
+    default: break;
+    } return v;
+}
+static void bgunGunLoadFailed(struct player *player)
+{
+    ggv_host host = { player, bgunFailureRead, bgunFailureWrite, bgunFailureCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_GUN_FAILURE_RECOVERY), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: gun failure recovery refused immutable program");
+}
+
+static ggv_value bgunRetainedRead(void *opaque, ggv_binding binding)
+{
+    struct player *player = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_GL_RETAINED_MODEL: v.ref = player->gunctrl.loadretainedmodel; break;
+    case GGV_GL_TARGET: v.ref = player->gunctrl.loadtomodeldef; break;
+    default: break;
+    } return v;
+}
+static void bgunRetainedWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct player *player = opaque;
+    switch (binding) {
+    case GGV_GL_TARGET_MODEL: *player->gunctrl.loadtomodeldef = v.ref; break;
+    case GGV_GL_RETAINED_MODEL: player->gunctrl.loadretainedmodel = v.ref; break;
+    case GGV_GL_NEXT_TEXTURE: player->gunctrl.nexttexturetoload = v.u; break;
+    case GGV_GL_LOADED_SIZE: player->gunctrl.fileinfo.loadedsize = v.u; break;
+    case GGV_GL_ALLOC_SIZE: player->gunctrl.fileinfo.allocsize = v.u; break;
+    case GGV_MEM_GUNLOADSTATE: player->gunctrl.gunloadstate = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunRetainedCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct player *player = opaque; ggv_value v = {0};
+    switch (service) {
+    case GGV_GL_GENERATION: v.ref = catalogModelGenerationForModeldef(a.ref); break;
+    case GGV_GL_GENERATION_ID: v.ref = (void *)catalogModelGenerationId(a.ref); break;
+    case GGV_GL_COMPARE_ID: v.i = strcmp(a.ref, player->gunctrl.loadcatalogid); break;
+    case GGV_GL_FAIL: bgunFailQueuedModelLoad(player); break;
+    case GGV_GL_ALLOCATE_RW: modelAllocateRwData(a.ref); break;
+    case GGV_GL_GENERATION_HASH: v.ref = (void *)catalogModelGenerationHash(a.ref); break;
+    case GGV_GL_RETAINED_LOG:
+        sysLogPrintf(LOG_NOTE, "BONDGUN.SOURCE: consumed retained model id=%s hash=%s", (const char *)a.ref, (const char *)b.ref); break;
+    default: break;
+    } return v;
+}
+static void bgunGunLoadRetained(struct player *player)
+{
+    ggv_host host = { player, bgunRetainedRead, bgunRetainedWrite, bgunRetainedCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_GUN_RETAINED_LOAD), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: retained gun model load refused immutable program");
+}
+
+static ggv_value bgunSourceRouteRead(void *opaque, ggv_binding binding)
+{
+    struct player *player = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_GL_BODY_HAND: v.b = player->gunctrl.loadbodyhand != 0; break;
+    case GGV_GL_LOAD_FILE: v.i = player->gunctrl.loadfilenum; break;
+    case GGV_GL_PROVIDER: v.ref = (void *)player->gunctrl.loadhandle.provider; break;
+    case GGV_MASTER_LOAD_GENERATION: v.u = player->gunctrl.loadcataloggeneration; break;
+    default: break;
+    } return v;
+}
+static void bgunSourceRouteWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct player *player = opaque;
+    switch (binding) {
+    case GGV_GL_LOAD_TYPE: g_LoadType = v.i; break;
+    case GGV_MEM_GUNLOADSTATE: player->gunctrl.gunloadstate = v.i; break;
+    case GGV_FLUX_FILE: player->gunctrl.handfilenum = v.i; break;
+    case GGV_FLUX_GENERATION: player->gunctrl.handcataloggeneration = v.u; break;
+    default: break;
+    }
+}
+static ggv_value bgunSourceRouteCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct player *player = opaque; ggv_value v = {0};
+    switch (service) {
+    case GGV_GL_CAN_USE_HANDLE: v.b = bgunQueuedLoadCanUseHandle(player); break;
+    case GGV_GL_EXTERNAL_SOURCE: v.b = bgunQueuedLoadUsesExternalModelSource(player); break;
+    case GGV_GL_CATALOG_MODEL: v.ref = bgunQueuedLoadCatalogModelSource(player); break;
+    case GGV_GL_FILE_PROVIDER: v.ref = (void *)fileProvider(); break;
+    case GGV_GL_COPY_HAND_ID: strcpy(player->gunctrl.handcatalogid, player->gunctrl.loadcatalogid); break;
+    case GGV_GL_COPY_HAND_HANDLE: player->gunctrl.handhandle = player->gunctrl.loadhandle; break;
+    case GGV_GL_FAIL: bgunFailQueuedModelLoad(player); break;
+    default: break;
+    } return v;
+}
+static bool bgunGunLoadSource(struct player *player)
+{
+    ggv_host host = { player, bgunSourceRouteRead, bgunSourceRouteWrite, bgunSourceRouteCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_GUN_SOURCE_ROUTE), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: gun source routing refused immutable program"); return true;
+    }
+    return result;
+}
+
+struct bgunguntexturescontext { struct player *player; struct modeldef *model; s32 index; };
+static ggv_value bgunTexturesRead(void *opaque, ggv_binding binding)
+{
+    struct bgunguntexturescontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_GL_TARGET_MODEL: v.ref = *c->player->gunctrl.loadtomodeldef; break;
+    case GGV_GL_NEXT_TEXTURE: v.u = c->player->gunctrl.nexttexturetoload; break;
+    case GGV_GL_TEXTURE_INDEX: v.i = c->index; break;
+    case GGV_GL_TEXTURE_COUNT: v.i = c->model->numtexconfigs; break;
+    case GGV_GL_TEXTURE_WORD: {
+        uint64_t word = c->model->texconfigs[c->index].texturenum;
+        memcpy(&v.i64, &word, sizeof(word)); break;
+    }
+    case GGV_GL_TEXTURE_LIMIT: v.i64 = TEXTURE_CUSTOM_END; break;
+    default: break;
+    } return v;
+}
+static void bgunTexturesWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunguntexturescontext *c = opaque;
+    switch (binding) {
+    case GGV_GL_TEXTURE_MODEL: c->model = v.ref; break;
+    case GGV_GL_TEXTURE_INDEX: c->index = v.i; break;
+    case GGV_GL_NEXT_TEXTURE: c->player->gunctrl.nexttexturetoload = v.u; break;
+    case GGV_GL_TEXTURE_MARK: c->model->texconfigs[c->index].unk0b = v.i; break;
+    case GGV_MEM_GUNLOADSTATE: c->player->gunctrl.gunloadstate = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunTexturesCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunguntexturescontext *c = opaque; ggv_value v = {0};
+    switch (service) {
+    case GGV_GL_TEXTURE_BEGIN: osSyncPrintf("BriGun:  BriGunLoadTick process GUN_LOADSTATE_DECOMPRESS_TEXTURES\n"); break;
+    case GGV_GL_TEXTURE_AT: osSyncPrintf("BriGun:  at texture %d\n", a.i); break;
+    case GGV_GL_TEXTURE_UNCOMPRESS: osSyncPrintf("BriGun:  Uncompress %d of %d\n", a.i, b.i); break;
+    case GGV_GL_TEXTURE_LOAD: texLoad(&c->model->texconfigs[c->index].texturenum, &c->player->gunctrl.texpool, true); break;
+    case GGV_GL_TEXTURE_DONE: osSyncPrintf("BriGun:  Set Load State: GUN_LOADSTATE_DECOMPRESS_DLS\n"); break;
+    default: break;
+    } return v;
+}
+static void bgunGunLoadTextures(struct player *player)
+{
+    struct bgunguntexturescontext context = {0}; context.player = player;
+    ggv_host host = { &context, bgunTexturesRead, bgunTexturesWrite, bgunTexturesCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_GUN_TEXTURES), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: gun texture stage refused immutable program");
+}
+
 void bgunTickGunLoad(void)
 {
-	s32 i;
-	s32 numthistick;
 	u64 remaining;
 	s32 padding;
 	u64 allocsize;
@@ -4772,71 +4557,19 @@ void bgunTickGunLoad(void)
 #endif
 
 	if (player->gunctrl.gunloadstate == GUNLOADSTATE_FAILED) {
-		u32 catalog_generation = assetCatalogGetGeneration();
-
-		if (catalog_generation != player->gunctrl.loadcataloggeneration) {
-			sysLogPrintf(LOG_NOTE,
-				"BONDGUN.SOURCE: releasing failed model request filenum=%d catalog_generation=%u->%u",
-				(s32)player->gunctrl.loadfilenum,
-				(unsigned)player->gunctrl.loadcataloggeneration,
-				(unsigned)catalog_generation);
-			player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
-		}
+		bgunGunLoadFailed(player);
 		return;
 	}
 
 	if (player->gunctrl.gunloadstate == GUNLOADSTATE_MODEL) {
 		osSyncPrintf("BriGun:  BriGunLoadTick process GUN_LOADSTATE_LOAD_OBJ\n");
         if (player->gunctrl.loadretainedmodel) {
-            modeldef = player->gunctrl.loadretainedmodel;
-            catalog_model_generation_t *generation = catalogModelGenerationForModeldef(modeldef);
-            const char *id = catalogModelGenerationId(generation);
-            if (!player->gunctrl.loadtomodeldef || !id
-                    || strcmp(id, player->gunctrl.loadcatalogid)) {
-                bgunFailQueuedModelLoad(player); return;
-            }
-            modelAllocateRwData(modeldef);
-            *player->gunctrl.loadtomodeldef = modeldef;
-            player->gunctrl.loadretainedmodel = NULL;
-            player->gunctrl.nexttexturetoload = 0;
-            player->gunctrl.fileinfo.loadedsize = player->gunctrl.fileinfo.allocsize = 0;
-            player->gunctrl.gunloadstate = GUNLOADSTATE_LOADED;
-            sysLogPrintf(LOG_NOTE, "BONDGUN.SOURCE: consumed retained model id=%s hash=%s",
-                id, catalogModelGenerationHash(generation));
+            bgunGunLoadRetained(player);
             return;
         }
-		if (!bgunQueuedLoadCanUseHandle(player)) {
-			bgunFailQueuedModelLoad(player);
-			return;
-		}
+		if (bgunGunLoadSource(player)) return;
 
-		if (bgunQueuedLoadUsesExternalModelSource(player)) {
-			modeldef = bgunQueuedLoadCatalogModelSource(player);
-
-			if (modeldef == NULL) {
-				g_LoadType = LOADTYPE_NONE;
-				bgunFailQueuedModelLoad(player);
-				return;
-			}
-
-			player->gunctrl.gunloadstate = GUNLOADSTATE_LOADED;
-			if (player->gunctrl.loadbodyhand) {
-				player->gunctrl.handfilenum = player->gunctrl.loadfilenum;
-				strcpy(player->gunctrl.handcatalogid, player->gunctrl.loadcatalogid);
-				player->gunctrl.handhandle = player->gunctrl.loadhandle;
-				player->gunctrl.handcataloggeneration = player->gunctrl.loadcataloggeneration;
-			}
-			return;
-		}
-
-		/* FileProvider models are editable sources. A rejected archive or
-		 * unsupported file must never enter preprocessed model-byte loading. */
-		if (player->gunctrl.loadhandle.provider == fileProvider()) {
-			bgunFailQueuedModelLoad(player);
-			return;
-		}
-
-		ptr = *player->gunctrl.loadmemptr;
+		ptr = (uintptr_t) *player->gunctrl.loadmemptr;
 		remaining = *player->gunctrl.loadmemremaining;
 
 		// Align ptr to the next 16 byte boundary
@@ -4846,7 +4579,7 @@ void bgunTickGunLoad(void)
 			remaining -= padding;
 		}
 
-		*player->gunctrl.loadmemptr = ptr;
+		*player->gunctrl.loadmemptr = (u8 *) ptr;
 		*player->gunctrl.loadmemremaining = remaining;
 
 		loadsize = ALIGN64(bgunQueuedGetInflatedSize(player)) + GUN_MODEL_LOAD_SCRATCH;
@@ -4909,36 +4642,7 @@ void bgunTickGunLoad(void)
 	}
 
 	if (player->gunctrl.gunloadstate == GUNLOADSTATE_TEXTURES) {
-		osSyncPrintf("BriGun:  BriGunLoadTick process GUN_LOADSTATE_DECOMPRESS_TEXTURES\n");
-
-		modeldef = *player->gunctrl.loadtomodeldef;
-
-		// Load textures - up to 3 per call
-		numthistick = 0;
-
-		for (i = player->gunctrl.nexttexturetoload; i < modeldef->numtexconfigs; i++) {
-			osSyncPrintf("BriGun:  at texture %d\n", i);
-
-			if (modeldef->texconfigs[i].texturenum < TEXTURE_CUSTOM_END) { /* c3849 */
-				osSyncPrintf("BriGun:  Uncompress %d of %d\n", i, modeldef->numtexconfigs);
-				texLoad(&modeldef->texconfigs[i].texturenum, &player->gunctrl.texpool, true);
-				modeldef->texconfigs[i].unk0b = 1;
-			}
-
-			numthistick++;
-
-			if (numthistick == 3) {
-				return;
-			}
-
-			// @bug: This should be incremented prior to the return, otherwise
-			// subsequent ticks will waste time loading a texture that's already
-			// been loaded.
-			player->gunctrl.nexttexturetoload++;
-		}
-
-		osSyncPrintf("BriGun:  Set Load State: GUN_LOADSTATE_DECOMPRESS_DLS\n");
-		player->gunctrl.gunloadstate = GUNLOADSTATE_DLS;
+		bgunGunLoadTextures(player);
 		return;
 	}
 
@@ -4970,9 +4674,9 @@ void bgunTickGunLoad(void)
 
 		newvalue = ALIGN64(texGetPoolLeftPos(&player->gunctrl.texpool));
 		remaining = *player->gunctrl.loadmemremaining;
-		remaining -= (intptr_t)(newvalue - *player->gunctrl.loadmemptr);
+		remaining -= (intptr_t)(newvalue - (uintptr_t) *player->gunctrl.loadmemptr);
 
-		*player->gunctrl.loadmemptr = newvalue;
+		*player->gunctrl.loadmemptr = (u8 *) newvalue;
 		*player->gunctrl.loadmemremaining = remaining;
 
 		osSyncPrintf("BriGun:  Set Load State: GUN_LOADSTATE_LOADED\n");
@@ -5035,352 +4739,441 @@ const char var7f1ac0ec[] = "Gun   : TotalUsed %d, Free %d\n";
 const char var7f1ac10c[] = "BriGun: Set Master State: MASTER_GUN_LOADSTATE_LOADED\n";
 const char var7f1ac144[] = "GunLockTimer: %d\n";
 
-void bgunTickMasterLoad(void)
+static ggv_value bgunMasterAdmissionCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
 {
-	s32 newweaponnum;
-	struct player *player = g_Vars.currentplayer;
-	bool hashands;
-	u16 handfilenum;
-	s32 sum;
-	u16 filenum;
-	s32 i;
-	struct casing *casing;
-	struct hand *hand;
-	struct weaponfunc *func;
-	struct weaponfunc *shootfunc;
-	struct weapon *weapondef;
-	s32 casingindex;
-	struct inventory_ammo *ammodef;
-	s32 value;
-	s32 bodynum;
-	s32 headnum;
+    ggv_value v = {0};
+    switch (service) {
+    case GGV_MEM_CHANGE_OWNER: v.b = bgunChangeGunMem(a.i); break;
+    default: break;
+    } return v;
+}
+static bool bgunMasterLoadReady(struct player *player)
+{
+    /* Keep the caller's captured player across the ownership child's fresh
+     * current-player invocation, matching the native OR/AND expression. */
+    struct bgunmemoryownercontext context = { player, 0, 0 };
+    ggv_host host = { &context, bgunMemoryOwnerRead, bgunMemoryOwnerWrite, bgunMasterAdmissionCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_MASTER_LOAD_ADMISSION), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: master-load admission refused immutable program"); return false;
+    }
+    return result;
+}
 
-	if ((player->gunctrl.gunmemowner == GUNMEMOWNER_BONDGUN || bgunChangeGunMem(GUNMEMOWNER_BONDGUN)) && player->gunctrl.gunmemnew >= 0) {
-		if (player->gunctrl.gunlocktimer == 0) {
-			newweaponnum = player->gunctrl.gunmemnew;
+struct bgunmastersourcecontext {
+    struct player *player;
+    s32 weapon, bodynum, headnum, hf32;
+    u16 handfile, file;
+    char handid[64]; asset_data_handle_t handsource;
+};
+static ggv_value bgunMasterSourceRead(void *opaque, ggv_binding binding)
+{
+    struct bgunmastersourcecontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_LOADED_GUNMEMNEW: v.i = c->player->gunctrl.gunmemnew; break;
+    case GGV_MASTER_WEAPON: v.i = c->weapon; break;
+    case GGV_MASTER_HF32: v.i = c->hf32; break;
+    case GGV_LOADED_MASTERLOADSTATE: v.i = c->player->gunctrl.masterloadstate; break;
+    case GGV_MASTER_MODEL: v.ref = c->player->gunctrl.gunmodeldef; break;
+    default: break;
+    } return v;
+}
+static void bgunMasterSourceWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunmastersourcecontext *c = opaque;
+    switch (binding) {
+    case GGV_MASTER_WEAPON: c->weapon = v.i; break;
+    case GGV_MASTER_HF32: c->hf32 = v.i; break;
+    case GGV_MASTER_HANDFILE: c->handfile = v.i; break;
+    case GGV_MASTER_FILE: c->file = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunMasterSourceCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunmastersourcecontext *c = opaque; ggv_value v = {0};
+    switch (service) {
+    case GGV_MASTER_CHOOSE_BODY: v.b = playerChooseBodyAndHead(&c->bodynum, &c->headnum, NULL); break;
+    case GGV_MASTER_HAND_FILE: v.b = catalogGetBodyHandFilenumChecked(c->bodynum, &c->hf32); break;
+    case GGV_MASTER_HAND_SOURCE: v.b = catalogGetBodyHandSourceChecked(c->bodynum, c->handid, &c->handsource); break;
+    case GGV_MASTER_SOURCE_ERROR: sysLogPrintf(LOG_ERROR, "PLAYER.INIT.ROLLBACK hands identity player=%d", g_Vars.currentplayernum); break;
+    case GGV_MASTER_WEAPON_FILE: v.i = weaponGetFileNum(a.i); break;
+    case GGV_INFO_IS_V2: v.b = wgV2RuntimeIsWeapon(a.i); break;
+    case GGV_MASTER_RUNTIME_MODEL: v.ref = wgV2RuntimeModel(a.i); break;
+    case GGV_MASTER_HAS_HANDS: v.b = weaponHasFlag(a.i, WEAPONFLAG_HASHANDS); break;
+    case GGV_MASTER_SOURCE_CURRENT: v.b = bgunBodyHandSourceIsCurrent(c->player, c->bodynum); break;
+    case GGV_MEM_ENTER_FLUX: bgunEnterFlux(); break;
+    default: break;
+    } return v;
+}
+static bool bgunMasterPrepareSource(struct player *player, s32 *weapon, u16 *handfile, u16 *file, s32 *body, s32 *head)
+{
+    struct bgunmastersourcecontext context = {0}; context.player = player;
+    ggv_host host = { &context, bgunMasterSourceRead, bgunMasterSourceWrite, bgunMasterSourceCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_MASTER_SOURCE_PREPARE), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: master source preparation refused immutable program"); return false;
+    }
+    if (!result) return false;
+    *weapon = context.weapon; *handfile = context.handfile; *file = context.file; *body = context.bodynum; *head = context.headnum;
+    return true;
+}
 
-			/* File numbers retain native provenance; the public hand ID selects
-			 * the actual source. A missing selected source cannot silently turn
-			 * an authored body into a body with no hands. */
-			{
-				s32 hf32 = 0;
-				char hand_id[64];
-				asset_data_handle_t hand_source;
-				if (!playerChooseBodyAndHead(&bodynum, &headnum, NULL) ||
-						!catalogGetBodyHandFilenumChecked(bodynum, &hf32) ||
-						!catalogGetBodyHandSourceChecked(bodynum, hand_id, &hand_source)) {
-					sysLogPrintf(LOG_ERROR,
-						"PLAYER.INIT.ROLLBACK hands identity player=%d",
-						g_Vars.currentplayernum);
-					return;
-				}
-				handfilenum = (u16)hf32;
-			}
-
-			filenum = weaponGetFileNum(newweaponnum);
-			/* A new source generation must refresh an already loaded held model. */
-			if (wgV2RuntimeIsWeapon(newweaponnum) && player->gunctrl.masterloadstate == MASTERLOADSTATE_LOADED
-					&& player->gunctrl.gunmodeldef != wgV2RuntimeModel(newweaponnum)) bgunEnterFlux();
-			/* Rebuild attachments when a selected source changes even if its
-			 * native file number and equipped weapon remain unchanged. Fists
-			 * acquire their cache identity in GUN, other hands acquire it in HANDS. */
-			if ((newweaponnum == WEAPON_UNARMED ||
-					weaponHasFlag(newweaponnum, WEAPONFLAG_HASHANDS)) &&
-					player->gunctrl.masterloadstate >= (newweaponnum == WEAPON_UNARMED
-						? MASTERLOADSTATE_CARTS : MASTERLOADSTATE_GUN) &&
-					!bgunBodyHandSourceIsCurrent(player, bodynum)) bgunEnterFlux();
-
-			/* B-246 round-6 instrumentation: log entry into the active load
-			 * tick. This is the inner gate where bodynum, handfilenum, and
-			 * weapon filenum are first known. Throttled: log once per
-			 * (newweaponnum, masterloadstate) tuple change. */
-			if (g_Vars.currentplayernum == 0) {
-				static s32 s_last_load_key = -1;
-				s32 load_key = (newweaponnum << 8) | (s32)player->gunctrl.masterloadstate;
-				if (load_key != s_last_load_key) {
-					s_last_load_key = load_key;
-					sysLogPrintf(LOG_NOTE,
-						"LOG.WPN.DIAG: bgunTickMasterLoad enter player=0 newwpn=%d filenum=%d bodynum=%d handfilenum=%d hashands_flag=%d masterload=%d gunloadstate=%d gunmemowner=%d gunmemtype=%d handmodeldef=%p gunmodeldef=%p",
-						(s32)newweaponnum,
-						(s32)filenum,
-						(s32)bodynum,
-						(s32)handfilenum,
-						(s32)(weaponHasFlag(newweaponnum, WEAPONFLAG_HASHANDS) ? 1 : 0),
-						(s32)player->gunctrl.masterloadstate,
-						(s32)player->gunctrl.gunloadstate,
-						(s32)player->gunctrl.gunmemowner,
-						(s32)player->gunctrl.gunmemtype,
-						(void *)player->gunctrl.handmodeldef,
-						(void *)player->gunctrl.gunmodeldef);
-				}
-			}
-
-			if (player->gunctrl.masterloadstate != MASTERLOADSTATE_LOADED || newweaponnum != player->gunctrl.gunmemtype) {
-				if (filenum || wgV2RuntimeModel(newweaponnum)) {
-					hashands = false;
-
-					if (handfilenum && weaponHasFlag(newweaponnum, WEAPONFLAG_HASHANDS)) {
-						hashands = true;
-					}
-
-					if (newweaponnum == WEAPON_UNARMED) {
-						// For unarmed, the fists are implemented
-						// as weapon models rather than hand models
-						filenum = handfilenum;
-							handfilenum = 0;
-						hashands = false;
-					}
-
-					if (player->gunctrl.masterloadstate == MASTERLOADSTATE_FLUX) {
-						casing = g_Casings;
-
-						while (casing < &g_Casings[ARRAYCOUNT(g_Casings)]) {
-							if (casing->modeldef == player->gunctrl.cartmodeldef) {
-								casing->modeldef = NULL;
-							}
-
-							casing++;
-						}
-
-						g_CasingsActive = false;
-
-						casing = g_Casings;
-
-						while (casing < &g_Casings[ARRAYCOUNT(g_Casings)]) {
-							if (casing->modeldef != NULL) {
-								g_CasingsActive = true;
-							}
-
-							casing++;
-						}
-
-						player->gunctrl.cartmodeldef = NULL;
-						player->gunctrl.masterloadstate = MASTERLOADSTATE_HANDS;
-
-						if (g_Vars.currentplayernum == 0) {
-							sysLogPrintf(LOG_NOTE,
+struct bgunmasterfluxcontext { struct player *player; s32 weapon, hashands; u16 handfile; s32 casingindex; };
+static ggv_value bgunMasterFluxRead(void *opaque, ggv_binding binding)
+{
+    struct bgunmasterfluxcontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_FLUX_CASING_COUNT: v.i = ARRAYCOUNT(g_Casings); break;
+    case GGV_FLUX_CASING_MODEL: v.ref = g_Casings[c->casingindex].modeldef; break;
+    case GGV_MASTER_CART_MODEL: v.ref = c->player->gunctrl.cartmodeldef; break;
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    default: break;
+    } return v;
+}
+static void bgunMasterFluxWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunmasterfluxcontext *c = opaque;
+    switch (binding) {
+    case GGV_FLUX_CASING_INDEX: c->casingindex = v.i; break;
+    case GGV_FLUX_CASING_MODEL: g_Casings[c->casingindex].modeldef = v.ref; break;
+    case GGV_FLUX_CASINGS_ACTIVE: g_CasingsActive = v.b; break;
+    case GGV_MASTER_CART_MODEL: c->player->gunctrl.cartmodeldef = v.ref; break;
+    case GGV_LOADED_MASTERLOADSTATE: c->player->gunctrl.masterloadstate = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunMasterFluxCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunmasterfluxcontext *c = opaque; ggv_value v = {0};
+    struct player *player = c->player; s32 newweaponnum = c->weapon, hashands = c->hashands; u16 handfilenum = c->handfile;
+    switch (service) {
+    case GGV_MASTER_FLUX_LOG:
+        sysLogPrintf(LOG_NOTE,
 								"LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 FLUX->HANDS newwpn=%d hashands=%d handfilenum=%d cur_handfilenum=%d",
 								(s32)newweaponnum, (s32)hashands, (s32)handfilenum,
 								(s32)player->gunctrl.handfilenum);
-						}
-					} else if (player->gunctrl.masterloadstate == MASTERLOADSTATE_HANDS) {
-						if (hashands) {
-							if (handfilenum != player->gunctrl.handfilenum ||
-									!bgunBodyHandSourceIsCurrent(player, bodynum)) {
-								char hand_id[64];
-								asset_data_handle_t hand_source;
-								if (!catalogGetBodyHandSourceChecked(bodynum, hand_id, &hand_source)) return;
-								if (strcmp(player->gunctrl.loadcatalogid, hand_id) ||
-										!bgunSameSourceHandle(player->gunctrl.loadhandle, hand_source) ||
-										player->gunctrl.loadcataloggeneration != assetCatalogGetGeneration())
-									player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
-								if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX) {
-									player->gunctrl.handmemloadptr = bgunGetGunMem();
-									player->gunctrl.handmemloadremaining = bgunCalculateGunMemCapacity();
-									player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
-									if (!bgunQueueBodyHandModelLoad(player, bodynum,
-										&player->gunctrl.handmodeldef,
-										(uintptr_t *) &player->gunctrl.handmemloadptr,
-										(uintptr_t *) &player->gunctrl.handmemloadremaining)) return;
-								}
+        break;
+    default: break;
+    } return v;
+}
+static void bgunMasterFluxTransition(struct player *player, s32 weapon, bool hashands, u16 handfile)
+{
+    struct bgunmasterfluxcontext context = { player, weapon, hashands, handfile, 0 };
+    ggv_host host = { &context, bgunMasterFluxRead, bgunMasterFluxWrite, bgunMasterFluxCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_MASTER_FLUX_TRANSITION), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: master flux transition refused immutable program");
+}
 
-								bgunTickGunLoad();
-
-								if (player->gunctrl.gunloadstate == GUNLOADSTATE_LOADED) {
-									player->gunctrl.handfilenum = handfilenum;
-								} else {
-									return;
-								}
-							}
-						} else {
-							player->gunctrl.handfilenum = 0;
-							player->gunctrl.handcatalogid[0] = 0;
-							player->gunctrl.handhandle = (asset_data_handle_t){0};
-							player->gunctrl.handcataloggeneration = assetCatalogGetGeneration();
-							player->gunctrl.handmodeldef = NULL;
-							player->gunctrl.handmemloadptr = bgunGetGunMem();
-							player->gunctrl.handmemloadremaining = bgunCalculateGunMemCapacity();
-						}
-
-						player->gunctrl.masterloadstate = MASTERLOADSTATE_GUN;
-						player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
-
-						if (g_Vars.currentplayernum == 0) {
-							sysLogPrintf(LOG_NOTE,
-								"LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 HANDS->GUN newwpn=%d hashands=%d handfilenum=%d handmodeldef=%p",
-								(s32)newweaponnum, (s32)hashands, (s32)handfilenum,
-								(void *)player->gunctrl.handmodeldef);
-						}
-					} else if (player->gunctrl.masterloadstate == MASTERLOADSTATE_GUN) {
-						if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX) {
-							player->gunctrl.memloadptr = (u8 *) player->gunctrl.handmemloadptr;
-							player->gunctrl.memloadremaining = player->gunctrl.handmemloadremaining;
-							player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
-							if (newweaponnum == WEAPON_UNARMED) {
-								if (!bgunQueueBodyHandModelLoad(player, bodynum,
-									&player->gunctrl.gunmodeldef,
-									(uintptr_t *) &player->gunctrl.memloadptr,
-									(uintptr_t *) &player->gunctrl.memloadremaining)) return;
-							} else if (wgV2RuntimeIsWeapon(newweaponnum)) {
-								if (!bgunQueueRetainedModelLoad(player, wgV2RuntimeModel(newweaponnum), &player->gunctrl.gunmodeldef)) return;
-							} else bgunQueueModelLoad(player, filenum,
-								&player->gunctrl.gunmodeldef,
-								(uintptr_t *) &player->gunctrl.memloadptr,
-								(uintptr_t *) &player->gunctrl.memloadremaining);
-						}
-
-						bgunTickGunLoad();
-
-						if (player->gunctrl.gunloadstate == GUNLOADSTATE_LOADED) {
-							player->gunctrl.masterloadstate = MASTERLOADSTATE_CARTS;
-							player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
-
-							if (g_Vars.currentplayernum == 0) {
-								sysLogPrintf(LOG_NOTE,
+struct bgunmasterguncontext { struct player *player; s32 weapon, body; u16 file; };
+static ggv_value bgunMasterGunRead(void *opaque, ggv_binding binding)
+{
+    struct bgunmasterguncontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_MEM_GUNLOADSTATE: v.i = c->player->gunctrl.gunloadstate; break;
+    case GGV_FLUX_LOAD_PTR: v.ref = c->player->gunctrl.handmemloadptr; break;
+    case GGV_FLUX_LOAD_REMAINING: v.i = c->player->gunctrl.handmemloadremaining; break;
+    case GGV_MASTER_WEAPON: v.i = c->weapon; break;
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    default: break;
+    } return v;
+}
+static void bgunMasterGunWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunmasterguncontext *c = opaque;
+    switch (binding) {
+    case GGV_MASTER_MEM_PTR: c->player->gunctrl.memloadptr = v.ref; break;
+    case GGV_MASTER_MEM_REMAINING: c->player->gunctrl.memloadremaining = v.u; break;
+    case GGV_MEM_GUNLOADSTATE: c->player->gunctrl.gunloadstate = v.i; break;
+    case GGV_LOADED_MASTERLOADSTATE: c->player->gunctrl.masterloadstate = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunMasterGunCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunmasterguncontext *c = opaque; ggv_value v = {0};
+    struct player *player = c->player; s32 newweaponnum = c->weapon;
+    switch (service) {
+    case GGV_MASTER_QUEUE_BODY:
+        v.b = bgunQueueBodyHandModelLoad(player, c->body, &player->gunctrl.gunmodeldef,
+            &player->gunctrl.memloadptr, &player->gunctrl.memloadremaining); break;
+    case GGV_INFO_IS_V2: v.b = wgV2RuntimeIsWeapon(a.i); break;
+    case GGV_MASTER_RUNTIME_MODEL: v.ref = wgV2RuntimeModel(a.i); break;
+    case GGV_MASTER_QUEUE_RETAINED: v.b = bgunQueueRetainedModelLoad(player, a.ref, &player->gunctrl.gunmodeldef); break;
+    case GGV_MASTER_QUEUE_STATIC:
+        bgunQueueModelLoad(player, c->file, &player->gunctrl.gunmodeldef,
+            &player->gunctrl.memloadptr, &player->gunctrl.memloadremaining); break;
+    case GGV_MASTER_GUN_TICK: bgunTickGunLoad(); break;
+    case GGV_MASTER_GUN_LOG:
+        sysLogPrintf(LOG_NOTE,
 									"LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 GUN->CARTS newwpn=%d gunmodeldef=%p handmodeldef=%p",
 									(s32)newweaponnum,
 									(void *)player->gunctrl.gunmodeldef,
 									(void *)player->gunctrl.handmodeldef);
-							}
-						}
-					} else if (player->gunctrl.masterloadstate == MASTERLOADSTATE_CARTS) {
-						if (player->gunctrl.gunloadstate == GUNLOADSTATE_LOADED) {
-							player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
-						}
+        break;
+    default: break;
+    } return v;
+}
+static bool bgunMasterGunStage(struct player *player, s32 weapon, s32 body, u16 file)
+{
+    struct bgunmasterguncontext context = { player, weapon, body, file };
+    ggv_host host = { &context, bgunMasterGunRead, bgunMasterGunWrite, bgunMasterGunCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_MASTER_GUN_STAGE), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: master gun stage refused immutable program"); return false;
+    }
+    return result;
+}
 
-						if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX && player->gunctrl.cartmodeldef == NULL && PLAYERCOUNT() == 1) {
-							for (i = 0; i < 2; i++) {
-								hand = player->hands + i;
-								func = gsetGetWeaponFunction2(&hand->gset);
-								shootfunc = NULL;
-								weapondef = weaponFindById(player->gunctrl.weaponnum);
-								casingindex = -1;
+struct bgunmasterhandscontext { struct player *player; s32 weapon, body, hashands; u16 handfile; char handid[64]; asset_data_handle_t handsource; };
+static ggv_value bgunMasterHandsRead(void *opaque, ggv_binding binding)
+{
+    struct bgunmasterhandscontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_MASTER_HAS_HANDS_INPUT: v.b = c->hashands; break;
+    case GGV_MASTER_HANDFILE: v.i = c->handfile; break;
+    case GGV_FLUX_FILE: v.i = c->player->gunctrl.handfilenum; break;
+    case GGV_MASTER_LOAD_GENERATION: v.u = c->player->gunctrl.loadcataloggeneration; break;
+    case GGV_MEM_GUNLOADSTATE: v.i = c->player->gunctrl.gunloadstate; break;
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    default: break;
+    } return v;
+}
+static void bgunMasterHandsWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunmasterhandscontext *c = opaque;
+    switch (binding) {
+    case GGV_FLUX_FILE: c->player->gunctrl.handfilenum = v.i; break;
+    case GGV_FLUX_CATALOG_HEAD: c->player->gunctrl.handcatalogid[0] = v.i; break;
+    case GGV_FLUX_GENERATION: c->player->gunctrl.handcataloggeneration = v.u; break;
+    case GGV_FLUX_HAND_MODEL: c->player->gunctrl.handmodeldef = v.ref; break;
+    case GGV_FLUX_LOAD_PTR: c->player->gunctrl.handmemloadptr = v.ref; break;
+    case GGV_FLUX_LOAD_REMAINING: c->player->gunctrl.handmemloadremaining = v.i; break;
+    case GGV_MEM_GUNLOADSTATE: c->player->gunctrl.gunloadstate = v.i; break;
+    case GGV_LOADED_MASTERLOADSTATE: c->player->gunctrl.masterloadstate = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunMasterHandsCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunmasterhandscontext *c = opaque; ggv_value v = {0};
+    struct player *player = c->player; s32 newweaponnum = c->weapon, hashands = c->hashands; u16 handfilenum = c->handfile;
+    switch (service) {
+    case GGV_MASTER_SOURCE_CURRENT: v.b = bgunBodyHandSourceIsCurrent(player, c->body); break;
+    case GGV_MASTER_HAND_SOURCE: v.b = catalogGetBodyHandSourceChecked(c->body, c->handid, &c->handsource); break;
+    case GGV_MASTER_COMPARE_LOAD_ID: v.i = strcmp(player->gunctrl.loadcatalogid, c->handid); break;
+    case GGV_MASTER_SAME_LOAD_HANDLE: v.b = bgunSameSourceHandle(player->gunctrl.loadhandle, c->handsource); break;
+    case GGV_MASTER_CATALOG_GENERATION: v.u = assetCatalogGetGeneration(); break;
+    case GGV_MASTER_MEMORY: v.ref = bgunGetGunMem(); break;
+    case GGV_MASTER_CAPACITY: v.u = bgunCalculateGunMemCapacity(); break;
+    case GGV_MASTER_QUEUE_HAND:
+        v.b = bgunQueueBodyHandModelLoad(player, c->body, &player->gunctrl.handmodeldef,
+            &player->gunctrl.handmemloadptr, (u32 *) &player->gunctrl.handmemloadremaining); break;
+    case GGV_MASTER_GUN_TICK: bgunTickGunLoad(); break;
+    case GGV_MASTER_CLEAR_HAND_HANDLE: player->gunctrl.handhandle = (asset_data_handle_t){0}; break;
+    case GGV_MASTER_HANDS_LOG:
+        sysLogPrintf(LOG_NOTE,
+								"LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 HANDS->GUN newwpn=%d hashands=%d handfilenum=%d handmodeldef=%p",
+								(s32)newweaponnum, (s32)hashands, (s32)handfilenum,
+								(void *)player->gunctrl.handmodeldef);
+        break;
+    default: break;
+    } return v;
+}
+static bool bgunMasterHandsStage(struct player *player, s32 weapon, s32 body, bool hashands, u16 handfile)
+{
+    struct bgunmasterhandscontext context = {0}; context.player = player; context.weapon = weapon;
+    context.body = body; context.hashands = hashands; context.handfile = handfile;
+    ggv_host host = { &context, bgunMasterHandsRead, bgunMasterHandsWrite, bgunMasterHandsCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_MASTER_HANDS_STAGE), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: master hands stage refused immutable program"); return false;
+    }
+    return result;
+}
 
-								if (func != NULL) {
-									if ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
-										shootfunc = func;
-									}
+struct bgunmastercartscontext { struct player *player; struct weaponfunc *func; struct weapon *weapon; struct inventory_ammo *ammo; u16 file; };
+static ggv_value bgunMasterCartsRead(void *opaque, ggv_binding binding)
+{
+    struct bgunmastercartscontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_MEM_GUNLOADSTATE: v.i = c->player->gunctrl.gunloadstate; break;
+    case GGV_MASTER_CART_MODEL: v.ref = c->player->gunctrl.cartmodeldef; break;
+    case GGV_CART_PLAYER_COUNT: v.i = PLAYERCOUNT(); break;
+    case GGV_SW_WEAPON: v.i = c->player->gunctrl.weaponnum; break;
+    case GGV_CART_TYPE: v.i = c->func->type; break;
+    case GGV_CART_AMMO_INDEX: v.i = c->func->ammoindex; break;
+    case GGV_CART_EJECT: v.u = c->ammo->casingeject; break;
+    default: break;
+    } return v;
+}
+static void bgunMasterCartsWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunmastercartscontext *c = opaque;
+    switch (binding) {
+    case GGV_MEM_GUNLOADSTATE: c->player->gunctrl.gunloadstate = v.i; break;
+    case GGV_CART_FUNC: c->func = v.ref; break;
+    case GGV_CART_WEAPON: c->weapon = v.ref; break;
+    case GGV_CART_AMMO: c->ammo = v.ref; break;
+    case GGV_MASTER_FILE: c->file = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunMasterCartsCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunmastercartscontext *c = opaque; ggv_value v = {0}; struct player *player = c->player;
+    switch (service) {
+    case GGV_CART_FUNCTION: v.ref = gsetGetWeaponFunction2(&player->hands[a.i].gset); break;
+    case GGV_CART_FIND_WEAPON: v.ref = weaponFindById(a.i); break;
+    case GGV_CART_AMMO_REF: v.ref = c->weapon->ammos[a.i]; break;
+    case GGV_CART_FILE: v.i = g_CartFileNums[a.i]; break;
+    case GGV_CART_QUEUE:
+        bgunQueueModelLoad(player, c->file, &player->gunctrl.cartmodeldef,
+            &player->gunctrl.memloadptr, &player->gunctrl.memloadremaining); break;
+    case GGV_MASTER_GUN_TICK: bgunTickGunLoad(); break;
+    default: break;
+    } return v;
+}
+static bool bgunMasterCartsSelect(struct player *player)
+{
+    struct bgunmastercartscontext context = {0}; context.player = player;
+    ggv_host host = { &context, bgunMasterCartsRead, bgunMasterCartsWrite, bgunMasterCartsCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_MASTER_CARTS_SELECT), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: master cartridge selection refused immutable program"); return false;
+    }
+    return result;
+}
 
-									if (weapondef && shootfunc) {
-										ammodef = func->ammoindex >= 0 ? weapondef->ammos[func->ammoindex] : NULL;
+struct bgunmasterfinalcontext { struct player *player; struct hand *hand; s32 weapon, sum; };
+static ggv_value bgunMasterFinalRead(void *opaque, ggv_binding binding)
+{
+    struct bgunmasterfinalcontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_FINAL_SUM: v.i = c->sum; break;
+    case GGV_MASTER_WEAPON: v.i = c->weapon; break;
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    case GGV_FINAL_GUN_MODEL: v.ref = &c->hand->gunmodel; break;
+    case GGV_FINAL_HAND_MODEL: v.ref = &c->hand->handmodel; break;
+    case GGV_FINAL_GUN_DEF: v.ref = c->player->gunctrl.gunmodeldef; break;
+    case GGV_FLUX_HAND_MODEL: v.ref = c->player->gunctrl.handmodeldef; break;
+    case GGV_FINAL_GUN_SAVE: v.ref = c->hand->unk0a6c; break;
+    case GGV_FINAL_HAND_SAVE: v.ref = c->hand->handsavedata; break;
+    case GGV_FINAL_GUN_ROOT: v.ref = c->player->gunctrl.gunmodeldef->rootnode; break;
+    case GGV_FINAL_HAND_ROOT: v.ref = c->player->gunctrl.handmodeldef->rootnode; break;
+    case GGV_MASTER_MEM_PTR: v.ref = c->player->gunctrl.memloadptr; break;
+    case GGV_MASTER_MEM_REMAINING: v.u = c->player->gunctrl.memloadremaining; break;
+    case GGV_FINAL_MATRIX_BYTES: v.u = 50 * sizeof(Mtxf); break;
+    default: break;
+    } return v;
+}
+static void bgunMasterFinalWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunmasterfinalcontext *c = opaque;
+    switch (binding) {
+    case GGV_FINAL_HAND_INDEX: c->hand = &c->player->hands[v.i]; break;
+    case GGV_FINAL_SUM: c->sum = v.i; break;
+    case GGV_FINAL_GUN_COMMAND: c->hand->unk0dcc = v.ref; break;
+    case GGV_FINAL_HAND_COMMAND: c->hand->unk0dd0 = v.ref; break;
+    case GGV_FINAL_MATRIX_STATE: c->hand->unk0dd4 = v.i; break;
+    case GGV_FINAL_MATRIX_PTR: c->hand->unk0dd8 = v.ref; break;
+    case GGV_MASTER_MEM_PTR: c->player->gunctrl.memloadptr = v.ref; break;
+    case GGV_MASTER_MEM_REMAINING: c->player->gunctrl.memloadremaining = v.u; break;
+    case GGV_LOADED_MASTERLOADSTATE: c->player->gunctrl.masterloadstate = v.i; break;
+    case GGV_LOADED_GUNMEMTYPE: c->player->gunctrl.gunmemtype = v.i; break;
+    case GGV_LOADED_GUNMEMNEW: c->player->gunctrl.gunmemnew = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunMasterFinalCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunmasterfinalcontext *c = opaque; ggv_value v = {0}; struct player *player = c->player;
+    switch (service) {
+    case GGV_FINAL_MODEL_INIT: modelInit(a.ref, b.ref, d.ref, false); break;
+    case GGV_FINAL_COMMANDS: v.i = bgunCreateModelCmdList(a.ref, b.ref, d.ref); break;
+    case GGV_FINAL_PTR_OFFSET: v.ref = (u8 *)a.ref + b.i; break;
+    case GGV_MASTER_CAPACITY: v.u = bgunCalculateGunMemCapacity(); break;
+    case GGV_FINAL_LOG:
+        sysLogPrintf(LOG_NOTE,
+            "LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 CARTS->LOADED newwpn=%d gunmodeldef=%p handmodeldef=%p sum=%d unk0dd4=%d unk0dd8=%p",
+            (s32)c->weapon, (void *)player->gunctrl.gunmodeldef, (void *)player->gunctrl.handmodeldef,
+            (s32)c->sum, (s32)player->hands[0].unk0dd4, (void *)player->hands[0].unk0dd8); break;
+    default: break;
+    } return v;
+}
+static void bgunMasterFinalize(struct player *player, s32 weapon)
+{
+    struct bgunmasterfinalcontext context = {0}; context.player = player; context.weapon = weapon;
+    ggv_host host = { &context, bgunMasterFinalRead, bgunMasterFinalWrite, bgunMasterFinalCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_MASTER_FINALIZE), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: master finalization refused immutable program");
+}
 
-										if (ammodef) {
-											casingindex = ammodef->casingeject;
-										}
-									}
-
-									if (casingindex >= 0) {
-										if (player->gunctrl.cartmodeldef == NULL) {
-											filenum = g_CartFileNums[casingindex];
-											player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
-											bgunQueueModelLoad(player, filenum,
-												&player->gunctrl.cartmodeldef,
-												(uintptr_t *) &player->gunctrl.memloadptr,
-												(uintptr_t *) &player->gunctrl.memloadremaining);
-											break;
-										}
-
-										break;
-									}
-								}
-							}
-						}
-
-						if (player->gunctrl.gunloadstate != GUNLOADSTATE_FLUX) {
-							bgunTickGunLoad();
-							return;
-						}
-
-						sum = 0;
-
-						for (i = 0; i < 2; i++) {
-							hand = &player->hands[i];
-
-							modelInit(&hand->gunmodel, player->gunctrl.gunmodeldef, hand->unk0a6c, 0);
-
-							if (player->gunctrl.handmodeldef != 0) {
-								modelInit(&hand->handmodel, player->gunctrl.handmodeldef, hand->handsavedata, false);
-							}
-
-							hand->unk0dcc = (uintptr_t *) player->gunctrl.memloadptr;
-
-							value = bgunCreateModelCmdList(&hand->gunmodel, player->gunctrl.gunmodeldef->rootnode, (uintptr_t *) player->gunctrl.memloadptr);
-
-							sum += value;
-							player->gunctrl.memloadptr += value;
-							player->gunctrl.memloadremaining -= value;
-
-							if (player->gunctrl.handmodeldef != 0) {
-								hand->unk0dd0 = (uintptr_t*) player->gunctrl.memloadptr;
-
-								value = bgunCreateModelCmdList(&hand->handmodel, player->gunctrl.handmodeldef->rootnode, (uintptr_t*) player->gunctrl.memloadptr);
-
-								sum += value;
-								player->gunctrl.memloadptr += value;
-								player->gunctrl.memloadremaining -= value;
-							}
-						}
-
-						hand = &player->hands[0];
-						hand->unk0dd4 = -1;
-
-						if (player->gunctrl.memloadremaining > 50 * sizeof(Mtxf)) {
-							hand->unk0dd8 = (Mtxf *) player->gunctrl.memloadptr;
-							player->gunctrl.memloadptr += 50 * sizeof(Mtxf);
-							player->gunctrl.memloadremaining -= 50 * sizeof(Mtxf);
-						} else {
-							hand->unk0dd8 = NULL;
-						}
-
-						bgunCalculateGunMemCapacity();
-
-						player->gunctrl.masterloadstate = MASTERLOADSTATE_LOADED;
-						player->gunctrl.gunmemtype = newweaponnum;
-						player->gunctrl.gunmemnew = -1;
-
-						if (g_Vars.currentplayernum == 0) {
-							sysLogPrintf(LOG_NOTE,
-								"LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 CARTS->LOADED newwpn=%d gunmodeldef=%p handmodeldef=%p sum=%d unk0dd4=%d unk0dd8=%p",
-								(s32)newweaponnum,
-								(void *)player->gunctrl.gunmodeldef,
-								(void *)player->gunctrl.handmodeldef,
-								(s32)sum,
-								(s32)player->hands[0].unk0dd4,
-								(void *)player->hands[0].unk0dd8);
-						}
-					}
-				}
-#if VERSION >= VERSION_NTSC_1_0
-				else {
-					player->gunctrl.masterloadstate = MASTERLOADSTATE_LOADED;
-					player->gunctrl.gunmemtype = newweaponnum;
-					player->gunctrl.gunmemnew = -1;
-
-					if (g_Vars.currentplayernum == 0) {
-						sysLogPrintf(LOG_NOTE,
-							"LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 SHORTCUT->LOADED newwpn=%d (filenum=0 path)",
-							(s32)newweaponnum);
-					}
-				}
-#endif
-			}
-		} else {
-			player->gunctrl.gunlocktimer--;
-
-			if (player->gunctrl.gunlocktimer < -2) {
-				player->gunctrl.gunlocktimer = 0;
-			}
-		}
-	}
+static s32 g_BgunMasterLastLoadKey = -1;
+struct bgunmasterparentcontext { struct player *player; s32 weapon, body, head; u16 handfile, file; bool hashands, diag_hands; };
+static ggv_value bgunMasterParentRead(void *opaque, ggv_binding binding)
+{
+    struct bgunmasterparentcontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    case GGV_MASTER_WEAPON: v.i = c->weapon; break;
+    case GGV_MASTER_FILE: v.i = c->file; break;
+    case GGV_MASTER_HANDFILE: v.i = c->handfile; break;
+    case GGV_PARENT_LAST_KEY: v.i = g_BgunMasterLastLoadKey; break;
+    case GGV_LOADED_MASTERLOADSTATE: v.i = c->player->gunctrl.masterloadstate; break;
+    case GGV_LOADED_GUNMEMTYPE: v.i = c->player->gunctrl.gunmemtype; break;
+    case GGV_VERSION_1_OR_LATER: v.b = VERSION >= VERSION_NTSC_1_0; break;
+    default: break;
+    } return v;
+}
+static void bgunMasterParentWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunmasterparentcontext *c = opaque;
+    switch (binding) {
+    case GGV_MASTER_FILE: c->file = v.i; break;
+    case GGV_MASTER_HANDFILE: c->handfile = v.i; break;
+    case GGV_MASTER_HAS_HANDS_INPUT: c->hashands = v.b; break;
+    case GGV_PARENT_DIAG_HANDS: c->diag_hands = v.b; break;
+    case GGV_PARENT_LAST_KEY: g_BgunMasterLastLoadKey = v.i; break;
+    case GGV_LOADED_MASTERLOADSTATE: c->player->gunctrl.masterloadstate = v.i; break;
+    case GGV_LOADED_GUNMEMTYPE: c->player->gunctrl.gunmemtype = v.i; break;
+    case GGV_LOADED_GUNMEMNEW: c->player->gunctrl.gunmemnew = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunMasterParentCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunmasterparentcontext *c = opaque; struct player *player = c->player; ggv_value v = {0};
+    switch (service) {
+    case GGV_PARENT_READY: v.b = bgunMasterLoadReady(player); break;
+    case GGV_PARENT_PREPARE: v.b = bgunMasterPrepareSource(player, &c->weapon, &c->handfile, &c->file, &c->body, &c->head); break;
+    case GGV_MASTER_HAS_HANDS: v.b = weaponHasFlag(a.i, WEAPONFLAG_HASHANDS) != 0; break;
+    case GGV_MASTER_RUNTIME_MODEL: v.ref = wgV2RuntimeModel(a.i); break;
+    case GGV_PARENT_FLUX: bgunMasterFluxTransition(player, c->weapon, c->hashands, c->handfile); break;
+    case GGV_PARENT_HANDS: v.b = bgunMasterHandsStage(player, c->weapon, c->body, c->hashands, c->handfile); break;
+    case GGV_PARENT_GUN: v.b = bgunMasterGunStage(player, c->weapon, c->body, c->file); break;
+    case GGV_PARENT_CARTS: v.b = bgunMasterCartsSelect(player); break;
+    case GGV_PARENT_FINALIZE: bgunMasterFinalize(player, c->weapon); break;
+    case GGV_PARENT_ENTRY_LOG:
+        sysLogPrintf(LOG_NOTE,
+            "LOG.WPN.DIAG: bgunTickMasterLoad enter player=0 newwpn=%d filenum=%d bodynum=%d handfilenum=%d hashands_flag=%d masterload=%d gunloadstate=%d gunmemowner=%d gunmemtype=%d handmodeldef=%p gunmodeldef=%p",
+            (s32)c->weapon, (s32)c->file, (s32)c->body, (s32)c->handfile, (s32)c->diag_hands,
+            (s32)player->gunctrl.masterloadstate, (s32)player->gunctrl.gunloadstate,
+            (s32)player->gunctrl.gunmemowner, (s32)player->gunctrl.gunmemtype,
+            (void *)player->gunctrl.handmodeldef, (void *)player->gunctrl.gunmodeldef); break;
+    case GGV_PARENT_SHORTCUT_LOG:
+        sysLogPrintf(LOG_NOTE,
+            "LOG.WPN.DIAG: bgunTickMasterLoad transition player=0 SHORTCUT->LOADED newwpn=%d (filenum=0 path)", (s32)c->weapon); break;
+    default: break;
+    } return v;
+}
+void bgunTickMasterLoad(void)
+{
+    struct bgunmasterparentcontext context = {0}; context.player = g_Vars.currentplayer;
+    ggv_host host = { &context, bgunMasterParentRead, bgunMasterParentWrite, bgunMasterParentCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_MASTER_LOAD_PARENT), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: master loader refused immutable program");
 }
 
 void bgunTickLoad(void)
 {
-	s32 i;
-
-	for (i = 0; i < g_Vars.lvupdate240; i += 8) {
-		bgunTickMasterLoad();
-	}
+    struct bgunmemorycontext context = {0};
+    bgunRunMemory(&context, GGV_TICK_LOAD);
 }
 
 /**
@@ -5397,46 +5190,48 @@ void bgunTickLoad(void)
  * Return false on success, or true if the load all should be retried on the
  * next frame.
  */
+static ggv_value bgunLoadAllRead(void *opaque, ggv_binding binding)
+{
+    ggv_value v = {0};
+    switch (binding) {
+    case GGV_RELOAD_PAL: v.b = VERSION >= VERSION_PAL_BETA; break;
+    case GGV_RELOAD_DEVICES_ACTIVE: v.u = g_Vars.currentplayer->devicesactive; break;
+    case GGV_RELOAD_DEVICES_INHIBIT: v.u = g_Vars.currentplayer->devicesinhibit; break;
+    case GGV_SW_WEAPON: v.i = g_Vars.currentplayer->gunctrl.weaponnum; break;
+    case GGV_SW_NONE: v.i = WEAPON_NONE; break;
+    case GGV_LOADED_GUNMEMTYPE: v.i = g_Vars.currentplayer->gunctrl.gunmemtype; break;
+    case GGV_LOADED_GUNMEMOWNER: v.i = g_Vars.currentplayer->gunctrl.gunmemowner; break;
+    case GGV_MEM_OWNER_BOND: v.i = GUNMEMOWNER_BONDGUN; break;
+    default: break;
+    } return v;
+}
+static void bgunLoadAllWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    switch (binding) {
+    case GGV_MEM_LOAD_ALL: g_Vars.currentplayer->gunctrl.loadall = v.b; break;
+    case GGV_LOADED_GUNMEMNEW: g_Vars.currentplayer->gunctrl.gunmemnew = v.i; break;
+    case GGV_LOAD_LOCKSCREEN: g_Vars.lockscreen = v.b; break;
+    default: break;
+    }
+}
+static ggv_value bgunLoadAllCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value v = {0};
+    switch (service) {
+    case GGV_MEM_ENTER_FLUX: bgunEnterFlux(); break;
+    case GGV_MEM_CHANGE_OWNER: v.b = bgunChangeGunMem(a.i); break;
+    case GGV_MEM_MASTER_TICK: bgunTickMasterLoad(); break;
+    case GGV_RELOAD_IS_LOADED: v.b = bgunIsLoaded(); break;
+    default: break;
+    } return v;
+}
 bool bgunLoadAll(void)
 {
-	// PAL adds a check for the eyespy being used
-#if VERSION >= VERSION_PAL_BETA
-	if ((g_Vars.currentplayer->devicesactive & ~g_Vars.currentplayer->devicesinhibit & DEVICE_EYESPY)) {
-		g_Vars.currentplayer->gunctrl.loadall = false;
-		return false;
-	}
-#endif
-
-	bgunEnterFlux();
-
-	if (g_Vars.currentplayer->gunctrl.weaponnum != WEAPON_NONE) {
-		g_Vars.currentplayer->gunctrl.gunmemnew = g_Vars.currentplayer->gunctrl.weaponnum;
-	} else {
-		return false;
-	}
-
-	if (g_Vars.currentplayer->gunctrl.gunmemtype != -1) {
-		return false;
-	}
-
-	if (g_Vars.currentplayer->gunctrl.gunmemowner != GUNMEMOWNER_BONDGUN) {
-		bgunChangeGunMem(GUNMEMOWNER_BONDGUN);
-
-		if (g_Vars.currentplayer->gunctrl.gunmemowner != GUNMEMOWNER_BONDGUN) {
-			g_Vars.lockscreen = true;
-			return true;
-		}
-	}
-
-	bgunEnterFlux();
-
-	do {
-		bgunTickMasterLoad();
-	} while (!bgunIsLoaded());
-
-	g_Vars.currentplayer->gunctrl.loadall = false;
-
-	return false;
+    ggv_host host = { NULL, bgunLoadAllRead, bgunLoadAllWrite, bgunLoadAllCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_LOAD_ALL), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: load-all parent refused immutable program"); return true;
+    }
+    return result;
 }
 
 struct modeldef *bgunGetCartModeldef(void)
@@ -5936,14 +5731,34 @@ void bgunCreateHeldRocket(s32 handnum, struct weaponfunc_shootprojectile *func)
 	}
 }
 
+static ggv_value bgunHeldRocketRead(void *opaque, ggv_binding binding)
+{
+    struct hand *hand = opaque; ggv_value value = {0};
+    if (binding == GGV_HELD_ROCKET) value.ref = hand->rocket;
+    return value;
+}
+static void bgunHeldRocketWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct hand *hand = opaque;
+    if (binding == GGV_HELD_ROCKET) hand->rocket = (struct weaponobj *)value.ref;
+}
+static ggv_value bgunHeldRocketCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value value = {0}; (void)opaque; (void)b; (void)d;
+    if (service == GGV_FREE_ROCKET_OBJECT) {
+        objFreePermanently(&((struct weaponobj *)a.ref)->base, true);
+    }
+    return value;
+}
 void bgunFreeHeldRocket(s32 handnum)
 {
-	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
-
-	if (hand->rocket) {
-		objFreePermanently(&hand->rocket->base, true);
-		hand->rocket = NULL;
-	}
+    struct hand *hand = &g_Vars.currentplayer->hands[handnum];
+    ggv_host host = { hand, bgunHeldRocketRead, bgunHeldRocketWrite, bgunHeldRocketCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_FREE_HELD_ROCKET), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: held rocket release refused immutable program");
+    }
 }
 
 void bgunCreateFiredProjectile(s32 handnum)
@@ -6518,13 +6333,24 @@ void bgun0f0a0c44(s32 handnum, struct coord *arg1, struct coord *arg2)
 	cam0f0b4c3c(g_Vars.currentplayer->hands[handnum].crosspos, arg2, 1);
 }
 
-void bgunCalculatePlayerShotSpread(struct coord *gunpos2d, struct coord *gundir2d, s32 handnum, bool dorandom)
+f32 bgunGetPlayerShotSpreadFromGset(struct gset *accepted, s32 burstbullets)
+{
+	struct weaponfunc *func = accepted ? gsetGetWeaponFunction(accepted) : NULL;
+	struct invaimsettings *aim = accepted ? gsetGetAimSettings(accepted) : NULL;
+	if (!func || (func->type & 0xff) != INVENTORYFUNCTYPE_SHOOT || !aim) return -1;
+	f32 spread = ((struct weaponfunc_shoot *)func)->spread;
+	if ((aim->flags & INVAIMFLAG_ACCURATESINGLESHOT) && burstbullets == 1) spread *= 0.25f;
+	return spread;
+}
+
+static void bgunCalculatePlayerShotSpreadSource(struct coord *gunpos2d, struct coord *gundir2d,
+		s32 handnum, bool dorandom, struct gset *accepted, s32 burstbullets)
 {
 	f32 crosspos[2];
-	f32 spread = 0;
+	f32 spread = accepted ? bgunGetPlayerShotSpreadFromGset(accepted, burstbullets) : 0;
 	f32 scaledspread;
 	f32 randfactor;
-	struct weaponfunc *func = currentPlayerGetWeaponFunction(handnum);
+	struct weaponfunc *func = accepted ? NULL : currentPlayerGetWeaponFunction(handnum);
 	struct player *player = g_Vars.currentplayer;
 
 	if (func != NULL && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
@@ -6532,7 +6358,7 @@ void bgunCalculatePlayerShotSpread(struct coord *gunpos2d, struct coord *gundir2
 		spread = shootfunc->spread;
 	}
 
-	if (weaponHasAimFlag(bgunGetWeaponNum2(handnum), INVAIMFLAG_ACCURATESINGLESHOT)
+	if (!accepted && weaponHasAimFlag(bgunGetWeaponNum2(handnum), INVAIMFLAG_ACCURATESINGLESHOT)
 			&& player->hands[handnum].burstbullets == 1) {
 		spread *= 0.25f;
 	}
@@ -6572,6 +6398,20 @@ void bgunCalculatePlayerShotSpread(struct coord *gunpos2d, struct coord *gundir2
 	gunpos2d->z = 0;
 
 	cam0f0b4c3c(crosspos, gundir2d, 1);
+}
+
+void bgunCalculatePlayerShotSpread(struct coord *gunpos2d, struct coord *gundir2d, s32 handnum, bool dorandom)
+{
+	bgunCalculatePlayerShotSpreadSource(gunpos2d, gundir2d, handnum, dorandom, NULL, 0);
+}
+
+int bgunCalculatePlayerShotSpreadFromGset(struct coord *gunpos2d, struct coord *gundir2d,
+		s32 handnum, bool dorandom, struct gset *accepted, s32 burstbullets)
+{
+	struct weaponfunc *func = accepted ? gsetGetWeaponFunction(accepted) : NULL;
+	if (!func || (func->type & 0xff) != INVENTORYFUNCTYPE_SHOOT || !gsetGetAimSettings(accepted)) return 0;
+	bgunCalculatePlayerShotSpreadSource(gunpos2d, gundir2d, handnum, dorandom, accepted, burstbullets);
+	return 1;
 }
 
 void bgunCalculateBotShotSpread(struct coord *arg0, s32 weaponnum, s32 funcnum, bool arg3, s32 crouchpos, bool dual)
@@ -6660,15 +6500,53 @@ s32 bgunGetShotsToTake(s32 handnum)
 	return hand->shotstotake;
 }
 
-void bgunFreeWeapon(s32 handnum)
+struct bguncleancontext { struct player *player; struct hand *hand; s32 handnum, slot, reloadIndex; s32 *reserve; };
+static ggv_value bgunCleanRead(void *opaque, ggv_binding binding)
 {
-	struct player *player = g_Vars.currentplayer;
-	s32 i;
-
-	/* B-246 round-6 instrumentation: any path that frees a hand resets
-	 * inuse=false and disables the visibility gate. Log every call so we
-	 * can correlate with subsequent invisibility windows. */
-	if (g_Vars.currentplayernum == 0) {
+    struct bguncleancontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    case GGV_CLEAN_INUSE: v.i = c->hand->inuse; break;
+    case GGV_CLEAN_AMMO_TYPE: v.i = c->player->gunctrl.ammotypes[c->slot]; break;
+    case GGV_VIS_CLIP_SIZE: v.i = c->hand->clipsizes[c->slot]; break;
+    case GGV_VIS_LOADED: v.i = c->hand->loadedammo[c->slot]; break;
+    case GGV_CLEAN_WEAPON: v.i = c->player->gunctrl.weaponnum; break;
+    case GGV_CLEAN_RESERVE: v.i = *(c->reserve = &c->player->ammoheldarr[c->player->gunctrl.ammotypes[c->slot]]); break;
+    case GGV_CLEAN_MULTIPLAYER: v.u = g_Vars.mplayerisrunning; break;
+    case GGV_SWITCH_HAND_INDEX: v.i = c->handnum; break;
+    case GGV_CLEAN_REGION:
+#if VERSION >= VERSION_JPN_FINAL
+        v.i = 2;
+#elif VERSION >= VERSION_PAL_BETA
+        v.i = 1;
+#else
+        v.i = 0;
+#endif
+        break;
+    default: break;
+    } return v;
+}
+static void bgunCleanWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bguncleancontext *c = opaque;
+    switch (binding) {
+    case GGV_VIS_AMMO_SLOT: c->slot = v.i; break;
+    case GGV_CLEAN_RELOAD_INDEX: c->reloadIndex = v.i; break;
+    case GGV_CLEAN_ROUNDS: c->hand->gunroundsspent[c->reloadIndex] = v.u; break;
+    case GGV_CLEAN_RESERVE: *c->reserve = v.i; break;
+    case GGV_VIS_LOADED: c->hand->loadedammo[c->slot] = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunCleanCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bguncleancontext *c = opaque; ggv_value v = {0}; struct player *player = c->player; s32 handnum = c->handnum;
+    switch (service) {
+    case GGV_RELOAD_INDEX_FOR_WEAPON: v.i = bgunGetUnequippedReloadIndex(a.i); break;
+    case GGV_CLEAN_DELETE: playermgrDeleteWeapon(a.i); break;
+    case GGV_CLEAN_ROCKET: bgunFreeHeldRocket(a.i); break;
+    case GGV_CLEAN_RETIRE: wgV2RuntimeRetireHand(c->player, a.i, "native weapon freed"); break;
+    case GGV_CLEAN_LOG_ENTER:
 		sysLogPrintf(LOG_NOTE,
 			"LOG.WPN.DIAG: bgunFreeWeapon enter player=0 hand=%d inuse_was=%d state=%d sm=%d wpn=%d gunmemtype=%d",
 			(s32)handnum,
@@ -6677,258 +6555,295 @@ void bgunFreeWeapon(s32 handnum)
 			(s32)player->hands[handnum].stateminor,
 			(s32)player->hands[handnum].gset.weaponnum,
 			(s32)player->gunctrl.gunmemtype);
-	}
-
-	if (player->hands[handnum].inuse) {
-		for (i = 0; i < 2; i++) {
-			if (player->gunctrl.ammotypes[i] >= 0) {
-				s32 spaceinclip = player->hands[handnum].clipsizes[i] - player->hands[handnum].loadedammo[i];
-				s32 index = bgunGetUnequippedReloadIndex(player->gunctrl.weaponnum);
-
-				if (index != -1) {
-#if VERSION >= VERSION_JPN_FINAL
-					player->hands[handnum].gunroundsspent[index] = (spaceinclip << 8) + 0xff;
-#elif VERSION >= VERSION_PAL_BETA
-					player->hands[handnum].gunroundsspent[index] = spaceinclip * 213 + 212;
-#else
-					player->hands[handnum].gunroundsspent[index] = (spaceinclip << 8) | 0xff;
-#endif
-				}
-
-				if (player->hands[handnum].loadedammo[i] > 0) {
-					player->ammoheldarr[player->gunctrl.ammotypes[i]] += player->hands[handnum].loadedammo[i];
-				}
-
-				player->hands[handnum].loadedammo[i] = 0;
-			}
-		}
-	}
-
-	if (g_Vars.mplayerisrunning) {
-		playermgrDeleteWeapon(handnum);
-	}
-
-	bgunFreeHeldRocket(handnum);
-	wgV2RuntimeRetireHand(player, handnum, "native weapon freed");
-
-	if (g_Vars.currentplayernum == 0) {
+        break;
+    case GGV_CLEAN_LOG_EXIT:
 		sysLogPrintf(LOG_NOTE,
 			"LOG.WPN.DIAG: bgunFreeWeapon exit  player=0 hand=%d inuse=%d wpn=%d",
 			(s32)handnum,
 			(s32)player->hands[handnum].inuse,
 			(s32)player->hands[handnum].gset.weaponnum);
-	}
+        break;
+    default: break;
+    } return v;
+}
+void bgunFreeWeapon(s32 handnum)
+{
+    struct player *player = g_Vars.currentplayer;
+    struct bguncleancontext context = { player, &player->hands[handnum], handnum, 0, 0, NULL };
+    ggv_host host = { &context, bgunCleanRead, bgunCleanWrite, bgunCleanCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_FREE_WEAPON), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: weapon cleanup refused immutable program");
 }
 
-void bgunTickSwitch2(void)
+struct bgunswitchhandcontext { struct hand *hand; struct gunctrl *ctrl; s32 handnum; };
+static ggv_value bgunSwitchHandRead(void *opaque, ggv_binding binding)
 {
-	struct player *player = g_Vars.currentplayer;
-	struct gunctrl *ctrl = &g_Vars.currentplayer->gunctrl;
-	s32 i;
+    struct bgunswitchhandcontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_SWITCH_HAND_INDEX: v.i = c->handnum; break;
+    case GGV_SWITCH_RESET_WEAPON: v.i = c->ctrl->weaponnum; break;
+    case GGV_SWITCH_UPGRADES: v.u = c->ctrl->upgradewant; break;
+    case GGV_SWITCH_AUDIO_HANDLE: v.ref = c->hand->audiohandle; break;
+    default: break;
+    } return v;
+}
+static void bgunSwitchHandWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct hand *hand = ((struct bgunswitchhandcontext *)opaque)->hand;
+    switch (binding) {
+    case GGV_RELOAD_EJECT_STATE: hand->ejectstate = v.i; break;
+    case GGV_CHANGE_EJECT_TYPE: hand->ejecttype = v.i; break;
+    case GGV_SWITCH_RESET_BIT: hand->unk0d0f_02 = v.b; break;
+    case GGV_HAND_ACTIVATE_SECONDARY: hand->activatesecondary = v.b; break;
+    case GGV_MATMOT1: hand->matmot1 = v.f; break;
+    case GGV_MATMOT2: hand->matmot2 = v.f; break;
+    case GGV_SWITCH_MATMOT3: hand->matmot3 = v.f; break;
+    case GGV_SWITCH_ANGLE_DAMPER: hand->angledamper = v.f; break;
+    case GGV_SWITCH_SMOKE_POINT: hand->gunsmokepoint = v.f; break;
+    case GGV_BURST_BULLETS: hand->burstbullets = v.i; break;
+    case GGV_LOAD_SLIDE: hand->loadslide = v.f; break;
+    case GGV_ALLOW_SHOOT_FRAME: hand->allowshootframe = v.i; break;
+    case GGV_LAST_SHOOT_FRAME: hand->lastshootframe60 = v.i; break;
+    case GGV_WEAPON_FUNCTION: hand->gset.weaponfunc = v.i; break;
+    case GGV_SWITCH_HAND_WEAPON: hand->gset.weaponnum = v.i; break;
+    case GGV_SWITCH_HAND_UPGRADES: hand->gset.unk0639 = v.u; break;
+    case GGV_ANIM_GANGSTA: hand->gangstarot = v.f; break;
+    default: break;
+    }
+}
+static ggv_value bgunSwitchHandCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunswitchhandcontext *c = opaque; ggv_value v = {0};
+    switch (service) {
+    case GGV_SWITCH_CONFIGURE_HAND: bgun0f0abd30(a.i); break;
+    case GGV_SWITCH_INIT_ANIM: animInit(&c->hand->anim); break;
+    case GGV_SOUND_STATE: v.i = sndGetState(a.ref); break;
+    case GGV_SOUND_STOP: audioStop(a.ref); break;
+    default: break;
+    } return v;
+}
+static void bgunResetSwitchHand(struct player *player, struct gunctrl *ctrl, s32 handnum)
+{
+    struct bgunswitchhandcontext context = { &player->hands[handnum], ctrl, handnum };
+    ggv_host host = { &context, bgunSwitchHandRead, bgunSwitchHandWrite, bgunSwitchHandCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_SWITCH_HAND_RESET), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: switch hand reset refused immutable program");
+}
 
-	/* B-246 round-2 instrumentation: log per-hand state when there's a queued
-	 * switch but the dual-hand bgunCanFreeWeapon gate hasn't passed. Tells us
-	 * which hand is wedged and at what stateminor / count. Player 0 only,
-	 * first 60 ticks + every ~120 ticks thereafter. */
-	if (g_Vars.currentplayernum == 0 && ctrl->switchtoweaponnum >= 0
-			&& (g_Vars.lvframe60 < 60 || (g_Vars.lvframenum % 120) == 9)) {
-		s32 r_canfree = bgunCanFreeWeapon(HAND_RIGHT) ? 1 : 0;
-		s32 l_canfree = bgunCanFreeWeapon(HAND_LEFT) ? 1 : 0;
+struct bgunswitchcontext {
+    struct player *player; struct gunctrl *ctrl; struct chrdata *chr;
+    s32 diagRight, diagLeft; s32 *reserve;
+};
+static ggv_value bgunSwitchRead(void *opaque, ggv_binding binding)
+{
+    struct bgunswitchcontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    case GGV_SW_PENDING: v.i = c->ctrl->switchtoweaponnum; break;
+    case GGV_SW_FRAME60: v.i = g_Vars.lvframe60; break;
+    case GGV_SW_FRAME: v.i = g_Vars.lvframenum; break;
+    case GGV_SW_WEAPON: v.i = c->ctrl->weaponnum; break;
+    case GGV_SW_OLD_WEAPON: v.i = c->player->gunctrl.weaponnum; break;
+    case GGV_SW_LEFT_INUSE: v.i = c->player->hands[HAND_LEFT].inuse; break;
+    case GGV_SW_DUAL: v.i = c->ctrl->dualwielding; break;
+    case GGV_SW_PLAYER_DUAL: v.i = c->player->gunctrl.dualwielding; break;
+    case GGV_SW_MATMOT: v.f = c->player->hands[HAND_RIGHT].matmot1; break;
+    case GGV_SW_RESERVE: v.i = c->player->ammoheldarr[c->ctrl->ammotypes[0]]; break;
+    case GGV_SW_RESERVE_TARGET: v.i = *(c->reserve = &c->player->ammoheldarr[c->ctrl->ammotypes[0]]); break;
+    case GGV_SW_ZOOM_MAX: v.f = g_Vars.currentplayer->zoomintimemax; break;
+    case GGV_SW_FOV_NEW: v.f = g_Vars.currentplayer->zoominfovynew; break;
+    case GGV_SW_PLAYER_CHR: v.ref = c->player->prop->chr; break;
+    case GGV_SW_CHR_HIDDEN: v.u = c->chr->hidden; break;
+    case GGV_SW_STAGE: v.i = g_Vars.stagenum; break;
+    case GGV_SW_NONE: v.i = WEAPON_NONE; break;
+    case GGV_SW_UNARMED: v.i = WEAPON_UNARMED; break;
+    case GGV_SW_PSYCHOSIS: v.i = WEAPON_PSYCHOSISGUN; break;
+    case GGV_SW_SCANNER: v.i = WEAPON_HORIZONSCANNER; break;
+    case GGV_SW_RCP: v.i = WEAPON_RCP120; break;
+    case GGV_SW_REMOTE: v.i = WEAPON_REMOTEMINE; break;
+    case GGV_SW_DISGUISE_A: v.i = WEAPON_DISGUISE40; break;
+    case GGV_SW_DISGUISE_B: v.i = WEAPON_DISGUISE41; break;
+    case GGV_SW_RESCUE: v.i = STAGE_RESCUE; break;
+    default: break;
+    } return v;
+}
+static void bgunSwitchWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunswitchcontext *c = opaque;
+    switch (binding) {
+    case GGV_SW_PENDING: c->ctrl->switchtoweaponnum = v.i; break;
+    case GGV_SW_DIAG_RIGHT: c->diagRight = v.i; break;
+    case GGV_SW_DIAG_LEFT: c->diagLeft = v.i; break;
+    case GGV_SW_WEAPON: c->ctrl->weaponnum = v.i; break;
+    case GGV_SW_LEFT_INUSE: c->player->hands[HAND_LEFT].inuse = v.i; break;
+    case GGV_SW_RIGHT_INUSE: c->player->hands[HAND_RIGHT].inuse = v.i; break;
+    case GGV_SW_DUAL: c->ctrl->dualwielding = v.i; break;
+    case GGV_SW_PREV_WEAPON: c->player->gunctrl.prevweaponnum = v.i; break;
+    case GGV_SW_PREV_DUAL: c->player->gunctrl.prevwasdualwielding = v.i; break;
+    case GGV_SW_CURRENT_AIM: g_Vars.currentplayer->insightaimmode = v.b; break;
+    case GGV_SW_RESERVE_TARGET: *c->reserve = v.i; break;
+    case GGV_SW_ZOOM_MAX: g_Vars.currentplayer->zoomintimemax = v.f; break;
+    case GGV_SW_ZOOM_TIME: g_Vars.currentplayer->zoomintime = v.f; break;
+    case GGV_SW_FOV_NEW: g_Vars.currentplayer->zoominfovynew = v.f; break;
+    case GGV_SW_FOV: g_Vars.currentplayer->zoominfovy = v.f; break;
+    case GGV_SW_CURRENT_INVERT: g_Vars.currentplayer->gunctrl.invertgunfunc = v.i; break;
+    case GGV_SW_USE_TIME: g_Vars.currentplayer->usedowntime = v.i; break;
+    case GGV_SW_FADER: c->ctrl->fnfader = v.i; break;
+    case GGV_SW_CHR: c->chr = v.ref; break;
+    case GGV_SW_CURRENT_DISGUISED: g_Vars.currentplayer->disguised = v.b; break;
+    case GGV_SW_CHR_HIDDEN: c->chr->hidden = v.u; break;
+    case GGV_SW_CURRENT_STRING: c->ctrl->curfnstr = v.i; break;
+    case GGV_SW_STRING_TIMER: c->ctrl->fnstrtimer = v.i; break;
+    case GGV_SW_THROWING: c->ctrl->throwing = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunSwitchCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunswitchcontext *c = opaque; ggv_value v = {0};
+    struct player *player = c->player; struct gunctrl *ctrl = c->ctrl;
+    switch (service) {
+    case GGV_SW_CAN_FREE: v.b = bgunCanFreeWeapon(a.i); break;
+    case GGV_SW_DEVICE_STATE: v.i = currentPlayerGetDeviceState(a.i); break;
+    case GGV_SW_HAS_DOUBLE: v.b = invHasDoubleWeaponIncAllGuns(a.i, b.i); break;
+    case GGV_SW_CLEANUP: func0f0d7364(); break;
+    case GGV_SW_FREE: bgunFreeWeapon(a.i); break;
+    case GGV_SW_SET_MEMORY: bgunSetGunMemWeapon(a.i); break;
+    case GGV_SW_RESET_HAND: bgunResetSwitchHand(c->player, c->ctrl, a.i); break;
+    case GGV_SW_INVENTORY_INDEX: invCalculateCurrentIndex(); break;
+    case GGV_SW_DISGUISE_SOUND: sndStart(var80095200, SFX_DISGUISE_ON, 0, -1, -1, -1, -1, -1); break;
+    case GGV_SW_REMOVE_ITEM: invRemoveItemByNum(a.i); break;
+    case GGV_SW_CYCLE_BACK: bgunCycleBack(); break;
+    case GGV_SW_LOG:
 		sysLogPrintf(LOG_NOTE,
 			"LOG.WPN.DIAG: bgunTickSwitch2 player=0 frame=%d switchto=%d "
 			"R(canFree=%d state=%d sm=%d cnt=%d throwing=%d) "
 			"L(canFree=%d state=%d sm=%d cnt=%d)",
 			(s32)g_Vars.lvframe60, (s32)ctrl->switchtoweaponnum,
-			r_canfree,
+			c->diagRight,
 			(s32)player->hands[HAND_RIGHT].state,
 			(s32)player->hands[HAND_RIGHT].stateminor,
 			(s32)player->hands[HAND_RIGHT].count,
 			(s32)ctrl->throwing,
-			l_canfree,
+			c->diagLeft,
 			(s32)player->hands[HAND_LEFT].state,
 			(s32)player->hands[HAND_LEFT].stateminor,
 			(s32)player->hands[HAND_LEFT].count);
-	}
-
-	if (ctrl->switchtoweaponnum >= 0) {
-		if (bgunCanFreeWeapon(HAND_RIGHT) && bgunCanFreeWeapon(HAND_LEFT)) {
-			s32 weaponnum = player->gunctrl.weaponnum;
-			s32 previnuse = player->hands[HAND_LEFT].inuse;
-			struct hand *lefthand;
-			struct hand *righthand;
-
-			if (currentPlayerGetDeviceState(ctrl->switchtoweaponnum) != DEVICESTATE_UNEQUIPPED) {
-				ctrl->switchtoweaponnum = WEAPON_UNARMED;
-			}
-
-
-			if (ctrl->dualwielding && !invHasDoubleWeaponIncAllGuns(ctrl->switchtoweaponnum, ctrl->switchtoweaponnum)) {
-				ctrl->dualwielding = false;
-			}
-
-			func0f0d7364();
-
-			bgunFreeWeapon(HAND_LEFT);
-			bgunFreeWeapon(HAND_RIGHT);
-
-			if (weaponnum == WEAPON_HORIZONSCANNER) {
-				g_Vars.currentplayer->insightaimmode = false;
-			}
-
-			if (weaponnum == WEAPON_RCP120) {
-				s32 amount = player->hands[HAND_RIGHT].matmot1;
-
-				if (amount > player->ammoheldarr[ctrl->ammotypes[0]]) {
-					amount = player->ammoheldarr[ctrl->ammotypes[0]];
-				}
-
-				player->ammoheldarr[ctrl->ammotypes[0]] -= amount;
-			}
-
-			if (weaponnum == WEAPON_HORIZONSCANNER) {
-				g_Vars.currentplayer->zoomintimemax = 0;
-				g_Vars.currentplayer->zoomintime = g_Vars.currentplayer->zoomintimemax;
-				g_Vars.currentplayer->zoominfovynew = 60;
-				g_Vars.currentplayer->zoominfovy = g_Vars.currentplayer->zoominfovynew;
-			}
-
-			lefthand = &player->hands[HAND_LEFT];
-			righthand = &player->hands[HAND_RIGHT];
-
-			if (ctrl->switchtoweaponnum == WEAPON_NONE) {
-				lefthand->inuse = false;
-				righthand->inuse = false;
-				ctrl->weaponnum = WEAPON_NONE;
-			} else {
-				bgunSetGunMemWeapon(ctrl->switchtoweaponnum);
-				ctrl->weaponnum = ctrl->switchtoweaponnum;
-				lefthand->inuse = true;
-				righthand->inuse = true;
-			}
-
-			if (ctrl->weaponnum == WEAPON_REMOTEMINE) {
-				ctrl->dualwielding = true;
-			}
-
-			if (!ctrl->dualwielding) {
-				lefthand->inuse = false;
-			}
-
-			if (weaponnum <= WEAPON_PSYCHOSISGUN && weaponnum >= WEAPON_UNARMED) {
-				player->gunctrl.prevweaponnum = weaponnum;
-			}
-
-			if (previnuse) {
-				player->gunctrl.prevwasdualwielding = true;
-			} else {
-				player->gunctrl.prevwasdualwielding = false;
-			}
-
-			g_Vars.currentplayer->gunctrl.invertgunfunc = false;
-			g_Vars.currentplayer->usedowntime = -1;
-
-			for (i = 0; i < 2; i++) {
-				player->hands[i].ejectstate = EJECTSTATE_INACTIVE;
-				player->hands[i].ejecttype = EJECTTYPE_GUN;
-				player->hands[i].unk0d0f_02 = false;
-				player->hands[i].activatesecondary = false;
-
-				player->hands[i].matmot1 = 0.0f;
-				player->hands[i].matmot2 = 0.0f;
-				player->hands[i].matmot3 = 0.0f;
-				player->hands[i].angledamper = 0.0f;
-				player->hands[i].gunsmokepoint = 0.0f;
-				player->hands[i].burstbullets = 0;
-				player->hands[i].loadslide = 0.0f;
-				player->hands[i].allowshootframe = 0;
-				player->hands[i].lastshootframe60 = 0;
-				player->hands[i].gset.weaponfunc = FUNC_PRIMARY;
-				player->hands[i].gset.weaponnum = ctrl->weaponnum;
-				player->hands[i].gset.unk0639 = (ctrl->upgradewant >> (i * 4)) & 0xf;
-				player->hands[i].gangstarot = 0.0f;
-
-				bgun0f0abd30(i);
-
-				animInit(&player->hands[i].anim);
-
-				if (player->hands[i].audiohandle && sndGetState(player->hands[i].audiohandle) != AL_STOPPED) {
-					audioStop(player->hands[i].audiohandle);
-				}
-			}
-
-			invCalculateCurrentIndex();
-
-			ctrl->switchtoweaponnum = -1;
-			ctrl->fnfader = 0;
-
-			if (ctrl->weaponnum == WEAPON_DISGUISE40 || ctrl->weaponnum == WEAPON_DISGUISE41) {
-				struct chrdata *chr = player->prop->chr;
-
-				sndStart(var80095200, SFX_DISGUISE_ON, 0, -1, -1, -1, -1, -1);
-
-				g_Vars.currentplayer->disguised = true;
-
-				chr->hidden |= CHRHFLAG_DISGUISED;
-
-				if (g_Vars.stagenum == STAGE_RESCUE) {
-					chr->hidden |= CHRHFLAG_UNTARGETABLE;
-				}
-
-				invRemoveItemByNum(ctrl->weaponnum);
-				bgunCycleBack();
-			}
-
-			ctrl->curfnstr = 0;
-			ctrl->fnstrtimer = 0;
-			ctrl->throwing = false;
-		}
-	} else {
-		if (((player->hands[HAND_LEFT].inuse && !player->gunctrl.dualwielding)
-					|| (!player->hands[HAND_LEFT].inuse && player->gunctrl.dualwielding))
-				&& bgunCanFreeWeapon(HAND_LEFT)) {
-			bgunFreeWeapon(HAND_LEFT);
-			player->hands[HAND_LEFT].inuse = player->gunctrl.dualwielding;
-		}
-	}
+        break;
+    default: break;
+    } return v;
+}
+void bgunTickSwitch2(void)
+{
+    struct bgunswitchcontext context = {0};
+    context.player = g_Vars.currentplayer;
+    context.ctrl = &g_Vars.currentplayer->gunctrl;
+    ggv_host host = { &context, bgunSwitchRead, bgunSwitchWrite, bgunSwitchCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_SWITCH_DRIVER), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: switch parent refused immutable program");
 }
 
-void bgunEquipWeapon(s32 weaponnum)
+struct bgunequipcontext { struct player *player; s32 handnum, weaponnum, diagnostic; };
+static ggv_value bgunEquipRead(void *opaque, ggv_binding binding)
 {
-	struct player *player = g_Vars.currentplayer;
-
-	/* B-246 round-6 instrumentation: legacy single-arg equip wrapper. The
-	 * MP / SP equip paths funnel through bgunEquipWeapon2 which calls into
-	 * this. Logging here gives visibility into early-return short-circuit
-	 * (when desired weapon already equipped). Player 0 only. */
-	if (g_Vars.currentplayernum == 0) {
+    struct bgunequipcontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_SW_PLAYER_NUM: v.i = g_Vars.currentplayernum; break;
+    case GGV_EQUIP_REQUEST: v.i = c->weaponnum; break;
+    case GGV_SWITCH_HAND_INDEX: v.i = c->handnum; break;
+    case GGV_SW_WEAPON: v.i = c->player->gunctrl.weaponnum; break;
+    case GGV_SW_PENDING: v.i = c->player->gunctrl.switchtoweaponnum; break;
+    case GGV_SW_NONE: v.i = WEAPON_NONE; break;
+    case GGV_SW_UNARMED: v.i = WEAPON_UNARMED; break;
+    case GGV_EQUIP_CUSTOM_END: v.i = WEAPON_CUSTOM_END; break;
+    default: break;
+    } return v;
+}
+static void bgunEquipWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunequipcontext *c = opaque;
+    switch (binding) {
+    case GGV_EQUIP_REQUEST: c->weaponnum = v.i; break;
+    case GGV_EQUIP_DIAG_SHORTCUT: c->diagnostic = v.i; break;
+    case GGV_SW_PENDING: c->player->gunctrl.switchtoweaponnum = v.i; break;
+    case GGV_EQUIP_WANT_AMMO: c->player->gunctrl.wantammo = v.b; break;
+    case GGV_EQUIP_CURRENT_DUAL: g_Vars.currentplayer->gunctrl.dualwielding = v.b; break;
+    default: break;
+    }
+}
+static ggv_value bgunEquipCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunequipcontext *c = opaque; ggv_value v = {0};
+    struct player *player = c->player; s32 weaponnum = c->weaponnum, handnum = c->handnum;
+    switch (service) {
+    case GGV_EQUIP_CHILD: bgunEquipWeapon(a.i); break;
+    case GGV_EQUIP_LOG:
 		sysLogPrintf(LOG_NOTE,
 			"LOG.WPN.DIAG: bgunEquipWeapon enter player=0 wpn=%d cur_wpn=%d cur_switchto=%d shortcircuit=%d",
 			(s32)weaponnum,
 			(s32)player->gunctrl.weaponnum,
 			(s32)player->gunctrl.switchtoweaponnum,
-			(s32)((player->gunctrl.weaponnum == weaponnum && player->gunctrl.switchtoweaponnum == -1) ? 1 : 0));
-	}
-
-	if (player->gunctrl.weaponnum == weaponnum && player->gunctrl.switchtoweaponnum == -1) {
-		return;
-	}
-
-	player->gunctrl.switchtoweaponnum = weaponnum;
-	player->gunctrl.wantammo = false;
+			c->diagnostic);
+        break;
+    case GGV_EQUIP2_LOG_ENTER:
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunEquipWeapon2 enter player=0 hand=%d req_wpn=%d "
+			"cur_gunctrl_wpn=%d switchto=%d dualwield=%d hand_R_wpn=%d hand_L_wpn=%d",
+			handnum, weaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.weaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.dualwielding,
+			(s32)g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum,
+			(s32)g_Vars.currentplayer->hands[HAND_LEFT].gset.weaponnum);
+        break;
+    case GGV_EQUIP2_LOG_EXIT:
+		sysLogPrintf(LOG_NOTE,
+			"LOG.WPN.DIAG: bgunEquipWeapon2 exit player=0 hand=%d req_wpn=%d "
+			"now_gunctrl_wpn=%d switchto=%d dualwield=%d",
+			handnum, weaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.weaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
+			(s32)g_Vars.currentplayer->gunctrl.dualwielding);
+        break;
+    default: break;
+    } return v;
+}
+static void bgunRunEquip(struct bgunequipcontext *context, ggv_stock_program program)
+{
+    ggv_host host = { context, bgunEquipRead, bgunEquipWrite, bgunEquipCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(program), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: equip request refused immutable program");
+}
+void bgunEquipWeapon(s32 weaponnum)
+{
+    struct bgunequipcontext context = { g_Vars.currentplayer, 0, weaponnum, 0 };
+    bgunRunEquip(&context, GGV_EQUIP_WEAPON);
 }
 
+/* GGV CurrentWeapon services begin: fresh global fields, native signed8. */
+static ggv_value bgunCurrentWeaponRead(void *opaque, ggv_binding binding)
+{
+    s32 handnum = *(s32 *)opaque; ggv_value value = {0};
+    if (binding == GGV_CURRENT_HAND_INUSE) value.i = g_Vars.currentplayer->hands[handnum].inuse;
+    if (binding == GGV_CURRENT_WEAPON_NUMBER) value.i = g_Vars.currentplayer->gunctrl.weaponnum;
+    return value;
+}
+static void bgunCurrentWeaponWrite(void *opaque, ggv_binding binding, ggv_value value) {}
+/* GGV CurrentWeapon services end. */
 s32 bgunGetWeaponNum(s32 handnum)
 {
-	if (!g_Vars.currentplayer->hands[handnum].inuse) {
-		return WEAPON_NONE;
-	}
-
-	return g_Vars.currentplayer->gunctrl.weaponnum;
+    ggv_host host = { &handnum, bgunCurrentWeaponRead, bgunCurrentWeaponWrite, NULL }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_CURRENT_WEAPON), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: current weapon query refused immutable program"); return WEAPON_NONE;
+    } return result;
 }
 
 s32 bgunGetWeaponNum2(s32 handnum)
 {
-	return bgunGetWeaponNum(handnum);
+    ggv_host host = { &handnum, bgunCurrentWeaponRead, bgunCurrentWeaponWrite, NULL }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_CURRENT_WEAPON), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: current weapon query refused immutable program"); return WEAPON_NONE;
+    } return result;
 }
 
 bool bgun0f0a1a10(s32 weaponnum)
@@ -7156,176 +7071,66 @@ u8 g_AutoSwitchWeaponsSecondary[] = {
  * array. The first available weapon is selected. The player's "wantammo" flag
  * will be set which will force the weapon onto the second function.
  */
+struct bgunautoselectcontext { s32 index; };
+static ggv_value bgunAutoSelectRead(void *opaque, ggv_binding binding)
+{
+    struct bgunautoselectcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_FUNCTION_CONTROL_WEAPON: value.i = g_Vars.currentplayer->gunctrl.weaponnum; break;
+    case GGV_STATE_PLAYER_NUMBER: value.i = g_Vars.currentplayernum; break;
+    case GGV_SELECT_TICKMODE: value.i = g_Vars.tickmode; break;
+    case GGV_SELECT_PRIMARY_WEAPON: value.i = g_AutoSwitchWeaponsPrimary[c->index]; break;
+    case GGV_SELECT_SECONDARY_WEAPON: value.i = g_AutoSwitchWeaponsSecondary[c->index]; break;
+    case GGV_SELECT_PRIMARY_COUNT: value.i = ARRAYCOUNT(g_AutoSwitchWeaponsPrimary); break;
+    case GGV_SELECT_SECONDARY_COUNT: value.i = ARRAYCOUNT(g_AutoSwitchWeaponsSecondary); break;
+    default: break;
+    }
+    return value;
+}
+static void bgunAutoSelectWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunautoselectcontext *c = opaque;
+    switch (binding) {
+    case GGV_SELECT_INDEX: c->index = value.i; break;
+    case GGV_SWITCH_DUALWIELD: g_Vars.currentplayer->gunctrl.dualwielding = value.b; break;
+    case GGV_GUNCTRL_WANTAMMO: g_Vars.currentplayer->gunctrl.wantammo = value.b; break;
+    default: break;
+    }
+}
+static ggv_value bgunAutoSelectCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value value = {0}; (void)opaque; (void)d;
+    switch (service) {
+    case GGV_SELECT_LOG:
+        sysLogPrintf(LOG_NOTE,
+            "LOG.WPN.DIAG: bgunAutoSwitchWeapon enter player=0 cur_wpn=%d switchto=%d tickmode=%d",
+            a.i, (s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum, (s32)g_Vars.tickmode); break;
+    case GGV_SELECT_HAS_SINGLE: value.b = invHasSingleWeaponIncAllGuns(a.i); break;
+    case GGV_SELECT_HAS_DOUBLE: value.b = invHasDoubleWeaponIncAllGuns(a.i, b.i); break;
+    case GGV_QUERY_FIND_WEAPON: value.ref = weaponFindById(a.i); break;
+    case GGV_SELECT_FIND_FUNCTION: value.ref = weaponGetFunctionById(a.i, b.i); break;
+    case GGV_EXCLUSION_CHECK: value.b = bgun0f0990b0(a.ref, b.ref); break;
+    case GGV_SELECT_FUNCTION_FLAGS: value.u = ((struct weaponfunc *)a.ref)->flags; break;
+    case GGV_SELECT_EQUIP: bgunEquipWeapon(a.i); break;
+    default: break;
+    }
+    return value;
+}
 void bgunAutoSwitchWeapon(void)
 {
-	s32 i;
-	struct weapon *weapon;
-	struct weaponfunc *func;
-	s32 weaponnum;
-	s32 newweaponnum = -1;
-	s32 firstweaponnum = -1;
-	s32 foundsuperdragon = 0;
-	bool foundcurrent = false;
-	s32 curweaponnum = g_Vars.currentplayer->gunctrl.weaponnum;
-	bool wantammo = false;
-
-	/* B-246 round-6 instrumentation: auto-switch fires when the current
-	 * weapon runs out of ammo. Logging the entry point captures any
-	 * unexpected mid-match weapon swap. */
-	if (g_Vars.currentplayernum == 0) {
-		sysLogPrintf(LOG_NOTE,
-			"LOG.WPN.DIAG: bgunAutoSwitchWeapon enter player=0 cur_wpn=%d switchto=%d tickmode=%d",
-			(s32)curweaponnum,
-			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
-			(s32)g_Vars.tickmode);
-	}
-
-	if (g_Vars.tickmode == TICKMODE_CUTSCENE) {
-		return;
-	}
-
-	// Loop through g_AutoSwitchWeaponsPrimary, checking which weapons the
-	// player has which are usable. Stop when both a usable weapon is found
-	// and when the player's current weapon is found. Note the first and last
-	// usable weapons.
-	i = 0;
-
-	do {
-		bool usable = false;
-
-		if (invHasSingleWeaponIncAllGuns(g_AutoSwitchWeaponsPrimary[i])) {
-			weaponnum = g_AutoSwitchWeaponsPrimary[i];
-			weapon = weaponFindById(weaponnum);
-			func = weaponGetFunctionById(weaponnum, FUNC_PRIMARY);
-
-			if (!bgun0f0990b0(func, weapon) && (func->flags & FUNCFLAG_AUTOSWITCHUNSELECTABLE) == 0) {
-				usable = true;
-			}
-
-			if (weaponnum == WEAPON_SUPERDRAGON && !foundsuperdragon) {
-				foundsuperdragon++;
-			} else {
-				func = weaponGetFunctionById(weaponnum, FUNC_SECONDARY);
-
-				if (!bgun0f0990b0(func, weapon) && (func->flags & FUNCFLAG_AUTOSWITCHUNSELECTABLE) == 0) {
-					usable = true;
-				}
-			}
-
-			if (weaponnum == curweaponnum) {
-				foundcurrent = true;
-			} else if (usable) {
-				newweaponnum = weaponnum;
-
-				if (firstweaponnum == -1) {
-					firstweaponnum = weaponnum;
-				}
-			}
-		}
-
-		if (++i >= ARRAYCOUNT(g_AutoSwitchWeaponsPrimary)) {
-			break;
-		}
-	} while (newweaponnum == -1 || !foundcurrent);
-
-	if (!foundcurrent) {
-		newweaponnum = firstweaponnum;
-	}
-
-	if (newweaponnum == -1) {
-		newweaponnum = WEAPON_UNARMED;
-	}
-
-	if (newweaponnum == WEAPON_UNARMED) {
-		bool foundcurrent = false;
-		s32 firstweaponnum = -1;
-		s32 weaponnum;
-
-		// No usable weapon was found in the primary array,
-		// so search the secondary array.
-		for (i = 0; i < ARRAYCOUNT(g_AutoSwitchWeaponsSecondary); i++) {
-			weaponnum = g_AutoSwitchWeaponsSecondary[i];
-
-			if (invHasSingleWeaponIncAllGuns(weaponnum)) {
-				if (weaponnum == curweaponnum) {
-					foundcurrent = true;
-				}
-
-				if (firstweaponnum == -1) {
-					firstweaponnum = weaponnum;
-				}
-			}
-		}
-
-		newweaponnum = firstweaponnum;
-
-		if (newweaponnum == -1) {
-			newweaponnum = WEAPON_UNARMED;
-		}
-
-		if (foundcurrent) {
-			newweaponnum = -1;
-		}
-
-		wantammo = true;
-	}
-
-	// Switch to newweaponnum
-	if (newweaponnum >= 0 && newweaponnum != curweaponnum) {
-		if (invHasDoubleWeaponIncAllGuns(newweaponnum, newweaponnum)) {
-			g_Vars.currentplayer->gunctrl.dualwielding = true;
-		} else {
-			g_Vars.currentplayer->gunctrl.dualwielding = false;
-		}
-
-		bgunEquipWeapon(newweaponnum);
-
-		if (wantammo) {
-			g_Vars.currentplayer->gunctrl.wantammo = true;
-		}
-	}
+    struct bgunautoselectcontext context = {0};
+    ggv_host host = { &context, bgunAutoSelectRead, bgunAutoSelectWrite, bgunAutoSelectCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_AUTO_SELECT_WEAPON), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: auto-switch selection refused immutable program");
+    }
 }
 
 void bgunEquipWeapon2(s32 handnum, s32 weaponnum)
 {
-	/* B-246 instrumentation: log every equip request so we can correlate UI
-	 * "weapon equipped" with hand/gunctrl state at the same instant. Player 0
-	 * only is enough to keep noise low while still covering the bug repro. */
-	if (g_Vars.currentplayernum == 0) {
-		sysLogPrintf(LOG_NOTE,
-			"LOG.WPN.DIAG: bgunEquipWeapon2 enter player=0 hand=%d req_wpn=%d "
-			"cur_gunctrl_wpn=%d switchto=%d dualwield=%d hand_R_wpn=%d hand_L_wpn=%d",
-			handnum, weaponnum,
-			(s32)g_Vars.currentplayer->gunctrl.weaponnum,
-			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
-			(s32)g_Vars.currentplayer->gunctrl.dualwielding,
-			(s32)g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponnum,
-			(s32)g_Vars.currentplayer->hands[HAND_LEFT].gset.weaponnum);
-	}
-
-	if (handnum == HAND_LEFT) {
-		if (weaponnum == WEAPON_NONE) {
-			g_Vars.currentplayer->gunctrl.dualwielding = false;
-		} else {
-			g_Vars.currentplayer->gunctrl.dualwielding = true;
-		}
-	} else {
-		if (weaponnum >= WEAPON_CUSTOM_END) {
-			weaponnum = WEAPON_UNARMED;
-		}
-
-		bgunEquipWeapon(weaponnum);
-	}
-
-	if (g_Vars.currentplayernum == 0) {
-		sysLogPrintf(LOG_NOTE,
-			"LOG.WPN.DIAG: bgunEquipWeapon2 exit player=0 hand=%d req_wpn=%d "
-			"now_gunctrl_wpn=%d switchto=%d dualwield=%d",
-			handnum, weaponnum,
-			(s32)g_Vars.currentplayer->gunctrl.weaponnum,
-			(s32)g_Vars.currentplayer->gunctrl.switchtoweaponnum,
-			(s32)g_Vars.currentplayer->gunctrl.dualwielding);
-	}
+    struct bgunequipcontext context = { NULL, handnum, weaponnum, 0 };
+    bgunRunEquip(&context, GGV_EQUIP_WEAPON_HAND);
 }
 
 s32 bgunIsFiring(s32 handnum)
@@ -7393,7 +7198,13 @@ void bgunSetAdjustPos(f32 angle)
 
 void bgunStartSlide(s32 handnum)
 {
-	g_Vars.currentplayer->hands[handnum].slideinc = true;
+    struct bgunhandcontext context = {0};
+    context.handnum = handnum;
+    ggv_host host = { &context, bgunHandRead, bgunHandWrite, bgunHandCall, bgunHandCall4 };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_HAND_START_SLIDE), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: hand slide refused immutable program");
+    }
 }
 
 /**
@@ -13323,64 +13134,150 @@ void bgunPlayBgHitSound(struct gset *gset, struct coord *hitpos, s32 texturenum,
 #endif
 }
 
+/* GGV Trigger services begin: raw BOOL32 stores then existing GraphV2 boundary. */
+struct bguntriggercontext { s32 handnum; bool on; struct hand *hand; };
+static ggv_value bgunTriggerRead(void *opaque, ggv_binding binding)
+{
+    struct bguntriggercontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_TRIGGER: value.b = c->hand->triggeron; break;
+    case GGV_TRIGGER_PREVIOUS: value.b = c->hand->triggerprev; break;
+    case GGV_TRIGGER_REQUEST: value.b = c->on; break;
+    case GGV_TRIGGER_PLAYER: value.ref = g_Vars.currentplayer; break;
+    case GGV_HAND_NUMBER: value.i = c->handnum; break;
+    default: break;
+    } return value;
+}
+static void bgunTriggerWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bguntriggercontext *c = opaque;
+    switch (binding) {
+    case GGV_TRIGGER_PREVIOUS: c->hand->triggerprev = value.b; break;
+    case GGV_TRIGGER: c->hand->triggeron = value.b; break;
+    case GGV_TRIGGER_RELEASED: c->hand->triggerreleased = value.b; break;
+    default: break;
+    }
+}
+static ggv_value bgunTriggerCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bguntriggercontext *c = opaque; ggv_value value = {0};
+    if (service == GGV_STATE_SELECT_HAND) c->hand = &g_Vars.currentplayer->hands[c->handnum];
+    return value;
+}
+static ggv_value bgunTriggerCall4(void *opaque, ggv_service4 service, ggv_value a, ggv_value b, ggv_value c, ggv_value d)
+{
+    ggv_value value = {0}; (void) opaque;
+    if (service == GGV_TRIGGER_V2_INPUT) wgV2RuntimeInput(a.ref, b.i, c.b, d.b);
+    return value;
+}
+/* GGV Trigger services end. */
 void bgunSetTriggerOn(s32 handnum, bool on)
 {
-	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
-
-	hand->triggerprev = hand->triggeron;
-	hand->triggeron = on;
-	wgV2RuntimeInput(g_Vars.currentplayer, handnum, on && !hand->triggerprev, !on && hand->triggerprev);
-
-	if (!on) {
-		hand->triggerreleased = true;
-	}
+    struct bguntriggercontext context = {0}; context.handnum = handnum; context.on = on;
+    ggv_host host = { &context, bgunTriggerRead, bgunTriggerWrite, bgunTriggerCall, bgunTriggerCall4 };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_TRIGGER_INPUT), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: trigger input refused immutable program");
+    }
 }
 
 _Static_assert(WEAPON_CUSTOM_COUNT <= 32,
 		"custom weapon function selections must fit the runtime bitset");
 
+
+struct bgunstoredfunctioncontext {
+    s32 weaponnum;
+    u32 byteindex;
+};
+static ggv_value bgunStoredFunctionRead(void *opaque, ggv_binding binding)
+{
+    struct bgunstoredfunctioncontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_QUERY_WEAPON_I32: value.i = c->weaponnum; break;
+    case GGV_FUNCTION_NATIVE_FIRST: value.i = WEAPON_UNARMED; break;
+    case GGV_FUNCTION_NATIVE_LAST: value.i = WEAPON_COMBATBOOST; break;
+    case GGV_FUNCTION_CUSTOM_FIRST: value.i = WEAPON_CUSTOM_START; break;
+    case GGV_FUNCTION_CUSTOM_END: value.i = WEAPON_CUSTOM_END; break;
+    case GGV_FUNCTION_NATIVE_BITS:
+        value.u = g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs[c->byteindex]; break;
+    case GGV_FUNCTION_CUSTOM_BITS: value.u = g_Vars.currentplayer->gunctrl.customgunfuncs; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunStoredFunctionWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunstoredfunctioncontext *c = opaque;
+    if (binding == GGV_FUNCTION_BYTE_INDEX) c->byteindex = value.u;
+}
 static bool bgunCanStoreFunctionSelection(s32 weaponnum)
 {
-	return (weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_COMBATBOOST)
-		|| (weaponnum >= WEAPON_CUSTOM_START && weaponnum < WEAPON_CUSTOM_END);
+    struct bgunstoredfunctioncontext context = { weaponnum, 0 };
+    ggv_host host = { &context, bgunStoredFunctionRead, bgunStoredFunctionWrite, NULL };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_CAN_STORE_FUNCTION), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: function selection eligibility refused immutable program");
+    }
+    return result;
 }
 
 static bool bgunStoredFunctionIsSecondary(s32 weaponnum)
 {
-	if (weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_COMBATBOOST) {
-		u32 index = (u32)(weaponnum - 1);
-		return (g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex]
-			.gunfuncs[index >> 3] & (1u << (index & 7))) != 0;
-	}
-
-	if (weaponnum >= WEAPON_CUSTOM_START && weaponnum < WEAPON_CUSTOM_END) {
-		u32 index = (u32)(weaponnum - WEAPON_CUSTOM_START);
-		return (g_Vars.currentplayer->gunctrl.customgunfuncs & (1u << index)) != 0;
-	}
-
-	return false;
+    struct bgunstoredfunctioncontext context = { weaponnum, 0 };
+    ggv_host host = { &context, bgunStoredFunctionRead, bgunStoredFunctionWrite, NULL };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_STORED_FUNCTION_SECONDARY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: stored function query refused immutable program");
+    }
+    return result;
 }
 
+struct bgunstorefunctioncontext {
+    struct bgunstoredfunctioncontext query;
+    bool secondary;
+    u8 *nativebits;
+    u32 *custombits;
+};
+static ggv_value bgunStoreFunctionRead(void *opaque, ggv_binding binding)
+{
+    struct bgunstorefunctioncontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_FUNCTION_SECONDARY_INPUT: value.b = c->secondary; break;
+    case GGV_FUNCTION_NATIVE_BITS: value.u = c->nativebits[c->query.byteindex]; break;
+    case GGV_FUNCTION_CUSTOM_BITS: value.u = *c->custombits; break;
+    default: return bgunStoredFunctionRead(&c->query, binding);
+    }
+    return value;
+}
+static void bgunStoreFunctionWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunstorefunctioncontext *c = opaque;
+    switch (binding) {
+    case GGV_FUNCTION_BYTE_INDEX: c->query.byteindex = value.u; break;
+    case GGV_FUNCTION_NATIVE_BITS: c->nativebits[c->query.byteindex] = (u8)value.u; break;
+    case GGV_FUNCTION_CUSTOM_BITS: *c->custombits = value.u; break;
+    default: break;
+    }
+}
+static ggv_value bgunStoreFunctionCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunstorefunctioncontext *c = opaque; ggv_value value = {0}; (void)a; (void)b; (void)d;
+    if (service == GGV_FUNCTION_CAPTURE_NATIVE) {
+        c->nativebits = g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs;
+    } else if (service == GGV_FUNCTION_CAPTURE_CUSTOM) {
+        c->custombits = &g_Vars.currentplayer->gunctrl.customgunfuncs;
+    }
+    return value;
+}
 static void bgunStoreFunctionSelection(s32 weaponnum, bool secondary)
 {
-	if (weaponnum >= WEAPON_UNARMED && weaponnum <= WEAPON_COMBATBOOST) {
-		u32 index = (u32)(weaponnum - 1);
-		u8 *bits = g_PlayerConfigsArray[g_Vars.currentplayerstats->mpindex].gunfuncs;
-
-		if (secondary) {
-			bits[index >> 3] |= (u8)(1u << (index & 7));
-		} else {
-			bits[index >> 3] &= (u8)~(1u << (index & 7));
-		}
-	} else if (weaponnum >= WEAPON_CUSTOM_START && weaponnum < WEAPON_CUSTOM_END) {
-		u32 mask = 1u << (u32)(weaponnum - WEAPON_CUSTOM_START);
-
-		if (secondary) {
-			g_Vars.currentplayer->gunctrl.customgunfuncs |= mask;
-		} else {
-			g_Vars.currentplayer->gunctrl.customgunfuncs &= ~mask;
-		}
-	}
+    struct bgunstorefunctioncontext context = { { weaponnum, 0 }, secondary, NULL, NULL };
+    ggv_host host = { &context, bgunStoreFunctionRead, bgunStoreFunctionWrite, bgunStoreFunctionCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_STORE_FUNCTION_SELECTION), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: function selection store refused immutable program");
+    }
 }
 
 #define FUNCISSEC() bgunStoredFunctionIsSecondary(g_Vars.currentplayer->gunctrl.weaponnum)
@@ -13398,139 +13295,124 @@ static void bgunStoreFunctionSelection(s32 weaponnum, bool secondary)
  * - USETIMER_STOP if the B button timer should stop (ie. the B press is consumed)
  * - USETIMER_REPEAT if this function should be called again on each frame until B is released.
  */
+struct bgunfunctiontogglecontext {
+    s32 usedowntime;
+    bool trigpressed;
+    bool fromactivemenu;
+    bool fromdedicatedbutton;
+};
+static ggv_value bgunFunctionToggleRead(void *opaque, ggv_binding binding)
+{
+    struct bgunfunctiontogglecontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_FUNCTION_EXT_CONTROLS: value.b = PLAYER_EXTCFG().extcontrols != 0; break;
+    case GGV_FUNCTION_REMOTE_PLAYER: value.b = g_Vars.currentplayer->isremote != 0; break;
+    case GGV_FUNCTION_USE_TIME: value.i = c->usedowntime; break;
+    case GGV_TRIGGER: value.b = c->trigpressed; break;
+    case GGV_FUNCTION_ACTIVE_MENU: value.b = c->fromactivemenu; break;
+    case GGV_FUNCTION_DEDICATED_BUTTON: value.b = c->fromdedicatedbutton; break;
+    case GGV_FUNCTION_HOLD_THRESHOLD: value.i = TICKS(50); break;
+    case GGV_FUNCTION_CONTROL_INVERT: value.i = g_Vars.currentplayer->gunctrl.invertgunfunc; break;
+    case GGV_FUNCTION_CONTROL_WEAPON: value.i = g_Vars.currentplayer->gunctrl.weaponnum; break;
+    case GGV_RELOAD_DEVICES_ACTIVE: value.u = g_Vars.currentplayer->devicesactive; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunFunctionToggleWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void)opaque;
+    switch (binding) {
+    case GGV_FUNCTION_CONTROL_INVERT: g_Vars.currentplayer->gunctrl.invertgunfunc = value.i; break;
+    case GGV_HAND_ACTIVATE_SECONDARY: g_Vars.currentplayer->hands[HAND_RIGHT].activatesecondary = value.b; break;
+    case GGV_RELOAD_DEVICES_ACTIVE: g_Vars.currentplayer->devicesactive = value.u; break;
+    default: break;
+    }
+}
+static ggv_value bgunFunctionToggleCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value value = {0}; (void)opaque; (void)d;
+    switch (service) {
+    case GGV_INFO_WEAPON_QUERY: value.i = bgunGetWeaponNum(HAND_RIGHT); break;
+    case GGV_HAND_CURRENT_FUNCTION: value.i = g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc; break;
+    case GGV_FUNCTION_CAN_STORE: value.b = bgunCanStoreFunctionSelection(a.i); break;
+    case GGV_STORED_FUNCTION: value.b = bgunStoredFunctionIsSecondary(a.i); break;
+    case GGV_FUNCTION_STORE: bgunStoreFunctionSelection(a.i, b.b); break;
+    case GGV_FUNCTION_IS_SECONDARY: value.i = bgunIsUsingSecondaryFunction(); break;
+    default: break;
+    }
+    return value;
+}
 s32 bgunConsiderToggleGunFunction(s32 usedowntime, bool trigpressed, bool fromactivemenu, bool fromdedicatedbutton)
 {
-	const bool extcontrols = PLAYER_EXTCFG().extcontrols || g_Vars.currentplayer->isremote;
-	bool docontinue;
-	switch (bgunGetWeaponNum(HAND_RIGHT)) {
-	case WEAPON_SNIPERRIFLE:
-		if (extcontrols && usedowntime < 0) {
-			return USETIMER_CONTINUE;
-		}
-
-		// At 25 ticks (or B+Z), start showing the new function
-		g_Vars.currentplayer->gunctrl.invertgunfunc = true;
-
-		// B+Z immediately triggers crouch or stand
-		if (trigpressed) {
-			if (extcontrols) {
-				g_Vars.currentplayer->hands[HAND_RIGHT].activatesecondary = true;
-			}
-			return USETIMER_STOP;
-		}
-
-		if (fromdedicatedbutton) {
-			g_Vars.currentplayer->hands[HAND_RIGHT].activatesecondary = true;
-			return USETIMER_CONTINUE;
-		}
-
-		if (extcontrols) {
-			docontinue = (ABS(usedowntime) < 0);
-		} else {
-			// Don't do anything if B hasn't been held for 50/60ths of a second
-			docontinue = (usedowntime < TICKS(50));
-		}
-		if (docontinue) {
-			return USETIMER_CONTINUE;
-		}
-
-		if (g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc != FUNC_SECONDARY) {
-			return USETIMER_CONTINUE;
-		}
-
-		// Do crouch or stand
-		g_Vars.currentplayer->hands[HAND_RIGHT].activatesecondary = true;
-		return (extcontrols ? USETIMER_STOP : USETIMER_REPEAT);
-	case WEAPON_RCP120:
-		// very special alt-button handling for RCP-120's cloaking
-		if (!trigpressed && extcontrols && fromdedicatedbutton) {
-			if (g_Vars.currentplayer->devicesactive & DEVICE_CLOAKRCP120) {
-				g_Vars.currentplayer->devicesactive &= ~DEVICE_CLOAKRCP120;
-			} else {
-				g_Vars.currentplayer->devicesactive = (g_Vars.currentplayer->devicesactive & ~DEVICE_CLOAKRCP120) | DEVICE_CLOAKRCP120;
-			}
-			g_Vars.currentplayer->gunctrl.invertgunfunc = false;
-			return USETIMER_STOP;
-		}
-	case WEAPON_LAPTOPGUN:
-	case WEAPON_DRAGON:
-	case WEAPON_REMOTEMINE:
-		// These weapons use temporary alt functions
-		if (extcontrols) {
-			g_Vars.currentplayer->gunctrl.invertgunfunc = !g_Vars.currentplayer->gunctrl.invertgunfunc;
-		} else {
-			g_Vars.currentplayer->gunctrl.invertgunfunc = true;
-		}
-
-		if (fromactivemenu && bgunIsUsingSecondaryFunction() == true) {
-			g_Vars.currentplayer->hands[HAND_RIGHT].activatesecondary = true;
-		}
-
-		return USETIMER_STOP;
-	case WEAPON_MAULER:
-	case WEAPON_CMP150:
-	case WEAPON_K7AVENGER:
-	case WEAPON_AR34:
-	case WEAPON_FARSIGHT:
-	case WEAPON_TIMEDMINE:
-		// These weapons disallow B+Z
-		if (!trigpressed) {
-			if (bgunCanStoreFunctionSelection(g_Vars.currentplayer->gunctrl.weaponnum)) {
-				if (1 - FUNCISSEC()) {
-					SETFUNCSEC();
-				} else {
-					SETFUNCPRI();
-				}
-			}
-
-			return USETIMER_STOP;
-		}
-
-		return USETIMER_CONTINUE;
-	default:
-		if (trigpressed) {
-			g_Vars.currentplayer->gunctrl.invertgunfunc = true;
-		} else {
-			if (bgunCanStoreFunctionSelection(g_Vars.currentplayer->gunctrl.weaponnum)) {
-				if (!FUNCISSEC()) {
-					SETFUNCSEC();
-				} else {
-					SETFUNCPRI();
-				}
-			}
-		}
-
-		return USETIMER_STOP;
-	}
+    struct bgunfunctiontogglecontext context = { usedowntime, trigpressed, fromactivemenu, fromdedicatedbutton };
+    ggv_host host = { &context, bgunFunctionToggleRead, bgunFunctionToggleWrite, bgunFunctionToggleCall };
+    int32_t result = USETIMER_CONTINUE;
+    if (!ggvExecute(ggvStockProgram(GGV_CONSIDER_FUNCTION_TOGGLE), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: function toggle refused immutable program");
+    }
+    return result;
 }
 
+static ggv_value bgunResetFunctionRead(void *opaque, ggv_binding binding)
+{
+    ggv_value value = {0}; (void)opaque;
+    switch (binding) {
+    case GGV_FUNCTION_EXT_CONTROLS: value.b = PLAYER_EXTCFG().extcontrols != 0; break;
+    case GGV_FUNCTION_REMOTE_PLAYER: value.b = g_Vars.currentplayer->isremote != 0; break;
+    case GGV_HAND_ACTIVATE_SECONDARY: value.b = g_Vars.currentplayer->hands[HAND_RIGHT].activatesecondary; break;
+    default: break;
+    }
+    return value;
+}
+static void bgunResetFunctionWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void)opaque;
+    if (binding == GGV_FUNCTION_CONTROL_INVERT) g_Vars.currentplayer->gunctrl.invertgunfunc = value.i;
+}
+static ggv_value bgunResetFunctionCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value value = {0}; (void)opaque; (void)a; (void)b; (void)d;
+    if (service == GGV_INFO_WEAPON_QUERY) value.i = bgunGetWeaponNum(HAND_RIGHT);
+    return value;
+}
 void bgun0f0a8c50(void)
 {
-	switch (bgunGetWeaponNum(HAND_RIGHT)) {
-	case WEAPON_RCP120:
-	case WEAPON_LAPTOPGUN:
-	case WEAPON_DRAGON:
-	case WEAPON_REMOTEMINE:
-		if (PLAYER_EXTCFG().extcontrols || g_Vars.currentplayer->isremote) {
-			return;
-		}
-		break;
-	}
-	if (g_Vars.currentplayer->hands[HAND_RIGHT].activatesecondary == false) {
-		g_Vars.currentplayer->gunctrl.invertgunfunc = false;
-	}
+    ggv_host host = { NULL, bgunResetFunctionRead, bgunResetFunctionWrite, bgunResetFunctionCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_RESET_FUNCTION_INVERSION), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: function inversion reset refused immutable program");
+    }
 }
 
+static ggv_value bgunUsingSecondaryRead(void *opaque, ggv_binding binding)
+{
+    struct player *player = opaque; ggv_value value = {0};
+    if (binding == GGV_FUNCTION_CONTROL_WEAPON) value.i = player->gunctrl.weaponnum;
+    else if (binding == GGV_FUNCTION_CONTROL_INVERT) value.i = player->gunctrl.invertgunfunc;
+    return value;
+}
+static void bgunUsingSecondaryWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void)opaque; (void)binding; (void)value;
+}
+static ggv_value bgunUsingSecondaryCall(void *opaque, ggv_service service,
+        ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value value = {0}; (void)opaque; (void)b; (void)d;
+    if (service == GGV_STORED_FUNCTION) value.b = bgunStoredFunctionIsSecondary(a.i);
+    return value;
+}
 bool bgunIsUsingSecondaryFunction(void)
 {
-	struct player *player = g_Vars.currentplayer;
-	s32 weaponnum = player->gunctrl.weaponnum;
-
-	if (bgunStoredFunctionIsSecondary(weaponnum)) {
-		return player->gunctrl.invertgunfunc == false;
-	}
-
-	return player->gunctrl.invertgunfunc == true;
+    ggv_host host = { g_Vars.currentplayer, bgunUsingSecondaryRead, bgunUsingSecondaryWrite, bgunUsingSecondaryCall };
+    int32_t result = 0;
+    if (!ggvExecute(ggvStockProgram(GGV_USING_SECONDARY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: secondary predicate refused immutable program");
+    }
+    return result;
 }
 
 /**
@@ -13915,122 +13797,178 @@ struct ammotype g_AmmoTypes[] = {
 	{ 10,           0, 0  }, // AMMOTYPE_ECM_MINE
 };
 
+/* GGV AmmoQuantity services begin: captured player, borrowed metadata. */
+struct bgunquantitycontext { s32 ammotype; s32 quantity; s32 function; u32 weaponnum; u32 funcnum; u32 rawquantity; struct player *player; struct weapon *weapon; struct inventory_ammo *ammo; };
+static ggv_value bgunQuantityRead(void *opaque, ggv_binding binding)
+{
+    struct bgunquantitycontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_QUANTITY_AMMO_REQUEST: value.i = c->ammotype; break;
+    case GGV_QUANTITY_REQUEST: value.i = c->quantity; break;
+    case GGV_QUANTITY_REQUEST_U32: value.u = c->rawquantity; break;
+    case GGV_QUANTITY_LOADED_RIGHT: value.i = c->player->hands[HAND_RIGHT].loadedammo[c->function]; break;
+    case GGV_QUANTITY_LOADED_LEFT: value.i = c->player->hands[HAND_LEFT].loadedammo[c->function]; break;
+    case GGV_QUANTITY_CLIP_RIGHT: value.i = c->player->hands[HAND_RIGHT].clipsizes[c->function]; break;
+    case GGV_QUANTITY_CAPACITY: value.i = g_AmmoTypes[c->ammotype].capacity; break;
+    case GGV_QUERY_WEAPON_U32: value.u = c->weaponnum; break;
+    case GGV_QUERY_AMMO_REF_U32: value.ref = c->weapon->ammos[c->funcnum]; break;
+    case GGV_QUERY_CACHED_TYPE: value.u = c->ammo->type; break;
+    default: break;
+    } return value;
+}
+static void bgunQuantityWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunquantitycontext *c = opaque;
+    switch (binding) {
+    case GGV_QUANTITY_FUNCTION: c->function = value.i; break;
+    case GGV_QUANTITY_LOADED_RIGHT: c->player->hands[HAND_RIGHT].loadedammo[c->function] = value.i; break;
+    case GGV_QUANTITY_RESERVE: c->player->ammoheldarr[c->ammotype] = value.i; break;
+    case GGV_QUERY_CACHED_AMMO: c->ammo = value.ref; break;
+    default: break;
+    }
+}
+static ggv_value bgunQuantityCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunquantitycontext *c = opaque; ggv_value value = {0};
+    switch (service) {
+    case GGV_AMMO_SELECT_PLAYER: c->player = g_Vars.currentplayer; break;
+    case GGV_QUANTITY_CURRENT_WEAPON: value.i = bgunGetWeaponNum(a.i); break;
+    case GGV_QUANTITY_AMMO_TYPE: value.u = bgunGetAmmoTypeForWeapon(a.u, b.u); break;
+    case GGV_AMMO_HAS_FLAG: value.b = weaponHasAmmoFlag(a.i, b.i, d.u); break;
+    case GGV_QUERY_FIND_WEAPON: c->weapon = weaponFindById(a.i); value.ref = c->weapon; break;
+    case GGV_QUANTITY_APPLY: bgunSetAmmoQuantity(a.i, b.i); break;
+    default: break;
+    } return value;
+}
+/* GGV AmmoQuantity services end. */
 void bgunSetAmmoQuantity(s32 ammotype, s32 quantity)
 {
-	struct player *player = g_Vars.currentplayer;
-	s32 weaponnum = bgunGetWeaponNum(HAND_RIGHT);
-	s32 funcnum = -1;
-	s32 magamount;
-
-	// Check if this ammo type applies to the player's equipped weapon
-	if (bgunGetAmmoTypeForWeapon(weaponnum, FUNC_PRIMARY) == ammotype) {
-		funcnum = FUNC_PRIMARY;
-	}
-
-	if (bgunGetAmmoTypeForWeapon(weaponnum, FUNC_SECONDARY) == ammotype) {
-		funcnum = FUNC_SECONDARY;
-	}
-
-	if (funcnum != -1 && weaponHasAmmoFlag(weaponnum, funcnum, AMMOFLAG_NORESERVE)) {
-		// For cloak and combat boost, ammo cannot be held outside of the weapon.
-		// So just add it to the loaded clip.
-		player->hands[0].loadedammo[funcnum] += quantity;
-
-		if (player->hands[0].loadedammo[funcnum] > player->hands[0].clipsizes[funcnum]) {
-			player->hands[0].loadedammo[funcnum] = player->hands[0].clipsizes[funcnum];
-		}
-
-		player->ammoheldarr[ammotype] = 0;
-		return;
-	}
-
-	magamount = 0;
-
-	// For throwable items, the capacity applies to reserve + loaded
-	if (funcnum != -1 && weaponHasAmmoFlag(weaponnum, funcnum, AMMOFLAG_EQUIPPEDISRESERVE)) {
-		magamount = player->hands[0].loadedammo[funcnum] + player->hands[1].loadedammo[funcnum];
-	}
-
-	if (quantity > g_AmmoTypes[ammotype].capacity - magamount) {
-		player->ammoheldarr[ammotype] = g_AmmoTypes[ammotype].capacity - magamount;
-	} else {
-		player->ammoheldarr[ammotype] = quantity;
-	}
+    struct bgunquantitycontext context = {0}; context.ammotype = ammotype; context.quantity = quantity;
+    ggv_host host = { &context, bgunQuantityRead, bgunQuantityWrite, bgunQuantityCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_SET_AMMO_QUANTITY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: ammo quantity refused immutable program");
+    }
+    // Check if this ammo type applies to the player's equipped weapon.
+    // For cloak and combat boost, ammo cannot be held outside of the weapon.
+    // So just add it to the loaded clip.
+    // For throwable items, the capacity applies to reserve + loaded.
 }
 
+/* GGV AmmoCount services begin: fixed local traversal, borrowed player. */
+struct bgunammocountcontext { s32 ammotype; struct player *player; s32 handindex; s32 slotindex; };
+static ggv_value bgunAmmoCountRead(void *opaque, ggv_binding binding)
+{
+    struct bgunammocountcontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_AMMO_RESERVE: value.i = g_Vars.currentplayer->ammoheldarr[c->ammotype]; break;
+    case GGV_AMMO_REQUEST: value.i = c->ammotype; break;
+    case GGV_AMMO_HAND_INUSE: value.b = c->player->hands[c->handindex].inuse; break;
+    case GGV_AMMO_EQUIPPED_TYPE: value.i = c->player->gunctrl.ammotypes[c->slotindex]; break;
+    case GGV_AMMO_HAND_WEAPON: value.i = c->player->hands[c->handindex].gset.weaponnum; break;
+    case GGV_AMMO_LOADED: value.i = c->player->hands[c->handindex].loadedammo[c->slotindex]; break;
+    default: break;
+    } return value;
+}
+static void bgunAmmoCountWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunammocountcontext *c = opaque;
+    if (binding == GGV_AMMO_HAND_INDEX) c->handindex = value.i;
+    if (binding == GGV_AMMO_SLOT_INDEX) c->slotindex = value.i;
+}
+static ggv_value bgunAmmoCountCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunammocountcontext *c = opaque; ggv_value value = {0};
+    if (service == GGV_AMMO_SELECT_PLAYER) c->player = g_Vars.currentplayer;
+    if (service == GGV_AMMO_HAS_FLAG) value.b = weaponHasAmmoFlag(a.i, b.i, d.u);
+    return value;
+}
+/* GGV AmmoCount services end. */
 s32 bgunGetReservedAmmoCount(s32 ammotype)
 {
-	s32 i;
-	s32 j;
-	s32 total = g_Vars.currentplayer->ammoheldarr[ammotype];
-	struct player *player = g_Vars.currentplayer;
-
-	for (i = 0; i < 2; i++) {
-		if (player->hands[i].inuse) {
-			for (j = 0; j < 2; j++) {
-				if (player->gunctrl.ammotypes[j] == ammotype && weaponHasAmmoFlag(player->hands[i].gset.weaponnum, j, AMMOFLAG_NORESERVE)) {
-					total = total + player->hands[i].loadedammo[j];
-				}
-			}
-		}
-	}
-
-	return total;
+    struct bgunammocountcontext context = {0}; context.ammotype = ammotype;
+    ggv_host host = { &context, bgunAmmoCountRead, bgunAmmoCountWrite, bgunAmmoCountCall };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_RESERVED_AMMO_COUNT), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: ammo count refused immutable program");
+        return 0;
+    }
+    return result;
 }
 
 s32 bgunGetAmmoCount(s32 ammotype)
 {
-	s32 i;
-	s32 j;
-	s32 total = g_Vars.currentplayer->ammoheldarr[ammotype];
-	struct player *player = g_Vars.currentplayer;
-
-	for (i = 0; i < 2; i++) {
-		if (player->hands[i].inuse) {
-			for (j = 0; j < 2; j++) {
-				if (player->gunctrl.ammotypes[j] == ammotype) {
-					total = total + player->hands[i].loadedammo[j];
-				}
-			}
-		}
-	}
-
-	return total;
+    struct bgunammocountcontext context = {0}; context.ammotype = ammotype;
+    ggv_host host = { &context, bgunAmmoCountRead, bgunAmmoCountWrite, bgunAmmoCountCall };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_AMMO_COUNT), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: ammo count refused immutable program");
+        return 0;
+    }
+    return result;
 }
 
+/* GGV AmmoQuery services begin: declared after the native capacity table. */
+struct bgunammoquerycontext { s32 ammotype; u32 weaponnum; s32 signedweapon; u32 funcnum; s32 signedfunc; struct weapon *weapon; struct inventory_ammo *ammo; };
+static ggv_value bgunAmmoQueryRead(void *opaque, ggv_binding binding)
+{
+    struct bgunammoquerycontext *c = opaque; ggv_value value = {0};
+    switch (binding) {
+    case GGV_QUERY_CAPACITY: value.i = g_AmmoTypes[c->ammotype].capacity; break;
+    case GGV_QUERY_WEAPON_U32: value.u = c->weaponnum; break;
+    case GGV_QUERY_WEAPON_I32: value.i = c->signedweapon; break;
+    case GGV_QUERY_AMMO_REF_U32: value.ref = c->weapon->ammos[c->funcnum]; break;
+    case GGV_QUERY_AMMO_REF_I32: value.ref = c->weapon->ammos[c->signedfunc]; break;
+    case GGV_QUERY_AMMO_TYPE: value.u = c->weapon->ammos[c->funcnum]->type; break;
+    case GGV_QUERY_CACHED_TYPE: value.u = c->ammo->type; break;
+    case GGV_QUERY_CACHED_CAPACITY: value.i = g_AmmoTypes[c->ammo->type].capacity; break;
+    default: break;
+    } return value;
+}
+static void bgunAmmoQueryWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    struct bgunammoquerycontext *c = opaque;
+    if (binding == GGV_QUERY_CACHED_AMMO) c->ammo = value.ref;
+}
+static ggv_value bgunAmmoQueryCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    struct bgunammoquerycontext *c = opaque; ggv_value value = {0};
+    if (service == GGV_QUERY_FIND_WEAPON) { c->weapon = weaponFindById(a.i); value.ref = c->weapon; }
+    if (service == GGV_QUERY_RESERVED_COUNT) value.i = bgunGetReservedAmmoCount(a.i);
+    return value;
+}
+/* GGV AmmoQuery services end. */
 s32 bgunGetCapacityByAmmotype(s32 ammotype)
 {
-	return g_AmmoTypes[ammotype].capacity;
+    struct bgunammoquerycontext context = {0}; context.ammotype = ammotype;
+    ggv_host host = { &context, bgunAmmoQueryRead, bgunAmmoQueryWrite, bgunAmmoQueryCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_AMMO_CAPACITY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: ammo query refused immutable program"); return 0;
+    }
+    return result;
 }
 
+/* GGV UnlimitedAmmo services begin: scalar input, lazy actual stage. */
+static ggv_value bgunUnlimitedAmmoRead(void *opaque, ggv_binding binding)
+{
+    u32 *ammotype = opaque; ggv_value value = {0};
+    if (binding == GGV_AMMO_REQUEST_U32) value.u = *ammotype;
+    if (binding == GGV_AMMO_STAGE) value.i = g_Vars.stagenum;
+    return value;
+}
+static void bgunUnlimitedAmmoWrite(void *opaque, ggv_binding binding, ggv_value value)
+{
+    (void) opaque; (void) binding; (void) value; /* Policy has no stores. */
+}
+/* GGV UnlimitedAmmo services end. */
 bool bgunAmmotypeAllowsUnlimitedAmmo(u32 ammotype)
 {
-	switch (ammotype) {
-	case AMMOTYPE_REMOTE_MINE:
-		if (g_Vars.stagenum == STAGE_CHICAGO) {
-			return false;
-		}
-		break;
-	case AMMOTYPE_TIMED_MINE:
-		if (g_Vars.stagenum == STAGE_AIRFORCEONE) {
-			return false;
-		}
-		break;
-	case AMMOTYPE_PSYCHOSIS:
-	case AMMOTYPE_17:
-	case AMMOTYPE_BUG:
-	case AMMOTYPE_MICROCAMERA:
-	case AMMOTYPE_PLASTIQUE:
-	case AMMOTYPE_1B:
-	case AMMOTYPE_1C:
-	case AMMOTYPE_1D:
-	case AMMOTYPE_TOKEN:
-	case AMMOTYPE_1F:
-	case AMMOTYPE_ECM_MINE:
-		return false;
-	}
-
-	return true;
+    ggv_host host = { &ammotype, bgunUnlimitedAmmoRead, bgunUnlimitedAmmoWrite, NULL };
+    int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_UNLIMITED_AMMO), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: unlimited ammo policy refused immutable program");
+        return false;
+    }
+    return result;
 }
 
 void bgunGiveMaxAmmo(bool force)
@@ -14052,57 +13990,41 @@ void bgunGiveMaxAmmo(bool force)
 
 u32 bgunGetAmmoTypeForWeapon(u32 weaponnum, u32 func)
 {
-	struct weapon *weapon = weaponFindById(weaponnum);
-
-	if (!weapon) {
-		return 0;
-	}
-
-	if (!weapon->ammos[func]) {
-		return 0;
-	}
-
-	return weapon->ammos[func]->type;
+    struct bgunammoquerycontext context = {0}; context.weaponnum = weaponnum; context.funcnum = func;
+    ggv_host host = { &context, bgunAmmoQueryRead, bgunAmmoQueryWrite, bgunAmmoQueryCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_AMMO_TYPE_QUERY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: ammo query refused immutable program"); return 0;
+    }
+    return result;
 }
 
 s32 bgunGetAmmoQtyForWeapon(u32 weaponnum, u32 func)
 {
-	struct weapon *weapon = weaponFindById(weaponnum);
-
-	if (weapon) {
-		struct inventory_ammo *ammo = weapon->ammos[func];
-
-		if (ammo) {
-			return bgunGetReservedAmmoCount(ammo->type);
-		}
-	}
-
-	return 0;
+    struct bgunammoquerycontext context = {0}; context.weaponnum = weaponnum; context.funcnum = func;
+    ggv_host host = { &context, bgunAmmoQueryRead, bgunAmmoQueryWrite, bgunAmmoQueryCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_AMMO_QTY_QUERY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: ammo query refused immutable program"); return 0;
+    }
+    return result;
 }
 
 void bgunSetAmmoQtyForWeapon(u32 weaponnum, u32 func, u32 quantity)
 {
-	struct weapon *weapon = weaponFindById(weaponnum);
-
-	if (weapon) {
-		struct inventory_ammo *ammo = weapon->ammos[func];
-
-		if (ammo) {
-			bgunSetAmmoQuantity(ammo->type, quantity);
-		}
-	}
+    struct bgunquantitycontext context = {0}; context.weaponnum = weaponnum; context.funcnum = func; context.rawquantity = quantity;
+    ggv_host host = { &context, bgunQuantityRead, bgunQuantityWrite, bgunQuantityCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_SET_WEAPON_AMMO_QUANTITY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: weapon ammo quantity refused immutable program");
+    }
 }
 
 s32 bgunGetAmmoCapacityForWeapon(s32 weaponnum, s32 func)
 {
-	struct weapon *weapon = weaponFindById(weaponnum);
-	struct inventory_ammo *ammo = weapon->ammos[func];
-
-	if (ammo) {
-		return g_AmmoTypes[ammo->type].capacity;
-	}
-
-	return 0;
+    struct bgunammoquerycontext context = {0}; context.signedweapon = weaponnum; context.signedfunc = func;
+    ggv_host host = { &context, bgunAmmoQueryRead, bgunAmmoQueryWrite, bgunAmmoQueryCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_AMMO_WEAPON_CAPACITY), &host, &result)) {
+        sysLogPrintf(LOG_WARNING, "GGV: ammo query refused immutable program"); return 0;
+    }
+    return result;
 }
 
 Gfx *bgunDrawHudString(Gfx *gdl, char *text, s32 x, bool halign, s32 y, s32 valign, u32 colour)
@@ -14161,12 +14083,24 @@ Gfx *bgunDrawHudInteger(Gfx *gdl, s32 value, s32 x, bool halign, s32 y, s32 vali
 	return gdl;
 }
 
+static ggv_value bgunAbmagRead(void *opaque, ggv_binding binding)
+{ ggv_value v = {0}; return v; }
+static void bgunAbmagWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct abmag *abmag = opaque;
+    switch (binding) {
+    case GGV_ABMAG_LOADED: abmag->loadedammo = v.i; break;
+    case GGV_ABMAG_CHANGE: abmag->change = v.i; break;
+    case GGV_ABMAG_REF: abmag->ref = v.i; break;
+    case GGV_ABMAG_TIMER: abmag->timer60 = v.i; break;
+    default: break;
+    }
+}
 void bgunResetAbmag(struct abmag *abmag)
 {
-	abmag->loadedammo = 0;
-	abmag->change = 0;
-	abmag->ref = 0;
-	abmag->timer60 = 0;
+    ggv_host host = { abmag, bgunAbmagRead, bgunAbmagWrite, NULL }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_ABMAG_RESET), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: ammo display reset refused immutable program");
 }
 
 void bgun0f0a9da8(struct abmag *mag, s32 remaining, s32 capacity, s32 height)
@@ -15012,46 +14946,55 @@ Gfx *bgunDrawSight(Gfx *gdl)
 	return gdl;
 }
 
+struct bgunconfigurecontext { struct hand *hand; struct gunctrl *ctrl; struct weapon *weapon; s32 handnum, slot; };
+static ggv_value bgunConfigureRead(void *opaque, ggv_binding binding)
+{
+    struct bgunconfigurecontext *c = opaque; ggv_value v = {0};
+    switch (binding) {
+    case GGV_VIS_WEAPON_ID: v.i = c->hand->gset.weaponnum; break;
+    case GGV_VIS_WEAPON: v.ref = c->weapon; break;
+    case GGV_VIS_AMMO: v.ref = c->weapon->ammos[c->slot]; break;
+    case GGV_SWITCH_HAND_INDEX: v.i = c->handnum; break;
+    case GGV_CONFIG_AMMO_TYPE: v.u = c->weapon->ammos[c->slot]->type; break;
+    case GGV_CONFIG_AMMO_CLIP: v.i = c->weapon->ammos[c->slot]->clipsize; break;
+    case GGV_SW_REMOTE: v.i = WEAPON_REMOTEMINE; break;
+    case GGV_CONFIG_FIRST_AMMO: v.i = c->ctrl->ammotypes[0]; break;
+    case GGV_CONFIG_HAND_ABMAG: v.ref = &c->hand->abmag; break;
+    case GGV_CONFIG_CTRL_ABMAG: v.ref = &c->ctrl->abmag; break;
+    default: break;
+    } return v;
+}
+static void bgunConfigureWrite(void *opaque, ggv_binding binding, ggv_value v)
+{
+    struct bgunconfigurecontext *c = opaque;
+    switch (binding) {
+    case GGV_VIS_WEAPON: c->weapon = v.ref; break;
+    case GGV_VIS_AMMO_SLOT: c->slot = v.i; break;
+    case GGV_CONFIG_CTRL_AMMO: c->ctrl->ammotypes[c->slot] = v.i; break;
+    case GGV_VIS_CLIP_SIZE: c->hand->clipsizes[c->slot] = v.i; break;
+    case GGV_VIS_LOADED: c->hand->loadedammo[c->slot] = v.i; break;
+    case GGV_CONFIG_UPGRADE0: c->hand->upgrademult[0] = v.f; break;
+    case GGV_CONFIG_UPGRADE1: c->hand->upgrademult[1] = v.f; break;
+    case GGV_CONFIG_FINAL0: c->hand->finalmult[0] = v.f; break;
+    case GGV_CONFIG_FINAL1: c->hand->finalmult[1] = v.f; break;
+    case GGV_CONFIG_LASTMAG: c->ctrl->lastmag = v.i; break;
+    default: break;
+    }
+}
+static ggv_value bgunConfigureCall(void *opaque, ggv_service service, ggv_value a, ggv_value b, ggv_value d)
+{
+    ggv_value v = {0};
+    switch (service) {
+    case GGV_QUERY_FIND_WEAPON: v.ref = weaponFindById(a.i); break;
+    case GGV_CONFIG_RESET_ABMAG: bgunResetAbmag(a.ref); break;
+    default: break;
+    } return v;
+}
 void bgun0f0abd30(s32 handnum)
 {
-	struct player *player = g_Vars.currentplayer;
-	struct hand *hand = &player->hands[handnum];
-	struct gunctrl *gunctrl = &player->gunctrl;
-	struct weapon *weapon = weaponFindById(hand->gset.weaponnum);
-	s32 i;
-
-	for (i = 0; i < 2; i++) {
-		if (handnum == HAND_RIGHT) {
-			gunctrl->ammotypes[i] = -1;
-		}
-
-		if (weapon && weapon->ammos[i]) {
-			if (handnum == HAND_RIGHT) {
-				gunctrl->ammotypes[i] = weapon->ammos[i]->type;
-			}
-
-			hand->clipsizes[i] = weapon->ammos[i]->clipsize;
-
-			if (handnum == HAND_LEFT && hand->gset.weaponnum == WEAPON_REMOTEMINE) {
-				hand->clipsizes[i] = 0;
-			}
-
-			hand->loadedammo[i] = 0;
-		}
-	}
-
-	hand->upgrademult[0] = 1;
-	hand->upgrademult[1] = 1;
-	hand->finalmult[0] = 1;
-	hand->finalmult[1] = 1;
-
-	if (gunctrl->ammotypes[0] >= 0) {
-		bgunResetAbmag(&hand->abmag);
-
-		if (handnum == HAND_RIGHT) {
-			bgunResetAbmag(&gunctrl->abmag);
-		}
-
-		gunctrl->lastmag = false;
-	}
+    struct player *player = g_Vars.currentplayer;
+    struct bgunconfigurecontext context = { &player->hands[handnum], &player->gunctrl, NULL, handnum, 0 };
+    ggv_host host = { &context, bgunConfigureRead, bgunConfigureWrite, bgunConfigureCall }; int32_t result;
+    if (!ggvExecute(ggvStockProgram(GGV_HAND_CONFIGURE), &host, &result))
+        sysLogPrintf(LOG_WARNING, "GGV: hand configuration refused immutable program");
 }

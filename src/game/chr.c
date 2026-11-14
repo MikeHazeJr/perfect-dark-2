@@ -25,6 +25,7 @@
 #include "game/camera.h"
 #include "game/player.h"
 #include "game/surface_loco.h"
+#include "swarm_audit_pose.h"
 #include "game/mtxf2lbulk.h"
 #include "game/playermgr.h"
 #include "game/rng2.h"
@@ -3191,6 +3192,7 @@ s32 chrTick(struct prop *prop)
 			anim = model->anim;
 
 			modelSetMatricesWithAnim(&sp210, model);
+			swarmAuditObservePose(chr, "chrTick", (const f32 *)sp210.unk00);
 
 			if (restore) {
 				anim->frac = prevfrac;
@@ -4189,6 +4191,7 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
 			}
 
 			modelSetMatricesWithAnim(&renderdata, model);
+			swarmAuditObservePose(chr, "chrRenderFallback", (const f32 *)renderdata.unk00);
 		}
 
 		// Render the chr's model
