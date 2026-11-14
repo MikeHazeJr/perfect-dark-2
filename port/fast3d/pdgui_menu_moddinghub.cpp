@@ -4695,7 +4695,7 @@ static void renderPackTool(float contentW, float contentH, float scale)
                 switch (ret) {
                     case MODPACK_PDMOD_ERR_OPEN:    reason = "could not open destination"; break;
                     case MODPACK_PDMOD_ERR_NO_MFST: reason = "mod.json not found in folder"; break;
-                    case MODPACK_PDMOD_ERR_BAD_MFST:reason = "mod.json failed to parse"; break;
+                    case MODPACK_PDMOD_ERR_BAD_MFST:reason = "mod.json is not a valid mod manifest"; break;
                     case MODPACK_PDMOD_ERR_IO:      reason = "read/write failure"; break;
                     case MODPACK_PDMOD_ERR_TOO_BIG: reason = "source exceeds 4 GiB"; break;
                     case MODPACK_PDMOD_ERR_LAYOUT:  reason = "external layout validation failed"; break;

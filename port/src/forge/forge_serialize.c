@@ -36,6 +36,15 @@ static void forgeSerializeBuildModDir(const char *slug, char *out, size_t n)
 	snprintf(out, n, "%s/Forge Maps/%s", modroot, slug ? slug : "untitled");
 }
 
+static s32 forgeSerializeTextIsBlank(const char *text)
+{
+	if (!text) return 1;
+	for (; *text; ++text) {
+		if (!isspace((unsigned char)*text)) return 0;
+	}
+	return 1;
+}
+
 static s32 forgeSerializeMakeDirsRecursive(const char *path)
 {
 	if (!path || !*path) return 0;
@@ -368,8 +377,13 @@ s32 forgeSerializeSaveToMod(const char *mod_slug)
 		forge_jw_t w = { f, 0, 1 };
 		fputs("{", f);
 		++w.indent; w.first_child = 1;
+		/* The .pdmod packers refuse a manifest whose id, name or version
+		 * is not a non-empty string (mod_manifest_validate.h), so a saved
+		 * map always carries all three. A blank map name uses the slug. */
 		jwKvString(&w, "id",          mod_slug);
-		jwKvString(&w, "name",        s->map_name);
+		jwKvString(&w, "name",
+			forgeSerializeTextIsBlank(s->map_name) ? mod_slug : s->map_name);
+		jwKvString(&w, "version",     "1.0.0");
 		jwKvString(&w, "author",      s->author);
 		jwKvString(&w, "description", s->description);
 		jwKvString(&w, "type",        "forge-map");
