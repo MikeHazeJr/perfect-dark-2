@@ -10,7 +10,7 @@
  */
 
 #include <PR/ultratypes.h>
-#include <stdbool.h>
+#include "pd_bool.h"
 #include "bondgun_cache.h"
 
 /* Half-frame tolerance for "same anim, same frame" comparison. At
@@ -18,8 +18,8 @@
  * progression on a modern frame budget. */
 #define BGUN_CACHE_FRAME_EPSILON 0.5f
 
-bool bgunMatrixCacheIsStale(s32 cache_animnum, f32 cache_animframe,
-                            s32 cur_animnum,   f32 cur_animframe)
+s32 bgunMatrixCacheIsStale(s32 cache_animnum, f32 cache_animframe,
+                           s32 cur_animnum,   f32 cur_animframe)
 {
 	f32 delta;
 

@@ -3357,7 +3357,11 @@ in `src/include/data.h`, restored by `port/include/net/netenet.h` after ENet).
 1-byte `bool` for the rest of the file. Every project struct with `bool`
 members parsed after that point is laid out differently there than in files
 where `bool` is still `s32`. C++ files are not affected the same way: in C++
-`bool` is a keyword, and `types.h` turns it into `s32` too.
+`bool` is a keyword (one byte), and `types.h`, when a C++ file includes it,
+turns it into `s32` too. So a `bool` declaration that C and C++ files share
+has one width only if every C++ includer has the types.h macro in force first;
+a header that cannot promise that spells `s32`, or uses the scoped one-byte
+pattern below.
 
 **Known instance (B-1120, 2026-11-14):** `port/src/main.c` and
 `port/src/smoke_harness.c` include `native_write_policy.h` (which includes
@@ -3370,28 +3374,59 @@ Earlier instance (October 10, recorded in the Finish Tracker):
 `net_player_move_wire.h` included `<stdbool.h>` and changed the size of four
 `net.c` flags and one function; it now includes `types.h` instead.
 
-**Flip sources (2026-11-14):** `port/include/native_write_policy.h`,
-`port/include/net/net_manifest_type.h`, `port/include/catalog_checked.h`,
-`port/include/bondgun_cache.h`. 27 client C files flip. The fast3d `gfx_*.h`
-headers also include it but are consistent (1-byte in C and C++).
+**Second finding (B-1121, 2026-11-14):** the full audit found 28 C files that
+flipped (sources: those four headers, seven C files with their own
+`#include <stdbool.h>`, the fast3d `gfx_api.h`, and ENet, which
+`net/netenet.h` undoes at once) and 291 header declarations seen with both
+widths, including a real return-width mismatch between `netmsg.c` and
+`net_manifest_type.c`.
 
-**Fix pattern:** shared structs (anything more than one file reads or writes)
-spell flag members with a fixed type (`s32`), never `bool`. Do not fix a
-symptom by reordering includes. Removing `<stdbool.h>` from a flip header is
-the root fix for that header but changes `bool` from `_Bool` to `s32` in the
-code that follows it in every includer (conversions differ: `_Bool b = ptr`
-is 1 for any non-null pointer, `s32 b = ptr` truncates), so review each
-includer first.
+**Root fix (B-1121, week-pd/multiplayer):** no project header or C file
+includes `<stdbool.h>`.
+- A header included by both C and C++ files spells boolean results and flags
+  `s32` (0 or 1), never `bool`: `native_write_policy.h`,
+  `net/net_manifest_type.h`, `bondgun_cache.h`, the net.h shared structs.
+- A C file that needs `bool`, `true` and `false` without the game's
+  precompiled header (test targets build without it) includes
+  `port/include/pd_bool.h`, which defines the project `s32` bool in C only.
+- A header whose structs the C++ renderer shares with C files and that must
+  stay one byte in both languages (the five fast3d `gfx_*.h`) uses a scoped
+  bool and restores the includer's meaning:
+  `#pragma push_macro("bool")`, `#undef bool`, `#ifndef __cplusplus`
+  `#define bool _Bool` `#endif`, declarations, `#pragma pop_macro("bool")`.
+- Vendored code may include `<stdbool.h>` only behind a wrapper that restores
+  `s32` before any project code (`net/netenet.h` for ENet).
+Do not fix a symptom by reordering includes. When a file's own `bool` changes
+width, review conversions into it: `_Bool b = 0.5f` is 1, `s32 b = 0.5f` is 0;
+a value compared with `==`/`!=` must be 0 or 1. GCC 15 rejects pointer-to-int
+conversion, so `bool b = ptr` fails to compile instead of truncating.
 
-**Guard:** `tests/test_bool_layout_static.cpp` fails if the net.h shared
-structs gain a `bool` member or if a new header starts including
-`<stdbool.h>`.
+**Third finding (B-1123, 2026-11-14):** C++ files that avoid `types.h` and
+declare game functions themselves see `bool` as the one-byte keyword:
+`extern bool g_PlayersWithControl[]` in `pdgui_menu_mainmenu.cpp` indexed a
+4-byte array with a 1-byte stride. A C++ file that declares a C function or
+global itself spells the C type (`s32`), never `bool`.
+
+**Guards:** `tools/bool_layout_audit.py` (CI step "Check bool layout", targets
+`pd` and `pd-tests`) preprocesses every translation unit and fails on a header
+declaration seen with two widths, a named function or global declared or
+defined with two widths anywhere (header prototypes, definitions and local
+`extern` declarations in source files, C and C++), a C file whose project code
+runs with a flipped bool, or a push_macro scope that a header never pops; its
+self-test is `tools/tests/test_bool_layout_audit.py`. `tests/test_bool_layout_static.cpp`
+fails if the net.h shared structs gain a `bool` member, if any project header
+or C file includes `<stdbool.h>`, if a gfx header loses its scope, or if the
+`s32` headers say `bool` again.
 
 **Search commands:**
-- Flip sources: `git grep -n -E "^\s*#\s*include\s*<stdbool\.h>" -- "*.h"`
+- Includes: `git grep -n -E "^\s*#\s*include\s*[<\"]stdbool\.h[>\"]" -- "*.h" "*.c"`
+- Whole program: `python tools/bool_layout_audit.py --compile-commands
+  <build>/compile_commands.json --target pd` (and `--target pd-tests`).
 - Proof for one file: preprocess it with its exact flags from
   `compile_commands.json` plus `-E -dD` and check which `#define bool` is in
-  force where the struct is defined.
+  force where the struct is defined. GCC prints a push_macro as a blank line
+  and a pop_macro as `#undef bool` without the restored definition, so read the
+  pragmas from the source.
 
 ---
 

@@ -261,7 +261,10 @@ struct sm_briefing {
 extern struct sm_briefing g_Briefing;
 
 /* ---- Functions ---- */
-bool         isStageDifficultyUnlocked(s32 stageindex, s32 difficulty);
+/* SP-75: these are the game's C definitions, which use the project bool
+ * (s32). This file does not include types.h, so `bool` here would be the
+ * one-byte C++ keyword and would not match them. */
+s32          isStageDifficultyUnlocked(s32 stageindex, s32 difficulty);
 s32          getNumUnlockedSpecialStages(void);
 s32          func0f104720(s32 slot);   /* special-stage slot → g_SoloStages index */
 void         lvSetDifficulty(s32 difficulty);

@@ -1,5 +1,66 @@
 # Bug Tracker
 
+## 2026-11-14 B-1123 Three C++ menu files declared C functions and an array with the 1-byte C++ bool (T-NETWORKING-011)
+
+Severity medium (latent: no wrong value today). Class: SP-75. The pdgui menu
+files avoid `types.h` and declare the game functions they call themselves, in
+`extern "C"` blocks. There `bool` is the one-byte C++ keyword, while the C
+definitions use the project `bool` (`s32`): `pdgui_menu_mainmenu.cpp` declared
+`extern bool g_PlayersWithControl[]` (C++ indexed it with a 1-byte stride over
+4-byte elements) and `void lvSetPaused(bool)`; `pdgui_menu_solomission.cpp`
+declared `bool isStageDifficultyUnlocked(s32, s32)`; `pdgui_menu_botsetup.cpp`
+declared `bool mpIsParticipantActive(s32)`. Today every value is 0 or 1, the
+C++ code touches only element 0 of the array, and the calls pass constants, so
+nothing misbehaves; element 1 to 3, or any non-0/1 value, would. Found by the
+symbol check added to `tools/bool_layout_audit.py` (it compares every named
+`bool` function and global across all files: 1,579 in the client, these 4
+disagreed; a header-only check cannot see declarations made inside a source
+file). Fix on `week-pd/multiplayer`: the four declarations are spelled `s32`.
+
+## 2026-11-14 B-1122 keygen.ps1 garbles the non-ASCII text of updater_pubkey.h on every run (tooling, for CORE)
+
+Severity low (comment text only; the key bytes are right). `devtools/keygen.ps1`
+reads `port/include/updater_pubkey.h` with `Get-Content -Raw`, which in Windows
+PowerShell 5.1 decodes a BOM-less file with the ANSI code page, then writes it
+back as UTF-8. Each run re-encodes every non-ASCII character once more: the em
+dash in the trust-properties comment is already one round garbled at HEAD
+(`â€”`) and a fresh worktree's first build (keygen runs when
+`dev-keys/ed25519-private.pem` is missing) turned it into `Ã¢â‚¬â€` and left
+the tracked header modified. Fix: read with `-Encoding UTF8` (or
+`[IO.File]::ReadAllText`) and restore the comment to plain ASCII `--`. Found by
+MULTIPLAYER; handed to CORE as the tooling owner. Workaround: do not commit the
+build's change to that header (`git checkout -- port/include/updater_pubkey.h`).
+
+## 2026-11-14 B-1121 Project `bool` had two widths in 28 C files and 291 header declarations (T-NETWORKING-011)
+
+Severity high (latent; B-1120 was the instance that broke matches). Class:
+SP-75. After B-1120, the full audit (`tools/bool_layout_audit.py`, every client
+translation unit preprocessed with its own flags) still found 28 C files where
+`<stdbool.h>` turned project `bool` (`s32`) into the 1-byte `_Bool` partway
+through, and 291 header declarations seen with both widths: 290 prototypes,
+globals and typedefs (for example `sndIsMp3`, `modelTickAnim`,
+`g_NetLocalBotAuthority`) and one struct member (`player.h`
+`player_orchestrated_spawn_plan.prepared`, unused by the two files that saw it
+1-byte). Minority views: `main.c` 241 sites, `smoke_harness.c` 142,
+`pdgui_charpreview.c` 22, `modasset_compiler.c` 22, `modmgr.c` 15,
+`assetcatalog_api.c` 2, `netmanifest.c` 1, `romdata.c` 1, and `netmsg.c`, which
+called `netManifestTypeAcceptsCatalogAsset` with an `int` return while its
+definition returned `_Bool` (only the low byte is defined). Sources: the four
+headers `native_write_policy.h`, `net/net_manifest_type.h`, `catalog_checked.h`,
+`bondgun_cache.h`; seven C files with their own `#include <stdbool.h>`; the
+fast3d `gfx_api.h`; ENet (contained by `net/netenet.h`). Root fix on
+`week-pd/multiplayer`: no project code includes `<stdbool.h>`; shared headers
+spell boolean results `s32`; C files built without the precompiled header
+include the new `port/include/pd_bool.h`; the five gfx headers keep a scoped
+one-byte `bool` (push_macro, `_Bool` in C, keyword in C++, pop_macro);
+`modmgr.c` stores 0/1 in two arrays it compares with `!=`. Every other `bool`
+use in the 22 affected files was reviewed as 0/1-valued; none of them writes a
+struct with `bool` members raw to disk or the network. Guards: the audit
+(reports mixed sites, flips that reach project code, and leaking scopes) runs in
+CI on `pd` and `pd-tests`; `tests/test_bool_layout_static.cpp` forbids
+`<stdbool.h>` in project headers and C files. Verification: see the progress
+log of `context/designs/in-flight/week-pd-multiplayer-plan.md`.
+
 ## 2026-11-14 B-1120 Two layouts of struct netclient break every listen-host match smoke (T-NETWORKING-011)
 
 Severity high. Root cause, fix and guard are in source on `week-pd/multiplayer`.

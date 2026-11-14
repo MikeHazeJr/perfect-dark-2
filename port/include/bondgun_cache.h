@@ -2,7 +2,8 @@
 #define PD_BONDGUN_CACHE_H
 
 #include <PR/ultratypes.h>
-#include <stdbool.h>
+/* SP-75: included by C and C++ files, so the result below is spelled s32
+ * (0 or 1) rather than `bool`, and this header never includes <stdbool.h>. */
 
 /*
  * bondgun_cache.h -- B-246 round-10 Phase A: pure predicate for the
@@ -75,8 +76,8 @@ extern "C" {
  * enough not to false-positive while strict enough to catch real
  * progression.
  */
-bool bgunMatrixCacheIsStale(s32 cache_animnum, f32 cache_animframe,
-                            s32 cur_animnum,   f32 cur_animframe);
+s32 bgunMatrixCacheIsStale(s32 cache_animnum, f32 cache_animframe,
+                           s32 cur_animnum,   f32 cur_animframe);
 
 #ifdef __cplusplus
 }

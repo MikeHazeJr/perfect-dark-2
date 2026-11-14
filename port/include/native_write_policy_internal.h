@@ -1,23 +1,26 @@
 #ifndef PD_NATIVE_WRITE_POLICY_INTERNAL_H
 #define PD_NATIVE_WRITE_POLICY_INTERNAL_H
 #include "native_write_policy.h"
+#include "pd_bool.h"
 #include <windows.h>
 #include <stdio.h>
 #include <wchar.h>
 
+/* SP-75: shared declarations spell their flags and results s32 (0 or 1);
+ * the two implementation files use project `bool` (s32) from pd_bool.h. */
 #define NWP_MAX_PATH 4096
 #define NWP_MAX_PARENTS 128
 typedef struct nwp_guard {
     wchar_t path[NWP_MAX_PATH];
     HANDLE parents[NWP_MAX_PARENTS];
     unsigned int count;
-    bool exists;
+    s32 exists;
 } nwp_guard;
 
-bool nwpUtf8Path(const char *path, wchar_t *out, size_t count);
-bool nwpGuardPath(const wchar_t *path, nwp_guard *guard);
+s32 nwpUtf8Path(const char *path, wchar_t *out, size_t count);
+s32 nwpGuardPath(const wchar_t *path, nwp_guard *guard);
 void nwpCloseGuard(nwp_guard *guard);
-bool nwpHandleAllowed(HANDLE handle);
+s32 nwpHandleAllowed(HANDLE handle);
 HANDLE nwpCreateFileW(LPCWSTR path, DWORD access, DWORD share,
     LPSECURITY_ATTRIBUTES security, DWORD disposition, DWORD flags, HANDLE templateFile);
 FILE *nwpFopenW(const wchar_t *path, const wchar_t *mode);

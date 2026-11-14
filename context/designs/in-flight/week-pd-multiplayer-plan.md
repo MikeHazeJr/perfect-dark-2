@@ -58,6 +58,18 @@ Progress log:
     `MATCH: final scores published before stage end`, and the room moving `Loading -> Lobby` after the
     match. Still unproven: a second match in the same room, any kill or score, bots over the network.
 
+- SP-75 root fix (2026-11-14, Mike: "You may fix it, just be thorough / comprehensive"; B-1121,
+  B-1123): no project header or C file includes `<stdbool.h>`. Headers shared by C and C++ spell
+  boolean results `s32`; C files built without the precompiled header include the new
+  `port/include/pd_bool.h`; the five fast3d `gfx_*.h` keep a scoped one-byte `bool` (push_macro,
+  `_Bool` in C, keyword in C++, pop_macro); `modmgr.c` normalizes two compared arrays; three C++ menu
+  files spell their own declarations of C symbols `s32`. `tools/bool_layout_audit.py` now follows
+  push/pop scopes, separates contained ENet flips, reports leaking scopes and compares every named
+  `bool` symbol across files; CI runs it on `pd` and `pd-tests`. Audit before the C++ declaration fix:
+  `pd` 0 mixed header declarations (was 291), 0 flips into project code (was 28), 4 mixed symbols
+  (the B-1123 declarations, fixed in the same commit). Build, unit tests, audit rerun and smokes on the
+  merged tree: next entry.
+
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
    the wrong client slot before the fix), then the five local per-scenario fixtures.

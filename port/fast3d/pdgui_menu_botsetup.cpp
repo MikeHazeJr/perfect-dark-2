@@ -89,7 +89,10 @@ char *langGet(s32 textid);
 /* langSafe comes from pdgui.h */
 
 /* ---- Bot/participant public API (read-only here; mutation via handlers) ---- */
-bool mpIsParticipantActive(s32 index);
+/* SP-75: these are the game's C definitions, which use the project bool
+ * (s32). This file does not include types.h, so `bool` here would be the
+ * one-byte C++ keyword and would not match them. */
+s32 mpIsParticipantActive(s32 index);
 char *mpGetBodyName(u8 mpbodynum);
 const char *catalogMpHeadId(s32 mpheadnum);
 const char *catalogMpBodyId(s32 mpbodynum);
