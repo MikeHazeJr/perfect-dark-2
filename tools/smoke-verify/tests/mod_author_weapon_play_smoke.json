@@ -1,0 +1,83 @@
+{
+  "scenario_name": "mod_author_weapon_play_smoke",
+  "description": "KNOWN RED on 2026-11-14 (20 of 21, receipt results-20261114T215943Z.json): the created weapon spawns in the player's hand but logs no shot, is drawn at the camera origin and has no name, because a weapon made from a base template carries no view position, name or ammo definition for the mod weapon adapter. Kept as the reproduction until those gaps are closed. In-game mod author, gameplay proof: one ordinary client launch creates a weapon mod from the extracted base Falcon 2 through --mod-author (the save, rescan, enable and apply path the in-game creators use), then starts an offline Combat Simulator match with that weapon as the spawn weapon, holds it in first person and fires it twice. No mod exists before the launch. The recipe has no overrides, so the held model, the animations, the sounds and both fire functions all come from the mod-owned archive the launch just wrote. Screenshots give a visual check that the weapon is drawn in the player's hand.",
+  "tags": ["modding", "mod-author", "pdweapon", "weapon", "recipe", "gameplay", "known-red", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/mod_author.c",
+    "port/src/mod_author_recipe.cpp",
+    "port/src/mod_author_runtime.c",
+    "port/src/asset_archive_clone.c",
+    "port/src/main.c",
+    "port/src/loader_pool.c",
+    "src/game/bondgun.c",
+    "tools/smoke-verify/fixtures/mod_author/weapon_from_base/recipe.json"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["mods/Weapons/weapon_smoke_falcon"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/mod_author/weapon_from_base/recipe.json", "dst": "mod-recipes/weapon_from_base/recipe.json" },
+    { "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini", "dst": "pd.ini" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-force-first-person",
+    "--mod-author",
+    "mod-recipes/weapon_from_base/recipe.json",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-spawn-weapon",
+    "mod:weapon_smoke_falcon",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "offline_gameplay_ready", "timeout_ms": 240000, "stable_ms": 3000, "assist_action": "ACTION_SKIP_CUTSCENE", "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 900, "comment": "Pause the script until the ordinary Combat Simulator player is continuously spawned, live, controllable and walking. The recipe has already run as the first CLI fast path, before the room launch flags." },
+    { "at_ms": 5000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "Aim toward ordinary nearby world collision." },
+    { "at_ms": 8000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Fire the created weapon through the production fire path." },
+    { "at_ms": 10000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 14000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "A second, separate shot." },
+    { "at_ms": 18000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
+    { "at_ms": 22000, "type": "exit", "comment": "Exit after a stable held render, two fire edges and the captures." }
+  ],
+  "screenshots": [
+    { "at_ms": 4500, "name": "mod-author-falcon-held" },
+    { "at_ms": 8100, "name": "mod-author-falcon-primary-fire" },
+    { "at_ms": 14100, "name": "mod-author-falcon-second-fire" },
+    { "at_ms": 20000, "name": "mod-author-falcon-settled" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mod_author_weapon_play_smoke",
+      "MODAUTHOR\\.SAVE\\.OK kind=weapon catalog=mod:weapon_smoke_falcon mod_id=mod\\.weapon_smoke_falcon updated=0",
+      "MODAUTHOR\\.CATALOG\\.OK catalog=mod:weapon_smoke_falcon type=\\d+ enabled=1 bundled=0 category='mod\\.weapon_smoke_falcon'",
+      "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:weapon_smoke_falcon",
+      "BOOT: --debug-auto-start-match consumed",
+      "BOOT: --launch-mp-room direct match start",
+      "BOOT: --debug-spawn-weapon 'mod:weapon_smoke_falcon' \\(SPECIFIC\\)",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "SETUP: user-picked spawn weapon 'mod:weapon_smoke_falcon' num=\\d+ preserved",
+      "SPAWN: player 0 spawned with weapon \\d+ \\(.*\\) -- auto-equipped to right hand",
+      "COMBAT: SHOT_FIRED ",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "CATALOG_CRITICAL: bgun model",
+      "BONDGUN\\.SOURCE: catalog model source load failed",
+      "ENDSCREEN\\.STATE:",
+      "MATCH: endscreen shown"
+    ]
+  }
+}
