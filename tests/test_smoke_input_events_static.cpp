@@ -1372,3 +1372,23 @@ TEST_CASE("the multi-process smoke runner refuses a process that could reach the
     // Separate installs still get their own base, save, mod and log directories.
     requireContains(runner, "\"--savedir\", [string]$processInstallInfo.InstallDir,");
 }
+
+// With -Install (a pre-extracted template), every per-process install of a
+// separate_process_installs test is seeded from the same template as the
+// shared install. Before, each peer started clean and re-extracted the whole
+// game, which on a hard disk outlasted every network fixture's waits. A
+// process that names its own install_state keeps the clean or prefilled path.
+TEST_CASE("a template run seeds every per-process install from the template",
+    "[smoke][tooling][isolation][static]")
+{
+    const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+    const std::string staging = requireSlice(runner,
+        "if ($separateProcessInstalls) {\r\n            $processInstallState = $installState",
+        "$processModsDir = Join-Path $processInstallInfo.InstallDir \"mods\"");
+
+    requireContains(staging, "if ($ExistingInstall -and -not $explicitProcessState) {");
+    requireContains(staging, "$processInstallInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot `");
+    requireContains(staging, "-TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target");
+    requireContains(staging, "$explicitProcessState = $true");
+    requireContains(staging, "$processInstallInfo = New-SmokeInstall `");
+}
