@@ -3622,13 +3622,16 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 	case OBJECTIVETYPE_COLLECTOBJ:
 	case OBJECTIVETYPE_THROWOBJ:
 		if (strcmp(field, "objective_step.target_tag") == 0) {
-			u32 be;
 			ivalue = s_parseIndexedRef(value);
 			if (ivalue < 0) {
 				return 0;
 			}
-			be = PD_BE32((u32)ivalue);
-			return s_setupWriteU32(record, sizeof(u32), be);
+			/* B-1111: the second command word is host order, like every
+			 * other converted setup field. The public source now carries
+			 * the real tag id, so it is written as it is. Before, the
+			 * extractor swapped it on the way out and this line swapped it
+			 * back, which hid wrong numbers in the public files. */
+			return s_setupWriteU32(record, sizeof(u32), (u32)ivalue);
 		}
 		if (strcmp(field, "objective_step.argument") == 0 &&
 				s_parseU32Value(value, &uvalue)) {
@@ -3640,8 +3643,8 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 	case OBJECTIVETYPE_FAILFLAGS:
 		if (strcmp(field, "objective_step.stage_flag") == 0 &&
 				s_parseStageFlagRef(value, &uvalue)) {
-			u32 be = PD_BE32(uvalue);
-			return s_setupWriteU32(record, sizeof(u32), be);
+			/* Host order, the real mask (B-1111, see target_tag above). */
+			return s_setupWriteU32(record, sizeof(u32), uvalue);
 		}
 		if (strcmp(field, "objective_step.argument") == 0 &&
 				s_parseU32Value(value, &uvalue)) {
@@ -33398,6 +33401,33 @@ static s32 s_missionObjectiveGraphRuntimeFailure(const char *action,
 			action && action[0] ? action : "validate",
 			index,
 			reason && reason[0] ? reason : "graph mismatch");
+	}
+
+	/* Objectives are checked every tick, so a standing mismatch would repeat
+	 * this line thousands of times. A failure already among the last 16
+	 * distinct ones (action, objective, mission, reason) is not logged
+	 * again; the caller still falls back every time. */
+	{
+		static char seen[16][192];
+		static u32 seen_count;
+		static u32 seen_next;
+		char report[192];
+		u32 i;
+		snprintf(report, sizeof(report), "%s|%d|%s|%s",
+			action && action[0] ? action : "validate", index,
+			s_ActiveScenarioGraphs.mission_id[0]
+				? s_ActiveScenarioGraphs.mission_id : "?",
+			reason && reason[0] ? reason : "graph mismatch");
+		for (i = 0; i < seen_count; i++) {
+			if (strcmp(seen[i], report) == 0) {
+				return 0;
+			}
+		}
+		s_copyString(seen[seen_next], sizeof(seen[seen_next]), report);
+		seen_next = (seen_next + 1) % 16;
+		if (seen_count < 16) {
+			seen_count++;
+		}
 	}
 
 	sysLogPrintf(LOG_WARNING,
