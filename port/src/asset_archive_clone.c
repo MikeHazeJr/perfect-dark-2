@@ -52,6 +52,10 @@ typedef struct clone_ctx {
 	const char *out_path;
 	u32 scratch_seq;
 	s32 code;
+	s32 keep_ids;   /* same id as the source: an edit, nothing is renamed */
+	const asset_archive_clone_override_t *overrides;
+	u32 override_count;
+	u8 override_used[ASSET_ARCHIVE_CLONE_MAX_OVERRIDES];
 	size_t old_len[ASSET_ARCHIVE_CLONE_MAX_IDS];
 	char new_ns[CATALOG_ID_LEN];
 	char new_root_slug[CATALOG_ID_LEN];
@@ -354,6 +358,13 @@ static s32 cloneRegisterNested(clone_ctx_t *ctx, const char *old_id, const char 
 		return cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_IDS,
 			"more than %d embedded catalog ids", ASSET_ARCHIVE_CLONE_MAX_IDS);
 	}
+	if (ctx->keep_ids) {
+		/* Editing an archive under its own id: embedded ids stay as they are. */
+		slot = &ctx->report->ids[ctx->report->id_count++];
+		snprintf(slot->old_id, sizeof(slot->old_id), "%s", old_id);
+		snprintf(slot->new_id, sizeof(slot->new_id), "%s", old_id);
+		return 1;
+	}
 
 	if (root_len > 0 && strncmp(name, ctx->old_root_name, root_len) == 0 &&
 			name[root_len] == '_' && name[root_len + 1] == '_' &&
@@ -430,12 +441,171 @@ static s32 cloneReadArchiveId(clone_ctx_t *ctx, const void *bytes, u32 size,
 	return 1;
 }
 
+/* One public member of an archive being rebuilt, after overrides. */
+typedef struct clone_member {
+	char *entry;          /* owned member name inside this archive */
+	const void *data;     /* override bytes when from_override >= 0 */
+	u32 len;
+	s32 from_override;    /* index into ctx->overrides, or -1 for source bytes */
+	s32 in_source;        /* the source archive has a member of this name */
+} clone_member_t;
+
+typedef struct clone_members {
+	clone_member_t *items;
+	u32 count;
+	u32 cap;
+} clone_members_t;
+
+static void cloneMembersFree(clone_members_t *members)
+{
+	for (u32 i = 0; i < members->count; i++) free(members->items[i].entry);
+	free(members->items);
+	memset(members, 0, sizeof(*members));
+}
+
+static s32 cloneMembersPush(clone_members_t *members, const char *entry,
+		const void *data, u32 len, s32 from_override, s32 in_source)
+{
+	size_t n = strlen(entry);
+	clone_member_t *slot;
+
+	if (members->count == members->cap) {
+		u32 cap = members->cap ? members->cap * 2 : 32;
+		clone_member_t *items = (clone_member_t *)realloc(members->items,
+			(size_t)cap * sizeof(clone_member_t));
+		if (!items) return 0;
+		members->items = items;
+		members->cap = cap;
+	}
+	slot = &members->items[members->count];
+	slot->entry = (char *)malloc(n + 1);
+	if (!slot->entry) return 0;
+	memcpy(slot->entry, entry, n + 1);
+	slot->data = data;
+	slot->len = len;
+	slot->from_override = from_override;
+	slot->in_source = in_source;
+	members->count++;
+	return 1;
+}
+
+/* "prefix::entry", or just entry at the root. */
+static s32 cloneJoin(const char *prefix, const char *entry, char *out, size_t cap)
+{
+	int n = prefix[0]
+		? snprintf(out, cap, "%s::%s", prefix, entry)
+		: snprintf(out, cap, "%s", entry);
+	return n >= 0 && (size_t)n < cap;
+}
+
+static s32 cloneFindOverride(const clone_ctx_t *ctx, const char *path)
+{
+	for (u32 i = 0; i < ctx->override_count; i++) {
+		if (strcmp(ctx->overrides[i].entry, path) == 0) return (s32)i;
+	}
+	return -1;
+}
+
+/* The member name if `path` is a direct member of the archive at `prefix`. */
+static const char *cloneChildLeaf(const char *prefix, const char *path)
+{
+	size_t n = strlen(prefix);
+	const char *leaf = path;
+
+	if (n) {
+		if (strncmp(path, prefix, n) != 0 || path[n] != ':' || path[n + 1] != ':') {
+			return NULL;
+		}
+		leaf = path + n + 2;
+	}
+	return (leaf[0] && !strstr(leaf, "::")) ? leaf : NULL;
+}
+
+/*
+ * The public members of the archive at `prefix` once overrides are applied:
+ * source members in source order, minus removals, with replacement bytes
+ * where given, followed by added members in override order.
+ */
+static s32 cloneBuildMembers(clone_ctx_t *ctx, const clone_names_t *names,
+		const char *prefix, clone_members_t *members)
+{
+	char path[CLONE_PATH_MAX];
+
+	memset(members, 0, sizeof(*members));
+	for (u32 i = 0; i < names->count; i++) {
+		const char *entry = names->items[i];
+		s32 at;
+		s32 pushed;
+
+		if (cloneIsMeta(entry)) continue;
+		if (!cloneJoin(prefix, entry, path, sizeof(path))) {
+			cloneMembersFree(members);
+			return cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_SOURCE,
+				"member path is too long: %s", entry);
+		}
+		at = cloneFindOverride(ctx, path);
+		if (at >= 0) {
+			ctx->override_used[at] = 1;
+			if (ctx->overrides[at].remove) continue;
+			pushed = cloneMembersPush(members, entry, ctx->overrides[at].data,
+				ctx->overrides[at].len, at, 1);
+		} else {
+			pushed = cloneMembersPush(members, entry, NULL, 0, -1, 1);
+		}
+		if (!pushed) {
+			cloneMembersFree(members);
+			return cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_WRITE, "out of memory");
+		}
+	}
+	for (u32 i = 0; i < ctx->override_count; i++) {
+		const asset_archive_clone_override_t *ov = &ctx->overrides[i];
+		const char *leaf = cloneChildLeaf(prefix, ov->entry);
+
+		if (!leaf || cloneNamesHas(names, leaf)) continue;
+		ctx->override_used[i] = 1;
+		if (ov->remove) {
+			cloneMembersFree(members);
+			return cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+				"cannot remove %s: the archive has no such member", ov->entry);
+		}
+		if (!cloneMembersPush(members, leaf, ov->data, ov->len, (s32)i, 0)) {
+			cloneMembersFree(members);
+			return cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_WRITE, "out of memory");
+		}
+	}
+	return 1;
+}
+
+/*
+ * Bytes of a member: override bytes (borrowed, `*owned` stays NULL) or the
+ * member extracted from the source archive (`*owned` must be freed).
+ */
+static const void *cloneMemberData(clone_ctx_t *ctx, const clone_member_t *member,
+		const void *bytes, u32 size, const char *archive_name,
+		u32 *out_len, void **owned)
+{
+	*owned = NULL;
+	*out_len = 0;
+	if (member->from_override >= 0) {
+		*out_len = member->len;
+		return member->data ? member->data : "";
+	}
+	*owned = modArchiveExtractMemAlloc(bytes, size, member->entry, out_len);
+	if (!*owned) {
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_SOURCE,
+			"%s::%s could not be read", cloneLeaf(archive_name), member->entry);
+	}
+	return *owned;
+}
+
 /* Pass 1: assign a new id to the root and to every embedded typed archive. */
 static s32 cloneCollectIds(clone_ctx_t *ctx, const void *bytes, u32 size,
-		const char *name, s32 depth)
+		const char *name, s32 depth, const char *prefix)
 {
 	char old_id[CATALOG_ID_LEN];
+	char path[CLONE_PATH_MAX];
 	clone_names_t names;
+	clone_members_t members;
 	s32 ok = 1;
 
 	if (depth > ASSET_ARCHIVE_CLONE_MAX_DEPTH) {
@@ -448,8 +618,12 @@ static s32 cloneCollectIds(clone_ctx_t *ctx, const void *bytes, u32 size,
 	if (depth == 0) {
 		const char *colon = strchr(old_id, ':');
 		if (strcmp(old_id, ctx->report->ids[0].new_id) == 0) {
-			return cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
-				"new catalog id equals the source id %s", old_id);
+			/* Same id: an edit of the archive, which needs something to edit. */
+			if (ctx->override_count == 0) {
+				return cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+					"new catalog id equals the source id %s", old_id);
+			}
+			ctx->keep_ids = 1;
 		}
 		snprintf(ctx->report->ids[0].old_id, sizeof(ctx->report->ids[0].old_id),
 			"%s", old_id);
@@ -464,21 +638,31 @@ static s32 cloneCollectIds(clone_ctx_t *ctx, const void *bytes, u32 size,
 		return cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_SOURCE,
 			"%s could not be listed", cloneLeaf(name));
 	}
-	for (u32 i = 0; i < names.count && ok; i++) {
-		const char *entry = names.items[i];
+	if (!cloneBuildMembers(ctx, &names, prefix, &members)) {
+		cloneNamesFree(&names);
+		return 0;
+	}
+	for (u32 i = 0; i < members.count && ok; i++) {
+		const clone_member_t *member = &members.items[i];
 		u32 nested_size = 0;
-		void *nested;
+		void *owned = NULL;
+		const void *nested;
 
-		if (cloneIsMeta(entry) || !assetArchivePathIsTyped(entry)) continue;
-		nested = modArchiveExtractMemAlloc(bytes, size, entry, &nested_size);
-		if (!nested) {
+		if (!assetArchivePathIsTyped(member->entry)) continue;
+		if (!cloneJoin(prefix, member->entry, path, sizeof(path))) {
 			ok = cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_SOURCE,
-				"%s::%s could not be read", cloneLeaf(name), entry);
+				"member path is too long: %s", member->entry);
 			break;
 		}
-		ok = cloneCollectIds(ctx, nested, nested_size, entry, depth + 1);
-		free(nested);
+		nested = cloneMemberData(ctx, member, bytes, size, name, &nested_size, &owned);
+		if (!nested) {
+			ok = 0;
+			break;
+		}
+		ok = cloneCollectIds(ctx, nested, nested_size, member->entry, depth + 1, path);
+		free(owned);
 	}
+	cloneMembersFree(&members);
 	cloneNamesFree(&names);
 	return ok;
 }
@@ -592,11 +776,11 @@ static const char *cloneFindStaleId(const clone_ctx_t *ctx, const char *data, u3
 }
 
 static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
-		const char *name, const char *out_file, s32 depth);
+		const char *name, const char *out_file, s32 depth, const char *prefix);
 
 /* Rebuild one embedded archive through a scratch file and return its bytes. */
 static void *cloneNestedBytes(clone_ctx_t *ctx, const void *nested, u32 nested_size,
-		const char *entry, s32 depth, u32 *out_size)
+		const char *entry, s32 depth, const char *prefix, u32 *out_size)
 {
 	char scratch[CLONE_PATH_MAX];
 	void *rebuilt;
@@ -608,7 +792,7 @@ static void *cloneNestedBytes(clone_ctx_t *ctx, const void *nested, u32 nested_s
 		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_WRITE, "output path is too long");
 		return NULL;
 	}
-	if (!cloneWriteArchive(ctx, nested, nested_size, entry, scratch, depth)) {
+	if (!cloneWriteArchive(ctx, nested, nested_size, entry, scratch, depth, prefix)) {
 		remove(scratch);
 		return NULL;
 	}
@@ -621,26 +805,46 @@ static void *cloneNestedBytes(clone_ctx_t *ctx, const void *nested, u32 nested_s
 	return rebuilt;
 }
 
+/* Raw and canonical hash of one embedded archive before and after rebuild. */
+static void cloneAddHashPairs(clone_hash_pair_t *hashes, u32 *hash_count,
+		const void *before, u32 before_size, const void *after, u32 after_size)
+{
+	cloneShaHex(before, before_size, hashes[*hash_count].old_hex);
+	cloneShaHex(after, after_size, hashes[*hash_count].new_hex);
+	(*hash_count)++;
+	if (weaponGraphArchiveCanonicalSha256Bytes(before, before_size,
+			hashes[*hash_count].old_hex) == 0 &&
+			weaponGraphArchiveCanonicalSha256Bytes(after, after_size,
+			hashes[*hash_count].new_hex) == 0) {
+		(*hash_count)++;
+	}
+}
+
 /* Pass 2: rebuild one archive, embedded archives first. */
 static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
-		const char *name, const char *out_file, s32 depth)
+		const char *name, const char *out_file, s32 depth, const char *prefix)
 {
 	char old_id[CATALOG_ID_LEN];
 	char family[ASSET_ARCHIVE_WRITER_FAMILY_MAX];
 	char sidecar[ASSET_ARCHIVE_WRITER_PATH_MAX + 16];
+	char path[CLONE_PATH_MAX];
 	const char *new_id;
 	const char *descriptor_name = assetArchiveDescriptorForPath(name);
 	const char *ext = cloneExt(name);
 	clone_names_t names;
+	clone_members_t members;
 	void **nested_data = NULL;
 	u32 *nested_size = NULL;
 	clone_hash_pair_t *hashes = NULL;
 	u32 hash_count = 0;
 	mod_archive_writer_t *arc = NULL;
 	asset_archive_writer_t *writer = NULL;
+	s32 source_uses_sidecars = 0;
+	s32 wrote_descriptor = 0;
 	s32 ok = 0;
 
 	memset(&names, 0, sizeof(names));
+	memset(&members, 0, sizeof(members));
 	if (!descriptor_name ||
 			!cloneReadArchiveId(ctx, bytes, size, name, old_id, sizeof(old_id))) {
 		if (!descriptor_name) {
@@ -660,10 +864,20 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 		return cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_SOURCE,
 			"%s could not be listed", cloneLeaf(name));
 	}
-	nested_data = (void **)calloc(names.count ? names.count : 1, sizeof(void *));
-	nested_size = (u32 *)calloc(names.count ? names.count : 1, sizeof(u32));
+	if (!cloneBuildMembers(ctx, &names, prefix, &members)) {
+		cloneNamesFree(&names);
+		return 0;
+	}
+	for (u32 i = 0; i < names.count; i++) {
+		if (cloneIsMeta(names.items[i]) && cloneEndsWith(names.items[i], ".sha256")) {
+			source_uses_sidecars = 1;
+			break;
+		}
+	}
+	nested_data = (void **)calloc(members.count ? members.count : 1, sizeof(void *));
+	nested_size = (u32 *)calloc(members.count ? members.count : 1, sizeof(u32));
 	/* Two hash forms per embedded archive: raw bytes and canonical content. */
-	hashes = (clone_hash_pair_t *)calloc(names.count ? (size_t)names.count * 2 : 1,
+	hashes = (clone_hash_pair_t *)calloc(members.count ? (size_t)members.count * 2 : 1,
 		sizeof(clone_hash_pair_t));
 	if (!nested_data || !nested_size || !hashes) {
 		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_WRITE, "out of memory");
@@ -671,32 +885,40 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 	}
 
 	/* Embedded archives first, so their new hashes are known to the parent. */
-	for (u32 i = 0; i < names.count; i++) {
-		const char *entry = names.items[i];
+	for (u32 i = 0; i < members.count; i++) {
+		const clone_member_t *member = &members.items[i];
 		u32 source_size = 0;
-		void *source;
+		void *owned = NULL;
+		const void *source;
 
-		if (cloneIsMeta(entry) || !assetArchivePathIsTyped(entry)) continue;
-		source = modArchiveExtractMemAlloc(bytes, size, entry, &source_size);
-		if (!source) {
+		if (!assetArchivePathIsTyped(member->entry)) continue;
+		if (!cloneJoin(prefix, member->entry, path, sizeof(path))) {
 			cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_SOURCE,
-				"%s::%s could not be read", cloneLeaf(name), entry);
+				"member path is too long: %s", member->entry);
 			goto cleanup;
 		}
-		nested_data[i] = cloneNestedBytes(ctx, source, source_size, entry,
-			depth + 1, &nested_size[i]);
-		if (nested_data[i]) {
-			cloneShaHex(source, source_size, hashes[hash_count].old_hex);
-			cloneShaHex(nested_data[i], nested_size[i], hashes[hash_count].new_hex);
-			hash_count++;
-			if (weaponGraphArchiveCanonicalSha256Bytes(source, source_size,
-					hashes[hash_count].old_hex) == 0 &&
-					weaponGraphArchiveCanonicalSha256Bytes(nested_data[i],
-					nested_size[i], hashes[hash_count].new_hex) == 0) {
-				hash_count++;
+		source = cloneMemberData(ctx, member, bytes, size, name, &source_size, &owned);
+		if (!source) goto cleanup;
+		nested_data[i] = cloneNestedBytes(ctx, source, source_size, member->entry,
+			depth + 1, path, &nested_size[i]);
+		if (nested_data[i] && member->in_source) {
+			/* The parent may record the hash of the archive it shipped with,
+			 * which is the source member even when an override replaces it. */
+			if (member->from_override >= 0) {
+				u32 original_size = 0;
+				void *original = modArchiveExtractMemAlloc(bytes, size,
+					member->entry, &original_size);
+				if (original) {
+					cloneAddHashPairs(hashes, &hash_count, original, original_size,
+						nested_data[i], nested_size[i]);
+					free(original);
+				}
+			} else {
+				cloneAddHashPairs(hashes, &hash_count, source, source_size,
+					nested_data[i], nested_size[i]);
 			}
 		}
-		free(source);
+		free(owned);
 		if (!nested_data[i]) goto cleanup;
 	}
 
@@ -712,64 +934,82 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 		(ctx->tool && ctx->tool[0]) ? ctx->tool : "asset-archive-clone",
 		cloneLeaf(name), -1, old_id);
 
-	/* Public members, in source order. */
-	for (u32 i = 0; i < names.count; i++) {
-		const char *entry = names.items[i];
+	/* Public members: source order, then members added by overrides. */
+	for (u32 i = 0; i < members.count; i++) {
+		const clone_member_t *member = &members.items[i];
+		const char *entry = member->entry;
+		s32 with_sidecar;
 		s32 r;
 
-		if (cloneIsMeta(entry)) continue;
 		snprintf(sidecar, sizeof(sidecar), ASSET_ARCHIVE_META_DIR "/%s.sha256", entry);
+		with_sidecar = member->in_source ? cloneNamesHas(&names, sidecar)
+			: source_uses_sidecars;
 
 		if (nested_data[i]) {
-			r = cloneNamesHas(&names, sidecar)
+			r = with_sidecar
 				? assetArchiveWriterAddPublicMem(writer, entry, nested_data[i],
 					nested_size[i], "dependency")
 				: assetArchiveWriterAddBundledMem(writer, entry, nested_data[i],
 					nested_size[i], "dependency");
 		} else {
-			u32 source_size = 0;
 			u32 data_size = 0;
-			char *source = (char *)modArchiveExtractMemAlloc(bytes, size, entry, &source_size);
-			char *data = source;
+			void *owned = NULL;
+			char *rewritten = NULL;
+			const char *data = (const char *)cloneMemberData(ctx, member, bytes, size,
+				name, &data_size, &owned);
 			const char *stale;
 
-			if (!source) {
-				cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_SOURCE,
-					"%s::%s could not be read", cloneLeaf(name), entry);
-				goto cleanup;
-			}
-			data_size = source_size;
+			if (!data) goto cleanup;
 			if (cloneIsText(entry)) {
-				data = cloneRewriteText(ctx, source, source_size, hashes, hash_count,
+				rewritten = cloneRewriteText(ctx, data, data_size, hashes, hash_count,
 					&data_size);
-				free(source);
-				if (!data) {
+				free(owned);
+				owned = NULL;
+				if (!rewritten) {
 					cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_WRITE, "out of memory");
 					goto cleanup;
 				}
+				data = rewritten;
 			}
 			stale = cloneFindStaleId(ctx, data, data_size);
 			if (stale) {
 				cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_IDS,
 					"%s::%s still names %s in a form that cannot be re-identified",
 					cloneLeaf(name), entry, stale);
-				free(data);
+				free(owned);
+				free(rewritten);
 				goto cleanup;
 			}
 			if (strcmp(entry, descriptor_name) == 0) {
+				char declared[CATALOG_ID_LEN];
+				if (!cloneDescriptorCatalogId(data, data_size, declared, sizeof(declared)) ||
+						strcmp(declared, new_id) != 0) {
+					cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+						"%s::%s must keep its catalog_id", cloneLeaf(name), entry);
+					free(owned);
+					free(rewritten);
+					goto cleanup;
+				}
 				r = assetArchiveWriterAddDescriptor(writer, entry, data, data_size);
-			} else if (cloneNamesHas(&names, sidecar)) {
+				wrote_descriptor = 1;
+			} else if (with_sidecar) {
 				r = assetArchiveWriterAddPublicMem(writer, entry, data, data_size, "public");
 			} else {
 				r = assetArchiveWriterAddBundledMem(writer, entry, data, data_size, "public");
 			}
-			free(data);
+			free(owned);
+			free(rewritten);
 		}
 		if (r != MODARCHIVE_OK) {
 			cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_WRITE,
 				"%s::%s could not be written", cloneLeaf(name), entry);
 			goto cleanup;
 		}
+	}
+	if (!wrote_descriptor) {
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+			"%s would lose its root descriptor %s", cloneLeaf(name), descriptor_name);
+		goto cleanup;
 	}
 
 	/* `_meta`: carry the manifest and family-owned records with ids rewritten;
@@ -841,80 +1081,134 @@ cleanup:
 	if (arc) modArchiveAbort(arc);
 	free(writer);
 	if (nested_data) {
-		for (u32 i = 0; i < names.count; i++) free(nested_data[i]);
+		for (u32 i = 0; i < members.count; i++) free(nested_data[i]);
 	}
 	free(nested_data);
 	free(nested_size);
 	free(hashes);
+	cloneMembersFree(&members);
 	cloneNamesFree(&names);
 	return ok;
 }
 
-s32 assetArchiveCloneFile(const char *src_path, const char *out_path,
+/* An override path: members joined by "::", none of them under `_meta`. */
+static s32 cloneOverridePathOk(const char *path)
+{
+	const char *part = path;
+
+	if (!path || !path[0] || strlen(path) >= CLONE_PATH_MAX) return 0;
+	for (;;) {
+		const char *next = strstr(part, "::");
+		size_t n = next ? (size_t)(next - part) : strlen(part);
+
+		if (n == 0 || part[0] == '/' || part[0] == '\\') return 0;
+		if (n >= 5 && strncmp(part, ASSET_ARCHIVE_META_DIR, 5) == 0 &&
+				(n == 5 || part[5] == '/')) return 0;
+		for (size_t i = 0; i < n; i++) {
+			if (part[i] == '\\') return 0;
+		}
+		if (!next) break;
+		part = next + 2;
+	}
+	return 1;
+}
+
+s32 assetArchiveRebuildFile(const char *src_path, const char *out_path,
 		const char *new_catalog_id, const char *tool,
+		const asset_archive_clone_override_t *overrides, u32 override_count,
 		asset_archive_clone_report_t *report,
 		char *err, size_t err_cap)
 {
 	asset_archive_clone_report_t *work = report;
-	clone_ctx_t ctx;
+	clone_ctx_t *ctx;
 	char policy_err[256];
 	const char *colon;
 	void *source = NULL;
 	u32 source_size = 0;
 	size_t ns_len;
+	s32 code;
 
 	if (err && err_cap) err[0] = '\0';
 	if (report) memset(report, 0, sizeof(*report));
 
-	memset(&ctx, 0, sizeof(ctx));
-	ctx.tool = tool;
-	ctx.out_path = out_path;
-	ctx.err = err;
-	ctx.err_cap = err_cap;
-	ctx.code = ASSET_ARCHIVE_CLONE_OK;
+	ctx = (clone_ctx_t *)calloc(1, sizeof(*ctx));
+	if (!ctx) {
+		if (err && err_cap) snprintf(err, err_cap, "out of memory");
+		return ASSET_ARCHIVE_CLONE_ERR_WRITE;
+	}
+	ctx->tool = tool;
+	ctx->out_path = out_path;
+	ctx->overrides = overrides;
+	ctx->override_count = overrides ? override_count : 0;
+	ctx->err = err;
+	ctx->err_cap = err_cap;
+	ctx->code = ASSET_ARCHIVE_CLONE_OK;
 
 	if (!work) {
 		work = (asset_archive_clone_report_t *)calloc(1, sizeof(*work));
 		if (!work) {
 			if (err && err_cap) snprintf(err, err_cap, "out of memory");
+			free(ctx);
 			return ASSET_ARCHIVE_CLONE_ERR_WRITE;
 		}
 	}
-	ctx.report = work;
+	ctx->report = work;
 
 	if (!src_path || !src_path[0] || !out_path || !out_path[0] ||
 			!new_catalog_id || !new_catalog_id[0]) {
-		cloneFail(&ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
 			"missing source path, output path or new catalog id");
 	} else if (!assetArchivePathIsTyped(src_path) || !assetArchivePathIsTyped(out_path) ||
 			!cloneEqNoCase(cloneExt(src_path), cloneExt(out_path))) {
-		cloneFail(&ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
 			"source and output must be typed archives of the same family");
 	} else if (!cloneValidId(new_catalog_id)) {
-		cloneFail(&ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
 			"new catalog id must look like namespace:name and be under %d characters",
 			CATALOG_ID_LEN);
 	} else if (cloneSamePath(src_path, out_path)) {
-		cloneFail(&ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
 			"output path is the source archive");
 	} else if (strlen(out_path) + 32 >= CLONE_PATH_MAX) {
-		cloneFail(&ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS, "output path is too long");
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS, "output path is too long");
 	} else if (cloneFileExists(out_path)) {
-		cloneFail(&ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
 			"output already exists: %s", cloneLeaf(out_path));
+	} else if (override_count > 0 && !overrides) {
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS, "override list is missing");
+	} else if (override_count > ASSET_ARCHIVE_CLONE_MAX_OVERRIDES) {
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+			"more than %d overrides", ASSET_ARCHIVE_CLONE_MAX_OVERRIDES);
 	}
-	if (ctx.code != ASSET_ARCHIVE_CLONE_OK) goto done;
+	for (u32 i = 0; i < ctx->override_count && ctx->code == ASSET_ARCHIVE_CLONE_OK; i++) {
+		const asset_archive_clone_override_t *ov = &overrides[i];
+
+		if (!cloneOverridePathOk(ov->entry)) {
+			cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+				"override %u does not name a public archive member", (unsigned)i);
+		} else if (!ov->remove && !ov->data && ov->len != 0) {
+			cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+				"override %s has a length but no data", ov->entry);
+		}
+		for (u32 k = 0; k < i && ctx->code == ASSET_ARCHIVE_CLONE_OK; k++) {
+			if (strcmp(overrides[k].entry, ov->entry) == 0) {
+				cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+					"override %s is listed twice", ov->entry);
+			}
+		}
+	}
+	if (ctx->code != ASSET_ARCHIVE_CLONE_OK) goto done;
 
 	source = cloneReadFile(src_path, &source_size);
 	if (!source) {
-		cloneFail(&ctx, ASSET_ARCHIVE_CLONE_ERR_SOURCE,
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_SOURCE,
 			"source archive could not be read: %s", cloneLeaf(src_path));
 		goto done;
 	}
 	policy_err[0] = '\0';
 	if (assetArchiveValidateBytes(source, source_size, src_path,
 			ASSET_ARCHIVE_VALIDATE_RELEASE, policy_err, sizeof(policy_err)) != 0) {
-		cloneFail(&ctx, ASSET_ARCHIVE_CLONE_ERR_SOURCE,
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_SOURCE,
 			"source is not a valid typed archive: %s",
 			policy_err[0] ? policy_err : "release validation failed");
 		goto done;
@@ -922,40 +1216,60 @@ s32 assetArchiveCloneFile(const char *src_path, const char *out_path,
 
 	colon = strchr(new_catalog_id, ':');
 	ns_len = (size_t)(colon - new_catalog_id);
-	memcpy(ctx.new_ns, new_catalog_id, ns_len);
-	ctx.new_ns[ns_len] = '\0';
-	cloneSlug(colon + 1, ctx.new_root_slug, sizeof(ctx.new_root_slug));
-	if (!ctx.new_root_slug[0]) {
-		cloneFail(&ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+	memcpy(ctx->new_ns, new_catalog_id, ns_len);
+	ctx->new_ns[ns_len] = '\0';
+	cloneSlug(colon + 1, ctx->new_root_slug, sizeof(ctx->new_root_slug));
+	if (!ctx->new_root_slug[0]) {
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
 			"new catalog id has no usable name part");
 		goto done;
 	}
 	snprintf(work->ids[0].new_id, sizeof(work->ids[0].new_id), "%s", new_catalog_id);
 
-	if (!cloneCollectIds(&ctx, source, source_size, src_path, 0)) goto done;
+	if (!cloneCollectIds(ctx, source, source_size, src_path, 0, "")) goto done;
 	for (u32 i = 0; i < work->id_count; i++) {
-		ctx.old_len[i] = strlen(work->ids[i].old_id);
+		ctx->old_len[i] = strlen(work->ids[i].old_id);
 	}
 
-	if (!cloneWriteArchive(&ctx, source, source_size, src_path, out_path, 0)) {
+	if (!cloneWriteArchive(ctx, source, source_size, src_path, out_path, 0, "")) {
 		remove(out_path);
 		goto done;
+	}
+	for (u32 i = 0; i < ctx->override_count; i++) {
+		if (!ctx->override_used[i]) {
+			remove(out_path);
+			cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
+				"override %s does not belong to this archive or to an archive embedded in it",
+				overrides[i].entry);
+			goto done;
+		}
 	}
 
 	policy_err[0] = '\0';
 	if (assetArchiveValidateFile(out_path, ASSET_ARCHIVE_VALIDATE_RELEASE,
 			policy_err, sizeof(policy_err)) != 0) {
 		remove(out_path);
-		cloneFail(&ctx, ASSET_ARCHIVE_CLONE_ERR_OUTPUT,
-			"clone failed release validation: %s",
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_OUTPUT,
+			"result failed release validation: %s",
 			policy_err[0] ? policy_err : "no detail");
 	}
 
 done:
+	code = ctx->code;
 	free(source);
-	if (ctx.code != ASSET_ARCHIVE_CLONE_OK && report) {
+	if (code != ASSET_ARCHIVE_CLONE_OK && report) {
 		memset(report, 0, sizeof(*report));
 	}
 	if (work != report) free(work);
-	return ctx.code;
+	free(ctx);
+	return code;
+}
+
+s32 assetArchiveCloneFile(const char *src_path, const char *out_path,
+		const char *new_catalog_id, const char *tool,
+		asset_archive_clone_report_t *report,
+		char *err, size_t err_cap)
+{
+	return assetArchiveRebuildFile(src_path, out_path, new_catalog_id, tool,
+		NULL, 0, report, err, err_cap);
 }

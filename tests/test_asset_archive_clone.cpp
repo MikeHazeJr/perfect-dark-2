@@ -511,3 +511,268 @@ TEST_CASE("typed archive clone refuses bad requests and leaves nothing behind",
 		== ASSET_ARCHIVE_CLONE_OK);
 	CHECK(std::filesystem::exists(second));
 }
+
+namespace {
+
+asset_archive_clone_override_t cloneReplace(const char *entry, const std::string &bytes)
+{
+	asset_archive_clone_override_t ov{};
+	ov.entry = entry;
+	ov.data = bytes.data();
+	ov.len = static_cast<u32>(bytes.size());
+	return ov;
+}
+
+asset_archive_clone_override_t cloneRemove(const char *entry)
+{
+	asset_archive_clone_override_t ov{};
+	ov.entry = entry;
+	ov.remove = 1;
+	return ov;
+}
+
+size_t cloneCountFiles(const std::filesystem::path &dir)
+{
+	size_t files = 0;
+	for (const auto &entry : std::filesystem::directory_iterator(dir)) {
+		(void)entry;
+		files++;
+	}
+	return files;
+}
+
+} // namespace
+
+TEST_CASE("typed archive rebuild applies overrides while it re-identifies",
+          "[modding][pdxxx][clone]") {
+	CloneTempDir dir;
+	const std::string source =
+		cloneSourcePath("examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon");
+	const std::string sourceBytes = cloneReadFileBytes(source);
+	const std::filesystem::path out = dir.path / "clone_override_gun.pdweapon";
+	const char *newId = "mod_clonetest:override_gun";
+	const char *projectilePath = "dependencies/assets/projectiles/primary.pdprojectile";
+	const char *meshPath = "dependencies/assets/models/weapon.pdmesh";
+
+	/* Root text member replaced; written in terms of the TEMPLATE's ids to
+	 * prove override text goes through the same rewrite as source text. */
+	const std::string settings =
+		"{\n  \"schema\": \"pd.weapon_settings.v1\",\n"
+		"  \"fire_cadence\": { \"value\": 12, \"unit\": \"centiseconds\" }\n}\n";
+	const std::string primary =
+		"{\n  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"example:tri_weapon\",\n"
+		"  \"graph_id\": \"primary\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"trigger_primary\", \"kind\": \"event.trigger_pressed\", \"params\": { \"mode\": \"primary\" } },\n"
+		"    { \"id\": \"spawn_projectile\", \"kind\": \"spawn.fired_projectile\", \"params\": { \"mode\": \"primary\", \"function_type\": \"shoot_projectile\", \"projectile_ref\": \"example:tri_projectile\" } }\n"
+		"  ],\n"
+		"  \"edges\": [ { \"from\": \"trigger_primary\", \"to\": \"spawn_projectile\" } ],\n"
+		"  \"exports\": [ { \"name\": \"primary\", \"node\": \"spawn_projectile\" } ]\n}\n";
+
+	/* A member of an embedded archive, edited. */
+	const std::string projectileArchive = cloneEntryBytes(sourceBytes, projectilePath);
+	std::string projectileGraph = cloneEntryBytes(projectileArchive, "behavior.graph.json");
+	const size_t speedAt = projectileGraph.find("\"speed\": 18.0");
+	REQUIRE(speedAt != std::string::npos);
+	projectileGraph.replace(speedAt, std::strlen("\"speed\": 18.0"), "\"speed\": 31.0");
+	const std::string projectileGraphPath =
+		std::string(projectilePath) + "::behavior.graph.json";
+
+	/* A whole embedded archive replaced by one from another mod. */
+	const std::string needler =
+		cloneReadFileBytes(cloneSourcePath("dev-mods/needler/needler.pdweapon"));
+	const std::string needlerMesh = cloneEntryBytes(needler, meshPath);
+
+	const asset_archive_clone_override_t overrides[] = {
+		cloneReplace("behavior/settings.json", settings),
+		cloneReplace("behavior/primary.graph.json", primary),
+		cloneReplace(projectileGraphPath.c_str(), projectileGraph),
+		cloneReplace(meshPath, needlerMesh),
+	};
+
+	asset_archive_clone_report_t report;
+	char err[256] = {};
+	const s32 code = assetArchiveRebuildFile(source.c_str(), out.string().c_str(), newId,
+		"pd-tests", overrides, 4, &report, err, sizeof(err));
+	INFO("rebuild error: " << err);
+	REQUIRE(code == ASSET_ARCHIVE_CLONE_OK);
+	REQUIRE(assetArchiveValidateFile(out.string().c_str(), ASSET_ARCHIVE_VALIDATE_RELEASE,
+		err, sizeof(err)) == 0);
+	REQUIRE(weaponGraphArchiveValidateRootFile(out.string().c_str(), ASSET_WEAPON,
+		err, sizeof(err)) == 0);
+
+	const std::string projectile = cloneNewIdOf(report, "example:tri_projectile");
+	const std::string mesh = cloneNewIdOf(report, "mod_needler:needler_model");
+	CHECK(projectile == "mod_clonetest:override_gun__projectile_tri_projectile");
+	CHECK(mesh == "mod_clonetest:override_gun__mesh_needler_model");
+	/* The replaced mesh's old id is no longer part of the tree. */
+	CHECK(cloneNewIdOf(report, "example:tri_mesh").empty());
+	CHECK(report.id_count == 5);
+	CHECK(report.archive_count == 5);
+
+	const std::string result = cloneReadFileBytes(out);
+	CHECK(cloneEntryBytes(result, "behavior/settings.json") == settings);
+	const std::string newPrimary = cloneEntryBytes(result, "behavior/primary.graph.json");
+	CHECK(newPrimary.find("\"asset_id\": \"" + std::string(newId) + "\"") != std::string::npos);
+	CHECK(newPrimary.find("\"projectile_ref\": \"" + projectile + "\"") != std::string::npos);
+	CHECK(newPrimary.find("example:") == std::string::npos);
+
+	const std::string newProjectile = cloneEntryBytes(result, projectilePath);
+	const std::string newProjectileGraph = cloneEntryBytes(newProjectile, "behavior.graph.json");
+	CHECK(newProjectileGraph.find("\"speed\": 31.0") != std::string::npos);
+	CHECK(newProjectileGraph.find("\"speed\": 18.0") == std::string::npos);
+	CHECK(newProjectileGraph.find(projectile) != std::string::npos);
+
+	const std::string newMesh = cloneEntryBytes(result, meshPath);
+	CHECK(cloneDescriptorId(cloneEntryBytes(newMesh, "mesh.ini")) == mesh);
+
+	/* Untouched members still match the template. */
+	CHECK(cloneEntryBytes(result, "behavior/variables.json")
+		== cloneEntryBytes(sourceBytes, "behavior/variables.json"));
+
+	CHECK(cloneCountFiles(dir.path) == 1);
+	cloneKeepArtifact(out);
+}
+
+TEST_CASE("typed archive rebuild edits an archive under its own id",
+          "[modding][pdxxx][clone]") {
+	CloneTempDir dir;
+	const std::string source =
+		cloneSourcePath("examples/modding/typed-pdxxx-basic/vehicles/tri_vehicle.pdvehicle");
+	const std::string sourceBytes = cloneReadFileBytes(source);
+	const std::filesystem::path first = dir.path / "tug_v1.pdvehicle";
+	const std::filesystem::path second = dir.path / "tug_v2.pdvehicle";
+	asset_archive_clone_report_t report;
+	char err[256] = {};
+
+	REQUIRE(assetArchiveCloneFile(source.c_str(), first.string().c_str(),
+		"mod_clonetest:tug_edit", "pd-tests", &report, err, sizeof(err))
+		== ASSET_ARCHIVE_CLONE_OK);
+
+	/* Edit the clone under the id it already has: tune one physics value. */
+	const std::string firstBytes = cloneReadFileBytes(first);
+	std::string physics = cloneEntryBytes(firstBytes, "physics.json");
+	const size_t boostAt = physics.find("\"boost_speed\": 7.0");
+	REQUIRE(boostAt != std::string::npos);
+	physics.replace(boostAt, std::strlen("\"boost_speed\": 7.0"), "\"boost_speed\": 9.5");
+	const asset_archive_clone_override_t overrides[] = {
+		cloneReplace("physics.json", physics),
+	};
+	const s32 code = assetArchiveRebuildFile(first.string().c_str(),
+		second.string().c_str(), "mod_clonetest:tug_edit", "pd-tests",
+		overrides, 1, &report, err, sizeof(err));
+	INFO("rebuild error: " << err);
+	REQUIRE(code == ASSET_ARCHIVE_CLONE_OK);
+	REQUIRE(report.id_count == 1);
+	CHECK(std::string(report.ids[0].old_id) == "mod_clonetest:tug_edit");
+	CHECK(std::string(report.ids[0].new_id) == "mod_clonetest:tug_edit");
+	REQUIRE(assetArchiveValidateFile(second.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) == 0);
+
+	const std::string secondBytes = cloneReadFileBytes(second);
+	const std::string newPhysics = cloneEntryBytes(secondBytes, "physics.json");
+	CHECK(newPhysics.find("\"boost_speed\": 9.5") != std::string::npos);
+	CHECK(newPhysics.find("\"catalog_id\": \"mod_clonetest:tug_edit\"") != std::string::npos);
+	CHECK(cloneEntryBytes(secondBytes, "vehicle.ini") == cloneEntryBytes(firstBytes, "vehicle.ini"));
+	CHECK(cloneEntryBytes(secondBytes, "model.gltf") == cloneEntryBytes(sourceBytes, "model.gltf"));
+
+	/* Same id with nothing to change is refused. */
+	const std::filesystem::path third = dir.path / "tug_v3.pdvehicle";
+	CHECK(assetArchiveRebuildFile(first.string().c_str(), third.string().c_str(),
+		"mod_clonetest:tug_edit", "pd-tests", nullptr, 0, &report, err, sizeof(err))
+		== ASSET_ARCHIVE_CLONE_ERR_ARGS);
+	CHECK(!std::filesystem::exists(third));
+
+	CHECK(cloneCountFiles(dir.path) == 2);
+	cloneKeepArtifact(second);
+}
+
+TEST_CASE("typed archive rebuild refuses overrides it cannot honour",
+          "[modding][pdxxx][clone]") {
+	CloneTempDir dir;
+	const std::string source =
+		cloneSourcePath("examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon");
+	const std::string sourceBytes = cloneReadFileBytes(source);
+	const std::filesystem::path out = dir.path / "refused_override.pdweapon";
+	const std::string text = "{}\n";
+	asset_archive_clone_report_t report;
+	char err[256];
+
+	const auto expectRefused = [&](const asset_archive_clone_override_t *overrides,
+			u32 count, s32 expected) {
+		std::memset(&report, 0xff, sizeof(report));
+		err[0] = '\0';
+		const s32 code = assetArchiveRebuildFile(source.c_str(), out.string().c_str(),
+			"mod_clonetest:refused", "pd-tests", overrides, count, &report,
+			err, sizeof(err));
+		INFO("error=" << err);
+		CHECK(code == expected);
+		CHECK(std::string(err).size() > 0);
+		CHECK(report.id_count == 0);
+		CHECK(!std::filesystem::exists(out));
+		CHECK(cloneCountFiles(dir.path) == 0);
+	};
+
+	/* `_meta` is derived, never supplied. */
+	{
+		const asset_archive_clone_override_t ov[] = { cloneReplace("_meta/manifest.json", text) };
+		expectRefused(ov, 1, ASSET_ARCHIVE_CLONE_ERR_ARGS);
+	}
+	{
+		const asset_archive_clone_override_t ov[] = { cloneReplace(
+			"dependencies/assets/models/weapon.pdmesh::_meta/manifest.json", text) };
+		expectRefused(ov, 1, ASSET_ARCHIVE_CLONE_ERR_ARGS);
+	}
+	/* Malformed paths. */
+	for (const char *bad : { "", "::behavior/settings.json", "behavior/settings.json::",
+			"/behavior/settings.json", "behavior\\settings.json" }) {
+		const asset_archive_clone_override_t ov[] = { cloneReplace(bad, text) };
+		expectRefused(ov, 1, ASSET_ARCHIVE_CLONE_ERR_ARGS);
+	}
+	/* The same member twice. */
+	{
+		const asset_archive_clone_override_t ov[] = {
+			cloneReplace("behavior/settings.json", text),
+			cloneReplace("behavior/settings.json", text),
+		};
+		expectRefused(ov, 2, ASSET_ARCHIVE_CLONE_ERR_ARGS);
+	}
+	/* A length with no bytes, and a count with no list. */
+	{
+		asset_archive_clone_override_t ov[] = { cloneReplace("behavior/settings.json", text) };
+		ov[0].data = nullptr;
+		expectRefused(ov, 1, ASSET_ARCHIVE_CLONE_ERR_ARGS);
+		expectRefused(nullptr, 1, ASSET_ARCHIVE_CLONE_ERR_ARGS);
+	}
+	/* A member of an archive that is not in the tree. */
+	{
+		const asset_archive_clone_override_t ov[] = { cloneReplace(
+			"dependencies/assets/models/missing.pdmesh::mesh.ini", text) };
+		expectRefused(ov, 1, ASSET_ARCHIVE_CLONE_ERR_ARGS);
+	}
+	/* Removing something that is not there, and removing the descriptor. */
+	{
+		const asset_archive_clone_override_t ov[] = { cloneRemove("bindings/nothing.json") };
+		expectRefused(ov, 1, ASSET_ARCHIVE_CLONE_ERR_ARGS);
+	}
+	{
+		const asset_archive_clone_override_t ov[] = { cloneRemove("weapon.ini") };
+		expectRefused(ov, 1, ASSET_ARCHIVE_CLONE_ERR_ARGS);
+	}
+	/* A descriptor that declares a different catalog id. */
+	{
+		std::string descriptor = cloneEntryBytes(sourceBytes, "weapon.ini");
+		const size_t idAt = descriptor.find("example:tri_weapon");
+		REQUIRE(idAt != std::string::npos);
+		descriptor.replace(idAt, std::strlen("example:tri_weapon"), "mod_other:gun");
+		const asset_archive_clone_override_t ov[] = { cloneReplace("weapon.ini", descriptor) };
+		expectRefused(ov, 1, ASSET_ARCHIVE_CLONE_ERR_ARGS);
+	}
+	/* Removing a file the descriptor still declares fails release validation
+	 * of the result, and the rejected result is not left behind. */
+	{
+		const asset_archive_clone_override_t ov[] = { cloneRemove("behavior/settings.json") };
+		expectRefused(ov, 1, ASSET_ARCHIVE_CLONE_ERR_OUTPUT);
+	}
+}

@@ -63,6 +63,53 @@ typedef struct asset_archive_clone_report {
 	asset_archive_clone_id_t ids[ASSET_ARCHIVE_CLONE_MAX_IDS];
 } asset_archive_clone_report_t;
 
+/* Overrides one rebuild may carry. */
+#define ASSET_ARCHIVE_CLONE_MAX_OVERRIDES 128
+
+/**
+ * A member to replace, add or remove while the archive is rebuilt.
+ *
+ * `entry` is the member's path from the root archive. A member of an embedded
+ * typed archive is addressed through it with "::", for example
+ * "dependencies/assets/projectiles/primary.pdprojectile::behavior.graph.json".
+ * `_meta` members cannot be overridden; they are derived from the result.
+ *
+ *   - Replacing or adding a text member (`.ini`, `.json`, `.gltf`): the bytes
+ *     go through the same id rewrite as source members, so they may name the
+ *     template's ids or the new ones.
+ *   - Replacing or adding an embedded typed archive: `data` is a complete
+ *     typed archive, which is re-identified like any other embedded archive.
+ *   - The root descriptor may be replaced but must keep its `catalog_id`
+ *     line, and can never be removed.
+ *   - An added member's parent archive must exist; a member that is to be
+ *     removed must exist.
+ *
+ * The bytes are borrowed for the duration of the call.
+ */
+typedef struct asset_archive_clone_override {
+	const char *entry;
+	const void *data;   /* new bytes; may be NULL when len is 0 or remove is set */
+	u32 len;
+	s32 remove;         /* nonzero: drop the member */
+} asset_archive_clone_override_t;
+
+/**
+ * Rebuild the typed archive at `src_path` into `out_path` under
+ * `new_catalog_id`, applying `overrides`. This is the authoring primitive the
+ * in-game creators share: template in, mod-owned and edited archive out.
+ *
+ * With a new id it is a clone plus edits. With the source's own id (which
+ * requires at least one override) it is an edit: no id is renamed anywhere.
+ *
+ * All the rules of assetArchiveCloneFile apply. Every override must be used;
+ * one that names no member of the archive tree is an error.
+ */
+s32 assetArchiveRebuildFile(const char *src_path, const char *out_path,
+		const char *new_catalog_id, const char *tool,
+		const asset_archive_clone_override_t *overrides, u32 override_count,
+		asset_archive_clone_report_t *report,
+		char *err, size_t err_cap);
+
 /**
  * Clone the typed archive at `src_path` to `out_path` under `new_catalog_id`.
  *
