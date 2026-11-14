@@ -1113,6 +1113,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_v2_native.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_v2_equipped.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_command_source.cpp
+  # Gun loader queue targets must have the width of the fields they point at.
+  ${CMAKE_SOURCE_DIR}/tests/test_gun_load_target_storage.cpp
   # c3849 Wave 6b Unit 8: full .pdeffect runtime (compiler, records, bridges)
   # plus the custom spark-row registry it allocates tinted rows from.
   # sparks_custom.c is pure (table + constants + log); the base g_SparkTypes

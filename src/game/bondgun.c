@@ -4470,7 +4470,7 @@ static asset_data_handle_t bgunResolveQueuedModelHandle(s32 filenum)
 }
 
 static void bgunQueueModelLoad(struct player *player, u16 filenum, struct modeldef **modeldef,
-		uintptr_t *memptr, uintptr_t *memremaining)
+		u8 **memptr, u32 *memremaining)
 {
 	player->gunctrl.loadretainedmodel = NULL;
 	player->gunctrl.loadfilenum = filenum;
@@ -4526,7 +4526,7 @@ bool bgunBodyHandSourceIsCurrent(struct player *player, s32 bodynum)
 }
 
 bool bgunQueueBodyHandModelLoad(struct player *player, s32 bodynum,
-		struct modeldef **modeldef, uintptr_t *memptr, uintptr_t *memremaining)
+		struct modeldef **modeldef, u8 **memptr, u32 *memremaining)
 {
 	char id[64];
 	asset_data_handle_t handle;
@@ -4836,7 +4836,7 @@ void bgunTickGunLoad(void)
 			return;
 		}
 
-		ptr = *player->gunctrl.loadmemptr;
+		ptr = (uintptr_t)*player->gunctrl.loadmemptr;
 		remaining = *player->gunctrl.loadmemremaining;
 
 		// Align ptr to the next 16 byte boundary
@@ -4846,15 +4846,19 @@ void bgunTickGunLoad(void)
 			remaining -= padding;
 		}
 
-		*player->gunctrl.loadmemptr = ptr;
-		*player->gunctrl.loadmemremaining = remaining;
+		*player->gunctrl.loadmemptr = (u8 *)ptr;
+		*player->gunctrl.loadmemremaining = (u32)remaining;
 
 		loadsize = ALIGN64(bgunQueuedGetInflatedSize(player)) + GUN_MODEL_LOAD_SCRATCH;
 
 		osSyncPrintf("BriGun:  Loading - %s, pMem 0x%08x Size %d\n");
 
 		if (loadsize > remaining) {
-			osSyncPrintf("BriGun:  Warning: LoadSize > MemSize, clamping decomp. buffer from %d to %d (%d Bytes)\n", allocsize, remaining, remaining);
+			/* Before the 32-bit target fix this clamp could never fire on 64-bit: the
+			 * 8-byte read put the neighbouring load-state bytes in the high half of
+			 * remaining. Log it, so a gun whose model does not fit is visible. */
+			sysLogPrintf(LOG_WARNING, "BGUN.LOAD.CLAMP: model '%s' wants %llu bytes, gun memory has %llu left; clamping",
+				player->gunctrl.loadcatalogid, (unsigned long long)loadsize, (unsigned long long)remaining);
 			loadsize = remaining;
 		}
 
@@ -4970,10 +4974,10 @@ void bgunTickGunLoad(void)
 
 		newvalue = ALIGN64(texGetPoolLeftPos(&player->gunctrl.texpool));
 		remaining = *player->gunctrl.loadmemremaining;
-		remaining -= (intptr_t)(newvalue - *player->gunctrl.loadmemptr);
+		remaining -= (intptr_t)(newvalue - (uintptr_t)*player->gunctrl.loadmemptr);
 
-		*player->gunctrl.loadmemptr = newvalue;
-		*player->gunctrl.loadmemremaining = remaining;
+		*player->gunctrl.loadmemptr = (u8 *)newvalue;
+		*player->gunctrl.loadmemremaining = (u32)remaining;
 
 		osSyncPrintf("BriGun:  Set Load State: GUN_LOADSTATE_LOADED\n");
 		player->gunctrl.gunloadstate = GUNLOADSTATE_LOADED;
@@ -5180,8 +5184,8 @@ void bgunTickMasterLoad(void)
 									player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
 									if (!bgunQueueBodyHandModelLoad(player, bodynum,
 										&player->gunctrl.handmodeldef,
-										(uintptr_t *) &player->gunctrl.handmemloadptr,
-										(uintptr_t *) &player->gunctrl.handmemloadremaining)) return;
+										&player->gunctrl.handmemloadptr,
+										(u32 *) &player->gunctrl.handmemloadremaining)) return;
 								}
 
 								bgunTickGunLoad();
@@ -5219,14 +5223,14 @@ void bgunTickMasterLoad(void)
 							if (newweaponnum == WEAPON_UNARMED) {
 								if (!bgunQueueBodyHandModelLoad(player, bodynum,
 									&player->gunctrl.gunmodeldef,
-									(uintptr_t *) &player->gunctrl.memloadptr,
-									(uintptr_t *) &player->gunctrl.memloadremaining)) return;
+									&player->gunctrl.memloadptr,
+									&player->gunctrl.memloadremaining)) return;
 							} else if (wgV2RuntimeIsWeapon(newweaponnum)) {
 								if (!bgunQueueRetainedModelLoad(player, wgV2RuntimeModel(newweaponnum), &player->gunctrl.gunmodeldef)) return;
 							} else bgunQueueModelLoad(player, filenum,
 								&player->gunctrl.gunmodeldef,
-								(uintptr_t *) &player->gunctrl.memloadptr,
-								(uintptr_t *) &player->gunctrl.memloadremaining);
+								&player->gunctrl.memloadptr,
+								&player->gunctrl.memloadremaining);
 						}
 
 						bgunTickGunLoad();
@@ -5275,8 +5279,8 @@ void bgunTickMasterLoad(void)
 											player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
 											bgunQueueModelLoad(player, filenum,
 												&player->gunctrl.cartmodeldef,
-												(uintptr_t *) &player->gunctrl.memloadptr,
-												(uintptr_t *) &player->gunctrl.memloadremaining);
+												&player->gunctrl.memloadptr,
+												&player->gunctrl.memloadremaining);
 											break;
 										}
 
