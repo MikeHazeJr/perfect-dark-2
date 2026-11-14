@@ -111,6 +111,7 @@ TEST_CASE("mod author recipe reads a full recipe into a request",
   "author": "Mike",
   "version": "1.2.0",
   "description": "Dock yard burst carbine.",
+  "descriptor": { "posx": "30.0", "muzzlez": "3.0", "old_key": null },
   "overrides": [
     { "entry": "behavior/settings.json", "file": "parts/settings.json" },
     { "entry": "bindings/presentation.json", "text": "{ \"from\": \"text\" }" },
@@ -157,6 +158,16 @@ TEST_CASE("mod author recipe reads a full recipe into a request",
 	CHECK(request.overrides[3].len == 0);
 	CHECK(request.overrides[3].data != nullptr);
 
+	/* Descriptor keys arrive in alphabetical order; null means remove. */
+	REQUIRE(request.descriptor_value_count == 3);
+	REQUIRE(request.descriptor_values != nullptr);
+	CHECK(std::string(request.descriptor_values[0].key) == "muzzlez");
+	CHECK(std::string(request.descriptor_values[0].value) == "3.0");
+	CHECK(std::string(request.descriptor_values[1].key) == "old_key");
+	CHECK(request.descriptor_values[1].value == nullptr);
+	CHECK(std::string(request.descriptor_values[2].key) == "posx");
+	CHECK(std::string(request.descriptor_values[2].value) == "30.0");
+
 	/* The smallest recipe: a template and a name. */
 	const RecipeParse minimal = recipeParse(
 		"{\"schema\":\"pd2.mod_author.recipe.v1\",\"template_file\":\"sub/gun.pdweapon\","
@@ -174,6 +185,8 @@ TEST_CASE("mod author recipe reads a full recipe into a request",
 	CHECK(request.description == nullptr);
 	CHECK(request.overrides == nullptr);
 	CHECK(request.override_count == 0);
+	CHECK(request.descriptor_values == nullptr);
+	CHECK(request.descriptor_value_count == 0);
 
 	/* Nothing to read is handled, not dereferenced. */
 	modAuthorRecipeFree(nullptr);
@@ -239,6 +252,9 @@ TEST_CASE("mod author recipe refuses anything it does not fully understand",
 			"\"template_file\":\"sub/../../gun.pdweapon\",\"name\":\"Gun\"}", "inside" },
 		{ "empty template file", "{\"schema\":\"pd2.mod_author.recipe.v1\","
 			"\"template_file\":\"\",\"name\":\"Gun\"}", "inside" },
+		{ "descriptor not an object", head + ",\"descriptor\":[]}", "descriptor" },
+		{ "descriptor value not a string", head + ",\"descriptor\":{\"posx\":3}}", "posx" },
+		{ "descriptor value an object", head + ",\"descriptor\":{\"posx\":{}}}", "posx" },
 		{ "overrides not an array", head + ",\"overrides\":{}}", "array" },
 		{ "override not an object", head + ",\"overrides\":[\"x\"]}", "override 1" },
 		{ "override unknown key", head + ",\"overrides\":[{\"entry\":\"a.json\",\"text\":\"{}\","
@@ -336,6 +352,7 @@ TEST_CASE("mod author recipe file becomes a saved, release-valid mod",
   "author": "Recipe Test",
   "version": "0.9.0",
   "description": "Made from a recipe file.",
+  "descriptor": { "posx": "30.0", "posz": "-45.0" },
   "overrides": [
     { "entry": "behavior/settings.json", "file": "settings.json" }
   ]
@@ -362,6 +379,8 @@ TEST_CASE("mod author recipe file becomes a saved, release-valid mod",
 	const std::string archive = recipeReadFile(result->archive_path);
 	CHECK(recipeEntry(archive, "behavior/settings.json") == settings);
 	CHECK(recipeEntry(archive, "weapon.ini").find("name = Recipe Carbine") != std::string::npos);
+	CHECK(recipeEntry(archive, "weapon.ini").find("posx = 30.0\nposz = -45.0\n")
+		!= std::string::npos);
 
 	const std::string manifest = recipeReadFile(result->manifest_path);
 	char field[256] = {};

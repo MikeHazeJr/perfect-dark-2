@@ -27,6 +27,11 @@ struct mod_author_recipe {
     std::vector<std::string> entries;
     std::vector<std::string> data;
     std::vector<asset_archive_clone_override_t> overrides;
+    /* Parallel to `descriptor_values`. A removal has no value. */
+    std::vector<std::string> descriptor_keys;
+    std::vector<std::string> descriptor_texts;
+    std::vector<bool> descriptor_removes;
+    std::vector<mod_author_descriptor_value_t> descriptor_values;
 };
 
 namespace {
@@ -207,7 +212,7 @@ mod_author_recipe *parse(const void *json, size_t size, const std::string &recip
     char *err, size_t cap)
 {
     static const char *const kKnown[] = { "schema", "template", "template_file", "name",
-        "author", "version", "description", "overrides" };
+        "author", "version", "description", "descriptor", "overrides" };
 
     if (!json || size == 0) {
         setError(err, cap, "the recipe is empty");
@@ -274,6 +279,37 @@ mod_author_recipe *parse(const void *json, size_t size, const std::string &recip
         recipe->template_file = joinPath(recipe_dir, recipe->template_file);
     }
 
+    const auto descriptor_it = object->find("descriptor");
+    if (descriptor_it != object->end()) {
+        const crude_json::object *values = descriptor_it->second.get_ptr<crude_json::object>();
+        if (!values) {
+            setError(err, cap, "the recipe's \"descriptor\" must be an object of key: value");
+            return nullptr;
+        }
+        if (values->size() > MOD_AUTHOR_MAX_DESCRIPTOR_VALUES) {
+            setError(err, cap, "the recipe's \"descriptor\" has more than %d keys",
+                static_cast<int>(MOD_AUTHOR_MAX_DESCRIPTOR_VALUES));
+            return nullptr;
+        }
+        for (const auto &member : *values) {
+            const crude_json::string *text = member.second.get_ptr<crude_json::string>();
+            if (!text && !member.second.is_null()) {
+                setError(err, cap, "descriptor key \"%s\" must be a string, or null to remove it",
+                    member.first.c_str());
+                return nullptr;
+            }
+            if (member.first.find('\0') != std::string::npos ||
+                    (text && text->find('\0') != std::string::npos)) {
+                setError(err, cap, "descriptor key \"%s\" holds a NUL character",
+                    member.first.c_str());
+                return nullptr;
+            }
+            recipe->descriptor_keys.push_back(member.first);
+            recipe->descriptor_texts.push_back(text ? *text : std::string());
+            recipe->descriptor_removes.push_back(text == nullptr);
+        }
+    }
+
     const auto overrides_it = object->find("overrides");
     if (overrides_it != object->end()) {
         const crude_json::array *items = overrides_it->second.get_ptr<crude_json::array>();
@@ -295,6 +331,12 @@ mod_author_recipe *parse(const void *json, size_t size, const std::string &recip
     }
 
     /* Storage no longer moves: bind the pointers. */
+    recipe->descriptor_values.resize(recipe->descriptor_keys.size());
+    for (size_t i = 0; i < recipe->descriptor_keys.size(); i++) {
+        recipe->descriptor_values[i].key = recipe->descriptor_keys[i].c_str();
+        recipe->descriptor_values[i].value =
+            recipe->descriptor_removes[i] ? nullptr : recipe->descriptor_texts[i].c_str();
+    }
     for (size_t i = 0; i < recipe->overrides.size(); i++) {
         asset_archive_clone_override_t &ov = recipe->overrides[i];
         ov.entry = recipe->entries[i].c_str();
@@ -375,4 +417,7 @@ extern "C" void modAuthorRecipeToRequest(const mod_author_recipe_t *recipe,
     out->tool = "mod-author-recipe";
     out->overrides = recipe->overrides.empty() ? nullptr : recipe->overrides.data();
     out->override_count = static_cast<u32>(recipe->overrides.size());
+    out->descriptor_values =
+        recipe->descriptor_values.empty() ? nullptr : recipe->descriptor_values.data();
+    out->descriptor_value_count = static_cast<u32>(recipe->descriptor_values.size());
 }

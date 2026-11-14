@@ -1117,6 +1117,143 @@ TEST_CASE("mod author reports unusable templates and folders without leaving any
 	}
 }
 
+TEST_CASE("mod author sets and removes descriptor keys the creator asks for",
+          "[modding][author]") {
+	AuthorTempDir work;
+	AuthorTempDir root;
+	char err[256] = {};
+
+	/* The example weapon with one extra descriptor line to remove. */
+	const std::string source = authorExample(kWeaponTemplate);
+	std::string seeded = authorEntry(authorReadFile(source), "weapon.ini");
+	const std::string idLine = "catalog_id = example:tri_weapon\n";
+	REQUIRE(seeded.find(idLine) != std::string::npos);
+	seeded.insert(seeded.find(idLine) + idLine.size(), "scratch_note = remove me\n");
+	const std::string tmpl = (work.path / "seeded.pdweapon").string();
+	{
+		asset_archive_clone_override_t ov{};
+		ov.entry = "weapon.ini";
+		ov.data = seeded.data();
+		ov.len = static_cast<u32>(seeded.size());
+		REQUIRE(assetArchiveRebuildFile(source.c_str(), tmpl.c_str(), "example:tri_weapon",
+			"pd-tests", &ov, 1, nullptr, err, sizeof(err)) == ASSET_ARCHIVE_CLONE_OK);
+	}
+
+	/* View position (new keys), dual wield (an existing key), and a key the
+	 * creator no longer wants. */
+	const mod_author_descriptor_value_t values[] = {
+		{ "posx", "30.0" },
+		{ "posy", "-18.0" },
+		{ "posz", "-45.0" },
+		{ "muzzlez", "3.0" },
+		{ "dual_wieldable", "true" },
+		{ "scratch_note", nullptr },
+	};
+	AuthorRequest req(tmpl, root.path, "Placed Gun");
+	req.request.descriptor_values = values;
+	req.request.descriptor_value_count = 6;
+	const AuthorCall saved = authorSave(req.request);
+	INFO("save error: " << saved.err);
+	REQUIRE(saved.code == MOD_AUTHOR_OK);
+	authorRequireReleaseValid(saved.result->archive_path);
+
+	const std::string written =
+		authorEntry(authorReadFile(saved.result->archive_path), "weapon.ini");
+	CHECK(authorIniValue(written, "posx") == "30.0");
+	CHECK(authorIniValue(written, "posy") == "-18.0");
+	CHECK(authorIniValue(written, "posz") == "-45.0");
+	CHECK(authorIniValue(written, "muzzlez") == "3.0");
+	CHECK(authorIniValue(written, "dual_wieldable") == "true");
+	CHECK(authorIniValues(written, "scratch_note").empty());
+	CHECK(authorIniValue(written, "name") == "Placed Gun");
+	CHECK(authorIniValue(written, "catalog_id") == "mod:weapon_placed_gun");
+	/* New keys sit together at the end of the [weapon] section, in the order
+	 * given, and the [meta] section is untouched. */
+	CHECK(written.find("posx = 30.0\nposy = -18.0\nposz = -45.0\nmuzzlez = 3.0\n\n[meta]\n")
+		!= std::string::npos);
+	CHECK(authorIniValue(written, "manifest") == "_meta/manifest.json");
+	CHECK(std::count(written.begin(), written.end(), '\n')
+		== std::count(seeded.begin(), seeded.end(), '\n') + 3);
+	authorKeepArtifact(saved.result->archive_path);
+
+	/* Refusals: nothing is written for any of them. */
+	const std::vector<std::string> before = authorTree(root.path);
+	const auto expectRefused = [&](const mod_author_descriptor_value_t *list, u32 count,
+			const char *what) {
+		AuthorRequest bad(tmpl, root.path, "Refused Gun");
+		bad.request.descriptor_values = list;
+		bad.request.descriptor_value_count = count;
+		const AuthorCall call = authorSave(bad.request);
+		INFO(what << " -> " << call.err);
+		CHECK(call.code == MOD_AUTHOR_ERR_ARGS);
+		CHECK(!call.err.empty());
+		CHECK(authorTree(root.path) == before);
+	};
+	{
+		const mod_author_descriptor_value_t v[] = { { "catalog_id", "mod:other" } };
+		expectRefused(v, 1, "catalog_id");
+	}
+	{
+		const mod_author_descriptor_value_t v[] = { { "name", "Sneaky" } };
+		expectRefused(v, 1, "the name key");
+	}
+	{
+		const mod_author_descriptor_value_t v[] = { { "pos x", "1" } };
+		expectRefused(v, 1, "a key with a space");
+	}
+	{
+		const mod_author_descriptor_value_t v[] = { { "", "1" } };
+		expectRefused(v, 1, "an empty key");
+	}
+	{
+		const mod_author_descriptor_value_t v[] = { { nullptr, "1" } };
+		expectRefused(v, 1, "a missing key");
+	}
+	{
+		const mod_author_descriptor_value_t v[] = { { "posx", "1" }, { "posx", "2" } };
+		expectRefused(v, 2, "a key given twice");
+	}
+	{
+		const mod_author_descriptor_value_t v[] = { { "posx", "1\nposy = 2" } };
+		expectRefused(v, 1, "a value with a line break");
+	}
+	{
+		const mod_author_descriptor_value_t v[] = { { "posx", " 1 " } };
+		expectRefused(v, 1, "a padded value");
+	}
+	{
+		const mod_author_descriptor_value_t v[] = { { "posx", "" } };
+		expectRefused(v, 1, "an empty value");
+	}
+	expectRefused(nullptr, 1, "a count with no list");
+	/* A key the archive's manifest repeats would leave the two disagreeing. */
+	{
+		const mod_author_descriptor_value_t v[] = { { "presentation_file", nullptr } };
+		expectRefused(v, 1, "a key mirrored in the manifest, removed");
+	}
+	{
+		const mod_author_descriptor_value_t v[] = { { "model_file", "elsewhere.pdmesh" } };
+		expectRefused(v, 1, "a key mirrored in the manifest, changed");
+	}
+
+	/* Descriptor values and a descriptor override cannot both be given. */
+	{
+		const mod_author_descriptor_value_t v[] = { { "posx", "1" } };
+		asset_archive_clone_override_t ov{};
+		ov.entry = "weapon.ini";
+		ov.data = seeded.data();
+		ov.len = static_cast<u32>(seeded.size());
+		AuthorRequest both(tmpl, root.path, "Refused Gun");
+		both.request.descriptor_values = v;
+		both.request.descriptor_value_count = 1;
+		both.request.overrides = &ov;
+		both.request.override_count = 1;
+		const AuthorCall call = authorSave(both.request);
+		CHECK(call.code == MOD_AUTHOR_ERR_ARGS);
+		CHECK(authorTree(root.path) == before);
+	}
+}
+
 /*
  * Local sweep, off unless PD2_BASE_TEMPLATE_DIR names an extracted base data
  * folder (the one holding weapons/, characters/, bodies/, ...). Every base

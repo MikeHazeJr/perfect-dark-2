@@ -12,6 +12,7 @@
  *     "author": "Mike",
  *     "version": "1.0.0",
  *     "description": "Dock yard burst carbine.",
+ *     "descriptor": { "posx": "30.0", "posy": "-18.0", "old_key": null },
  *     "overrides": [
  *       { "entry": "behavior/settings.json", "file": "settings.json" },
  *       { "entry": "bindings/presentation.json", "text": "{ ... }" },
@@ -22,6 +23,10 @@
  * `template` is the catalog id of the asset to start from. `template_file`
  * may be given instead: a typed archive beside the recipe. Exactly one of the
  * two is required, and `name`. Everything else is optional.
+ *
+ * `descriptor` sets keys in the archive's root descriptor (a string value)
+ * or removes them (null); the rules are those of mod_author_request_t's
+ * descriptor values. Keys are applied in alphabetical order.
  *
  * An override replaces, adds or removes one archive member, with the rules
  * of assetArchiveRebuildFile ("outer.pdxxx::member" reaches into an embedded

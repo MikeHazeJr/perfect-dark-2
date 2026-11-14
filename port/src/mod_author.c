@@ -398,17 +398,18 @@ static char *authorDropDescriptorKeys(const char *text, u32 len, const char *key
 }
 
 /*
- * Set the display name in a descriptor.
+ * Set one key in a descriptor.
  *
  * The descriptor readers take keys from the first section, so that is the
  * only place this writes: an existing `key` line there is replaced, else an
- * existing `alias` line, else a new `key` line goes in after `catalog_id`.
+ * existing `alias` line, else a new `key` line goes in after `catalog_id`
+ * or, with `at_section_end`, after the first section's last line.
  * Every other byte is kept. Returns NULL when the descriptor has no section,
  * or keeps the key in a later section where a second copy would make the
  * strict readers refuse the file.
  */
-static char *authorSetDescriptorName(const char *text, u32 len, const char *key,
-		const char *alias, const char *value, u32 *out_len)
+static char *authorSetDescriptorKey(const char *text, u32 len, const char *key,
+		const char *alias, const char *value, s32 at_section_end, u32 *out_len)
 {
 	author_buf_t b;
 	const char *eol = "\n";
@@ -417,6 +418,7 @@ static char *authorSetDescriptorName(const char *text, u32 len, const char *key,
 	u32 start = 0;
 	u32 end = 0;
 	u32 insert_at = 0;
+	u32 section_tail = 0;
 	u32 key_start = 0, key_end = 0;
 	u32 alias_start = 0, alias_end = 0;
 	s32 sections = 0;
@@ -435,13 +437,17 @@ static char *authorSetDescriptorName(const char *text, u32 len, const char *key,
 			have_eol = 1;
 		}
 		while (first < end && (text[first] == ' ' || text[first] == '\t')) first++;
-		if (first == end || text[first] == ';' || text[first] == '#') continue;
-		if (text[first] == '[') {
-			if (!memchr(text + first, ']', end - first)) continue;
+		if (first < end && text[first] == '[' && memchr(text + first, ']', end - first)) {
 			sections++;
-			if (sections == 1) insert_at = pos;
+			if (sections == 1) {
+				insert_at = pos;
+				section_tail = pos;
+			}
 			continue;
 		}
+		/* The end of the first section's last line that is not blank. */
+		if (sections == 1 && first < end) section_tail = pos;
+		if (first == end || text[first] == ';' || text[first] == '#') continue;
 		if (sections == 0) continue;
 		if (authorLineHasKey(text + first, end - first, key)) {
 			if (sections > 1) return NULL;
@@ -474,6 +480,7 @@ static char *authorSetDescriptorName(const char *text, u32 len, const char *key,
 		authorBufText(&b, value);
 		authorBufAppend(&b, text + line_end, len - line_end);
 	} else {
+		if (at_section_end) insert_at = section_tail;
 		authorBufAppend(&b, text, insert_at);
 		if (insert_at > 0 && text[insert_at - 1] != '\n' && text[insert_at - 1] != '\r') {
 			authorBufText(&b, eol);
@@ -490,6 +497,62 @@ static char *authorSetDescriptorName(const char *text, u32 len, const char *key,
 	}
 	*out_len = (u32)b.len;
 	return b.data;
+}
+
+static s32 authorDescriptorKeyOk(const char *key)
+{
+	if (!key || !key[0] || strlen(key) >= 128) return 0;
+	for (const char *p = key; *p; p++) {
+		char c = authorLower(*p);
+		if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+				c == '_' || c == '.' || c == '-')) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+/* The request's descriptor values are usable for this family. */
+static s32 authorCheckDescriptorValues(const mod_author_request_t *request,
+		const author_family_t *family, char *err, size_t err_cap)
+{
+	char cleaned[MOD_AUTHOR_DESCRIPTOR_VALUE_MAX];
+
+	if (request->descriptor_value_count == 0) return MOD_AUTHOR_OK;
+	if (!request->descriptor_values) {
+		return authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS, "descriptor value list is missing");
+	}
+	if (request->descriptor_value_count > MOD_AUTHOR_MAX_DESCRIPTOR_VALUES) {
+		return authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS,
+			"more than %d descriptor values", MOD_AUTHOR_MAX_DESCRIPTOR_VALUES);
+	}
+	for (u32 i = 0; i < request->descriptor_value_count; i++) {
+		const mod_author_descriptor_value_t *dv = &request->descriptor_values[i];
+
+		if (!authorDescriptorKeyOk(dv->key)) {
+			return authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS,
+				"descriptor key %u is not a plain key name", (unsigned)(i + 1));
+		}
+		if (strcmp(dv->key, "catalog_id") == 0 ||
+				(family->name_key && strcmp(dv->key, family->name_key) == 0) ||
+				(family->name_alias && strcmp(dv->key, family->name_alias) == 0)) {
+			return authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS,
+				"descriptor key %s is set by the mod's id and name, not by a value", dv->key);
+		}
+		for (u32 k = 0; k < i; k++) {
+			if (strcmp(request->descriptor_values[k].key, dv->key) == 0) {
+				return authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS,
+					"descriptor key %s is given twice", dv->key);
+			}
+		}
+		if (dv->value && (!authorCleanLine(dv->value, cleaned, sizeof(cleaned)) ||
+				strcmp(cleaned, dv->value) != 0)) {
+			return authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS,
+				"the value of descriptor key %s must be one line of 1 to %d bytes of plain text "
+				"with no spaces around it", dv->key, MOD_AUTHOR_DESCRIPTOR_VALUE_MAX - 1);
+		}
+	}
+	return MOD_AUTHOR_OK;
 }
 
 /* Names and paths for a request. Writes nothing. */
@@ -731,6 +794,8 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 	}
 	code = authorCheckOwner(plan, err, err_cap);
 	if (code != MOD_AUTHOR_OK) goto done;
+	code = authorCheckDescriptorValues(request, family, err, err_cap);
+	if (code != MOD_AUTHOR_OK) goto done;
 
 	manifest = authorBuildManifest(request, plan, family, display, &manifest_len,
 		err, err_cap);
@@ -757,6 +822,11 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 	for (u32 i = 0; i < request->override_count; i++) overrides[i] = request->overrides[i];
 	override_count = request->override_count;
 
+	if (caller_sets_descriptor && request->descriptor_value_count > 0) {
+		code = authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS,
+			"descriptor values cannot be combined with an override of %s", descriptor_name);
+		goto done;
+	}
 	if (descriptor_name && !caller_sets_descriptor) {
 		u32 template_size = 0;
 		u32 source_size = 0;
@@ -772,6 +842,32 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 				&source_size, &entry_name)
 			: NULL;
 
+		/* A key the archive's own manifest repeats (model_file, the graph and
+		 * dependency paths) would be changed in one place only, leaving a
+		 * descriptor and a manifest that disagree. */
+		if (template_bytes && request->descriptor_value_count > 0) {
+			u32 mirror_size = 0;
+			char *mirror = (char *)modArchiveExtractMemAlloc(template_bytes, template_size,
+				ASSET_ARCHIVE_META_MANIFEST_PATH, &mirror_size);
+			const char *mirrored = NULL;
+			char held[1024];
+
+			for (u32 i = 0; mirror && !mirrored && i < request->descriptor_value_count; i++) {
+				if (modManifestReadString(mirror, mirror_size, request->descriptor_values[i].key,
+						held, sizeof(held))) {
+					mirrored = request->descriptor_values[i].key;
+				}
+			}
+			free(mirror);
+			if (mirrored) {
+				free(template_bytes);
+				free(source);
+				code = authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS,
+					"descriptor key %s is repeated in the archive's manifest and cannot be "
+					"changed through a descriptor value", mirrored);
+				goto done;
+			}
+		}
 		free(template_bytes);
 		if (!source) {
 			code = authorFail(err, err_cap, MOD_AUTHOR_ERR_TEMPLATE,
@@ -786,9 +882,28 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 			code = authorFail(err, err_cap, MOD_AUTHOR_ERR_WRITE, "out of memory");
 			goto done;
 		}
+		/* The creator's own descriptor keys, in the order given. */
+		for (u32 i = 0; i < request->descriptor_value_count; i++) {
+			const mod_author_descriptor_value_t *dv = &request->descriptor_values[i];
+			u32 next_size = 0;
+			u32 removed = 0;
+			char *next = dv->value
+				? authorSetDescriptorKey(owned, owned_size, dv->key, NULL, dv->value, 1, &next_size)
+				: authorDropDescriptorKeys(owned, owned_size, dv->key, &next_size, &removed);
+
+			free(owned);
+			if (!next) {
+				code = authorFail(err, err_cap, MOD_AUTHOR_ERR_TEMPLATE,
+					"%s could not be set in the template's %s", dv->key, descriptor_name);
+				goto done;
+			}
+			owned = next;
+			owned_size = next_size;
+			dropped++;
+		}
 		if (family->name_key) {
-			descriptor = authorSetDescriptorName(owned, owned_size, family->name_key,
-				family->name_alias, display, &patched_size);
+			descriptor = authorSetDescriptorKey(owned, owned_size, family->name_key,
+				family->name_alias, display, 0, &patched_size);
 			free(owned);
 			if (!descriptor) {
 				code = authorFail(err, err_cap, MOD_AUTHOR_ERR_TEMPLATE,

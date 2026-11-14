@@ -61,6 +61,20 @@ extern "C" {
 #define MOD_AUTHOR_NAME_MAX      64   /* display name bytes, terminator included */
 #define MOD_AUTHOR_ID_MAX        64
 
+/*
+ * One descriptor key a creator sets in the archive's root descriptor, for
+ * example the view position of a weapon ("posx", "30.0"). A NULL value
+ * removes the key. `catalog_id` and the family's display-name key belong to
+ * the author and cannot be set this way.
+ */
+typedef struct mod_author_descriptor_value {
+	const char *key;     /* letters, digits, '_', '.' and '-' */
+	const char *value;   /* one line of plain text, or NULL to remove the key */
+} mod_author_descriptor_value_t;
+
+#define MOD_AUTHOR_MAX_DESCRIPTOR_VALUES 64
+#define MOD_AUTHOR_DESCRIPTOR_VALUE_MAX  512
+
 typedef struct mod_author_request {
 	const char *template_path;   /* typed archive to start from */
 	const char *mods_root;       /* existing directory that holds mods, e.g. "mods" */
@@ -71,6 +85,8 @@ typedef struct mod_author_request {
 	const char *tool;            /* optional provenance tool name */
 	const asset_archive_clone_override_t *overrides;   /* optional edits */
 	u32 override_count;
+	const mod_author_descriptor_value_t *descriptor_values;   /* optional descriptor keys */
+	u32 descriptor_value_count;
 } mod_author_request_t;
 
 typedef struct mod_author_result {
@@ -100,9 +116,10 @@ s32 modAuthorPlan(const mod_author_request_t *request, mod_author_result_t *resu
 /**
  * Create or update the mod described by `request`.
  *
- * The display name is written into the archive's descriptor unless an
- * override replaces the descriptor itself. Overrides follow the rules of
- * assetArchiveRebuildFile.
+ * The display name and the request's descriptor values are written into the
+ * archive's descriptor unless an override replaces the descriptor itself
+ * (descriptor values together with a descriptor override are refused).
+ * Overrides follow the rules of assetArchiveRebuildFile.
  *
  * Returns MOD_AUTHOR_OK or a MOD_AUTHOR_ERR_* code. `result` (optional) is
  * filled on success and zeroed on failure. `err` (optional) receives a short
