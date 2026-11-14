@@ -1,0 +1,137 @@
+{
+  "scenario_name": "mp_pop_a_cap_local_smoke",
+  "description": "Offline Pop a Cap on Complex: one human plus three simulants, started through the direct debug match path and ended by a 40 second time limit. Proves the match-start contract for an objective scenario: the launch seed derives the runtime mode from the scenario catalog id, mpStartMatch initializes the scenario, the stage loads, the player spawns, the time limit ends the match, and the result witness lists every participant. It does not yet assert an objective scoring event; that needs the per-scenario objective witness.",
+  "tags": [
+    "combatsim",
+    "match-start",
+    "scenario",
+    "multiplayer-modes"
+  ],
+  "paths_of_interest": [
+    "port/src/net/matchsetup.c",
+    "port/src/main.c",
+    "src/game/mplayer/mplayer.c",
+    "src/game/mplayer/scenarios.c",
+    "src/game/lv.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 240,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-mp-room",
+    "base:arena_mp_complex",
+    "base:pop_a_cap",
+    "3",
+    "--debug-auto-start-match",
+    "--match-timelimit-sec",
+    "40"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Boot, seed the Combat Simulator config for this scenario, and fire the direct debug match start."
+    },
+    {
+      "at_ms": 45000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press"
+    },
+    {
+      "at_ms": 46000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 55000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press"
+    },
+    {
+      "at_ms": 56000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 65000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press"
+    },
+    {
+      "at_ms": 66000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 75000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press"
+    },
+    {
+      "at_ms": 76000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 200000,
+      "type": "exit",
+      "comment": "Bounded exit after stage load, a 40 second match and the end screen."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_pop_a_cap_local_smoke",
+      "BOOT: --launch-mp-room arena='base:arena_mp_complex' scenario='base:pop_a_cap' bots=3",
+      "MATCH\\.SCENARIO\\.RULES: reason=launch-mp-room id='base:pop_a_cap' mode=3 team_based=0 teams_enabled_here=0",
+      "BOOT: --debug-auto-start-match consumed",
+      "MATCHSTART\\.DIAG: preflight stage_id='base:arena_mp_complex' scenario_id='base:pop_a_cap' slots=4",
+      "PLAYER\\.INIT\\.PREFLIGHT match=ok players=1 bots=3 stage='base:arena_mp_complex' scenario='base:pop_a_cap'",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=3",
+      "MATCH: options=0x[0-9a-f]{8} onehitkills=0 slowmo=0 scenario=3 ",
+      "MATCH: player spawned slot=",
+      "MATCH: timelimit override applied seconds=40",
+      "MATCH: stage end reason=timelimit",
+      "MATCH\\.RESULT: scenario=3 teams=0 chrs=4 netmode=0",
+      "MATCH: endscreen shown",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "PLAYER\\.INIT\\.PREFLIGHT match=reject",
+      "SCENARIO\\.MISS:"
+    ],
+    "required_counts": [
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 4,
+        "max": 4
+      },
+      {
+        "pattern": "MATCH\\.RESULT: scenario=",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MATCH: endscreen shown",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

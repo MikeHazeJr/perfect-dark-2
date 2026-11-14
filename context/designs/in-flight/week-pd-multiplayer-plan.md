@@ -30,17 +30,28 @@ Progress log:
 - All four units: local build on D: green and the full pd-tests suite green (1863 cases after unit D).
   Hosted CI green for units A and B; one run covers C and D. None has been run in a game.
 
+- Unit E (2026-11-14, `cef2f744`): `port/src/net/net_scenario_state_wire.c` and its header. A pure codec
+  (no game globals, linked into pd-tests) for one envelope (scenario id, revision) plus the King of the
+  Hill body: live hill index, hill room and position as the host resolved them, occupying team, hold
+  time, the pending-move flag and the hill time setting. Hill count and pads are stage data every peer
+  loads itself, so they are not on the wire. Six Catch2 cases. Nothing sends or applies it yet.
+- Hosted CI note: run 43632391920 stopped at the native write routes guard for `net.c`. The guard hashes
+  a window that is not at the reviewed call (it counts lines in comment-blanked text), so comment-only
+  edits above the call move the pin. Re-pinned that one entry in `88ede450` after checking the call's
+  real surroundings are unchanged; the mapping fix is reported to the guard owner. Before every push,
+  run `python -B tools/native_write_policy_guard.py --compile-commands .claude/session-builds/mp/compile_commands.json`.
+- Smoke fixtures written, not yet run (game runs wait for CORE): `mp_hold_the_briefcase_local_smoke`,
+  `mp_hacker_central_local_smoke`, `mp_pop_a_cap_local_smoke`, `mp_king_of_the_hill_local_smoke`,
+  `mp_capture_the_case_local_smoke`. Each starts the scenario offline on Complex with three simulants
+  and a 40 second limit and asserts the rules line, the scenario number at start, the time-limit end and
+  the result witness. Their timings assume a fast install; expect to retune them for the D: hard disk.
+
 Next units, in order:
-1. Unit E: `port/src/net/net_scenario_state_wire.c` and its header. A pure codec (no game globals, linked
-   into pd-tests the way `net_player_move_wire.c` is) for one envelope (scenario id, revision) plus the
-   King of the Hill body: occupying team, elapsed hold time, pending hill move, hill index and count,
-   two hill rooms, nine hill pads, hill position, hill time setting. Decode fully, bound every field,
-   then return a typed status. Catch2 round-trip, truncation and out-of-range cases.
-2. Unit F: King of the Hill on the seam. Split `kohTick` into a host-only part and a presentation part,
+1. Unit F: King of the Hill on the seam. Split `kohTick` into a host-only part and a presentation part,
    capture and apply between `g_ScenarioData.koh` and the wire struct, add `SVC_SCENARIO_STATE`, send it
    in the stage baseline, on change and at a low rate while the hold timer runs, and bump the protocol
    to v62 with the test pin in the same commit. This is the first unit that needs a game run to prove.
-3. Then Pop a Cap, Hold the Briefcase, Hacker Central and Capture the Case, each adding its body to the
+2. Then Pop a Cap, Hold the Briefcase, Hacker Central and Capture the Case, each adding its body to the
    codec first and its game side second.
 
 Held until game runs are allowed: the unchanged re-run of the existing multiplayer smokes (step 1 of
