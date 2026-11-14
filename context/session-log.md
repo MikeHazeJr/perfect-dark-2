@@ -9793,3 +9793,77 @@ host migration, two-match and hardware/visual/audio acceptance remain open.
 On resume, recheck Workbench/coordination ownership and source freeze, then
 continue the 18-finding repair ledger without treating this direct-localhost
 smoke as final multiplayer acceptance.
+
+## 2026-11-14 - Week PD kickoff, CORE session: Step 0 baseline, planning sweep, disk move
+
+Focus: Step 0 of the week of Nov 15 to 21 (three parallel Claude sessions: CORE,
+MULTIPLAYER, MODS). CORE owns asset extraction, the behavior-graph runtime and
+schema, and single player. Live coordination is in
+`context/week-pd-coordination.md` in the canonical checkout (untracked, one shared
+copy) and in the PD2 Finish Tracker (a Claude Doc, not a repo file).
+
+What was found:
+- dev == origin/dev == a8ab67f3. The October networking commits (3505ca48,
+  ac43b227, T-NETWORKING-011) landed and are pushed. No index lock.
+- The canonical checkout was not clean: 65 modified tracked files and 45
+  untracked source, test, tooling and context files from the paused
+  T-MODDING-011 "all gameplay conversion" lane (last touched 2026-10-26), never
+  compiled. It was not stashed, reset or committed to dev. It is protected on
+  branch `week-pd/inflight-20261114` (1c1cb1d2), written with a temporary index
+  so the checkout, its index and dev stayed unchanged.
+- A stale `.git/objects/maintenance.lock` from 2026-04-17 has kept git
+  auto-maintenance off (156,068 loose objects). Left in place on purpose:
+  removing it would let the next commit prune 4,299 unreachable objects,
+  including 533 dangling commits. That deletion is Mike's decision.
+- Hosted CI is green for every dev commit since 2026-10-10, including a8ab67f3
+  (run 39809150838, 1,853 cases). An early statement in this session that
+  nothing had been built since Oct 10 was wrong and was corrected everywhere.
+- The storage preflight refused every build on C: (138 GiB free against a
+  300 GiB committed floor, 200 uncommitted). Mike decided: week worktrees and
+  builds on D:, prune C:, floor unchanged.
+
+What was done:
+- Records-only branch `week-pd/records` (8b6c0bda = a8ab67f3 plus `context/`
+  and `tools/Workbench/data/` as they stand uncommitted), so week branches can
+  use current Workbench ids in commit messages.
+- CORE worktree `D:\PD2-wt\core` on `week-pd/core`. Baseline build green
+  (client and updater about 4 min, pd-tests about 2 min, empty error log),
+  unit tests 1,853 cases / 335,773 assertions pass.
+- Boot smoke: 7/14 on a clean install (no crash; first-launch extraction on D:,
+  a 7200 rpm hard disk, was still running at the fixture's 90 s exit), then
+  14/14 using the pre-extracted shared base `D:\PD2-wt\shared-base` as the
+  install template (`results-20261114T200341Z.json`). Recorded as B-1110.
+- Shared base extracted once: 5,562 of 5,562 archives, 13,116 files, 19 min 33 s.
+- C: prune of canonical `.claude\smoke-verify-runs` and `.claude\session-builds`:
+  535 entries, 62.46 GiB, 1,506,504 files moved to the Recycle Bin, each
+  verified there; list posted in the note first; manifest and receipt under
+  `.claude\cleanup-manifests\20261114-week-pd-prune\`. Kept: `pd1010`,
+  `asset0923freshfinal`, the 1,945 `results-*.json` receipts and `artifacts`.
+- Planning sweep rerun with seven read-only front readers; the Finish Tracker
+  now holds all seven fronts, six decisions for Mike with defaults, and the
+  ordered work queue. The behavior family checklist and the per-mission table
+  start there and in the coordination note.
+- B-1109 fixed in source: the gun loader's queue targets were `uintptr_t *`
+  over 4-byte counters. Regression test `tests/test_gun_load_target_storage.cpp`.
+- Smoke runner: `-Install <template>` now honors `-SourceBinary`, so one shared
+  extraction serves any session's build (`storage.py`, `Storage-Harness.ps1`,
+  `run.ps1`, new case in `test-storage.py`, 21/21).
+
+Mistake on record: a hand-written launcher passed the client's flags through
+`powershell -File` as an array, which arrives as one token. The client ignored
+all of them and ran a normal windowed session against the real profile folder
+under AppData for 50 minutes (until the launcher's timeout). No save or settings
+file changed; eight cache files it wrote under `mod-cache` were removed through
+the Recycle Bin. The launcher now refuses to start without `--portable` or
+`--savedir` and takes the arguments as one string.
+
+Decisions waiting on Mike (Finish Tracker, "Decisions needed from Mike"): what
+"converted to behavior graphs" means this week (recommended: D-006 option A as
+recorded), what to do with the paused lane's work (recommended: park and salvage
+its three fixes and the v2 world-hit work), what counts as "plays to completion",
+v1 or v2 graphs for mod weapons, the custom level against D-004, and where smoke
+runs live now that D: is a hard disk.
+
+Next for CORE: build and boot the B-1109 fix through the new runner option, then
+the headless extraction baseline and conformance, the campaign auto-runner at
+three difficulties, and the model conversion sweep (B-1106, B-1086).
