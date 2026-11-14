@@ -79,6 +79,19 @@ Progress log:
   Test-run gotcha: pd-tests output must go through a pipe; redirected to a file, 14 native write policy
   cases fail because the policy refuses inherited disk outputs (not a regression).
   Smokes from here on: my own runner copy, `-Install D:\PD2-wt\shared-base-2`, my build.
+- Game runs on base 2 (2026-11-14, build 77049d63, receipts under
+  `D:\PD2-wt\multiplayer\.claude\smoke-verify-runs\`): `boot_smoke` PASS 14/14
+  (`results-20261114T221824Z.json`, 92.5 s, no re-extraction); `listen_host_match_smoke` PASS 58/58
+  (`results-20261114T222549Z.json`), so SP-75 holds on the two-process path.
+- `mp_combat_net_bots_smoke` first run 58/65 (`results-20261114T224518Z.json`): roster reached the client
+  (`PARTICIPANTS: 5 active (2 players, 3 bots)` on both sides) but the 200 s scripted exit landed 2.5 s into
+  the match, because on the D: disk the client needed about 130 s to boot. It also exposed B-1124: seven
+  two-process fixtures that share one install ran against the real user profile (`%APPDATA%/perfectdark`).
+  Fix 4b7b2742: `--portable` on both processes of the seven, a CI fixture-isolation test, and a 330 s budget
+  for this fixture. Rerun PASS 65/65 (`results-20261114T230205Z.json`): first networked Combat match with
+  simulants. Bots scored 3, 3 and 2, scores replicated through the match, time-limit end, and host and client
+  logged identical `MATCH.RESULT.CHR` lines; both processes saved inside the install. Not yet looked at: how
+  the client renders bot movement and weapons.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
