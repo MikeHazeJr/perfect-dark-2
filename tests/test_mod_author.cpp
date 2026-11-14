@@ -1007,3 +1007,87 @@ TEST_CASE("mod author reports unusable templates and folders without leaving any
 		CHECK(authorTree(root.path) == expected);
 	}
 }
+
+/*
+ * Local sweep, off unless PD2_BASE_TEMPLATE_DIR names an extracted base data
+ * folder (the one holding weapons/, characters/, bodies/, ...). Every base
+ * archive of a family the author supports is saved as a mod; the result must
+ * be release-valid. The per-archive outcome goes to
+ * <PD2_TEST_ARTIFACT_DIR>/base_template_sweep.txt when that is set.
+ *
+ * The base data is read only. Extracted assets never enter the repository or
+ * CI, so this case does nothing there.
+ */
+TEST_CASE("mod author sweep over base templates (local, needs PD2_BASE_TEMPLATE_DIR)",
+          "[modding][author][base-sweep]") {
+	const char *base = std::getenv("PD2_BASE_TEMPLATE_DIR");
+	if (!base || !base[0] || !fs::is_directory(base)) {
+		SUCCEED("PD2_BASE_TEMPLATE_DIR not set; sweep skipped");
+		return;
+	}
+
+	struct Family { const char *dir; const char *ext; };
+	const Family families[] = {
+		{ "weapons", ".pdweapon" }, { "vehicles", ".pdvehicle" },
+		{ "characters", ".pdcharacter" }, { "bodies", ".pdbody" },
+		{ "heads", ".pdhead" }, { "arenas", ".pdarena" },
+	};
+
+	std::string report;
+	size_t total = 0;
+	size_t saved = 0;
+	for (const Family &family : families) {
+		const fs::path dir = fs::path(base) / family.dir;
+		if (!fs::is_directory(dir)) {
+			report += std::string(family.dir) + "\t(missing folder)\n";
+			continue;
+		}
+		std::vector<fs::path> archives;
+		for (const auto &entry : fs::directory_iterator(dir)) {
+			if (entry.is_regular_file() && entry.path().extension() == family.ext) {
+				archives.push_back(entry.path());
+			}
+		}
+		std::sort(archives.begin(), archives.end());
+
+		size_t family_saved = 0;
+		for (const fs::path &archive : archives) {
+			AuthorTempDir root;   /* one scratch mods folder per archive */
+			const std::string display = "Sweep " + archive.stem().string();
+			AuthorRequest req(archive.string(), root.path, display.c_str());
+			const AuthorCall call = authorSave(req.request);
+			total++;
+			std::string outcome;
+			if (call.code == MOD_AUTHOR_OK) {
+				char err[256] = {};
+				const std::string bytes = authorReadFile(call.result->archive_path);
+				if (assetArchiveValidateBytes(bytes.data(), static_cast<u32>(bytes.size()),
+						call.result->archive_path, ASSET_ARCHIVE_VALIDATE_RELEASE,
+						err, sizeof(err)) == 0) {
+					saved++;
+					family_saved++;
+					outcome = "OK\tids=" + std::to_string(call.result->ids.id_count);
+				} else {
+					outcome = std::string("SAVED_BUT_INVALID\t") + err;
+				}
+			} else {
+				outcome = "REFUSED(" + std::to_string(call.code) + ")\t" + call.err;
+			}
+			report += std::string(family.dir) + "\t" + archive.filename().string()
+				+ "\t" + outcome + "\n";
+		}
+		report += std::string("# ") + family.dir + ": " + std::to_string(family_saved)
+			+ " of " + std::to_string(archives.size()) + " saved\n";
+	}
+	report += "# total: " + std::to_string(saved) + " of " + std::to_string(total) + " saved\n";
+
+	const char *artifacts = std::getenv("PD2_TEST_ARTIFACT_DIR");
+	if (artifacts && artifacts[0]) {
+		authorWriteFile(fs::path(artifacts) / "base_template_sweep.txt", report);
+	}
+	WARN("base template sweep: " << saved << " of " << total << " saved");
+	/* A result that was written must always be valid; refusals are findings,
+	 * not failures, and are listed in the report. */
+	CHECK(report.find("SAVED_BUT_INVALID") == std::string::npos);
+	CHECK(total > 0);
+}

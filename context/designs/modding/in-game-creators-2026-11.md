@@ -139,8 +139,15 @@ Foundation, in order. Each step lands with tests that run in CI.
      derived id (`ASSET_ARCHIVE_CLONE_ROOT_ID_MAX`); longer names are
      shortened with a hash.
    - The in-game folder packer packs the authored folder as it stands.
-   - Not covered: any game run; a template extracted from the base game;
-     what the mod manager shows (see B-1141).
+   - Base templates, local run 2026-11-14 against the shared extraction
+     (`[base-sweep]` case, `PD2_BASE_TEMPLATE_DIR`, 17 seconds): every base
+     weapon (86), character (63), body (68), head (84) and the hoverbike
+     saves as a release-valid mod. Arenas: 6 of 47; the other 41 are not
+     release-valid as extracted (B-1145, `collision.obj` names a
+     `scenario.mtl` that is not in the archive), so no base arena can be a
+     template until that is fixed. Base scenarios carry full navigation
+     data, so a level made from a base arena keeps bot navigation.
+   - Not covered: any game run; what the mod manager shows (see B-1141).
    Known gap (B-1142): the author guarantees release validation only, and
    release validation does not read member content. Step 4 closes it.
 3. NEXT: one in-game Validate (`mod_asset_validate`): release validation plus
