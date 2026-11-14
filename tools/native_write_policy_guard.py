@@ -65,7 +65,14 @@ REVIEWED = {
     "port/src/fs.c": {"routes": ["mkdir"], "sha256": "636d96c2f35c6c54e1153fa5e18935ed914b8cdc75a9a3f1caed142f919c34cd"},
     "port/src/mapimport.c": {"routes": ["mkdir"], "sha256": "e002d1adc43bdb5f15155259da8c14babba4be0cfa738e07aef429f0e0d012f1"},
     "port/src/modpack_pdmod.c": {"routes": ["mkdir"], "sha256": "69445cd22d0765ad30b95590edcf2e8310ecd44da8739236972eb745c9236afc"},
-    "port/src/net/net.c": {"routes": ["open"], "sha256": "e885aee65f0d44338facda86cc842a595aeea0ed45741a89eea0774cba735f8b"},
+    # Re-pinned 2026-11-14 on week-pd/multiplayer. The reviewed call, the
+    # read-only open("/dev/urandom") in the non-Windows branch, and its real
+    # surroundings are byte-identical to a8ab67f3. The pin moved because
+    # review_fingerprint() counts lines in comment-blanked text, so for this
+    # file it hashes a window 167 lines above the call, and that window shifts
+    # whenever comment lines are added higher up. Reported to the tooling
+    # owner; the mapping itself is left unchanged here.
+    "port/src/net/net.c": {"routes": ["open"], "sha256": "d2349ebfac18389153b3aca50bb1b78eac4c623d4024570a5fb1eacac88206eb"},
     "port/src/pdca_extract_transaction.c": {"routes": ["mkdir"], "sha256": "ea7c9891ad5a20663da577577cc846a1fdd1f6e550e057821be09e45d956ffe8"},
     "port/src/romdata.c": {"routes": ["mkdir"], "sha256": "9b9cccf9aa62b258d4cd0d14e2f36f0d3e78b28b2bbf219eccae222ed6d34122"},
     "port/src/theater_format.c": {"routes": ["ftruncate"], "sha256": "0311fba4e2b6a676cc908160641ffe893602edb36ec59bc84c5d11d630e76ee1"},
