@@ -9867,3 +9867,60 @@ runs live now that D: is a hard disk.
 Next for CORE: build and boot the B-1109 fix through the new runner option, then
 the headless extraction baseline and conformance, the campaign auto-runner at
 three difficulties, and the model conversion sweep (B-1106, B-1086).
+
+## 2026-11-14 (later) - CORE: campaign runs, objective operand bug B-1111, shared fixes
+
+Focus: prove the single-player campaign on the Step 0 base, then chase what the
+proof hides.
+
+What was done
+- Campaign auto-runner (`auto_campaign_release`) PASS 23/23 twice on CORE builds
+  from the shared base: all 17 missions load, are force-completed, save, show the
+  end screen and unlock the next; a second process reloads 17 best times. Agent
+  only, about 76 frames of live play per mission.
+- Reading that log found B-1111: objective tags and stage flags were byte-swapped
+  in public scenario source (`setup.fields.json`, `objectives.json`). The setup
+  rebuild swapped its copy back, so the native path was right; the mission graph
+  path used `objectives.json` as written, so in the 14 missions with a
+  `.pdmission` flag criteria tested the wrong flag and object criteria looked up
+  tags that do not exist. Chicago and Defense flipped to "failed" one second into
+  play. Fixed in the extractor and the runtime, with a tag and flag parity check
+  in `objectiveCheck`, a scenario cache kind bump and static tests. Shared commit
+  c18dce71 on `week-pd/extract-1`.
+- B-1145 (found by MODS): `collision.obj` named a material library the scenario
+  layout forbids. Line removed in the same commit. B-1112 recorded: the archive
+  validator skips reference checks on text members over 4 MiB.
+- Mission archives for the 7 campaign stages without an arena row (Extraction,
+  Rescue, Escape, four special assignments), so all 21 run from mission graph
+  source. Deliberately after B-1111.
+- Campaign runner: objective flag probe before every forced end (flag-only
+  objectives must answer incomplete, complete and failed to their own flags
+  through the production check), a soak option (`--auto-campaign-soak`), a
+  60 second soak fixture, Special Agent and Perfect Agent fixtures.
+- Two warnings that fired for correct base content are gone (head number 0 in the
+  manifest scan, the default guard head count on base stages): 72 of the 127
+  warning lines in one campaign run.
+- Shared tooling: the write-route guard bound its review pins to lines 2 to 151
+  above the reviewed call (a69188cd on `week-pd/guard-fix`); the smoke runner
+  commit is published as `week-pd/runner` so each session uses its own storage.
+- Second-generation shared base `D:\PD2-wt\shared-base-2`, re-extracted by the
+  fixed client (2 min 10 s on the hard disk), conformance 0 errors.
+
+Decisions made by CORE (tactical, reported)
+- The public source carries real tag ids and flag masks; both readers take them
+  as written. No compatibility path for the swapped numbers: no content outside
+  the base extraction used them.
+- Extraction-output changes land as one shared commit plus a new shared base
+  folder, so sessions switch when they merge.
+- The retired `objective_step.argument` field keeps its old handling.
+
+Not done, and why
+- CORE's smoke storage refuses new installs: three interrupted workspaces from
+  MULTIPLAYER's attempts reserve 6 of its 8 GiB budget. The retention rules say
+  interrupted work needs a deliberate review and the registry is not to be edited,
+  so they are untouched and the question is with Mike. CORE verified with direct
+  client runs (`--basedir`, private `--savedir`) meanwhile.
+
+Next for CORE: campaign at Special Agent and Perfect Agent, the 60 second soak,
+special assignments in the runner, model conversion sweep, v2 weapon ingress
+ruling, then the behavior checklist in order.
