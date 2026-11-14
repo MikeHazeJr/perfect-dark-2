@@ -199,6 +199,12 @@ u32 matchConfigGetUserOptions(void);
 void matchConfigSetUserOption(u32 bit, s32 enabled);
 void matchConfigReplaceUserOptions(u32 options, const char *reason);
 void matchConfigRestoreUserOptions(const char *reason);
+/* Selection-time owner for the chosen scenario. Derives the runtime mode from
+ * the primary scenario catalog ID and turns the user's Teams option on when
+ * the selected game mode requires teams. Every path that writes
+ * g_MatchConfig.scenario_id or requests a match start calls it.
+ * Returns 1 if anything changed, 0 if not, -1 if the ID does not resolve. */
+s32 matchConfigApplyScenarioRules(const char *reason);
 /* Transactional weapon-selection boundaries.  They publish the numeric cache
  * and exact public catalog IDs together, so network/save writers never need to
  * reconstruct identity from a legacy MPWEAPON_* value. */

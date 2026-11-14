@@ -1,13 +1,21 @@
 # Week PD multiplayer plan (Nov 15 - 21, 2026)
 
 Owner: MULTIPLAYER week session (hub id `claude-week-pd-multiplayer`).
-Branch `week-pd/multiplayer`, worktree `C:\Users\mikeh\Perfect-Dark-2\wt\multiplayer`, base dev `a8ab67f3`.
+Branch `week-pd/multiplayer`, worktree `D:\PD2-wt\multiplayer`, base dev `a8ab67f3` plus the shared
+records commit `8b6c0bda`.
 Live status table: `context/week-pd-coordination.md` in the canonical checkout (one shared copy).
 
-State on 2026-11-14: read-only planning. Nothing has been built or run by this session.
-Gate as of 18:40 UTC: the base a8ab67f3 builds and passes its unit tests on hosted CI; the local build
-and the boot smoke are still held by the disk floor. Mike's condition for this session is a clean build
-and a passing boot smoke, so source edits wait for the boot smoke or for Mike's word.
+State on 2026-11-14: the base a8ab67f3 builds and passes its unit tests on hosted CI. The local build and
+the boot smoke are CORE's to run first. Mike's decision for this session (2026-11-14): start source work
+now, checked by hosted CI on the pushed branch, and limited to what CI can check; nothing is called
+working in-game until the local boot smoke passes. Nothing has been run in a game by this session.
+
+Progress log:
+- Unit A (2026-11-14): scenario selection rules have one owner (`matchConfigApplyScenarioRules`) and
+  `mpStartMatch` initializes the chosen scenario on every start path. Addresses section 4 item 1 and the
+  automation half of item 6. Known limit: Capture the Case still wraps teams 4-7 inside its own init on
+  each peer after the network start is serialized; that normalization moves to the authority in the
+  Capture the Case unit.
 
 Evidence labels used below:
 - VERIFIED: I read the cited source lines myself.

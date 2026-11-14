@@ -201,6 +201,9 @@ const char *mpPlayerConfigGetName(s32 playernum);
 
 /* Solo match start (matchsetup.c) — configure g_MpSetup from g_MatchConfig + call mpStartMatch() */
 s32 matchStart(void);
+/* Selection-time owner for the chosen scenario (matchsetup.c): syncs the
+ * runtime mode with scenario_id and turns Teams on for team-only modes. */
+s32 matchConfigApplyScenarioRules(const char *reason);
 s32 matchConfigMaxBotsForHumans(s32 humanCount);
 /* M0.1c: weapon slot catalog ID accessor (matchsetup.c) */
 const char *matchGetWeaponSlotCatalogId(s32 slot);
@@ -2878,6 +2881,10 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
                             sizeof(g_MatchConfig.scenario_id) - 1);
                     g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
                 }
+                /* A team-only mode turns Teams on here, as picking it did
+                 * in the original menus, so the option and the team pickers
+                 * show it before Start. The dirty flag below broadcasts it. */
+                matchConfigApplyScenarioRules("room-select");
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
                 s_RoomSettingsDirty = true;
                 /* M-20 progressive focus (menu-stack §6.4): after the
@@ -3442,6 +3449,13 @@ static s32 roomGraphStartMatch(void *userdata)
                     numBots = maxBots;
                 }
                 u8 simType  = getLeadSimType();
+                /* Backstop for the networked request: the options and mode
+                 * read below must already carry the scenario's rules. The
+                 * selection handler normally did this; if it changes
+                 * anything here, the room settings must be re-sent too. */
+                if (matchConfigApplyScenarioRules("room-net-start") > 0) {
+                    s_RoomSettingsDirty = true;
+                }
                 return netLobbyRequestStartWithSims(
                     GAMEMODE_MP,
                     s_Arenas[s_SelectedArena].id,

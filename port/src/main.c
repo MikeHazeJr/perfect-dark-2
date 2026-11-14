@@ -1206,6 +1206,14 @@ static void bootApplyLaunchMpRoom(void)
 			sizeof(g_MatchConfig.scenario_id) - 1);
 		g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
 	}
+	/* Derive the runtime mode from the ID and apply the mode's rules before
+	 * the bots below are seated, so a team-only mode gets two balanced teams
+	 * and --host-autostart sends a mode that matches the ID. */
+	if (matchConfigApplyScenarioRules("launch-mp-room") < 0) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --launch-mp-room scenario '%s' did not resolve to a game mode",
+			g_MatchConfig.scenario_id);
+	}
 	if (g_BootDebugSpawnWeapon && g_BootDebugSpawnWeapon[0]) {
 		strncpy(g_MatchConfig.spawn_weapon_id, g_BootDebugSpawnWeapon,
 			sizeof(g_MatchConfig.spawn_weapon_id) - 1);
@@ -3827,6 +3835,10 @@ s32 bootHostAutostartTick(void)
 		numSims = 0;
 		simType = 0;
 		weaponSet = 0xFF;
+	} else {
+		/* The start writer rejects a mode that disagrees with the scenario
+		 * ID, and a team-only mode needs Teams in the sent options. */
+		(void)matchConfigApplyScenarioRules("host-autostart");
 	}
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --host-autostart firing: mode=%u stage='%s' difficulty=%u anti_client=%u scenario=%u timelimit=%u sims=%u",

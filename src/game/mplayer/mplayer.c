@@ -357,6 +357,18 @@ void mpStartMatch(void)
 			mpGetActivePlayerCount(), mpGetActiveBotCount());
 	}
 
+	/* Scenario state is initialized here for every Combat Simulator start
+	 * (offline Room, challenge, preset, listen authority, receiving client).
+	 * The original menus ran scenarioInit() when a scenario was picked; the PC
+	 * entry paths write the selection directly, so without this call King of
+	 * the Hill, Capture the Case and Pop a Cap began a match with whatever the
+	 * shared g_ScenarioData union last held. The participants this reads are
+	 * already committed on every path. Teams for team-only modes are settled
+	 * earlier by matchConfigApplyScenarioRules(), before options are frozen or
+	 * serialized, so the option write inside the team modes' init is a no-op
+	 * for a prepared network launch. */
+	scenarioInit();
+
 	sysLogPrintf(LOG_NOTE, "MATCH: options=0x%08x onehitkills=%d slowmo=%d scenario=%d handicap0=%d",
 		g_MpSetup.options,
 		(g_MpSetup.options & MPOPTION_ONEHITKILLS) != 0,
