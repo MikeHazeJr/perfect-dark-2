@@ -371,6 +371,13 @@ static const char *g_BootLaunchDifficulty = NULL;
 static const char *g_BootLaunchMpArena    = NULL;
 static const char *g_BootLaunchMpScenario = NULL;
 static s32         g_BootLaunchMpBotCount = 0;
+/* Week PD multiplayer smokes: --match-scorelimit <1..100> and
+ * --match-teamscorelimit <1..400> seed the ordinary match limits of a
+ * --launch-mp-room match so a scripted match can end on a score. Unlike the
+ * seconds time limit these are real setup values: they show in the Room and
+ * travel in the normal start message. 0 means the flag was not passed. */
+static s32         g_BootMatchScoreLimit = 0;
+static s32         g_BootMatchTeamScoreLimit = 0;
 /* Mike directive 2026-05-18: CLI infrastructure for end-to-end smoke
  * tests of CS matches. --debug-auto-start-match arms a one-shot that
  * fires Start Match after the Room dialog opens, skipping the human
@@ -1213,6 +1220,17 @@ static void bootApplyLaunchMpRoom(void)
 		sysLogPrintf(LOG_WARNING,
 			"BOOT: --launch-mp-room scenario '%s' did not resolve to a game mode",
 			g_MatchConfig.scenario_id);
+	}
+	/* Stored limits are "limit minus one" (mpApplyLimits adds it back). */
+	if (g_BootMatchScoreLimit > 0) {
+		g_MatchConfig.scorelimit = (u8)(g_BootMatchScoreLimit - 1);
+		sysLogPrintf(LOG_NOTE, "BOOT: --match-scorelimit applied: score=%d",
+			g_BootMatchScoreLimit);
+	}
+	if (g_BootMatchTeamScoreLimit > 0) {
+		g_MatchConfig.teamscorelimit = (u16)(g_BootMatchTeamScoreLimit - 1);
+		sysLogPrintf(LOG_NOTE, "BOOT: --match-teamscorelimit applied: score=%d",
+			g_BootMatchTeamScoreLimit);
 	}
 	if (g_BootDebugSpawnWeapon && g_BootDebugSpawnWeapon[0]) {
 		strncpy(g_MatchConfig.spawn_weapon_id, g_BootDebugSpawnWeapon,
@@ -4180,6 +4198,28 @@ int main(int argc, const char **argv)
 				sysLogPrintf(LOG_WARNING,
 					"BOOT: --match-timelimit-sec expects 1..3600; got: '%s'",
 					tlsec);
+			}
+		}
+	}
+	{
+		const char *slimit = sysArgGetString("--match-scorelimit");
+		const char *tlimit = sysArgGetString("--match-teamscorelimit");
+		if (slimit && slimit[0]) {
+			long v = strtol(slimit, NULL, 0);
+			if (v >= 1 && v <= 100) {
+				g_BootMatchScoreLimit = (s32)v;
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --match-scorelimit expects 1..100; got: '%s'", slimit);
+			}
+		}
+		if (tlimit && tlimit[0]) {
+			long v = strtol(tlimit, NULL, 0);
+			if (v >= 1 && v <= 400) {
+				g_BootMatchTeamScoreLimit = (s32)v;
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --match-teamscorelimit expects 1..400; got: '%s'", tlimit);
 			}
 		}
 	}

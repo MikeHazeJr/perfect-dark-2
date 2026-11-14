@@ -178,3 +178,76 @@ TEST_CASE("Room applies scenario rules at selection and before a networked start
 	 * itself. */
 	REQUIRE(start.find("matchStart()") != std::string::npos);
 }
+
+TEST_CASE("match end logs the result every peer is about to show",
+          "[match][witness][static]")
+{
+	const std::string mplayer = read_text_file_scenario_start("src/game/mplayer/mplayer.c");
+	const std::string result = function_block_scenario_start(mplayer, "static void mpLogMatchResult");
+	const std::string end = function_block_scenario_start(mplayer, "void mpEndMatch");
+
+	/* Scores go through the scenario's own score callback, so the same lines
+	 * cover Combat and the objective scenarios. */
+	REQUIRE(result.find("mpGetPlayerRankings(rankings)") != std::string::npos);
+	REQUIRE(result.find("scenarioCalculatePlayerScore(") != std::string::npos);
+	REQUIRE(result.find("\"MATCH.RESULT: scenario=%d teams=%d chrs=%d netmode=%d\"") != std::string::npos);
+	REQUIRE(result.find("\"MATCH.RESULT.CHR: rank=%d chr=%u team=%u score=%d deaths=%d\"") != std::string::npos);
+	REQUIRE(result.find("\"MATCH.RESULT.TEAM: rank=%d team=%u score=%d\"") != std::string::npos);
+
+	/* Logged on host, client and offline alike, before the end screen line
+	 * the existing match smokes already wait for. */
+	const size_t log_result = require_position(end, "mpLogMatchResult();");
+	const size_t endscreen = require_position(end, "\"MATCH: endscreen shown\"");
+	REQUIRE(log_result < endscreen);
+	const size_t client_gate = end.find("if (g_NetMode != NETMODE_CLIENT)");
+	REQUIRE(client_gate != std::string::npos);
+	REQUIRE(client_gate < log_result);
+}
+
+TEST_CASE("score limit endings log their reason before ending the stage",
+          "[match][witness][static]")
+{
+	const std::string lv = read_text_file_scenario_start("src/game/lv.c");
+
+	const size_t time_reason = require_position(lv, "\"MATCH: stage end reason=timelimit\"");
+	const size_t score_flag = require_position(lv, "scorelimit_reached = true;");
+	const size_t team_flag = require_position(lv, "teamscorelimit_reached = true;");
+	const size_t client_reset = require_position(lv, "g_NumReasonsToEndMpMatch = 0;\n\t\t\t}\n\n\t\t\tif (g_NumReasonsToEndMpMatch > 0 && numdying == 0)");
+	const size_t reason = require_position(lv,
+		"\"MATCH: stage end reason=%s scorelimit=%d teamscorelimit=%d\"");
+	const size_t end_stage = lv.find("mainEndStage();", reason);
+
+	REQUIRE(time_reason < score_flag);
+	REQUIRE(score_flag < team_flag);
+	REQUIRE(team_flag < client_reset);
+	REQUIRE(client_reset < reason);
+	REQUIRE(end_stage != std::string::npos);
+	/* Nothing between the witness and the stage end but the call itself. */
+	REQUIRE(end_stage - reason < 400);
+}
+
+TEST_CASE("boot automation can seed real score limits for a launched match",
+          "[match][witness][static]")
+{
+	const std::string main_c = read_text_file_scenario_start("port/src/main.c");
+	const std::string room = function_block_scenario_start(main_c, "static void bootApplyLaunchMpRoom");
+
+	REQUIRE(main_c.find("sysArgGetString(\"--match-scorelimit\")") != std::string::npos);
+	REQUIRE(main_c.find("sysArgGetString(\"--match-teamscorelimit\")") != std::string::npos);
+	REQUIRE(main_c.find("v >= 1 && v <= 100") != std::string::npos);
+	REQUIRE(main_c.find("v >= 1 && v <= 400") != std::string::npos);
+
+	/* Stored limits are "limit minus one"; mpApplyLimits adds it back. */
+	const size_t init = require_position(room, "matchConfigInit();");
+	const size_t score = require_position(room,
+		"g_MatchConfig.scorelimit = (u8)(g_BootMatchScoreLimit - 1);");
+	const size_t team = require_position(room,
+		"g_MatchConfig.teamscorelimit = (u16)(g_BootMatchTeamScoreLimit - 1);");
+	REQUIRE(init < score);
+	REQUIRE(init < team);
+
+	const std::string mplayer = read_text_file_scenario_start("src/game/mplayer/mplayer.c");
+	const std::string limits = function_block_scenario_start(mplayer, "void mpApplyLimits");
+	REQUIRE(limits.find("lvSetMpScoreLimit(g_MpSetup.scorelimit + 1);") != std::string::npos);
+	REQUIRE(limits.find("lvSetMpTeamScoreLimit(mpCalculateTeamScoreLimit() + 1);") != std::string::npos);
+}
