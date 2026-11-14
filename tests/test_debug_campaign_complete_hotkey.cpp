@@ -337,3 +337,20 @@ TEST_CASE("campaign smoke requires clean exits and retains restart evidence",
 	REQUIRE(invalid_cli.find("CAMPAIGN\\\\.AUTO: plan profile=") !=
 		std::string::npos);
 }
+
+// B-1118: presence is "in-match" only while a solo stage is entered. The old
+// test (g_MissionConfig.stageindex >= 0) was always true for the unsigned
+// index, so the Carrington Institute menu backdrop showed in-match to friends
+// for any loaded agent. The special-assignment runner compares presence at the
+// menu with the menu it started from, so it holds either way.
+TEST_CASE("presence reads in-match only while a solo stage is entered",
+	"[presence][campaign][static][b-1118]")
+{
+	const std::string pdmain = read_text_file_debug_hotkey("port/src/pdmain.c");
+
+	REQUIRE(pdmain.find("#include \"game/stagetable.h\"") != std::string::npos);
+	REQUIRE(pdmain.find("const bool inMission = soloStageGetIndex(stagenum) >= 0;") !=
+		std::string::npos);
+	REQUIRE(pdmain.find("(g_MissionConfig.stageindex >= 0)") == std::string::npos);
+	REQUIRE(pdmain.find("presenceSetLocalState(PRESENCE_IN_MATCH);") != std::string::npos);
+}

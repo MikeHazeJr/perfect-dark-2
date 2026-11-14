@@ -60,6 +60,7 @@
 #include "game/pak.h"
 #include "game/splat.h"
 #include "game/utils.h"
+#include "game/stagetable.h"
 #include "bss.h"
 #include "lib/audiomgr.h"
 #include "lib/args.h"
@@ -1273,7 +1274,11 @@ void mainChangeToStage(s32 stagenum)
 		const bool looksLikeMP = (g_NetMode != NETMODE_NONE)
 			|| g_MissionConfig.iscoop || g_MissionConfig.isanti
 			|| g_Vars.normmplayerisrunning;
-		const bool inMission = (g_MissionConfig.stageindex >= 0);
+		/* B-1118: stageindex is an unsigned byte, so the old test
+		 * (stageindex >= 0) was always true and the Carrington Institute
+		 * menu backdrop read as in-match for any loaded agent. A mission
+		 * is in progress when the stage being entered is a solo stage. */
+		const bool inMission = soloStageGetIndex(stagenum) >= 0;
 		if (STAGE_IS_GAMEPLAY(stagenum) && (looksLikeMP || inMission)) {
 			presenceSetLocalState(PRESENCE_IN_MATCH);
 		} else {
