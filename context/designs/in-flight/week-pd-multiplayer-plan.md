@@ -69,6 +69,16 @@ Progress log:
   `pd` 0 mixed header declarations (was 291), 0 flips into project code (was 28), 4 mixed symbols
   (the B-1123 declarations, fixed in the same commit). Build, unit tests, audit rerun and smokes on the
   merged tree: next entry.
+- Verification of 8a4f32aa (2026-11-14): client and tests build with no new warnings; full pd-tests 1873
+  cases / 337851 assertions green. Merged CORE's shared commits `week-pd/guard-fix` (1cc34bbb; took the
+  shared guard file, guard tests 9/9 and the full guard pass on my compile database), `week-pd/runner`
+  (6567be8d) and `week-pd/extract-1` (77049d63, B-1111; pd-tests list conflict, both sides kept). On
+  77049d63: build green, pd-tests 1876 cases / 337881 assertions green, final audit PASS (`pd` 799 files:
+  0 mixed header declarations, 0 mixed symbols over 1,579 named, 0 flips into project code, 6 contained
+  ENet flips, 0 leaking scopes; `pd-tests` 349 files PASS). Hosted CI run 43646262037 on 6567be8d.
+  Test-run gotcha: pd-tests output must go through a pipe; redirected to a file, 14 native write policy
+  cases fail because the policy refuses inherited disk outputs (not a regression).
+  Smokes from here on: my own runner copy, `-Install D:\PD2-wt\shared-base-2`, my build.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
