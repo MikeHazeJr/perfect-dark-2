@@ -284,3 +284,43 @@ TEST_CASE("stage end commit reopens the match room so a second match can start",
 	/* Lounge-scope matches (no room) are left alone. */
 	REQUIRE(commit.find("if (room_id != 0xFF) {") != std::string::npos);
 }
+
+TEST_CASE("final scores reach the match roster before the stage end message",
+          "[match][result][static]")
+{
+	const std::string net = read_text_file_scenario_start("port/src/net/net.c");
+	const std::string send = function_block_scenario_start(net,
+		"static bool netServerSendFinalScores");
+	const std::string flush = function_block_scenario_start(net,
+		"static bool netServerFlushPendingStageEnd");
+	const std::string end = function_block_scenario_start(net, "void netServerStageEnd");
+
+	/* The existing scores message, unchanged, in its own reliable packet on
+	 * the channel the terminal packet uses, so it is delivered first. */
+	REQUIRE(send.find("netmsgSvcPlayerScoresWrite(&wire)") != std::string::npos);
+	REQUIRE(send.find("netSendToMatch(room_id, &wire, true, NETCHAN_DEFAULT)") != std::string::npos);
+	REQUIRE(send.find("\"MATCH: final scores published before stage end room=%u bytes=%u\"") != std::string::npos);
+	/* Sized for every character slot and every opponent kill count. */
+	REQUIRE(send.find("u8 data[2u + MAX_MPCHRS * (6u + MAX_MPCHRS * 2u)];") != std::string::npos);
+
+	/* Combat Simulator only, once per ending match, and a failed send keeps
+	 * the terminal packet back so both are retried together. */
+	const size_t mode_gate = require_position(flush, "s_NetStageEndPending.mode == NETGAMEMODE_MP");
+	const size_t once_gate = require_position(flush, "!s_NetStageEndPending.final_scores_sent");
+	const size_t scores = require_position(flush, "netServerSendFinalScores(s_NetStageEndPending.room_id, reason)");
+	const size_t latch = require_position(flush, "s_NetStageEndPending.final_scores_sent = true;");
+	const size_t terminal = require_position(flush, "netServerFlushCutsceneAuthorityPacket(reason, true,");
+	const size_t commit = require_position(flush, "netServerCommitPendingStageEnd();");
+	REQUIRE(mode_gate < scores);
+	REQUIRE(once_gate < scores);
+	REQUIRE(scores < latch);
+	REQUIRE(latch < terminal);
+	REQUIRE(terminal < commit);
+
+	/* A new ending match starts with the latch clear. */
+	const size_t arm = require_position(end, "s_NetStageEndPending.active = true;");
+	const size_t clear = require_position(end, "s_NetStageEndPending.final_scores_sent = false;");
+	const size_t first_flush = require_position(end, "netServerFlushPendingStageEnd(\"stage-end\")");
+	REQUIRE(arm < clear);
+	REQUIRE(clear < first_flush);
+}
