@@ -883,6 +883,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_stage_load_static.cpp
   # B-1111: objective tags and stage flags stay in host order end to end.
   ${CMAKE_SOURCE_DIR}/tests/test_objective_operand_order_static.cpp
+  # Every campaign stage gets a mission archive, not only the 14 with an arena row.
+  ${CMAKE_SOURCE_DIR}/tests/test_mission_archive_coverage_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_campaign_complete_hotkey.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_credits_button.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_campaign_run.cpp

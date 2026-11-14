@@ -1611,13 +1611,22 @@ static void s_scenarioIdFromSlug(const char *slug, char *out, size_t out_n)
 	snprintf(out, out_n, "base:scenario_%s", slug);
 }
 
-static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
-	const char *scenarios_dir, s32 arena_index, s32 force_rewrite)
+#define PDMETA_MISSION_CATEGORY "Solo Missions"
+
+/* Where one base mission archive comes from. Most campaign stages have an
+ * arena row; Extraction, Rescue, Escape and the special assignments do not,
+ * and are described by the campaign's own stage table instead. */
+typedef struct pdmeta_mission_source {
+	const char *slug;              /* "defection": names the mission and its scenario */
+	const char *provenance_source; /* table the mission was derived from */
+	s32 provenance_index;          /* row in that table */
+	s32 arena_index;               /* arena row, or -1 when the stage has none */
+} pdmeta_mission_source_t;
+
+static s32 s_emitMissionArchive(const pdmeta_mission_source_t *a, const char *out_dir,
+	const char *scenarios_dir, s32 force_rewrite)
 {
-	if (!a || !a->category || strcmp(a->category, "Solo Missions") != 0) {
-		return 0;
-	}
-	if (stageGetIndex(a->stagenum) < 0) {
+	if (!a || !a->slug || !a->slug[0]) {
 		return 0;
 	}
 
@@ -1684,7 +1693,7 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		strncpy(entry->category, "base", CATALOG_CATEGORY_LEN - 1);
 		entry->bundled = 1;
 		entry->enabled = 1;
-		entry->runtime_index = arena_index;
+		entry->runtime_index = a->arena_index;
 	snprintf(entry->ext.mission.scenario_archive,
 		sizeof(entry->ext.mission.scenario_archive),
 		"%s/%s.pdmission::dependencies/assets/scenarios/%s.pdscenario",
@@ -1730,7 +1739,7 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 		"objectives_file = objectives.json\n"
 		"category = %s\n",
 		mission_id, scenario_id, scenario_file,
-		PDMETA_SCENARIO_DEP_CACHE_KIND, a->category);
+		PDMETA_SCENARIO_DEP_CACHE_KIND, PDMETA_MISSION_CATEGORY);
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)) return -1;
 
 	pdmeta_textbuf_t graph = { 0 };
@@ -1766,7 +1775,7 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 	mod_archive_writer_t *aw;
 	asset_archive_writer_t writer;
 	if (s_openWriter(relpath, "mission", mission_id, "romextract_pdmeta",
-			"arenadata_authored", arena_index, &aw, &writer) != 0) {
+			a->provenance_source, a->provenance_index, &aw, &writer) != 0) {
 		return -1;
 	}
 	char dep_name[FS_MAXPATH];
@@ -1790,6 +1799,62 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 	s_textbufFree(&graph);
 	s_textbufFree(&objectives);
 	return s_finishWriter(aw, &writer, relpath);
+}
+
+static s32 s_arenaRowIsSoloMission(const arena_authored_record_t *a)
+{
+	return a && a->category && strcmp(a->category, PDMETA_MISSION_CATEGORY) == 0 &&
+		stageGetIndex(a->stagenum) >= 0;
+}
+
+static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
+	const char *scenarios_dir, s32 arena_index, s32 force_rewrite)
+{
+	if (!s_arenaRowIsSoloMission(a)) {
+		return 0;
+	}
+	const pdmeta_mission_source_t source = {
+		a->slug, "arenadata_authored", arena_index, arena_index,
+	};
+	return s_emitMissionArchive(&source, out_dir, scenarios_dir, force_rewrite);
+}
+
+/* The arena table lists 14 of the 21 campaign stages. The other seven
+ * (Extraction, Rescue, Escape and the four special assignments) have their
+ * own stage and scenario but were never given a mission archive, so their
+ * objectives and phases stayed on the native path. The campaign stage table
+ * is the authority on what a mission is; emit the ones the arena loop did
+ * not. The slug is the stage's catalog id without its namespace, the same
+ * rule the standalone scenario for that stage is named by. */
+static s32 s_soloStageNeedsOwnMission(s32 solo_index)
+{
+	if (solo_index < 0 || solo_index >= NUM_SOLOSTAGES) {
+		return 0;
+	}
+	const struct solostage *stage = &g_SoloStages[solo_index];
+	if (!stage->catalog_id || !stage->catalog_id[0] ||
+			stageGetIndex((s32)stage->stagenum) < 0) {
+		return 0;
+	}
+	for (s32 i = 0; i < g_ArenaDataCount; i++) {
+		if (s_arenaRowIsSoloMission(&g_ArenaData[i]) &&
+				(s32)g_ArenaData[i].stagenum == (s32)stage->stagenum) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+static s32 s_emitMissionForSoloStage(s32 solo_index, const char *out_dir,
+	const char *scenarios_dir, s32 force_rewrite)
+{
+	const struct solostage *stage = &g_SoloStages[solo_index];
+	const char *colon = strchr(stage->catalog_id, ':');
+	const pdmeta_mission_source_t source = {
+		(colon && colon[1]) ? colon + 1 : stage->catalog_id,
+		"solostages", solo_index, -1,
+	};
+	return s_emitMissionArchive(&source, out_dir, scenarios_dir, force_rewrite);
 }
 
 typedef struct pdmeta_ctx {
@@ -2005,6 +2070,19 @@ s32 romExtractAllPdmeta(s32 force_rewrite)
 		else if (r == 0) SDL_AtomicAdd(&ctx.skipped, 1);
 		else SDL_AtomicAdd(&ctx.failed, 1);
 		bootProgressUpdate(total + i + 1, total + g_ArenaDataCount);
+	}
+
+	/* Campaign stages without an arena row. Runs after the arena loop so a
+	 * stage that has a row is always described by it. */
+	for (s32 i = 0; i < NUM_SOLOSTAGES; i++) {
+		if (!s_soloStageNeedsOwnMission(i)) {
+			continue;
+		}
+		s32 r = s_emitMissionForSoloStage(i, missions_dir, scenarios_dir,
+			force_rewrite);
+		if (r > 0) SDL_AtomicAdd(&ctx.written, 1);
+		else if (r == 0) SDL_AtomicAdd(&ctx.skipped, 1);
+		else SDL_AtomicAdd(&ctx.failed, 1);
 	}
 
 	s32 written = SDL_AtomicGet(&ctx.written);
