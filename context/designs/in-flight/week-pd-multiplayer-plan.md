@@ -92,6 +92,12 @@ Progress log:
   simulants. Bots scored 3, 3 and 2, scores replicated through the match, time-limit end, and host and client
   logged identical `MATCH.RESULT.CHR` lines; both processes saved inside the install. Not yet looked at: how
   the client renders bot movement and weapons.
+- `network_reconnect_smoke` (2026-11-14, `results-20261114T232009Z.json`): 18/71, blocked by the runner, not
+  the product. With `-Install` only the shared install is seeded from the template; the two per-process
+  installs of a `separate_process_installs` fixture start clean, so the host re-extracts everything from the
+  ROM and misses its 120 s wait for `NET: created server` on the D: disk. Asked CORE (runner owner) to seed
+  per-process installs from the template. The single-install runs show my binary's cache stamps match base 2
+  (`pdmesh skipped=733 (fast-cache)`), so SP-75 changed no cache identity.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
