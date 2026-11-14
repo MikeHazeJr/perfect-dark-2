@@ -9924,3 +9924,73 @@ Not done, and why
 Next for CORE: campaign at Special Agent and Perfect Agent, the 60 second soak,
 special assignments in the runner, model conversion sweep, v2 weapon ingress
 ruling, then the behavior checklist in order.
+
+## 2026-11-14 (night) - CORE: authored room table (B-1113, B-1114, B-1115), runner isolation guard
+
+Focus: find why Defense's "retrieve the RC-P120" objective read as failed at
+mission start, and fix the class behind it.
+
+What was done
+- B-1113 root cause: not objectives. Extracted stages bounded every room by its
+  collision triangles instead of the authored room boxes of the background file.
+  A pad outside the tighter box gets no room, and a prop is only created when
+  its pad has a room. One Agent campaign run: 44 props never created, among them
+  the RC-P120 and the 10 hover cars around the dataDyne tower. Proven offline
+  first (authored boxes read from the background files house the pads; no pad
+  loses its room), then in the game.
+- Propagation check found two siblings. B-1114: no room light could be shot out.
+  The light loader never read the quads (nested array, flat reader), and the
+  quads are relative to room origins this path does not have. B-1115: every room
+  had brightness range 255/255 instead of the authored 128/255.
+- One new scenario member carries all three: `rooms.json`
+  (`pd2.scenario.rooms.v1`), one row per room with `origin`, `min`, `max`,
+  `brightness`. Extractor: `s_buildBgRoomTableJson`. Stage load:
+  `scenarioSourceApplyRoomTableForStage` (boxes, brightness) and the light
+  loader (quads moved to world coordinates). Room origins deliberately stay zero
+  on the scenario-source path; that is documented at the `memset` in `bg.c` and
+  pinned by the test.
+- New stage-load reporting: pads without a room, each prop not created, lights
+  without a readable quad, lights outside their room's box. The last one found
+  the unread quads on its first run.
+- Published as shared commit c78c0510 on `week-pd/extract-2` with a third base,
+  `D:\PD2-wt\shared-base-3`. CORE branch: 237e6c1b (same change), fixture gates
+  2032f602, merge 703a04cc.
+- Tooling: `devtools/keygen.ps1` no longer garbles the tracked public key header
+  (B-1122, 69b79729). The smoke runner refuses a multi-process test whose
+  processes could reach the real profile folder (B-1124, ff7b0040, shared as
+  71b9de82 on `week-pd/runner`).
+- Recorded, not fixed: B-1116 (the input action name table is shorter than the
+  action list, so `pd.ini` gets a `(null)=E` line the loader rejects).
+- Patterns recorded: SP-76 (a present but unreadable field read as absent) and
+  SP-77 (a derived value standing in for an authored table).
+
+Verification
+- 1,869 unit cases pass. Re-extraction: 87 scenarios, 47 arenas, 21 missions,
+  none failed. All 132 scenario archives carry the member; 9,393 rows equal the
+  background files; conformance 9,025 archives (10,033 with nested), 0 errors.
+- Campaign fixture 34 of 34 over both processes (direct runs on base 3): pads
+  without a room equal the offline prediction at all 18 stage loads, props not
+  created 44 to 21, `tag=5 present=1` in Defense, 3,398 lights placed and
+  `outside_room=0` everywhere, 54 warnings (one gone, none new), no error in the
+  live process.
+- Receipts: `D:\PD2-wt\core\.claude\week-pd-receipts\room-bounds-b1113-20261114`,
+  `conformance-shared-base-3-20261114.json`,
+  `shared-base-3-reextraction-20261114.log`.
+
+Decisions
+- The member is named `rooms.json`, not `room_bounds.json`: it holds more than
+  boxes and mod authors will write it.
+- Light quads are converted to world coordinates at load; room origins are not
+  set on this path, because the draw offset, wall hits, smoke and explosions all
+  read them.
+- A prop on a pad with no room is a note, not a warning: base stages carry 21
+  such props and the original game does not create them either.
+
+Next
+- The 60 second soak fixture and the Special Agent and Perfect Agent campaign
+  runs (the hover cars and working lights are new code paths in live play).
+- By hand: collect the RC-P120 in Defense, shoot out a light in Defection, look
+  at the hover cars.
+- B-1116. Then the open SP-77 items (background commands, light glares, sky
+  rooms) and the behavior conversion order in the week note.
+- Still waiting on Mike: the seven decisions in the Finish Tracker.

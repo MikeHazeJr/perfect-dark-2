@@ -3344,6 +3344,97 @@ ownership proof.
 
 ---
 
+## SP-76: A reader takes a present but unreadable field for an absent one
+
+**Severity: HIGH - the value silently becomes zero and nothing downstream can
+tell, so a whole mechanic can be dead while every load line looks normal.**
+
+Public source readers treat most fields as optional: `if (read(...)) { use }`,
+with a zeroed default otherwise. That is right for a field that is absent. It
+is wrong when the field is present and the read fails, because then the
+author's data is dropped without a word. The failure mode needs no malformed
+file: it is enough that the writer and the reader disagree about the shape of a
+value they both consider valid.
+
+**Known instance (B-1114, 2026-11-14):** the extractor writes a room light's
+quad as four nested corners, `"bbox": [[x, y, z], [x, y, z], ...]`. The loader
+added for B-943 read it with `s_jsonReadIntArrayInRange`, which expects a flat
+array and returns 0 at the first inner `[`. Every one of the 3,398 campaign
+lights kept an all-zero quad, so no light could be shot out. B-943 was accepted
+on source pins that checked the member was written and a loader existed. The
+defect was found by a cross-check between two independent tables (a light quad
+must lie inside its room's authored box), not by any test of the reader.
+
+**Rules:**
+
+- A reader that makes a field optional must tell "absent" from "present but
+  unreadable", and report the second (see `without_quad` in
+  `scenarioSourceLoadRoomLightsForStage`).
+- When an extractor and a loader are written for the same member, check one
+  real extracted value end to end at runtime. A pin that the writer and the
+  reader both exist proves nothing about their agreement.
+- Prefer a load-time consistency check between independent authored tables over
+  a count of rows read. `outside_room=` is the model: it cannot pass by
+  accident.
+
+**Audit:** for every optional read in a public source loader, ask what the
+consumer does with the zero default and whether a present field can fail to
+parse. Start with nested values and values that changed shape in the extractor.
+
+`rg -n "if \(s_jsonRead\w+\(obj_open, obj_close" port/src/scenario_source_runtime.c`
+
+`rg -n "\[%d, %d, %d\]|\[%\.6f, %\.6f, %\.6f\]" port/src/romextract_pdarena.c`
+
+---
+
+## SP-77: The scenario-source path stands in a derived value for an authored table
+
+**Severity: HIGH - play differs from the original in every extracted stage, in
+ways that look like content quirks rather than defects.**
+
+The legacy stage loader (`bgBuildTables` in `src/game/bg.c`) fills its room
+tables from the background file. The scenario-source loader
+(`bgBuildScenarioSourceTables`) rebuilds the same tables from public source.
+Where public source did not carry a table, the rebuild used something
+derivable (or a constant), and the game ran on with it.
+
+**Known instances (2026-11-14):**
+
+- Room boxes derived from collision triangles instead of the authored boxes
+  (B-1113): pads outside the tighter boxes got no room and 44 campaign props
+  were never created, among them an objective object.
+- Room origins left at zero while light quads are stored relative to them
+  (B-1114): every light sat away from its fixture.
+- Room brightness range set to the constant 255/255 instead of the authored
+  128/255 (B-1115): a darkened room stayed about twice as bright.
+
+All three now come from the scenario member `rooms.json`.
+
+**Still open, same class (found by reading, 2026-11-14, not yet measured):**
+
+- `g_BgCommands = NULL`: the background file's command list is not in public
+  source (what it controls on this path is not yet measured).
+- `g_BgStanThings = NULL`.
+- Light glares and the sparks of a broken light: `src/game/artifact.c` needs
+  the room graphics data (`gfxdata`) this path does not load, and returns
+  early without it.
+- Sky rooms: `roomPopulateMtx` (`src/game/room.c`) draws a handful of rooms
+  relative to the camera using the room origin, which is zero on this path.
+
+**Rule:** when the scenario-source loader has no source for a table the legacy
+loader fills, that is a missing public member, not a default. Add the member to
+the extractor, and until it exists log the stand-in at stage load so the gap is
+visible in every run.
+
+**Audit:** walk `bgBuildTables` table by table and find the line in
+`bgBuildScenarioSourceTables` that fills the same field; anything filled with a
+constant, a zero or a value computed from other source is a candidate. Do the
+same for the setup and pad loaders.
+
+`rg -n "g_Bg[A-Za-z]+ = NULL;|= 0xff;|memset\(g_Bg" src/game/bg.c`
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.
