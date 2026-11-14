@@ -1107,6 +1107,9 @@ set(SRC_TESTS
   # Template archive plus edits to a complete mod folder: the creators' Save.
   ${CMAKE_SOURCE_DIR}/port/src/mod_author.c
   ${CMAKE_SOURCE_DIR}/tests/test_mod_author.cpp
+  # A mod described in a file: the same request, read strictly from JSON.
+  ${CMAKE_SOURCE_DIR}/port/src/mod_author_recipe.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_mod_author_recipe.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2.cpp
