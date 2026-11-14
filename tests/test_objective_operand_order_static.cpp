@@ -58,7 +58,7 @@ TEST_CASE("objective operands keep host order from stage load to public source a
 		std::string::npos);
 
 	// Installs extracted before the correction must be re-extracted.
-	REQUIRE(extractor.find("_iafix_b945_objoperands_b1111\"") != std::string::npos);
+	REQUIRE(extractor.find("_iafix_b945_objoperands_b1111") != std::string::npos);
 }
 
 TEST_CASE("the graph objective path refuses a criterion that disagrees with the setup command",

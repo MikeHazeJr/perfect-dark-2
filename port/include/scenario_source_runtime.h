@@ -14,6 +14,8 @@ struct chrdata;
 struct chopperobj;
 struct gset;
 struct bgportal;
+struct room;
+struct bgroom;
 
 typedef struct scenario_source_objective_operand {
 	u8 type;
@@ -776,6 +778,14 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 	s32 *out_count);
 u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp, s32 *out_count, s32 *out_max_room);
+/* B-1113, B-1115: applies the authored room table (rooms.json). Writes each
+ * named room's box into rooms[] and marks it in room_bounded[], and its
+ * brightness range into bgrooms[] (counted in *out_brightness_rooms). Returns
+ * rooms whose box was written, 0 when the scenario has no such member, -1 when
+ * the member is present but unusable. */
+s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
+	s32 prefer_mp, struct room *rooms, struct bgroom *bgrooms, s32 room_count,
+	u8 *room_bounded, s32 *out_brightness_rooms);
 
 #ifdef __cplusplus
 }
