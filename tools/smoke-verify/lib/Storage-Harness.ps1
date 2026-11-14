@@ -125,6 +125,18 @@ function New-SmokeManagedInstall {
         $rom = Find-SourceRom -ProjectRoot $request.template
         if ($rom) { $romId = Get-RomIdFromName -RomPath $rom }
         $InstallState = 'current'
+        if ($SourceBinary) {
+            # One shared pre-extracted template, any build under test: the explicit
+            # binary and the DLLs beside it replace the template's own copies.
+            if (-not (Test-Path -LiteralPath $SourceBinary -PathType Leaf)) { throw "Binary override missing: $SourceBinary" }
+            $bin = (Resolve-Path -LiteralPath $SourceBinary).Path
+            $overrides = New-Object 'System.Collections.Generic.List[object]'
+            $overrides.Add(@($bin, $exeName))
+            foreach ($dll in @(Get-ChildItem -LiteralPath (Split-Path -Parent $bin) -Filter '*.dll' -File)) {
+                $overrides.Add(@($dll.FullName, $dll.Name))
+            }
+            $request.sources = $overrides.ToArray()
+        }
     } else {
         $bin = Find-SourceBinary -ProjectRoot $ProjectRoot -ExplicitPath $SourceBinary -Target $Target
         if (-not $bin) { throw "Cannot find $exeName; build first or pass -SourceBinary." }

@@ -1510,7 +1510,7 @@ function Invoke-SmokeTestMultiProcess {
     $installInfo = $null
     if ($ExistingInstall) {
         $installInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $name `
-            -TemplateInstall $ExistingInstall -Target $target
+            -TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target
     } elseif ($Shared) {
         $installInfo = New-SmokeSharedInstall `
             -ProjectRoot $ProjectRoot `
@@ -2298,7 +2298,7 @@ function Invoke-SmokeTest {
             -SourceSeed $SourceSeed -Target $target -Shared:$Shared
     } elseif ($ExistingInstall) {
         $installInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $name `
-            -TemplateInstall $ExistingInstall -Target $target
+            -TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target
     } elseif ($Shared) {
         # Single canonical install path; firewall rule seeded inside.
         $installInfo = New-SmokeSharedInstall `
@@ -2936,6 +2936,7 @@ if ($useSharedInstall) {
     Write-Info "Install mode: exclusive reusable workspace (.claude/smoke-storage/shared/)."
 } elseif ($Install) {
     Write-Info ("Install mode: private copy of read-only template {0}" -f $Install)
+    if ($SourceBinary) { Write-Info ("  binary under test replaces the template's own: {0}" -f $SourceBinary) }
 } else {
     Write-Info "Install mode: private managed install (.claude/smoke-storage/installs/)."
 }

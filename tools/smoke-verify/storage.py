@@ -697,6 +697,13 @@ class Storage:
                 name = path.relative_to(template).as_posix()
                 if name == ".pd-storage-owner.json" or name.startswith("logs/") or name.endswith(".log"): continue
                 files[name] = self.put(path)
+            # Explicit inputs replace same-named template members, so one shared
+            # pre-extracted template can serve whichever build is under test. The
+            # seed identity is computed from the result, never from the template.
+            if request.get("data_source") or request.get("rom_id"):
+                raise StorageError("Template input cannot be combined with a data source")
+            for source, destination in request.get("sources") or []:
+                files[str(relative(destination))] = self.put(plain(source))
         else:
             for source, destination in request["sources"]:
                 files[str(relative(destination))] = self.put(plain(source))
