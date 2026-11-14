@@ -176,6 +176,17 @@ TEST_CASE("release campaign runner observes strict production progression seams"
 	REQUIRE(first.find("mainChangeToStage") == std::string::npos);
 	REQUIRE(tick.find("objectivesDebugCompleteCurrentMission()") !=
 		std::string::npos);
+	// B-1111: flag objectives are proven through the production check, with
+	// their real flags, before forced completion makes every check pass.
+	REQUIRE(tick.find("probeFlagObjectives(mission->stage_id) < 0") !=
+		std::string::npos);
+	REQUIRE(tick.find("probeFlagObjectives(mission->stage_id) < 0") <
+		tick.find("objectivesDebugCompleteCurrentMission()"));
+	REQUIRE(runner.find("chrSetStageFlag(NULL, want)") != std::string::npos);
+	REQUIRE(runner.find("clear_status != OBJECTIVE_INCOMPLETE") != std::string::npos);
+	REQUIRE(runner.find("set_status != OBJECTIVE_COMPLETE") != std::string::npos);
+	REQUIRE(runner.find("fail_status != OBJECTIVE_FAILED") != std::string::npos);
+	REQUIRE(runner.find("g_StageFlags != saved") != std::string::npos);
 	REQUIRE(tick.find("saveGetLastAgentWriteReceipt(&before)") !=
 		std::string::npos);
 	REQUIRE(tick.find("saveGetLastAgentWriteReceipt(&after)") !=
@@ -254,6 +265,13 @@ TEST_CASE("campaign smoke requires clean exits and retains restart evidence",
 	REQUIRE(release.find("agent_smoke_after_campaign.json") != std::string::npos);
 	REQUIRE(release.find("campaign_complete") != std::string::npos);
 	REQUIRE(release.find("campaign_verified") != std::string::npos);
+	// Every campaign mission runs from its mission graph and passes the
+	// objective flag probe; a graph objective mismatch fails the run.
+	REQUIRE(release.find("\"MISSION\\\\.GRAPH: activated mission graph 'base:mission_\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(release.find("\"CAMPAIGN\\\\.AUTO: objective flag probe stage_id='base:\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(release.find("\"MISSION\\\\.GRAPH: cannot \"") != std::string::npos);
 
 	REQUIRE(skedar.find("start=16 final=16 missions=1") != std::string::npos);
 	REQUIRE(skedar.find("system:credits") != std::string::npos);

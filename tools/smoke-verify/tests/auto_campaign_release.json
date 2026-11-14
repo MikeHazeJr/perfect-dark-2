@@ -96,7 +96,9 @@
       "FATAL: ",
       "LOUDFAIL\\.LOAD: .*unrecoverable",
       "catalog miss.*fallback",
-      "numeric fallback"
+      "numeric fallback",
+      "MISSION\\.GRAPH: cannot ",
+      "objective flag probe: "
     ],
     "required_counts": [
       { "pattern": "CAMPAIGN\\.AUTO: loaded plan=", "min": 17, "max": 17 },
@@ -104,7 +106,9 @@
       { "pattern": "CAMPAIGN\\.AUTO: routed plan=", "min": 17, "max": 17 },
       { "pattern": "CAMPAIGN\\.AUTO: persisted plan=", "min": 17, "max": 17 },
       { "pattern": "SAVE: Agent Profile v3 committed name='smoke'", "min": 18, "max": 18 },
-      { "pattern": "BOOT: --launch-load-agent consumed: name='smoke' result=OK", "min": 2, "max": 2 }
+      { "pattern": "BOOT: --launch-load-agent consumed: name='smoke' result=OK", "min": 2, "max": 2 },
+      { "pattern": "MISSION\\.GRAPH: activated mission graph 'base:mission_", "min": 17, "max": 17 },
+      { "pattern": "CAMPAIGN\\.AUTO: objective flag probe stage_id='base:", "min": 17, "max": 17 }
     ]
   }
 }

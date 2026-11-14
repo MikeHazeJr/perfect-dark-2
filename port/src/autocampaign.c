@@ -21,10 +21,12 @@
 #include "data.h"
 #include "system.h"
 
+#include "game/chraction.h"
 #include "game/lv.h"
 #include "game/mainmenu.h"
 #include "game/objectives.h"
 #include "game/player.h"
+#include "game/setuputils.h"
 #include "game/stagetable.h"
 #include "lib/main.h"
 
@@ -397,6 +399,101 @@ static void armCampaignPlanAtDifficulty(int start_solo_index,
 		s_difficulty, s_flags, s_report_path);
 }
 
+static void probeSetStageFlags(u32 want)
+{
+	/* Through the production setters, so the graph objective state follows. */
+	chrUnsetStageFlag(NULL, ~want);
+	chrSetStageFlag(NULL, want);
+}
+
+static const char *probeStatusName(s32 status)
+{
+	return status == OBJECTIVE_COMPLETE ? "complete"
+		: status == OBJECTIVE_FAILED ? "failed"
+		: status == OBJECTIVE_INCOMPLETE ? "incomplete" : "unknown";
+}
+
+/*
+ * Objective flag probe (B-1111).
+ *
+ * Before the forced end, every objective that is active at this difficulty
+ * and is made only of stage-flag criteria must answer to its own flags
+ * through the production check: incomplete with its completion flags clear,
+ * complete with them set, failed with a fail flag set. The masks are read
+ * from the live setup commands, which are what the stage's scripts set. The
+ * flags are put back before this tick ends, so no script sees the change.
+ *
+ * Forced completion alone cannot see a mission whose objectives listen to the
+ * wrong flags; that is how byte-swapped operands in the graph objective
+ * source went unnoticed. Returns the number of objectives proven, or -1
+ * after failing the run.
+ */
+static s32 probeFlagObjectives(const char *stage_id)
+{
+	const u32 saved = g_StageFlags;
+	s32 proven = 0;
+	s32 skipped = 0;
+	s32 i;
+
+	for (i = 0; i < objectiveGetCount() && i < MAX_OBJECTIVES; i++) {
+		u32 *cmd = (u32 *)g_Objectives[i];
+		u32 complete_mask = 0;
+		u32 fail_mask = 0;
+		s32 other_criteria = 0;
+		s32 clear_status;
+		s32 set_status;
+		s32 fail_status = OBJECTIVE_FAILED;
+
+		if (!cmd || !(objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty()))) {
+			continue;
+		}
+		cmd = cmd + setupGetCmdLength(cmd);
+		while ((u8)PD_BE32(cmd[0]) != OBJTYPE_ENDOBJECTIVE) {
+			const u8 type = (u8)PD_BE32(cmd[0]);
+			if (type == OBJECTIVETYPE_COMPFLAGS) {
+				complete_mask |= cmd[1];
+			} else if (type == OBJECTIVETYPE_FAILFLAGS) {
+				fail_mask |= cmd[1];
+			} else {
+				other_criteria = 1;
+			}
+			cmd = cmd + setupGetCmdLength(cmd);
+		}
+		if (other_criteria || complete_mask == 0 || (complete_mask & fail_mask)) {
+			skipped++;
+			continue;
+		}
+
+		probeSetStageFlags(saved & ~(complete_mask | fail_mask));
+		clear_status = objectiveCheck(i);
+		probeSetStageFlags((saved | complete_mask) & ~fail_mask);
+		set_status = objectiveCheck(i);
+		if (fail_mask) {
+			probeSetStageFlags(saved | complete_mask | fail_mask);
+			fail_status = objectiveCheck(i);
+		}
+		probeSetStageFlags(saved);
+
+		if (clear_status != OBJECTIVE_INCOMPLETE
+				|| set_status != OBJECTIVE_COMPLETE
+				|| fail_status != OBJECTIVE_FAILED
+				|| g_StageFlags != saved) {
+			failRun(CAMPAIGN_RUN_FAILURE_OBJECTIVES,
+				"objective flag probe: '%s' objective %d does not answer to its flags "
+				"(complete=0x%08x fail=0x%08x: clear->%s set->%s fail->%s)",
+				stage_id, i, complete_mask, fail_mask,
+				probeStatusName(clear_status), probeStatusName(set_status),
+				fail_mask ? probeStatusName(fail_status) : "n/a");
+			return -1;
+		}
+		proven++;
+	}
+
+	ACLOG("objective flag probe stage_id='%s' proven=%d skipped=%d flags_restored=0x%08x",
+		stage_id, proven, skipped, g_StageFlags);
+	return proven;
+}
+
 void autocampaignArmAtDifficulty(int start_solo_index, int difficulty,
 	unsigned int flags)
 {
@@ -573,6 +670,11 @@ void autocampaignTick(void)
 		if (g_Vars.bond) {
 			g_Vars.bond->isdead = false;
 			g_Vars.bond->aborted = false;
+		}
+		/* Must run before the forced completion, which makes every later
+		 * objective check answer "complete". */
+		if (probeFlagObjectives(mission->stage_id) < 0) {
+			break;
 		}
 		forced_count = objectivesDebugCompleteCurrentMission();
 		completed_count = completedObjectiveCount();
