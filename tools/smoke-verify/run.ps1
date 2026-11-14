@@ -1489,6 +1489,29 @@ function Invoke-SmokeTestMultiProcess {
         $separateProcessInstalls = [bool]$def.separate_process_installs
     }
 
+    # B-1124: a game process started with neither --portable nor --savedir
+    # uses the player's real profile folder (AppData\Roaming\perfectdark) and
+    # rewrites settings, statistics and caches there. Separate installs get
+    # explicit directories at launch; a shared install relies on each
+    # process's own boot_args. Refuse here, before anything is staged or
+    # launched, so no fixture can reach the real profile through this path.
+    if (-not $separateProcessInstalls -and
+            $def.PSObject.Properties.Match('processes').Count -gt 0) {
+        foreach ($processDef in @($def.processes)) {
+            $processBootArgs = @()
+            if ($processDef.PSObject.Properties.Match('boot_args').Count -gt 0 -and $processDef.boot_args) {
+                $processBootArgs = @($processDef.boot_args)
+            }
+            if (-not (($processBootArgs -contains '--portable') -or ($processBootArgs -contains '--savedir'))) {
+                $processLabel = '?'
+                if ($processDef.PSObject.Properties.Match('name').Count -gt 0 -and $processDef.name) {
+                    $processLabel = [string]$processDef.name
+                }
+                throw ("Smoke runner refused '{0}': process '{1}' has neither --portable nor --savedir and the test does not set separate_process_installs, so it would run against the real profile folder (B-1124)." -f $name, $processLabel)
+            }
+        }
+    }
+
     $installState = "clean"
     if ($def.PSObject.Properties.Match('install_state').Count -gt 0 -and $def.install_state) {
         $installState = [string]$def.install_state
