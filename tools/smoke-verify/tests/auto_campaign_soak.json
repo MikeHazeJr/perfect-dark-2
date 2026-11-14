@@ -1,0 +1,115 @@
+{
+  "scenario_name": "auto_campaign_soak",
+  "description": "Campaign soak run. Same strict runner and production progression path as auto_campaign_release, but every one of the 17 base missions is held in live play for 60 game seconds before the forced end, with the idle player kept invincible. Stage scripts, guards and props run for that minute. The run fails if a mission ends by itself, the player dies anyway, game time stops advancing, the client crashes, or the objective flag probe finds an objective that does not answer to its own flags. It does not prove a mission can be completed by play; it proves each one survives a minute of being alive. A second client then verifies the 17 best times persisted.",
+  "tags": ["campaign", "soak", "t-tests-002", "milestone-1", "multi-process", "save", "slow"],
+  "paths_of_interest": [
+    "port/src/autocampaign.c",
+    "port/src/campaign_run.c",
+    "port/src/scenario_source_runtime.c",
+    "src/game/objectives.c",
+    "src/game/chraicommands.c",
+    "src/game/lv.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 2900,
+  "install_state": "clean",
+  "remove_paths": [
+    "campaign_release_run.json",
+    "campaign_release_verify.json",
+    "agent_smoke.json"
+  ],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent_smoke.json" }
+  ],
+  "processes": [
+    {
+      "name": "campaign-soak-run",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/campaign_soak_run_process.json",
+      "snapshot_log_file": "pd-campaign-soak-run.log",
+      "snapshot_exit_timeout_seconds": 30,
+      "boot_args": [
+        "--no-update-check",
+        "--no-sound",
+        "--no-net",
+        "--portable",
+        "--skip-intro",
+        "--launch-load-agent",
+        "smoke",
+        "--auto-campaign",
+        "0",
+        "--auto-campaign-fast",
+        "--auto-campaign-difficulty",
+        "0",
+        "--auto-campaign-soak",
+        "60"
+      ],
+      "wait_for": "SMOKE: result=campaign_complete .* code=0",
+      "wait_timeout_seconds": 2500
+    },
+    {
+      "name": "campaign-restart-verify",
+      "log_file": "pd-client.log",
+      "smoke_path": "tools/smoke-verify/fixtures/campaign_release_verify_process.json",
+      "snapshot_log_file": "pd-campaign-restart-verify.log",
+      "snapshot_exit_timeout_seconds": 30,
+      "boot_args": [
+        "--no-update-check",
+        "--no-sound",
+        "--no-net",
+        "--portable",
+        "--skip-intro",
+        "--launch-load-agent",
+        "smoke",
+        "--auto-campaign-verify",
+        "0",
+        "--auto-campaign-difficulty",
+        "0"
+      ],
+      "wait_for": "SMOKE: result=campaign_verified .* code=0",
+      "wait_timeout_seconds": 120
+    }
+  ],
+  "retain_artifacts": [
+    { "src": "campaign_release_run.json" },
+    { "src": "campaign_release_verify.json" },
+    { "src": "agent_smoke.json", "name": "agent_smoke_after_campaign_soak.json" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "CAMPAIGN\\.AUTO: plan profile='smoke' difficulty=0 start=0 final=16 missions=17",
+      "CAMPAIGN\\.AUTO: soak start plan=0 stage_id='base:defection' seconds=60",
+      "CAMPAIGN\\.AUTO: soak done plan=16 stage_id='base:skedarruins' game_seconds=60",
+      "CAMPAIGN\\.AUTO: completed plan=16 idx=16 stage_id='base:skedarruins'",
+      "CAMPAIGN\\.AUTO: credits verified live profile='smoke' missions=17 difficulty=0",
+      "CAMPAIGN\\.AUTO: persisted verification complete profile='smoke' missions=17",
+      "SMOKE: result=campaign_complete .* code=0",
+      "SMOKE: result=campaign_verified .* code=0"
+    ],
+    "forbidden_patterns": [
+      "CAMPAIGN\\.AUTO: failed reason=",
+      "SMOKE: result=campaign_failed",
+      "SMOKE: result=timeout",
+      "ACCESS_VIOLATION",
+      "EXCEPTION:",
+      "FATAL: ",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "catalog miss.*fallback",
+      "numeric fallback",
+      "MISSION\\.GRAPH: cannot ",
+      "objective flag probe: ",
+      "soak: "
+    ],
+    "required_counts": [
+      { "pattern": "CAMPAIGN\\.AUTO: loaded plan=", "min": 17, "max": 17 },
+      { "pattern": "CAMPAIGN\\.AUTO: soak start plan=", "min": 17, "max": 17 },
+      { "pattern": "CAMPAIGN\\.AUTO: soak done plan=", "min": 17, "max": 17 },
+      { "pattern": "CAMPAIGN\\.AUTO: completed plan=", "min": 17, "max": 17 },
+      { "pattern": "CAMPAIGN\\.AUTO: routed plan=", "min": 17, "max": 17 },
+      { "pattern": "CAMPAIGN\\.AUTO: persisted plan=", "min": 17, "max": 17 },
+      { "pattern": "MISSION\\.GRAPH: activated mission graph 'base:mission_", "min": 17, "max": 17 },
+      { "pattern": "CAMPAIGN\\.AUTO: objective flag probe stage_id='base:", "min": 17, "max": 17 }
+    ]
+  }
+}

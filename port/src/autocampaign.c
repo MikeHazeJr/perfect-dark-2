@@ -86,11 +86,18 @@ static const char *const kStateName[AC_STATE__COUNT] = {
 #define AC_CUTSCENE_TIMEOUT      7200u
 #define AC_ENDSCREEN_TIMEOUT      600u
 #define AC_CREDITS_TIMEOUT       3600u
+#define AC_SOAK_MAX_SECONDS       900
+#define AC_SOAK_STALL_FRAMES     1800u
 
 static enum acState s_state = AC_STATE_IDLE;
 static u32 s_frames_in_state;
 static u32 s_dwell_frames;
 static s32 s_cutscene_skip_requested;
+static u32 s_cutscene_frames;
+static s32 s_soak_seconds;
+static s32 s_soak_start60;
+static s32 s_soak_last60;
+static u32 s_soak_stall_frames;
 static u32 s_flags;
 static s32 s_target_start_idx;
 static s32 s_target_final_idx;
@@ -118,6 +125,10 @@ static void setState(enum acState state)
 	s_frames_in_state = 0;
 	if (state == AC_STATE_WAIT_LOAD) {
 		s_cutscene_skip_requested = 0;
+		s_cutscene_frames = 0;
+		s_soak_start60 = -1;
+		s_soak_last60 = -1;
+		s_soak_stall_frames = 0;
 	}
 }
 
@@ -494,6 +505,68 @@ static s32 probeFlagObjectives(const char *stage_id)
 	return proven;
 }
 
+/*
+ * Soak (--auto-campaign-soak <seconds>).
+ *
+ * Holds the mission in live play for that many game seconds before the
+ * forced end, so stage scripts, guards and props run long enough to show a
+ * crash, a stall or a mission that ends by itself. The player does nothing,
+ * so it is kept invincible for the duration; a death anyway is a finding.
+ * Returns 1 when the soak is over, 0 while it runs or after failing the run.
+ */
+static s32 soakTick(void)
+{
+	const s32 plan_index = s_run.current_plan_index;
+	const char *stage_id = (plan_index >= 0 && plan_index < s_run.mission_count)
+		? s_run.expected_ids[plan_index] : "?";
+	s32 elapsed60;
+
+	if (s_soak_start60 < 0) {
+		s_soak_start60 = g_Vars.lvframe60;
+		s_soak_last60 = g_Vars.lvframe60;
+		s_soak_stall_frames = 0;
+		ACLOG("soak start plan=%d stage_id='%s' seconds=%d lvframenum=%u",
+			plan_index, stage_id, s_soak_seconds, (u32)g_Vars.lvframenum);
+	}
+	elapsed60 = g_Vars.lvframe60 - s_soak_start60;
+
+	if (g_MainIsEndscreen || g_MainChangeToStageNum >= 0
+			|| !currentStageMatchesPlan(plan_index, NULL, NULL)) {
+		failRun(CAMPAIGN_RUN_FAILURE_COMPLETION,
+			"soak: mission '%s' ended by itself %d game seconds in",
+			stage_id, elapsed60 / 60);
+		return 0;
+	}
+	if (g_Vars.bond && g_Vars.bond->isdead) {
+		failRun(CAMPAIGN_RUN_FAILURE_COMPLETION,
+			"soak: the player died %d game seconds into '%s' while invincible",
+			elapsed60 / 60, stage_id);
+		return 0;
+	}
+	g_PlayerInvincible = true;
+
+	if (g_Vars.lvframe60 == s_soak_last60) {
+		if (++s_soak_stall_frames > AC_SOAK_STALL_FRAMES) {
+			failRun(CAMPAIGN_RUN_FAILURE_TIMEOUT,
+				"soak: game time stopped advancing %d game seconds into '%s'",
+				elapsed60 / 60, stage_id);
+			return 0;
+		}
+	} else {
+		s_soak_last60 = g_Vars.lvframe60;
+		s_soak_stall_frames = 0;
+	}
+
+	if (elapsed60 < s_soak_seconds * 60) {
+		return 0;
+	}
+
+	g_PlayerInvincible = false;
+	ACLOG("soak done plan=%d stage_id='%s' game_seconds=%d frames=%u",
+		plan_index, stage_id, elapsed60 / 60, s_frames_in_state);
+	return 1;
+}
+
 void autocampaignArmAtDifficulty(int start_solo_index, int difficulty,
 	unsigned int flags)
 {
@@ -638,9 +711,18 @@ void autocampaignTick(void)
 					s_run.start_solo_index + s_run.current_plan_index,
 					s_run.expected_ids[s_run.current_plan_index]);
 			}
-			if (s_frames_in_state > AC_CUTSCENE_TIMEOUT) {
+			/* Counted per cutscene, not per state: with a soak the state
+			 * lasts minutes and a cutscene may start in the middle of it. */
+			if (++s_cutscene_frames > AC_CUTSCENE_TIMEOUT) {
 				failRun(CAMPAIGN_RUN_FAILURE_TIMEOUT,
-					"intro cutscene did not finish before timeout");
+					"cutscene did not finish before timeout");
+			}
+			break;
+		}
+		s_cutscene_frames = 0;
+		if (s_soak_seconds > 0) {
+			if (soakTick()) {
+				setState(AC_STATE_FORCE_END);
 			}
 			break;
 		}
@@ -854,6 +936,17 @@ void autocampaignInitFromCli(void)
 		? sysArgGetInt("--auto-campaign-verify", 0)
 		: sysArgGetInt("--auto-campaign", 0);
 	difficulty = sysArgGetInt("--auto-campaign-difficulty", DIFF_A);
+	s_soak_seconds = 0;
+	if (sysArgCheck("--auto-campaign-soak")) {
+		s_soak_seconds = sysArgGetInt("--auto-campaign-soak", 0);
+		if (verify_requested || s_soak_seconds < 1
+				|| s_soak_seconds > AC_SOAK_MAX_SECONDS) {
+			failRun(CAMPAIGN_RUN_FAILURE_INVALID_PLAN,
+				"--auto-campaign-soak takes 1..%d seconds and requires --auto-campaign",
+				AC_SOAK_MAX_SECONDS);
+			return;
+		}
+	}
 	if (sysArgCheck("--auto-campaign-fast")) {
 		flags |= AUTOCAMPAIGN_FLAG_FAST;
 	}

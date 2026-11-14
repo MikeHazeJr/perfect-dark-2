@@ -187,6 +187,18 @@ TEST_CASE("release campaign runner observes strict production progression seams"
 	REQUIRE(runner.find("set_status != OBJECTIVE_COMPLETE") != std::string::npos);
 	REQUIRE(runner.find("fail_status != OBJECTIVE_FAILED") != std::string::npos);
 	REQUIRE(runner.find("g_StageFlags != saved") != std::string::npos);
+	// Soak: live play for a set number of game seconds before the forced
+	// end. It protects the idle player and fails on a mission that ends by
+	// itself, a death anyway, or game time that stops.
+	REQUIRE(runner.find("sysArgGetInt(\"--auto-campaign-soak\", 0)") != std::string::npos);
+	REQUIRE(tick.find("if (soakTick()) {") != std::string::npos);
+	REQUIRE(tick.find("if (soakTick()) {") <
+		tick.find("probeFlagObjectives(mission->stage_id) < 0"));
+	REQUIRE(runner.find("g_PlayerInvincible = true;") != std::string::npos);
+	REQUIRE(runner.find("g_PlayerInvincible = false;") != std::string::npos);
+	REQUIRE(runner.find("soak: mission '%s' ended by itself") != std::string::npos);
+	REQUIRE(runner.find("soak: the player died") != std::string::npos);
+	REQUIRE(runner.find("soak: game time stopped advancing") != std::string::npos);
 	REQUIRE(tick.find("saveGetLastAgentWriteReceipt(&before)") !=
 		std::string::npos);
 	REQUIRE(tick.find("saveGetLastAgentWriteReceipt(&after)") !=
@@ -272,6 +284,20 @@ TEST_CASE("campaign smoke requires clean exits and retains restart evidence",
 	REQUIRE(release.find("\"CAMPAIGN\\\\.AUTO: objective flag probe stage_id='base:\", \"min\": 17, \"max\": 17") !=
 		std::string::npos);
 	REQUIRE(release.find("\"MISSION\\\\.GRAPH: cannot \"") != std::string::npos);
+
+	// The soak fixture keeps every mission alive for a minute and holds the
+	// same graph and probe requirements as the release fixture.
+	const std::string soak =
+		read_text_file_debug_hotkey("tools/smoke-verify/tests/auto_campaign_soak.json");
+	REQUIRE(soak.find("\"--auto-campaign-soak\",\n        \"60\"") != std::string::npos);
+	REQUIRE(soak.find("\"CAMPAIGN\\\\.AUTO: soak done plan=\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(soak.find("\"MISSION\\\\.GRAPH: activated mission graph 'base:mission_\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(soak.find("\"CAMPAIGN\\\\.AUTO: objective flag probe stage_id='base:\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(soak.find("\"soak: \"") != std::string::npos);
+	REQUIRE(soak.find("campaign_soak_run_process.json") != std::string::npos);
 
 	REQUIRE(skedar.find("start=16 final=16 missions=1") != std::string::npos);
 	REQUIRE(skedar.find("system:credits") != std::string::npos);
