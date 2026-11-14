@@ -56,6 +56,11 @@ jobs:
       - name: Check modder workflow regressions
         run: python -B tools/tests/test_pdxxx_modder_workflow.py -v
 
+      # B-1124: a multi-process smoke fixture that shares one install and passes
+      # neither --portable nor --savedir runs against the real user profile.
+      - name: Check smoke fixture isolation
+        run: python -B tools/tests/test_smoke_fixture_isolation.py -v
+
       - name: Check isolated smoke storage contracts
         # Match the native Windows interpreter required by Storage-Harness.ps1.
         shell: pwsh

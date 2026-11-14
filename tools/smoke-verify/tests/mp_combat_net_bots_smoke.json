@@ -16,13 +16,14 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 240,
+  "timeout_seconds": 390,
   "install_state": "clean",
   "processes": [
     {
       "name": "host",
       "log_file": "pd-host.log",
       "boot_args": [
+        "--portable",
         "--no-update-check",
         "--no-sound",
         "--skip-intro",
@@ -44,6 +45,7 @@
       "name": "client",
       "log_file": "pd-client.log",
       "boot_args": [
+        "--portable",
         "--no-update-check",
         "--no-sound",
         "--skip-intro",
@@ -59,9 +61,9 @@
       "comment": "Both processes share this schedule. The host arms --listen-bind and fires netStartServer on the first mainTick where g_NetInit is true (-> 'NET: created server on port 27200', the runner's barrier), seeds g_MatchConfig from --launch-mp-room, and arms --host-autostart. The client arms --connect-host and connects after the barrier. Once the client reaches CLSTATE_LOBBY on the host (slot 1) and a ~2s settle elapses, --host-autostart fires netLobbyRequestStartWithSims exactly once; the ready gate runs a 3s countdown (client answers manifest READY), then SVC_STAGE_START loads the arena on both sides. The match ends at the forced 35s time limit."
     },
     {
-      "at_ms": 200000,
+      "at_ms": 330000,
       "type": "exit",
-      "comment": "Scripted clean exit at 200s. Budget: clean shared install (typed-archive validate/extract) can take tens of seconds before --listen-bind fires, then boot + connect + ~2s settle + 3s countdown + base:arena_mp_felicity stage load on both processes + ~35s match + endscreen. 200s leaves generous slack so the milestones land before the scripted exit; timeout_seconds=240 backstops it. The client emits SMOKE: result=scripted_exit; the host may be reaped by the runner watchdog after an active loopback session (same as the peer smoke) -- so the scripted-exit count is min:1 (client), not 2."
+      "comment": "Scripted clean exit at 330s. Budget on the D: hard disk (first run 2026-11-14): the host reached --host-autostart at 194s because the client needed about 130s to boot and register the catalog, so a 200s exit cut the match 2.5s in. 330s covers that boot, the ~2s settle, the 3s countdown, the Felicity load on both sides, the 35s match and the end screen; timeout_seconds=390 backstops it. The client emits SMOKE: result=scripted_exit; the host may be reaped by the runner watchdog after an active loopback session, so the scripted-exit count is min:1 (client), not 2."
     }
   ],
   "assertions": {

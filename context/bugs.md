@@ -1,5 +1,35 @@
 # Bug Tracker
 
+## 2026-11-14 B-1124 Two-process smokes on a shared install ran against the real user profile (T-NETWORKING-011)
+
+Severity high (test isolation; it writes the user's real data). Found on the
+first run of `mp_combat_net_bots_smoke`: both game processes logged
+`save dir: C:/Users/mikeh/AppData/Roaming/perfectdark`, loaded and saved
+`playerstats.json` there, and the real profile's `pd.ini` and `playerstats.json`
+carry the run's timestamps (2026-11-14 17:44 local), as do new files under its
+`mod-cache`. Cause: `tools/smoke-verify/run.ps1` (multi-process launch, about
+line 1741) adds `--basedir/--savedir/--moddir/--debug-home-path` only when a
+fixture sets `separate_process_installs`; the single-process path always passes
+`--savedir`. A fixture whose processes share one install and pass neither
+`--portable` nor `--savedir` therefore falls back to the game's default save dir
+(`fsInit`, `port/src/fs.c`: `$H` = `%APPDATA%/perfectdark` on Windows). Seven
+fixtures did: `listen_host_match_smoke`, `listen_host_peer_smoke`,
+`mp_combat_net_bots_smoke`, `network_coop_stage_transaction_smoke`,
+`network_counterop_stage_transaction_smoke`,
+`network_stage_player_rollback_smoke`, `ready_gate_settings_rollback_smoke`.
+Every run of them on this machine, by any session and through any checkout's
+runner, read and rewrote the real profile; MULTIPLAYER's own runs today include
+three through CORE's runner (B-1120 investigation) and two through its own.
+The profile was NOT restored or edited by any session; that is Mike's call.
+Fix on `week-pd/multiplayer`: both processes of those seven fixtures start with
+`--portable` (base and save dir from the executable, which is inside the run's
+install, so data resolution is unchanged); new
+`tools/tests/test_smoke_fixture_isolation.py` (CI step) fails on any fixture
+with a `processes` list that has neither `separate_process_installs` nor
+`--portable`/`--savedir` on every process. Asked of CORE (runner owner): make
+the runner itself refuse or isolate such a launch, so a fixture cannot reach the
+real profile again.
+
 ## 2026-11-14 B-1123 Three C++ menu files declared C functions and an array with the 1-byte C++ bool (T-NETWORKING-011)
 
 Severity medium (latent: no wrong value today). Class: SP-75. The pdgui menu
