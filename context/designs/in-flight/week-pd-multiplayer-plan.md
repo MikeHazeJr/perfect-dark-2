@@ -46,12 +46,26 @@ Progress log:
   and a 40 second limit and asserts the rules line, the scenario number at start, the time-limit end and
   the result witness. Their timings assume a fast install; expect to retune them for the D: hard disk.
 
+- First game runs (2026-11-14, CORE's runner with `-Install D:\PD2-wt\shared-base`):
+  - Baseline client (a8ab67f3), unchanged `listen_host_match_smoke`: FAILED 45/58. The client joined
+    and authenticated; the host autostart hook never fired (`results-20261114T201305Z.json`).
+  - Diagnostic `c18ae6ce` made the hook say why: `remote_in_lobby=0` for 100 s after the join.
+  - Root cause B-1120 / SP-75: `main.c` and `smoke_harness.c` see project `bool` as a 1-byte `_Bool`
+    (through `native_write_policy.h`) and laid out `struct netclient` differently from every other file.
+    Fix `0cc573d4`: the shared net.h structs spell their flags `s32`; guard test added.
+  - With the fix: `listen_host_match_smoke` PASSED 58/58 (`results-20261114T205302Z.json`). The same run
+    is the first runtime proof of units B, C and D: identical `MATCH.RESULT` lines on host and client,
+    `MATCH: final scores published before stage end`, and the room moving `Loading -> Lobby` after the
+    match. Still unproven: a second match in the same room, any kill or score, bots over the network.
+
 Next units, in order:
-1. Unit F: King of the Hill on the seam. Split `kohTick` into a host-only part and a presentation part,
+1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
+   the wrong client slot before the fix), then the five local per-scenario fixtures.
+2. Unit F: King of the Hill on the seam. Split `kohTick` into a host-only part and a presentation part,
    capture and apply between `g_ScenarioData.koh` and the wire struct, add `SVC_SCENARIO_STATE`, send it
    in the stage baseline, on change and at a low rate while the hold timer runs, and bump the protocol
    to v62 with the test pin in the same commit. This is the first unit that needs a game run to prove.
-2. Then Pop a Cap, Hold the Briefcase, Hacker Central and Capture the Case, each adding its body to the
+3. Then Pop a Cap, Hold the Briefcase, Hacker Central and Capture the Case, each adding its body to the
    codec first and its game side second.
 
 Held until game runs are allowed: the unchanged re-run of the existing multiplayer smokes (step 1 of

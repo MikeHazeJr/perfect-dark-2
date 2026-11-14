@@ -1,5 +1,29 @@
 # Bug Tracker
 
+## 2026-11-14 B-1120 Two layouts of struct netclient break every listen-host match smoke (T-NETWORKING-011)
+
+Severity high. Root cause, fix and guard are in source on `week-pd/multiplayer`.
+`listen_host_match_smoke` failed 45/58 on the a8ab67f3 baseline client
+(receipt `D:\PD2-wt\core\.claude\smoke-verify-runs\results-20261114T201305Z.json`):
+the client joined and authenticated but `--host-autostart` never fired. A
+log-only diagnostic (c18ae6ce) printed `remote_in_lobby=0` for 100 s after the
+join (`results-20261114T202711Z.json`). Cause: `port/src/main.c` and
+`port/src/smoke_harness.c` see project `bool` as 1-byte `_Bool` (pulled in by
+`native_write_policy.h` before `net/net.h`) while every other file sees `s32`,
+so they lay out `struct netclient`, `netpreservedplayer` and `netrecentserver`
+differently and index `g_NetClients[]` at the wrong addresses. Proven by
+preprocessing both files with their exact flags; an audit of all 650 client C
+files found no other mismatched shared struct. Fix 0cc573d4: the flags in those
+three structs are spelled `s32`. Guard: `tests/test_bool_layout_static.cpp`.
+Class: SP-75. Probably also why the networked smokes that passed in August
+regressed after `native_write_policy.h` was added to these files in October.
+Runtime proof: with the fix, `listen_host_match_smoke` passes 58/58 (receipt
+`D:\PD2-wt\core\.claude\smoke-verify-runs\results-20261114T205302Z.json`,
+week-pd/multiplayer build at 0cc573d4, shared base data): autostart fires, both
+players spawn, scores replicate, time-limit end, end screen on both sides.
+Still to re-run against the fix: the reconnect smoke (its harness events used
+the wrong client slot) and the other two-process smokes.
+
 2026-10-26 gun source contract correction following N0828 audit. asset_source_debug defaults ASSET_NONE; its source-only predicate is debug-selected, so the old non-FileProvider return0 allowed normal legacy model loading. fileProviderPath(nonfile)=NULL and modelSourceResolvePath(NULL) rejects; no supported public source can use that branch. Owned gunSourceRouteSource now fails unsupported/non-external requests and all exits return1; retained and supported external routes preserved. This intentionally supersedes original donor continuation under c3844/public-source constraint, not a compatibility claim. Native legacy block untouched but now unreachable through source routing. Updated source-route donor fixtures and added one explicit unsupported-provider case UNRUN. Independent review found no defect. Guard q_20261026205529526_c939af23/diff PASS; other8 pins and ORACLE suffix unchanged. 531 bindings/98 programs;47 whole entries/146 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Next audit/remove unreachable legacy MODEL/TEXTURES/DLS machinery and obsolete state producers, preserving source artifacts; public graph source/dependencies/ALL closure remain open. Latest .claude/gameplay-gun-source-closed-20261026/source-receipt.json. N-0829
 
 2026-10-26 pre-conversion TEXTURES root repair: persistent nexttexturetoload now increments before the three-entry budget return, removing the documented third-entry revisit. Both loadable and resident/skipped entries advance; exact multiples3 retain existing next-tick DLS transition. Only this statement/order/comment changed; before/after native donor artifacts retained. Source review confirms fix by inspection. Static guard q_20261026204705964_1b110bb3 and diff PASS; other9 source pins unchanged. Regression requirements authored, no new executable cases this checkpoint; 525 bindings/97 programs,47 whole entries/142 authored cases unchanged. No compiler/gameplay execution; not runtime validated. Next graph conversion must preserve uintptr_t texture/pointer union full unsigned width, s16 numtexconfigs, u32 cursor, captured model/player and fresh texture-array access after texLoad. Legacy MODEL/DLS/dependencies, public graph source and ALL closure remain open. Latest .claude/gameplay-texture-cursor-fix-20261026/source-receipt.json. N-0826

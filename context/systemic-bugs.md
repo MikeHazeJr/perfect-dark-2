@@ -3344,6 +3344,57 @@ ownership proof.
 
 ---
 
+## SP-75: Project `bool` changes size with include order
+
+**Severity: HIGH - a shared struct can have two layouts in one program, with
+no compiler warning, so files silently read and write each other's members at
+the wrong addresses.**
+
+Project `bool` is a macro, `#define bool s32` (`src/include/types.h:14`, again
+in `src/include/data.h`, restored by `port/include/net/netenet.h` after ENet).
+`<stdbool.h>` in C defines `bool` as the 1-byte `_Bool`. A C file that includes
+`<stdbool.h>` after `types.h`, directly or through a project header, gets
+1-byte `bool` for the rest of the file. Every project struct with `bool`
+members parsed after that point is laid out differently there than in files
+where `bool` is still `s32`. C++ files are not affected the same way: in C++
+`bool` is a keyword, and `types.h` turns it into `s32` too.
+
+**Known instance (B-1120, 2026-11-14):** `port/src/main.c` and
+`port/src/smoke_harness.c` include `native_write_policy.h` (which includes
+`<stdbool.h>`) just before `net/net.h`. They laid `struct netclient` out with
+twelve 1-byte flags; `net.c`, `netmsg.c` and the rest used 4-byte ones, so
+`&g_NetClients[1]` itself differed between files. Effect: the host autostart
+hook never saw the joined client and every two-process match smoke failed;
+the smoke harness's reconnect and timeout events addressed the wrong client.
+Earlier instance (October 10, recorded in the Finish Tracker):
+`net_player_move_wire.h` included `<stdbool.h>` and changed the size of four
+`net.c` flags and one function; it now includes `types.h` instead.
+
+**Flip sources (2026-11-14):** `port/include/native_write_policy.h`,
+`port/include/net/net_manifest_type.h`, `port/include/catalog_checked.h`,
+`port/include/bondgun_cache.h`. 27 client C files flip. The fast3d `gfx_*.h`
+headers also include it but are consistent (1-byte in C and C++).
+
+**Fix pattern:** shared structs (anything more than one file reads or writes)
+spell flag members with a fixed type (`s32`), never `bool`. Do not fix a
+symptom by reordering includes. Removing `<stdbool.h>` from a flip header is
+the root fix for that header but changes `bool` from `_Bool` to `s32` in the
+code that follows it in every includer (conversions differ: `_Bool b = ptr`
+is 1 for any non-null pointer, `s32 b = ptr` truncates), so review each
+includer first.
+
+**Guard:** `tests/test_bool_layout_static.cpp` fails if the net.h shared
+structs gain a `bool` member or if a new header starts including
+`<stdbool.h>`.
+
+**Search commands:**
+- Flip sources: `git grep -n -E "^\s*#\s*include\s*<stdbool\.h>" -- "*.h"`
+- Proof for one file: preprocess it with its exact flags from
+  `compile_commands.json` plus `-E -dD` and check which `#define bool` is in
+  force where the struct is defined.
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.
