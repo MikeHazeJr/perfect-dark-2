@@ -970,16 +970,11 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 	/* Release validation passed inside the rebuild. Now read what the
 	 * members say, the way the game will when it loads them. */
 	{
-		u32 staged_size = 0;
-		void *staged = authorReadFile(candidate, &staged_size);
 		char why[320];
 		s32 verdict;
 
 		why[0] = '\0';
-		verdict = staged
-			? modAssetValidateArchiveBytes(staged, staged_size, plan->archive_path, why, sizeof(why))
-			: MOD_ASSET_VALIDATE_ERR_ARGS;
-		free(staged);
+		verdict = modAssetValidateArchiveStaged(candidate, plan->archive_path, why, sizeof(why));
 		if (verdict != MOD_ASSET_VALIDATE_OK) {
 			remove(candidate);
 			code = authorFail(err, err_cap, MOD_AUTHOR_ERR_ARCHIVE, "%s",

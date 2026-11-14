@@ -52,6 +52,19 @@ s32 modAssetValidateArchiveBytes(const void *bytes, u32 size, const char *archiv
 /** Read `path` and validate it under its own name. */
 s32 modAssetValidateArchiveFile(const char *path, char *err, size_t err_cap);
 
+/**
+ * The same for an archive that is on disk under one name and will be used
+ * under another, the way a save stages `<name>.candidate` before it swaps it
+ * in: read from `disk_path`, judged as `archive_name`.
+ *
+ * The file variants also compile a v1 weapon from the file, with its
+ * variables file, so a $variable that is not defined is refused here. The
+ * bytes variant cannot do that and lets a weapon that uses $variables pass
+ * on its descriptor alone.
+ */
+s32 modAssetValidateArchiveStaged(const char *disk_path, const char *archive_name,
+		char *err, size_t err_cap);
+
 #ifdef __cplusplus
 }
 #endif

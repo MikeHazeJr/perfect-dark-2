@@ -172,6 +172,30 @@ TEST_CASE("in-game Validate reads the members release validation does not",
 	REQUIRE(bodyLocked.find(bodyId) != std::string::npos);
 	bodyLocked.insert(bodyLocked.find(bodyId) + bodyId.size(), "requirefeature = 999\n");
 
+	/* Well-formed JSON that the game's graph compiler refuses. */
+	const std::string weaponArchive = validateReadFile(validateExample(kWeapon));
+	const auto swapped = [](std::string text, const std::string &from, const std::string &to) {
+		const size_t at = text.find(from);
+		REQUIRE(at != std::string::npos);
+		text.replace(at, from.size(), to);
+		return text;
+	};
+	const std::string primaryGraph = validateEntry(weaponArchive, "behavior/primary.graph.json");
+	const std::string secondaryGraph =
+		validateEntry(weaponArchive, "behavior/secondary.graph.json");
+	const std::string projectileGraph = validateEntry(
+		validateEntry(weaponArchive, "dependencies/assets/projectiles/primary.pdprojectile"),
+		"behavior.graph.json");
+	const std::string primaryUnknownKind =
+		swapped(primaryGraph, "\"spawn.fired_projectile\"", "\"fire.nonsense\"");
+	const std::string secondaryDanglingLink =
+		swapped(secondaryGraph, "\"to\": \"deploy_entity\"", "\"to\": \"nowhere\"");
+	const std::string primaryUnknownVariable = swapped(primaryGraph,
+		"\"function_type\": \"shoot_projectile\"",
+		"\"function_type\": \"shoot_projectile\", \"damage\": \"$no_such_setting\"");
+	const std::string projectileUnknownKind =
+		swapped(projectileGraph, "\"projectile.motion\"", "\"projectile.nonsense\"");
+
 	const Case cases[] = {
 		{ "settings that are not JSON", kWeapon, "example:tri_weapon",
 		  "behavior/settings.json", "{ not json", MOD_ASSET_VALIDATE_ERR_TEXT,
@@ -190,6 +214,19 @@ TEST_CASE("in-game Validate reads the members release validation does not",
 		  "dependencies/assets/projectiles/primary.pdprojectile::behavior.graph.json",
 		  "{ \"schema\": \"pd.projectile_graph.v1\", ", MOD_ASSET_VALIDATE_ERR_TEXT,
 		  "dependencies/assets/projectiles/primary.pdprojectile::behavior.graph.json" },
+		{ "a weapon function the game does not have", kWeapon, "example:tri_weapon",
+		  "behavior/primary.graph.json", primaryUnknownKind, MOD_ASSET_VALIDATE_ERR_FAMILY,
+		  "unsupported weapon graph module fire.nonsense" },
+		{ "a weapon link to a node that is not there", kWeapon, "example:tri_weapon",
+		  "behavior/secondary.graph.json", secondaryDanglingLink, MOD_ASSET_VALIDATE_ERR_FAMILY,
+		  "behavior does not compile: edge references missing node" },
+		{ "a weapon variable nothing defines", kWeapon, "example:tri_weapon",
+		  "behavior/primary.graph.json", primaryUnknownVariable, MOD_ASSET_VALIDATE_ERR_FAMILY,
+		  "unresolved weapon variable '$no_such_setting'" },
+		{ "a projectile module the game does not have", kWeapon, "example:tri_weapon",
+		  "dependencies/assets/projectiles/primary.pdprojectile::behavior.graph.json",
+		  projectileUnknownKind, MOD_ASSET_VALIDATE_ERR_FAMILY,
+		  "primary.pdprojectile::behavior.graph.json does not compile" },
 		{ "a shared context cut short", kWeapon, "example:tri_weapon",
 		  "behavior/shared-context.json", "{ \"schema\": \"pd.weapon_shared_context.v1\", \"contexts\": [",
 		  MOD_ASSET_VALIDATE_ERR_TEXT, "behavior/shared-context.json" },

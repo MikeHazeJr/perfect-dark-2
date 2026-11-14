@@ -26,6 +26,10 @@ extern "C" {
 #include "mod_asset_validate.h"
 #include "modasset_gltf_document.h"
 
+#include "weapon_graph_archive.h"
+#include "weapon_graph_runtime.h"
+#include "weapon_graph_v2_ingress.h"
+
 namespace {
 
 /* Largest single text member that is read for checking. */
@@ -191,11 +195,82 @@ std::string descriptorCatalogId(const std::string &text)
     return "";
 }
 
+/* The behavior of a weapon, a projectile or an entity, read by the compiler
+ * the game loads it with. A weapon that uses $variables needs its variables
+ * file to compile; that is done from the file on disk (see
+ * modAssetValidateArchiveStaged), so such a weapon is only checked for a
+ * readable descriptor here. */
+bool validateBehavior(const void *bytes, u32 size, asset_type_e type,
+    const std::string &label, Failure &out)
+{
+    char reason[256];
+    reason[0] = '\0';
+    std::unique_ptr<weapon_graph_archive_descriptor_t> desc(
+        new weapon_graph_archive_descriptor_t());
+    if (type == ASSET_WEAPON) {
+        const int version = wgV2ArchiveInspect(bytes, size, desc.get(), reason, sizeof(reason));
+        if (version < 0) {
+            return fail(out, MOD_ASSET_VALIDATE_ERR_FAMILY, label +
+                " has weapon behavior the game refuses: " + (reason[0] ? reason : "no detail"));
+        }
+        if (version > 0) return true;   /* a v2 mode set, inspected in full */
+    } else if (weaponGraphArchiveReadDescriptorBytes(bytes, size, type, desc.get(), reason,
+            sizeof(reason)) != 0) {
+        return fail(out, MOD_ASSET_VALIDATE_ERR_FAMILY, label +
+            " has a descriptor the graph loader refuses: " + (reason[0] ? reason : "no detail"));
+    }
+
+    if (desc->behavior_graph[0]) {
+        std::string graph;
+        if (!extract(bytes, size, desc->behavior_graph, graph)) {
+            return fail(out, MOD_ASSET_VALIDATE_ERR_FAMILY, label + "::" + desc->behavior_graph +
+                " is named by the descriptor and is not in the archive");
+        }
+        if (weaponGraphValidateJson(type, graph.data(), static_cast<u32>(graph.size()), reason,
+                sizeof(reason)) != 0) {
+            return fail(out, MOD_ASSET_VALIDATE_ERR_FAMILY, label + "::" + desc->behavior_graph +
+                " does not compile: " + (reason[0] ? reason : "no detail"));
+        }
+        return true;
+    }
+    if (type != ASSET_WEAPON) return true;
+
+    std::string primary;
+    std::string secondary;
+    std::string shared;
+    if (!desc->primary_graph[0] || !desc->secondary_graph[0] ||
+            !extract(bytes, size, desc->primary_graph, primary) ||
+            !extract(bytes, size, desc->secondary_graph, secondary)) {
+        return fail(out, MOD_ASSET_VALIDATE_ERR_FAMILY, label +
+            " is missing its primary or secondary behavior graph");
+    }
+    if (desc->shared_context[0]) extract(bytes, size, desc->shared_context, shared);
+    if (primary.find("\"$") != std::string::npos ||
+            secondary.find("\"$") != std::string::npos) {
+        return true;
+    }
+    std::unique_ptr<weapon_graph_ir_t> ir(new weapon_graph_ir_t());
+    const s32 compiled = weaponGraphCompileWeaponSourceJson(desc->catalog_id,
+        primary.data(), static_cast<u32>(primary.size()),
+        secondary.data(), static_cast<u32>(secondary.size()),
+        shared.empty() ? nullptr : shared.data(), static_cast<u32>(shared.size()),
+        ir.get(), reason, sizeof(reason));
+    weaponGraphIrFree(ir.get());
+    if (compiled != 0) {
+        return fail(out, MOD_ASSET_VALIDATE_ERR_FAMILY, label +
+            " behavior does not compile: " + (reason[0] ? reason : "no detail"));
+    }
+    return true;
+}
+
 /* The family's own reader, where it runs without game state. */
 bool validateFamily(const void *bytes, u32 size, const std::string &name,
     const std::string &label, Failure &out)
 {
     const asset_type_e type = assetArchiveTypeForPath(name.c_str());
+    if (type == ASSET_WEAPON || type == ASSET_PROJECTILE || type == ASSET_ENTITY) {
+        return validateBehavior(bytes, size, type, label, out);
+    }
     if (type != ASSET_BODY && type != ASSET_HEAD && type != ASSET_CHARACTER) return true;
 
     const char *descriptor_name = assetArchiveDescriptorForPath(name.c_str());
@@ -334,16 +409,17 @@ extern "C" s32 modAssetValidateArchiveBytes(const void *bytes, u32 size,
     return failure.code;
 }
 
-extern "C" s32 modAssetValidateArchiveFile(const char *path, char *err, size_t err_cap)
+extern "C" s32 modAssetValidateArchiveStaged(const char *disk_path, const char *archive_name,
+    char *err, size_t err_cap)
 {
     if (err && err_cap) err[0] = '\0';
-    if (!path || !path[0]) {
+    if (!disk_path || !disk_path[0] || !archive_name || !archive_name[0]) {
         if (err && err_cap) std::snprintf(err, err_cap, "no archive path");
         return MOD_ASSET_VALIDATE_ERR_ARGS;
     }
     try {
         std::string bytes;
-        FILE *f = std::fopen(path, "rb");
+        FILE *f = std::fopen(disk_path, "rb");
         bool ok = false;
         if (f) {
             if (std::fseek(f, 0, SEEK_END) == 0) {
@@ -360,10 +436,41 @@ extern "C" s32 modAssetValidateArchiveFile(const char *path, char *err, size_t e
             if (err && err_cap) std::snprintf(err, err_cap, "the archive could not be read");
             return MOD_ASSET_VALIDATE_ERR_ARGS;
         }
-        return modAssetValidateArchiveBytes(bytes.data(), static_cast<u32>(bytes.size()), path,
-            err, err_cap);
+        const s32 code = modAssetValidateArchiveBytes(bytes.data(),
+            static_cast<u32>(bytes.size()), archive_name, err, err_cap);
+        if (code != MOD_ASSET_VALIDATE_OK) return code;
+
+        /* A v1 weapon once more, from the file: this compile reads the
+         * weapon's variables file, so $variables resolve as they will in
+         * the game and one that is not defined is an error. */
+        if (assetArchiveTypeForPath(archive_name) == ASSET_WEAPON) {
+            char reason[256];
+            reason[0] = '\0';
+            std::unique_ptr<weapon_graph_archive_descriptor_t> desc(
+                new weapon_graph_archive_descriptor_t());
+            if (wgV2ArchiveInspect(bytes.data(), static_cast<u32>(bytes.size()), desc.get(),
+                    reason, sizeof(reason)) == 0) {
+                std::unique_ptr<weapon_graph_ir_t> ir(new weapon_graph_ir_t());
+                const s32 compiled = weaponGraphCompileArchiveFile(disk_path, ASSET_WEAPON,
+                    ir.get(), reason, sizeof(reason));
+                weaponGraphIrFree(ir.get());
+                if (compiled != 0) {
+                    if (err && err_cap) {
+                        std::snprintf(err, err_cap, "%s behavior does not compile: %s",
+                            leafName(archive_name).c_str(), reason[0] ? reason : "no detail");
+                    }
+                    return MOD_ASSET_VALIDATE_ERR_FAMILY;
+                }
+            }
+        }
+        return MOD_ASSET_VALIDATE_OK;
     } catch (...) {
         if (err && err_cap) std::snprintf(err, err_cap, "out of memory while validating");
         return MOD_ASSET_VALIDATE_ERR_TEXT;
     }
+}
+
+extern "C" s32 modAssetValidateArchiveFile(const char *path, char *err, size_t err_cap)
+{
+    return modAssetValidateArchiveStaged(path, path, err, err_cap);
 }
