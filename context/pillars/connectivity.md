@@ -1,5 +1,13 @@
 # Connectivity / Online
 
+Sep27 04:50 ET USER PAUSE. Movement ordering follow-up applied: both ingress paths use
+an atomic stale/duplicate guard; ACKs advance monotonically with serial wrap and
+cannot change on rejected input. Teleport/reconnect side effects follow admission.
+Wire v61 unchanged. Integrated builds, focused172/14417 and guard pass without
+source drift; new runtime runs cancelled before start. Source uncommitted.
+Full host input authority and prediction remain open; see
+../audits/2026/multiplayer-movement-ordering-2026-09-27.md.
+
 Sep27 admission checkpoint: match publishers filter the committed admitted
 roster while declined guests retain their room. Consent owns the final local
 state, and Campaign autostart retains its mission. Builds/focused194/16838 and
