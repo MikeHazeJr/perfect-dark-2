@@ -392,9 +392,11 @@ static s32 cloneRegisterNested(clone_ctx_t *ctx, const char *old_id, const char 
 		size_t prefix_len = strlen(ctx->new_ns) + 1 + strlen(ctx->new_root_slug) + 2;
 		size_t budget;
 
+		/* Holds for every root id within ASSET_ARCHIVE_CLONE_ROOT_ID_MAX. */
 		if (prefix_len + 9 >= CATALOG_ID_LEN) {
 			return cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_IDS,
-				"new catalog id is too long to derive ids for embedded archives");
+				"new catalog id is too long to derive ids for embedded archives "
+				"(keep it within %d characters)", (int)ASSET_ARCHIVE_CLONE_ROOT_ID_MAX);
 		}
 		budget = CATALOG_ID_LEN - 1 - prefix_len - 9;
 		if (strlen(tail) > budget) tail[budget] = '\0';
@@ -1091,6 +1093,54 @@ cleanup:
 	return ok;
 }
 
+/*
+ * The typed name an output path stands for: the path itself, or the path
+ * without one trailing staging suffix. Returns 0 when it does not fit.
+ */
+static s32 cloneLogicalOut(const char *out_path, char *logical, size_t cap)
+{
+	const size_t m = sizeof(ASSET_ARCHIVE_CLONE_STAGING_SUFFIX) - 1;
+	size_t n = strlen(out_path);
+
+	if (n > m && cloneEqNoCase(out_path + n - m, ASSET_ARCHIVE_CLONE_STAGING_SUFFIX)) {
+		n -= m;
+	}
+	if (n == 0 || n >= cap) return 0;
+	memcpy(logical, out_path, n);
+	logical[n] = '\0';
+	return 1;
+}
+
+/*
+ * The written file must pass release validation under the name it will
+ * finally carry, through both validators: the file form the packers use and
+ * the in-memory form the catalog scanner uses when it loads the archive.
+ */
+static s32 cloneValidateResult(const char *out_path, const char *logical,
+		char *err, size_t err_cap)
+{
+	mod_archive_t *archive = modArchiveOpen(out_path);
+	void *bytes;
+	u32 size = 0;
+	s32 ok;
+
+	if (err && err_cap) err[0] = '\0';
+	ok = assetArchiveValidateOpened(archive, logical, ASSET_ARCHIVE_VALIDATE_RELEASE,
+		err, err_cap) == 0;
+	if (archive) modArchiveClose(archive);
+	if (!ok) return 0;
+
+	bytes = cloneReadFile(out_path, &size);
+	if (!bytes) {
+		if (err && err_cap) snprintf(err, err_cap, "the result could not be read back");
+		return 0;
+	}
+	ok = assetArchiveValidateBytes(bytes, size, logical, ASSET_ARCHIVE_VALIDATE_RELEASE,
+		err, err_cap) == 0;
+	free(bytes);
+	return ok;
+}
+
 /* An override path: members joined by "::", none of them under `_meta`. */
 static s32 cloneOverridePathOk(const char *path)
 {
@@ -1122,6 +1172,7 @@ s32 assetArchiveRebuildFile(const char *src_path, const char *out_path,
 	asset_archive_clone_report_t *work = report;
 	clone_ctx_t *ctx;
 	char policy_err[256];
+	char logical_out[CLONE_PATH_MAX];
 	const char *colon;
 	void *source = NULL;
 	u32 source_size = 0;
@@ -1130,6 +1181,7 @@ s32 assetArchiveRebuildFile(const char *src_path, const char *out_path,
 
 	if (err && err_cap) err[0] = '\0';
 	if (report) memset(report, 0, sizeof(*report));
+	logical_out[0] = '\0';
 
 	ctx = (clone_ctx_t *)calloc(1, sizeof(*ctx));
 	if (!ctx) {
@@ -1158,8 +1210,10 @@ s32 assetArchiveRebuildFile(const char *src_path, const char *out_path,
 			!new_catalog_id || !new_catalog_id[0]) {
 		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
 			"missing source path, output path or new catalog id");
-	} else if (!assetArchivePathIsTyped(src_path) || !assetArchivePathIsTyped(out_path) ||
-			!cloneEqNoCase(cloneExt(src_path), cloneExt(out_path))) {
+	} else if (!cloneLogicalOut(out_path, logical_out, sizeof(logical_out))) {
+		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS, "output path is too long");
+	} else if (!assetArchivePathIsTyped(src_path) || !assetArchivePathIsTyped(logical_out) ||
+			!cloneEqNoCase(cloneExt(src_path), cloneExt(logical_out))) {
 		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_ARGS,
 			"source and output must be typed archives of the same family");
 	} else if (!cloneValidId(new_catalog_id)) {
@@ -1246,8 +1300,7 @@ s32 assetArchiveRebuildFile(const char *src_path, const char *out_path,
 	}
 
 	policy_err[0] = '\0';
-	if (assetArchiveValidateFile(out_path, ASSET_ARCHIVE_VALIDATE_RELEASE,
-			policy_err, sizeof(policy_err)) != 0) {
+	if (!cloneValidateResult(out_path, logical_out, policy_err, sizeof(policy_err))) {
 		remove(out_path);
 		cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_OUTPUT,
 			"result failed release validation: %s",

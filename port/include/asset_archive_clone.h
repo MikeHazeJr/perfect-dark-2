@@ -22,9 +22,11 @@
  *     shared archive writer rather than copied.
  *
  * It fails closed. The source must already pass release validation, the
- * output must pass it too, an id that would survive in a form that cannot be
- * rewritten (for example inside a binary `.glb`) is an error, and nothing is
- * left at `out_path` on failure. An existing `out_path` is never overwritten.
+ * output must pass it too (through the file validator and through the
+ * in-memory validator the catalog scanner loads with), an id that would
+ * survive in a form that cannot be rewritten (for example inside a binary
+ * `.glb`) is an error, and nothing is left at `out_path` on failure. An
+ * existing `out_path` is never overwritten.
  *
  * No catalog, no globals and no game state: it only reads `src_path` and
  * writes `out_path` plus short-lived siblings of `out_path`.
@@ -49,6 +51,12 @@ extern "C" {
 
 /* Distinct catalog ids one clone may re-identify, root included. */
 #define ASSET_ARCHIVE_CLONE_MAX_IDS    96
+/* Every embedded archive takes an id derived from the root id: the root, "__"
+ * and at least a short hash. A root id of at most this many characters always
+ * leaves room for that; a longer one only works for an archive that embeds
+ * nothing. */
+#define ASSET_ARCHIVE_CLONE_DERIVED_ROOM 11   /* "__" + "_" + 8 hex digits */
+#define ASSET_ARCHIVE_CLONE_ROOT_ID_MAX  (CATALOG_ID_LEN - 1 - ASSET_ARCHIVE_CLONE_DERIVED_ROOM)
 /* Typed archives may nest this deep, root = depth 0. */
 #define ASSET_ARCHIVE_CLONE_MAX_DEPTH  6
 
@@ -65,6 +73,15 @@ typedef struct asset_archive_clone_report {
 
 /* Overrides one rebuild may carry. */
 #define ASSET_ARCHIVE_CLONE_MAX_OVERRIDES 128
+
+/*
+ * Staging: `out_path` may carry this one extra suffix after its typed
+ * extension ("weapon_x.pdweapon.candidate"). The result is then written and
+ * validated as the archive it will become, but under a name the catalog
+ * scanner does not pick up, so a caller can swap it into place itself and an
+ * interrupted save never leaves a second loadable archive behind.
+ */
+#define ASSET_ARCHIVE_CLONE_STAGING_SUFFIX ".candidate"
 
 /**
  * A member to replace, add or remove while the archive is rebuilt.
@@ -113,8 +130,9 @@ s32 assetArchiveRebuildFile(const char *src_path, const char *out_path,
 /**
  * Clone the typed archive at `src_path` to `out_path` under `new_catalog_id`.
  *
- * `out_path` must use the same typed extension as `src_path`, must not exist
- * and must not be the source. `new_catalog_id` must be a `namespace:name`
+ * `out_path` must use the same typed extension as `src_path` (optionally
+ * followed by ASSET_ARCHIVE_CLONE_STAGING_SUFFIX), must not exist and must
+ * not be the source. `new_catalog_id` must be a `namespace:name`
  * catalog id and must differ from the source's id. `tool` (optional) is
  * recorded as the provenance tool of every archive written.
  *

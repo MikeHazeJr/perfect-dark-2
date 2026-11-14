@@ -776,3 +776,70 @@ TEST_CASE("typed archive rebuild refuses overrides it cannot honour",
 		expectRefused(ov, 1, ASSET_ARCHIVE_CLONE_ERR_OUTPUT);
 	}
 }
+
+TEST_CASE("typed archive rebuild can stage its result where the scanner will not see it",
+          "[modding][pdxxx][clone]") {
+	CloneTempDir dir;
+	const std::string source =
+		cloneSourcePath("examples/modding/typed-pdxxx-basic/weapons/tri_weapon.pdweapon");
+	const std::filesystem::path final_path = dir.path / "staged_gun.pdweapon";
+	const std::filesystem::path staged =
+		dir.path / ("staged_gun.pdweapon" ASSET_ARCHIVE_CLONE_STAGING_SUFFIX);
+	asset_archive_clone_report_t report;
+	char err[256] = {};
+
+	/* The staged name is not a typed archive to the policy or the scanner. */
+	CHECK(assetArchivePathIsTyped(staged.string().c_str()) == 0);
+
+	const s32 code = assetArchiveCloneFile(source.c_str(), staged.string().c_str(),
+		"mod_clonetest:staged_gun", "pd-tests", &report, err, sizeof(err));
+	INFO("clone error: " << err);
+	REQUIRE(code == ASSET_ARCHIVE_CLONE_OK);
+	CHECK(std::filesystem::exists(staged));
+	CHECK(!std::filesystem::exists(final_path));
+	CHECK(cloneCountFiles(dir.path) == 1);
+	CHECK(assetArchiveValidateFile(staged.string().c_str(),
+		ASSET_ARCHIVE_VALIDATE_RELEASE, err, sizeof(err)) != 0);
+
+	/* Renamed into place it is exactly the archive a direct clone writes. */
+	std::filesystem::rename(staged, final_path);
+	cloneCheckCommon(source, final_path, report, "mod_clonetest");
+	const std::filesystem::path direct = dir.path / "direct_gun.pdweapon";
+	REQUIRE(assetArchiveCloneFile(source.c_str(), direct.string().c_str(),
+		"mod_clonetest:staged_gun", "pd-tests", nullptr, err, sizeof(err))
+		== ASSET_ARCHIVE_CLONE_OK);
+	std::map<std::string, std::string> staged_members;
+	std::map<std::string, std::string> direct_members;
+	cloneFlatten(cloneReadFileBytes(final_path), "", staged_members);
+	cloneFlatten(cloneReadFileBytes(direct), "", direct_members);
+	CHECK(staged_members == direct_members);
+
+	/* The suffix does not relax anything else: the family must still match,
+	 * one suffix only, and an existing staged file is not overwritten. */
+	const auto expectRefused = [&](const std::filesystem::path &out) {
+		err[0] = '\0';
+		const std::string before = std::filesystem::exists(out) ? cloneReadFileBytes(out) : "";
+		const bool existed = std::filesystem::exists(out);
+		const s32 refused = assetArchiveCloneFile(source.c_str(), out.string().c_str(),
+			"mod_clonetest:staged_other", "pd-tests", &report, err, sizeof(err));
+		INFO("out=" << out.filename().string() << " error=" << err);
+		CHECK(refused == ASSET_ARCHIVE_CLONE_ERR_ARGS);
+		CHECK(std::string(err).size() > 0);
+		CHECK(std::filesystem::exists(out) == existed);
+		if (existed) CHECK(cloneReadFileBytes(out) == before);
+	};
+	expectRefused(dir.path / ("other.pdvehicle" ASSET_ARCHIVE_CLONE_STAGING_SUFFIX));
+	expectRefused(dir.path / ("other" ASSET_ARCHIVE_CLONE_STAGING_SUFFIX));
+	expectRefused(dir.path / ("other.pdweapon" ASSET_ARCHIVE_CLONE_STAGING_SUFFIX
+		ASSET_ARCHIVE_CLONE_STAGING_SUFFIX));
+	{
+		const std::filesystem::path existing =
+			dir.path / ("existing.pdweapon" ASSET_ARCHIVE_CLONE_STAGING_SUFFIX);
+		{
+			std::ofstream keep(existing, std::ios::binary);
+			keep << "keep me";
+		}
+		expectRefused(existing);
+	}
+	CHECK(cloneCountFiles(dir.path) == 3);
+}
