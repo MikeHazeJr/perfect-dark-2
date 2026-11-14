@@ -5,7 +5,9 @@ Branch `week-pd/multiplayer`, worktree `C:\Users\mikeh\Perfect-Dark-2\wt\multipl
 Live status table: `context/week-pd-coordination.md` in the canonical checkout (one shared copy).
 
 State on 2026-11-14: read-only planning. Nothing has been built or run by this session.
-Building starts only when CORE flips the Step 0 gate in the coordination note to GO.
+Gate as of 18:40 UTC: the base a8ab67f3 builds and passes its unit tests on hosted CI; the local build
+and the boot smoke are still held by the disk floor. Mike's condition for this session is a clean build
+and a passing boot smoke, so source edits wait for the boot smoke or for Mike's word.
 
 Evidence labels used below:
 - VERIFIED: I read the cited source lines myself.
@@ -133,9 +135,13 @@ Ranked by how much they block "every mode working".
     (`types.h:4175-4197`) and `struct mpconfigsim` has `head_id[64]` and `body_id[64]` after `type`
     (`types.h:5097-5106`). By C initializer rules the stage, limits and weapons land inside
     `stage_id`, and each simulant's head, body, team and difficulties land inside `head_id`, leaving
-    difficulty 0 (MeatSim, enabled) everywhere. Confirm at the first build from the compiler
-    warnings for `mpconfigs.c`. REPORTED on top of that: the ImGui challenge launch starts the match
-    without adding the challenge's bots (`matchsetup.c:1556-1601`), and the screens have no entry.
+    difficulty 0 (MeatSim, enabled) everywhere. Confirmed by the compiler: the green hosted CI build
+    of a8ab67f3 (run 39809150838, 2026-10-22) emits 1,685 warnings for `mpconfigs.c` (1,276 "excess
+    elements in scalar initializer", 396 "braces around scalar initializer", 13 int-to-char
+    overflows), with notes naming `g_MpConfigs[0].setup.stage_id[4]` and
+    `g_MpConfigs[0].simulants[0].head_id[3]`. REPORTED on top of that: the ImGui challenge launch
+    starts the match without adding the challenge's bots (`matchsetup.c:1556-1601`), and the screens
+    have no entry.
 11. **Co-op and Counter-op menus and flow.** Offline co-op entry was removed. The Room's co-op
     friendly-fire toggle never reaches the gameplay flag, there is no radar toggle, and mission,
     difficulty and counter-op player choice are not broadcast. Mission end runs Next or Retry
@@ -192,8 +198,8 @@ Each step ends with its tests green and a row update in the coordination note. C
 stay on `week-pd/multiplayer`. Steps 1 to 4 are the core of the week; 5 to 8 follow as time allows and
 stay visible in the table either way.
 
-1. **Baseline at v61 (first hours after GO).** Build once and read the compiler warnings for
-   `mpconfigs.c`. Run pd-tests `[net],[networking]`, `[reconnect]`, `[combat-sim],[player-init]`.
+1. **Baseline at v61 (first hours after GO).** Build once. Run pd-tests `[net],[networking]`,
+   `[reconnect]`, `[combat-sim],[player-init]`.
    Re-run the existing multiplayer smokes unchanged: `combat_sim_chicago_match_start`,
    `combat_sim_release_cycle`, `combat_sim_defect_cohort` (first ever run), `listen_host_match_smoke`,
    `network_reconnect_smoke`, co-op and counter-op stage smokes. Record what is red before I change
