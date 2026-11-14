@@ -991,6 +991,15 @@ void setupCreateObject(struct defaultobj *obj, s32 cmdindex)
 			}
 
 			propEnable(prop2);
+		} else {
+			/* B-1113: the original skips the object without a word when its
+			 * pad has no room. That is how a mission can lose an object an
+			 * objective needs, so it is reported here. A note, not a warning:
+			 * base stages carry a few objects on pads outside every room, and
+			 * the original game does not create those either. */
+			sysLogPrintf(LOG_NOTE,
+				"SETUP: object type=%d modelnum=%d at pad %d has no room (room=%d); prop not created (cmdindex=%d)",
+				(s32)obj->type, modelnum, (s32)obj->pad, (s32)pad.room, cmdindex);
 		}
 	}
 }
