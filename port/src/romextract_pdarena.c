@@ -86,7 +86,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -899,9 +899,11 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 		if (offsets[i] > offsets[i + 1] || offsets[i + 1] > size) return -1;
 	}
 
+	/* B-1145: no `mtllib` line. It named scenario.mtl, a member the scenario
+	 * layout forbids, so every base collision source carried a reference
+	 * that could never resolve and failed release validation. */
 	if (s_textbufAppend(obj,
 			"# Perfect Dark 2 base scenario collision export\n"
-			"mtllib scenario.mtl\n"
 			"usemtl collision\n") != 0) {
 		return -1;
 	}
@@ -2644,7 +2646,10 @@ static s32 s_setupAppendCommandFields(pdscenario_textbuf_t *fields,
 	case OBJECTIVETYPE_COLLECTOBJ:
 	case OBJECTIVETYPE_THROWOBJ: {
 		const u32 *words = (const u32 *)ptr;
-		u32 tag_id = PD_BE32(words[1]);
+		/* B-1111: the setup loader has already converted this word to host
+		 * order (filesetup.c, PD_CONV_VAL on cmd1). Only words[0] keeps its
+		 * file byte layout. Swapping it again wrote tag 6 as 0x06000000. */
+		u32 tag_id = words[1];
 		char target_ref[32];
 		s_tagTargetRecordRef(tag_targets, tag_target_count, tag_id,
 			target_ref, sizeof(target_ref));
@@ -2656,7 +2661,7 @@ static s32 s_setupAppendCommandFields(pdscenario_textbuf_t *fields,
 	case OBJECTIVETYPE_COMPFLAGS:
 	case OBJECTIVETYPE_FAILFLAGS: {
 		const u32 *words = (const u32 *)ptr;
-		u32 flag_mask = PD_BE32(words[1]);
+		u32 flag_mask = words[1]; /* host order already, see B-1111 above */
 		if (s_setupFieldStageFlag(fields, record_id, kind,
 				"objective_step.stage_flag", flag_mask) != 0) return -1;
 		break;
@@ -3328,7 +3333,8 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 			if (type == OBJECTIVETYPE_DESTROYOBJ ||
 					type == OBJECTIVETYPE_COLLECTOBJ ||
 					type == OBJECTIVETYPE_THROWOBJ) {
-				u32 tag_id = PD_BE32(((const u32 *)ptr)[1]);
+				/* Host order already (B-1111): no second swap. */
+				u32 tag_id = ((const u32 *)ptr)[1];
 				s_tagRef(tag_id, target_ref, sizeof(target_ref));
 				s_tagTargetRecordRef(tag_targets, tag_target_count,
 					tag_id, target_record_ref,
@@ -3336,7 +3342,7 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 				operand_kind = "tag_target";
 			} else if (type == OBJECTIVETYPE_COMPFLAGS ||
 					type == OBJECTIVETYPE_FAILFLAGS) {
-				u32 flag_mask = PD_BE32(((const u32 *)ptr)[1]);
+				u32 flag_mask = ((const u32 *)ptr)[1]; /* host order, B-1111 */
 				s_stageFlagRef(flag_mask, state_ref,
 					sizeof(state_ref));
 				operand_kind = "stage_flag";

@@ -881,6 +881,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_player_stage_init_fault.cpp
   ${CMAKE_SOURCE_DIR}/port/src/player_stage_init_fault.c
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_stage_load_static.cpp
+  # B-1111: objective tags and stage flags stay in host order end to end.
+  ${CMAKE_SOURCE_DIR}/tests/test_objective_operand_order_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_campaign_complete_hotkey.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_credits_button.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_campaign_run.cpp
