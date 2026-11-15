@@ -10628,3 +10628,30 @@ What happened
 Verification
 - Storage: Python 29/29, reuse 17/17, retention 22/22; PowerShell storage
   19, retention, runner retention 47.
+
+## 2026-11-15 (16:45-17:35 UTC) - CORE: base 4 proven in game and published, runner proven, B-1172 confirmed
+
+What happened
+- Re-run of the base 4 game check on C: (frozen client 2679a1c8, extract-3's
+  scenario kind, with the mission graph runner): release campaign 43/43 and
+  special assignments 42/42 with base 4's stages used as they are (no
+  re-extraction); every stage with a room or portal rule logged it.
+- Runner in game: 17 + 4 mission programs compiled, 48 + 4 objective status
+  events each ran `og.hud.objective_status_message`, no refusal; the campaign
+  fixtures' new runner assertions pass. Objectives row ticked.
+- Published: the week note's Shared resources now has base 4 with how to move
+  (merge 03471bb8, switch with it); schema row for the room and portal rule
+  fields; Room and light rules row ticked with the B-1172 caveat.
+- B-1172 confirmed for the sky: Villa's intro frame shows black above the
+  terrain. Defection too dark to judge; the fixtures' first two screenshots
+  fell in the 90 s boot (timings to move later).
+- B-1174 (new, menus): `menu_settings_keyboard` reaches the main menu with
+  focus, but Tab does not move focus to Settings. B-1170's focus part is
+  resolved.
+- C: space: each install deleted after its run (350 MB each); the C:
+  storage holds 478 MB of receipts, logs and seed content; C: 202.6 GiB free.
+
+Next
+- Recycle the frozen client copy (92 MB on D:) through the Recycle Bin.
+- Mike: placement of B-1172 (renderer), and the deletion question (test
+  installs permanent vs Recycle Bin).
