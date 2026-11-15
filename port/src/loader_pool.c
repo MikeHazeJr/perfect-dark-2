@@ -282,7 +282,9 @@ static s32 s_publicWeaponFunctionBuild(weaponfunc_any_t *out,
 
 	if (!out) return 0;
 	memset(out, 0, sizeof(*out));
-	if (!held || !held->valid) return 1;
+	/* B-1182: no held function, or a function.empty slot, builds nothing; the
+	 * adapter installs a NULL native function for it, as base weapons have. */
+	if (!weaponGraphHeldFunctionIsExecutable(held)) return 1;
 	if (!held->has_function_type_id) {
 		if (err && err_cap) snprintf(err, err_cap,
 			"held function %s has no public function_type", held->node_id);
@@ -397,7 +399,8 @@ s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
 			!s_publicWeaponFunctionBuild(&funcs[1], secondary, err, err_cap)) {
 		return 0;
 	}
-	if ((!primary || !primary->valid) && (!secondary || !secondary->valid)) {
+	if (!weaponGraphHeldFunctionIsExecutable(primary) &&
+			!weaponGraphHeldFunctionIsExecutable(secondary)) {
 		if (err && err_cap) snprintf(err, err_cap,
 			"public weapon adapter has no executable held function");
 		return 0;
@@ -422,9 +425,9 @@ s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
 	s_PublicWeaponFuncs[runtime_weapon_id][0] = funcs[0];
 	s_PublicWeaponFuncs[runtime_weapon_id][1] = funcs[1];
 	s_PublicWeaponAim[runtime_weapon_id] = aim;
-	weapon.functions[0] = primary && primary->valid ?
+	weapon.functions[0] = weaponGraphHeldFunctionIsExecutable(primary) ?
 		&s_PublicWeaponFuncs[runtime_weapon_id][0] : NULL;
-	weapon.functions[1] = secondary && secondary->valid ?
+	weapon.functions[1] = weaponGraphHeldFunctionIsExecutable(secondary) ?
 		&s_PublicWeaponFuncs[runtime_weapon_id][1] : NULL;
 	weapon.aimsettings = &s_PublicWeaponAim[runtime_weapon_id];
 	s_Weapons[runtime_weapon_id] = weapon;
@@ -441,7 +444,7 @@ s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
 	sysLogPrintf(LOG_NOTE,
 		"LOADER.POOL.WEAPON.PUBLIC_ADAPTER: installed id=%s runtime=%d model=%d funcs=%d track=%u",
 		catalog_id, runtime_weapon_id, model_filenum,
-		(primary && primary->valid ? 1 : 0) + (secondary && secondary->valid ? 1 : 0),
+		weaponGraphHeldFunctionIsExecutable(primary) + weaponGraphHeldFunctionIsExecutable(secondary),
 		(u32)aim.tracktype);
 	return 1;
 }

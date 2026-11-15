@@ -45,6 +45,7 @@
 #include "data.h"
 #include "types.h"
 #include "system.h"
+#include "catalog_mgr_weapons.h" /* B-1181: catalogManagerWeaponIsUsable */
 #include "assetcatalog.h"
 #include "assetload.h"
 #include "asset_source_debug.h"
@@ -3401,8 +3402,20 @@ void setupCreateProps(s32 stagenum)
 				 * resolved user pick".  Pre-fix the open-coded `!= 0xFF && != 0`
 				 * check let 0xFE flow through as a "user pick" and the matching
 				 * model-preload site at line 2870 indexed g_Weapons[254]. */
-				const bool userPickedSpawnWeapon =
+				const bool spawnWeaponResolved =
 					(spawnWeaponNumIsResolved((s32)g_MatchConfig.spawnWeaponNum) != 0);
+				/* B-1181: a pick whose weapon has no installed definition (a
+				 * mod weapon whose activation rolled back) is not kept; it is
+				 * resolved from the weapon set like an unset pick. */
+				const bool userPickedSpawnWeapon = spawnWeaponResolved
+					&& catalogManagerWeaponIsUsable((s32)g_MatchConfig.spawnWeaponNum);
+
+				if (spawnWeaponResolved && !userPickedSpawnWeapon) {
+					sysLogPrintf(LOG_WARNING,
+						"SETUP: picked spawn weapon '%s' num=%d has no installed definition; resolving from the weapon set (B-1181)",
+						g_MatchConfig.spawn_weapon_id[0] ? g_MatchConfig.spawn_weapon_id : "(unnamed)",
+						(s32)g_MatchConfig.spawnWeaponNum);
+				}
 
 				if (!userPickedSpawnWeapon) {
 					s32 setSpawnMpw = -1;
@@ -3491,7 +3504,8 @@ void setupCreateProps(s32 stagenum)
 		 * the FIESTA sentinel 0xFE flowed through this guard and indexed
 		 * g_Weapons[254] -- AV crash. spawnWeaponNumIsResolved is the
 		 * single source of truth in matchsetup.h. */
-		if (spawnWeaponNumIsResolved((s32)g_MatchConfig.spawnWeaponNum)) {
+		if (spawnWeaponNumIsResolved((s32)g_MatchConfig.spawnWeaponNum)
+				&& catalogManagerWeaponIsUsable((s32)g_MatchConfig.spawnWeaponNum)) {
 			modelmgrLoadProjectileModeldefs((s32)g_MatchConfig.spawnWeaponNum);
 		}
 		sysLogPrintf(LOG_NOTE,

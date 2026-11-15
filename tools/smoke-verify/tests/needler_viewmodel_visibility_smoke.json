@@ -51,7 +51,7 @@
     "required_lines": [
       "SMOKE: scenario=needler_viewmodel_visibility_smoke",
       "modmgr: loading mod 'needler' from archive '.*installed.*needler\\.pdmod'",
-      "WEAPONGRAPH\\.MESH\\.INGEST: id=mod_needler:needler_model",
+      "PDWEAPON\\.NESTED\\.MESH_SOURCE: owner=mod_needler:needler id=mod_needler:needler_model action=claimed",
       "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod_needler:needler_model",
       "MODASSET\\.RENDER: generated source modeldef rendered id=mod_needler:needler_model",
       "BOOT: --debug-force-first-person active: stagenum=0x43 frame=\\d+ before=\\d+ after=0 frames=900",

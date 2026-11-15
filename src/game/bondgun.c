@@ -8,6 +8,7 @@
 #include "assetcatalog.h" /* Catalog-owned asset identity and source handles */
 #include "assetcatalog_load.h"
 #include "assetload.h"    /* Provider-aware asset load bridge */
+#include "catalog_mgr_weapons.h" /* B-1181: catalogManagerWeaponIsUsable */
 #include "../lib/naudio/n_sndp.h"
 #include "game/bondmove.h"
 #include "game/cheats.h"
@@ -6896,6 +6897,17 @@ void bgunEquipWeapon(s32 weaponnum)
 {
 	struct player *player = g_Vars.currentplayer;
 
+	/* B-1181: the hand must never adopt a weapon id without an installed
+	 * definition. A mod weapon whose activation failed (its custom slot is
+	 * zeroed) was equipped as the spawn weapon and the next gun tick read its
+	 * null aim settings (bgunSwivelWithDamp). Every equip path funnels here. */
+	if (weaponnum > WEAPON_UNARMED && !catalogManagerWeaponIsUsable(weaponnum)) {
+		sysLogPrintf(LOG_WARNING,
+			"BONDGUN.EQUIP: weapon %d has no installed definition; equipping unarmed instead (B-1181)",
+			weaponnum);
+		weaponnum = WEAPON_UNARMED;
+	}
+
 	/* B-246 round-6 instrumentation: legacy single-arg equip wrapper. The
 	 * MP / SP equip paths funnel through bgunEquipWeapon2 which calls into
 	 * this. Logging here gives visibility into early-return short-circuit
@@ -12688,13 +12700,13 @@ void bgunRender(Gfx **gdlptr)
 				renderdata.envcolour = colour;
 			}
 
+			/* B-1180: every held gun is drawn with the z-buffer, generated
+			 * (mod) models included. Generated skeleton-less guns used to turn
+			 * it off; their display lists inherit the node's render mode
+			 * (modelApplyRenderModeType1), so the whole gun then drew in
+			 * triangle order without depth: far-side parts showed through and
+			 * the model read as turned about 225 degrees. */
 			renderdata.zbufferenabled = true;
-
-			if (hand->gunmodel.definition
-					&& hand->gunmodel.definition->skel == NULL
-					&& modAssetCompilerModeldefIsGenerated(hand->gunmodel.definition)) {
-				renderdata.zbufferenabled = false;
-			}
 
 			mtx00016760();
 

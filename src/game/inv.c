@@ -11,6 +11,20 @@
 #include "lib/main.h"
 #include "data.h"
 #include "types.h"
+#include "system.h"
+#include "catalog_mgr_weapons.h" /* B-1181: catalogManagerWeaponIsUsable */
+
+/* B-1181: an inventory never takes a weapon id without an installed definition.
+ * A failed mod weapon (zeroed custom slot) used to be given and then equipped. */
+static bool invWeaponIsGivable(s32 weaponnum)
+{
+	if (weaponnum <= WEAPON_UNARMED || catalogManagerWeaponIsUsable(weaponnum)) {
+		return true;
+	}
+	sysLogPrintf(LOG_WARNING,
+		"INV.GIVE: weapon %d has no installed definition; not given (B-1181)", weaponnum);
+	return false;
+}
 
 void invClear(void)
 {
@@ -364,6 +378,10 @@ bool invHasDoubleWeaponIncAllGuns(s32 weapon1, s32 weapon2)
 
 bool invGiveSingleWeapon(s32 weaponnum)
 {
+	if (!invWeaponIsGivable(weaponnum)) {
+		return false;
+	}
+
 	frSetWeaponFound(weaponnum);
 
 	if (invHasSingleWeaponExcAllGuns(weaponnum) == 0) {
@@ -392,6 +410,10 @@ bool invGiveSingleWeapon(s32 weaponnum)
 
 bool invGiveDoubleWeapon(s32 weapon1, s32 weapon2)
 {
+	if (!invWeaponIsGivable(weapon1) || !invWeaponIsGivable(weapon2)) {
+		return false;
+	}
+
 	if (invHasDoubleWeaponExcAllGuns(weapon1, weapon2) == 0) {
 		if (weaponHasFlag(weapon1, WEAPONFLAG_DUALWIELD)) {
 			struct invitem *item = invFindUnusedSlot();

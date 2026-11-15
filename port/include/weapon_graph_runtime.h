@@ -309,6 +309,18 @@ typedef struct weapon_graph_held_function {
 	s32 camera_effect_mode;
 } weapon_graph_held_function_t;
 
+/* B-1182: an exported function.empty node marks an unused function slot. It is
+ * the graph spelling of a native NULL weaponfunc (base weapons export it for
+ * every missing secondary) and conformance accepts it, so code that builds
+ * native functions from held functions must treat it as absent, not as an
+ * unsupported function type. */
+static inline s32 weaponGraphHeldFunctionIsExecutable(
+		const weapon_graph_held_function_t *held)
+{
+	return held != NULL && held->valid
+		&& held->opcode != WEAPON_GRAPH_OP_FUNCTION_EMPTY;
+}
+
 typedef struct weapon_graph_projectile_runtime {
 	s32 valid;
 	char asset_id[CATALOG_ID_LEN];

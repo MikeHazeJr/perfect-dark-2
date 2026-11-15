@@ -1,5 +1,85 @@
 # Bug Tracker
 
+## 2026-11-15 B-1183 Dying while holding a mod weapon crashed the game (T-MODDING-008)
+
+Severity high (crash in ordinary multiplayer). Found re-running the Needler
+viewmodel fixture with a wait for gameplay on the B-1180 client: the twelve bots
+killed the player at about 65 s, the held Needler was dropped as a physics
+object, and the client crashed in `projectileFall` (`src/game/propobj.c`, the
+`bbox->xmax` read after `objFindBboxRodata`; backtrace via addr2line). A
+modeldef built from an author source hierarchy (`model.nodes.json`) gets a
+bounding box only if the hierarchy lists one; the flat source path always adds
+one, extracted models list their own, and base weapons drop a separate world
+model that has one, but a mod weapon's single model is also its dropped and
+pickup object. Not caused by B-1180 to B-1182 (drop physics untouched).
+Fix on `week-pd/crystal-pistol`: `generatedModeldefEnsureHierarchyBounds`
+(`port/src/modasset_compiler.c`) links a bounding box from the mesh bounds under
+the root when a skeleton-less, non-character hierarchy has none. Extracted models
+(native skeletons) are untouched. Verified on the branch client (shared base 3,
+single process, `--portable`): the Needler fixture with twelve bots played 52
+death screams in 30 s of combat and passed 21/21 with no crash; the same fixture
+on the client without this fix crashed after 15. Static pin `[b1183]`.
+
+## 2026-11-15 B-1180 A held mod gun drew without depth testing (T-MODDING-008)
+
+Severity high (every mod weapon's first-person model draws wrong). Found
+running the Tripo-built Maian crystal pistol model (test mod
+`dev-mods/crystal_pistol`, OBJ + texture, render class 0) in game on shared
+base 3: the gun loaded and rendered, but far-side parts (the muzzle bezel,
+the barrel crystal, inner faces) showed through the body. With every material
+set to `pd_render_class = 3`, which makes the generated display list emit
+`G_RM_AA_ZB_OPA_SURF`, the same model drew clean and matched the expected
+180-degree pose. Cause: `bgunRender` (`src/game/bondgun.c`) set
+`renderdata.zbufferenabled = false` for any skeleton-less generated gun model
+(added in 957ad3a2 with no recorded reason). Generated display lists for
+author meshes set combine and geometry state but inherit the node's render mode,
+which `modelApplyRenderModeType1` makes non-z-buffered when that flag is off,
+so the whole gun drew in triangle order without depth. This is also why held
+mod models looked turned about 225 degrees (MODS stand-in runs): with no depth,
+near and far sides swap visually; the pose is the native 180 degrees.
+Fix on `week-pd/crystal-pistol`: the exception is removed; every held gun is
+drawn with the z-buffer. The static pin in
+`tests/test_mod_external_archive_static.cpp` now requires the exception's absence.
+Verified: the unmodified crystal pistol test mod passes
+`crystal_pistol_viewmodel_smoke` 28/28 and its captures show a clean, depth-correct
+gun pointing into the screen; the Needler still renders solid.
+
+## 2026-11-15 B-1181 A mod weapon whose activation failed was still equipped, and the game crashed (T-MODDING-008)
+
+Severity high (crash). Found with the crystal pistol test mod: its
+`function.empty` secondary made the public weapon adapter fail (B-1182), the
+manifest rolled the weapon back and cleared its custom slot (zeroed: no aim
+settings, no functions), but match setup kept the user-picked spawn weapon
+(`SETUP: user-picked spawn weapon ... preserved`), the player was given and
+equipped slot 86, and the first gun tick dereferenced the null aim settings in
+`bgunSwivelWithDamp` (`bondgun.c`, backtrace via addr2line). Nothing checked that
+a weapon id named an installed definition. Fix on `week-pd/crystal-pistol`: new
+`catalogManagerWeaponIsUsable` (`port/src/catalog_mgr_weapons.c`; every installed
+definition, from the loader pool, the public adapter or the v2 runtime, carries
+aim settings); `bgunEquipWeapon` equips unarmed instead of an unusable id (it is
+the funnel for every equip path), `invGiveSingleWeapon` and `invGiveDoubleWeapon`
+refuse it, and the spawn pick in `setup.c`, `player.c` and `bot.c` falls back to
+the weapon set instead of keeping it, each with a warning naming B-1181.
+Verified with a test-mod variant whose functions use `ammo_slot` 5: the adapter
+rejects it, setup logs `picked spawn weapon ... has no installed definition`,
+the player spawns with the Falcon 2 and the match runs to a clean exit.
+
+## 2026-11-15 B-1182 The mod weapon adapter rejected function.empty, which base weapons and conformance accept (T-MODDING-008)
+
+Severity medium (a valid archive fails to load; with B-1181 it crashed).
+`function.empty` is how every extracted base weapon writes a missing secondary
+(`function_type: none`, `source: empty_slot`), and
+`tools/asset_archive_conformance.py` accepts it, but
+`s_publicWeaponFunctionBuild` (`port/src/loader_pool.c`) treated the valid held
+function as an unsupported function type 0 and failed the whole adapter. Fix on
+`week-pd/crystal-pistol`: new inline `weaponGraphHeldFunctionIsExecutable`
+(`port/include/weapon_graph_runtime.h`) treats a function.empty slot as absent;
+the adapter installs a NULL native function for it, as base weapons have, and
+counts only executable functions. Behavioural test: a graph with a hitscan
+primary and a function.empty secondary compiles, registers, and only the primary
+is executable. Verified in game: a test-mod variant with a function.empty
+secondary installs (`PUBLIC_ADAPTER: installed ... funcs=1`) and renders.
+
 ## 2026-11-15 B-1126 Capture the Case, King of the Hill and Hold the Briefcase lose their arena positions on extracted arenas (T-NETWORKING-011)
 
 Severity high for Capture the Case (the mode cannot be played as designed),

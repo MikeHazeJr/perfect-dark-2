@@ -6262,7 +6262,9 @@ TEST_CASE("archive-backed typed weapon sources keep transport-root chain",
 	REQUIRE(bondgun.find("use_static_source_matrices = gunmodeldef != NULL") != std::string::npos);
 	REQUIRE(bondgun.find("gunmodeldef->skel == NULL") != std::string::npos);
 	REQUIRE(bondgun.find("modAssetCompilerModeldefIsGenerated(gunmodeldef)") != std::string::npos);
-	REQUIRE(bondgun.find("renderdata.zbufferenabled = false;") != std::string::npos);
+	/* B-1180: held generated guns keep the z-buffer like every other held gun. */
+	REQUIRE(bondgun.find("renderdata.zbufferenabled = false;") == std::string::npos);
+	REQUIRE(bondgun.find("renderdata.zbufferenabled = true;") != std::string::npos);
 	REQUIRE(bondgun.find("modelUpdateMatrices(&renderdata, &hand->gunmodel)") != std::string::npos);
 	REQUIRE(bondgun.find("modelSetMatricesWithAnim(&renderdata, &hand->gunmodel)") != std::string::npos);
 
@@ -6449,6 +6451,116 @@ TEST_CASE("public weapon activation hydrates and clears the loader-owned runtime
 	REQUIRE(manifest.find("\"functions\"") == std::string::npos);
 	REQUIRE(manifest.find("\"aimsettings\"") == std::string::npos);
 	REQUIRE(manifest.find("\"muzzlez\"") == std::string::npos);
+}
+
+TEST_CASE("function.empty is an absent held function, not an unsupported one",
+		"[modding][pdxxx][weapon_graph][runtime][held][b1182]") {
+	/* The shape every extracted base weapon uses for a missing secondary. */
+	const std::string graph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"mod_test:empty_secondary\",\n"
+		"  \"graph_id\": \"empty_secondary_v1\",\n"
+		"  \"nodes\": [\n"
+		"    {\n"
+		"      \"id\": \"primary_action\",\n"
+		"      \"kind\": \"fire.hitscan\",\n"
+		"      \"params\": { \"mode\": \"primary\", \"function_type\": \"shoot_single\", \"ammo_slot\": 0 }\n"
+		"    },\n"
+		"    {\n"
+		"      \"id\": \"secondary_action\",\n"
+		"      \"kind\": \"function.empty\",\n"
+		"      \"params\": { \"mode\": \"secondary\", \"function_type\": \"none\", \"source\": \"empty_slot\" }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"primary_action\" },\n"
+		"    { \"name\": \"secondary\", \"node\": \"secondary_action\" }\n"
+		"  ]\n"
+		"}\n";
+
+	weapon_graph_ir_t ir;
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+
+	weaponGraphRuntimeClearAll();
+	weaponGraphRuntimeSetEnabled(1);
+	REQUIRE(weaponGraphRuntimeRegisterHeldIr(12, &ir, err, sizeof(err)) == 0);
+	const weapon_graph_held_function_t *primary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(12, 0);
+	const weapon_graph_held_function_t *secondary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(12, 1);
+	REQUIRE(primary != nullptr);
+	REQUIRE(secondary != nullptr);
+	REQUIRE(secondary->opcode == WEAPON_GRAPH_OP_FUNCTION_EMPTY);
+	REQUIRE(weaponGraphHeldFunctionIsExecutable(primary) == 1);
+	REQUIRE(weaponGraphHeldFunctionIsExecutable(secondary) == 0);
+	REQUIRE(weaponGraphHeldFunctionIsExecutable(nullptr) == 0);
+	weaponGraphRuntimeSetEnabled(0);
+	weaponGraphRuntimeClearAll();
+
+	/* The mod weapon adapter builds a NULL native function for the empty slot
+	 * instead of rejecting function_type 0 and rolling the weapon back. */
+	const std::string pool = readFile("port/src/loader_pool.c");
+	REQUIRE(pool.find("if (!weaponGraphHeldFunctionIsExecutable(held)) return 1;") !=
+		std::string::npos);
+	REQUIRE(pool.find("weapon.functions[1] = weaponGraphHeldFunctionIsExecutable(secondary) ?") !=
+		std::string::npos);
+	REQUIRE(pool.find("secondary && secondary->valid") == std::string::npos);
+}
+
+TEST_CASE("a weapon without an installed definition is never given, equipped or kept as the spawn pick",
+		"[modding][pdxxx][weapon][static][b1181]") {
+	const std::string router = readFile("port/src/catalog_mgr_weapons.c");
+	REQUIRE(router.find("s32 catalogManagerWeaponIsUsable(s32 weapon_id)") != std::string::npos);
+	REQUIRE(router.find("return weapon != NULL && weapon->aimsettings != NULL;") != std::string::npos);
+
+	const std::string bondgun = readFile("src/game/bondgun.c");
+	const size_t equip = bondgun.find("void bgunEquipWeapon(s32 weaponnum)");
+	const size_t guard = bondgun.find(
+		"if (weaponnum > WEAPON_UNARMED && !catalogManagerWeaponIsUsable(weaponnum)) {");
+	const size_t shortcircuit = bondgun.find(
+		"if (player->gunctrl.weaponnum == weaponnum && player->gunctrl.switchtoweaponnum == -1) {");
+	REQUIRE(equip != std::string::npos);
+	REQUIRE(guard != std::string::npos);
+	REQUIRE(shortcircuit != std::string::npos);
+	/* The guard runs before the hand can adopt or short-circuit on the id. */
+	REQUIRE(equip < guard);
+	REQUIRE(guard < shortcircuit);
+
+	const std::string inv = readFile("src/game/inv.c");
+	REQUIRE(inv.find("if (!invWeaponIsGivable(weaponnum)) {") != std::string::npos);
+	REQUIRE(inv.find("if (!invWeaponIsGivable(weapon1) || !invWeaponIsGivable(weapon2)) {") !=
+		std::string::npos);
+
+	const char *spawnSites[] = { "src/game/player.c", "src/game/bot.c", "src/game/setup.c" };
+	for (const char *path : spawnSites) {
+		INFO(path);
+		const std::string source = readFile(path);
+		REQUIRE(source.find("&& catalogManagerWeaponIsUsable((s32)g_MatchConfig.spawnWeaponNum)") !=
+			std::string::npos);
+	}
+}
+
+TEST_CASE("a skeleton-less source hierarchy always gets a bounding box node",
+		"[modding][pdxxx][mesh][static][b1183]") {
+	/* A mod weapon's only model is also its dropped object; object physics
+	 * (projectileFall) reads the box without a NULL check. */
+	const std::string compiler = readFile("port/src/modasset_compiler.c");
+	const size_t helper = compiler.find("static void generatedModeldefEnsureHierarchyBounds(");
+	REQUIRE(helper != std::string::npos);
+	REQUIRE(compiler.find("node_count <= 0 || skeleton != NULL", helper) != std::string::npos);
+	REQUIRE(compiler.find("root->type == MODELNODETYPE_CHRINFO", helper) != std::string::npos);
+	REQUIRE(compiler.find("generatedModeldefMeshBounds(mesh, &owner->bbox_rodata.bbox);", helper) !=
+		std::string::npos);
+	const size_t call = compiler.find(
+		"generatedModeldefEnsureHierarchyBounds(owner, hierarchy.row_count, skeleton, mesh);");
+	const size_t rwdata = compiler.find(
+		"owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);", call);
+	REQUIRE(call != std::string::npos);
+	REQUIRE(rwdata != std::string::npos);
 }
 
 TEST_CASE("public weapon source registration fails closed",

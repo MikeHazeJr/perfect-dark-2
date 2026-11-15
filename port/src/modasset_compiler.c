@@ -5848,6 +5848,45 @@ static void generatedModeldefMeshBounds(const obj_mesh_t *mesh,
 	bbox->zmax = zmax;
 }
 
+/* B-1183: a modeldef built from an author hierarchy (no native skeleton) gets a
+ * bounding box only if the hierarchy lists one. A mod weapon's single model is
+ * also its dropped and pickup object, and object physics reads the box without a
+ * NULL check (projectileFall via objFindBboxRodata), so a mod weapon dropped on
+ * its holder's death crashed the game. Link a box from the mesh bounds under the
+ * root, as the flat source path does. Extracted models keep their own nodes. */
+static void generatedModeldefEnsureHierarchyBounds(generated_modeldef_t *owner,
+                                                   s32 node_count,
+                                                   const struct skeleton *skeleton,
+                                                   const obj_mesh_t *mesh)
+{
+	struct modelnode *root;
+
+	if (!owner || !mesh || node_count <= 0 || skeleton != NULL) {
+		return;
+	}
+	root = &owner->dynamic_nodes[0];
+	if (root->type == MODELNODETYPE_CHRINFO) {
+		return;
+	}
+	for (s32 i = 0; i < node_count; i++) {
+		if ((owner->dynamic_nodes[i].type & 0xff) == MODELNODETYPE_BBOX) {
+			return;
+		}
+	}
+
+	owner->bbox_node.type = MODELNODETYPE_BBOX;
+	owner->bbox_node.rodata = &owner->bbox_rodata;
+	owner->bbox_node.parent = root;
+	owner->bbox_node.prev = NULL;
+	owner->bbox_node.child = NULL;
+	owner->bbox_node.next = root->child;
+	if (root->child) {
+		root->child->prev = &owner->bbox_node;
+	}
+	root->child = &owner->bbox_node;
+	generatedModeldefMeshBounds(mesh, &owner->bbox_rodata.bbox);
+}
+
 static void generatedModeldefConfigureSourceBounds(generated_modeldef_t *owner,
                                                    const obj_mesh_t *mesh)
 {
@@ -8902,6 +8941,7 @@ static s32 buildGeneratedModeldefFromMeshHierarchy(const modasset_model_inputs_t
 
 	free(parts);
 	owner->def.rootnode = &owner->dynamic_nodes[0];
+	generatedModeldefEnsureHierarchyBounds(owner, hierarchy.row_count, skeleton, mesh);
 	owner->def.skel = skeleton;
 	owner->def.nummatrices = (s16)(max_mtx >= 0 ? max_mtx + 1 : 1);
 	owner->def.scale = generatedModeldefScaleFromMetadata(inputs, source_path);
