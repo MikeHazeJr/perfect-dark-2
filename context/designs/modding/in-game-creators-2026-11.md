@@ -212,6 +212,9 @@ Foundation, in order. Each step lands with tests that run in CI.
      graph uses `$variables` (none exists; the creator's own check compiles
      without the variables file).
 6. Characters tool, vehicle runtime binding plus Vehicles tool, level tools.
+   Level tools and the level mod wait until Forge mode authoring is
+   finished (Mike, 2026-11-15); the vehicle, the veteran and the crystal
+   pistol go first (`maian-vehicle-and-veteran.md`).
    Not started. All 47 base arenas, 68 bodies, 84 heads, 63 characters and
    the hoverbike now save as release-valid mods through `modAuthorSave`
    (shared base 3), so each of these tools starts from a working save.

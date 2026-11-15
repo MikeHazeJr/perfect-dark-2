@@ -47,7 +47,10 @@ gun.
 
 ### Level
 
-The Maian arena is still open: do not start it.
+Waits for Forge mode. Mike, 2026-11-15: "Regarding levels, we need to finish
+authoring the Forge mode first." The Maian arena is not part of this plan; it
+is a later item that depends on Forge mode authoring being finished. Keep
+going on the vehicle, the veteran and the crystal pistol.
 
 ## 2. What exists (survey, 2026-11-15)
 
