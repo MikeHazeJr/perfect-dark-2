@@ -447,6 +447,13 @@ static const char *g_BootDebugInstallReceivedMod = NULL;
 static const char *g_BootDebugReceivePdcaList = NULL;
 static const char *g_BootDebugRejectCatalogIngressList = NULL;
 static const char *g_BootDebugSpawnWeapon = NULL;
+/* T-NETWORKING-011: --debug-bot-spec "type:difficulty,..." gives the
+ * --launch-mp-room simulants these types and difficulties in order (BOTTYPE_*
+ * 0..12, BOTDIFF_* 0..5); simulants past the list stay general/normal. */
+#define BOOT_DEBUG_BOT_SPEC_MAX 32
+static s32         g_BootDebugBotSpecCount = 0;
+static u8          g_BootDebugBotSpecType[BOOT_DEBUG_BOT_SPEC_MAX];
+static u8          g_BootDebugBotSpecDiff[BOOT_DEBUG_BOT_SPEC_MAX];
 static const char *g_BootDebugBotBody = NULL;
 static const char *g_BootDebugBotHead = NULL;
 static bool        g_BootDebugPlaceBotNearPlayer = false;
@@ -1312,8 +1319,23 @@ static void bootApplyLaunchMpRoom(void)
 			"BOOT: --debug-bot-appearance requested but --launch-mp-room bot_count=0");
 	}
 	for (s32 i = 0; i < g_BootLaunchMpBotCount; ++i) {
-		s32 botidx = matchConfigAddBot(BOTTYPE_GENERAL, BOTDIFF_NORMAL,
+		const u8 bottype = i < g_BootDebugBotSpecCount
+			? g_BootDebugBotSpecType[i] : BOTTYPE_GENERAL;
+		const u8 botdiff = i < g_BootDebugBotSpecCount
+			? g_BootDebugBotSpecDiff[i] : BOTDIFF_NORMAL;
+		s32 botidx = matchConfigAddBot(bottype, botdiff,
 			debug_body_id, debug_head_id, NULL);
+		if (i < g_BootDebugBotSpecCount) {
+			if (botidx >= 0) {
+				sysLogPrintf(LOG_NOTE,
+					"BOOT: --debug-bot-spec added slot=%d type=%d difficulty=%d",
+					botidx, (s32)bottype, (s32)botdiff);
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-bot-spec could not add type=%d difficulty=%d (no unlocked profile or no slot)",
+					(s32)bottype, (s32)botdiff);
+			}
+		}
 		if (botidx >= 0 && (debug_body_id || debug_head_id)) {
 			struct matchslot *slot = &g_MatchConfig.slots[botidx];
 			sysLogPrintf(LOG_NOTE,
@@ -4588,6 +4610,50 @@ int main(int argc, const char **argv)
 	g_BootDebugSpawnWeapon    = sysArgGetString("--debug-spawn-weapon");
 	g_BootDebugBotBody        = sysArgGetString("--debug-bot-body");
 	g_BootDebugBotHead        = sysArgGetString("--debug-bot-head");
+	{
+		/* "type:difficulty,..." with BOTTYPE_* 0..12 and BOTDIFF_* 0..5. A bad
+		 * entry rejects the whole flag, so a smoke never runs a different mix. */
+		const char *spec = sysArgGetString("--debug-bot-spec");
+
+		if (spec && spec[0]) {
+			const char *p = spec;
+			s32 count = 0;
+			s32 ok = 1;
+
+			while (*p && ok) {
+				char *end = NULL;
+				const long type = strtol(p, &end, 10);
+				long diff;
+
+				if (end == p || *end != ':' || type < BOTTYPE_GENERAL || type > BOTTYPE_VENGE) {
+					ok = 0;
+					break;
+				}
+				p = end + 1;
+				diff = strtol(p, &end, 10);
+				if (end == p || diff < BOTDIFF_MEAT || diff > BOTDIFF_DARK
+						|| count >= BOOT_DEBUG_BOT_SPEC_MAX) {
+					ok = 0;
+					break;
+				}
+				g_BootDebugBotSpecType[count] = (u8)type;
+				g_BootDebugBotSpecDiff[count] = (u8)diff;
+				count++;
+				p = end;
+				if (*p == ',') {
+					p++;
+				} else if (*p) {
+					ok = 0;
+				}
+			}
+			if (ok && count > 0) {
+				g_BootDebugBotSpecCount = count;
+				sysLogPrintf(LOG_NOTE, "BOOT: --debug-bot-spec armed: %d simulant(s) '%s'", count, spec);
+			} else {
+				sysLogPrintf(LOG_WARNING, "BOOT: --debug-bot-spec rejected '%s' (expects type:difficulty,...)", spec);
+			}
+		}
+	}
 	g_BootDebugPlaceBotNearPlayer = sysArgCheck("--debug-place-bot-near-player") ? true : false;
 	{
 		const char *holdsec = sysArgGetString(
