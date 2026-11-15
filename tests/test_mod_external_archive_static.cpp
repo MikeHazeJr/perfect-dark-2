@@ -11235,10 +11235,34 @@ TEST_CASE("crystal pistol charge, cluster and arm-on-land params reach the runti
 	/* B-1187: on a scenario-source stage the sticky hit test ray-casts the
 	 * world collision mesh (rooms there have no vertex batches), so crystals
 	 * and mines stick to floors instead of falling through them. */
-	REQUIRE(propobj.find("usemesh = bgIsScenarioSource() && g_WorldMesh.ready && g_WorldMesh.numtris > 0;") !=
-		std::string::npos);
+	REQUIRE(propobj.find("usemesh = bgUsesScenarioMeshHits();") != std::string::npos);
+	REQUIRE(propobj.find("bgTestHitScenarioMesh(&prop->pos, &sp1c4, true, &hitthing, NULL)") != std::string::npos);
 	REQUIRE(propobj.find("for (i = 0; !usemesh && spcc[i] != -1; i++) {") != std::string::npos);
-	REQUIRE(readFile("src/game/bg.c").find("bool bgIsScenarioSource(void)") != std::string::npos);
+	const std::string bg = readFile("src/game/bg.c");
+	REQUIRE(bg.find("bool bgIsScenarioSource(void)") != std::string::npos);
+	/* B-1189: the other background hit tests on such a stage: hitscan (the
+	 * Farsight's x-ray mode still skips the whole test and shoots through
+	 * walls), the hitscan line-of-sight test, blood splats, spawn clearance
+	 * (every surface) and explosion scorch marks. */
+	REQUIRE(bg.find("mask = GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_BLOCK_SHOOT;") != std::string::npos);
+	const std::string prop = readFile("src/game/prop.c");
+	const size_t farsight = prop.find(
+		"if (shotdata.gset.weaponnum != WEAPON_FARSIGHT || g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {");
+	const size_t shotmesh = prop.find("bgTestHitScenarioMesh(&shotdata.gunpos3d, &hitpos, true, &sp664, &hitroom)");
+	REQUIRE(farsight != std::string::npos);
+	REQUIRE(shotmesh != std::string::npos);
+	REQUIRE(farsight < shotmesh);
+	REQUIRE(prop.find("for (i = 0; !usemesh && rooms[i] != -1; i++) {") != std::string::npos);
+	REQUIRE(prop.find("bgTestHitScenarioMesh(&shotdata.gunpos3d, endpos3d, true, &sp664, NULL)") != std::string::npos);
+	REQUIRE(readFile("src/game/splat.c").find(
+		"bgTestHitScenarioMesh(&stackshotdata.gunpos3d, &endpos, true, &hitthing, &hitroom)") != std::string::npos);
+	const std::string spawnpool = readFile("src/game/spawnpool.c");
+	REQUIRE(spawnpool.find("bgTestHitScenarioMesh((struct coord *)pos, &endpoint, false, &hit, NULL)\n\t\t\t: bgTestHitInRoom(") !=
+		std::string::npos);
+	REQUIRE(spawnpool.find("? bgTestHitScenarioMesh((struct coord *)pos, &endpoint, false, &hit, NULL)\n\t\t\t: bgTestHitInRoom((struct coord *)pos, &endpoint, room, &hit)) {") !=
+		std::string::npos);
+	REQUIRE(readFile("src/game/explosions.c").find("if (g_Rooms[exp->room].gfxdata || bgIsScenarioSource()) {") !=
+		std::string::npos);
 	/* Spent rounds from a self-loading magazine are never pickups (a bot
 	 * collected resting crystal mines as the whole weapon). */
 	REQUIRE(mod.find("bool bgunModGsetFiresSpentRounds(struct gset *gset)") != std::string::npos);

@@ -1,5 +1,40 @@
 # Bug Tracker
 
+## 2026-11-15 B-1210 The world mesh grid drops triangles past its 128-cell cap (T-MODDING-008, found, not fixed)
+
+Severity low today (only stages wider than 32768 units on an axis). Found by
+the B-1189 unit test. `meshWorldFinalize` (`src/lib/meshcollision.c`) caps the
+grid at `MESHGRID_MAX_DIM` (128) cells of 256 units per axis and clamps each
+triangle's cell range with `if (cx1 >= cellsx) cx1 = cellsx - 1` but leaves
+`cx0`/`cz0` unclamped, so a triangle wholly past the cap gets `cx0 > cx1` and
+is listed in no cell. Grid queries (`meshFindFloor`, `meshFindCeiling`, the new
+`meshGridRayCast`) cannot see it; `meshFindFloor` also skips lookups past the
+cap. `meshGridRayCast` falls back to testing every triangle on a capped grid.
+Proper fix for CORE: size cells to the stage (or clamp both ends and the
+lookups), then drop that fallback.
+
+## 2026-11-15 B-1189 Shots, splats and spawn checks ignored walls on scenario-source stages (T-MODDING-008)
+
+Severity high (every multiplayer arena; Mike asked for it to be fixed). The
+B-1187 pattern in the other `bgTestHitInRoom` callers: on a scenario-source
+stage no room has vertex batches, so the player's hitscan never registered a
+background hit. In MULTIPLAYER's smoke logs every player shot is
+`COMBAT: SHOT_RESULT MISS` (16 of 16, 28 of 28), never `HIT_BG`: shots went
+through walls and floors (no wall hits or sparks; props behind walls could be
+hit). The same gap left blood splats without walls, made every spawn-pool
+candidate look open (its clearance rays never hit), and the `gfxdata` guard in
+`explosions.c` skipped every scorch mark. Fix: `bgTestHitScenarioMesh`
+(`bg.c`) answers from the world collision mesh through a new grid-walked,
+flag-masked ray cast (`src/lib/meshraygrid.c`, `meshRayCastWorldMasked`).
+Shots, splats and sticky projectiles stop at floors and `BLOCK_SHOOT`
+surfaces, so they pass movement-only clip walls (50 on Felicity, 82 on
+Complex) as native render-geometry hits did; spawn clearance uses every
+surface. The Farsight's x-ray mode still skips the whole background test and
+shoots through walls. Callers: `shotCalculateHits`, `shotTestLos` (`prop.c`),
+`splat.c`, `spawnpool.c` (2), the sticky test in `propobj.c`; scorch marks are
+allowed without `gfxdata`. Hits carry texture -1 (default surface sound,
+sparks and bullet holes).
+
 ## 2026-11-15 B-1188 Spent mod rounds lying on the floor were collected as the whole weapon (T-MODDING-008)
 
 Severity medium (mod weapons with a self-loading magazine). Found by

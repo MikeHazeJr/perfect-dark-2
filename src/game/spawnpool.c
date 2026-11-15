@@ -288,7 +288,13 @@ f32 spawnPoolRaycastBudget(const struct coord *pos, RoomNum room)
 		endpoint.z = pos->z + s_RayDirs[i].z * SPAWNPOOL_RAY_RANGE;
 
 		memset(&hit, 0, sizeof(hit));
-		didHit = bgTestHitInRoom((struct coord *)pos, &endpoint, room, &hit);
+		/* B-1189: scenario-source stages have no room vertex batches, so
+		 * these rays never hit and every candidate looked open. Use the
+		 * world collision mesh, every surface (clip walls block movement
+		 * too); it spans all rooms, not just the candidate's. */
+		didHit = bgUsesScenarioMeshHits()
+			? bgTestHitScenarioMesh((struct coord *)pos, &endpoint, false, &hit, NULL)
+			: bgTestHitInRoom((struct coord *)pos, &endpoint, room, &hit);
 
 		if (didHit) {
 			f32 dx = hit.pos.x - pos->x;
@@ -472,7 +478,10 @@ static f32 s_castRayDist(const struct coord *pos, RoomNum room,
 	endpoint.z = pos->z + dir->z * SPAWNPOOL_RAY_RANGE;
 
 	memset(&hit, 0, sizeof(hit));
-	if (bgTestHitInRoom((struct coord *)pos, &endpoint, room, &hit)) {
+	/* B-1189: see spawnPoolRaycastBudget. */
+	if (bgUsesScenarioMeshHits()
+			? bgTestHitScenarioMesh((struct coord *)pos, &endpoint, false, &hit, NULL)
+			: bgTestHitInRoom((struct coord *)pos, &endpoint, room, &hit)) {
 		f32 dx = hit.pos.x - pos->x;
 		f32 dy = hit.pos.y - pos->y;
 		f32 dz = hit.pos.z - pos->z;

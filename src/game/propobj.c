@@ -4165,46 +4165,25 @@ s32 func0f06cd00(struct defaultobj *obj, struct coord *pos, struct coord *arg2, 
 		 * a walls-only line-of-sight exam. Sticky projectiles (mines, bolts,
 		 * knives, mod crystals) passed through floors, and through walls of
 		 * rooms on screen. Ray-cast the world collision mesh instead: it is
-		 * the geometry the stage's collision tiles are compiled from. */
-		usemesh = bgIsScenarioSource() && g_WorldMesh.ready && g_WorldMesh.numtris > 0;
+		 * the geometry the stage's collision tiles are compiled from. Only
+		 * shot-blocking surfaces count (B-1189), so a crystal does not stick
+		 * in mid-air on a movement-only clip wall. */
+		usemesh = bgUsesScenarioMeshHits();
 
-		if (usemesh) {
-			struct coord meshnormal = {0.0f, 0.0f, 0.0f};
-			f32 frac = meshRayCastWorld(&prop->pos, &sp1c4, prop->rooms, &meshnormal);
+		if (usemesh && bgTestHitScenarioMesh(&prop->pos, &sp1c4, true, &hitthing, NULL)
+				&& (hitthing.pos.x != prop->pos.x || hitthing.pos.y != prop->pos.y || hitthing.pos.z != prop->pos.z)) {
+			var80069944 = 0;
+			cdresult = CDRESULT_COLLISION;
 
-			if (frac < 1.0f) {
-				struct coord dir;
+			sp1c4.x = hitthing.pos.x;
+			sp1c4.y = hitthing.pos.y;
+			sp1c4.z = hitthing.pos.z;
 
-				dir.x = sp1c4.x - prop->pos.x;
-				dir.y = sp1c4.y - prop->pos.y;
-				dir.z = sp1c4.z - prop->pos.z;
-
-				hitthing.pos.x = prop->pos.x + dir.x * frac;
-				hitthing.pos.y = prop->pos.y + dir.y * frac;
-				hitthing.pos.z = prop->pos.z + dir.z * frac;
-
-				if (hitthing.pos.x != prop->pos.x || hitthing.pos.y != prop->pos.y || hitthing.pos.z != prop->pos.z) {
-					/* The mesh test is two-sided; face the normal toward
-					 * the incoming projectile like the native hit normal,
-					 * so a stuck object lies on the surface. */
-					if (meshnormal.x * dir.x + meshnormal.y * dir.y + meshnormal.z * dir.z > 0.0f) {
-						meshnormal.x = -meshnormal.x;
-						meshnormal.y = -meshnormal.y;
-						meshnormal.z = -meshnormal.z;
-					}
-
-					var80069944 = 0;
-					cdresult = CDRESULT_COLLISION;
-
-					sp1c4.x = hitthing.pos.x;
-					sp1c4.y = hitthing.pos.y;
-					sp1c4.z = hitthing.pos.z;
-
-					arg3->x = meshnormal.x;
-					arg3->y = meshnormal.y;
-					arg3->z = meshnormal.z;
-				}
-			}
+			/* faces the incoming projectile, so a stuck object lies on
+			 * the surface */
+			arg3->x = hitthing.unk0c.x;
+			arg3->y = hitthing.unk0c.y;
+			arg3->z = hitthing.unk0c.z;
 		}
 
 		for (i = 0; !usemesh && spcc[i] != -1; i++) {

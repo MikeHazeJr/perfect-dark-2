@@ -24,16 +24,20 @@ Collision tiles and the world collision mesh (`g_WorldMesh`,
 
 Search: `grep -n "bgTestHitInRoom(\|gfxdata\b\|vtxbatches" src/game/*.c`
 
-Audit (2026-11-15, unverified in game except the first):
-- `propobj.c` `func0f06cd00`, sticky projectiles: fixed (B-1187), mesh ray.
-- `prop.c` hitscan shots (two `bgTestHitInRoom` loops): probably never stop at
-  walls on these stages, so shots may pass through walls to props behind;
-  bullet wall hits and impact sparks would be missing. Needs a check in game.
-- `splat.c` blood splats on walls, `spawnpool.c` spawn checks,
-  `explosions.c` scorch marks (skipped by its `gfxdata` guard): no background
-  hit on these stages.
-Fix pattern: on `bgIsScenarioSource()`, use `meshRayCastWorld` (static world
-mesh) for the background part; keep the native path for ROM stages.
+Audit (2026-11-15):
+- `propobj.c` `func0f06cd00`, sticky projectiles: fixed (B-1187).
+- `prop.c` hitscan (`shotCalculateHits`, `shotTestLos`): confirmed broken
+  (MULTIPLAYER's logs: every player shot `MISS`, never `HIT_BG`); fixed
+  (B-1189), Farsight x-ray untouched.
+- `splat.c` blood splats, `spawnpool.c` spawn clearance, `explosions.c`
+  scorch marks (its `gfxdata` guard): fixed (B-1189).
+- Not changed: `artifact.c` (`gfxdata`/`loaded240` checks, lens artifacts),
+  render-side code.
+Fix pattern: on `bgUsesScenarioMeshHits()`, call `bgTestHitScenarioMesh`
+(`shot` for hits that should stop at visible solids: floors and
+`BLOCK_SHOOT`; not `shot` for clearance: every surface); keep the native path
+for ROM stages. Do not use `meshRayCastWorld` for hits: it tests every
+triangle, including movement-only clip walls, and ignores the grid.
 
 ## 2026-10-13 Validate the evaluated transform used by collision diagnostics
 
