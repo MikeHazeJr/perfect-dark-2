@@ -885,6 +885,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_collision_obstacle_static.cpp
   # A second match in the same room on a listen host (finding 4).
   ${CMAKE_SOURCE_DIR}/tests/test_host_autostart_rematch_static.cpp
+  # Client read handlers read their whole message before deciding (B-1131).
+  ${CMAKE_SOURCE_DIR}/tests/test_net_reader_consumes_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_player_init_lifecycle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_playermgr_transaction_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_prepared_stage_transaction_static.cpp

@@ -3539,11 +3539,29 @@ a weapon a simulant dropped. A client made that weapon itself, with sync id
   `netmsgSvcPropSpawnRead` does both today: it returns 1 before reading its
   weapon fields, so it cannot be switched to return 0 as it is.
 
+- Worse than a stop: a return of 0 before the last read leaves the tail to be
+  read as the next messages (a desync). Four in-match readers did that
+  (B-1131).
+- A writer that sends a field only on a condition the reader cannot see
+  (for example, a pointer being non-NULL) breaks the reader the same way.
+  The condition has to be on the wire.
+- The reconnect, auth and vehicle state readers fail closed on purpose: a
+  nonzero return there triggers the dispatcher's terminal disconnect. Do not
+  switch them to 0.
+
 **Search:**
 - `grep -n "src->error ? src->error : 1\|return 1;" port/src/net/netmsg.c`
 - For each hit, check that every field of the message was read before that
   return.
+- `audit_readers.py` (MULTIPLAYER session scratchpad, 2026-11-15) lists every
+  `netmsg*Read` with a return before its last buffer read: 27 readers, most
+  on purpose or on a broken buffer.
 
 **Audit checklist:** for every client and server read handler, (a) does it
 read the full message before any return, and (b) does a semantic rejection
-return 0? Done: `netmsgSvcBotPickupRead` (B-1129). Open: the rest (B-1131).
+return 0? Done: `netmsgSvcBotPickupRead` (B-1129); `netmsgSvcPlayerStatsRead`,
+`netmsgSvcPropMoveRead` and `netmsgSvcChrDisarmRead` (with its writer) read
+first; `netmsgSvcPropPickupRead`, `netmsgSvcPropUseRead` and
+`netmsgSvcChrDamageRead` skip with 0 (B-1131). Open: a read-first rewrite of
+`netmsgSvcPropSpawnRead` (it stops the packet for now), and the lobby,
+catalog, distribution and admin readers.

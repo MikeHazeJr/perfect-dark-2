@@ -54,6 +54,23 @@ message (`netmsgSvcPropSpawnRead` returns before the weapon fields), so simply c
 misread the following bytes as new messages. Each handler has to read its whole message first and
 then return 0 on a rejection. The new `netmsgSvcBotPickupRead` does that. Search and checklist in
 SP-81.
+Worse half, found by the SP-81 audit (2026-11-15): four in-match readers returned 0 with part of
+their message unread, so the loop read the tail as the next messages (a stream desync, not just a
+dropped packet): `netmsgSvcPlayerStatsRead` (a player with no prop here: the hand ammo, ammo mask,
+held ammo and attacker id were left), `netmsgSvcPropMoveRead` (a prop this client does not have:
+the projectile tail was left), `netmsgSvcChrDisarmRead` (not in the game yet, or a chr victim: the
+grenade position was left; its writer also skipped the position when given none, which the reader
+cannot see) and `netmsgSvcPropSpawnRead` (no prop allocated: the object fields were left).
+Fixed (2026-11-15, built; pd-tests 1,951 cases green): the first three read their whole message
+into locals before deciding; the disarm writer always sends a position with positive damage; the
+spawn path stops the packet instead of desyncing (it allocates props while it parses, so its
+read-first rewrite is separate); pickup, use and character damage skip a message they cannot apply
+with a warning and return 0. Left failing closed on purpose: the reconnect, auth and vehicle state
+readers (the dispatcher's terminal disconnect for a rejected reconnect message depends on it) and
+the hoverbike raw-use rejection. Pinned in `tests/test_net_reader_consumes_static.cpp`. Open:
+`netmsgSvcPropSpawnRead` read-first, and the lobby, catalog, distribution and admin readers the
+audit lists (`audit_readers.py`, session scratchpad: 27 readers return before their last read,
+most of them on purpose or on a broken buffer).
 
 ## 2026-11-15 B-1130 A human's Capture the Case capture never reached the clients (T-NETWORKING-011)
 

@@ -4160,39 +4160,23 @@ u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)
 	struct coord newshotspeed; netbufReadCoord(src, &newshotspeed);
 	const bool handused[2] = { (flags & (1 << 2)) != 0, (flags & (1 << 3)) != 0 };
 
-	if (src->error || clid >= NET_MAX_CLIENTS + 1) {
-		return src->error ? src->error : 1;
-	}
-
-	struct netclient *actcl = g_NetClients + clid;
-	if (actcl->state < CLSTATE_GAME) {
-		return 1;
-	}
-
-	struct player *pl = actcl->player;
-	if (!pl || !pl->prop || !pl->prop->chr) {
-		return src->error;
-	}
-
-	pl->prop->chr->damage = newdamage;
-	pl->prop->chr->cshield = newshield;
-	pl->bondhealth = newhealth;
-	pl->bondshotspeed = newshotspeed;
+	/* SP-81 (B-1131): read the whole message before deciding anything. A
+	 * stats update for a player this client has no prop for used to return
+	 * here with the ammo tail unread, and the receive loop then read that
+	 * tail as the next messages. */
+	s16 loadedammo[2][2] = { { 0, 0 }, { 0, 0 } };
+	s32 ammoheld[ARRAYCOUNT(((struct player *)NULL)->ammoheldarr)];
 
 	for (s32 i = 0; i < 2; ++i) {
 		if (handused[i]) {
-			pl->hands[i].loadedammo[0] = netbufReadS16(src);
-			pl->hands[i].loadedammo[1] = netbufReadS16(src);
+			loadedammo[i][0] = netbufReadS16(src);
+			loadedammo[i][1] = netbufReadS16(src);
 		}
 	}
 
 	const u32 ammomask = netbufReadU32(src);
-	for (s32 i = 0; i < ARRAYCOUNT(pl->ammoheldarr); ++i) {
-		if (i >= 32 || (ammomask & (1 << i))) {
-			pl->ammoheldarr[i] = netbufReadS16(src);
-		} else {
-			pl->ammoheldarr[i] = 0;
-		}
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(ammoheld); ++i) {
+		ammoheld[i] = (i >= 32 || (ammomask & (1u << i))) ? netbufReadS16(src) : 0;
 	}
 
 	/* B-256 v43 (2026-04-25): authoritative attacker identity from the
@@ -4203,6 +4187,38 @@ u32 netmsgSvcPlayerStatsRead(struct netbuf *src, struct netclient *srccl)
 	 * arrives if events are reordered relative to chr-state replication).
 	 * Mandatory field in v43; mixed-version play rejected at handshake. */
 	const s8 wire_attacker_id = netbufReadS8(src);
+
+	if (src->error || clid >= NET_MAX_CLIENTS + 1) {
+		return src->error ? src->error : 1;
+	}
+
+	/* A player not in the game yet, or without a prop here, has nothing to
+	 * update; the message is consumed, so the rest of the packet still runs. */
+	struct netclient *actcl = g_NetClients + clid;
+	if (actcl->state < CLSTATE_GAME) {
+		return 0;
+	}
+
+	struct player *pl = actcl->player;
+	if (!pl || !pl->prop || !pl->prop->chr) {
+		return 0;
+	}
+
+	pl->prop->chr->damage = newdamage;
+	pl->prop->chr->cshield = newshield;
+	pl->bondhealth = newhealth;
+	pl->bondshotspeed = newshotspeed;
+
+	for (s32 i = 0; i < 2; ++i) {
+		if (handused[i]) {
+			pl->hands[i].loadedammo[0] = loadedammo[i][0];
+			pl->hands[i].loadedammo[1] = loadedammo[i][1];
+		}
+	}
+
+	for (s32 i = 0; i < (s32)ARRAYCOUNT(pl->ammoheldarr); ++i) {
+		pl->ammoheldarr[i] = ammoheld[i];
+	}
 
 	const s32 prevplayernum = g_Vars.currentplayernum;
 
@@ -5823,12 +5839,46 @@ u32 netmsgSvcPropMoveRead(struct netbuf *src, struct netclient *srccl)
 	struct coord pos; netbufReadCoord(src, &pos);
 	RoomNum rooms[8] = { -1 }; netbufReadRooms(src, rooms, ARRAYCOUNT(rooms));
 
-	if (src->error || !prop) {
+	/* SP-81 (B-1131): read the projectile tail before anything is decided.
+	 * A move for a prop this client does not have used to return here with
+	 * the tail unread, and the receive loop then read it as the next
+	 * messages. The tail exists when bits 0 and 1 are set; bits 2 and 3 add
+	 * to it, as the code below always read them. */
+	const bool hasprojectile = (flags & (1 << 0)) && (flags & (1 << 1));
+	struct coord pspeed = { 0.f, 0.f, 0.f };
+	f32 punk0dc = 0.f;
+	u32 pflags = 0;
+	s8 pbouncecount = 0;
+	struct prop *pownerprop = NULL;
+	struct prop *ptargetprop = NULL;
+	struct coord pinitrot = { 0.f, 0.f, 0.f };
+	f32 pextra[6] = { 0.f, 0.f, 0.f, 0.f, 0.f, 0.f };
+
+	if (hasprojectile) {
+		netbufReadCoord(src, &pspeed);
+		punk0dc = netbufReadF32(src);
+		pflags = netbufReadU32(src);
+		pbouncecount = netbufReadS8(src);
+		pownerprop = netbufReadPropPtr(src);
+		ptargetprop = netbufReadPropPtr(src);
+
+		if (flags & (1 << 2)) {
+			netbufReadCoord(src, &pinitrot);
+		}
+
+		if (flags & (1 << 3)) {
+			for (s32 i = 0; i < 6; i++) {
+				pextra[i] = netbufReadF32(src);
+			}
+		}
+	}
+
+	if (src->error) {
 		return src->error;
 	}
 
-	if (srccl->state < CLSTATE_GAME) {
-		return 1;
+	if (!prop || srccl->state < CLSTATE_GAME) {
+		return 0;
 	}
 
 	prop->pos = pos;
@@ -5849,7 +5899,7 @@ u32 netmsgSvcPropMoveRead(struct netbuf *src, struct netclient *srccl)
 
 	if (!prop->obj) {
 		sysLogPrintf(LOG_WARNING, "NET: SVC_PROP_MOVE: prop %u should have an obj, but doesn't", prop->syncid);
-		return 1;
+		return 0;
 	}
 
 	if (!(flags & (1 << 1))) {
@@ -5868,28 +5918,27 @@ u32 netmsgSvcPropMoveRead(struct netbuf *src, struct netclient *srccl)
 
 	if (!projectile) {
 		sysLogPrintf(LOG_WARNING, "NET: SVC_PROP_MOVE: prop %u should have a projectile, but doesn't", prop->syncid);
-		return 1;
+		return 0;
 	}
 
-	netbufReadCoord(src, &projectile->speed);
-	projectile->unk0dc = netbufReadF32(src);
-	projectile->flags = netbufReadU32(src);
-	projectile->bouncecount = netbufReadS8(src);
-	projectile->ownerprop = netbufReadPropPtr(src);
-	projectile->targetprop = netbufReadPropPtr(src);
+	projectile->speed = pspeed;
+	projectile->unk0dc = punk0dc;
+	projectile->flags = pflags;
+	projectile->bouncecount = pbouncecount;
+	projectile->ownerprop = pownerprop;
+	projectile->targetprop = ptargetprop;
 
 	if (flags & (1 << 2)) {
-		struct coord initrot; netbufReadCoord(src, &initrot);
-		mtx4LoadRotation(&initrot, &projectile->mtx);
+		mtx4LoadRotation(&pinitrot, &projectile->mtx);
 	}
 
 	if (flags & (1 << 3)) {
-		projectile->unk08c = netbufReadF32(src);
-		projectile->unk098 = netbufReadF32(src);
-		projectile->unk0e0 = netbufReadF32(src);
-		projectile->unk0e4 = netbufReadF32(src);
-		projectile->unk0ec = netbufReadF32(src);
-		projectile->unk0f0 = netbufReadF32(src);
+		projectile->unk08c = pextra[0];
+		projectile->unk098 = pextra[1];
+		projectile->unk0e0 = pextra[2];
+		projectile->unk0e4 = pextra[3];
+		projectile->unk0ec = pextra[4];
+		projectile->unk0f0 = pextra[5];
 	}
 
 	prop->pos = pos;
@@ -6187,7 +6236,10 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 		roomsCopy(rooms, prop->rooms);
 	} else {
 		sysLogPrintf(LOG_WARNING, "NET: no prop allocated when spawning prop %u (%u)", syncid, type);
-		return src->error;
+		/* SP-81 (B-1131): the object fields below are still unread; a zero
+		 * here made the receive loop read them as the next messages. Stop
+		 * the packet instead until this reader parses before it applies. */
+		return src->error ? src->error : 1;
 	}
 
 	if (msgflags & (1 << 1)) {
@@ -6340,13 +6392,28 @@ u32 netmsgSvcPropPickupRead(struct netbuf *src, struct netclient *srccl)
 	const u8 clid = netbufReadU8(src);
 	const s8 tickop = netbufReadS8(src);
 	struct prop *prop = netbufReadPropPtr(src);
-	if (src->error || !prop || srccl->state < CLSTATE_GAME || clid >= NET_MAX_CLIENTS + 1) {
-		return src->error ? src->error : 1;
+	if (src->error) {
+		return src->error;
+	}
+
+	/* SP-81 (B-1131): the whole message is read; a pickup this client cannot
+	 * apply (a prop it does not have, a player it has no slot for) is
+	 * skipped, and the rest of the packet still runs. */
+	if (srccl->state < CLSTATE_GAME) {
+		return 0;
+	}
+
+	if (!prop || clid >= NET_MAX_CLIENTS + 1) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_PROP_PICKUP skipped client=%u prop=%s",
+			(unsigned)clid, prop ? "ok" : "missing");
+		return 0;
 	}
 
 	struct netclient *actcl = g_NetClients + clid;
 	if (actcl->playernum >= MAX_PLAYERS) {
-		return 1;
+		sysLogPrintf(LOG_WARNING, "NET: SVC_PROP_PICKUP skipped client=%u playernum=%d",
+			(unsigned)clid, (int)actcl->playernum);
+		return 0;
 	}
 
 	const s32 prevplayernum = g_Vars.currentplayernum;
@@ -6465,9 +6532,20 @@ u32 netmsgSvcPropUseRead(struct netbuf *src, struct netclient *srccl)
 	const u8 clid = netbufReadU8(src);
 	const s8 tickop = netbufReadS8(src);
 
-	if (!srccl || !prop || src->error || srccl->state < CLSTATE_GAME
-			|| clid >= NET_MAX_CLIENTS + 1) {
+	if (src->error || !srccl) {
 		return src->error ? src->error : 1;
+	}
+
+	/* SP-81 (B-1131): the whole message is read; a use this client cannot
+	 * apply is skipped, and the rest of the packet still runs. */
+	if (srccl->state < CLSTATE_GAME) {
+		return 0;
+	}
+
+	if (!prop || clid >= NET_MAX_CLIENTS + 1) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_PROP_USE skipped client=%u prop=%s",
+			(unsigned)clid, prop ? "ok" : "missing");
+		return 0;
 	}
 
 	if (prop->type == PROPTYPE_OBJ && prop->obj
@@ -6480,7 +6558,9 @@ u32 netmsgSvcPropUseRead(struct netbuf *src, struct netclient *srccl)
 
 	struct netclient *actcl = &g_NetClients[clid];
 	if (actcl->playernum >= MAX_PLAYERS) {
-		return 1;
+		sysLogPrintf(LOG_WARNING, "NET: SVC_PROP_USE skipped client=%u playernum=%d",
+			(unsigned)clid, (int)actcl->playernum);
+		return 0;
 	}
 
 	const s32 prevplayernum = g_Vars.currentplayernum;
@@ -6938,8 +7018,20 @@ u32 netmsgSvcChrDamageRead(struct netbuf *src, struct netclient *srccl)
 		explosionposptr = &explosionpos;
 	}
 
-	if (src->error || srccl->state < CLSTATE_GAME || !chrprop || !chrprop->chr) {
-		return src->error ? src->error : 1;
+	if (src->error) {
+		return src->error;
+	}
+
+	/* SP-81 (B-1131): the whole message is read; damage to a character this
+	 * client does not have is skipped, and the rest of the packet still runs. */
+	if (srccl->state < CLSTATE_GAME) {
+		return 0;
+	}
+
+	if (!chrprop || !chrprop->chr) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_CHR_DAMAGE skipped chr=%s",
+			chrprop ? "no-chr" : "missing");
+		return 0;
 	}
 
 	const bool damageshield = (flags & (1 << 0)) != 0;
@@ -6966,8 +7058,11 @@ u32 netmsgSvcChrDisarmWrite(struct netbuf *dst, struct chrdata *chr, struct prop
 	netbufWritePropPtr(dst, aprop);
 	netWriteWeaponRef(dst, weaponnum);
 	netbufWriteF32(dst, wpndamage);
-	if (wpndamage > 0.f && wpnpos) {
-		netbufWriteCoord(dst, wpnpos);
+	/* SP-81 (B-1131): the reader takes a position whenever the damage is
+	 * positive, so write one then even without a position (zeros). */
+	if (wpndamage > 0.f) {
+		struct coord zero = { 0.f, 0.f, 0.f };
+		netbufWriteCoord(dst, wpnpos ? wpnpos : &zero);
 	}
 	return dst->error;
 }
@@ -6980,12 +7075,19 @@ u32 netmsgSvcChrDisarmRead(struct netbuf *src, struct netclient *srccl)
 	const f32 weapondmg = netbufReadF32(src);
 	struct coord pos = { 0.f, 0.f, 0.f };
 
-	if (src->error || srccl->state < CLSTATE_GAME) {
+	/* SP-81 (B-1131): the position belongs to the message whenever the
+	 * damage is positive; read it before anything is decided, or a skipped
+	 * disarm leaves it to be read as the next message. */
+	if (weapondmg > 0.f) {
+		netbufReadCoord(src, &pos);
+	}
+
+	if (src->error) {
 		return src->error;
 	}
 
-	if (!chrprop || !chrprop->chr) {
-		return 1;
+	if (srccl->state < CLSTATE_GAME || !chrprop || !chrprop->chr) {
+		return 0;
 	}
 
 	struct chrdata *chr = chrprop->chr;
@@ -6996,7 +7098,6 @@ u32 netmsgSvcChrDisarmRead(struct netbuf *src, struct netclient *srccl)
 
 	if (weapondmg > 0.f) {
 		// someone shot a grenade the chr is holding, explode that shit
-		netbufReadCoord(src, &pos);
 		if (weaponnum < WEAPON_UNARMED || weaponnum >= WEAPON_CUSTOM_END) {
 			return src->error;
 		}
