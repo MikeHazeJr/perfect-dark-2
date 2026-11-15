@@ -1126,6 +1126,9 @@ set(SRC_TESTS
   # Where the game keeps mods: the user mods folder and the install's.
   ${CMAKE_SOURCE_DIR}/port/src/mods_roots.c
   ${CMAKE_SOURCE_DIR}/tests/test_mods_roots.cpp
+  # A mod vehicle's own model number and --debug-swap-vehicle (Maian vehicle V1).
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_debug.c
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_model_slot.cpp
   # The Maian crystal pistol recipe, built the way --mod-author builds it.
   ${CMAKE_SOURCE_DIR}/tests/test_maian_crystal_pistol.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c

@@ -14,16 +14,49 @@
  */
 #include "catch.hpp"
 
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
 
+extern "C" {
+#include "assetcatalog.h"
 #include "vehicle_debug.h"
+/* tests/stubs.c: the stub catalog and stage loader pd-tests links. */
+void testStubAssetCatalogResolveWith(const asset_entry_t *entry);
+void testStubCatalogLoadStageAssetResult(s32 result);
+const char *testStubCatalogLoadStageAssetLastId(asset_type_e *out_type);
+}
 
 namespace {
 
 /* MODEL_HOVBIKE (src/include/constants.h), the base hoverbike's model. */
 constexpr int kBaseHoverbikeModel = 0x3a;
+/* Any model number the scanner could give a mod vehicle. */
+constexpr int kModVehicleModel = 0x200;
+
+asset_entry_t vehicleEntry(const char *id, asset_type_e type, s32 runtime_index)
+{
+	asset_entry_t entry;
+	std::memset(&entry, 0, sizeof(entry));
+	std::strncpy(entry.id, id, sizeof(entry.id) - 1);
+	entry.type = type;
+	entry.occupied = 1;
+	entry.enabled = 1;
+	entry.runtime_index = runtime_index;
+	return entry;
+}
+
+struct SwapScope {
+	SwapScope() { reset(); }
+	~SwapScope() { reset(); }
+	static void reset()
+	{
+		vehicleDebugSetSwap(nullptr);
+		testStubAssetCatalogResolveWith(nullptr);
+		testStubCatalogLoadStageAssetResult(0);
+	}
+};
 
 std::string readTextFile(const char *path)
 {
@@ -68,21 +101,63 @@ void requireInOrder(const std::string &text, const char *first, const char *seco
 
 } // namespace
 
-TEST_CASE("vehicle swap changes nothing until a placeable vehicle is named",
+TEST_CASE("vehicle swap gives a hoverbike the named vehicle's model number",
 	"[vehicle][modding][vehicle-model-slot]")
 {
-	vehicleDebugSetSwap(nullptr);
-	CHECK(std::string(vehicleDebugSwapId()).empty());
-	CHECK(vehicleDebugSwapModelnum(kBaseHoverbikeModel) == kBaseHoverbikeModel);
+	SwapScope scope;
+	asset_type_e loaded_type = ASSET_NONE;
 
-	/* A vehicle the catalog does not have leaves the hoverbike as it is. */
-	vehicleDebugSetSwap("mod:vehicle_not_in_this_catalog");
-	CHECK(std::string(vehicleDebugSwapId()) == "mod:vehicle_not_in_this_catalog");
-	CHECK(vehicleDebugSwapModelnum(kBaseHoverbikeModel) == kBaseHoverbikeModel);
+	SECTION("no swap named: the hoverbike keeps its model and nothing loads") {
+		CHECK(std::string(vehicleDebugSwapId()).empty());
+		CHECK(vehicleDebugSwapModelnum(kBaseHoverbikeModel) == kBaseHoverbikeModel);
+		CHECK(std::string(testStubCatalogLoadStageAssetLastId(&loaded_type)).empty());
+	}
 
-	vehicleDebugSetSwap("");
-	CHECK(std::string(vehicleDebugSwapId()).empty());
-	CHECK(vehicleDebugSwapModelnum(kBaseHoverbikeModel) == kBaseHoverbikeModel);
+	SECTION("a vehicle the catalog does not have") {
+		vehicleDebugSetSwap("mod:vehicle_not_in_this_catalog");
+		CHECK(std::string(vehicleDebugSwapId()) == "mod:vehicle_not_in_this_catalog");
+		CHECK(vehicleDebugSwapModelnum(kBaseHoverbikeModel) == kBaseHoverbikeModel);
+		CHECK(std::string(testStubCatalogLoadStageAssetLastId(&loaded_type)).empty());
+	}
+
+	SECTION("an id that names something other than a vehicle") {
+		const asset_entry_t mesh = vehicleEntry("mod:vehicle_smoke_hover", ASSET_MODEL, kModVehicleModel);
+		testStubAssetCatalogResolveWith(&mesh);
+		vehicleDebugSetSwap("mod:vehicle_smoke_hover");
+		CHECK(vehicleDebugSwapModelnum(kBaseHoverbikeModel) == kBaseHoverbikeModel);
+		CHECK(std::string(testStubCatalogLoadStageAssetLastId(&loaded_type)).empty());
+	}
+
+	SECTION("a vehicle with no model number (a loose glTF model) cannot be placed") {
+		const asset_entry_t vehicle = vehicleEntry("mod:vehicle_smoke_hover", ASSET_VEHICLE, -1);
+		testStubAssetCatalogResolveWith(&vehicle);
+		vehicleDebugSetSwap("mod:vehicle_smoke_hover");
+		CHECK(vehicleDebugSwapModelnum(kBaseHoverbikeModel) == kBaseHoverbikeModel);
+		CHECK(std::string(testStubCatalogLoadStageAssetLastId(&loaded_type)).empty());
+	}
+
+	SECTION("a vehicle that does not load for the stage") {
+		const asset_entry_t vehicle = vehicleEntry("mod:vehicle_smoke_hover", ASSET_VEHICLE, kModVehicleModel);
+		testStubAssetCatalogResolveWith(&vehicle);
+		testStubCatalogLoadStageAssetResult(0);
+		vehicleDebugSetSwap("mod:vehicle_smoke_hover");
+		CHECK(vehicleDebugSwapModelnum(kBaseHoverbikeModel) == kBaseHoverbikeModel);
+		CHECK(std::string(testStubCatalogLoadStageAssetLastId(&loaded_type)) == "mod:vehicle_smoke_hover");
+		CHECK(loaded_type == ASSET_VEHICLE);
+	}
+
+	SECTION("a placeable vehicle: loaded for the stage, and its model number is used") {
+		const asset_entry_t vehicle = vehicleEntry("mod:vehicle_smoke_hover", ASSET_VEHICLE, kModVehicleModel);
+		testStubAssetCatalogResolveWith(&vehicle);
+		testStubCatalogLoadStageAssetResult(1);
+		vehicleDebugSetSwap("mod:vehicle_smoke_hover");
+		CHECK(vehicleDebugSwapModelnum(kBaseHoverbikeModel) == kModVehicleModel);
+		CHECK(std::string(testStubCatalogLoadStageAssetLastId(&loaded_type)) == "mod:vehicle_smoke_hover");
+		CHECK(loaded_type == ASSET_VEHICLE);
+		/* Clearing the swap puts hoverbikes back to their own model. */
+		vehicleDebugSetSwap("");
+		CHECK(vehicleDebugSwapModelnum(kBaseHoverbikeModel) == kBaseHoverbikeModel);
+	}
 }
 
 TEST_CASE("a mod vehicle's model is bound through a private model slot in both scan paths",
