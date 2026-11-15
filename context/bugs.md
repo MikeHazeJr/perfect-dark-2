@@ -1,5 +1,24 @@
 # Bug Tracker
 
+## 2026-11-15 B-1125 Hacker Central divides by zero when the arena has no multiplayer ammo crates (T-NETWORKING-011)
+
+Severity high (crash at match start). `mp_hacker_central_local_smoke` (offline,
+Complex, three simulants, shared base 2, build 77049d63; receipt
+`D:\PD2-wt\multiplayer\.claude\smoke-verify-runs\results-20261115T001057Z.json`)
+crashed in `scenarioInitProps` right after the simulants spawned:
+`EXCEPTION 0xc0000094` (integer divide by zero) at
+`htmInitProps`, `src/game/mplayer/scenarios/hackthatmac.inc:305`
+(`rand = rngRandom() % data->numpads;`, symbolized with addr2line). `numpads`
+counts the `MODEL_MULTI_AMMO_CRATE` objects among the active props, and it was
+0. The same loop also hangs forever when there are fewer usable crate pads than
+`htmNumProps()`: the inner `do ... while (padnum <= 0)` can no longer find an
+unused pad. Why Complex had no crates is being checked: CORE's B-1113 (props on
+pads outside the too-tight extracted room boxes were never created, fixed in
+`week-pd/extract-2` / shared base 3) is the first suspect; a rerun on base 3 is
+queued. Open decision for Mike, because it changes how the mode plays on an
+arena without enough crates: refuse Hacker Central there, or place only the
+terminals that fit. Until then the code is unchanged.
+
 ## 2026-11-14 B-1124 Two-process smokes on a shared install ran against the real user profile (T-NETWORKING-011)
 
 Severity high (test isolation; it writes the user's real data). Found on the
