@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# ensure-keypair.sh -- Auto-generate Ed25519 keypair if dev-keys/ is missing one.
-# Called automatically from build-env.sh before every bash build. Idempotent.
+# ensure-keypair.sh -- Generate the Ed25519 signing keypair if dev-keys/ is missing one.
+# Run it by hand when a checkout must sign releases. Builds no longer call it
+# (B-1122 follow-up): keygen.ps1 rewrites the tracked port/include/updater_pubkey.h,
+# so a build in a fresh worktree used to leave a throwaway key in the tree.
 # Safe to run repeatedly -- exits immediately if the key already exists.
 
 SCRIPT_DIR="$(cd "${BASH_SOURCE[0]%/*}" && pwd)"
