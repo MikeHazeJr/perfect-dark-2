@@ -3495,6 +3495,17 @@ callers depend on today's behaviour (a background script's blank chr has no
 prop and "passes" the character check, which matches what native does). Each
 helper needs its callers read before its failure sense changes.
 
+**Status (2026-11-15, B-1167): fixed.** All 90 such returns in 40 helpers
+(the 73 counted above, 16 in the seven `s_ai*GraphReady` helpers and one in
+`s_aiGraphRegisterSourceSpawnedChr`) now log and return 0, or -1 for the
+three-way `s_aiGraphRequireTargetMovementNode`; the ten `if (!x)` callers of
+the three -1 node helpers read -1 as a refusal. Two branches keep going on
+purpose and say why: the character pointer's "not source-derived" (co-op AI
+buddies and tiny-mode extras have no provenance yet) and the spawn registry's
+full table (the chr is already spawned; falling to native would spawn it
+twice). `tests/test_graph_helper_failures_static.cpp` fails on any new
+`return s_aiGraphRuntimeFailure(` inside a requirement helper.
+
 **Rule:** inside a requirement helper, log with `s_aiGraphRuntimeFailure(...)`
 and then `return 0;` on its own line; reserve `return
 s_aiGraphRuntimeFailure(...)` for the twins themselves.

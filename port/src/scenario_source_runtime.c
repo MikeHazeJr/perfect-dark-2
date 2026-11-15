@@ -13072,8 +13072,9 @@ static s32 s_countSourceBackedMpParticipantChrs(void);
 static s32 s_aiGraphRequireRuntimeSetupCharacterSource(const char *action)
 {
 	if (!s_aiGraphRuntimeSetupCharacterSourceIsActive()) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing setup.fields.json or spawns.json source");
+		return 0;
 	}
 
 	return 1;
@@ -13177,8 +13178,12 @@ static s32 s_aiGraphRegisterSourceSpawnedChr(const char *action,
 
 	if (s_ActiveScenarioGraphs.source_spawned_chr_count >=
 			SCENARIO_SOURCE_SPAWNED_CHR_MAX) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"source-spawned character provenance table is full");
+		/* The chr is already spawned: answering 0 would make the twin fall
+		 * to native, which would spawn it a second time. It stays
+		 * unregistered, which the character check tolerates (SP-79). */
+		return 1;
 	}
 
 	s_ActiveScenarioGraphs.source_spawned_chrs[
@@ -13412,11 +13417,13 @@ static s32 s_aiGraphRequireRuntimePathPointer(const char *action,
 	}
 
 	if (!path) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime path");
+		s_aiGraphRuntimeFailure(action, "missing runtime path");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.paths_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing navigation/paths.json source");
+		return 0;
 	}
 
 	path_count = s_countRuntimePaths();
@@ -13425,8 +13432,9 @@ static s32 s_aiGraphRequireRuntimePathPointer(const char *action,
 	}
 
 	if (path_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime path table");
+		return 0;
 	}
 
 	for (i = 0; i < path_count; i++) {
@@ -13435,8 +13443,9 @@ static s32 s_aiGraphRequireRuntimePathPointer(const char *action,
 		}
 	}
 
-	return s_aiGraphRuntimeFailure(action,
+	s_aiGraphRuntimeFailure(action,
 		"runtime path pointer is not source-derived");
+	return 0;
 }
 
 static s32 s_aiGraphRequireRuntimePathPads(const char *action,
@@ -13447,17 +13456,20 @@ static s32 s_aiGraphRequireRuntimePathPads(const char *action,
 	char reason[128];
 
 	if (!path) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime path");
+		s_aiGraphRuntimeFailure(action, "missing runtime path");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing pads.json source for navigation path pads");
+		return 0;
 	}
 	if (!path->pads || path->len == 0) {
 		snprintf(reason, sizeof(reason),
 			"navigation path id %d has no source pad sequence",
 			path->id);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	for (i = 0; i < path->len; i++) {
@@ -14086,7 +14098,8 @@ static s32 s_aiGraphRequireRuntimeCharacterPointer(const char *action,
 		*out_chrnum = chr ? chr->chrnum : -1;
 	}
 	if (!chr || !chr->prop) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime character");
+		s_aiGraphRuntimeFailure(action, "missing runtime character");
+		return 0;
 	}
 	if (chr->prop->type == PROPTYPE_PLAYER) {
 		return 1;
@@ -14102,13 +14115,18 @@ static s32 s_aiGraphRequireRuntimeCharacterPointer(const char *action,
 		*out_chr_count = chr_count;
 	}
 	if (chr_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup character table");
+		return 0;
 	}
 	if (chr->prop->type != PROPTYPE_CHR ||
 			!s_aiGraphSetupSourceContainsChrnum(chr->chrnum)) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"runtime character pointer is not source-derived");
+		/* SP-79: still passes on purpose. Co-op AI buddies and tiny-mode
+		 * extras are spawned natively and carry no provenance yet, so
+		 * refusing them here would change base play. Log, then go on. */
+		return 1;
 	}
 	return 1;
 }
@@ -14159,7 +14177,8 @@ static s32 s_aiGraphRequireRuntimeCharacterStatePointer(const char *action,
 		*out_chrnum = chr ? chr->chrnum : -1;
 	}
 	if (!chr) {
-		return s_aiGraphRuntimeFailure(action, "missing runtime character");
+		s_aiGraphRuntimeFailure(action, "missing runtime character");
+		return 0;
 	}
 	if (chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		return 1;
@@ -14184,11 +14203,13 @@ static s32 s_aiGraphRequireRuntimeCharacterStatePointer(const char *action,
 		return 0;
 	}
 	if (chr_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup character table");
+		return 0;
 	}
-	return s_aiGraphRuntimeFailure(action,
+	s_aiGraphRuntimeFailure(action,
 		"runtime character state pointer is not source-derived");
+	return 0;
 }
 
 static s32 s_aiGraphRequireOptionalRuntimeCharacterStatePointer(
@@ -14216,12 +14237,14 @@ static s32 s_aiGraphRequireRuntimePlayerPointer(const char *action,
 	if (!player) {
 		snprintf(reason, sizeof(reason),
 			"missing %s player state", label);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (player->prop && player->prop->type != PROPTYPE_PLAYER) {
 		snprintf(reason, sizeof(reason),
 			"%s player prop is not a player actor", label);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	return 1;
 }
@@ -14238,7 +14261,8 @@ static s32 s_aiGraphRequireRuntimePlayerSlot(const char *action,
 	if (playernum < 0 || playernum >= MAX_PLAYERS) {
 		snprintf(reason, sizeof(reason),
 			"player slot %d is outside runtime player table", playernum);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	player = g_Vars.players[playernum];
 	if (!s_aiGraphRequireRuntimePlayerPointer(action, player,
@@ -14750,7 +14774,8 @@ static s32 s_aiGraphResolveSpecialDeathAnimationCatalogIds(
 	if (specialdie < SPECIALDIE_FALLBACK || specialdie > SPECIALDIE_ONCHAIR) {
 		snprintf(reason, sizeof(reason),
 			"invalid special death animation mode %d", specialdie);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	if (specialdie == SPECIALDIE_ONCHAIR) {
@@ -14914,11 +14939,13 @@ static s32 s_aiGraphRequireRandomControlNode(const char *kind,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.%s.%s node", kind, name);
-		return s_aiGraphRuntimeFailure(name, reason);
+		s_aiGraphRuntimeFailure(name, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(name,
+		s_aiGraphRuntimeFailure(name,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -14934,11 +14961,13 @@ static s32 s_aiGraphRequireDebugNoOpNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -14955,9 +14984,10 @@ s32 scenarioSourceAiGraphExecuteStop(struct chrdata *chr,
 	s32 vehicle_count = 0;
 	s32 source_vehicle_type = -1;
 
-	if (!s_aiGraphRequireBasicMotionNode("stop",
-			s_ActiveScenarioGraphs.level_ai_stop_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireBasicMotionNode("stop",
+			s_ActiveScenarioGraphs.level_ai_stop_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer("stop", chr,
 			&chr_count, &source_chr)) {
@@ -14998,9 +15028,10 @@ s32 scenarioSourceAiGraphExecuteKneel(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireBasicMotionNode("kneel",
-			s_ActiveScenarioGraphs.level_ai_kneel_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireBasicMotionNode("kneel",
+			s_ActiveScenarioGraphs.level_ai_kneel_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterStatePointer("kneel", chr,
 			&chr_count, &source_chr)) {
@@ -15031,11 +15062,13 @@ static s32 s_aiGraphRequireCharacterLifecycleNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -15136,11 +15169,13 @@ static s32 s_aiGraphRequireCombatNode(const char *kind, const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.%s.%s node", kind, action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -15660,11 +15695,13 @@ static s32 s_aiGraphRequireTargetMovementNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return -1;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return -1;
 	}
 	return 1;
 }
@@ -16632,13 +16669,15 @@ static s32 s_aiGraphRequireCurrentGunProp(const char *action,
 	}
 
 	if (!prop) {
-		return s_aiGraphRuntimeFailure(action, "missing current gun prop");
+		s_aiGraphRuntimeFailure(action, "missing current gun prop");
+		return 0;
 	}
 	if (prop->type != PROPTYPE_WEAPON || !prop->weapon) {
 		snprintf(reason, sizeof(reason),
 			"current gun prop is type %d without weapon payload",
 			prop->type);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	weapon = prop->weapon;
@@ -16646,7 +16685,8 @@ static s32 s_aiGraphRequireCurrentGunProp(const char *action,
 		snprintf(reason, sizeof(reason),
 			"current gun prop has invalid runtime weapon %d",
 			weapon->weaponnum);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	model_id = s_aiGraphResolveModelCatalogId(action,
@@ -17814,15 +17854,17 @@ static s32 s_aiGraphRequireObjectInteractionNode(const char *action,
 			snprintf(reason, sizeof(reason),
 				"missing scenario.ai.condition.%s node", action);
 		}
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0] ||
 			(require_pads && !s_ActiveScenarioGraphs.pads_path[0])) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			require_pads
 				? "missing ai/ailists.json, objects.json, or pads.json source"
 				: "missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -18353,9 +18395,10 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedOneHand(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireAnimationNode("be_surprised_one_hand",
-			s_ActiveScenarioGraphs.level_ai_be_surprised_one_hand_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireAnimationNode("be_surprised_one_hand",
+			s_ActiveScenarioGraphs.level_ai_be_surprised_one_hand_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
 			"be_surprised_one_hand", chr, &chr_count, &source_chr)) {
@@ -18380,9 +18423,10 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedLookAround(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireAnimationNode("be_surprised_look_around",
-			s_ActiveScenarioGraphs.level_ai_be_surprised_look_around_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireAnimationNode("be_surprised_look_around",
+			s_ActiveScenarioGraphs.level_ai_be_surprised_look_around_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
 			"be_surprised_look_around", chr, &chr_count, &source_chr)) {
@@ -18407,9 +18451,10 @@ s32 scenarioSourceAiGraphExecuteBeSurprisedSurrender(struct chrdata *chr)
 	s32 chr_count = 0;
 	s32 source_chr = -1;
 
-	if (!s_aiGraphRequireAnimationNode("be_surprised_surrender",
-			s_ActiveScenarioGraphs.level_ai_be_surprised_surrender_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireAnimationNode("be_surprised_surrender",
+			s_ActiveScenarioGraphs.level_ai_be_surprised_surrender_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (!s_aiGraphRequireOptionalRuntimeCharacterPointer(
 			"be_surprised_surrender", chr, &chr_count, &source_chr)) {
@@ -18577,9 +18622,10 @@ s32 scenarioSourceAiGraphExecuteSetList(s32 target_preset, u16 list_id)
 	struct chrdata *chr = NULL;
 	s32 chr_count = 0;
 
-	if (!s_aiGraphRequireListControlNode("set_list",
-			s_ActiveScenarioGraphs.level_ai_set_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("set_list",
+			s_ActiveScenarioGraphs.level_ai_set_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 
 	ailist = ailistFindById(list_id);
@@ -18624,9 +18670,10 @@ s32 scenarioSourceAiGraphExecuteSetReturnList(s32 target_preset, u16 list_id)
 	s32 source_vehicle_type = -1;
 	s32 applied = 0;
 
-	if (!s_aiGraphRequireListControlNode("set_return_list",
-			s_ActiveScenarioGraphs.level_ai_set_return_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("set_return_list",
+			s_ActiveScenarioGraphs.level_ai_set_return_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 
 	if (active_chr) {
@@ -18704,9 +18751,10 @@ s32 scenarioSourceAiGraphExecuteSetShotList(u16 list_id)
 	s32 source_chr = -1;
 	s32 applied = 0;
 
-	if (!s_aiGraphRequireListControlNode("set_shot_list",
-			s_ActiveScenarioGraphs.level_ai_set_shot_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("set_shot_list",
+			s_ActiveScenarioGraphs.level_ai_set_shot_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (chr) {
 		if (!s_aiGraphRequireRuntimeCharacterStatePointer("set_shot_list",
@@ -18740,9 +18788,10 @@ s32 scenarioSourceAiGraphExecuteReturnList(void)
 	s32 vehicle_count = 0;
 	s32 source_vehicle_type = -1;
 
-	if (!s_aiGraphRequireListControlNode("return_list",
-			s_ActiveScenarioGraphs.level_ai_return_list_node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode("return_list",
+			s_ActiveScenarioGraphs.level_ai_return_list_node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (chr) {
 		if (!s_aiGraphRequireRuntimeCharacterStatePointer("return_list",
@@ -18796,8 +18845,9 @@ static s32 s_aiGraphExecuteSetChrListField(const char *action,
 	s32 source_chr = -1;
 	s32 applied = 0;
 
-	if (!s_aiGraphRequireListControlNode(action, node_count)) {
-		return 0;
+	s32 node_gate = s_aiGraphRequireListControlNode(action, node_count);
+	if (node_gate <= 0) {
+		return node_gate < 0;
 	}
 	if (chr) {
 		s16 *field;
@@ -21161,26 +21211,30 @@ static s32 s_aiGraphRequireRuntimeChopperPointer(const char *action,
 		*out_source_type = obj->type;
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source for vehicle weapon state");
+		return 0;
 	}
 	object_count = s_countRuntimeSetupObjectRows();
 	if (out_object_count) {
 		*out_object_count = object_count;
 	}
 	if (object_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup object table");
+		return 0;
 	}
 	if (!s_runtimeSetupContainsObjectRow(obj)) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"runtime chopper pointer is not source-derived");
+		return 0;
 	}
 	if (obj->type != OBJTYPE_CHOPPER) {
 		snprintf(reason, sizeof(reason),
 			"runtime vehicle pointer is source type %u, expected source type %u for chopper weapon state",
 			(unsigned)obj->type, (unsigned)OBJTYPE_CHOPPER);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	return 1;
@@ -21208,20 +21262,23 @@ static s32 s_aiGraphRequireRuntimeVehicleObjectPointer(const char *action,
 		*out_source_type = obj->type;
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source for vehicle state");
+		return 0;
 	}
 	object_count = s_countRuntimeSetupObjectRows();
 	if (out_object_count) {
 		*out_object_count = object_count;
 	}
 	if (object_count <= 0) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-derived runtime setup object table");
+		return 0;
 	}
 	if (!s_runtimeSetupContainsObjectRow(obj)) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"runtime vehicle pointer is not source-derived");
+		return 0;
 	}
 	if (obj->type != expected_type_a &&
 			(expected_type_b < 0 || obj->type != expected_type_b)) {
@@ -21235,7 +21292,8 @@ static s32 s_aiGraphRequireRuntimeVehicleObjectPointer(const char *action,
 				"runtime vehicle pointer is source type %u, expected source vehicle type %d",
 				(unsigned)obj->type, expected_type_a);
 		}
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 
 	return 1;
@@ -21337,24 +21395,28 @@ s32 scenarioSourceAiGraphExecuteIfHoverbotNextStep(
 				&vehicle_count, &source_vehicle_type)) {
 			return 1;
 		}
-		if (!s_aiGraphRequireRuntimePathPointer("if_hoverbot_next_step",
-				hovercar->path, &path_count) ||
-				!s_aiGraphRequireRuntimePathPads(
-					"if_hoverbot_next_step",
-					hovercar->path, &pad_count)) {
-			return 1;
+		/* Native compares nextstep and needs no path (B-1167): check the
+		 * path only when the hoverbot has one. */
+		if (hovercar->path) {
+			if (!s_aiGraphRequireRuntimePathPointer("if_hoverbot_next_step",
+					hovercar->path, &path_count) ||
+					!s_aiGraphRequireRuntimePathPads(
+						"if_hoverbot_next_step",
+						hovercar->path, &pad_count)) {
+				return 1;
+			}
+			if (hovercar->nextstep < 0 ||
+					hovercar->nextstep >= hovercar->path->len) {
+				snprintf(reason, sizeof(reason),
+					"hoverbot nextstep %d outside path id %d length %u",
+					hovercar->nextstep, hovercar->path->id,
+					(unsigned)hovercar->path->len);
+				return s_aiGraphRuntimeFailure("if_hoverbot_next_step",
+					reason);
+			}
+			path_id = hovercar->path->id;
+			path_pads = hovercar->path->len;
 		}
-		if (hovercar->nextstep < 0 ||
-				hovercar->nextstep >= hovercar->path->len) {
-			snprintf(reason, sizeof(reason),
-				"hoverbot nextstep %d outside path id %d length %u",
-				hovercar->nextstep, hovercar->path->id,
-				(unsigned)hovercar->path->len);
-			return s_aiGraphRuntimeFailure("if_hoverbot_next_step",
-				reason);
-		}
-		path_id = hovercar->path->id;
-		path_pads = hovercar->path->len;
 		nextstep = hovercar->nextstep;
 	}
 	branch_taken = hovercar &&
@@ -25158,12 +25220,14 @@ static s32 s_aiGraphRequireDoorNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -25413,13 +25477,15 @@ static s32 s_aiGraphRequireLiftNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0] ||
 			!s_ActiveScenarioGraphs.pads_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json, objects.json, or pads.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -25712,12 +25778,14 @@ static s32 s_aiGraphRequireWeatherNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.level_global_settings_node_count) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or scenario.ini source");
+		return 0;
 	}
 	return 1;
 }
@@ -25765,11 +25833,13 @@ static s32 s_aiGraphRequireSkyNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -25872,8 +25942,9 @@ static s32 s_aiGraphRequireRuntimeSceneRooms(const char *action,
 		*out_room_count = 0;
 	}
 	if (!g_Rooms || g_Vars.roomcount <= 1) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-built scene room table");
+		return 0;
 	}
 	if (out_room_count) {
 		*out_room_count = g_Vars.roomcount;
@@ -25964,12 +26035,14 @@ static s32 s_aiGraphResolveRuntimePortal(const char *action, s32 portalnum,
 		*out_portal_available = 0;
 	}
 	if (!s_ActiveScenarioGraphs.portals_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing portals.json source");
+		return 0;
 	}
 	if (!g_BgPortals) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing source-built portal table");
+		return 0;
 	}
 	if (out_portal_count) {
 		*out_portal_count = g_BgNumPortalCameraCacheItems > 0
@@ -26292,11 +26365,13 @@ static s32 s_aiAudioGraphReady(const char *action, s32 node_count,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -26883,11 +26958,13 @@ static s32 s_aiMusicTrackGraphReady(const char *action, s32 node_count,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -27084,11 +27161,13 @@ static s32 s_aiPlayerWeaponStateGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -27487,11 +27566,13 @@ static s32 s_aiPlayerCutsceneGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -28043,11 +28124,13 @@ static s32 s_aiSetupSpawnGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -28543,11 +28626,13 @@ static s32 s_aiEntityLifecycleGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -29242,19 +29327,23 @@ static s32 s_aiGunInteractionGraphReady(const char *action,
 		return 0;
 	}
 	if (node_count != 1) {
-		return s_aiGraphRuntimeFailure(action, missing_reason);
+		s_aiGraphRuntimeFailure(action, missing_reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.level_graph_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing level.graph.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -29674,15 +29763,18 @@ static s32 s_aiGraphRequirePerceptionNode(const char *action, s32 node_count,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.condition.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (needs_objects && !s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -30203,11 +30295,13 @@ static s32 s_aiGraphRequireCharacterConditionNode(const char *condition,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.condition.%s node", condition);
-		return s_aiGraphRuntimeFailure(condition, reason);
+		s_aiGraphRuntimeFailure(condition, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(condition,
+		s_aiGraphRuntimeFailure(condition,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -30244,11 +30338,13 @@ static s32 s_aiGraphRequireMissionGlobalConditionNode(const char *condition,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.condition.%s node", condition);
-		return s_aiGraphRuntimeFailure(condition, reason);
+		s_aiGraphRuntimeFailure(condition, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(condition,
+		s_aiGraphRuntimeFailure(condition,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -31285,17 +31381,20 @@ static s32 s_aiGraphRequireQuadrantPresetNode(const char *action,
 	if (node_count != 1) {
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.pads_path[0] ||
 			!s_ActiveScenarioGraphs.waypoints_path[0] ||
 			!s_ActiveScenarioGraphs.waygroups_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing pads.json or navigation waypoint/waygroup source");
+		return 0;
 	}
 	return 1;
 }
@@ -31711,6 +31810,9 @@ s32 scenarioSourceAiGraphExecuteChrBeginOrEndTeleport(struct chrdata *basechr,
 		}
 	}
 	prevplayernum = g_Vars.currentplayernum;
+	/* As native: a target that is not a player acts on the current
+	 * player (B-1167). */
+	playernum = (s32)prevplayernum;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
 	}
@@ -31777,6 +31879,9 @@ s32 scenarioSourceAiGraphExecuteIfChrTeleportFullWhite(struct chrdata *basechr,
 		return 1;
 	}
 	prevplayernum = g_Vars.currentplayernum;
+	/* As native: a target that is not a player acts on the current
+	 * player (B-1167). */
+	playernum = (s32)prevplayernum;
 	if (chr && chr->prop && chr->prop->type == PROPTYPE_PLAYER) {
 		playernum = playermgrGetPlayerNumByProp(chr->prop);
 	}
@@ -31939,11 +32044,13 @@ static s32 s_aiGraphRequireCutscenePresentationNode(const char *action,
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -32291,12 +32398,14 @@ static s32 s_aiGraphRequireModelPartNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -32366,12 +32475,14 @@ static s32 s_aiGraphRequireObjectHealthNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0] ||
 			!s_ActiveScenarioGraphs.objects_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json or objects.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -32468,7 +32579,9 @@ s32 scenarioSourceAiGraphExecuteSetChrSpecialDeathAnimation(
 			&anim_id, &alt_anim_id, &chair_fallback_anim_id)) {
 		return 1;
 	}
-	chr->specialdie = animation;
+	if (chr) {
+		chr->specialdie = animation;
+	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_special_death_animation_logged) {
 		sysLogPrintf(LOG_NOTE,
 			"SCENARIO.GRAPH: AI action set_chr_special_death_animation chr=%d chr_rows=%d target_chr=%d specialdie=%d anim_id=%s alt_anim_id=%s chair_fallback_anim_id=%s source=%s backend=graph.ai.action.special_death+ai/ailists.json",
@@ -33224,11 +33337,13 @@ static s32 s_aiGraphRequireHudNode(const char *action, s32 node_count)
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	return 1;
 }
@@ -33428,15 +33543,18 @@ static s32 s_aiGraphRequireVehicleNode(const char *action, s32 node_count,
 		char reason[96];
 		snprintf(reason, sizeof(reason),
 			"missing scenario.ai.action.%s node", action);
-		return s_aiGraphRuntimeFailure(action, reason);
+		s_aiGraphRuntimeFailure(action, reason);
+		return 0;
 	}
 	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing ai/ailists.json source");
+		return 0;
 	}
 	if (require_paths && !s_ActiveScenarioGraphs.paths_path[0]) {
-		return s_aiGraphRuntimeFailure(action,
+		s_aiGraphRuntimeFailure(action,
 			"missing navigation/paths.json source");
+		return 0;
 	}
 	return 1;
 }
