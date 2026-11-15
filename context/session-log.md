@@ -10292,3 +10292,46 @@ Verification
 Next
 - The first smoke from C: (boot_smoke) waits behind MULTIPLAYER's batch.
 - 2A, the v2 world-hit salvage.
+
+## 2026-11-15 (08:05-08:40 UTC) - CORE: first C: smoke refused, storage location limits fixed (B-1171), hung recycle
+
+What happened
+- The first smoke with installs on C: got its turn at 08:12 UTC and the disk
+  preflight refused it at a 300 GiB floor. The scripts send the whole
+  checked-in `storage-policy.json` with every storage call, and the location
+  limits from d28a28e7 let a sent policy win, so the location file's 200 GiB
+  floor and its two-install, 1.5 GiB limits were undone on every harnessed
+  run (B-1171). Fixed: the location file's limits govern its root whatever is
+  sent; unset ones follow the sent policy; builds keep the checkout's policy.
+  ec2ba001 on core, 7a26faf4 on `week-pd/runner` (one commit on cfb308f6),
+  merged back into core as 1f4699b7 (tree unchanged), all pushed.
+  Propagation: every sender (Storage-Harness, Runner-Retention, the explicit
+  `-StoragePolicy` of run-asset-inspection, build-session) goes through
+  `Storage.__init__`, so the one fix covers them; no other session had a C:
+  location yet.
+- Under the corrected rule the C: run is still refused: C: has 203.7 GiB free,
+  D-011's floor is 200 GiB, and a run needs 4 GiB more. C:'s Recycle Bin
+  holds 0.75 GiB. Question to Mike. Dev's `storage-policy.json` already has
+  D-011's 200 GiB (ca595c40); `week-pd/core` keeps 300 until it takes dev.
+- Two recycle runs hung for hours on hidden "delete permanently?" prompts
+  (`Delete Folder` windows): three test evidence folders held paths of 300 to
+  305 characters, too long for the Recycle Bin. Both processes were mine and
+  were stopped; the scratchpad recycle helper now measures paths first,
+  refuses over-long folders and can shorten child names before recycling.
+  Everything from these rounds is in the Recycle Bin. The updater's own
+  `recyclePath` (c138) has no nuke-warning flag and falls back to permanent
+  removal by design, so it cannot hang this way.
+- CRYSTAL PISTOL asked whether CORE is in its runtime files; answered in the
+  week note (seven CORE commits not on dev touch `bondgun.c`, `propobj.c`,
+  `weapon_graph_runtime.c` and the v2 weapon sources; CORE is not editing them
+  now; the parked world-hit snapshot also touches `bondgun.c` and `prop.c`).
+
+Verification
+- Python storage 26/26, retention 22/22, reuse 17/17; PowerShell storage 19
+  checks (5.1 and 7), retention and reuse (5.1), runner retention 47 (7). The
+  new checks in `test-storage.py` and `test-storage.ps1` fail on the old rule.
+
+Next
+- Mike: the floor for test installs on C:.
+- 2A, the v2 world-hit salvage; objectives completion events; the
+  `menu_settings_keyboard` rerun while the desktop is unlocked.
