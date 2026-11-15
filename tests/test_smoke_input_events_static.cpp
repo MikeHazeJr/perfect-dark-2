@@ -1,8 +1,10 @@
 #include "catch.hpp"
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 
@@ -1394,4 +1396,42 @@ TEST_CASE("a template run seeds every per-process install from the template",
     requireContains(staging, "-TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target");
     requireContains(staging, "$explicitProcessState = $true");
     requireContains(staging, "$processInstallInfo = New-SmokeInstall `");
+}
+
+TEST_CASE("B-1170 every fixture key name resolves through the smoke key table",
+          "[smoke][input][static][b1170]")
+{
+    // A key the table lacks makes the harness refuse the whole fixture at
+    // parse time (menu_settings_keyboard could not run for weeks: it pages
+    // with PageUp/PageDown, which the table did not have).
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string table = requireSlice(harness, "static const SmokeKeyEntry s_KeyTable[] = {", "};");
+    std::set<std::string> names;
+    const std::regex entry(R"re(\{ "([A-Za-z0-9]+)",\s+SDL_SCANCODE_[A-Z0-9_]+\s*\})re");
+    for (std::sregex_iterator it(table.begin(), table.end(), entry), end; it != end; ++it) {
+        names.insert((*it)[1].str());
+    }
+    REQUIRE(names.count("Return") == 1);
+    REQUIRE(names.count("PageDown") == 1);
+
+    // Fixture events are one object per line; a key event names "type": "key".
+    const std::regex keyEvent(R"re("type"\s*:\s*"key")re");
+    const std::regex keyName(R"re("key"\s*:\s*"([^"]+)")re");
+    size_t checked = 0;
+    for (const auto &file : std::filesystem::directory_iterator("tools/smoke-verify/tests")) {
+        if (file.path().extension() != ".json") continue;
+        std::ifstream in(file.path(), std::ios::binary);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!std::regex_search(line, keyEvent)) continue;
+            std::smatch m;
+            if (!std::regex_search(line, m, keyName)) continue;
+            const std::string key = m[1].str();
+            const bool single = key.size() == 1 && std::isalnum(static_cast<unsigned char>(key[0]));
+            INFO(file.path().filename().string() << ": key '" << key << "'");
+            REQUIRE((single || names.count(key) == 1));
+            ++checked;
+        }
+    }
+    REQUIRE(checked > 20);
 }

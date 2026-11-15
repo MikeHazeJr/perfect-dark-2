@@ -500,6 +500,9 @@ static const SmokeKeyEntry s_KeyTable[] = {
     { "Down",        SDL_SCANCODE_DOWN       },
     { "Left",        SDL_SCANCODE_LEFT       },
     { "Right",       SDL_SCANCODE_RIGHT      },
+    /* B-1170: menu_settings_keyboard pages with these since 6044d0fa. */
+    { "PageUp",      SDL_SCANCODE_PAGEUP     },
+    { "PageDown",    SDL_SCANCODE_PAGEDOWN   },
     { "LShift",      SDL_SCANCODE_LSHIFT     },
     { "RShift",      SDL_SCANCODE_RSHIFT     },
     { "LCtrl",       SDL_SCANCODE_LCTRL      },
