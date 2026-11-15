@@ -3466,6 +3466,45 @@ for a second spelling of it, not only the file that was fixed.
 - `rg -n 'fsFullPath\("[a-z]' port src`, then check each hit is a read, not a write
 - `rg -n 'fsFileOpenWrite\(' port src`, then check each name has a `$` root or is absolute
 
+## SP-79: A graph helper returns the failure logger's "handled" as "satisfied"
+
+**Severity: MEDIUM - refusals that are logged but not honoured; mostly benign
+today, occasionally a NULL or out-of-range value carried forward.**
+
+In `port/src/scenario_source_runtime.c` the AI graph twins answer 1 for
+"handled" (skip the native handler) and 0 for "not mine". The failure logger
+`s_aiGraphRuntimeFailure` therefore returns 1, so a twin can write
+`return s_aiGraphRuntimeFailure(...)` to refuse. The `s_aiGraphRequire*` and
+`s_aiGraphResolve*` helpers use the opposite sense: 1 means "the requirement
+holds, go on". Wherever such a helper writes `return
+s_aiGraphRuntimeFailure(...)`, the warning is logged and then the caller is
+told the requirement holds.
+
+**Known instances (found 2026-11-14 by the pad-check audit, counted the same
+day):** 73 such returns in 32 helpers, among them
+`s_aiGraphRequireRuntimeCharacterPointer` (a NULL chr or a chr with no prop
+"passes"), `s_aiGraphRequireRuntimePathPointer`, the non-loop branches of
+`s_aiGraphRequireRuntimePathPads`, `s_aiGraphRequireRuntimeSceneRooms`, the
+vehicle, chopper, player and gun-prop pointer helpers, and the `*Node`
+helpers (a missing graph node "passes"). `s_aiGraphRequireRuntimePad` and
+`s_aiGraphRequireRuntimePadTable` are correct: they log, then return 0.
+
+**Why it is not fixed in one sweep:** making a helper return 0 changes what
+each caller does next (some fall through to native, some refuse), and some
+callers depend on today's behaviour (a background script's blank chr has no
+prop and "passes" the character check, which matches what native does). Each
+helper needs its callers read before its failure sense changes.
+
+**Rule:** inside a requirement helper, log with `s_aiGraphRuntimeFailure(...)`
+and then `return 0;` on its own line; reserve `return
+s_aiGraphRuntimeFailure(...)` for the twins themselves.
+
+**Search:**
+- `awk` over the file tracking the enclosing function, counting `return
+  s_aiGraphRuntimeFailure(` inside `s_aiGraphRequire*` / `s_aiGraphResolve*`
+  (the count above).
+- `rg -n 'return s_aiGraphRuntimeFailure\(' port/src/scenario_source_runtime.c`
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

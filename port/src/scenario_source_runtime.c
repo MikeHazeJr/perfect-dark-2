@@ -13264,6 +13264,10 @@ static s32 s_countRuntimeWaygroups(void)
 
 static s32 s_aiGraphRequireRuntimePad(const char *action, s32 pad_id,
 	s32 *out_pad_count);
+static s32 s_aiGraphRequireRuntimePadTable(const char *action,
+	s32 *out_pad_count);
+static s32 s_aiGraphResolveRoomOrPad(const char *action,
+	struct chrdata *chr, s32 value, s32 *out_room, s32 *out_pad_count);
 
 static struct path *s_aiGraphFindRuntimePath(const char *action,
 	s32 path_id, s32 *out_path_count)
@@ -13466,6 +13470,40 @@ static s32 s_aiGraphRequireRuntimePad(const char *action, s32 pad_id,
 		return 0;
 	}
 
+	return 1;
+}
+
+/* B-1164: a pad argument the native command resolves itself, where 9000
+ * (PAD_PRESET) names chr's preset pad (chrResolvePadId). Checks the pad the
+ * native call will actually use. A preset that resolves below zero (no
+ * preset) is the native call's own case, so only the pad table is required
+ * then. Returns the resolved pad in *out_pad (or -1) and 1, or 0 after
+ * logging a refusal. */
+static s32 s_aiGraphRequireResolvedRuntimePad(const char *action,
+	struct chrdata *chr, s32 pad_id, s32 *out_pad, s32 *out_pad_count)
+{
+	s32 resolved = pad_id;
+
+	if (out_pad) {
+		*out_pad = -1;
+	}
+	if (pad_id == PAD_PRESET) {
+		if (!chr) {
+			s_aiGraphRuntimeFailure(action,
+				"preset pad 9000 needs a character to resolve");
+			return 0;
+		}
+		resolved = chrResolvePadId(chr, pad_id);
+		if (resolved < 0) {
+			return s_aiGraphRequireRuntimePadTable(action, out_pad_count);
+		}
+	}
+	if (!s_aiGraphRequireRuntimePad(action, resolved, out_pad_count)) {
+		return 0;
+	}
+	if (out_pad) {
+		*out_pad = resolved;
+	}
 	return 1;
 }
 
@@ -14606,6 +14644,36 @@ static const char *s_aiGraphResolveAnimationCatalogId(const char *action,
 		role, anim_id);
 	s_aiGraphRuntimeFailure(action, reason);
 	return NULL;
+}
+
+/* B-1161: a base animation slot the ROM leaves unused (animIsEmptyBaseSlot)
+ * has nothing to publish: the extractor skips it (257 of the 1,207 character
+ * slots, ANIM_IDLE among them), so its catalog row has no .pdanim. It is
+ * still a valid animation number, and the one chr->naturalanim starts at, so
+ * a condition that only compares animation numbers takes it as it is instead
+ * of refusing (which answered "not equal" without comparing). A slot a mod
+ * fills is not empty and resolves through its public source as before. */
+static const char *s_aiGraphResolveComparableAnimationCatalogId(
+	const char *action, s32 anim_id, const char *role,
+	const char **out_source_path, u32 *out_clip_size)
+{
+	if (animIsEmptyBaseSlot(anim_id)) {
+		CatalogResolveResult result = catalogResolveAnim(anim_id);
+		const asset_entry_t *entry = result.catalog_id >= 0
+			? assetCatalogGetByIndex(result.catalog_id) : NULL;
+
+		if (entry && entry->id[0]) {
+			if (out_source_path) {
+				*out_source_path = "(empty base slot)";
+			}
+			if (out_clip_size) {
+				*out_clip_size = 0;
+			}
+			return entry->id;
+		}
+	}
+	return s_aiGraphResolveAnimationCatalogId(action, anim_id, role,
+		out_source_path, out_clip_size);
 }
 
 static s32 s_aiGraphResolveSpecialDeathAnimationCatalogIds(
@@ -16766,13 +16834,13 @@ s32 scenarioSourceAiGraphExecuteIfRoomIsOnScreen(struct chrdata *chr,
 		s_aiGraphApplyBranch(0, label, 5);
 		return 1;
 	}
-	if (!s_aiGraphRequireRuntimePad("if_room_is_on_screen", pad,
-			&pad_count)) {
+	/* B-1163: room-or-pad value, decoded and checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("if_room_is_on_screen", chr, pad,
+			&room_id, &pad_count)) {
 		s_aiGraphApplyBranch(0, label, 5);
 		return 1;
 	}
 
-	room_id = chr ? chrGetPadRoom(chr, pad) : -1;
 	branch = room_id >= 0 && bgRoomIsOnscreen(room_id);
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_room_is_on_screen_logged) {
@@ -17327,12 +17395,20 @@ s32 scenarioSourceAiGraphExecuteIfChrInRoom(struct chrdata *basechr,
 		return 1;
 	}
 	if (room_type != 1) {
-		if (!s_aiGraphRequireRuntimePad("if_chr_in_room", padnum,
+		/* B-1163: type 0 takes a room-or-pad value (chrGetPadRoom's
+		 * encoding). Type 2 takes a pad that each eyespy resolves itself
+		 * (B-1164, checked in the loop below); other types take none. */
+		if (room_type == 0) {
+			if (!s_aiGraphResolveRoomOrPad("if_chr_in_room", basechr,
+					padnum, &room, &pad_count)) {
+				s_aiGraphApplyBranch(0, label, 7);
+				return 1;
+			}
+		} else if (!s_aiGraphRequireRuntimePadTable("if_chr_in_room",
 				&pad_count)) {
 			s_aiGraphApplyBranch(0, label, 7);
 			return 1;
 		}
-		room = chrGetPadRoom(basechr, padnum);
 	} else if (!s_aiGraphRequireRuntimePadTable("if_chr_in_room",
 			&pad_count)) {
 		s_aiGraphApplyBranch(0, label, 7);
@@ -17355,12 +17431,21 @@ s32 scenarioSourceAiGraphExecuteIfChrInRoom(struct chrdata *basechr,
 			}
 			checked_players++;
 			if (player->eyespy && player->eyespy->prop &&
-					player->eyespy->prop->chr &&
-					chrGetDistanceToPad(
-						player->eyespy->prop->chr, padnum) <
-					150.0f) {
-				branch = 1;
-				break;
+					player->eyespy->prop->chr) {
+				struct chrdata *eyespychr = player->eyespy->prop->chr;
+				s32 resolved = 0;
+
+				/* B-1164: the eyespy resolves 9000 to its own preset,
+				 * as chrGetDistanceToPad does. */
+				if (!s_aiGraphRequireResolvedRuntimePad("if_chr_in_room",
+						eyespychr, padnum, &resolved, &pad_count)) {
+					s_aiGraphApplyBranch(0, label, 7);
+					return 1;
+				}
+				if (chrGetDistanceToPad(eyespychr, padnum) < 150.0f) {
+					branch = 1;
+					break;
+				}
 			}
 		}
 	}
@@ -17391,12 +17476,12 @@ s32 scenarioSourceAiGraphExecuteIfTargetInRoom(struct chrdata *chr,
 	if (prepared <= 0) {
 		return prepared < 0 ? 1 : 0;
 	}
-	if (!s_aiGraphRequireRuntimePad("if_target_in_room", padnum,
-			&pad_count)) {
+	/* B-1163: room-or-pad value, decoded and checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("if_target_in_room", chr, padnum,
+			&room, &pad_count)) {
 		s_aiGraphApplyBranch(0, label, 5);
 		return 1;
 	}
-	room = chrGetPadRoom(chr, padnum);
 	branch = room >= 0 && prop && room == prop->rooms[0];
 	s_aiGraphApplyBranch(branch, label, 5);
 	if (!s_ActiveScenarioGraphs.ai_condition_if_target_in_room_logged) {
@@ -18745,8 +18830,9 @@ s32 scenarioSourceAiGraphExecuteTryStartAlarm(struct chrdata *chr,
 		return s_aiGraphRuntimeFailure("try_start_alarm",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("try_start_alarm", pad_id,
-			&pad_count)) {
+	/* B-1164: chrTryStartAlarm resolves 9000 to chr's preset pad itself. */
+	if (!s_aiGraphRequireResolvedRuntimePad("try_start_alarm", chr, pad_id,
+			NULL, &pad_count)) {
 		g_Vars.aioffset += 5;
 		return 1;
 	}
@@ -19057,7 +19143,9 @@ s32 scenarioSourceAiGraphExecuteSetPadPreset(struct chrdata *chr, s32 pad)
 		return s_aiGraphRuntimeFailure("set_pad_preset",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("set_pad_preset", pad, &pad_count)) {
+	/* B-1164: chrSetPadPreset resolves 9000 (chr keeps its own preset). */
+	if (!s_aiGraphRequireResolvedRuntimePad("set_pad_preset", chr, pad,
+			NULL, &pad_count)) {
 		return 1;
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer("set_pad_preset", chr,
@@ -19093,8 +19181,10 @@ s32 scenarioSourceAiGraphExecuteChrSetPadPreset(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("chr_set_pad_preset",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("chr_set_pad_preset", pad,
-			&pad_count)) {
+	/* B-1164: chrSetPadPresetByChrnum resolves 9000 against basechr, so
+	 * the target takes the caller's preset. */
+	if (!s_aiGraphRequireResolvedRuntimePad("chr_set_pad_preset", basechr,
+			pad, NULL, &pad_count)) {
 		return 1;
 	}
 	if (!s_aiGraphRequireRuntimeCharacterRefFromBase(
@@ -20942,8 +21032,10 @@ s32 scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad(
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	if (!s_aiGraphRequireRuntimePad("set_chr_preset_to_chr_near_pad",
-			padnum, &pad_count)) {
+	/* B-1164: the native near-pad helper resolves 9000 against chr. */
+	if (!s_aiGraphRequireResolvedRuntimePad(
+			"set_chr_preset_to_chr_near_pad", chr, padnum, NULL,
+			&pad_count)) {
 		return 1;
 	}
 	if (chr && !s_aiGraphRequireRuntimeCharacterPointer(
@@ -22196,8 +22288,11 @@ s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,
 	if (required <= 0) {
 		return required < 0 ? 1 : 0;
 	}
-	anim_catalog_id = s_aiGraphResolveAnimationCatalogId("if_natural_anim",
-		anim, "natural", &anim_source_path, &anim_clip_size);
+	/* Both animations are only compared by number, so an empty base slot
+	 * (ANIM_IDLE, where every chr's natural animation starts) is valid. */
+	anim_catalog_id = s_aiGraphResolveComparableAnimationCatalogId(
+		"if_natural_anim", anim, "natural", &anim_source_path,
+		&anim_clip_size);
 	if (!anim_catalog_id) {
 		s_aiGraphApplyBranch(0, label, 4);
 		return 1;
@@ -22207,7 +22302,7 @@ s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,
 		return 1;
 	}
 	if (chr && chr->naturalanim >= 0) {
-		current_anim_catalog_id = s_aiGraphResolveAnimationCatalogId(
+		current_anim_catalog_id = s_aiGraphResolveComparableAnimationCatalogId(
 			"if_natural_anim", chr->naturalanim, "current_natural",
 			&current_anim_source_path, &current_anim_clip_size);
 		if (!current_anim_catalog_id) {
@@ -25672,14 +25767,20 @@ s32 scenarioSourceAiGraphExecuteSetLights(struct chrdata *chr, s32 padnum,
 		return s_aiGraphRuntimeFailure("set_lights",
 			"missing ai/ailists.json or pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("set_lights", padnum, &pad_count)) {
-		return 1;
-	}
 	if (!s_aiGraphRequireOptionalLiveRuntimeCharacterPointer("set_lights",
 			chr, &chr_count, &source_chr)) {
 		return 1;
 	}
-	roomnum = chr && chr->prop ? chrGetPadRoom(chr, padnum) : -1;
+	/* B-1162: background scripts run on a blank chr with no prop, and they
+	 * make 569 of the 590 light changes in base content. The room used to be
+	 * computed only for a chr with a prop, so on the graph path those lights
+	 * never changed. Like native, any chr (or none, unless the value names
+	 * the preset pad) decodes the room. B-1163: the value is chrGetPadRoom's
+	 * room-or-pad encoding, checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("set_lights", chr, padnum, &roomnum,
+			&pad_count)) {
+		return 1;
+	}
 	if (roomnum >= 0) {
 		switch (operation) {
 		case LIGHTOP_TURNOFF:
@@ -25734,6 +25835,62 @@ static s32 s_aiGraphResolveRuntimeSceneRoom(const char *action,
 		if (out_room_available) {
 			*out_room_available = 1;
 		}
+	}
+	return 1;
+}
+
+/* B-1163: the room argument of the room commands (if_chr_in_room type 0,
+ * if_target_in_room, if_room_is_on_screen, if_obj_in_room, set_lights) is
+ * chrGetPadRoom's encoding: below 10000 it is a room number, from 10000 it is
+ * the room of pad (value - 10000), and 19000 is the room of chr's preset pad.
+ * The graph used to check the raw value against the pad table, which passed a
+ * room number only while it happened to be below the stage's pad count and
+ * refused every pad form. This decodes the value, checks what native will
+ * index (a runtime room, or the pad behind it), and returns the room exactly
+ * as chrGetPadRoom(chr, value) does. chr may be NULL (a background script's
+ * blank chr is not NULL, but a missing chr is) unless the value names the
+ * preset pad. Returns 1 with *out_room set, or 0 after logging a refusal. */
+static s32 s_aiGraphResolveRoomOrPad(const char *action, struct chrdata *chr,
+	s32 value, s32 *out_room, s32 *out_pad_count)
+{
+	char reason[112];
+
+	if (out_room) {
+		*out_room = -1;
+	}
+	if (out_pad_count) {
+		*out_pad_count = 0;
+	}
+	if (value >= 10000) {
+		s32 pad = 0;
+
+		if (!s_aiGraphRequireResolvedRuntimePad(action, chr, value - 10000,
+				&pad, out_pad_count)) {
+			return 0;
+		}
+		if (out_room) {
+			*out_room = pad >= 0 ? chrGetPadRoom(chr, value) : -1;
+		}
+		return 1;
+	}
+	{
+		s32 room_count = 0;
+		s32 room_available = 0;
+
+		if (!s_aiGraphResolveRuntimeSceneRoom(action, value, &room_count,
+				&room_available)) {
+			return 0;
+		}
+		if (!room_available) {
+			snprintf(reason, sizeof(reason),
+				"room %d is not a runtime room (rooms=%d)", value,
+				room_count);
+			s_aiGraphRuntimeFailure(action, reason);
+			return 0;
+		}
+	}
+	if (out_room) {
+		*out_room = value;
 	}
 	return 1;
 }
@@ -27856,7 +28013,9 @@ s32 scenarioSourceAiGraphExecuteSpawnChrAtPad(struct chrdata *basechr,
 		return s_aiGraphRuntimeFailure("spawn_chr_at_pad",
 			"missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad("spawn_chr_at_pad", pad, &pad_count)) {
+	/* B-1164: chrSpawnAtPad resolves 9000 against basechr. */
+	if (!s_aiGraphRequireResolvedRuntimePad("spawn_chr_at_pad", basechr, pad,
+			NULL, &pad_count)) {
 		return 1;
 	}
 	body_id = s_aiGraphResolveBodyCatalogId("spawn_chr_at_pad",
@@ -28485,6 +28644,14 @@ s32 scenarioSourceAiGraphExecuteDuplicateChr(struct chrdata *basechr,
 			rebuildSquadrons();
 			pass = 1;
 		}
+	}
+	/* B-1165: a clone is created from graph source like the spawn_chr_at_*
+	 * characters, so it is registered the same way. Without it every later
+	 * AI command for the clone (Defense's shock troopers) refused it as
+	 * "not source-derived". */
+	if (pass && !s_aiGraphRegisterSourceSpawnedChr("duplicate_chr",
+			cloneprop)) {
+		return 0;
 	}
 	if (pass) {
 		g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,
@@ -29409,13 +29576,13 @@ s32 scenarioSourceAiGraphExecuteIfObjInRoom(struct chrdata *basechr,
 		s_aiGraphApplyBranch(0, label, 6);
 		return 1;
 	}
-	if (!s_aiGraphRequireRuntimePad("if_obj_in_room", room_id,
-			&pad_count)) {
+	/* B-1163: room-or-pad value, decoded and checked as native indexes it. */
+	if (!s_aiGraphResolveRoomOrPad("if_obj_in_room", basechr, room_id,
+			&resolved_room, &pad_count)) {
 		s_aiGraphApplyBranch(0, label, 6);
 		return 1;
 	}
 	obj = objFindByTagId(tag_id);
-	resolved_room = chrGetPadRoom(basechr, room_id);
 	pass = resolved_room >= 0 && obj && obj->prop &&
 		resolved_room == obj->prop->rooms[0];
 	if (pass) {

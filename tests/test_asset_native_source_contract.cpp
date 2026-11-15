@@ -2345,18 +2345,27 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		const std::string block = functionBlock(scenario_runtime,
 			"scenarioSourceAiGraphExecuteIfRoomIsOnScreen");
 		REQUIRE(!block.empty());
+		// B-1163: the room argument is chrGetPadRoom's room-or-pad value,
+		// decoded and checked as native indexes it, not checked as a pad.
 		REQUIRE(block.find(
-			        "s_aiGraphRequireRuntimePad(\"if_room_is_on_screen\"") !=
+			        "s_aiGraphResolveRoomOrPad(\"if_room_is_on_screen\", chr, pad,") !=
+		        std::string::npos);
+		REQUIRE(block.find(
+			        "s_aiGraphRequireRuntimePad(\"if_room_is_on_screen\"") ==
 		        std::string::npos);
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"if_room_is_on_screen\"",
-			"chrGetPadRoom(chr, pad)");
+			"s_aiGraphResolveRoomOrPad(\"if_room_is_on_screen\"",
+			"bgRoomIsOnscreen(room_id)");
 	}
 	{
 		const std::string block = functionBlock(scenario_runtime,
 			"scenarioSourceAiGraphExecuteIfChrInRoom");
 		REQUIRE(!block.empty());
-		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"if_chr_in_room\"") !=
+		// B-1163 (type 0 room-or-pad) and B-1164 (type 2: each eyespy
+		// resolves the preset pad itself, as chrGetDistanceToPad does).
+		REQUIRE(block.find("s_aiGraphResolveRoomOrPad(\"if_chr_in_room\", basechr,") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"if_chr_in_room\"") ==
 		        std::string::npos);
 		REQUIRE(block.find("g_Vars.players[i]->eyespy") ==
 		        std::string::npos);
@@ -2366,11 +2375,14 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(block.find("stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING") !=
 		        std::string::npos);
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"if_chr_in_room\"",
-			"chrGetPadRoom(basechr, padnum)");
+			"s_aiGraphResolveRoomOrPad(\"if_chr_in_room\"",
+			"chr->prop->rooms[0] == room");
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"if_chr_in_room\"",
+			"s_aiGraphResolveRoomOrPad(\"if_chr_in_room\"",
 			"stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING");
+		requireTokenOrder(block,
+			"s_aiGraphRequireResolvedRuntimePad(\"if_chr_in_room\"",
+			"chrGetDistanceToPad(eyespychr, padnum)");
 		requireTokenOrder(block,
 			"stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING",
 			"s_aiGraphRequireRuntimePlayerSlot(\"if_chr_in_room\"");
@@ -2386,11 +2398,14 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 			"scenarioSourceAiGraphExecuteIfTargetInRoom");
 		REQUIRE(!block.empty());
 		REQUIRE(block.find(
-			        "s_aiGraphRequireRuntimePad(\"if_target_in_room\"") !=
+			        "s_aiGraphResolveRoomOrPad(\"if_target_in_room\", chr, padnum,") !=
+		        std::string::npos);
+		REQUIRE(block.find(
+			        "s_aiGraphRequireRuntimePad(\"if_target_in_room\"") ==
 		        std::string::npos);
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"if_target_in_room\"",
-			"chrGetPadRoom(chr, padnum)");
+			"s_aiGraphResolveRoomOrPad(\"if_target_in_room\"",
+			"room == prop->rooms[0]");
 	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.object_interaction+ai/ailists.json+objects.json") !=
 	        std::string::npos);
@@ -2968,8 +2983,9 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		const std::string block = functionBlock(scenario_runtime,
 			"scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad");
 		REQUIRE(!block.empty());
+		// B-1164: the pad is checked as the native helper resolves it.
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(",
+			"s_aiGraphRequireResolvedRuntimePad(",
 			"s_aiGraphRequireRuntimeCharacterPointer(");
 		requireTokenOrder(block,
 			"s_aiGraphRequireRuntimeCharacterPointer(",
@@ -3244,6 +3260,36 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("if (!s_aiGraphRequireRuntimePad(action, pad, &pad_count)) {") ==
 	        std::string::npos);
+	// B-1161: if_natural_anim only compares animation numbers, so an empty
+	// base slot (ANIM_IDLE, where chr->naturalanim starts) is valid there; the
+	// strict resolver still refuses it for actions that play an animation.
+	{
+		// The slot test lives in the animation library, so the runtime reads
+		// no animation table global itself (source-boundary guard).
+		const std::string anim = readTextFile("src/lib/anim.c");
+		const size_t empty = anim.find("bool animIsEmptyBaseSlot(s32 animnum)");
+		REQUIRE(empty != std::string::npos);
+		REQUIRE(anim.find("&& g_Anims[animnum].numframes == 0\n\t\t&& g_Anims[animnum].headerlen == 0;", empty) !=
+		        std::string::npos);
+		REQUIRE(readTextFile("src/include/lib/anim.h").find("bool animIsEmptyBaseSlot(s32 animnum);") !=
+		        std::string::npos);
+		REQUIRE(scenario_runtime.find("if (animIsEmptyBaseSlot(anim_id)) {") != std::string::npos);
+		REQUIRE(scenario_runtime.find("g_Anims") == std::string::npos);
+		const size_t natural = scenario_runtime.find("s32 scenarioSourceAiGraphExecuteIfNaturalAnim(struct chrdata *chr,");
+		REQUIRE(natural != std::string::npos);
+		const size_t naturalEnd = scenario_runtime.find("s32 scenarioSourceAiGraphExecuteIfY(", natural);
+		REQUIRE(naturalEnd != std::string::npos);
+		const std::string body = scenario_runtime.substr(natural, naturalEnd - natural);
+		size_t comparable = 0;
+		for (size_t at = body.find("s_aiGraphResolveComparableAnimationCatalogId("); at != std::string::npos;
+		     at = body.find("s_aiGraphResolveComparableAnimationCatalogId(", at + 1)) {
+			++comparable;
+		}
+		REQUIRE(comparable == 2);
+		REQUIRE(body.find("s_aiGraphResolveAnimationCatalogId(") == std::string::npos);
+		const size_t play = scenario_runtime.find("anim_catalog_id = s_aiGraphResolveAnimationCatalogId(\"chr_do_animation\",");
+		REQUIRE(play != std::string::npos);
+	}
 	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: path source") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.navigation.paths+navigation/paths.json") !=
@@ -4276,8 +4322,9 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	const std::string near_pad_target_block =
 		functionBlock(scenario_runtime,
 			"scenarioSourceAiGraphExecuteSetChrPresetToChrNearPad");
+	// B-1164: the pad checked is the one the native helper resolves (9000).
 	REQUIRE(near_pad_target_block.find(
-		        "s_aiGraphRequireRuntimePad(\"set_chr_preset_to_chr_near_pad\"") !=
+		        "s_aiGraphRequireResolvedRuntimePad(\n\t\t\t\"set_chr_preset_to_chr_near_pad\", chr, padnum, NULL,") !=
 	        std::string::npos);
 	REQUIRE(near_pad_target_block.find(
 		        "pad=%d found=1 pad_rows=%d") != std::string::npos);
@@ -4285,7 +4332,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		        "backend=graph.ai.action.prop_target+ai/ailists.json+pads.json") !=
 	        std::string::npos);
 	requireTokenOrder(near_pad_target_block,
-		"s_aiGraphRequireRuntimePad(\"set_chr_preset_to_chr_near_pad\"",
+		"\"set_chr_preset_to_chr_near_pad\", chr, padnum, NULL,",
 		"chrSetChrPresetToChrNearPad(preset, chr, distance, padnum)");
 	const std::string speak_block =
 		functionBlock(scenario_runtime, "scenarioSourceAiGraphExecuteSpeak");
@@ -4734,7 +4781,8 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 			"preset=%d applied=%d source=%s") == std::string::npos);
 	const std::string natural_anim_block =
 		functionBlock(scenario_runtime, "scenarioSourceAiGraphExecuteIfNaturalAnim");
-	REQUIRE(natural_anim_block.find("s_aiGraphResolveAnimationCatalogId") !=
+	// B-1161: the comparison takes an empty base slot as it is.
+	REQUIRE(natural_anim_block.find("s_aiGraphResolveComparableAnimationCatalogId") !=
 	        std::string::npos);
 	REQUIRE(natural_anim_block.find("anim_id=%s anim_source=%s clip_bytes=%u current_anim_id=%s current_anim_source=%s current_clip_bytes=%u") !=
 	        std::string::npos);
@@ -5322,6 +5370,14 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(!duplicate_chr.empty());
 		REQUIRE(duplicate_chr.find("ailistFindById(ailistid)") !=
 		        std::string::npos);
+		// B-1165: the clone is registered as source-spawned, like the
+		// spawn_chr_at_* characters, before the branch is taken.
+		requireTokenOrder(duplicate_chr,
+			"cloneprop = chrSpawnAtChr(basechr, chr->bodynum, -1,",
+			"s_aiGraphRegisterSourceSpawnedChr(\"duplicate_chr\",\n\t\t\tcloneprop)");
+		requireTokenOrder(duplicate_chr,
+			"s_aiGraphRegisterSourceSpawnedChr(\"duplicate_chr\",",
+			"g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,");
 		REQUIRE(duplicate_chr.find(
 			        "s_aiGraphRequireRuntimeCharacterRefFromBase(\"duplicate_chr\"") !=
 		        std::string::npos);
@@ -5850,7 +5906,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		{ "scenarioSourceAiGraphExecuteIfNeverBeenOnScreen", "chr->chrflags" },
 		{ "scenarioSourceAiGraphExecuteIfOnScreen", "chr->prop->flags" },
 		{ "scenarioSourceAiGraphExecuteIfChrInOnScreenRoom", "s_aiGraphChrInOnScreenRoom(chr)" },
-		{ "scenarioSourceAiGraphExecuteIfRoomIsOnScreen", "chrGetPadRoom(chr, pad)" },
+		{ "scenarioSourceAiGraphExecuteIfRoomIsOnScreen", "s_aiGraphResolveRoomOrPad(\"if_room_is_on_screen\", chr, pad," },
 		{ "scenarioSourceAiGraphExecuteIfTargetAimingAtMe", "chrIsTargetAimingAtMe(chr)" },
 		{ "scenarioSourceAiGraphExecuteIfNearMiss", "chrResetNearMiss(chr)" },
 		{ "scenarioSourceAiGraphExecuteIfSeesSuspiciousItem", "s_aiGraphChrSeesSuspiciousItem(chr)" },
@@ -6521,11 +6577,14 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		const std::string block = functionBlock(scenario_runtime,
 			"scenarioSourceAiGraphExecuteIfObjInRoom");
 		REQUIRE(!block.empty());
-		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"if_obj_in_room\"") !=
+		// B-1163: room-or-pad value, decoded and checked as native does.
+		REQUIRE(block.find("s_aiGraphResolveRoomOrPad(\"if_obj_in_room\", basechr, room_id,") !=
+		        std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"if_obj_in_room\"") ==
 		        std::string::npos);
 		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"if_obj_in_room\"",
-			"chrGetPadRoom(basechr, room_id)");
+			"s_aiGraphResolveRoomOrPad(\"if_obj_in_room\"",
+			"resolved_room == obj->prop->rooms[0]");
 	}
 	REQUIRE(scenario_runtime.find("backend=graph.ai.condition.perception+ai/ailists.json+objects.json+scene.glb") !=
 	        std::string::npos);
@@ -6795,7 +6854,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	}
 	REQUIRE(scenario_runtime.find("scenarioSourceAiGraphExecuteSetLights") !=
 	        std::string::npos);
-	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePad(\"set_lights\"") !=
+	REQUIRE(scenario_runtime.find("s_aiGraphResolveRoomOrPad(\"set_lights\", chr, padnum, &roomnum,") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("AI action set_lights pad=%d found=1 pad_rows=%d") !=
 	        std::string::npos);
@@ -6807,12 +6866,16 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(!block.empty());
 		REQUIRE(block.find("AI action set_lights pad=%d found=1 pad_rows=%d chr_rows=%d source_chr=%d") !=
 		        std::string::npos);
-		requireTokenOrder(block,
-			"s_aiGraphRequireRuntimePad(\"set_lights\"",
-			"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"set_lights\"");
+		// B-1162: background scripts (a blank chr with no prop) change
+		// lights too: the room no longer requires chr->prop.
 		requireTokenOrder(block,
 			"s_aiGraphRequireOptionalLiveRuntimeCharacterPointer(\"set_lights\"",
-			"roomnum = chr && chr->prop ? chrGetPadRoom(chr, padnum) : -1");
+			"s_aiGraphResolveRoomOrPad(\"set_lights\"");
+		requireTokenOrder(block,
+			"s_aiGraphResolveRoomOrPad(\"set_lights\"",
+			"roomSetLightsOn(roomnum, false)");
+		REQUIRE(block.find("chr->prop ? chrGetPadRoom") == std::string::npos);
+		REQUIRE(block.find("s_aiGraphRequireRuntimePad(\"set_lights\"") == std::string::npos);
 	}
 	{
 		const std::string block = functionBlock(scenario_runtime,
@@ -7988,7 +8051,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.ai.action.chr_set_pad_preset+pads.json") !=
 	        std::string::npos);
-	REQUIRE(scenario_runtime.find("s_aiGraphRequireRuntimePad(\"try_start_alarm\"") !=
+	REQUIRE(scenario_runtime.find("s_aiGraphRequireResolvedRuntimePad(\"try_start_alarm\", chr, pad_id,") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("AI action set_pad_preset chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d") !=
 	        std::string::npos);
@@ -8021,8 +8084,11 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(!set_pad_preset.empty());
 		REQUIRE(!chr_set_pad_preset.empty());
 		REQUIRE(!copy_preset.empty());
+		// B-1164: these natives resolve 9000 themselves, so the graph
+		// checks the pad they will use (s_aiGraphRequireResolvedRuntimePad)
+		// and still hands them the raw pad.
 		requireTokenOrder(try_alarm,
-			"s_aiGraphRequireRuntimePad(\"try_start_alarm\"",
+			"s_aiGraphRequireResolvedRuntimePad(\"try_start_alarm\"",
 			"s_aiGraphRequireRuntimeCharacterPointer(\"try_start_alarm\"");
 		requireTokenOrder(try_alarm,
 			"s_aiGraphRequireRuntimeCharacterPointer(\"try_start_alarm\"",
@@ -8042,7 +8108,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 			"s_aiGraphRequireRuntimeCharacterPointer(\"go_to_pad_preset\"",
 			"chr->padpreset1");
 		requireTokenOrder(set_pad_preset,
-			"s_aiGraphRequireRuntimePad(\"set_pad_preset\"",
+			"s_aiGraphRequireResolvedRuntimePad(\"set_pad_preset\"",
 			"s_aiGraphRequireRuntimeCharacterPointer(\"set_pad_preset\"");
 		requireTokenOrder(set_pad_preset,
 			"s_aiGraphRequireRuntimeCharacterPointer(\"set_pad_preset\"",
@@ -8050,7 +8116,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(chr_set_pad_preset.find("chrSetPadPresetByChrnum(") ==
 		        std::string::npos);
 		requireTokenOrder(chr_set_pad_preset,
-			"s_aiGraphRequireRuntimePad(\"chr_set_pad_preset\"",
+			"s_aiGraphRequireResolvedRuntimePad(\"chr_set_pad_preset\", basechr,",
 			"s_aiGraphRequireRuntimeCharacterRefFromBase(");
 		requireTokenOrder(chr_set_pad_preset,
 			"s_aiGraphRequireRuntimeCharacterRefFromBase(",

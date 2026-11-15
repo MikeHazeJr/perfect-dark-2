@@ -1194,11 +1194,15 @@ SCENARIO_STAGE_NUM_SOURCE_PROVEN_FUNCTIONS = {
         "pre": (
             's_aiGraphPrepareRoomObjectWeaponBranch("if_chr_in_room"',
             's_aiGraphRequireRuntimeCharacterRefFromBase("if_chr_in_room"',
-            's_aiGraphRequireRuntimePad("if_chr_in_room"',
+            # B-1163/B-1164: the stage-specific type 2 branch is reached
+            # after the pad table is proven; its pad is then checked per
+            # eyespy (s_aiGraphRequireResolvedRuntimePad, required below).
+            's_aiGraphRequireRuntimePadTable("if_chr_in_room"',
         ),
         "required": (
             "stageGetIndex(g_Vars.stagenum) == STAGEINDEX_G5BUILDING",
             's_aiGraphRequireRuntimePlayerSlot("if_chr_in_room"',
+            's_aiGraphRequireResolvedRuntimePad("if_chr_in_room"',
             "AI condition if_chr_in_room chr=%d room_type=%d pad=%d found=%d",
         ),
     },
