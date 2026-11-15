@@ -124,6 +124,7 @@
 #include "assetcatalog_load.h"
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "scenario_source_runtime.h"
+#include "scenario_scene_renderer.h"
 #include "smoke_harness.h"
 
 /* PC: persistent stats tracking */
@@ -1801,12 +1802,22 @@ Gfx *lvRender(Gfx *gdl)
 			}
 
 			if (g_Vars.lockscreen) {
+				/* B-1172: the scene backdrop draws in display-list order. */
+				if (scenarioSceneRendererIsActive()) {
+					gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot());
+				}
 				gdl = bviewDrawMotionBlur(gdl, 0xffffffff, 255);
 				g_Vars.lockscreen--;
 			} else if (var8009dfc0) {
 				gdl = viRenderViewportEdges(gdl);
 				gdl = bgScissorToViewport(gdl);
 				mtx00016748(1);
+				/* B-1172: the held menu keeps the scene as its backdrop (the CI room
+				 * behind the main menu), now queued in display-list order, under
+				 * the menus, with the last camera the stage set. */
+				if (scenarioSceneRendererIsActive()) {
+					gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot());
+				}
 
 				if (g_Vars.currentplayer->menuisactive) {
 					gdl = menuRender(gdl);
@@ -1856,12 +1867,10 @@ Gfx *lvRender(Gfx *gdl)
 				 * the backdrop. Outside the scene-renderer backdrop the sky fill is
 				 * unchanged; during the playable range the live-world room fills the
 				 * frame, so the skipped fill is not visible. */
-				{
-					extern s32 scenarioSceneRendererIsActive(void);
-					if (!scenarioSceneRendererIsActive()) {
-						gdl = skyRender(gdl);
-					}
-				}
+				/* B-1172: the scenario scene now draws in display-list order (its
+				 * G_SCENE_RENDER_EXT in bgRenderScene, after this), so the sky fill
+				 * no longer covers it and renders on every stage again. */
+				gdl = skyRender(gdl);
 				gSPSetGeometryMode(gdl++, G_ZBUFFER);
 				bgTick();
 				lightsTick();

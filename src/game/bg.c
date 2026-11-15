@@ -1112,9 +1112,10 @@ Gfx *bgRenderScene(Gfx *gdl)
 	// Attack Ship planet, and other sky tricks that are implemented as rooms
 	// A stage built from scenario source names them with render_always on its
 	// rooms.json rows (the same rooms roomInitLights flags); the stage checks
-	// stay for a stage built from the ROM background.
-	if (!sourcebg
-			&& !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)
+	// stay for a stage built from the ROM background. B-1172: with the scene
+	// renderer the stars draw here too (the scene follows in display-list
+	// order); its sky rooms are still drawn by the scene at their world place.
+	if (!USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)
 			&& (g_BgUsingScenarioSource ? bgNextScenarioRenderAlwaysRoom(1) >= 0 :
 				(stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
 				|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
@@ -1171,7 +1172,9 @@ Gfx *bgRenderScene(Gfx *gdl)
 			gdl = vi0000ab78(gdl);
 		}
 
-		if (g_BgUsingScenarioSource) {
+		if (sourcebg) {
+			// The scene draws these rooms (B-1172 step 2: camera-relative).
+		} else if (g_BgUsingScenarioSource) {
 			for (roomnum = bgNextScenarioRenderAlwaysRoom(1); roomnum >= 0;
 					roomnum = bgNextScenarioRenderAlwaysRoom(roomnum + 1)) {
 				if (!g_Rooms[roomnum].loaded240) {
@@ -1192,6 +1195,13 @@ Gfx *bgRenderScene(Gfx *gdl)
 	}
 
 	gdl = skyRenderSuns(gdl, false);
+
+	/* B-1172: the scenario scene draws here in display-list order, after the
+	 * sky, the stars and the sun and before the props, with this player's
+	 * camera (gfx_pc.cpp, G_SCENE_RENDER_EXT). */
+	if (sourcebg) {
+		gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot());
+	}
 
 	// Build an array of room numbers per onscreen prop.
 	// For each onscreen prop there is exactly one entry in the roomnumsbyprop array.

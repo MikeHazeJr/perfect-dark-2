@@ -1398,8 +1398,24 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(bg_runtime.find("aspect = 4.0f / 3.0f") !=
 	        std::string::npos);
-	REQUIRE(gfx_pc.find("scenarioSceneRendererRender(gfx_current_dimensions.width") !=
+	// B-1172: the scene draws at its display-list command, after the sky, the
+	// stars and the sun, into the current view with its player's camera; it
+	// no longer draws before the display list.
+	REQUIRE(gfx_pc.find("case G_SCENE_RENDER_EXT:") != std::string::npos);
+	REQUIRE(gfx_pc.find("scenarioSceneRendererRenderSlot(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width,") !=
 	        std::string::npos);
+	REQUIRE(gfx_pc.find("scenarioSceneRendererEndFrame();") != std::string::npos);
+	REQUIRE(gfx_pc.find("scenarioSceneRendererRender(gfx_current_dimensions.width") ==
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot());") !=
+	        std::string::npos);
+	{
+		const std::string lv_runtime = readTextFile("src/game/lv.c");
+		REQUIRE(lv_runtime.find("if (!scenarioSceneRendererIsActive()) {\n\t\t\t\t\t\tgdl = skyRender(gdl);") ==
+		        std::string::npos);
+		REQUIRE(lv_runtime.find("no longer covers it and renders on every stage again. */\n\t\t\t\tgdl = skyRender(gdl);") !=
+		        std::string::npos);
+	}
 	REQUIRE(scene_renderer.find("fsFileLoad(path") != std::string::npos);
 	REQUIRE(scene_renderer.find("findAttr(\"TEXCOORD_1\")") !=
 	        std::string::npos);

@@ -38,6 +38,12 @@ void scenarioSceneRendererSetCameraFrame(
 	float znear,
 	float zfar);
 void scenarioSceneRendererRender(int width, int height);
+/* B-1172: the scene draws where the display list asks (G_SCENE_RENDER_EXT,
+ * gSPSceneRenderEXT) with the camera that was current when the command was
+ * queued (its slot), into the caller's viewport. Slots reset after each frame. */
+int scenarioSceneRendererCurrentCameraSlot(void);
+void scenarioSceneRendererEndFrame(void);
+void scenarioSceneRendererRenderSlot(int view_x, int view_y, int width, int height, int slot);
 
 #ifdef __cplusplus
 }

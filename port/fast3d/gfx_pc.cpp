@@ -147,6 +147,8 @@ static struct RSP {
 extern "C" int meshDebugGetMode(void);
 extern "C" void meshDebugRenderCollisionMesh(float vp[4][4], int width, int height);
 extern "C" void scenarioSceneRendererRender(int width, int height);
+extern "C" void scenarioSceneRendererRenderSlot(int view_x, int view_y, int width, int height, int slot);
+extern "C" void scenarioSceneRendererEndFrame(void);
 extern "C" int modAssetCompilerGeneratedModeldefRenderAuditEnabled(void);
 static int s_meshDebugModeCache = 0;
 
@@ -3118,6 +3120,27 @@ static void gfx_run_dl(Gfx* cmd) {
                 gfx_flush();
                 gfx_rapi->clear_framebuffer(false, true);
                 break;
+            case G_SCENE_RENDER_EXT:
+                /* B-1172: the scenario scene draws here, in display-list order,
+                 * into the current view with the camera of the player that queued
+                 * it. Its depth values come from its own projection, which the
+                 * game's draws cannot test against (B-936), so depth is cleared
+                 * after it, as the frame's own clear used to do when the scene
+                 * drew before the display list. */
+                gfx_flush();
+                if (!dbgHideScene()) {
+                    gfx_rapi->set_scissor(rdp.scissor.x, rdp.scissor.y, rdp.scissor.width, rdp.scissor.height);
+                    rendering_state.scissor = rdp.scissor;
+                    scenarioSceneRendererRenderSlot(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width,
+                        rdp.viewport.height, (int)(int32_t)cmd->words.w1);
+                    gfx_rapi->clear_framebuffer(false, true);
+                    rendering_state.viewport = {};
+                    rdp.viewport_or_scissor_changed = true;
+                    if (sysArgCheck("--debug-firstdraw-glstate")) {
+                        g_dbgWorldDrawLog = 5;
+                    }
+                }
+                break;
             case G_SETPRIMDEPTH:
                 /* N64 RDP prim-depth register — not used by the PC renderer.
                  * Silently ignore rather than crashing. */
@@ -3294,15 +3317,12 @@ extern "C" void gfx_run(Gfx* commands) {
     rdp.viewport_or_scissor_changed = true;
     rendering_state.viewport = {};
     rendering_state.scissor = {};
-    if (!dbgHideScene()) {
-        scenarioSceneRendererRender(gfx_current_dimensions.width,
-            gfx_current_dimensions.height);
-        if (sysArgCheck("--debug-firstdraw-glstate")) {
-            g_dbgWorldDrawLog = 5;
-        }
-    }
+    /* B-1172: the scenario scene no longer draws here, before the frame's
+     * display list: it draws at its G_SCENE_RENDER_EXT command, after the sky,
+     * the stars and the sun, so the sky shows where the scene has no geometry. */
     gfx_run_dl(commands);
     gfx_flush();
+    scenarioSceneRendererEndFrame();
     gfxFramebuffer = 0;
 
     if (game_renders_to_framebuffer) {

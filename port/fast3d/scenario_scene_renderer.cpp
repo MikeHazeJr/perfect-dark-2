@@ -132,6 +132,12 @@ struct Scene {
 	size_t mask_material_count = 0;
 	size_t blend_material_count = 0;
 	float view_projection[4][4] = {};
+	/* B-1172: the camera of each scene draw queued in this frame's display
+	 * list (one per player view), so each draw uses the camera of the player
+	 * that queued it. */
+	float camera_slots[8][4][4] = {};
+	int camera_slot_count = 0;
+	int last_camera_slot = -1;
 };
 
 Scene g_scene;
@@ -1506,6 +1512,11 @@ extern "C" void scenarioSceneRendererSetCameraFrame(
 	}
 
 	multiplyMatrix(g_scene.view_projection, view, projection);
+	if (g_scene.camera_slot_count < 8) {
+		memcpy(g_scene.camera_slots[g_scene.camera_slot_count], g_scene.view_projection,
+			sizeof(g_scene.view_projection));
+		g_scene.last_camera_slot = g_scene.camera_slot_count++;
+	}
 	g_scene.has_camera = true;
 	g_scene.camera_ever_valid = true;
 	g_scene.logged_missing_camera = false;
@@ -1520,11 +1531,29 @@ extern "C" void scenarioSceneRendererSetCameraFrame(
 	}
 }
 
+extern "C" int scenarioSceneRendererCurrentCameraSlot(void)
+{
+	return g_scene.last_camera_slot;
+}
+
+extern "C" void scenarioSceneRendererEndFrame(void)
+{
+	g_scene.camera_slot_count = 0;
+	g_scene.last_camera_slot = -1;
+}
+
 extern "C" void scenarioSceneRendererRender(int width, int height)
+{
+	scenarioSceneRendererRenderSlot(0, 0, width, height, -1);
+}
+
+extern "C" void scenarioSceneRendererRenderSlot(int view_x, int view_y, int width, int height, int slot)
 {
 	if (!g_scene.active || g_scene.vertices.empty()) {
 		return;
 	}
+	const float (*camera)[4] = (slot >= 0 && slot < g_scene.camera_slot_count)
+		? g_scene.camera_slots[slot] : g_scene.view_projection;
 
 	if (!g_scene.has_camera) {
 		if (!g_scene.camera_ever_valid) {
@@ -1598,7 +1627,7 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 	glGetIntegerv(GL_TEXTURE_BINDING_2D, &prev_texture1);
 	glActiveTexture(GL_TEXTURE0);
 
-	glViewport(0, 0, width, height);
+	glViewport(view_x, view_y, width, height);
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LEQUAL);
 	glDepthMask(GL_TRUE);
@@ -1617,8 +1646,7 @@ extern "C" void scenarioSceneRendererRender(int width, int height)
 		glGetUniformLocation(g_scene.shader, "u_SecondaryTexcoord");
 	GLint alpha_cutoff_loc =
 		glGetUniformLocation(g_scene.shader, "u_AlphaCutoff");
-	glUniformMatrix4fv(vp_loc, 1, GL_FALSE,
-		(const float *)g_scene.view_projection);
+	glUniformMatrix4fv(vp_loc, 1, GL_FALSE, (const float *)camera);
 	glUniform1i(tex_loc, 0);
 	glUniform1i(tex2_loc, 1);
 
