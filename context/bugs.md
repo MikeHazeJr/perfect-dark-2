@@ -28,8 +28,10 @@ Next and Retry go through the Room's lobby start, which takes the other player a
 "Waiting for the host to choose what comes next" and Disconnect; (4) the both-dead and Bond-dead ends and the pause
 menu's End Game no longer end the mission on a client (End Game there leaves the session); (5) the final objective
 statuses go out ahead of `SVC_STAGE_END` (`netServerSendFinalObjectives`). Pinned in
-`tests/test_net_mission_end_static.cpp` (`[b1193]`). Game check still to do: nothing ends a networked mission in a
-smoke yet; a host-side debug end and `network_coop_mission_end_smoke` are next.
+`tests/test_net_mission_end_static.cpp` (`[b1193]`). Game check: `network_coop_mission_end_smoke` (new): the host ends co-op Defection at 40 s with
+`--debug-end-mission 40:complete` (the level script's end, host or offline only), both machines wait for their
+own results (`endscreen_visible` now also sees the solo results type), the host presses its default Next
+Mission and the client, pressing nothing, must be taken into the next mission. Queued.
 
 ## 2026-11-15 B-1191 Simulants were invisible on networked clients (T-NETWORKING-011, finding 3)
 

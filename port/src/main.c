@@ -470,6 +470,13 @@ static s32         g_BootDebugPlaceBotNearPlayerNum = 0;
  * draws a simulant the host owns. */
 static s32         g_BootDebugPlaceBotNearPlayerVisible = 0;
 static s32         g_BootDebugFaceNearestBot = 0;
+/* B-1193: --debug-end-mission "<seconds>:complete|fail" ends a mission on the
+ * host (or offline) after that much play, through the level script's own end
+ * (func0000e990). Nothing else ends a networked co-op or counter-op mission
+ * in a smoke. */
+static s32         g_BootDebugEndMissionSec = -1;
+static s32         g_BootDebugEndMissionComplete = 0;
+static s32         g_BootDebugEndMissionFired = 0;
 static struct prop *g_BootDebugFaceBotProp = NULL;
 static u32         g_BootDebugFaceBotLastLogMs = 0;
 static s32         g_BootDebugFaceBotLogs = 0;
@@ -3096,6 +3103,42 @@ s32 bootLaunchChallengeTick(void)
  * the audit show how this peer draws a simulant it may not own. The yaw uses
  * the engine's convention for players (chrGetAngleToPos): a player faces
  * (360 - vv_theta) degrees, measured like atan2f(dx, dz). */
+/* B-1193: end the running mission once, on the host or offline. A client
+ * never ends a networked mission itself; the host's end reaches it. */
+s32 bootDebugEndMissionTick(void)
+{
+	extern s32 objectivesDebugCompleteCurrentMission(void); /* game/objectives.h */
+	s32 forced = 0;
+
+	if (g_BootDebugEndMissionSec < 0 || g_BootDebugEndMissionFired) {
+		return 0;
+	}
+	if (g_NetMode == NETMODE_CLIENT || g_MainIsEndscreen
+			|| g_Vars.tickmode != TICKMODE_NORMAL
+			|| g_Vars.stagenum == STAGE_TITLE || g_Vars.stagenum == STAGE_CITRAINING) {
+		return 0;
+	}
+	/* Missions only: solo, co-op or counter-op, not a Combat Simulator match. */
+	if (g_Vars.coopplayernum < 0 && g_Vars.antiplayernum < 0
+			&& (g_Vars.normmplayerisrunning || g_Vars.mplayerisrunning)) {
+		return 0;
+	}
+	if (g_Vars.lvframe60 < g_BootDebugEndMissionSec * 60) {
+		return 0;
+	}
+
+	g_BootDebugEndMissionFired = 1;
+	if (g_BootDebugEndMissionComplete) {
+		forced = objectivesDebugCompleteCurrentMission();
+	}
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-end-mission ending stage=0x%02x result=%s objectives_completed=%d lvframe60=%d netmode=%d",
+		(u32)g_Vars.stagenum, g_BootDebugEndMissionComplete ? "complete" : "fail",
+		forced, (s32)g_Vars.lvframe60, (s32)g_NetMode);
+	func0000e990();
+	return 1;
+}
+
 s32 bootDebugFaceNearestBotTick(void)
 {
 	struct player *pl;
@@ -4700,6 +4743,24 @@ int main(int argc, const char **argv)
 		} else {
 			g_BootDebugPlaceBotNearPlayerVisible = 1;
 			sysLogPrintf(LOG_NOTE, "BOOT: --debug-place-bot-near-player-visible armed");
+		}
+	}
+	{
+		const char *endmission = sysArgGetString("--debug-end-mission");
+		if (endmission && endmission[0]) {
+			s32 seconds = -1;
+			char result[16] = "";
+			if (sscanf(endmission, "%d:%15s", &seconds, result) == 2 && seconds >= 0
+					&& (strcmp(result, "complete") == 0 || strcmp(result, "fail") == 0)) {
+				g_BootDebugEndMissionSec = seconds;
+				g_BootDebugEndMissionComplete = strcmp(result, "complete") == 0;
+				sysLogPrintf(LOG_NOTE, "BOOT: --debug-end-mission armed: seconds=%d result=%s",
+					seconds, result);
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-end-mission rejected '%s' (want <seconds>:complete or <seconds>:fail)",
+					endmission);
+			}
 		}
 	}
 	if (sysArgCheck("--debug-face-nearest-bot")) {

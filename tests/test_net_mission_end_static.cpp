@@ -231,3 +231,26 @@ TEST_CASE("mission end: a client cannot end the mission itself",
 	const std::string main_c = code_only(read_text_file("port/src/main.c"));
 	REQUIRE(main_c.find("|| menupoolIsActive(MENU_TYPE_ENDSCREEN_SOLO) || !pdguiIsInRoom()) {") != std::string::npos);
 }
+
+TEST_CASE("mission end: smokes can end a mission on the host and see its results",
+          "[net][coop][mission-end][b1193][smoke]") {
+	// --debug-end-mission ends a mission once, never on a client, through the
+	// level script's own end
+	const std::string main_c = code_only(read_text_file("port/src/main.c"));
+	REQUIRE(main_c.find("sysArgGetString(\"--debug-end-mission\")") != std::string::npos);
+	const std::string tick = function_body(main_c, "s32 bootDebugEndMissionTick(void)\n{");
+	const size_t client = tick.find("g_NetMode == NETMODE_CLIENT");
+	const size_t once = tick.find("g_BootDebugEndMissionFired = 1;");
+	const size_t end = tick.find("func0000e990();");
+	REQUIRE(client != std::string::npos);
+	REQUIRE(once != std::string::npos);
+	REQUIRE(end != std::string::npos);
+	REQUIRE(client < once);
+	REQUIRE(once < end);
+	const std::string pdmain = code_only(read_text_file("port/src/pdmain.c"));
+	REQUIRE(pdmain.find("(void)bootDebugEndMissionTick();") != std::string::npos);
+
+	// endscreen_visible sees a mission's results (the solo type) too
+	const std::string harness = code_only(read_text_file("port/src/smoke_harness.c"));
+	REQUIRE(harness.find("facts.endscreen_menu_active = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)\n\t\t|| menupoolIsActive(MENU_TYPE_ENDSCREEN_SOLO);") != std::string::npos);
+}

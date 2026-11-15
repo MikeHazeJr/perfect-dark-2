@@ -2062,7 +2062,10 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
     facts.vehicle_driver_layer_active = inputLayerTopType()
         == LAYER_VEHICLE_DRIVER;
     facts.endscreen = g_MainIsEndscreen != 0;
-	facts.endscreen_menu_active = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP);
+	/* B-1193: a mission's results (solo, and networked co-op or counter-op,
+	 * one per machine) are the solo end screen type. */
+	facts.endscreen_menu_active = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)
+		|| menupoolIsActive(MENU_TYPE_ENDSCREEN_SOLO);
 	facts.menu_input_active = inputCtxIsActive(&g_CtxImGuiMenu);
     /* SDL keyboard input belongs to player 0. A buried/sibling dialog, stale
      * pool claim, or focused popup cannot admit ordinary menu key events. */

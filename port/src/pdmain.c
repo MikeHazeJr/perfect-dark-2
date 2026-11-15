@@ -849,6 +849,12 @@ void mainTick(void)
 		(void)bootDebugFaceNearestBotTick();
 	}
 
+	/* B-1193: --debug-end-mission ends a mission on the host or offline. */
+	{
+		extern s32 bootDebugEndMissionTick(void);
+		(void)bootDebugEndMissionTick();
+	}
+
 	/* T-ENGINE-004: bounded ordinary-client Combat Simulator verifier.
 	 * Marks a fully validated deterministic kill matrix ready only after a
 	 * live offline match reaches its configured frame. mpEndMatch commits the

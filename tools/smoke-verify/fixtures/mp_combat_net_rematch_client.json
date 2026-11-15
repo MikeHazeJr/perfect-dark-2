@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_combat_net_rematch_client",
-  "description": "Client schedule for mp_combat_net_rematch_smoke. A networked client goes back to its Room at stage end without an end screen (B-1190), so it waits for each match to go live instead.",
+  "description": "Client schedule for mp_combat_net_rematch_smoke. The client shows its results at each stage end (B-1190) and never presses Continue, so the host's second match has to take it along; it waits for each match to go live.",
   "log_channel_mask": "all",
   "verbose": 0,
   "timeout_seconds": 800,
