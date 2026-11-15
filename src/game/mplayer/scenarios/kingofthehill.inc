@@ -293,6 +293,7 @@ static s32 s_KohScoringTeam = -1; // team that scored the latest hill point
 static u16 s_KohScores;         // hill points scored this match
 static u16 s_KohScoresShown;    // client: points already presented
 static s32 s_KohNetHillTime = -1; // client: the host's hill time setting, -1 until known
+static s32 s_KohNetHaveHill;    // client: a hill from the host has been applied
 
 static void kohResetNetState(void)
 {
@@ -301,6 +302,7 @@ static void kohResetNetState(void)
 	s_KohScores = 0;
 	s_KohScoresShown = 0;
 	s_KohNetHillTime = -1;
+	s_KohNetHaveHill = false;
 }
 
 /**
@@ -494,22 +496,27 @@ static void kohNetPresent(f32 *targetr, f32 *targetg, f32 *targetb)
 		s32 newroom = in->hill_room > 0 && in->hill_room < g_Vars.roomcount ? in->hill_room : -1;
 		s32 oldroom = g_ScenarioData.koh.hillrooms[0];
 
-		if (newroom != oldroom) {
-			if (oldroom > 0 && oldroom < g_Vars.roomcount) {
-				roomSetLightOp(oldroom, LIGHTOP_NONE, 0, 0, 0);
+		if (newroom != oldroom || !s_KohNetHaveHill) {
+			if (newroom != oldroom) {
+				if (oldroom > 0 && oldroom < g_Vars.roomcount) {
+					roomSetLightOp(oldroom, LIGHTOP_NONE, 0, 0, 0);
+				}
+
+				g_ScenarioData.koh.hillrooms[0] = newroom;
+				g_ScenarioData.koh.hillrooms[1] = -1;
+
+				if (newroom > 0) {
+					roomSetLightOp(newroom, LIGHTOP_HIGHLIGHT, 0, 0, 0);
+				}
 			}
 
-			g_ScenarioData.koh.hillrooms[0] = newroom;
-			g_ScenarioData.koh.hillrooms[1] = -1;
-
-			if (newroom > 0) {
-				roomSetLightOp(newroom, LIGHTOP_HIGHLIGHT, 0, 0, 0);
-			}
-
+			// The first hill is logged even when it is the room this client
+			// had already picked itself
 			sysLogPrintf(newroom > 0 ? LOG_NOTE : LOG_WARNING,
 				"KOH: client hill from host index=%d room=%d rev=%u%s",
 				in->hill_index, in->hill_room, (unsigned)state.revision,
 				newroom == in->hill_room ? "" : " (not a room of this stage)");
+			s_KohNetHaveHill = true;
 		}
 
 		g_ScenarioData.koh.hillindex = in->hill_index;
@@ -517,8 +524,13 @@ static void kohNetPresent(f32 *targetr, f32 *targetg, f32 *targetb)
 		g_ScenarioData.koh.hillpos.y = in->hill_pos[1];
 		g_ScenarioData.koh.hillpos.z = in->hill_pos[2];
 
-		if (in->occupied_team >= 0 && in->occupied_team != g_ScenarioData.koh.occupiedteam) {
-			kohAnnounceCapture(in->occupied_team);
+		if (in->occupied_team != g_ScenarioData.koh.occupiedteam) {
+			sysLogPrintf(LOG_NOTE, "KOH: client hill team from host team=%d rev=%u",
+				in->occupied_team, (unsigned)state.revision);
+
+			if (in->occupied_team >= 0) {
+				kohAnnounceCapture(in->occupied_team);
+			}
 		}
 
 		g_ScenarioData.koh.occupiedteam = in->occupied_team;

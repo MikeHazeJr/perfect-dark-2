@@ -1,5 +1,48 @@
 # Bug Tracker
 
+## 2026-11-15 B-1128 A networked client set up the objective scenario on the previous stage (T-NETWORKING-011)
+
+Severity medium (reads and changes the wrong stage's data; harmless so far only because the old
+stage was still loaded). Seen in `mp_king_of_the_hill_net_smoke` (2026-11-15, build 71f23c32,
+install `20261115T065303450187Z-mp_king_of_the_hill_net_smoke-8c2bfc97`): on the client,
+`netmsgSvcStageStartRead` called `scenarioInitProps()` right after `mpStartMatch()`, which only
+requests the stage, so King of the Hill picked "hill 0 of 6 at pad=176 room=84" from the stage
+still loaded; the real stage load then ran it again ("SETUP: calling scenarioInitProps", hill 5 of
+6 at pad 192 room 7, the host's own pick). For Hacker Central, Hold the Briefcase and Capture the
+Case that early call also created objects on the old stage's pads. The comment justifying it (the
+`normmplayerisrunning` guard "can be false" on a client) does not hold: the client's `setup.c` path
+ran. Fix: the early call is removed; the stage load sets the scenario up as on every peer, and the
+host's scenario state (v62) corrects anything a client picked. Propagation: no other
+`scenarioInitProps` caller runs before the stage loads (`setup.c:2900` only).
+
+## 2026-11-15 B-1127 A networked client applies the host's character-slot data to the wrong two players (T-NETWORKING-011)
+
+Severity high (every networked scoreboard). Found reading the code for the scenario state seam;
+the slot swap itself is in the `mp_combat_net_bots_smoke` logs of 2026-11-14
+(receipt `20261114T225327900327Z-mp_combat_net_bots_smoke-2a52b4b2`): the host logs
+`NET: allocated playernum=0` for its own player and `1` for the client, while the client allocates
+the host's player to `playernum=1` and itself to `0`. A client runs its own player as player 0:
+`netPlayersAllocate` (`port/src/net/net.c`) gives the local client player number 0 and gives the
+host's player the slot the host assigned this client (k); everyone else keeps the host's number.
+`g_PlayerConfigsArray`, `g_Vars.playerstats` and `g_MpAllChrPtrs`/`g_MpAllChrConfigPtrs` follow that
+local numbering (`netmsg.c:3715` places each roster config at `runtime_playernum`;
+`player.c:3435`), and `netSyncIdsAllocate` swaps the two players' prop sync ids to match. But
+`SVC_PLAYER_SCORES` writes the host's slot index and the client applies it to its own slot of the
+same number (`netmsgSvcPlayerScoresRead`), with each player's `killcounts[]` indexed the same way,
+so slots 0 and k would trade team, deaths, points and kill counts on the client. Not visible in
+`mp_combat_net_bots_smoke` (2026-11-14) because both humans ended with score 0 and 1 death. Any
+scenario state indexed by character slot (Pop a Cap victims and counts, the briefcase holder) has
+the same exposure.
+Fix (2026-11-15, built; pd-tests 1,931 cases green; game check pending): `netChrSlotFromHost`
+(`net.c`, declared in `net.h`) maps a host slot to the client's own (0 <-> k, its own inverse, the
+identity on the host, offline and for simulants); `netmsgSvcPlayerScoresRead` maps the slot and
+every `killcounts[]` index, and `scenarioNetLocalizeSlots` (`scenarios.c`, run on every received
+scenario state) maps every character slot in it: the Pop a Cap victim and per-slot counts, the
+briefcase holder, the uplink holder, download player, player in range and per-slot progress and
+points, and each case holder.
+Propagation: no other message in `netmsg.c` indexes characters by slot (the lobby kill feed
+matches by name). The networked smokes' cross-log score comparison is the check.
+
 ## 2026-11-15 B-1126 Capture the Case, King of the Hill and Hold the Briefcase lose their arena positions on extracted arenas (T-NETWORKING-011)
 
 Severity high for Capture the Case (the mode cannot be played as designed),

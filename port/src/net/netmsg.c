@@ -3811,13 +3811,14 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 
 		sysLogPrintf(LOG_WARNING, "MATCH-START: calling mainChangeToStage, stagenum=0x%x", (unsigned)g_MpSetup.stagenum);
 		mpStartMatch();
-#if !defined(PD_SERVER)
-		/* scenarioInitProps() configures gameplay flags on props (doors, pickups, etc.)
-		 * via the scenario's initpropsfunc.  On the server/solo paths this is driven by
-		 * setup.c's g_Vars.normmplayerisrunning guard; on a networked client that guard
-		 * can be false at stage-init time, so we call it explicitly here. */
-		scenarioInitProps();
-#endif
+		/* B-1128: scenarioInitProps() used to be called here as well, on the
+		 * belief that setup.c's g_Vars.normmplayerisrunning guard can be false on
+		 * a networked client. mpStartMatch only requests the stage, so that call
+		 * ran the scenario's prop setup on the stage still loaded (picking hills
+		 * and placing objects on the previous stage's pads). The client's stage
+		 * load runs it in setup.c like every other peer ("SETUP: calling
+		 * scenarioInitProps" in mp_king_of_the_hill_net_smoke, 2026-11-15), and
+		 * the host's scenario state then corrects anything a client picked. */
 		/* Dismiss countdown overlay before going in-game. */
 		memset(&g_MatchCountdownState, 0, sizeof(g_MatchCountdownState));
 	}
@@ -5929,12 +5930,16 @@ u32 netmsgSvcPlayerScoresRead(struct netbuf *src, struct netclient *srccl)
 			return src->error ? src->error : 1;
 		}
 
-		struct mpchrconfig *mpchr = g_MpAllChrConfigPtrs[idx];
+		/* B-1127: the host numbers the slots its own way; a client runs itself
+		 * as player 0, so translate the slot and every kill-count index. */
+		struct mpchrconfig *mpchr = g_MpAllChrConfigPtrs[netChrSlotFromHost(idx)];
 		if (mpchr) {
 			mpchr->team = team;
 			mpchr->numdeaths = numdeaths;
 			mpchr->numpoints = numpoints;
-			memcpy(mpchr->killcounts, killcounts, sizeof(killcounts));
+			for (s32 j = 0; j < MAX_MPCHRS; ++j) {
+				mpchr->killcounts[netChrSlotFromHost(j)] = killcounts[j];
+			}
 		}
 	}
 

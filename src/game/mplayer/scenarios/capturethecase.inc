@@ -156,9 +156,14 @@ s32 ctcNumProps(void)
 	return 4;
 }
 
+static void ctcNetPresent(void);
+
 void ctcTick(void)
 {
-	// empty
+	// PC (T-NETWORKING-011): a networked client shows the host's bases and cases
+	if (!scenarioNetIsAuthority()) {
+		ctcNetPresent();
+	}
 }
 
 void ctcTickChr(struct chrdata *chr)
@@ -290,6 +295,177 @@ static void ctcFillMissingPads(void)
 	}
 }
 
+/*
+ * PC (T-NETWORKING-011): Capture the Case state that the host sends and a
+ * networked client shows (SVC_SCENARIO_STATE): which base each team has, the
+ * bases' home and respawn pads, and where each team's case is. Simulant
+ * pickups and captures are not sent as messages, so without this a client
+ * shows a case at a base that a simulant already took.
+ */
+static s32 s_CtcNetHolders[ARRAYCOUNT(g_ScenarioData.ctc.tokens)] = { -1, -1, -1, -1 };
+static s32 s_CtcNetPresent[ARRAYCOUNT(g_ScenarioData.ctc.tokens)];
+
+/* Host: the slot of the character holding a case, or -1 when it lies on the ground. */
+static s32 ctcCaseHolderSlot(struct prop *token)
+{
+	s32 i;
+
+	if (token == NULL || (token->type != PROPTYPE_PLAYER && token->type != PROPTYPE_CHR) || token->chr == NULL) {
+		return -1;
+	}
+
+	for (i = 0; i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+		if (g_MpAllChrPtrs[i] == token->chr) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static void ctcNetCapture(net_scenario_ctc_state_t *out)
+{
+	s32 i;
+	s32 j;
+
+	for (i = 0; i < CTC_NUM_BASES; i++) {
+		struct ctcspawnpadsperteam *base = &g_ScenarioData.ctc.spawnpadsperteam[i];
+		s32 num = base->numspawnpads < 0 ? 0 : (base->numspawnpads > CTC_NUM_SPAWNPADS ? CTC_NUM_SPAWNPADS : base->numspawnpads);
+
+		out->homepads[i] = base->homepad >= -1 ? base->homepad : -1;
+		out->numspawnpads[i] = 0;
+
+		for (j = 0; j < CTC_NUM_SPAWNPADS; j++) {
+			out->spawnpads[i][j] = -1;
+		}
+
+		for (j = 0; j < num; j++) {
+			if (base->spawnpads[j] >= 0) {
+				out->spawnpads[i][out->numspawnpads[i]++] = base->spawnpads[j];
+			}
+		}
+	}
+
+	for (i = 0; i < (s32)ARRAYCOUNT(g_ScenarioData.ctc.tokens); i++) {
+		struct prop *token = g_ScenarioData.ctc.tokens[i];
+		s32 slot = g_ScenarioData.ctc.teamindexes[i];
+
+		out->teamindexes[i] = g_ScenarioData.ctc.playercountsperteam[i] && slot >= 0 && slot < CTC_NUM_BASES ? slot : -1;
+		out->present[i] = token != NULL;
+		out->holders[i] = token != NULL ? ctcCaseHolderSlot(token) : -1;
+
+		if (token) {
+			out->pos[i][0] = token->pos.x;
+			out->pos[i][1] = token->pos.y;
+			out->pos[i][2] = token->pos.z;
+		}
+	}
+}
+
+/**
+ * Client: Capture the Case as the host has it. Applies the newest state: the
+ * bases (so the team's respawns and a dropped case's return match the host),
+ * the base room highlights, and each team's case (the holder's prop, the
+ * local case prop of that team on the ground, or none).
+ */
+static void ctcNetPresent(void)
+{
+	net_scenario_state_t state;
+	s32 i;
+	s32 j;
+
+	if (scenarioNetTakePending(&state)) {
+		const net_scenario_ctc_state_t *in = &state.body.ctc;
+		s32 changed = false;
+
+		for (i = 0; i < CTC_NUM_BASES; i++) {
+			struct ctcspawnpadsperteam *base = &g_ScenarioData.ctc.spawnpadsperteam[i];
+
+			base->homepad = in->homepads[i];
+			base->numspawnpads = in->numspawnpads[i];
+
+			for (j = 0; j < CTC_NUM_SPAWNPADS; j++) {
+				base->spawnpads[j] = in->spawnpads[i][j];
+			}
+		}
+
+		for (i = 0; i < (s32)ARRAYCOUNT(g_ScenarioData.ctc.tokens); i++) {
+			s32 slot = in->teamindexes[i];
+			s32 newroom = -1;
+			s32 holder = in->holders[i];
+
+			g_ScenarioData.ctc.teamindexes[i] = slot;
+
+			// The room indexes g_Rooms, so it must be a room of this stage
+			if (slot >= 0 && scenarioPadIsInRoom(g_ScenarioData.ctc.spawnpadsperteam[slot].homepad)) {
+				struct pad pad;
+
+				padUnpack(g_ScenarioData.ctc.spawnpadsperteam[slot].homepad, PADFIELD_ROOM, &pad);
+				newroom = pad.room > 0 && pad.room < g_Vars.roomcount ? pad.room : -1;
+			}
+
+			if (newroom != g_ScenarioData.ctc.baserooms[i]) {
+				RoomNum oldroom = g_ScenarioData.ctc.baserooms[i];
+
+				if (oldroom > 0 && oldroom < g_Vars.roomcount) {
+					roomSetLightOp(oldroom, LIGHTOP_NONE, 0, 0, 0);
+				}
+
+				g_ScenarioData.ctc.baserooms[i] = newroom;
+
+				if (newroom > 0) {
+					roomSetLightOp(newroom, LIGHTOP_HIGHLIGHT, 0, 0, 0);
+				}
+
+				changed = true;
+			}
+
+			// The holder indexes g_MpAllChrPtrs, so it must be a character of this match
+			if (holder >= g_MpNumChrs || (holder >= 0 && g_MpAllChrPtrs[holder] == NULL)) {
+				holder = -1;
+			}
+
+			if (holder != s_CtcNetHolders[i] || in->present[i] != s_CtcNetPresent[i]) {
+				changed = true;
+			}
+
+			s_CtcNetHolders[i] = holder;
+			s_CtcNetPresent[i] = in->present[i];
+		}
+
+		if (changed) {
+			sysLogPrintf(LOG_NOTE,
+				"CTC: client bases from host rev=%u team0 base=%d room=%d holder=%d team1 base=%d room=%d holder=%d",
+				(unsigned)state.revision,
+				g_ScenarioData.ctc.teamindexes[0], g_ScenarioData.ctc.baserooms[0], s_CtcNetHolders[0],
+				g_ScenarioData.ctc.teamindexes[1], g_ScenarioData.ctc.baserooms[1], s_CtcNetHolders[1]);
+		}
+	}
+
+	for (i = 0; i < (s32)ARRAYCOUNT(g_ScenarioData.ctc.tokens); i++) {
+		struct prop *token = NULL;
+
+		if (s_CtcNetPresent[i]) {
+			if (s_CtcNetHolders[i] >= 0) {
+				token = g_MpAllChrPtrs[s_CtcNetHolders[i]]->prop;
+			} else {
+				struct prop *prop = g_Vars.activeprops;
+
+				while (prop) {
+					if (prop->type == PROPTYPE_WEAPON && prop->weapon->weaponnum == WEAPON_BRIEFCASE2
+							&& prop->weapon->team == i) {
+						token = prop;
+					}
+
+					prop = prop->next;
+				}
+			}
+		}
+
+		g_ScenarioData.ctc.tokens[i] = token;
+	}
+}
+
 void ctcInitProps(void)
 {
 	struct mpchrconfig *mpchr;
@@ -343,6 +519,12 @@ void ctcInitProps(void)
 	for (i = 0; i < ARRAYCOUNT(teamsdone); i++) {
 		teamsdone[i] = false;
 		g_ScenarioData.ctc.playercountsperteam[i] = 0;
+	}
+
+	// PC (T-NETWORKING-011): a client's copy of the host's cases starts empty
+	for (i = 0; i < ARRAYCOUNT(s_CtcNetHolders); i++) {
+		s_CtcNetHolders[i] = -1;
+		s_CtcNetPresent[i] = false;
 	}
 
 	for (i = 0; i != ARRAYCOUNT(g_ScenarioData.ctc.teamindexes); i++) {

@@ -685,6 +685,11 @@ enum net_player_allocate_result {
 enum net_player_allocate_result netPlayersAllocate(
 	struct player *const *candidates, s32 candidate_count);
 const char *netPlayerAllocateResultString(enum net_player_allocate_result result);
+
+/* B-1127: a character slot as the host numbers it, translated to this peer's
+ * own numbering (a client runs itself as player 0; see net.c). Its own
+ * inverse; the identity on the host, offline and for simulant slots. */
+s32 netChrSlotFromHost(s32 slot);
 void netSyncIdsAllocate(void);
 
 void netServerPreservePlayer(struct netclient *cl);

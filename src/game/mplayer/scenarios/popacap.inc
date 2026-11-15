@@ -118,6 +118,14 @@ struct menudialogdef g_PacOptionsMenuDialog = {
 	&g_ExtGameOptionsMenuDialog,
 };
 
+/*
+ * PC (T-NETWORKING-011): Pop a Cap state that the host sends and a networked
+ * client shows (SVC_SCENARIO_STATE).
+ */
+static u8 s_PacVictimSerial;        // host: goes up with every new victim
+static u8 s_PacVictimSerialShown;   // client: the victim already announced
+static s32 s_PacHaveShownVictim;
+
 void pacReset(void)
 {
 	s32 i;
@@ -126,6 +134,9 @@ void pacReset(void)
 
 	data->victimindex = -1;
 	data->age240 = 0;
+	s_PacVictimSerial = 0;
+	s_PacVictimSerialShown = 0;
+	s_PacHaveShownVictim = false;
 
 	osSyncPrintf("PopACapReset -> num_mplayers=%d : Working\n", g_MpNumChrs);
 
@@ -190,22 +201,14 @@ bool pacHighlightProp(struct prop *prop, s32 *colour)
 	return false;
 }
 
-void pacApplyNextVictim(void)
+/**
+ * "You are the victim!", "Protect %s!" or "Get %s!" for every player. The host
+ * plays it when it chooses a victim; a client when the host's state names one.
+ */
+static void pacAnnounceVictim(s32 vplayernum)
 {
-	struct scenariodata_pac *data = &g_ScenarioData.pac;
-	s32 vplayernum;
 	char text[64];
 	s32 i;
-
-	data->victimindex++;
-
-	if (data->victimindex == g_MpNumChrs) {
-		data->victimindex = 0;
-	}
-
-	data->age240 = 0;
-
-	vplayernum = data->victims[data->victimindex];
 
 	for (i = 0; i < PLAYERCOUNT(); i++) {
 		if (vplayernum == i) {
@@ -228,9 +231,128 @@ void pacApplyNextVictim(void)
 	}
 }
 
+void pacApplyNextVictim(void)
+{
+	struct scenariodata_pac *data = &g_ScenarioData.pac;
+
+	data->victimindex++;
+
+	if (data->victimindex == g_MpNumChrs) {
+		data->victimindex = 0;
+	}
+
+	data->age240 = 0;
+	s_PacVictimSerial++; // PC (T-NETWORKING-011): a new victim, for clients
+
+	pacAnnounceVictim(data->victims[data->victimindex]);
+}
+
+/* Host: the state a client needs to show the victim and every count. */
+static void pacNetCapture(net_scenario_pac_state_t *out)
+{
+	struct scenariodata_pac *data = &g_ScenarioData.pac;
+	s32 victim = -1;
+	s32 i;
+
+	if (data->victimindex >= 0 && data->victimindex < g_MpNumChrs && data->victimindex < MAX_MPCHRS) {
+		victim = data->victims[data->victimindex];
+	}
+
+	out->victim = victim >= 0 && victim < MAX_MPCHRS ? victim : -1;
+	out->victim_serial = s_PacVictimSerial;
+	out->age240 = data->age240 > NET_SCENARIO_PAC_MAX_AGE240 ? NET_SCENARIO_PAC_MAX_AGE240 : data->age240;
+
+	for (i = 0; i < MAX_MPCHRS; i++) {
+		out->killcounts[i] = data->killcounts[i] > 0 ? data->killcounts[i] : 0;
+		out->survivalcounts[i] = data->survivalcounts[i] > 0 ? data->survivalcounts[i] : 0;
+	}
+}
+
+/* Whether the victim's survival time runs this frame (the original rule:
+ * always for a simulant, while alive for a player). */
+static s32 pacVictimClockRuns(s32 vplayernum)
+{
+	return vplayernum >= PLAYERCOUNT()
+		|| (vplayernum < MAX_PLAYERS
+			&& g_Vars.players[vplayernum]
+			&& g_Vars.players[vplayernum]->isdead == false);
+}
+
+/**
+ * Client: Pop a Cap as the host decides it. Applies the newest state the host
+ * sent, playing the messages the host plays for the same events (a new
+ * victim, a victim popped by an enemy, a point for living), and between
+ * snapshots runs the victim's survival time. The host's victim goes into
+ * slot 0 of the local victim list, which is all the HUD, radar and highlight
+ * read; the order of later victims stays with the host.
+ */
+static void pacNetPresent(void)
+{
+	struct scenariodata_pac *data = &g_ScenarioData.pac;
+	net_scenario_state_t state;
+	const net_scenario_pac_state_t *in;
+	s32 i;
+
+	if (!scenarioNetTakePending(&state)) {
+		if (data->victimindex >= 0 && pacVictimClockRuns(data->victims[data->victimindex])) {
+			s32 age = data->age240 + g_Vars.lvupdate240;
+			data->age240 = age > NET_SCENARIO_PAC_MAX_AGE240 ? NET_SCENARIO_PAC_MAX_AGE240 : age;
+		}
+
+		return;
+	}
+
+	in = &state.body.pac;
+
+	for (i = 0; i < PLAYERCOUNT() && i < MAX_MPCHRS; i++) {
+		if (in->killcounts[i] > data->killcounts[i]) {
+			scenarioCreateHudmsg(i, langGet(L_MPWEAPONS_010)); // "Well done!"
+			scenarioCreateHudmsg(i, langGet(L_MPWEAPONS_011)); // "You popped a cap!"
+			scenarioCreateHudmsg(i, langGet(L_MPWEAPONS_012)); // "Have 2 Points..."
+		}
+
+		if (in->survivalcounts[i] > data->survivalcounts[i]) {
+			scenarioCreateHudmsg(i, langGet(L_MPWEAPONS_007)); // "Have a point for living!"
+		}
+	}
+
+	for (i = 0; i < MAX_MPCHRS; i++) {
+		data->killcounts[i] = in->killcounts[i];
+		data->survivalcounts[i] = in->survivalcounts[i];
+	}
+
+	// The victim indexes g_MpAllChrPtrs, so it must be a character of this match
+	if (in->victim >= 0 && in->victim < g_MpNumChrs && g_MpAllChrPtrs[in->victim]) {
+		data->victimindex = 0;
+		data->victims[0] = in->victim;
+
+		if (!s_PacHaveShownVictim || in->victim_serial != s_PacVictimSerialShown) {
+			pacAnnounceVictim(in->victim);
+			sysLogPrintf(LOG_NOTE, "PAC: client victim from host chr=%d serial=%u rev=%u",
+				in->victim, (unsigned)in->victim_serial, (unsigned)state.revision);
+			s_PacVictimSerialShown = in->victim_serial;
+			s_PacHaveShownVictim = true;
+		}
+	} else {
+		if (in->victim >= 0) {
+			sysLogPrintf(LOG_WARNING, "PAC: client victim from host chr=%d is not a character of this match (%d)",
+				in->victim, g_MpNumChrs);
+		}
+
+		data->victimindex = -1;
+	}
+
+	data->age240 = in->age240;
+}
+
 void pacHandleDeath(s32 aplayernum, s32 vplayernum)
 {
 	struct scenariodata_pac *data = &g_ScenarioData.pac;
+
+	// PC (T-NETWORKING-011): the host counts pops; a client shows its counts
+	if (!scenarioNetIsAuthority()) {
+		return;
+	}
 
 	if (data->victimindex >= 0 && vplayernum == data->victims[data->victimindex]) {
 		if (aplayernum != vplayernum) {
@@ -258,6 +380,13 @@ void pacHandleDeath(s32 aplayernum, s32 vplayernum)
 void pacTick(void)
 {
 	struct scenariodata_pac *data = &g_ScenarioData.pac;
+
+	// PC (T-NETWORKING-011): a networked client shows the host's victim and
+	// counts and chooses nothing itself
+	if (!scenarioNetIsAuthority()) {
+		pacNetPresent();
+		return;
+	}
 
 	if (data->victimindex == -1) {
 		pacApplyNextVictim();
@@ -296,10 +425,12 @@ Gfx *pacRenderHud(Gfx *gdl)
 	s32 y;
 	char text[64];
 
+	// PC (T-NETWORKING-011): no victim yet (a client before the host's first
+	// state) must not read victims[-1]
 #if VERSION >= VERSION_NTSC_1_0
-	if (g_Vars.currentplayernum == data->victims[data->victimindex] && !g_Vars.currentplayer->isdead)
+	if (data->victimindex >= 0 && g_Vars.currentplayernum == data->victims[data->victimindex] && !g_Vars.currentplayer->isdead)
 #else
-	if (g_Vars.currentplayernum == data->victims[data->victimindex])
+	if (data->victimindex >= 0 && g_Vars.currentplayernum == data->victims[data->victimindex])
 #endif
 	{
 		time240 = TICKS(60 * 240) - data->age240;

@@ -4298,6 +4298,43 @@ static enum net_player_allocate_result netPlayersAllocationReject(
 	return result;
 }
 
+/*
+ * B-1127: a client runs its own player as player 0 and gives the host's
+ * player the slot the host gave this client (netPlayersAllocate below); every
+ * other player keeps the host's number. The player configs, player stats and
+ * g_MpAllChrPtrs/g_MpAllChrConfigPtrs follow that local numbering, so a
+ * character slot sent by the host must be translated before a client indexes
+ * anything with it. The swap is its own inverse, so the same call maps a
+ * local slot back to the host's number. Simulant slots and every slot on the
+ * host or offline are unchanged.
+ */
+s32 netChrSlotFromHost(s32 slot)
+{
+	s32 hostslot;
+
+	if (g_NetMode != NETMODE_CLIENT || slot < 0 || slot >= MAX_PLAYERS) {
+		return slot;
+	}
+
+	// Where the host's player runs on this client (the client's own number
+	// on the host)
+	hostslot = g_NetClients[0].playernum;
+
+	if (hostslot <= 0 || hostslot >= MAX_PLAYERS) {
+		return slot;
+	}
+
+	if (slot == 0) {
+		return hostslot;
+	}
+
+	if (slot == hostslot) {
+		return 0;
+	}
+
+	return slot;
+}
+
 enum net_player_allocate_result netPlayersAllocate(
 		struct player *const *candidates, s32 candidate_count)
 {

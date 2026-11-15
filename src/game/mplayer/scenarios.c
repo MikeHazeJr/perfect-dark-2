@@ -53,6 +53,18 @@ _Static_assert(MPSCENARIO_HOLDTHEBRIEFCASE == NET_SCENARIO_STATE_HOLDTHEBRIEFCAS
 	"scenario state wire ids must equal the MPSCENARIO_* values");
 _Static_assert(MAX_TEAMS == NET_SCENARIO_STATE_MAX_TEAMS,
 	"scenario state wire team range must equal MAX_TEAMS");
+_Static_assert(MAX_MPCHRS == NET_SCENARIO_STATE_MAX_CHRS,
+	"scenario state wire character slots must equal MAX_MPCHRS");
+_Static_assert(sizeof(((struct scenariodata_htm *)0)->terminals) / sizeof(((struct scenariodata_htm *)0)->terminals[0])
+		== NET_SCENARIO_HTM_MAX_TERMINALS,
+	"scenario state wire terminal range must equal scenariodata_htm.terminals");
+_Static_assert(sizeof(((struct scenariodata_ctc *)0)->spawnpadsperteam) / sizeof(((struct scenariodata_ctc *)0)->spawnpadsperteam[0])
+		== NET_SCENARIO_CTC_BASES
+		&& sizeof(((struct scenariodata_ctc *)0)->tokens) / sizeof(((struct scenariodata_ctc *)0)->tokens[0])
+		== NET_SCENARIO_CTC_BASES
+		&& sizeof(((struct ctcspawnpadsperteam *)0)->spawnpads) / sizeof(((struct ctcspawnpadsperteam *)0)->spawnpads[0])
+		== NET_SCENARIO_CTC_SPAWNPADS,
+	"scenario state wire Capture the Case shape must equal scenariodata_ctc");
 
 /**
  * There are six multiplayer scenarios:
@@ -1384,6 +1396,32 @@ static s32 scenarioNetStateChanged(const net_scenario_state_t *a, const net_scen
 		y.body.koh.elapsed240 = 0;
 	}
 
+	if (x.scenario == NET_SCENARIO_STATE_POPACAP && y.scenario == NET_SCENARIO_STATE_POPACAP) {
+		x.body.pac.age240 = 0;
+		y.body.pac.age240 = 0;
+	}
+
+	// A carried briefcase moves with its holder every frame; only who holds
+	// it counts as a change
+	if (x.scenario == NET_SCENARIO_STATE_HOLDTHEBRIEFCASE && y.scenario == NET_SCENARIO_STATE_HOLDTHEBRIEFCASE) {
+		memset(x.body.htb.pos, 0, sizeof(x.body.htb.pos));
+		memset(y.body.htb.pos, 0, sizeof(y.body.htb.pos));
+	}
+
+	// The same for the uplink, and download progress is a running timer
+	if (x.scenario == NET_SCENARIO_STATE_HACKERCENTRAL && y.scenario == NET_SCENARIO_STATE_HACKERCENTRAL) {
+		memset(x.body.htm.uplink_pos, 0, sizeof(x.body.htm.uplink_pos));
+		memset(y.body.htm.uplink_pos, 0, sizeof(y.body.htm.uplink_pos));
+		memset(x.body.htm.dltime240, 0, sizeof(x.body.htm.dltime240));
+		memset(y.body.htm.dltime240, 0, sizeof(y.body.htm.dltime240));
+	}
+
+	// Carried cases move with their holders
+	if (x.scenario == NET_SCENARIO_STATE_CAPTURETHECASE && y.scenario == NET_SCENARIO_STATE_CAPTURETHECASE) {
+		memset(x.body.ctc.pos, 0, sizeof(x.body.ctc.pos));
+		memset(y.body.ctc.pos, 0, sizeof(y.body.ctc.pos));
+	}
+
 	return memcmp(&x, &y, sizeof(x)) != 0;
 }
 
@@ -1406,6 +1444,18 @@ s32 scenarioNetCaptureState(net_scenario_state_t *out, s32 *changed)
 	case NET_SCENARIO_STATE_KINGOFTHEHILL:
 		kohNetCapture(&state.body.koh);
 		break;
+	case NET_SCENARIO_STATE_POPACAP:
+		pacNetCapture(&state.body.pac);
+		break;
+	case NET_SCENARIO_STATE_HOLDTHEBRIEFCASE:
+		htbNetCapture(&state.body.htb);
+		break;
+	case NET_SCENARIO_STATE_HACKERCENTRAL:
+		htmNetCapture(&state.body.htm);
+		break;
+	case NET_SCENARIO_STATE_CAPTURETHECASE:
+		ctcNetCapture(&state.body.ctc);
+		break;
 	default:
 		return false;
 	}
@@ -1424,6 +1474,77 @@ s32 scenarioNetCaptureState(net_scenario_state_t *out, s32 *changed)
 	memcpy(out, &state, sizeof(state));
 
 	return true;
+}
+
+/*
+ * B-1127: character slots in a state are the host's numbers; translate them
+ * to this client's own (it runs itself as player 0). Counts indexed by slot
+ * move with their slot.
+ */
+static void scenarioNetLocalizeSlots(net_scenario_state_t *state)
+{
+	s32 i;
+
+	switch (state->scenario) {
+	case NET_SCENARIO_STATE_POPACAP: {
+		net_scenario_pac_state_t *pac = &state->body.pac;
+		s16 kills[NET_SCENARIO_STATE_MAX_CHRS];
+		s16 survivals[NET_SCENARIO_STATE_MAX_CHRS];
+
+		if (pac->victim >= 0) {
+			pac->victim = (s8)netChrSlotFromHost(pac->victim);
+		}
+
+		for (i = 0; i < NET_SCENARIO_STATE_MAX_CHRS; i++) {
+			kills[netChrSlotFromHost(i)] = pac->killcounts[i];
+			survivals[netChrSlotFromHost(i)] = pac->survivalcounts[i];
+		}
+
+		memcpy(pac->killcounts, kills, sizeof(kills));
+		memcpy(pac->survivalcounts, survivals, sizeof(survivals));
+		break;
+	}
+	case NET_SCENARIO_STATE_HOLDTHEBRIEFCASE:
+		if (state->body.htb.holder >= 0) {
+			state->body.htb.holder = (s8)netChrSlotFromHost(state->body.htb.holder);
+		}
+		break;
+	case NET_SCENARIO_STATE_HACKERCENTRAL: {
+		net_scenario_htm_state_t *htm = &state->body.htm;
+		u16 times[NET_SCENARIO_STATE_MAX_CHRS];
+		s16 points[NET_SCENARIO_STATE_MAX_CHRS];
+
+		if (htm->uplink_holder >= 0) {
+			htm->uplink_holder = (s8)netChrSlotFromHost(htm->uplink_holder);
+		}
+
+		if (htm->dl_player >= 0) {
+			htm->dl_player = (s8)netChrSlotFromHost(htm->dl_player);
+		}
+
+		if (htm->player_in_range >= 0) {
+			htm->player_in_range = (s8)netChrSlotFromHost(htm->player_in_range);
+		}
+
+		for (i = 0; i < NET_SCENARIO_STATE_MAX_CHRS; i++) {
+			times[netChrSlotFromHost(i)] = htm->dltime240[i];
+			points[netChrSlotFromHost(i)] = htm->numpoints[i];
+		}
+
+		memcpy(htm->dltime240, times, sizeof(times));
+		memcpy(htm->numpoints, points, sizeof(points));
+		break;
+	}
+	case NET_SCENARIO_STATE_CAPTURETHECASE:
+		for (i = 0; i < NET_SCENARIO_CTC_BASES; i++) {
+			if (state->body.ctc.holders[i] >= 0) {
+				state->body.ctc.holders[i] = (s8)netChrSlotFromHost(state->body.ctc.holders[i]);
+			}
+		}
+		break;
+	default:
+		break;
+	}
 }
 
 s32 scenarioNetReceiveState(const net_scenario_state_t *in)
@@ -1451,6 +1572,7 @@ s32 scenarioNetReceiveState(const net_scenario_state_t *in)
 	}
 
 	memcpy(&s_ScenarioNetPending, in, sizeof(s_ScenarioNetPending));
+	scenarioNetLocalizeSlots(&s_ScenarioNetPending);
 	s_ScenarioNetHavePending = true;
 
 	return true;

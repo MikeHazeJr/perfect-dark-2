@@ -144,6 +144,46 @@ Progress log:
   HUD without touching the client's own setting. Fixture `mp_king_of_the_hill_net_smoke` (port 27241) asserts the
   baseline send and the client taking the host's hill; `koh_net_compare.py` (session scratchpad) checks that
   both end on the same hill room and identical score lines.
+- Local smokes on dbc660f1 (2026-11-15, my receipts under `D:\PD2-wt\multiplayer\.claude\smoke-verify-runs\`):
+  `mp_capture_the_case_local_smoke` PASS 31/31 (`results-20261115T063003Z.json`: bases on pads 172 and 122, rooms
+  33 and 15, six respawn pads each), `mp_hold_the_briefcase_local_smoke` PASS 29/29 (`results-20261115T063743Z.json`:
+  eight-pad bank, briefcase on pad 141), `mp_hacker_central_local_smoke` PASS 31/31 (`results-20261115T064512Z.json`,
+  the refactored candidate collection unchanged: terminal pad 106, uplink pad 197). Each run takes about 7.5 to 9.5
+  minutes, of which about 4.5 is `storage.py seed` making the private install from shared-base-3.
+- Units G to J written and built (2026-11-15): wire bodies and client presentation for Pop a Cap, Hold the
+  Briefcase, Hacker Central and Capture the Case (details in the commit and in B-1127), plus B-1127 itself, found
+  on the way: a client numbers players its own way (itself 0, the host's player in the client's slot), and
+  `SVC_PLAYER_SCORES` applied slots unchanged. Also B-1128 (a client's early `scenarioInitProps` at
+  `SVC_STAGE_START` ran on the previous stage; removed) and the King of the Hill client log now prints on the first
+  state, not only on a room change. Full pd-tests on the tree with step 7 below: 1,931 cases, 359,072 assertions,
+  all passed. Networked smokes for all five modes are next.
+- Step 7 table fix (ea187a63, 2026-11-15): `mpconfigs.c` now uses designated initializers for all 44 configs,
+  slots 8..MAX_BOTS-1 are disabled simulants, and 5 to 8 players use the 4-player difficulty (Mike to confirm).
+  `mpApplyConfig` fills `stage_id` from `stagenum` through the catalog and logs `MPCONFIG: applied ...`.
+  `matchStartFromChallenge` (the ImGui challenge launch) now calls `challengePerformSanityChecks`, which only the
+  legacy menu tick called, so challenges from the ImGui screen had no simulants; the check treats zero joined
+  players as one. `tests/test_mpconfig_table.cpp` pins it (fails on the positional table). Still open: the Room
+  has no entry for challenges or presets (Mike's call), and no game run of a challenge yet.
+- Notes for the token scenarios (Hold the Briefcase, Hacker Central, Capture the Case), read 2026-11-15: a
+  human's briefcase or uplink pickup is decided on the host (`propobj.c:19527-19549`, server only) and sent as
+  `SVC_PROP_PICKUP`, which a client replays through `propPickupByPlayer` (`netmsg.c:6322`). Simulant pickups and
+  drops send nothing (finding 3), so on a client a case or briefcase a simulant took stays on the ground and one
+  it dropped never appears. `htbTick` and `htmTick` also create a new token on any peer that cannot find one.
+  Their seam therefore needs, besides a state body (holder slot or ground position, per-player timers and
+  points), host-only token creation and the simulant pickup and drop sent like a human's. Units G to J built the
+  first two: a client takes the holder from the host for its HUD and radar and never makes a token of its own.
+  Still to build (next unit after the networked smokes): the simulant pickup and drop messages; until then a
+  briefcase, uplink or case a simulant carries still lies where it was in a client's world.
+- Notes for step 7 (Challenges and presets), read 2026-11-15 before the fix above: besides the positional
+  initializers landing in `stage_id[64]` and `head_id[64]` (finding 10), `struct mpconfig` now holds
+  `simulants[MAX_BOTS]` = 32 while `mpconfigs.c` authors 8 per config, so slots 8..31 are zero: type 0 and every
+  difficulty 0 = `BOTDIFF_MEAT`, which `mpApplyConfig` (`mplayer.c:4561`) copies for all 32, so a fixed table would
+  still add 24 MeatSims to every challenge. `difficulties[MAX_PLAYERS]` is 8 wide; the table authors 4 (one per
+  player count of the original). `stage_id` is empty, but `catalogStageIdByStagenum` can resolve it from
+  `stagenum` in `mpApplyConfig`; head and body ids already fall back to the catalog by number. Planned fix:
+  designated initializers (`.stagenum =`, `.mpheadnum =`, ...), slots past the authored 8 forced to
+  `BOTDIFF_DISABLED`, and 5 to 8 players using the 4-player difficulty (to confirm with Mike: the original has no
+  such counts). `mpconfig.jumpimpulse` has no reader.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used

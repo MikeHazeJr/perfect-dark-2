@@ -170,9 +170,21 @@ void htbRemoveAmmoCrateAtPad(s16 padnum)
 	}
 }
 
+/* PC (T-NETWORKING-011): a networked client's copy of the host's briefcase
+ * (see htbNetPresent). */
+static s32 s_HtbNetHolder = -1;
+static s32 s_HtbNetPresent;
+static struct coord s_HtbNetPos;
+
 void htbReset(void)
 {
 	s32 i;
+
+	s_HtbNetHolder = -1;
+	s_HtbNetPresent = false;
+	s_HtbNetPos.x = 0;
+	s_HtbNetPos.y = 0;
+	s_HtbNetPos.z = 0;
 
 	g_ScenarioData.htb.nextindex = 0;
 
@@ -357,11 +369,115 @@ void htbInitProps(void)
 	htbCreateToken();
 }
 
+/*
+ * PC (T-NETWORKING-011): Hold the Briefcase state that the host sends and a
+ * networked client shows (SVC_SCENARIO_STATE). Simulant pickups are not sent
+ * as messages, so a client cannot find a simulant's briefcase by itself; it
+ * takes the holder from the host instead and never makes a briefcase of its
+ * own during the match (the one made at match start keeps every peer's
+ * setup props, and so their sync ids, in the same order). The client state
+ * (s_HtbNet*) is declared and reset with htbReset.
+ */
+
+/* Host: the briefcase's holder slot, or -1 when it lies on the ground. */
+static s32 htbHolderSlot(struct prop *token)
+{
+	s32 i;
+
+	if (token == NULL || (token->type != PROPTYPE_PLAYER && token->type != PROPTYPE_CHR) || token->chr == NULL) {
+		return -1;
+	}
+
+	for (i = 0; i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+		if (g_MpAllChrPtrs[i] == token->chr) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static void htbNetCapture(net_scenario_htb_state_t *out)
+{
+	struct prop *token = g_ScenarioData.htb.token;
+
+	out->present = token != NULL;
+	out->holder = token != NULL ? htbHolderSlot(token) : -1;
+	out->pos[0] = g_ScenarioData.htb.pos.x;
+	out->pos[1] = g_ScenarioData.htb.pos.y;
+	out->pos[2] = g_ScenarioData.htb.pos.z;
+}
+
+/**
+ * Client: the briefcase as the host has it. The holder's prop while held, the
+ * local briefcase prop while it lies on the ground (the host's prop updates
+ * keep it in place), and the host's position when there is no local prop.
+ */
+static void htbNetPresent(void)
+{
+	net_scenario_state_t state;
+	struct prop *token = NULL;
+
+	if (scenarioNetTakePending(&state)) {
+		const net_scenario_htb_state_t *in = &state.body.htb;
+		s32 holder = in->holder;
+
+		// The holder indexes g_MpAllChrPtrs, so it must be a character of this match
+		if (holder >= g_MpNumChrs || (holder >= 0 && g_MpAllChrPtrs[holder] == NULL)) {
+			sysLogPrintf(LOG_WARNING, "HTB: client holder from host chr=%d is not a character of this match (%d)",
+				holder, g_MpNumChrs);
+			holder = -1;
+		}
+
+		if (holder != s_HtbNetHolder || in->present != s_HtbNetPresent) {
+			sysLogPrintf(LOG_NOTE, "HTB: client briefcase from host holder=%d present=%d rev=%u",
+				holder, in->present, (unsigned)state.revision);
+		}
+
+		s_HtbNetHolder = holder;
+		s_HtbNetPresent = in->present;
+		s_HtbNetPos.x = in->pos[0];
+		s_HtbNetPos.y = in->pos[1];
+		s_HtbNetPos.z = in->pos[2];
+	}
+
+	if (s_HtbNetPresent) {
+		if (s_HtbNetHolder >= 0) {
+			token = g_MpAllChrPtrs[s_HtbNetHolder]->prop;
+		} else {
+			struct prop *prop = g_Vars.activeprops;
+
+			while (prop) {
+				if (prop->type == PROPTYPE_WEAPON && prop->weapon->weaponnum == WEAPON_BRIEFCASE2) {
+					token = prop;
+				}
+
+				prop = prop->next;
+			}
+		}
+	}
+
+	g_ScenarioData.htb.token = token;
+
+	if (token) {
+		g_ScenarioData.htb.pos = token->pos;
+	} else {
+		g_ScenarioData.htb.pos = s_HtbNetPos;
+	}
+}
+
 void htbTick(void)
 {
 	s32 i;
 	u32 prevplayernum = g_Vars.currentplayernum;
 	struct prop *prop;
+
+	// PC (T-NETWORKING-011): a networked client shows the host's briefcase and
+	// never makes one of its own during the match
+	if (!scenarioNetIsAuthority()) {
+		htbNetPresent();
+		return;
+	}
 
 	if (var800869ec && var800869ec->prop) {
 		if (g_ScenarioData.htb.token == NULL || g_ScenarioData.htb.token->type != PROPTYPE_WEAPON) {
@@ -438,6 +554,31 @@ void htbTick(void)
 
 void htbTickChr(struct chrdata *chr)
 {
+	// PC (T-NETWORKING-011): the host awards the points (sent in the scores);
+	// a client only runs its own player's hold timer for the HUD and the
+	// point message
+	if (!scenarioNetIsAuthority()) {
+		if (chr == NULL) {
+			if (invHasBriefcase()) {
+				g_Vars.currentplayerstats->tokenheldtime += g_Vars.lvupdate240;
+
+				if (g_Vars.currentplayerstats->tokenheldtime >= TICKS(7200)) {
+					sndStart(var80095200, SFX_MP_SCOREPOINT, NULL, -1, -1, -1, -1, -1);
+#if VERSION >= VERSION_JPN_FINAL
+					hudmsgCreateWithFlags(langGet(L_MPWEAPONS_024), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP); // "1 Point!"
+#else
+					hudmsgCreateWithFlags(langGet(L_MPWEAPONS_024), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE); // "1 Point!"
+#endif
+					g_Vars.currentplayerstats->tokenheldtime = 0;
+				}
+			} else {
+				g_Vars.currentplayerstats->tokenheldtime = 0;
+			}
+		}
+
+		return;
+	}
+
 	if (chr) {
 		if (chr->aibot->hasbriefcase) {
 			chr->aibot->htbheldtimer60 += g_Vars.lvupdate240;
