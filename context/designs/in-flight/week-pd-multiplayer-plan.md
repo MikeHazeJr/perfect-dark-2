@@ -272,6 +272,12 @@ Progress log:
   end screen: B-1139, the "match is ending" branch of `menutick.c` pushed a dialog for the remote client's player as
   well, and one Use press does not leave a two-player end screen. The networked client goes straight back to its Room
   at stage end (no end screen there). Fixed in 854b044c; rematch re-queued.
+- B-1190, for Mike: that straight return means a networked client never sees the match results while connected
+  (`netmsgSvcStageEndRead` sets `CLSTATE_LOBBY` before `mainEndStage`, so the Room opens before `menutick.c` pushes
+  the end screen; seen in two runs). Earlier "end screen PASS" entries for networked modes were the host only.
+  Options: A, everyone sees the results and presses Continue (the original, and what `endscreenGraphMpContinue`
+  expects); B, results in the Room. Recommended A. Until then the rematch smoke runs a schedule per process
+  (676b9e46): the host leaves its end screen with Use, the client follows the host into the second match.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
