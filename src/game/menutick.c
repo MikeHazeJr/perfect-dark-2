@@ -795,7 +795,14 @@ void menuTick(void)
 							endscreenPushAnti();
 							setCurrentPlayerNum(prevplayernum);
 							isdialogopen = true;
-						} else {
+						} else if (!(mpGetParticipant(i)
+								&& mpGetParticipant(i)->type == PARTICIPANT_REMOTE)) {
+							/* PC (T-NETWORKING-011, finding 4): a remote player's end screen
+							 * is shown on that player's own machine. A listen host that
+							 * also pushed one built a two-player end screen here, and its
+							 * one local Use press never left it, so the host could not
+							 * get back to the room for a rematch. The player number still
+							 * counts the remote player below. */
 							mpPushEndscreenDialog(playernum, i);
 							isdialogopen = true;
 

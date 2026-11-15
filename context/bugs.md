@@ -1,5 +1,21 @@
 # Bug Tracker
 
+## 2026-11-15 B-1139 A listen host could not leave its multiplayer end screen with Use (T-NETWORKING-011, finding 4)
+
+Severity high for networked matches (the host is stuck on the end screen with keyboard or controller;
+no rematch; no crash). Seen in `mp_combat_net_rematch_smoke` (`results-20261115T150756Z.json`, 70/84 after
+the B-1135 fixture fix): the first match ended on time, the client went straight back to its Room
+(the networked client never shows an end screen), but the host stayed on its end screen although
+the harness pressed Use 4 s after it appeared; the same press leaves the offline end screen
+(`combat_sim_ui_release_cycle`). The host's end screen had two dialogs (`count=2`, the render
+alternating mpindex 0 and 1): `menutick.c`'s "match is ending" branch pushes a dialog for every active
+player participant, which in the original were all local players, and on a listen host the remote
+client's player is a participant too. Fix: that branch skips remote participants for the
+multiplayer end screen (`mpGetParticipant(i)->type == PARTICIPANT_REMOTE`) and still counts them as
+player numbers. Co-op and counter-op keep their branches as they are until Mike decides their end
+flow. Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[finding4]`). Game check: the rematch
+smoke, re-queued.
+
 ## 2026-11-15 B-1138 Teams past the fourth spawned in team 1's region, and some teams got no respawn sector (T-NETWORKING-011, SP-82)
 
 Severity medium (unfair spawns in team matches with five or more teams, or with team colours that

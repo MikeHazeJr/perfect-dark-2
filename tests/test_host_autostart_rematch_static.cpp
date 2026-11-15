@@ -152,3 +152,22 @@ TEST_CASE("host autostart rematch: one match stays the default and every attempt
 	REQUIRE(fired < counted);
 	REQUIRE(counted < first_return);
 }
+
+TEST_CASE("host autostart rematch: a listen host's end screen has dialogs only for its own players",
+          "[net][rematch][finding4]") {
+	const std::string menutick = code_only(read_text_file("src/game/menutick.c"));
+
+	// The "match is ending" branch skips remote participants for the
+	// multiplayer end screen, and still counts them as player numbers
+	const size_t ending = menutick.find("g_MenuData.prevmenuroot == -6");
+	REQUIRE(ending != std::string::npos);
+	const size_t remote = menutick.find("mpGetParticipant(i)->type == PARTICIPANT_REMOTE", ending);
+	const size_t push = menutick.find("mpPushEndscreenDialog(playernum, i);", remote);
+	const size_t next = menutick.find("playernum++;", push);
+	REQUIRE(remote != std::string::npos);
+	REQUIRE(push != std::string::npos);
+	REQUIRE(next != std::string::npos);
+	const size_t later = menutick.find("g_MenuData.prevmenuroot == -7", ending);
+	REQUIRE(later != std::string::npos);
+	REQUIRE(next < later);
+}
