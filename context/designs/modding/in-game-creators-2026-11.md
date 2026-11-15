@@ -226,6 +226,50 @@ Foundation, in order. Each step lands with tests that run in CI.
    for B-1151 only, until mod weapons have ammo. New from that run: B-1154,
    the copy's surface looks striped.
 
+9. Mods must survive a client rebuild and a cache rebuild (Mike, 2026-11-15).
+   READ 2026-11-15:
+   - `devtools/build-headless.ps1` removed the whole build directory on a
+     clean (explicit `-Clean` or the smart-clean heuristic) and copied back
+     only the git-tracked dev mods. A mod made with the in-game tools in
+     `$E/mods`, and `mods-enabled.json` in a portable build, went with it.
+     FIXED in the wrapper (36d4e5bb): both are moved beside the build
+     directory for the wipe and moved back; a keep folder left by an
+     interrupted clean stops the build instead of being written over.
+     Verified on scratch folders (13 checks); a real clean build with a
+     marker mod is still to be run.
+   - Base asset extraction and its regeneration remove single stale files
+     only (`romextract*.c`), never a directory and nothing under `mods`.
+   - Both updaters protect `mods`, `data`, `extracted`, `saves`, `logs` and
+     `pd.ini` when they clean an install (`UPDATER_DEFAULT_PROTECTED`).
+   - `build-session.ps1 -Remove` and build retention delete a whole build
+     directory on purpose, mods included.
+   - Where the game looks for mods today (`modmgr.c` about 1740-1810): an
+     explicit `--moddir`, else the first that exists of `$E/../mods`,
+     `./mods`, `$E/mods`, `mods` under the base dir. One root. For
+     `Build/PerfectDark.exe` that is the repo's tracked `mods/` folder; for
+     a session build or a release install it is `$E/mods`.
+   PROPOSED, waiting for Mike's go (he suggested "a global mods folder,
+   local app data"): a per-user mods folder that no build or install owns.
+   - Writable user root: `$S/mods`. `$S` is already where saves live "so
+     they persist across game updates and reinstalls" (`fs.c`):
+     `%APPDATA%\perfectdark` normally, the install folder with
+     `--portable`, the given folder with `--savedir`. So smokes and manual
+     test launches stay isolated with no new flag, and `--moddir` stays an
+     explicit override.
+   - Read-only bundled root: the install's own `mods/` (what a release zip
+     ships and what the build copies from `dev-mods/`), scanned after the
+     user root; on the same mod id the user's copy wins.
+   - Everything that writes (the mod author, install from file, map import,
+     bot variants, network downloads, `.modstate`) keeps using
+     `modmgrGetModsDir()`, which becomes the user root. Scanning, the
+     component scans in the apply path and the trusted-path check learn the
+     second root. About 19 call sites in 8 files; `modmgr.c` holds most.
+   - One-time migration: mods found in the install's `mods/` that are not
+     dev or release content are offered to be moved to the user root, never
+     deleted.
+   - Open for Mike: Roaming (beside the saves, follows the user) or
+     LocalAppData (stays on this PC; mods can be large).
+
 Found along the way, recorded in `context/bugs.md`: B-1140 (shared INI parser
 hangs on a section line with no `=`), B-1141 (mod manager shows JSON escapes
 raw), B-1142 (above), B-1143 (pd-tests misreports when stdout is a file),
