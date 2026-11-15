@@ -235,6 +235,21 @@ class StorageTests(unittest.TestCase):
         with self.assertRaises(storage.StorageError): self.seed()
         self.assertTrue(Path(a['InstallDir']).exists())
 
+    def test_byte_budget_below_the_run_reserve_says_so(self):
+        # B-1173: CORE's C: location set max_full_install_gib 1.5 with the
+        # checked-in peak_run_gib 2, so every seed was refused as "blocked by
+        # active/pinned evidence" in an empty storage. The refusal now names
+        # the budget, before anything is written.
+        self.policy['peak_run_gib'] = 2 / 1024
+        self.policy['max_full_install_gib'] = 1 / 1024
+        with self.assertRaises(storage.StorageError) as refused:
+            self.seed()
+        self.assertIn('cannot fit one install', str(refused.exception))
+        with self.operation() as s:
+            self.assertEqual(s.state['installs'], {})
+        self.policy['max_full_install_gib'] = 3 / 1024
+        self.assertTrue(Path(self.seed()['InstallDir']).exists())
+
     def test_discard_completed_deletes_each_install_and_keeps_its_logs(self):
         # Mike, 2026-11-15, test installs on C:: "delete each one ... as soon
         # as it's no longer needed". With discard_completed the full copy goes
