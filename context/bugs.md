@@ -1,5 +1,30 @@
 # Bug Tracker
 
+## 2026-11-15 B-1133 The capsule sweep classified a hit by geometry its collision test never recorded (T-NETWORKING-011)
+
+Severity high (a crash, intermittent, in any mode; plus wrong hit classification). Seen in
+`mp_hold_the_briefcase_net_smoke` on c3c66668 (2026-11-15, `results-20261115T085746Z.json`,
+receipt `20261115T084611729343Z-mp_hold_the_briefcase_net_smoke-4c39af09`): the host died 2.5 s into
+the match, `FATAL: ACCESS_VIOLATION PC=+0x5f3bdc`, which `addr2line` on the frozen binary puts at
+`cdGetGeoFlags` (`src/lib/collision.c:104`, `switch (g_CdObstacleGeo->type)`), right after the host
+force-moved the client's player. Not related to B-1129 (no simulant pickup or drop had happened).
+Cause: `collision.c` has "Exam" queries, which record the obstacle's geometry
+(`cdSetObstacleVtxColPropFltGeo`), and "Test" queries, which record only its prop
+(`cdSetObstacleProp`). Every original caller reads geometry only after an Exam query. The PC capsule
+sweep (`capsuleSweep`'s stage 1, `src/lib/capsule.c:303-329`) tests the volume with `cdTestVolume`, a
+Test query, and then classifies the hit with `cdGetGeoFlags()`, which reads `g_CdObstacleGeo`: NULL
+until the first Exam query of the process (the crash: a host whose first capsule collision came
+before any Exam query), and afterwards whatever surface an earlier Exam query hit, so a wall hit
+could be classified as floor or ceiling from someone else's flags. Fix: `cdTestVolume` records the
+geometry it hit (it has it, `collisions[0].geo`), and `cdGetGeoFlags` / `cdGetObstacleNormal` answer
+"no flags" / leave the caller's normal when no geometry is recorded, logging that once. Original
+behavior is unchanged: no original caller reads geometry after `cdTestVolume`. The capsule's stage 1
+now classifies by the surface it actually touched, which can change how players and simulants
+respond to wall contact where the leftover flags said floor or ceiling. Propagation: the only other
+readers of the obstacle geometry, `surface_loco.c:378,611` and `propobj.c:4187`, read it after
+`cdExamLos08` / `cdExamLos09`, which are Exam queries. Pinned in
+`tests/test_collision_obstacle_static.cpp`; game check pending (the briefcase smoke re-run).
+
 ## 2026-11-15 B-1132 The in-match team switch offered 8 teams in Capture the Case (T-NETWORKING-011, finding 8)
 
 Severity low (gameplay; no crash found). The port's in-match team switch for networked team

@@ -881,6 +881,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_net_bot_pickup_static.cpp
   # In-match team switches stay within the scenario's teams (B-1132).
   ${CMAKE_SOURCE_DIR}/tests/test_net_team_limit_static.cpp
+  # The collision obstacle's geometry for the capsule sweep (B-1133).
+  ${CMAKE_SOURCE_DIR}/tests/test_collision_obstacle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_player_init_lifecycle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_playermgr_transaction_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_prepared_stage_transaction_static.cpp
