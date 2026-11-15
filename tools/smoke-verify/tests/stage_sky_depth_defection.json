@@ -18,7 +18,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 200,
+  "timeout_seconds": 420,
   "install_state": "current",
   "boot_args": [
     "--no-update-check",
@@ -35,12 +35,12 @@
       "at_ms": 0,
       "type": "wait_until",
       "condition": "offline_gameplay_ready",
-      "timeout_ms": 150000,
+      "timeout_ms": 330000,
       "stable_ms": 1000,
       "assist_action": "ACTION_SKIP_CUTSCENE",
       "assist_condition": "cutscene_skip_ready",
       "assist_hold_ms": 900,
-      "comment": "Pause the script until the player is spawned, live, controllable and walking; the bounded Skip assist ends the intro. Boot takes about 90 s, so fixed timings caught only the boot (B-1172 first run)."
+      "comment": "Pause the script until the player is spawned, live, controllable and walking; the bounded Skip assist ends the intro. Boot takes about 90 s, so fixed timings caught only the boot (B-1172 first run). The depth smokes allow 330 s: a client newer than the base re-extracts its scenarios during boot."
     },
     {
       "at_ms": 1500,
