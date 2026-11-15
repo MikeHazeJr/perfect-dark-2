@@ -898,6 +898,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_room_domain.cpp
   ${CMAKE_SOURCE_DIR}/port/src/scenario_room_domain.c
   ${CMAKE_SOURCE_DIR}/tests/test_portal_room_domain_contract.cpp
+  # B-1113: authored room boxes reach public source and are used at stage load.
+  ${CMAKE_SOURCE_DIR}/tests/test_room_table_source_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp

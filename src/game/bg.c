@@ -1593,6 +1593,11 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 
 	memset(g_Rooms, 0, g_Vars.roomcount * sizeof(struct room));
 	memset(g_BgDrawSlotsByRoom, 0, g_Vars.roomcount * sizeof(struct drawslotpointer));
+	/* Room origins stay zero on this path: its geometry and everything derived
+	 * from it are in world coordinates. Data the background file stores
+	 * relative to a room's origin must be moved to world coordinates when it
+	 * is loaded (the room lights are, B-1114), never by setting an origin
+	 * here: the draw offset, wall hits, smoke and explosions all read it. */
 	memset(g_BgRooms, 0, (g_Vars.roomcount + 1) * sizeof(struct bgroom));
 	memset(roomseen, 0, g_Vars.roomcount);
 
@@ -1659,6 +1664,40 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 		}
 	}
 
+	/* B-1113: the authored room boxes decide which room a pad is in, and so
+	 * whether the props placed on it exist at all. A box derived from a room's
+	 * collision triangles is never larger than the authored one and is empty
+	 * for a room with no collision, so it is only kept for a room the scenario
+	 * gives no authored box (an authored scenario may omit rooms.json). */
+	{
+		s32 bounded = 0;
+		s32 brightness_rooms = 0;
+		s32 authored = scenarioSourceApplyRoomTableForStage(&stage,
+			g_Vars.normmplayerisrunning, g_Rooms, g_BgRooms, g_Vars.roomcount,
+			roomseen, &brightness_rooms);
+
+		for (i = 1; i < g_Vars.roomcount; i++) {
+			if (roomseen[i]) {
+				bounded++;
+			}
+		}
+
+		if (authored > 0) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: B-1113 room table '%s' authored=%d collision_only=%d unbounded=%d brightness=%d rooms=%d source=rooms.json",
+				g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?",
+				authored, bounded - authored,
+				g_Vars.roomcount - 1 - bounded, brightness_rooms,
+				g_Vars.roomcount);
+		} else if (authored < 0
+				|| strncmp(g_BgScenarioSourceId, "base:", 5) == 0) {
+			sysLogPrintf(LOG_WARNING,
+				"SCENARIO.SOURCE: B-1113 no usable rooms.json for '%s' (result=%d): room boxes come from collision triangles, so pads outside them get no room and their props are not created",
+				g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?",
+				authored);
+		}
+	}
+
 	for (i = 0; i < g_Vars.roomcount; i++) {
 		if (!roomseen[i]) {
 			g_Rooms[i].bbmin[0] = 0.0f;
@@ -1708,11 +1747,14 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 			struct light *lights = (struct light *)lightdata;
 			s32 li;
 			s32 applied = 0;
+			s32 outside = 0;
 
 			g_BgLightsFileData = lightdata;
 
 			for (li = 0; li < light_count; li++) {
 				s32 room = lights[li].roomnum;
+				s32 corner;
+
 				if (room <= 0 || room >= g_Vars.roomcount) {
 					continue;
 				}
@@ -1723,12 +1765,36 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 				}
 				g_Rooms[room].numlights++;
 				applied++;
+
+				/* B-1114: a light quad lies inside its room's box. The two
+				 * tables are authored independently, so a quad outside the
+				 * box means light positions and rooms are not in the same
+				 * coordinates, and a shot at that light will not meet it.
+				 * In base content no quad is outside by any margin. */
+				for (corner = 0; corner < 4; corner++) {
+					const f32 x = lights[li].bbox[corner].x + g_BgRooms[room].pos.x;
+					const f32 y = lights[li].bbox[corner].y + g_BgRooms[room].pos.y;
+					const f32 z = lights[li].bbox[corner].z + g_BgRooms[room].pos.z;
+
+					if (x < g_Rooms[room].bbmin[0] - 1.0f || x > g_Rooms[room].bbmax[0] + 1.0f
+							|| y < g_Rooms[room].bbmin[1] - 1.0f || y > g_Rooms[room].bbmax[1] + 1.0f
+							|| z < g_Rooms[room].bbmin[2] - 1.0f || z > g_Rooms[room].bbmax[2] + 1.0f) {
+						outside++;
+						break;
+					}
+				}
 			}
 
 			sysLogPrintf(LOG_NOTE,
-				"SCENARIO.SOURCE: B-943 room lights '%s' lights=%d applied=%d max_room=%d rooms=%d source=room_lights.json",
+				"SCENARIO.SOURCE: B-943 room lights '%s' lights=%d applied=%d max_room=%d rooms=%d outside_room=%d source=room_lights.json",
 				g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?",
-				light_count, applied, light_max_room, g_Vars.roomcount);
+				light_count, applied, light_max_room, g_Vars.roomcount, outside);
+			if (outside > 0) {
+				sysLogPrintf(LOG_WARNING,
+					"SCENARIO.SOURCE: B-1114 %d of %d room lights of '%s' lie outside their room's box: light positions and room boxes disagree, so those lights cannot be shot out",
+					outside, applied,
+					g_BgScenarioSourceId[0] ? g_BgScenarioSourceId : "?");
+			}
 		}
 	}
 
