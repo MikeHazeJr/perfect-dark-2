@@ -123,11 +123,16 @@ Landed on `week-pd/crystal-pistol` (6e43ca22 and later), everything behind a mod
 | Spent crystals and mines are not pickups | `bgunModGsetFiresSpentRounds`, `weaponCreateProjectileFromGset` | mine_bot 22/22 (before B-1188 the bot collected the resting mines) |
 | Mod weapon name | `loaderPoolSetPublicWeaponName`, `bgunGetName` | not checked on screen yet |
 | Shots, splats, spawn checks stop at walls on scenario stages (B-1189); Farsight x-ray still shoots through | `bgTestHitScenarioMesh` (`bg.c`), `meshraygrid.c` | `hitscan_bg_scenario_smoke` 14/14 (three Falcon 2 shots `HIT_BG`, none `MISS`, sparks and bullet holes); `farsight_xray_wall_smoke` 14/14 (from the hip `HIT_BG`; aimed in x-ray the next shot goes through the wall) |
-| Bots use mod weapons (B-1211): derived bot preferences, self-loading magazine always full to a bot, kept across a function switch | `s_publicWeaponBotPrefsBuild` (`loader_pool.c`), `botact.c`, `botinv.c` | `crystal_pistol_bot_charge_smoke`: the bot fights with the pistol, primary shots paced by the recovery time (magazine 6 to 0 over about a second), regrows in about 4.4 s; the 12-bot Needler rerun is queued |
+| Bots use mod weapons (B-1211): derived bot preferences, self-loading magazine always full to a bot, kept across a function switch | `s_publicWeaponBotPrefsBuild` (`loader_pool.c`), `botact.c`, `botinv.c` | `crystal_pistol_bot_charge_smoke`: the bot fights with the pistol, primary shots paced by the recovery time (magazine 6 to 0 over about a second), regrows in about 4.4 s; the Needler with 12 armed bots 21/21 on base 4 (they fire it, no crash) |
 | Bot charge: a full magazine at 150..1500 units commits every crystal, a vertical fan of mines at the target (plus or minus `launch_fan_deg`), alive or dead; then a primary round before the next | `bgunModBotChooseFunction`, `bgunModBotChargeShot`, `bgunModBotChargeTick` (`lv.c`) | `crystal_pistol_bot_charge_smoke` on fe847f51: `choose ... dist=232 charge=1`, six committed, `fan ... spread=30 bot=0`, six launched, the mines arm and kill the player (fixture corrected: its first volley can kill the target) |
 | Third person: spent crystals from the owner's clip, charge glow, roll about the barrel | `bgunModHeldRoll3P`, `bgunModApplyHeldModel3P` (`chr.c` `chr0f022214`) | `BONDGUN.MODEL3P` on a bot's gun: 6/6 to 0/6 as it fires, back to 6/6 when it regrows, `charging=1` during its charge; screenshots show the crystals on its gun |
-| Online: roll actions on the wire (v63 `UCMD_GUNROLL_LEFT/RIGHT`), every peer rolls and charges every player's gun; the host launches a remote player's volley from its sockets with that player's roll (a socket-less fan only when it has none) | `bondmove.c`, `net_player_move_wire.c`, `bgunModChargeRelease` | `crystal_pistol_net_roll_charge_smoke` 30/32 (both misses were fixture expectations, corrected): each peer logs `roll=90` for its own player and the other; the host launches the client's volley from its sockets with its roll and arms its mines; rerun queued |
+| Online: roll actions on the wire (v63 `UCMD_GUNROLL_LEFT/RIGHT`), every peer rolls and charges every player's gun; the host launches a remote player's volley from its sockets with that player's roll (a socket-less fan only when it has none) | `bondmove.c`, `net_player_move_wire.c`, `bgunModChargeRelease` | `crystal_pistol_net_roll_charge_smoke` 30/32 (both misses were fixture expectations, corrected): each peer logs `roll=90` for its own player and the other; the host launches the client's volley from its sockets with its roll and arms its mines; the corrected fixture 34/34 on base 4 |
 | Crystals stuck in a character (target held 240 units ahead, bots hold fire) | native `objEmbed`; diagnostic `BONDGUN.PROJECTILE.CHRTEST` | `crystal_pistol_bot_embed_smoke` 18/18 after B-1212 (failed every run before): `CHRTEST result=hit`, three crystals `embedded=1`, then `cluster detonated ... count=3` |
+
+Rerun on b922e164 with shared base 4 (2026-11-15, 22:46 to 23:44 UTC), all pass: roll 17/17, online
+roll and charge 34/34, mines with bots 24/24, the Needler with 12 armed bots 21/21, ammo 31/31,
+cluster 19/19, viewmodel 31/31 (after c16d3297 held its taps 600 ms: a 150 ms tap inside a stall
+fired nothing).
 
 Not done (follow-ups): a crystal that hits an off-screen character is deleted (native embed rule:
 `objEmbed` needs that character's model matrices, built only when it is drawn). If a host marks
@@ -145,4 +150,5 @@ still works: the mine-on-bot smoke uses it. A released bot moves and knocks the 
 B-1211 bots fight with mod weapons: target-dummy smokes pass `--debug-bots-hold-fire`. Aim with `--debug-spawn-at` plus `--debug-force-first-person-look`
 (fixed in B-1186). Stalls of one to two seconds (the session's first GL capture, the first crystal
 spawn, the first explosion, and whole-process freezes on the shared HDD) land every input inside them
-in one frame: keep presses about 2 s clear of them, and rerun once before suspecting the game.
+in one frame: keep presses about 2 s clear of them, hold each about 600 ms, and rerun once before
+suspecting the game.
