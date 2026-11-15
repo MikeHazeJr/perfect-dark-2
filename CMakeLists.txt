@@ -1010,6 +1010,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_smoke_input_events_static.cpp
   # Custom (graph) projectiles log their spawn and their landing.
   ${CMAKE_SOURCE_DIR}/tests/test_custom_projectile_log_static.cpp
+  # Weapon source compile with the variables text ($name scope, MODS ask).
+  ${CMAKE_SOURCE_DIR}/tests/test_weapon_source_variables.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_action_read_authority.cpp
   ${CMAKE_SOURCE_DIR}/port/src/action_read_authority.c
   ${CMAKE_SOURCE_DIR}/tests/test_smoke_readiness.cpp

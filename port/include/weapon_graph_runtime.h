@@ -685,6 +685,22 @@ s32 weaponGraphCompileWeaponSourceJson(const char *asset_id,
                                        u32 shared_size,
                                        weapon_graph_ir_t *out,
                                        char *err, size_t err_cap);
+/* weaponGraphCompileWeaponSourceJson with the weapon's variables text as the
+ * $name substitution scope, as weaponGraphCompileArchiveFile uses a variables
+ * member: present text (even an empty table) is an active scope, so an
+ * unresolved $name fails; NULL or empty text means no scope ($ stays
+ * literal). */
+s32 weaponGraphCompileWeaponSourceJsonWithVariables(const char *asset_id,
+                                                    const char *primary_json,
+                                                    u32 primary_size,
+                                                    const char *secondary_json,
+                                                    u32 secondary_size,
+                                                    const char *shared_json,
+                                                    u32 shared_size,
+                                                    const char *variables_json,
+                                                    u32 variables_size,
+                                                    weapon_graph_ir_t *out,
+                                                    char *err, size_t err_cap);
 
 #ifdef __cplusplus
 }
