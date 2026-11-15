@@ -135,7 +135,7 @@ $body = @{
   reason = 'production path connected'
   patch = @{
     status = 'implemented'
-    model = 'gpt-5'
+    model = '<active-model-id>'
     evidence = @('port/src/example.c:120')
   }
 } | ConvertTo-Json -Depth 8

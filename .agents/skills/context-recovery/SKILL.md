@@ -1,34 +1,29 @@
 ---
 name: context-recovery
 description: >
-  Full-depth context recovery for multi-session projects. Rebuilds complete
-  situational awareness after a lost session, archived conversation, or cold
-  start. Trigger on: "I lost my session," "pick up where we left off," "what
-  were we working on," "rebuild context," "where did we leave off," "catch me
-  up," or starting a new conversation on an existing project with context files.
-  Audits the entire context system — not just mandatory reads — maps the project
-  file structure, cross-references for discrepancies, and produces a structured
-  briefing for decision-making. Works standalone or as a Dispatch coordinator's
-  first step before routing tasks to code sessions.
+  Full-depth Perfect Dark 2 recovery when the user explicitly asks to rebuild
+  project state, or essential current state is genuinely lost or inconsistent.
+  Audit relevant canonical records, source, and evidence and produce a recovery
+  briefing. Ordinary startup, assigned-task continuation, and compaction use
+  context/README.md's scoped checklist rather than triggering a full audit.
 ---
 
-# Context Recovery — Full Project State Rebuild
+# Context Recovery - Full Project State Rebuild
 
 You are rebuilding situational awareness for a developer who has lost their
-session context. They may have archived a conversation, hit a compaction boundary,
-or simply started a new chat on an existing project. The goal is to get them from
+session context. An explicit recovery request or genuinely missing/inconsistent state triggers
+this workflow. A normal new chat or compaction uses the scoped project startup. The goal is to get them from
 zero context to full decision-making capability in a single pass.
 
-This is not a normal session start. A normal start reads 3–4 mandatory files and
-summarizes. Context recovery reads *everything relevant* and synthesizes a
-comprehensive briefing. The difference matters — after a normal start, you might
+Follow AGENTS.md and the canonical context/README.md for normal session startup. Context recovery reads *everything relevant* and synthesizes a
+comprehensive briefing. The difference matters - after a normal start, you might
 miss that there's a QC backlog of 80 items or that a critical bug was structurally
 fixed but never tested. Recovery leaves no stone unturned.
 
 **Dispatch compatibility:** This skill produces output structured for both human
 decision-making and coordinator handoff. If you're operating as a coordinator in
 a dispatch workflow, the briefing gives you everything you need to write task
-prompts for code sessions — current state, constraints, open work fronts,
+prompts for code sessions - current state, constraints, open work fronts,
 blockers, and build status.
 
 ---
@@ -39,7 +34,7 @@ Multi-session projects accumulate state across many files: task trackers, sessio
 logs, constraint ledgers, bug lists, roadmaps, QC checklists, domain-specific
 documentation, architecture decision records, release notes. When a session is
 lost, the developer has to manually re-read all of this to figure out where they
-are — or worse, they skip it and start working from stale assumptions.
+are - or worse, they skip it and start working from stale assumptions.
 
 This skill automates the full recovery. It reads everything, cross-references it,
 identifies discrepancies (like infrastructure trackers that are out of date with
@@ -53,10 +48,10 @@ session logs), and produces a briefing structured for decision-making.
 
 Before reading anything in depth, map out what exists. Different projects organize
 their context differently, so the first step is reconnaissance. The file tree is
-part of the deliverable — the developer needs to see the shape of their project
+part of the deliverable - the developer needs to see the shape of their project
 at a glance.
 
-**Step 1 — Map the project root.** List the top-level directory contents. Look for:
+**Step 1 - Map the project root.** List the top-level directory contents. Look for:
 
 - `AGENTS.md` or equivalent top-level rules/config file
 - A `context/` directory (or `_context/`, `docs/`, `.Codex/`, etc.)
@@ -64,18 +59,18 @@ at a glance.
 - Build scripts, tool directories, configuration files
 - Source directories and their organization (`src/`, `port/`, `lib/`, etc.)
 
-**Step 2 — Find the index file.** Most structured projects have one:
+**Step 2 - Find the index file.** Most structured projects have one:
 
 - `context/README.md` or `context/INDEX.md`
 - A master hub that links to everything else
 - If no explicit index exists, the top-level `AGENTS.md` often serves this role
 
-**Step 3 — Enumerate all context files.** Use glob patterns to find every `.md`
+**Step 3 - Enumerate all context files.** Use glob patterns to find every `.md`
 file in the context directory and its subdirectories. Also check for `.json` task
 files, `.yaml` configs, or any other structured metadata. Build a complete
-inventory — this becomes part of your briefing.
+inventory - this becomes part of your briefing.
 
-**Step 4 — Map the development environment.** Identify:
+**Step 4 - Map the development environment.** Identify:
 
 - Source tree layout (where game code, port code, build output, tools live)
 - Build system (scripts, output directories, artifact locations)
@@ -83,30 +78,30 @@ inventory — this becomes part of your briefing.
 - Data directories (assets, mods, ROM data, post-build addins)
 - Git repository state (branch, worktrees, remotes)
 
-Do all of this exploration in parallel where possible — directory listings, glob
+Do all of this exploration in parallel where possible - directory listings, glob
 searches, and git commands are independent operations.
 
-**Step 5 — Build the file map.** Produce a structured inventory of the project's
+**Step 5 - Build the file map.** Produce a structured inventory of the project's
 key directories and files. This serves as both a reference for the briefing and
-a "Dev Window" — a quick-reference view of where everything lives:
+a "Dev Window" - a quick-reference view of where everything lives:
 
 ```
 project-root/
-├── AGENTS.md              — Standing orders, architecture, critical rules
-├── context/               — Project context encyclopedia
-│   ├── README.md          — Master index (read first)
-│   ├── constraints.md     — Active/removed constraint ledger
-│   ├── session-log.md     — Recent session history
-│   ├── tasks-current.md   — Active punch list
-│   ├── roadmap.md         — Phase plan + dependency graph
-│   ├── bugs.md            — Open/fixed bug tracker
-│   ├── qc-tests.md        — In-game verification checklist
-│   ├── infrastructure.md  — Phase execution status
-│   ├── [domain].md        — System-specific docs (load on demand)
-│   └── _archive/          — Completed/deprecated items
-├── src/                   — [Source code layout]
-├── build/                 — [Build output]
-├── devtools/              — [Development tools]
+├── AGENTS.md              - Standing orders, architecture, critical rules
+├── context/               - Project context encyclopedia
+│   ├── README.md          - Master index (read first)
+│   ├── constraints.md     - Active/removed constraint ledger
+│   ├── session-log.md     - Recent session history
+│   ├── tasks-current.md   - Active punch list
+│   ├── roadmap.md         - Phase plan + dependency graph
+│   ├── bugs.md            - Open/fixed bug tracker
+│   ├── qc-tests.md        - In-game verification checklist
+│   ├── infrastructure.md  - Phase execution status
+│   ├── [domain].md        - System-specific docs (load on demand)
+│   └── _archive/          - Completed/deprecated items
+├── src/                   - [Source code layout]
+├── build/                 - [Build output]
+├── devtools/              - [Development tools]
 └── [other key dirs]
 ```
 
@@ -119,17 +114,17 @@ are stale, recently modified, or relevant to the current work front.
 
 Read files in this order. The earlier files inform how you interpret the later ones.
 
-**Tier 1 — Orientation (read first, always):**
+**Tier 1 - Orientation (read first, always):**
 
 | Priority | What to find | Why |
 |----------|-------------|-----|
 | 1 | Index / README (the master hub) | Tells you what files exist and what they're for |
 | 2 | AGENTS.md or equivalent rules file | Standing orders, architectural constraints, project identity |
-| 3 | Constraint ledger | What's still active vs. what's been removed — prevents wasted work |
+| 3 | Constraint ledger | What's still active vs. what's been removed - prevents wasted work |
 | 4 | Session log (most recent 3–5 entries) | What was last done, decisions made, stated next steps |
 | 5 | Active task tracker | Current punch list, what's in progress, what's blocked |
 
-**Tier 2 — Strategic picture (read next):**
+**Tier 2 - Strategic picture (read next):**
 
 | Priority | What to find | Why |
 |----------|-------------|-----|
@@ -139,16 +134,16 @@ Read files in this order. The earlier files inform how you interpret the later o
 | 9 | QC test checklist | What needs in-game/in-app verification |
 | 10 | Release notes (most recent) | What shipped, what's working, known issues |
 
-**Tier 3 — Domain context (read selectively):**
+**Tier 3 - Domain context (read selectively):**
 
 Domain files (collision.md, networking.md, server-architecture.md, etc.) should
 be scanned at headline level but only read in full if they're directly relevant
 to the most recent work or the likely next task.
 
-Architecture Decision Records (ADRs) — note their existence and one-line
+Architecture Decision Records (ADRs) - note their existence and one-line
 summaries but don't read in full unless the user asks.
 
-**Tier 4 — State verification:**
+**Tier 4 - State verification:**
 
 | What | How |
 |------|-----|
@@ -192,7 +187,7 @@ everything, actively look for inconsistencies:
 - **Stale file references**: Do any context files reference files, functions,
   or systems that have been renamed, moved, or removed?
 
-Don't silently fix these discrepancies — report them in your briefing so the
+Don't silently fix these discrepancies - report them in your briefing so the
 developer can decide whether to update the files or whether the discrepancy
 reveals a real issue.
 
@@ -215,11 +210,11 @@ understand where they are and choose what to do next.
 
 3. **Where You Left Off** (the most recent session cluster)
    What was worked on, what was completed, what was left unfinished.
-   Include build status — did the last session end with a clean build,
+   Include build status - did the last session end with a clean build,
    an unverified build, or a broken build? If unverified, say so prominently.
 
 4. **What's Done** (major milestones and completed tracks)
-   High-level summary of completed work streams. Don't list every session —
+   High-level summary of completed work streams. Don't list every session -
    group by feature/phase. Include version/release if applicable.
 
 5. **What's Next** (priority-ordered task list)
@@ -228,7 +223,7 @@ understand where they are and choose what to do next.
    start or waiting on something (like a build test).
 
 6. **Key Constraints** (active constraints that affect upcoming work)
-   Don't dump the entire ledger — highlight the ones that are relevant to
+   Don't dump the entire ledger - highlight the ones that are relevant to
    the likely next tasks. Note recently removed constraints that might still
    trip someone up.
 
@@ -251,7 +246,7 @@ understand where they are and choose what to do next.
     features are complete vs. coded-but-untested vs. not started?
 
 End with a clear prompt: "Where would you like to pick up?" or present the
-active work fronts as options. The developer is the director — give them the
+active work fronts as options. The developer is the director - give them the
 landscape and let them choose.
 
 ---
@@ -261,18 +256,18 @@ landscape and let them choose.
 **Parallelism matters.** Context recovery involves reading a lot of files. Use
 parallel reads wherever possible. Tier 1 files after the index can be read
 simultaneously. Tier 2 files are all independent of each other. Git commands
-can run in parallel with file reads. The goal is to minimize wall-clock time —
+can run in parallel with file reads. The goal is to minimize wall-clock time -
 reading 15 files sequentially when 10 of them could be parallel wastes the
 developer's time.
 
 **Session logs can be huge.** If the session log exceeds readable limits, read
 the most recent entries first (they're usually at the top or clearly dated).
-Archive files exist for older sessions — note their existence but don't read
+Archive files exist for older sessions - note their existence but don't read
 them unless the user asks.
 
 **The index file is your map.** A well-maintained project has an index that tells
 you what every file is for and when to read it. Trust the index. If there's no
-index, the file listing from Phase 1 is your fallback — use filenames and
+index, the file listing from Phase 1 is your fallback - use filenames and
 directory structure to infer purpose.
 
 **Don't summarize what you haven't read.** If a file is too large to read in one
@@ -293,7 +288,7 @@ which files were recently modified. A context file last touched weeks ago is
 likely stale. A build artifact from today means someone compiled recently.
 
 **Be thorough, then be concise.** Read everything, but don't dump everything.
-The briefing should be comprehensive but scannable — the developer should be
+The briefing should be comprehensive but scannable - the developer should be
 able to read it in 3–5 minutes and have enough context to make a decision about
 what to work on next. Use structure (headers, tables, lists) to make it
 skimmable, but don't pad. Every sentence should carry information.
@@ -331,7 +326,7 @@ coordinator's working memory for the session.
 
 ## 5. Adaptation
 
-This skill is designed for projects with structured context file systems — the
+This skill is designed for projects with structured context file systems - the
 kind that maintain session logs, constraint ledgers, task trackers, and domain
 files. But projects vary widely in how they organize this:
 
@@ -342,10 +337,10 @@ files. But projects vary widely in how they organize this:
 - Some have elaborate multi-tier systems with archives and ADRs
 
 The discovery phase (Phase 1) handles this variation. Don't assume a specific
-structure — explore first, then adapt the reading order to whatever exists.
+structure - explore first, then adapt the reading order to whatever exists.
 
 If the project has *no* context files at all, say so clearly and offer to help
-establish a context system. But that's a different workflow — this skill is for
+establish a context system. But that's a different workflow - this skill is for
 recovery, not creation.
 
 If the project uses a companion skill (like `game-port-director`) that has its

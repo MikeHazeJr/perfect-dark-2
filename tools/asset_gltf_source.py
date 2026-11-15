@@ -56,6 +56,50 @@ def parse_document(data: bytes) -> dict:
     return doc
 
 
+def validate_document_features(doc: dict) -> None:
+    """Admission shared by runtime-equivalent mesh, animation and archive paths.
+
+    Optional extensions can use their core glTF fallback. Required extensions
+    need a complete converter; none are currently implemented. Sparse overlays
+    and integer normalization must never be silently treated as base/raw bytes.
+    """
+    if not isinstance(doc, dict):
+        raise ValueError("gltf_document_invalid")
+    asset = doc.get("asset")
+    if not isinstance(asset, dict) or asset.get("version") != "2.0":
+        raise ValueError("gltf_document_invalid")
+    if "minVersion" in asset and asset["minVersion"] != "2.0":
+        raise ValueError("gltf_minimum_version_unsupported")
+    used = []
+    for key in ("extensionsUsed", "extensionsRequired"):
+        if key not in doc:
+            continue
+        names = doc[key]
+        if (not isinstance(names, list) or not names
+                or any(not isinstance(name, str) or not name for name in names)
+                or len(set(names)) != len(names)):
+            raise ValueError("gltf_extension_declaration_invalid")
+        if key == "extensionsUsed":
+            used = names
+        else:
+            if any(name not in used for name in names):
+                raise ValueError("gltf_extension_declaration_invalid")
+            raise ValueError("gltf_required_extension_unsupported")
+    if "accessors" in doc:
+        if not isinstance(doc["accessors"], list):
+            raise ValueError("gltf_accessor_declaration_invalid")
+        for accessor in doc["accessors"]:
+            if not isinstance(accessor, dict):
+                raise ValueError("gltf_accessor_declaration_invalid")
+            if "sparse" in accessor:
+                raise ValueError("gltf_sparse_accessor_unsupported")
+            if "normalized" in accessor:
+                if type(accessor["normalized"]) is not bool:
+                    raise ValueError("gltf_accessor_normalized_invalid")
+                if accessor["normalized"]:
+                    raise ValueError("gltf_normalized_accessor_unsupported")
+
+
 def _integer(value, minimum=0, maximum=0x7fffffff):
     if (type(value) not in (int, float) or (isinstance(value, float) and not math.isfinite(value))
             or value != int(value) or not minimum <= value <= maximum):
@@ -64,6 +108,7 @@ def _integer(value, minimum=0, maximum=0x7fffffff):
 
 
 def buffer_declaration(doc: dict, glb=False) -> tuple[str | None, int]:
+    validate_document_features(doc)
     asset = doc.get("asset")
     if not isinstance(asset, dict) or asset.get("version") != "2.0":
         raise ValueError("glTF asset.version must be 2.0")
@@ -191,9 +236,7 @@ def declared_archive_buffers(archive, errors: list[str], label: str) -> set[str]
             continue
         try:
             doc = parse_document(archive.read(source))
-            asset = doc.get("asset")
-            if not isinstance(asset, dict) or asset.get("version") != "2.0":
-                raise ValueError("glTF asset.version must be 2.0")
+            validate_document_features(doc)
             # Native animation extras may deliberately have no binary source.
             if "buffers" not in doc:
                 if "bufferViews" in doc and doc["bufferViews"] != []:
@@ -320,6 +363,7 @@ def _scene_instance(mesh, node, world):
 
 
 def scene_plan(doc: dict) -> ScenePlan:
+    validate_document_features(doc)
     """Match modAssetGltfScenePlanBuild: selected static instances, source units."""
     if not isinstance(doc, dict) or not isinstance(doc.get("asset"), dict) or doc["asset"].get("version") != "2.0":
         raise ValueError("glTF asset.version must be 2.0")
