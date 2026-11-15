@@ -1,5 +1,25 @@
 # Bug Tracker
 
+## 2026-11-15 B-1136 Simulants never scored their Pop a Cap or Hacker Central points (T-NETWORKING-011, SP-82)
+
+Severity medium (wrong scores and rankings in two modes, local and networked; no crash). Seen in
+the 150 s networked Pop a Cap smoke (`results-20261115T130939Z.json`): a simulant was the victim
+for the whole match and the host sent two survival-point changes, yet every final score was 0 on
+both sides. `func0f18d0e8` (`src/game/mplayer/mplayer.c`) turns an mpchrnum into its slot in
+`g_MpAllChrConfigPtrs`. It split players from simulants at the N64's player count, written as a
+literal 4 (`arg0 < 4`, `g_BotConfigsArray[arg0 - 4]`), while the port's mpchrnums put players at
+0 to `MAX_PLAYERS - 1` (8) and simulants after them, as `MPCHR` and the inverse `func0f18d074`
+already do. So simulant 0 (mpchrnum 8) looked up simulant 4's config: not found with fewer than
+five simulants (-1, so no points), the wrong simulant with more. Effects: `pacCalculatePlayerScore`
+dropped every simulant's victim kills and survival points and `htmCalculatePlayerScore` every
+simulant's download points; players 5 to 8 (mpchrnums 4 to 7) took simulant 0 to 3's points
+instead of their own; a JudgeSim's "attack the leader" could not see a simulant in the lead; and
+Capture the Case's team bits (`ctcInitProps` after wrapping teams) went to the wrong character.
+Fix: the boundary is `MAX_PLAYERS`, with a range check. Pinned in `tests/test_mp_chrnum_static.cpp`.
+Game check: the Pop a Cap net smoke's victim should end with its survival points. Related, not
+fixed: the PC's match-start orchestrator (`mpspawn_orchestrate.c`) has 4 spawn sectors, so teams 5
+to 8 start in team 1's sector (`orch_team_bits_to_sector` falls back to 0); see SP-82.
+
 ## 2026-11-15 B-1135 Two smoke fixtures could never run: their timeout was shorter than their own waits (T-NETWORKING-011)
 
 Severity low (test tooling; no game effect, but a wasted runtime turn each time). `smokeParseJson`

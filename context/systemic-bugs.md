@@ -3589,3 +3589,51 @@ closed), `CLC_MANIFEST_STATUS` (always its own packet; security pin),
 settings and playlist readers. The only dispatched readers outside `netmsg.c`
 are the two move readers in `net_player_move_ingress.c`; both read their whole
 message first. Nothing open.
+
+## SP-82: The N64 player count is written as a literal 4
+
+**Severity: MEDIUM - wrong participant, silently; the score, target or team
+goes to someone else or to nobody.**
+
+The N64 game had four players, and the decompiled code often writes that
+count as the number 4 instead of `MAX_PLAYERS`. The port has 8 players, and
+its mpchrnums put players at 0 to `MAX_PLAYERS - 1` with simulants after
+them (`MPCHR` in `constants.h`). Code that still splits players from
+simulants at 4, or offsets simulants by 4, reads the wrong config: simulant 0
+becomes simulant 4, and players 5 to 8 become simulants 0 to 3. Nothing
+crashes, so the result just looks like "simulants score nothing" or "player 6
+has someone else's points". Related to SP-1 (player-sized arrays indexed by
+simulant numbers) and SP-2 (modulo aliasing), but the cause is a literal, not
+an array size.
+
+**Known instances (2026-11-15):** B-1136, `func0f18d0e8` (`mplayer.c`):
+Pop a Cap and Hacker Central scores, JudgeSim targeting and Capture the Case
+team bits. Fixed.
+
+**Not fixed (lower impact, recorded 2026-11-15):**
+- `mplayer.c` default player bodies: players 4 to 7 get player 0's default
+  body (cosmetic).
+- `mplayer.c` lock winner and loser (`mpGetPlayerRankings`, `chrnums[j] < 4`):
+  only players 1 to 4 count for the "last winner" and "last loser" locks.
+- `mplayer.c` local awards (`numplayers >= 4` chains): built for up to four
+  local players.
+- Team counts over 4 bits while `MAX_TEAMS` is 8: the PC's match-start
+  orchestrator (`mpspawn_orchestrate.c`, `s_Anchors[4]`, sector count and
+  `orch_team_bits_to_sector`) and the team count near `player.c:777`. In a
+  match with five or more teams, teams 5 to 8 start in team 1's sector.
+
+**Rules:**
+- The player/simulant boundary in an mpchrnum is `MAX_PLAYERS`, and a
+  simulant's config is `g_BotConfigsArray[mpchrnum - MAX_PLAYERS]`. Use
+  `MPCHR()` where it fits.
+- A loop over teams runs to `MAX_TEAMS`, or to `scenarioGetMaxTeams()` when
+  the scenario limits them.
+
+**Search:**
+- `grep -rn "\- 4\]\|< 4)\|>= 4)\|i < 4; i++" src/game/mplayer src/game/bot*.c src/game/mplayer/scenarios`
+- Most hits are 4-vertex or 4-corner loops; read each and keep only those
+  that index players, participants or teams.
+
+**Audit checklist:** for each hit, (a) is the 4 a player count, a
+player/simulant boundary or a team count, and (b) would 8 players or 8 teams
+reach past it? Done: `func0f18d0e8`. Open: the four lower-impact sites above.

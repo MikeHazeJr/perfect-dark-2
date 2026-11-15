@@ -889,6 +889,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_net_reader_consumes_static.cpp
   # Every smoke schedule fits inside its own timeout (B-1135).
   ${CMAKE_SOURCE_DIR}/tests/test_smoke_schedule_bounds_static.cpp
+  # An mpchrnum resolves with the port's player count, not the N64's (B-1136).
+  ${CMAKE_SOURCE_DIR}/tests/test_mp_chrnum_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_player_init_lifecycle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_playermgr_transaction_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_prepared_stage_transaction_static.cpp

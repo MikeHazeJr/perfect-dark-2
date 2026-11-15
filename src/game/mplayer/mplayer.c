@@ -4122,7 +4122,17 @@ s32 func0f18d0e8(s32 arg0)
 {
 	s32 i;
 
-	if (arg0 < 4) {
+	/* PC (B-1136): mpchrnums 0..MAX_PLAYERS-1 are players and simulants follow
+	 * them, as in MPCHR and func0f18d074 above. The N64 had four players and
+	 * wrote that boundary as 4, so every simulant looked up the config four
+	 * slots further on: Pop a Cap and Hacker Central never counted a
+	 * simulant's points, players 5 to 8 took a simulant's, and a JudgeSim
+	 * could not see a simulant in the lead. */
+	if (arg0 < 0 || arg0 >= MAX_MPCHRS) {
+		return -1;
+	}
+
+	if (arg0 < MAX_PLAYERS) {
 		for (i = 0; i < g_MpNumChrs; i++) {
 			if (g_MpAllChrConfigPtrs[i] == &g_PlayerConfigsArray[arg0].base) {
 				return i;
@@ -4130,7 +4140,7 @@ s32 func0f18d0e8(s32 arg0)
 		}
 	} else {
 		for (i = 0; i < g_MpNumChrs; i++) {
-			if (g_MpAllChrConfigPtrs[i] == &g_BotConfigsArray[arg0 - 4].base) {
+			if (g_MpAllChrConfigPtrs[i] == &g_BotConfigsArray[arg0 - MAX_PLAYERS].base) {
 				return i;
 			}
 		}
