@@ -3,6 +3,9 @@
 #include "game/game_006900.h"
 #include "game/tex.h"
 #include "game/stars.h"
+#include "game/bg.h"
+#include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
 #include "game/game_1531a0.h"
 #include "game/camera.h"
 #include "bss.h"
@@ -114,10 +117,18 @@ void starsReset(void)
 	g_StarPositions = NULL;
 
 	if (PLAYERCOUNT() < 2) {
+		scenario_stage_stars_t rule;
+
 		g_StarsBelowHorizon = false;
 		g_StarGridSize = 3;
 
-		if (g_Vars.stagenum == STAGE_TEST_OLD) {
+		/* Decision 1: the stage.json stars rule on a stage built from scenario
+		 * source; the stage checks on a ROM stage. */
+		if (bgUsesScenarioSource() && scenarioSourceStageStars(&rule)) {
+			g_StarCount = rule.count;
+			g_StarGridSize = rule.grid;
+			g_StarsBelowHorizon = rule.below_horizon != 0;
+		} else if (g_Vars.stagenum == STAGE_TEST_OLD) {
 			g_StarsBelowHorizon = true;
 			g_StarCount = 1600;
 		} else if (g_Vars.stagenum == STAGE_DEFECTION || g_Vars.stagenum == STAGE_EXTRACTION) {

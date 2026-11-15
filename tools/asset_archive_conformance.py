@@ -129,7 +129,7 @@ ROOT_METADATA = {
 #   ARENA   -> ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND  (port/src/romextract_pdarena.c)
 #   MISSION -> PDMETA_SCENARIO_DEP_CACHE_KIND         (port/src/romextract_pdmeta.c)
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -1044,7 +1044,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "collision.flags.json": slot("per-triangle collision GEOFLAG/floortype sidecar", "scenario collision importer", "applies authoritative per-tri GEOFLAGs (DIE/LADDER/UNDERWATER/STEP/BLOCK_SIGHT/SHOOT) + footstep floortype to the collision tile cache", "collision flags are reconstructed from face normals via classifyTriFlags (FLOOR/WALL only)"),
         "room_lights.json": slot("decoded BG per-room lights sidecar", "scenario room-lights importer", "rebuilds g_BgLightsFileData for per-room dynamic brightness + shoot-out-the-lights", "extracted stages run with static lighting, no per-room dynamic light precompute"),
         "rooms.json": slot("authored per-room table: bounding box, origin, brightness range and optional room rules (render_always, sky, base_brightness, lights_unshootable, unshootable_lights)", "scenario room-table importer", "sets each room's box from the authored table, which decides the room of every pad and so whether the props placed on it are created; moves the room-relative light quads of room_lights.json to world coordinates; sets the light level a room keeps when its lights are out; applies the room's render and light rules at light setup and draws a sky room relative to the player", "room boxes are derived from collision triangles, which are never larger and are empty for a room with no collision; light quads are taken as world coordinates; every room uses the brightest range; no room is always drawn, no room is a sky and every light can be shot out"),
-        "stage.json": slot("stage-wide rules (pd2.scenario.stage.v1): weather (wind, height band, height limit, cutscene only, weather or dry rooms, fixed wind direction), player (Perfect Agent outfit, disguise outfit and whether a disguised player can be targeted, co-op spawn distance), ai (no dark room lists), ending (an unknown outcome) and hub (the between-missions stage rules)", "scenario stage-rules reader", "sets up the stage's weather when the stage loads, its AI commands starting the rain or snow; dresses the player and applies the disguise rule", "the stage has no stage-wide rules: no weather setup, the default outfits, a disguise that can be targeted"),
+        "stage.json": slot("stage-wide rules (pd2.scenario.stage.v1): weather (wind, height band, height limit, cutscene only, weather or dry rooms, fixed wind direction), player (Perfect Agent outfit, disguise outfit and whether a disguised player can be targeted, co-op spawn distance), ai (no dark room lists), ending (an unknown outcome), hub (the between-missions stage rules) and stars (the starfield: count, grid, below the horizon)", "scenario stage-rules reader", "sets up the stage's weather when the stage loads, its AI commands starting the rain or snow; dresses the player and applies the disguise rule", "the stage has no stage-wide rules: no weather setup, the default outfits, a disguise that can be targeted"),
         "intro.json": slot("the setup intro other than its spawn pads (pd2.scenario.intro.v1): starting weapons, ammo and outfit, watch time, multiplayer cases, case respawns and hills, and the unread legacy commands", "scenario setup compiler", "rebuilds the intro script after the spawn pads, so the player starts with the mission's loadout and the objective modes find their pads", "the stage has only its spawn pads: no starting loadout, no authored cases or hills"),
         "mission.graph.json": slot("scenario-local mission behavior graph", "mission graph importer", "loads mission/script graph when the scenario carries its own mission logic", "mission behavior comes from a linked .pdmission or base fallback"),
     },
@@ -2603,7 +2603,7 @@ def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
 # Stage-wide rules (decision 3, CORE, 2026-11-15). Keep in step with
 # port/src/scenario_stage_rules.cpp.
 STAGE_RULES_SCHEMA = "pd2.scenario.stage.v1"
-STAGE_RULES_KEYS = {"schema", "note", "weather", "player", "ai", "ending", "hub"}
+STAGE_RULES_KEYS = {"schema", "note", "weather", "player", "ai", "ending", "hub", "stars"}
 STAGE_PLAYER_KEYS = {"perfect_agent_outfit", "disguise", "coop_spawn_distance"}
 STAGE_AI_KEYS = {"dark_room_lists"}
 STAGE_OUTFITS = ["default", "elvis", "trent", "trench", "frock_ripped", "frock", "leather",
@@ -2659,6 +2659,19 @@ def validate_stage_json(label: str, text: str) -> list[str]:
                     errors.append(f"{where} player.coop_spawn_distance must be 1..1000")
     if "hub" in doc and not isinstance(doc["hub"], bool):
         errors.append(f"{where} hub must be true or false")
+    if "stars" in doc:
+        stars = doc["stars"]
+        if not isinstance(stars, dict):
+            errors.append(f"{where} stars must be an object")
+        else:
+            for key in sorted(set(stars) - {"count", "grid", "below_horizon"}):
+                errors.append(f"{where} stars has an unknown key {key!r}")
+            for key, lo, hi in (("count", 1, 8192), ("grid", 1, 8)):
+                value = stars.get(key)
+                if isinstance(value, bool) or not isinstance(value, int) or not lo <= value <= hi:
+                    errors.append(f"{where} stars.{key} must be a whole number from {lo} to {hi}")
+            if "below_horizon" in stars and not isinstance(stars["below_horizon"], bool):
+                errors.append(f"{where} stars.below_horizon must be true or false")
     ending = doc.get("ending")
     if ending is not None:
         if not isinstance(ending, dict):

@@ -102,13 +102,25 @@ Outfit names follow the `OUTFIT_*` constants in order: `default`, `elvis`,
 `snow`, `lab`, `stewardess`, `mrblonde`, `maian`, `negotiator` (a test keeps the
 reader, the checker and `constants.h` equal).
 
+## `stars`
+
+`"stars": { "count": 200, "grid": 2, "below_horizon": false }` gives the stage
+a starfield (`stars.c`): `count` stars (1 to 8192) spread over a sky cube of
+`grid` cells per face side (1 to 8), filling the whole sky when
+`below_horizon` is true and only the upper half otherwise (`below_horizon`
+defaults to false). A stage without the key has no starfield. On a stage built
+from scenario source `lvReset` allocates the starfield, `starsReset` takes the
+three values and `bgRenderScene` draws the stars (single player only, as
+before) when the rule is present; a ROM stage keeps the stage lists. The
+extractor writes it from those lists: Defection, Extraction, Infiltration and
+Escape get 200 stars on a grid of 2; Attack Ship 1,200 and Test Old 1,600 on a
+grid of 3, below the horizon too. Not carried: `starsRender`'s Defection and
+Extraction tint, which computes a blend and discards it, so it has no effect.
+
 ## Next families (from CORE's stage-check survey, week note checklist)
 
 Each becomes a key here unless it belongs to a room or an object:
 
-- `stars`: count, grid and below-horizon rule (`stars.c`, the starfield
-  allocation in `lv.c`, the draw in `bg.c`). B-1172 first: the scene renderer
-  does not draw stars at all yet.
 - Escape's gas (a stage-level sphere and door tags; its rooms on `rooms.json`).
 - Animated textures and sparks (`dyntex.c`, `sparks.c`).
 - The stage's text bank (`lang.c`), if it is needed before the scenario is read.

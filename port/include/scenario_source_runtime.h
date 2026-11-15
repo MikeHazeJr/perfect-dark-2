@@ -828,6 +828,7 @@ struct scenario_stage_weather;
 struct scenario_stage_player;
 struct scenario_stage_ai;
 struct scenario_stage_ending;
+struct scenario_stage_stars;
 s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp);
 s32 scenarioSourceStageWeather(struct scenario_stage_weather *out);
@@ -835,6 +836,9 @@ s32 scenarioSourceStagePlayer(struct scenario_stage_player *out);
 s32 scenarioSourceStageAi(struct scenario_stage_ai *out);
 s32 scenarioSourceStageEnding(struct scenario_stage_ending *out);
 s32 scenarioSourceStageIsHub(void);
+/* B-1172 / decision 1: the loaded stage's starfield rule; 0 when it has none.
+ * out may be NULL. */
+s32 scenarioSourceStageStars(struct scenario_stage_stars *out);
 
 #ifdef __cplusplus
 }

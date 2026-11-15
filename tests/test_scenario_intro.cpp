@@ -204,7 +204,7 @@ TEST_CASE("the extractor and the runtime carry the whole intro and the multiplay
 	// Every scenario gets the member, and an archive without it is not clean.
 	CHECK(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"intro.json\",") != std::string::npos);
 	CHECK(extractor.find("s_existingArchiveEntryContains(relpath, \"intro.json\",\n\t\t\t\"pd2.scenario.intro.v1\")") != std::string::npos);
-	CHECK(extractor.find("_intro_mpsetup_ending_hub\"") != std::string::npos);
+	CHECK(extractor.find("_intro_mpsetup_ending_hub_stars\"") != std::string::npos);
 	CHECK(extractor.find("intro command %d is not carried by intro.json") != std::string::npos);
 
 	// The runtime rebuilds the intro: spawns, then intro.json, then the end.

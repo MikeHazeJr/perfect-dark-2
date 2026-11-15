@@ -87,7 +87,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -7401,6 +7401,34 @@ static s32 s_stageIsHub(s32 stagenum)
 	return stagenum == STAGE_CITRAINING;
 }
 
+/* The starfield rule (CORE, 2026-11-15): the stages lvReset gives a
+ * starfield and the count, grid and below-horizon choice starsReset makes for
+ * each (stars.c). */
+static s32 s_stageStars(s32 stagenum, s32 *count, s32 *grid, s32 *below_horizon)
+{
+	switch (stagenum) {
+	case STAGE_TEST_OLD:
+		*count = 1600;
+		*grid = 3;
+		*below_horizon = 1;
+		return 1;
+	case STAGE_ATTACKSHIP:
+		*count = 1200;
+		*grid = 3;
+		*below_horizon = 1;
+		return 1;
+	case STAGE_DEFECTION:
+	case STAGE_EXTRACTION:
+	case STAGE_INFILTRATION:
+	case STAGE_ESCAPE:
+		*count = 200;
+		*grid = 2;
+		*below_horizon = 0;
+		return 1;
+	}
+	return 0;
+}
+
 static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 {
 	const struct weathercfg *weather = NULL;
@@ -7411,6 +7439,10 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 	const s32 no_dark_room_lists = s_stageNoDarkRoomLists(stagenum);
 	const s32 outcome_unknown = s_stageOutcomeUnknown(stagenum);
 	const s32 is_hub = s_stageIsHub(stagenum);
+	s32 star_count = 0;
+	s32 star_grid = 0;
+	s32 star_below = 0;
+	const s32 has_stars = s_stageStars(stagenum, &star_count, &star_grid, &star_below);
 	s32 i;
 
 	for (i = 0; i < WEATHERCFG_MAX_STAGES && g_WeatherConfig[i].stagenum; i++) {
@@ -7422,7 +7454,7 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 	if (s_textbufAppend(out,
 			"{\n"
 			"  \"schema\": \"pd2.scenario.stage.v1\",\n"
-			"  \"note\": \"Stage-wide rules, each optional. weather: where and how the stage's rain or snow falls (its AI commands start it): wind_speed; y_min and y_max, the height band around the camera the particles fill; z_max, 0 or a z below which the camera sees no weather; cutscene_only; exactly one of weather_rooms (the only rooms with weather) and dry_rooms (the rooms without it); optional wind_direction {angle, speed_x, speed_z} for a fixed wind. player: perfect_agent_outfit, the outfit worn at Perfect Agent and up; disguise {outfit, untargetable}, the outfit worn while disguised and whether a disguised player cannot be targeted; coop_spawn_distance, how far the co-op buddy starts from the player (60 when absent). ai: dark_room_lists false keeps guards off their dark room AI list. ending: outcome unknown makes the end screen report the mission as Unknown and the agent as Missing, turns the menus gray and slow and plays the mission-unknown tune on a completion. hub: true marks the stage the player spends time in between missions: no cheats, no mission timer, corpses fade as in the original, no damage outside a training session, a death respawns the player, no co-op AI buddies and no next mission on its end screen. Outfits: default, elvis, trent, trench, frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess, mrblonde, maian, negotiator.\"") != 0) {
+			"  \"note\": \"Stage-wide rules, each optional. weather: where and how the stage's rain or snow falls (its AI commands start it): wind_speed; y_min and y_max, the height band around the camera the particles fill; z_max, 0 or a z below which the camera sees no weather; cutscene_only; exactly one of weather_rooms (the only rooms with weather) and dry_rooms (the rooms without it); optional wind_direction {angle, speed_x, speed_z} for a fixed wind. player: perfect_agent_outfit, the outfit worn at Perfect Agent and up; disguise {outfit, untargetable}, the outfit worn while disguised and whether a disguised player cannot be targeted; coop_spawn_distance, how far the co-op buddy starts from the player (60 when absent). ai: dark_room_lists false keeps guards off their dark room AI list. ending: outcome unknown makes the end screen report the mission as Unknown and the agent as Missing, turns the menus gray and slow and plays the mission-unknown tune on a completion. hub: true marks the stage the player spends time in between missions: no cheats, no mission timer, corpses fade as in the original, no damage outside a training session, a death respawns the player, no co-op AI buddies and no next mission on its end screen. stars: the starfield of a stage that has one: count stars on a sky cube of grid cells per face side, below_horizon when they fill the whole sky. Outfits: default, elvis, trent, trench, frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess, mrblonde, maian, negotiator.\"") != 0) {
 		return -1;
 	}
 	if (weather) {
@@ -7498,6 +7530,11 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 		return -1;
 	}
 	if (is_hub && s_textbufAppend(out, ",\n  \"hub\": true") != 0) {
+		return -1;
+	}
+	if (has_stars && s_textbufAppendf(out,
+			",\n  \"stars\": { \"count\": %d, \"grid\": %d, \"below_horizon\": %s }",
+			star_count, star_grid, star_below ? "true" : "false") != 0) {
 		return -1;
 	}
 	return s_textbufAppend(out, "\n}\n");
@@ -8481,7 +8518,7 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveEntryContains(relpath, "rooms.json",
 			"sky true draws it relative to the player") &&
 		s_existingArchiveEntryContains(relpath, "stage.json",
-			"hub: true marks the stage") &&
+			"stars: the starfield of a stage") &&
 		s_existingArchiveHasEntry(relpath, "pads.json") &&
 		s_existingArchiveHasEntry(relpath, "spawns.json") &&
 		s_existingArchiveHasEntry(relpath, "volumes.json") &&
