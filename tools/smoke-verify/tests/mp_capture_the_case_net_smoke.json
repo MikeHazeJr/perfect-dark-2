@@ -201,6 +201,10 @@
       {
         "pattern": "BOT\\.DROP: host announced simulant",
         "min": 0
+      },
+      {
+        "pattern": "SPAWN\\.ORCH: team [0-9] starts at its base",
+        "min": 2
       }
     ]
   }

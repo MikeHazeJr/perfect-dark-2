@@ -147,6 +147,10 @@
         "pattern": "CTC: team [0-3] case on base [0-3] pad=[0-9]+ room=[1-9][0-9]* respawnpads=[1-6] prop=ok",
         "min": 2,
         "max": 4
+      },
+      {
+        "pattern": "SPAWN\\.ORCH: team [0-9] starts at its base",
+        "min": 2
       }
     ]
   }
