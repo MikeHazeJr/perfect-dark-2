@@ -1162,14 +1162,18 @@ Gfx *bgRenderScene(Gfx *gdl)
 			roomnum = 0x71;
 		}
 
-		/* M0.1a: catalog-first stage identity comparison */
+		/* M0.1a: catalog-first stage identity comparison. Decision 1: a stage
+		 * built from scenario source draws its stars when its stage.json has
+		 * a stars rule. */
 		if (PLAYERCOUNT() == 1
-				&& (strcmp(g_MissionConfig.stage_id, "base:defection") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:extraction") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:test_old") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:infiltration") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:escape") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:attackship") == 0)) {
+				&& (bgUsesScenarioSource()
+					? scenarioSourceStageStars(NULL) != 0
+					: (strcmp(g_MissionConfig.stage_id, "base:defection") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:extraction") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:test_old") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:infiltration") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:escape") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:attackship") == 0))) {
 			gdl = text0f153628(gdl);
 
 			gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);

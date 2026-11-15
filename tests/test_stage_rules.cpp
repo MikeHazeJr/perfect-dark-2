@@ -101,7 +101,7 @@ TEST_CASE("a stage.json the reader cannot use is refused whole", "[stage][scenar
 	const std::string ok_weather = R"("wind_speed": 5, "y_min": -800, "y_max": 800, "dry_rooms": [])";
 	CHECK(refusal("[]").find("not one JSON object") != std::string::npos);
 	CHECK(refusal(R"({ "schema": "pd2.scenario.stage.v2" })").find("must declare schema") != std::string::npos);
-	CHECK(refusal(stage(R"("stars": {})")).find("unknown key 'stars'") != std::string::npos);
+	CHECK(refusal(stage(R"("fog": {})")).find("unknown key 'fog'") != std::string::npos);
 	CHECK(refusal(stage(R"("note": 3)")).find("note must be text") != std::string::npos);
 	CHECK(refusal(stage(R"("weather": [])")).find("weather must be an object") != std::string::npos);
 	CHECK(refusal(stage("\"weather\": { " + ok_weather + ", \"rain\": true }")).find("unknown key 'rain'") !=
@@ -152,8 +152,8 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("(weather->flags & WEATHERFLAG_CUTSCENE_ONLY) ? \"true\" : \"false\"") != std::string::npos);
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"hub: true marks the stage\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub\"") != std::string::npos);
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);
@@ -330,13 +330,51 @@ TEST_CASE("the stage.json ending rule decides how a stage presents its outcome",
 	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
 	REQUIRE(extractor.find("return stageGetIndex(stagenum) == STAGEINDEX_DEFENSE;") != std::string::npos);
 	REQUIRE(extractor.find(R"(s_textbufAppend(out, ",\n  \"ending\": { \"outcome\": \"unknown\" }"))") != std::string::npos);
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"hub: true marks the stage\") &&") != std::string::npos);
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
 	REQUIRE(runtime.find("s32 scenarioSourceStageEnding(scenario_stage_ending_t *out)") != std::string::npos);
 	REQUIRE(endscreen.find("\tif (bgUsesScenarioSource()) {\n"
 		"\t\tscenario_stage_ending_t rule;\n\n"
 		"\t\treturn scenarioSourceStageEnding(&rule) && rule.outcome_unknown;\n"
 		"\t}\n\n"
 		"\treturn g_StageIndex == STAGEINDEX_DEFENSE;") != std::string::npos);
+}
+
+TEST_CASE("the stage.json stars rule carries the starfield", "[stage][scenario][stagerules]")
+{
+	Parsed night(stage(R"("stars": { "count": 200, "grid": 2 })"));
+	INFO(night.error);
+	REQUIRE(night.ok);
+	CHECK(night.rules.stars.present == 1);
+	CHECK(night.rules.stars.count == 200);
+	CHECK(night.rules.stars.grid == 2);
+	CHECK(night.rules.stars.below_horizon == 0);
+	Parsed space(stage(R"("stars": { "count": 1200, "grid": 3, "below_horizon": true })"));
+	REQUIRE(space.ok);
+	CHECK(space.rules.stars.below_horizon == 1);
+	Parsed none(stage(""));
+	REQUIRE(none.ok);
+	CHECK(none.rules.stars.present == 0);
+	CHECK(refusal(stage(R"("stars": true)")).find("stars must be an object") != std::string::npos);
+	CHECK(refusal(stage(R"("stars": { "grid": 2 })")).find("stars.count must be a whole number") != std::string::npos);
+	CHECK(refusal(stage(R"("stars": { "count": 0, "grid": 2 })")).find("stars.count must be a whole number from 1 to 8192") != std::string::npos);
+	CHECK(refusal(stage(R"("stars": { "count": 8193, "grid": 2 })")).find("from 1 to 8192") != std::string::npos);
+	CHECK(refusal(stage(R"("stars": { "count": 2.5, "grid": 2 })")).find("stars.count must be a whole number") != std::string::npos);
+	CHECK(refusal(stage(R"("stars": { "count": 200, "grid": 9 })")).find("stars.grid must be a whole number from 1 to 8") != std::string::npos);
+	CHECK(refusal(stage(R"("stars": { "count": 200, "grid": 2, "below_horizon": 1 })")).find("stars.below_horizon must be true or false") != std::string::npos);
+	CHECK(refusal(stage(R"("stars": { "count": 200, "grid": 2, "colour": 1 })")).find("stars has an unknown key 'colour'") != std::string::npos);
+
+	// The extractor writes it from starsReset's table for the stages lvReset
+	// gives a starfield; the game reads the rule on a scenario-source stage.
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string lv = readSource("src/game/lv.c");
+	const std::string stars = readSource("src/game/stars.c");
+	const std::string bg = readSource("src/game/bg.c");
+	REQUIRE(extractor.find("static s32 s_stageStars(s32 stagenum, s32 *count, s32 *grid, s32 *below_horizon)") != std::string::npos);
+	REQUIRE(extractor.find("\tcase STAGE_ATTACKSHIP:\n\t\t*count = 1200;\n\t\t*grid = 3;\n\t\t*below_horizon = 1;") != std::string::npos);
+	REQUIRE(extractor.find("\"below_horizon\\\": %s }\",") != std::string::npos);
+	REQUIRE(lv.find("if (bgUsesScenarioSource()) {\n\t\tif (scenarioSourceStageStars(NULL)) {\n\t\t\tstarsReset();") != std::string::npos);
+	REQUIRE(stars.find("if (bgUsesScenarioSource() && scenarioSourceStageStars(&rule)) {\n\t\t\tg_StarCount = rule.count;") != std::string::npos);
+	REQUIRE(bg.find("? scenarioSourceStageStars(NULL) != 0") != std::string::npos);
 }
 
 TEST_CASE("the stage.json hub rule marks the stage between missions", "[stage][scenario][stagerules]")

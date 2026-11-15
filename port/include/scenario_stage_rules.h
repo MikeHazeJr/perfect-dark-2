@@ -105,12 +105,23 @@ typedef struct scenario_stage_hub {
 	s32 hub;                  /* hub: true */
 } scenario_stage_hub_t;
 
+/* "stars": the stage's starfield (stars.c), present only on a stage that has
+ * one: "count" stars (1-8192) on a sky cube of "grid" cells per face side
+ * (1-8), and "below_horizon" when they fill the whole sky. */
+typedef struct scenario_stage_stars {
+	s32 present;
+	s32 count;
+	s32 grid;
+	s32 below_horizon;
+} scenario_stage_stars_t;
+
 typedef struct scenario_stage_rules {
 	scenario_stage_weather_t weather;
 	scenario_stage_player_t player;
 	scenario_stage_ai_t ai;
 	scenario_stage_ending_t ending;
 	scenario_stage_hub_t hub;
+	scenario_stage_stars_t stars;
 } scenario_stage_rules_t;
 
 /* The outfit name for an OUTFIT_* value, or NULL; and the value for a name,

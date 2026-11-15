@@ -39,6 +39,16 @@ f32 number(const Json &object, const char *key, const std::string &where)
 	return static_cast<f32>(value);
 }
 
+s32 wholeNumber(const Json &object, const char *key, s32 lo, s32 hi, const std::string &where)
+{
+	if (!object.contains(key) || !object[key].is_number()) refuse(where + "." + key + " must be a whole number");
+	const double value = object[key].get<crude_json::number>();
+	if (!std::isfinite(value) || value != std::floor(value) || value < lo || value > hi) {
+		refuse(where + "." + key + " must be a whole number from " + std::to_string(lo) + " to " + std::to_string(hi));
+	}
+	return static_cast<s32>(value);
+}
+
 bool boolean(const Json &object, const char *key, const std::string &where)
 {
 	if (!object.contains(key)) return false;
@@ -151,6 +161,16 @@ void readEnding(const Json &ending, scenario_stage_ending_t &out)
 	}
 }
 
+void readStars(const Json &stars, scenario_stage_stars_t &out)
+{
+	if (!stars.is_object()) refuse("stars must be an object");
+	onlyKeys(stars, { "count", "grid", "below_horizon" }, "stars");
+	out.present = 1;
+	out.count = wholeNumber(stars, "count", 1, 8192, "stars");
+	out.grid = wholeNumber(stars, "grid", 1, 8, "stars");
+	out.below_horizon = boolean(stars, "below_horizon", "stars") ? 1 : 0;
+}
+
 } // namespace
 
 extern "C" const char *scenarioStageOutfitName(s32 value)
@@ -182,7 +202,7 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 				root["schema"].get<crude_json::string>() != SCENARIO_STAGE_RULES_SCHEMA) {
 			refuse(std::string("stage.json must declare schema ") + SCENARIO_STAGE_RULES_SCHEMA);
 		}
-		onlyKeys(root, { "schema", "note", "weather", "player", "ai", "ending", "hub" }, "stage.json");
+		onlyKeys(root, { "schema", "note", "weather", "player", "ai", "ending", "hub", "stars" }, "stage.json");
 		if (root.contains("note") && !root["note"].is_string()) refuse("stage.json note must be text");
 		out->player.perfect_agent_outfit = -1;
 		out->player.disguise_outfit = -1;
@@ -195,6 +215,7 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 			out->hub.present = 1;
 			out->hub.hub = root["hub"].get<crude_json::boolean>() ? 1 : 0;
 		}
+		if (root.contains("stars")) readStars(root["stars"], out->stars);
 		return 1;
 	} catch (const Refusal &refusal) {
 		std::memset(out, 0, sizeof(*out));

@@ -87,7 +87,7 @@
       "CAMPAIGN\\.AUTO: persisted verification complete profile='smoke' missions=17",
       "MISSION\\.GRAPH: event\\.mission\\.completed 'base:mission_skedarruins' seam=none modules=1 ",
       "MISSION\\.GRAPH: event\\.mission\\.continue 'base:mission_skedarruins' seam=endscreen modules=1 ",
-      "SCENARIO\\.SOURCE: stage rules for 'base:scenario_defense': .* outcome_unknown=1 source=stage\\.json",
+      "SCENARIO\\.SOURCE: stage rules for 'base:scenario_defense': .* outcome_unknown=1 .*source=stage\\.json",
       "SCENARIO\\.SOURCE: intro for 'base:scenario_crashsite': rows=[0-9]+ weapons=4 ammo=3 outfits=1 ",
       "SMOKE: result=campaign_complete .* code=0",
       "SMOKE: result=campaign_verified .* code=0"
