@@ -119,7 +119,12 @@ typedef struct scenario_source_portal_row {
 	u32 flags;
 	s32 vertex_count;
 	struct coord vertices[SCENARIO_SOURCE_PORTAL_MAX_VERTICES];
+	u8 light_rules; /* SCENARIO_PORTAL_RULE_* */
 } scenario_source_portal_row_t;
+
+/* Optional portals.json row rules (see scenarioSourceStageRulesReset). */
+#define SCENARIO_PORTAL_RULE_FLOOD_BLOCKED 0x01u
+#define SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT 0x02u
 
 typedef struct scenario_source_segment_list {
 	u32 *values;
@@ -2755,6 +2760,26 @@ static s32 s_jsonReadS32Value(const char *start, const char *end,
 	}
 	*out = (s32)value;
 	return 1;
+}
+
+/* 1 with *out set when key holds JSON true or false; 0 otherwise. */
+static s32 s_jsonReadBoolValue(const char *start, const char *end,
+	const char *key, s32 *out)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+
+	if (!out || !cursor || cursor >= end) {
+		return 0;
+	}
+	if (end - cursor >= 4 && strncmp(cursor, "true", 4) == 0) {
+		*out = 1;
+		return 1;
+	}
+	if (end - cursor >= 5 && strncmp(cursor, "false", 5) == 0) {
+		*out = 0;
+		return 1;
+	}
+	return 0;
 }
 
 static s32 s_jsonReadU32Value(const char *start, const char *end,
@@ -6434,6 +6459,17 @@ static scenario_source_portal_row_t *s_parsePortalsJson(char *text,
 			return NULL;
 		}
 		(void)portal_ref;
+		{
+			s32 flag = 0;
+			if (s_jsonReadBoolValue(cursor, object_end + 1,
+					"light_flood_blocked", &flag) && flag) {
+				row.light_rules |= SCENARIO_PORTAL_RULE_FLOOD_BLOCKED;
+			}
+			if (s_jsonReadBoolValue(cursor, object_end + 1,
+					"open_to_light", &flag) && flag) {
+				row.light_rules |= SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT;
+			}
+		}
 		row.room1 = s_parseRoomRef(room_a);
 		row.room2 = s_parseRoomRef(room_b);
 		if (row.room1 <= 0 || row.room2 <= 0 || row.room1 == row.room2) {
@@ -34979,6 +35015,110 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 	return data;
 }
 
+/*
+ * Per-stage room and portal rules (decision 1, CORE, 2026-11-15): the
+ * optional rule fields of the stage's rooms.json and portals.json rows. They
+ * replace the stage checks the game kept in roomInitLights and the light
+ * setup (src/game/dlights.c), the room matrix (src/game/room.c) and the
+ * portal-less screen test (src/game/bg.c), which still apply to a stage built
+ * from the ROM background instead of scenario source. The portal table fills the portal
+ * rules and the room table the room rules, each clearing its own first, so a
+ * stage never sees the previous stage's rules.
+ */
+typedef struct {
+	u8 render_always;
+	u8 sky;                 /* drawn relative to the player (roomPopulateMtx) */
+	u8 all_lights_unshootable;
+	s16 base_brightness;    /* -1: keep the base level roomInitLights derives */
+	u64 unshootable_lights; /* bit n: light n of the room */
+} scenario_stage_room_rule_t;
+
+static scenario_stage_room_rule_t *s_StageRoomRules;
+static s32 s_StageRoomRuleCount;
+static u8 *s_StagePortalRules;
+static s32 s_StagePortalRuleCount;
+
+static void s_stageRoomRulesClear(void)
+{
+	free(s_StageRoomRules);
+	s_StageRoomRules = NULL;
+	s_StageRoomRuleCount = 0;
+}
+
+static void s_stagePortalRulesClear(void)
+{
+	free(s_StagePortalRules);
+	s_StagePortalRules = NULL;
+	s_StagePortalRuleCount = 0;
+}
+
+void scenarioSourceStageRulesReset(void)
+{
+	s_stageRoomRulesClear();
+	s_stagePortalRulesClear();
+}
+
+static const scenario_stage_room_rule_t *s_stageRoomRule(s32 roomnum)
+{
+	if (!s_StageRoomRules || roomnum <= 0 || roomnum >= s_StageRoomRuleCount) {
+		return NULL;
+	}
+	return &s_StageRoomRules[roomnum];
+}
+
+s32 scenarioSourceRoomRenderAlways(s32 roomnum)
+{
+	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
+	return rule && rule->render_always;
+}
+
+s32 scenarioSourceRoomSky(s32 roomnum)
+{
+	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
+	return rule && rule->sky;
+}
+
+s32 scenarioSourceRoomBaseBrightness(s32 roomnum, s32 *out_level)
+{
+	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
+
+	if (!rule || rule->base_brightness < 0) {
+		return 0;
+	}
+	if (out_level) {
+		*out_level = rule->base_brightness;
+	}
+	return 1;
+}
+
+s32 scenarioSourceRoomLightUnshootable(s32 roomnum, s32 lightindex)
+{
+	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
+
+	if (!rule || lightindex < 0) {
+		return 0;
+	}
+	if (rule->all_lights_unshootable) {
+		return 1;
+	}
+	return lightindex < 64 &&
+		(rule->unshootable_lights & ((u64)1 << lightindex)) != 0;
+}
+
+s32 scenarioSourcePortalBlocksLightFlood(s32 portalnum)
+{
+	return s_StagePortalRules && portalnum >= 0 &&
+		portalnum < s_StagePortalRuleCount &&
+		(s_StagePortalRules[portalnum] & SCENARIO_PORTAL_RULE_FLOOD_BLOCKED) != 0;
+}
+
+s32 scenarioSourcePortalOpenToLight(s32 portalnum)
+{
+	return s_StagePortalRules && portalnum >= 0 &&
+		portalnum < s_StagePortalRuleCount &&
+		(s_StagePortalRules[portalnum] & SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT) != 0;
+}
+
 struct bgportal *scenarioSourceLoadPortalsForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp, s32 room_count,
 	s32 *out_count)
@@ -34998,6 +35138,7 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 	if (out_count) {
 		*out_count = 0;
 	}
+	s_stagePortalRulesClear();
 
 	scenario = s_findScenarioForStage(stage, prefer_mp);
 	if (!scenario || !scenario->id[0] ||
@@ -35086,6 +35227,33 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.SOURCE: compiled portals.json '%s' for stage '%s' as %d portals across %d rooms (%u bytes)",
 		portals_path, stageid, row_count, room_count, (unsigned)total_size);
+
+	/* The portal light rules, by the same index as the portal table. */
+	if (row_count > 0) {
+		s32 flood_blocked = 0;
+		s32 open_to_light = 0;
+
+		s_StagePortalRules = (u8 *)calloc((size_t)row_count, 1);
+		if (!s_StagePortalRules) {
+			sysLogPrintf(LOG_ERROR,
+				"SCENARIO.SOURCE: no memory for the portal light rules of '%s'",
+				scenario->id);
+		} else {
+			s_StagePortalRuleCount = row_count;
+			for (s32 i = 0; i < row_count; i++) {
+				s_StagePortalRules[i] = rows[i].light_rules;
+				flood_blocked += (rows[i].light_rules &
+					SCENARIO_PORTAL_RULE_FLOOD_BLOCKED) != 0;
+				open_to_light += (rows[i].light_rules &
+					SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT) != 0;
+			}
+			if (flood_blocked || open_to_light) {
+				sysLogPrintf(LOG_NOTE,
+					"SCENARIO.SOURCE: portal light rules for stage '%s': light_flood_blocked=%d open_to_light=%d source=portals.json",
+					stageid, flood_blocked, open_to_light);
+			}
+		}
+	}
 
 	if (out_count) {
 		*out_count = row_count;
@@ -35638,6 +35806,112 @@ u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 	return data;
 }
 
+/* A JSON array of at most cap integers under key: 1 with *out_count set when
+ * it is well formed (an empty list included), 0 otherwise. */
+static s32 s_jsonReadIntList(const char *start, const char *end,
+	const char *key, s32 *out, s32 cap, s32 *out_count)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	s32 count = 0;
+
+	if (!out || !out_count || !cursor || cursor >= end || *cursor != '[') {
+		return 0;
+	}
+	cursor++;
+	for (;;) {
+		char *next;
+		long value;
+
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
+		}
+		if (cursor >= end) {
+			return 0;
+		}
+		if (*cursor == ']') {
+			break;
+		}
+		if (count >= cap) {
+			return 0;
+		}
+		value = strtol(cursor, &next, 0);
+		if (next == cursor || next > end) {
+			return 0;
+		}
+		out[count++] = (s32)value;
+		cursor = next;
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
+		}
+		if (cursor < end && *cursor == ',') {
+			cursor++;
+			continue;
+		}
+		if (cursor < end && *cursor == ']') {
+			break;
+		}
+		return 0;
+	}
+	*out_count = count;
+	return 1;
+}
+
+/* The optional rule fields of one rooms.json row. A field that is present but
+ * not usable is left out and counted in *refused. */
+static void s_readRoomRuleFields(const char *obj_open, const char *obj_close,
+	scenario_stage_room_rule_t *rule, s32 *refused)
+{
+	s32 flag;
+	s32 level;
+	s32 lights[64];
+	s32 light_count;
+
+	if (s_jsonValueAfterKey(obj_open, obj_close, "render_always")) {
+		if (s_jsonReadBoolValue(obj_open, obj_close, "render_always", &flag)) {
+			rule->render_always = flag ? 1 : 0;
+		} else {
+			(*refused)++;
+		}
+	}
+	if (s_jsonValueAfterKey(obj_open, obj_close, "sky")) {
+		if (s_jsonReadBoolValue(obj_open, obj_close, "sky", &flag)) {
+			rule->sky = flag ? 1 : 0;
+		} else {
+			(*refused)++;
+		}
+	}
+	if (s_jsonValueAfterKey(obj_open, obj_close, "base_brightness")) {
+		if (s_jsonReadS32Value(obj_open, obj_close, "base_brightness", &level)
+				&& level >= 0 && level <= 255) {
+			rule->base_brightness = (s16)level;
+		} else {
+			(*refused)++;
+		}
+	}
+	if (s_jsonValueAfterKey(obj_open, obj_close, "lights_unshootable")) {
+		if (s_jsonReadBoolValue(obj_open, obj_close, "lights_unshootable",
+				&flag)) {
+			rule->all_lights_unshootable = flag ? 1 : 0;
+		} else {
+			(*refused)++;
+		}
+	}
+	if (s_jsonValueAfterKey(obj_open, obj_close, "unshootable_lights")) {
+		if (s_jsonReadIntList(obj_open, obj_close, "unshootable_lights",
+				lights, 64, &light_count)) {
+			for (s32 i = 0; i < light_count; i++) {
+				if (lights[i] >= 0 && lights[i] < 64) {
+					rule->unshootable_lights |= (u64)1 << lights[i];
+				} else {
+					(*refused)++;
+				}
+			}
+		} else {
+			(*refused)++;
+		}
+	}
+}
+
 /*
  * B-1113: apply the authored room boxes from the rooms.json sidecar
  * (schema pd2.scenario.rooms.v1) emitted by the pdarena extractor.
@@ -35667,10 +35941,12 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 	s32 applied = 0;
 	s32 rejected = 0;
 	s32 brightness_rooms = 0;
+	s32 rules_refused = 0;
 
 	if (out_brightness_rooms) {
 		*out_brightness_rooms = 0;
 	}
+	s_stageRoomRulesClear();
 	if (!rooms || room_count <= 1) {
 		return 0;
 	}
@@ -35706,6 +35982,21 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 			scenario->id, bounds_path);
 		free(text);
 		return -1;
+	}
+
+	/* The rooms' render and light rules (see scenarioSourceStageRulesReset):
+	 * a room no row names, or whose row sets none, keeps the defaults. */
+	s_StageRoomRules = (scenario_stage_room_rule_t *)calloc((size_t)room_count,
+		sizeof(*s_StageRoomRules));
+	if (!s_StageRoomRules) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: no memory for the room rules of '%s'",
+			scenario->id);
+	} else {
+		s_StageRoomRuleCount = room_count;
+		for (s32 r = 0; r < room_count; r++) {
+			s_StageRoomRules[r].base_brightness = -1;
+		}
 	}
 
 	/* Row objects are the only '{' after "rows", as in room_lights.json. */
@@ -35766,11 +36057,37 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 				brightness_rooms++;
 			}
 		}
+
+		if (s_StageRoomRules) {
+			s_readRoomRuleFields(obj_open, obj_close,
+				&s_StageRoomRules[roomnum], &rules_refused);
+		}
 	}
 
 	free(text);
 	if (out_brightness_rooms) {
 		*out_brightness_rooms = brightness_rooms;
+	}
+
+	if (s_StageRoomRules) {
+		s32 render_always = 0;
+		s32 sky = 0;
+		s32 base_brightness = 0;
+		s32 unshootable = 0;
+
+		for (s32 r = 1; r < s_StageRoomRuleCount; r++) {
+			render_always += s_StageRoomRules[r].render_always != 0;
+			sky += s_StageRoomRules[r].sky != 0;
+			base_brightness += s_StageRoomRules[r].base_brightness >= 0;
+			unshootable += s_StageRoomRules[r].all_lights_unshootable != 0 ||
+				s_StageRoomRules[r].unshootable_lights != 0;
+		}
+		if (render_always || sky || base_brightness || unshootable || rules_refused) {
+			sysLogPrintf(rules_refused ? LOG_WARNING : LOG_NOTE,
+				"SCENARIO.SOURCE: room rules for '%s': render_always=%d sky=%d base_brightness=%d unshootable_light_rooms=%d refused=%d source=rooms.json",
+				scenario->id, render_always, sky, base_brightness, unshootable,
+				rules_refused);
+		}
 	}
 
 	if (rejected > 0) {

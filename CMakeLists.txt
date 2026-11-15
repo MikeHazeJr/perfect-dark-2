@@ -901,6 +901,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_portal_room_domain_contract.cpp
   # B-1113: authored room boxes reach public source and are used at stage load.
   ${CMAKE_SOURCE_DIR}/tests/test_room_table_source_static.cpp
+  # Decision 1: per-stage room and light rules travel in scenario source.
+  ${CMAKE_SOURCE_DIR}/tests/test_stage_light_rules_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp
@@ -1082,6 +1084,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/lang_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_lang_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_archive_gltf_buffers.cpp
+  # B-1112: text members over 4 MiB are checked for references too.
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_archive_large_text.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_render_stream.c
   ${CMAKE_SOURCE_DIR}/tests/test_modasset_render_stream.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_material_order.c

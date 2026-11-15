@@ -27,6 +27,9 @@ u32 bgXorBabebabe(u32 value);
 void bgReset(s32 stagenum);
 void bgBuildTables(s32 stagenum);
 void bgStop(void);
+/* True while the stage's background comes from scenario source rather than
+ * the ROM background file. */
+s32 bgUsesScenarioSource(void);
 void bgSetStageTranslationThing(f32 arg0);
 f32 bgGetStageTranslationThing(void);
 f32 bgGetScaleBg2Gfx(void);

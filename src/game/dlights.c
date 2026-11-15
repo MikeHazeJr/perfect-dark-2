@@ -30,6 +30,7 @@
 #include "data.h"
 #include "types.h"
 #include "platform.h"
+#include "scenario_source_runtime.h"
 
 /* B-948: cap on total recursive portal light-flood calls per stage precompute
  * (func0f002844). Prevents highly-connected portal graphs (base:villa, 304
@@ -376,6 +377,7 @@ void roomInitLights(s32 roomnum)
 	struct room *room = &g_Rooms[roomnum];
 	struct light *light;
 	s32 i;
+	bool renderalways;
 
 	bgGetRoomBrightnessRange(roomnum, &room->br_light_min, &room->br_light_max);
 
@@ -401,25 +403,40 @@ void roomInitLights(s32 roomnum)
 		room->br_base += (room->br_light_max - room->br_light_min) * 4 / 5;
 	}
 
-	switch (g_Vars.stagenum) {
-	case STAGE_EXTRACTION:
-	case STAGE_DEFECTION:
-		if (roomnum == 0x003d) { // near the top comms hub
-			room->br_base = 2;
+	/* Per-stage room and light rules. A stage built from scenario source takes
+	 * them from the optional rule fields of its rooms.json and portals.json
+	 * rows (scenario_source_runtime.c); the stage checks below stay for a
+	 * stage built from the ROM background. */
+	if (bgUsesScenarioSource()) {
+		s32 level;
+
+		if (scenarioSourceRoomBaseBrightness(roomnum, &level)) {
+			room->br_base = (u8)level;
 		}
-		break;
+		renderalways = scenarioSourceRoomRenderAlways(roomnum);
+	} else {
+		switch (g_Vars.stagenum) {
+		case STAGE_EXTRACTION:
+		case STAGE_DEFECTION:
+			if (roomnum == 0x003d) { // near the top comms hub
+				room->br_base = 2;
+			}
+			break;
+		}
+
+		renderalways = ((g_StageIndex == STAGEINDEX_INFILTRATION || g_StageIndex == STAGEINDEX_RESCUE || g_StageIndex == STAGEINDEX_ESCAPE || g_StageIndex == STAGEINDEX_MAIANSOS)
+					&& roomnum == 0x000f) // freight elevator shaft
+				|| ((g_StageIndex == STAGEINDEX_DEFECTION || g_StageIndex == STAGEINDEX_EXTRACTION || g_StageIndex == STAGEINDEX_MBR)
+					&& roomnum == 0x0001) // moon
+				|| ((g_StageIndex == STAGEINDEX_SKEDARRUINS || g_StageIndex == STAGEINDEX_WAR)
+					&& roomnum == 0x0002) // fake sky
+				|| ((s32)g_StageIndex == STAGEINDEX_TEST_OLD
+					&& roomnum == 0x0001)
+				|| (g_StageIndex == STAGEINDEX_ATTACKSHIP
+					&& roomnum == 0x0071); // planet
 	}
 
-	if (((g_StageIndex == STAGEINDEX_INFILTRATION || g_StageIndex == STAGEINDEX_RESCUE || g_StageIndex == STAGEINDEX_ESCAPE || g_StageIndex == STAGEINDEX_MAIANSOS)
-				&& roomnum == 0x000f) // freight elevator shaft
-			|| ((g_StageIndex == STAGEINDEX_DEFECTION || g_StageIndex == STAGEINDEX_EXTRACTION || g_StageIndex == STAGEINDEX_MBR)
-				&& roomnum == 0x0001) // moon
-			|| ((g_StageIndex == STAGEINDEX_SKEDARRUINS || g_StageIndex == STAGEINDEX_WAR)
-				&& roomnum == 0x0002) // fake sky
-			|| ((s32)g_StageIndex == STAGEINDEX_TEST_OLD
-				&& roomnum == 0x0001)
-			|| (g_StageIndex == STAGEINDEX_ATTACKSHIP
-				&& roomnum == 0x0071)) { // planet
+	if (renderalways) {
 		room->flags |= ROOMFLAG_RENDERALWAYS;
 	} else {
 		room->flags &= ~ROOMFLAG_RENDERALWAYS;
@@ -455,19 +472,25 @@ void roomInitLights(s32 roomnum)
 			light->sparking = false;
 			light->vulnerable = true;
 
-			switch (g_Vars.stagenum) {
-			case STAGE_CITRAINING:
-			case STAGE_DEFENSE:
-				if (roomnum == 0x000a) { // firing range
+			if (bgUsesScenarioSource()) {
+				if (scenarioSourceRoomLightUnshootable(roomnum, i)) {
 					light->vulnerable = false;
 				}
-				break;
-			case STAGE_DEFECTION:
-			case STAGE_EXTRACTION:
-				if (roomnum == 0x003e && (i == 0 || i == 1)) { // top comms hub
-					light->vulnerable = false;
+			} else {
+				switch (g_Vars.stagenum) {
+				case STAGE_CITRAINING:
+				case STAGE_DEFENSE:
+					if (roomnum == 0x000a) { // firing range
+						light->vulnerable = false;
+					}
+					break;
+				case STAGE_DEFECTION:
+				case STAGE_EXTRACTION:
+					if (roomnum == 0x003e && (i == 0 || i == 1)) { // top comms hub
+						light->vulnerable = false;
+					}
+					break;
 				}
-				break;
 			}
 		}
 
@@ -655,7 +678,15 @@ void func0f001c0c(void)
 		}
 	}
 
-	if (g_Vars.stagenum == STAGE_EXTRACTION || g_Vars.stagenum == STAGE_DEFECTION) {
+	/* Portals that light does not flood through although they are open: from
+	 * the portals.json rows of a scenario-source stage (see roomInitLights). */
+	if (bgUsesScenarioSource()) {
+		for (i = 0; i < g_NumPortals; i++) {
+			if (scenarioSourcePortalBlocksLightFlood(i)) {
+				var80061438[i] = false;
+			}
+		}
+	} else if (g_Vars.stagenum == STAGE_EXTRACTION || g_Vars.stagenum == STAGE_DEFECTION) {
 		var80061438[98] = false;
 		var80061438[100] = false;
 	}
@@ -1809,7 +1840,15 @@ void func0f004c6c(void)
 		portalGetAvgVertexPos(i, &var80061428[i]);
 	}
 
-	if (g_Vars.stagenum == STAGE_INVESTIGATION) {
+	/* Portals that count as open for light whatever their translucency: from
+	 * the portals.json rows of a scenario-source stage (see roomInitLights). */
+	if (bgUsesScenarioSource()) {
+		for (i = 0; i < g_NumPortals; i++) {
+			if (scenarioSourcePortalOpenToLight(i)) {
+				var8009cad8[i] = 1;
+			}
+		}
+	} else if (g_Vars.stagenum == STAGE_INVESTIGATION) {
 		var8009cad8[0] = 1;
 	}
 
