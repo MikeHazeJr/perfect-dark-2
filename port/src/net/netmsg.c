@@ -3956,6 +3956,13 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 		u8 local_room = g_NetLocalClient ? g_NetLocalClient->room_id : 0xFF;
 		for (s32 i = 0; i < g_NetMaxClients; ++i) {
 			struct netclient *ncl = &g_NetClients[i];
+			/* B-1190: a peer, not this client. Its player link is this
+			 * machine's presentation context (playermgrGetLocalPlayerNum):
+			 * clearing it deferred every global tick, so lvTick and menuTick
+			 * never ran and the results were pushed only after a disconnect. */
+			if (ncl == g_NetLocalClient) {
+				continue;
+			}
 			if (ncl->state && ncl->room_id == local_room) {
 				ncl->state = CLSTATE_DISCONNECTED;
 				ncl->player = NULL;
@@ -14079,6 +14086,106 @@ u32 netmsgSvcMissionReturnRead(struct netbuf *src, struct netclient *srccl)
 	g_NetLocalClient->state = CLSTATE_LOBBY;
 	pdguiSetInRoom(1);
 	netSendLobbyResync();
+	return src->error;
+}
+
+/* SVC_MISSION_STATS: u8 count, then per player its client id, u16 kills and
+ * seven u16 shot counts (SHOTREGION_TOTAL..SHOTREGION_OBJECT). The host is
+ * the authority for hits and kills on the mission's characters, so a client's
+ * own copy of the numbers can be off; the host sends them with the end. */
+#define MISSION_STATS_REGIONS 7
+
+static s32 netMissionStatsPlayerNum(const struct netclient *cl)
+{
+	if (!cl || !cl->player) {
+		return -1;
+	}
+	for (s32 i = 0; i < MAX_PLAYERS; i++) {
+		if (g_Vars.players[i] == cl->player) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+static u16 netMissionStatsClamp(s32 value)
+{
+	return value < 0 ? 0 : value > 0xffff ? 0xffff : (u16)value;
+}
+
+u32 netmsgSvcMissionStatsWrite(struct netbuf *dst)
+{
+	u8 count = 0;
+
+	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+		if (g_NetClients[i].state == CLSTATE_GAME
+				&& netMissionStatsPlayerNum(&g_NetClients[i]) >= 0) {
+			count++;
+		}
+	}
+	netbufWriteU8(dst, SVC_MISSION_STATS);
+	netbufWriteU8(dst, count);
+	for (s32 i = 0; i < NET_MAX_CLIENTS; i++) {
+		const struct netclient *cl = &g_NetClients[i];
+		const s32 playernum = cl->state == CLSTATE_GAME ? netMissionStatsPlayerNum(cl) : -1;
+		if (playernum < 0) {
+			continue;
+		}
+		const struct playerstats *stats = &g_Vars.playerstats[playernum];
+		netbufWriteU8(dst, (u8)cl->id);
+		netbufWriteU16(dst, netMissionStatsClamp(stats->killcount));
+		for (s32 r = 0; r < MISSION_STATS_REGIONS; r++) {
+			netbufWriteU16(dst, netMissionStatsClamp(stats->shotcount[r]));
+		}
+	}
+	return dst->error;
+}
+
+u32 netmsgSvcMissionStatsRead(struct netbuf *src, struct netclient *srccl)
+{
+	u8 ids[MAX_PLAYERS];
+	u16 kills[MAX_PLAYERS];
+	u16 shots[MAX_PLAYERS][MISSION_STATS_REGIONS];
+	const u8 count = netbufReadU8(src);
+	s32 applied = 0;
+
+	(void)srccl;
+	if (src->error) {
+		return src->error;
+	}
+	if (count > MAX_PLAYERS) {
+		sysLogPrintf(LOG_WARNING, "NET: SVC_MISSION_STATS rejected count=%u", (unsigned)count);
+		src->error = 1;
+		return src->error;
+	}
+	/* SP-81: the whole message is read before any of it is applied. */
+	for (u8 i = 0; i < count; i++) {
+		ids[i] = netbufReadU8(src);
+		kills[i] = netbufReadU16(src);
+		for (s32 r = 0; r < MISSION_STATS_REGIONS; r++) {
+			shots[i][r] = netbufReadU16(src);
+		}
+	}
+	if (src->error) {
+		return src->error;
+	}
+	if (g_NetMode != NETMODE_CLIENT) {
+		return 0;
+	}
+	for (u8 i = 0; i < count; i++) {
+		const s32 playernum = ids[i] < NET_MAX_CLIENTS
+			? netMissionStatsPlayerNum(&g_NetClients[ids[i]]) : -1;
+		if (playernum < 0) {
+			continue;
+		}
+		g_Vars.playerstats[playernum].killcount = kills[i];
+		for (s32 r = 0; r < MISSION_STATS_REGIONS; r++) {
+			g_Vars.playerstats[playernum].shotcount[r] = shots[i][r];
+		}
+		applied++;
+	}
+	sysLogPrintf(LOG_NOTE, "MISSION: final player stats applied players=%d of %u",
+		applied, (unsigned)count);
 	return src->error;
 }
 

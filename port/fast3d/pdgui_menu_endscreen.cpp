@@ -113,6 +113,7 @@ void pdguiEndscreenExitToRoom(void); /* Networked MP exit-to-room variant. */
 s32 pdguiEndscreenNetMissionHasNext(void);
 void pdguiEndscreenNetMissionStart(s32 next);
 void pdguiEndscreenNetMissionReturnToRoom(void);
+s32 pdguiEndscreenNetMissionStats(s32 which, s32 *kills, s32 *shots, char *name, s32 namelen);
 void netSendLobbyResync(void); /* v49 CLC_LOBBY_RESYNC client helper. */
 s32 pdguiEndscreenGetPlacementIndex(void);
 const char *pdguiEndscreenGetTitle(void);
@@ -543,6 +544,10 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
     }
 
     if (ImGui::IsWindowAppearing()) {
+        /* B-1193: take focus as the multiplayer results do, so keyboard and
+         * controller navigation start on this screen (the default button
+         * below is SetItemDefaultFocus). */
+        ImGui::SetWindowFocus();
         /* M2.3: Refresh achievements so newly unlocked ones show.
          * D6 P3: poll for newly-unlocked IDs and push toast notifications. */
         achievementsRefresh();
@@ -606,6 +611,31 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
     s32 gunShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_GUN);
     s32 hatShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_HAT);
     s32 objShots   = mpstatsGetPlayerShotCountByRegion(ES_SHOT_OBJECT);
+
+    /* B-1193 (Mike, 2026-11-15: in co-op you want to see stats from all
+     * players): a networked mission shows this machine's player and then the
+     * other player, both from the host's final numbers (SVC_MISSION_STATS).
+     * The current player is not used here: on a networked machine it can be
+     * whichever player was ticked last. */
+    const bool netStats = (g_NetMode != ES_NETMODE_NONE);
+    s32  partnerKills = 0;
+    s32  partnerShots[7] = {0};
+    char partnerName[32] = "";
+    bool hasPartner = false;
+    if (netStats) {
+        s32 ownShots[7] = {0};
+        if (pdguiEndscreenNetMissionStats(0, &kills, ownShots, NULL, 0)) {
+            totalShots = ownShots[ES_SHOT_TOTAL];
+            headShots  = ownShots[ES_SHOT_HEAD];
+            bodyShots  = ownShots[ES_SHOT_BODY];
+            limbShots  = ownShots[ES_SHOT_LIMB];
+            gunShots   = ownShots[ES_SHOT_GUN];
+            hatShots   = ownShots[ES_SHOT_HAT];
+            objShots   = ownShots[ES_SHOT_OBJECT];
+        }
+        hasPartner = pdguiEndscreenNetMissionStats(1, &partnerKills, partnerShots,
+            partnerName, (s32)sizeof(partnerName)) != 0;
+    }
 
     float accuracy = 0.0f;
     char  accuracyBuf[32] = "0.0%";
@@ -691,6 +721,36 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
         ImGui::Text("Other %d  Total %d",
                     gunShots + hatShots + objShots, totalShots);
         ImGui::PopStyleColor();
+
+        /* B-1193: the other player in a networked mission */
+        if (hasPartner) {
+            const s32 pHits = partnerShots[ES_SHOT_HEAD] + partnerShots[ES_SHOT_BODY]
+                + partnerShots[ES_SHOT_LIMB] + partnerShots[ES_SHOT_GUN]
+                + partnerShots[ES_SHOT_HAT] + partnerShots[ES_SHOT_OBJECT];
+            char partnerHeader[48];
+            char pKillBuf[16];
+            char pAccBuf[32] = "0.0%";
+            snprintf(partnerHeader, sizeof(partnerHeader), "PARTNER: %s",
+                     partnerName[0] ? partnerName : "Agent");
+            snprintf(pKillBuf, sizeof(pKillBuf), "%d", partnerKills);
+            if (partnerShots[ES_SHOT_TOTAL] > 0) {
+                float pAcc = (float)pHits / (float)partnerShots[ES_SHOT_TOTAL];
+                if (pAcc > 1.0f) pAcc = 1.0f;
+                snprintf(pAccBuf, sizeof(pAccBuf), "%.1f%%", pAcc * 100.0f);
+            }
+
+            ImGui::Spacing();
+            SectionHeader(partnerHeader);
+            StatRow("Kills:", pKillBuf);
+            StatRow("Accuracy:", pAccBuf);
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.65f, 0.65f, 0.75f, 1.0f));
+            ImGui::Text("Head %d  Body %d  Limb %d", partnerShots[ES_SHOT_HEAD],
+                        partnerShots[ES_SHOT_BODY], partnerShots[ES_SHOT_LIMB]);
+            ImGui::Text("Other %d  Total %d", partnerShots[ES_SHOT_GUN]
+                        + partnerShots[ES_SHOT_HAT] + partnerShots[ES_SHOT_OBJECT],
+                        partnerShots[ES_SHOT_TOTAL]);
+            ImGui::PopStyleColor();
+        }
 
         /* === RIGHT: Objectives === */
         ImGui::TableSetColumnIndex(1);
@@ -795,10 +855,14 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
                 if (pdguiActionBarButton("Next Mission", 1, slotW) && !inputSuppressed) {
                     decision.request(PdguiEndscreenIntent::Continue);
                 }
+                ImGui::SetItemDefaultFocus(); /* B-1193: Use presses the default */
                 ImGui::SameLine();
             }
             if (pdguiActionBarButton("Retry Mission", hasNext ? 0 : 1, slotW) && !inputSuppressed) {
                 decision.request(PdguiEndscreenIntent::Retry);
+            }
+            if (!hasNext) {
+                ImGui::SetItemDefaultFocus();
             }
             ImGui::SameLine();
             if (pdguiActionBarButton("Return to Room", 0,
@@ -832,6 +896,7 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
                 if (pdguiActionBarButton(nextLabel, 1, halfW) && !inputSuppressed) {
                     decision.request(PdguiEndscreenIntent::Continue);
                 }
+                ImGui::SetItemDefaultFocus(); /* B-1193: the default the comment names */
                 ImGui::SameLine();
                 if (pdguiActionBarButton("Retry Mission", 0,
                                           ImGui::GetContentRegionAvail().x)
@@ -842,6 +907,7 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
                 if (pdguiActionBarButton("Retry Mission", 1, halfW) && !inputSuppressed) {
                     decision.request(PdguiEndscreenIntent::Retry);
                 }
+                ImGui::SetItemDefaultFocus(); /* B-1193 */
                 ImGui::SameLine();
                 if (pdguiActionBarButton("Main Menu", 0,
                                           ImGui::GetContentRegionAvail().x)
@@ -857,6 +923,7 @@ static void renderSoloEndscreen(struct menudialog *dialog, bool completed)
             if (pdguiActionBarButton("Retry Mission", 1, halfW) && !inputSuppressed) {
                 decision.request(PdguiEndscreenIntent::Retry);
             }
+            ImGui::SetItemDefaultFocus(); /* B-1193 */
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,
                                   ImVec4(0.3f, 0.1f, 0.1f, 0.9f));
@@ -1477,6 +1544,11 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
                     && !inputSuppressed) {
                 decision.request(PdguiEndscreenIntent::Continue);
             }
+            /* B-1192: the default focus. The debounce disables the bar on the
+             * frame the window appears, when ImGui picks its first focus and
+             * skips disabled items, so without this no button had focus and
+             * Use pressed nothing. */
+            ImGui::SetItemDefaultFocus();
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));
@@ -1494,6 +1566,7 @@ static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverri
                     && !inputSuppressed) {
                 decision.request(PdguiEndscreenIntent::Continue);
             }
+            ImGui::SetItemDefaultFocus(); /* B-1192 */
             ImGui::SameLine();
             ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.6f, 0.15f, 0.15f, 0.9f));
             ImGui::PushStyleColor(ImGuiCol_ButtonHovered,  ImVec4(0.8f, 0.2f, 0.2f, 1.0f));

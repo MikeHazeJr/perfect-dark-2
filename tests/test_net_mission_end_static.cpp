@@ -254,3 +254,40 @@ TEST_CASE("mission end: smokes can end a mission on the host and see its results
 	const std::string harness = code_only(read_text_file("port/src/smoke_harness.c"));
 	REQUIRE(harness.find("facts.endscreen_menu_active = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)\n\t\t|| menupoolIsActive(MENU_TYPE_ENDSCREEN_SOLO);") != std::string::npos);
 }
+
+TEST_CASE("mission end: each machine's results show both players with the host's numbers",
+          "[net][coop][mission-end][b1193]") {
+	// Mike, 2026-11-15: in co-op you want to see stats from all players
+	REQUIRE(read_text_file("port/include/net/netmsg.h").find("#define SVC_MISSION_STATS  0x7d") != std::string::npos);
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	REQUIRE(net.find("case SVC_MISSION_STATS:    rc = netmsgSvcMissionStatsRead(&cl->in, cl); break;") != std::string::npos);
+	const std::string final_state = function_body(net, "static bool netServerSendFinalObjectives(u8 room_id, const char *reason)\n{");
+	REQUIRE(final_state.find("netmsgSvcMissionStatsWrite(&wire);") != std::string::npos);
+
+	// The writer's count and rows use the same test; the reader reads every
+	// row before it applies any (SP-81)
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string write = function_body(msg, "u32 netmsgSvcMissionStatsWrite(struct netbuf *dst)\n{");
+	REQUIRE(write.find("g_NetClients[i].state == CLSTATE_GAME\n\t\t\t\t&& netMissionStatsPlayerNum(&g_NetClients[i]) >= 0") != std::string::npos);
+	REQUIRE(write.find("cl->state == CLSTATE_GAME ? netMissionStatsPlayerNum(cl) : -1") != std::string::npos);
+	const std::string read = function_body(msg, "u32 netmsgSvcMissionStatsRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t rows = read.find("shots[i][r] = netbufReadU16(src);");
+	const size_t client = read.find("if (g_NetMode != NETMODE_CLIENT) {");
+	const size_t apply = read.find("g_Vars.playerstats[playernum].killcount = kills[i];");
+	REQUIRE(rows != std::string::npos);
+	REQUIRE(client != std::string::npos);
+	REQUIRE(apply != std::string::npos);
+	REQUIRE(rows < client);
+	REQUIRE(client < apply);
+	REQUIRE(read.find("count > MAX_PLAYERS") < rows);
+
+	// The results: own player, then the partner, both by the per-machine flag
+	const std::string bridge = code_only(read_text_file("port/fast3d/pdgui_bridge.c"));
+	const std::string stats = function_body(bridge, "s32 pdguiEndscreenNetMissionStats(s32 which, s32 *kills, s32 *shots, char *name, s32 namelen)\n{");
+	REQUIRE(stats.find("(player->isremote != 0) != (which != 0)") != std::string::npos);
+	const std::string es = code_only(read_text_file("port/fast3d/pdgui_menu_endscreen.cpp"));
+	const std::string render = function_body(es, "static void renderSoloEndscreen(struct menudialog *dialog, bool completed)\n{");
+	REQUIRE(render.find("pdguiEndscreenNetMissionStats(0, &kills, ownShots, NULL, 0)") != std::string::npos);
+	REQUIRE(render.find("pdguiEndscreenNetMissionStats(1, &partnerKills, partnerShots,") != std::string::npos);
+	REQUIRE(render.find("\"PARTNER: %s\"") != std::string::npos);
+}

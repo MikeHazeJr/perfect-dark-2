@@ -1316,6 +1316,33 @@ void pdguiEndscreenNetMissionStart(s32 next)
     }
 }
 
+/* B-1193 (Mike: in co-op you want to see stats from all players): a networked
+ * mission's results show both players. which 0 is this machine's own player,
+ * 1 the other player; isremote is per machine and the co-op stage end leaves
+ * it set. shots holds the seven SHOTREGION counts. Returns 0 without one. */
+s32 pdguiEndscreenNetMissionStats(s32 which, s32 *kills, s32 *shots, char *name, s32 namelen)
+{
+    for (s32 i = 0; i < MAX_PLAYERS; i++) {
+        const struct player *player = g_Vars.players[i];
+        if (!player || (player->isremote != 0) != (which != 0)) {
+            continue;
+        }
+        if (kills) {
+            *kills = g_Vars.playerstats[i].killcount;
+        }
+        if (shots) {
+            for (s32 r = 0; r < 7; r++) {
+                shots[r] = g_Vars.playerstats[i].shotcount[r];
+            }
+        }
+        if (name && namelen > 0) {
+            snprintf(name, (size_t)namelen, "%s", g_PlayerConfigsArray[i].base.name);
+        }
+        return 1;
+    }
+    return 0;
+}
+
 void pdguiEndscreenNetMissionReturnToRoom(void)
 {
     u8 room;

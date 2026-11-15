@@ -269,3 +269,43 @@ TEST_CASE("results for every player: the room shows who is still reviewing match
 	REQUIRE(read_text_file("port/fast3d/pdgui_menu_room.cpp").find("\"reviewing match stats\"") != std::string::npos);
 	REQUIRE(read_text_file("port/fast3d/pdgui_menu_lobby.cpp").find("\"Reviewing match stats\"") != std::string::npos);
 }
+
+TEST_CASE("results for every player: a client keeps its own player linked at a Combat stage end",
+          "[net][rematch][finding4][b1190]") {
+	// B-1190 part 2: unlinking the local client too left no local player, so
+	// the whole lvTick (and menuTick's results push) was deferred
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string end = function_body(msg, "u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t loop = end.find("u8 local_room = g_NetLocalClient ? g_NetLocalClient->room_id : 0xFF;");
+	const size_t skip = end.find("if (ncl == g_NetLocalClient) {", loop);
+	const size_t unlink = end.find("ncl->player = NULL;", loop);
+	REQUIRE(loop != std::string::npos);
+	REQUIRE(skip != std::string::npos);
+	REQUIRE(unlink != std::string::npos);
+	REQUIRE(skip < unlink);
+	REQUIRE(end.find("continue;", skip) < unlink);
+}
+
+TEST_CASE("results for every player: the primary results button is the default focus",
+          "[net][rematch][finding4][b1192]") {
+	// B-1192 part 2: the debounce disables the bar when ImGui picks the first
+	// focus, so the default has to be named
+	const std::string es = code_only(read_text_file("port/fast3d/pdgui_menu_endscreen.cpp"));
+	const std::string mp = function_body(es, "static void renderMpEndscreen(struct menudialog *dialog, const char *titleOverride, s32 challengeResult)\n{");
+	for (const char *primary : { "pdguiActionBarButton(\"Return to Room\", 1, halfW)", "pdguiActionBarButton(\"Play Again\", 1, halfW)" }) {
+		INFO(primary);
+		const size_t button = mp.find(primary);
+		const size_t focus = mp.find("ImGui::SetItemDefaultFocus();", button);
+		const size_t next = mp.find("pdguiActionBarButton(", button + 1);
+		REQUIRE(button != std::string::npos);
+		REQUIRE(focus != std::string::npos);
+		REQUIRE(focus < next);
+	}
+	const std::string solo = function_body(es, "static void renderSoloEndscreen(struct menudialog *dialog, bool completed)\n{");
+	const size_t appearing = solo.find("if (ImGui::IsWindowAppearing()) {");
+	REQUIRE(appearing != std::string::npos);
+	REQUIRE(solo.find("ImGui::SetWindowFocus();", appearing) < solo.find("achievementsRefresh();", appearing));
+	const size_t next = solo.find("pdguiActionBarButton(\"Next Mission\", 1, slotW)");
+	REQUIRE(next != std::string::npos);
+	REQUIRE(solo.find("ImGui::SetItemDefaultFocus();", next) < solo.find("pdguiActionBarButton(\"Retry Mission\", hasNext ? 0 : 1", next));
+}

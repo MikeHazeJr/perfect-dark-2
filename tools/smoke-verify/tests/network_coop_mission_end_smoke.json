@@ -210,7 +210,8 @@
   ],
   "assertions": {
     "required_lines": [
-      "SMOKE: scenario=network_coop_mission_end_smoke",
+      "SMOKE: scenario=network_coop_mission_end_host",
+      "SMOKE: scenario=network_coop_mission_end_client",
       "NET: created server on port 27254",
       "NET: incoming connection",
       "BOOT: --debug-end-mission armed: seconds=40 result=complete",
@@ -222,7 +223,8 @@
       "GAMELOOP\\.COOP: host chose next mission stage=base:",
       "BRIDGE: local-replayed CLC_LOBBY_START gamemode=1",
       "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
-      "SMOKE: result=scripted_exit"
+      "SMOKE: result=scripted_exit",
+      "MISSION: final player stats applied players=2 of 2"
     ],
     "forbidden_patterns": [
       "prop with syncid .* does not exist",
@@ -248,7 +250,7 @@
     ],
     "required_counts": [
       {
-        "pattern": "SMOKE: scenario=network_coop_mission_end_smoke",
+        "pattern": "SMOKE: scenario=network_coop_mission_end_(host|client)",
         "min": 2,
         "max": 2
       },

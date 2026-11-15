@@ -103,6 +103,10 @@ typedef struct net_vehicle_state_txn_s {
 /* B-1193 (unreleased v62): server→room, the host chose Return to Room after a
  * co-op or counter-op mission; clients leave their results for the Room. */
 #define SVC_MISSION_RETURN 0x7c
+/* B-1193 (unreleased v62): server→match, every player's final mission stats
+ * (kills and shots by region), so each machine's results show both players
+ * with the host's numbers. */
+#define SVC_MISSION_STATS  0x7d
 #define SVC_ROOM_PLAYLIST  0x79 // server→room: mod music playlist changed by leader (serialized string)
 
 /* MASTER-C2b: Admin RCON reply (protocol v38+; ADMIN_RESP_RATE_LIMIT added v39). */
@@ -647,6 +651,8 @@ u32 netmsgSvcLobbyRosterRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcMissionReturnWrite(struct netbuf *dst, u8 room_id);
 u32 netmsgSvcMissionReturnRead(struct netbuf *src, struct netclient *srccl);
 s32 netServerSendMissionReturn(u8 room_id);
+u32 netmsgSvcMissionStatsWrite(struct netbuf *dst);
+u32 netmsgSvcMissionStatsRead(struct netbuf *src, struct netclient *srccl);
 /* Rebuild and publish lobby leader plus room-list topology after an
  * authenticated join or reconnect commit. Server mode only. */
 void netmsgServerPublishAuthenticatedTopology(void);

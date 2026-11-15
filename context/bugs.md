@@ -1,5 +1,15 @@
 # Bug Tracker
 
+## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, open)
+
+Severity medium (a simulant takes a weapon on the host that stays on the ground on the client; no crash). Seen in
+`mp_simulant_types_net_smoke` on binary 91a54a5d (`results-20261115T215645Z.json`, 106/107, the only failure):
+`BOT.PICKUP: client skipped item 26 for simulant 14, it is not in this world`, and the same for items 23, 25, 29 and
+30, while the host sent all of them (`BOT.PICKUP: host sent simulant 14 item 26 weapon=5 result=1`) and the client
+replayed later ones (items 34 to 43). No `BOT.DROP` lines, so these are not dropped weapons. The skipped ids are the
+lowest, which suggests the arena's starting weapon pickups have no counterpart with the same sync id on the client.
+The 3-simulant runs never took one. Not investigated yet.
+
 ## 2026-11-15 B-1193 The networked co-op and counter-op mission end is local on each machine (T-NETWORKING-011, Mike: host control)
 
 Severity high for networked co-op and counter-op (the next mission or a retry drops the other player; no mission
@@ -27,11 +37,25 @@ Next and Retry go through the Room's lobby start, which takes the other player a
 `SVC_MISSION_RETURN` 0x7c (unreleased v62) and the client leaves its results for the Room; the other player sees
 "Waiting for the host to choose what comes next" and Disconnect; (4) the both-dead and Bond-dead ends and the pause
 menu's End Game no longer end the mission on a client (End Game there leaves the session); (5) the final objective
-statuses go out ahead of `SVC_STAGE_END` (`netServerSendFinalObjectives`). Pinned in
+statuses go out ahead of `SVC_STAGE_END` (`netServerSendFinalObjectives`); (6) Mike, 2026-11-15, "in co-op don't
+you want to see stats from all players?": each machine's results show its own player's combat stats and then a
+PARTNER block with the other player's, read by the per-machine `isremote` (`pdguiEndscreenNetMissionStats`, not
+the current player, which on a networked machine can be whichever player was ticked last), and the host sends every
+player's final kills and shots by region with the final objective statuses (`SVC_MISSION_STATS` 0x7d, unreleased
+v62; the host decides hits and kills on the mission's characters, so a client's own count can be off). Pinned in
 `tests/test_net_mission_end_static.cpp` (`[b1193]`). Game check: `network_coop_mission_end_smoke` (new): the host ends co-op Defection at 40 s with
 `--debug-end-mission 40:complete` (the level script's end, host or offline only), both machines wait for their
 own results (`endscreen_visible` now also sees the solo results type), the host presses its default Next
-Mission and the client, pressing nothing, must be taken into the next mission. Queued.
+Mission and the client, pressing nothing, must be taken into the next mission. First run, binary 91a54a5d
+(`results-20261115T212355Z.json`, 111/119): proven in play: the end at 40 s, the six final objective statuses on
+the client just before `SVC_STAGE_END` (all complete), `NET: mission end returns client=1 to the lobby`, one
+results push per machine (host Bond, client its own player) and both results screens up. Not reached: the host's
+Use press did nothing (no `MENU.GRAPH.FIRE`), so the next mission never started. The solo results screen never took
+window focus and had no default button, and its content child comes before the action bar, so keyboard and
+controller navigation had no button to activate. Fix: `SetWindowFocus` when it appears, as the multiplayer
+results do, and `SetItemDefaultFocus` on the button the comments already call the default (Next Mission, else
+Retry; offline too); the client's Disconnect is not a default. Two assertions also named the test instead of the
+per-process scenarios. Re-run after the current turn.
 
 ## 2026-11-15 B-1191 Simulants were invisible on networked clients (T-NETWORKING-011, finding 3)
 
@@ -69,7 +93,11 @@ saw (the host sends deaths). Pinned in `tests/test_mp_chrnum_static.cpp` (`[b119
 aiming pose toward a target and which death animation plays (the client picks one). Propagation: the co-op NPC
 reader `netmsgSvcNpcMoveRead` makes the same bare `prop->pos` write; the co-op run verified the NPC snapshot
 (`SVC_NPC_SYNC snapshot verified ... count=36`, idle NPCs), but walking NPCs on a client are unproven, left to the
-co-op step. Game check: the render smoke and the networked simulant types smoke, to queue.
+co-op step. Game check: `mp_combat_net_bot_render_smoke` PASS 66/66 on binary 91a54a5d
+(`results-20261115T214359Z.json`): the client's simulant is on screen (`prop_flags=0xc4`, `propsSort-included`,
+`chrRender-modelRender`), animated (animation 89, frames advancing) and at its height (y -604). Fixed in play.
+Observation: the client still logs some `chr desync detected` (14 in that run, 2 resyncs, against 32 before): the
+`SVC_CHR_SYNC` checksum compares exact positions while a client extrapolates puppets between moves; not acted on.
 
 ## 2026-11-15 B-1192 A listen host's Room drew over its own results screen and took focus (T-NETWORKING-011, finding 4)
 
@@ -89,6 +117,16 @@ already waits on the same query. Pinned in `tests/test_host_autostart_rematch_st
 the rematch smoke, queued (q_20261115173307314_394b483c). Co-op and counter-op use the solo results screen; left to
 the co-op end-flow decision.
 
+Part 2, 2026-11-15. The rematch on binary 91a54a5d (`results-20261115T213538Z.json`, 72/90) kept the Room back as
+intended (no `room OPEN` on the host after the end), and Use reached the results screen again (`accept_pressed=1
+suppressed=0`), yet Return to Room still never fired; the co-op mission end smoke showed the same on the solo
+results screen. So the Room was not the whole cause. The input debounce disables the action bar on the frame the
+results window appears, which is when ImGui picks its first focus item, and ImGui skips disabled items there, so
+no button had focus and Use pressed nothing. Fix: `SetItemDefaultFocus` on the primary button of both results
+screens (Return to Room or Play Again; Next Mission or Retry), which names the default even while it is disabled,
+and the solo screen now takes focus when it appears, as the multiplayer one does. Game check: the rematch and the
+co-op mission end smokes, next turn.
+
 ## 2026-11-15 B-1190 Networked clients never see the match results (T-NETWORKING-011, decided: option A)
 
 Decided by Mike, 2026-11-15: option A. Everyone sees the results and presses Continue to go back to the Room, and
@@ -106,6 +144,14 @@ waits for an open dialog` once if a dialog delays the push. (3) "Reviewing match
 (`CLC_LOBBY_RESYNC`, or the listen host's local resync) or when the next match takes the player along
 (`LOBBY.REVIEW:` lines); `lobbyUpdate` copies it into the roster in the lobby state only, `SVC_LOBBY_ROSTER` rows end
 with a flags byte (bit 0, unreleased v62, no bump), and the Room and the social lobby show "reviewing match stats".
+Part 2, same day: the rematch on binary 91a54a5d (`results-20261115T213538Z.json`) showed the client still without
+results while connected: its fallback fired (`LOBBY: results screen did not open within 300 frames`) and its end
+screen was pushed only when the host shut down. Cause: `netmsgSvcStageEndRead`'s loop that unlinks the room's peers
+also unlinked the client itself, and without `g_NetLocalClient->player` there is no local player
+(`playermgrGetLocalPlayerNum`), so `mainTick` deferred the whole `lvTick` (`GLOBAL.TICK: deferred`, B-1090) and
+menuTick never pushed the results. The co-op path does not unlink, which is why co-op results appeared at once.
+Fix: the loop skips the local client. (The host also unlinks itself at its commit, but its push runs in the same
+frame before that.)
 Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[b1190]`) and `tests/test_net_lobby_roster.cpp`. Game
 check: the rematch smoke (its client stays on its results, so the second match has to take it along), queued with
 binary eab25274. Original entry follows.

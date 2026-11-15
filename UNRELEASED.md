@@ -5,8 +5,11 @@
   the Case holders, uplink downloads and bases. Final scores and rankings are
   the same for every player.
 
-- After a networked match the host can leave the results screen with Use or A
-  again; the Room no longer opens on top of it.
+- After a networked match the Room no longer opens on top of the host's
+  results screen.
+
+- Networked clients now see the simulants: they are drawn, animated and stay
+  on the ground instead of disappearing.
 
 - Simulants that pick up the briefcase or the uplink now do so on every
   player's screen in networked matches.

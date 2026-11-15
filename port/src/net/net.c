@@ -2086,7 +2086,9 @@ static bool netServerSendFinalScores(u8 room_id, const char *reason)
  * Combat publishes its final scores. */
 static bool netServerSendFinalObjectives(u8 room_id, const char *reason)
 {
-	u8 data[MAX_OBJECTIVES * 3u];
+	/* The objective statuses, then SVC_MISSION_STATS: an id and a count, and
+	 * per player a client id, kills and seven shot counts. */
+	u8 data[MAX_OBJECTIVES * 3u + 2u + MAX_PLAYERS * 17u];
 	struct netbuf wire = { .data = data, .size = sizeof(data) };
 	s32 count = 0;
 	u32 bytes;
@@ -2096,14 +2098,14 @@ static bool netServerSendFinalObjectives(u8 room_id, const char *reason)
 		netmsgSvcObjStatusWrite(&wire, (u8)i, (u8)g_ObjectiveStatuses[i]);
 		count++;
 	}
+	/* B-1193: and every player's final stats, so each machine's results show
+	 * both players with the host's numbers. */
+	netmsgSvcMissionStatsWrite(&wire);
 	if (wire.error) {
 		sysLogPrintf(LOG_ERROR,
 			"NET: final objective statuses write failed reason=%s room=%u",
 			reason ? reason : "unspecified", (unsigned)room_id);
 		return false;
-	}
-	if (count == 0) {
-		return true;
 	}
 	bytes = wire.wp;
 	if (netSendToMatch(room_id, &wire, true, NETCHAN_DEFAULT) != bytes) {
@@ -3645,6 +3647,7 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_ROOM_RESULT:      rc = netmsgSvcRoomResultRead(&cl->in, cl); break;
 				case SVC_LOBBY_ROSTER:     rc = netmsgSvcLobbyRosterRead(&cl->in, cl); break;
 			case SVC_MISSION_RETURN:   rc = netmsgSvcMissionReturnRead(&cl->in, cl); break;
+			case SVC_MISSION_STATS:    rc = netmsgSvcMissionStatsRead(&cl->in, cl); break;
 			case SVC_MUSIC_ADVANCE:    rc = netmsgSvcMusicAdvanceRead(&cl->in, cl); break;
 			case SVC_ACHIEVEMENT_TOAST: rc = netmsgSvcAchievementToastRead(&cl->in, cl); break;
 			/* Phase 3 spectator (protocol v42) */
