@@ -10054,3 +10054,69 @@ Next
 - Waiting on Mike: decisions 1 to 8 in the Finish Tracker, the three
   interrupted smoke workspaces, and whether his real profile (written by the
   network fixtures before B-1124) needs a look.
+
+## 2026-11-15 (night, 00:30-02:00 UTC) - CORE: client writes outside its folders (B-1160), objective parity probe, soak, graph AI argument fixes
+
+Focus: stray files in the shared base after CORE's own runs, the parity probe
+for every objective, and two small asks from MODS.
+
+What was done
+- B-1160 fixed (90b9acda): thirteen menu saves called `configSave("pd.ini")`,
+  which resolves like a read and wrote the base folder (the game reads
+  `$S/pd.ini`); a `--moddir` that did not exist yet was dropped, so mod
+  discovery mounted `$E/../mods` (from a shared base, the MODS checkout:
+  scanned, 4 mods found, none enabled); a fresh `--savedir` copied a stray
+  `pd.ini` from the working folder (seen once, CORE's B-1119 Agent run); fonts,
+  themes and the migration bench kept their own discovery lists that ignored
+  `--moddir`. Now: every save names `CONFIG_PATH` and `configSave` refuses a
+  bare name; the explicit `--moddir` is kept and created; one root list
+  (`fsModRoots`); no save migration into an explicit `--savedir`. Pattern
+  recorded as SP-78 (one copy of a path rule fixed, its siblings not).
+- CORE's stray `pd.ini` in `shared-base-3` recycled (copy in receipts). The
+  two migration markers (`shared-base-3\mods`, `D:\PD2-wt\mods`) stay until
+  both other clients have the fix: they stop a pre-fix client from packaging
+  folders there.
+- Objective parity probe (92c162fa): before the forced end the runner
+  evaluates every active objective from the mission graph and natively and
+  fails on a difference. Five campaign fixtures require one probe line per
+  mission.
+- For MODS: custom graph projectile spawn and landing logs
+  (`week-pd/projlog`, a6c6d905) and a weapon source compile entry with the
+  variables text (`week-pd/varcompile`, b999ef39). Both are one-commit
+  branches on dev, merged back into core with the tree unchanged.
+- B-1161 fixed: graph `if_natural_anim` refused the empty ROM animation slot
+  ANIM_IDLE (257 of 1,207 character slots are empty, so they have no
+  `.pdanim`); a number-only comparison now takes an empty slot as it is.
+- Audit of all 30 graph pad checks against their native handlers (read-only
+  subagent; each finding re-checked in code and logs) and the soak's minute
+  of live play gave four more: B-1162 (shipped content: lights changed by
+  background scripts never changed on the graph path, 569 of 590 calls),
+  B-1163 (five room commands checked a room-or-pad value as a pad), B-1164
+  (five sites refused the preset pad 9000 their natives resolve), B-1165
+  (Defense's shock trooper clones were not registered as source-spawned).
+  Fixed together with B-1161; SP-79 records the open class behind B-1165
+  (73 helper returns that report success after a failure).
+- Campaign fixtures now forbid those refusals and a light change with
+  `room=-1`; checked against the old client's soak log, which they fail.
+
+Verification
+- pd-tests 1,882/1,882 (ddac997a), settings-save 15/15.
+- Special assignments on the 92c162fa client: 35/35, parity `compared=1
+  not_graph=0` in all four; after four end-screen Main Menu exits the base has
+  no `pd.ini`; the missing `--moddir` was created and was the only mods folder
+  scanned.
+- Soak (`auto_campaign_soak`, 17 missions x 60 game seconds): 37/37, 0
+  errors, parity in every mission (1 to 3 objectives each, `not_graph=0`).
+- Verification soak on ddac997a (receipt `campaign-soak-ddac997a-20261115`):
+  40/40, 0 errors, warnings 62 -> 54. The first light change of the seven
+  stages now names its room (B-1162); no "not source-derived" warning in
+  Defense (B-1165); the idle animation compares as an empty base slot
+  (B-1161); the only graph refusals left are two `chr_copy_properties` on a
+  chr that is gone, which native skips too.
+
+Next
+- SP-79, helper by helper (B-1165 had to come first).
+- Behavior conversion: every one of the 21 stages evaluates every active
+  objective from the graph (`not_graph=0` everywhere), so removing the native
+  fallback is ready; it waits on Mike's decision 1 (what converted means).
+  Mission flow next.
