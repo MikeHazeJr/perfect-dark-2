@@ -90,6 +90,7 @@
 s32 g_NetMode = NETMODE_NONE;
 u8  g_NetMatchRoomId = 0xFF; /* R-3: which room is currently starting/in match (0xFF = global) */
 u8  g_NetCounterOpClientId = NET_NULL_CLIENT;
+u8  g_NetLastCounterOpClientId = NET_NULL_CLIENT;
 u8  g_NetBotAuthorityClientId = NET_NULL_CLIENT;
 
 s32 g_NetHostLatch = false;
@@ -179,6 +180,8 @@ typedef struct net_stage_end_pending_s {
 	/* The final Combat Simulator scores went out ahead of the terminal packet.
 	 * Kept across a failed terminal send so a retry does not depend on it. */
 	bool final_scores_sent;
+	/* B-1193: the same for a co-op or counter-op mission's objective statuses. */
+	bool final_objectives_sent;
 } net_stage_end_pending_t;
 
 static net_stage_end_pending_t s_NetStageEndPending;
@@ -2031,6 +2034,7 @@ static void netServerCommitPendingStageEnd(void)
 		}
 	}
 	g_NetMatchRoomId = 0xFF;
+	g_NetLastCounterOpClientId = g_NetCounterOpClientId;
 	g_NetCounterOpClientId = NET_NULL_CLIENT;
 	sessionCatalogTeardown();
 	memset(&s_NetStageEndPending, 0, sizeof(s_NetStageEndPending));
@@ -2075,6 +2079,45 @@ static bool netServerSendFinalScores(u8 room_id, const char *reason)
 	return true;
 }
 
+/* B-1193: the frame that ends a co-op or counter-op mission wipes the outgoing
+ * buffers (netServerStageEnd), which can drop an SVC_OBJ_STATUS queued earlier
+ * in that frame, and a client shows completed or failed from its cached
+ * statuses. Publish every status on the terminal packet's channel first, as
+ * Combat publishes its final scores. */
+static bool netServerSendFinalObjectives(u8 room_id, const char *reason)
+{
+	u8 data[MAX_OBJECTIVES * 3u];
+	struct netbuf wire = { .data = data, .size = sizeof(data) };
+	s32 count = 0;
+	u32 bytes;
+
+	netbufStartWrite(&wire);
+	for (s32 i = 0; i <= g_ObjectiveLastIndex && i < MAX_OBJECTIVES; i++) {
+		netmsgSvcObjStatusWrite(&wire, (u8)i, (u8)g_ObjectiveStatuses[i]);
+		count++;
+	}
+	if (wire.error) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: final objective statuses write failed reason=%s room=%u",
+			reason ? reason : "unspecified", (unsigned)room_id);
+		return false;
+	}
+	if (count == 0) {
+		return true;
+	}
+	bytes = wire.wp;
+	if (netSendToMatch(room_id, &wire, true, NETCHAN_DEFAULT) != bytes) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: final objective statuses send failed reason=%s room=%u; retry retained",
+			reason ? reason : "unspecified", (unsigned)room_id);
+		return false;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"MISSION: final objective statuses published before stage end room=%u count=%d",
+		(unsigned)room_id, count);
+	return true;
+}
+
 static bool netServerFlushPendingStageEnd(const char *reason)
 {
 	if (!s_NetStageEndPending.active) {
@@ -2086,6 +2129,14 @@ static bool netServerFlushPendingStageEnd(const char *reason)
 			return false;
 		}
 		s_NetStageEndPending.final_scores_sent = true;
+	}
+	if ((s_NetStageEndPending.mode == NETGAMEMODE_COOP
+				|| s_NetStageEndPending.mode == NETGAMEMODE_ANTI)
+			&& !s_NetStageEndPending.final_objectives_sent) {
+		if (!netServerSendFinalObjectives(s_NetStageEndPending.room_id, reason)) {
+			return false;
+		}
+		s_NetStageEndPending.final_objectives_sent = true;
 	}
 	if (!netServerFlushCutsceneAuthorityPacket(reason, true,
 			s_NetStageEndPending.room_id, s_NetStageEndPending.mode)) {
@@ -2377,6 +2428,7 @@ static s32 netDisconnectWithIntent(s32 retain_reconnect)
 	}
 	g_NetMatchRoomId = 0xFF;
 	g_NetCounterOpClientId = NET_NULL_CLIENT;
+	g_NetLastCounterOpClientId = NET_NULL_CLIENT;
 
 	sysLogPrintf(LOG_CHAT, "NET: disconnected");
 
@@ -3592,6 +3644,7 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_ROOM_ASSIGN:      rc = netmsgSvcRoomAssignRead(&cl->in, cl); break;
 			case SVC_ROOM_RESULT:      rc = netmsgSvcRoomResultRead(&cl->in, cl); break;
 				case SVC_LOBBY_ROSTER:     rc = netmsgSvcLobbyRosterRead(&cl->in, cl); break;
+			case SVC_MISSION_RETURN:   rc = netmsgSvcMissionReturnRead(&cl->in, cl); break;
 			case SVC_MUSIC_ADVANCE:    rc = netmsgSvcMusicAdvanceRead(&cl->in, cl); break;
 			case SVC_ACHIEVEMENT_TOAST: rc = netmsgSvcAchievementToastRead(&cl->in, cl); break;
 			/* Phase 3 spectator (protocol v42) */

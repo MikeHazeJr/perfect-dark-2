@@ -523,7 +523,10 @@ void pdguiLobbyRender(s32 winW, s32 winH)
             if (mode == NETMODE_SERVER && !g_NetDedicated) {
                 renderListenHostOverlay(winW, winH, clientCount);
             }
-            const bool resultsOpen = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP) != 0;
+            /* B-1193: a networked co-op or counter-op mission's results use
+             * the solo end screen type. */
+            const bool resultsOpen = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP) != 0
+                || menupoolIsActive(MENU_TYPE_ENDSCREEN_SOLO) != 0;
             if (resultsOpen) {
                 s_ResultsPending = false;
             } else if (s_ResultsPending

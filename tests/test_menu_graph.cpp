@@ -1514,7 +1514,8 @@ TEST_CASE("menu graph: combat-sim pause End Match uses scene graph edge", "[inpu
     REQUIRE(render.find("pdguiPauseSetPlayerAborted()") == std::string::npos);
     REQUIRE(render.find("mainEndStage()") == std::string::npos);
     REQUIRE(render.find("ImGui::Button(\"Cancel##pmendgame\"") != std::string::npos);
-    REQUIRE(render.find("ImGui::Button(\"End Match##pmendgame\"") != std::string::npos);
+    // B-1193: a networked co-op or counter-op client gets Leave (same ID)
+    REQUIRE(render.find("ImGui::Button(leaveOnly ? \"Leave##pmendgame\" : \"End Match##pmendgame\"") != std::string::npos);
     REQUIRE(render.find("if (doConfirm && !doCancel)") != std::string::npos);
     REQUIRE(render.find("pdguiMenuCancelPressed()") != std::string::npos);
     requireNoRawMenuShortcutPolling(render);

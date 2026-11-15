@@ -58,6 +58,10 @@ extern s32 g_NetMode;
 #define NETMODE_NONE   0
 #define NETMODE_SERVER 1
 #define NETMODE_CLIENT 2
+extern u8 g_NetGameMode;
+#define PM_NETGAMEMODE_COOP 1 /* net.h NETGAMEMODE_COOP */
+#define PM_NETGAMEMODE_ANTI 2 /* net.h NETGAMEMODE_ANTI */
+void netDisconnect(void);
 
 /* End game / stage transition */
 void mainEndStage(void);
@@ -186,9 +190,24 @@ void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
 
 } /* extern "C" */
 
+/* B-1193 (Mike, 2026-11-15): the host decides what follows a networked co-op
+ * or counter-op mission and ends it for both players; on the other player's
+ * machine End Game leaves the session instead. */
+static bool pauseIsNetMissionClient(void)
+{
+    return g_NetMode == NETMODE_CLIENT
+        && (g_NetGameMode == PM_NETGAMEMODE_COOP || g_NetGameMode == PM_NETGAMEMODE_ANTI);
+}
+
 static s32 pauseGraphEndMission(void *userdata)
 {
     (void)userdata;
+    if (pauseIsNetMissionClient()) {
+        sysLogPrintf(LOG_NOTE,
+            "GAMELOOP.COOP: End Game on a client leaves the session; the host ends the mission");
+        netDisconnect();
+        return 0;
+    }
     pdguiPauseSetPlayerAborted();
     mainEndStage();
     return 0;
@@ -800,11 +819,15 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
                 bool forceFocus     = (framesOpen >= 0 && framesOpen < ENDGAME_PM_FORCE_FOCUS_FRAMES);
                 bool inputDebounced = (framesOpen >= 0 && framesOpen < ENDGAME_PM_FRAME_DEBOUNCE);
 
-                ImGui::TextColored(pdguiVec4TitleGlow(), "End Match?");
+                const bool leaveOnly = pauseIsNetMissionClient(); /* B-1193 */
+                ImGui::TextColored(pdguiVec4TitleGlow(), leaveOnly ? "Leave Mission?" : "End Match?");
                 ImGui::Separator();
                 ImGui::Spacing();
-                ImGui::TextWrapped("End the current match? "
-                                   "Final rankings will be shown.");
+                ImGui::TextWrapped(leaveOnly
+                    ? "Only the host can end this mission for both players. "
+                      "Leave it and disconnect?"
+                    : "End the current match? "
+                      "Final rankings will be shown.");
                 ImGui::Spacing();
 
                 float bw = pdguiScale(150.0f);
@@ -827,7 +850,8 @@ void pdguiPauseMenuRender(s32 winW, s32 winH)
                 ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.55f, 0.10f, 0.10f, 1.0f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.80f, 0.15f, 0.15f, 1.0f));
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive,  ImVec4(1.00f, 0.20f, 0.20f, 1.0f));
-                if (ImGui::Button("End Match##pmendgame", ImVec2(bw, 0.0f))) {
+                if (ImGui::Button(leaveOnly ? "Leave##pmendgame" : "End Match##pmendgame",
+                                  ImVec2(bw, 0.0f))) {
                     if (!inputDebounced) doConfirm = true;
                 }
                 ImGui::PopStyleColor(3);

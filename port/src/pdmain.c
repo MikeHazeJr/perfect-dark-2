@@ -1213,6 +1213,14 @@ void mainEndStage(void)
 			s32 i;
 
 			for (i = 0; i < LOCALPLAYERCOUNT(); i++) {
+				/* B-1193: in a networked mission each machine shows only its
+				 * own player's results; the other player's are shown on its
+				 * machine. isremote is per machine and still set here (the
+				 * host's stage end commit below does not clear it for co-op). */
+				if (g_NetMode != NETMODE_NONE && g_Vars.players[i]
+						&& g_Vars.players[i]->isremote) {
+					continue;
+				}
 				setCurrentPlayerNum(i);
 				endscreenPushCoop();
 			}
@@ -1224,6 +1232,11 @@ void mainEndStage(void)
 			s32 i;
 
 			for (i = 0; i < LOCALPLAYERCOUNT(); i++) {
+				/* B-1193: as for co-op, only this machine's own player. */
+				if (g_NetMode != NETMODE_NONE && g_Vars.players[i]
+						&& g_Vars.players[i]->isremote) {
+					continue;
+				}
 				setCurrentPlayerNum(i);
 				endscreenPushAnti();
 			}

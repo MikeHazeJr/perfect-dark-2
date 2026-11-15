@@ -4006,7 +4006,8 @@ static void bootHostAutostartRearmTick(void)
 
 	if (g_NetMode != NETMODE_SERVER || g_NetMatchRoomId != 0xFF
 			|| g_BootHostAutostartRoomId == 0xFF
-			|| menupoolIsActive(MENU_TYPE_ENDSCREEN_MP) || !pdguiIsInRoom()) {
+			|| menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)
+			|| menupoolIsActive(MENU_TYPE_ENDSCREEN_SOLO) || !pdguiIsInRoom()) {
 		g_BootHostAutostartRematchFrames = 0;
 		return;
 	}

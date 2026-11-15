@@ -193,7 +193,8 @@ TEST_CASE("host autostart rematch: the lobby UI does not draw the Room over an o
 	// B-1192: in the lobby state, the results screen check comes before the
 	// Room and the social lobby, so neither draws (and takes focus) while it is open
 	const size_t in_lobby = render.find("if (netLocalClientInLobby())");
-	const size_t open = render.find("const bool resultsOpen = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP) != 0;", in_lobby);
+	// (B-1193 adds the solo type for co-op and counter-op results)
+	const size_t open = render.find("const bool resultsOpen = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP) != 0", in_lobby);
 	const size_t results = render.find("if (resultsOpen || s_ResultsPending) {", open);
 	const size_t room = render.find("} else if (s_InRoom) {", results);
 	REQUIRE(open != std::string::npos);

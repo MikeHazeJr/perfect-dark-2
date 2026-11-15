@@ -6447,12 +6447,19 @@ void playerTick(bool arg0)
 						&& g_Vars.coop->isdead
 						&& g_Vars.coop->redbloodfinished
 						&& g_Vars.coop->deathanimfinished) {
-					mainEndStage();
+					/* B-1193: in network co-op the host ends the mission for
+					 * both players (SVC_STAGE_END); a client waits for it. */
+					if (g_NetMode != NETMODE_CLIENT) {
+						mainEndStage();
+					}
 				} else {
 					chrsClearRefsToPlayer(g_Vars.currentplayernum);
 				}
 			} else if (g_Vars.antiplayernum >= 0 && g_Vars.currentplayer == g_Vars.bond) {
-				mainEndStage();
+				/* B-1193: as for co-op, the host ends it. */
+				if (g_NetMode != NETMODE_CLIENT) {
+					mainEndStage();
+				}
 			}
 		}
 	}

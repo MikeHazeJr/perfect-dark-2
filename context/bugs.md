@@ -1,5 +1,36 @@
 # Bug Tracker
 
+## 2026-11-15 B-1193 The networked co-op and counter-op mission end is local on each machine (T-NETWORKING-011, Mike: host control)
+
+Severity high for networked co-op and counter-op (the next mission or a retry drops the other player; no mission
+end has ever run in a smoke). Found by a read-only map of the code on 760ba423 (not run; no fixture ends a mission).
+What happens today: (1) each machine pushes a results dialog for both players (`pdmain.c` mainEndStage loops over
+`PLAYERCOUNT()`; `endscreenPushCoop`/`Anti` check nothing), so each shows the other machine's player too, and
+counter-op draws `renderSoloEndscreen` twice a frame; (2) the host's stage end commit leaves the partner in
+`CLSTATE_GAME` (`netmsgSvcStageEndCommit`, co-op branch), so it is not in the next lobby start's roster and
+`netServerMatchInProgress()` stays true (new connections refused); (3) Next Mission, Retry and Main Menu act only on
+the machine where they are pressed (`pdgui_bridge.c`): a host's Next or Retry reloads alone, its player allocation
+finds one of two players and the rollback disconnects the client; a client's reloads alone while connected;
+(4) networked co-op runs with `normmplayerisrunning` 1 (`mpReset`), so the death branch (`player.c`, both players
+dead in co-op, Bond dead in counter-op) and the pause menu's End Match end the stage on a client too, without the
+host; (5) the host's Room draws over the co-op results, as in B-1192, because the 2P results dialogs are not
+registered in the menu pool; (6) inferred: `netServerStageEnd` wipes the outgoing buffers, which can drop an
+`SVC_OBJ_STATUS` queued in the same frame, and a client decides completed or failed from its cached statuses.
+Note: `src/lib/main.c` is not compiled; the live `mainEndStage` is in `port/src/pdmain.c`. Fix (Mike, 2026-11-15,
+host control), in code: (1) `mainEndStage` pushes results only for this machine's own player (`isremote`, still set
+there; the participant type does not work, the co-op stage load makes both local); the four 2P results dialogs are
+registered as `MENU_TYPE_ENDSCREEN_SOLO`, so the lobby gate (B-1192) and the rematch re-arm also wait on them;
+(2) the co-op/anti stage end commit returns the partner to `CLSTATE_LOBBY` (linkages kept for the results), and
+`g_NetLastCounterOpClientId` keeps the counter-op client past the end; (3) the host's results screen offers Next
+Mission (before Skedar Ruins), Retry Mission and Return to Room (`pdguiEndscreenNetMission*` in `pdgui_bridge.c`):
+Next and Retry go through the Room's lobby start, which takes the other player along; Return to Room sends the new
+`SVC_MISSION_RETURN` 0x7c (unreleased v62) and the client leaves its results for the Room; the other player sees
+"Waiting for the host to choose what comes next" and Disconnect; (4) the both-dead and Bond-dead ends and the pause
+menu's End Game no longer end the mission on a client (End Game there leaves the session); (5) the final objective
+statuses go out ahead of `SVC_STAGE_END` (`netServerSendFinalObjectives`). Pinned in
+`tests/test_net_mission_end_static.cpp` (`[b1193]`). Game check still to do: nothing ends a networked mission in a
+smoke yet; a host-side debug end and `network_coop_mission_end_smoke` are next.
+
 ## 2026-11-15 B-1191 Simulants were invisible on networked clients (T-NETWORKING-011, finding 3)
 
 Severity high (every networked match with simulants: the clients' players could not see them; no

@@ -1239,6 +1239,101 @@ s32 netLobbyRequestStart(u8 gamemode, const char *stage_id, u8 difficulty)
 }
 
 /* ========================================================================
+ * B-1193 (Mike, 2026-11-15): after a networked co-op or counter-op mission the
+ * host decides what follows, for both players. Next Mission and Retry Mission
+ * start the chosen mission through the same lobby start as the Room's Start
+ * Match, which takes the other player along from its results screen; Return
+ * to Room tells the other player to leave its results (SVC_MISSION_RETURN).
+ * ======================================================================== */
+
+void pdguiSetInRoom(s32 inRoom); /* pdgui_lobby.cpp */
+
+/* Next Mission for a networked mission: the campaign's step after Skedar
+ * Ruins is the credits, not a mission to play together. */
+s32 pdguiEndscreenNetMissionHasNext(void)
+{
+    const s32 stageindex = (s32)g_MissionConfig.stageindex;
+
+    if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
+        return 0;
+    }
+
+    return (stageindex >= 0 && stageindex < SOLOSTAGEINDEX_SKEDARRUINS) ? 1 : 0;
+}
+
+void pdguiEndscreenNetMissionStart(s32 next)
+{
+    /* The lobby start's game modes are co-op 1 and counter-op 2, the same
+     * numbers as NETGAMEMODE_COOP and NETGAMEMODE_ANTI. */
+    const s32 anti = g_NetGameMode == NETGAMEMODE_ANTI;
+    const u8 difficulty = (u8)g_MissionConfig.difficulty;
+    char stage_id[64];
+    s32 rc;
+
+    if (g_NetMode != NETMODE_SERVER || g_NetDedicated) {
+        return;
+    }
+
+    stage_id[0] = '\0';
+    if (next) {
+        const s32 index = (s32)g_MissionConfig.stageindex + 1;
+
+        if (!pdguiEndscreenNetMissionHasNext() || index >= NUM_SOLOSTAGES
+                || !g_SoloStages[index].catalog_id) {
+            sysLogPrintf(LOG_WARNING,
+                "GAMELOOP.%s: no next mission after stageindex=%d",
+                anti ? "COUNTEROP" : "COOP", (s32)g_MissionConfig.stageindex);
+            return;
+        }
+        strncpy(stage_id, g_SoloStages[index].catalog_id, sizeof(stage_id) - 1);
+    } else if (g_MissionConfig.stage_id[0]) {
+        strncpy(stage_id, g_MissionConfig.stage_id, sizeof(stage_id) - 1);
+    } else {
+        const char *cid = catalogStageIdByStagenum(g_MissionConfig.stagenum);
+        if (cid) {
+            strncpy(stage_id, cid, sizeof(stage_id) - 1);
+        }
+    }
+    stage_id[sizeof(stage_id) - 1] = '\0';
+    if (!stage_id[0]) {
+        sysLogPrintf(LOG_WARNING, "GAMELOOP.%s: %s has no stage id",
+            anti ? "COUNTEROP" : "COOP", next ? "next mission" : "retry");
+        return;
+    }
+
+    sysLogPrintf(LOG_NOTE, "GAMELOOP.%s: host chose %s stage=%s difficulty=%u",
+        anti ? "COUNTEROP" : "COOP", next ? "next mission" : "retry",
+        stage_id, (unsigned)difficulty);
+    pdguiEndscreenExitToRoom();
+    pdguiSetInRoom(1);
+    rc = anti
+        ? netLobbyRequestStartWithSims(NETGAMEMODE_ANTI, stage_id, difficulty,
+            g_NetLastCounterOpClientId, 0, 0, 60, 0, 0, 0, 0, 0xFF)
+        : netLobbyRequestStart(NETGAMEMODE_COOP, stage_id, difficulty);
+    if (rc != 0) {
+        sysLogPrintf(LOG_WARNING, "GAMELOOP.%s: %s start request failed rc=%d",
+            anti ? "COUNTEROP" : "COOP", next ? "next mission" : "retry", rc);
+    }
+}
+
+void pdguiEndscreenNetMissionReturnToRoom(void)
+{
+    u8 room;
+
+    if (g_NetMode != NETMODE_SERVER || g_NetDedicated || !g_NetLocalClient) {
+        return;
+    }
+
+    room = g_NetLocalClient->room_id;
+    sysLogPrintf(LOG_NOTE, "GAMELOOP.%s: host chose return to room room=%u",
+        g_NetGameMode == NETGAMEMODE_ANTI ? "COUNTEROP" : "COOP", (unsigned)room);
+    pdguiEndscreenExitToRoom();
+    pdguiSetInRoom(1);
+    netSendLobbyResync();
+    netServerSendMissionReturn(room);
+}
+
+/* ========================================================================
  * Match countdown cancel bridge — send CLC_LOBBY_CANCEL from C++ overlay
  * ======================================================================== */
 

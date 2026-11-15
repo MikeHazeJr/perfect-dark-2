@@ -435,6 +435,9 @@ extern s32 g_NetNumPreserved;
 extern struct netrecentserver g_NetRecentServers[NET_MAX_RECENT_SERVERS];
 extern s32 g_NetNumRecentServers;
 extern u8 g_NetCounterOpClientId; /* NET_NULL_CLIENT when not in Counter-Op */
+/* B-1193: the counter-op client of the room's last mission, kept past its stage
+ * end so the host's Next Mission or Retry can start the same roles again. */
+extern u8 g_NetLastCounterOpClientId;
 extern u8 g_NetMatchRoomId; /* 0xFF = lounge/global scope, otherwise exact room */
 extern u8 g_NetBotAuthorityClientId; /* NET_NULL_CLIENT when no authority delegated */
 

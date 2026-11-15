@@ -3872,7 +3872,19 @@ void netmsgSvcStageEndCommit(u8 room_id, u8 mode)
 	if (mode == NETGAMEMODE_COOP || mode == NETGAMEMODE_ANTI) {
 		// Co-op/anti: keep player linkages intact for endscreen display.
 		// The endscreen needs g_Vars.bond, g_Vars.coop, and player stats.
-		// Client state transitions happen via mainEndStage -> endscreenPushCoop.
+		/* B-1193 (Mike, 2026-11-15: the host decides what follows a mission):
+		 * the partner returns to the lobby state with the host, so the host's
+		 * Next Mission or Retry can take it into the next start (that roster
+		 * takes lobby members) and the ended mission no longer counts as a
+		 * match in progress. The next allocation rebinds the linkages. */
+		for (s32 i = 0; i < g_NetMaxClients; ++i) {
+			struct netclient *ncl = &g_NetClients[i];
+			if (ncl->state && ncl->room_id == room_id && ncl->state != CLSTATE_LOBBY) {
+				ncl->state = CLSTATE_LOBBY;
+				sysLogPrintf(LOG_NOTE, "NET: mission end returns client=%u to the lobby room=%u",
+					(unsigned)ncl->id, (unsigned)room_id);
+			}
+		}
 	} else {
 		// MP: unlink players in this room and return them to lobby
 		for (s32 i = 0; i < g_NetMaxClients; ++i) {
@@ -14025,6 +14037,84 @@ u32 netmsgSvcLobbyRosterRead(struct netbuf *src, struct netclient *srccl)
     sysLogPrintf(LOG_NOTE, "NET.LOBBY.ROSTER accepted count=%u local=%u",
         (unsigned)snapshot.count, (unsigned)g_NetLocalClient->id);
     return 0;
+}
+
+/* ========================================================================
+ * SVC_MISSION_RETURN - B-1193 (Mike, 2026-11-15: the host decides what
+ * follows a networked co-op or counter-op mission). The host chose Return to
+ * Room on its results screen; the other player leaves its results for the
+ * Room too. Next Mission and Retry need no message: their lobby start takes
+ * the other player along (SVC_MATCH_MANIFEST, then SVC_STAGE_START).
+ * ======================================================================== */
+
+u32 netmsgSvcMissionReturnWrite(struct netbuf *dst, u8 room_id)
+{
+	netbufWriteU8(dst, SVC_MISSION_RETURN);
+	netbufWriteU8(dst, room_id);
+	return dst->error;
+}
+
+u32 netmsgSvcMissionReturnRead(struct netbuf *src, struct netclient *srccl)
+{
+	extern void pdguiEndscreenExitToRoom(void);
+	extern void pdguiSetInRoom(s32 inRoom);
+	const u8 room_id = netbufReadU8(src);
+
+	(void)srccl;
+	if (src->error) {
+		return src->error;
+	}
+	if (g_NetMode != NETMODE_CLIENT || !g_NetLocalClient
+			|| g_NetLocalClient->room_id != room_id) {
+		sysLogPrintf(LOG_NOTE, "NET: SVC_MISSION_RETURN ignored room=%u", (unsigned)room_id);
+		return 0;
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"GAMELOOP.COOP: host returned to room %u; leaving the mission results",
+		(unsigned)room_id);
+	if (menupoolIsActive(MENU_TYPE_ENDSCREEN_SOLO)) {
+		pdguiEndscreenExitToRoom();
+	}
+	g_NetLocalClient->state = CLSTATE_LOBBY;
+	pdguiSetInRoom(1);
+	netSendLobbyResync();
+	return src->error;
+}
+
+s32 netServerSendMissionReturn(u8 room_id)
+{
+	u8 data[8];
+	struct netbuf wire = {0};
+	s32 sent = 0;
+
+	if (g_NetMode != NETMODE_SERVER || room_id == 0xFF) {
+		return -1;
+	}
+	wire.data = data;
+	wire.size = sizeof(data);
+	if (netmsgSvcMissionReturnWrite(&wire, room_id) != 0) {
+		return -1;
+	}
+	const u32 bytes = wire.wp;
+	for (s32 i = 0; i < NET_MAX_CLIENTS; ++i) {
+		struct netclient *cl = &g_NetClients[i];
+		if (cl == g_NetLocalClient || !cl->peer || cl->state < CLSTATE_LOBBY
+				|| cl->room_id != room_id) {
+			continue;
+		}
+		/* netSend consumes the buffer cursor on success and send failure. */
+		wire.wp = bytes;
+		if (netSend(cl, &wire, true, NETCHAN_CONTROL) != bytes) {
+			sysLogPrintf(LOG_WARNING, "NET: SVC_MISSION_RETURN send failed client=%u",
+				(unsigned)cl->id);
+			continue;
+		}
+		sent++;
+	}
+	sysLogPrintf(LOG_NOTE, "GAMELOOP.COOP: return to room sent room=%u clients=%d",
+		(unsigned)room_id, sent);
+	return sent;
 }
 
 void netmsgPublishLobbyRoster(s32 force)

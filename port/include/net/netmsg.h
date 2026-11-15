@@ -100,6 +100,9 @@ typedef struct net_vehicle_state_txn_s {
 #define SVC_ROOM_SETTINGS  0x78 // server→room: match settings changed by leader (numBots, timelimit, etc.)
 #define SVC_ROOM_RESULT    0x7a // operation, room_result_t, unchanged/accepted room ID
 #define SVC_LOBBY_ROSTER   0x7b // authenticated presentation roster, stable client IDs
+/* B-1193 (unreleased v62): server→room, the host chose Return to Room after a
+ * co-op or counter-op mission; clients leave their results for the Room. */
+#define SVC_MISSION_RETURN 0x7c
 #define SVC_ROOM_PLAYLIST  0x79 // server→room: mod music playlist changed by leader (serialized string)
 
 /* MASTER-C2b: Admin RCON reply (protocol v38+; ADMIN_RESP_RATE_LIMIT added v39). */
@@ -641,6 +644,9 @@ void netSendGpuSwarmState(void);
 void netBroadcastRoomList(void);
 void netmsgPublishLobbyRoster(s32 force);
 u32 netmsgSvcLobbyRosterRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcMissionReturnWrite(struct netbuf *dst, u8 room_id);
+u32 netmsgSvcMissionReturnRead(struct netbuf *src, struct netclient *srccl);
+s32 netServerSendMissionReturn(u8 room_id);
 /* Rebuild and publish lobby leader plus room-list topology after an
  * authenticated join or reconnect commit. Server mode only. */
 void netmsgServerPublishAuthenticatedTopology(void);
