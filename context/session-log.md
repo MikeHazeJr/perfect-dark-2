@@ -10737,3 +10737,34 @@ Next
   passes: push extract-4, publish base 5, merge extract-4 into core, recycle
   the x4-check worktree.
 - Then the remaining hub checks, stars as a stage rule, stage text banks.
+
+## 2026-11-15 (20:40-21:20 UTC) - CORE: stars rule, scene fog, base 6 queued
+
+What happened
+- Stars as a stage.json rule (50db8302): `stars` {count, grid,
+  below_horizon} replaces the lvReset stage list, starsReset's table and
+  bgRenderScene's stage-id list on scenario-source stages; the extractor
+  writes it from the same table (Defection, Extraction, Infiltration, Escape
+  200 on grid 2; Attack Ship 1,200 and Test Old 1,600 on grid 3, below the
+  horizon). Kind _ending_hub_stars. pd-tests 1,932.
+- Scene fog (a56adf2a): bgRenderScene starts the stage fog around each scene
+  pass; the handler hands fast3d's fog state to the renderer; the shader uses
+  gfx_sp_vertex's formula on the game-space clip position. Sky and
+  render-always rooms unfogged. pd-tests 1,932.
+- Depth smokes: 330 s / 420 s limits (a newer client re-extracts base 5's
+  scenarios at boot) and they forbid scene shader and GPU upload failures.
+  The turn's step 2 slot now holds the fog client (step 2, stars, fog).
+- Week note: schema notice row for the newer stage.json families, intro.json
+  and the mission events; text banks recorded as a design question for
+  custom levels (banks are numeric; AI and objectives address text as bank
+  and index); training hub row corrected.
+- Base 6 queued (game-runtime, position 3 behind CORE's turn and MODS):
+  copy of base 5 re-extracted with the frozen stars client, then sweeps,
+  conformance and a stage-rules census.
+- Animated textures (dyntex) recorded as the remaining B-1172 visual gap,
+  with what they need (rendering pillar note).
+
+Next
+- The base 5 turn: release campaign, specials, sky screenshots, Complex
+  match, the two depth smokes. Then base 6; publish extract-4 and base 5 if
+  the turn passes.
