@@ -10335,3 +10335,47 @@ Next
 - Mike: the floor for test installs on C:.
 - 2A, the v2 world-hit salvage; objectives completion events; the
   `menu_settings_keyboard` rerun while the desktop is unlocked.
+
+## 2026-11-15 (08:40-10:10 UTC) - CORE: room and light rules in scenario source, B-1112, campaign check
+
+What was done
+- Decision 1, checklist row "Room and light rules" (ee08d1f6). The per-stage
+  exceptions in `dlights.c` that named stages, rooms and portals in code now
+  come from the stage's scenario source when the stage loads from it: on
+  `rooms.json` rows, optional `render_always`, `base_brightness`,
+  `lights_unshootable` and `unshootable_lights`; on `portals.json` rows,
+  optional `light_flood_blocked` and `open_to_light`. The extractor writes
+  them from the same table the code used, each file's note documents them,
+  conformance checks them, and a stage built the old way from the ROM keeps
+  the code. Scenario cache kind `..._lightrules`, so a client with it
+  re-extracts arenas and scenarios once (about 19 s of the first boot on D:).
+- B-1112 (e1bc0490): the archive validator skipped the reference checks of
+  text members over 4 MiB. They are now checked whole up to 128 MiB, and a
+  larger one refuses the archive. The in-memory manifest check no longer lets
+  its second read hide an oversized first manifest. Measured on base 3 before
+  choosing the limit: 83,268 text members, 19 over 4 MiB (17 `collision.obj`
+  with no `mtllib`, 2 JSON), the largest 5.03 MiB.
+
+Verification
+- pd-tests 1,903 after the light rules, 1,905 after B-1112 (340,726
+  assertions). `[lightrules]` checks that the extractor's stages, rooms and
+  portals are exactly the ones the code names. Conformance OK.
+- Opt-in sweep `[b1112-sweep]`: all 9,025 typed archives of base 3 in the
+  boot catalog's RELEASE mode, 0 refused.
+- In game, on private copies of base 3 with the session client at ee08d1f6
+  (without B-1112): `auto_campaign_release` 39/39 and
+  `auto_campaign_specials` 38/38 (`results-20261115T095225Z.json`,
+  `results-20261115T100132Z.json`). The first boot re-extracted 47 arenas and
+  87 scenarios, 0 failed. Every stage with a rule logged it from
+  `rooms.json`/`portals.json` with refused=0: one always-drawn room each on
+  Infiltration, Rescue, Escape, Maian SOS, Defection, Extraction, Mr. Blonde's
+  Revenge, Skedar Ruins, WAR! and Attack Ship; the dark room and the two
+  unshootable lights on Defection and Extraction; a room with every light
+  unshootable in the training stage and Defense; two flood-blocked portals on
+  Defection and Extraction; one open portal on Investigation.
+
+Next
+- Publish ee08d1f6 and e1bc0490 as `week-pd/extract-3` with base 4; recycle
+  bases 1 and 2, which nobody uses any more.
+- Review CRYSTAL PISTOL's format row; its B-1184 duplicates B-1116.
+- MULTIPLAYER's B-1133 (collision Test queries) against the campaign smokes.
