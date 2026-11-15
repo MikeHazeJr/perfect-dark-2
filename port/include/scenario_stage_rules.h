@@ -34,6 +34,12 @@ extern "C" {
  *   disguise                      {outfit, untargetable}: the outfit worn while
  *                                 disguised, and whether a disguised player
  *                                 cannot be targeted
+ *   coop_spawn_distance           how far the co-op buddy starts from the
+ *                                 player (1..1000; 60 when absent)
+ *
+ * "ai": stage-wide guard behaviour (src/game/chrai.c).
+ *   dark_room_lists               false = guards never switch to their dark
+ *                                 room AI list (true when absent)
  * Outfit names, in OUTFIT_* order: default, elvis, trent, trench,
  * frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess,
  * mrblonde, maian, negotiator.
@@ -64,11 +70,18 @@ typedef struct scenario_stage_player {
 	s32 perfect_agent_outfit; /* OUTFIT_* value, or -1 for none */
 	s32 disguise_outfit;      /* OUTFIT_* value, or -1 for none */
 	s32 disguise_untargetable;
+	f32 coop_spawn_distance;  /* 0 when absent (the game's 60) */
 } scenario_stage_player_t;
+
+typedef struct scenario_stage_ai {
+	s32 present;
+	s32 no_dark_room_lists;   /* dark_room_lists: false */
+} scenario_stage_ai_t;
 
 typedef struct scenario_stage_rules {
 	scenario_stage_weather_t weather;
 	scenario_stage_player_t player;
+	scenario_stage_ai_t ai;
 } scenario_stage_rules_t;
 
 /* The outfit name for an OUTFIT_* value, or NULL; and the value for a name,

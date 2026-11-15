@@ -35520,7 +35520,7 @@ s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 		return -1;
 	}
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d source=stage.json",
+		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d coop_spawn_distance=%.0f no_dark_room_lists=%d source=stage.json",
 		scenario->id, s_StageWideRules.weather.present,
 		s_StageWideRules.weather.rooms_have_weather ? "weather_rooms" : "dry_rooms",
 		s_StageWideRules.weather.room_count,
@@ -35531,7 +35531,9 @@ s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 			? scenarioStageOutfitName(s_StageWideRules.player.perfect_agent_outfit) : "-",
 		scenarioStageOutfitName(s_StageWideRules.player.disguise_outfit)
 			? scenarioStageOutfitName(s_StageWideRules.player.disguise_outfit) : "-",
-		s_StageWideRules.player.disguise_untargetable);
+		s_StageWideRules.player.disguise_untargetable,
+		(double)s_StageWideRules.player.coop_spawn_distance,
+		s_StageWideRules.ai.no_dark_room_lists);
 	return 1;
 }
 
@@ -35553,6 +35555,17 @@ s32 scenarioSourceStagePlayer(scenario_stage_player_t *out)
 	}
 	if (out) {
 		*out = s_StageWideRules.player;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageAi(scenario_stage_ai_t *out)
+{
+	if (!s_StageWideRules.ai.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.ai;
 	}
 	return 1;
 }

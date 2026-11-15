@@ -9,6 +9,18 @@
 #include "lib/model.h"
 #include "data.h"
 #include "types.h"
+#include "game/bg.h"
+#include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
+
+/* Decision 3: whether a scenario-source stage's stage.json ai rule keeps
+ * guards off their dark room AI list. */
+static bool chraiStageHasNoDarkRoomLists(void)
+{
+	scenario_stage_ai_t rule;
+
+	return scenarioSourceStageAi(&rule) && rule.no_dark_room_lists;
+}
 
 bool (*g_CommandPointers[])(void) = {
 	/*0x0000*/ aiGoToNext,
@@ -756,7 +768,11 @@ void chraiExecute(void *entity, s32 proptype)
 				&& g_Vars.chrdata->darkroomthing
 				&& chrHasFlag(g_Vars.chrdata, CHRFLAG1_INDARKROOM, BANK_1) == 0
 				&& ailistFindById(g_Vars.chrdata->aidarkroomlist) != g_Vars.chrdata->ailist
-				&& g_Vars.stagenum != STAGE_CRASHSITE) {
+				/* Decision 3: a scenario-source stage keeps guards off their
+				 * dark room list by its stage.json ai rule; the stage check
+				 * stays for a ROM stage. */
+				&& (bgUsesScenarioSource() ? !chraiStageHasNoDarkRoomLists()
+					: g_Vars.stagenum != STAGE_CRASHSITE)) {
 			g_Vars.chrdata->darkroomthing = 0;
 
 			if (g_Vars.chrdata->aidarkroomlist >= 0

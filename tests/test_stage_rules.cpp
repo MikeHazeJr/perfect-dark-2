@@ -152,8 +152,8 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("(weather->flags & WEATHERFLAG_CUTSCENE_ONLY) ? \"true\" : \"false\"") != std::string::npos);
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"player: perfect_agent_outfit\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson_player\"") != std::string::npos);
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"ai: dark_room_lists false\") &&") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);
@@ -265,6 +265,38 @@ TEST_CASE("the stage.json player rule dresses the player and decides the disguis
 	REQUIRE(player.find("if (g_Vars.currentplayer->disguised && rule.disguise_outfit >= 0) {") != std::string::npos);
 	REQUIRE(bondgun.find("if (scenarioSourceStagePlayer(&rule) && rule.disguise_untargetable) {") != std::string::npos);
 	REQUIRE(bondgun.find("} else if (g_Vars.stagenum == STAGE_RESCUE) {\n\t\t\t\t\tchr->hidden |= CHRHFLAG_UNTARGETABLE;") !=
+		std::string::npos);
+}
+
+TEST_CASE("the co-op spawn distance and the dark room rule come from stage.json", "[stage][scenario][stagerules]")
+{
+	Parsed defection(stage(R"("player": { "coop_spawn_distance": 80 })"));
+	INFO(defection.error);
+	REQUIRE(defection.ok);
+	CHECK(defection.rules.player.coop_spawn_distance == 80.0f);
+	CHECK(defection.rules.player.perfect_agent_outfit == -1);
+	Parsed crashsite(stage(R"("ai": { "dark_room_lists": false })"));
+	INFO(crashsite.error);
+	REQUIRE(crashsite.ok);
+	CHECK(crashsite.rules.ai.present == 1);
+	CHECK(crashsite.rules.ai.no_dark_room_lists == 1);
+	Parsed allowed(stage(R"("ai": { "dark_room_lists": true })"));
+	REQUIRE(allowed.ok);
+	CHECK(allowed.rules.ai.no_dark_room_lists == 0);
+
+	CHECK(refusal(stage(R"("player": { "coop_spawn_distance": 0 })")).find("must be 1..1000") != std::string::npos);
+	CHECK(refusal(stage(R"("player": { "coop_spawn_distance": 5000 })")).find("must be 1..1000") != std::string::npos);
+	CHECK(refusal(stage(R"("ai": { "dark_room_lists": "no" })")).find("must be true or false") != std::string::npos);
+	CHECK(refusal(stage(R"("ai": { "patrols": 1 })")).find("unknown key 'patrols'") != std::string::npos);
+
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string chraction = readSource("src/game/chraction.c");
+	const std::string chrai = readSource("src/game/chrai.c");
+	REQUIRE(extractor.find("return stagenum == STAGE_DEFECTION ? 80.f : 0.f;") != std::string::npos);
+	REQUIRE(extractor.find("return stagenum == STAGE_CRASHSITE;") != std::string::npos);
+	REQUIRE(chraction.find("} else if (g_Vars.stagenum == STAGE_DEFECTION) {\n\t\tdistance = 80.f;") != std::string::npos);
+	REQUIRE(chraction.find("if (scenarioSourceStagePlayer(&rule) && rule.coop_spawn_distance > 0.0f) {") != std::string::npos);
+	REQUIRE(chrai.find("&& (bgUsesScenarioSource() ? !chraiStageHasNoDarkRoomLists()\n\t\t\t\t\t: g_Vars.stagenum != STAGE_CRASHSITE)) {") !=
 		std::string::npos);
 }
 

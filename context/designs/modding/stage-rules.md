@@ -58,6 +58,13 @@ disguise); the extractor writes the same conditions.
 |---|---|
 | `perfect_agent_outfit` | the outfit worn at Perfect Agent and up (Villa: `negotiator`) |
 | `disguise` | `{outfit, untargetable}`: the outfit worn while disguised (Rescue: `lab`, Air Base: `stewardess`), and whether a disguised player cannot be targeted (Rescue) |
+| `coop_spawn_distance` | how far the co-op buddy starts from the player, 1..1000 (60 when absent; Defection: 80, a port fix so the buddy does not block the intro) |
+
+## `ai`
+
+| Field | Meaning |
+|---|---|
+| `dark_room_lists` | `false`: guards never switch to their dark room AI list (`src/game/chrai.c`; Crash Site) |
 
 Outfit names follow the `OUTFIT_*` constants in order: `default`, `elvis`,
 `trent`, `trench`, `frock_ripped`, `frock`, `leather`, `deepsea`, `wetsuit`,

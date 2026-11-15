@@ -817,10 +817,12 @@ s32 scenarioSourcePortalOpenToLight(s32 portalnum);
  * answers 1 and fills out when the stage has a weather rule. */
 struct scenario_stage_weather;
 struct scenario_stage_player;
+struct scenario_stage_ai;
 s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp);
 s32 scenarioSourceStageWeather(struct scenario_stage_weather *out);
 s32 scenarioSourceStagePlayer(struct scenario_stage_player *out);
+s32 scenarioSourceStageAi(struct scenario_stage_ai *out);
 
 #ifdef __cplusplus
 }

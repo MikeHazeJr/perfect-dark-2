@@ -87,7 +87,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -7208,12 +7208,27 @@ static s32 s_stageDisguiseUntargetable(s32 stagenum)
 	return stagenum == STAGE_RESCUE;
 }
 
+/* How far the co-op buddy starts from the player (chraction.c, a port fix for
+ * Defection's intro); 0 keeps the game's 60. */
+static f32 s_stageCoopSpawnDistance(s32 stagenum)
+{
+	return stagenum == STAGE_DEFECTION ? 80.f : 0.f;
+}
+
+/* Guards never take their dark room AI list (chrai.c). */
+static s32 s_stageNoDarkRoomLists(s32 stagenum)
+{
+	return stagenum == STAGE_CRASHSITE;
+}
+
 static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 {
 	const struct weathercfg *weather = NULL;
 	const s32 pa_outfit = s_stagePerfectAgentOutfit(stagenum);
 	const s32 disguise_outfit = s_stageDisguiseOutfit(stagenum);
 	const s32 untargetable = s_stageDisguiseUntargetable(stagenum);
+	const f32 coop_distance = s_stageCoopSpawnDistance(stagenum);
+	const s32 no_dark_room_lists = s_stageNoDarkRoomLists(stagenum);
 	s32 i;
 
 	for (i = 0; i < WEATHERCFG_MAX_STAGES && g_WeatherConfig[i].stagenum; i++) {
@@ -7225,7 +7240,7 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 	if (s_textbufAppend(out,
 			"{\n"
 			"  \"schema\": \"pd2.scenario.stage.v1\",\n"
-			"  \"note\": \"Stage-wide rules, each optional. weather: where and how the stage's rain or snow falls (its AI commands start it): wind_speed; y_min and y_max, the height band around the camera the particles fill; z_max, 0 or a z below which the camera sees no weather; cutscene_only; exactly one of weather_rooms (the only rooms with weather) and dry_rooms (the rooms without it); optional wind_direction {angle, speed_x, speed_z} for a fixed wind. player: perfect_agent_outfit, the outfit worn at Perfect Agent and up; disguise {outfit, untargetable}, the outfit worn while disguised and whether a disguised player cannot be targeted. Outfits: default, elvis, trent, trench, frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess, mrblonde, maian, negotiator.\"") != 0) {
+			"  \"note\": \"Stage-wide rules, each optional. weather: where and how the stage's rain or snow falls (its AI commands start it): wind_speed; y_min and y_max, the height band around the camera the particles fill; z_max, 0 or a z below which the camera sees no weather; cutscene_only; exactly one of weather_rooms (the only rooms with weather) and dry_rooms (the rooms without it); optional wind_direction {angle, speed_x, speed_z} for a fixed wind. player: perfect_agent_outfit, the outfit worn at Perfect Agent and up; disguise {outfit, untargetable}, the outfit worn while disguised and whether a disguised player cannot be targeted; coop_spawn_distance, how far the co-op buddy starts from the player (60 when absent). ai: dark_room_lists false keeps guards off their dark room AI list. Outfits: default, elvis, trent, trench, frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess, mrblonde, maian, negotiator.\"") != 0) {
 		return -1;
 	}
 	if (weather) {
@@ -7260,7 +7275,7 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 			return -1;
 		}
 	}
-	if (pa_outfit >= 0 || disguise_outfit >= 0 || untargetable) {
+	if (pa_outfit >= 0 || disguise_outfit >= 0 || untargetable || coop_distance > 0.0f) {
 		s32 fields = 0;
 
 		if (s_textbufAppend(out, ",\n  \"player\": {") != 0) {
@@ -7279,10 +7294,22 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 					s_textbufAppend(out, " }") != 0) {
 				return -1;
 			}
+			fields++;
+		}
+		if (coop_distance > 0.0f) {
+			if (s_textbufAppendf(out, "%s \"coop_spawn_distance\": %.9g", fields ? "," : "",
+					(double)coop_distance) != 0) {
+				return -1;
+			}
+			fields++;
 		}
 		if (s_textbufAppend(out, " }") != 0) {
 			return -1;
 		}
+	}
+	if (no_dark_room_lists &&
+			s_textbufAppend(out, ",\n  \"ai\": { \"dark_room_lists\": false }") != 0) {
+		return -1;
 	}
 	return s_textbufAppend(out, "\n}\n");
 }
@@ -8265,7 +8292,7 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveEntryContains(relpath, "rooms.json",
 			"sky true draws it relative to the player") &&
 		s_existingArchiveEntryContains(relpath, "stage.json",
-			"player: perfect_agent_outfit") &&
+			"ai: dark_room_lists false") &&
 		s_existingArchiveHasEntry(relpath, "pads.json") &&
 		s_existingArchiveHasEntry(relpath, "spawns.json") &&
 		s_existingArchiveHasEntry(relpath, "volumes.json") &&

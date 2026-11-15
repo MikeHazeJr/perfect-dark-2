@@ -108,8 +108,14 @@ s32 outfit(const Json &object, const char *key, const std::string &where)
 void readPlayer(const Json &player, scenario_stage_player_t &out)
 {
 	if (!player.is_object()) refuse("player must be an object");
-	onlyKeys(player, { "perfect_agent_outfit", "disguise" }, "player");
+	onlyKeys(player, { "perfect_agent_outfit", "disguise", "coop_spawn_distance" }, "player");
 	out.present = 1;
+	if (player.contains("coop_spawn_distance")) {
+		out.coop_spawn_distance = number(player, "coop_spawn_distance", "player");
+		if (!(out.coop_spawn_distance >= 1.0f && out.coop_spawn_distance <= 1000.0f)) {
+			refuse("player.coop_spawn_distance must be 1..1000");
+		}
+	}
 	out.perfect_agent_outfit = player.contains("perfect_agent_outfit")
 		? outfit(player, "perfect_agent_outfit", "player") : -1;
 	out.disguise_outfit = -1;
@@ -119,6 +125,16 @@ void readPlayer(const Json &player, scenario_stage_player_t &out)
 		onlyKeys(disguise, { "outfit", "untargetable" }, "player.disguise");
 		if (disguise.contains("outfit")) out.disguise_outfit = outfit(disguise, "outfit", "player.disguise");
 		out.disguise_untargetable = boolean(disguise, "untargetable", "player.disguise") ? 1 : 0;
+	}
+}
+
+void readAi(const Json &ai, scenario_stage_ai_t &out)
+{
+	if (!ai.is_object()) refuse("ai must be an object");
+	onlyKeys(ai, { "dark_room_lists" }, "ai");
+	out.present = 1;
+	if (ai.contains("dark_room_lists")) {
+		out.no_dark_room_lists = boolean(ai, "dark_room_lists", "ai") ? 0 : 1;
 	}
 }
 
@@ -153,12 +169,13 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 				root["schema"].get<crude_json::string>() != SCENARIO_STAGE_RULES_SCHEMA) {
 			refuse(std::string("stage.json must declare schema ") + SCENARIO_STAGE_RULES_SCHEMA);
 		}
-		onlyKeys(root, { "schema", "note", "weather", "player" }, "stage.json");
+		onlyKeys(root, { "schema", "note", "weather", "player", "ai" }, "stage.json");
 		if (root.contains("note") && !root["note"].is_string()) refuse("stage.json note must be text");
 		out->player.perfect_agent_outfit = -1;
 		out->player.disguise_outfit = -1;
 		if (root.contains("weather")) readWeather(root["weather"], out->weather);
 		if (root.contains("player")) readPlayer(root["player"], out->player);
+		if (root.contains("ai")) readAi(root["ai"], out->ai);
 		return 1;
 	} catch (const Refusal &refusal) {
 		std::memset(out, 0, sizeof(*out));
