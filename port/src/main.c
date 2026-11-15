@@ -1323,8 +1323,12 @@ static void bootApplyLaunchMpRoom(void)
 			? g_BootDebugBotSpecType[i] : BOTTYPE_GENERAL;
 		const u8 botdiff = i < g_BootDebugBotSpecCount
 			? g_BootDebugBotSpecDiff[i] : BOTDIFF_NORMAL;
-		s32 botidx = matchConfigAddBot(bottype, botdiff,
-			debug_body_id, debug_head_id, NULL);
+		/* The default stays the literal general/normal call that the custom
+		 * body render fixtures rely on (test_mod_external_archive_static). */
+		s32 botidx = i < g_BootDebugBotSpecCount
+			? matchConfigAddBot(bottype, botdiff, debug_body_id, debug_head_id, NULL)
+			: matchConfigAddBot(BOTTYPE_GENERAL, BOTDIFF_NORMAL,
+				debug_body_id, debug_head_id, NULL);
 		if (i < g_BootDebugBotSpecCount) {
 			if (botidx >= 0) {
 				sysLogPrintf(LOG_NOTE,
