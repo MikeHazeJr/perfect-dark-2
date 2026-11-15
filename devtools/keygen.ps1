@@ -4,8 +4,9 @@
 # dev-keys/ (gitignored), and patches the embedded public key into
 # port/include/updater_pubkey.h.
 #
-# Called automatically at build time by build-env.sh and build-headless.ps1
-# when dev-keys/ed25519-private.pem does not exist.
+# Called by release.ps1 when dev-keys/ed25519-private.pem does not exist, and
+# by hand. Builds no longer call it (B-1122 follow-up): it rewrites the tracked
+# header, so a build in a fresh worktree used to leave a throwaway key there.
 #
 # Usage:
 #   .\devtools\keygen.ps1          # Generate keypair (auto-called by build)
