@@ -150,7 +150,9 @@ and the scripts (`Get-SmokeStorageRoot` in `lib/Storage-Harness.ps1`) read it by
 rule, and the free-disk floor for installs is then measured on that drive. The file may also
 set that root's own limits under `"policy"` (`min_free_gib`, `max_full_installs`,
 `max_full_install_gib`, `max_archive_gib`; Mike, 2026-11-15: on C: one or two installs at a
-time). An explicit `-StoragePolicy` still wins. A build's preflight is always measured on the
+time). Those limits win over the policy a run sends, which the scripts always fill from
+`storage-policy.json` or `-StoragePolicy` (B-1171); limits the location file leaves unset
+come from that policy. A build's preflight is always measured on the
 checkout's own drive with the checkout's `storage-policy.json`, since the build writes there.
 A new root starts an empty storage; the old one stays where it was until it is removed.
 Multi-process tests requesting separate installs need capacity for the
