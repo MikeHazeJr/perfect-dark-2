@@ -5,14 +5,27 @@
 #include "lib/main.h"
 #include "data.h"
 #include "types.h"
+#include "game/bg.h"
 
 u32 var80062950 = 100;
 bool g_WeatherTickEnabled = true;
 
 void weatherTick(void)
 {
-	if (!g_WeatherData
-			|| (g_StageIndex == STAGEINDEX_AIRBASE && g_Vars.currentplayer->cam_pos.z < -2000.0f)
+	if (!g_WeatherData) {
+		return;
+	}
+
+	// A stage built from scenario source takes both limits from its stage.json
+	// weather (decision 3): z_max and cutscene_only hold the values the game
+	// checked by stage for Air Base and G5. The stage checks stay for a stage
+	// built from the ROM background.
+	if (bgUsesScenarioSource()) {
+		if ((g_CurWeatherConfig->zmax && g_Vars.currentplayer->cam_pos.z < g_CurWeatherConfig->zmax)
+				|| ((g_CurWeatherConfig->flags & WEATHERFLAG_CUTSCENE_ONLY) && g_Vars.tickmode != TICKMODE_CUTSCENE)) {
+			return;
+		}
+	} else if ((g_StageIndex == STAGEINDEX_AIRBASE && g_Vars.currentplayer->cam_pos.z < -2000.0f)
 			|| (g_StageIndex == STAGEINDEX_G5BUILDING && g_Vars.tickmode != TICKMODE_CUTSCENE)) {
 		return;
 	}

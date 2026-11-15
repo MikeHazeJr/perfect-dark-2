@@ -66,6 +66,7 @@
 #include "romextract.h"
 #include "romextract_pd.h"
 #include "romextract_texture_stage.h"
+#include "scenario_stage_rules.h"
 #include "sha256.h"
 #include "system.h"
 #include "texture_decode_pure.h"
@@ -86,7 +87,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -679,6 +680,7 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
                                     pdscenario_textbuf_t *ai_command_nodes_json,
                                     pdscenario_textbuf_t *ai_command_links_json,
                                     pdscenario_textbuf_t *objectives_json,
+                                    pdscenario_textbuf_t *intro_json,
                                     pdscenario_textbuf_t *navigation_ini,
                                     pdscenario_textbuf_t *level_graph_json,
                                     pdscenario_textbuf_t *collision_meta_json,
@@ -704,6 +706,7 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
 	s_textbufFree(ai_command_nodes_json);
 	s_textbufFree(ai_command_links_json);
 	s_textbufFree(objectives_json);
+	s_textbufFree(intro_json);
 	s_textbufFree(navigation_ini);
 	s_textbufFree(level_graph_json);
 	s_textbufFree(collision_meta_json);
@@ -3515,6 +3518,169 @@ static s32 s_buildIntroSpawnsTable(const u8 *data, u32 size,
 		return -1;
 	}
 	return 0;
+}
+
+static s32 s_introJsonBegin(pdscenario_textbuf_t *intro_json)
+{
+	return s_textbufAppend(intro_json,
+		"{\n"
+		"  \"schema\": \"pd2.scenario.intro.v1\",\n"
+		"  \"note\": \"The setup intro other than its spawn pads (spawns.json), in authored order. "
+		"weapon: weapon_catalog_id or weapon_selector none, optional left_weapon_catalog_id, player (0 = the player); "
+		"ammo: ammo_type 0..32, quantity, player; outfit: an outfit name; watch_time: hours, minutes; "
+		"case and case_respawn: team 0..3 and pad_ref; hill: pad_ref; legacy_3, legacy_4, legacy_6: "
+		"words, parameters no PD code reads.\",\n"
+		"  \"rows\": [");
+}
+
+/*
+ * The stage intro (CORE, 2026-11-15): every intro command of the setup file
+ * other than the spawn pads, in order, into intro.json (pd2.scenario.intro.v1,
+ * port/include/scenario_intro.h). Before this the scenario carried only the
+ * spawns, so a stage built from scenario source started the player without
+ * the mission's weapons, ammo and outfit, and an arena without its cases and
+ * hills. A credit offset points into setup data the scenario does not carry,
+ * so a setup with one is refused rather than rebuilt wrong.
+ */
+static s32 s_buildIntroJson(const u8 *data, u32 size,
+	pdscenario_textbuf_t *intro_json, u32 *out_rows)
+{
+	if (out_rows) *out_rows = 0;
+	if (!data || size < sizeof(struct stagesetup) || !intro_json ||
+			s_introJsonBegin(intro_json) != 0) {
+		return -1;
+	}
+
+	const struct stagesetup *setup = (const struct stagesetup *)data;
+	uintptr_t intro_ofs = (uintptr_t)setup->intro;
+	u32 rows = 0;
+	if (intro_ofs) {
+		if (intro_ofs >= size || size - (u32)intro_ofs < sizeof(s32)) {
+			return -1;
+		}
+		const u8 *cursor = data + intro_ofs;
+		const u8 *end = data + size;
+		u32 safety = 0;
+		while (cursor + sizeof(s32) <= end && safety++ < 10000u) {
+			const s32 *cmd = (const s32 *)cursor;
+			const s32 type = cmd[0];
+			const s32 words = s_introCommandWordCount(type);
+			char row[512];
+			char pad_ref[32];
+			s32 n = 0;
+			if (words <= 0 || cursor + (size_t)words * sizeof(s32) > end) {
+				return -1;
+			}
+			if (type == INTROCMD_END) {
+				break;
+			}
+			row[0] = '\0';
+			switch (type) {
+			case INTROCMD_SPAWN:
+				break; /* spawns.json */
+			case INTROCMD_WEAPON: {
+				const char *right = cmd[1] > WEAPON_NONE ? s_setupWeaponCatalogIdByRuntime(cmd[1]) : NULL;
+				const char *left = cmd[2] >= 0 ? s_setupWeaponCatalogIdByRuntime(cmd[2]) : NULL;
+				if (cmd[1] < WEAPON_NONE || (cmd[1] > WEAPON_NONE && !right) ||
+						(cmd[2] >= 0 && !left)) {
+					sysLogPrintf(LOG_WARNING,
+						"romextract pdscenario: intro weapon %d/%d has no catalog weapon",
+						cmd[1], cmd[2]);
+					return -1;
+				}
+				if (right) {
+					n = snprintf(row, sizeof(row),
+						"{ \"cmd\": \"weapon\", \"weapon_catalog_id\": \"%s\"", right);
+				} else {
+					n = snprintf(row, sizeof(row),
+						"{ \"cmd\": \"weapon\", \"weapon_selector\": \"none\"");
+				}
+				if (left && n > 0 && n < (s32)sizeof(row)) {
+					n += snprintf(row + n, sizeof(row) - (size_t)n,
+						", \"left_weapon_catalog_id\": \"%s\"", left);
+				}
+				if (n > 0 && n < (s32)sizeof(row)) {
+					n += snprintf(row + n, sizeof(row) - (size_t)n,
+						", \"player\": %d }", cmd[3]);
+				}
+				break;
+			}
+			case INTROCMD_AMMO:
+				n = snprintf(row, sizeof(row),
+					"{ \"cmd\": \"ammo\", \"ammo_type\": %d, \"quantity\": %d, \"player\": %d }",
+					cmd[1], cmd[2], cmd[3]);
+				break;
+			case INTROCMD_OUTFIT: {
+				const char *outfit = scenarioStageOutfitName(cmd[1]);
+				if (!outfit) {
+					sysLogPrintf(LOG_WARNING,
+						"romextract pdscenario: intro outfit %d has no name", cmd[1]);
+					return -1;
+				}
+				n = snprintf(row, sizeof(row), "{ \"cmd\": \"outfit\", \"outfit\": \"%s\" }", outfit);
+				break;
+			}
+			case INTROCMD_WATCHTIME:
+				n = snprintf(row, sizeof(row),
+					"{ \"cmd\": \"watch_time\", \"hours\": %d, \"minutes\": %d }", cmd[1], cmd[2]);
+				break;
+			case INTROCMD_CASE:
+			case INTROCMD_CASERESPAWN:
+				if (cmd[1] < 0 || cmd[1] > 3 || cmd[2] < 0 || cmd[2] > 0x7fff) {
+					sysLogPrintf(LOG_WARNING,
+						"romextract pdscenario: intro case team=%d pad=%d is out of range",
+						cmd[1], cmd[2]);
+					return -1;
+				}
+				s_padRef(cmd[2], pad_ref, sizeof(pad_ref));
+				n = snprintf(row, sizeof(row),
+					"{ \"cmd\": \"%s\", \"team\": %d, \"pad_ref\": \"%s\" }",
+					type == INTROCMD_CASE ? "case" : "case_respawn", cmd[1], pad_ref);
+				break;
+			case INTROCMD_HILL:
+				if (cmd[1] < 0 || cmd[1] > 0x7fff) {
+					sysLogPrintf(LOG_WARNING,
+						"romextract pdscenario: intro hill pad=%d is out of range", cmd[1]);
+					return -1;
+				}
+				s_padRef(cmd[1], pad_ref, sizeof(pad_ref));
+				n = snprintf(row, sizeof(row), "{ \"cmd\": \"hill\", \"pad_ref\": \"%s\" }", pad_ref);
+				break;
+			case INTROCMD_3:
+			case INTROCMD_4:
+			case INTROCMD_6:
+				n = snprintf(row, sizeof(row), "{ \"cmd\": \"legacy_%d\", \"words\": [", type);
+				for (s32 w = 1; w < words && n > 0 && n < (s32)sizeof(row); w++) {
+					n += snprintf(row + n, sizeof(row) - (size_t)n, "%s%d", w > 1 ? ", " : "", cmd[w]);
+				}
+				if (n > 0 && n < (s32)sizeof(row)) {
+					n += snprintf(row + n, sizeof(row) - (size_t)n, "] }");
+				}
+				break;
+			default:
+				sysLogPrintf(LOG_WARNING,
+					"romextract pdscenario: intro command %d is not carried by intro.json", type);
+				return -1;
+			}
+			if (n < 0 || n >= (s32)sizeof(row)) {
+				return -1;
+			}
+			if (row[0]) {
+				if (s_textbufAppend(intro_json, rows ? ",\n    " : "\n    ") != 0 ||
+						s_textbufAppend(intro_json, row) != 0) {
+					return -1;
+				}
+				rows++;
+			}
+			cursor += (size_t)words * sizeof(s32);
+		}
+		if (safety >= 10000u) {
+			return -1;
+		}
+	}
+
+	if (out_rows) *out_rows = rows;
+	return s_textbufAppend(intro_json, rows ? "\n  ]\n}\n" : "]\n}\n");
 }
 
 static const char *s_aiOpcodeName(u16 opcode)
@@ -7179,6 +7345,153 @@ static s32 s_appendRoomRuleFields(pdscenario_textbuf_t *out, s32 stagenum,
 	return 0;
 }
 
+/*
+ * Stage-wide rules (decision 3, CORE, 2026-11-15): stage.json
+ * (pd2.scenario.stage.v1, port/include/scenario_stage_rules.h), one per
+ * scenario, packed with the level. First family: weather, written from the
+ * same table the game reads for a stage built from the ROM (g_WeatherConfig,
+ * src/game/weather.c), so the two cannot differ.
+ */
+/* The player rule: the stage checks of the outfit choice (src/game/player.c)
+ * and of the disguise (src/game/bondgun.c), with the original conditions. */
+static s32 s_stagePerfectAgentOutfit(s32 stagenum)
+{
+	return stagenum == STAGE_VILLA ? OUTFIT_NEGOTIATOR : -1;
+}
+
+static s32 s_stageDisguiseOutfit(s32 stagenum)
+{
+	switch (stagenum) {
+	case STAGE_RESCUE:  return OUTFIT_LAB;
+	case STAGE_AIRBASE: return OUTFIT_STEWARDESS;
+	}
+	return -1;
+}
+
+static s32 s_stageDisguiseUntargetable(s32 stagenum)
+{
+	return stagenum == STAGE_RESCUE;
+}
+
+/* How far the co-op buddy starts from the player (chraction.c, a port fix for
+ * Defection's intro); 0 keeps the game's 60. */
+static f32 s_stageCoopSpawnDistance(s32 stagenum)
+{
+	return stagenum == STAGE_DEFECTION ? 80.f : 0.f;
+}
+
+/* Guards never take their dark room AI list (chrai.c). */
+static s32 s_stageNoDarkRoomLists(s32 stagenum)
+{
+	return stagenum == STAGE_CRASHSITE;
+}
+
+/* Mission endings (CORE, 2026-11-15): the stage whose end screens report the
+ * outcome as unknown, the game's g_StageIndex == STAGEINDEX_DEFENSE checks in
+ * endscreen.c, menu.c and menugfx.c. */
+static s32 s_stageOutcomeUnknown(s32 stagenum)
+{
+	return stageGetIndex(stagenum) == STAGEINDEX_DEFENSE;
+}
+
+static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
+{
+	const struct weathercfg *weather = NULL;
+	const s32 pa_outfit = s_stagePerfectAgentOutfit(stagenum);
+	const s32 disguise_outfit = s_stageDisguiseOutfit(stagenum);
+	const s32 untargetable = s_stageDisguiseUntargetable(stagenum);
+	const f32 coop_distance = s_stageCoopSpawnDistance(stagenum);
+	const s32 no_dark_room_lists = s_stageNoDarkRoomLists(stagenum);
+	const s32 outcome_unknown = s_stageOutcomeUnknown(stagenum);
+	s32 i;
+
+	for (i = 0; i < WEATHERCFG_MAX_STAGES && g_WeatherConfig[i].stagenum; i++) {
+		if (g_WeatherConfig[i].stagenum == stagenum) {
+			weather = &g_WeatherConfig[i];
+			break;
+		}
+	}
+	if (s_textbufAppend(out,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.stage.v1\",\n"
+			"  \"note\": \"Stage-wide rules, each optional. weather: where and how the stage's rain or snow falls (its AI commands start it): wind_speed; y_min and y_max, the height band around the camera the particles fill; z_max, 0 or a z below which the camera sees no weather; cutscene_only; exactly one of weather_rooms (the only rooms with weather) and dry_rooms (the rooms without it); optional wind_direction {angle, speed_x, speed_z} for a fixed wind. player: perfect_agent_outfit, the outfit worn at Perfect Agent and up; disguise {outfit, untargetable}, the outfit worn while disguised and whether a disguised player cannot be targeted; coop_spawn_distance, how far the co-op buddy starts from the player (60 when absent). ai: dark_room_lists false keeps guards off their dark room AI list. ending: outcome unknown makes the end screen report the mission as Unknown and the agent as Missing, turns the menus gray and slow and plays the mission-unknown tune on a completion. Outfits: default, elvis, trent, trench, frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess, mrblonde, maian, negotiator.\"") != 0) {
+		return -1;
+	}
+	if (weather) {
+		const char *rooms_key = (weather->flags & WEATHERFLAG_INCLUDE) ? "weather_rooms" : "dry_rooms";
+		s32 written = 0;
+
+		if (s_textbufAppendf(out,
+				",\n  \"weather\": { \"wind_speed\": %.9g, \"y_min\": %.9g, \"y_max\": %.9g, \"z_max\": %.9g, \"cutscene_only\": %s, \"%s\": [",
+				(double)weather->windspeed, (double)weather->ymin, (double)weather->ymax,
+				(double)weather->zmax,
+				(weather->flags & WEATHERFLAG_CUTSCENE_ONLY) ? "true" : "false",
+				rooms_key) != 0) {
+			return -1;
+		}
+		for (i = 0; i < WEATHERCFG_MAX_SKIPROOMS && weather->skiprooms[i]; i++) {
+			if (s_textbufAppendf(out, "%s%d", written++ ? ", " : "",
+					(int)weather->skiprooms[i]) != 0) {
+				return -1;
+			}
+		}
+		if (s_textbufAppend(out, "]") != 0) {
+			return -1;
+		}
+		if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&
+				s_textbufAppendf(out,
+					", \"wind_direction\": { \"angle\": %.9g, \"speed_x\": %.9g, \"speed_z\": %.9g }",
+					(double)weather->windanglerad, (double)weather->windspeedx,
+					(double)weather->windspeedz) != 0) {
+			return -1;
+		}
+		if (s_textbufAppend(out, " }") != 0) {
+			return -1;
+		}
+	}
+	if (pa_outfit >= 0 || disguise_outfit >= 0 || untargetable || coop_distance > 0.0f) {
+		s32 fields = 0;
+
+		if (s_textbufAppend(out, ",\n  \"player\": {") != 0) {
+			return -1;
+		}
+		if (pa_outfit >= 0 && s_textbufAppendf(out, " \"perfect_agent_outfit\": \"%s\"",
+				scenarioStageOutfitName(pa_outfit)) != 0) {
+			return -1;
+		}
+		fields += pa_outfit >= 0;
+		if (disguise_outfit >= 0 || untargetable) {
+			if (s_textbufAppendf(out, "%s \"disguise\": {", fields ? "," : "") != 0 ||
+					(disguise_outfit >= 0 && s_textbufAppendf(out, " \"outfit\": \"%s\"%s",
+						scenarioStageOutfitName(disguise_outfit), untargetable ? "," : "") != 0) ||
+					(untargetable && s_textbufAppend(out, " \"untargetable\": true") != 0) ||
+					s_textbufAppend(out, " }") != 0) {
+				return -1;
+			}
+			fields++;
+		}
+		if (coop_distance > 0.0f) {
+			if (s_textbufAppendf(out, "%s \"coop_spawn_distance\": %.9g", fields ? "," : "",
+					(double)coop_distance) != 0) {
+				return -1;
+			}
+			fields++;
+		}
+		if (s_textbufAppend(out, " }") != 0) {
+			return -1;
+		}
+	}
+	if (no_dark_room_lists &&
+			s_textbufAppend(out, ",\n  \"ai\": { \"dark_room_lists\": false }") != 0) {
+		return -1;
+	}
+	if (outcome_unknown &&
+			s_textbufAppend(out, ",\n  \"ending\": { \"outcome\": \"unknown\" }") != 0) {
+		return -1;
+	}
+	return s_textbufAppend(out, "\n}\n");
+}
+
 static s32 s_buildBgPortalsJson(const u8 *bg, u32 bg_size,
                                 s32 stagenum,
                                 pdscenario_textbuf_t *out,
@@ -8156,6 +8469,8 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 			"\"origin\": [") &&
 		s_existingArchiveEntryContains(relpath, "rooms.json",
 			"sky true draws it relative to the player") &&
+		s_existingArchiveEntryContains(relpath, "stage.json",
+			"ending: outcome unknown") &&
 		s_existingArchiveHasEntry(relpath, "pads.json") &&
 		s_existingArchiveHasEntry(relpath, "spawns.json") &&
 		s_existingArchiveHasEntry(relpath, "volumes.json") &&
@@ -8177,6 +8492,8 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		!s_existingArchiveHasEntry(relpath, "navigation/paths.tsv") &&
 		s_existingArchiveHasEntry(relpath, "objects.json") &&
 		!s_existingArchiveHasEntry(relpath, "objects.tsv") &&
+		s_existingArchiveEntryContains(relpath, "intro.json",
+			"pd2.scenario.intro.v1") &&
 		s_existingArchiveEntryContains(relpath, "objects.json",
 			"pd2.scenario.objects.v1") &&
 		s_existingArchiveHasEntry(relpath, "setup.fields.json") &&
@@ -9436,6 +9753,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	pdscenario_textbuf_t ai_command_nodes_json = { 0 };
 	pdscenario_textbuf_t ai_command_links_json = { 0 };
 	pdscenario_textbuf_t objectives_json = { 0 };
+	pdscenario_textbuf_t intro_json = { 0 };
 	pdscenario_textbuf_t navigation_ini = { 0 };
 	pdscenario_textbuf_t level_graph_json = { 0 };
 	pdscenario_textbuf_t collision_meta_json = { 0 };
@@ -9504,7 +9822,14 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 
 	u8 *setup_data = NULL;
 	u32 setup_size = 0;
-	s32 has_setup = s_loadStageFilePreprocessed(st->setupfileid,
+	/* A multiplayer scenario is built from the stage's multiplayer setup,
+	 * the file setupLoadFiles reads when a match runs (mpsetupfileid). The
+	 * solo setup of a multiplayer arena is all but empty, so before this
+	 * the arenas had no weapons, ammo, cases or hills in public source. */
+	const s32 use_mp_setup = strcmp(kind, "mp") == 0;
+	const u16 setup_fileid = use_mp_setup ? st->mpsetupfileid : st->setupfileid;
+	u32 intro_row_count = 0;
+	s32 has_setup = s_loadStageFilePreprocessed(setup_fileid,
 		LOADTYPE_SETUP, &setup_data, &setup_size);
 	if (has_setup > 0) {
 		if (s_buildSetupTables(setup_data, setup_size, &objects_json,
@@ -9520,6 +9845,14 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 					&spawns_json, &spawn_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: intro spawn conversion failed for \"%s\"",
+				scenario_id);
+			has_setup = -1;
+		}
+		if (has_setup > 0 &&
+				s_buildIntroJson(setup_data, setup_size, &intro_json,
+					&intro_row_count) != 0) {
+			sysLogPrintf(LOG_WARNING,
+				"romextract pdscenario: intro conversion failed for \"%s\"",
 				scenario_id);
 			has_setup = -1;
 		}
@@ -9571,7 +9904,9 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				"  \"schema\": \"pd2.scenario.objectives.v1\",\n"
 				"  \"rows\": [\n"
 				"  ]\n"
-				"}\n") != 0) {
+				"}\n") != 0 ||
+		    s_introJsonBegin(&intro_json) != 0 ||
+		    s_textbufAppend(&intro_json, "]\n}\n") != 0) {
 			has_setup = -1;
 		}
 		if (s_textbufAppend(&paths_json,
@@ -9648,7 +9983,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (has_tiles < 0 || has_pads < 0 || has_setup < 0 || has_bg < 0) {
 		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -9662,7 +9997,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				"scene") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
 				&navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -9679,7 +10014,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				"collision_flags") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 				&navigation_ini, &level_graph_json,
 				&collision_meta_json, &navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -9689,7 +10024,14 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	}
 
 	if (has_bg > 0) {
-		if (assetArchiveWriterAddPublicMem(&asset_writer, "portals.json",
+		/* Decision 3: the stage-wide rules member (weather first). */
+		pdscenario_textbuf_t stage_json = { 0 };
+		const s32 stage_failed = s_buildStageJson(spec->stagenum, &stage_json) != 0 ||
+			assetArchiveWriterAddPublicMem(&asset_writer, "stage.json",
+				stage_json.data, stage_json.len, "stage") != MODARCHIVE_OK;
+		s_textbufFree(&stage_json);
+		if (stage_failed ||
+		    assetArchiveWriterAddPublicMem(&asset_writer, "portals.json",
 				portals_json.data, portals_json.len, "portals") != MODARCHIVE_OK ||
 		    assetArchiveWriterAddPublicMem(&asset_writer, "room_lights.json",
 				room_lights_json.data, room_lights_json.len,
@@ -9699,7 +10041,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				"room_table") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 				&navigation_ini, &level_graph_json,
 				&collision_meta_json, &navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -9726,7 +10068,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				covers_json.len, "covers") != MODARCHIVE_OK) {
 			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
 				&navmesh_meta_json,
 				&visual_mesh, &bg_scene);
@@ -9737,6 +10079,8 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 
 	if (assetArchiveWriterAddPublicMem(&asset_writer, "objects.json",
 			objects_json.data, objects_json.len, "objects") != MODARCHIVE_OK ||
+	    assetArchiveWriterAddPublicMem(&asset_writer, "intro.json",
+			intro_json.data, intro_json.len, "intro") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddPublicMem(&asset_writer, "setup.fields.json",
 			setup_fields_json.data, setup_fields_json.len, "setup_fields") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddPublicMem(&asset_writer, "ai/ailists.json",
@@ -9755,7 +10099,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			navmesh_meta_json.data, navmesh_meta_json.len, "generated_navmesh") != MODARCHIVE_OK) {
 		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -9839,8 +10183,12 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		(unsigned)path_count);
 	n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n,
 		",\n  \"ai_list_count\": %u"
-		",\n  \"ai_command_count\": %u",
-		(unsigned)ai_list_count, (unsigned)ai_command_count);
+		",\n  \"ai_command_count\": %u"
+		",\n  \"intro\": \"intro.json\""
+		",\n  \"intro_row_count\": %u"
+		",\n  \"setup_source\": \"%s\"",
+		(unsigned)ai_list_count, (unsigned)ai_command_count,
+		(unsigned)intro_row_count, use_mp_setup ? "mpsetup" : "setup");
 
 	n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n, "\n}\n");
 
@@ -9849,7 +10197,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"manifest snprintf truncated for \"%s\"", scenario_id);
 		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -9899,7 +10247,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"scenario.ini snprintf truncated for \"%s\"", scenario_id);
 		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -9913,7 +10261,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"AddFileMem scenario.ini failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -9926,7 +10274,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -9938,7 +10286,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -9951,7 +10299,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			"modArchiveFinish failed for \"%s\"", dst_full);
 		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
 			&navmesh_meta_json,
 			&visual_mesh, &bg_scene);
@@ -9959,7 +10307,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	}
 	s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 		&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
-		&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
+		&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json, &intro_json,
 		&navigation_ini, &level_graph_json, &collision_meta_json,
 		&navmesh_meta_json,
 		&visual_mesh, &bg_scene);

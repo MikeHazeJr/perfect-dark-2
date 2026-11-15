@@ -52,6 +52,24 @@ s32 scenarioSourceLevelGraphCheckPadRoom(s32 pad, s32 room,
 s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,
 	s32 target0, s32 target1, s32 target2, s32 aux0, s32 aux1);
 s32 scenarioSourceObjectiveGraphIsActive(void);
+/* Mission graph runner (decision 2): whether the active mission graph owns
+ * objective status events (it compiled, or it was refused and so runs
+ * nothing), and firing event.objective.status_changed for an objective that
+ * applies at this difficulty (`number` is 1-based among those). Returns the
+ * number of native modules run, or -1 when the graph does not own the event,
+ * was refused, or a module refused it. */
+s32 scenarioSourceMissionGraphOwnsObjectiveEvents(void);
+/* Mission events (MISSION_GRAPH_EVENT_MISSION_*, mission_graph_runner.h):
+ * whether the active mission graph owns them, whether its continue event runs
+ * anything, whether it reaches og.mission.start_next_stage, and firing one
+ * (returns the modules run, or -1). */
+s32 scenarioSourceMissionGraphOwnsEvents(void);
+s32 scenarioSourceMissionGraphHandlesContinue(void);
+s32 scenarioSourceMissionGraphContinueStartsNextStage(void);
+s32 scenarioSourceMissionGraphContinueStartsCredits(void);
+s32 scenarioSourceMissionGraphMissionEvent(s32 kind, s32 seam);
+s32 scenarioSourceMissionGraphObjectiveStatusChanged(s32 index, s32 number,
+	s32 status, s32 previous);
 s32 scenarioSourceObjectiveGraphRecordInsert(const struct objective *objective);
 s32 scenarioSourceObjectiveGraphRecordCriterionStatus(const void *criteria,
 	s32 status);
@@ -802,6 +820,20 @@ s32 scenarioSourceRoomBaseBrightness(s32 roomnum, s32 *out_level);
 s32 scenarioSourceRoomLightUnshootable(s32 roomnum, s32 lightindex);
 s32 scenarioSourcePortalBlocksLightFlood(s32 portalnum);
 s32 scenarioSourcePortalOpenToLight(s32 portalnum);
+
+/* Stage-wide rules (decision 3): the stage's stage.json, loaded with its
+ * scenario tables (1 loaded, 0 none, -1 refused and logged). The weather query
+ * answers 1 and fills out when the stage has a weather rule. */
+struct scenario_stage_weather;
+struct scenario_stage_player;
+struct scenario_stage_ai;
+struct scenario_stage_ending;
+s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
+	s32 prefer_mp);
+s32 scenarioSourceStageWeather(struct scenario_stage_weather *out);
+s32 scenarioSourceStagePlayer(struct scenario_stage_player *out);
+s32 scenarioSourceStageAi(struct scenario_stage_ai *out);
+s32 scenarioSourceStageEnding(struct scenario_stage_ending *out);
 
 #ifdef __cplusplus
 }

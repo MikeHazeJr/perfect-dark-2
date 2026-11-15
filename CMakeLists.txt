@@ -898,6 +898,15 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_room_table_source_static.cpp
   # Decision 1: per-stage room and light rules travel in scenario source.
   ${CMAKE_SOURCE_DIR}/tests/test_stage_light_rules_static.cpp
+  # Decision 2: the mission graph runner (events, gates, native modules).
+  ${CMAKE_SOURCE_DIR}/tests/test_mission_graph_runner.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/mission_graph_runner.cpp
+  # Decision 3: stage-wide rules in stage.json (weather first).
+  ${CMAKE_SOURCE_DIR}/tests/test_stage_rules.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_stage_rules.cpp
+  # The stage intro in intro.json (starting loadout, multiplayer cases and hills).
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_intro.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_intro.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp

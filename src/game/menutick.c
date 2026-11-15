@@ -11,6 +11,8 @@
 #include "game/filelist.h"
 #include "game/mainmenu.h"
 #include "game/endscreen.h"
+#include "scenario_source_runtime.h"
+#include "mission_graph_runner.h"
 #include "game/playermgr.h"
 #include "game/lv.h"
 #include "game/music.h"
@@ -144,6 +146,45 @@ void menuCountDialogs(void)
 			g_MenuData.count++;
 		}
 	}
+}
+
+/* The co-op stage of a mission that leads straight on has ended: the next
+ * solo stage starts without the co-op end screen (the original Deep Sea
+ * rule; og.mission.start_next_stage at the co-op stage end). */
+void menuTickCoopStartNextStage(void)
+{
+	g_MissionConfig.stageindex++;
+	/* S298 audit: align fully with endscreen.c guards — cover both
+	 * overflow (stageindex >= NUM_SOLOSTAGES) AND the degenerate
+	 * negative path (stageindex < 0) so a corrupted pre-increment
+	 * value still cannot flow into g_SoloStages[] below. */
+	if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
+		g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
+	} else if (g_MissionConfig.stageindex < 0) {
+		g_MissionConfig.stageindex = 0;
+	}
+	g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
+	/* Phase 2: populate PRIMARY catalog ID string field */
+	{ const char *cid = catalogStageIdByStagenum(g_MissionConfig.stagenum); if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; } else { g_MissionConfig.stage_id[0] = '\0'; } }
+	titleSetNextStage(g_MissionConfig.stagenum);
+	lvSetDifficulty(g_MissionConfig.difficulty);
+	titleSetNextMode(TITLEMODE_SKIP);
+	/* SP-13 / Bug A hazard: must clear the client manifest before
+	 * mainChangeToStage, otherwise manifestMPTransition() diffs a
+	 * torn-down manifest against the loading stage and AVs. Mirrors
+	 * the patterns in pdguiEndscreenExitToMainMenu (F-0.4) and
+	 * netDisconnect (Bug A). See constraints.md.
+	 * S303: generalized pattern also lives below in the
+	 * MPENDSCREEN/COOPCONTINUE exits; the explicit clear here
+	 * remains for belt-and-braces and historical-fix alignment. */
+	sysLogPrintf(LOG_NOTE,
+		"GAMELOOP.COOP: Deep Sea auto-advance → stageindex=%d stagenum=0x%02x manifest=%d",
+		g_MissionConfig.stageindex, (u32)g_MissionConfig.stagenum,
+		g_ClientManifest.num_entries);
+	sceneStageTransitionPrepare(
+		SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
+		"menutick deep sea auto advance");
+	mainChangeToStage(g_MissionConfig.stagenum);
 }
 
 void menuTick(void)
@@ -749,39 +790,17 @@ void menuTick(void)
 				for (i = 0; i < MAX_PLAYERS; i++) {
 					if (mpIsParticipantActive(i)) {
 						if (g_Vars.coopplayernum >= 0) {
-							if (g_Vars.stagenum == STAGE_DEEPSEA) {
-								g_MissionConfig.stageindex++;
-								/* S298 audit: align fully with endscreen.c guards — cover both
-								 * overflow (stageindex >= NUM_SOLOSTAGES) AND the degenerate
-								 * negative path (stageindex < 0) so a corrupted pre-increment
-								 * value still cannot flow into g_SoloStages[] below. */
-								if (g_MissionConfig.stageindex >= NUM_SOLOSTAGES) {
-									g_MissionConfig.stageindex = NUM_SOLOSTAGES - 1;
-								} else if (g_MissionConfig.stageindex < 0) {
-									g_MissionConfig.stageindex = 0;
+							if (endscreenCoopStageEndStartsNextStage()) {
+								/* Mission endings (CORE, 2026-11-15): a co-op stage whose
+								 * mission leads straight on (Deep Sea) skips its end screen;
+								 * on a scenario-source stage the mission graph's continue
+								 * event starts the next stage. */
+								if (scenarioSourceMissionGraphOwnsEvents()) {
+									scenarioSourceMissionGraphMissionEvent(MISSION_GRAPH_EVENT_MISSION_CONTINUE,
+										MISSION_GRAPH_SEAM_COOP_STAGE_END);
+								} else {
+									menuTickCoopStartNextStage();
 								}
-								g_MissionConfig.stagenum = g_SoloStages[g_MissionConfig.stageindex].stagenum;
-								/* Phase 2: populate PRIMARY catalog ID string field */
-								{ const char *cid = catalogStageIdByStagenum(g_MissionConfig.stagenum); if (cid) { strncpy(g_MissionConfig.stage_id, cid, sizeof(g_MissionConfig.stage_id) - 1); g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0'; } else { g_MissionConfig.stage_id[0] = '\0'; } }
-								titleSetNextStage(g_MissionConfig.stagenum);
-								lvSetDifficulty(g_MissionConfig.difficulty);
-								titleSetNextMode(TITLEMODE_SKIP);
-								/* SP-13 / Bug A hazard: must clear the client manifest before
-								 * mainChangeToStage, otherwise manifestMPTransition() diffs a
-								 * torn-down manifest against the loading stage and AVs. Mirrors
-								 * the patterns in pdguiEndscreenExitToMainMenu (F-0.4) and
-								 * netDisconnect (Bug A). See constraints.md.
-								 * S303: generalized pattern also lives below in the
-								 * MPENDSCREEN/COOPCONTINUE exits; the explicit clear here
-								 * remains for belt-and-braces and historical-fix alignment. */
-								sysLogPrintf(LOG_NOTE,
-									"GAMELOOP.COOP: Deep Sea auto-advance → stageindex=%d stagenum=0x%02x manifest=%d",
-									g_MissionConfig.stageindex, (u32)g_MissionConfig.stagenum,
-									g_ClientManifest.num_entries);
-								sceneStageTransitionPrepare(
-									SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
-									"menutick deep sea auto advance");
-								mainChangeToStage(g_MissionConfig.stagenum);
 							} else {
 								s32 prevplayernum = g_Vars.currentplayernum;
 								setCurrentPlayerNum(playernum);

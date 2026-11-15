@@ -32,7 +32,7 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest_objective_status_event_mission_endings"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
 	"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
@@ -695,6 +695,27 @@ static s32 s_buildMissionObjectivesJson(const char *scenario_file,
 	return s_textbufAppend(out, "\n  ]\n}\n");
 }
 
+/* The stage a mission's slug names, through the campaign stage table's
+ * catalog ids ("base:deepsea" names STAGE_DEEPSEA), the rule the missions are
+ * named by; -1 when no campaign stage has it. */
+static s32 s_missionStagenum(const char *slug)
+{
+	s32 i;
+
+	if (!slug || !slug[0]) {
+		return -1;
+	}
+	for (i = 0; i < NUM_SOLOSTAGES; i++) {
+		const char *id = g_SoloStages[i].catalog_id;
+		const char *colon = id ? strchr(id, ':') : NULL;
+
+		if (colon && strcmp(colon + 1, slug) == 0) {
+			return (s32)g_SoloStages[i].stagenum;
+		}
+	}
+	return -1;
+}
+
 static s32 s_buildMissionGraph(const char *mission_id,
 	const char *scenario_id, const char *scenario_file, const char *slug,
 	const pdmeta_objective_row_t *rows, s32 row_count,
@@ -702,6 +723,8 @@ static s32 s_buildMissionGraph(const char *mission_id,
 {
 	s32 i;
 	char current_objective[96] = "";
+	s32 ending_continue = 0;
+	s32 ending_completed = 0;
 
 	if (!mission_id || !scenario_id || !scenario_file || !slug ||
 			!rows || row_count <= 0 || !out) {
@@ -747,7 +770,38 @@ static s32 s_buildMissionGraph(const char *mission_id,
 		}
 	}
 
+	/* Decision 2, the first executable part (port/include/mission_graph_runner.h):
+	 * when an objective that applies at this difficulty changes status, the
+	 * event runs the native module that shows the original "Objective N:
+	 * Completed" message. The edge is an execution edge ("input": "exec"); the
+	 * others are structural and are not walked. */
+	/* Mission endings (CORE, 2026-11-15): what a completed mission leads to
+	 * and what its completion unlocks, written from the stages the game checks
+	 * (src/game/endscreen.c, menutick.c): Deep Sea goes straight into the next
+	 * stage, Skedar Ruins to the credits and unlocks the alternate title. */
+	{
+		const s32 stagenum = s_missionStagenum(slug);
+		const char *continue_module = stagenum == STAGE_DEEPSEA ? "og.mission.start_next_stage"
+			: stagenum == STAGE_SKEDARRUINS ? "og.mission.start_credits" : NULL;
+
+		if (continue_module && s_textbufAppendf(out,
+				"    { \"id\": \"mission.continue\", \"kind\": \"event.mission.continue\" },\n"
+				"    { \"id\": \"mission.continue.action\", \"kind\": \"%s\" },\n",
+				continue_module) != 0) {
+			return -1;
+		}
+		if (stagenum == STAGE_SKEDARRUINS && s_textbufAppend(out,
+				"    { \"id\": \"mission.completed\", \"kind\": \"event.mission.completed\" },\n"
+				"    { \"id\": \"mission.completed.alt_title\", \"kind\": \"og.progress.unlock_alt_title\" },\n") != 0) {
+			return -1;
+		}
+		ending_continue = continue_module != NULL;
+		ending_completed = stagenum == STAGE_SKEDARRUINS;
+	}
+
 	if (s_textbufAppendf(out,
+			"    { \"id\": \"objective.status_changed\", \"kind\": \"event.objective.status_changed\", \"objective\": \"any\" },\n"
+			"    { \"id\": \"objective.status_message\", \"kind\": \"og.hud.objective_status_message\" },\n"
 			"    { \"id\": \"mission.parity_backend\", \"kind\": \"mission.behavior.parity_backend\", \"module\": \"og.mission.%s\" }\n"
 			"  ],\n"
 			"  \"edges\": [\n"
@@ -787,9 +841,19 @@ static s32 s_buildMissionGraph(const char *mission_id,
 			"    { \"from\": \"mission.objectives\", \"to\": \"mission.phase.failed\" },\n"
 			"    { \"from\": \"mission.phase.complete\", \"to\": \"mission.phase.end\" },\n"
 			"    { \"from\": \"mission.phase.failed\", \"to\": \"mission.phase.end\" },\n"
-			"    { \"from\": \"mission.objectives\", \"to\": \"mission.parity_backend\" }\n"
-			"  ]\n"
-			"}\n") != 0) {
+			"    { \"from\": \"mission.objectives\", \"to\": \"mission.parity_backend\" },\n"
+			"    { \"from\": \"objective.status_changed\", \"output\": \"out\", \"to\": \"objective.status_message\", \"input\": \"exec\" }") != 0) {
+		return -1;
+	}
+	if (ending_continue && s_textbufAppend(out,
+			",\n    { \"from\": \"mission.continue\", \"output\": \"out\", \"to\": \"mission.continue.action\", \"input\": \"exec\" }") != 0) {
+		return -1;
+	}
+	if (ending_completed && s_textbufAppend(out,
+			",\n    { \"from\": \"mission.completed\", \"output\": \"out\", \"to\": \"mission.completed.alt_title\", \"input\": \"exec\" }") != 0) {
+		return -1;
+	}
+	if (s_textbufAppend(out, "\n  ]\n}\n") != 0) {
 		return -1;
 	}
 
@@ -1644,6 +1708,8 @@ static s32 s_emitMission(const arena_authored_record_t *a, const char *out_dir,
 			"mission.objectives.source") &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
 			"mission.objective.source") &&
+		s_existingArchiveEntryContains(relpath, "mission.graph.json",
+			"\"input\": \"exec\"") &&
 		s_existingArchiveEntryContains(relpath, "mission.ini",
 			"scenario_graph_cache = " PDMETA_SCENARIO_DEP_CACHE_KIND) &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",

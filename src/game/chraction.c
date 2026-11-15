@@ -61,6 +61,7 @@
 #include "system.h"
 #include "weapon_graph_runtime.h"
 #include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
 #include "crashbreadcrumb.h"
 #include "net/net.h"
 #include "net/netmsg.h"
@@ -15619,8 +15620,19 @@ bool chrAdjustPosForSpawn(f32 chrradius, struct coord *pos, RoomNum *rooms, f32 
 	}
 
 	// On Defection some floating point precision issues result in P2 being placed in the way of P1's cutscene animation,
-	// which makes P1 start stuck in P2 in coop, so the distance is increased to 80 to avoid that
-	const f32 distance = (g_Vars.stagenum == STAGE_DEFECTION) ? 80.f : 60.f;
+	// which makes P1 start stuck in P2 in coop, so the distance is increased to 80 to avoid that.
+	// A stage built from scenario source sets it with the coop_spawn_distance of
+	// its stage.json player rule (decision 3); the stage check stays for a ROM stage.
+	f32 distance = 60.f;
+	if (bgUsesScenarioSource()) {
+		scenario_stage_player_t rule;
+
+		if (scenarioSourceStagePlayer(&rule) && rule.coop_spawn_distance > 0.0f) {
+			distance = rule.coop_spawn_distance;
+		}
+	} else if (g_Vars.stagenum == STAGE_DEFECTION) {
+		distance = 80.f;
+	}
 	for (i = 0; i < 8; i++) {
 		testpos.x = pos->x + sinf(curangle) * distance;
 		testpos.y = pos->y;

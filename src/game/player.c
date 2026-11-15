@@ -96,6 +96,8 @@
 #include "scene.h"
 #include "game/spawnpool.h"
 #include "game/setuputils.h"
+#include "scenario_source_runtime.h"
+#include "scenario_stage_rules.h"
 
 s32 g_DefaultWeapons[2];
 f32 g_MpSwirlRotateSpeed;
@@ -2775,14 +2777,29 @@ s32 playerChooseBodyAndHead(s32 *bodynum, s32 *headnum, bool *arg2)
 		return 1;
 	}
 
-	if (g_Vars.stagenum == STAGE_VILLA && lvGetDifficulty() >= DIFF_PA) {
-		outfit = OUTFIT_NEGOTIATOR;
-	}
+	/* Decision 3: a stage built from scenario source dresses the player by the
+	 * player rule of its stage.json; the stage checks stay for a ROM stage. */
+	if (bgUsesScenarioSource()) {
+		scenario_stage_player_t rule;
 
-	if (g_Vars.currentplayer->disguised) {
-		switch (g_Vars.stagenum) {
-		case STAGE_RESCUE:  outfit = OUTFIT_LAB; break;
-		case STAGE_AIRBASE: outfit = OUTFIT_STEWARDESS; break;
+		if (scenarioSourceStagePlayer(&rule)) {
+			if (rule.perfect_agent_outfit >= 0 && lvGetDifficulty() >= DIFF_PA) {
+				outfit = rule.perfect_agent_outfit;
+			}
+			if (g_Vars.currentplayer->disguised && rule.disguise_outfit >= 0) {
+				outfit = rule.disguise_outfit;
+			}
+		}
+	} else {
+		if (g_Vars.stagenum == STAGE_VILLA && lvGetDifficulty() >= DIFF_PA) {
+			outfit = OUTFIT_NEGOTIATOR;
+		}
+
+		if (g_Vars.currentplayer->disguised) {
+			switch (g_Vars.stagenum) {
+			case STAGE_RESCUE:  outfit = OUTFIT_LAB; break;
+			case STAGE_AIRBASE: outfit = OUTFIT_STEWARDESS; break;
+			}
 		}
 	}
 
