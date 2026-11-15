@@ -1,7 +1,12 @@
 {
   "scenario_name": "stage_sky_visual_defection",
-  "description": "Visual check (B-1172): Defection, a night stage with the moon as an always-drawn sky room and a starfield, through --launch-mission with the intro skipped, plus screenshots in the intro and in play. Shows whether a stage drawn by the scenario scene renderer still gets its sky, moon and stars: lv.c skips skyRender while that renderer is active, and bgRenderScene skips the always-drawn sky rooms and the stars.",
-  "tags": ["solo", "mission", "render", "visual"],
+  "description": "Visual check (B-1172): Defection, a night stage with the moon as an always-drawn sky room and a starfield, through --launch-mission with the intro skipped. Once play is live it takes one screenshot looking ahead and one looking up. Shows whether a stage drawn by the scenario scene renderer gets its sky: lv.c skips skyRender while that renderer is active, and bgRenderScene skips the always-drawn sky rooms and the stars.",
+  "tags": [
+    "solo",
+    "mission",
+    "render",
+    "visual"
+  ],
   "paths_of_interest": [
     "src/game/lv.c",
     "src/game/bg.c",
@@ -10,7 +15,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 150,
+  "timeout_seconds": 200,
   "install_state": "current",
   "boot_args": [
     "--no-update-check",
@@ -22,20 +27,56 @@
     "agent"
   ],
   "input_sequence": [
-    { "at_ms": 0,     "type": "wait", "comment": "boot path: --launch-mission seeds the stage before mainProc" },
-    { "at_ms": 30000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "intro skip attempt 1" },
-    { "at_ms": 32000, "type": "action", "name": "ACTION_SKIP_CUTSCENE", "action": "tap", "comment": "intro skip attempt 2" },
-    { "at_ms": 70000, "type": "exit", "comment": "scripted exit after the play screenshots" }
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 150000,
+      "stable_ms": 1000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Pause the script until the player is spawned, live, controllable and walking; the bounded Skip assist ends the intro. Boot takes about 90 s, so fixed timings caught only the boot (B-1172 first run)."
+    },
+    {
+      "at_ms": 1500,
+      "type": "screenshot",
+      "path": "defection_play_level.bmp",
+      "comment": "looking ahead once play is live"
+    },
+    {
+      "at_ms": 2000,
+      "type": "action",
+      "name": "ACTION_AIM_UP",
+      "action": "press",
+      "comment": "look up towards the sky"
+    },
+    {
+      "at_ms": 2900,
+      "type": "action",
+      "name": "ACTION_AIM_UP",
+      "action": "release"
+    },
+    {
+      "at_ms": 4500,
+      "type": "screenshot",
+      "path": "defection_play_up.bmp",
+      "comment": "looking up"
+    },
+    {
+      "at_ms": 6500,
+      "type": "exit",
+      "comment": "scripted exit after both screenshots"
+    }
   ],
-  "screenshots": [
-    { "at_ms": 22000, "name": "defection_intro" },
-    { "at_ms": 50000, "name": "defection_play_a" },
-    { "at_ms": 62000, "name": "defection_play_b" }
-  ],
+  "screenshots": [],
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=stage_sky_visual_defection",
       "SCENARIO.RENDER: activated source scene 'base:scenario_defection'",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready ",
+      "SMOKE\\.GLSHOT: captured .*defection_play_level\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_play_up\\.bmp",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -44,5 +85,13 @@
       "SMOKE: result=timeout"
     ],
     "required_counts": []
-  }
+  },
+  "retain_artifacts": [
+    {
+      "src": "defection_play_level.bmp"
+    },
+    {
+      "src": "defection_play_up.bmp"
+    }
+  ]
 }
