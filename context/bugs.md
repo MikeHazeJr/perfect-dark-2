@@ -1,5 +1,24 @@
 # Bug Tracker
 
+## 2026-11-15 B-1191 Simulants were invisible on networked clients (T-NETWORKING-011, finding 3)
+
+Severity high (every networked match with simulants: the clients' players could not see them; no
+crash). Proven by the reworked `mp_combat_net_bot_render_smoke` (`results-20261115T154128Z.json`, 64/66): the
+client turned its player straight at the simulant 120 units away (`look_dot=1.000`, a spot the host had checked
+for line of sight), yet the simulant's prop never got an on-screen flag (`prop_flags=0xc` for 20 s), the render
+audit logged `propsSort-scan` but never `propsSort-included` or `chrRender-modelRender`, and its animation frame
+stayed at 4.00. Cause: on a non-authority client `botTick` (`src/game/bot.c`) returned `TICKOP_NONE` before
+`chrTick`, and `chrTick` is what advances a character's animation, places its model and marks it on screen
+(`chr.c`: `PROPFLAG_ONTHISSCREENTHISTICK`). `bot.c` already recorded the same symptom for frozen bots (B-217 v2).
+Fix, after the co-op NPC pattern: the client runs `chrTick` for the simulant as a puppet tick
+(`s_BotPuppetTick`, read through `botIsPuppetTick()`), and `chraTick` (`chraction.c`) skips the AI and the
+action dispatch for it, as it already does for co-op NPCs on a client; the host stays authoritative for
+position, angle and action type (`SVC_CHR_MOVE`). Known limit: the client does not run the simulant's actions,
+so the simulant plays the animation it has (its stand animation) while it moves; running and attacking
+animations would need the host's animation state on the wire. Pinned in `tests/test_mp_chrnum_static.cpp`
+(`[finding3]`). Game check: the render smoke, re-queued. The client view in that run is also black outside one
+doorway (room 33 of Felicity drawn black); recorded separately, not yet explained.
+
 ## 2026-11-15 B-1190 Networked clients never see the match results (T-NETWORKING-011, decision needed)
 
 Severity medium (every networked mode: the client's player gets no results screen; no crash). Seen in

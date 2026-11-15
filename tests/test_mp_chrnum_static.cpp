@@ -229,3 +229,34 @@ TEST_CASE("simulant render smoke hooks: face with the engine's yaw and place in 
 		"s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop)\n{");
 	REQUIRE(audit.find("prop == g_BootDebugFaceBotProp") != std::string::npos);
 }
+
+TEST_CASE("simulants on a networked client: botTick runs chrTick as a puppet tick",
+          "[mplayer][net][finding3]") {
+	const std::string bot = code_only(read_text_file("src/game/bot.c"));
+	const std::string tick = function_body(bot, "s32 botTick(struct prop *prop)\n{");
+
+	// The non-authority client branch runs chrTick with the puppet flag set,
+	// and no longer returns TICKOP_NONE (which made simulants invisible)
+	const size_t client = tick.find("if (g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {");
+	REQUIRE(client != std::string::npos);
+	const size_t set = tick.find("s_BotPuppetTick = 1;", client);
+	const size_t run = tick.find("puppetresult = chrTick(prop);", set);
+	const size_t clear = tick.find("s_BotPuppetTick = 0;", run);
+	const size_t ret = tick.find("return puppetresult;", clear);
+	REQUIRE(set != std::string::npos);
+	REQUIRE(run != std::string::npos);
+	REQUIRE(clear != std::string::npos);
+	REQUIRE(ret != std::string::npos);
+	const size_t branch_end = tick.find('}', ret);
+	REQUIRE(tick.substr(client, branch_end - client).find("return TICKOP_NONE;") == std::string::npos);
+
+	// chraTick skips the AI and the action dispatch for that simulant
+	const std::string action = code_only(read_text_file("src/game/chraction.c"));
+	const std::string atick = function_body(action, "void chraTick(struct chrdata *chr)\n{");
+	const size_t skip = atick.find("if (chr->aibot && botIsPuppetTick()) {");
+	const size_t sleep = atick.find("chr->sleep -= g_Vars.lvupdate60;");
+	REQUIRE(skip != std::string::npos);
+	REQUIRE(sleep != std::string::npos);
+	REQUIRE(skip < sleep);
+	REQUIRE(atick.find("return;", skip) < sleep);
+}

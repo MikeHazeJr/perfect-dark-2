@@ -80,6 +80,19 @@ s32 botGetUpdatesDisabled(void)
 	return g_BotUpdatesDisabled;
 }
 
+/* T-NETWORKING-011 (finding 3): set while a non-authority client runs chrTick
+ * for a simulant the host owns (a puppet tick). chraTick then skips the AI and
+ * the action dispatch, as it does for co-op NPCs on a client, while chrTick
+ * still advances the animation, places the model and marks the simulant on
+ * screen. A client that skipped chrTick never drew a simulant: B-217 v2 below
+ * records the same for frozen bots, and the networked render smoke saw it. */
+static s32 s_BotPuppetTick = 0;
+
+s32 botIsPuppetTick(void)
+{
+	return s_BotPuppetTick;
+}
+
 /* F.5: Stuck detection — periodic position snapshot per bot slot.
  * Every STUCK_CHECK_FRAMES, each bot's position is compared to its last
  * snapshot. If it hasn't moved more than STUCK_EPSILON and has active
@@ -1676,9 +1689,18 @@ s32 botTick(struct prop *prop)
 		/* Non-authority clients defer to server-authoritative positions received via
 		 * SVC_CHR_MOVE.  The authority client (g_NetLocalBotAuthority == true) runs
 		 * full bot AI and relays positions to the server via CLC_BOT_MOVE.
-		 * On a listen server (NETMODE_SERVER) bots always run locally. */
+		 * On a listen server (NETMODE_SERVER) bots always run locally.
+		 * T-NETWORKING-011 (finding 3): the client still runs chrTick as a puppet
+		 * tick, without the AI (see s_BotPuppetTick), so the simulant is animated,
+		 * placed and drawn; returning TICKOP_NONE here made every simulant
+		 * invisible on clients. */
 		if (g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {
-			return TICKOP_NONE;
+			s32 puppetresult;
+
+			s_BotPuppetTick = 1;
+			puppetresult = chrTick(prop);
+			s_BotPuppetTick = 0;
+			return puppetresult;
 		}
 
 		/* PC failsafe: On solo mission maps used as MP arenas, the AI script

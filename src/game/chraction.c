@@ -13772,6 +13772,19 @@ void chraTick(struct chrdata *chr)
 		return;
 	}
 
+	// T-NETWORKING-011 (finding 3): the same for a simulant the host owns. A
+	// client's botTick runs chrTick as a puppet tick so the simulant is drawn
+	// and animated; its AI and actions stay with the host, which sends its
+	// position, angle and action type.
+	if (chr->aibot && botIsPuppetTick()) {
+		static bool s_simAiSuppressed = false;
+		if (!s_simAiSuppressed) {
+			sysLogPrintf(LOG_NOTE, "NET: simulant AI suppressed on client (host-authoritative puppet)");
+			s_simAiSuppressed = true;
+		}
+		return;
+	}
+
 	chr->sleep -= g_Vars.lvupdate60;
 
 	if (chr->sleep < 0
