@@ -312,6 +312,13 @@ Progress log:
   someone is still on the results. Asked to explain: the co-op end flow, which challenges and presets, the 5-8 player
   challenge difficulty, the GGV lane, and whether simulants on clients have any live state without animation
   replication.
+- Fixed and pushed since: c6572a21 (B-1192), 262dc602 (B-1191 part 2: `SVC_CHR_MOVE` goes through `chrSetPos`, the
+  puppet tick calls `botApplyMovement`, a fall only the client saw no longer kills a puppet), 2ce8765a (B-1190 option
+  A: a client marks its own participant local so it pushes its results, the lobby UI waits for the results screen,
+  "reviewing match stats" in the roster and the Room). Correction to the answer on animation: run, strafe, stand and
+  death animations come from the speeds `SVC_CHR_MOVE` already carries (`botApplyMovement`, the original design); only
+  the aiming pose and which death animation plays are not on the wire. Queued on binary eab25274 (= 2ce8765a): render,
+  rematch (its client stays on the results, so the second match must take it along), simulant types net and local.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
