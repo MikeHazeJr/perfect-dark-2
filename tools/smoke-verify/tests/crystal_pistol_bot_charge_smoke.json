@@ -94,6 +94,7 @@
       "BONDGUN\\.BOT: fired weapon=\\d+ func=0 bot=\\d+",
       "BONDGUN\\.MODEL3P: chrnum=\\d+ mpindex=[1-9]\\d* weapon=\\d+ loaded=[0-5]/6",
       "BONDGUN\\.CHARGE: start weapon=\\d+ bot=\\d+ func=1 count=6 release_in=90",
+      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=1\\.00 roll=0 spread=30 bot=\\d+",
       "BONDGUN\\.CHARGE: released weapon=\\d+ bot=\\d+ count=6 launched=6",
       "BONDGUN\\.CRYSTAL: mine armed weapon=\\d+ func=1 owner=\\d+",
       "SMOKE: result=scripted_exit"

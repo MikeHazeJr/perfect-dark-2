@@ -74,8 +74,9 @@ bool bgunModTickIncAttackCharge(struct handweaponinfo *info, s32 handnum,
 		struct hand *hand, const struct weapon_graph_held_function *held);
 /* Once per frame for the current player (lv.c, after handsTickAttack), alive
  * or dead: releases a charge whose deadline has passed. Each committed round
- * launches from its own seat part along its aim part; the fan is centred on
- * the crosshair and keeps the gun's roll. */
+ * launches from its own seat part; the rounds fan evenly from -launch_fan_deg
+ * to +launch_fan_deg (15 by default) along the gun's spine (the line of the
+ * seats' aim parts), centred on the crosshair and rolled with the gun. */
 void bgunModChargeTick(void);
 
 /* Bots (chrTickShoot): for a charge function, the shot commits every loaded

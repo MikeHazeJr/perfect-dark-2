@@ -156,6 +156,16 @@ typedef struct weapon_graph_setting_entry {
 s32 weaponGraphAmmoSettingSlot(const char *key, const char **out_suffix);
 s32 weaponGraphAmmoReserveType(const char *name);
 
+/* Committed charge fan (fire.charge_release launch_fan_deg, T-MODDING-008):
+ * the launched rounds spread evenly from -launch_fan_deg to +launch_fan_deg
+ * along the gun's spine (the plane of the seats' aim parts, rolled with the
+ * gun). Mike's pick, 2026-11-15: plus or minus 15 degrees. Authored values
+ * outside 0..90 are refused when the graph registers. */
+#define WEAPON_GRAPH_CHARGE_FAN_DEFAULT_DEG 15.0f
+#define WEAPON_GRAPH_CHARGE_FAN_MAX_DEG 90.0f
+/* Degrees off the aim for round `round` of `count` (0 for a single round). */
+f32 weaponGraphChargeFanAngleDeg(s32 round, s32 count, f32 fan_deg);
+
 typedef struct weapon_graph_weapon_settings {
 	s32 valid;
 	/* Public presentation binding. Empty selects the native sight renderer;
@@ -289,8 +299,9 @@ typedef struct weapon_graph_held_function {
 	char payload_ref[CATALOG_ID_LEN];
 	/* Crystal pistol (T-MODDING-008): committed charge launch params
 	 * (charge_time_ticks60, charge/launch_sound_catalog_id, launch_part_base,
-	 * launch_aim_part_base, launch_speed, charge_hide_part, charge_show_part).
-	 * Ids and parts are -1 when absent. */
+	 * launch_aim_part_base, launch_speed, launch_fan_deg, charge_hide_part,
+	 * charge_show_part). Ids and parts are -1 when absent; launch_fan_deg is
+	 * WEAPON_GRAPH_CHARGE_FAN_DEFAULT_DEG when absent. */
 	s32 has_charge;
 	s32 charge_time_ticks60;
 	s32 charge_sound;
@@ -298,6 +309,7 @@ typedef struct weapon_graph_held_function {
 	s32 launch_part_base;
 	s32 launch_aim_part_base;
 	f32 launch_speed;
+	f32 launch_fan_deg;
 	s32 charge_hide_part;
 	s32 charge_show_part;
 	s32 has_scale;

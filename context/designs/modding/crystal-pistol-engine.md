@@ -19,6 +19,8 @@ recipe (`dev-mods/maian_crystal_pistol` on `week-pd/mods`); the keys below are f
   as a proximity mine. It cannot be cancelled and fires even if the wielder dies.
 - Each fired crystal disappears from its socket; reload regrows them in their sockets.
 - The charge fans from the sockets; rolling the gun shapes the spread (new roll input).
+- The fan is plus or minus 15 degrees along the spine (Mike's pick, 2026-11-15), the default of a
+  tunable node param (`launch_fan_deg`).
 - 5 crystals on the spine, 1 in the barrel (the asset already has this: Socket_0 barrel, 1-5 spine).
 
 ## Format decisions (defaults; CORE may change them)
@@ -39,11 +41,22 @@ with a warning, instead of firing zero shots (B-1151).
 ### Charge launch: params on the secondary's function node (v1 `fire.charge_release`)
 
 `charge_time_ticks60`, `charge_sound_catalog_id`, `launch_part_base` (socket seats, 110),
-`launch_aim_part_base` (a second POSITION part per socket whose offset from the seat is the launch
-direction, 130), `launch_speed`, `charge_hide_part` / `charge_show_part` (toggles swapped during
-the charge: normal crystals 120, charged crystals 121). Count = the loaded rounds of the function's
-ammo slot. The charge is committed: owned by a match table, not the hand; it releases at the
-deadline even if the owner died (from the last socket transforms seen).
+`launch_aim_part_base` (a second POSITION part per socket, seat to tip, 130; the first and last
+tips set the fan's line and order), `launch_speed`, `launch_fan_deg` (see below),
+`charge_hide_part` / `charge_show_part` (toggles swapped during the charge: normal crystals 120,
+charged crystals 121). Count = the loaded rounds of the function's ammo slot. The charge is
+committed: owned by a match table, not the hand; it releases at the deadline even if the owner died
+(from the last socket transforms seen).
+
+The fan (Mike's pick, 2026-11-15): each round launches from its own seat, and the rounds spread
+evenly from `-launch_fan_deg` to `+launch_fan_deg` around the crosshair, along the spine: the line
+from the first seat's aim tip to the last's, re-centred on the crosshair, so it rolls with the gun
+and keeps the authored order (round 0 at `-launch_fan_deg`). Six rounds at the default:
+-15, -9, -3, 3, 9, 15 degrees. `launch_fan_deg` is a number from 0 to 90, default 15; anything else
+is refused when the graph registers (SP-76). Without two aimed sockets (a remote player's charge on
+a host that has no first-person gun for it) the line is the rolled gun's up; bots, which do not
+roll, fan vertically by the same value. The release logs `BONDGUN.CHARGE: fan ... spread=<full
+degrees>`.
 
 ### Projectile and entity graphs
 
@@ -111,9 +124,9 @@ Landed on `week-pd/crystal-pistol` (6e43ca22 and later), everything behind a mod
 | Mod weapon name | `loaderPoolSetPublicWeaponName`, `bgunGetName` | not checked on screen yet |
 | Shots, splats, spawn checks stop at walls on scenario stages (B-1189); Farsight x-ray still shoots through | `bgTestHitScenarioMesh` (`bg.c`), `meshraygrid.c` | pending: `hitscan_bg_scenario_smoke`, `farsight_xray_wall_smoke` (f50802ff's client) |
 | Bots use mod weapons (B-1211): derived bot preferences, self-loading magazine always full to a bot, kept across a function switch | `s_publicWeaponBotPrefsBuild` (`loader_pool.c`), `botact.c`, `botinv.c` | pending: `crystal_pistol_bot_charge_smoke`, `needler_viewmodel_visibility_smoke` (12 Needler bots) |
-| Bot charge: a full magazine at 450..1500 units commits every crystal, a vertical fan of mines at the target, alive or dead; then a primary magazine before the next | `bgunModBotChooseFunction`, `bgunModBotChargeShot`, `bgunModBotChargeTick` (`lv.c`) | pending: `crystal_pistol_bot_charge_smoke` |
+| Bot charge: a full magazine at 300..1500 units commits every crystal, a vertical fan of mines at the target (plus or minus `launch_fan_deg`), alive or dead; then a primary round before the next | `bgunModBotChooseFunction`, `bgunModBotChargeShot`, `bgunModBotChargeTick` (`lv.c`) | pending: `crystal_pistol_bot_charge_smoke` |
 | Third person: spent crystals from the owner's clip, charge glow, roll about the barrel | `bgunModHeldRoll3P`, `bgunModApplyHeldModel3P` (`chr.c` `chr0f022214`) | pending: `BONDGUN.MODEL3P` in the bot charge smoke |
-| Online: roll actions on the wire (v63 `UCMD_GUNROLL_LEFT/RIGHT`), every peer rolls and charges every player's gun; the host fans a remote player's charge without sockets | `bondmove.c`, `net_player_move_wire.c`, `bgunModChargeRelease` | pending: `crystal_pistol_net_roll_charge_smoke`; wire case in `test_net_player_move_wire.cpp` |
+| Online: roll actions on the wire (v63 `UCMD_GUNROLL_LEFT/RIGHT`), every peer rolls and charges every player's gun; the host launches a remote player's volley from its sockets with that player's roll (a socket-less fan only when it has none) | `bondmove.c`, `net_player_move_wire.c`, `bgunModChargeRelease` | pending: `crystal_pistol_net_roll_charge_smoke`; wire case in `test_net_player_move_wire.cpp` |
 | Crystals stuck in a character (target held 240 units ahead, bots hold fire) | native `objEmbed`; diagnostic `BONDGUN.PROJECTILE.CHRTEST` | pending: `crystal_pistol_bot_embed_smoke` |
 
 Not done (follow-ups): a crystal that hits an off-screen character is deleted (native embed rule:

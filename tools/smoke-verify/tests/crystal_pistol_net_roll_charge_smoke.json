@@ -1,6 +1,6 @@
 {
   "scenario_name": "crystal_pistol_net_roll_charge_smoke",
-  "description": "Crystal pistol (T-MODDING-008) online: a listen host and a client on 127.0.0.1 in one install that has the pistol mod, both spawning with it. Both run the same input: hold the gun roll right, switch to the secondary and charge while rolled. Protocol v63 carries the held roll actions (UCMD_GUNROLL_LEFT/RIGHT), so every peer rolls every player's gun (BONDGUN.ROLL for the local and the remote player on each side: four roll=90 lines). Each peer also simulates the other player's charge from its replicated input; the client launches nothing (skipped=client) and the host launches the client's volley itself as the socket-less fan along the client's rolled gun (fan ... roll=90 sockets=0, released ... sockets=0).",
+  "description": "Crystal pistol (T-MODDING-008) online: a listen host and a client on 127.0.0.1 in one install that has the pistol mod, both spawning with it. Both run the same input: hold the gun roll right, switch to the secondary and charge while rolled. Protocol v63 carries the held roll actions (UCMD_GUNROLL_LEFT/RIGHT), so every peer rolls every player's gun (BONDGUN.ROLL for the local and the remote player on each side: four roll=90 lines). Each peer also simulates the other player's charge from its replicated input; the client launches nothing (skipped=client) and the host launches the client's volley itself, from the sockets of the gun it keeps for that player, fanned plus or minus 15 degrees along its rolled spine (fan ... roll=90 spread=30 sockets=6 for both players), and arms the client's mines (owner=1).",
   "tags": [
     "modding",
     "pdxxx",
@@ -114,8 +114,8 @@
       "BONDGUN\\.ROLL: player=\\d+ weapon=\\d+ roll=90",
       "BONDGUN\\.CHARGE: start weapon=\\d+ player=\\d+ func=1 count=6",
       "BONDGUN\\.CHARGE: released weapon=\\d+ player=\\d+ count=6 launched=6 dead=0 sockets=6",
-      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=0\\.[01]\\d roll=90 sockets=0",
-      "BONDGUN\\.CHARGE: released weapon=\\d+ player=\\d+ count=6 launched=6 dead=0 sockets=0",
+      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=0\\.[01]\\d roll=90 spread=30 sockets=6",
+      "BONDGUN\\.CRYSTAL: mine armed weapon=\\d+ func=1 owner=1",
       "BONDGUN\\.CHARGE: released weapon=\\d+ player=\\d+ count=6 launched=0 dead=0 skipped=client",
       "SMOKE: result=scripted_exit"
     ],
@@ -149,6 +149,14 @@
       },
       {
         "pattern": "BONDGUN\\.CHARGE: released weapon=\\d+ player=\\d+ count=6 launched=0 dead=0 skipped=client",
+        "min": 2
+      },
+      {
+        "pattern": "BONDGUN\\.CHARGE: released weapon=\\d+ player=\\d+ count=6 launched=6 dead=0 sockets=6",
+        "min": 2
+      },
+      {
+        "pattern": "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=0\\.[01]\\d roll=90 spread=30 sockets=6",
         "min": 2
       },
       {

@@ -11115,6 +11115,26 @@ TEST_CASE("mod magazines are flat ammoN_* settings with checked values (crystal 
 	REQUIRE(botinv.find("if (changingfunc && !changinggun && !keepmagazine) {") != std::string::npos);
 }
 
+TEST_CASE("crystal pistol charge fan spreads the rounds evenly over plus or minus launch_fan_deg",
+		"[modding][weapon_graph][runtime][crystal_pistol]") {
+	/* Six rounds at Mike's default of 15: -15, -9, -3, 3, 9, 15 degrees. */
+	const f32 six[] = { -15.0f, -9.0f, -3.0f, 3.0f, 9.0f, 15.0f };
+	for (s32 j = 0; j < 6; j++) {
+		INFO(j);
+		REQUIRE(weaponGraphChargeFanAngleDeg(j, 6, WEAPON_GRAPH_CHARGE_FAN_DEFAULT_DEG) == Approx(six[j]));
+	}
+	/* The ends are the authored half-angle whatever the count. */
+	REQUIRE(weaponGraphChargeFanAngleDeg(0, 2, 20.0f) == Approx(-20.0f));
+	REQUIRE(weaponGraphChargeFanAngleDeg(1, 2, 20.0f) == Approx(20.0f));
+	REQUIRE(weaponGraphChargeFanAngleDeg(2, 5, 20.0f) == Approx(0.0f));
+	/* One round goes straight along the aim; a zero fan sends all along it. */
+	REQUIRE(weaponGraphChargeFanAngleDeg(0, 1, 15.0f) == Approx(0.0f));
+	REQUIRE(weaponGraphChargeFanAngleDeg(4, 6, 0.0f) == Approx(0.0f));
+	/* Out of range rounds read as the aim, never past the fan. */
+	REQUIRE(weaponGraphChargeFanAngleDeg(-1, 6, 15.0f) == Approx(0.0f));
+	REQUIRE(weaponGraphChargeFanAngleDeg(6, 6, 15.0f) == Approx(0.0f));
+}
+
 TEST_CASE("crystal pistol charge, cluster and arm-on-land params reach the runtime records",
 		"[modding][pdxxx][weapon_graph][runtime][crystal_pistol]") {
 	const std::string weaponGraph =
@@ -11157,7 +11177,55 @@ TEST_CASE("crystal pistol charge, cluster and arm-on-land params reach the runti
 	REQUIRE(secondary->charge_show_part == 121);
 	REQUIRE(secondary->charge_sound == -1);
 	REQUIRE(primary->launch_part_base == -1);
+	/* Mike's pick (2026-11-15): the charged volley fans plus or minus 15
+	 * degrees along the spine unless the node sets launch_fan_deg. */
+	REQUIRE(WEAPON_GRAPH_CHARGE_FAN_DEFAULT_DEG == Approx(15.0f));
+	REQUIRE(secondary->launch_fan_deg == Approx(15.0f));
 	weaponGraphIrFree(&ir);
+
+	/* launch_fan_deg is a tunable node param: 0..90 reaches the record, any
+	 * other value is refused before a record is published (SP-76). */
+	const auto fanGraph = [](const std::string &fan) {
+		return std::string(
+			"{\n  \"schema\": \"pd.weapon_graph.v1\",\n  \"asset_id\": \"mod_test:fan\",\n"
+			"  \"graph_id\": \"fan\",\n  \"nodes\": [\n"
+			"    { \"id\": \"secondary_action\", \"kind\": \"fire.charge_release\",\n"
+			"      \"params\": { \"mode\": \"secondary\", \"function_type\": \"throw\", \"ammo_slot\": 0,\n"
+			"        \"charge_time_ticks60\": 90, \"launch_fan_deg\": ") + fan + " } }\n"
+			"  ],\n  \"edges\": [],\n"
+			"  \"exports\": [ { \"name\": \"secondary\", \"node\": \"secondary_action\" } ]\n}\n";
+	};
+	const struct { const char *value; f32 expected; } fanAccepted[] = {
+		{ "20.0", 20.0f }, { "0", 0.0f }, { "90", 90.0f }, { "7.5", 7.5f },
+	};
+	for (const auto &row : fanAccepted) {
+		const std::string graph = fanGraph(row.value);
+		INFO(graph);
+		REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+			static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+		const s32 fanResult = weaponGraphRuntimeRegisterHeldIr(13, &ir, err, sizeof(err));
+		INFO(err);
+		REQUIRE(fanResult == 0);
+		const weapon_graph_held_function_t *fan = weaponGraphRuntimeGetHeldFunctionForGameplay(13, 1);
+		REQUIRE(fan != nullptr);
+		REQUIRE(fan->has_charge == 1);
+		REQUIRE(fan->launch_fan_deg == Approx(row.expected));
+		weaponGraphIrFree(&ir);
+	}
+	for (const char *value : { "-5", "120", "90.5", "\"wide\"" }) {
+		const std::string graph = fanGraph(value);
+		INFO(graph);
+		char fanErr[256] = {};
+		s32 result = weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+			static_cast<u32>(graph.size()), &ir, fanErr, sizeof(fanErr));
+		if (result == 0) {
+			result = weaponGraphRuntimeRegisterHeldIr(13, &ir, fanErr, sizeof(fanErr));
+			weaponGraphIrFree(&ir);
+		}
+		INFO(fanErr);
+		REQUIRE(result != 0);
+		REQUIRE(std::string(fanErr).find("launch_fan_deg must be a number from 0 to 90") != std::string::npos);
+	}
 
 	const std::string projectileGraph =
 		"{ \"schema\": \"pd.projectile_graph.v1\", \"asset_id\": \"mod_test:crystal\", \"graph_id\": \"p\",\n"
@@ -11243,6 +11311,18 @@ TEST_CASE("crystal pistol charge, cluster and arm-on-land params reach the runti
 	const std::string lv = readFile("src/game/lv.c");
 	REQUIRE(mod.find("bool bgunModTickIncAttackCharge(") != std::string::npos);
 	REQUIRE(mod.find("void bgunModChargeTick(void)") != std::string::npos);
+	/* Every launch path (the player's, with or without sockets, and a bot's)
+	 * fans by the function's launch_fan_deg; no fixed spacing is left. */
+	{
+		const std::string call = "weaponGraphChargeFanAngleDeg(j, charge->count, held->launch_fan_deg)";
+		size_t calls = 0;
+		for (size_t at = mod.find(call); at != std::string::npos; at = mod.find(call, at + 1)) {
+			calls++;
+		}
+		REQUIRE(calls == 2);
+		REQUIRE(mod.find("(6.0f * M_PI / 180.0f)") == std::string::npos);
+		REQUIRE(mod.find("(5.0f * M_PI / 180.0f)") == std::string::npos);
+	}
 	REQUIRE(mod.find("void bgunModProjectileLanded(struct weaponobj *weapon)") != std::string::npos);
 	REQUIRE(bondgun.find("finished = bgunModTickIncAttackCharge(info, handnum, hand, graph);") !=
 		std::string::npos);

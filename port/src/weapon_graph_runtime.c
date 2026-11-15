@@ -2185,6 +2185,16 @@ static s32 weaponGraphTunableKeyReserved(const char *key)
  * settings keys per ammo slot, "ammo0_*" and "ammo1_*". loader_pool.c builds
  * the native inventory_ammo from them (weaponGraphAmmoSettingSuffix lists
  * the suffixes it consumes). */
+/* The charge fan (launch_fan_deg): round `round` of `count` sits this many
+ * degrees off the aim, evenly from -fan_deg to +fan_deg. */
+f32 weaponGraphChargeFanAngleDeg(s32 round, s32 count, f32 fan_deg)
+{
+	if (count <= 1 || round < 0 || round >= count) {
+		return 0.0f;
+	}
+	return -fan_deg + 2.0f * fan_deg * (f32)round / (f32)(count - 1);
+}
+
 /* "none" is the self-loading magazine (no reserve pool; see
  * WEAPON_GRAPH_AMMO_SELFLOADING_TYPE). The names are the native reserve pools
  * a mod may share with base weapons. Returns -1 for an unknown name. */
@@ -3053,6 +3063,19 @@ static s32 weaponGraphValidateRuntimeIr(const weapon_graph_ir_t *ir,
 						node->kind, node->id);
 					return -1;
 				}
+			}
+		}
+		/* The charge fan's half-angle (SP-76): a number from 0 to 90 degrees;
+		 * absent means the default. */
+		if (node->opcode == WEAPON_GRAPH_OP_FIRE_CHARGE_RELEASE) {
+			const weapon_graph_ir_param_t *p = heldParam(ir, node, "launch_fan_deg");
+			f32 fan = 0.0f;
+			if (p && p->type != WEAPON_GRAPH_PARAM_NULL &&
+					(!heldParamFloat(ir, node, "launch_fan_deg", &fan) ||
+					!(fan >= 0.0f && fan <= WEAPON_GRAPH_CHARGE_FAN_MAX_DEG))) {
+				setErr(err, err_cap, "%s node %s launch_fan_deg must be a number from 0 to 90",
+					node->kind, node->id);
+				return -1;
 			}
 		}
 		for (s32 j = 0; j < node->param_count; j++) {
@@ -3932,6 +3955,8 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 	out->launch_aim_part_base = -1;
 	out->charge_hide_part = -1;
 	out->charge_show_part = -1;
+	out->launch_fan_deg = WEAPON_GRAPH_CHARGE_FAN_DEFAULT_DEG;
+	heldParamFloat(ir, node, "launch_fan_deg", &out->launch_fan_deg);
 	if (heldParamInt(ir, node, "charge_time_ticks60", &v) && v > 0) {
 		out->has_charge = 1;
 		out->charge_time_ticks60 = v;

@@ -94,6 +94,7 @@
       "BONDGUN\\.CHARGE: start weapon=\\d+ player=0 func=1 count=6 release_in=90",
       "BONDGUN\\.CHARGE: launch weapon=\\d+ round=0 socket=1",
       "BONDGUN\\.CHARGE: launch weapon=\\d+ round=5 socket=1",
+      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=\\d\\.\\d\\d roll=-?\\d+ spread=30 sockets=6",
       "BONDGUN\\.CHARGE: released weapon=\\d+ player=0 count=6 launched=6 dead=0 sockets=6",
       "SMOKE\\.KILL_PLAYER: player=0 died=1",
       "BONDGUN\\.CHARGE: released weapon=\\d+ player=0 count=6 launched=6 dead=1 sockets=6",

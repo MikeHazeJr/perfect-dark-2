@@ -94,8 +94,8 @@
       "SMOKE\\.ACTION\\.INJECT: player=0 action=122 down=1",
       "BONDGUN\\.ROLL: player=0 weapon=\\d+ roll=90",
       "BONDGUN\\.ROLL: player=0 weapon=\\d+ roll=0",
-      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=(0\\.9\\d|1\\.00) roll=0",
-      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=0\\.[01]\\d roll=90",
+      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=(0\\.9\\d|1\\.00) roll=0 spread=30",
+      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=0\\.[01]\\d roll=90 spread=30",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [

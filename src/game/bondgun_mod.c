@@ -28,6 +28,7 @@
 #include "game/playermgr.h"
 #include "game/mplayer/mplayer.h"
 #include "game/chraction.h"
+#include "game/acosfasinf.h" /* acosf for the charge fan log */
 #include "game/chr.h"
 #include "game/botact.h"
 #include "catalog_mgr_weapons.h" /* bot preferences */
@@ -1034,6 +1035,9 @@ static void bgunModChargeRelease(struct bgunmodcharge *charge)
 	struct coord aim;
 	struct coord fanup;
 	struct coord fanaxis;
+	struct coord spine;
+	struct coord fanfirst = {0.0f, 0.0f, 1.0f};
+	struct coord fanlast = {0.0f, 0.0f, 1.0f};
 	f32 speed;
 	s32 sockets = 0;
 	s32 launched = 0;
@@ -1113,9 +1117,41 @@ static void bgunModChargeRelease(struct bgunmodcharge *charge)
 		fanaxis.z = fanup.z * cosf(roll) + side.z * sinf(roll);
 	}
 
+	/* The fan (launch_fan_deg; Mike's pick, plus or minus 15 degrees): the
+	 * rounds spread evenly from -fan to +fan along the gun's spine. The
+	 * spine's line is the authored socket fan, first seat's aim to last
+	 * seat's, re-centred on the crosshair, so it rolls with the gun and keeps
+	 * the authored order; without two aimed sockets it is the rolled gun's
+	 * up. */
+	spine = fanaxis;
+
+	if (charge->count >= 2 && charge->socketvalid[0] && charge->socketvalid[charge->count - 1]
+			&& bgunModLength(&charge->socketdir[0]) > 0.5f
+			&& bgunModLength(&charge->socketdir[charge->count - 1]) > 0.5f) {
+		struct coord first = charge->socketdir[0];
+		struct coord last = charge->socketdir[charge->count - 1];
+		struct coord line;
+		f32 along;
+
+		bgunModRotateFromTo(&centre, &aim, &first);
+		bgunModRotateFromTo(&centre, &aim, &last);
+		line.x = last.x - first.x;
+		line.y = last.y - first.y;
+		line.z = last.z - first.z;
+		along = bgunModDot(&line, &aim);
+		line.x -= aim.x * along;
+		line.y -= aim.y * along;
+		line.z -= aim.z * along;
+
+		if (bgunModNormalise(&line)) {
+			spine = line;
+		}
+	}
+
 	speed = held->launch_speed > 0.0f ? held->launch_speed : 20.0f;
 
 	for (j = 0; j < charge->count; j++) {
+		f32 angle = weaponGraphChargeFanAngleDeg(j, charge->count, held->launch_fan_deg) * (M_PI / 180.0f);
 		struct coord spawnpos;
 		struct coord dir;
 		struct coord velocity;
@@ -1123,29 +1159,27 @@ static void bgunModChargeRelease(struct bgunmodcharge *charge)
 		Mtxf rot;
 		struct defaultobj *obj;
 
+		dir.x = aim.x * cosf(angle) + spine.x * sinf(angle);
+		dir.y = aim.y * cosf(angle) + spine.y * sinf(angle);
+		dir.z = aim.z * cosf(angle) + spine.z * sinf(angle);
+		bgunModNormalise(&dir);
+
+		if (j == 0) {
+			fanfirst = dir;
+		}
+
+		fanlast = dir;
+
 		if (charge->socketvalid[j]) {
 			spawnpos = charge->socketpos[j];
-			dir = charge->socketdir[j];
-
-			if (bgunModLength(&dir) < 0.5f) {
-				dir = centre;
-			}
-
-			bgunModRotateFromTo(&centre, &aim, &dir);
 		} else {
-			/* 6 degrees apart along the rolled gun's up, from just in front
-			 * of the owner's eyes. */
+			/* No socket: from just in front of the owner's eyes, a little
+			 * apart along the spine. */
 			f32 offset = (f32)j - (charge->count - 1) * 0.5f;
-			f32 angle = offset * (6.0f * M_PI / 180.0f);
 
-			dir.x = aim.x * cosf(angle) + fanaxis.x * sinf(angle);
-			dir.y = aim.y * cosf(angle) + fanaxis.y * sinf(angle);
-			dir.z = aim.z * cosf(angle) + fanaxis.z * sinf(angle);
-			bgunModNormalise(&dir);
-
-			spawnpos.x = ownerprop->pos.x + aim.x * 20.0f + fanaxis.x * offset * 3.0f;
-			spawnpos.y = ownerprop->pos.y + aim.y * 20.0f + fanaxis.y * offset * 3.0f;
-			spawnpos.z = ownerprop->pos.z + aim.z * 20.0f + fanaxis.z * offset * 3.0f;
+			spawnpos.x = ownerprop->pos.x + aim.x * 20.0f + spine.x * offset * 3.0f;
+			spawnpos.y = ownerprop->pos.y + aim.y * 20.0f + spine.y * offset * 3.0f;
+			spawnpos.z = ownerprop->pos.z + aim.z * 20.0f + spine.z * offset * 3.0f;
 		}
 
 		/* Spawn at the socket only if the owner can see it (as a throw does
@@ -1199,31 +1233,26 @@ static void bgunModChargeRelease(struct bgunmodcharge *charge)
 			dir.x, dir.y, dir.z);
 	}
 
-	/* How the fan lies on screen: 1 = a vertical line (gun upright), 0 = a
-	 * horizontal one (gun rolled a quarter turn). */
-	if (charge->count >= 2 && charge->socketvalid[0] && charge->socketvalid[charge->count - 1]
-			&& charge->aimvalid) {
-		struct coord first = charge->socketdir[0];
-		struct coord last = charge->socketdir[charge->count - 1];
-		struct coord spread;
+	/* How the fan lies on screen (vertical: 1 = a vertical line, gun upright;
+	 * 0 = a horizontal one, gun rolled a quarter turn) and its full spread in
+	 * degrees, first round to last. */
+	if (charge->count >= 2) {
+		struct coord line;
+		struct coord screenup = charge->aimvalid ? charge->aimup : fanup;
+		f32 cosspread = bgunModDot(&fanfirst, &fanlast);
 
-		bgunModRotateFromTo(&centre, &aim, &first);
-		bgunModRotateFromTo(&centre, &aim, &last);
-		spread.x = last.x - first.x;
-		spread.y = last.y - first.y;
-		spread.z = last.z - first.z;
+		cosspread = cosspread > 1.0f ? 1.0f : (cosspread < -1.0f ? -1.0f : cosspread);
+		line.x = fanlast.x - fanfirst.x;
+		line.y = fanlast.y - fanfirst.y;
+		line.z = fanlast.z - fanfirst.z;
 
-		if (bgunModNormalise(&spread)) {
-			sysLogPrintf(LOG_NOTE, "BONDGUN.CHARGE: fan weapon=%d vertical=%.2f roll=%.0f",
-				charge->weaponnum, fabsf(bgunModDot(&spread, &charge->aimup)),
-				bgunModGetRoll() * (180.0f / M_PI));
+		if (!bgunModNormalise(&line)) {
+			line = spine;
 		}
-	} else if (charge->count >= 2 && sockets == 0) {
-		/* The socket-less fan (a remote player's charge on the host): it lies
-		 * along the rolled gun's up. */
-		sysLogPrintf(LOG_NOTE, "BONDGUN.CHARGE: fan weapon=%d vertical=%.2f roll=%.0f sockets=0",
-			charge->weaponnum, fabsf(bgunModDot(&fanaxis, &fanup)),
-			bgunModGetRoll() * (180.0f / M_PI));
+
+		sysLogPrintf(LOG_NOTE, "BONDGUN.CHARGE: fan weapon=%d vertical=%.2f roll=%.0f spread=%.0f sockets=%d",
+			charge->weaponnum, fabsf(bgunModDot(&line, &screenup)),
+			bgunModGetRoll() * (180.0f / M_PI), acosf(cosspread) * (180.0f / M_PI), sockets);
 	}
 
 	if (held->launch_sound >= 0 && g_Vars.lvupdate240 > 0) {
@@ -1362,6 +1391,8 @@ static void bgunModBotChargeRelease(struct bgunmodcharge *charge, s32 handnum)
 	struct coord up = {0.0f, 1.0f, 0.0f};
 	struct coord right;
 	struct coord fanup;
+	struct coord fanfirst = {0.0f, 0.0f, 1.0f};
+	struct coord fanlast = {0.0f, 0.0f, 1.0f};
 	f32 speed;
 	s32 dead;
 	s32 launched = 0;
@@ -1423,8 +1454,9 @@ static void bgunModBotChargeRelease(struct bgunmodcharge *charge, s32 handnum)
 	speed = held->launch_speed > 0.0f ? held->launch_speed : 20.0f;
 
 	for (j = 0; j < charge->count; j++) {
-		/* 5 degrees apart, centred on the aim, one above the other. */
-		f32 angle = ((f32)j - (charge->count - 1) * 0.5f) * (5.0f * M_PI / 180.0f);
+		/* The function's fan (launch_fan_deg, plus or minus 15 by default),
+		 * centred on the aim, one above the other: bots do not roll. */
+		f32 angle = weaponGraphChargeFanAngleDeg(j, charge->count, held->launch_fan_deg) * (M_PI / 180.0f);
 		struct coord dir;
 		struct coord spawnpos;
 		struct coord velocity;
@@ -1436,6 +1468,12 @@ static void bgunModBotChargeRelease(struct bgunmodcharge *charge, s32 handnum)
 		dir.y = aim.y * cosf(angle) + fanup.y * sinf(angle);
 		dir.z = aim.z * cosf(angle) + fanup.z * sinf(angle);
 		bgunModNormalise(&dir);
+
+		if (j == 0) {
+			fanfirst = dir;
+		}
+
+		fanlast = dir;
 
 		spawnpos.x = gunpos.x + fanup.x * (j * 3.0f);
 		spawnpos.y = gunpos.y + fanup.y * (j * 3.0f);
@@ -1486,6 +1524,14 @@ static void bgunModBotChargeRelease(struct bgunmodcharge *charge, s32 handnum)
 
 	if (held->launch_sound >= 0 && g_Vars.lvupdate240 > 0) {
 		psCreate(NULL, ownerprop, held->launch_sound, -1, -1, 0, 0, PSTYPE_NONE, NULL, -1.0f, NULL, -1, -1.0f, -1.0f, -1.0f);
+	}
+
+	if (charge->count >= 2) {
+		f32 cosspread = bgunModDot(&fanfirst, &fanlast);
+
+		cosspread = cosspread > 1.0f ? 1.0f : (cosspread < -1.0f ? -1.0f : cosspread);
+		sysLogPrintf(LOG_NOTE, "BONDGUN.CHARGE: fan weapon=%d vertical=1.00 roll=0 spread=%.0f bot=%d",
+			charge->weaponnum, acosf(cosspread) * (180.0f / M_PI), (s32)chr->chrnum);
 	}
 
 	/* The launched crystals leave the bot's clip, if the bot still holds the
