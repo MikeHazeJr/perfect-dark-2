@@ -10179,3 +10179,62 @@ Next
   receipt protocol through the hit path, the v2 runtime and the gun code on
   `week-pd/inflight-20261114`, never compiled, about 2,000 lines.
 - SP-79 flips; removal of the objective fallback (decision 1 allows it).
+
+## 2026-11-15 (04:20-05:30 UTC) - CORE: SP-79 closed (B-1167), objectives graph-only, player setup check (B-1168, B-1169)
+
+Focus
+- SP-79 flips, the objective fallback removal decision 1 allows, and the
+  decision 3 player setup check before Mike's stable-build play-through.
+
+What was done
+- SP-79 / B-1167 (4178cbca): the 90 `return s_aiGraphRuntimeFailure(...)`
+  in 40 requirement helpers now log and return 0 (-1 for the three-way
+  target-movement node); the ten `if (!x)` callers of the three -1 node
+  helpers read -1 as a refusal; two branches keep going on purpose and say
+  why (character provenance for co-op buddies and tiny-mode extras; the
+  spawn registry's full table, since native would spawn the chr twice).
+  B-1167: the hoverbot step checks a path only when there is one, both
+  teleport twins start from the current player, the special-death twin
+  checks chr, all as native does. New `[sp79]`/`[b1167]` source pins.
+- Decision 1 (085d1bc8): objectives evaluate only from the mission graph;
+  one that cannot be evaluated stays incomplete and logs once per stage.
+  The original evaluation is kept only as the runner's parity oracle.
+- Decision 3 setup check:
+  - Release package: B-1168 (critical). `release.ps1` shipped `Build/data`
+    wholesale; that folder holds a full ROM extraction. v0.1.102's zip is
+    233.6 MB against 32 MB for v0.1.16 (contents not confirmed). The script
+    now leaves ROM-derived files out and refuses a dist that still has any
+    (5e433b50, 12-check test). The published asset is Mike's decision.
+  - First launch and extraction: the two B-1110 runs (clean folder, ROM by
+    path, 5,569 of 5,569 archives, 0 failures).
+  - Saves and settings: a normal launch saves to AppData through
+    `SDL_GetPrefPath("", "perfectdark")`; `--portable` and `--savedir`
+    override; B-1160 keeps every menu save in the save folder.
+  - Mods folder: B-1169 (high). With no `--moddir` the first existing of
+    `$E/../mods`, `./mods`, `$E/mods` is migrated and mounted, so a player
+    install beside another game's mods folder would rename that game's
+    mods. Needs Mike's call on the developer root.
+- The hub script fails under Windows PowerShell 5.1 when one queue item is
+  ahead (strict mode, `.Count`); PowerShell 7 works; everyone told.
+
+Verification
+- pd-tests 1,896/1,896; SP-79 pins 4 cases, 309 assertions.
+- Soak on the SP-79 client (4178cbca, receipt `campaign-soak-4178cbca-20261115`):
+  40/40, all 17 missions, 0 errors, 54 warnings (unchanged), graph refusals
+  only the two known Defense `chr_copy_properties` on chrs that are gone,
+  restart-verify passed, nothing written outside the run folder.
+- Special assignments on 085d1bc8 (receipt `campaign-specials-085d1bc8-20261115`):
+  38/38, all four completed with the seeded agent (Skedar Ruins done on
+  every difficulty, a medal on every firing-range weapon), so B-1117 offers
+  them in live play; parity `compared=1 not_graph=0` in each, no graph
+  refusal, no objective warning.
+- Release campaign (17 missions) on 085d1bc8 and the setup smoke pack
+  (boot, settings and keyboard, agent load and migration, mod loading, main
+  menu boot): queued behind MODS at 05:12 UTC; results in the next entry.
+
+Decisions pending Mike
+- 6B floor (stay on D:, or 200 GiB in the worktrees); push `week-pd/core`;
+  the v0.1.102 asset (B-1168); the developer mods root (B-1169).
+
+Next
+- 2A, the v2 world-hit salvage.
