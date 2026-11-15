@@ -495,18 +495,33 @@ RUN, both on shared base 3 with the client built at 8f0ac3a3, both
 - `results-20261115T024415Z.json` (recipe 62e0fb64, muzzle on model -X):
   again a side view, now with the muzzle pointing right and away.
 
-So a quarter turn of the model gave a quarter turn on screen, and neither
-axis points into the screen. From the two views the game turns a mod's held
-model by roughly 225 degrees about the vertical axis (a rough reading of two
-screenshots, not a measurement), which would put "into the screen" on the
-diagonal between model -X and model +Z. A diagonal is not a model convention.
-The likely cause is on the game side: the mod weapon adapter wires no equip,
-idle or aim pose for a mod weapon (section 5), so the hand matrix is whatever
-it defaults to. The copy of the base Falcon 2 is held correctly, but it is
-drawn through the base gun's own file slot (B-1152), not through this path.
-OPEN, for CORE or a session with the hand matrix code in view
-(`bondgun.c`): how a mod's held model is posed, and what axis it should be
-authored on. Do not bake a 45 degree turn into the model to hide it.
+CORRECTED 2026-11-15: both stand-ins were authored on the wrong axis, and
+the conclusion first written here ("a diagonal, not a model convention, the
+adapter sets no pose") was wrong. The convention is documented in the README
+of the real asset (`D:\Game Dev\PD2-Assets\crystal-pistol\README.md`,
+"Scale and frame", from Mike's asset session): native guns are authored
+muzzle toward +Z, up +Y, +X the gun's left; the Phoenix has its muzzle part at
+z +161 and its hold part at z -90; `bondgun.c` turns every held model 180
+degrees about Y, then adds `posx`/`posy`/`posz`, and mod-held models get the
+same pose. The Phoenix's native view values are `posx 9.5`, `posy -16.2`,
+`posz -23`, `muzzlez 1`.
+
+The stand-in now follows that frame at the Phoenix's size (6bbc5ec3: emitter
+at z +164, grip near z -90) with the Phoenix's view values. The same README
+notes that the repo's Needler sample is authored muzzle toward -Z and so is
+drawn backwards (B-1155).
+
+The real asset also has what this stand-in lacks: sockets (muzzle part 50,
+hold part 55, six crystal sockets with launch directions and fan angles in
+`crystal_pistol_sockets.json`), crystal states (full, regrowing, charged,
+empty) and baked textures. Mike's asset session packaged a test `.pdweapon`
+from it (ids `mod_crystal_pistol:*`; uncommitted at the time of writing).
+Mike will hand a `.pdweapon` to MODS when it is ready; until then do not take
+files from that folder or from someone else's uncommitted work. When it
+arrives: validate it (in-game Validate, `tools/asset_archive_conformance.py`),
+decide with Mike whether the recipe adopts its mesh and parts (one override
+per member, or the whole `.pdmesh`) or the archive replaces the recipe, and
+keep one catalog id for the weapon.
 
 Also seen: the first screenshot of the second kind of run shows "Building
 runtime caches 100%" instead of the match, because the fixture's first
