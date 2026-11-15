@@ -10238,3 +10238,24 @@ Decisions pending Mike
 
 Next
 - 2A, the v2 world-hit salvage.
+
+## 2026-11-15 (05:20-06:15 UTC) - CORE: release campaign and the setup smoke pack on 085d1bc8
+
+- Release campaign (receipt `campaign-release-085d1bc8-20261115`): 39/39,
+  all 17 missions, 0 errors, parity `not_graph=0` in every mission (1 to 3
+  objectives compared each), no graph refusal, no objective warning. With
+  the special assignments (38/38) all 21 solo stages evaluate objectives
+  from the graph with no fallback in live play. The week note's Objectives
+  row stays unticked only for completion events (no graph event fires when
+  an objective's status changes yet).
+- Decision 3 smoke pack against shared-base-3 with the 085d1bc8 client:
+  boot 14/14, agent select from JSON 20/20, agent profile migration and
+  restart 24/24, mod loading 19/19, main menu boot 3/3.
+- `menu_settings_keyboard` could not run at all: B-1170 (the harness key
+  table lacked PageUp/PageDown, which the fixture uses since 6044d0fa).
+  Fixed in f4c52c75 with a test over every fixture's key names. On the
+  fixed client the fixture parses, but its window never got focus, also
+  with `-MaintainForeground` (desktop most likely locked overnight); it
+  needs a rerun while the desktop is unlocked.
+- Pushing is still pending Mike; `week-pd/core` is 12 commits ahead of
+  origin.
