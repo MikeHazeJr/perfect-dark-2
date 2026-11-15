@@ -1,5 +1,21 @@
 # Bug Tracker
 
+## 2026-11-15 B-1138 Teams past the fourth spawned in team 1's region, and some teams got no respawn sector (T-NETWORKING-011, SP-82)
+
+Severity medium (unfair spawns in team matches with five or more teams, or with team colours that
+are not the first ones in order; no crash). Found by the SP-82 sweep after B-1136, from source. The
+port allows `MAX_TEAMS` (8) teams, but both team spawn paths looked at the first 4 team bits only:
+the PC's match-start orchestrator (`mpspawn_orchestrate.c`: `s_Anchors[4]`, the sector count, the
+4-sector cap and `orch_team_bits_to_sector`, whose fallback put any later team in sector 0, team
+1's) and the respawn helper `playerMpResolveTeamSpawnParams` (`player.c`), which left a team past
+the fourth with no team at all. The respawn helper also passed the raw team number as the sector,
+while `spawnPoolSelect*` (`spawnpool.c`) takes a sector in 0..num_teams-1, so with Red and Blue
+active Blue (team 2 of 2) never got its sector when no teammate was placed yet. Fix: the
+orchestrator has one sector per active team up to `MAX_TEAMS` (`ORCH_MAX_SECTORS`), and the respawn
+helper counts all team bits and gives the team's place among the active teams, as the orchestrator
+already did. Matches with the first two or four contiguous teams are unchanged. Pinned in
+`tests/test_mp_chrnum_static.cpp` (`[sp82]`). Not run in game: no smoke has five or more teams yet.
+
 ## 2026-11-15 B-1137 A challenge started from the challenge screen had no player in it (T-NETWORKING-011, finding 10)
 
 Severity high for challenges (the mode does not work from a fresh session; no crash). Seen in the

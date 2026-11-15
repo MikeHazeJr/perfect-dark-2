@@ -59,7 +59,11 @@ static struct coord s_PlacedPos[ORCH_MAX_PART];
 
 static int64_t s_HungSquare[SPAWNPOOL_MAX * SPAWNPOOL_MAX];
 static s32 s_VoronoiOwner[SPAWNPOOL_MAX];
-static struct coord s_Anchors[4];
+/* SP-82: one spawn sector per team, up to all MAX_TEAMS. The orchestrator was
+ * written for four, so teams 5 to 8 fell into team 1's sector
+ * (orch_team_bits_to_sector's fallback). */
+#define ORCH_MAX_SECTORS MAX_TEAMS
+static struct coord s_Anchors[ORCH_MAX_SECTORS];
 static s32 s_HungMatch[SPAWNPOOL_MAX];
 
 void mpOrchestrateReset(void)
@@ -152,7 +156,7 @@ static s32 orch_team_bits_to_sector(u32 team_bits, u32 active_mask)
 	s32 idx = 0;
 	s32 b;
 
-	for (b = 0; b < 4; b++) {
+	for (b = 0; b < ORCH_MAX_SECTORS; b++) {
 		if (active_mask & (1u << b)) {
 			if (team_bits & (1u << b)) {
 				return idx;
@@ -497,7 +501,7 @@ enum mp_orchestrate_spawn_result mpOrchestrateMatchStartSpawns(void)
 
 	active_mask = (u32)orch_active_team_mask();
 	num_sectors = 0;
-	for (i = 0; i < 4; i++) {
+	for (i = 0; i < ORCH_MAX_SECTORS; i++) {
 		if (active_mask & (1u << i)) {
 			num_sectors++;
 		}
@@ -505,8 +509,8 @@ enum mp_orchestrate_spawn_result mpOrchestrateMatchStartSpawns(void)
 	if (!(g_MpSetup.options & MPOPTION_TEAMSENABLED) || num_sectors < 2) {
 		num_sectors = 1;
 	}
-	if (num_sectors > 4) {
-		num_sectors = 4;
+	if (num_sectors > ORCH_MAX_SECTORS) {
+		num_sectors = ORCH_MAX_SECTORS;
 	}
 
 	for (i = 0; i < s_PartCount; i++) {
@@ -531,7 +535,7 @@ enum mp_orchestrate_spawn_result mpOrchestrateMatchStartSpawns(void)
 		s32 b;
 		s32 s = 0;
 
-		for (b = 0; b < 4 && s < k_anchors; b++) {
+		for (b = 0; b < ORCH_MAX_SECTORS && s < k_anchors; b++) {
 			struct coord base;
 
 			if (!(active_mask & (1u << b))) {

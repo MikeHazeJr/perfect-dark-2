@@ -3617,10 +3617,12 @@ team bits. Fixed.
   only players 1 to 4 count for the "last winner" and "last loser" locks.
 - `mplayer.c` local awards (`numplayers >= 4` chains): built for up to four
   local players.
-- Team counts over 4 bits while `MAX_TEAMS` is 8: the PC's match-start
-  orchestrator (`mpspawn_orchestrate.c`, `s_Anchors[4]`, sector count and
-  `orch_team_bits_to_sector`) and the team count near `player.c:777`. In a
-  match with five or more teams, teams 5 to 8 start in team 1's sector.
+
+**Fixed later the same day:** the team counts over 4 bits (B-1138): the
+match-start orchestrator now has one sector per active team up to
+`MAX_TEAMS`, and the respawn helper `playerMpResolveTeamSpawnParams` counts
+every team bit and passes the team's place among the active teams as its
+sector.
 
 **Rules:**
 - The player/simulant boundary in an mpchrnum is `MAX_PLAYERS`, and a
@@ -3636,4 +3638,5 @@ team bits. Fixed.
 
 **Audit checklist:** for each hit, (a) is the 4 a player count, a
 player/simulant boundary or a team count, and (b) would 8 players or 8 teams
-reach past it? Done: `func0f18d0e8`. Open: the four lower-impact sites above.
+reach past it? Done: `func0f18d0e8` (B-1136) and the two team spawn paths
+(B-1138). Open: the three lower-impact `mplayer.c` sites above.

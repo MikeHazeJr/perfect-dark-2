@@ -175,6 +175,30 @@ TEST_CASE("challenge launch: the local player joins before the simulants",
 	REQUIRE(start != std::string::npos);
 }
 
+TEST_CASE("team spawns: every team gets its own sector, numbered among the active teams",
+          "[mplayer][spawn][sp82]") {
+	const std::string orch = code_only(read_text_file("src/game/mplayer/mpspawn_orchestrate.c"));
+	REQUIRE(orch.find("#define ORCH_MAX_SECTORS MAX_TEAMS") != std::string::npos);
+	REQUIRE(orch.find("static struct coord s_Anchors[ORCH_MAX_SECTORS];") != std::string::npos);
+	REQUIRE(orch.find("b < 4") == std::string::npos);
+	REQUIRE(orch.find("i < 4") == std::string::npos);
+	REQUIRE(orch.find("num_sectors > 4") == std::string::npos);
+
+	const std::string player = code_only(read_text_file("src/game/player.c"));
+	const std::string resolve = function_body(player,
+		"static void playerMpResolveTeamSpawnParams(struct prop *selfprop, s32 *team, s32 *num_teams)\n{");
+	REQUIRE(resolve.find("i < 4") == std::string::npos);
+	REQUIRE(resolve.find("for (i = 0; i < MAX_TEAMS; i++) {") != std::string::npos);
+	// The sector is the team's place among the active teams, not its number
+	const size_t skip = resolve.find("if (!(active_teams & (1u << i))) {");
+	const size_t take = resolve.find("*team = sector;", skip);
+	const size_t next = resolve.find("sector++;", take);
+	REQUIRE(skip != std::string::npos);
+	REQUIRE(take != std::string::npos);
+	REQUIRE(next != std::string::npos);
+	REQUIRE(resolve.find("*team = i;") == std::string::npos);
+}
+
 TEST_CASE("simulant render smoke hooks: face with the engine's yaw and place in sight",
           "[mplayer][smoke][finding3]") {
 	const std::string main_c = code_only(read_text_file("port/src/main.c"));
