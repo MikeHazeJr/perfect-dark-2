@@ -10813,6 +10813,9 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 					chr->aibot->loadedammo[handnum]--;
 				}
 
+				/* T-MODDING-008: no-op for base weapons. */
+				bgunModBotFired(chr, handnum, &gset);
+
 				osSyncPrintf("numshots(%d) = %d", handnum, chr->aibot->loadedammo[handnum]);
 			}
 

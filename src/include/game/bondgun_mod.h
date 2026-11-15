@@ -86,8 +86,8 @@ bool bgunModBotChargeShot(struct chrdata *chr, s32 handnum, struct gset *gset);
 void bgunModBotChargeTick(void);
 /* botinvTick, once it has picked weaponnum/funcnum: a bot holding a mod
  * weapon whose secondary is a committed charge takes the charge with a full
- * magazine and its target 450..1500 units away, then empties a primary
- * magazine before it charges again. Returns the function to use. */
+ * magazine and its target 300..1500 units away, then fires a primary round
+ * before it charges again. Returns the function to use. */
 s32 bgunModBotChooseFunction(struct chrdata *chr, s32 weaponnum, s32 funcnum);
 /* chrTickShoot, each round a bot fires: a primary round of a charge weapon
  * re-allows the charge. Logs BONDGUN.BOT: fired (first round per bot, weapon

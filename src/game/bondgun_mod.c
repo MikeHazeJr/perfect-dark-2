@@ -77,6 +77,13 @@ static s32 s_BgunModBotChargeHand[BGUN_MOD_BOT_CHARGES];
 static s32 s_BgunModBotChargeFrame = -1;
 /* By aibotnum: the bot's last mod volley was a charge (bgunModBotChooseFunction). */
 static u8 s_BgunModBotChargedLast[MAX_BOTS];
+/* A bot charges a target this far away: from its default minimum attack
+ * range (300, outside the mines' 200 trigger radius) out to 1500. */
+#define BGUN_MOD_BOT_CHARGE_MIN_DIST 300.0f
+#define BGUN_MOD_BOT_CHARGE_MAX_DIST 1500.0f
+/* BONDGUN.BOT: choose lines, by aibotnum, and the stage's budget. */
+static s32 s_BgunModBotChooseLogFrame[MAX_BOTS];
+static s32 s_BgunModBotChooseLogBudget = 24;
 /* By aibotnum and function: weaponnum + 1 of the last BONDGUN.BOT line. */
 static s32 s_BgunModBotFireLogged[MAX_BOTS][2];
 
@@ -799,6 +806,8 @@ static void bgunModChargeResetStage(void)
 	memset(s_BgunModBotCharges, 0, sizeof(s_BgunModBotCharges));
 	memset(s_BgunModBotChargedLast, 0, sizeof(s_BgunModBotChargedLast));
 	memset(s_BgunModBotFireLogged, 0, sizeof(s_BgunModBotFireLogged));
+	memset(s_BgunModBotChooseLogFrame, 0, sizeof(s_BgunModBotChooseLogFrame));
+	s_BgunModBotChooseLogBudget = 24;
 	s_BgunModBotChargeFrame = -1;
 }
 
@@ -1591,7 +1600,19 @@ s32 bgunModBotChooseFunction(struct chrdata *chr, s32 weaponnum, s32 funcnum)
 
 	dist = chr->aibot->chrdistances[mpindex];
 
-	return dist >= 450.0f && dist <= 1500.0f ? FUNC_SECONDARY : funcnum;
+	/* With a full magazine: one line a second at most, per bot. */
+	if (s_BgunModBotChooseLogBudget > 0
+			&& g_Vars.lvframe60 - s_BgunModBotChooseLogFrame[slot] >= 60) {
+		s_BgunModBotChooseLogBudget--;
+		s_BgunModBotChooseLogFrame[slot] = g_Vars.lvframe60;
+		sysLogPrintf(LOG_NOTE, "BONDGUN.BOT: choose weapon=%d bot=%d loaded=%d/%d target=%d dist=%.0f charge=%d",
+			weaponnum, (s32)chr->chrnum, chr->aibot->loadedammo[HAND_RIGHT], clip,
+			(s32)target->chr->chrnum, dist,
+			dist >= BGUN_MOD_BOT_CHARGE_MIN_DIST && dist <= BGUN_MOD_BOT_CHARGE_MAX_DIST ? 1 : 0);
+	}
+
+	return dist >= BGUN_MOD_BOT_CHARGE_MIN_DIST && dist <= BGUN_MOD_BOT_CHARGE_MAX_DIST
+		? FUNC_SECONDARY : funcnum;
 }
 
 void bgunModBotFired(struct chrdata *chr, s32 handnum, struct gset *gset)
