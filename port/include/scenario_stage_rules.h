@@ -40,6 +40,15 @@ extern "C" {
  * "ai": stage-wide guard behaviour (src/game/chrai.c).
  *   dark_room_lists               false = guards never switch to their dark
  *                                 room AI list (true when absent)
+ *
+ * "ending": how the stage presents its outcome (src/game/endscreen.c,
+ * menu.c, menugfx.c).
+ *   outcome                       "unknown": the end screen reports the
+ *                                 mission "Unknown" and the agent "Missing",
+ *                                 turns white instead of the success colour,
+ *                                 the menus' particles are gray and slow, and
+ *                                 a completion plays the mission-unknown tune
+ *                                 (Defense); "known" is the default
  * Outfit names, in OUTFIT_* order: default, elvis, trent, trench,
  * frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess,
  * mrblonde, maian, negotiator.
@@ -78,10 +87,16 @@ typedef struct scenario_stage_ai {
 	s32 no_dark_room_lists;   /* dark_room_lists: false */
 } scenario_stage_ai_t;
 
+typedef struct scenario_stage_ending {
+	s32 present;
+	s32 outcome_unknown;      /* outcome: "unknown" */
+} scenario_stage_ending_t;
+
 typedef struct scenario_stage_rules {
 	scenario_stage_weather_t weather;
 	scenario_stage_player_t player;
 	scenario_stage_ai_t ai;
+	scenario_stage_ending_t ending;
 } scenario_stage_rules_t;
 
 /* The outfit name for an OUTFIT_* value, or NULL; and the value for a name,

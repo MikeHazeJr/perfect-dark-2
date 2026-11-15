@@ -790,7 +790,9 @@ s32 pdguiEndscreenHasNextMission(void)
 {
     s32 stageindex = (s32)g_MissionConfig.stageindex;
 
-    if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
+    /* Mission endings (CORE, 2026-11-15): the mission graph says whether the
+     * completed mission leads to the credits (Skedar Ruins on a ROM stage). */
+    if (endscreenMissionLeadsToCredits()) {
         return 1;
     }
 
@@ -804,7 +806,7 @@ s32 pdguiEndscreenHasNextMission(void)
  */
 void pdguiEndscreenNextMission(void)
 {
-    if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
+    if (endscreenMissionLeadsToCredits()) {
         sysLogPrintf(LOG_NOTE,
             "GAMELOOP.CAMPAIGN: endscreen CREDITS (from final campaign stageindex=%d stage=0x%02x)",
             g_MissionConfig.stageindex, (u32)g_MissionConfig.stagenum);
@@ -943,7 +945,7 @@ void pdguiEndscreenExitToRoom(void)
  */
 const char *pdguiEndscreenNextMissionLabel(void)
 {
-    return (g_Vars.stagenum == STAGE_SKEDARRUINS) ? "Credits" : "Next Mission";
+    return endscreenMissionLeadsToCredits() ? "Credits" : "Next Mission";
 }
 
 /* ========================================================================

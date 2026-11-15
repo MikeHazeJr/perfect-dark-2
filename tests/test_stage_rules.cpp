@@ -152,8 +152,8 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("(weather->flags & WEATHERFLAG_CUTSCENE_ONLY) ? \"true\" : \"false\"") != std::string::npos);
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"ai: dark_room_lists false\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup\"") != std::string::npos);
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"ending: outcome unknown\") &&") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);
@@ -298,6 +298,45 @@ TEST_CASE("the co-op spawn distance and the dark room rule come from stage.json"
 	REQUIRE(chraction.find("if (scenarioSourceStagePlayer(&rule) && rule.coop_spawn_distance > 0.0f) {") != std::string::npos);
 	REQUIRE(chrai.find("&& (bgUsesScenarioSource() ? !chraiStageHasNoDarkRoomLists()\n\t\t\t\t\t: g_Vars.stagenum != STAGE_CRASHSITE)) {") !=
 		std::string::npos);
+}
+
+TEST_CASE("the stage.json ending rule decides how a stage presents its outcome", "[stage][scenario][stagerules]")
+{
+	Parsed unknown(stage(R"("ending": { "outcome": "unknown" })"));
+	INFO(unknown.error);
+	REQUIRE(unknown.ok);
+	CHECK(unknown.rules.ending.present == 1);
+	CHECK(unknown.rules.ending.outcome_unknown == 1);
+	Parsed known(stage(R"("ending": { "outcome": "known" })"));
+	REQUIRE(known.ok);
+	CHECK(known.rules.ending.present == 1);
+	CHECK(known.rules.ending.outcome_unknown == 0);
+	Parsed empty(stage(R"("ending": {})"));
+	REQUIRE(empty.ok);
+	CHECK(empty.rules.ending.outcome_unknown == 0);
+	Parsed none(stage(""));
+	REQUIRE(none.ok);
+	CHECK(none.rules.ending.present == 0);
+
+	CHECK(refusal(stage(R"("ending": [])")).find("ending must be an object") != std::string::npos);
+	CHECK(refusal(stage(R"("ending": { "outcome": "maybe" })")).find("ending.outcome must be") != std::string::npos);
+	CHECK(refusal(stage(R"("ending": { "outcome": 1 })")).find("ending.outcome must be") != std::string::npos);
+	CHECK(refusal(stage(R"("ending": { "result": "unknown" })")).find("unknown key 'result'") != std::string::npos);
+
+	// The extractor writes it from the game's own check, and the native sites
+	// read the rule on a scenario-source stage and the check on a ROM stage.
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string endscreen = readSource("src/game/endscreen.c");
+	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
+	REQUIRE(extractor.find("return stageGetIndex(stagenum) == STAGEINDEX_DEFENSE;") != std::string::npos);
+	REQUIRE(extractor.find(R"(s_textbufAppend(out, ",\n  \"ending\": { \"outcome\": \"unknown\" }"))") != std::string::npos);
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"ending: outcome unknown\") &&") != std::string::npos);
+	REQUIRE(runtime.find("s32 scenarioSourceStageEnding(scenario_stage_ending_t *out)") != std::string::npos);
+	REQUIRE(endscreen.find("\tif (bgUsesScenarioSource()) {\n"
+		"\t\tscenario_stage_ending_t rule;\n\n"
+		"\t\treturn scenarioSourceStageEnding(&rule) && rule.outcome_unknown;\n"
+		"\t}\n\n"
+		"\treturn g_StageIndex == STAGEINDEX_DEFENSE;") != std::string::npos);
 }
 
 // Opt-in sweep (hidden from the default run): every .pdscenario under

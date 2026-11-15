@@ -33,6 +33,8 @@ struct Node {
 };
 
 const char *const kObjectiveStatusEvent = "event.objective.status_changed";
+const char *const kMissionCompletedEvent = "event.mission.completed";
+const char *const kMissionContinueEvent = "event.mission.continue";
 const char *const kObjectiveStatusGate = "gate.objective.status";
 
 void setError(char *err, size_t err_cap, const std::string &text)
@@ -117,6 +119,14 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 				compiled.type = NODE_EVENT;
 				compiled.event_kind = MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
 				compiled.objective = objective;
+			} else if (compiled.kind == kMissionCompletedEvent || compiled.kind == kMissionContinueEvent) {
+				if (has_objective) {
+					setError(err, err_cap, "mission event '" + compiled.id + "' has no objective to filter");
+					return nullptr;
+				}
+				compiled.type = NODE_EVENT;
+				compiled.event_kind = compiled.kind == kMissionCompletedEvent
+					? MISSION_GRAPH_EVENT_MISSION_COMPLETED : MISSION_GRAPH_EVENT_MISSION_CONTINUE;
 			} else if (compiled.kind.rfind("event.", 0) == 0) {
 				compiled.type = NODE_EVENT_INERT;
 			} else if (compiled.kind == kObjectiveStatusGate) {
@@ -252,6 +262,39 @@ extern "C" s32 missionGraphProgramModuleNodeCount(const mission_graph_program_t 
 	return program ? program->modules : 0;
 }
 
+extern "C" s32 missionGraphProgramHandlesEvent(const mission_graph_program_t *program, s32 event_kind)
+{
+	if (!program) return 0;
+	for (const Node &node : program->nodes) {
+		if (node.type == NODE_EVENT && node.event_kind == event_kind && !node.out.empty()) return 1;
+	}
+	return 0;
+}
+
+extern "C" s32 missionGraphProgramEventReachesModule(const mission_graph_program_t *program,
+	s32 event_kind, const char *module_kind)
+{
+	if (!program || !module_kind) return 0;
+	try {
+		std::vector<char> reached(program->nodes.size(), 0);
+		std::vector<int> queue;
+		for (const Node &root : program->nodes) {
+			if (root.type != NODE_EVENT || root.event_kind != event_kind) continue;
+			for (const Edge &edge : root.out) queue.push_back(edge.target);
+		}
+		for (size_t head = 0; head < queue.size(); head++) {
+			const int at = queue[head];
+			if (reached[at]) continue;
+			reached[at] = 1;
+			const Node &node = program->nodes[at];
+			if (node.type == NODE_MODULE && node.kind == module_kind) return 1;
+			for (const Edge &edge : node.out) queue.push_back(edge.target);
+		}
+	} catch (...) {
+	}
+	return 0;
+}
+
 namespace {
 
 bool objectiveMatches(const std::string &filter, const mission_graph_event_t *event)
@@ -264,10 +307,23 @@ bool objectiveMatches(const std::string &filter, const mission_graph_event_t *ev
 extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 	const mission_graph_event_t *event, mission_graph_module_run_fn run, void *user)
 {
-	if (!program || !event || !run || event->kind != MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED ||
-			event->status < MISSION_GRAPH_STATUS_INCOMPLETE || event->status > MISSION_GRAPH_STATUS_FAILED) {
+	if (!program || !event || !run) {
 		return -1;
 	}
+	if (event->kind == MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED) {
+		if (event->status < MISSION_GRAPH_STATUS_INCOMPLETE || event->status > MISSION_GRAPH_STATUS_FAILED) {
+			return -1;
+		}
+	} else if (event->kind == MISSION_GRAPH_EVENT_MISSION_COMPLETED) {
+		if (event->seam != MISSION_GRAPH_SEAM_NONE) return -1;
+	} else if (event->kind == MISSION_GRAPH_EVENT_MISSION_CONTINUE) {
+		if (event->seam != MISSION_GRAPH_SEAM_ENDSCREEN && event->seam != MISSION_GRAPH_SEAM_COOP_STAGE_END) {
+			return -1;
+		}
+	} else {
+		return -1;
+	}
+	const bool objective_event = event->kind == MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
 	try {
 		std::vector<char> reached(program->nodes.size(), 0);
 		std::vector<int> queue;
@@ -275,7 +331,7 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 		bool refused = false;
 		for (const Node &root : program->nodes) {
 			if (root.type != NODE_EVENT || root.event_kind != event->kind ||
-					!objectiveMatches(root.objective, event)) {
+					(objective_event && !objectiveMatches(root.objective, event))) {
 				continue;
 			}
 			for (const Edge &edge : root.out) queue.push_back(edge.target);
@@ -287,7 +343,8 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 			reached[at] = 1;
 			const Node &node = program->nodes[at];
 			if (node.type == NODE_GATE) {
-				const bool pass = node.gate_status == event->status && objectiveMatches(node.objective, event);
+				const bool pass = objective_event && node.gate_status == event->status &&
+					objectiveMatches(node.objective, event);
 				for (const Edge &edge : node.out) {
 					if ((pass && edge.port == PORT_PASS) || (!pass && edge.port == PORT_FAIL)) {
 						queue.push_back(edge.target);

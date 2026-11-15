@@ -85,6 +85,10 @@
       "CAMPAIGN\\.AUTO: routed plan=16 idx=16 stage_id='base:skedarruins' route_to='system:credits'",
       "CAMPAIGN\\.AUTO: credits verified live profile='smoke' missions=17 difficulty=0",
       "CAMPAIGN\\.AUTO: persisted verification complete profile='smoke' missions=17",
+      "MISSION\\.GRAPH: event\\.mission\\.completed 'base:mission_skedarruins' seam=none modules=1 ",
+      "MISSION\\.GRAPH: event\\.mission\\.continue 'base:mission_skedarruins' seam=endscreen modules=1 ",
+      "SCENARIO\\.SOURCE: stage rules for 'base:scenario_defense': .* outcome_unknown=1 source=stage\\.json",
+      "SCENARIO\\.SOURCE: intro for 'base:scenario_crashsite': rows=[0-9]+ weapons=4 ammo=3 outfits=1 ",
       "SMOKE: result=campaign_complete .* code=0",
       "SMOKE: result=campaign_verified .* code=0"
     ],
@@ -109,10 +113,17 @@
       "does not fit 16-bit world coordinates",
       "have no readable quad",
       "MISSION\\.GRAPH: refused the executable program",
-      "MISSION\\.GRAPH: event\\.objective\\.status_changed .*(ran nothing|modules=-1)"
+      "MISSION\\.GRAPH: event\\.objective\\.status_changed .*(ran nothing|modules=-1)",
+      "MISSION\\.GRAPH: event\\.mission\\.[a-z]+ .*(ran nothing|modules=-1)",
+      "invalid public intro\\.json",
+      "stage\\.json of '[^']+' refused"
     ],
     "required_counts": [
-      { "pattern": "MISSION\\.GRAPH: compiled executable program 'base:mission_[^']+' nodes=[0-9]+ exec_edges=1 objective_status_events=1 modules=1 ", "min": 17, "max": 17 },
+      { "pattern": "MISSION\\.GRAPH: compiled executable program 'base:mission_[^']+' nodes=[0-9]+ exec_edges=1 objective_status_events=1 modules=1 ", "min": 15, "max": 15 },
+      { "pattern": "MISSION\\.GRAPH: compiled executable program 'base:mission_deepsea' nodes=[0-9]+ exec_edges=2 objective_status_events=1 modules=2 ", "min": 1, "max": 1 },
+      { "pattern": "MISSION\\.GRAPH: compiled executable program 'base:mission_skedarruins' nodes=[0-9]+ exec_edges=3 objective_status_events=1 modules=3 ", "min": 1, "max": 1 },
+      { "pattern": "SCENARIO\\.SOURCE: intro for 'base:scenario_[a-z0-9_]+': rows=[0-9]+ ", "min": 17, "max": 400 },
+      { "pattern": "GAMELOOP\\.WEAPON: playernum=0 mission=0x[0-9a-f]+ INTRO gave R=", "min": 30, "max": 400 },
       { "pattern": "MISSION\\.GRAPH: event\\.objective\\.status_changed 'base:mission_[^']+' objective=[0-9]+ number=[0-9]+ node=[^ ]+ status=complete modules=1 ", "min": 17, "max": 400 },
       { "pattern": "CAMPAIGN\\.AUTO: loaded plan=", "min": 17, "max": 17 },
       { "pattern": "CAMPAIGN\\.AUTO: completed plan=", "min": 17, "max": 17 },

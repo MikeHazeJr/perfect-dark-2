@@ -124,7 +124,9 @@ TEST_CASE("ImGui endscreen routes final campaign advance to credits",
 	const std::string render = function_block_debug_hotkey(
 		endscreen, "static void renderSoloEndscreen");
 
-	const size_t final_stage = next.find("g_Vars.stagenum == STAGE_SKEDARRUINS");
+	// Mission endings (CORE, 2026-11-15): whether the completed mission leads
+	// to the credits is the mission graph's (Skedar Ruins on a ROM stage).
+	const size_t final_stage = next.find("endscreenMissionLeadsToCredits()");
 	const size_t credits = next.find("endscreenContinue(2)", final_stage);
 	const size_t advance = next.find("endscreenAdvance()");
 
@@ -135,10 +137,11 @@ TEST_CASE("ImGui endscreen routes final campaign advance to credits",
 	REQUIRE(next.find("sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL") != std::string::npos);
 	REQUIRE(next.find("!pdguiEndscreenHasNextMission()") != std::string::npos);
 
-	REQUIRE(has_next.find("g_Vars.stagenum == STAGE_SKEDARRUINS") != std::string::npos);
+	REQUIRE(has_next.find("endscreenMissionLeadsToCredits()") != std::string::npos);
 	REQUIRE(has_next.find("SOLOSTAGEINDEX_SKEDARRUINS") != std::string::npos);
 	REQUIRE(has_next.find("NUM_SOLOSTAGES") == std::string::npos);
 
+	REQUIRE(label.find("endscreenMissionLeadsToCredits()") != std::string::npos);
 	REQUIRE(label.find("\"Credits\"") != std::string::npos);
 	REQUIRE(label.find("\"Next Mission\"") != std::string::npos);
 	REQUIRE(render.find("pdguiEndscreenNextMissionLabel()") != std::string::npos);

@@ -26,12 +26,22 @@ extern "C" {
  *   event.objective.status_changed  An objective that applies at the current
  *       difficulty changed status. Optional "objective": "any" (the default)
  *       or the id of a mission.objective.source node.
+ *   event.mission.completed  A solo mission was completed without cheats; the
+ *       game has just recorded the completion, before its end screen shows.
+ *   event.mission.continue  What a completed mission leads to. Seam ENDSCREEN:
+ *       the player continues from its end screen (or it continues by itself
+ *       on a first completion); a mission with a handler for this event skips
+ *       the next-mission menu. Seam COOP_STAGE_END: a co-op stage of a mission
+ *       whose continue reaches og.mission.start_next_stage has just ended; the
+ *       co-op end screen is skipped (the original Deep Sea rule).
  *   gate.objective.status  Passes when the event's status is its "status"
  *       ("complete", "incomplete" or "failed"); optional "objective" as above.
  *   og.*  A native module from the caller's module table, for example
  *       og.hud.objective_status_message (the original "Objective N: Completed"
  *       message). An og.* kind the table does not know refuses the program.
  * Any other event.* kind may only have structural edges (event.mission.load).
+ * Mission events carry no objective; "objective" on their nodes is refused,
+ * and an objective gate never passes for them.
  */
 
 /* Objective statuses, the native OBJECTIVE_* values. */
@@ -40,6 +50,13 @@ extern "C" {
 #define MISSION_GRAPH_STATUS_FAILED 2
 
 #define MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED 1
+#define MISSION_GRAPH_EVENT_MISSION_COMPLETED 2
+#define MISSION_GRAPH_EVENT_MISSION_CONTINUE 3
+
+/* Where a mission event came from (mission_graph_event_t.seam). */
+#define MISSION_GRAPH_SEAM_NONE 0
+#define MISSION_GRAPH_SEAM_ENDSCREEN 1
+#define MISSION_GRAPH_SEAM_COOP_STAGE_END 2
 
 /* Compile limits; a larger graph is refused, not truncated. */
 #define MISSION_GRAPH_MAX_NODES 4096
@@ -52,6 +69,7 @@ typedef struct mission_graph_event {
 	s32 status;            /* MISSION_GRAPH_STATUS_* */
 	s32 previous_status;
 	const char *objective_node; /* its mission.objective.source id, or NULL */
+	s32 seam;              /* MISSION_GRAPH_SEAM_*, for mission events */
 } mission_graph_event_t;
 
 typedef struct mission_graph_program mission_graph_program_t;
@@ -72,6 +90,15 @@ s32 missionGraphProgramNodeCount(const mission_graph_program_t *program);
 s32 missionGraphProgramExecEdgeCount(const mission_graph_program_t *program);
 s32 missionGraphProgramEventNodeCount(const mission_graph_program_t *program, s32 event_kind);
 s32 missionGraphProgramModuleNodeCount(const mission_graph_program_t *program);
+
+/* Whether firing an event of this kind would run anything: some event node of
+ * the kind has an execution edge. */
+s32 missionGraphProgramHandlesEvent(const mission_graph_program_t *program, s32 event_kind);
+
+/* Whether an event of this kind can reach a native module of this og.* kind
+ * along execution edges (both branches of every gate). */
+s32 missionGraphProgramEventReachesModule(const mission_graph_program_t *program,
+	s32 event_kind, const char *module_kind);
 
 /* Fire one event. Returns the number of modules run (0 when no event node of
  * that kind matches), or -1 when the event is malformed or a module refused

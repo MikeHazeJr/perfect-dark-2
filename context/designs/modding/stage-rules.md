@@ -66,6 +66,19 @@ disguise); the extractor writes the same conditions.
 |---|---|
 | `dark_room_lists` | `false`: guards never switch to their dark room AI list (`src/game/chrai.c`; Crash Site) |
 
+## `ending`
+
+| Field | Meaning |
+|---|---|
+| `outcome` | `"unknown"`: the end screen reports the mission as Unknown and the agent as Missing, the end screen turns white instead of the success colour, the menus' particles are gray and slow (the pause menu too), and a completion plays the mission-unknown tune (Defense). `"known"` is the default |
+
+Written from the game's `g_StageIndex == STAGEINDEX_DEFENSE` checks
+(`endscreen.c`, `menu.c`, `menugfx.c`), which now all ask one function,
+`endscreenStageOutcomeUnknown`: the rule on a scenario-source stage, the check
+on a ROM stage. What a completed mission leads to (Deep Sea straight on, Skedar
+Ruins to the credits and the alternate title) is mission behavior, so it lives
+in the mission graph instead (`mission-graph-runner.md`, mission endings).
+
 Outfit names follow the `OUTFIT_*` constants in order: `default`, `elvis`,
 `trent`, `trench`, `frock_ripped`, `frock`, `leather`, `deepsea`, `wetsuit`,
 `snow`, `lab`, `stewardess`, `mrblonde`, `maian`, `negotiator` (a test keeps the
@@ -78,9 +91,6 @@ Each becomes a key here unless it belongs to a room or an object:
 - `stars`: count, grid and below-horizon rule (`stars.c`, the starfield
   allocation in `lv.c`, the draw in `bg.c`). B-1172 first: the scene renderer
   does not draw stars at all yet.
-- `ending`: Defense's unknown-status end screen, and the stages whose completion
-  goes straight to the next stage or to the credits (`endscreen.c`, `menu.c`,
-  `menugfx.c`, `menutick.c`).
 - `hub`: one flag for the training stage's ~25 special cases.
 - Escape's gas (a stage-level sphere and door tags; its rooms on `rooms.json`).
 - Animated textures and sparks (`dyntex.c`, `sparks.c`).

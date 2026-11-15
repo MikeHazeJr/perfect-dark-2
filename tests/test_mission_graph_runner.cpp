@@ -27,6 +27,7 @@ struct Call {
 	std::string node;
 	int status;
 	int number;
+	int seam;
 };
 
 std::vector<Call> g_calls;
@@ -36,12 +37,13 @@ s32 knownModule(const char *kind)
 {
 	const std::string k = kind;
 	return k == "og.hud.objective_status_message" || k == "og.test.a" || k == "og.test.b" ||
-		k == "og.test.c";
+		k == "og.test.c" || k == "og.mission.start_next_stage" || k == "og.mission.start_credits" ||
+		k == "og.progress.unlock_alt_title";
 }
 
 s32 runModule(const char *kind, const char *node_id, const mission_graph_event_t *event, void *)
 {
-	g_calls.push_back(Call{ kind, node_id, event->status, event->objective_number });
+	g_calls.push_back(Call{ kind, node_id, event->status, event->objective_number, event->seam });
 	return g_refusing.count(node_id) ? 0 : 1;
 }
 
@@ -275,6 +277,156 @@ TEST_CASE("a mission graph the runner cannot execute is refused when it compiles
 // Opt-in sweep (hidden from the default run): every .pdmission under
 // PD2_MISSION_GRAPH_ROOT must compile with the runner and wire the status
 // event to the message module, as the extractor writes it. Read-only.
+TEST_CASE("mission events run what a completed mission leads to and what it unlocks",
+	"[mission][graph][runner]")
+{
+	Program p(R"({ "nodes": [
+	  { "id": "continue", "kind": "event.mission.continue" },
+	  { "id": "next", "kind": "og.mission.start_next_stage" },
+	  { "id": "completed", "kind": "event.mission.completed" },
+	  { "id": "gate", "kind": "gate.objective.status", "status": "incomplete" },
+	  { "id": "alt", "kind": "og.progress.unlock_alt_title" },
+	  { "id": "never", "kind": "og.test.a" },
+	  { "id": "status", "kind": "event.objective.status_changed" }
+	], "edges": [
+	  { "from": "continue", "to": "next", "input": "exec" },
+	  { "from": "completed", "to": "gate", "input": "exec" },
+	  { "from": "gate", "to": "never", "input": "exec", "output": "pass" },
+	  { "from": "gate", "to": "alt", "input": "exec", "output": "fail" }
+	] })");
+	INFO(p.error);
+	REQUIRE(p.program != nullptr);
+	CHECK(missionGraphProgramHandlesEvent(p.program, MISSION_GRAPH_EVENT_MISSION_CONTINUE) == 1);
+	CHECK(missionGraphProgramHandlesEvent(p.program, MISSION_GRAPH_EVENT_MISSION_COMPLETED) == 1);
+	CHECK(missionGraphProgramHandlesEvent(p.program, MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED) == 0);
+	CHECK(missionGraphProgramEventReachesModule(p.program, MISSION_GRAPH_EVENT_MISSION_CONTINUE,
+		"og.mission.start_next_stage") == 1);
+	CHECK(missionGraphProgramEventReachesModule(p.program, MISSION_GRAPH_EVENT_MISSION_CONTINUE,
+		"og.mission.start_credits") == 0);
+	// Both branches of a gate count as reachable.
+	CHECK(missionGraphProgramEventReachesModule(p.program, MISSION_GRAPH_EVENT_MISSION_COMPLETED, "og.test.a") == 1);
+	CHECK(missionGraphProgramEventReachesModule(p.program, MISSION_GRAPH_EVENT_MISSION_COMPLETED,
+		"og.progress.unlock_alt_title") == 1);
+
+	mission_graph_event_t cont = {};
+	cont.kind = MISSION_GRAPH_EVENT_MISSION_CONTINUE;
+	cont.seam = MISSION_GRAPH_SEAM_ENDSCREEN;
+	g_calls.clear();
+	CHECK(missionGraphProgramFire(p.program, &cont, runModule, nullptr) == 1);
+	REQUIRE(g_calls.size() == 1);
+	CHECK(g_calls[0].kind == "og.mission.start_next_stage");
+	CHECK(g_calls[0].seam == MISSION_GRAPH_SEAM_ENDSCREEN);
+	cont.seam = MISSION_GRAPH_SEAM_COOP_STAGE_END;
+	g_calls.clear();
+	CHECK(missionGraphProgramFire(p.program, &cont, runModule, nullptr) == 1);
+	REQUIRE(g_calls.size() == 1);
+	CHECK(g_calls[0].seam == MISSION_GRAPH_SEAM_COOP_STAGE_END);
+
+	// An objective gate never passes for a mission event, so its fail branch runs.
+	mission_graph_event_t done = {};
+	done.kind = MISSION_GRAPH_EVENT_MISSION_COMPLETED;
+	g_calls.clear();
+	CHECK(missionGraphProgramFire(p.program, &done, runModule, nullptr) == 1);
+	REQUIRE(g_calls.size() == 1);
+	CHECK(g_calls[0].kind == "og.progress.unlock_alt_title");
+
+	// Malformed mission events are refused.
+	cont.seam = MISSION_GRAPH_SEAM_NONE;
+	CHECK(missionGraphProgramFire(p.program, &cont, runModule, nullptr) == -1);
+	cont.seam = 7;
+	CHECK(missionGraphProgramFire(p.program, &cont, runModule, nullptr) == -1);
+	done.seam = MISSION_GRAPH_SEAM_ENDSCREEN;
+	CHECK(missionGraphProgramFire(p.program, &done, runModule, nullptr) == -1);
+	mission_graph_event_t unknown = {};
+	unknown.kind = 99;
+	CHECK(missionGraphProgramFire(p.program, &unknown, runModule, nullptr) == -1);
+
+	// A mission with no handler runs nothing on continue: the default flow applies.
+	Program none(R"({ "nodes": [ { "id": "continue", "kind": "event.mission.continue" } ] })");
+	REQUIRE(none.program != nullptr);
+	CHECK(missionGraphProgramHandlesEvent(none.program, MISSION_GRAPH_EVENT_MISSION_CONTINUE) == 0);
+	cont.seam = MISSION_GRAPH_SEAM_ENDSCREEN;
+	g_calls.clear();
+	CHECK(missionGraphProgramFire(none.program, &cont, runModule, nullptr) == 0);
+	CHECK(g_calls.empty());
+
+	// A mission event has no objective to filter.
+	Program bad(R"({ "nodes": [ { "id": "c", "kind": "event.mission.completed", "objective": "any" } ] })");
+	CHECK(bad.program == nullptr);
+	CHECK(bad.error.find("has no objective to filter") != std::string::npos);
+}
+
+TEST_CASE("mission endings come from the mission graph on a scenario-source stage",
+	"[mission][graph][runner]")
+{
+	const std::string meta = readSource("port/src/romextract_pdmeta.c");
+	const std::string endscreen = readSource("src/game/endscreen.c");
+	const std::string menutick = readSource("src/game/menutick.c");
+	const std::string menu = readSource("src/game/menu.c");
+	const std::string menugfx = readSource("src/game/menugfx.c");
+	const std::string modules = readSource("port/src/mission_graph_modules.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+	const std::string bridge = readSource("port/fast3d/pdgui_bridge.c");
+
+	// The extractor writes the endings from the stages the game checks.
+	REQUIRE(meta.find("const char *continue_module = stagenum == STAGE_DEEPSEA ? \"og.mission.start_next_stage\"\n"
+		"\t\t\t: stagenum == STAGE_SKEDARRUINS ? \"og.mission.start_credits\" : NULL;") != std::string::npos);
+	REQUIRE(meta.find(R"({ \"id\": \"mission.completed.alt_title\", \"kind\": \"og.progress.unlock_alt_title\" },)") != std::string::npos);
+	REQUIRE(meta.find(R"({ \"from\": \"mission.continue\", \"output\": \"out\", \"to\": \"mission.continue.action\", \"input\": \"exec\" })") != std::string::npos);
+	REQUIRE(meta.find("return (s32)g_SoloStages[i].stagenum;") != std::string::npos);
+
+	// The end screen asks the mission graph whether a completed mission leads
+	// straight on, fires the continue and completed events, and keeps the
+	// original stage checks only for a ROM stage.
+	REQUIRE(endscreen.find("\t\tif (endscreenMissionContinuesDirectly()) {\n"
+		"\t\t\tif (context == 2 || g_Menus[g_MpPlayerNum].endscreen.isfirstcompletion) {\n"
+		"\t\t\t\t// Pressed continue\n"
+		"\t\t\t\tendscreenRunMissionContinue();") != std::string::npos);
+	REQUIRE(endscreen.find("scenarioSourceMissionGraphMissionEvent(MISSION_GRAPH_EVENT_MISSION_CONTINUE,\n"
+		"\t\t\t\tMISSION_GRAPH_SEAM_ENDSCREEN) <= 0) {") != std::string::npos);
+	REQUIRE(endscreen.find("scenarioSourceMissionGraphMissionEvent(MISSION_GRAPH_EVENT_MISSION_COMPLETED,\n"
+		"\t\t\t\t\t\tMISSION_GRAPH_SEAM_NONE);") != std::string::npos);
+	auto count = [](const std::string &text, const std::string &needle) {
+		size_t n = 0;
+		for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) n++;
+		return n;
+	};
+	CHECK(count(endscreen, "g_Vars.stagenum == STAGE_DEEPSEA || g_Vars.stagenum == STAGE_SKEDARRUINS") == 1);
+	CHECK(count(endscreen, "g_MissionConfig.stagenum == STAGE_SKEDARRUINS && g_AltTitleUnlocked == false") == 0);
+
+	// A co-op stage that leads straight on asks the same graph.
+	REQUIRE(menutick.find("if (endscreenCoopStageEndStartsNextStage()) {") != std::string::npos);
+	REQUIRE(menutick.find("MISSION_GRAPH_SEAM_COOP_STAGE_END);") != std::string::npos);
+	REQUIRE(menutick.find("void menuTickCoopStartNextStage(void)") != std::string::npos);
+	CHECK(count(menutick, "if (g_Vars.stagenum == STAGE_DEEPSEA) {") == 0);
+
+	// The PC end screen asks the same graph whether the action is Credits.
+	CHECK(count(bridge, "STAGE_SKEDARRUINS") == 0);
+	CHECK(count(bridge, "endscreenMissionLeadsToCredits()") == 3);
+	REQUIRE(endscreen.find("\t\treturn scenarioSourceMissionGraphContinueStartsCredits() != 0;") != std::string::npos);
+
+	// Defense's outcome presentation is one rule, read everywhere it shows.
+	CHECK(count(endscreen, "g_StageIndex == STAGEINDEX_DEFENSE") == 1);
+	CHECK(count(menu, "STAGEINDEX_DEFENSE") == 0);
+	CHECK(count(menugfx, "STAGEINDEX_DEFENSE") == 0);
+	CHECK(count(endscreen, "if (endscreenStageOutcomeUnknown()) {") == 2);
+	CHECK(count(menu, "endscreenStageOutcomeUnknown()") == 3);
+	CHECK(count(menugfx, "if (endscreenStageOutcomeUnknown()) {") == 1);
+
+	// The modules exist, and conformance knows them.
+	for (const char *row : { "{ \"og.mission.start_next_stage\", s_runStartNextStage },",
+			"{ \"og.mission.start_credits\", s_runStartCredits },",
+			"{ \"og.progress.unlock_alt_title\", s_runUnlockAltTitle }," }) {
+		INFO(row);
+		CHECK(modules.find(row) != std::string::npos);
+	}
+	for (const char *name : { "\"og.mission.start_next_stage\"", "\"og.mission.start_credits\"",
+			"\"og.progress.unlock_alt_title\"", "\"event.mission.continue\"", "\"event.mission.completed\"" }) {
+		INFO(name);
+		CHECK(conformance.find(name) != std::string::npos);
+	}
+}
+
 TEST_CASE("every mission graph under PD2_MISSION_GRAPH_ROOT compiles and runs its status message",
 	"[.][runner-sweep]")
 {
@@ -328,7 +480,7 @@ TEST_CASE("the extractor, the objective check, the runtime and conformance agree
 	REQUIRE(meta.find(R"({ \"id\": \"objective.status_message\", \"kind\": \"og.hud.objective_status_message\" },)") != std::string::npos);
 	REQUIRE(meta.find(R"({ \"from\": \"objective.status_changed\", \"output\": \"out\", \"to\": \"objective.status_message\", \"input\": \"exec\" })") != std::string::npos);
 	REQUIRE(meta.find("\"\\\"input\\\": \\\"exec\\\"\") &&") != std::string::npos);
-	REQUIRE(meta.find("_objective_status_event\"") != std::string::npos);
+	REQUIRE(meta.find("_objective_status_event_mission_endings\"") != std::string::npos);
 
 	// The objective check fires the event when the mission graph owns it and
 	// shows the message directly otherwise; the message is one function.
@@ -371,9 +523,11 @@ TEST_CASE("the extractor, the objective check, the runtime and conformance agree
 		}
 		return out;
 	};
-	CHECK(set_of("MISSION_GRAPH_EXEC_EVENTS") == std::set<std::string>{ "event.objective.status_changed" });
+	CHECK(set_of("MISSION_GRAPH_EXEC_EVENTS") == std::set<std::string>{ "event.objective.status_changed",
+		"event.mission.completed", "event.mission.continue" });
 	CHECK(set_of("MISSION_GRAPH_EXEC_GATES") == std::set<std::string>{ "gate.objective.status" });
-	CHECK(set_of("MISSION_GRAPH_NATIVE_MODULES") == std::set<std::string>{ "og.hud.objective_status_message" });
+	CHECK(set_of("MISSION_GRAPH_NATIVE_MODULES") == std::set<std::string>{ "og.hud.objective_status_message",
+		"og.mission.start_next_stage", "og.mission.start_credits", "og.progress.unlock_alt_title" });
 	REQUIRE(runner.find("const char *const kObjectiveStatusEvent = \"event.objective.status_changed\";") != std::string::npos);
 	REQUIRE(runner.find("const char *const kObjectiveStatusGate = \"gate.objective.status\";") != std::string::npos);
 	REQUIRE(conformance.find("errors.extend(validate_mission_graph_execution(label, graph))") != std::string::npos);

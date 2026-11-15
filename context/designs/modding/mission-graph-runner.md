@@ -48,9 +48,16 @@ first event seam). Tests: `tests/test_mission_graph_runner.cpp` (`[runner]`).
 | `event.objective.status_changed` | An objective that applies at the current difficulty changed status (`objectivesCheckAll`). | `objective`: `"any"` (default) or a `mission.objective.source` node id |
 | `gate.objective.status` | Passes when the event's status is `status`. | `status`: `"complete"`, `"incomplete"` or `"failed"`; optional `objective` |
 | `og.hud.objective_status_message` | The original "Objective N: Completed / Incomplete / Failed" message to every player (`objectivesShowStatusMessage`). | none |
+| `event.mission.completed` | A solo mission was completed without cheats; the game has just recorded the completion (best time, unlocks), before its end screen shows (`endscreenPrepare`). | none |
+| `event.mission.continue` | What a completed mission leads to. Seam `endscreen`: the player continues from its end screen (on a first completion it continues by itself); a mission with a handler skips the next-mission menu. Seam `coop_stage_end`: a co-op stage whose continue reaches `og.mission.start_next_stage` has just ended; its co-op end screen is skipped (`menutick.c`). | none |
+| `og.mission.start_next_stage` | The next solo stage starts at once (the original Deep Sea rule); from the end screen it closes instead when that stage is not unlocked at this difficulty. | none |
+| `og.mission.start_credits` | The credits start, from the end screen (the original Skedar Ruins rule). The PC end screen labels its action Credits when the continue event reaches this module. | none |
+| `og.progress.unlock_alt_title` | The alternate title screen unlocks once and the boss file is saved (the original Skedar Ruins rule). | none |
 
-Any other `event.*` kind (`event.mission.load` today) may only have structural
-edges until the runner executes it. An `og.*` kind the module table does not
+Mission events carry no objective: `objective` on their nodes is refused and an
+objective gate never passes for them. Any other `event.*` kind
+(`event.mission.load` today) may only have structural edges until the runner
+executes it. An `og.*` kind the module table does not
 know refuses the graph.
 
 The event carries the runtime objective index, its number among the objectives
@@ -74,6 +81,29 @@ so. A mission graph that leaves the edge out shows no objective messages; one
 that adds a gate can show the message for completions only. The pdmeta cache
 kind gained `_objective_status_event` and a mission archive without an
 execution edge is not clean, so installs re-extract their missions once.
+
+## Mission endings (CORE, 2026-11-15)
+
+What a completed mission leads to and what its completion unlocks run from its
+mission graph on a scenario-source stage; a ROM stage keeps the original stage
+checks. The extractor writes them from the stages the game checks:
+
+| Mission | Nodes |
+|---|---|
+| Deep Sea | `event.mission.continue` -> `og.mission.start_next_stage` |
+| Skedar Ruins | `event.mission.continue` -> `og.mission.start_credits`; `event.mission.completed` -> `og.progress.unlock_alt_title` |
+
+Seams: `endscreenContinue` (the original menus) fires the continue event when
+the mission graph handles it, else the default next-mission flow; the PC end
+screen (`pdgui_bridge.c`) asks whether the continue event reaches
+`og.mission.start_credits` for its Credits action and otherwise keeps its own
+Next Mission advance, which already starts the next stage; the co-op stage end
+(`menutick.c`) asks whether it reaches `og.mission.start_next_stage`. When the
+continue event runs nothing (a module refused), the end screen closes rather
+than leaving the player on it. A mission without these nodes ends as any other.
+Defense's unknown outcome is a presentation rule of the stage, so it is the
+`ending` family of `stage.json` (`stage-rules.md`). The pdmeta cache kind gained
+`_mission_endings`.
 
 ## Not yet
 

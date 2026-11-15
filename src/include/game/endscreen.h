@@ -39,4 +39,14 @@ void endscreenPushCoop(void);
 void endscreenPushSolo(void);
 void endscreenPushAnti(void);
 
+/* Mission endings (CORE, 2026-11-15): the stage's outcome presentation, and
+ * the native routines the mission graph modules run (endscreen.c). */
+bool endscreenStageOutcomeUnknown(void);
+bool endscreenCoopStageEndStartsNextStage(void);
+bool endscreenMissionLeadsToCredits(void);
+void endscreenStartNextSoloStage(void);
+void endscreenStartCredits(void);
+void endscreenUnlockAltTitle(void);
+void menuTickCoopStartNextStage(void);
+
 #endif

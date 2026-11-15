@@ -10655,3 +10655,43 @@ Next
 - Recycle the frozen client copy (92 MB on D:) through the Recycle Bin.
 - Mike: placement of B-1172 (renderer), and the deletion question (test
   installs permanent vs Recycle Bin).
+
+## 2026-11-15 (17:35-19:05 UTC) - CORE: intro.json and arena setups (B-1175, B-1176), Recycle Bin installs, mission endings
+
+What happened
+- Mike's answers: B-1172 (sky and dynamic lighting) is CORE's; test installs
+  go to the Recycle Bin, he empties it; next step mission endings, then the
+  training-hub checks, with B-1172 on CORE's track. Forge mode authoring comes
+  before any custom level work (constraints.md, week note).
+- Sky fixtures (ca9c1cf9): both now wait for offline_gameplay_ready and take
+  in-sequence screenshots looking ahead and up (boot takes about 90 s).
+- B-1175 and B-1176 found by reading the intro path, fixed in 83642b1f: every
+  scenario-source stage started the player without the mission's intro
+  weapons, ammo and outfit (the runtime rebuilt the intro from spawns.json
+  alone), and multiplayer scenarios were built from the solo setup file, so
+  16 of 18 arenas had no pickups, spawns, cases or hills. New member
+  intro.json (pd2.scenario.intro.v1); kind mp scenarios read mpsetupfileid.
+  Census of the 121 ROM setup files recorded in the bugs and the design note
+  (context/designs/modding/stage-intro.md).
+- Recycle Bin (92c27f2b, week-pd/runner d3993455, merged as 0056eae6): every
+  removal of a test install verifies its files, then sends the folder to the
+  Recycle Bin, or refuses and keeps it when Windows would delete it for good.
+- Base 5 candidate D:\PD2-wt\shared-base-5 (copy of base 4, extracted by the
+  intro client): pass 1 47 arenas, 87 scenarios, 134 meta written, 0 failed;
+  pass 2 wrote nothing; intro, stage-rules and runner sweeps pass; light rules
+  unchanged; conformance 0 errors (10,033 archives); every arena with a real
+  multiplayer setup has its pickups, spawns, 4 cases, 24 respawns and hills.
+- Mission endings (built, unit tests pending): event.mission.continue and
+  event.mission.completed with og.mission.start_next_stage,
+  og.mission.start_credits and og.progress.unlock_alt_title (Deep Sea, Skedar
+  Ruins); Defense's unknown outcome is the stage.json ending rule; the PC end
+  screen bridge asks the graph for its Credits action.
+- Stale-slot sweep after the PC crash (Mike): nothing from before the crash
+  runs; hub queue healthy; no git index.lock; CRYSTAL PISTOL's storage has two
+  interrupted installs (owners dead), reported to it; ten months-old build
+  locks in the canonical checkout are dead and harmless, left in place.
+
+Next
+- Unit tests for the endings build; refresh base 5 in place; the queued
+  game-runtime turn (campaigns, specials, sky screenshots, Complex match).
+- Then the training-hub rule, then B-1172.

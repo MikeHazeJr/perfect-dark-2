@@ -138,6 +138,19 @@ void readAi(const Json &ai, scenario_stage_ai_t &out)
 	}
 }
 
+void readEnding(const Json &ending, scenario_stage_ending_t &out)
+{
+	if (!ending.is_object()) refuse("ending must be an object");
+	onlyKeys(ending, { "outcome" }, "ending");
+	out.present = 1;
+	if (ending.contains("outcome")) {
+		if (!ending["outcome"].is_string()) refuse("ending.outcome must be \"known\" or \"unknown\"");
+		const std::string &outcome = ending["outcome"].get<crude_json::string>();
+		if (outcome == "unknown") out.outcome_unknown = 1;
+		else if (outcome != "known") refuse("ending.outcome must be \"known\" or \"unknown\"");
+	}
+}
+
 } // namespace
 
 extern "C" const char *scenarioStageOutfitName(s32 value)
@@ -169,13 +182,14 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 				root["schema"].get<crude_json::string>() != SCENARIO_STAGE_RULES_SCHEMA) {
 			refuse(std::string("stage.json must declare schema ") + SCENARIO_STAGE_RULES_SCHEMA);
 		}
-		onlyKeys(root, { "schema", "note", "weather", "player", "ai" }, "stage.json");
+		onlyKeys(root, { "schema", "note", "weather", "player", "ai", "ending" }, "stage.json");
 		if (root.contains("note") && !root["note"].is_string()) refuse("stage.json note must be text");
 		out->player.perfect_agent_outfit = -1;
 		out->player.disguise_outfit = -1;
 		if (root.contains("weather")) readWeather(root["weather"], out->weather);
 		if (root.contains("player")) readPlayer(root["player"], out->player);
 		if (root.contains("ai")) readAi(root["ai"], out->ai);
+		if (root.contains("ending")) readEnding(root["ending"], out->ending);
 		return 1;
 	} catch (const Refusal &refusal) {
 		std::memset(out, 0, sizeof(*out));

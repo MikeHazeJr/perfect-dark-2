@@ -13005,6 +13005,66 @@ s32 scenarioSourceMissionGraphObjectiveStatusChanged(s32 index, s32 number,
 	return ran;
 }
 
+/* Mission events (CORE, 2026-11-15): what a completed mission leads to and
+ * what its completion unlocks run from the mission graph. Ownership is the
+ * same as for objective events: a refused program owns them and runs
+ * nothing, so the caller's default flow applies. */
+s32 scenarioSourceMissionGraphOwnsEvents(void)
+{
+	return scenarioSourceMissionGraphOwnsObjectiveEvents();
+}
+
+s32 scenarioSourceMissionGraphHandlesContinue(void)
+{
+	return scenarioSourceMissionGraphOwnsEvents() &&
+		missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE);
+}
+
+s32 scenarioSourceMissionGraphContinueStartsNextStage(void)
+{
+	return scenarioSourceMissionGraphOwnsEvents() &&
+		missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE, "og.mission.start_next_stage");
+}
+
+s32 scenarioSourceMissionGraphContinueStartsCredits(void)
+{
+	return scenarioSourceMissionGraphOwnsEvents() &&
+		missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE, "og.mission.start_credits");
+}
+
+s32 scenarioSourceMissionGraphMissionEvent(s32 kind, s32 seam)
+{
+	const char *name = kind == MISSION_GRAPH_EVENT_MISSION_COMPLETED ? "completed"
+		: kind == MISSION_GRAPH_EVENT_MISSION_CONTINUE ? "continue" : "?";
+	const char *seam_name = seam == MISSION_GRAPH_SEAM_ENDSCREEN ? "endscreen"
+		: seam == MISSION_GRAPH_SEAM_COOP_STAGE_END ? "coop_stage_end" : "none";
+	mission_graph_event_t event;
+	s32 ran;
+
+	if (!scenarioSourceMissionGraphOwnsEvents()) {
+		return -1;
+	}
+	if (!s_ActiveScenarioGraphs.mission_program) {
+		sysLogPrintf(LOG_WARNING,
+			"MISSION.GRAPH: event.mission.%s '%s' seam=%s ran nothing: the program was refused (%s)",
+			name, s_ActiveScenarioGraphs.mission_id, seam_name,
+			s_ActiveScenarioGraphs.mission_program_error);
+		return -1;
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = kind;
+	event.seam = seam;
+	ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program,
+		&event, missionGraphModuleRun, NULL);
+	sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+		"MISSION.GRAPH: event.mission.%s '%s' seam=%s modules=%d backend=graph.mission.runner",
+		name, s_ActiveScenarioGraphs.mission_id, seam_name, ran);
+	return ran;
+}
+
 static s32 s_aiGraphRuntimeFailure(const char *action, const char *reason)
 {
 	if (assetSourceDebugIsEnabledFor(ASSET_SCENARIO)) {
@@ -35570,7 +35630,7 @@ s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 		return -1;
 	}
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d coop_spawn_distance=%.0f no_dark_room_lists=%d source=stage.json",
+		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d coop_spawn_distance=%.0f no_dark_room_lists=%d outcome_unknown=%d source=stage.json",
 		scenario->id, s_StageWideRules.weather.present,
 		s_StageWideRules.weather.rooms_have_weather ? "weather_rooms" : "dry_rooms",
 		s_StageWideRules.weather.room_count,
@@ -35583,7 +35643,8 @@ s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 			? scenarioStageOutfitName(s_StageWideRules.player.disguise_outfit) : "-",
 		s_StageWideRules.player.disguise_untargetable,
 		(double)s_StageWideRules.player.coop_spawn_distance,
-		s_StageWideRules.ai.no_dark_room_lists);
+		s_StageWideRules.ai.no_dark_room_lists,
+		s_StageWideRules.ending.outcome_unknown);
 	return 1;
 }
 
@@ -35616,6 +35677,17 @@ s32 scenarioSourceStageAi(scenario_stage_ai_t *out)
 	}
 	if (out) {
 		*out = s_StageWideRules.ai;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageEnding(scenario_stage_ending_t *out)
+{
+	if (!s_StageWideRules.ending.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.ending;
 	}
 	return 1;
 }
