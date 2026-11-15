@@ -10,7 +10,7 @@
   ],
   "log_channel_mask": "game,catalog,render,match,mods,system",
   "verbose": 0,
-  "timeout_seconds": 60,
+  "timeout_seconds": 300,
   "install_state": "current",
   "remove_paths": [
     "mods/needler.pdmod",
@@ -40,12 +40,24 @@
     "--debug-auto-start-match"
   ],
   "input_sequence": [
-    { "at_ms": 0, "type": "wait", "comment": "load the public Needler closure and enter ordinary first-person Combat Simulator gameplay" },
-    { "at_ms": 40000, "type": "exit", "comment": "exit after ordinary-client startup and two stable held-model captures" }
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Load the public Needler closure and enter ordinary first-person Combat Simulator gameplay. A fixed 30-40 s delay was too short on a fresh install that extracts and walks every typed archive first."
+    },
+    { "at_ms": 2000, "type": "screenshot", "path": "needler-viewmodel-readable-a.bmp" },
+    { "at_ms": 4000, "type": "screenshot", "path": "needler-viewmodel-readable-b.bmp" },
+    { "at_ms": 5000, "type": "exit", "comment": "exit after two stable held-model captures" }
   ],
-  "screenshots": [
-    { "at_ms": 30000, "name": "needler-viewmodel-readable-a" },
-    { "at_ms": 35000, "name": "needler-viewmodel-readable-b" }
+  "retain_artifacts": [
+    { "src": "needler-viewmodel-readable-a.bmp" },
+    { "src": "needler-viewmodel-readable-b.bmp" }
   ],
   "assertions": {
     "required_lines": [

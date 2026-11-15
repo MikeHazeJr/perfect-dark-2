@@ -249,6 +249,18 @@ that must leave durable dirty-session state behind.
 { "at_ms": 70000, "type": "unclean_exit" }
 ```
 
+#### `kill_player` (T-MODDING-008, 2026-11-15)
+
+Kills local player 0 through the production death path (`playerDie`), as if
+the player had been killed: the hands reset, the held weapon drops and the
+match respawn rules apply. Logs `SMOKE.KILL_PLAYER: player=0 died=1`. Used by
+`crystal_pistol_charge_smoke` to prove that a committed mod-weapon charge still
+launches after its wielder dies. No fields besides `at_ms` and `comment`.
+
+```json
+{ "at_ms": 9800, "type": "kill_player" }
+```
+
 #### `catalog_recovery_probe`
 
 Loads a catalog ID through the production typed lifecycle and logs whether its
