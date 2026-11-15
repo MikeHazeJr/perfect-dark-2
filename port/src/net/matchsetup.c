@@ -1644,6 +1644,11 @@ s32 matchStartFromChallenge(s32 slot)
 	/* Apply challenge config → sets g_MpSetup (scenario, stage, bots, etc.) */
 	challengeSetCurrentBySlot(slot);
 
+	/* PC (finding 10): the legacy menu tick (menutick.c) is what turned the
+	 * challenge's simulants into participants for the number of players; this
+	 * launch never passed through it, so challenges started with no simulants. */
+	challengePerformSanityChecks();
+
 	/* Sync back the challenge's stage into g_MatchConfig so our port-side
 	 * tracking stays consistent (arena picker, etc.).
 	 * stagenum comes from the challenge; resolve to catalog ID for stage_id. */

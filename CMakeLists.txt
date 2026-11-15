@@ -954,6 +954,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_predicate.cpp
   # B-1125: spaced fallback placement pads for multiplayer scenarios (pure).
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_pad_fallback.cpp
+  # Challenge and preset table lands each value in its own field (finding 10).
+  ${CMAKE_SOURCE_DIR}/tests/test_mpconfig_table.cpp
+  ${CMAKE_SOURCE_DIR}/tests/support/mpconfig_table_probe.c
+  ${CMAKE_SOURCE_DIR}/src/game/mpconfigs.c
   ${CMAKE_SOURCE_DIR}/tests/test_tiny_mode_spawn_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_bodies_headcount.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_integrated_head_guard.cpp

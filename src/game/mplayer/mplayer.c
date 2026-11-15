@@ -4561,6 +4561,24 @@ void mpApplyConfig(struct mpconfigfull *config)
 	 * does not clobber participant state. */
 	g_MpSetup = config->config.setup;
 
+	/* PC (finding 10): the challenge and preset table (mpconfigs.c) names its
+	 * stage by number; everything after this keys on the catalog id. */
+	if (g_MpSetup.stage_id[0] == '\0') {
+		const char *sid = catalogStageIdByStagenum(g_MpSetup.stagenum);
+
+		if (sid) {
+			strncpy(g_MpSetup.stage_id, sid, sizeof(g_MpSetup.stage_id) - 1);
+			g_MpSetup.stage_id[sizeof(g_MpSetup.stage_id) - 1] = '\0';
+		} else {
+			sysLogPrintf(LOG_ERROR, "MPCONFIG: no map catalog entry for config stagenum=0x%02x",
+				g_MpSetup.stagenum);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "MPCONFIG: applied '%s' scenario=%d stage='%s' stagenum=0x%02x limits=%d/%d/%d",
+		g_MpSetup.name, g_MpSetup.scenario, g_MpSetup.stage_id, g_MpSetup.stagenum,
+		g_MpSetup.timelimit, g_MpSetup.scorelimit, g_MpSetup.teamscorelimit);
+
 	for (i = 0; i < MAX_BOTS; i++) {
 		g_BotConfigsArray[i].type = config->config.simulants[i].type;
 
