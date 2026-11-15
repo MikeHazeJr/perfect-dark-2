@@ -8,7 +8,10 @@ Severity medium (a simulant takes a weapon on the host that stays on the ground 
 30, while the host sent all of them (`BOT.PICKUP: host sent simulant 14 item 26 weapon=5 result=1`) and the client
 replayed later ones (items 34 to 43). No `BOT.DROP` lines, so these are not dropped weapons. The skipped ids are the
 lowest, which suggests the arena's starting weapon pickups have no counterpart with the same sync id on the client.
-The 3-simulant runs never took one. Not investigated yet.
+The 3-simulant runs never took one. Each skipped item was the host's first pickup of it (no earlier pickup on
+either side), so it is not respawn-timer drift: the reader's refusal (`netmsgSvcBotPickupRead`: no prop for the sync
+id, not an object or weapon, `timetoregen != 0`, or deleting) holds from the start. Next: log the client's prop for
+those sync ids at stage start to see which test refuses them.
 
 ## 2026-11-15 B-1193 The networked co-op and counter-op mission end is local on each machine (T-NETWORKING-011, Mike: host control)
 
