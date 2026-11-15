@@ -30,9 +30,9 @@ import sys
 from pathlib import Path
 
 SCALE = 250.0        # artist units to held-model units (the gun is about 150 long)
-Z_SHIFT = -40.0      # forward, so the origin sits where the Needler's does
+FORWARD_SHIFT = -40.0   # toward the muzzle, so the origin sits near the grip
 SHADE_STEPS = 6
-LIGHT = (0.35, 0.80, 0.49)   # in model space: from the right, above, behind the muzzle
+LIGHT = (0.49, 0.80, -0.35)   # in model space: from the player's right, above, behind
 
 
 def load_builder(path):
@@ -52,8 +52,13 @@ def moved(points, by):
 
 
 def to_model(p):
-    """Artist space (muzzle toward -X, up +Z) to held-model space (forward -Z, up +Y)."""
-    return (p[1] * SCALE, p[2] * SCALE, p[0] * SCALE + Z_SHIFT)
+    """Artist space (muzzle toward -X, up +Z) to the held-model space the game shows.
+
+    Seen in the first game run: a mod's held model is turned so that its -Z
+    points to the player's right and +Y is up, which leaves model -X pointing
+    into the screen. So the muzzle goes on -X and the artist's side axis on -Z.
+    """
+    return (p[0] * SCALE + FORWARD_SHIFT, p[2] * SCALE, -p[1] * SCALE)
 
 
 def collect(b):
