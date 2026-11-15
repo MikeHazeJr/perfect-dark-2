@@ -106,9 +106,13 @@
       "SCENARIO\\.SOURCE: B-1113 no usable rooms\\.json",
       "SCENARIO\\.SOURCE: B-1114 ",
       "does not fit 16-bit world coordinates",
-      "have no readable quad"
+      "have no readable quad",
+      "MISSION\\.GRAPH: refused the executable program",
+      "MISSION\\.GRAPH: event\\.objective\\.status_changed .*(ran nothing|modules=-1)"
     ],
     "required_counts": [
+      { "pattern": "MISSION\\.GRAPH: compiled executable program 'base:mission_[^']+' nodes=[0-9]+ exec_edges=1 objective_status_events=1 modules=1 ", "min": 4, "max": 4 },
+      { "pattern": "MISSION\\.GRAPH: event\\.objective\\.status_changed 'base:mission_[^']+' objective=[0-9]+ number=[0-9]+ node=[^ ]+ status=complete modules=1 ", "min": 4, "max": 100 },
       { "pattern": "CAMPAIGN\\.AUTO: loaded plan=", "min": 4, "max": 4 },
       { "pattern": "CAMPAIGN\\.AUTO: completed plan=", "min": 4, "max": 4 },
       { "pattern": "CAMPAIGN\\.AUTO: routed plan=.* route_to='system:menu'", "min": 4, "max": 4 },

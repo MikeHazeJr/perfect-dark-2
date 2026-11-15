@@ -16,6 +16,8 @@
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "voice_locale_source.h"
+#include "mission_graph_runner.h"
+#include "mission_graph_modules.h"
 #include "bss.h"
 #include "game/bondmove.h"
 #include "game/bg.h"
@@ -789,6 +791,12 @@ typedef struct scenario_source_graph_state {
 	s32 level_graph_active;
 	s32 mission_graph_active;
 	s32 mission_objective_runtime_active;
+	/* The executable part of mission.graph.json (decision 2): compiled when
+	 * the mission graph activates. A refused program still owns the events,
+	 * so they run nothing instead of falling back to native code. */
+	mission_graph_program_t *mission_program;
+	s32 mission_program_refused;
+	char mission_program_error[160];
 	s32 mission_objective_insert_logged;
 	s32 mission_objective_evaluate_logged;
 	s32 mission_objective_check_logged;
@@ -1263,6 +1271,7 @@ static void s_resetActiveScenarioGraphs(void)
 	free(s_ActiveScenarioGraphs.level_volumes);
 	free(s_ActiveScenarioGraphs.mission_objectives);
 	free(s_ActiveScenarioGraphs.mission_objective_criteria);
+	missionGraphProgramFree(s_ActiveScenarioGraphs.mission_program);
 	memset(&s_ActiveScenarioGraphs, 0, sizeof(s_ActiveScenarioGraphs));
 }
 
@@ -12908,6 +12917,25 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		"MISSION.GRAPH: phase source '%s' phases=%d backend=graph.mission.phase+mission.graph.nodes",
 		s_ActiveScenarioGraphs.mission_graph_path,
 		s_ActiveScenarioGraphs.mission_phase_node_count);
+	s_ActiveScenarioGraphs.mission_program = missionGraphProgramCompile(text,
+		text_size, missionGraphModuleKnown,
+		s_ActiveScenarioGraphs.mission_program_error,
+		sizeof(s_ActiveScenarioGraphs.mission_program_error));
+	if (s_ActiveScenarioGraphs.mission_program) {
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: compiled executable program '%s' nodes=%d exec_edges=%d objective_status_events=%d modules=%d backend=graph.mission.runner",
+			mission->id,
+			missionGraphProgramNodeCount(s_ActiveScenarioGraphs.mission_program),
+			missionGraphProgramExecEdgeCount(s_ActiveScenarioGraphs.mission_program),
+			missionGraphProgramEventNodeCount(s_ActiveScenarioGraphs.mission_program,
+				MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED),
+			missionGraphProgramModuleNodeCount(s_ActiveScenarioGraphs.mission_program));
+	} else {
+		s_ActiveScenarioGraphs.mission_program_refused = 1;
+		sysLogPrintf(LOG_WARNING,
+			"MISSION.GRAPH: refused the executable program of '%s': %s; its events run nothing",
+			mission->id, s_ActiveScenarioGraphs.mission_program_error);
+	}
 	scenarioSourceMissionGraphRecordPhase("load", "mission.graph.activate");
 	free(text);
 
@@ -12917,6 +12945,53 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 s32 scenarioSourceObjectiveGraphIsActive(void)
 {
 	return s_ActiveScenarioGraphs.mission_objective_runtime_active;
+}
+
+s32 scenarioSourceMissionGraphOwnsObjectiveEvents(void)
+{
+	return s_ActiveScenarioGraphs.mission_graph_active &&
+		(s_ActiveScenarioGraphs.mission_program != NULL ||
+			s_ActiveScenarioGraphs.mission_program_refused);
+}
+
+s32 scenarioSourceMissionGraphObjectiveStatusChanged(s32 index, s32 number,
+	s32 status, s32 previous)
+{
+	static const char *const status_names[] = { "incomplete", "complete", "failed" };
+	const char *status_name = status >= 0 && status <= 2 ? status_names[status] : "?";
+	mission_graph_event_t event;
+	s32 ran;
+
+	if (!scenarioSourceMissionGraphOwnsObjectiveEvents()) {
+		return -1;
+	}
+	if (!s_ActiveScenarioGraphs.mission_program) {
+		sysLogPrintf(LOG_WARNING,
+			"MISSION.GRAPH: event.objective.status_changed '%s' objective=%d number=%d status=%s ran nothing: the program was refused (%s)",
+			s_ActiveScenarioGraphs.mission_id, index, number, status_name,
+			s_ActiveScenarioGraphs.mission_program_error);
+		return -1;
+	}
+
+	memset(&event, 0, sizeof(event));
+	event.kind = MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
+	event.objective_index = index;
+	event.objective_number = number;
+	event.status = status;
+	event.previous_status = previous;
+	if (s_ActiveScenarioGraphs.mission_objectives && index >= 0 &&
+			index < s_ActiveScenarioGraphs.mission_objective_nodes &&
+			s_ActiveScenarioGraphs.mission_objectives[index].graph_node[0]) {
+		event.objective_node = s_ActiveScenarioGraphs.mission_objectives[index].graph_node;
+	}
+
+	ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program,
+		&event, missionGraphModuleRun, NULL);
+	sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+		"MISSION.GRAPH: event.objective.status_changed '%s' objective=%d number=%d node=%s status=%s modules=%d backend=graph.mission.runner",
+		s_ActiveScenarioGraphs.mission_id, index, number,
+		event.objective_node ? event.objective_node : "-", status_name, ran);
+	return ran;
 }
 
 static s32 s_aiGraphRuntimeFailure(const char *action, const char *reason)

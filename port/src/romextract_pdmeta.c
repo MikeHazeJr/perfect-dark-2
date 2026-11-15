@@ -32,7 +32,7 @@
 #include "romextract_pd.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest_objective_status_event"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
 	"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
@@ -747,7 +747,14 @@ static s32 s_buildMissionGraph(const char *mission_id,
 		}
 	}
 
+	/* Decision 2, the first executable part (port/include/mission_graph_runner.h):
+	 * when an objective that applies at this difficulty changes status, the
+	 * event runs the native module that shows the original "Objective N:
+	 * Completed" message. The edge is an execution edge ("input": "exec"); the
+	 * others are structural and are not walked. */
 	if (s_textbufAppendf(out,
+			"    { \"id\": \"objective.status_changed\", \"kind\": \"event.objective.status_changed\", \"objective\": \"any\" },\n"
+			"    { \"id\": \"objective.status_message\", \"kind\": \"og.hud.objective_status_message\" },\n"
 			"    { \"id\": \"mission.parity_backend\", \"kind\": \"mission.behavior.parity_backend\", \"module\": \"og.mission.%s\" }\n"
 			"  ],\n"
 			"  \"edges\": [\n"
@@ -787,7 +794,8 @@ static s32 s_buildMissionGraph(const char *mission_id,
 			"    { \"from\": \"mission.objectives\", \"to\": \"mission.phase.failed\" },\n"
 			"    { \"from\": \"mission.phase.complete\", \"to\": \"mission.phase.end\" },\n"
 			"    { \"from\": \"mission.phase.failed\", \"to\": \"mission.phase.end\" },\n"
-			"    { \"from\": \"mission.objectives\", \"to\": \"mission.parity_backend\" }\n"
+			"    { \"from\": \"mission.objectives\", \"to\": \"mission.parity_backend\" },\n"
+			"    { \"from\": \"objective.status_changed\", \"output\": \"out\", \"to\": \"objective.status_message\", \"input\": \"exec\" }\n"
 			"  ]\n"
 			"}\n") != 0) {
 		return -1;
@@ -1653,6 +1661,8 @@ static s32 s_emitMissionArchive(const pdmeta_mission_source_t *a, const char *ou
 			"mission.objectives.source") &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",
 			"mission.objective.source") &&
+		s_existingArchiveEntryContains(relpath, "mission.graph.json",
+			"\"input\": \"exec\"") &&
 		s_existingArchiveEntryContains(relpath, "mission.ini",
 			"scenario_graph_cache = " PDMETA_SCENARIO_DEP_CACHE_KIND) &&
 		s_existingArchiveEntryContains(relpath, "mission.graph.json",

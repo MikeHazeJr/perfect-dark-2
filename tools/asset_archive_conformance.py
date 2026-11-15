@@ -2504,6 +2504,8 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
                 errors.append(
                     f"{label} mission.graph.json must bind mission.objectives.source to objectives.json"
                 )
+            if isinstance(nodes, list) and nodes:
+                errors.extend(validate_mission_graph_execution(label, graph))
 
     if "objectives.json" in name_set:
         objectives_text = zf.read("objectives.json").decode(
@@ -2517,6 +2519,76 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
             label, "objectives.json", objectives_text,
             MISSION_OBJECTIVES_HEADER
         ))
+
+
+# Mission graph runner (decision 2, CORE, 2026-11-15): the executable part of
+# pd2.mission.graph.v1. Keep in step with port/src/mission_graph_runner.cpp and
+# the module table in port/src/mission_graph_modules.c.
+MISSION_GRAPH_EXEC_EVENTS = {"event.objective.status_changed"}
+MISSION_GRAPH_EXEC_GATES = {"gate.objective.status"}
+MISSION_GRAPH_NATIVE_MODULES = {"og.hud.objective_status_message"}
+MISSION_GRAPH_STATUSES = {"complete", "incomplete", "failed"}
+
+
+def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
+    """The same rules the runner applies when it compiles a mission graph:
+    unique ids, known og.* modules and gate kinds, every edge between existing
+    nodes, and execution edges ("input": "exec") only from an executable
+    event, gate or module to a gate or module, with the right output port."""
+    errors: list[str] = []
+    where = f"{label} mission.graph.json"
+    kinds: dict[str, str] = {}
+    for idx, node in enumerate(graph.get("nodes") or []):
+        node_id = node.get("id") if isinstance(node, dict) else None
+        kind = node.get("kind") if isinstance(node, dict) else None
+        if not isinstance(node_id, str) or not node_id or not isinstance(kind, str) or not kind:
+            errors.append(f"{where} node {idx} needs a non-empty id and kind")
+            continue
+        if node_id in kinds:
+            errors.append(f"{where} node id {node_id!r} is used twice")
+            continue
+        kinds[node_id] = kind
+        if kind.startswith("og.") and kind not in MISSION_GRAPH_NATIVE_MODULES:
+            errors.append(f"{where} native module {kind!r} does not exist")
+        if kind.startswith("gate.") and kind not in MISSION_GRAPH_EXEC_GATES:
+            errors.append(f"{where} gate kind {kind!r} is not executable")
+        if kind == "gate.objective.status" and node.get("status") not in MISSION_GRAPH_STATUSES:
+            errors.append(f"{where} gate {node_id!r} needs status complete, incomplete or failed")
+        if "objective" in node and not isinstance(node["objective"], str):
+            errors.append(f"{where} node {node_id!r} objective must be a string")
+    edges = graph.get("edges", [])
+    if not isinstance(edges, list):
+        return errors + [f"{where} edges must be an array"]
+    for idx, edge in enumerate(edges):
+        if not isinstance(edge, dict) or not isinstance(edge.get("from"), str) \
+                or not isinstance(edge.get("to"), str):
+            errors.append(f"{where} edge {idx} needs from and to")
+            continue
+        src, dst = edge["from"], edge["to"]
+        if src not in kinds or dst not in kinds:
+            errors.append(f"{where} edge {idx} names a missing node")
+            continue
+        if "input" not in edge:
+            if "output" in edge:
+                errors.append(f"{where} edge {idx} has an output but is not an execution edge")
+            continue
+        if edge["input"] != "exec":
+            errors.append(f"{where} edge {idx} input must be \"exec\"")
+            continue
+        src_kind, dst_kind = kinds[src], kinds[dst]
+        if not (src_kind in MISSION_GRAPH_EXEC_EVENTS or src_kind in MISSION_GRAPH_EXEC_GATES
+                or src_kind.startswith("og.")):
+            errors.append(f"{where} edge {idx} starts at {src!r} ({src_kind}), which cannot execute")
+        if not (dst_kind in MISSION_GRAPH_EXEC_GATES or dst_kind.startswith("og.")):
+            errors.append(f"{where} edge {idx} ends at {dst!r} ({dst_kind}), "
+                          "which is not a gate or a native module")
+        output = edge.get("output")
+        if src_kind in MISSION_GRAPH_EXEC_GATES:
+            if output not in ("pass", "fail"):
+                errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
+        elif output is not None and output != "out":
+            errors.append(f"{where} edge {idx} output must be \"out\"")
+    return errors
 
 
 SCENARIO_ROOM_COUNT_MIN = 2

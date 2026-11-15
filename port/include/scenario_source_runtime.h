@@ -52,6 +52,15 @@ s32 scenarioSourceLevelGraphCheckPadRoom(s32 pad, s32 room,
 s32 scenarioSourceSetupGraphRecordBehaviorLink(u8 type, s32 record_index,
 	s32 target0, s32 target1, s32 target2, s32 aux0, s32 aux1);
 s32 scenarioSourceObjectiveGraphIsActive(void);
+/* Mission graph runner (decision 2): whether the active mission graph owns
+ * objective status events (it compiled, or it was refused and so runs
+ * nothing), and firing event.objective.status_changed for an objective that
+ * applies at this difficulty (`number` is 1-based among those). Returns the
+ * number of native modules run, or -1 when the graph does not own the event,
+ * was refused, or a module refused it. */
+s32 scenarioSourceMissionGraphOwnsObjectiveEvents(void);
+s32 scenarioSourceMissionGraphObjectiveStatusChanged(s32 index, s32 number,
+	s32 status, s32 previous);
 s32 scenarioSourceObjectiveGraphRecordInsert(const struct objective *objective);
 s32 scenarioSourceObjectiveGraphRecordCriterionStatus(const void *criteria,
 	s32 status);
