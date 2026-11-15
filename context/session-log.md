@@ -10695,3 +10695,44 @@ Next
 - Unit tests for the endings build; refresh base 5 in place; the queued
   game-runtime turn (campaigns, specials, sky screenshots, Complex match).
 - Then the training-hub rule, then B-1172.
+
+## 2026-11-15 (19:05-20:40 UTC) - CORE: training hub rule, B-1172 steps 1 and 2, extract-4 checked, GGV call, keygen fix
+
+What happened
+- Training hub (5feca745): `"hub": true` in the CI's stage.json, read by
+  lvStageIsHub() on scenario-source stages; 11 checks ask it (cheats, HUD
+  messages, corpse cap, damage outside training, AI buddies, death and
+  respawn, end screen). About 45 more STAGE_CITRAINING checks are hub
+  behaviour still keyed to the stage; the rest pick the CI as a destination.
+- B-1172 step 1 (9e3bd75c): the scene draws at a display-list command,
+  G_SCENE_RENDER_EXT, after the sky, the stars and the sun; skyRender runs on
+  every stage again.
+- B-1172 step 2 (bc450717): the B-936 depth mismatch was the stage's BG
+  scale (0.5 on Villa): the game's camera space is world units times
+  bgGetScaleBg2Gfx relative to the camera room, and near and far are in it.
+  World draws now use the game's BG matrix and keep their depth (props hidden
+  behind the scene's walls); translucent materials draw after the props'
+  opaque pass; held menu and lock screen are backdrops that clear depth; sky
+  rooms move with the camera's room; roomHighlight's lighting in the shader,
+  per player view. scenario_scene_camera.c unit-tested against the game's
+  lookat and perspective. pd-tests 1,931 cases. Frozen client
+  .claude/week-pd-client/b1172-step2; the queued base 5 turn runs the two new
+  depth smokes (probe under 1e-3 NDC) instead of the step 1 screenshots.
+- extract-4 standalone check (worktree D:/PD2-wt/x4-check): client and
+  pd-tests build, pd-tests 1,885 cases pass. Publishing base 5 waits for the
+  game run.
+- GGV lane (MULTIPLAYER relayed Mike: CORE's call): not onto dev now (never
+  compiled or run); stays on week-pd/inflight-20261114; triage after the
+  week's merges. Main checkout untouched: 17 of its 19 modified tracked files
+  equal the snapshot; CMakeLists.txt and dev-mods.json changed after it.
+- B-1122 follow-up (16a593ea; one-commit week-pd/keygen 7cbf5f1c): builds no
+  longer make a signing key, so they never rewrite the tracked
+  updater_pubkey.h. Checked with dev-keys moved aside: header byte-identical.
+- Week note: checklist rows for stage endings, training hub, sky and stars.
+
+Next
+- The game turn (queued behind CRYSTAL and MULTIPLAYER): release campaign,
+  specials, sky screenshots, Complex match, the step 2 depth smokes. If it
+  passes: push extract-4, publish base 5, merge extract-4 into core, recycle
+  the x4-check worktree.
+- Then the remaining hub checks, stars as a stage rule, stage text banks.
