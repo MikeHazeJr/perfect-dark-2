@@ -212,11 +212,24 @@ Foundation, in order. Each step lands with tests that run in CI.
      graph uses `$variables` (none exists; the creator's own check compiles
      without the variables file).
 6. Characters tool, vehicle runtime binding plus Vehicles tool, level tools.
+   Not started. All 47 base arenas, 68 bodies, 84 heads, 63 characters and
+   the hoverbike now save as release-valid mods through `modAuthorSave`
+   (shared base 3), so each of these tools starts from a working save.
+7. The weapon mod itself: `dev-mods/maian_crystal_pistol/` (3c31a844), a
+   recipe the mod author builds. First game run 2026-11-15: PASS 22/22,
+   builds, loads, equips and fires both functions without error; the gun
+   and the crystals are not visible yet. Status and next steps are in
+   `maian-crystal-pistol-handoff.md` section 9.
+8. B-1149 (view position of a mod made from a base gun) is fixed in the
+   author (8f0ac3a3) and still has to be seen in a game run
+   (`mod_author_weapon_play_smoke`; it stays red for B-1151 until mod
+   weapons have ammo).
 
 Found along the way, recorded in `context/bugs.md`: B-1140 (shared INI parser
 hangs on a section line with no `=`), B-1141 (mod manager shows JSON escapes
 raw), B-1142 (above), B-1143 (pd-tests misreports when stdout is a file),
-B-1144 (theme and voice staging names are still typed archives), B-1146 to
+B-1144 (theme and voice staging names are still typed archives), B-1153 (a
+mesh with no sidecars logs errors for them), B-1146 to
 B-1148 (Weapons creator: old layout, template behavior replaced by a
 default, editor cut settings at 512 bytes; all fixed), B-1149 to B-1152
 (what a mod weapon made from a base gun still lacks in play). B-1140 is

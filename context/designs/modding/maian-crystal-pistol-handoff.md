@@ -1,8 +1,11 @@
 # Maian crystal pistol: brief and handoff (week of 2026-11-15)
 
-Status: NOT STARTED as a build. Mike set this as the weapon mod on 2026-11-14
-and then ordered the work: finish the mod tools first (the tools plan, the
-Weapons creator's root-layout fix, the mod concepts), then build the pistol.
+Status: FIRST CUT BUILT (2026-11-14, 3c31a844): the recipe in
+`dev-mods/maian_crystal_pistol/` builds `mod:weapon_maian_crystal_pistol`
+through the in-game mod author, on v1 graphs with placeholder meshes. See
+section 9 for what it is, what was run and what comes next. Sections 1 to 8
+are the brief and the survey it was built from. Mike set this as the weapon
+mod on 2026-11-14 and ordered the work: mod tools first, then the pistol.
 This note exists so a fresh session can pick the pistol up from the repo
 alone. Owner: MODS week session, branch `week-pd/mods`.
 
@@ -344,3 +347,122 @@ From the survey of the mesh compiler (MC) and the Needler builder:
 5. When the real model arrives, swap the placeholder mesh members through
    overrides; nothing else in the recipe should need to change if section 7
    was followed.
+
+## 9. First cut (2026-11-14)
+
+Source: `dev-mods/maian_crystal_pistol/`. It is a recipe folder, not a mod:
+`recipe.json` (schema `pd2.mod_author.recipe.v1`) names the template and the
+member files, and the in-game mod author builds the mod from it. It is not
+listed in `dev-mods/dev-mods.json`, so no build copies it into an install.
+
+```
+recipe.json                         name, descriptor keys, overrides
+template/tri_weapon.pdweapon        the example triangle weapon (own content)
+meshes/crystal_placeholder.pdmesh   the Needler's spike mesh (own content)
+behavior/primary.graph.json         trigger -> spawn.fired_projectile
+behavior/secondary.graph.json       trigger -> spawn.thrown_physical
+behavior/settings.json              fire_cadence 20 centiseconds
+behavior/variables.json             the tunables
+projectile/crystal.graph.json       spawn_state, motion, sticky_attach, timer
+entity/crystal_mine.graph.json      armed_explosive, proxy_trigger, owner_cleanup
+```
+
+To build it in the game: copy the folder next to the game as
+`mod-recipes/maian_crystal_pistol/` and launch with
+`--mod-author mod-recipes/maian_crystal_pistol/recipe.json`. The mod appears
+as `mods/Weapons/weapon_maian_crystal_pistol/` and is enabled. Add
+`--launch-mp-room base:arena_mp_felicity base:combat 0 --debug-spawn-weapon
+mod:weapon_maian_crystal_pistol --debug-auto-start-match` to start a match
+holding it.
+
+What the first cut does:
+
+- Primary: one crystal per trigger pull, `ammo_slot` -1 (no ammo accounting,
+  because mod weapons have no ammo yet). The crystal flies powered at speed
+  30, sticks to the world, to objects and to characters, and is deleted 30
+  seconds after it attaches so the world does not fill up.
+- Secondary: one crystal mine, thrown, with a proximity trigger (radius 250,
+  hostile characters, enemies only, not its owner) on the deployed entity.
+- `weapon.ini`: view position `posx = 30.0`, `posy = -18.0`, `posz = -45.0`,
+  `muzzlez = 3.0` (the Needler's values, to be tuned on the real model),
+  `dual_wieldable = 0`.
+- Tunables in `behavior/variables.json`: `crystal_damage` 4.0,
+  `crystal_socket_count` 6, `cluster_count` 3, `cluster_radius` 150.0,
+  `mine_radius` 250.0, `charge_time_ticks60` 90, `regrow_time_ticks60` 120.
+  Only `crystal_damage` is read today (`"damage": "$crystal_damage"` on the
+  primary node). The others are the names the graphs will use as CORE's
+  support lands; the projectile and entity graphs cannot read variables yet
+  (ask 8), so the crystal's own damage 4.0 and the mine radius 250 are also
+  written in those graphs.
+
+What it does not do, and why (the asks are in the week note's schema table):
+
+| Brief | State | Waits for |
+|---|---|---|
+| loaded crystals as ammo | unlimited fire | ask 1 (ammo for v1 mod weapons) |
+| crystals regrow in their sockets | no | ask 2 |
+| secondary charges, cannot be cancelled, survives death | secondary is an immediate throw | ask 3 |
+| every crystal launches from its own socket, fan follows roll | one mine from the hand | ask 4 |
+| three landed crystals near each other detonate | crystals stick and expire | ask 5 |
+| mine arms where it lands | arming timer starts at the throw | ask 6 |
+| crystal looks: full, regrowing, charged, empty | one static placeholder | ask 7 |
+| name in the HUD, tunables in one place | no HUD name | ask 8, B-1150 |
+
+Meshes are placeholders. The weapon is the template's triangle and the
+crystal is the Needler's spike. Neither has the socket parts yet (muzzle, one
+per crystal socket with a launch direction, grip): adding named parts means
+writing the `.pdmesh` sidecar files (`model.nodes.json`, `model.parts.json`,
+`model.faces.json`, `model.render.json`) and that was not done. Section 7
+says what the real model must bring. When it arrives, the swap is one
+override per mesh member (or a whole `.pdmesh` per slot) in `recipe.json`.
+
+Verified:
+
+- Unit (`tests/test_maian_crystal_pistol.cpp`, in CI): the recipe builds
+  through `modAuthorSave`; the in-game Validate accepts it; the weapon graph
+  compiles from the archive with its variables file (`$crystal_damage` is
+  4.0, `ammo_slot` -1, the projectile and entity references are the mod's own
+  derived ids); the crystal graph has the sticky and timer modules and names
+  the embedded crystal mesh; the mine graph has the proximity trigger.
+- Offline validator on the built archive: ok, 6 archives, 5 families.
+- Game run:
+  `maian_crystal_pistol_play_smoke` RUN 2026-11-15 00:35 UTC on shared base 3
+  with the client built at 8f0ac3a3: PASS 22/22 in 97 seconds (receipt
+  `D:\PD2-wt\mods\.claude\smoke-verify-runs\results-20261115T003916Z.json`).
+  One launch built the mod from the recipe, enabled it, started a solo Combat
+  match on Felicity with the pistol as weapon 86 in the right hand, fired the
+  primary three times, switched the fire mode and fired the secondary once.
+  - Seen in the log: the save, enable and catalog lines; the held model
+    loaded from the mod's own mesh
+    (`mod:weapon_maian_crystal_pistol__mesh_tri_mesh`); at the first primary
+    shot the crystal's mesh was loaded
+    (`mod:weapon_maian_crystal_pistol__mesh_needle`, "late-add, missed by
+    pre-scan"); the fire-mode indicator changed colour after the switch; no
+    error from the weapon, projectile or entity graphs; no crash.
+  - NOT seen: the gun and the crystals. In all four screenshots the centre of
+    the view is the same wall with nothing on it and nothing in the hand. The
+    template's triangle is one unit across at the Needler's view offsets, so
+    it is too small to see; whether the crystals spawn and stick, spawn and
+    are not drawn, or do not spawn is not known, because nothing logs a
+    projectile spawn or an attach. This is the first thing to find out next:
+    either a log line in the custom projectile path (CORE's files) or a
+    placeholder mesh large enough to see.
+  - Also in the log: four `fsFileLoad: could not find file` errors for
+    `crystal.pdmesh::model.mtl` and `::model.nodes.json`. The placeholder
+    mesh carries only `mesh.ini` and `model.gltf`, like the Needler's needle;
+    the loader probes the sidecars anyway and reports them as errors (B-1153).
+    The mesh still loads.
+  - `SPAWN.WEAPON ... name=0`: no HUD name, as expected (B-1150).
+
+Next, in order:
+
+1. Look at the screenshots of the game run and tune the view position.
+2. As CORE answers the asks, extend the graphs and retire the stand-ins: ammo
+   first (it also unblocks the HUD and regrowth), then the charge, per-socket
+   launch, the cluster rule, mine arming, looks.
+3. Placeholder weapon mesh with the socket parts, so the graphs can be
+   written against the final part numbers before the real model arrives.
+4. The real model: convert per section 7, swap the mesh members in the
+   recipe, tune `posx`, `posy`, `posz`, `muzzlez`.
+5. Multiplayer: MULTIPLAYER asked for the catalog id to add a two-peer smoke.
+   It is `mod:weapon_maian_crystal_pistol`.
