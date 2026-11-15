@@ -10120,3 +10120,62 @@ Next
   objective from the graph (`not_graph=0` everywhere), so removing the native
   fallback is ready; it waits on Mike's decision 1 (what converted means).
   Mission flow next.
+
+## 2026-11-15 (02:40-04:20 UTC) - CORE: reviewed release (7A), storage location (6B), extraction flush (B-1110)
+
+Focus
+- Carry out Mike's decisions 7A, 6B and 6C, in that order.
+
+What was done
+- 7A (8d90a7ab): `storage.py release-interrupted` releases an interrupted
+  smoke workspace only when its owner process is gone and every file is an
+  unchanged seed copy; it writes a receipt and a recipe and deletes nothing.
+  Used on MULTIPLAYER's three installs in CORE's storage.
+- 6B (4e7e2216): a checkout keeps `.claude/smoke-storage` unless an untracked
+  `.claude/smoke-storage-location.json` names another absolute root. Python
+  (`storage_root`) and PowerShell (`Get-SmokeStorageRoot`) read it by one
+  rule; seeds, receipts and the owned-process check follow it, and the floor
+  is measured on that drive. Not switched on: the worktrees use the committed
+  300 GiB floor (the 200 GiB D-011 value is a local edit in the main checkout
+  only, and I quoted it to Mike by mistake), and C: has 206 GiB free, so every
+  run there would be refused. Asked Mike: A, stay on D: for now (recommended),
+  or B, use 200 in the worktrees too (about 2 GiB of margin).
+- The two PowerShell retention suites that "failed" had run under PS 5.1,
+  which their own commits (d36ad855, 887c5d91) record as unqualified. Under
+  PS 7: build retention 81/81; runner retention 47/47 once its baseline is
+  the pre-retention runner (887c5d91^ with the later reviewed
+  `Invoke-SmokeTestMultiProcess`), which is what the suite compares against.
+- B-1110 (15679a9a, 5049046c), profiled first: every extracted archive went
+  through `modArchiveFinish`, which forced it to disk and renamed it with
+  write-through; 99 ms per file on D: against 1 ms without. ROM extractors
+  now publish with `modArchiveBeginDerived`; each folder's cache stamp first
+  flushes that folder's new archives (`modArchiveDerivedBarrierWith`, side by
+  side on the boot pool) and is not written if that fails, so a stamp never
+  vouches for data that is not on disk. Player edits and authored archives
+  keep the durable writer. SP-80 records the pattern; the mod-transfer
+  extraction (`pdcaExtractArchiveBegin`, MULTIPLAYER's area) has it too.
+
+Verification
+- Python storage 25/25, reuse 17/17, retention 22/22; PowerShell 7 storage
+  17, native consumer 27, owned process 22, build retention 81, runner
+  retention 47.
+- pd-tests 1,892/1,892 (340,197 assertions), 10 new `[b1110]` cases; client
+  and pd-tests build with no warnings.
+- Clean `--extract-assets-only` run on D: in a fresh folder: 3 min 33 s to
+  the loader summary with the flush pass one file at a time, 2 min 47 s with
+  it on the boot pool, against 19 min 33 s before. Both runs: 5,569 of 5,569
+  registered, 0 envelope failures, 0 LOUDFAIL, all 23 stamps written. Logs in
+  `.claude/week-pd-receipts/b1110-clean-extraction-20261115/`; the two
+  extraction folders and the bench files went to the Recycle Bin.
+
+Decisions
+- (pending Mike) where test installs live, given the 300 GiB floor.
+- (pending Mike) push `week-pd/core` (three commits are local; the push was
+  refused by the permission system).
+
+Next
+- 2A: only the v2 world-hit delivery is left to carry over (the three bug
+  fixes are already on core: ffbaebc1, fea10dc0, e9acdf9b). It is a delivery
+  receipt protocol through the hit path, the v2 runtime and the gun code on
+  `week-pd/inflight-20261114`, never compiled, about 2,000 lines.
+- SP-79 flips; removal of the objective fallback (decision 1 allows it).
