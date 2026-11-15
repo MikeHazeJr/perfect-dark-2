@@ -2855,7 +2855,11 @@ function Invoke-SmokeTest {
     }
     Write-Info ("  retained reconstructable receipt: {0}" -f $storageReceipt.Receipt)
     if ($storageReceipt -and $storageReceipt.PSObject.Properties.Match('DiscardedBytes').Count -gt 0) {
-        Write-Info ("  install discarded after the run (storage location policy): freed {0:N1} MB" -f ($storageReceipt.DiscardedBytes / 1MB))
+        if ($storageReceipt.PSObject.Properties.Match('Recycled').Count -gt 0 -and $storageReceipt.Recycled) {
+            Write-Info ("  install sent to the Recycle Bin after the run (storage location policy): {0:N1} MB, on the drive until the bin is emptied" -f ($storageReceipt.DiscardedBytes / 1MB))
+        } else {
+            Write-Info ("  install discarded after the run (storage location policy): freed {0:N1} MB" -f ($storageReceipt.DiscardedBytes / 1MB))
+        }
     }
 
     $bugId = $null
