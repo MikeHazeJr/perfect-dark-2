@@ -97,17 +97,27 @@ Landed on `week-pd/crystal-pistol` (6e43ca22 and later), everything behind a mod
 
 | Piece | Code | Proven in game |
 |---|---|---|
-| Mod magazine, self-loading ammo, HUD clip gauge | `loader_pool.c` adapter, `bondgun.c` hooks | `crystal_pistol_ammo_smoke` 31/31 |
+| Mod magazine, self-loading ammo, HUD clip gauge | `loader_pool.c` adapter, `bondgun.c` hooks | `crystal_pistol_ammo_smoke` 31/31 (again on 1b15865d) |
 | Regrow reload, interrupted by a shot | `bondgun_mod.c` `bgunModTickIncReloadRegrow` | same run |
 | Crystals leave their seats and regrow in place | `bgunModApplyHeldModel` (seat scaling) | same run, screenshots |
-| Three landed crystals detonate | `bgunModProjectileLanded`, `propobj.c` stick and rest hooks | ammo run (two clusters); cluster smoke rerun pending |
-| Committed charge, neon look, per-socket mines, release after death | `bgunModTickIncAttackCharge`, `bgunModChargeTick` | charge run: six fanned launches, launch after `kill_player` |
-| Mines stick and arm where they land | mine `.pdprojectile` (sticky, scale 0.15) + `arm_on land` | rerun pending (first run: mines did not stick) |
-| Gun roll input, fan follows the roll | `actionmap.*`, `bondmove.c`, `bgunModRollTick`, pose in `bondgun.c` | roll run: 90 degrees, fan vertical 1.00 upright, 0.00 rolled |
-| Muzzle flash | model toggle 90 under part 50 (engine unchanged) | rerun pending (`BONDGUN.FLASH` log) |
+| Three landed crystals detonate | `bgunModProjectileLanded`, `propobj.c` stick and rest hooks | ammo run (clusters on walls); on floors and in a bot: pending (needed B-1187) |
+| Committed charge, neon look, per-socket mines, release after death | `bgunModTickIncAttackCharge`, `bgunModChargeTick` | charge run 24/24: six fanned launches, launch after `kill_player` |
+| Mines stick and arm where they land | mine `.pdprojectile` (sticky, scale 0.15) + `arm_on land` | walls: charge run (mines armed); floors: pending (needed B-1187, B-1188) |
+| Mines trigger on enemies only (radius 200) | `bgunModProxyDecision` in `coordTriggerProxiesFor` | `crystal_pistol_mine_bot_smoke`: pending |
+| Gun roll input, fan follows the roll | `actionmap.*`, `bondmove.c`, `bgunModRollTick`, pose in `bondgun.c` | roll run 17/17: 90 degrees, fan vertical 1.00 upright, 0.00 rolled; bore pivot look: pending |
+| Muzzle flash | model toggle 90 under part 50 (engine unchanged) | viewmodel run 31/31: `BONDGUN.FLASH` on all three shots |
+| Spent crystals and mines are not pickups | `bgunModGsetFiresSpentRounds`, `weaponCreateProjectileFromGset` | pending (B-1188) |
 | Mod weapon name | `loaderPoolSetPublicWeaponName`, `bgunGetName` | not checked on screen yet |
 
 Not done (follow-ups): network replication of the charge look and the roll (the host sends the mine
 spawns, the rest is local); bots throw single mines (no charge for bots); third-person views of the
 gun do not hide spent crystals; a crystal that hits an off-screen character is deleted (native embed
-rule). Bugs on the way: B-1184, B-1185 (`context/bugs.md`).
+rule). Bugs on the way: B-1184 to B-1188 (`context/bugs.md`); B-1187 is engine-wide (every sticky
+projectile on scenario-source stages) and `context/systemic-bugs.md` lists the other background hit
+tests that probably fail the same way (hitscan, splats, spawn checks), left for CORE.
+
+Smoke harness notes (2026-11-15): `--debug-place-bot-near-player` holds the bot with its model root
+at the player's eye height, so it floats in its fall pose; aim with `--debug-spawn-at` plus
+`--debug-force-first-person-look` (fixed in B-1186) rather than at its head. The session's first GL
+capture can stall the game about a second: keep shots clear of it, or input inside the stall lands
+in one frame.

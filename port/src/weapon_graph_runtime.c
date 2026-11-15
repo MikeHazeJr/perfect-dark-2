@@ -1384,6 +1384,9 @@ static s32 validateNodePolicies(const weapon_graph_ir_t *ir,
 		{ WEAPON_GRAPH_OP_ENTITY_PROXY_TRIGGER, "target_filter", "all|any|hostile_chr" },
 		{ WEAPON_GRAPH_OP_ENTITY_PROXY_TRIGGER, "team_filter", "all|any|enemy_only" },
 		{ WEAPON_GRAPH_OP_ENTITY_PROXY_TRIGGER, "owner_filter", "all|any|exclude_owner|owner_only" },
+		/* Crystal pistol (T-MODDING-008, SP-76): a typo must not leave a mine
+		 * that never arms on landing. */
+		{ WEAPON_GRAPH_OP_ENTITY_PROXY_TRIGGER, "arm_on", "land|launch" },
 		{ WEAPON_GRAPH_OP_ENTITY_REMOTE_DETONATABLE, "on_remote_signal", "detonate|storm|create_storm" },
 		{ WEAPON_GRAPH_OP_ENTITY_TIMED_DETONATABLE, "on_expire", "detonate|storm|create_storm|delete" },
 		{ WEAPON_GRAPH_OP_ENTITY_TIMED_DETONATABLE, "starts_when", "thrown|armed" },
@@ -3022,6 +3025,36 @@ static s32 weaponGraphValidateRuntimeIr(const weapon_graph_ir_t *ir,
 	for (s32 i = 0; i < ir->node_count; i++) {
 		const weapon_graph_ir_node_t *node = &ir->nodes[i];
 		if (validateNodePolicies(ir, node, err, err_cap) != 0) return -1;
+		/* Crystal pistol (T-MODDING-008, SP-76): an authored cluster rule must
+		 * be usable. Any cluster param needs cluster_count >= 2 and
+		 * cluster_radius > 0; anything less used to read as "no rule". */
+		if (node->opcode == WEAPON_GRAPH_OP_PROJECTILE_STICKY_ATTACH) {
+			static const char *cluster_keys[] = {
+				"cluster_count", "cluster_radius", "cluster_explosion_ref"
+			};
+			s32 authored = 0;
+			for (size_t key = 0; key < sizeof(cluster_keys) / sizeof(cluster_keys[0]); key++) {
+				const weapon_graph_ir_param_t *p = heldParam(ir, node, cluster_keys[key]);
+				if (p && p->type != WEAPON_GRAPH_PARAM_NULL &&
+						!(p->type == WEAPON_GRAPH_PARAM_STRING && !p->value[0])) {
+					authored = 1;
+				}
+			}
+			if (authored) {
+				s32 count = 0;
+				f32 radius = 0.0f;
+				if (!heldParamInt(ir, node, "cluster_count", &count) || count < 2) {
+					setErr(err, err_cap, "%s node %s cluster rule needs an integer cluster_count of 2 or more",
+						node->kind, node->id);
+					return -1;
+				}
+				if (!heldParamFloat(ir, node, "cluster_radius", &radius) || !(radius > 0.0f)) {
+					setErr(err, err_cap, "%s node %s cluster rule needs a cluster_radius above 0",
+						node->kind, node->id);
+					return -1;
+				}
+			}
+		}
 		for (s32 j = 0; j < node->param_count; j++) {
 			const weapon_graph_ir_param_t *p = &ir->params[node->param_start + j];
 			s32 resolved = 0;

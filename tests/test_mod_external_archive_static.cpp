@@ -11171,6 +11171,46 @@ TEST_CASE("crystal pistol charge, cluster and arm-on-land params reach the runti
 	REQUIRE(entity->proxy_arm_on_land == 1);
 	REQUIRE(entity->proxy_radius == Approx(200.0f));
 	weaponGraphIrFree(&ir);
+
+	/* SP-76 (CORE ask, 2026-11-15): an authored rule that cannot work is
+	 * refused when the graph registers, not read as "no rule". */
+	const struct { asset_type_e type; const char *params; const char *kind; const char *error; } refused[] = {
+		{ ASSET_PROJECTILE, "\"cluster_count\": 1, \"cluster_radius\": 150.0", "projectile.sticky_attach",
+			"cluster_count of 2 or more" },
+		{ ASSET_PROJECTILE, "\"cluster_count\": 3, \"cluster_radius\": 0", "projectile.sticky_attach",
+			"cluster_radius above 0" },
+		{ ASSET_PROJECTILE, "\"cluster_count\": 3", "projectile.sticky_attach", "cluster_radius above 0" },
+		{ ASSET_PROJECTILE, "\"cluster_radius\": 150.0", "projectile.sticky_attach",
+			"cluster_count of 2 or more" },
+		{ ASSET_PROJECTILE, "\"cluster_count\": \"three\", \"cluster_radius\": 150.0", "projectile.sticky_attach",
+			"cluster_count of 2 or more" },
+		{ ASSET_ENTITY, "\"radius\": 200, \"arm_on\": \"landing\"", "entity.proxy_trigger", "unsupported arm_on" },
+	};
+	for (const auto &row : refused) {
+		const bool projectileRow = row.type == ASSET_PROJECTILE;
+		const std::string graph = std::string("{ \"schema\": \"") +
+			(projectileRow ? "pd.projectile_graph.v1" : "pd.entity_graph.v1") +
+			"\", \"asset_id\": \"mod_test:refused\", \"graph_id\": \"r\",\n  \"nodes\": [ " +
+			(projectileRow ? "{ \"id\": \"motion\", \"kind\": \"projectile.motion\", \"params\": "
+				"{ \"motion_kind\": \"powered\", \"speed\": 40.0 } }, " : "") +
+			"{ \"id\": \"n\", \"kind\": \"" + row.kind + "\", \"params\": { " + row.params + " } } ],\n"
+			"  \"edges\": [], \"exports\": [ { \"name\": \"main\", \"node\": \"n\" } ] }\n";
+		INFO(graph);
+		char refusedErr[256] = {};
+		/* Refused at compile (policy values) or at registration (rules
+		 * that need the node's numbers); either way before any record. */
+		s32 result = weaponGraphCompileJson(row.type, graph.data(), static_cast<u32>(graph.size()), &ir,
+			refusedErr, sizeof(refusedErr));
+		if (result == 0) {
+			result = projectileRow
+				? weaponGraphRuntimeRegisterProjectileIr(&ir, refusedErr, sizeof(refusedErr))
+				: weaponGraphRuntimeRegisterEntityIr(&ir, refusedErr, sizeof(refusedErr));
+			weaponGraphIrFree(&ir);
+		}
+		INFO(refusedErr);
+		REQUIRE(result != 0);
+		REQUIRE(std::string(refusedErr).find(row.error) != std::string::npos);
+	}
 	weaponGraphRuntimeSetEnabled(0);
 	weaponGraphRuntimeClearAll();
 
