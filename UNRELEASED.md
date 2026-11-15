@@ -1,5 +1,23 @@
 # Unreleased Changes
 
+- Networked objective modes now follow the host: King of the Hill hills and
+  hill teams, Pop a Cap victims, Hold the Briefcase, Hacker Central and Capture
+  the Case holders, uplink downloads and bases. Final scores and rankings match
+  on every player's end screen.
+
+- Simulants that pick up the briefcase or the uplink now do so on every
+  player's screen in networked matches.
+
+- Fix a host crash a few seconds into some networked matches.
+
+- Capture the Case teams start the match at their own base again.
+
+- Hacker Central no longer crashes on arenas without case pads, and arenas
+  that lack hill, briefcase or case positions get walkable ones.
+
+- Networked clients no longer drop or misread the rest of a packet after
+  declining one message.
+
 - Reject unsupported required glTF features and sparse or normalized accessor
   data before conversion, with clear authoring limits and refreshed caches.
 

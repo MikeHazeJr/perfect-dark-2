@@ -237,6 +237,13 @@ Progress log:
   prop resync readers returned from inside their row loop on a client not yet in the game. Also fixed: the score
   writer's count, the NPC resync declining with 0, and `CLC_ADMIN` reading a rejected command's arguments. Nothing
   open in the client or server readers; details in `context/bugs.md` B-1131 and SP-81.
+- Pop a Cap and King of the Hill at 150 s on 21eec732 (same binary): Pop a Cap 81/81 (`results-20261115T130939Z.json`),
+  King of the Hill 83/83 (`results-20261115T132151Z.json`); final results agree on both sides in both. King of the
+  Hill: two simulants scored 2 hill points each and the client followed all of the host's hill-team changes (rev 12).
+  Pop a Cap: a simulant was the victim for the whole match and the host sent two survival-point changes, but every
+  final score was 0. Cause B-1136 (the mpchrnum lookup used the N64's 4 as the player/simulant boundary, so no
+  simulant's Pop a Cap or Hacker Central points ever counted), fixed in 9d0bfc32, not yet run in game. New SP-82 for
+  the class.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
