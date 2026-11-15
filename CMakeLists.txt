@@ -1095,6 +1095,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/lang_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_lang_source.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_asset_archive_gltf_buffers.cpp
+  # B-1112: text members over 4 MiB are checked for references too.
+  ${CMAKE_SOURCE_DIR}/tests/test_asset_archive_large_text.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_render_stream.c
   ${CMAKE_SOURCE_DIR}/tests/test_modasset_render_stream.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_material_order.c
