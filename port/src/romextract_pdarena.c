@@ -86,7 +86,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -665,6 +665,7 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
                                     pdscenario_textbuf_t *collision_flags_json,
                                     pdscenario_textbuf_t *portals_json,
                                     pdscenario_textbuf_t *room_lights_json,
+                                    pdscenario_textbuf_t *room_table_json,
                                     pdscenario_textbuf_t *pads_json,
                                     pdscenario_textbuf_t *spawns_json,
                                     pdscenario_textbuf_t *volumes_json,
@@ -689,6 +690,7 @@ static void s_pdscenarioScratchFree(pdscenario_textbuf_t *rooms_obj,
 	s_textbufFree(collision_flags_json);
 	s_textbufFree(portals_json);
 	s_textbufFree(room_lights_json);
+	s_textbufFree(room_table_json);
 	s_textbufFree(pads_json);
 	s_textbufFree(spawns_json);
 	s_textbufFree(volumes_json);
@@ -899,9 +901,11 @@ static s32 s_buildTilesExports(const u8 *data, u32 size,
 		if (offsets[i] > offsets[i + 1] || offsets[i + 1] > size) return -1;
 	}
 
+	/* B-1145: no `mtllib` line. It named scenario.mtl, a member the scenario
+	 * layout forbids, so every base collision source carried a reference
+	 * that could never resolve and failed release validation. */
 	if (s_textbufAppend(obj,
 			"# Perfect Dark 2 base scenario collision export\n"
-			"mtllib scenario.mtl\n"
 			"usemtl collision\n") != 0) {
 		return -1;
 	}
@@ -2644,7 +2648,10 @@ static s32 s_setupAppendCommandFields(pdscenario_textbuf_t *fields,
 	case OBJECTIVETYPE_COLLECTOBJ:
 	case OBJECTIVETYPE_THROWOBJ: {
 		const u32 *words = (const u32 *)ptr;
-		u32 tag_id = PD_BE32(words[1]);
+		/* B-1111: the setup loader has already converted this word to host
+		 * order (filesetup.c, PD_CONV_VAL on cmd1). Only words[0] keeps its
+		 * file byte layout. Swapping it again wrote tag 6 as 0x06000000. */
+		u32 tag_id = words[1];
 		char target_ref[32];
 		s_tagTargetRecordRef(tag_targets, tag_target_count, tag_id,
 			target_ref, sizeof(target_ref));
@@ -2656,7 +2663,7 @@ static s32 s_setupAppendCommandFields(pdscenario_textbuf_t *fields,
 	case OBJECTIVETYPE_COMPFLAGS:
 	case OBJECTIVETYPE_FAILFLAGS: {
 		const u32 *words = (const u32 *)ptr;
-		u32 flag_mask = PD_BE32(words[1]);
+		u32 flag_mask = words[1]; /* host order already, see B-1111 above */
 		if (s_setupFieldStageFlag(fields, record_id, kind,
 				"objective_step.stage_flag", flag_mask) != 0) return -1;
 		break;
@@ -3328,7 +3335,8 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 			if (type == OBJECTIVETYPE_DESTROYOBJ ||
 					type == OBJECTIVETYPE_COLLECTOBJ ||
 					type == OBJECTIVETYPE_THROWOBJ) {
-				u32 tag_id = PD_BE32(((const u32 *)ptr)[1]);
+				/* Host order already (B-1111): no second swap. */
+				u32 tag_id = ((const u32 *)ptr)[1];
 				s_tagRef(tag_id, target_ref, sizeof(target_ref));
 				s_tagTargetRecordRef(tag_targets, tag_target_count,
 					tag_id, target_record_ref,
@@ -3336,7 +3344,7 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 				operand_kind = "tag_target";
 			} else if (type == OBJECTIVETYPE_COMPFLAGS ||
 					type == OBJECTIVETYPE_FAILFLAGS) {
-				u32 flag_mask = PD_BE32(((const u32 *)ptr)[1]);
+				u32 flag_mask = ((const u32 *)ptr)[1]; /* host order, B-1111 */
 				s_stageFlagRef(flag_mask, state_ref,
 					sizeof(state_ref));
 				operand_kind = "stage_flag";
@@ -7339,6 +7347,147 @@ static s32 s_buildBgRoomLightsJson(const u8 *bg, u32 bg_size,
 	return 0;
 }
 
+/*
+ * B-1113: authored room table sidecar (rooms.json).
+ *
+ * Section 3 of the background file starts with one bounding box per room, six
+ * s16 relative to the room's position. The game puts a pad, and so everything
+ * placed on it, into a room by testing the pad against these boxes. Without
+ * them the scenario-source path bounded each room by its collision triangles,
+ * which is tighter: in one Agent campaign run 44 objects were never created
+ * because their pad fell outside every room, among them the RC-P120 that a
+ * Defense objective asks for and the hover cars around the dataDyne tower.
+ *
+ * Rooms are 1 .. room_count-1; the last room entry only marks the end of the
+ * room data, exactly as the game's own loop treats it.
+ *
+ * B-1114: each row also carries the room's origin. The light quads of the
+ * background file (room_lights.json) are stored relative to it, and the
+ * scenario-source path keeps every room origin at zero because its geometry
+ * is in world coordinates. Without the origin a light sat in the wrong place
+ * by its room's origin (all but 3 of the 2,078 lights of 14 campaign stages)
+ * and could not be shot out.
+ *
+ * B-1115: each row also carries the room's authored brightness range. The
+ * scenario-source path gave every room 255/255, so a room with its lights
+ * out was about twice as bright as authored (base level 63 instead of 32).
+ */
+static s32 s_buildBgRoomTableJson(const u8 *bg, u32 bg_size,
+                                   pdscenario_textbuf_t *out,
+                                   u32 *out_room_rows)
+{
+	u8 *primary = NULL;
+	u32 primary_size = 0;
+	struct bgroom *rooms = NULL;
+	u32 room_count = 0;
+	u8 *section3 = NULL;
+	u32 emitted = 0;
+	u32 need;
+
+	if (out_room_rows) *out_room_rows = 0;
+	if (!bg || bg_size < 16 || !out) return -1;
+	if (s_loadBgPrimary(bg, bg_size, &primary, &primary_size,
+			&rooms, &room_count) != 0) {
+		return -1;
+	}
+	if (s_textbufAppend(out,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.rooms.v1\",\n"
+			"  \"note\": \"Authored per-room table from the background file. origin, min and max are world coordinates. A pad belongs to a room when it is inside the min/max box in x and z and at or above its minimum y. The light quads in room_lights.json are relative to their room's origin. brightness is the room's [minimum, maximum] light level, 0 to 255: the minimum (divided by 4) is what is left when its lights are out.\",\n"
+			"  \"rows\": [\n") != 0) {
+		goto fail;
+	}
+
+	/* A file whose only room entry is the end marker's neighbour has no
+	 * boxes; that is a valid, empty table. */
+	need = room_count > 1 ? (room_count - 1u) * 6u * (u32)sizeof(s16) : 0u;
+	if (need > 0) {
+		const u32 section1_cmpsize = s_readBe32(bg + 4);
+		const u32 section2start = section1_cmpsize + 12u;
+		u32 section2_cmpsize;
+		u32 section3start;
+		u32 masked;
+		u32 cmpsize;
+		u32 infsize;
+		const u8 *packed;
+
+		if (section2start < 12u || section2start + 4u > bg_size) goto fail;
+		section2_cmpsize = s_readBe16(bg + section2start + 2u);
+		section3start = section2start + section2_cmpsize + 4u;
+		if (section3start + 4u > bg_size) goto fail;
+		masked = (u32)s_readBe16(bg + section3start) & 0x7fffu;
+		cmpsize = s_readBe16(bg + section3start + 2u);
+		if (masked == 0 || cmpsize == 0 ||
+		    section3start + 4u + cmpsize > bg_size) {
+			goto fail;
+		}
+		/* Same size rule as the game: (size - 1) rounded up to 16. */
+		infsize = ((masked - 1u) | 0xfu) + 1u;
+		if (need > infsize) goto fail;
+
+		packed = bg + section3start + 4u;
+		if (cmpsize >= 5u && rzipIs1173((u8 *)packed)) {
+			u8 scratch[5 * 1024];
+			/* The stream states its own inflated length; the destination
+			 * must hold that many bytes whatever the header says. */
+			const u32 stream_len = ((u32)packed[2] << 16) |
+				((u32)packed[3] << 8) | (u32)packed[4];
+			s32 inflated;
+
+			if (stream_len < need || stream_len > 0x8000u) goto fail;
+			section3 = (u8 *)sysMemZeroAlloc(
+				(stream_len > infsize ? stream_len : infsize) + 16u);
+			if (!section3) goto fail;
+			inflated = rzipInflate((u8 *)packed, section3, scratch);
+			if (inflated <= 0 || (u32)inflated < need) goto fail;
+		} else {
+			if (cmpsize < need) goto fail;
+			section3 = (u8 *)sysMemZeroAlloc(cmpsize + 16u);
+			if (!section3) goto fail;
+			memcpy(section3, packed, cmpsize);
+		}
+	}
+
+	for (u32 r = 1; section3 && r < room_count; r++) {
+		const u8 *row = section3 + (r - 1u) * 6u * sizeof(s16);
+		f32 bounds[6];
+		for (u32 a = 0; a < 6; a++) {
+			s16 raw = (s16)s_readBe16(row + a * sizeof(s16));
+			const f32 origin = (a % 3u) == 0 ? rooms[r].pos.x
+				: (a % 3u) == 1 ? rooms[r].pos.y : rooms[r].pos.z;
+			bounds[a] = (f32)raw + origin;
+		}
+		if (s_textbufAppendf(out,
+				"%s    { \"room\": \"room_%u\", \"roomnum\": %u, "
+				"\"origin\": [%.6f, %.6f, %.6f], "
+				"\"min\": [%.6f, %.6f, %.6f], \"max\": [%.6f, %.6f, %.6f], "
+				"\"brightness\": [%u, %u] }",
+				emitted > 0 ? ",\n" : "", (unsigned)r, (unsigned)r,
+				rooms[r].pos.x, rooms[r].pos.y, rooms[r].pos.z,
+				bounds[0], bounds[1], bounds[2],
+				bounds[3], bounds[4], bounds[5],
+				(unsigned)rooms[r].br_light_min,
+				(unsigned)rooms[r].br_light_max) != 0) {
+			goto fail;
+		}
+		emitted++;
+	}
+
+	if (s_textbufAppendf(out, "%s  ],\n  \"room_count\": %u\n}\n",
+			emitted > 0 ? "\n" : "", (unsigned)emitted) != 0) {
+		goto fail;
+	}
+	if (out_room_rows) *out_room_rows = emitted;
+	if (section3) sysMemFree(section3);
+	sysMemFree(primary);
+	return 0;
+
+fail:
+	if (section3) sysMemFree(section3);
+	sysMemFree(primary);
+	return -1;
+}
+
 static s32 s_exportBgSection2Textures(const u8 *bg, u32 bg_size,
                                       pdscenario_bgscene_t *scene)
 {
@@ -7850,6 +7999,11 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveHasEntry(relpath, "room_lights.json") &&
 		s_existingArchiveEntryContains(relpath, "room_lights.json",
 			"pd2.scenario.room.lights.v1") &&
+		s_existingArchiveHasEntry(relpath, "rooms.json") &&
+		s_existingArchiveEntryContains(relpath, "rooms.json",
+			"pd2.scenario.rooms.v1") &&
+		s_existingArchiveEntryContains(relpath, "rooms.json",
+			"\"origin\": [") &&
 		s_existingArchiveHasEntry(relpath, "pads.json") &&
 		s_existingArchiveHasEntry(relpath, "spawns.json") &&
 		s_existingArchiveHasEntry(relpath, "volumes.json") &&
@@ -9116,6 +9270,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	pdscenario_textbuf_t collision_flags_json = { 0 };
 	pdscenario_textbuf_t portals_json = { 0 };
 	pdscenario_textbuf_t room_lights_json = { 0 };
+	pdscenario_textbuf_t room_table_json = { 0 };
 	pdscenario_textbuf_t pads_json = { 0 };
 	pdscenario_textbuf_t spawns_json = { 0 };
 	pdscenario_textbuf_t volumes_json = { 0 };
@@ -9142,6 +9297,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	u32 tri_count = 0;
 	u32 portal_count = 0;
 	u32 light_count = 0;
+	u32 room_table_count = 0;
 	u32 pad_count = 0;
 	u32 waypoint_count = 0;
 	u32 waygroup_count = 0;
@@ -9302,6 +9458,14 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				scenario_id);
 			has_bg = -1;
 		}
+		/* B-1113: authored room table sidecar (rooms.json). */
+		if (s_buildBgRoomTableJson(bg_data, bg_size, &room_table_json,
+				&room_table_count) != 0) {
+			sysLogPrintf(LOG_WARNING,
+				"romextract pdscenario: room table conversion failed for \"%s\"",
+				scenario_id);
+			has_bg = -1;
+		}
 		sysMemFree(bg_data);
 	}
 
@@ -9330,7 +9494,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	}
 
 	if (has_tiles < 0 || has_pads < 0 || has_setup < 0 || has_bg < 0) {
-		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9344,7 +9508,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		if (assetArchiveWriterAddPublicMem(&asset_writer, "scene.glb",
 				bg_scene.scene_glb, bg_scene.scene_glb_size,
 				"scene") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9361,7 +9525,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		    assetArchiveWriterAddPublicMem(&asset_writer, "collision.flags.json",
 				collision_flags_json.data, collision_flags_json.len,
 				"collision_flags") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json,
@@ -9377,8 +9541,11 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				portals_json.data, portals_json.len, "portals") != MODARCHIVE_OK ||
 		    assetArchiveWriterAddPublicMem(&asset_writer, "room_lights.json",
 				room_lights_json.data, room_lights_json.len,
-				"room_lights") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+				"room_lights") != MODARCHIVE_OK ||
+		    assetArchiveWriterAddPublicMem(&asset_writer, "rooms.json",
+				room_table_json.data, room_table_json.len,
+				"room_table") != MODARCHIVE_OK) {
+			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json,
@@ -9405,7 +9572,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		    assetArchiveWriterAddPublicMem(&asset_writer,
 				"navigation/covers.json", covers_json.data,
 				covers_json.len, "covers") != MODARCHIVE_OK) {
-			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+			s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 				&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 				&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 				&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9434,7 +9601,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			collision_meta_json.data, collision_meta_json.len, "generated_collision") != MODARCHIVE_OK ||
 	    assetArchiveWriterAddBundledMem(&asset_writer, "_meta/generated-navmesh.json",
 			navmesh_meta_json.data, navmesh_meta_json.len, "generated_navmesh") != MODARCHIVE_OK) {
-		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9496,8 +9663,11 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		",\n  \"portals\": \"portals.json\""
 		",\n  \"portal_count\": %u"
 		",\n  \"room_lights\": \"room_lights.json\""
-		",\n  \"light_count\": %u",
-		(unsigned)portal_count, (unsigned)light_count);
+		",\n  \"light_count\": %u"
+		",\n  \"room_table\": \"rooms.json\""
+		",\n  \"room_table_count\": %u",
+		(unsigned)portal_count, (unsigned)light_count,
+		(unsigned)room_table_count);
 	if (has_pads > 0) n += snprintf(manifest_buf + n, sizeof(manifest_buf) - n,
 		",\n  \"pads\": \"pads.json\""
 		",\n  \"spawns\": \"spawns.json\""
@@ -9525,7 +9695,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (n <= 0 || (size_t)n >= sizeof(manifest_buf)) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"manifest snprintf truncated for \"%s\"", scenario_id);
-		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9575,7 +9745,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini_buf)) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"scenario.ini snprintf truncated for \"%s\"", scenario_id);
-		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9589,7 +9759,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			ini_buf, (u32)ini_len) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"AddFileMem scenario.ini failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9602,7 +9772,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			manifest_buf, (u32)n) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"AddFileMem _meta/manifest.json failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9614,7 +9784,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (assetArchiveWriterFinishMetadata(&asset_writer) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"assetArchiveWriterFinishMetadata failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9627,7 +9797,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	if (modArchiveFinish(aw) != 0) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"modArchiveFinish failed for \"%s\"", dst_full);
-		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+		s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 			&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 			&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 			&navigation_ini, &level_graph_json, &collision_meta_json,
@@ -9635,7 +9805,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			&visual_mesh, &bg_scene);
 		return -1;
 	}
-	s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &pads_json,
+	s_pdscenarioScratchFree(&rooms_obj, &collision_flags_json, &portals_json, &room_lights_json, &room_table_json, &pads_json,
 		&spawns_json, &volumes_json, &waypoints_json, &waygroups_json,
 		&covers_json, &paths_json, &objects_json, &setup_fields_json, &ai_lists_json, &ai_command_nodes_json, &ai_command_links_json, &objectives_json,
 		&navigation_ini, &level_graph_json, &collision_meta_json,

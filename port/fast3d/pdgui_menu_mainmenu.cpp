@@ -162,9 +162,12 @@ void creditsEnterNormalScroll(void);
 /* Pause/control restoration — needed when ImGui menu close bypasses
  * the legacy menutick bg-transition that normally calls func0f0fa6ac. */
 void playerUnpause(void);
-void lvSetPaused(bool paused);
+/* SP-75: these are the game's C definitions, which use the project bool
+ * (s32). This file does not include types.h, so `bool` here would be the
+ * one-byte C++ keyword and would not match them. */
+void lvSetPaused(s32 paused);
 s32 lvIsPaused(void);
-extern bool g_PlayersWithControl[];
+extern s32 g_PlayersWithControl[];
 
 /* Handlers we invoke to match original behavior */
 struct menuitem;

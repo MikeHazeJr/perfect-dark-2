@@ -16,6 +16,7 @@
 #include "system.h"
 
 static s32 s_SetupPadFileDataSize;
+static s32 s_SetupPadsWithoutRoom;
 
 void setupSetPadFileDataSize(s32 size)
 {
@@ -224,6 +225,7 @@ void setupPreparePads(void)
 
 	padnum = 0;
 	numpads = g_PadsFile->numpads;
+	s_SetupPadsWithoutRoom = 0;
 
 	for (; padnum < numpads; padnum++) {
 		offset = padGetPackedOffset(padnum);
@@ -252,6 +254,19 @@ void setupPreparePads(void)
 			}
 		}
 
+		/* B-1113: a pad that ends up with no room silently takes whatever is
+		 * placed on it out of the stage (setupCreateObject skips it). Count
+		 * them and name the first few so a missing prop can be traced. */
+		if (packedpad->room <= 0) {
+			if (s_SetupPadsWithoutRoom < 12) {
+				sysLogPrintf(LOG_NOTE,
+					"SETUP.PADS: pad %d has no room (room=%d) pos=(%.1f, %.1f, %.1f)",
+					padnum, (s32)packedpad->room,
+					pad.pos.x, pad.pos.y, pad.pos.z);
+			}
+			s_SetupPadsWithoutRoom++;
+		}
+
 		// Scale the bbox by 1 and save it back into the packed pad data.
 		// Yeah, this is effectively doing nothing.
 		if ((*(u32 *) packedpad >> 14) & PADFLAG_HASBBOXDATA) {
@@ -267,6 +282,10 @@ void setupPreparePads(void)
 			padCopyBboxFromPad(padnum, &pad);
 		}
 	}
+
+	sysLogPrintf(LOG_NOTE,
+		"SETUP.PADS: stage 0x%02x pads=%d without_room=%d",
+		(u32)g_Vars.stagenum, numpads, s_SetupPadsWithoutRoom);
 
 	if (!setupPromoteWaypointOffsets()) {
 		g_StageSetup.waygroups = NULL;

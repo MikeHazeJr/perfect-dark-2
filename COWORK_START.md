@@ -47,7 +47,7 @@ If the `context/` folder versions are stale, check the parent-level copies — t
 ## Critical Rules (Quick Reference)
 
 - **PC-only target** — no N64 constraints apply. Prefer correctness over micro-optimization.
-- **`bool` is `s32`** — defined in `types.h` / `data.h`. Never include `<stdbool.h>` in game code.
+- **`bool` is `s32`** — defined in `types.h` / `data.h`. Never include `<stdbool.h>` in any project code (`src/` or `port/`); declarations that C and C++ both see spell `s32` (SP-75).
 - **C11 game code / C++ port code** — no C++ in `src/game/` or `src/lib/`.
 - **Name-based asset resolution only** — all lookups through Asset Catalog. No numeric ROM addresses.
 - **Protocol v21** — ENet, 60Hz tick, unreliable position + reliable state.

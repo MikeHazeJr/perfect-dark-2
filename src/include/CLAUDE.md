@@ -29,7 +29,7 @@ Type definitions, constants, and function declarations for all game code.
 - `g_RoomPropListChunks` — Room-to-prop spatial index
 
 ## Type Conventions
-- **New code**: Standard C types (`bool`, `int`, `float`, `<stdbool.h>`) are fine.
+- **New code**: Standard C types (`int`, `float`, `uint8_t`) are fine. `bool` is the project's `s32` macro (types.h); never include `<stdbool.h>`, and spell `s32` in declarations that C and C++ both see (SP-75, `context/constraints.md`).
 - **Legacy types** (in existing decompiled code): `s8/s16/s32` = signed, `u8/u16/u32` = unsigned,
   `f32` = float, `bool` = `s32`. These are typedefs from `PR/ultratypes.h`, mix safely with standard types.
 - `RoomNum` = room index type (s16)

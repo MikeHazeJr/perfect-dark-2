@@ -850,6 +850,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/room.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_room_wire.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/room_wire.c
+  ${CMAKE_SOURCE_DIR}/tests/test_net_scenario_state_wire.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/net/net_scenario_state_wire.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_transfer_buffer.cpp
   ${CMAKE_SOURCE_DIR}/port/src/net/transfer_buffer.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_distrib_queue.cpp
@@ -881,6 +883,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_player_stage_init_fault.cpp
   ${CMAKE_SOURCE_DIR}/port/src/player_stage_init_fault.c
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_stage_load_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_match_scenario_start_static.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_bool_layout_static.cpp
+  # B-1111: objective tags and stage flags stay in host order end to end.
+  ${CMAKE_SOURCE_DIR}/tests/test_objective_operand_order_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_campaign_complete_hotkey.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_debug_credits_button.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_campaign_run.cpp
@@ -892,6 +898,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_room_domain.cpp
   ${CMAKE_SOURCE_DIR}/port/src/scenario_room_domain.c
   ${CMAKE_SOURCE_DIR}/tests/test_portal_room_domain_contract.cpp
+  # B-1113: authored room boxes reach public source and are used at stage load.
+  ${CMAKE_SOURCE_DIR}/tests/test_room_table_source_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp
@@ -944,6 +952,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_bondgun_cache.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_checked.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_predicate.cpp
+  # B-1125: spaced fallback placement pads for multiplayer scenarios (pure).
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_pad_fallback.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_tiny_mode_spawn_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_bodies_headcount.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_integrated_head_guard.cpp
@@ -1181,6 +1191,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/bondgun_cache.c
   ${CMAKE_SOURCE_DIR}/port/src/catalog_checked.c
   ${CMAKE_SOURCE_DIR}/port/src/spawn_predicate.c
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_pad_fallback.c
   ${CMAKE_SOURCE_DIR}/port/src/bodies_headcount.c
   ${CMAKE_SOURCE_DIR}/port/src/options_forced.c
   # c3844 Gate 2: catalog-owned private body/head slot allocator. Depends only

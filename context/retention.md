@@ -1,8 +1,65 @@
-# Retention Rules
+﻿# Retention Rules
 
 ## Purpose
 
 Prevent the live `context/` tree from re-accreting cruft over time. A doc that captured value at a moment in time has a finite useful window. After that window, it lives in `_old/` for forensic value, not in the live tree.
+
+## Generated workspace and smoke evidence (T-TOOLING-005, 2026-09-30)
+
+- `.claude/` is still used by Codex build and smoke tooling. Its name does not
+  establish obsolescence. Public typed archives may contain edited game-facing
+  source; they are not disposable engine caches.
+- Age-based cleanup must not automatically erase logs, result receipts,
+  screenshots, modified fixtures, unique frozen binaries or source baselines.
+  `devtools/clean-claude-workspace.ps1` now makes automatic invocations a cheap
+  no-op; its explicit `-DryRun` is unreviewed inventory only.
+- Use `devtools/smoke-storage-manifest.py` for the approved historical pool.
+  It hashes every proposed duplicate, names its retained copy, preserves unique
+  content and current output, and separately identifies compiler products.
+  It has no deletion operation. Compressed exact file manifests stay under
+  `.claude/cleanup-manifests/` and must themselves be preserved.
+- Mike's current deletion boundary is canonical
+  `C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/.claude/` only. Reject reparse
+  traversal, tracked files and any target outside that root. Future permanent
+  removal requires a reviewed manifest and explicit authorization. For the
+  September 30 historical pools only, Mike explicitly stopped exhaustive hash
+  verification and authorized removal with reduced assurance and possible later
+  repair. Preserve both partial hash attempts and every identified retained
+  witness. Recheck containment, metadata and active use; skip locked/current or
+  uncertain targets. Use individual files, never recursive whole directories.
+- Mike authorized prospective controls (T-TOOLING-006). Implemented in
+  `tools/smoke-verify/storage.py`, `lib/Storage-Harness.ps1`, both install wrappers
+  and `run.ps1`: immutable compressed content-addressed reconstruction blobs,
+  private ordinary files for mutation, complete seed/change/delete recipes,
+  exact binary/definition/save/cache evidence, verdicts, logs and screenshots.
+  Shared mode leases one working copy exclusively, verifies every prior byte and
+  identity, then resets it completely; closed unchanged private files may be
+  reused. Failed/pinned shared copies move into managed private retention.
+- `tools/smoke-verify/storage-policy.json` defaults: five full installs globally
+  within 8 GiB (active/pinned/restored included), 8 GiB compact archive, 200 GiB
+  free floor plus 2 GiB extra growth and pending 2 GiB run / 4 GiB smoke-build
+  growth. All values are explicit configurable preflight budgets. Prefer the
+  latest successful full copy; older successes then oldest failures yield space.
+  Every completed run keeps reconstructable content even after full-copy pruning.
+  Pins, active/incomplete work, edited fixtures, locked/reparse/hardlinked paths,
+  corrupt/incomplete receipts and exhausted budgets refuse further copies.
+- The 200 GiB PD floor is Mike's temporary October 3 decision, recorded in
+  D-011 and Slack `#perfect-dark1791031891.654889`. Per-operation allowances
+  remain unchanged: a build needs 206 GiB available (200 + 4 pending + 2 extra).
+  No automatic expiry was specified. This does not change Astral budgets,
+  cleanup permission, GUI approval or any global machine rule.
+- This policy applies only to newly registered `.claude/smoke-storage/` work.
+  It never imports/prunes historical evidence or deletes archive blobs/receipts.
+  Explicit `-Install` is a read-only template copied privately. Generic preflight
+  and non-deleting dry-run inventory are exposed; restoration creates a new pinned
+  budgeted copy. The smoke optional build and direct `devtools/build-session.ps1` starts are
+  checked. Standalone package/extraction tools need preflight adoption. This is not
+  an OS quota: unexpected native growth is preserved and blocks later work rather
+  than erasing evidence. Interrupted active work requires deliberate review.
+- Validation: 14 tiny isolated Python cases and 11 PowerShell integration checks
+  passed; no game/build launched or large existing fixture copied. See
+  `audits/2026/smoke-storage-prevention-2026-09-30.md` for exact measurements and
+  receipts. Historical cleanup is complete and was not repeated.
 
 This file is the convention that prevents the next 88K-line cleanup pass.
 

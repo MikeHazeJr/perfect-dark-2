@@ -1,5 +1,165 @@
 # Initial PD night implementation checkpoint
 
+Daytime pause checkpoint 2026-10-02 11:00 UTC / 07:00 Eastern, model gpt-6:
+user-directed pause is active. Native-account verification at 11:02:37.914 UTC
+confirms zero owned known workers/wrappers/disposables, managed games and session
+build processes; root plus its three closed workers own zero leases/queue entries.
+HEAD and fresh origin/dev are 0ca5f1ab471d2675ec14be2b9a900e84c3852efa; index empty.
+No new implementation, test, build, preview, permission change or publication.
+D-010 remains open; V-014 partial/blocked, 11/29 assertions, 0/17 events, 0 captures.
+Failed evidence/private installs, corrected 06:36:04 release, historical false-zero
+correction, retained build and peer edits preserved. No live app approval prompt
+or public pending request ID is confirmed. Ownership retained; N-0348 incorporated.
+Remain paused until next authorized 22:00 Eastern Oct2 / 02:00 UTC Oct3 or later
+explicit instruction; GUI work also needs changed app approval and a fresh parent
+window. Astral/unrelated sessions untouched. Durable proof directory:
+.claude/pd-initial-integration/20261002-night/daytime-pause/ (pause-checkpoint.json
+and native-process-check.json).
+
+Publication checkpoint 2026-10-02 08:01 UTC: cleanup source/audit unit
+`0ca5f1ab471d2675ec14be2b9a900e84c3852efa` is published to existingorigin/dev and
+remote hash verified. Exactly five owned files; index empty and37other modified
+file snapshots unchanged. Git lane released;0ownedheavy/game/test/capture/Git
+leases and no disposable processes remain. Commit-message hook rejected the first
+subject, then accepted the corrected Workbench format; no bypass. A yielded
+prepublication script let exact-path staging run before lane-start completion;
+queue was next/uncontested, claim completed before commit/push and index/peer hashes
+were checked. The ordering correction is retained in publication-index-proof.json.
+Normal push accepted. No denied UI retry or permission change. D010 remains open,
+failed11/29/0events/noimages/corrected06:36:04release unchanged. Parent checkpoint
+returned;11:00UTC/07:00Eastern pause preserved while Astral holds its next window.
+
+Current checkpoint 2026-10-02 07:42 UTC: parent assigned independent cleanup
+repair after the actual app denial. Both wrapper launch paths now persist exact
+PID/executable/UTC creation/parent/fixture/current-install identities; a file-backed
+stop entry and ordinary cleanup share literal Windows path and UTC validation,
+fail closed on query/metadata errors, and confirm exit before reporting success.
+22checks eachPS5.1/PS7 pass with hidden disposables, preserving a second process
+using the same executable.0game/UI/grant calls. Source/parser/diff and native
+asset source guard pass. Real PD cancellation with this code remains unperformed.
+Five owned source/audit files are frozen for serialized scoped publication;
+mixed peer/context/Workbench changes are excluded. See the new cleanup audit.
+
+Independent light review confirms four retained texture closure/slot/RGBA joins
+over7traceJSON/12844bytes in originalclient4ae22fa3/source46807f6b generation:
+B1x1,SH64x32,TA64x32,TB64x64. An invalid export lost fields to PowerShell's
+automatic Matches variable; it is retained invalid and superseded by shape-checked
+rows. No source archive/blob/corpus/game/UI read or new draw/fidelity acceptance.
+Current graph lexical checker passes27operations/67refs/53definitions/7files.
+Settings16rule/3104byte capacity source matchesHEAD, prior native proof retained.
+
+Official Computer Use docs confirm the normal app prompt's Allow button for the
+current request; Always allow saves future access. No public pending approval
+request ID was surfaced/preserved; denied CLI worker is closed and no live host
+prompt is confirmed. D010 stays open; no grant/config alteration or denied API
+retry. The failed11/29,0/17,no-image result and corrected06:36:04release below
+remain authoritative. Cleanup/review evidence is in cleanup-guard/retained-review.
+
+Current checkpoint 2026-10-02 06:45 UTC: Attempt3 used the exact default private
+shared SourceSeed command. The mandatory byte/metadata/exclusive gate admitted
+the client and the game launched, confirming the corrected storage route.
+Actual window started06:31:06.5694074Z, upper deadline06:46:06.5694074Z.
+Supported Sky get_window_state for the uniquely owned PD window denied at
+06:32:12.869Z: "Computer Use was not approved to use perfectdark". No activation,
+API retry, alternate input route or permission/settings changes followed.
+
+The worker's termination attempts failed path/time comparisons. Its early
+queue release06:33:13 and zero-game claim were wrong; the unchanged game ended
+its180082ms readiness timeout with0/17events,11/29assertions,exit1 and0captures.
+The corrected native-account check and final release are06:36:04.5113743Z,
+zero owned games/queues. Worker exited06:38:20 and handed V-014 back to root.
+This supersedes the earlier early-release commentary/chat; do not reuse that
+zero claim. Failed canonical result063548Z, recipe/logs/full install and bounded
+CLI logs remain preserved. No budget/pin/data cleanup or source/Git changes.
+See preview-execution-3/result.json, release.json and coordinator-closeout.json.
+Native process cleanup must normalize paths/times and confirm disappearance
+before releasing a future lease; failed filters never prove zero processes.
+
+D-010 records the actual app approval choice: user grants specific PerfectDark
+Computer Use access, or GUI acceptance remains deferred. No denial retry until
+approval changes. The readiness timeout is also an observed failed result;
+its causality is not independently proven by the approval error. Native source
+loading does not establish draw/fidelity. Full visual/input/contact/listening/
+animation fidelity remains open; published999cbf13 and prior passing native
+gates stay separate. No further window requested before this real blocker clears.
+
+Current checkpoint 2026-10-02 06:10 UTC: second supported executor initialized
+native NodeREPL/Sky successfully. Actual preview lease started05:53:38.8949964Z,
+deadline06:08:38.8949964Z, released05:54:45.198252Z. The worker added
+`-PerTestInstall`; storage refused a fourth full install against the unchanged
+three-install limit before any game launch. Native-account process verification
+at05:55:05 confirmed zero owned games. No PD app check/denial, assertions, native
+exit or images were observed. Preserve preview-execution-2 result/refusal/release;
+V-014 is partial with the latest attempted-run verdict blocked.
+
+Light metadata diagnosis confirms two pinned failed installs plus one completed,
+unpinned success in the default private shared/client workspace, already on
+seed28b2cf25/client7cb077e3. Its marker matches and reconstruction receipt is
+complete. Native-account check06:05:59 confirms previous wrapperPID26644 absent.
+Default replacement uses three slots and reserves about2.67GiB against8GiB;
+available space327GiB exceeds the unchanged300GiB floor plus reserves. The
+canonical wrapper must still verify all bytes, metadata and exclusive files
+before reuse inside the next window. This metadata preflight does not claim that
+full verification. No budgets, pins, archive payloads or existing installs changed.
+
+Attempt3 prompt/launcher now require the exact default SourceSeed command with
+no PerTestInstall/Install/source/build overrides, using new preview-execution-3
+outputs. Launcher syntax and bounded receipt/seed metadata checks passed. See
+preview-prep/storage-admission-plan.json. Astral has the next heavy window;
+request a fresh15minute parent relay after release. No worker/game/lease is active.
+Fixed fixture readiness180s/native cap240s/four captures remains unchanged;
+initial visual/input/contact/fidelity goals remain open. Published999cbf13 unchanged.
+
+Current checkpoint 2026-10-02 05:45 UTC: the supplied app-managed executable
+at Local/OpenAI/Codex/bin/c6fe824d725f02d7/codex.exe reports0.159.2 and parses
+the approved flag set. A fresh supported executor exposed native node_repl,
+imported Sky and listed apps successfully. V-014 records that capability.
+It stopped at05:33:58 before any install/game/heavy lease because the coordinator
+prompt added a guaranteed pre-input timing requirement. This is a plan constraint,
+not an observed PD app denial. No PD-specific access check occurred. Worker
+PID19924 exited05:34:19; unused grant explicitly released05:42:32 with0owned
+queues/processes/captures and no actual native start/deadline. The next prompt
+removes the hypothetical refusal condition, preserves the fixed fixture, checks
+actual supported PD access/activation promptly and records observed ordering;
+actual denial still stops immediately without another UI route. A fresh parent
+window is required. Prior worker is quiescent and V-014 handed back to root;
+N-0335/0336 and preview-execution/coordinator-closeout.json preserve the facts.
+Interactive/visual/fidelity goals remain open; published999cbf13 is unchanged.
+
+Current checkpoint 2026-10-02 05:05 UTC: the parent supplied a newer instruction
+explicitly superseding the earlier lack of publication permission and requested
+one retry of the same normal push. Automatic review accepted it; `origin/dev` is
+now verified at `999cbf133b3d1aaad175f2a07d6b46d8720ed6db`. D-009 is resolved,
+and the earlier approval question needs no response. Earlier rejections below
+remain historical; no command/destination change or bypass occurred.
+
+Preview preparation stayed read-only while Astral holds the heavy lane. Current
+tools expose no native node_repl/Computer Use capability. The only resolved
+codex.exe is installed0.126.0-alpha.8; `codex.exe exec --approve-for-me --help`
+rejects the flag with exit2 before creating a worker. The parent's other recovery
+receipt still proves its recorded Sky exposure, but this installed command does
+not reproduce its launcher. Next step requires the parent's exact working path/
+existing native executor and separate PD app/input approval, with no denial retry
+or invented alternative permissions/flags. Prepared4284byte handoff under
+20261002-night/preview-prep/ preserves fixture14606867,180s readiness,240s native
+cap,four original captures and V2seed28b2cf25. Reserve809/900seconds plus91margin;
+app approval/working executor should precede the game window. No desktop calls,
+games, workers, screenshots, settings/grants changes or new heavy operations ran.
+Normal Default readiness latest.json remains unchanged; visual/audible acceptance
+remains separate from the native gates.
+
+Current publication checkpoint 2026-10-02 04:50 UTC: corrected source and exact
+owned context/Workbench unit is committed locally as
+`999cbf133b3d1aaad175f2a07d6b46d8720ed6db` (26paths, trusted guard PASS, empty
+index). Both normal `git push origin dev` attempts were rejected by automatic
+approval review. The reviewer treats the trusted request as withholding push
+permission, and does not accept retrieved Slack content as authorization, even
+after the original Mike night instruction was read directly. No bypass or remote
+mutation occurred. D-009 remains open for direct Mike approval here to publish
+this exact commit, or keep it local. Six prior pushed units below remain separate.
+All passing V2 native evidence and heavy release04:33:44 remain valid. This
+publication block does not turn source proof into full initial acceptance.
+
 Owner `01a0f5c1-d031-77b0-a372-3391765df0d5`, model gpt-6. Active authorization
 began 2026-10-02 01:51:51 UTC (October 1 21:51:51 Eastern), through October 2
 07:00 Eastern / 11:00 UTC. Earlier pause entries are historical. The user

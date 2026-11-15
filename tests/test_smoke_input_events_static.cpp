@@ -1347,3 +1347,48 @@ TEST_CASE("virtual controller menu fixture demands observed production outcomes"
     requireContains(fixture, "virtual-after-editor-back.bmp");
     requireContains(fixture, "retain_artifacts");
 }
+
+// B-1124: a game process started with neither --portable nor --savedir uses the
+// player's real profile folder. Seven two-process fixtures on a shared install
+// did exactly that. The runner now refuses such a test before it stages or
+// launches anything; separate installs get explicit directories at launch.
+TEST_CASE("the multi-process smoke runner refuses a process that could reach the real profile",
+    "[smoke][tooling][isolation][b-1124][static]")
+{
+    const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+    const std::string guard = requireSlice(runner,
+        "function Invoke-SmokeTestMultiProcess {",
+        "$installState = \"clean\"");
+
+    // The check sits before the first install or directory is created.
+    requireContains(guard, "if (-not $separateProcessInstalls -and");
+    requireContains(guard, "foreach ($processDef in @($def.processes)) {");
+    requireContains(guard,
+        "if (-not (($processBootArgs -contains '--portable') -or ($processBootArgs -contains '--savedir'))) {");
+    requireContains(guard, "has neither --portable nor --savedir and the test does not set separate_process_installs");
+    REQUIRE(guard.find("New-Item") == std::string::npos);
+    REQUIRE(guard.find("New-SmokeManagedInstall") == std::string::npos);
+
+    // Separate installs still get their own base, save, mod and log directories.
+    requireContains(runner, "\"--savedir\", [string]$processInstallInfo.InstallDir,");
+}
+
+// With -Install (a pre-extracted template), every per-process install of a
+// separate_process_installs test is seeded from the same template as the
+// shared install. Before, each peer started clean and re-extracted the whole
+// game, which on a hard disk outlasted every network fixture's waits. A
+// process that names its own install_state keeps the clean or prefilled path.
+TEST_CASE("a template run seeds every per-process install from the template",
+    "[smoke][tooling][isolation][static]")
+{
+    const std::string runner = readTextFile("tools/smoke-verify/run.ps1");
+    const std::string staging = requireSlice(runner,
+        "if ($separateProcessInstalls) {\r\n            $processInstallState = $installState",
+        "$processModsDir = Join-Path $processInstallInfo.InstallDir \"mods\"");
+
+    requireContains(staging, "if ($ExistingInstall -and -not $explicitProcessState) {");
+    requireContains(staging, "$processInstallInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot `");
+    requireContains(staging, "-TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target");
+    requireContains(staging, "$explicitProcessState = $true");
+    requireContains(staging, "$processInstallInfo = New-SmokeInstall `");
+}

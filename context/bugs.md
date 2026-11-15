@@ -1,5 +1,317 @@
 # Bug Tracker
 
+## 2026-11-15 B-1126 Capture the Case, King of the Hill and Hold the Briefcase lose their arena positions on extracted arenas (T-NETWORKING-011)
+
+Severity high for Capture the Case (the mode cannot be played as designed),
+medium for King of the Hill and Hold the Briefcase. Found by the propagation
+check for B-1125; same root cause. These scenarios take their places from the
+arena's intro commands, which the extracted arenas do not carry (see B-1125):
+- Capture the Case: each team's case goes on its `INTROCMD_CASE` home pad and
+  its players respawn on `INTROCMD_CASERESPAWN` pads. With none,
+  `spawnpadsperteam[].homepad` stays -1 and `ctcInitProps` places every case on
+  pad -1, so `setupCreateObject` creates it off-world: there is no case to take,
+  and no base room. `mp_capture_the_case_local_smoke` still passes (25/25,
+  2026-11-15) because it asserts only the match lifecycle.
+- King of the Hill: hills are `INTROCMD_HILL` pads. With fewer than two,
+  `kohInitProps` and the hill move in `kohTick` both use pad 0, so the hill is
+  always the room of pad 0 and never moves (no crash: both paths guard
+  `hillcount >= 2`).
+- Hold the Briefcase: `htbCreateToken` replaces a random multiplayer ammo crate,
+  else a random case pad, else pad 0. With neither, the briefcase starts and
+  respawns on pad 0 in every match.
+Fix options: (1) CORE carries the intro CASE, CASERESPAWN and HILL commands
+through extraction and the runtime intro builder (restores the original
+places on every arena; asked in the week note); (2) the walkable-pad fallback
+from B-1125 for arenas that still lack them, for example mod arenas. (2) changes
+how the modes place things on such arenas, so it waits for Mike. Class: SP-80.
+
+## 2026-11-15 B-1125 Hacker Central divides by zero when the arena has too few placement pads (T-NETWORKING-011)
+
+Severity high (crash at match start). `mp_hacker_central_local_smoke` (offline,
+Complex, three simulants, shared base 2, build 77049d63; receipt
+`D:\PD2-wt\multiplayer\.claude\smoke-verify-runs\results-20261115T001057Z.json`)
+crashed in `scenarioInitProps` right after the simulants spawned:
+`EXCEPTION 0xc0000094` (integer divide by zero) at
+`htmInitProps`, `src/game/mplayer/scenarios/hackthatmac.inc:305`
+(`rand = rngRandom() % data->numpads;`, symbolized with addr2line). Not B-1113:
+the rerun on shared base 3 with `week-pd/extract-2` merged crashes the same way
+(`results-20261115T005428Z.json`).
+
+Cause. Hacker Central puts its terminal and its data uplink on pads from a
+bank: the arena's Capture the Case pads (`INTROCMD_CASE` and
+`INTROCMD_CASERESPAWN`, added by `scenarioReset`) plus the
+`MODEL_MULTI_AMMO_CRATE` crates among the active props (setup objects are
+created before `scenarioInitProps`). It picks `htmNumProps()` (2) distinct
+entries. An empty bank divides by zero; a bank with fewer usable entries than
+that never leaves the inner `do ... while (padnum <= 0)`. The extracted arenas
+carry neither source (an extraction-output gap, CORE's area):
+- No setup objects on 16 of 18 arenas: in shared base 3,
+  `base_scenario_mp_*.pdscenario` has an empty `objects.json` (60 bytes) and
+  `setup.fields.json` (`"rows": []`) for all but Ravine and Sewers. Complex
+  allocates `numobjs=2` (the training stage before it: 254). So those arenas
+  also have no weapon, ammo or shield pickups (`WEAPON_MPLOCATION00`..`15` and
+  the crates are setup objects); the spawn-with-weapon fallback hides that.
+- No intro case or hill pads on any arena: the extractor
+  (`s_buildIntroSpawnsTable`, `port/src/romextract_pdarena.c`) writes only
+  `INTROCMD_SPAWN` rows to `spawns.json` (and those rows are empty on all 18
+  arenas), and `port/src/scenario_source_runtime.c` rebuilds the intro script
+  from `spawns.json` alone. Spawns work only through the waypoint fallback in
+  `playerReset` (`SPAWN: populated 24 spawn points from 144 navmesh waypoints`).
+Asked CORE in the week note. Same class: B-1126, SP-80.
+
+Fix (Mike, 2026-11-15: "can we place some so there are enough?"):
+- `htmTopUpBank`: when the bank has fewer distinct usable pads than the mode
+  needs, fill it to `HTM_FALLBACK_BANK_PADS` (8) with walkable pads. Candidates
+  (`scenarioFallbackPads`, `src/game/mplayer/scenarios.c`) are the arena's
+  navigation waypoints, the source the spawn fallback uses, or every pad in a
+  room when there are none; a pad must be in a room (room > 0, the condition
+  under which `setupCreateObject` places an object) and not on a lift. The
+  pure picker `scenarioPadPickSpaced` (`port/src/scenario_pad_fallback.c`)
+  shuffles the candidates once with `rngRandom` and takes pads at the widest
+  spacing that reaches the target (1000, 500, 250, 125, then 0 units), never a
+  pad twice and never one the bank already has. A bank that is already big
+  enough is left alone, so full arenas keep the original placement and random
+  sequence.
+- The selection loop asks for at most as many picks as the bank has usable
+  entries, and a terminal with no pad is skipped with an error instead of being
+  created off-world.
+- The uplink, when no crate is left to replace, takes only bank entries that
+  are still pads and not under the terminal. The original took any entry,
+  including the -1 the terminal selection leaves, so the uplink was created
+  off-world and `htmTick` created it again (a new prop each try) until a pick
+  landed on a real pad. When no entry is left it uses the pad the selection
+  reserved for the uplink, else pad 0 as before.
+- `scenarioCreateObj` returns NULL instead of activating a NULL prop when the
+  pad is in no room or the model fails to load.
+- Logs: `HTM: bank had N usable pad(s) of 2 needed; added M walkable pad(s)`,
+  `HTM: terminal 0 placed pad=P prop=ok`, `HTM: uplink placed pad=P source=...`.
+Tests: `tests/test_scenario_pad_fallback.cpp` (12 cases).
+`mp_hacker_central_local_smoke` now also requires the terminal and the uplink
+on real pads and forbids the no-pad errors.
+
+Verified 2026-11-15 on 86de8e08 (shared base 3, Complex, three simulants):
+`mp_hacker_central_local_smoke` PASS 31/31
+(`D:\PD2-wt\multiplayer\.claude\smoke-verify-runs\results-20261115T023803Z.json`).
+The log shows `SCENARIO.PADS: HTM fallback added 8 of 8 pad(s) from 144 waypoint
+candidate(s), existing=0`, `HTM: terminal 0 placed pad=104 prop=ok` and one
+`HTM: uplink placed pad=114 source=bank prop=ok` (no re-creation), and the match
+ran to its 40 second time limit with all four participants in the result.
+pd-tests 1896 cases green.
+
+## 2026-11-14 B-1124 Two-process smokes on a shared install ran against the real user profile (T-NETWORKING-011)
+
+Severity high (test isolation; it writes the user's real data). Found on the
+first run of `mp_combat_net_bots_smoke`: both game processes logged
+`save dir: C:/Users/mikeh/AppData/Roaming/perfectdark`, loaded and saved
+`playerstats.json` there, and the real profile's `pd.ini` and `playerstats.json`
+carry the run's timestamps (2026-11-14 17:44 local), as do new files under its
+`mod-cache`. Cause: `tools/smoke-verify/run.ps1` (multi-process launch, about
+line 1741) adds `--basedir/--savedir/--moddir/--debug-home-path` only when a
+fixture sets `separate_process_installs`; the single-process path always passes
+`--savedir`. A fixture whose processes share one install and pass neither
+`--portable` nor `--savedir` therefore falls back to the game's default save dir
+(`fsInit`, `port/src/fs.c`: `$H` = `%APPDATA%/perfectdark` on Windows). Seven
+fixtures did: `listen_host_match_smoke`, `listen_host_peer_smoke`,
+`mp_combat_net_bots_smoke`, `network_coop_stage_transaction_smoke`,
+`network_counterop_stage_transaction_smoke`,
+`network_stage_player_rollback_smoke`, `ready_gate_settings_rollback_smoke`.
+Every run of them on this machine, by any session and through any checkout's
+runner, read and rewrote the real profile; MULTIPLAYER's own runs today include
+three through CORE's runner (B-1120 investigation) and two through its own.
+The profile was NOT restored or edited by any session; that is Mike's call.
+Fix on `week-pd/multiplayer`: both processes of those seven fixtures start with
+`--portable` (base and save dir from the executable, which is inside the run's
+install, so data resolution is unchanged); new
+`tools/tests/test_smoke_fixture_isolation.py` (CI step) fails on any fixture
+with a `processes` list that has neither `separate_process_installs` nor
+`--portable`/`--savedir` on every process. Asked of CORE (runner owner): make
+the runner itself refuse or isolate such a launch, so a fixture cannot reach the
+real profile again.
+
+## 2026-11-14 B-1123 Three C++ menu files declared C functions and an array with the 1-byte C++ bool (T-NETWORKING-011)
+
+Severity medium (latent: no wrong value today). Class: SP-75. The pdgui menu
+files avoid `types.h` and declare the game functions they call themselves, in
+`extern "C"` blocks. There `bool` is the one-byte C++ keyword, while the C
+definitions use the project `bool` (`s32`): `pdgui_menu_mainmenu.cpp` declared
+`extern bool g_PlayersWithControl[]` (C++ indexed it with a 1-byte stride over
+4-byte elements) and `void lvSetPaused(bool)`; `pdgui_menu_solomission.cpp`
+declared `bool isStageDifficultyUnlocked(s32, s32)`; `pdgui_menu_botsetup.cpp`
+declared `bool mpIsParticipantActive(s32)`. Today every value is 0 or 1, the
+C++ code touches only element 0 of the array, and the calls pass constants, so
+nothing misbehaves; element 1 to 3, or any non-0/1 value, would. Found by the
+symbol check added to `tools/bool_layout_audit.py` (it compares every named
+`bool` function and global across all files: 1,579 in the client, these 4
+disagreed; a header-only check cannot see declarations made inside a source
+file). Fix on `week-pd/multiplayer`: the four declarations are spelled `s32`.
+
+## 2026-11-14 B-1122 keygen.ps1 garbles the non-ASCII text of updater_pubkey.h on every run (tooling, for CORE)
+
+Severity low (comment text only; the key bytes are right). `devtools/keygen.ps1`
+reads `port/include/updater_pubkey.h` with `Get-Content -Raw`, which in Windows
+PowerShell 5.1 decodes a BOM-less file with the ANSI code page, then writes it
+back as UTF-8. Each run re-encodes every non-ASCII character once more: the em
+dash in the trust-properties comment is already one round garbled at HEAD
+(`â€”`) and a fresh worktree's first build (keygen runs when
+`dev-keys/ed25519-private.pem` is missing) turned it into `Ã¢â‚¬â€` and left
+the tracked header modified. Fix: read with `-Encoding UTF8` (or
+`[IO.File]::ReadAllText`) and restore the comment to plain ASCII `--`. Found by
+MULTIPLAYER; handed to CORE as the tooling owner. Workaround: do not commit the
+build's change to that header (`git checkout -- port/include/updater_pubkey.h`).
+
+## 2026-11-14 B-1121 Project `bool` had two widths in 28 C files and 291 header declarations (T-NETWORKING-011)
+
+Severity high (latent; B-1120 was the instance that broke matches). Class:
+SP-75. After B-1120, the full audit (`tools/bool_layout_audit.py`, every client
+translation unit preprocessed with its own flags) still found 28 C files where
+`<stdbool.h>` turned project `bool` (`s32`) into the 1-byte `_Bool` partway
+through, and 291 header declarations seen with both widths: 290 prototypes,
+globals and typedefs (for example `sndIsMp3`, `modelTickAnim`,
+`g_NetLocalBotAuthority`) and one struct member (`player.h`
+`player_orchestrated_spawn_plan.prepared`, unused by the two files that saw it
+1-byte). Minority views: `main.c` 241 sites, `smoke_harness.c` 142,
+`pdgui_charpreview.c` 22, `modasset_compiler.c` 22, `modmgr.c` 15,
+`assetcatalog_api.c` 2, `netmanifest.c` 1, `romdata.c` 1, and `netmsg.c`, which
+called `netManifestTypeAcceptsCatalogAsset` with an `int` return while its
+definition returned `_Bool` (only the low byte is defined). Sources: the four
+headers `native_write_policy.h`, `net/net_manifest_type.h`, `catalog_checked.h`,
+`bondgun_cache.h`; seven C files with their own `#include <stdbool.h>`; the
+fast3d `gfx_api.h`; ENet (contained by `net/netenet.h`). Root fix on
+`week-pd/multiplayer`: no project code includes `<stdbool.h>`; shared headers
+spell boolean results `s32`; C files built without the precompiled header
+include the new `port/include/pd_bool.h`; the five gfx headers keep a scoped
+one-byte `bool` (push_macro, `_Bool` in C, keyword in C++, pop_macro);
+`modmgr.c` stores 0/1 in two arrays it compares with `!=`. Every other `bool`
+use in the 22 affected files was reviewed as 0/1-valued; none of them writes a
+struct with `bool` members raw to disk or the network. Guards: the audit
+(reports mixed sites, flips that reach project code, and leaking scopes) runs in
+CI on `pd` and `pd-tests`; `tests/test_bool_layout_static.cpp` forbids
+`<stdbool.h>` in project headers and C files. Verification: see the progress
+log of `context/designs/in-flight/week-pd-multiplayer-plan.md`.
+
+## 2026-11-14 B-1120 Two layouts of struct netclient break every listen-host match smoke (T-NETWORKING-011)
+
+Severity high. Root cause, fix and guard are in source on `week-pd/multiplayer`.
+`listen_host_match_smoke` failed 45/58 on the a8ab67f3 baseline client
+(receipt `D:\PD2-wt\core\.claude\smoke-verify-runs\results-20261114T201305Z.json`):
+the client joined and authenticated but `--host-autostart` never fired. A
+log-only diagnostic (c18ae6ce) printed `remote_in_lobby=0` for 100 s after the
+join (`results-20261114T202711Z.json`). Cause: `port/src/main.c` and
+`port/src/smoke_harness.c` see project `bool` as 1-byte `_Bool` (pulled in by
+`native_write_policy.h` before `net/net.h`) while every other file sees `s32`,
+so they lay out `struct netclient`, `netpreservedplayer` and `netrecentserver`
+differently and index `g_NetClients[]` at the wrong addresses. Proven by
+preprocessing both files with their exact flags; an audit of all 650 client C
+files found no other mismatched shared struct. Fix 0cc573d4: the flags in those
+three structs are spelled `s32`. Guard: `tests/test_bool_layout_static.cpp`.
+Class: SP-75. Probably also why the networked smokes that passed in August
+regressed after `native_write_policy.h` was added to these files in October.
+Runtime proof: with the fix, `listen_host_match_smoke` passes 58/58 (receipt
+`D:\PD2-wt\core\.claude\smoke-verify-runs\results-20261114T205302Z.json`,
+week-pd/multiplayer build at 0cc573d4, shared base data): autostart fires, both
+players spawn, scores replicate, time-limit end, end screen on both sides.
+Still to re-run against the fix: the reconnect smoke (its harness events used
+the wrong client slot) and the other two-process smokes.
+
+2026-10-26 gun source contract correction following N0828 audit. asset_source_debug defaults ASSET_NONE; its source-only predicate is debug-selected, so the old non-FileProvider return0 allowed normal legacy model loading. fileProviderPath(nonfile)=NULL and modelSourceResolvePath(NULL) rejects; no supported public source can use that branch. Owned gunSourceRouteSource now fails unsupported/non-external requests and all exits return1; retained and supported external routes preserved. This intentionally supersedes original donor continuation under c3844/public-source constraint, not a compatibility claim. Native legacy block untouched but now unreachable through source routing. Updated source-route donor fixtures and added one explicit unsupported-provider case UNRUN. Independent review found no defect. Guard q_20261026205529526_c939af23/diff PASS; other8 pins and ORACLE suffix unchanged. 531 bindings/98 programs;47 whole entries/146 authored cases sinceOct23;zero accepted/complete conversions. No compiler/gameplay execution. Next audit/remove unreachable legacy MODEL/TEXTURES/DLS machinery and obsolete state producers, preserving source artifacts; public graph source/dependencies/ALL closure remain open. Latest .claude/gameplay-gun-source-closed-20261026/source-receipt.json. N-0829
+
+2026-10-26 pre-conversion TEXTURES root repair: persistent nexttexturetoload now increments before the three-entry budget return, removing the documented third-entry revisit. Both loadable and resident/skipped entries advance; exact multiples3 retain existing next-tick DLS transition. Only this statement/order/comment changed; before/after native donor artifacts retained. Source review confirms fix by inspection. Static guard q_20261026204705964_1b110bb3 and diff PASS; other9 source pins unchanged. Regression requirements authored, no new executable cases this checkpoint; 525 bindings/97 programs,47 whole entries/142 authored cases unchanged. No compiler/gameplay execution; not runtime validated. Next graph conversion must preserve uintptr_t texture/pointer union full unsigned width, s16 numtexconfigs, u32 cursor, captured model/player and fresh texture-array access after texLoad. Legacy MODEL/DLS/dependencies, public graph source and ALL closure remain open. Latest .claude/gameplay-texture-cursor-fix-20261026/source-receipt.json. N-0826
+
+2026-10-26 loader storage-width source repair discovered during GUN conversion. uintptr_t capacity targets addressed s32/u32 fields on x64; wide writes could overwrite adjacent master/gun/loadfile state. Queue cursors now u8** and capacities u32*, with matching API/static signatures, all4 production callers and loader pointer conversions; signed hand capacity uses corresponding unsigned alias. Field widths/layout and prior dirty header/CMake content preserved. N-0815/0816 narrow claims. Two actual gunctrl storage/signature regression cases authored UNRUN and connected to explicit pd-tests source list. Independent source review found no concrete defect; guard q_20261026200645567_7fcc32bc PASS; scoped diff and target-list readback PASS. Existing core/parser/fixture source pins and ORACLE07 suffix unchanged. No compiler/gameplay execution. Source repair is NOT runtime validated or a new conversion. Whole entries46, authored cases114, accepted/complete0; bindings488/programs89. Master GUN/HANDS/CARTS/parent and all gameplay/public source closure remain open. Latest .claude/gameplay-loader-target-width-20261026/source-receipt.json. N-0817
+
+2026-10-26 N-0805: SwitchParentHost widened native control bitfields/signed bytes, use timer and disguised bit. Corrected fixture types and removed impossible dual2 cases after types.h audit. Production host already used native types. Previous raw-dual fixture claim superseded; all affected tests remain UNRUN. .claude/gameplay-hand-config-20261026/source-receipt.json.
+
+2026-10-26 N0796 admission follow-up: full production loading trace confirms no downstream span validation. Public parser now rejects non-backward packed targets, including nonzero high word; source-reviewed and guard PASS. Two focused cases authored UNRUN. Admission source gap fixed; compiled/runtime validation still pending. N-0801; .claude/gameplay-repeat-admission-20261026/source-receipt.json. Earlier open-source statements below are historical.
+
+2026-10-26 N-0796 follow-up: graph first traversal now rejects non-backward or stalled modern repeats and invalid signed arithmetic. This is source-only runtime mitigation; public parser admission remains open. See first-source-receipt.json under .claude/gameplay-animation-commands-20261026/.
+
+2026-10-26 open source finding (N-0796 / T-MODDING-011): weapon_command_source.cpp:138-142 packs repeat_until_full target words without a backward-span check; weaponCommandSourceRead:175-184 only adds END-position validation before returning the source. A zero slot/zero target is accepted by this parser, while the native modern repeat loop adds a zero delta when crossed. Full downstream admission still needs inspection; source-only finding, not an executed hang. Fix valid repeat-domain admission and preserve separate regional formulas during animation conversion; no iteration-cap workaround. Details: .claude/gameplay-animation-commands-20261026/remaining-source-plan.md.
+
+2026-10-13 pistol V6 finite artist inspection: hidden-pose diagnostic hold
+
+The17-view source study saved/reopened with full indexed signature parity and
+restored its original source. A subsequent raw-f32 data audit found10hidden
+world-transform rows inconsistent with their supplied rigid collapse formula
+(fullcollapse5/mixedrise2/consumed3; maximum artist error0.0756988). The25visible
+rows agree. apply_pose sets hide_viewport before the diagnostic queries the
+dependency graph; excluded-object stale evaluation is the source hypothesis,
+not proof that local pose assignment failed. Hidden transform/BVH clearance
+rows are NOT VERIFIED; no continuous/native fit claim follows. Preserve the
+frozen source/images; next reviewed diagnostic must evaluate target poses before
+exclusion, record local/basis/world transforms and restore source/visibility.
+Evidence: weapon/resume-20261013/sampled-transform-audit-v1.json under
+.claude/pd-maian-models-20261013/. No new native rerun or production fix yet.
+
+Root observer V1 also implicitly converted a JSON timestamp through PowerShell
+DateTime/Parse and produced an invalid negative interval. It is preserved.
+V2 computes aware UTC arithmetic from the original raw ISO strings: first actual
+controller-absent census15:01:09.4024832Z minus entry14:58:17.0392448Z gives
+172.363239seconds. Native child/handle closeout was28.4921623seconds; original
+terminal then exited0 normally, no process termination/cleanup. This is narrow
+artist-process evidence, not canonical runner capability or an OSjob proof.
+
+2026-10-13 00:38 UTC T-TOOLING-006 native receipt preflight: the first real
+PS51 slice created its broker, observed job membership, transferred owned
+handles and published an accounted terminal, then failed before ACK fault
+probes. PowerShell variable names are case insensitive: foreach $mode
+collided with the driver's validated Mode parameter. Failure journaling also
+exposed PS51 array-subexpression conversion of List[object]. The original
+controller retained its operation and finished canonical physical closeout:
+root exited0, job active0, handles closed; no outstanding helper or RPC.
+Both failure and closeout evidence remain preserved. V3 uses ackFault and
+Events.ToArray; actual parsed binding/journal regressions and admission cases
+pass23 on PS51, with no native factories. Independent V3 review and native
+retry remain pending; no capability or build gate is opened. Workbench N-0622,
+.claude/pd-retained-native-candidate-20261012/parent-closeout-v1/.
+
+2026-10-03 17:47UTC T-TESTS-004/T-TOOLING-010 acceptance closed: exact620456a7
+CI37141120356 passes four dependency fixtures,20storage,configure/clean targets,
+full1,813/333,814 and artifact upload. Original16stale+1helper+3APIboundaries
+repaired without relaxing source/identity/rollback bans. Hosted MinGW junction
+fixture failures exposed separator switching even in ntpath; explicit fixture
+conversion and nativeWindowsCPython CI boundary now match storage wrapper.
+Prior failed receipts retained; runtime/fidelity acceptance remains independent.
+See audits/2026/pd-source-contract-ci-repair-2026-10-03.md.
+
+2026-10-03 T-TESTS-004 acceptance follow-up: original20 failures consist of16
+obsolete implementation pins, one similarly prefixed function-selection error
+and three lower-level catalog/provider calls outside their permitted boundary.
+Repairs retain typed selection, exact identity, source-only loading and rollback
+requirements. Full native PASS1,817cases/335,458assertions; builds/storage20/guard
+PASS. CRLF-only checkout comparisons normalized without changing other bytes.
+Exact published-source CI remains pending; no gameplay-gap closure inferred.
+See audits/2026/pd-source-contract-ci-repair-2026-10-03.md.
+
+2026-10-03 T-TOOLING-010 hosted CI portability: both d37aee06 and prior0ca5f1ab
+fail configuration because dependency paths hard-code C:/msys64/mingw64 while
+the selected hosted compiler is D:/a/_temp/msys64/mingw64. Selected-compiler
+prefix resolution now feeds exact static archives and winpthread runtime DLL;
+four tiny CMake contracts/native targets/focused1655/50/PE imports PASS. Exact
+950561fa is published/remote-verified and D-013 decided. Hosted dependency
+fixtures, relocated configuration and clean client/tests build PASS. Full CI
+fails 20 source-contract assertions; T-TESTS-004 records the separate follow-up.
+Their tests and inspected source trees match prior d37aee06 byte-for-byte; the
+prior run stopped at configuration and supplied no unit-test baseline. The path
+defect predates readiness diagnostics. See
+audits/2026/pd-mingw-ci-portability-2026-10-03.md and retained ci-terminal.json.
+
+2026-10-02 T-TOOLING-008 cleanup correction: exact launch identities and file-backed
+stop helper are connected to both wrapper launch paths/ordinary cleanup; literal
+Windows/UTC validation and fail-closed queries replace fragile filters.22checks
+eachPS5.1/PS7 pass with actual hidden disposable processes and unrelated-process
+preservation. Source guard/parser/diff pass; real PD cleanup validation awaits
+app approval/runtime window. Historical failure and correction follow: the native preview
+worker's managed-process path/time comparisons failed to identify its own
+PID38316, and it released queues06:33:13 with an incorrect zero-game claim.
+The game instead ended the fixed readiness timeout; native-account normalized
+query confirmed zero06:36:04. Corrected preview-execution-3/release.json and
+coordinator-closeout.json supersede the early claim. Before another permitted
+preview, normalize Windows executable paths and creation timestamps, verify
+current private owner/PID, and retain leases until process disappearance is
+confirmed. A rejected filter/query is not zero-process evidence. The separate
+actual Sky app approval denial is D010; no retry/alternate UI occurred. Failed
+recipe/logs/full install remain preserved, no policy/pin changes or cleanup.
+
 2026-10-02 T-TOOLING-008 native probe boundary corrections: audio registration
 and sequence compilation formerly passed without a player. Native public file
 voice/MP3 ownership and seqPlay now replace that success path; the corrected
@@ -11,6 +323,95 @@ Actual audio console710587bytes drains with131072 retained. Tiny35checks pass
 eachPS5.1/7. Animation's fixed128part probe requested beyond valid short clips;
 bounded full-stream counting observes15actualparts for BigSneeze. Fidelity and
 ordinary UI remain open. Evidence: audits/2026/pd-initial-night-checkpoint-2026-10-02.md.
+
+2026-10-01 readiness output persistence FIXED (N0310): stdout-only helper lost its
+result when the user console closed. Probe now writes known latest.json plus
+history, with a visible user cmd launcher. PS5 turns a null string File.Replace
+argument into an invalid empty path; explicit NullString fixes second-result
+replacement. Five synthetic file checks and safe CompileOnly pass each PS5.1/7.
+First failure retained under20261001-readiness-file-output/. No desktop probe run.
+
+2026-10-01 17:10 UTC T-TOOLING-009 material dependency scan FIXED: the full synthetic
+parent/leaf ledger join exposed a second omission after broad public metadata
+scanning: standard MTL `map_Kd base:texture_a` lines have no '=' and were ignored
+by the key/value scanner. Bounded MTL command parsing now captures public catalog
+references and excludes comments; focused discovery and member-verified join
+regressions pass within93 Python contracts. No native texture or fidelity pass
+is implied. Failed join logs retained in20261001-dependency-prep/.
+
+16:10 attribution update: corrected selected-owner producer is accepted on C5
+client, strict seven-member native receipt and five cases39assertions PASS. The
+earlier zero-event22/23 failure below remains historical evidence.
+
+2026-10-01 T-TOOLING-009 native attribution gap: first instrumented gate22/23 with
+zero events. A selected `pdmesh::model.obj` FileProvider locator is not the typed
+archive whose raw SHA is in the ledger. Source correction separates owner snapshot
+from unchanged actual compiler inputs. Four focused C++owner assertions added;
+corrected client/tests/runtime pending newwindow. Failedrecipe and source retained
+in .claude/asset-inspection/20261001-native-proof/. No accepted strict receipt.
+
+2026-10-01 12:12 UTC T-TOOLING-009 dependency inventory omission fixed: first CCTV
+row missed four texture IDs in model.mtl because it scanned mesh.ini only. Bounded
+public INI/material/JSON/glTF scanning now excludes _meta, records incomplete scans
+and keeps dependency-source acceptance pending. Regression prevents schema/
+behavior checks from accepting dependencies. Both actual source snapshots retained
+in .claude/asset-inspection/20261001-native-emitter/. New producer still unbuilt;
+this inventory repair is not native acceptance.
+
+09:53 update: native texture-capacity/carrier/snapshot failure FIXED within the
+bounded consumer contract. Final clientD9CFC0B8 passes texture12cases189649asserts,
+source6/6, base animation19/19, body/head13/13 and all63 character templates.
+Two residual4095 checks in catalog/map material binding were found by the first
+rebuilt native wave and changed to the shared native domain. The resulting CCTV
+load failure/AV did not recur; generic setup allocation-failure handling is not
+claimed repaired. Marker tests are registered in CMake's explicit test list.
+Old failed receipts remain history. Full per-member/render/listening/corpus and
+ordinary UI/device acceptance are still open; menu executor blockage persists.
+See .claude/pd-initial-integration/20261001-native-validation/summary.json.
+
+Oct1 initial native character failure (historical, c3844 consumer lane): public-source
+policy/hydration probe passes35 templates, then base:character_fbiguy fails at
+base:model_cfbiguy because no retained native texture slot is available. There
+are593 shared custom/generation tail slots under12-bit4096 texture packing.
+Generation lifetime versus leak is not measured. Do not only increase the count
+or recycle live slots. Native exit2, assertions2/6, one failed/27 untested; full
+receipt and operational case ledger retained in 20261001-corrected-run. Ordinary
+preview separately fails actual live foreground ownership11/29 after full180s
+readiness. No input or rendered proof; initial scope remains incomplete.
+
+08:23 update: source repair widens the entire native texture chain to unsigned
+16-bit private identity (legacy decoding preserved), moves glass-hit sentinel
+outside its range, protects snapshot rows and retains stage/GPU lifetimes. Native
+allocator/marker/prefix cases prepared; no rebuilt proof yet. Own-worker read-only
+facts: CodexSandboxDesktop, foreground0, input desktop read denied5. Menu retry
+requires authorized interactive executor, no bypass or unrelated focus control.
+Historical35pass/1fail/27untested retained. See20261001-texture-repair evidence.
+
+Oct1 smoke failure receipt serialization FIXED: Get-Content decorates strings
+with filesystem metadata. PS5.1 Depth50 JSON expanded the forbidden-pattern
+witness, growing owned finalizer3992 to9.42GB after native exit. Contained owned
+wrapper and recovered exact receipt in PS7 without relaunch. Line now copies plain
+text; ten actual assertion/JSON/format checks pass in both PS5.1/7 (252 bytes).
+Only that serialized witness held a log string in Test-Assertions.ps1; numeric
+sequence/count fields stay exact. No unsafe deep decorated-string retry.
+
+Oct1 T-TOOLING-008 private runtime fixture readiness defect: a retained bounded
+variant reduced Agent Select readiness from canonical 180s to 30s. The run timed
+out while weapon bootstrap was still active, before main-menu arming: 10/29
+assertions, no input events or screenshots. This does not test menu/render
+acceptance. Propagation found the same reduction in the private keyboard variant.
+New private copies restore all canonical input steps and overall timeouts and
+pass exact static comparison; native retry remains open. Both failed copies and
+full-install receipts are retained. See the initial integration audit and
+.claude/pd-initial-integration/20261001-readiness-corrected-prep/proof.json.
+
+Oct1 T-TOOLING-008 storage launch defect FIXED at the script boundary: canonical
+MSYS-first PATH selected Python unable to interpret Windows paths or provide the
+native Windows handle contract. Storage and the related new inventory driver now
+select verified native Windows Python without changing TEMP/TMP/PATH. PS 13 and
+tiny inventory under that exact environment pass, plus storage 14/ledger 21 and
+sourceguard. Native game retry is waiting for the parent resource window; this
+does not claim rendered/menu/asset acceptance. See initial integration audit.
 
 Sep29 T-MENUS-004 ordinary virtual-controller receipt873C is red26/29:
 first A enters Create and first B leaves the editor, but second B logs
@@ -50,6 +451,14 @@ save-side indexing, not current UI indexing: lvReset uses slot0. P1 save,
 load and defaults now use0; obsolete co-op return swaps removed. Candidate
 UNVALIDATED pending combined build and restart/return journeys. No save schema
 change. Existing paused source7 hashes match. See Sep27 Settings coverage audit.
+
+Sep27 T-NETWORKING-011 / multiplayer F14 ordering follow-up (P2): server snapshots
+could rewind movement or repeat a teleport; stale client input changed ACK before
+rejection. Shared movement admission now rejects stale/duplicate/half-range
+records without mutations, with monotonic wrap-aware ACK handling. Integrated
+builds and native172/14417/guard pass; runtime unrun, user paused04:50 ET.
+This does not close the F05 client-position authority defect.
+See context/audits/2026/multiplayer-movement-ordering-2026-09-27.md.
 
 Sep27 T-MENUS-005 candidate: controller capture disconnect releases input and
 preserves bindings; frozen asset0923lang gate passes235/9765, zero2010-file

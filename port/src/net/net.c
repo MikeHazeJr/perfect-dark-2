@@ -172,6 +172,9 @@ typedef struct net_stage_end_pending_s {
 	bool active;
 	u8 room_id;
 	u8 mode;
+	/* The final Combat Simulator scores went out ahead of the terminal packet.
+	 * Kept across a failed terminal send so a retry does not depend on it. */
+	bool final_scores_sent;
 } net_stage_end_pending_t;
 
 static net_stage_end_pending_t s_NetStageEndPending;
@@ -1936,6 +1939,20 @@ static void netServerCommitPendingStageEnd(void)
 	 * room/client reservation only after the terminal packet is published, so a
 	 * failed END send remains retryable against the still-live match. */
 	netServerClearPreservedPlayers("stage_end_commit");
+	/* Reopen the room that ran this match. The ready gate moved it to LOADING
+	 * at countdown; the only other code that advances a room (hubTick) runs in
+	 * the dedicated server main, which the client build does not include. On a
+	 * listen host the room therefore stayed LOADING after its first match, and
+	 * both the next start request and room joins require LOBBY. The terminal
+	 * packet is already published, so this is the committed end of the match
+	 * for the room as well. */
+	if (room_id != 0xFF) {
+		hub_room_t *ended_room = roomGetById(room_id);
+		if (ended_room) {
+			roomTransition(ended_room, ROOM_STATE_LOBBY);
+			netRoomListMarkDirty();
+		}
+	}
 	g_NetMatchRoomId = 0xFF;
 	g_NetCounterOpClientId = NET_NULL_CLIENT;
 	sessionCatalogTeardown();
@@ -1944,10 +1961,54 @@ static void netServerCommitPendingStageEnd(void)
 		"NET: SVC_STAGE_END published and committed, returning to lobby");
 }
 
+/* Publish the final Combat Simulator scores to the match roster, reliably and
+ * on the same channel as the terminal packet, so they arrive first.
+ *
+ * The periodic score broadcast runs every 300 ticks and everything queued in
+ * the ending frame is discarded, so a client could rank its end screen on
+ * scores up to five seconds old while the host ranked the true result. This
+ * reuses the existing SVC_PLAYER_SCORES message unchanged: no wire change.
+ * Scenario-specific score state that message does not carry (Hacker Central
+ * hack points, Pop a Cap counts) follows with the scenario state message. */
+static bool netServerSendFinalScores(u8 room_id, const char *reason)
+{
+	/* SVC_PLAYER_SCORES: id and count, then per character a slot, a team, two
+	 * s16 totals and one s16 kill count per possible opponent. */
+	u8 data[2u + MAX_MPCHRS * (6u + MAX_MPCHRS * 2u)];
+	struct netbuf wire = { .data = data, .size = sizeof(data) };
+	u32 bytes;
+
+	netbufStartWrite(&wire);
+	if (netmsgSvcPlayerScoresWrite(&wire) != 0) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: final scores write failed reason=%s room=%u",
+			reason ? reason : "unspecified", (unsigned)room_id);
+		return false;
+	}
+	bytes = wire.wp;
+	if (netSendToMatch(room_id, &wire, true, NETCHAN_DEFAULT) != bytes) {
+		sysLogPrintf(LOG_ERROR,
+			"NET: final scores send failed reason=%s room=%u bytes=%u; retry retained",
+			reason ? reason : "unspecified", (unsigned)room_id, (unsigned)bytes);
+		return false;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"MATCH: final scores published before stage end room=%u bytes=%u",
+		(unsigned)room_id, (unsigned)bytes);
+	return true;
+}
+
 static bool netServerFlushPendingStageEnd(const char *reason)
 {
 	if (!s_NetStageEndPending.active) {
 		return true;
+	}
+	if (s_NetStageEndPending.mode == NETGAMEMODE_MP
+			&& !s_NetStageEndPending.final_scores_sent) {
+		if (!netServerSendFinalScores(s_NetStageEndPending.room_id, reason)) {
+			return false;
+		}
+		s_NetStageEndPending.final_scores_sent = true;
 	}
 	if (!netServerFlushCutsceneAuthorityPacket(reason, true,
 			s_NetStageEndPending.room_id, s_NetStageEndPending.mode)) {
@@ -2000,6 +2061,7 @@ void netServerStageEnd(void)
 	s_NetStageEndPending.active = true;
 	s_NetStageEndPending.room_id = g_NetMatchRoomId;
 	s_NetStageEndPending.mode = g_NetGameMode;
+	s_NetStageEndPending.final_scores_sent = false;
 	if (!netServerFlushPendingStageEnd("stage-end")) {
 		sysLogPrintf(LOG_WARNING,
 			"NET: SVC_STAGE_END delivery retained for idempotent retry room=%u mode=%u",

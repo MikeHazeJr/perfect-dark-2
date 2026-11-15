@@ -16,8 +16,9 @@
 #include "glad/glad.h"
 
 /* PR/gbi.h must come before gfx_api.h because gfx_api.h uses the Gfx typedef.
- * gfx_api.h must come before types.h because types.h redefines bool as s32,
- * while gfx_rendering_api.h (included by gfx_api.h) uses stdbool.h's bool. */
+ * The order against types.h does not matter for `bool`: the gfx headers keep
+ * their own one-byte bool in a push_macro scope and give this file back the
+ * project s32 bool afterwards (SP-75). */
 #include <PR/ultratypes.h>
 #include <PR/gbi.h>
 #include "gfx_api.h"

@@ -1,6 +1,6 @@
 # Perfect Dark 2 - Project Context
 
-> **Live as of 2026-08-26.** The repo-local Workbench is durable project truth.
+> **Current routing:** the canonical repo-local Workbench and recent lane handoffs are durable live truth. The dated 2026-08-26 snapshot below retains its historical evidence scope; recompute live progress from Workbench rather than inheriting its counts.
 > D-004 and T-RELEASE-001 define the canonical five-milestone path to 1.0:
 > complete base game and graphs, Theater, sample weapon, friend-play/performance
 > hardening, and one source-frozen release candidate.
@@ -9,27 +9,19 @@
 
 ## What this project is
 
-Perfect Dark 2 is a PC port and modernization of Rare's N64 Perfect Dark, evolved into a modding platform with networked multiplayer, an asset catalog, a unified input system, an ImGui menu system, and an in-game level editor (The Grid / Forge). PC-only target (Windows x86_64 via MSYS2/MinGW + CMake). Single developer (Mike); AI sessions write code, Mike compiles and tests.
+Perfect Dark 2 is a PC port and modernization of Rare's N64 Perfect Dark, evolved into a modding platform with networked multiplayer, an asset catalog, a unified input system, an ImGui menu system, and an in-game level editor (The Grid / Forge). PC-only target (Windows x86_64 via MSYS2/MinGW + CMake). Mike directs the project; AI sessions implement and verify through the isolated queued workflow. Ordinary playtests and visual approval remain distinct acceptance gates.
 
 ---
 
-## Cold-start checklist
+## Scoped startup checklist
 
-Read in this order before doing any work in this project:
+1. Read the startup/navigation sections of this index and [working-preferences.md](working-preferences.md). Continue the user's specific assignment; ask for direction only when absent or materially ambiguous.
+2. Read the active/removed invariants in [constraints.md](constraints.md) and the applicable sections of [procedures.md](procedures.md) before significant changes. Load the relevant pillar/domain documents when the task needs them.
+3. Read the current milestone/lane summary in [tasks.md](tasks.md), the relevant recent entries in [session-log.md](session-log.md), and the canonical Workbench item, dependencies, decisions, evidence, and notes affecting the lane. Process targeted `new` notes before implementation. Do not load every historical session or unrelated roadmap detail.
+4. Reuse the hook-injected coordination identity when present; otherwise register once with a stable identity. Claim exact file/item ownership before editing and respect the separate resource/Git queues in AGENTS and the coordination guide.
+5. Read [retention.md](retention.md) before creating, moving, removing, or reorganizing context/evidence/build/smoke artifacts. Preserve accepted receipts and current source-freezes; this startup checklist does not authorize cleanup.
 
-1. [README.md](README.md) - this file. Orientation.
-2. [working-preferences.md](working-preferences.md) - collaboration rules.
-3. [constraints.md](constraints.md) - active and removed invariants. Check before any complex work.
-4. [procedures.md](procedures.md) - build verify, git safety, worktree rules.
-5. [tasks.md](tasks.md) - what is open right now.
-6. [session-log.md](session-log.md) - last few sessions.
-7. [retention.md](retention.md) - the rules that keep this tree clean.
-8. `Tools/Workbench/data/roadmap.json` and `notes.jsonl` - durable live work,
-   decisions, ownership, evidence, and feedback state.
-
-Then load the pillar doc(s) for whatever you are touching.
-
-The canonical context source is this `context/` tree. Parent-level briefing files are convenience mirrors only and must be treated as stale unless explicitly synced from this directory.
+The canonical context source is this `context/` tree. Parent-level briefing files are convenience mirrors and remain stale unless explicitly synced for a named consumer/handoff. They never win by timestamp. Full-depth recovery is for genuinely missing/inconsistent state or an explicit recovery request, not every normal startup or compaction.
 
 ---
 

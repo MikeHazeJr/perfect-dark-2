@@ -2,7 +2,17 @@
 #define GFX_WINDOW_MANAGER_API_H
 
 #include <stdint.h>
-#include <stdbool.h>
+
+/* SP-75: the C++ renderer shares the declarations below with C files, so
+ * `bool` here must be one byte in both languages: _Bool in C, the keyword in
+ * C++. Whatever `bool` meant before this header (the project's s32, say) is
+ * restored at its end. Never include <stdbool.h> here: in C it changes
+ * `bool` for the rest of the including file. */
+#pragma push_macro("bool")
+#undef bool
+#ifndef __cplusplus
+#define bool _Bool
+#endif
 
 struct GfxWindowInitSettings {
     const char *title;
@@ -50,5 +60,7 @@ struct GfxWindowManagerAPI {
     int (*get_swap_interval)(void);
     bool (*set_swap_interval)(int);
 };
+
+#pragma pop_macro("bool")
 
 #endif

@@ -32,7 +32,7 @@ Props with `unkgeo != NULL` get collision checked via `propUpdateGeometry()` →
 GEOTYPE_CYL (cylinder). Flags: GEOFLAG_FLOOR1|FLOOR2 for walkable, GEOFLAG_WALL for walls.
 
 ## Conventions
-- **New code**: Standard C types (`bool`, `int`, `float`, `<stdbool.h>`) are fine.
+- **New code**: Standard C types (`int`, `float`, `uint8_t`) are fine. `bool` is the project's `s32` macro (types.h); never include `<stdbool.h>`, and spell `s32` in declarations that C and C++ both see (SP-75, `context/constraints.md`).
 - **Existing code**: Uses `s32` for bool, `f32` for float — legacy typedefs, mix safely.
 - **No platform guards needed**: PC-only target, no N64/Switch. Write code unconditionally.
 - Function naming: decompiled names preserved (e.g., `func0f069b4c`)

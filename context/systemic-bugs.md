@@ -1,4 +1,55 @@
-# Systemic Bug Patterns — Architectural Issue Catalog
+# Systemic Bug Patterns - Architectural Issue Catalog
+
+N-0829 Debug-only source guards are not production source enforcement. Inspect default gating and caller continuations: gun loading accepted non-file provider continuation while Debug.AssetSourceOnlyType was ASSET_NONE. Owned route now fails unsupported sources; global provider code unchanged. Dead legacy path cleanup and runtime proof remain open.
+
+N-0826 Budgeted-loop cursor ownership: commit persistent progress before an early budget return; otherwise the last processed entry is revisited. bgunTickGunLoad TEXTURES corrected in source; exact-multiple completion timing preserved. Full-width pointer-union and callback reads must survive graph conversion; regression execution deferred until ALL conversion.
+
+2026-10-26 N-0817: Pointer-sized transport types do not establish target-object width. Gun-loader uintptr_t* capacity aliases addressed native32-bit fields, permitting8-byte writes across adjacent state. Use actual pointee types (u8** cursor/u32* capacity), audit every producer/consumer and signed-corresponding alias, and retain actual-object neighbor regression cases. Source fix complete, tests UNRUN and runtime validation pending.
+
+2026-10-26 N-0805: Donor-fixture scalar widening can conceal bitfield and signed-narrowing behavior. Check every modeled field against native declarations, including bit width; do not infer storage from bool-like names. This affected unrun switch fixtures and is corrected. Source review is not runtime acceptance.
+
+## 2026-10-13 Validate the evaluated transform used by collision diagnostics
+
+Visibility exclusion can remove an object from dependency-graph evaluation.
+After setting a hidden target pose, evaluated_get may expose stale world data;
+zero surface-overlap pairs then describe the wrong pose. Pistol V6 exposes10
+such hidden rows while25visible rows match the expected rigid transform.
+Record source local/basis and evaluated world transforms, compare with the
+requested pose, and evaluate before excluding the object. Restore visibility
+and the original indexed signature. A hidden pixel, manifold mesh, source
+envelope or collision-pair count alone cannot establish concealed-solid sweep
+clearance. Source, finite evaluated samples and continuous/native proof remain
+separate. See the retained sampled-transform-audit-v1.json in the V6 packet.
+
+## 2026-10-13 Validate the produced object representation at every strict schema boundary
+
+A PowerShell Hashtable or OrderedDictionary is not a PSCustomObject. A strict
+validator enumerating PSObject.Properties sees container properties instead of
+the intended schema keys. The retained owner producer's two reference objects
+were corrected and qualified, but the private native cohort later passed six
+literal Hashtable fact records to the same strict DTO validator. Real native
+choreography finished, then the first formal case failed before publication.
+The original Unknown and checked failed closeout remain retained under N0687.
+
+Keep the strict consumer contract. Explicitly produce the declared object
+representation at the schema boundary, preserve scalar widths and exact fields,
+and qualify the actual producer/consumer pair on selected PS51. Source grammar,
+JSON-shaped appearance and an unrelated earlier passing DTO fixture do not
+cover another producer. N0688 assigns the private one-boundary correction and
+six positive/six legacy negative data-only cases; they are not native proof.
+
+## 2026-10-13 PowerShell validation and collection conversion need actual host coverage
+
+Parameter and local variable names share case-insensitive binding. A loop
+variable named mode inherits a Mode parameter's ValidateSet restriction and
+can fail only when the native operation has already started. Use a distinct
+local name, and exercise its parsed binding under the real parameter
+validation. On Windows PS51, @ over a generic List[object] can throw an
+argument-type error; explicit ToArray preserves its ordered journal values.
+Test the real expression and round-trip the resulting evidence on PS51.
+Source-plan approval alone did not establish those runtime language paths.
+The failed receipt test retained its original holder until checked physical
+closeout, then released its queue as failed. N-0622 records the evidence.
 
 ## 2026-10-04 Native write guards must cover actual link routes and device visibility
 
@@ -58,6 +109,90 @@ remains authoritative. Synthetic dual1MiB pipes and read failures pass35checks
 eachPS5.1/7; actual native audio drains710587stdoutbytes with131072retained and
 exits cleanly. A deferred exit also needs recurring normal-frame polling after
 the smoke watchdog; invoking it only once at startup cannot close a timed window.
+
+## 2026-10-01 Descriptor references do not establish a native dependency closure
+
+CCTV's descriptor selects material/hierarchy files; four texture catalog IDs live
+in model.mtl. Treating the descriptor as the whole source graph silently produced
+an empty dependency list. Bounded public INI/material/JSON/glTF scanning now records
+references/incomplete scans and excludes _meta. Propagation covered these source
+forms, native conversion and ledger promotion. Successful mesh compilation leaves
+separately owned texture bytes/drawing pending; packaging hashes do not prove
+consumption. Native callbacks capture actual reads rather than claiming every
+inventoried member was consumed. T-TOOLING-009 source/contract evidence:
+.claude/asset-inspection/20261001-native-emitter/. No broader graph migration.
+
+## 2026-10-01 Validate domain propagation and test registration with native consumers
+
+Widening a private texture carrier requires every bind-time range check as well
+as packing, caches, prefixes, collision/hit reads and sentinels. Two residual4095
+material checks passed unit tests but rejected widened public-model textures in
+native loading; the downstream CCTV setup then dereferenced the absent model.
+Fix the actual catalog/map binding domain before classifying a downstream crash
+as an unrelated defect. The rebuilt source6/6, animation19/19, body/head13/13 and
+character63/63 gates pass; no lifetime recycling or source fallback added.
+CMake's game-source discovery did not imply test-source discovery: its explicit
+test list omitted the new marker cases. Required12-case admission correctly
+rejected a nine-case all-pass result; registration/rebuild produced12cases189649
+assertions. Keep failed evidence and coverage requirements alongside pass counts.
+Proof: .claude/pd-initial-integration/20261001-native-validation/summary.json.
+
+## 2026-10-01 Serialize primitive witnesses, not PowerShell provider objects
+
+Get-Content strings can carry provider/drive/path metadata. Deep PS5.1 JSON of
+a failed assertion walked those properties and grew the owned receipt finalizer
+to9.42GB; the backend had not started. Copy the text at the assertion boundary.
+Propagation search in Test-Assertions.ps1 found the forbidden failure Line as
+the only log-string field; other sequence/count fields are numeric. A safe
+shallow metadata probe and ten actual failure/roundtrip/format checks in both
+PS5.1 and7 establish bounded252-byte receipts. Preserve the active owned install
+when containing a wrapper, then complete its exact receipt without relaunching.
+
+## 2026-10-01 Retained source generations must fit the native identity domain
+
+The all-character native probe exposed texture generation allocation failure
+after35 passes. Source-hashed lifetimes protect data but still consume private
+identity slots: the generation/custom-ID tail has593 slots below a12-bit4096
+ceiling. Capacity, snapshots, stage pins, deduplication and every native packing
+consumer need review together. Increasing only the array limit silently aliases
+packed identities; prematurely freeing a pinned generation breaks retained model
+consumers. Distinguish measured occupancy from a leak. Model/texture acquisition
+and stage-pin release paths were read. At08:23, propagated PC16-bit marker/tex/
+cache/prefix/collision/hit source repair and sentinel migration are implemented;
+native rebuild/validation pending. Custom allocation must honor snapshot leases
+after reset, as generation allocation already did. Snapshot/base-sized cohort
+cases are prepared. Occupancy diagnostics distinguish retained generations from
+custom/snapshot rows; no leak claim or premature release. Actual fbiguy failure
+and36 operational witnesses remain historical evidence in the initial audit.
+At09:53, the full propagated repair plus two residual material bind bounds has
+rebuilt bounded native proof:12 texture cases/189649 assertions and all63 character
+templates pass. Snapshot theft regression and base-sized retained cohorts pass;
+live-stage/GPU release order remains intact. This proves capacity/domain behavior,
+not a measured absence of leaks or whole-corpus fidelity.
+
+## 2026-10-01 Preserve readiness contracts when bounding validation runs
+
+A validation variant can preserve assertions and boot arguments while shortening
+the precondition needed to reach them. Here a 30-second Agent Select wait expired
+during weapon bootstrap, before main-menu arming. Compare complete input sequences
+and overall timeouts with canonical fixtures, as well as assertions and boot args.
+Bound the outer run using measured setup cost and canonical native caps. Check
+bootstrap/readiness witnesses before attributing later missing input or capture
+events to menu or OS focus defects. Propagation found preview and keyboard private
+variants; both are corrected, failed evidence retained, and native retry pending.
+The next plan budgets all four canonical caps and retains storage verification.
+
+## 2026-10-01 Match interpreter path and filesystem semantics to the caller
+
+Canonical MinGW/MSYS PATH order is intentional, but a Windows PowerShell caller
+must not infer native Python semantics from the command name. Storage needs both
+Windows absolute paths and native exclusive handles; translating the script path
+alone would leave retention protection incorrect. Select a verified native
+interpreter at this boundary without rewriting the build environment. Propagation
+inspection found the new asset-ledger driver had the same absolute-path call; it
+now reuses the resolver. Existing relative-path fixture generators remain outside
+this fix and need review if their own path handling fails. Tiny storage/inventory
+integration under MSYS-first PATH passes; native gameplay is a separate gate.
 
 Sep29 T-MENUS-004: A renderer that also handles input must not run for a
 background legacy transition dialog. Agent Select consumed Back while Create
@@ -3209,6 +3344,92 @@ ownership proof.
 
 ---
 
+## SP-75: Project `bool` changes size with include order
+
+**Severity: HIGH - a shared struct can have two layouts in one program, with
+no compiler warning, so files silently read and write each other's members at
+the wrong addresses.**
+
+Project `bool` is a macro, `#define bool s32` (`src/include/types.h:14`, again
+in `src/include/data.h`, restored by `port/include/net/netenet.h` after ENet).
+`<stdbool.h>` in C defines `bool` as the 1-byte `_Bool`. A C file that includes
+`<stdbool.h>` after `types.h`, directly or through a project header, gets
+1-byte `bool` for the rest of the file. Every project struct with `bool`
+members parsed after that point is laid out differently there than in files
+where `bool` is still `s32`. C++ files are not affected the same way: in C++
+`bool` is a keyword (one byte), and `types.h`, when a C++ file includes it,
+turns it into `s32` too. So a `bool` declaration that C and C++ files share
+has one width only if every C++ includer has the types.h macro in force first;
+a header that cannot promise that spells `s32`, or uses the scoped one-byte
+pattern below.
+
+**Known instance (B-1120, 2026-11-14):** `port/src/main.c` and
+`port/src/smoke_harness.c` include `native_write_policy.h` (which includes
+`<stdbool.h>`) just before `net/net.h`. They laid `struct netclient` out with
+twelve 1-byte flags; `net.c`, `netmsg.c` and the rest used 4-byte ones, so
+`&g_NetClients[1]` itself differed between files. Effect: the host autostart
+hook never saw the joined client and every two-process match smoke failed;
+the smoke harness's reconnect and timeout events addressed the wrong client.
+Earlier instance (October 10, recorded in the Finish Tracker):
+`net_player_move_wire.h` included `<stdbool.h>` and changed the size of four
+`net.c` flags and one function; it now includes `types.h` instead.
+
+**Second finding (B-1121, 2026-11-14):** the full audit found 28 C files that
+flipped (sources: those four headers, seven C files with their own
+`#include <stdbool.h>`, the fast3d `gfx_api.h`, and ENet, which
+`net/netenet.h` undoes at once) and 291 header declarations seen with both
+widths, including a real return-width mismatch between `netmsg.c` and
+`net_manifest_type.c`.
+
+**Root fix (B-1121, week-pd/multiplayer):** no project header or C file
+includes `<stdbool.h>`.
+- A header included by both C and C++ files spells boolean results and flags
+  `s32` (0 or 1), never `bool`: `native_write_policy.h`,
+  `net/net_manifest_type.h`, `bondgun_cache.h`, the net.h shared structs.
+- A C file that needs `bool`, `true` and `false` without the game's
+  precompiled header (test targets build without it) includes
+  `port/include/pd_bool.h`, which defines the project `s32` bool in C only.
+- A header whose structs the C++ renderer shares with C files and that must
+  stay one byte in both languages (the five fast3d `gfx_*.h`) uses a scoped
+  bool and restores the includer's meaning:
+  `#pragma push_macro("bool")`, `#undef bool`, `#ifndef __cplusplus`
+  `#define bool _Bool` `#endif`, declarations, `#pragma pop_macro("bool")`.
+- Vendored code may include `<stdbool.h>` only behind a wrapper that restores
+  `s32` before any project code (`net/netenet.h` for ENet).
+Do not fix a symptom by reordering includes. When a file's own `bool` changes
+width, review conversions into it: `_Bool b = 0.5f` is 1, `s32 b = 0.5f` is 0;
+a value compared with `==`/`!=` must be 0 or 1. GCC 15 rejects pointer-to-int
+conversion, so `bool b = ptr` fails to compile instead of truncating.
+
+**Third finding (B-1123, 2026-11-14):** C++ files that avoid `types.h` and
+declare game functions themselves see `bool` as the one-byte keyword:
+`extern bool g_PlayersWithControl[]` in `pdgui_menu_mainmenu.cpp` indexed a
+4-byte array with a 1-byte stride. A C++ file that declares a C function or
+global itself spells the C type (`s32`), never `bool`.
+
+**Guards:** `tools/bool_layout_audit.py` (CI step "Check bool layout", targets
+`pd` and `pd-tests`) preprocesses every translation unit and fails on a header
+declaration seen with two widths, a named function or global declared or
+defined with two widths anywhere (header prototypes, definitions and local
+`extern` declarations in source files, C and C++), a C file whose project code
+runs with a flipped bool, or a push_macro scope that a header never pops; its
+self-test is `tools/tests/test_bool_layout_audit.py`. `tests/test_bool_layout_static.cpp`
+fails if the net.h shared structs gain a `bool` member, if any project header
+or C file includes `<stdbool.h>`, if a gfx header loses its scope, or if the
+`s32` headers say `bool` again.
+
+**Search commands:**
+- Includes: `git grep -n -E "^\s*#\s*include\s*[<\"]stdbool\.h[>\"]" -- "*.h" "*.c"`
+- Whole program: `python tools/bool_layout_audit.py --compile-commands
+  <build>/compile_commands.json --target pd` (and `--target pd-tests`).
+- Proof for one file: preprocess it with its exact flags from
+  `compile_commands.json` plus `-E -dD` and check which `#define bool` is in
+  force where the struct is defined. GCC prints a push_macro as a blank line
+  and a pop_macro as `#undef bool` without the restored definition, so read the
+  pragmas from the source.
+
+---
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.
@@ -3231,3 +3452,60 @@ cannot distinguish multiple versions of one ID. Native143/4754 and installed
 open. Search: rg -n 'ResetCustom.*Slots|RestoreCustom.*Slots' port/src; inspect
 every retained native pointer/copy, its exact identity pin, snapshot semantics,
 request publication and final cleanup. See equipment-native-lifetime audit.
+
+### October1 public dependency discovery across source syntaxes - T-TOOLING-009
+
+Descriptor-only scanning first missed material dependencies; broadening the file
+list still missed standard space-separated MTL commands because parsing assumed
+key/value syntax. Derive dependency edges from each public format's syntax and
+prove the resulting inventory participates in a member-verified native parent/
+leaf join. A dependency's existence or standalone load cannot prove the parent
+bound that generation. Missing/incomplete discovery remains pending. Standard
+MTL parsing and the joined ledger regression pass; native texture extension is
+unbuilt/unrun. Search: rg -n 'material_dependencies|dependency_scan|dependency_bindings|selected_coverage' tools/asset-inspection-*.py.
+
+## SP-80: Scenario setup assumes the arena brings its own placement data
+
+**Severity: HIGH - a scenario can crash at match start or start without the
+objects it is about, and a lifecycle-only smoke still passes.**
+
+Multiplayer scenarios place their objects on positions the arena's setup data
+provides: the intro command list (`INTROCMD_CASE`, `INTROCMD_CASERESPAWN`,
+`INTROCMD_HILL`, read in `scenarioReset`) and setup objects (multiplayer ammo
+crates and `WEAPON_MPLOCATION` weapons). The original code assumes every arena
+has them, because every shipped arena did. Arenas that lack them (extracted
+arenas today, mod arenas, solo maps used as arenas) reach code that divides by
+the count, loops until it finds an unused entry, or places an object on pad -1
+(`setupCreateObject` then creates it off-world).
+
+**Known instances (2026-11-15):** B-1125 (Hacker Central: divide by zero in
+`htmInitProps`, endless selection loop with too few pads, uplink created
+off-world and re-created every tick); B-1126 (Capture the Case cases off-world,
+King of the Hill fixed on the room of pad 0, Hold the Briefcase always on
+pad 0). The data gap: the scenario source carries only `INTROCMD_SPAWN` rows
+(`spawns.json`), so no arena has case or hill pads, and 16 of 18 arenas have no
+setup objects.
+
+**Rules:**
+- Never `% count` or index a bank without checking the count first; never
+  `do ... while` an "unused entry" search without bounding the number of picks
+  by the usable entries.
+- Never place an object on a pad < 0 or on a pad with no room; check the pad,
+  or use the result of `scenarioCreateObj`, which returns NULL in that case.
+- When a scenario's own positions are too few, fill the bank with walkable
+  pads through `scenarioFallbackPads` (`src/game/mplayer/scenarios.c`,
+  picker `port/src/scenario_pad_fallback.c`) and log it, instead of falling
+  back to pad 0 or refusing silently. Whether a fallback changes how a mode
+  plays on such arenas is Mike's call per mode (approved for Hacker Central).
+- A scenario smoke asserts that its objects were placed on real pads, not only
+  that the match started and ended.
+
+**Search:**
+- `grep -n "% *g_ScenarioData\|% *data->\|% *count\b" src/game/mplayer/scenarios/*.inc`
+- `grep -n "homepad\|hillpads\|padnums\[\|tokenpad\|base.pad = " src/game/mplayer/scenarios/*.inc`
+- `grep -n "while (padnum <= 0)\|while (.*== previndex)" src/game/mplayer/scenarios/*.inc`
+
+**Audit checklist:** for each scenario, its init and respawn paths with (a) no
+intro case or hill pads, (b) no multiplayer ammo crates, (c) both. Hacker
+Central is fixed; Capture the Case, King of the Hill and Hold the Briefcase are
+open in B-1126.

@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <math.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -3622,13 +3623,16 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 	case OBJECTIVETYPE_COLLECTOBJ:
 	case OBJECTIVETYPE_THROWOBJ:
 		if (strcmp(field, "objective_step.target_tag") == 0) {
-			u32 be;
 			ivalue = s_parseIndexedRef(value);
 			if (ivalue < 0) {
 				return 0;
 			}
-			be = PD_BE32((u32)ivalue);
-			return s_setupWriteU32(record, sizeof(u32), be);
+			/* B-1111: the second command word is host order, like every
+			 * other converted setup field. The public source now carries
+			 * the real tag id, so it is written as it is. Before, the
+			 * extractor swapped it on the way out and this line swapped it
+			 * back, which hid wrong numbers in the public files. */
+			return s_setupWriteU32(record, sizeof(u32), (u32)ivalue);
 		}
 		if (strcmp(field, "objective_step.argument") == 0 &&
 				s_parseU32Value(value, &uvalue)) {
@@ -3640,8 +3644,8 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 	case OBJECTIVETYPE_FAILFLAGS:
 		if (strcmp(field, "objective_step.stage_flag") == 0 &&
 				s_parseStageFlagRef(value, &uvalue)) {
-			u32 be = PD_BE32(uvalue);
-			return s_setupWriteU32(record, sizeof(u32), be);
+			/* Host order, the real mask (B-1111, see target_tag above). */
+			return s_setupWriteU32(record, sizeof(u32), uvalue);
 		}
 		if (strcmp(field, "objective_step.argument") == 0 &&
 				s_parseU32Value(value, &uvalue)) {
@@ -33400,6 +33404,33 @@ static s32 s_missionObjectiveGraphRuntimeFailure(const char *action,
 			reason && reason[0] ? reason : "graph mismatch");
 	}
 
+	/* Objectives are checked every tick, so a standing mismatch would repeat
+	 * this line thousands of times. A failure already among the last 16
+	 * distinct ones (action, objective, mission, reason) is not logged
+	 * again; the caller still falls back every time. */
+	{
+		static char seen[16][192];
+		static u32 seen_count;
+		static u32 seen_next;
+		char report[192];
+		u32 i;
+		snprintf(report, sizeof(report), "%s|%d|%s|%s",
+			action && action[0] ? action : "validate", index,
+			s_ActiveScenarioGraphs.mission_id[0]
+				? s_ActiveScenarioGraphs.mission_id : "?",
+			reason && reason[0] ? reason : "graph mismatch");
+		for (i = 0; i < seen_count; i++) {
+			if (strcmp(seen[i], report) == 0) {
+				return 0;
+			}
+		}
+		s_copyString(seen[seen_next], sizeof(seen[seen_next]), report);
+		seen_next = (seen_next + 1) % 16;
+		if (seen_count < 16) {
+			seen_count++;
+		}
+	}
+
 	sysLogPrintf(LOG_WARNING,
 		"MISSION.GRAPH: cannot %s runtime objective index %d for '%s' (%s)",
 		action && action[0] ? action : "validate",
@@ -35206,6 +35237,152 @@ static s32 s_jsonReadIntArrayInRange(const char *start, const char *end,
 	return cursor < end && *cursor == ']';
 }
 
+/*
+ * B-1114: room origins from the rooms.json sidecar.
+ *
+ * The light quads of the background file are stored relative to their room's
+ * origin. The scenario-source path keeps every room origin at zero, because
+ * its geometry is in world coordinates, so a quad taken as written sits away
+ * from its light by the room's origin and a shot at the light never meets it.
+ *
+ * Returns a malloc'd array of *out_count origins indexed by room number (zero
+ * for a room the member does not name), or NULL when the scenario has no
+ * usable member. The caller frees it.
+ */
+#define SCENARIO_ROOM_ORIGIN_MAX_ROOMS 8192
+
+static struct coord *s_loadRoomOrigins(const asset_entry_t *scenario,
+	s32 *out_count)
+{
+	char bounds_path[FS_MAXPATH + 1];
+	u32 text_size;
+	char *text;
+	char *rows_open;
+	char *text_end;
+	char *cursor;
+	struct coord *origins;
+	s32 max_room = 0;
+	s32 pass;
+
+	if (out_count) {
+		*out_count = 0;
+	}
+	if (!scenario || !out_count ||
+			!s_scenarioMemberPath(scenario, "rooms.json", bounds_path,
+				sizeof(bounds_path))) {
+		return NULL;
+	}
+	text = s_loadOptionalText(bounds_path, &text_size);
+	if (!text) {
+		return NULL;
+	}
+	text_end = text + text_size;
+	rows_open = strstr(text, "pd2.scenario.rooms.v1")
+		? strstr(text, "\"rows\"") : NULL;
+	if (rows_open) {
+		rows_open = strchr(rows_open, '[');
+	}
+	if (!rows_open) {
+		free(text);
+		return NULL;
+	}
+
+	origins = NULL;
+	for (pass = 0; pass < 2; pass++) {
+		if (pass == 1) {
+			if (max_room <= 0) {
+				break;
+			}
+			origins = calloc((size_t)max_room + 1, sizeof(*origins));
+			if (!origins) {
+				break;
+			}
+		}
+		cursor = rows_open + 1;
+		while (cursor < text_end) {
+			char *obj_open = strchr(cursor, '{');
+			char *obj_close;
+			s32 roomnum = 0;
+			f32 origin[3];
+
+			if (!obj_open || obj_open >= text_end) {
+				break;
+			}
+			obj_close = s_jsonFindObjectEnd(obj_open, text_end);
+			if (!obj_close) {
+				break;
+			}
+			cursor = obj_close + 1;
+			if (!s_jsonReadS32Value(obj_open, obj_close, "roomnum", &roomnum)
+					|| roomnum <= 0
+					|| roomnum >= SCENARIO_ROOM_ORIGIN_MAX_ROOMS
+					|| !s_jsonReadFloatArray3Value(obj_open, obj_close,
+						"origin", origin)) {
+				continue;
+			}
+			if (pass == 0) {
+				if (roomnum > max_room) {
+					max_room = roomnum;
+				}
+			} else {
+				origins[roomnum].x = origin[0];
+				origins[roomnum].y = origin[1];
+				origins[roomnum].z = origin[2];
+			}
+		}
+	}
+
+	free(text);
+	if (origins) {
+		*out_count = max_room + 1;
+	}
+	return origins;
+}
+
+/*
+ * B-1114: reads exactly `count` integers from an array value that may nest
+ * (the light quad is written as four [x, y, z] corners). The flat reader
+ * above stops at the first inner '[', so the quads were never read and every
+ * light kept an all-zero quad.
+ */
+static s32 s_jsonReadNestedIntArrayInRange(const char *start, const char *end,
+	const char *key, s32 *out, s32 count)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	s32 depth = 0;
+	s32 found = 0;
+
+	if (!out || count <= 0 || !cursor || cursor >= end || *cursor != '[') {
+		return 0;
+	}
+	while (cursor < end) {
+		const char c = *cursor;
+
+		if (isspace((unsigned char)c) || c == ',') {
+			cursor++;
+		} else if (c == '[') {
+			depth++;
+			cursor++;
+		} else if (c == ']') {
+			depth--;
+			cursor++;
+			if (depth == 0) {
+				return found == count;
+			}
+		} else {
+			char *next;
+			const long value = strtol(cursor, &next, 0);
+
+			if (next == cursor || next > end || found >= count) {
+				return 0;
+			}
+			out[found++] = (s32)value;
+			cursor = next;
+		}
+	}
+	return 0;
+}
+
 u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp, s32 *out_count, s32 *out_max_room)
 {
@@ -35223,6 +35400,11 @@ u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 	struct light *lights = NULL;
 	u8 *data = NULL;
 	const char *stageid;
+	struct coord *origins = NULL;
+	s32 origin_count = 0;
+	s32 placed = 0;
+	s32 out_of_range = 0;
+	s32 without_quad = 0;
 
 	if (out_count) {
 		*out_count = 0;
@@ -35310,6 +35492,9 @@ u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 	memset(data, 0, ALIGN16((u32)capacity * (u32)sizeof(struct light)));
 	lights = (struct light *)data;
 
+	/* B-1114: the quads below are relative to their room's origin. */
+	origins = s_loadRoomOrigins(scenario, &origin_count);
+
 	/* Second pass: parse each row object into a struct light. */
 	cursor = rows_open + 1;
 	while (cursor < rows_close && count < capacity) {
@@ -35317,6 +35502,7 @@ u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 		const char *obj_close;
 		struct light *l = &lights[count];
 		s32 ivalue;
+		s32 roomnum;
 		s32 dir[3] = { 0, 0, 0 };
 		s32 bbox[12];
 		s32 j;
@@ -35334,6 +35520,7 @@ u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 			cursor = (char *)obj_close + 1;
 			continue;
 		}
+		roomnum = ivalue;
 		l->roomnum = (u16)ivalue;
 		if (ivalue > max_room) {
 			max_room = ivalue;
@@ -35369,7 +35556,45 @@ u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 			l->diry = (s8)dir[1];
 			l->dirz = (s8)dir[2];
 		}
-		if (s_jsonReadIntArrayInRange(obj_open, obj_close, "bbox", bbox, 12)) {
+		if (!s_jsonReadNestedIntArrayInRange(obj_open, obj_close, "bbox", bbox,
+				12)) {
+			/* A light without a readable quad cannot be hit or placed. */
+			without_quad++;
+		} else {
+			/* B-1114: move the quad from room coordinates to the world
+			 * coordinates this path works in. A quad that does not fit the
+			 * 16-bit storage cannot be placed; the light is dropped rather
+			 * than left where a shot would never meet it. */
+			s32 fits = 1;
+
+			if (origins && roomnum > 0 && roomnum < origin_count) {
+				const s32 origin[3] = {
+					(s32)roundf(origins[roomnum].x),
+					(s32)roundf(origins[roomnum].y),
+					(s32)roundf(origins[roomnum].z),
+				};
+
+				for (j = 0; j < 12; j++) {
+					bbox[j] += origin[j % 3];
+				}
+				placed++;
+			}
+			for (j = 0; j < 12; j++) {
+				if (bbox[j] < -32768 || bbox[j] > 32767) {
+					fits = 0;
+				}
+			}
+			if (!fits) {
+				if (out_of_range < 4) {
+					sysLogPrintf(LOG_ERROR,
+						"SCENARIO.SOURCE: room light in room %d of '%s' does not fit 16-bit world coordinates; light dropped",
+						roomnum, scenario->id);
+				}
+				out_of_range++;
+				memset(l, 0, sizeof(*l));
+				cursor = (char *)obj_close + 1;
+				continue;
+			}
 			for (j = 0; j < 4; j++) {
 				l->bbox[j].x = (s16)bbox[j * 3 + 0];
 				l->bbox[j].y = (s16)bbox[j * 3 + 1];
@@ -35382,6 +35607,9 @@ u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 	}
 
 	free(text);
+	if (origins) {
+		free(origins);
+	}
 
 	if (count <= 0) {
 		return NULL;
@@ -35390,9 +35618,16 @@ u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: compiled room_lights.json '%s' for stage '%s' as %d lights (max_room=%d, %u bytes)",
+		"SCENARIO.SOURCE: compiled room_lights.json '%s' for stage '%s' as %d lights (max_room=%d, %u bytes) world_placed=%d origin_rooms=%d dropped=%d without_quad=%d",
 		lights_path, stageid, count, max_room,
-		(unsigned)((u32)count * (u32)sizeof(struct light)));
+		(unsigned)((u32)count * (u32)sizeof(struct light)),
+		placed, origin_count > 0 ? origin_count - 1 : 0, out_of_range,
+		without_quad);
+	if (without_quad > 0) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: %d of %d room lights of '%s' have no readable quad (bbox); they cannot be shot out",
+			without_quad, count, scenario->id);
+	}
 
 	if (out_count) {
 		*out_count = count;
@@ -35401,4 +35636,147 @@ u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 		*out_max_room = max_room;
 	}
 	return data;
+}
+
+/*
+ * B-1113: apply the authored room boxes from the rooms.json sidecar
+ * (schema pd2.scenario.rooms.v1) emitted by the pdarena extractor.
+ *
+ * The game decides which room a pad is in, and so whether anything placed on
+ * it exists at all, by testing the pad against these boxes. A box derived from
+ * a room's collision triangles is never larger than the authored one and is
+ * empty for a room with no collision, which left pads roomless and silently
+ * removed the props on them.
+ *
+ * Writes bbmin/bbmax of every room the member names and sets room_bounded[n].
+ * Returns the number of rooms written, 0 when the scenario carries no such
+ * member (authored scenarios may omit it; the caller keeps its own boxes), and
+ * -1 when the member is present but cannot be used.
+ */
+s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
+	s32 prefer_mp, struct room *rooms, struct bgroom *bgrooms, s32 room_count,
+	u8 *room_bounded, s32 *out_brightness_rooms)
+{
+	const asset_entry_t *scenario;
+	char bounds_path[FS_MAXPATH + 1];
+	u32 text_size;
+	char *text;
+	char *rows_open;
+	char *text_end;
+	char *cursor;
+	s32 applied = 0;
+	s32 rejected = 0;
+	s32 brightness_rooms = 0;
+
+	if (out_brightness_rooms) {
+		*out_brightness_rooms = 0;
+	}
+	if (!rooms || room_count <= 1) {
+		return 0;
+	}
+
+	scenario = s_findScenarioForStage(stage, prefer_mp);
+	if (!scenario || !scenario->id[0] ||
+			!s_scenarioMemberPath(scenario, "rooms.json", bounds_path,
+				sizeof(bounds_path))) {
+		return 0;
+	}
+
+	text = s_loadOptionalText(bounds_path, &text_size);
+	if (!text) {
+		return 0;
+	}
+	text_end = text + text_size;
+
+	if (!strstr(text, "pd2.scenario.rooms.v1")) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: rooms.json schema mismatch for '%s' at %s",
+			scenario->id, bounds_path);
+		free(text);
+		return -1;
+	}
+
+	rows_open = strstr(text, "\"rows\"");
+	if (rows_open) {
+		rows_open = strchr(rows_open, '[');
+	}
+	if (!rows_open) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: rooms.json has no rows for '%s' at %s",
+			scenario->id, bounds_path);
+		free(text);
+		return -1;
+	}
+
+	/* Row objects are the only '{' after "rows", as in room_lights.json. */
+	cursor = rows_open + 1;
+	while (cursor < text_end) {
+		char *obj_open = strchr(cursor, '{');
+		char *obj_close;
+		s32 roomnum = 0;
+		f32 bmin[3];
+		f32 bmax[3];
+
+		if (!obj_open || obj_open >= text_end) {
+			break;
+		}
+		obj_close = s_jsonFindObjectEnd(obj_open, text_end);
+		if (!obj_close) {
+			rejected++;
+			break;
+		}
+		cursor = obj_close + 1;
+
+		if (!s_jsonReadS32Value(obj_open, obj_close, "roomnum", &roomnum)
+				|| !s_jsonReadFloatArray3Value(obj_open, obj_close, "min", bmin)
+				|| !s_jsonReadFloatArray3Value(obj_open, obj_close, "max", bmax)
+				|| roomnum <= 0 || roomnum >= room_count
+				|| !(bmin[0] <= bmax[0]) || !(bmin[1] <= bmax[1])
+				|| !(bmin[2] <= bmax[2])) {
+			/* A row that is out of the room domain, inverted or not a
+			 * number is refused; that room keeps the caller's box. */
+			rejected++;
+			continue;
+		}
+
+		rooms[roomnum].bbmin[0] = bmin[0];
+		rooms[roomnum].bbmin[1] = bmin[1];
+		rooms[roomnum].bbmin[2] = bmin[2];
+		rooms[roomnum].bbmax[0] = bmax[0];
+		rooms[roomnum].bbmax[1] = bmax[1];
+		rooms[roomnum].bbmax[2] = bmax[2];
+		if (room_bounded) {
+			room_bounded[roomnum] = 1;
+		}
+		applied++;
+
+		/* B-1115: the authored [minimum, maximum] light level of the room.
+		 * roomInitLights derives the level left when its lights are out
+		 * from the minimum. A row without a usable pair keeps the caller's
+		 * default. */
+		if (bgrooms) {
+			s32 brightness[2];
+
+			if (s_jsonReadIntArrayInRange(obj_open, obj_close, "brightness",
+					brightness, 2)
+					&& brightness[0] >= 0 && brightness[0] <= 255
+					&& brightness[1] >= brightness[0] && brightness[1] <= 255) {
+				bgrooms[roomnum].br_light_min = (u8)brightness[0];
+				bgrooms[roomnum].br_light_max = (u8)brightness[1];
+				brightness_rooms++;
+			}
+		}
+	}
+
+	free(text);
+	if (out_brightness_rooms) {
+		*out_brightness_rooms = brightness_rooms;
+	}
+
+	if (rejected > 0) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.SOURCE: rooms.json '%s' refused %d row(s) (applied=%d rooms=%d)",
+			scenario->id, rejected, applied, room_count);
+	}
+	return applied;
 }

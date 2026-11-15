@@ -28,7 +28,7 @@ extern void netReadyGateOnClientLeft(u8 clientId);
 extern void netReadyGateAbortForRoom(u8 room_id, const char *reason);
 
 #include <stdlib.h>
-#include <stdbool.h>
+#include "pd_bool.h"
 #include <string.h>
 #include <stdio.h>
 

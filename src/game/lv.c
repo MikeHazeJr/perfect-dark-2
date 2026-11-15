@@ -2980,6 +2980,11 @@ void lvTick(void)
 				}
 			}
 
+			/* Which limit ended the match, for the end-reason witness below.
+			 * The time-limit path logs its own reason above. */
+			bool scorelimit_reached = false;
+			bool teamscorelimit_reached = false;
+
 			if (g_MpScoreLimit > 0) {
 				struct ranking rankings[MAX_MPCHRS];
 				s32 count = mpGetPlayerRankings(rankings);
@@ -2987,6 +2992,7 @@ void lvTick(void)
 				for (i = 0; i < count; i++) {
 					if (rankings[i].score >= g_MpScoreLimit) {
 						g_NumReasonsToEndMpMatch++;
+						scorelimit_reached = true;
 					}
 				}
 			}
@@ -2998,6 +3004,7 @@ void lvTick(void)
 				for (i = 0; i < count; i++) {
 					if (rankings[i].score >= g_MpTeamScoreLimit) {
 						g_NumReasonsToEndMpMatch++;
+						teamscorelimit_reached = true;
 					}
 				}
 			}
@@ -3007,6 +3014,14 @@ void lvTick(void)
 			}
 
 			if (g_NumReasonsToEndMpMatch > 0 && numdying == 0) {
+				/* Match-smoke end milestone, the score-limit counterpart of
+				 * the time-limit line above. Host and offline only: a
+				 * networked client ends on SVC_STAGE_END. */
+				sysLogPrintf(LOG_NOTE,
+					"MATCH: stage end reason=%s scorelimit=%d teamscorelimit=%d",
+					scorelimit_reached ? "scorelimit"
+						: (teamscorelimit_reached ? "teamscorelimit" : "limit"),
+					g_MpScoreLimit, g_MpTeamScoreLimit);
 				mainEndStage();
 			}
 		}

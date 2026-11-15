@@ -1489,6 +1489,29 @@ function Invoke-SmokeTestMultiProcess {
         $separateProcessInstalls = [bool]$def.separate_process_installs
     }
 
+    # B-1124: a game process started with neither --portable nor --savedir
+    # uses the player's real profile folder (AppData\Roaming\perfectdark) and
+    # rewrites settings, statistics and caches there. Separate installs get
+    # explicit directories at launch; a shared install relies on each
+    # process's own boot_args. Refuse here, before anything is staged or
+    # launched, so no fixture can reach the real profile through this path.
+    if (-not $separateProcessInstalls -and
+            $def.PSObject.Properties.Match('processes').Count -gt 0) {
+        foreach ($processDef in @($def.processes)) {
+            $processBootArgs = @()
+            if ($processDef.PSObject.Properties.Match('boot_args').Count -gt 0 -and $processDef.boot_args) {
+                $processBootArgs = @($processDef.boot_args)
+            }
+            if (-not (($processBootArgs -contains '--portable') -or ($processBootArgs -contains '--savedir'))) {
+                $processLabel = '?'
+                if ($processDef.PSObject.Properties.Match('name').Count -gt 0 -and $processDef.name) {
+                    $processLabel = [string]$processDef.name
+                }
+                throw ("Smoke runner refused '{0}': process '{1}' has neither --portable nor --savedir and the test does not set separate_process_installs, so it would run against the real profile folder (B-1124)." -f $name, $processLabel)
+            }
+        }
+    }
+
     $installState = "clean"
     if ($def.PSObject.Properties.Match('install_state').Count -gt 0 -and $def.install_state) {
         $installState = [string]$def.install_state
@@ -1510,7 +1533,7 @@ function Invoke-SmokeTestMultiProcess {
     $installInfo = $null
     if ($ExistingInstall) {
         $installInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $name `
-            -TemplateInstall $ExistingInstall -Target $target
+            -TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target
     } elseif ($Shared) {
         $installInfo = New-SmokeSharedInstall `
             -ProjectRoot $ProjectRoot `
@@ -1560,21 +1583,34 @@ function Invoke-SmokeTestMultiProcess {
         $processInstallInfo = $installInfo
         if ($separateProcessInstalls) {
             $processInstallState = $installState
+            $explicitProcessState = $false
             if ($pdef.PSObject.Properties.Match('install_state').Count -gt 0 -and $pdef.install_state) {
                 $processInstallState = [string]$pdef.install_state
+                $explicitProcessState = $true
             }
-            $processRom = $RomOverride
-            if (-not $processRom -and $installInfo.SourceRom) {
-                $processRom = [string]$installInfo.SourceRom
+            if ($ExistingInstall -and -not $explicitProcessState) {
+                # A template run seeds every process's own install from the same
+                # template as the shared install (state current, no extraction).
+                # Before, each peer started clean and re-extracted the whole game,
+                # which on a hard disk outlasted every network fixture's waits.
+                # A process that names its own install_state still gets that.
+                $processInstallInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot `
+                    -TestName ("{0}-{1}" -f $name, $pname) `
+                    -TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target
+            } else {
+                $processRom = $RomOverride
+                if (-not $processRom -and $installInfo.SourceRom) {
+                    $processRom = [string]$installInfo.SourceRom
+                }
+                $processInstallInfo = New-SmokeInstall `
+                    -RunRoot $RunRoot `
+                    -TestName ("{0}-{1}" -f $name, $pname) `
+                    -InstallState $processInstallState `
+                    -SourceBinary $exe `
+                    -SourceRom $processRom `
+                    -ProjectRoot $ProjectRoot `
+                    -Target $target
             }
-            $processInstallInfo = New-SmokeInstall `
-                -RunRoot $RunRoot `
-                -TestName ("{0}-{1}" -f $name, $pname) `
-                -InstallState $processInstallState `
-                -SourceBinary $exe `
-                -SourceRom $processRom `
-                -ProjectRoot $ProjectRoot `
-                -Target $target
             $processModsDir = Join-Path $processInstallInfo.InstallDir "mods"
             if (-not (Test-Path -LiteralPath $processModsDir)) {
                 New-Item -ItemType Directory -Path $processModsDir -Force | Out-Null
@@ -2298,7 +2334,7 @@ function Invoke-SmokeTest {
             -SourceSeed $SourceSeed -Target $target -Shared:$Shared
     } elseif ($ExistingInstall) {
         $installInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $name `
-            -TemplateInstall $ExistingInstall -Target $target
+            -TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target
     } elseif ($Shared) {
         # Single canonical install path; firewall rule seeded inside.
         $installInfo = New-SmokeSharedInstall `
@@ -2936,6 +2972,7 @@ if ($useSharedInstall) {
     Write-Info "Install mode: exclusive reusable workspace (.claude/smoke-storage/shared/)."
 } elseif ($Install) {
     Write-Info ("Install mode: private copy of read-only template {0}" -f $Install)
+    if ($SourceBinary) { Write-Info ("  binary under test replaces the template's own: {0}" -f $SourceBinary) }
 } else {
     Write-Info "Install mode: private managed install (.claude/smoke-storage/installs/)."
 }

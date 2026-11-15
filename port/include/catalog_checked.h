@@ -2,7 +2,9 @@
 #define PD_CATALOG_CHECKED_H
 
 #include <PR/ultratypes.h>
-#include <stdbool.h>
+/* SP-75: no <stdbool.h> here. This header declares no `bool`, and the
+ * include switched `bool` to the 1-byte _Bool for the rest of every C file
+ * that included it. */
 
 /*
  * catalog_checked.h -- INV-1 (player-init-architectural-fixes 2026-04-26):
