@@ -1443,6 +1443,13 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		        std::string::npos);
 	}
 	{
+		// The multiplayer crate slots of base content are empty (model 0).
+		const std::string runtime = readTextFile("port/src/scenario_source_runtime.c");
+		REQUIRE(runtime.find("if (!catalog_id || !catalog_id[0]) {\n\t\t\t\tivalue = 0;\n\t\t\t} else if (!s_setupResolveModelnum(catalog_id, &ivalue)) {") !=
+		        std::string::npos);
+		REQUIRE(gfx_pc.find("no on-screen scene vertex this frame (frames without: %d)") != std::string::npos);
+	}
+	{
 		// B-1153: optional model metadata members are looked up quietly.
 		const std::string compiler = readTextFile("port/src/modasset_compiler.c");
 		REQUIRE(compiler.find("if (!(inputs && inputs->read) && fsFileSize(path) < 0) {") != std::string::npos);

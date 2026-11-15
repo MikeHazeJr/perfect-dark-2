@@ -3601,7 +3601,13 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 		slot_base = (u32)offsetof(struct multiammocrateobj, slots)
 			+ index * (u32)sizeof(struct multiammocrateslot);
 		if (strcmp(member, "model") == 0) {
-			if (!s_setupResolveModelnum(catalog_id, &ivalue)) {
+			/* An empty slot (no model id) is model 0, as the setup file has
+			 * it: a multiplayer crate's slots are filled when the match
+			 * starts, so every slot in base content is empty. A named model
+			 * that does not resolve is still refused. */
+			if (!catalog_id || !catalog_id[0]) {
+				ivalue = 0;
+			} else if (!s_setupResolveModelnum(catalog_id, &ivalue)) {
 				return 0;
 			}
 			return s_setupWriteU16(record,

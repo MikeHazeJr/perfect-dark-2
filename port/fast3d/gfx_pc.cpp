@@ -1314,6 +1314,7 @@ static int gfx_scene_view_projection(int slot, int passes, float out[4][4], floa
 static void gfx_scene_matrix_probe(int slot, int passes, const float used[4][4]) {
     static int s_enabled = -1;
     static int s_logged = 0;
+    static int s_empty_frames = 0;
     scenario_scene_camera_t camera;
     float own[4][4];
     float max_dxy = 0.0f;
@@ -1333,7 +1334,6 @@ static void gfx_scene_matrix_probe(int slot, int passes, const float used[4][4])
     }
     memcpy(own, camera.view_projection, sizeof(own));
     gfx_scene_clip_adjust(own);
-    s_logged++;
     /* On-screen vertices only: off screen, a small w near the eye magnifies
      * the fixed-point rounding of the game's matrix past any real difference. */
     for (int k = 0; k < 4096; k++) {
@@ -1357,11 +1357,23 @@ static void gfx_scene_matrix_probe(int slot, int passes, const float used[4][4])
         if (compared < 2) {
             sysLogPrintf(LOG_NOTE,
                 "SCENE.PROBE: frame=%d v=%d pos=(%.1f,%.1f,%.1f) game_ndc=(%.4f,%.4f,%.6f) w=%.2f camera_ndc=(%.4f,%.4f,%.6f) w=%.2f",
-                s_logged, k, p[0], p[1], p[2], a[0] / a[3], a[1] / a[3], a[2] / a[3], a[3],
+                s_logged + 1, k, p[0], p[1], p[2], a[0] / a[3], a[1] / a[3], a[2] / a[3], a[3],
                 b[0] / b[3], b[1] / b[3], b[2] / b[3], b[3]);
         }
         compared++;
     }
+    /* Only a frame with scene vertices on screen counts (the first frames of
+     * a stage are often a fade or a cutscene with nothing to compare); a
+     * frame without is logged at most every 120 frames. */
+    if (compared == 0) {
+        if ((s_empty_frames++ % 120) == 0) {
+            sysLogPrintf(LOG_NOTE,
+                "SCENE.PROBE: no on-screen scene vertex this frame (frames without: %d) slot=%d world_scale=%.3f",
+                s_empty_frames, slot, camera.world_scale);
+        }
+        return;
+    }
+    s_logged++;
     sysLogPrintf(LOG_NOTE,
         "SCENE.PROBE: frame=%d slot=%d world_scale=%.3f offset=(%.1f,%.1f,%.1f) compared=%d max_ndc_xy_diff=%.6f max_ndc_z_diff=%.6f",
         s_logged, slot, camera.world_scale, camera.draw_offset[0], camera.draw_offset[1],
