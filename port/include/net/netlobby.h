@@ -33,6 +33,7 @@ struct lobbyplayer {
      * ID string via assetCatalogResolve at use-site. */
     u8 team;                /* team assignment */
     char name[LOBBY_NAME_LEN];
+    u8 reviewing;           /* B-1190: still on the last match's results */
 };
 
 /* Lobby game settings (controlled by leader) */

@@ -158,11 +158,24 @@ TEST_CASE("host autostart rematch: a listen host's end screen has dialogs only f
 	const std::string menutick = code_only(read_text_file("src/game/menutick.c"));
 
 	// The "match is ending" branch skips remote participants for the
-	// multiplayer end screen, and still counts them as player numbers
-	const size_t ending = menutick.find("g_MenuData.prevmenuroot == -6");
+	// multiplayer end screen, and still counts them as player numbers. Not by
+	// the player's isremote: the host's stage end commit clears it first
+	const size_t ending = menutick.find("} else if (g_MenuData.prevmenuroot == -6) {");
 	REQUIRE(ending != std::string::npos);
 	const size_t remote = menutick.find("mpGetParticipant(i)->type == PARTICIPANT_REMOTE", ending);
 	const size_t push = menutick.find("mpPushEndscreenDialog(playernum, i);", remote);
+	REQUIRE(menutick.find("->isremote", ending) > menutick.find("g_MenuData.prevmenuroot == -7", ending));
+
+	// B-1190: participant types are per machine on a client too: its stage
+	// start marks its own player local after the mask decode (all remote)
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const size_t decode = msg.find("mpParticipantsDecodeActiveMask(plan.active_mask);");
+	const size_t mine = msg.find("if (&g_NetClients[plan.clients[i].id] == g_NetLocalClient) {", decode);
+	const size_t mark = msg.find("local->type = PARTICIPANT_LOCAL;", mine);
+	REQUIRE(decode != std::string::npos);
+	REQUIRE(mine != std::string::npos);
+	REQUIRE(mark != std::string::npos);
+	REQUIRE(mark - decode < 800);
 	const size_t next = menutick.find("playernum++;", push);
 	REQUIRE(remote != std::string::npos);
 	REQUIRE(push != std::string::npos);
@@ -180,8 +193,10 @@ TEST_CASE("host autostart rematch: the lobby UI does not draw the Room over an o
 	// B-1192: in the lobby state, the results screen check comes before the
 	// Room and the social lobby, so neither draws (and takes focus) while it is open
 	const size_t in_lobby = render.find("if (netLocalClientInLobby())");
-	const size_t results = render.find("if (menupoolIsActive(MENU_TYPE_ENDSCREEN_MP))", in_lobby);
+	const size_t open = render.find("const bool resultsOpen = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP) != 0;", in_lobby);
+	const size_t results = render.find("if (resultsOpen || s_ResultsPending) {", open);
 	const size_t room = render.find("} else if (s_InRoom) {", results);
+	REQUIRE(open != std::string::npos);
 	const size_t room_render = render.find("pdguiRoomScreenRender(winW, winH);", room);
 	const size_t social = render.find("pdguiLobbyScreenRender(winW, winH);", room_render);
 	REQUIRE(in_lobby != std::string::npos);
@@ -192,4 +207,64 @@ TEST_CASE("host autostart rematch: the lobby UI does not draw the Room over an o
 	// Nothing between the check and the Room branch draws a screen
 	const std::string gated = render.substr(results, room - results);
 	REQUIRE(gated.find("Render(") == std::string::npos);
+}
+
+TEST_CASE("results for every player: a client shows its results screen before the Room",
+          "[net][rematch][finding4][b1190]") {
+	// SVC_STAGE_END holds the lobby UI back before the client's lobby state is
+	// set and before mainEndStage queues the end screen
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string end = function_body(msg, "u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t mp = end.find("} else {");
+	const size_t hold = end.find("pdguiLobbyHoldForResults();", mp);
+	const size_t lobby = end.find("g_NetLocalClient->state = CLSTATE_LOBBY;", hold);
+	const size_t stage = end.find("mainEndStage();", lobby);
+	REQUIRE(mp != std::string::npos);
+	REQUIRE(hold != std::string::npos);
+	REQUIRE(lobby != std::string::npos);
+	REQUIRE(stage != std::string::npos);
+
+	// The hold ends once the results screen has opened (then the open screen
+	// holds the Room), after a bounded wait, at the next match, or on disconnect
+	const std::string lobbyui = code_only(read_text_file("port/fast3d/pdgui_lobby.cpp"));
+	const std::string render = function_body(lobbyui, "void pdguiLobbyRender(s32 winW, s32 winH)\n{");
+	const size_t open = render.find("if (resultsOpen) {");
+	REQUIRE(open != std::string::npos);
+	REQUIRE(render.find("s_ResultsPending = false;", open) != std::string::npos);
+	REQUIRE(render.find("++s_ResultsPendingFrames > PDGUI_RESULTS_PENDING_MAX_FRAMES") != std::string::npos);
+	const size_t disconnect = render.find("if (s_LastMode != NETMODE_NONE && mode == NETMODE_NONE) {");
+	REQUIRE(disconnect != std::string::npos);
+	REQUIRE(render.find("s_ResultsPending = false;", disconnect) < render.find("s_LastMode = mode;"));
+	const size_t game = render.find("menupoolRelease(MENU_TYPE_ROOM);");
+	REQUIRE(game != std::string::npos);
+	REQUIRE(render.find("s_ResultsPending = false;", game) != std::string::npos);
+}
+
+TEST_CASE("results for every player: the room shows who is still reviewing match stats",
+          "[net][rematch][finding4][b1190]") {
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+
+	// The host marks everyone in the room at stage end...
+	const std::string commit = function_body(msg, "void netmsgSvcStageEndCommit(u8 room_id, u8 mode)\n{");
+	const size_t mp = commit.find("ncl->state = CLSTATE_LOBBY;");
+	REQUIRE(mp != std::string::npos);
+	REQUIRE(commit.find("ncl->reviewing_results = 1;", mp) != std::string::npos);
+
+	// ...and clears a player on its Continue (a client's lobby resync, or the
+	// listen host's local one) or when the next match takes it along
+	const std::string resync = function_body(msg, "u32 netmsgClcLobbyResyncRead(struct netbuf *src, struct netclient *srccl)\n{");
+	REQUIRE(resync.find("srccl->reviewing_results = 0;") != std::string::npos);
+	const std::string local = function_body(msg, "void netSendLobbyResync(void)\n{");
+	REQUIRE(local.find("g_NetLocalClient->reviewing_results = 0;") != std::string::npos);
+	const size_t start = msg.find("player->client->state = CLSTATE_PREPARING;");
+	REQUIRE(start != std::string::npos);
+	const size_t along = msg.find("player->client->reviewing_results = 0;", start);
+	REQUIRE(along != std::string::npos);
+	REQUIRE(along - start < 400);
+
+	// The roster carries it only in the lobby state, and both lists show it
+	const std::string lobby = code_only(read_text_file("port/src/net/netlobby.c"));
+	REQUIRE(lobby.find("lp->reviewing = (cl->reviewing_results && cl->state == CLSTATE_LOBBY) ? 1 : 0;") != std::string::npos);
+	REQUIRE(read_text_file("port/fast3d/pdgui_menu_room.cpp").find("\"reviewing match stats\"") != std::string::npos);
+	REQUIRE(read_text_file("port/fast3d/pdgui_menu_lobby.cpp").find("\"Reviewing match stats\"") != std::string::npos);
 }

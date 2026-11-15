@@ -139,6 +139,27 @@ static bool s_InRoom         = false;
 static s32  s_LastMode       = 0; /* NETMODE_NONE */
 static bool s_SoloRoomActive = false; /* Room screen open for NETMODE_NONE solo play */
 
+/* B-1190 (Mike, 2026-11-15: every player sees the results and presses
+ * Continue): a client is back in the lobby state the moment SVC_STAGE_END
+ * arrives, before menuTick pushes its end screen. s_ResultsPending keeps the
+ * Room and the social lobby back for that gap; once the end screen is open,
+ * menupoolIsActive(MENU_TYPE_ENDSCREEN_MP) holds them instead. A bounded wait
+ * keeps a player from being left with no screen if the end screen never
+ * opens. */
+#define PDGUI_RESULTS_PENDING_MAX_FRAMES 300
+static bool s_ResultsPending       = false;
+static s32  s_ResultsPendingFrames = 0;
+
+/**
+ * Hold the lobby UI back until this player's multiplayer results screen has
+ * opened. Called when a networked multiplayer match ends on a client.
+ */
+extern "C" void pdguiLobbyHoldForResults(void)
+{
+    s_ResultsPending = true;
+    s_ResultsPendingFrames = 0;
+}
+
 /**
  * Set whether the local client is inside a room.
  * Called from pdgui_menu_lobby.cpp ("Create Room") and
@@ -474,6 +495,7 @@ void pdguiLobbyRender(s32 winW, s32 winH)
     /* Reset room state on disconnect */
     if (s_LastMode != NETMODE_NONE && mode == NETMODE_NONE) {
         s_InRoom = false;
+        s_ResultsPending = false;
         pdguiCountdownReset(); /* Bug-A: clear 3-2-1 overlay so it doesn't linger on main menu */
     }
     s_LastMode = mode;
@@ -501,12 +523,24 @@ void pdguiLobbyRender(s32 winW, s32 winH)
             if (mode == NETMODE_SERVER && !g_NetDedicated) {
                 renderListenHostOverlay(winW, winH, clientCount);
             }
-            if (menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)) {
+            const bool resultsOpen = menupoolIsActive(MENU_TYPE_ENDSCREEN_MP) != 0;
+            if (resultsOpen) {
+                s_ResultsPending = false;
+            } else if (s_ResultsPending
+                    && ++s_ResultsPendingFrames > PDGUI_RESULTS_PENDING_MAX_FRAMES) {
+                sysLogPrintf(LOG_WARNING,
+                    "LOBBY: results screen did not open within %d frames; showing the lobby",
+                    PDGUI_RESULTS_PENDING_MAX_FRAMES);
+                s_ResultsPending = false;
+            }
+            if (resultsOpen || s_ResultsPending) {
                 /* B-1192: stage end puts this player back in the lobby state
                  * with s_InRoom still set while its results screen is open.
                  * The Room drew in the same frame, took window focus, and the
                  * results screen's Return to Room never saw Use. Its Continue
-                 * (endscreenGraphMpContinue) brings the Room back. */
+                 * (endscreenGraphMpContinue) brings the Room back. B-1190: a
+                 * client is held back from SVC_STAGE_END until its results
+                 * screen opens (s_ResultsPending). */
             } else if (s_InRoom) {
                 /* Inside a room: show room interior (tab-based game setup UX) */
                 pdguiRoomScreenRender(winW, winH);
@@ -529,6 +563,8 @@ void pdguiLobbyRender(s32 winW, s32 winH)
              * correct room UI can be reacquired after the match. */
             menupoolRelease(MENU_TYPE_SOCIAL_LOBBY);
             menupoolRelease(MENU_TYPE_ROOM);
+            /* A new match took this player along from its results screen. */
+            s_ResultsPending = false;
 
             if (clientCount <= 0) {
                 return;

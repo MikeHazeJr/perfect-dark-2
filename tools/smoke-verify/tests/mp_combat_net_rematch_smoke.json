@@ -105,7 +105,10 @@
       "BOOT: --host-autostart re-armed: match 2 of 2 in room [0-9]+",
       "BOOT: --host-autostart started match 1 of 2 rc=0",
       "BOOT: --host-autostart started match 2 of 2 rc=0",
-      "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM"
+      "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+      "LOBBY\\.REVIEW: client=[0-9]+ reviewing=1 reason=stage-end",
+      "LOBBY\\.REVIEW: client=[0-9]+ reviewing=0 reason=continue",
+      "LOBBY\\.REVIEW: client=[0-9]+ reviewing=0 reason=match-start"
     ],
     "forbidden_patterns": [
       "BOOT: --no-net set; netInit\\(\\) skipped",
@@ -139,7 +142,8 @@
       "BOT\\.PICKUP: client skipped",
       "NET: malformed or unknown message 0x4[dD]",
       "CLC_LOBBY_START rejected",
-      "BOOT: --host-autostart started match [0-9]+ of 2 rc=[1-9-]"
+      "BOOT: --host-autostart started match [0-9]+ of 2 rc=[1-9-]",
+      "LOBBY: results screen did not open within"
     ],
     "required_counts": [
       {
@@ -216,6 +220,11 @@
         "pattern": "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
         "min": 1,
         "max": 1
+      },
+      {
+        "pattern": "ENDSCREEN_DIAG: mpPushEndscreenDialog ",
+        "min": 3,
+        "max": 4
       },
       {
         "pattern": "BOOT: --host-autostart firing",

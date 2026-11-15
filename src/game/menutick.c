@@ -715,6 +715,28 @@ void menuTick(void)
 		}
 	}
 
+	/* T-NETWORKING-011 (B-1190): the end of a match pushes its end screen only
+	 * once no dialog is open; name the dialog that holds it back, once per wait. */
+	{
+		static s32 s_MatchEndWaitLogged = 0;
+
+		if (g_MenuData.prevmenuroot == -6 && isdialogopen) {
+			if (!s_MatchEndWaitLogged) {
+				for (i = 0; i < ARRAYCOUNT(g_Menus); i++) {
+					if (g_Menus[i].curdialog) {
+						sysLogPrintf(LOG_NOTE,
+							"MENU.MATCHEND: end screen waits for an open dialog menu=%d def=%p",
+							i, (void *)g_Menus[i].curdialog->definition);
+						break;
+					}
+				}
+				s_MatchEndWaitLogged = 1;
+			}
+		} else {
+			s_MatchEndWaitLogged = 0;
+		}
+	}
+
 	if ((g_MenuData.isdialogopen || g_MenuData.prevmenuroot != -1) && isdialogopen == false) {
 		if ((g_MenuData.root == MENUROOT_MPSETUP || g_MenuData.root == MENUROOT_4MBMAINMENU)
 				&& g_MenuData.prevmenuroot == -1) {
@@ -801,8 +823,12 @@ void menuTick(void)
 							 * is shown on that player's own machine. A listen host that
 							 * also pushed one built a two-player end screen here, and its
 							 * one local Use press never left it, so the host could not
-							 * get back to the room for a rematch. The player number still
-							 * counts the remote player below. */
+							 * get back to the room for a rematch (B-1139). Participant
+							 * types are per machine: a client marks its own player local
+							 * at stage start (B-1190; the mask decode records every
+							 * player as remote). The player's isremote would not do here:
+							 * the host's stage end commit has already cleared it. The
+							 * player number still counts the remote player below. */
 							mpPushEndscreenDialog(playernum, i);
 							isdialogopen = true;
 

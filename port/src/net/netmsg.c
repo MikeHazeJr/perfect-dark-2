@@ -3761,6 +3761,18 @@ u32 netmsgSvcStageStartRead(struct netbuf *src, struct netclient *srccl)
 	}
 	g_NetNumClients = plan.numplayers;
 	mpParticipantsDecodeActiveMask(plan.active_mask);
+	/* B-1190: the mask decode records every player as remote. Mark this
+	 * client's own player local, as the host's table has its own, so code that
+	 * acts for this machine's players only (menuTick's end screen push) finds
+	 * it. A client always owns runtime slot zero. */
+	for (u8 i = 0; i < plan.numplayers; i++) {
+		if (&g_NetClients[plan.clients[i].id] == g_NetLocalClient) {
+			MpParticipant *local = mpGetParticipant(plan.clients[i].runtime_playernum);
+			if (local && local->type == PARTICIPANT_REMOTE) {
+				local->type = PARTICIPANT_LOCAL;
+			}
+		}
+	}
 	for (s32 botidx = 0; botidx < MAX_BOTS; botidx++) {
 		if (plan.bot_active[botidx]) {
 			g_BotConfigsArray[botidx] = plan.bots[botidx];
@@ -3868,6 +3880,11 @@ void netmsgSvcStageEndCommit(u8 room_id, u8 mode)
 			if (ncl->state && ncl->room_id == room_id) {
 				ncl->state = CLSTATE_LOBBY;
 				ncl->playernum = 0;
+				/* B-1190: every player sees the results and presses Continue;
+				 * until then the room shows "reviewing match stats". */
+				ncl->reviewing_results = 1;
+				sysLogPrintf(LOG_NOTE, "LOBBY.REVIEW: client=%u reviewing=1 reason=stage-end room=%u",
+					(unsigned)ncl->id, (unsigned)room_id);
 				if (ncl->player) {
 					ncl->player->client = NULL;
 					ncl->player->isremote = false;
@@ -3932,6 +3949,15 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 				ncl->player = NULL;
 				ncl->config = NULL;
 			}
+		}
+
+		/* B-1190 (Mike, 2026-11-15): every player sees the results and
+		 * presses Continue. The lobby state below would open the Room before
+		 * menuTick pushes this player's end screen; hold the lobby UI back
+		 * until that screen is open. */
+		{
+			extern void pdguiLobbyHoldForResults(void);
+			pdguiLobbyHoldForResults();
 		}
 
 		if (g_NetLocalClient) {
@@ -9862,6 +9888,13 @@ u32 netmsgClcLobbyResyncRead(struct netbuf *src, struct netclient *srccl)
 		"NET: CLC_LOBBY_RESYNC from client=%u, replaying room state room=%u",
 		srccl->id, (unsigned)room_id);
 
+	/* B-1190: the client's results screen sends this on Continue. */
+	if (srccl->reviewing_results) {
+		srccl->reviewing_results = 0;
+		sysLogPrintf(LOG_NOTE, "LOBBY.REVIEW: client=%u reviewing=0 reason=continue",
+			(unsigned)srccl->id);
+	}
+
 	netmsgSendLobbyResyncRoomState(srccl, room_id);
 
 	/* Also re-mark the room list dirty so the lobby UI gets fresh data.
@@ -9883,6 +9916,12 @@ void netSendLobbyResync(void)
 		netRoomListMarkDirty();
 		sysLogPrintf(LOG_NOTE,
 			"NET: CLC_LOBBY_RESYNC satisfied locally for listen host");
+		/* B-1190: the host's own results screen calls this on Continue. */
+		if (g_NetLocalClient->reviewing_results) {
+			g_NetLocalClient->reviewing_results = 0;
+			sysLogPrintf(LOG_NOTE, "LOBBY.REVIEW: client=%u reviewing=0 reason=continue",
+				(unsigned)g_NetLocalClient->id);
+		}
 		return;
 	}
 
@@ -11498,6 +11537,12 @@ static bool netLobbyStartCommit(net_lobby_start_plan_t *plan)
 		player->client->config->client = player->client;
 		player->client->settings.handicap = player->config.handicap;
 		player->client->state = CLSTATE_PREPARING;
+		/* B-1190: a player still on the last results goes along. */
+		if (player->client->reviewing_results) {
+			player->client->reviewing_results = 0;
+			sysLogPrintf(LOG_NOTE, "LOBBY.REVIEW: client=%u reviewing=0 reason=match-start",
+				(unsigned)player->client->id);
+		}
 		if (mpAddParticipantAt(i, type, player->slot.team,
 				(s8)player->client_index, 0) != i) {
 			lobbyStartTransactionRollback("player participant commit failed");

@@ -1572,6 +1572,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
         u8    isLeader;
         u8    isLocal;
         s32   state;       /* CLSTATE_* for humans, -1 for bots */
+        u8    reviewing;   /* B-1190: still on the last match's results */
         u8    botDiff;     /* bots only */
         char  name[48];
     };
@@ -1606,6 +1607,7 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
             r.isLeader = pv.isLeader;
             r.isLocal = pv.isLocal ? 1 : 0;
             r.state = pv.state;
+            r.reviewing = pv.reviewing ? 1 : 0;
             snprintf(r.name, sizeof(r.name), "%s", pv.name);
         }
     }
@@ -1997,8 +1999,14 @@ static void renderPlayerPanel(float panelW, float panelH, bool isLeader)
                         stateCol = IM_COL32(255, 200, 50, (int)(alpha * 200));
                         break;
                     case CLSTATE_LOBBY:
-                        stateStr = "ready";
-                        stateCol = IM_COL32(80, 220, 80, (int)(alpha * 200));
+                        if (r.reviewing) {
+                            /* B-1190: still on the last match's results */
+                            stateStr = "reviewing match stats";
+                            stateCol = IM_COL32(120, 200, 255, (int)(alpha * 200));
+                        } else {
+                            stateStr = "ready";
+                            stateCol = IM_COL32(80, 220, 80, (int)(alpha * 200));
+                        }
                         break;
                     case CLSTATE_GAME:
                         stateStr = "in game";

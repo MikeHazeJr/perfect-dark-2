@@ -60,10 +60,22 @@ the co-op end-flow decision.
 
 Decided by Mike, 2026-11-15: option A. Everyone sees the results and presses Continue to go back to the Room, and
 while a player is still on the results, the others see that player in the lobby as "reviewing match stats". The
-host's next match start takes any player still on the results along (part of option A as proposed). To do: the
-client shows its results screen at stage end before the Room (the B-1192 gate keeps the Room hidden while the
-results are open), a per-player "reviewing match stats" state that the host shares with the room, and the rematch
-smoke's client schedule pressing Continue. Original entry follows.
+host's next match start takes any player still on the results along (part of option A as proposed). Done the same
+day, in three parts. (1) A client never pushed its own end screen: `mpParticipantsDecodeActiveMask` records every
+player of a client's match as remote, and the B-1139 skip in `menutick.c` (remote participants get no dialog) then
+skipped all of them. The client's stage start now marks its own player local (a client owns runtime slot zero),
+so participant types mean the same on host and client. The player's `isremote` was no alternative: the host's
+stage end commit clears it before the push. (2) `netmsgSvcStageEndRead` holds the lobby UI back
+(`pdguiLobbyHoldForResults`) until the results screen is open; then the B-1192 gate holds it; a 300-frame fallback
+logs `LOBBY: results screen did not open within` and shows the lobby. menuTick also logs `MENU.MATCHEND: end screen
+waits for an open dialog` once if a dialog delays the push. (3) "Reviewing match stats": the host sets
+`netclient.reviewing_results` for everyone in the room at stage end and clears it on that player's Continue
+(`CLC_LOBBY_RESYNC`, or the listen host's local resync) or when the next match takes the player along
+(`LOBBY.REVIEW:` lines); `lobbyUpdate` copies it into the roster in the lobby state only, `SVC_LOBBY_ROSTER` rows end
+with a flags byte (bit 0, unreleased v62, no bump), and the Room and the social lobby show "reviewing match stats".
+Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[b1190]`) and `tests/test_net_lobby_roster.cpp`. Game
+check: the rematch smoke (its client stays on its results, so the second match has to take it along), queued with
+binary eab25274. Original entry follows.
 
 Severity medium (every networked mode: the client's player gets no results screen; no crash). Seen in
 two runs: `mp_king_of_the_hill_net_smoke` (`results-20261115T132151Z.json`) and

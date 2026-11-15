@@ -19,6 +19,7 @@ int32_t lobbyProjectPlayerView(const struct lobbyplayer *player,
     out->isLocal = is_local != 0;
     out->state = state;
     out->clientId = player->clientId;
+    out->reviewing = player->reviewing ? 1 : 0;
     return 1;
 }
 

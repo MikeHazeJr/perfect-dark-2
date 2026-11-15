@@ -545,6 +545,9 @@ struct netclient {
 	s32 reconnect_resync_pending; /* v57: stage queued; exact state waits for post-load READY */
 	s32 reconnect_gameplay_witness_pending; /* v57: next accepted fire move proves restored authority use */
 	s32 stage_ready; // server: true once this client sent CLC_STAGE_READY after stage load
+	/* server: this player is still on its results screen after the room's
+	 * last match (B-1190, shown in the lobby as "reviewing match stats") */
+	s32 reviewing_results;
 	s32 is_admin;    // MASTER-C2b: set after successful CLC_ADMIN ADMIN_AUTH on this peer
 	u8 auth_cookie[NET_AUTH_COOKIE_LEN]; // MASTER-C3: server-issued identity cookie for this peer
 
