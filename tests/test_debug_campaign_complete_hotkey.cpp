@@ -256,7 +256,14 @@ TEST_CASE("release campaign runner observes strict production progression seams"
 		const std::string parity =
 			function_block_debug_hotkey(objectives, "bool objectiveGraphParity");
 		REQUIRE(objectives.find("static s32 objectiveCheckNative(s32 index)") != std::string::npos);
-		REQUIRE(check.find("objstatus = objectiveCheckNative(index);") != std::string::npos);
+		// Decision 1: no native fallback in play. An objective the graph
+		// cannot evaluate stays incomplete and is logged; the original
+		// evaluation is left only as the parity oracle below.
+		REQUIRE(check.find("objectiveCheckNative(") == std::string::npos);
+		REQUIRE(check.find("objstatus = OBJECTIVE_INCOMPLETE;\n\t\t\tobjectiveLogNoGraphOnce(index);") !=
+			std::string::npos);
+		REQUIRE(objectives.find("\ts_ObjectiveNoGraphLogged = 0;\n\tobjectiveSeedGraphObjectStates();") !=
+			std::string::npos);
 		REQUIRE(parity.find("if (!objectiveCheckGraphSource(index, &graph)) {") != std::string::npos);
 		REQUIRE(parity.find("*out_native = objectiveCheckNative(index);") != std::string::npos);
 		REQUIRE(parity.find("scenarioSourceObjectiveGraphRecordCheck") == std::string::npos);

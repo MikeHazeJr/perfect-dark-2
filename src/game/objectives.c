@@ -43,6 +43,10 @@ s32 g_ObjectiveLastIndex = -1;
 bool g_ObjectiveChecksDisabled = false;
 bool g_DebugForceCompleteCurrentMissionObjectives = false;
 
+/* One warning per objective per stage when the mission graph cannot
+ * evaluate it (reset by tagsReset at stage load). */
+static u32 s_ObjectiveNoGraphLogged;
+
 static bool objectiveGraphRequirementUsesObjectState(u8 type);
 static void objectiveSeedGraphObjectStates(void);
 
@@ -114,6 +118,7 @@ void tagsReset(void)
 		tag = tag->next;
 	}
 
+	s_ObjectiveNoGraphLogged = 0;
 	objectiveSeedGraphObjectStates();
 
 #if PIRACYCHECKS
@@ -672,7 +677,10 @@ static bool objectiveCheckGraphSource(s32 index, s32 *out_status)
  */
 /**
  * The original evaluation of one objective from its setup commands. Read
- * only: it merges the status of every requirement of the objective.
+ * only: it merges the status of every requirement of the objective. Since
+ * Mike's decision 1 (2026-11-15) the mission graph is the only evaluator in
+ * play; this survives only as the auto-campaign runner's parity oracle
+ * (objectiveGraphParity), never as a gameplay fallback.
  */
 static s32 objectiveCheckNative(s32 index)
 {
@@ -720,6 +728,17 @@ bool objectiveGraphParity(s32 index, s32 *out_graph, s32 *out_native)
 	return true;
 }
 
+static void objectiveLogNoGraphOnce(s32 index)
+{
+	if (index < 0 || index >= 32 || (s_ObjectiveNoGraphLogged & (1u << index))) {
+		return;
+	}
+	s_ObjectiveNoGraphLogged |= 1u << index;
+	sysLogPrintf(LOG_WARNING,
+		"OBJECTIVES: objective %d has no mission graph evaluation and stays incomplete (graph_active=%d)",
+		index, scenarioSourceObjectiveGraphIsActive());
+}
+
 s32 objectiveCheck(s32 index)
 {
 	u32 stack[5];
@@ -735,7 +754,11 @@ s32 objectiveCheck(s32 index)
 		} else if (objectiveCheckGraphSource(index, &objstatus)) {
 			/* Graph-driven path used. */
 		} else {
-			objstatus = objectiveCheckNative(index);
+			/* Decision 1: the mission graph is the only evaluator. An
+			 * objective it cannot evaluate stays incomplete, loudly; the
+			 * original evaluation is no fallback. */
+			objstatus = OBJECTIVE_INCOMPLETE;
+			objectiveLogNoGraphOnce(index);
 		}
 	}
 
