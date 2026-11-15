@@ -5469,6 +5469,11 @@ bool bgRoomIsLoaded(s32 room)
 	return bgRoomIsValid(room) && g_Rooms[room].loaded240;
 }
 
+bool bgIsScenarioSource(void)
+{
+	return g_BgUsingScenarioSource != 0;
+}
+
 bool bgRoomContainsCoord(struct coord *pos, RoomNum roomnum)
 {
 	struct coord copy;

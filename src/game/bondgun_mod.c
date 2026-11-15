@@ -114,6 +114,18 @@ bool bgunModAmmoIsSelfLoading(s32 weaponnum, s32 ammoindex)
 	return mod != NULL && mod->selfloading;
 }
 
+bool bgunModGsetFiresSpentRounds(struct gset *gset)
+{
+	struct weaponfunc *func;
+
+	if (gset == NULL || gset->weaponnum < WEAPON_CUSTOM_START) {
+		return false;
+	}
+
+	func = gsetGetWeaponFunction(gset);
+	return func != NULL && bgunModAmmoIsSelfLoading(gset->weaponnum, func->ammoindex);
+}
+
 static s32 bgunModRegrowFinish(s32 handnum, struct hand *hand, s32 lvupdate)
 {
 	hand->gs_int1 = 0;

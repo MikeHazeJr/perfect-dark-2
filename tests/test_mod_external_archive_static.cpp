@@ -11192,4 +11192,16 @@ TEST_CASE("crystal pistol charge, cluster and arm-on-land params reach the runti
 	REQUIRE(propobj.find("coordTriggerProxiesFor(chr, &pos, true);") != std::string::npos);
 	REQUIRE(propobj.find("s32 decision = bgunModProxyDecision(weapon, chr, pos);") != std::string::npos);
 	REQUIRE(mod.find("return entity->proxy_target_filter_mode == 1 ? 0 : -1;") != std::string::npos);
+	/* B-1187: on a scenario-source stage the sticky hit test ray-casts the
+	 * world collision mesh (rooms there have no vertex batches), so crystals
+	 * and mines stick to floors instead of falling through them. */
+	REQUIRE(propobj.find("usemesh = bgIsScenarioSource() && g_WorldMesh.ready && g_WorldMesh.numtris > 0;") !=
+		std::string::npos);
+	REQUIRE(propobj.find("for (i = 0; !usemesh && spcc[i] != -1; i++) {") != std::string::npos);
+	REQUIRE(readFile("src/game/bg.c").find("bool bgIsScenarioSource(void)") != std::string::npos);
+	/* Spent rounds from a self-loading magazine are never pickups (a bot
+	 * collected resting crystal mines as the whole weapon). */
+	REQUIRE(mod.find("bool bgunModGsetFiresSpentRounds(struct gset *gset)") != std::string::npos);
+	REQUIRE(propobj.find("if (bgunModGsetFiresSpentRounds(gset)) {\n\t\t\tweapon->base.flags |= OBJFLAG_UNCOLLECTABLE;") !=
+		std::string::npos);
 }

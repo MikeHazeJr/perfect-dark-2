@@ -1,5 +1,42 @@
 # Bug Tracker
 
+## 2026-11-15 B-1188 Spent mod rounds lying on the floor were collected as the whole weapon (T-MODDING-008)
+
+Severity medium (mod weapons with a self-loading magazine). Found by
+`crystal_pistol_mine_bot_smoke`: crystal mines that came to rest next to a
+bot vanished without arming (`freed ... landed=0 timer240=-1`). Bots and
+players pick up any weapon object unless it carries
+`OBJFLAG_UNCOLLECTABLE` (`bot.c` pickup filter, `objTestForPickup`). Native
+mines are protected by a weapon-number rule (`timer240 >= 0`); custom weapons
+only by a sticky-device entity's `sticky_pickup_policy none`. So a resting
+crystal or crystal mine was collected as the crystal pistol plus ammo, by a
+bot passing by and by its owner, whom the owner's own mines ignore. Fix:
+`weaponCreateProjectileFromGset` marks projectiles of a mod function whose
+ammo slot is self-loading (`bgunModGsetFiresSpentRounds`) uncollectable:
+they are spent rounds with no reserve to refill. Open for MODS/CORE: custom
+deployables with a reserve (a mod mine weapon) still have no "not while
+deployed" pickup rule like the native mine list.
+
+## 2026-11-15 B-1187 Sticky projectiles fell through floors on scenario-source stages (T-MODDING-008)
+
+Severity high (every sticky projectile on every stage whose background comes
+from a scenario source, which includes the multiplayer arenas: mines, bolts,
+knives, laptop guns, mod crystals). Found by the crystal pistol smokes:
+crystals fired at Felicity's floor fell through it and left the world, and
+mines fired at the floor dropped through the bounce fallback instead of
+sticking. `func0f06cd00` (`propobj.c`) tests a sticky projectile's path with
+`bgTestHitInRoom` for loaded rooms and `cdExamLos09` for unloaded ones. On a
+scenario-source stage `bgLoadRoom` only marks a room loaded and never builds
+its vertex batches, so `bgTestHitInRoom` never hits, and `cdExamLos09` only
+checks walls (`GEOFLAG_WALL | BLOCK_SIGHT | BLOCK_SHOOT`). Net effect: sticky
+projectiles hit only walls of rooms that were off screen. Fix: on such a
+stage, with the world collision mesh built, the hit test ray-casts it
+(`meshRayCastWorld`; the stage's collision tiles are compiled from the same
+mesh) and faces the normal toward the projectile; ROM-background stages keep
+the native path. New `bgIsScenarioSource()`. Cost: one brute-force mesh ray
+per sticky projectile per tick (3785 triangles on Felicity); a grid walk
+would cut it if many projectiles fly at once.
+
 ## 2026-11-15 B-1186 The forced first-person look put the camera 159 units too high (T-MODDING-008)
 
 Severity low (smoke tooling only; no shipped path uses it). Found when the

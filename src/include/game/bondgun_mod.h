@@ -22,6 +22,10 @@ extern "C" {
  * slot the mod does not declare). */
 const loader_pool_mod_ammo_t *bgunModAmmo(s32 weaponnum, s32 ammoindex);
 bool bgunModAmmoIsSelfLoading(s32 weaponnum, s32 ammoindex);
+/* gset is a mod weapon function that spends rounds from a self-loading
+ * magazine. Its projectiles are spent rounds, never pickups: there is no
+ * reserve to refill, and collecting one would hand over the whole weapon. */
+bool bgunModGsetFiresSpentRounds(struct gset *gset);
 
 /* HANDSTATE_RELOAD for an ammo slot with ammoN_reload = regrow: one round per
  * regrow_ticks60 until the clip is full; firing (once a round is loaded) or a

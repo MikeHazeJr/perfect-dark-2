@@ -8,6 +8,33 @@ N-0826 Budgeted-loop cursor ownership: commit persistent progress before an earl
 
 2026-10-26 N-0805: Donor-fixture scalar widening can conceal bitfield and signed-narrowing behavior. Check every modeled field against native declarations, including bit width; do not infer storage from bool-like names. This affected unrun switch fixtures and is corrected. Source review is not runtime acceptance.
 
+## 2026-11-15 Scenario-source stages have no room render data; native BG hit tests on it go silent
+
+Found with B-1187 (T-MODDING-008). When a stage's background comes from a
+scenario source (`g_BgUsingScenarioSource`, which includes the multiplayer
+arenas), `bgBuildScenarioSourceTables` creates every room with
+`gfxdata = NULL`, `vtxbatches = NULL` and `loaded240 = 1`, and `bgLoadRoom`
+only re-marks rooms loaded. Native code that finds background hits through
+that render data gets "no hit" without any error: `bgTestHitInRoom` returns
+false for every room, and `gfxdata`-guarded paths skip. Rooms off screen for
+a while are still "unloaded" by `bgTickRooms`, so code with an unloaded-room
+fallback works there only, which hides the problem on some surfaces.
+Collision tiles and the world collision mesh (`g_WorldMesh`,
+`meshRayCastWorld`) are built from the same source and do work.
+
+Search: `grep -n "bgTestHitInRoom(\|gfxdata\b\|vtxbatches" src/game/*.c`
+
+Audit (2026-11-15, unverified in game except the first):
+- `propobj.c` `func0f06cd00`, sticky projectiles: fixed (B-1187), mesh ray.
+- `prop.c` hitscan shots (two `bgTestHitInRoom` loops): probably never stop at
+  walls on these stages, so shots may pass through walls to props behind;
+  bullet wall hits and impact sparks would be missing. Needs a check in game.
+- `splat.c` blood splats on walls, `spawnpool.c` spawn checks,
+  `explosions.c` scorch marks (skipped by its `gfxdata` guard): no background
+  hit on these stages.
+Fix pattern: on `bgIsScenarioSource()`, use `meshRayCastWorld` (static world
+mesh) for the background part; keep the native path for ROM stages.
+
 ## 2026-10-13 Validate the evaluated transform used by collision diagnostics
 
 Visibility exclusion can remove an object from dependency-graph evaluation.
