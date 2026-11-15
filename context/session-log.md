@@ -10521,3 +10521,32 @@ Next
 - The queued base 4 run now also proves the runner in game.
 - MULTIPLAYER: route the co-op client's copy of the message through the
   runner (asked in the week note).
+
+## 2026-11-15 (12:55-13:45 UTC) - CORE: stage.json (decision 3), weather first
+
+What was done
+- The queued base 4 run now uses a frozen client at 2679a1c8
+  (`.claude/week-pd-client/base4-check/`, 92 MB on D:; delete after the run):
+  its scenario kind is extract-3's, so base 4's stages are checked as the
+  other sessions will use them, while it carries the mission graph runner.
+- `stage.json` (c7bd8075): one member per `.pdscenario`, schema
+  `pd2.scenario.stage.v1`, strict reader `scenario_stage_rules.cpp` (unknown
+  key or unusable value refuses the whole file), loaded in `bg.c` with the
+  scenario tables. First family `weather`, written from `g_WeatherConfig`;
+  `weatherReset` and `weatherTick` read it on the scenario-source path (the
+  Air Base and G5 stage checks become `z_max` and `cutscene_only`). Scenario
+  cache kind `_lightrules_sky_stagejson`. Conformance `validate_stage_json`.
+  Design note `context/designs/modding/stage-rules.md`.
+
+Verification
+- pd-tests 1,918 cases / 341,071 assertions.
+- Copy of base 4 re-extracted with this client (deleted afterwards, 378 MB on
+  D:): `[stagerules-sweep]` 132 of 132 readable, weather on exactly Air Base,
+  Chicago, Crash Site, G5 Building (Air Base: 19 weather rooms and the fixed
+  wind); conformance 9,025 archives 0 errors; light-rules census 46 of 46;
+  `[runner-sweep]` 21 of 21.
+
+Next
+- The queued base 4 run (CORE is second in line, behind one MULTIPLAYER item).
+- Further stage.json families from the survey: ending, hub, stars (after
+  B-1172 is confirmed or not), Escape's gas, animated textures and sparks.
