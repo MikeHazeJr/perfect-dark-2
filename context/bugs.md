@@ -25,6 +25,50 @@ places on every arena; asked in the week note); (2) the walkable-pad fallback
 from B-1125 for arenas that still lack them, for example mod arenas. (2) changes
 how the modes place things on such arenas, so it waits for Mike. Class: SP-80.
 
+Fix (Mike, 2026-11-15: "get all the MP modes functional", including the same
+fill-in as Hacker Central for these three). Option (2), used only where the
+arena's own pads are missing; option (1) is still asked of CORE and makes the
+fill-in idle again on the standard arenas. Candidates are the same walkable
+pads as B-1125 (`scenarioCollectFallbackCandidates` in
+`src/game/mplayer/scenarios.c`: navigation waypoints, else every pad in a room;
+in a room and not on a lift). New pure pickers in
+`port/src/scenario_pad_fallback.c`, unit-tested:
+- Capture the Case (`ctcFillMissingPads`, called in `ctcInitProps` after the
+  teams get their base slots): a base in play whose home pad is not a pad in a
+  room gets the walkable pad farthest from the other bases in play
+  (`scenarioPadPickFarthest`; with no usable base at all the first is random,
+  one `rngRandom` call); a base in play with no usable respawn pad gets up to
+  six walkable pads nearest its home pad among those nearer to it than to any
+  other base (`scenarioPadPickNearest`, distance in three dimensions), so its
+  players respawn at their own base. Each team's case placement is logged
+  (`CTC: team T case on base B pad=P room=R respawnpads=N prop=ok`).
+  Hardening found on the way: `baserooms[]` no longer dereferences a NULL case
+  prop, and `ctcChooseSpawnLocation` refuses a team with no base slot (index
+  -1 used to read before the array).
+- King of the Hill (`kohFillMissingHills`, start of `kohInitProps`): with fewer
+  than two usable hills the match gets up to six, one pad per room
+  (`scenarioPadReduceToRooms`: the pad nearest the room's middle, rooms crossed
+  by two or more waypoints when there are enough), in rooms none of the
+  arena's own hills is in, spaced apart (`scenarioPadPickSpaced`). Listed hills
+  that are not in a room are dropped. The original `@bug` (a single hill used
+  the room of pad 0) is fixed in `kohInitProps` and in the hill move in
+  `kohTick`. Logged: `KOH: hill I of N at pad=P room=R` and
+  `KOH: hill moved to I of N pad=P room=R`.
+- Hold the Briefcase (`htbTopUpBank`, start of `htbInitProps`): with no
+  multiplayer ammo crate and no usable bank pad, the bank is reset and gets
+  eight spaced walkable pads (the HTM picker), so the briefcase starts and
+  respawns on a random real pad. Logged:
+  `HTB: briefcase placed pad=P source=crate|bank|pad0 prop=ok|none`.
+Arenas with their own pads keep the original placement and make no extra
+random calls. Picks use `rngRandom`; whether a networked client picks the same
+pads as the host is not established (the client runs `scenarioInitProps` from
+its own stage-start path), so the network work (scenario state sent from the
+host) has to carry these placements, not assume them. The
+three local smokes now assert the outcome, not the fill-in, so they stay
+valid once CORE's extraction carries the arenas' own pads: every team's case
+on a pad in a room with respawn pads, the starting hill a real room chosen
+from two or more hills, the briefcase on a real pad from a crate or the bank.
+
 ## 2026-11-15 B-1125 Hacker Central divides by zero when the arena has too few placement pads (T-NETWORKING-011)
 
 Severity high (crash at match start). `mp_hacker_central_local_smoke` (offline,

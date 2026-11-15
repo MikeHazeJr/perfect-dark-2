@@ -184,10 +184,69 @@ void kohInit(void)
 	}
 }
 
+#define KOH_FALLBACK_HILLS 6
+
+/**
+ * PC (B-1126): the hill moves between the arena's hill pads (intro HILL), and
+ * the hill is the room of its pad. Arenas extracted today carry no hill pads,
+ * so the hill stayed in the room of pad 0 for the whole match. An arena with
+ * fewer than two usable hills gets hills from walkable pads (Mike, 2026-11-15:
+ * the same fill-in as Hacker Central): one pad per room, in rooms none of its
+ * own hills is in, spaced apart, preferring rooms crossed by two or more
+ * waypoints, up to KOH_FALLBACK_HILLS hills in all. Its own usable hills keep
+ * their places first; listed hills that are not in a room are dropped. An
+ * arena whose listed hills are all usable, and two or more, is left as it is
+ * and makes no extra random calls.
+ */
+static void kohFillMissingHills(void)
+{
+	struct scenariodata_koh *data = &g_ScenarioData.koh;
+	s16 usable[ARRAYCOUNT(g_ScenarioData.koh.hillpads)];
+	s16 added[KOH_FALLBACK_HILLS];
+	s32 listed = data->hillcount;
+	s32 numusable = 0;
+	s32 numadded = 0;
+	s32 i;
+
+	for (i = 0; i < listed && i < (s32)ARRAYCOUNT(data->hillpads); i++) {
+		if (scenarioPadIsInRoom(data->hillpads[i])) {
+			usable[numusable++] = data->hillpads[i];
+		}
+	}
+
+	if (numusable == listed && numusable >= 2) {
+		return;
+	}
+
+	if (numusable < 2) {
+		numadded = scenarioFallbackRoomPads(added, KOH_FALLBACK_HILLS - numusable, usable, numusable, "KOH");
+	}
+
+	data->hillcount = 0;
+
+	for (i = 0; i < (s32)ARRAYCOUNT(data->hillpads); i++) {
+		data->hillpads[i] = -1;
+	}
+
+	for (i = 0; i < numusable; i++) {
+		data->hillpads[data->hillcount++] = usable[i];
+	}
+
+	for (i = 0; i < numadded && data->hillcount < (s32)ARRAYCOUNT(data->hillpads); i++) {
+		data->hillpads[data->hillcount++] = added[i];
+	}
+
+	sysLogPrintf(data->hillcount >= 2 ? LOG_NOTE : LOG_ERROR,
+		"KOH: arena listed %d hill(s), %d usable, 2 needed; added %d walkable hill(s), now %d (B-1126)",
+		listed, numusable, numadded, data->hillcount);
+}
+
 void kohInitProps(void)
 {
 	s16 pad_id = 0;
 	struct pad pad;
+
+	kohFillMissingHills();
 
 	if (g_ScenarioData.koh.hillcount > 1) {
 		g_ScenarioData.koh.hillindex = rngRandom() % g_ScenarioData.koh.hillcount;
@@ -195,7 +254,12 @@ void kohInitProps(void)
 	} else {
 		// @bug: If a stage setup file only has one hill, pad_id is not assigned
 		// so it will always use the room that contains pad zero.
+		// PC (B-1126): a single hill is used rather than pad 0.
 		g_ScenarioData.koh.hillindex = 0;
+
+		if (g_ScenarioData.koh.hillcount == 1) {
+			pad_id = g_ScenarioData.koh.hillpads[0];
+		}
 	}
 
 	padUnpack(pad_id, PADFIELD_POS | PADFIELD_ROOM, &pad);
@@ -209,6 +273,10 @@ void kohInitProps(void)
 	g_ScenarioData.koh.movehill = false;
 
 	roomSetLightOp(g_ScenarioData.koh.hillrooms[0], LIGHTOP_HIGHLIGHT, 0, 0, 0);
+
+	sysLogPrintf(g_ScenarioData.koh.hillrooms[0] > 0 ? LOG_NOTE : LOG_ERROR,
+		"KOH: hill %d of %d at pad=%d room=%d",
+		g_ScenarioData.koh.hillindex, g_ScenarioData.koh.hillcount, pad_id, g_ScenarioData.koh.hillrooms[0]);
 }
 
 /**
@@ -286,6 +354,11 @@ void kohTick(void)
 				padnum = g_ScenarioData.koh.hillpads[g_ScenarioData.koh.hillindex];
 			} else {
 				g_ScenarioData.koh.hillindex = 0;
+
+				// PC (B-1126): a single hill stays where it is rather than pad 0
+				if (g_ScenarioData.koh.hillcount == 1) {
+					padnum = g_ScenarioData.koh.hillpads[0];
+				}
 			}
 
 			padUnpack(padnum, PADFIELD_POS | PADFIELD_ROOM, &pad);
@@ -300,6 +373,10 @@ void kohTick(void)
 			g_ScenarioData.koh.hillpos.y = cdFindFloorYColourTypeAtPos(&g_ScenarioData.koh.hillpos, g_ScenarioData.koh.hillrooms, NULL, NULL);
 
 			roomSetLightOp(g_ScenarioData.koh.hillrooms[0], LIGHTOP_HIGHLIGHT, 0, 0, 0);
+
+			sysLogPrintf(g_ScenarioData.koh.hillrooms[0] > 0 ? LOG_NOTE : LOG_ERROR,
+				"KOH: hill moved to %d of %d pad=%d room=%d",
+				g_ScenarioData.koh.hillindex, g_ScenarioData.koh.hillcount, padnum, g_ScenarioData.koh.hillrooms[0]);
 
 			g_ScenarioData.koh.occupiedteam = -1;
 			g_ScenarioData.koh.elapsed240 = 0;

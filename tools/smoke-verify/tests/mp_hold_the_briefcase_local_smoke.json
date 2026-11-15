@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_hold_the_briefcase_local_smoke",
-  "description": "Offline Hold the Briefcase on Complex: one human plus three simulants, started through the direct debug match path and ended by a 40 second time limit. Proves the match-start contract for an objective scenario: the launch seed derives the runtime mode from the scenario catalog id, mpStartMatch initializes the scenario, the stage loads, the player spawns, the time limit ends the match, and the result witness lists every participant. It does not yet assert an objective scoring event; that needs the per-scenario objective witness.",
+  "description": "Offline Hold the Briefcase on Complex: one human plus three simulants, started through the direct debug match path and ended by a 40 second time limit. Proves the match-start contract for an objective scenario: the launch seed derives the runtime mode from the scenario catalog id, mpStartMatch initializes the scenario, the stage loads, the player spawns, the time limit ends the match, and the result witness lists every participant. It does not yet assert an objective scoring event; that needs the per-scenario objective witness. B-1126: on an arena with no multiplayer ammo crate and no usable case pad (every extracted arena today), the briefcase bank gets eight spaced walkable pads, so the briefcase no longer always starts on pad 0; the smoke asserts that it starts on a real pad from a crate or the bank, which also holds once the arenas carry their own pads.",
   "tags": [
     "combatsim",
     "match-start",
@@ -12,7 +12,9 @@
     "port/src/main.c",
     "src/game/mplayer/mplayer.c",
     "src/game/mplayer/scenarios.c",
-    "src/game/lv.c"
+    "src/game/lv.c",
+    "src/game/mplayer/scenarios/holdthebriefcase.inc",
+    "port/src/scenario_pad_fallback.c"
   ],
   "log_channel_mask": "all",
   "verbose": 0,
@@ -100,6 +102,7 @@
       "PLAYER\\.INIT\\.PREFLIGHT match=ok players=1 bots=3 stage='base:arena_mp_complex' scenario='base:hold_the_briefcase'",
       "PLAYER\\.INIT\\.COMMIT match players=1 bots=3",
       "MATCH: options=0x[0-9a-f]{8} onehitkills=0 slowmo=0 scenario=1 ",
+      "HTB: briefcase placed pad=[1-9][0-9]* source=(crate|bank) prop=ok",
       "MATCH: player spawned slot=",
       "MATCH: timelimit override applied seconds=40",
       "MATCH: stage end reason=timelimit",
@@ -114,7 +117,11 @@
       "SMOKE: result=timeout",
       "PLAYER\\.INIT\\.ROLLBACK",
       "PLAYER\\.INIT\\.PREFLIGHT match=reject",
-      "SCENARIO\\.MISS:"
+      "SCENARIO\\.MISS:",
+      "HTB: briefcase placed pad=0 ",
+      "HTB: briefcase placed pad=-?[0-9]+ source=pad0",
+      "HTB: briefcase placed pad=-?[0-9]+ source=[a-z0-9]+ prop=none",
+      "SCENARIO: object model="
     ],
     "required_counts": [
       {

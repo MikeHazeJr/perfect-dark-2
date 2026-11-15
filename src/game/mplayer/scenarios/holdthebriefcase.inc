@@ -220,6 +220,7 @@ void htbCreateToken(void)
 	struct defaultobj *obj;
 	s32 count = 0;
 	struct defaultobj *candidates[20];
+	const char *source;
 
 	// Build a list of candidate objects to replace. Consider only ammocrates.
 	// NTSC beta doesn't check the prop type, so it could potentially replace a
@@ -247,10 +248,13 @@ void htbCreateToken(void)
 		g_ScenarioData.htb.tokenpad = var800869ec->pad;
 		var800869ec->hidden |= OBJHFLAG_DELETING;
 		var800869ec->hidden2 |= OBJH2FLAG_CANREGEN;
+		source = "crate";
 	} else if (g_ScenarioData.htb.nextindex > 0) {
 		g_ScenarioData.htb.tokenpad = g_ScenarioData.htb.padnums[rngRandom() % g_ScenarioData.htb.nextindex];
+		source = "bank";
 	} else {
 		g_ScenarioData.htb.tokenpad = 0;
+		source = "pad0";
 	}
 
 	// Set up the token
@@ -266,11 +270,90 @@ void htbCreateToken(void)
 	if (g_ScenarioData.htb.token) {
 		g_ScenarioData.htb.token->forcetick = true;
 	}
+
+	sysLogPrintf(g_ScenarioData.htb.token && strcmp(source, "pad0") != 0 ? LOG_NOTE : LOG_WARNING,
+		"HTB: briefcase placed pad=%d source=%s prop=%s",
+		g_ScenarioData.htb.tokenpad, source, g_ScenarioData.htb.token ? "ok" : "none");
+}
+
+#define HTB_FALLBACK_BANK_PADS 8
+
+/**
+ * PC (B-1126): multiplayer ammo crates the briefcase can replace, counted the
+ * way htbCreateToken lists them.
+ */
+static s32 htbCountMultiAmmoCrates(void)
+{
+	struct prop *prop = g_Vars.activeprops;
+	s32 count = 0;
+
+	while (prop) {
+		if (prop->type == PROPTYPE_OBJ && prop->obj && prop->obj->type == OBJTYPE_MULTIAMMOCRATE) {
+			count++;
+		}
+
+		prop = prop->next;
+	}
+
+	return count;
+}
+
+/**
+ * PC (B-1126): bank pads the briefcase can stand on.
+ */
+static s32 htbCountUsableBankPads(void)
+{
+	s32 count = 0;
+	s32 i;
+
+	for (i = 0; i < g_ScenarioData.htb.nextindex && i < (s32)ARRAYCOUNT(g_ScenarioData.htb.padnums); i++) {
+		if (g_ScenarioData.htb.padnums[i] > 0 && scenarioPadIsInRoom(g_ScenarioData.htb.padnums[i])) {
+			count++;
+		}
+	}
+
+	return count;
+}
+
+/**
+ * PC (B-1126): the briefcase starts, and respawns when it is lost, on a random
+ * multiplayer ammo crate, else on a random bank pad (the arena's Capture the
+ * Case pads), else on pad 0. Arenas extracted today carry neither, so it was
+ * always pad 0. Such arenas get a bank of spaced walkable pads (Mike,
+ * 2026-11-15: the same fill-in as Hacker Central). An arena with a crate or a
+ * usable bank pad is left as it is and makes no extra random calls.
+ */
+static void htbTopUpBank(void)
+{
+	struct scenariodata_htb *data = &g_ScenarioData.htb;
+	s16 added[HTB_FALLBACK_BANK_PADS];
+	s32 listed = data->nextindex;
+	s32 usable = htbCountUsableBankPads();
+	s32 numadded;
+	s32 i;
+
+	if (htbCountMultiAmmoCrates() > 0 || usable > 0) {
+		return;
+	}
+
+	// Nothing in the bank can hold the briefcase: start it afresh
+	htbReset();
+
+	numadded = scenarioFallbackPads(added, HTB_FALLBACK_BANK_PADS, NULL, 0, "HTB");
+
+	for (i = 0; i < numadded; i++) {
+		htbAddPad(added[i]);
+	}
+
+	sysLogPrintf(numadded > 0 ? LOG_NOTE : LOG_ERROR,
+		"HTB: no ammo crate and %d usable bank pad(s) of %d listed; added %d walkable pad(s), bank now %d (B-1126)",
+		usable, listed, numadded, data->nextindex);
 }
 
 void htbInitProps(void)
 {
 	var800869ec = NULL;
+	htbTopUpBank();
 	htbCreateToken();
 }
 

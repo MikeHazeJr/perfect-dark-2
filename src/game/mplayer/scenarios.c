@@ -1,4 +1,5 @@
 #include <ultra64.h>
+#include <string.h>
 #include "constants.h"
 #include "system.h"
 #include "game/chraction.h"
@@ -40,7 +41,7 @@
 #include "types.h"
 #include "assetcatalog.h"   /* catalog universality sweep (2026-04-27) */
 #include "asset_runtime.h"  /* c3849 Wave 6a: gamemode meta-family consumer */
-#include "scenario_pad_fallback.h"  /* B-1125: placement pads for arenas that carry too few */
+#include "scenario_pad_fallback.h"  /* B-1125, B-1126: placement pads for arenas that carry too few */
 
 /**
  * There are six multiplayer scenarios:
@@ -194,8 +195,103 @@ static s32 scenarioPadCanHoldProp(s32 padnum, struct scenariopadpick *pick)
 	pick->padnum = padnum;
 	pick->x = pad.pos.x;
 	pick->z = pad.pos.z;
+	pick->y = pad.pos.y;
+	pick->room = pad.room;
 
 	return true;
+}
+
+/**
+ * PC (B-1126): whether a pad the arena itself names (an intro CASE, CASERESPAWN
+ * or HILL pad) can carry a scenario object: a real pad in a room, the
+ * condition under which setupCreateObject places an object. Unlike the banks,
+ * pad 0 counts, and an authored pad on a lift is left to the arena.
+ */
+static s32 scenarioPadIsInRoom(s32 padnum)
+{
+	struct pad pad;
+
+	if (padnum < 0 || g_PadsFile == NULL || padnum >= g_PadsFile->numpads) {
+		return false;
+	}
+
+	padUnpack(padnum, PADFIELD_ROOM, &pad);
+
+	return pad.room > 0;
+}
+
+/* Candidate storage shared by the fallback helpers below (setup runs on one
+ * thread, and each helper finishes with it before returning). */
+static struct scenariopadpick s_ScenarioFallbackCands[SCENARIO_PAD_FALLBACK_MAX_CANDIDATES];
+
+/**
+ * PC (B-1125, B-1126): walkable pads that can carry a scenario object: the
+ * arena's navigation waypoints (the source the spawn fallback in playerReset
+ * uses) or, when it has none, every pad in a room. Fills
+ * s_ScenarioFallbackCands and returns the count; *source names the source.
+ */
+static s32 scenarioCollectFallbackCandidates(const char **source)
+{
+	struct scenariopadpick *cands = s_ScenarioFallbackCands;
+	s32 maxcands = (s32)ARRAYCOUNT(s_ScenarioFallbackCands);
+	s32 numcands = 0;
+	s32 i;
+
+	*source = "none";
+
+	if (g_StageSetup.waypoints) {
+		struct waypoint *wpts = g_StageSetup.waypoints;
+
+		for (i = 0; wpts[i].padnum >= 0 && numcands < maxcands; i++) {
+			if (scenarioPadCanHoldProp(wpts[i].padnum, &cands[numcands])) {
+				numcands++;
+			}
+		}
+
+		*source = "waypoint";
+	}
+
+	if (numcands == 0 && g_PadsFile) {
+		for (i = 1; i < g_PadsFile->numpads && numcands < maxcands; i++) {
+			if (scenarioPadCanHoldProp(i, &cands[numcands])) {
+				numcands++;
+			}
+		}
+
+		*source = "pad";
+	}
+
+	return numcands;
+}
+
+/**
+ * PC (B-1126): loads the pads a scenario already has into picks, so new picks
+ * keep their distance from them. Pads below minpad are skipped (the banks use
+ * 0 and -1 for "empty"; an authored base or hill pad 0 is real).
+ */
+static s32 scenarioLoadExistingPicks(struct scenariopadpick *picks, s32 maxpicks,
+		const s16 *existing, s32 numexisting, s32 minpad)
+{
+	s32 count = 0;
+	s32 i;
+
+	for (i = 0; existing && i < numexisting && count < maxpicks; i++) {
+		struct pad pad;
+
+		if (existing[i] < minpad) {
+			continue;
+		}
+
+		padUnpack(existing[i], PADFIELD_POS | PADFIELD_ROOM, &pad);
+		picks[count].padnum = existing[i];
+		picks[count].x = pad.pos.x;
+		picks[count].z = pad.pos.z;
+		picks[count].y = pad.pos.y;
+		picks[count].room = pad.room;
+		count++;
+	}
+
+	return count;
 }
 
 /**
@@ -219,11 +315,10 @@ static s32 scenarioPadCanHoldProp(s32 padnum, struct scenariopadpick *pick)
  */
 static s32 scenarioFallbackPads(s16 *outpads, s32 maxout, const s16 *existing, s32 numexisting, const char *who)
 {
-	static struct scenariopadpick cands[SCENARIO_PAD_FALLBACK_MAX_CANDIDATES];
 	struct scenariopadpick chosen[64];
-	const char *source = "none";
-	s32 numcands = 0;
-	s32 count = 0;
+	const char *source;
+	s32 numcands;
+	s32 count;
 	s32 total;
 	s32 i;
 
@@ -232,47 +327,14 @@ static s32 scenarioFallbackPads(s16 *outpads, s32 maxout, const s16 *existing, s
 	}
 
 	// Pads the scenario already has keep their places; new picks avoid them
-	for (i = 0; existing && i < numexisting && count < (s32)ARRAYCOUNT(chosen); i++) {
-		struct pad pad;
-
-		if (existing[i] <= 0) {
-			continue;
-		}
-
-		padUnpack(existing[i], PADFIELD_POS, &pad);
-		chosen[count].padnum = existing[i];
-		chosen[count].x = pad.pos.x;
-		chosen[count].z = pad.pos.z;
-		count++;
-	}
+	count = scenarioLoadExistingPicks(chosen, (s32)ARRAYCOUNT(chosen), existing, numexisting, 1);
 
 	if (maxout > (s32)ARRAYCOUNT(chosen) - count) {
 		maxout = (s32)ARRAYCOUNT(chosen) - count;
 	}
 
-	if (g_StageSetup.waypoints) {
-		struct waypoint *wpts = g_StageSetup.waypoints;
-
-		for (i = 0; wpts[i].padnum >= 0 && numcands < (s32)ARRAYCOUNT(cands); i++) {
-			if (scenarioPadCanHoldProp(wpts[i].padnum, &cands[numcands])) {
-				numcands++;
-			}
-		}
-
-		source = "waypoint";
-	}
-
-	if (numcands == 0 && g_PadsFile) {
-		for (i = 1; i < g_PadsFile->numpads && numcands < (s32)ARRAYCOUNT(cands); i++) {
-			if (scenarioPadCanHoldProp(i, &cands[numcands])) {
-				numcands++;
-			}
-		}
-
-		source = "pad";
-	}
-
-	total = scenarioPadPickSpaced(chosen, count, count + maxout, count + maxout, cands, numcands, rngRandom);
+	numcands = scenarioCollectFallbackCandidates(&source);
+	total = scenarioPadPickSpaced(chosen, count, count + maxout, count + maxout, s_ScenarioFallbackCands, numcands, rngRandom);
 
 	for (i = count; i < total; i++) {
 		outpads[i - count] = chosen[i].padnum;
@@ -281,6 +343,151 @@ static s32 scenarioFallbackPads(s16 *outpads, s32 maxout, const s16 *existing, s
 	sysLogPrintf(total - count > 0 ? LOG_NOTE : LOG_WARNING,
 		"SCENARIO.PADS: %s fallback added %d of %d pad(s) from %d %s candidate(s), existing=%d",
 		who ? who : "?", total - count, maxout, numcands, source, count);
+
+	return total - count;
+}
+
+/**
+ * PC (B-1126): walkable pads as far as possible from each other and from
+ * existing[0..numexisting) (Capture the Case bases). With no existing pad the
+ * first pick is random (rngRandom), so bases vary between matches; later picks
+ * take the candidate farthest from every pad chosen so far. Writes up to maxout
+ * new, distinct pads to outpads and returns the number written.
+ */
+static s32 scenarioFallbackFarthestPads(s16 *outpads, s32 maxout, const s16 *existing, s32 numexisting, const char *who)
+{
+	struct scenariopadpick chosen[16];
+	const char *source;
+	s32 numcands;
+	s32 count;
+	s32 total;
+	s32 i;
+
+	if (outpads == NULL || maxout <= 0) {
+		return 0;
+	}
+
+	count = scenarioLoadExistingPicks(chosen, (s32)ARRAYCOUNT(chosen), existing, numexisting, 0);
+
+	if (maxout > (s32)ARRAYCOUNT(chosen) - count) {
+		maxout = (s32)ARRAYCOUNT(chosen) - count;
+	}
+
+	numcands = scenarioCollectFallbackCandidates(&source);
+	total = scenarioPadPickFarthest(chosen, count, count + maxout, count + maxout, s_ScenarioFallbackCands, numcands, rngRandom);
+
+	for (i = count; i < total; i++) {
+		outpads[i - count] = chosen[i].padnum;
+	}
+
+	sysLogPrintf(total - count > 0 ? LOG_NOTE : LOG_WARNING,
+		"SCENARIO.PADS: %s farthest fallback added %d of %d pad(s) from %d %s candidate(s), existing=%d",
+		who ? who : "?", total - count, maxout, numcands, source, count);
+
+	return total - count;
+}
+
+/**
+ * PC (B-1126): the walkable pads nearest to anchorpads[owner] that are nearer
+ * to it than to any other anchor (Capture the Case respawn pads around a base;
+ * see scenarioPadPickNearest). Writes up to maxout pads to outpads, nearest
+ * first, and returns the number written. Makes no rngRandom call.
+ */
+static s32 scenarioFallbackNearestPads(s16 *outpads, s32 maxout, s32 owner,
+		const s16 *anchorpads, s32 numanchors, const char *who)
+{
+	struct scenariopadpick anchors[8];
+	const char *source;
+	s32 numcands;
+	s32 count;
+
+	if (outpads == NULL || maxout <= 0 || owner < 0 || owner >= numanchors
+			|| numanchors > (s32)ARRAYCOUNT(anchors)) {
+		return 0;
+	}
+
+	if (scenarioLoadExistingPicks(anchors, (s32)ARRAYCOUNT(anchors), anchorpads, numanchors, 0) != numanchors) {
+		return 0;
+	}
+
+	numcands = scenarioCollectFallbackCandidates(&source);
+	count = scenarioPadPickNearest(outpads, maxout, owner, anchors, numanchors, s_ScenarioFallbackCands, numcands);
+
+	sysLogPrintf(count > 0 ? LOG_NOTE : LOG_WARNING,
+		"SCENARIO.PADS: %s nearest fallback added %d of %d pad(s) around pad %d from %d %s candidate(s), anchors=%d",
+		who ? who : "?", count, maxout, anchorpads[owner], numcands, source, numanchors);
+
+	return count;
+}
+
+/**
+ * PC (B-1126): walkable pads in distinct rooms, spaced apart, in rooms that
+ * none of existing[0..numexisting) is in (King of the Hill hills: the hill is
+ * the room of its pad). Rooms crossed by two or more candidates are used when
+ * there are enough of them for maxout; otherwise every room is. Each room
+ * contributes the candidate nearest its middle. Writes up to maxout new pads to
+ * outpads and returns the number written.
+ */
+static s32 scenarioFallbackRoomPads(s16 *outpads, s32 maxout, const s16 *existing, s32 numexisting, const char *who)
+{
+	static struct scenariopadpick rooms[SCENARIO_PAD_FALLBACK_MAX_CANDIDATES];
+	struct scenariopadpick chosen[16];
+	const char *source;
+	s32 minperroom = 2;
+	s32 numcands;
+	s32 numrooms;
+	s32 count;
+	s32 total;
+	s32 i;
+	s32 j;
+
+	if (outpads == NULL || maxout <= 0) {
+		return 0;
+	}
+
+	count = scenarioLoadExistingPicks(chosen, (s32)ARRAYCOUNT(chosen), existing, numexisting, 0);
+
+	if (maxout > (s32)ARRAYCOUNT(chosen) - count) {
+		maxout = (s32)ARRAYCOUNT(chosen) - count;
+	}
+
+	numcands = scenarioCollectFallbackCandidates(&source);
+
+	// Rooms that already hold one of the scenario's pads are taken
+	for (i = 0, j = 0; i < numcands; i++) {
+		s32 k;
+
+		for (k = 0; k < count; k++) {
+			if (chosen[k].room == s_ScenarioFallbackCands[i].room) {
+				break;
+			}
+		}
+
+		if (k == count) {
+			s_ScenarioFallbackCands[j++] = s_ScenarioFallbackCands[i];
+		}
+	}
+
+	numcands = j;
+
+	memcpy(rooms, s_ScenarioFallbackCands, (size_t)numcands * sizeof(rooms[0]));
+	numrooms = scenarioPadReduceToRooms(rooms, numcands, minperroom);
+
+	if (numrooms < maxout) {
+		minperroom = 1;
+		memcpy(rooms, s_ScenarioFallbackCands, (size_t)numcands * sizeof(rooms[0]));
+		numrooms = scenarioPadReduceToRooms(rooms, numcands, minperroom);
+	}
+
+	total = scenarioPadPickSpaced(chosen, count, count + maxout, count + maxout, rooms, numrooms, rngRandom);
+
+	for (i = count; i < total; i++) {
+		outpads[i - count] = chosen[i].padnum;
+	}
+
+	sysLogPrintf(total - count > 0 ? LOG_NOTE : LOG_WARNING,
+		"SCENARIO.PADS: %s room fallback added %d of %d pad(s) from %d room(s) (%d+ candidate(s) each, %d %s candidate(s)), existing=%d",
+		who ? who : "?", total - count, maxout, numrooms, minperroom, numcands, source, count);
 
 	return total - count;
 }

@@ -166,6 +166,130 @@ void ctcTickChr(struct chrdata *chr)
 	if (chr);
 }
 
+#define CTC_NUM_BASES ((s32)ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam))
+#define CTC_NUM_SPAWNPADS ((s32)ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam[0].spawnpads))
+
+/**
+ * PC (B-1126): whether a base has a respawn pad its players can use.
+ */
+static s32 ctcBaseHasRespawnPad(s32 slot)
+{
+	struct ctcspawnpadsperteam *base = &g_ScenarioData.ctc.spawnpadsperteam[slot];
+	s32 i;
+
+	for (i = 0; i < base->numspawnpads && i < CTC_NUM_SPAWNPADS; i++) {
+		if (scenarioPadIsInRoom(base->spawnpads[i])) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * PC (B-1126): Capture the Case puts each team's case on its base's home pad
+ * (intro CASE) and respawns the team on the base's respawn pads (intro
+ * CASERESPAWN). Arenas extracted today carry neither, so every case was
+ * created off-world and there was nothing to capture. Those arenas get the
+ * missing pads from walkable pads (Mike, 2026-11-15: the same fill-in as
+ * Hacker Central), for the bases of the teams in play only:
+ * - a base whose home pad cannot hold the case gets the walkable pad farthest
+ *   from the other bases in play (on an arena with no usable base at all the
+ *   first one is random), so the bases sit apart as on the original arenas;
+ * - a base with no usable respawn pad gets the walkable pads nearest its home
+ *   pad that are nearer to it than to any other base, up to the six a base
+ *   holds, so its players respawn at their own base.
+ * Bases the arena provides are left as they are, and an arena with all its
+ * pads makes no extra random calls.
+ */
+static void ctcFillMissingPads(void)
+{
+	struct ctcspawnpadsperteam *bases = g_ScenarioData.ctc.spawnpadsperteam;
+	s16 inplay[ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam)];
+	s16 homes[ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam)];
+	s16 needhome[ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam)];
+	s16 added[ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam)];
+	s16 anchors[ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam)];
+	s16 anchorslots[ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam)];
+	s32 numinplay = 0;
+	s32 numhomes = 0;
+	s32 numneed = 0;
+	s32 numadded = 0;
+	s32 numanchors = 0;
+	s32 team;
+	s32 i;
+	s32 j;
+
+	for (team = 0; team < (s32)ARRAYCOUNT(g_ScenarioData.ctc.teamindexes); team++) {
+		s32 slot = g_ScenarioData.ctc.teamindexes[team];
+
+		if (g_ScenarioData.ctc.playercountsperteam[team] == 0 || slot < 0 || slot >= CTC_NUM_BASES) {
+			continue;
+		}
+
+		inplay[numinplay++] = slot;
+
+		if (scenarioPadIsInRoom(bases[slot].homepad)) {
+			homes[numhomes++] = bases[slot].homepad;
+		} else {
+			needhome[numneed++] = slot;
+		}
+	}
+
+	if (numneed > 0) {
+		numadded = scenarioFallbackFarthestPads(added, numneed, homes, numhomes, "CTC");
+
+		for (i = 0; i < numneed; i++) {
+			s32 slot = needhome[i];
+
+			if (i < numadded) {
+				sysLogPrintf(LOG_NOTE, "CTC: base %d had no usable home pad (pad %d); home pad now %d (B-1126)",
+					slot, bases[slot].homepad, added[i]);
+				bases[slot].homepad = added[i];
+			} else {
+				sysLogPrintf(LOG_ERROR, "CTC: base %d has no usable home pad (pad %d) and no walkable pad is left (B-1126)",
+					slot, bases[slot].homepad);
+			}
+		}
+	}
+
+	// Respawn pads belong to the nearest base, so every base in play is an anchor
+	for (i = 0; i < numinplay; i++) {
+		if (scenarioPadIsInRoom(bases[inplay[i]].homepad)) {
+			anchorslots[numanchors] = inplay[i];
+			anchors[numanchors] = bases[inplay[i]].homepad;
+			numanchors++;
+		}
+	}
+
+	for (i = 0; i < numanchors; i++) {
+		s32 slot = anchorslots[i];
+		s16 pads[ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam[0].spawnpads)];
+		s32 numpads;
+
+		if (ctcBaseHasRespawnPad(slot)) {
+			continue;
+		}
+
+		numpads = scenarioFallbackNearestPads(pads, CTC_NUM_SPAWNPADS, i, anchors, numanchors, "CTC");
+
+		if (numpads <= 0) {
+			sysLogPrintf(LOG_ERROR, "CTC: base %d has no usable respawn pad and none was found near home pad %d (B-1126)",
+				slot, bases[slot].homepad);
+			continue;
+		}
+
+		for (j = 0; j < CTC_NUM_SPAWNPADS; j++) {
+			bases[slot].spawnpads[j] = j < numpads ? pads[j] : -1;
+		}
+
+		bases[slot].numspawnpads = numpads;
+
+		sysLogPrintf(LOG_NOTE, "CTC: base %d had no usable respawn pad; added %d around home pad %d (B-1126)",
+			slot, numpads, bases[slot].homepad);
+	}
+}
+
 void ctcInitProps(void)
 {
 	struct mpchrconfig *mpchr;
@@ -271,6 +395,8 @@ void ctcInitProps(void)
 		// empty
 	}
 
+	ctcFillMissingPads();
+
 	for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.tokens); i++) {
 		g_ScenarioData.ctc.tokens[i] = NULL;
 	}
@@ -291,7 +417,7 @@ void ctcInitProps(void)
 		tmp->base.hidden2 &= ~OBJH2FLAG_CANREGEN;
 		tmp->team = 0;
 
-		g_ScenarioData.ctc.baserooms[0] = g_ScenarioData.ctc.tokens[0]->rooms[0];
+		g_ScenarioData.ctc.baserooms[0] = g_ScenarioData.ctc.tokens[0] ? g_ScenarioData.ctc.tokens[0]->rooms[0] : -1;
 	}
 
 	if (g_ScenarioData.ctc.playercountsperteam[1] != 0) {
@@ -306,7 +432,7 @@ void ctcInitProps(void)
 		tmp->base.hidden2 &= ~OBJH2FLAG_CANREGEN;
 		tmp->team = 1;
 
-		g_ScenarioData.ctc.baserooms[1] = g_ScenarioData.ctc.tokens[1]->rooms[0];
+		g_ScenarioData.ctc.baserooms[1] = g_ScenarioData.ctc.tokens[1] ? g_ScenarioData.ctc.tokens[1]->rooms[0] : -1;
 	}
 
 	if (g_ScenarioData.ctc.playercountsperteam[2] != 0) {
@@ -321,7 +447,7 @@ void ctcInitProps(void)
 		tmp->base.hidden2 &= ~OBJH2FLAG_CANREGEN;
 		tmp->team = 2;
 
-		g_ScenarioData.ctc.baserooms[2] = g_ScenarioData.ctc.tokens[2]->rooms[0];
+		g_ScenarioData.ctc.baserooms[2] = g_ScenarioData.ctc.tokens[2] ? g_ScenarioData.ctc.tokens[2]->rooms[0] : -1;
 	}
 
 	if (g_ScenarioData.ctc.playercountsperteam[3] != 0) {
@@ -336,13 +462,28 @@ void ctcInitProps(void)
 		tmp->base.hidden2 &= ~OBJH2FLAG_CANREGEN;
 		tmp->team = 3;
 
-		g_ScenarioData.ctc.baserooms[3] = g_ScenarioData.ctc.tokens[3]->rooms[0];
+		g_ScenarioData.ctc.baserooms[3] = g_ScenarioData.ctc.tokens[3] ? g_ScenarioData.ctc.tokens[3]->rooms[0] : -1;
 	}
 
 	for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.playercountsperteam); i++) {
 		if (g_ScenarioData.ctc.playercountsperteam[i] && g_ScenarioData.ctc.baserooms[i] != -1) {
 			roomSetLightOp(g_ScenarioData.ctc.baserooms[i], LIGHTOP_HIGHLIGHT, 0, 0, 0);
 		}
+	}
+
+	// PC (B-1126): where each team's case went, for logs and smokes
+	for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.playercountsperteam); i++) {
+		s32 slot = g_ScenarioData.ctc.teamindexes[i];
+
+		if (g_ScenarioData.ctc.playercountsperteam[i] == 0 || slot < 0 || slot >= CTC_NUM_BASES) {
+			continue;
+		}
+
+		sysLogPrintf(g_ScenarioData.ctc.baserooms[i] > 0 ? LOG_NOTE : LOG_ERROR,
+			"CTC: team %d case on base %d pad=%d room=%d respawnpads=%d prop=%s",
+			i, slot, g_ScenarioData.ctc.spawnpadsperteam[slot].homepad, g_ScenarioData.ctc.baserooms[i],
+			g_ScenarioData.ctc.spawnpadsperteam[slot].numspawnpads,
+			g_ScenarioData.ctc.tokens[i] ? "ok" : "none");
 	}
 }
 
@@ -466,6 +607,14 @@ bool ctcChooseSpawnLocation(f32 arg0, struct coord *pos, RoomNum *rooms, struct 
 {
 	struct chrdata *chr = prop->chr;
 	s32 index = radarGetTeamIndex(chr->team);
+
+	// PC (B-1126): a team with no base assigned yet (before ctcInitProps, or a
+	// team that had no players then) has no slot to read
+	if (index < 0 || index >= (s32)ARRAYCOUNT(g_ScenarioData.ctc.teamindexes)
+			|| g_ScenarioData.ctc.teamindexes[index] < 0
+			|| g_ScenarioData.ctc.teamindexes[index] >= CTC_NUM_BASES) {
+		return false;
+	}
 
 	if (g_ScenarioData.ctc.spawnpadsperteam[g_ScenarioData.ctc.teamindexes[index]].numspawnpads > 0) {
 		*arg4 = playerChooseSpawnLocation(arg0, pos, rooms, prop,
