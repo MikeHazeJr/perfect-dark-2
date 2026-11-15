@@ -18,7 +18,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 390,
+  "timeout_seconds": 520,
   "install_state": "clean",
   "processes": [
     {
@@ -38,7 +38,7 @@
         "3",
         "--host-autostart",
         "--match-timelimit-sec",
-        "35"
+        "150"
       ],
       "wait_for": "NET: created server on port 27241",
       "wait_timeout_seconds": 120
@@ -63,9 +63,9 @@
       "comment": "Both processes share this schedule. The host arms --listen-bind and fires netStartServer on the first mainTick where g_NetInit is true (-> 'NET: created server on port 27200', the runner's barrier), seeds g_MatchConfig from --launch-mp-room, and arms --host-autostart. The client arms --connect-host and connects after the barrier. Once the client reaches CLSTATE_LOBBY on the host (slot 1) and a ~2s settle elapses, --host-autostart fires netLobbyRequestStartWithSims exactly once; the ready gate runs a 3s countdown (client answers manifest READY), then SVC_STAGE_START loads the arena on both sides. The match ends at the forced 35s time limit."
     },
     {
-      "at_ms": 330000,
+      "at_ms": 445000,
       "type": "exit",
-      "comment": "Scripted clean exit at 330s. Budget on the D: hard disk (first run 2026-11-14): the host reached --host-autostart at 194s because the client needed about 130s to boot and register the catalog, so a 200s exit cut the match 2.5s in. 330s covers that boot, the ~2s settle, the 3s countdown, the Felicity load on both sides, the 35s match and the end screen; timeout_seconds=390 backstops it. The client emits SMOKE: result=scripted_exit; the host may be reaped by the runner watchdog after an active loopback session, so the scripted-exit count is min:1 (client), not 2."
+      "comment": "Scripted clean exit at 445s. Budget on the D: hard disk: the host reached --host-autostart at about 194s in the first runs (the client needs about 130s to boot and register the catalog), then the ~2s settle, the 3s countdown, the Complex load on both sides, the 150s match (long enough for kills and points; the 35s runs had none or one) and the end screen: about 375s, so 445s leaves a 70s margin; timeout_seconds=520 backstops it. The client emits SMOKE: result=scripted_exit; the host may be reaped by the runner watchdog after an active loopback session, so the scripted-exit count is min:1 (client), not 2."
     }
   ],
   "assertions": {
@@ -74,7 +74,7 @@
       "BOOT: --listen-bind armed: port=27241",
       "BOOT: --connect-host armed: addr='127.0.0.1:27241'",
       "BOOT: --host-autostart armed",
-      "BOOT: --match-timelimit-sec armed: seconds=35",
+      "BOOT: --match-timelimit-sec armed: seconds=150",
       "BOOT: --launch-mp-room arena='base:arena_mp_complex' scenario='base:king_of_the_hill' bots=3",
       "BOOT: --listen-bind consumed: port=27241 .*result=OK rc=0",
       "BOOT: --connect-host consumed: addr='127.0.0.1:27241' result=OK rc=0",
@@ -138,7 +138,9 @@
       "SCENARIO\\.STATE: dropped scenario=",
       "SCENARIO\\.STATE: send failed",
       "not a room of this stage",
-      "NET: scenario state append failed"
+      "NET: scenario state append failed",
+      "BOT\\.PICKUP: client skipped",
+      "NET: malformed or unknown message 0x4[dD]"
     ],
     "required_counts": [
       {
@@ -189,6 +191,18 @@
         "pattern": "SCENARIO\\.STATE: first state from host scenario=4",
         "min": 1,
         "max": 1
+      },
+      {
+        "pattern": "BOT\\.PICKUP: host sent simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.PICKUP: client replayed simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.DROP: host announced simulant",
+        "min": 0
       }
     ]
   }
