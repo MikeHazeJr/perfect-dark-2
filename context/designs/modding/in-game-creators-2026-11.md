@@ -221,9 +221,10 @@ Foundation, in order. Each step lands with tests that run in CI.
    and the crystals are not visible yet. Status and next steps are in
    `maian-crystal-pistol-handoff.md` section 9.
 8. B-1149 (view position of a mod made from a base gun) is fixed in the
-   author (8f0ac3a3) and still has to be seen in a game run
-   (`mod_author_weapon_play_smoke`; it stays red for B-1151 until mod
-   weapons have ammo).
+   author (8f0ac3a3) and seen in the game on 2026-11-15: the Falcon copy is
+   held at the lower right. `mod_author_weapon_play_smoke` stays red, 20/21,
+   for B-1151 only, until mod weapons have ammo. New from that run: B-1154,
+   the copy's surface looks striped.
 
 Found along the way, recorded in `context/bugs.md`: B-1140 (shared INI parser
 hangs on a section line with no `=`), B-1141 (mod manager shows JSON escapes
