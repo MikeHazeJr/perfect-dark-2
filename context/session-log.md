@@ -10768,3 +10768,40 @@ Next
 - The base 5 turn: release campaign, specials, sky screenshots, Complex
   match, the two depth smokes. Then base 6; publish extract-4 and base 5 if
   the turn passes.
+
+## 2026-11-15 (21:20-23:10 UTC) - CORE: other sessions' bug notes, base 5 in game, B-1177, base 6, extract-5
+
+What happened
+- Mike asked whether CORE saw other sessions' bug notes (a mod ammo collision
+  bug): CORE had missed rows on other branches and one To CORE request.
+  Swept them (memory feedback_sweep_other_sessions_bugs): B-1156 hub fix
+  (800cf9b6, one commit on dev: week-pd/hubfix c660986a, Mike's merge),
+  B-1153 quiet optional model metadata (f06cab7e), B-1150/B-1151 already fixed
+  by CRYSTAL (6e43ca22), CRYSTAL's B-1187/B-1189/B-1212 are scenario-source
+  engine bugs (shots through walls, sticky projectiles through floors,
+  generated models unhittable) fixed on their branch and entangled with the
+  pistol code; CORE recommends that branch merge early. Answered MULTIPLAYER's
+  20:55 co-op stage-end question. Also B-1157 custom slot world scale
+  (482c7e00) and the global AI lists design note (1462b92a).
+- Base 5 turn (22:05-22:33 UTC, frozen clients): release campaign 54/54,
+  specials 42/42, sky screenshots 9/9 each with the base 5 client;
+  mp_arena_setup_source failed: B-1177, every multiplayer arena's crates have
+  empty slots and the setup reader refused the empty model id (fixed,
+  f3dea116; also on week-pd/extract-4 as fb883fe7). Depth smokes 15/16: sky
+  and stars visible, scene placed by the game's matrix, the probe sampled only
+  the intro cutscene (fixed). Screenshots came back from the Recycle Bin: the
+  runner keeps input-sequence captures only in multi-process runs (follow-up).
+- Base 6 made (D:\PD2-wt\shared-base-6, copy of base 5, frozen stars
+  client): extraction 122 s then nothing, sweeps and conformance pass, hub on
+  the CI only, stars on the six stages.
+- week-pd/extract-4 now = cb5e2e11 + records merge 5063e385 + B-1177 fb883fe7
+  (the records merge lets the commit hook find T-MODDING-011 there; a plumbing
+  commit to skip the hook was refused by the auto-mode classifier, rightly);
+  week-pd/extract-5 = extract-4 + hub + stars (a222beef, 79cb94e3), standalone
+  pd-tests 1,887 cases. Both pushed, not announced yet.
+
+Next
+- Base 6 turn (queued, position 2): release, specials, Complex with the
+  extract-5 client; depth smokes with CORE's client. If it passes: publish
+  base 6 with extract-5 (and base 5 with extract-4) in the week note.
+- Follow-up: the runner's single-process retain_artifacts (a reviewed change).
