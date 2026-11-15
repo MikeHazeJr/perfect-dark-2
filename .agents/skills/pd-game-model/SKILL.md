@@ -113,7 +113,8 @@ add-on's SDK with the `geo_utils` stub, see the script's header):
    - One input image leaves the unseen sides to Tripo's guess (the vehicle's
      rear came back invented). When the back matters, use multiview, or plan
      to rebuild the unseen side in clean-up.
-3. **Review** renders (`scripts/render_views.py ... studio`) before clean-up.
+3. **Review** renders (`scripts/render_views.py ... studio`; `clay` shows the
+   shape alone, for judging creases and silhouette) before clean-up.
 
 ## 4. Blender clean-up
 
@@ -124,6 +125,22 @@ yaw axis), sockets as named empties (seats, muzzle, crystal seats, boost
 points), bake the textures to 1024 then a 128 px base colour, export glTF and
 FBX, write a sockets JSON with transforms in the PD frame.
 
+- **Editing a Tripo mesh.** It comes split along every UV seam (the vehicle:
+  8,573 vertices, 3,117 once welded) and carries custom normals. Before moving
+  any vertex, weld it (`bmesh.ops.remove_doubles`; UVs stay per face corner) or
+  the two sides of each seam move apart. Move the surface by smooth functions
+  of position, never by a vertex-normal threshold, which folds it. Keep
+  Tripo's normals wherever the shape did not change (sample them from the
+  original mesh with a BVH tree): clearing them shows its big flat triangles
+  everywhere. Measure outlines from cross-sections (edges cut by a plane), not
+  from vertices, which are sparse on long faces.
+- **Sharpened edges** (crisp feature lines, e.g. a hull's chine or a nose
+  spine): cut an edge loop on the line, move both sides with a falloff that
+  peaks on it, and blend split normals in on the crease only. The Maian
+  vehicle's `scripts/sharpen_edges.py` in its asset folder does this, with the
+  crease angle as an argument; run it after the decimate, so the decimate
+  cannot smooth the crease away, and show the owner two strengths side by
+  side.
 - **Stateful pieces** (crystals): one piece per state (full, regrowing,
   charged or hot, and black or empty as the design needs), origin on its seat,
   plus a regrow clip (node scale from 0.1 to 1 about the seat). Reuse the
