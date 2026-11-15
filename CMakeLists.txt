@@ -952,6 +952,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_bondgun_cache.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_checked.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_spawn_predicate.cpp
+  # B-1125: spaced fallback placement pads for multiplayer scenarios (pure).
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_pad_fallback.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_tiny_mode_spawn_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_bodies_headcount.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_integrated_head_guard.cpp
@@ -1189,6 +1191,7 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/bondgun_cache.c
   ${CMAKE_SOURCE_DIR}/port/src/catalog_checked.c
   ${CMAKE_SOURCE_DIR}/port/src/spawn_predicate.c
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_pad_fallback.c
   ${CMAKE_SOURCE_DIR}/port/src/bodies_headcount.c
   ${CMAKE_SOURCE_DIR}/port/src/options_forced.c
   # c3844 Gate 2: catalog-owned private body/head slot allocator. Depends only

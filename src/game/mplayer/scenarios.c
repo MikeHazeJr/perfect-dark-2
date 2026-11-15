@@ -40,6 +40,7 @@
 #include "types.h"
 #include "assetcatalog.h"   /* catalog universality sweep (2026-04-27) */
 #include "asset_runtime.h"  /* c3849 Wave 6a: gamemode meta-family consumer */
+#include "scenario_pad_fallback.h"  /* B-1125: placement pads for arenas that carry too few */
 
 /**
  * There are six multiplayer scenarios:
@@ -167,6 +168,121 @@ MenuItemHandlerResult menuhandlerMpSlowMotion(s32 operation, struct menuitem *it
 	}
 
 	return 0;
+}
+
+/**
+ * PC (B-1125): whether a pad can carry a scenario object, and where it is.
+ *
+ * setupCreateObject only places an object on a pad that is in a room
+ * (room > 0), and scenario banks treat pad numbers <= 0 as empty. A pad on a
+ * lift is refused too: the object would ride the lift.
+ */
+static s32 scenarioPadCanHoldProp(s32 padnum, struct scenariopadpick *pick)
+{
+	struct pad pad;
+
+	if (padnum <= 0) {
+		return false;
+	}
+
+	padUnpack(padnum, PADFIELD_POS | PADFIELD_ROOM | PADFIELD_FLAGS | PADFIELD_LIFT, &pad);
+
+	if (pad.room <= 0 || pad.liftnum != 0 || (pad.flags & (PADFLAG_AIWAITLIFT | PADFLAG_AIONLIFT))) {
+		return false;
+	}
+
+	pick->padnum = padnum;
+	pick->x = pad.pos.x;
+	pick->z = pad.pos.z;
+
+	return true;
+}
+
+/**
+ * PC (B-1125): walkable pads for scenario objects on an arena that carries
+ * too few placement pads of its own.
+ *
+ * Hacker Central takes its terminal and data uplink pads from the arena's
+ * Capture the Case pads (intro CASE and CASERESPAWN commands) and any
+ * multiplayer ammo crates. Arenas extracted today carry neither, and mod
+ * arenas or solo maps used as arenas may not either.
+ *
+ * The candidates are the arena's navigation waypoints, the same source the
+ * spawn fallback in playerReset uses, or every pad in a room when the arena
+ * has no waypoints. existing[0..numexisting) are the pads the scenario
+ * already has: they stay, and the new pads are spaced from them (widest
+ * spacing first, see scenario_pad_fallback.h). Picks use rngRandom, so peers
+ * that set up the same stage with the same seed pick the same pads.
+ *
+ * Writes up to maxout new, distinct pads to outpads and returns the number
+ * written.
+ */
+static s32 scenarioFallbackPads(s16 *outpads, s32 maxout, const s16 *existing, s32 numexisting, const char *who)
+{
+	static struct scenariopadpick cands[SCENARIO_PAD_FALLBACK_MAX_CANDIDATES];
+	struct scenariopadpick chosen[64];
+	const char *source = "none";
+	s32 numcands = 0;
+	s32 count = 0;
+	s32 total;
+	s32 i;
+
+	if (outpads == NULL || maxout <= 0) {
+		return 0;
+	}
+
+	// Pads the scenario already has keep their places; new picks avoid them
+	for (i = 0; existing && i < numexisting && count < (s32)ARRAYCOUNT(chosen); i++) {
+		struct pad pad;
+
+		if (existing[i] <= 0) {
+			continue;
+		}
+
+		padUnpack(existing[i], PADFIELD_POS, &pad);
+		chosen[count].padnum = existing[i];
+		chosen[count].x = pad.pos.x;
+		chosen[count].z = pad.pos.z;
+		count++;
+	}
+
+	if (maxout > (s32)ARRAYCOUNT(chosen) - count) {
+		maxout = (s32)ARRAYCOUNT(chosen) - count;
+	}
+
+	if (g_StageSetup.waypoints) {
+		struct waypoint *wpts = g_StageSetup.waypoints;
+
+		for (i = 0; wpts[i].padnum >= 0 && numcands < (s32)ARRAYCOUNT(cands); i++) {
+			if (scenarioPadCanHoldProp(wpts[i].padnum, &cands[numcands])) {
+				numcands++;
+			}
+		}
+
+		source = "waypoint";
+	}
+
+	if (numcands == 0 && g_PadsFile) {
+		for (i = 1; i < g_PadsFile->numpads && numcands < (s32)ARRAYCOUNT(cands); i++) {
+			if (scenarioPadCanHoldProp(i, &cands[numcands])) {
+				numcands++;
+			}
+		}
+
+		source = "pad";
+	}
+
+	total = scenarioPadPickSpaced(chosen, count, count + maxout, count + maxout, cands, numcands, rngRandom);
+
+	for (i = count; i < total; i++) {
+		outpads[i - count] = chosen[i].padnum;
+	}
+
+	sysLogPrintf(total - count > 0 ? LOG_NOTE : LOG_WARNING,
+		"SCENARIO.PADS: %s fallback added %d of %d pad(s) from %d %s candidate(s), existing=%d",
+		who ? who : "?", total - count, maxout, numcands, source, count);
+
+	return total - count;
 }
 
 // Include the code files where each scenario implements its callbacks
@@ -1231,6 +1347,15 @@ struct prop *scenarioCreateObj(s32 modelnum, s16 padnum, f32 arg2, u32 flags, u3
 	obj->hidden2 &= ~OBJHFLAG_DELETING;
 
 	setupCreateObject(obj, 123);
+
+	/* PC (B-1125): setupCreateObject creates no prop when the pad is in no
+	 * room or the model failed to load; activating NULL would crash. */
+	if (obj->prop == NULL) {
+		sysLogPrintf(LOG_WARNING, "SCENARIO: object model=%d not created on pad %d (pad in no room or model missing)",
+			modelnum, (s32)padnum);
+		return NULL;
+	}
+
 	propActivate(obj->prop);
 	propEnable(obj->prop);
 

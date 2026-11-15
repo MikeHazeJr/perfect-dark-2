@@ -1,6 +1,31 @@
 # Bug Tracker
 
-## 2026-11-15 B-1125 Hacker Central divides by zero when the arena has no multiplayer ammo crates (T-NETWORKING-011)
+## 2026-11-15 B-1126 Capture the Case, King of the Hill and Hold the Briefcase lose their arena positions on extracted arenas (T-NETWORKING-011)
+
+Severity high for Capture the Case (the mode cannot be played as designed),
+medium for King of the Hill and Hold the Briefcase. Found by the propagation
+check for B-1125; same root cause. These scenarios take their places from the
+arena's intro commands, which the extracted arenas do not carry (see B-1125):
+- Capture the Case: each team's case goes on its `INTROCMD_CASE` home pad and
+  its players respawn on `INTROCMD_CASERESPAWN` pads. With none,
+  `spawnpadsperteam[].homepad` stays -1 and `ctcInitProps` places every case on
+  pad -1, so `setupCreateObject` creates it off-world: there is no case to take,
+  and no base room. `mp_capture_the_case_local_smoke` still passes (25/25,
+  2026-11-15) because it asserts only the match lifecycle.
+- King of the Hill: hills are `INTROCMD_HILL` pads. With fewer than two,
+  `kohInitProps` and the hill move in `kohTick` both use pad 0, so the hill is
+  always the room of pad 0 and never moves (no crash: both paths guard
+  `hillcount >= 2`).
+- Hold the Briefcase: `htbCreateToken` replaces a random multiplayer ammo crate,
+  else a random case pad, else pad 0. With neither, the briefcase starts and
+  respawns on pad 0 in every match.
+Fix options: (1) CORE carries the intro CASE, CASERESPAWN and HILL commands
+through extraction and the runtime intro builder (restores the original
+places on every arena; asked in the week note); (2) the walkable-pad fallback
+from B-1125 for arenas that still lack them, for example mod arenas. (2) changes
+how the modes place things on such arenas, so it waits for Mike. Class: SP-80.
+
+## 2026-11-15 B-1125 Hacker Central divides by zero when the arena has too few placement pads (T-NETWORKING-011)
 
 Severity high (crash at match start). `mp_hacker_central_local_smoke` (offline,
 Complex, three simulants, shared base 2, build 77049d63; receipt
@@ -8,26 +33,61 @@ Complex, three simulants, shared base 2, build 77049d63; receipt
 crashed in `scenarioInitProps` right after the simulants spawned:
 `EXCEPTION 0xc0000094` (integer divide by zero) at
 `htmInitProps`, `src/game/mplayer/scenarios/hackthatmac.inc:305`
-(`rand = rngRandom() % data->numpads;`, symbolized with addr2line). `numpads`
-counts the `MODEL_MULTI_AMMO_CRATE` objects among the active props, and it was
-0. The same loop also hangs forever when there are fewer usable crate pads than
-`htmNumProps()`: the inner `do ... while (padnum <= 0)` can no longer find an
-unused pad. Not B-1113: the rerun on shared base 3 with `week-pd/extract-2`
-merged crashes the same way (`results-20261115T005428Z.json`). Root cause (an
-extraction-output gap, CORE's area): the multiplayer arenas' public scenario
-source carries no setup objects. In shared base 3, 16 of 18
-`base_scenario_mp_*.pdscenario` archives have an empty `objects.json` (60 bytes)
-and an empty `setup.fields.json` (`"rows": []`); only Ravine and Sewers have
-rows. Loading Complex allocates `numobjs=2` (the training stage before it: 254).
-Multiplayer pickups come from setup objects: `WEAPON_MPLOCATION00`..`15` weapon
-objects (`setup.c`, mapped through the weapon set) and the multiplayer ammo
-crates tied to those locations. So on those 16 arenas a match has no weapon,
-ammo or shield pickups at all, and Hacker Central, which places its terminals
-on the crates, divides by zero. Combat, Hold the Briefcase and King of the Hill
-smokes still pass because none asserts on pickups. Handed to CORE (extraction
-owner) in the week note. Separately open for Mike, because it changes how the
-mode plays on an arena without enough crates: refuse Hacker Central there, or
-place only the terminals that fit. Until then the scenario code is unchanged.
+(`rand = rngRandom() % data->numpads;`, symbolized with addr2line). Not B-1113:
+the rerun on shared base 3 with `week-pd/extract-2` merged crashes the same way
+(`results-20261115T005428Z.json`).
+
+Cause. Hacker Central puts its terminal and its data uplink on pads from a
+bank: the arena's Capture the Case pads (`INTROCMD_CASE` and
+`INTROCMD_CASERESPAWN`, added by `scenarioReset`) plus the
+`MODEL_MULTI_AMMO_CRATE` crates among the active props (setup objects are
+created before `scenarioInitProps`). It picks `htmNumProps()` (2) distinct
+entries. An empty bank divides by zero; a bank with fewer usable entries than
+that never leaves the inner `do ... while (padnum <= 0)`. The extracted arenas
+carry neither source (an extraction-output gap, CORE's area):
+- No setup objects on 16 of 18 arenas: in shared base 3,
+  `base_scenario_mp_*.pdscenario` has an empty `objects.json` (60 bytes) and
+  `setup.fields.json` (`"rows": []`) for all but Ravine and Sewers. Complex
+  allocates `numobjs=2` (the training stage before it: 254). So those arenas
+  also have no weapon, ammo or shield pickups (`WEAPON_MPLOCATION00`..`15` and
+  the crates are setup objects); the spawn-with-weapon fallback hides that.
+- No intro case or hill pads on any arena: the extractor
+  (`s_buildIntroSpawnsTable`, `port/src/romextract_pdarena.c`) writes only
+  `INTROCMD_SPAWN` rows to `spawns.json` (and those rows are empty on all 18
+  arenas), and `port/src/scenario_source_runtime.c` rebuilds the intro script
+  from `spawns.json` alone. Spawns work only through the waypoint fallback in
+  `playerReset` (`SPAWN: populated 24 spawn points from 144 navmesh waypoints`).
+Asked CORE in the week note. Same class: B-1126, SP-80.
+
+Fix (Mike, 2026-11-15: "can we place some so there are enough?"):
+- `htmTopUpBank`: when the bank has fewer distinct usable pads than the mode
+  needs, fill it to `HTM_FALLBACK_BANK_PADS` (8) with walkable pads. Candidates
+  (`scenarioFallbackPads`, `src/game/mplayer/scenarios.c`) are the arena's
+  navigation waypoints, the source the spawn fallback uses, or every pad in a
+  room when there are none; a pad must be in a room (room > 0, the condition
+  under which `setupCreateObject` places an object) and not on a lift. The
+  pure picker `scenarioPadPickSpaced` (`port/src/scenario_pad_fallback.c`)
+  shuffles the candidates once with `rngRandom` and takes pads at the widest
+  spacing that reaches the target (1000, 500, 250, 125, then 0 units), never a
+  pad twice and never one the bank already has. A bank that is already big
+  enough is left alone, so full arenas keep the original placement and random
+  sequence.
+- The selection loop asks for at most as many picks as the bank has usable
+  entries, and a terminal with no pad is skipped with an error instead of being
+  created off-world.
+- The uplink, when no crate is left to replace, takes only bank entries that
+  are still pads and not under the terminal. The original took any entry,
+  including the -1 the terminal selection leaves, so the uplink was created
+  off-world and `htmTick` created it again (a new prop each try) until a pick
+  landed on a real pad. When no entry is left it uses the pad the selection
+  reserved for the uplink, else pad 0 as before.
+- `scenarioCreateObj` returns NULL instead of activating a NULL prop when the
+  pad is in no room or the model fails to load.
+- Logs: `HTM: bank had N usable pad(s) of 2 needed; added M walkable pad(s)`,
+  `HTM: terminal 0 placed pad=P prop=ok`, `HTM: uplink placed pad=P source=...`.
+Tests: `tests/test_scenario_pad_fallback.cpp` (12 cases).
+`mp_hacker_central_local_smoke` now also requires the terminal and the uplink
+on real pads and forbids the no-pad errors.
 
 ## 2026-11-14 B-1124 Two-process smokes on a shared install ran against the real user profile (T-NETWORKING-011)
 

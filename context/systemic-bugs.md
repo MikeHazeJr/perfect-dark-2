@@ -3463,3 +3463,49 @@ leaf join. A dependency's existence or standalone load cannot prove the parent
 bound that generation. Missing/incomplete discovery remains pending. Standard
 MTL parsing and the joined ledger regression pass; native texture extension is
 unbuilt/unrun. Search: rg -n 'material_dependencies|dependency_scan|dependency_bindings|selected_coverage' tools/asset-inspection-*.py.
+
+## SP-80: Scenario setup assumes the arena brings its own placement data
+
+**Severity: HIGH - a scenario can crash at match start or start without the
+objects it is about, and a lifecycle-only smoke still passes.**
+
+Multiplayer scenarios place their objects on positions the arena's setup data
+provides: the intro command list (`INTROCMD_CASE`, `INTROCMD_CASERESPAWN`,
+`INTROCMD_HILL`, read in `scenarioReset`) and setup objects (multiplayer ammo
+crates and `WEAPON_MPLOCATION` weapons). The original code assumes every arena
+has them, because every shipped arena did. Arenas that lack them (extracted
+arenas today, mod arenas, solo maps used as arenas) reach code that divides by
+the count, loops until it finds an unused entry, or places an object on pad -1
+(`setupCreateObject` then creates it off-world).
+
+**Known instances (2026-11-15):** B-1125 (Hacker Central: divide by zero in
+`htmInitProps`, endless selection loop with too few pads, uplink created
+off-world and re-created every tick); B-1126 (Capture the Case cases off-world,
+King of the Hill fixed on the room of pad 0, Hold the Briefcase always on
+pad 0). The data gap: the scenario source carries only `INTROCMD_SPAWN` rows
+(`spawns.json`), so no arena has case or hill pads, and 16 of 18 arenas have no
+setup objects.
+
+**Rules:**
+- Never `% count` or index a bank without checking the count first; never
+  `do ... while` an "unused entry" search without bounding the number of picks
+  by the usable entries.
+- Never place an object on a pad < 0 or on a pad with no room; check the pad,
+  or use the result of `scenarioCreateObj`, which returns NULL in that case.
+- When a scenario's own positions are too few, fill the bank with walkable
+  pads through `scenarioFallbackPads` (`src/game/mplayer/scenarios.c`,
+  picker `port/src/scenario_pad_fallback.c`) and log it, instead of falling
+  back to pad 0 or refusing silently. Whether a fallback changes how a mode
+  plays on such arenas is Mike's call per mode (approved for Hacker Central).
+- A scenario smoke asserts that its objects were placed on real pads, not only
+  that the match started and ended.
+
+**Search:**
+- `grep -n "% *g_ScenarioData\|% *data->\|% *count\b" src/game/mplayer/scenarios/*.inc`
+- `grep -n "homepad\|hillpads\|padnums\[\|tokenpad\|base.pad = " src/game/mplayer/scenarios/*.inc`
+- `grep -n "while (padnum <= 0)\|while (.*== previndex)" src/game/mplayer/scenarios/*.inc`
+
+**Audit checklist:** for each scenario, its init and respawn paths with (a) no
+intro case or hill pads, (b) no multiplayer ammo crates, (c) both. Hacker
+Central is fixed; Capture the Case, King of the Hill and Hold the Briefcase are
+open in B-1126.
