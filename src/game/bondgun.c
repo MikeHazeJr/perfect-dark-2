@@ -1842,6 +1842,45 @@ static const weapon_graph_projectile_runtime_t *bgunGetProjectileGraph(
 	return weaponGraphRuntimeGetProjectileForHeldFunction(graph);
 }
 
+/* A custom (graph) projectile leaves one line when it is spawned or fails to
+ * spawn, so "spawned but too small to see" and "never spawned" can be told
+ * apart (MODS ask in the week note, 2026-11-15). Base weapons never log.
+ * Capped per process so an automatic weapon cannot flood the log. */
+#define BGUN_CUSTOM_PROJECTILE_LOG_CAP 64
+static s32 s_BgunCustomProjectileSpawnLogs = 0;
+
+static void bgunLogCustomProjectileSpawn(const char *kind, s32 weaponnum,
+		const weapon_graph_projectile_runtime_t *projectilegraph,
+		s32 modelnum, struct defaultobj *obj, const char *failure)
+{
+	if (weaponnum < WEAPON_CUSTOM_START || projectilegraph == NULL
+			|| s_BgunCustomProjectileSpawnLogs >= BGUN_CUSTOM_PROJECTILE_LOG_CAP) {
+		return;
+	}
+
+	s_BgunCustomProjectileSpawnLogs++;
+
+	if (obj != NULL && obj->prop != NULL) {
+		sysLogPrintf(LOG_NOTE,
+			"WEAPON.GRAPH: custom projectile spawned (%s) weapon=%d asset='%s' graph='%s' modelnum=%d model_scale=%.4f pos=(%.1f, %.1f, %.1f) room=%d",
+			kind, weaponnum, projectilegraph->asset_id, projectilegraph->graph_id,
+			modelnum, obj->model ? obj->model->scale : 0.0f,
+			obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z,
+			(s32)obj->prop->rooms[0]);
+	} else {
+		sysLogPrintf(LOG_WARNING,
+			"WEAPON.GRAPH: custom projectile not spawned (%s) weapon=%d asset='%s' graph='%s' modelnum=%d: %s",
+			kind, weaponnum, projectilegraph->asset_id, projectilegraph->graph_id,
+			modelnum, failure ? failure : "unknown");
+	}
+
+	if (s_BgunCustomProjectileSpawnLogs == BGUN_CUSTOM_PROJECTILE_LOG_CAP) {
+		sysLogPrintf(LOG_NOTE,
+			"WEAPON.GRAPH: %d custom projectile spawn lines logged; later spawns are not logged",
+			BGUN_CUSTOM_PROJECTILE_LOG_CAP);
+	}
+}
+
 static const weapon_graph_entity_runtime_t *bgunGetEntityGraph(
 		const weapon_graph_held_function_t *graph)
 {
@@ -5640,6 +5679,9 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 		}
 	}
 
+	bgunLogCustomProjectileSpawn("thrown", gset->weaponnum, projectilegraph,
+		projectilemodelnum, obj, "no projectile object could be created");
+
 	return obj;
 }
 
@@ -6241,6 +6283,11 @@ void bgunCreateFiredProjectile(s32 handnum)
 					netmsgSvcPropSpawnWrite(&g_NetMsgRel, weapon->base.prop);
 					netmsgSvcPropMoveWrite(&g_NetMsgRel, weapon->base.prop, NULL);
 				}
+
+				bgunLogCustomProjectileSpawn("fired", hand->gset.weaponnum,
+					projectilegraph, projectilemodelnum,
+					failed ? NULL : &weapon->base,
+					"the projectile object has no model or no projectile state");
 #else
 				// NTSC beta doesn't have any of the failure checks
 				Mtxf sp78;
@@ -6299,6 +6346,10 @@ void bgunCreateFiredProjectile(s32 handnum)
 					}
 				}
 #endif
+			} else {
+				bgunLogCustomProjectileSpawn("fired", hand->gset.weaponnum,
+					projectilegraph, projectilemodelnum, NULL,
+					"no projectile object could be created");
 			}
 		}
 	}

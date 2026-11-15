@@ -4977,10 +4977,76 @@ bool objEmbed(struct prop *prop, struct prop *parent, struct model *model, struc
 	return false;
 }
 
+/* A custom (graph) projectile leaves one line when it lands: what it hit and
+ * whether it attached, was deleted because the prop it hit was off screen
+ * this tick, or rests on the background (MODS ask in the week note,
+ * 2026-11-15). Base weapons never log. Capped per process. */
+#define OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP 64
+static s32 s_ObjCustomProjectileLandLogs = 0;
+
+static const char *objLandTargetName(const struct prop *target)
+{
+	if (target == NULL) {
+		return "background";
+	}
+
+	switch (target->type) {
+	case PROPTYPE_CHR: return "chr";
+	case PROPTYPE_PLAYER: return "player";
+	case PROPTYPE_OBJ: return "object";
+	case PROPTYPE_DOOR: return "door";
+	case PROPTYPE_WEAPON: return "weapon";
+	default: return "prop";
+	}
+}
+
+static void objLogCustomProjectileLanding(struct defaultobj *obj,
+		const struct coord *pos, s32 attached)
+{
+	const weapon_graph_projectile_runtime_t *landgraph;
+	struct weaponobj *weapon;
+	const char *outcome;
+
+	if (obj->type != OBJTYPE_WEAPON
+			|| s_ObjCustomProjectileLandLogs >= OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP) {
+		return;
+	}
+
+	weapon = (struct weaponobj *)obj;
+	landgraph = weaponGetCustomProjectileGraph(weapon);
+
+	if (landgraph == NULL) {
+		return;
+	}
+
+	if (g_EmbedProp == NULL) {
+		outcome = "rests on the background";
+	} else if (attached) {
+		outcome = "attached";
+	} else if (obj->hidden & OBJHFLAG_DELETING) {
+		outcome = "deleted (the prop it hit was not on screen this tick)";
+	} else {
+		outcome = "not attached (no embedment slot)";
+	}
+
+	s_ObjCustomProjectileLandLogs++;
+	sysLogPrintf(LOG_NOTE,
+		"WEAPON.GRAPH: custom projectile landed weapon=%d asset='%s' on=%s: %s pos=(%.1f, %.1f, %.1f) model_scale=%.4f",
+		weapon->weaponnum, landgraph->asset_id, objLandTargetName(g_EmbedProp), outcome,
+		pos->x, pos->y, pos->z, obj->model ? obj->model->scale : 0.0f);
+
+	if (s_ObjCustomProjectileLandLogs == OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP) {
+		sysLogPrintf(LOG_NOTE,
+			"WEAPON.GRAPH: %d custom projectile landing lines logged; later landings are not logged",
+			OBJ_CUSTOM_PROJECTILE_LAND_LOG_CAP);
+	}
+}
+
 void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *embedded)
 {
 	struct defaultobj *obj = prop->obj;
 	struct prop *ownerprop = NULL;
+	s32 attached = false;
 
 	if (obj->hidden & OBJHFLAG_PROJECTILE) {
 		ownerprop = obj->projectile->ownerprop;
@@ -5060,6 +5126,7 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 		if (g_EmbedProp->flags & PROPFLAG_ONTHISSCREENTHISTICK) {
 			if (objEmbed(prop, g_EmbedProp, g_EmbedModel, g_EmbedNode)) {
 				*embedded = true;
+				attached = true;
 			}
 		} else {
 			obj->hidden |= OBJHFLAG_DELETING;
@@ -5069,6 +5136,8 @@ void objLand(struct prop *prop, struct coord *arg1, struct coord *arg2, bool *em
 
 		bgunPlayBgHitSound(&weapon->gset, arg1, -1, prop->rooms);
 	}
+
+	objLogCustomProjectileLanding(obj, arg1, attached);
 }
 
 s32 propResolveExplosionSpatial(struct prop *prop, struct coord *pos,
