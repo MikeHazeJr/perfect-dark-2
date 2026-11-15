@@ -102,25 +102,38 @@ def plain(path):
 
 LOCATION_FILE = ".claude/smoke-storage-location.json"
 
-def storage_root(project):
+LOCATION_POLICY_KEYS = {"min_free_gib", "max_full_installs", "max_full_install_gib", "max_archive_gib"}
+
+def storage_location(project):
     """Smoke storage lives in <project>/.claude/smoke-storage unless the
     project's untracked .claude/smoke-storage-location.json names another
     root: Mike's decision 6B (2026-11-15) puts test installs on the SSD while
     worktrees and builds stay on the hard disk. The named root must be an
     absolute folder below a drive root and a plain path (no reparse points);
-    the disk floor is then measured on its drive. lib/Storage-Harness.ps1
-    (Get-SmokeStorageRoot) reads the same file the same way."""
+    the disk floor for installs is then measured on its drive. The file may
+    also set that root's own limits ("policy": min_free_gib, max_full_installs,
+    max_full_install_gib, max_archive_gib; Mike, 2026-11-15: on C: "only one
+    or two at a time"). Returns (root, policy overrides).
+    lib/Storage-Harness.ps1 (Get-SmokeStorageRoot) reads the root the same way."""
     project = plain(project)
     location = project / LOCATION_FILE
     if not location.exists():
-        return plain(project / ".claude/smoke-storage")
+        return plain(project / ".claude/smoke-storage"), {}
     value = json.loads(location.read_text(encoding="utf-8-sig"))
     if not isinstance(value, dict) or value.get("schema") != 1 or not isinstance(value.get("root"), str):
         raise StorageError("Invalid smoke storage location file: " + str(location))
+    if set(value) - {"schema", "root", "policy"}:
+        raise StorageError("Unknown smoke storage location fields: " + str(location))
+    policy = value.get("policy", {})
+    if not isinstance(policy, dict) or set(policy) - LOCATION_POLICY_KEYS:
+        raise StorageError("Smoke storage location policy may set only " + ", ".join(sorted(LOCATION_POLICY_KEYS)))
     root = Path(value["root"])
     if not root.is_absolute() or len(root.parts) < 2:
         raise StorageError("Smoke storage root must be an absolute folder below a drive root")
-    return plain(root)
+    return plain(root), dict(policy)
+
+def storage_root(project):
+    return storage_location(project)[0]
 
 def relative(name):
     p = PurePosixPath(name)
@@ -261,8 +274,13 @@ class Storage:
         allowed = plain(CHECKOUT / ".claude")
         if self.project != CHECKOUT and not self.project.is_relative_to(allowed):
             raise StorageError("Isolated test project must be inside canonical .claude")
-        self.root = storage_root(self.project)
-        self.policy = policy_from(policy)
+        self.root, location_policy = storage_location(self.project)
+        # The checkout's limits guard its own drive (builds); the location
+        # file's limits apply to the storage root. An explicit policy wins.
+        self.project_policy = policy_from(policy)
+        merged = dict(location_policy)
+        merged.update(policy or {})
+        self.policy = policy_from(merged)
         self.state_path = plain(self.root / "state.json")
         self.state = {"schema": 1, "installs": {}, "blobs": {}}
         self.validated = set()
@@ -374,12 +392,16 @@ class Storage:
             self.archive_used = self.usage()
         self.preflight()
 
-    def preflight(self, pending=0, archive_pending=0):
+    def preflight(self, pending=0, archive_pending=0, build=False):
         if not isinstance(pending, int) or not isinstance(archive_pending, int) or pending < 0 or archive_pending < 0:
             raise StorageError("Pending budgets must be nonnegative integer bytes")
-        floor = self.policy["min_free_gib_bytes"]
-        growth = self.policy["extra_growth_gib_bytes"]
-        free = shutil.disk_usage(self.root).free
+        # A build writes into the checkout, so it is measured on the
+        # checkout's drive with the checkout's floor, wherever the smoke
+        # storage lives (6B: storage on C:, builds on D:).
+        policy = self.project_policy if build else self.policy
+        floor = policy["min_free_gib_bytes"]
+        growth = policy["extra_growth_gib_bytes"]
+        free = shutil.disk_usage(self.project if build else self.root).free
         if free - pending - growth < floor:
             raise StorageError(f"Disk preflight refused: free={free}, pending={pending}, reserve={growth}, floor={floor}; no evidence evicted")
         if self.archive_used is None: self.archive_used = self.usage()
@@ -1038,7 +1060,7 @@ def main():
         elif args.action == "reuse-acquire": result = storage.acquire_reuse(request)
         elif args.action == "reuse-release": result = storage.release_reuse(request)
         elif args.action == "release-interrupted": result = storage.release_interrupted(request)
-        elif args.action == "preflight": result = storage.preflight(request.get("pending_bytes", 0), request.get("archive_pending_bytes", 0))
+        elif args.action == "preflight": result = storage.preflight(request.get("pending_bytes", 0), request.get("archive_pending_bytes", 0), request.get("build", False) is True)
         else:
             rows = list(storage.state["installs"].values())
             result = {"ArchiveBytes": storage.usage(), "Installs": rows, "ReuseRuns": list(storage.state.get("reuse_runs", {}).values()), "Policy": storage.policy,

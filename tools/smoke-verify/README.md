@@ -145,10 +145,14 @@ Storage location (Mike's decision 6B, 2026-11-15): a checkout keeps its smoke st
 `.claude/smoke-storage` unless an untracked `.claude/smoke-storage-location.json` names
 another root, for example an SSD while the worktree stays on a hard disk:
 `{"schema": 1, "root": "C:/Users/mikeh/Perfect-Dark-2/pd2-smoke/core"}`. The root must be
-an absolute folder below a drive root and a plain path. `storage.py` (`storage_root`) and
-the scripts (`Get-SmokeStorageRoot` in `lib/Storage-Harness.ps1`) read it by the same rule,
-and the free-disk floor is then measured on that drive. A new root starts an empty storage;
-the old one stays where it was until it is removed.
+an absolute folder below a drive root and a plain path. `storage.py` (`storage_location`)
+and the scripts (`Get-SmokeStorageRoot` in `lib/Storage-Harness.ps1`) read it by the same
+rule, and the free-disk floor for installs is then measured on that drive. The file may also
+set that root's own limits under `"policy"` (`min_free_gib`, `max_full_installs`,
+`max_full_install_gib`, `max_archive_gib`; Mike, 2026-11-15: on C: one or two installs at a
+time). An explicit `-StoragePolicy` still wins. A build's preflight is always measured on the
+checkout's own drive with the checkout's `storage-policy.json`, since the build writes there.
+A new root starts an empty storage; the old one stays where it was until it is removed.
 Multi-process tests requesting separate installs need capacity for the
 parent plus each process. These controls cover this smoke runner, including its
 optional queued build. Direct `devtools/build-session.ps1` calls also check
