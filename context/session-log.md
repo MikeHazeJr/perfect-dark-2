@@ -9994,3 +9994,63 @@ Next
 - B-1116. Then the open SP-77 items (background commands, light glares, sky
   rooms) and the behavior conversion order in the week note.
 - Still waiting on Mike: the seven decisions in the Finish Tracker.
+
+## 2026-11-15 (after midnight) - CORE: all 21 solo stages in the runner, three difficulties, input, presence and graph pad fixes
+
+Focus: prove single player beyond Agent, bring the four special assignments
+into the automated runner, and fix what those runs showed.
+
+What was done
+- Campaign fixtures at Special Agent (33/33) and Perfect Agent (33/33) pass on
+  `D:\PD2-wt\shared-base-3` (direct runs; receipts `campaign-sa-20261114`,
+  `campaign-pa-20261114` under `D:\PD2-wt\core\.claude\week-pd-receipts\`).
+- The campaign runner runs the special assignments (7f328fd8). A plan that
+  starts after Skedar Ruins leaves each end screen through its Main Menu
+  choice, waits for the menu it started from, and starts the next assignment
+  through the same production entry. It only starts an assignment the game's
+  own unlock rule offers the agent. New fixture `auto_campaign_specials`
+  (seeded agent `agent_specials.json`): 33/33 on its first run.
+- B-1116 fixed (d30fc83a): the input action name table named 105 of 121
+  actions, so the saved bindings file was cut off at the first unnamed action
+  and every start ran on default keys, and `pd.ini` got `(null)=E` lines.
+  Verified at runtime: bindings file complete (1,455 lines), no config error
+  at restart.
+- B-1118 fixed (7d67c99a): presence read in-match at the main menu for any
+  loaded agent (unsigned index compared with >= 0). Verified: presence online
+  at every menu return in the specials run.
+- B-1119 fixed (2b9fb9c9): on the graph path a character told to walk or jog
+  to its preset pad (9000) stood still, because the graph refused the raw
+  value and a refusal skips the native handler. Verified in Defense
+  (`resolved_pad=321`). Propagation: base content is covered; eight graph
+  sites still refuse 9000 for mod content (listed in the bug).
+- B-1117 recorded for Mike (decision 8 in the Finish Tracker): the PC menu
+  offers all four special assignments to every agent; the original unlocks
+  them.
+- Runner tooling for MULTIPLAYER: per-process installs are seeded from the
+  template on a `-Install` run (02bb5ec3, shared as 34848d15 on
+  `week-pd/runner`). Not run by CORE (storage still refuses new installs).
+- Corrected an earlier claim in the week note: the two graph gaps
+  (`jog_to_pad`, `if_natural_anim`) did skip the native handler.
+
+Incident
+- After the user's interruption, the stopped background task's child script
+  kept running. I resumed its remaining steps in a second script, so two
+  restart-verify clients shared one save folder and log, the first script's
+  cleanup deleted the folder under the second client, and that client wrote
+  `mod-cache` into base 3 for about three minutes. Both were mine; the folder
+  went to the Recycle Bin, the void run was redone cleanly. Lesson saved to
+  memory: list processes by command line before resuming a stopped task.
+
+Verification
+- 1,877 unit cases pass. Agent 34/34 on the final client (fda13b96), Special
+  Agent and Perfect Agent 33/33, special assignments 33/33.
+
+Next
+- The 60 second soak of all 17 missions (queued), then Natural play-through
+  by hand (Mike's decision 3 decides how much).
+- `if_natural_anim` graph gap (public source for `base:animation_idle`, or a
+  number-only comparison) and the eight mod-only preset pad sites.
+- Behavior conversion in the order of the week note's checklist.
+- Waiting on Mike: decisions 1 to 8 in the Finish Tracker, the three
+  interrupted smoke workspaces, and whether his real profile (written by the
+  network fixtures before B-1124) needs a look.
