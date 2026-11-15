@@ -291,6 +291,9 @@ Progress log:
   fires). Its one miss was a race in the ordered sequence inherited from `network_reconnect_smoke`: a 440 ms host frame
   between the weapon retire and the scripted timeout let the 250 ms retired-weapon check log before the preserve.
   3276bcce takes that check out of the ordered sequence in all six reconnect smokes (it stays a required line).
+- Second rejoin turn (binary 71486ce2): `mp_pop_a_cap_reconnect_smoke` 119/119 and `mp_capture_the_case_reconnect_smoke`
+  120/120. Every objective mode now rejoins with the host's scenario state from the v62 reconnect snapshot (the Rejoin
+  column of section 3 and finding 7).
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used

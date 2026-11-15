@@ -8,8 +8,10 @@
 - Simulants that pick up the briefcase or the uplink now do so on every
   player's screen in networked matches.
 
-- A player who drops out of a networked King of the Hill match and rejoins
-  gets the host's current hill back.
+- A player who drops out of a networked King of the Hill, Hold the
+  Briefcase, Hacker Central, Pop a Cap or Capture the Case match and rejoins
+  gets the match's current state back from the host: the hill, the
+  briefcase, the uplink, the victim, the bases and who holds what.
 
 - Simulants now score their Pop a Cap points (surviving as the victim, and
   killing the victim) and their Hacker Central download points. Players 5 to
