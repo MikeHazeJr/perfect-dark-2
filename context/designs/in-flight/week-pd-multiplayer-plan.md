@@ -218,6 +218,15 @@ Progress log:
   designated initializers (`.stagenum =`, `.mpheadnum =`, ...), slots past the authored 8 forced to
   `BOTDIFF_DISABLED`, and 5 to 8 players using the 4-player difficulty (to confirm with Mike: the original has no
   such counts). `mpconfig.jumpimpulse` has no reader.
+- Networked smokes on 21eec732 (2026-11-15, frozen binary sha256 07f86b79..., 150 s matches, 2 humans + 3 bots,
+  receipts under `D:\PD2-wt\multiplayer\.claude\smoke-storage\receipts\`): Hold the Briefcase 84/84
+  (`results-20261115T121447Z.json`; the B-1133 host crash is gone), Hacker Central 85/85
+  (`results-20261115T122843Z.json`), Capture the Case 83/83 (`results-20261115T124052Z.json`, both teams start at
+  their base, B-1134), Combat with simulants 70/70 (`results-20261115T125103Z.json`). In Hold the Briefcase and
+  Hacker Central a simulant picked up the briefcase or the uplink, the host announced it and the client replayed it
+  (one `BOT.PICKUP` sent and one replayed in each): the first in-game proof of B-1129's pickup path. No simulant drop happened in any run, so
+  `BOT.DROP` is still unproven in play. The rematch smoke never started (B-1135: its timeout was shorter than its
+  own waits); fixed and re-queued.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used

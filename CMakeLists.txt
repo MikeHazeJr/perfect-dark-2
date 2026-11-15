@@ -887,6 +887,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_host_autostart_rematch_static.cpp
   # Client read handlers read their whole message before deciding (B-1131).
   ${CMAKE_SOURCE_DIR}/tests/test_net_reader_consumes_static.cpp
+  # Every smoke schedule fits inside its own timeout (B-1135).
+  ${CMAKE_SOURCE_DIR}/tests/test_smoke_schedule_bounds_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_player_init_lifecycle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_playermgr_transaction_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_prepared_stage_transaction_static.cpp

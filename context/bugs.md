@@ -1,5 +1,21 @@
 # Bug Tracker
 
+## 2026-11-15 B-1135 Two smoke fixtures could never run: their timeout was shorter than their own waits (T-NETWORKING-011)
+
+Severity low (test tooling; no game effect, but a wasted runtime turn each time). `smokeParseJson`
+(`port/src/smoke_harness.c`) refuses a schedule whose latest event plus every `wait_until` timeout
+(plus 1 s per controller attach or detach) is not strictly below the file's `timeout_seconds`. It
+logs `SMOKE: timeout_ms=... must exceed schedule bound=...` and the run fails on every assertion.
+The refusal happens inside the game, after the runner has built the install, so nothing caught it
+earlier. Seen 2026-11-15: `mp_combat_net_rematch_smoke` (new this week; 640 s against a 730 s
+bound) failed 44/84 in 259 s without starting a match. A sweep of all 180 schedules found one more:
+`combat_sim_defect_cohort` (T-ENGINE-005; 180 s against 195 s), which explains why that gate had
+never produced a result. Fix: the timeouts are now 760 s and 210 s; neither fixture's waits
+changed. Class fix: `tests/test_smoke_schedule_bounds_static.cpp` reads every JSON file under
+`tools/smoke-verify/tests` and `fixtures` with the harness's arithmetic and fails on any schedule
+that does not fit; it also pins that arithmetic in `smoke_harness.c` so the two cannot drift. Checked
+by putting the old 640 s back: the test failed with the harness's exact numbers.
+
 ## 2026-11-15 B-1134 Capture the Case teams started the match anywhere instead of at their base (T-NETWORKING-011, finding 8)
 
 Severity medium (the mode starts wrong; respawns were right). The original placed every player on its
