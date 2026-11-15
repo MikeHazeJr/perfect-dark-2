@@ -836,6 +836,12 @@ void mainTick(void)
 		(void)bootLaunchMpMatchTick();
 	}
 
+	/* T-NETWORKING-011: --launch-challenge one-shot, same readiness gate. */
+	{
+		extern s32 bootLaunchChallengeTick(void);
+		(void)bootLaunchChallengeTick();
+	}
+
 	/* T-ENGINE-004: bounded ordinary-client Combat Simulator verifier.
 	 * Marks a fully validated deterministic kill matrix ready only after a
 	 * live offline match reaches its configured frame. mpEndMatch commits the

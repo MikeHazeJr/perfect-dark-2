@@ -223,6 +223,11 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       Simulator is the default. Co-op and Counter-Op interpret the stage ID
  *       supplied to --launch-mp-room as a typed mission map and use
  *       --difficulty; Counter-Op assigns the one remote room member as Anti.
+ *   --launch-challenge <slot>
+ *       Starts the challenge in that slot (0-based among the challenges this
+ *       profile can play) through matchStartFromChallenge, the ImGui
+ *       challenge launch, once the CI boot stage has a player.
+ *
  *       --host-autostart-matches <n> (1..8) starts n matches in the same
  *       room: after each match the start re-arms once the host has left its
  *       end screen into the room and the room is back in LOBBY, then waits
@@ -394,6 +399,13 @@ static s32         g_BootMatchTeamScoreLimit = 0;
  * surface exists. */
 static bool        g_BootDebugAutoStartMatch = false;
 static s32         g_BootLaunchMpMatchPending = 0;
+/* T-NETWORKING-011 (finding 10): --launch-challenge <slot> starts the
+ * challenge in that slot (0-based, counting only the challenges this profile
+ * can play, as challengeSetCurrentBySlot does) through the ImGui challenge
+ * launch, matchStartFromChallenge, once the CI boot stage has a player. The
+ * Room has no challenge entry yet; this lets a smoke run the fixed table. */
+static s32         g_BootLaunchChallengeSlot = -1;
+static s32         g_BootLaunchChallengePending = 0;
 /* c3845 (2026-06-23): two-process listen-host match smoke infra.
  * --host-autostart fires the SAME high-level lobby-leader start path the
  * Room "Start Match" button uses (netLobbyRequestStartWithSims), but on
@@ -1337,6 +1349,24 @@ static void bootApplyLaunchMpRoom(void)
 		g_BootLaunchMpMatchPending = 1;
 		g_PostExitMainMenuView = -1;
 	}
+}
+
+/* --launch-challenge: drop into CI like the Room entry points and arm the
+ * one-shot start (bootLaunchChallengeTick). */
+static void bootApplyLaunchChallenge(void)
+{
+	if (g_BootLaunchChallengeSlot < 0) {
+		return;
+	}
+
+	g_PostExitMainMenuView = -1;
+
+	if (g_StageNum == STAGE_TITLE) {
+		g_StageNum = STAGE_CITRAINING;
+	}
+
+	g_BootLaunchChallengePending = 1;
+	sysLogPrintf(LOG_NOTE, "BOOT: --launch-challenge armed: slot=%d", g_BootLaunchChallengeSlot);
 }
 
 /* Mike directive 2026-05-18: --debug-mp-options seed. Applied after
@@ -2855,6 +2885,7 @@ static void bootApplyCliFastPaths(void)
 	bootApplyLaunchScenario();
 	bootApplyLaunchMission();
 	bootApplyLaunchMpRoom();
+	bootApplyLaunchChallenge();
 	bootApplyDebugMpOptions();
 	if (sysArgCheck("--debug-v006-scenario-transaction")) {
 		s32 result = v006ScenarioTransactionRun();
@@ -2981,6 +3012,29 @@ s32 bootLaunchMpMatchTick(void)
 	} else {
 		combatSimVerifyOnMatchStart("direct");
 	}
+	return 1;
+}
+
+/* Called once per frame from pdmain.c's mainTick while --launch-challenge is
+ * armed: once the CI boot stage has created the player, start the challenge
+ * through the same call the ImGui challenge screen makes. */
+s32 bootLaunchChallengeTick(void)
+{
+	if (!g_BootLaunchChallengePending) {
+		return 0;
+	}
+	if (g_Vars.stagenum != STAGE_CITRAINING) {
+		return 0;
+	}
+	if (!g_Vars.players[0]
+			|| !g_Vars.players[0]->prop
+			|| !g_Vars.players[0]->prop->chr) {
+		return 0;
+	}
+
+	g_BootLaunchChallengePending = 0;
+	sysLogPrintf(LOG_NOTE, "BOOT: --launch-challenge firing: slot=%d", g_BootLaunchChallengeSlot);
+	matchStartFromChallenge(g_BootLaunchChallengeSlot);
 	return 1;
 }
 
@@ -4254,6 +4308,15 @@ int main(int argc, const char **argv)
 
 	/* Mike directive 2026-05-18: end-to-end CS smoke infra. */
 	g_BootDebugAutoStartMatch = sysArgCheck("--debug-auto-start-match") ? true : false;
+	if (sysArgCheck("--launch-challenge")) {
+		const s32 slot = sysArgGetInt("--launch-challenge", -1);
+
+		if (slot >= 0 && slot < 30) {
+			g_BootLaunchChallengeSlot = slot;
+		} else {
+			sysLogPrintf(LOG_WARNING, "BOOT: --launch-challenge expects a slot 0..29; ignored");
+		}
+	}
 	/* c3845 (2026-06-23): listen-host two-process match smoke infra. */
 	g_BootHostAutostartArmed = sysArgCheck("--host-autostart") ? true : false;
 	g_BootHostAutostartPeers = sysArgGetInt("--host-autostart-peers", 1);
