@@ -67,11 +67,23 @@ if (-not $ambiguous) { throw 'Frozen wrapper accepted a mutable binary override'
 [void](Complete-SmokeManagedInstall -ProjectRoot $project -InstallInfo $frozen -DefinitionPath $definition -Passed $true -Keep $false)
 $inventory = Invoke-SmokeStorage -Action dry-run -ProjectRoot $project
 if ($inventory.DeletionPerformed) { throw 'Dry run deleted content' }
+# B-1171: these scripts send the whole policy on every call; a storage location
+# file's own limits for its root must survive that, and unset ones follow it.
+$located = Join-Path $project 'located'
+$locatedRoot = Join-Path $located 'ssd-root'
+New-Item -ItemType Directory -Path (Join-Path $located '.claude'), $locatedRoot -Force | Out-Null
+$locationJson = @{schema=1; root=$locatedRoot.Replace('\', '/'); policy=@{max_full_installs=2; min_free_gib=0.5}} | ConvertTo-Json -Compress
+[IO.File]::WriteAllText((Join-Path $located '.claude/smoke-storage-location.json'), $locationJson)
+$locatedStatus = Invoke-SmokeStorage -Action status -ProjectRoot $located
+if ($locatedStatus.Policy.max_full_installs -ne 2 -or $locatedStatus.Policy.min_free_gib -ne 0.5) {
+    throw "The sent policy overrode the location file's limits (B-1171): $($locatedStatus.Policy | ConvertTo-Json -Compress)"
+}
+if ($locatedStatus.Policy.max_archive_gib -ne $script:SmokeStoragePolicy.max_archive_gib) { throw 'A limit the location file leaves unset did not follow the sent policy' }
 if ($env:PATH -cne $pathBeforeStorage -or $env:TEMP -cne $tempBeforeStorage -or $env:TMP -cne $tmpBeforeStorage) {
     throw 'Storage interpreter selection changed the canonical build environment'
 }
 $watch.Stop()
-$report = @{passed=$true;checks=17;seconds=$watch.Elapsed.TotalSeconds;shared_copied_bytes=$c.StorageCopiedBytes;
+$report = @{passed=$true;checks=19;seconds=$watch.Elapsed.TotalSeconds;shared_copied_bytes=$c.StorageCopiedBytes;
     shared_reused_bytes=$c.StorageReusedBytes;receipt=$receipt.Receipt;fixture_root=$project;game_launched=$false}
 $report.python_executable = $pythonExe
 $report.python_platform = $pythonPlatform

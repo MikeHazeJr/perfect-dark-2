@@ -21,6 +21,20 @@ POLICY = dict(schema=1, min_free_gib=0, max_full_installs=3,
               max_full_install_gib=65536 / 2**30, max_archive_gib=4 / 1024,
               peak_run_gib=0, extra_growth_gib=0, peak_build_gib=0)
 
+def recycle_bin_items(path):
+    """Items in the Recycle Bin of the drive holding path (Windows)."""
+    import ctypes
+    from ctypes import wintypes as w
+
+    class SHQUERYRBINFO(ctypes.Structure):
+        _fields_ = [("cbSize", w.DWORD), ("i64Size", ctypes.c_longlong), ("i64NumItems", ctypes.c_longlong)]
+
+    info = SHQUERYRBINFO(ctypes.sizeof(SHQUERYRBINFO), 0, 0)
+    drive = os.path.splitdrive(str(path))[0] + "\\"
+    if ctypes.windll.shell32.SHQueryRecycleBinW(drive, ctypes.byref(info)) != 0:
+        raise OSError("SHQueryRecycleBinW failed for " + drive)
+    return info.i64NumItems
+
 class StorageTests(unittest.TestCase):
     def setUp(self):
         self.project = BASE / self._testMethodName
@@ -38,12 +52,23 @@ class StorageTests(unittest.TestCase):
     def operation(self):
         with storage.Storage(self.project, self.policy).locked() as s: yield s
 
-    def seed(self, shared=False):
+    def seed(self, shared=False, owner_pid=None):
         with self.operation() as s:
             return s.seed(dict(name='tiny-test', target='pd', sources=[
                 [str(self.source / 'PerfectDark.exe'), 'PerfectDark.exe'],
                 [str(self.source / 'pd.unit.z64'), 'pd.unit.z64']],
-                data_source=str(self.data), rom_id='unit', shared=shared, owner_pid=os.getpid()))
+                data_source=str(self.data), rom_id='unit', shared=shared,
+                owner_pid=os.getpid() if owner_pid is None else owner_pid))
+
+    def release(self, run, reviewer='unit-reviewer', reason='interrupted unit run'):
+        with self.operation() as s:
+            return s.release_interrupted(dict(id=run['StorageId'], reviewer=reviewer, reason=reason))
+
+    @staticmethod
+    def exited_pid():
+        child = subprocess.Popen([os.sys.executable, '-c', 'pass'])
+        child.wait()
+        return child.pid
 
     def complete(self, run, passed=True, keep=False):
         with self.operation() as s:
@@ -223,6 +248,205 @@ class StorageTests(unittest.TestCase):
         self.complete(a, keep=True)
         with self.assertRaises(storage.StorageError): self.seed()
         self.assertTrue(Path(a['InstallDir']).exists())
+
+    def test_byte_budget_below_the_run_reserve_says_so(self):
+        # B-1173: CORE's C: location set max_full_install_gib 1.5 with the
+        # checked-in peak_run_gib 2, so every seed was refused as "blocked by
+        # active/pinned evidence" in an empty storage. The refusal now names
+        # the budget, before anything is written.
+        self.policy['peak_run_gib'] = 2 / 1024
+        self.policy['max_full_install_gib'] = 1 / 1024
+        with self.assertRaises(storage.StorageError) as refused:
+            self.seed()
+        self.assertIn('cannot fit one install', str(refused.exception))
+        with self.operation() as s:
+            self.assertEqual(s.state['installs'], {})
+        self.policy['max_full_install_gib'] = 3 / 1024
+        self.assertTrue(Path(self.seed()['InstallDir']).exists())
+
+    def test_discard_completed_deletes_each_install_and_keeps_its_logs(self):
+        # Mike, 2026-11-15, test installs on C:: "delete each one ... as soon
+        # as it's no longer needed". With discard_completed the full copy goes
+        # as soon as the run is recorded; its receipts and logs stay, and the
+        # install can still be rebuilt from them. A kept run stays.
+        self.policy['discard_completed'] = True
+        run = self.seed(); directory = Path(run['InstallDir'])
+        (directory / 'logs').mkdir(); (directory / 'logs/pd-client.log').write_text('run log\n')
+        receipt = self.complete(run)
+        self.assertFalse(directory.exists())
+        self.assertFalse(receipt['FullInstallRetained'])
+        self.assertGreater(receipt['DiscardedBytes'], 0)
+        self.assertEqual(Path(receipt['LogFiles'][0]).read_text(), 'run log\n')
+        with self.operation() as s:
+            row = s.state['installs'][run['StorageId']]
+            self.assertEqual(row['status'], 'compacted'); self.assertEqual(row['full_bytes'], 0)
+            s.restore(run['StorageId'], s.root / 'restored/discarded')
+            self.assertEqual((s.root / 'restored/discarded/PerfectDark.exe').read_bytes(),
+                             (self.source / 'PerfectDark.exe').read_bytes())
+        kept = self.seed(); self.complete(kept, keep=True)
+        self.assertTrue(Path(kept['InstallDir']).exists())
+        with self.assertRaises(storage.StorageError):
+            storage.policy_from(dict(POLICY, discard_completed='yes'))
+
+    def test_a_real_root_sends_discarded_installs_to_the_recycle_bin(self):
+        # Mike, 2026-11-15: test installs are deleted to the Recycle Bin and he
+        # empties it himself. Only the self-tests' own scratch roots delete for
+        # good; any other root recycles, and keeps an install Windows would
+        # delete for good instead.
+        if os.name != 'nt': self.skipTest('the Recycle Bin is Windows only')
+        root = storage.CHECKOUT / '.claude/smoke-storage-validation' / (BASE.name + '-recycle')
+        location = self.project / '.claude/smoke-storage-location.json'
+        location.write_text(json.dumps({'schema': 1, 'root': str(root),
+                                        'policy': {'discard_completed': True}}), encoding='utf-8')
+        original_refusal = storage.recycle_bin_refusal
+        try:
+            before = recycle_bin_items(root)
+            run = self.seed(); directory = Path(run['InstallDir'])
+            self.assertTrue(directory.is_relative_to(root / 'installs'))
+            receipt = self.complete(run)
+            self.assertFalse(directory.exists())
+            self.assertTrue(receipt['Recycled'])
+            self.assertGreater(receipt['DiscardedBytes'], 0)
+            self.assertGreaterEqual(recycle_bin_items(root), before + 1)
+            with self.operation() as s:
+                self.assertTrue(s.recycle)
+                row = s.state['installs'][run['StorageId']]
+                self.assertEqual(row['status'], 'compacted'); self.assertEqual(row['full_bytes'], 0)
+                self.assertIn('recycled', row); self.assertGreater(row['recycled_bytes'], 0)
+            storage.recycle_bin_refusal = lambda directory, size: 'unit: the bin is too small'
+            kept = self.seed()
+            with self.assertRaises(storage.StorageError) as caught: self.complete(kept)
+            self.assertIn('would not go to the Recycle Bin: unit: the bin is too small', str(caught.exception))
+            self.assertTrue(Path(kept['InstallDir']).exists())
+        finally:
+            storage.recycle_bin_refusal = original_refusal
+            location.unlink()
+            if root.exists(): storage.recycle_tree(storage.plain(root))
+        with self.operation() as s:
+            self.assertFalse(s.recycle)  # back on the self-test scratch root
+
+    def test_compact_deletes_named_completed_installs_now(self):
+        a, b = self.seed(), self.seed()
+        self.complete(a); self.complete(b, keep=True)
+        active = self.seed()
+        with self.operation() as s:
+            with self.assertRaises(storage.StorageError): s.compact({'ids': [active['StorageId']]})
+            with self.assertRaises(storage.StorageError): s.compact({'ids': [b['StorageId']]})
+            with self.assertRaises(storage.StorageError): s.compact({'ids': []})
+            result = s.compact({'ids': [a['StorageId']]})
+        self.assertEqual(result['Compacted'], [a['StorageId']])
+        self.assertGreater(result['FreedBytes'], 0)
+        self.assertFalse(Path(a['InstallDir']).exists())
+        self.assertTrue(Path(b['InstallDir']).exists())
+        with self.operation() as s:
+            result = s.compact({'ids': [b['StorageId'], a['StorageId']], 'unpin': True})
+        self.assertEqual(result['Compacted'], [b['StorageId']])
+        self.assertFalse(Path(b['InstallDir']).exists())
+        self.assertTrue(Path(active['InstallDir']).exists())
+
+    def test_reviewed_release_frees_an_interrupted_workspace(self):
+        # Decision 7A: an interrupted run's workspace is released after review,
+        # recorded, and then reclaimed by ordinary retention; the release
+        # itself deletes nothing.
+        self.policy['max_full_installs'] = 1
+        a = self.seed(owner_pid=self.exited_pid())
+        with self.assertRaises(storage.StorageError): self.seed()
+        with self.assertRaises(storage.StorageError): self.release(a, reviewer=' ')
+        with self.assertRaises(storage.StorageError): self.release(a, reason='')
+        result = self.release(a)
+        self.assertFalse(result['DeletionPerformed'])
+        self.assertTrue(Path(a['InstallDir']).exists())
+        self.assertTrue((Path(a['StorageReceiptDir']) / 'release.json.gz').exists())
+        with self.operation() as s:
+            row = s.state['installs'][a['StorageId']]
+            self.assertEqual((row['status'], row['passed'], row['pin']), ('completed', False, False))
+            self.assertEqual(row['released']['by'], 'unit-reviewer')
+            self.assertIn(row['released']['owner']['state'], ('exited', 'no process has this id'))
+        with self.assertRaises(storage.StorageError): self.release(a)
+        b = self.seed()
+        self.assertFalse(Path(a['InstallDir']).exists())
+        self.complete(b)
+
+    def test_reviewed_release_refuses_a_live_owner_or_produced_files(self):
+        live = self.seed()
+        with self.assertRaises(storage.StorageError): self.release(live)
+        produced = self.seed(owner_pid=self.exited_pid())
+        logs = Path(produced['InstallDir']) / 'logs'; logs.mkdir()
+        (logs / 'run.log').write_text('written by a run')
+        with self.assertRaises(storage.StorageError): self.release(produced)
+        with self.operation() as s:
+            self.assertEqual(s.state['installs'][produced['StorageId']]['status'], 'active')
+            self.assertEqual(s.state['installs'][live['StorageId']]['status'], 'active')
+        self.assertTrue((logs / 'run.log').exists())
+        self.complete(live)
+
+    def test_storage_root_follows_the_location_file(self):
+        # Decision 6B: a checkout may keep its smoke storage on another drive.
+        default = storage.storage_root(self.project)
+        self.assertEqual(default, storage.plain(self.project / '.claude/smoke-storage'))
+        location = self.project / '.claude/smoke-storage-location.json'
+        moved = self.project / 'ssd-root' / 'core'
+        location.write_text(json.dumps({'schema': 1, 'root': str(moved)}), encoding='utf-8')
+        self.assertEqual(storage.storage_root(self.project), storage.plain(moved))
+        run = self.seed()
+        self.assertTrue(Path(run['InstallDir']).is_relative_to(moved / 'installs'))
+        self.assertTrue((moved / 'state.json').exists())
+        self.assertFalse((self.project / '.claude/smoke-storage/state.json').exists())
+        self.complete(run)
+        for bad in ({'schema': 2, 'root': str(moved)}, {'schema': 1, 'root': 'relative/root'},
+                    {'schema': 1, 'root': Path(moved).anchor}, {'schema': 1},
+                    {'schema': 1, 'root': str(moved), 'extra': 1},
+                    {'schema': 1, 'root': str(moved), 'policy': {'peak_run_gib': 1}},
+                    {'schema': 1, 'root': str(moved), 'policy': 'small'}):
+            location.write_text(json.dumps(bad), encoding='utf-8')
+            with self.assertRaises(storage.StorageError): storage.storage_root(self.project)
+
+    def test_location_limits_apply_to_its_root_and_builds_measure_the_checkout(self):
+        # Mike, 2026-11-15: installs on C: "only one or two at a time". The
+        # location file's limits govern its root whatever policy the caller
+        # sends (the scripts always send the whole checked-in file: B-1171);
+        # a limit it leaves unset follows the caller; a build is measured on
+        # the checkout's own drive and floor.
+        location = self.project / '.claude/smoke-storage-location.json'
+        moved = self.project / 'ssd-root' / 'core'
+        location.write_text(json.dumps({'schema': 1, 'root': str(moved),
+            'policy': {'max_full_installs': 2, 'min_free_gib': 200}}), encoding='utf-8')
+        plain = storage.Storage(self.project, {'schema': 1})
+        self.assertEqual(plain.policy['max_full_installs'], 2)
+        self.assertEqual(plain.policy['min_free_gib'], 200)
+        defaults = json.loads((Path(storage.__file__).parent / 'storage-policy.json').read_text())
+        self.assertEqual(plain.project_policy['min_free_gib'], defaults['min_free_gib'])
+        self.assertEqual(plain.project_policy['max_full_installs'], defaults['max_full_installs'])
+        sent = storage.Storage(self.project, dict(defaults, max_full_installs=3, max_archive_gib=3))
+        self.assertEqual(sent.policy['max_full_installs'], 2)
+        self.assertEqual(sent.policy['min_free_gib'], 200)
+        self.assertEqual(sent.policy['max_archive_gib'], 3)
+        self.assertEqual(sent.project_policy['max_full_installs'], 3)
+
+        real = storage.shutil.disk_usage
+        gib = 2**30
+        def fake(path):
+            free = 0 if Path(path).resolve().is_relative_to(moved.resolve()) else 100 * gib
+            return real(self.project)._replace(free=free)
+        storage.shutil.disk_usage = fake
+        try:
+            with self.operation() as s:
+                with self.assertRaises(storage.StorageError): s.preflight(gib)
+                result = s.preflight(gib, 0, True)
+                self.assertEqual(result['free_bytes'], 100 * gib)
+        finally:
+            storage.shutil.disk_usage = real
+
+    def test_reviewed_release_writes_a_missing_owner_marker(self):
+        a = self.seed(owner_pid=self.exited_pid())
+        marker = Path(a['InstallDir']) / '.pd-storage-owner.json'
+        marker.unlink()
+        self.release(a)
+        self.assertEqual(json.loads(marker.read_text())['id'], a['StorageId'])
+        with self.operation() as s:
+            row = s.state['installs'][a['StorageId']]
+            self.assertTrue(row['released']['owner_marker'].startswith('written by the release'))
+            self.assertTrue(s.eligible(row))
 
     def test_archive_budget_and_disk_floor(self):
         self.policy['max_archive_gib']=1/2**30
