@@ -109,6 +109,30 @@ clears `OBJHFLAG_PROJECTILE` in the written value when there is no projectile. S
 (B-1129) arrive as spawns, so this matters more than before. Open: the lobby, catalog, distribution
 and admin readers the audit lists (`audit_readers.py`, session scratchpad: 27 readers return before
 their last read, most of them on purpose or on a broken buffer).
+Third pass (2026-11-15, the open list): every remaining reader and every writer that announces a row
+count was checked (a second scan, `audit_count_writers.py`, found the writers; the first scan missed
+returns inside row loops). The worst finds are in the resync transaction, which
+`netServerPublishPendingResyncs` (`net.c`) sends as one packet: character, prop, score and NPC
+resyncs, then the NPC digest, stage flags, objective statuses and the v62 scenario baseline. A short
+row anywhere garbles everything after it. Fixed: `netmsgSvcChrResyncWrite` wrote a 4-byte null
+placeholder for a simulant without a prop or aibot while the reader reads a whole row for every
+count; it now counts and writes whole rows only (it is also in the reconnect exact state, where a
+garbled message is a terminal disconnect). `netmsgSvcChrResyncRead` and `netmsgSvcPropResyncRead`
+returned 0 from inside their row loop when the client was not in the game yet, leaving the other
+rows to be read as messages; they now read every row and apply none. `netmsgSvcPlayerScoresWrite`
+wrote `g_MpNumChrs` as the count and then skipped participants without a config; it now writes the
+number of rows it sends. `netmsgSvcNpcResyncRead` declines an incomplete snapshot with 0 (it has
+read every record by then), so the digest, flags, objectives and scenario state after it still
+apply. `netmsgClcAdminRead` returned 0 for an unauthenticated or non-server command without reading
+its arguments (a desync) and 0 for an unknown subcode; it now consumes the arguments by the layout in
+`server_admin.h` and stops the packet on an unknown subcode. Checked and left as they are: the
+catalog and distribution readers (they stop only on a broken count, OOM or an empty id, and those
+are reconnect control messages that fail closed on purpose), `CLC_MANIFEST_STATUS` (every send is
+its own packet, so its early stops lose nothing; its order is a security pin), `CLC_BOT_MOVE` (its
+count check is a security pin and stops without desync), the room list (count and rows use the same
+predicate), room settings and playlist updates and the NPC "not ready" gate (they stop after or
+before a whole message, never inside one). Pinned in `tests/test_net_reader_consumes_static.cpp`
+(11 cases); the 224 `[net]` cases pass.
 
 ## 2026-11-15 B-1130 A human's Capture the Case capture never reached the clients (T-NETWORKING-011)
 

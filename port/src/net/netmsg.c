@@ -5948,8 +5948,18 @@ u32 netmsgSvcPropMoveRead(struct netbuf *src, struct netclient *srccl)
 
 u32 netmsgSvcPlayerScoresWrite(struct netbuf *dst)
 {
+	/* SP-81 (B-1131): the count on the wire is the number of rows that follow.
+	 * A participant without a config is left out of both, or the reader would
+	 * take the next messages for its row. */
+	u8 count = 0;
+	for (s32 i = 0; i < g_MpNumChrs; ++i) {
+		if (g_MpAllChrConfigPtrs[i]) {
+			count++;
+		}
+	}
+
 	netbufWriteU8(dst, SVC_PLAYER_SCORES);
-	netbufWriteU8(dst, g_MpNumChrs);
+	netbufWriteU8(dst, count);
 
 	for (s32 i = 0; i < g_MpNumChrs; ++i) {
 		struct mpchrconfig *mpchr = g_MpAllChrConfigPtrs[i];
@@ -7743,14 +7753,25 @@ u32 netmsgSvcChrResyncWrite(struct netbuf *dst)
 {
 	netbufWriteU8(dst, SVC_CHR_RESYNC);
 	netbufWriteU32(dst, g_NetTick);
-	netbufWriteU8(dst, (u8)g_BotCount);
+
+	/* SP-81 (B-1131): every row is a full row. The reader cannot tell a short
+	 * placeholder from a simulant it does not have, so it read a 4-byte null
+	 * entry as a whole row and took the following messages of this resync
+	 * transaction for it. A simulant without a prop or aibot is left out of
+	 * both the count and the rows. */
+	u8 count = 0;
+	for (s32 i = 0; i < g_BotCount; ++i) {
+		const struct chrdata *chr = g_MpBotChrPtrs[i];
+		if (chr && chr->prop && chr->aibot) {
+			count++;
+		}
+	}
+	netbufWriteU8(dst, count);
 
 	for (s32 i = 0; i < g_BotCount; ++i) {
 		struct chrdata *chr = g_MpBotChrPtrs[i];
 
 		if (!chr || !chr->prop || !chr->aibot) {
-			// Write a null prop ptr — client will skip this entry
-			netbufWriteU32(dst, 0);
 			continue;
 		}
 
@@ -7865,11 +7886,15 @@ u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)
 		// Target
 		struct prop *targetprop = netbufReadPropPtr(src);
 
-		if (src->error || srccl->state < CLSTATE_GAME) {
+		if (src->error) {
 			return src->error;
 		}
 
-		if (!prop || !prop->chr || !prop->chr->aibot || skipApply) {
+		/* SP-81 (B-1131): a client that is not in the game yet still reads every
+		 * row; returning after the first one left the rest of this resync
+		 * transaction to be read as messages. */
+		if (srccl->state < CLSTATE_GAME
+				|| !prop || !prop->chr || !prop->chr->aibot || skipApply) {
 			continue;
 		}
 
@@ -7914,7 +7939,9 @@ u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	// Reset desync counter — we just got a fresh full state
-	g_NetChrDesyncCount = 0;
+	if (srccl->state >= CLSTATE_GAME) {
+		g_NetChrDesyncCount = 0;
+	}
 
 	return src->error;
 }
@@ -8049,11 +8076,13 @@ u32 netmsgSvcPropResyncRead(struct netbuf *src, struct netclient *srccl)
 			lift_levelaim = netbufReadS8(src);
 		}
 
-		if (src->error || srccl->state < CLSTATE_GAME) {
+		if (src->error) {
 			return src->error;
 		}
 
-		if (!prop || !prop->obj) {
+		/* SP-81 (B-1131): as in the character resync, a client that is not in the
+		 * game yet reads every row and applies none. */
+		if (srccl->state < CLSTATE_GAME || !prop || !prop->obj) {
 			continue;
 		}
 
@@ -8720,7 +8749,11 @@ u32 netmsgSvcNpcResyncRead(struct netbuf *src, struct netclient *srccl)
 			"NET: SVC_NPC_RESYNC rejected incomplete snapshot tick=%u server_count=%u local_ready_count=%u",
 			tick, npccount, local_count);
 		g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_NPCS;
-		return 1;
+		/* SP-81 (B-1131): the first pass consumed every record, so declining the
+		 * snapshot costs only this message. The digest after it logs the
+		 * mismatch, and the stage flags, objective statuses and scenario state
+		 * later in the same resync transaction still apply. */
+		return 0;
 	}
 
 	src->rp = records_rp;
@@ -14534,6 +14567,31 @@ static void netmsgSvcAdminReply(struct netclient *cl, u8 code, const char *messa
 	netSend(cl, NULL, true, NETCHAN_CONTROL);
 }
 
+/* SP-81 (B-1131): CLC_ADMIN carries subcode-specific arguments after the
+ * token (server_admin.h). A rejection before the subcode's own case must still
+ * consume them, or the dispatcher reads them as the next messages. Returns 0
+ * with the arguments consumed for a known subcode, and 1 when the subcode is
+ * unknown, because then the message length cannot be known. */
+static u32 netmsgClcAdminSkipArgs(struct netbuf *src, u8 subcode)
+{
+	switch (subcode) {
+	case ADMIN_SUB_AUTH:
+	case ADMIN_SUB_LIST:
+	case ADMIN_SUB_STATUS:
+		return src->error;
+	case ADMIN_SUB_KICK:
+	case ADMIN_SUB_BAN:
+		(void)netbufReadU8(src);
+		(void)netbufReadStr(src);
+		return src->error;
+	case ADMIN_SUB_UNBAN:
+		(void)netbufReadStr(src);
+		return src->error;
+	default:
+		return 1;
+	}
+}
+
 u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl)
 {
 	if (g_NetMode != NETMODE_SERVER) {
@@ -14560,7 +14618,7 @@ u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	if (g_NetMode != NETMODE_SERVER) {
-		return 0;
+		return netmsgClcAdminSkipArgs(src, subcode);
 	}
 
 	/* ADMIN_AUTH: promote the peer to admin if the token hashes correctly. */
@@ -14624,11 +14682,12 @@ u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl)
 
 	/* All other subcommands require prior authentication. */
 	if (!srccl->is_admin) {
+		const u32 skipped = netmsgClcAdminSkipArgs(src, subcode);
 		sysLogPrintf(LOG_WARNING, "NET: CLC_ADMIN sub=0x%02x from %u rejected: not authenticated",
 		             (unsigned)subcode, srccl->id);
 		netmsgSvcAdminReply(srccl, ADMIN_RESP_NOT_AUTH,
 		                    "Not authenticated.  Send ADMIN_AUTH with a valid token first.");
-		return 0;
+		return skipped;
 	}
 
 	switch (subcode) {
@@ -14798,6 +14857,8 @@ u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl)
 		sysLogPrintf(LOG_WARNING, "NET: CLC_ADMIN unknown subcode 0x%02x from %u",
 		             (unsigned)subcode, (unsigned)srccl->id);
 		netmsgSvcAdminReply(srccl, ADMIN_RESP_BAD_ARG, "Unknown admin subcode.");
-		return 0;
+		/* SP-81 (B-1131): an unknown subcode's arguments have no known length,
+		 * so stop the packet rather than read them as messages. */
+		return 1;
 	}
 }

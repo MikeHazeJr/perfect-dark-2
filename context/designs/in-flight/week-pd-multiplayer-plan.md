@@ -226,7 +226,17 @@ Progress log:
   Hacker Central a simulant picked up the briefcase or the uplink, the host announced it and the client replayed it
   (one `BOT.PICKUP` sent and one replayed in each): the first in-game proof of B-1129's pickup path. No simulant drop happened in any run, so
   `BOT.DROP` is still unproven in play. The rematch smoke never started (B-1135: its timeout was shorter than its
-  own waits); fixed and re-queued.
+  own waits); fixed and re-queued. Simulants fight only for the first 5 to 25 s of a 150 s match: they fire the
+  magazine they spawn with and then stop, because 16 of 18 arenas have no weapon or ammo pickups (the extraction
+  ask to CORE, 2026-11-15 01:05 UTC). Older runs looked livelier only because those builds kept the world running
+  after the match ended. Not worked around here.
+- SP-81 third pass (2026-11-15, B-1131): the rest of the reader audit, plus a writer audit (a count on the wire must
+  equal the rows that follow). The resync transaction sends character, prop, score and NPC resyncs, the NPC digest,
+  stage flags, objective statuses and the v62 scenario baseline in one packet, so one short row garbles every later
+  part: the character resync writer wrote 4-byte placeholders the reader took for whole rows, and the character and
+  prop resync readers returned from inside their row loop on a client not yet in the game. Also fixed: the score
+  writer's count, the NPC resync declining with 0, and `CLC_ADMIN` reading a rejected command's arguments. Nothing
+  open in the client or server readers; details in `context/bugs.md` B-1131 and SP-81.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used

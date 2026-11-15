@@ -3548,6 +3548,16 @@ a weapon a simulant dropped. A client made that weapon itself, with sync id
 - The reconnect, auth and vehicle state readers fail closed on purpose: a
   nonzero return there triggers the dispatcher's terminal disconnect. Do not
   switch them to 0.
+- A count on the wire is the number of rows that follow. A writer that writes
+  a count and then skips rows (`continue`, `break`), or writes a short
+  placeholder row the reader cannot tell apart, breaks the reader the same
+  way. Count first, then write exactly those rows.
+- A return inside a row loop is a return before the last read, even when it
+  sits after the row's own reads.
+- Several messages can share one packet on purpose: the resync transaction
+  (`netServerPublishPendingResyncs`, `net.c`) sends character, prop, score
+  and NPC resyncs, the NPC digest, stage flags, objective statuses and the
+  scenario baseline together, so one short row garbles all that follow it.
 
 **Search:**
 - `grep -n "src->error ? src->error : 1\|return 1;" port/src/net/netmsg.c`
@@ -3555,7 +3565,10 @@ a weapon a simulant dropped. A client made that weapon itself, with sync id
   return.
 - `audit_readers.py` (MULTIPLAYER session scratchpad, 2026-11-15) lists every
   `netmsg*Read` with a return before its last buffer read: 27 readers, most
-  on purpose or on a broken buffer.
+  on purpose or on a broken buffer. It does not see returns inside row loops;
+  list those by looking for `return` at loop depth in each reader.
+- `audit_count_writers.py` (same scratchpad) lists every `netmsg*Write` that
+  writes a count and then has a `continue` or `break` in its row loop.
 
 **Audit checklist:** for every client and server read handler, (a) does it
 read the full message before any return, and (b) does a semantic rejection
@@ -3565,5 +3578,14 @@ first; `netmsgSvcPropPickupRead`, `netmsgSvcPropUseRead` and
 `netmsgSvcChrDamageRead` skip with 0 (B-1131); `netmsgSvcPropSpawnRead` parses
 its whole row before it decides or allocates, skips outside a reconnect and
 fails closed inside one, and its writer puts the projectile condition on the
-wire (B-1131, second pass). Open: the lobby, catalog, distribution and admin
-readers.
+wire (B-1131, second pass). Third pass (B-1131): the character resync writer
+counts and writes whole rows only, the character and prop resync readers read
+every row before skipping, the score writer counts the rows it sends, the NPC
+resync declines an incomplete snapshot with 0, and `CLC_ADMIN` consumes a
+rejected command's arguments and stops on an unknown subcode. Checked and left
+on purpose: the catalog and distribution readers (reconnect control, fail
+closed), `CLC_MANIFEST_STATUS` (always its own packet; security pin),
+`CLC_BOT_MOVE` (security pin; stops without desync), the room list, room
+settings and playlist readers. The only dispatched readers outside `netmsg.c`
+are the two move readers in `net_player_move_ingress.c`; both read their whole
+message first. Nothing open.

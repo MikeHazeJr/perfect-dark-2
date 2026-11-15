@@ -244,3 +244,131 @@ TEST_CASE("net readers: pickup, use and damage skip a message they cannot apply"
 		REQUIRE(body.find("netbufRead", skip) == std::string::npos);
 	}
 }
+
+/* Third pass: the resync transaction (net.c netServerPublishPendingResyncs)
+ * sends character, prop, score and NPC resyncs, the stage flags, objective
+ * statuses and the scenario baseline in one packet, so a short row in any of
+ * them garbles everything after it. */
+
+TEST_CASE("net writers: SVC_PLAYER_SCORES announces only the rows it writes",
+          "[net][b1131]") {
+	const std::string write = function_body(netmsg_code(),
+		"u32 netmsgSvcPlayerScoresWrite(struct netbuf *dst)\n{");
+
+	const size_t counted = write.find("if (g_MpAllChrConfigPtrs[i]) {");
+	const size_t header = write.find("netbufWriteU8(dst, SVC_PLAYER_SCORES);");
+	const size_t written = write.find("netbufWriteU8(dst, count);");
+	REQUIRE(counted != std::string::npos);
+	REQUIRE(header != std::string::npos);
+	REQUIRE(written != std::string::npos);
+	REQUIRE(counted < header);
+	REQUIRE(header < written);
+	REQUIRE(write.find("netbufWriteU8(dst, g_MpNumChrs);") == std::string::npos);
+}
+
+TEST_CASE("net writers: SVC_CHR_RESYNC writes whole rows and counts only them",
+          "[net][b1131]") {
+	const std::string write = function_body(netmsg_code(),
+		"u32 netmsgSvcChrResyncWrite(struct netbuf *dst)\n{");
+
+	const size_t counted = write.find("if (chr && chr->prop && chr->aibot) {");
+	const size_t written = write.find("netbufWriteU8(dst, count);");
+	REQUIRE(counted != std::string::npos);
+	REQUIRE(written != std::string::npos);
+	REQUIRE(counted < written);
+	REQUIRE(write.find("netbufWriteU8(dst, (u8)g_BotCount);") == std::string::npos);
+	// No short placeholder row: the loop skips straight to the next simulant
+	const size_t skip = write.find("if (!chr || !chr->prop || !chr->aibot) {", written);
+	REQUIRE(skip != std::string::npos);
+	const size_t next_stmt = write.find_first_not_of(" \t\r\n", skip + std::string("if (!chr || !chr->prop || !chr->aibot) {").size());
+	REQUIRE(next_stmt != std::string::npos);
+	REQUIRE(write.compare(next_stmt, 9, "continue;") == 0);
+}
+
+TEST_CASE("net readers: the character and prop resyncs read every row before skipping",
+          "[net][b1131]") {
+	const char *signatures[] = {
+		"u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)\n{",
+		"u32 netmsgSvcPropResyncRead(struct netbuf *src, struct netclient *srccl)\n{",
+	};
+
+	for (const char *signature : signatures) {
+		const std::string body = function_body(netmsg_code(), signature);
+
+		INFO("reader " << signature);
+		// The client-state check no longer returns from inside the row loop
+		REQUIRE(body.find("if (src->error || srccl->state < CLSTATE_GAME) {") == std::string::npos);
+		const size_t skip = body.find("if (srccl->state < CLSTATE_GAME");
+		REQUIRE(skip != std::string::npos);
+		const size_t open = body.find('{', skip);
+		REQUIRE(open != std::string::npos);
+		const size_t next_stmt = body.find_first_not_of(" \t\r\n", open + 1);
+		REQUIRE(next_stmt != std::string::npos);
+		REQUIRE(body.compare(next_stmt, 9, "continue;") == 0);
+	}
+}
+
+TEST_CASE("net readers: a declined NPC resync costs only that message",
+          "[net][b1131]") {
+	const std::string body = function_body(netmsg_code(),
+		"u32 netmsgSvcNpcResyncRead(struct netbuf *src, struct netclient *srccl)\n{");
+
+	const size_t incomplete = body.find("if (!complete) {");
+	const size_t rewind = body.find("src->rp = records_rp;");
+	REQUIRE(incomplete != std::string::npos);
+	REQUIRE(rewind != std::string::npos);
+	REQUIRE(incomplete < rewind);
+	const std::string branch = body.substr(incomplete, rewind - incomplete);
+	REQUIRE(branch.find("g_NetPendingResyncReqFlags |= NET_RESYNC_FLAG_NPCS;") != std::string::npos);
+	REQUIRE(branch.find("return 0;") != std::string::npos);
+	REQUIRE(branch.find("return 1;") == std::string::npos);
+}
+
+TEST_CASE("net readers: CLC_ADMIN consumes a rejected command's arguments",
+          "[net][b1131]") {
+	const std::string skip = function_body(netmsg_code(),
+		"static u32 netmsgClcAdminSkipArgs(struct netbuf *src, u8 subcode)\n{");
+	const std::string read = function_body(netmsg_code(),
+		"u32 netmsgClcAdminRead(struct netbuf *src, struct netclient *srccl)\n{");
+
+	// The layout in server_admin.h: KICK and BAN carry a u8 and a string,
+	// UNBAN a string, AUTH, LIST and STATUS nothing; anything else is unknown
+	const size_t kick = skip.find("case ADMIN_SUB_KICK:");
+	const size_t ban = skip.find("case ADMIN_SUB_BAN:", kick);
+	const size_t kick_u8 = skip.find("(void)netbufReadU8(src);", ban);
+	const size_t kick_str = skip.find("(void)netbufReadStr(src);", kick_u8);
+	const size_t unban = skip.find("case ADMIN_SUB_UNBAN:", kick_str);
+	const size_t unban_str = skip.find("(void)netbufReadStr(src);", unban);
+	const size_t unknown = skip.find("default:", unban_str);
+	REQUIRE(kick != std::string::npos);
+	REQUIRE(ban != std::string::npos);
+	REQUIRE(kick_u8 != std::string::npos);
+	REQUIRE(kick_str != std::string::npos);
+	REQUIRE(unban != std::string::npos);
+	REQUIRE(unban_str != std::string::npos);
+	REQUIRE(unknown != std::string::npos);
+	REQUIRE(skip.find("return 1;", unknown) != std::string::npos);
+	for (const char *none : {"case ADMIN_SUB_AUTH:", "case ADMIN_SUB_LIST:", "case ADMIN_SUB_STATUS:"}) {
+		INFO("subcode " << none);
+		REQUIRE(skip.find(none) != std::string::npos);
+		REQUIRE(skip.find(none) < kick);
+	}
+
+	// A non-server peer and an unauthenticated one skip the arguments
+	REQUIRE(read.find("return netmsgClcAdminSkipArgs(src, subcode);") != std::string::npos);
+	const size_t not_admin = read.find("if (!srccl->is_admin) {");
+	REQUIRE(not_admin != std::string::npos);
+	const size_t consumed = read.find("netmsgClcAdminSkipArgs(src, subcode);", not_admin);
+	const size_t reply = read.find("ADMIN_RESP_NOT_AUTH", not_admin);
+	REQUIRE(consumed != std::string::npos);
+	REQUIRE(reply != std::string::npos);
+	REQUIRE(consumed < reply);
+	REQUIRE(read.find("return skipped;", reply) != std::string::npos);
+
+	// An unknown subcode stops the packet: its length is not known
+	const size_t unknown_reply = read.find("\"Unknown admin subcode.\"");
+	REQUIRE(unknown_reply != std::string::npos);
+	const size_t unknown_ret = read.find("return", unknown_reply);
+	REQUIRE(unknown_ret != std::string::npos);
+	REQUIRE(read.compare(unknown_ret, 9, "return 1;") == 0);
+}
