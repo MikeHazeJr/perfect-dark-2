@@ -10702,8 +10702,9 @@ What happened
 - Training hub (5feca745): `"hub": true` in the CI's stage.json, read by
   lvStageIsHub() on scenario-source stages; 11 checks ask it (cheats, HUD
   messages, corpse cap, damage outside training, AI buddies, death and
-  respawn, end screen). About 45 more STAGE_CITRAINING checks are hub
-  behaviour still keyed to the stage; the rest pick the CI as a destination.
+  respawn, end screen). The other STAGE_CITRAINING checks (about 45) are
+  not hub rules (stage-rules.md): the Institute's training content (its
+  objects and AI), the PC main menu running on it, and destinations.
 - B-1172 step 1 (9e3bd75c): the scene draws at a display-list command,
   G_SCENE_RENDER_EXT, after the sky, the stars and the sun; skyRender runs on
   every stage again.
