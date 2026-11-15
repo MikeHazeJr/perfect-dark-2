@@ -171,3 +171,25 @@ TEST_CASE("host autostart rematch: a listen host's end screen has dialogs only f
 	REQUIRE(later != std::string::npos);
 	REQUIRE(next < later);
 }
+
+TEST_CASE("host autostart rematch: the lobby UI does not draw the Room over an open results screen",
+          "[net][rematch][finding4][b1192]") {
+	const std::string lobby = code_only(read_text_file("port/fast3d/pdgui_lobby.cpp"));
+	const std::string render = function_body(lobby, "void pdguiLobbyRender(s32 winW, s32 winH)\n{");
+
+	// B-1192: in the lobby state, the results screen check comes before the
+	// Room and the social lobby, so neither draws (and takes focus) while it is open
+	const size_t in_lobby = render.find("if (netLocalClientInLobby())");
+	const size_t results = render.find("if (menupoolIsActive(MENU_TYPE_ENDSCREEN_MP))", in_lobby);
+	const size_t room = render.find("} else if (s_InRoom) {", results);
+	const size_t room_render = render.find("pdguiRoomScreenRender(winW, winH);", room);
+	const size_t social = render.find("pdguiLobbyScreenRender(winW, winH);", room_render);
+	REQUIRE(in_lobby != std::string::npos);
+	REQUIRE(results != std::string::npos);
+	REQUIRE(room != std::string::npos);
+	REQUIRE(room_render != std::string::npos);
+	REQUIRE(social != std::string::npos);
+	// Nothing between the check and the Room branch draws a screen
+	const std::string gated = render.substr(results, room - results);
+	REQUIRE(gated.find("Render(") == std::string::npos);
+}

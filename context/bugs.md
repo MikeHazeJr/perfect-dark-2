@@ -19,7 +19,32 @@ animations would need the host's animation state on the wire. Pinned in `tests/t
 (`[finding3]`). Game check: the render smoke, re-queued. The client view in that run is also black outside one
 doorway (room 33 of Felicity drawn black); recorded separately, not yet explained.
 
-## 2026-11-15 B-1190 Networked clients never see the match results (T-NETWORKING-011, decision needed)
+## 2026-11-15 B-1192 A listen host's Room drew over its own results screen and took focus (T-NETWORKING-011, finding 4)
+
+Severity high for networked matches (the host could not leave its results screen with Use or A, so no rematch;
+no crash). Seen in `mp_combat_net_rematch_smoke` (`results-20261115T174226Z.json`, 71/85, binary 86c1025f) after
+the B-1139 fix: the host had one results dialog, and the harness's Use press reached it (`ENDSCREEN.DIAG: input
+action_bar_visible=1 accept_pressed=1 ... suppressed=0`), but Return to Room never fired. At stage end the host is
+back in the lobby state with `s_InRoom` still set (B-1042 keeps it so the Room returns after a match), so
+`pdguiLobbyRender` drew the Room in the same frame as the results screen (`MENU_IMGUI: room OPEN` straight after
+`MENUPOOL: acquired endscreen_mp`). The Room's first frame calls `SetWindowFocus`, so keyboard and controller
+navigation had no item on the results screen. The offline results screen has no Room beside it, and the same press
+works there (`combat_sim_ui_release_cycle`). Same cause as B-1190 on the client. Fix: `pdguiLobbyRender`
+(`port/fast3d/pdgui_lobby.cpp`) draws neither the Room nor the social lobby while
+`menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)`; Return to Room (`endscreenGraphMpContinue` →
+`pdguiEndscreenExitToRoom`) releases the menu pool and the Room opens on the next frame. The host autostart re-arm
+already waits on the same query. Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[b1192]`). Game check:
+the rematch smoke, queued (q_20261115173307314_394b483c). Co-op and counter-op use the solo results screen; left to
+the co-op end-flow decision.
+
+## 2026-11-15 B-1190 Networked clients never see the match results (T-NETWORKING-011, decided: option A)
+
+Decided by Mike, 2026-11-15: option A. Everyone sees the results and presses Continue to go back to the Room, and
+while a player is still on the results, the others see that player in the lobby as "reviewing match stats". The
+host's next match start takes any player still on the results along (part of option A as proposed). To do: the
+client shows its results screen at stage end before the Room (the B-1192 gate keeps the Room hidden while the
+results are open), a per-player "reviewing match stats" state that the host shares with the room, and the rematch
+smoke's client schedule pressing Continue. Original entry follows.
 
 Severity medium (every networked mode: the client's player gets no results screen; no crash). Seen in
 two runs: `mp_king_of_the_hill_net_smoke` (`results-20261115T132151Z.json`) and

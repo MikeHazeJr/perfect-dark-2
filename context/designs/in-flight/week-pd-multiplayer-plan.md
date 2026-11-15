@@ -299,6 +299,19 @@ Progress log:
   Perfect and Dark need challenge unlocks (`requirefeature` 25, 26, 28), so a fresh save offers 15; my spec asked for
   pairs with no profile. Re-made for those 15 (5b6fe90e) and re-queued. The networked run was still an early check of
   B-1191: the client ran its simulants as puppets with no errors and both sides logged the same results.
+- Rematch on 86c1025f (`results-20261115T174226Z.json`, 71/85): one results dialog now (B-1139 in play), Use reached the
+  host's results screen, but the Room drew in the same frame and took focus: B-1192, fixed (the lobby UI holds the
+  Room and social lobby back while the results screen is open), rematch re-queued with the simulant types.
+- Render re-run on 86c1025f (`results-20261115T175033Z.json`, 64/66): the puppet tick runs now (`prop_flags` 0x4, the
+  not-yet-ticked flag gone; `NET: simulant AI suppressed on client`), but the simulant is still never on screen. The
+  host's packets put it at its real height (y -534, ground -693, room 37), and between packets the client's tick moves
+  it: the culling check saw y -2552, and one sample in six reads y -30000 (the no-floor value). The client's model
+  has no animation set (`anim=0 frame=-1.00`) because nothing on a client starts the simulant's actions, and the host's
+  `ACT_GOPOS` sends `chrTick` into its walk branch, which advances the model from that animation. Next: B-1191 part 2.
+- Mike, 2026-11-15: B-1190 decided, option A, with a lobby state "reviewing match stats" that other players see while
+  someone is still on the results. Asked to explain: the co-op end flow, which challenges and presets, the 5-8 player
+  challenge difficulty, the GGV lane, and whether simulants on clients have any live state without animation
+  replication.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used

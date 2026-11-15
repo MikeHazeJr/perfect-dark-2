@@ -2,8 +2,11 @@
 
 - Networked objective modes now follow the host: King of the Hill hills and
   hill teams, Pop a Cap victims, Hold the Briefcase, Hacker Central and Capture
-  the Case holders, uplink downloads and bases. Final scores and rankings match
-  on every player's end screen.
+  the Case holders, uplink downloads and bases. Final scores and rankings are
+  the same for every player.
+
+- After a networked match the host can leave the results screen with Use or A
+  again; the Room no longer opens on top of it.
 
 - Simulants that pick up the briefcase or the uplink now do so on every
   player's screen in networked matches.

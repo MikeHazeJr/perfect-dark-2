@@ -501,7 +501,13 @@ void pdguiLobbyRender(s32 winW, s32 winH)
             if (mode == NETMODE_SERVER && !g_NetDedicated) {
                 renderListenHostOverlay(winW, winH, clientCount);
             }
-            if (s_InRoom) {
+            if (menupoolIsActive(MENU_TYPE_ENDSCREEN_MP)) {
+                /* B-1192: stage end puts this player back in the lobby state
+                 * with s_InRoom still set while its results screen is open.
+                 * The Room drew in the same frame, took window focus, and the
+                 * results screen's Return to Room never saw Use. Its Continue
+                 * (endscreenGraphMpContinue) brings the Room back. */
+            } else if (s_InRoom) {
                 /* Inside a room: show room interior (tab-based game setup UX) */
                 pdguiRoomScreenRender(winW, winH);
             } else {
