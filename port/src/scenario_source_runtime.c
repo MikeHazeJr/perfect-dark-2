@@ -18826,6 +18826,7 @@ static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 	s32 chr_count = 0;
 	s32 pad_count = 0;
 	s32 source_chr = -1;
+	s32 resolved_pad;
 
 	if (!s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
@@ -18836,7 +18837,13 @@ static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 	if (!s_ActiveScenarioGraphs.pads_path[0]) {
 		return s_aiGraphRuntimeFailure(action, "missing pads.json source");
 	}
-	if (!s_aiGraphRequireRuntimePad(action, pad, &pad_count)) {
+	/* B-1119: pad 9000 (PAD_PRESET) names the character's preset pad, and
+	 * chrGoToPad resolves it itself (chrResolvePadId). Check the pad the
+	 * character will actually go to: 9000 is not a pad row, and refusing it
+	 * left the character standing, because a refusal also skips the native
+	 * handler. */
+	resolved_pad = pad == PAD_PRESET ? chrResolvePadId(chr, pad) : pad;
+	if (!s_aiGraphRequireRuntimePad(action, resolved_pad, &pad_count)) {
 		return 1;
 	}
 	if (!s_aiGraphRequireRuntimeCharacterPointer(action, chr, &chr_count,
@@ -18846,9 +18853,9 @@ static s32 s_aiGraphExecuteGoToPad(struct chrdata *chr, s32 pad,
 	chrGoToPad(chr, pad, goposflags);
 	if (logged && !*logged) {
 		sysLogPrintf(LOG_NOTE,
-			"SCENARIO.GRAPH: AI action %s chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d source=%s %s",
+			"SCENARIO.GRAPH: AI action %s chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d source=%s %s resolved_pad=%d",
 			action, chr_count, source_chr, pad, pad_count,
-			s_ActiveScenarioGraphs.pads_path, backend);
+			s_ActiveScenarioGraphs.pads_path, backend, resolved_pad);
 		*logged = 1;
 	}
 	return 1;

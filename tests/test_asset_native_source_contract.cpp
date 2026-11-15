@@ -3235,6 +3235,15 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("AI action %s chr_rows=%d source_chr=%d pad=%d found=1 pad_rows=%d") !=
 	        std::string::npos);
+	// B-1119: walk, jog and run to pad resolve pad 9000 (PAD_PRESET) to the
+	// character's preset pad before checking it, as chrGoToPad does; a refused
+	// pad also skips the native handler, so the character stood still.
+	REQUIRE(scenario_runtime.find("resolved_pad = pad == PAD_PRESET ? chrResolvePadId(chr, pad) : pad;") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("if (!s_aiGraphRequireRuntimePad(action, resolved_pad, &pad_count)) {") !=
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("if (!s_aiGraphRequireRuntimePad(action, pad, &pad_count)) {") ==
+	        std::string::npos);
 	REQUIRE(scenario_runtime.find("SCENARIO.GRAPH: path source") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("backend=graph.navigation.paths+navigation/paths.json") !=
@@ -8018,8 +8027,13 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		requireTokenOrder(try_alarm,
 			"s_aiGraphRequireRuntimeCharacterPointer(\"try_start_alarm\"",
 			"chrTryStartAlarm(chr, pad_id)");
+		// B-1119: the pad checked is the resolved one (pad 9000 is the
+		// character's preset pad), still before the character pointer.
 		requireTokenOrder(go_to_pad,
-			"s_aiGraphRequireRuntimePad(action, pad",
+			"resolved_pad = pad == PAD_PRESET ? chrResolvePadId(chr, pad) : pad;",
+			"s_aiGraphRequireRuntimePad(action, resolved_pad");
+		requireTokenOrder(go_to_pad,
+			"s_aiGraphRequireRuntimePad(action, resolved_pad",
 			"s_aiGraphRequireRuntimeCharacterPointer(action, chr");
 		requireTokenOrder(go_to_pad,
 			"s_aiGraphRequireRuntimeCharacterPointer(action, chr",
