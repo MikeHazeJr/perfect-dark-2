@@ -71,17 +71,17 @@
       "comment": "Fresh installs extract and walk every typed archive first; wait for ordinary first-person Combat Simulator gameplay with the pistol as the spawn weapon."
     },
     { "at_ms": 3000, "type": "screenshot", "path": "cp-viewmodel-a.bmp", "comment": "Held model at rest. The session's first capture stalls the game about 1.3 s, so it comes well before the first shot: a press and release inside that stall land in one frame and fire nothing." },
-    { "at_ms": 6000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "One crystal; the muzzle flash shows for a frame." },
+    { "at_ms": 6000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "One crystal; the muzzle flash shows for a frame. Each shot is held 600 ms and the shots are 2.5 s apart: a capture or the first crystal spawn stalls the game up to about a second, and a 150 ms tap inside a stall landed press and release in one frame and never fired (one flash short on 2026-11-15). The pistol fires once per press, so the hold adds no shots." },
     { "at_ms": 6000, "type": "screenshot", "path": "cp-viewmodel-flash-a.bmp", "comment": "Same frame as the press." },
-    { "at_ms": 6150, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
-    { "at_ms": 7000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
-    { "at_ms": 7016, "type": "screenshot", "path": "cp-viewmodel-flash-b.bmp", "comment": "One frame after the press." },
-    { "at_ms": 7150, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
-    { "at_ms": 8000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
-    { "at_ms": 8033, "type": "screenshot", "path": "cp-viewmodel-flash-c.bmp", "comment": "Two frames after the press." },
-    { "at_ms": 8150, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 6600, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 8500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 8516, "type": "screenshot", "path": "cp-viewmodel-flash-b.bmp", "comment": "One frame after the press." },
+    { "at_ms": 9100, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 11000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 11033, "type": "screenshot", "path": "cp-viewmodel-flash-c.bmp", "comment": "Two frames after the press." },
+    { "at_ms": 11600, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
     {
-      "at_ms": 9000,
+      "at_ms": 12500,
       "type": "exit",
       "comment": "Exit after the rest capture and three shots."
     }
