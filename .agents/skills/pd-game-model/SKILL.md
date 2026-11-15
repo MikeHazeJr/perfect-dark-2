@@ -75,7 +75,13 @@ blender -b --python scripts/tripo_image.py -- <out_dir> concept-v2 <prompt.txt> 
   labels).
 - Fix inconsistent views with **image-to-image** on the previous task id
   (`chat_image_2.5_sunburst` keeps untouched areas): name the views that are
-  right and say what the others must match.
+  right and say what the others must match. Change one thing per edit and
+  check every view afterwards: an edit can quietly undo an earlier fix.
+- **Style references** (an existing model of ours, for a matching look): pass
+  local images after the task id. Tripo refuses a task id inside the
+  reference list (code 1004), so give "-" as the task id and the image to edit
+  as the first reference; the script uploads each (`/v3/files`, generic file
+  name) and the prompt calls them image[1], image[2]...
 - Observed cost: 10 credits per image at `medium`. Host: the add-on's key
   works on `https://openapi.tripo3d.ai/v3`; `openapi.tripo3d.com` rejects it.
 - **If Tripo cannot make the image** (refused, failing, no credits), make it
@@ -95,10 +101,19 @@ add-on's SDK with the `geo_utils` stub, see the script's header):
 2. **Generate.** `image_to_model` with `v3.0-20250812` on the hero image (best
    geometry), or `multiview_to_model` (`v2.5`, front, left, back, right crops)
    when one view hides too much. Set `face_limit` from the budget,
-   `smart_low_poly`, `texture` and `pbr` on, and `generate_parts` when the
-   model has a part to rig. Observed cost: 30 credits per textured v3.0
-   image-to-model try.
-3. **Review** renders (`scripts/render_views.py`) before clean-up.
+   `smart_low_poly`, `texture` and `pbr` on. Observed cost: 40 credits for a
+   textured v3.0 image-to-model with `smart_low_poly` (the crystal pistol's
+   plain textured tries were 30).
+   - `generate_parts` only works with `texture` and `pbr` off and without
+     `smart_low_poly` (Tripo refuses parts with textures, code 1004, and
+     smart low-poly wins over parts). For a textured model, split the rigged
+     parts by hand in Blender instead.
+   - `smart_low_poly` takes `face_limit` from 500 to 20,000 and may overshoot
+     it (5,000 asked, 6,510 returned for the Maian vehicle).
+   - One input image leaves the unseen sides to Tripo's guess (the vehicle's
+     rear came back invented). When the back matters, use multiview, or plan
+     to rebuild the unseen side in clean-up.
+3. **Review** renders (`scripts/render_views.py ... studio`) before clean-up.
 
 ## 4. Blender clean-up
 

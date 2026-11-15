@@ -63,6 +63,12 @@ for opt in options:
         settings["pbr"] = False
     else:
         raise SystemExit("unknown option " + opt)
+# Tripo refuses parts with textures (code 1004) and smart low-poly overrides
+# parts, so refuse those combinations here, before anything is paid for.
+if settings.get("generate_parts") and (settings.get("texture") or settings.get("pbr")):
+    raise SystemExit("--parts needs --no-texture (Tripo makes parts only untextured)")
+if settings.get("generate_parts") and settings.get("smart_low_poly"):
+    raise SystemExit("--parts cannot be combined with --smart-low-poly (no parts would be made)")
 
 for label, spec in jobs:
     kind, _, value = spec.partition(":")

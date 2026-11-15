@@ -7,6 +7,9 @@ Run in a background Blender with the add-on enabled in user preferences (so
 not --factory-startup):
   blender -b --python tripo_image.py -- <out_dir> <label> <prompt.txt> [model] [size] [quality] [edit task id]
 With an edit task id it runs image-to-image on that earlier image instead.
+Reference images after it are uploaded and passed in order as image[1],
+image[2]...; a task id is not accepted beside them (code 1004), so pass "-" as
+the task id and give the image to edit as the first reference.
 With the label "balance" it only prints the account balance (free).
 
 Defaults: model chat_image_2, size 1536x1024, quality medium (the base rate).
@@ -21,6 +24,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+import uuid
 
 import bpy
 
@@ -35,8 +39,13 @@ prompt_path = argv[2]
 model = argv[3] if len(argv) > 3 else "chat_image_2"
 size = argv[4] if len(argv) > 4 else "1536x1024"
 quality = argv[5] if len(argv) > 5 else "medium"
-# Optional: the task id of an earlier image to edit (image-to-image).
+# Optional: the task id of an earlier image to edit (image-to-image), then any
+# number of local reference images, uploaded first and passed as image[2]...
 edit_input = argv[6] if len(argv) > 6 else ""
+references = argv[7:]
+for ref in references:
+    if not os.path.isfile(ref):
+        raise SystemExit("missing reference image: " + ref)
 os.makedirs(out_dir, exist_ok=True)
 
 addon = sys.modules.get("tripo-3d-for-blender")
@@ -62,6 +71,38 @@ def call(method, path, body=None):
         return {"url_error": str(error.reason)}
 
 
+def upload(path):
+    """POST /v3/files (multipart, field "file"); returns the file token. The
+    upload carries a generic file name, not the local one."""
+    crlf = bytes((13, 10))
+    boundary = "----pdgamemodel" + uuid.uuid4().hex
+    with open(path, "rb") as f:
+        data = f.read()
+    ctype = "image/png" if path.lower().endswith(".png") else "image/jpeg"
+    ext = ".png" if ctype == "image/png" else ".jpg"
+    head = crlf.join([
+        ("--" + boundary).encode("ascii"),
+        ('Content-Disposition: form-data; name="file"; filename="reference' + ext + '"').encode("ascii"),
+        ("Content-Type: " + ctype).encode("ascii"),
+        b"",
+        b"",
+    ])
+    body = head + data + crlf + ("--" + boundary + "--").encode("ascii") + crlf
+    req = urllib.request.Request(BASE + "/files", data=body, method="POST", headers={
+        "Authorization": "Bearer " + _key,
+        "Content-Type": "multipart/form-data; boundary=" + boundary})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        raise SystemExit("upload refused: %s %s" % (error.code,
+                         error.read().decode("utf-8", "replace")[:300]))
+    token = (result.get("data") or {}).get("file_token")
+    if not token:
+        raise SystemExit("upload returned no file token: " + json.dumps(result)[:300])
+    return token
+
+
 def balance():
     result = call("GET", "/account/balance")
     return result.get("data", result)
@@ -82,10 +123,19 @@ print("[tripo] balance before:", json.dumps(record["balance_before"]), flush=Tru
 body = {"model": model, "prompt": prompt, "size": size, "output_format": "png"}
 if model.startswith("chat_image"):
     body["quality"] = quality
-if edit_input:
+# A task id is accepted as the single "input", not inside "inputs" (code 1004):
+# with references, pass "-" for the task input and give every image as a file.
+if references:
+    tokens = [upload(ref) for ref in references]
+    task_input = [edit_input] if edit_input and edit_input != "-" else []
+    body["inputs"] = task_input + tokens
+    record["edit_input"] = edit_input
+    record["references"] = [os.path.abspath(ref) for ref in references]
+elif edit_input and edit_input != "-":
     body["input"] = edit_input
     record["edit_input"] = edit_input
-created = call("POST", "/generation/image-to-image" if edit_input else "/generation/text-to-image", body)
+editing = bool(references) or bool(edit_input and edit_input != "-")
+created = call("POST", "/generation/image-to-image" if editing else "/generation/text-to-image", body)
 task_id = (created.get("data") or {}).get("task_id") if isinstance(created, dict) else None
 record["create"] = {k: v for k, v in created.items() if k != "data"} if not task_id else {"task_id": task_id}
 print("[tripo] create:", json.dumps(record["create"])[:600], flush=True)
