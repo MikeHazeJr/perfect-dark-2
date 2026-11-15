@@ -102,6 +102,7 @@
       "BOOT: --debug-mount-bike armed",
       "BOOT: --debug-swap-vehicle mod:vehicle_smoke_hover armed",
       "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_smoke_hover\\)",
+      "VEHICLE\\.SWAP: modelnum \\d+ takes the world scale of modelnum 58 \\(409/4096\\)",
       "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
       "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
       "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",

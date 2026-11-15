@@ -205,14 +205,20 @@ TEST_CASE("the private mesh preflight ignores the native file a cloned mesh name
 	REQUIRE(body_head.find("source_by_catalog_id, 0, out,") != std::string::npos);
 }
 
-TEST_CASE("stage setup gives a hoverbike the swap vehicle's model before the model loads",
+TEST_CASE("stage setup gives a hoverbike the swap vehicle's model and scale before the model loads",
 	"[vehicle][modding][vehicle-model-slot][static]")
 {
 	const std::string setup = readTextFile("src/game/setup.c");
 	const std::size_t hoverbike = setup.find("case OBJTYPE_HOVERBIKE:");
 	REQUIRE(hoverbike != std::string::npos);
-	const std::string body = setup.substr(hoverbike, 600);
+	const std::string body = setup.substr(hoverbike, 1600);
 	requireInOrder(body, "obj->modelnum = vehicleDebugSwapModelnum(obj->modelnum);",
+		"setupCreateObject(obj, index);");
+	/* objInit sizes an object by its model slot's scale; a custom slot has
+	 * none, so the swapped vehicle takes the replaced hoverbike's. */
+	requireInOrder(body, "obj->modelnum = vehicleDebugSwapModelnum(obj->modelnum);",
+		"g_ModelStates[obj->modelnum].scale = g_ModelStates[placed_modelnum].scale;");
+	requireInOrder(body, "g_ModelStates[obj->modelnum].scale = g_ModelStates[placed_modelnum].scale;",
 		"setupCreateObject(obj, index);");
 
 	const std::string main_c = readTextFile("port/src/main.c");

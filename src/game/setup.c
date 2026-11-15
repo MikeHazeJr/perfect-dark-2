@@ -2493,10 +2493,26 @@ void setupCreateProps(s32 stagenum)
 				case OBJTYPE_HOVERBIKE:
 					if (withobjs && (obj->flags2 & diffflag) == 0) {
 						struct hoverbikeobj *bike = (struct hoverbikeobj *)obj;
+						s32 placed_modelnum = obj->modelnum;
 
 						/* --debug-swap-vehicle: a mod vehicle takes this
 						 * hoverbike's place (no-op unless set). */
 						obj->modelnum = vehicleDebugSwapModelnum(obj->modelnum);
+						/* objInit sizes the object by its model slot's
+						 * scale, and a custom slot has none (0). The mod
+						 * vehicle is authored in the units of the hoverbike
+						 * it replaces, so it takes that model's scale. */
+						if (obj->modelnum != placed_modelnum
+								&& obj->modelnum >= MODEL_CUSTOM_START
+								&& obj->modelnum < MODEL_CUSTOM_END
+								&& g_ModelStates[obj->modelnum].scale == 0
+								&& placed_modelnum >= 0 && placed_modelnum < MODEL_CUSTOM_END) {
+							g_ModelStates[obj->modelnum].scale = g_ModelStates[placed_modelnum].scale;
+							sysLogPrintf(LOG_NOTE,
+								"VEHICLE.SWAP: modelnum %d takes the world scale of modelnum %d (%u/4096)",
+								obj->modelnum, placed_modelnum,
+								(unsigned)g_ModelStates[obj->modelnum].scale);
+						}
 						setupCreateObject(obj, index);
 						setupCreateHov(obj, &bike->hov);
 
