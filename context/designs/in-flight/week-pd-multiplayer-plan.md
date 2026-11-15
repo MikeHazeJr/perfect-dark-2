@@ -122,6 +122,8 @@ Progress log:
   only intro spawn rows, so no arena has case or hill pads. Capture the Case cases are created off-world, King of
   the Hill's hill never moves, Hold the Briefcase always uses pad 0 (B-1126, SP-80). Asked CORE to carry the intro
   case and hill commands; the same fallback for those three modes waits for Mike.
+- Merged into dev on Mike's OK (2026-11-15, "Merge our work"): merge commit e7503299, tree identical to
+  da7f042b; local dev only, not pushed. Work continues on this branch; later units go to dev by the same route.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
