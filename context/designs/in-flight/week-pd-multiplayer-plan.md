@@ -249,6 +249,15 @@ Progress log:
   (`results-20261115T133628Z.json`): `--launch-challenge 0` started Challenge 1 on Skedar with its simulant, ran to the
   time limit and the end screen, but with no player in the match (B-1137: the challenge launch never made the local
   player a participant). Fixed; re-run queued.
+- Finding 3, the render smoke's first run proved nothing: its four screenshots show the client's player standing
+  against a wall. The host placed the simulant 240 units straight ahead (the first spot with floor at the player's
+  level; the helper has no line-of-sight check), which was on the far side of that wall. 8c9e6701 adds two opt-in
+  smoke hooks: `--debug-place-bot-near-player-visible` (search in eight directions around the target player, take a
+  spot only with a clear line of sight, keep the first direction through the hold) and `--debug-face-nearest-bot`
+  (each frame, turn the local player level toward the nearest simulant with the engine's yaw convention, log the
+  simulant's flags, model, animation frame and `look_dot`, and point the existing `BOT.RENDER.AUDIT` traces at it).
+  The fixture now requires `look_dot` of at least 0.9 and the client's `propsSort-included` and
+  `chrRender-modelRender` audit lines, so a client that does not draw simulants fails it.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
