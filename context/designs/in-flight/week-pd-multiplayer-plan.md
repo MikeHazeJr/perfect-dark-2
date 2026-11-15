@@ -319,6 +319,10 @@ Progress log:
   death animations come from the speeds `SVC_CHR_MOVE` already carries (`botApplyMovement`, the original design); only
   the aiming pose and which death animation plays are not on the wire. Queued on binary eab25274 (= 2ce8765a): render,
   rematch (its client stays on the results, so the second match must take it along), simulant types net and local.
+- Mike, 2026-11-15 (second answer): co-op and counter-op end flow, the host decides (Next Mission, Retry Mission or
+  Return to Room on the host; the other player sees the results with a waiting note and follows); Combat Challenges
+  capped at 4 human players, as in the original. Both recorded in `context/constraints.md`. He asked again what
+  one of the remaining items means (Challenges/presets placement or the GGV lane): answered in plain terms.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
