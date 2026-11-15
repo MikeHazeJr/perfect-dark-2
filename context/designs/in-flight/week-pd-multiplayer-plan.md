@@ -337,6 +337,15 @@ Progress log:
   `network_coop_mission_end_smoke` give it its first game check (queued first in q_20261115173307314_394b483c on
   binary 91a54a5d, with the render, rematch and simulant type smokes). Counter-op uses the same code; its smoke comes
   after the co-op one passes. Note: `src/lib/main.c` is not compiled; the live `mainEndStage` is in `pdmain.c`.
+- Game turn on binary 91a54a5d (2026-11-15 21:05-22:05 UTC, D: slow since the 17:54 crash): render PASS 66/66
+  (B-1191 fixed in play: the client's simulant is drawn, animated and at its height); simulant types local PASS
+  54/54 (all 15 open profiles), net 106/107 (B-1194: the client skips some simulant pickups, open); co-op mission end
+  111/119 (per-machine results, the partner to the lobby and the final objectives proven; Use pressed nothing);
+  rematch 72/90 (Use again pressed nothing on the host; the client's results waited for a disconnect). Root causes
+  and fixes in 8a34e695: the results screens' default focus (B-1192 part 2: the debounce disables the bar when ImGui
+  picks its first focus), and the client no longer unlinking its own player at a Combat stage end (B-1190 part 2:
+  that deferred the whole lvTick); plus Mike's "both players' stats" in co-op (`SVC_MISSION_STATS` 0x7d). Re-run
+  queued: q_20261115220622967_0aa23e98 on binary 8c56ad72 (co-op mission end, rematch).
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
