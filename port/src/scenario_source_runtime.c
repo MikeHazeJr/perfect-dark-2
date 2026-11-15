@@ -19,6 +19,7 @@
 #include "mission_graph_runner.h"
 #include "mission_graph_modules.h"
 #include "scenario_stage_rules.h"
+#include "scenario_intro.h"
 #include "bss.h"
 #include "game/bondmove.h"
 #include "game/bg.h"
@@ -4876,13 +4877,18 @@ static s32 s_countPathRowsWithFlag(const scenario_source_path_table_t *table,
 
 static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 	scenario_source_spawn_table_t *spawn_table,
+	const scenario_intro_t *intro,
 	scenario_source_ai_table_t *ai_table,
 	scenario_source_path_table_t *path_table,
 	const char *scenario_id, s32 *out_size)
 {
 	u32 intro_offset = (u32)sizeof(struct stagesetup);
 	u32 spawn_count = spawn_table ? (u32)spawn_table->count : 0;
-	u32 intro_size = spawn_count * 3u * (u32)sizeof(s32) + (u32)sizeof(s32);
+	u32 intro_words = intro ? (u32)intro->word_count : 0u;
+	/* The intro script: the spawn pads (spawns.json), then the other intro
+	 * commands (intro.json) in their authored order, then the end. */
+	u32 intro_size = spawn_count * 3u * (u32)sizeof(s32) +
+		intro_words * (u32)sizeof(s32) + (u32)sizeof(s32);
 	u32 props_offset = (intro_offset + intro_size + 3u) & ~3u;
 	u32 props_size = (u32)sizeof(u32);
 	u32 path_count = path_table ? (u32)path_table->count : 0;
@@ -4950,6 +4956,10 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 			memcpy(data + cursor, cmd, sizeof(cmd));
 			cursor += sizeof(cmd);
 		}
+	}
+	if (intro_words) {
+		memcpy(data + cursor, intro->words, (size_t)intro_words * sizeof(s32));
+		cursor += intro_words * (u32)sizeof(s32);
 	}
 	{
 		s32 intro_end = INTROCMD_END;
@@ -34948,6 +34958,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	char spawns_path[FS_MAXPATH + 1];
 	char ai_lists_path[FS_MAXPATH + 1];
 	char paths_path[FS_MAXPATH + 1];
+	char intro_path[FS_MAXPATH + 1];
 	u32 text_size;
 	char *setup_text;
 	char *objects_text;
@@ -34958,6 +34969,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	scenario_source_spawn_table_t spawn_table;
 	scenario_source_ai_table_t ai_table;
 	scenario_source_path_table_t path_table;
+	scenario_intro_t intro;
 	u8 *setup_data;
 	const char *stageid;
 
@@ -34986,6 +34998,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	memset(&spawn_table, 0, sizeof(spawn_table));
 	memset(&ai_table, 0, sizeof(ai_table));
 	memset(&path_table, 0, sizeof(path_table));
+	memset(&intro, 0, sizeof(intro));
 	if (!s_setupParseFieldsJson(setup_text, &table)) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: invalid public setup.fields.json for '%s': %s",
@@ -35041,6 +35054,37 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	}
 	free(spawns_text);
 
+	/* The rest of the intro script (intro.json): what the player starts
+	 * with and the multiplayer placements. Optional, an authored scenario
+	 * may have none; an unreadable one stops the stage like spawns.json. */
+	memset(&intro, 0, sizeof(intro));
+	intro_path[0] = '\0';
+	if (s_scenarioMemberPath(scenario, "intro.json", intro_path, sizeof(intro_path))) {
+		char *intro_text = s_loadOptionalText(intro_path, &text_size);
+		if (intro_text) {
+			char intro_error[192];
+			const s32 intro_ok = scenarioIntroParse(intro_text, text_size,
+				s_setupResolveWeaponnum, &intro, intro_error, sizeof(intro_error));
+			free(intro_text);
+			if (!intro_ok) {
+				sysLogPrintf(LOG_ERROR,
+					"SCENARIO.SOURCE: invalid public intro.json for '%s': %s",
+					scenario->id, intro_error);
+				s_setupFreeTable(&table);
+				s_spawnFreeTable(&spawn_table);
+				s_freePathTable(&path_table);
+				s_aiFreeTable(&ai_table);
+				return NULL;
+			}
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: intro for '%s': rows=%d weapons=%d ammo=%d outfits=%d watch_times=%d cases=%d case_respawns=%d hills=%d legacy=%d source=intro.json",
+				scenario->id, intro.row_count, intro.counts.weapons,
+				intro.counts.ammo, intro.counts.outfits, intro.counts.watch_times,
+				intro.counts.cases, intro.counts.case_respawns, intro.counts.hills,
+				intro.counts.legacy);
+		}
+	}
+
 	paths_text = NULL;
 	if (s_scenarioPathsPath(scenario, paths_path, sizeof(paths_path))) {
 		paths_text = s_loadOptionalText(paths_path, &text_size);
@@ -35053,6 +35097,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	if (!s_loadPathSourceRows(paths_text, &path_table)) {
@@ -35065,6 +35110,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	free(paths_text);
@@ -35081,6 +35127,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	if (!s_loadAiListSourceJson(ai_text, &ai_table)) {
@@ -35092,6 +35139,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	free(ai_text);
@@ -35105,10 +35153,11 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 
-	setup_data = s_setupBuildStageBlock(&table, &spawn_table, &ai_table,
+	setup_data = s_setupBuildStageBlock(&table, &spawn_table, &intro, &ai_table,
 		&path_table, scenario->id, out_size);
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
@@ -35132,6 +35181,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	s_spawnFreeTable(&spawn_table);
 	s_freePathTable(&path_table);
 	s_aiFreeTable(&ai_table);
+	scenarioIntroFree(&intro);
 	return setup_data;
 }
 

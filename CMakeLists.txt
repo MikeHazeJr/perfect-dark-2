@@ -908,6 +908,9 @@ set(SRC_TESTS
   # Decision 3: stage-wide rules in stage.json (weather first).
   ${CMAKE_SOURCE_DIR}/tests/test_stage_rules.cpp
   ${CMAKE_SOURCE_DIR}/port/src/scenario_stage_rules.cpp
+  # The stage intro in intro.json (starting loadout, multiplayer cases and hills).
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_intro.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_intro.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp

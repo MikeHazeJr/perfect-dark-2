@@ -129,7 +129,7 @@ ROOT_METADATA = {
 #   ARENA   -> ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND  (port/src/romextract_pdarena.c)
 #   MISSION -> PDMETA_SCENARIO_DEP_CACHE_KIND         (port/src/romextract_pdmeta.c)
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -725,6 +725,7 @@ SCHEMAS: dict[str, Schema] = {
             "room_lights.json",      # decoded BG room-lights sidecar (c3844 B-943)
             "rooms.json",      # authored BG room table sidecar (B-1113)
             "stage.json",      # stage-wide rules (decision 3)
+            "intro.json",      # the setup intro other than spawn pads
             "navigation/waypoints.json",
             "navigation/waygroups.json",
             "navigation/covers.json",
@@ -1044,6 +1045,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "room_lights.json": slot("decoded BG per-room lights sidecar", "scenario room-lights importer", "rebuilds g_BgLightsFileData for per-room dynamic brightness + shoot-out-the-lights", "extracted stages run with static lighting, no per-room dynamic light precompute"),
         "rooms.json": slot("authored per-room table: bounding box, origin, brightness range and optional room rules (render_always, sky, base_brightness, lights_unshootable, unshootable_lights)", "scenario room-table importer", "sets each room's box from the authored table, which decides the room of every pad and so whether the props placed on it are created; moves the room-relative light quads of room_lights.json to world coordinates; sets the light level a room keeps when its lights are out; applies the room's render and light rules at light setup and draws a sky room relative to the player", "room boxes are derived from collision triangles, which are never larger and are empty for a room with no collision; light quads are taken as world coordinates; every room uses the brightest range; no room is always drawn, no room is a sky and every light can be shot out"),
         "stage.json": slot("stage-wide rules (pd2.scenario.stage.v1): weather (wind, height band, height limit, cutscene only, weather or dry rooms, fixed wind direction), player (Perfect Agent outfit, disguise outfit and whether a disguised player can be targeted, co-op spawn distance) and ai (no dark room lists)", "scenario stage-rules reader", "sets up the stage's weather when the stage loads, its AI commands starting the rain or snow; dresses the player and applies the disguise rule", "the stage has no stage-wide rules: no weather setup, the default outfits, a disguise that can be targeted"),
+        "intro.json": slot("the setup intro other than its spawn pads (pd2.scenario.intro.v1): starting weapons, ammo and outfit, watch time, multiplayer cases, case respawns and hills, and the unread legacy commands", "scenario setup compiler", "rebuilds the intro script after the spawn pads, so the player starts with the mission's loadout and the objective modes find their pads", "the stage has only its spawn pads: no starting loadout, no authored cases or hills"),
         "mission.graph.json": slot("scenario-local mission behavior graph", "mission graph importer", "loads mission/script graph when the scenario carries its own mission logic", "mission behavior comes from a linked .pdmission or base fallback"),
     },
     ".pdmesh": {
@@ -2701,6 +2703,111 @@ def validate_stage_json(label: str, text: str) -> list[str]:
                 errors.append(f"{where} weather.wind_direction has an unknown key {key!r}")
             for key in ("angle", "speed_x", "speed_z"):
                 number(wind, key, "weather.wind_direction")
+    return errors
+
+
+# The stage intro (CORE, 2026-11-15): the reader's rules for intro.json, from
+# port/src/scenario_intro.cpp (port/include/scenario_intro.h).
+INTRO_SCHEMA = "pd2.scenario.intro.v1"
+INTRO_MAX_ROWS = 1024
+INTRO_ROW_KEYS = {
+    "weapon": {"cmd", "weapon_catalog_id", "weapon_selector", "left_weapon_catalog_id", "player"},
+    "ammo": {"cmd", "ammo_type", "quantity", "player"},
+    "outfit": {"cmd", "outfit"},
+    "watch_time": {"cmd", "hours", "minutes"},
+    "case": {"cmd", "team", "pad_ref"},
+    "case_respawn": {"cmd", "team", "pad_ref"},
+    "hill": {"cmd", "pad_ref"},
+    "legacy_3": {"cmd", "words"},
+    "legacy_4": {"cmd", "words"},
+    "legacy_6": {"cmd", "words"},
+}
+INTRO_LEGACY_WORDS = {"legacy_3": 7, "legacy_4": 1, "legacy_6": 9}
+
+
+def validate_intro_json(label: str, text: str) -> list[str]:
+    """The reader's rules for intro.json: the schema, known commands and keys
+    only, whole numbers in range, pad_NNNN pads and named outfits. Catalog ids
+    are resolved by the game, so only their shape is checked here."""
+    errors: list[str] = []
+    where = f"{label} intro.json"
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{where} is not JSON: {exc}"]
+    if not isinstance(doc, dict):
+        return [f"{where} must be one JSON object"]
+    if doc.get("schema") != INTRO_SCHEMA:
+        errors.append(f"{where} must declare schema {INTRO_SCHEMA}")
+    for key in sorted(set(doc) - {"schema", "note", "rows"}):
+        errors.append(f"{where} has an unknown key {key!r}")
+    if "note" in doc and not isinstance(doc["note"], str):
+        errors.append(f"{where} note must be text")
+    rows = doc.get("rows")
+    if not isinstance(rows, list):
+        return errors + [f"{where} rows must be a list"]
+    if len(rows) > INTRO_MAX_ROWS:
+        errors.append(f"{where} has more than {INTRO_MAX_ROWS} rows")
+
+    def whole(row: dict, key: str, lo: int, hi: int, at: str) -> None:
+        value = row.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) \
+                or value != int(value) or not lo <= value <= hi:
+            errors.append(f"{at}.{key} must be a whole number {lo}..{hi}")
+
+    def catalog_id(row: dict, key: str, at: str) -> None:
+        value = row.get(key)
+        if not isinstance(value, str) or ":" not in value or value.startswith(":") or value.endswith(":"):
+            errors.append(f"{at}.{key} must be a catalog weapon id")
+
+    def pad_ref(row: dict, at: str) -> None:
+        value = row.get("pad_ref")
+        if not isinstance(value, str) or not value.startswith("pad_") or not value[4:].isdigit() \
+                or len(value) > 9 or int(value[4:]) > 0x7FFF:
+            errors.append(f"{at}.pad_ref must be pad_NNNN with a pad 0..32767")
+
+    for index, row in enumerate(rows):
+        at = f"{where} rows[{index}]"
+        if not isinstance(row, dict):
+            errors.append(f"{at} must be an object")
+            continue
+        cmd = row.get("cmd")
+        if cmd not in INTRO_ROW_KEYS:
+            errors.append(f"{at}.cmd {cmd!r} is not an intro command")
+            continue
+        for key in sorted(set(row) - INTRO_ROW_KEYS[cmd]):
+            errors.append(f"{at} has an unknown key {key!r}")
+        if cmd == "weapon":
+            has_id, has_selector = "weapon_catalog_id" in row, "weapon_selector" in row
+            if has_id == has_selector:
+                errors.append(f"{at} needs exactly one of weapon_catalog_id and weapon_selector")
+            elif has_id:
+                catalog_id(row, "weapon_catalog_id", at)
+            elif row.get("weapon_selector") != "none":
+                errors.append(f"{at}.weapon_selector must be \"none\"")
+            if "left_weapon_catalog_id" in row:
+                catalog_id(row, "left_weapon_catalog_id", at)
+            whole(row, "player", 0, 255, at)
+        elif cmd == "ammo":
+            whole(row, "ammo_type", 0, 32, at)
+            whole(row, "quantity", 0, 1000000, at)
+            whole(row, "player", 0, 255, at)
+        elif cmd == "outfit":
+            if row.get("outfit") not in STAGE_OUTFITS:
+                errors.append(f"{at}.outfit is not an outfit ({row.get('outfit')!r})")
+        elif cmd == "watch_time":
+            whole(row, "hours", 0, 23, at)
+            whole(row, "minutes", 0, 59, at)
+        elif cmd in ("case", "case_respawn"):
+            whole(row, "team", 0, 3, at)
+            pad_ref(row, at)
+        elif cmd == "hill":
+            pad_ref(row, at)
+        else:
+            words = row.get("words")
+            if not isinstance(words, list) or len(words) != INTRO_LEGACY_WORDS[cmd] or not all(
+                    not isinstance(w, bool) and isinstance(w, int) and -2**31 <= w < 2**31 for w in words):
+                errors.append(f"{at}.words must hold exactly {INTRO_LEGACY_WORDS[cmd]} whole 32-bit numbers")
     return errors
 
 
@@ -6750,6 +6857,9 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                 if "stage.json" in name_set:
                     result.errors.extend(validate_stage_json(
                         label, zf.read("stage.json").decode("utf-8", errors="replace")))
+                if "intro.json" in name_set:
+                    result.errors.extend(validate_intro_json(
+                        label, zf.read("intro.json").decode("utf-8", errors="replace")))
                 if "objectives_file = objectives.json" not in text:
                     result.errors.append(
                         f"{label} scenario.ini must declare objectives_file = objectives.json"
