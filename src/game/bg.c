@@ -156,6 +156,21 @@ s32 bgUsesScenarioSource(void)
 	return g_BgUsingScenarioSource;
 }
 
+/* The first room at or after `from` that the stage's scenario source marks
+ * render_always (rooms.json), or -1. bgRenderScene draws these first. */
+static s32 bgNextScenarioRenderAlwaysRoom(s32 from)
+{
+	s32 r;
+
+	for (r = from > 1 ? from : 1; r < g_Vars.roomcount; r++) {
+		if (scenarioSourceRoomRenderAlways(r)) {
+			return r;
+		}
+	}
+
+	return -1;
+}
+
 void bgUnpausePropsInRoom(u32 roomnum, bool tintedglassonly)
 {
 	struct prop *prop;
@@ -1095,9 +1110,13 @@ Gfx *bgRenderScene(Gfx *gdl)
 
 	// Render special "always on" rooms, such as the Defection moon,
 	// Attack Ship planet, and other sky tricks that are implemented as rooms
+	// A stage built from scenario source names them with render_always on its
+	// rooms.json rows (the same rooms roomInitLights flags); the stage checks
+	// stay for a stage built from the ROM background.
 	if (!sourcebg
 			&& !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)
-			&& (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
+			&& (g_BgUsingScenarioSource ? bgNextScenarioRenderAlwaysRoom(1) >= 0 :
+				(stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
 				|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
 				|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
 				|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id
@@ -1107,13 +1126,15 @@ Gfx *bgRenderScene(Gfx *gdl)
 				|| stagenum == g_Stages[STAGEINDEX_EXTRACTION].id
 				|| stagenum == g_Stages[STAGEINDEX_MBR].id
 				|| stagenum == g_Stages[STAGEINDEX_TEST_OLD].id
-				|| stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id)) {
+				|| stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id))) {
 		gdl = envStopFog(gdl);
 		gdl = vi0000ab78(gdl);
 
 		roomnum = -1;
 
-		if (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
+		if (g_BgUsingScenarioSource) {
+			// Each render_always room is drawn below, after the stars.
+		} else if (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
 				|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
 				|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
 				|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id) {
@@ -1150,7 +1171,16 @@ Gfx *bgRenderScene(Gfx *gdl)
 			gdl = vi0000ab78(gdl);
 		}
 
-		if (roomnum != -1) {
+		if (g_BgUsingScenarioSource) {
+			for (roomnum = bgNextScenarioRenderAlwaysRoom(1); roomnum >= 0;
+					roomnum = bgNextScenarioRenderAlwaysRoom(roomnum + 1)) {
+				if (!g_Rooms[roomnum].loaded240) {
+					bgLoadRoom(roomnum);
+				}
+
+				gdl = bgRenderRoomOpaque(gdl, roomnum);
+			}
+		} else if (roomnum != -1) {
 			if (!g_Rooms[roomnum].loaded240) {
 				bgLoadRoom(roomnum);
 			}
