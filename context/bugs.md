@@ -82,10 +82,17 @@ spawn path stops the packet instead of desyncing (it allocates props while it pa
 read-first rewrite is separate); pickup, use and character damage skip a message they cannot apply
 with a warning and return 0. Left failing closed on purpose: the reconnect, auth and vehicle state
 readers (the dispatcher's terminal disconnect for a rejected reconnect message depends on it) and
-the hoverbike raw-use rejection. Pinned in `tests/test_net_reader_consumes_static.cpp`. Open:
-`netmsgSvcPropSpawnRead` read-first, and the lobby, catalog, distribution and admin readers the
-audit lists (`audit_readers.py`, session scratchpad: 27 readers return before their last read,
-most of them on purpose or on a broken buffer).
+the hoverbike raw-use rejection. Pinned in `tests/test_net_reader_consumes_static.cpp`.
+`netmsgSvcPropSpawnRead` second pass (2026-11-15, built; pd-tests 1,953 cases green): it now parses
+the whole row (header, weapon or laptop fields, object block, projectile block) before it decides
+or allocates, skips a declined row with 0 outside a reconnect (not in the game, a sync id it already
+has, an owner it cannot resolve, no prop allocated, a topology mismatch) and still fails closed
+inside one; it also no longer writes `realrot` through a NULL `prop->obj`. Its writer sent the
+projectile block only with a non-NULL projectile, a condition the reader could not see; it now
+clears `OBJHFLAG_PROJECTILE` in the written value when there is no projectile. Simulant drops
+(B-1129) arrive as spawns, so this matters more than before. Open: the lobby, catalog, distribution
+and admin readers the audit lists (`audit_readers.py`, session scratchpad: 27 readers return before
+their last read, most of them on purpose or on a broken buffer).
 
 ## 2026-11-15 B-1130 A human's Capture the Case capture never reached the clients (T-NETWORKING-011)
 

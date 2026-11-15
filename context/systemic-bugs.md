@@ -3562,6 +3562,8 @@ read the full message before any return, and (b) does a semantic rejection
 return 0? Done: `netmsgSvcBotPickupRead` (B-1129); `netmsgSvcPlayerStatsRead`,
 `netmsgSvcPropMoveRead` and `netmsgSvcChrDisarmRead` (with its writer) read
 first; `netmsgSvcPropPickupRead`, `netmsgSvcPropUseRead` and
-`netmsgSvcChrDamageRead` skip with 0 (B-1131). Open: a read-first rewrite of
-`netmsgSvcPropSpawnRead` (it stops the packet for now), and the lobby,
-catalog, distribution and admin readers.
+`netmsgSvcChrDamageRead` skip with 0 (B-1131); `netmsgSvcPropSpawnRead` parses
+its whole row before it decides or allocates, skips outside a reconnect and
+fails closed inside one, and its writer puts the projectile condition on the
+wire (B-1131, second pass). Open: the lobby, catalog, distribution and admin
+readers.

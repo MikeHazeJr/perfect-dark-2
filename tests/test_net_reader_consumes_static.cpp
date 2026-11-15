@@ -179,17 +179,43 @@ TEST_CASE("net readers: SVC_CHR_DISARM reads its position before it decides, and
 	REQUIRE(write.find("wpndamage > 0.f && wpnpos") == std::string::npos);
 }
 
-TEST_CASE("net readers: SVC_PROP_SPAWN does not return 0 with its object fields unread",
+TEST_CASE("net readers: SVC_PROP_SPAWN parses its whole row before it decides",
           "[net][b1131]") {
 	const std::string body = function_body(netmsg_code(),
 		"u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)\n{");
 
+	// Every read (header, type fields, object block, projectile block) comes
+	// before the first decision about this client's state
+	const size_t decide = body.find("if (srccl->state < CLSTATE_GAME)");
+	REQUIRE(decide != std::string::npos);
+	REQUIRE(body.find("netbufRead", decide) == std::string::npos);
+	REQUIRE(body.find("netRead", decide) == std::string::npos);
+	REQUIRE(body.find("netbufReadMtxf(src, &pmtx);") < decide);
+
+	// Outside a reconnect a declined row is skipped; inside one it fails closed
 	const size_t warn = body.find("\"NET: no prop allocated when spawning prop %u (%u)\"");
 	REQUIRE(warn != std::string::npos);
-	const std::string expected = "return src->error ? src->error : 1;";
+	const std::string expected = "return reconnect ? 1 : 0;";
 	const size_t ret = body.find("return", warn);
 	REQUIRE(ret != std::string::npos);
 	REQUIRE(body.compare(ret, expected.size(), expected) == 0);
+	REQUIRE(body.find("NET: SVC_PROP_SPAWN skipped syncid=%u type=%u objtype=%u %s") != std::string::npos);
+}
+
+TEST_CASE("net readers: SVC_PROP_SPAWN writes the projectile bit only with a projectile",
+          "[net][b1131]") {
+	const std::string write = function_body(netmsg_code(),
+		"u32 netmsgSvcPropSpawnWrite(struct netbuf *dst, struct prop *prop)\n{");
+
+	const size_t clear = write.find("hidden &= ~OBJHFLAG_PROJECTILE;");
+	const size_t written = write.find("netbufWriteHidden(dst, hidden);");
+	const size_t block = write.find("if (hidden & OBJHFLAG_PROJECTILE) {");
+	REQUIRE(clear != std::string::npos);
+	REQUIRE(written != std::string::npos);
+	REQUIRE(block != std::string::npos);
+	REQUIRE(clear < written);
+	REQUIRE(written < block);
+	REQUIRE(write.find("netbufWriteHidden(dst, prop->obj->hidden);") == std::string::npos);
 }
 
 TEST_CASE("net readers: pickup, use and damage skip a message they cannot apply",

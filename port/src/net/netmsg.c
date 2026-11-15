@@ -6074,10 +6074,17 @@ u32 netmsgSvcPropSpawnWrite(struct netbuf *dst, struct prop *prop)
 	}
 
 	if (prop->obj) {
+		/* SP-81 (B-1131): the reader takes the projectile block when the
+		 * written hidden value has OBJHFLAG_PROJECTILE; it cannot see the
+		 * pointer, so without a projectile the bit is not written either. */
+		u32 hidden = prop->obj->hidden;
+		if ((hidden & OBJHFLAG_PROJECTILE) && !prop->obj->projectile) {
+			hidden &= ~OBJHFLAG_PROJECTILE;
+		}
 		netbufWriteU32(dst, prop->obj->flags);
 		netbufWriteU32(dst, prop->obj->flags2);
 		netbufWriteU32(dst, prop->obj->flags3);
-		netbufWriteHidden(dst, prop->obj->hidden);
+		netbufWriteHidden(dst, hidden);
 		netbufWriteU8(dst, prop->obj->hidden2);
 		netbufWriteU16(dst, prop->obj->extrascale);
 		netbufWriteS16(dst, prop->obj->pad);
@@ -6086,7 +6093,7 @@ u32 netmsgSvcPropSpawnWrite(struct netbuf *dst, struct prop *prop)
 				netbufWriteF32(dst, prop->obj->realrot[i][j]);
 			}
 		}
-		if ((prop->obj->hidden & OBJHFLAG_PROJECTILE) && prop->obj->projectile) {
+		if (hidden & OBJHFLAG_PROJECTILE) {
 			netbufWriteCoord(dst, &prop->obj->projectile->nextsteppos);
 			netbufWritePropPtr(dst, prop->obj->projectile->ownerprop);
 			netbufWritePropPtr(dst, prop->obj->projectile->targetprop);
@@ -6108,6 +6115,11 @@ u32 netmsgSvcPropSpawnWrite(struct netbuf *dst, struct prop *prop)
 
 u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 {
+	/* SP-81 (B-1131): parse the whole row first, then decide, then build. A
+	 * spawn this client declines (not in the game yet, a sync id it already
+	 * has, an owner it cannot resolve) is skipped without leaving any of its
+	 * bytes to be read as the next message; inside a reconnect transaction a
+	 * declined row still fails closed, as the dispatcher expects. */
 	const u8 msgflags = netbufReadU8(src);
 	const u32 syncid = netbufReadU32(src);
 	struct coord pos; netbufReadCoord(src, &pos);
@@ -6119,20 +6131,119 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 	const net_reconnect_prop_placement_e placement =
 		netReconnectPlanPropPlacement(parent != NULL,
 			(msgflags & (1 << 0)) != 0);
+	const bool isautogun = type == PROPTYPE_OBJ && objtype == OBJTYPE_AUTOGUN;
+	const bool reconnect = s_ReconnectPropReceive.active != 0;
+
+	/* The type-specific fields, as netmsgSvcPropSpawnWrite writes them */
+	s16 modelnum = 0;
+	s32 weaponnum_raw = 0;
+	s8 unk5d = 0;
+	s8 unk5e = 0;
+	u8 gunfunc = 0;
+	s16 timer240 = 0;
+	u8 ammocount = 0;
+	u8 firecount = 0;
+	u8 targetteam = 0;
+	u8 ownerclid = NET_NULL_CLIENT;
+
+	if (type == PROPTYPE_WEAPON) {
+		modelnum = (s16)netReadModelRef(src);
+		weaponnum_raw = netReadWeaponRef(src);
+		(void)netReadWeaponRef(src); /* dual weapon: written, never applied */
+		unk5d = netbufReadS8(src);
+		unk5e = netbufReadS8(src);
+		gunfunc = netbufReadU8(src);
+		timer240 = netbufReadS16(src);
+	} else if (type == PROPTYPE_OBJ) {
+		modelnum = (s16)netReadModelRef(src);
+		if (objtype == OBJTYPE_AUTOGUN) {
+			// thrown laptop?
+			ammocount = netbufReadU8(src);
+			firecount = netbufReadU8(src);
+			targetteam = netbufReadU8(src);
+			ownerclid = netbufReadU8(src);
+		}
+	}
+
+	/* The object block, present with msgflags bit 1; its projectile part is
+	 * present when the written hidden value has OBJHFLAG_PROJECTILE */
+	u32 oflags = 0;
+	u32 oflags2 = 0;
+	u32 oflags3 = 0;
+	u32 ohidden = 0;
+	u8 ohidden2 = 0;
+	u16 oextrascale = 256;
+	s16 opad = -1;
+	f32 orealrot[3][3] = { { 1.f, 0.f, 0.f }, { 0.f, 1.f, 0.f }, { 0.f, 0.f, 1.f } };
+	bool hasprojectile = false;
+	struct coord pnextsteppos = { 0.f, 0.f, 0.f };
+	struct prop *pownerprop = NULL;
+	struct prop *ptargetprop = NULL;
+	u32 pflags = 0;
+	f32 punk08c = 0.f;
+	s16 ppickuptimer240 = 0;
+	s16 pdroptype = 0;
+	Mtxf pmtx;
+	f32 punk010 = 0.f;
+	f32 punk014 = 0.f;
+	f32 punk018 = 0.f;
+
+	memset(&pmtx, 0, sizeof(pmtx));
+
+	if (msgflags & (1 << 1)) {
+		oflags = netbufReadU32(src);
+		oflags2 = netbufReadU32(src);
+		oflags3 = netbufReadU32(src);
+		ohidden = netbufReadHidden(src);
+		ohidden2 = netbufReadU8(src);
+		oextrascale = netbufReadU16(src);
+		opad = netbufReadS16(src);
+		for (s32 i = 0; i < 3; ++i) {
+			for (s32 j = 0; j < 3; ++j) {
+				orealrot[i][j] = netbufReadF32(src);
+			}
+		}
+		if (ohidden & OBJHFLAG_PROJECTILE) {
+			hasprojectile = true;
+			netbufReadCoord(src, &pnextsteppos);
+			pownerprop = netbufReadPropPtr(src);
+			ptargetprop = netbufReadPropPtr(src);
+			pflags = netbufReadU32(src);
+			punk08c = netbufReadF32(src);
+			ppickuptimer240 = netbufReadS16(src);
+			pdroptype = netbufReadS16(src);
+			netbufReadMtxf(src, &pmtx);
+			if (pflags & PROJECTILEFLAG_POWERED) {
+				// rocket; get acceleration and realrot
+				punk010 = netbufReadF32(src);
+				punk014 = netbufReadF32(src);
+				punk018 = netbufReadF32(src);
+			}
+		}
+	}
 
 	if (src->error || (msgflags & ~7u)
 			|| placement == NET_RECONNECT_PROP_PLACEMENT_INVALID) {
 		return src->error ? src->error : 1;
 	}
 
-	if (srccl->state < CLSTATE_GAME || syncid == 0
-			|| netSyncIdLookup(syncid)
-			|| !((type == PROPTYPE_WEAPON && objtype == OBJTYPE_WEAPON)
-				|| (type == PROPTYPE_OBJ
-					&& objtype == OBJTYPE_AUTOGUN))) {
-		return 1;
+	/* Decide. The row is fully read, so a skip costs only this message. */
+	if (srccl->state < CLSTATE_GAME) {
+		return reconnect ? 1 : 0;
 	}
-	if (s_ReconnectPropReceive.active) {
+
+	if (syncid == 0 || netSyncIdLookup(syncid)
+			|| !((type == PROPTYPE_WEAPON && objtype == OBJTYPE_WEAPON) || isautogun)) {
+		if (reconnect) {
+			return 1;
+		}
+		sysLogPrintf(LOG_WARNING, "NET: SVC_PROP_SPAWN skipped syncid=%u type=%u objtype=%u %s",
+			(unsigned)syncid, (unsigned)type, (unsigned)objtype,
+			syncid && netSyncIdLookup(syncid) ? "already present" : "not spawnable");
+		return 0;
+	}
+
+	if (reconnect) {
 		const s32 expected_index = netmsgReconnectPropExpectedIndex(syncid);
 		if (syncid < s_ReconnectPropReceive.first_dynamic_syncid
 				|| expected_index < 0
@@ -6141,19 +6252,21 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 		}
 	}
 
-	struct prop *prop = (type == PROPTYPE_OBJ && objtype == OBJTYPE_AUTOGUN) ? NULL : propAllocate();
+	if (isautogun && (ownerclid >= NET_MAX_CLIENTS + 1 || !g_NetClients[ownerclid].player
+			|| !g_NetClients[ownerclid].player->prop || !g_NetClients[ownerclid].player->prop->chr)) {
+		if (reconnect) {
+			return 1;
+		}
+		sysLogPrintf(LOG_WARNING, "NET: SVC_PROP_SPAWN skipped syncid=%u, laptop owner client %u not here",
+			(unsigned)syncid, (unsigned)ownerclid);
+		return 0;
+	}
+
+	/* Build */
+	struct prop *prop = isautogun ? NULL : propAllocate();
 
 	if (type == PROPTYPE_WEAPON) {
-		const s16 modelnum = (s16)netReadModelRef(src);
-		const s32 weaponnum_raw = netReadWeaponRef(src);
-		const s32 dualweaponnum_raw = netReadWeaponRef(src);
 		const u8 weaponnum = (u8)weaponnum_raw;
-		const s8 dualweaponnum = dualweaponnum_raw > WEAPON_UNARMED
-			? (s8)dualweaponnum_raw : -1;
-		const s8 unk5d = netbufReadS8(src);
-		const s8 unk5e = netbufReadS8(src);
-		const u8 gunfunc = netbufReadU8(src);
-		const s16 timer240 = netbufReadS16(src);
 		setupLoadModeldef(modelnum);
 		struct modeldef *modeldef = g_ModelStates[modelnum].modeldef;
 		struct model *model = modelmgrInstantiateModelWithoutAnim(modeldef);
@@ -6198,33 +6311,21 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 		weapon->gunfunc = gunfunc;
 		weapon->timer240 = timer240;
 		prop = func0f08adc8(weapon, modeldef, prop, model);
-	} else if (type == PROPTYPE_OBJ) {
-		const s16 modelnum = (s16)netReadModelRef(src);
-		if (objtype == OBJTYPE_AUTOGUN) {
-			// thrown laptop?
-			const u8 ammocount = netbufReadU8(src);
-			const u8 firecount = netbufReadU8(src);
-			const u8 targetteam = netbufReadU8(src);
-			const u8 clid = netbufReadU8(src);
-			if (clid >= NET_MAX_CLIENTS + 1 || !g_NetClients[clid].player
-					|| !g_NetClients[clid].player->prop || !g_NetClients[clid].player->prop->chr) {
-				return src->error ? src->error : 1;
-			}
-			struct chrdata *ownerchr = g_NetClients[clid].player->prop->chr;
-			struct autogunobj *obj = laptopDeploy(modelnum, NULL, ownerchr);
-			/* B-163: laptopDeploy can return NULL if the modeldef failed to load
-			 * (torn asset, catalog miss).  Skip spawn; server will resync. */
-			if (obj == NULL) {
-				sysLogPrintf(LOG_WARNING,
-					"NETMSG: laptopDeploy returned NULL for modelnum %d — spawn skipped",
-					modelnum);
-				return src->error ? src->error : 1;
-			}
-			obj->ammoquantity = ammocount;
-			obj->firecount = firecount;
-			obj->targetteam = targetteam;
-			prop = obj->base.prop;
+	} else if (isautogun) {
+		struct chrdata *ownerchr = g_NetClients[ownerclid].player->prop->chr;
+		struct autogunobj *obj = laptopDeploy(modelnum, NULL, ownerchr);
+		/* B-163: laptopDeploy can return NULL if the modeldef failed to load
+		 * (torn asset, catalog miss).  Skip spawn; server will resync. */
+		if (obj == NULL) {
+			sysLogPrintf(LOG_WARNING,
+				"NETMSG: laptopDeploy returned NULL for modelnum %d — spawn skipped",
+				modelnum);
+			return reconnect ? 1 : 0;
 		}
+		obj->ammoquantity = ammocount;
+		obj->firecount = firecount;
+		obj->targetteam = targetteam;
+		prop = obj->base.prop;
 	}
 
 	if (prop) {
@@ -6236,74 +6337,57 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 		roomsCopy(rooms, prop->rooms);
 	} else {
 		sysLogPrintf(LOG_WARNING, "NET: no prop allocated when spawning prop %u (%u)", syncid, type);
-		/* SP-81 (B-1131): the object fields below are still unread; a zero
-		 * here made the receive loop read them as the next messages. Stop
-		 * the packet instead until this reader parses before it applies. */
-		return src->error ? src->error : 1;
+		return reconnect ? 1 : 0;
 	}
 
-	if (msgflags & (1 << 1)) {
-		const u32 flags = netbufReadU32(src);
-		const u32 flags2 = netbufReadU32(src);
-		const u32 flags3 = netbufReadU32(src);
-		const u32 hidden = netbufReadHidden(src);
-		const u8 hidden2 = netbufReadU8(src);
-		const u16 extrascale = netbufReadU16(src);
-		const s16 pad = netbufReadS16(src);
+	if ((msgflags & (1 << 1)) && prop->obj) {
 		for (s32 i = 0; i < 3; ++i) {
 			for (s32 j = 0; j < 3; ++j) {
-				prop->obj->realrot[i][j] = netbufReadF32(src);
+				prop->obj->realrot[i][j] = orealrot[i][j];
 			}
 		}
-		if (prop->obj) {
-			if (hidden & OBJHFLAG_PROJECTILE) {
-				func0f0685e4(prop);
-				netbufReadCoord(src, &prop->obj->projectile->nextsteppos);
-				prop->obj->projectile->ownerprop = netbufReadPropPtr(src);
-				prop->obj->projectile->targetprop = netbufReadPropPtr(src);
-				prop->obj->projectile->flags = netbufReadU32(src);
-				prop->obj->projectile->unk08c = netbufReadF32(src);
-				prop->obj->projectile->pickuptimer240 = netbufReadS16(src);
-				prop->obj->projectile->droptype = netbufReadS16(src);
+		if (hasprojectile) {
+			func0f0685e4(prop);
+			if (prop->obj->projectile) {
+				prop->obj->projectile->nextsteppos = pnextsteppos;
+				prop->obj->projectile->ownerprop = pownerprop;
+				prop->obj->projectile->targetprop = ptargetprop;
+				prop->obj->projectile->flags = pflags;
+				prop->obj->projectile->unk08c = punk08c;
+				prop->obj->projectile->pickuptimer240 = ppickuptimer240;
+				prop->obj->projectile->droptype = pdroptype;
 				prop->obj->projectile->flighttime240 = 0;
-				netbufReadMtxf(src, &prop->obj->projectile->mtx);
-				if (prop->obj->projectile->flags & PROJECTILEFLAG_POWERED) {
-					// rocket; get acceleration and realrot
-					prop->obj->projectile->unk010 = netbufReadF32(src);
-					prop->obj->projectile->unk014 = netbufReadF32(src);
-					prop->obj->projectile->unk018 = netbufReadF32(src);
+				prop->obj->projectile->mtx = pmtx;
+				if (pflags & PROJECTILEFLAG_POWERED) {
+					prop->obj->projectile->unk010 = punk010;
+					prop->obj->projectile->unk014 = punk014;
+					prop->obj->projectile->unk018 = punk018;
 					prop->obj->projectile->powerlimit240 = TICKS(1200);
 					prop->obj->projectile->smoketimer240 = TICKS(24);
 				}
 				if (!s_ReconnectPropReceive.active
-						&& ((type == PROPTYPE_WEAPON
-								&& (prop->obj->projectile->flags
-									& PROJECTILEFLAG_00000002))
+						&& ((type == PROPTYPE_WEAPON && (pflags & PROJECTILEFLAG_00000002))
 							|| objtype == OBJTYPE_AUTOGUN)) {
 					/* A live spawn owns this one-shot sound. Reconnect reconstructs
 					 * state and must not replay an already-consumed throw effect. */
 					psCreate(NULL, prop, SFX_THROW, -1, -1, 0, 0, PSTYPE_NONE, NULL, -1, NULL, -1, -1, -1, -1);
 				}
 			}
-			prop->obj->flags = flags;
-			prop->obj->flags2 = flags2;
-			prop->obj->flags3 = flags3;
-			prop->obj->hidden = hidden;
-			prop->obj->hidden2 = hidden2;
-			prop->obj->extrascale = extrascale;
-			prop->obj->pad = pad;
-			if (prop->obj->model) {
-				modelSetScale(prop->obj->model, prop->obj->model->scale * ((f32)extrascale / 256.f));
-			}
+		}
+		prop->obj->flags = oflags;
+		prop->obj->flags2 = oflags2;
+		prop->obj->flags3 = oflags3;
+		prop->obj->hidden = ohidden;
+		prop->obj->hidden2 = ohidden2;
+		prop->obj->extrascale = oextrascale;
+		prop->obj->pad = opad;
+		if (prop->obj->model) {
+			modelSetScale(prop->obj->model, prop->obj->model->scale * ((f32)oextrascale / 256.f));
 		}
 	}
 
 	// just in case
 	prop->pos = pos;
-	if (src->error) {
-		objFreePermanently(prop->obj, true);
-		return src->error;
-	}
 
 	/* Publish exactly one topology only after the complete spawn row parses.
 	 * prop.next/prev cannot simultaneously represent scheduler and child links. */
@@ -6330,7 +6414,12 @@ u32 netmsgSvcPropSpawnRead(struct netbuf *src, struct netclient *srccl)
 	if (netmsgPropSchedulerMembershipCount(prop)
 			!= (placement == NET_RECONNECT_PROP_PLACEMENT_ATTACHED ? 0 : 1)) {
 		objFreePermanently(prop->obj, true);
-		return 1;
+		if (reconnect) {
+			return 1;
+		}
+		sysLogPrintf(LOG_WARNING, "NET: SVC_PROP_SPAWN syncid=%u retired, scheduler membership did not match placement %d",
+			(unsigned)syncid, (int)placement);
+		return 0;
 	}
 	netSyncIdMapSet(syncid, prop);
 
