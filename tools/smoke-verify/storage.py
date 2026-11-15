@@ -113,7 +113,8 @@ def storage_location(project):
     the disk floor for installs is then measured on its drive. The file may
     also set that root's own limits ("policy": min_free_gib, max_full_installs,
     max_full_install_gib, max_archive_gib; Mike, 2026-11-15: on C: "only one
-    or two at a time"). Returns (root, policy overrides).
+    or two at a time"); they win over any policy a caller sends. Returns
+    (root, policy overrides).
     lib/Storage-Harness.ps1 (Get-SmokeStorageRoot) reads the root the same way."""
     project = plain(project)
     location = project / LOCATION_FILE
@@ -275,11 +276,15 @@ class Storage:
         if self.project != CHECKOUT and not self.project.is_relative_to(allowed):
             raise StorageError("Isolated test project must be inside canonical .claude")
         self.root, location_policy = storage_location(self.project)
-        # The checkout's limits guard its own drive (builds); the location
-        # file's limits apply to the storage root. An explicit policy wins.
+        # The caller's policy (the scripts send the whole checked-in
+        # storage-policy.json on every call, or a -StoragePolicy file) guards
+        # the checkout's own drive, where builds write. The storage root's
+        # limits are the location file's wherever it sets them, so the
+        # always-sent checked-in values cannot undo them (B-1171); limits the
+        # location file leaves unset follow the caller's policy.
         self.project_policy = policy_from(policy)
-        merged = dict(location_policy)
-        merged.update(policy or {})
+        merged = dict(policy or {})
+        merged.update(location_policy)
         self.policy = policy_from(merged)
         self.state_path = plain(self.root / "state.json")
         self.state = {"schema": 1, "installs": {}, "blobs": {}}

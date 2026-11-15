@@ -294,8 +294,10 @@ class StorageTests(unittest.TestCase):
 
     def test_location_limits_apply_to_its_root_and_builds_measure_the_checkout(self):
         # Mike, 2026-11-15: installs on C: "only one or two at a time". The
-        # location file's limits govern its root; an explicit policy still
-        # wins; a build is measured on the checkout's own drive and floor.
+        # location file's limits govern its root whatever policy the caller
+        # sends (the scripts always send the whole checked-in file: B-1171);
+        # a limit it leaves unset follows the caller; a build is measured on
+        # the checkout's own drive and floor.
         location = self.project / '.claude/smoke-storage-location.json'
         moved = self.project / 'ssd-root' / 'core'
         location.write_text(json.dumps({'schema': 1, 'root': str(moved),
@@ -306,7 +308,11 @@ class StorageTests(unittest.TestCase):
         defaults = json.loads((Path(storage.__file__).parent / 'storage-policy.json').read_text())
         self.assertEqual(plain.project_policy['min_free_gib'], defaults['min_free_gib'])
         self.assertEqual(plain.project_policy['max_full_installs'], defaults['max_full_installs'])
-        self.assertEqual(storage.Storage(self.project, {'max_full_installs': 3}).policy['max_full_installs'], 3)
+        sent = storage.Storage(self.project, dict(defaults, max_full_installs=3, max_archive_gib=3))
+        self.assertEqual(sent.policy['max_full_installs'], 2)
+        self.assertEqual(sent.policy['min_free_gib'], 200)
+        self.assertEqual(sent.policy['max_archive_gib'], 3)
+        self.assertEqual(sent.project_policy['max_full_installs'], 3)
 
         real = storage.shutil.disk_usage
         gib = 2**30
