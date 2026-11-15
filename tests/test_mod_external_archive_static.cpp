@@ -11091,6 +11091,28 @@ TEST_CASE("mod magazines are flat ammoN_* settings with checked values (crystal 
 		std::string::npos);
 	REQUIRE(pool.find("regrow needs ammo%d_reserve none") != std::string::npos);
 	REQUIRE(pool.find("it fires without ammo (B-1151)") != std::string::npos);
+
+	/* B-1211: a public weapon's bot preferences are derived, never left zeroed
+	 * (botinvTick skips a function whose ammo-goal bit is clear, so bots went
+	 * unarmed); a self-loading magazine has no ammo goals and its reload
+	 * delay is the full regrow. */
+	REQUIRE(pool.find("s_publicWeaponBotPrefsBuild(&s_BotPrefs[runtime_weapon_id], funcs, held,") !=
+		std::string::npos);
+	REQUIRE(pool.find("out->haspriammogoal = 1;") != std::string::npos);
+	REQUIRE(pool.find("out->hassecammogoal = 1;") != std::string::npos);
+	REQUIRE(pool.find("if (!ext->selfloading && clip > 0) {") != std::string::npos);
+	REQUIRE(pool.find("(clip * ext->regrow_ticks60 + 59) / 60") != std::string::npos);
+	REQUIRE(pool.find("memset(&s_BotPrefs[runtime_weapon_id], 0") == std::string::npos);
+	const std::string botact = readFile("src/game/botact.c");
+	REQUIRE(botact.find("if (aibot && botactIsSelfLoadingModFunction(weaponnum, funcnum)) {") !=
+		std::string::npos);
+	REQUIRE(botact.find("return bgunGetCapacityByAmmotype(botactGetAmmoTypeByFunction(weaponnum, funcnum));") !=
+		std::string::npos);
+	const std::string botinv = readFile("src/game/botinv.c");
+	REQUIRE(botinv.find("&& bgunModFunctionsShareSelfLoadingAmmo(weaponnum, aibot->gunfunc, funcnum);") !=
+		std::string::npos);
+	REQUIRE(botinv.find("if ((changingfunc || changinggun) && !keepmagazine) {") != std::string::npos);
+	REQUIRE(botinv.find("if (changingfunc && !changinggun && !keepmagazine) {") != std::string::npos);
 }
 
 TEST_CASE("crystal pistol charge, cluster and arm-on-land params reach the runtime records",
