@@ -129,7 +129,7 @@ ROOT_METADATA = {
 #   ARENA   -> ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND  (port/src/romextract_pdarena.c)
 #   MISSION -> PDMETA_SCENARIO_DEP_CACHE_KIND         (port/src/romextract_pdmeta.c)
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -724,6 +724,7 @@ SCHEMAS: dict[str, Schema] = {
             "collision.flags.json",  # decoded collision GEOFLAG/floortype sidecar (c3844 B-943)
             "room_lights.json",      # decoded BG room-lights sidecar (c3844 B-943)
             "rooms.json",      # authored BG room table sidecar (B-1113)
+            "stage.json",      # stage-wide rules (decision 3)
             "navigation/waypoints.json",
             "navigation/waygroups.json",
             "navigation/covers.json",
@@ -1042,6 +1043,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "collision.flags.json": slot("per-triangle collision GEOFLAG/floortype sidecar", "scenario collision importer", "applies authoritative per-tri GEOFLAGs (DIE/LADDER/UNDERWATER/STEP/BLOCK_SIGHT/SHOOT) + footstep floortype to the collision tile cache", "collision flags are reconstructed from face normals via classifyTriFlags (FLOOR/WALL only)"),
         "room_lights.json": slot("decoded BG per-room lights sidecar", "scenario room-lights importer", "rebuilds g_BgLightsFileData for per-room dynamic brightness + shoot-out-the-lights", "extracted stages run with static lighting, no per-room dynamic light precompute"),
         "rooms.json": slot("authored per-room table: bounding box, origin, brightness range and optional room rules (render_always, sky, base_brightness, lights_unshootable, unshootable_lights)", "scenario room-table importer", "sets each room's box from the authored table, which decides the room of every pad and so whether the props placed on it are created; moves the room-relative light quads of room_lights.json to world coordinates; sets the light level a room keeps when its lights are out; applies the room's render and light rules at light setup and draws a sky room relative to the player", "room boxes are derived from collision triangles, which are never larger and are empty for a room with no collision; light quads are taken as world coordinates; every room uses the brightest range; no room is always drawn, no room is a sky and every light can be shot out"),
+        "stage.json": slot("stage-wide rules (pd2.scenario.stage.v1): weather (wind, height band, height limit, cutscene only, weather or dry rooms, fixed wind direction)", "scenario stage-rules reader", "sets up the stage's weather when the stage loads; its AI commands start the rain or snow", "the stage has no stage-wide rules: no weather setup"),
         "mission.graph.json": slot("scenario-local mission behavior graph", "mission graph importer", "loads mission/script graph when the scenario carries its own mission logic", "mission behavior comes from a linked .pdmission or base fallback"),
     },
     ".pdmesh": {
@@ -2588,6 +2590,78 @@ def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
                 errors.append(f"{where} edge {idx} leaves gate {src!r} and needs output pass or fail")
         elif output is not None and output != "out":
             errors.append(f"{where} edge {idx} output must be \"out\"")
+    return errors
+
+
+# Stage-wide rules (decision 3, CORE, 2026-11-15). Keep in step with
+# port/src/scenario_stage_rules.cpp.
+STAGE_RULES_SCHEMA = "pd2.scenario.stage.v1"
+STAGE_RULES_KEYS = {"schema", "note", "weather"}
+STAGE_WEATHER_KEYS = {"wind_speed", "y_min", "y_max", "z_max", "cutscene_only",
+                      "weather_rooms", "dry_rooms", "wind_direction"}
+STAGE_WEATHER_MAX_ROOMS = 127
+
+
+def validate_stage_json(label: str, text: str) -> list[str]:
+    """The reader's rules for stage.json: the schema, known keys only, and a
+    usable weather rule (numbers, y_min below y_max, exactly one room list of
+    room numbers 1..32767, at most 127 of them)."""
+    where = f"{label} stage.json"
+    try:
+        doc = json.loads(text)
+    except json.JSONDecodeError as exc:
+        return [f"{where} is not valid JSON: {exc.msg}"]
+    if not isinstance(doc, dict):
+        return [f"{where} must be one JSON object"]
+    errors: list[str] = []
+    if doc.get("schema") != STAGE_RULES_SCHEMA:
+        errors.append(f"{where} must declare schema {STAGE_RULES_SCHEMA}")
+    for key in sorted(set(doc) - STAGE_RULES_KEYS):
+        errors.append(f"{where} has an unknown key {key!r}")
+    if "note" in doc and not isinstance(doc["note"], str):
+        errors.append(f"{where} note must be text")
+    weather = doc.get("weather")
+    if weather is None:
+        return errors
+    if not isinstance(weather, dict):
+        return errors + [f"{where} weather must be an object"]
+
+    def number(obj: dict, key: str, path: str) -> float | None:
+        value = obj.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or abs(value) > 1.0e7:
+            errors.append(f"{where} {path}.{key} must be a number")
+            return None
+        return float(value)
+
+    for key in sorted(set(weather) - STAGE_WEATHER_KEYS):
+        errors.append(f"{where} weather has an unknown key {key!r}")
+    number(weather, "wind_speed", "weather")
+    y_min = number(weather, "y_min", "weather")
+    y_max = number(weather, "y_max", "weather")
+    if "z_max" in weather:
+        number(weather, "z_max", "weather")
+    if y_min is not None and y_max is not None and not y_min < y_max:
+        errors.append(f"{where} weather.y_min must be below weather.y_max")
+    if "cutscene_only" in weather and not isinstance(weather["cutscene_only"], bool):
+        errors.append(f"{where} weather.cutscene_only must be true or false")
+    lists = [key for key in ("weather_rooms", "dry_rooms") if key in weather]
+    if len(lists) != 1:
+        errors.append(f"{where} weather needs exactly one of weather_rooms and dry_rooms")
+    else:
+        rooms = weather[lists[0]]
+        if not isinstance(rooms, list) or len(rooms) > STAGE_WEATHER_MAX_ROOMS or not all(
+                isinstance(r, int) and not isinstance(r, bool) and 1 <= r <= 32767 for r in rooms):
+            errors.append(f"{where} weather.{lists[0]} must list at most {STAGE_WEATHER_MAX_ROOMS} "
+                          "room numbers 1..32767")
+    wind = weather.get("wind_direction")
+    if wind is not None:
+        if not isinstance(wind, dict):
+            errors.append(f"{where} weather.wind_direction must be an object")
+        else:
+            for key in sorted(set(wind) - {"angle", "speed_x", "speed_z"}):
+                errors.append(f"{where} weather.wind_direction has an unknown key {key!r}")
+            for key in ("angle", "speed_x", "speed_z"):
+                number(wind, key, "weather.wind_direction")
     return errors
 
 
@@ -6634,6 +6708,9 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         source_room_count=source_room_count,
                     )
                     result.errors.extend(portal_errors)
+                if "stage.json" in name_set:
+                    result.errors.extend(validate_stage_json(
+                        label, zf.read("stage.json").decode("utf-8", errors="replace")))
                 if "objectives_file = objectives.json" not in text:
                     result.errors.append(
                         f"{label} scenario.ini must declare objectives_file = objectives.json"

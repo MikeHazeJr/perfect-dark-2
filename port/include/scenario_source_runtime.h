@@ -812,6 +812,14 @@ s32 scenarioSourceRoomLightUnshootable(s32 roomnum, s32 lightindex);
 s32 scenarioSourcePortalBlocksLightFlood(s32 portalnum);
 s32 scenarioSourcePortalOpenToLight(s32 portalnum);
 
+/* Stage-wide rules (decision 3): the stage's stage.json, loaded with its
+ * scenario tables (1 loaded, 0 none, -1 refused and logged). The weather query
+ * answers 1 and fills out when the stage has a weather rule. */
+struct scenario_stage_weather;
+s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
+	s32 prefer_mp);
+s32 scenarioSourceStageWeather(struct scenario_stage_weather *out);
+
 #ifdef __cplusplus
 }
 #endif

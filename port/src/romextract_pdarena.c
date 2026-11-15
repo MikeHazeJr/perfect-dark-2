@@ -86,7 +86,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -7179,6 +7179,65 @@ static s32 s_appendRoomRuleFields(pdscenario_textbuf_t *out, s32 stagenum,
 	return 0;
 }
 
+/*
+ * Stage-wide rules (decision 3, CORE, 2026-11-15): stage.json
+ * (pd2.scenario.stage.v1, port/include/scenario_stage_rules.h), one per
+ * scenario, packed with the level. First family: weather, written from the
+ * same table the game reads for a stage built from the ROM (g_WeatherConfig,
+ * src/game/weather.c), so the two cannot differ.
+ */
+static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
+{
+	const struct weathercfg *weather = NULL;
+	s32 i;
+
+	for (i = 0; i < WEATHERCFG_MAX_STAGES && g_WeatherConfig[i].stagenum; i++) {
+		if (g_WeatherConfig[i].stagenum == stagenum) {
+			weather = &g_WeatherConfig[i];
+			break;
+		}
+	}
+	if (s_textbufAppend(out,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.stage.v1\",\n"
+			"  \"note\": \"Stage-wide rules, each optional. weather: where and how the stage's rain or snow falls (its AI commands start it): wind_speed; y_min and y_max, the height band around the camera the particles fill; z_max, 0 or a z below which the camera sees no weather; cutscene_only; exactly one of weather_rooms (the only rooms with weather) and dry_rooms (the rooms without it); optional wind_direction {angle, speed_x, speed_z} for a fixed wind.\"") != 0) {
+		return -1;
+	}
+	if (weather) {
+		const char *rooms_key = (weather->flags & WEATHERFLAG_INCLUDE) ? "weather_rooms" : "dry_rooms";
+		s32 written = 0;
+
+		if (s_textbufAppendf(out,
+				",\n  \"weather\": { \"wind_speed\": %.9g, \"y_min\": %.9g, \"y_max\": %.9g, \"z_max\": %.9g, \"cutscene_only\": %s, \"%s\": [",
+				(double)weather->windspeed, (double)weather->ymin, (double)weather->ymax,
+				(double)weather->zmax,
+				(weather->flags & WEATHERFLAG_CUTSCENE_ONLY) ? "true" : "false",
+				rooms_key) != 0) {
+			return -1;
+		}
+		for (i = 0; i < WEATHERCFG_MAX_SKIPROOMS && weather->skiprooms[i]; i++) {
+			if (s_textbufAppendf(out, "%s%d", written++ ? ", " : "",
+					(int)weather->skiprooms[i]) != 0) {
+				return -1;
+			}
+		}
+		if (s_textbufAppend(out, "]") != 0) {
+			return -1;
+		}
+		if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&
+				s_textbufAppendf(out,
+					", \"wind_direction\": { \"angle\": %.9g, \"speed_x\": %.9g, \"speed_z\": %.9g }",
+					(double)weather->windanglerad, (double)weather->windspeedx,
+					(double)weather->windspeedz) != 0) {
+			return -1;
+		}
+		if (s_textbufAppend(out, " }") != 0) {
+			return -1;
+		}
+	}
+	return s_textbufAppend(out, "\n}\n");
+}
+
 static s32 s_buildBgPortalsJson(const u8 *bg, u32 bg_size,
                                 s32 stagenum,
                                 pdscenario_textbuf_t *out,
@@ -8156,6 +8215,8 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 			"\"origin\": [") &&
 		s_existingArchiveEntryContains(relpath, "rooms.json",
 			"sky true draws it relative to the player") &&
+		s_existingArchiveEntryContains(relpath, "stage.json",
+			"pd2.scenario.stage.v1") &&
 		s_existingArchiveHasEntry(relpath, "pads.json") &&
 		s_existingArchiveHasEntry(relpath, "spawns.json") &&
 		s_existingArchiveHasEntry(relpath, "volumes.json") &&
@@ -9689,7 +9750,14 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	}
 
 	if (has_bg > 0) {
-		if (assetArchiveWriterAddPublicMem(&asset_writer, "portals.json",
+		/* Decision 3: the stage-wide rules member (weather first). */
+		pdscenario_textbuf_t stage_json = { 0 };
+		const s32 stage_failed = s_buildStageJson(spec->stagenum, &stage_json) != 0 ||
+			assetArchiveWriterAddPublicMem(&asset_writer, "stage.json",
+				stage_json.data, stage_json.len, "stage") != MODARCHIVE_OK;
+		s_textbufFree(&stage_json);
+		if (stage_failed ||
+		    assetArchiveWriterAddPublicMem(&asset_writer, "portals.json",
 				portals_json.data, portals_json.len, "portals") != MODARCHIVE_OK ||
 		    assetArchiveWriterAddPublicMem(&asset_writer, "room_lights.json",
 				room_lights_json.data, room_lights_json.len,

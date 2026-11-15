@@ -905,6 +905,9 @@ set(SRC_TESTS
   # Decision 2: the mission graph runner (events, gates, native modules).
   ${CMAKE_SOURCE_DIR}/tests/test_mission_graph_runner.cpp
   ${CMAKE_SOURCE_DIR}/port/src/mission_graph_runner.cpp
+  # Decision 3: stage-wide rules in stage.json (weather first).
+  ${CMAKE_SOURCE_DIR}/tests/test_stage_rules.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_stage_rules.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp

@@ -1700,6 +1700,10 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 		}
 	}
 
+	/* Decision 3: the stage-wide rules of the stage's stage.json (weather
+	 * first), read before the stage's weather and sky are set up. */
+	scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);
+
 	/* B-1113: the authored room boxes decide which room a pad is in, and so
 	 * whether the props placed on it exist at all. A box derived from a room's
 	 * collision triangles is never larger than the authored one and is empty

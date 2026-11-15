@@ -18,6 +18,7 @@
 #include "voice_locale_source.h"
 #include "mission_graph_runner.h"
 #include "mission_graph_modules.h"
+#include "scenario_stage_rules.h"
 #include "bss.h"
 #include "game/bondmove.h"
 #include "game/bg.h"
@@ -35478,10 +35479,65 @@ static void s_stagePortalRulesClear(void)
 	s_StagePortalRuleCount = 0;
 }
 
+/* Stage-wide rules from stage.json (decision 3), loaded with the stage's
+ * scenario tables and dropped with the other stage rules. */
+static scenario_stage_rules_t s_StageWideRules;
+
 void scenarioSourceStageRulesReset(void)
 {
 	s_stageRoomRulesClear();
 	s_stagePortalRulesClear();
+	memset(&s_StageWideRules, 0, sizeof(s_StageWideRules));
+}
+
+s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
+	s32 prefer_mp)
+{
+	const asset_entry_t *scenario;
+	char path[FS_MAXPATH + 1];
+	char error[192];
+	u32 text_size = 0;
+	char *text;
+	s32 ok;
+
+	memset(&s_StageWideRules, 0, sizeof(s_StageWideRules));
+	scenario = s_findScenarioForStage(stage, prefer_mp);
+	if (!scenario || !scenario->id[0] ||
+			!s_scenarioMemberPath(scenario, "stage.json", path, sizeof(path))) {
+		return 0;
+	}
+	text = s_loadOptionalText(path, &text_size);
+	if (!text) {
+		return 0; /* an authored scenario may have no stage-wide rules */
+	}
+	ok = scenarioStageRulesParse(text, text_size, &s_StageWideRules, error,
+		sizeof(error));
+	free(text);
+	if (!ok) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.SOURCE: stage.json of '%s' refused: %s; the stage runs without stage-wide rules",
+			scenario->id, error);
+		return -1;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d source=stage.json",
+		scenario->id, s_StageWideRules.weather.present,
+		s_StageWideRules.weather.rooms_have_weather ? "weather_rooms" : "dry_rooms",
+		s_StageWideRules.weather.room_count,
+		s_StageWideRules.weather.cutscene_only,
+		s_StageWideRules.weather.has_wind_direction);
+	return 1;
+}
+
+s32 scenarioSourceStageWeather(scenario_stage_weather_t *out)
+{
+	if (!s_StageWideRules.weather.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.weather;
+	}
+	return 1;
 }
 
 static const scenario_stage_room_rule_t *s_stageRoomRule(s32 roomnum)

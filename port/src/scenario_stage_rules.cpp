@@ -1,0 +1,124 @@
+// Stage-wide rules from stage.json (decision 3, CORE, 2026-11-15). See
+// port/include/scenario_stage_rules.h for the format.
+#include "scenario_stage_rules.h"
+
+#include "modasset_gltf_document.h"
+#include "../external/imgui-node-editor/crude_json.h"
+
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <set>
+#include <string>
+
+namespace {
+
+using Json = crude_json::value;
+
+struct Refusal {
+	std::string reason;
+};
+
+void refuse(const std::string &reason)
+{
+	throw Refusal{ reason };
+}
+
+void onlyKeys(const Json &object, const std::set<std::string> &known, const std::string &where)
+{
+	for (const auto &item : object.get<crude_json::object>()) {
+		if (!known.count(item.first)) refuse(where + " has an unknown key '" + item.first + "'");
+	}
+}
+
+f32 number(const Json &object, const char *key, const std::string &where)
+{
+	if (!object.contains(key) || !object[key].is_number()) refuse(where + "." + key + " must be a number");
+	const double value = object[key].get<crude_json::number>();
+	if (!std::isfinite(value) || std::fabs(value) > 1.0e7) refuse(where + "." + key + " is out of range");
+	return static_cast<f32>(value);
+}
+
+bool boolean(const Json &object, const char *key, const std::string &where)
+{
+	if (!object.contains(key)) return false;
+	if (!object[key].is_boolean()) refuse(where + "." + key + " must be true or false");
+	return object[key].get<crude_json::boolean>();
+}
+
+void readWeather(const Json &weather, scenario_stage_weather_t &out)
+{
+	const std::string where = "weather";
+	if (!weather.is_object()) refuse("weather must be an object");
+	onlyKeys(weather, { "wind_speed", "y_min", "y_max", "z_max", "cutscene_only", "weather_rooms",
+		"dry_rooms", "wind_direction" }, where);
+	out.present = 1;
+	out.wind_speed = number(weather, "wind_speed", where);
+	out.y_min = number(weather, "y_min", where);
+	out.y_max = number(weather, "y_max", where);
+	out.z_max = weather.contains("z_max") ? number(weather, "z_max", where) : 0.0f;
+	if (!(out.y_min < out.y_max)) refuse("weather.y_min must be below weather.y_max");
+	out.cutscene_only = boolean(weather, "cutscene_only", where) ? 1 : 0;
+
+	const bool has_only = weather.contains("weather_rooms");
+	const bool has_dry = weather.contains("dry_rooms");
+	if (has_only == has_dry) refuse("weather needs exactly one of weather_rooms and dry_rooms");
+	const char *rooms_key = has_only ? "weather_rooms" : "dry_rooms";
+	out.rooms_have_weather = has_only ? 1 : 0;
+	const Json &rooms = weather[rooms_key];
+	if (!rooms.is_array()) refuse(where + "." + rooms_key + " must be a list of room numbers");
+	const crude_json::array &list = rooms.get<crude_json::array>();
+	if (list.size() > SCENARIO_STAGE_MAX_WEATHER_ROOMS) {
+		refuse(where + "." + rooms_key + " names more than " +
+			std::to_string(SCENARIO_STAGE_MAX_WEATHER_ROOMS) + " rooms");
+	}
+	for (const Json &room : list) {
+		const double value = room.is_number() ? room.get<crude_json::number>() : -1.0;
+		if (value < 1.0 || value > 32767.0 || value != std::floor(value)) {
+			refuse(where + "." + rooms_key + " holds something that is not a room number 1..32767");
+		}
+		out.rooms[out.room_count++] = static_cast<s16>(value);
+	}
+
+	if (weather.contains("wind_direction")) {
+		const Json &wind = weather["wind_direction"];
+		if (!wind.is_object()) refuse("weather.wind_direction must be an object");
+		onlyKeys(wind, { "angle", "speed_x", "speed_z" }, "weather.wind_direction");
+		out.has_wind_direction = 1;
+		out.wind_angle = number(wind, "angle", "weather.wind_direction");
+		out.wind_speed_x = number(wind, "speed_x", "weather.wind_direction");
+		out.wind_speed_z = number(wind, "speed_z", "weather.wind_direction");
+	}
+}
+
+} // namespace
+
+extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
+	scenario_stage_rules_t *out, char *err, size_t err_cap)
+{
+	if (err && err_cap) err[0] = '\0';
+	if (!out) return 0;
+	std::memset(out, 0, sizeof(*out));
+	try {
+		Json root;
+		if (!json || !json_size || !modAssetJsonReadValue(json, json_size, root) || !root.is_object()) {
+			refuse("stage.json is not one JSON object");
+		}
+		if (!root.contains("schema") || !root["schema"].is_string() ||
+				root["schema"].get<crude_json::string>() != SCENARIO_STAGE_RULES_SCHEMA) {
+			refuse(std::string("stage.json must declare schema ") + SCENARIO_STAGE_RULES_SCHEMA);
+		}
+		onlyKeys(root, { "schema", "note", "weather" }, "stage.json");
+		if (root.contains("note") && !root["note"].is_string()) refuse("stage.json note must be text");
+		if (root.contains("weather")) readWeather(root["weather"], out->weather);
+		return 1;
+	} catch (const Refusal &refusal) {
+		std::memset(out, 0, sizeof(*out));
+		if (err && err_cap) std::snprintf(err, err_cap, "%s", refusal.reason.c_str());
+		return 0;
+	} catch (...) {
+		std::memset(out, 0, sizeof(*out));
+		if (err && err_cap) std::snprintf(err, err_cap, "stage.json could not be read");
+		return 0;
+	}
+}
