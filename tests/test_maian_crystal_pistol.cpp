@@ -154,10 +154,11 @@ TEST_CASE("the Maian crystal pistol recipe builds a weapon mod the game can comp
 	CHECK(ini.find("catalog_id = mod:weapon_maian_crystal_pistol") != std::string::npos);
 	CHECK(ini.find("name = Maian Crystal Pistol") != std::string::npos);
 	CHECK(ini.find("dual_wieldable = 0") != std::string::npos);
-	CHECK(ini.find("muzzlez = 3.0") != std::string::npos);
-	CHECK(ini.find("posx = 30.0") != std::string::npos);
-	CHECK(ini.find("posy = -18.0") != std::string::npos);
-	CHECK(ini.find("posz = -45.0") != std::string::npos);
+	/* The Phoenix's native view position; the stand-in is Phoenix-sized. */
+	CHECK(ini.find("muzzlez = 1.0") != std::string::npos);
+	CHECK(ini.find("posx = 9.5") != std::string::npos);
+	CHECK(ini.find("posy = -16.2") != std::string::npos);
+	CHECK(ini.find("posz = -23.0") != std::string::npos);
 
 	/* Ids: everything the weapon carries lives in the mod's own namespace. */
 	std::string projectileId;

@@ -22,12 +22,12 @@
       "mcount": 1,
       "hitpart": 0,
       "bounds": {
-        "xmin": -127.5,
-        "xmax": 24.997,
-        "ymin": -32.478,
-        "ymax": 68.302,
-        "zmin": -25.5,
-        "zmax": 25.5
+        "xmin": -47.94,
+        "xmax": 47.94,
+        "ymin": -61.059,
+        "ymax": 128.408,
+        "zmin": -122.195,
+        "zmax": 164.5
       },
       "distance": {
         "near": 0.0,
@@ -70,12 +70,12 @@
       "mcount": 1,
       "hitpart": 0,
       "bounds": {
-        "xmin": -127.5,
-        "xmax": 24.997,
-        "ymin": -32.478,
-        "ymax": 68.302,
-        "zmin": -25.5,
-        "zmax": 25.5
+        "xmin": -47.94,
+        "xmax": 47.94,
+        "ymin": -61.059,
+        "ymax": 128.408,
+        "zmin": -122.195,
+        "zmax": 164.5
       },
       "distance": {
         "near": 0.0,

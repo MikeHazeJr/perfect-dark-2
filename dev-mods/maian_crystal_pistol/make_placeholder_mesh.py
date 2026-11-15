@@ -29,10 +29,9 @@ import struct
 import sys
 from pathlib import Path
 
-SCALE = 250.0        # artist units to held-model units (the gun is about 150 long)
-FORWARD_SHIFT = -40.0   # toward the muzzle, so the origin sits near the grip
+SCALE = 470.0        # artist units to model units: about 280 long, the Phoenix's size
 SHADE_STEPS = 6
-LIGHT = (0.49, 0.80, -0.35)   # in model space: from the player's right, above, behind
+LIGHT = (-0.35, 0.80, -0.49)  # in model space: from the gun's right, above, behind
 
 
 def load_builder(path):
@@ -52,13 +51,15 @@ def moved(points, by):
 
 
 def to_model(p):
-    """Artist space (muzzle toward -X, up +Z) to the held-model space the game shows.
+    """Artist space (muzzle toward -X, up +Z) to native held-model space.
 
-    Seen in the first game run: a mod's held model is turned so that its -Z
-    points to the player's right and +Y is up, which leaves model -X pointing
-    into the screen. So the muzzle goes on -X and the artist's side axis on -Z.
+    Native guns are authored muzzle toward +Z, up +Y, +X the gun's left: the
+    Phoenix has its muzzle part at z +161 and its hold part at z -90, and
+    bondgun.c turns every held model 180 degrees about Y. Mod-held models
+    get the same pose (crystal pistol asset README, "Scale and frame").
+    At this scale the grip lands near z -90 and the emitter near z +161.
     """
-    return (p[0] * SCALE + FORWARD_SHIFT, p[2] * SCALE, -p[1] * SCALE)
+    return (-p[1] * SCALE, p[2] * SCALE, -p[0] * SCALE)
 
 
 def collect(b):
