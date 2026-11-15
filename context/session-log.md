@@ -10550,3 +10550,30 @@ Next
 - The queued base 4 run (CORE is second in line, behind one MULTIPLAYER item).
 - Further stage.json families from the survey: ending, hub, stars (after
   B-1172 is confirmed or not), Escape's gas, animated textures and sparks.
+
+## 2026-11-15 (13:45-14:25 UTC) - CORE: B-1172 widened, stage.json player rule
+
+What was done
+- B-1172 widened (05e849c8, from code): the scene renderer reads no room
+  state (brightness, light state, animated textures, flashes), so shot-out
+  lights, flashes and animated water would not show on the stages it draws.
+  Animated-texture and spark conversions are held for that reason; endings
+  are mission flow and go to the mission graph runner instead of stage.json.
+- `player` family of stage.json (64e30348): `perfect_agent_outfit` and
+  `disguise` {`outfit`, `untargetable`} from the stage checks in player.c and
+  bondgun.c (Villa, Rescue, Air Base). Outfit names follow `OUTFIT_*`; a test
+  keeps reader, checker and constants.h equal. Kind `_stagejson_player`.
+- `temp-base-check.sh` (scratchpad): copy base 4, re-extract with the session
+  client, run the stage, mission and light-rule sweeps and conformance, delete
+  the copy and report the space.
+
+Verification
+- pd-tests 1,919 cases / 341,160 assertions. Temporary copy of base 4: 132 of
+  132 stage.json readable, weather on the four stages, player rules on
+  exactly Villa, Rescue and Air Base, conformance 0 errors, light rules 46 of
+  46, mission graphs 21 of 21; 378 MB deleted afterwards.
+
+Next
+- Mission endings through the runner (mission flow row): Deep Sea straight
+  on, Skedar Ruins to the credits, Defense's end screen.
+- The queued base 4 run (second in line).
