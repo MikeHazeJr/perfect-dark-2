@@ -151,6 +151,11 @@ s32 g_BgUsingScenarioSource = 0;
 static struct colmesh *g_BgScenarioSourceMesh = NULL;
 static char g_BgScenarioSourceId[CATALOG_ID_LEN];
 
+s32 bgUsesScenarioSource(void)
+{
+	return g_BgUsingScenarioSource;
+}
+
 void bgUnpausePropsInRoom(u32 roomnum, bool tintedglassonly)
 {
 	struct prop *prop;
@@ -1382,6 +1387,7 @@ static s32 bgTryActivateScenarioSourceBackground(const catalog_stage_result_t *s
 	g_BgUsingScenarioSource = 0;
 	g_BgScenarioSourceMesh = NULL;
 	g_BgScenarioSourceId[0] = '\0';
+	scenarioSourceStageRulesReset();
 	scenarioSceneRendererDeactivate();
 
 	scenario = scenarioSourceFindEntryForStage(stage, prefer_mp);
@@ -2644,6 +2650,7 @@ void bgStop(void)
 	g_BgUsingScenarioSource = 0;
 	g_BgScenarioSourceMesh = NULL;
 	g_BgScenarioSourceId[0] = '\0';
+	scenarioSourceStageRulesReset();
 	scenarioSceneRendererDeactivate();
 	mtx00016748(1);
 }

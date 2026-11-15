@@ -787,6 +787,20 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp, struct room *rooms, struct bgroom *bgrooms, s32 room_count,
 	u8 *room_bounded, s32 *out_brightness_rooms);
 
+/* Per-stage room and portal rules from the stage's scenario source: the
+ * optional rule fields of rooms.json rows (render_always, base_brightness,
+ * lights_unshootable, unshootable_lights) and portals.json rows
+ * (light_flood_blocked, open_to_light). They replace the stage checks the
+ * game kept in the light code, for a stage built from scenario source
+ * (bgUsesScenarioSource). Loading the room table and the portal table fills
+ * them; each query answers 0 when the stage sets no such rule. */
+void scenarioSourceStageRulesReset(void);
+s32 scenarioSourceRoomRenderAlways(s32 roomnum);
+s32 scenarioSourceRoomBaseBrightness(s32 roomnum, s32 *out_level);
+s32 scenarioSourceRoomLightUnshootable(s32 roomnum, s32 lightindex);
+s32 scenarioSourcePortalBlocksLightFlood(s32 portalnum);
+s32 scenarioSourcePortalOpenToLight(s32 portalnum);
+
 #ifdef __cplusplus
 }
 #endif

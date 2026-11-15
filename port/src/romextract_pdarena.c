@@ -86,7 +86,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -7053,7 +7053,109 @@ static s32 s_loadBgPrimary(const u8 *bg, u32 bg_size, u8 **out_primary,
 	return 0;
 }
 
+/*
+ * Per-stage room and light rules (decision 1, CORE, 2026-11-15). The game
+ * kept these as stage checks in roomInitLights and the light setup
+ * (src/game/dlights.c). They now travel on the stage's own rooms.json and
+ * portals.json rows, which the scenario-source path reads, so an authored
+ * level can set the same things. The conditions are the original ones: the
+ * always-drawn rooms by stage table index, everything else by stage number.
+ * A rule sits on its portal's own row (portal_ref), not on a row position,
+ * because the portal table leaves out portals without usable vertices.
+ */
+static s32 s_stageRoomRenderAlways(s32 stage_idx, u32 roomnum)
+{
+	return ((stage_idx == STAGEINDEX_INFILTRATION || stage_idx == STAGEINDEX_RESCUE
+				|| stage_idx == STAGEINDEX_ESCAPE || stage_idx == STAGEINDEX_MAIANSOS)
+			&& roomnum == 0x000f) /* freight elevator shaft */
+		|| ((stage_idx == STAGEINDEX_DEFECTION || stage_idx == STAGEINDEX_EXTRACTION
+				|| stage_idx == STAGEINDEX_MBR)
+			&& roomnum == 0x0001) /* moon */
+		|| ((stage_idx == STAGEINDEX_SKEDARRUINS || stage_idx == STAGEINDEX_WAR)
+			&& roomnum == 0x0002) /* fake sky */
+		|| (stage_idx == STAGEINDEX_TEST_OLD && roomnum == 0x0001)
+		|| (stage_idx == STAGEINDEX_ATTACKSHIP && roomnum == 0x0071); /* planet */
+}
+
+/* The room's base light level, or -1 to keep the one roomInitLights derives. */
+static s32 s_stageRoomBaseBrightness(s32 stagenum, u32 roomnum)
+{
+	if ((stagenum == STAGE_EXTRACTION || stagenum == STAGE_DEFECTION)
+			&& roomnum == 0x003d) { /* near the top comms hub */
+		return 2;
+	}
+	return -1;
+}
+
+/* Every light of the room is fixed: shots do not put it out. */
+static s32 s_stageRoomAllLightsUnshootable(s32 stagenum, u32 roomnum)
+{
+	return (stagenum == STAGE_CITRAINING || stagenum == STAGE_DEFENSE)
+		&& roomnum == 0x000a; /* firing range */
+}
+
+/* Bit n set: light n of the room is fixed. */
+static u32 s_stageRoomUnshootableLightMask(s32 stagenum, u32 roomnum)
+{
+	if ((stagenum == STAGE_DEFECTION || stagenum == STAGE_EXTRACTION)
+			&& roomnum == 0x003e) { /* top comms hub: its first two lights */
+		return 0x3u;
+	}
+	return 0;
+}
+
+/* Light does not flood through the portal although it is open. */
+static s32 s_stagePortalBlocksLightFlood(s32 stagenum, u32 portalnum)
+{
+	return (stagenum == STAGE_EXTRACTION || stagenum == STAGE_DEFECTION)
+		&& (portalnum == 98 || portalnum == 100);
+}
+
+/* The portal counts as open for light whatever its translucency. */
+static s32 s_stagePortalOpenToLight(s32 stagenum, u32 portalnum)
+{
+	return stagenum == STAGE_INVESTIGATION && portalnum == 0;
+}
+
+static s32 s_appendRoomRuleFields(pdscenario_textbuf_t *out, s32 stagenum,
+                                  s32 stage_idx, u32 roomnum)
+{
+	const s32 base = s_stageRoomBaseBrightness(stagenum, roomnum);
+	const u32 mask = s_stageRoomUnshootableLightMask(stagenum, roomnum);
+
+	if (s_stageRoomRenderAlways(stage_idx, roomnum) &&
+			s_textbufAppend(out, ", \"render_always\": true") != 0) {
+		return -1;
+	}
+	if (base >= 0 &&
+			s_textbufAppendf(out, ", \"base_brightness\": %d", base) != 0) {
+		return -1;
+	}
+	if (s_stageRoomAllLightsUnshootable(stagenum, roomnum) &&
+			s_textbufAppend(out, ", \"lights_unshootable\": true") != 0) {
+		return -1;
+	}
+	if (mask) {
+		u32 written = 0;
+		if (s_textbufAppend(out, ", \"unshootable_lights\": [") != 0) {
+			return -1;
+		}
+		for (u32 bit = 0; bit < 32u; bit++) {
+			if ((mask & (1u << bit)) &&
+					s_textbufAppendf(out, "%s%u", written++ ? ", " : "",
+						(unsigned)bit) != 0) {
+				return -1;
+			}
+		}
+		if (s_textbufAppend(out, "]") != 0) {
+			return -1;
+		}
+	}
+	return 0;
+}
+
 static s32 s_buildBgPortalsJson(const u8 *bg, u32 bg_size,
+                                s32 stagenum,
                                 pdscenario_textbuf_t *out,
                                 u32 *out_portal_count)
 {
@@ -7076,6 +7178,7 @@ static s32 s_buildBgPortalsJson(const u8 *bg, u32 bg_size,
 	if (!out || s_textbufAppend(out,
 			"{\n"
 			"  \"schema\": \"pd2.scenario.portals.v1\",\n"
+			"  \"note\": \"Portals between rooms. Optional light rules on a row: light_flood_blocked true keeps light from flooding through the portal although it is open; open_to_light true treats the portal as open for light whatever its translucency.\",\n"
 			"  \"rows\": [\n") != 0) {
 		return -1;
 	}
@@ -7146,12 +7249,24 @@ static s32 s_buildBgPortalsJson(const u8 *bg, u32 bg_size,
 			return -1;
 		}
 		if (offsets[i] == 0) {
+			if (s_stagePortalBlocksLightFlood(stagenum, i) ||
+					s_stagePortalOpenToLight(stagenum, i)) {
+				sysLogPrintf(LOG_WARNING,
+					"romextract pdscenario: light rule for portal %u dropped: the portal has no vertices",
+					(unsigned)i);
+			}
 			continue;
 		}
 		verts = (struct portalvertices *)(portal_base + offsets[i]);
 		if (!s_rangeInBuffer(primary, primary_size, verts,
 				(u32)(4u + (u32)verts->count * sizeof(struct coord))) ||
 				verts->count < 3 || verts->count > 32) {
+			if (s_stagePortalBlocksLightFlood(stagenum, i) ||
+					s_stagePortalOpenToLight(stagenum, i)) {
+				sysLogPrintf(LOG_WARNING,
+					"romextract pdscenario: light rule for portal %u dropped: the portal has no usable vertices",
+					(unsigned)i);
+			}
 			continue;
 		}
 		if (emitted_count > 0 && s_textbufAppend(out, ",\n") != 0) {
@@ -7182,7 +7297,12 @@ static s32 s_buildBgPortalsJson(const u8 *bg, u32 bg_size,
 				return -1;
 			}
 		}
-		if (s_textbufAppend(out, "] }") != 0) {
+		if (s_textbufAppend(out, "]") != 0 ||
+				(s_stagePortalBlocksLightFlood(stagenum, i) &&
+					s_textbufAppend(out, ", \"light_flood_blocked\": true") != 0) ||
+				(s_stagePortalOpenToLight(stagenum, i) &&
+					s_textbufAppend(out, ", \"open_to_light\": true") != 0) ||
+				s_textbufAppend(out, " }") != 0) {
 			free(offsets);
 			sysMemFree(primary);
 			return -1;
@@ -7373,6 +7493,7 @@ static s32 s_buildBgRoomLightsJson(const u8 *bg, u32 bg_size,
  * out was about twice as bright as authored (base level 63 instead of 32).
  */
 static s32 s_buildBgRoomTableJson(const u8 *bg, u32 bg_size,
+                                   s32 stagenum, s32 stage_idx,
                                    pdscenario_textbuf_t *out,
                                    u32 *out_room_rows)
 {
@@ -7393,7 +7514,7 @@ static s32 s_buildBgRoomTableJson(const u8 *bg, u32 bg_size,
 	if (s_textbufAppend(out,
 			"{\n"
 			"  \"schema\": \"pd2.scenario.rooms.v1\",\n"
-			"  \"note\": \"Authored per-room table from the background file. origin, min and max are world coordinates. A pad belongs to a room when it is inside the min/max box in x and z and at or above its minimum y. The light quads in room_lights.json are relative to their room's origin. brightness is the room's [minimum, maximum] light level, 0 to 255: the minimum (divided by 4) is what is left when its lights are out.\",\n"
+			"  \"note\": \"Authored per-room table from the background file. origin, min and max are world coordinates. A pad belongs to a room when it is inside the min/max box in x and z and at or above its minimum y. The light quads in room_lights.json are relative to their room's origin. brightness is the room's [minimum, maximum] light level, 0 to 255: the minimum (divided by 4) is what is left when its lights are out. Optional rules on a row: render_always true draws the room from anywhere (a sky, a moon, a shaft); base_brightness replaces the room's base light level (0 to 255); lights_unshootable true keeps every light of the room from being shot out; unshootable_lights lists the indexes (0 to 63, in room_lights.json order) of the lights that cannot be.\",\n"
 			"  \"rows\": [\n") != 0) {
 		goto fail;
 	}
@@ -7461,13 +7582,15 @@ static s32 s_buildBgRoomTableJson(const u8 *bg, u32 bg_size,
 				"%s    { \"room\": \"room_%u\", \"roomnum\": %u, "
 				"\"origin\": [%.6f, %.6f, %.6f], "
 				"\"min\": [%.6f, %.6f, %.6f], \"max\": [%.6f, %.6f, %.6f], "
-				"\"brightness\": [%u, %u] }",
+				"\"brightness\": [%u, %u]",
 				emitted > 0 ? ",\n" : "", (unsigned)r, (unsigned)r,
 				rooms[r].pos.x, rooms[r].pos.y, rooms[r].pos.z,
 				bounds[0], bounds[1], bounds[2],
 				bounds[3], bounds[4], bounds[5],
 				(unsigned)rooms[r].br_light_min,
-				(unsigned)rooms[r].br_light_max) != 0) {
+				(unsigned)rooms[r].br_light_max) != 0 ||
+				s_appendRoomRuleFields(out, stagenum, stage_idx, r) != 0 ||
+				s_textbufAppend(out, " }") != 0) {
 			goto fail;
 		}
 		emitted++;
@@ -7995,6 +8118,8 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveEntryContains(relpath, "collision.flags.json",
 			"pd2.scenario.collision.flags.v1") &&
 		s_existingArchiveHasEntry(relpath, "portals.json") &&
+		s_existingArchiveEntryContains(relpath, "portals.json",
+			"Optional light rules on a row") &&
 		!s_existingArchiveHasEntry(relpath, "portals.tsv") &&
 		s_existingArchiveHasEntry(relpath, "room_lights.json") &&
 		s_existingArchiveEntryContains(relpath, "room_lights.json",
@@ -8004,6 +8129,8 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 			"pd2.scenario.rooms.v1") &&
 		s_existingArchiveEntryContains(relpath, "rooms.json",
 			"\"origin\": [") &&
+		s_existingArchiveEntryContains(relpath, "rooms.json",
+			"Optional rules on a row: render_always") &&
 		s_existingArchiveHasEntry(relpath, "pads.json") &&
 		s_existingArchiveHasEntry(relpath, "spawns.json") &&
 		s_existingArchiveHasEntry(relpath, "volumes.json") &&
@@ -9443,8 +9570,8 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 				"romextract pdscenario: BG visual display-list export failed for \"%s\"",
 				scenario_id);
 		}
-		if (s_buildBgPortalsJson(bg_data, bg_size, &portals_json,
-				&portal_count) != 0) {
+		if (s_buildBgPortalsJson(bg_data, bg_size, spec->stagenum,
+				&portals_json, &portal_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: portal table conversion failed for \"%s\"",
 				scenario_id);
@@ -9459,8 +9586,8 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 			has_bg = -1;
 		}
 		/* B-1113: authored room table sidecar (rooms.json). */
-		if (s_buildBgRoomTableJson(bg_data, bg_size, &room_table_json,
-				&room_table_count) != 0) {
+		if (s_buildBgRoomTableJson(bg_data, bg_size, spec->stagenum,
+				stage_idx, &room_table_json, &room_table_count) != 0) {
 			sysLogPrintf(LOG_WARNING,
 				"romextract pdscenario: room table conversion failed for \"%s\"",
 				scenario_id);
