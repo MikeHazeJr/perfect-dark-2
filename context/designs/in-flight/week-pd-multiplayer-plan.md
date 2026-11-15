@@ -278,6 +278,14 @@ Progress log:
   Options: A, everyone sees the results and presses Continue (the original, and what `endscreenGraphMpContinue`
   expects); B, results in the Room. Recommended A. Until then the rematch smoke runs a schedule per process
   (676b9e46): the host leaves its end screen with Use, the client follows the host into the second match.
+- Fifth turn (binary 71486ce2): `mp_challenge_local_smoke` 30/30 (B-1137 fixed in play: Challenge 1 with its player and
+  simulant, results for both). Finding 3 proven by the reworked render smoke (`results-20261115T154128Z.json`, 64/66):
+  the client looked straight at the simulant (`look_dot=1.000`, line of sight checked on the host), but the simulant
+  was never marked on screen, never drawn, and its animation stayed on frame 4.00: B-1191, the client returned from
+  `botTick` before `chrTick`. Fixed in 8bdb24ee with a client puppet tick after the co-op NPC pattern (`chrTick` runs,
+  `chraTick` skips the AI and actions); clients will see the stand animation while a simulant moves until the host's
+  animation state is replicated. Render re-run queued. Side observation for CORE: the client's own room (33, Felicity)
+  was drawn black in those shots.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
