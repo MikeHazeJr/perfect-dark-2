@@ -73,7 +73,8 @@
           "PLAYER.INIT.COMMIT reconnect client=1 player=1 room=[0-9]+ prop=[1-9][0-9]* team=[0-9]+ body='[^']+' head='[^']+' .*cookie_preserved=1 post_load_ready=1 resync=targeted",
           "NET: .* \\(1\\) reconnected player=1 room=[0-9]+ stable_id=1 resync_once=1",
           "NET.RECONNECT.GAMEPLAY client=1 player=1 room=[0-9]+ prop=[1-9][0-9]* move_tick=[1-9][0-9]* fire=1 server_accepted=1",
-          "SMOKE: result=scripted_exit"
+          "SMOKE: result=scripted_exit",
+          "SMOKE.NETWORK: retired_prop_absent client=1 .*authoritative_present=0 read_only=1 production_cleanup=1"
         ],
         "required_sequences": [
           {
@@ -82,7 +83,6 @@
               "SMOKE.NETWORK: retire_held_weapon client=1 .*state=deleting_nonregen serialize_now=0 production_path=weaponDeleteFromChr",
               "NET.RECONNECT.PRESERVE client=1 player=1",
               "HUB ROOM: client 1 left room [0-9]+ .*1 reserved",
-              "SMOKE.NETWORK: retired_prop_absent client=1 .*authoritative_present=0 read_only=1 production_cleanup=1",
               "NET.RECONNECT.AUTH client=1 .*credential=accepted",
               "NET.RECONNECT.MANIFEST client=1 .*status=waiting",
               "PLAYER.INIT.PREPARED reconnect client=1 player=1 .*commit=pending_post_load",

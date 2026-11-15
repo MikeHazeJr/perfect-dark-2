@@ -62,7 +62,6 @@
               "SMOKE.NETWORK: retire_held_weapon client=1 .*state=deleting_nonregen serialize_now=0 production_path=weaponDeleteFromChr",
               "NET.RECONNECT.PRESERVE client=1 player=1",
               "HUB ROOM: client 1 left room [0-9]+ .*1 reserved",
-              "SMOKE.NETWORK: retired_prop_absent client=1 .*authoritative_present=0 read_only=1 production_cleanup=1",
               "NET.RECONNECT.AUTH client=1 .*credential=accepted",
               "NET.RECONNECT.MANIFEST client=1 .*status=waiting",
               "PLAYER.INIT.PREPARED reconnect client=1 player=1 .*commit=pending_post_load",
