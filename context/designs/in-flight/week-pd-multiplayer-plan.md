@@ -323,6 +323,11 @@ Progress log:
   Return to Room on the host; the other player sees the results with a waiting note and follows); Combat Challenges
   capped at 4 human players, as in the original. Both recorded in `context/constraints.md`. He asked again what
   one of the remaining items means (Challenges/presets placement or the GGV lane): answered in plain terms.
+- Mike, 2026-11-15: the GGV lane decision belongs to the session that now implements node-based behavior, not to
+  MULTIPLAYER. Handed over on the hub (m_20261115201639822_80626e68, addressed to that session, CORE named) with the
+  facts: branch `week-pd/inflight-20261114`, still uncommitted in the main checkout, never compiled or run. Removed
+  from MULTIPLAYER's open questions; I do not touch it. Still open for Mike: where Challenges and presets go in the
+  Room.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
