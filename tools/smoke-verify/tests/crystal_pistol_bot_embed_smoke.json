@@ -1,0 +1,121 @@
+{
+  "scenario_name": "crystal_pistol_bot_embed_smoke",
+  "description": "Crystal pistol (T-MODDING-008) crystals sticking into a simulant. A fixed spawn and a level forced look put the bot 240 units straight ahead (--debug-place-bot-near-player, held 4 s) with --debug-bots-hold-fire so it cannot shoot back. Two crystals are fired while the bot is held and three more just after the hold releases it. BONDGUN.PROJECTILE.CHRTEST shows, for each crystal that passes within 150 units of the bot, whether the projectile-vs-character test ran and hit; crystals that hit embed in the bot (objEmbed, on screen) and three of them detonate as a cluster.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "weapon",
+    "projectile",
+    "bots",
+    "crystal_pistol",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "dev-mods/crystal_pistol/crystal_pistol.pdweapon",
+    "src/game/bondgun_mod.c",
+    "src/game/propobj.c",
+    "port/src/main.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "remove_paths": [
+    "mods/crystal_pistol.pdmod",
+    "mods/crystal_pistol",
+    "mods/installed/crystal_pistol.pdmod",
+    "mods/installed/crystal_pistol"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": "dev-mods/crystal_pistol",
+      "dst": "mods/installed/crystal_pistol.pdmod"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-spawn-at",
+    "780,-663,27,27",
+    "--debug-force-first-person",
+    "--debug-force-first-person-look",
+    "0.8174,0,-0.5760",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "1",
+    "--debug-spawn-weapon",
+    "mod_crystal_pistol:crystal_pistol",
+    "--debug-place-bot-near-player",
+    "--debug-place-bot-near-player-hold-sec",
+    "4",
+    "--debug-bots-hold-fire",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay; the bot is placed 240 units along the level forced look and held 4 s."
+    },
+    { "at_ms": 1200, "type": "screenshot", "path": "cp-embed-placed.bmp", "comment": "Also pays the first-capture stall before any shot." },
+    { "at_ms": 1800, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "While held. The first crystal spawn stalls about a second." },
+    { "at_ms": 3800, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "While held." },
+    { "at_ms": 5600, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "Just after the hold releases the bot." },
+    { "at_ms": 5900, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap" },
+    { "at_ms": 6200, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap" },
+    { "at_ms": 6600, "type": "screenshot", "path": "cp-embed-after.bmp" },
+    { "at_ms": 9500, "type": "exit" }
+  ],
+  "retain_artifacts": [
+    { "src": "cp-embed-placed.bmp" },
+    { "src": "cp-embed-after.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=crystal_pistol_bot_embed_smoke",
+      "BOOT: --debug-bots-hold-fire armed",
+      "BOOT: --debug-spawn-at consumed: .* result=OK",
+      "BOOT: --debug-place-bot-near-player consumed: bot=.* result=OK",
+      "BONDGUN\\.PROJECTILE\\.CHRTEST: weapon=\\d+ func=0 chrnum=\\d+ proptype=\\d+ result=hit",
+      "BONDGUN\\.CRYSTAL: landed weapon=\\d+ func=0 owner=0 at=\\(.*\\) embedded=1",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.FALLBACK",
+      "result=FAIL",
+      "BONDGUN\\.MODEL: .*B-1185",
+      "BONDGUN\\.BOT: fired",
+      "'mod_crystal_pistol:crystal_pistol' public weapon adapter install failed",
+      "'mod_crystal_pistol:crystal_pistol' activation failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "SMOKE\\.GLSHOT: captured",
+        "min": 2
+      }
+    ]
+  }
+}

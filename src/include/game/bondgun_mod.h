@@ -39,6 +39,14 @@ s32 bgunModTickIncReloadRegrow(struct handweaponinfo *info, s32 handnum,
 void bgunModApplyHeldModel(struct hand *hand, struct modeldef *modeldef,
 		Mtxf *matrices);
 
+/* Third person (chr0f022214): a chr's held mod gun. Before its matrices are
+ * built, bgunModHeldRoll3P composes the owner's gun roll into the hand
+ * matrix (returns false when there is none); afterwards
+ * bgunModApplyHeldModel3P scales the seats from the owner's clip and sets
+ * the charge toggles from the owner's charge. */
+bool bgunModHeldRoll3P(struct chrdata *chr, struct prop *weaponprop, Mtxf *in, Mtxf *out);
+void bgunModApplyHeldModel3P(struct chrdata *chr, struct prop *weaponprop, struct model *model);
+
 /* A mod projectile has stuck to something or come to rest (propobj.c). Arms
  * an entity proxy with proxy_trigger arm_on = land, and applies the
  * projectile's sticky_attach cluster rule: once cluster_count landed
@@ -49,6 +57,12 @@ void bgunModProjectileLanded(struct weaponobj *weapon);
 void bgunModProjectileForget(struct weaponobj *weapon);
 /* Stage load (setupResetProxyMines): clear stage-lifetime mod weapon state. */
 void bgunModResetStage(void);
+/* Diagnostic for projectileFindCollidingProp: a mod projectile's segment
+ * passed within 150 units of a character. result -1 skipped (perim off or
+ * hidden), 0 tested without a hit, 1 hit. Logs
+ * BONDGUN.PROJECTILE.CHRTEST, at most 48 lines per stage. */
+void bgunModTraceProjectileChrTest(struct prop *projectile, struct prop *chrprop,
+		const struct coord *pos1, const struct coord *pos2, s32 result);
 
 struct weapon_graph_held_function;
 
@@ -64,12 +78,35 @@ bool bgunModTickIncAttackCharge(struct handweaponinfo *info, s32 handnum,
  * the crosshair and keeps the gun's roll. */
 void bgunModChargeTick(void);
 
+/* Bots (chrTickShoot): for a charge function, the shot commits every loaded
+ * round instead (true: do not fire this shot). bgunModBotChargeTick releases
+ * due bot charges once a frame: a vertical fan of mines from the bot's gun at
+ * its target, alive or dead. */
+bool bgunModBotChargeShot(struct chrdata *chr, s32 handnum, struct gset *gset);
+void bgunModBotChargeTick(void);
+/* botinvTick, once it has picked weaponnum/funcnum: a bot holding a mod
+ * weapon whose secondary is a committed charge takes the charge with a full
+ * magazine and its target 450..1500 units away, then empties a primary
+ * magazine before it charges again. Returns the function to use. */
+s32 bgunModBotChooseFunction(struct chrdata *chr, s32 weaponnum, s32 funcnum);
+/* chrTickShoot, each round a bot fires: a primary round of a charge weapon
+ * re-allows the charge. Logs BONDGUN.BOT: fired (first round per bot, weapon
+ * and function each stage) for mod weapons. */
+void bgunModBotFired(struct chrdata *chr, s32 handnum, struct gset *gset);
+/* botinvSwitchToWeapon: both functions load from the same self-loading
+ * magazine, so a switch between them keeps its loaded rounds. */
+bool bgunModFunctionsShareSelfLoadingAmmo(s32 weaponnum, s32 funcnum1, s32 funcnum2);
+
 /* Once per frame from the current player's input (bondmove.c): ease the held
  * gun's roll toward the weapon's gun_roll_deg (left negative, right positive)
  * while a roll action is held, and back to level when neither is. */
 void bgunModRollTick(bool left, bool right);
 /* The current player's gun roll in radians (bondgun.c pose, innermost). */
 f32 bgunModGetRoll(void);
+/* v63: the current player's roll actions as UCMD_GUNROLL_* bits, for its
+ * move (bondmove.c records them; bmoveProcessRemoteInput replays them into
+ * bgunModRollTick for a remote player). */
+u32 bgunModRollUcmd(void);
 
 /* For coordTriggerProxies: a mod mine's own radius and owner/team/target
  * filters. chr is the candidate (NULL for a moving object). Returns 1 to

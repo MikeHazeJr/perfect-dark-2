@@ -18,6 +18,8 @@
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
  *
+ * Bumped 2026-11-15 to NET_PROTOCOL_VER 63 for UCMD_GUNROLL_LEFT/RIGHT
+ * (T-MODDING-008; v62 is MULTIPLAYER's on week-pd/multiplayer).
  * Bumped 2026-09-08 to NET_PROTOCOL_VER 61 for authenticated lobby rosters.
  * Version 60 added room initial snapshots,
  * operation results and access-aware room lists. MPSETUP_VERSION remains 3.
@@ -43,7 +45,7 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 61;
+const u32 g_TestExpectedNetProtocolVer  = 63;
 const u32 g_TestExpectedMpsetupVersion  = 3;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",

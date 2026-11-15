@@ -524,6 +524,88 @@ f32 loaderPoolGetPublicWeaponRollDeg(s32 weaponnum)
 	return s_PublicWeaponRollDeg[weaponnum];
 }
 
+/* T-MODDING-008: the .pdweapon format carries no bot preferences yet (CORE
+ * owns it), and the zeroed ones a public weapon had made every bot drop it:
+ * botinvTick never picks a function whose ammo-goal bit is clear, so a bot
+ * spawned with a mod weapon went unarmed. Defaults until the format has them:
+ *   - every executable function is usable (has*ammogoal);
+ *   - scored like a mid pistol (MagSec 4: 76/88, dual 104/120);
+ *   - attack range by kind: melee close, a throw as an explosive throw, a
+ *     committed charge (a mine volley) at explosive range, other shots the
+ *     default 300..600;
+ *   - ammo goals of 3 clips (critical 1) from a reserve pool, none for a
+ *     self-loading magazine, which never runs out;
+ *   - reload delay: a regrowing magazine's full regrow, capped at the
+ *     field's 7 s, else 2 s; a partial reload takes proportionally less (a
+ *     bot reloads an empty magazine reloaddelay seconds after it runs dry). */
+static void s_publicWeaponBotPrefsBuild(struct aibotweaponpreference *out,
+		const weaponfunc_any_t funcs[2],
+		const weapon_graph_held_function_t *const held[2],
+		const struct inventory_ammo ammo[2],
+		const loader_pool_mod_ammo_t ammo_ext[2], s32 dual_wieldable)
+{
+	s32 reloadsecs = 0;
+	s32 f;
+
+	memset(out, 0, sizeof(*out));
+	out->unk00 = 76;
+	out->unk01 = 88;
+	out->unk02 = dual_wieldable ? 104 : 0;
+	out->unk03 = dual_wieldable ? 120 : 0;
+	out->pridistconfig = BOTDISTCFG_DEFAULT;
+	out->secdistconfig = BOTDISTCFG_DEFAULT;
+
+	for (f = 0; f < 2; f++) {
+		const struct weaponfunc *base = &funcs[f].base;
+		const loader_pool_mod_ammo_t *ext = NULL;
+		u32 distcfg = BOTDISTCFG_DEFAULT;
+		u16 target = 0;
+		u16 critical = 0;
+
+		if (!weaponGraphHeldFunctionIsExecutable(held[f])) continue;
+
+		if ((base->type & 0xff) == INVENTORYFUNCTYPE_MELEE) {
+			distcfg = BOTDISTCFG_CLOSE;
+		} else if ((base->type & 0xff) == INVENTORYFUNCTYPE_THROW) {
+			distcfg = BOTDISTCFG_THROWEXPLOSIVE;
+		} else if (held[f]->has_charge) {
+			distcfg = BOTDISTCFG_SHOOTEXPLOSIVE;
+		}
+
+		if (base->ammoindex >= 0 && base->ammoindex < 2 && ammo_ext[base->ammoindex].valid) {
+			ext = &ammo_ext[base->ammoindex];
+		}
+		if (ext) {
+			const s32 clip = ammo[base->ammoindex].clipsize;
+			if (!ext->selfloading && clip > 0) {
+				target = (u16)(clip * 3);
+				critical = (u16)clip;
+			}
+			if (ext->regrow && clip > 0 && ext->regrow_ticks60 > 0) {
+				const s32 secs = (clip * ext->regrow_ticks60 + 59) / 60;
+				if (secs > reloadsecs) reloadsecs = secs;
+			}
+		}
+
+		if (f == 0) {
+			out->haspriammogoal = 1;
+			out->pridistconfig = distcfg;
+			out->targetammopri = target;
+			out->criticalammopri = critical;
+		} else {
+			out->hassecammogoal = 1;
+			out->secdistconfig = distcfg;
+			out->targetammosec = target;
+			out->criticalammosec = critical;
+		}
+	}
+
+	if (ammo_ext[0].valid || ammo_ext[1].valid) {
+		out->reloaddelay = reloadsecs > 0 ? (reloadsecs > 7 ? 7 : reloadsecs) : 2;
+		out->allowpartialreloaddelay = 1;
+	}
+}
+
 s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
 		const char *catalog_id, s32 model_filenum, s32 dual_wieldable,
 		const weapon_graph_archive_descriptor_t *descriptor,
@@ -616,14 +698,8 @@ s32 loaderPoolInstallPublicWeaponAdapter(s32 runtime_weapon_id,
 		weapon.ammos[f] = ammo_ext[f].valid ? &s_PublicWeaponAmmo[runtime_weapon_id][f] : NULL;
 	}
 	s_PublicWeaponRollDeg[runtime_weapon_id] = roll_deg;
-	/* T-MODDING-008: bots schedule a reload reloaddelay seconds after a clip
-	 * runs dry; the zeroed preference a public weapon had never fired, so a
-	 * bot that emptied a mod magazine could not reload it again. */
-	memset(&s_BotPrefs[runtime_weapon_id], 0, sizeof(s_BotPrefs[runtime_weapon_id]));
-	if (ammo_ext[0].valid || ammo_ext[1].valid) {
-		s_BotPrefs[runtime_weapon_id].reloaddelay = 2;
-		s_BotPrefs[runtime_weapon_id].allowpartialreloaddelay = 1;
-	}
+	s_publicWeaponBotPrefsBuild(&s_BotPrefs[runtime_weapon_id], funcs, held,
+		ammo, ammo_ext, dual_wieldable);
 	s_Weapons[runtime_weapon_id] = weapon;
 	strncpy(s_WeaponCatalogIds[runtime_weapon_id], catalog_id,
 		sizeof(s_WeaponCatalogIds[runtime_weapon_id]) - 1);

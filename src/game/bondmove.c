@@ -406,6 +406,10 @@ static inline void bmoveProcessRemoteInput(const bool allowc1buttons)
 		}
 	}
 
+	/* v63 (T-MODDING-008): the remote player's held gun roll actions. */
+	bgunModRollTick(allowc1buttons && (inmove->ucmd & UCMD_GUNROLL_LEFT) != 0,
+		allowc1buttons && (inmove->ucmd & UCMD_GUNROLL_RIGHT) != 0);
+
 	if ((inmove->ucmd & UCMD_SECONDARY) && !bgunIsUsingSecondaryFunction()) {
 		bgunConsiderToggleGunFunction(0, false, false, true);
 	} else if (!(inmove->ucmd & UCMD_SECONDARY) && bgunIsUsingSecondaryFunction()) {
@@ -852,6 +856,9 @@ void bmoveApplyMoveData(struct movedata *data)
 			if (g_Vars.currentplayer->wantsjump) {
 				g_Vars.currentplayer->ucmd |= UCMD_JUMP;
 			}
+			/* v63 (T-MODDING-008): the held gun roll actions, so every peer
+			 * rolls this player's mod gun and the host fans its charge. */
+			g_Vars.currentplayer->ucmd |= bgunModRollUcmd();
 		}
 	}
 }

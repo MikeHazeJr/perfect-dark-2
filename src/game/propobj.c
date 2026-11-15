@@ -4079,18 +4079,23 @@ bool projectileFindCollidingProp(struct prop *prop, struct coord *pos1, struct c
 
 					if (iterprop->type == PROPTYPE_PLAYER) {
 						if (!g_Vars.players[playermgrGetPlayerNumByProp(iterprop)]->bondperimenabled || (cdtypes & CDTYPE_PLAYERS) == 0) {
+							bgunModTraceProjectileChrTest(prop, iterprop, pos1, pos2, -1);
 							continue;
 						}
 					} else if (iterprop->type == PROPTYPE_CHR) {
 						if ((chr->hidden & CHRHFLAG_PERIMDISABLED)
 								|| (chr->chrflags & CHRCFLAG_HIDDEN)
 								|| (cdtypes & CDTYPE_CHRS) == 0) {
+							bgunModTraceProjectileChrTest(prop, iterprop, pos1, pos2, -1);
 							continue;
 						}
 					}
 
 					if (func0f06c28c(chr, pos1, pos2, &sp98, dist, &sp88, &sp7c, arg4, arg5, &spa8)) {
 						spa4 = true;
+						bgunModTraceProjectileChrTest(prop, iterprop, pos1, pos2, 1);
+					} else {
+						bgunModTraceProjectileChrTest(prop, iterprop, pos1, pos2, 0);
 					}
 				} else if (iterprop->type == PROPTYPE_PLAYER
 						&& g_Vars.players[playermgrGetPlayerNumByProp(iterprop)]->bondperimenabled) {

@@ -1,5 +1,25 @@
 # Bug Tracker
 
+## 2026-11-15 B-1211 Bots never used mod weapons: public weapons had zeroed bot preferences (T-MODDING-008)
+
+Severity high (every `.pdweapon` weapon in a match with simulants). The public
+weapon adapter (`loaderPoolInstallPublicWeaponAdapter`, `port/src/loader_pool.c`)
+zeroed the weapon's `aibotweaponpreference` apart from the reload delay.
+`botinvTick` only considers a function whose `haspriammogoal`/`hassecammogoal`
+bit is set, so a bot spawned with a mod weapon (the spawn weapon arms bots too)
+switched to unarmed at once: bots never fired the crystal pistol or the
+Needler. The last report's "bots throw single mines" was read from code, never
+seen. Fix: `s_publicWeaponBotPrefsBuild` derives defaults until the format
+carries bot preferences (CORE): each executable function usable, scored like
+a mid pistol, attack range by function kind (a committed charge at explosive
+range), no ammo goals for a self-loading magazine, reload delay = the full
+regrow. Two follow-on gaps fixed with it (`botact.c`, `botinv.c`): a
+self-loading magazine counted as empty once fired, so the bot would drop the
+gun until it regrew, and a switch between two functions that share one
+self-loading magazine refilled it from nothing (the native switch returns the
+rounds to a reserve and reloads). Bots now report such a magazine as always
+full, and keep its rounds across the switch. Pattern: SP-37.
+
 ## 2026-11-15 B-1210 The world mesh grid drops triangles past its 128-cell cap (T-MODDING-008, found, not fixed)
 
 Severity low today (only stages wider than 32768 units on an axis). Found by

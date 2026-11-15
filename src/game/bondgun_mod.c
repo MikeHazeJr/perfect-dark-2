@@ -13,6 +13,7 @@
 #include "game/bondgun.h"
 #include "game/bondgun_mod.h"
 #include "game/prop.h"
+#include "game/propsnd.h"
 #include "game/propobj.h"
 #include "lib/model.h"
 #include "lib/mtx.h"
@@ -27,6 +28,9 @@
 #include "game/playermgr.h"
 #include "game/mplayer/mplayer.h"
 #include "game/chraction.h"
+#include "game/chr.h"
+#include "game/botact.h"
+#include "catalog_mgr_weapons.h" /* bot preferences */
 #include "lib/collision.h"
 #include "lib/lib_317f0.h"
 #include "net/net.h"
@@ -61,6 +65,20 @@ struct bgunmodcharge {
 };
 
 static struct bgunmodcharge s_BgunModCharges[MAX_PLAYERS];
+
+/* Each player's eased gun roll in radians (bgunModRollTick). */
+static f32 s_BgunModRoll[MAX_PLAYERS];
+
+/* Bots' committed charges, found by owner prop (bgunModBotChargeShot). */
+#define BGUN_MOD_BOT_CHARGES MAX_BOTS
+
+static struct bgunmodcharge s_BgunModBotCharges[BGUN_MOD_BOT_CHARGES];
+static s32 s_BgunModBotChargeHand[BGUN_MOD_BOT_CHARGES];
+static s32 s_BgunModBotChargeFrame = -1;
+/* By aibotnum: the bot's last mod volley was a charge (bgunModBotChooseFunction). */
+static u8 s_BgunModBotChargedLast[MAX_BOTS];
+/* By aibotnum and function: weaponnum + 1 of the last BONDGUN.BOT line. */
+static s32 s_BgunModBotFireLogged[MAX_BOTS][2];
 
 static struct bgunmodcharge *bgunModChargeForCurrentPlayer(void)
 {
@@ -291,6 +309,258 @@ void bgunModApplyHeldModel(struct hand *hand, struct modeldef *modeldef, Mtxf *m
 }
 
 /* ------------------------------------------------------------------------
+ * The same gun seen in third person: the chr's held weapon object, drawn
+ * from the hand node (chr0f022214 in chr.c). Its owner's state comes from
+ * the player's hand (replicated to clients by SVC_PLAYER_STATS) or the bot's
+ * clip (SVC_CHR_STATE), the glow from the owner's charge, the roll from the
+ * owner's roll.
+ * ------------------------------------------------------------------------ */
+
+static s32 bgunModHeldHandnum(struct chrdata *chr, struct prop *weaponprop)
+{
+	return chr->weapons_held[HAND_LEFT] == weaponprop ? HAND_LEFT : HAND_RIGHT;
+}
+
+static s32 bgunModChrPlayernum(struct chrdata *chr)
+{
+	s32 playernum;
+
+	if (chr == NULL || chr->prop == NULL || chr->prop->type != PROPTYPE_PLAYER) {
+		return -1;
+	}
+
+	playernum = playermgrGetPlayerNumByProp(chr->prop);
+
+	return playernum >= 0 && playernum < MAX_PLAYERS && g_Vars.players[playernum] ? playernum : -1;
+}
+
+static struct bgunmodcharge *bgunModBotChargeFind(struct prop *ownerprop, bool alloc);
+
+static struct bgunmodcharge *bgunModChargeForChr(struct chrdata *chr)
+{
+	s32 playernum = bgunModChrPlayernum(chr);
+
+	if (playernum >= 0) {
+		return &s_BgunModCharges[playernum];
+	}
+
+	return chr != NULL && chr->aibot != NULL && chr->prop != NULL
+		? bgunModBotChargeFind(chr->prop, false) : NULL;
+}
+
+static void bgunModSetModelPartVisible(struct model *model, s32 partnum, bool visible)
+{
+	struct modelnode *node = modelGetPart(model->definition, partnum);
+	union modelrwdata *rwdata;
+
+	if (node == NULL || (node->type & 0xff) != MODELNODETYPE_TOGGLE) {
+		return;
+	}
+
+	rwdata = modelGetNodeRwData(model, node);
+
+	if (rwdata != NULL) {
+		rwdata->toggle.visible = visible;
+	}
+}
+
+/* BONDGUN.MODEL3P: by MP chr index, the last third-person state logged
+ * (loaded rounds, clip, charging, roll), so a line is written only when what
+ * the view shows changes; at most 64 lines a stage. */
+static s32 s_BgunModModel3PLogged[MAX_MPCHRS];
+static s32 s_BgunModModel3PBudget = 64;
+
+static void bgunModTraceModel3P(struct chrdata *chr, s32 weaponnum, s32 loaded, s32 clip,
+		bool charging, f32 roll)
+{
+	s32 index = mpPlayerGetIndex(chr);
+	s32 rolldeg = (s32)(roll * (180.0f / M_PI) + (roll < 0.0f ? -0.5f : 0.5f));
+	s32 state;
+
+	if (index < 0 || index >= MAX_MPCHRS || s_BgunModModel3PBudget <= 0) {
+		return;
+	}
+
+	state = 1 + ((loaded + 1) & 0xff) + ((clip & 0xff) << 8) + (charging ? 1 << 16 : 0)
+		+ (((rolldeg + 256) & 0x1ff) << 17);
+
+	if (s_BgunModModel3PLogged[index] == state) {
+		return;
+	}
+
+	s_BgunModModel3PLogged[index] = state;
+	s_BgunModModel3PBudget--;
+	sysLogPrintf(LOG_NOTE, "BONDGUN.MODEL3P: chrnum=%d mpindex=%d weapon=%d loaded=%d/%d charging=%d roll=%d",
+		(s32)chr->chrnum, index, weaponnum, loaded, clip, charging ? 1 : 0, rolldeg);
+}
+
+bool bgunModHeldRoll3P(struct chrdata *chr, struct prop *weaponprop, Mtxf *in, Mtxf *out)
+{
+	s32 playernum = bgunModChrPlayernum(chr);
+	struct coord rollrot = {0.0f, 0.0f, 0.0f};
+	Mtxf rollmtx;
+
+	if (playernum < 0 || weaponprop == NULL || weaponprop->type != PROPTYPE_WEAPON
+			|| weaponprop->weapon == NULL || weaponprop->weapon->weaponnum < WEAPON_CUSTOM_START
+			|| bgunModHeldHandnum(chr, weaponprop) != HAND_RIGHT
+			|| s_BgunModRoll[playernum] == 0.0f) {
+		return false;
+	}
+
+	/* About the model's own barrel axis, as in first person: the roll is
+	 * applied to model space before the hand matrix. */
+	rollrot.z = s_BgunModRoll[playernum];
+	mtx4LoadRotation(&rollrot, &rollmtx);
+	mtx00015be4(in, &rollmtx, out);
+
+	return true;
+}
+
+void bgunModApplyHeldModel3P(struct chrdata *chr, struct prop *weaponprop, struct model *model)
+{
+	struct weaponobj *weapon;
+	struct modeldef *modeldef;
+	struct bgunmodcharge *charge;
+	const weapon_graph_held_function_t *chargefunc;
+	struct hand *hand = NULL;
+	s32 weaponnum;
+	s32 playernum;
+	s32 handnum;
+	bool charging;
+	f32 pulse = 1.0f;
+	s32 slot;
+	s32 logloaded = -1;
+	s32 logclip = 0;
+
+	if (chr == NULL || weaponprop == NULL || model == NULL || model->definition == NULL
+			|| model->matrices == NULL || weaponprop->type != PROPTYPE_WEAPON
+			|| weaponprop->weapon == NULL) {
+		return;
+	}
+
+	weapon = weaponprop->weapon;
+	weaponnum = weapon->weaponnum;
+
+	if (weaponnum < WEAPON_CUSTOM_START) {
+		return;
+	}
+
+	modeldef = model->definition;
+	handnum = bgunModHeldHandnum(chr, weaponprop);
+	playernum = bgunModChrPlayernum(chr);
+
+	if (playernum >= 0 && g_Vars.players[playernum]->hands[handnum].gset.weaponnum == weaponnum) {
+		hand = &g_Vars.players[playernum]->hands[handnum];
+	}
+
+	charge = bgunModChargeForChr(chr);
+	charging = charge != NULL && charge->active && charge->weaponnum == weaponnum;
+	chargefunc = bgunModChargeFunction(weaponnum, NULL);
+
+	if (chargefunc != NULL) {
+		if (chargefunc->charge_hide_part >= 0) {
+			bgunModSetModelPartVisible(model, chargefunc->charge_hide_part, !charging);
+		}
+
+		if (chargefunc->charge_show_part >= 0) {
+			bgunModSetModelPartVisible(model, chargefunc->charge_show_part, charging);
+		}
+
+		if (charging) {
+			s32 elapsed = g_Vars.lvframe60 - charge->startframe60;
+			f32 ramp = chargefunc->charge_time_ticks60 > 0
+				? (f32)elapsed / (f32)chargefunc->charge_time_ticks60 : 1.0f;
+
+			if (ramp > 1.0f) {
+				ramp = 1.0f;
+			}
+
+			pulse = 1.0f + (0.03f + 0.07f * ramp) * sinf(elapsed * 0.45f);
+		}
+	}
+
+	for (slot = 0; slot < 2; slot++) {
+		const loader_pool_mod_ammo_t *mod = bgunModAmmo(weaponnum, slot);
+		s32 clip;
+		s32 loaded;
+		f32 regrow = -1.0f;
+		s32 j;
+
+		if (mod == NULL || mod->seat_part_base < 0) {
+			continue;
+		}
+
+		if (hand != NULL) {
+			clip = hand->clipsizes[slot];
+			loaded = hand->loadedammo[slot];
+
+			if (mod->regrow && hand->state == HANDSTATE_RELOAD && mod->regrow_ticks60 > 0) {
+				regrow = (f32)hand->gs_int1 / (f32)mod->regrow_ticks60;
+			}
+		} else if (chr->aibot != NULL && chr->aibot->weaponnum == weaponnum) {
+			struct gset gset = {0};
+			struct weaponfunc *func;
+
+			gset.weaponnum = weaponnum;
+			gset.weaponfunc = chr->aibot->gunfunc;
+			func = gsetGetWeaponFunction(&gset);
+
+			if (func == NULL || func->ammoindex != slot) {
+				continue;
+			}
+
+			clip = botactGetClipCapacityByFunction(weaponnum, chr->aibot->gunfunc);
+			loaded = chr->aibot->loadedammo[handnum];
+		} else {
+			/* No owner state (a guard holding it, say): leave it full. */
+			continue;
+		}
+
+		if (logloaded < 0) {
+			logloaded = loaded;
+			logclip = clip;
+		}
+
+		for (j = 0; j < clip && j < BGUN_MOD_CHARGE_ROUNDS; j++) {
+			struct modelnode *node = modelGetPart(modeldef, mod->seat_part_base + j);
+			s32 mtxindex;
+			f32 scale;
+
+			if (node == NULL || (node->type & 0xff) != MODELNODETYPE_POSITION) {
+				continue;
+			}
+
+			mtxindex = modelFindNodeMtxIndex(node, 0);
+
+			if (mtxindex < 0 || mtxindex >= modeldef->nummatrices) {
+				continue;
+			}
+
+			if (j < loaded) {
+				scale = 1.0f;
+			} else if (j == loaded && regrow >= 0.0f) {
+				scale = regrow > 1.0f ? 1.0f : regrow;
+			} else {
+				scale = 0.0f;
+			}
+
+			if (charging && j < charge->count && scale > 0.0f) {
+				scale *= pulse;
+			}
+
+			if (scale != 1.0f) {
+				mtx00015f04(scale, &model->matrices[mtxindex]);
+			}
+		}
+	}
+
+	if (logloaded >= 0 || charging || (playernum >= 0 && s_BgunModRoll[playernum] != 0.0f)) {
+		bgunModTraceModel3P(chr, weaponnum, logloaded, logclip, charging,
+			playernum >= 0 ? s_BgunModRoll[playernum] : 0.0f);
+	}
+}
+
+/* ------------------------------------------------------------------------
  * Landed mod projectiles: crystal clusters and mines that arm on landing.
  * Embedded objects are delisted children of what they hit, so the active
  * prop list cannot find them; landed crystals are kept here instead
@@ -327,10 +597,70 @@ void bgunModProjectileForget(struct weaponobj *weapon)
 	}
 }
 
+/* Budget for BONDGUN.PROJECTILE.CHRTEST lines per stage. */
+static s32 s_BgunModChrTestBudget = 48;
+
 void bgunModResetStage(void)
 {
 	memset(s_BgunModLanded, 0, sizeof(s_BgunModLanded));
 	bgunModChargeResetStage();
+	s_BgunModChrTestBudget = 48;
+	memset(s_BgunModModel3PLogged, 0, sizeof(s_BgunModModel3PLogged));
+	s_BgunModModel3PBudget = 64;
+}
+
+void bgunModTraceProjectileChrTest(struct prop *projectile, struct prop *chrprop,
+		const struct coord *pos1, const struct coord *pos2, s32 result)
+{
+	struct defaultobj *obj;
+	struct chrdata *chr;
+	f32 sx;
+	f32 sy;
+	f32 sz;
+	f32 len2;
+	f32 t;
+	f32 dx;
+	f32 dy;
+	f32 dz;
+	f32 dist;
+
+	if (s_BgunModChrTestBudget <= 0 || projectile == NULL || chrprop == NULL
+			|| projectile->type != PROPTYPE_WEAPON || projectile->weapon == NULL
+			|| projectile->weapon->weaponnum < WEAPON_CUSTOM_START
+			|| chrprop->chr == NULL || pos1 == NULL || pos2 == NULL) {
+		return;
+	}
+
+	obj = projectile->obj;
+	chr = chrprop->chr;
+
+	/* Distance from the character's position to this tick's segment. */
+	sx = pos2->x - pos1->x;
+	sy = pos2->y - pos1->y;
+	sz = pos2->z - pos1->z;
+	len2 = sx * sx + sy * sy + sz * sz;
+	t = len2 > 0.0f
+		? ((chrprop->pos.x - pos1->x) * sx + (chrprop->pos.y - pos1->y) * sy + (chrprop->pos.z - pos1->z) * sz) / len2
+		: 0.0f;
+	t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+	dx = chrprop->pos.x - (pos1->x + sx * t);
+	dy = chrprop->pos.y - (pos1->y + sy * t);
+	dz = chrprop->pos.z - (pos1->z + sz * t);
+	dist = sqrtf(dx * dx + dy * dy + dz * dz);
+
+	if (dist > 150.0f) {
+		return;
+	}
+
+	s_BgunModChrTestBudget--;
+	sysLogPrintf(LOG_NOTE,
+		"BONDGUN.PROJECTILE.CHRTEST: weapon=%d func=%d chrnum=%d proptype=%d result=%s dist=%.0f radius=%.0f onscreen=%d perimoff=%d hidden=%d",
+		projectile->weapon->weaponnum, projectile->weapon->gunfunc, (s32)chr->chrnum, chrprop->type,
+		result < 0 ? "skipped" : (result ? "hit" : "miss"), dist, chrGetHitRadius(chr),
+		(chrprop->flags & PROPFLAG_ONTHISSCREENTHISTICK) ? 1 : 0,
+		(chr->hidden & CHRHFLAG_PERIMDISABLED) ? 1 : 0,
+		(chr->chrflags & CHRCFLAG_HIDDEN) ? 1 : 0);
+	(void)obj;
 }
 
 static bool bgunModLandedRegister(struct weaponobj *weapon)
@@ -466,6 +796,10 @@ void bgunModProjectileLanded(struct weaponobj *weapon)
 static void bgunModChargeResetStage(void)
 {
 	memset(s_BgunModCharges, 0, sizeof(s_BgunModCharges));
+	memset(s_BgunModBotCharges, 0, sizeof(s_BgunModBotCharges));
+	memset(s_BgunModBotChargedLast, 0, sizeof(s_BgunModBotChargedLast));
+	memset(s_BgunModBotFireLogged, 0, sizeof(s_BgunModBotFireLogged));
+	s_BgunModBotChargeFrame = -1;
 }
 
 static f32 bgunModLength(const struct coord *v)
@@ -689,6 +1023,8 @@ static void bgunModChargeRelease(struct bgunmodcharge *charge)
 	s32 dead = player->isdead ? 1 : 0;
 	struct coord centre = {0.0f, 0.0f, 0.0f};
 	struct coord aim;
+	struct coord fanup;
+	struct coord fanaxis;
 	f32 speed;
 	s32 sockets = 0;
 	s32 launched = 0;
@@ -719,7 +1055,19 @@ static void bgunModChargeRelease(struct bgunmodcharge *charge)
 		}
 	}
 
-	aim = charge->aimvalid ? charge->aimdir : centre;
+	/* The aim and the sockets are captured while the first-person gun is
+	 * drawn. A remote player's charge on the host has neither: aim along
+	 * the player's look instead, and fan as the sockets would (below). */
+	if (charge->aimvalid) {
+		aim = charge->aimdir;
+		fanup = charge->aimup;
+	} else if (sockets > 0) {
+		aim = centre;
+		fanup = player->bond2.unk28;
+	} else {
+		aim = player->bond2.unk1c;
+		fanup = player->bond2.unk28;
+	}
 
 	if (!bgunModNormalise(&aim)) {
 		aim.x = 0.0f;
@@ -729,6 +1077,31 @@ static void bgunModChargeRelease(struct bgunmodcharge *charge)
 
 	if (!bgunModNormalise(&centre)) {
 		centre = aim;
+	}
+
+	/* The gun's up, square to the aim and rolled with the gun: the line the
+	 * socket-less fan lies along. */
+	{
+		f32 along = bgunModDot(&fanup, &aim);
+		struct coord side;
+		f32 roll = bgunModGetRoll();
+
+		fanup.x -= aim.x * along;
+		fanup.y -= aim.y * along;
+		fanup.z -= aim.z * along;
+
+		if (!bgunModNormalise(&fanup)) {
+			fanup.x = 0.0f;
+			fanup.y = 1.0f;
+			fanup.z = 0.0f;
+		}
+
+		side.x = aim.y * fanup.z - aim.z * fanup.y;
+		side.y = aim.z * fanup.x - aim.x * fanup.z;
+		side.z = aim.x * fanup.y - aim.y * fanup.x;
+		fanaxis.x = fanup.x * cosf(roll) + side.x * sinf(roll);
+		fanaxis.y = fanup.y * cosf(roll) + side.y * sinf(roll);
+		fanaxis.z = fanup.z * cosf(roll) + side.z * sinf(roll);
 	}
 
 	speed = held->launch_speed > 0.0f ? held->launch_speed : 20.0f;
@@ -751,8 +1124,19 @@ static void bgunModChargeRelease(struct bgunmodcharge *charge)
 
 			bgunModRotateFromTo(&centre, &aim, &dir);
 		} else {
-			spawnpos = ownerprop->pos;
-			dir = aim;
+			/* 6 degrees apart along the rolled gun's up, from just in front
+			 * of the owner's eyes. */
+			f32 offset = (f32)j - (charge->count - 1) * 0.5f;
+			f32 angle = offset * (6.0f * M_PI / 180.0f);
+
+			dir.x = aim.x * cosf(angle) + fanaxis.x * sinf(angle);
+			dir.y = aim.y * cosf(angle) + fanaxis.y * sinf(angle);
+			dir.z = aim.z * cosf(angle) + fanaxis.z * sinf(angle);
+			bgunModNormalise(&dir);
+
+			spawnpos.x = ownerprop->pos.x + aim.x * 20.0f + fanaxis.x * offset * 3.0f;
+			spawnpos.y = ownerprop->pos.y + aim.y * 20.0f + fanaxis.y * offset * 3.0f;
+			spawnpos.z = ownerprop->pos.z + aim.z * 20.0f + fanaxis.z * offset * 3.0f;
 		}
 
 		/* Spawn at the socket only if the owner can see it (as a throw does
@@ -825,6 +1209,12 @@ static void bgunModChargeRelease(struct bgunmodcharge *charge)
 				charge->weaponnum, fabsf(bgunModDot(&spread, &charge->aimup)),
 				bgunModGetRoll() * (180.0f / M_PI));
 		}
+	} else if (charge->count >= 2 && sockets == 0) {
+		/* The socket-less fan (a remote player's charge on the host): it lies
+		 * along the rolled gun's up. */
+		sysLogPrintf(LOG_NOTE, "BONDGUN.CHARGE: fan weapon=%d vertical=%.2f roll=%.0f sockets=0",
+			charge->weaponnum, fabsf(bgunModDot(&fanaxis, &fanup)),
+			bgunModGetRoll() * (180.0f / M_PI));
 	}
 
 	if (held->launch_sound >= 0 && g_Vars.lvupdate240 > 0) {
@@ -864,12 +1254,388 @@ void bgunModChargeTick(void)
 }
 
 /* ------------------------------------------------------------------------
+ * Bots and the committed charge. A bot "fires" through chrTickShoot; for a
+ * charge function the shot commits every loaded round instead, and the
+ * release launches them as a fan of mines from the bot's gun toward its
+ * target: vertical, since bots do not roll. Like a player's, it cannot be
+ * cancelled and fires even if the bot dies first.
+ * ------------------------------------------------------------------------ */
+
+static struct bgunmodcharge *bgunModBotChargeFind(struct prop *ownerprop, bool alloc)
+{
+	s32 i;
+	s32 freeslot = -1;
+
+	for (i = 0; i < BGUN_MOD_BOT_CHARGES; i++) {
+		if (s_BgunModBotCharges[i].active && s_BgunModBotCharges[i].ownerprop == ownerprop) {
+			return &s_BgunModBotCharges[i];
+		}
+
+		if (!s_BgunModBotCharges[i].active && freeslot < 0) {
+			freeslot = i;
+		}
+	}
+
+	return alloc && freeslot >= 0 ? &s_BgunModBotCharges[freeslot] : NULL;
+}
+
+bool bgunModBotChargeShot(struct chrdata *chr, s32 handnum, struct gset *gset)
+{
+	const weapon_graph_held_function_t *held;
+	struct bgunmodcharge *charge;
+	struct weaponfunc *func;
+	s32 loaded;
+
+	if (chr == NULL || chr->aibot == NULL || chr->prop == NULL || gset == NULL
+			|| gset->weaponnum < WEAPON_CUSTOM_START) {
+		return false;
+	}
+
+	held = weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+
+	if (held == NULL || !held->has_charge) {
+		return false;
+	}
+
+	/* Charging already: the trigger is held, nothing else fires. */
+	if (bgunModBotChargeFind(chr->prop, false) != NULL) {
+		return true;
+	}
+
+	loaded = chr->aibot->loadedammo[handnum];
+
+	if (loaded <= 0) {
+		return true;
+	}
+
+	charge = bgunModBotChargeFind(chr->prop, true);
+
+	if (charge == NULL) {
+		return true;
+	}
+
+	func = gsetGetWeaponFunction(gset);
+	memset(charge, 0, sizeof(*charge));
+	charge->active = true;
+	charge->weaponnum = gset->weaponnum;
+	charge->funcnum = gset->weaponfunc;
+	charge->ammoindex = func ? func->ammoindex : -1;
+	charge->count = loaded < BGUN_MOD_CHARGE_ROUNDS ? loaded : BGUN_MOD_CHARGE_ROUNDS;
+	charge->startframe60 = g_Vars.lvframe60;
+	charge->releaseframe60 = g_Vars.lvframe60 + held->charge_time_ticks60;
+	charge->gset = *gset;
+	charge->ownerprop = chr->prop;
+	s_BgunModBotChargeHand[charge - s_BgunModBotCharges] = handnum;
+
+	if (held->charge_sound >= 0 && g_Vars.lvupdate240 > 0) {
+		psCreate(NULL, chr->prop, held->charge_sound, -1, -1, 0, 0, PSTYPE_NONE, NULL, -1.0f, NULL, -1, -1.0f, -1.0f, -1.0f);
+	}
+
+	sysLogPrintf(LOG_NOTE, "BONDGUN.CHARGE: start weapon=%d bot=%d func=%d count=%d release_in=%d",
+		charge->weaponnum, (s32)chr->chrnum, charge->funcnum, charge->count, held->charge_time_ticks60);
+
+	return true;
+}
+
+static void bgunModBotChargeRelease(struct bgunmodcharge *charge, s32 handnum)
+{
+	struct prop *ownerprop = charge->ownerprop;
+	struct chrdata *chr = ownerprop ? ownerprop->chr : NULL;
+	const weapon_graph_held_function_t *held =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(charge->weaponnum, charge->funcnum);
+	const weapon_graph_entity_runtime_t *entity =
+		held ? weaponGraphRuntimeGetEntityForHeldFunction(held) : NULL;
+	const weapon_graph_projectile_runtime_t *projectile =
+		held ? weaponGraphRuntimeGetProjectileForHeldFunction(held) : NULL;
+	struct prop *target;
+	struct coord gunpos;
+	struct coord aim;
+	struct coord up = {0.0f, 1.0f, 0.0f};
+	struct coord right;
+	struct coord fanup;
+	f32 speed;
+	s32 dead;
+	s32 launched = 0;
+	s32 j;
+
+	charge->active = false;
+
+	if (held == NULL || chr == NULL || chr->aibot == NULL || g_NetMode == NETMODE_CLIENT) {
+		sysLogPrintf(LOG_NOTE, "BONDGUN.CHARGE: released weapon=%d bot=%d count=%d launched=0 skipped=%s",
+			charge->weaponnum, chr ? (s32)chr->chrnum : -1, charge->count,
+			g_NetMode == NETMODE_CLIENT ? "client" : "no_owner");
+		return;
+	}
+
+	dead = chrIsDead(chr) ? 1 : 0;
+
+	if (!chrGetGunPos(chr, handnum, &gunpos)) {
+		gunpos = ownerprop->pos;
+		gunpos.y += 30.0f;
+	}
+
+	/* At the target's chest if it has one, else straight along the bot's
+	 * aim. */
+	target = dead ? NULL : chrGetTargetProp(chr);
+
+	if (target != NULL) {
+		aim.x = target->pos.x - gunpos.x;
+		aim.y = target->pos.y - 25.0f - gunpos.y;
+		aim.z = target->pos.z - gunpos.z;
+	} else {
+		f32 roty = chrGetAimAngle(chr);
+
+		aim.x = sinf(roty);
+		aim.y = 0.0f;
+		aim.z = cosf(roty);
+	}
+
+	if (!bgunModNormalise(&aim)) {
+		aim.x = 0.0f;
+		aim.y = 0.0f;
+		aim.z = 1.0f;
+	}
+
+	right.x = aim.y * up.z - aim.z * up.y;
+	right.y = aim.z * up.x - aim.x * up.z;
+	right.z = aim.x * up.y - aim.y * up.x;
+
+	if (!bgunModNormalise(&right)) {
+		right.x = 1.0f;
+		right.y = 0.0f;
+		right.z = 0.0f;
+	}
+
+	fanup.x = right.y * aim.z - right.z * aim.y;
+	fanup.y = right.z * aim.x - right.x * aim.z;
+	fanup.z = right.x * aim.y - right.y * aim.x;
+	bgunModNormalise(&fanup);
+
+	speed = held->launch_speed > 0.0f ? held->launch_speed : 20.0f;
+
+	for (j = 0; j < charge->count; j++) {
+		/* 5 degrees apart, centred on the aim, one above the other. */
+		f32 angle = ((f32)j - (charge->count - 1) * 0.5f) * (5.0f * M_PI / 180.0f);
+		struct coord dir;
+		struct coord spawnpos;
+		struct coord velocity;
+		RoomNum spawnrooms[8];
+		Mtxf rot;
+		struct defaultobj *obj;
+
+		dir.x = aim.x * cosf(angle) + fanup.x * sinf(angle);
+		dir.y = aim.y * cosf(angle) + fanup.y * sinf(angle);
+		dir.z = aim.z * cosf(angle) + fanup.z * sinf(angle);
+		bgunModNormalise(&dir);
+
+		spawnpos.x = gunpos.x + fanup.x * (j * 3.0f);
+		spawnpos.y = gunpos.y + fanup.y * (j * 3.0f);
+		spawnpos.z = gunpos.z + fanup.z * (j * 3.0f);
+
+		propSetPerimEnabled(ownerprop, false);
+
+		if (cdTestLos11(&ownerprop->pos, ownerprop->rooms, &spawnpos, spawnrooms, CDTYPE_ALL) == CDRESULT_COLLISION) {
+			spawnpos = ownerprop->pos;
+			roomsCopy(ownerprop->rooms, spawnrooms);
+		}
+
+		propSetPerimEnabled(ownerprop, true);
+
+		velocity.x = dir.x * speed;
+		velocity.y = dir.y * speed;
+		velocity.z = dir.z * speed;
+		bgunModLoadBasis(&rot, &dir);
+
+		obj = bgunCreateThrownProjectile2(chr, &charge->gset, &spawnpos, spawnrooms, &rot, &velocity);
+
+		if (obj == NULL) {
+			continue;
+		}
+
+		if (obj->type == OBJTYPE_WEAPON && entity != NULL && entity->has_proxy_trigger
+				&& entity->proxy_arm_on_land) {
+			((struct weaponobj *) obj)->timer240 = -1;
+		}
+
+		if (projectile != NULL && projectile->has_scale && projectile->scale > 0.0f
+				&& projectile->scale != 1.0f && obj->model != NULL) {
+			Mtxf scaled;
+
+			obj->model->scale *= projectile->scale;
+			mtx3ToMtx4(obj->realrot, &scaled);
+			mtx00015f04(projectile->scale, &scaled);
+			mtx4ToMtx3(&scaled, obj->realrot);
+		}
+
+		if (g_NetMode == NETMODE_SERVER) {
+			netmsgSvcPropSpawnWrite(&g_NetMsgRel, obj->prop);
+			netmsgSvcPropMoveWrite(&g_NetMsgRel, obj->prop, NULL);
+		}
+
+		launched++;
+	}
+
+	if (held->launch_sound >= 0 && g_Vars.lvupdate240 > 0) {
+		psCreate(NULL, ownerprop, held->launch_sound, -1, -1, 0, 0, PSTYPE_NONE, NULL, -1.0f, NULL, -1, -1.0f, -1.0f, -1.0f);
+	}
+
+	/* The launched crystals leave the bot's clip, if the bot still holds the
+	 * gun they came from. */
+	if (chr->aibot->weaponnum == charge->weaponnum) {
+		chr->aibot->loadedammo[handnum] -= charge->count;
+
+		if (chr->aibot->loadedammo[handnum] < 0) {
+			chr->aibot->loadedammo[handnum] = 0;
+		}
+	}
+
+	/* The next charge waits for a primary magazine (bgunModBotFired). */
+	if (chr->aibot->aibotnum >= 0 && chr->aibot->aibotnum < MAX_BOTS) {
+		s_BgunModBotChargedLast[chr->aibot->aibotnum] = 1;
+	}
+
+	sysLogPrintf(LOG_NOTE, "BONDGUN.CHARGE: released weapon=%d bot=%d count=%d launched=%d dead=%d",
+		charge->weaponnum, (s32)chr->chrnum, charge->count, launched, dead);
+}
+
+void bgunModBotChargeTick(void)
+{
+	s32 i;
+
+	/* lv.c calls this once per player view; run once a frame. */
+	if (s_BgunModBotChargeFrame == g_Vars.lvframe60) {
+		return;
+	}
+
+	s_BgunModBotChargeFrame = g_Vars.lvframe60;
+
+	for (i = 0; i < BGUN_MOD_BOT_CHARGES; i++) {
+		struct bgunmodcharge *charge = &s_BgunModBotCharges[i];
+
+		if (charge->active && g_Vars.lvframe60 - charge->releaseframe60 >= 0) {
+			bgunModBotChargeRelease(charge, s_BgunModBotChargeHand[i]);
+		}
+	}
+}
+
+bool bgunModFunctionsShareSelfLoadingAmmo(s32 weaponnum, s32 funcnum1, s32 funcnum2)
+{
+	struct weaponfunc *func1;
+	struct weaponfunc *func2;
+
+	if (weaponnum < WEAPON_CUSTOM_START) {
+		return false;
+	}
+
+	func1 = weaponGetFunctionById(weaponnum, funcnum1);
+	func2 = weaponGetFunctionById(weaponnum, funcnum2);
+
+	return func1 != NULL && func2 != NULL && func1->ammoindex >= 0
+		&& func1->ammoindex == func2->ammoindex
+		&& bgunModAmmoIsSelfLoading(weaponnum, func1->ammoindex);
+}
+
+s32 bgunModBotChooseFunction(struct chrdata *chr, s32 weaponnum, s32 funcnum)
+{
+	const weapon_graph_held_function_t *charge;
+	const struct aibotweaponpreference *pref;
+	struct prop *target;
+	s32 slot;
+	s32 clip;
+	s32 mpindex;
+	f32 dist;
+
+	if (chr == NULL || chr->aibot == NULL || chr->prop == NULL
+			|| weaponnum < WEAPON_CUSTOM_START || funcnum != FUNC_PRIMARY) {
+		return funcnum;
+	}
+
+	charge = weaponGraphRuntimeGetHeldFunctionForGameplay(weaponnum, FUNC_SECONDARY);
+	pref = catalogManagerGetWeaponBotPref(weaponnum);
+
+	if (charge == NULL || !charge->has_charge || pref == NULL || !pref->hassecammogoal) {
+		return funcnum;
+	}
+
+	/* A committed charge keeps its function until it is released. */
+	if (bgunModBotChargeFind(chr->prop, false) != NULL) {
+		return FUNC_SECONDARY;
+	}
+
+	slot = chr->aibot->aibotnum;
+
+	/* Charged last time: a primary magazine first. Only a held gun's
+	 * magazine counts. */
+	if (slot < 0 || slot >= MAX_BOTS || s_BgunModBotChargedLast[slot]
+			|| chr->aibot->weaponnum != weaponnum) {
+		return funcnum;
+	}
+
+	clip = botactGetClipCapacityByFunction(weaponnum, FUNC_SECONDARY);
+
+	if (clip <= 0 || chr->aibot->loadedammo[HAND_RIGHT] < clip) {
+		return funcnum;
+	}
+
+	target = chr->target != -1 ? chrGetTargetProp(chr) : NULL;
+
+	if (target == NULL || target->chr == NULL) {
+		return funcnum;
+	}
+
+	mpindex = mpPlayerGetIndex(target->chr);
+
+	if (mpindex < 0 || mpindex >= MAX_MPCHRS) {
+		return funcnum;
+	}
+
+	dist = chr->aibot->chrdistances[mpindex];
+
+	return dist >= 450.0f && dist <= 1500.0f ? FUNC_SECONDARY : funcnum;
+}
+
+void bgunModBotFired(struct chrdata *chr, s32 handnum, struct gset *gset)
+{
+	const weapon_graph_held_function_t *held;
+	s32 slot;
+	s32 func;
+
+	if (chr == NULL || chr->aibot == NULL || gset == NULL
+			|| gset->weaponnum < WEAPON_CUSTOM_START) {
+		return;
+	}
+
+	slot = chr->aibot->aibotnum;
+	func = gset->weaponfunc == FUNC_SECONDARY ? 1 : 0;
+
+	if (slot < 0 || slot >= MAX_BOTS) {
+		return;
+	}
+
+	held = weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
+
+	if (held != NULL && !held->has_charge) {
+		s_BgunModBotChargedLast[slot] = 0;
+	}
+
+	if (s_BgunModBotFireLogged[slot][func] != gset->weaponnum + 1) {
+		s_BgunModBotFireLogged[slot][func] = gset->weaponnum + 1;
+		sysLogPrintf(LOG_NOTE, "BONDGUN.BOT: fired weapon=%d func=%d bot=%d hand=%d loaded=%d",
+			gset->weaponnum, gset->weaponfunc, (s32)chr->chrnum, handnum,
+			chr->aibot->loadedammo[handnum]);
+	}
+}
+
+/* ------------------------------------------------------------------------
  * Gun roll (ACTION_GUN_ROLL_LEFT / RIGHT). A weapon opts in with the
  * gun_roll_deg setting; base weapons never roll.
  * ------------------------------------------------------------------------ */
 
-static f32 s_BgunModRoll[MAX_PLAYERS];
 static s32 s_BgunModRollLogged[MAX_PLAYERS];
+/* The roll actions as last read for each player: bit 0 left, bit 1 right.
+ * A local player's go out in its move (v63 UCMD_GUNROLL_*); a remote
+ * player's come from there. */
+static u8 s_BgunModRollInput[MAX_PLAYERS];
 
 void bgunModRollTick(bool left, bool right)
 {
@@ -885,6 +1651,7 @@ void bgunModRollTick(bool left, bool right)
 		return;
 	}
 
+	s_BgunModRollInput[playernum] = (left ? 1 : 0) | (right ? 2 : 0);
 	roll = &s_BgunModRoll[playernum];
 	weaponnum = bgunGetWeaponNum(HAND_RIGHT);
 	maxroll = loaderPoolGetPublicWeaponRollDeg(weaponnum) * (M_PI / 180.0f);
@@ -924,6 +1691,26 @@ f32 bgunModGetRoll(void)
 	}
 
 	return s_BgunModRoll[playernum];
+}
+
+u32 bgunModRollUcmd(void)
+{
+	s32 playernum = g_Vars.currentplayernum;
+	u32 ucmd = 0;
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS) {
+		return 0;
+	}
+
+	if (s_BgunModRollInput[playernum] & 1) {
+		ucmd |= UCMD_GUNROLL_LEFT;
+	}
+
+	if (s_BgunModRollInput[playernum] & 2) {
+		ucmd |= UCMD_GUNROLL_RIGHT;
+	}
+
+	return ucmd;
 }
 
 /* ------------------------------------------------------------------------

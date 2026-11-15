@@ -79,11 +79,34 @@ void botactReload(struct chrdata *chr, s32 handnum, bool withsound)
 	}
 }
 
+/* T-MODDING-008: funcnum of mod weapon weaponnum loads from a self-loading
+ * magazine (crystals that regrow): no reserve, never empty for long. */
+static bool botactIsSelfLoadingModFunction(s32 weaponnum, s32 funcnum)
+{
+	struct weaponfunc *func;
+
+	if (weaponnum < WEAPON_CUSTOM_START || weaponnum >= WEAPON_CUSTOM_END) {
+		return false;
+	}
+
+	func = weaponGetFunctionById(weaponnum, funcnum);
+
+	return func != NULL && bgunModAmmoIsSelfLoading(weaponnum, func->ammoindex);
+}
+
 s32 botactGetAmmoQuantityByWeapon(struct aibot *aibot, s32 weaponnum, s32 funcnum, bool include_equipped)
 {
 	s32 qty = 0;
 	s32 ammotype;
 	s32 equippedammotype;
+
+	/* T-MODDING-008: a self-loading magazine regrows forever, so to a bot it
+	 * is always full, as with BOTFLAG_UNLIMITEDAMMO: no ammo goals, no
+	 * pickups wanted, and the weapon is not dropped while its magazine
+	 * regrows. */
+	if (aibot && botactIsSelfLoadingModFunction(weaponnum, funcnum)) {
+		return bgunGetCapacityByAmmotype(botactGetAmmoTypeByFunction(weaponnum, funcnum));
+	}
 
 	if (aibot) {
 		if (aibot->flags & BOTFLAG_UNLIMITEDAMMO) {
@@ -141,12 +164,8 @@ s32 botactTryRemoveAmmoFromReserve(struct aibot *aibot, s32 weaponnum, s32 funcn
 
 	/* T-MODDING-008: a self-loading mod magazine (crystals that regrow) has
 	 * no reserve; a bot's reload refills it from nothing. */
-	if (aibot && tryqty > 0 && weaponnum >= WEAPON_CUSTOM_START) {
-		struct weaponfunc *func = weaponGetFunctionById(weaponnum, funcnum);
-
-		if (func && bgunModAmmoIsSelfLoading(weaponnum, func->ammoindex)) {
-			return tryqty;
-		}
+	if (aibot && tryqty > 0 && botactIsSelfLoadingModFunction(weaponnum, funcnum)) {
+		return tryqty;
 	}
 
 	if (!aibot || *ammoheld <= 0 || tryqty <= 0) {
@@ -179,6 +198,12 @@ void botactGiveAmmoByWeapon(struct aibot *aibot, s32 weaponnum, s32 funcnum, s32
 {
 	s32 max;
 	s32 *heldquantity = &aibot->ammoheld[botactGetAmmoTypeByFunction(weaponnum, funcnum)];
+
+	/* T-MODDING-008: a self-loading magazine has no reserve to return
+	 * rounds to. */
+	if (botactIsSelfLoadingModFunction(weaponnum, funcnum)) {
+		return;
+	}
 
 	if (aibot && (aibot->flags & BOTFLAG_UNLIMITEDAMMO) == 0 && qty > 0) {
 		dprint();

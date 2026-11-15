@@ -2079,9 +2079,21 @@ private manifest would have hidden the symptom by creating a second behavior
 source, so the fix instead derives and transactionally owns the legacy adapter
 from the public source/runtime IR.
 
+**Known instance (B-1211, 2026-11-15):** the same public weapon adapter zeroed
+the weapon's bot preferences. Native bot AI reads a clear `haspriammogoal` /
+`hassecammogoal` as "never use this function", so every bot armed with a mod
+weapon went unarmed. The fix derives defaults from the compiled functions and
+magazine (`s_publicWeaponBotPrefsBuild`). Other per-weapon native tables a
+public weapon fills with defaults, to recheck when one misbehaves: aim settings
+(`s_DefaultAim`), casing eject (none), reload animation (none), MP weapon-set
+membership.
+
 **Propagation check:** compare every typed activation/clear pair with the real
 family manager, renderer, audio, collision, or gameplay object it supplies;
 test active -> adapter populated -> final release clears -> reload rebuilds.
+For the public weapon adapter, list each native per-weapon table gameplay
+reads (`catalogManagerGetWeapon*`, `weaponGetAmmoByFunction`, bot preferences)
+and confirm the adapter writes a usable value, not a zeroed default.
 
 `rg -n "ACTIVATE|Register.*Runtime|Clear.*Runtime|loaderPoolParse|catalogManagerGet" port/src src/game`
 

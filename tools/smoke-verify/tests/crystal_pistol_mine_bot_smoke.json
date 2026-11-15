@@ -1,6 +1,6 @@
 {
   "scenario_name": "crystal_pistol_mine_bot_smoke",
-  "description": "Crystal pistol (T-MODDING-008) proximity mines against a simulant: a full charged volley is launched at the floor around a bot held 240 units in front of the player; the mines arm where they land, the enemy bot inside the 200-unit radius triggers them and they detonate. The spawn and the first-person look are fixed (look 33.5 degrees down, at the floor under the bot) so the volley lands around the bot on every run.",
+  "description": "Crystal pistol (T-MODDING-008) proximity mines against a simulant: a full charged volley is launched at the floor around a bot held 240 units in front of the player; the mines arm where they land, the enemy bot inside the 200-unit radius triggers them and they detonate. The spawn and the first-person look are fixed (look 33.5 degrees down, at the floor under the bot) so the volley lands around the bot on every run. The bot holds its fire (--debug-bots-hold-fire): bots now fight with mod weapons, and an armed bot 240 units away would shoot back and make the run depend on its aim.",
   "tags": [
     "modding",
     "pdxxx",
@@ -60,6 +60,7 @@
     "--debug-place-bot-near-player",
     "--debug-place-bot-near-player-hold-sec",
     "20",
+    "--debug-bots-hold-fire",
     "--debug-auto-start-match"
   ],
   "input_sequence": [
@@ -91,6 +92,7 @@
   "assertions": {
     "required_lines": [
       "SMOKE: scenario=crystal_pistol_mine_bot_smoke",
+      "BOOT: --debug-bots-hold-fire armed",
       "BOOT: --debug-spawn-at consumed: .* result=OK",
       "BOOT: --debug-place-bot-near-player consumed: bot=.* result=OK",
       "BONDGUN\\.CHARGE: start weapon=\\d+ player=0 func=1 count=6",
@@ -110,6 +112,7 @@
       "BONDGUN\\.MODEL: .*B-1185",
       "BONDGUN\\.CRYSTAL: mine triggered weapon=\\d+ func=1 owner=0 by=0 ",
       "BONDGUN\\.CRYSTAL: landed registry full",
+      "BONDGUN\\.BOT: fired",
       "'mod_crystal_pistol:crystal_pistol' public weapon adapter install failed",
       "'mod_crystal_pistol:crystal_pistol' activation failed"
     ],

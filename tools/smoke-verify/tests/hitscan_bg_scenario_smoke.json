@@ -1,0 +1,101 @@
+{
+  "scenario_name": "hitscan_bg_scenario_smoke",
+  "description": "B-1189: on a scenario-source stage (Felicity) the player's hitscan shots stop at walls. Before the fix bgTestHitInRoom found no room vertex batches there and every shot logged SHOT_RESULT MISS. A fixed spawn and a level forced look aim a Falcon 2 at the wall ahead; all three shots must log HIT_BG.",
+  "tags": [
+    "weapon",
+    "hitscan",
+    "collision",
+    "scenario-source",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "src/game/prop.c",
+    "src/game/bg.c",
+    "src/lib/meshraygrid.c",
+    "src/lib/meshcollision.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini",
+      "dst": "pd.ini"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-spawn-at",
+    "780,-663,27,27",
+    "--debug-force-first-person",
+    "--debug-force-first-person-look",
+    "0.8174,0,-0.5760",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-spawn-weapon",
+    "base:falcon2",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay with the Falcon 2."
+    },
+    { "at_ms": 1000, "type": "screenshot", "path": "bg-hit-start.bmp", "comment": "The session's first capture can stall the game; keep it clear of the shots." },
+    { "at_ms": 3000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 3100, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 3150, "type": "screenshot", "path": "bg-hit-shot1.bmp", "comment": "Wall hit sparks and bullet hole." },
+    { "at_ms": 4500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 4600, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 6000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 6100, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 6600, "type": "screenshot", "path": "bg-hit-shot3.bmp", "comment": "Three bullet holes on the wall." },
+    { "at_ms": 8000, "type": "exit" }
+  ],
+  "retain_artifacts": [
+    { "src": "bg-hit-start.bmp" },
+    { "src": "bg-hit-shot1.bmp" },
+    { "src": "bg-hit-shot3.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=hitscan_bg_scenario_smoke",
+      "SCENARIO\\.SOURCE: background renderer using native scene source 'base:scenario_mp_felicity'",
+      "BOOT: --debug-spawn-at consumed: .* result=OK",
+      "COMBAT: SHOT_RESULT HIT_BG",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.FALLBACK",
+      "result=FAIL",
+      "COMBAT: SHOT_RESULT MISS"
+    ],
+    "required_counts": [
+      {
+        "pattern": "COMBAT: SHOT_RESULT HIT_BG",
+        "min": 3
+      },
+      {
+        "pattern": "SMOKE\\.GLSHOT: captured",
+        "min": 3
+      }
+    ]
+  }
+}

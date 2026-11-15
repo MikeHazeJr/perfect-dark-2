@@ -10,7 +10,13 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 61  /* v61 (2026-09-08): authenticated lobby roster.
+#define NET_PROTOCOL_VER 63  /* v63 (2026-11-15, CRYSTAL): UCMD_GUNROLL_LEFT/RIGHT
+                               carry a mod gun's roll input so every peer
+                               rolls it and the host fans a charge with it.
+                               (v62 is MULTIPLAYER's SVC_SCENARIO_STATE on
+                               week-pd/multiplayer; whichever merges second
+                               renumbers.)
+                             * v61 (2026-09-08): authenticated lobby roster.
                              * v60: room creation includes its
                                initial settings/playlist, room lists include
                                access and create/join return SVC_ROOM_RESULT.
@@ -477,6 +483,10 @@ extern u8 g_NetBotAuthorityClientId; /* NET_NULL_CLIENT when no authority delega
  * UCMD_ACTIVATE remains the action; this bit preserves device semantics
  * without asking the authority to infer them from its local control slot. */
 #define UCMD_VEHICLE_PC_INTENT (1 << 12)
+/* v63 (T-MODDING-008): the gun roll actions are held (ACTION_GUN_ROLL_LEFT /
+ * RIGHT). Held state, like UCMD_AIMMODE: forwarded, not important. */
+#define UCMD_GUNROLL_LEFT (1 << 13)
+#define UCMD_GUNROLL_RIGHT (1 << 14)
 #define UCMD_RESPAWN (1 << 27)
 #define UCMD_CHAT (1 << 28)
 #define UCMD_IMPORTANT_MASK (UCMD_FIRE | UCMD_ACTIVATE | UCMD_RELOAD | UCMD_AIMMODE | UCMD_SELECT | UCMD_SELECT_DUAL | UCMD_VEHICLE_PC_INTENT)

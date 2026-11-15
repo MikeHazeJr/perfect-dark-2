@@ -1,0 +1,101 @@
+{
+  "scenario_name": "farsight_xray_wall_smoke",
+  "description": "B-1189 must not change the Farsight: fired from the hip its shot stops at the wall (HIT_BG), and aimed (x-ray vision) it skips the background test as before and goes through the wall (MISS: nothing behind it in an empty arena). Same fixed spawn and level look as hitscan_bg_scenario_smoke.",
+  "tags": [
+    "weapon",
+    "hitscan",
+    "farsight",
+    "collision",
+    "scenario-source",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "src/game/prop.c",
+    "src/game/bg.c",
+    "src/game/bondgun.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini",
+      "dst": "pd.ini"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-spawn-at",
+    "780,-663,27,27",
+    "--debug-force-first-person",
+    "--debug-force-first-person-look",
+    "0.8174,0,-0.5760",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-spawn-weapon",
+    "base:farsight",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay with the Farsight."
+    },
+    { "at_ms": 1000, "type": "screenshot", "path": "farsight-start.bmp", "comment": "The session's first capture can stall the game; keep it clear of the shots." },
+    { "at_ms": 3000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "From the hip: the shot stops at the wall." },
+    { "at_ms": 3100, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 5000, "type": "action", "name": "ACTION_FIRE_SECONDARY", "action": "press", "comment": "Hold aim: the Farsight's scope switches to x-ray vision." },
+    { "at_ms": 6500, "type": "screenshot", "path": "farsight-xray.bmp" },
+    { "at_ms": 7000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Aimed: the shot goes through the wall." },
+    { "at_ms": 7100, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 7600, "type": "action", "name": "ACTION_FIRE_SECONDARY", "action": "release" },
+    { "at_ms": 9000, "type": "exit" }
+  ],
+  "retain_artifacts": [
+    { "src": "farsight-start.bmp" },
+    { "src": "farsight-xray.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=farsight_xray_wall_smoke",
+      "SCENARIO\\.SOURCE: background renderer using native scene source 'base:scenario_mp_felicity'",
+      "BOOT: --debug-spawn-at consumed: .* result=OK",
+      "COMBAT: SHOT_RESULT HIT_BG",
+      "COMBAT: SHOT_RESULT MISS",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.FALLBACK",
+      "result=FAIL"
+    ],
+    "required_counts": [
+      {
+        "pattern": "COMBAT: SHOT_RESULT HIT_BG",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "COMBAT: SHOT_RESULT (MISS|HIT_BG)",
+        "min": 2,
+        "max": 2
+      }
+    ]
+  }
+}
