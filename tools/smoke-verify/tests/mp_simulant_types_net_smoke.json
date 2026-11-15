@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_simulant_types_net_smoke",
-  "description": "The networked twin of mp_simulant_types_local_smoke: a listen host and one client on loopback, Felicity, twelve simulants with one of each non-general type and the six difficulties twice over (PeaceSim Meat, ShieldSim Easy, RocketSim Normal, KazeSim Hard, FistSim Perfect, PreySim Dark, CowardSim Meat, JudgeSim Easy, FeudSim Normal, SpeedSim Hard, TurtleSim Perfect, VengeSim Dark), 60 s. The host adds and spawns each simulant with its traits; the client gets all twelve in its roster; both sides log the same final result for all 14 participants.",
+  "description": "The networked twin of mp_simulant_types_local_smoke: a listen host and one client on loopback, Felicity, one simulant for every profile a fresh save offers (MeatSim, EasySim, NormalSim, PeaceSim, ShieldSim, RocketSim, KazeSim, FistSim, PreySim, CowardSim, JudgeSim, FeudSim, SpeedSim, TurtleSim, VengeSim), 60 s. The base bot profiles are the general type in six difficulties and twelve special types that exist only at Normal; Hard, Perfect and Dark are unlocked by challenges, so a fresh save offers these 15. The host adds and spawns each simulant with its traits; the client gets every one of them in its roster and runs each as a puppet (B-1191); both sides log the same final result for all 17 participants.",
   "tags": [
     "bots",
     "combatsim",
@@ -34,12 +34,12 @@
         "--launch-mp-room",
         "base:arena_mp_felicity",
         "base:combat",
-        "12",
+        "15",
         "--host-autostart",
         "--match-timelimit-sec",
         "60",
         "--debug-bot-spec",
-        "1:0,2:1,3:2,4:3,5:4,6:5,7:0,8:1,9:2,10:3,11:4,12:5"
+        "0:0,0:1,0:2,1:2,2:2,3:2,4:2,5:2,6:2,7:2,8:2,9:2,10:2,11:2,12:2"
       ],
       "wait_for": "NET: created server on port 27253",
       "wait_timeout_seconds": 120
@@ -71,12 +71,12 @@
   ],
   "assertions": {
     "required_lines": [
-      "SMOKE: scenario=mp_combat_net_bots_smoke",
+      "SMOKE: scenario=mp_simulant_types_net_smoke",
       "BOOT: --listen-bind armed: port=27253",
       "BOOT: --connect-host armed: addr='127.0.0.1:27253'",
       "BOOT: --host-autostart armed",
       "BOOT: --match-timelimit-sec armed: seconds=60",
-      "BOOT: --launch-mp-room arena='base:arena_mp_felicity' scenario='base:combat' bots=12",
+      "BOOT: --launch-mp-room arena='base:arena_mp_felicity' scenario='base:combat' bots=15",
       "BOOT: --listen-bind consumed: port=27253 .*result=OK rc=0",
       "BOOT: --connect-host consumed: addr='127.0.0.1:27253' result=OK rc=0",
       "NET: created server on port 27253",
@@ -94,35 +94,41 @@
       "MATCH: scores replicated",
       "MATCH: stage end reason=timelimit",
       "MATCH: endscreen shown",
-      "PARTICIPANTS: 14 active \\(2 players, 12 bots\\)",
-      "MATCH\\.RESULT: scenario=0 teams=0 chrs=14 netmode=1",
-      "MATCH\\.RESULT: scenario=0 teams=0 chrs=14 netmode=2",
+      "PARTICIPANTS: 17 active \\(2 players, 15 bots\\)",
+      "MATCH\\.RESULT: scenario=0 teams=0 chrs=17 netmode=1",
+      "MATCH\\.RESULT: scenario=0 teams=0 chrs=17 netmode=2",
       "MATCH: final scores published before stage end room=",
-      "BOOT: --debug-bot-spec armed: 12 simulant\\(s\\)",
-      "BOOT: --debug-bot-spec added slot=[0-9]+ type=1 difficulty=0",
-      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=1 difficulty=0",
-      "BOOT: --debug-bot-spec added slot=[0-9]+ type=2 difficulty=1",
-      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=2 difficulty=1",
+      "BOOT: --debug-bot-spec armed: 15 simulant\\(s\\)",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=0 difficulty=0",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=0 difficulty=0",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=0 difficulty=1",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=0 difficulty=1",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=0 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=0 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=1 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=1 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=2 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=2 difficulty=2",
       "BOOT: --debug-bot-spec added slot=[0-9]+ type=3 difficulty=2",
       "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=3 difficulty=2",
-      "BOOT: --debug-bot-spec added slot=[0-9]+ type=4 difficulty=3",
-      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=4 difficulty=3",
-      "BOOT: --debug-bot-spec added slot=[0-9]+ type=5 difficulty=4",
-      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=5 difficulty=4",
-      "BOOT: --debug-bot-spec added slot=[0-9]+ type=6 difficulty=5",
-      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=6 difficulty=5",
-      "BOOT: --debug-bot-spec added slot=[0-9]+ type=7 difficulty=0",
-      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=7 difficulty=0",
-      "BOOT: --debug-bot-spec added slot=[0-9]+ type=8 difficulty=1",
-      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=8 difficulty=1",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=4 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=4 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=5 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=5 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=6 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=6 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=7 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=7 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=8 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=8 difficulty=2",
       "BOOT: --debug-bot-spec added slot=[0-9]+ type=9 difficulty=2",
       "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=9 difficulty=2",
-      "BOOT: --debug-bot-spec added slot=[0-9]+ type=10 difficulty=3",
-      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=10 difficulty=3",
-      "BOOT: --debug-bot-spec added slot=[0-9]+ type=11 difficulty=4",
-      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=11 difficulty=4",
-      "BOOT: --debug-bot-spec added slot=[0-9]+ type=12 difficulty=5",
-      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=12 difficulty=5",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=10 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=10 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=11 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=11 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=12 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=12 difficulty=2",
       "MATCH: timelimit override applied seconds=60"
     ],
     "forbidden_patterns": [
@@ -192,18 +198,18 @@
         "min": 1
       },
       {
-        "pattern": "PARTICIPANTS: 14 active \\(2 players, 12 bots\\)",
+        "pattern": "PARTICIPANTS: 17 active \\(2 players, 15 bots\\)",
         "min": 2
       },
       {
-        "pattern": "MATCH\\.RESULT: scenario=0 teams=0 chrs=14 netmode=",
+        "pattern": "MATCH\\.RESULT: scenario=0 teams=0 chrs=17 netmode=",
         "min": 2,
         "max": 2
       },
       {
         "pattern": "MATCH\\.RESULT\\.CHR: rank=",
-        "min": 28,
-        "max": 28
+        "min": 34,
+        "max": 34
       },
       {
         "pattern": "BOT\\.PICKUP: host sent simulant",
@@ -219,13 +225,13 @@
       },
       {
         "pattern": "BOOT: --debug-bot-spec added slot=",
-        "min": 12,
-        "max": 12
+        "min": 15,
+        "max": 15
       },
       {
         "pattern": "SIMULANT: allocating chrnum=",
-        "min": 24,
-        "max": 24
+        "min": 30,
+        "max": 30
       }
     ]
   }
