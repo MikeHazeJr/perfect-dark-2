@@ -1,0 +1,48 @@
+{
+  "scenario_name": "stage_sky_visual_defection",
+  "description": "Visual check (B-1172): Defection, a night stage with the moon as an always-drawn sky room and a starfield, through --launch-mission with the intro skipped, plus screenshots in the intro and in play. Shows whether a stage drawn by the scenario scene renderer still gets its sky, moon and stars: lv.c skips skyRender while that renderer is active, and bgRenderScene skips the always-drawn sky rooms and the stars.",
+  "tags": ["solo", "mission", "render", "visual"],
+  "paths_of_interest": [
+    "src/game/lv.c",
+    "src/game/bg.c",
+    "src/game/stars.c",
+    "port/fast3d/scenario_scene_renderer.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 150,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-mission",
+    "0x30",
+    "--difficulty",
+    "agent"
+  ],
+  "input_sequence": [
+    { "at_ms": 0,     "type": "wait", "comment": "boot path: --launch-mission seeds the stage before mainProc" },
+    { "at_ms": 30000, "type": "action", "name": "ACTION_USE", "action": "tap", "comment": "intro skip attempt 1" },
+    { "at_ms": 32000, "type": "action", "name": "ACTION_SKIP_CUTSCENE", "action": "tap", "comment": "intro skip attempt 2" },
+    { "at_ms": 70000, "type": "exit", "comment": "scripted exit after the play screenshots" }
+  ],
+  "screenshots": [
+    { "at_ms": 22000, "name": "defection_intro" },
+    { "at_ms": 50000, "name": "defection_play_a" },
+    { "at_ms": 62000, "name": "defection_play_b" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=stage_sky_visual_defection",
+      "SCENARIO.RENDER: activated source scene 'base:scenario_defection'",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ],
+    "required_counts": []
+  }
+}
