@@ -67,6 +67,11 @@ void bgunModRollTick(bool left, bool right);
 /* The current player's gun roll in radians (bondgun.c pose, innermost). */
 f32 bgunModGetRoll(void);
 
+/* For coordTriggerProxies: a mod mine's own radius and owner/team/target
+ * filters. chr is the candidate (NULL for a moving object). Returns 1 to
+ * trigger, 0 not to, -1 when the native fixed-range rule applies. */
+s32 bgunModProxyDecision(struct weaponobj *weapon, struct chrdata *chr, struct coord *pos);
+
 #ifdef __cplusplus
 }
 #endif

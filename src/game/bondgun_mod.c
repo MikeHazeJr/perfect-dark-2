@@ -25,6 +25,8 @@
 #include "game/game_0b0fd0.h"
 #include "game/player.h"
 #include "game/playermgr.h"
+#include "game/mplayer/mplayer.h"
+#include "game/chraction.h"
 #include "lib/collision.h"
 #include "lib/lib_317f0.h"
 #include "net/net.h"
@@ -910,4 +912,74 @@ f32 bgunModGetRoll(void)
 	}
 
 	return s_BgunModRoll[playernum];
+}
+
+/* ------------------------------------------------------------------------
+ * Mod mines and the native proxy sweep (MODS pistol ask 6). Bots, NPCs and
+ * players set proxies off through coordTriggerProxies with a fixed 250 range
+ * and no filters; a mod mine's entity record has its own radius and owner,
+ * team and target filters.
+ * ------------------------------------------------------------------------ */
+
+s32 bgunModProxyDecision(struct weaponobj *weapon, struct chrdata *chr, struct coord *pos)
+{
+	const weapon_graph_held_function_t *held = bgunModHeldForWeaponObj(weapon);
+	const weapon_graph_entity_runtime_t *entity =
+		held ? weaponGraphRuntimeGetEntityForHeldFunction(held) : NULL;
+	struct prop *prop = weapon->base.prop;
+	f32 radius;
+	f32 dx;
+	f32 dy;
+	f32 dz;
+	s32 owner;
+	s32 index;
+
+	if (entity == NULL || !entity->has_proxy_trigger || prop == NULL) {
+		return -1;
+	}
+
+	/* A mine for hostile characters ignores passing objects, including the
+	 * crystals still flying from the same volley. */
+	if (chr == NULL) {
+		return entity->proxy_target_filter_mode == 1 ? 0 : -1;
+	}
+
+	radius = entity->proxy_radius > 0.0f ? entity->proxy_radius : 250.0f;
+	dx = pos->x - prop->pos.x;
+	dy = pos->y - prop->pos.y;
+	dz = pos->z - prop->pos.z;
+
+	if (dx * dx + dy * dy + dz * dz >= radius * radius) {
+		return 0;
+	}
+
+	owner = (weapon->base.hidden & 0xf0000000) >> 28;
+	index = g_Vars.normmplayerisrunning ? mpPlayerGetIndex(chr)
+		: (chr->prop ? playermgrGetPlayerNumByProp(chr->prop) : -1);
+
+	if (entity->proxy_owner_filter_mode == 1 && index == owner) {
+		return 0;
+	}
+
+	if (entity->proxy_owner_filter_mode == 2 && index != owner) {
+		return 0;
+	}
+
+	if (entity->proxy_team_filter_mode == 1 || entity->proxy_target_filter_mode == 1) {
+		struct chrdata *ownerchr = NULL;
+
+		if (g_Vars.normmplayerisrunning) {
+			ownerchr = mpGetChrFromPlayerIndex(owner);
+		} else if (owner >= 0 && owner < MAX_PLAYERS && g_Vars.players[owner] && g_Vars.players[owner]->prop) {
+			ownerchr = g_Vars.players[owner]->prop->chr;
+		}
+
+		if (ownerchr != NULL && ownerchr != chr && !chrCompareTeams(ownerchr, chr, COMPARE_ENEMIES)) {
+			return 0;
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE, "BONDGUN.CRYSTAL: mine triggered weapon=%d func=%d owner=%d by=%d radius=%.0f",
+		weapon->weaponnum, weapon->gunfunc, owner, index, radius);
+	return 1;
 }

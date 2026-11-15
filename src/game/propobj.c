@@ -20650,7 +20650,10 @@ void weaponUnregisterProxy(struct weaponobj *weapon)
 	}
 }
 
-void coordTriggerProxies(struct coord *pos, bool arg1)
+/* T-MODDING-008: the proxy sweep, knowing which chr (or NULL: a moving
+ * object) is the candidate, so a mod mine can apply its own radius and
+ * filters. coordTriggerProxies keeps its signature for the other callers. */
+static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool arg1)
 {
 	s32 i;
 
@@ -20662,6 +20665,18 @@ void coordTriggerProxies(struct coord *pos, bool arg1)
 			f32 ydiff;
 			f32 zdiff;
 			f32 range = 250 * 250;
+
+			if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
+				s32 decision = bgunModProxyDecision(weapon, chr, pos);
+
+				if (decision == 1) {
+					weapon->timer240 = 0;
+				}
+
+				if (decision >= 0) {
+					continue;
+				}
+			}
 
 			if (weapon->weaponnum == WEAPON_DRAGON) {
 				range += range;
@@ -20678,6 +20693,11 @@ void coordTriggerProxies(struct coord *pos, bool arg1)
 			}
 		}
 	}
+}
+
+void coordTriggerProxies(struct coord *pos, bool arg1)
+{
+	coordTriggerProxiesFor(NULL, pos, arg1);
 }
 
 void chrsTriggerProxies(void)
@@ -20700,7 +20720,7 @@ void chrsTriggerProxies(void)
 				&& (chr->prop->flags & PROPFLAG_ENABLED)
 				&& !chrIsDead(chr)) {
 			chrCalculatePosition(chr, &pos);
-			coordTriggerProxies(&pos, true);
+			coordTriggerProxiesFor(chr, &pos, true);
 		}
 
 		if (chr);
