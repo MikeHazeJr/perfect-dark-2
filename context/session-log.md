@@ -10433,3 +10433,43 @@ Next
   `menu_settings_keyboard` rerun if the desktop is unlocked. Then announce
   extract-3 and base 4, tick the checklist row, add the schema table row.
 - Inventory of the remaining stage-specific checks in game code (running).
+
+## 2026-11-15 (10:55-11:30 UTC) - CORE: stage-check survey, always-drawn pre-pass, B-1172
+
+What was done
+- Survey (read-only helper, checked by CORE where acted on): every
+  stage-specific check left in game code, classed as level content, engine,
+  table or converted. The content families are now rows of the conversion
+  checklist in the week note: stage sky and stars, weather, room effects
+  (animated textures, sparks, the Escape gas), object rules, player and
+  setup rules, stage endings, the training hub (about 25 checks), stage text
+  banks. Most need a stage-level home in scenario source (question for Mike).
+- A fourth copy of the always-drawn room list: the pre-pass of bgRenderScene
+  (src/game/bg.c) draws the stage's sky room first with fog off. It is the
+  render_always set (old test stage included). A scenario-source stage now
+  draws every render_always room of its rows there (bebb8739), shared as the
+  fourth commit of `week-pd/extract-3` (03471bb8), merged into core with the
+  tree unchanged (249388ba). No extraction change, so base 4 stands.
+- B-1172 recorded (suspected from code): while the scenario scene renderer
+  is active, which the release campaign log shows for all 18 stages, lv.c
+  skips skyRender (B-936's gate), bgRenderScene skips the sky-room pre-pass
+  and the starfield, and the scene renderer draws none of them. Two new
+  smoke definitions, `stage_sky_visual_villa` and
+  `stage_sky_visual_defection`, take screenshots in the intro and in play;
+  they run with the queued base 4 check (c60bf2bf).
+- CRYSTAL PISTOL: node params reviewed (defaults keep base behaviour); asked
+  them to list the new params in `weapon-graph-module-parameters.md` and to
+  refuse unusable values (SP-76) instead of treating them as absent.
+- Week note: the mission table gained the 10:05 UTC campaign line and the
+  B-1172 note.
+
+Verification
+- pd-tests 1,910 cases / 340,798 assertions at bebb8739; the shared tree's
+  own sources pass the static room, light, sky and B-1112 checks (14 cases,
+  252 assertions); merge-tree puts extract-3 onto mods, multiplayer and
+  crystal-pistol without a conflict.
+
+Next
+- The queued base 4 run (about 3 hours out): campaigns with B-1133, the two
+  visual checks, the keyboard settings rerun. Then announce extract-3 and
+  base 4, or file B-1172 as confirmed with the screenshots.
