@@ -1,0 +1,168 @@
+{
+  "scenario_name": "mp_simulant_types_local_smoke",
+  "description": "Every simulant type and difficulty in one offline Combat match (the Simulants row of the multiplayer week status table). --debug-bot-spec gives the twelve --launch-mp-room simulants one of each non-general type, with the six difficulties twice over: PeaceSim Meat, ShieldSim Easy, RocketSim Normal, KazeSim Hard, FistSim Perfect, PreySim Dark, CowardSim Meat, JudgeSim Easy, FeudSim Normal, SpeedSim Hard, TurtleSim Perfect, VengeSim Dark. The general type runs in every other smoke. Requires each simulant to be added with its traits and spawned with them (SIMULANT: allocating logs type and difficulty), a 60 s match to its time limit, the end screen and a result for all 13 participants, with no crash and no refused profile (a profile that is not unlocked in a fresh save would show as 'could not add').",
+  "tags": [
+    "combatsim",
+    "bots",
+    "simulant-types",
+    "multiplayer-modes"
+  ],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/net/matchsetup.c",
+    "src/game/setup.c",
+    "src/game/bot.c",
+    "src/game/botact.c",
+    "src/game/mplayer/mplayer.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-mp-room",
+    "base:arena_mp_complex",
+    "base:combat",
+    "12",
+    "--debug-bot-spec",
+    "1:0,2:1,3:2,4:3,5:4,6:5,7:0,8:1,9:2,10:3,11:4,12:5",
+    "--debug-auto-start-match",
+    "--match-timelimit-sec",
+    "60"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Boot, seed the Combat Simulator config for this scenario, and fire the direct debug match start."
+    },
+    {
+      "at_ms": 45000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press"
+    },
+    {
+      "at_ms": 46000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 55000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press"
+    },
+    {
+      "at_ms": 56000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 65000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press"
+    },
+    {
+      "at_ms": 66000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 75000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press"
+    },
+    {
+      "at_ms": 76000,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 230000,
+      "type": "exit",
+      "comment": "Bounded exit after stage load, a 60 second match and the end screen."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_simulant_types_local_smoke",
+      "BOOT: --launch-mp-room arena='base:arena_mp_complex' scenario='base:combat' bots=12",
+      "BOOT: --debug-auto-start-match consumed",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=12",
+      "BOOT: --debug-bot-spec armed: 12 simulant\\(s\\)",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=1 difficulty=0",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=1 difficulty=0",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=2 difficulty=1",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=2 difficulty=1",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=3 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=3 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=4 difficulty=3",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=4 difficulty=3",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=5 difficulty=4",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=5 difficulty=4",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=6 difficulty=5",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=6 difficulty=5",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=7 difficulty=0",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=7 difficulty=0",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=8 difficulty=1",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=8 difficulty=1",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=9 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=9 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=10 difficulty=3",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=10 difficulty=3",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=11 difficulty=4",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=11 difficulty=4",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=12 difficulty=5",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=12 difficulty=5",
+      "MATCH: player spawned slot=",
+      "MATCH: timelimit override applied seconds=60",
+      "MATCH: stage end reason=timelimit",
+      "MATCH\\.RESULT: scenario=0 teams=0 chrs=13 netmode=0",
+      "MATCH: endscreen shown",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "PLAYER\\.INIT\\.PREFLIGHT match=reject",
+      "BOOT: --debug-bot-spec could not add",
+      "BOOT: --debug-bot-spec rejected",
+      "MATCHSETUP: cannot add bot"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BOOT: --debug-bot-spec added slot=",
+        "min": 12,
+        "max": 12
+      },
+      {
+        "pattern": "SIMULANT: allocating chrnum=",
+        "min": 12,
+        "max": 12
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 13,
+        "max": 13
+      },
+      {
+        "pattern": "MATCH\\.RESULT: scenario=",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

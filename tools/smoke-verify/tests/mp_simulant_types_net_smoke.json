@@ -1,0 +1,232 @@
+{
+  "scenario_name": "mp_simulant_types_net_smoke",
+  "description": "The networked twin of mp_simulant_types_local_smoke: a listen host and one client on loopback, Felicity, twelve simulants with one of each non-general type and the six difficulties twice over (PeaceSim Meat, ShieldSim Easy, RocketSim Normal, KazeSim Hard, FistSim Perfect, PreySim Dark, CowardSim Meat, JudgeSim Easy, FeudSim Normal, SpeedSim Hard, TurtleSim Perfect, VengeSim Dark), 60 s. The host adds and spawns each simulant with its traits; the client gets all twelve in its roster; both sides log the same final result for all 14 participants.",
+  "tags": [
+    "bots",
+    "combatsim",
+    "match-lifecycle",
+    "multiplayer-modes",
+    "network",
+    "simulant-types"
+  ],
+  "paths_of_interest": [
+    "src/game/bot.c",
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c",
+    "src/game/mplayer/mplayer.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 420,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27253",
+        "--launch-mp-room",
+        "base:arena_mp_felicity",
+        "base:combat",
+        "12",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "60",
+        "--debug-bot-spec",
+        "1:0,2:1,3:2,4:3,5:4,6:5,7:0,8:1,9:2,10:3,11:4,12:5"
+      ],
+      "wait_for": "NET: created server on port 27253",
+      "wait_timeout_seconds": 120
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27253"
+      ]
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Both processes share this schedule. The host arms --listen-bind and fires netStartServer on the first mainTick where g_NetInit is true (-> 'NET: created server on port 27200', the runner's barrier), seeds g_MatchConfig from --launch-mp-room, and arms --host-autostart. The client arms --connect-host and connects after the barrier. Once the client reaches CLSTATE_LOBBY on the host (slot 1) and a ~2s settle elapses, --host-autostart fires netLobbyRequestStartWithSims exactly once; the ready gate runs a 3s countdown (client answers manifest READY), then SVC_STAGE_START loads the arena on both sides. The match ends at the forced 35s time limit."
+    },
+    {
+      "at_ms": 330000,
+      "type": "exit",
+      "comment": "Scripted clean exit at 330s. Budget on the D: hard disk (first run 2026-11-14): the host reached --host-autostart at 194s because the client needed about 130s to boot and register the catalog, so a 200s exit cut the match 2.5s in. 330s covers that boot, the ~2s settle, the 3s countdown, the Felicity load on both sides, the 35s match and the end screen; timeout_seconds=390 backstops it. The client emits SMOKE: result=scripted_exit; the host may be reaped by the runner watchdog after an active loopback session, so the scripted-exit count is min:1 (client), not 2."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_combat_net_bots_smoke",
+      "BOOT: --listen-bind armed: port=27253",
+      "BOOT: --connect-host armed: addr='127.0.0.1:27253'",
+      "BOOT: --host-autostart armed",
+      "BOOT: --match-timelimit-sec armed: seconds=60",
+      "BOOT: --launch-mp-room arena='base:arena_mp_felicity' scenario='base:combat' bots=12",
+      "BOOT: --listen-bind consumed: port=27253 .*result=OK rc=0",
+      "BOOT: --connect-host consumed: addr='127.0.0.1:27253' result=OK rc=0",
+      "NET: created server on port 27253",
+      "NET: connecting to 127\\.0\\.0\\.1:27253",
+      "NET: incoming connection",
+      "NET: connected to server, sending CLC_AUTH",
+      "NET: client slot \\d+ assigned to peer",
+      "BOOT: --host-autostart firing",
+      "BOOT: --host-autostart consumed: result=OK rc=0",
+      "MANIFEST-SP: load 'base:arena_mp_felicity'",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "MATCH: player spawned slot=0",
+      "MATCH: player spawned slot=1",
+      "MATCH: scores replicated",
+      "MATCH: stage end reason=timelimit",
+      "MATCH: endscreen shown",
+      "PARTICIPANTS: 14 active \\(2 players, 12 bots\\)",
+      "MATCH\\.RESULT: scenario=0 teams=0 chrs=14 netmode=1",
+      "MATCH\\.RESULT: scenario=0 teams=0 chrs=14 netmode=2",
+      "MATCH: final scores published before stage end room=",
+      "BOOT: --debug-bot-spec armed: 12 simulant\\(s\\)",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=1 difficulty=0",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=1 difficulty=0",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=2 difficulty=1",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=2 difficulty=1",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=3 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=3 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=4 difficulty=3",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=4 difficulty=3",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=5 difficulty=4",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=5 difficulty=4",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=6 difficulty=5",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=6 difficulty=5",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=7 difficulty=0",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=7 difficulty=0",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=8 difficulty=1",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=8 difficulty=1",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=9 difficulty=2",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=9 difficulty=2",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=10 difficulty=3",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=10 difficulty=3",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=11 difficulty=4",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=11 difficulty=4",
+      "BOOT: --debug-bot-spec added slot=[0-9]+ type=12 difficulty=5",
+      "SIMULANT: allocating chrnum=[0-9]+ slot=[0-9]+ type=12 difficulty=5",
+      "MATCH: timelimit override applied seconds=60"
+    ],
+    "forbidden_patterns": [
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "NET: could not init ENet, disabling networking",
+      "NET: could not create ENet host on port \\d+",
+      "NET: could not connect to ",
+      "NET: connection rejected: protocol mismatch",
+      "BOOT: --listen-bind cannot fire:",
+      "BOOT: --connect-host cannot fire:",
+      "BOOT: --listen-bind consumed: port=27253 .*result=FAILED",
+      "BOOT: --connect-host consumed: addr='127\\.0\\.0\\.1:27253' result=FAILED",
+      "BOOT: --host-autostart consumed: result=FAILED",
+      "MATCHSETUP: cannot resolve stage ",
+      "MATCHSETUP: no players configured",
+      "MATCHSTART\\.DIAG: BAILED",
+      "MATCHSTART\\.DIAG: abort reason=",
+      "CATALOG\\.LIFECYCLE\\.LOAD: .*type mismatch",
+      "MANIFEST-SP: load failed 'base:arena_mp_felicity'",
+      "MANIFEST\\.LIFECYCLE\\.(REJECT|ROLLBACK)",
+      "MANIFEST-(SP|MP): .*rejected; current manifest preserved",
+      "SPAWN.ORCH: no pool slot",
+      "SPAWN.ORCH:.*unresolved duplicate",
+      "SPAWN: could not resolve room",
+      "MENU: watchdog",
+      "MENUPOOL legacy-stack leak",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "BOT\\.PICKUP: client skipped",
+      "NET: malformed or unknown message 0x4[dD]",
+      "BOOT: --debug-bot-spec could not add",
+      "BOOT: --debug-bot-spec rejected",
+      "MATCHSETUP: cannot add bot"
+    ],
+    "required_counts": [
+      {
+        "pattern": "NET: created server on port 27253",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "NET: incoming connection",
+        "min": 1
+      },
+      {
+        "pattern": "NET: connected to server, sending CLC_AUTH",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MANIFEST-SP: load 'base:arena_mp_felicity'",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: player spawned slot=\\d+",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: server stage start",
+        "min": 1
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit",
+        "min": 1
+      },
+      {
+        "pattern": "PARTICIPANTS: 14 active \\(2 players, 12 bots\\)",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT: scenario=0 teams=0 chrs=14 netmode=",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 28,
+        "max": 28
+      },
+      {
+        "pattern": "BOT\\.PICKUP: host sent simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.PICKUP: client replayed simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.DROP: host announced simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOOT: --debug-bot-spec added slot=",
+        "min": 12,
+        "max": 12
+      },
+      {
+        "pattern": "SIMULANT: allocating chrnum=",
+        "min": 24,
+        "max": 24
+      }
+    ]
+  }
+}
