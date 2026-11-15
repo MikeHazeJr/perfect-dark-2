@@ -10,6 +10,31 @@ function Set-SmokeStorageRetention {
     $script:SmokeRetainHousekeeping = [bool]$RetainHousekeeping
 }
 
+function Get-SmokeStorageRoot {
+    # Same rule as storage_root() in storage.py: <project>/.claude/smoke-storage
+    # unless the project's untracked .claude/smoke-storage-location.json names
+    # another absolute root (Mike's decision 6B: test installs on the SSD).
+    param([Parameter(Mandatory)][string] $ProjectRoot)
+    $project = [IO.Path]::GetFullPath($ProjectRoot)
+    $location = Join-Path $project '.claude/smoke-storage-location.json'
+    if (-not (Test-Path -LiteralPath $location -PathType Leaf)) {
+        return [IO.Path]::GetFullPath((Join-Path $project '.claude/smoke-storage'))
+    }
+    $value = Get-Content -LiteralPath $location -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($value.schema -ne 1 -or -not ($value.root -is [string]) -or -not $value.root) {
+        throw "Invalid smoke storage location file: $location"
+    }
+    $root = [string]$value.root
+    if (-not [IO.Path]::IsPathRooted($root) -or [IO.Path]::GetPathRoot($root).Length -lt 2) {
+        throw 'Smoke storage root must be an absolute folder below a drive root'
+    }
+    $full = [IO.Path]::GetFullPath($root)
+    if ($full.TrimEnd('\', '/') -eq [IO.Path]::GetPathRoot($full).TrimEnd('\', '/')) {
+        throw 'Smoke storage root must be an absolute folder below a drive root'
+    }
+    return $full
+}
+
 function Get-SmokeStoragePython {
     if ($script:SmokeStoragePython) { return $script:SmokeStoragePython }
     # Use the same preferred interpreter as build-headless, without changing PATH.
@@ -41,7 +66,7 @@ function Initialize-SmokeStoragePolicy {
 }
 
 function Invoke-SmokeStorage {
-    param([Parameter(Mandatory)][ValidateSet('seed','complete','preflight','status','restore','dry-run','reuse-plan','reuse-acquire','reuse-release')][string] $Action,
+    param([Parameter(Mandatory)][ValidateSet('seed','complete','preflight','status','restore','dry-run','reuse-plan','reuse-acquire','reuse-release','release-interrupted')][string] $Action,
           [Parameter(Mandatory)][string] $ProjectRoot, [hashtable] $Request = @{})
     $retain = $script:SmokeRetainHousekeeping
     if ($Request.ContainsKey('retention')) {

@@ -2969,12 +2969,12 @@ foreach ($t in $selected) {
 # ----------------------------------------------------------------
 
 if ($useSharedInstall) {
-    Write-Info "Install mode: exclusive reusable workspace (.claude/smoke-storage/shared/)."
+    Write-Info ("Install mode: exclusive reusable workspace ({0})" -f (Join-Path (Get-SmokeStorageRoot -ProjectRoot $ProjectRoot) 'shared'))
 } elseif ($Install) {
     Write-Info ("Install mode: private copy of read-only template {0}" -f $Install)
     if ($SourceBinary) { Write-Info ("  binary under test replaces the template's own: {0}" -f $SourceBinary) }
 } else {
-    Write-Info "Install mode: private managed install (.claude/smoke-storage/installs/)."
+    Write-Info ("Install mode: private managed install ({0})" -f (Join-Path (Get-SmokeStorageRoot -ProjectRoot $ProjectRoot) 'installs'))
 }
 
 $results = @()

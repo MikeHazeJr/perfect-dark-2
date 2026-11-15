@@ -100,6 +100,28 @@ def plain(path):
                 raise StorageError("Reparse/alias path rejected: " + str(ancestor))
     return path
 
+LOCATION_FILE = ".claude/smoke-storage-location.json"
+
+def storage_root(project):
+    """Smoke storage lives in <project>/.claude/smoke-storage unless the
+    project's untracked .claude/smoke-storage-location.json names another
+    root: Mike's decision 6B (2026-11-15) puts test installs on the SSD while
+    worktrees and builds stay on the hard disk. The named root must be an
+    absolute folder below a drive root and a plain path (no reparse points);
+    the disk floor is then measured on its drive. lib/Storage-Harness.ps1
+    (Get-SmokeStorageRoot) reads the same file the same way."""
+    project = plain(project)
+    location = project / LOCATION_FILE
+    if not location.exists():
+        return plain(project / ".claude/smoke-storage")
+    value = json.loads(location.read_text(encoding="utf-8-sig"))
+    if not isinstance(value, dict) or value.get("schema") != 1 or not isinstance(value.get("root"), str):
+        raise StorageError("Invalid smoke storage location file: " + str(location))
+    root = Path(value["root"])
+    if not root.is_absolute() or len(root.parts) < 2:
+        raise StorageError("Smoke storage root must be an absolute folder below a drive root")
+    return plain(root)
+
 def relative(name):
     p = PurePosixPath(name)
     if not name or p.is_absolute() or any(x in {"", ".", ".."} or ":" in x or "\\" in x for x in name.split("/")):
@@ -239,7 +261,7 @@ class Storage:
         allowed = plain(CHECKOUT / ".claude")
         if self.project != CHECKOUT and not self.project.is_relative_to(allowed):
             raise StorageError("Isolated test project must be inside canonical .claude")
-        self.root = plain(self.project / ".claude/smoke-storage")
+        self.root = storage_root(self.project)
         self.policy = policy_from(policy)
         self.state_path = plain(self.root / "state.json")
         self.state = {"schema": 1, "installs": {}, "blobs": {}}

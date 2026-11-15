@@ -200,7 +200,7 @@ function New-BuildRetentionInvocation([string]$BuildDir,[string]$SessionName) {
 }
 
 function Show-BuildRetainedTail([string]$SessionName,[int]$Lines,[bool]$Follow) {
-    $receipts=Join-Path $ProjectDir '.claude/smoke-storage/receipts'
+    $receipts=Join-Path (Get-SmokeStorageRoot -ProjectRoot $ProjectDir) 'receipts'
     Assert-SmokePlainTree -Path $receipts -Descendants
     $matches=@(foreach($directory in @(Get-ChildItem -LiteralPath $receipts -Directory -Filter 'runner-*' -ErrorAction SilentlyContinue)){
         $path=Join-Path $directory.FullName 'build-context.json'

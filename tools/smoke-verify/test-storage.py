@@ -271,6 +271,24 @@ class StorageTests(unittest.TestCase):
         self.assertTrue((logs / 'run.log').exists())
         self.complete(live)
 
+    def test_storage_root_follows_the_location_file(self):
+        # Decision 6B: a checkout may keep its smoke storage on another drive.
+        default = storage.storage_root(self.project)
+        self.assertEqual(default, storage.plain(self.project / '.claude/smoke-storage'))
+        location = self.project / '.claude/smoke-storage-location.json'
+        moved = self.project / 'ssd-root' / 'core'
+        location.write_text(json.dumps({'schema': 1, 'root': str(moved)}), encoding='utf-8')
+        self.assertEqual(storage.storage_root(self.project), storage.plain(moved))
+        run = self.seed()
+        self.assertTrue(Path(run['InstallDir']).is_relative_to(moved / 'installs'))
+        self.assertTrue((moved / 'state.json').exists())
+        self.assertFalse((self.project / '.claude/smoke-storage/state.json').exists())
+        self.complete(run)
+        for bad in ({'schema': 2, 'root': str(moved)}, {'schema': 1, 'root': 'relative/root'},
+                    {'schema': 1, 'root': Path(moved).anchor}, {'schema': 1}):
+            location.write_text(json.dumps(bad), encoding='utf-8')
+            with self.assertRaises(storage.StorageError): storage.storage_root(self.project)
+
     def test_reviewed_release_writes_a_missing_owner_marker(self):
         a = self.seed(owner_pid=self.exited_pid())
         marker = Path(a['InstallDir']) / '.pd-storage-owner.json'
