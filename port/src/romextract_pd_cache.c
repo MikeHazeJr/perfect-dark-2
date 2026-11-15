@@ -7,6 +7,7 @@
 #include <PR/ultratypes.h>
 
 #include "romextract_pd.h"
+#include "boot_pool.h"
 #include "fs.h"
 #include "native_write_policy.h"
 #include "modarchive.h"
@@ -291,8 +292,10 @@ void romExtractPdFastCacheWrite(const char *kind, const char *abs_dir,
 	 * force each archive to disk. This stamp lets a later launch skip the
 	 * directory without opening its files, so it must never reach the disk
 	 * ahead of the files it describes: flush them first, and write no stamp
-	 * if that fails (the next launch then checks every file). */
-	if (modArchiveDerivedBarrier(abs_dir) != 0) {
+	 * if that fails (the next launch then checks every file). Stamps are
+	 * written on the catalog-work manager thread, where the boot pool may
+	 * run the flushes side by side. */
+	if (modArchiveDerivedBarrierWith(abs_dir, bootPoolForRangeBlocking) != 0) {
 		sysLogPrintf(LOG_WARNING,
 			"romextract %s: could not flush the archives in \"%s\"; no fast-cache stamp written",
 			kind, abs_dir);

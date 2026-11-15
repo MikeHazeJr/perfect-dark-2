@@ -28,6 +28,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <ctype.h>
+#include <stdatomic.h>
 #include <sys/stat.h>
 #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -1150,7 +1151,27 @@ static s32 derivedRecord(const char *path)
 	return 0;
 }
 
-s32 modArchiveDerivedBarrier(const char *dir_in)
+typedef struct {
+	char **paths;
+	atomic_int failed;
+} derived_flush_batch;
+
+static void derivedFlushOne(int index, void *ctx)
+{
+	derived_flush_batch *batch = (derived_flush_batch *)ctx;
+	if (derivedFlushPath(batch->paths[index]) != 0) {
+		sysLogPrintf(LOG_WARNING, "modarchive: could not flush derived archive \"%s\"",
+			batch->paths[index]);
+		atomic_store(&batch->failed, 1);
+	}
+}
+
+s32 modArchiveDerivedBarrier(const char *dir)
+{
+	return modArchiveDerivedBarrierWith(dir, NULL);
+}
+
+s32 modArchiveDerivedBarrierWith(const char *dir_in, mod_archive_range_runner runner)
 {
 	s32 result = 0;
 	char *dir = dir_in ? derivedCanonical(dir_in) : NULL;
@@ -1174,13 +1195,17 @@ s32 modArchiveDerivedBarrier(const char *dir_in)
 	}
 	s_derivedCount = kept;
 	DERIVED_UNLOCK();
-	for (s32 i = 0; i < count; i++) {
-		if (derivedFlushPath(batch[i]) != 0) {
-			sysLogPrintf(LOG_WARNING, "modarchive: could not flush derived archive \"%s\"", batch[i]);
-			result = -1;
+	if (count > 0) {
+		/* Several flushes in flight let a hard disk serve them together. */
+		derived_flush_batch flush = { batch, 0 };
+		if (runner) {
+			runner(0, count, derivedFlushOne, &flush);
+		} else {
+			for (s32 i = 0; i < count; i++) derivedFlushOne(i, &flush);
 		}
-		free(batch[i]);
+		if (atomic_load(&flush.failed)) result = -1;
 	}
+	for (s32 i = 0; i < count; i++) free(batch[i]);
 	free(batch);
 	free(dir);
 	return result;

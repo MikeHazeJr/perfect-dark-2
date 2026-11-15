@@ -9,6 +9,7 @@
 // stamp writer runs the barrier first and writes no stamp when it fails.
 #include "catch.hpp"
 
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdio>
@@ -224,12 +225,76 @@ TEST_CASE("B-1110 boot-pool workers can publish derived archives at once",
 	REQUIRE(member(anims / "t3_24.pdanim") == "anim 324");
 }
 
+namespace {
+
+std::atomic<int> s_runnerCalls{0};
+
+// Stands in for bootPoolForRangeBlocking: four threads pull indices from one
+// cursor and the call returns once every index has run.
+void fourThreadRunner(int begin, int end, void (*fn)(int index, void *ctx), void *ctx)
+{
+	std::atomic<int> next{begin};
+	std::vector<std::thread> workers;
+	for (int t = 0; t < 4; ++t) {
+		workers.emplace_back([&] {
+			for (int i = next++; i < end; i = next++) {
+				++s_runnerCalls;
+				fn(i, ctx);
+			}
+		});
+	}
+	for (auto &worker : workers) worker.join();
+}
+
+} // namespace
+
+TEST_CASE("B-1110 the barrier can spread its flushes over a range runner",
+		"[modarchive][b1110]")
+{
+	TempDir root("runner");
+	const auto lang = makeDir(root.path, "lang");
+	for (int i = 0; i < 40; ++i) {
+		publish(lang / ("bank" + std::to_string(i) + ".pdlang"), "bank " + std::to_string(i), true);
+	}
+	s_runnerCalls = 0;
+	REQUIRE(pending(lang) == 40);
+	REQUIRE(modArchiveDerivedBarrierWith(lang.string().c_str(), fourThreadRunner) == 0);
+	REQUIRE(s_runnerCalls == 40);
+	REQUIRE(pending(lang) == 0);
+	REQUIRE(member(lang / "bank39.pdlang") == "bank 39");
+}
+
+TEST_CASE("B-1110 a flush that fails makes the barrier report it", "[modarchive][b1110]")
+{
+	TempDir root("refused");
+	const auto fonts = makeDir(root.path, "fonts");
+	const auto file = fonts / "locked.pdfont";
+	publish(file, "font", true);
+	struct Writable {
+		std::filesystem::path path;
+		~Writable()
+		{
+			std::error_code ec;
+			std::filesystem::permissions(path, std::filesystem::perms::owner_write,
+				std::filesystem::perm_options::add, ec);
+		}
+	} restore{file};
+	// A read-only archive cannot be reopened for the flush.
+	std::filesystem::permissions(file, std::filesystem::perms::owner_write,
+		std::filesystem::perm_options::remove);
+	REQUIRE(modArchiveDerivedBarrier(fonts.string().c_str()) == -1);
+	// The stamp writer then writes no stamp; the path is not retried.
+	REQUIRE(pending(fonts) == 0);
+	REQUIRE(member(file) == "font");
+}
+
 TEST_CASE("B-1110 the cache stamp is written only after its archives are flushed",
 		"[modarchive][b1110][static]")
 {
 	const std::string cache = readSource("port/src/romextract_pd_cache.c");
 	const std::string body = functionBody(cache, "void romExtractPdFastCacheWrite(");
-	const size_t barrier = body.find("if (modArchiveDerivedBarrier(abs_dir) != 0) {");
+	const size_t barrier =
+		body.find("if (modArchiveDerivedBarrierWith(abs_dir, bootPoolForRangeBlocking) != 0) {");
 	const size_t refusal = body.find("no fast-cache stamp written");
 	const size_t scan = body.find("s_scanDir(abs_dir, ext, &fp)");
 	const size_t write = body.find("fopen(stamp_path, \"wb\")");

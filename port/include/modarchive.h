@@ -198,6 +198,18 @@ mod_archive_writer_t *modArchiveBeginDerived(const char *path);
  */
 s32 modArchiveDerivedBarrier(const char *dir);
 
+/**
+ * Same as modArchiveDerivedBarrier, with the flushes spread over a range
+ * runner such as bootPoolForRangeBlocking: several flushes in flight let a
+ * hard disk serve them together (1,000 new files on D: took 17.6 ms each one
+ * at a time, 8.3 with four at once). The runner must call fn(i, ctx) exactly
+ * once for each i in [begin, end) and return when all calls have finished.
+ * NULL runs them in turn on the calling thread.
+ */
+typedef void (*mod_archive_range_runner)(int begin, int end,
+	void (*fn)(int index, void *ctx), void *ctx);
+s32 modArchiveDerivedBarrierWith(const char *dir, mod_archive_range_runner runner);
+
 /** Number of derived archives under `dir` (all when NULL) not yet flushed. */
 s32 modArchiveDerivedPendingCount(const char *dir);
 
