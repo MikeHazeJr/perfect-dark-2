@@ -18,6 +18,7 @@
 #include "modmgr.h"
 #include "versioninfo.h"  /* VERSION_ROMID for fsDataDir / fsDataPathFor */
 #include "modarchive.h"
+#include "mods_install_roots.h"
 #ifndef PD_SERVER
 #include "modvfs.h"  /* Priority M / B-238: VFS-backed .pdmod mounts */
 #endif
@@ -528,16 +529,16 @@ void fsModRoots(fs_mod_roots_t *out)
 		return;
 	}
 
-	// PC: multiple roots are valid depending on launch dir:
-	// - $E/../mods (repo root when exe is in Build/)
-	// - ./mods (current working directory)
-	// - $E/mods (mods alongside exe)
-	// - base-dir fallback (often data/mods)
-	fsFullPath("$E/../" MODMGR_MODS_DIR, out->path[0], sizeof(out->path[0]));
-	snprintf(out->path[1], sizeof(out->path[1]), "%s", "./" MODMGR_MODS_DIR);
-	fsFullPath("$E/" MODMGR_MODS_DIR, out->path[2], sizeof(out->path[2]));
-	fsFullPath(MODMGR_MODS_DIR, out->path[3], sizeof(out->path[3]));
-	out->count = 4;
+	/* B-1169 (Mike, 2026-11-15, option A): the install's own mods folders
+	 * only. A player's install reads the folder next to the game
+	 * (<base>/mods); a build inside a source checkout also reads the
+	 * repository-root folder, first (mods_install_roots.h). The folder
+	 * beside the install and the working folder's mods/ are not read: the
+	 * first could belong to another game, the second follows a shortcut's
+	 * start folder. */
+	char *paths[MODS_INSTALL_ROOTS_MAX] = { out->path[0], out->path[1] };
+	out->count = modsInstallRoots(exeDir, baseDir, paths, sizeof(out->path[0]),
+		MODS_INSTALL_ROOTS_MAX);
 }
 
 s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)

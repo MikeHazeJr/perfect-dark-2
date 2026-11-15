@@ -106,15 +106,15 @@ TEST_CASE("B-1160: every config save names its folder", "[b1160][config-save][st
 
 TEST_CASE("B-1160: one list of mod roots, and an explicit --moddir is kept", "[b1160][mods][static]")
 {
-	// Only fs.c spells the discovery list.
+	// Only fs.c spells the discovery list, and since B-1169 no file names the
+	// folder beside the install or a mods/ under the working folder.
 	std::vector<std::string> copies;
 	for (const auto &file : projectSources()) {
-		if (file == "port/src/fs.c") {
-			continue;
-		}
 		const std::string code = stripComments(readSource(file));
 		if (code.find("\"$E/../mods\"") != std::string::npos
-		    || code.find("\"$E/../\" MODMGR_MODS_DIR") != std::string::npos) {
+		    || code.find("\"$E/../\" MODMGR_MODS_DIR") != std::string::npos
+		    || code.find("\"./\" MODMGR_MODS_DIR") != std::string::npos
+		    || code.find("\"./mods\"") != std::string::npos) {
 			copies.push_back(file);
 		}
 	}
@@ -133,17 +133,24 @@ TEST_CASE("B-1160: one list of mod roots, and an explicit --moddir is kept", "[b
 	const std::string fsSource = readSource("port/src/fs.c");
 	const size_t roots = fsSource.find("void fsModRoots(fs_mod_roots_t *out)");
 	REQUIRE(roots != std::string::npos);
-	const std::string body = fsSource.substr(roots, 1400);
+	const size_t rootsEnd = fsSource.find("\n}\n", roots);
+	REQUIRE(rootsEnd != std::string::npos);
+	const std::string body = fsSource.substr(roots, rootsEnd - roots);
 	// Native reuse first, then the explicit folder, then discovery.
 	const size_t native = body.find("if (nativeWritePolicyActive()) {");
 	const size_t explicitDir = body.find("if (modDir[0]) {");
-	const size_t discovery = body.find("fsFullPath(\"$E/../\" MODMGR_MODS_DIR, out->path[0]");
+	const size_t discovery = body.find("out->count = modsInstallRoots(exeDir, baseDir, paths");
 	REQUIRE(native != std::string::npos);
 	REQUIRE(explicitDir != std::string::npos);
 	REQUIRE(discovery != std::string::npos);
 	REQUIRE(native < explicitDir);
 	REQUIRE(explicitDir < discovery);
 	REQUIRE(body.find("out->explicit_dir = 1;", explicitDir) < discovery);
+	// B-1169: discovery reads only the install's own folders, never the
+	// folder beside the install or the working folder's mods/.
+	const std::string discoveryCode = stripComments(body.substr(explicitDir));
+	REQUIRE(discoveryCode.find("$E/../") == std::string::npos);
+	REQUIRE(discoveryCode.find("\"./\" MODMGR_MODS_DIR") == std::string::npos);
 
 	// fsInit keeps an explicit --moddir before it exists.
 	REQUIRE(fsSource.find("could not find specified moddir") == std::string::npos);
@@ -152,11 +159,13 @@ TEST_CASE("B-1160: one list of mod roots, and an explicit --moddir is kept", "[b
 	REQUIRE(fsSource.find("fsFullPath(strFmt(\"./%s\", path), modDir, sizeof(modDir));") != std::string::npos);
 	REQUIRE(fsSource.find("does not exist yet; it is created as the mod folder") != std::string::npos);
 
-	// modmgr creates that folder, and ./mods only for discovery.
+	// modmgr creates that folder; without --moddir it creates the install's
+	// own folder (B-1169), never ./mods.
 	const std::string modmgr = readSource("port/src/modmgr.c");
-	REQUIRE(modmgr.find("fsCreateDir(roots.explicit_dir ? roots.path[0] : \"./\" MODMGR_MODS_DIR);")
+	REQUIRE(modmgr.find("fsCreateDir(roots.path[roots.count - 1]);")
 	        < modmgr.find("dir = opendir(candidates[i]);"));
 	REQUIRE(stripComments(modmgr).find("fsCreateDir(\"./\" MODMGR_MODS_DIR)") == std::string::npos);
+	REQUIRE(stripComments(modmgr).find("\"./\" MODMGR_MODS_DIR") == std::string::npos);
 
 	// The standalone migration probes no root by creating a file in it.
 	const std::string bench = stripComments(readSource("port/src/modarchive_bench.c"));

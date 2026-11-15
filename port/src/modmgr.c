@@ -1744,11 +1744,14 @@ static void modmgrScanDirectory(void)
 	 * B-1160: the roots come from fsModRoots, which fonts, themes and the
 	 * migration bench walk too, and fsInit keeps an explicit --moddir even
 	 * before it exists. That folder is created here, so a fresh one is an
-	 * empty mod folder; ./mods is created only when discovery runs. */
+	 * empty mod folder.
+	 * B-1169: without --moddir the last root is the install's own folder
+	 * (<base>/mods, next to the game); that is the one created, never a
+	 * mods/ under whatever the working folder happens to be. */
 	fs_mod_roots_t roots;
 	fsModRoots(&roots);
-	if (!nativeWritePolicyActive()) {
-		fsCreateDir(roots.explicit_dir ? roots.path[0] : "./" MODMGR_MODS_DIR);
+	if (!nativeWritePolicyActive() && roots.count > 0) {
+		fsCreateDir(roots.path[roots.count - 1]);
 	}
 
 	const char *modsdir = NULL;
@@ -1772,8 +1775,8 @@ static void modmgrScanDirectory(void)
 			sysLogPrintf(LOG_WARNING,
 				"modmgr: could not open explicit mod directory '%s'", roots.path[0]);
 		} else {
-			sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory (tried $E/../%s, ./%s, $E/%s, base/%s)",
-				MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);
+			sysLogPrintf(LOG_WARNING, "modmgr: could not open the install's mods folder '%s'",
+				roots.count > 0 ? roots.path[roots.count - 1] : "(none)");
 		}
 		return;
 	}
@@ -3444,7 +3447,17 @@ s32 modmgrInstallArchiveFile(const char *archive_path,
 	const char *modsdir = modmgrGetModsDir();
 	char fallback_mods[FS_MAXPATH + 1];
 	if (!modsdir || !modsdir[0]) {
-		fsFullPath("./" MODMGR_MODS_DIR, fallback_mods, sizeof(fallback_mods));
+		/* B-1169: the install's own folder, never a mods/ under the
+		 * working folder. */
+		fs_mod_roots_t roots;
+		fsModRoots(&roots);
+		if (roots.count <= 0) {
+			if (out_error && error_len > 0) {
+				snprintf(out_error, (size_t)error_len, "No mods folder is available.");
+			}
+			return -1;
+		}
+		snprintf(fallback_mods, sizeof(fallback_mods), "%s", roots.path[roots.count - 1]);
 		fsCreateDir(fallback_mods);
 		modsdir = fallback_mods;
 	}
