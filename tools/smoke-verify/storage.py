@@ -56,6 +56,41 @@ def process_identity(pid):
     finally:
         kernel.CloseHandle(handle)
 
+def owner_gone_evidence(install):
+    """The owner of an interrupted workspace must be gone before a reviewed
+    release. Returns the evidence; raises while the owner may still run: alive,
+    unreadable, or no owner recorded. A live process that started after the
+    workspace was created has only reused the id."""
+    pid = install.get("owner_pid")
+    if os.name != "nt": raise StorageError("Reviewed release needs Windows process evidence")
+    if type(pid) is not int or pid <= 0: raise StorageError("No owner process recorded; cannot prove it is gone")
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+    kernel.OpenProcess.restype = w.HANDLE
+    kernel.GetProcessTimes.argtypes = [w.HANDLE, *([ctypes.POINTER(w.FILETIME)] * 4)]
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 87:  # ERROR_INVALID_PARAMETER: no process has this id
+            return {"owner_pid": pid, "state": "no process has this id"}
+        raise StorageError("Cannot read owner process %d (error %d); it may still run" % (pid, error))
+    try:
+        creation, exit_time, system, user = (w.FILETIME() for _ in range(4))
+        if not kernel.GetProcessTimes(handle, creation, exit_time, system, user):
+            raise StorageError("Cannot read owner process %d times; it may still run" % pid)
+        if exit_time.dwHighDateTime or exit_time.dwLowDateTime:
+            return {"owner_pid": pid, "state": "exited"}
+        ticks = creation.dwHighDateTime << 32 | creation.dwLowDateTime
+        started = dt.datetime(1601, 1, 1, tzinfo=dt.timezone.utc) + dt.timedelta(microseconds=ticks // 10)
+        created = dt.datetime.fromisoformat(install["created"])
+        if started > created + dt.timedelta(seconds=1):
+            return {"owner_pid": pid, "state": "id reused by a process started " + started.isoformat()}
+        raise StorageError("Owner process %d is still running" % pid)
+    finally:
+        kernel.CloseHandle(handle)
+
 def plain(path):
     path = Path(os.path.abspath(path))
     for ancestor in [*reversed(path.parents), path]:
@@ -854,6 +889,74 @@ class Storage:
         return {"Receipt": str(receipt_dir / "recipe.json.gz"), "LogFiles": log_files,
                 "FullInstallRetained": True, "ArchiveBytes": self.archive_used, "NewArchiveBytes": self.new_blob_bytes}
 
+    def release_interrupted(self, request):
+        """Reviewed release of an interrupted workspace (Mike's decision 7A,
+        2026-11-15). Only an active private install whose owning process is
+        gone and whose every file is an unchanged copy from its seed (nothing a
+        run produced) can be released. It records who released it and why,
+        writes a reconstruction recipe for exactly what is there, and marks it
+        completed and failed so ordinary retention can reclaim it later. It
+        deletes nothing itself."""
+        reviewer, reason = request.get("reviewer"), request.get("reason")
+        if not isinstance(reviewer, str) or not reviewer.strip() or not isinstance(reason, str) or not reason.strip():
+            raise StorageError("Reviewed release requires a reviewer and a reason")
+        install = self.state["installs"].get(request.get("id"))
+        if install is None: raise StorageError("Unknown workspace for reviewed release")
+        if self.retain_housekeeping or row_retained(install):
+            raise StorageError("Retained housekeeping refuses reviewed release")
+        if install["status"] != "active": raise StorageError("Only an interrupted active workspace can be released")
+        if install.get("shared"): raise StorageError("Reviewed release is restricted to private installs")
+        if self.reuse_held(install["id"]): raise StorageError("Workspace is held by a reuse lease")
+        owner = owner_gone_evidence(install)
+        directory = self.install_path(install)
+        if not directory.is_relative_to(self.root / "installs"):
+            raise StorageError("Reviewed release is restricted to private installs")
+        marker_path = plain(directory / ".pd-storage-owner.json")
+        marker_state = "matches"
+        if marker_path.exists():
+            if json.loads(marker_path.read_text()).get("id") != install["id"]:
+                raise StorageError("Workspace owner marker mismatch")
+        else:
+            # The seed stopped before writing it. Retention needs it to
+            # reclaim the workspace later, so write the tool's own marker.
+            marker_state = "written by the release (the seed was interrupted before it)"
+            with open(marker_path, "x", encoding="utf-8") as f:
+                json.dump({"schema": 1, "id": install["id"], "prospective": True,
+                           "written_by": "reviewed-release"}, f)
+        seed = self.read_seed(install["seed"])
+        actual, metadata = self.inspect(directory)
+        foreign = sorted(n for n, e in actual.items() if seed.get(n) != e)
+        if foreign:
+            raise StorageError("Workspace holds files that are not unchanged seed copies; preserve and review: "
+                               + ", ".join(foreign[:5]))
+        missing = sorted(seed.keys() - actual.keys())
+        receipt_dir = plain(self.root / "receipts" / install["id"])
+        if (receipt_dir / "recipe.json.gz").exists() or (receipt_dir / "release.json.gz").exists():
+            raise StorageError("Reviewed release receipt collision")
+        receipt_dir.mkdir(parents=True, exist_ok=True)
+        released = {"by": reviewer.strip(), "reason": reason.strip(), "at": utc(), "owner": owner,
+                    "owner_marker": marker_state, "seed_files_present": len(actual),
+                    "seed_files_missing": len(missing), "bytes": sum(e["bytes"] for e in actual.values())}
+        definition_path = plain(receipt_dir / "release-definition.json")
+        with open(definition_path, "x", encoding="utf-8") as f:
+            json.dump({"name": "reviewed-release", "id": install["id"]}, f)
+        definition_record = self.put(definition_path)
+        recipe = {"schema": 1, "complete": True, "id": install["id"], "seed": install["seed"],
+                  "changed": {}, "deleted": missing, "metadata": metadata,
+                  "definition": definition_record, "outcome": {"passed": False, "released": True},
+                  "provenance": {"reviewed_release": released}, "completed": utc()}
+        serialized = json.dumps(recipe, separators=(",", ":")).encode()
+        self.preflight(len(serialized) + 2048, len(serialized) + 2048)
+        self.write_receipt(receipt_dir / "release.json.gz", released)
+        self.write_receipt(receipt_dir / "recipe.json.gz", recipe)
+        self.archive_used = self.usage()
+        install.update(status="completed", passed=False, pin=False, full_bytes=released["bytes"],
+                       completed=utc(), released=released)
+        self.save()
+        return {"Released": install["id"], "Receipt": str(receipt_dir / "release.json.gz"),
+                "Owner": owner, "SeedFilesPresent": len(actual), "SeedFilesMissing": len(missing),
+                "Bytes": released["bytes"], "DeletionPerformed": False}
+
     def restore(self, identifier, destination):
         install = self.state["installs"][identifier]
         self.inherit_retention(install)
@@ -884,7 +987,7 @@ def re_safe(name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["seed", "complete", "preflight", "status", "restore", "dry-run", "reuse-plan", "reuse-acquire", "reuse-release"])
+    parser.add_argument("action", choices=["seed", "complete", "preflight", "status", "restore", "dry-run", "reuse-plan", "reuse-acquire", "reuse-release", "release-interrupted"])
     args = parser.parse_args()
     # Storage-Harness sends UTF-8 bytes. Windows' locale text decoder can
     # corrupt Unicode paths and read a PowerShell UTF-8 BOM as mojibake.
@@ -912,6 +1015,7 @@ def main():
                       "StorageCopiedBytes": 0, "RuntimeAdmitted": False}
         elif args.action == "reuse-acquire": result = storage.acquire_reuse(request)
         elif args.action == "reuse-release": result = storage.release_reuse(request)
+        elif args.action == "release-interrupted": result = storage.release_interrupted(request)
         elif args.action == "preflight": result = storage.preflight(request.get("pending_bytes", 0), request.get("archive_pending_bytes", 0))
         else:
             rows = list(storage.state["installs"].values())

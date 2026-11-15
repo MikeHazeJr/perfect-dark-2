@@ -38,12 +38,23 @@ class StorageTests(unittest.TestCase):
     def operation(self):
         with storage.Storage(self.project, self.policy).locked() as s: yield s
 
-    def seed(self, shared=False):
+    def seed(self, shared=False, owner_pid=None):
         with self.operation() as s:
             return s.seed(dict(name='tiny-test', target='pd', sources=[
                 [str(self.source / 'PerfectDark.exe'), 'PerfectDark.exe'],
                 [str(self.source / 'pd.unit.z64'), 'pd.unit.z64']],
-                data_source=str(self.data), rom_id='unit', shared=shared, owner_pid=os.getpid()))
+                data_source=str(self.data), rom_id='unit', shared=shared,
+                owner_pid=os.getpid() if owner_pid is None else owner_pid))
+
+    def release(self, run, reviewer='unit-reviewer', reason='interrupted unit run'):
+        with self.operation() as s:
+            return s.release_interrupted(dict(id=run['StorageId'], reviewer=reviewer, reason=reason))
+
+    @staticmethod
+    def exited_pid():
+        child = subprocess.Popen([os.sys.executable, '-c', 'pass'])
+        child.wait()
+        return child.pid
 
     def complete(self, run, passed=True, keep=False):
         with self.operation() as s:
@@ -223,6 +234,53 @@ class StorageTests(unittest.TestCase):
         self.complete(a, keep=True)
         with self.assertRaises(storage.StorageError): self.seed()
         self.assertTrue(Path(a['InstallDir']).exists())
+
+    def test_reviewed_release_frees_an_interrupted_workspace(self):
+        # Decision 7A: an interrupted run's workspace is released after review,
+        # recorded, and then reclaimed by ordinary retention; the release
+        # itself deletes nothing.
+        self.policy['max_full_installs'] = 1
+        a = self.seed(owner_pid=self.exited_pid())
+        with self.assertRaises(storage.StorageError): self.seed()
+        with self.assertRaises(storage.StorageError): self.release(a, reviewer=' ')
+        with self.assertRaises(storage.StorageError): self.release(a, reason='')
+        result = self.release(a)
+        self.assertFalse(result['DeletionPerformed'])
+        self.assertTrue(Path(a['InstallDir']).exists())
+        self.assertTrue((Path(a['StorageReceiptDir']) / 'release.json.gz').exists())
+        with self.operation() as s:
+            row = s.state['installs'][a['StorageId']]
+            self.assertEqual((row['status'], row['passed'], row['pin']), ('completed', False, False))
+            self.assertEqual(row['released']['by'], 'unit-reviewer')
+            self.assertIn(row['released']['owner']['state'], ('exited', 'no process has this id'))
+        with self.assertRaises(storage.StorageError): self.release(a)
+        b = self.seed()
+        self.assertFalse(Path(a['InstallDir']).exists())
+        self.complete(b)
+
+    def test_reviewed_release_refuses_a_live_owner_or_produced_files(self):
+        live = self.seed()
+        with self.assertRaises(storage.StorageError): self.release(live)
+        produced = self.seed(owner_pid=self.exited_pid())
+        logs = Path(produced['InstallDir']) / 'logs'; logs.mkdir()
+        (logs / 'run.log').write_text('written by a run')
+        with self.assertRaises(storage.StorageError): self.release(produced)
+        with self.operation() as s:
+            self.assertEqual(s.state['installs'][produced['StorageId']]['status'], 'active')
+            self.assertEqual(s.state['installs'][live['StorageId']]['status'], 'active')
+        self.assertTrue((logs / 'run.log').exists())
+        self.complete(live)
+
+    def test_reviewed_release_writes_a_missing_owner_marker(self):
+        a = self.seed(owner_pid=self.exited_pid())
+        marker = Path(a['InstallDir']) / '.pd-storage-owner.json'
+        marker.unlink()
+        self.release(a)
+        self.assertEqual(json.loads(marker.read_text())['id'], a['StorageId'])
+        with self.operation() as s:
+            row = s.state['installs'][a['StorageId']]
+            self.assertTrue(row['released']['owner_marker'].startswith('written by the release'))
+            self.assertTrue(s.eligible(row))
 
     def test_archive_budget_and_disk_floor(self):
         self.policy['max_archive_gib']=1/2**30

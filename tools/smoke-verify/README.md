@@ -133,7 +133,14 @@ evicting evidence. Historical outputs are never registered or pruned by a defaul
 These are preflight and prospective retention controls, not an OS disk quota.
 Unexpected runtime growth is preserved and can block subsequent runs. Interrupted
 work remains active/protected; review it rather than editing the registry to bypass
-the block. Multi-process tests requesting separate installs need capacity for the
+the block. After review, the one sanctioned way out is a reviewed release (Mike's
+decision 7A, 2026-11-15): `python -B tools/smoke-verify/storage.py release-interrupted`
+with `{"project": ..., "id": ..., "reviewer": ..., "reason": ...}` on stdin. It refuses
+unless the owner process is gone (exited, no such process, or its id reused by a later
+process) and every file in the workspace is an unchanged copy from its seed. It writes
+`receipts/<id>/release.json.gz` and a recipe for exactly what is there, marks the install
+completed and failed, and deletes nothing; ordinary retention reclaims it later.
+Multi-process tests requesting separate installs need capacity for the
 parent plus each process. These controls cover this smoke runner, including its
 optional queued build. Direct `devtools/build-session.ps1` calls also check
 free space at actual queue/lock acquisition, before invoking the builder. Its
