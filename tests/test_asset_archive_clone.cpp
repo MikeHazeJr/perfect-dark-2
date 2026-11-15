@@ -635,6 +635,61 @@ TEST_CASE("typed archive rebuild applies overrides while it re-identifies",
 	cloneKeepArtifact(out);
 }
 
+TEST_CASE("typed archive rebuild keeps the manifest's copy of a changed descriptor value",
+          "[modding][pdxxx][clone]") {
+	CloneTempDir dir;
+	const std::string source =
+		cloneSourcePath("examples/modding/typed-pdxxx-basic/vehicles/tri_vehicle.pdvehicle");
+	const std::string sourceBytes = cloneReadFileBytes(source);
+	const std::string mesh =
+		cloneReadFileBytes(cloneSourcePath("examples/modding/typed-pdxxx-basic/meshes/tri_mesh.pdmesh"));
+	const std::filesystem::path out = dir.path / "mirror_vehicle.pdvehicle";
+	const char *newId = "mod_clonetest:mirror_vehicle";
+	const char *hullPath = "dependencies/assets/models/hull.pdmesh";
+
+	/* The vehicle's model becomes an embedded mesh; its name changes too. The
+	 * template's manifest repeats model_file but not name. */
+	std::string descriptor = cloneEntryBytes(sourceBytes, "vehicle.ini");
+	const std::string oldModel = "model_file = model.gltf";
+	const std::string oldName = "name = Triangle Hoverbike";
+	REQUIRE(descriptor.find(oldModel) != std::string::npos);
+	REQUIRE(descriptor.find(oldName) != std::string::npos);
+	descriptor.replace(descriptor.find(oldModel), oldModel.size(),
+		"model_file = " + std::string(hullPath));
+	descriptor.replace(descriptor.find(oldName), oldName.size(), "name = Mirror Hover");
+	const std::string sourceManifest = cloneEntryBytes(sourceBytes, "_meta/manifest.json");
+	REQUIRE(sourceManifest.find("\"model_file\": \"model.gltf\"") != std::string::npos);
+
+	const asset_archive_clone_override_t overrides[] = {
+		cloneReplace("vehicle.ini", descriptor),
+		cloneReplace(hullPath, mesh),
+		cloneRemove("model.gltf"),
+	};
+	asset_archive_clone_report_t report;
+	char err[256] = {};
+	const s32 code = assetArchiveRebuildFile(source.c_str(), out.string().c_str(), newId,
+		"pd-tests", overrides, 3, &report, err, sizeof(err));
+	INFO("rebuild error: " << err);
+	REQUIRE(code == ASSET_ARCHIVE_CLONE_OK);
+	REQUIRE(assetArchiveValidateFile(out.string().c_str(), ASSET_ARCHIVE_VALIDATE_RELEASE,
+		err, sizeof(err)) == 0);
+
+	const std::string result = cloneReadFileBytes(out);
+	const std::string manifest = cloneEntryBytes(result, "_meta/manifest.json");
+	CHECK(manifest.find("\"model_file\": \"" + std::string(hullPath) + "\"") != std::string::npos);
+	CHECK(manifest.find("model.gltf") == std::string::npos);
+	/* Values the descriptor kept stay as they were, ids are re-identified,
+	 * and a key the manifest does not repeat does not appear in it. */
+	CHECK(manifest.find("\"physics_file\": \"physics.json\"") != std::string::npos);
+	CHECK(manifest.find("\"behavior_graph\": \"behavior.graph.json\"") != std::string::npos);
+	CHECK(manifest.find("\"catalog_id\": \"" + std::string(newId) + "\"") != std::string::npos);
+	CHECK(manifest.find("Mirror Hover") == std::string::npos);
+	const std::string newDescriptor = cloneEntryBytes(result, "vehicle.ini");
+	CHECK(newDescriptor.find("model_file = " + std::string(hullPath)) != std::string::npos);
+	CHECK(newDescriptor.find("name = Mirror Hover") != std::string::npos);
+	CHECK(cloneCountFiles(dir.path) == 1);
+}
+
 TEST_CASE("typed archive rebuild edits an archive under its own id",
           "[modding][pdxxx][clone]") {
 	CloneTempDir dir;

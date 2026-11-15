@@ -1,0 +1,160 @@
+# stand-in material sidecar (Maian hover vehicle)
+newmtl MaianHover_alien_formed_teal_0
+Kd 0.0793 0.3173 0.2856
+d 1.0
+newmtl MaianHover_alien_formed_teal_1
+Kd 0.0940 0.3760 0.3384
+d 1.0
+newmtl MaianHover_alien_formed_teal_2
+Kd 0.1087 0.4347 0.3912
+d 1.0
+newmtl MaianHover_alien_formed_teal_3
+Kd 0.1233 0.4933 0.4440
+d 1.0
+newmtl MaianHover_alien_formed_teal_4
+Kd 0.1380 0.5520 0.4968
+d 1.0
+newmtl MaianHover_alien_formed_teal_5
+Kd 0.1527 0.6107 0.5496
+d 1.0
+newmtl MaianHover_optical_blue_inset_0
+Kd 0.0143 0.0793 0.6347
+d 1.0
+newmtl MaianHover_optical_blue_inset_1
+Kd 0.0169 0.0940 0.7520
+d 1.0
+newmtl MaianHover_optical_blue_inset_2
+Kd 0.0196 0.1087 0.8693
+d 1.0
+newmtl MaianHover_optical_blue_inset_3
+Kd 0.0222 0.1233 0.9867
+d 1.0
+newmtl MaianHover_optical_blue_inset_4
+Kd 0.0248 0.1380 1.0000
+d 1.0
+newmtl MaianHover_optical_blue_inset_5
+Kd 0.0275 0.1527 1.0000
+d 1.0
+newmtl MaianHover_recessed_indigo_liner_0
+Kd 0.0111 0.0436 0.1111
+d 1.0
+newmtl MaianHover_recessed_indigo_liner_1
+Kd 0.0132 0.0517 0.1316
+d 1.0
+newmtl MaianHover_recessed_indigo_liner_2
+Kd 0.0152 0.0598 0.1521
+d 1.0
+newmtl MaianHover_recessed_indigo_liner_3
+Kd 0.0173 0.0678 0.1727
+d 1.0
+newmtl MaianHover_recessed_indigo_liner_4
+Kd 0.0193 0.0759 0.1932
+d 1.0
+newmtl MaianHover_recessed_indigo_liner_5
+Kd 0.0214 0.0840 0.2137
+d 1.0
+newmtl MaianHover_vehicle_crystal_heat_preview_source_0
+Kd 0.0952 0.6981 0.4363
+d 1.0
+newmtl MaianHover_vehicle_crystal_heat_preview_source_1
+Kd 0.1128 0.8272 0.5170
+d 1.0
+newmtl MaianHover_vehicle_crystal_heat_preview_source_2
+Kd 0.1304 0.9563 0.5977
+d 1.0
+newmtl MaianHover_vehicle_crystal_heat_preview_source_3
+Kd 0.1480 1.0000 0.6783
+d 1.0
+newmtl MaianHover_vehicle_crystal_heat_preview_source_4
+Kd 0.1656 1.0000 0.7590
+d 1.0
+newmtl MaianHover_vehicle_crystal_heat_preview_source_5
+Kd 0.1832 1.0000 0.8397
+d 1.0
+newmtl MaianHover_vehicle_formed_teal_0
+Kd 0.0595 0.3173 0.2777
+d 1.0
+newmtl MaianHover_vehicle_formed_teal_1
+Kd 0.0705 0.3760 0.3290
+d 1.0
+newmtl MaianHover_vehicle_formed_teal_2
+Kd 0.0815 0.4347 0.3803
+d 1.0
+newmtl MaianHover_vehicle_formed_teal_3
+Kd 0.0925 0.4933 0.4317
+d 1.0
+newmtl MaianHover_vehicle_formed_teal_4
+Kd 0.1035 0.5520 0.4830
+d 1.0
+newmtl MaianHover_vehicle_formed_teal_5
+Kd 0.1145 0.6107 0.5343
+d 1.0
+newmtl MaianHover_vehicle_recessed_navy_0
+Kd 0.0119 0.0357 0.0952
+d 1.0
+newmtl MaianHover_vehicle_recessed_navy_1
+Kd 0.0141 0.0423 0.1128
+d 1.0
+newmtl MaianHover_vehicle_recessed_navy_2
+Kd 0.0163 0.0489 0.1304
+d 1.0
+newmtl MaianHover_vehicle_recessed_navy_3
+Kd 0.0185 0.0555 0.1480
+d 1.0
+newmtl MaianHover_vehicle_recessed_navy_4
+Kd 0.0207 0.0621 0.1656
+d 1.0
+newmtl MaianHover_vehicle_recessed_navy_5
+Kd 0.0229 0.0687 0.1832
+d 1.0
+newmtl MaianHover_vehicle_saddle_dark_flexible_1
+Kd 0.0207 0.0705 0.0846
+d 1.0
+newmtl MaianHover_vehicle_saddle_dark_flexible_2
+Kd 0.0239 0.0815 0.0978
+d 1.0
+newmtl MaianHover_vehicle_saddle_dark_flexible_3
+Kd 0.0271 0.0925 0.1110
+d 1.0
+newmtl MaianHover_vehicle_saddle_dark_flexible_4
+Kd 0.0304 0.1035 0.1242
+d 1.0
+newmtl MaianHover_vehicle_saddle_dark_flexible_5
+Kd 0.0336 0.1145 0.1374
+d 1.0
+newmtl MaianHover_vehicle_seafoam_source_0
+Kd 0.0952 0.6981 0.4363
+d 1.0
+newmtl MaianHover_vehicle_seafoam_source_1
+Kd 0.1128 0.8272 0.5170
+d 1.0
+newmtl MaianHover_vehicle_seafoam_source_2
+Kd 0.1304 0.9563 0.5977
+d 1.0
+newmtl MaianHover_vehicle_seafoam_source_3
+Kd 0.1480 1.0000 0.6783
+d 1.0
+newmtl MaianHover_vehicle_seafoam_source_4
+Kd 0.1656 1.0000 0.7590
+d 1.0
+newmtl MaianHover_vehicle_seafoam_source_5
+Kd 0.1832 1.0000 0.8397
+d 1.0
+newmtl MaianHover_vehicle_seated_optic_blue_0
+Kd 0.0119 0.0952 0.6347
+d 1.0
+newmtl MaianHover_vehicle_seated_optic_blue_1
+Kd 0.0141 0.1128 0.7520
+d 1.0
+newmtl MaianHover_vehicle_seated_optic_blue_2
+Kd 0.0163 0.1304 0.8693
+d 1.0
+newmtl MaianHover_vehicle_seated_optic_blue_3
+Kd 0.0185 0.1480 0.9867
+d 1.0
+newmtl MaianHover_vehicle_seated_optic_blue_4
+Kd 0.0207 0.1656 1.0000
+d 1.0
+newmtl MaianHover_vehicle_seated_optic_blue_5
+Kd 0.0229 0.1832 1.0000
+d 1.0

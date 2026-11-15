@@ -98,6 +98,12 @@ typedef struct asset_archive_clone_report {
  *     typed archive, which is re-identified like any other embedded archive.
  *   - The root descriptor may be replaced but must keep its `catalog_id`
  *     line, and can never be removed.
+ *   - When a replaced descriptor (of the root or of any embedded archive)
+ *     changes a value its archive's `_meta/manifest.json` repeats as a
+ *     top-level string (a vehicle's `model_file`, for example), the manifest
+ *     takes the new value too, so the two never disagree. This happens only
+ *     where the source descriptor and the source manifest held the same value,
+ *     and only for values without quotes, backslashes or control characters.
  *   - An added member's parent archive must exist; a member that is to be
  *     removed must exist.
  *

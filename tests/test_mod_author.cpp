@@ -1226,14 +1226,26 @@ TEST_CASE("mod author sets and removes descriptor keys the creator asks for",
 		expectRefused(v, 1, "an empty value");
 	}
 	expectRefused(nullptr, 1, "a count with no list");
-	/* A key the archive's manifest repeats would leave the two disagreeing. */
+	/* A key the archive's manifest repeats: the rebuild changes the manifest's
+	 * copy with the descriptor's (test_asset_archive_clone.cpp, and the Maian
+	 * hover vehicle recipe changes model_file this way), but it cannot drop
+	 * it, so removing such a key would leave the two disagreeing. */
 	{
 		const mod_author_descriptor_value_t v[] = { { "presentation_file", nullptr } };
 		expectRefused(v, 1, "a key mirrored in the manifest, removed");
 	}
 	{
+		/* Changed to a member the archive does not have: release validation
+		 * refuses the result and nothing is written. */
 		const mod_author_descriptor_value_t v[] = { { "model_file", "elsewhere.pdmesh" } };
-		expectRefused(v, 1, "a key mirrored in the manifest, changed");
+		AuthorRequest bad(tmpl, root.path, "Refused Gun");
+		bad.request.descriptor_values = v;
+		bad.request.descriptor_value_count = 1;
+		const AuthorCall call = authorSave(bad.request);
+		INFO("a key mirrored in the manifest, changed to a missing member -> " << call.err);
+		CHECK(call.code == MOD_AUTHOR_ERR_ARCHIVE);
+		CHECK(call.err.find("elsewhere.pdmesh") != std::string::npos);
+		CHECK(authorTree(root.path) == before);
 	}
 
 	/* Descriptor values and a descriptor override cannot both be given. */

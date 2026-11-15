@@ -499,6 +499,35 @@ static char *authorSetDescriptorKey(const char *text, u32 len, const char *key,
 	return b.data;
 }
 
+/* The trimmed value `key` has in descriptor text; 0 when it has none or the
+ * value does not fit. */
+static s32 authorDescriptorValue(const char *text, u32 len, const char *key,
+		char *out, size_t cap)
+{
+	u32 pos = 0;
+	u32 start = 0;
+	u32 end = 0;
+
+	while (authorNextLine(text, len, &pos, &start, &end)) {
+		const char *line = text + start;
+		u32 n = end - start;
+		u32 i = 0;
+
+		while (i < n && (line[i] == ' ' || line[i] == '\t')) i++;
+		if (!authorLineHasKey(line + i, n - i, key)) continue;
+		i += (u32)strlen(key);
+		while (i < n && line[i] != '=') i++;
+		i++;
+		while (i < n && (line[i] == ' ' || line[i] == '\t')) i++;
+		while (n > i && (line[n - 1] == ' ' || line[n - 1] == '\t')) n--;
+		if (n - i >= cap) return 0;
+		memcpy(out, line + i, n - i);
+		out[n - i] = '\0';
+		return 1;
+	}
+	return 0;
+}
+
 static s32 authorDescriptorHasKey(const char *text, u32 len, const char *key)
 {
 	u32 pos = 0;
@@ -874,8 +903,10 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 			: NULL;
 
 		/* A key the archive's own manifest repeats (model_file, the graph and
-		 * dependency paths) would be changed in one place only, leaving a
-		 * descriptor and a manifest that disagree. */
+		 * dependency paths) is kept in agreement by the rebuild, which changes
+		 * the manifest's copy with the descriptor's. A key whose two copies
+		 * already disagree in the template cannot be brought into agreement,
+		 * so a descriptor value for it is refused. */
 		if (template_bytes) {
 			mirror = (char *)modArchiveExtractMemAlloc(template_bytes, template_size,
 				ASSET_ARCHIVE_META_MANIFEST_PATH, &mirror_size);
@@ -887,12 +918,22 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 		}
 		if (mirror && request->descriptor_value_count > 0) {
 			const char *mirrored = NULL;
+			const char *why = NULL;
 			char held[1024];
+			char own[1024];
 
 			for (u32 i = 0; !mirrored && i < request->descriptor_value_count; i++) {
-				if (modManifestReadString(mirror, mirror_size, request->descriptor_values[i].key,
-						held, sizeof(held))) {
-					mirrored = request->descriptor_values[i].key;
+				const char *key = request->descriptor_values[i].key;
+				if (!modManifestReadString(mirror, mirror_size, key, held, sizeof(held))) continue;
+				if (!request->descriptor_values[i].value) {
+					/* The rebuild can update the manifest's copy, not drop it. */
+					mirrored = key;
+					why = "is repeated in the archive's manifest, so it cannot be removed";
+				} else if (!(source && authorDescriptorValue(source, (u32)source_size, key,
+						own, sizeof(own)) && strcmp(own, held) == 0)) {
+					mirrored = key;
+					why = "has a different value in the archive's manifest, so it cannot be "
+						"changed through a descriptor value";
 				}
 			}
 			if (mirrored) {
@@ -900,8 +941,7 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 				free(template_bytes);
 				free(source);
 				code = authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS,
-					"descriptor key %s is repeated in the archive's manifest and cannot be "
-					"changed through a descriptor value", mirrored);
+					"descriptor key %s %s", mirrored, why);
 				goto done;
 			}
 		}

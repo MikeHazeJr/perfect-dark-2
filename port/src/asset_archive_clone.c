@@ -823,6 +823,196 @@ static void cloneAddHashPairs(clone_hash_pair_t *hashes, u32 *hash_count,
 }
 
 /* Pass 2: rebuild one archive, embedded archives first. */
+/*
+ * A descriptor value the archive's manifest repeats (a vehicle's model_file,
+ * physics_file and behavior_graph, for example) follows the descriptor. When
+ * an override changed such a value, the carried manifest takes the new value
+ * too, so the two never disagree. Only top-level string members change, only
+ * where the source descriptor and the source manifest held the same value,
+ * and only to values a JSON string holds without escapes (paths and ids).
+ */
+static u32 cloneJsonSkipWs(const char *s, u32 n, u32 i)
+{
+	while (i < n && (s[i] == ' ' || s[i] == '\t' || s[i] == '\r' || s[i] == '\n')) i++;
+	return i;
+}
+
+/* `i` at an opening quote: just past the closing quote, or `n` if unterminated. */
+static u32 cloneJsonSkipString(const char *s, u32 n, u32 i)
+{
+	for (i++; i < n; i++) {
+		if (s[i] == '\\') i++;
+		else if (s[i] == '"') return i + 1;
+	}
+	return n;
+}
+
+/* `i` at a value: just past it, or `n` if it does not end. */
+static u32 cloneJsonSkipValue(const char *s, u32 n, u32 i)
+{
+	u32 depth = 0;
+
+	if (i >= n) return n;
+	if (s[i] == '"') return cloneJsonSkipString(s, n, i);
+	if (s[i] != '{' && s[i] != '[') {
+		while (i < n && s[i] != ',' && s[i] != '}' && s[i] != ']'
+				&& s[i] != ' ' && s[i] != '\t' && s[i] != '\r' && s[i] != '\n') i++;
+		return i;
+	}
+	while (i < n) {
+		if (s[i] == '"') {
+			i = cloneJsonSkipString(s, n, i);
+			continue;
+		}
+		if (s[i] == '{' || s[i] == '[') depth++;
+		else if ((s[i] == '}' || s[i] == ']') && --depth == 0) return i + 1;
+		i++;
+	}
+	return n;
+}
+
+/* The value span (quotes included) of the top-level string member `key`. */
+static s32 cloneJsonTopString(const char *s, u32 n, const char *key, u32 *vstart, u32 *vend)
+{
+	const size_t klen = strlen(key);
+	u32 i = cloneJsonSkipWs(s, n, 0);
+
+	if (i >= n || s[i] != '{') return 0;
+	i = cloneJsonSkipWs(s, n, i + 1);
+	while (i < n && s[i] == '"') {
+		const u32 kstart = i + 1;
+		const u32 kend = cloneJsonSkipString(s, n, i);
+		u32 v;
+		u32 after;
+
+		if (kend >= n) return 0;
+		i = cloneJsonSkipWs(s, n, kend);
+		if (i >= n || s[i] != ':') return 0;
+		v = cloneJsonSkipWs(s, n, i + 1);
+		after = cloneJsonSkipValue(s, n, v);
+		if (after >= n) return 0;
+		if (kend - 1 - kstart == klen && memcmp(s + kstart, key, klen) == 0) {
+			if (s[v] != '"') return 0;
+			*vstart = v;
+			*vend = after;
+			return 1;
+		}
+		i = cloneJsonSkipWs(s, n, after);
+		if (i < n && s[i] == ',') i = cloneJsonSkipWs(s, n, i + 1);
+	}
+	return 0;
+}
+
+static s32 cloneJsonPlain(const char *value, u32 len)
+{
+	for (u32 i = 0; i < len; i++) {
+		if (value[i] == '"' || value[i] == '\\' || (unsigned char)value[i] < 0x20) return 0;
+	}
+	return 1;
+}
+
+/* One `key = value` descriptor line: trimmed spans; 0 for comments, sections
+ * and lines without a key. */
+static s32 cloneIniLine(const char *line, u32 len, u32 *ks, u32 *ke, u32 *vs, u32 *ve)
+{
+	u32 a = 0;
+	u32 b = len;
+	u32 eq;
+
+	while (a < b && (line[a] == ' ' || line[a] == '\t')) a++;
+	while (b > a && (line[b - 1] == ' ' || line[b - 1] == '\t' || line[b - 1] == '\r')) b--;
+	if (a == b || line[a] == ';' || line[a] == '#' || line[a] == '[') return 0;
+	for (eq = a; eq < b && line[eq] != '='; eq++) {
+	}
+	if (eq == b) return 0;
+	*ks = a;
+	*ke = eq;
+	while (*ke > *ks && (line[*ke - 1] == ' ' || line[*ke - 1] == '\t')) (*ke)--;
+	*vs = eq + 1;
+	while (*vs < b && (line[*vs] == ' ' || line[*vs] == '\t')) (*vs)++;
+	*ve = b;
+	return *ke > *ks;
+}
+
+/* The first value of `key` in descriptor text (sections ignored). */
+static s32 cloneIniValue(const char *text, u32 n, const char *key, u32 *vs, u32 *ve)
+{
+	const size_t klen = strlen(key);
+	u32 pos = 0;
+
+	while (pos < n) {
+		u32 end = pos;
+		u32 ks, ke, a, b;
+
+		while (end < n && text[end] != '\n') end++;
+		if (cloneIniLine(text + pos, end - pos, &ks, &ke, &a, &b)
+				&& ke - ks == klen && memcmp(text + pos + ks, key, klen) == 0) {
+			*vs = pos + a;
+			*ve = pos + b;
+			return 1;
+		}
+		pos = end + 1;
+	}
+	return 0;
+}
+
+/* The manifest text with every mirrored value the descriptor changed brought
+ * up to date. NULL when out of memory. */
+static char *cloneSyncManifestMirrors(const char *manifest, u32 size,
+		const char *source_desc, u32 source_size,
+		const char *final_desc, u32 final_size, u32 *out_size)
+{
+	char *out = (char *)malloc((size_t)size + 1);
+	u32 len = size;
+	u32 pos = 0;
+
+	if (!out) return NULL;
+	memcpy(out, manifest, size);
+	out[len] = '\0';
+	while (pos < final_size) {
+		u32 end = pos;
+		u32 ks, ke, a, b, os, oe, ms, me;
+		char key[128];
+
+		while (end < final_size && final_desc[end] != '\n') end++;
+		if (cloneIniLine(final_desc + pos, end - pos, &ks, &ke, &a, &b)
+				&& ke - ks < sizeof(key)) {
+			const char *value = final_desc + pos + a;
+			const u32 value_len = b - a;
+
+			memcpy(key, final_desc + pos + ks, ke - ks);
+			key[ke - ks] = '\0';
+			if (cloneIniValue(source_desc, source_size, key, &os, &oe)
+					&& !(oe - os == value_len
+						&& memcmp(source_desc + os, value, value_len) == 0)
+					&& cloneJsonTopString(out, len, key, &ms, &me)
+					&& me - ms - 2 == oe - os
+					&& memcmp(out + ms + 1, source_desc + os, oe - os) == 0
+					&& cloneJsonPlain(value, value_len)) {
+				const u32 old_len = me - ms - 2;
+				const u32 new_len = len - old_len + value_len;
+
+				if (new_len > len) {
+					char *grown = (char *)realloc(out, (size_t)new_len + 1);
+					if (!grown) {
+						free(out);
+						return NULL;
+					}
+					out = grown;
+				}
+				/* The closing quote and everything after it move as one. */
+				memmove(out + ms + 1 + value_len, out + me - 1, len - (me - 1));
+				memcpy(out + ms + 1, value, value_len);
+				len = new_len;
+				out[len] = '\0';
+			}
+		}
+		pos = end + 1;
+	}
+	*out_size = len;
+	return out;
+}
+
 static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 		const char *name, const char *out_file, s32 depth, const char *prefix)
 {
@@ -844,6 +1034,11 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 	s32 source_uses_sidecars = 0;
 	s32 wrote_descriptor = 0;
 	s32 ok = 0;
+	/* An overridden descriptor, before and after, for the manifest mirrors. */
+	char *source_desc = NULL;
+	u32 source_desc_size = 0;
+	char *final_desc = NULL;
+	u32 final_desc_size = 0;
 
 	memset(&names, 0, sizeof(names));
 	memset(&members, 0, sizeof(members));
@@ -994,6 +1189,28 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 				}
 				r = assetArchiveWriterAddDescriptor(writer, entry, data, data_size);
 				wrote_descriptor = 1;
+				if (r == MODARCHIVE_OK && member->from_override >= 0) {
+					u32 src_size = 0;
+					char *src = (char *)modArchiveExtractMemAlloc(bytes, size, entry, &src_size);
+
+					final_desc = (char *)malloc((size_t)data_size + 1);
+					if (final_desc) {
+						memcpy(final_desc, data, data_size);
+						final_desc[data_size] = '\0';
+						final_desc_size = data_size;
+					}
+					if (src) {
+						source_desc = cloneRewriteText(ctx, src, src_size, hashes, hash_count,
+							&source_desc_size);
+						free(src);
+					}
+					if (!final_desc || !source_desc) {
+						cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_WRITE, "out of memory");
+						free(owned);
+						free(rewritten);
+						goto cleanup;
+					}
+				}
 			} else if (with_sidecar) {
 				r = assetArchiveWriterAddPublicMem(writer, entry, data, data_size, "public");
 			} else {
@@ -1044,6 +1261,19 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 				cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_WRITE, "out of memory");
 				goto cleanup;
 			}
+			if (final_desc && strcmp(leaf, ASSET_ARCHIVE_META_MANIFEST) == 0) {
+				u32 synced_size = 0;
+				char *synced = cloneSyncManifestMirrors(data, data_size,
+					source_desc, source_desc_size, final_desc, final_desc_size, &synced_size);
+
+				free(data);
+				if (!synced) {
+					cloneFail(ctx, ASSET_ARCHIVE_CLONE_ERR_WRITE, "out of memory");
+					goto cleanup;
+				}
+				data = synced;
+				data_size = synced_size;
+			}
 		}
 		stale = cloneFindStaleId(ctx, data, data_size);
 		if (stale) {
@@ -1082,6 +1312,8 @@ static s32 cloneWriteArchive(clone_ctx_t *ctx, const void *bytes, u32 size,
 cleanup:
 	if (arc) modArchiveAbort(arc);
 	free(writer);
+	free(source_desc);
+	free(final_desc);
 	if (nested_data) {
 		for (u32 i = 0; i < members.count; i++) free(nested_data[i]);
 	}

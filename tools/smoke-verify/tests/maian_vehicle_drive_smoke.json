@@ -1,0 +1,137 @@
+{
+  "scenario_name": "maian_vehicle_drive_smoke",
+  "description": "Maian vehicle V2 (week PD 2026-11-15): the Maian hover vehicle mod, made by the in-game mod author from dev-mods/maian_hover_vehicle/recipe.json (the original example vehicle plus a stand-in model generated from the October vehicle study, so nothing in it comes from the base game), is placed on Escape in place of the hoverbike (--debug-swap-vehicle) and driven (--debug-mount-bike). Proves the mod vehicle's own typed model loads in its private model slot (PDVEHICLE.MODEL, no FIX-B.2 model failure), is created at the hoverbike's world scale (VEHICLE.SWAP scale line) and drives on the mod's physics (no VEHICLE.SOURCE loud fail while accelerating and steering). The screenshots show the stand-in model; boost, heat, the gunner seat and the turret come in later steps.",
+  "tags": ["vehicle", "modding", "mod-author", "pdvehicle", "recipe", "gameplay", "maian-vehicle", "pillar:modding"],
+  "paths_of_interest": [
+    "dev-mods/maian_hover_vehicle/recipe.json",
+    "dev-mods/maian_hover_vehicle/make_standin_mesh.py",
+    "port/src/assetcatalog_scanner.c",
+    "port/src/body_head_source_bind.c",
+    "port/src/vehicle_debug.c",
+    "src/game/setup.c",
+    "src/game/propobj.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["mods/Vehicles/vehicle_maian_hover"],
+  "fixtures": [
+    { "src": "dev-mods/maian_hover_vehicle/recipe.json", "dst": "mod-recipes/maian_hover_vehicle/recipe.json" },
+    { "src": "dev-mods/maian_hover_vehicle/template/tri_vehicle.pdvehicle", "dst": "mod-recipes/maian_hover_vehicle/template/tri_vehicle.pdvehicle" },
+    { "src": "dev-mods/maian_hover_vehicle/template/tri_mesh.pdmesh", "dst": "mod-recipes/maian_hover_vehicle/template/tri_mesh.pdmesh" },
+    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/mesh.ini", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/mesh.ini" },
+    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.gltf", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.gltf" },
+    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.mtl", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.mtl" },
+    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.nodes.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.nodes.json" },
+    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.parts.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.parts.json" },
+    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.faces.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.faces.json" },
+    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.render.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.render.json" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--mod-author",
+    "mod-recipes/maian_hover_vehicle/recipe.json",
+    "--launch-mission",
+    "base:escape",
+    "--debug-swap-vehicle",
+    "mod:vehicle_maian_hover",
+    "--debug-mount-bike"
+  ],
+  "screenshots": [
+    { "at_ms": 1800, "name": "maian-vehicle-accelerating" },
+    { "at_ms": 3600, "name": "maian-vehicle-steering" }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 180000,
+      "stable_ms": 500,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Escape is live with Player 0 on foot; the skip assist passes the intro cutscene."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "vehicle_driver_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 1000,
+      "comment": "Player 0 is mounted on the Maian vehicle and driving through LAYER_VEHICLE_DRIVER."
+    },
+    {
+      "at_ms": 1000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "press",
+      "comment": "Accelerate: the movement path looks the vehicle's physics up by its model number."
+    },
+    {
+      "at_ms": 2400,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "release"
+    },
+    {
+      "at_ms": 2600,
+      "type": "action",
+      "name": "ACTION_VEHICLE_STEER_RIGHT",
+      "action": "press"
+    },
+    {
+      "at_ms": 3800,
+      "type": "action",
+      "name": "ACTION_VEHICLE_STEER_RIGHT",
+      "action": "release"
+    },
+    {
+      "at_ms": 5000,
+      "type": "exit",
+      "comment": "Scripted exit after driving."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=maian_vehicle_drive_smoke",
+      "MODAUTHOR\\.SAVE\\.OK kind=vehicle catalog=mod:vehicle_maian_hover mod_id=mod\\.vehicle_maian_hover updated=0",
+      "MODAUTHOR\\.CATALOG\\.OK catalog=mod:vehicle_maian_hover type=\\d+ enabled=1 bundled=0",
+      "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:vehicle_maian_hover",
+      "PDVEHICLE\\.MODEL: id=mod:vehicle_maian_hover model=mod:vehicle_maian_hover__\\S+ modelnum=\\d+ filenum=\\d+",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "BOOT: --launch-mission 'base:escape' -> stagenum=",
+      "BOOT: --debug-mount-bike armed",
+      "BOOT: --debug-swap-vehicle mod:vehicle_maian_hover armed",
+      "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_maian_hover\\)",
+      "VEHICLE\\.SWAP: modelnum \\d+ takes the world scale of modelnum 58 \\(409/4096\\)",
+      "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
+      "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
+      "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE: input .*right=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "PDVEHICLE\\.MODEL\\.REJECT",
+      "PDVEHICLE\\.MODEL: .*cannot be placed",
+      "VEHICLE\\.SOURCE",
+      "VEHICLE\\.SWAP: '",
+      "FIX-B\\.2: modelnum",
+      "MODEL\\.RODATA\\.LOAD: PARTIAL",
+      "CATALOG-FATAL"
+    ],
+    "required_counts": [
+      { "pattern": "VEHICLE: mounted", "min": 1, "max": 1 }
+    ]
+  }
+}
