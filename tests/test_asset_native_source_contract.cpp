@@ -5378,6 +5378,23 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		requireTokenOrder(duplicate_chr,
 			"s_aiGraphRegisterSourceSpawnedChr(\"duplicate_chr\",",
 			"g_Vars.aioffset = chraiGoToLabel(g_Vars.ailist,");
+		// B-1166: a number set_chr_num gives a source-derived chr stays
+		// source-derived, alive (the chrnum check) or gone (both resolvers).
+		const std::string set_chr_num = functionBlock(scenario_runtime,
+			"scenarioSourceAiGraphExecuteSetChrNum");
+		REQUIRE(!set_chr_num.empty());
+		requireTokenOrder(set_chr_num,
+			"const s32 was_source = s_aiGraphRuntimeChrIsSourceSpawned(chr) ||",
+			"chrSetChrnum(chr, chrnum);");
+		requireTokenOrder(set_chr_num,
+			"chrSetChrnum(chr, chrnum);",
+			"s_aiGraphRecordSourceAssignedChrnum(\"set_chr_num\", chrnum)");
+		const std::string source_chrnum = functionBlock(scenario_runtime,
+			"s_aiGraphSetupSourceContainsChrnum");
+		REQUIRE(source_chrnum.find("s_aiGraphChrnumIsSourceAssigned(chrnum)") !=
+		        std::string::npos);
+		REQUIRE(countOccurrences(scenario_runtime,
+			"if (s_sourceSetupContainsChrnum(chr_id) ||\n\t\t\t\t\ts_aiGraphChrnumIsSourceAssigned(chr_id)) {") == 2);
 		REQUIRE(duplicate_chr.find(
 			        "s_aiGraphRequireRuntimeCharacterRefFromBase(\"duplicate_chr\"") !=
 		        std::string::npos);

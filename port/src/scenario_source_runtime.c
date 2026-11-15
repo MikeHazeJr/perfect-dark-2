@@ -81,6 +81,7 @@
 		|| (soundnum) == SFX_F_STAND_STILL)
 
 #define SCENARIO_SOURCE_SPAWNED_CHR_MAX 512
+#define SCENARIO_SOURCE_RENUMBERED_CHR_MAX 64
 #define SCENARIO_SOURCE_SETUP_CHR_REF_MAX 2048
 #define SCENARIO_SOURCE_SETUP_RECORD_REF_MAX 4096
 
@@ -345,6 +346,9 @@ typedef struct scenario_source_graph_state {
 	s32 source_setup_record_refs[SCENARIO_SOURCE_SETUP_RECORD_REF_MAX];
 	struct chrdata *source_spawned_chrs[SCENARIO_SOURCE_SPAWNED_CHR_MAX];
 	s32 source_spawned_chr_count;
+	/* B-1166: numbers set_chr_num gave to source-derived chrs. */
+	s32 source_renumbered_chrnums[SCENARIO_SOURCE_RENUMBERED_CHR_MAX];
+	s32 source_renumbered_chr_count;
 	s32 level_volume_node_count;
 	s32 level_pad_node_count;
 	s32 level_navigation_generate_node_count;
@@ -13098,10 +13102,47 @@ static s32 s_aiGraphTryCountRuntimeSetupChrRowsFromSource(s32 *out_chr_count)
 	return 1;
 }
 
+/* B-1166: set_chr_num gives a source-derived chr a new number (Pelagic II
+ * renumbers one of three setup guards to 0x60, and another chr waits for 0x60
+ * to be dead before it goes on). The new number stays source-derived, so a
+ * reference to it resolves the way native chrFindById does. */
+static s32 s_aiGraphChrnumIsSourceAssigned(s32 chrnum)
+{
+	s32 i;
+
+	if (chrnum < 0) {
+		return 0;
+	}
+	for (i = 0; i < s_ActiveScenarioGraphs.source_renumbered_chr_count; i++) {
+		if (s_ActiveScenarioGraphs.source_renumbered_chrnums[i] == chrnum) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
+static s32 s_aiGraphRecordSourceAssignedChrnum(const char *action,
+	s32 chrnum)
+{
+	if (chrnum < 0 || s_aiGraphChrnumIsSourceAssigned(chrnum)) {
+		return 1;
+	}
+	if (s_ActiveScenarioGraphs.source_renumbered_chr_count >=
+			SCENARIO_SOURCE_RENUMBERED_CHR_MAX) {
+		s_aiGraphRuntimeFailure(action,
+			"source-assigned character number table is full");
+		return 0;
+	}
+	s_ActiveScenarioGraphs.source_renumbered_chrnums[
+		s_ActiveScenarioGraphs.source_renumbered_chr_count++] = chrnum;
+	return 1;
+}
+
 static s32 s_aiGraphSetupSourceContainsChrnum(s32 chrnum)
 {
 	return s_sourceSetupContainsChrnum(chrnum) ||
-		s_runtimeSetupContainsChrnum(chrnum);
+		s_runtimeSetupContainsChrnum(chrnum) ||
+		s_aiGraphChrnumIsSourceAssigned(chrnum);
 }
 
 static s32 s_aiGraphCountRuntimeSetupChrRowsFromSource(const char *action,
@@ -13722,7 +13763,11 @@ static s32 s_aiGraphRequireRuntimeCharacterRefFromBase(const char *action,
 			if (out_chr_count) {
 				*out_chr_count = chr_count;
 			}
-			if (s_sourceSetupContainsChrnum(chr_id)) {
+			/* B-1166: a number set_chr_num gave a source-derived chr
+			 * counts too: once that chr is gone it reads as dead, as
+			 * native does with a missing chr. */
+			if (s_sourceSetupContainsChrnum(chr_id) ||
+					s_aiGraphChrnumIsSourceAssigned(chr_id)) {
 				return 1;
 			}
 		}
@@ -13821,7 +13866,11 @@ static s32 s_aiGraphResolveRuntimeCharacterRefOrSelector(const char *action,
 			if (out_chr_count) {
 				*out_chr_count = chr_count;
 			}
-			if (s_sourceSetupContainsChrnum(chr_id)) {
+			/* B-1166: a number set_chr_num gave a source-derived chr
+			 * counts too: once that chr is gone it reads as dead, as
+			 * native does with a missing chr. */
+			if (s_sourceSetupContainsChrnum(chr_id) ||
+					s_aiGraphChrnumIsSourceAssigned(chr_id)) {
 				return 1;
 			}
 		}
@@ -24039,8 +24088,18 @@ s32 scenarioSourceAiGraphExecuteSetChrNum(struct chrdata *chr, s32 chrnum)
 		return required < 0 ? 1 : 0;
 	}
 	if (chr && chr->prop) {
+		/* B-1166: a source-derived chr keeps its provenance under its new
+		 * number. */
+		const s32 was_source = s_aiGraphRuntimeChrIsSourceSpawned(chr) ||
+			(chr->prop->type == PROPTYPE_CHR &&
+				s_aiGraphSetupSourceContainsChrnum(chr->chrnum));
+
 		chrSetChrnum(chr, chrnum);
 		chr->chrnum = (s16)chrnum;
+		if (was_source &&
+				!s_aiGraphRecordSourceAssignedChrnum("set_chr_num", chrnum)) {
+			return 1;
+		}
 	}
 	if (!s_ActiveScenarioGraphs.ai_action_set_chr_num_logged) {
 		sysLogPrintf(LOG_NOTE,
