@@ -125,6 +125,36 @@ extern "C" s32 modManifestValidateBytes(const void *json, size_t size,
     }
 }
 
+extern "C" s32 modManifestReadNumber(const void *json, size_t size, const char *key,
+    double *out)
+{
+    if (out) *out = 0.0;
+    if (!json || size == 0 || size > MOD_MANIFEST_MAX_BYTES || !key || !key[0] || !out) {
+        return 0;
+    }
+
+    try {
+        crude_json::value root;
+
+        if (!modAssetJsonReadValue(static_cast<const char *>(json), size, root) ||
+                !root.is_object()) {
+            return 0;
+        }
+
+        const crude_json::string name(key);
+
+        if (!root.contains(name)) return 0;
+
+        const crude_json::number *number = root[name].get_ptr<crude_json::number>();
+
+        if (!number || !(*number >= -1.0e300 && *number <= 1.0e300)) return 0;
+        *out = *number;
+        return 1;
+    } catch (...) {
+        return 0;
+    }
+}
+
 extern "C" s32 modManifestReadString(const void *json, size_t size, const char *key,
     char *out, size_t out_cap)
 {

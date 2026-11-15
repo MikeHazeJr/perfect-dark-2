@@ -351,3 +351,23 @@ TEST_CASE("pdmod single-archive writer refuses an invalid manifest before openin
 		CHECK(std::filesystem::exists(out.path));
 	}
 }
+
+TEST_CASE("manifest number reader takes finite numbers only",
+          "[modding][manifest]") {
+	const std::string json =
+		"{ \"posx\": 9, \"posy\": -15.7, \"name\": \"x\", \"list\": [1], \"flag\": true }";
+	double value = 123.0;
+	REQUIRE(modManifestReadNumber(json.data(), json.size(), "posx", &value) == 1);
+	CHECK(value == 9.0);
+	REQUIRE(modManifestReadNumber(json.data(), json.size(), "posy", &value) == 1);
+	CHECK(value == -15.7);
+	for (const char *key : { "name", "list", "flag", "missing", "" }) {
+		value = 123.0;
+		CHECK(modManifestReadNumber(json.data(), json.size(), key, &value) == 0);
+		CHECK(value == 0.0);
+	}
+	CHECK(modManifestReadNumber(json.data(), json.size(), "posx", nullptr) == 0);
+	CHECK(modManifestReadNumber(nullptr, 0, "posx", &value) == 0);
+	CHECK(modManifestReadNumber("{ broken", 8, "posx", &value) == 0);
+	CHECK(modManifestReadNumber("[1, 2]", 6, "posx", &value) == 0);
+}

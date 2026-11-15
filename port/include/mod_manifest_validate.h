@@ -69,6 +69,12 @@ s32 modManifestValidateBytes(const void *json, size_t size,
 s32 modManifestReadString(const void *json, size_t size, const char *key,
 		char *out, size_t out_cap);
 
+/**
+ * The same for a number: returns 1 and the value when `key` holds a finite
+ * JSON number, 0 in every other case.
+ */
+s32 modManifestReadNumber(const void *json, size_t size, const char *key, double *out);
+
 #ifdef __cplusplus
 }
 #endif

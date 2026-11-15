@@ -499,6 +499,18 @@ static char *authorSetDescriptorKey(const char *text, u32 len, const char *key,
 	return b.data;
 }
 
+static s32 authorDescriptorHasKey(const char *text, u32 len, const char *key)
+{
+	u32 pos = 0;
+	u32 start = 0;
+	u32 end = 0;
+
+	while (authorNextLine(text, len, &pos, &start, &end)) {
+		if (authorLineHasKey(text + start, end - start, key)) return 1;
+	}
+	return 0;
+}
+
 static s32 authorDescriptorKeyOk(const char *key)
 {
 	if (!key || !key[0] || strlen(key) >= 128) return 0;
@@ -848,6 +860,12 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 		u32 dropped = 0;
 		char *owned;
 		const char *entry_name = NULL;
+		/* A base weapon keeps its view position in its manifest. */
+		static const char *const view_keys[4] = { "posx", "posy", "posz", "muzzlez" };
+		double view[4] = { 0.0, 0.0, 0.0, 0.0 };
+		s32 has_view[4] = { 0, 0, 0, 0 };
+		u32 mirror_size = 0;
+		char *mirror = NULL;
 		void *template_bytes = authorReadFile(request->template_path, &template_size);
 		char *source = template_bytes
 			? assetArchiveExtractDescriptorMemAlloc(template_bytes, template_size,
@@ -858,21 +876,27 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 		/* A key the archive's own manifest repeats (model_file, the graph and
 		 * dependency paths) would be changed in one place only, leaving a
 		 * descriptor and a manifest that disagree. */
-		if (template_bytes && request->descriptor_value_count > 0) {
-			u32 mirror_size = 0;
-			char *mirror = (char *)modArchiveExtractMemAlloc(template_bytes, template_size,
+		if (template_bytes) {
+			mirror = (char *)modArchiveExtractMemAlloc(template_bytes, template_size,
 				ASSET_ARCHIVE_META_MANIFEST_PATH, &mirror_size);
+		}
+		if (mirror && strcmp(family->kind, "weapon") == 0) {
+			for (u32 i = 0; i < 4; i++) {
+				has_view[i] = modManifestReadNumber(mirror, mirror_size, view_keys[i], &view[i]);
+			}
+		}
+		if (mirror && request->descriptor_value_count > 0) {
 			const char *mirrored = NULL;
 			char held[1024];
 
-			for (u32 i = 0; mirror && !mirrored && i < request->descriptor_value_count; i++) {
+			for (u32 i = 0; !mirrored && i < request->descriptor_value_count; i++) {
 				if (modManifestReadString(mirror, mirror_size, request->descriptor_values[i].key,
 						held, sizeof(held))) {
 					mirrored = request->descriptor_values[i].key;
 				}
 			}
-			free(mirror);
 			if (mirrored) {
+				free(mirror);
 				free(template_bytes);
 				free(source);
 				code = authorFail(err, err_cap, MOD_AUTHOR_ERR_ARGS,
@@ -881,6 +905,7 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 				goto done;
 			}
 		}
+		free(mirror);
 		free(template_bytes);
 		if (!source) {
 			code = authorFail(err, err_cap, MOD_AUTHOR_ERR_TEMPLATE,
@@ -908,6 +933,30 @@ s32 modAuthorSave(const mod_author_request_t *request, mod_author_result_t *resu
 			if (!next) {
 				code = authorFail(err, err_cap, MOD_AUTHOR_ERR_TEMPLATE,
 					"%s could not be set in the template's %s", dv->key, descriptor_name);
+				goto done;
+			}
+			owned = next;
+			owned_size = next_size;
+			dropped++;
+		}
+		/* The mod weapon adapter takes the view position only from the
+		 * descriptor (B-1149). Carry the template's own position over unless
+		 * the descriptor or the creator already gives one. */
+		for (u32 i = 0; i < 4; i++) {
+			char value[32];
+			u32 next_size = 0;
+			char *next;
+
+			if (!has_view[i] || authorDescriptorHasKey(owned, owned_size, view_keys[i])) {
+				continue;
+			}
+			snprintf(value, sizeof(value), "%.9g", view[i]);
+			next = authorSetDescriptorKey(owned, owned_size, view_keys[i], NULL, value, 1,
+				&next_size);
+			free(owned);
+			if (!next) {
+				code = authorFail(err, err_cap, MOD_AUTHOR_ERR_TEMPLATE,
+					"%s could not be set in the template's %s", view_keys[i], descriptor_name);
 				goto done;
 			}
 			owned = next;
