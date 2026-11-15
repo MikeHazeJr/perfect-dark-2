@@ -235,8 +235,11 @@ Foundation, in order. Each step lands with tests that run in CI.
      FIXED in the wrapper (36d4e5bb): both are moved beside the build
      directory for the wipe and moved back; a keep folder left by an
      interrupted clean stops the build instead of being written over.
-     Verified on scratch folders (13 checks); a real clean build with a
-     marker mod is still to be run.
+     Verified on scratch folders (13 checks) and RUN 2026-11-15 06:21 UTC:
+     a marker mod put in `.claude/session-builds/mods/mods/` came back
+     byte for byte after `build-session.ps1 -Session mods -Target client
+     -Clean` (258 s; the log shows "Kept aside for the clean" and "Mods
+     put back into"), with no `.mods-keep` folder left behind.
    - Base asset extraction and its regeneration remove single stale files
      only (`romextract*.c`), never a directory and nothing under `mods`.
    - Both updaters protect `mods`, `data`, `extracted`, `saves`, `logs` and
