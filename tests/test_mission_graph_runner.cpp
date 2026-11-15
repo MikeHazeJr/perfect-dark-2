@@ -12,8 +12,12 @@
 #include <string>
 #include <vector>
 
+#include <cstdlib>
+#include <filesystem>
+
 extern "C" {
 #include "mission_graph_runner.h"
+#include "modarchive.h"
 }
 
 namespace {
@@ -266,6 +270,46 @@ TEST_CASE("a mission graph the runner cannot execute is refused when it compiles
 		R"({ "from": "l", "to": "d" })"));
 	CHECK(ok.program != nullptr);
 	CHECK(missionGraphProgramExecEdgeCount(ok.program) == 0);
+}
+
+// Opt-in sweep (hidden from the default run): every .pdmission under
+// PD2_MISSION_GRAPH_ROOT must compile with the runner and wire the status
+// event to the message module, as the extractor writes it. Read-only.
+TEST_CASE("every mission graph under PD2_MISSION_GRAPH_ROOT compiles and runs its status message",
+	"[.][runner-sweep]")
+{
+	const char *root = std::getenv("PD2_MISSION_GRAPH_ROOT");
+	if (!root || !root[0]) {
+		WARN("PD2_MISSION_GRAPH_ROOT is not set; nothing to sweep");
+		return;
+	}
+	size_t checked = 0;
+	size_t wired = 0;
+	for (const auto &entry : std::filesystem::recursive_directory_iterator(root)) {
+		if (!entry.is_regular_file() || entry.path().extension() != ".pdmission") continue;
+		mod_archive_t *archive = modArchiveOpen(entry.path().string().c_str());
+		REQUIRE(archive != nullptr);
+		const s32 idx = modArchiveFindEntry(archive, "mission.graph.json");
+		u32 size = 0;
+		char *text = idx >= 0 ? static_cast<char *>(modArchiveExtractAlloc(archive, idx, &size)) : nullptr;
+		modArchiveClose(archive);
+		INFO(entry.path().string());
+		REQUIRE(text != nullptr);
+		Program p(std::string(text, size));
+		std::free(text);
+		INFO(p.error);
+		REQUIRE(p.program != nullptr);
+		checked++;
+		g_calls.clear();
+		const mission_graph_event_t event = statusEvent(MISSION_GRAPH_STATUS_COMPLETE);
+		if (missionGraphProgramFire(p.program, &event, runModule, nullptr) == 1 && g_calls.size() == 1 &&
+				g_calls[0].kind == "og.hud.objective_status_message") {
+			wired++;
+		}
+	}
+	WARN("compiled " << checked << " mission graphs under " << root << ", " << wired << " run the status message");
+	CHECK(checked > 0);
+	CHECK(wired == checked);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",
