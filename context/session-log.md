@@ -10259,3 +10259,36 @@ Next
   needs a rerun while the desktop is unlocked.
 - Pushing is still pending Mike; `week-pd/core` is 12 commits ahead of
   origin.
+
+## 2026-11-15 (07:00-08:05 UTC) - CORE: Mike's answers on the release, mods folder, test storage and pushing
+
+Mike's answers and what was done
+- v0.1.102: "go ahead and just remove it". The zip and its `.sha256` and
+  `.sig` were deleted from the GitHub release; the page, tag and the two
+  executables stay. Every other release zip (v0.0.34 to v0.1.16) is 27 to
+  35 MB, so only v0.1.102 shipped the extracted tree (B-1168).
+- B-1169: option A, fitted alongside the LocalAppData user mods folder MODS
+  shipped (91198952). One rule, `modsInstallRoots`, on the one-commit branch
+  `week-pd/installmods` (546263fe on a8ab67f3): the repository-root `mods`
+  only when the executable's parent holds `CMakeLists.txt` and `.git`, then
+  `<base>/mods`. Wired on core (07a69bca): `fsModRoots`, the mod manager's
+  folder creation, install-from-file and map import; MODS wires it into its
+  candidate list. `[b1169]` 3 cases; the B-1160 scan now refuses `./mods`.
+- Test installs: "on C:, but only one or two at a time, not wasting space".
+  The location file may carry its root's limits; a build's preflight is now
+  measured on the checkout's own drive (d28a28e7). CORE's untracked location
+  file puts storage at `C:/Users/mikeh/Perfect-Dark-2/pd2-smoke/core` with a
+  200 GiB floor, at most two installs (1.5 GiB) and a 2 GiB archive. C: has
+  about 204 GiB free, right at the floor plus the 4 GiB a run needs.
+- Push: "Commit and push all our work, consistently, from now on." Every
+  commit since is pushed; the memory note was updated.
+- `week-pd/runner` cfb308f6 carries 7A, 6B and the limits for the others.
+
+Verification
+- pd-tests 1,900/1,900; Python storage 26/26, reuse 17/17, retention OK;
+  PowerShell 7 storage 17, native consumer 27, owned process 22, runner
+  retention 47, build retention 81.
+
+Next
+- The first smoke from C: (boot_smoke) waits behind MULTIPLAYER's batch.
+- 2A, the v2 world-hit salvage.
