@@ -1,12 +1,15 @@
 /*
- * tests/test_net_team_limit_static.cpp -- static guards for B-1132: a
- * networked in-match team switch stays within the running scenario's teams.
+ * tests/test_net_team_limit_static.cpp -- static guards for team play
+ * (finding 8 of the multiplayer week plan).
  *
- * Capture the Case has 4 bases and 4-entry team arrays, but the port's
- * in-match team switch offered all 8 teams and the host accepted them. The
- * menu and the host check are too coupled to the menu system and the client
- * table for pd-tests to run, so these guards pin their shape in the source,
- * matched with comments blanked out.
+ * B-1132: Capture the Case has 4 bases and 4-entry team arrays, but the
+ * port's in-match team switch offered all 8 teams and the host accepted
+ * them. And Capture the Case teams start at their base: the original spawned
+ * players on their base's pads, while the PC's match-start orchestrator
+ * spread its team regions without looking at the bases. The menu, the host
+ * check and the orchestrator are too coupled to the menu system, the client
+ * table and the live spawn pool for pd-tests to run, so these guards pin
+ * their shape in the source, matched with comments blanked out.
  */
 
 #include "catch.hpp"
@@ -159,4 +162,29 @@ TEST_CASE("team limit: scenario callback lookups check the scenario index",
 		INFO("function " << signature);
 		REQUIRE(body.find("scenarioIndexIsValid(g_MpSetup.scenario)") != std::string::npos);
 	}
+}
+
+TEST_CASE("team start: the match-start orchestrator anchors Capture the Case teams on their bases",
+          "[net][teams][finding8]") {
+	const std::string orch = code_only(read_text_file("src/game/mplayer/mpspawn_orchestrate.c"));
+	const std::string scenarios = code_only(read_text_file("src/game/mplayer/scenarios.c"));
+	const std::string ctc = code_only(read_text_file("src/game/mplayer/scenarios/capturethecase.inc"));
+
+	// The base anchors replace the spread anchors, before the Voronoi regions are drawn
+	const size_t spread = orch.find("orch_compute_team_anchors(pool, &center, k_anchors, s_Anchors);");
+	const size_t base = orch.find("scenarioGetTeamSpawnAnchor(b, &base)");
+	const size_t voronoi = orch.find("s_VoronoiOwner[pi] = orch_voronoi_nearest_anchor(");
+	REQUIRE(spread != std::string::npos);
+	REQUIRE(base != std::string::npos);
+	REQUIRE(voronoi != std::string::npos);
+	REQUIRE(spread < base);
+	REQUIRE(base < voronoi);
+
+	const std::string dispatch = function_body(scenarios, "s32 scenarioGetTeamSpawnAnchor(s32 team, struct coord *out)\n{");
+	REQUIRE(dispatch.find("MPSCENARIO_CAPTURETHECASE") != std::string::npos);
+	REQUIRE(dispatch.find("ctcGetTeamSpawnAnchor(team, out)") != std::string::npos);
+
+	const std::string anchor = function_body(ctc, "s32 ctcGetTeamSpawnAnchor(s32 team, struct coord *out)\n{");
+	REQUIRE(anchor.find("g_ScenarioData.ctc.teamindexes[team]") != std::string::npos);
+	REQUIRE(anchor.find("scenarioPadIsInRoom(") != std::string::npos);
 }

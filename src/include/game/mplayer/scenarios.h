@@ -28,6 +28,8 @@ Gfx *scenarioRadarExtra(Gfx *gdl);
 bool scenarioRadarChr(Gfx **gdl, struct prop *prop);
 f32 scenarioChooseSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms, struct prop *prop);
 s32 scenarioGetMaxTeams(void);
+/* PC (finding 8): where a team starts the match (Capture the Case bases). */
+s32 scenarioGetTeamSpawnAnchor(s32 team, struct coord *out);
 void scenarioHighlightRoom(RoomNum room, s32 *arg1, s32 *arg2, s32 *arg3);
 
 /*

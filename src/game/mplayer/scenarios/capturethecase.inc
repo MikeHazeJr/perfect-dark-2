@@ -810,6 +810,37 @@ bool ctcChooseSpawnLocation(f32 arg0, struct coord *pos, RoomNum *rooms, struct 
 	return false;
 }
 
+/**
+ * PC (T-NETWORKING-011, finding 8): where a team starts the match. The
+ * original placed every player on its team's base pads at match start
+ * (ctcChooseSpawnLocation); the PC's match-start orchestrator assigns spawns
+ * by team region instead, so it asks for each team's base to anchor that
+ * team's region on. False for a team with no base.
+ */
+s32 ctcGetTeamSpawnAnchor(s32 team, struct coord *out)
+{
+	s32 slot;
+	struct pad pad;
+
+	if (out == NULL || team < 0 || team >= (s32)ARRAYCOUNT(g_ScenarioData.ctc.teamindexes)) {
+		return false;
+	}
+
+	slot = g_ScenarioData.ctc.teamindexes[team];
+
+	if (slot < 0 || slot >= CTC_NUM_BASES
+			|| !scenarioPadIsInRoom(g_ScenarioData.ctc.spawnpadsperteam[slot].homepad)) {
+		return false;
+	}
+
+	padUnpack(g_ScenarioData.ctc.spawnpadsperteam[slot].homepad, PADFIELD_POS, &pad);
+	out->x = pad.pos.x;
+	out->y = pad.pos.y;
+	out->z = pad.pos.z;
+
+	return true;
+}
+
 s32 ctcGetMaxTeams(void)
 {
 	return 4;

@@ -1710,6 +1710,21 @@ s32 scenarioGetMaxTeams(void)
 }
 
 /**
+ * PC (T-NETWORKING-011, finding 8): the match-start position a team's spawn
+ * region should be anchored on, for scenarios whose teams start at a base
+ * (Capture the Case). False when the scenario has no such place for the
+ * team; the orchestrator then keeps its own spread-out anchor.
+ */
+s32 scenarioGetTeamSpawnAnchor(s32 team, struct coord *out)
+{
+	if (!g_Vars.normmplayerisrunning || g_MpSetup.scenario != MPSCENARIO_CAPTURETHECASE) {
+		return false;
+	}
+
+	return ctcGetTeamSpawnAnchor(team, out);
+}
+
+/**
  * This callback is unused.
  */
 bool scenarioIsRoomHighlighted(RoomNum room)

@@ -20,6 +20,7 @@
 #include "game/mplayer/mplayer.h"
 #include "game/mplayer/mpspawn_orchestrate.h"
 #include "game/mplayer/mpspawn_hungarian.h"
+#include "game/mplayer/scenarios.h"
 #include "game/player.h"
 #include "game/playermgr.h"
 #include "game/chr.h"
@@ -519,6 +520,33 @@ enum mp_orchestrate_spawn_result mpOrchestrateMatchStartSpawns(void)
 
 	k_anchors = num_sectors;
 	orch_compute_team_anchors(pool, &center, k_anchors, s_Anchors);
+
+	/* PC (T-NETWORKING-011, finding 8): a scenario whose teams start at a
+	 * base (Capture the Case) anchors each team's sector on that base, so
+	 * teams start at home as in the original, which spawned them on their
+	 * base's pads. Sector s is the s-th active team bit, as in
+	 * orch_team_bits_to_sector. A team without a base keeps the spread
+	 * anchor above. */
+	if (num_sectors >= 2) {
+		s32 b;
+		s32 s = 0;
+
+		for (b = 0; b < 4 && s < k_anchors; b++) {
+			struct coord base;
+
+			if (!(active_mask & (1u << b))) {
+				continue;
+			}
+
+			if (scenarioGetTeamSpawnAnchor(b, &base)) {
+				s_Anchors[s] = base;
+				sysLogPrintf(LOG_NOTE, "SPAWN.ORCH: team %d starts at its base (%.0f, %.0f)",
+					b, base.x, base.z);
+			}
+
+			s++;
+		}
+	}
 
 	for (pi = 0; pi < pool->count && pi < SPAWNPOOL_MAX; pi++) {
 		s_VoronoiOwner[pi] = orch_voronoi_nearest_anchor(

@@ -1,5 +1,20 @@
 # Bug Tracker
 
+## 2026-11-15 B-1134 Capture the Case teams started the match anywhere instead of at their base (T-NETWORKING-011, finding 8)
+
+Severity medium (the mode starts wrong; respawns were right). The original placed every player on its
+team's base pads at match start (`ctcChooseSpawnLocation`). The PC's match-start orchestrator
+(`mpOrchestrateMatchStartSpawns`, `src/game/mplayer/mpspawn_orchestrate.c`) assigns all
+participants with a Hungarian solve around team anchors that it spreads as far apart as the spawn
+pool allows, and never asked the scenario, so in Capture the Case a team could start next to the
+other team's base. Respawns already went through `ctcChooseSpawnLocation`. Fix: the orchestrator
+asks `scenarioGetTeamSpawnAnchor` for each active team and, for Capture the Case, anchors that
+team's region on its base's home pad (`ctcGetTeamSpawnAnchor`), before the team regions are drawn;
+logged as `SPAWN.ORCH: team N starts at its base`. A team without a base keeps the spread anchor.
+The bases are set by `ctcInitProps` during stage setup, before the orchestrator runs (checked in the
+Capture the Case net smoke logs). Other scenarios are unchanged. Pinned in
+`tests/test_net_team_limit_static.cpp`; game check: the Capture the Case smokes count the line.
+
 ## 2026-11-15 B-1133 The capsule sweep classified a hit by geometry its collision test never recorded (T-NETWORKING-011)
 
 Severity high (a crash, intermittent, in any mode; plus wrong hit classification). Seen in
