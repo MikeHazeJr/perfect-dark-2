@@ -1758,6 +1758,13 @@ void setupLoadFiles(s32 stagenum)
 		g_ModelStates[i].modeldef = NULL;
 	}
 
+	/* B-1157: a custom slot's world scale belongs to the model loaded into it
+	 * (setupLoadModeldef sets it), so a recycled slot does not keep the last
+	 * model's scale. */
+	for (i = MODEL_CUSTOM_START; i < MODEL_CUSTOM_END; i++) {
+		g_ModelStates[i].scale = 0;
+	}
+
 	if (STAGE_IS_GAMEPLAY(stagenum)) {
 		catalogGetStageResultByIndex(g_StageIndex, &stage);
 

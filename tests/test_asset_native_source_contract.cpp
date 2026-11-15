@@ -1430,6 +1430,18 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scene_renderer.find("\"  v_Color = pdRoomLit(a_Color);\\n\"") != std::string::npos);
 	REQUIRE(scene_renderer.find("float extra = l1.w > 0.5 ? 0.0 : min(l0.y, 285.0 - m);") !=
 	        std::string::npos);
+	{
+		// B-1157: a custom model slot takes its catalog model scale when its
+		// model loads, and the stage reset clears it with the modeldef.
+		const std::string setuputils = readTextFile("src/game/setuputils.c");
+		const std::string setup = readTextFile("src/game/setup.c");
+		REQUIRE(setuputils.find("if (modelnum >= MODEL_CUSTOM_START && modelnum < MODEL_CUSTOM_END) {\n\t\t\tconst f32 declared = model_result.entry && model_result.entry->model_scale > 0.0f") !=
+		        std::string::npos);
+		requireTokenOrder(setuputils, "modelAllocateRwData(g_ModelStates[modelnum].modeldef);",
+			"g_ModelStates[modelnum].scale = units < 1 ? 1");
+		REQUIRE(setup.find("for (i = MODEL_CUSTOM_START; i < MODEL_CUSTOM_END; i++) {\n\t\tg_ModelStates[i].scale = 0;") !=
+		        std::string::npos);
+	}
 	// B-1172: the stage fog, started for each scene pass as for the BG rooms
 	// and applied with gfx_sp_vertex's formula.
 	REQUIRE(bg_runtime.find("gdl = envStartFog(gdl, false);\n\t\tgSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_OPAQUE);\n\t\tgdl = envStopFog(gdl);") !=

@@ -328,6 +328,21 @@ bool setupLoadModeldef(s32 modelnum)
 
 		modelAllocateRwData(g_ModelStates[modelnum].modeldef);
 
+		/* B-1157: a custom slot has no row in the static model table, so its
+		 * world scale stayed 0 and objInit sized every object made from it to
+		 * nothing (not drawn, no collision size). It takes its catalog entry's
+		 * model scale (1.0 unless the asset declares one), in the table's
+		 * 1/4096 units. */
+		if (modelnum >= MODEL_CUSTOM_START && modelnum < MODEL_CUSTOM_END) {
+			const f32 declared = model_result.entry && model_result.entry->model_scale > 0.0f
+				? model_result.entry->model_scale : 1.0f;
+			const s32 units = (s32)(declared * 4096.0f + 0.5f);
+
+			g_ModelStates[modelnum].scale = units < 1 ? 1 : (units > 0xffff ? 0xffff : (u16)units);
+			sysLogPrintf(LOG_NOTE, "MODEL.SLOT: custom slot %d '%s' world scale %.3f (%d/4096)",
+				modelnum, model_id ? model_id : "?", (double)declared, (s32)g_ModelStates[modelnum].scale);
+		}
+
 		/* S483b (2026-04-27): probe the freshly-loaded model's rodata tree
 		 * once and warn if any node is unreadable.  See
 		 * setupValidateModeldefRodata above. */
