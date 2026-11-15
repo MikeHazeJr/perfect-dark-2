@@ -86,7 +86,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -7056,7 +7056,8 @@ static s32 s_loadBgPrimary(const u8 *bg, u32 bg_size, u8 **out_primary,
 /*
  * Per-stage room and light rules (decision 1, CORE, 2026-11-15). The game
  * kept these as stage checks in roomInitLights and the light setup
- * (src/game/dlights.c). They now travel on the stage's own rooms.json and
+ * (src/game/dlights.c) and in the room matrix and portal-less screen test
+ * (src/game/room.c, src/game/bg.c). They now travel on the stage's own rooms.json and
  * portals.json rows, which the scenario-source path reads, so an authored
  * level can set the same things. The conditions are the original ones: the
  * always-drawn rooms by stage table index, everything else by stage number.
@@ -7074,6 +7075,26 @@ static s32 s_stageRoomRenderAlways(s32 stage_idx, u32 roomnum)
 		|| ((stage_idx == STAGEINDEX_SKEDARRUINS || stage_idx == STAGEINDEX_WAR)
 			&& roomnum == 0x0002) /* fake sky */
 		|| (stage_idx == STAGEINDEX_TEST_OLD && roomnum == 0x0001)
+		|| (stage_idx == STAGEINDEX_ATTACKSHIP && roomnum == 0x0071); /* planet */
+}
+
+/* A sky room: drawn relative to the player instead of at its world position,
+ * so it never gets closer (roomPopulateMtx, src/game/room.c), and left out of
+ * the screen test on a stage without portals (bgTickPortals, src/game/bg.c).
+ * The rooms are room.c's: the render_always ones without the old test stage.
+ * bg.c's portal-less pass names fewer (not Maian SOS, WAR! or Mr. Blonde's
+ * Revenge), but every one of those stages has portals, so it never runs for
+ * them; a scenario-source stage uses this one rule for both. */
+static s32 s_stageRoomSky(s32 stage_idx, u32 roomnum)
+{
+	return ((stage_idx == STAGEINDEX_INFILTRATION || stage_idx == STAGEINDEX_RESCUE
+				|| stage_idx == STAGEINDEX_ESCAPE || stage_idx == STAGEINDEX_MAIANSOS)
+			&& roomnum == 0x000f) /* freight elevator shaft */
+		|| ((stage_idx == STAGEINDEX_SKEDARRUINS || stage_idx == STAGEINDEX_WAR)
+			&& roomnum == 0x0002) /* fake sky */
+		|| ((stage_idx == STAGEINDEX_DEFECTION || stage_idx == STAGEINDEX_EXTRACTION
+				|| stage_idx == STAGEINDEX_MBR)
+			&& roomnum == 0x0001) /* moon */
 		|| (stage_idx == STAGEINDEX_ATTACKSHIP && roomnum == 0x0071); /* planet */
 }
 
@@ -7125,6 +7146,10 @@ static s32 s_appendRoomRuleFields(pdscenario_textbuf_t *out, s32 stagenum,
 
 	if (s_stageRoomRenderAlways(stage_idx, roomnum) &&
 			s_textbufAppend(out, ", \"render_always\": true") != 0) {
+		return -1;
+	}
+	if (s_stageRoomSky(stage_idx, roomnum) &&
+			s_textbufAppend(out, ", \"sky\": true") != 0) {
 		return -1;
 	}
 	if (base >= 0 &&
@@ -7514,7 +7539,7 @@ static s32 s_buildBgRoomTableJson(const u8 *bg, u32 bg_size,
 	if (s_textbufAppend(out,
 			"{\n"
 			"  \"schema\": \"pd2.scenario.rooms.v1\",\n"
-			"  \"note\": \"Authored per-room table from the background file. origin, min and max are world coordinates. A pad belongs to a room when it is inside the min/max box in x and z and at or above its minimum y. The light quads in room_lights.json are relative to their room's origin. brightness is the room's [minimum, maximum] light level, 0 to 255: the minimum (divided by 4) is what is left when its lights are out. Optional rules on a row: render_always true draws the room from anywhere (a sky, a moon, a shaft); base_brightness replaces the room's base light level (0 to 255); lights_unshootable true keeps every light of the room from being shot out; unshootable_lights lists the indexes (0 to 63, in room_lights.json order) of the lights that cannot be.\",\n"
+			"  \"note\": \"Authored per-room table from the background file. origin, min and max are world coordinates. A pad belongs to a room when it is inside the min/max box in x and z and at or above its minimum y. The light quads in room_lights.json are relative to their room's origin. brightness is the room's [minimum, maximum] light level, 0 to 255: the minimum (divided by 4) is what is left when its lights are out. Optional rules on a row: render_always true draws the room from anywhere (a sky, a moon, a shaft); sky true draws it relative to the player instead of at its world position, so it never gets closer, and leaves it out of the screen test on a stage without portals; base_brightness replaces the room's base light level (0 to 255); lights_unshootable true keeps every light of the room from being shot out; unshootable_lights lists the indexes (0 to 63, in room_lights.json order) of the lights that cannot be.\",\n"
 			"  \"rows\": [\n") != 0) {
 		goto fail;
 	}
@@ -8130,7 +8155,7 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 		s_existingArchiveEntryContains(relpath, "rooms.json",
 			"\"origin\": [") &&
 		s_existingArchiveEntryContains(relpath, "rooms.json",
-			"Optional rules on a row: render_always") &&
+			"sky true draws it relative to the player") &&
 		s_existingArchiveHasEntry(relpath, "pads.json") &&
 		s_existingArchiveHasEntry(relpath, "spawns.json") &&
 		s_existingArchiveHasEntry(relpath, "volumes.json") &&

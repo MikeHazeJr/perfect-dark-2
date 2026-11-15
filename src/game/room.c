@@ -5,6 +5,8 @@
 #include "lib/mtx.h"
 #include "data.h"
 #include "types.h"
+#include "game/bg.h"
+#include "scenario_source_runtime.h"
 
 /**
  * Room matrices
@@ -98,6 +100,7 @@ s32 roomAllocateMtx(void)
 void roomPopulateMtx(Mtxf *mtx, s32 roomnum)
 {
 	s32 stagenum = g_Vars.stagenum;
+	bool sky;
 
 	mtx4LoadIdentity(mtx);
 
@@ -108,7 +111,13 @@ void roomPopulateMtx(Mtxf *mtx, s32 roomnum)
 	// These are rooms that are always active, such as the moon in Defection.
 	// This is probably making those rooms always drawn a certain distance away
 	// relative to the camera, so the moon never gets bigger as you go closer.
-	if (((stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
+	// A stage built from scenario source names them with the sky field of its
+	// rooms.json rows (scenario_source_runtime.c); the stage checks stay for a
+	// stage built from the ROM background.
+	if (bgUsesScenarioSource()) {
+		sky = scenarioSourceRoomSky(roomnum);
+	} else {
+		sky = ((stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
 					|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
 					|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
 					|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id) && roomnum == 0x0f)
@@ -117,7 +126,10 @@ void roomPopulateMtx(Mtxf *mtx, s32 roomnum)
 			|| ((stagenum == g_Stages[STAGEINDEX_DEFECTION].id
 					|| stagenum == g_Stages[STAGEINDEX_EXTRACTION].id
 					|| stagenum == g_Stages[STAGEINDEX_MBR].id) && roomnum == 0x01)
-			|| (stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id && roomnum == 0x71)) {
+			|| (stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id && roomnum == 0x71);
+	}
+
+	if (sky) {
 		mtx->m[3][0] = g_BgRooms[roomnum].pos.x;
 		mtx->m[3][1] = g_BgRooms[roomnum].pos.y;
 		mtx->m[3][2] = g_BgRooms[roomnum].pos.z;
