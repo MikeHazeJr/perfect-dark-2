@@ -281,6 +281,23 @@ Foundation, in order. Each step lands with tests that run in CI.
    the install folder reachable as `./mods` and `$E/mods` is read once.
    Not covered by a run: a launch without `--portable`/`--savedir` (it
    would write to the real LocalAppData).
+   NEXT, with CORE (Mike, 2026-11-15): CORE implements option A for the
+   install's mods root (B-1169: without `--moddir` the client tried
+   `$E/../mods` first and ran the one-time folder migration there, which
+   could rename another game's mods). Option A: a player install uses only
+   the mods folder next to the game (`$E/mods`); a source-checkout build
+   keeps the repo-root folder; both alongside the LocalAppData user folder.
+   Overlap: CORE's B-1160 (90b9acda on `week-pd/core`) already moved the
+   root list into `fsModRoots()` in `fs.c`, which fonts, themes and the
+   migration bench walk too, and rewrote the same block of
+   `modmgrScanDirectory` that 91198952 rewrote here. Proposed to CORE: the
+   user folder becomes entry 0 of `fsModRoots()` (the one writable root,
+   named and created by `mods_roots.c`), option A supplies the install
+   roots after it, and the dedupe log, the user-folder-last component scans
+   and the two direct writers of 91198952 stay. Whichever lands in dev
+   second rebases on the other; until CORE answers, nothing here changes.
+   In my change the migration already runs in the user folder, not in
+   `$E/../mods`, unless the user folder cannot be created.
    The proposal as it was:
    - Writable user root: `$S/mods`. `$S` is already where saves live "so
      they persist across game updates and reinstalls" (`fs.c`):
