@@ -1,5 +1,21 @@
 # Bug Tracker
 
+## 2026-11-15 B-1186 The forced first-person look put the camera 159 units too high (T-MODDING-008)
+
+Severity low (smoke tooling only; no shipped path uses it). Found when the
+crystal pistol smokes that use `--debug-force-first-person-look` fired
+crystals from 130 units above the camera: they started inside or above the
+ceiling, never touched the room geometry and flew out of the world
+(`freed ... at=(986,-18082,32319) landed=0`). `bootDebugForceFirstPersonPreRenderTick`
+(`port/src/main.c`) built the forced camera position as the player prop
+position plus `vv_eyeheight`, but the player's prop already sits at eye
+height (spawns place it at ground + `vv_eyeheight` in `player.c`), so the eye
+height was counted twice. Since shots, muzzle positions and the bot placement
+hook all derive from the forced camera, every gameplay check under a forced
+look ran from the wrong place. Fix: the prop position is the camera position.
+Only the crystal pistol smokes use the flag (it was added for screenshots in
+957ad3a2), so no other fixture moves.
+
 ## 2026-11-15 B-1185 A held mod gun with six or more display lists overwrote the hand's data (T-MODDING-008)
 
 Severity high (silent memory corruption; latent until a mod gun has enough

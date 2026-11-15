@@ -3469,8 +3469,12 @@ s32 bootDebugForceFirstPersonPreRenderTick(void)
 		struct coord pos = g_Vars.currentplayer->cam_pos;
 		struct coord up = {0.0f, 1.0f, 0.0f};
 		if (g_Vars.currentplayer->prop) {
+			/* B-1186: the player's prop already sits at eye height (spawns
+			 * place it at ground + vv_eyeheight, player.c), so it is the
+			 * first-person camera position. Adding vv_eyeheight again put
+			 * the forced camera 159 units up, inside or above the ceiling,
+			 * and shots fired from it flew out of the world. */
 			pos = g_Vars.currentplayer->prop->pos;
-			pos.y += g_Vars.currentplayer->vv_eyeheight;
 		}
 		if (g_BootDebugForceFirstPersonCamOffset) {
 			pos.x += g_BootDebugForceFirstPersonCamOffsetVec.x;
