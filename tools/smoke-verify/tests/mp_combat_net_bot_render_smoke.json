@@ -1,0 +1,142 @@
+{
+  "scenario_name": "mp_combat_net_bot_render_smoke",
+  "description": "Do networked clients draw simulants? (Finding 3 of the multiplayer week plan: a non-authority client returns from botTick before chrTick, and bot.c records that skipping chrTick once made bots invisible.) A listen host and one client on loopback, Felicity, one simulant. The host keeps the simulant 80 to 240 units in front of the client's player (--debug-place-bot-near-player-num 1, held 30 s), and the client takes four screenshots 2 s apart. The assertions only prove the placement and the shots; the BMPs in the install are the evidence and are read by eye.",
+  "tags": [
+    "network",
+    "combatsim",
+    "bots",
+    "render",
+    "multiplayer-modes"
+  ],
+  "paths_of_interest": [
+    "src/game/bot.c",
+    "src/game/prop.c",
+    "port/src/main.c",
+    "port/src/net/netmsg.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 600,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27248",
+        "--launch-mp-room",
+        "base:arena_mp_felicity",
+        "base:combat",
+        "1",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "120",
+        "--debug-place-bot-near-player",
+        "--debug-place-bot-near-player-num",
+        "1",
+        "--debug-place-bot-near-player-hold-sec",
+        "30"
+      ],
+      "wait_for": "NET: created server on port 27248",
+      "wait_timeout_seconds": 120,
+      "smoke_path": "tools/smoke-verify/fixtures/mp_combat_net_bot_render_host.json"
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27248"
+      ],
+      "smoke_path": "tools/smoke-verify/fixtures/mp_combat_net_bot_render_client.json"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "BOOT: --listen-bind armed: port=27248",
+      "BOOT: --connect-host armed: addr='127.0.0.1:27248'",
+      "BOOT: --host-autostart armed",
+      "BOOT: --listen-bind consumed: port=27248 .*result=OK rc=0",
+      "BOOT: --connect-host consumed: addr='127.0.0.1:27248' result=OK rc=0",
+      "NET: created server on port 27248",
+      "NET: connecting to 127\\.0\\.0\\.1:27248",
+      "NET: incoming connection",
+      "NET: connected to server, sending CLC_AUTH",
+      "NET: client slot \\d+ assigned to peer",
+      "BOOT: --host-autostart firing",
+      "BOOT: --host-autostart consumed: result=OK rc=0",
+      "MANIFEST-SP: load 'base:arena_mp_felicity'",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "MATCH: player spawned slot=0",
+      "MATCH: player spawned slot=1",
+      "BOOT: --launch-mp-room arena='base:arena_mp_felicity' scenario='base:combat' bots=1",
+      "BOOT: --debug-place-bot-near-player-num armed: player=1",
+      "BOOT: --debug-place-bot-near-player consumed: .* result=OK ",
+      "BOOT: --debug-place-bot-near-player hold complete: bot=",
+      "SMOKE: screenshot at_ms=[0-9]+ -> bot_render_client_1\\.bmp",
+      "SMOKE: screenshot at_ms=[0-9]+ -> bot_render_client_4\\.bmp",
+      "PARTICIPANTS: 3 active \\(2 players, 1 bots\\)"
+    ],
+    "forbidden_patterns": [
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "NET: could not init ENet, disabling networking",
+      "NET: could not create ENet host on port \\d+",
+      "NET: could not connect to ",
+      "NET: connection rejected: protocol mismatch",
+      "BOOT: --listen-bind cannot fire:",
+      "BOOT: --connect-host cannot fire:",
+      "BOOT: --listen-bind consumed: port=27248 .*result=FAILED",
+      "BOOT: --connect-host consumed: addr='127\\.0\\.0\\.1:27248' result=FAILED",
+      "BOOT: --host-autostart consumed: result=FAILED",
+      "MATCHSETUP: cannot resolve stage ",
+      "MATCHSETUP: no players configured",
+      "MATCHSTART\\.DIAG: BAILED",
+      "MATCHSTART\\.DIAG: abort reason=",
+      "CATALOG\\.LIFECYCLE\\.LOAD: .*type mismatch",
+      "MANIFEST-SP: load failed 'base:arena_mp_felicity'",
+      "MANIFEST\\.LIFECYCLE\\.(REJECT|ROLLBACK)",
+      "MANIFEST-(SP|MP): .*rejected; current manifest preserved",
+      "SPAWN.ORCH: no pool slot",
+      "SPAWN.ORCH:.*unresolved duplicate",
+      "SPAWN: could not resolve room",
+      "MENU: watchdog",
+      "MENUPOOL legacy-stack leak",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "BOT\\.PICKUP: client skipped",
+      "NET: malformed or unknown message 0x4[dD]",
+      "BOOT: --debug-place-bot-near-player timed out",
+      "hold complete: .*result=DEGRADED"
+    ],
+    "required_counts": [
+      {
+        "pattern": "NET: created server on port 27248",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE: screenshot at_ms=",
+        "min": 4,
+        "max": 4
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit",
+        "min": 1
+      }
+    ]
+  }
+}

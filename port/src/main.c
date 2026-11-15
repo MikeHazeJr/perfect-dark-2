@@ -450,6 +450,10 @@ static const char *g_BootDebugSpawnWeapon = NULL;
 static const char *g_BootDebugBotBody = NULL;
 static const char *g_BootDebugBotHead = NULL;
 static bool        g_BootDebugPlaceBotNearPlayer = false;
+/* T-NETWORKING-011: --debug-place-bot-near-player-num <n> (default 0) puts
+ * the bot in front of player n instead of player 0. On a listen host, player 1
+ * is the client's player, so a client screenshot can show a simulant. */
+static s32         g_BootDebugPlaceBotNearPlayerNum = 0;
 static s32         g_BootDebugPlaceBotNearPlayerPending = 0;
 static s32         g_BootDebugPlaceBotNearPlayerFrames = 0;
 static s32         g_BootDebugPlaceBotNearPlayerReadyFrames = 0;
@@ -3184,8 +3188,22 @@ s32 bootDebugSpawnAtTick(void)
 	return 1;
 }
 
+/* The player this hook switched away from when it targets a player other than
+ * 0; bootDebugPlaceBotNearPlayerRestorePlayer, called right after the hook,
+ * switches back so the rest of the frame keeps its own current player. */
+static s32 s_BootDebugPlaceBotNearPlayerPrevPlayer = -1;
+
+void bootDebugPlaceBotNearPlayerRestorePlayer(void)
+{
+	if (s_BootDebugPlaceBotNearPlayerPrevPlayer >= 0) {
+		setCurrentPlayerNum(s_BootDebugPlaceBotNearPlayerPrevPlayer);
+		s_BootDebugPlaceBotNearPlayerPrevPlayer = -1;
+	}
+}
+
 s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 {
+	const s32 targetplayer = g_BootDebugPlaceBotNearPlayerNum;
 	struct chrdata *bot = NULL;
 	struct prop *playerprop = NULL;
 	struct coord target;
@@ -3206,11 +3224,15 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 	if (g_Vars.lvframenum < 4) {
 		return 0;
 	}
-	if (!g_Vars.players[0] || !g_Vars.players[0]->prop || !g_Vars.players[0]->prop->chr) {
+	if (!g_Vars.players[targetplayer] || !g_Vars.players[targetplayer]->prop
+			|| !g_Vars.players[targetplayer]->prop->chr) {
 		return 0;
 	}
 
-	setCurrentPlayerNum(0);
+	if (targetplayer != 0 && g_Vars.currentplayernum != targetplayer) {
+		s_BootDebugPlaceBotNearPlayerPrevPlayer = g_Vars.currentplayernum;
+	}
+	setCurrentPlayerNum(targetplayer);
 	if (!g_Vars.currentplayer || !g_Vars.currentplayer->prop) {
 		return 0;
 	}
@@ -4416,6 +4438,20 @@ int main(int argc, const char **argv)
 				g_BootDebugPlaceBotNearPlayerHoldDurationMs =
 					(u32)seconds * 1000u;
 			}
+		}
+	}
+	if (sysArgCheck("--debug-place-bot-near-player-num")) {
+		const s32 num = sysArgGetInt("--debug-place-bot-near-player-num", -1);
+
+		if (!g_BootDebugPlaceBotNearPlayer) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-place-bot-near-player-num requires --debug-place-bot-near-player; ignored");
+		} else if (num < 0 || num >= MAX_PLAYERS) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-place-bot-near-player-num expects 0..%d; ignored", MAX_PLAYERS - 1);
+		} else {
+			g_BootDebugPlaceBotNearPlayerNum = num;
+			sysLogPrintf(LOG_NOTE, "BOOT: --debug-place-bot-near-player-num armed: player=%d", num);
 		}
 	}
 	{
