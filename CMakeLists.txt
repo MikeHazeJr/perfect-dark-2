@@ -981,8 +981,6 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_actionmap_names_static.cpp
   # B-1160: config saves name their folder; one list of mod roots.
   ${CMAKE_SOURCE_DIR}/tests/test_save_paths_static.cpp
-  # Custom (graph) projectiles log their spawn and their landing.
-  ${CMAKE_SOURCE_DIR}/tests/test_custom_projectile_log_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/actionmap_profile.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_input_device_identity.cpp
   ${CMAKE_SOURCE_DIR}/port/src/input_device_identity.cpp
@@ -1010,6 +1008,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_settings_input_tab_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_pdgui_input_profile_state.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_smoke_input_events_static.cpp
+  # Custom (graph) projectiles log their spawn and their landing.
+  ${CMAKE_SOURCE_DIR}/tests/test_custom_projectile_log_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_action_read_authority.cpp
   ${CMAKE_SOURCE_DIR}/port/src/action_read_authority.c
   ${CMAKE_SOURCE_DIR}/tests/test_smoke_readiness.cpp
