@@ -11,6 +11,13 @@ extern "C" {
 /* The source/provider interface uses signed 32-bit byte counts. */
 #define MODASSET_GLTF_DOCUMENT_LIMIT 2147483647u
 
+/* Complete glTF document admission, including required feature support.
+ * Unsupported minimum versions, required extensions, sparse overlays and
+ * normalized accessors reject before conversion. Optional extensions retain
+ * their standard fallback behavior. Diagnostics clear on success. */
+s32 modAssetGltfDocumentValidate(const char *json, size_t json_size,
+    char *error, size_t error_cap);
+
 /* Strict, complete glTF 2.0 JSON with one buffer and nonempty bounded views.
  * GLB requires an absent URI. Text glTF requires one. Outputs remain empty on
  * rejection. Embedded data URIs may require json_size + 1 output capacity. */
@@ -41,7 +48,8 @@ namespace crude_json { struct value; }
 bool modAssetJsonReadValue(const char *json, size_t json_size,
     crude_json::value &out) noexcept;
 /* Shared strict parsed tree for C++ source consumers. Requires an object with
- * asset.version 2.0; detailed buffer and scene validation remain separate. */
+ * asset.version 2.0 and implemented required features; detailed buffer and
+ * scene validation remain separate. */
 bool modAssetGltfReadDocument(const char *json, size_t json_size,
     crude_json::value &out) noexcept;
 }
