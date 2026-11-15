@@ -286,6 +286,11 @@ Progress log:
   `chraTick` skips the AI and actions); clients will see the stand animation while a simulant moves until the host's
   animation state is replicated. Render re-run queued. Side observation for CORE: the client's own room (33, Felicity)
   was drawn black in those shots.
+- First rejoin turn (binary 71486ce2): `mp_hacker_central_reconnect_smoke` 119/119; `mp_hold_the_briefcase_reconnect_smoke`
+  118/119 with the reconnect complete end to end (the rejoined client takes the host's briefcase state twice and
+  fires). Its one miss was a race in the ordered sequence inherited from `network_reconnect_smoke`: a 440 ms host frame
+  between the weapon retire and the scripted timeout let the 250 ms retired-weapon check log before the preserve.
+  3276bcce takes that check out of the ordered sequence in all six reconnect smokes (it stays a required line).
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
