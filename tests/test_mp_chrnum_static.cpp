@@ -1,7 +1,9 @@
 /*
- * tests/test_mp_chrnum_static.cpp -- static guards for B-1136: an mpchrnum
- * (players 0..MAX_PLAYERS-1, then simulants) resolves to its slot in
- * g_MpAllChrConfigPtrs with the port's player count, not the N64's 4.
+ * tests/test_mp_chrnum_static.cpp -- static guards for multiplayer
+ * participants. B-1136: an mpchrnum (players 0..MAX_PLAYERS-1, then
+ * simulants) resolves to its slot in g_MpAllChrConfigPtrs with the port's
+ * player count, not the N64's 4. Finding 10: a challenge started outside the
+ * Room's match start still has the local player as a participant.
  *
  * func0f18d0e8 did the lookup with the N64 boundary, so with MAX_PLAYERS at 8
  * every simulant looked up the config four slots further on. Pop a Cap and
@@ -154,4 +156,21 @@ TEST_CASE("mpchrnum lookup: the scenario scores pass an mpchrnum to it",
 		REQUIRE(guard != std::string::npos);
 		REQUIRE(points != std::string::npos);
 	}
+}
+
+TEST_CASE("challenge launch: the local player joins before the simulants",
+          "[mplayer][challenges][finding10]") {
+	const std::string body = function_body(code_only(read_text_file("port/src/net/matchsetup.c")),
+		"s32 matchStartFromChallenge(s32 slot)\n{");
+
+	const size_t apply = body.find("challengeSetCurrentBySlot(slot);");
+	const size_t clear = body.find("mpClearAllParticipants();", apply);
+	const size_t player = body.find("mpAddParticipantAt(0, PARTICIPANT_LOCAL, 0, 0, 0);", clear);
+	const size_t simulants = body.find("challengePerformSanityChecks();", player);
+	const size_t start = body.find("mpStartMatch();", simulants);
+	REQUIRE(apply != std::string::npos);
+	REQUIRE(clear != std::string::npos);
+	REQUIRE(player != std::string::npos);
+	REQUIRE(simulants != std::string::npos);
+	REQUIRE(start != std::string::npos);
 }

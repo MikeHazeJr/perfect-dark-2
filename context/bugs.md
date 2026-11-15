@@ -1,5 +1,21 @@
 # Bug Tracker
 
+## 2026-11-15 B-1137 A challenge started from the challenge screen had no player in it (T-NETWORKING-011, finding 10)
+
+Severity high for challenges (the mode does not work from a fresh session; no crash). Seen in the
+first run of `mp_challenge_local_smoke` (`results-20261115T133628Z.json`, 27/30): Challenge 1
+started, ran to its time limit and showed its end screen, but `PARTICIPANTS: 1 active (0 players,
+1 bots)` and the results listed only the simulant. `matchStartFromChallenge`
+(`port/src/net/matchsetup.c`), used by both the ImGui challenge screen and `--launch-challenge`,
+applies the challenge, adds its simulants (`challengePerformSanityChecks`, ea187a63) and calls
+`mpStartMatch`, but the local player becomes a participant only in the Room's match start
+(`matchStartCommit`), which this path skips. So the player spawned in the arena without being in
+the match: no score, no result, and the simulant count was chosen for "one player" only by the
+fallback in the sanity check. Fix: the launch clears the participant table and adds the local
+player in slot 0 on team 0 (`challengeApply` sets every player's team to 0) before the simulants
+are added. Pinned in `tests/test_mp_chrnum_static.cpp` (`[finding10]`). Game check: the challenge
+smoke requires `PARTICIPANTS: 2 active (1 players, 1 bots)` and two result lines.
+
 ## 2026-11-15 B-1136 Simulants never scored their Pop a Cap or Hacker Central points (T-NETWORKING-011, SP-82)
 
 Severity medium (wrong scores and rankings in two modes, local and networked; no crash). Seen in

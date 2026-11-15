@@ -244,6 +244,11 @@ Progress log:
   final score was 0. Cause B-1136 (the mpchrnum lookup used the N64's 4 as the player/simulant boundary, so no
   simulant's Pop a Cap or Hacker Central points ever counted), fixed in 9d0bfc32, not yet run in game. New SP-82 for
   the class.
+- Third runtime turn so far (binary 82ae8985, the 05:32 build): `mp_combat_net_bot_render_smoke` 59/59
+  (`results-20261115T132935Z.json`; the screenshots are read by eye, next entry); `mp_challenge_local_smoke` 27/30
+  (`results-20261115T133628Z.json`): `--launch-challenge 0` started Challenge 1 on Skedar with its simulant, ran to the
+  time limit and the end screen, but with no player in the match (B-1137: the challenge launch never made the local
+  player a participant). Fixed; re-run queued.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
