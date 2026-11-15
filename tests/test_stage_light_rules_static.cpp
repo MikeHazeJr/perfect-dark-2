@@ -5,9 +5,11 @@
 // always drawn (a sky, a moon, a shaft, a planet), one room forced dark,
 // firing-range and comms-hub lights that cannot be shot out, and two portals
 // that light must not flood through, one that counts as open for light. The
-// extractor now writes them as optional fields on each stage's rooms.json and
-// portals.json rows, a stage built from scenario source reads them there, and
-// the stage checks stay only for a stage built from the ROM background.
+// same sky rooms are drawn relative to the player (room.c roomPopulateMtx)
+// and left out of the portal-less screen test (bg.c). The extractor now
+// writes them as optional fields on each stage's rooms.json and portals.json
+// rows, a stage built from scenario source reads them there, and the stage
+// checks stay only for a stage built from the ROM background.
 #include "catch.hpp"
 
 #include <fstream>
@@ -69,8 +71,16 @@ TEST_CASE("the extractor writes each stage's room and light rules onto its rows"
 	REQUIRE(extractor.find("&& (portalnum == 98 || portalnum == 100);") != std::string::npos);
 	REQUIRE(extractor.find("return stagenum == STAGE_INVESTIGATION && portalnum == 0;") != std::string::npos);
 
+	// Sky rooms: room.c's set, which is render_always without the old test stage.
+	const std::string sky = between(extractor, "static s32 s_stageRoomSky(",
+		"/* The room's base light level");
+	REQUIRE(sky.find("STAGEINDEX_TEST_OLD") == std::string::npos);
+	REQUIRE(sky.find("(stage_idx == STAGEINDEX_ATTACKSHIP && roomnum == 0x0071); /* planet */") !=
+		std::string::npos);
+
 	// The fields, on the room's and the portal's own rows.
 	REQUIRE(extractor.find("\", \\\"render_always\\\": true\"") != std::string::npos);
+	REQUIRE(extractor.find("\", \\\"sky\\\": true\"") != std::string::npos);
 	REQUIRE(extractor.find("\", \\\"base_brightness\\\": %d\"") != std::string::npos);
 	REQUIRE(extractor.find("\", \\\"lights_unshootable\\\": true\"") != std::string::npos);
 	REQUIRE(extractor.find("\", \\\"unshootable_lights\\\": [\"") != std::string::npos);
@@ -83,9 +93,47 @@ TEST_CASE("the extractor writes each stage's room and light rules onto its rows"
 
 	// Archives extracted before the rules are not clean, and the cache kind
 	// moved, so existing installs are re-extracted.
-	REQUIRE(extractor.find("\"Optional rules on a row: render_always\")") != std::string::npos);
+	REQUIRE(extractor.find("\"sky true draws it relative to the player\")") != std::string::npos);
 	REQUIRE(extractor.find("\"Optional light rules on a row\")") != std::string::npos);
-	REQUIRE(extractor.find("_roomtable_b1113_b1114_b1115_lightrules\"") != std::string::npos);
+	REQUIRE(extractor.find("_roomtable_b1113_b1114_b1115_lightrules_sky\"") != std::string::npos);
+}
+
+TEST_CASE("the extracted sky rooms are the rooms the room matrix check names",
+		"[extraction][scenario][lightrules]")
+{
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string room = readSource("src/game/room.c");
+	const std::string bg = readSource("src/game/bg.c");
+	const std::string sky = between(extractor, "static s32 s_stageRoomSky(",
+		"/* The room's base light level");
+	const std::string mtx = between(room, "void roomPopulateMtx(", "\n}\n");
+	const std::string screen = between(bg, "if (g_BgPortals[0].verticesoffset == 0) {",
+		"bgSetRoomOnscreen(room, 0, &box);");
+
+	auto numbers = [](const std::set<std::string> &hex) {
+		std::set<unsigned long> out;
+		for (const std::string &h : hex) {
+			out.insert(std::stoul(h, nullptr, 16));
+		}
+		return out;
+	};
+
+	// The same stages and rooms as roomPopulateMtx's ROM-path check.
+	REQUIRE(tokens(sky, "\\b(STAGEINDEX_[A-Z0-9_]+)\\b") == tokens(mtx, "\\b(STAGEINDEX_[A-Z0-9_]+)\\b"));
+	REQUIRE(numbers(tokens(sky, "roomnum == (0x[0-9a-f]+)")) ==
+		numbers(tokens(mtx, "roomnum == (0x[0-9a-f]+)")));
+	// bg.c's portal-less pass names a subset of them (every stage it leaves
+	// out has portals, so the pass never runs there).
+	const std::set<std::string> sky_stages = tokens(sky, "\\b(STAGEINDEX_[A-Z0-9_]+)\\b");
+	for (const std::string &stage : tokens(screen, "\\b(STAGEINDEX_[A-Z0-9_]+)\\b")) {
+		INFO(stage);
+		REQUIRE(sky_stages.count(stage) == 1);
+	}
+	const std::set<unsigned long> sky_rooms = numbers(tokens(sky, "roomnum == (0x[0-9a-f]+)"));
+	for (unsigned long r : numbers(tokens(screen, "room != (0x[0-9a-f]+)"))) {
+		INFO(r);
+		REQUIRE(sky_rooms.count(r) == 1);
+	}
 }
 
 TEST_CASE("the extracted rules name the same stages, rooms and portals as the ROM-path checks",
@@ -119,6 +167,7 @@ TEST_CASE("a scenario-source stage takes its rules from its rows and a ROM stage
 	const std::string conformance = readSource("tools/asset_archive_conformance.py");
 
 	for (const char *query : {"s32 scenarioSourceRoomRenderAlways(s32 roomnum);",
+			"s32 scenarioSourceRoomSky(s32 roomnum);",
 			"s32 scenarioSourceRoomBaseBrightness(s32 roomnum, s32 *out_level);",
 			"s32 scenarioSourceRoomLightUnshootable(s32 roomnum, s32 lightindex);",
 			"s32 scenarioSourcePortalBlocksLightFlood(s32 portalnum);",
@@ -130,7 +179,7 @@ TEST_CASE("a scenario-source stage takes its rules from its rows and a ROM stage
 	REQUIRE(bg_h.find("s32 bgUsesScenarioSource(void);") != std::string::npos);
 
 	// The rows' fields are read, and each table clears its stage's rules first.
-	for (const char *key : {"\"render_always\"", "\"base_brightness\"", "\"lights_unshootable\"",
+	for (const char *key : {"\"render_always\"", "\"sky\"", "\"base_brightness\"", "\"lights_unshootable\"",
 			"\"unshootable_lights\"", "\"light_flood_blocked\"", "\"open_to_light\""}) {
 		INFO(key);
 		REQUIRE(runtime.find(key) != std::string::npos);
@@ -167,6 +216,15 @@ TEST_CASE("a scenario-source stage takes its rules from its rows and a ROM stage
 	REQUIRE(dlights.find("} else if (g_Vars.stagenum == STAGE_EXTRACTION || g_Vars.stagenum == STAGE_DEFECTION) {") !=
 		std::string::npos);
 	REQUIRE(dlights.find("} else if (g_Vars.stagenum == STAGE_INVESTIGATION) {") != std::string::npos);
+
+	// The room matrix and the portal-less screen test ask for sky rooms the
+	// same way, and keep their stage checks for a ROM-background stage.
+	const std::string room = readSource("src/game/room.c");
+	const std::string mtx = between(room, "void roomPopulateMtx(", "\n}\n");
+	REQUIRE(mtx.find("if (bgUsesScenarioSource()) {\n\t\tsky = scenarioSourceRoomSky(roomnum);\n\t} else {") !=
+		std::string::npos);
+	REQUIRE(mtx.find("if (sky) {") != std::string::npos);
+	REQUIRE(bg.find("&& (g_BgUsingScenarioSource ? !scenarioSourceRoomSky(room) :") != std::string::npos);
 
 	// The validator knows the portal rule fields.
 	REQUIRE(conformance.find("for rule_key in (\"light_flood_blocked\", \"open_to_light\"):") != std::string::npos);

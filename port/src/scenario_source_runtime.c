@@ -35370,13 +35370,15 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
  * Per-stage room and portal rules (decision 1, CORE, 2026-11-15): the
  * optional rule fields of the stage's rooms.json and portals.json rows. They
  * replace the stage checks the game kept in roomInitLights and the light
- * setup (src/game/dlights.c), which still apply to a stage built from the ROM
- * background instead of scenario source. The portal table fills the portal
+ * setup (src/game/dlights.c), the room matrix (src/game/room.c) and the
+ * portal-less screen test (src/game/bg.c), which still apply to a stage built
+ * from the ROM background instead of scenario source. The portal table fills the portal
  * rules and the room table the room rules, each clearing its own first, so a
  * stage never sees the previous stage's rules.
  */
 typedef struct {
 	u8 render_always;
+	u8 sky;                 /* drawn relative to the player (roomPopulateMtx) */
 	u8 all_lights_unshootable;
 	s16 base_brightness;    /* -1: keep the base level roomInitLights derives */
 	u64 unshootable_lights; /* bit n: light n of the room */
@@ -35419,6 +35421,12 @@ s32 scenarioSourceRoomRenderAlways(s32 roomnum)
 {
 	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
 	return rule && rule->render_always;
+}
+
+s32 scenarioSourceRoomSky(s32 roomnum)
+{
+	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
+	return rule && rule->sky;
 }
 
 s32 scenarioSourceRoomBaseBrightness(s32 roomnum, s32 *out_level)
@@ -36216,6 +36224,13 @@ static void s_readRoomRuleFields(const char *obj_open, const char *obj_close,
 			(*refused)++;
 		}
 	}
+	if (s_jsonValueAfterKey(obj_open, obj_close, "sky")) {
+		if (s_jsonReadBoolValue(obj_open, obj_close, "sky", &flag)) {
+			rule->sky = flag ? 1 : 0;
+		} else {
+			(*refused)++;
+		}
+	}
 	if (s_jsonValueAfterKey(obj_open, obj_close, "base_brightness")) {
 		if (s_jsonReadS32Value(obj_open, obj_close, "base_brightness", &level)
 				&& level >= 0 && level <= 255) {
@@ -36407,19 +36422,21 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 
 	if (s_StageRoomRules) {
 		s32 render_always = 0;
+		s32 sky = 0;
 		s32 base_brightness = 0;
 		s32 unshootable = 0;
 
 		for (s32 r = 1; r < s_StageRoomRuleCount; r++) {
 			render_always += s_StageRoomRules[r].render_always != 0;
+			sky += s_StageRoomRules[r].sky != 0;
 			base_brightness += s_StageRoomRules[r].base_brightness >= 0;
 			unshootable += s_StageRoomRules[r].all_lights_unshootable != 0 ||
 				s_StageRoomRules[r].unshootable_lights != 0;
 		}
-		if (render_always || base_brightness || unshootable || rules_refused) {
+		if (render_always || sky || base_brightness || unshootable || rules_refused) {
 			sysLogPrintf(rules_refused ? LOG_WARNING : LOG_NOTE,
-				"SCENARIO.SOURCE: room rules for '%s': render_always=%d base_brightness=%d unshootable_light_rooms=%d refused=%d source=rooms.json",
-				scenario->id, render_always, base_brightness, unshootable,
+				"SCENARIO.SOURCE: room rules for '%s': render_always=%d sky=%d base_brightness=%d unshootable_light_rooms=%d refused=%d source=rooms.json",
+				scenario->id, render_always, sky, base_brightness, unshootable,
 				rules_refused);
 		}
 	}

@@ -6626,11 +6626,15 @@ void bgTickPortals(void)
 		if (!g_BgRoomTestsDisabled) {
 			if (g_BgPortals[0].verticesoffset == 0) {
 				for (room = 1; room < g_Vars.roomcount; room++) {
+					// A sky room is left out of the screen test. A stage built
+					// from scenario source names its sky rooms in rooms.json;
+					// the stage checks stay for a stage built from the ROM.
 					if (bgRoomIntersectsScreenBox(room, &box)
-							&& ((g_StageIndex != STAGEINDEX_INFILTRATION && g_StageIndex != STAGEINDEX_RESCUE && g_StageIndex != STAGEINDEX_ESCAPE) || room != 0xf)
-							&& (g_StageIndex != STAGEINDEX_SKEDARRUINS || room != 0x02)
-							&& ((g_StageIndex != STAGEINDEX_DEFECTION && g_StageIndex != STAGEINDEX_EXTRACTION) || room != 0x01)
-							&& (g_StageIndex != STAGEINDEX_ATTACKSHIP || room != 0x71)) {
+							&& (g_BgUsingScenarioSource ? !scenarioSourceRoomSky(room) :
+								(((g_StageIndex != STAGEINDEX_INFILTRATION && g_StageIndex != STAGEINDEX_RESCUE && g_StageIndex != STAGEINDEX_ESCAPE) || room != 0xf)
+								&& (g_StageIndex != STAGEINDEX_SKEDARRUINS || room != 0x02)
+								&& ((g_StageIndex != STAGEINDEX_DEFECTION && g_StageIndex != STAGEINDEX_EXTRACTION) || room != 0x01)
+								&& (g_StageIndex != STAGEINDEX_ATTACKSHIP || room != 0x71)))) {
 						bgSetRoomOnscreen(room, 0, &box);
 					}
 				}
