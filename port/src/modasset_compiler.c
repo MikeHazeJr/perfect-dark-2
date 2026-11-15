@@ -49,6 +49,22 @@ static void *modelInputRead(const modasset_model_inputs_t *inputs, const char *p
     return inputs && inputs->read ? inputs->read(inputs->context, path, size) : fsFileLoad(path, size);
 }
 
+/* B-1153: an optional metadata member (model.mtl, model.nodes.json,
+ * model.render.json) that the source does not carry is not an error, so on the
+ * file path look before loading instead of letting fsFileLoad report it
+ * missing. fsFileSize resolves nested archive entries and the mod VFS the same
+ * way fsFileLoad does. A caller's own reader keeps its own lookup. */
+static void *modelInputReadOptional(const modasset_model_inputs_t *inputs, const char *path, u32 *size)
+{
+    if (!(inputs && inputs->read) && fsFileSize(path) < 0) {
+        if (size) {
+            *size = 0;
+        }
+        return NULL;
+    }
+    return modelInputRead(inputs, path, size);
+}
+
 static s32 endsWithNoCase(const char *path, const char *ext)
 {
 	size_t path_len;
@@ -6550,7 +6566,7 @@ static s32 generatedModeldefLoadMaterialMetadata(const modasset_model_inputs_t *
 		return 1;
 	}
 
-	text = (char *)modelInputRead(inputs, mtl_path, &size);
+	text = (char *)modelInputReadOptional(inputs, mtl_path, &size);
 	if (!text || size == 0) {
 		if (text) {
 			free(text);
@@ -6859,7 +6875,7 @@ static s32 generatedModeldefReadRenderStream(const modasset_model_inputs_t *inpu
 		return 0;
 	}
 
-	text = (char *)modelInputRead(inputs, render_path, &size);
+	text = (char *)modelInputReadOptional(inputs, render_path, &size);
 	if (!text || size == 0) {
 		if (text) {
 			free(text);
@@ -7127,7 +7143,7 @@ static s32 generatedModeldefReadHierarchy(const modasset_model_inputs_t *inputs,
 		return 0;
 	}
 
-	text = (char *)modelInputRead(inputs, hierarchy_path, &size);
+	text = (char *)modelInputReadOptional(inputs, hierarchy_path, &size);
 	if (!text || size == 0) {
 		if (text) {
 			free(text);

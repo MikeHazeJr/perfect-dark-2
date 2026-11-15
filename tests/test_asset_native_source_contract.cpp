@@ -1442,6 +1442,14 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 		REQUIRE(setup.find("for (i = MODEL_CUSTOM_START; i < MODEL_CUSTOM_END; i++) {\n\t\tg_ModelStates[i].scale = 0;") !=
 		        std::string::npos);
 	}
+	{
+		// B-1153: optional model metadata members are looked up quietly.
+		const std::string compiler = readTextFile("port/src/modasset_compiler.c");
+		REQUIRE(compiler.find("if (!(inputs && inputs->read) && fsFileSize(path) < 0) {") != std::string::npos);
+		REQUIRE(compiler.find("text = (char *)modelInputReadOptional(inputs, mtl_path, &size);") != std::string::npos);
+		REQUIRE(compiler.find("text = (char *)modelInputReadOptional(inputs, hierarchy_path, &size);") != std::string::npos);
+		REQUIRE(compiler.find("text = (char *)modelInputReadOptional(inputs, render_path, &size);") != std::string::npos);
+	}
 	// B-1172: the stage fog, started for each scene pass as for the BG rooms
 	// and applied with gfx_sp_vertex's formula.
 	REQUIRE(bg_runtime.find("gdl = envStartFog(gdl, false);\n\t\tgSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_OPAQUE);\n\t\tgdl = envStopFog(gdl);") !=
