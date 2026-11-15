@@ -307,6 +307,17 @@ void mpStartMatch(void)
 	 * local profile, normalize serialized handicaps, or reverse-resolve a typed
 	 * stage. Offline starts retain those setup conveniences before transition. */
 	if (!network_prepared) {
+		/* A Combat Challenge is for 1 to 4 human players (Mike, 2026-11-15).
+		 * A networked challenge would have to refuse at its lobby start, since
+		 * a network-prepared start is not to be changed here. */
+		if (g_BossFile.locktype == MPLOCKTYPE_CHALLENGE
+				&& mpGetActivePlayerCount() > CHALLENGE_MAX_PLAYERS) {
+			sysLogPrintf(LOG_ERROR,
+				"CHALLENGE: not started with %d players; a challenge takes 1 to %d",
+				mpGetActivePlayerCount(), CHALLENGE_MAX_PLAYERS);
+			return;
+		}
+
 		if (g_MpSetup.options & MPOPTION_AUTORANDOMWEAPON_START) {
 			if (g_MpWeaponSetNum == WEAPONSET_RANDOM
 					|| g_MpWeaponSetNum == WEAPONSET_RANDOMFIVE) {

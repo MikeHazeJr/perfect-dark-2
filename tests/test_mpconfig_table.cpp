@@ -93,9 +93,9 @@ TEST_CASE("mpconfig table: a challenge simulant keeps its head, body, team and d
 	REQUIRE(mpconfigProbeSimDifficulty(c, 0, 0) == k("BOTDIFF_HARD"));
 	REQUIRE(mpconfigProbeSimDifficulty(c, 0, 1) == k("BOTDIFF_PERFECT"));
 	REQUIRE(mpconfigProbeSimDifficulty(c, 0, 3) == k("BOTDIFF_PERFECT"));
-	/* 5 to 8 players use the 4-player difficulty (the original stops at 4). */
+	/* A challenge is for 1 to 4 players (Mike, 2026-11-15): no 5 to 8 entries. */
 	for (s32 p = 4; p < mpconfigProbeMaxPlayers(); p++) {
-		REQUIRE(mpconfigProbeSimDifficulty(c, 0, p) == k("BOTDIFF_PERFECT"));
+		REQUIRE(mpconfigProbeSimDifficulty(c, 0, p) == k("BOTDIFF_DISABLED"));
 	}
 }
 

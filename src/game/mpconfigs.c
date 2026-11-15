@@ -12,7 +12,9 @@
  * here: mpApplyConfig resolves the stage, head and body ids from the numbers.
  *
  * The original authors one difficulty per human player count, 1 to 4.
- * MAX_PLAYERS is 8 on PC; 5 to 8 players use the 4-player difficulty.
+ * MAX_PLAYERS is 8 on PC, but a challenge is for 1 to 4 human players (Mike,
+ * 2026-11-15; mpStartMatch refuses more), so the 5 to 8 entries are disabled.
+ * They stay in the table because challenges may be adapted for 8 players.
  *
  * Each config authors 8 simulants (the N64 MAX_BOTS). simulants[] now has
  * MAX_BOTS = 32 slots, and a slot left to zero is BOTDIFF_MEAT at every player
@@ -20,7 +22,7 @@
  * with disabled ones (a GNU range designator; the C build is gnu11).
  */
 _Static_assert(MAX_PLAYERS == 8, "MPCONFIG_DIFFICULTIES fills exactly MAX_PLAYERS entries");
-#define MPCONFIG_DIFFICULTIES(d1, d2, d3, d4) { d1, d2, d3, d4, d4, d4, d4, d4 }
+#define MPCONFIG_DIFFICULTIES(d1, d2, d3, d4) { d1, d2, d3, d4, 	BOTDIFF_DISABLED, BOTDIFF_DISABLED, BOTDIFF_DISABLED, BOTDIFF_DISABLED }
 #define MPCONFIG_NUM_AUTHORED_SIMULANTS 8
 _Static_assert(MAX_BOTS > MPCONFIG_NUM_AUTHORED_SIMULANTS, "the disabled range needs slots past the authored ones");
 #define MPCONFIG_NO_SIMULANT { .type = BOTTYPE_GENERAL, .difficulties = MPCONFIG_DIFFICULTIES( \

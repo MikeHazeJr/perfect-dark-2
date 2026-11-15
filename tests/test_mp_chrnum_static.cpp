@@ -294,3 +294,25 @@ TEST_CASE("simulants on a networked client: the puppet is animated and placed fr
 	REQUIRE(kill != std::string::npos);
 	REQUIRE(chr.find("die = false;", guard) < kill);
 }
+
+TEST_CASE("challenge start: a Combat Challenge takes 1 to 4 human players",
+          "[mplayer][challenges][finding10]") {
+	// Mike, 2026-11-15: as in the original; an offline start refuses more
+	// before any offline setup runs
+	const std::string header = code_only(read_text_file("src/include/game/challenge.h"));
+	REQUIRE(header.find("#define CHALLENGE_MAX_PLAYERS 4") != std::string::npos);
+
+	const std::string body = function_body(code_only(read_text_file("src/game/mplayer/mplayer.c")),
+		"void mpStartMatch(void)\n{");
+	const size_t offline = body.find("if (!network_prepared) {");
+	const size_t lock = body.find("g_BossFile.locktype == MPLOCKTYPE_CHALLENGE", offline);
+	const size_t cap = body.find("mpGetActivePlayerCount() > CHALLENGE_MAX_PLAYERS", lock);
+	const size_t refuse = body.find("return;", cap);
+	const size_t setup = body.find("mpConfigureQuickTeamSimulants();", offline);
+	REQUIRE(offline != std::string::npos);
+	REQUIRE(lock != std::string::npos);
+	REQUIRE(cap != std::string::npos);
+	REQUIRE(refuse != std::string::npos);
+	REQUIRE(setup != std::string::npos);
+	REQUIRE(refuse < setup);
+}
