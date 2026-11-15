@@ -2854,6 +2854,9 @@ function Invoke-SmokeTest {
         }
     }
     Write-Info ("  retained reconstructable receipt: {0}" -f $storageReceipt.Receipt)
+    if ($storageReceipt -and $storageReceipt.PSObject.Properties.Match('DiscardedBytes').Count -gt 0) {
+        Write-Info ("  install discarded after the run (storage location policy): freed {0:N1} MB" -f ($storageReceipt.DiscardedBytes / 1MB))
+    }
 
     $bugId = $null
     if ($Test.PSObject.Properties.Match('BugId').Count -gt 0) { $bugId = $Test.BugId }

@@ -102,7 +102,8 @@ def plain(path):
 
 LOCATION_FILE = ".claude/smoke-storage-location.json"
 
-LOCATION_POLICY_KEYS = {"min_free_gib", "max_full_installs", "max_full_install_gib", "max_archive_gib"}
+LOCATION_POLICY_KEYS = {"min_free_gib", "max_full_installs", "max_full_install_gib", "max_archive_gib",
+                        "discard_completed"}
 
 def storage_location(project):
     """Smoke storage lives in <project>/.claude/smoke-storage unless the
@@ -113,8 +114,10 @@ def storage_location(project):
     the disk floor for installs is then measured on its drive. The file may
     also set that root's own limits ("policy": min_free_gib, max_full_installs,
     max_full_install_gib, max_archive_gib; Mike, 2026-11-15: on C: "only one
-    or two at a time"); they win over any policy a caller sends. Returns
-    (root, policy overrides).
+    or two at a time"); they win over any policy a caller sends. With
+    "discard_completed": true each install is deleted as soon as its run is
+    recorded, keeping its receipts and logs (Mike, 2026-11-15: "delete each
+    one ... as soon as it's no longer needed"). Returns (root, policy overrides).
     lib/Storage-Harness.ps1 (Get-SmokeStorageRoot) reads the root the same way."""
     project = plain(project)
     location = project / LOCATION_FILE
@@ -217,6 +220,9 @@ def policy_from(value):
         defaults[k + "_bytes"] = int(x * 2**30)
     if not defaults["max_full_install_gib_bytes"] or not defaults["max_archive_gib_bytes"]:
         raise StorageError("Archive/full-install byte budgets must be positive")
+    defaults.setdefault("discard_completed", False)
+    if not isinstance(defaults["discard_completed"], bool):
+        raise StorageError("discard_completed must be true or false")
     return defaults
 
 def exclusive_file(path, delete=False, expected=None, metadata=None):
@@ -935,8 +941,40 @@ class Storage:
         install.update(status="completed", passed=bool(request["passed"]), pin=bool(request.get("keep")),
                        full_bytes=sum(e["bytes"] for e in files.values()), completed=utc())
         self.save()
-        return {"Receipt": str(receipt_dir / "recipe.json.gz"), "LogFiles": log_files,
-                "FullInstallRetained": True, "ArchiveBytes": self.archive_used, "NewArchiveBytes": self.new_blob_bytes}
+        result = {"Receipt": str(receipt_dir / "recipe.json.gz"), "LogFiles": log_files,
+                  "FullInstallRetained": True, "ArchiveBytes": self.archive_used, "NewArchiveBytes": self.new_blob_bytes}
+        # A location that discards completed installs deletes the full copy
+        # now; its receipts and logs stay. A kept (-Keep) install stays.
+        if self.policy["discard_completed"] and not install.get("pin"):
+            freed = install["full_bytes"]
+            self.remove(install); self.save()
+            result.update(FullInstallRetained=False, DiscardedBytes=freed)
+        return result
+
+    def compact(self, request):
+        """Delete the full copies of the named completed installs now (their
+        receipts and logs stay), instead of when a later run needs the room.
+        A kept install is deleted only with "unpin": true; an active, shared,
+        held or retained one never. Reports the bytes freed."""
+        ids = request.get("ids")
+        if not isinstance(ids, list) or not ids or not all(isinstance(i, str) for i in ids):
+            raise StorageError("compact requires a non-empty list of install ids")
+        if self.retain_housekeeping: raise StorageError("Retained housekeeping refuses compaction")
+        compacted, freed = [], 0
+        for install_id in ids:
+            install = self.state["installs"].get(install_id)
+            if install is None: raise StorageError("Unknown install for compaction: " + install_id)
+            if install["status"] == "compacted": continue
+            if install["status"] != "completed": raise StorageError("Only a completed install can be compacted: " + install_id)
+            if install.get("shared"): raise StorageError("Shared installs are not compacted: " + install_id)
+            if install.get("pin"):
+                if request.get("unpin") is not True:
+                    raise StorageError("Kept install needs \"unpin\": true to be compacted: " + install_id)
+                install["pin"] = False
+            size = install["full_bytes"]
+            self.remove(install); self.save()
+            compacted.append(install_id); freed += size
+        return {"Compacted": compacted, "FreedBytes": freed, "DeletionPerformed": bool(compacted)}
 
     def release_interrupted(self, request):
         """Reviewed release of an interrupted workspace (Mike's decision 7A,
@@ -1036,7 +1074,7 @@ def re_safe(name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["seed", "complete", "preflight", "status", "restore", "dry-run", "reuse-plan", "reuse-acquire", "reuse-release", "release-interrupted"])
+    parser.add_argument("action", choices=["seed", "complete", "preflight", "status", "restore", "dry-run", "reuse-plan", "reuse-acquire", "reuse-release", "release-interrupted", "compact"])
     args = parser.parse_args()
     # Storage-Harness sends UTF-8 bytes. Windows' locale text decoder can
     # corrupt Unicode paths and read a PowerShell UTF-8 BOM as mojibake.
@@ -1065,6 +1103,7 @@ def main():
         elif args.action == "reuse-acquire": result = storage.acquire_reuse(request)
         elif args.action == "reuse-release": result = storage.release_reuse(request)
         elif args.action == "release-interrupted": result = storage.release_interrupted(request)
+        elif args.action == "compact": result = storage.compact(request)
         elif args.action == "preflight": result = storage.preflight(request.get("pending_bytes", 0), request.get("archive_pending_bytes", 0), request.get("build", False) is True)
         else:
             rows = list(storage.state["installs"].values())

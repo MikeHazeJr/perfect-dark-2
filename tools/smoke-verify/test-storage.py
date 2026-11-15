@@ -235,6 +235,49 @@ class StorageTests(unittest.TestCase):
         with self.assertRaises(storage.StorageError): self.seed()
         self.assertTrue(Path(a['InstallDir']).exists())
 
+    def test_discard_completed_deletes_each_install_and_keeps_its_logs(self):
+        # Mike, 2026-11-15, test installs on C:: "delete each one ... as soon
+        # as it's no longer needed". With discard_completed the full copy goes
+        # as soon as the run is recorded; its receipts and logs stay, and the
+        # install can still be rebuilt from them. A kept run stays.
+        self.policy['discard_completed'] = True
+        run = self.seed(); directory = Path(run['InstallDir'])
+        (directory / 'logs').mkdir(); (directory / 'logs/pd-client.log').write_text('run log\n')
+        receipt = self.complete(run)
+        self.assertFalse(directory.exists())
+        self.assertFalse(receipt['FullInstallRetained'])
+        self.assertGreater(receipt['DiscardedBytes'], 0)
+        self.assertEqual(Path(receipt['LogFiles'][0]).read_text(), 'run log\n')
+        with self.operation() as s:
+            row = s.state['installs'][run['StorageId']]
+            self.assertEqual(row['status'], 'compacted'); self.assertEqual(row['full_bytes'], 0)
+            s.restore(run['StorageId'], s.root / 'restored/discarded')
+            self.assertEqual((s.root / 'restored/discarded/PerfectDark.exe').read_bytes(),
+                             (self.source / 'PerfectDark.exe').read_bytes())
+        kept = self.seed(); self.complete(kept, keep=True)
+        self.assertTrue(Path(kept['InstallDir']).exists())
+        with self.assertRaises(storage.StorageError):
+            storage.policy_from(dict(POLICY, discard_completed='yes'))
+
+    def test_compact_deletes_named_completed_installs_now(self):
+        a, b = self.seed(), self.seed()
+        self.complete(a); self.complete(b, keep=True)
+        active = self.seed()
+        with self.operation() as s:
+            with self.assertRaises(storage.StorageError): s.compact({'ids': [active['StorageId']]})
+            with self.assertRaises(storage.StorageError): s.compact({'ids': [b['StorageId']]})
+            with self.assertRaises(storage.StorageError): s.compact({'ids': []})
+            result = s.compact({'ids': [a['StorageId']]})
+        self.assertEqual(result['Compacted'], [a['StorageId']])
+        self.assertGreater(result['FreedBytes'], 0)
+        self.assertFalse(Path(a['InstallDir']).exists())
+        self.assertTrue(Path(b['InstallDir']).exists())
+        with self.operation() as s:
+            result = s.compact({'ids': [b['StorageId'], a['StorageId']], 'unpin': True})
+        self.assertEqual(result['Compacted'], [b['StorageId']])
+        self.assertFalse(Path(b['InstallDir']).exists())
+        self.assertTrue(Path(active['InstallDir']).exists())
+
     def test_reviewed_release_frees_an_interrupted_workspace(self):
         # Decision 7A: an interrupted run's workspace is released after review,
         # recorded, and then reclaimed by ordinary retention; the release
