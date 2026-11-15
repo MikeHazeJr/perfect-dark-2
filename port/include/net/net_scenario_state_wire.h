@@ -53,6 +53,15 @@ typedef struct net_scenario_koh_state {
 	u8 move_hill;
 	/* Raw hill time setting; seconds per point is this plus 10. */
 	u8 hill_time;
+	/* 1 while two or more teams are in the hill (the hold timer is paused),
+	 * else 0. Lets a receiver run the timer between snapshots. */
+	u8 contested;
+	/* Team that scored the most recent hill point: -1 before the first, else
+	 * 0..NET_SCENARIO_STATE_MAX_TEAMS-1. */
+	s8 scoring_team;
+	/* Hill points scored so far this match. A receiver that sees it rise
+	 * presents the point (sound and message), as the host did. */
+	u16 scores;
 } net_scenario_koh_state_t;
 
 typedef struct net_scenario_state {

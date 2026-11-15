@@ -241,11 +241,14 @@ static void kohFillMissingHills(void)
 		listed, numusable, numadded, data->hillcount);
 }
 
+static void kohResetNetState(void);
+
 void kohInitProps(void)
 {
 	s16 pad_id = 0;
 	struct pad pad;
 
+	kohResetNetState();
 	kohFillMissingHills();
 
 	if (g_ScenarioData.koh.hillcount > 1) {
@@ -279,6 +282,280 @@ void kohInitProps(void)
 		g_ScenarioData.koh.hillindex, g_ScenarioData.koh.hillcount, pad_id, g_ScenarioData.koh.hillrooms[0]);
 }
 
+/*
+ * PC (T-NETWORKING-011): King of the Hill state that the host sends and a
+ * networked client shows (SVC_SCENARIO_STATE). These helpers sit before
+ * kohTick because kohTick's local #defines (hillteam, playernum1, ...) stay
+ * in force for the rest of this file.
+ */
+static s32 s_KohContested;      // two or more teams in the hill: the timer is paused
+static s32 s_KohScoringTeam = -1; // team that scored the latest hill point
+static u16 s_KohScores;         // hill points scored this match
+static u16 s_KohScoresShown;    // client: points already presented
+static s32 s_KohNetHillTime = -1; // client: the host's hill time setting, -1 until known
+
+static void kohResetNetState(void)
+{
+	s_KohContested = false;
+	s_KohScoringTeam = -1;
+	s_KohScores = 0;
+	s_KohScoresShown = 0;
+	s_KohNetHillTime = -1;
+}
+
+/**
+ * The hill time setting in force: the host's on a networked client (it is not
+ * part of the stage start), else this peer's own.
+ */
+static s32 kohHillTime(void)
+{
+	if (!scenarioNetIsAuthority() && s_KohNetHillTime >= 0) {
+		return s_KohNetHillTime;
+	}
+
+	return g_Vars.mphilltime;
+}
+
+/**
+ * "We have the Hill!" for the team now holding it, "<team> has captured the
+ * Hill!" for everyone else, with the capture sound. The host plays it when a
+ * team takes the hill; a client plays it when the host's state says so.
+ */
+static void kohAnnounceCapture(s32 team)
+{
+	char text[64];
+	u32 prevplayernum = g_Vars.currentplayernum;
+	s32 i;
+
+	sndStart(var80095200, SFX_MP_HILLENTERED, 0, -1, -1, -1, -1, -1);
+
+	// "%has captured the Hill!"
+#if VERSION >= VERSION_JPN_FINAL
+	sprintf(text, langGet(L_MPWEAPONS_022), scenarioRemoveLineBreaks(g_BossFile.teamnames[team], 0));
+#else
+	sprintf(text, langGet(L_MPWEAPONS_022), &g_BossFile.teamnames[team]);
+#endif
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		struct chrdata *chr;
+
+		if (!g_Vars.players[i]) {
+			continue;
+		}
+
+		setCurrentPlayerNum(i);
+
+		chr = g_Vars.currentplayer->prop ? g_Vars.currentplayer->prop->chr : NULL;
+
+		if (!chr) {
+			continue;
+		}
+
+#if VERSION >= VERSION_JPN_FINAL
+		if (radarGetTeamIndex(chr->team) == team) {
+			// "We have the Hill!"
+			hudmsgCreateWithFlags(langGet(L_MPWEAPONS_021), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+		} else {
+			hudmsgCreateWithFlags(text, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+		}
+#else
+		if (radarGetTeamIndex(chr->team) == team) {
+			// "We have the Hill!"
+			hudmsgCreateWithFlags(langGet(L_MPWEAPONS_021), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+		} else {
+			hudmsgCreateWithFlags(text, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+		}
+#endif
+	}
+
+	setCurrentPlayerNum(prevplayernum);
+}
+
+/**
+ * The point sound, and "King of the Hill!" for the human players of the team
+ * that scored. Same loop as the original: it walks g_MpAllChrPtrs and uses the
+ * index as a player number for the chrs without an aibot.
+ */
+static void kohAnnouncePoint(s32 team)
+{
+	u32 prevplayernum = g_Vars.currentplayernum;
+	s32 i;
+
+	sndStart(var80095200, SFX_MP_SCOREPOINT, 0, -1, -1, -1, -1, -1);
+
+	for (i = 0; i < g_MpNumChrs; i++) {
+		if (g_MpAllChrPtrs[i]->aibot == NULL
+				&& radarGetTeamIndex(g_MpAllChrPtrs[i]->team) == team) {
+			setCurrentPlayerNum(i);
+
+			// "King of the Hill!"
+#if VERSION >= VERSION_JPN_FINAL
+			hudmsgCreateWithFlags(langGet(L_MPWEAPONS_020), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+#else
+			hudmsgCreateWithFlags(langGet(L_MPWEAPONS_020), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+#endif
+		}
+	}
+
+	setCurrentPlayerNum(prevplayernum);
+}
+
+/**
+ * Moves the hill colour towards the target. Unchanged from the end of the
+ * original kohTick, including its @bug: g_Vars.diffframe60 is updated while
+ * the game is paused, so the fade and the next hill can happen while paused.
+ */
+static void kohTweenColour(f32 targetr, f32 targetg, f32 targetb)
+{
+	s32 i;
+
+	if (g_ScenarioData.koh.colourfracr != targetr) {
+		for (i = 0; i < g_Vars.diffframe60; i++) {
+#if PAL
+			g_ScenarioData.koh.colourfracr = 0.0597f * targetr + 0.9403f * g_ScenarioData.koh.colourfracr;
+#else
+			g_ScenarioData.koh.colourfracr = 0.05f * targetr + 0.95f * g_ScenarioData.koh.colourfracr;
+#endif
+		}
+	}
+
+	if (g_ScenarioData.koh.colourfracg != targetg) {
+		for (i = 0; i < g_Vars.diffframe60; i++) {
+#if PAL
+			g_ScenarioData.koh.colourfracg = 0.0597f * targetg + 0.9403f * g_ScenarioData.koh.colourfracg;
+#else
+			g_ScenarioData.koh.colourfracg = 0.05f * targetg + 0.95f * g_ScenarioData.koh.colourfracg;
+#endif
+		}
+	}
+
+	if (g_ScenarioData.koh.colourfracb != targetb) {
+		for (i = 0; i < g_Vars.diffframe60; i++) {
+#if PAL
+			g_ScenarioData.koh.colourfracb = 0.0597f * targetb + 0.9403f * g_ScenarioData.koh.colourfracb;
+#else
+			g_ScenarioData.koh.colourfracb = 0.05f * targetb + 0.95f * g_ScenarioData.koh.colourfracb;
+#endif
+		}
+	}
+}
+
+/* The colour the hill moves towards: green when free, the team colour when held. */
+static void kohTargetColour(s32 team, f32 *targetr, f32 *targetg, f32 *targetb)
+{
+	if (team < 0 || team >= MAX_TEAMS) {
+		*targetr = 0.25f;
+		*targetg = 1;
+		*targetb = 0.25f;
+	} else {
+		u32 colour = g_TeamColours[team];
+		*targetr = ((s32)(colour >> 24 & 0xff) + 0xff) * (1.0f / 512.0f);
+		*targetg = ((s32)(colour >> 16 & 0xff) + 0xff) * (1.0f / 512.0f);
+		*targetb = ((s32)(colour >> 8 & 0xff) + 0xff) * (1.0f / 512.0f);
+	}
+}
+
+/* Host: the state a client needs to show this hill. */
+static void kohNetCapture(net_scenario_koh_state_t *out)
+{
+	s32 hilltime = g_Vars.mphilltime;
+
+	out->hill_index = g_ScenarioData.koh.hillindex >= -1 && g_ScenarioData.koh.hillindex < NET_SCENARIO_KOH_MAX_HILLS
+		? g_ScenarioData.koh.hillindex : -1;
+	out->hill_room = g_ScenarioData.koh.hillrooms[0] >= -1 ? g_ScenarioData.koh.hillrooms[0] : -1;
+	out->hill_pos[0] = g_ScenarioData.koh.hillpos.x;
+	out->hill_pos[1] = g_ScenarioData.koh.hillpos.y;
+	out->hill_pos[2] = g_ScenarioData.koh.hillpos.z;
+	out->occupied_team = g_ScenarioData.koh.occupiedteam >= 0 && g_ScenarioData.koh.occupiedteam < MAX_TEAMS
+		? g_ScenarioData.koh.occupiedteam : -1;
+	out->elapsed240 = g_ScenarioData.koh.elapsed240 > 0 ? g_ScenarioData.koh.elapsed240 : 0;
+	out->move_hill = g_ScenarioData.koh.movehill ? 1 : 0;
+	out->hill_time = hilltime < 0 ? 0 : (hilltime > 255 ? 255 : hilltime);
+	out->contested = s_KohContested ? 1 : 0;
+	out->scoring_team = s_KohScoringTeam >= 0 && s_KohScoringTeam < MAX_TEAMS ? s_KohScoringTeam : -1;
+	out->scores = s_KohScores;
+}
+
+/**
+ * Client: King of the Hill as the host decides it. Applies the newest state
+ * the host sent (the hill room lighting, who holds it, the capture and point
+ * announcements its players hear on the host) and, between snapshots, runs
+ * the hold timer while one team holds the hill alone. Sets the colour the
+ * hill moves towards.
+ */
+static void kohNetPresent(f32 *targetr, f32 *targetg, f32 *targetb)
+{
+	net_scenario_state_t state;
+
+	if (scenarioNetTakePending(&state)) {
+		const net_scenario_koh_state_t *in = &state.body.koh;
+		// The room indexes g_Rooms, so it must be a room of this stage; the
+		// local value may still be left from an earlier stage
+		s32 newroom = in->hill_room > 0 && in->hill_room < g_Vars.roomcount ? in->hill_room : -1;
+		s32 oldroom = g_ScenarioData.koh.hillrooms[0];
+
+		if (newroom != oldroom) {
+			if (oldroom > 0 && oldroom < g_Vars.roomcount) {
+				roomSetLightOp(oldroom, LIGHTOP_NONE, 0, 0, 0);
+			}
+
+			g_ScenarioData.koh.hillrooms[0] = newroom;
+			g_ScenarioData.koh.hillrooms[1] = -1;
+
+			if (newroom > 0) {
+				roomSetLightOp(newroom, LIGHTOP_HIGHLIGHT, 0, 0, 0);
+			}
+
+			sysLogPrintf(newroom > 0 ? LOG_NOTE : LOG_WARNING,
+				"KOH: client hill from host index=%d room=%d rev=%u%s",
+				in->hill_index, in->hill_room, (unsigned)state.revision,
+				newroom == in->hill_room ? "" : " (not a room of this stage)");
+		}
+
+		g_ScenarioData.koh.hillindex = in->hill_index;
+		g_ScenarioData.koh.hillpos.x = in->hill_pos[0];
+		g_ScenarioData.koh.hillpos.y = in->hill_pos[1];
+		g_ScenarioData.koh.hillpos.z = in->hill_pos[2];
+
+		if (in->occupied_team >= 0 && in->occupied_team != g_ScenarioData.koh.occupiedteam) {
+			kohAnnounceCapture(in->occupied_team);
+		}
+
+		g_ScenarioData.koh.occupiedteam = in->occupied_team;
+		g_ScenarioData.koh.elapsed240 = in->elapsed240;
+		g_ScenarioData.koh.movehill = in->move_hill;
+		s_KohNetHillTime = in->hill_time;
+		s_KohContested = in->contested;
+
+		if (in->scores > s_KohScoresShown && in->scoring_team >= 0) {
+			kohAnnouncePoint(in->scoring_team);
+			sysLogPrintf(LOG_NOTE, "KOH: client point from host team=%d points=%u rev=%u",
+				in->scoring_team, (unsigned)in->scores, (unsigned)state.revision);
+		}
+
+		s_KohScoresShown = in->scores;
+		s_KohScoringTeam = in->scoring_team;
+		s_KohScores = in->scores;
+	} else if (g_ScenarioData.koh.occupiedteam >= 0 && !s_KohContested && !g_ScenarioData.koh.movehill) {
+		s32 limit = kohHillTime() * TICKS(240) + TICKS(2400);
+		s32 elapsed = g_ScenarioData.koh.elapsed240 + g_Vars.lvupdate240;
+
+		if (elapsed > limit) {
+			elapsed = limit;
+		}
+
+		g_ScenarioData.koh.elapsed240 = elapsed > 32767 ? 32767 : elapsed;
+	}
+
+	if (g_ScenarioData.koh.movehill) {
+		*targetr = 1;
+		*targetg = 1;
+		*targetb = 1;
+	} else {
+		kohTargetColour(g_ScenarioData.koh.occupiedteam, targetr, targetg, targetb);
+	}
+}
+
 /**
  * A match for this function has only been possible by making heavy reuse of
  * variables, but this impacts readability significantly.
@@ -288,7 +565,6 @@ void kohInitProps(void)
  */
 void kohTick(void)
 {
-	s32 i;
 	s32 hillteam;
 	s32 s1;
 	s32 s2;
@@ -299,7 +575,6 @@ void kohTick(void)
 	f32 targetr;
 	f32 targetg;
 	f32 targetb;
-	char text[64];
 	s32 teamsinhill[MAX_TEAMS];
 	struct pad pad;
 	struct prop *chrsinhill[MAX_MPCHRS];
@@ -317,6 +592,14 @@ void kohTick(void)
 #define prevplayernum2 s2
 #define playernum2     s2
 
+	// PC (T-NETWORKING-011): a networked client shows the host's hill and
+	// decides nothing itself (no hill choice, no points)
+	if (!scenarioNetIsAuthority()) {
+		kohNetPresent(&targetr, &targetg, &targetb);
+		kohTweenColour(targetr, targetg, targetb);
+		return;
+	}
+
 	if (g_ScenarioData.koh.hillindex == -1) {
 		return;
 	}
@@ -328,6 +611,7 @@ void kohTick(void)
 		// colour. This is done using a fade over several frames.
 		g_ScenarioData.koh.occupiedteam = -1;
 		g_ScenarioData.koh.elapsed240 = 0;
+		s_KohContested = false;
 
 		targetr = 1;
 		targetg = 1;
@@ -490,49 +774,12 @@ void kohTick(void)
 			// So if these don't match then the hill is turning into a team
 			// colour rather than going green.
 			if (hillteam != g_ScenarioData.koh.occupiedteam) {
-				sndStart(var80095200, SFX_MP_HILLENTERED, 0, -1, -1, -1, -1, -1);
-
 				g_ScenarioData.koh.occupiedteam = hillteam;
 				g_ScenarioData.koh.elapsed240 = 0;
 
-				// "%has captured the Hill!"
-#if VERSION >= VERSION_JPN_FINAL
-				sprintf(text, langGet(L_MPWEAPONS_022), scenarioRemoveLineBreaks(g_BossFile.teamnames[hillteam], 0));
-#else
-				sprintf(text, langGet(L_MPWEAPONS_022), &g_BossFile.teamnames[hillteam]);
-#endif
-
-				prevplayernum2 = g_Vars.currentplayernum;
-
-				for (playernum1 = 0; playernum1 < MAX_PLAYERS; playernum1++) {
-					if (!g_Vars.players[playernum1]) {
-						continue;
-					}
-					setCurrentPlayerNum(playernum1);
-
-					chr = g_Vars.currentplayer->prop->chr;
-					if (!chr) {
-						continue;
-					}
-
-#if VERSION >= VERSION_JPN_FINAL
-					if (radarGetTeamIndex(chr->team) == g_ScenarioData.koh.occupiedteam) {
-						// "We have the Hill!"
-						hudmsgCreateWithFlags(langGet(L_MPWEAPONS_021), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
-					} else {
-						hudmsgCreateWithFlags(text, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
-					}
-#else
-					if (radarGetTeamIndex(chr->team) == g_ScenarioData.koh.occupiedteam) {
-						// "We have the Hill!"
-						hudmsgCreateWithFlags(langGet(L_MPWEAPONS_021), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
-					} else {
-						hudmsgCreateWithFlags(text, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
-					}
-#endif
-				}
-
-				setCurrentPlayerNum(prevplayernum2);
+				// Sound, "We have the Hill!" and "%has captured the Hill!"
+				// (moved into kohAnnounceCapture so clients play the same)
+				kohAnnounceCapture(hillteam);
 			} else {
 				// A team is remaining in the hill.
 				// Only tick the hill timer if they have exclusive occupancy.
@@ -540,8 +787,7 @@ void kohTick(void)
 					g_ScenarioData.koh.elapsed240 += g_Vars.lvupdate240;
 
 					if (g_ScenarioData.koh.elapsed240 >= g_Vars.mphilltime * TICKS(240) + TICKS(2400)) {
-						// Scored a point
-						sndStart(var80095200, SFX_MP_SCOREPOINT, 0, -1, -1, -1, -1, -1);
+						// Scored a point (the sound is in kohAnnouncePoint below)
 
 						// @bug: There is no check for a chr being dead here.
 						// If a player dies in the hill and waits on the
@@ -557,23 +803,13 @@ void kohTick(void)
 							}
 						}
 
-						prevplayernum1 = g_Vars.currentplayernum;
+						// Sound and "King of the Hill!" for the team's players
+						// (moved into kohAnnouncePoint so clients play the same)
+						kohAnnouncePoint(g_ScenarioData.koh.occupiedteam);
 
-						for (playernum2 = 0; playernum2 < g_MpNumChrs; playernum2++) {
-							if (g_MpAllChrPtrs[playernum2]->aibot == NULL
-									&& radarGetTeamIndex(g_MpAllChrPtrs[playernum2]->team) == g_ScenarioData.koh.occupiedteam) {
-								setCurrentPlayerNum(playernum2);
-
-								// "King of the Hill!"
-#if VERSION >= VERSION_JPN_FINAL
-								hudmsgCreateWithFlags(langGet(L_MPWEAPONS_020), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
-#else
-								hudmsgCreateWithFlags(langGet(L_MPWEAPONS_020), HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
-#endif
-							}
-						}
-
-						setCurrentPlayerNum(prevplayernum1);
+						// PC (T-NETWORKING-011): the point, for clients
+						s_KohScores++;
+						s_KohScoringTeam = g_ScenarioData.koh.occupiedteam;
 
 						g_ScenarioData.koh.occupiedteam = -1;
 						g_ScenarioData.koh.elapsed240 = 0;
@@ -585,6 +821,9 @@ void kohTick(void)
 				}
 			}
 		}
+
+		// PC (T-NETWORKING-011): a paused hold timer, for clients
+		s_KohContested = dualoccupancy ? true : false;
 
 		// Calculate what colour the hill should tween towards
 		if (g_ScenarioData.koh.occupiedteam == -1) {
@@ -599,40 +838,9 @@ void kohTick(void)
 		}
 	}
 
-	// Tween the colour components towards the target colour.
-	// @bug: This increments using g_Vars.diffframe60, which is updated while
-	// the game is paused. Because of this, if you pause as soon as a hill is
-	// scored then the colour fade and selection of the new hill will happen
-	// while paused.
-	if (g_ScenarioData.koh.colourfracr != targetr) {
-		for (i = 0; i < g_Vars.diffframe60; i++) {
-#if PAL
-			g_ScenarioData.koh.colourfracr = 0.0597f * targetr + 0.9403f * g_ScenarioData.koh.colourfracr;
-#else
-			g_ScenarioData.koh.colourfracr = 0.05f * targetr + 0.95f * g_ScenarioData.koh.colourfracr;
-#endif
-		}
-	}
-
-	if (g_ScenarioData.koh.colourfracg != targetg) {
-		for (i = 0; i < g_Vars.diffframe60; i++) {
-#if PAL
-			g_ScenarioData.koh.colourfracg = 0.0597f * targetg + 0.9403f * g_ScenarioData.koh.colourfracg;
-#else
-			g_ScenarioData.koh.colourfracg = 0.05f * targetg + 0.95f * g_ScenarioData.koh.colourfracg;
-#endif
-		}
-	}
-
-	if (g_ScenarioData.koh.colourfracb != targetb) {
-		for (i = 0; i < g_Vars.diffframe60; i++) {
-#if PAL
-			g_ScenarioData.koh.colourfracb = 0.0597f * targetb + 0.9403f * g_ScenarioData.koh.colourfracb;
-#else
-			g_ScenarioData.koh.colourfracb = 0.05f * targetb + 0.95f * g_ScenarioData.koh.colourfracb;
-#endif
-		}
-	}
+	// Tween the colour components towards the target colour
+	// (kohTweenColour keeps the original @bug about pausing)
+	kohTweenColour(targetr, targetg, targetb);
 }
 
 Gfx *kohRenderHud(Gfx *gdl)
@@ -651,7 +859,7 @@ Gfx *kohRenderHud(Gfx *gdl)
 		x = viGetViewLeft() + viGetViewWidth() / 2;
 		y = viGetViewTop() + 10;
 
-		time240 = g_Vars.mphilltime * TICKS(240) - g_ScenarioData.koh.elapsed240;
+		time240 = kohHillTime() * TICKS(240) - g_ScenarioData.koh.elapsed240;
 		time240 += VERSION >= VERSION_PAL_BETA ? TICKS(2640) - 1 : 2400;
 		mins = time240 / TICKS(60 * 240);
 		time240 -= TICKS(60 * 240) * mins;
@@ -662,7 +870,7 @@ Gfx *kohRenderHud(Gfx *gdl)
 		secs = (time240 + (TICKS(240) - 1)) / TICKS(240);
 #endif
 
-		if ((g_Vars.mphilltime * 60 + 600) / 3600) {
+		if ((kohHillTime() * 60 + 600) / 3600) {
 			sprintf(text, "%d:%02d", mins, secs);
 		} else {
 			sprintf(text, "%02d", secs);

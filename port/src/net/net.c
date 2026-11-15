@@ -29,6 +29,7 @@
 #include "net/sessioncatalog.h"
 #include "net/matchsetup.h"
 #include "net/netmanifest.h"
+#include "net/net_scenario_state_wire.h"
 #include "types.h"
 #include "constants.h"
 #include "data.h"
@@ -47,6 +48,9 @@
 #include "game/menu.h"
 #include "game/pdmode.h"
 #include "game/mplayer/mplayer.h"
+#if !defined(PD_SERVER)
+#include "game/mplayer/scenarios.h"
+#endif
 #include "lib/main.h"
 #include "lib/vi.h"
 #include "config.h"
@@ -815,6 +819,62 @@ typedef u32 (*net_resync_writer_fn)(struct netbuf *dst);
 /* Append one complete resync message or leave the destination byte-for-byte
  * writable at its prior boundary. The pending bit is cleared by the caller
  * only after the complete baseline is queued. */
+#if !defined(PD_SERVER)
+/* v62 (T-NETWORKING-011): the objective scenario state the host last sent,
+ * so a running timer is resent at a low rate rather than every frame. */
+static net_scenario_state_t s_NetScenarioLastSent;
+static s32 s_NetScenarioHaveSent;
+static u32 s_NetScenarioLastSentTick;
+
+#define NET_SCENARIO_TIMER_RESEND_TICKS 30
+
+static void netServerScenarioStateResetSend(void)
+{
+	memset(&s_NetScenarioLastSent, 0, sizeof(s_NetScenarioLastSent));
+	s_NetScenarioHaveSent = false;
+	s_NetScenarioLastSentTick = 0;
+}
+
+/* Host, every update frame of an active match: send the scenario state when
+ * it changed, or when only its timer moved and half a second has passed.
+ * Nothing goes out before the stage baseline has carried the first state. */
+static void netServerScenarioStateTick(void)
+{
+	net_scenario_state_t state;
+	s32 changed = false;
+
+	if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_SCENARIO) {
+		return;
+	}
+
+	if (!scenarioNetCaptureState(&state, &changed)) {
+		return;
+	}
+
+	if (!changed && s_NetScenarioHaveSent) {
+		if (memcmp(&state, &s_NetScenarioLastSent, sizeof(state)) == 0
+				|| (u32)(g_NetTick - s_NetScenarioLastSentTick) < NET_SCENARIO_TIMER_RESEND_TICKS) {
+			return;
+		}
+	}
+
+	if (netmsgSvcScenarioStateWrite(&g_NetMsgRel, &state) != 0) {
+		sysLogPrintf(LOG_WARNING, "SCENARIO.STATE: send failed scenario=%u rev=%u; next frame retries",
+			(unsigned)state.scenario, (unsigned)state.revision);
+		return;
+	}
+
+	if (changed) {
+		sysLogPrintf(LOG_NOTE, "SCENARIO.STATE: sent scenario=%u rev=%u reason=change",
+			(unsigned)state.scenario, (unsigned)state.revision);
+	}
+
+	memcpy(&s_NetScenarioLastSent, &state, sizeof(state));
+	s_NetScenarioHaveSent = true;
+	s_NetScenarioLastSentTick = g_NetTick;
+}
+#endif
+
 static bool netAppendResyncTransaction(struct netbuf *dst,
 		net_resync_writer_fn writer)
 {
@@ -899,6 +959,16 @@ static bool netServerPublishPendingResyncs(void)
 		if (!netAppendNpcResyncTransaction(&wire)) {
 			sysLogPrintf(LOG_WARNING,
 				"NET: npc resync group append failed; request retained for retry");
+			complete = false;
+		}
+	}
+	/* v62: the objective scenario's state rides in the same baseline, so a
+	 * client never shows its own pick of a hill or a base first. */
+	if (complete && (requested & NET_RESYNC_FLAG_SCENARIO)) {
+		if (!netAppendResyncTransaction(&wire,
+				netmsgSvcScenarioStateBaselineWrite)) {
+			sysLogPrintf(LOG_WARNING,
+				"NET: scenario state append failed; request retained for retry");
 			complete = false;
 		}
 	}
@@ -1635,6 +1705,13 @@ s32 netServerStageStart(void)
 	// kills get current scores immediately rather than waiting for the next
 	// 300-frame periodic broadcast (L1-2).
 	g_NetPendingResyncFlags = NET_RESYNC_FLAG_CHRS | NET_RESYNC_FLAG_PROPS | NET_RESYNC_FLAG_SCORES;
+#if !defined(PD_SERVER)
+	// v62: an objective scenario's state is part of the baseline
+	if (g_NetGameMode == NETGAMEMODE_MP && scenarioNetHasState()) {
+		g_NetPendingResyncFlags |= NET_RESYNC_FLAG_SCENARIO;
+	}
+	netServerScenarioStateResetSend();
+#endif
 	netPropSnapReset();
 
 	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_START sent, resync flags=0x%x", g_NetPendingResyncFlags);
@@ -3493,6 +3570,7 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_STAGE_FLAG: rc = netmsgSvcStageFlagRead(&cl->in, cl); break;
 			case SVC_OBJ_STATUS: rc = netmsgSvcObjStatusRead(&cl->in, cl); break;
 			case SVC_ALARM: rc = netmsgSvcAlarmRead(&cl->in, cl); break;
+			case SVC_SCENARIO_STATE: rc = netmsgSvcScenarioStateRead(&cl->in, cl); break;
 			case SVC_CUTSCENE: rc = netmsgSvcCutsceneRead(&cl->in, cl); break;
 			case SVC_CUTSCENE_SKIP: rc = netmsgSvcCutsceneSkipRead(&cl->in, cl); break;
 			case SVC_RECONNECT_PROP_BEGIN: rc = netmsgSvcReconnectPropBeginRead(&cl->in, cl); break;
@@ -3914,6 +3992,13 @@ void netEndFrame(void)
 			 * score broadcast from the HOST proves score replication is live. */
 			sysLogPrintf(LOG_NOTE, "MATCH: scores replicated tick=%u", g_NetTick);
 		}
+
+#if !defined(PD_SERVER)
+		/* v62 (T-NETWORKING-011): the objective scenario's state. */
+		if (g_Vars.normmplayerisrunning && g_NetGameMode == NETGAMEMODE_MP) {
+			netServerScenarioStateTick();
+		}
+#endif
 		}
 
 	}

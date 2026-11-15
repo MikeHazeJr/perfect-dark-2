@@ -7,8 +7,8 @@
 /* scenario id + revision */
 #define NET_SCENARIO_STATE_ENVELOPE_BYTES 5u
 /* hill_index, hill_room, three floats, occupied_team, elapsed240, move_hill,
- * hill_time */
-#define NET_SCENARIO_STATE_KOH_BYTES (2u + 2u + 12u + 1u + 2u + 1u + 1u)
+ * hill_time, contested, scoring_team, scores */
+#define NET_SCENARIO_STATE_KOH_BYTES (2u + 2u + 12u + 1u + 2u + 1u + 1u + 1u + 1u + 2u)
 
 u32 netScenarioStatePayloadSize(u8 scenario)
 {
@@ -45,6 +45,12 @@ static net_scenario_state_status_e netScenarioKohValidate(const net_scenario_koh
 		return NET_SCENARIO_STATE_BAD_FIELD;
 	}
 	if (koh->move_hill > 1) {
+		return NET_SCENARIO_STATE_BAD_FIELD;
+	}
+	if (koh->contested > 1) {
+		return NET_SCENARIO_STATE_BAD_FIELD;
+	}
+	if (koh->scoring_team < -1 || koh->scoring_team >= NET_SCENARIO_STATE_MAX_TEAMS) {
 		return NET_SCENARIO_STATE_BAD_FIELD;
 	}
 	return NET_SCENARIO_STATE_OK;
@@ -96,6 +102,9 @@ s32 netScenarioStatePayloadWrite(struct netbuf *dst, const net_scenario_state_t 
 		netbufWriteS16(dst, koh->elapsed240);
 		netbufWriteU8(dst, koh->move_hill);
 		netbufWriteU8(dst, koh->hill_time);
+		netbufWriteU8(dst, koh->contested);
+		netbufWriteS8(dst, koh->scoring_team);
+		netbufWriteU16(dst, koh->scores);
 		break;
 	}
 	default:
@@ -150,6 +159,9 @@ net_scenario_state_status_e netScenarioStatePayloadRead(struct netbuf *src,
 		koh->elapsed240 = netbufReadS16(src);
 		koh->move_hill = netbufReadU8(src);
 		koh->hill_time = netbufReadU8(src);
+		koh->contested = netbufReadU8(src);
+		koh->scoring_team = netbufReadS8(src);
+		koh->scores = netbufReadU16(src);
 		break;
 	}
 	default:

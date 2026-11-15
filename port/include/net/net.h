@@ -10,7 +10,11 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 61  /* v61 (2026-09-08): authenticated lobby roster.
+#define NET_PROTOCOL_VER 62  /* v62 (2026-11-15): SVC_SCENARIO_STATE, host-
+                             * authoritative objective scenario state in the
+                             * stage baseline and on every change (King of the
+                             * Hill first; net_scenario_state_wire.h).
+                             * v61 (2026-09-08): authenticated lobby roster.
                              * v60: room creation includes its
                                initial settings/playlist, room lists include
                                access and create/join return SVC_ROOM_RESULT.
@@ -346,6 +350,7 @@ _Static_assert(NET_MAX_CLIENTS < NET_NULL_CLIENT,
 #define NET_RESYNC_FLAG_PROPS  (1 << 1)
 #define NET_RESYNC_FLAG_SCORES (1 << 2)
 #define NET_RESYNC_FLAG_NPCS   (1 << 3)
+#define NET_RESYNC_FLAG_SCENARIO (1 << 4) /* v62: objective scenario state */
 
 extern u8 g_NetPendingResyncFlags;    /* server: resync types to broadcast next netEndFrame */
 extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from server next netEndFrame */

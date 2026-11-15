@@ -30,4 +30,30 @@ f32 scenarioChooseSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms
 s32 scenarioGetMaxTeams(void);
 void scenarioHighlightRoom(RoomNum room, s32 *arg1, s32 *arg2, s32 *arg3);
 
+/*
+ * PC (T-NETWORKING-011): host-authoritative scenario state. The host, and
+ * offline play, runs the scenario rules; a networked client presents the
+ * state the host sends in SVC_SCENARIO_STATE instead of deciding it itself.
+ * Only scenarios with a body in net/net_scenario_state_wire.h take part; the
+ * others still run their rules on every peer.
+ */
+struct net_scenario_state;
+
+/* Whether this peer decides the scenario: offline play or the listen host. */
+s32 scenarioNetIsAuthority(void);
+
+/* Whether the running match's scenario has network state (a wire body). */
+s32 scenarioNetHasState(void);
+
+/* Host: fills *out with the running scenario's state and returns 1, or
+ * returns 0 when the scenario has no network state. *changed is set when the
+ * state differs from the previous capture in anything but a running timer
+ * (the revision then goes up by one). */
+s32 scenarioNetCaptureState(struct net_scenario_state *out, s32 *changed);
+
+/* Client: accepts a decoded state for the running scenario. Returns 1 when
+ * it was queued for the next scenario tick, 0 when it was dropped (no match,
+ * another scenario, or older than the state already shown). */
+s32 scenarioNetReceiveState(const struct net_scenario_state *in);
+
 #endif

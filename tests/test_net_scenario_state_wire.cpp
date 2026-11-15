@@ -31,6 +31,7 @@ u32 netbufWriteU8(struct netbuf *, const u8);
 u32 netbufWriteU32(struct netbuf *, const u32);
 u32 netbufWriteS8(struct netbuf *, const s8);
 u32 netbufWriteS16(struct netbuf *, const s16);
+u32 netbufWriteU16(struct netbuf *, const u16);
 u32 netbufWriteF32(struct netbuf *, const f32);
 u8 netbufReadU8(struct netbuf *);
 }
@@ -52,6 +53,9 @@ net_scenario_state_t make_koh_state()
 	state.body.koh.elapsed240 = 3599;
 	state.body.koh.move_hill = 0;
 	state.body.koh.hill_time = 10;
+	state.body.koh.contested = 1;
+	state.body.koh.scoring_team = 1;
+	state.body.koh.scores = 7;
 	return state;
 }
 
@@ -67,7 +71,10 @@ bool koh_equal(const net_scenario_state_t &a, const net_scenario_state_t &b)
 		&& a.body.koh.occupied_team == b.body.koh.occupied_team
 		&& a.body.koh.elapsed240 == b.body.koh.elapsed240
 		&& a.body.koh.move_hill == b.body.koh.move_hill
-		&& a.body.koh.hill_time == b.body.koh.hill_time;
+		&& a.body.koh.hill_time == b.body.koh.hill_time
+		&& a.body.koh.contested == b.body.koh.contested
+		&& a.body.koh.scoring_team == b.body.koh.scoring_team
+		&& a.body.koh.scores == b.body.koh.scores;
 }
 
 /* Writes a King of the Hill payload field by field with the same primitives
@@ -88,6 +95,9 @@ u32 write_raw_koh(u8 *bytes, u32 capacity, const net_scenario_state_t &state)
 	netbufWriteS16(&raw, state.body.koh.elapsed240);
 	netbufWriteU8(&raw, state.body.koh.move_hill);
 	netbufWriteU8(&raw, state.body.koh.hill_time);
+	netbufWriteU8(&raw, state.body.koh.contested);
+	netbufWriteS8(&raw, state.body.koh.scoring_team);
+	netbufWriteU16(&raw, state.body.koh.scores);
 	REQUIRE(raw.error == 0);
 	return raw.wp;
 }
@@ -136,6 +146,9 @@ TEST_CASE("Scenario state wire round-trips King of the Hill state field for fiel
 	unchosen.body.koh.elapsed240 = 0;
 	unchosen.body.koh.move_hill = 1;
 	unchosen.body.koh.hill_time = 255;
+	unchosen.body.koh.contested = 0;
+	unchosen.body.koh.scoring_team = -1;
+	unchosen.body.koh.scores = 0;
 
 	net_scenario_state_t extremes = make_koh_state();
 	extremes.revision = 0xffffffffu;
@@ -143,6 +156,8 @@ TEST_CASE("Scenario state wire round-trips King of the Hill state field for fiel
 	extremes.body.koh.hill_room = 32767;
 	extremes.body.koh.occupied_team = NET_SCENARIO_STATE_MAX_TEAMS - 1;
 	extremes.body.koh.elapsed240 = 32767;
+	extremes.body.koh.scoring_team = NET_SCENARIO_STATE_MAX_TEAMS - 1;
+	extremes.body.koh.scores = 0xffff;
 
 	for (const net_scenario_state_t &input : {held, unchosen, extremes}) {
 		u8 bytes[64]{};
@@ -216,6 +231,18 @@ TEST_CASE("Scenario state wire rejects each out-of-range King of the Hill field 
 
 	bad = make_koh_state();
 	bad.body.koh.move_hill = 2;
+	require_rejected_everywhere(bad, NET_SCENARIO_STATE_BAD_FIELD);
+
+	bad = make_koh_state();
+	bad.body.koh.contested = 2;
+	require_rejected_everywhere(bad, NET_SCENARIO_STATE_BAD_FIELD);
+
+	bad = make_koh_state();
+	bad.body.koh.scoring_team = NET_SCENARIO_STATE_MAX_TEAMS;
+	require_rejected_everywhere(bad, NET_SCENARIO_STATE_BAD_FIELD);
+
+	bad = make_koh_state();
+	bad.body.koh.scoring_team = -2;
 	require_rejected_everywhere(bad, NET_SCENARIO_STATE_BAD_FIELD);
 
 	for (int axis = 0; axis < 3; ++axis) {

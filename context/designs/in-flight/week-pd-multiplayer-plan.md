@@ -124,6 +124,26 @@ Progress log:
   case and hill commands; the same fallback for those three modes waits for Mike.
 - Merged into dev on Mike's OK (2026-11-15, "Merge our work"): merge commit e7503299, tree identical to
   da7f042b; local dev only, not pushed. Work continues on this branch; later units go to dev by the same route.
+- Canonical-checkout edits (2026-11-15, Mike: commit them): five verified commits fast-forwarded onto dev
+  (55812690, local only): T-TOOLING-007 agent guidance with the SP-75 line, T-TOOLING-005 cleaner, T-TOOLING-006
+  D-011 floor and the opt-in retained modes, T-ASSETS-052 glTF limits (plus the stale material-order pin 14->15).
+  Verified on a temp branch first: build, pd-tests 1899/1899, the CI tool self-tests, 171 retained-wrapper checks,
+  31 runner-supervisor tests. Held back, with the reason given to Mike: CORE's uncompiled T-MODDING-011
+  GGV/bondgun lane (already saved on `week-pd/inflight-20261114`) and the live crystal pistol files. Merged dev
+  into this branch (4a26fe59). Branch pushes are held while dev holds unpushed commits.
+- B-1126 fill-in (2026-11-15, Mike: "get all the MP modes functional", the same fill-in as Hacker Central):
+  dbc660f1. Capture the Case bases farthest apart plus up to six respawn pads per base, King of the Hill up to six
+  hills one per room, Hold the Briefcase an eight-pad bank; three new pure pickers with 15 unit cases; pd-tests
+  1914/1914. The three local smokes assert placement outcomes; their game runs are queued on the hub.
+- Unit F written (2026-11-15, not yet built or run): `SVC_SCENARIO_STATE` 0x5a, wire v62. The King of the Hill body
+  gains `contested`, `scoring_team` and `scores`; the host sends the state in the stage baseline
+  (`NET_RESYNC_FLAG_SCENARIO`), on every change and every 30 ticks while only the hold timer moves, and in the
+  reconnect snapshot. A networked client's `kohTick` only presents it: hill room lighting (room bounded by this
+  stage's room count before it indexes `g_Rooms`), capture and point announcements (moved into shared helpers so
+  host and client play the same), a locally run hold timer between snapshots, and the host's hill time for the
+  HUD without touching the client's own setting. Fixture `mp_king_of_the_hill_net_smoke` (port 27241) asserts the
+  baseline send and the client taking the host's hill; `koh_net_compare.py` (session scratchpad) checks that
+  both end on the same hill room and identical score lines.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used

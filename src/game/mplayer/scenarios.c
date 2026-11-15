@@ -42,6 +42,17 @@
 #include "assetcatalog.h"   /* catalog universality sweep (2026-04-27) */
 #include "asset_runtime.h"  /* c3849 Wave 6a: gamemode meta-family consumer */
 #include "scenario_pad_fallback.h"  /* B-1125, B-1126: placement pads for arenas that carry too few */
+#include "net/net.h"                /* g_NetMode: who decides scenario state */
+#include "net/net_scenario_state_wire.h"
+
+_Static_assert(MPSCENARIO_HOLDTHEBRIEFCASE == NET_SCENARIO_STATE_HOLDTHEBRIEFCASE
+		&& MPSCENARIO_HACKERCENTRAL == NET_SCENARIO_STATE_HACKERCENTRAL
+		&& MPSCENARIO_POPACAP == NET_SCENARIO_STATE_POPACAP
+		&& MPSCENARIO_KINGOFTHEHILL == NET_SCENARIO_STATE_KINGOFTHEHILL
+		&& MPSCENARIO_CAPTURETHECASE == NET_SCENARIO_STATE_CAPTURETHECASE,
+	"scenario state wire ids must equal the MPSCENARIO_* values");
+_Static_assert(MAX_TEAMS == NET_SCENARIO_STATE_MAX_TEAMS,
+	"scenario state wire team range must equal MAX_TEAMS");
 
 /**
  * There are six multiplayer scenarios:
@@ -490,6 +501,50 @@ static s32 scenarioFallbackRoomPads(s16 *outpads, s32 maxout, const s16 *existin
 		who ? who : "?", total - count, maxout, numrooms, minperroom, numcands, source, count);
 
 	return total - count;
+}
+
+/*
+ * PC (T-NETWORKING-011): host-authoritative scenario state, shared part. The
+ * scenario files capture and present their own bodies; see scenarios.h.
+ */
+static net_scenario_state_t s_ScenarioNetLast;    // host: previous capture
+static s32 s_ScenarioNetHaveLast;
+static u32 s_ScenarioNetRevision;                 // host: revision of the newest change
+static net_scenario_state_t s_ScenarioNetPending; // client: newest state from the host
+static s32 s_ScenarioNetHavePending;
+static u32 s_ScenarioNetShownRevision;            // client: revision already presented
+static s32 s_ScenarioNetHaveShown;
+
+s32 scenarioNetIsAuthority(void)
+{
+	return g_NetMode != NETMODE_CLIENT;
+}
+
+/* Every match starts from revision 0 on both sides. */
+static void scenarioNetResetState(void)
+{
+	memset(&s_ScenarioNetLast, 0, sizeof(s_ScenarioNetLast));
+	memset(&s_ScenarioNetPending, 0, sizeof(s_ScenarioNetPending));
+	s_ScenarioNetHaveLast = false;
+	s_ScenarioNetRevision = 0;
+	s_ScenarioNetHavePending = false;
+	s_ScenarioNetShownRevision = 0;
+	s_ScenarioNetHaveShown = false;
+}
+
+/* Client, scenario tick: takes the newest state the host sent, once. */
+static s32 scenarioNetTakePending(net_scenario_state_t *out)
+{
+	if (!s_ScenarioNetHavePending) {
+		return false;
+	}
+
+	*out = s_ScenarioNetPending;
+	s_ScenarioNetHavePending = false;
+	s_ScenarioNetShownRevision = out->revision;
+	s_ScenarioNetHaveShown = true;
+
+	return true;
 }
 
 // Include the code files where each scenario implements its callbacks
@@ -1301,12 +1356,114 @@ f32 scenarioChooseSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms
  * stage specific such as pad and room numbers, then re-reads the setup
  * file to reload that information.
  */
+s32 scenarioNetHasState(void)
+{
+	if (!scenarioIndexIsValid(g_MpSetup.scenario)) {
+		return false;
+	}
+
+	return netScenarioStatePayloadSize((u8)g_MpSetup.scenario) > 0;
+}
+
+/* Whether two captures differ in anything but the revision and a running
+ * timer (the King of the Hill hold time), which the host resends at a low
+ * rate instead. Captures are zeroed before they are filled, so padding is
+ * equal and memcmp is exact. */
+static s32 scenarioNetStateChanged(const net_scenario_state_t *a, const net_scenario_state_t *b)
+{
+	net_scenario_state_t x;
+	net_scenario_state_t y;
+
+	memcpy(&x, a, sizeof(x));
+	memcpy(&y, b, sizeof(y));
+	x.revision = 0;
+	y.revision = 0;
+
+	if (x.scenario == NET_SCENARIO_STATE_KINGOFTHEHILL && y.scenario == NET_SCENARIO_STATE_KINGOFTHEHILL) {
+		x.body.koh.elapsed240 = 0;
+		y.body.koh.elapsed240 = 0;
+	}
+
+	return memcmp(&x, &y, sizeof(x)) != 0;
+}
+
+s32 scenarioNetCaptureState(net_scenario_state_t *out, s32 *changed)
+{
+	net_scenario_state_t state;
+
+	if (changed) {
+		*changed = false;
+	}
+
+	if (out == NULL || !scenarioNetHasState()) {
+		return false;
+	}
+
+	memset(&state, 0, sizeof(state));
+	state.scenario = (u8)g_MpSetup.scenario;
+
+	switch (state.scenario) {
+	case NET_SCENARIO_STATE_KINGOFTHEHILL:
+		kohNetCapture(&state.body.koh);
+		break;
+	default:
+		return false;
+	}
+
+	if (!s_ScenarioNetHaveLast || scenarioNetStateChanged(&state, &s_ScenarioNetLast)) {
+		s_ScenarioNetRevision++;
+
+		if (changed) {
+			*changed = true;
+		}
+	}
+
+	state.revision = s_ScenarioNetRevision;
+	memcpy(&s_ScenarioNetLast, &state, sizeof(state));
+	s_ScenarioNetHaveLast = true;
+	memcpy(out, &state, sizeof(state));
+
+	return true;
+}
+
+s32 scenarioNetReceiveState(const net_scenario_state_t *in)
+{
+	if (in == NULL || scenarioNetIsAuthority()) {
+		return false;
+	}
+
+	if (!scenarioNetHasState() || in->scenario != (u8)g_MpSetup.scenario) {
+		sysLogPrintf(LOG_WARNING, "SCENARIO.STATE: dropped scenario=%u rev=%u, match runs scenario %d",
+			(unsigned)in->scenario, (unsigned)in->revision, (s32)g_MpSetup.scenario);
+		return false;
+	}
+
+	// Reliable and ordered, so an older revision means a stale copy (for
+	// example a baseline retried after a newer change was sent)
+	if ((s_ScenarioNetHaveShown && in->revision < s_ScenarioNetShownRevision)
+			|| (s_ScenarioNetHavePending && in->revision < s_ScenarioNetPending.revision)) {
+		return false;
+	}
+
+	if (!s_ScenarioNetHaveShown && !s_ScenarioNetHavePending) {
+		sysLogPrintf(LOG_NOTE, "SCENARIO.STATE: first state from host scenario=%u rev=%u",
+			(unsigned)in->scenario, (unsigned)in->revision);
+	}
+
+	memcpy(&s_ScenarioNetPending, in, sizeof(s_ScenarioNetPending));
+	s_ScenarioNetHavePending = true;
+
+	return true;
+}
+
 void scenarioReset(void)
 {
 	s32 i;
 	s32 j;
 	s32 *cmd = g_StageSetup.intro;
 	s32 scenario = scenarioGetSafeIndex("scenarioReset");
+
+	scenarioNetResetState();
 
 	switch (scenario) {
 	case MPSCENARIO_KINGOFTHEHILL:

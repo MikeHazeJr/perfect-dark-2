@@ -1,0 +1,195 @@
+{
+  "scenario_name": "mp_king_of_the_hill_net_smoke",
+  "description": "Networked King of the Hill with simulants: listen host plus one client on loopback, Complex, three bots, 35 second time limit. Same start path as mp_combat_net_bots_smoke (host autostart after the client joins), with the scenario chosen through --launch-mp-room. Proves wire v62: the host places a real hill (B-1126 fill-in on extracted arenas) and sends it in the stage baseline (SVC_SCENARIO_STATE), the client takes the host's hill instead of choosing its own, and both sides end with a match result for all five characters. That the client's hill room equals the host's is a cross-log check the harness cannot express: compare the host's last 'KOH: hill ... room=R' with the client's last 'KOH: client hill from host ... room=R' (devtools or the session's compare script). Port 27241.",
+  "tags": [
+    "network",
+    "combatsim",
+    "bots",
+    "match-lifecycle",
+    "multiplayer-modes",
+    "scenario"
+  ],
+  "paths_of_interest": [
+    "src/game/mplayer/scenarios/kingofthehill.inc",
+    "src/game/mplayer/scenarios.c",
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c",
+    "port/src/scenario_pad_fallback.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 390,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27241",
+        "--launch-mp-room",
+        "base:arena_mp_complex",
+        "base:king_of_the_hill",
+        "3",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "35"
+      ],
+      "wait_for": "NET: created server on port 27241",
+      "wait_timeout_seconds": 120
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27241"
+      ]
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Both processes share this schedule. The host arms --listen-bind and fires netStartServer on the first mainTick where g_NetInit is true (-> 'NET: created server on port 27200', the runner's barrier), seeds g_MatchConfig from --launch-mp-room, and arms --host-autostart. The client arms --connect-host and connects after the barrier. Once the client reaches CLSTATE_LOBBY on the host (slot 1) and a ~2s settle elapses, --host-autostart fires netLobbyRequestStartWithSims exactly once; the ready gate runs a 3s countdown (client answers manifest READY), then SVC_STAGE_START loads the arena on both sides. The match ends at the forced 35s time limit."
+    },
+    {
+      "at_ms": 330000,
+      "type": "exit",
+      "comment": "Scripted clean exit at 330s. Budget on the D: hard disk (first run 2026-11-14): the host reached --host-autostart at 194s because the client needed about 130s to boot and register the catalog, so a 200s exit cut the match 2.5s in. 330s covers that boot, the ~2s settle, the 3s countdown, the Felicity load on both sides, the 35s match and the end screen; timeout_seconds=390 backstops it. The client emits SMOKE: result=scripted_exit; the host may be reaped by the runner watchdog after an active loopback session, so the scripted-exit count is min:1 (client), not 2."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_king_of_the_hill_net_smoke",
+      "BOOT: --listen-bind armed: port=27241",
+      "BOOT: --connect-host armed: addr='127.0.0.1:27241'",
+      "BOOT: --host-autostart armed",
+      "BOOT: --match-timelimit-sec armed: seconds=35",
+      "BOOT: --launch-mp-room arena='base:arena_mp_complex' scenario='base:king_of_the_hill' bots=3",
+      "BOOT: --listen-bind consumed: port=27241 .*result=OK rc=0",
+      "BOOT: --connect-host consumed: addr='127.0.0.1:27241' result=OK rc=0",
+      "NET: created server on port 27241",
+      "NET: connecting to 127\\.0\\.0\\.1:27241",
+      "NET: incoming connection",
+      "NET: connected to server, sending CLC_AUTH",
+      "NET: client slot \\d+ assigned to peer",
+      "BOOT: --host-autostart firing",
+      "BOOT: --host-autostart consumed: result=OK rc=0",
+      "MANIFEST-SP: load 'base:arena_mp_complex'",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "MATCH: player spawned slot=0",
+      "MATCH: player spawned slot=1",
+      "MATCH: scores replicated",
+      "MATCH: stage end reason=timelimit",
+      "MATCH: endscreen shown",
+      "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+      "MATCH\\.RESULT: scenario=4 teams=1 chrs=5 netmode=1",
+      "MATCH\\.RESULT: scenario=4 teams=1 chrs=5 netmode=2",
+      "MATCH: final scores published before stage end room=",
+      "KOH: hill [0-8] of [2-9] at pad=[0-9]+ room=[1-9][0-9]*",
+      "SCENARIO\\.STATE: sent scenario=4 rev=[0-9]+ reason=baseline",
+      "SCENARIO\\.STATE: first state from host scenario=4 rev=[0-9]+",
+      "KOH: client hill from host index=[0-8] room=[1-9][0-9]* rev=[0-9]+$"
+    ],
+    "forbidden_patterns": [
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "NET: could not init ENet, disabling networking",
+      "NET: could not create ENet host on port \\d+",
+      "NET: could not connect to ",
+      "NET: connection rejected: protocol mismatch",
+      "BOOT: --listen-bind cannot fire:",
+      "BOOT: --connect-host cannot fire:",
+      "BOOT: --listen-bind consumed: port=27241 .*result=FAILED",
+      "BOOT: --connect-host consumed: addr='127\\.0\\.0\\.1:27241' result=FAILED",
+      "BOOT: --host-autostart consumed: result=FAILED",
+      "MATCHSETUP: cannot resolve stage ",
+      "MATCHSETUP: no players configured",
+      "MATCHSTART\\.DIAG: BAILED",
+      "MATCHSTART\\.DIAG: abort reason=",
+      "CATALOG\\.LIFECYCLE\\.LOAD: .*type mismatch",
+      "MANIFEST-SP: load failed 'base:arena_mp_complex'",
+      "MANIFEST\\.LIFECYCLE\\.(REJECT|ROLLBACK)",
+      "MANIFEST-(SP|MP): .*rejected; current manifest preserved",
+      "SPAWN.ORCH: no pool slot",
+      "SPAWN.ORCH:.*unresolved duplicate",
+      "SPAWN: could not resolve room",
+      "MENU: watchdog",
+      "MENUPOOL legacy-stack leak",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "KOH: hill [0-9]+ of [0-9]+ at pad=-?[0-9]+ room=(0|-1)",
+      "KOH: hill moved to [0-9]+ of [0-9]+ pad=-?[0-9]+ room=(0|-1)",
+      "SCENARIO\\.MISS:",
+      "SCENARIO\\.STATE: rejected malformed state",
+      "SCENARIO\\.STATE: dropped scenario=",
+      "SCENARIO\\.STATE: send failed",
+      "not a room of this stage",
+      "NET: scenario state append failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "NET: created server on port 27241",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "NET: incoming connection",
+        "min": 1
+      },
+      {
+        "pattern": "NET: connected to server, sending CLC_AUTH",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MANIFEST-SP: load 'base:arena_mp_complex'",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: player spawned slot=\\d+",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: server stage start",
+        "min": 1
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit",
+        "min": 1
+      },
+      {
+        "pattern": "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT: scenario=4 teams=1 chrs=5 netmode=",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 10,
+        "max": 10
+      },
+      {
+        "pattern": "SCENARIO\\.STATE: first state from host scenario=4",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

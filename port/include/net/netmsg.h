@@ -69,6 +69,7 @@ typedef struct net_vehicle_state_txn_s {
 #define SVC_RECONNECT_PROP_STATE 0x57 // v57: one announced prop's live state
 #define SVC_RECONNECT_PROP_END   0x58 // v57: exact replicated-prop set terminator
 #define SVC_RECONNECT_INVENTORY  0x59 // v57: one stable client's exact inventory
+#define SVC_SCENARIO_STATE 0x5a // v62: host-authoritative scenario state (net_scenario_state_wire.h)
 #define NET_CUTSCENE_AUTHORITY_EVENT_CAPACITY 64u
 #define NET_CUTSCENE_AUTHORITY_PACKET_CAPACITY 1024u
 #define SVC_LOBBY_LEADER  0x60 // server announces lobby leader {clientId}
@@ -231,6 +232,7 @@ typedef enum net_reconnect_snapshot_status_e {
 	NET_RECONNECT_SNAPSHOT_SCORES,
 	NET_RECONNECT_SNAPSHOT_COMMIT,
 	NET_RECONNECT_SNAPSHOT_BUFFER,
+	NET_RECONNECT_SNAPSHOT_SCENARIO, /* v62: objective scenario state */
 } net_reconnect_snapshot_status_e;
 
 typedef enum net_reconnect_prop_state_status_e {
@@ -372,6 +374,13 @@ u32 netmsgSvcObjStatusWrite(struct netbuf *dst, u8 index, u8 status);
 u32 netmsgSvcObjStatusRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcAlarmWrite(struct netbuf *dst, u8 active);
 u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl);
+/* v62: host-authoritative scenario state. The write takes a captured state;
+ * the baseline form captures the running scenario itself and fails (writes
+ * nothing) when the scenario has no network state. */
+struct net_scenario_state;
+u32 netmsgSvcScenarioStateWrite(struct netbuf *dst, const struct net_scenario_state *state);
+u32 netmsgSvcScenarioStateBaselineWrite(struct netbuf *dst);
+u32 netmsgSvcScenarioStateRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcCutsceneSkipRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcCutsceneSkipWrite(struct netbuf *dst, u8 playernum,

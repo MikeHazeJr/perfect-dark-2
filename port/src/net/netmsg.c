@@ -58,6 +58,7 @@
 #include "room.h"
 #include "net/room_ui.h"
 #include "net/room_wire.h"
+#include "net/net_scenario_state_wire.h"
 #include "scenario_save.h"
 #include "scenario_source_runtime.h"
 #include "assetcatalog.h"
@@ -1372,6 +1373,7 @@ const char *netmsgReconnectSnapshotStatusString(
 	case NET_RECONNECT_SNAPSHOT_SCORES: return "scores";
 	case NET_RECONNECT_SNAPSHOT_COMMIT: return "commit";
 	case NET_RECONNECT_SNAPSHOT_BUFFER: return "buffer";
+	case NET_RECONNECT_SNAPSHOT_SCENARIO: return "scenario";
 	default: return "unknown";
 	}
 }
@@ -5656,6 +5658,16 @@ u32 netmsgSvcReconnectStateWrite(struct netbuf *dst,
 			NET_NULL_CLIENT, NET_NULL_PROP, -1);
 		goto rollback;
 	}
+#if !defined(PD_SERVER)
+	/* v62: so is the objective scenario's state (hill, holder, bases). */
+	if (g_NetGameMode == NETGAMEMODE_MP && scenarioNetHasState()
+			&& netmsgSvcScenarioStateBaselineWrite(dst) != 0) {
+		netmsgReconnectSnapshotFail(out_result, dst->error
+			? NET_RECONNECT_SNAPSHOT_BUFFER : NET_RECONNECT_SNAPSHOT_SCENARIO,
+			NET_NULL_CLIENT, NET_NULL_PROP, -1);
+		goto rollback;
+	}
+#endif
 	if (netmsgSvcReconnectCommitWrite(dst,
 			(u8)reconnecting_client->id) != 0) {
 		netmsgReconnectSnapshotFail(out_result, dst->error
@@ -8593,6 +8605,77 @@ u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl)
 	}
 
 	return src->error;
+}
+
+/* ========================================================================
+ * SVC_SCENARIO_STATE - v62 host-authoritative Combat Simulator scenario state
+ * (T-NETWORKING-011). The listen host runs the scenario rules and sends the
+ * running scenario's state in the stage baseline, on every change and at a
+ * low rate while a timer runs; a client presents it (scenarios.h). The body
+ * is net_scenario_state_wire.h, decoded and validated in full before use.
+ * ======================================================================== */
+
+u32 netmsgSvcScenarioStateWrite(struct netbuf *dst, const struct net_scenario_state *state)
+{
+	if (!dst || !state || dst->error) {
+		return 1;
+	}
+
+	netbufWriteU8(dst, SVC_SCENARIO_STATE);
+
+	if (!netScenarioStatePayloadWrite(dst, state)) {
+		return dst->error ? dst->error : 1;
+	}
+
+	return dst->error;
+}
+
+u32 netmsgSvcScenarioStateBaselineWrite(struct netbuf *dst)
+{
+#if !defined(PD_SERVER)
+	net_scenario_state_t state;
+	s32 changed;
+
+	if (!scenarioNetCaptureState(&state, &changed)) {
+		return 1;
+	}
+
+	if (netmsgSvcScenarioStateWrite(dst, &state) != 0) {
+		return dst && dst->error ? dst->error : 1;
+	}
+
+	sysLogPrintf(LOG_NOTE, "SCENARIO.STATE: sent scenario=%u rev=%u reason=baseline",
+		(unsigned)state.scenario, (unsigned)state.revision);
+
+	return 0;
+#else
+	(void)dst;
+	return 1;
+#endif
+}
+
+u32 netmsgSvcScenarioStateRead(struct netbuf *src, struct netclient *srccl)
+{
+	net_scenario_state_t state;
+	net_scenario_state_status_e status;
+
+	status = netScenarioStatePayloadRead(src, &state);
+
+	if (status != NET_SCENARIO_STATE_OK) {
+		sysLogPrintf(LOG_ERROR, "SCENARIO.STATE: rejected malformed state status=%d", (s32)status);
+		return src && src->error ? src->error : 1;
+	}
+
+	// Only a client presents the host's state, and only inside a match
+	if (g_NetMode != NETMODE_CLIENT || !srccl || srccl->state < CLSTATE_GAME) {
+		return 0;
+	}
+
+#if !defined(PD_SERVER)
+	scenarioNetReceiveState(&state);
+#endif
+
+	return 0;
 }
 
 /* ========================================================================
