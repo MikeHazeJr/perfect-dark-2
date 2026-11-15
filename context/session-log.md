@@ -10577,3 +10577,26 @@ Next
 - Mission endings through the runner (mission flow row): Deep Sea straight
   on, Skedar Ruins to the credits, Defense's end screen.
 - The queued base 4 run (second in line).
+
+## 2026-11-15 (14:25-14:55 UTC) - CORE: stage.json co-op spawn distance and dark room rule
+
+What was done
+- 0190728d: `player.coop_spawn_distance` (chraction.c; Defection 80, else
+  60) and the `ai` family with `dark_room_lists` (chrai.c; Crash Site
+  false). Kind `_stagejson_player_ai`. Limited mine ammo stays a stage check
+  until the crystal pistol work in `bgunAmmotypeAllowsUnlimitedAmmo` lands
+  (told CRYSTAL PISTOL in the week note).
+- Mission endings looked at and not started: the PC end screen
+  (`pdgui_menu_endscreen.cpp`, an intent layer over the original dialogs),
+  co-op continue and the Deep Sea co-op auto-advance (`menutick.c`) all take
+  part, so it is a larger step for the mission graph runner, not a stage
+  rule. Put to Mike as an option.
+
+Verification
+- pd-tests 1,920 cases / 341,188 assertions. Temporary copy of base 4
+  (deleted, 378 MB): 132 of 132 readable; player on Villa, Rescue, Air Base,
+  Defection; ai on Crash Site; weather on its four; conformance 0 errors;
+  light rules 46 of 46; mission graphs 21 of 21.
+
+Next
+- The queued base 4 run (next in line).
