@@ -285,9 +285,42 @@ class StorageTests(unittest.TestCase):
         self.assertFalse((self.project / '.claude/smoke-storage/state.json').exists())
         self.complete(run)
         for bad in ({'schema': 2, 'root': str(moved)}, {'schema': 1, 'root': 'relative/root'},
-                    {'schema': 1, 'root': Path(moved).anchor}, {'schema': 1}):
+                    {'schema': 1, 'root': Path(moved).anchor}, {'schema': 1},
+                    {'schema': 1, 'root': str(moved), 'extra': 1},
+                    {'schema': 1, 'root': str(moved), 'policy': {'peak_run_gib': 1}},
+                    {'schema': 1, 'root': str(moved), 'policy': 'small'}):
             location.write_text(json.dumps(bad), encoding='utf-8')
             with self.assertRaises(storage.StorageError): storage.storage_root(self.project)
+
+    def test_location_limits_apply_to_its_root_and_builds_measure_the_checkout(self):
+        # Mike, 2026-11-15: installs on C: "only one or two at a time". The
+        # location file's limits govern its root; an explicit policy still
+        # wins; a build is measured on the checkout's own drive and floor.
+        location = self.project / '.claude/smoke-storage-location.json'
+        moved = self.project / 'ssd-root' / 'core'
+        location.write_text(json.dumps({'schema': 1, 'root': str(moved),
+            'policy': {'max_full_installs': 2, 'min_free_gib': 200}}), encoding='utf-8')
+        plain = storage.Storage(self.project, {'schema': 1})
+        self.assertEqual(plain.policy['max_full_installs'], 2)
+        self.assertEqual(plain.policy['min_free_gib'], 200)
+        defaults = json.loads((Path(storage.__file__).parent / 'storage-policy.json').read_text())
+        self.assertEqual(plain.project_policy['min_free_gib'], defaults['min_free_gib'])
+        self.assertEqual(plain.project_policy['max_full_installs'], defaults['max_full_installs'])
+        self.assertEqual(storage.Storage(self.project, {'max_full_installs': 3}).policy['max_full_installs'], 3)
+
+        real = storage.shutil.disk_usage
+        gib = 2**30
+        def fake(path):
+            free = 0 if Path(path).resolve().is_relative_to(moved.resolve()) else 100 * gib
+            return real(self.project)._replace(free=free)
+        storage.shutil.disk_usage = fake
+        try:
+            with self.operation() as s:
+                with self.assertRaises(storage.StorageError): s.preflight(gib)
+                result = s.preflight(gib, 0, True)
+                self.assertEqual(result['free_bytes'], 100 * gib)
+        finally:
+            storage.shutil.disk_usage = real
 
     def test_reviewed_release_writes_a_missing_owner_marker(self):
         a = self.seed(owner_pid=self.exited_pid())

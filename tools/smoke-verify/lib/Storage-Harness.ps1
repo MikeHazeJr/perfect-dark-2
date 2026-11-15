@@ -125,8 +125,11 @@ function Assert-SmokeStoragePreflight {
           [long] $ArchivePendingBytes = 0)
     $gib = if ($Build) { $script:SmokeStoragePolicy.peak_build_gib } else { $script:SmokeStoragePolicy.peak_run_gib }
     if ($null -eq $gib) { $gib = if ($Build) { 4 } else { 2 } }
+    # A build is measured on the checkout's own drive (6B: smoke storage may
+    # live on another drive; storage.py preflight, build=true).
     return Invoke-SmokeStorage -Action preflight -ProjectRoot $ProjectRoot -Request @{
         pending_bytes = [long]([double]$gib * 1GB); archive_pending_bytes = $ArchivePendingBytes
+        build = [bool]$Build
     }
 }
 
