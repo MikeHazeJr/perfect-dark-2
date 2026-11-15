@@ -1,0 +1,101 @@
+{
+  "schema": "pd2.mesh.nodes.v1",
+  "nodes": [
+    {
+      "id": 0,
+      "parent": -1,
+      "type": 2,
+      "partnum": 0,
+      "part": 0,
+      "mtx0": 0,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": 0,
+      "mcount": 1,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": -25.5,
+        "xmax": 25.5,
+        "ymin": -32.478,
+        "ymax": 68.302,
+        "zmin": -127.5,
+        "zmax": 24.997
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 1,
+      "parent": 0,
+      "type": 24,
+      "partnum": -1,
+      "part": -1,
+      "mtx0": 0,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": 0,
+      "mcount": 1,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": -25.5,
+        "xmax": 25.5,
+        "ymin": -32.478,
+        "ymax": 68.302,
+        "zmin": -127.5,
+        "zmax": 24.997
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    }
+  ]
+}

@@ -40,6 +40,30 @@
       "dst": "mod-recipes/maian_crystal_pistol/meshes/crystal_placeholder.pdmesh"
     },
     {
+      "src": "dev-mods/maian_crystal_pistol/meshes/weapon/model.gltf",
+      "dst": "mod-recipes/maian_crystal_pistol/meshes/weapon/model.gltf"
+    },
+    {
+      "src": "dev-mods/maian_crystal_pistol/meshes/weapon/model.mtl",
+      "dst": "mod-recipes/maian_crystal_pistol/meshes/weapon/model.mtl"
+    },
+    {
+      "src": "dev-mods/maian_crystal_pistol/meshes/weapon/model.nodes.json",
+      "dst": "mod-recipes/maian_crystal_pistol/meshes/weapon/model.nodes.json"
+    },
+    {
+      "src": "dev-mods/maian_crystal_pistol/meshes/weapon/model.parts.json",
+      "dst": "mod-recipes/maian_crystal_pistol/meshes/weapon/model.parts.json"
+    },
+    {
+      "src": "dev-mods/maian_crystal_pistol/meshes/weapon/model.faces.json",
+      "dst": "mod-recipes/maian_crystal_pistol/meshes/weapon/model.faces.json"
+    },
+    {
+      "src": "dev-mods/maian_crystal_pistol/meshes/weapon/model.render.json",
+      "dst": "mod-recipes/maian_crystal_pistol/meshes/weapon/model.render.json"
+    },
+    {
       "src": "dev-mods/maian_crystal_pistol/behavior/primary.graph.json",
       "dst": "mod-recipes/maian_crystal_pistol/behavior/primary.graph.json"
     },

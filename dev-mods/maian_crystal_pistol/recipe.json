@@ -17,6 +17,12 @@
     { "entry": "behavior/secondary.graph.json", "file": "behavior/secondary.graph.json" },
     { "entry": "behavior/settings.json", "file": "behavior/settings.json" },
     { "entry": "behavior/variables.json", "file": "behavior/variables.json" },
+    { "entry": "dependencies/assets/models/weapon.pdmesh::model.gltf", "file": "meshes/weapon/model.gltf" },
+    { "entry": "dependencies/assets/models/weapon.pdmesh::model.mtl", "file": "meshes/weapon/model.mtl" },
+    { "entry": "dependencies/assets/models/weapon.pdmesh::model.nodes.json", "file": "meshes/weapon/model.nodes.json" },
+    { "entry": "dependencies/assets/models/weapon.pdmesh::model.parts.json", "file": "meshes/weapon/model.parts.json" },
+    { "entry": "dependencies/assets/models/weapon.pdmesh::model.faces.json", "file": "meshes/weapon/model.faces.json" },
+    { "entry": "dependencies/assets/models/weapon.pdmesh::model.render.json", "file": "meshes/weapon/model.render.json" },
     { "entry": "dependencies/assets/projectiles/primary.pdprojectile::behavior.graph.json", "file": "projectile/crystal.graph.json" },
     { "entry": "dependencies/assets/projectiles/primary.pdprojectile::dependencies/assets/models/crystal.pdmesh", "file": "meshes/crystal_placeholder.pdmesh" },
     { "entry": "dependencies/assets/entities/deployed.pdentity::behavior.graph.json", "file": "entity/crystal_mine.graph.json" }
