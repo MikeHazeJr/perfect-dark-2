@@ -41,6 +41,8 @@
 #include "console.h"
 #include "utils.h"
 #include "net/net.h"
+#include "room.h"
+#include "menupool.h"
 #include "net/netdistrib.h"
 #include "net/p2p.h"
 #include "net/group_session.h"
@@ -221,6 +223,10 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       Simulator is the default. Co-op and Counter-Op interpret the stage ID
  *       supplied to --launch-mp-room as a typed mission map and use
  *       --difficulty; Counter-Op assigns the one remote room member as Anti.
+ *       --host-autostart-matches <n> (1..8) starts n matches in the same
+ *       room: after each match the start re-arms once the host has left its
+ *       end screen into the room and the room is back in LOBBY, then waits
+ *       about 10 s for the clients before the next start.
  *
  *   --debug-fail-stage-player-init <reset|spawn>:<player>
  *       Smoke-only one-shot fault at the lvReset multi-player transaction
@@ -413,6 +419,15 @@ static s32         g_BootReadyGateSettingsChangeFired = 0;
 static s32         g_BootHostAutostartPhase = 0;
 static s32         g_BootHostAutostartRoomId = 0xFF;
 static s32         g_BootHostAutostartPostJoinFrames = 0;
+/* T-NETWORKING-011 (finding 4): --host-autostart-matches <n> (1..8, default
+ * 1) starts n matches in the same room. After a match the start re-arms once
+ * the host is back in the room (end screen Continue, as a player would press
+ * it), the match room is released and the room is in LOBBY again, plus a
+ * settle window that lets the clients return too; the re-fire reuses the
+ * room, skipping room creation. */
+static s32         g_BootHostAutostartMatches = 1;
+static s32         g_BootHostAutostartStarted = 0;
+static s32         g_BootHostAutostartRematchFrames = 0;
 static s32         g_BootMatchTimeLimitSec = 0; /* 0 = unset; >0 = forced seconds */
 static u32         g_BootDebugMpOptions   = 0;
 static bool        g_BootDebugMpOptionsSet = false;
@@ -3706,8 +3721,53 @@ static void bootHostAutostartLogWaiting(const char *reason, s32 remote_in_lobby)
 	}
 }
 
+/*
+ * T-NETWORKING-011 (finding 4): --host-autostart-matches. After a match,
+ * re-arm the start for the next one in the same room once the host has left
+ * its end screen into the room (Continue, as a player presses it), the match
+ * room is released and the room is in LOBBY again, then a settle window of
+ * about 10 s for the clients to press Continue too. The re-fire reuses the
+ * room: phase 1 spacing, then the start.
+ */
+static void bootHostAutostartRearmTick(void)
+{
+	extern s32 pdguiIsInRoom(void);
+	hub_room_t *room;
+
+	if (g_NetMode != NETMODE_SERVER || g_NetMatchRoomId != 0xFF
+			|| g_BootHostAutostartRoomId == 0xFF
+			|| menupoolIsActive(MENU_TYPE_ENDSCREEN_MP) || !pdguiIsInRoom()) {
+		g_BootHostAutostartRematchFrames = 0;
+		return;
+	}
+
+	room = roomGetById((u8)g_BootHostAutostartRoomId);
+
+	if (room == NULL || room->state != ROOM_STATE_LOBBY) {
+		g_BootHostAutostartRematchFrames = 0;
+		return;
+	}
+
+	if (++g_BootHostAutostartRematchFrames < 600) {
+		return;
+	}
+
+	g_BootHostAutostartRematchFrames = 0;
+	g_BootHostAutostartFired = 0;
+	g_BootHostAutostartPhase = 1;
+	g_BootHostAutostartPostJoinFrames = 0;
+	g_BootHostAutostartSettleFrames = 120;
+	sysLogPrintf(LOG_NOTE, "BOOT: --host-autostart re-armed: match %d of %d in room %d",
+		g_BootHostAutostartStarted + 1, g_BootHostAutostartMatches, g_BootHostAutostartRoomId);
+}
+
 s32 bootHostAutostartTick(void)
 {
+	if (g_BootHostAutostartArmed && g_BootHostAutostartFired && g_BootHostAutostartMatches > 1
+			&& g_BootHostAutostartStarted < g_BootHostAutostartMatches) {
+		bootHostAutostartRearmTick();
+	}
+
 	if (!g_BootHostAutostartArmed || g_BootHostAutostartFired) {
 		return 0;
 	}
@@ -3819,6 +3879,9 @@ s32 bootHostAutostartTick(void)
 	}
 
 	g_BootHostAutostartFired = 1;
+	/* Every attempt counts, so a start that fails below is not retried
+	 * past --host-autostart-matches. */
+	g_BootHostAutostartStarted++;
 
 	const u8 mode = g_BootHostAutostartGameMode;
 	/* Room creation publishes Combat Simulator defaults. Campaign autostart
@@ -3910,6 +3973,10 @@ s32 bootHostAutostartTick(void)
 	sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_WARNING,
 		"BOOT: --host-autostart consumed: result=%s rc=%d",
 		rc == 0 ? "OK" : "FAILED", (int)rc);
+	if (g_BootHostAutostartMatches > 1) {
+		sysLogPrintf(LOG_NOTE, "BOOT: --host-autostart started match %d of %d rc=%d",
+			g_BootHostAutostartStarted, g_BootHostAutostartMatches, (int)rc);
+	}
 	return 1;
 }
 
@@ -4193,6 +4260,14 @@ int main(int argc, const char **argv)
 	if (g_BootHostAutostartPeers < 1 || g_BootHostAutostartPeers >= MAX_PLAYERS) {
 		sysLogPrintf(LOG_WARNING, "BOOT: invalid --host-autostart-peers; autostart disabled");
 		g_BootHostAutostartArmed = false;
+	}
+	g_BootHostAutostartMatches = sysArgGetInt("--host-autostart-matches", 1);
+	if (g_BootHostAutostartMatches < 1 || g_BootHostAutostartMatches > 8) {
+		sysLogPrintf(LOG_WARNING, "BOOT: --host-autostart-matches expects 1..8; using 1");
+		g_BootHostAutostartMatches = 1;
+	} else if (g_BootHostAutostartArmed && g_BootHostAutostartMatches > 1) {
+		sysLogPrintf(LOG_NOTE, "BOOT: --host-autostart-matches armed: matches=%d",
+			g_BootHostAutostartMatches);
 	}
 	if (g_BootHostAutostartArmed) {
 		const char *mode = sysArgGetString("--host-autostart-mode");

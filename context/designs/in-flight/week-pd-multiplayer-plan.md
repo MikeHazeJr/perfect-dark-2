@@ -183,6 +183,14 @@ Progress log:
   deaths include the client's own player; a simulant's King of the Hill point agrees). The matches are 35 s with
   idle humans: no token pickup, pop, download or capture happened, so those paths are unproven over the network.
   The token re-runs after unit K get longer matches.
+- Finding 4, the test (2026-11-15): `--host-autostart-matches <n>` (1..8, default 1) starts n matches in the
+  same room. After a match it re-arms once the host has left its end screen into the room (Return to Room,
+  pressed by the harness as a player would), the match room is released and the room is in Lobby again, waits
+  about 10 s for the clients, and fires the same Room start path again reusing the room. Every attempt counts,
+  so a failed start is not retried past n. Fixture `mp_combat_net_rematch_smoke` (port 27246, Felicity, 3
+  bots, 35 s): both processes wait for the end screen, tap its default button, wait for the second match and
+  its end screen; it requires two server stage starts, two client stage starts, four result lines and the
+  re-arm line, and forbids a rejected start. Pins in `tests/test_host_autostart_rematch_static.cpp`. Queued.
 - Finding 9, part (2026-11-15): the Room now offers the original's Team Score limit (1 to 400 points or no
   limit, 0-based store with 400 = no limit like `menuhandlerMpTeamScoreLimitSlider`; shown with teams on),
   Display Team (with teams on) and Kills Score (Hold the Briefcase, Hacker Central, King of the Hill and Capture
