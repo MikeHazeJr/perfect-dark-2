@@ -3033,6 +3033,13 @@ s32 bootDebugMountBikeTick(void)
 			|| !g_Vars.players[0]->prop->chr) {
 		return 0;
 	}
+	/* B-1158: chrMoveToPos below sets the chr's model root, and Player 0's
+	 * body model is made by the player tick (playerTickChrBody), not at stage
+	 * load, so on the first gameplay frame it can still be NULL. Wait for it,
+	 * and for the lvframenum >= 4 settle --debug-spawn-at uses. */
+	if (g_Vars.lvframenum < 4 || !g_Vars.players[0]->prop->chr->model) {
+		return 0;
+	}
 	if (sceneCurrentLayer() != LAYER_GAMEPLAY
 			|| g_Vars.tickmode != TICKMODE_NORMAL
 			|| g_Vars.lvupdate240 <= 0
