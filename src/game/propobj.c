@@ -5983,6 +5983,11 @@ void weaponTick(struct prop *prop)
 				weapon->timer240 = -1;
 				obj->hidden |= OBJHFLAG_DELETING;
 
+				/* T-MODDING-008: proof for smokes that a mod mine went off. */
+				sysLogPrintf(LOG_NOTE, "BONDGUN.CRYSTAL: mine detonated weapon=%d func=%d owner=%d at=(%.0f,%.0f,%.0f)",
+					weapon->weaponnum, weapon->gunfunc, (s32)((obj->hidden & 0xf0000000) >> 28),
+					prop->pos.x, prop->pos.y, prop->pos.z);
+
 				{
 					s32 i;
 

@@ -282,6 +282,11 @@ static void s_refreshFunctionAmmoDefault(const struct weapon *weapon,
     if (!ammo || ammo->type == 0 || ammo->type > 127) {
         return;
     }
+    /* T-MODDING-008: a no-reserve magazine (a mod's self-loading crystals)
+     * has no reserve for a pickup to fill, so its weapon spawns carry none. */
+    if (ammo->flags & AMMOFLAG_NORESERVE) {
+        return;
+    }
 
     qty = authored_qty > 0 ? authored_qty : s_defaultAmmoQtyFromClip(ammo);
     *type_out = (s8)ammo->type;

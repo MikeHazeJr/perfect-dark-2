@@ -339,6 +339,19 @@ static bool bgunModLandedRegister(struct weaponobj *weapon)
 	return false;
 }
 
+/* Where a landed crystal is now: one embedded in a character or object
+ * moves with it, and its own pos is only the point where it hit. */
+static struct coord *bgunModLandedPos(struct weaponobj *weapon)
+{
+	struct prop *prop = weapon->base.prop;
+
+	while (prop->parent != NULL) {
+		prop = prop->parent;
+	}
+
+	return &prop->pos;
+}
+
 static bool bgunModLandedUsable(struct weaponobj *weapon)
 {
 	struct prop *prop = weapon->base.prop;
@@ -402,9 +415,9 @@ void bgunModProjectileLanded(struct weaponobj *weapon)
 			continue;
 		}
 
-		dx = other->base.prop->pos.x - prop->pos.x;
-		dy = other->base.prop->pos.y - prop->pos.y;
-		dz = other->base.prop->pos.z - prop->pos.z;
+		dx = bgunModLandedPos(other)->x - bgunModLandedPos(weapon)->x;
+		dy = bgunModLandedPos(other)->y - bgunModLandedPos(weapon)->y;
+		dz = bgunModLandedPos(other)->z - bgunModLandedPos(weapon)->z;
 
 		if (dx * dx + dy * dy + dz * dz <= projectile->cluster_radius * projectile->cluster_radius) {
 			members[count++] = other;

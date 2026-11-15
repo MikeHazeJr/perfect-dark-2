@@ -91,6 +91,23 @@ aim tips (POSITION, seat + launch direction); an explicit BBOX node.
   (`actionmap.cpp:310`) were missing for 105-120 (B-1184); defaults 2974-3124; menu rows
   `pdgui_menu_mainmenu.cpp` `s_BindableActions`; smoke names `s_SmokeActionTable` (3668).
 
-## Status
+## Status (2026-11-15)
 
-See the session log and `context/bugs.md` (B-1184 onward) for what has landed.
+Landed on `week-pd/crystal-pistol` (6e43ca22 and later), everything behind a mod-weapon check:
+
+| Piece | Code | Proven in game |
+|---|---|---|
+| Mod magazine, self-loading ammo, HUD clip gauge | `loader_pool.c` adapter, `bondgun.c` hooks | `crystal_pistol_ammo_smoke` 31/31 |
+| Regrow reload, interrupted by a shot | `bondgun_mod.c` `bgunModTickIncReloadRegrow` | same run |
+| Crystals leave their seats and regrow in place | `bgunModApplyHeldModel` (seat scaling) | same run, screenshots |
+| Three landed crystals detonate | `bgunModProjectileLanded`, `propobj.c` stick and rest hooks | ammo run (two clusters); cluster smoke rerun pending |
+| Committed charge, neon look, per-socket mines, release after death | `bgunModTickIncAttackCharge`, `bgunModChargeTick` | charge run: six fanned launches, launch after `kill_player` |
+| Mines stick and arm where they land | mine `.pdprojectile` (sticky, scale 0.15) + `arm_on land` | rerun pending (first run: mines did not stick) |
+| Gun roll input, fan follows the roll | `actionmap.*`, `bondmove.c`, `bgunModRollTick`, pose in `bondgun.c` | roll run: 90 degrees, fan vertical 1.00 upright, 0.00 rolled |
+| Muzzle flash | model toggle 90 under part 50 (engine unchanged) | rerun pending (`BONDGUN.FLASH` log) |
+| Mod weapon name | `loaderPoolSetPublicWeaponName`, `bgunGetName` | not checked on screen yet |
+
+Not done (follow-ups): network replication of the charge look and the roll (the host sends the mine
+spawns, the rest is local); bots throw single mines (no charge for bots); third-person views of the
+gun do not hide spent crystals; a crystal that hits an off-screen character is deleted (native embed
+rule). Bugs on the way: B-1184, B-1185 (`context/bugs.md`).
