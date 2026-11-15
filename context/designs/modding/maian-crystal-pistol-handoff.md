@@ -527,3 +527,27 @@ Also seen: the first screenshot of the second kind of run shows "Building
 runtime caches 100%" instead of the match, because the fixture's first
 capture comes 4.5 seconds after gameplay is ready and the mesh is compiled on
 first use. Move that capture later when the fixture is next touched.
+
+## 11. Superseded by the crystal pistol session (Mike, 2026-11-15)
+
+Mike: "the crystal pistol session is done (week-pd/crystal-pistol, draft PR
+#6). Use its output as the weapon mod." The weapon mod is therefore
+`mod_crystal_pistol:crystal_pistol` from `dev-mods/crystal_pistol/` on that
+branch (Tripo/Blender model, baked texture, six crystals as the magazine that
+regrow in their sockets, sticky crystals with the three-crystal cluster,
+committed charge launching each crystal from its socket as a mine). Its
+engine work and formats are in `context/designs/modding/crystal-pistol-engine.md`
+on that branch: `ammoN_reload = regrow` with `ammoN_regrow_ticks60` and seat
+parts, charge launch params on the secondary, `projectile.cluster`,
+`entity.proxy_trigger` `arm_on = land`.
+
+The recipe `dev-mods/maian_crystal_pistol/` here (`mod:weapon_maian_crystal_pistol`,
+stand-in mesh) is not the weapon mod. It stays as a proof that the in-game mod
+author builds a weapon from a recipe, with its unit test and
+`maian_crystal_pistol_play_smoke`; it is not listed in `dev-mods/dev-mods.json`,
+so no build installs it. Sections 1 to 10 are history.
+
+The crystal pistol branch also carries MULTIPLAYER's week (it merged
+`week-pd/multiplayer`); MODS does not merge it. Work that needs its engine
+features (the vehicle turret's regrowing crystals) is planned in
+`context/designs/modding/maian-vehicle-and-veteran.md`.
