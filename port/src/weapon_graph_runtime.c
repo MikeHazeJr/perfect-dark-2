@@ -2666,6 +2666,44 @@ s32 weaponGraphCompileArchiveFile(const char *archive_path,
 	return result;
 }
 
+/* The member-text twin of the variables scope above, so a validator that
+ * holds a weapon's source texts (an in-memory .pdmod packer, for one) compiles
+ * a weapon whose graph uses $variables the way the game does (MODS ask, week
+ * note 2026-11-14). A present variables text, even one with an empty table, is
+ * an active substitution scope; NULL or empty text means no scope, as in the
+ * loose register path. The scope never outlives the call. */
+s32 weaponGraphCompileWeaponSourceJsonWithVariables(const char *asset_id,
+                                                    const char *primary_json,
+                                                    u32 primary_size,
+                                                    const char *secondary_json,
+                                                    u32 secondary_size,
+                                                    const char *shared_json,
+                                                    u32 shared_size,
+                                                    const char *variables_json,
+                                                    u32 variables_size,
+                                                    weapon_graph_ir_t *out,
+                                                    char *err, size_t err_cap)
+{
+	weapon_graph_weapon_settings_t vartable;
+	s32 result;
+
+	if (variables_json && variables_size > 0) {
+		memset(&vartable, 0, sizeof(vartable));
+		if (weaponGraphParseTunablesJson(variables_json, variables_size, 1,
+				vartable.variables, WEAPON_GRAPH_SETTINGS_MAX,
+				&vartable.variable_count, err, err_cap) != 0) {
+			return -1;
+		}
+		vartable.valid = 1;
+		s_compile_variables = &vartable;
+	}
+	result = weaponGraphCompileWeaponSourceJson(asset_id, primary_json,
+		primary_size, secondary_json, secondary_size, shared_json,
+		shared_size, out, err, err_cap);
+	s_compile_variables = NULL;
+	return result;
+}
+
 static s32 weaponGraphCompileArchiveBytes(const void *archive_bytes,
                                           u32 archive_size,
                                           asset_type_e graph_type,
