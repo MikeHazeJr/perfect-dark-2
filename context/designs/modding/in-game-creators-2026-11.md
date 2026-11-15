@@ -267,6 +267,17 @@ Foundation, in order. Each step lands with tests that run in CI.
    existing-install reuse policy keep a single folder. Not done: moving
    mods already in an install's folder (they are still read, never
    deleted); the hub's file browsers still start in `mods`.
+   RUN 2026-11-15 06:17 UTC on shared base 3, client at 91198952:
+   `mods_user_folder_smoke` PASS 23/23
+   (`D:\PD2-wt\mods\.claude\smoke-verify-runs\results-20261115T061939Z.json`).
+   With `--portable --savedir ./user-home`: the user folder
+   `./user-home/mods` is scanned first and its copy of `mod.clash_test`
+   is the one registered; the install's copy is logged as not used;
+   `mod.install_only` from the install's `./mods` is found; the mod
+   author's weapon is saved under `./user-home/mods/Weapons/` and loads;
+   the install folder reachable as `./mods` and `$E/mods` is read once.
+   Not covered by a run: a launch without `--portable`/`--savedir` (it
+   would write to the real LocalAppData).
    The proposal as it was:
    - Writable user root: `$S/mods`. `$S` is already where saves live "so
      they persist across game updates and reinstalls" (`fs.c`):
