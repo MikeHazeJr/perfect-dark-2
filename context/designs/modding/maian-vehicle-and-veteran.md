@@ -222,6 +222,17 @@ a Modding Hub tab for players), and the tools grow with the mods.
     can point a vehicle at a different model. RUN: `[maian-vehicle]`,
     `[clone]`, `[author]`, full pd-tests 1919 cases; `maian_vehicle_drive_smoke`
     is queued.
+  - Both smokes first crashed on B-1158 (`--debug-mount-bike` ran before Player 0's body
+    model existed; fixed in 0503fe0a); rerun queued with `vehicle_flow` as the control.
+  - FINAL MODEL in progress (Mike, 2026-11-15: use Tripo). The `pd-game-model` skill
+    (`.agents/skills/pd-game-model/`) took Mike's description to concept v10 (approved)
+    and a textured Tripo model, 6,220 triangles; sources, renders, prompts and credits in
+    `D:\Game Dev\PD2-Assets\maian-hover-vehicle\` (README there). Sharpened edges (a
+    chine round the hull, a nose spine) are with Mike at two strengths. Next: Blender
+    clean-up (thicker cannon neck, alcove opening, the turret split into a yaw part on
+    its ring and a cannon pitching at its neck, decimate to about 4,000 triangles, bake
+    128 px textures, crystal pieces in full, regrowing and black states), then the
+    `.pdmesh` replaces the stand-in in `dev-mods/maian_hover_vehicle/`.
 - V3. Boost and heat: a boost action; ramp to full over about 1 s; after
   about 4 s the crystals turn black, boost stays above base below full,
   steering is limited briefly and the turret is locked out until the crystals
@@ -287,5 +298,7 @@ unlikely to finish this week; they stay in this plan.
 2. Art for the final vehicle and the two veterans: Mike's asset session, or
    MODS stand-ins (vehicle from the October study; veterans need original
    meshes, since the October veteran is a human sergeant).
+   Vehicle answered 2026-11-15: MODS makes it with Tripo (the `pd-game-model`
+   skill); the veterans are still open.
 3. CORE: a vehicle behavior graph schema for the node variables (asked in the
    week note).
