@@ -1698,6 +1698,10 @@ s32 botTick(struct prop *prop)
 			s32 puppetresult;
 
 			s_BotPuppetTick = 1;
+			/* B-1191: choose the third-person animation from the host's
+			 * speeds and action (SVC_CHR_MOVE), as the host does before its
+			 * chrTick; without it the client's model had no animation. */
+			botApplyMovement(chr);
 			puppetresult = chrTick(prop);
 			s_BotPuppetTick = 0;
 			return puppetresult;

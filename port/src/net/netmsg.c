@@ -7349,17 +7349,22 @@ u32 netmsgSvcChrMoveRead(struct netbuf *src, struct netclient *srccl)
 
 	struct chrdata *chr = prop->chr;
 	struct aibot *aibot = chr->aibot;
+	const f32 oldangle = chrGetInverseTheta(chr);
 
-	// Apply the server-authoritative position
+	/* Apply the server-authoritative position. B-1191: through chrSetPos,
+	 * as a remote player's move is applied, so the ground, rooms and model
+	 * root follow it. Writing prop->pos alone left the client's puppet tick
+	 * working from a stale root and ground: between packets it rebuilt the
+	 * position from them and fell to the no-floor height. chrSetPos takes
+	 * the rooms list before the copy, so a message without rooms keeps the
+	 * current ones. */
 	chr->prevpos = prop->pos;
-	prop->pos = newpos;
+	chrSetPos(chr, &newpos, (flags & (1 << 1)) ? newrooms : prop->rooms, 0.0f, false);
 	chr->myaction = myaction;
 	chr->actiontype = actiontype;
 
-	// Apply facing angle
-	if (flags & (1 << 0)) {
-		chrSetLookAngle(chr, newangle);
-	}
+	// Apply facing angle (chrSetPos set one from its theta argument)
+	chrSetLookAngle(chr, (flags & (1 << 0)) ? newangle : oldangle);
 
 	// Apply movement speed multipliers for third-person animation
 	aibot->speedmultforwards = speedmultfwd;
@@ -7373,15 +7378,8 @@ u32 netmsgSvcChrMoveRead(struct netbuf *src, struct netclient *srccl)
 	chr->surface_up[1] = newsurface_y;
 	chr->surface_up[2] = newsurface_z;
 
-	// Update rooms if provided
-	if (flags & (1 << 1)) {
-		for (s32 i = 0; i < 8; ++i) {
-			prop->rooms[i] = newrooms[i];
-			if (newrooms[i] < 0) {
-				break;
-			}
-		}
-	}
+	/* The rooms went through chrSetPos above, which also registers the prop
+	 * in them; copying them again here would bypass that registration. */
 
 	return src->error;
 }

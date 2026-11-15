@@ -260,3 +260,37 @@ TEST_CASE("simulants on a networked client: botTick runs chrTick as a puppet tic
 	REQUIRE(skip < sleep);
 	REQUIRE(atick.find("return;", skip) < sleep);
 }
+
+TEST_CASE("simulants on a networked client: the puppet is animated and placed from the host's move",
+          "[mplayer][net][finding3][b1191]") {
+	// The puppet tick chooses the third-person animation from the host's
+	// speeds before chrTick, as the host's own tick does
+	const std::string bot = code_only(read_text_file("src/game/bot.c"));
+	const std::string tick = function_body(bot, "s32 botTick(struct prop *prop)\n{");
+	const size_t client = tick.find("if (g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {");
+	const size_t set = tick.find("s_BotPuppetTick = 1;", client);
+	const size_t anim = tick.find("botApplyMovement(chr);", set);
+	const size_t run = tick.find("puppetresult = chrTick(prop);", set);
+	REQUIRE(client != std::string::npos);
+	REQUIRE(set != std::string::npos);
+	REQUIRE(anim != std::string::npos);
+	REQUIRE(run != std::string::npos);
+	REQUIRE(anim < run);
+
+	// SVC_CHR_MOVE places the simulant through chrSetPos (ground, rooms,
+	// model root), not with a bare prop->pos write or a rooms copy
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string move = function_body(msg, "u32 netmsgSvcChrMoveRead(struct netbuf *src, struct netclient *srccl)\n{");
+	REQUIRE(move.find("chrSetPos(chr, &newpos, (flags & (1 << 1)) ? newrooms : prop->rooms, 0.0f, false);") != std::string::npos);
+	REQUIRE(move.find("prop->pos = newpos;") == std::string::npos);
+	REQUIRE(move.find("prop->rooms[i] = newrooms[i];") == std::string::npos);
+	REQUIRE(move.find("chrSetLookAngle(chr, (flags & (1 << 0)) ? newangle : oldangle);") != std::string::npos);
+
+	// A fall seen only by the client does not kill the host's simulant
+	const std::string chr = code_only(read_text_file("src/game/chr.c"));
+	const size_t guard = chr.find("if (die && chr->aibot && botIsPuppetTick()) {");
+	const size_t kill = chr.find("chrDie(chr, shooter);", guard);
+	REQUIRE(guard != std::string::npos);
+	REQUIRE(kill != std::string::npos);
+	REQUIRE(chr.find("die = false;", guard) < kill);
+}

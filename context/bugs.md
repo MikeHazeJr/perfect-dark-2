@@ -19,6 +19,25 @@ animations would need the host's animation state on the wire. Pinned in `tests/t
 (`[finding3]`). Game check: the render smoke, re-queued. The client view in that run is also black outside one
 doorway (room 33 of Felicity drawn black); recorded separately, not yet explained.
 
+Part 2, 2026-11-15. The render re-run on that fix (`results-20261115T175033Z.json`, 64/66) showed the puppet ticked
+(`prop_flags=0x4`) but never on screen: culling saw the simulant at y -2552 while the host had it at -534 (ground
+-693, room 37), one sample in six read y -30000 (the no-floor value), and the model had no animation
+(`anim=0 frame=-1.00`). Two causes. First, `netmsgSvcChrMoveRead` wrote `prop->pos` (and copied the rooms) only,
+while a character's position is rebuilt every tick from its model root plus `manground` (`chr.c`, the root
+position callback); on a client those stayed stale, so the puppet tick moved the simulant back to the old root and
+let it fall, and at `manground <= -30000` that code can even call `chrDie` on the client. The rematch run shows
+the same: the client's `SVC_CHR_SYNC` checksum never changed (32 `chr desync detected`, local value constant).
+Second, the puppet path skipped `botApplyMovement`, which the host calls before `chrTick` to choose the
+third-person animation (run, strafe, stand, die) from the speeds `SVC_CHR_MOVE` already carries. Fix: the move
+reader applies the host's position through `chrSetPos` (ground, rooms with registration, model root, force to
+ground), as remote players' moves are applied, and keeps the host's look angle; the puppet tick calls
+`botApplyMovement` before `chrTick`; the root position callback no longer kills a puppet for a fall only the client
+saw (the host sends deaths). Pinned in `tests/test_mp_chrnum_static.cpp` (`[b1191]`). Still not on the wire: the
+aiming pose toward a target and which death animation plays (the client picks one). Propagation: the co-op NPC
+reader `netmsgSvcNpcMoveRead` makes the same bare `prop->pos` write; the co-op run verified the NPC snapshot
+(`SVC_NPC_SYNC snapshot verified ... count=36`, idle NPCs), but walking NPCs on a client are unproven, left to the
+co-op step. Game check: the render smoke and the networked simulant types smoke, to queue.
+
 ## 2026-11-15 B-1192 A listen host's Room drew over its own results screen and took focus (T-NETWORKING-011, finding 4)
 
 Severity high for networked matches (the host could not leave its results screen with Use or A, so no rematch;

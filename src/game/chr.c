@@ -1041,6 +1041,13 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 							}
 						}
 
+						/* B-1191: on a networked client a simulant is a puppet
+						 * of the host, which decides its deaths (SVC_CHR_STATE);
+						 * a fall seen only by the client must not kill it. */
+						if (die && chr->aibot && botIsPuppetTick()) {
+							die = false;
+						}
+
 						if (die) {
 							if (chr->aibot) {
 								s32 shooter;
