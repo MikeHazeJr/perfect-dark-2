@@ -187,10 +187,41 @@ a Modding Hub tab for players), and the tools grow with the mods.
   physics by model; `--debug-swap-vehicle <mod vehicle>` puts it in place of a
   stage's hoverbikes (CI training, Crash Site, Infiltration, Escape) until
   levels can place vehicles. Proof: drive it in CI training.
+  - BUILT 2026-11-15 (804dd3a2, ac535d95, cb07beb7). The scanner's
+    `registerVehicleModel` binds a mod vehicle's embedded `.pdmesh` through
+    the shared mesh binder, forced private (`meshSourcePreparePrivate`: a
+    copy of the base hoverbike still names FILE_PHOVBIKE, which the base
+    model owns), and the vehicle row takes that model number; both scan
+    paths, in a scan transaction (`PDVEHICLE.MODEL`, `PDVEHICLE.MODEL.REJECT`).
+    Base vehicles keep MODEL_HOVBIKE; a vehicle whose model is a loose glTF
+    stays unplaceable. `--debug-swap-vehicle <id>` (`vehicle_debug.c`) gives
+    each hoverbike a stage creates that model and loads the vehicle for the
+    stage. Found on the way, B-1157: a custom model slot has no world scale
+    (objects made from one get scale 0), so the swap gives the mod vehicle
+    the replaced hoverbike's slot scale (409/4096); a declared scale is still
+    needed for levels. Proof is on Escape, the stage `vehicle_flow` already
+    drives: `mod_vehicle_drive_smoke` (the base hoverbike saved as a
+    local-only mod). RUN: unit cases `[vehicle-model-slot]`, full pd-tests
+    1917 cases at ac535d95; the smoke is queued.
 - V2. Stand-in model: run Mike's October vehicle builder headless in Blender
   (read only, export into this worktree), convert to the native mesh with
   named parts for the turret yaw and pitch pivots, the 18 turret crystal
   seats and the boost crystals. The final model is art (see open questions).
+  - FIRST CUT 2026-11-15 (7aa6d8c2): `dev-mods/maian_hover_vehicle/`. The
+    in-game mod author builds `mod:vehicle_maian_hover` from original parts
+    only: the example vehicle (`tri_vehicle`, its hoverbike physics for now)
+    plus a typed mesh on the example mesh (`tri_mesh`) whose members are a
+    stand-in generated from the October study (`blender_dump_vehicle.py` in
+    a headless Blender, then `make_standin_mesh.py`). V4 is the source: V5
+    fails its own rider-clearance check. 3.10 m long, 1.69 m wide, 2.16 m
+    tall to the turret; hoverbike model units, native axes, the hoverbike's
+    node layout, riders left out. Not yet: named turret, seat and crystal
+    parts (the study's turret is pistol-sized with six crystals), the cowl.
+    Mod tools change made for it: the archive rebuild keeps a manifest's copy
+    of a descriptor value in step when an override changes it, so a creator
+    can point a vehicle at a different model. RUN: `[maian-vehicle]`,
+    `[clone]`, `[author]`, full pd-tests 1919 cases; `maian_vehicle_drive_smoke`
+    is queued.
 - V3. Boost and heat: a boost action; ramp to full over about 1 s; after
   about 4 s the crystals turn black, boost stays above base below full,
   steering is limited briefly and the turret is locked out until the crystals
