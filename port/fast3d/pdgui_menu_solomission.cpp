@@ -37,6 +37,7 @@
 #include "imgui/imgui.h"
 #include "pdgui_hotswap.h"
 #include "pdgui_style.h"
+#include "config.h"
 #include "pdgui_glyphs.h"
 #include "pdgui_scaling.h"
 #include "pdgui_audio.h"
@@ -3478,7 +3479,7 @@ static void renderOptionsControls(void)
         bool invertRStick = inputControllerGetInvertRStickY(0) != 0;
         if (PdCheckbox("Invert Y-Axis (Right Stick)", &invertRStick)) {
             inputControllerSetInvertRStickY(0, invertRStick ? 1 : 0);
-            configSave("pd.ini");
+            configSave(CONFIG_PATH);
         }
     }
 
@@ -3556,7 +3557,7 @@ static s32 renderOptions(struct menudialog *dialog,
     /* B / Escape = back + save config */
     if (pdguiMenuCancelPressed()) {
         pdguiPlaySound(PDGUI_SND_KBCANCEL);
-        configSave("pd.ini");
+        configSave(CONFIG_PATH);
         prefsAgentSave();
         menuGraphFireSwitchSibling(MENU_TYPE_SOLO_OPTIONS, "back",
                                    &g_SoloMissionPauseMenuDialog);

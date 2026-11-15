@@ -52,14 +52,22 @@ TEST_CASE("native reuse activates before startup writers", "[native-reuse][stati
 
 TEST_CASE("native reuse UI discovery uses only verified base mods", "[native-reuse][static]")
 {
+    // B-1160: the UI scanners take their roots from fsModRoots, which returns
+    // only $B/mods under the native write policy; none keeps its own list.
     for (const char *path : {"port/fast3d/pdgui_font_mod.cpp",
                             "port/fast3d/pdgui_theme_loader.cpp",
                             "port/fast3d/pdgui_theme.cpp"}) {
         const auto source = reuseSource(path);
-        REQUIRE(source.find("#include \"native_write_policy.h\"") != std::string::npos);
-        REQUIRE(source.find("nativeWritePolicyActive()") < source.find("fsFullPath(\"$B/mods\""));
-        REQUIRE(source.find("fsFullPath(\"$B/mods\"") != std::string::npos);
+        INFO(path);
+        REQUIRE(source.find("fsModRoots(&roots);") != std::string::npos);
+        REQUIRE(source.find("fsFullPath(\"$E/../mods\"") == std::string::npos);
+        REQUIRE(source.find("fsFullPath(\"$B/mods\"") == std::string::npos);
     }
+    const auto fsSource = reuseSource("port/src/fs.c");
+    const auto roots = fsSource.find("void fsModRoots(fs_mod_roots_t *out)");
+    REQUIRE(roots != std::string::npos);
+    REQUIRE(fsSource.find("if (nativeWritePolicyActive()) {", roots)
+            < fsSource.find("if (modDir[0]) {", roots));
 }
 
 TEST_CASE("device policy refusal cannot become scripted smoke success", "[native-reuse][static]")
@@ -118,8 +126,16 @@ TEST_CASE("native reuse disallows cache fallback and install maintenance", "[nat
     const auto mods = reuseSource("port/src/modmgr.c");
     REQUIRE(mods.find("if (!nativeWritePolicyActive()) modMigrateRun(modsdir, &mig)")
             != std::string::npos);
-    REQUIRE(mods.find("fsFullPath(\"$B/\" MODMGR_MODS_DIR, candidateBufs[0]")
-            != std::string::npos);
+    // B-1160: the roots live in fsModRoots; reuse still mounts only $B/mods.
+    REQUIRE(mods.find("fsModRoots(&roots);") != std::string::npos);
+    const auto fsSource = reuseSource("port/src/fs.c");
+    const auto roots = fsSource.find("void fsModRoots(fs_mod_roots_t *out)");
+    REQUIRE(roots != std::string::npos);
+    const auto rootsBody = fsSource.substr(roots, 600);
+    REQUIRE(rootsBody.find("if (nativeWritePolicyActive()) {")
+            < rootsBody.find("fsFullPath(\"$B/\" MODMGR_MODS_DIR, out->path[0]"));
+    REQUIRE(rootsBody.find("fsFullPath(\"$B/\" MODMGR_MODS_DIR, out->path[0]")
+            < rootsBody.find("out->count = 1;"));
     const auto updater = reuseSource("port/src/updater.c");
     for (const char *call : {"void updaterCheckAsync(void)", "void updaterDownloadAsync(",
                             "s32 updaterApplyPending(void)", "void updaterCleanupOld(void)"}) {

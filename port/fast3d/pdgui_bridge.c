@@ -864,7 +864,7 @@ void pdguiEndscreenExitToMainMenu(void)
      * the match froze while results displayed. Release the pause before
      * the stage transition so the next level doesn't boot paused. */
     lvSetPaused(false);
-    configSave("pd.ini");
+    configSave(CONFIG_PATH);
     /* F-0.4: Clear client manifest before stage transition.
      * STAGE_CITRAINING is a gameplay stage, so mainChangeToStage() won't
      * hit the !STAGE_IS_GAMEPLAY branch that normally calls manifestClear.
@@ -921,7 +921,7 @@ void pdguiEndscreenExitToRoom(void)
         "GAMELOOP.MP: endscreen EXIT_TO_ROOM (manifest=%d netmode=%d)",
         g_ClientManifest.num_entries, (int)g_NetMode);
     lvSetPaused(false);
-    configSave("pd.ini");
+    configSave(CONFIG_PATH);
     sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_CLEAR_CLIENT_MANIFEST,
         "endscreen exit to room");
     if (g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI) {

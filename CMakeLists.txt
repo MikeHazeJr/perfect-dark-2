@@ -979,6 +979,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_actionmap_profile.cpp
   # B-1116: every input action has a config name, so saved bindings are complete.
   ${CMAKE_SOURCE_DIR}/tests/test_actionmap_names_static.cpp
+  # B-1160: config saves name their folder; one list of mod roots.
+  ${CMAKE_SOURCE_DIR}/tests/test_save_paths_static.cpp
   ${CMAKE_SOURCE_DIR}/port/src/actionmap_profile.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_input_device_identity.cpp
   ${CMAKE_SOURCE_DIR}/port/src/input_device_identity.cpp
@@ -1409,6 +1411,8 @@ add_executable(pd-settings-save-tests EXCLUDE_FROM_ALL
   ${CMAKE_SOURCE_DIR}/tests/test_settings_save_status.cpp
   ${CMAKE_SOURCE_DIR}/tests/support/settings_save_support.c
   ${CMAKE_SOURCE_DIR}/port/src/config.c
+  # B-1160: configSave refuses bare names with the production path checks.
+  ${CMAKE_SOURCE_DIR}/port/src/fs_path.c
   ${CMAKE_SOURCE_DIR}/port/src/utils.c
   ${CMAKE_SOURCE_DIR}/port/src/save_atomic.c
   ${CMAKE_SOURCE_DIR}/port/fast3d/pdgui_settings_save_status.cpp

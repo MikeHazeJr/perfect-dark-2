@@ -1736,49 +1736,27 @@ static void modmgrScanDirectory(void)
 {
 	g_ModRegistryCount = 0;
 
-	// Ensure mods directory exists on fresh install
-	if (!nativeWritePolicyActive()) fsCreateDir("./" MODMGR_MODS_DIR);
+	/* B-1031: --moddir is an explicit isolation/override contract, not one
+	 * more discovery candidate. The prior dynamic scanner ignored
+	 * fsGetModDir() and still walked every executable/CWD/base root, which
+	 * made two canonical-executable peers see each other's mods even with
+	 * distinct base/save directories.
+	 * B-1160: the roots come from fsModRoots, which fonts, themes and the
+	 * migration bench walk too, and fsInit keeps an explicit --moddir even
+	 * before it exists. That folder is created here, so a fresh one is an
+	 * empty mod folder; ./mods is created only when discovery runs. */
+	fs_mod_roots_t roots;
+	fsModRoots(&roots);
+	if (!nativeWritePolicyActive()) {
+		fsCreateDir(roots.explicit_dir ? roots.path[0] : "./" MODMGR_MODS_DIR);
+	}
 
-	// PC: multiple roots are valid depending on launch dir:
-	// - $E/../mods (repo root when exe is in Build/)
-	// - ./mods (current working directory)
-	// - $E/mods (mods alongside exe)
-	// - base-dir fallback (often data/mods)
 	const char *modsdir = NULL;
 	DIR *dir = NULL;
-	char candidateBufs[4][512];
-	const char *candidates[4];
-
-	const char *explicitModsDir = fsGetModDir();
-
-	/* B-1031: --moddir is an explicit isolation/override contract, not one
-	 * more discovery candidate. fsInit has already resolved and validated it.
-	 * The prior dynamic scanner ignored fsGetModDir() and still walked every
-	 * executable/CWD/base root, which made two canonical-executable peers see
-	 * each other's mods even with distinct base/save directories. */
-	if (nativeWritePolicyActive()) {
-		/* Reuse may only mount mods from the exact verified asset base. */
-		fsFullPath("$B/" MODMGR_MODS_DIR, candidateBufs[0], sizeof(candidateBufs[0]));
-		candidateBufs[1][0] = '\0';
-		candidateBufs[2][0] = '\0';
-		candidateBufs[3][0] = '\0';
-	} else if (explicitModsDir && explicitModsDir[0]) {
-		strncpy(candidateBufs[0], explicitModsDir, sizeof(candidateBufs[0]) - 1);
-		candidateBufs[0][sizeof(candidateBufs[0]) - 1] = '\0';
-		candidateBufs[1][0] = '\0';
-		candidateBufs[2][0] = '\0';
-		candidateBufs[3][0] = '\0';
-	} else {
-		fsFullPath("$E/../" MODMGR_MODS_DIR, candidateBufs[0], sizeof(candidateBufs[0]));
-		strncpy(candidateBufs[1], "./" MODMGR_MODS_DIR, sizeof(candidateBufs[1]));
-		candidateBufs[1][sizeof(candidateBufs[1]) - 1] = '\0';
-		fsFullPath("$E/" MODMGR_MODS_DIR, candidateBufs[2], sizeof(candidateBufs[2]));
-		fsFullPath(MODMGR_MODS_DIR,       candidateBufs[3], sizeof(candidateBufs[3]));
+	const char *candidates[FS_MOD_ROOTS_MAX];
+	for (s32 i = 0; i < FS_MOD_ROOTS_MAX; i++) {
+		candidates[i] = i < roots.count ? roots.path[i] : "";
 	}
-	candidates[0] = candidateBufs[0];
-	candidates[1] = candidateBufs[1];
-	candidates[2] = candidateBufs[2];
-	candidates[3] = candidateBufs[3];
 
 	for (s32 i = 0; i < 4; i++) {
 		if (!candidates[i][0]) continue;
@@ -1790,9 +1768,9 @@ static void modmgrScanDirectory(void)
 	}
 
 	if (!dir) {
-		if (explicitModsDir && explicitModsDir[0]) {
+		if (roots.explicit_dir) {
 			sysLogPrintf(LOG_WARNING,
-				"modmgr: could not open explicit mod directory '%s'", explicitModsDir);
+				"modmgr: could not open explicit mod directory '%s'", roots.path[0]);
 		} else {
 			sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory (tried $E/../%s, ./%s, $E/%s, base/%s)",
 				MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);

@@ -71,16 +71,8 @@ static s32 fsPathIsWritable(const char *path)
 #endif
 }
 
-s32 fsPathIsAbsolute(const char *path)
-{
- return (path[0] == '/' || (isalpha(path[0]) && path[1] == ':'));
-}
-
-s32 fsPathIsCwdRelative(const char *path)
-{
-	// ., .., ./, ../
-	return (path[0] == '.' && (path[1] == '.' || path[1] == '/' || path[1] == '\\' || path[1] == '\0'));
-}
+/* fsPathIsAbsolute and fsPathIsCwdRelative live in fs_path.c (B-1160), so
+ * config.c and its focused test target share them without this file. */
 
 static const char *fsNestedArchiveSeparator(const char *name)
 {
@@ -369,15 +361,20 @@ s32 fsInit(void)
 	// get path to mod dir and expand it if needed
 	// mod directory is overlaid on top of base directory (legacy --moddir only)
 	// Mod discovery is now handled by modmgrInit() scanning mods/
+	/* B-1160: an explicit --moddir IS the mod folder (B-1031), whether or
+	 * not it exists yet; modmgrInit creates it. Dropping a missing one used
+	 * to hand mod discovery the folders beside the executable instead, so a
+	 * test client in a shared asset base mounted a sibling checkout. */
 	path = sysArgGetString("--moddir");
-	if (path) {
+	if (path && !path[0]) {
+		sysLogPrintf(LOG_WARNING, "empty --moddir ignored");
+	} else if (path) {
 		if (fsPathIsAbsolute(path) || fsPathIsCwdRelative(path) || path[0] == '$') {
-			// path is explicit; check as-is
-			if (fsFileSize(path) >= 0) {
-				fsFullPath(path, modDir, sizeof(modDir));
-			}
+			// path is explicit; use it as-is
+			fsFullPath(path, modDir, sizeof(modDir));
 		} else {
-			// path is relative to workdir; try to find it
+			// path is relative to workdir; use the first place it exists,
+			// else the working directory
 			const char *priority[] = { ".", "$E", "$H" };
 			for (s32 i = 0; i < 2 + (portable != 0); ++i) {
 				char *tmp = strFmt("%s/%s", priority[i], path);
@@ -386,9 +383,12 @@ s32 fsInit(void)
 					break;
 				}
 			}
+			if (!modDir[0]) {
+				fsFullPath(strFmt("./%s", path), modDir, sizeof(modDir));
+			}
 		}
-		if (!modDir[0]) {
-			sysLogPrintf(LOG_WARNING, "could not find specified moddir `%s`", path);
+		if (fsFileSize(modDir) < 0) {
+			sysLogPrintf(LOG_NOTE, "moddir `%s` does not exist yet; it is created as the mod folder", modDir);
 		}
 	}
 
@@ -429,7 +429,11 @@ s32 fsInit(void)
 	 * Existing-install reuse keeps its fresh profile independent of retained
 	 * user state in the old install.
 	 */
-	if (!portable && !nativeWritePolicyActive()) {
+	/* B-1160: only the default save folder migrates. An explicit --savedir
+	 * is a profile the caller chose (a test run's fresh folder); copying a
+	 * stray pd.ini or eeprom.bin from the working folder into it gave one
+	 * run another run's settings. */
+	if (!portable && !sysArgGetString("--savedir") && !nativeWritePolicyActive()) {
 		static const char *migrateFiles[] = { "eeprom.bin", CONFIG_FNAME, NULL };
 		const char *oldDirs[] = { exeDir, "." };
 
@@ -499,6 +503,41 @@ const char *fsGetModDir(void)
 
 	// Fall back to legacy modDir
 	return modDir[0] ? modDir : NULL;
+}
+
+void fsModRoots(fs_mod_roots_t *out)
+{
+	if (!out) {
+		return;
+	}
+	memset(out, 0, sizeof(*out));
+
+	if (nativeWritePolicyActive()) {
+		/* Reuse may only mount mods from the exact verified asset base. */
+		fsFullPath("$B/" MODMGR_MODS_DIR, out->path[0], sizeof(out->path[0]));
+		out->count = 1;
+		return;
+	}
+
+	/* The raw --moddir, not fsGetModDir(): once mods are enabled that
+	 * returns the first enabled mod's own folder. */
+	if (modDir[0]) {
+		snprintf(out->path[0], sizeof(out->path[0]), "%s", modDir);
+		out->count = 1;
+		out->explicit_dir = 1;
+		return;
+	}
+
+	// PC: multiple roots are valid depending on launch dir:
+	// - $E/../mods (repo root when exe is in Build/)
+	// - ./mods (current working directory)
+	// - $E/mods (mods alongside exe)
+	// - base-dir fallback (often data/mods)
+	fsFullPath("$E/../" MODMGR_MODS_DIR, out->path[0], sizeof(out->path[0]));
+	snprintf(out->path[1], sizeof(out->path[1]), "%s", "./" MODMGR_MODS_DIR);
+	fsFullPath("$E/" MODMGR_MODS_DIR, out->path[2], sizeof(out->path[2]));
+	fsFullPath(MODMGR_MODS_DIR, out->path[3], sizeof(out->path[3]));
+	out->count = 4;
 }
 
 s32 fsFileLoadTo(const char *name, void *dst, u32 dstSize)

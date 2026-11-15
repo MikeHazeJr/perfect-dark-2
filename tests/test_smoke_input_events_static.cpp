@@ -1079,9 +1079,12 @@ TEST_CASE("multi-process smoke isolates process installs and assertions",
     requireContains(systemSource, "strncpy(outPath, debugHome, outLen - 1)");
 
     const std::string modmgr = readTextFile("port/src/modmgr.c");
-    requireContains(modmgr, "const char *explicitModsDir = fsGetModDir();");
-    requireContains(modmgr, "if (explicitModsDir && explicitModsDir[0]) {");
-    requireContains(modmgr, "candidateBufs[1][0] = '\\0';");
+    // B-1031 + B-1160: an explicit --moddir is the only root (fsModRoots).
+    const std::string fsSource = readTextFile("port/src/fs.c");
+    requireContains(fsSource, "if (modDir[0]) {\n\t\tsnprintf(out->path[0], sizeof(out->path[0]), \"%s\", modDir);");
+    requireContains(fsSource, "out->explicit_dir = 1;");
+    requireContains(modmgr, "fsModRoots(&roots);");
+    requireContains(modmgr, "if (roots.explicit_dir) {");
     requireContains(modmgr, "modmgr: could not open explicit mod directory");
 }
 
