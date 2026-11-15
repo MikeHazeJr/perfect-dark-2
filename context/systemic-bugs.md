@@ -3505,6 +3505,37 @@ s_aiGraphRuntimeFailure(...)` for the twins themselves.
   (the count above).
 - `rg -n 'return s_aiGraphRuntimeFailure\(' port/src/scenario_source_runtime.c`
 
+## SP-80: A bulk writer forces every file to disk one at a time
+
+**Severity: MEDIUM - correct but slow; on a 7200 rpm disk a forced flush plus
+a write-through rename costs about 100 ms per file, so a writer that
+publishes thousands of files takes many minutes.**
+
+The durable publish (write a temp file, `_commit` / `fsync` it, then
+`MoveFileEx(... MOVEFILE_WRITE_THROUGH)`) is right for one file a person
+made: a save, a settings file, an authored mod. Inside a loop over thousands
+of files the game can rebuild, it makes the disk seek for every file. On NVMe
+the same pattern costs about 2 ms per file, so it only shows on a hard disk.
+
+**Known instances:**
+
+- B-1110 (fixed 2026-11-15): first-launch extraction published about 5,600
+  archives through `modArchiveFinish`. Now `modArchiveBeginDerived`, and one
+  `modArchiveDerivedBarrier` per directory before its cache stamp.
+- Open, MULTIPLAYER's area: `pdcaExtractArchiveBegin`
+  (`port/src/pdca_extract_transaction.c`, called from `netdistrib.c`) syncs
+  every member of a received mod archive, so a large transfer pays the same
+  cost per member.
+
+**Rule:** for rebuildable output, publish without the per-file flush and make
+the set durable once, right before anything that vouches for it without
+opening it (a cache stamp, an index). That record must never reach the disk
+ahead of the files it describes.
+
+**Search:**
+- `rg -n '_commit\(|fsync\(|FlushFileBuffers|MOVEFILE_WRITE_THROUGH' port src`,
+  then check whether each runs once per user action or once per file in a loop.
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

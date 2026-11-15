@@ -9232,7 +9232,7 @@ TEST_CASE("base arena extractor emits zip-openable pdarena archives",
 	REQUIRE(!arena.empty());
 
 	REQUIRE(arena.find("s_existingZipArchive") != std::string::npos);
-	REQUIRE(arena.find("modArchiveBegin(full)") != std::string::npos);
+	REQUIRE(arena.find("modArchiveBeginDerived(full)") != std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterAddDescriptor(&asset_writer, \"arena.ini\"") != std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterAddManifestJson(&asset_writer") != std::string::npos);
 	REQUIRE(arena.find("assetArchiveWriterFinishMetadata(&asset_writer)") != std::string::npos);
@@ -9727,7 +9727,7 @@ TEST_CASE("base character extractors emit zip-openable pdhead and pdbody archive
 	REQUIRE(!body.empty());
 
 	REQUIRE(head.find("s_existingZipArchive") != std::string::npos);
-	REQUIRE(head.find("modArchiveBegin(full)") != std::string::npos);
+	REQUIRE(head.find("modArchiveBeginDerived(full)") != std::string::npos);
 	REQUIRE(head.find("assetArchiveWriterAddDescriptor(&asset_writer, \"head.ini\"") != std::string::npos);
 	REQUIRE(head.find("assetArchiveWriterAddManifestJson(&asset_writer") != std::string::npos);
 	REQUIRE(head.find("s_addRequiredArchiveFile(&asset_writer, \"mesh.pdmesh\"") !=
@@ -9748,7 +9748,7 @@ TEST_CASE("base character extractors emit zip-openable pdhead and pdbody archive
 	REQUIRE(head.find("emits one .pdhead JSON file") == std::string::npos);
 
 	REQUIRE(body.find("s_existingZipArchive") != std::string::npos);
-	REQUIRE(body.find("modArchiveBegin(full)") != std::string::npos);
+	REQUIRE(body.find("modArchiveBeginDerived(full)") != std::string::npos);
 	REQUIRE(body.find("assetArchiveWriterAddDescriptor(&asset_writer, \"body.ini\"") != std::string::npos);
 	REQUIRE(body.find("assetArchiveWriterAddManifestJson(&asset_writer") != std::string::npos);
 	REQUIRE(body.find("s_addRequiredArchiveFile(&asset_writer, \"mesh.pdmesh\"") !=
@@ -10276,7 +10276,7 @@ TEST_CASE("base weapon animation extractor emits zip-openable command payloads",
 	        std::string::npos);
 	REQUIRE(anim.find("\"\\\"animation\\\": \\\"invanim_\"") !=
 	        std::string::npos);
-	REQUIRE(anim.find("modArchiveBegin(full)") != std::string::npos);
+	REQUIRE(anim.find("modArchiveBeginDerived(full)") != std::string::npos);
 	REQUIRE(anim.find("assetArchiveWriterAddDescriptor(&asset_writer, \"animation.ini\"") !=
 	        std::string::npos);
 	REQUIRE(anim.find("assetArchiveWriterAddManifestJson(&asset_writer") !=

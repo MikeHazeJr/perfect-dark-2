@@ -565,7 +565,7 @@ static s32 s_emitOneFont(const char *face, const char *segname,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(dst_full);
 	if (!aw) {
 		free(metrics_json);
 		free(glyphs_pgm);

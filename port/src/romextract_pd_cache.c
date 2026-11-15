@@ -287,6 +287,18 @@ void romExtractPdFastCacheWrite(const char *kind, const char *abs_dir,
 		return;
 	}
 
+	/* B-1110: extractors publish with modArchiveBeginDerived, which does not
+	 * force each archive to disk. This stamp lets a later launch skip the
+	 * directory without opening its files, so it must never reach the disk
+	 * ahead of the files it describes: flush them first, and write no stamp
+	 * if that fails (the next launch then checks every file). */
+	if (modArchiveDerivedBarrier(abs_dir) != 0) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract %s: could not flush the archives in \"%s\"; no fast-cache stamp written",
+			kind, abs_dir);
+		return;
+	}
+
 	pdextract_dir_fingerprint_t fp;
 	if (!s_scanDir(abs_dir, ext, &fp) || fp.count <= 0) {
 		return;

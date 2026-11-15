@@ -1074,6 +1074,8 @@ set(SRC_TESTS
 	${CMAKE_SOURCE_DIR}/tests/test_catalog_reset_plan.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_public_mods_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_mod_external_archive_static.cpp
+  # B-1110: extraction archives wait for one flush before their cache stamp.
+  ${CMAKE_SOURCE_DIR}/tests/test_modarchive_derived.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_json.c
   ${CMAKE_SOURCE_DIR}/tests/test_modasset_json.cpp
   ${CMAKE_SOURCE_DIR}/port/src/modasset_json_document.cpp

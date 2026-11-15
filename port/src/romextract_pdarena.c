@@ -9165,7 +9165,7 @@ static s32 s_emitOnePdarena(const arena_authored_record_t *a, s32 arena_index,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(full);
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDARENA",
 			"modArchiveBegin failed for \"%s\"", full);
@@ -9248,7 +9248,7 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 		return -1;
 	}
 
-	mod_archive_writer_t *aw = modArchiveBegin(dst_full);
+	mod_archive_writer_t *aw = modArchiveBeginDerived(dst_full);
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDSCENARIO",
 			"modArchiveBegin failed for \"%s\"", dst_full);
