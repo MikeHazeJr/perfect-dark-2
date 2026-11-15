@@ -21,6 +21,20 @@ POLICY = dict(schema=1, min_free_gib=0, max_full_installs=3,
               max_full_install_gib=65536 / 2**30, max_archive_gib=4 / 1024,
               peak_run_gib=0, extra_growth_gib=0, peak_build_gib=0)
 
+def recycle_bin_items(path):
+    """Items in the Recycle Bin of the drive holding path (Windows)."""
+    import ctypes
+    from ctypes import wintypes as w
+
+    class SHQUERYRBINFO(ctypes.Structure):
+        _fields_ = [("cbSize", w.DWORD), ("i64Size", ctypes.c_longlong), ("i64NumItems", ctypes.c_longlong)]
+
+    info = SHQUERYRBINFO(ctypes.sizeof(SHQUERYRBINFO), 0, 0)
+    drive = os.path.splitdrive(str(path))[0] + "\\"
+    if ctypes.windll.shell32.SHQueryRecycleBinW(drive, ctypes.byref(info)) != 0:
+        raise OSError("SHQueryRecycleBinW failed for " + drive)
+    return info.i64NumItems
+
 class StorageTests(unittest.TestCase):
     def setUp(self):
         self.project = BASE / self._testMethodName
@@ -273,6 +287,43 @@ class StorageTests(unittest.TestCase):
         self.assertTrue(Path(kept['InstallDir']).exists())
         with self.assertRaises(storage.StorageError):
             storage.policy_from(dict(POLICY, discard_completed='yes'))
+
+    def test_a_real_root_sends_discarded_installs_to_the_recycle_bin(self):
+        # Mike, 2026-11-15: test installs are deleted to the Recycle Bin and he
+        # empties it himself. Only the self-tests' own scratch roots delete for
+        # good; any other root recycles, and keeps an install Windows would
+        # delete for good instead.
+        if os.name != 'nt': self.skipTest('the Recycle Bin is Windows only')
+        root = storage.CHECKOUT / '.claude/smoke-storage-validation' / (BASE.name + '-recycle')
+        location = self.project / '.claude/smoke-storage-location.json'
+        location.write_text(json.dumps({'schema': 1, 'root': str(root),
+                                        'policy': {'discard_completed': True}}), encoding='utf-8')
+        original_refusal = storage.recycle_bin_refusal
+        try:
+            before = recycle_bin_items(root)
+            run = self.seed(); directory = Path(run['InstallDir'])
+            self.assertTrue(directory.is_relative_to(root / 'installs'))
+            receipt = self.complete(run)
+            self.assertFalse(directory.exists())
+            self.assertTrue(receipt['Recycled'])
+            self.assertGreater(receipt['DiscardedBytes'], 0)
+            self.assertGreaterEqual(recycle_bin_items(root), before + 1)
+            with self.operation() as s:
+                self.assertTrue(s.recycle)
+                row = s.state['installs'][run['StorageId']]
+                self.assertEqual(row['status'], 'compacted'); self.assertEqual(row['full_bytes'], 0)
+                self.assertIn('recycled', row); self.assertGreater(row['recycled_bytes'], 0)
+            storage.recycle_bin_refusal = lambda directory, size: 'unit: the bin is too small'
+            kept = self.seed()
+            with self.assertRaises(storage.StorageError) as caught: self.complete(kept)
+            self.assertIn('would not go to the Recycle Bin: unit: the bin is too small', str(caught.exception))
+            self.assertTrue(Path(kept['InstallDir']).exists())
+        finally:
+            storage.recycle_bin_refusal = original_refusal
+            location.unlink()
+            if root.exists(): storage.recycle_tree(storage.plain(root))
+        with self.operation() as s:
+            self.assertFalse(s.recycle)  # back on the self-test scratch root
 
     def test_compact_deletes_named_completed_installs_now(self):
         a, b = self.seed(), self.seed()

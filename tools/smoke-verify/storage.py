@@ -271,6 +271,79 @@ def exclusive_file(path, delete=False, expected=None, metadata=None):
     finally:
         close(handle)
 
+# Mike, 2026-11-15: test installs are deleted to the Recycle Bin ("I will
+# empty that manually"), never for good. The storage self-tests' own scratch
+# roots are the one exception: they are throwaway folders of a few KB that the
+# self-tests create and remove themselves.
+SELFTEST_ROOT = CHECKOUT / ".claude" / "smoke-storage-selftests"
+BITBUCKET_KEY = r"Software\Microsoft\Windows\CurrentVersion\Explorer\BitBucket\Volume"
+
+
+def recycle_bin_refusal(directory, size):
+    """Why Windows would not keep this folder in the Recycle Bin, or None.
+    A volume whose Recycle Bin is off, a drive that has none, or a bin smaller
+    than the folder makes Windows delete it for good, so the caller refuses."""
+    import winreg
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetDriveTypeW.argtypes = [w.LPCWSTR]
+    kernel.GetVolumeNameForVolumeMountPointW.argtypes = [w.LPCWSTR, w.LPWSTR, w.DWORD]
+    kernel.GetDiskFreeSpaceExW.argtypes = [w.LPCWSTR, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+    drive = os.path.splitdrive(str(directory))[0] + "\\"
+    if kernel.GetDriveTypeW(drive) != 3:  # DRIVE_FIXED: only fixed disks have a Recycle Bin
+        return f"{drive} is not a fixed disk"
+    name = ctypes.create_unicode_buffer(64)
+    if not kernel.GetVolumeNameForVolumeMountPointW(drive, name, len(name)):
+        return f"the volume of {drive} has no volume name"
+    guid = name.value[name.value.find("{"):name.value.find("}") + 1]
+    settings = {}
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, BITBUCKET_KEY + "\\" + guid) as key:
+            for value_name in ("NukeOnDelete", "MaxCapacity"):
+                try:
+                    settings[value_name] = winreg.QueryValueEx(key, value_name)[0]
+                except FileNotFoundError:
+                    pass
+    except FileNotFoundError:
+        pass
+    if settings.get("NukeOnDelete"):
+        return f"the Recycle Bin of {drive} is turned off"
+    if "MaxCapacity" in settings:
+        capacity = int(settings["MaxCapacity"]) * 2**20
+    else:
+        # No per-volume setting yet: Windows sizes the bin from the volume
+        # (at least 5% of it); assume the smallest.
+        total = ctypes.c_ulonglong()
+        if not kernel.GetDiskFreeSpaceExW(drive, None, ctypes.byref(total), None):
+            return f"the size of {drive} cannot be read"
+        capacity = total.value // 20
+    if size > capacity:
+        return f"{size} bytes is more than the Recycle Bin of {drive} holds ({capacity} bytes)"
+    return None
+
+
+def recycle_tree(directory):
+    """Send a folder to the Recycle Bin of its volume in one shell operation
+    (a move on the same volume, so it frees nothing until the bin is emptied).
+    Raises if the folder is still there afterwards."""
+    from ctypes import wintypes as w
+
+    class SHFILEOPSTRUCTW(ctypes.Structure):
+        _fields_ = [("hwnd", w.HWND), ("wFunc", w.UINT), ("pFrom", w.LPCWSTR), ("pTo", w.LPCWSTR),
+                    ("fFlags", w.WORD), ("fAnyOperationsAborted", w.BOOL),
+                    ("hNameMappings", ctypes.c_void_p), ("lpszProgressTitle", w.LPCWSTR)]
+
+    shell = ctypes.WinDLL("shell32", use_last_error=True)
+    shell.SHFileOperationW.argtypes = [ctypes.POINTER(SHFILEOPSTRUCTW)]
+    source = ctypes.create_unicode_buffer(str(directory) + "\0")  # double-NUL terminated list
+    # FO_DELETE with FOF_ALLOWUNDO (to the Recycle Bin), no prompts, no UI.
+    flags = 0x0040 | 0x0010 | 0x0004 | 0x0400 | 0x0200
+    operation = SHFILEOPSTRUCTW(None, 3, ctypes.cast(source, w.LPCWSTR), None, flags, False, None, None)
+    result = shell.SHFileOperationW(ctypes.byref(operation))
+    if result or operation.fAnyOperationsAborted or os.path.lexists(directory):
+        raise StorageError(f"Recycle Bin move failed for {directory} (result {result:#x}); the install stays")
+
+
 class Storage:
     def __init__(self, project, policy=None, retention=None):
         self.retain_housekeeping = retention_from(retention)
@@ -293,6 +366,7 @@ class Storage:
         merged.update(location_policy)
         self.policy = policy_from(merged)
         self.state_path = plain(self.root / "state.json")
+        self.recycle = os.name == "nt" and not self.root.is_relative_to(plain(SELFTEST_ROOT))
         self.state = {"schema": 1, "installs": {}, "blobs": {}}
         self.validated = set()
         self.new_blob_bytes = 0
@@ -724,6 +798,28 @@ class Storage:
         # Probe every file first. Recheck the opened canonical path when deleting;
         # a racing lock fails closed with the complete recipe still retained.
         for path in paths: exclusive_file(path)
+        if self.recycle:
+            # Verify every file is the recorded copy, then send the whole
+            # folder to the Recycle Bin (Mike, 2026-11-15). If Windows would
+            # delete it for good instead, refuse and keep it.
+            size = sum(s.st_size for _, s in walk(directory))
+            refusal = recycle_bin_refusal(directory, size)
+            if refusal:
+                raise StorageError("Install not removed, it would not go to the Recycle Bin: " + refusal)
+            try:
+                for path in paths:
+                    name = path.relative_to(directory).as_posix()
+                    exclusive_file(path, expected=expected.get(name), metadata=receipt["metadata"].get(name))
+            except (OSError, StorageError):
+                install.update(status="retention_blocked", pin=True, full_bytes=size)
+                self.save()
+                raise
+            recycle_tree(directory)
+            install["recycled"] = utc()
+            install["recycled_bytes"] = size
+            install["status"] = "compacted"
+            install["full_bytes"] = 0
+            return
         try:
             for path in paths:
                 name = path.relative_to(directory).as_posix()
@@ -957,7 +1053,7 @@ class Storage:
         if self.policy["discard_completed"] and not install.get("pin"):
             freed = install["full_bytes"]
             self.remove(install); self.save()
-            result.update(FullInstallRetained=False, DiscardedBytes=freed)
+            result.update(FullInstallRetained=False, DiscardedBytes=freed, Recycled=self.recycle)
         return result
 
     def compact(self, request):
@@ -983,7 +1079,9 @@ class Storage:
             size = install["full_bytes"]
             self.remove(install); self.save()
             compacted.append(install_id); freed += size
-        return {"Compacted": compacted, "FreedBytes": freed, "DeletionPerformed": bool(compacted)}
+        # Recycled bytes stay on the drive until the Recycle Bin is emptied.
+        return {"Compacted": compacted, "FreedBytes": 0 if self.recycle else freed,
+                "RecycledBytes": freed if self.recycle else 0, "DeletionPerformed": bool(compacted)}
 
     def release_interrupted(self, request):
         """Reviewed release of an interrupted workspace (Mike's decision 7A,

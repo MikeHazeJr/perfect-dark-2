@@ -167,6 +167,17 @@ not discarded; with a small `max_full_installs`, kept installs can block the nex
 read the logs from the receipts instead of keeping installs. `compact` deletes the full
 copies of named completed installs now (`{"ids": [...]}`, plus `"unpin": true` for kept
 ones) and reports `FreedBytes`; active, shared, reuse-held and retained installs are refused.
+
+Deleting means the Recycle Bin (Mike, 2026-11-15: "Delete to Recycle Bin. I will empty that
+manually."). Every removal of a test install (discard, `compact`, and eviction to make room)
+first checks each file against its recorded copy, then sends the whole folder to the Recycle
+Bin of its drive in one move. The space stays used until the bin is emptied: the result says
+`Recycled: true`, the runner prints "install sent to the Recycle Bin after the run", and
+`compact` reports the bytes as `RecycledBytes` with `FreedBytes` 0. If Windows would delete the
+folder for good instead (its drive has no Recycle Bin, the bin is turned off, or the folder is
+larger than the bin holds), the install is kept and the operation refuses with the reason. The
+one exception is the storage self-tests' own scratch roots under
+`.claude/smoke-storage-selftests/`, a few KB each, which they delete themselves.
 Multi-process tests requesting separate installs need capacity for the
 parent plus each process. These controls cover this smoke runner, including its
 optional queued build. Direct `devtools/build-session.ps1` calls also check
