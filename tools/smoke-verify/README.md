@@ -155,6 +155,18 @@ time). Those limits win over the policy a run sends, which the scripts always fi
 come from that policy. A build's preflight is always measured on the
 checkout's own drive with the checkout's `storage-policy.json`, since the build writes there.
 A new root starts an empty storage; the old one stays where it was until it is removed.
+
+Deleting installs right away (Mike, 2026-11-15, test installs on C:: a 100 GB floor, "at
+most one or two", "delete each one ... as soon as it's no longer needed, and report the
+space used and freed each time"): with `"discard_completed": true` in the location file's
+`"policy"`, `complete` deletes the install's full copy as soon as its run is recorded. Its
+receipts and every log stay under `receipts/<id>/` (logs under `logs/`), the install can
+still be rebuilt with `restore`, and the result carries `DiscardedBytes` (the runner prints
+"install discarded after the run" for a single-process test). A kept (`-Keep`) install is
+not discarded; with a small `max_full_installs`, kept installs can block the next run, so
+read the logs from the receipts instead of keeping installs. `compact` deletes the full
+copies of named completed installs now (`{"ids": [...]}`, plus `"unpin": true` for kept
+ones) and reports `FreedBytes`; active, shared, reuse-held and retained installs are refused.
 Multi-process tests requesting separate installs need capacity for the
 parent plus each process. These controls cover this smoke runner, including its
 optional queued build. Direct `devtools/build-session.ps1` calls also check

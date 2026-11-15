@@ -66,7 +66,7 @@ function Initialize-SmokeStoragePolicy {
 }
 
 function Invoke-SmokeStorage {
-    param([Parameter(Mandatory)][ValidateSet('seed','complete','preflight','status','restore','dry-run','reuse-plan','reuse-acquire','reuse-release','release-interrupted')][string] $Action,
+    param([Parameter(Mandatory)][ValidateSet('seed','complete','preflight','status','restore','dry-run','reuse-plan','reuse-acquire','reuse-release','release-interrupted','compact')][string] $Action,
           [Parameter(Mandatory)][string] $ProjectRoot, [hashtable] $Request = @{})
     $retain = $script:SmokeRetainHousekeeping
     if ($Request.ContainsKey('retention')) {
