@@ -294,6 +294,11 @@ Progress log:
 - Second rejoin turn (binary 71486ce2): `mp_pop_a_cap_reconnect_smoke` 119/119 and `mp_capture_the_case_reconnect_smoke`
   120/120. Every objective mode now rejoins with the host's scenario state from the v62 reconnect snapshot (the Rejoin
   column of section 3 and finding 7).
+- Simulant types (binary 86c1025f = 8bdb24ee): both smokes added only 2 of 12 simulants. The base bot profiles follow
+  the original, the general type in six difficulties plus twelve special types that exist only at Normal, and Hard,
+  Perfect and Dark need challenge unlocks (`requirefeature` 25, 26, 28), so a fresh save offers 15; my spec asked for
+  pairs with no profile. Re-made for those 15 (5b6fe90e) and re-queued. The networked run was still an early check of
+  B-1191: the client ran its simulants as puppets with no errors and both sides logged the same results.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
