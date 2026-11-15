@@ -670,6 +670,56 @@ static bool objectiveCheckGraphSource(s32 index, s32 *out_status)
  * requirement in the objective to decide whether to change it to incomplete or
  * failed.
  */
+/**
+ * The original evaluation of one objective from its setup commands. Read
+ * only: it merges the status of every requirement of the objective.
+ */
+static s32 objectiveCheckNative(s32 index)
+{
+	s32 objstatus = OBJECTIVE_COMPLETE;
+
+	// Note: This is setting the cmd pointer to the start of the
+	// beginobjective macro in the stage's setup file. The first
+	// iteration of the while loop below will skip past it.
+	u32 *cmd = (u32 *)g_Objectives[index];
+
+	while ((u8)PD_BE32(cmd[0]) != OBJTYPE_ENDOBJECTIVE) {
+		objstatus = objectiveMergeRequirementStatus(objstatus,
+			objectiveEvaluateRequirement((u8)PD_BE32(cmd[0]), cmd));
+
+		cmd = cmd + setupGetCmdLength(cmd);
+	}
+
+	return objstatus;
+}
+
+/**
+ * Parity check for the behavior-graph objective path: evaluates objective
+ * index both from the mission graph and natively, without recording either.
+ * Returns false when the objective has no setup commands or no mission graph
+ * evaluates it; otherwise both answers are written out.
+ */
+bool objectiveGraphParity(s32 index, s32 *out_graph, s32 *out_native)
+{
+	s32 graph = OBJECTIVE_INCOMPLETE;
+
+	if (index < 0 || index >= ARRAYCOUNT(g_Objectives)
+			|| g_Objectives[index] == NULL
+			|| g_DebugForceCompleteCurrentMissionObjectives) {
+		return false;
+	}
+	if (!objectiveCheckGraphSource(index, &graph)) {
+		return false;
+	}
+	if (out_graph) {
+		*out_graph = graph;
+	}
+	if (out_native) {
+		*out_native = objectiveCheckNative(index);
+	}
+	return true;
+}
+
 s32 objectiveCheck(s32 index)
 {
 	u32 stack[5];
@@ -685,17 +735,7 @@ s32 objectiveCheck(s32 index)
 		} else if (objectiveCheckGraphSource(index, &objstatus)) {
 			/* Graph-driven path used. */
 		} else {
-			// Note: This is setting the cmd pointer to the start of the
-			// beginobjective macro in the stage's setup file. The first
-			// iteration of the while loop below will skip past it.
-			u32 *cmd = (u32 *)g_Objectives[index];
-
-			while ((u8)PD_BE32(cmd[0]) != OBJTYPE_ENDOBJECTIVE) {
-				objstatus = objectiveMergeRequirementStatus(objstatus,
-					objectiveEvaluateRequirement((u8)PD_BE32(cmd[0]), cmd));
-
-				cmd = cmd + setupGetCmdLength(cmd);
-			}
+			objstatus = objectiveCheckNative(index);
 		}
 	}
 

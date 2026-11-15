@@ -570,6 +570,48 @@ static s32 probeFlagObjectives(const char *stage_id)
 }
 
 /*
+ * Objective parity probe.
+ *
+ * Every objective that is active at this difficulty and evaluated from the
+ * mission graph must give the same answer as the original evaluation of its
+ * setup commands, whatever its criteria: objects, rooms, holographs and
+ * flags alike. The flag probe drives flag objectives through their states;
+ * this one covers the criteria it cannot drive, in the state they are in.
+ * Neither answer is recorded. Returns the number compared, or -1 after
+ * failing the run.
+ */
+static s32 probeObjectiveParity(const char *stage_id)
+{
+	s32 compared = 0;
+	s32 not_graph = 0;
+	s32 i;
+
+	for (i = 0; i < objectiveGetCount() && i < MAX_OBJECTIVES; i++) {
+		s32 graph = OBJECTIVE_INCOMPLETE;
+		s32 native = OBJECTIVE_INCOMPLETE;
+
+		if (!(objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty()))) {
+			continue;
+		}
+		if (!objectiveGraphParity(i, &graph, &native)) {
+			not_graph++;
+			continue;
+		}
+		if (graph != native) {
+			failRun(CAMPAIGN_RUN_FAILURE_OBJECTIVES,
+				"objective parity probe: '%s' objective %d graph=%s native=%s",
+				stage_id, i, probeStatusName(graph), probeStatusName(native));
+			return -1;
+		}
+		compared++;
+	}
+
+	ACLOG("objective parity probe stage_id='%s' compared=%d not_graph=%d",
+		stage_id, compared, not_graph);
+	return compared;
+}
+
+/*
  * Soak (--auto-campaign-soak <seconds>).
  *
  * Holds the mission in live play for that many game seconds before the
@@ -822,6 +864,9 @@ void autocampaignTick(void)
 		/* Must run before the forced completion, which makes every later
 		 * objective check answer "complete". */
 		if (probeFlagObjectives(mission->stage_id) < 0) {
+			break;
+		}
+		if (probeObjectiveParity(mission->stage_id) < 0) {
 			break;
 		}
 		forced_count = objectivesDebugCompleteCurrentMission();

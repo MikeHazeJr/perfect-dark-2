@@ -215,6 +215,29 @@ TEST_CASE("release campaign runner observes strict production progression seams"
 	REQUIRE(runner.find("set_status != OBJECTIVE_COMPLETE") != std::string::npos);
 	REQUIRE(runner.find("fail_status != OBJECTIVE_FAILED") != std::string::npos);
 	REQUIRE(runner.find("g_StageFlags != saved") != std::string::npos);
+	// Every graph-evaluated objective must give the native answer before the
+	// forced end, whatever its criteria (objects, rooms, holographs, flags).
+	REQUIRE(tick.find("probeObjectiveParity(mission->stage_id) < 0") != std::string::npos);
+	REQUIRE(tick.find("probeFlagObjectives(mission->stage_id) < 0") <
+		tick.find("probeObjectiveParity(mission->stage_id) < 0"));
+	REQUIRE(tick.find("probeObjectiveParity(mission->stage_id) < 0") <
+		tick.find("objectivesDebugCompleteCurrentMission()"));
+	REQUIRE(runner.find("if (!objectiveGraphParity(i, &graph, &native)) {") != std::string::npos);
+	REQUIRE(runner.find("objective parity probe: '%s' objective %d graph=%s native=%s") !=
+		std::string::npos);
+	{
+		const std::string objectives =
+			read_text_file_debug_hotkey("src/game/objectives.c");
+		const std::string check =
+			function_block_debug_hotkey(objectives, "s32 objectiveCheck");
+		const std::string parity =
+			function_block_debug_hotkey(objectives, "bool objectiveGraphParity");
+		REQUIRE(objectives.find("static s32 objectiveCheckNative(s32 index)") != std::string::npos);
+		REQUIRE(check.find("objstatus = objectiveCheckNative(index);") != std::string::npos);
+		REQUIRE(parity.find("if (!objectiveCheckGraphSource(index, &graph)) {") != std::string::npos);
+		REQUIRE(parity.find("*out_native = objectiveCheckNative(index);") != std::string::npos);
+		REQUIRE(parity.find("scenarioSourceObjectiveGraphRecordCheck") == std::string::npos);
+	}
 	// Soak: live play for a set number of game seconds before the forced
 	// end. It protects the idle player and fails on a mission that ends by
 	// itself, a death anyway, or game time that stops.
@@ -312,6 +335,9 @@ TEST_CASE("campaign smoke requires clean exits and retains restart evidence",
 	REQUIRE(release.find("\"CAMPAIGN\\\\.AUTO: objective flag probe stage_id='base:\", \"min\": 17, \"max\": 17") !=
 		std::string::npos);
 	REQUIRE(release.find("\"MISSION\\\\.GRAPH: cannot \"") != std::string::npos);
+	REQUIRE(release.find("\"CAMPAIGN\\\\.AUTO: objective parity probe stage_id='base:\", \"min\": 17, \"max\": 17") !=
+		std::string::npos);
+	REQUIRE(release.find("\"objective parity probe: \"") != std::string::npos);
 	// Every stage takes its room boxes from the authored table and has every
 	// room light inside its room (B-1113, B-1114), and the RC-P120 a Defense
 	// objective asks for exists when the mission starts.

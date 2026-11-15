@@ -100,6 +100,7 @@
       "numeric fallback",
       "MISSION\\.GRAPH: cannot ",
       "objective flag probe: ",
+      "objective parity probe: ",
       "SCENARIO\\.SOURCE: B-1113 no usable rooms\\.json",
       "SCENARIO\\.SOURCE: B-1114 ",
       "does not fit 16-bit world coordinates",
@@ -115,6 +116,7 @@
       { "pattern": "CAMPAIGN\\.AUTO: persisted plan=", "min": 17, "max": 17 },
       { "pattern": "MISSION\\.GRAPH: activated mission graph 'base:mission_", "min": 17, "max": 17 },
       { "pattern": "CAMPAIGN\\.AUTO: objective flag probe stage_id='base:", "min": 17, "max": 17 },
+      { "pattern": "CAMPAIGN\\.AUTO: objective parity probe stage_id='base:", "min": 17, "max": 17 },
       { "pattern": "SCENARIO\\.SOURCE: B-1113 room table 'base:scenario_", "min": 17, "max": 40 },
       { "pattern": "outside_room=0 source=room_lights\\.json", "min": 17, "max": 40 }
     ]
