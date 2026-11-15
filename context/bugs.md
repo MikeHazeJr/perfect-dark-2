@@ -18,7 +18,13 @@ self-loading magazine counted as empty once fired, so the bot would drop the
 gun until it regrew, and a switch between two functions that share one
 self-loading magazine refilled it from nothing (the native switch returns the
 rounds to a reserve and reloads). Bots now report such a magazine as always
-full, and keep its rounds across the switch. Pattern: SP-37.
+full, and keep its rounds across the switch. Two more found reading the bot
+fire path (`bot.c`, `botact.c`): a mod weapon's shot has no recoil animation,
+so `botactGetShootInterval60` gave 0 and a bot would fire every frame (all six
+crystals in a tenth of a second); it now uses the function's recovery time,
+else 15 ticks. And a bot fires a "regular" weapon only with rounds loaded, so a
+mod function with no magazine (the Needler's, which fires without ammo per
+B-1151) would never fire; `botactFiresWithoutAmmo` lets it. Pattern: SP-37.
 
 ## 2026-11-15 B-1210 The world mesh grid drops triangles past its 128-cell cap (T-MODDING-008, found, not fixed)
 

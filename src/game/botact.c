@@ -488,10 +488,35 @@ s32 botactGetShootInterval60(s32 weaponnum, s32 funcnum)
 			} else if (func->type == INVENTORYFUNCTYPE_MELEE && weaponnum != WEAPON_REAPER) {
 				result = 60;
 			}
+
+			/* T-MODDING-008 (B-1211): a mod weapon's shot has no recoil
+			 * animation, so unk24 + unk25 is 0 and a bot would fire every
+			 * frame (a crystal pistol's six crystals in a tenth of a second).
+			 * Its recovery time is the time between shots, else 15 ticks. */
+			if (result <= 0 && weaponnum >= WEAPON_CUSTOM_START
+					&& (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+				s32 recovery = ((struct weaponfunc_shoot *)func)->recoverytime60;
+
+				result = recovery > 0 ? recovery : 15;
+			}
 		}
 	}
 
 	return result;
+}
+
+bool botactFiresWithoutAmmo(s32 weaponnum, s32 funcnum)
+{
+	struct weaponfunc *func;
+
+	if (weaponnum < WEAPON_CUSTOM_START || weaponnum >= WEAPON_CUSTOM_END) {
+		return false;
+	}
+
+	func = weaponGetFunctionById(weaponnum, funcnum);
+
+	return func != NULL && weaponGetAmmoByFunction(weaponnum, funcnum) == NULL
+		&& ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT || func->type == INVENTORYFUNCTYPE_THROW);
 }
 
 /**

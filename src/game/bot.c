@@ -4937,7 +4937,8 @@ void botTickUnpaused(struct chrdata *chr)
 								}
 							}
 						}
-					} else if (chr->weapons_held[i] && aibot->loadedammo[i] > 0) {
+					} else if (chr->weapons_held[i] && (aibot->loadedammo[i] > 0
+								|| botactFiresWithoutAmmo(aibot->weaponnum, aibot->gunfunc))) {
 						// Handle firing a regular weapon
 						bool canshoot = false;
 
