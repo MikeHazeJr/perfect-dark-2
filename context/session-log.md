@@ -10473,3 +10473,51 @@ Next
 - The queued base 4 run (about 3 hours out): campaigns with B-1133, the two
   visual checks, the keyboard settings rerun. Then announce extract-3 and
   base 4, or file B-1172 as confirmed with the screenshots.
+
+## 2026-11-15 (11:30-12:55 UTC) - CORE: Mike's three answers, test installs deleted after each run, mission graph runner
+
+Mike's answers (verbatim in the week note, 11:55 UTC)
+- C: test installs: floor 100 GB, at most one or two, delete each one (and
+  caches, temp exports, stale builds) as soon as it is not needed, and report
+  space used and freed each time. Saved as a feedback memory.
+- Decision 2: build the mission-graph runner now.
+- Decision 3: stage-wide rules may go anywhere packed in the level's archive;
+  CORE uses a new `stage.json` member of each `.pdscenario`.
+
+What was done
+- Storage (b37538d0, shared as `week-pd/runner` 786b0aeb, merged back with
+  the tree unchanged): `discard_completed` in a location policy deletes each
+  install as soon as its run is recorded (receipts and logs stay, restore
+  still works); `compact` deletes named finished installs now. Found on the
+  way: a kept (`-Keep`) install is never evicted, so with two installs on C:
+  the queued base 4 run would have been refused at its third test; its
+  script now keeps nothing and reads logs from the receipts. CORE's C:
+  location file: 100 GiB floor, 2 installs, discard on.
+- Space: `compact` freed 1.51 GiB of four finished CORE installs on D:; 11 MB
+  of scratch exports deleted; a 378 MB temporary base copy made and deleted
+  for the runner sweep. CORE's C: footprint: 17 MB of scratch files.
+- Mission graph runner (ac532efe, 1ff46d4f): `mission_graph_runner.cpp`
+  compiles a mission graph's execution edges (`"input": "exec"`) when it
+  activates; `event.objective.status_changed` from `objectivesCheckAll`
+  walks them; `og.hud.objective_status_message` (module table
+  `mission_graph_modules.c`) shows the original message
+  (`objectivesShowStatusMessage`). Refused graphs run nothing (no fallback).
+  The extractor wires the event to the module in every base mission graph
+  (pdmeta kind `_objective_status_event`); conformance applies the runner's
+  rules. The forced completion now runs the objective check first, so the
+  campaign exercises the event; its fixtures require a compiled program per
+  mission and the event in each. Design note
+  `context/designs/modding/mission-graph-runner.md`.
+
+Verification
+- pd-tests 1,915 cases / 340,947 assertions; storage suites (Python 28, 17,
+  22; PowerShell storage 19, runner retention 47) pass.
+- `[runner-sweep]` on a re-extracted copy of base 4: 21 of 21 mission graphs
+  compile and run the message; base 4's own graphs (before the runner) run
+  nothing, as expected. Conformance OK on both.
+
+Next
+- `stage.json` (decision 3) for the stage-wide rules of the survey.
+- The queued base 4 run now also proves the runner in game.
+- MULTIPLAYER: route the co-op client's copy of the message through the
+  runner (asked in the week note).
