@@ -109,18 +109,25 @@ Landed on `week-pd/crystal-pistol` (6e43ca22 and later), everything behind a mod
 | Muzzle flash | model toggle 90 under part 50 (engine unchanged) | viewmodel 31/31: `BONDGUN.FLASH` on all three shots |
 | Spent crystals and mines are not pickups | `bgunModGsetFiresSpentRounds`, `weaponCreateProjectileFromGset` | mine_bot 22/22 (before B-1188 the bot collected the resting mines) |
 | Mod weapon name | `loaderPoolSetPublicWeaponName`, `bgunGetName` | not checked on screen yet |
+| Shots, splats, spawn checks stop at walls on scenario stages (B-1189); Farsight x-ray still shoots through | `bgTestHitScenarioMesh` (`bg.c`), `meshraygrid.c` | pending: `hitscan_bg_scenario_smoke`, `farsight_xray_wall_smoke` (f50802ff's client) |
+| Bots use mod weapons (B-1211): derived bot preferences, self-loading magazine always full to a bot, kept across a function switch | `s_publicWeaponBotPrefsBuild` (`loader_pool.c`), `botact.c`, `botinv.c` | pending: `crystal_pistol_bot_charge_smoke`, `needler_viewmodel_visibility_smoke` (12 Needler bots) |
+| Bot charge: a full magazine at 450..1500 units commits every crystal, a vertical fan of mines at the target, alive or dead; then a primary magazine before the next | `bgunModBotChooseFunction`, `bgunModBotChargeShot`, `bgunModBotChargeTick` (`lv.c`) | pending: `crystal_pistol_bot_charge_smoke` |
+| Third person: spent crystals from the owner's clip, charge glow, roll about the barrel | `bgunModHeldRoll3P`, `bgunModApplyHeldModel3P` (`chr.c` `chr0f022214`) | pending: `BONDGUN.MODEL3P` in the bot charge smoke |
+| Online: roll actions on the wire (v63 `UCMD_GUNROLL_LEFT/RIGHT`), every peer rolls and charges every player's gun; the host fans a remote player's charge without sockets | `bondmove.c`, `net_player_move_wire.c`, `bgunModChargeRelease` | pending: `crystal_pistol_net_roll_charge_smoke`; wire case in `test_net_player_move_wire.cpp` |
+| Crystals stuck in a character (target held 240 units ahead, bots hold fire) | native `objEmbed`; diagnostic `BONDGUN.PROJECTILE.CHRTEST` | pending: `crystal_pistol_bot_embed_smoke` |
 
-Not done (follow-ups): network replication of the charge look and the roll (the host sends the mine
-spawns, the rest is local); bots throw single mines (no charge for bots); third-person views of the
-gun do not hide spent crystals; a crystal that hits an off-screen character is deleted (native embed
-rule). Bugs on the way: B-1184 to B-1188 (`context/bugs.md`); B-1187 is engine-wide (every sticky
-projectile on scenario-source stages) and `context/systemic-bugs.md` lists the other background hit
-tests that probably fail the same way (hitscan, splats, spawn checks), left for CORE.
+Not done (follow-ups): a crystal that hits an off-screen character is deleted (native embed rule:
+`objEmbed` needs that character's model matrices, built only when it is drawn). If a host marks
+characters on screen from its own camera only (`chrTick` uses `func0f08e8ac` against the current
+view; not yet checked for remote players), remote players' crystals that hit a character the host
+is not looking at vanish instead of sticking. Unverified; a networked embed smoke would show it.
+Bugs on the way: B-1184 to B-1189, B-1210, B-1211 (`context/bugs.md`).
 
 Smoke harness notes (2026-11-15): a bot held by `--debug-place-bot-near-player` floats at eye height
-in its fall pose and is re-relocated every frame, which keeps it out of its room's prop list, so
-projectiles pass through it (proximity still works: the mine-on-bot smoke uses it); a released bot
-moves and knocks the player around. Aim with `--debug-spawn-at` plus `--debug-force-first-person-look`
+in its fall pose and is re-relocated every frame; crystals passed through it in the old bot smoke
+(why is what `BONDGUN.PROJECTILE.CHRTEST` in `crystal_pistol_bot_embed_smoke` is for). Proximity
+still works: the mine-on-bot smoke uses it. A released bot moves and knocks the player around. Since
+B-1211 bots fight with mod weapons: target-dummy smokes pass `--debug-bots-hold-fire`. Aim with `--debug-spawn-at` plus `--debug-force-first-person-look`
 (fixed in B-1186). Stalls of one to two seconds (the session's first GL capture, the first crystal
 spawn, the first explosion, and whole-process freezes on the shared HDD) land every input inside them
 in one frame: keep presses about 2 s clear of them, and rerun once before suspecting the game.
