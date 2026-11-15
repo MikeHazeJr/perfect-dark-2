@@ -943,6 +943,8 @@ static s32 paramIsModelRefKey(const char *key)
 static s32 paramIsAudioRefKey(const char *key)
 {
 	return strcmp(key, "shoot_sound_catalog_id") == 0 ||
+		strcmp(key, "charge_sound_catalog_id") == 0 ||
+		strcmp(key, "launch_sound_catalog_id") == 0 ||
 		strcmp(key, "shoot_sound_ref") == 0 ||
 		strcmp(key, "shootsound") == 0 ||
 		strcmp(key, "projectile_sound_catalog_id") == 0 ||
@@ -2176,12 +2178,115 @@ static s32 weaponGraphTunableKeyReserved(const char *key)
 
 /* The fixed defaults-layer key map (Unit 9). Settings keys outside it are
  * stored but noted: nothing consumes them yet. */
+/* Crystal pistol (T-MODDING-008): the mod magazine is authored as flat
+ * settings keys per ammo slot, "ammo0_*" and "ammo1_*". loader_pool.c builds
+ * the native inventory_ammo from them (weaponGraphAmmoSettingSuffix lists
+ * the suffixes it consumes). */
+/* "none" is the self-loading magazine (no reserve pool; see
+ * WEAPON_GRAPH_AMMO_SELFLOADING_TYPE). The names are the native reserve pools
+ * a mod may share with base weapons. Returns -1 for an unknown name. */
+s32 weaponGraphAmmoReserveType(const char *name)
+{
+	static const struct { const char *name; s32 type; } s_types[] = {
+		{ "none", WEAPON_GRAPH_AMMO_SELFLOADING_TYPE },
+		{ "pistol", 0x01 }, { "smg", 0x02 }, { "crossbow", 0x03 },
+		{ "rifle", 0x04 }, { "shotgun", 0x05 }, { "farsight", 0x06 },
+		{ "grenade", 0x07 }, { "rocket", 0x08 }, { "knife", 0x09 },
+		{ "magnum", 0x0a }, { "devastator", 0x0b }, { "reaper", 0x0f },
+		{ "dart", 0x11 }, { "sedative", 0x13 },
+	};
+	size_t i;
+	if (!name) return -1;
+	for (i = 0; i < sizeof(s_types) / sizeof(s_types[0]); i++) {
+		if (strcmp(name, s_types[i].name) == 0) return s_types[i].type;
+	}
+	return -1;
+}
+
+static const char *const s_WeaponGraphAmmoSettingSuffixes[] = {
+	"clip", "reload", "reserve", "regrow_ticks60", "seat_part_base",
+	"regrow_sound_catalog_id",
+};
+
+s32 weaponGraphAmmoSettingSlot(const char *key, const char **out_suffix)
+{
+	size_t i;
+	if (!key || strncmp(key, "ammo", 4) != 0 ||
+			(key[4] != '0' && key[4] != '1') || key[5] != '_') {
+		return -1;
+	}
+	for (i = 0; i < sizeof(s_WeaponGraphAmmoSettingSuffixes) /
+			sizeof(s_WeaponGraphAmmoSettingSuffixes[0]); i++) {
+		if (strcmp(key + 6, s_WeaponGraphAmmoSettingSuffixes[i]) == 0) {
+			if (out_suffix) *out_suffix = s_WeaponGraphAmmoSettingSuffixes[i];
+			return key[4] - '0';
+		}
+	}
+	return -1;
+}
+
 static s32 weaponGraphSettingKeyKnown(const char *key)
 {
 	return strcmp(key, "fire_cadence") == 0 ||
 		strcmp(key, "spread") == 0 ||
 		strcmp(key, "zoom_fov") == 0 ||
-		strcmp(key, "sight") == 0;
+		strcmp(key, "sight") == 0 ||
+		strcmp(key, "gun_roll_deg") == 0 ||
+		weaponGraphAmmoSettingSlot(key, NULL) >= 0;
+}
+
+/* Values of the ammo keys are checked here so a bad magazine refuses the
+ * weapon at compile time, not at the first reload. */
+static s32 weaponGraphAmmoSettingValueOk(const weapon_graph_setting_entry_t *e,
+                                         char *err, size_t err_cap)
+{
+	const char *suffix = NULL;
+	s32 numeric = e->type == WEAPON_GRAPH_PARAM_INT ||
+		(e->type == WEAPON_GRAPH_PARAM_FLOAT && e->f_value == (f32)(s32)e->f_value);
+	s32 ivalue = e->type == WEAPON_GRAPH_PARAM_INT ? e->i_value : (s32)e->f_value;
+
+	if (weaponGraphAmmoSettingSlot(e->key, &suffix) < 0) {
+		if (strcmp(e->key, "gun_roll_deg") == 0) {
+			f32 deg = e->type == WEAPON_GRAPH_PARAM_FLOAT ? e->f_value : (f32)e->i_value;
+			if ((e->type != WEAPON_GRAPH_PARAM_INT && e->type != WEAPON_GRAPH_PARAM_FLOAT) ||
+					deg < 0.0f || deg > 180.0f) {
+				setErr(err, err_cap, "weapon setting gun_roll_deg must be a number 0..180");
+				return 0;
+			}
+		}
+		return 1;
+	}
+	if (strcmp(suffix, "clip") == 0) {
+		if (!numeric || ivalue < 1 || ivalue > 255) {
+			setErr(err, err_cap, "weapon setting %s must be an integer 1..255", e->key);
+			return 0;
+		}
+	} else if (strcmp(suffix, "regrow_ticks60") == 0 ||
+			strcmp(suffix, "seat_part_base") == 0) {
+		if (!numeric || ivalue < 1 || ivalue > 32767) {
+			setErr(err, err_cap, "weapon setting %s must be an integer 1..32767", e->key);
+			return 0;
+		}
+	} else if (strcmp(suffix, "reload") == 0) {
+		if (e->type != WEAPON_GRAPH_PARAM_STRING ||
+				(strcmp(e->value, "magazine") != 0 && strcmp(e->value, "regrow") != 0)) {
+			setErr(err, err_cap, "weapon setting %s must be magazine or regrow", e->key);
+			return 0;
+		}
+	} else if (strcmp(suffix, "reserve") == 0) {
+		if (e->type != WEAPON_GRAPH_PARAM_STRING ||
+				weaponGraphAmmoReserveType(e->value) < 0) {
+			setErr(err, err_cap,
+				"weapon setting %s must be none or a native ammo type name", e->key);
+			return 0;
+		}
+	} else if (strcmp(suffix, "regrow_sound_catalog_id") == 0) {
+		if (e->type != WEAPON_GRAPH_PARAM_STRING || !catalogRefLooksValid(e->value)) {
+			setErr(err, err_cap, "weapon setting %s must be a catalog ID", e->key);
+			return 0;
+		}
+	}
+	return 1;
 }
 
 static s32 weaponGraphTunableAppend(const char *label, s32 is_variables,
@@ -2262,6 +2367,9 @@ static s32 weaponGraphTunableAppend(const char *label, s32 is_variables,
 		setErr(err, err_cap,
 			"weapon %s key %s has no production consumer",
 			label, e->key);
+		return -1;
+	}
+	if (!is_variables && !weaponGraphAmmoSettingValueOk(e, err, err_cap)) {
 		return -1;
 	}
 	if (!is_variables && strcmp(e->key, "fire_cadence") == 0 &&
@@ -3305,6 +3413,14 @@ static void projectileRuntimeFromNode(const weapon_graph_ir_t *ir,
 			&out->sticky_allow_background);
 		heldParamBool(ir, node, "allow_char", &out->sticky_allow_char);
 		heldParamBool(ir, node, "allow_obj", &out->sticky_allow_obj);
+		/* Crystal pistol (T-MODDING-008): the three-crystal cluster rule. */
+		heldParamInt(ir, node, "cluster_count", &out->cluster_count);
+		heldParamFloat(ir, node, "cluster_radius", &out->cluster_radius);
+		heldParamString(ir, node, "cluster_explosion_ref", out->cluster_explosion_ref,
+			sizeof(out->cluster_explosion_ref));
+		if (out->cluster_count < 2 || out->cluster_radius <= 0.0f) {
+			out->cluster_count = 0;
+		}
 		break;
 	case WEAPON_GRAPH_OP_PROJECTILE_BOUNCE_SLIDE:
 		out->has_bounce_slide = 1;
@@ -3485,6 +3601,13 @@ static void entityRuntimeFromNode(const weapon_graph_ir_t *ir,
 			weaponGraphParseProxyTeamFilterMode(out->proxy_team_filter);
 		out->proxy_owner_filter_mode =
 			weaponGraphParseProxyOwnerFilterMode(out->proxy_owner_filter);
+		/* Crystal pistol (T-MODDING-008): arm_on "land" arms the proxy when the
+		 * object sticks or comes to rest instead of on the launch timer. */
+		{
+			char arm_on[32] = { 0 };
+			heldParamString(ir, node, "arm_on", arm_on, sizeof(arm_on));
+			out->proxy_arm_on_land = strcmp(arm_on, "land") == 0 ? 1 : 0;
+		}
 		break;
 	case WEAPON_GRAPH_OP_ENTITY_REMOTE_DETONATABLE:
 		out->has_remote_detonatable = 1;
@@ -3766,6 +3889,27 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 		out->entity_ref, sizeof(out->entity_ref));
 	heldParamString(ir, node, "payload_ref",
 		out->payload_ref, sizeof(out->payload_ref));
+	/* Crystal pistol (T-MODDING-008): a committed charge launch. The charge
+	 * commits every loaded round of the function's ammo slot; at the deadline
+	 * each launches from its own seat part along its aim part, even if the
+	 * owner died meanwhile (src/game/bondgun_mod.c). */
+	out->charge_sound = -1;
+	out->launch_sound = -1;
+	out->launch_part_base = -1;
+	out->launch_aim_part_base = -1;
+	out->charge_hide_part = -1;
+	out->charge_show_part = -1;
+	if (heldParamInt(ir, node, "charge_time_ticks60", &v) && v > 0) {
+		out->has_charge = 1;
+		out->charge_time_ticks60 = v;
+	}
+	heldResolveSfxParam(ir, node, "charge_sound_catalog_id", &out->charge_sound);
+	heldResolveSfxParam(ir, node, "launch_sound_catalog_id", &out->launch_sound);
+	heldParamInt(ir, node, "launch_part_base", &out->launch_part_base);
+	heldParamInt(ir, node, "launch_aim_part_base", &out->launch_aim_part_base);
+	heldParamFloat(ir, node, "launch_speed", &out->launch_speed);
+	heldParamInt(ir, node, "charge_hide_part", &out->charge_hide_part);
+	heldParamInt(ir, node, "charge_show_part", &out->charge_show_part);
 	if ((heldParamString(ir, node, "projectile_model_catalog_id",
 			out->projectile_model_ref,
 			sizeof(out->projectile_model_ref)) ||

@@ -1,0 +1,96 @@
+# Maian crystal pistol: engine support for a fully working mod weapon
+
+Owner: CRYSTAL PISTOL session (`week-pd/crystal-pistol`, worktree `D:\PD2-wt\crystal-pistol`,
+build session id `crystal`). Started 2026-11-15 on Mike's instruction: "get the crystal pistol
+fully functional in game ... muzzle flash, ammo, and crystals disappearing as they're fired and
+regrowing on reload are all required, so implement them". For the mod magazine/ammo format:
+"pick a sensible default that fits the .pdweapon format, note it in the week note for CORE, and
+keep going. CORE can change it later."
+
+Test mod: `dev-mods/crystal_pistol` (ids `mod_crystal_pistol:*`), built from the asset folder
+`D:\Game Dev\PD2-Assets\crystal-pistol` by `source/scripts/build_pdweapon.py`. MODS keeps its own
+recipe (`dev-mods/maian_crystal_pistol` on `week-pd/mods`); the keys below are for both.
+
+## Behaviour to reach (Mike, 2026-11-15)
+
+- Primary select-fires single crystals that stick where they land. Three landed crystals near
+  each other detonate.
+- Secondary charges all loaded crystals (sound, neon glow), then launches each from its own socket
+  as a proximity mine. It cannot be cancelled and fires even if the wielder dies.
+- Each fired crystal disappears from its socket; reload regrows them in their sockets.
+- The charge fans from the sockets; rolling the gun shapes the spread (new roll input).
+- 5 crystals on the spine, 1 in the barrel (the asset already has this: Socket_0 barrel, 1-5 spine).
+
+## Format decisions (defaults; CORE may change them)
+
+### Ammo: `behavior/settings.json`, flat keys per ammo slot N (0 or 1)
+
+| Key | Value | Meaning |
+|---|---|---|
+| `ammoN_clip` | int 1..255 | Defines slot N with this clip size. Absent: the slot has no ammo. |
+| `ammoN_reload` | `magazine` (default) or `regrow` | `magazine`: one timed refill of the whole clip. `regrow`: one round per `ammoN_regrow_ticks60`, starts on reload or when the clip runs dry, firing interrupts it once a round is loaded. |
+| `ammoN_reserve` | `none` (default) or a native ammo type name (`pistol`, `smg`, `rifle`, `shotgun`, `magnum`, ...) | `none`: no reserve pool, the clip refills for free (type 0, `AMMOFLAG_NORESERVE`, HUD shows the clip only). A type name draws on the player's reserve of that type. |
+| `ammoN_regrow_ticks60` | int > 0 | Regrow time per round. Required for `regrow`. |
+| `ammoN_seat_part_base` | int | Round j sits on model POSITION part `base + j`. The engine scales that part's matrix: 1 while loaded, 0 when spent, 0..1 while regrowing. |
+
+A function whose `ammo_slot` names a slot with no `ammoN_clip` now fires unlimited (ammoindex -1)
+with a warning, instead of firing zero shots (B-1151).
+
+### Charge launch: params on the secondary's function node (v1 `fire.charge_release`)
+
+`charge_time_ticks60`, `charge_sound_catalog_id`, `launch_part_base` (socket seats, 110),
+`launch_aim_part_base` (a second POSITION part per socket whose offset from the seat is the launch
+direction, 130), `launch_speed`, `charge_hide_part` / `charge_show_part` (toggles swapped during
+the charge: normal crystals 120, charged crystals 121). Count = the loaded rounds of the function's
+ammo slot. The charge is committed: owned by a match table, not the hand; it releases at the
+deadline even if the owner died (from the last socket transforms seen).
+
+### Projectile and entity graphs
+
+- `projectile.cluster` (new module): `count` (3), `radius`, `explosion_ref`; same projectile asset
+  (weaponnum + gunfunc) and same owner.
+- `entity.proxy_trigger` gains `arm_on` = `launch` (old) or `land` (arm when it sticks or comes to
+  rest); its `radius` now also applies to bots and NPCs.
+
+### Model parts (the test mod's `.pdmesh`)
+
+0 root; 50 muzzle (`MODELPART_GUN_MUZZLEPOS`); 55 hold; 90 flash toggle under 50 (flash triangles
+bound to the muzzle matrix, render class 1); 110..115 crystal seats (POSITION, round j = 110 + j,
+0 = barrel); 120 toggle "normal crystals" (one DL, each crystal's triangles bound to its seat's
+matrix, vertices seat-local); 121 toggle "charged crystals" (neon copies, same binding); 130..135
+aim tips (POSITION, seat + launch direction); an explicit BBOX node.
+
+## Engine facts this relies on (worktree line numbers at 19338dae)
+
+- Held-gun rwdata is `u32 unk0a6c[32]` (`types.h:2235`), unchecked in `modelInit`
+  (`bondgun.c:5300`). DL node = 6 words on x64, TOGGLE 1, POSITION/GUNDL/BBOX 0. Layout above = 27.
+- Toggles reset to visible every frame (`bondgun.c:9207`), then `bgun0f098030` (9213). Re-apply
+  own visibility after 9213. Hidden toggles leave their subtree's matrices unset: never put a seat
+  POSITION under a toggle. Edit matrices after `modelUpdateMatrices` (9401) and before render.
+- Part matrix: `modelGetPart` + `modelFindNodeMtxIndex(node, 0)` into `mtxallocation`; camera
+  space with the 0.1 scale; world = `camGetProjectionMtxF()` x (M x 10). Muzzle read 9566-9589.
+- Muzzle flash: parts 90-92 hidden every frame, one shown when `hand->flashon` (9591,
+  `bgun0f0a4e44` 8759), needs part 50 and `muzzlez` != 0.
+- Vertices are never transformed by the compiler: they live in the frame of the matrix their
+  triangle references (`faces.json`/`render.json` `matrix_index`).
+- Mod weapons play no gun animations (`WEAPONFLAG_00002000` unset), so `reload_animation` must be
+  NULL; the NULL-animation reload is about 56 ticks and ignores the trigger (`bondgun.c:1690-1753`).
+- `bgun0f098ca0` (1073) returns -1/2 with no reserve, and -1 with the trigger held auto-switches the
+  weapon (1322-1363, 1419-1433). `bgun0f098df8` (1116) caps by reserve.
+- `casingeject` must be `CASING_NONE` (-1); ammo type must be 0..0x20 (`g_AmmoTypes[33]`).
+- Fired projectiles: `bgunCreateFiredProjectile` (5950); thrown: `bgunCreateThrownProjectile`
+  (5649) / `bgunCreateThrownProjectile2` (5516, used by bots, no net guard). Owner =
+  `hidden >> 28`. Stick decision 8418-8538, `objLand` 4980 (deletes a crystal stuck to an
+  off-screen chr at 5065), attach hook after 8810, rest hook 9317. `g_Proxies` registry at
+  propobj 115; `coordTriggerProxies` uses a fixed 250 (20636).
+- Death: `bgunHandlePlayerDead` (7612) resets the hands; a pending launch must live in a match
+  table like `g_PlayersDetonatingMines` (propobj 145/163), reset in `setup.c` 356-361 and 510.
+- Gun roll: insert `Rz(roll)` into `sp234` after the gangsta rotation (9220-9224), as
+  `bgunUpdateGangsta` (8073) does.
+- Input: actions in `port/include/actionmap.h` (ACTION_COUNT 121); names `s_ActionNames`
+  (`actionmap.cpp:310`) were missing for 105-120 (B-1184); defaults 2974-3124; menu rows
+  `pdgui_menu_mainmenu.cpp` `s_BindableActions`; smoke names `s_SmokeActionTable` (3668).
+
+## Status
+
+See the session log and `context/bugs.md` (B-1184 onward) for what has landed.

@@ -5,6 +5,7 @@
 #include "game/cheats.h"
 #include "game/game_00b820.h"
 #include "game/setup.h"
+#include "game/bondgun_mod.h" /* T-MODDING-008 */
 #include "game/objectives.h"
 #include "game/playerreset.h"
 #include "game/spawnpool.h"
@@ -510,6 +511,10 @@ void setupResetProxyMines(void)
 	for (i = 0; i < ARRAYCOUNT(g_Proxies); i++) {
 		g_Proxies[i] = NULL;
 	}
+
+	/* T-MODDING-008: landed mod crystals and pending charge launches are
+	 * stage-lifetime too. */
+	bgunModResetStage();
 }
 
 s32 setupCountCommandType(u32 type)

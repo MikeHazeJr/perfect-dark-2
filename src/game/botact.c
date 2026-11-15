@@ -6,6 +6,7 @@
 #include "game/chr.h"
 #include "game/propsnd.h"
 #include "game/bondgun.h"
+#include "game/bondgun_mod.h" /* T-MODDING-008: self-loading mod magazines */
 #include "game/game_0b0fd0.h"
 #include "game/playermgr.h"
 #include "game/botact.h"
@@ -137,6 +138,16 @@ s32 botactTryRemoveAmmoFromReserve(struct aibot *aibot, s32 weaponnum, s32 funcn
 {
 	s32 amountremoved;
 	s32 *ammoheld = &aibot->ammoheld[botactGetAmmoTypeByFunction(weaponnum, funcnum)];
+
+	/* T-MODDING-008: a self-loading mod magazine (crystals that regrow) has
+	 * no reserve; a bot's reload refills it from nothing. */
+	if (aibot && tryqty > 0 && weaponnum >= WEAPON_CUSTOM_START) {
+		struct weaponfunc *func = weaponGetFunctionById(weaponnum, funcnum);
+
+		if (func && bgunModAmmoIsSelfLoading(weaponnum, func->ammoindex)) {
+			return tryqty;
+		}
+	}
 
 	if (!aibot || *ammoheld <= 0 || tryqty <= 0) {
 		return 0;

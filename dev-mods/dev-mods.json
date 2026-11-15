@@ -8,6 +8,13 @@
       "dev": true,
       "release": false,
       "summary": "Halo-Needler-style custom weapon: tracking primary needles, non-tracking explosive secondary with small pink contact explosions."
+    },
+    {
+      "id": "crystal_pistol",
+      "path": "crystal_pistol",
+      "dev": false,
+      "release": false,
+      "summary": "Maian crystal pistol test weapon: textured held model, six crystals that are its magazine (fired one at a time, regrow in their sockets), sticky crystal projectile. Include with -DevMods crystal_pistol."
     }
   ]
 }

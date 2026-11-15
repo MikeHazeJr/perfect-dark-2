@@ -1,5 +1,41 @@
 # Bug Tracker
 
+## 2026-11-15 B-1185 A held mod gun with six or more display lists overwrote the hand's data (T-MODDING-008)
+
+Severity high (silent memory corruption; latent until a mod gun has enough
+parts). Found reading the code before building the crystal pistol's part
+layout. The held gun model's per-node runtime data (rwdata) lives in
+`struct hand` `unk0a6c[32]` (`src/include/types.h`), and `modelInit` writes
+`rwdatalen` words into it without a check (`src/game/bondgun.c`, the
+`bgunTickMasterLoad` init loop). ROM guns fit because their GUNDL nodes cost
+no rwdata, but the mod mesh compiler emits DL nodes (type 24), which cost 6
+words each on x64 (three pointers), plus 1 per toggle. A mod gun with six or
+more display lists overran into `handsavedata` and then `handmodel`. Related:
+`bgunSetPartVisible` and the muzzle-flash collector wrote a toggle's word for
+any node under the part number, toggle or not.
+Fix on `week-pd/crystal-pistol`: a held model larger than `unk0a6c` gets a
+per-player, per-hand side buffer of 1024 words (`bgunHeldRwdataFor`); one larger
+than that is not drawn (logged `BONDGUN.MODEL: ... (B-1185)`). Toggle writes go
+through `hand->gunmodel.rwdatas` and only for TOGGLE nodes. The crystal pistol
+is laid out to fit the original 32 words (27: one DL per look, crystals bound to
+their seat matrices) and its smokes forbid the B-1185 log line.
+
+## 2026-11-15 B-1184 Sixteen input actions had no saved name, so the bindings file broke after the first launch (T-MODDING-008)
+
+Severity high (binding saves refused). Found by the input survey for the new
+gun roll actions. `s_ActionNames` (`port/src/actionmap.cpp`) stopped at action
+104, but actions 105-120 (menu skip, dev hotkeys, GPU swarm toggle, vehicle
+look, handbrake and use) were added later without names. Their pd.ini keys
+registered as `(null)` (`configLoad: malformed keyvalue line: (null)=E` in
+old logs), and writing the complete bindings file stopped at the first unnamed
+row (a bare `gameplay.`), so the next launch refused the file and blocked every
+later binding save ("The current binding file is invalid").
+Fix: names for 105-120 (`MenuSkipUp` ... `VehicleUse`) and the new gun roll
+actions (121-122); the table is now unsized with a `static_assert` that it has
+exactly `ACTION_COUNT` names, so a new action without a name no longer builds.
+An existing file written by an affected build is still refused once (it really
+is truncated); loading a profile or deleting `input-bindings.ini` replaces it.
+
 ## 2026-11-15 B-1183 Dying while holding a mod weapon crashed the game (T-MODDING-008)
 
 Severity high (crash in ordinary multiplayer). Found re-running the Needler

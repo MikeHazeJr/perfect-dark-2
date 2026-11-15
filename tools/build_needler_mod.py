@@ -123,7 +123,10 @@ SPARK_TEXTURE_ID = cid("pink_spark")
 HELD_WEAPON_SCALE = 5.0
 HELD_WEAPON_POS_X = 30.0
 HELD_WEAPON_POS_Y = -18.0
-HELD_WEAPON_POS_Z = -45.0
+# B-1155: with the muzzle now on +Z the body runs from model z -20 to +130, so
+# view z = posz - 0.1 * z. -34 keeps the rear of the gun where the old,
+# backwards mesh had its nearest face (view z -32) and puts the muzzle at -47.
+HELD_WEAPON_POS_Z = -34.0
 
 
 # ---------------------------------------------------------------------------
@@ -299,8 +302,12 @@ def needler_weapon_gltf() -> str:
     indices: list[int] = []
 
     def add_vertex(p: tuple[float, float, float], uv: tuple[float, float]) -> int:
+        # B-1155: native guns are authored muzzle toward +Z (bondgun.c turns every
+        # held model 180 degrees about Y, so +Z faces into the screen). The design
+        # coordinates below already have the muzzle on +Z; negating Z here drew
+        # the Needler backwards and mirrored its winding.
         positions.append((p[0] * HELD_WEAPON_SCALE, p[1] * HELD_WEAPON_SCALE,
-                          -p[2] * HELD_WEAPON_SCALE))
+                          p[2] * HELD_WEAPON_SCALE))
         texcoords.append(uv)
         return len(positions) - 1
 
@@ -422,7 +429,7 @@ def build_held_weapon_mesh() -> bytes:
     bounds = {
         "xmin": -10.0 * HELD_WEAPON_SCALE, "xmax": 13.0 * HELD_WEAPON_SCALE,
         "ymin": -9.0 * HELD_WEAPON_SCALE, "ymax": 18.0 * HELD_WEAPON_SCALE,
-        "zmin": -26.0 * HELD_WEAPON_SCALE, "zmax": 4.0 * HELD_WEAPON_SCALE,
+        "zmin": -4.0 * HELD_WEAPON_SCALE, "zmax": 26.0 * HELD_WEAPON_SCALE,
     }
     model_nodes = {
         "schema": "pd2.mesh.nodes.v1",

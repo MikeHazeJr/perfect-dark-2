@@ -24,6 +24,7 @@
 #include "game/quaternion.h"
 #include "game/game_097aa0.h"
 #include "game/bondgun.h"
+#include "game/bondgun_mod.h" /* T-MODDING-008: mod magazines, regrow, seat visuals */
 #include "game/gunfx.h"
 #include "game/game_0b0fd0.h"
 #include "game/modeldef.h"
@@ -553,6 +554,33 @@ bool bgunTestGunVisCommand(struct gunviscmd *cmd, struct hand *hand)
 	return result;
 }
 
+/* B-1185: rwdata for a held gun model too large for hand->unk0a6c (only
+ * generated mod guns are). One buffer per player and hand. */
+#define BGUN_HELD_RWDATA_LARGE 1024
+static u32 s_BgunHeldRwdataLarge[MAX_PLAYERS][2][BGUN_HELD_RWDATA_LARGE];
+
+static u32 *bgunHeldRwdataFor(struct player *player, s32 handnum)
+{
+	s32 playernum;
+
+	if (player->gunctrl.gunmodeldef == NULL
+			|| player->gunctrl.gunmodeldef->rwdatalen <= (s32)ARRAYCOUNT(player->hands[handnum].unk0a6c)) {
+		return player->hands[handnum].unk0a6c;
+	}
+
+	/* Gun loads run for the current player (bgunTickMasterLoad). */
+	playernum = g_Vars.currentplayernum;
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS) {
+		playernum = 0;
+	}
+
+	sysLogPrintf(LOG_NOTE, "BONDGUN.MODEL: weapon %d held model needs %d rwdata words; using the large buffer (B-1185)",
+		(s32)player->gunctrl.weaponnum, (s32)player->gunctrl.gunmodeldef->rwdatalen);
+
+	return s_BgunHeldRwdataLarge[playernum][handnum];
+}
+
 void bgunSetPartVisible(s16 partnum, bool visible, struct hand *hand, struct modeldef *modeldef)
 {
 	struct modelnode *node;
@@ -570,9 +598,12 @@ void bgunSetPartVisible(s16 partnum, bool visible, struct hand *hand, struct mod
 	} else {
 		node = modelGetPart(modeldef, partnum);
 
-		if (node) {
+		/* B-1185: only a toggle has a visibility word; a mod model may put a
+		 * POSITION or DL node under a part number the engine toggles. The words
+		 * live wherever modelInit put them (a large mod gun uses a side buffer). */
+		if (node && (node->type & 0xff) == MODELNODETYPE_TOGGLE && hand->gunmodel.rwdatas) {
 			struct modelrodata_toggle *rodata = &node->rodata->toggle;
-			u32 *ptr = &hand->unk0a6c[rodata->rwdataindex];
+			u32 *ptr = &hand->gunmodel.rwdatas[rodata->rwdataindex];
 			*ptr = visible;
 		}
 	}
@@ -1094,16 +1125,22 @@ s32 bgun0f098ca0(s32 funcnum, struct handweaponinfo *info, struct hand *hand)
 				minqty = bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY);
 			}
 
+			/* T-MODDING-008: a self-loading mod magazine has no reserve to run
+			 * out of, so a reload is always possible (and an empty trigger
+			 * pull reloads instead of switching weapons). */
+			bool noreserve = g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] == 0
+				&& !bgunModAmmoIsSelfLoading(info->weaponnum, ammoindex);
+
 			result = 1;
 
 			if (hand->loadedammo[ammoindex] < minqty) {
 				result = 0;
 
-				if (g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] == 0) {
+				if (noreserve) {
 					result = -1;
 				}
 			} else {
-				if (g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] == 0) {
+				if (noreserve) {
 					result = 2;
 				}
 			}
@@ -1139,6 +1176,20 @@ void bgun0f098df8(s32 weaponfunc, struct handweaponinfo *info, struct hand *hand
 
 			if (onebullet) {
 				amount = 1;
+			}
+
+			/* T-MODDING-008: a self-loading mod magazine refills from nothing;
+			 * its reserve pool is never read or written. */
+			if (bgunModAmmoIsSelfLoading(info->weaponnum, ammoindex)) {
+				if (amount > hand->clipsizes[ammoindex] - hand->loadedammo[ammoindex]) {
+					amount = hand->clipsizes[ammoindex] - hand->loadedammo[ammoindex];
+				}
+
+				if (amount > 0) {
+					hand->loadedammo[ammoindex] += amount;
+				}
+
+				return;
 			}
 
 			if (amount > g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]]) {
@@ -1589,6 +1640,16 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 		}
 	}
 
+	/* T-MODDING-008: a regrowing mod magazine (crystals regrow in their
+	 * sockets) has no reload animation or reserve; it adds one round at a time. */
+	if (func && (func->ammoindex == 0 || func->ammoindex == 1)) {
+		const loader_pool_mod_ammo_t *mod = bgunModAmmo(info->weaponnum, func->ammoindex);
+
+		if (mod && mod->regrow) {
+			return bgunModTickIncReloadRegrow(info, handnum, hand, lvupdate, func->ammoindex, mod);
+		}
+	}
+
 	if (hand->statecycles == 0) {
 		struct hand *otherhand = &g_Vars.currentplayer->hands[1 - handnum];
 
@@ -1831,7 +1892,10 @@ static s32 bgunGetFunctionTypeFromGraph(struct weaponfunc *func,
 static s32 bgunGetAmmoIndexFromGraph(struct weaponfunc *func,
 		const weapon_graph_held_function_t *graph)
 {
-	if (graph && graph->ammo_slot >= 0) {
+	/* B-1151: the public weapon adapter builds func from this same graph and
+	 * drops an ammo_slot whose magazine the weapon never declares (it would
+	 * clamp every shot to zero bullets). A native "no ammo" wins. */
+	if (graph && graph->ammo_slot >= 0 && !(func && func->ammoindex < 0)) {
 		return graph->ammo_slot;
 	}
 	return func ? func->ammoindex : -1;
@@ -3118,7 +3182,12 @@ s32 bgunTickIncAttack(struct handweaponinfo *info, s32 handnum, struct hand *han
 		func = gsetGetWeaponFunction(&hand->gset);
 	}
 
-	if (func != NULL) {
+	/* T-MODDING-008: a mod function with charge_time_ticks60 is a committed
+	 * charge launch (crystal pistol secondary), not a single throw or shot. */
+	if (func != NULL && graph != NULL && graph->has_charge
+			&& hand->gset.weaponnum >= WEAPON_CUSTOM_START) {
+		finished = bgunModTickIncAttackCharge(info, handnum, hand, graph);
+	} else if (func != NULL) {
 		functype = bgunGetFunctionTypeFromGraph(func, graph);
 		switch (functype & 0xff) {
 		case INVENTORYFUNCTYPE_SHOOT:
@@ -5294,10 +5363,27 @@ void bgunTickMasterLoad(void)
 
 						sum = 0;
 
-						for (i = 0; i < 2; i++) {
+						/* B-1185: modelInit writes rwdatalen words into the buffer
+						 * it is given without checking. unk0a6c holds 32, enough for
+						 * every ROM gun (GUNDL nodes cost none), but a generated mod
+						 * gun's DL nodes cost 6 words each on x64, so six or more
+						 * overwrote handsavedata and handmodel. Larger held models
+						 * use a per-player side buffer; past that they are not drawn. */
+						if (player->gunctrl.gunmodeldef
+								&& player->gunctrl.gunmodeldef->rwdatalen > BGUN_HELD_RWDATA_LARGE) {
+							sysLogPrintf(LOG_ERROR,
+								"BONDGUN.MODEL: weapon %d held model needs %d rwdata words, at most %d fit; not drawn (B-1185)",
+								(s32)player->gunctrl.weaponnum, (s32)player->gunctrl.gunmodeldef->rwdatalen,
+								BGUN_HELD_RWDATA_LARGE);
+							player->gunctrl.gunmodeldef = NULL;
+						}
+
+						for (i = 0; i < 2 && player->gunctrl.gunmodeldef; i++) {
+							u32 *rwdatas = bgunHeldRwdataFor(player, i);
+
 							hand = &player->hands[i];
 
-							modelInit(&hand->gunmodel, player->gunctrl.gunmodeldef, hand->unk0a6c, 0);
+							modelInit(&hand->gunmodel, player->gunctrl.gunmodeldef, rwdatas, 0);
 
 							if (player->gunctrl.handmodeldef != 0) {
 								modelInit(&hand->handmodel, player->gunctrl.handmodeldef, hand->handsavedata, false);
@@ -6211,6 +6297,15 @@ void bgunCreateFiredProjectile(s32 handnum)
 						if (weapon->base.projectile->flags & PROJECTILEFLAG_LAUNCHING) {
 							projectileLaunch(&weapon->base, weapon->base.projectile, &sp6c, &sp60);
 						}
+
+						/* T-MODDING-008: mod projectiles log where they start, so a
+						 * smoke can tell a crystal that never landed from no shot. */
+						if (weapon->weaponnum >= WEAPON_CUSTOM_START && weapon->base.prop) {
+							sysLogPrintf(LOG_NOTE, "BONDGUN.PROJECTILE: fired weapon=%d func=%d model=%d at=(%.0f,%.0f,%.0f) timer240=%d",
+								weapon->weaponnum, weapon->gunfunc, (s32)weapon->base.modelnum,
+								weapon->base.prop->pos.x, weapon->base.prop->pos.y, weapon->base.prop->pos.z,
+								weapon->timer240);
+						}
 					} else {
 						failed = true;
 					}
@@ -6696,7 +6791,10 @@ void bgunFreeWeapon(s32 handnum)
 #endif
 				}
 
-				if (player->hands[handnum].loadedammo[i] > 0) {
+				/* T-MODDING-008: self-loading mod rounds have no reserve to go to;
+				 * the magazine refills when the weapon is next drawn. */
+				if (player->hands[handnum].loadedammo[i] > 0
+						&& !bgunModAmmoIsSelfLoading(player->gunctrl.weaponnum, i)) {
 					player->ammoheldarr[player->gunctrl.ammotypes[i]] += player->hands[handnum].loadedammo[i];
 				}
 
@@ -7354,6 +7452,11 @@ char *bgunGetName(s32 weaponnum)
 {
 	struct weapon *weapon = weaponFindById(weaponnum); /* S484 F4 */
 
+	/* B-1150: a mod weapon has no language string; use its catalog name. */
+	if (weaponnum >= WEAPON_CUSTOM_START && loaderPoolGetPublicWeaponName(weaponnum)) {
+		return (char *)loaderPoolGetPublicWeaponName(weaponnum);
+	}
+
 	if (weapon) {
 		return langGet(weapon->name);
 	}
@@ -7375,6 +7478,11 @@ u16 bgunGetNameId(s32 weaponnum)
 char *bgunGetShortName(s32 weaponnum)
 {
 	struct weapon *weapon = weaponFindById(weaponnum); /* S484 F4 */
+
+	/* B-1150: a mod weapon has no language string; use its catalog name. */
+	if (weaponnum >= WEAPON_CUSTOM_START && loaderPoolGetPublicWeaponName(weaponnum)) {
+		return (char *)loaderPoolGetPublicWeaponName(weaponnum);
+	}
 
 	if (weapon) {
 		return langGet(weapon->shortname);
@@ -9223,6 +9331,18 @@ void bgun0f0a5550(s32 handnum)
 		bgunUpdateGangsta(hand, handnum, &sp274, funcdef, &sp284, &sp234);
 	}
 
+	/* T-MODDING-008: the gun roll input (only weapons with gun_roll_deg roll).
+	 * Innermost, like the gangsta roll: about the model's own barrel axis, so
+	 * every part (and the crystal pistol's launch sockets) rolls with it. */
+	if (bgunModGetRoll() != 0.0f) {
+		struct coord rollrot = {0.0f, 0.0f, 0.0f};
+		Mtxf rollmtx;
+
+		rollrot.z = bgunModGetRoll();
+		mtx4LoadRotation(&rollrot, &rollmtx);
+		mtx00015be0(&rollmtx, &sp234);
+	}
+
 	if (hand->useposrot) {
 		sp274.f[0] += hand->posrotmtx.m[3][0];
 		sp274.f[1] += hand->posrotmtx.m[3][1];
@@ -9277,9 +9397,11 @@ void bgun0f0a5550(s32 handnum)
 		for (j = 0x5a; j < 0x5d; j++) {
 			node = modelGetPart(modeldef, j);
 
-			if (node) {
+			/* B-1185: flash parts must be toggles, and their words live in the
+			 * buffer modelInit was given. */
+			if (node && (node->type & 0xff) == MODELNODETYPE_TOGGLE && hand->gunmodel.rwdatas) {
 				rodata = node->rodata;
-				sp1e4[sp1e0] = (bool *)&hand->unk0a6c[rodata->toggle.rwdataindex];
+				sp1e4[sp1e0] = (bool *)&hand->gunmodel.rwdatas[rodata->toggle.rwdataindex];
 				sp1e0++;
 			}
 		}
@@ -9563,6 +9685,11 @@ void bgun0f0a5550(s32 handnum)
 				break;
 			}
 
+			/* T-MODDING-008: mod weapon round seats (spent, regrowing, loaded). */
+			if (weaponnum >= WEAPON_CUSTOM_START) {
+				bgunModApplyHeldModel(hand, modeldef, (Mtxf *)mtxallocation);
+			}
+
 			node = modelGetPart(modeldef, MODELPART_GUN_MUZZLEPOS);
 
 			if (weaponnum == WEAPON_REAPER) {
@@ -9590,6 +9717,13 @@ void bgun0f0a5550(s32 handnum)
 
 				if (hand->flashon && sp1e0 > 0 && weaponnum != WEAPON_SHOTGUN && g_Vars.lvupdate240 != 0) {
 					bgun0f0a4e44(hand, weapondef, modeldef, funcdef, sp1e0, mtxallocation, weaponnum, sp1e4, sp6c, &sp234, &sp1f4);
+
+					/* T-MODDING-008: a mod gun's flash is a one-frame part toggle;
+					 * record it so a smoke can prove it without catching the frame. */
+					if (weaponnum >= WEAPON_CUSTOM_START) {
+						sysLogPrintf(LOG_NOTE, "BONDGUN.FLASH: weapon=%d hand=%d parts=%d frame=%d",
+							weaponnum, handnum, sp1e0, g_Vars.lvframenum);
+					}
 				}
 			} else if (weaponnum == WEAPON_GRENADE
 					|| weaponnum == WEAPON_TIMEDMINE

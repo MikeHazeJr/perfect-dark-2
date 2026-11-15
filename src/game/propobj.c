@@ -60,6 +60,7 @@
 #include "game/options.h"
 #include "actionmap.h"
 #include "game/propobj.h"
+#include "game/bondgun_mod.h" /* T-MODDING-008 */
 #include "game/wallhit.h"
 #include "game/shards.h"
 #include "bss.h"
@@ -3221,6 +3222,15 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 		 * never registered. */
 		if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
 			weaponUnregisterProxy(weapon);
+			/* T-MODDING-008: drop it from the landed-crystal registry too. */
+			bgunModProjectileForget(weapon);
+
+			if (obj->prop) {
+				sysLogPrintf(LOG_NOTE, "BONDGUN.PROJECTILE: freed weapon=%d func=%d at=(%.0f,%.0f,%.0f) landed=%d embedded=%d timer240=%d",
+					weapon->weaponnum, weapon->gunfunc, obj->prop->pos.x, obj->prop->pos.y, obj->prop->pos.z,
+					(obj->hidden & OBJHFLAG_00020000) ? 1 : 0, (obj->hidden & OBJHFLAG_EMBEDDED) ? 1 : 0,
+					weapon->timer240);
+			}
 		}
 
 		if (weapon->weaponnum == WEAPON_BOLT) {
@@ -8808,6 +8818,13 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							}
 
 							objLand(prop, &sp5e8, &sp5f4, embedded);
+
+							/* T-MODDING-008: a mod projectile that sticks may arm (a
+							 * crystal mine) or complete a crystal cluster. objLand has
+							 * already marked one that hit an off-screen chr for delete. */
+							if (obj->type == OBJTYPE_WEAPON && (obj->hidden & OBJHFLAG_DELETING) == 0) {
+								bgunModProjectileLanded((struct weaponobj *) obj);
+							}
 						}
 					}
 
@@ -9319,6 +9336,12 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 				if (result) {
 					func0f069c70(obj, true, true);
+				}
+
+				/* T-MODDING-008: a mod projectile at rest has landed (after the
+				 * proxy sweep above, so a mine armed here cannot trigger itself). */
+				if (stop && obj->type == OBJTYPE_WEAPON && (obj->hidden & OBJHFLAG_DELETING) == 0) {
+					bgunModProjectileLanded((struct weaponobj *) obj);
 				}
 			}
 		}

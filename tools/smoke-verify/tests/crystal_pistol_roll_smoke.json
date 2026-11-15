@@ -1,0 +1,119 @@
+{
+  "scenario_name": "crystal_pistol_roll_smoke",
+  "description": "Crystal pistol (T-MODDING-008): the new gun roll input (ACTION_GUN_ROLL_RIGHT, default X) rolls the held pistol a quarter turn (its settings allow 90 degrees), and the charged crystal fan follows the roll: a vertical line of mines with the gun upright, a horizontal one with it rolled.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "weapon",
+    "input",
+    "crystal_pistol",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "dev-mods/crystal_pistol/crystal_pistol.pdweapon",
+    "src/game/bondgun_mod.c",
+    "src/game/bondgun.c",
+    "src/game/bondmove.c",
+    "port/src/actionmap.cpp"
+  ],
+  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "remove_paths": [
+    "mods/crystal_pistol.pdmod",
+    "mods/crystal_pistol",
+    "mods/installed/crystal_pistol.pdmod",
+    "mods/installed/crystal_pistol"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": "dev-mods/crystal_pistol",
+      "dst": "mods/installed/crystal_pistol.pdmod"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-spawn-weapon",
+    "mod_crystal_pistol:crystal_pistol",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay with the pistol as the spawn weapon."
+    },
+    { "at_ms": 1500, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press" },
+    { "at_ms": 1700, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
+    { "at_ms": 2000, "type": "screenshot", "path": "cp-roll-upright.bmp" },
+    { "at_ms": 2500, "type": "action", "name": "ACTION_FIRE_MODE", "action": "tap", "comment": "Secondary: the charge." },
+    { "at_ms": 3300, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Charge with the gun upright." },
+    { "at_ms": 3350, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 9000, "type": "action", "name": "ACTION_GUN_ROLL_RIGHT", "action": "press", "comment": "Roll the gun a quarter turn and hold it there." },
+    { "at_ms": 9600, "type": "screenshot", "path": "cp-roll-rolled.bmp" },
+    { "at_ms": 9700, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Charge with the gun rolled." },
+    { "at_ms": 9750, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 10400, "type": "screenshot", "path": "cp-roll-rolled-charging.bmp" },
+    { "at_ms": 11800, "type": "action", "name": "ACTION_GUN_ROLL_RIGHT", "action": "release" },
+    { "at_ms": 12600, "type": "screenshot", "path": "cp-roll-level-again.bmp" },
+    { "at_ms": 13000, "type": "exit" }
+  ],
+  "retain_artifacts": [
+    { "src": "cp-roll-upright.bmp" },
+    { "src": "cp-roll-rolled.bmp" },
+    { "src": "cp-roll-rolled-charging.bmp" },
+    { "src": "cp-roll-level-again.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=crystal_pistol_roll_smoke",
+      "SMOKE\\.ACTION\\.INJECT: player=0 action=122 down=1",
+      "BONDGUN\\.ROLL: player=0 weapon=\\d+ roll=90",
+      "BONDGUN\\.ROLL: player=0 weapon=\\d+ roll=0",
+      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=(0\\.9\\d|1\\.00) roll=0",
+      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=0\\.[01]\\d roll=90",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.FALLBACK",
+      "result=FAIL",
+      "BONDGUN\\.MODEL: .*B-1185",
+      "'mod_crystal_pistol:crystal_pistol' public weapon adapter install failed",
+      "'mod_crystal_pistol:crystal_pistol' activation failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "SMOKE\\.GLSHOT: captured",
+        "min": 4
+      }
+    ]
+  }
+}
