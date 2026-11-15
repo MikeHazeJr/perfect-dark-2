@@ -1,0 +1,93 @@
+{
+  "scenario_name": "maian_crystal_pistol_play_smoke",
+  "description": "Maian crystal pistol, first runtime proof of the custom weapon mod: one ordinary client launch builds the mod from its recipe (dev-mods/maian_crystal_pistol) through --mod-author, the same save, validate, enable and apply path the in-game creators use, then starts a solo Combat match on Felicity with the pistol in the player's hand, fires the primary three times, switches the fire mode and fires the secondary once. It proves that the recipe builds in the game, that the weapon is found, loaded and equipped, and that firing both functions neither crashes nor ends the match. It does not yet prove that a crystal was spawned, stuck or detonated: no log line states that, so look at the four screenshots. The meshes are placeholders and the cluster rule, the charge, per-socket launch, regrowth and ammo wait for graph support.",
+  "tags": ["modding", "mod-author", "pdweapon", "weapon", "recipe", "gameplay", "crystal-pistol", "pillar:modding"],
+  "paths_of_interest": [
+    "dev-mods/maian_crystal_pistol/recipe.json",
+    "port/src/mod_author.c",
+    "port/src/mod_author_runtime.c",
+    "port/src/mod_asset_validate.cpp",
+    "port/src/weapon_graph_runtime.c",
+    "port/src/loader_pool.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["mods/Weapons/weapon_maian_crystal_pistol"],
+  "fixtures": [
+    { "src": "dev-mods/maian_crystal_pistol/recipe.json", "dst": "mod-recipes/maian_crystal_pistol/recipe.json" },
+    { "src": "dev-mods/maian_crystal_pistol/template/tri_weapon.pdweapon", "dst": "mod-recipes/maian_crystal_pistol/template/tri_weapon.pdweapon" },
+    { "src": "dev-mods/maian_crystal_pistol/meshes/crystal_placeholder.pdmesh", "dst": "mod-recipes/maian_crystal_pistol/meshes/crystal_placeholder.pdmesh" },
+    { "src": "dev-mods/maian_crystal_pistol/behavior/primary.graph.json", "dst": "mod-recipes/maian_crystal_pistol/behavior/primary.graph.json" },
+    { "src": "dev-mods/maian_crystal_pistol/behavior/secondary.graph.json", "dst": "mod-recipes/maian_crystal_pistol/behavior/secondary.graph.json" },
+    { "src": "dev-mods/maian_crystal_pistol/behavior/settings.json", "dst": "mod-recipes/maian_crystal_pistol/behavior/settings.json" },
+    { "src": "dev-mods/maian_crystal_pistol/behavior/variables.json", "dst": "mod-recipes/maian_crystal_pistol/behavior/variables.json" },
+    { "src": "dev-mods/maian_crystal_pistol/projectile/crystal.graph.json", "dst": "mod-recipes/maian_crystal_pistol/projectile/crystal.graph.json" },
+    { "src": "dev-mods/maian_crystal_pistol/entity/crystal_mine.graph.json", "dst": "mod-recipes/maian_crystal_pistol/entity/crystal_mine.graph.json" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-force-first-person",
+    "--mod-author",
+    "mod-recipes/maian_crystal_pistol/recipe.json",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-spawn-weapon",
+    "mod:weapon_maian_crystal_pistol",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    { "at_ms": 0, "type": "wait_until", "condition": "offline_gameplay_ready", "timeout_ms": 240000, "stable_ms": 3000, "assist_action": "ACTION_SKIP_CUTSCENE", "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 900, "comment": "The recipe runs as the first CLI fast path; the match then starts with the pistol as the spawn weapon." },
+    { "at_ms": 5000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "Aim toward ordinary nearby world collision so a crystal has something to land on." },
+    { "at_ms": 8000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "First crystal." },
+    { "at_ms": 10000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "Second crystal." },
+    { "at_ms": 12000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "tap", "comment": "Third crystal." },
+    { "at_ms": 15000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "press", "comment": "Switch to the secondary function." },
+    { "at_ms": 16000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "release" },
+    { "at_ms": 18000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Secondary: one crystal mine." },
+    { "at_ms": 19000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 23000, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
+    { "at_ms": 26000, "type": "exit", "comment": "Exit after both functions were used and the captures were taken." }
+  ],
+  "screenshots": [
+    { "at_ms": 4500, "name": "crystal-pistol-held" },
+    { "at_ms": 12600, "name": "crystal-pistol-after-three-crystals" },
+    { "at_ms": 19600, "name": "crystal-pistol-after-secondary" },
+    { "at_ms": 24500, "name": "crystal-pistol-settled" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=maian_crystal_pistol_play_smoke",
+      "MODAUTHOR\\.RECIPE\\.BEGIN path='.*maian_crystal_pistol.recipe\\.json'",
+      "MODAUTHOR\\.SAVE\\.OK kind=weapon catalog=mod:weapon_maian_crystal_pistol mod_id=mod\\.weapon_maian_crystal_pistol updated=0",
+      "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.weapon_maian_crystal_pistol restart_count=0",
+      "MODAUTHOR\\.CATALOG\\.OK catalog=mod:weapon_maian_crystal_pistol type=\\d+ enabled=1 bundled=0 category='mod\\.weapon_maian_crystal_pistol'",
+      "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:weapon_maian_crystal_pistol",
+      "BOOT: --debug-auto-start-match consumed",
+      "BOOT: --launch-mp-room direct match start",
+      "BOOT: --debug-spawn-weapon 'mod:weapon_maian_crystal_pistol' \\(SPECIFIC\\)",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
+      "SETUP: user-picked spawn weapon 'mod:weapon_maian_crystal_pistol' num=\\d+ preserved",
+      "SPAWN: player 0 spawned with weapon \\d+ \\(.*\\) -- auto-equipped to right hand",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "CATALOG_CRITICAL: bgun model",
+      "BONDGUN\\.SOURCE: catalog model source load failed",
+      "ENDSCREEN\\.STATE:",
+      "MATCH: endscreen shown"
+    ]
+  }
+}

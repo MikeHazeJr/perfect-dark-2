@@ -1,0 +1,10 @@
+{
+  "schema": "pd.weapon_variables.v1",
+  "crystal_damage": 4.0,
+  "crystal_socket_count": 6,
+  "cluster_count": 3,
+  "cluster_radius": 150.0,
+  "mine_radius": 250.0,
+  "charge_time_ticks60": 90,
+  "regrow_time_ticks60": 120
+}

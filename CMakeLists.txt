@@ -1123,6 +1123,8 @@ set(SRC_TESTS
   # The Weapons creator's graph document to and from the clean behavior files.
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_editor_io.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_weapon_graph_editor_io.cpp
+  # The Maian crystal pistol recipe, built the way --mod-author builds it.
+  ${CMAKE_SOURCE_DIR}/tests/test_maian_crystal_pistol.cpp
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2.cpp

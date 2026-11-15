@@ -1,0 +1,13 @@
+{
+  "schema": "pd.projectile_graph.v1",
+  "asset_id": "example:tri_projectile",
+  "graph_id": "crystal",
+  "nodes": [
+    { "id": "spawn", "kind": "projectile.spawn_state", "params": { "model_ref": "mod_needler:needle", "source_mode": "primary", "source_function_type": "shoot_projectile", "scale": 1.0, "damage": 4.0 } },
+    { "id": "motion", "kind": "projectile.motion", "params": { "motion_kind": "powered", "speed": 30.0, "powered": true, "timer60": 240 } },
+    { "id": "stick", "kind": "projectile.sticky_attach", "params": { "allow_background": true, "allow_char": true, "allow_obj": true } },
+    { "id": "lifetime", "kind": "projectile.timer", "params": { "timer_starts": "on_attach", "on_expire": "delete", "timer_ticks60": 1800 } }
+  ],
+  "edges": [],
+  "exports": [ { "name": "main", "node": "spawn" } ]
+}

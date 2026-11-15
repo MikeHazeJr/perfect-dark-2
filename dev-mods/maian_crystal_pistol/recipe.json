@@ -1,0 +1,24 @@
+{
+  "schema": "pd2.mod_author.recipe.v1",
+  "template_file": "template/tri_weapon.pdweapon",
+  "name": "Maian Crystal Pistol",
+  "author": "PD2",
+  "version": "0.1.0",
+  "description": "Maian crystal pistol, first build on v1 behavior graphs with placeholder meshes: single sticky crystals and one proximity crystal mine.",
+  "descriptor": {
+    "dual_wieldable": "0",
+    "muzzlez": "3.0",
+    "posx": "30.0",
+    "posy": "-18.0",
+    "posz": "-45.0"
+  },
+  "overrides": [
+    { "entry": "behavior/primary.graph.json", "file": "behavior/primary.graph.json" },
+    { "entry": "behavior/secondary.graph.json", "file": "behavior/secondary.graph.json" },
+    { "entry": "behavior/settings.json", "file": "behavior/settings.json" },
+    { "entry": "behavior/variables.json", "file": "behavior/variables.json" },
+    { "entry": "dependencies/assets/projectiles/primary.pdprojectile::behavior.graph.json", "file": "projectile/crystal.graph.json" },
+    { "entry": "dependencies/assets/projectiles/primary.pdprojectile::dependencies/assets/models/crystal.pdmesh", "file": "meshes/crystal_placeholder.pdmesh" },
+    { "entry": "dependencies/assets/entities/deployed.pdentity::behavior.graph.json", "file": "entity/crystal_mine.graph.json" }
+  ]
+}
