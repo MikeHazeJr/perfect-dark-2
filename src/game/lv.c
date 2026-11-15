@@ -1804,7 +1804,8 @@ Gfx *lvRender(Gfx *gdl)
 			if (g_Vars.lockscreen) {
 				/* B-1172: the scene backdrop draws in display-list order. */
 				if (scenarioSceneRendererIsActive()) {
-					gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot());
+					gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(),
+						SCENARIO_SCENE_PASS_OPAQUE | SCENARIO_SCENE_PASS_BLEND | SCENARIO_SCENE_PASS_BACKDROP);
 				}
 				gdl = bviewDrawMotionBlur(gdl, 0xffffffff, 255);
 				g_Vars.lockscreen--;
@@ -1816,7 +1817,8 @@ Gfx *lvRender(Gfx *gdl)
 				 * behind the main menu), now queued in display-list order, under
 				 * the menus, with the last camera the stage set. */
 				if (scenarioSceneRendererIsActive()) {
-					gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot());
+					gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(),
+						SCENARIO_SCENE_PASS_OPAQUE | SCENARIO_SCENE_PASS_BLEND | SCENARIO_SCENE_PASS_BACKDROP);
 				}
 
 				if (g_Vars.currentplayer->menuisactive) {

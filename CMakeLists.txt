@@ -680,6 +680,7 @@ add_executable(scenario-scene-probe
   "${CMAKE_SOURCE_DIR}/tools/scenario_scene_probe_stubs.cpp"
   "${CMAKE_SOURCE_DIR}/tools/scenario_scene_probe_stb.cpp"
   "${CMAKE_SOURCE_DIR}/port/fast3d/scenario_scene_renderer.cpp"
+  "${CMAKE_SOURCE_DIR}/port/src/scenario_scene_camera.c"
   "${CMAKE_SOURCE_DIR}/port/fast3d/glad/glad.c"
   "${CMAKE_SOURCE_DIR}/port/external/imgui-node-editor/crude_json.cpp"
   "${CMAKE_SOURCE_DIR}/port/src/modarchive.c"
@@ -911,6 +912,8 @@ set(SRC_TESTS
   # The stage intro in intro.json (starting loadout, multiplayer cases and hills).
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_intro.cpp
   ${CMAKE_SOURCE_DIR}/port/src/scenario_intro.cpp
+  ${CMAKE_SOURCE_DIR}/tests/test_scenario_scene_camera.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/scenario_scene_camera.c
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp

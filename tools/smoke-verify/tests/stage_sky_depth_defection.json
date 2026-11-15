@@ -1,0 +1,106 @@
+{
+  "scenario_name": "stage_sky_depth_defection",
+  "description": "B-1172 step 2 check: Defection, a night stage with BG scale 1 and the moon as a sky room drawn relative to the camera's room, through --launch-mission with the intro skipped. The scenario scene draws in the game's draw space, keeps its depth for the props and draws its sky rooms relative to the camera's room. --debug-scene-matrix-probe logs, for the first frames, how far scene vertices land apart through the game's BG matrix and through the scene camera (NDC, depth included). Then the two screenshots of stage_sky_visual_defection. Needs a client with B-1172 step 2.",
+  "tags": [
+    "solo",
+    "mission",
+    "render",
+    "visual",
+    "b1172"
+  ],
+  "paths_of_interest": [
+    "src/game/lv.c",
+    "src/game/bg.c",
+    "src/game/stars.c",
+    "port/fast3d/scenario_scene_renderer.cpp",
+    "port/fast3d/gfx_pc.cpp",
+    "port/src/scenario_scene_camera.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 200,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--launch-mission",
+    "0x30",
+    "--difficulty",
+    "agent",
+    "--debug-scene-matrix-probe"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 150000,
+      "stable_ms": 1000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Pause the script until the player is spawned, live, controllable and walking; the bounded Skip assist ends the intro. Boot takes about 90 s, so fixed timings caught only the boot (B-1172 first run)."
+    },
+    {
+      "at_ms": 1500,
+      "type": "screenshot",
+      "path": "defection_depth_level.bmp",
+      "comment": "looking ahead once play is live"
+    },
+    {
+      "at_ms": 2000,
+      "type": "action",
+      "name": "ACTION_AIM_UP",
+      "action": "press",
+      "comment": "look up towards the sky"
+    },
+    {
+      "at_ms": 2900,
+      "type": "action",
+      "name": "ACTION_AIM_UP",
+      "action": "release"
+    },
+    {
+      "at_ms": 4500,
+      "type": "screenshot",
+      "path": "defection_depth_up.bmp",
+      "comment": "looking up"
+    },
+    {
+      "at_ms": 6500,
+      "type": "exit",
+      "comment": "scripted exit after both screenshots"
+    }
+  ],
+  "screenshots": [],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=stage_sky_depth_defection",
+      "SCENARIO.RENDER: activated source scene 'base:scenario_defection'",
+      "SCENARIO\\.RENDER: accepted camera frame 'base:scenario_defection' .* world_scale=1\\.000",
+      "SCENARIO\\.RENDER: sky rooms 'base:scenario_defection' rooms=1 vertices=[1-9][0-9]* ",
+      "SCENE\\.PROBE: frame=1 slot=[0-9]+ world_scale=1\\.000 offset=\\(.*\\) compared=[1-9][0-9]* max_ndc_xy_diff=0\\.00[0-9]+ max_ndc_z_diff=0\\.000[0-9]+",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready ",
+      "SMOKE\\.GLSHOT: captured .*defection_depth_level\\.bmp",
+      "SMOKE\\.GLSHOT: captured .*defection_depth_up\\.bmp",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "SCENARIO\\.RENDER: rejected camera frame",
+      "SCENE\\.PROBE: .* max_ndc_z_diff=(0\\.00[1-9]|0\\.0[1-9]|0\\.[1-9]|[1-9])"
+    ],
+    "required_counts": []
+  },
+  "retain_artifacts": [
+    {
+      "src": "defection_depth_level.bmp"
+    },
+    {
+      "src": "defection_depth_up.bmp"
+    }
+  ]
+}

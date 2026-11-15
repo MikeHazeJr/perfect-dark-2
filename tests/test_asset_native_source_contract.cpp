@@ -1402,18 +1402,54 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	// stars and the sun, into the current view with its player's camera; it
 	// no longer draws before the display list.
 	REQUIRE(gfx_pc.find("case G_SCENE_RENDER_EXT:") != std::string::npos);
-	REQUIRE(gfx_pc.find("scenarioSceneRendererRenderSlot(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width,") !=
+	REQUIRE(gfx_pc.find("scenarioSceneRendererRenderPasses(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width,") !=
+	        std::string::npos);
+	// B-1172 step 2: a world draw uses the game's BG matrix and keeps its
+	// depth; only a backdrop draw clears depth after it.
+	REQUIRE(gfx_pc.find("scenarioSceneMatrixMultiply(out, camera.world, rsp.P_matrix);") !=
+	        std::string::npos);
+	REQUIRE(gfx_pc.find("if (scene_passes & SCENARIO_SCENE_PASS_BACKDROP) {\n                        gfx_rapi->clear_framebuffer(false, true);") !=
+	        std::string::npos);
+	REQUIRE(gfx_pc.find("scenarioSceneRendererRenderSlot(") == std::string::npos);
+	// B-1172: sky rooms draw relative to the camera's room, as
+	// roomPopulateMtx places them.
+	REQUIRE(scene_renderer.find("gl_Position = u_VP * vec4(a_Pos + a_Sky * u_SkyOffset, 1.0);") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("out.room = readRoom(idx);") != std::string::npos);
+	REQUIRE(scene_renderer.find("findAttr(\"_PD_ROOM\")") != std::string::npos);
+	REQUIRE(bg_runtime.find("scenarioSceneRendererSetSkyRooms(skyrooms, skycount);") !=
+	        std::string::npos);
+	requireTokenOrder(bg_runtime, "scenarioSourceApplyRoomTableForStage(&stage,",
+		"scenarioSceneRendererSetSkyRooms(skyrooms, skycount);");
+	// B-1172: the scene applies roomHighlight's lighting per view.
+	REQUIRE(bg_runtime.find("bgGetScaleBg2Gfx(), g_Vars.currentplayer->globaldrawworldoffset.f);\n\t\t\tbgSetScenarioSceneRoomLights();") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("light->brightness = roomGetSettledRegionalBrightnessForPlayer(i);") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("scenarioHighlightRoom(i, &r, &g, &b);") != std::string::npos);
+	REQUIRE(scene_renderer.find("\"  v_Color = pdRoomLit(a_Color);\\n\"") != std::string::npos);
+	REQUIRE(scene_renderer.find("float extra = l1.w > 0.5 ? 0.0 : min(l0.y, 285.0 - m);") !=
 	        std::string::npos);
 	REQUIRE(gfx_pc.find("scenarioSceneRendererEndFrame();") != std::string::npos);
 	REQUIRE(gfx_pc.find("scenarioSceneRendererRender(gfx_current_dimensions.width") ==
 	        std::string::npos);
-	REQUIRE(bg_runtime.find("gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot());") !=
+	REQUIRE(bg_runtime.find("gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_OPAQUE);") !=
 	        std::string::npos);
+	REQUIRE(bg_runtime.find("gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_BLEND);") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("bgGetScaleBg2Gfx(), g_Vars.currentplayer->globaldrawworldoffset.f);") !=
+	        std::string::npos);
+	requireTokenOrder(bg_runtime, "SCENARIO_SCENE_PASS_OPAQUE);", "RENDERPASS_OPA_PREBG");
+	requireTokenOrder(bg_runtime, "RENDERPASS_OPA_POSTBG", "SCENARIO_SCENE_PASS_BLEND);");
+	requireTokenOrder(bg_runtime, "SCENARIO_SCENE_PASS_BLEND);",
+		"\n\t\t\t\tgdl = propsRender(gdl, 0, RENDERPASS_XLU, roomnumsbyprop);");
 	{
 		const std::string lv_runtime = readTextFile("src/game/lv.c");
 		REQUIRE(lv_runtime.find("if (!scenarioSceneRendererIsActive()) {\n\t\t\t\t\t\tgdl = skyRender(gdl);") ==
 		        std::string::npos);
 		REQUIRE(lv_runtime.find("no longer covers it and renders on every stage again. */\n\t\t\t\tgdl = skyRender(gdl);") !=
+		        std::string::npos);
+		REQUIRE(lv_runtime.find("SCENARIO_SCENE_PASS_OPAQUE | SCENARIO_SCENE_PASS_BLEND | SCENARIO_SCENE_PASS_BACKDROP);") !=
 		        std::string::npos);
 	}
 	REQUIRE(scene_renderer.find("fsFileLoad(path") != std::string::npos);
@@ -1484,11 +1520,11 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(probe_block.find("freeScene(probe)") != std::string::npos);
 	REQUIRE(probe_block.find("g_scene") == std::string::npos);
-	REQUIRE(scene_renderer.find("buildViewMatrix(view, position, look, up)") !=
+	// B-1172: the scene camera is built in the game's draw space
+	// (scenario_scene_camera.c, unit-tested in test_scenario_scene_camera.cpp).
+	REQUIRE(scene_renderer.find("scenarioSceneCameraBuild(&camera, position, look, up, fovy_degrees,") !=
 	        std::string::npos);
-	REQUIRE(scene_renderer.find("buildProjectionMatrix(projection, fovy_degrees, aspect") !=
-	        std::string::npos);
-	REQUIRE(scene_renderer.find("multiplyMatrix(g_scene.view_projection, view, projection)") !=
+	REQUIRE(scene_renderer.find("memcpy(g_scene.view_projection, camera.view_projection") !=
 	        std::string::npos);
 	REQUIRE(scene_renderer.find("camera_ever_valid") != std::string::npos);
 	REQUIRE(scene_renderer.find("if (!g_scene.camera_ever_valid)") !=
