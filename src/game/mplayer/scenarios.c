@@ -1700,7 +1700,9 @@ void scenarioResetForStageLoad(s32 stagenum)
  */
 s32 scenarioGetMaxTeams(void)
 {
-	if (g_MpScenarios[g_MpSetup.scenario].maxteamsfunc) {
+	// PC (B-1132): the in-match team switch asks too; a scenario outside the
+	// table has no callbacks (quiet: these three run per menu tick or per room)
+	if (scenarioIndexIsValid(g_MpSetup.scenario) && g_MpScenarios[g_MpSetup.scenario].maxteamsfunc) {
 		return g_MpScenarios[g_MpSetup.scenario].maxteamsfunc();
 	}
 
@@ -1712,7 +1714,7 @@ s32 scenarioGetMaxTeams(void)
  */
 bool scenarioIsRoomHighlighted(RoomNum room)
 {
-	if (g_MpScenarios[g_MpSetup.scenario].isroomhighlightedfunc) {
+	if (scenarioIndexIsValid(g_MpSetup.scenario) && g_MpScenarios[g_MpSetup.scenario].isroomhighlightedfunc) {
 		return g_MpScenarios[g_MpSetup.scenario].isroomhighlightedfunc(room);
 	}
 
@@ -1726,7 +1728,7 @@ bool scenarioIsRoomHighlighted(RoomNum room)
  */
 void scenarioHighlightRoom(RoomNum room, s32 *arg1, s32 *arg2, s32 *arg3)
 {
-	if (g_MpScenarios[g_MpSetup.scenario].highlightroomfunc) {
+	if (scenarioIndexIsValid(g_MpSetup.scenario) && g_MpScenarios[g_MpSetup.scenario].highlightroomfunc) {
 		g_MpScenarios[g_MpSetup.scenario].highlightroomfunc(room, arg1, arg2, arg3);
 	}
 }

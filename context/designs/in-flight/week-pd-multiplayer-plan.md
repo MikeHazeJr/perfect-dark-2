@@ -174,6 +174,23 @@ Progress log:
   first two: a client takes the holder from the host for its HUD and radar and never makes a token of its own.
   Still to build (next unit after the networked smokes): the simulant pickup and drop messages; until then a
   briefcase, uplink or case a simulant carries still lies where it was in a client's world.
+- Networked smokes on 4a467190 (2026-11-15, 2 humans + 3 bots on Complex, receipts under
+  `D:\PD2-wt\multiplayer\.claude\smoke-verify-runs\`): King of the Hill 78/78 (`results-20261115T072451Z.json`),
+  Pop a Cap 76/76 (`results-20261115T073804Z.json`), Hold the Briefcase 79/79 (`results-20261115T074919Z.json`),
+  Hacker Central 80/80 (`results-20261115T080027Z.json`), Capture the Case 77/77 (`results-20261115T081148Z.json`),
+  all one binary (sha256 4C45D9C6...). `net_compare.py` (session scratchpad) maps the client's slots 0 and 1
+  and finds every final result line identical on both sides (B-1127 confirmed in play: Hacker Central's three
+  deaths include the client's own player; a simulant's King of the Hill point agrees). The matches are 35 s with
+  idle humans: no token pickup, pop, download or capture happened, so those paths are unproven over the network.
+  The token re-runs after unit K get longer matches.
+- Unit K written (2026-11-15, building once the networked smokes have their binary): B-1129, simulant pickups and
+  drops. `SVC_BOT_PICKUP` 0x4D (v62, unreleased): the host announces each simulant pickup that took effect and a
+  client replays `botPickupProp` on its copy of the simulant; `botinvDrop` makes drops on the host only and
+  announces them with `SVC_PROP_SPAWN`/`SVC_PROP_MOVE`, so dropped weapons, briefcases, uplinks and cases carry the
+  host's sync ids on every peer. B-1130 on the way: a human's Capture the Case capture now reaches the clients
+  (`SVC_PROP_PICKUP` with `TICKOP_NONE`). B-1131 / SP-81 recorded, not fixed as a class: a client stops reading a
+  packet at the first message it declines. Static pins in `tests/test_net_bot_pickup_static.cpp`. Witness: the
+  token net fixtures gain `BOT.PICKUP`/`BOT.DROP` counts and forbid `BOT.PICKUP: client skipped`.
 - Notes for step 7 (Challenges and presets), read 2026-11-15 before the fix above: besides the positional
   initializers landing in `stage_id[64]` and `head_id[64]` (finding 10), `struct mpconfig` now holds
   `simulants[MAX_BOTS]` = 32 while `mpconfigs.c` authors 8 per config, so slots 8..31 are zero: type 0 and every

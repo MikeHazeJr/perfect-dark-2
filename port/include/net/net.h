@@ -12,8 +12,11 @@ typedef struct _ENetAddress ENetAddress;
 
 #define NET_PROTOCOL_VER 62  /* v62 (2026-11-15): SVC_SCENARIO_STATE, host-
                              * authoritative objective scenario state in the
-                             * stage baseline and on every change (King of the
-                             * Hill first; net_scenario_state_wire.h).
+                             * stage baseline and on every change (every
+                             * objective scenario; net_scenario_state_wire.h);
+                             * SVC_BOT_PICKUP, a simulant's pickup as the host
+                             * decided it, and simulant drops announced with
+                             * SVC_PROP_SPAWN (unreleased while added).
                              * v61 (2026-09-08): authenticated lobby roster.
                              * v60: room creation includes its
                                initial settings/playlist, room lists include

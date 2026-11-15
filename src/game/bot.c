@@ -46,6 +46,7 @@
 #include "data.h"
 #include "types.h"
 #include "net/net.h"
+#include "net/netmsg.h"
 #include "net/matchsetup.h"
 
 #define PICKUPCRITERIA_DEFAULT  0
@@ -1172,6 +1173,41 @@ u32 botPickupProp(struct prop *prop, struct chrdata *chr)
 	return 0;
 }
 
+/**
+ * PC (T-NETWORKING-011, finding 3): botPickupProp on the host, telling clients
+ * about each pickup that took effect (SVC_BOT_PICKUP) so they replay it on
+ * their copy of the simulant. A pickup takes effect when it returns a tick
+ * operation, when it marks the prop for deletion (a scenario briefcase, uplink
+ * or case, which return TICKOP_NONE), or when a Capture the Case capture drops
+ * the case the simulant carried. The sync id is taken first because the
+ * pickup may free the prop.
+ */
+static u32 botPickupPropAndAnnounce(struct prop *prop, struct chrdata *chr)
+{
+	struct defaultobj *obj = prop->obj;
+	const u32 syncid = prop->syncid;
+	const s32 weaponnum = prop->type == PROPTYPE_WEAPON && prop->weapon ? prop->weapon->weaponnum : -1;
+	const s32 wasdeleting = obj != NULL && (obj->hidden & OBJHFLAG_DELETING) != 0;
+	const s32 hadcase = chr->aibot->hascase;
+	const u32 result = botPickupProp(prop, chr);
+
+	if (g_NetMode == NETMODE_SERVER && syncid != 0) {
+		// After a nonzero result the prop may be freed, so the object is read
+		// only when the pickup returned none
+		const s32 tookeffect = result != 0
+			|| (!wasdeleting && obj != NULL && (obj->hidden & OBJHFLAG_DELETING) != 0)
+			|| hadcase != chr->aibot->hascase;
+
+		if (tookeffect) {
+			netmsgSvcBotPickupWrite(&g_NetMsgRel, chr, syncid);
+			sysLogPrintf(LOG_NOTE, "BOT.PICKUP: host sent simulant %d item %u weapon=%d result=%u",
+				mpPlayerGetIndex(chr), (unsigned)syncid, weaponnum, (unsigned)result);
+		}
+	}
+
+	return result;
+}
+
 bool botTestPropForPickup(struct prop *prop, struct chrdata *chr)
 {
 	struct defaultobj *obj = prop->obj;
@@ -1359,7 +1395,7 @@ bool botTestPropForPickup(struct prop *prop, struct chrdata *chr)
 
 	if (sp3c) {
 		dprint();
-		return botPickupProp(prop, chr);
+		return botPickupPropAndAnnounce(prop, chr);
 	}
 
 	return false;

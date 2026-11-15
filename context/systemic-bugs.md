@@ -3506,6 +3506,44 @@ setup objects.
 - `grep -n "while (padnum <= 0)\|while (.*== previndex)" src/game/mplayer/scenarios/*.inc`
 
 **Audit checklist:** for each scenario, its init and respawn paths with (a) no
-intro case or hill pads, (b) no multiplayer ammo crates, (c) both. Hacker
-Central is fixed; Capture the Case, King of the Hill and Hold the Briefcase are
-open in B-1126.
+intro case or hill pads, (b) no multiplayer ammo crates, (c) both. All four are
+fixed: Hacker Central (B-1125, 86de8e08), Capture the Case, King of the Hill
+and Hold the Briefcase (B-1126, dbc660f1); local smokes on Complex assert
+placement on real pads.
+
+## SP-81: A client read handler rejects a message by stopping the packet
+
+**Severity: MEDIUM - reliable messages are lost without a trace beyond one
+warning, and whichever message follows the rejected one decides the damage.**
+
+The client receive loop (`netClientEvReceive`, `port/src/net/net.c`) reads
+messages while `rc == 0`. A handler that returns nonzero ends the packet, so
+every later message in it is dropped. That is right for malformed bytes,
+because the reader can no longer tell where the next message starts. But
+many handlers also return 1 for a well-formed message they decline: a prop or
+character this client does not have, or a message that arrives before the
+client is in the game. A rejection that should cost one message costs the
+rest of the packet.
+
+**Known instances (2026-11-15):** B-1131. There are 14 handlers with
+`return src->error ? src->error : 1;` in `netmsg.c`, plus plain `return 1;`
+rejections. Before B-1129, the likely live trigger was `SVC_PROP_PICKUP` for
+a weapon a simulant dropped. A client made that weapon itself, with sync id
+0, so the host's sync id never resolved.
+
+**Rules:**
+- A read handler reads its whole message before it decides anything.
+- After a complete read, a declined message returns 0 and logs why. Only
+  `src->error`, or a message whose length cannot be known, stops the packet.
+- A handler that returns early must not have read part of its message.
+  `netmsgSvcPropSpawnRead` does both today: it returns 1 before reading its
+  weapon fields, so it cannot be switched to return 0 as it is.
+
+**Search:**
+- `grep -n "src->error ? src->error : 1\|return 1;" port/src/net/netmsg.c`
+- For each hit, check that every field of the message was read before that
+  return.
+
+**Audit checklist:** for every client and server read handler, (a) does it
+read the full message before any return, and (b) does a semantic rejection
+return 0? Done: `netmsgSvcBotPickupRead` (B-1129). Open: the rest (B-1131).

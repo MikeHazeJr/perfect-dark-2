@@ -877,6 +877,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_anim_bits.cpp
   ${CMAKE_SOURCE_DIR}/src/lib/anim_bits.c
   ${CMAKE_SOURCE_DIR}/tests/test_net_lifecycle_static.cpp
+  # Simulant pickups and drops in networked play (v62, finding 3).
+  ${CMAKE_SOURCE_DIR}/tests/test_net_bot_pickup_static.cpp
+  # In-match team switches stay within the scenario's teams (B-1132).
+  ${CMAKE_SOURCE_DIR}/tests/test_net_team_limit_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_player_init_lifecycle_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_playermgr_transaction_static.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_prepared_stage_transaction_static.cpp

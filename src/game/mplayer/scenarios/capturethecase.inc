@@ -452,8 +452,10 @@ static void ctcNetPresent(void)
 				struct prop *prop = g_Vars.activeprops;
 
 				while (prop) {
+					// A copy a replayed simulant pickup marked for deletion is not on the ground
 					if (prop->type == PROPTYPE_WEAPON && prop->weapon->weaponnum == WEAPON_BRIEFCASE2
-							&& prop->weapon->team == i) {
+							&& prop->weapon->team == i
+							&& (prop->obj->hidden & OBJHFLAG_DELETING) == 0) {
 						token = prop;
 					}
 

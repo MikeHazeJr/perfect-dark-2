@@ -19526,6 +19526,10 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 
 			if (g_Vars.normmplayerisrunning) {
 				if (weapon->weaponnum == WEAPON_BRIEFCASE2) {
+					// PC (T-NETWORKING-011): a Capture the Case capture (touching
+					// your own case while carrying theirs) returns TICKOP_NONE
+					const s32 hadcase = g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE && invHasBriefcase();
+
 					sp64 = scenarioPickUpBriefcase(g_Vars.currentplayer->prop->chr, prop);
 
 					if (sp64) {
@@ -19533,6 +19537,12 @@ s32 propPickupByPlayer(struct prop *prop, bool showhudmsg)
 						if (g_NetMode == NETMODE_SERVER && g_Vars.currentplayer->client) {
 							netmsgSvcPropPickupWrite(&g_NetMsgRel, g_Vars.currentplayer->client, prop, sp64);
 						}
+					} else if (hadcase && !invHasBriefcase()
+							&& g_NetMode == NETMODE_SERVER && g_Vars.currentplayer->client) {
+						// The capture took the carried case; clients replay it
+						// (the capturer's inventory, the point and the messages).
+						// The touched home case stays where it is.
+						netmsgSvcPropPickupWrite(&g_NetMsgRel, g_Vars.currentplayer->client, prop, TICKOP_NONE);
 					}
 
 					return sp64;

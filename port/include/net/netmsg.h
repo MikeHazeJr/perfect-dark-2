@@ -59,6 +59,7 @@ typedef struct net_vehicle_state_txn_s {
 #define SVC_NPC_SYNC      0x4A // NPC sync checksum for desync detection (co-op only)
 #define SVC_NPC_RESYNC    0x4B // full NPC state correction (co-op only)
 #define SVC_BOT_AUTHORITY 0x4C // server→designated client: you are the bot AI authority (relay positions via CLC_BOT_MOVE)
+#define SVC_BOT_PICKUP    0x4D // v62: a simulant picked up a prop (host decided) {simulant, prop}
 #define SVC_STAGE_FLAG    0x50 // stage flags update (co-op only, u32 bitfield)
 #define SVC_OBJ_STATUS    0x51 // objective status change (co-op only, index + status)
 #define SVC_ALARM         0x52 // alarm state change (co-op only, active/inactive)
@@ -477,6 +478,11 @@ u32 netmsgSvcBotAuthorityWrite(struct netbuf *dst);
 u32 netmsgSvcBotAuthorityRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcBotMoveWrite(struct netbuf *dst);
 u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl);
+
+/* v62: a simulant's pickup, decided on the host (finding 3). itemsyncid is the
+ * picked-up prop's sync id, taken before the pickup, which may free the prop. */
+u32 netmsgSvcBotPickupWrite(struct netbuf *dst, struct chrdata *chr, u32 itemsyncid);
+u32 netmsgSvcBotPickupRead(struct netbuf *src, struct netclient *srccl);
 
 /* U-10: Stage-ready handshake */
 u32 netmsgClcStageReadyWrite(struct netbuf *dst);

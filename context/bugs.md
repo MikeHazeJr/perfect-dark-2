@@ -1,5 +1,72 @@
 # Bug Tracker
 
+## 2026-11-15 B-1132 The in-match team switch offered 8 teams in Capture the Case (T-NETWORKING-011, finding 8)
+
+Severity low (gameplay; no crash found). The port's in-match team switch for networked team
+matches (`menuhandlerNetTeamSwitch`, `src/game/mplayer/ingame.c`) offered `MAX_TEAMS` = 8 teams, and
+the host's `netmsgSanitizeClientTeam` (`netmsg.c`) accepted any team below 8. Capture the Case has 4
+bases (`ctcGetMaxTeams`) and 4-entry team arrays; `ctcInitProps` folds teams into 0..3 only at match
+start. A player who switched to team 5 mid-match had no base, spawned anywhere, and every case
+counted as the other team's. Checked for out-of-bounds: `ctcChooseSpawnLocation` bounds the team
+index (B-1126), and the simulant code that indexes by team uses the simulant's own, folded team.
+Fix: the switch offers `scenarioGetMaxTeams()` teams, and the host keeps the current team when a
+client in a match asks for one past that. Propagation: `scenarioGetMaxTeams`,
+`scenarioIsRoomHighlighted` and `scenarioHighlightRoom` indexed `g_MpScenarios` by
+`g_MpSetup.scenario` without the range check the other 21 lookups have; they now check it quietly
+(they run per menu tick or per room).
+
+## 2026-11-15 B-1131 A client stops reading a packet at the first message it rejects (T-NETWORKING-011, SP-81)
+
+Severity medium (silent loss of reliable messages; no instance seen in a log yet). Found reading
+the client receive loop for B-1129: `netClientEvReceive` (`port/src/net/net.c`) runs
+`while (!rc && netbufReadLeft(&cl->in) > 0)`, and 14 read handlers in `port/src/net/netmsg.c`
+return `src->error ? src->error : 1` when they reject a well-formed message (a prop or character
+this client does not have, a stage it is not in). Every message after it in the same packet is then
+dropped with only `NET: malformed or unknown message 0x..` in the log. Before B-1129 the likely
+trigger was `SVC_PROP_PICKUP` for a weapon a simulant dropped, which a client never had under the
+host's sync id. Not fixed as a class: several handlers reject before reading the rest of their
+message (`netmsgSvcPropSpawnRead` returns before the weapon fields), so simply continuing would
+misread the following bytes as new messages. Each handler has to read its whole message first and
+then return 0 on a rejection. The new `netmsgSvcBotPickupRead` does that. Search and checklist in
+SP-81.
+
+## 2026-11-15 B-1130 A human's Capture the Case capture never reached the clients (T-NETWORKING-011)
+
+Severity high for networked Capture the Case. Found reading the pickup path for B-1129: touching
+your own case while carrying the other team's returns `TICKOP_NONE` from `scenarioPickUpBriefcase`
+(`scenarios.c`), and `propPickupByPlayer` (`propobj.c`) sends `SVC_PROP_PICKUP` only for a nonzero
+tick operation. So on the host the capturer scored, dropped the carried case (announced, it goes
+back to its base) and lost it from the inventory, while the capturing client kept the case in its
+own inventory, heard no point sound and saw no capture message. Fix: the host notes whether the
+player carried a case before the pickup and, when a capture took it, sends `SVC_PROP_PICKUP` with
+`TICKOP_NONE`; every client replays the capture (inventory, point, messages) and the touched home
+case stays put. Pinned in `tests/test_net_bot_pickup_static.cpp`; game check pending.
+
+## 2026-11-15 B-1129 Simulant pickups and drops were not sent to clients (T-NETWORKING-011, finding 3)
+
+Severity high for networked play with simulants (every mode; the token modes worst). Simulant AI
+runs only on the host (`botCheckPickups` from the bot tick), and nothing told the clients:
+- A pickup (`botPickupProp`, `bot.c`): the weapon, crate, shield, briefcase, uplink or case stayed
+  where it was in a client's world; a human walking onto it there got nothing, because the host,
+  which decides human pickups, no longer had it.
+- A drop (`botinvDrop`, `botinv.c`, from `chrDie`, which a client also reaches when it applies
+  `SVC_CHR_DAMAGE` through `chrDamage`, `chraction.c:5125`): each client made its own copy
+  of every item a dead simulant dropped. A prop a client allocates gets sync id 0 (`prop.c:211`),
+  so the host's `SVC_PROP_PICKUP` for its own copy (host sync id) could never resolve on the
+  client: the client's player did not get the weapon, the local copy stayed, and the rejected
+  message stopped the rest of the packet (B-1131).
+Fix: the host wraps each simulant pickup (`botPickupPropAndAnnounce`) and sends the new
+`SVC_BOT_PICKUP` 0x4D {simulant, item sync id taken before the pickup} when the pickup took effect
+(a tick operation, a deletion mark for the scenario tokens, which return `TICKOP_NONE`, or a Capture
+the Case capture); a client replays the same `botPickupProp` on its copy of the simulant plus the
+`TICKOP_FREE` that `botCheckPickups` runs, and skips (logs, returns 0) a pickup it cannot apply.
+`botinvDrop` makes drop props on the host only and announces each with `SVC_PROP_SPAWN` and
+`SVC_PROP_MOVE`, after a Capture the Case case went back to its base, as the player drop does, and
+retires a half-dropped prop as the player drop does. The client token searches
+(`htbNetPresent`, `htmNetPresent`, `ctcNetPresent`) skip a copy marked for deletion. Wire stays
+v62 (unreleased when this was added). Pinned in `tests/test_net_bot_pickup_static.cpp`; game check
+pending.
+
 ## 2026-11-15 B-1128 A networked client set up the objective scenario on the previous stage (T-NETWORKING-011)
 
 Severity medium (reads and changes the wrong stage's data; harmless so far only because the old
@@ -33,7 +100,12 @@ so slots 0 and k would trade team, deaths, points and kill counts on the client.
 `mp_combat_net_bots_smoke` (2026-11-14) because both humans ended with score 0 and 1 death. Any
 scenario state indexed by character slot (Pop a Cap victims and counts, the briefcase holder) has
 the same exposure.
-Fix (2026-11-15, built; pd-tests 1,931 cases green; game check pending): `netChrSlotFromHost`
+Verified in game 2026-11-15 on 4a467190 (networked smokes of all five objective modes, two humans
+and three simulants on Complex; host and client logs compared by `net_compare.py`, session
+scratchpad): after mapping the client's slots 0 and 1, every final result line agrees, including the
+three deaths in Hacker Central (one of them the client's own player, host slot 1), the two in
+Capture the Case and a simulant's hill point in King of the Hill.
+Fix (2026-11-15, built; pd-tests 1,931 cases green): `netChrSlotFromHost`
 (`net.c`, declared in `net.h`) maps a host slot to the client's own (0 <-> k, its own inverse, the
 identity on the host, offline and for simulants); `netmsgSvcPlayerScoresRead` maps the slot and
 every `killcounts[]` index, and `scenarioNetLocalizeSlots` (`scenarios.c`, run on every received

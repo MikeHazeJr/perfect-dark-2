@@ -17,7 +17,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 390,
+  "timeout_seconds": 520,
   "install_state": "clean",
   "processes": [
     {
@@ -37,7 +37,7 @@
         "3",
         "--host-autostart",
         "--match-timelimit-sec",
-        "35"
+        "150"
       ],
       "wait_for": "NET: created server on port 27245",
       "wait_timeout_seconds": 120
@@ -73,7 +73,7 @@
       "BOOT: --listen-bind armed: port=27245",
       "BOOT: --connect-host armed: addr='127.0.0.1:27245'",
       "BOOT: --host-autostart armed",
-      "BOOT: --match-timelimit-sec armed: seconds=35",
+      "BOOT: --match-timelimit-sec armed: seconds=150",
       "BOOT: --launch-mp-room arena='base:arena_mp_complex' scenario='base:capture_the_case' bots=3",
       "BOOT: --listen-bind consumed: port=27245 .*result=OK rc=0",
       "BOOT: --connect-host consumed: addr='127.0.0.1:27245' result=OK rc=0",
@@ -136,7 +136,9 @@
       "SCENARIO\\.STATE: rejected malformed state",
       "SCENARIO\\.STATE: dropped scenario=",
       "SCENARIO\\.STATE: send failed",
-      "NET: scenario state append failed"
+      "NET: scenario state append failed",
+      "BOT\\.PICKUP: client skipped",
+      "NET: malformed or unknown message 0x4[dD]"
     ],
     "required_counts": [
       {
@@ -187,6 +189,18 @@
         "pattern": "SCENARIO\\.STATE: first state from host scenario=5",
         "min": 1,
         "max": 1
+      },
+      {
+        "pattern": "BOT\\.PICKUP: host sent simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.PICKUP: client replayed simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.DROP: host announced simulant",
+        "min": 0
       }
     ]
   }

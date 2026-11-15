@@ -1838,6 +1838,17 @@ static u8 netmsgSanitizeClientTeam(struct netclient *srccl, u8 wireTeam)
 		return fallback;
 	}
 
+	// PC (B-1132): in a match, only the running scenario's teams. Capture the
+	// Case has 4 bases; a fifth team would have no base and treat every case
+	// as the other team's.
+	if (srccl && srccl->state >= CLSTATE_GAME && g_Vars.normmplayerisrunning
+			&& wireTeam >= scenarioGetMaxTeams() && wireTeam != fallback) {
+		sysLogPrintf(LOG_WARNING,
+		             "NET: CLC_SETTINGS client %u asked for team %u, past this scenario's %d teams; keeping %u",
+		             clientId, (unsigned)wireTeam, scenarioGetMaxTeams(), (unsigned)fallback);
+		return fallback;
+	}
+
 	return wireTeam;
 }
 
@@ -6349,6 +6360,77 @@ u32 netmsgSvcPropPickupRead(struct netbuf *src, struct netclient *srccl)
 	setCurrentPlayerNum(prevplayernum);
 
 	return src->error;
+}
+
+/*
+ * SVC_BOT_PICKUP (v62, finding 3): a simulant picked up a prop on the host.
+ * Simulant AI runs only on the host, so before this message a client kept
+ * every weapon, crate, shield, briefcase, uplink or case a simulant took lying
+ * where it was, and a human walking onto it there got nothing. The client
+ * replays the same pickup on its copy of the simulant, as SVC_PROP_PICKUP
+ * replays a human's: the prop leaves the world or starts its regen wait, and
+ * the scenario plays its messages and sounds. A pickup this client cannot
+ * apply is logged and skipped; it does not stop the rest of the packet.
+ */
+u32 netmsgSvcBotPickupWrite(struct netbuf *dst, struct chrdata *chr, u32 itemsyncid)
+{
+	if (!dst || !chr || !chr->aibot || !chr->prop || chr->prop->syncid == 0 || itemsyncid == 0) {
+		return 1;
+	}
+
+	netbufWriteU8(dst, SVC_BOT_PICKUP);
+	netbufWritePropPtr(dst, chr->prop);
+	netbufWriteU32(dst, itemsyncid);
+	return dst->error;
+}
+
+u32 netmsgSvcBotPickupRead(struct netbuf *src, struct netclient *srccl)
+{
+	struct prop *chrprop = netbufReadPropPtr(src);
+	const u32 itemsyncid = netbufReadU32(src);
+	struct chrdata *chr;
+	struct prop *prop;
+	s32 weaponnum;
+	u32 result;
+
+	if (src->error) {
+		return src->error;
+	}
+
+	if (!srccl || srccl->state < CLSTATE_GAME || !g_Vars.normmplayerisrunning) {
+		return 0;
+	}
+
+	chr = chrprop && chrprop->type == PROPTYPE_CHR ? chrprop->chr : NULL;
+
+	if (chr == NULL || chr->aibot == NULL) {
+		sysLogPrintf(LOG_WARNING, "BOT.PICKUP: client skipped item %u, simulant prop %u is not a simulant here",
+			(unsigned)itemsyncid, chrprop ? (unsigned)chrprop->syncid : 0u);
+		return 0;
+	}
+
+	prop = netSyncIdLookup(itemsyncid);
+
+	if (prop == NULL || prop->obj == NULL
+			|| (prop->type != PROPTYPE_OBJ && prop->type != PROPTYPE_WEAPON)
+			|| prop->timetoregen != 0
+			|| (prop->obj->hidden & OBJHFLAG_DELETING)) {
+		sysLogPrintf(LOG_WARNING, "BOT.PICKUP: client skipped item %u for simulant %d, it is not in this world",
+			(unsigned)itemsyncid, mpPlayerGetIndex(chr));
+		return 0;
+	}
+
+	weaponnum = prop->type == PROPTYPE_WEAPON && prop->weapon ? prop->weapon->weaponnum : -1;
+	result = botPickupProp(prop, chr);
+
+	if (result) {
+		propExecuteTickOperation(prop, TICKOP_FREE);
+	}
+
+	sysLogPrintf(LOG_NOTE, "BOT.PICKUP: client replayed simulant %d item %u weapon=%d result=%u",
+		mpPlayerGetIndex(chr), (unsigned)itemsyncid, weaponnum, (unsigned)result);
+
+	return 0;
 }
 
 u32 netmsgSvcPropUseWrite(struct netbuf *dst, struct prop *prop, struct netclient *usercl, const s32 tickop)
