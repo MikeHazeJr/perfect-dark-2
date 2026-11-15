@@ -454,6 +454,18 @@ static bool        g_BootDebugPlaceBotNearPlayer = false;
  * the bot in front of player n instead of player 0. On a listen host, player 1
  * is the client's player, so a client screenshot can show a simulant. */
 static s32         g_BootDebugPlaceBotNearPlayerNum = 0;
+/* T-NETWORKING-011 (finding 3): --debug-place-bot-near-player-visible searches
+ * around the target player instead of only straight ahead and takes a spot
+ * only with a clear line of sight from that player (the forward-only search
+ * can put the bot behind the wall the player faces). --debug-face-nearest-bot
+ * turns this peer's local player toward the nearest simulant each frame and
+ * points the BOT.RENDER.AUDIT traces at it, so a client can show whether it
+ * draws a simulant the host owns. */
+static s32         g_BootDebugPlaceBotNearPlayerVisible = 0;
+static s32         g_BootDebugFaceNearestBot = 0;
+static struct prop *g_BootDebugFaceBotProp = NULL;
+static u32         g_BootDebugFaceBotLastLogMs = 0;
+static s32         g_BootDebugFaceBotLogs = 0;
 static s32         g_BootDebugPlaceBotNearPlayerPending = 0;
 static s32         g_BootDebugPlaceBotNearPlayerFrames = 0;
 static s32         g_BootDebugPlaceBotNearPlayerReadyFrames = 0;
@@ -906,6 +918,11 @@ extern f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms,
 extern f32 meshFindFloor(struct coord *pos, f32 radius, f32 *out_normalY);
 extern void bgFindRoomsByPos(struct coord *pos, RoomNum *inrooms,
 		RoomNum *aboverooms, s32 max, RoomNum *bestroom);
+/* T-NETWORKING-011 (finding 3): src/lib/collision.c and src/game/atan2f.c,
+ * as declared in lib/collision.h and game/atan2f.h. */
+extern bool cdTestLos06(struct coord *arg0, RoomNum *rooms1, struct coord *arg2,
+		RoomNum *rooms2, u32 types);
+extern f32 atan2f(f32 x, f32 z);
 
 /* c3844 (2026-06-23): --launch-credits credits-entry shims. These live in
  * src/game/{credits,title,lv}.c; declare extern shims rather than #include
@@ -1696,9 +1713,10 @@ static void bootApplyDebugPlaceBotNearPlayer(void)
 
 s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop)
 {
-	return g_BootDebugPlaceBotNearPlayerPending
-		&& g_BootDebugPlaceBotNearPlayerProp
-		&& prop == g_BootDebugPlaceBotNearPlayerProp;
+	return (g_BootDebugPlaceBotNearPlayerPending
+			&& g_BootDebugPlaceBotNearPlayerProp
+			&& prop == g_BootDebugPlaceBotNearPlayerProp)
+		|| (g_BootDebugFaceBotProp && prop == g_BootDebugFaceBotProp);
 }
 
 void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop,
@@ -1707,13 +1725,17 @@ void bootDebugPlaceBotNearPlayerTrace(const char *stage, const struct prop *prop
 	if (!modAssetCompilerGeneratedModeldefRenderAuditEnabled()) {
 		return;
 	}
-	if (!g_BootDebugPlaceBotNearPlayerPending) {
+	/* The placed bot on the peer that placed it, or the simulant this peer's
+	 * --debug-face-nearest-bot is facing (finding 3). */
+	const struct prop *placed = g_BootDebugPlaceBotNearPlayerPending
+		? g_BootDebugPlaceBotNearPlayerProp : NULL;
+	if (!placed && !g_BootDebugFaceBotProp) {
 		return;
 	}
 	if (!prop) {
-		prop = g_BootDebugPlaceBotNearPlayerProp;
+		prop = placed ? placed : g_BootDebugFaceBotProp;
 	}
-	if (!prop || prop != g_BootDebugPlaceBotNearPlayerProp) {
+	if (!prop || (prop != placed && prop != g_BootDebugFaceBotProp)) {
 		return;
 	}
 	if (once_bit >= 0 && once_bit < 32) {
@@ -3042,6 +3064,97 @@ s32 bootLaunchChallengeTick(void)
 	return 1;
 }
 
+/* T-NETWORKING-011 (finding 3): --debug-face-nearest-bot. Every frame of an
+ * ordinary match this turns the local player, level, toward the nearest
+ * simulant and points the BOT.RENDER.AUDIT traces at it, so a screenshot and
+ * the audit show how this peer draws a simulant it may not own. The yaw uses
+ * the engine's convention for players (chrGetAngleToPos): a player faces
+ * (360 - vv_theta) degrees, measured like atan2f(dx, dz). */
+s32 bootDebugFaceNearestBotTick(void)
+{
+	struct player *pl;
+	struct chrdata *best = NULL;
+	f32 bestdist2 = 0.0f;
+
+	if (!g_BootDebugFaceNearestBot) {
+		return 0;
+	}
+	if (!g_Vars.normmplayerisrunning || g_Vars.tickmode != TICKMODE_NORMAL) {
+		return 0;
+	}
+	pl = (g_NetMode == NETMODE_CLIENT && g_NetLocalClient && g_NetLocalClient->player)
+		? g_NetLocalClient->player : g_Vars.players[0];
+	if (!pl || !pl->prop || pl->isdead) {
+		return 0;
+	}
+
+	for (s32 i = 0; i < g_BotCount && i < MAX_BOTS; i++) {
+		struct chrdata *chr = g_MpBotChrPtrs[i];
+		f32 dx;
+		f32 dz;
+		f32 dist2;
+
+		if (!chr || !chr->prop) {
+			continue;
+		}
+		dx = chr->prop->pos.x - pl->prop->pos.x;
+		dz = chr->prop->pos.z - pl->prop->pos.z;
+		dist2 = dx * dx + dz * dz;
+		if (!best || dist2 < bestdist2) {
+			best = chr;
+			bestdist2 = dist2;
+		}
+	}
+	if (!best || bestdist2 < 1.0f) {
+		return 0;
+	}
+
+	{
+		const f32 dx = best->prop->pos.x - pl->prop->pos.x;
+		const f32 dz = best->prop->pos.z - pl->prop->pos.z;
+		f32 theta = 360.0f - atan2f(dx, dz) * (180.0f / 3.14159265f);
+
+		while (theta >= 360.0f) {
+			theta -= 360.0f;
+		}
+		while (theta < 0.0f) {
+			theta += 360.0f;
+		}
+		pl->vv_theta = theta;
+		pl->vv_verta = 0.0f;
+	}
+	g_BootDebugFaceBotProp = best->prop;
+
+	{
+		const u32 now = SDL_GetTicks();
+
+		if (g_BootDebugFaceBotLogs < 30
+				&& (g_BootDebugFaceBotLogs == 0 || now - g_BootDebugFaceBotLastLogMs >= 1000)) {
+			const struct model *model = best->model;
+			const struct anim *anim = model ? model->anim : NULL;
+			const f32 dist = sqrtf(bestdist2);
+			const f32 dx = best->prop->pos.x - pl->prop->pos.x;
+			const f32 dz = best->prop->pos.z - pl->prop->pos.z;
+			const f32 lx = pl->cam_look.x;
+			const f32 lz = pl->cam_look.z;
+			const f32 ll = sqrtf(lx * lx + lz * lz);
+			/* 1.0 when the camera from the last frame looks straight at it */
+			const f32 lookdot = ll > 0.001f ? (lx * dx + lz * dz) / (ll * dist) : 0.0f;
+
+			g_BootDebugFaceBotLastLogMs = now;
+			g_BootDebugFaceBotLogs++;
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-face-nearest-bot facing chrnum=%d dist=%.0f theta=%.1f look_dot=%.3f prop_flags=0x%x hidden=0x%x actiontype=%d model=%p anim=%d frame=%.2f pos=(%.0f,%.0f,%.0f)",
+				(s32)best->chrnum, dist, pl->vv_theta, lookdot,
+				(u32)best->prop->flags, (u32)best->hidden, (s32)best->actiontype,
+				(const void *)model,
+				anim ? (s32)anim->animnum : -1, anim ? anim->frame : -1.0f,
+				best->prop->pos.x, best->prop->pos.y, best->prop->pos.z);
+		}
+	}
+	return 1;
+}
+
 /* Called once per frame from pdmain.c's mainTick when the
  * --debug-mount-bike one-shot is armed.  Walks g_Vars.activeprops
  * looking for the first OBJTYPE_HOVERBIKE prop, and on match calls
@@ -3304,6 +3417,21 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 		forward_x /= forwardlen;
 		forward_z /= forwardlen;
 	}
+	/* Finding 3: in visible mode the hold keeps the direction of the first
+	 * placement. A peer facing the bot (--debug-face-nearest-bot) turns the
+	 * player, and following that turn would move the bot again. */
+	if (g_BootDebugPlaceBotNearPlayerVisible) {
+		static f32 s_VisibleForwardX = 0.0f;
+		static f32 s_VisibleForwardZ = 1.0f;
+
+		if (g_BootDebugPlaceBotNearPlayerLogged) {
+			forward_x = s_VisibleForwardX;
+			forward_z = s_VisibleForwardZ;
+		} else {
+			s_VisibleForwardX = forward_x;
+			s_VisibleForwardZ = forward_z;
+		}
+	}
 	rooms[0] = room;
 	rooms[1] = -1;
 
@@ -3324,8 +3452,13 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 	{
 		static const f32 distances[] = {240.0f, 200.0f, 160.0f, 120.0f, 100.0f, 80.0f};
 		static const f32 lateralfracs[] = {0.0f, -0.20f, 0.20f};
-		const f32 right_x = -forward_z;
-		const f32 right_z = forward_x;
+		/* Finding 3: with --debug-place-bot-near-player-visible, turn the search
+		 * around the player; without it, straight ahead only, as before. */
+		static const f32 visibleturns[] = {0.0f, 45.0f, -45.0f, 90.0f, -90.0f,
+			135.0f, -135.0f, 180.0f};
+		const s32 numturns = g_BootDebugPlaceBotNearPlayerVisible
+			? (s32)(sizeof(visibleturns) / sizeof(visibleturns[0])) : 1;
+		f32 chosenturn = 0.0f;
 		const bool logcandidates = !g_BootDebugPlaceBotNearPlayerLogged;
 
 		if (logcandidates) {
@@ -3341,6 +3474,12 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 				bot->radius, forward_x, forward_z);
 		}
 
+		for (s32 turnindex = 0; turnindex < numturns && !foundtarget; turnindex++) {
+		const f32 turn = visibleturns[turnindex] * (3.14159265f / 180.0f);
+		const f32 dir_x = forward_x * cosf(turn) + forward_z * sinf(turn);
+		const f32 dir_z = forward_z * cosf(turn) - forward_x * sinf(turn);
+		const f32 right_x = -dir_z;
+		const f32 right_z = dir_x;
 		for (s32 lateralindex = 0;
 				lateralindex < (s32)(sizeof(lateralfracs) / sizeof(lateralfracs[0])) && !foundtarget;
 				lateralindex++) {
@@ -3359,9 +3498,9 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 				RoomNum resolvedrooms[2];
 				f32 resolvedground = -30000.0f;
 
-				candidate.x += forward_x * distance + right_x * lateral;
+				candidate.x += dir_x * distance + right_x * lateral;
 				candidate.y = playerprop->pos.y + 100.0f;
-				candidate.z += forward_z * distance + right_z * lateral;
+				candidate.z += dir_z * distance + right_z * lateral;
 				candidaterooms[0] = (RoomNum)-1;
 				candidateaboverooms[0] = (RoomNum)-1;
 				bgFindRoomsByPos(&candidate, candidaterooms,
@@ -3408,8 +3547,30 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 						resolvedground, playerprop->pos.y, playerground);
 				}
 
+				/* Finding 3: in visible mode the player must see the spot. The
+				 * player's prop position is at eye height; aim at the bot's chest. */
+				s32 losclear = 1;
+				if (g_BootDebugPlaceBotNearPlayerVisible) {
+					struct coord losfrom = playerprop->pos;
+					struct coord losto = candidate;
+					losto.y = selectedground + 120.0f;
+					losclear = resolvedrooms[0] >= 0
+						&& selectedground > -30000.0f
+						&& cdTestLos06(&losfrom, playerprop->rooms, &losto,
+							resolvedrooms, CDTYPE_BG | CDTYPE_DOORS);
+					if (logcandidates && lateralindex == 0) {
+						sysLogPrintf(LOG_NOTE,
+							"BOOT.PLACE.VISIBLE: turn=%.0f distance=%.0f lateral=%.0f ground_ok=%d los=%d room=%d",
+							visibleturns[turnindex], distance, lateral,
+							(selectedground > -30000.0f
+								&& fabsf(selectedground - playerground) <= 80.0f) ? 1 : 0,
+							losclear, (s32)resolvedrooms[0]);
+					}
+				}
+
 				if (selectedground > -30000.0f
-						&& fabsf(selectedground - playerground) <= 80.0f) {
+						&& fabsf(selectedground - playerground) <= 80.0f
+						&& losclear) {
 					target = candidate;
 					/* The candidate is a floor-domain coordinate. The relocation
 					 * boundary converts it to the explicitly requested floor-relative
@@ -3421,10 +3582,17 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 					floorcol = candidatefloorcol;
 					floortype = candidatefloortype;
 					floorroom = candidatefloorroom;
+					chosenturn = visibleturns[turnindex];
 					foundtarget = true;
 					break;
 				}
 			}
+		}
+		}
+		if (foundtarget && g_BootDebugPlaceBotNearPlayerVisible && logcandidates) {
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-place-bot-near-player-visible chose turn=%.0f distance=%.0f lateral=%.0f",
+				chosenturn, targetdistance, targetlateral);
 		}
 	}
 
@@ -4453,6 +4621,21 @@ int main(int argc, const char **argv)
 			g_BootDebugPlaceBotNearPlayerNum = num;
 			sysLogPrintf(LOG_NOTE, "BOOT: --debug-place-bot-near-player-num armed: player=%d", num);
 		}
+	}
+	if (sysArgCheck("--debug-place-bot-near-player-visible")) {
+		if (!g_BootDebugPlaceBotNearPlayer) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-place-bot-near-player-visible requires --debug-place-bot-near-player; ignored");
+		} else {
+			g_BootDebugPlaceBotNearPlayerVisible = 1;
+			sysLogPrintf(LOG_NOTE, "BOOT: --debug-place-bot-near-player-visible armed");
+		}
+	}
+	if (sysArgCheck("--debug-face-nearest-bot")) {
+		g_BootDebugFaceNearestBot = 1;
+		g_BootDebugPlaceBotNearPlayerTraceMask = 0;
+		g_BootDebugPlaceBotNearPlayerTraceBudget = 160;
+		sysLogPrintf(LOG_NOTE, "BOOT: --debug-face-nearest-bot armed");
 	}
 	{
 		const char *mpopts = sysArgGetString("--debug-mp-options");

@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_combat_net_bot_render_smoke",
-  "description": "Do networked clients draw simulants? (Finding 3 of the multiplayer week plan: a non-authority client returns from botTick before chrTick, and bot.c records that skipping chrTick once made bots invisible.) A listen host and one client on loopback, Felicity, one simulant. The host keeps the simulant 80 to 240 units in front of the client's player (--debug-place-bot-near-player-num 1, held 30 s), and the client takes four screenshots 2 s apart. The assertions only prove the placement and the shots; the BMPs in the install are the evidence and are read by eye.",
+  "description": "Do networked clients draw simulants? (Finding 3 of the multiplayer week plan: a non-authority client returns from botTick before chrTick, and bot.c records that skipping chrTick once made bots invisible.) A listen host and one client on loopback, Felicity, one simulant. The host holds the simulant for 30 s at a spot the client's player can see (--debug-place-bot-near-player-num 1 with --debug-place-bot-near-player-visible: eight directions around the player, line of sight required). The client turns its player toward the nearest simulant every frame (--debug-face-nearest-bot) and audits how it draws it (--debug-generated-mesh-render-audit), then takes four screenshots 2 s apart. The audit lines prove the client sorted and drew the simulant's model; the BMPs in the install show whether it looks right and moves.",
   "tags": [
     "network",
     "combatsim",
@@ -41,7 +41,8 @@
         "--debug-place-bot-near-player-num",
         "1",
         "--debug-place-bot-near-player-hold-sec",
-        "30"
+        "30",
+        "--debug-place-bot-near-player-visible"
       ],
       "wait_for": "NET: created server on port 27248",
       "wait_timeout_seconds": 120,
@@ -56,7 +57,9 @@
         "--no-sound",
         "--skip-intro",
         "--connect-host",
-        "127.0.0.1:27248"
+        "127.0.0.1:27248",
+        "--debug-face-nearest-bot",
+        "--debug-generated-mesh-render-audit"
       ],
       "smoke_path": "tools/smoke-verify/fixtures/mp_combat_net_bot_render_client.json"
     }
@@ -86,7 +89,13 @@
       "BOOT: --debug-place-bot-near-player hold complete: bot=",
       "SMOKE: screenshot at_ms=[0-9]+ -> bot_render_client_1\\.bmp",
       "SMOKE: screenshot at_ms=[0-9]+ -> bot_render_client_4\\.bmp",
-      "PARTICIPANTS: 3 active \\(2 players, 1 bots\\)"
+      "PARTICIPANTS: 3 active \\(2 players, 1 bots\\)",
+      "BOOT: --debug-place-bot-near-player-visible armed",
+      "BOOT: --debug-place-bot-near-player-visible chose turn=",
+      "BOOT: --debug-face-nearest-bot armed",
+      "BOOT: --debug-face-nearest-bot facing chrnum=[0-9]+ .* look_dot=(0\\.9[0-9]+|1\\.000) ",
+      "BOT\\.RENDER\\.AUDIT: stage=propsSort-included ",
+      "BOT\\.RENDER\\.AUDIT: stage=chrRender-modelRender "
     ],
     "forbidden_patterns": [
       "BOOT: --no-net set; netInit\\(\\) skipped",
@@ -136,6 +145,10 @@
       {
         "pattern": "SMOKE: result=scripted_exit",
         "min": 1
+      },
+      {
+        "pattern": "BOOT: --debug-face-nearest-bot facing chrnum=",
+        "min": 3
       }
     ]
   }

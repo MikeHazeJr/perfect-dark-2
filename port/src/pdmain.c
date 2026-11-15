@@ -842,6 +842,13 @@ void mainTick(void)
 		(void)bootLaunchChallengeTick();
 	}
 
+	/* T-NETWORKING-011 (finding 3): --debug-face-nearest-bot turns the local
+	 * player toward the nearest simulant every frame of a match. */
+	{
+		extern s32 bootDebugFaceNearestBotTick(void);
+		(void)bootDebugFaceNearestBotTick();
+	}
+
 	/* T-ENGINE-004: bounded ordinary-client Combat Simulator verifier.
 	 * Marks a fully validated deterministic kill matrix ready only after a
 	 * live offline match reaches its configured frame. mpEndMatch commits the

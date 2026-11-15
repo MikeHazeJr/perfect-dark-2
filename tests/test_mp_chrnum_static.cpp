@@ -174,3 +174,34 @@ TEST_CASE("challenge launch: the local player joins before the simulants",
 	REQUIRE(simulants != std::string::npos);
 	REQUIRE(start != std::string::npos);
 }
+
+TEST_CASE("simulant render smoke hooks: face with the engine's yaw and place in sight",
+          "[mplayer][smoke][finding3]") {
+	const std::string main_c = code_only(read_text_file("port/src/main.c"));
+	const std::string face = function_body(main_c, "s32 bootDebugFaceNearestBotTick(void)\n{");
+	const std::string place = function_body(main_c,
+		"s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)\n{");
+
+	// chrGetAngleToPos: a player faces (360 - vv_theta) degrees in atan2f(dx, dz) terms
+	REQUIRE(face.find("360.0f - atan2f(dx, dz) * (180.0f / 3.14159265f)") != std::string::npos);
+	REQUIRE(face.find("pl->vv_theta = theta;") != std::string::npos);
+	REQUIRE(face.find("g_BootDebugFaceBotProp = best->prop;") != std::string::npos);
+	const std::string chraction = code_only(read_text_file("src/game/chraction.c"));
+	const std::string angle = function_body(chraction, "f32 chrGetAngleToPos(struct chrdata *chr, struct coord *pos)\n{");
+	REQUIRE(angle.find("(360 - g_Vars.players[playernum]->vv_theta) * (M_BADTAU / 360)") != std::string::npos);
+	REQUIRE(angle.find("atan2f(pos->x - prop->pos.x, pos->z - prop->pos.z)") != std::string::npos);
+
+	// Visible placement: a spot is taken only with a clear line of sight, and the
+	// hold keeps the first direction so a facing peer does not move the bot
+	const size_t los = place.find("cdTestLos06(&losfrom, playerprop->rooms, &losto,");
+	const size_t accept = place.find("&& losclear) {", los);
+	REQUIRE(los != std::string::npos);
+	REQUIRE(accept != std::string::npos);
+	REQUIRE(place.find("forward_x = s_VisibleForwardX;") != std::string::npos);
+	REQUIRE(place.find("? (s32)(sizeof(visibleturns) / sizeof(visibleturns[0])) : 1;") != std::string::npos);
+
+	// The render audit follows the faced simulant as well as the placed one
+	const std::string audit = function_body(main_c,
+		"s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop)\n{");
+	REQUIRE(audit.find("prop == g_BootDebugFaceBotProp") != std::string::npos);
+}
