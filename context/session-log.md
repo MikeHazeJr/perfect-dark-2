@@ -10600,3 +10600,31 @@ Verification
 
 Next
 - The queued base 4 run (next in line).
+
+## 2026-11-15 (14:55-15:30 UTC) - CORE: base 4 run lost to B-1173, re-queued
+
+What happened
+- The queued base 4 game run got its turn at 14:07 UTC and every test was
+  refused by the storage tool in 4 minutes; nothing ran. Cause (B-1173): each
+  new install reserves the larger of its size and `peak_run_gib` (2 GiB), and
+  CORE's C: location had `max_full_install_gib` 1.5, so no install could fit;
+  the tool said "blocked by active/pinned evidence" in an empty storage. The
+  same 1.5 GiB example had gone to the other sessions at 11:55 UTC.
+- Fixed (4c3b4e02, shared as `week-pd/runner` d0fd6056, merged back with the
+  tree unchanged as 829159c4): a budget that cannot fit one copy is refused at
+  once with a message that names it (normal mode; retained housekeeping keeps
+  its own refusal). CORE's location now uses 3 GiB; week note corrected.
+- Re-queued (q_20261115141555726_0b0e1c65, fifth in line, about 2.5 hours).
+  The campaigns use one install each, so they fit two installs on C:.
+- Space: the failed run wrote 346 MB of seed content on C: (`pd2-smoke/core/blobs`),
+  kept for the re-run; no install was left.
+- Deletion slip: CORE removed its four temporary 378 MB copies of base 4 on D:
+  and 11 MB of scratch exports with `rm -r`, not through the Recycle Bin as
+  the week brief asks (another session's memory note made it explicit at
+  14:03 UTC). They were CORE's own reproducible files; the check script now
+  uses the Recycle Bin. The storage tool's discard and compact delete test
+  installs permanently, as its eviction always did; reported to Mike.
+
+Verification
+- Storage: Python 29/29, reuse 17/17, retention 22/22; PowerShell storage
+  19, retention, runner retention 47.
