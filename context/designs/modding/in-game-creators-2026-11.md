@@ -248,8 +248,26 @@ Foundation, in order. Each step lands with tests that run in CI.
      `./mods`, `$E/mods`, `mods` under the base dir. One root. For
      `Build/PerfectDark.exe` that is the repo's tracked `mods/` folder; for
      a session build or a release install it is `$E/mods`.
-   PROPOSED, waiting for Mike's go (he suggested "a global mods folder,
-   local app data"): a per-user mods folder that no build or install owns.
+   DECIDED by Mike 2026-11-15: "go on the two-folder design (global folder
+   plus the install's own mods folder, global wins on a clash). Put the
+   global folder in LocalAppData, %LOCALAPPDATA%\perfectdark\mods, not
+   Roaming. Saves stay where they are. Keep --portable and --savedir
+   isolating test runs."
+   BUILT 91198952: `port/src/mods_roots.c` names the user folder
+   (LocalAppData; `<save folder>/mods` under `--portable` or `--savedir`,
+   which with `--portable` alone is the install's own folder, so a portable
+   install keeps one folder) and creates it. `modmgr.c` reads it first and
+   writes only to it (`modmgrGetModsDir`); the install's candidates follow
+   and a mod id already found is not used again (logged "is already
+   installed from an earlier mods folder; this copy is not used").
+   Components and bot variants are scanned in every folder, the user folder
+   last, because the catalog keeps the last registration of an id
+   (`modmgrGetModsRootCount`, `modmgrGetModsRoot`). The audio mod tool and
+   Forge maps now write to the user folder too. `--moddir` and the
+   existing-install reuse policy keep a single folder. Not done: moving
+   mods already in an install's folder (they are still read, never
+   deleted); the hub's file browsers still start in `mods`.
+   The proposal as it was:
    - Writable user root: `$S/mods`. `$S` is already where saves live "so
      they persist across game updates and reinstalls" (`fs.c`):
      `%APPDATA%\perfectdark` normally, the install folder with
