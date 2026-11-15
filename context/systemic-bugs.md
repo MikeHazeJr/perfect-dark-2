@@ -3435,6 +3435,37 @@ same for the setup and pad loaders.
 
 ---
 
+## SP-78: One copy of a path rule is fixed, its sibling copies are not
+
+**Severity: HIGH - isolation and save bugs that a fix "already closed" keep
+happening through the copies nobody touched.**
+
+The client spells some path rules in several places: the list of `mods/`
+roots, and the name a config save is written to. When one copy was fixed the
+others kept the old rule, and because the fixed copy is the one that gets
+tested, the bug looks closed.
+
+**Known instances (found 2026-11-14, B-1160):**
+
+- B-1031 made an explicit `--moddir` the only mod root in modmgr. The font
+  loader, both theme scanners and the migration bench kept their own copies
+  of the discovery list and still walked `$E/../mods`, `./mods`, `$E/mods`
+  and the base `mods`. Fixed: one list, `fsModRoots` in `port/src/fs.c`.
+- The main menu's settings save was moved to `configSave(CONFIG_PATH)`, and
+  a test forbids the bare name there; thirteen other menu saves kept
+  `configSave("pd.ini")`, which resolves like a read and wrote the base
+  folder. Fixed: every caller names `CONFIG_PATH`, `configSave` refuses a
+  bare name, and a static test scans all of `port/` and `src/`.
+
+**Rule:** a path rule lives in one function, and a test scans the whole tree
+for a second spelling of it, not only the file that was fixed.
+
+**Search:**
+- `rg -n 'configSave\("[^$]' port src`
+- `rg -n '"\$E/\.\./mods"|"\$E/\.\./" MODMGR_MODS_DIR' port src` (only `port/src/fs.c`)
+- `rg -n 'fsFullPath\("[a-z]' port src`, then check each hit is a read, not a write
+- `rg -n 'fsFileOpenWrite\(' port src`, then check each name has a `$` root or is absolute
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.
