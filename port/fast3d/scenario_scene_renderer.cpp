@@ -132,6 +132,12 @@ struct Scene {
 	GLuint room_light_tex = 0;
 	int room_light_tex_width = 0;
 	bool logged_room_lights = false;
+	/* B-1172: the stage fog of the next draw (scenarioSceneRendererSetFog). */
+	int fog_enabled = 0;
+	float fog_mul = 0.0f;
+	float fog_offset = 0.0f;
+	float fog_color[3] = {};
+	bool logged_fog = false;
 	bool active = false;
 	bool logged_render = false;
 	bool logged_camera_ready = false;
@@ -1084,6 +1090,13 @@ static bool ensureShader(Scene &scene)
 		 * room: brightness, flash, flash_black, unlit; tint rgb, greyscale. */
 		"uniform sampler2D u_RoomLight;\n"
 		"uniform int u_RoomLightCount;\n"
+		/* B-1172: x = fog on, y = fog_mul, z = fog_offset (gfx_sp_vertex). */
+		"uniform vec3 u_Fog;\n"
+		"float pdRoomUnlit() {\n"
+		"  int room = int(floor(a_Room + 0.5));\n"
+		"  if (room < 0 || room >= u_RoomLightCount) return 0.0;\n"
+		"  return texelFetch(u_RoomLight, ivec2(room, 0), 0).w;\n"
+		"}\n"
 		"vec4 pdRoomLit(vec4 col) {\n"
 		"  int room = int(floor(a_Room + 0.5));\n"
 		"  if (room < 0 || room >= u_RoomLightCount) return col;\n"
@@ -1104,8 +1117,17 @@ static bool ensureShader(Scene &scene)
 		"out vec2 v_Uv0;\n"
 		"out vec2 v_Uv1;\n"
 		"out vec4 v_Color;\n"
+		"out float v_Fog;\n"
 		"void main() {\n"
-		"  gl_Position = u_VP * vec4(a_Pos + a_Sky * u_SkyOffset, 1.0);\n"
+		"  vec4 clip = u_VP * vec4(a_Pos + a_Sky * u_SkyOffset, 1.0);\n"
+		"  gl_Position = clip;\n"
+		"  v_Fog = 0.0;\n"
+		"  if (u_Fog.x > 0.5 && a_Sky < 0.5 && pdRoomUnlit() < 0.5) {\n"
+		"    float w = abs(clip.w) < 0.001 ? 0.001 : clip.w;\n"
+		"    float winv = 1.0 / w;\n"
+		"    if (winv < 0.0) winv = 32767.0;\n"
+		"    v_Fog = clamp(clip.z * winv * u_Fog.y + u_Fog.z, 0.0, 255.0) / 255.0;\n"
+		"  }\n"
 		"  v_Uv0 = a_Uv0;\n"
 		"  v_Uv1 = a_Uv1;\n"
 		"  v_Color = pdRoomLit(a_Color);\n"
@@ -1121,6 +1143,8 @@ static bool ensureShader(Scene &scene)
 		"in vec2 v_Uv0;\n"
 		"in vec2 v_Uv1;\n"
 		"in vec4 v_Color;\n"
+		"in float v_Fog;\n"
+		"uniform vec3 u_FogColor;\n"
 		"out vec4 fragColor;\n"
 		"vec2 pdTexcoord(int channel) {\n"
 		"  return channel == 0 ? v_Uv0 : v_Uv1;\n"
@@ -1135,6 +1159,7 @@ static bool ensureShader(Scene &scene)
 		/* c3844 glass fix: MASK passes a real cutoff (crisp cutout edges); OPAQUE and
 		 * BLEND pass ~0 so only fully-transparent texels drop. */
 		"  if (outColor.a < u_AlphaCutoff) discard;\n"
+		"  outColor.rgb = mix(outColor.rgb, u_FogColor, v_Fog);\n"
 		"  fragColor = outColor;\n"
 		"}\n";
 
@@ -1580,6 +1605,23 @@ extern "C" void scenarioSceneRendererSetRoomLights(const scenario_scene_room_lig
 	}
 }
 
+extern "C" void scenarioSceneRendererSetFog(int enabled, float fog_mul, float fog_offset, const float color[3])
+{
+	g_scene.fog_enabled = enabled ? 1 : 0;
+	g_scene.fog_mul = fog_mul;
+	g_scene.fog_offset = fog_offset;
+	if (color) {
+		memcpy(g_scene.fog_color, color, sizeof(g_scene.fog_color));
+	}
+	if (enabled && g_scene.active && !g_scene.logged_fog) {
+		g_scene.logged_fog = true;
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.RENDER: fog '%s' fog_mul=%.0f fog_offset=%.0f colour=(%.3f,%.3f,%.3f) (the stage fog, applied by the scene shader)",
+			g_scene.scenario_id.c_str(), fog_mul, fog_offset, g_scene.fog_color[0],
+			g_scene.fog_color[1], g_scene.fog_color[2]);
+	}
+}
+
 extern "C" void scenarioSceneRendererRender(int width, int height)
 {
 	scenarioSceneRendererRenderPasses(0, 0, width, height, NULL, NULL, -1,
@@ -1693,6 +1735,10 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 	glUniformMatrix4fv(vp_loc, 1, GL_FALSE, camera);
 	glUniform3f(glGetUniformLocation(g_scene.shader, "u_SkyOffset"),
 		sky_shift[0], sky_shift[1], sky_shift[2]);
+	glUniform3f(glGetUniformLocation(g_scene.shader, "u_Fog"),
+		g_scene.fog_enabled ? 1.0f : 0.0f, g_scene.fog_mul, g_scene.fog_offset);
+	glUniform3f(glGetUniformLocation(g_scene.shader, "u_FogColor"),
+		g_scene.fog_color[0], g_scene.fog_color[1], g_scene.fog_color[2]);
 	{
 		/* B-1172: this view's room lighting, on texture unit 2. */
 		const std::vector<float> &texels =

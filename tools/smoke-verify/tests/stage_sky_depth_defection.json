@@ -1,6 +1,6 @@
 {
   "scenario_name": "stage_sky_depth_defection",
-  "description": "B-1172 step 2 check: Defection, a night stage with BG scale 1 and the moon as a sky room drawn relative to the camera's room, through --launch-mission with the intro skipped. The scenario scene draws in the game's draw space, keeps its depth for the props and draws its sky rooms relative to the camera's room. --debug-scene-matrix-probe logs, for the first frames, how far scene vertices land apart through the game's BG matrix and through the scene camera (NDC, depth included). Then the two screenshots of stage_sky_visual_defection. Needs a client with B-1172 step 2.",
+  "description": "B-1172 step 2 check: Defection, a night stage with BG scale 1 and the moon as a sky room drawn relative to the camera's room, through --launch-mission with the intro skipped. The scenario scene draws in the game's draw space, keeps its depth for the props and draws its sky rooms relative to the camera's room, with the room lighting, the stage fog and the stars rule. --debug-scene-matrix-probe logs, for the first frames, how far scene vertices land apart through the game's BG matrix and through the scene camera (NDC, depth included). Then the two screenshots of stage_sky_visual_defection. Needs a client with B-1172 step 2.",
   "tags": [
     "solo",
     "mission",
@@ -91,6 +91,8 @@
       "FATAL: ",
       "SMOKE: result=timeout",
       "SCENARIO\\.RENDER: rejected camera frame",
+      "SCENARIO\\.RENDER: shader ",
+      "SCENARIO\\.RENDER: GPU upload unavailable",
       "SCENE\\.PROBE: .* max_ndc_z_diff=(0\\.00[1-9]|0\\.0[1-9]|0\\.[1-9]|[1-9])"
     ],
     "required_counts": []

@@ -1216,7 +1216,9 @@ Gfx *bgRenderScene(Gfx *gdl)
 	 * (gfx_pc.cpp, G_SCENE_RENDER_EXT). Its depth stays for the props. */
 	if (sourcebg) {
 		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gdl = envStartFog(gdl, false);
 		gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_OPAQUE);
+		gdl = envStopFog(gdl);
 	}
 
 	// Build an array of room numbers per onscreen prop.
@@ -1322,7 +1324,9 @@ Gfx *bgRenderScene(Gfx *gdl)
 	 * opaque pass, where the BG's translucent room parts drew. */
 	if (sourcebg) {
 		gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
+		gdl = envStartFog(gdl, true);
 		gSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_BLEND);
+		gdl = envStopFog(gdl);
 	}
 
 	for (i = g_BgNumDrawSlots - 1; i >= 0; i--) {

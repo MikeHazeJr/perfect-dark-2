@@ -3248,6 +3248,15 @@ static void gfx_run_dl(Gfx* cmd) {
                     }
                     gfx_rapi->set_scissor(rdp.scissor.x, rdp.scissor.y, rdp.scissor.width, rdp.scissor.height);
                     rendering_state.scissor = rdp.scissor;
+                    {
+                        /* B-1172: the stage fog bgRenderScene starts for the scene
+                         * (envStartFog), as fast3d would apply it to the BG. */
+                        const float fog_color[3] = { rdp.fog_color.r / 255.0f, rdp.fog_color.g / 255.0f,
+                            rdp.fog_color.b / 255.0f };
+                        scenarioSceneRendererSetFog((rsp.geometry_mode & G_FOG) != 0
+                                && !(scene_passes & SCENARIO_SCENE_PASS_BACKDROP),
+                            (float)rsp.fog_mul, (float)rsp.fog_offset, fog_color);
+                    }
                     scenarioSceneRendererRenderPasses(rdp.viewport.x, rdp.viewport.y, rdp.viewport.width,
                         rdp.viewport.height, have_vp ? &scene_vp[0][0] : NULL,
                         have_vp ? scene_sky_offset : NULL, scene_slot, scene_passes);

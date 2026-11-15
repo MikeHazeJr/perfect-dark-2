@@ -1413,7 +1413,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(gfx_pc.find("scenarioSceneRendererRenderSlot(") == std::string::npos);
 	// B-1172: sky rooms draw relative to the camera's room, as
 	// roomPopulateMtx places them.
-	REQUIRE(scene_renderer.find("gl_Position = u_VP * vec4(a_Pos + a_Sky * u_SkyOffset, 1.0);") !=
+	REQUIRE(scene_renderer.find("vec4 clip = u_VP * vec4(a_Pos + a_Sky * u_SkyOffset, 1.0);") !=
 	        std::string::npos);
 	REQUIRE(scene_renderer.find("out.room = readRoom(idx);") != std::string::npos);
 	REQUIRE(scene_renderer.find("findAttr(\"_PD_ROOM\")") != std::string::npos);
@@ -1430,6 +1430,15 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	REQUIRE(scene_renderer.find("\"  v_Color = pdRoomLit(a_Color);\\n\"") != std::string::npos);
 	REQUIRE(scene_renderer.find("float extra = l1.w > 0.5 ? 0.0 : min(l0.y, 285.0 - m);") !=
 	        std::string::npos);
+	// B-1172: the stage fog, started for each scene pass as for the BG rooms
+	// and applied with gfx_sp_vertex's formula.
+	REQUIRE(bg_runtime.find("gdl = envStartFog(gdl, false);\n\t\tgSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_OPAQUE);\n\t\tgdl = envStopFog(gdl);") !=
+	        std::string::npos);
+	REQUIRE(bg_runtime.find("gdl = envStartFog(gdl, true);\n\t\tgSPSceneRenderEXT(gdl++, scenarioSceneRendererCurrentCameraSlot(), SCENARIO_SCENE_PASS_BLEND);\n\t\tgdl = envStopFog(gdl);") !=
+	        std::string::npos);
+	REQUIRE(scene_renderer.find("v_Fog = clamp(clip.z * winv * u_Fog.y + u_Fog.z, 0.0, 255.0) / 255.0;") !=
+	        std::string::npos);
+	REQUIRE(gfx_pc.find("scenarioSceneRendererSetFog((rsp.geometry_mode & G_FOG) != 0") != std::string::npos);
 	REQUIRE(gfx_pc.find("scenarioSceneRendererEndFrame();") != std::string::npos);
 	REQUIRE(gfx_pc.find("scenarioSceneRendererRender(gfx_current_dimensions.width") ==
 	        std::string::npos);

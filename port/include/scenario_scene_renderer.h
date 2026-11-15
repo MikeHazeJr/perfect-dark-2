@@ -89,6 +89,13 @@ typedef struct scenario_scene_room_light {
 /* The lighting of every room (indexed by room number, count = the stage's
  * room count) for the camera set last, so each player's view keeps its own. */
 void scenarioSceneRendererSetRoomLights(const scenario_scene_room_light_t *lights, int count);
+
+/* B-1172: the stage fog for the next draw, as fast3d holds it at the scene
+ * command after envStartFog: the fog position's multiplier and offset (each
+ * vertex's fog is clip z / w times fog_mul plus fog_offset, 0-255) and the
+ * fog colour (0-1). Sky and render-always rooms stay unfogged, as the game's
+ * pre-pass drew them with fog off. */
+void scenarioSceneRendererSetFog(int enabled, float fog_mul, float fog_offset, const float color[3]);
 /* For the --debug-scene-matrix-probe log: the scene's vertex positions. */
 int scenarioSceneRendererVertexCount(void);
 int scenarioSceneRendererVertexPosition(int index, float out[3]);
