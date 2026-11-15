@@ -12,12 +12,22 @@ crashed in `scenarioInitProps` right after the simulants spawned:
 counts the `MODEL_MULTI_AMMO_CRATE` objects among the active props, and it was
 0. The same loop also hangs forever when there are fewer usable crate pads than
 `htmNumProps()`: the inner `do ... while (padnum <= 0)` can no longer find an
-unused pad. Why Complex had no crates is being checked: CORE's B-1113 (props on
-pads outside the too-tight extracted room boxes were never created, fixed in
-`week-pd/extract-2` / shared base 3) is the first suspect; a rerun on base 3 is
-queued. Open decision for Mike, because it changes how the mode plays on an
-arena without enough crates: refuse Hacker Central there, or place only the
-terminals that fit. Until then the code is unchanged.
+unused pad. Not B-1113: the rerun on shared base 3 with `week-pd/extract-2`
+merged crashes the same way (`results-20261115T005428Z.json`). Root cause (an
+extraction-output gap, CORE's area): the multiplayer arenas' public scenario
+source carries no setup objects. In shared base 3, 16 of 18
+`base_scenario_mp_*.pdscenario` archives have an empty `objects.json` (60 bytes)
+and an empty `setup.fields.json` (`"rows": []`); only Ravine and Sewers have
+rows. Loading Complex allocates `numobjs=2` (the training stage before it: 254).
+Multiplayer pickups come from setup objects: `WEAPON_MPLOCATION00`..`15` weapon
+objects (`setup.c`, mapped through the weapon set) and the multiplayer ammo
+crates tied to those locations. So on those 16 arenas a match has no weapon,
+ammo or shield pickups at all, and Hacker Central, which places its terminals
+on the crates, divides by zero. Combat, Hold the Briefcase and King of the Hill
+smokes still pass because none asserts on pickups. Handed to CORE (extraction
+owner) in the week note. Separately open for Mike, because it changes how the
+mode plays on an arena without enough crates: refuse Hacker Central there, or
+place only the terminals that fit. Until then the scenario code is unchanged.
 
 ## 2026-11-14 B-1124 Two-process smokes on a shared install ran against the real user profile (T-NETWORKING-011)
 

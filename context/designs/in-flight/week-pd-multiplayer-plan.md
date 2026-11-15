@@ -98,6 +98,16 @@ Progress log:
   ROM and misses its 120 s wait for `NET: created server` on the D: disk. Asked CORE (runner owner) to seed
   per-process installs from the template. The single-install runs show my binary's cache stamps match base 2
   (`pdmesh skipped=733 (fast-cache)`), so SP-75 changed no cache identity.
+- Merged `week-pd/runner` (CORE: B-1124 refusal 71b9de82, per-process seeding 34848d15) and
+  `week-pd/extract-2` (c78c0510, base 3) as b82250d5: build green, pd-tests 1884 cases green. Smokes moved to
+  `D:\PD2-wt\shared-base-3`.
+- Offline objective scenarios, Complex, three simulants (2026-11-14/15): Hold the Briefcase PASS 24/24
+  (base 2, `results-20261114T234832Z.json`), King of the Hill PASS 25/25 (base 3,
+  `results-20261115T004916Z.json`), Hacker Central CRASH on both bases (B-1125, `htmInitProps` divide by zero).
+  Root cause of the crash is an extraction-output gap reported to CORE: 16 of 18 multiplayer arenas have no
+  setup objects in the public scenario source (empty `objects.json` and `setup.fields.json`; Complex loads
+  with `numobjs=2`), so they have no weapon, ammo or shield pickups in any mode. Next on my side: a pickup
+  assertion in the multiplayer fixtures, and the Hacker Central guard once Mike picks the behavior.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
