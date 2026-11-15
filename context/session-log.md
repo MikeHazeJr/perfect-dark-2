@@ -10379,3 +10379,57 @@ Next
   bases 1 and 2, which nobody uses any more.
 - Review CRYSTAL PISTOL's format row; its B-1184 duplicates B-1116.
 - MULTIPLAYER's B-1133 (collision Test queries) against the campaign smokes.
+
+## 2026-11-15 (10:10-10:55 UTC) - CORE: week-pd/extract-3, sky rooms, base 4, bases 1 and 2 recycled
+
+What was done
+- `week-pd/extract-3` (pushed, not yet announced): the light rules (22ed8073),
+  B-1112 (f56b82d9) and the sky rooms (4436e073), each the CORE change
+  replayed onto c78c0510 with a private index, without CORE's other commits.
+  Every identifier the replayed lines use exists in that tree or comes with
+  the change; the static checks of the room table, light and sky rules and
+  B-1112 pass on that tree's own sources (13 cases, 241 assertions).
+  merge-tree takes it onto the pushed tips of mods, multiplayer and
+  crystal-pistol without a conflict; core merged it twice with its tree
+  unchanged (91557457, af255eb0).
+- Sky rooms (b63b8407): the propagation check of the light rules found the
+  same rooms special-cased in `roomPopulateMtx` (src/game/room.c, drawn
+  relative to the player so they never get closer; the checklist row named
+  it) and in bgTickPortals' pass for a stage without portals (src/game/bg.c,
+  left out of the screen test). New optional `sky` on `rooms.json` rows,
+  written for room.c's rooms (render_always without the old test stage);
+  both places read it on the scenario-source path and keep the stage checks
+  for the ROM path. bg.c's list is narrower (no Maian SOS, WAR!, Mr. Blonde's
+  Revenge), but those stages have portals, so that pass never runs for them.
+  Cache kind `..._lightrules_sky`.
+- B-1133 taken into core (6a5377b4): MULTIPLAYER's 940ef76f (cdTestVolume
+  records the geometry it hit) without its bugs.md row, for the campaign
+  check MULTIPLAYER asked for.
+- Base 4, `D:\PD2-wt\shared-base-4`: a copy of base 3 (13,127 files, 348 MB),
+  then the client at af255eb0 in `--extract-assets-only` re-extracted 47
+  arenas, 87 scenarios and 21 missions in 2 min (0 failed); a second run
+  wrote nothing. Before the sky rule, its arenas, scenarios and missions were
+  byte-identical to the private install that passed the campaigns in game.
+- Bases 1 and 2 to the Recycle Bin (688 MB): every session had moved to
+  base 3.
+- CRYSTAL PISTOL's format row reviewed in the week note: keep the flat
+  `ammoN_*` keys as the one magazine schema; name every native reserve pool;
+  `magazine` should play the bound reload animation for base weapons; the
+  self-loading type 0x1b is never unlimited in the original. Their B-1184 is
+  B-1116 with identical names, so bindings files are compatible.
+
+Verification
+- pd-tests 1,909 cases / 340,785 assertions at af255eb0.
+- Base 4: conformance 9,025 archives (10,033 with nested, 27 families), 0
+  errors; `[b1112-sweep]` 9,025 validated, 0 refused; light-rules census 132
+  scenario archives, 46 rules (32 light and portal rules plus 14 sky rooms),
+  all equal to the original checks. Receipts in `.claude/week-pd-receipts/`
+  (`conformance-shared-base-4-sky-20261115.json`,
+  `shared-base-4-reextraction-20261115.log`, `shared-base-4-second-run-*`).
+
+Next
+- In game on base 4 (queued behind MULTIPLAYER, q_20261115103149682_e5fafaa0):
+  release campaign and special assignments with B-1133, then the
+  `menu_settings_keyboard` rerun if the desktop is unlocked. Then announce
+  extract-3 and base 4, tick the checklist row, add the schema table row.
+- Inventory of the remaining stage-specific checks in game code (running).
