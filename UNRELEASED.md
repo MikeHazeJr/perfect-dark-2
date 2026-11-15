@@ -8,6 +8,9 @@
 - Simulants that pick up the briefcase or the uplink now do so on every
   player's screen in networked matches.
 
+- A player who drops out of a networked King of the Hill match and rejoins
+  gets the host's current hill back.
+
 - Fix a host crash a few seconds into some networked matches.
 
 - Capture the Case teams start the match at their own base again.

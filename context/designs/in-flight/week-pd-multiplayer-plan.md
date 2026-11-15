@@ -258,6 +258,14 @@ Progress log:
   simulant's flags, model, animation frame and `look_dot`, and point the existing `BOT.RENDER.AUDIT` traces at it).
   The fixture now requires `look_dot` of at least 0.9 and the client's `propsSort-included` and
   `chrRender-modelRender` audit lines, so a client that does not draw simulants fails it.
+- Rest of the third turn (binary 82ae8985): `mp_king_of_the_hill_reconnect_smoke` 119/119
+  (`results-20261115T135435Z.json`), the first Rejoin of an objective mode with the v62 snapshot: the client times out
+  mid-match, reconnects, gets the exact world and inventories, and replaces the hill its own stage reload picked
+  (index 4) with the host's (index 5, room 19). Co-op 100/100 and counter-op 102/102 stage baselines at v62.
+- B-1138 (608747c4, from the SP-82 sweep): the match-start orchestrator and the respawn helper only knew 4 teams, so
+  teams 5 to 8 started in team 1's region, and the respawn sector used the raw team number, so with Red and Blue
+  Blue never got its sector. One sector per active team up to `MAX_TEAMS`, numbered among the active teams. Not run in
+  game (no smoke has five or more teams).
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
