@@ -118,8 +118,143 @@ reported them; not re-read line by line).
 
 ### 2b. Characters and simulants
 
-OPEN: the character half of the survey is still running.
+- `.pdcharacter`: `character.ini` (`body_asset`, `head_asset`, `body_archive`,
+  `head_archive`, `head_policy` fixed/random_gender/integrated,
+  `display_name`, `portrait_file`) plus the embedded body and head
+  (`character_head_policy.c` 153-191). `.pdbody` / `.pdhead`: `type`,
+  `ismale`, `height`, `canvaryheight`, `scale`, `animscale`, `model_scale`,
+  `rig_class`, mesh and hand (`body_head_source.c` 109-178); 32 private slots
+  each for mod bodies and heads.
+- Base Maian content: bodies elvis1, theking, elviswaistcoat, maian_soldier;
+  heads head_elvis, head_elvis_gogs, head_maian_s; four characters. All male,
+  `HEADBODYTYPE_MAIAN`, height 106, animscale 0.5727699, the Elvis hand. There
+  is no female Maian.
+- The Maian rig is the human skeleton (`skeleton_symbol = SKEL_CHR`, bodies
+  compile against g_SkelChr). A body is Maian through
+  `type = HEADBODYTYPE_MAIAN` (rig class maian_tall_neck, head offset,
+  animscale). Skinning is rigid: every vertex corner follows one of the body's
+  matrices. A body mesh needs `model.nodes.json` with the CHRINFO root, the 14
+  POSITION nodes the clips drive (parts 1-14, 19 matrices, HEADSPOT as part 4),
+  BBOX and DL nodes, and `faces.json` with a matrix per corner. glTF skins are
+  ignored.
+- Animations: a new body is RACE_HUMAN (race comes from stock body numbers),
+  so it plays the human clips; the idle is fixed per race; the walk follows
+  `ismale`. Maian-specific clips are cutscenes only. Riding poses exist for
+  players (`ANIM_ONBIKE`); there are no mount or dismount clips (mounting snaps
+  the rider on). A mod clip gets a private number and cannot replace a base
+  clip. Green blood is tied to stock body numbers (`chr.c` 3718-3734): a new
+  Maian body would bleed red.
+- Simulants: `.pdbotprofile` carries only `type_key`, `difficulty_key`,
+  `target_body`, `requirefeature`; no character links to a profile; saved bot
+  variant accuracy, reaction and aggression are never applied. Engagement
+  range comes from each weapon's `bot_pref`, and a weapon without `bot_pref` is
+  never picked by a bot, so today no simulant would use the crystal pistol.
+  Multiplayer bots never take cover (cover is single-player AI only).
+- Single-player allies: co-op buddies have hard-coded bodies (the Alien cheat
+  buddy is already a Maian), ignore cover and follow the player. No AI drives
+  or guns a vehicle; the hoverbike is bound to the current player.
+- Tools: no Characters tool. The Skin Editor saves a loose texture and
+  `skin.ini` with no `mod.json` and no typed archive, and in game a skin only
+  tints the body. `modAuthorSave` already saves character, body, head and
+  vehicle mods from templates.
+- Mike's October veteran study (read only) is a human "Veteran Sergeant" (cap,
+  moustache, cigar, camouflage), no armature, not on the Maian rig. The
+  October vehicle policy source (`maian_vehicle_mod.*`) is not on this branch
+  (it is on `week-pd/inflight-20261114` and in the canonical checkout).
+
+| Requirement | State | Where the work goes |
+|---|---|---|
+| Male and female veteran on the Maian rig | partial (pipeline and male templates) | new `.pdbody`/`.pdhead`: an original mesh bound to the 14 body parts, `HEADBODYTYPE_MAIAN`, `ismale` 1 and 0 |
+| Looks (grey skin, scars, harness, holster, chevrons) | partial | `.pdtexture` dependencies named by the mesh materials |
+| Maian animations | exists (human clips, Maian scale) | green blood for Maian-type mod bodies |
+| Seats and get in/out | missing | new clips and seat code |
+| Calmer idle | missing | a per-body idle choice |
+| Simulant: Maian weapons, cover, range | partial | profile fields used by weapon scoring and distance modes; a `bot_pref` for the crystal pistol; cover for bots |
+| Ally drives or guns | missing | AI vehicle control and the turret seat |
+| In-game tool | missing | a Characters tab on `modAuthorRuntimeSave` |
 
 ## 3. Plan
 
-OPEN: written after the survey.
+Each step lands with tests and, where it changes the game, a game run;
+commit and push per step; no merges to dev. Each mod is made by the in-game
+mod author from a template plus edits (a recipe and `--mod-author` for runs,
+a Modding Hub tab for players), and the tools grow with the mods.
+
+### Vehicle (first: everything else on it depends on step V1)
+
+- V1. Mod vehicles in the game: a private model slot and runtime index for a
+  mod vehicle (as mod weapon meshes get), so the hoverbike code finds its
+  physics by model; `--debug-swap-vehicle <mod vehicle>` puts it in place of a
+  stage's hoverbikes (CI training, Crash Site, Infiltration, Escape) until
+  levels can place vehicles. Proof: drive it in CI training.
+- V2. Stand-in model: run Mike's October vehicle builder headless in Blender
+  (read only, export into this worktree), convert to the native mesh with
+  named parts for the turret yaw and pitch pivots, the 18 turret crystal
+  seats and the boost crystals. The final model is art (see open questions).
+- V3. Boost and heat: a boost action; ramp to full over about 1 s; after
+  about 4 s the crystals turn black, boost stays above base below full,
+  steering is limited briefly and the turret is locked out until the crystals
+  recover; recharge faster when stopped, scaled by speed. The tunables are
+  node variables in a vehicle behavior graph; the schema and runtime are
+  CORE's, so MODS asks CORE for `pd.vehicle_graph.v1` and builds against the
+  answer.
+- V4. Two seats: driver and gunner, mount and dismount per seat, a camera per
+  seat; the seat on the wire is MULTIPLAYER's message.
+- V5. Turret: gunner aim, fire and lock/zoom on the turret input layer; yaw
+  and pitch parts; fires the vehicle's embedded `.pdweapon`: 18 larger
+  crystals that regrow per shot (the crystal pistol's regrow ammo), full
+  regrow = interval x 18 plus about 10 % scaled by speed, fire rate lowered by
+  normalised non-boost speed; locked out at full boost.
+- V6. Lock-on at vehicles only: shots track until they hit, the gunner
+  releases, or boost ramps; the boost curve weakens tracking; a shot that
+  loses tracking keeps its heading.
+- V7. The gunner's armoured cowl: hits on the gunner count only through the
+  front opening of about 70 degrees.
+- V8. AI: the single-player ally drives or guns (no AI touches vehicles
+  today; the largest single step).
+- V9. The Vehicles tab in the Modding Hub on `modAuthorRuntimeSave`.
+
+### Veteran
+
+- C1. The Characters tab: character, body and head mods from templates with
+  name, gender, head policy and simulant profile, through
+  `modAuthorRuntimeSave`.
+- C2. Models: original male and female Maian meshes bound to the 14 body
+  parts, `HEADBODYTYPE_MAIAN`; looks as textures. A clone of a base Maian mesh
+  is only a local stand-in (BYOR: it embeds ROM-derived geometry and must not
+  be shared).
+- C3. Green blood for Maian-type mod bodies.
+- C4. Simulant: profile fields for weapon preference (Maian weapons),
+  engagement range and cover, used by the bot weapon scoring and distance
+  modes; a `bot_pref` for the crystal pistol so bots pick it at all.
+- C5. A calmer idle per body; seat poses and get in/out for the vehicle.
+- C6. The single-player ally as the vehicle's driver or gunner (with V8).
+
+### Crystal pistol
+
+The weapon mod is the crystal pistol session's (`week-pd/crystal-pistol`).
+Continuing it here (its `bot_pref`, charge for bots, the turret's regrowing
+crystals) needs that branch's engine work on this branch; that branch also
+carries MULTIPLAYER's week. Mike decides how it comes in (open question 1).
+
+### Level
+
+Waits for Forge mode (Mike, 2026-11-15); not in this plan.
+
+### Order and what fits this week
+
+V1, V2, V3 first (a drivable Maian vehicle with boost and heat), then V4 and
+V5, C1 and C4 alongside. V6, V7, V8 and C2 depend on answers below and are
+unlikely to finish this week; they stay in this plan.
+
+### Open questions
+
+1. Crystal pistol engine work on this branch: merge `week-pd/crystal-pistol`
+   (it brings MULTIPLAYER's week too), or have its engine commits published
+   as a shared branch without MULTIPLAYER's week, or wait for the week-end
+   merge (then the turret and the pistol follow-ups wait too).
+2. Art for the final vehicle and the two veterans: Mike's asset session, or
+   MODS stand-ins (vehicle from the October study; veterans need original
+   meshes, since the October veteran is a human sergeant).
+3. CORE: a vehicle behavior graph schema for the node variables (asked in the
+   week note).
