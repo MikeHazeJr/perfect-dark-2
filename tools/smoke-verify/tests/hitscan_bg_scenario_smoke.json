@@ -14,7 +14,7 @@
     "src/lib/meshraygrid.c",
     "src/lib/meshcollision.c"
   ],
-  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "log_channel_mask": "game,catalog,render,match,combat,mods,system",
   "verbose": 0,
   "timeout_seconds": 300,
   "install_state": "current",
