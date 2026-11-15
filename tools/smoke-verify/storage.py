@@ -742,6 +742,15 @@ class Storage:
     def make_room(self, required):
         limit_count = self.policy["max_full_installs"]
         limit_bytes = self.policy["max_full_install_gib_bytes"]
+        # B-1173: a new copy reserves at least peak_run_gib, so a byte budget
+        # below that can never fit one, whatever is evicted. Say so instead of
+        # blaming evidence that is not there. (Retained housekeeping never
+        # evicts and keeps its own refusal below.)
+        if not self.retain_housekeeping and self.profile_bytes() + required > limit_bytes:
+            raise StorageError(
+                "max_full_install_gib %.2f GiB cannot fit one install: a new copy reserves %.2f GiB "
+                "(its size or peak_run_gib, the larger); raise max_full_install_gib"
+                % (limit_bytes / 2**30, (self.profile_bytes() + required) / 2**30))
         while True:
             full = [x for x in self.state["installs"].values() if x["status"] != "compacted"]
             if len(full) + 1 <= limit_count and sum(x["full_bytes"] for x in full) + self.profile_bytes() + required <= limit_bytes:
