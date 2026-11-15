@@ -89,6 +89,15 @@ Tests: `tests/test_scenario_pad_fallback.cpp` (12 cases).
 `mp_hacker_central_local_smoke` now also requires the terminal and the uplink
 on real pads and forbids the no-pad errors.
 
+Verified 2026-11-15 on 86de8e08 (shared base 3, Complex, three simulants):
+`mp_hacker_central_local_smoke` PASS 31/31
+(`D:\PD2-wt\multiplayer\.claude\smoke-verify-runs\results-20261115T023803Z.json`).
+The log shows `SCENARIO.PADS: HTM fallback added 8 of 8 pad(s) from 144 waypoint
+candidate(s), existing=0`, `HTM: terminal 0 placed pad=104 prop=ok` and one
+`HTM: uplink placed pad=114 source=bank prop=ok` (no re-creation), and the match
+ran to its 40 second time limit with all four participants in the result.
+pd-tests 1896 cases green.
+
 ## 2026-11-14 B-1124 Two-process smokes on a shared install ran against the real user profile (T-NETWORKING-011)
 
 Severity high (test isolation; it writes the user's real data). Found on the

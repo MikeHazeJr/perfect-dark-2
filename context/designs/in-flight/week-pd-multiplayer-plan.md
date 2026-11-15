@@ -108,6 +108,20 @@ Progress log:
   setup objects in the public scenario source (empty `objects.json` and `setup.fields.json`; Complex loads
   with `numobjs=2`), so they have no weapon, ammo or shield pickups in any mode. Next on my side: a pickup
   assertion in the multiplayer fixtures, and the Hacker Central guard once Mike picks the behavior.
+- Capture the Case 25/25 (`results-20261115T013308Z.json`) and Pop a Cap 24/24 (`results-20261115T013959Z.json`)
+  offline on base 3. Reconnect rerun on CORE's seeded per-process installs: 113/116
+  (`results-20261115T022051Z.json`); the reconnect itself passes end to end, and the three misses are one expected
+  line, a stale lobby cutscene the client no longer has on reconnect (question to CORE before touching the
+  pinned fixture).
+- B-1125 fixed in 86de8e08 (Mike, 2026-11-15: "can we place some so there are enough?"): a Hacker Central bank
+  with fewer distinct pads than the mode needs is filled to 8 with walkable pads (navigation waypoints, spaced
+  widest first, pure picker `port/src/scenario_pad_fallback.c`, 12 Catch2 cases); the selection loop, a terminal
+  without a pad, the uplink's pick and `scenarioCreateObj` are guarded. `mp_hacker_central_local_smoke` PASS 31/31
+  (`results-20261115T023803Z.json`: 8 pads added from 144 waypoints, terminal on pad 104, uplink on pad 114).
+  The propagation check corrected the root cause: besides the missing setup objects, the scenario source keeps
+  only intro spawn rows, so no arena has case or hill pads. Capture the Case cases are created off-world, King of
+  the Hill's hill never moves, Hold the Briefcase always uses pad 0 (B-1126, SP-80). Asked CORE to carry the intro
+  case and hill commands; the same fallback for those three modes waits for Mike.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
