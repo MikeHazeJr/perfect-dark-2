@@ -1,0 +1,127 @@
+{
+  "scenario_name": "mod_vehicle_drive_smoke",
+  "description": "Maian vehicle V1 (week PD 2026-11-15): a mod vehicle can be placed and driven. The in-game mod author saves the base hoverbike as mod:vehicle_smoke_hover (a local-only stand-in: it embeds the base model, so it is never shared). The scanner binds the copy's embedded mesh through a private model slot and gives the vehicle that model number (PDVEHICLE.MODEL). --debug-swap-vehicle then gives Escape's hoverbike that model (VEHICLE.SWAP), --debug-mount-bike mounts it, and driving it runs hoverbikeUpdateMovement, which looks the vehicle up by model number every tick and fails loudly (VEHICLE.SOURCE) if the mod vehicle's physics are not found. Proves placement and the physics lookup for a mod vehicle; the mod vehicle's own model and tunables come with the Maian vehicle (V2, V3).",
+  "tags": ["vehicle", "modding", "mod-author", "pdvehicle", "recipe", "gameplay", "catalog", "pillar:modding"],
+  "paths_of_interest": [
+    "port/src/assetcatalog_scanner.c",
+    "port/src/body_head_source_bind.c",
+    "port/src/vehicle_debug.c",
+    "port/src/mod_author_runtime.c",
+    "port/src/main.c",
+    "src/game/setup.c",
+    "src/game/propobj.c",
+    "tools/smoke-verify/fixtures/mod_author/vehicle_from_base/recipe.json"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": ["mods/Vehicles/vehicle_smoke_hover"],
+  "fixtures": [
+    { "src": "tools/smoke-verify/fixtures/mod_author/vehicle_from_base/recipe.json", "dst": "mod-recipes/vehicle_from_base/recipe.json" },
+    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--mod-author",
+    "mod-recipes/vehicle_from_base/recipe.json",
+    "--launch-mission",
+    "base:escape",
+    "--debug-swap-vehicle",
+    "mod:vehicle_smoke_hover",
+    "--debug-mount-bike"
+  ],
+  "screenshots": [
+    { "at_ms": 1800, "name": "mod-vehicle-accelerating" },
+    { "at_ms": 3600, "name": "mod-vehicle-steering" }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 180000,
+      "stable_ms": 500,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Escape is live with Player 0 on foot; the skip assist passes the intro cutscene."
+    },
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "vehicle_driver_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 1000,
+      "comment": "Player 0 is mounted on the swapped hoverbike and driving through LAYER_VEHICLE_DRIVER."
+    },
+    {
+      "at_ms": 1000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "press",
+      "comment": "Accelerate: the movement path looks the mod vehicle's physics up by its model number."
+    },
+    {
+      "at_ms": 2400,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "release"
+    },
+    {
+      "at_ms": 2600,
+      "type": "action",
+      "name": "ACTION_VEHICLE_STEER_RIGHT",
+      "action": "press",
+      "comment": "Steer: the turn tunables come from the same lookup."
+    },
+    {
+      "at_ms": 3800,
+      "type": "action",
+      "name": "ACTION_VEHICLE_STEER_RIGHT",
+      "action": "release"
+    },
+    {
+      "at_ms": 5000,
+      "type": "exit",
+      "comment": "Scripted exit after driving."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mod_vehicle_drive_smoke",
+      "MODAUTHOR\\.SAVE\\.OK kind=vehicle catalog=mod:vehicle_smoke_hover mod_id=mod\\.vehicle_smoke_hover updated=0",
+      "MODAUTHOR\\.CATALOG\\.OK catalog=mod:vehicle_smoke_hover type=\\d+ enabled=1 bundled=0",
+      "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:vehicle_smoke_hover",
+      "PDVEHICLE\\.MODEL: id=mod:vehicle_smoke_hover model=mod:vehicle_smoke_hover__\\S+ modelnum=\\d+ filenum=\\d+",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "BOOT: --launch-mission 'base:escape' -> stagenum=",
+      "BOOT: --debug-mount-bike armed",
+      "BOOT: --debug-swap-vehicle mod:vehicle_smoke_hover armed",
+      "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_smoke_hover\\)",
+      "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
+      "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
+      "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE: input .*right=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "PDVEHICLE\\.MODEL\\.REJECT",
+      "VEHICLE\\.SOURCE",
+      "VEHICLE\\.SWAP: '",
+      "FIX-B\\.2: modelnum",
+      "CATALOG-FATAL"
+    ],
+    "required_counts": [
+      { "pattern": "VEHICLE: mounted", "min": 1, "max": 1 }
+    ]
+  }
+}

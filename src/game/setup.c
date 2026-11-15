@@ -50,6 +50,7 @@
 #include "asset_source_debug.h"
 #include "scenario_source_runtime.h"
 #include "net/matchsetup.h"
+#include "vehicle_debug.h"
 
 /* Phase 3: lang manifest tracking (port/src/langmanifest.c) */
 void langManifestRecordBank(s32 bank);
@@ -2493,6 +2494,9 @@ void setupCreateProps(s32 stagenum)
 					if (withobjs && (obj->flags2 & diffflag) == 0) {
 						struct hoverbikeobj *bike = (struct hoverbikeobj *)obj;
 
+						/* --debug-swap-vehicle: a mod vehicle takes this
+						 * hoverbike's place (no-op unless set). */
+						obj->modelnum = vehicleDebugSwapModelnum(obj->modelnum);
 						setupCreateObject(obj, index);
 						setupCreateHov(obj, &bike->hov);
 

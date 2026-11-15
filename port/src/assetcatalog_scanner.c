@@ -1989,6 +1989,85 @@ s32 assetCatalogFinishBodyHeadAdmission(void *admission, s32 commit)
     return ok;
 }
 
+/*
+ * The game finds a vehicle by its model number: the hoverbike code asks
+ * assetRuntimeVehicleForModelnum for the binding whose runtime id is the
+ * object's modelnum. A base vehicle is bound to its native model
+ * (MODEL_HOVBIKE). A mod vehicle's embedded .pdmesh gets a private model slot
+ * through the shared mesh binder, forced private because a vehicle saved from
+ * the base hoverbike still names FILE_PHOVBIKE, and the vehicle row takes that
+ * slot as its runtime index. A vehicle whose model is not an embedded typed
+ * mesh (the typed example's loose glTF) stays unplaceable, as before.
+ * Returns 1 when bound or when there is nothing to bind, 0 when rejected; a
+ * rejection restores the catalog.
+ */
+static s32 registerVehicleModel(const char *vehicle_id, char *err, size_t err_cap)
+{
+	char id[CATALOG_ID_LEN];
+	char model_path[FS_MAXPATH];
+	body_head_mesh_binding_t mesh;
+	external_scan_transaction_t transaction;
+	const asset_entry_t *vehicle;
+	const asset_entry_t *model;
+	asset_entry_t *row;
+	s32 filenum = 0, temporary, ok = 0;
+
+	if (err && err_cap) err[0] = '\0';
+	vehicle = vehicle_id && vehicle_id[0] ? assetCatalogResolveAny(vehicle_id) : NULL;
+	if (!vehicle || !vehicle->occupied || vehicle->type != ASSET_VEHICLE) {
+		if (err && err_cap) snprintf(err, err_cap, "vehicle row is missing: %s",
+			vehicle_id ? vehicle_id : "");
+		return 0;
+	}
+	if (vehicle->bundled) return 1;
+	if (assetArchiveTypeForPath(vehicle->ext.vehicle.model_file) != ASSET_MODEL) {
+		sysLogPrintf(LOG_NOTE,
+			"PDVEHICLE.MODEL: id=%s model=%s is not an embedded .pdmesh; "
+			"the vehicle cannot be placed", vehicle->id, vehicle->ext.vehicle.model_file);
+		return 1;
+	}
+	/* The catalog pool can grow below: keep copies, never the row pointer. */
+	if (!assetPathCopyChecked(id, sizeof(id), vehicle->id)
+			|| !assetPathCopyChecked(model_path, sizeof(model_path),
+				vehicle->ext.vehicle.model_file)) {
+		if (err && err_cap) snprintf(err, err_cap, "vehicle model path exceeds capacity: %s",
+			vehicle_id);
+		return 0;
+	}
+	temporary = vehicle->temporary;
+	memset(&mesh, 0, sizeof(mesh));
+	if (!meshSourcePreparePrivate(model_path, NULL, &mesh, err, err_cap)) return 0;
+	if (!externalScanTransactionBegin(&transaction)) {
+		if (err && err_cap) snprintf(err, err_cap, "could not checkpoint the catalog for %s", id);
+		return 0;
+	}
+	if (!catalogDepReserve(1)
+			|| !bodyHeadSourceBindMesh(&mesh, 0, temporary, &filenum, err, err_cap)) goto done;
+	model = assetCatalogResolve(mesh.id);
+	if (!model || model->type != ASSET_MODEL
+			|| model->runtime_index < MODEL_CUSTOM_START
+			|| model->runtime_index >= MODEL_CUSTOM_END) {
+		if (err && err_cap) snprintf(err, err_cap, "model %s has no private model slot", mesh.id);
+		goto done;
+	}
+	row = assetCatalogGetMutable(id);
+	if (!row || row->type != ASSET_VEHICLE) goto done;
+	row->runtime_index = model->runtime_index;
+	if (!catalogDepContains(id, mesh.id)
+			&& !catalogDepRegisterTyped(id, mesh.id, ASSET_MODEL, 0)) goto done;
+	sysLogPrintf(LOG_NOTE, "PDVEHICLE.MODEL: id=%s model=%s modelnum=%d filenum=%d",
+		id, mesh.id, row->runtime_index, filenum);
+	ok = 1;
+done:
+	if (!ok) {
+		if (!externalScanTransactionRollback(&transaction))
+			sysLoudFailf("PDVEHICLE.MODEL.ROLLBACK", "could not restore failed vehicle model admission for %s", id);
+		if (err && err_cap && !err[0]) snprintf(err, err_cap, "vehicle model admission failed: %s", id);
+	}
+	externalScanTransactionDestroy(&transaction);
+	return ok;
+}
+
 static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const char *dirpath,
                               const char *mod_id, const char *descriptor_path,
                               loader_animation_source_batch_t *batch)
@@ -5398,6 +5477,26 @@ static s32 registerTypedPdDescriptorFile(const char *descriptor_path,
 				return -1;
 			}
 		}
+		if (expected == ASSET_VEHICLE) {
+			const char *vehicle_id = iniGet(&ini, "catalog_id",
+				iniGet(&ini, "id", ""));
+			char model_err[256];
+			model_err[0] = '\0';
+			if (!vehicle_id[0]
+					|| !registerVehicleModel(vehicle_id, model_err, sizeof(model_err))) {
+				asset_entry_t *vehicle = vehicle_id[0]
+					? assetCatalogGetMutable(vehicle_id) : NULL;
+				if (vehicle) {
+					vehicle->enabled = 0;
+					vehicle->load_state = ASSET_STATE_REGISTERED;
+				}
+				sysLogPrintf(LOG_WARNING,
+					"PDVEHICLE.MODEL.REJECT: owner=%s source=%s error=%s",
+					vehicle_id[0] ? vehicle_id : "<missing>", descriptor_path,
+					model_err[0] ? model_err : "vehicle model admission failed");
+				return -1;
+			}
+		}
 		return 1;
 	}
 
@@ -6369,6 +6468,26 @@ s32 assetCatalogScanComponentsFromArchive(const char *mod_id, mod_archive_t *arc
 						theme_id[0] ? theme_id : "<missing>", entry_ref,
 						nested_err[0] ? nested_err :
 							"nested registration failed");
+					accepted = 0;
+				}
+			}
+			if (accepted && typed_archive_entry && ini_type == ASSET_VEHICLE) {
+				const char *vehicle_id = iniGet(&ini, "catalog_id",
+					iniGet(&ini, "id", ""));
+				char model_err[256];
+				model_err[0] = '\0';
+				if (!vehicle_id[0]
+						|| !registerVehicleModel(vehicle_id, model_err, sizeof(model_err))) {
+					asset_entry_t *vehicle = vehicle_id[0]
+						? assetCatalogGetMutable(vehicle_id) : NULL;
+					if (vehicle) {
+						vehicle->enabled = 0;
+						vehicle->load_state = ASSET_STATE_REGISTERED;
+					}
+					sysLogPrintf(LOG_WARNING,
+						"PDVEHICLE.MODEL.REJECT: owner=%s source=%s error=%s",
+						vehicle_id[0] ? vehicle_id : "<missing>", entry_ref,
+						model_err[0] ? model_err : "vehicle model admission failed");
 					accepted = 0;
 				}
 			}

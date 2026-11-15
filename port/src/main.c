@@ -109,6 +109,7 @@
  * tools/smoke-verify/tests/*.json + tools/smoke-verify/run.ps1.  Inert
  * unless `--smoke <path>` is on the command line. */
 #include "smoke_harness.h"
+#include "vehicle_debug.h"
 
 u32 g_OsMemSize = 0;
 s32 g_OsMemSizeMb = 64;
@@ -275,6 +276,12 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       first frame after stage load and mounts player 0 on the
  *       first OBJTYPE_HOVERBIKE prop found.  One-shot per boot;
  *       no effect on stages without a hoverbike.
+ *
+ *   --debug-swap-vehicle <vehicle catalog id>
+ *       Stage setup hook: every hoverbike a stage creates takes the
+ *       model of the named vehicle, so a mod vehicle can be driven
+ *       (with --debug-mount-bike) before levels can place vehicles.
+ *       See port/include/vehicle_debug.h.
  *
  *   --debug-spawn-at x,y,z,room
  *       Post-setupCreateProps hook: teleports player 0 to the given
@@ -2875,6 +2882,11 @@ static void bootApplyCliFastPaths(void)
 		}
 	}
 	bootApplyDebugMountBike();
+	if (sysArgGetString("--debug-swap-vehicle")) {
+		vehicleDebugSetSwap(sysArgGetString("--debug-swap-vehicle"));
+		sysLogPrintf(LOG_NOTE, "BOOT: --debug-swap-vehicle %s armed (replaces each hoverbike a stage creates)",
+			vehicleDebugSwapId());
+	}
 	bootApplyDebugSpawnAt(sysArgGetString("--debug-spawn-at"));
 	bootApplyDebugForceFirstPerson();
 	bootApplyDebugPlaceBotNearPlayer();
