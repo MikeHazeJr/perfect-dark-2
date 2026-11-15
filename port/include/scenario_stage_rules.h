@@ -49,6 +49,14 @@ extern "C" {
  *                                 the menus' particles are gray and slow, and
  *                                 a completion plays the mission-unknown tune
  *                                 (Defense); "known" is the default
+ *
+ * "hub": true marks a stage the player spends time in between missions (the
+ * Carrington Institute): cheats are not applied there, no mission timer is
+ * shown, corpses fade as in the original, the player takes no damage outside
+ * a training session, a death respawns the player instead of ending the stage,
+ * co-op AI buddies do not spawn, and its end screen offers no next mission.
+ * The hub's own training content (devices, holograms, firing range) stays with
+ * that stage, and the main menu backdrop is a separate matter.
  * Outfit names, in OUTFIT_* order: default, elvis, trent, trench,
  * frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess,
  * mrblonde, maian, negotiator.
@@ -92,11 +100,17 @@ typedef struct scenario_stage_ending {
 	s32 outcome_unknown;      /* outcome: "unknown" */
 } scenario_stage_ending_t;
 
+typedef struct scenario_stage_hub {
+	s32 present;
+	s32 hub;                  /* hub: true */
+} scenario_stage_hub_t;
+
 typedef struct scenario_stage_rules {
 	scenario_stage_weather_t weather;
 	scenario_stage_player_t player;
 	scenario_stage_ai_t ai;
 	scenario_stage_ending_t ending;
+	scenario_stage_hub_t hub;
 } scenario_stage_rules_t;
 
 /* The outfit name for an OUTFIT_* value, or NULL; and the value for a name,

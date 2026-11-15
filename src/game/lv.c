@@ -471,6 +471,20 @@ static s32 lvRollbackCommittedPlayers(
 	return rolled_back;
 }
 
+/* The hub rule (CORE, 2026-11-15): whether the current stage is a hub the
+ * player spends time in between missions. A scenario-source stage says so in
+ * its stage.json ("hub": true); a ROM stage is a hub when it is the Carrington
+ * Institute, as the game checked. See scenario_stage_rules.h for what a hub
+ * changes. */
+bool lvStageIsHub(void)
+{
+	if (bgUsesScenarioSource()) {
+		return scenarioSourceStageIsHub() != 0;
+	}
+
+	return g_Vars.stagenum == STAGE_CITRAINING;
+}
+
 bool lvReset(s32 stagenum)
 {
 	s32 i;

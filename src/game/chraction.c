@@ -4399,7 +4399,7 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 	// Don't damage if in CI training outside of training session
 	if (chr->prop == g_Vars.currentplayer->prop
 			&& g_Vars.currentplayer->training == false
-			&& mainGetStageNum() == STAGE_CITRAINING) {
+			&& lvStageIsHub()) {
 		return;
 	}
 
@@ -14109,7 +14109,7 @@ void chraTickBg(void)
 	// the OG caps (netplay parity); CITRAINING keeps them (the firing range
 	// recycles targets). corpsePersistCap < 0 means "OG fading".
 	corpsePersistCap = -1;
-	if (!g_Vars.normmplayerisrunning && g_Vars.stagenum != STAGE_CITRAINING) {
+	if (!g_Vars.normmplayerisrunning && !lvStageIsHub()) {
 		corpsePersistCap = g_NumChrSlots - CHR_CORPSE_PERSIST_HEADROOM;
 		if (corpsePersistCap < 5) {
 			corpsePersistCap = 5;

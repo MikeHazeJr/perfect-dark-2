@@ -152,8 +152,8 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("(weather->flags & WEATHERFLAG_CUTSCENE_ONLY) ? \"true\" : \"false\"") != std::string::npos);
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"ending: outcome unknown\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending\"") != std::string::npos);
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"hub: true marks the stage\") &&") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);
@@ -330,13 +330,58 @@ TEST_CASE("the stage.json ending rule decides how a stage presents its outcome",
 	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
 	REQUIRE(extractor.find("return stageGetIndex(stagenum) == STAGEINDEX_DEFENSE;") != std::string::npos);
 	REQUIRE(extractor.find(R"(s_textbufAppend(out, ",\n  \"ending\": { \"outcome\": \"unknown\" }"))") != std::string::npos);
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"ending: outcome unknown\") &&") != std::string::npos);
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"hub: true marks the stage\") &&") != std::string::npos);
 	REQUIRE(runtime.find("s32 scenarioSourceStageEnding(scenario_stage_ending_t *out)") != std::string::npos);
 	REQUIRE(endscreen.find("\tif (bgUsesScenarioSource()) {\n"
 		"\t\tscenario_stage_ending_t rule;\n\n"
 		"\t\treturn scenarioSourceStageEnding(&rule) && rule.outcome_unknown;\n"
 		"\t}\n\n"
 		"\treturn g_StageIndex == STAGEINDEX_DEFENSE;") != std::string::npos);
+}
+
+TEST_CASE("the stage.json hub rule marks the stage between missions", "[stage][scenario][stagerules]")
+{
+	Parsed hub(stage(R"("hub": true)"));
+	INFO(hub.error);
+	REQUIRE(hub.ok);
+	CHECK(hub.rules.hub.present == 1);
+	CHECK(hub.rules.hub.hub == 1);
+	Parsed not_hub(stage(R"("hub": false)"));
+	REQUIRE(not_hub.ok);
+	CHECK(not_hub.rules.hub.present == 1);
+	CHECK(not_hub.rules.hub.hub == 0);
+	Parsed none(stage(""));
+	REQUIRE(none.ok);
+	CHECK(none.rules.hub.present == 0);
+	CHECK(refusal(stage(R"("hub": 1)")).find("hub must be true or false") != std::string::npos);
+	CHECK(refusal(stage(R"("hub": { "training": true })")).find("hub must be true or false") != std::string::npos);
+
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string lv = readSource("src/game/lv.c");
+	REQUIRE(extractor.find("static s32 s_stageIsHub(s32 stagenum)\n{\n\treturn stagenum == STAGE_CITRAINING;\n}") != std::string::npos);
+	REQUIRE(extractor.find(R"(if (is_hub && s_textbufAppend(out, ",\n  \"hub\": true") != 0) {)") != std::string::npos);
+	REQUIRE(lv.find("bool lvStageIsHub(void)\n{\n\tif (bgUsesScenarioSource()) {\n"
+		"\t\treturn scenarioSourceStageIsHub() != 0;\n\t}\n\n"
+		"\treturn g_Vars.stagenum == STAGE_CITRAINING;\n}") != std::string::npos);
+
+	// Every hub rule asks the one function; the training content and the main
+	// menu stage keep their own checks.
+	auto count = [](const std::string &text, const std::string &needle) {
+		size_t n = 0;
+		for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) n++;
+		return n;
+	};
+	const struct { const char *file; size_t uses; } sites[] = {
+		{ "src/game/cheats.c", 1 }, { "src/game/hudmsg.c", 1 }, { "src/game/chraction.c", 2 },
+		{ "src/game/corpsestore.c", 1 }, { "src/game/player.c", 3 }, { "src/game/endscreen.c", 3 },
+	};
+	for (const auto &site : sites) {
+		INFO(site.file);
+		CHECK(count(readSource(site.file), "lvStageIsHub()") == site.uses);
+	}
+	CHECK(count(readSource("src/game/cheats.c"), "STAGE_CITRAINING") == 0);
+	CHECK(count(readSource("src/game/corpsestore.c"), "STAGE_CITRAINING") == 0);
+	CHECK(count(readSource("src/game/endscreen.c"), "STAGE_CITRAINING") == 0);
 }
 
 // Opt-in sweep (hidden from the default run): every .pdscenario under

@@ -6002,7 +6002,7 @@ void playerTick(bool arg0)
 				&& g_MissionConfig.iscoop
 				&& g_Vars.numaibuddies > 0
 				&& !g_Vars.aibuddiesspawned
-				&& g_Vars.stagenum != STAGE_CITRAINING
+				&& !lvStageIsHub()
 				&& g_Vars.lvframenum > 20) {
 			g_Vars.aibuddiesspawned = true;
 
@@ -6436,7 +6436,7 @@ void playerTick(bool arg0)
 				/* CI hub: death should fade and respawn at entry spawn via
 				 * playerStartNewLife (lvTick), not mainEndStage (full reload /
 				 * endscreen path). Solo missions still end on death. */
-				if (g_Vars.stagenum == STAGE_CITRAINING) {
+				if (lvStageIsHub()) {
 					/* no mainEndStage */
 				} else
 				// In network co-op, only the server triggers mission end.
@@ -7149,7 +7149,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 					 * specifically means we're on STAGE_CITRAINING where
 					 * S440 intentionally skipped `mainEndStage` to keep the
 					 * hub loaded. Handle the respawn here. */
-					if (g_Vars.stagenum == STAGE_CITRAINING) {
+					if (lvStageIsHub()) {
 						struct chrdata *chr = g_Vars.currentplayer->prop
 							? g_Vars.currentplayer->prop->chr
 							: NULL;
