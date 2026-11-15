@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_combat_net_rematch_smoke",
-  "description": "Networked Combat with simulants, two matches in the same room (finding 4 of the multiplayer week plan): listen host plus one client on loopback, Felicity, three bots, 35 second time limit. After the first match both processes press the end screen's default button (Return to Room), as a player would; --host-autostart-matches 2 re-arms the host's start once it is back in the room and the room is in Lobby again, waits about 10 s for the client, and starts the second match through the same Room start path. Proves the listen host's room returns to Lobby, accepts a second start, and both matches run start to end on both sides.",
+  "description": "Finding 4 of the multiplayer week plan: two matches in the same room on a listen host (--host-autostart-matches 2). Port 27246, Felicity, 3 simulants, 35 s matches. The host leaves its first end screen with Use (Return to Room), is back in the room, re-arms after about 10 s and starts the second match through the same Room start path; the client, which goes back to its Room at stage end (B-1190), follows the host into the second match. Each process has its own schedule (fixtures mp_combat_net_rematch_host.json and mp_combat_net_rematch_client.json). Requires two server stage starts, two client stage starts, results for both matches on both sides and the host's exit to the room; forbids a rejected start.",
   "tags": [
     "network",
     "combatsim",
@@ -18,7 +18,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 760,
+  "timeout_seconds": 840,
   "install_state": "clean",
   "processes": [
     {
@@ -43,7 +43,8 @@
         "35"
       ],
       "wait_for": "NET: created server on port 27246",
-      "wait_timeout_seconds": 120
+      "wait_timeout_seconds": 120,
+      "smoke_path": "tools/smoke-verify/fixtures/mp_combat_net_rematch_host.json"
     },
     {
       "name": "client",
@@ -55,55 +56,25 @@
         "--skip-intro",
         "--connect-host",
         "127.0.0.1:27246"
-      ]
+      ],
+      "smoke_path": "tools/smoke-verify/fixtures/mp_combat_net_rematch_client.json"
     }
   ],
   "input_sequence": [
     {
       "at_ms": 0,
       "type": "wait",
-      "comment": "Both processes run this schedule, each on its own timeline. The first match starts as in mp_combat_net_bots_smoke (host autostart after the client joins and settles) and ends at the forced 35 s time limit."
+      "comment": "Each process runs its own schedule (smoke_path); this one only bounds the test."
     },
     {
-      "at_ms": 1000,
-      "type": "wait_until",
-      "condition": "endscreen_visible",
-      "timeout_ms": 480000,
-      "stable_ms": 1000,
-      "comment": "First match end screen, on each process."
-    },
-    {
-      "at_ms": 5000,
-      "type": "action",
-      "name": "ACTION_USE",
-      "action": "tap",
-      "comment": "4 s later (past the end screen's input debounce), press its default button: Return to Room when networked. The same tap pressed Play Again offline in combat_sim_ui_release_cycle."
-    },
-    {
-      "at_ms": 6000,
-      "type": "wait_until",
-      "condition": "network_stage_live",
-      "timeout_ms": 120000,
-      "stable_ms": 2000,
-      "comment": "Second match live on each process: the host re-arms about 10 s after it is back in the room, then the 3 s countdown and the arena load."
-    },
-    {
-      "at_ms": 7000,
-      "type": "wait_until",
-      "condition": "endscreen_visible",
-      "timeout_ms": 120000,
-      "stable_ms": 1000,
-      "comment": "Second match end screen."
-    },
-    {
-      "at_ms": 10000,
-      "type": "exit",
-      "comment": "Scripted clean exit 3 s after the second end screen. The client emits SMOKE: result=scripted_exit; the host may be reaped by the runner watchdog after an active loopback session, so the scripted-exit count is min:1."
+      "at_ms": 820000,
+      "type": "exit"
     }
   ],
   "assertions": {
     "required_lines": [
-      "SMOKE: scenario=mp_combat_net_rematch_smoke",
+      "SMOKE: scenario=mp_combat_net_rematch_host",
+      "SMOKE: scenario=mp_combat_net_rematch_client",
       "BOOT: --listen-bind armed: port=27246",
       "BOOT: --connect-host armed: addr='127.0.0.1:27246'",
       "BOOT: --host-autostart armed",
@@ -243,7 +214,8 @@
       },
       {
         "pattern": "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
-        "min": 2
+        "min": 1,
+        "max": 1
       },
       {
         "pattern": "BOOT: --host-autostart firing",

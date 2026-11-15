@@ -1,5 +1,22 @@
 # Bug Tracker
 
+## 2026-11-15 B-1190 Networked clients never see the match results (T-NETWORKING-011, decision needed)
+
+Severity medium (every networked mode: the client's player gets no results screen; no crash). Seen in
+two runs: `mp_king_of_the_hill_net_smoke` (`results-20261115T132151Z.json`) and
+`mp_combat_net_rematch_smoke` (`results-20261115T150756Z.json`). At stage end the client logs `MATCH: endscreen
+shown` (that is `mpEndMatch`, not the screen) and in the same frame opens its Room (`MENU_IMGUI: room OPEN`); its
+end screen dialogs appear only minutes later, when the host shuts down and the Room closes. Cause:
+`netmsgSvcStageEndRead` (`port/src/net/netmsg.c`), on the multiplayer path, sets the local client to
+`CLSTATE_LOBBY` before `mainEndStage`, so the lobby UI opens the Room before `menutick.c`'s "match is ending"
+branch can push the end screen. The end screen's networked Continue (`endscreenGraphMpContinue`: exit to room,
+lobby resync) shows the client was meant to pass through it. Earlier status-table entries that read "end screen
+PASS" for networked modes were true for the host only. Not fixed: whether clients should see the results screen
+(and how a client still on it joins the host's next match) changes how the end of a networked match plays, so it
+is Mike's call. Option A: every player sees the results and presses Continue to go back to the Room, as in the
+original and as the Continue code expects; the host's next match start takes any client still on its results
+screen along. Option B: keep the straight return and show the last match's results in the Room.
+
 ## 2026-11-15 B-1139 A listen host could not leave its multiplayer end screen with Use (T-NETWORKING-011, finding 4)
 
 Severity high for networked matches (the host is stuck on the end screen with keyboard or controller;
