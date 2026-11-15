@@ -183,6 +183,15 @@ Progress log:
   deaths include the client's own player; a simulant's King of the Hill point agrees). The matches are 35 s with
   idle humans: no token pickup, pop, download or capture happened, so those paths are unproven over the network.
   The token re-runs after unit K get longer matches.
+- Finding 9, part (2026-11-15): the Room now offers the original's Team Score limit (1 to 400 points or no
+  limit, 0-based store with 400 = no limit like `menuhandlerMpTeamScoreLimitSlider`; shown with teams on),
+  Display Team (with teams on) and Kills Score (Hold the Briefcase, Hacker Central, King of the Hill and Capture
+  the Case, as in their original option lists; not Pop a Cap). All three already rode in the room settings and
+  the match start, so no wire change. Not done: King of the Hill hill time (`g_Vars.mphilltime` is in neither
+  the room settings nor the stage start; the host's value reaches clients only through the v62 hill body) and
+  Smart slow motion (it decides per peer from `bgRoomIsOnPlayerScreen` for every player, which a client cannot
+  answer for the host's screen, so host and client would run different time scales; needs a host-decided time
+  scale first). On slow motion is the same on every peer and stays offered.
 - Unit K written (2026-11-15, building once the networked smokes have their binary): B-1129, simulant pickups and
   drops. `SVC_BOT_PICKUP` 0x4D (v62, unreleased): the host announces each simulant pickup that took effect and a
   client replays `botPickupProp` on its copy of the simulant; `botinvDrop` makes drops on the host only and
