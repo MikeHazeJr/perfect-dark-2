@@ -98,6 +98,37 @@ TEST_CASE("the extractor writes each stage's room and light rules onto its rows"
 	REQUIRE(extractor.find("_roomtable_b1113_b1114_b1115_lightrules_sky\"") != std::string::npos);
 }
 
+TEST_CASE("the rooms bgRenderScene draws first are the extracted render_always rooms",
+		"[extraction][scenario][lightrules]")
+{
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string bg = readSource("src/game/bg.c");
+	const std::string always = between(extractor, "static s32 s_stageRoomRenderAlways(",
+		"/* A sky room:");
+	const std::string prepass = between(bg, "// Render special \"always on\" rooms",
+		"gSPPerspNormalize(gdl++, viGetPerspScale());");
+
+	auto numbers = [](const std::set<std::string> &hex) {
+		std::set<unsigned long> out;
+		for (const std::string &h : hex) {
+			out.insert(std::stoul(h, nullptr, 16));
+		}
+		return out;
+	};
+
+	// The ROM-path pre-pass draws one render_always room per stage, the old
+	// test stage included: the same stages and rooms as the extracted rule.
+	REQUIRE(tokens(always, "\\b(STAGEINDEX_[A-Z0-9_]+)\\b") == tokens(prepass, "\\b(STAGEINDEX_[A-Z0-9_]+)\\b"));
+	REQUIRE(numbers(tokens(always, "roomnum == (0x[0-9a-f]+)")) ==
+		numbers(tokens(prepass, "roomnum = (0x[0-9a-f]+);")));
+	// A scenario-source stage draws every room its rows mark render_always.
+	REQUIRE(prepass.find("&& (g_BgUsingScenarioSource ? bgNextScenarioRenderAlwaysRoom(1) >= 0 :") !=
+		std::string::npos);
+	REQUIRE(prepass.find("for (roomnum = bgNextScenarioRenderAlwaysRoom(1); roomnum >= 0;") !=
+		std::string::npos);
+	REQUIRE(bg.find("static s32 bgNextScenarioRenderAlwaysRoom(s32 from)") != std::string::npos);
+}
+
 TEST_CASE("the extracted sky rooms are the rooms the room matrix check names",
 		"[extraction][scenario][lightrules]")
 {
