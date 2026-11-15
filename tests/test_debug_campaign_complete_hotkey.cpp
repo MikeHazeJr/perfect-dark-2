@@ -153,7 +153,7 @@ TEST_CASE("release campaign runner observes strict production progression seams"
 	const std::string tick =
 		function_block_debug_hotkey(runner, "void autocampaignTick");
 	const std::string first =
-		function_block_debug_hotkey(runner, "static s32 queueFirstMission");
+		function_block_debug_hotkey(runner, "static s32 queuePlannedMission");
 	const std::string save =
 		read_text_file_debug_hotkey("port/src/savefile.c");
 	const std::string save_header =
@@ -174,6 +174,34 @@ TEST_CASE("release campaign runner observes strict production progression seams"
 	REQUIRE(first.find("menuhandlerAcceptMission(MENUOP_SET, NULL, NULL)") !=
 		std::string::npos);
 	REQUIRE(first.find("mainChangeToStage") == std::string::npos);
+	// Special assignments (solo indices after Skedar Ruins) have no next
+	// mission: each one leaves its end screen through the Main Menu choice, the
+	// runner waits for the menu the plan started from, and starts the next one
+	// through the same production entry. A special assignment the game does
+	// not offer to this agent at this difficulty is refused, never unlocked.
+	REQUIRE(runner.find("static s32 specialAssignmentOffered(s32 solo_index)") !=
+		std::string::npos);
+	REQUIRE(runner.find("const s32 count = getNumUnlockedSpecialStages();") !=
+		std::string::npos);
+	REQUIRE(runner.find("if (func0f104720(slot) == solo_index) {") != std::string::npos);
+	REQUIRE(first.find("!specialAssignmentOffered(solo_index)") != std::string::npos);
+	REQUIRE(first.find("!isStageDifficultyUnlocked(solo_index, s_run.difficulty)") !=
+		std::string::npos);
+	REQUIRE(first.find("!specialAssignmentOffered(solo_index)") <
+		first.find("menuhandlerAcceptMission(MENUOP_SET, NULL, NULL)"));
+	REQUIRE(runner.find("|| (special && s_stop_after_final_load)") != std::string::npos);
+	REQUIRE(runner.find("if (special && !campaignRunSetTerminalMenu(&s_run)) {") !=
+		std::string::npos);
+	REQUIRE(tick.find("pdguiEndscreenExitToMainMenu();") != std::string::npos);
+	REQUIRE(tick.find("mission->stage_id, \"system:menu\", 0, 0)") != std::string::npos);
+	REQUIRE(tick.find("case AC_STATE_WAIT_MENU:") != std::string::npos);
+	REQUIRE(tick.find("&& g_Vars.stagenum == STAGE_CITRAINING") != std::string::npos);
+	REQUIRE(tick.find("campaignRunRecordMenu(&s_run, 1, presence == s_menu_presence)") !=
+		std::string::npos);
+	REQUIRE(tick.find("if (queuePlannedMission(s_run.completed_count)) {") !=
+		std::string::npos);
+	REQUIRE(runner.find("g_GameFile.autostageindex != s_run.final_solo_index") !=
+		std::string::npos);
 	REQUIRE(tick.find("objectivesDebugCompleteCurrentMission()") !=
 		std::string::npos);
 	// B-1111: flag objectives are proven through the production check, with
@@ -353,4 +381,29 @@ TEST_CASE("presence reads in-match only while a solo stage is entered",
 		std::string::npos);
 	REQUIRE(pdmain.find("(g_MissionConfig.stageindex >= 0)") == std::string::npos);
 	REQUIRE(pdmain.find("presenceSetLocalState(PRESENCE_IN_MATCH);") != std::string::npos);
+}
+
+TEST_CASE("special assignments fixture runs all four from an agent the game offers them to",
+	"[debug][campaign][specials][static][t-tests-002]")
+{
+	const std::string specials =
+		read_text_file_debug_hotkey("tools/smoke-verify/tests/auto_campaign_specials.json");
+	const std::string agent =
+		read_text_file_debug_hotkey("tools/smoke-verify/fixtures/agent_specials.json");
+
+	REQUIRE(specials.find("\"src\": \"tools/smoke-verify/fixtures/agent_specials.json\"") !=
+		std::string::npos);
+	REQUIRE(specials.find("\"--auto-campaign\",\n        \"17\",") != std::string::npos);
+	REQUIRE(specials.find("\"--auto-campaign-verify\",\n        \"17\",") != std::string::npos);
+	REQUIRE(specials.find("start=17 final=20 missions=4 terminal=menu") != std::string::npos);
+	REQUIRE(specials.find("\"CAMPAIGN\\\\.AUTO: menu reached plan=\", \"min\": 4, \"max\": 4") !=
+		std::string::npos);
+	REQUIRE(specials.find("\"MISSION\\\\.GRAPH: activated mission graph 'base:mission_\", \"min\": 4, \"max\": 4") !=
+		std::string::npos);
+
+	// Skedar Ruins on all three difficulties offers Mr. Blonde's Revenge,
+	// Maian SOS and WAR!; a medal on all 32 firing range weapons offers The Duel.
+	REQUIRE(agent.find("[0, 0, 0], [1, 1, 1], [0, 0, 0], [0, 0, 0], [0, 0, 0],") != std::string::npos);
+	REQUIRE(agent.find("\"firingrangescores\": [85, 85, 85, 85, 85, 85, 85, 85, 0]") !=
+		std::string::npos);
 }

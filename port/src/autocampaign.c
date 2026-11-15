@@ -57,6 +57,7 @@ enum acState {
 	AC_STATE_DWELL_END,
 	AC_STATE_ADVANCE,
 	AC_STATE_WAIT_CREDITS,
+	AC_STATE_WAIT_MENU,
 	AC_STATE_DONE,
 	AC_STATE_FAILED,
 	AC_STATE__COUNT
@@ -73,6 +74,7 @@ static const char *const kStateName[AC_STATE__COUNT] = {
 	"DWELL_END",
 	"ADVANCE",
 	"WAIT_CREDITS",
+	"WAIT_MENU",
 	"DONE",
 	"FAILED",
 };
@@ -86,6 +88,7 @@ static const char *const kStateName[AC_STATE__COUNT] = {
 #define AC_CUTSCENE_TIMEOUT      7200u
 #define AC_ENDSCREEN_TIMEOUT      600u
 #define AC_CREDITS_TIMEOUT       3600u
+#define AC_MENU_TIMEOUT          7200u
 #define AC_SOAK_MAX_SECONDS       900
 #define AC_SOAK_STALL_FRAMES     1800u
 
@@ -103,6 +106,9 @@ static s32 s_target_start_idx;
 static s32 s_target_final_idx;
 static s32 s_stop_after_final_load;
 static s32 s_difficulty;
+/* Presence at the menu the plan started from; the menu reached between
+ * special assignments must read the same. */
+static s32 s_menu_presence = -1;
 static campaign_run_t s_run;
 static u16 s_persisted_besttimes[CAMPAIGN_RUN_MAX_MISSIONS];
 static char s_report_path[512];
@@ -213,21 +219,51 @@ static s32 resolvePlannedStage(s32 plan_index, catalog_stage_result_t *out)
 		g_SoloStages[s_run.start_solo_index + plan_index].stagenum;
 }
 
+/* A plan of special assignments: solo indices after Skedar Ruins. They have
+ * no next mission, so each one ends at the main menu and the next is started
+ * from there, as a player would. */
+static s32 planIsSpecialAssignments(void)
+{
+	return s_target_start_idx > SOLOSTAGEINDEX_SKEDARRUINS;
+}
+
+/* Whether the game's own unlock rule offers this special assignment to the
+ * loaded agent: one assignment per difficulty Skedar Ruins was completed on,
+ * and The Duel once every firing range weapon has a medal
+ * (getNumUnlockedSpecialStages and func0f104720 in mainmenu.c). */
+static s32 specialAssignmentOffered(s32 solo_index)
+{
+	const s32 count = getNumUnlockedSpecialStages();
+	s32 slot;
+
+	for (slot = 0; slot < count; slot++) {
+		if (func0f104720(slot) == solo_index) {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static s32 buildCampaignPlan(void)
 {
 	const char *ids[CAMPAIGN_RUN_MAX_MISSIONS];
 	s32 mission_count;
 	s32 i;
+	const s32 special = planIsSpecialAssignments();
+	const s32 last_index = special ? NUM_SOLOSTAGES - 1 : SOLOSTAGEINDEX_SKEDARRUINS;
 
 	if (g_NetMode != NETMODE_NONE || g_Vars.normmplayerisrunning) {
 		failRun(CAMPAIGN_RUN_FAILURE_INVALID_PLAN,
 			"release campaign runner is offline solo only");
 		return 0;
 	}
+	/* A plan is either campaign missions or special assignments, never both:
+	 * they leave their end screens in different ways. */
 	if (s_target_start_idx < 0
-			|| s_target_start_idx > SOLOSTAGEINDEX_SKEDARRUINS
+			|| s_target_start_idx > last_index
 			|| s_target_final_idx < s_target_start_idx
-			|| s_target_final_idx > SOLOSTAGEINDEX_SKEDARRUINS
+			|| s_target_final_idx > last_index
+			|| (special && s_stop_after_final_load)
 			|| (s_stop_after_final_load
 				&& s_target_final_idx == s_target_start_idx)
 			|| (s_stop_after_final_load
@@ -267,40 +303,65 @@ static s32 buildCampaignPlan(void)
 		stopFailed();
 		return 0;
 	}
-	ACLOG("plan profile='%s' difficulty=%d start=%d final=%d missions=%d",
+	if (special && !campaignRunSetTerminalMenu(&s_run)) {
+		stopFailed();
+		return 0;
+	}
+	ACLOG("plan profile='%s' difficulty=%d start=%d final=%d missions=%d terminal=%s",
 		s_run.profile, s_run.difficulty, s_run.start_solo_index,
-		s_run.final_solo_index, s_run.mission_count);
+		s_run.final_solo_index, s_run.mission_count,
+		campaignRunTerminalName(s_run.terminal));
 	return publishEvidenceOrFail("running");
 }
 
-static s32 queueFirstMission(void)
+/* Starts planned mission plan_index through the production mission-start
+ * entry, as the solo mission menu's Start does. */
+static s32 queuePlannedMission(s32 plan_index)
 {
 	catalog_stage_result_t stage;
-	if (!resolvePlannedStage(0, &stage)) {
+	const char *which = plan_index == 0 ? "first" : "next";
+	const s32 solo_index = s_run.start_solo_index + plan_index;
+	if (plan_index < 0 || plan_index >= s_run.mission_count
+			|| !resolvePlannedStage(plan_index, &stage)) {
 		failRun(CAMPAIGN_RUN_FAILURE_STAGE_ID,
-			"first catalog mission no longer resolves exactly");
+			"%s catalog mission no longer resolves exactly", which);
 		return 0;
 	}
 
-	g_MissionConfig.stageindex = (u8)s_run.start_solo_index;
+	g_MissionConfig.stageindex = (u8)solo_index;
 	g_MissionConfig.difficulty = (u8)s_run.difficulty;
 	g_MissionConfig.iscoop = 0;
 	g_MissionConfig.isanti = 0;
 	g_MissionConfig.pdmode = 0;
-	strncpy(g_MissionConfig.stage_id, s_run.expected_ids[0],
+	strncpy(g_MissionConfig.stage_id, s_run.expected_ids[plan_index],
 		sizeof(g_MissionConfig.stage_id) - 1);
 	g_MissionConfig.stage_id[sizeof(g_MissionConfig.stage_id) - 1] = '\0';
 	g_MissionConfig.stagenum = (u8)stage.stagenum;
 
+	/* A special assignment is started only when the game offers it to this
+	 * agent at this difficulty. The runner unlocks nothing. */
+	if (solo_index > SOLOSTAGEINDEX_SKEDARRUINS
+			&& (!specialAssignmentOffered(solo_index)
+				|| !isStageDifficultyUnlocked(solo_index, s_run.difficulty))) {
+		failRun(CAMPAIGN_RUN_FAILURE_UNLOCK,
+			"special assignment '%s' is not offered to agent '%s' at difficulty %d",
+			s_run.expected_ids[plan_index], s_run.profile, s_run.difficulty);
+		return 0;
+	}
+	if (plan_index == 0) {
+		s_menu_presence = (s32)presenceGetLocalState();
+	}
+
 	menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
 	if (g_MainChangeToStageNum != stage.stagenum) {
 		failRun(CAMPAIGN_RUN_FAILURE_ROUTE,
-			"production mission-start entry did not queue first stage '%s'",
-			s_run.expected_ids[0]);
+			"production mission-start entry did not queue %s stage '%s'",
+			which, s_run.expected_ids[plan_index]);
 		return 0;
 	}
-	ACLOG("queued first mission through menuhandlerAcceptMission plan=0 idx=%d stage_id='%s' stagenum=0x%02x",
-		s_run.start_solo_index, s_run.expected_ids[0], (u32)stage.stagenum);
+	ACLOG("queued %s mission through menuhandlerAcceptMission plan=%d idx=%d stage_id='%s' stagenum=0x%02x",
+		which, plan_index, solo_index, s_run.expected_ids[plan_index],
+		(u32)stage.stagenum);
 	return 1;
 }
 
@@ -366,10 +427,13 @@ static void verifyPersistedCampaign(void)
 			i, s_run.start_solo_index + i, s_run.expected_ids[i],
 			s_run.difficulty, (u32)s_persisted_besttimes[i]);
 	}
-	if (g_GameFile.autostageindex != SOLOSTAGEINDEX_SKEDARRUINS) {
+	/* The end screen leaves the auto-selected stage at the mission after the
+	 * one completed, capped at Skedar Ruins, and at the assignment itself for a
+	 * special assignment: either way the plan's final mission. */
+	if (g_GameFile.autostageindex != s_run.final_solo_index) {
 		failRun(CAMPAIGN_RUN_FAILURE_UNLOCK,
 			"restart verification expected autostageindex=%d but found %d",
-			SOLOSTAGEINDEX_SKEDARRUINS, g_GameFile.autostageindex);
+			s_run.final_solo_index, g_GameFile.autostageindex);
 		return;
 	}
 	if (!publishEvidenceOrFail("verify_complete")) {
@@ -571,7 +635,9 @@ void autocampaignArmAtDifficulty(int start_solo_index, int difficulty,
 	unsigned int flags)
 {
 	armCampaignPlanAtDifficulty(start_solo_index,
-		SOLOSTAGEINDEX_SKEDARRUINS, 0, difficulty, flags);
+		start_solo_index > SOLOSTAGEINDEX_SKEDARRUINS
+			? NUM_SOLOSTAGES - 1 : SOLOSTAGEINDEX_SKEDARRUINS,
+		0, difficulty, flags);
 }
 
 void autocampaignArmThroughLoadAtDifficulty(int start_solo_index,
@@ -627,7 +693,7 @@ void autocampaignTick(void)
 		break;
 
 	case AC_STATE_BOOT:
-		if (queueFirstMission()) {
+		if (queuePlannedMission(0)) {
 			setState(AC_STATE_WAIT_LOAD);
 		}
 		break;
@@ -821,6 +887,30 @@ void autocampaignTick(void)
 		const char *route_to;
 		catalog_stage_result_t next_stage;
 		plan_index = s_run.current_plan_index;
+		if (s_run.terminal == CAMPAIGN_RUN_TERMINAL_MENU) {
+			if (plan_index < 0 || plan_index >= s_run.mission_count
+					|| !g_MainIsEndscreen
+					|| pdguiEndscreenHasNextMission()) {
+				failRun(CAMPAIGN_RUN_FAILURE_ROUTE,
+					"special assignment endscreen is not the one without a next mission");
+				break;
+			}
+			mission = &s_run.missions[plan_index];
+			/* The end screen's Main Menu choice, as a player leaves it. */
+			pdguiEndscreenExitToMainMenu();
+			if (!campaignRunRecordRoute(&s_run, mission->solo_index,
+					mission->stage_id, "system:menu", 0, 0)) {
+				stopFailed();
+				break;
+			}
+			ACLOG("routed plan=%d idx=%d stage_id='%s' route_to='system:menu' unlocked=0",
+				plan_index, mission->solo_index, mission->stage_id);
+			if (!publishEvidenceOrFail("running")) {
+				break;
+			}
+			setState(AC_STATE_WAIT_MENU);
+			break;
+		}
 		if (plan_index < 0 || plan_index >= s_run.mission_count
 				|| !g_MainIsEndscreen
 				|| !pdguiEndscreenHasNextMission()) {
@@ -895,6 +985,47 @@ void autocampaignTick(void)
 		} else if (s_frames_in_state > AC_CREDITS_TIMEOUT) {
 			failRun(CAMPAIGN_RUN_FAILURE_TIMEOUT,
 				"Credits did not become live before timeout");
+		}
+		break;
+
+	case AC_STATE_WAIT_MENU:
+		/* The menu the plan started from: the Carrington Institute backdrop,
+		 * live and settled, with no stage change pending. */
+		if (!g_MainIsEndscreen && g_MainChangeToStageNum < 0
+				&& g_Vars.stagenum == STAGE_CITRAINING
+				&& g_Vars.lvframenum > 30u) {
+			const s32 presence = (s32)presenceGetLocalState();
+			plan_index = s_run.current_plan_index;
+			if (!campaignRunRecordMenu(&s_run, 1, presence == s_menu_presence)) {
+				stopFailed();
+				break;
+			}
+			ACLOG("menu reached plan=%d idx=%d stage_id='%s' stagenum=0x%02x presence=%d",
+				plan_index, s_run.missions[plan_index].solo_index,
+				s_run.missions[plan_index].stage_id, (u32)g_Vars.stagenum,
+				presence);
+			if (s_run.phase == CAMPAIGN_RUN_PHASE_COMPLETE) {
+				if (!publishEvidenceOrFail("complete")) {
+					break;
+				}
+				setState(AC_STATE_DONE);
+				ACLOG("menu verified live profile='%s' missions=%d difficulty=%d",
+					s_run.profile, s_run.mission_count, s_run.difficulty);
+				if (smokeHarnessIsActive()) {
+					smokeHarnessExit(0, "campaign_complete");
+				}
+				break;
+			}
+			if (!publishEvidenceOrFail("running")) {
+				break;
+			}
+			if (queuePlannedMission(s_run.completed_count)) {
+				setState(AC_STATE_WAIT_LOAD);
+			}
+		} else if (s_frames_in_state > AC_MENU_TIMEOUT) {
+			failRun(CAMPAIGN_RUN_FAILURE_TIMEOUT,
+				"main menu did not become live after the end screen (stage 0x%02x)",
+				(u32)g_Vars.stagenum);
 		}
 		break;
 

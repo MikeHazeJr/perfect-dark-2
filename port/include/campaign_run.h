@@ -18,6 +18,7 @@ typedef enum campaign_run_phase {
 	CAMPAIGN_RUN_PHASE_WAIT_COMPLETE,
 	CAMPAIGN_RUN_PHASE_WAIT_ROUTE,
 	CAMPAIGN_RUN_PHASE_WAIT_CREDITS,
+	CAMPAIGN_RUN_PHASE_WAIT_MENU,
 	CAMPAIGN_RUN_PHASE_COMPLETE,
 	CAMPAIGN_RUN_PHASE_FAILED,
 } campaign_run_phase_t;
@@ -41,6 +42,15 @@ typedef enum campaign_run_failure {
 	CAMPAIGN_RUN_FAILURE_EVIDENCE,
 } campaign_run_failure_t;
 
+/* How a plan ends. A campaign plan chains missions through the end screen's
+ * next-mission action and ends in Credits. A special-assignment plan has no
+ * next mission: every mission ends at the main menu and the next one is
+ * started from there. */
+typedef enum campaign_run_terminal {
+	CAMPAIGN_RUN_TERMINAL_CREDITS = 0,
+	CAMPAIGN_RUN_TERMINAL_MENU,
+} campaign_run_terminal_t;
+
 typedef struct campaign_run_mission {
 	s32 solo_index;
 	s32 runtime_stagenum;
@@ -55,6 +65,8 @@ typedef struct campaign_run_mission {
 	u16 besttime;
 	s32 next_unlocked;
 	s32 route_is_credits;
+	s32 route_is_menu;
+	s32 menu_reached;
 	s32 loaded;
 	s32 completed;
 	s32 routed;
@@ -72,6 +84,8 @@ typedef struct campaign_run {
 	s32 current_plan_index;
 	s32 completed_count;
 	s32 credits_verified;
+	campaign_run_terminal_t terminal;
+	s32 menu_verified;
 	char profile[CAMPAIGN_RUN_PROFILE_MAX];
 	char failure_detail[CAMPAIGN_RUN_DETAIL_MAX];
 	char expected_ids[CAMPAIGN_RUN_MAX_MISSIONS][CAMPAIGN_RUN_ID_MAX];
@@ -84,6 +98,10 @@ int campaignRunInit(campaign_run_t *run,
 	const char *profile,
 	const char *const *expected_ids,
 	s32 mission_count);
+
+/* Switches a freshly initialised plan to end each mission at the main menu.
+ * Only valid before the first mission loads. */
+int campaignRunSetTerminalMenu(campaign_run_t *run);
 
 int campaignRunRecordLoaded(campaign_run_t *run,
 	s32 solo_index,
@@ -115,11 +133,21 @@ int campaignRunRecordCredits(campaign_run_t *run,
 	s32 credits_live,
 	s32 social_idle);
 
+/* Menu-terminal plans only: the main menu became live after a mission's end
+ * screen. presence_as_at_start: presence reads what it read at the menu the
+ * plan started from (the menu backdrop is a gameplay stage, so that is not
+ * necessarily "online"). Leads to the next mission's load, or completes the
+ * plan. */
+int campaignRunRecordMenu(campaign_run_t *run,
+	s32 menu_live,
+	s32 presence_as_at_start);
+
 int campaignRunFail(campaign_run_t *run,
 	campaign_run_failure_t failure,
 	const char *detail);
 
 const char *campaignRunPhaseName(campaign_run_phase_t phase);
+const char *campaignRunTerminalName(campaign_run_terminal_t terminal);
 const char *campaignRunFailureName(campaign_run_failure_t failure);
 
 #ifdef __cplusplus
