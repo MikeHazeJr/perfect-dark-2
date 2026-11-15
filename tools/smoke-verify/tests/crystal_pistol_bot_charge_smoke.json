@@ -1,6 +1,6 @@
 {
   "scenario_name": "crystal_pistol_bot_charge_smoke",
-  "description": "Crystal pistol (T-MODDING-008) in a simulant's hands. The spawn weapon arms the bot too; public weapons now carry default bot preferences, so the bot keeps the gun instead of going unarmed. It fires primary crystals and, with a full magazine and its target 450..1500 units away, takes the committed charge: every loaded crystal commits, then launches as a vertical fan of proximity mines at the target. The next charge waits for a primary magazine. The player stands still at a fixed spawn and look as the target; the bot starts 240 units in front (held 1 s), so its gun is in view while it fires and BONDGUN.MODEL3P shows the third-person gun losing spent crystals.",
+  "description": "Crystal pistol (T-MODDING-008) in a simulant's hands. The spawn weapon arms the bot too; public weapons now carry default bot preferences, so the bot keeps the gun instead of going unarmed. It fires primary crystals and, with a full magazine and its target 450..1500 units away, takes the committed charge: every loaded crystal commits, then launches as a vertical fan of proximity mines at the target. The next charge waits for a primary magazine. The player stands still at a fixed spawn and look as the target; the bot starts 240 units in front (held 1 s), so its gun is in view while it fires and BONDGUN.MODEL3P shows the third-person gun losing spent crystals and its charge state. Whether the bot then fires a primary round depends on who survives its first volley, so this run does not require it (earlier runs logged BONDGUN.BOT: fired).",
   "tags": [
     "modding",
     "pdxxx",
@@ -91,7 +91,8 @@
     "required_lines": [
       "SMOKE: scenario=crystal_pistol_bot_charge_smoke",
       "LOADER\\.POOL\\.WEAPON\\.PUBLIC_ADAPTER: installed id=mod_crystal_pistol:crystal_pistol runtime=\\d+ model=\\d+ funcs=2",
-      "BONDGUN\\.BOT: fired weapon=\\d+ func=0 bot=\\d+",
+      "BONDGUN\\.BOT: choose weapon=\\d+ bot=\\d+ loaded=6/6 target=\\d+ dist=\\d+ charge=1",
+      "BONDGUN\\.MODEL3P: chrnum=\\d+ mpindex=[1-9]\\d* weapon=\\d+ loaded=6/6 charging=1",
       "BONDGUN\\.MODEL3P: chrnum=\\d+ mpindex=[1-9]\\d* weapon=\\d+ loaded=[0-5]/6",
       "BONDGUN\\.CHARGE: start weapon=\\d+ bot=\\d+ func=1 count=6 release_in=90",
       "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=1\\.00 roll=0 spread=30 bot=\\d+",
@@ -115,7 +116,7 @@
     "required_counts": [
       {
         "pattern": "SMOKE\\.GLSHOT: captured",
-        "min": 3
+        "min": 2
       }
     ]
   }

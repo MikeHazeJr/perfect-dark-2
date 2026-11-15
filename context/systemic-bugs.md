@@ -3552,3 +3552,33 @@ setup objects.
 intro case or hill pads, (b) no multiplayer ammo crates, (c) both. Hacker
 Central is fixed; Capture the Case, King of the Hill and Hold the Briefcase are
 open in B-1126.
+
+---
+
+## SP-83: A Gfx union member reads its second word from the wrong bytes on 64-bit
+
+**Severity: HIGH — a decoder silently gets zeros or the wrong fields from every
+command of that kind, and skips the work without a log line.**
+
+On 64-bit builds `Gwords` holds two `uintptr_t` words, so w1 starts at byte 8.
+A union member whose second-word fields are narrower than `uintptr_t` (a
+4-byte `Tri`, 32-bit bitfields) packs them at bytes 4..7, the upper half of
+w0, unless it carries a `PLATFORM_64BIT` pad. Members holding a `uintptr_t`
+(`Gdma.addr`) are aligned to byte 8 and are fine.
+
+**Known instance (B-1212, 2026-11-15):** `Gtri` had no pad, so every G_TRI1
+index read 0. `Gtri4` was padded. Generated models draw with G_TRI1 only, so no
+triangle of theirs could be hit, collided with in a rendered-room world mesh,
+drawn in x-ray, or marked by `texLoadFromGdl`.
+
+**Still unpadded, not read today:** `Gvtx.offset/seg`, `GunkC0.tile1/tile2/unk20`,
+and the second words of `Gtexture`, `Gsettile`, `Gloadtile`, `Gsettilesize`,
+`Gfillrect`, `Gsetcombine`, `Gsetcolor`, `Gline3D`. Game code reads only their
+first-word fields (`vtx.unk08`, `unkc0.subcmd`, `texture.cmd`).
+
+**Audit checklist:** before reading any Gfx union member's field, check which
+word it lives in; a second-word field on 64-bit needs the member padded (or
+read `words.w1` and shift). A unit test should decode a macro-built command
+through the member (`tests/test_gdl_span.cpp` does this for G_TRI1 and G_TRI4).
+
+`rg -n "(->|\.)(tri|tri4|vtx|line|texture|settile|loadtile|settilesize|fillrect|setcombine|setcolor|setimg|segment|unkc0)\.[a-z]" src port`

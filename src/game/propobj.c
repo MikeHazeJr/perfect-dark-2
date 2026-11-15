@@ -4001,6 +4001,192 @@ bool func0f06c28c(struct chrdata *chr, struct coord *arg1, struct coord *arg2, s
 	return result;
 }
 
+/* T-MODDING-008 diagnostic: a mod projectile's segment passed close to an
+ * on-screen character and func0f06c28c reported no hit. Re-run its two model
+ * stages with the same camera-space ray (bounding boxes, then triangles) and
+ * log what each gives, the hit distance against the segment's threshold, and
+ * where the character's root matrix sits against its position seen through
+ * the camera. At most 24 lines a process. */
+static s32 s_ProjectileChrModelTraceBudget = 24;
+static s32 s_ProjectileChrWalkBudget = 3;
+
+/* Replays func0f06bea0's node walk for the diagnostic: each bounding box the
+ * ray hits (B<hitpart>), and each display list node under a hit box with what
+ * the triangle test is given: g gdl set, o generated and owned (b bytes), n
+ * native address math used, v vertices set, h the triangle test's result. */
+static void projectileTraceChrModelWalk(struct model *model, struct coord *campos,
+		struct coord *camdir, char *out, size_t cap)
+{
+	struct modelnode *node = model->definition->rootnode;
+	struct modelnode *endnode = node;
+	struct coord far;
+	struct hitthing ht;
+	f32 sq = MAXFLOAT;
+	bool hitbox = false;
+	size_t used;
+
+	far.x = campos->x + camdir->x * 32767.0f;
+	far.y = campos->y + camdir->y * 32767.0f;
+	far.z = campos->z + camdir->z * 32767.0f;
+
+	used = (size_t)snprintf(out, cap, "gen=%d",
+		modAssetCompilerModeldefIsGenerated(model->definition) ? 1 : 0);
+
+	while (node != NULL && used + 64 < cap) {
+		u32 type = node->type & 0xff;
+
+		if (type == MODELNODETYPE_BBOX) {
+			hitbox = modelTestBboxNodeForHit(&node->rodata->bbox, modelFindNodeMtx(model, node, 0), campos, camdir);
+
+			if (hitbox) {
+				used += (size_t)snprintf(out + used, cap - used, " B%d", node->rodata->bbox.hitpart);
+			}
+		} else if (type == MODELNODETYPE_DL && hitbox) {
+			union modelrodata *rodata = node->rodata;
+			struct modelrwdata_dl *rw = (struct modelrwdata_dl *) modelGetNodeRwData(model, node);
+			Gfx *gdl = NULL;
+			u32 bytes = 0;
+			bool owned = false;
+			bool native = false;
+			bool hit = false;
+
+			if (rw != NULL && rw->gdl != NULL) {
+				owned = modAssetCompilerGeneratedGdlBytesRemaining(rw->gdl, &bytes) != 0;
+
+				if (owned) {
+					gdl = rw->gdl;
+				} else if (rw->gdl == rodata->dl.opagdl) {
+					native = true;
+					gdl = (Gfx *)((uintptr_t)rodata->dl.colours + ((uintptr_t)UNSEGADDR(rodata->dl.opagdl) & 0xffffff));
+				} else {
+					gdl = rw->gdl;
+				}
+
+				sq = MAXFLOAT;
+				hit = bgTestHitOnChr(model, campos, &far, camdir, gdl, bytes, NULL, 0,
+					rw->vertices, &sq, &ht);
+			}
+
+			used += (size_t)snprintf(out + used, cap - used, " D(g=%d,o=%d,b=%u,n=%d,v=%d,h=%d)",
+				rw != NULL && rw->gdl != NULL, owned, bytes, native,
+				rw != NULL && rw->vertices != NULL, hit);
+		} else if (type == MODELNODETYPE_DISTANCE) {
+			modelApplyDistanceRelations(model, node);
+		} else if (type == MODELNODETYPE_TOGGLE) {
+			modelApplyToggleRelations(model, node);
+		} else if (type == MODELNODETYPE_HEADSPOT) {
+			modelApplyHeadRelations(model, node);
+		}
+
+		if (node->child) {
+			node = node->child;
+		} else {
+			while (node) {
+				if (node == endnode) {
+					node = NULL;
+					break;
+				}
+
+				if (node->next) {
+					node = node->next;
+					break;
+				}
+
+				node = node->parent;
+			}
+		}
+	}
+}
+
+static void projectileTraceChrModelMiss(struct prop *projectile, struct chrdata *chr,
+		struct coord *pos1, struct coord *pos2, struct coord *campos, struct coord *camdir,
+		f32 threshold)
+{
+	struct prop *chrprop = chr->prop;
+	struct model *model = chr->model;
+	struct modelnode *node = NULL;
+	struct modelnode *hitnode = NULL;
+	struct modelnode *hitnode2 = NULL;
+	struct hitthing hit;
+	struct coord expected;
+	struct coord seg;
+	f32 savedmargin = var8005efc0;
+	f32 spec = -1.0f;
+	f32 len2;
+	f32 t;
+	f32 dx;
+	f32 dy;
+	f32 dz;
+	s32 bboxhitpart;
+	s32 trihitpart = 0;
+	s32 mtxindex = -1;
+	bool tri = false;
+	const char *buffer;
+	u8 *matrices;
+
+	if (s_ProjectileChrModelTraceBudget <= 0 || projectile == NULL
+			|| projectile->type != PROPTYPE_WEAPON || projectile->weapon == NULL
+			|| projectile->weapon->weaponnum < WEAPON_CUSTOM_START
+			|| chrprop == NULL || model == NULL || model->matrices == NULL
+			|| model->definition == NULL || (chrprop->flags & PROPFLAG_ONTHISSCREENTHISTICK) == 0) {
+		return;
+	}
+
+	/* Only the close passes. */
+	seg.x = pos2->x - pos1->x;
+	seg.y = pos2->y - pos1->y;
+	seg.z = pos2->z - pos1->z;
+	len2 = seg.x * seg.x + seg.y * seg.y + seg.z * seg.z;
+	t = len2 > 0.0f ? ((chrprop->pos.x - pos1->x) * seg.x + (chrprop->pos.y - pos1->y) * seg.y
+		+ (chrprop->pos.z - pos1->z) * seg.z) / len2 : 0.0f;
+	t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+	dx = chrprop->pos.x - (pos1->x + seg.x * t);
+	dy = chrprop->pos.y - (pos1->y + seg.y * t);
+	dz = chrprop->pos.z - (pos1->z + seg.z * t);
+
+	if (dx * dx + dy * dy + dz * dz > 60.0f * 60.0f) {
+		return;
+	}
+
+	s_ProjectileChrModelTraceBudget--;
+
+	matrices = (u8 *)model->matrices;
+	buffer = matrices >= g_VtxBuffers[g_GfxActiveBufferIndex] && matrices < g_VtxBuffers[g_GfxActiveBufferIndex + 1]
+		? "active" : ((matrices >= g_VtxBuffers[0] && matrices < g_VtxBuffers[2]) ? "previous" : "other");
+
+	expected = chrprop->pos;
+	mtx4TransformVecInPlace(camGetWorldToScreenMtxf(), &expected);
+
+	var8005efc0 = 0.0f;
+	bboxhitpart = modelTestForHit(model, campos, camdir, &node);
+
+	if (bboxhitpart > 0) {
+		tri = func0f06bea0(model, model->definition->rootnode, model->definition->rootnode,
+			campos, camdir, &hit.pos, &spec, &hitnode, &trihitpart, &mtxindex, &hitnode2);
+	}
+
+	var8005efc0 = savedmargin;
+
+	sysLogPrintf(LOG_NOTE,
+		"BONDGUN.PROJECTILE.CHRMODEL: chrnum=%d bbox_hitpart=%d tri=%d spec=%.1f threshold=%.1f matrices=%s ticked=%d root_cam=(%.0f,%.0f,%.0f) pos_cam=(%.0f,%.0f,%.0f) ray_cam=(%.0f,%.0f,%.0f) dir_cam=(%.2f,%.2f,%.2f) scale=%.3f nummatrices=%d",
+		(s32)chr->chrnum, bboxhitpart, tri ? 1 : 0, spec, threshold, buffer,
+		chrprop->lastupdateframe == g_Vars.updateframe ? 1 : 0,
+		model->matrices[0].m[3][0], model->matrices[0].m[3][1], model->matrices[0].m[3][2],
+		expected.x, expected.y, expected.z,
+		campos->x, campos->y, campos->z, camdir->x, camdir->y, camdir->z,
+		model->scale, model->definition->nummatrices);
+
+	if (bboxhitpart > 0 && !tri && s_ProjectileChrWalkBudget > 0) {
+		char walk[1024];
+
+		s_ProjectileChrWalkBudget--;
+		var8005efc0 = 0.0f;
+		projectileTraceChrModelWalk(model, campos, camdir, walk, sizeof(walk));
+		var8005efc0 = savedmargin;
+		sysLogPrintf(LOG_NOTE, "BONDGUN.PROJECTILE.CHRWALK: chrnum=%d %s", (s32)chr->chrnum, walk);
+	}
+}
+
 bool projectileFindCollidingProp(struct prop *prop, struct coord *pos1, struct coord *pos2, u32 cdtypes, struct coord *arg4, struct coord *arg5, RoomNum *rooms)
 {
 	bool result = false;
@@ -4096,6 +4282,7 @@ bool projectileFindCollidingProp(struct prop *prop, struct coord *pos1, struct c
 						bgunModTraceProjectileChrTest(prop, iterprop, pos1, pos2, 1);
 					} else {
 						bgunModTraceProjectileChrTest(prop, iterprop, pos1, pos2, 0);
+						projectileTraceChrModelMiss(prop, chr, pos1, pos2, &sp88, &sp7c, spa8);
 					}
 				} else if (iterprop->type == PROPTYPE_PLAYER
 						&& g_Vars.players[playermgrGetPlayerNumByProp(iterprop)]->bondperimenabled) {

@@ -1,5 +1,25 @@
 # Bug Tracker
 
+## 2026-11-15 B-1212 Every G_TRI1 triangle index read as 0 on 64-bit, so no triangle of a generated model could be hit (T-MODDING-008)
+
+Severity high (engine-wide on PC). `Gtri` in `include/PR/gbi.h` had no
+`PLATFORM_64BIT` padding. On 64-bit each `Gwords` word is 8 bytes, so w1
+starts at byte 8, but `Gtri.tri` sat at bytes 4..7, the zero upper half of w0:
+every `gdl->tri.tri.v[...]` read 0. `Gtri4` (PD's four-triangle command) was
+already padded (`pad2[4]`), so stock ROM models, which draw with G_TRI4, were
+fine. Generated models (the mod asset compiler emits `gSP1Triangle` only)
+lost every triangle in the readers that decode G_TRI1: `bgTestHitOnChr`
+(projectiles into characters, and single-player bullets, which use the
+precise test; multiplayer bullets use the cheap box test), the room hit tests,
+`meshWorldAddRenderedRoom`, the x-ray room renderer and `texLoadFromGdl`. The
+readers skip an all-zero triangle without a word, so it never showed in a log.
+Found by `crystal_pistol_bot_embed_smoke`: crystals passed within 12 units of
+an on-screen bot whose bounding boxes they hit, and the triangle test
+(`BONDGUN.PROJECTILE.CHRWALK`: generated body, owned display lists, vertices
+present) found nothing. Fix: the same 4-byte pad before `Tri tri` on 64-bit
+little-endian; a unit test decodes `gSP1Triangle` and G_TRI4 words through
+the union. Pattern: SP-83.
+
 ## 2026-11-15 B-1211 Bots never used mod weapons: public weapons had zeroed bot preferences (T-MODDING-008)
 
 Severity high (every `.pdweapon` weapon in a match with simulants). The public

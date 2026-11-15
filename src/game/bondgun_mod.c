@@ -78,9 +78,11 @@ static s32 s_BgunModBotChargeHand[BGUN_MOD_BOT_CHARGES];
 static s32 s_BgunModBotChargeFrame = -1;
 /* By aibotnum: the bot's last mod volley was a charge (bgunModBotChooseFunction). */
 static u8 s_BgunModBotChargedLast[MAX_BOTS];
-/* A bot charges a target this far away: from its default minimum attack
- * range (300, outside the mines' 200 trigger radius) out to 1500. */
-#define BGUN_MOD_BOT_CHARGE_MIN_DIST 300.0f
+/* A bot charges a target this far away: from just outside melee (150; in
+ * game a bot fought its target from 135..232 units, so 300 never came) out to
+ * 1500. Once on the charge function its explosive attack range (600..1200)
+ * backs it off during the windup, and its own mines never trigger on it. */
+#define BGUN_MOD_BOT_CHARGE_MIN_DIST 150.0f
 #define BGUN_MOD_BOT_CHARGE_MAX_DIST 1500.0f
 /* BONDGUN.BOT: choose lines, by aibotnum, and the stage's budget. */
 static s32 s_BgunModBotChooseLogFrame[MAX_BOTS];
