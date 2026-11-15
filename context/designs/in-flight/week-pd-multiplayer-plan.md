@@ -328,6 +328,15 @@ Progress log:
   facts: branch `week-pd/inflight-20261114`, still uncommitted in the main checkout, never compiled or run. Removed
   from MULTIPLAYER's open questions; I do not touch it. Still open for Mike: where Challenges and presets go in the
   Room.
+- Step 8 end flow, B-1193 (host control, Mike's call): a read-only map found the networked co-op/counter-op end
+  local on each machine (both players' results on each, the partner left in game on the host, Next and Retry
+  reloading alone, deaths and End Game ending it on a client). Built on 7e3704d5 and 6c817270: per-machine results,
+  the partner back to the lobby at the host's commit, the host's Next Mission / Retry Mission / Return to Room for
+  both (lobby start, or the new `SVC_MISSION_RETURN` 0x7c), a waiting note and Disconnect for the other player, no
+  client-side ends, and the final objective statuses ahead of `SVC_STAGE_END`. `--debug-end-mission` and
+  `network_coop_mission_end_smoke` give it its first game check (queued first in q_20261115173307314_394b483c on
+  binary 91a54a5d, with the render, rematch and simulant type smokes). Counter-op uses the same code; its smoke comes
+  after the co-op one passes. Note: `src/lib/main.c` is not compiled; the live `mainEndStage` is in `pdmain.c`.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
