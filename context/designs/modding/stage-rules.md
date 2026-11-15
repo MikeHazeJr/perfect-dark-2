@@ -48,6 +48,22 @@ Base stages with a rule: Chicago, G5 Building, Air Base, Crash Site.
 it reads `z_max` and `cutscene_only` instead, which hold the same values, and the
 draw code already did.
 
+## `player`
+
+What the stage dresses the player in. The game kept these as stage checks in
+`src/game/player.c` (outfit choice) and `src/game/bondgun.c` (putting on the
+disguise); the extractor writes the same conditions.
+
+| Field | Meaning |
+|---|---|
+| `perfect_agent_outfit` | the outfit worn at Perfect Agent and up (Villa: `negotiator`) |
+| `disguise` | `{outfit, untargetable}`: the outfit worn while disguised (Rescue: `lab`, Air Base: `stewardess`), and whether a disguised player cannot be targeted (Rescue) |
+
+Outfit names follow the `OUTFIT_*` constants in order: `default`, `elvis`,
+`trent`, `trench`, `frock_ripped`, `frock`, `leather`, `deepsea`, `wetsuit`,
+`snow`, `lab`, `stewardess`, `mrblonde`, `maian`, `negotiator` (a test keeps the
+reader, the checker and `constants.h` equal).
+
 ## Next families (from CORE's stage-check survey, week note checklist)
 
 Each becomes a key here unless it belongs to a room or an object:

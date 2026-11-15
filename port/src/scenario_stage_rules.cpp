@@ -91,7 +91,52 @@ void readWeather(const Json &weather, scenario_stage_weather_t &out)
 	}
 }
 
+const char *const kOutfitNames[] = {
+	"default", "elvis", "trent", "trench", "frock_ripped", "frock", "leather", "deepsea",
+	"wetsuit", "snow", "lab", "stewardess", "mrblonde", "maian", "negotiator",
+};
+const int kOutfitCount = static_cast<int>(sizeof(kOutfitNames) / sizeof(kOutfitNames[0]));
+
+s32 outfit(const Json &object, const char *key, const std::string &where)
+{
+	if (!object.contains(key) || !object[key].is_string()) refuse(where + "." + key + " must be an outfit name");
+	const s32 value = scenarioStageOutfitFromName(object[key].get<crude_json::string>().c_str());
+	if (value < 0) refuse(where + "." + key + " is not an outfit ('" + object[key].get<crude_json::string>() + "')");
+	return value;
+}
+
+void readPlayer(const Json &player, scenario_stage_player_t &out)
+{
+	if (!player.is_object()) refuse("player must be an object");
+	onlyKeys(player, { "perfect_agent_outfit", "disguise" }, "player");
+	out.present = 1;
+	out.perfect_agent_outfit = player.contains("perfect_agent_outfit")
+		? outfit(player, "perfect_agent_outfit", "player") : -1;
+	out.disguise_outfit = -1;
+	if (player.contains("disguise")) {
+		const Json &disguise = player["disguise"];
+		if (!disguise.is_object()) refuse("player.disguise must be an object");
+		onlyKeys(disguise, { "outfit", "untargetable" }, "player.disguise");
+		if (disguise.contains("outfit")) out.disguise_outfit = outfit(disguise, "outfit", "player.disguise");
+		out.disguise_untargetable = boolean(disguise, "untargetable", "player.disguise") ? 1 : 0;
+	}
+}
+
 } // namespace
+
+extern "C" const char *scenarioStageOutfitName(s32 value)
+{
+	return value >= 0 && value < kOutfitCount ? kOutfitNames[value] : nullptr;
+}
+
+extern "C" s32 scenarioStageOutfitFromName(const char *name)
+{
+	if (!name) return -1;
+	for (int i = 0; i < kOutfitCount; i++) {
+		if (std::strcmp(name, kOutfitNames[i]) == 0) return i;
+	}
+	return -1;
+}
 
 extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 	scenario_stage_rules_t *out, char *err, size_t err_cap)
@@ -108,9 +153,12 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 				root["schema"].get<crude_json::string>() != SCENARIO_STAGE_RULES_SCHEMA) {
 			refuse(std::string("stage.json must declare schema ") + SCENARIO_STAGE_RULES_SCHEMA);
 		}
-		onlyKeys(root, { "schema", "note", "weather" }, "stage.json");
+		onlyKeys(root, { "schema", "note", "weather", "player" }, "stage.json");
 		if (root.contains("note") && !root["note"].is_string()) refuse("stage.json note must be text");
+		out->player.perfect_agent_outfit = -1;
+		out->player.disguise_outfit = -1;
 		if (root.contains("weather")) readWeather(root["weather"], out->weather);
+		if (root.contains("player")) readPlayer(root["player"], out->player);
 		return 1;
 	} catch (const Refusal &refusal) {
 		std::memset(out, 0, sizeof(*out));

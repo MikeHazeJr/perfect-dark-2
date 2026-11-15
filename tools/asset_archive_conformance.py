@@ -129,7 +129,7 @@ ROOT_METADATA = {
 #   ARENA   -> ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND  (port/src/romextract_pdarena.c)
 #   MISSION -> PDMETA_SCENARIO_DEP_CACHE_KIND         (port/src/romextract_pdmeta.c)
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -1043,7 +1043,7 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "collision.flags.json": slot("per-triangle collision GEOFLAG/floortype sidecar", "scenario collision importer", "applies authoritative per-tri GEOFLAGs (DIE/LADDER/UNDERWATER/STEP/BLOCK_SIGHT/SHOOT) + footstep floortype to the collision tile cache", "collision flags are reconstructed from face normals via classifyTriFlags (FLOOR/WALL only)"),
         "room_lights.json": slot("decoded BG per-room lights sidecar", "scenario room-lights importer", "rebuilds g_BgLightsFileData for per-room dynamic brightness + shoot-out-the-lights", "extracted stages run with static lighting, no per-room dynamic light precompute"),
         "rooms.json": slot("authored per-room table: bounding box, origin, brightness range and optional room rules (render_always, sky, base_brightness, lights_unshootable, unshootable_lights)", "scenario room-table importer", "sets each room's box from the authored table, which decides the room of every pad and so whether the props placed on it are created; moves the room-relative light quads of room_lights.json to world coordinates; sets the light level a room keeps when its lights are out; applies the room's render and light rules at light setup and draws a sky room relative to the player", "room boxes are derived from collision triangles, which are never larger and are empty for a room with no collision; light quads are taken as world coordinates; every room uses the brightest range; no room is always drawn, no room is a sky and every light can be shot out"),
-        "stage.json": slot("stage-wide rules (pd2.scenario.stage.v1): weather (wind, height band, height limit, cutscene only, weather or dry rooms, fixed wind direction)", "scenario stage-rules reader", "sets up the stage's weather when the stage loads; its AI commands start the rain or snow", "the stage has no stage-wide rules: no weather setup"),
+        "stage.json": slot("stage-wide rules (pd2.scenario.stage.v1): weather (wind, height band, height limit, cutscene only, weather or dry rooms, fixed wind direction) and player (Perfect Agent outfit, disguise outfit and whether a disguised player can be targeted)", "scenario stage-rules reader", "sets up the stage's weather when the stage loads, its AI commands starting the rain or snow; dresses the player and applies the disguise rule", "the stage has no stage-wide rules: no weather setup, the default outfits, a disguise that can be targeted"),
         "mission.graph.json": slot("scenario-local mission behavior graph", "mission graph importer", "loads mission/script graph when the scenario carries its own mission logic", "mission behavior comes from a linked .pdmission or base fallback"),
     },
     ".pdmesh": {
@@ -2596,7 +2596,11 @@ def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
 # Stage-wide rules (decision 3, CORE, 2026-11-15). Keep in step with
 # port/src/scenario_stage_rules.cpp.
 STAGE_RULES_SCHEMA = "pd2.scenario.stage.v1"
-STAGE_RULES_KEYS = {"schema", "note", "weather"}
+STAGE_RULES_KEYS = {"schema", "note", "weather", "player"}
+STAGE_PLAYER_KEYS = {"perfect_agent_outfit", "disguise"}
+STAGE_OUTFITS = ["default", "elvis", "trent", "trench", "frock_ripped", "frock", "leather",
+                 "deepsea", "wetsuit", "snow", "lab", "stewardess", "mrblonde", "maian",
+                 "negotiator"]
 STAGE_WEATHER_KEYS = {"wind_speed", "y_min", "y_max", "z_max", "cutscene_only",
                       "weather_rooms", "dry_rooms", "wind_direction"}
 STAGE_WEATHER_MAX_ROOMS = 127
@@ -2620,6 +2624,26 @@ def validate_stage_json(label: str, text: str) -> list[str]:
         errors.append(f"{where} has an unknown key {key!r}")
     if "note" in doc and not isinstance(doc["note"], str):
         errors.append(f"{where} note must be text")
+    player = doc.get("player")
+    if player is not None:
+        if not isinstance(player, dict):
+            errors.append(f"{where} player must be an object")
+        else:
+            for key in sorted(set(player) - STAGE_PLAYER_KEYS):
+                errors.append(f"{where} player has an unknown key {key!r}")
+            if "perfect_agent_outfit" in player and player["perfect_agent_outfit"] not in STAGE_OUTFITS:
+                errors.append(f"{where} player.perfect_agent_outfit is not an outfit")
+            disguise = player.get("disguise")
+            if disguise is not None:
+                if not isinstance(disguise, dict):
+                    errors.append(f"{where} player.disguise must be an object")
+                else:
+                    for key in sorted(set(disguise) - {"outfit", "untargetable"}):
+                        errors.append(f"{where} player.disguise has an unknown key {key!r}")
+                    if "outfit" in disguise and disguise["outfit"] not in STAGE_OUTFITS:
+                        errors.append(f"{where} player.disguise.outfit is not an outfit")
+                    if "untargetable" in disguise and not isinstance(disguise["untargetable"], bool):
+                        errors.append(f"{where} player.disguise.untargetable must be true or false")
     weather = doc.get("weather")
     if weather is None:
         return errors

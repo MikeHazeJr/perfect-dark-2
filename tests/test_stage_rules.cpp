@@ -4,6 +4,7 @@
 // g_WeatherConfig (src/game/weather.c).
 #include "catch.hpp"
 
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -151,8 +152,8 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("(weather->flags & WEATHERFLAG_CUTSCENE_ONLY) ? \"true\" : \"false\"") != std::string::npos);
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
-	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"pd2.scenario.stage.v1\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson\"") != std::string::npos);
+	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"player: perfect_agent_outfit\") &&") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);
@@ -191,6 +192,80 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	CHECK(python_set("STAGE_RULES_KEYS") == reader_set("onlyKeys(root, {"));
 	CHECK(python_set("STAGE_WEATHER_KEYS") == reader_set("onlyKeys(weather, {"));
 	REQUIRE(conformance.find("result.errors.extend(validate_stage_json(") != std::string::npos);
+}
+
+TEST_CASE("the stage.json player rule dresses the player and decides the disguise", "[stage][scenario][stagerules]")
+{
+	Parsed villa(stage(R"("player": { "perfect_agent_outfit": "negotiator" })"));
+	INFO(villa.error);
+	REQUIRE(villa.ok);
+	CHECK(villa.rules.player.present == 1);
+	CHECK(villa.rules.player.perfect_agent_outfit == scenarioStageOutfitFromName("negotiator"));
+	CHECK(villa.rules.player.disguise_outfit == -1);
+	CHECK(villa.rules.player.disguise_untargetable == 0);
+
+	Parsed rescue(stage(R"("player": { "disguise": { "outfit": "lab", "untargetable": true } })"));
+	INFO(rescue.error);
+	REQUIRE(rescue.ok);
+	CHECK(rescue.rules.player.perfect_agent_outfit == -1);
+	CHECK(rescue.rules.player.disguise_outfit == scenarioStageOutfitFromName("lab"));
+	CHECK(rescue.rules.player.disguise_untargetable == 1);
+
+	Parsed none(stage(""));
+	REQUIRE(none.ok);
+	CHECK(none.rules.player.present == 0);
+	CHECK(none.rules.player.perfect_agent_outfit == -1);
+
+	CHECK(refusal(stage(R"("player": { "perfect_agent_outfit": "tuxedo" })")).find("is not an outfit ('tuxedo')") !=
+		std::string::npos);
+	CHECK(refusal(stage(R"("player": { "hat": "x" })")).find("unknown key 'hat'") != std::string::npos);
+	CHECK(refusal(stage(R"("player": { "disguise": "lab" })")).find("disguise must be an object") != std::string::npos);
+	CHECK(refusal(stage(R"("player": { "disguise": { "untargetable": "yes" } })"))
+		.find("untargetable must be true or false") != std::string::npos);
+
+	// The names are the OUTFIT_* constants in order, and the checker has the same list.
+	const std::string constants = readSource("src/include/constants.h");
+	const std::regex define(R"(#define OUTFIT_([A-Z_]+)\s+0x([0-9a-f]+))");
+	int outfits = 0;
+	for (std::sregex_iterator it(constants.begin(), constants.end(), define), end; it != end; ++it) {
+		std::string name = (*it)[1].str();
+		for (char &c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		const int value = std::stoi((*it)[2].str(), nullptr, 16);
+		INFO(name);
+		REQUIRE(scenarioStageOutfitName(value) != nullptr);
+		CHECK(name == scenarioStageOutfitName(value));
+		outfits++;
+	}
+	CHECK(outfits == 15);
+	CHECK(scenarioStageOutfitName(15) == nullptr);
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+	std::smatch m;
+	REQUIRE(std::regex_search(conformance, m, std::regex(R"(STAGE_OUTFITS = \[([^\]]*)\])")));
+	const std::string body = m[1].str();
+	const std::regex item("\"([^\"]+)\"");
+	int index = 0;
+	for (std::sregex_iterator it(body.begin(), body.end(), item), end; it != end; ++it, ++index) {
+		CHECK((*it)[1].str() == scenarioStageOutfitName(index));
+	}
+	CHECK(index == 15);
+
+	// The extractor's rules are the original stage checks, and the game code
+	// asks the rule on the scenario-source path.
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string player = readSource("src/game/player.c");
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(extractor.find("return stagenum == STAGE_VILLA ? OUTFIT_NEGOTIATOR : -1;") != std::string::npos);
+	REQUIRE(extractor.find("case STAGE_RESCUE:  return OUTFIT_LAB;") != std::string::npos);
+	REQUIRE(extractor.find("case STAGE_AIRBASE: return OUTFIT_STEWARDESS;") != std::string::npos);
+	REQUIRE(extractor.find("return stagenum == STAGE_RESCUE;") != std::string::npos);
+	REQUIRE(player.find("if (g_Vars.stagenum == STAGE_VILLA && lvGetDifficulty() >= DIFF_PA) {") != std::string::npos);
+	REQUIRE(player.find("case STAGE_RESCUE:  outfit = OUTFIT_LAB; break;") != std::string::npos);
+	REQUIRE(player.find("case STAGE_AIRBASE: outfit = OUTFIT_STEWARDESS; break;") != std::string::npos);
+	REQUIRE(player.find("if (rule.perfect_agent_outfit >= 0 && lvGetDifficulty() >= DIFF_PA) {") != std::string::npos);
+	REQUIRE(player.find("if (g_Vars.currentplayer->disguised && rule.disguise_outfit >= 0) {") != std::string::npos);
+	REQUIRE(bondgun.find("if (scenarioSourceStagePlayer(&rule) && rule.disguise_untargetable) {") != std::string::npos);
+	REQUIRE(bondgun.find("} else if (g_Vars.stagenum == STAGE_RESCUE) {\n\t\t\t\t\tchr->hidden |= CHRHFLAG_UNTARGETABLE;") !=
+		std::string::npos);
 }
 
 // Opt-in sweep (hidden from the default run): every .pdscenario under

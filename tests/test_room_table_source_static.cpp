@@ -215,5 +215,5 @@ TEST_CASE("the archive checker knows the room table member",
 	REQUIRE(conformance.find("\"rooms.json\",      # authored BG room table sidecar (B-1113)") !=
 		std::string::npos);
 	REQUIRE(conformance.find("\"rooms.json\": slot(") != std::string::npos);
-	REQUIRE(conformance.find("_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson\"") != std::string::npos);
+	REQUIRE(conformance.find("_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player\"") != std::string::npos);
 }

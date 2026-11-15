@@ -35520,12 +35520,18 @@ s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 		return -1;
 	}
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d source=stage.json",
+		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d source=stage.json",
 		scenario->id, s_StageWideRules.weather.present,
 		s_StageWideRules.weather.rooms_have_weather ? "weather_rooms" : "dry_rooms",
 		s_StageWideRules.weather.room_count,
 		s_StageWideRules.weather.cutscene_only,
-		s_StageWideRules.weather.has_wind_direction);
+		s_StageWideRules.weather.has_wind_direction,
+		s_StageWideRules.player.present,
+		scenarioStageOutfitName(s_StageWideRules.player.perfect_agent_outfit)
+			? scenarioStageOutfitName(s_StageWideRules.player.perfect_agent_outfit) : "-",
+		scenarioStageOutfitName(s_StageWideRules.player.disguise_outfit)
+			? scenarioStageOutfitName(s_StageWideRules.player.disguise_outfit) : "-",
+		s_StageWideRules.player.disguise_untargetable);
 	return 1;
 }
 
@@ -35536,6 +35542,17 @@ s32 scenarioSourceStageWeather(scenario_stage_weather_t *out)
 	}
 	if (out) {
 		*out = s_StageWideRules.weather;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStagePlayer(scenario_stage_player_t *out)
+{
+	if (!s_StageWideRules.player.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.player;
 	}
 	return 1;
 }

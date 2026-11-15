@@ -27,6 +27,16 @@ extern "C" {
  *                                 at most SCENARIO_STAGE_MAX_WEATHER_ROOMS)
  *   wind_direction                optional {angle, speed_x, speed_z}: a fixed
  *                                 wind instead of the changing one
+ *
+ * "player": what the stage dresses the player in (the game kept these as
+ * stage checks in src/game/player.c and src/game/bondgun.c).
+ *   perfect_agent_outfit          an outfit name worn at Perfect Agent and up
+ *   disguise                      {outfit, untargetable}: the outfit worn while
+ *                                 disguised, and whether a disguised player
+ *                                 cannot be targeted
+ * Outfit names, in OUTFIT_* order: default, elvis, trent, trench,
+ * frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess,
+ * mrblonde, maian, negotiator.
  */
 
 #define SCENARIO_STAGE_RULES_SCHEMA "pd2.scenario.stage.v1"
@@ -49,9 +59,22 @@ typedef struct scenario_stage_weather {
 	f32 wind_speed_z;
 } scenario_stage_weather_t;
 
+typedef struct scenario_stage_player {
+	s32 present;
+	s32 perfect_agent_outfit; /* OUTFIT_* value, or -1 for none */
+	s32 disguise_outfit;      /* OUTFIT_* value, or -1 for none */
+	s32 disguise_untargetable;
+} scenario_stage_player_t;
+
 typedef struct scenario_stage_rules {
 	scenario_stage_weather_t weather;
+	scenario_stage_player_t player;
 } scenario_stage_rules_t;
+
+/* The outfit name for an OUTFIT_* value, or NULL; and the value for a name,
+ * or -1. The order is the game's (a test checks it against constants.h). */
+const char *scenarioStageOutfitName(s32 outfit);
+s32 scenarioStageOutfitFromName(const char *name);
 
 /* Parse stage.json. Returns 1 and fills out (families it does not name are
  * zeroed), or 0 with the reason in err and out zeroed. */
