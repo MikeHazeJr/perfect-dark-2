@@ -834,6 +834,7 @@ s32 scenarioSourceStageWeather(struct scenario_stage_weather *out);
 s32 scenarioSourceStagePlayer(struct scenario_stage_player *out);
 s32 scenarioSourceStageAi(struct scenario_stage_ai *out);
 s32 scenarioSourceStageEnding(struct scenario_stage_ending *out);
+s32 scenarioSourceStageIsHub(void);
 
 #ifdef __cplusplus
 }

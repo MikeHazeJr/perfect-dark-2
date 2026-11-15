@@ -182,7 +182,7 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 				root["schema"].get<crude_json::string>() != SCENARIO_STAGE_RULES_SCHEMA) {
 			refuse(std::string("stage.json must declare schema ") + SCENARIO_STAGE_RULES_SCHEMA);
 		}
-		onlyKeys(root, { "schema", "note", "weather", "player", "ai", "ending" }, "stage.json");
+		onlyKeys(root, { "schema", "note", "weather", "player", "ai", "ending", "hub" }, "stage.json");
 		if (root.contains("note") && !root["note"].is_string()) refuse("stage.json note must be text");
 		out->player.perfect_agent_outfit = -1;
 		out->player.disguise_outfit = -1;
@@ -190,6 +190,11 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 		if (root.contains("player")) readPlayer(root["player"], out->player);
 		if (root.contains("ai")) readAi(root["ai"], out->ai);
 		if (root.contains("ending")) readEnding(root["ending"], out->ending);
+		if (root.contains("hub")) {
+			if (!root["hub"].is_boolean()) refuse("hub must be true or false");
+			out->hub.present = 1;
+			out->hub.hub = root["hub"].get<crude_json::boolean>() ? 1 : 0;
+		}
 		return 1;
 	} catch (const Refusal &refusal) {
 		std::memset(out, 0, sizeof(*out));

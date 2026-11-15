@@ -861,7 +861,7 @@ void endscreenContinue(s32 context)
 					menuPushDialog(&g_MissionContinueOrReplyMenuDialog);
 				}
 			} else if (stageGetIndex(g_MissionConfig.stagenum) < 0
-						|| g_Vars.stagenum == STAGE_CITRAINING
+						|| lvStageIsHub()
 						|| g_MissionConfig.stageindex >= SOLOSTAGEINDEX_MBR) {
 				if (context == 2) {
 					menuPopDialog();
@@ -927,7 +927,7 @@ MenuDialogHandlerResult endscreenHandle2PCompleted(s32 operation, struct menudia
 						} else if (g_Vars.antiplayernum >= 0
 								|| (g_Vars.coopplayernum >= 0 && PLAYERCOUNT() >= 2)
 								|| (stageGetIndex(g_MissionConfig.stagenum) < 0
-									|| g_Vars.stagenum == STAGE_CITRAINING
+									|| lvStageIsHub()
 									|| g_MissionConfig.stageindex > SOLOSTAGEINDEX_SKEDARRUINS
 									|| ((g_CheatsActiveBank0 || g_CheatsActiveBank1)
 										&& !isStageDifficultyUnlocked(g_MissionConfig.stageindex + 1, g_MissionConfig.difficulty)))) {
@@ -973,7 +973,7 @@ MenuDialogHandlerResult endscreenHandle2PFailed(s32 operation, struct menudialog
 						if (g_Vars.antiplayernum >= 0
 								|| (g_Vars.coopplayernum >= 0 && PLAYERCOUNT() >= 2)
 								|| stageGetIndex(g_MissionConfig.stagenum) < 0
-								|| g_Vars.stagenum == STAGE_CITRAINING) {
+								|| lvStageIsHub()) {
 							menuPopDialog();
 						} else {
 							endscreenResetModels();

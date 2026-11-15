@@ -79,6 +79,24 @@ on a ROM stage. What a completed mission leads to (Deep Sea straight on, Skedar
 Ruins to the credits and the alternate title) is mission behavior, so it lives
 in the mission graph instead (`mission-graph-runner.md`, mission endings).
 
+## `hub`
+
+`"hub": true` marks the stage the player spends time in between missions (the
+Carrington Institute). On it: cheats are not applied (`cheats.c`), no mission
+timer is shown (`hudmsg.c`), corpses fade as in the original instead of
+persisting (`chraction.c`, `corpsestore.c`), the player takes no damage outside
+a training session (`chraction.c`), a death respawns the player instead of
+ending the stage and co-op AI buddies do not spawn (`player.c`), and its end
+screen offers no next mission (`endscreen.c`). All of these ask one function,
+`lvStageIsHub` (`lv.c`): the rule on a scenario-source stage, the Carrington
+Institute on a ROM stage.
+
+Not part of the rule, and still checked by stage: the Institute's own training
+content (the device and holo training, the firing range, its tagged objects and
+target models, the tour), which belongs to that stage's objects and AI, and the
+PC main menu, which runs on the Institute (file select, menu music, the menu
+camera, the lobby): those are about the menu stage, not about a hub.
+
 Outfit names follow the `OUTFIT_*` constants in order: `default`, `elvis`,
 `trent`, `trench`, `frock_ripped`, `frock`, `leather`, `deepsea`, `wetsuit`,
 `snow`, `lab`, `stewardess`, `mrblonde`, `maian`, `negotiator` (a test keeps the
@@ -91,7 +109,6 @@ Each becomes a key here unless it belongs to a room or an object:
 - `stars`: count, grid and below-horizon rule (`stars.c`, the starfield
   allocation in `lv.c`, the draw in `bg.c`). B-1172 first: the scene renderer
   does not draw stars at all yet.
-- `hub`: one flag for the training stage's ~25 special cases.
 - Escape's gas (a stage-level sphere and door tags; its rooms on `rooms.json`).
 - Animated textures and sparks (`dyntex.c`, `sparks.c`).
 - The stage's text bank (`lang.c`), if it is needed before the scenario is read.
