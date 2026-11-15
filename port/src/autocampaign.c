@@ -229,19 +229,12 @@ static s32 planIsSpecialAssignments(void)
 
 /* Whether the game's own unlock rule offers this special assignment to the
  * loaded agent: one assignment per difficulty Skedar Ruins was completed on,
- * and The Duel once every firing range weapon has a medal
- * (getNumUnlockedSpecialStages and func0f104720 in mainmenu.c). */
+ * and The Duel once every firing range weapon has a medal. The rule lives in
+ * soloStageIsOffered (mainmenu.c), which the PC mission menu uses too
+ * (B-1117), so the runner and the menu cannot disagree. */
 static s32 specialAssignmentOffered(s32 solo_index)
 {
-	const s32 count = getNumUnlockedSpecialStages();
-	s32 slot;
-
-	for (slot = 0; slot < count; slot++) {
-		if (func0f104720(slot) == solo_index) {
-			return 1;
-		}
-	}
-	return 0;
+	return soloStageIsOffered(solo_index) ? 1 : 0;
 }
 
 static s32 buildCampaignPlan(void)

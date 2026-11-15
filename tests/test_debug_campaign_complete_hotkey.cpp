@@ -181,9 +181,32 @@ TEST_CASE("release campaign runner observes strict production progression seams"
 	// not offer to this agent at this difficulty is refused, never unlocked.
 	REQUIRE(runner.find("static s32 specialAssignmentOffered(s32 solo_index)") !=
 		std::string::npos);
-	REQUIRE(runner.find("const s32 count = getNumUnlockedSpecialStages();") !=
+	// B-1117 (decision 8, Mike 2026-11-15: unlock as in the original): one
+	// rule, soloStageIsOffered in mainmenu.c, used by the runner and by the
+	// PC mission menu, so they cannot disagree.
+	REQUIRE(runner.find("return soloStageIsOffered(solo_index) ? 1 : 0;") !=
 		std::string::npos);
-	REQUIRE(runner.find("if (func0f104720(slot) == solo_index) {") != std::string::npos);
+	{
+		const std::string mainmenu =
+			read_text_file_debug_hotkey("src/game/mainmenu.c");
+		const std::string offered =
+			function_block_debug_hotkey(mainmenu, "bool soloStageIsOffered");
+		REQUIRE(offered.find("count = getNumUnlockedSpecialStages();") !=
+			std::string::npos);
+		REQUIRE(offered.find("if (func0f104720(slot) == stageindex) {") !=
+			std::string::npos);
+		REQUIRE(offered.find("return isStageDifficultyUnlocked(stageindex, DIFF_A);") <
+			offered.find("count = getNumUnlockedSpecialStages();"));
+		const std::string solomenu =
+			read_text_file_debug_hotkey("port/fast3d/pdgui_menu_solomission.cpp");
+		const std::string accessible =
+			function_block_debug_hotkey(solomenu, "static bool missionIsAccessible");
+		REQUIRE(accessible.find("return soloStageIsOffered(stageIdx) != 0;") !=
+			std::string::npos);
+		REQUIRE(accessible.find("isStageDifficultyUnlocked") == std::string::npos);
+		REQUIRE(solomenu.find("s32          soloStageIsOffered(s32 stageindex);") !=
+			std::string::npos);
+	}
 	REQUIRE(first.find("!specialAssignmentOffered(solo_index)") != std::string::npos);
 	REQUIRE(first.find("!isStageDifficultyUnlocked(solo_index, s_run.difficulty)") !=
 		std::string::npos);
