@@ -11,6 +11,10 @@
 - A player who drops out of a networked King of the Hill match and rejoins
   gets the host's current hill back.
 
+- Simulants now score their Pop a Cap points (surviving as the victim, and
+  killing the victim) and their Hacker Central download points. Players 5 to
+  8 no longer receive a simulant's points in those modes.
+
 - Fix a host crash a few seconds into some networked matches.
 
 - Capture the Case teams start the match at their own base again.

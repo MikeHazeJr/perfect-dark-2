@@ -266,6 +266,12 @@ Progress log:
   teams 5 to 8 started in team 1's region, and the respawn sector used the raw team number, so with Red and Blue
   Blue never got its sector. One sector per active team up to `MAX_TEAMS`, numbered among the active teams. Not run in
   game (no smoke has five or more teams).
+- Fourth turn (binary 71486ce2 = eeadbcb1): `combat_sim_defect_cohort` 35/35 on its first ever run (12 simulants on
+  Car Park, T-ENGINE-005); `mp_pop_a_cap_net_smoke` 81/81 with B-1136 fixed in play (the simulant victim ended with 2
+  survival points, one per minute, both sides agree). The rematch ran its first match, but the host never left its
+  end screen: B-1139, the "match is ending" branch of `menutick.c` pushed a dialog for the remote client's player as
+  well, and one Use press does not leave a two-player end screen. The networked client goes straight back to its Room
+  at stage end (no end screen there). Fixed in 854b044c; rematch re-queued.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
