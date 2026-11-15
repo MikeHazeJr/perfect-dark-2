@@ -61,6 +61,8 @@ param(
     [switch]$ListTests,
     [switch]$ListScopes,
     [switch]$NoBuild,
+    [switch]$RetainHousekeeping,
+    [string]$TestRetentionContextFile = "",
     [switch]$Clean,
     [switch]$BuildVerbose,
     [int]$BuildTimeoutSeconds = 60,
@@ -71,6 +73,12 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# Never silently downgrade retained intent into the current deleting fixtures.
+# Actual helper/fixture, binary binding and closeout integration is a later cohort.
+if ($RetainHousekeeping -or $TestRetentionContextFile) {
+    throw 'Retained native fixtures and canonical closeout are not integrated; no setup, build or test admitted.'
+}
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = Split-Path -Parent $ScriptDir
