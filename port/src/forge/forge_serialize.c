@@ -24,6 +24,7 @@
 
 #include "system.h"
 #include "fs.h"
+#include "modmgr.h"
 
 /* ============================================================
  * Path helpers
@@ -31,8 +32,10 @@
 
 static void forgeSerializeBuildModDir(const char *slug, char *out, size_t n)
 {
-	const char *modroot = fsGetModDir();
-	if (!modroot) modroot = "mods";
+	/* Forge maps are mods: the user mods folder, or an explicit --moddir,
+	 * both of which modmgrGetModsDir reports (mods_roots.h). */
+	const char *modroot = modmgrGetModsDir();
+	if (!modroot || !modroot[0]) modroot = "mods";
 	snprintf(out, n, "%s/Forge Maps/%s", modroot, slug ? slug : "untitled");
 }
 

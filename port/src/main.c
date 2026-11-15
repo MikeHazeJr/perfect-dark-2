@@ -683,8 +683,10 @@ static void bootRunCatalogWork(void *arg)
 	 * .pdmod INIs and loose folder layouts share a valid catalog target. */
 	modmgrInit();
 	{
-		const char *modsdir = modmgrGetModsDir();
-		if (modsdir) {
+		/* Every mods folder the scan read, the user folder last: the
+		 * catalog keeps the last registration of an id. */
+		for (s32 root = modmgrGetModsRootCount() - 1; root >= 0; --root) {
+			const char *modsdir = modmgrGetModsRoot(root);
 			assetCatalogScanComponents(modsdir);
 			assetCatalogScanBotVariants(modsdir);
 		}
