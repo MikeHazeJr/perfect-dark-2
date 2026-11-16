@@ -11301,3 +11301,39 @@ Next
   base refresh after landing for today's kind moves and the new ai/ bank).
 - AI lists as graphs slice 2 (the shadow walk); the two simulant twins;
   a test mod with a .pdai for the mod bank proof.
+
+## 2026-11-16 (13:25-14:21 UTC) - CORE: both turns passed; Object rules ticked; week-pd/core posted ready for Mike's merge call
+
+What happened
+- Turn q_20261116111144955_af9935d1 (13:34-13:56 UTC, client 81a47d96, private
+  copy): release 56/56, special assignments 44/44 (outcome parity on all 21
+  missions; each delivers phase active then complete once),
+  combat_sim_infiltration_lifts 15/15 (4 lifts once by the multiplayer rule,
+  no overlay: B-1253 fixed in play), Complex 12/12 with B-1204's pad line
+  (226 pads, 5 with a box of their own), the bank written once and both
+  round trips 46/46 exact, conformance 0 errors. Object rules ticked.
+- Turn q_20261116120723346_a56d5b4c (13:56-14:15 UTC, client 276ca402):
+  re-extraction for _aiedges once (87 scenarios, 47 arenas, 21 missions, the
+  bank with 5,321 edges), then nothing; conformance 0 errors with the tool
+  that recomputes every AI edge from the rows (Defection: 2,014 next, 394
+  branch, 224 goto); release 56/56, specials 44/44, Complex 12/12 with every
+  stage running the 46 global lists from base:ai_global (31 stage loads, no
+  refusal).
+- 02df3f3f: the release and special-assignment fixtures pin one active and
+  one complete phase per mission (17 and 4, exactly; each aggregated log
+  holds one copy, the receipts two) and the bank in play; pd-tests 2,025.
+- Week note: the Global AI lists and Mission flow rows carry the in-game
+  evidence; the per-mission table's Loads, Forced and Save/load columns are
+  11-16 for all 21 (Soak and Natural unchanged), with an evidence line under
+  the table; 14:20: week-pd/core posted as ready for Mike's merge call (head
+  02df3f3f, 184 commits ahead of dev 841650c7; one shared base refresh after
+  landing).
+
+Next
+- AI lists as graphs slice 2: the shadow walk (a (list, offset) -> node table
+  per compiled list, the edge each executed command takes compared with the
+  interpreter's next offset, and the campaign parity line); then the two
+  simulant twins (MULTIPLAYER's semantics, ai-list-graphs.md).
+- A test mod with a .pdai for the mod bank proof.
+- Mission flow slice 3 once the outcome probe has held on the PA, SA and soak
+  campaigns too.
