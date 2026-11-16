@@ -253,6 +253,9 @@ a Modding Hub tab for players), and the tools grow with the mods.
   review. Draft 2026-11-16: `vehicle-graph-v1.md` (events, gates and
   `og.vehicle.*` modules on the mission graph runner's rules, the base
   hoverbike's graph, the Maian graph and variables, five questions for CORE).
+  Boost input DECIDED by Mike 2026-11-16: a new mappable action, defaults
+  Shift on keyboard and A on an Xbox controller; the vehicle handbrake's
+  controller default moves from A to B (it keeps Space on keyboard).
 - V4. Two seats: driver and gunner, mount and dismount per seat, a camera per
   seat; the seat on the wire is MULTIPLAYER's message.
 - V5. Turret: gunner aim, fire and lock/zoom on the turret input layer; yaw
@@ -312,7 +315,8 @@ unlikely to finish this week; they stay in this plan.
    MODS stand-ins (vehicle from the October study; veterans need original
    meshes, since the October veteran is a human sergeant).
    Vehicle answered 2026-11-15: MODS makes it with Tripo (the `pd-game-model`
-   skill); the veterans are still open.
+   skill). Veterans answered by Mike 2026-11-16: MODS makes both (male and
+   female) with Tripo, the same way as the vehicle.
 3. CORE: a vehicle behavior graph schema for the node variables (asked in the
    week note). Answered: MODS drafts it; the draft is `vehicle-graph-v1.md`,
    waiting for CORE's review.
