@@ -1,5 +1,19 @@
 # Session Log (Active)
 
+2026-11-15 (21:15 ET) MULTIPLAYER, continued. All pushed (head cecdb143). Two game turns since 19:55: co-op mission end
+PASS 121/121 (9078eb6b) and counter-op mission end 123/124 (30973012; host control works, the Anti client is taken
+along; the miss was B-1198). Each run uncovered the next layer of the Combat rematch: B-1195's fix held in play, then
+B-1197 (with the host's tick running again, closing networked results fell into `menuTick`'s offline close and loaded
+CI as a networked host; fixed: that close does nothing while networked), then B-1200 (the first match's random spawn
+weapon roll stayed in `g_MatchConfig` and the next lobby start refused it; fixed: the match end forgets the roll).
+Named and fixed in code: B-1194 (a simulant's held weapon dropped at death had a dynamic id only the host knew; the
+host announces it, the client's puppet retires its copy) and B-1196 (a guard the host's AI clones, `try_spawn_clone2`,
+existed only on the host; new `SVC_NPC_SPAWN` 0x7e, unreleased v62, plus `--debug-clone-guard` for the co-op smoke),
+both under new pattern SP-85 (claimed). B-1198 fixed in code (a disconnect ends a networked mission without
+results). B-1199 open and reported to CORE (the mission-end Agent Profile save is refused; diagnostic added). The
+co-op/counter-op mission end is in UNRELEASED.md. Next: game turn Q_20261116021023271_02bb364c on binary 30628ea5
+(rematch, co-op with a cloned guard, simulant types net, counter-op), expected to start about 03:45 UTC.
+
 2026-11-15 (19:55 ET) MULTIPLAYER, continued. All pushed (head 3cad23d4). The 8c56ad72 game turn proved in play the
 results default focus (the host leaves Combat results with Use), a client pushing its own results (B-1190 part 2)
 and the co-op host control (Next Mission takes the client along; per-machine results with both players' stats; 119/121).
