@@ -8,11 +8,20 @@
 - After a networked match the Room no longer opens on top of the host's
   results screen.
 
+- Every player of a networked Combat Simulator match now sees the results,
+  and the Room shows who is still reviewing match stats. The host's Return
+  to Room no longer crashes or reloads the training stage, and its next
+  match in the same Room starts and takes along anyone still on their
+  results.
+
 - In networked co-op and counter-op, each player now sees only their own
   mission results, and co-op results show both players' stats. The host
   chooses what comes next: its Next Mission takes the other player along
   into the next mission, and in counter-op that player stays the enemy
   agent.
+
+- A networked co-op partner now sees the guards that appear during a
+  mission, such as a guard calling in a copy of itself.
 
 - Networked clients now see the simulants: they are drawn, animated and stay
   on the ground instead of disappearing.
