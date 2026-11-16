@@ -110,6 +110,15 @@ s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
 s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 objtype,
 	const char *catalog_id, s32 player);
 void scenarioSourceGraphObjectEventsReport(const char *reason);
+/* object-events.md slice 3: a query from a native seam before the native
+ * rule (MISSION_GRAPH_EVENT_PICKUP_REQUESTED, _DOOR_OPEN_REQUESTED), with the
+ * same payload. Returns 1 when a graph refused it (og.pickup.refuse,
+ * og.door.refuse), 0 to let the native rule decide. Asked on the host only. */
+s32 scenarioSourceGraphObjectQuery(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player);
+/* Whether any active graph handles that query kind (cheap; a seam asks
+ * first, so the base game builds no payload). */
+s32 scenarioSourceGraphHandlesObjectQuery(s32 kind);
 s32 scenarioSourceMissionGraphRequestEnd(s32 completed);
 s32 scenarioSourceMissionGraphForcedOutcome(s32 *out_complete);
 s32 scenarioSourceMissionGraphTakePendingEnd(void);

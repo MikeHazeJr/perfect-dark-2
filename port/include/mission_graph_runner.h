@@ -72,6 +72,11 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_DOOR_OPENED 8
 #define MISSION_GRAPH_EVENT_DOOR_CLOSED 9
 #define MISSION_GRAPH_EVENT_OBJECT_USED 10
+/* object-events.md slice 3: queries, fired before the native rule; a
+ * program that runs og.pickup.refuse or og.door.refuse refuses the pickup
+ * or keeps the door shut (as a locked one), else the native rule decides. */
+#define MISSION_GRAPH_EVENT_PICKUP_REQUESTED 11
+#define MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED 12
 
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts
@@ -113,11 +118,19 @@ s32 missionGraphPhaseFromText(const char *text);
 
 typedef struct mission_graph_program mission_graph_program_t;
 
-/* The caller's native module table: whether an og.* kind exists, and running
- * one. run returns 1 when the module ran and 0 when it refused the event. */
+/* object-events.md slice 3: a program node's parameters, its scalar fields
+ * other than id and kind, as text: a string as it is, a whole number in
+ * decimal, a boolean as "true" or "false". NULL for a field it lacks. */
+typedef struct mission_graph_params mission_graph_params_t;
+const char *missionGraphParamText(const mission_graph_params_t *params, const char *key);
+
+/* The caller's native module table: whether an og.* kind (or a native
+ * gate.* kind, object-events.md slice 3) exists, and running one. For a
+ * module, run returns 1 when it ran and 0 when it refused the event; for a
+ * native gate, 1 when it passes and 0 when it fails. params are the node's. */
 typedef s32 (*mission_graph_module_known_fn)(const char *kind);
 typedef s32 (*mission_graph_module_run_fn)(const char *kind, const char *node_id,
-	const mission_graph_event_t *event, void *user);
+	const mission_graph_params_t *params, const mission_graph_event_t *event, void *user);
 
 /* Compile mission.graph.json text. Returns NULL and writes the reason to err
  * when the graph is malformed or names something the runner cannot execute. */

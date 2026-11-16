@@ -1270,6 +1270,8 @@ typedef struct scenario_source_graph_state {
 	 * whether their totals were logged. */
 	s32 object_event_counts[4];
 	s32 object_events_reported;
+	/* object-events.md slice 3: queries refused on this stage (pickup, door). */
+	s32 object_query_refusals[2];
 	s32 mission_forced_outcome;  /* og.mission.end_*: 0 none, 1 failed, 2 completed */
 	s32 mission_end_pending;     /* og.mission.end_*: the stage ends after the check */
 } scenario_source_graph_state_t;
@@ -1315,10 +1317,12 @@ static void s_reportObjectEvents(const char *reason)
 	}
 	s_ActiveScenarioGraphs.object_events_reported = 1;
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d reason=%s backend=graph.level.runner",
+		"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d pickup.refused=%d door.refused=%d reason=%s backend=graph.level.runner",
 		s_ActiveScenarioGraphs.scenario_id, s_ActiveScenarioGraphs.object_event_counts[0],
 		s_ActiveScenarioGraphs.object_event_counts[1], s_ActiveScenarioGraphs.object_event_counts[2],
-		s_ActiveScenarioGraphs.object_event_counts[3], reason);
+		s_ActiveScenarioGraphs.object_event_counts[3],
+		s_ActiveScenarioGraphs.object_query_refusals[0],
+		s_ActiveScenarioGraphs.object_query_refusals[1], reason);
 }
 
 static void s_resetActiveScenarioGraphs(void)
@@ -34928,6 +34932,10 @@ s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
  * on a stage is logged with its payload, every one that ran a module or
  * failed is logged, and the totals are logged once per stage. Returns the
  * modules run. */
+/* How deep object events and queries may nest (a module causing another). */
+#define SCENARIO_OBJECT_EVENT_MAX_DEPTH 4
+static s32 s_ObjectEventDepth;
+
 s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 objtype,
 	const char *catalog_id, s32 player)
 {
@@ -34942,6 +34950,16 @@ s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 ob
 	if (index < 0 || index >= 4 || !s_ActiveScenarioGraphs.level_graph_active) {
 		return 0;
 	}
+	/* slice 3: a module may cause another object event (og.pickup.give
+	 * collects an object); a chain deeper than this is cut. */
+	if (s_ObjectEventDepth >= SCENARIO_OBJECT_EVENT_MAX_DEPTH) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s not delivered: object events nested %d deep",
+			names[index], s_ActiveScenarioGraphs.scenario_id, object && object[0] ? object : "-",
+			s_ObjectEventDepth);
+		return 0;
+	}
+	s_ObjectEventDepth++;
 	memset(&event, 0, sizeof(event));
 	event.kind = kind;
 	event.objective_index = -1;
@@ -34958,6 +34976,7 @@ s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 ob
 		mission_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,
 			missionGraphModuleRun, NULL);
 	}
+	s_ObjectEventDepth--;
 	s_ActiveScenarioGraphs.object_event_counts[index]++;
 	if (s_ActiveScenarioGraphs.object_event_counts[index] == 1 || level_ran != 0 || mission_ran != 0) {
 		sysLogPrintf(level_ran < 0 || mission_ran < 0 ? LOG_WARNING : LOG_NOTE,
@@ -34967,6 +34986,82 @@ s32 scenarioSourceGraphObjectEvent(s32 kind, const char *object, s32 tag, s32 ob
 			player, level_ran, mission_ran);
 	}
 	return (level_ran > 0 ? level_ran : 0) + (mission_ran > 0 ? mission_ran : 0);
+}
+
+/* object-events.md slice 3: a query from a native seam, before the native
+ * rule (event.pickup.requested, event.door.open_requested). Returns 1 when
+ * the level program or, on a mission, the mission program refused it
+ * (og.pickup.refuse, og.door.refuse), 0 to let the native rule decide. A
+ * program without a handler for the kind is not asked, so the base game's
+ * rules decide exactly as before. The first refusal of each kind on a stage
+ * is logged, and the refusals are counted in the stage totals. */
+s32 scenarioSourceGraphObjectQuery(s32 kind, const char *object, s32 tag, s32 objtype,
+	const char *catalog_id, s32 player)
+{
+	const s32 index = kind == MISSION_GRAPH_EVENT_PICKUP_REQUESTED ? 0
+		: kind == MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED ? 1 : -1;
+	const char *object_kind = objtype >= 0 && objtype <= 0xff ? s_setupObjTypeToKind((u8)objtype) : NULL;
+	s32 ask_level;
+	s32 ask_mission;
+	mission_graph_event_t event;
+	s32 level_ran = 0;
+	s32 mission_ran = 0;
+	s32 outer;
+	s32 refused;
+
+	if (index < 0 || !s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	ask_level = s_ActiveScenarioGraphs.level_program
+		&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.level_program, kind);
+	ask_mission = s_ActiveScenarioGraphs.mission_graph_active && s_ActiveScenarioGraphs.mission_program
+		&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program, kind);
+	if ((!ask_level && !ask_mission) || s_ObjectEventDepth >= SCENARIO_OBJECT_EVENT_MAX_DEPTH) {
+		return 0;
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = kind;
+	event.objective_index = -1;
+	event.object = object ? object : "";
+	event.tag = tag;
+	event.object_kind = object_kind;
+	event.catalog_id = catalog_id;
+	event.player = player;
+	s_ObjectEventDepth++;
+	outer = missionGraphModulesQueryBegin();
+	if (ask_level) {
+		level_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.level_program, &event,
+			missionGraphModuleRun, NULL);
+	}
+	if (ask_mission) {
+		mission_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,
+			missionGraphModuleRun, NULL);
+	}
+	refused = missionGraphModulesQueryEnd(outer);
+	s_ObjectEventDepth--;
+	if (refused) {
+		s_ActiveScenarioGraphs.object_query_refusals[index]++;
+	}
+	if ((refused && s_ActiveScenarioGraphs.object_query_refusals[index] == 1)
+			|| level_ran < 0 || mission_ran < 0) {
+		sysLogPrintf(level_ran < 0 || mission_ran < 0 ? LOG_WARNING : LOG_NOTE,
+			"SCENARIO.GRAPH: event.%s '%s' object=%s tag=%d kind=%s player=%d refused=%d level_modules=%d mission_modules=%d backend=graph.level.runner",
+			index == 0 ? "pickup.requested" : "door.open_requested",
+			s_ActiveScenarioGraphs.scenario_id, event.object[0] ? event.object : "-", tag,
+			object_kind ? object_kind : "-", player, refused, level_ran, mission_ran);
+	}
+	return refused ? 1 : 0;
+}
+
+s32 scenarioSourceGraphHandlesObjectQuery(s32 kind)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	return (s_ActiveScenarioGraphs.level_program
+			&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.level_program, kind))
+		|| (s_ActiveScenarioGraphs.mission_graph_active && s_ActiveScenarioGraphs.mission_program
+			&& missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program, kind));
 }
 
 void scenarioSourceGraphObjectEventsReport(const char *reason)

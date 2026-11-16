@@ -41,8 +41,10 @@ s32 knownModule(const char *kind)
 		k == "og.progress.unlock_alt_title";
 }
 
-s32 runModule(const char *kind, const char *node_id, const mission_graph_event_t *event, void *)
+s32 runModule(const char *kind, const char *node_id, const mission_graph_params_t *params,
+	const mission_graph_event_t *event, void *)
 {
+	(void)params;
 	g_calls.push_back(Call{ kind, node_id, event->status, event->objective_number, event->seam });
 	return g_refusing.count(node_id) ? 0 : 1;
 }

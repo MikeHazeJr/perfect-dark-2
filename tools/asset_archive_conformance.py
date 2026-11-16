@@ -2629,18 +2629,30 @@ MISSION_GRAPH_EXEC_EVENTS = {"event.objective.status_changed", "event.mission.co
                              "event.mission.continue", "event.mission.phase_changed",
                              "event.volume.entered", "event.volume.left",
                              "event.pickup.collected", "event.door.opened",
-                             "event.door.closed", "event.object.used"}
-# object-events.md slice 2: each may filter one object by its record_id.
+                             "event.door.closed", "event.object.used",
+                             "event.pickup.requested", "event.door.open_requested"}
+# object-events.md slices 2 and 3: each may filter one object by its
+# record_id; the last two are the queries before the native rule.
 MISSION_GRAPH_OBJECT_EVENTS = {"event.pickup.collected", "event.door.opened",
-                               "event.door.closed", "event.object.used"}
+                               "event.door.closed", "event.object.used",
+                               "event.pickup.requested", "event.door.open_requested"}
 # trigger-volume-events.md: each names one volume of the stage's volumes.json.
 MISSION_GRAPH_VOLUME_EVENTS = {"event.volume.entered", "event.volume.left"}
 MISSION_GRAPH_MISSION_EVENTS = {"event.mission.completed", "event.mission.continue",
                                 "event.mission.phase_changed"}
-MISSION_GRAPH_EXEC_GATES = {"gate.objective.status", "gate.mission.phase"}
+MISSION_GRAPH_EXEC_GATES = {"gate.objective.status", "gate.mission.phase",
+                            "gate.object.kind", "gate.player.has_item"}
 MISSION_GRAPH_NATIVE_MODULES = {"og.hud.objective_status_message", "og.mission.start_next_stage",
                                 "og.mission.start_credits", "og.progress.unlock_alt_title",
-                                "og.mission.end_failed", "og.mission.end_completed"}
+                                "og.mission.end_failed", "og.mission.end_completed",
+                                "og.pickup.refuse", "og.door.refuse", "og.door.open",
+                                "og.door.close", "og.door.lock", "og.door.unlock",
+                                "og.pickup.give"}
+# object-events.md slice 3: the modules that act on an object name it by its
+# objects.json record_id ("setup_0123"); lock and unlock take the key flags.
+MISSION_GRAPH_OBJECT_MODULES = {"og.door.open", "og.door.close", "og.door.lock",
+                                "og.door.unlock", "og.pickup.give"}
+MISSION_GRAPH_RECORD_ID_RE = re.compile(r"setup_[0-9]+")
 # mission-flow.md: the phases a phase event carries, and the modules that end
 # a mission (never reached after it ended).
 MISSION_GRAPH_PHASES = {"active", "complete", "failed"}
@@ -2691,6 +2703,20 @@ def validate_mission_graph_execution(label: str, graph: dict, level: bool = Fals
             errors.append(f"{where} node {node_id!r} objective must be a string")
         if kind in MISSION_GRAPH_MISSION_EVENTS and "objective" in node:
             errors.append(f"{where} mission event {node_id!r} has no objective to filter")
+        if kind in MISSION_GRAPH_OBJECT_MODULES:
+            ref = node.get("object")
+            if not isinstance(ref, str) or not MISSION_GRAPH_RECORD_ID_RE.fullmatch(ref):
+                errors.append(f"{where} {kind} {node_id!r} needs \"object\": a record_id of "
+                              "objects.json (setup_N)")
+        if kind in ("og.door.lock", "og.door.unlock"):
+            bits = node.get("bits")
+            if isinstance(bits, bool) or not isinstance(bits, int) or not 1 <= bits <= 255:
+                errors.append(f"{where} {kind} {node_id!r} needs \"bits\": the key flags, 1 to 255")
+        if kind == "gate.object.kind" and not isinstance(node.get("object_kind"), str):
+            errors.append(f"{where} gate {node_id!r} needs \"object_kind\": an objects.json kind")
+        if kind == "gate.player.has_item" and not (isinstance(node.get("item"), str)
+                                                   and CATALOG_ID_RE.fullmatch(node["item"])):
+            errors.append(f"{where} gate {node_id!r} needs \"item\": a weapon or item catalog id")
         if kind in MISSION_GRAPH_OBJECT_EVENTS:
             if "objective" in node:
                 errors.append(f"{where} object event {node_id!r} has no objective to filter")

@@ -158,11 +158,14 @@ under decision 1. Not built. Facts from a read-only survey of
   without such handlers changes nothing.
 - **Action modules on objects.** `og.door.open`, `og.door.close`,
   `og.door.lock` and `og.door.unlock` (on `"object"`, through the same
-  functions the AI door twins use), `og.object.enable` and
-  `og.object.disable` (its collision, visibility and use), and
-  `og.pickup.give` (gives `"object"` to the event's player, as the AI
-  command does). Each finds its object with `setupGetObjByCmdIndex` from
-  the record id and refuses when there is none.
+  functions the AI door twins use; lock and unlock take `"bits"`, the key
+  flags), and `og.pickup.give` (gives `"object"` to the event's player, as
+  the AI command does). Each finds its object with `setupGetObjByCmdIndex`
+  from the record id and refuses when there is none. `og.object.enable`
+  and `og.object.disable` wait: the game has no single native switch for
+  an object's collision, visibility and use to mirror yet.
+- `gate.object.kind` takes `"object_kind"` (the node's own `"kind"` is the
+  gate's).
 - Proof: pd-tests (the runner's parameters, native gates and query
   refusals; the modules' table and seams pinned). In game, a level that
   wires them: Forge's first levels, or a test arena whose level program

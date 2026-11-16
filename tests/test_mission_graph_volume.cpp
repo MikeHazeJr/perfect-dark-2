@@ -29,8 +29,10 @@ struct Ran {
 	std::vector<s32> players;
 };
 
-s32 runModule(const char *kind, const char *node_id, const mission_graph_event_t *event, void *user)
+s32 runModule(const char *kind, const char *node_id, const mission_graph_params_t *params,
+	const mission_graph_event_t *event, void *user)
 {
+	(void)params;
 	(void)kind;
 	static_cast<Ran *>(user)->nodes.push_back(node_id);
 	static_cast<Ran *>(user)->players.push_back(event->player);

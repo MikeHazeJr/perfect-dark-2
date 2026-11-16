@@ -16,6 +16,15 @@
 namespace {
 
 enum NodeType { NODE_DATA, NODE_EVENT, NODE_EVENT_INERT, NODE_GATE, NODE_MODULE };
+
+} // namespace
+
+// object-events.md slice 3: a node's scalar fields as text.
+struct mission_graph_params {
+	std::vector<std::pair<std::string, std::string>> values;
+};
+
+namespace {
 enum Port { PORT_OUT, PORT_PASS, PORT_FAIL };
 
 struct Edge {
@@ -33,6 +42,8 @@ struct Node {
 	int gate_phase = -1; // gate.mission.phase; -1 for an objective gate
 	std::string volume; // event.volume.*: the volumes.json volume_id
 	std::string object; // object events: the record_id filter; "" for any
+	bool native_gate = false; // a gate.* the module table evaluates
+	mission_graph_params params;
 	std::vector<Edge> out;
 };
 
@@ -48,10 +59,38 @@ const char *const kPickupCollectedEvent = "event.pickup.collected";
 const char *const kDoorOpenedEvent = "event.door.opened";
 const char *const kDoorClosedEvent = "event.door.closed";
 const char *const kObjectUsedEvent = "event.object.used";
+const char *const kPickupRequestedEvent = "event.pickup.requested";
+const char *const kDoorOpenRequestedEvent = "event.door.open_requested";
 
+// Object events and the object queries carry an object and may filter one.
 bool isObjectEventKind(s32 kind)
 {
-	return kind >= MISSION_GRAPH_EVENT_PICKUP_COLLECTED && kind <= MISSION_GRAPH_EVENT_OBJECT_USED;
+	return kind >= MISSION_GRAPH_EVENT_PICKUP_COLLECTED && kind <= MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED;
+}
+
+// A node's scalar fields other than id and kind, as text.
+void readParams(const crude_json::value &node, mission_graph_params &out)
+{
+	if (!node.is_object()) return;
+	for (const auto &field : node.get<crude_json::object>()) {
+		const std::string &key = field.first;
+		const crude_json::value &value = field.second;
+		if (key == "id" || key == "kind") continue;
+		if (value.is_string()) {
+			out.values.emplace_back(key, value.get<crude_json::string>());
+		} else if (value.is_number()) {
+			const double number = value.get<crude_json::number>();
+			char text[48];
+			if (number == static_cast<double>(static_cast<long long>(number))) {
+				std::snprintf(text, sizeof(text), "%lld", static_cast<long long>(number));
+			} else {
+				std::snprintf(text, sizeof(text), "%.17g", number);
+			}
+			out.values.emplace_back(key, text);
+		} else if (value.is_boolean()) {
+			out.values.emplace_back(key, value.get<crude_json::boolean>() ? "true" : "false");
+		}
+	}
 }
 
 void setError(char *err, size_t err_cap, const std::string &text)
@@ -197,7 +236,8 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 					program->volumes.push_back(compiled.volume);
 				}
 			} else if (compiled.kind == kPickupCollectedEvent || compiled.kind == kDoorOpenedEvent ||
-					compiled.kind == kDoorClosedEvent || compiled.kind == kObjectUsedEvent) {
+					compiled.kind == kDoorClosedEvent || compiled.kind == kObjectUsedEvent ||
+					compiled.kind == kPickupRequestedEvent || compiled.kind == kDoorOpenRequestedEvent) {
 				// object-events.md slice 2: one object (its record_id) or any.
 				if (has_objective) {
 					setError(err, err_cap, "object event '" + compiled.id + "' has no objective to filter");
@@ -215,7 +255,12 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 					: compiled.kind == kDoorOpenedEvent
 						? MISSION_GRAPH_EVENT_DOOR_OPENED
 						: compiled.kind == kDoorClosedEvent
-							? MISSION_GRAPH_EVENT_DOOR_CLOSED : MISSION_GRAPH_EVENT_OBJECT_USED;
+							? MISSION_GRAPH_EVENT_DOOR_CLOSED
+							: compiled.kind == kObjectUsedEvent
+								? MISSION_GRAPH_EVENT_OBJECT_USED
+								: compiled.kind == kPickupRequestedEvent
+									? MISSION_GRAPH_EVENT_PICKUP_REQUESTED
+									: MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED;
 			} else if (compiled.kind.rfind("event.", 0) == 0) {
 				compiled.type = NODE_EVENT_INERT;
 			} else if (compiled.kind == kObjectiveStatusGate) {
@@ -242,8 +287,13 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 				compiled.type = NODE_GATE;
 				compiled.gate_phase = missionGraphPhaseFromText(phase.c_str());
 			} else if (compiled.kind.rfind("gate.", 0) == 0) {
-				setError(err, err_cap, "gate kind '" + compiled.kind + "' is not executable");
-				return nullptr;
+				// object-events.md slice 3: a gate the module table evaluates.
+				if (!module_known || !module_known(compiled.kind.c_str())) {
+					setError(err, err_cap, "gate kind '" + compiled.kind + "' is not executable");
+					return nullptr;
+				}
+				compiled.type = NODE_GATE;
+				compiled.native_gate = true;
 			} else if (compiled.kind.rfind("og.", 0) == 0) {
 				if (!module_known || !module_known(compiled.kind.c_str())) {
 					setError(err, err_cap, "native module '" + compiled.kind + "' does not exist");
@@ -251,6 +301,9 @@ mission_graph_program_t *compileProgram(const char *json, size_t json_size,
 				}
 				compiled.type = NODE_MODULE;
 				program->modules++;
+			}
+			if (compiled.type != NODE_DATA) {
+				readParams(node, compiled.params);
 			}
 			index[compiled.id] = static_cast<int>(program->nodes.size());
 			program->nodes.push_back(std::move(compiled));
@@ -350,6 +403,15 @@ extern "C" mission_graph_program_t *missionGraphProgramCompileLevel(const char *
 	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
 {
 	return compileProgram(json, json_size, module_known, err, err_cap, true);
+}
+
+extern "C" const char *missionGraphParamText(const mission_graph_params_t *params, const char *key)
+{
+	if (!params || !key) return nullptr;
+	for (const auto &value : params->values) {
+		if (value.first == key) return value.second.c_str();
+	}
+	return nullptr;
 }
 
 extern "C" s32 missionGraphPhaseFromText(const char *text)
@@ -505,7 +567,9 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 			reached[at] = 1;
 			const Node &node = program->nodes[at];
 			if (node.type == NODE_GATE) {
-				const bool pass = node.gate_phase >= 0
+				const bool pass = node.native_gate
+					? run(node.kind.c_str(), node.id.c_str(), &node.params, event, user) > 0
+					: node.gate_phase >= 0
 					? event->kind == MISSION_GRAPH_EVENT_MISSION_PHASE_CHANGED && node.gate_phase == event->phase
 					: objective_event && node.gate_status == event->status &&
 						objectiveMatches(node.objective, event);
@@ -515,7 +579,7 @@ extern "C" s32 missionGraphProgramFire(const mission_graph_program_t *program,
 					}
 				}
 			} else if (node.type == NODE_MODULE) {
-				if (!run(node.kind.c_str(), node.id.c_str(), event, user)) {
+				if (!run(node.kind.c_str(), node.id.c_str(), &node.params, event, user)) {
 					refused = true;
 					continue;
 				}

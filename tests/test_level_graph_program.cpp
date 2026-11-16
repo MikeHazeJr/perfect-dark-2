@@ -26,8 +26,10 @@ s32 knownModule(const char *kind)
 	return std::strncmp(kind, "og.test.", 8) == 0;
 }
 
-s32 runModule(const char *kind, const char *node_id, const mission_graph_event_t *event, void *user)
+s32 runModule(const char *kind, const char *node_id, const mission_graph_params_t *params,
+	const mission_graph_event_t *event, void *user)
 {
+	(void)params;
 	(void)kind;
 	(void)event;
 	static_cast<std::vector<std::string> *>(user)->push_back(node_id);
@@ -302,7 +304,7 @@ TEST_CASE("Level graph program: the native seams fire the object events, recorde
 		!= std::string::npos);
 	REQUIRE(runtime.find("mission_ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,")
 		!= std::string::npos);
-	REQUIRE(runtime.find("\"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d reason=%s backend=graph.level.runner\"")
+	REQUIRE(runtime.find("\"SCENARIO.GRAPH: object events '%s' pickup.collected=%d door.opened=%d door.closed=%d object.used=%d pickup.refused=%d door.refused=%d reason=%s backend=graph.level.runner\"")
 		!= std::string::npos);
 	REQUIRE(runtime.find("static void s_resetActiveScenarioGraphs(void)\n{\n\ts_reportObjectEvents(\"next_stage\");")
 		!= std::string::npos);
@@ -312,4 +314,144 @@ TEST_CASE("Level graph program: the native seams fire the object events, recorde
 
 	REQUIRE(conformance.find("MISSION_GRAPH_OBJECT_EVENTS = {\"event.pickup.collected\", \"event.door.opened\",")
 		!= std::string::npos);
+}
+
+namespace {
+
+// Slice 3: a module table that knows two native gates and records each
+// module with the parameters it was given.
+s32 knownWithGates(const char *kind)
+{
+	return std::strncmp(kind, "og.test.", 8) == 0 || std::strcmp(kind, "gate.test.param") == 0;
+}
+
+struct Recorded {
+	std::vector<std::string> ran;
+	std::vector<std::string> objects;
+};
+
+s32 runWithGates(const char *kind, const char *node_id, const mission_graph_params_t *params,
+	const mission_graph_event_t *event, void *user)
+{
+	(void)event;
+	Recorded *recorded = static_cast<Recorded *>(user);
+	if (std::strcmp(kind, "gate.test.param") == 0) {
+		// Passes when its "pass" parameter is the boolean true.
+		const char *pass = missionGraphParamText(params, "pass");
+		return pass && std::strcmp(pass, "true") == 0 ? 1 : 0;
+	}
+	recorded->ran.push_back(node_id);
+	const char *object = missionGraphParamText(params, "object");
+	recorded->objects.push_back(object ? object : "-");
+	return 1;
+}
+
+} // namespace
+
+TEST_CASE("Level graph program: modules get their node's parameters, native gates decide",
+	"[level][graph][program][objects]")
+{
+	const std::string json = R"({ "nodes": [
+	{ "id": "requested", "kind": "event.pickup.requested", "object": "setup_0042" },
+	{ "id": "yes", "kind": "gate.test.param", "pass": true },
+	{ "id": "no", "kind": "gate.test.param", "pass": false },
+	{ "id": "open", "kind": "og.test.open", "object": "setup_0007", "bits": 4, "note": "x" },
+	{ "id": "refuse", "kind": "og.test.refuse" },
+	{ "id": "never", "kind": "og.test.never" } ],
+  "edges": [
+	{ "from": "requested", "to": "yes", "input": "exec" },
+	{ "from": "requested", "to": "no", "input": "exec" },
+	{ "from": "yes", "to": "open", "input": "exec", "output": "pass" },
+	{ "from": "yes", "to": "never", "input": "exec", "output": "fail" },
+	{ "from": "no", "to": "refuse", "input": "exec", "output": "fail" },
+	{ "from": "no", "to": "never", "input": "exec", "output": "pass" } ] })";
+	char err[256] = {};
+	mission_graph_program_t *program = missionGraphProgramCompileLevel(json.c_str(), json.size(),
+		knownWithGates, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	REQUIRE(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_PICKUP_REQUESTED) == 1);
+	REQUIRE(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED) == 0);
+
+	mission_graph_event_t event;
+	std::memset(&event, 0, sizeof(event));
+	event.kind = MISSION_GRAPH_EVENT_PICKUP_REQUESTED;
+	event.objective_index = -1;
+	event.object = "setup_0042";
+	event.tag = -1;
+	event.player = 0;
+	Recorded recorded;
+	REQUIRE(missionGraphProgramFire(program, &event, runWithGates, &recorded) == 2);
+	REQUIRE(recorded.ran == std::vector<std::string>({"open", "refuse"}));
+	REQUIRE(recorded.objects == std::vector<std::string>({"setup_0007", "-"}));
+
+	// Another object's request runs nothing.
+	event.object = "setup_0043";
+	Recorded other;
+	REQUIRE(missionGraphProgramFire(program, &event, runWithGates, &other) == 0);
+	missionGraphProgramFree(program);
+
+	// A gate the table does not know is refused when it compiles.
+	const std::string unknown = R"({ "nodes": [ { "id": "g", "kind": "gate.test.nope" } ] })";
+	REQUIRE(missionGraphProgramCompileLevel(unknown.c_str(), unknown.size(), knownWithGates, err,
+		sizeof(err)) == nullptr);
+	REQUIRE(std::string(err).find("gate kind 'gate.test.nope' is not executable") != std::string::npos);
+
+	// The parameters as text: strings as they are, whole numbers in decimal,
+	// booleans as true or false; id and kind are not parameters.
+	REQUIRE(missionGraphParamText(nullptr, "object") == nullptr);
+}
+
+TEST_CASE("Level graph program: the object modules, the native gates and the queries are wired",
+	"[level][graph][program][objects][static]")
+{
+	const std::string modules = readSource("port/src/mission_graph_modules.c");
+	const std::string propobj = readSource("src/game/propobj.c");
+	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+
+	// The table: the refusals, the door and pickup modules, the gates.
+	for (const char *row : { "{ \"og.pickup.refuse\", s_runPickupRefuse },",
+			"{ \"og.door.refuse\", s_runDoorRefuse },", "{ \"og.door.open\", s_runDoorOpen },",
+			"{ \"og.door.close\", s_runDoorClose },", "{ \"og.door.lock\", s_runDoorLock },",
+			"{ \"og.door.unlock\", s_runDoorUnlock },", "{ \"og.pickup.give\", s_runPickupGive },",
+			"{ \"gate.object.kind\", s_gateObjectKind },",
+			"{ \"gate.player.has_item\", s_gatePlayerHasItem }," }) {
+		INFO(row);
+		REQUIRE(modules.find(row) != std::string::npos);
+	}
+	// An object module finds its object by the record id, the setup index.
+	REQUIRE(modules.find("if (!ref || sscanf(ref, \"setup_%u%c\", &index, &tail) != 1) {") != std::string::npos);
+	REQUIRE(modules.find("obj = setupGetObjByCmdIndex(index);") != std::string::npos);
+	// The doors act as the AI's door commands do.
+	REQUIRE(modules.find("\tif (!doorCallLift(door->base.prop, false)) {\n\t\tdoorsRequestMode(door, DOORMODE_OPENING);")
+		!= std::string::npos);
+	REQUIRE(modules.find("\tdoor->keyflags |= (u8)bits;") != std::string::npos);
+	REQUIRE(modules.find("\tdoor->keyflags &= (u8)~bits;") != std::string::npos);
+	// A refusal answers its own query only.
+	REQUIRE(modules.find("\tif (event->kind != MISSION_GRAPH_EVENT_PICKUP_REQUESTED) {\n\t\treturn 0;\n\t}\n\ts_QueryRefused = 1;")
+		!= std::string::npos);
+
+	// The seams ask before the native rule, on the host, only when a graph
+	// handles the query.
+	REQUIRE(propobj.find("\tif (g_NetMode == NETMODE_CLIENT || !scenarioSourceGraphHandlesObjectQuery(kind)) {")
+		!= std::string::npos);
+	REQUIRE(propobj.find("\t\t\tif (objGraphQueryRefuses(MISSION_GRAPH_EVENT_PICKUP_REQUESTED, obj,\n"
+		"\t\t\t\t\tg_Vars.currentplayernum)) {\n\t\t\t\treturn TICKOP_NONE;") != std::string::npos);
+	REQUIRE(propobj.find("\tif (!objGraphQueryRefuses(MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED, &door->base,\n"
+		"\t\t\t\tg_Vars.currentplayernum)\n\t\t\t&& doorIsUnlocked(playerprop, doorprop)) {") != std::string::npos);
+	REQUIRE(propobj.find("\t\t\t\t\t&& !objGraphQueryRefuses(MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED, &door->base,")
+		!= std::string::npos);
+
+	// The runtime asks the level and mission programs, keeps an outer query's
+	// answer, and cuts a chain of object events past its depth.
+	REQUIRE(runtime.find("s32 scenarioSourceGraphObjectQuery(s32 kind, const char *object, s32 tag, s32 objtype,")
+		!= std::string::npos);
+	REQUIRE(runtime.find("\touter = missionGraphModulesQueryBegin();") != std::string::npos);
+	REQUIRE(runtime.find("\trefused = missionGraphModulesQueryEnd(outer);") != std::string::npos);
+	REQUIRE(runtime.find("#define SCENARIO_OBJECT_EVENT_MAX_DEPTH 4") != std::string::npos);
+
+	REQUIRE(conformance.find("MISSION_GRAPH_OBJECT_MODULES = {\"og.door.open\", \"og.door.close\", \"og.door.lock\",")
+		!= std::string::npos);
+	REQUIRE(conformance.find("\"gate.object.kind\", \"gate.player.has_item\"}") != std::string::npos);
 }

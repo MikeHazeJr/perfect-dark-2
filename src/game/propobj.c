@@ -18802,6 +18802,25 @@ static void objGraphEventFire(s32 kind, const struct objgraphevent *ev, s32 play
 	scenarioSourceGraphObjectEvent(kind, ev->object, ev->tag, ev->type, ev->catalog_id, playernum);
 }
 
+/* object-events.md slice 3: asks the graphs before the native rule; true
+ * when one refused (og.pickup.refuse, og.door.refuse). Nothing is built or
+ * asked when no graph handles the query, and a networked client asks
+ * nothing (the host decides). */
+static bool objGraphQueryRefuses(s32 kind, struct defaultobj *obj, s32 playernum)
+{
+	struct objgraphevent ev;
+
+	if (g_NetMode == NETMODE_CLIENT || !scenarioSourceGraphHandlesObjectQuery(kind)) {
+		return false;
+	}
+	objGraphEventCapture(obj, &ev);
+	if (ev.type < 0) {
+		return false;
+	}
+	return scenarioSourceGraphObjectQuery(kind, ev.object, ev.tag, ev.type, ev.catalog_id,
+		playernum) != 0;
+}
+
 bool propobjInteract(struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
@@ -20492,6 +20511,11 @@ s32 objTestForPickup(struct prop *prop)
 		}
 
 		if (pickup) {
+			/* object-events.md slice 3: a graph may refuse the pickup. */
+			if (objGraphQueryRefuses(MISSION_GRAPH_EVENT_PICKUP_REQUESTED, obj,
+					g_Vars.currentplayernum)) {
+				return TICKOP_NONE;
+			}
 			return propPickupByPlayer(prop, true);
 		}
 	}
@@ -22157,6 +22181,8 @@ void doorsCheckAutomatic(void)
 
 			if ((door->doorflags & DOORFLAG_AUTOMATIC)
 					&& doorIsUnlocked(g_Vars.currentplayer->prop, doorprop)
+					&& !objGraphQueryRefuses(MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED, &door->base,
+						g_Vars.currentplayernum)
 					&& (door->mode == DOORMODE_CLOSING || (door->mode == DOORMODE_IDLE && door->frac <= 0))) {
 				bool canopen = false;
 				struct defaultobj *obj = NULL;
@@ -23912,7 +23938,11 @@ bool propdoorInteract(struct prop *doorprop)
 	bool usingeyespy = g_Vars.currentplayer->eyespy && g_Vars.currentplayer->eyespy->active;
 	struct prop *playerprop = usingeyespy ? g_Vars.currentplayer->eyespy->prop : g_Vars.currentplayer->prop;
 
-	if (doorIsUnlocked(playerprop, doorprop)) {
+	/* object-events.md slice 3: a graph may keep the door shut (then it
+	 * behaves as a locked door). */
+	if (!objGraphQueryRefuses(MISSION_GRAPH_EVENT_DOOR_OPEN_REQUESTED, &door->base,
+				g_Vars.currentplayernum)
+			&& doorIsUnlocked(playerprop, doorprop)) {
 		doorsChooseSwingDirection(playerprop, door);
 		doorsActivate(doorprop, true);
 	} else if (door->mode == DOORMODE_IDLE && door->frac < 0.5f * door->maxfrac) {
