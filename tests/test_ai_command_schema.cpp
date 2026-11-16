@@ -508,8 +508,10 @@ TEST_CASE("AI command schema: rows and nodes carry args, the compiler checks the
 
 	// The compiler encodes a row's args and compares them with its operands
 	// before the catalog ids patch the bytes.
-	const size_t parse = runtime.find("\"operands\", &cmd.operands, &cmd.operand_count) ||");
-	const size_t check = runtime.find("!s_aiRowArgsMatchOperands(table, ailist_ref, command_index,");
+	// The row's bytes come from its operands, its args or both (which must
+	// agree), and only then do the catalog ids patch them.
+	const size_t parse = runtime.find("static s32 s_aiRowOperands(scenario_source_ai_table_t *table,");
+	const size_t check = runtime.find("\t\tif (!s_aiRowOperands(table, ailist_ref, command_index,");
 	const size_t patch = runtime.find("!s_aiApplyCatalogOperands(table, &cmd, model_id,");
 	REQUIRE(parse != std::string::npos);
 	REQUIRE(check != std::string::npos);
@@ -519,6 +521,15 @@ TEST_CASE("AI command schema: rows and nodes carry args, the compiler checks the
 	REQUIRE(runtime.find("count = aiCommandArgsEncode(schema, args, (u32)(args_end - args + 1), bytes,")
 		!= std::string::npos);
 	REQUIRE(runtime.find("\"AI row '%s' args do not give its operands%s\"") != std::string::npos);
+	REQUIRE(runtime.find("\"AI row '%s' has neither operands nor args%s\"") != std::string::npos);
+	// Args alone are the row's bytes.
+	REQUIRE(runtime.find("\t/* Args alone: they are the row's bytes. */\n"
+		"\tif (count > 0) {\n"
+		"\t\tcmd->operands = (u8 *)malloc((size_t)count);") != std::string::npos);
+	REQUIRE(runtime.find("s_aiRowArgsMatchOperands") == std::string::npos);
+	REQUIRE(conformance.find("def ai_command_encode(opcode: int, args: object) -> tuple[list[int] | None, str | None]:")
+		!= std::string::npos);
+	REQUIRE(conformance.find("def ai_row_operand_bytes(row: dict) -> list[int] | None:") != std::string::npos);
 
 	// Conformance recomputes the args from the operands, compares nodes with
 	// rows, and requires args with the new kind and the v3 bank.

@@ -290,6 +290,33 @@ class GlobalAiListsGraphTests(unittest.TestCase):
         errors = self.bank(self.TYPED_INI, bare, self.graph(bare, commands))
         self.assertTrue(any("3 rows without args" in error for error in errors))
 
+    def test_args_alone_give_the_bytes(self):
+        """A row may drop its operands: its args are encoded, and its edges
+        come from those bytes (a branch to label 6 here)."""
+        commands = [(0x0033, [0x24, 0x06]), (LABEL, [6]), (END, [])]  # if_chr_dead
+        rows = list_rows(0x0010, commands)
+        graph = self.graph(rows, commands)
+        args = [{"chr": 36, "label": 6}, {"label": 6}, {}]
+        lean = []
+        for row, arg in zip(rows, args):
+            row = {k: v for k, v in row.items() if not k.endswith("_catalog_id")}
+            del row["operands"]
+            row["args"] = arg
+            lean.append(row)
+        for node in graph["nodes"]:
+            node["args"] = next(r["args"] for r in lean if r["graph_node"] == node["id"])
+        self.assertEqual(self.bank(self.TYPED_INI, lean, graph), [])
+        # Args the schema refuses, and a row with neither form.
+        bad = [dict(row) for row in lean]
+        bad[0]["args"] = {"chr": 36}
+        errors = self.bank(self.TYPED_INI, bad, graph)
+        self.assertTrue(any("missing argument 'label'" in error for error in errors))
+        bad = [dict(row) for row in lean]
+        del bad[1]["args"]
+        errors = self.bank(self.TYPED_INI, bad, graph)
+        self.assertTrue(any("must be a list of bytes (or the row must have args)" in error
+                            for error in errors))
+
     def test_new_extract_version_requires_the_graph(self):
         rows = list_rows(0x0010, [(END, [])])
         self.assertTrue(self.bank(self.NEW_INI, rows, None))

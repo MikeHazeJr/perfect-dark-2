@@ -6285,6 +6285,73 @@ def ai_command_args(opcode: int, operands: list[int]) -> dict | None:
     return args
 
 
+def ai_command_encode(opcode: int, args: object) -> tuple[list[int] | None, str | None]:
+    """A command's operand bytes from its args, as port/src/ai_command_schema.c
+    aiCommandArgsEncode makes them: every used field required, an unused one
+    zero unless given, true or false only for a bool field, each value
+    inside its field's range. (bytes, None) or (None, the reason)."""
+    command = AI_COMMAND_SCHEMA.get(opcode)
+    if command is None:
+        return None, f"opcode 0x{opcode:04x} is not an AI command"
+    name, length, fields = command
+    if not isinstance(args, dict):
+        return None, f"{name} args must be an object"
+    known = {field[0] for field in fields}
+    for key in args:
+        if key not in known:
+            return None, f"{name} has no argument '{key}'"
+    if length == 0:
+        text = args.get(fields[0][0])
+        if not isinstance(text, str):
+            return None, f"{name} is missing argument '{fields[0][0]}'"
+        try:
+            data = text.encode("latin-1")
+        except UnicodeEncodeError:
+            return None, f"{name} text holds a character above 0xff"
+        if 0 in data:
+            return None, f"{name} text holds a NUL"
+        return list(data) + [0], None
+    out = [0] * (length - 2)
+    for field_name, offset, width, signed, kind in fields:
+        if field_name not in args:
+            if kind == "unused":
+                continue
+            return None, f"{name} is missing argument '{field_name}'"
+        value = args[field_name]
+        if isinstance(value, bool):
+            if kind != "bool":
+                return None, f"{name} argument '{field_name}' must be a whole number"
+            value = int(value)
+        elif not isinstance(value, int):
+            return None, f"{name} argument '{field_name}' must be a whole number"
+        bits = 8 * width
+        low, high = ((-(1 << (bits - 1)), (1 << (bits - 1)) - 1) if signed
+                     else (0, (1 << bits) - 1))
+        if not low <= value <= high:
+            return None, (f"{name} argument '{field_name}' = {value} is outside its "
+                          f"{width}-byte {'signed' if signed else 'unsigned'} range")
+        raw = value & ((1 << bits) - 1)
+        for i in range(width):
+            out[offset - 2 + i] = (raw >> (8 * (width - 1 - i))) & 0xFF
+    return out, None
+
+
+def ai_row_operand_bytes(row: dict) -> list[int] | None:
+    """A row's operand bytes: its operands, or for an args-only row its args
+    encoded. None when neither gives bytes."""
+    raw = row.get("operands")
+    if isinstance(raw, list):
+        values = [_ai_row_hex(value, 0xFF) for value in raw]
+        return None if any(value is None for value in values) else values
+    if "args" not in row:
+        return None
+    opcode = _ai_row_hex(row.get("opcode"), 0xFFFF)
+    if opcode is None:
+        return None
+    values, _reason = ai_command_encode(opcode, row.get("args"))
+    return values
+
+
 def _ai_args_text(args: object) -> str:
     return json.dumps(args, sort_keys=True)
 
@@ -6316,8 +6383,12 @@ def ai_row_operand_error(row: dict) -> str | None:
         return (f"opcode 0x{opcode:04x} is {name}, not "
                 f"{clean_value(row.get('opcode_name'))}")
     operands = row.get("operands")
+    if operands is None and "args" in row:
+        # ai-typed-operands.md: args alone give the bytes.
+        encoded, reason = ai_command_encode(opcode, row.get("args"))
+        return reason
     if not isinstance(operands, list):
-        return "operands must be a list of bytes"
+        return "operands must be a list of bytes (or the row must have args)"
     values = []
     for value in operands:
         try:
@@ -6347,12 +6418,10 @@ def validate_scenario_ai_lists_json_schema(label: str, entry_name: str,
         "offset",
         "opcode",
         "opcode_name",
-        "operands",
-        "model_catalog_id",
-        "weapon_catalog_id",
-        "body_catalog_id",
-        "head_catalog_id",
     ]
+    # A row gives its bytes as operands, as args (ai-typed-operands.md) or
+    # both; the four *_catalog_id fields are optional (ai_row_operand_error
+    # checks the bytes).
     row_count, errors = validate_simple_rows_json_schema(
         label,
         entry_name,
@@ -6642,9 +6711,10 @@ def ai_list_edge_errors(rows: object, nodes: object, links: object,
         commands: list[tuple[int, list[int]]] = []
         for index, row in enumerate(list_rows):
             opcode = _ai_row_hex(row.get("opcode"), 0xFFFF)
-            raw = row.get("operands")
-            operands = [_ai_row_hex(value, 0xFF) for value in raw] \
-                if isinstance(raw, list) else [None]
+            # An args-only row's bytes are its args encoded.
+            operands = ai_row_operand_bytes(row) if isinstance(row, dict) else None
+            if operands is None:
+                operands = [None]
             if row.get("command_index") != index:
                 errors.append(
                     f"{where} command {index} ({row.get('graph_node')}): "

@@ -137,11 +137,17 @@ AI editing and hand-written lists need named, typed parameters.
   extract version and kind `global_ailists_rows_v3_typedargs` (SP-86).
 - The compiler: a row with `args` encodes them and must get exactly its
   operand bytes, checked before the catalog ids patch them, or the list is
-  refused (`AI row '<list> command <n>' args ...`). A row without `args` is
-  the v1 form and still compiles from its operands. Every stage load and
-  every bank compile is therefore the check that the two forms agree.
-- Conformance: `ai_command_args` (the same rules in Python) and, per row,
-  args equal to what the operands decode to; command nodes carry their
+  refused (`AI row '<list> command <n>' args ...`). A row may also give
+  `args` alone (no `operands`, no `*_catalog_id` fields): they are its
+  bytes, so a list can be authored by name today; a row without `args` is
+  the v1 form and compiles from its operands; a row with neither is
+  refused. Every stage load and bank compile is the check that the two
+  forms agree. The mod bank fixture (`tests/fixtures/modpipe/ai-lists-bank`)
+  is written as args only.
+- Conformance: `ai_command_args` and `ai_command_encode` (the same rules in
+  Python); a row needs operands or args; per row, args equal to what the
+  operands decode to (an args-only row's edges come from its encoded
+  bytes); command nodes carry their
   row's args (`ai_args_node_errors`); every row must have them when the
   scenario's arena is the new kind or the bank's extract version is v3 (the
   version gate that requires the bank's graph takes v2 and v3).

@@ -1,6 +1,6 @@
 {
   "scenario_name": "ai_lists_mod_bank_smoke",
-  "description": "Global AI lists slice 2, step 5 (context/designs/modding/global-ai-lists.md): the runner packs tests/fixtures/modpipe/ai-lists-bank into a .pdmod and enables it. Its .pdai carries global list 0x0000 (a byte-identical copy of the base list), so a Complex match must take that one list from the mod bank and the other 45 from base:ai_global, with play unchanged.",
+  "description": "Global AI lists slice 2, step 5 (context/designs/modding/global-ai-lists.md): the runner packs tests/fixtures/modpipe/ai-lists-bank into a .pdmod and enables it. Its .pdai carries global list 0x0000 (a byte-identical copy of the base list, written as args only: no operand bytes, ai-typed-operands.md), so a Complex match must take that one list from the mod bank and the other 45 from base:ai_global, with play unchanged.",
   "tags": [
     "mods",
     "ai",
