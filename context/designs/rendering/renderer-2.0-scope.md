@@ -2,7 +2,8 @@
 
 **Status:** scope only. This was a read-only investigation: no code was changed,
 built or run, and no game tests were run. Every claim carries a tag (legend
-below).
+below). Updated 2026-11-16 with Mike's decisions D1, D3 and D4 (section 0); D2,
+the engine and graphics API, is still open (section 5.8).
 
 **Milestone:** 2.0. D-004 limits 1.0 to the base game plus Theater, so this work
 is post-1.0 ([D] `tools/Workbench/data/roadmap.json`, item D-004).
@@ -30,6 +31,7 @@ fully, we will do so for the 2.0 milestone."
 | **[V core]** | Verified in code on `origin/week-pd/core` `ed1756cf1`; not on dev yet. |
 | **[D]** | Stated in a project document at the `file:line` given and not re-checked in code. Treat it as inferred. |
 | **[I]** | Inferred: reasoning from verified facts, not seen in code or in game. Every effort estimate is [I]. |
+| **[W]** | From an external web source checked on 2026-11-16 (listed in the appendix); not verified locally. |
 | *Proposal* | A recommendation, not a claim about the code. |
 
 Effort sizes are for one focused stream of work (AI sessions plus Mike's
@@ -40,6 +42,35 @@ Unless a path says otherwise, `bg.c`, `lv.c`, `chr.c`, `prop.c`, `propobj.c`,
 `dlights.c`, `sky.c`, `env.c`, `bondgun.c`, `bondview.c` and `player.c` are in
 `src/game/`; `model.c`, `vi.c` and `rng_c.c` are in `src/lib/`; `gfx_*.cpp` and
 `scenario_scene_renderer.cpp` are in `port/fast3d/`.
+
+---
+
+## 0. Decisions (Mike, 2026-11-16)
+
+These answer questions 1, 2, 3 and 5 of section 10 and settle part of 4. The
+sections they change are listed at the end.
+
+- **D1. The toggle works like Halo: Combat Evolved Anniversary.** One switch
+  between classic and remastered, and it is instant. In Anniversary the original
+  engine kept the gameplay, Saber's own engine drew the new visuals, and the
+  switch was instant ([W]). The same shape here: one simulation, two renderers,
+  one switch, with quality settings on the remastered side only. One lesson
+  from that game: its classic mode later had to be fixed because it no longer
+  matched the original ([W]). So classic stays the tested reference (R9).
+- **D2. Engine and graphics API: open.** Options are in section 5.8.
+- **D3. Remastered base stages get PBR materials and dynamic lighting.** This is
+  the full-relight direction from the earlier question, not "keep the baked
+  lighting and add to it". Fixture lights become real lights, materials become
+  PBR, and the baked vertex lighting no longer defines the remastered look.
+  Consequences: indirect light (GI) and shadows from static geometry are now
+  required for base stages, not only for Forge maps (7.1 to 7.3).
+- **D4. The remastered renderer is built in.** It is an engine layer that each
+  player can toggle, not a mod. It must look right with no packs installed, so
+  base materials need a built-in PBR derivation (7.4, 8.9). Art packs are
+  ordinary mods under the existing mod rules (8.8), so R8 is dropped.
+
+Sections changed by these decisions: 1, 4.2, 5.6, 5.8, 6 (R8), 7.1 to 7.4, the
+feature summary, 8.8, 8.9, 10, 11, 12 and the appendix.
 
 ---
 
@@ -66,7 +97,7 @@ only becomes cheap after a separation refactor. [I]
 | A second backend could read the same room/scene state as the current renderer, so the toggle is cheap. | **Rooms: yes. Everything else: not yet.** | Rooms are GPU-resident data, and CORE now captures their per-view state. Props, effects and the sky have no state outside the display list being built. The toggle becomes cheap once a snapshot exists (R1 to R5). [I] |
 | Lighting gives the best payoff on original assets. | **Mostly yes, with care.** | Characters and props gain most: today they get fixed default lights plus a flat room-brightness shade. Rooms have their lighting baked into vertex colors, so new lights must add to it, not replace it. A bounce bake mostly pays off for new maps. [I] |
 | Instancing becomes straightforward once draws take scene objects. | **Yes, after two fixes.** | Meshes reach the screen as display lists, and the shared model definition is rewritten per instance during the draw. With those fixed, batching is routine. The payoff on base content is modest. [I] |
-| PBR needs new albedo/normal/roughness art, shipped as material override files in .pd archives, so remastered assets work like mods. | **Yes, with three gaps.** | `.pdmaterial`, `.pdtexture` and `.pdskin` already exist. They lack texture slots, a stable way to target base materials, and a presentation-only class for multiplayer. BYOR rules out shipping art derived from the ROM. [I] |
+| PBR needs new albedo/normal/roughness art, shipped as material override files in .pd archives, so remastered assets work like mods. | **Yes for packs; D4 adds a built-in baseline.** | `.pdmaterial`, `.pdtexture` and `.pdskin` already exist. They lack texture slots and a stable way to target base materials. BYOR rules out shipping art derived from the ROM, so the built-in baseline (D4) is derived on the player's machine and packs are original art. [I] |
 | The biggest unknown is how cleanly the draw path is separated from game logic, and B-1172 may show it. | **Confirmed.** | B-1172 is exactly this: moving rooms out of the display list lost every piece of state the list carried implicitly (sky order, camera space, room lighting, flash, fog, sky rooms, animated textures). [D core] |
 
 **Recommended shape** (*proposal*):
@@ -75,19 +106,23 @@ only becomes cheap after a separation refactor. [I]
    also records a per-view presentation snapshot.
 2. "Classic" means the 1.0 look: fast3d plus the scene renderer in its classic
    shading. It stays the reference.
-3. "Remastered" is a new GL 4.3+ module that draws at inline display-list
+3. "Remastered" is a built-in renderer (D4) that draws at inline display-list
    commands (a generalization of CORE's `G_SCENE_RENDER_EXT`) into the same
    framebuffer and depth buffer. Anything it doesn't draw yet stays classic.
-4. Remastered materials are mods: extend `.pdmaterial` and `.pdtexture`, target
-   base content by stable catalog IDs, scope them to remastered mode, and keep
-   them client-optional in multiplayer.
-5. Order of work: separation, then skeleton and toggle, objects, lighting,
-   shadows and post, materials, sky and effects, and finally GI and Forge
+   Which engine and graphics API it is built on is decision D2 (5.8).
+4. Remastered base stages use PBR materials and dynamic lighting (D3). Base
+   materials are derived on the player's machine from their own extracted
+   textures (D4, BYOR-safe); art packs are ordinary mods that improve them,
+   using an extended `.pdmaterial` and `.pdtexture` that target base content by
+   stable catalog IDs.
+5. Order of work: separation, then skeleton and toggle, objects, lighting with
+   shadows and GI, built-in materials, post, sky and effects, and Forge
    lighting (section 11).
 
 **Biggest risks** (section 12): gameplay regressions from splitting `lvRender`;
-the two presentation paths drifting apart; BYOR limiting remastered base art to
-original or locally generated work; the GL 4.3 hardware floor. [I]
+the two presentation paths drifting apart; how a full relight looks on
+original geometry, and the per-stage tuning it needs; BYOR limiting art to
+original or locally generated work; the hardware floor. [I]
 
 ---
 
@@ -521,6 +556,10 @@ construction. [I]
   most of the benefit. [I]
 - Cheap wins that also help original assets: ambient occlusion, bloom on
   emissive surfaces and flashes, tone mapping, and better fog (7.6, 7.7). [I]
+- **Decided (D3):** remastered base stages get PBR and dynamic lighting, so the
+  rooms are relit rather than kept on their baked colors. The two bullets above
+  about rooms and bounce baking now describe the trade-off D3 accepted; 7.1 to
+  7.3 describe how the relight is done.
 
 **4.3 "Instancing becomes straightforward once draws take scene objects."**
 - Two blockers first: meshes reach the screen as display lists (2.4), and the
@@ -547,11 +586,12 @@ construction. [I]
   closed set, `classic_lit`, `classic_alpha` and `classic_emissive`
   (`tools/asset_archive_conformance.py:3327-3331`) [V]; base materials have no
   stable public identity to target (8.4) [V]; and nothing classifies a pack as
-  presentation-only for multiplayer (8.8) [V search; D].
-- Good PBR does need new art. BYOR rules out shipping anything derived from ROM
+  presentation-only for multiplayer (8.8) [V search; D], which D4 makes
+  unnecessary.
+- The best PBR needs new art. BYOR rules out shipping anything derived from ROM
   textures, so remastered art is either original or generated on the player's
-  machine (8.7). [I] Without new art, `surface_type` gives reasonable PBR
-  defaults (8.9). [I]
+  machine (8.7). [I] D4 makes the generated baseline built in, starting from
+  `surface_type` (8.9). [I]
 
 **4.5 "The separation of draw path and game logic is the biggest unknown."**
 - Confirmed and measured: section 3. B-1172 is the worked example (3.10). [V],
@@ -572,8 +612,8 @@ construction. [I]
    same order), so parity can be tested.
 4. **Additive delivery.** Remastered draws whole passes at inline commands, and
    fast3d keeps drawing everything remastered doesn't own yet.
-5. **Per-client and cosmetic.** The renderer choice and remastered packs never
-   reach the wire, saves, match manifests or mod checks.
+5. **Per-client and cosmetic.** The renderer choice never reaches the wire,
+   saves, match manifests or mod checks. Art packs are ordinary mods (D4).
 6. **Public source stays the authored source.** GPU-ready products (compressed
    textures, generated normals, light probes, lightmaps) are source-hashed
    cache ([D] `context/constraints.md:61`).
@@ -640,24 +680,34 @@ per-frame memory they point into is reused (3.3). (*proposal*)
   `dyntexTickRoom`, `loaded240`, the RNG draws, on-demand matrices). Those are
   R3 to R5.
 
-### 5.6 The toggle (*proposal*)
+### 5.6 The toggle (D1; details are *proposals*)
 
-- A setting `Video.Renderer = classic | remastered`, a menu entry, and a
-  bindable action. It takes effect at the next frame.
-- It is instant if the remastered resources for the stage are resident. Build
-  them at stage load whenever remastered is available, even in classic mode,
-  behind a "keep remastered loaded" option. Otherwise the first toggle builds
-  them with a short hitch. [I]
-- Capability gate: remastered needs a GL 4.3 core context with compute and
-  SSBOs (the same gate as the GPU swarm, `swarm_gpu.cpp:1-30`). Otherwise the
-  option is greyed out and classic runs on any context (`gfx_sdl2.cpp:186-200`).
-  [V for the existing gate]
+- One switch, as in Halo: Combat Evolved Anniversary (D1): a setting
+  `Video.Renderer = classic | remastered`, a menu entry, and one bindable
+  action. It takes effect at the next frame. Developer-only per-pass overrides
+  exist for debugging and are never shown to players.
+- Quality settings (shadows, GI, post) belong to the remastered side only.
+  Classic has none: it is fixed to the 1.0 look.
+- Instant means the remastered resources for the stage are always resident on
+  hardware that supports remastered: build them at stage load even when the
+  player is in classic. A low-memory fallback may build them on the first
+  toggle, with a short hitch. [I]
+- Default mode: remastered on hardware that supports it, classic otherwise.
+  (*Proposal*; Mike may prefer classic first.)
+- Capability gate: on an OpenGL path (option A in 5.8), remastered needs a GL
+  4.3 core context with compute and SSBOs, the same gate as the GPU swarm
+  (`swarm_gpu.cpp:1-30`). Otherwise the option is greyed out and classic runs
+  on any context (`gfx_sdl2.cpp:186-200`). [V for the existing gate] Other
+  options in 5.8 have their own gates.
 - Safety: a scripted smoke runs once per mode and compares gameplay logs, such
   as SHOT_RESULT lines, kills and positions. That needs R3 (separate RNG) to be
   exact. [I]
-- Halo CE Anniversary kept the original engine as the simulation and switched
-  the displayed renderer with one button. This design matches that model: one
-  simulation, two views. [I]
+- Halo: Combat Evolved Anniversary kept the original engine in charge of
+  gameplay and drew the new visuals with Saber's own engine, with an instant
+  switch ([W]). This design matches that model: one simulation, two renderers.
+  Anniversary's second renderer was its developer's own engine fed by the
+  original game, which corresponds to options A and B in 5.8, not to
+  embedding someone else's engine. [W], [I]
 
 ### 5.7 Draw space and depth (*proposal*)
 
@@ -672,16 +722,98 @@ per-frame memory they point into is reused (3.3). (*proposal*)
   depth, but only behind a clear, because the viewmodel and fast3d passes must
   not share that buffer. [I]
 
-### 5.8 Graphics API
+### 5.8 Engine and graphics API options (open: D2)
 
-**Recommend OpenGL 4.3 core for remastered.** It shares the context, the
-framebuffers and ImGui with fast3d, and the codebase already runs 4.3 compute
-(`swarm_gpu.cpp:1-30`). [V] Vulkan would add a loader DLL against the zero-DLL
-rule ([D] `context/pillars/build-dev-tooling.md:352`; `opengl32` is the only
-dynamic GL library, `CMakeLists.txt:479` [V]). It would also need fast3d and
-ImGui ported or GL interop. [I] D3D12 is Windows-only and has the same porting
-cost. [I] The `GfxRenderingAPI` table would make a later fast3d port possible
-(2.2). [V]
+What any option has to satisfy:
+
+- **One window and one frame with classic,** so the switch is instant and the
+  HUD, ImGui menus and screen effects draw over either renderer (D1).
+- **PBR, many dynamic lights, shadows and GI** (D3).
+- **The project's toolchain:** MSYS2 MinGW GCC with CMake, static linking, and
+  `opengl32` as the only runtime DLL today ([D]
+  `context/pillars/build-dev-tooling.md:352`; [V] `CMakeLists.txt:479`).
+- **A licence that allows static linking into the release.** MIT, BSD, zlib and
+  Apache-2.0 all do, as long as their notices ship with it. [I]
+
+**A. Our own renderer on modern OpenGL, in the same context as classic.**
+- Fit: the best. It shares the framebuffer, depth buffer and ImGui with
+  classic, so hybrid frames (some passes still classic) just work. MinGW and
+  zero-DLL stay as they are, and GL 4.3 compute is already in use
+  (`swarm_gpu.cpp:1-30`). [V], [I]
+- Cost: we write every feature: clustered lights, shadows, PBR with
+  image-based lighting, the GI bake and post effects. These are
+  well-documented techniques. [I]
+- Risk: OpenGL gets no new features, so no hardware ray tracing or mesh
+  shaders, and Windows GL drivers vary in quality. [I]
+
+**B. Our own renderer on a thin cross-API library, with classic moved onto it.**
+- Libraries: bgfx (BSD-2 [W]; MAME builds its bundled copy with MSYS2 MinGW
+  [W]; it can adopt an existing GL context [W]); Diligent Core (Apache-2.0 [I];
+  it can attach to the current GL context, but its build notes say MinGW has
+  reduced capability and is not advised [W]); sokol_gfx (zlib) is thinner still
+  [I].
+- Fit: D3D11, D3D12, Vulkan or GL from one code base. Classic and remastered
+  share one device, so the instant switch and hybrid frames still work. With
+  bgfx the move can start on our existing GL context and change API later.
+  [W], [I]
+- Cost: port classic's 35-function backend table (`gfx_rendering_api.h:27-65`)
+  and the GLSL generator in `gfx_opengl.cpp` (1,422 lines), the ImGui backend,
+  the scene renderer and the other raw-GL users (the swarm compute shaders,
+  screenshots); add a shader cross-compile step to the build; still write every
+  feature ourselves. [V for the files], [I]
+- Risk: the DLL rule. D3D11 and D3D12 ship with Windows, like `opengl32`, but
+  still need Mike's OK; Vulkan's loader comes with GPU drivers, not Windows, so
+  it needs an exception. Classic must be re-proven pixel for pixel on the new
+  backend. [I]
+
+**C. A renderer-only engine: Filament, Ogre-Next, or DiligentFX on Diligent.**
+- Fit: PBR, clustered lights, shadows, ambient occlusion, bloom, TAA and
+  image-based lighting come ready-made. But the library owns the 3D frame, so
+  the whole 3D view switches at once (no hybrid frames), and classic's HUD and
+  screen effects are composited over its output. [I]
+- Cost: map the snapshot into its scene and material model every frame, and
+  re-express PD specifics in it: two-texture N64 blends, per-room translucency
+  order, sky rooms, x-ray and the vision modes. [I]
+- Risk: the toolchain. Filament's Windows build uses clang or MSVC, not MinGW
+  [W]; a C++ library built by another compiler can't be linked with MinGW GCC,
+  so the whole project would move compilers (for example to MSYS2's clang
+  environment or to MSVC) [I]. Diligent: MinGW not advised [W]. Ogre-Next: no
+  MinGW statement found [W search]. The binary grows, and we follow their
+  releases. [I]
+
+**D. A second full engine beside ours: the Halo model with someone else's
+engine, realistically Godot 4 (MIT).**
+- Fit: the richest feature set, including GI, volumetric fog and an editor
+  artists already know. [I]
+- Cost: two engines in one process, which means deciding who owns the window,
+  input and GPU device, mirroring every object into Godot's scene each frame,
+  and compositing classic's HUD and ImGui with Godot's output. [I]
+- Risk: embedding is new. Building Godot as a library landed in Godot 4.6, and
+  embedding it in another app's UI works only on Apple platforms so far [W].
+  Godot's full renderers run on Vulkan or D3D12 (the DLL rule again), and we
+  would follow Godot's release cycle [I]. Unreal, Unity and O3DE are not
+  practical: licence terms, Windows builds that need MSVC, and none is built
+  to be embedded in another game [I].
+
+Running the remastered renderer as a separate process that shares GPU textures
+is a variant of C or D with more latency and more moving parts. Not
+recommended. [I]
+
+**Recommendation** (*proposal*): **A**, with a thin internal layer for
+resources and passes so that a later move to B stays contained.
+
+- Halo's second renderer was written for the job and fed by the original game
+  (D1). That is A or B, not D. [W], [I]
+- A keeps the instant switch and hybrid frames simple, keeps MinGW and
+  zero-DLL, and needs no port of classic. [I]
+- The most expensive part of 2.0, separating the game from drawing (phase 1),
+  costs the same under every option, and the renderer features are
+  well-understood work. [I]
+- Pick **B** instead if D3D12 or Vulkan matters for 2.0 itself, for example
+  hardware ray-traced GI or a Linux or Steam Deck build. bgfx is the most
+  MinGW-proven of the libraries above. [W], [I]
+- C and D trade feature work for toolchain and integration risk, and lose
+  hybrid frames. [I]
 
 ### 5.9 Split-screen, netplay, Theater and Forge
 
@@ -715,73 +847,110 @@ cost. [I] The `GfxRenderingAPI` table would make a later fast3d port possible
 | R5 | A per-view "room presentation" step that computes room colors, flash, highlight, dyntex time and ageing outside the draw, generalizing CORE's capture. | 3.6; [V core] `bg.c:1462-1511` | S-M | Low to medium. |
 | R6 | Stable public identity for extracted base materials and textures: write each texture's catalog ID into `extras.pd2_material`, and give `.pdmesh` material slots names. | Names today are `mat_%03u_tex_%04x_c%d` and `visual/textures/tex_%04x.tga` (`romextract_pdarena.c:5585-5592`, 5477). [V] Catalog texture IDs exist (`base:texture_unlabeled_*`, `port/src/catalog_readable_ids.c:214-218`). [V] Numeric identity is not allowed in public references ([D] `context/constraints.md:53`). | M | Low: extractor plus conformance. |
 | R7 | Express legacy effects (sparks, smoke, explosions, shards, beams, wall hits) as declarative presentation records, like `.pdeffect`. | 2.7 | M-L | Medium: effect timing and look. |
-| R8 | A "presentation-only" archive class that is excluded from match manifests and mod checks. | MP manifests include enabled mods ([D] `context/designs/connectivity/manifest-architecture.md:21`); no such class exists [V search for cosmetic and client-optional flags in `port/include`, `port/src/net` and `context/pillars/modding.md`]. | S-M | Low. |
+| R8 | **Dropped (D4).** It was a presentation-only archive class kept out of match manifests and mod checks; art packs are now ordinary mods. | Enabled mods go into MP match manifests ([D] `context/designs/connectivity/manifest-architecture.md:21`), and no presentation-only class exists [V search for cosmetic and client-optional flags in `port/include`, `port/src/net` and `context/pillars/modding.md`]. So an enabled pack is distributed like any mod; revisit only if large packs cause problems. [I] | none | none |
 | R9 | A parity harness: the same scripted session in classic before and after R1 and R2, comparing gameplay logs and reference captures; later classic against remastered-neutral. | Needed to make R1 and R2 safe. | M | Low. |
 
 ---
 
 ## 7. Features
 
-### 7.1 Lighting
+### 7.1 Lighting (D3: dynamic lighting on base stages)
 
 - **What:** clustered forward+ lighting with a compute pass for light lists.
-  Lights come from fixtures (quads become area or spot lights), the sun,
-  muzzle flashes, explosions and `.pdeffect` lights. Normals are generated per
-  mesh at cache build, because rooms and many props have none (2.3). (*proposal*)
-- **Rooms:** keep the baked vertex color as the base lighting term. Fixtures add
-  specular only, while flashes and explosions add diffuse and specular. A shot
-  light keeps the classic brightness scaling. [I]
-- **Characters and props:** lit by nearby fixtures, the sun and transient
-  lights, with an ambient term from the room's brightness and floor color, so
-  it stays consistent with classic. [I]
-- **Payoff on original assets:** high for characters and props, medium for
-  rooms. [I]
-- **Size:** L, including normal generation and the light-list compute pass. [I]
-- **Risks:** fixture quads are artistic, not physically calibrated, so
-  per-stage tuning may be needed; flash timing must match the classic room flash
-  (`dlights.c:1563-1620`). [I]
+  Every fixture in `room_lights.json` becomes a real light: its quad and
+  direction give an area or spot light, its color and brightness give its
+  intensity, and its on, healthy and light-op state switch and fade it the way
+  the game already does (`types.h:5386`, 3670-3740 [V]). The sun lights outdoor
+  stages, and muzzle flashes, explosions and `.pdeffect` lights become point
+  lights. Normals are generated at cache build, because rooms and many props
+  have none (2.3). (*proposal*)
+- **Rooms as light boundaries:** a fixture lights only its own room and the
+  rooms visible through its portals, using the `_PD_ROOM` vertex attribute and
+  the public portal table (2.3) [V for the data]. That stops light leaking
+  through walls before shadows are even considered, and keeps light lists
+  short. [I]
+- **The baked colors:** in remastered mode they stop being the lighting (D3).
+  Their hue can stay as a material tint (the color divided by its brightest
+  channel), and their brightness can guide each stage's light calibration.
+  Until GI exists (7.3), a scaled-down copy can stand in for indirect light.
+  [I]
+- **Calibration as data:** PD's light values are artistic: a brightness byte, a
+  multiplier, and per-room brightness ranges (`types.h:5386`, 3699-3735 [V]).
+  The extractor writes default physical intensity, range and shadow settings
+  for each fixture into a public lighting file in each `.pdscenario`, using the
+  same light schema as Forge F4 (5.9), so stages are tuned as data, not code.
+  (*proposal*)
+- **Characters and props:** lit by the same lights plus the GI probes (7.3),
+  instead of today's fixed default lights and flat shade color (2.4). [I]
+- **Payoff:** high everywhere; this is the remastered look D3 asks for. [I]
+- **Size:** XL, including normals, the light-list compute pass, the lighting
+  file, and per-stage calibration with playtests. [I]
+- **Risks:** a full relight of low-poly, 2000-era geometry can look flat or
+  wrong until tuned, and tuning takes time per stage. Flash and light-op timing
+  must match classic (`dlights.c:1563-1620` [V]). Mitigation: finish one
+  showcase stage and get Mike's sign-off on its look before scaling up. [I]
 - **Depends on:** R1, R4, R5, phase 3 (GPU models).
 
 ### 7.2 Shadows
 
-- **What:** cascaded sun shadows on outdoor stages, with the sun direction from
-  `struct sun` (`types.h:3276`) [V], cast only by moving things (characters,
-  props, the viewmodel) onto everything. Add spot-shadow maps for a budget of
-  the nearest fixtures (for example four), also cast by moving things only.
-  Blob shadows remain the fallback. (*proposal*)
-- **Payoff:** high, since it replaces the radial blobs (2.4). [I]
-- **Size:** M for the sun, M for local lights. [I]
-- **Risks:** static casters against baked lighting look wrong (4.2); PD's large
-  open outdoor maps need cascade tuning; shadow acne and peter-panning on
-  low-poly geometry. [I]
+- **What:** with the rooms relit (D3), static geometry must cast shadows too.
+  Fixtures never move and only change brightness [I], so each shadowed fixture
+  keeps a cached shadow map of the static rooms, rendered once and reused, and
+  moving things (characters, props, the viewmodel) are added to it each frame.
+  Cascaded sun shadows cover outdoor stages, with the sun direction from
+  `struct sun` (`types.h:3276`) [V]. A per-view budget picks which nearby
+  fixtures get shadows; the rest rely on the room boundaries (7.1) and GI. Blob
+  shadows remain the fallback. (*proposal*)
+- **Payoff:** high: it replaces the radial blobs (2.4) and makes the relight
+  believable. [I]
+- **Size:** L. [I]
+- **Risks:** soft shadows from quad-shaped lights; cascade tuning on large
+  outdoor maps; acne and peter-panning on low-poly geometry. [I]
 - **Depends on:** 7.1, phase 3.
 
-### 7.3 Baked bounce and GI
+### 7.3 GI (now required on base stages, D3)
 
-- **What:** (a) light-probe volumes per room box (`struct room` bounds,
-  `types.h:3670-3740` [V]) for moving objects, baked from fixtures and sky;
-  (b) for Forge and custom maps only, a lightmap or probe bake with a second UV
-  set, run locally and stored as source-hashed cache. (*proposal*)
-- **Payoff:** (a) medium on base stages, (b) high on custom maps. [I]
-- **Size:** (a) M, (b) L-XL, including an unwrapper and a baker; a third-party
-  unwrapper would need to link statically. [I]
-- **Risks:** bake time on the player's machine; cache size; base stages already
-  have baked lighting. [I]
-- **Depends on:** 7.1, Forge F4 (post-1.0 [D]).
+- **What:** a per-light probe bake. Fixtures never move and only change
+  brightness [I], so the bake stores each fixture's bounce light separately in
+  probes spread through each room's box (`types.h:3670-3740` [V]), plus sky and
+  sun bounce for outdoor stages. At runtime the indirect light is the sum of
+  each fixture's probes times that fixture's current brightness, so shooting
+  out a light, or a light op, also dims its bounce: dynamic GI for the cost of
+  a weighted sum. The bake runs on the player's machine, during cache build or
+  on a stage's first load, and is kept as source-hashed cache ([D]
+  `context/constraints.md:61`). Forge and custom maps use the same bake.
+  (*proposal*, [I])
+- **Payoff:** high. Without indirect light, a relight leaves everything outside
+  a light's reach black. [I]
+- **Size:** L for the probe bake and runtime. Lightmaps for finer detail would
+  add L-XL (an unwrapper and a baker, linked statically). [I]
+- **Risks:** bake time on first load (a progress screen, and the cache makes it
+  once per stage); probe resolution against thin walls (helped by the room
+  boundaries in 7.1); memory for rooms with many lights. [I]
+- **Depends on:** 7.1.
 
 ### 7.4 PBR materials
 
 - **What:** glTF metallic-roughness shading (GGX), matching `scene.glb` and
-  `.pdmaterial` (2.3, 2.9) [V], with image-based lighting from per-room probes or
-  the sky. A translator maps classic material inputs into it: N64 two-texture
-  blends, env and prim tints for cloak, shields and highlights, alpha modes and
-  fog. Texture overrides use section 8. (*proposal*)
-- **Payoff on original assets:** medium with `surface_type` defaults (8.9),
-  high with new art. [I]
-- **Size:** M-L for the material system; the art is open-ended. [I]
+  `.pdmaterial` (2.3, 2.9) [V], with image-based lighting from the GI probes
+  and the sky. A translator maps classic material inputs into it: N64
+  two-texture blends, env and prim tints for cloak, shields and highlights,
+  alpha modes and fog. (*proposal*)
+- **Built in (D4):** every base material gets PBR inputs with no pack
+  installed. They are derived on the player's machine from their own extracted
+  textures and cached: roughness and metallic start from the texture's
+  `surface_type` (8.9), a normal map comes from the texture's brightness used
+  as height, and ambient occlusion comes from the geometry. Nothing derived
+  from the ROM is shipped, so this stays within BYOR (8.7). Art packs replace
+  any of these per material (section 8). (*proposal*, [I])
+- **Payoff:** high together with dynamic lighting. How well derived maps look
+  on PD's small, low-resolution textures is the open quality question. [I]
+- **Size:** M-L for the material system, M for the built-in derivation; pack
+  art is open-ended. [I]
 - **Risks:** N64 combiner semantics, such as the 50/50 second-texture
-  approximation (`scenario_scene_renderer.cpp:1184-1187`) [V]; the "plastic"
-  look when defaults are wrong. [I]
+  approximation (`scenario_scene_renderer.cpp:1184-1187`) [V]; a "plastic" look
+  when derived values are wrong; noisy normal maps derived from tiny textures.
+  [I]
 - **Depends on:** R6, phase 3, section 8. It aligns with the September
   standard-glTF materials plan, which proposes a "source-owned float draw
   packet" and puts normals and PBR after base color ([D]
@@ -850,10 +1019,10 @@ cost. [I] The `GfxRenderingAPI` table would make a later fast3d port possible
 
 | Feature | Payoff (original assets) | Size | Needs |
 |---|---|---|---|
-| Lighting | High (characters, props), medium (rooms) | L | R1, R4, R5, phase 3 |
-| Shadows | High | M+M | Lighting |
-| GI and bounce | Medium (base), high (custom maps) | M / L-XL | Lighting, Forge |
-| PBR | Medium without art, high with it | M-L plus art | R6, phase 3 |
+| Dynamic lighting (D3) | High | XL | R1, R4, R5, phase 3 |
+| Shadows, static and moving | High | L | Lighting |
+| GI, per-light probes (required by D3) | High | L | Lighting |
+| PBR with built-in materials (D4) | High with lighting; packs improve it | M-L + M, plus pack art | R6, phase 3 |
 | Instancing | Low to medium | M | R2, phase 3 |
 | Post effects | High (AO, bloom, AA) | M | Phase 2 |
 | Sky | Medium | M | Phase 2 |
@@ -972,24 +1141,34 @@ targets = base:texture_unlabeled_xxxx   ; one or more catalog IDs (8.4)
 
 - Remastered art in releases or shared packs must be original. Nothing derived
   from ROM textures ships (BYOR is a hard constraint). [I]
-- An optional local tool may derive data on the player's machine, such as
-  normal and roughness estimates or upscales of their own extracted textures,
-  written only to private cache and never exported. This is a legal and
-  product decision for Mike (section 10). [I]
+- The built-in material derivation (D4, 7.4) is local processing of the
+  player's own extracted textures, written only to private cache and never
+  exported, the same kind of work extraction already does. Heavier local tools,
+  such as AI upscaling of the player's own textures, remain a separate legal
+  and product question for Mike. [I]
 
-### 8.8 Multiplayer
+### 8.8 Multiplayer (D4)
 
-- Remaster packs are presentation-only: excluded from match manifests and from
-  the mod check at join (R8), so players with and without packs can play
-  together and each sees their own choice. [I]
+- The remastered renderer is built in and toggled per player. The choice never
+  reaches the wire, saves or match manifests (5.1), so players in one match can
+  use different modes. [I]
+- Art packs are ordinary mods under the existing rules. Enabled mods go into the
+  match manifest and are distributed ([D]
+  `context/designs/connectivity/manifest-architecture.md:21`), so a large pack
+  enabled by the host reaches every client. Revisit only if pack size becomes a
+  problem (R8 was dropped). [I]
 
-### 8.9 Defaults without new art
+### 8.9 Built-in materials (D4)
 
-- `surface_type` maps to default PBR parameters, for example metal to metallic
-  about 0.9 and roughness 0.35, glass to roughness 0.05, stone to roughness
-  0.85. The original texture acts as albedo and the baked vertex color as
-  irradiance. This is a reasonable remastered look with zero art, tunable per
-  pack. [I]
+- The remastered look must stand without packs, so the engine derives PBR inputs
+  for every base material (7.4). `surface_type` gives the starting values, for
+  example metal to metallic about 0.9 and roughness 0.35, glass to roughness
+  0.05, stone to roughness 0.85. The original texture is the albedo, tinted by
+  the hue of the baked vertex colors (7.1). [I]
+- The derivation runs locally and is kept as cache, so nothing from the ROM is
+  shipped (8.7). Packs override it per material. [I]
+- The `surface_type` defaults table is public data, so it can be tuned without
+  code changes. (*proposal*)
 
 ---
 
@@ -1034,8 +1213,8 @@ These are *proposals*; each one points at the evidence that motivates it.
 14. **Keep the classic path capturable** (reference screenshots and logs), since
     it is the parity baseline (R9).
 
-Three cheap things worth doing in 1.x: R3 (presentation RNG, S), R6 (stable
-material identity, M), and R8 (presentation-only class, S-M). [I]
+Two cheap things worth doing in 1.x: R3 (presentation RNG, S) and R6 (stable
+material identity, M). [I]
 
 ---
 
@@ -1044,25 +1223,19 @@ material identity, M), and R8 (presentation-only class, S-M). [I]
 Each of these should become a Workbench decision item. *Recommendations are
 proposals.*
 
-1. **Toggle granularity.** (A) One switch, classic or remastered, like Halo CE
-   Anniversary: simplest to test. (B) One switch plus a few independent extras:
-   more test combinations. (C) Per-feature toggles: many combinations.
-   *Recommend A for players, with developer-only per-pass overrides.*
-2. **Hardware floor for remastered.** (A) GL 4.3 core, today's first-choice
-   context. (B) GL 4.5 or 4.6: cleaner code, slightly fewer GPUs. (C) Vulkan or
-   D3D12: needs a zero-DLL exception (Vulkan) or is Windows-only (D3D12), plus
-   porting fast3d and ImGui. *Recommend A.*
-3. **Look on base stages.** (A) "Faithful plus": keep the baked vertex lighting
-   and add dynamic lights, shadows from moving things, specular, AO and post.
-   (B) "Full relight": computed lighting replaces the baked colors. *Recommend
-   A for base stages and B for Forge and custom maps.*
-4. **Source of remastered art.** (A) Community packs only, original art. (B)
-   Project-made original packs for one or two showcase stages. (C) Also a
-   local derivation tool whose output never leaves the player's machine.
-   *Recommend A plus B, with C decided separately as a legal and product
-   question.*
-5. **Packs in multiplayer.** (A) Presentation-only and client-optional (R8).
-   (B) Normal mods, distributed and required. *Recommend A.*
+1. **Toggle granularity. Decided (D1):** one switch, like Halo: Combat Evolved
+   Anniversary, with developer-only per-pass overrides for debugging.
+2. **Engine and graphics API, and with it the hardware floor. Open (D2):**
+   options A to D are in 5.8. *Recommend A (our own renderer on OpenGL, GL 4.3
+   floor); B if D3D12 or Vulkan matters for 2.0 itself.*
+3. **Look on base stages. Decided (D3):** PBR materials and dynamic lighting,
+   the full-relight direction.
+4. **Source of remastered art. Partly decided (D4):** the baseline is the
+   built-in derivation, and packs are ordinary mods. Still open: whether the
+   project makes an original showcase pack, and whether heavier local tools
+   such as AI upscaling are acceptable (8.7).
+5. **Packs in multiplayer. Decided (D4):** packs are ordinary mods under the
+   existing rules; the renderer itself is built in and chosen per player.
 6. **Shipping hybrid frames.** May 2.0 ship with some passes still classic in
    remastered mode, for example effects? (A) Yes: ship sooner. (B) No: ship
    only when every 3D pass is remastered. *Recommend A.*
@@ -1084,20 +1257,23 @@ proposals.*
 
 | Phase | Scope | Exit criteria | Size |
 |---|---|---|---|
-| 0. 1.x guardrails | Section 9 rules; land B-1172 from core; R3, R6, R8 if cheap; continue the standard-glTF materials plan. | No new couplings in review; extracted materials carry catalog IDs. | S-M [I] |
+| 0. 1.x guardrails | Section 9 rules; land B-1172 from core; R3 and R6 if cheap; continue the standard-glTF materials plan. | No new couplings in review; extracted materials carry catalog IDs. | S-M [I] |
 | 1. Separation | R1, R2, R4, R5, R9; snapshot schema and producers for views, rooms, lights, environment, instances and `.pdeffect`. | Classic captures and gameplay logs unchanged; the listen host no longer builds remote views; the snapshot covers every opaque world draw. | XL [I] |
-| 2. Remastered skeleton | Module, GL 4.3 gate, HDR target, `G_REMASTER_PASS_EXT`, settings and toggle; rooms in neutral and faithful-plus shading; tone mapping. | Toggling changes only pixels: gameplay logs are identical in both modes. | M-L [I] |
+| 2. Remastered skeleton | Engine and API per D2 with its capability gate; HDR target; `G_REMASTER_PASS_EXT`; the Halo-style switch (D1); rooms in neutral shading; tone mapping. If D2 picks B, classic moves onto the new layer first. | Toggling changes only pixels: gameplay logs identical in both modes, classic captures unchanged. | M-L for A, L-XL for B [I] |
 | 3. Objects | GPU model cache, per-instance matrices, visibility and shading; characters, props, viewmodel and attachments; translucency order; opaque instancing. | All models remastered; neutral mode matches classic composition. | L-XL [I] |
-| 4. Lighting | Normal generation, clustered lights, fixtures, flashes, effect lights, sun. | Visible dynamic lighting; flash timing matches classic. | L [I] |
-| 5. Shadows and post | Sun cascades, local spot shadows, AO, bloom, AA, color grading, native screen effects. | Performance budget met (decision 7). | L [I] |
-| 6. Materials | Schema 2 `.pdmaterial` and `.pdtexture`, targeting, modes, cache, Mod Manager and conflict UI, `surface_type` defaults, one original showcase pack. | A pack changes only remastered mode, works in mixed multiplayer, and old clients refuse it cleanly. | L [I] |
-| 7. Sky and effects | Sky dome, stars, fog, particles, decals, beams, flares, x-ray and vision modes. | No classic fallback left in normal play. | L [I] |
-| 8. GI and Forge | Probe volumes for base stages; bake for custom maps; shared light schema with Forge F4. | A custom map lit in both modes. | L-XL [I] |
-| 9. Qualification | Fallback hardware, split-screen, listen host, Theater, memory, long sessions. | Release gate. | M [I] |
+| 4. Lighting, shadows and GI (D3) | Normals; clustered lights; fixtures as real lights bounded by rooms; the per-stage lighting file; cached fixture shadows and sun cascades; the per-light probe bake. One showcase stage first, then the rest. | Mike signs off the showcase stage's look; flash and light-op timing match classic. | XL [I] |
+| 5. Built-in materials (D4) | PBR shading, the built-in derivation, the translator for N64 blends and tints. | Every base stage renders in remastered mode with no packs installed. | M-L [I] |
+| 6. Post | AO, bloom, AA, color grading, native screen effects. | Performance budget met (decision 7). | M [I] |
+| 7. Packs | Schema 2 `.pdmaterial` and `.pdtexture`, targeting, modes, cache, Mod Manager conflicts; an original showcase pack if decision 4 says so. | A pack changes only remastered mode, and old clients refuse it cleanly. | M-L [I] |
+| 8. Sky and effects | Sky dome, stars, fog, particles, decals, beams, flares, x-ray and vision modes. | No classic fallback left in normal play. | L [I] |
+| 9. Forge lighting | Shared light schema with Forge F4; optional lightmaps for custom maps. | A custom map lit in both modes. | M-L [I] |
+| 10. Qualification | Fallback hardware, split-screen, listen host, Theater, memory, long sessions. | Release gate. | M [I] |
 
-The whole scope is roughly 9 to 15 months of focused work. A first shippable
-remastered mode (phases 1 to 4 plus AO and bloom) is roughly 5 to 8 months.
-Both ranges have low confidence. [I]
+The whole scope is roughly 12 to 20 months of focused work. A first shippable
+remastered mode (phases 1 to 5 plus AO and bloom) is roughly 9 to 13 months.
+Option B in 5.8 adds 1 to 3 months. All ranges have low confidence. D3 is the
+main reason they grew: a full relight needs GI, static shadows and per-stage
+tuning before it looks right. [I]
 
 ---
 
@@ -1108,10 +1284,12 @@ Both ranges have low confidence. [I]
 | R1 changes gameplay order | Subtle AI, combat or netplay regressions | Keep the per-player interleave, move statements without reordering, run the R9 parity harness, land it in a freeze. [I] |
 | Two presentation paths drift | Remastered shows a different visible set or placement | Record the snapshot in the same functions that emit classic GBI (3.12); neutral-mode parity captures. [I] |
 | Shared depth and draw space | B-936-style invisible or misordered objects | Draw in the game's draw space (5.7); CORE's matrix probe as a test. [I], [V core] |
-| BYOR | No shippable remastered base art | Original packs, `surface_type` defaults, an optional local derivation tool. [I] |
-| Hardware floor | Some players can't use remastered | Classic stays the default on any context (5.6). [I] |
-| VRAM and load time | Large packs, hitches on toggle | Stage-scoped residency, streaming, "keep remastered loaded" option. [I] |
-| Multiplayer mixing | Packs block joins | R8, and cosmetic data never on the wire (5.1). [I] |
+| Full relight look (D3) | Base stages look flat or wrong on original geometry | One showcase stage with Mike's sign-off before scaling; calibration as data; GI and AO from the start. [I] |
+| Per-stage tuning time | 20-plus stages each need light calibration | Extractor defaults from the original light data, tuned in data files, budgeted inside phase 4. [I] |
+| BYOR | No shippable remastered base art | Built-in derivation runs locally (D4); packs must be original art. [I] |
+| Hardware floor | Some players can't use remastered | Classic runs everywhere; remastered is greyed out below the API level D2 sets (5.6). [I] |
+| VRAM and load time | Large packs; both renderers resident for the instant switch (D1) | Stage-scoped residency, texture streaming, and a low-memory fallback that builds remastered resources on the first toggle (5.6). [I] |
+| Multiplayer mixing | A large pack enabled by the host is sent to every client | Packs are ordinary mods (D4), so they follow normal mod distribution; the renderer choice itself never reaches the wire (5.1). Revisit if pack size becomes a problem. [I] |
 | Special effects (cloak, shields, x-ray, vision modes) | Missing or wrong in remastered | Per-frame classic fallback for that view until native versions exist (7.9). [I] |
 | Scope creep | 2.0 slips | The phase exits in section 11; ship hybrid frames (decision 6). [I] |
 
@@ -1126,5 +1304,35 @@ Both ranges have low confidence. [I]
 - The camera mismatch in 2.3 (rooms drawn with the last player's camera
   wherever more than one world branch runs) comes from code reading only and
   was not seen in game. CORE's camera slots address it.
-- Halo CE Anniversary's internals were not researched. The comparison stops at
-  "one simulation, a switch between two renderers".
+- Halo: Combat Evolved Anniversary was checked only at the level of public
+  descriptions (sources below), not its internals.
+- The third-party library facts in 5.8 come from the sources below and were not
+  tried here: nothing was built with them.
+
+## Appendix: web sources for [W] claims (checked 2026-11-16)
+
+- Halo: Combat Evolved Anniversary uses Saber's engine for the visuals while
+  the original engine keeps gameplay:
+  https://en.wikipedia.org/wiki/Halo:_Combat_Evolved_Anniversary
+- Its graphics switch is instant:
+  https://gameinformer.com/games/halo_combat_evolved_anniversary/b/xbox360/archive/2011/07/22/video-shows-instant-graphical-hot-swapping
+  and https://pcgamer.com/halo-ce-switch-graphics
+- Its classic mode was later fixed to match the original:
+  https://retrorgb.com/halo-combat-evolved-classic-graphics-in-mcc-gets-fixed.html
+- Godot as a library (basic support in 4.6; embedding in a host UI is Apple-only
+  so far): https://talks.godotengine.org/godotcon-ams-2026/talk/DQXZZC/ and
+  https://github.com/migeran/libgodot
+- Filament on Windows builds with clang or MSVC:
+  https://github.com/google/filament/issues/12 and
+  https://www.mintlify.com/google/filament/platforms/desktop
+- bgfx licence (BSD-2): https://bkaradzic.github.io/bgfx/overview.html
+- MAME builds with MSYS2 MinGW and bundles bgfx:
+  https://docs.mamedev.org/initialsetup/compilingmame.html and
+  https://git.redump.net/mame/tree/3rdparty/bgfx/README.md
+- bgfx adopts a caller-supplied GL context:
+  https://git.redump.net/mame/plain/3rdparty/bgfx/src/glcontext_wgl.cpp?h=mame0226
+- Diligent attaches to the current GL context; its build notes call MinGW
+  reduced-capability and not advised:
+  https://diligentgraphics.github.io/docs/d2/df3/DiligentCore_Graphics_GraphicsEngineOpenGL_readme.html
+- Ogre-Next: no MinGW statement found (search only):
+  https://wiki.ogre3d.org/Specific+Build+Guides
