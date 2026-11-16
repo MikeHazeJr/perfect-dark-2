@@ -10943,3 +10943,61 @@ Next
   week-pd/core if every list is exact.
 - Recycle the private check copy D:\PD2-wt\core-check-dyntex and unused
   frozen clients when done.
+
+## 2026-11-16 (03:25-06:45 UTC) - CORE: base 7 published, global AI lists slice 1 merged, B-1199 handed back, B-1178, B-1179, dev merged
+
+What happened
+- Base 7 redo (q_20261116025212980_91829b9d, 04:55-05:16 UTC, extract-6
+  client 3223c21b): extraction 274 s on D:, second pass wrote nothing; mesh
+  census 733 of 733 at render schema 4 with texture rows (falcon2_hi: six
+  G_TEXTURE 0x0800 rows); conformance 0 errors with extract-6's own tool
+  (9,025 archives, 10,033 with nested; run from week-pd/core the tool calls
+  every arena's scenario_graph_cache stale, because CORE already expects the
+  _dyntex scene kind); intro, stage rules and runner sweeps pass. In game:
+  Complex 12/12, release 49/54 (the five CORE-only misses, the same as
+  extract-5 on base 6), Defection depth 13/16 (the three CORE renderer probe
+  lines), no re-extraction at boot, no refused render streams. The held
+  Falcon 2 is no longer striped (screens under
+  week-pd-receipts\base7-redo-20261116-0455). Published in the week note at
+  05:50 UTC, with a Current shared base bullet listing the base/branch pairs.
+- Global AI lists, slice 1: in the same turn the client logged "AI.GLOBAL:
+  round trip 46/46 lists exact, 4268 commands, 19949 bytes". week-pd/core-gai
+  merged into week-pd/core (5c0cef4d; line counts checked; pd-tests 1,948).
+- B-1199: MULTIPLAYER fixed it on week-pd/multiplayer (5a1dfcda: player 2's
+  controls come from slot 5 in a networked mission). Both fixes insert a
+  function at the same place in port/src/savefile.c, so CORE's two commits
+  are reverted (ed1756cf). Correction to the 03:20 week note:
+  netPlayersAllocate gives the local client slot 0 on a client too, so the
+  partner is slot 1 on both machines.
+- MODS's vehicle graph draft (vehicle-graph-v1.md on week-pd/mods) answered:
+  one instance record per vehicle with per-node state slots (the D-006A
+  shape), a compile-time bound for module-raised events, the per-update tick
+  walk compiled to a flat list at the hoverbikeUpdateMovement call site,
+  physics v3 without boost keys and no fallback, v2 refused after the base
+  re-extract, names accepted. Correction: the base boost is 5.0 over
+  {2400, ticks240} (10 s; the original's TICKS(2400) and 5000/2400000), not
+  the 7.0 and 1800 of MODS's template.
+- B-1178 (2b8b7de1): entity.autogun's beam_interval is a shot count, but the
+  compiler's keyNeedsUnit substring rule refused it, so only
+  beam_interval_ticks60 compiled. Exempted like timer_starts; the field is
+  autogun_beam_every_shots; the compiler and the IR validator refuse the old
+  name. Every other _ticks60 field and every other key the rule catches was
+  checked. SP-88 (a key's name states a unit its reader does not use; with
+  MODS's B-1230).
+- B-1179 (f5207103): chrTick's surface-normal blend and floor sample now run
+  only on the frame's full tick (MULTIPLAYER's note, the SP-87 class).
+- SP-89 (37b20936): CORE's SP-80 (the bulk writer) renumbered, because
+  MULTIPLAYER claimed SP-80 first and dev now carries theirs.
+- dev at 361abab8 (the crystal pistol) merged into week-pd/core (aac86a67),
+  as CRYSTAL asked: five conflicts resolved hunk by hunk (CMakeLists both
+  test entries, build-headless keeps core's no-keygen block, actionmap takes
+  dev's name table with one assert, systemic-bugs and the static tests keep
+  both). Checked file by file against both parents. Follow-up: the capped
+  ray grid brute-force fallback in meshraygrid.c is gone, since B-1210 lists
+  every triangle past the cap in the last cell; the test's grid builder now
+  uses meshGridCell. Built and checked: client and pd-tests build, 1,996 cases pass (core's B-1116 name test now pins the gun roll pair), and the native write policy guard passes (810 units). Pushed 302a8929. Week note: the Weather row is ticked (its rules load in game on every campaign stage), and MULTIPLAYER's SP-87 scheduler question is answered on the hub (agreed with option (b), networked play only, on their branch).
+
+Next
+- Object rules row (the Extraction chopper hum and its siblings) and the
+  global AI lists slice 2 (the .pdai type), each in a focused stretch.
+- Rerun CORE's base checks on the merged client when the queue allows.
