@@ -3,8 +3,8 @@
 Status: CORE, 2026-11-16. Design for the remaining target of the week note's
 "AI commands and cutscene triggers" row ("typed operands, parsed nodes,
 trigger-volume events"), under decision 1 (players can recreate any existing
-behavior with the nodes). Slices 1, 2 and 4 built (see "Slice 1 as built",
-"Slice 2 as built" and trigger-volume-events.md); slice 3 not built. The facts below come from a read-only survey of `week-pd/core`
+behavior with the nodes). All four slices built (see "Slice 1 as built", "Slice 2
+as built", "Slice 3 as built" and trigger-volume-events.md). The facts below come from a read-only survey of `week-pd/core`
 (0d2022b8) and the extracted base 7 data.
 
 ## Where it stands
@@ -74,9 +74,8 @@ AI editing and hand-written lists need named, typed parameters.
    `args` and refuses a row whose `args` and `operands` disagree; the client
    check compares both compiles for every list. Scenario and `.pdai` kinds
    move (SP-86).
-3. `operands` and the `*_catalog_id` fields leave the rows (schema
-   `pd2.scenario.ai.lists.v2`); a v1 row is refused with a message naming v2.
-   Kinds move again. A schema notice in the week note first.
+3. Catalog references in args (model, weapon, body and head by catalog id)
+   and extracted rows that give args alone. Built (see "Slice 3 as built").
 4. Trigger-volume events: `event.volume.entered` and `event.volume.left` on
    `volumes.json` rows, so a mission graph can react without polling
    `if_chr_in_room`; the base game keeps polling, which the AI lists already
@@ -156,6 +155,36 @@ AI editing and hand-written lists need named, typed parameters.
   sites and their order; the conformance unit tests cover matching and
   mismatched args, nodes and the v3 requirement. All 73,603 base rows
   decode to args and back in Python.
+
+## Slice 3 as built
+
+- A field of kind `model`, `weapon`, `body` or `head` may be written as a
+  catalog id: `"weapon": "base:cmp150"`. `aiCommandArgsToJsonRefs` asks
+  a namer for each such value's id (a number the catalog does not name
+  stays a number, such as a head of -1); `aiCommandArgsEncodeRefs` asks a
+  resolver for each id's number (the runtime's resolvers, the same that
+  served the `*_catalog_id` fields), and an id that does not resolve is
+  refused. Without callbacks a catalog id is refused ("this reader has no
+  catalog").
+- The extractor writes every stage and bank row as args alone: no
+  `operands`, no `*_catalog_id` fields, catalog ids wherever the catalog
+  names the number. For each row it encodes the args back through the
+  resolvers and compares them with the command's bytes, so a written row
+  always gives exactly the original command; a difference fails the
+  archive. Scenario kind `_catalogargs`, bank version
+  `global_ailists_rows_v4_catalogargs` (SP-86).
+- A row that names catalog ids in its args gives no operands (a catalog id
+  resolves to this game's number, which raw bytes cannot follow): the
+  compiler and conformance refuse both together. A row with operands only,
+  or with operands and plain-number args, still compiles as before, so no
+  schema version changes and older hand-written rows keep working.
+- Conformance: a catalog id in args must have the catalog id form; its
+  bytes count as zero for the edge check (they never steer control flow);
+  the archive scan's catalog reference check finds `args.weapon` and the
+  like and requires each id to be declared by an archive of the data root.
+- pd-tests: references through a fake catalog (named, resolved, a number
+  the catalog does not know, refusals); pins on the extractor's namer,
+  resolver and write-time check and on the compiler's rule.
 
 ## Not in scope
 

@@ -1470,8 +1470,37 @@ static int s_append(char *out, uint32_t out_size, uint32_t *len, const char *fmt
 	return 1;
 }
 
+int aiOperandKindIsCatalog(ai_operand_kind_t kind)
+{
+	return kind == AI_OPERAND_MODEL || kind == AI_OPERAND_WEAPON || kind == AI_OPERAND_BODY
+		|| kind == AI_OPERAND_HEAD;
+}
+
+/* A catalog id as the writer names it: only id characters, so it needs no
+ * escaping in JSON. */
+static int s_isCatalogIdText(const char *id)
+{
+	if (!id || !id[0]) {
+		return 0;
+	}
+	for (const char *c = id; *c; c++) {
+		if (!((*c >= 'a' && *c <= 'z') || (*c >= 'A' && *c <= 'Z') || (*c >= '0' && *c <= '9')
+				|| *c == '_' || *c == ':' || *c == '.' || *c == '-')) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
 int aiCommandArgsToJson(const ai_command_schema_t *schema, const uint8_t *operands,
 	uint32_t operand_len, char *out, uint32_t out_size)
+{
+	return aiCommandArgsToJsonRefs(schema, operands, operand_len, out, out_size, NULL, NULL);
+}
+
+int aiCommandArgsToJsonRefs(const ai_command_schema_t *schema, const uint8_t *operands,
+	uint32_t operand_len, char *out, uint32_t out_size, ai_command_ref_namer_fn namer,
+	void *user)
 {
 	uint32_t len = 0;
 	int first = 1;
@@ -1516,6 +1545,18 @@ int aiCommandArgsToJson(const ai_command_schema_t *schema, const uint8_t *operan
 		}
 		if (field->kind == AI_OPERAND_UNUSED && value == 0) {
 			continue;
+		}
+		if (namer && aiOperandKindIsCatalog((ai_operand_kind_t)field->kind)) {
+			const char *id = namer((ai_operand_kind_t)field->kind, value, user);
+
+			if (s_isCatalogIdText(id)) {
+				if (!s_append(out, out_size, &len, "%s\"%s\": \"%s\"", first ? "" : ", ",
+						field->name, id)) {
+					return -1;
+				}
+				first = 0;
+				continue;
+			}
 		}
 		if (field->kind == AI_OPERAND_BOOL && (value == 0 || value == 1)) {
 			ok = s_append(out, out_size, &len, "%s\"%s\": %s", first ? "" : ", ",
@@ -1623,6 +1664,14 @@ int aiCommandArgsEncode(const ai_command_schema_t *schema, const char *json,
 	uint32_t json_len, uint8_t *out, uint32_t out_size, char *error,
 	uint32_t error_size)
 {
+	return aiCommandArgsEncodeRefs(schema, json, json_len, out, out_size, NULL, NULL,
+		error, error_size);
+}
+
+int aiCommandArgsEncodeRefs(const ai_command_schema_t *schema, const char *json,
+	uint32_t json_len, uint8_t *out, uint32_t out_size, ai_command_ref_resolver_fn resolver,
+	void *user, char *error, uint32_t error_size)
+{
 	const char *end;
 	const char *p;
 	uint8_t seen[64];
@@ -1699,7 +1748,25 @@ int aiCommandArgsEncode(const ai_command_schema_t *schema, const char *json,
 			} else {
 				int64_t value = 0;
 
-				if (field->kind == AI_OPERAND_BOOL && end - p >= 4 && strncmp(p, "true", 4) == 0) {
+				if (p < end && *p == '"' && aiOperandKindIsCatalog((ai_operand_kind_t)field->kind)) {
+					uint8_t id[96];
+					uint32_t id_len = 0;
+
+					p = s_readString(p, end, id, sizeof(id), &id_len);
+					if (!p || !id_len) {
+						return s_fail(error, error_size, "%s argument '%s' is not a catalog id",
+							schema->name, field->name);
+					}
+					if (!resolver) {
+						return s_fail(error, error_size, "%s argument '%s' names '%s'; this reader"
+							" has no catalog", schema->name, field->name, (const char *)id);
+					}
+					if (!resolver((ai_operand_kind_t)field->kind, (const char *)id, &value, user)) {
+						return s_fail(error, error_size, "%s argument '%s' names '%s', which is no %s"
+							" in the catalog", schema->name, field->name, (const char *)id,
+							aiOperandKindName((ai_operand_kind_t)field->kind));
+					}
+				} else if (field->kind == AI_OPERAND_BOOL && end - p >= 4 && strncmp(p, "true", 4) == 0) {
 					value = 1;
 					p += 4;
 				} else if (field->kind == AI_OPERAND_BOOL && end - p >= 5

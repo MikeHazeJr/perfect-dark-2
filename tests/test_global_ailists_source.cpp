@@ -44,9 +44,11 @@ TEST_CASE("global AI list rows carry every key the scenario AI list reader needs
     const std::string writer = functionBody(arena, "char *romExtractGlobalAiListsJson(u32 *out_lists, u32 *out_commands)");
     REQUIRE_FALSE(writer.empty());
 
+    // ai-typed-operands.md slice 3: a row gives its bytes by args alone (with
+    // catalog ids for models, weapons, bodies and heads), so the reader needs
+    // these keys and no operands or *_catalog_id fields.
     const char *keys[] = {"ailist_ref", "list_id", "graph_node", "command_index", "offset",
-        "opcode", "opcode_name", "operands", "model_catalog_id", "weapon_catalog_id",
-        "body_catalog_id", "head_catalog_id"};
+        "opcode", "opcode_name"};
     for (const char *key : keys) {
         INFO(key);
         REQUIRE(writer.find(std::string("\\\"") + key + "\\\": ") != std::string::npos);
@@ -56,7 +58,12 @@ TEST_CASE("global AI list rows carry every key the scenario AI list reader needs
     REQUIRE(writer.find("g_GlobalAilists[i].list != NULL") != std::string::npos);
     REQUIRE(writer.find("chraiGetCommandLength(list, offset)") != std::string::npos);
     REQUIRE(writer.find("if (opcode == AICMD_END) {") != std::string::npos);
-    REQUIRE(writer.find("s_appendAiOperandsJsonArray(&json, cmd, len)") != std::string::npos);
+    REQUIRE(writer.find("s_appendAiArgsJson(&json, cmd, len)") != std::string::npos);
+    for (const char *gone : {"operands", "model_catalog_id", "weapon_catalog_id",
+            "body_catalog_id", "head_catalog_id"}) {
+        INFO(gone);
+        REQUIRE(writer.find(std::string("\\\"") + gone + "\\\": ") == std::string::npos);
+    }
 }
 
 TEST_CASE("the exported AI list compiler lays commands out as the stage setup compiler does", "[ai][global-ailists]")

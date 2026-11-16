@@ -116,6 +116,24 @@ int aiCommandArgsEncode(const ai_command_schema_t *schema, const char *json,
 	uint32_t json_len, uint8_t *out, uint32_t out_size, char *error,
 	uint32_t error_size);
 
+/* Slice 3: catalog references. A field of kind model, weapon, body or head
+ * may be written as a catalog id ("weapon": "base:cmp150"). The writer asks
+ * namer for a value's id (NULL or "" keeps the number); the reader asks
+ * resolver for an id's value (0 when it does not resolve). With NULL
+ * callbacks these are aiCommandArgsToJson and aiCommandArgsEncode, and a
+ * catalog id is refused. */
+int aiOperandKindIsCatalog(ai_operand_kind_t kind);
+typedef const char *(*ai_command_ref_namer_fn)(ai_operand_kind_t kind, int64_t value,
+	void *user);
+typedef int (*ai_command_ref_resolver_fn)(ai_operand_kind_t kind, const char *id,
+	int64_t *out_value, void *user);
+int aiCommandArgsToJsonRefs(const ai_command_schema_t *schema, const uint8_t *operands,
+	uint32_t operand_len, char *out, uint32_t out_size, ai_command_ref_namer_fn namer,
+	void *user);
+int aiCommandArgsEncodeRefs(const ai_command_schema_t *schema, const char *json,
+	uint32_t json_len, uint8_t *out, uint32_t out_size, ai_command_ref_resolver_fn resolver,
+	void *user, char *error, uint32_t error_size);
+
 #ifdef __cplusplus
 }
 #endif

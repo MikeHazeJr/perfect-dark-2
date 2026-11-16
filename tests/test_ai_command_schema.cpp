@@ -494,17 +494,23 @@ TEST_CASE("AI command schema: rows and nodes carry args, the compiler checks the
 	REQUIRE(extractor.find("#include \"ai_command_schema.h\"") != std::string::npos);
 	REQUIRE(extractor.find("static s32 s_appendAiArgsJson(pdscenario_textbuf_t *out, const u8 *cmd, u32 len)")
 		!= std::string::npos);
-	REQUIRE(extractor.find("aiCommandArgsToJson(schema, cmd + 2, len - 2, args,") != std::string::npos);
-	REQUIRE(extractor.find("s_appendAiOperandsJsonArray(ai_lists_json, cmd, len) != 0 ||\n"
-		"\t\t\t\t\ts_appendAiArgsJson(ai_lists_json, cmd, len) != 0 ||") != std::string::npos);
+	REQUIRE(extractor.find("args_len = schema ? aiCommandArgsToJsonRefs(schema, cmd + 2, len - 2, args,") != std::string::npos);
+	// Slice 3: catalog references, checked back to the bytes as written.
+	REQUIRE(extractor.find("sizeof(args), s_aiCatalogNamer, NULL) : -1;") != std::string::npos);
+	REQUIRE(extractor.find("count = aiCommandArgsEncodeRefs(schema, args, (u32)args_len, bytes, sizeof(bytes),\n"
+		"\t\ts_aiCatalogResolver, NULL, error, sizeof(error));") != std::string::npos);
+	REQUIRE(extractor.find("s_appendAiOperandsJsonArray") == std::string::npos);
+	REQUIRE(extractor.find("s_textbufAppendJsonString(ai_lists_json, opcode_name) != 0 ||\n"
+		"\t\t\t\t\ts_appendAiArgsJson(ai_lists_json, cmd, len) != 0 ||\n"
+		"\t\t\t\t\ts_textbufAppend(ai_lists_json, \" }\") != 0) {") != std::string::npos);
 	REQUIRE(extractor.find("s_appendAiArgsJson(ai_command_nodes_json, cmd, len) != 0 ||") != std::string::npos);
-	REQUIRE(extractor.find("s_appendAiOperandsJsonArray(&json, cmd, len) != 0 ||\n"
+	REQUIRE(extractor.find("s_textbufAppendJsonString(&json, opcode_name) != 0 ||\n"
 		"\t\t\t\t\ts_appendAiArgsJson(&json, cmd, len) != 0 ||") != std::string::npos);
 	REQUIRE(extractor.find("s_appendAiArgsJson(&nodes, g_GlobalAilists[i].list + scan.offsets[c],")
 		!= std::string::npos);
 	// SP-86: the scenario kind and the bank's version moved with the output.
-	REQUIRE(extractor.find("_aiedges_simtwins_typedargs\"") != std::string::npos);
-	REQUIRE(bank.find("#define PDAI_EXTRACT_VERSION \"global_ailists_rows_v3_typedargs\"") != std::string::npos);
+	REQUIRE(extractor.find("_aiedges_simtwins_typedargs_catalogargs\"") != std::string::npos);
+	REQUIRE(bank.find("#define PDAI_EXTRACT_VERSION \"global_ailists_rows_v4_catalogargs\"") != std::string::npos);
 
 	// The compiler encodes a row's args and compares them with its operands
 	// before the catalog ids patch the bytes.
@@ -518,7 +524,9 @@ TEST_CASE("AI command schema: rows and nodes carry args, the compiler checks the
 	REQUIRE(patch != std::string::npos);
 	REQUIRE(parse < check);
 	REQUIRE(check < patch);
-	REQUIRE(runtime.find("count = aiCommandArgsEncode(schema, args, (u32)(args_end - args + 1), bytes,")
+	REQUIRE(runtime.find("count = aiCommandArgsEncodeRefs(schema, args, (u32)(args_end - args + 1), bytes,\n"
+		"\t\tsizeof(bytes), s_aiArgsResolveRef, &refs, error, sizeof(error));") != std::string::npos);
+	REQUIRE(runtime.find("\"AI row '%s' names catalog ids in its args and also gives operands%s\"")
 		!= std::string::npos);
 	REQUIRE(runtime.find("\"AI row '%s' args do not give its operands%s\"") != std::string::npos);
 	REQUIRE(runtime.find("\"AI row '%s' has neither operands nor args%s\"") != std::string::npos);
@@ -539,5 +547,84 @@ TEST_CASE("AI command schema: rows and nodes carry args, the compiler checks the
 		!= std::string::npos);
 	REQUIRE(conformance.find("PDAI_TYPED_ARGS_EXTRACT_VERSION = \"global_ailists_rows_v3_typedargs\"")
 		!= std::string::npos);
-	REQUIRE(conformance.find("if extract_version == PDAI_TYPED_ARGS_EXTRACT_VERSION:") != std::string::npos);
+	REQUIRE(conformance.find("if extract_version in (PDAI_TYPED_ARGS_EXTRACT_VERSION, PDAI_CATALOG_ARGS_EXTRACT_VERSION):")
+		!= std::string::npos);
+	REQUIRE(conformance.find("PDAI_CATALOG_ARGS_EXTRACT_VERSION = \"global_ailists_rows_v4_catalogargs\"")
+		!= std::string::npos);
+	REQUIRE(conformance.find("AI_CATALOG_KINDS = {\"model\", \"weapon\", \"body\", \"head\"}")
+		!= std::string::npos);
+}
+
+namespace {
+
+const char *fakeNamer(ai_operand_kind_t kind, int64_t value, void *user)
+{
+	(void)user;
+	if (kind == AI_OPERAND_WEAPON && value == 0x0a) return "base:cmp150";
+	if (kind == AI_OPERAND_MODEL && value == 0x00fd) return "base:model_chrcmp150";
+	return nullptr;
+}
+
+int fakeResolver(ai_operand_kind_t kind, const char *id, int64_t *out_value, void *user)
+{
+	if (user) {
+		(*static_cast<int *>(user))++;
+	}
+	if (kind == AI_OPERAND_WEAPON && std::string(id) == "base:cmp150") {
+		*out_value = 0x0a;
+		return 1;
+	}
+	if (kind == AI_OPERAND_MODEL && std::string(id) == "base:model_chrcmp150") {
+		*out_value = 0x00fd;
+		return 1;
+	}
+	return 0;
+}
+
+} // namespace
+
+TEST_CASE("AI command schema: catalog references in args", "[ai][schema][args][refs]")
+{
+	char json[256];
+	uint8_t bytes[64];
+	char error[160];
+	const ai_command_schema_t *equip = aiCommandSchemaFind(0x00c8); // try_equip_weapon
+	REQUIRE(equip != nullptr);
+	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_WEAPON) == 1);
+	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_MODEL) == 1);
+	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_BODY) == 1);
+	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_HEAD) == 1);
+	REQUIRE(aiOperandKindIsCatalog(AI_OPERAND_CHR) == 0);
+
+	// Model 0x00fd and weapon 0x0a by catalog id; flags and label as numbers.
+	const uint8_t operands[8] = {0x00, 0xfd, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x06};
+	const int len = aiCommandArgsToJsonRefs(equip, operands, 8, json, sizeof(json), fakeNamer, nullptr);
+	REQUIRE(len > 0);
+	REQUIRE(std::string(json) == "{\"model\": \"base:model_chrcmp150\", \"weapon\": \"base:cmp150\", "
+		"\"flags\": 0, \"label\": 6}");
+	int resolved = 0;
+	REQUIRE(aiCommandArgsEncodeRefs(equip, json, (uint32_t)len, bytes, sizeof(bytes), fakeResolver,
+		&resolved, error, sizeof(error)) == 8);
+	REQUIRE(std::memcmp(bytes, operands, 8) == 0);
+	REQUIRE(resolved == 2);
+
+	// A number the namer does not know stays a number.
+	const uint8_t other[8] = {0x01, 0x00, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x06};
+	REQUIRE(aiCommandArgsToJsonRefs(equip, other, 8, json, sizeof(json), fakeNamer, nullptr) > 0);
+	REQUIRE(std::string(json) == "{\"model\": 256, \"weapon\": 11, \"flags\": 0, \"label\": 6}");
+
+	// Without a resolver, or with an id the catalog does not have, refused.
+	const std::string by_id = "{\"model\": 253, \"weapon\": \"base:cmp150\", \"flags\": 0, \"label\": 6}";
+	REQUIRE(aiCommandArgsEncode(equip, by_id.c_str(), (uint32_t)by_id.size(), bytes, sizeof(bytes),
+		error, sizeof(error)) == -1);
+	REQUIRE(std::string(error).find("names 'base:cmp150'; this reader has no catalog") != std::string::npos);
+	const std::string unknown = "{\"model\": 253, \"weapon\": \"base:nogun\", \"flags\": 0, \"label\": 6}";
+	REQUIRE(aiCommandArgsEncodeRefs(equip, unknown.c_str(), (uint32_t)unknown.size(), bytes, sizeof(bytes),
+		fakeResolver, nullptr, error, sizeof(error)) == -1);
+	REQUIRE(std::string(error).find("names 'base:nogun', which is no weapon in the catalog") != std::string::npos);
+	// A catalog id only where the field is a catalog kind.
+	const std::string label_id = "{\"model\": 253, \"weapon\": 10, \"flags\": 0, \"label\": \"base:cmp150\"}";
+	REQUIRE(aiCommandArgsEncodeRefs(equip, label_id.c_str(), (uint32_t)label_id.size(), bytes, sizeof(bytes),
+		fakeResolver, nullptr, error, sizeof(error)) == -1);
+	REQUIRE(std::string(error).find("must be a whole number") != std::string::npos);
 }

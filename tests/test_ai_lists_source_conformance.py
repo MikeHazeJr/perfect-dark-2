@@ -226,6 +226,8 @@ class GlobalAiListsGraphTests(unittest.TestCase):
                "extract_version = global_ailists_rows_v2_aiedges\n")
     TYPED_INI = (GOOD_INI + "ai_lists_graph_file = ai/global_ailists.graph.json\n"
                  "extract_version = global_ailists_rows_v3_typedargs\n")
+    CATALOG_INI = (GOOD_INI + "ai_lists_graph_file = ai/global_ailists.graph.json\n"
+                   "extract_version = global_ailists_rows_v4_catalogargs\n")
 
     def bank(self, ini, rows, graph):
         data = io.BytesIO()
@@ -316,6 +318,40 @@ class GlobalAiListsGraphTests(unittest.TestCase):
         errors = self.bank(self.TYPED_INI, bad, graph)
         self.assertTrue(any("must be a list of bytes (or the row must have args)" in error
                             for error in errors))
+
+    def test_args_name_catalog_ids(self):
+        """Slice 3: a weapon or model argument by catalog id; such a row gives
+        args alone, as the v4 extractor writes every row."""
+        equip = (0x00C8, [0x00, 0xFD, 0x0A, 0x00, 0x00, 0x00, 0x00, 0x06])  # try_equip_weapon
+        commands = [equip, (LABEL, [6]), (END, [])]
+        rows = list_rows(0x0010, commands)
+        graph = self.graph(rows, commands)
+        args = [{"model": "base:model_chrcmp150", "weapon": "base:cmp150", "flags": 0, "label": 6},
+                {"label": 6}, {}]
+        lean = []
+        for row, arg in zip(rows, args):
+            row = {k: v for k, v in row.items() if k != "operands" and not k.endswith("_catalog_id")}
+            row["args"] = arg
+            lean.append(row)
+        for node in graph["nodes"]:
+            node["args"] = next(r["args"] for r in lean if r["graph_node"] == node["id"])
+        # The rows, their edges and the nodes pass; the only errors are the
+        # catalog's own reference check, which knows no base ids in a lone
+        # archive (over the data root it checks them against every archive).
+        errors = self.bank(self.CATALOG_INI, lean, graph)
+        self.assertEqual(len(errors), 4, errors)
+        self.assertTrue(all("unknown catalog ID reference" in error and ".args." in error
+                            for error in errors), errors)
+        # Catalog ids next to raw operands, and a malformed id.
+        both = [dict(row) for row in lean]
+        both[0]["operands"] = [f"0x{value:02x}" for value in equip[1]]
+        errors = self.bank(self.CATALOG_INI, both, graph)
+        self.assertTrue(any("names catalog ids in its args and also gives operands" in error
+                            for error in errors))
+        bad = [dict(row) for row in lean]
+        bad[0]["args"] = dict(bad[0]["args"], weapon="Not An Id")
+        errors = self.bank(self.CATALOG_INI, bad, graph)
+        self.assertTrue(any("argument 'weapon' is not a catalog id" in error for error in errors))
 
     def test_new_extract_version_requires_the_graph(self):
         rows = list_rows(0x0010, [(END, [])])

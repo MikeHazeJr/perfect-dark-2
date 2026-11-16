@@ -144,7 +144,7 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -6295,6 +6295,18 @@ def ai_command_args(opcode: int, operands: list[int]) -> dict | None:
     return args
 
 
+# ai-typed-operands.md slice 3: these kinds may name a catalog id.
+AI_CATALOG_KINDS = {"model", "weapon", "body", "head"}
+
+
+def ai_args_have_refs(opcode: int, args: object) -> bool:
+    command = AI_COMMAND_SCHEMA.get(opcode)
+    if command is None or not isinstance(args, dict):
+        return False
+    return any(isinstance(args.get(field[0]), str) and field[4] in AI_CATALOG_KINDS
+               for field in command[2])
+
+
 def ai_command_encode(opcode: int, args: object) -> tuple[list[int] | None, str | None]:
     """A command's operand bytes from its args, as port/src/ai_command_schema.c
     aiCommandArgsEncode makes them: every used field required, an unused one
@@ -6328,6 +6340,13 @@ def ai_command_encode(opcode: int, args: object) -> tuple[list[int] | None, str 
                 continue
             return None, f"{name} is missing argument '{field_name}'"
         value = args[field_name]
+        if isinstance(value, str) and kind in AI_CATALOG_KINDS:
+            # Slice 3: a catalog id. Conformance has no catalog to resolve it;
+            # the id's form is checked and its bytes stay zero here (they do
+            # not steer control flow).
+            if not CATALOG_ID_RE.fullmatch(value):
+                return None, f"{name} argument '{field_name}' is not a catalog id"
+            continue
         if isinstance(value, bool):
             if kind != "bool":
                 return None, f"{name} argument '{field_name}' must be a whole number"
@@ -6371,6 +6390,8 @@ def _ai_row_args_error(row: dict, opcode: int, values: list[int]) -> str | None:
     exactly what its operands decode to."""
     if "args" not in row:
         return None
+    if ai_args_have_refs(opcode, row.get("args")):
+        return "names catalog ids in its args and also gives operands"
     expected = ai_command_args(opcode, values)
     args = row.get("args")
     if not isinstance(args, dict) or _ai_args_text(args) != _ai_args_text(expected):
@@ -6548,7 +6569,11 @@ PDAI_AI_EDGES_EXTRACT_VERSION = "global_ailists_rows_v2_aiedges"
 # From this extract_version on the bank's rows and graph nodes carry args
 # (ai-typed-operands.md slice 2); it carries the graph too.
 PDAI_TYPED_ARGS_EXTRACT_VERSION = "global_ailists_rows_v3_typedargs"
-PDAI_GRAPH_EXTRACT_VERSIONS = (PDAI_AI_EDGES_EXTRACT_VERSION, PDAI_TYPED_ARGS_EXTRACT_VERSION)
+# From this extract_version on the bank's rows give args alone, with catalog
+# references (ai-typed-operands.md slice 3).
+PDAI_CATALOG_ARGS_EXTRACT_VERSION = "global_ailists_rows_v4_catalogargs"
+PDAI_GRAPH_EXTRACT_VERSIONS = (PDAI_AI_EDGES_EXTRACT_VERSION, PDAI_TYPED_ARGS_EXTRACT_VERSION,
+                               PDAI_CATALOG_ARGS_EXTRACT_VERSION)
 PDAI_GRAPH_MEMBER = "ai/global_ailists.graph.json"
 AI_GRAPH_SCHEMA = "pd2.scenario.ai.graph.v1"
 
@@ -6953,12 +6978,12 @@ def validate_ai_lists_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} ai/global_ailists.json row {idx} list_id "
                 f"{clean_value(list_id)} is not a global list id (below 0x0401)"
             )
-    if extract_version == PDAI_TYPED_ARGS_EXTRACT_VERSION:
+    if extract_version in (PDAI_TYPED_ARGS_EXTRACT_VERSION, PDAI_CATALOG_ARGS_EXTRACT_VERSION):
         without = sum(1 for row in rows if isinstance(row, dict) and "args" not in row)
         if without:
             errors.append(
                 f"{label} ai/global_ailists.json has {without} rows without args "
-                f"(extract_version {PDAI_TYPED_ARGS_EXTRACT_VERSION} writes them)"
+                f"(extract_version {extract_version} writes them)"
             )
     if PDAI_GRAPH_MEMBER in name_set:
         errors.extend(validate_ai_lists_graph_member(label, zf, rows))

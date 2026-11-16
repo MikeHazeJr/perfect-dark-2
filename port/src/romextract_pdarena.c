@@ -92,7 +92,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs_catalogargs"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -4249,39 +4249,87 @@ static void s_aiOpcodeSemanticKind(u16 opcode, const char *opcode_name,
 	}
 }
 
-static s32 s_appendAiOperandsJsonArray(pdscenario_textbuf_t *out,
-	const u8 *cmd, u32 len)
+/* context/designs/modding/ai-typed-operands.md, slices 2-3: model, weapon,
+ * body and head arguments by catalog id when the catalog names the number
+ * (else the number), and back to the number as the compiler resolves it. */
+static const char *s_aiCatalogNamer(ai_operand_kind_t kind, int64_t value, void *user)
 {
-	if (s_textbufAppend(out, "[") != 0) {
-		return -1;
+	(void)user;
+	if (value < 0 || value > 0xffff) {
+		return NULL;
 	}
-	for (u32 i = 2; i < len; i++) {
-		if (s_textbufAppendf(out, "%s\"0x%02x\"",
-				i > 2 ? ", " : "", (unsigned)cmd[i]) != 0) {
-			return -1;
-		}
+	switch (kind) {
+	case AI_OPERAND_MODEL: return catalogModelIdByModelnum((s32)value);
+	case AI_OPERAND_WEAPON: return catalogWeaponIdByRuntimeWeaponNum((s32)value);
+	case AI_OPERAND_BODY: return catalogBodyIdByBodynum((s32)value);
+	case AI_OPERAND_HEAD: return catalogHeadIdByHeadnum((s32)value);
+	default: return NULL;
 	}
-	if (s_textbufAppend(out, "]") != 0) {
-		return -1;
-	}
-	return 0;
 }
 
-/* context/designs/modding/ai-typed-operands.md, slice 2: one command's
- * arguments as ", \"args\": {...}" from the command schema (named, typed
- * fields; an unused field only when it is not zero). A command the schema
- * cannot type fails the archive, as a row the writer cannot read would. */
+static int s_aiCatalogResolver(ai_operand_kind_t kind, const char *id, int64_t *out_value,
+	void *user)
+{
+	(void)user;
+	switch (kind) {
+	case AI_OPERAND_MODEL: {
+		catalog_model_result_t result;
+		if (!catalogResolveModel(id, &result)) return 0;
+		*out_value = result.modelnum;
+		return 1;
+	}
+	case AI_OPERAND_WEAPON: {
+		catalog_weapon_result_t result;
+		if (!catalogResolveWeapon(id, &result)) return 0;
+		*out_value = result.weapon_num;
+		return 1;
+	}
+	case AI_OPERAND_BODY: {
+		catalog_body_result_t result;
+		if (!catalogResolveBody(id, &result) || !result.entry) return 0;
+		*out_value = result.entry->runtime_index;
+		return 1;
+	}
+	case AI_OPERAND_HEAD: {
+		catalog_head_result_t result;
+		if (!catalogResolveHead(id, &result) || !result.entry) return 0;
+		*out_value = result.entry->runtime_index;
+		return 1;
+	}
+	default: return 0;
+	}
+}
+
+/* One command's arguments as ", \"args\": {...}" from the command schema
+ * (named, typed fields; an unused field only when it is not zero; catalog
+ * references by id). The row gives its bytes by these args alone, so the
+ * writer checks here that they encode back to exactly the command's bytes,
+ * the catalog ids resolved as the compiler resolves them. A command the
+ * schema cannot type, or args that do not give its bytes, fail the archive. */
 static s32 s_appendAiArgsJson(pdscenario_textbuf_t *out, const u8 *cmd, u32 len)
 {
 	char args[1024];
+	u8 bytes[512];
+	char error[160];
 	const u16 opcode = len >= 2 ? (u16)(((u16)cmd[0] << 8) | cmd[1]) : 0;
 	const ai_command_schema_t *schema = len >= 2 ? aiCommandSchemaFind(opcode) : NULL;
+	s32 args_len;
+	s32 count;
 
-	if (!schema || aiCommandArgsToJson(schema, cmd + 2, len - 2, args,
-			sizeof(args)) < 0) {
+	args_len = schema ? aiCommandArgsToJsonRefs(schema, cmd + 2, len - 2, args,
+		sizeof(args), s_aiCatalogNamer, NULL) : -1;
+	if (args_len < 0) {
 		sysLogPrintf(LOG_ERROR,
 			"romextract: AI command 0x%04x (%u bytes) does not fit the AI command schema",
 			(unsigned)opcode, (unsigned)len);
+		return -1;
+	}
+	count = aiCommandArgsEncodeRefs(schema, args, (u32)args_len, bytes, sizeof(bytes),
+		s_aiCatalogResolver, NULL, error, sizeof(error));
+	if (count != (s32)(len - 2) || (count > 0 && memcmp(bytes, cmd + 2, (size_t)count) != 0)) {
+		sysLogPrintf(LOG_ERROR,
+			"romextract: AI command 0x%04x args %s do not give its bytes back (%s)",
+			(unsigned)opcode, args, count < 0 ? error : "different bytes");
 		return -1;
 	}
 	if (s_textbufAppend(out, ", \"args\": ") != 0 || s_textbufAppend(out, args) != 0) {
@@ -4520,10 +4568,6 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 			const u8 *cmd = list + offset;
 			const u16 opcode = scan.commands[command_index].opcode;
 
-			const char *model_id = "";
-			const char *weapon_id = "";
-			const char *body_id = "";
-			const char *head_id = "";
 			const char *opcode_name = s_aiOpcodeName(opcode);
 			char graph_node[64];
 			char semantic_kind[128];
@@ -4532,21 +4576,6 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 				(unsigned)i, (unsigned)command_index);
 			s_aiOpcodeSemanticKind(opcode, opcode_name, semantic_kind,
 				sizeof(semantic_kind));
-
-			if ((opcode == AICMD_DROPITEM || opcode == AICMD_EQUIPHAT) && len >= 4) {
-				s32 modelnum = ((s32)cmd[2] << 8) | cmd[3];
-				model_id = s_nonnullCatalogId(catalogModelIdByModelnum(modelnum));
-			} else if (opcode == AICMD_EQUIPWEAPON && len >= 5) {
-				s32 modelnum = ((s32)cmd[2] << 8) | cmd[3];
-				model_id = s_nonnullCatalogId(catalogModelIdByModelnum(modelnum));
-				weapon_id = s_nonnullCatalogId(catalogWeaponIdByRuntimeWeaponNum(cmd[4]));
-			} else if (opcode == 0x01dc && len >= 3) {
-				weapon_id = s_nonnullCatalogId(
-					catalogWeaponIdByRuntimeWeaponNum(cmd[2]));
-			} else if ((opcode == AICMD_SPAWNCHRATPAD || opcode == AICMD_SPAWNCHRATCHR) && len >= 4) {
-				body_id = s_nonnullCatalogId(catalogBodyIdByBodynum(cmd[2]));
-				head_id = s_nonnullCatalogId(catalogHeadIdByHeadnum((s8)cmd[3]));
-			}
 
 			if (s_textbufAppendf(ai_lists_json,
 					"%s    { \"ailist_ref\": \"ailist_%04u\", \"list_id\": \"0x%04x\", \"graph_node\": ",
@@ -4558,22 +4587,7 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 					(unsigned)command_index, (unsigned)offset,
 					(unsigned)opcode) != 0 ||
 					s_textbufAppendJsonString(ai_lists_json, opcode_name) != 0 ||
-					s_textbufAppend(ai_lists_json,
-						", \"operands\": ") != 0 ||
-					s_appendAiOperandsJsonArray(ai_lists_json, cmd, len) != 0 ||
 					s_appendAiArgsJson(ai_lists_json, cmd, len) != 0 ||
-					s_textbufAppend(ai_lists_json,
-						", \"model_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(ai_lists_json, model_id) != 0 ||
-					s_textbufAppend(ai_lists_json,
-						", \"weapon_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(ai_lists_json, weapon_id) != 0 ||
-					s_textbufAppend(ai_lists_json,
-						", \"body_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(ai_lists_json, body_id) != 0 ||
-					s_textbufAppend(ai_lists_json,
-						", \"head_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(ai_lists_json, head_id) != 0 ||
 					s_textbufAppend(ai_lists_json, " }") != 0) {
 				goto fail;
 			}
@@ -4662,10 +4676,6 @@ char *romExtractGlobalAiListsJson(u32 *out_lists, u32 *out_commands)
 			const u8 *cmd = list + offset;
 			u16 opcode = (u16)(((u16)cmd[0] << 8) | cmd[1]);
 			u32 len = chraiGetCommandLength(list, offset);
-			const char *model_id = "";
-			const char *weapon_id = "";
-			const char *body_id = "";
-			const char *head_id = "";
 			const char *opcode_name = s_aiOpcodeName(opcode);
 			char graph_node[64];
 
@@ -4675,21 +4685,6 @@ char *romExtractGlobalAiListsJson(u32 *out_lists, u32 *out_commands)
 			snprintf(graph_node, sizeof(graph_node),
 				"scenario.ai.global_%04x.command.%04u",
 				(unsigned)list_id, (unsigned)command_index);
-			if ((opcode == AICMD_DROPITEM || opcode == AICMD_EQUIPHAT) && len >= 4) {
-				s32 modelnum = ((s32)cmd[2] << 8) | cmd[3];
-				model_id = s_nonnullCatalogId(catalogModelIdByModelnum(modelnum));
-			} else if (opcode == AICMD_EQUIPWEAPON && len >= 5) {
-				s32 modelnum = ((s32)cmd[2] << 8) | cmd[3];
-				model_id = s_nonnullCatalogId(catalogModelIdByModelnum(modelnum));
-				weapon_id = s_nonnullCatalogId(catalogWeaponIdByRuntimeWeaponNum(cmd[4]));
-			} else if (opcode == 0x01dc && len >= 3) {
-				weapon_id = s_nonnullCatalogId(
-					catalogWeaponIdByRuntimeWeaponNum(cmd[2]));
-			} else if ((opcode == AICMD_SPAWNCHRATPAD || opcode == AICMD_SPAWNCHRATCHR) && len >= 4) {
-				body_id = s_nonnullCatalogId(catalogBodyIdByBodynum(cmd[2]));
-				head_id = s_nonnullCatalogId(catalogHeadIdByHeadnum((s8)cmd[3]));
-			}
-
 			if (s_textbufAppendf(&json,
 					"%s    { \"ailist_ref\": \"global_%04x\", \"list_id\": \"0x%04x\", \"graph_node\": ",
 					command_count ? ",\n" : "",
@@ -4700,17 +4695,7 @@ char *romExtractGlobalAiListsJson(u32 *out_lists, u32 *out_commands)
 					(unsigned)command_index, (unsigned)offset,
 					(unsigned)opcode) != 0 ||
 					s_textbufAppendJsonString(&json, opcode_name) != 0 ||
-					s_textbufAppend(&json, ", \"operands\": ") != 0 ||
-					s_appendAiOperandsJsonArray(&json, cmd, len) != 0 ||
 					s_appendAiArgsJson(&json, cmd, len) != 0 ||
-					s_textbufAppend(&json, ", \"model_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(&json, model_id) != 0 ||
-					s_textbufAppend(&json, ", \"weapon_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(&json, weapon_id) != 0 ||
-					s_textbufAppend(&json, ", \"body_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(&json, body_id) != 0 ||
-					s_textbufAppend(&json, ", \"head_catalog_id\": ") != 0 ||
-					s_textbufAppendJsonString(&json, head_id) != 0 ||
 					s_textbufAppend(&json, " }") != 0) {
 				goto fail;
 			}

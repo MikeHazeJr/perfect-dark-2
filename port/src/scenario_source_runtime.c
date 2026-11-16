@@ -2500,6 +2500,32 @@ static s32 s_aiAppendCommand(scenario_source_ai_table_t *table,
 	return 1;
 }
 
+/* ai-typed-operands.md slice 3: a model, weapon, body or head argument may
+ * name a catalog id; it resolves as the *_catalog_id fields always did.
+ * user counts the references a row's args resolved. */
+static int s_aiArgsResolveRef(ai_operand_kind_t kind, const char *id, int64_t *out_value,
+	void *user)
+{
+	s32 value = 0;
+	s32 ok;
+
+	switch (kind) {
+	case AI_OPERAND_MODEL: ok = s_setupResolveModelnum(id, &value); break;
+	case AI_OPERAND_WEAPON: ok = s_setupResolveWeaponnum(id, &value); break;
+	case AI_OPERAND_BODY: ok = s_setupResolveBodyNum(id, &value); break;
+	case AI_OPERAND_HEAD: ok = s_setupResolveHeadNum(id, &value); break;
+	default: ok = 0; break;
+	}
+	if (!ok) {
+		return 0;
+	}
+	if (user) {
+		(*(s32 *)user)++;
+	}
+	*out_value = value;
+	return 1;
+}
+
 /* context/designs/modding/ai-typed-operands.md, slice 2: a row gives its
  * operand bytes as "operands" (the v1 form), as "args" (named, typed,
  * encoded through the command schema), or both, which must agree exactly
@@ -2517,6 +2543,7 @@ static s32 s_aiRowOperands(scenario_source_ai_table_t *table,
 	char error[160];
 	char where[64];
 	s32 count;
+	s32 refs = 0;
 
 	snprintf(where, sizeof(where), "%s command %u", ailist_ref, (unsigned)command_index);
 	if (has_operands && !s_aiParseOperandsJsonArray(row_start, row_end, "operands",
@@ -2539,10 +2566,17 @@ static s32 s_aiRowOperands(scenario_source_ai_table_t *table,
 			where, "");
 		return 0;
 	}
-	count = aiCommandArgsEncode(schema, args, (u32)(args_end - args + 1), bytes,
-		sizeof(bytes), error, sizeof(error));
+	count = aiCommandArgsEncodeRefs(schema, args, (u32)(args_end - args + 1), bytes,
+		sizeof(bytes), s_aiArgsResolveRef, &refs, error, sizeof(error));
 	if (count < 0) {
 		s_aiTableSetError(table, "AI row '%s' args: %s", where, error);
+		return 0;
+	}
+	/* Slice 3: catalog ids resolve to this game's numbers, which raw
+	 * operands cannot follow; such a row gives args alone. */
+	if (refs > 0 && has_operands) {
+		s_aiTableSetError(table, "AI row '%s' names catalog ids in its args and also gives operands%s",
+			where, "");
 		return 0;
 	}
 	if (has_operands) {
