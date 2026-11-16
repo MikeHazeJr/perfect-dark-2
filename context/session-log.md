@@ -10944,7 +10944,7 @@ Next
 - Recycle the private check copy D:\PD2-wt\core-check-dyntex and unused
   frozen clients when done.
 
-## 2026-11-16 (03:25-06:45 UTC) - CORE: base 7 published, global AI lists slice 1 merged, B-1199 handed back, B-1178, B-1179, dev merged
+## 2026-11-16 (03:25-06:00 UTC) - CORE: base 7 published, global AI lists slice 1 merged, B-1199 handed back, B-1178, B-1179, dev merged
 
 What happened
 - Base 7 redo (q_20261116025212980_91829b9d, 04:55-05:16 UTC, extract-6
@@ -11002,7 +11002,7 @@ Next
   global AI lists slice 2 (the .pdai type), each in a focused stretch.
 - Rerun CORE's base checks on the merged client when the queue allows.
 
-## 2026-11-16 (06:45-07:05 UTC) - CORE: limited mine ammo and three object rules are data; merged-client turn queued
+## 2026-11-16 (06:00-06:27 UTC) - CORE: limited mine ammo and three object rules are data; merged-client turn queued
 
 What happened
 - 9efc0696: stage.json's player rule gains unlimited_ammo_excludes (weapon
