@@ -13,6 +13,7 @@
     "pillar:modding"
   ],
   "paths_of_interest": [
+    "dev-mods/maian_hover_vehicle/behavior.graph.json",
     "dev-mods/maian_hover_vehicle/behavior/variables.json",
     "port/src/vehicle_boost_heat.c",
     "port/src/vehicle_graph_runner.cpp",
@@ -73,6 +74,14 @@
     {
       "src": "dev-mods/maian_hover_vehicle/behavior/variables.json",
       "dst": "mod-recipes/maian_hover_vehicle/behavior/variables.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/behavior.graph.json",
+      "dst": "mod-recipes/maian_hover_vehicle/behavior.graph.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/physics.json",
+      "dst": "mod-recipes/maian_hover_vehicle/physics.json"
     },
     {
       "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
@@ -196,15 +205,16 @@
       "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
       "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
       "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ graph instance made: nodes=15 exec_edges=11 pending=1 parts=1 boost_heat=1",
       "VEHICLE: input .*boost=1\\.00",
       "VEHICLE\\.BOOST: modelnum=\\d+ boost and heat on: boost_speed=7\\.00 ramp=240 overheat=960 overheated_boost=0\\.50 recover=480 ticks240",
       "VEHICLE\\.BOOST: modelnum=\\d+ phase cool -> ramping",
       "VEHICLE\\.BOOST: modelnum=\\d+ phase ramping -> full .*turret_locked=1",
       "VEHICLE\\.BOOST: modelnum=\\d+ phase full -> overheated .*turret_locked=1",
-      "VEHICLE\\.BOOST: modelnum=\\d+ part 140 hidden \\(crystals black\\)",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ part 140 hidden",
       "VEHICLE\\.BOOST: modelnum=\\d+ phase overheated -> recovering",
       "VEHICLE\\.BOOST: modelnum=\\d+ phase recovering -> cool .*turret_locked=0",
-      "VEHICLE\\.BOOST: modelnum=\\d+ part 140 shown \\(crystals cool\\)",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ part 140 shown",
       "SMOKE: result=scripted_exit"
     ],
     "forbidden_patterns": [
@@ -220,8 +230,10 @@
       "FIX-B\\.2: modelnum",
       "MODEL\\.RODATA\\.LOAD: PARTIAL",
       "CATALOG-FATAL",
-      "VEHICLE\\.BOOST: no free boost slot",
-      "VEHICLE\\.BOOST: .*has no toggle part"
+      "VEHICLE\\.GRAPH: refused",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ has no graph instance",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ refused its graph",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ tick: a module refused"
     ],
     "required_counts": [
       {
@@ -231,6 +243,21 @@
       },
       {
         "pattern": "VEHICLE\\.BOOST: modelnum=\\d+ phase full -> overheated",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "VEHICLE\\.GRAPH: modelnum=\\d+ part 140 shown",
+        "min": 3,
+        "max": 3
+      },
+      {
+        "pattern": "VEHICLE\\.GRAPH: modelnum=\\d+ part 140 hidden",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "VEHICLE\\.GRAPH: modelnum=\\d+ graph instance made",
         "min": 1,
         "max": 1
       }

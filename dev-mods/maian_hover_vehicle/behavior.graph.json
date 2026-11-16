@@ -1,0 +1,182 @@
+{
+  "schema": "pd.vehicle_graph.v1",
+  "catalog_id": "example:tri_vehicle",
+  "nodes": [
+    {
+      "id": "mount",
+      "kind": "event.vehicle.mount_requested"
+    },
+    {
+      "id": "dismount",
+      "kind": "event.vehicle.dismount_requested"
+    },
+    {
+      "id": "tick",
+      "kind": "event.vehicle.tick"
+    },
+    {
+      "id": "heat",
+      "kind": "event.vehicle.heat_changed"
+    },
+    {
+      "id": "driver_free",
+      "kind": "gate.vehicle.seat_free",
+      "params": {
+        "seat": "driver"
+      }
+    },
+    {
+      "id": "mount_driver",
+      "kind": "og.vehicle.mount_seat",
+      "params": {
+        "seat": "driver"
+      }
+    },
+    {
+      "id": "dismount_driver",
+      "kind": "og.vehicle.dismount_seat",
+      "params": {
+        "seat": "driver"
+      }
+    },
+    {
+      "id": "drive",
+      "kind": "og.vehicle.hover_drive"
+    },
+    {
+      "id": "boost",
+      "kind": "og.vehicle.boost_heat",
+      "params": {
+        "boost_speed": "$boost_speed",
+        "ramp_time": "$boost_ramp",
+        "overheat_after": "$overheat_after",
+        "overheated_boost": "$overheated_boost",
+        "steer_limit": "$steer_limit",
+        "steer_limit_time": "$steer_limit_time",
+        "recover_time_stopped": "$recover_time_stopped",
+        "recover_speed_scale": "$recover_speed_scale"
+      }
+    },
+    {
+      "id": "crystals_black",
+      "kind": "gate.vehicle.heat_phase",
+      "params": {
+        "phases": [
+          "overheated",
+          "recovering"
+        ]
+      }
+    },
+    {
+      "id": "hide_seafoam",
+      "kind": "og.vehicle.part_visible",
+      "params": {
+        "part": "$cool_crystal_part",
+        "visible": false
+      }
+    },
+    {
+      "id": "show_seafoam",
+      "kind": "og.vehicle.part_visible",
+      "params": {
+        "part": "$cool_crystal_part",
+        "visible": true
+      }
+    },
+    {
+      "id": "turret_blocked",
+      "kind": "gate.vehicle.heat_phase",
+      "params": {
+        "phases": [
+          "full",
+          "overheated",
+          "recovering"
+        ]
+      }
+    },
+    {
+      "id": "lock_turret",
+      "kind": "og.vehicle.turret_lockout",
+      "params": {
+        "reason": "heat",
+        "locked": true
+      }
+    },
+    {
+      "id": "unlock_turret",
+      "kind": "og.vehicle.turret_lockout",
+      "params": {
+        "reason": "heat",
+        "locked": false
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "mount",
+      "output": "out",
+      "to": "driver_free",
+      "input": "exec"
+    },
+    {
+      "from": "driver_free",
+      "output": "pass",
+      "to": "mount_driver",
+      "input": "exec"
+    },
+    {
+      "from": "dismount",
+      "output": "out",
+      "to": "dismount_driver",
+      "input": "exec"
+    },
+    {
+      "from": "tick",
+      "output": "out",
+      "to": "drive",
+      "input": "exec"
+    },
+    {
+      "from": "tick",
+      "output": "out",
+      "to": "boost",
+      "input": "exec"
+    },
+    {
+      "from": "heat",
+      "output": "out",
+      "to": "crystals_black",
+      "input": "exec"
+    },
+    {
+      "from": "crystals_black",
+      "output": "pass",
+      "to": "hide_seafoam",
+      "input": "exec"
+    },
+    {
+      "from": "crystals_black",
+      "output": "fail",
+      "to": "show_seafoam",
+      "input": "exec"
+    },
+    {
+      "from": "heat",
+      "output": "out",
+      "to": "turret_blocked",
+      "input": "exec"
+    },
+    {
+      "from": "turret_blocked",
+      "output": "pass",
+      "to": "lock_turret",
+      "input": "exec"
+    },
+    {
+      "from": "turret_blocked",
+      "output": "fail",
+      "to": "unlock_turret",
+      "input": "exec"
+    }
+  ]
+}

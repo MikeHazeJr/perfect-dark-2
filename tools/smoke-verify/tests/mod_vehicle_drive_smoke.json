@@ -158,7 +158,12 @@
       "VEHICLE\\.SOURCE",
       "VEHICLE\\.SWAP: '",
       "FIX-B\\.2: modelnum",
-      "CATALOG-FATAL"
+      "CATALOG-FATAL",
+      "VEHICLE\\.GRAPH: refused",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ has no graph instance",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ refused its graph",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ tick: a module refused",
+      "VEHICLE\\.GRAPH: modelnum="
     ],
     "required_counts": [
       {

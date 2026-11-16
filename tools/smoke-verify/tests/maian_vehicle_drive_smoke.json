@@ -12,6 +12,7 @@
     "pillar:modding"
   ],
   "paths_of_interest": [
+    "dev-mods/maian_hover_vehicle/behavior.graph.json",
     "dev-mods/maian_hover_vehicle/recipe.json",
     "dev-mods/maian_hover_vehicle/build_vehicle_mesh.py",
     "port/src/assetcatalog_scanner.c",
@@ -71,6 +72,14 @@
     {
       "src": "dev-mods/maian_hover_vehicle/behavior/variables.json",
       "dst": "mod-recipes/maian_hover_vehicle/behavior/variables.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/behavior.graph.json",
+      "dst": "mod-recipes/maian_hover_vehicle/behavior.graph.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/physics.json",
+      "dst": "mod-recipes/maian_hover_vehicle/physics.json"
     },
     {
       "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
@@ -181,6 +190,7 @@
       "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_maian_hover\\)",
       "VEHICLE\\.SWAP: modelnum \\d+ takes the world scale of modelnum 58 \\(409/4096\\)",
       "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ graph instance made: nodes=15 exec_edges=11 pending=1 parts=1 boost_heat=1",
       "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
       "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
       "VEHICLE: input .*right=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
@@ -198,7 +208,11 @@
       "VEHICLE\\.SWAP: '",
       "FIX-B\\.2: modelnum",
       "MODEL\\.RODATA\\.LOAD: PARTIAL",
-      "CATALOG-FATAL"
+      "CATALOG-FATAL",
+      "VEHICLE\\.GRAPH: refused",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ has no graph instance",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ refused its graph",
+      "VEHICLE\\.GRAPH: modelnum=\\d+ tick: a module refused"
     ],
     "required_counts": [
       {

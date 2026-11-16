@@ -3,8 +3,8 @@
   "template_file": "template/tri_vehicle.pdvehicle",
   "name": "Maian Hover",
   "author": "PD2",
-  "version": "0.3.0",
-  "description": "Maian two-seat hover vehicle: hull and driver's cockpit, the gunner's pod on a ring of 18 seafoam crystals, and the crystal cannon. Boost and heat; the gunner seat and the turret follow.",
+  "version": "0.4.0",
+  "description": "Maian two-seat hover vehicle: hull and driver's cockpit, the gunner's pod on a ring of 18 seafoam crystals, and the crystal cannon. Boost and heat from its vehicle graph; the gunner seat and the turret follow.",
   "descriptor": {
     "model_file": "dependencies/assets/models/maian_hover.pdmesh"
   },
@@ -19,6 +19,8 @@
     { "entry": "dependencies/assets/models/maian_hover.pdmesh::model.faces.json", "file": "meshes/vehicle/model.faces.json" },
     { "entry": "dependencies/assets/models/maian_hover.pdmesh::model.render.json", "file": "meshes/vehicle/model.render.json" },
     { "entry": "model.gltf", "remove": true },
-    { "entry": "behavior/variables.json", "file": "behavior/variables.json" }
+    { "entry": "behavior/variables.json", "file": "behavior/variables.json" },
+    { "entry": "behavior.graph.json", "file": "behavior.graph.json" },
+    { "entry": "physics.json", "file": "physics.json" }
   ]
 }

@@ -26,6 +26,7 @@
 #include "mod_author.h"
 #include "mod_author_recipe.h"
 #include "modarchive.h"
+#include "vehicle_graph_runner.h"
 
 #include <chrono>
 #include <cstdlib>
@@ -147,15 +148,39 @@ TEST_CASE("the Maian hover vehicle recipe builds a vehicle with its own typed mo
 	 * vehicles whose model is an embedded typed mesh. */
 	CHECK_FALSE(hoverHasEntry(archive, "model.gltf"));
 
+	/* Physics v3: the v2 keys without the boost keys (a v1 graph holds them). */
 	const std::string physics = hoverEntry(archive, "physics.json");
+	CHECK(physics.find("\"schema\": \"pd2.vehicle.physics.v3\"") != std::string::npos);
 	CHECK(physics.find("\"catalog_id\": \"mod:vehicle_maian_hover\"") != std::string::npos);
 	CHECK(physics.find("\"archetype\": \"hoverbike\"") != std::string::npos);
+	CHECK(physics.find("boost_speed") == std::string::npos);
+	CHECK(physics.find("boost_time_ticks60") == std::string::npos);
 
-	/* Boost and heat (V3): the values file the game reads (asset_runtime.c). */
+	/* Boost and heat (V3) come from its pd.vehicle_graph.v1 graph and the
+	 * values file; the mod author gave both the mod's catalog id. */
 	const std::string variables = hoverEntry(archive, "behavior/variables.json");
 	CHECK(variables.find("\"schema\": \"pd.vehicle_variables.v1\"") != std::string::npos);
 	CHECK(variables.find("\"overheat_after\": { \"value\": 240, \"unit\": \"ticks60\" }") != std::string::npos);
 	CHECK(variables.find("\"cool_crystal_part\": 140") != std::string::npos);
+	const std::string graph = hoverEntry(archive, "behavior.graph.json");
+	CHECK(graph.find("\"schema\": \"pd.vehicle_graph.v1\"") != std::string::npos);
+	CHECK(graph.find("\"catalog_id\": \"mod:vehicle_maian_hover\"") != std::string::npos);
+	CHECK(graph.find("example:tri_vehicle") == std::string::npos);
+	char graphErr[256] = { 0 };
+	vehicle_graph_program_t *program = vehicleGraphProgramCompile(graph.data(), graph.size(),
+		variables.data(), variables.size(), "mod:vehicle_maian_hover", nullptr, nullptr,
+		graphErr, sizeof(graphErr));
+	INFO(graphErr);
+	REQUIRE(program != nullptr);
+	CHECK(vehicleGraphProgramPartCount(program) == 1);
+	CHECK(vehicleGraphProgramPart(program, 0) == 140);
+	const vehicle_boost_heat_params_t *heat = vehicleGraphProgramBoostHeatParams(program);
+	REQUIRE(heat != nullptr);
+	CHECK(heat->boost_speed == 7.0f);
+	CHECK(heat->overheat_ticks240 == 960.0f);
+	CHECK(vehicleGraphProgramEventReachesModule(program, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
+		"og.vehicle.mount_seat") == 1);
+	vehicleGraphProgramFree(program);
 
 	/* The embedded model, in the mod's namespace. */
 	std::string meshId;
