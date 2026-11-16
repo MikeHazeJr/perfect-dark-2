@@ -1,5 +1,14 @@
 # Session Log (Active)
 
+2026-11-16 (11:00 ET) MULTIPLAYER, continued. Objective net turn q_20261116124216413_be8c603a done on 5cd5d0e5,
+base 7, every objective net smoke now needing a nonzero score on both machines: Capture the Case 84/84 (a simulant
+captured 3 cases), King of the Hill 84/84 (3 hill points), Pop a Cap 82/82 (the victim scored 2), counter-op mission
+end 128/128; host and client agree on every result line. Hacker Central 84/86 is B-1207 and B-1209, fixed in
+a669d118. Four of five objective modes now score over the network. Queued behind CORE's running turn: the a669d118
+checks (q_20261116152127415_a38e0af1), then the second match in the Room in two parts (q_20261116155927475_63a362e0:
+Combat, Hold the Briefcase, Hacker Central; q_20261116155928303_d3c7ffe3: King of the Hill, Pop a Cap, Capture the
+Case); their waiters refuse to run unless the frozen binary is a669d118.
+
 2026-11-16 (10:25 ET) MULTIPLAYER, continued. All pushed (head a669d118). Re-run turn q_20261116123806406_e534707d
 on 5cd5d0e5 (639c9a8a), base 7: networked Combat score limit PASS 76/76 (B-1205 checked in play: four early respawn
 finishes, nothing skipped), co-op Deep Sea end PASS 126/126 (B-1206's snapshot sweep checked: no refused snapshot,
