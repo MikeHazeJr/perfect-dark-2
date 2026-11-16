@@ -135,6 +135,29 @@ message(STATUS "Version: ${VERSION_ROMID}, v${VERSION_SEM_STRING}, hash ${VERSIO
 
 configure_file("${CMAKE_SOURCE_DIR}/port/include/versioninfo.h.in" "${CMAKE_BINARY_DIR}/port/include/versioninfo.h" @ONLY)
 
+# B-1252: the commit and branch above are read once, at configure time, and an
+# incremental build after a commit does not configure again, so a binary's
+# version line named an older commit. pd_versioninfo writes versioninfo.h again
+# at build time (cmake/versioninfo.cmake); configure_file leaves the header
+# untouched when nothing changed, so only the files that include it rebuild
+# after a commit. Every target depends on it (the loop at the end of this file).
+add_custom_target(pd_versioninfo ALL
+  COMMAND "${CMAKE_COMMAND}"
+    "-DSRC_DIR=${CMAKE_SOURCE_DIR}"
+    "-DOUT_FILE=${CMAKE_BINARY_DIR}/port/include/versioninfo.h"
+    "-DVERSION_TARGET=${VERSION_TARGET}"
+    "-DVERSION_ARCH=${VERSION_ARCH}"
+    "-DVERSION_ROMID=${VERSION_ROMID}"
+    "-DVERSION_BUILD=${VERSION_BUILD}"
+    "-DVERSION_SEM_MAJOR=${VERSION_SEM_MAJOR}"
+    "-DVERSION_SEM_MINOR=${VERSION_SEM_MINOR}"
+    "-DVERSION_SEM_PATCH=${VERSION_SEM_PATCH}"
+    -P "${CMAKE_SOURCE_DIR}/cmake/versioninfo.cmake"
+  BYPRODUCTS "${CMAKE_BINARY_DIR}/port/include/versioninfo.h"
+  COMMENT "versioninfo.h: the commit and branch at build time (B-1252)"
+  VERBATIM
+)
+
 # Embed Mozilla CA bundle for libcurl (D13 updater TLS).
 # Testers hit "SSL peer certificate or SSH remote key was not OK" because the
 # statically-linked libcurl.a in MSYS2 is built against OpenSSL WITHOUT the
@@ -1541,3 +1564,16 @@ endforeach()
 # Wrapper defaults and FIFO remain unchanged: -Target tests builds all four.
 # build-headless.ps1 -Target all still selects only client and updater.
 add_dependencies(pd-tests pd-settings-save-tests pd-training-renderer-tests pd-catalog-mutation-tests)
+
+# B-1252: every target that compiles builds after versioninfo.h is written for
+# this build (pd_versioninfo, next to the configure_file above), so no object
+# compiles against an older commit.
+get_property(_pd_all_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_pd_target IN LISTS _pd_all_targets)
+  if(NOT _pd_target STREQUAL "pd_versioninfo")
+    get_target_property(_pd_target_type ${_pd_target} TYPE)
+    if(NOT _pd_target_type STREQUAL "UTILITY" AND NOT _pd_target_type STREQUAL "INTERFACE_LIBRARY")
+      add_dependencies(${_pd_target} pd_versioninfo)
+    endif()
+  endif()
+endforeach()
