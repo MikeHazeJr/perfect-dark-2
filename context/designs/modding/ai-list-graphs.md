@@ -237,7 +237,15 @@ slices 3-4 not built. The facts below come from a read-only survey of
   now holds its `rebuild_teams` until its own wave completes; its botTick
   failsafe never runs. If a client should not spawn at all, the twin can
   go on without spawning on `NETMODE_CLIENT`.
-- Pins: `tests/test_ai_simulant_twins_static.cpp`.
+- In play: `combat_sim_simulant_twins` proves the family and the wave in
+  every run. Its dead-list branches need a simulant death: in 90 s on Car
+  Park and 150 s on Complex the simulants only shot the idle player, so
+  none died (2026-11-16). The smoke now kills a simulant twice through the
+  ordinary damage path with the harness's `kill_simulant` input
+  (`chrDamageByMisc` on the first live simulant), which runs the dead
+  list and its respawn as in play.
+- Pins: `tests/test_ai_simulant_twins_static.cpp` (the twins, and the
+  harness's `kill_simulant`).
 
 ## Not in scope
 

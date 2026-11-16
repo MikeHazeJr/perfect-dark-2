@@ -160,3 +160,21 @@ TEST_CASE("AI simulant twins: every level graph carries both module nodes",
 	REQUIRE(conformance.find("(\"scenario.ai.lists\", \"scenario.ai.action.mp_init_simulants\"),")
 		!= std::string::npos);
 }
+
+TEST_CASE("AI simulant twins: the smoke harness kills a simulant through the damage path",
+	"[ai][graph][simulants][static]")
+{
+	const std::string harness = readSource("port/src/smoke_harness.c");
+	const std::string schema = readSource("port/src/smoke_fixture_schema.c");
+
+	// kill_simulant is a fixture event with the common fields only.
+	REQUIRE(schema.find("\"kill_player\", \"kill_simulant\",") != std::string::npos);
+	REQUIRE(schema.find("|| !strcmp(type, \"kill_simulant\")) {") != std::string::npos);
+	REQUIRE(harness.find("if (!strcmp(type_str, \"kill_simulant\")) {") != std::string::npos);
+	// The first live simulant takes lethal damage the way play deals it, so
+	// it dies, runs its dead list and respawns.
+	REQUIRE(harness.find("if (chr != NULL && chr->prop != NULL && chr->aibot != NULL && !chrIsDead(chr)) {")
+		!= std::string::npos);
+	REQUIRE(harness.find("chrDamageByMisc(victim, 1000.0f, &vector, NULL, NULL);") != std::string::npos);
+	REQUIRE(harness.find("\"SMOKE.KILL_SIMULANT: slot=%d chr=%d died=%d at_ms=%d\"") != std::string::npos);
+}

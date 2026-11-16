@@ -1,6 +1,6 @@
 {
   "scenario_name": "combat_sim_simulant_twins",
-  "description": "AI lists as graphs (context/designs/modding/ai-list-graphs.md): the two simulant commands run through their graph twins. A Combat match on Complex with 12 simulants for 150 s (Car Park at 90 s gave hits but no kill on 2026-11-16, so the dead list never ran): the stage's background list 0x1000 runs mp_init_simulants (the whole wave completes), simulants kill and die, and each dead simulant runs global list 0x0028, whose if_bot_respawning goes on while it waits (branch=0) and jumps to label 0x16 once it has respawned (branch=1).",
+  "description": "AI lists as graphs (context/designs/modding/ai-list-graphs.md): the two simulant commands run through their graph twins. A Combat match on Complex with 4 simulants: the stage's background list 0x1000 runs mp_init_simulants (the whole wave completes), and the harness kills a simulant twice through the ordinary damage path (kill_simulant; in 90 s on Car Park and 150 s on Complex the simulants only shot the idle player, 2026-11-16, so none died on its own). Each dead simulant runs global list 0x0028, whose if_bot_respawning goes on while it waits (branch=0) and jumps to label 0x16 once it has respawned (branch=1).",
   "tags": [
     "ai",
     "graph",
@@ -10,11 +10,12 @@
   "paths_of_interest": [
     "port/src/scenario_source_runtime.c",
     "src/game/mplayer/mpaicommands.c",
-    "port/src/romextract_pdarena.c"
+    "port/src/romextract_pdarena.c",
+    "port/src/smoke_harness.c"
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 330,
+  "timeout_seconds": 300,
   "install_state": "current",
   "boot_args": [
     "--no-update-check",
@@ -24,7 +25,7 @@
     "--launch-mp-room",
     "base:arena_mp_complex",
     "base:combat",
-    "12",
+    "4",
     "--debug-auto-start-match"
   ],
   "input_sequence": [
@@ -37,9 +38,19 @@
       "comment": "Pause until the local player of the Complex match is spawned and live."
     },
     {
-      "at_ms": 150000,
+      "at_ms": 5000,
+      "type": "kill_simulant",
+      "comment": "The first live simulant dies; its dead list waits for its respawn."
+    },
+    {
+      "at_ms": 45000,
+      "type": "kill_simulant",
+      "comment": "A second death, after the first simulant has had 40 s to respawn."
+    },
+    {
+      "at_ms": 90000,
       "type": "exit",
-      "comment": "150 s of play on the compact Complex arena: kills, deaths and respawns among the 12 simulants"
+      "comment": "45 s after the second death: both waits and respawns are in the log."
     }
   ],
   "assertions": {
@@ -47,8 +58,8 @@
       "SMOKE: scenario=combat_sim_simulant_twins",
       "SCENARIO\\.GRAPH: AI simulant commands '[^']+' if_bot_respawning=1 mp_init_simulants=1 backend=graph\\.ai\\.simulant",
       "SCENARIO\\.GRAPH: AI action mp_init_simulants wave=complete source=",
-      "SPAWN\\.WAVE: committed slot=11 next_uncommitted=12 total=12",
-      "MPSTATS\\.ATTRIBUTION .* attacker_kind=bot ",
+      "SPAWN\\.WAVE: committed slot=3 next_uncommitted=4 total=4",
+      "SMOKE\\.KILL_SIMULANT: slot=[0-9]+ chr=-?[0-9]+ died=1 ",
       "SCENARIO\\.GRAPH: AI condition if_bot_respawning chr=[0-9]+ simulant=1 label=22 branch=0 ",
       "SCENARIO\\.GRAPH: AI condition if_bot_respawning chr=[0-9]+ simulant=1 label=22 branch=1 ",
       "SMOKE: result=scripted_exit"
@@ -57,6 +68,7 @@
       "EXCEPTION_ACCESS_VIOLATION",
       "FATAL: ",
       "SMOKE: result=timeout",
+      "SMOKE\\.KILL_SIMULANT: no live simulant",
       "missing executable AI simulant source nodes",
       "cannot (if_bot_respawning|mp_init_simulants) AI action",
       "AI action mp_init_simulants wave=(pending|invalid)"
@@ -66,6 +78,11 @@
         "pattern": "SCENARIO\\.GRAPH: AI action mp_init_simulants wave=",
         "min": 1,
         "max": 1
+      },
+      {
+        "pattern": "SMOKE\\.KILL_SIMULANT: slot=[0-9]+ chr=-?[0-9]+ died=1 ",
+        "min": 2,
+        "max": 2
       }
     ]
   }
