@@ -199,6 +199,19 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       name, through the same two functions the Create and Save buttons
  *       call. Runs right after --mod-author. Logged as WEAPONMOD.* lines.
  *
+ *   --debug-character-tool-create <character, body or head catalog id>
+ *   --debug-character-tool-name <display name>
+ *   --debug-character-tool-gender <male|female>
+ *   --debug-character-tool-build <human|guard|maian|template>
+ *   --debug-character-tool-height <number>
+ *       Runs the Modding Hub's Characters creator without the mouse: opens
+ *       the named entry as a template, sets the form (gender, build and
+ *       height apply to a body or a head; each is optional and keeps the
+ *       template's own when left out) and saves it under the display name,
+ *       through the functions the Use as Template and Create + Enable
+ *       buttons call. Runs right after the weapon tool's flags. Logged as
+ *       CHARMOD.* lines.
+ *
  *   --launch-credits
  *       After catalog init, enters the NORMAL scrolling Perfect Dark
  *       credits (NOT the alt-title path): mainChangeToStage(
@@ -926,6 +939,8 @@ extern void creditsEnterNormalScroll(void);
  * all state mutation remains owned by the ordinary Mod Manager UI. */
 extern void pdguiModdingHubShowTool(s32 tool);
 extern s32 pdguiModdingHubDebugWeaponCreate(const char *template_id, const char *display_name);
+extern s32 pdguiCharacterToolDebugCreate(const char *template_id, const char *display_name,
+	const char *gender, const char *build, s32 height);
 extern s32 pdguiHotswapWasActive(void);
 
 /* Map a --difficulty string to the DIFF_* constants used by g_MissionConfig
@@ -1054,6 +1069,43 @@ static void bootApplyDebugWeaponToolCreate(void)
 	sysLogPrintf(LOG_NOTE, "BOOT: --debug-weapon-tool-create template=%s name='%s' result=%s",
 		template_id, name,
 		pdguiModdingHubDebugWeaponCreate(template_id, name) ? "OK" : "FAIL");
+}
+
+/* --debug-character-tool-create <id> with its optional -name, -gender, -build
+ * and -height flags: the Characters creator's own template start and save,
+ * without the mouse. A height that is not a whole number from 1 to 65535
+ * fails the run instead of being read as "keep". */
+static void bootApplyDebugCharacterToolCreate(void)
+{
+	const char *template_id = sysArgGetString("--debug-character-tool-create");
+	const char *name = sysArgGetString("--debug-character-tool-name");
+	const char *gender = sysArgGetString("--debug-character-tool-gender");
+	const char *build = sysArgGetString("--debug-character-tool-build");
+	const char *height_text = sysArgGetString("--debug-character-tool-height");
+	s32 height = 0;
+
+	if (!template_id || !template_id[0]) {
+		return;
+	}
+	if (!name || !name[0]) {
+		name = "Debug Character";
+	}
+	if (height_text && height_text[0]) {
+		char *end = NULL;
+		const long value = strtol(height_text, &end, 10);
+		if (!end || *end != '\0' || value < 1 || value > 65535) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-character-tool-create template=%s name='%s' result=FAIL (--debug-character-tool-height '%s' is not a whole number from 1 to 65535)",
+				template_id, name, height_text);
+			return;
+		}
+		height = (s32)value;
+	}
+	sysLogPrintf(LOG_NOTE, "BOOT: --debug-character-tool-create template=%s name='%s' result=%s",
+		template_id, name,
+		pdguiCharacterToolDebugCreate(template_id, name,
+			gender && gender[0] ? gender : NULL, build && build[0] ? build : NULL,
+			height) ? "OK" : "FAIL");
 }
 
 /* Arm the real Mod Manager after the catalog and GUI registries are ready.
@@ -2836,6 +2888,7 @@ static void bootApplyCliFastPaths(void)
 	 * probes) already sees the mod a recipe creates. */
 	bootApplyModAuthorRecipe(sysArgGetString("--mod-author"));
 	bootApplyDebugWeaponToolCreate();
+	bootApplyDebugCharacterToolCreate();
 
 	if (player_init_fault != NULL) {
 		const player_stage_init_fault_status_t status =

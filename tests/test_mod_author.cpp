@@ -18,6 +18,7 @@ extern "C" {
 #include "assetcatalog_scanner.h"
 #include "body_head_source.h"
 #include "character_head_policy.h"
+#include "character_tool.h"
 #include "constants.h"
 #include "mod_author.h"
 #include "mod_manifest_validate.h"
@@ -1305,6 +1306,93 @@ TEST_CASE("mod author sets the gender, type and height a Characters tab edits",
 		CHECK(std::string(source->rig_class) == "maian_tall_neck");
 		CHECK(std::string(source->display_name) == "Veteran Harness");
 		authorKeepArtifact(saved.result->archive_path);
+	}
+
+	SECTION("the Characters tool's own path: read the template, set the form, save, read back") {
+		/* What the tool does for "Use as Template": the game's body reader on
+		 * the template archive gives the template's gender, type and height. */
+		const std::string tmplPath = authorExample(kBodyTemplate);
+		const std::string tmplBytes = authorReadFile(tmplPath);
+		auto tmplSource = std::make_unique<body_head_source_t>();
+		REQUIRE(bodyHeadSourceParseArchiveBytes(tmplBytes.data(),
+			static_cast<u32>(tmplBytes.size()), "example:tri_body", 0, tmplSource.get(),
+			err, sizeof(err)) == 1);
+		character_tool_template_t tmpl{};
+		tmpl.kind = characterToolKindForAssetType(ASSET_BODY);
+		tmpl.ismale = tmplSource->ismale ? 1 : 0;
+		tmpl.type = tmplSource->type;
+		tmpl.height = tmplSource->height;
+		/* The example body names no gender, type or height: the reader's
+		 * defaults, and a rig_class of its own. */
+		CHECK(tmpl.ismale == 0);
+		CHECK(tmpl.type == HEADBODYTYPE_DEFAULT);
+		CHECK(tmpl.height == 0);
+		CHECK(std::string(tmplSource->rig_class) == "human_male_neck_standard");
+
+		character_tool_form_t form;
+		characterToolFormFromTemplate(&tmpl, &form);
+		CHECK(form.build == CHARACTER_TOOL_BUILD_TEMPLATE); /* female with DEFAULT: not a build */
+
+		/* Saved as it is, the tool sends nothing and the copy keeps the
+		 * template's own neck. */
+		character_tool_values_t values;
+		REQUIRE(characterToolDescriptorValues(&form, &tmpl, &values) == 1);
+		CHECK(values.count == 0);
+		{
+			AuthorRequest req(tmplPath, root.path, "Plain Copy");
+			const AuthorCall saved = authorSave(req.request);
+			INFO("save error: " << saved.err);
+			REQUIRE(saved.code == MOD_AUTHOR_OK);
+			const std::string archive = authorReadFile(saved.result->archive_path);
+			auto source = std::make_unique<body_head_source_t>();
+			REQUIRE(bodyHeadSourceParseArchiveBytes(archive.data(),
+				static_cast<u32>(archive.size()), saved.result->catalog_id, 0, source.get(),
+				err, sizeof(err)) == 1);
+			CHECK(source->ismale == 0);
+			CHECK(source->type == HEADBODYTYPE_DEFAULT);
+			CHECK(std::string(source->rig_class) == "human_male_neck_standard");
+		}
+
+		/* A male Maian of height 106: the tool's values, straight to the author. */
+		form.ismale = 1;
+		form.build = CHARACTER_TOOL_BUILD_MAIAN;
+		form.height = 106;
+		REQUIRE(characterToolDescriptorValues(&form, &tmpl, &values) == 1);
+		REQUIRE(values.count == 4);
+		AuthorRequest req(tmplPath, root.path, "Tool Veteran");
+		req.request.descriptor_values = values.values;
+		req.request.descriptor_value_count = values.count;
+		const AuthorCall saved = authorSave(req.request);
+		INFO("save error: " << saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		authorRequireReleaseValid(saved.result->archive_path);
+		CHECK(std::string(saved.result->catalog_id) == "mod:body_tool_veteran");
+
+		const std::string archive = authorReadFile(saved.result->archive_path);
+		auto source = std::make_unique<body_head_source_t>();
+		const s32 parsed = bodyHeadSourceParseArchiveBytes(archive.data(),
+			static_cast<u32>(archive.size()), saved.result->catalog_id, 0, source.get(),
+			err, sizeof(err));
+		INFO("body reader: " << err);
+		REQUIRE(parsed == 1);
+		CHECK(source->ismale == 1);
+		CHECK(source->type == HEADBODYTYPE_MAIAN);
+		CHECK(source->height == 106);
+		CHECK(std::string(source->rig_class) == "maian_tall_neck");
+		CHECK(std::string(source->display_name) == "Tool Veteran");
+		authorKeepArtifact(saved.result->archive_path);
+
+		/* Opened again as a template, the saved mod reads back as the build
+		 * the player picked. */
+		character_tool_template_t again{};
+		again.kind = tmpl.kind;
+		again.ismale = source->ismale ? 1 : 0;
+		again.type = source->type;
+		again.height = source->height;
+		characterToolFormFromTemplate(&again, &form);
+		CHECK(form.ismale == 1);
+		CHECK(form.build == CHARACTER_TOOL_BUILD_MAIAN);
+		CHECK(form.height == 106);
 	}
 
 	SECTION("head: female, the female rig") {

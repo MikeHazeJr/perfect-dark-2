@@ -456,6 +456,36 @@ Build order:
     body through a nested override (`<body archive>::body.ini`, the example id in it
     rewritten to the mod's id like the rest); the game's strict body and character
     readers accept all three, and the character keeps its fixed head.
+  - FIRST SLICE WRITTEN 2026-11-16, approved by Mike the same day ("browser, Use as
+    Template, name and gender/height editing, save"). Not compiled yet (written on
+    `week-pd/mods-v4` while the vehicle landing waited for the game slot).
+    - The rules are their own module, `port/src/character_tool.c` (`character_tool.h`),
+      with `[characters-tool]` in pd-tests: what the tool lists, how a gender and a
+      build become `ismale` and `type` (Human is DEFAULT when male and FEMALE when
+      female, Guard is FEMALEGUARD and female, Maian is MAIAN and either, and
+      "Template's own" keeps a type the builds cannot name, such as Cassandra's and
+      Mr Blonde's rigs), and which descriptor values a save sends: only what the player
+      changed, with `rig_class` removed when the type changes. A template saved as it
+      is sends nothing. `[characters-tab]` gained the tool's whole path on the example
+      body: read the template, set the form, save, read back.
+    - The window is `port/fast3d/pdgui_menu_charactertool.cpp` (`pdgui_charactertool.h`):
+      a browser with Characters, Bodies and Heads lists (the base game has 63, 68 and
+      84), the selected entry's gender, build, height and neck read from its archive by
+      the game's own reader, "Use as Template", a creator (name; gender, build and
+      height for a body or a head; what the save will be called and what it changes;
+      a note that a mod made from a base entry holds the player's own game data and is
+      not to be shared), and the save window (creator, display name, Create + Enable).
+      Every step logs a `CHARMOD.*` line.
+    - The hub: the Characters tool is its eleventh. The hub's parallel tool tables (two
+      name lists, the child ids, the footer lines, the count and the index clamp) are
+      now one table, `kHubTools`, and the tool bar's buttons narrow to fit.
+    - Proof to run: `--debug-character-tool-create` with `-name`, `-gender`, `-build`
+      and `-height` (`port/src/main.c`), and `character_tool_create_smoke` (the base A51
+      airman body saved as a male Maian body of height 106, then loaded through the
+      typed catalog loader in the same launch).
+    - Not in this slice: a character's own gender (it lives in its embedded body; the
+      back end is tested), head policy, a 3D preview, the Room and random-head-pool
+      fixes, simulant profiles (C4).
 - C2. Models: original male and female Maian meshes bound to the 14 body
   parts, `HEADBODYTYPE_MAIAN`; looks as textures. A clone of a base Maian mesh
   is only a local stand-in (BYOR: it embeds ROM-derived geometry and must not

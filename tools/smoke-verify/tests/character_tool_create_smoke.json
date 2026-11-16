@@ -1,0 +1,103 @@
+{
+  "scenario_name": "character_tool_create_smoke",
+  "description": "Modding Hub Characters creator, first slice (week PD 2026-11-16): one ordinary client launch opens the extracted base A51 airman body (male, human, height 157) as a template and saves it as 'Hub_Veteran', a male Maian body of height 106, through --debug-character-tool-create, which calls the functions the creator's Use as Template and Create + Enable buttons call. The template's gender, type and height are read from its archive by the game's own body reader, the save sends only the changed descriptor values (type, the removed rig_class, height), and the mod author writes, validates, enables and applies the mod. The saved body is then loaded through the typed catalog loader in the same launch. No mod exists before the launch. It does not prove the body in a match, and it does not click through the hub's windows.",
+  "tags": [
+    "modding",
+    "characters-tool",
+    "modding-hub",
+    "pdbody",
+    "body",
+    "smoke",
+    "pillar:modding",
+    "boot"
+  ],
+  "paths_of_interest": [
+    "port/fast3d/pdgui_menu_charactertool.cpp",
+    "port/fast3d/pdgui_menu_moddinghub.cpp",
+    "port/src/character_tool.c",
+    "port/src/mod_author.c",
+    "port/src/mod_author_runtime.c",
+    "port/src/main.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 240,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/Characters/body_hub_veteran"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--skip-intro",
+    "--debug-character-tool-create",
+    "base:a51airman",
+    "--debug-character-tool-name",
+    "Hub_Veteran",
+    "--debug-character-tool-gender",
+    "male",
+    "--debug-character-tool-build",
+    "maian",
+    "--debug-character-tool-height",
+    "106",
+    "--debug-exit-after-catalog-probes",
+    "--debug-load-catalog-assets",
+    "body=mod:body_hub_veteran"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "The creator run is a CLI fast path that runs once the catalog is initialised, right after the weapon tool's flags. The catalog probe for the new id runs after it in the same dispatcher."
+    },
+    {
+      "at_ms": 170000,
+      "type": "exit",
+      "comment": "Fallback only. The launch normally ends itself through --debug-exit-after-catalog-probes; on the hard disk the client needs about 45 seconds of boot before the CLI fast paths are reached."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=character_tool_create_smoke",
+      "CHARMOD\\.DEBUG\\.CREATE\\.BEGIN template=base:a51airman display='Hub_Veteran' gender=male build=maian height=106",
+      "CHARMOD\\.TEMPLATE\\.START template=base:a51airman kind=body archive='.*base_a51airman\\.pdbody' ismale=1 type=HEADBODYTYPE_DEFAULT height=157",
+      "CHARMOD\\.SAVE\\.BEGIN kind=body catalog=mod:body_hub_veteran template=base:a51airman display='Hub_Veteran' creator='[^']+' values=3 \\[type=HEADBODYTYPE_MAIAN rig_class=\\(removed\\) height=106\\]",
+      "MODAUTHOR\\.SAVE\\.OK kind=body catalog=mod:body_hub_veteran mod_id=mod\\.body_hub_veteran updated=0 archives=[1-9]\\d* ids=[1-9]\\d* archive='.*body_hub_veteran\\.pdbody'",
+      "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.body_hub_veteran restart_count=0",
+      "CHARMOD\\.SAVE\\.OK kind=body catalog=mod:body_hub_veteran mod_id=mod\\.body_hub_veteran archive='.*body_hub_veteran\\.pdbody' updated=0",
+      "CHARMOD\\.DEBUG\\.CREATE\\.RESULT result=OK catalog=mod:body_hub_veteran",
+      "BOOT: --debug-character-tool-create template=base:a51airman name='Hub_Veteran' result=OK",
+      "BOOT: --debug-load-catalog-assets request type=body id='mod:body_hub_veteran'",
+      "BOOT: --debug-load-catalog-assets result type=body id='mod:body_hub_veteran' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "CHARMOD\\.SAVE\\.[A-Z_]*FAIL",
+      "CHARMOD\\.SAVE\\.(NO_TEMPLATE|BAD_DISPLAY_NAME|BAD_FORM|NAME_TAKEN)",
+      "CHARMOD\\.DEBUG\\.CREATE\\.RESULT result=FAIL",
+      "BOOT: --debug-character-tool-create .* result=FAIL",
+      "BOOT: --debug-load-catalog-assets result type=body id='mod:body_hub_veteran' result=(FAIL|MISSING)",
+      "modmgr: mod\\.json validation failed for 'mod\\.body_hub_veteran'"
+    ],
+    "required_counts": [
+      {
+        "pattern": "CHARMOD\\.SAVE\\.OK kind=body catalog=mod:body_hub_veteran",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}
