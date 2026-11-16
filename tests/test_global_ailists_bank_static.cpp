@@ -58,3 +58,30 @@ TEST_CASE("global AI lists: the extractor writes base:ai_global and the round tr
 	REQUIRE(check.find("\"AI.GLOBAL: base:ai_global round trip %d/%d lists exact, %u bytes\"") != std::string::npos);
 	REQUIRE(check.find("\"AI.GLOBAL: base:ai_global is not in the catalog as an AI list bank\"") != std::string::npos);
 }
+
+TEST_CASE("global AI lists: a stage built from scenario source runs the bank's lists",
+          "[ai][globalailists][runtime]")
+{
+	const std::string bind = readSource("port/src/scenario_global_ailists.c");
+	const std::string setup = readSource("src/game/setup.c");
+
+	// The bank is compiled from its public rows once per change and must
+	// carry exactly the game's list ids; the table keeps its ids and order.
+	REQUIRE(bind.find("s32 scenarioGlobalAiListsBindBank(char *reason, u32 reason_size)") != std::string::npos);
+	REQUIRE(bind.find("if (bank != s_Bank.entry || strcmp(bank->ext.ai_lists.lists_file, s_Bank.lists_file) != 0") !=
+		std::string::npos);
+	REQUIRE(bind.find("\"base:ai_global has list 0x%04x, which is not one of the game's global lists\"") !=
+		std::string::npos);
+	REQUIRE(bind.find("\"base:ai_global has no global list 0x%04x\"") != std::string::npos);
+	REQUIRE(bind.find("g_GlobalAilists[i].list = s_Bank.lists[b].bytes;") != std::string::npos);
+	REQUIRE(bind.find("g_GlobalAilists[i].id = ") == std::string::npos);
+
+	// setupLoadFiles binds after sorting the global lists and refuses the
+	// stage when the bank cannot supply them, never falling back.
+	const size_t sort = setup.find("// Sort the global AI lists by ID asc");
+	const size_t call = setup.find("if (!scenarioGlobalAiListsBindBank(reason, sizeof(reason))) {");
+	REQUIRE(sort != std::string::npos);
+	REQUIRE(call != std::string::npos);
+	CHECK(sort < call);
+	REQUIRE(setup.find("g_Vars.normmplayerisrunning, \"global ai lists\", -1, reason);") != std::string::npos);
+}

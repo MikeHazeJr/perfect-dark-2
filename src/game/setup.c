@@ -51,6 +51,7 @@
 #include "assetload.h"
 #include "asset_source_debug.h"
 #include "scenario_source_runtime.h"
+#include "scenario_global_ailists.h"
 #include "scenario_object_rules.h"
 #include "net/matchsetup.h"
 
@@ -1956,6 +1957,21 @@ void setupLoadFiles(s32 stagenum)
 				}
 			}
 		} while (modified);
+
+		/* Global AI lists slice 2, step 3 (global-ai-lists.md): a stage built
+		 * from scenario source runs the global lists of the AI list bank
+		 * (base:ai_global), compiled from its public rows; ids and order are
+		 * unchanged. A bank that cannot supply every list refuses the stage,
+		 * never a silent fall back to the compiled table. */
+		{
+			char reason[192];
+
+			if (!scenarioGlobalAiListsBindBank(reason, sizeof(reason))) {
+				scenarioSourceFatalRuntimeFallbackForStage(&stage,
+					g_Vars.normmplayerisrunning, "global ai lists", -1, reason);
+				return;
+			}
+		}
 
 		// Sort the stage AI lists by ID asc
 		if (g_StageSetup.ailists && stage_ailist_count > 1) {

@@ -7,6 +7,8 @@
  * outside its source-gated helpers; this file reads g_GlobalAilists.
  */
 
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -14,6 +16,7 @@
 #include "constants.h"
 #include "types.h"
 #include "data.h"
+#include "bss.h"
 #include "game/chrai.h"
 #include "romextract_pd.h"
 #include "scenario_global_ailists.h"
@@ -189,4 +192,120 @@ s32 scenarioGlobalAiListsRoundTrip(void)
 		mismatches += bank_mismatches;
 	}
 	return mismatches;
+}
+
+/* Step 3: the bank the stage lists come from, compiled once per change. */
+#define GLOBAL_AILISTS_MAX 128
+
+static struct {
+	const asset_entry_t *entry;
+	char lists_file[FS_MAXPATH + 1];
+	scenario_ai_compiled_list_t *lists;
+	s32 count;
+	u32 bytes;
+} s_Bank;
+
+/* Writes the reason the bank cannot be used and returns 0. */
+static s32 s_bindFail(char *reason, u32 reason_size, const char *fmt, ...)
+	__attribute__((format(printf, 3, 4)));
+static s32 s_bindFail(char *reason, u32 reason_size, const char *fmt, ...)
+{
+	va_list args;
+
+	if (reason && reason_size) {
+		va_start(args, fmt);
+		vsnprintf(reason, reason_size, fmt, args);
+		va_end(args);
+	}
+	return 0;
+}
+
+s32 scenarioGlobalAiListsBindBank(char *reason, u32 reason_size)
+{
+	const asset_entry_t *bank = assetCatalogResolve("base:ai_global");
+	s32 native_count = 0;
+
+	if (reason && reason_size) {
+		reason[0] = '\0';
+	}
+	if (!bank || bank->type != ASSET_AI_LISTS || !bank->ext.ai_lists.lists_file[0]) {
+		return s_bindFail(reason, reason_size,
+			"base:ai_global is not in the catalog as an AI list bank");
+	}
+	if (bank != s_Bank.entry || strcmp(bank->ext.ai_lists.lists_file, s_Bank.lists_file) != 0
+			|| !s_Bank.lists) {
+		char error[192];
+		u32 size = 0;
+		char *text = (char *)fsFileLoad(bank->ext.ai_lists.lists_file, &size);
+		scenario_ai_compiled_list_t *lists = NULL;
+		s32 count = 0;
+
+		if (!text || !size) {
+			free(text);
+			return s_bindFail(reason, reason_size,
+				"base:ai_global's rows could not be read (%s)", bank->ext.ai_lists.lists_file);
+		}
+		if (!scenarioSourceAiListsCompile(text, &lists, &count, error, sizeof(error))) {
+			free(text);
+			return s_bindFail(reason, reason_size, "base:ai_global's rows do not compile: %s", error);
+		}
+		free(text);
+		/* Nothing runs an AI list while a stage loads, so the previous
+		 * compile can go before the table points at the new one. */
+		if (s_Bank.lists) {
+			scenarioSourceAiListsFree(s_Bank.lists, s_Bank.count);
+		}
+		s_Bank.entry = bank;
+		snprintf(s_Bank.lists_file, sizeof(s_Bank.lists_file), "%s", bank->ext.ai_lists.lists_file);
+		s_Bank.lists = lists;
+		s_Bank.count = count;
+		s_Bank.bytes = 0;
+		for (s32 i = 0; i < count; i++) {
+			s_Bank.bytes += lists[i].size;
+		}
+		sysLogPrintf(LOG_NOTE, "AI.GLOBAL: compiled the AI list bank '%s': %d lists, %u bytes (%s)",
+			bank->id, count, s_Bank.bytes, s_Bank.lists_file);
+	}
+
+	/* Every list the bank carries must be one of the game's, and every one
+	 * of the game's must be in the bank. */
+	for (s32 b = 0; b < s_Bank.count; b++) {
+		s32 found = 0;
+		for (s32 i = 0; g_GlobalAilists[i].list != NULL && i < GLOBAL_AILISTS_MAX; i++) {
+			if ((s32)g_GlobalAilists[i].id == s_Bank.lists[b].id) {
+				found = 1;
+				break;
+			}
+		}
+		if (!found) {
+			return s_bindFail(reason, reason_size,
+				"base:ai_global has list 0x%04x, which is not one of the game's global lists",
+				(unsigned)s_Bank.lists[b].id);
+		}
+	}
+	for (s32 i = 0; g_GlobalAilists[i].list != NULL && i < GLOBAL_AILISTS_MAX; i++) {
+		u8 *list = NULL;
+		for (s32 b = 0; b < s_Bank.count; b++) {
+			if (s_Bank.lists[b].id == (s32)g_GlobalAilists[i].id) {
+				list = s_Bank.lists[b].bytes;
+				break;
+			}
+		}
+		if (!list) {
+			return s_bindFail(reason, reason_size,
+				"base:ai_global has no global list 0x%04x", (unsigned)g_GlobalAilists[i].id);
+		}
+		native_count++;
+	}
+	for (s32 i = 0; g_GlobalAilists[i].list != NULL && i < GLOBAL_AILISTS_MAX; i++) {
+		for (s32 b = 0; b < s_Bank.count; b++) {
+			if (s_Bank.lists[b].id == (s32)g_GlobalAilists[i].id) {
+				g_GlobalAilists[i].list = s_Bank.lists[b].bytes;
+				break;
+			}
+		}
+	}
+	sysLogPrintf(LOG_NOTE, "AI.GLOBAL: stage 0x%02x runs the %d global lists of '%s'",
+		(unsigned)g_Vars.stagenum, native_count, s_Bank.entry->id);
+	return 1;
 }

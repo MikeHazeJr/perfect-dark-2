@@ -25,6 +25,17 @@ extern "C" {
  * or read. Run with --check-global-ailists. */
 s32 scenarioGlobalAiListsRoundTrip(void);
 
+/* Global AI lists slice 2, step 3 (global-ai-lists.md): points every entry of
+ * g_GlobalAilists at the list of the same id compiled from the AI list bank
+ * (base:ai_global's public rows), so a stage built from scenario source runs
+ * the public lists. The bank is compiled once and again only when the catalog
+ * entry or its rows member changes; ids and order are untouched, so
+ * ailistFindById and the pointer-to-id lookup in chrai.c work as before.
+ * Returns 1, or 0 with the reason when the bank is missing, unreadable, lacks
+ * one of the game's list ids or names a list id the game does not have (the
+ * caller refuses the stage). */
+s32 scenarioGlobalAiListsBindBank(char *reason, u32 reason_size);
+
 #ifdef __cplusplus
 }
 #endif
