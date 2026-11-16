@@ -485,6 +485,13 @@ s32 romExtractPdNestedDependencyMatches(const char *archive_path,
  * and reported as an extraction conflict instead of silently overwritten. */
 s32 romExtractPdArchivePublicUnmodified(const char *archive_path);
 
+/* The global AI lists (g_GlobalAilists) as pd2.scenario.ai.lists.v1 rows, the
+ * same rows a scenario's ai/ailists.json holds: ailist_ref global_XXXX (the
+ * list id in hex), graph_node scenario.ai.global_XXXX.command.NNNN. Returns
+ * the JSON text (the caller frees it) or NULL. Design:
+ * context/designs/modding/global-ai-lists.md. */
+char *romExtractGlobalAiListsJson(u32 *out_lists, u32 *out_commands);
+
 #ifdef __cplusplus
 }
 #endif

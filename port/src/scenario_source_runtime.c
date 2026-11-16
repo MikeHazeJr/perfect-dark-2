@@ -2594,6 +2594,95 @@ static s32 s_loadAiListSourceJson(char *text,
 	return table->error[0] == '\0';
 }
 
+void scenarioSourceAiListsFree(scenario_ai_compiled_list_t *lists, s32 count)
+{
+	if (!lists) {
+		return;
+	}
+	for (s32 i = 0; i < count; i++) {
+		free(lists[i].bytes);
+	}
+	free(lists);
+}
+
+s32 scenarioSourceAiListsCompile(const char *json_text,
+	scenario_ai_compiled_list_t **out_lists, s32 *out_count,
+	char *error, u32 error_size)
+{
+	scenario_source_ai_table_t table;
+	scenario_ai_compiled_list_t *lists = NULL;
+	char *text;
+	size_t len;
+
+	if (out_lists) *out_lists = NULL;
+	if (out_count) *out_count = 0;
+	if (error && error_size) error[0] = '\0';
+	if (!json_text || !out_lists || !out_count) {
+		return 0;
+	}
+	len = strlen(json_text);
+	text = (char *)malloc(len + 1);
+	if (!text) {
+		return 0;
+	}
+	memcpy(text, json_text, len + 1);
+	memset(&table, 0, sizeof(table));
+	if (!s_loadAiListSourceJson(text, &table)) {
+		if (error && error_size) {
+			snprintf(error, error_size, "%s",
+				table.error[0] ? table.error : "AI list rows could not be read");
+		}
+		s_aiFreeTable(&table);
+		free(text);
+		return 0;
+	}
+	if (table.count > 0) {
+		lists = (scenario_ai_compiled_list_t *)calloc((size_t)table.count,
+			sizeof(*lists));
+		if (!lists) {
+			s_aiFreeTable(&table);
+			free(text);
+			return 0;
+		}
+	}
+	for (s32 i = 0; i < table.count; i++) {
+		const scenario_source_ai_list_t *list = &table.lists[i];
+		u32 size = 0;
+		u32 cursor = 0;
+
+		for (s32 j = 0; j < list->count; j++) {
+			size += 2u + list->commands[j].operand_count;
+		}
+		lists[i].id = list->id;
+		lists[i].commands = (u32)list->count;
+		lists[i].size = size;
+		lists[i].bytes = (u8 *)malloc(size ? size : 1u);
+		if (!lists[i].bytes) {
+			scenarioSourceAiListsFree(lists, table.count);
+			s_aiFreeTable(&table);
+			free(text);
+			return 0;
+		}
+		/* As the stage setup compiler lays a list out: each command's
+		 * big-endian opcode, then its operand bytes. */
+		for (s32 j = 0; j < list->count; j++) {
+			const scenario_source_ai_command_t *cmd = &list->commands[j];
+			lists[i].bytes[cursor++] = (u8)((cmd->opcode >> 8) & 0xff);
+			lists[i].bytes[cursor++] = (u8)(cmd->opcode & 0xff);
+			if (cmd->operand_count) {
+				memcpy(lists[i].bytes + cursor, cmd->operands,
+					cmd->operand_count);
+				cursor += cmd->operand_count;
+			}
+		}
+	}
+	*out_lists = lists;
+	*out_count = table.count;
+	s_aiFreeTable(&table);
+	free(text);
+	return 1;
+}
+
 static s32 s_parseSpawnTeam(const char *value)
 {
 	if (!value || !value[0] || strcmp(value, "any") == 0 ||

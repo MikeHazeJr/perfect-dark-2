@@ -4374,6 +4374,114 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 	return 0;
 }
 
+/* The global AI lists as public rows. The fields, their order and the
+ * catalog ids for item, weapon, body and head operands follow
+ * s_buildAiListsTable, so the reader that compiles a scenario's lists reads
+ * these too. Each list ends with its AICMD_END row. */
+char *romExtractGlobalAiListsJson(u32 *out_lists, u32 *out_commands)
+{
+	pdscenario_textbuf_t json = { 0 };
+	u32 list_count = 0;
+	u32 command_count = 0;
+
+	if (out_lists) *out_lists = 0;
+	if (out_commands) *out_commands = 0;
+	if (s_textbufAppend(&json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.ai.lists.v1\",\n"
+			"  \"rows\": [\n") != 0) {
+		goto fail;
+	}
+
+	for (u32 i = 0; g_GlobalAilists[i].list != NULL && i < 4096u; i++) {
+		u8 *list = g_GlobalAilists[i].list;
+		u16 list_id = (u16)g_GlobalAilists[i].id;
+		u32 offset = 0;
+		u32 command_index = 0;
+		s32 ended = 0;
+
+		while (offset < 0x10000u && command_index < 65536u) {
+			const u8 *cmd = list + offset;
+			u16 opcode = (u16)(((u16)cmd[0] << 8) | cmd[1]);
+			u32 len = chraiGetCommandLength(list, offset);
+			const char *model_id = "";
+			const char *weapon_id = "";
+			const char *body_id = "";
+			const char *head_id = "";
+			const char *opcode_name = s_aiOpcodeName(opcode);
+			char graph_node[64];
+
+			if (len < 2) {
+				goto fail;
+			}
+			snprintf(graph_node, sizeof(graph_node),
+				"scenario.ai.global_%04x.command.%04u",
+				(unsigned)list_id, (unsigned)command_index);
+			if ((opcode == AICMD_DROPITEM || opcode == AICMD_EQUIPHAT) && len >= 4) {
+				s32 modelnum = ((s32)cmd[2] << 8) | cmd[3];
+				model_id = s_nonnullCatalogId(catalogModelIdByModelnum(modelnum));
+			} else if (opcode == AICMD_EQUIPWEAPON && len >= 5) {
+				s32 modelnum = ((s32)cmd[2] << 8) | cmd[3];
+				model_id = s_nonnullCatalogId(catalogModelIdByModelnum(modelnum));
+				weapon_id = s_nonnullCatalogId(catalogWeaponIdByRuntimeWeaponNum(cmd[4]));
+			} else if (opcode == 0x01dc && len >= 3) {
+				weapon_id = s_nonnullCatalogId(
+					catalogWeaponIdByRuntimeWeaponNum(cmd[2]));
+			} else if ((opcode == AICMD_SPAWNCHRATPAD || opcode == AICMD_SPAWNCHRATCHR) && len >= 4) {
+				body_id = s_nonnullCatalogId(catalogBodyIdByBodynum(cmd[2]));
+				head_id = s_nonnullCatalogId(catalogHeadIdByHeadnum((s8)cmd[3]));
+			}
+
+			if (s_textbufAppendf(&json,
+					"%s    { \"ailist_ref\": \"global_%04x\", \"list_id\": \"0x%04x\", \"graph_node\": ",
+					command_count ? ",\n" : "",
+					(unsigned)list_id, (unsigned)list_id) != 0 ||
+					s_textbufAppendJsonString(&json, graph_node) != 0 ||
+					s_textbufAppendf(&json,
+					", \"command_index\": %u, \"offset\": %u, \"opcode\": \"0x%04x\", \"opcode_name\": ",
+					(unsigned)command_index, (unsigned)offset,
+					(unsigned)opcode) != 0 ||
+					s_textbufAppendJsonString(&json, opcode_name) != 0 ||
+					s_textbufAppend(&json, ", \"operands\": ") != 0 ||
+					s_appendAiOperandsJsonArray(&json, cmd, len) != 0 ||
+					s_textbufAppend(&json, ", \"model_catalog_id\": ") != 0 ||
+					s_textbufAppendJsonString(&json, model_id) != 0 ||
+					s_textbufAppend(&json, ", \"weapon_catalog_id\": ") != 0 ||
+					s_textbufAppendJsonString(&json, weapon_id) != 0 ||
+					s_textbufAppend(&json, ", \"body_catalog_id\": ") != 0 ||
+					s_textbufAppendJsonString(&json, body_id) != 0 ||
+					s_textbufAppend(&json, ", \"head_catalog_id\": ") != 0 ||
+					s_textbufAppendJsonString(&json, head_id) != 0 ||
+					s_textbufAppend(&json, " }") != 0) {
+				goto fail;
+			}
+
+			command_count++;
+			offset += len;
+			command_index++;
+			if (opcode == AICMD_END) {
+				ended = 1;
+				break;
+			}
+		}
+		if (!ended) {
+			goto fail;
+		}
+		list_count++;
+	}
+
+	if (s_textbufAppend(&json, "\n  ]\n}\n") != 0) {
+		goto fail;
+	}
+	if (out_lists) *out_lists = list_count;
+	if (out_commands) *out_commands = command_count;
+	return json.data;
+
+fail:
+	s_textbufFree(&json);
+	return NULL;
+}
+
 static s32 s_buildScenarioSourceFiles(const char *scenario_id,
                                       const char *kind,
                                       u32 room_count, u32 tri_count,

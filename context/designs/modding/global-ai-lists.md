@@ -1,6 +1,6 @@
 # Global AI lists as public source (design, CORE, 2026-11-15)
 
-Status: plan written 2026-11-16 (below), not started. Checklist row "Global AI lists" (week note,
+Status: plan written 2026-11-16 (below). Slice 1 built on `week-pd/core-gai`: step 5's proof (rows, compile, byte comparison with `--check-global-ailists`), no asset type or runtime switch yet. Checklist row "Global AI lists" (week note,
 CORE's behavior conversion checklist). Decision 1: "Players should be able to
 recreate any existing game behavior with the nodes."
 
@@ -60,6 +60,18 @@ the mod contract row (`asset_mod_utility_contract.c`), the runtime switches
 `loader_walker_lang.c`), the mod manager and modpack lists
 (`modmgr_component_catalog.cpp`, `modpack.c`), plus the conformance family
 and its tests.
+
+Measured 2026-11-16 by the places `ASSET_THEME` (the newest type) is wired:
+beyond the list above, the mod manager and modding hub UI
+(`pdgui_menu_modmgr.cpp`, `pdgui_menu_moddinghub.cpp`,
+`pdgui_menu_mainmenu.cpp` type lists), network mod distribution
+(`net/netdistrib.c` descriptor-to-type and `net/netmsg.c` type list),
+`modpack_pdmod.c`, and the Theater format (`theater.c` asserts its highest
+stored catalog type is `ASSET_THEME`; append the new type after it so no
+stored number moves). Two product questions come with them: how the mod
+manager shows AI list mods, and whether they travel with a host's mods in
+multiplayer (the host runs the AI, so probably not). Slice 2 is a focused
+session of its own.
 
 1. Extraction: a writer next to `s_buildAiListsTable` that walks
    `g_GlobalAilists` (pointer and id per list, commands up to `endlist` by
