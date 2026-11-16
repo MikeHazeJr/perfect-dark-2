@@ -11251,3 +11251,53 @@ Next
   base after landing: the scenario kind and the new ai/ bank).
 - Global AI lists steps 4 (per-level overrides in a scenario's
   ai/ailists.json) and 5 (a mod's .pdai over the base bank).
+
+## 2026-11-16 (12:08-13:25 UTC) - CORE: global AI lists steps 4-5, AI lists as graphs designed and slice 1 built
+
+What happened
+- e0850c0c (12:14), global AI lists step 4: a stage's own list with a global
+  id replaces that global list for the stage (after the bank bind and the
+  count); an id that is not one of the game's refuses the stage.
+- aa88a2ba (12:14), step 5: enabled mod banks (non-bundled .pdai) layer over
+  the complete base bank by list id, the smaller catalog id winning (the
+  .pdlang order); compile cached on a signature of the banks. pd-tests 2,014.
+- 21444caf (12:34): context/designs/modding/ai-list-graphs.md from a
+  read-only survey: the data had every AI command as a level-graph node but
+  no control flow; plan in four slices (edges in the data, a shadow walk,
+  the interpreter takes edges, authoring from edges). Handler counts
+  corrected: 434 of 441 have a twin; the 7 without are the 5 control-flow
+  handlers and if_bot_respawning, mp_init_simulants.
+- 276ca402 (13:14), slice 1 (a subagent, reviewed: the edge rules against
+  chraiGoToLabel and the handlers, the JSON writers): port/src/ai_list_edges.c
+  computes next/branch/goto/restart edges and node flags; the extractor
+  writes them into every level.graph.json and the bank's
+  ai/global_ailists.graph.json; conformance recomputes every edge from the
+  rows; a pd-tests case re-derives the 215 branching opcodes from the
+  sources. Base: 79,408 edges (4 restarts). Scenario kind _aiedges; bank kind
+  v2. pd-tests 2,024.
+- cd90f090 (13:24): MULTIPLAYER's semantics for the two missing twins
+  recorded in the design (host only; mp_init_simulants stays by ending the
+  tick without moving).
+- MULTIPLAYER confirmed B-1204 in play (12:58: networked Hold the Briefcase
+  84/84, Combat score limit 24/24) and takes the AI-lists-only mod rule in
+  netmanifest.c after CORE lands.
+- The second queued turn now runs client core-ae (276ca402: steps 3-5 and the
+  edges) with two extraction passes and conformance (the edge proof); the
+  frozen clients core-gai3, core-merged2 and core-merged3 went to the Recycle
+  Bin (superseded).
+
+In flight
+- q_20261116111144955_af9935d1 (waiter b1fu90ysy, tools/core-mf3-turn.sh,
+  client core-mf4 = 81a47d96): mission flow, B-1204, the lifts, the bank
+  written and round-tripped.
+- q_20261116120723346_a56d5b4c (waiter bd2n1bx45, tools/core-gai3-turn.sh,
+  client core-ae = 276ca402): re-extraction, conformance, the campaigns with
+  the bank in play, Complex.
+
+Next
+- With both turns: tick Object rules, record mission flow, the bank and the
+  edges in play, pin the phase-delivery counts, update the per-mission status
+  table, and post week-pd/core as ready for Mike's merge call (one shared
+  base refresh after landing for today's kind moves and the new ai/ bank).
+- AI lists as graphs slice 2 (the shadow walk); the two simulant twins;
+  a test mod with a .pdai for the mod bank proof.
