@@ -400,9 +400,11 @@ TEST_CASE("mission endings come from the mission graph on a scenario-source stag
 	REQUIRE(menutick.find("void menuTickCoopStartNextStage(void)") != std::string::npos);
 	CHECK(count(menutick, "if (g_Vars.stagenum == STAGE_DEEPSEA) {") == 0);
 
-	// The PC end screen asks the same graph whether the action is Credits.
+	// The PC end screen asks the same graph whether the action is Credits,
+	// and so does a networked mission's Next Mission (B-1193,
+	// pdguiEndscreenNetMissionHasNext).
 	CHECK(count(bridge, "STAGE_SKEDARRUINS") == 0);
-	CHECK(count(bridge, "endscreenMissionLeadsToCredits()") == 3);
+	CHECK(count(bridge, "endscreenMissionLeadsToCredits()") == 4);
 	REQUIRE(endscreen.find("\t\treturn scenarioSourceMissionGraphContinueStartsCredits() != 0;") != std::string::npos);
 
 	// Defense's outcome presentation is one rule, read everywhere it shows.

@@ -1250,13 +1250,15 @@ s32 netLobbyRequestStart(u8 gamemode, const char *stage_id, u8 difficulty)
 
 void pdguiSetInRoom(s32 inRoom); /* pdgui_lobby.cpp */
 
-/* Next Mission for a networked mission: the campaign's step after Skedar
- * Ruins is the credits, not a mission to play together. */
+/* Next Mission for a networked mission: when the mission's continue starts
+ * the credits (Skedar Ruins, or whatever a scenario-source mission graph
+ * says), there is no mission to play together next. Asks the same question
+ * as the end screen's Credits label. */
 s32 pdguiEndscreenNetMissionHasNext(void)
 {
     const s32 stageindex = (s32)g_MissionConfig.stageindex;
 
-    if (g_Vars.stagenum == STAGE_SKEDARRUINS) {
+    if (endscreenMissionLeadsToCredits()) {
         return 0;
     }
 
