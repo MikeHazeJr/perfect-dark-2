@@ -10846,3 +10846,42 @@ Next
   `_PD_DYNTEX` (N64 s, t and texture scale); the renderer updates those UVs
   each frame from the game's 80-second interval and two stage flags. Needs a
   schema notice, a cache-kind bump and base 7. scenario_dyntex.h drafted.
+
+## 2026-11-16 (01:25-02:05 UTC) - CORE: B-1154 found and fixed, base 7 queued, animated surfaces built
+
+What happened
+- B-1154 (MODS: striped held Falcon 2 copy) is every reflection-mapped
+  model: the ROM gun list sets the RSP texture scale (G_TEXTURE 0x0800 next
+  to eight G_TEXTURE_GEN | G_LIGHTING materials on the Falcon 2), tex.c keeps
+  it for the load, but the mesh exporter skipped G_TEXTURE and the compiler
+  emitted 0xffff, so the reflection repeated 32 times. 144 of 733 base meshes
+  use texgen. Fixed in dcee4202: model.render.json schema v4 "texture" rows
+  (scale_s, scale_t), replayed by the compiler; "v3 or later" checks now say
+  SCHEMA_VERTEX_CACHE so v3 meshes still load. week-pd/extract-6 = extract-5 +
+  that commit (8af7c1a4, pushed, standalone pd-tests 1,887).
+- Base 7 (base 6 + re-exported meshes, frozen client dcee4202) queued as
+  q_20261116011531710_91423061 with the Defection screenshot of the held
+  Falcon 2, release, specials, a Complex match, and a Complex match with an
+  extract-6 client (no re-extraction expected).
+- Animated surfaces (B-1172's animated textures) built in 23a55418: dyntex.c
+  presets as scene data (pd2_material.animation, uv_scale, _PD_DYNTEX per
+  vertex) written by the extractor with the stage rules applied, moved each
+  frame by the scene renderer; scenario_dyntex.c unit-tested against oracles
+  from dyntex.c (ocean's unsigned modulo, the game's own sinf/cosf) and the
+  extractor's UV conversion; conformance checks; kind gains _dyntex. The
+  cherry-pick onto extract-6 conflicts (it builds on CORE-only B-1172 renderer
+  work), so it is not in a shared base: it reaches others with CORE's merge.
+  A private check (copy of base 6 re-extracted by CORE's client) is queued as
+  q_20261116014023887_5f896c2b. Schema notice posted.
+- B-1172 is left with one gap: roomHighlight's per-colour flag (a colour whose
+  same-index room vertex has flags & 1 keeps its rgb and scales its alpha by
+  the room brightness). The exporter sees per-block vertex and colour bases,
+  so it needs the room's bases to compute the room-level colour index; not
+  rushed into the queued check.
+
+Next
+- Base 7 turn result: publish base 7 with extract-6.
+- Animated surfaces check result.
+- B-1172's per-colour light flag; then the global AI lists (a new typed
+  asset, about ten touch points: archive policy, mod contract, loader walker,
+  boot extraction, mod manager, catalog type, conformance, runtime).
