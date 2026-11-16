@@ -3516,7 +3516,11 @@ s_aiGraphRuntimeFailure(...)` for the twins themselves.
   (the count above).
 - `rg -n 'return s_aiGraphRuntimeFailure\(' port/src/scenario_source_runtime.c`
 
-## SP-80: A bulk writer forces every file to disk one at a time
+## SP-89: A bulk writer forces every file to disk one at a time
+
+(First numbered SP-80 by CORE; MULTIPLAYER had claimed SP-80 first, for
+scenario setup that assumes the arena brings its own placement data, so
+this one was renumbered on 2026-11-16 when dev brought theirs in.)
 
 **Severity: MEDIUM - correct but slow; on a 7200 rpm disk a forced flush plus
 a write-through rename costs about 100 ms per file, so a writer that

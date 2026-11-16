@@ -10152,7 +10152,7 @@ What was done
   flushes that folder's new archives (`modArchiveDerivedBarrierWith`, side by
   side on the boot pool) and is not written if that fails, so a stamp never
   vouches for data that is not on disk. Player edits and authored archives
-  keep the durable writer. SP-80 records the pattern; the mod-transfer
+  keep the durable writer. SP-89 (first SP-80) records the pattern; the mod-transfer
   extraction (`pdcaExtractArchiveBegin`, MULTIPLAYER's area) has it too.
 
 Verification
