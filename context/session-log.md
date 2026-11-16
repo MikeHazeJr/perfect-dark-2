@@ -10805,3 +10805,44 @@ Next
   extract-5 client; depth smokes with CORE's client. If it passes: publish
   base 6 with extract-5 (and base 5 with extract-4) in the week note.
 - Follow-up: the runner's single-process retain_artifacts (a reviewed change).
+
+## 2026-11-16 (23:10-01:25 UTC) - CORE: base 6 proven and published, B-1210, B-1159 answered
+
+What happened
+- Base 6 turn 1 (00:09-00:30 UTC): with the extract-5 client the Complex
+  match passed 12/12 (B-1177 fixed in play); release 49/54 and specials
+  18/42 from CORE-only pieces the extract chain does not carry (three graph
+  shadow warnings the native game covers: preset pad 9000, if_natural_anim
+  on Infiltration, set_lights room -1 on the CI; the campaign runner's
+  objective probes and special-assignment plans). Depth smokes 16/16 with
+  CORE's client. Screenshots checked: Villa's sky blue with clouds,
+  Defection's stars, the Complex match running.
+- Base 6 turn 2 (00:45-00:55 UTC, CORE's client): release 54/54, specials
+  42/42; hub=1 on the CI only, stars on the six stages, Defense
+  outcome_unknown=1, Skedar Ruins ran its completed and Continue modules.
+  Published in the week note with week-pd/extract-5 (base 5 with
+  week-pd/extract-4); the 23:10 merge hold is lifted. Checklist rows for
+  sky and stars, the training hub and stage endings marked done (Deep Sea's
+  Continue is unit-tested only: the campaign runner loads the next mission).
+- Other sessions' notes swept again: CRYSTAL's B-1210 (on their branch's
+  bugs.md, "proper fix for CORE") is real in play: Crash Site and Deep Sea
+  fill the 128x128 world mesh grid, so meshFindFloor's fallback found
+  nothing on their far parts. Fixed (c20677da): meshGridCell clamps every
+  grid index into the grid at both ends; cap and cell size unchanged so
+  CRYSTAL's meshGridRayCast and its capped-grid test still hold. pd-tests
+  1,936. MODS's B-1159 (no walk mode after the Escape intro) is not a bug:
+  Escape's AI list grabs the hover bed (tag 0, setup_0110) right after the
+  intro, as the native command does; the smoke's wait needs to accept grab
+  mode. MODS's B-1154 (striped Falcon 2 on their clone): the base Falcon 2
+  is striped the same way in CORE's Defection screenshots, so the clone is
+  not the cause.
+- C: 1.25 GiB used by turn 2 (214.23 to 212.98 GiB free), installs in the
+  Recycle Bin.
+
+Next
+- B-1154: compare the held Falcon 2's textures and texgen data with the ROM.
+- Animated surfaces (dyntex.c) on scenario-source stages: per-material
+  `animation` preset and `uv_scale` in scene.glb extras plus a per-vertex
+  `_PD_DYNTEX` (N64 s, t and texture scale); the renderer updates those UVs
+  each frame from the game's 80-second interval and two stage flags. Needs a
+  schema notice, a cache-kind bump and base 7. scenario_dyntex.h drafted.
