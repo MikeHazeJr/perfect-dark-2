@@ -323,7 +323,7 @@ int smokeFixtureEventTypeKnown(const char *type)
 		"network_assert_retired_prop_absent",
 		"network_timeout_client", "network_reconnect",
 		"controller_attach", "controller_button", "controller_axis", "controller_detach",
-		"kill_player",
+		"kill_player", "kill_token_holder",
 	};
 
 	if (!type) {
@@ -360,7 +360,8 @@ smoke_fixture_field_mask_t smokeFixtureEventAllowedFields(const char *type)
 			|| !strcmp(type, "unclean_exit")
 			|| !strcmp(type, "network_assert_retired_prop_absent")
 			|| !strcmp(type, "network_reconnect")
-			|| !strcmp(type, "kill_player")) {
+			|| !strcmp(type, "kill_player")
+			|| !strcmp(type, "kill_token_holder")) {
 		return common;
 	}
 	if (!strcmp(type, "network_timeout_client")) {

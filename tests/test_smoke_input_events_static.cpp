@@ -1476,3 +1476,31 @@ TEST_CASE("smoke input sequences are written in the at_ms order they run in",
     }
     REQUIRE(sequences > 100);
 }
+
+// B-1209: a smoke kills the simulant that carries the scenario's token through
+// the production damage path, on the scenario authority only, so the host's
+// replacement token and its announcement run on demand.
+TEST_CASE("smoke kills the scenario token's carrier through production damage",
+    "[smoke][tooling][b1209][static]")
+{
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string holder = requireSlice(harness,
+        "static s32 smokeScenarioTokenHolder(const char **token)",
+        "static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)");
+    requireContains(holder, "if (!g_Vars.normmplayerisrunning || g_NetMode == NETMODE_CLIENT) {");
+    requireContains(holder, "for (s32 i = PLAYERCOUNT(); i < g_MpNumChrs && i < MAX_MPCHRS; i++) {");
+    requireContains(holder, "chrIsDead(chr)");
+    requireContains(holder, "if (chr->aibot->hasuplink) {");
+    requireContains(holder, "} else if (chr->aibot->hasbriefcase) {");
+    requireContains(holder, "} else if (chr->aibot->hascase) {");
+
+    requireContains(harness, "facts.scenario_token_held = smokeScenarioTokenHolder(NULL) >= 0;");
+    requireContains(harness, "if (!strcmp(type_str, \"kill_token_holder\")) {");
+    const std::string kill = requireSlice(harness,
+        "case SMOKE_EVENT_KILL_TOKEN_HOLDER:",
+        "case SMOKE_EVENT_NETWORK_ASSERT_RETIRED_PROP_ABSENT:");
+    requireContains(kill, "const s32 slot = smokeScenarioTokenHolder(&token);");
+    requireContains(kill, "smokeHarnessExit(1, \"kill_token_holder_no_holder\");");
+    requireContains(kill, "chrDamageByMisc(chr, 1000.0f, &dir, NULL, NULL);");
+    requireContains(kill, "SMOKE.KILL_TOKEN_HOLDER: simulant player=%d token=%s died=%d at_ms=%d");
+}
