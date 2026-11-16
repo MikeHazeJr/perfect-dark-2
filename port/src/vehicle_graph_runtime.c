@@ -2,6 +2,7 @@
  * vehicle_graph_runtime.c -- one vehicle graph instance per vehicle: see
  * vehicle_graph_runtime.h.
  */
+#include <math.h>
 #include <string.h>
 
 #include <PR/ultratypes.h>
@@ -15,6 +16,12 @@ typedef struct vehicle_graph_record {
 	vehicle_graph_instance_t *instance;
 	s32 held;
 	s32 refused;
+	/* Speed over the ground (vehicleGraphRuntimeGroundSpeed). */
+	s32 has_pos;
+	f32 last_x;
+	f32 last_z;
+	f32 last_ticks60;
+	f32 peak_ground;
 } vehicle_graph_record_t;
 
 static vehicle_graph_record_t s_Records[VEHICLE_GRAPH_RUNTIME_MAX];
@@ -128,6 +135,42 @@ s32 vehicleGraphRuntimeTakeBoostHeld(const void *prop, u64 generation)
 	held = record->held;
 	record->held = 0;
 	return held;
+}
+
+f32 vehicleGraphRuntimeGroundSpeed(const void *prop, u64 generation, f32 x, f32 z, f32 ticks60)
+{
+	vehicle_graph_record_t *record = vgrRecord(prop, generation, 1);
+	f32 ground = 0.0f;
+
+	if (!record) {
+		return 0.0f;
+	}
+	if (record->has_pos && record->last_ticks60 > 0.0f) {
+		const f32 dx = x - record->last_x;
+		const f32 dz = z - record->last_z;
+		ground = sqrtf(dx * dx + dz * dz) / record->last_ticks60;
+		if (ground > record->peak_ground) {
+			record->peak_ground = ground;
+		}
+	}
+	record->has_pos = 1;
+	record->last_x = x;
+	record->last_z = z;
+	record->last_ticks60 = ticks60;
+	return ground;
+}
+
+f32 vehicleGraphRuntimeTakePeakGround(const void *prop, u64 generation)
+{
+	vehicle_graph_record_t *record = vgrRecord(prop, generation, 0);
+	f32 peak;
+
+	if (!record) {
+		return 0.0f;
+	}
+	peak = record->peak_ground;
+	record->peak_ground = 0.0f;
+	return peak;
 }
 
 s32 vehicleGraphRuntimeCount(void)

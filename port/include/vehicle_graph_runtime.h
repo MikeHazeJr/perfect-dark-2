@@ -45,6 +45,17 @@ void vehicleGraphRuntimeRefuse(const void *prop, u64 generation);
 void vehicleGraphRuntimeSetBoostHeld(const void *prop, u64 generation, s32 held);
 s32 vehicleGraphRuntimeTakeBoostHeld(const void *prop, u64 generation);
 
+/*
+ * The vehicle's speed over the ground, for the boost's diagnostics: call once
+ * per update with the vehicle's position (x and z) and this update's 60 Hz
+ * ticks. Returns the previous update's speed in world units per 60 Hz tick
+ * (the distance moved since the previous call over that call's ticks; 0 on a
+ * record's first call), and keeps the highest one since the last take.
+ */
+f32 vehicleGraphRuntimeGroundSpeed(const void *prop, u64 generation, f32 x, f32 z, f32 ticks60);
+/* The highest ground speed since the last take (0 when none), then 0 again. */
+f32 vehicleGraphRuntimeTakePeakGround(const void *prop, u64 generation);
+
 /* Records in use (tests and diagnostics). */
 s32 vehicleGraphRuntimeCount(void);
 

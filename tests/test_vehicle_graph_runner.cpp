@@ -679,3 +679,32 @@ TEST_CASE("Each vehicle keeps its own graph instance until the stage resets", "[
 	vehicleGraphRuntimeReset();
 	CHECK(vehicleGraphRuntimeCount() == 0);
 }
+
+TEST_CASE("A vehicle's speed over the ground comes from its moves and their ticks", "[vehicle-graph]")
+{
+	vehicleGraphRuntimeReset();
+	int a = 0, b = 0;
+
+	// The first call has nothing to compare with.
+	CHECK(vehicleGraphRuntimeGroundSpeed(&a, 3, 100.0f, 200.0f, 2.0f) == 0.0f);
+	// 30 units in x and 40 in z (50 in all) over the previous update's 2 ticks.
+	CHECK(vehicleGraphRuntimeGroundSpeed(&a, 3, 130.0f, 240.0f, 1.0f) == Approx(25.0f));
+	// 21 units over this update's 1 tick, slower: the peak keeps the 25.
+	CHECK(vehicleGraphRuntimeGroundSpeed(&a, 3, 130.0f, 261.0f, 1.0f) == Approx(21.0f));
+	CHECK(vehicleGraphRuntimeTakePeakGround(&a, 3) == Approx(25.0f));
+	CHECK(vehicleGraphRuntimeTakePeakGround(&a, 3) == 0.0f);
+	// Against a wall: no move, no speed.
+	CHECK(vehicleGraphRuntimeGroundSpeed(&a, 3, 130.0f, 261.0f, 1.0f) == 0.0f);
+	CHECK(vehicleGraphRuntimeTakePeakGround(&a, 3) == 0.0f);
+
+	// Each vehicle has its own.
+	CHECK(vehicleGraphRuntimeGroundSpeed(&b, 5, 0.0f, 0.0f, 1.0f) == 0.0f);
+	CHECK(vehicleGraphRuntimeGroundSpeed(&b, 5, 0.0f, 7.0f, 1.0f) == Approx(7.0f));
+	CHECK(vehicleGraphRuntimeTakePeakGround(&b, 5) == Approx(7.0f));
+
+	// A new vehicle in the same slot starts again; a reset forgets it all.
+	CHECK(vehicleGraphRuntimeGroundSpeed(&a, 4, 500.0f, 500.0f, 1.0f) == 0.0f);
+	vehicleGraphRuntimeReset();
+	CHECK(vehicleGraphRuntimeTakePeakGround(&b, 5) == 0.0f);
+	CHECK(vehicleGraphRuntimeCount() == 0);
+}

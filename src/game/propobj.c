@@ -7359,13 +7359,22 @@ static vehicle_graph_instance_t *hoverbikeGraphInstance(struct hoverbikeobj *bik
 	return instance;
 }
 
-/* Forward speed over its top value without boost: full input thrust against
- * the drag, the same recurrence as hoverbikeUpdateMovement's drag loop. */
-static f32 hoverbikeSpeedFrac(struct hoverbikeobj *bike, const asset_runtime_binding_t *source)
+/* The top forward speed without boost, in world units per 60 Hz tick: full
+ * input thrust against the drag, the same recurrence as
+ * hoverbikeUpdateMovement's drag loop. */
+static f32 hoverbikeTopSpeed(const asset_runtime_binding_t *source)
 {
 	const f32 drag = PAL ? source->vehicle_drag_pal : source->vehicle_drag_ntsc;
 	const f32 thrust = source->vehicle_forward_input_scale * PALUPF(source->vehicle_forward_thrust);
-	const f32 topspeed = drag < 1.0f ? thrust / (1.0f - drag) : 0.0f;
+
+	return drag < 1.0f ? thrust / (1.0f - drag) : 0.0f;
+}
+
+/* Forward speed over its top value without boost. The boost's extra speed
+ * (speedrel) is not in speedabs, so this stays at 1 or below while boosting. */
+static f32 hoverbikeSpeedFrac(struct hoverbikeobj *bike, const asset_runtime_binding_t *source)
+{
+	const f32 topspeed = hoverbikeTopSpeed(source);
 	const f32 speed = sqrtf(bike->speedabs[0] * bike->speedabs[0]
 		+ bike->speedabs[1] * bike->speedabs[1]);
 
@@ -7383,6 +7392,7 @@ static void hoverbikeGraphTick(struct hoverbikeobj *bike, const asset_runtime_bi
 	const vehicle_boost_heat_state_t *heat;
 	s32 before;
 	s32 after;
+	f32 ground;
 
 	hoverbikeGraphHostInit(&table, &host, bike, prop);
 	memset(&event, 0, sizeof(event));
@@ -7394,6 +7404,10 @@ static void hoverbikeGraphTick(struct hoverbikeobj *bike, const asset_runtime_bi
 	event.throttle = throttle;
 	event.boost_held = vehicleGraphRuntimeTakeBoostHeld(prop, prop->lifecycle_generation);
 	event.speed_frac = hoverbikeSpeedFrac(bike, source);
+	/* How fast it really moved last update (walls included), for the phase
+	 * lines: boosting on open ground takes it over its top speed. */
+	ground = vehicleGraphRuntimeGroundSpeed(prop, prop->lifecycle_generation,
+		prop->pos.x, prop->pos.z, g_Vars.lvupdate60freal);
 
 	before = vehicleGraphInstanceHeatPhase(instance);
 	if (vehicleGraphInstanceFire(instance, &event, &table) < 0) {
@@ -7407,11 +7421,16 @@ static void hoverbikeGraphTick(struct hoverbikeobj *bike, const asset_runtime_bi
 	after = vehicleGraphInstanceHeatPhase(instance);
 	heat = vehicleGraphInstanceBoostHeat(instance);
 	if (after != before && heat) {
+		/* peak_ground: the fastest it moved over the ground during the phase
+		 * that just ended; top: its top speed without boost (both in world
+		 * units per 60 Hz tick). */
 		sysLogPrintf(LOG_NOTE,
-			"VEHICLE.BOOST: modelnum=%d phase %s -> %s boost=%.2f heat=%.2f speed=%.2f turret_locked=%d",
+			"VEHICLE.BOOST: modelnum=%d phase %s -> %s boost=%.2f heat=%.2f speed=%.2f turret_locked=%d ground=%.2f peak_ground=%.2f top=%.2f",
 			bike->base.modelnum, vehicleBoostHeatPhaseName(before),
 			vehicleBoostHeatPhaseName(after), heat->boost, heat->heat, event.speed_frac,
-			vehicleGraphInstanceTurretLockMask(instance) != 0);
+			vehicleGraphInstanceTurretLockMask(instance) != 0, ground,
+			vehicleGraphRuntimeTakePeakGround(prop, prop->lifecycle_generation),
+			hoverbikeTopSpeed(source));
 	}
 	vehicleGraphInstanceDrive(instance, drive);
 }
