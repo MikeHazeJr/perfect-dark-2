@@ -1,7 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "asset_runtime.h"
-#include "vehicle_boost_runtime.h"
+#include "vehicle_graph_runtime.h"
 #include "system.h"
 #include "arenapool.h"
 #include "game/bondmove.h"
@@ -7206,91 +7206,262 @@ f32 objCollide(struct defaultobj *movingobj, struct coord *movingvel, f32 rotati
 	return force;
 }
 
-/* Maian vehicle V3: show or hide the vehicle's cool-crystal part (its
- * archive's cool_crystal_part); the black crystals sit inside it. */
-static void hoverbikeSetCoolCrystals(struct hoverbikeobj *bike,
-		const asset_runtime_binding_t *source, s32 visible)
+/*
+ * pd.vehicle_graph.v1 (context/designs/modding/vehicle-graph-v1.md): the game
+ * side of a vehicle's behavior graph. One instance per vehicle prop
+ * (vehicle_graph_runtime.h); what the graph asks for is the original code (the
+ * seat check, the mount candidate and commit, the side dismount, the model's
+ * toggle parts).
+ */
+typedef struct hoverbike_graph_host {
+	struct hoverbikeobj *bike;
+	struct prop *prop;
+	s32 (*dismount)(void *context);
+	void *dismount_context;
+	s32 seat_done; /* the mount or dismount module did it */
+} hoverbike_graph_host_t;
+
+static bool currentPlayerTryMountHoverbikeNative(struct prop *prop);
+
+static struct modelnode *hoverbikeTogglePart(struct hoverbikeobj *bike, s32 part)
 {
 	struct model *model = bike->base.model;
 	struct modelnode *node;
-	union modelrwdata *rwdata;
 
-	if (source->vehicle_cool_crystal_part < 0 || !model || !model->definition) {
-		return;
+	if (!model || !model->definition || part < 0) {
+		return NULL;
 	}
-	node = modelGetPart(model->definition, source->vehicle_cool_crystal_part);
-	if (!node || node->type != MODELNODETYPE_TOGGLE) {
-		static s32 s_WarnedPart = 0;
-		if (!s_WarnedPart) {
-			s_WarnedPart = 1;
-			sysLogPrintf(LOG_WARNING,
-				"VEHICLE.BOOST: modelnum=%d has no toggle part %d for its crystals",
-				bike->base.modelnum, source->vehicle_cool_crystal_part);
-		}
-		return;
-	}
-	rwdata = modelGetNodeRwData(model, node);
-	rwdata->toggle.visible = visible ? true : false;
-	sysLogPrintf(LOG_NOTE, "VEHICLE.BOOST: modelnum=%d part %d %s",
-		bike->base.modelnum, source->vehicle_cool_crystal_part,
-		visible ? "shown (crystals cool)" : "hidden (crystals black)");
+	node = modelGetPart(model->definition, part);
+	return node && node->type == MODELNODETYPE_TOGGLE ? node : NULL;
 }
 
-/* Maian vehicle V3: advance this vehicle's boost and heat by one update
- * (vehicle_boost_heat.h). The speed fraction is the forward-thrust part of
- * the speed over its top value without boost: full input thrust against the
- * drag, the same recurrence as hoverbikeUpdateMovement's drag loop. */
-static vehicle_boost_heat_state_t *hoverbikeBoostHeatStep(struct hoverbikeobj *bike,
+static s32 hoverbikeGraphSeatFree(void *context, s32 seat)
+{
+	hoverbike_graph_host_t *host = (hoverbike_graph_host_t *)context;
+
+	/* One seat until the gunner seat (V4). */
+	return seat == VEHICLE_GRAPH_SEAT_DRIVER
+		&& (host->bike->base.hidden & OBJHFLAG_MOUNTED) == 0;
+}
+
+static s32 hoverbikeGraphMountSeat(void *context, s32 seat, const vehicle_graph_event_t *event)
+{
+	hoverbike_graph_host_t *host = (hoverbike_graph_host_t *)context;
+
+	(void)event;
+	if (seat != VEHICLE_GRAPH_SEAT_DRIVER || !currentPlayerTryMountHoverbikeNative(host->prop)) {
+		return 0;
+	}
+	host->seat_done = 1;
+	return 1;
+}
+
+static s32 hoverbikeGraphDismountSeat(void *context, s32 seat, const vehicle_graph_event_t *event)
+{
+	hoverbike_graph_host_t *host = (hoverbike_graph_host_t *)context;
+
+	(void)event;
+	if (seat != VEHICLE_GRAPH_SEAT_DRIVER || !host->dismount
+			|| !host->dismount(host->dismount_context)) {
+		return 0;
+	}
+	host->seat_done = 1;
+	return 1;
+}
+
+static s32 hoverbikeGraphPartVisible(void *context, s32 part, s32 visible)
+{
+	hoverbike_graph_host_t *host = (hoverbike_graph_host_t *)context;
+	struct modelnode *node = hoverbikeTogglePart(host->bike, part);
+	union modelrwdata *rwdata;
+
+	if (!node) {
+		return 0;
+	}
+	rwdata = modelGetNodeRwData(host->bike->base.model, node);
+	rwdata->toggle.visible = visible ? true : false;
+	sysLogPrintf(LOG_NOTE, "VEHICLE.GRAPH: modelnum=%d part %d %s",
+		host->bike->base.modelnum, part, visible ? "shown" : "hidden");
+	return 1;
+}
+
+static void hoverbikeGraphHostInit(vehicle_graph_host_t *table, hoverbike_graph_host_t *host,
+		struct hoverbikeobj *bike, struct prop *prop)
+{
+	memset(host, 0, sizeof(*host));
+	host->bike = bike;
+	host->prop = prop;
+	table->context = host;
+	table->seat_free = hoverbikeGraphSeatFree;
+	table->mount_seat = hoverbikeGraphMountSeat;
+	table->dismount_seat = hoverbikeGraphDismountSeat;
+	table->set_part_visible = hoverbikeGraphPartVisible;
+}
+
+/* This vehicle's graph instance, made on first use. Its model is built by
+ * then, so the parts the graph toggles are checked here: a missing toggle
+ * part refuses the instance (logged), and the vehicle neither moves nor
+ * takes a rider. The parts start visible. */
+static vehicle_graph_instance_t *hoverbikeGraphInstance(struct hoverbikeobj *bike,
 		const asset_runtime_binding_t *source)
 {
+	struct prop *prop = bike ? bike->base.prop : NULL;
+	const vehicle_graph_program_t *program = source ? source->vehicle_graph : NULL;
+	const vehicle_boost_heat_params_t *heat;
+	vehicle_graph_instance_t *instance;
 	s32 created = 0;
-	s32 prev = 0;
-	vehicle_boost_heat_state_t *state = vehicleBoostRuntimeState(bike, &created);
-	f32 drag;
-	f32 thrust;
-	f32 topspeed;
-	f32 speed;
-	f32 speedfrac;
+	s32 i;
 
-	if (!state) {
-		static s32 s_WarnedSlots = 0;
-		if (!s_WarnedSlots) {
-			s_WarnedSlots = 1;
+	if (!program || !prop) {
+		return NULL;
+	}
+	instance = vehicleGraphRuntimeInstance(prop, prop->lifecycle_generation, program, &created);
+	if (!instance) {
+		static s32 s_WarnedNoInstance = 0;
+		if (!s_WarnedNoInstance) {
+			s_WarnedNoInstance = 1;
 			sysLogPrintf(LOG_WARNING,
-				"VEHICLE.BOOST: no free boost slot for modelnum=%d; it does not boost",
-				bike->base.modelnum);
+				"VEHICLE.GRAPH: modelnum=%d has no graph instance (refused, or more than %d vehicles); it neither moves nor takes a rider",
+				bike->base.modelnum, VEHICLE_GRAPH_RUNTIME_MAX);
 		}
 		return NULL;
 	}
-	if (created) {
+	if (!created) {
+		return instance;
+	}
+	for (i = 0; i < vehicleGraphProgramPartCount(program); i++) {
+		const s32 part = vehicleGraphProgramPart(program, i);
+		struct modelnode *node = hoverbikeTogglePart(bike, part);
+		if (!node) {
+			sysLogPrintf(LOG_ERROR,
+				"VEHICLE.GRAPH: modelnum=%d refused its graph: part %d is not a toggle part of its model",
+				bike->base.modelnum, part);
+			vehicleGraphRuntimeRefuse(prop, prop->lifecycle_generation);
+			return NULL;
+		}
+		modelGetNodeRwData(bike->base.model, node)->toggle.visible = true;
+	}
+	heat = vehicleGraphProgramBoostHeatParams(program);
+	sysLogPrintf(LOG_NOTE,
+		"VEHICLE.GRAPH: modelnum=%d graph instance made: nodes=%d exec_edges=%d pending=%d parts=%d boost_heat=%d",
+		bike->base.modelnum, vehicleGraphProgramNodeCount(program),
+		vehicleGraphProgramExecEdgeCount(program), vehicleGraphProgramPendingBound(program),
+		vehicleGraphProgramPartCount(program), heat ? 1 : 0);
+	if (heat) {
 		sysLogPrintf(LOG_NOTE,
 			"VEHICLE.BOOST: modelnum=%d boost and heat on: boost_speed=%.2f ramp=%.0f overheat=%.0f overheated_boost=%.2f recover=%.0f ticks240",
-			bike->base.modelnum, source->vehicle_boost_heat.boost_speed,
-			source->vehicle_boost_heat.ramp_ticks240,
-			source->vehicle_boost_heat.overheat_ticks240,
-			source->vehicle_boost_heat.overheated_boost,
-			source->vehicle_boost_heat.recover_ticks240);
-		hoverbikeSetCoolCrystals(bike, source, 1);
+			bike->base.modelnum, heat->boost_speed, heat->ramp_ticks240,
+			heat->overheat_ticks240, heat->overheated_boost, heat->recover_ticks240);
 	}
-	drag = PAL ? source->vehicle_drag_pal : source->vehicle_drag_ntsc;
-	thrust = source->vehicle_forward_input_scale * PALUPF(source->vehicle_forward_thrust);
-	topspeed = drag < 1.0f ? thrust / (1.0f - drag) : 0.0f;
-	speed = sqrtf(bike->speedabs[0] * bike->speedabs[0] + bike->speedabs[1] * bike->speedabs[1]);
-	speedfrac = topspeed > 0.0f ? speed / topspeed : 0.0f;
+	return instance;
+}
 
-	if (vehicleBoostHeatStep(state, &source->vehicle_boost_heat,
-			vehicleBoostRuntimeTakeHeld(bike), speedfrac, (f32)g_Vars.lvupdate240, &prev)) {
-		sysLogPrintf(LOG_NOTE,
-			"VEHICLE.BOOST: modelnum=%d phase %s -> %s boost=%.2f heat=%.2f speed=%.2f turret_locked=%d",
-			bike->base.modelnum, vehicleBoostHeatPhaseName(prev),
-			vehicleBoostHeatPhaseName(state->phase), state->boost, state->heat,
-			speedfrac, vehicleBoostHeatTurretLocked(state));
-		if ((prev == VEHICLE_BOOST_HEAT_OVERHEATED || prev == VEHICLE_BOOST_HEAT_RECOVERING)
-				!= (vehicleBoostHeatCrystalsBlack(state) != 0)) {
-			hoverbikeSetCoolCrystals(bike, source, !vehicleBoostHeatCrystalsBlack(state));
+/* Forward speed over its top value without boost: full input thrust against
+ * the drag, the same recurrence as hoverbikeUpdateMovement's drag loop. */
+static f32 hoverbikeSpeedFrac(struct hoverbikeobj *bike, const asset_runtime_binding_t *source)
+{
+	const f32 drag = PAL ? source->vehicle_drag_pal : source->vehicle_drag_ntsc;
+	const f32 thrust = source->vehicle_forward_input_scale * PALUPF(source->vehicle_forward_thrust);
+	const f32 topspeed = drag < 1.0f ? thrust / (1.0f - drag) : 0.0f;
+	const f32 speed = sqrtf(bike->speedabs[0] * bike->speedabs[0]
+		+ bike->speedabs[1] * bike->speedabs[1]);
+
+	return topspeed > 0.0f ? speed / topspeed : 0.0f;
+}
+
+/* Fire this update's event.vehicle.tick and read the drive it asks for. */
+static void hoverbikeGraphTick(struct hoverbikeobj *bike, const asset_runtime_binding_t *source,
+		vehicle_graph_instance_t *instance, f32 throttle, vehicle_graph_drive_t *drive)
+{
+	struct prop *prop = bike->base.prop;
+	hoverbike_graph_host_t host;
+	vehicle_graph_host_t table;
+	vehicle_graph_event_t event;
+	const vehicle_boost_heat_state_t *heat;
+	s32 before;
+	s32 after;
+
+	hoverbikeGraphHostInit(&table, &host, bike, prop);
+	memset(&event, 0, sizeof(event));
+	event.kind = VEHICLE_GRAPH_EVENT_TICK;
+	event.seat = VEHICLE_GRAPH_SEAT_NONE;
+	event.player = -1;
+	event.ticks240 = g_Vars.lvupdate240;
+	event.ticks60 = g_Vars.lvupdate60freal;
+	event.throttle = throttle;
+	event.boost_held = vehicleGraphRuntimeTakeBoostHeld(prop, prop->lifecycle_generation);
+	event.speed_frac = hoverbikeSpeedFrac(bike, source);
+
+	before = vehicleGraphInstanceHeatPhase(instance);
+	if (vehicleGraphInstanceFire(instance, &event, &table) < 0) {
+		static s32 s_WarnedTick = 0;
+		if (!s_WarnedTick) {
+			s_WarnedTick = 1;
+			sysLogPrintf(LOG_WARNING, "VEHICLE.GRAPH: modelnum=%d tick: a module refused",
+				bike->base.modelnum);
 		}
 	}
-	return state;
+	after = vehicleGraphInstanceHeatPhase(instance);
+	heat = vehicleGraphInstanceBoostHeat(instance);
+	if (after != before && heat) {
+		sysLogPrintf(LOG_NOTE,
+			"VEHICLE.BOOST: modelnum=%d phase %s -> %s boost=%.2f heat=%.2f speed=%.2f turret_locked=%d",
+			bike->base.modelnum, vehicleBoostHeatPhaseName(before),
+			vehicleBoostHeatPhaseName(after), heat->boost, heat->heat, event.speed_frac,
+			vehicleGraphInstanceTurretLockMask(instance) != 0);
+	}
+	vehicleGraphInstanceDrive(instance, drive);
+}
+
+s32 hoverbikeGraphSeatRequest(struct prop *prop, s32 kind, s32 seat,
+		s32 (*dismount)(void *context), void *dismount_context)
+{
+	struct hoverbikeobj *bike;
+	const asset_runtime_binding_t *source;
+	vehicle_graph_instance_t *instance;
+	hoverbike_graph_host_t host;
+	vehicle_graph_host_t table;
+	vehicle_graph_event_t event;
+
+	if (!prop || prop->type != PROPTYPE_OBJ || !prop->obj
+			|| prop->obj->type != OBJTYPE_HOVERBIKE) {
+		return -1;
+	}
+	bike = (struct hoverbikeobj *)prop->obj;
+	source = assetRuntimeVehicleForModelnum(bike->base.modelnum);
+	if (!source || !source->vehicle_graph) {
+		return -1;
+	}
+	instance = hoverbikeGraphInstance(bike, source);
+	if (!instance) {
+		return 0;
+	}
+	hoverbikeGraphHostInit(&table, &host, bike, prop);
+	host.dismount = dismount;
+	host.dismount_context = dismount_context;
+	memset(&event, 0, sizeof(event));
+	event.kind = kind;
+	event.seat = seat;
+	event.player = g_Vars.currentplayernum;
+	vehicleGraphInstanceFire(instance, &event, &table);
+	return host.seat_done;
+}
+
+/* An empty vehicle at rest still runs its graph every update (its heat
+ * cools); only its movement waits for a rider or a drift. */
+static void hoverbikeGraphIdleTick(struct hoverbikeobj *bike)
+{
+	const asset_runtime_binding_t *source = assetRuntimeVehicleForModelnum(bike->base.modelnum);
+	vehicle_graph_instance_t *instance;
+	vehicle_graph_drive_t drive;
+
+	if (!source || !source->vehicle_graph) {
+		return;
+	}
+	instance = hoverbikeGraphInstance(bike, source);
+	if (instance) {
+		hoverbikeGraphTick(bike, source, instance, 0.0f, &drive);
+	}
 }
 
 void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 speedsideways, f32 speedtheta)
@@ -7307,7 +7478,8 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 	s32 i;
 	u32 stack[6];
 	f32 tmp;
-	vehicle_boost_heat_state_t *boostheat = NULL;
+	vehicle_graph_instance_t *graph = NULL;
+	vehicle_graph_drive_t drive;
 	f32 steerscale = 1.0f;
 
 	if (!bike) {
@@ -7320,17 +7492,29 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 			bike->base.modelnum);
 		return;
 	}
-	if (!source->vehicle_allow_drive) {
-		return;
-	}
-	/* Maian vehicle V3: a vehicle with boost and heat values uses them
-	 * instead of the original full-throttle bonus (below), and its
-	 * steering is limited briefly after the crystals overheat. */
-	if (source->vehicle_boost_heat_enabled) {
-		boostheat = hoverbikeBoostHeatStep(bike, source);
-		if (boostheat) {
-			steerscale = vehicleBoostHeatSteerScale(boostheat, &source->vehicle_boost_heat);
+	if (source->vehicle_graph) {
+		/* pd.vehicle_graph.v1: this update's event.vehicle.tick runs here,
+		 * where the original movement runs, and its modules say what the
+		 * movement does: hover or not, take the driver's inputs or not, the
+		 * extra forward speed (replacing the original bonus below) and the
+		 * steering scale. A vehicle with no instance (refused, logged) does
+		 * not move. */
+		graph = hoverbikeGraphInstance(bike, source);
+		if (!graph) {
+			return;
 		}
+		hoverbikeGraphTick(bike, source, graph, speedforwards, &drive);
+		if (!drive.hover) {
+			return;
+		}
+		if (!drive.drive) {
+			speedforwards = 0;
+			speedsideways = 0;
+			speedtheta = 0;
+		}
+		steerscale = drive.steer_scale;
+	} else if (!source->vehicle_allow_drive) {
+		return;
 	}
 
 	tmp = speedtheta * source->vehicle_turn_input_scale * steerscale;
@@ -7450,9 +7634,8 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		bike->ezreal2 += (sp68 - bike->ezreal2) * tilt_response;
 	}
 
-	if (source->vehicle_boost_heat_enabled) {
-		/* No full-throttle bonus: the boost is its own action. Without a
-		 * state (no free slot, logged) the vehicle does not boost. */
+	if (graph) {
+		/* The graph's og.vehicle.throttle_boost keeps its own timer. */
 		bike->maxspeedtime240 = 0;
 	} else if (speedforwards >= 0.99f) {
 		bike->maxspeedtime240 += g_Vars.lvupdate240;
@@ -7474,9 +7657,8 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		}
 	}
 
-	if (source->vehicle_boost_heat_enabled) {
-		bike->speedrel[1] = boostheat
-			? vehicleBoostHeatExtraSpeed(boostheat, &source->vehicle_boost_heat) : 0.0f;
+	if (graph) {
+		bike->speedrel[1] = drive.extra_speed;
 	} else {
 		bike->speedrel[1] = bike->maxspeedtime240 *
 			source->vehicle_boost_speed /
@@ -7518,6 +7700,10 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 			bike->leanspeed = 0;
 			bike->leandiff = 0;
 			bike->maxspeedtime240 = 0;
+			if (graph) {
+				/* The original rest reset, for the graph's timers. */
+				vehicleGraphInstanceRest(graph);
+			}
 			bike->speedabs[0] = 0;
 			bike->speedabs[1] = 0;
 			bike->speedrel[0] = 0;
@@ -12680,6 +12866,8 @@ void hoverbikeTick(struct prop *prop, bool arg1)
 
 		if (obj->base.flags & OBJFLAG_HOVERBIKE_MOVINGWHILEEMPTY) {
 			hoverbikeUpdateMovement(obj, 0, 0, 0);
+		} else {
+			hoverbikeGraphIdleTick(obj);
 		}
 	}
 }
@@ -18346,7 +18534,7 @@ bool currentPlayerApplyHoverbikeState(struct prop *prop, bool mounted)
 	return true;
 }
 
-bool currentPlayerTryMountHoverbike(struct prop *prop)
+static bool currentPlayerTryMountHoverbikeNative(struct prop *prop)
 {
 	struct player *player = g_Vars.currentplayer;
 	struct defaultobj *obj;
@@ -18455,6 +18643,20 @@ bool currentPlayerTryMountHoverbike(struct prop *prop)
 	}
 
 	return false;
+}
+
+/* A vehicle with a pd.vehicle_graph.v1 graph mounts through it: the request
+ * is event.vehicle.mount_requested, and og.vehicle.mount_seat is the native
+ * candidate and commit above. A v2 vehicle takes the native path directly. */
+bool currentPlayerTryMountHoverbike(struct prop *prop)
+{
+	const s32 result = hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED,
+		VEHICLE_GRAPH_SEAT_DRIVER, NULL, NULL);
+
+	if (result >= 0) {
+		return result == 1;
+	}
+	return currentPlayerTryMountHoverbikeNative(prop);
 }
 
 bool propobjInteract(struct prop *prop)

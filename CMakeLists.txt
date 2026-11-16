@@ -1133,14 +1133,15 @@ set(SRC_TESTS
   # A mod vehicle's own model number and --debug-swap-vehicle (Maian vehicle V1).
   ${CMAKE_SOURCE_DIR}/port/src/vehicle_debug.c
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_model_slot.cpp
-  # The Maian vehicle's boost and heat state machine (V3; the drafted
-  # og.vehicle.boost_heat module, context/designs/modding/vehicle-graph-v1.md).
+  # The Maian vehicle's boost and heat state machine (V3), the
+  # og.vehicle.boost_heat module of the vehicle graph.
   ${CMAKE_SOURCE_DIR}/port/src/vehicle_boost_heat.c
-  ${CMAKE_SOURCE_DIR}/port/src/vehicle_boost_runtime.c
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_boost_heat.cpp
-  # pd.vehicle_graph.v1: the vehicle behavior graph runner (accepted by CORE
-  # 2026-11-16, context/designs/modding/vehicle-graph-v1.md).
+  # pd.vehicle_graph.v1: the vehicle behavior graph runner and its one instance
+  # per vehicle (accepted by CORE 2026-11-16,
+  # context/designs/modding/vehicle-graph-v1.md).
   ${CMAKE_SOURCE_DIR}/port/src/vehicle_graph_runner.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_graph_runtime.c
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_graph_runner.cpp
   # The Maian hover vehicle recipe, built the way --mod-author builds it (V2).
   ${CMAKE_SOURCE_DIR}/tests/test_maian_hover_vehicle.cpp

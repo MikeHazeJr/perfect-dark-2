@@ -7,14 +7,17 @@
 #include "modasset_json.h"
 #include "asset_path_contract.h"
 #include "prop_graph_runtime.h"
+#include "vehicle_graph_runtime.h"
 #ifndef PD_TESTS
 #include "fs.h"
+#include "system.h"
 #endif
 
 static asset_runtime_binding_t *s_Bindings = NULL;
 static s32 s_BindingCount = 0;
 static s32 s_BindingCapacity = 0;
 static void *s_primaryFileLoad(const char *path, u32 *out_size);
+static void s_freeVehicleGraph(asset_runtime_binding_t *binding);
 
 static const char *s_jsonSkipWs(const char *p, const char *end)
 {
@@ -348,6 +351,11 @@ static s32 s_finishFileBinding(asset_runtime_binding_t *binding, s32 ok)
 void assetRuntimeReset(void)
 {
 	propGraphRuntimeReset();
+    vehicleGraphRuntimeReset();
+    for (s32 i = 0; s_Bindings && i < s_BindingCapacity; i++) {
+        vehicleGraphProgramFree(s_Bindings[i].vehicle_graph);
+        s_Bindings[i].vehicle_graph = NULL;
+    }
     if (s_Bindings && s_BindingCapacity > 0) {
         memset(s_Bindings, 0,
                (size_t)s_BindingCapacity * sizeof(s_Bindings[0]));
@@ -450,6 +458,7 @@ static asset_runtime_binding_t *s_allocBinding(const char *asset_id)
 {
     asset_runtime_binding_t *binding = s_findMutable(asset_id);
     if (binding) {
+        s_freeVehicleGraph(binding);
         memset(binding, 0, sizeof(*binding));
         return binding;
     }
@@ -1199,118 +1208,154 @@ static s32 s_hydrateBotProfile(asset_runtime_binding_t *binding)
     return ok;
 }
 
-/* The `{ ... }` value of `key` (flat: no object inside it). */
-static s32 s_jsonObjectSpan(const char *json, u32 size, const char *key,
-                            const char **out_obj, u32 *out_size)
-{
-    const char *p = s_jsonFindValue(json, size, key);
-    const char *end = json ? json + size : NULL;
-    const char *q;
+static char s_VehicleGraphError[256];
 
-    if (!p || !end || p >= end || *p != '{') {
-        return 0;
-    }
-    for (q = p + 1; q < end && *q != '}'; q++) {
-        if (*q == '{') {
-            return 0;
-        }
-    }
-    if (q >= end) {
-        return 0;
-    }
-    *out_obj = p;
-    *out_size = (u32)(q - p + 1);
-    return 1;
+const char *assetRuntimeVehicleGraphError(void)
+{
+    return s_VehicleGraphError;
 }
 
-/* A `{ "value": N, "unit": "ticks60" | "ticks240" | "centiseconds" }` time. */
-static s32 s_jsonReadTicks240(const char *json, u32 size, const char *key,
-                              f32 *out)
+/* A refused vehicle source says why, once per hydration, in the game log:
+ * VEHICLE.GRAPH for a graph that does not compile, VEHICLE.SOURCE for sources
+ * that do not pair. */
+static s32 s_refuseVehicleAs(const asset_runtime_binding_t *binding, s32 graph,
+                             const char *why)
 {
-    const char *obj = NULL;
-    u32 obj_size = 0;
-    f32 value = 0.0f;
-    char unit[16];
+    snprintf(s_VehicleGraphError, sizeof(s_VehicleGraphError), "%s", why ? why : "refused");
+#ifndef PD_TESTS
+    if (graph) {
+        sysLogPrintf(LOG_ERROR, "VEHICLE.GRAPH: refused the executable program for '%s': %s",
+            binding ? binding->id : "?", s_VehicleGraphError);
+    } else {
+        sysLogPrintf(LOG_ERROR, "VEHICLE.SOURCE: refused '%s': %s",
+            binding ? binding->id : "?", s_VehicleGraphError);
+    }
+#else
+    (void)binding;
+    (void)graph;
+#endif
+    return 0;
+}
 
-    return s_jsonObjectSpan(json, size, key, &obj, &obj_size) &&
-        s_jsonReadFloat(obj, obj_size, "value", &value) &&
-        s_jsonReadString(obj, obj_size, "unit", unit, sizeof(unit)) &&
-        vehicleBoostHeatTimeToTicks240(value, unit, out);
+static s32 s_refuseVehicle(const asset_runtime_binding_t *binding, const char *why)
+{
+    return s_refuseVehicleAs(binding, 0, why);
 }
 
 /*
- * Maian vehicle V3: the optional boost and heat values in the vehicle's
- * behavior/variables.json (pd.vehicle_variables.v1, the drafted vehicle
- * graph's values, context/designs/modding/vehicle-graph-v1.md; CORE agreed
- * they live in a file in the vehicle archive until the graph exists). Absent:
- * the vehicle keeps the original full-throttle bonus. Present: every value
- * must be there and valid, else the vehicle does not hydrate, so a broken
- * file never drives silently without its boost.
+ * pd.vehicle_graph.v1: compile the behavior graph with the archive's optional
+ * behavior/variables.json. A refused graph refuses the vehicle (it does not
+ * hydrate, so it cannot be mounted and nothing falls back to native code). The
+ * v2 booleans are then derived from the graph, for assetRuntimeVehicleAllows.
  */
-static s32 s_hydrateVehicleBoostHeat(asset_runtime_binding_t *binding)
+static s32 s_hydrateVehicleGraph(asset_runtime_binding_t *binding,
+                                 const char *graph, u32 graph_size)
 {
     static const char member[] = "behavior/variables.json";
     char path[FS_MAXPATH];
-    char schema[48];
-    vehicle_boost_heat_params_t params;
-    u32 size = 0;
-    char *json;
-    s32 part = -1;
-    s32 ok;
+    char err[256];
+    char *variables = NULL;
+    u32 variables_size = 0;
 
-    memset(&params, 0, sizeof(params));
-    binding->vehicle_boost_heat_enabled = 0;
-    binding->vehicle_cool_crystal_part = -1;
-    if (!s_sourceMemberPath(binding->primary_path, member, path, sizeof(path)) ||
-            s_primaryFileSize(path) < 0) {
-        return 1;
+    if (s_sourceMemberPath(binding->primary_path, member, path, sizeof(path)) &&
+            s_primaryFileSize(path) >= 0) {
+        variables = s_loadSourceMember(binding, member, &variables_size);
+        if (!variables) {
+            return s_refuseVehicle(binding, "behavior/variables.json could not be read");
+        }
     }
-    json = s_loadSourceMember(binding, member, &size);
-    if (!json) {
-        return 0;
+    err[0] = '\0';
+    binding->vehicle_graph = vehicleGraphProgramCompile(graph, graph_size,
+        variables, variables_size, binding->id, NULL, NULL, err, sizeof(err));
+    free(variables);
+    if (!binding->vehicle_graph) {
+        return s_refuseVehicleAs(binding, 1, err[0] ? err : "vehicle graph refused");
     }
-    ok = s_jsonReadString(json, size, "schema", schema, sizeof(schema)) &&
-        strcmp(schema, "pd.vehicle_variables.v1") == 0 &&
-        s_jsonReadFloat(json, size, "boost_speed", &params.boost_speed) &&
-        s_jsonReadTicks240(json, size, "boost_ramp", &params.ramp_ticks240) &&
-        s_jsonReadTicks240(json, size, "overheat_after", &params.overheat_ticks240) &&
-        s_jsonReadFloat(json, size, "overheated_boost", &params.overheated_boost) &&
-        s_jsonReadFloat(json, size, "steer_limit", &params.steer_limit) &&
-        s_jsonReadTicks240(json, size, "steer_limit_time", &params.steer_limit_ticks240) &&
-        s_jsonReadTicks240(json, size, "recover_time_stopped", &params.recover_ticks240) &&
-        s_jsonReadFloat(json, size, "recover_speed_scale", &params.recover_speed_scale) &&
-        vehicleBoostHeatParamsValid(&params, NULL);
-    if (ok && s_jsonFindValue(json, size, "cool_crystal_part")) {
-        ok = s_jsonReadInt(json, size, "cool_crystal_part", &part) &&
-            part >= 0 && part <= 0x7fff;
-    }
-    free(json);
-    if (!ok) {
-        return 0;
-    }
-    binding->vehicle_boost_heat = params;
-    binding->vehicle_cool_crystal_part = part;
-    binding->vehicle_boost_heat_enabled = 1;
+    binding->vehicle_allow_mount = vehicleGraphProgramEventReachesModule(
+        binding->vehicle_graph, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED, "og.vehicle.mount_seat");
+    binding->vehicle_allow_drive = vehicleGraphProgramEventReachesModule(
+        binding->vehicle_graph, VEHICLE_GRAPH_EVENT_TICK, "og.vehicle.hover_drive");
+    binding->vehicle_allow_dismount = vehicleGraphProgramEventReachesModule(
+        binding->vehicle_graph, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED,
+        "og.vehicle.dismount_seat");
     return 1;
 }
 
+static void s_freeVehicleGraph(asset_runtime_binding_t *binding)
+{
+    if (binding && binding->vehicle_graph) {
+        /* Instances point at their program: none may outlive it. */
+        vehicleGraphRuntimeReset();
+        vehicleGraphProgramFree(binding->vehicle_graph);
+        binding->vehicle_graph = NULL;
+    }
+}
+
+/*
+ * A vehicle's sources pair one way or the other, never mixed:
+ *   pd.vehicle_graph.v1 behavior + pd2.vehicle.physics.v3 (no boost keys: the
+ *   graph's og.vehicle.throttle_boost holds them, CORE's answer 3), or
+ *   pd2.vehicle.behavior.v2 + pd2.vehicle.physics.v2 (the booleans and the
+ *   original bonus keys), read until the base re-extract writes v1.
+ * behavior/variables.json belongs to a v1 graph only.
+ */
 static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
 {
     u32 physics_size = 0;
     u32 behavior_size = 0;
+    char physics_schema[40];
+    char path[FS_MAXPATH];
     char *physics = s_loadSourceMember(binding, binding->dependency_a,
         &physics_size);
     char *behavior = s_loadSourceMember(binding, binding->dependency_b,
         &behavior_size);
+    s32 graph_v1;
+    s32 physics_v3;
     s32 ok;
 
+    s_freeVehicleGraph(binding);
+    s_VehicleGraphError[0] = '\0';
     if (!physics || !behavior) {
         free(physics);
         free(behavior);
         return 0;
     }
-    ok = s_sourceCatalogIdMatches(binding, physics, physics_size) &&
-        s_sourceCatalogIdMatches(binding, behavior, behavior_size) &&
+    graph_v1 = vehicleGraphIsV1(behavior, behavior_size);
+    physics_v3 = 0;
+    if (!s_jsonReadString(physics, physics_size, "schema", physics_schema,
+                sizeof(physics_schema)) ||
+            (strcmp(physics_schema, "pd2.vehicle.physics.v2") != 0 &&
+             strcmp(physics_schema, "pd2.vehicle.physics.v3") != 0)) {
+        ok = s_refuseVehicle(binding,
+            "physics.json needs \"schema\" pd2.vehicle.physics.v2 or pd2.vehicle.physics.v3");
+    } else {
+        ok = 1;
+        physics_v3 = strcmp(physics_schema, "pd2.vehicle.physics.v3") == 0;
+    }
+    if (ok && graph_v1 != physics_v3) {
+        ok = s_refuseVehicle(binding, graph_v1
+            ? "a pd.vehicle_graph.v1 behavior needs pd2.vehicle.physics.v3 physics"
+            : "pd2.vehicle.physics.v3 physics needs a pd.vehicle_graph.v1 behavior");
+    }
+    if (ok && physics_v3 &&
+            (s_jsonFindValue(physics, physics_size, "boost_speed") ||
+             s_jsonFindValue(physics, physics_size, "boost_time_ticks60"))) {
+        ok = s_refuseVehicle(binding,
+            "pd2.vehicle.physics.v3 has no boost keys (the graph's og.vehicle.throttle_boost holds them)");
+    }
+    if (ok && !graph_v1 &&
+            s_sourceMemberPath(binding->primary_path, "behavior/variables.json", path,
+                sizeof(path)) &&
+            s_primaryFileSize(path) >= 0) {
+        ok = s_refuseVehicle(binding,
+            "behavior/variables.json is read only with a pd.vehicle_graph.v1 behavior graph");
+    }
+    if (ok && (!s_sourceCatalogIdMatches(binding, physics, physics_size) ||
+            !s_sourceCatalogIdMatches(binding, behavior, behavior_size))) {
+        ok = s_refuseVehicle(binding,
+            "physics.json and behavior.graph.json must name this vehicle's catalog_id");
+    }
+    ok = ok &&
         s_jsonReadFloat(physics, physics_size, "turn_input_scale",
             &binding->vehicle_turn_input_scale) &&
         s_jsonReadFloat(physics, physics_size, "reverse_turn_gain",
@@ -1355,18 +1400,25 @@ static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
             &binding->vehicle_yaw_response_ntsc) &&
         s_jsonReadFloat(physics, physics_size, "yaw_response_pal",
             &binding->vehicle_yaw_response_pal) &&
-        s_jsonReadFloat(physics, physics_size, "boost_speed",
-            &binding->vehicle_boost_speed) &&
-        s_jsonReadInt(physics, physics_size, "boost_time_ticks60",
-            &binding->vehicle_boost_time_ticks60) &&
         s_jsonReadFloatArray(physics, physics_size, "hover",
-            binding->vehicle_hover, 13) &&
-        s_jsonReadBool(behavior, behavior_size, "allow_mount",
-            &binding->vehicle_allow_mount) &&
-        s_jsonReadBool(behavior, behavior_size, "allow_drive",
-            &binding->vehicle_allow_drive) &&
-        s_jsonReadBool(behavior, behavior_size, "allow_dismount",
-            &binding->vehicle_allow_dismount);
+            binding->vehicle_hover, 13);
+    if (ok && !graph_v1) {
+        ok = s_jsonReadFloat(physics, physics_size, "boost_speed",
+                &binding->vehicle_boost_speed) &&
+            s_jsonReadInt(physics, physics_size, "boost_time_ticks60",
+                &binding->vehicle_boost_time_ticks60) &&
+            s_jsonReadBool(behavior, behavior_size, "allow_mount",
+                &binding->vehicle_allow_mount) &&
+            s_jsonReadBool(behavior, behavior_size, "allow_drive",
+                &binding->vehicle_allow_drive) &&
+            s_jsonReadBool(behavior, behavior_size, "allow_dismount",
+                &binding->vehicle_allow_dismount) &&
+            binding->vehicle_boost_speed >= 0.0f &&
+            binding->vehicle_boost_time_ticks60 > 0;
+    } else if (ok) {
+        binding->vehicle_boost_speed = 0.0f;
+        binding->vehicle_boost_time_ticks60 = 0;
+    }
     if (ok) {
         if (binding->vehicle_turn_input_scale < 0.0f ||
                 binding->vehicle_reverse_turn_gain < 0.0f ||
@@ -1384,13 +1436,13 @@ static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
                 binding->vehicle_drag_ntsc < 0.0f ||
                 binding->vehicle_drag_ntsc > 1.0f ||
                 binding->vehicle_drag_pal < 0.0f ||
-                binding->vehicle_drag_pal > 1.0f ||
-                binding->vehicle_boost_speed < 0.0f ||
-                binding->vehicle_boost_time_ticks60 <= 0) {
+                binding->vehicle_drag_pal > 1.0f) {
             ok = 0;
         }
     }
-    if (ok) ok = s_hydrateVehicleBoostHeat(binding);
+    if (ok && graph_v1) {
+        ok = s_hydrateVehicleGraph(binding, behavior, behavior_size);
+    }
     if (ok) binding->source_hydrated = 1;
     free(physics);
     free(behavior);

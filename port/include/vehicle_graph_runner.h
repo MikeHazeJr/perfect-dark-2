@@ -118,6 +118,11 @@ typedef struct vehicle_graph_instance vehicle_graph_instance_t;
  * caller can tell it from a v2 behavior file before compiling. */
 s32 vehicleGraphIsV1(const char *json, size_t json_size);
 
+/* The executable kinds the runner knows (events, then gates, then modules),
+ * from index 0; NULL past the end. The conformance tool's mirror is checked
+ * against this list. */
+const char *vehicleGraphKnownKind(s32 index);
+
 /*
  * Compile behavior.graph.json with its behavior/variables.json (NULL and 0
  * when the archive has none). catalog_id, when not NULL, must equal the
@@ -144,6 +149,11 @@ const vehicle_boost_heat_params_t *vehicleGraphProgramBoostHeatParams(
 /* A turret lockout reason's bit (0-based), or -1 when the graph has none. */
 s32 vehicleGraphProgramLockoutReason(const vehicle_graph_program_t *program,
 	const char *reason);
+/* The distinct model parts the graph's og.vehicle.part_visible nodes name, in
+ * authored order, so the caller can check them against the vehicle's model
+ * once it is built. */
+s32 vehicleGraphProgramPartCount(const vehicle_graph_program_t *program);
+s32 vehicleGraphProgramPart(const vehicle_graph_program_t *program, s32 index);
 
 /* One vehicle's state; the program must outlive it. NULL when out of memory. */
 vehicle_graph_instance_t *vehicleGraphInstanceCreate(const vehicle_graph_program_t *program);

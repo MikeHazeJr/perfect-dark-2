@@ -3,7 +3,7 @@
 
 #include "assetcatalog.h"
 #include "character_head_policy.h"
-#include "vehicle_boost_heat.h"
+#include "vehicle_graph_runner.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -114,20 +114,24 @@ typedef struct asset_runtime_binding {
     f32 vehicle_tilt_response_pal;
     f32 vehicle_yaw_response_ntsc;
     f32 vehicle_yaw_response_pal;
+    /* The original full-throttle bonus, from physics v2 only (a v1 graph's
+     * og.vehicle.throttle_boost holds its own values). */
     f32 vehicle_boost_speed;
     s32 vehicle_boost_time_ticks60;
+    /* v2 behavior: the file's booleans. v1 graph: derived from it (mount =
+     * the mount event reaches og.vehicle.mount_seat, drive = the tick reaches
+     * og.vehicle.hover_drive, dismount = the dismount event reaches
+     * og.vehicle.dismount_seat), so every caller of assetRuntimeVehicleAllows
+     * keeps one answer for both. */
     s32 vehicle_allow_mount;
     s32 vehicle_allow_drive;
     s32 vehicle_allow_dismount;
     f32 vehicle_hover[13];
-    /* Maian vehicle V3: boost and heat from the archive's optional
-     * behavior/variables.json (pd.vehicle_variables.v1), the interim home
-     * of the drafted vehicle graph's values. Not enabled: the vehicle keeps
-     * the original full-throttle bonus. cool_crystal_part is the model
-     * part shown while the crystals are cool and hidden while black, or -1. */
-    s32 vehicle_boost_heat_enabled;
-    s32 vehicle_cool_crystal_part;
-    vehicle_boost_heat_params_t vehicle_boost_heat;
+    /* pd.vehicle_graph.v1 (context/designs/modding/vehicle-graph-v1.md): the
+     * compiled behavior graph with its behavior/variables.json when the
+     * vehicle's behavior.graph.json is v1, owned by this binding and freed by
+     * assetRuntimeReset; NULL for a v2 behavior file. */
+    vehicle_graph_program_t *vehicle_graph;
 } asset_runtime_binding_t;
 
 void assetRuntimeReset(void);
@@ -150,6 +154,8 @@ const asset_runtime_binding_t *assetRuntimeVehicleForModelnum(s32 modelnum);
 s32 assetRuntimeHudElementEnabled(s32 element_type);
 s32 assetRuntimeVehicleAllows(s32 modelnum, const char *action);
 s32 assetRuntimeVehicleHover(s32 modelnum, f32 out_values[13]);
+/* Why the last vehicle hydration refused its sources ("" when it did not). */
+const char *assetRuntimeVehicleGraphError(void);
 s32 assetRuntimeSkinAppearance(const char *target_id, f32 out_rgba[4],
                                f32 *out_roughness, f32 *out_metallic,
                                s32 *out_emissive);

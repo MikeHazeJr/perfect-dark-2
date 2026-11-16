@@ -1758,56 +1758,80 @@ TEST_CASE("c3849 meta-family bindings are value-identical to native-shaped input
 	assetRuntimeReset();
 }
 
-/* Maian vehicle V3: the optional boost and heat values of a .pdvehicle
- * (behavior/variables.json, pd.vehicle_variables.v1; the drafted vehicle
- * graph's values, context/designs/modding/vehicle-graph-v1.md). */
-static int hydrateBoostVehicle(const char *dirName, const char *variables)
+/* pd.vehicle_graph.v1 (context/designs/modding/vehicle-graph-v1.md): a
+ * .pdvehicle's behavior.graph.json compiles with its behavior/variables.json
+ * when the catalog hydrates the vehicle; v1 pairs with physics v3 (no boost
+ * keys) and v2 with physics v2, never mixed. */
+static const char *const kAdapterPhysicsCommon =
+	"\"turn_input_scale\":0.05,\"reverse_turn_gain\":0.6,"
+	"\"steering_response_ntsc\":0.08,\"steering_response_pal\":0.09,"
+	"\"turn_visual_scale\":10,\"input_response\":0.4,"
+	"\"forward_input_scale\":0.7,\"lateral_input_scale\":0.3,"
+	"\"lean_response\":4,\"forward_base\":0.25,"
+	"\"forward_accel_gain\":0.75,\"reverse_base\":0.45,"
+	"\"drag_ntsc\":0.96,\"drag_pal\":0.95,"
+	"\"forward_thrust\":1.2,\"lateral_thrust\":0.8,"
+	"\"forward_tilt\":0.2,\"lateral_tilt\":0.3,"
+	"\"tilt_response_ntsc\":0.05,\"tilt_response_pal\":0.06,"
+	"\"yaw_response_ntsc\":0.16,\"yaw_response_pal\":0.18,"
+	"\"hover\":[82,1,3,0.0025,0.1,0.01,0.02,0.00002,0.0006,"
+	"0.01,0.02,0.00002,0.0006]";
+
+static std::string adapterPhysics(const char *schema, bool boost_keys)
 {
-	TempRuntimeDir dir(dirName);
-	asset_entry_t vehicle;
-	initEntry(vehicle, ASSET_VEHICLE, "mod:vehicle_boosted");
-	vehicle.runtime_index = 0x1b9;
-	std::strncpy(vehicle.ext.vehicle.model_file, "model.gltf",
-		sizeof(vehicle.ext.vehicle.model_file) - 1);
-	std::strncpy(vehicle.ext.vehicle.physics_file, "physics.json",
-		sizeof(vehicle.ext.vehicle.physics_file) - 1);
-	std::strncpy(vehicle.ext.vehicle.behavior_graph, "behavior.graph.json",
-		sizeof(vehicle.ext.vehicle.behavior_graph) - 1);
-	std::string modelPath = dir.write("model.gltf", "{}");
-	dir.write("physics.json",
-		"{\"schema\":\"pd2.vehicle.physics.v2\","
-		"\"catalog_id\":\"mod:vehicle_boosted\","
-		"\"turn_input_scale\":0.05,\"reverse_turn_gain\":0.6,"
-		"\"steering_response_ntsc\":0.08,\"steering_response_pal\":0.09,"
-		"\"turn_visual_scale\":10,\"input_response\":0.4,"
-		"\"forward_input_scale\":0.7,\"lateral_input_scale\":0.3,"
-		"\"lean_response\":4,\"forward_base\":0.25,"
-		"\"forward_accel_gain\":0.75,\"reverse_base\":0.45,"
-		"\"drag_ntsc\":0.96,\"drag_pal\":0.95,"
-		"\"forward_thrust\":1.2,\"lateral_thrust\":0.8,"
-		"\"forward_tilt\":0.2,\"lateral_tilt\":0.3,"
-		"\"tilt_response_ntsc\":0.05,\"tilt_response_pal\":0.06,"
-		"\"yaw_response_ntsc\":0.16,\"yaw_response_pal\":0.18,"
-		"\"boost_speed\":7,\"boost_time_ticks60\":1800,"
-		"\"hover\":[82,1,3,0.0025,0.1,0.01,0.02,0.00002,0.0006,"
-		"0.01,0.02,0.00002,0.0006]}");
-	dir.write("behavior.graph.json",
-		"{\"schema\":\"pd2.vehicle.behavior.v2\","
-		"\"catalog_id\":\"mod:vehicle_boosted\","
-		"\"allow_mount\":true,\"allow_drive\":true,"
-		"\"allow_dismount\":true}");
-	if (variables) {
-		std::filesystem::path behavior =
-			std::filesystem::path(modelPath).parent_path() / "behavior";
-		std::filesystem::create_directories(behavior);
-		std::ofstream out(behavior / "variables.json", std::ios::binary);
-		out << variables;
-	}
-	REQUIRE(assetRuntimeActivateCatalogEntry(&vehicle, modelPath.c_str()) == 1);
-	return assetRuntimeHydrateCatalogEntry(&vehicle);
+	std::string json = std::string("{\"schema\":\"") + schema +
+		"\",\"catalog_id\":\"mod:vehicle_boosted\",";
+	if (boost_keys) json += "\"boost_speed\":7,\"boost_time_ticks60\":1800,";
+	return json + kAdapterPhysicsCommon + "}";
 }
 
-static std::string boostVariables(const char *replaceKey = nullptr, const char *with = nullptr)
+static const char *const kAdapterV2Behavior =
+	"{\"schema\":\"pd2.vehicle.behavior.v2\","
+	"\"catalog_id\":\"mod:vehicle_boosted\","
+	"\"allow_mount\":true,\"allow_drive\":true,"
+	"\"allow_dismount\":true}";
+
+static std::string adapterGraph(const char *replaceKey = nullptr, const char *with = nullptr)
+{
+	std::string json =
+		"{\"schema\":\"pd.vehicle_graph.v1\",\"catalog_id\":\"mod:vehicle_boosted\","
+		"\"nodes\":["
+		"{\"id\":\"mount\",\"kind\":\"event.vehicle.mount_requested\"},"
+		"{\"id\":\"dismount\",\"kind\":\"event.vehicle.dismount_requested\"},"
+		"{\"id\":\"tick\",\"kind\":\"event.vehicle.tick\"},"
+		"{\"id\":\"heat\",\"kind\":\"event.vehicle.heat_changed\"},"
+		"{\"id\":\"driver_free\",\"kind\":\"gate.vehicle.seat_free\",\"params\":{\"seat\":\"driver\"}},"
+		"{\"id\":\"mount_driver\",\"kind\":\"og.vehicle.mount_seat\",\"params\":{\"seat\":\"driver\"}},"
+		"{\"id\":\"dismount_driver\",\"kind\":\"og.vehicle.dismount_seat\",\"params\":{\"seat\":\"driver\"}},"
+		"{\"id\":\"drive\",\"kind\":\"og.vehicle.hover_drive\"},"
+		"{\"id\":\"boost\",\"kind\":\"og.vehicle.boost_heat\",\"params\":{"
+		"\"boost_speed\":\"$boost_speed\",\"ramp_time\":\"$boost_ramp\","
+		"\"overheat_after\":\"$overheat_after\",\"overheated_boost\":\"$overheated_boost\","
+		"\"steer_limit\":\"$steer_limit\",\"steer_limit_time\":\"$steer_limit_time\","
+		"\"recover_time_stopped\":\"$recover_time_stopped\","
+		"\"recover_speed_scale\":\"$recover_speed_scale\"}},"
+		"{\"id\":\"black\",\"kind\":\"gate.vehicle.heat_phase\",\"params\":{\"phases\":[\"overheated\",\"recovering\"]}},"
+		"{\"id\":\"hide\",\"kind\":\"og.vehicle.part_visible\",\"params\":{\"part\":\"$cool_crystal_part\",\"visible\":false}},"
+		"{\"id\":\"show\",\"kind\":\"og.vehicle.part_visible\",\"params\":{\"part\":\"$cool_crystal_part\",\"visible\":true}}"
+		"],\"edges\":["
+		"{\"from\":\"mount\",\"output\":\"out\",\"to\":\"driver_free\",\"input\":\"exec\"},"
+		"{\"from\":\"driver_free\",\"output\":\"pass\",\"to\":\"mount_driver\",\"input\":\"exec\"},"
+		"{\"from\":\"dismount\",\"output\":\"out\",\"to\":\"dismount_driver\",\"input\":\"exec\"},"
+		"{\"from\":\"tick\",\"output\":\"out\",\"to\":\"drive\",\"input\":\"exec\"},"
+		"{\"from\":\"tick\",\"output\":\"out\",\"to\":\"boost\",\"input\":\"exec\"},"
+		"{\"from\":\"heat\",\"output\":\"out\",\"to\":\"black\",\"input\":\"exec\"},"
+		"{\"from\":\"black\",\"output\":\"pass\",\"to\":\"hide\",\"input\":\"exec\"},"
+		"{\"from\":\"black\",\"output\":\"fail\",\"to\":\"show\",\"input\":\"exec\"}"
+		"]}";
+	if (replaceKey && with) {
+		size_t at = json.find(replaceKey);
+		REQUIRE(at != std::string::npos);
+		json.replace(at, std::strlen(replaceKey), with);
+	}
+	return json;
+}
+
+static std::string adapterVariables(const char *replaceKey = nullptr, const char *with = nullptr)
 {
 	std::string json =
 		"{\"schema\":\"pd.vehicle_variables.v1\",\"boost_speed\":7.0,"
@@ -1825,56 +1849,128 @@ static std::string boostVariables(const char *replaceKey = nullptr, const char *
 	return json;
 }
 
-TEST_CASE("Maian vehicle V3: boost and heat values hydrate from behavior/variables.json",
-          "[modding][pdxxx][runtime][vehicle-boost-heat]") {
-	SECTION("no file: the vehicle keeps the original full-throttle bonus") {
+static int hydrateGraphVehicle(const char *dirName, const std::string &physics,
+	const std::string &behavior, const char *variables)
+{
+	TempRuntimeDir dir(dirName);
+	asset_entry_t vehicle;
+	initEntry(vehicle, ASSET_VEHICLE, "mod:vehicle_boosted");
+	vehicle.runtime_index = 0x1b9;
+	std::strncpy(vehicle.ext.vehicle.model_file, "model.gltf",
+		sizeof(vehicle.ext.vehicle.model_file) - 1);
+	std::strncpy(vehicle.ext.vehicle.physics_file, "physics.json",
+		sizeof(vehicle.ext.vehicle.physics_file) - 1);
+	std::strncpy(vehicle.ext.vehicle.behavior_graph, "behavior.graph.json",
+		sizeof(vehicle.ext.vehicle.behavior_graph) - 1);
+	std::string modelPath = dir.write("model.gltf", "{}");
+	dir.write("physics.json", physics.c_str());
+	dir.write("behavior.graph.json", behavior.c_str());
+	if (variables) {
+		std::filesystem::path folder =
+			std::filesystem::path(modelPath).parent_path() / "behavior";
+		std::filesystem::create_directories(folder);
+		std::ofstream out(folder / "variables.json", std::ios::binary);
+		out << variables;
+	}
+	REQUIRE(assetRuntimeActivateCatalogEntry(&vehicle, modelPath.c_str()) == 1);
+	return assetRuntimeHydrateCatalogEntry(&vehicle);
+}
+
+TEST_CASE("Vehicle graph v1: the behavior graph compiles when the catalog hydrates the vehicle",
+          "[modding][pdxxx][runtime][vehicle-graph]") {
+	SECTION("a v2 behavior keeps its booleans and the original bonus keys") {
 		assetRuntimeReset();
-		REQUIRE(hydrateBoostVehicle("pd2_vehicle_boost_none", nullptr) == 1);
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_v2",
+			adapterPhysics("pd2.vehicle.physics.v2", true), kAdapterV2Behavior, nullptr) == 1);
 		const asset_runtime_binding_t *b = assetRuntimeVehicleForModelnum(0x1b9);
 		REQUIRE(b != nullptr);
-		REQUIRE(b->vehicle_boost_heat_enabled == 0);
-		REQUIRE(b->vehicle_cool_crystal_part == -1);
+		REQUIRE(b->vehicle_graph == nullptr);
+		REQUIRE(b->vehicle_allow_mount == 1);
+		REQUIRE(b->vehicle_allow_drive == 1);
+		REQUIRE(b->vehicle_allow_dismount == 1);
+		REQUIRE(b->vehicle_boost_speed == Approx(7.0f));
+		REQUIRE(b->vehicle_boost_time_ticks60 == 1800);
 	}
-	SECTION("a complete file turns boost and heat on, times in 240 Hz ticks") {
+	SECTION("a v1 graph compiles with its variables; the booleans come from the graph") {
 		assetRuntimeReset();
-		REQUIRE(hydrateBoostVehicle("pd2_vehicle_boost_ok", boostVariables().c_str()) == 1);
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_v1",
+			adapterPhysics("pd2.vehicle.physics.v3", false), adapterGraph(),
+			adapterVariables().c_str()) == 1);
 		const asset_runtime_binding_t *b = assetRuntimeVehicleForModelnum(0x1b9);
 		REQUIRE(b != nullptr);
-		REQUIRE(b->vehicle_boost_heat_enabled == 1);
-		REQUIRE(b->vehicle_cool_crystal_part == 140);
-		REQUIRE(b->vehicle_boost_heat.boost_speed == Approx(7.0f));
-		REQUIRE(b->vehicle_boost_heat.ramp_ticks240 == Approx(240.0f));
-		REQUIRE(b->vehicle_boost_heat.overheat_ticks240 == Approx(960.0f));
-		REQUIRE(b->vehicle_boost_heat.overheated_boost == Approx(0.5f));
-		REQUIRE(b->vehicle_boost_heat.steer_limit == Approx(0.5f));
-		REQUIRE(b->vehicle_boost_heat.steer_limit_ticks240 == Approx(180.0f));
-		REQUIRE(b->vehicle_boost_heat.recover_ticks240 == Approx(480.0f));
-		REQUIRE(b->vehicle_boost_heat.recover_speed_scale == Approx(2.0f));
+		REQUIRE(b->vehicle_graph != nullptr);
+		REQUIRE(std::string(assetRuntimeVehicleGraphError()).empty());
+		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "mount") == 1);
+		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "drive") == 1);
+		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "dismount") == 1);
+		const vehicle_boost_heat_params_t *heat = vehicleGraphProgramBoostHeatParams(b->vehicle_graph);
+		REQUIRE(heat != nullptr);
+		REQUIRE(heat->boost_speed == Approx(7.0f));
+		REQUIRE(heat->ramp_ticks240 == Approx(240.0f));
+		REQUIRE(heat->overheat_ticks240 == Approx(960.0f));
+		REQUIRE(heat->overheated_boost == Approx(0.5f));
+		REQUIRE(heat->steer_limit == Approx(0.5f));
+		REQUIRE(heat->steer_limit_ticks240 == Approx(180.0f));
+		REQUIRE(heat->recover_ticks240 == Approx(480.0f));
+		REQUIRE(heat->recover_speed_scale == Approx(2.0f));
+		REQUIRE(vehicleGraphProgramPartCount(b->vehicle_graph) == 1);
+		REQUIRE(vehicleGraphProgramPart(b->vehicle_graph, 0) == 140);
+		REQUIRE(b->vehicle_boost_time_ticks60 == 0);
 	}
-	SECTION("the crystal part is optional") {
+	SECTION("a graph without the dismount edge cannot be dismounted") {
 		assetRuntimeReset();
-		REQUIRE(hydrateBoostVehicle("pd2_vehicle_boost_nopart",
-			boostVariables(",\"cool_crystal_part\":140", "").c_str()) == 1);
-		const asset_runtime_binding_t *b = assetRuntimeVehicleForModelnum(0x1b9);
-		REQUIRE(b != nullptr);
-		REQUIRE(b->vehicle_boost_heat_enabled == 1);
-		REQUIRE(b->vehicle_cool_crystal_part == -1);
+		REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_nodismount",
+			adapterPhysics("pd2.vehicle.physics.v3", false),
+			adapterGraph("{\"from\":\"dismount\",\"output\":\"out\",\"to\":\"dismount_driver\",\"input\":\"exec\"},", ""),
+			adapterVariables().c_str()) == 1);
+		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "mount") == 1);
+		REQUIRE(assetRuntimeVehicleAllows(0x1b9, "dismount") == 0);
 	}
-	SECTION("a broken file refuses the vehicle instead of driving without its boost") {
-		const std::pair<const char *, const char *> broken[] = {
-			{ ",\"recover_speed_scale\":2.0", "" },
-			{ "\"unit\":\"ticks60\"},\"overheated_boost\"", "\"unit\":\"seconds\"},\"overheated_boost\"" },
-			{ "\"overheated_boost\":0.5", "\"overheated_boost\":1.5" },
-			{ "pd.vehicle_variables.v1", "pd.vehicle_variables.v2" },
-			{ "\"cool_crystal_part\":140", "\"cool_crystal_part\":-3" },
-			{ "\"boost_ramp\":{\"value\":60,\"unit\":\"ticks60\"}", "\"boost_ramp\":60" },
+	SECTION("sources that do not pair are refused, with the reason") {
+		struct Case {
+			std::string physics;
+			std::string behavior;
+			bool variables;
+			const char *why;
+		};
+		const Case cases[] = {
+			{ adapterPhysics("pd2.vehicle.physics.v2", true), adapterGraph(), true,
+				"needs pd2.vehicle.physics.v3" },
+			{ adapterPhysics("pd2.vehicle.physics.v3", false), kAdapterV2Behavior, false,
+				"needs a pd.vehicle_graph.v1 behavior" },
+			{ adapterPhysics("pd2.vehicle.physics.v3", true), adapterGraph(), true,
+				"has no boost keys" },
+			{ adapterPhysics("pd2.vehicle.physics.v2", true), kAdapterV2Behavior, true,
+				"read only with a pd.vehicle_graph.v1" },
+			{ adapterPhysics("pd2.vehicle.physics.v9", false), adapterGraph(), true,
+				"physics.json needs" },
+		};
+		for (const Case &c : cases) {
+			assetRuntimeReset();
+			INFO(c.why);
+			REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_pair", c.physics, c.behavior,
+				c.variables ? adapterVariables().c_str() : nullptr) == 0);
+			REQUIRE(std::string(assetRuntimeVehicleGraphError()).find(c.why) != std::string::npos);
+		}
+	}
+	SECTION("a graph that does not compile refuses the vehicle, with the runner's reason") {
+		const std::pair<std::string, std::string> broken[] = {
+			{ adapterGraph("og.vehicle.hover_drive", "og.vehicle.fly"), adapterVariables() },
+			{ adapterGraph("\"catalog_id\":\"mod:vehicle_boosted\"", "\"catalog_id\":\"mod:other\""),
+				adapterVariables() },
+			{ adapterGraph(), adapterVariables("\"overheated_boost\":0.5", "\"overheated_boost\":1.5") },
+			{ adapterGraph(), adapterVariables(",\"recover_speed_scale\":2.0", "") },
+			{ adapterGraph(), adapterVariables("\"cool_crystal_part\":140", "\"cool_crystal_part\":-3") },
 		};
 		for (const auto &edit : broken) {
 			assetRuntimeReset();
-			INFO(edit.second);
-			REQUIRE(hydrateBoostVehicle("pd2_vehicle_boost_bad",
-				boostVariables(edit.first, edit.second).c_str()) == 0);
+			INFO(edit.first.substr(0, 60));
+			REQUIRE(hydrateGraphVehicle("pd2_vehicle_graph_bad",
+				adapterPhysics("pd2.vehicle.physics.v3", false), edit.first,
+				edit.second.c_str()) == 0);
+			REQUIRE_FALSE(std::string(assetRuntimeVehicleGraphError()).empty());
 		}
 	}
 	assetRuntimeReset();
+	REQUIRE(assetRuntimeVehicleForModelnum(0x1b9) == nullptr);
 }

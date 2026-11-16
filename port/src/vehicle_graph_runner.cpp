@@ -630,6 +630,7 @@ struct vehicle_graph_program {
 	int boost_heat_node = -1;
 	vehicle_boost_heat_params_t boost_heat{};
 	std::vector<std::string> reasons;
+	std::vector<s32> parts;
 	int pending_bound = 0;
 };
 
@@ -766,10 +767,16 @@ std::unique_ptr<vehicle_graph_program> compile(const char *graph_json, size_t gr
 			program->boost_heat = node.heat;
 		}
 		if (node.module == MOD_THROTTLE_BOOST) node.slot = program->throttle_slots++;
-		if (node.module == MOD_PART_VISIBLE && has_part && !has_part(has_part_context, node.part)) {
-			error = "node '" + node.id + "' (og.vehicle.part_visible) names part " +
-				std::to_string(node.part) + ", which the vehicle's model does not have";
-			return nullptr;
+		if (node.module == MOD_PART_VISIBLE) {
+			if (has_part && !has_part(has_part_context, node.part)) {
+				error = "node '" + node.id + "' (og.vehicle.part_visible) names part " +
+					std::to_string(node.part) + ", which the vehicle's model does not have";
+				return nullptr;
+			}
+			if (std::find(program->parts.begin(), program->parts.end(), node.part) ==
+					program->parts.end()) {
+				program->parts.push_back(node.part);
+			}
 		}
 		if (node.module == MOD_TURRET_LOCKOUT) {
 			auto found = std::find(program->reasons.begin(), program->reasons.end(), node.reason_text);
@@ -985,6 +992,20 @@ extern "C" s32 vehicleGraphIsV1(const char *json, size_t json_size)
 	}
 }
 
+extern "C" const char *vehicleGraphKnownKind(s32 index)
+{
+	const s32 events = static_cast<s32>(sizeof(kEvents) / sizeof(kEvents[0]));
+	const s32 gates = static_cast<s32>(sizeof(kGates) / sizeof(kGates[0]));
+	const s32 modules = static_cast<s32>(sizeof(kModules) / sizeof(kModules[0]));
+	if (index < 0) return nullptr;
+	if (index < events) return kEvents[index].kind;
+	index -= events;
+	if (index < gates) return kGates[index].kind;
+	index -= gates;
+	if (index < modules) return kModules[index].kind;
+	return nullptr;
+}
+
 extern "C" vehicle_graph_program_t *vehicleGraphProgramCompile(const char *graph_json,
 	size_t graph_size, const char *variables_json, size_t variables_size,
 	const char *catalog_id, vehicle_graph_has_part_fn has_part, void *has_part_context,
@@ -1064,6 +1085,17 @@ extern "C" s32 vehicleGraphProgramLockoutReason(const vehicle_graph_program_t *p
 		if (program->reasons[i] == reason) return static_cast<s32>(i);
 	}
 	return -1;
+}
+
+extern "C" s32 vehicleGraphProgramPartCount(const vehicle_graph_program_t *program)
+{
+	return program ? static_cast<s32>(program->parts.size()) : 0;
+}
+
+extern "C" s32 vehicleGraphProgramPart(const vehicle_graph_program_t *program, s32 index)
+{
+	if (!program || index < 0 || index >= static_cast<s32>(program->parts.size())) return -1;
+	return program->parts[static_cast<size_t>(index)];
 }
 
 extern "C" vehicle_graph_instance_t *vehicleGraphInstanceCreate(

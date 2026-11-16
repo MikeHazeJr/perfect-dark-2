@@ -10,12 +10,17 @@
 #include "catch.hpp"
 
 #include <cstring>
+#include <fstream>
+#include <regex>
+#include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
 extern "C" {
 #include "vehicle_boost_heat.h"
 #include "vehicle_graph_runner.h"
+#include "vehicle_graph_runtime.h"
 }
 
 namespace {
@@ -555,4 +560,122 @@ TEST_CASE("vehicleGraphIsV1 tells a v1 graph from a v2 behavior file", "[vehicle
 	CHECK(vehicleGraphIsV1(v2, std::strlen(v2)) == 0);
 	CHECK(vehicleGraphIsV1("not json", 8) == 0);
 	CHECK(vehicleGraphIsV1(nullptr, 0) == 0);
+}
+
+TEST_CASE("Conformance knows exactly the runner's vehicle graph kinds", "[vehicle-graph]")
+{
+	std::ifstream input("tools/asset_archive_conformance.py", std::ios::binary);
+	REQUIRE(input.good());
+	std::ostringstream text;
+	text << input.rdbuf();
+	const std::string conformance = text.str();
+	auto set_of = [&](const char *name) {
+		std::smatch m;
+		const std::regex re(std::string("\n") + name + R"( = \{([^}]*)\})");
+		REQUIRE(std::regex_search(conformance, m, re));
+		std::set<std::string> out;
+		const std::string body = m[1].str();
+		const std::regex item("\"([^\"]+)\"");
+		for (std::sregex_iterator it(body.begin(), body.end(), item), end; it != end; ++it) {
+			out.insert((*it)[1].str());
+		}
+		return out;
+	};
+	std::set<std::string> events, gates, modules;
+	for (s32 i = 0; const char *kind = vehicleGraphKnownKind(i); i++) {
+		const std::string k(kind);
+		if (k.rfind("event.", 0) == 0) events.insert(k);
+		else if (k.rfind("gate.", 0) == 0) gates.insert(k);
+		else modules.insert(k);
+	}
+	CHECK(events.size() == 4);
+	CHECK(gates.size() == 3);
+	CHECK(modules.size() == 7);
+	CHECK(set_of("VEHICLE_GRAPH_EVENTS") == events);
+	CHECK(set_of("VEHICLE_GRAPH_GATES") == gates);
+	CHECK(set_of("VEHICLE_GRAPH_MODULES") == modules);
+	CHECK(vehicleGraphKnownKind(-1) == nullptr);
+	CHECK(vehicleGraphKnownKind(14) == nullptr);
+	REQUIRE(conformance.find("errors.extend(validate_vehicle_graph_execution(") != std::string::npos);
+}
+
+TEST_CASE("The graph's parts are listed for the model check", "[vehicle-graph]")
+{
+	Program maian(kMaianGraph, kMaianVariables);
+	REQUIRE(maian.program != nullptr);
+	CHECK(vehicleGraphProgramPartCount(maian.program) == 1); // 140, shown and hidden
+	CHECK(vehicleGraphProgramPart(maian.program, 0) == 140);
+	CHECK(vehicleGraphProgramPart(maian.program, 1) == -1);
+	Program base(kBaseGraph);
+	REQUIRE(base.program != nullptr);
+	CHECK(vehicleGraphProgramPartCount(base.program) == 0);
+}
+
+TEST_CASE("Each vehicle keeps its own graph instance until the stage resets", "[vehicle-graph]")
+{
+	Program maian(kMaianGraph, kMaianVariables);
+	Program base(kBaseGraph);
+	REQUIRE(maian.program != nullptr);
+	REQUIRE(base.program != nullptr);
+	vehicleGraphRuntimeReset();
+	int a = 0, b = 0, idle = 0;
+	s32 created = 0;
+
+	vehicle_graph_instance_t *ia = vehicleGraphRuntimeInstance(&a, 7, maian.program, &created);
+	REQUIRE(ia != nullptr);
+	CHECK(created == 1);
+	CHECK(vehicleGraphRuntimeInstance(&a, 7, maian.program, &created) == ia);
+	CHECK(created == 0);
+	vehicle_graph_instance_t *ib = vehicleGraphRuntimeInstance(&b, 9, maian.program, &created);
+	REQUIRE(ib != nullptr);
+	CHECK(ib != ia);
+	CHECK(vehicleGraphInstanceProgram(ib) == maian.program);
+
+	// Heat one vehicle; the other stays cool.
+	Host host;
+	vehicle_graph_host_t table = host.table();
+	for (int i = 0; i < 70; i++) REQUIRE(fire(ia, tick(0.0f, true, 1.0f), &table) >= 0);
+	CHECK(vehicleGraphInstanceHeatPhase(ia) == VEHICLE_BOOST_HEAT_FULL);
+	CHECK(vehicleGraphInstanceHeatPhase(ib) == VEHICLE_BOOST_HEAT_COOL);
+
+	// A new vehicle in the same prop slot (another generation) starts fresh.
+	vehicle_graph_instance_t *ia2 = vehicleGraphRuntimeInstance(&a, 8, maian.program, &created);
+	REQUIRE(ia2 != nullptr);
+	CHECK(created == 1);
+	CHECK(vehicleGraphInstanceHeatPhase(ia2) == VEHICLE_BOOST_HEAT_COOL);
+
+	// A changed program (the catalog reloaded) makes the instance again.
+	vehicle_graph_instance_t *ib2 = vehicleGraphRuntimeInstance(&b, 9, base.program, &created);
+	REQUIRE(ib2 != nullptr);
+	CHECK(created == 1);
+	CHECK(vehicleGraphInstanceProgram(ib2) == base.program);
+
+	// The driver's boost input is taken once per update.
+	vehicleGraphRuntimeSetBoostHeld(&b, 9, 1);
+	CHECK(vehicleGraphRuntimeTakeBoostHeld(&b, 9) == 1);
+	CHECK(vehicleGraphRuntimeTakeBoostHeld(&b, 9) == 0);
+	CHECK(vehicleGraphRuntimeTakeBoostHeld(&a, 8) == 0);
+	// Not pressing boost on a vehicle takes no record.
+	const s32 records = vehicleGraphRuntimeCount();
+	vehicleGraphRuntimeSetBoostHeld(&idle, 1, 0);
+	CHECK(vehicleGraphRuntimeCount() == records);
+	CHECK(vehicleGraphRuntimeTakeBoostHeld(&idle, 1) == 0);
+
+	// A refused vehicle gets no instance until a new vehicle takes its slot.
+	vehicleGraphRuntimeRefuse(&b, 9);
+	CHECK(vehicleGraphRuntimeInstance(&b, 9, maian.program, &created) == nullptr);
+	CHECK(vehicleGraphRuntimeInstance(&b, 10, maian.program, &created) != nullptr);
+	CHECK(vehicleGraphRuntimeInstance(&a, 8, nullptr, &created) == nullptr);
+
+	// A full table refuses more vehicles instead of sharing an instance.
+	vehicleGraphRuntimeReset();
+	CHECK(vehicleGraphRuntimeCount() == 0);
+	std::vector<int> many(VEHICLE_GRAPH_RUNTIME_MAX + 1);
+	int made = 0;
+	for (int &vehicle : many) {
+		if (vehicleGraphRuntimeInstance(&vehicle, 1, maian.program, nullptr)) made++;
+	}
+	CHECK(made == VEHICLE_GRAPH_RUNTIME_MAX);
+	vehicleGraphRuntimeReset();
+	CHECK(vehicleGraphRuntimeCount() == 0);
 }
