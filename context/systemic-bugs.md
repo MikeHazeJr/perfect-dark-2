@@ -3344,7 +3344,7 @@ ownership proof.
 
 ---
 
-## SP-85: An export version moves but the folder fast cache that skips it does not
+## SP-86: An export version moves but the folder fast cache that skips it does not
 
 **Severity: HIGH when it hits - the new extractor runs, reports success, and
 writes nothing, so a base made with it silently keeps the old output.**
