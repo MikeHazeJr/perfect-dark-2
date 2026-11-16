@@ -203,6 +203,9 @@ a Modding Hub tab for players), and the tools grow with the mods.
     drives: `mod_vehicle_drive_smoke` (the base hoverbike saved as a
     local-only mod). RUN: unit cases `[vehicle-model-slot]`, full pd-tests
     1917 cases at ac535d95; the smoke is queued.
+  - PROVEN in game 2026-11-16 09:24 UTC on shared base 7 (client e23f6ea7 with 22a2126b):
+    `mod_vehicle_drive_smoke` 32/32 (the base hoverbike saved as a local-only mod, put in
+    place by the swap, mounted, driven and steered on Escape).
 - V2. Stand-in model: run Mike's October vehicle builder headless in Blender
   (read only, export into this worktree), convert to the native mesh with
   named parts for the turret yaw and pitch pivots, the 18 turret crystal
@@ -245,6 +248,12 @@ a Modding Hub tab for players), and the tools grow with the mods.
     training or Escape because B-1158's first fix waited for Player 0's body model,
     which a solo player outside a cutscene never has; it was not the hangar, the
     hook's walk covers paused props too. Fixed in chrMoveToPos, see B-1158).
+  - PROVEN in game 2026-11-16 09:27 UTC on base 7: `maian_vehicle_drive_smoke` 34/34 (the
+    final model, built by the in-game mod author, put in place, mounted, driven and
+    steered on Escape; screenshots in receipt
+    `20261116T092732426616Z-maian_vehicle_drive_smoke-b9176021`). The driver's eye is the
+    original's fixed seat offset, so the hull's deck fills the lower half of the view; a
+    seat position from the model belongs to V4's camera per seat.
 - V3. Boost and heat: a boost action; ramp to full over about 1 s; after
   about 4 s the crystals turn black, boost stays above base below full,
   steering is limited briefly and the turret is locked out until the crystals
@@ -273,6 +282,16 @@ a Modding Hub tab for players), and the tools grow with the mods.
   bad value refuses the vehicle. Tests: `[vehicle-boost-heat]` (state
   machine, per-vehicle table, archive reader) and
   `tests/test_vehicle_variables_conformance.py`.
+  - PROVEN in game 2026-11-16 09:31 UTC on base 7, through its v1 graph (Maian 0.4.0):
+    `maian_vehicle_boost_smoke` 46/46. Boost pressed; full 1.0 s later with the turret
+    locked; overheated 4.0 s after the press (part 140 hidden, so the black crystals
+    show); on release the boost is capped at 0.47; cool 2.3 s later (part 140 shown,
+    turret unlocked). Not shown by that run: the driver's view does not see the crystal
+    ring (it is round the gunner's pod, behind the driver), and the log's `speed` is the
+    non-boost velocity only, so the speed boost adds was not measured. Each phase line
+    now gives `peak_ground` (the fastest the vehicle moved over the ground in the phase
+    that ended) and `top` (21 here); the boost smoke requires the ramp or full phase to
+    reach 25 or more, which only boost can do.
 - V4. Two seats: driver and gunner, mount and dismount per seat, a camera per
   seat; the seat on the wire is MULTIPLAYER's message.
 - V5. Turret: gunner aim, fire and lock/zoom on the turret input layer; yaw
