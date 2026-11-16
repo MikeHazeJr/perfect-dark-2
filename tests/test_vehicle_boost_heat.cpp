@@ -4,9 +4,12 @@
  * The state machine in port/src/vehicle_boost_heat.c is the og.vehicle.boost_heat
  * module of pd.vehicle_graph.v1 (context/designs/modding/vehicle-graph-v1.md);
  * the per-vehicle instances are [vehicle-graph]'s.
- * Each step here is one 60 Hz frame (4 ticks at 240 Hz), so with the default
- * params: full boost after 60 frames (1 s), black crystals after 240 frames
- * of boost (4 s), cool again 120 frames (2 s) after letting go when stopped.
+ * Each step here is one 60 Hz frame (4 ticks at 240 Hz), so with the Maian
+ * vehicle's numbers (maianParams below, the values of its
+ * behavior/variables.json): full boost after 60 frames (1 s), overheated after
+ * 240 frames of boost (4 s), cool again 120 frames (2 s) after letting go when
+ * stopped. What a phase means for the vehicle (the crystal part, the turret
+ * lock) is its graph's, and [vehicle-graph] checks that.
  */
 #include "catch.hpp"
 
@@ -20,6 +23,22 @@ namespace {
 
 constexpr float kFrame = 4.0f; /* one 60 Hz frame in 240 Hz ticks */
 
+/* The Maian hover vehicle's boost_heat params (dev-mods/maian_hover_vehicle/
+ * behavior/variables.json), in 240 Hz ticks. */
+vehicle_boost_heat_params_t maianParams()
+{
+	vehicle_boost_heat_params_t p;
+	p.boost_speed = 7.0f;
+	p.ramp_ticks240 = 240.0f;        /* 1 s */
+	p.overheat_ticks240 = 960.0f;    /* 4 s */
+	p.overheated_boost = 0.5f;
+	p.steer_limit = 0.5f;
+	p.steer_limit_ticks240 = 180.0f; /* 0.75 s */
+	p.recover_ticks240 = 480.0f;     /* 2 s standing still */
+	p.recover_speed_scale = 2.0f;    /* twice as long at full speed */
+	return p;
+}
+
 struct Boost {
 	vehicle_boost_heat_params_t p;
 	vehicle_boost_heat_state_t s;
@@ -28,7 +47,7 @@ struct Boost {
 
 	Boost()
 	{
-		vehicleBoostHeatDefaultParams(&p);
+		p = maianParams();
 		vehicleBoostHeatReset(&s);
 	}
 
@@ -69,14 +88,12 @@ TEST_CASE("Maian boost ramps to full in about a second", "[vehicle-boost-heat]")
 
 	b.frame(true);
 	REQUIRE(b.s.phase == VEHICLE_BOOST_HEAT_RAMPING);
-	REQUIRE_FALSE(vehicleBoostHeatTurretLocked(&b.s));
 
 	REQUIRE(b.framesUntil(true, VEHICLE_BOOST_HEAT_FULL, 1000) == 59);
 	REQUIRE(b.s.boost == 1.0f);
 	REQUIRE(vehicleBoostHeatExtraSpeed(&b.s, &b.p) == Approx(7.0f));
-	/* At full boost the turret cannot fire (Mike's lock-on rule). */
-	REQUIRE(vehicleBoostHeatTurretLocked(&b.s));
-	REQUIRE_FALSE(vehicleBoostHeatCrystalsBlack(&b.s));
+	/* Full, not overheated: the graph locks the turret on this phase. */
+	REQUIRE(b.s.overheated == 0);
 }
 
 TEST_CASE("The crystals turn black after about four seconds of boost", "[vehicle-boost-heat]")
@@ -84,8 +101,7 @@ TEST_CASE("The crystals turn black after about four seconds of boost", "[vehicle
 	Boost b;
 	b.overheat();
 	REQUIRE(b.last_prev == VEHICLE_BOOST_HEAT_FULL);
-	REQUIRE(vehicleBoostHeatCrystalsBlack(&b.s));
-	REQUIRE(vehicleBoostHeatTurretLocked(&b.s));
+	REQUIRE(b.s.overheated == 1);
 
 	/* Steering is limited briefly: 45 frames, then back to normal. */
 	REQUIRE(vehicleBoostHeatSteerScale(&b.s, &b.p) == Approx(0.5f));
@@ -110,12 +126,10 @@ TEST_CASE("Letting go recovers in two seconds when stopped and longer at speed",
 		b.frame(false);
 		REQUIRE(b.s.phase == VEHICLE_BOOST_HEAT_RECOVERING);
 		REQUIRE(b.last_prev == VEHICLE_BOOST_HEAT_OVERHEATED);
-		REQUIRE(vehicleBoostHeatCrystalsBlack(&b.s));
-		REQUIRE(vehicleBoostHeatTurretLocked(&b.s));
+		REQUIRE(b.s.overheated == 1);
 		REQUIRE(b.framesUntil(false, VEHICLE_BOOST_HEAT_COOL, 1000) == 119);
 		REQUIRE(b.s.heat == 0.0f);
-		REQUIRE_FALSE(vehicleBoostHeatCrystalsBlack(&b.s));
-		REQUIRE_FALSE(vehicleBoostHeatTurretLocked(&b.s));
+		REQUIRE(b.s.overheated == 0);
 	}
 	SECTION("half speed") {
 		Boost b;
@@ -155,7 +169,7 @@ TEST_CASE("Boosting while the crystals recover stays capped and does not lengthe
 	REQUIRE(highest == Approx(0.5f));
 	/* Still held, so boosting starts again from the cap. */
 	REQUIRE(b.s.phase == VEHICLE_BOOST_HEAT_RAMPING);
-	REQUIRE_FALSE(vehicleBoostHeatCrystalsBlack(&b.s));
+	REQUIRE(b.s.overheated == 0);
 }
 
 TEST_CASE("Letting go before overheating keeps the crystals normal", "[vehicle-boost-heat]")
@@ -208,7 +222,7 @@ TEST_CASE("Boost params are checked and times convert to 240 Hz ticks", "[vehicl
 {
 	vehicle_boost_heat_params_t p;
 	const char *why = "unset";
-	vehicleBoostHeatDefaultParams(&p);
+	p = maianParams();
 	REQUIRE(vehicleBoostHeatParamsValid(&p, &why));
 	REQUIRE(why == nullptr);
 

@@ -19,6 +19,7 @@
     "port/src/vehicle_graph_runner.cpp",
     "port/src/vehicle_graph_runtime.c",
     "port/src/asset_runtime.c",
+    "src/game/vehiclegraph.c",
     "src/game/propobj.c",
     "src/game/bondbike.c",
     "port/src/actionmap.cpp"

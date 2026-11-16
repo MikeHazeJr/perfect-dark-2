@@ -1,17 +1,20 @@
 /**
- * vehicle_boost_heat.h -- the Maian vehicle's boost and heat (plan step V3).
+ * vehicle_boost_heat.h -- the state machine of og.vehicle.boost_heat.
  *
- * Mike's design (context/designs/modding/maian-vehicle-and-veteran.md): boost
- * ramps to full over about 1 s; after about 4 s the crystals turn black; boost
- * continues above base but below full speed; steering is briefly limited; the
- * turret cannot fire until the crystals are their normal colour again;
- * recharge is faster when stopped and scales with speed.
+ * og.vehicle.boost_heat is a native module of the vehicle behavior graph
+ * (pd.vehicle_graph.v1, context/designs/modding/vehicle-graph-v1.md). A held
+ * boost ramps to full; after a set time of boost the vehicle overheats; boost
+ * is then capped, steering is briefly limited, and the heat falls only once
+ * the driver has let go, faster when stopped than at speed. Mike's design for
+ * the Maian hover vehicle (context/designs/modding/maian-vehicle-and-veteran.md)
+ * is one set of params for it.
  *
- * This is the state machine of the proposed `og.vehicle.boost_heat` module
- * (context/designs/modding/vehicle-graph-v1.md, a draft for CORE's review).
- * It holds no game state: the caller keeps one state per vehicle, advances it
- * once per simulation update and applies the results (extra forward speed,
- * steering scale, crystal look, turret lockout). Times are 240 Hz ticks.
+ * What is not here: the numbers (they are the module's params in the vehicle's
+ * graph, usually taken from its behavior/variables.json) and what a phase means
+ * for the vehicle (which part shows while overheated and whether the turret may
+ * fire are the graph's gate.vehicle.heat_phase gates). This file holds no game
+ * state either: the graph runner keeps one state per vehicle and advances it
+ * once per update. Times are 240 Hz ticks.
  */
 #ifndef _IN_VEHICLE_BOOST_HEAT_H
 #define _IN_VEHICLE_BOOST_HEAT_H
@@ -22,19 +25,21 @@
 extern "C" {
 #endif
 
+/* The phases a graph's gate.vehicle.heat_phase gates name. */
 typedef enum vehicle_boost_heat_phase {
-	VEHICLE_BOOST_HEAT_COOL = 0,     /* not boosting, crystals normal */
+	VEHICLE_BOOST_HEAT_COOL = 0,     /* boost not held, not overheated */
 	VEHICLE_BOOST_HEAT_RAMPING,      /* boost held, ramping up */
 	VEHICLE_BOOST_HEAT_FULL,         /* boost held, at full */
-	VEHICLE_BOOST_HEAT_OVERHEATED,   /* crystals black, boost still held */
-	VEHICLE_BOOST_HEAT_RECOVERING,   /* crystals black, cooling down */
+	VEHICLE_BOOST_HEAT_OVERHEATED,   /* overheated, boost not let go since */
+	VEHICLE_BOOST_HEAT_RECOVERING,   /* overheated, let go: the heat is falling */
 	VEHICLE_BOOST_HEAT_PHASE_COUNT
 } vehicle_boost_heat_phase_t;
 
+/* The module's params, as the graph compiler read them. */
 typedef struct vehicle_boost_heat_params {
 	f32 boost_speed;          /* extra forward speed at full boost (world units per 60 Hz tick) */
 	f32 ramp_ticks240;        /* 0 to full boost (and full to 0) while held (released) */
-	f32 overheat_ticks240;    /* time boost is held until the crystals overheat */
+	f32 overheat_ticks240;    /* time boost is held until the vehicle overheats */
 	f32 overheated_boost;     /* boost cap from overheating until cool again, 0..1 */
 	f32 steer_limit;          /* steering scale right after overheating, 0..1 */
 	f32 steer_limit_ticks240; /* how long the steering limit lasts */
@@ -42,6 +47,7 @@ typedef struct vehicle_boost_heat_params {
 	f32 recover_speed_scale;  /* recovery time multiplier at full non-boost speed (>= 1 slows it) */
 } vehicle_boost_heat_params_t;
 
+/* One vehicle's boost and heat. */
 typedef struct vehicle_boost_heat_state {
 	f32 boost;                /* 0..1 */
 	f32 heat;                 /* 0..1; 1 means overheated */
@@ -51,13 +57,11 @@ typedef struct vehicle_boost_heat_state {
 	s32 released;             /* the boost was released since overheating */
 } vehicle_boost_heat_state_t;
 
-/* The starting values for Mike's numbers (1 s ramp, 4 s to overheat). */
-void vehicleBoostHeatDefaultParams(vehicle_boost_heat_params_t *params);
-
 /* 1 when every param is in range (times > 0, fractions in 0..1, speed >= 0,
  * recover_speed_scale > 0); else 0 and *why names the first bad param. */
 s32 vehicleBoostHeatParamsValid(const vehicle_boost_heat_params_t *params, const char **why);
 
+/* A new vehicle's state: no boost, no heat, cool. */
 void vehicleBoostHeatReset(vehicle_boost_heat_state_t *state);
 
 /*
@@ -78,17 +82,11 @@ f32 vehicleBoostHeatExtraSpeed(const vehicle_boost_heat_state_t *state,
 f32 vehicleBoostHeatSteerScale(const vehicle_boost_heat_state_t *state,
 	const vehicle_boost_heat_params_t *params);
 
-/* The crystals are black (overheated or recovering). */
-s32 vehicleBoostHeatCrystalsBlack(const vehicle_boost_heat_state_t *state);
-
-/* The turret may not fire (full boost, overheated or recovering). */
-s32 vehicleBoostHeatTurretLocked(const vehicle_boost_heat_state_t *state);
-
 /* "cool", "ramping", "full", "overheated", "recovering", or "?" */
 const char *vehicleBoostHeatPhaseName(s32 phase);
 
 /*
- * A time value in the draft's units to 240 Hz ticks: "ticks60" x 4,
+ * A time value in a graph's units to 240 Hz ticks: "ticks60" x 4,
  * "ticks240" x 1, "centiseconds" x 2.4. Returns 1 and sets *out, or 0 for an
  * unknown unit or a negative value.
  */

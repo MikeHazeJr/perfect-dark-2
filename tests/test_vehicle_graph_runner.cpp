@@ -575,6 +575,49 @@ TEST_CASE("Broken vehicle graphs are refused when they compile", "[vehicle-graph
 		.find("has no nodes array") != std::string::npos);
 }
 
+TEST_CASE("Comments on a graph, its nodes, its edges and its variables change nothing",
+          "[vehicle-graph]")
+{
+	// The same Maian graph with a comment everywhere one may go.
+	std::string commented = withEdits(kMaianGraph, "\"schema\": \"pd.vehicle_graph.v1\",",
+		"\"schema\": \"pd.vehicle_graph.v1\", \"comment\": \"what this vehicle does\",");
+	commented = withEdits(commented.c_str(), "{ \"id\": \"tick\", \"kind\": \"event.vehicle.tick\" }",
+		"{ \"id\": \"tick\", \"kind\": \"event.vehicle.tick\", \"comment\": \"once per update\" }");
+	commented = withEdits(commented.c_str(), "{ \"from\": \"tick\", \"output\": \"out\", \"to\": \"drive\", \"input\": \"exec\" }",
+		"{ \"from\": \"tick\", \"output\": \"out\", \"to\": \"drive\", \"input\": \"exec\", \"comment\": \"first\" }");
+	const std::string variables = withEdits(kMaianVariables, "\"schema\": \"pd.vehicle_variables.v1\",",
+		"\"schema\": \"pd.vehicle_variables.v1\", \"comment\": \"the numbers a modder tunes\",");
+	Program plain(kMaianGraph, kMaianVariables);
+	Program with(commented.c_str(), variables.c_str());
+	REQUIRE(plain.program != nullptr);
+	INFO(with.error);
+	REQUIRE(with.program != nullptr);
+	CHECK(vehicleGraphProgramNodeCount(with.program) == vehicleGraphProgramNodeCount(plain.program));
+	CHECK(vehicleGraphProgramExecEdgeCount(with.program) ==
+		vehicleGraphProgramExecEdgeCount(plain.program));
+	CHECK(vehicleGraphProgramPendingBound(with.program) ==
+		vehicleGraphProgramPendingBound(plain.program));
+	CHECK(vehicleGraphProgramPartCount(with.program) == vehicleGraphProgramPartCount(plain.program));
+
+	// A comment is a string, and in a variables file it is not a variable.
+	CHECK(refusal(withEdits(kMaianGraph, "\"schema\": \"pd.vehicle_graph.v1\",",
+		"\"schema\": \"pd.vehicle_graph.v1\", \"comment\": 7,"), kMaianVariables)
+		.find("behavior.graph.json comment must be a string") != std::string::npos);
+	CHECK(refusal(withEdits(kMaianGraph, "{ \"id\": \"tick\", \"kind\": \"event.vehicle.tick\" }",
+		"{ \"id\": \"tick\", \"kind\": \"event.vehicle.tick\", \"comment\": [1] }"), kMaianVariables)
+		.find("node 'tick' comment must be a string") != std::string::npos);
+	CHECK(refusal(withEdits(kMaianGraph, "{ \"from\": \"tick\", \"output\": \"out\", \"to\": \"drive\", \"input\": \"exec\" }",
+		"{ \"from\": \"tick\", \"output\": \"out\", \"to\": \"drive\", \"input\": \"exec\", \"comment\": true }"), kMaianVariables)
+		.find("comment must be a string") != std::string::npos);
+	const std::string badVariables = withEdits(kMaianVariables, "\"schema\": \"pd.vehicle_variables.v1\",",
+		"\"schema\": \"pd.vehicle_variables.v1\", \"comment\": 3,");
+	CHECK(refusal(kMaianGraph, badVariables.c_str())
+		.find("behavior/variables.json comment must be a string") != std::string::npos);
+	CHECK(refusal(withEdits(kMaianGraph, "\"boost_speed\": \"$boost_speed\"",
+		"\"boost_speed\": \"$comment\""), variables.c_str())
+		.find("uses unknown variable '$comment'") != std::string::npos);
+}
+
 TEST_CASE("A part the vehicle's model does not have is refused", "[vehicle-graph]")
 {
 	struct Parts {

@@ -1,182 +1,67 @@
 {
   "schema": "pd.vehicle_graph.v1",
   "catalog_id": "example:tri_vehicle",
+  "comment": "The Maian hover vehicle's behavior. Four events drive it: a mount request, a dismount request, the tick of every update, and the change of heat phase that the boost raises. Its numbers are in behavior/variables.json and are used here as $name. The catalog_id is the template's: the in-game mod author rewrites it to the mod's own when it builds the mod.",
   "nodes": [
-    {
-      "id": "mount",
-      "kind": "event.vehicle.mount_requested"
-    },
-    {
-      "id": "dismount",
-      "kind": "event.vehicle.dismount_requested"
-    },
-    {
-      "id": "tick",
-      "kind": "event.vehicle.tick"
-    },
-    {
-      "id": "heat",
-      "kind": "event.vehicle.heat_changed"
-    },
-    {
-      "id": "driver_free",
-      "kind": "gate.vehicle.seat_free",
+    { "id": "mount", "kind": "event.vehicle.mount_requested",
+      "comment": "A player asks for a seat: the interact press beside the vehicle." },
+    { "id": "driver_free", "kind": "gate.vehicle.seat_free", "params": { "seat": "driver" },
+      "comment": "Pass only when nobody is driving." },
+    { "id": "mount_driver", "kind": "og.vehicle.mount_seat", "params": { "seat": "driver" },
+      "comment": "The original mount: in range and facing the vehicle's side, then the rider is on." },
+
+    { "id": "dismount", "kind": "event.vehicle.dismount_requested",
+      "comment": "The rider asks to get off: activate, or the exit key." },
+    { "id": "dismount_driver", "kind": "og.vehicle.dismount_seat", "params": { "seat": "driver" },
+      "comment": "The original dismount: to the first free side, or the side the exit key chose." },
+
+    { "id": "tick", "kind": "event.vehicle.tick",
+      "comment": "Once per update, where the movement runs. A parked vehicle ticks too, so its heat cools." },
+    { "id": "drive", "kind": "og.vehicle.hover_drive",
+      "comment": "Hover and take the driver's inputs. The handling numbers are in physics.json." },
+    { "id": "boost", "kind": "og.vehicle.boost_heat",
       "params": {
-        "seat": "driver"
-      }
-    },
-    {
-      "id": "mount_driver",
-      "kind": "og.vehicle.mount_seat",
-      "params": {
-        "seat": "driver"
-      }
-    },
-    {
-      "id": "dismount_driver",
-      "kind": "og.vehicle.dismount_seat",
-      "params": {
-        "seat": "driver"
-      }
-    },
-    {
-      "id": "drive",
-      "kind": "og.vehicle.hover_drive"
-    },
-    {
-      "id": "boost",
-      "kind": "og.vehicle.boost_heat",
-      "params": {
-        "boost_speed": "$boost_speed",
-        "ramp_time": "$boost_ramp",
-        "overheat_after": "$overheat_after",
-        "overheated_boost": "$overheated_boost",
-        "steer_limit": "$steer_limit",
-        "steer_limit_time": "$steer_limit_time",
+        "boost_speed": "$boost_speed", "ramp_time": "$boost_ramp",
+        "overheat_after": "$overheat_after", "overheated_boost": "$overheated_boost",
+        "steer_limit": "$steer_limit", "steer_limit_time": "$steer_limit_time",
         "recover_time_stopped": "$recover_time_stopped",
         "recover_speed_scale": "$recover_speed_scale"
-      }
-    },
-    {
-      "id": "crystals_black",
-      "kind": "gate.vehicle.heat_phase",
-      "params": {
-        "phases": [
-          "overheated",
-          "recovering"
-        ]
-      }
-    },
-    {
-      "id": "hide_seafoam",
-      "kind": "og.vehicle.part_visible",
-      "params": {
-        "part": "$cool_crystal_part",
-        "visible": false
-      }
-    },
-    {
-      "id": "show_seafoam",
-      "kind": "og.vehicle.part_visible",
-      "params": {
-        "part": "$cool_crystal_part",
-        "visible": true
-      }
-    },
-    {
-      "id": "turret_blocked",
-      "kind": "gate.vehicle.heat_phase",
-      "params": {
-        "phases": [
-          "full",
-          "overheated",
-          "recovering"
-        ]
-      }
-    },
-    {
-      "id": "lock_turret",
-      "kind": "og.vehicle.turret_lockout",
-      "params": {
-        "reason": "heat",
-        "locked": true
-      }
-    },
-    {
-      "id": "unlock_turret",
-      "kind": "og.vehicle.turret_lockout",
-      "params": {
-        "reason": "heat",
-        "locked": false
-      }
-    }
+      },
+      "comment": "Boost and heat. Held boost ramps to full, overheats after a time of boost, is then capped with the steering limited for a moment, and cools once the driver lets go, slower at speed. Raises heat_changed whenever its phase changes." },
+
+    { "id": "heat", "kind": "event.vehicle.heat_changed",
+      "comment": "Raised by boost. The phases are cool, ramping, full, overheated and recovering." },
+    { "id": "crystals_black", "kind": "gate.vehicle.heat_phase",
+      "params": { "phases": ["overheated", "recovering"] },
+      "comment": "Pass while overheated or still cooling: the crystals are black." },
+    { "id": "hide_seafoam", "kind": "og.vehicle.part_visible",
+      "params": { "part": "$cool_crystal_part", "visible": false },
+      "comment": "Hide the seafoam crystals, so the black ones inside them show." },
+    { "id": "show_seafoam", "kind": "og.vehicle.part_visible",
+      "params": { "part": "$cool_crystal_part", "visible": true },
+      "comment": "In every other phase the seafoam crystals show." },
+    { "id": "turret_blocked", "kind": "gate.vehicle.heat_phase",
+      "params": { "phases": ["full", "overheated", "recovering"] },
+      "comment": "Pass at full boost and while overheated or cooling: the turret may not fire." },
+    { "id": "lock_turret", "kind": "og.vehicle.turret_lockout", "params": { "reason": "heat", "locked": true },
+      "comment": "Set the turret's heat lock. The turret (plan step V5) reads it." },
+    { "id": "unlock_turret", "kind": "og.vehicle.turret_lockout", "params": { "reason": "heat", "locked": false },
+      "comment": "Clear the turret's heat lock." }
   ],
   "edges": [
-    {
-      "from": "mount",
-      "output": "out",
-      "to": "driver_free",
-      "input": "exec"
-    },
-    {
-      "from": "driver_free",
-      "output": "pass",
-      "to": "mount_driver",
-      "input": "exec"
-    },
-    {
-      "from": "dismount",
-      "output": "out",
-      "to": "dismount_driver",
-      "input": "exec"
-    },
-    {
-      "from": "tick",
-      "output": "out",
-      "to": "drive",
-      "input": "exec"
-    },
-    {
-      "from": "tick",
-      "output": "out",
-      "to": "boost",
-      "input": "exec"
-    },
-    {
-      "from": "heat",
-      "output": "out",
-      "to": "crystals_black",
-      "input": "exec"
-    },
-    {
-      "from": "crystals_black",
-      "output": "pass",
-      "to": "hide_seafoam",
-      "input": "exec"
-    },
-    {
-      "from": "crystals_black",
-      "output": "fail",
-      "to": "show_seafoam",
-      "input": "exec"
-    },
-    {
-      "from": "heat",
-      "output": "out",
-      "to": "turret_blocked",
-      "input": "exec"
-    },
-    {
-      "from": "turret_blocked",
-      "output": "pass",
-      "to": "lock_turret",
-      "input": "exec"
-    },
-    {
-      "from": "turret_blocked",
-      "output": "fail",
-      "to": "unlock_turret",
-      "input": "exec"
-    }
+    { "from": "mount", "output": "out", "to": "driver_free", "input": "exec" },
+    { "from": "driver_free", "output": "pass", "to": "mount_driver", "input": "exec" },
+
+    { "from": "dismount", "output": "out", "to": "dismount_driver", "input": "exec" },
+
+    { "from": "tick", "output": "out", "to": "drive", "input": "exec" },
+    { "from": "tick", "output": "out", "to": "boost", "input": "exec" },
+
+    { "from": "heat", "output": "out", "to": "crystals_black", "input": "exec" },
+    { "from": "crystals_black", "output": "pass", "to": "hide_seafoam", "input": "exec" },
+    { "from": "crystals_black", "output": "fail", "to": "show_seafoam", "input": "exec" },
+    { "from": "heat", "output": "out", "to": "turret_blocked", "input": "exec" },
+    { "from": "turret_blocked", "output": "pass", "to": "lock_turret", "input": "exec" },
+    { "from": "turret_blocked", "output": "fail", "to": "unlock_turret", "input": "exec" }
   ]
 }

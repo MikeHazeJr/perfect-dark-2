@@ -1,5 +1,6 @@
 {
   "schema": "pd.vehicle_variables.v1",
+  "comment": "The numbers behavior.graph.json uses as $name: change one here and the graph takes it. A time is {value, unit}, and ticks60 are 60ths of a second. boost_speed: extra speed at full boost, in world units per 60 Hz tick (the top speed without boost is 21). boost_ramp: time to full boost. overheat_after: boost time until the crystals overheat. overheated_boost: the boost cap while overheated, 0 to 1. steer_limit and steer_limit_time: the steering scale right after overheating, and how long it lasts. recover_time_stopped: time to cool when stopped. recover_speed_scale: how many times longer cooling takes at full speed. cool_crystal_part: the model part hidden while the crystals are black.",
   "boost_speed": 7.0,
   "boost_ramp": { "value": 60, "unit": "ticks60" },
   "overheat_after": { "value": 240, "unit": "ticks60" },

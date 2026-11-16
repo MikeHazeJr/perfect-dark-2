@@ -19,6 +19,7 @@
     "port/src/body_head_source_bind.c",
     "port/src/vehicle_debug.c",
     "src/game/setup.c",
+    "src/game/vehiclegraph.c",
     "src/game/propobj.c"
   ],
   "log_channel_mask": "all",

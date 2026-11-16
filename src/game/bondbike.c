@@ -5,6 +5,7 @@
 #include "vehicle_graph_runtime.h"
 #include "game/bondbike.h"
 #include "game/bondmove.h"
+#include "game/vehiclegraph.h"
 #include "game/camera.h"
 #include "game/chraction.h"
 #include "game/prop.h"

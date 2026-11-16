@@ -1,6 +1,18 @@
 // pd.vehicle_graph.v1 runner. The contract is port/include/vehicle_graph_runner.h;
 // the schema is context/designs/modding/vehicle-graph-v1.md (accepted by CORE,
 // 2026-11-16). The compile rules follow the mission graph runner's.
+//
+// A vehicle's behavior is a graph of events, gates and native modules. The game
+// fires an event (a mount or dismount request, the per-update tick), the walk
+// runs the nodes that event reaches, and the modules do the work: the original
+// code for the seat, the drive and the bonus, and the boost and heat machine.
+//
+// Layout of this file:
+//   1. Kinds     the events, gates and native modules a graph may name
+//   2. Values    times, variables and node params
+//   3. Compile   nodes, edges and the rules proved before a graph may run
+//   4. Run       one activation: a breadth-first walk from an event's roots
+//   5. C API     the functions vehicle_graph_runner.h declares
 #include "vehicle_graph_runner.h"
 
 #include "modasset_gltf_document.h"
@@ -19,9 +31,20 @@ namespace {
 
 using Json = crude_json::value;
 
+/* ---------------------------------------------------------------------------
+ * 1. Kinds
+ * The events, gates and native modules a v1 graph may name. The conformance
+ * tool (tools/asset_archive_conformance.py) holds the same lists, and a
+ * pd-tests case compares them through vehicleGraphKnownKind.
+ * ------------------------------------------------------------------------- */
+
+/* What a node is. A data node is kept and counted but never walked. */
 enum NodeType { NODE_DATA, NODE_EVENT, NODE_GATE, NODE_MODULE };
+/* The output an execution edge leaves by: out for an event or a module, pass
+ * or fail for a gate. */
 enum Port { PORT_OUT, PORT_PASS, PORT_FAIL };
 
+/* The executable kinds; kGates and kModules below give each its schema name. */
 enum GateKind { GATE_NONE, GATE_SEAT, GATE_SEAT_FREE, GATE_HEAT_PHASE };
 enum ModuleKind {
 	MOD_NONE,
@@ -34,11 +57,13 @@ enum ModuleKind {
 	MOD_TURRET_LOCKOUT,
 };
 
+/* One bit per event kind, for the set of events a module may run on. */
 constexpr u32 eventBit(int kind)
 {
 	return 1u << kind;
 }
 
+/* Every event: a module that may run wherever a graph puts it. */
 constexpr u32 kAnyEvent = eventBit(VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED)
 	| eventBit(VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED)
 	| eventBit(VEHICLE_GRAPH_EVENT_TICK)
@@ -51,6 +76,7 @@ constexpr int kFiredEvents[] = {
 	VEHICLE_GRAPH_EVENT_TICK,
 };
 
+/* event.vehicle.*: where a walk starts. */
 struct EventSpec {
 	const char *kind;
 	int event;
@@ -63,6 +89,8 @@ const EventSpec kEvents[] = {
 	{ "event.vehicle.heat_changed", VEHICLE_GRAPH_EVENT_HEAT_CHANGED },
 };
 
+/* gate.vehicle.*: a gate sends the walk down its pass edges or its fail edges.
+ * params lists the keys it takes, ending in nullptr. */
 struct GateSpec {
 	const char *kind;
 	int gate;
@@ -75,6 +103,9 @@ const GateSpec kGates[] = {
 	{ "gate.vehicle.heat_phase", GATE_HEAT_PHASE, { "phases", nullptr } },
 };
 
+/* og.vehicle.*: the native modules. Each names the events it may run on (the
+ * compiler refuses a module an event of another kind reaches), the event it
+ * raises, and the keys it takes. */
 struct ModuleSpec {
 	const char *kind;
 	int module;
@@ -109,35 +140,41 @@ constexpr double kMaxTicks240 = 240.0 * 3600.0;
 /* The largest recovery multiplier og.vehicle.boost_heat takes. */
 constexpr double kMaxRecoverScale = 100.0;
 
+/* An execution edge: the node it reaches (an index into the program's nodes)
+ * and the output it leaves by. */
 struct Edge {
 	int target;
 	Port port;
 };
 
+/* One compiled node. Its params are already resolved: variables taken, times
+ * in 240 Hz ticks, names turned into numbers. Only the fields of its own kind
+ * are used. */
 struct Node {
-	std::string id;
-	std::string kind;
+	std::string id;                  // the author's name for it, unique in the graph
+	std::string kind;                // the schema kind, kept for messages
 	NodeType type = NODE_DATA;
-	int event_kind = 0;
-	int gate = GATE_NONE;
-	int module = MOD_NONE;
-	u32 events = 0;
-	int raises = 0;
-	int seat = VEHICLE_GRAPH_SEAT_NONE;
-	u32 phase_mask = 0;
-	int drive = 1;
-	f32 boost_speed = 0.0f;
-	f32 ramp_ticks240 = 0.0f;
-	vehicle_boost_heat_params_t heat{};
-	s32 part = -1;
-	int visible = 1;
-	std::string reason_text;
-	int reason = -1;
-	int locked = 0;
-	int slot = -1;
-	std::vector<Edge> out;
+	int event_kind = 0;              // event: VEHICLE_GRAPH_EVENT_*
+	int gate = GATE_NONE;            // gate: GateKind
+	int module = MOD_NONE;           // module: ModuleKind
+	u32 events = 0;                  // module: the events it may run on (eventBit)
+	int raises = 0;                  // module: the event it raises, 0 for none
+	int seat = VEHICLE_GRAPH_SEAT_NONE; // seat gates, mount_seat, dismount_seat
+	u32 phase_mask = 0;              // gate.vehicle.heat_phase: one bit per phase
+	int drive = 1;                   // hover_drive: takes the driver's inputs
+	f32 boost_speed = 0.0f;          // throttle_boost: extra speed at full bonus
+	f32 ramp_ticks240 = 0.0f;        // throttle_boost: full throttle time to full bonus
+	vehicle_boost_heat_params_t heat{}; // boost_heat
+	s32 part = -1;                   // part_visible: the model's part number
+	int visible = 1;                 // part_visible
+	std::string reason_text;         // turret_lockout: the reason's name
+	int reason = -1;                 // turret_lockout: its bit in the lock mask
+	int locked = 0;                  // turret_lockout
+	int slot = -1;                   // throttle_boost: its timer in the instance
+	std::vector<Edge> out;           // execution edges, in authored order
 };
 
+/* The schema name of an event kind, for messages. */
 const char *eventName(int kind)
 {
 	for (const EventSpec &spec : kEvents) {
@@ -146,6 +183,7 @@ const char *eventName(int kind)
 	return "?";
 }
 
+/* 1 to max_len of a-z, 0-9 and _: variable names and lockout reasons. */
 bool isLowerName(const std::string &text, size_t max_len)
 {
 	if (text.empty() || text.size() > max_len) return false;
@@ -155,11 +193,31 @@ bool isLowerName(const std::string &text, size_t max_len)
 	return true;
 }
 
+/* A graph, a node, an edge and a variables file may each carry one "comment":
+ * free text for people, checked to be a string and never read for behavior. */
+bool commentOk(const Json &object, const std::string &where, std::string &error)
+{
+	if (object.contains("comment") && !object["comment"].is_string()) {
+		error = where + " comment must be a string";
+		return false;
+	}
+	return true;
+}
+
+/* A kind's prefix decides what a node is (event., gate., og.). */
 bool startsWith(const std::string &text, const char *prefix)
 {
 	return text.rfind(prefix, 0) == 0;
 }
 
+/* ---------------------------------------------------------------------------
+ * 2. Values
+ * Times, variables and node params. A time is always {value, unit}, so no
+ * number in a graph is a bare tick count; a "$name" param takes the
+ * variable of that name from behavior/variables.json whole.
+ * ------------------------------------------------------------------------- */
+
+/* The one shape a time may have, quoted in refusals. */
 const char *const kTimeShape =
 	"must be {\"value\": N, \"unit\": \"ticks60\" | \"ticks240\" | \"centiseconds\"}";
 
@@ -188,10 +246,13 @@ bool readTimeObject(const Json &value, f32 &ticks240, std::string &why)
 	return true;
 }
 
+/* behavior/variables.json by name. */
 struct Variables {
 	std::map<std::string, Json> values;
 };
 
+/* Reads behavior/variables.json: its schema, an optional catalog_id that must be
+ * this vehicle's, and the named values (a number, a bool, a string or a time). */
 bool readVariables(const char *json, size_t size, const char *catalog_id,
 	Variables &vars, std::string &error)
 {
@@ -209,6 +270,13 @@ bool readVariables(const char *json, size_t size, const char *catalog_id,
 		const std::string &name = entry.first;
 		const Json &value = entry.second;
 		if (name == "schema") continue;
+		if (name == "comment") { // free text, not a variable
+			if (!value.is_string()) {
+				error = "behavior/variables.json comment must be a string";
+				return false;
+			}
+			continue;
+		}
 		if (name == "catalog_id") {
 			if (!value.is_string()) {
 				error = "behavior/variables.json catalog_id must be a string";
@@ -412,6 +480,7 @@ private:
 	std::string &m_error;
 };
 
+/* A native module's params into its node, each with its type and its range. */
 bool readModuleParams(Node &node, Params &read, std::string &error)
 {
 	switch (node.module) {
@@ -459,6 +528,16 @@ bool readModuleParams(Node &node, Params &read, std::string &error)
 	}
 }
 
+/* ---------------------------------------------------------------------------
+ * 3. Compile
+ * Nodes, edges and the rules proved before a graph may run. A graph that
+ * breaks one is refused with the reason; nothing is repaired or skipped.
+ * ------------------------------------------------------------------------- */
+
+/* One node from JSON. Its kind's prefix says what it is: an event, a gate or a
+ * native module; any other kind is a data node, kept but never walked. Only
+ * id, kind and params are read, so a node may carry a "comment" (and an
+ * editor its layout) without changing what the graph does. */
 bool parseNode(const Json &source, size_t index, const Variables &vars, Node &node,
 	std::string &error)
 {
@@ -473,6 +552,7 @@ bool parseNode(const Json &source, size_t index, const Variables &vars, Node &no
 		error = "node " + std::to_string(index) + " needs a non-empty id and kind";
 		return false;
 	}
+	if (!commentOk(source, "node '" + node.id + "'", error)) return false;
 	const Json *params = source.contains("params") ? &source["params"] : nullptr;
 	Params read(node, params, vars, error);
 
@@ -524,6 +604,10 @@ bool parseNode(const Json &source, size_t index, const Variables &vars, Node &no
 	return true;
 }
 
+/* The edges, by the mission graph runner's rules. An execution edge carries
+ * "input": "exec", starts at an event, a gate or a module and ends at a gate
+ * or a module; a gate's output is "pass" or "fail", any other "out". An
+ * edge with no input is structural: checked for its ends, never walked. */
 bool readEdges(const Json &root, std::map<std::string, int> &index, std::vector<Node> &nodes,
 	int &exec_edges, std::string &error)
 {
@@ -545,6 +629,7 @@ bool readEdges(const Json &root, std::map<std::string, int> &index, std::vector<
 			error = where + " needs from and to";
 			return false;
 		}
+		if (!commentOk(edge, where, error)) return false;
 		const std::string &from = edge["from"].get<crude_json::string>();
 		const std::string &to = edge["to"].get<crude_json::string>();
 		auto source = index.find(from);
@@ -604,6 +689,8 @@ bool readEdges(const Json &root, std::map<std::string, int> &index, std::vector<
 	return true;
 }
 
+/* A tick's drive before any module runs: no hover, no drive, no extra speed,
+ * full steering. The tick's modules then record what they ask for. */
 void resetDrive(vehicle_graph_drive_t &drive)
 {
 	drive.hover = 0;
@@ -612,6 +699,7 @@ void resetDrive(vehicle_graph_drive_t &drive)
 	drive.steer_scale = 1.0f;
 }
 
+/* Copies a refusal into the caller's buffer. */
 void setError(char *err, size_t err_cap, const std::string &text)
 {
 	if (err && err_cap) {
@@ -621,33 +709,39 @@ void setError(char *err, size_t err_cap, const std::string &text)
 
 } // namespace
 
+/* A compiled graph. Every vehicle of its catalog entry shares it, and nothing
+ * changes it after it compiles. */
 struct vehicle_graph_program {
 	std::vector<Node> nodes;
+	/* Per event kind: the nodes its event nodes lead to first, and every node
+	 * its walk can reach (both branches of every gate). */
 	std::vector<int> roots[VEHICLE_GRAPH_EVENT_KIND_END];
 	std::vector<char> reach[VEHICLE_GRAPH_EVENT_KIND_END];
 	int exec_edges = 0;
-	int throttle_slots = 0;
-	int boost_heat_node = -1;
+	int throttle_slots = 0;          // one timer per throttle_boost node
+	int boost_heat_node = -1;        // the one boost_heat node, -1 without one
 	vehicle_boost_heat_params_t boost_heat{};
 	/* The hover_drive's drive param (0 without one): when 0 the game zeroes
 	 * the driver's inputs, so the throttle bonus sees no throttle either. */
 	int drive_takes_input = 0;
-	std::vector<std::string> reasons;
-	std::vector<s32> parts;
-	int pending_bound = 0;
+	std::vector<std::string> reasons; // turret lockout reasons, by bit
+	std::vector<s32> parts;          // the model parts its part_visible nodes name
+	int pending_bound = 0;           // the most raised events one fired event leads to
 };
 
+/* One vehicle's state for its program. Everything is sized when the instance
+ * is made, from what the compiler proved, so a walk allocates nothing. */
 struct vehicle_graph_instance {
 	const vehicle_graph_program *program = nullptr;
-	std::vector<f32> throttle;
+	std::vector<f32> throttle;       // throttle_boost timers, 240 Hz ticks
 	vehicle_boost_heat_state_t heat{};
-	std::vector<unsigned char> reached;
-	std::vector<int> queue;
-	std::vector<vehicle_graph_event_t> pending;
+	std::vector<unsigned char> reached; // per node: ran in this activation
+	std::vector<int> queue;          // the walk's queue, one slot per execution edge
+	std::vector<vehicle_graph_event_t> pending; // raised events, sized by pending_bound
 	size_t pending_head = 0;
 	size_t pending_tail = 0;
-	u32 lock_mask = 0;
-	vehicle_graph_drive_t drive{};
+	u32 lock_mask = 0;               // turret lockout reasons now set
+	vehicle_graph_drive_t drive{};   // what the last tick asked of the movement
 };
 
 namespace {
@@ -703,6 +797,12 @@ bool pendingBound(const vehicle_graph_program &program, int event_kind, int *sta
 	return true;
 }
 
+/* Compiles a graph with its variables, or returns null with the reason. In
+ * order: the variables, the graph's schema and catalog_id, every node (one
+ * hover_drive and one boost_heat at most, the model's parts when a part check
+ * is given, the lockout reasons), the edges, then for each event its reach,
+ * the modules that may not run on it, one mount and one dismount per seat, and
+ * last the bound on raised events. */
 std::unique_ptr<vehicle_graph_program> compile(const char *graph_json, size_t graph_size,
 	const char *variables_json, size_t variables_size, const char *catalog_id,
 	vehicle_graph_has_part_fn has_part, void *has_part_context, std::string &error)
@@ -736,6 +836,7 @@ std::unique_ptr<vehicle_graph_program> compile(const char *graph_json, size_t gr
 			"', not '" + catalog_id + "'";
 		return nullptr;
 	}
+	if (!commentOk(root, "behavior.graph.json", error)) return nullptr;
 	if (!root.contains("nodes") || !root["nodes"].is_array()) {
 		error = "behavior.graph.json has no nodes array";
 		return nullptr;
@@ -848,6 +949,14 @@ std::unique_ptr<vehicle_graph_program> compile(const char *graph_json, size_t gr
 	return program;
 }
 
+/* ---------------------------------------------------------------------------
+ * 4. Run
+ * One activation: the walk starts at the fired event's roots and runs each
+ * node it reaches once, breadth first in authored order. A gate picks its
+ * pass or fail edges; a module does its work and the walk goes on from it.
+ * ------------------------------------------------------------------------- */
+
+/* An event a native seam may fire, with fields a module can trust. */
 bool eventValid(const vehicle_graph_event_t &event)
 {
 	switch (event.kind) {
@@ -862,6 +971,8 @@ bool eventValid(const vehicle_graph_event_t &event)
 	}
 }
 
+/* A gate's answer for this event: the event's seat, a free seat (the host
+ * says), or the heat phase now (cool for a graph with no boost_heat). */
 bool gatePasses(const vehicle_graph_instance &instance, const Node &node,
 	const vehicle_graph_event_t &event, const vehicle_graph_host_t *host)
 {
@@ -881,7 +992,10 @@ bool gatePasses(const vehicle_graph_instance &instance, const Node &node,
 	}
 }
 
-/* 1 ran, 0 refused, -1 the instance broke its proved bound (never expected). */
+/* Runs one native module. The seat and part modules ask the host (the game);
+ * the tick's modules record the drive they ask for, which the movement reads
+ * after the walk, so the physics runs in the original's order.
+ * 1 ran, 0 refused, -1 the instance broke its proved bound (never expected). */
 int runModule(vehicle_graph_instance &instance, const Node &node,
 	const vehicle_graph_event_t &event, const vehicle_graph_host_t *host)
 {
@@ -997,6 +1111,13 @@ s32 walk(vehicle_graph_instance &instance, const vehicle_graph_event_t &event,
 }
 
 } // namespace
+
+/* ---------------------------------------------------------------------------
+ * 5. C API
+ * Declared and documented in port/include/vehicle_graph_runner.h. No
+ * exception leaves these functions: compiling, reading a schema and making
+ * an instance catch them, and the rest allocate nothing.
+ * ------------------------------------------------------------------------- */
 
 extern "C" s32 vehicleGraphIsV1(const char *json, size_t json_size)
 {

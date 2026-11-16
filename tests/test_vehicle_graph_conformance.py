@@ -127,6 +127,26 @@ class VehicleGraphConformanceTests(unittest.TestCase):
         self.assertEqual(graph_errors(maian_graph()), [])
         self.assertEqual(graph_errors(base_graph(), None, "base:vehicle_hoverbike"), [])
 
+    def test_comments_change_nothing(self):
+        # A graph, a node, an edge and a variables file may each carry a comment.
+        graph = maian_graph()
+        graph["comment"] = "what this vehicle does"
+        for n in graph["nodes"]:
+            n["comment"] = "why " + n["id"]
+        for e in graph["edges"]:
+            e["comment"] = "then"
+        variables = dict(VARIABLES, comment="the numbers a modder tunes")
+        self.assertEqual(graph_errors(graph, variables), [])
+        # In a variables file it is not a variable.
+        errors = []
+        parsed = validate_vehicle_variables("x", variables, errors)
+        self.assertEqual(errors, [])
+        self.assertNotIn("comment", parsed)
+        errors = []
+        validate_vehicle_variables(
+            "x", {"schema": "pd.vehicle_variables.v1", "comment": 3}, errors)
+        self.assertTrue(any("comment must be a string" in e for e in errors), errors)
+
     def test_the_maian_files_in_dev_mods_pass(self):
         # The recipe's files name the template's catalog id; the in-game mod author rewrites it
         # to the mod's id in every text member it writes (cloneRewriteText), overrides included.
@@ -187,6 +207,12 @@ class VehicleGraphConformanceTests(unittest.TestCase):
             ("two heats", edit(lambda g: g["nodes"].append(
                 dict(copy.deepcopy(find(g, "boost")), id="boost2"))),
              "has one og.vehicle.boost_heat"),
+            ("graph comment", edit(lambda g: g.update(comment=7)),
+             "behavior.graph.json comment must be a string"),
+            ("node comment", edit(lambda g: find(g, "drive").update(comment=["a"])),
+             "node 'drive' comment must be a string"),
+            ("edge comment", edit(lambda g: g["edges"][0].update(comment=True)),
+             "edge 0 comment must be a string"),
             ("two dismounts", edit(lambda g: (
                 g["nodes"].append(node("dismount_again", "og.vehicle.dismount_seat", seat="driver")),
                 g["edges"].append(edge("dismount", "dismount_again")))),

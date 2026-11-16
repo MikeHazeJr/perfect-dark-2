@@ -251,13 +251,6 @@ u32 propobjGetCiTagId(struct prop *prop);
 bool objIsHealthy(struct defaultobj *obj);
 bool objTestForInteract(struct prop *prop);
 bool currentPlayerTryMountHoverbike(struct prop *prop);
-/* pd.vehicle_graph.v1: fire a seat request (VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED
- * or _DISMOUNT_REQUESTED) at this vehicle's graph. og.vehicle.mount_seat is the
- * native mount; og.vehicle.dismount_seat calls dismount(dismount_context).
- * Returns 1 when the seat module ran and did it, 0 when it did not, and -1
- * when the vehicle has no v1 graph (the caller takes its native path). */
-s32 hoverbikeGraphSeatRequest(struct prop *prop, s32 kind, s32 seat,
-		s32 (*dismount)(void *context), void *dismount_context);
 bool currentPlayerApplyHoverbikeState(struct prop *prop, bool mounted);
 bool currentPlayerCanApplyHoverbikeState(struct prop *prop, bool mounted);
 bool propobjInteract(struct prop *prop);

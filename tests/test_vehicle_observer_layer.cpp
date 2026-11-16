@@ -244,7 +244,11 @@ TEST_CASE("hoverbike operability keeps one validated mount transaction", "[vehic
     REQUIRE(mountRequest.find("hoverbikeGraphSeatRequest(prop, VEHICLE_GRAPH_EVENT_MOUNT_REQUESTED") <
         mountRequest.find("return currentPlayerTryMountHoverbikeNative(prop);"));
     REQUIRE(mountRequest.find("return currentPlayerTryMountHoverbikeNative(prop);") != std::string::npos);
-    REQUIRE(propobj.find("!currentPlayerTryMountHoverbikeNative(host->prop)") != std::string::npos);
+    // og.vehicle.mount_seat runs the native mount through the request's action.
+    REQUIRE(propobj.find("return currentPlayerTryMountHoverbikeNative((struct prop *)context) ? 1 : 0;") !=
+        std::string::npos);
+    REQUIRE(mountRequest.find("VEHICLE_GRAPH_SEAT_DRIVER, hoverbikeMountDriverAction, prop);") !=
+        std::string::npos);
     REQUIRE(apply.find("hoverbikeGraphSeatRequest(bikeprop, VEHICLE_GRAPH_EVENT_DISMOUNT_REQUESTED") !=
         std::string::npos);
     REQUIRE(apply.find("assetRuntimeVehicleAllows(bike->base.modelnum, \"dismount\")") != std::string::npos);

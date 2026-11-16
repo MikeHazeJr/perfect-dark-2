@@ -2333,6 +2333,10 @@ def validate_vehicle_variables(label: str, variables: object,
     for name, value in variables.items():
         if name == "schema":
             continue
+        if name == "comment":  # free text, not a variable
+            if not isinstance(value, str):
+                errors.append(f"{where} comment must be a string")
+            continue
         if name == "catalog_id":
             if not isinstance(value, str):
                 errors.append(f"{where} catalog_id must be a string")
@@ -2418,7 +2422,8 @@ def validate_vehicle_graph_execution(label: str, graph: object, variables,
     runner's edge rules, every executable kind one of v1's with only its own
     params ("$name" takes a variable whole), modules only on their own events,
     one hover_drive and one boost_heat, at most 32 lockout reasons, and the
-    raised-event bound (a raised event already being delivered is refused)."""
+    raised-event bound (a raised event already being delivered is refused).
+    A graph, a node and an edge may each carry a "comment" string."""
     where = f"{label} behavior.graph.json"
     if not isinstance(graph, dict):
         return [f"{where} must be a JSON object"]
@@ -2428,6 +2433,8 @@ def validate_vehicle_graph_execution(label: str, graph: object, variables,
     if not isinstance(graph.get("catalog_id"), str) or graph.get("catalog_id") != catalog_id:
         errors.append(f"{where} catalog_id must match the public descriptor catalog_id "
                       f"{catalog_id!r}")
+    if "comment" in graph and not isinstance(graph["comment"], str):
+        errors.append(f"{where} comment must be a string")
     nodes = graph.get("nodes")
     if not isinstance(nodes, list):
         return errors + [f"{where} has no nodes array"]
@@ -2448,6 +2455,8 @@ def validate_vehicle_graph_execution(label: str, graph: object, variables,
         if node_id in kinds:
             errors.append(f"{where} node id {node_id!r} is used twice")
             continue
+        if "comment" in node and not isinstance(node["comment"], str):
+            errors.append(f"{where} node {node_id!r} comment must be a string")
         kinds[node_id] = kind
         order.append(node_id)
         params = node.get("params")
@@ -2515,6 +2524,8 @@ def validate_vehicle_graph_execution(label: str, graph: object, variables,
                 or not isinstance(edge.get("to"), str):
             errors.append(f"{where} edge {idx} needs from and to")
             continue
+        if "comment" in edge and not isinstance(edge["comment"], str):
+            errors.append(f"{where} edge {idx} comment must be a string")
         src, dst = edge["from"], edge["to"]
         if src not in kinds or dst not in kinds:
             errors.append(f"{where} edge {idx} names a missing node")

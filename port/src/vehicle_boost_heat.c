@@ -1,6 +1,7 @@
 /**
- * vehicle_boost_heat.c -- the Maian vehicle's boost and heat: see
- * vehicle_boost_heat.h.
+ * vehicle_boost_heat.c -- the state machine of og.vehicle.boost_heat: see
+ * vehicle_boost_heat.h. No vehicle's numbers live here; they are the module's
+ * params in the vehicle's graph.
  */
 #include <string.h>
 
@@ -11,26 +12,14 @@
 /* Float sums of 1/60 and 1/240 steps land a hair off 1 or 0; snap within this. */
 #define VBH_EPSILON 1e-5f
 
-void vehicleBoostHeatDefaultParams(vehicle_boost_heat_params_t *params)
-{
-	if (!params) {
-		return;
-	}
-	params->boost_speed = 7.0f;            /* the base hoverbike bonus's top speed */
-	params->ramp_ticks240 = 240.0f;        /* about 1 s */
-	params->overheat_ticks240 = 960.0f;    /* about 4 s */
-	params->overheated_boost = 0.5f;       /* above base, below full */
-	params->steer_limit = 0.5f;
-	params->steer_limit_ticks240 = 180.0f; /* 0.75 s, "briefly" */
-	params->recover_ticks240 = 480.0f;     /* 2 s standing still */
-	params->recover_speed_scale = 2.0f;    /* twice as long at full speed */
-}
-
+/* value is in lo..hi. */
 static s32 vbhInRange(f32 value, f32 lo, f32 hi)
 {
 	return value >= lo && value <= hi; /* false for NaN */
 }
 
+/* The ranges the graph compiler holds a boost_heat node's params to; *why is
+ * the param's name in the graph. */
 s32 vehicleBoostHeatParamsValid(const vehicle_boost_heat_params_t *params, const char **why)
 {
 	const char *bad = NULL;
@@ -60,6 +49,7 @@ s32 vehicleBoostHeatParamsValid(const vehicle_boost_heat_params_t *params, const
 	return bad == NULL;
 }
 
+/* A new vehicle: no boost, no heat, cool. */
 void vehicleBoostHeatReset(vehicle_boost_heat_state_t *state)
 {
 	if (state) {
@@ -68,6 +58,7 @@ void vehicleBoostHeatReset(vehicle_boost_heat_state_t *state)
 	}
 }
 
+/* Moves value toward target by step and lands on it exactly. */
 static f32 vbhApproach(f32 value, f32 target, f32 step)
 {
 	if (value < target) {
@@ -97,6 +88,14 @@ static f32 vbhRecoverStep(const vehicle_boost_heat_params_t *params, f32 speed_f
 	return dt240 / ticks;
 }
 
+/*
+ * One update. Three cases, then the phase is read off the result:
+ *   overheated   boost moves to its cap while held (to 0 when let go), and the
+ *                heat falls only after the driver has let go once;
+ *   boost held   boost ramps to full and the heat rises; at full heat the
+ *                vehicle overheats and the steering limit starts;
+ *   otherwise    boost ramps down and the heat falls.
+ */
 s32 vehicleBoostHeatStep(vehicle_boost_heat_state_t *state,
 	const vehicle_boost_heat_params_t *params, s32 held, f32 speed_frac,
 	f32 dt240, s32 *prev_phase)
@@ -126,8 +125,8 @@ s32 vehicleBoostHeatStep(vehicle_boost_heat_state_t *state,
 	}
 
 	if (state->overheated) {
-		/* Black crystals: boost is capped until cool again, and the heat
-		 * falls only once the driver has let go of boost at least once. */
+		/* Overheated: boost is capped until cool again, and the heat falls
+		 * only once the driver has let go of boost at least once. */
 		if (!held) {
 			state->released = 1;
 		}
@@ -174,6 +173,7 @@ s32 vehicleBoostHeatStep(vehicle_boost_heat_state_t *state,
 	return 0;
 }
 
+/* What the tick adds to the vehicle's forward speed. */
 f32 vehicleBoostHeatExtraSpeed(const vehicle_boost_heat_state_t *state,
 	const vehicle_boost_heat_params_t *params)
 {
@@ -183,6 +183,7 @@ f32 vehicleBoostHeatExtraSpeed(const vehicle_boost_heat_state_t *state,
 	return state->boost * params->boost_speed;
 }
 
+/* What the tick scales the vehicle's steering by. */
 f32 vehicleBoostHeatSteerScale(const vehicle_boost_heat_state_t *state,
 	const vehicle_boost_heat_params_t *params)
 {
@@ -192,18 +193,7 @@ f32 vehicleBoostHeatSteerScale(const vehicle_boost_heat_state_t *state,
 	return params->steer_limit;
 }
 
-s32 vehicleBoostHeatCrystalsBlack(const vehicle_boost_heat_state_t *state)
-{
-	return state && state->overheated;
-}
-
-s32 vehicleBoostHeatTurretLocked(const vehicle_boost_heat_state_t *state)
-{
-	return state && (state->phase == VEHICLE_BOOST_HEAT_FULL ||
-		state->phase == VEHICLE_BOOST_HEAT_OVERHEATED ||
-		state->phase == VEHICLE_BOOST_HEAT_RECOVERING);
-}
-
+/* The phase names a graph's gate.vehicle.heat_phase gates use. */
 const char *vehicleBoostHeatPhaseName(s32 phase)
 {
 	static const char *const names[VEHICLE_BOOST_HEAT_PHASE_COUNT] = {
@@ -216,6 +206,7 @@ const char *vehicleBoostHeatPhaseName(s32 phase)
 	return names[phase];
 }
 
+/* A graph's {value, unit} time in 240 Hz ticks. */
 s32 vehicleBoostHeatTimeToTicks240(f32 value, const char *unit, f32 *out)
 {
 	f32 scale;

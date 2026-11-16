@@ -9,13 +9,15 @@
 
 #include "vehicle_graph_runtime.h"
 
+/* One vehicle's record. prop with generation is its identity: a prop slot
+ * that a new vehicle reuses has another generation. */
 typedef struct vehicle_graph_record {
-	const void *prop;
+	const void *prop;                       /* NULL: the record is free */
 	u64 generation;
-	const vehicle_graph_program_t *program;
+	const vehicle_graph_program_t *program; /* what instance was made from */
 	vehicle_graph_instance_t *instance;
-	s32 held;
-	s32 refused;
+	s32 held;                               /* the driver holds boost this update */
+	s32 refused;                            /* its model cannot run its graph */
 	/* Speed over the ground (vehicleGraphRuntimeGroundSpeed). */
 	s32 has_pos;
 	f32 last_x;
@@ -26,11 +28,14 @@ typedef struct vehicle_graph_record {
 
 static vehicle_graph_record_t s_Records[VEHICLE_GRAPH_RUNTIME_MAX];
 
+/* Frees the record's instance and makes the record free. */
 static void vgrClear(vehicle_graph_record_t *record)
 {
 	vehicleGraphInstanceFree(record->instance);
 	memset(record, 0, sizeof(*record));
 }
+
+/* The functions below are documented in vehicle_graph_runtime.h. */
 
 void vehicleGraphRuntimeReset(void)
 {
