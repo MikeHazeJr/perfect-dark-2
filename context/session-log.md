@@ -1,5 +1,18 @@
 # Session Log (Active)
 
+2026-11-16 (16:12 ET) MULTIPLAYER, continued. Part 2 on c35b35a2 (base 7, q_20261116183120950_df5e28cf): the
+games all pass. Co-op Retry Mission 126/126, Return to Room 129/129; ready gate repeat 40/40 (B-1208) and rollback
+43/43; King of the Hill's second match in the same Room 101/101 (all six objective and score modes now rematch
+networked); counter-op agent death 131/132: the counter-operative's win works in play (agent's results failed,
+counter-operative's completed, final statuses and stats on the client); the one failure was the spec's own count of
+a host-only line, fixed. Found before it ran: that smoke's host schedule put its results wait before the kill (the
+harness stable-sorts events by at_ms); fixed (f9b18ba3), and the harness now refuses a sequence written out of time
+order, with a pd-tests scan of every checked-in sequence (352328a7). New for B-1209 (d44b87d0): smoke action
+kill_token_holder (chrDamageByMisc on the simulant carrying the uplink, briefcase or case, scenario authority only)
+after wait_until scenario_token_held, and mp_hacker_central_net_carrier_death_smoke (port 27259). d44b87d0 built in
+the gap after part 2; its smoke is queued after CORE's turn (q_20261116204010491_38c2826e, waiter running).
+Still for Mike: B-1271's fix (intermittent now), co-op player drop, AI-buddy entry, Challenges and presets entry.
+
 2026-11-16 (15:25 ET) MULTIPLAYER, continued. Part 1 on c35b35a2 (base 7, q_20261116183120118_5e31664e) passed
 4/4: co-op Deep Sea end 126/126 with B-1270 fixed in play (the client read the host's removal of the intro actor and
 played on through Defense), co-op mission end 130/130, counter-op mission end 128/128 (results log their outcome:
