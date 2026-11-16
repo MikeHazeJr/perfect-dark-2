@@ -71,7 +71,13 @@
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v25_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_zero_tri_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19_texscale_b1154"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
-#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v28_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_allmodels_menuhud_zero_tri_models_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19"
+/* The meshes folder's fast-cache kind carries the OBJ export version, so a
+ * change to what a mesh archive holds always invalidates the folder's fast
+ * cache too. B-1154: the export version moved to _texscale_b1154 but this
+ * kind did not, the whole-folder skip ran before the per-archive version
+ * check, and base 7 kept every mesh at render schema v3. */
+#define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_fastcache_v29_allmodels_menuhud_" \
+	ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL
 extern u16 g_CartFileNums[];
 static u16 s_SeenFilenums[ROMEXTRACT_PDMESH_SEEN_CAP];
 static s32 s_SeenCount;
