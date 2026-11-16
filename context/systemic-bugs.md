@@ -3580,6 +3580,49 @@ the run passed.
 - `rg -n 'FAST_CACHE_KIND|EXPORT_VERSION' port/src/romextract_*.c`, then for
   each extractor with both, check that the kind changes with the version.
 
+## SP-88: A public key's name states a unit its consumer does not use
+
+**Severity: LOW to MEDIUM - nothing crashes and the data validates, but an
+author who trusts the name gets a value 4 or 60 times off.**
+
+A public key (a graph param, a physics key, a parser alias) carries its unit in
+its name (`_ticks60`, `_ticks240`, `time60`, `timer60`), and the code that reads
+it meets a counter in another unit, or the value is not a time at all. Base
+data carries the original's literal, so the game behaves as the original; only
+a new author is misled.
+
+**Known instances:**
+
+- B-1230 (MODS's row, open, CORE's call): `physics.json` `boost_time_ticks60`
+  caps `maxspeedtime240`, which adds `lvupdate240`, so the value is in 240 Hz
+  ticks (the base hoverbike's 2400 is the original's 10 s ramp, `TICKS(2400)`).
+- B-1178 (fixed 2026-11-16, `week-pd/core`): `entity.autogun`'s
+  `beam_interval` is a shot count (`firecount % beaminterval`), but the graph
+  compiler's name rule (`keyNeedsUnit`: any key containing `interval`,
+  `timer`, `duration`, `cooldown` or `_time` needs a unit suffix) refused it,
+  so authors had to write `beam_interval_ticks60`. The same trap from the
+  other side: a name heuristic that decides a key is a time.
+- Checked, not affected: every other `_ticks60` field in
+  `weapon_graph_runtime.h` reaches a 60 Hz field (`timer60`, `recoverytime60`,
+  `activatetime60`, `duration60`) or `weaponGraphTicks60To240`.
+
+**Rule:** a key that names a unit is read in that unit and converted in one
+place, and its test uses a value whose unit matters. When a name is wrong,
+rename it in a schema version or refuse the old name; do not document the
+trap. A rule that infers a unit from a key's name lists every key it catches
+and each is checked against its reader (`timer_starts` and `beam_interval` are
+the exemptions today). New public time values take `{value, unit}` (the weapon
+module rule).
+
+**Search:**
+- `rg -o 'heldParam[A-Za-z]*\(ir, node, "[a-z0-9_]+"' port/src/weapon_graph_runtime.c`
+  and keep the keys that match `keyNeedsUnit` without a unit suffix: each must
+  be a time or exempt.
+- `rg -n -o '[a-z_]*(ticks60|ticks240|time60|timer60)' port/include/*.h`, then
+  for each public field `git grep -n -E '(->|\.)<field>\b' -- src port/src` and
+  check the counter it meets (`lvupdate60`, `lvupdate240`, a frame or shot
+  count).
+
 ## How to Use
 
 - Before starting any work that touches arrays, memory allocation, or stage indexing, scan this file for relevant patterns.

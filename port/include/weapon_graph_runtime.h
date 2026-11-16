@@ -511,7 +511,7 @@ typedef struct weapon_graph_entity_runtime {
 	f32 autogun_turn_speed;
 	f32 autogun_fire_cadence;
 	s32 autogun_alternate_muzzles;
-	s32 autogun_beam_interval_ticks60;
+	s32 autogun_beam_every_shots; /* public beam_interval: a beam every N shots (B-1178) */
 	s32 autogun_ammo_reserve;
 
 	s32 has_sticky_device;

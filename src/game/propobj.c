@@ -206,7 +206,7 @@ struct thrownlaptoplatch {
 	s32 valid;            /* 0 = no entity graph at deploy; every consumer reverts to OG */
 	s32 fireinterval;     /* weaponGraphAutogunFireInterval(rpm); 1 = OG cadence */
 	s32 alternate;        /* autogun_alternate_muzzles; -1 sentinel = OG modelGetPart gate */
-	s32 beaminterval;     /* authored beam_interval_ticks60 > 0, else OG literal 4 */
+	s32 beaminterval;     /* authored beam_interval (shots) > 0, else OG literal 4 */
 	s32 ffsuppress;       /* autogun_friendly_fire_suppression; -1 sentinel = OG (suppress) */
 	s32 pickuprecover;    /* autogun_pickup_recover; -1 sentinel = OG (recoverable) */
 	s32 recoverweaponnum; /* weapon given on recover; gset->weaponnum fallback */
@@ -10936,8 +10936,9 @@ void autogunTickShoot(struct prop *autogunprop)
 				struct coord hitpos;
 				RoomNum hitrooms[8];
 				/* c3849 Wave 5 Unit 7: the OG beam literal 4 routes through
-				 * the deploy latch (autogun_beam_interval_ticks60; deploy
-				 * defaults the latch to 4, bit-identical for base). */
+				 * the deploy latch (autogun_beam_every_shots, a beam every N
+				 * shots; deploy defaults the latch to 4, bit-identical for
+				 * base). */
 				bool makebeam = (autogun->firecount
 						% (latch != NULL && latch->beaminterval > 0 ? latch->beaminterval : 4)) == 0;
 				struct prop *targetprop = autogun->target;
@@ -21179,8 +21180,8 @@ struct autogunobj *laptopDeploy(s32 modelnum, struct gset *gset, struct chrdata 
 					latch->pickuprecover = entitygraph->has_autogun
 						? entitygraph->autogun_pickup_recover : -1;
 					latch->beaminterval = entitygraph->has_autogun
-						&& entitygraph->autogun_beam_interval_ticks60 > 0
-						? entitygraph->autogun_beam_interval_ticks60 : 4;
+						&& entitygraph->autogun_beam_every_shots > 0
+						? entitygraph->autogun_beam_every_shots : 4;
 
 					/* recover weapon (impact U6, binding spec B4): the
 					 * registration-resolved projectile pickup record wins,

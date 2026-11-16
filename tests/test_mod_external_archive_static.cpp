@@ -4308,7 +4308,7 @@ TEST_CASE("wave 5 unit 7 deployed-entity consumer pins stay wired",
 	 * autogunTickShoot. */
 	REQUIRE(propobj.find("g_ThrownLaptopLatch") != std::string::npos);
 	REQUIRE(propobj.find("weaponGraphAutogunFireInterval(") != std::string::npos);
-	REQUIRE(propobj.find("autogun_beam_interval_ticks60") != std::string::npos);
+	REQUIRE(propobj.find("autogun_beam_every_shots") != std::string::npos);
 	REQUIRE(propobj.find("autogun_friendly_fire_suppression") != std::string::npos);
 	REQUIRE(propobj.find("autogun_turn_speed") != std::string::npos);
 	REQUIRE(propobj.find("autogun_target_filter") != std::string::npos);
@@ -10910,4 +10910,48 @@ TEST_CASE("weapon animation command graphs cannot hijack character animnum routi
 		std::string::npos);
 	REQUIRE(distrib.find("assetCatalogAnimationCategoryUsesCharacterClip(e->category)") !=
 		std::string::npos);
+}
+
+TEST_CASE("B-1178: entity.autogun's beam_interval counts shots and its ticks60 name is refused",
+          "[modding][weapon_graph][b1178]") {
+	auto graph = [](const char *asset_id, const char *beam_param) {
+		return std::string("{\n"
+			"  \"schema\": \"pd.entity_graph.v1\",\n"
+			"  \"asset_id\": \"") + asset_id + "\",\n"
+			"  \"graph_id\": \"b1178_autogun_beam_v1\",\n"
+			"  \"nodes\": [\n"
+			"    { \"id\": \"autogun\", \"kind\": \"entity.autogun\", \"params\": {\n"
+			"      \"target_filter\": \"hostile_chr\",\n"
+			"      " + beam_param + "\n"
+			"    } }\n"
+			"  ],\n"
+			"  \"edges\": [],\n"
+			"  \"exports\": [ { \"name\": \"main\", \"node\": \"autogun\" } ]\n"
+			"}\n";
+	};
+	char err[256] = {};
+	weaponGraphRuntimeClearAll();
+
+	// The public name: a tracer beam every N shots (the original's literal 4)
+	const std::string shots = graph("base:test_b1178_shots", "\"beam_interval\": 3");
+	const s32 shots_rc = weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_ENTITY,
+		"base:test_b1178_shots", shots.data(), static_cast<u32>(shots.size()),
+		err, sizeof(err));
+	INFO(err);
+	REQUIRE(shots_rc == 0);
+	const weapon_graph_entity_runtime_t *entity =
+		weaponGraphRuntimeGetEntity("base:test_b1178_shots");
+	REQUIRE(entity != nullptr);
+	REQUIRE(entity->has_autogun == 1);
+	REQUIRE(entity->autogun_beam_every_shots == 3);
+
+	// The old alias named a shot count a time in 60 Hz ticks: refused, not read
+	const std::string old = graph("base:test_b1178_ticks60", "\"beam_interval_ticks60\": 60");
+	err[0] = '\0';
+	REQUIRE(weaponGraphRuntimeRegisterBehaviorGraphJson(ASSET_ENTITY,
+		"base:test_b1178_ticks60", old.data(), static_cast<u32>(old.size()),
+		err, sizeof(err)) != 0);
+	REQUIRE(std::string(err).find("beam_interval_ticks60 is not a time") != std::string::npos);
+	REQUIRE(weaponGraphRuntimeGetEntity("base:test_b1178_ticks60") == nullptr);
+	weaponGraphRuntimeClearAll();
 }
