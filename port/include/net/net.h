@@ -18,7 +18,11 @@ typedef struct _ENetAddress ENetAddress;
                              * and on every change (every objective scenario;
                              * net_scenario_state_wire.h); SVC_BOT_PICKUP, a
                              * simulant's pickup as the host decided it, and
-                             * simulant drops announced with SVC_PROP_SPAWN.
+                             * simulant drops announced with SVC_PROP_SPAWN;
+                             * SVC_MISSION_RETURN and SVC_MISSION_STATS
+                             * (B-1193, the host's mission end); SVC_NPC_SPAWN
+                             * and SVC_NPC_REMOVE (B-1196, B-1206, a co-op or
+                             * counter-op chr the host made or removed).
                              * v63 (2026-11-15, CRYSTAL): UCMD_GUNROLL_LEFT/RIGHT
                                carry a mod gun's roll input so every peer
                                rolls it and the host fans a charge with it.

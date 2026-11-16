@@ -1,5 +1,59 @@
 # Bug Tracker
 
+## 2026-11-16 B-1206 A co-op client keeps every chr the host removes, then refuses every NPC snapshot (T-NETWORKING-011, fixed in code, not yet run)
+
+Severity high for networked co-op and counter-op: a guard that a level script removes stays frozen where it stood on
+the client, and NPC state correction stops for the rest of the stage while the host resends a full snapshot about 20
+times a second. Seen in `network_coop_deepsea_end_smoke` on binary df1734a2 (db7c8b51, base 7,
+`results-20261116T121205Z.json`, 120/126; the Next Mission into Defense itself passed): from the first snapshot
+after Deep Sea loaded, `NET: SVC_NPC_RESYNC rejected incomplete snapshot tick=2698 server_count=51
+local_ready_count=53`, then 52 against 55 until the stage ended, 883 rejections in 42 s, each followed by `SVC_NPC_SYNC
+snapshot mismatch` and `requesting npc resync`. Both machines had the same 290 initial ids, the two chrs the host's
+AI made (syncid 292 and 293) reached the client (`client made the host's chr`), and no chr died. So the host removed
+2 chrs in the stage's first second and one more later, and the client kept all three.
+
+Root cause: every in-stage removal of a chr goes through `chrTick`'s `CHRHFLAG_DELETING` branch (`aiRemoveChr`
+sets the flag; so do a corpse's fade, an off-screen reap and a robot's death), and a co-op client runs no NPC AI or
+actions (`chraTick` returns early for NPCs on a client; B-1191 already keeps a client's fall check from deleting
+one), so nothing removed the client's copy, and no message told it to.
+
+Fix (wire v64, still unreleased, so no bump; ledger in `net.h`): new `SVC_NPC_REMOVE` 0x7f {sync id, flags; bit 0
+= the host's removal dropped the chr's items}. The host writes it in that branch, before the removal, in co-op and
+counter-op (log `NET.NPC: host removed chr syncid=... dropitems=...`). A client removes its copy at once, as the
+host's `chrTick` and prop loop do (`chrRemove`, then `TICKOP_FREE`), dropping the items first only when the host
+did (log `NET.NPC: client removed chr ... (the host removed it)`). A client that is still loading cannot take the
+message (its reader needs `CLSTATE_GAME`), which is when a level script's first removals happen, so
+`netmsgSvcNpcResyncRead` also removes every NPC of the client's that the snapshot does not name, after it has read
+the whole snapshot, and then counts again (log `... (the host's snapshot does not name it)`). Pinned by `[b1206]`
+in `tests/test_net_mission_end_static.cpp`. Pattern SP-85 (its removal case). Not covered by the message: the
+counter-op takeover in `player.c` (the anti player takes a guard's body) removes the guard outside `chrTick`; if
+that ever runs on one machine only, the snapshot sweep removes the other copy at the next snapshot.
+
+## 2026-11-16 B-1205 A client skips a simulant's pickup of an item it still has respawning (T-NETWORKING-011, fixed in code, not yet run)
+
+Severity medium: the shield or crate a simulant took on the host stays on the client's floor until the client's own
+respawn cycle, so the two worlds disagree about it; no crash. Seen in `mp_combat_net_scorelimit_smoke` on binary
+df1734a2 (db7c8b51, base 7, `results-20261116T120430Z.json`, 75/76, the only failure): `BOT.PICKUP: client skipped
+item 13 for simulant 3, it is not in this world (the item is waiting to respawn; ... objtype=21 timetoregen=21 ...)`
+and the same for item 19 (`objtype=20`, `timetoregen=17`), a shield and a multi-ammo crate. On the host, simulant 3
+took item 13 at 03:10.37 and again at 03:30.93 (host log time), 20.5 s apart, with a 20 s respawn wait
+(`TICKS(1200)`): the second time the moment it was back. The client's copy still had 17 to 21 ticks (about 0.3 s)
+to wait. Item 19 went the same way, and its next pickup 20 s later was replayed fine.
+
+Root cause: each machine starts the respawn wait when it applies the earlier pickup
+(`propExecuteTickOperation(..., TICKOP_FREE)` sets `timetoregen`), so the client's wait ends later than the host's
+by the message's delivery delay plus any difference in counted frame time. `netmsgSvcBotPickupRead` refused any item
+with `timetoregen != 0`. `netmsgSvcPropPickupRead` (a human's pickup on the host) had the same exposure the other
+way: it took the still-respawning item without the respawn's own steps (a shield's charge is refilled when it
+comes back).
+
+Fix (client only, no wire change): `objTick`'s respawn steps moved unchanged into `objTickRegen(prop, elapsed60)`
+(`propobj.c`), and the new `objRegenNow(prop)` runs them to the end: the fade-in start (the item comes back, with
+its respawn sound) and then the finish. Both pickup replays call it first when this client still has the item
+respawning (logs `BOT.PICKUP: client finished item N's respawn for simulant S, T ticks before its own wait ended`
+and `NET: SVC_PROP_PICKUP client finished prop N's respawn ...`), then replay as before, so the wait starts again
+as the host's did. Pinned by `[b1205]` in `tests/test_net_bot_pickup_static.cpp`.
+
 ## 2026-11-16 B-1204 Objects on scenario-source stages are dropped from 100 units under their pad, so many sit inside a floor or fall to the one below (T-NETWORKING-011, fixed by CORE)
 
 **Fixed** by CORE on week-pd/core 9a9cfc9f, cherry-picked here as 0ad19dca: each scenario pad keeps its own

@@ -210,6 +210,7 @@ void weaponInitMatrices(struct prop *weapon);
 void hangingmonitorInitMatrices(struct prop *hangingmonitors);
 void objInitMatrices(struct prop *prop);
 bool propCanRegen(struct prop *prop);
+void objRegenNow(struct prop *prop);
 u32 objTick(struct prop *prop);
 s32 objTickPlayer(struct prop *prop);
 Gfx *propsRenderBeams(Gfx *gdl);

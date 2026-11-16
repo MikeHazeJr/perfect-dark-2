@@ -3806,6 +3806,14 @@ same id. Otherwise the client logs `NET: prop with syncid N does not exist`
   announces such a chr with `SVC_NPC_SPAWN` (its weapons and hat included)
   before its moves, and the client makes it under the same ids. Open: a
   reconnecting co-op client does not get chrs made before it rejoined.
+- B-1206 (the removal case): a chr the host removes (`aiRemoveChr`, a faded
+  or reaped corpse, anything through `chrTick`'s `CHRHFLAG_DELETING` branch)
+  stayed on a co-op client, whose NPC AI and actions never run, and every NPC
+  snapshot after that was refused for its count. Fixed in code: the host
+  announces each removal (`SVC_NPC_REMOVE`, with whether the chr's items
+  dropped) and the client removes its copy at once; a snapshot also removes
+  any NPC of the client's that it does not name, for removals made while the
+  client was still loading.
 
 **Rules:**
 - A prop the host creates at run time that clients must see or act on is
@@ -3814,6 +3822,9 @@ same id. Otherwise the client logs `NET: prop with syncid N does not exist`
 - A prop both machines create at run time (held models, effects) stays local
   on each, and is never handed to the world under an id; when it becomes a
   world item, the host announces it and the client retires its own copy.
+- What the host alone decides to remove (a chr whose AI or actions run only
+  on the host) is announced too; a full snapshot is the host's list, so a
+  client drops what it does not name.
 
 **Search:**
 - `grep -n "first dynamic syncid\|does not exist\|client skipped" pd-*.log`:
@@ -3828,7 +3839,9 @@ by id? Done: player drops (`weaponCreateForPlayerDrop`), simulant inventory
 drops (`botinvDrop`), every weapon a chr's drop block puts in the world (held
 weapons through `chrBeginDeath`, a disarmed simulant's gun through `botDisarm`,
 concealed items; B-1194, in code), AI chr spawns and clones with their weapons
-and hats (B-1196, in code). Note for new drop paths: the `chrTick` drop block
+and hats (B-1196, in code), chr removals through `chrTick` (B-1206, in code;
+the counter-op takeover in `player.c` removes a guard outside it, covered only
+by the snapshot sweep). Note for new drop paths: the `chrTick` drop block
 covers any weapon marked with `objSetDropped` that is still the chr's child,
 but a path that creates and places a prop itself (as `botinvDrop` does with
 `objDrop`) must announce it. Open: reconnect for B-1196's chrs; a client-side

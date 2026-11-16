@@ -190,10 +190,55 @@ TEST_CASE("bot pickup net: a client replays the pickup and never stops the packe
 	REQUIRE(tickop != std::string::npos);
 	REQUIRE(pickup < tickop);
 
-	// Only a live simulant's pickup of a prop still in this world is replayed
+	// Only a live simulant's pickup of a prop still in this world is replayed;
+	// an item still respawning here is not refused (B-1205, next case)
 	REQUIRE(read.find("chr->aibot == NULL") != std::string::npos);
-	REQUIRE(read.find("prop->timetoregen != 0") != std::string::npos);
+	REQUIRE(read.find("prop->timetoregen != 0") == std::string::npos);
 	REQUIRE(read.find("OBJHFLAG_DELETING") != std::string::npos);
+}
+
+TEST_CASE("bot pickup net: a client finishes an item's respawn before it replays the host's pickup of it",
+          "[net][botpickup][b1205]") {
+	// B-1205: each machine starts an item's respawn wait when it learns of the
+	// pickup before, so a client's wait can end a few frames after the host's.
+	// A simulant waiting on the spot took the shield the moment the host's
+	// copy was back, and the client skipped the replay ("waiting to respawn").
+	const std::string propobj = code_only(read_text_file("src/game/propobj.c"));
+	const std::string netmsg = code_only(read_text_file("port/src/net/netmsg.c"));
+
+	// objTick's respawn steps live in one helper, which objTick runs with the
+	// frame's time and objRegenNow runs to the end of the wait
+	const std::string regen = function_body(propobj,
+		"static void objTickRegen(struct prop *prop, s32 elapsed60)\n{");
+	REQUIRE(regen.find("prop->timetoregen -= elapsed60;") != std::string::npos);
+	REQUIRE(regen.find("propEnable(prop);") != std::string::npos);
+	REQUIRE(regen.find("shield->amount = shield->initialamount;") != std::string::npos);
+	REQUIRE(regen.find("SFX_REGEN") != std::string::npos);
+	REQUIRE(regen.find("g_Vars.lvupdate60") == std::string::npos);
+
+	const std::string tick = function_body(propobj, "u32 objTick(struct prop *prop)\n{");
+	REQUIRE(tick.find("objTickRegen(prop, g_Vars.lvupdate60);") != std::string::npos);
+	REQUIRE(tick.find("prop->timetoregen -=") == std::string::npos);
+
+	const std::string now = function_body(propobj, "void objRegenNow(struct prop *prop)\n{");
+	const size_t fadein = now.find("objTickRegen(prop, prop->timetoregen - (TICKS(60) - 1));");
+	const size_t finish = now.find("objTickRegen(prop, prop->timetoregen);");
+	REQUIRE(fadein != std::string::npos);
+	REQUIRE(finish != std::string::npos);
+	REQUIRE(fadein < finish);
+
+	// Both pickup replays finish the respawn before they take the item
+	const std::string botread = function_body(netmsg,
+		"u32 netmsgSvcBotPickupRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t botregen = botread.find("objRegenNow(prop);");
+	REQUIRE(botregen != std::string::npos);
+	REQUIRE(botregen < botread.find("botPickupProp(prop, chr)"));
+
+	const std::string humanread = function_body(netmsg,
+		"u32 netmsgSvcPropPickupRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t humanregen = humanread.find("objRegenNow(prop);");
+	REQUIRE(humanregen != std::string::npos);
+	REQUIRE(humanregen < humanread.find("propPickupByPlayer(prop, true);"));
 }
 
 TEST_CASE("bot pickup net: the host announces each simulant pickup that took effect",

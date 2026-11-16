@@ -415,3 +415,75 @@ TEST_CASE("mission end: a disconnect from the Room leaves the ended stage, froze
 	REQUIRE(catchup < end);
 	REQUIRE(end < ci);
 }
+
+TEST_CASE("co-op chr removals: a chr the host removes leaves the client too",
+          "[net][coop][b1206]") {
+	// B-1206: a client runs no NPC AI or actions, so it never removes a chr by
+	// itself. On Deep Sea the level script removed 2 guards in the stage's
+	// first second and 1 later; the client kept them, and every NPC snapshot
+	// after that was refused for its count (883 times in 42 s).
+	REQUIRE(read_text_file("port/include/net/netmsg.h").find("#define SVC_NPC_REMOVE     0x7f") != std::string::npos);
+
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	REQUIRE(net.find("case SVC_NPC_REMOVE: rc = netmsgSvcNpcRemoveRead(&cl->in, cl); break;") != std::string::npos);
+
+	// The host announces every removal chrTick makes, before it makes it
+	const std::string chr_c = code_only(read_text_file("src/game/chr.c"));
+	const std::string tick = function_body(chr_c, "s32 chrTick(struct prop *prop)\n{");
+	const size_t deleting = tick.find("if (chr->hidden & CHRHFLAG_DELETING) {");
+	const size_t announce = tick.find("netmsgSvcNpcRemoveWrite(&g_NetMsgRel, chr);", deleting);
+	const size_t drop = tick.find("objDropRecursively(prop, true);", deleting);
+	const size_t remove = tick.find("chrRemove(prop, true);", deleting);
+	REQUIRE(deleting != std::string::npos);
+	REQUIRE(announce != std::string::npos);
+	REQUIRE(drop != std::string::npos);
+	REQUIRE(remove != std::string::npos);
+	REQUIRE(announce < drop);
+	REQUIRE(drop < remove);
+	REQUIRE(tick.rfind("g_NetGameMode == NETGAMEMODE_COOP || g_NetGameMode == NETGAMEMODE_ANTI", announce) > deleting);
+
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string write = function_body(msg, "u32 netmsgSvcNpcRemoveWrite(struct netbuf *dst, struct chrdata *chr)\n{");
+	REQUIRE(write.find("!netNpcIsReplicationReady(chr)") != std::string::npos);
+	REQUIRE(write.find("CHRHFLAG_DROPPINGITEM") != std::string::npos);
+
+	// The client removes its copy at once, as the host's chrTick and prop loop do
+	const std::string local = function_body(msg,
+		"static void netNpcRemoveLocal(struct prop *prop, bool dropitems, const char *why)\n{");
+	const size_t ldrop = local.find("objDropRecursively(prop, true);");
+	const size_t lremove = local.find("chrRemove(prop, true);");
+	const size_t lfree = local.find("propExecuteTickOperation(prop, TICKOP_FREE);");
+	REQUIRE(local.find("if (dropitems) {") != std::string::npos);
+	REQUIRE(ldrop != std::string::npos);
+	REQUIRE(lremove != std::string::npos);
+	REQUIRE(lfree != std::string::npos);
+	REQUIRE(ldrop < lremove);
+	REQUIRE(lremove < lfree);
+
+	const std::string read = function_body(msg, "u32 netmsgSvcNpcRemoveRead(struct netbuf *src, struct netclient *srccl)\n{");
+	REQUIRE(read.find("g_NetGameMode != NETGAMEMODE_COOP && g_NetGameMode != NETGAMEMODE_ANTI") != std::string::npos);
+	REQUIRE(read.find("prop->chr->aibot") != std::string::npos);
+	REQUIRE(read.find("netNpcRemoveLocal(prop,") != std::string::npos);
+	REQUIRE(read.find("return 1") == std::string::npos);
+
+	// A snapshot removes what the host no longer names, then counts again
+	const std::string resync = function_body(msg, "u32 netmsgSvcNpcResyncRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t name = resync.find("named[namedcount++] = record.prop;");
+	const size_t unnamed = resync.find("netNpcRemoveUnnamed(named, namedcount)");
+	const size_t recount = resync.find("local_count = netNpcCount();", unnamed);
+	const size_t compare = resync.find("if (local_count != npccount) {");
+	const size_t reject = resync.find("rejected incomplete snapshot");
+	REQUIRE(name != std::string::npos);
+	REQUIRE(unnamed != std::string::npos);
+	REQUIRE(recount != std::string::npos);
+	REQUIRE(compare != std::string::npos);
+	REQUIRE(reject != std::string::npos);
+	REQUIRE(name < unnamed);
+	REQUIRE(unnamed < compare);
+	REQUIRE(compare < reject);
+
+	const std::string sweep = function_body(msg,
+		"static u32 netNpcRemoveUnnamed(struct prop *const *named, u32 namedcount)\n{");
+	REQUIRE(sweep.find("netNpcIsReplicationReady(chr)") != std::string::npos);
+	REQUIRE(sweep.find("netNpcRemoveLocal(chr->prop, false,") != std::string::npos);
+}

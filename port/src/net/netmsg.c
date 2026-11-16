@@ -6597,6 +6597,17 @@ u32 netmsgSvcPropPickupRead(struct netbuf *src, struct netclient *srccl)
 		return 0;
 	}
 
+	/* B-1205: the host's copy had finished respawning when the player took
+	 * it; this client's wait can end a few frames later (see
+	 * netmsgSvcBotPickupRead). Finish it first, so the item is taken as it
+	 * is on the host (a shield's charge is refilled when it comes back). */
+	if ((prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_WEAPON)
+			&& prop->obj && prop->timetoregen > 0) {
+		sysLogPrintf(LOG_NOTE, "NET: SVC_PROP_PICKUP client finished prop %u's respawn for client %u, %d ticks before its own wait ended",
+			(unsigned)prop->syncid, (unsigned)clid, (s32)prop->timetoregen);
+		objRegenNow(prop);
+	}
+
 	const s32 prevplayernum = g_Vars.currentplayernum;
 	setCurrentPlayerNum(actcl->playernum);
 
@@ -6665,7 +6676,6 @@ u32 netmsgSvcBotPickupRead(struct netbuf *src, struct netclient *srccl)
 		const char *refusal = prop == NULL ? "no prop has this sync id"
 			: prop->obj == NULL ? "the prop has no object"
 			: (prop->type != PROPTYPE_OBJ && prop->type != PROPTYPE_WEAPON) ? "the prop is not an object or weapon"
-			: prop->timetoregen != 0 ? "the item is waiting to respawn"
 			: (prop->obj->hidden & OBJHFLAG_DELETING) ? "the item is being deleted"
 			: NULL;
 
@@ -6679,6 +6689,18 @@ u32 netmsgSvcBotPickupRead(struct netbuf *src, struct netclient *srccl)
 				prop ? prop->pos.x : 0.0f, prop ? prop->pos.y : 0.0f, prop ? prop->pos.z : 0.0f);
 			return 0;
 		}
+	}
+
+	/* B-1205: this client still has the item respawning, but the host's copy
+	 * was back and the simulant took it. Each machine starts the wait when it
+	 * learns of the earlier pickup, so a client's can end a few frames later,
+	 * and a simulant waiting on the spot takes the item the moment it is
+	 * back. Finish the respawn here first, so the replay takes the same item
+	 * and its wait starts again as the host's did. */
+	if (prop->timetoregen > 0) {
+		sysLogPrintf(LOG_NOTE, "BOT.PICKUP: client finished item %u's respawn for simulant %d, %d ticks before its own wait ended",
+			(unsigned)itemsyncid, mpPlayerGetIndex(chr), (s32)prop->timetoregen);
+		objRegenNow(prop);
 	}
 
 	weaponnum = prop->type == PROPTYPE_WEAPON && prop->weapon ? prop->weapon->weaponnum : -1;
@@ -8582,6 +8604,99 @@ u32 netmsgSvcNpcSpawnRead(struct netbuf *src, struct netclient *srccl)
 }
 
 /* ========================================================================
+ * SVC_NPC_REMOVE - the host removed a chr (B-1206)
+ * Co-op and counter-op only. A chr leaves the world through chrTick's
+ * deleting branch: an AI remove_chr, a corpse that faded out or was reaped
+ * off-screen, a robot's death explosion. A client runs none of the NPC AI or
+ * actions that decide those (chraTick), so before this message it kept every
+ * such chr: a guard the level script removed stayed frozen where it stood,
+ * and every NPC snapshot after that was refused for a count the client could
+ * not match. The host sends this once, reliably, as it removes the chr; the
+ * client removes its copy at once, so a snapshot later in the same packet
+ * already counts the same chrs. Bit 0 of the flags says the host's removal
+ * dropped the chr's items (CHRHFLAG_DROPPINGITEM), so the client drops its
+ * copies of them too; otherwise they go with the chr, as on the host.
+ * ======================================================================== */
+
+#define NET_NPC_REMOVE_DROPPEDITEMS 0x01
+
+/* Remove this client's copy of a chr the host no longer has, the way the
+ * host's chrTick and prop loop remove it: chrRemove, then the free tick
+ * operation (rooms, prop lists, projectile targets, the prop slot, which
+ * clears its sync id). */
+static void netNpcRemoveLocal(struct prop *prop, bool dropitems, const char *why)
+{
+	struct chrdata *chr = prop->chr;
+
+	sysLogPrintf(LOG_NOTE,
+		"NET.NPC: client removed chr syncid=%u chrnum=%d body=%d dead=%d dropitems=%d (%s)",
+		(unsigned)prop->syncid, (s32)chr->chrnum, (s32)chr->bodynum,
+		chrIsDead(chr) ? 1 : 0, dropitems ? 1 : 0, why);
+
+	chr->hidden &= ~CHRHFLAG_DROPPINGITEM;
+
+	if (dropitems) {
+		objDropRecursively(prop, true);
+	}
+
+	chrRemove(prop, true);
+	propExecuteTickOperation(prop, TICKOP_FREE);
+}
+
+u32 netmsgSvcNpcRemoveWrite(struct netbuf *dst, struct chrdata *chr)
+{
+	struct prop *prop = chr ? chr->prop : NULL;
+	u8 flags;
+
+	if (!dst || !prop || prop->syncid == 0 || !netNpcIsReplicationReady(chr)) {
+		return 1;
+	}
+
+	flags = (chr->hidden & CHRHFLAG_DROPPINGITEM) ? NET_NPC_REMOVE_DROPPEDITEMS : 0;
+
+	netbufWriteU8(dst, SVC_NPC_REMOVE);
+	netbufWriteU32(dst, prop->syncid);
+	netbufWriteU8(dst, flags);
+
+	sysLogPrintf(LOG_NOTE,
+		"NET.NPC: host removed chr syncid=%u chrnum=%d body=%d dead=%d action=%d dropitems=%d",
+		(unsigned)prop->syncid, (s32)chr->chrnum, (s32)chr->bodynum,
+		chrIsDead(chr) ? 1 : 0, (s32)chr->actiontype,
+		(flags & NET_NPC_REMOVE_DROPPEDITEMS) ? 1 : 0);
+
+	return dst->error;
+}
+
+u32 netmsgSvcNpcRemoveRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u32 syncid = netbufReadU32(src);
+	const u8 flags = netbufReadU8(src);
+	struct prop *prop;
+
+	if (src->error) {
+		return src->error;
+	}
+
+	if (!srccl || srccl->state < CLSTATE_GAME
+			|| (g_NetGameMode != NETGAMEMODE_COOP && g_NetGameMode != NETGAMEMODE_ANTI)) {
+		return 0;
+	}
+
+	prop = syncid ? netSyncIdLookup(syncid) : NULL;
+
+	if (!prop || prop->type != PROPTYPE_CHR || !prop->chr
+			|| prop->chr->prop != prop || prop->chr->aibot) {
+		sysLogPrintf(LOG_NOTE, "NET.NPC: client has no chr to remove for syncid=%u (%s)",
+			(unsigned)syncid, !prop ? "no prop has this id" : "the prop is not an NPC");
+		return 0;
+	}
+
+	netNpcRemoveLocal(prop, (flags & NET_NPC_REMOVE_DROPPEDITEMS) != 0, "the host removed it");
+
+	return 0;
+}
+
+/* ========================================================================
  * SVC_NPC_STATE - Server-authoritative NPC state update
  * Sent less frequently than NPC_MOVE. Syncs health, flags, alertness.
  * ======================================================================== */
@@ -9050,15 +9165,50 @@ static void netmsgNpcResyncRecordApply(
 		: -1;
 }
 
+/* B-1206: remove every NPC of this client's that the host's snapshot does not
+ * name; the snapshot lists every chr the host has. Returns how many. */
+static u32 netNpcRemoveUnnamed(struct prop *const *named, u32 namedcount)
+{
+	u32 removed = 0;
+
+	for (s32 i = 0; i < g_NumChrSlots; ++i) {
+		struct chrdata *chr = &g_ChrSlots[i];
+		bool isnamed = false;
+
+		if (!netNpcIsReplicationReady(chr)) {
+			continue;
+		}
+
+		for (u32 j = 0; j < namedcount; ++j) {
+			if (named[j] == chr->prop) {
+				isnamed = true;
+				break;
+			}
+		}
+
+		if (!isnamed) {
+			netNpcRemoveLocal(chr->prop, false, "the host's snapshot does not name it");
+			removed++;
+		}
+	}
+
+	return removed;
+}
+
+#define NET_NPC_RESYNC_NAMED_MAX 512
+
 u32 netmsgSvcNpcResyncRead(struct netbuf *src, struct netclient *srccl)
 {
 	const u32 tick = netbufReadU32(src);
 	const u16 npccount = netbufReadU16(src);
 	const u32 records_rp = src->rp;
-	const u32 local_count = netNpcCount();
-	bool complete = local_count == npccount;
+	u32 local_count = netNpcCount();
+	bool complete = true;
 	u16 applied_count = 0;
 	u32 applied_checksum = 0;
+	static struct prop *named[NET_NPC_RESYNC_NAMED_MAX];
+	u32 namedcount = 0;
+	bool namedall = true;
 
 	memset(&s_NetNpcSnapshotValidation, 0,
 		sizeof(s_NetNpcSnapshotValidation));
@@ -9078,9 +9228,31 @@ u32 netmsgSvcNpcResyncRead(struct netbuf *src, struct netclient *srccl)
 			return src->error;
 		}
 
+		if (record.prop) {
+			if (namedcount < NET_NPC_RESYNC_NAMED_MAX) {
+				named[namedcount++] = record.prop;
+			} else {
+				namedall = false;
+			}
+		}
+
 		if (!netmsgNpcResyncRecordIsReady(&record)) {
 			complete = false;
 		}
+	}
+
+	/* B-1206: a chr this client has and the host's snapshot does not name is
+	 * gone on the host. SVC_NPC_REMOVE normally removes it first, but the
+	 * host's first ticks of a stage (where a level script removes chrs) run
+	 * while a client is still loading and cannot take that message yet. The
+	 * whole payload is consumed above, so this runs only on a well-formed
+	 * snapshot, and it touches only chrs no record names. */
+	if (namedall && netNpcRemoveUnnamed(named, namedcount) > 0) {
+		local_count = netNpcCount();
+	}
+
+	if (local_count != npccount) {
+		complete = false;
 	}
 
 	if (!complete) {
