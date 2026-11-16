@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_king_of_the_hill_reconnect_smoke",
-  "description": "King of the Hill variant of network_reconnect_smoke (finding 7 of the multiplayer week plan, the Rejoin column): the same listen host and isolated client, the same authority-side timeout of client 1 and endpoint-scoped reconnect with an exact world and inventory restore, but in King of the Hill. Wire v62 puts the host's scenario state in the reconnect snapshot, so the host sends it twice (stage baseline and snapshot) and the rejoined client takes the host's hill again. The stage-start cutscene line accepts either path: whether the CI lobby should still be in a cutscene when the reconnect arrives is CORE's open question for the Combat fixture, and this one is about the scenario state.",
+  "description": "King of the Hill variant of network_reconnect_smoke (finding 7 of the multiplayer week plan, the Rejoin column): the same listen host and isolated client, the same authority-side timeout of client 1 and endpoint-scoped reconnect with an exact world and inventory restore, but in King of the Hill. Wire v64 puts the host's scenario state in the reconnect snapshot, so the host sends it twice (stage baseline and snapshot) and the rejoined client takes the host's hill again. The stage-start cutscene line accepts either path: whether the CI lobby should still be in a cutscene when the reconnect arrives is CORE's open question for the Combat fixture, and this one is about the scenario state.",
   "tags": [
     "connectivity",
     "kingofthehill",

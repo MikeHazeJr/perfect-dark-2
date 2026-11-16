@@ -16065,7 +16065,10 @@ TEST_CASE("V-009 Needler edited tint variants reach the production renderer audi
 	REQUIRE(builder.find("HELD_WEAPON_SCALE = 14.0") == std::string::npos);
 	REQUIRE(builder.find("HELD_WEAPON_POS_X = 30.0") != std::string::npos);
 	REQUIRE(builder.find("HELD_WEAPON_POS_Y = -18.0") != std::string::npos);
-	REQUIRE(builder.find("HELD_WEAPON_POS_Z = -45.0") != std::string::npos);
+	/* B-1155: the held Needler is authored muzzle +Z now, so its view depth
+	 * moved from -45 to -34 to keep the rear of the gun where it was. */
+	REQUIRE(builder.find("HELD_WEAPON_POS_Z = -34.0") != std::string::npos);
+	REQUIRE(builder.find("p[2] * HELD_WEAPON_SCALE))") != std::string::npos);
 	REQUIRE(builder.find("f\"posx = {HELD_WEAPON_POS_X:.1f}\\n\"") !=
 	        std::string::npos);
 	REQUIRE(builder.find("f\"posy = {HELD_WEAPON_POS_Y:.1f}\\n\"") !=

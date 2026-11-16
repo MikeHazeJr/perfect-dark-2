@@ -10,13 +10,18 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 62  /* v62 (2026-11-15): SVC_SCENARIO_STATE, host-
-                             * authoritative objective scenario state in the
-                             * stage baseline and on every change (every
-                             * objective scenario; net_scenario_state_wire.h);
-                             * SVC_BOT_PICKUP, a simulant's pickup as the host
-                             * decided it, and simulant drops announced with
-                             * SVC_PROP_SPAWN (unreleased while added).
+#define NET_PROTOCOL_VER 64  /* v64 (2026-11-16, MULTIPLAYER; numbered v62 on
+                             * week-pd/multiplayer and renumbered when dev's
+                             * v63 merged in, so no released build ever spoke
+                             * v62): SVC_SCENARIO_STATE, host-authoritative
+                             * objective scenario state in the stage baseline
+                             * and on every change (every objective scenario;
+                             * net_scenario_state_wire.h); SVC_BOT_PICKUP, a
+                             * simulant's pickup as the host decided it, and
+                             * simulant drops announced with SVC_PROP_SPAWN.
+                             * v63 (2026-11-15, CRYSTAL): UCMD_GUNROLL_LEFT/RIGHT
+                               carry a mod gun's roll input so every peer
+                               rolls it and the host fans a charge with it.
                              * v61 (2026-09-08): authenticated lobby roster.
                              * v60: room creation includes its
                                initial settings/playlist, room lists include
@@ -353,7 +358,7 @@ _Static_assert(NET_MAX_CLIENTS < NET_NULL_CLIENT,
 #define NET_RESYNC_FLAG_PROPS  (1 << 1)
 #define NET_RESYNC_FLAG_SCORES (1 << 2)
 #define NET_RESYNC_FLAG_NPCS   (1 << 3)
-#define NET_RESYNC_FLAG_SCENARIO (1 << 4) /* v62: objective scenario state */
+#define NET_RESYNC_FLAG_SCENARIO (1 << 4) /* v64: objective scenario state */
 
 extern u8 g_NetPendingResyncFlags;    /* server: resync types to broadcast next netEndFrame */
 extern u8 g_NetPendingResyncReqFlags; /* client: resync types to request from server next netEndFrame */
@@ -488,6 +493,10 @@ extern u8 g_NetBotAuthorityClientId; /* NET_NULL_CLIENT when no authority delega
  * UCMD_ACTIVATE remains the action; this bit preserves device semantics
  * without asking the authority to infer them from its local control slot. */
 #define UCMD_VEHICLE_PC_INTENT (1 << 12)
+/* v63 (T-MODDING-008): the gun roll actions are held (ACTION_GUN_ROLL_LEFT /
+ * RIGHT). Held state, like UCMD_AIMMODE: forwarded, not important. */
+#define UCMD_GUNROLL_LEFT (1 << 13)
+#define UCMD_GUNROLL_RIGHT (1 << 14)
 #define UCMD_RESPAWN (1 << 27)
 #define UCMD_CHAT (1 << 28)
 #define UCMD_IMPORTANT_MASK (UCMD_FIRE | UCMD_ACTIVATE | UCMD_RELOAD | UCMD_AIMMODE | UCMD_SELECT | UCMD_SELECT_DUAL | UCMD_VEHICLE_PC_INTENT)

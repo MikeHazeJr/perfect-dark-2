@@ -1115,6 +1115,10 @@ static s32 s_catalogActivateWeaponGraphRuntime(asset_entry_t *entry,
 					entry->id, err[0] ? err : "unknown error");
 				return 0;
 			}
+			/* B-1150: the HUD, inventory and pickup text read the weapon's
+			 * name through bgunGetName/bgunGetShortName; a mod weapon has no
+			 * language string, so hand them the catalog display name. */
+			loaderPoolSetPublicWeaponName(entry->runtime_index, entry->ext.weapon.name);
 		}
 
         return 1;

@@ -771,6 +771,14 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 	portal00018148(&shotdata.gunpos3d, &hitpos, spc8, spb8, rooms, 30);
 
 	if (shotdata.gset.weaponnum != WEAPON_FARSIGHT || g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
+		/* B-1189: on a scenario-source stage no room has render vertex
+		 * batches, so bgTestHitInRoom never hit and shots ignored walls and
+		 * floors: no wall hits or sparks, and props behind walls were hit.
+		 * Cast against the world collision mesh's shot-blocking surfaces
+		 * instead. The Farsight's x-ray mode skips this whole block as
+		 * before, so it still shoots through walls. */
+		const bool usemesh = bgUsesScenarioMeshHits();
+
 		roomsptr = rooms;
 
 		while (*roomsptr != -1) {
@@ -780,7 +788,23 @@ struct prop *shotCalculateHits(s32 handnum, bool isshooting, struct coord *gunpo
 		// Note this is being appended to rooms
 		bgGetForceOnscreenRooms(roomsptr, 100);
 
-		for (i = 0; rooms[i] != -1; i++) {
+		if (usemesh) {
+			RoomNum hitroom;
+
+			if (bgTestHitScenarioMesh(&shotdata.gunpos3d, &hitpos, true, &sp664, &hitroom)
+					&& (shotdata.gunpos3d.x != sp664.pos.x || shotdata.gunpos3d.y != sp664.pos.y || shotdata.gunpos3d.z != sp664.pos.z)) {
+				hitbg = true;
+				room = hitroom >= 0 ? hitroom : (rooms[0] >= 0 ? rooms[0] : playerprop->rooms[0]);
+
+				sp694 = sp664;
+
+				hitpos.x = sp664.pos.x;
+				hitpos.y = sp664.pos.y;
+				hitpos.z = sp664.pos.z;
+			}
+		}
+
+		for (i = 0; !usemesh && rooms[i] != -1; i++) {
 			if (bgTestHitInRoom(&shotdata.gunpos3d, &hitpos, rooms[i], &sp664)) {
 				sp664.pos.x *= 1;
 				sp664.pos.y *= 1;
@@ -1165,7 +1189,18 @@ bool shotTestLos(struct coord *gunpos2d, struct coord *gundir2d, struct coord *g
 	bgGetForceOnscreenRooms(roomsptr, 100);
 
 	// Check for BG hits first
-	for (i = 0; rooms[i] != -1; i++) {
+	/* B-1189: scenario-source stages answer from the world collision mesh
+	 * (see shotCalculateHits). */
+	if (bgUsesScenarioMeshHits()) {
+		if (bgTestHitScenarioMesh(&shotdata.gunpos3d, endpos3d, true, &sp664, NULL)
+				&& (fabsf(sp664.pos.x - endpos3d->x) >= 0.1f ||
+					fabsf(sp664.pos.y - endpos3d->y) >= 0.1f ||
+					fabsf(sp664.pos.z - endpos3d->z) >= 0.1f)) {
+			return false;
+		}
+	}
+
+	for (i = 0; !bgUsesScenarioMeshHits() && rooms[i] != -1; i++) {
 		if (bgTestHitInRoom(&shotdata.gunpos3d, endpos3d, rooms[i], &sp664)) {
 			// check if it's far enough away from the end point
 			if (fabsf(sp664.pos.x - endpos3d->x) >= 0.1f ||

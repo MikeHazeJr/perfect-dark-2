@@ -13,6 +13,7 @@
 #include "game/botact.h"
 #include "game/botcmd.h"
 #include "game/botinv.h"
+#include "game/bondgun_mod.h" /* T-MODDING-008: mod charge functions */
 #include "game/mplayer/mplayer.h"
 #include "game/propobj.h"
 #include "bss.h"
@@ -912,6 +913,10 @@ void botinvTick(struct chrdata *chr)
 			}
 		}
 
+		/* T-MODDING-008: a mod weapon's committed charge secondary (the
+		 * crystal pistol's mine volley). */
+		newfuncnum = bgunModBotChooseFunction(chr, newweaponnum, newfuncnum);
+
 		botinvSwitchToWeapon(chr, newweaponnum, newfuncnum);
 	}
 }
@@ -931,6 +936,7 @@ bool botinvSwitchToWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum)
 	s32 modelnum;
 	bool changinggun;
 	bool changingfunc;
+	bool keepmagazine;
 
 	if (!chr || !chr->aibot) {
 		return false;
@@ -955,6 +961,12 @@ bool botinvSwitchToWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum)
 
 	changinggun = weaponnum != aibot->weaponnum;
 	changingfunc = funcnum != aibot->gunfunc;
+	/* T-MODDING-008: both functions load from one self-loading magazine (the
+	 * crystal pistol's): its rounds stay loaded across the switch. Returning
+	 * them has no reserve to go to, and the reload below would refill the
+	 * magazine from nothing. */
+	keepmagazine = changingfunc && !changinggun
+		&& bgunModFunctionsShareSelfLoadingAmmo(weaponnum, aibot->gunfunc, funcnum);
 
 	if (changinggun) {
 		aibot->changeguntimer60 = TICKS(60);
@@ -972,7 +984,7 @@ bool botinvSwitchToWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum)
 	}
 
 	// Return any loaded ammo to reserve
-	if (changingfunc || changinggun) {
+	if ((changingfunc || changinggun) && !keepmagazine) {
 		for (i = 0; i < 2; i++) {
 			if (aibot->loadedammo[i] > 0) {
 				botactGiveAmmoByWeapon(aibot, aibot->weaponnum, aibot->gunfunc, aibot->loadedammo[i]);
@@ -986,7 +998,7 @@ bool botinvSwitchToWeapon(struct chrdata *chr, s32 weaponnum, s32 funcnum)
 	aibot->weaponnum = weaponnum;
 
 	// Load ammo from reserve into new weapon
-	if (changingfunc && !changinggun) {
+	if (changingfunc && !changinggun && !keepmagazine) {
 		for (i = 0; i < 2; i++) {
 			if (chr->weapons_held[i]) {
 				botactReload(chr, i, false);

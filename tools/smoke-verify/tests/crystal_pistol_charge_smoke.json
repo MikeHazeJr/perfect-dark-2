@@ -1,0 +1,135 @@
+{
+  "scenario_name": "crystal_pistol_charge_smoke",
+  "description": "Crystal pistol (T-MODDING-008): the secondary charges every loaded crystal (neon look, charge sound), cannot be cancelled, then launches each crystal from its own socket as a proximity mine that arms where it lands. A second charge is committed and then the player is killed before it completes: the launch still happens, from where the gun was.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "weapon",
+    "charge",
+    "crystal_pistol",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "dev-mods/crystal_pistol/crystal_pistol.pdweapon",
+    "src/game/bondgun_mod.c",
+    "src/game/bondgun.c",
+    "src/game/propobj.c",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "remove_paths": [
+    "mods/crystal_pistol.pdmod",
+    "mods/crystal_pistol",
+    "mods/installed/crystal_pistol.pdmod",
+    "mods/installed/crystal_pistol"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": "dev-mods/crystal_pistol",
+      "dst": "mods/installed/crystal_pistol.pdmod"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-spawn-weapon",
+    "mod_crystal_pistol:crystal_pistol",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay with the pistol as the spawn weapon."
+    },
+    { "at_ms": 1500, "type": "action", "name": "ACTION_AIM_DOWN", "action": "press", "comment": "Tilt the view down a little so the mines land on the floor ahead." },
+    { "at_ms": 1700, "type": "action", "name": "ACTION_AIM_DOWN", "action": "release" },
+    { "at_ms": 2200, "type": "screenshot", "path": "cp-charge-full.bmp" },
+    { "at_ms": 2500, "type": "action", "name": "ACTION_FIRE_MODE", "action": "tap", "comment": "Switch to the secondary (charge) function." },
+    { "at_ms": 3300, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Commit the charge; releasing the trigger does not cancel it." },
+    { "at_ms": 3400, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 4000, "type": "screenshot", "path": "cp-charge-charging.bmp", "comment": "Neon crystals, pulsing." },
+    { "at_ms": 5100, "type": "screenshot", "path": "cp-charge-launched.bmp", "comment": "Sockets empty; mines in flight or landed." },
+    { "at_ms": 9300, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Second charge after the crystals regrew." },
+    { "at_ms": 9350, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 9800, "type": "kill_player", "comment": "The wielder dies mid-charge; the launch must still happen." },
+    { "at_ms": 11500, "type": "screenshot", "path": "cp-charge-after-death.bmp" },
+    { "at_ms": 12500, "type": "exit" }
+  ],
+  "retain_artifacts": [
+    { "src": "cp-charge-full.bmp" },
+    { "src": "cp-charge-charging.bmp" },
+    { "src": "cp-charge-launched.bmp" },
+    { "src": "cp-charge-after-death.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=crystal_pistol_charge_smoke",
+      "LOADER\\.POOL\\.WEAPON\\.PUBLIC_ADAPTER: installed id=mod_crystal_pistol:crystal_pistol runtime=\\d+ model=\\d+ funcs=2",
+      "BONDGUN\\.CHARGE: start weapon=\\d+ player=0 func=1 count=6 release_in=90",
+      "BONDGUN\\.CHARGE: launch weapon=\\d+ round=0 socket=1",
+      "BONDGUN\\.CHARGE: launch weapon=\\d+ round=5 socket=1",
+      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=\\d\\.\\d\\d roll=-?\\d+ spread=30 sockets=6",
+      "BONDGUN\\.CHARGE: released weapon=\\d+ player=0 count=6 launched=6 dead=0 sockets=6",
+      "SMOKE\\.KILL_PLAYER: player=0 died=1",
+      "BONDGUN\\.CHARGE: released weapon=\\d+ player=0 count=6 launched=6 dead=1 sockets=6",
+      "BONDGUN\\.CRYSTAL: mine armed weapon=\\d+ func=1 owner=0",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.FALLBACK",
+      "result=FAIL",
+      "BONDGUN\\.MODEL: .*B-1185",
+      "skipped=no_owner",
+      "'mod_crystal_pistol:crystal_pistol' public weapon adapter install failed",
+      "'mod_crystal_pistol:crystal_pistol' activation failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BONDGUN\\.CHARGE: start weapon=\\d+ player=0 func=1 count=6",
+        "min": 2
+      },
+      {
+        "pattern": "BONDGUN\\.CHARGE: launch weapon=\\d+ round=\\d socket=1",
+        "min": 12
+      },
+      {
+        "pattern": "BONDGUN\\.CRYSTAL: mine armed weapon=\\d+ func=1 owner=0",
+        "min": 6
+      },
+      {
+        "pattern": "SMOKE\\.GLSHOT: captured",
+        "min": 4
+      }
+    ]
+  }
+}

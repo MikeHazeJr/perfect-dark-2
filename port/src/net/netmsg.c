@@ -5769,7 +5769,7 @@ u32 netmsgSvcReconnectStateWrite(struct netbuf *dst,
 		goto rollback;
 	}
 #if !defined(PD_SERVER)
-	/* v62: so is the objective scenario's state (hill, holder, bases). */
+	/* v64: so is the objective scenario's state (hill, holder, bases). */
 	if (g_NetGameMode == NETGAMEMODE_MP && scenarioNetHasState()
 			&& netmsgSvcScenarioStateBaselineWrite(dst) != 0) {
 		netmsgReconnectSnapshotFail(out_result, dst->error
@@ -6611,7 +6611,7 @@ u32 netmsgSvcPropPickupRead(struct netbuf *src, struct netclient *srccl)
 }
 
 /*
- * SVC_BOT_PICKUP (v62, finding 3): a simulant picked up a prop on the host.
+ * SVC_BOT_PICKUP (v64, finding 3): a simulant picked up a prop on the host.
  * Simulant AI runs only on the host, so before this message a client kept
  * every weapon, crate, shield, briefcase, uplink or case a simulant took lying
  * where it was, and a human walking onto it there got nothing. The client
@@ -9257,7 +9257,7 @@ u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl)
 }
 
 /* ========================================================================
- * SVC_SCENARIO_STATE - v62 host-authoritative Combat Simulator scenario state
+ * SVC_SCENARIO_STATE - v64 host-authoritative Combat Simulator scenario state
  * (T-NETWORKING-011). The listen host runs the scenario rules and sends the
  * running scenario's state in the stage baseline, on every change and at a
  * low rate while a timer runs; a client presents it (scenarios.h). The body

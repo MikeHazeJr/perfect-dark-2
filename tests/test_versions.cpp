@@ -18,9 +18,12 @@
  *   "Save format (MPSETUP_VERSION 1 -> 2): WAD save/load roundtrip +
  *    v1 -> v2 migration"
  *
- * Bumped 2026-11-15 to NET_PROTOCOL_VER 62 for host-authoritative scenario
- * state (SVC_SCENARIO_STATE). Version 61 (2026-09-08) authenticated lobby
- * rosters. Version 60 added room initial snapshots,
+ * Bumped 2026-11-16 to NET_PROTOCOL_VER 64 for host-authoritative scenario
+ * state (SVC_SCENARIO_STATE, SVC_BOT_PICKUP; MULTIPLAYER's v62, renumbered
+ * after dev's v63). Bumped 2026-11-15 to NET_PROTOCOL_VER 63 for
+ * UCMD_GUNROLL_LEFT/RIGHT (T-MODDING-008).
+ * Bumped 2026-09-08 to NET_PROTOCOL_VER 61 for authenticated lobby rosters.
+ * Version 60 added room initial snapshots,
  * operation results and access-aware room lists. MPSETUP_VERSION remains 3.
  */
 
@@ -44,7 +47,7 @@ extern const u32 g_TestExpectedMpsetupVersion;
 extern const u32 g_TestLiveMpsetupVersion;
 }
 
-const u32 g_TestExpectedNetProtocolVer  = 62;
+const u32 g_TestExpectedNetProtocolVer  = 64;
 const u32 g_TestExpectedMpsetupVersion  = 3;
 
 TEST_CASE("version pin: NET_PROTOCOL_VER is the version this test was written against",

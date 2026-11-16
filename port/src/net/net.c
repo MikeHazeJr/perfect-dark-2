@@ -823,7 +823,7 @@ typedef u32 (*net_resync_writer_fn)(struct netbuf *dst);
  * writable at its prior boundary. The pending bit is cleared by the caller
  * only after the complete baseline is queued. */
 #if !defined(PD_SERVER)
-/* v62 (T-NETWORKING-011): the objective scenario state the host last sent,
+/* v64 (T-NETWORKING-011): the objective scenario state the host last sent,
  * so a running timer is resent at a low rate rather than every frame. */
 static net_scenario_state_t s_NetScenarioLastSent;
 static s32 s_NetScenarioHaveSent;
@@ -965,7 +965,7 @@ static bool netServerPublishPendingResyncs(void)
 			complete = false;
 		}
 	}
-	/* v62: the objective scenario's state rides in the same baseline, so a
+	/* v64: the objective scenario's state rides in the same baseline, so a
 	 * client never shows its own pick of a hill or a base first. */
 	if (complete && (requested & NET_RESYNC_FLAG_SCENARIO)) {
 		if (!netAppendResyncTransaction(&wire,
@@ -1709,7 +1709,7 @@ s32 netServerStageStart(void)
 	// 300-frame periodic broadcast (L1-2).
 	g_NetPendingResyncFlags = NET_RESYNC_FLAG_CHRS | NET_RESYNC_FLAG_PROPS | NET_RESYNC_FLAG_SCORES;
 #if !defined(PD_SERVER)
-	// v62: an objective scenario's state is part of the baseline
+	// v64: an objective scenario's state is part of the baseline
 	if (g_NetGameMode == NETGAMEMODE_MP && scenarioNetHasState()) {
 		g_NetPendingResyncFlags |= NET_RESYNC_FLAG_SCENARIO;
 	}
@@ -4173,7 +4173,7 @@ void netEndFrame(void)
 		}
 
 #if !defined(PD_SERVER)
-		/* v62 (T-NETWORKING-011): the objective scenario's state. */
+		/* v64 (T-NETWORKING-011): the objective scenario's state. */
 		if (g_Vars.normmplayerisrunning && g_NetGameMode == NETGAMEMODE_MP) {
 			netServerScenarioStateTick();
 		}

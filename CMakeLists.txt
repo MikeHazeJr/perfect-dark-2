@@ -532,6 +532,7 @@ set(SRC_LIB
   src/lib/capsule.c
   src/lib/collision.c
   src/lib/meshcollision.c
+  src/lib/meshraygrid.c
   src/lib/debughud.c
   src/lib/dma.c
   src/lib/fault.c
@@ -1211,6 +1212,11 @@ set(SRC_TESTS
   # source-level pins for the live multi-sample rendered-surface sweep and
   # pure checks for normal classification.
   ${CMAKE_SOURCE_DIR}/tests/test_jump_two_stage_design.cpp
+
+  # B-1189: the grid-walked mesh ray cast used for background hits on
+  # scenario-source stages, checked against a brute-force cast.
+  ${CMAKE_SOURCE_DIR}/tests/test_mesh_ray_grid.cpp
+  ${CMAKE_SOURCE_DIR}/src/lib/meshraygrid.c
 
   # Linker stubs for symbols the cherry-picked sources reference but the
   # test binary should not actually invoke.

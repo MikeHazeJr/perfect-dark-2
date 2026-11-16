@@ -59,7 +59,7 @@ typedef struct net_vehicle_state_txn_s {
 #define SVC_NPC_SYNC      0x4A // NPC sync checksum for desync detection (co-op only)
 #define SVC_NPC_RESYNC    0x4B // full NPC state correction (co-op only)
 #define SVC_BOT_AUTHORITY 0x4C // server→designated client: you are the bot AI authority (relay positions via CLC_BOT_MOVE)
-#define SVC_BOT_PICKUP    0x4D // v62: a simulant picked up a prop (host decided) {simulant, prop}
+#define SVC_BOT_PICKUP    0x4D // v64: a simulant picked up a prop (host decided) {simulant, prop}
 #define SVC_STAGE_FLAG    0x50 // stage flags update (co-op only, u32 bitfield)
 #define SVC_OBJ_STATUS    0x51 // objective status change (co-op only, index + status)
 #define SVC_ALARM         0x52 // alarm state change (co-op only, active/inactive)
@@ -70,7 +70,7 @@ typedef struct net_vehicle_state_txn_s {
 #define SVC_RECONNECT_PROP_STATE 0x57 // v57: one announced prop's live state
 #define SVC_RECONNECT_PROP_END   0x58 // v57: exact replicated-prop set terminator
 #define SVC_RECONNECT_INVENTORY  0x59 // v57: one stable client's exact inventory
-#define SVC_SCENARIO_STATE 0x5a // v62: host-authoritative scenario state (net_scenario_state_wire.h)
+#define SVC_SCENARIO_STATE 0x5a // v64: host-authoritative scenario state (net_scenario_state_wire.h)
 #define NET_CUTSCENE_AUTHORITY_EVENT_CAPACITY 64u
 #define NET_CUTSCENE_AUTHORITY_PACKET_CAPACITY 1024u
 #define SVC_LOBBY_LEADER  0x60 // server announces lobby leader {clientId}
@@ -100,14 +100,14 @@ typedef struct net_vehicle_state_txn_s {
 #define SVC_ROOM_SETTINGS  0x78 // server→room: match settings changed by leader (numBots, timelimit, etc.)
 #define SVC_ROOM_RESULT    0x7a // operation, room_result_t, unchanged/accepted room ID
 #define SVC_LOBBY_ROSTER   0x7b // authenticated presentation roster, stable client IDs
-/* B-1193 (unreleased v62): server→room, the host chose Return to Room after a
+/* B-1193 (unreleased v64): server→room, the host chose Return to Room after a
  * co-op or counter-op mission; clients leave their results for the Room. */
 #define SVC_MISSION_RETURN 0x7c
-/* B-1193 (unreleased v62): server→match, every player's final mission stats
+/* B-1193 (unreleased v64): server→match, every player's final mission stats
  * (kills and shots by region), so each machine's results show both players
  * with the host's numbers. */
 #define SVC_MISSION_STATS  0x7d
-/* B-1196 (unreleased v62): server→match, co-op/counter-op only. A chr the
+/* B-1196 (unreleased v64): server→match, co-op/counter-op only. A chr the
  * host made after the stage start (an AI clone or spawn) has a dynamic sync
  * id no client knows (SP-85); the host sends this once, reliably, before the
  * chr's moves, and the client makes a puppet with the same ids. */
@@ -245,7 +245,7 @@ typedef enum net_reconnect_snapshot_status_e {
 	NET_RECONNECT_SNAPSHOT_SCORES,
 	NET_RECONNECT_SNAPSHOT_COMMIT,
 	NET_RECONNECT_SNAPSHOT_BUFFER,
-	NET_RECONNECT_SNAPSHOT_SCENARIO, /* v62: objective scenario state */
+	NET_RECONNECT_SNAPSHOT_SCENARIO, /* v64: objective scenario state */
 } net_reconnect_snapshot_status_e;
 
 typedef enum net_reconnect_prop_state_status_e {
@@ -389,7 +389,7 @@ u32 netmsgSvcObjStatusWrite(struct netbuf *dst, u8 index, u8 status);
 u32 netmsgSvcObjStatusRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcAlarmWrite(struct netbuf *dst, u8 active);
 u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl);
-/* v62: host-authoritative scenario state. The write takes a captured state;
+/* v64: host-authoritative scenario state. The write takes a captured state;
  * the baseline form captures the running scenario itself and fails (writes
  * nothing) when the scenario has no network state. */
 struct net_scenario_state;
@@ -493,7 +493,7 @@ u32 netmsgSvcBotAuthorityRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgClcBotMoveWrite(struct netbuf *dst);
 u32 netmsgClcBotMoveRead(struct netbuf *src, struct netclient *srccl);
 
-/* v62: a simulant's pickup, decided on the host (finding 3). itemsyncid is the
+/* v64: a simulant's pickup, decided on the host (finding 3). itemsyncid is the
  * picked-up prop's sync id, taken before the pickup, which may free the prop. */
 u32 netmsgSvcBotPickupWrite(struct netbuf *dst, struct chrdata *chr, u32 itemsyncid);
 u32 netmsgSvcBotPickupRead(struct netbuf *src, struct netclient *srccl);

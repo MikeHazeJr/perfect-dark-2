@@ -137,6 +137,9 @@ bool chrGetGunPos(struct chrdata *chr, s32 handnum, struct coord *gunpos);
 void chrCalculateShieldHit(struct chrdata *chr, struct coord *pos, struct coord *vector, struct modelnode **node, s32 *hitpart, struct model **model, s32 *side);
 void chrCalculateTrajectory(struct coord *frompos, f32 arg1, struct coord *aimpos, struct coord *arg3);
 void chrTickShoot(struct chrdata *chr, s32 handnum);
+/* Smoke-only (--debug-bots-hold-fire): aibots never fire a shot; they still
+ * move, aim and set off mines. Target-dummy smokes use it. */
+extern bool g_DebugBotsHoldFire;
 void func0f041a74(struct chrdata *chr);
 bool func0f041c44(struct chrdata *chr);
 void chrAttackAmountUpdateAnimation(struct chrdata *chr);

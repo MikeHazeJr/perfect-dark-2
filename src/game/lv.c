@@ -7,6 +7,7 @@
 #include "game/bg.h"
 #include "game/body.h"
 #include "game/bondgun.h"
+#include "game/bondgun_mod.h" /* T-MODDING-008: committed charge release */
 #include "game/bondhead.h"
 #include "game/bondmove.h"
 #include "game/bondview.h"
@@ -1885,6 +1886,11 @@ Gfx *lvRender(Gfx *gdl)
 				propsSort();
 				autoaimTick();
 				handsTickAttack();
+				/* T-MODDING-008: release a mod weapon's committed charge at its
+				 * deadline, whether or not its owner is still alive; bots'
+				 * charges once a frame. */
+				bgunModChargeTick();
+				bgunModBotChargeTick();
 
 				// glares calculated earlier on PC, before prop matrices turn into garbage
 				bgCalculateGlaresForVisibleRooms();

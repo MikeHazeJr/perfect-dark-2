@@ -353,6 +353,30 @@ TEST_CASE("Production movement state ID and vehicle intent gates leave client st
     }
 }
 
+TEST_CASE("v63 gun roll input is held input: forwarded every frame, like aim",
+          "[net][move][consumption][crystal_pistol]") {
+    // UCMD_GUNROLL_LEFT/RIGHT (1 << 13, 1 << 14): a remote player's roll
+    // reaches every peer as long as the action is held.
+    constexpr uint32_t rollLeft = 1u << 13, rollRight = 1u << 14;
+    AdmissionFixture f(moveFixtureCreate(), moveFixtureDestroy);
+    REQUIRE(f);
+    move_admission_result r{};
+    move_consumption_result c{};
+    moveFixtureCommit(f.get(), 0, 0, 10.f, aim | rollRight, 0, &r);
+    REQUIRE(r.accepted);
+    moveFixtureConsume(f.get(), 6, &c);
+    REQUIRE(c.consumed);
+    REQUIRE(c.commandBefore == (aim | rollRight));
+    REQUIRE(c.commandAfter == (aim | rollRight));
+    moveFixtureConsume(f.get(), 6, &c);
+    REQUIRE_FALSE(c.consumed);
+    REQUIRE(c.commandAfter == (aim | rollRight));
+    moveFixtureCommit(f.get(), 1, 0, 10.f, rollLeft, 0, &r);
+    REQUIRE(r.accepted);
+    moveFixtureConsume(f.get(), 6, &c);
+    REQUIRE(c.commandAfter == rollLeft);
+}
+
 TEST_CASE("Tick zero consumes fresh actions once while retaining held input and the complete record",
           "[net][move][consumption]") {
     AdmissionFixture f(moveFixtureCreate(), moveFixtureDestroy);

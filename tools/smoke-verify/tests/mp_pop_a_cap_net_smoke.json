@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_pop_a_cap_net_smoke",
-  "description": "Networked Pop a Cap with simulants: listen host plus one client on loopback, Complex, three bots, 35 second time limit, same start path as mp_king_of_the_hill_net_smoke. Proves wire v62 for Pop a Cap: the host chooses the victims and counts pops and survival points, sends them in the stage baseline and on every change (SVC_SCENARIO_STATE), the client takes the host's victim instead of its own shuffled order, and both sides end with a match result for all five characters. That both sides rank the same final scores is the cross-log comparison of MATCH.RESULT.CHR lines. Port 27242.",
+  "description": "Networked Pop a Cap with simulants: listen host plus one client on loopback, Complex, three bots, 35 second time limit, same start path as mp_king_of_the_hill_net_smoke. Proves wire v64 for Pop a Cap: the host chooses the victims and counts pops and survival points, sends them in the stage baseline and on every change (SVC_SCENARIO_STATE), the client takes the host's victim instead of its own shuffled order, and both sides end with a match result for all five characters. That both sides rank the same final scores is the cross-log comparison of MATCH.RESULT.CHR lines. Port 27242.",
   "tags": [
     "network",
     "combatsim",

@@ -1,6 +1,6 @@
 /*
  * tests/test_net_bot_pickup_static.cpp -- static guards for simulant pickups
- * and drops in networked play (wire v62, T-NETWORKING-011 finding 3).
+ * and drops in networked play (wire v64, T-NETWORKING-011 finding 3).
  *
  * Simulant AI runs only on the host. Before these paths, a client kept every
  * prop a simulant picked up lying where it was, and made its own copies of

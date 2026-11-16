@@ -2466,8 +2466,12 @@ enum player_chrbody_result playerSpawn(void)
 							resolvedWeaponNum = wnum;
 						}
 					}
-				} else if (spawnWeaponNumIsResolved((s32)g_MatchConfig.spawnWeaponNum)) {
-					/* S483c (2026-04-27, B-263): single source of truth via
+				} else if (spawnWeaponNumIsResolved((s32)g_MatchConfig.spawnWeaponNum)
+						&& catalogManagerWeaponIsUsable((s32)g_MatchConfig.spawnWeaponNum)) {
+					/* B-1181: a pick without an installed definition falls
+					 * through to the weapon-set fallback below.
+					 *
+					 * S483c (2026-04-27, B-263): single source of truth via
 					 * matchsetup.h helper. Matches bot.c:543 and setup.c
 					 * sites; FIESTA branch above already handled 0xFE so
 					 * the helper's added 0xFE exclusion is purely defensive

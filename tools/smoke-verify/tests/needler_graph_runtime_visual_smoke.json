@@ -80,7 +80,7 @@
       "SETUP: user-picked spawn weapon 'mod_needler:needler' num=\\d+ preserved",
       "CATALOG\\.WEAPON\\.CUSTOM_SLOT_DEFAULTS: runtime=\\d+ mp=\\d+",
       "CATALOG\\.LIFECYCLE\\.ACTIVATE: activated weapon metadata payload 'mod_needler:needler'",
-      "WEAPONGRAPH\\.MESH\\.INGEST: id=mod_needler:needler_model slot=\\d+ filenum=\\d+ source=.*needler\\.pdweapon::dependencies/assets/models/weapon\\.pdmesh::model\\.gltf",
+      "PDWEAPON\\.NESTED\\.MESH_SOURCE: owner=mod_needler:needler id=mod_needler:needler_model action=claimed filenum=\\d+ source=.*needler\\.pdweapon::dependencies/assets/models/weapon\\.pdmesh",
       "WEAPONGRAPH\\.EFFECT\\.INGEST: id=mod_needler:pink_burst_effect",
       "EFFECT\\.GAMEPLAY\\.AUDIT: committed asset=mod_needler:pink_burst_effect instance=\\d+ explosion=1 spark=1 smoke=0 particle=0 audio=1 audio_id=mod_needler:pink_burst_sfx soundnum=\\d+ channel=\\d+",
       "EFFECT\\.PRESENTATION\\.AUDIT: committed asset=mod_needler:pink_burst_effect instance=\\d+ snapshots=2",

@@ -761,8 +761,12 @@ static enum bot_spawn_result botSpawnAttempt(struct chrdata *chr, u8 respawning)
 						resolvedWeaponNum = wnum;
 					}
 				}
-			} else if (spawnWeaponNumIsResolved((s32)g_MatchConfig.spawnWeaponNum)) {
-				/* S483c (2026-04-27, B-263): use shared helper instead of
+			} else if (spawnWeaponNumIsResolved((s32)g_MatchConfig.spawnWeaponNum)
+					&& catalogManagerWeaponIsUsable((s32)g_MatchConfig.spawnWeaponNum)) {
+				/* B-1181: a pick without an installed definition falls
+				 * through to the weapon-set fallback below.
+				 *
+				 * S483c (2026-04-27, B-263): use shared helper instead of
 				 * open-coded `!= 0xFF && != 0`.  Functionally equivalent here
 				 * (the FIESTA branch above already caught 0xFE), but the
 				 * helper is the single source of truth for "is this a real
@@ -5058,7 +5062,8 @@ void botTickUnpaused(struct chrdata *chr)
 								}
 							}
 						}
-					} else if (chr->weapons_held[i] && aibot->loadedammo[i] > 0) {
+					} else if (chr->weapons_held[i] && (aibot->loadedammo[i] > 0
+								|| botactFiresWithoutAmmo(aibot->weaponnum, aibot->gunfunc))) {
 						// Handle firing a regular weapon
 						bool canshoot = false;
 

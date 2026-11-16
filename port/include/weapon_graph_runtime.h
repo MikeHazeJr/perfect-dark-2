@@ -144,6 +144,28 @@ typedef struct weapon_graph_setting_entry {
 	char unit[WEAPON_GRAPH_SETTINGS_UNIT_LEN];
 } weapon_graph_setting_entry_t;
 
+/* Crystal pistol (T-MODDING-008): mod magazines are authored in
+ * behavior/settings.json as flat keys per ammo slot N (0 or 1):
+ * ammoN_clip, ammoN_reload (magazine|regrow), ammoN_reserve (none|native
+ * pool name), ammoN_regrow_ticks60, ammoN_seat_part_base and
+ * ammoN_regrow_sound_catalog_id. weaponGraphAmmoSettingSlot returns N for
+ * one of those keys (and its suffix), else -1. A "none" reserve is the
+ * self-loading magazine: native ammo type 0x1b, which no base weapon uses,
+ * with AMMOFLAG_NORESERVE; its rounds never come from or go to a reserve. */
+#define WEAPON_GRAPH_AMMO_SELFLOADING_TYPE 0x1b
+s32 weaponGraphAmmoSettingSlot(const char *key, const char **out_suffix);
+s32 weaponGraphAmmoReserveType(const char *name);
+
+/* Committed charge fan (fire.charge_release launch_fan_deg, T-MODDING-008):
+ * the launched rounds spread evenly from -launch_fan_deg to +launch_fan_deg
+ * along the gun's spine (the plane of the seats' aim parts, rolled with the
+ * gun). Mike's pick, 2026-11-15: plus or minus 15 degrees. Authored values
+ * outside 0..90 are refused when the graph registers. */
+#define WEAPON_GRAPH_CHARGE_FAN_DEFAULT_DEG 15.0f
+#define WEAPON_GRAPH_CHARGE_FAN_MAX_DEG 90.0f
+/* Degrees off the aim for round `round` of `count` (0 for a single round). */
+f32 weaponGraphChargeFanAngleDeg(s32 round, s32 count, f32 fan_deg);
+
 typedef struct weapon_graph_weapon_settings {
 	s32 valid;
 	/* Public presentation binding. Empty selects the native sight renderer;
@@ -275,6 +297,21 @@ typedef struct weapon_graph_held_function {
 	char projectile_ref[CATALOG_ID_LEN];
 	char entity_ref[CATALOG_ID_LEN];
 	char payload_ref[CATALOG_ID_LEN];
+	/* Crystal pistol (T-MODDING-008): committed charge launch params
+	 * (charge_time_ticks60, charge/launch_sound_catalog_id, launch_part_base,
+	 * launch_aim_part_base, launch_speed, launch_fan_deg, charge_hide_part,
+	 * charge_show_part). Ids and parts are -1 when absent; launch_fan_deg is
+	 * WEAPON_GRAPH_CHARGE_FAN_DEFAULT_DEG when absent. */
+	s32 has_charge;
+	s32 charge_time_ticks60;
+	s32 charge_sound;
+	s32 launch_sound;
+	s32 launch_part_base;
+	s32 launch_aim_part_base;
+	f32 launch_speed;
+	f32 launch_fan_deg;
+	s32 charge_hide_part;
+	s32 charge_show_part;
 	s32 has_scale;
 	f32 scale;
 	s32 has_speed;
@@ -308,6 +345,18 @@ typedef struct weapon_graph_held_function {
 	 * camera_effect values get a one-time compile LOG_NOTE and latch NONE. */
 	s32 camera_effect_mode;
 } weapon_graph_held_function_t;
+
+/* B-1182: an exported function.empty node marks an unused function slot. It is
+ * the graph spelling of a native NULL weaponfunc (base weapons export it for
+ * every missing secondary) and conformance accepts it, so code that builds
+ * native functions from held functions must treat it as absent, not as an
+ * unsupported function type. */
+static inline s32 weaponGraphHeldFunctionIsExecutable(
+		const weapon_graph_held_function_t *held)
+{
+	return held != NULL && held->valid
+		&& held->opcode != WEAPON_GRAPH_OP_FUNCTION_EMPTY;
+}
 
 typedef struct weapon_graph_projectile_runtime {
 	s32 valid;
@@ -388,6 +437,13 @@ typedef struct weapon_graph_projectile_runtime {
 	s32 sticky_allow_background;
 	s32 sticky_allow_char;
 	s32 sticky_allow_obj;
+	/* Crystal pistol (T-MODDING-008): sticky_attach cluster_count /
+	 * cluster_radius / cluster_explosion_ref. When cluster_count (>= 2) landed
+	 * projectiles of this asset from the same owner are within cluster_radius
+	 * of the one that just landed, they all detonate. 0 = no cluster rule. */
+	s32 cluster_count;
+	f32 cluster_radius;
+	char cluster_explosion_ref[CATALOG_ID_LEN];
 
 	s32 has_bounce_slide;
 	s32 bounce_limit;
@@ -480,6 +536,8 @@ typedef struct weapon_graph_entity_runtime {
 	char proxy_owner_filter[64];
 	s32 proxy_line_of_sight;
 	char proxy_on_trigger[64];
+	/* Crystal pistol (T-MODDING-008): proxy_trigger arm_on = "land". */
+	s32 proxy_arm_on_land;
 
 	s32 has_remote_detonatable;
 	char detonator_ref[CATALOG_ID_LEN];
