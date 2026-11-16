@@ -21,6 +21,7 @@
 #include "mission_graph_modules.h"
 #include "scenario_stage_rules.h"
 #include "scenario_intro.h"
+#include "ai_edge_shadow.h"
 #include "bss.h"
 #include "game/bondmove.h"
 #include "game/bg.h"
@@ -2600,6 +2601,60 @@ static s32 s_loadAiListSourceJson(char *text,
 	return table->error[0] == '\0';
 }
 
+/* AI lists as graphs, slice 2 (ai-list-graphs.md): the edge table of one
+ * compiled list, built from the commands its bytes were written from, for
+ * the shadow walk (ai_edge_shadow.h). NULL with the reason in error when the
+ * commands give no edges: the list then runs without a table (untracked). */
+static ai_edge_table_t *s_aiBuildEdgeTable(const scenario_source_ai_list_t *list,
+	const u8 *bytes, char *error, u32 error_size)
+{
+	ai_list_command_t *commands;
+	ai_edge_table_t *edge_table;
+
+	if (!list || list->count <= 0 || !bytes) {
+		snprintf(error, error_size, "%s", "the list has no commands");
+		return NULL;
+	}
+	commands = (ai_list_command_t *)malloc((size_t)list->count *
+		sizeof(*commands));
+	if (!commands) {
+		snprintf(error, error_size, "%s", "out of memory");
+		return NULL;
+	}
+	for (s32 j = 0; j < list->count; j++) {
+		commands[j].opcode = list->commands[j].opcode;
+		commands[j].operands = list->commands[j].operands;
+		commands[j].operand_len = list->commands[j].operand_count;
+	}
+	edge_table = aiEdgeTableBuild(list->id, bytes, commands,
+		(uint32_t)list->count, error, error_size);
+	free(commands);
+	return edge_table;
+}
+
+/* A stage list's table, registered under its bytes in the stage's setup
+ * block. Those bytes live in the stage pool until the main loop resets it
+ * for the next stage, and it clears the stage's tables first. Returns 1 when
+ * the list has a table. */
+static s32 s_aiRegisterStageEdgeTable(const scenario_source_ai_list_t *list,
+	const u8 *bytes, const char *scenario_id)
+{
+	char error[128];
+	ai_edge_table_t *edge_table = s_aiBuildEdgeTable(list, bytes, error,
+		sizeof(error));
+	const s32 built = edge_table != NULL;
+
+	if (built && aiEdgeShadowRegister(AI_EDGE_SHADOW_OWNER_STAGE, edge_table)) {
+		return 1;
+	}
+	aiEdgeShadowForget(bytes);
+	sysLogPrintf(LOG_WARNING,
+		"AI.EDGES: list 0x%04x of '%s' has no edge table (%s); its commands run untracked",
+		list ? (unsigned)list->id : 0u, scenario_id ? scenario_id : "?",
+		built ? "out of memory" : error);
+	return 0;
+}
+
 void scenarioSourceAiListsFree(scenario_ai_compiled_list_t *lists, s32 count)
 {
 	if (!lists) {
@@ -2607,6 +2662,7 @@ void scenarioSourceAiListsFree(scenario_ai_compiled_list_t *lists, s32 count)
 	}
 	for (s32 i = 0; i < count; i++) {
 		free(lists[i].bytes);
+		aiEdgeTableFree(lists[i].edges);
 	}
 	free(lists);
 }
@@ -2679,6 +2735,19 @@ s32 scenarioSourceAiListsCompile(const char *json_text,
 				memcpy(lists[i].bytes + cursor, cmd->operands,
 					cmd->operand_count);
 				cursor += cmd->operand_count;
+			}
+		}
+		/* Slice 2 (ai-list-graphs.md): the list's edge table, from the same
+		 * commands; the owner of lists that run registers it. */
+		{
+			char edge_error[128];
+
+			lists[i].edges = s_aiBuildEdgeTable(list, lists[i].bytes,
+				edge_error, sizeof(edge_error));
+			if (!lists[i].edges) {
+				sysLogPrintf(LOG_WARNING,
+					"AI.EDGES: compiled list 0x%04x has no edge table (%s)",
+					(unsigned)list->id, edge_error);
 			}
 		}
 	}
@@ -5305,7 +5374,11 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 	struct ailist *runtime_ailists = (struct ailist *)(data + ailists_offset);
 	u32 list_cursor = ailist_bytes_offset;
 	if (ai_table) {
+		s32 edge_tables = 0;
+
 		for (s32 i = 0; i < ai_table->count; i++) {
+			const u32 list_start = list_cursor;
+
 			runtime_ailists[i].id = ai_table->lists[i].id;
 			runtime_ailists[i].list = (u8 *)(uintptr_t)list_cursor;
 			for (s32 j = 0; j < ai_table->lists[i].count; j++) {
@@ -5319,7 +5392,14 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 					list_cursor += cmd->operand_count;
 				}
 			}
+			/* Slice 2 (ai-list-graphs.md): the shadow walk's table for the
+			 * bytes the interpreter runs, from the same commands. */
+			edge_tables += s_aiRegisterStageEdgeTable(&ai_table->lists[i],
+				data + list_start, scenario_id);
 		}
+		sysLogPrintf(LOG_NOTE,
+			"AI.EDGES: %d of %d AI lists of '%s' have edge tables",
+			edge_tables, ai_table->count, scenario_id ? scenario_id : "?");
 	}
 
 	if (out_size) {

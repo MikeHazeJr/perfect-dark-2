@@ -30,6 +30,7 @@
 #include "game/stagetable.h"
 #include "lib/main.h"
 
+#include "ai_edge_shadow.h"
 #include "assetcatalog.h"
 #include "autocampaign.h"
 #include "autocampaign_cli_plan.h"
@@ -356,6 +357,10 @@ static s32 queuePlannedMission(s32 plan_index)
 	ACLOG("queued %s mission through menuhandlerAcceptMission plan=%d idx=%d stage_id='%s' stagenum=0x%02x",
 		which, plan_index, solo_index, s_run.expected_ids[plan_index],
 		(u32)stage.stagenum);
+	/* The mission starts here: the AI edge parity probe counts from now. The
+	 * queued stage change runs no more of the current stage's AI (mainTick
+	 * ticks the stage only while no stage change is queued). */
+	aiEdgeShadowResetCounters();
 	return 1;
 }
 
@@ -630,6 +635,33 @@ static s32 probeObjectiveParity(const char *stage_id)
 }
 
 /*
+ * AI edge parity probe (ai-list-graphs.md, slice 2).
+ *
+ * Since the mission started, the shadow walk has checked every AI command
+ * the interpreter ran against the command's control-flow edges: none may have
+ * moved where its edges and flags do not say (differ), and none may have run
+ * from a list or offset without an edge table (untracked). A refused command
+ * that fell through without a next edge (B-949) is counted, not failed.
+ * Returns the number compared, or -1 after failing the run.
+ */
+static s32 probeAiEdgeParity(const char *stage_id)
+{
+	ai_edge_shadow_counters_t counters;
+
+	aiEdgeShadowGetCounters(&counters);
+	ACLOG("ai edge parity stage_id='%s' compared=%d differ=%d refused_fallthrough=%d untracked=%d",
+		stage_id, counters.compared, counters.differ,
+		counters.refused_fallthrough, counters.untracked);
+	if (counters.differ > 0 || counters.untracked > 0) {
+		failRun(CAMPAIGN_RUN_FAILURE_OBJECTIVES,
+			"ai edge parity: '%s' differ=%d untracked=%d of %d compared (AI.EDGES lines name them)",
+			stage_id, counters.differ, counters.untracked, counters.compared);
+		return -1;
+	}
+	return counters.compared;
+}
+
+/*
  * Soak (--auto-campaign-soak <seconds>).
  *
  * Holds the mission in live play for that many game seconds before the
@@ -885,6 +917,9 @@ void autocampaignTick(void)
 			break;
 		}
 		if (probeObjectiveParity(mission->stage_id) < 0) {
+			break;
+		}
+		if (probeAiEdgeParity(mission->stage_id) < 0) {
 			break;
 		}
 		forced_count = objectivesDebugCompleteCurrentMission();

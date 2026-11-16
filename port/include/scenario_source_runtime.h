@@ -863,12 +863,18 @@ s32 scenarioSourceStageGas(struct scenario_stage_gas *out);
  * bytes by the same reader and compiler as a scenario's ai/ailists.json
  * (catalog ids resolved to their numbers): one entry per list in document
  * order. Returns 1, or 0 with a reason in error. scenarioSourceAiListsFree
- * releases the lists. Global AI lists: context/designs/modding/global-ai-lists.md. */
+ * releases the lists. Global AI lists: context/designs/modding/global-ai-lists.md.
+ * edges (AI lists as graphs, slice 2): the list's edge table for the shadow
+ * walk, built from the same commands (NULL when they give none). The owner of
+ * lists that run hands it to aiEdgeShadowRegister (ai_edge_shadow.h) and
+ * clears the field; scenarioSourceAiListsFree frees one still there. */
+struct ai_edge_table;
 typedef struct scenario_ai_compiled_list {
 	s32 id;
 	u8 *bytes;
 	u32 size;
 	u32 commands;
+	struct ai_edge_table *edges;
 } scenario_ai_compiled_list_t;
 s32 scenarioSourceAiListsCompile(const char *json_text,
 	scenario_ai_compiled_list_t **out_lists, s32 *out_count,

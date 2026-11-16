@@ -3,8 +3,9 @@
 Status: CORE, 2026-11-16. Design for the next step of the week note's "AI
 commands and cutscene triggers" row (decision 1: players can recreate any
 existing behavior with the nodes). Slice 1 built (see "Slice 1 as built");
-slices 2-4 not built. The facts below come from a read-only survey of
-`week-pd/core` and the extracted base 7 data on 2026-11-16.
+slice 2 built but not yet run in play and without its fixtures (see "Slice 2
+as built"); slices 3-4 not built. The facts below come from a read-only
+survey of `week-pd/core` and the extracted base 7 data on 2026-11-16.
 
 ## Where it stands
 
@@ -148,6 +149,43 @@ slices 2-4 not built. The facts below come from a read-only survey of
   always checked; one with none and no such kind (older data) is not. A bank
   must carry its graph from the new extract version; a graph present is
   always checked.
+
+## Slice 2 as built
+
+- `port/src/ai_edge_shadow.c` (pure, in the client and pd-tests): one table
+  per compiled list (its bytes, list id, each command's offset, opcode and
+  flags, its edges by command), built with `aiListEdgesCompute` from the same
+  commands the bytes were written from, in one lookup keyed by the list's
+  bytes. Two owners, each following its bytes: a stage's lists
+  (`s_setupBuildStageBlock` registers each under its bytes in the setup
+  block; the main loop clears them just before it resets the stage pool) and
+  the AI list banks (`scenarioSourceAiListsCompile` builds each list's table
+  into `scenario_ai_compiled_list_t.edges`; `scenarioGlobalAiListsBindBank`
+  hands them over after a whole bank compiles; `s_freeBanks` clears them
+  before it frees the bytes; the round trip frees them unregistered). A
+  stage's override of a global list runs the stage list, whose table is the
+  stage's. A list without a table is logged at compile time and runs
+  untracked.
+- `chraiExecute`, on a stage built from scenario source only: every
+  dispatched command is reported after its handler, a stop before the loop
+  ends and any other command after the B-949 guard (marked when the guard
+  skipped it). `aiEdgeShadowClassify` (pure; rules in the header): a stop
+  agrees for a yield at its next edge's target and for end and
+  set_camera_animation where they stand; leaving the list agrees for set_list
+  on CHR_SELF and return (so does offset 0 of the same list); a skip on a
+  node without a next edge is `refused_fallthrough`; anything else must land
+  on one of the node's edge targets. A list or offset without a table, or
+  bytes that are not the table's command, is `untracked`. Counters
+  `compared`, `differ`, `refused_fallthrough`, `untracked`; a differ or
+  fall-through is logged once per (list, command), the first untracked
+  commands too, within caps (`AI.EDGES:` lines).
+- The campaign runner zeroes the counters as it queues each mission and,
+  after the objective and outcome parity probes, logs `ai edge parity
+  stage_id='...' compared=N differ=N refused_fallthrough=N untracked=N` and
+  fails the run (`ai edge parity: ...`, kind objectives) on any differ or
+  untracked.
+- Not yet: no campaign has run with the walk, and the campaign fixtures do
+  not require the line.
 
 ## Not in scope
 

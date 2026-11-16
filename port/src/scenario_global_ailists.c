@@ -20,6 +20,7 @@
 #include "game/chrai.h"
 #include "romextract_pd.h"
 #include "scenario_global_ailists.h"
+#include "ai_edge_shadow.h"
 #include "assetcatalog.h"
 #include "fs.h"
 #include "scenario_source_runtime.h"
@@ -233,6 +234,9 @@ static s32 s_bindFail(char *reason, u32 reason_size, const char *fmt, ...)
 
 static void s_freeBanks(void)
 {
+	/* AI lists as graphs, slice 2: the shadow walk's tables describe these
+	 * bytes and go first. */
+	aiEdgeShadowClearOwner(AI_EDGE_SHADOW_OWNER_BANK);
 	for (s32 b = 0; b < s_Bank.bank_count; b++) {
 		if (s_Bank.banks[b].lists) {
 			scenarioSourceAiListsFree(s_Bank.banks[b].lists, s_Bank.banks[b].count);
@@ -308,6 +312,26 @@ static s32 s_compileBank(global_ailist_bank_t *bank, const asset_entry_t *entry,
 	return 1;
 }
 
+/* AI lists as graphs, slice 2 (ai-list-graphs.md): hands each compiled list's
+ * edge table to the shadow walk's lookup under the list's bytes; the tables
+ * go when s_freeBanks frees the bytes. Returns how many lists have one. */
+static s32 s_registerEdgeTables(global_ailist_bank_t *bank)
+{
+	s32 registered = 0;
+
+	for (s32 l = 0; l < bank->count; l++) {
+		struct ai_edge_table *table = bank->lists[l].edges;
+
+		bank->lists[l].edges = NULL;
+		if (table && aiEdgeShadowRegister(AI_EDGE_SHADOW_OWNER_BANK, table)) {
+			registered++;
+		} else {
+			aiEdgeShadowForget(bank->lists[l].bytes);
+		}
+	}
+	return registered;
+}
+
 s32 scenarioGlobalAiListsBindBank(char *reason, u32 reason_size)
 {
 	const asset_entry_t *base = assetCatalogResolve("base:ai_global");
@@ -355,12 +379,17 @@ s32 scenarioGlobalAiListsBindBank(char *reason, u32 reason_size)
 		}
 		snprintf(s_Bank.signature, sizeof(s_Bank.signature), "%s", signature);
 		for (s32 b = 0; b < s_Bank.bank_count; b++) {
+			s32 edge_tables;
+
 			for (s32 l = 0; l < s_Bank.banks[b].count; l++) {
 				s_Bank.bytes += s_Bank.banks[b].lists[l].size;
 			}
+			edge_tables = s_registerEdgeTables(&s_Bank.banks[b]);
 			sysLogPrintf(LOG_NOTE, "AI.GLOBAL: compiled the AI list bank '%s': %d lists (%s)",
 				s_Bank.banks[b].entry->id, s_Bank.banks[b].count,
 				s_Bank.banks[b].entry->ext.ai_lists.lists_file);
+			sysLogPrintf(LOG_NOTE, "AI.EDGES: %d of %d AI lists of the bank '%s' have edge tables",
+				edge_tables, s_Bank.banks[b].count, s_Bank.banks[b].entry->id);
 		}
 	}
 

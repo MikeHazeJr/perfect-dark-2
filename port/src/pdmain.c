@@ -46,6 +46,7 @@
 #include "asset_audio_public_source_harness.h"
 #include "weapon_nested_runtime_harness.h"
 #include "autocampaign.h"
+#include "ai_edge_shadow.h"
 #include "combat_sim_verify.h"
 #include "game/lv.h"
 #include "game/options.h"
@@ -581,6 +582,9 @@ void mainLoop(void)
 		/* Invalidate every stage-owned player handle before the arena that owns
 		 * those player structs and props is released. */
 		playermgrReset();
+		/* AI lists as graphs, slice 2: the shadow walk's tables of the stage's
+		 * AI lists describe bytes in the stage's setup block, in this pool. */
+		aiEdgeShadowClearOwner(AI_EDGE_SHADOW_OWNER_STAGE);
 		mempResetPool(MEMPOOL_7);
 		mempResetPool(MEMPOOL_STAGE);
 		filesStop(4);

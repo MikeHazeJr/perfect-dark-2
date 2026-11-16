@@ -957,6 +957,9 @@ set(SRC_TESTS
   # AI lists as graphs, slice 1: control-flow edges from the rows' bytes.
   ${CMAKE_SOURCE_DIR}/tests/test_ai_list_edges.cpp
   ${CMAKE_SOURCE_DIR}/port/src/ai_list_edges.c
+  # AI lists as graphs, slice 2: the runtime's edge tables and the shadow walk.
+  ${CMAKE_SOURCE_DIR}/tests/test_ai_edge_shadow.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/ai_edge_shadow.c
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp
