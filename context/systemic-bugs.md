@@ -3617,8 +3617,13 @@ count, sizes and times) and the per-archive check never runs.
   heads, characters and weapons have no folder skip and compare each nested
   mesh copy with the current mesh archive.
 
+- B-1250 (fixed 2026-11-16, `week-pd/core`), the other direction: the
+  pdscenario kind grew to 525 chars while the stamp readers read 511, so the
+  stored kind never matched and every launch re-extracted every scenario. The
+  readers now hold 2047 chars and the writer refuses a longer kind loudly.
+
 **Rule:** a folder fast-cache kind must change whenever anything its skip
-vouches for changes. Build the kind from the version macros it depends on
+vouches for changes, and it must round-trip through its stamp unchanged. Build the kind from the version macros it depends on
 instead of keeping two strings in step by hand, and after any extractor
 change, check the census of what a fresh base actually holds, not just that
 the run passed.

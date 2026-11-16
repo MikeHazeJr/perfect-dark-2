@@ -491,6 +491,31 @@ TEST_CASE("the stage.json gas rule places a gas cloud and the ROM path uses the 
 	REQUIRE(extractor.find("stagenum == STAGE_ESCAPE ? &g_EscapeGasRule : NULL;") != std::string::npos);
 }
 
+TEST_CASE("B-1250 and B-1251: cache kinds fit their stamps and packed hum sounds resolve",
+          "[stage][scenario][objectrules][b1250][b1251]")
+{
+	// B-1250: the stamp readers take PDEXTRACT_CACHE_KIND_MAX - 1 chars; the
+	// writer refuses a longer kind, and the scenario and arena kinds fit.
+	const std::string cache = readSource("port/src/romextract_pd_cache.c");
+	REQUIRE(cache.find("#define PDEXTRACT_CACHE_KIND_MAX 2048") != std::string::npos);
+	REQUIRE(cache.find("#define PDEXTRACT_CACHE_KIND_SCANF \"2047\"") != std::string::npos);
+	REQUIRE(cache.find("if (strlen(kind) >= PDEXTRACT_CACHE_KIND_MAX) {") != std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	for (const char *name : { "ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND", "ROMEXTRACT_PDARENA_FAST_CACHE_KIND" }) {
+		std::smatch m;
+		const std::regex define(std::string("#define ") + name + " \"([^\"]+)\"");
+		INFO(name);
+		REQUIRE(std::regex_search(extractor, m, define));
+		CHECK(m[1].str().size() < 2048);
+	}
+
+	// B-1251: a configured sound's packed number (top bit set) is accepted.
+	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
+	REQUIRE(runtime.find("audio.sound_id > 0xffff) {") != std::string::npos);
+	REQUIRE(runtime.find("audio.sound_id > 0x7fff") == std::string::npos);
+	REQUIRE(runtime.find("!(audio.category == AUDIO_CAT_VOICE && ref.hasconfig)") != std::string::npos);
+}
+
 TEST_CASE("the stage.json ending rule decides how a stage presents its outcome", "[stage][scenario][stagerules]")
 {
 	Parsed unknown(stage(R"("ending": { "outcome": "unknown" })"));

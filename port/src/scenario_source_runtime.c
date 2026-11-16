@@ -4773,14 +4773,24 @@ static s32 s_setupReadDifficultyMask(const char *start, const char *end,
 	return count > 0;
 }
 
-/* A hum's sound effect catalog id, as a playable sound number. */
+/* A hum's sound effect catalog id, as a playable sound number. B-1251: the
+ * game's sound numbers are packed 16-bit values, and a configured sound sets
+ * the top bit (SFX_SHIP_HUM is 0x810c), so the bound is 0xffff and the value
+ * is kept as the packed s16 the sound code takes, as effect_gameplay_runtime.c
+ * does. */
 static s32 s_setupResolveHumSound(const char *id, s16 *out)
 {
 	catalog_audio_result_t audio;
+	union soundnumhack ref;
 
 	memset(&audio, 0, sizeof(audio));
 	if (!id[0] || !catalogResolveAudio(id, &audio) || audio.sound_id <= 0 ||
-			audio.sound_id > 0x7fff || audio.category != AUDIO_CAT_SFX) {
+			audio.sound_id > 0xffff) {
+		return 0;
+	}
+	ref.packed = (s16)audio.sound_id;
+	if (audio.category != AUDIO_CAT_SFX &&
+			!(audio.category == AUDIO_CAT_VOICE && ref.hasconfig)) {
 		return 0;
 	}
 	*out = (s16)audio.sound_id;

@@ -18,15 +18,18 @@
 #define PDEXTRACT_CACHE_NAME ".pdextract-cache"
 #define PDEXTRACT_CACHE_PATH_LEN 1024
 
-/* Some extractor kinds are long (the pdscenario kind is ~356 chars). The
+/* Some extractor kinds are long (the pdscenario kind passed 500 chars). The
  * stamp writer emits the full kind, so the readers MUST size their buffer to
  * hold it -- a short buffer truncates the kind, making every kind compare
  * mismatch (silent always-miss for the directory fast-cache, and a false
  * "kind changed" for the in-place re-extract guard, which would re-extract
- * those dirs every boot). 512 covers the current longest kind with headroom.
- * Keep the fscanf width specifiers (PDEXTRACT_CACHE_KIND_SCANF) in sync. */
-#define PDEXTRACT_CACHE_KIND_MAX 512
-#define PDEXTRACT_CACHE_KIND_SCANF "511"
+ * those dirs every boot). B-1250: that happened on 2026-11-16, when the
+ * pdscenario kind reached 525 chars against a 511-char read and every launch
+ * re-extracted all 87 scenarios; the writer now refuses a kind the readers
+ * cannot hold, loudly. Keep the fscanf width specifiers
+ * (PDEXTRACT_CACHE_KIND_SCANF) in sync. */
+#define PDEXTRACT_CACHE_KIND_MAX 2048
+#define PDEXTRACT_CACHE_KIND_SCANF "2047"
 
 s32 romExtractPdNestedDependencyMatches(const char *archive_path,
 		const char *member, const char *dependency_path)
@@ -285,6 +288,12 @@ void romExtractPdFastCacheWrite(const char *kind, const char *abs_dir,
                                 const char *ext)
 {
 	if (kind == NULL || abs_dir == NULL || ext == NULL) {
+		return;
+	}
+	if (strlen(kind) >= PDEXTRACT_CACHE_KIND_MAX) {
+		sysLoudFailf("EXTRACT.CACHE",
+			"romextract cache kind is %u chars; the stamp readers hold %d (B-1250)",
+			(unsigned)strlen(kind), PDEXTRACT_CACHE_KIND_MAX - 1);
 		return;
 	}
 
