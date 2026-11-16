@@ -522,6 +522,54 @@ TEST_CASE("bot pickup net: a scenario prop the host makes during the match is an
 	}
 }
 
+TEST_CASE("bot pickup net: the match manifest lists the scenario's token weapon",
+          "[net][scenario][b1272]") {
+	// B-1272 (SP-93): the data uplink and the briefcase have no MP weapon slot,
+	// so the manifest's weapon pool left them out of the session catalog, and
+	// every message naming one (B-1209's replacement uplink, a carrier's drop,
+	// a simulant's held weapon) reached a client as WEAPON_UNARMED: in
+	// mp_hacker_central_net_carrier_death_smoke the host sent "item 48
+	// weapon=46" and the client replayed "item 48 weapon=1".
+	const std::string scenarios = code_only(read_text_file("src/game/mplayer/scenarios.c"));
+	const std::string token = function_body(scenarios, "s32 scenarioTokenWeaponNum(s32 scenario)\n{");
+	REQUIRE(token.find("case MPSCENARIO_HACKERCENTRAL:\n\t\treturn WEAPON_DATAUPLINK;") != std::string::npos);
+	REQUIRE(token.find("case MPSCENARIO_HOLDTHEBRIEFCASE:\n\tcase MPSCENARIO_CAPTURETHECASE:\n\t\treturn WEAPON_BRIEFCASE2;")
+		!= std::string::npos);
+	REQUIRE(token.find("default:\n\t\treturn -1;") != std::string::npos);
+
+	const std::string netmsg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string prepare = function_body(netmsg,
+		"static bool netLobbyStartWritePrepare(net_lobby_start_write_plan_t *plan,");
+	const size_t mp = prepare.find("if (gamemode == NETGAMEMODE_MP) {");
+	const size_t scenario = prepare.find("plan->scenario_id, MANIFEST_SLOT_MATCH)) {", mp);
+	const size_t lookup = prepare.find("const s32 token = scenarioTokenWeaponNum((s32)plan->scenario);");
+	const size_t append = prepare.find("if (!token_id || !manifestAppendCatalogClosure(&plan->manifest,\n"
+		"\t\t\t\t\t\ttoken_id, MANIFEST_SLOT_MATCH)) {");
+	const size_t reject = prepare.find("\"host manifest cannot publish the scenario's token weapon\"");
+	const size_t hash = prepare.find("manifestComputeHash(&plan->manifest);");
+	REQUIRE(mp != std::string::npos);
+	REQUIRE(scenario != std::string::npos);
+	REQUIRE(lookup != std::string::npos);
+	REQUIRE(append != std::string::npos);
+	REQUIRE(reject != std::string::npos);
+	REQUIRE(hash != std::string::npos);
+	// in the Combat Simulator branch, after the scenario's own closure and
+	// before the manifest is hashed and published
+	REQUIRE(mp < scenario);
+	REQUIRE(scenario < lookup);
+	REQUIRE(lookup < append);
+	REQUIRE(append < reject);
+	REQUIRE(reject < hash);
+
+	// a real weapon with no session id is reported, once per weapon
+	const std::string writer = function_body(netmsg,
+		"static void netWriteWeaponRef(struct netbuf *dst, s32 weaponnum)\n{");
+	REQUIRE(writer.find("if (session == 0 && weaponnum > WEAPON_UNARMED && weaponnum < WEAPON_CUSTOM_END\n"
+		"\t\t\t&& sessionCatalogIsActive()) {") != std::string::npos);
+	REQUIRE(writer.find("has no session catalog id; clients read it as unarmed") != std::string::npos);
+	REQUIRE(writer.find("catalogWriteAssetRef(dst, session);") != std::string::npos);
+}
+
 TEST_CASE("bot stuck watchdog: a simulant downloading at a Hacker Central terminal is not stuck",
           "[bot][scenario][b1207]") {
 	// B-1207: a download is 20 s standing at the terminal; the port's stuck

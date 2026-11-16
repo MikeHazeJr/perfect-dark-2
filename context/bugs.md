@@ -1,5 +1,34 @@
 # Bug Tracker
 
+## 2026-11-16 B-1272 A scenario's token reaches clients as no weapon: the uplink and the briefcase have no session catalog id (T-NETWORKING-011, fixed in code, not yet run)
+
+Severity high for networked Hacker Central, Hold the Briefcase and Capture the Case. Seen in the first run of
+`mp_hacker_central_net_carrier_death_smoke` (d44b87d0, base 7, `results-20261116T212817Z.json`, 102/104): the host
+killed the uplink's carrier, made the replacement and announced it (`SCENARIO.NET: host announced the new uplink
+syncid=48 ... rc=0`, B-1209 working), and when simulant 3 took it the host sent `BOT.PICKUP: host sent simulant 3
+item 48 weapon=46` while the client replayed `item 48 weapon=1 result=1`: its copy of the uplink was a
+`WEAPON_UNARMED` weapon prop. (The run's other failure was the spec's: the match ended on the score limit, 5
+downloads, before the time limit.)
+
+Root cause: messages name a weapon by its session catalog id (`netWriteWeaponRef`), and a reader turns id 0 into
+`WEAPON_UNARMED` without a word. The session catalog is built from the match manifest, whose weapon pool takes only
+weapons with an MP weapon slot (`s_manifestSkipMpWeaponSlot`); the data uplink (46) and the briefcase
+(`WEAPON_BRIEFCASE2`) have none, so no Combat Simulator manifest listed them. Every message naming one reached
+clients as no weapon: an announced token (B-1209's replacement uplink or case, a dying carrier's dropped case), a
+simulant's held weapon (`SVC_CHR_STATE`, the resync), a player's gun in `SVC_PLAYER_STATS`, reconnect inventory. A
+client's token scans look for the token's weapon number on the ground (`htmNetPresent`, HTB and CTC alike), so a
+replacement or dropped token also vanished from its radar and HUD. Tokens placed at the stage start are made on
+both machines from the scenario's own template, so the first one was right, which is why the scoring smokes passed.
+
+Fix: `scenarioTokenWeaponNum` (`scenarios.c`) names each scenario's token (Hacker Central the data uplink, Hold the
+Briefcase and Capture the Case the briefcase), and the host's lobby start adds that weapon's catalog closure to
+the Combat Simulator manifest after the scenario's own (`MANIFEST-HOST: scenario N token weapon W as '<id>'`), or
+refuses the start. `netWriteWeaponRef` now says once per weapon, while a session catalog is live, when it sends a
+real weapon with no session id (`NET: weapon N ('<id>') has no session catalog id; clients read it as unarmed`),
+forbidden in the four Hacker Central, Hold the Briefcase and Capture the Case net smokes. Co-op and counter-op
+manifests scan the stage's setup and AI lists for weapons (`manifestBuildMission`), a separate path. Pinned by
+`[b1272]` in `tests/test_net_bot_pickup_static.cpp`. SP-93.
+
 ## 2026-11-16 B-1271 Hacker Central: a simulant that reaches the terminal facing away stands there and never downloads (T-NETWORKING-011, open, intermittent: the original's rule; fix waits for Mike)
 
 Severity medium (high when first seen): the simulant it catches scores nothing for the rest of the match; it takes a simulant reaching range facing away, local or networked. First seen in `mp_hacker_central_net_smoke` on binary
@@ -75,7 +104,7 @@ host removed it)`) and one more in Defense (`syncid=147 chrnum=56`), and played 
 (`MEMPC [shutdown]: all 5 allocations intact`); no fatal in either process. The reconnect snapshot's prop state
 (`netmsgSvcReconnectPropStateRead`) uses `propSetRooms` too since ae1fa9fd (SP-92 audit).
 
-## 2026-11-16 B-1209 Hacker Central's new uplink, and a new briefcase, exist only on the host (T-NETWORKING-011, fixed in code, not yet run)
+## 2026-11-16 B-1209 Hacker Central's new uplink, and a new briefcase, exist only on the host (T-NETWORKING-011, fixed; announcement checked in play, its weapon type was B-1272)
 
 Severity high for networked Hacker Central: once the first uplink carrier dies, no client sees the uplink or can
 take it, and the client skips every host pickup of it. Seen in `mp_hacker_central_net_smoke` on binary 5cd5d0e5

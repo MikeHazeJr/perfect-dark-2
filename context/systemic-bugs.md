@@ -4085,6 +4085,44 @@ grep -n "if (prop->active) {" port/src/net/netmsg.c
 - [-] `netmsgClcBotMoveRead` (bot-authority stub): a stub has no room
   registration; leave it.
 
+---
+
+## SP-93: An asset the match puts on the wire is missing from the match manifest, so clients read the default
+
+**Severity: HIGH - silent: the client shows a different object (no weapon, a fallback model) and nothing logs it.**
+
+Messages name assets by session catalog id, and the session catalog is built from the match manifest. A reader
+that gets id 0 falls back to a default (`netReadWeaponRef` returns `WEAPON_UNARMED`, `netReadModelRef` 0) without a
+word, and the writer sent 0 silently too. So every asset the match can name on the wire must be in the manifest,
+not only the ones the lobby chose: a scenario's own items, what a script or a death can drop, what a simulant can
+carry.
+
+**Known instance (B-1272, 2026-11-16):** the Combat Simulator manifest's weapon pool took only weapons with an MP
+weapon slot; Hacker Central's data uplink and the briefcase of Hold the Briefcase and Capture the Case have none,
+so every message naming one reached clients as no weapon (B-1209's replacement uplink replayed as `weapon=1`).
+Fixed by `scenarioTokenWeaponNum` and the lobby start's token closure.
+
+**Search:**
+```
+grep -n "netWriteWeaponRef(\|netWriteModelRef(\|catalogWriteAssetRef(" port/src/net/netmsg.c
+grep -n "s_manifestSkipMpWeaponSlot\|manifestAppendCatalogClosure(" port/src/net/netmanifest.c port/src/net/netmsg.c
+```
+In a run's host log: `NET: weapon N ('<id>') has no session catalog id`.
+
+**Rules:**
+- A new message field that names an asset by session id comes with the manifest entry that gives it one, for
+  every value the field can carry.
+- A writer that has no id for a real asset says so (once per asset); a silent 0 hides the gap.
+
+**Audit checklist:**
+- [x] Scenario tokens in the Combat Simulator manifest (B-1272).
+- [ ] Weapons a co-op or counter-op stage can drop that its setup and AI-list scans do not list (watch the new
+  warning in the co-op smokes).
+- [ ] `MPWEAPON_SHIELD` is skipped by both manifest weapon loops; check no message names the shield by id.
+- [ ] Model refs (`netWriteModelRef`) have no such warning yet.
+
+---
+
 ## SP-83: A Gfx union member reads its second word from the wrong bytes on 64-bit
 
 **Severity: HIGH — a decoder silently gets zeros or the wrong fields from every

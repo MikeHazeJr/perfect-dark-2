@@ -557,6 +557,24 @@ void scenarioNetAnnounceProp(struct prop *prop, const char *what)
 		what, (unsigned)prop->syncid, prop->pos.x, prop->pos.y, prop->pos.z, (unsigned)rc);
 }
 
+/* B-1272 (SP-93): a scenario's token is a weapon with no MP weapon slot, so
+ * the match manifest's weapon pool leaves it out. Without a session catalog id
+ * every message that names it (a carrier's drop, B-1209's replacement, a
+ * simulant's held weapon, reconnect inventory) reaches a client as unarmed. The
+ * host's lobby start adds the weapon named here. */
+s32 scenarioTokenWeaponNum(s32 scenario)
+{
+	switch (scenario) {
+	case MPSCENARIO_HACKERCENTRAL:
+		return WEAPON_DATAUPLINK;
+	case MPSCENARIO_HOLDTHEBRIEFCASE:
+	case MPSCENARIO_CAPTURETHECASE:
+		return WEAPON_BRIEFCASE2;
+	default:
+		return -1;
+	}
+}
+
 /* Every match starts from revision 0 on both sides. */
 static void scenarioNetResetState(void)
 {

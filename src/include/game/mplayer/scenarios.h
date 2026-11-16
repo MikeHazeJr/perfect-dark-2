@@ -48,6 +48,11 @@ s32 scenarioNetIsAuthority(void);
  * (SVC_PROP_SPAWN then SVC_PROP_MOVE); no-op offline and on a client. */
 void scenarioNetAnnounceProp(struct prop *prop, const char *what);
 
+/* B-1272: the runtime weapon a scenario puts in play as its token (Hacker
+ * Central's data uplink, the briefcase of Hold the Briefcase and Capture the
+ * Case), or -1. The match manifest must list it (SP-93). */
+s32 scenarioTokenWeaponNum(s32 scenario);
+
 /* Whether the running match's scenario has network state (a wire body). */
 s32 scenarioNetHasState(void);
 

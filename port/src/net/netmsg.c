@@ -4153,7 +4153,23 @@ static void netWriteWeaponRef(struct netbuf *dst, s32 weaponnum)
 {
 #if !defined(PD_SERVER)
 	const char *wid = catalogWeaponIdByRuntimeWeaponNum(weaponnum);
-	catalogWriteAssetRef(dst, wid ? sessionCatalogGetId(wid) : 0);
+	const u16 session = wid ? sessionCatalogGetId(wid) : 0;
+
+	/* SP-93 (B-1272): a reader turns id 0 into WEAPON_UNARMED, so a real
+	 * weapon the match manifest left out reaches clients as no weapon. Say
+	 * so once per weapon while a match's session catalog is live. */
+	if (session == 0 && weaponnum > WEAPON_UNARMED && weaponnum < WEAPON_CUSTOM_END
+			&& sessionCatalogIsActive()) {
+		static u8 s_warned[WEAPON_CUSTOM_END];
+
+		if (!s_warned[weaponnum]) {
+			s_warned[weaponnum] = 1;
+			sysLogPrintf(LOG_WARNING,
+				"NET: weapon %d ('%s') has no session catalog id; clients read it as unarmed",
+				weaponnum, wid ? wid : "not in the catalog");
+		}
+	}
+	catalogWriteAssetRef(dst, session);
 #else
 	catalogWriteAssetRef(dst, 0);
 #endif
@@ -10836,6 +10852,25 @@ static bool netLobbyStartWritePrepare(net_lobby_start_write_plan_t *plan,
 				plan->scenario_id, MANIFEST_SLOT_MATCH)) {
 			return netLobbyStartWriteReject(
 				"host manifest cannot publish scenario closure");
+		}
+		/* B-1272 (SP-93): the scenario's token weapon has no MP weapon slot,
+		 * so the weapon pool leaves it out of the manifest and the session
+		 * catalog; a client then reads every message naming it as unarmed. */
+		{
+			const s32 token = scenarioTokenWeaponNum((s32)plan->scenario);
+
+			if (token > 0) {
+				const char *token_id = catalogWeaponIdByRuntimeWeaponNum(token);
+
+				if (!token_id || !manifestAppendCatalogClosure(&plan->manifest,
+						token_id, MANIFEST_SLOT_MATCH)) {
+					return netLobbyStartWriteReject(
+						"host manifest cannot publish the scenario's token weapon");
+				}
+				sysLogPrintf(LOG_NOTE,
+					"MANIFEST-HOST: scenario %u token weapon %d as '%s'",
+					(unsigned)plan->scenario, token, token_id);
+			}
 		}
 		for (s32 wi = 0; wi < NUM_MPWEAPONSLOTS; wi++) {
 			if (plan->weapon_ids[wi][0]
