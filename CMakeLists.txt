@@ -1038,6 +1038,10 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/scene_pure.c
   ${CMAKE_SOURCE_DIR}/tests/test_scene_dispatch.cpp
 
+  # B-1169: the install's own mods folders (Mike 2026-11-15, option A).
+  ${CMAKE_SOURCE_DIR}/port/src/mods_install_roots.c
+  ${CMAKE_SOURCE_DIR}/tests/test_mods_install_roots.cpp
+
   # Cohort 4 (input universality and transitions, 2026-04-27): cutscene
   # flash fix invariants (K.2 + K.6). Mission 1 obj 2 bug repro.
   ${CMAKE_SOURCE_DIR}/tests/test_cutscene_layer.cpp
