@@ -251,7 +251,8 @@
       "GAMELOOP\\.COUNTEROP: no next mission",
       "start request failed",
       "BOOT: --debug-end-mission rejected",
-      "CLC_LOBBY_START gamemode=2 stage='base:investigation'.* antiClient=255"
+      "CLC_LOBBY_START gamemode=2 stage='base:investigation'.* antiClient=255",
+      "SAVE: Agent Profile serialization failed"
     ],
     "required_counts": [
       {

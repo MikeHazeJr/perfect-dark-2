@@ -256,7 +256,8 @@
       "BOOT: --debug-end-mission rejected",
       "BOOT: --debug-clone-guard (found no|could not|rejected)",
       "NET\\.NPC: client could not make the host's chr",
-      "NET\\.NPC: client has no chr for syncid="
+      "NET\\.NPC: client has no chr for syncid=",
+      "SAVE: Agent Profile serialization failed"
     ],
     "required_counts": [
       {

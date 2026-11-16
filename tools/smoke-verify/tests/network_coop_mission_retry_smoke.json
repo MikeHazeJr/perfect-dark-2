@@ -250,7 +250,8 @@
       "BOOT: --debug-end-mission rejected",
       "NET\\.NPC: client could not make the host's chr",
       "NET\\.NPC: client has no chr for syncid=",
-      "GAMELOOP\\.COOP: host chose next mission"
+      "GAMELOOP\\.COOP: host chose next mission",
+      "SAVE: Agent Profile serialization failed"
     ],
     "required_counts": [
       {
