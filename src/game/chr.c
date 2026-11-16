@@ -1043,8 +1043,15 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 
 						/* B-1191: on a networked client a simulant is a puppet
 						 * of the host, which decides its deaths (SVC_CHR_STATE);
-						 * a fall seen only by the client must not kill it. */
+						 * a fall seen only by the client must not kill it. The
+						 * same holds for a co-op or counter-op NPC on a client
+						 * (SVC_NPC_STATE; its AI is suppressed in chraTick). */
 						if (die && chr->aibot && botIsPuppetTick()) {
+							die = false;
+						}
+						if (die && !chr->aibot && g_NetMode == NETMODE_CLIENT
+								&& (g_NetGameMode == NETGAMEMODE_COOP
+									|| g_NetGameMode == NETGAMEMODE_ANTI)) {
 							die = false;
 						}
 

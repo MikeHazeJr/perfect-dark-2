@@ -900,9 +900,12 @@ static inline u32 netbufWritePropPtr(struct netbuf *buf, const struct prop *prop
 	return buf->error;
 }
 
-static inline struct prop *netbufReadPropPtr(struct netbuf *buf)
+static inline struct prop *netbufReadPropPtrWithId(struct netbuf *buf, u32 *out_syncid)
 {
 	const u32 syncid = netbufReadU32(buf);
+	if (out_syncid) {
+		*out_syncid = syncid;
+	}
 	if (syncid == 0) {
 		return NULL;
 	}
@@ -913,6 +916,11 @@ static inline struct prop *netbufReadPropPtr(struct netbuf *buf)
 
 	sysLogPrintf(LOG_WARNING, "NET: prop with syncid %u does not exist", syncid);
 	return NULL;
+}
+
+static inline struct prop *netbufReadPropPtr(struct netbuf *buf)
+{
+	return netbufReadPropPtrWithId(buf, NULL);
 }
 
 static inline s32 propRoomsEqual(const RoomNum *ra, const RoomNum *rb)
@@ -6632,13 +6640,26 @@ u32 netmsgSvcBotPickupRead(struct netbuf *src, struct netclient *srccl)
 
 	prop = netSyncIdLookup(itemsyncid);
 
-	if (prop == NULL || prop->obj == NULL
-			|| (prop->type != PROPTYPE_OBJ && prop->type != PROPTYPE_WEAPON)
-			|| prop->timetoregen != 0
-			|| (prop->obj->hidden & OBJHFLAG_DELETING)) {
-		sysLogPrintf(LOG_WARNING, "BOT.PICKUP: client skipped item %u for simulant %d, it is not in this world",
-			(unsigned)itemsyncid, mpPlayerGetIndex(chr));
-		return 0;
+	{
+		/* B-1194: say which test refused, and what this client holds under
+		 * the id, to compare with the host's sent line (objtype, pos). */
+		const char *refusal = prop == NULL ? "no prop has this sync id"
+			: prop->obj == NULL ? "the prop has no object"
+			: (prop->type != PROPTYPE_OBJ && prop->type != PROPTYPE_WEAPON) ? "the prop is not an object or weapon"
+			: prop->timetoregen != 0 ? "the item is waiting to respawn"
+			: (prop->obj->hidden & OBJHFLAG_DELETING) ? "the item is being deleted"
+			: NULL;
+
+		if (refusal) {
+			sysLogPrintf(LOG_WARNING, "BOT.PICKUP: client skipped item %u for simulant %d, it is not in this world (%s; first_dynamic=%u type=%d objtype=%d timetoregen=%d pos=(%.0f,%.0f,%.0f))",
+				(unsigned)itemsyncid, mpPlayerGetIndex(chr), refusal,
+				(unsigned)g_NetFirstDynamicSyncId,
+				prop ? (s32)prop->type : -1,
+				prop && prop->obj ? (s32)prop->obj->type : -1,
+				prop ? (s32)prop->timetoregen : 0,
+				prop ? prop->pos.x : 0.0f, prop ? prop->pos.y : 0.0f, prop ? prop->pos.z : 0.0f);
+			return 0;
+		}
 	}
 
 	weaponnum = prop->type == PROPTYPE_WEAPON && prop->weapon ? prop->weapon->weaponnum : -1;
@@ -8211,6 +8232,73 @@ bool netNpcIsReplicationReady(const struct chrdata *chr)
 	return true;
 }
 
+/* B-1196 diagnostic (T-NETWORKING-011): a host prop allocated after the stage
+ * start's sync id assignment gets a dynamic id (prop.c), and a client knows it
+ * only if a spawn message names it. The co-op mission end smoke saw
+ * SVC_NPC_MOVE for such a chr on every update and nothing that names it. Each
+ * side logs each such id once, so a run can say which chr it is and whether
+ * the client holds an unlinked copy of it. */
+#define NET_NPC_DYNAMIC_LOG_MAX 32
+
+static u32 s_NetNpcDynamicLogged[NET_NPC_DYNAMIC_LOG_MAX];
+static s32 s_NetNpcDynamicLoggedCount = 0;
+static u32 s_NetNpcDynamicLoggedFirst = 0;
+
+static bool netNpcDynamicLogClaim(u32 syncid)
+{
+	if (s_NetNpcDynamicLoggedFirst != g_NetFirstDynamicSyncId) {
+		s_NetNpcDynamicLoggedFirst = g_NetFirstDynamicSyncId;
+		s_NetNpcDynamicLoggedCount = 0;
+	}
+	for (s32 i = 0; i < s_NetNpcDynamicLoggedCount; i++) {
+		if (s_NetNpcDynamicLogged[i] == syncid) {
+			return false;
+		}
+	}
+	if (s_NetNpcDynamicLoggedCount >= NET_NPC_DYNAMIC_LOG_MAX) {
+		return false;
+	}
+	s_NetNpcDynamicLogged[s_NetNpcDynamicLoggedCount++] = syncid;
+	return true;
+}
+
+static void netNpcLogMissingOnce(u32 syncid, const struct coord *pos, s32 room)
+{
+	const struct chrdata *nearest = NULL;
+	f32 nearestdist2 = 0.0f;
+
+	if (!netNpcDynamicLogClaim(syncid)) {
+		return;
+	}
+	for (s32 i = 0; i < g_NumChrSlots; i++) {
+		const struct chrdata *chr = &g_ChrSlots[i];
+		if (!chr->prop || chr->prop->chr != chr) {
+			continue;
+		}
+		const f32 dx = chr->prop->pos.x - pos->x;
+		const f32 dy = chr->prop->pos.y - pos->y;
+		const f32 dz = chr->prop->pos.z - pos->z;
+		const f32 dist2 = dx * dx + dy * dy + dz * dz;
+		if (!nearest || dist2 < nearestdist2) {
+			nearest = chr;
+			nearestdist2 = dist2;
+		}
+	}
+	if (!nearest) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.NPC: client has no chr for syncid=%u host pos=(%.0f,%.0f,%.0f) room=%d; no local chrs",
+			syncid, pos->x, pos->y, pos->z, room);
+		return;
+	}
+	sysLogPrintf(LOG_WARNING,
+		"NET.NPC: client has no chr for syncid=%u host pos=(%.0f,%.0f,%.0f) room=%d; nearest local chr chrnum=%d syncid=%u type=%d body=%d head=%d delta=(%.0f,%.0f,%.0f)",
+		syncid, pos->x, pos->y, pos->z, room,
+		nearest->chrnum, nearest->prop->syncid, nearest->prop->type,
+		nearest->bodynum, nearest->headnum,
+		nearest->prop->pos.x - pos->x, nearest->prop->pos.y - pos->y,
+		nearest->prop->pos.z - pos->z);
+}
+
 /* ========================================================================
  * SVC_NPC_MOVE - Server-authoritative NPC position update
  * Sent every few frames for NPCs in co-op mode.
@@ -8224,6 +8312,14 @@ u32 netmsgSvcNpcMoveWrite(struct netbuf *dst, struct chrdata *chr)
 	}
 
 	struct prop *prop = chr->prop;
+
+	if (prop->syncid >= g_NetFirstDynamicSyncId && netNpcDynamicLogClaim(prop->syncid)) {
+		sysLogPrintf(LOG_NOTE,
+			"NET.NPC: host replicates a chr created after the stage start syncid=%u chrnum=%d body=%d head=%d team=0x%02x hidden=0x%08x chrflags=0x%08x action=%d pos=(%.0f,%.0f,%.0f) room=%d",
+			prop->syncid, chr->chrnum, chr->bodynum, chr->headnum, chr->team,
+			chr->hidden, chr->chrflags, chr->actiontype,
+			prop->pos.x, prop->pos.y, prop->pos.z, prop->rooms[0]);
+	}
 
 	netbufWriteU8(dst, SVC_NPC_MOVE);
 	netbufWritePropPtr(dst, prop);
@@ -8245,7 +8341,8 @@ u32 netmsgSvcNpcMoveWrite(struct netbuf *dst, struct chrdata *chr)
 
 u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl)
 {
-	struct prop *prop = netbufReadPropPtr(src);
+	u32 syncid = 0;
+	struct prop *prop = netbufReadPropPtrWithId(src, &syncid);
 	struct coord newpos;
 	netbufReadCoord(src, &newpos);
 	const f32 newangle = netbufReadF32(src);
@@ -8261,6 +8358,10 @@ u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
+	if (!prop && syncid != 0) {
+		netNpcLogMissingOnce(syncid, &newpos, newrooms[0]);
+	}
+
 	if (!prop || !netNpcIsReplicationReady(prop->chr)
 			|| prop->chr->prop != prop) {
 		return src->error;
@@ -8268,9 +8369,15 @@ u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl)
 
 	struct chrdata *chr = prop->chr;
 
-	// Apply server-authoritative position
+	/* Apply the server-authoritative position. B-1191 propagation: through
+	 * chrSetPos, as SVC_CHR_MOVE does, so the ground, rooms (with
+	 * registration), model root and force-to-ground follow the host. chr.c
+	 * rebuilds a chr's position every tick from its model root and
+	 * manground, so a bare prop->pos write let the client's NPC snap back to
+	 * its old root or fall. A move without rooms keeps the current ones. */
 	chr->prevpos = prop->pos;
-	prop->pos = newpos;
+	chrSetPos(chr, &newpos, newrooms[0] >= 0 ? newrooms : prop->rooms, 0.0f, false);
+	// chrSetPos set an angle from its theta argument; keep the host's
 	chrSetLookAngle(chr, newangle);
 	chr->myaction = myaction;
 	chr->actiontype = actiontype;
@@ -8283,14 +8390,6 @@ u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl)
 	chr->surface_up[0] = newsurface_x;
 	chr->surface_up[1] = newsurface_y;
 	chr->surface_up[2] = newsurface_z;
-
-	// Update rooms
-	for (s32 i = 0; i < ARRAYCOUNT(prop->rooms); ++i) {
-		prop->rooms[i] = newrooms[i];
-		if (newrooms[i] < 0) {
-			break;
-		}
-	}
 
 	return src->error;
 }

@@ -1202,6 +1202,8 @@ static u32 botPickupPropAndAnnounce(struct prop *prop, struct chrdata *chr)
 {
 	struct defaultobj *obj = prop->obj;
 	const u32 syncid = prop->syncid;
+	const struct coord pos = prop->pos;
+	const s32 objtype = obj ? obj->type : -1;
 	const s32 weaponnum = prop->type == PROPTYPE_WEAPON && prop->weapon ? prop->weapon->weaponnum : -1;
 	const s32 wasdeleting = obj != NULL && (obj->hidden & OBJHFLAG_DELETING) != 0;
 	const s32 hadcase = chr->aibot->hascase;
@@ -1216,8 +1218,11 @@ static u32 botPickupPropAndAnnounce(struct prop *prop, struct chrdata *chr)
 
 		if (tookeffect) {
 			netmsgSvcBotPickupWrite(&g_NetMsgRel, chr, syncid);
-			sysLogPrintf(LOG_NOTE, "BOT.PICKUP: host sent simulant %d item %u weapon=%d result=%u",
-				mpPlayerGetIndex(chr), (unsigned)syncid, weaponnum, (unsigned)result);
+			/* B-1194: the item's place and type, to match the client's view of
+			 * the same sync id when it skips the replay. */
+			sysLogPrintf(LOG_NOTE, "BOT.PICKUP: host sent simulant %d item %u weapon=%d result=%u objtype=%d pos=(%.0f,%.0f,%.0f)",
+				mpPlayerGetIndex(chr), (unsigned)syncid, weaponnum, (unsigned)result,
+				objtype, pos.x, pos.y, pos.z);
 		}
 	}
 

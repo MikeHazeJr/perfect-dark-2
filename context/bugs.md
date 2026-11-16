@@ -1,5 +1,23 @@
 # Bug Tracker
 
+## 2026-11-15 B-1196 A networked co-op client is sent moves for a chr it does not have (T-NETWORKING-011, open)
+
+Severity medium until the chr is named (the client cannot see or place that chr; if it is an enemy, the client is
+shot by someone it cannot see). Seen in `network_coop_mission_end_smoke` on binary 8c56ad72 (119/121; both failures
+are this): the client logged `NET: prop with syncid 335 does not exist` 720 times, every 55 ms on average (the
+20 Hz `SVC_NPC_MOVE`), from 1.5 s after Defection's gameplay start until the mission end. Both sides agree on the
+initial ids (`last initial syncid=331 first dynamic syncid=332`), so 335 is the host's fourth prop allocated after
+the stage start: on the host every such prop takes `g_NetNextSyncId++` (`propAllocate`), on a client it stays 0
+unless a spawn message names it, and `SVC_PROP_SPAWN` carries objects only. `SVC_NPC_MOVE` goes to every chr
+`netNpcIsReplicationReady` accepts (`PROPTYPE_CHR`), so 335 is a chr. Not a scripted spawn: Defection's AI lists
+have no `spawn_chr_at_pad`/`spawn_chr_at_chr`, and the co-op buddy spawn (`player.c`) needs `normmplayerisrunning`
+0, which networked co-op is not. The initial NPC snapshots matched (36 and 52 NPCs), and no periodic check compares
+the count, so nothing else notices. Diagnostics added (not yet run): the host logs each chr with a dynamic id once
+when it first sends its move (`NET.NPC: host replicates a chr created after the stage start ...`), and the client
+logs each unknown id once with its nearest local chr (`NET.NPC: client has no chr for syncid=...`). That says
+which chr it is and whether the client holds an unlinked copy (deterministic creation on both sides) or none
+(host-only creation, which needs a spawn message).
+
 ## 2026-11-15 B-1195 The listen host crashes when it leaves Combat results for the Room (T-NETWORKING-011, fixed in code)
 
 Severity high (the host crashes in every networked Combat match with simulants once it presses Continue on its
@@ -31,8 +49,11 @@ replayed later ones (items 34 to 43). No `BOT.DROP` lines, so these are not drop
 lowest, which suggests the arena's starting weapon pickups have no counterpart with the same sync id on the client.
 The 3-simulant runs never took one. Each skipped item was the host's first pickup of it (no earlier pickup on
 either side), so it is not respawn-timer drift: the reader's refusal (`netmsgSvcBotPickupRead`: no prop for the sync
-id, not an object or weapon, `timetoregen != 0`, or deleting) holds from the start. Next: log the client's prop for
-those sync ids at stage start to see which test refuses them.
+id, not an object or weapon, `timetoregen != 0`, or deleting) holds from the start. Diagnostic added 2026-11-16
+(not yet run): the host's `BOT.PICKUP: host sent` line now carries the item's object type and position, and the
+client's skip line names the test that refused and what it holds under the id (type, object type, respawn timer,
+position, and the first dynamic id). Initial ids are prop slot index + 1 on each side (`netSyncIdsAllocate`), so a
+"no prop has this sync id" with a low id means the client's setup left that slot free.
 
 ## 2026-11-15 B-1193 The networked co-op and counter-op mission end is local on each machine (T-NETWORKING-011, Mike: host control)
 
@@ -117,7 +138,11 @@ saw (the host sends deaths). Pinned in `tests/test_mp_chrnum_static.cpp` (`[b119
 aiming pose toward a target and which death animation plays (the client picks one). Propagation: the co-op NPC
 reader `netmsgSvcNpcMoveRead` makes the same bare `prop->pos` write; the co-op run verified the NPC snapshot
 (`SVC_NPC_SYNC snapshot verified ... count=36`, idle NPCs), but walking NPCs on a client are unproven, left to the
-co-op step. Game check: `mp_combat_net_bot_render_smoke` PASS 66/66 on binary 91a54a5d
+co-op step. Propagation done in code 2026-11-16: `netmsgSvcNpcMoveRead` places the NPC through `chrSetPos` (the
+current rooms kept when a move has none), and the root position callback no longer kills a co-op or counter-op NPC
+on a client for a fall only the client saw (the host decides; `chraTick` already suppresses that NPC's AI there).
+Pinned in `tests/test_mp_chrnum_static.cpp` (`[coop][b1191]`). Walking NPCs on a client are still not proven in
+play: no smoke checks an NPC's place on the client. Game check: `mp_combat_net_bot_render_smoke` PASS 66/66 on binary 91a54a5d
 (`results-20261115T214359Z.json`): the client's simulant is on screen (`prop_flags=0xc4`, `propsSort-included`,
 `chrRender-modelRender`), animated (animation 89, frames advancing) and at its height (y -604). Fixed in play.
 Observation: the client still logs some `chr desync detected` (14 in that run, 2 resyncs, against 32 before): the

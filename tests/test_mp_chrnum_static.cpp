@@ -295,6 +295,29 @@ TEST_CASE("simulants on a networked client: the puppet is animated and placed fr
 	REQUIRE(chr.find("die = false;", guard) < kill);
 }
 
+TEST_CASE("co-op NPCs on a networked client: placed from the host's move, no client-only fall death",
+          "[mplayer][net][coop][b1191]") {
+	// B-1191 propagation: SVC_NPC_MOVE places a co-op or counter-op NPC
+	// through chrSetPos as well, not with a bare prop->pos write
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string move = function_body(msg, "u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t place = move.find("chrSetPos(chr, &newpos, newrooms[0] >= 0 ? newrooms : prop->rooms, 0.0f, false);");
+	const size_t angle = move.find("chrSetLookAngle(chr, newangle);");
+	REQUIRE(place != std::string::npos);
+	REQUIRE(angle != std::string::npos);
+	REQUIRE(place < angle);
+	REQUIRE(move.find("prop->pos = newpos;") == std::string::npos);
+	REQUIRE(move.find("prop->rooms[i] = newrooms[i];") == std::string::npos);
+
+	// The host decides such an NPC's death too (its AI is suppressed there)
+	const std::string chr = code_only(read_text_file("src/game/chr.c"));
+	const size_t guard = chr.find("if (die && !chr->aibot && g_NetMode == NETMODE_CLIENT");
+	const size_t kill = chr.find("chrDie(chr, shooter);", guard);
+	REQUIRE(guard != std::string::npos);
+	REQUIRE(kill != std::string::npos);
+	REQUIRE(chr.find("die = false;", guard) < kill);
+}
+
 TEST_CASE("challenge start: a Combat Challenge takes 1 to 4 human players",
           "[mplayer][challenges][finding10]") {
 	// Mike, 2026-11-15: as in the original; an offline start refuses more
