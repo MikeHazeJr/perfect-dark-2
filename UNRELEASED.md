@@ -17,8 +17,11 @@
 - In networked co-op and counter-op, each player now sees only their own
   mission results, and co-op results show both players' stats. The host
   chooses what comes next: its Next Mission takes the other player along
-  into the next mission, and in counter-op that player stays the enemy
-  agent.
+  into the next mission, its Retry Mission restarts the mission for both,
+  and in counter-op that player stays the enemy agent.
+
+- Networked co-op and counter-op missions now save your agent's progress at
+  the end; the save used to be refused.
 
 - A networked co-op partner now sees the guards that appear during a
   mission, such as a guard calling in a copy of itself.

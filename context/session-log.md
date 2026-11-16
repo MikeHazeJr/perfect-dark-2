@@ -1,5 +1,23 @@
 # Session Log (Active)
 
+2026-11-16 (00:25 ET) MULTIPLAYER, continued. All pushed (head c3d737c3). The 0587e908 game turn proved in play co-op
+Retry Mission (126/126) and the networked Combat rematch (95/95); co-op Return to Room reached the Room on both machines
+(125/129), then the client crashed when the host left: B-1201, the ended mission stayed loaded behind the Room and ran
+offline and unpaused, fixed in 6158cf4c (the disconnect leaves such a stage for CI and freezes it first). B-1194 named
+from the host's new pickup diagnostic and fixed in 7ea55351: the skipped items were disarmed simulants' own guns
+(`botDisarm` drops the held model after clearing `weapons_held`, so nothing announced it), and `SVC_CHR_DAMAGE` ran the
+same disarm on the client's puppet, which dropped a copy of its own; the chr drop block now announces every runtime-made
+weapon it drops, and the puppet retires its model. B-1202 found by reading the Hold the Briefcase scores (7 points in
+151 s, where 5 is the cap) and fixed in 4189fb54: `lvRender` passes the props once per player of a networked match, and
+since 41431a3d `botTick` ran its whole update on every pass, so with two players every simulant thought, turned, picked
+up and scored twice a frame; the original `PROPFLAG_NOTYETTICKED` gate is back (SP-87 claimed for the class). c3d737c3
+adds `MATCH.POINTS` and Hold the Briefcase holder lines and makes the Pop a Cap, Hacker Central and Capture the Case local
+smokes 150 s scoring checks. pd-tests 1,993 cases green. Queued on binary c5a12bca: q_20261116050125504_74a4fe33 (co-op
+Return to Room, simulant types net) then q_20261116052314091_3ff93b3f (Hold the Briefcase net and local, Pop a Cap
+local); the Hacker Central and Capture the Case local scoring smokes are ready for a later turn. Tell Mike: B-1202 puts
+networked simulants back at their offline speed. Decisions for Mike unchanged (Challenges and presets in the Room, co-op
+drop and rejoin, the AI-buddy option).
+
 2026-11-15 (23:05 ET) MULTIPLAYER, continued. All pushed (head 9eb1eaa9). The 732dd2fe game turn proved in play the whole
 networked Combat rematch (93/95; the two misses were stale counts, fixed), B-1196 (co-op guard clones replicated with
 `SVC_NPC_SPAWN`, 129/129, including a natural clone with the original failure's sync id), the counter-op mission end
