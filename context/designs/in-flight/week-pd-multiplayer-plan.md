@@ -355,6 +355,17 @@ Progress log:
   `SVC_NPC_MOVE` for a chr it does not have (the co-op run's only failures; diagnostics in 3cad23d4). 3cad23d4 also
   places co-op NPCs on a client through `chrSetPos` (B-1191 propagation) and adds the B-1194 pickup diagnostic.
   Game turn q_20261116004335252_ec21ba5e on binary 9078eb6b: rematch, co-op mission end, simulant types net.
+- Game turns on 9078eb6b, 30973012, 30628ea5, 732dd2fe and 0587e908 (2026-11-16 00:45-04:45 UTC): co-op mission end
+  121/121 and then 129/129 with guard clones replicated (B-1196, `SVC_NPC_SPAWN`), counter-op mission end 127/127,
+  the whole networked Combat rematch 95/95 (B-1195, B-1197 closing networked results no longer loads CI, B-1200 the
+  rolled spawn weapon is forgotten at the match end), co-op Retry Mission 126/126, local King of the Hill scoring.
+  Fixed on the way: B-1198 (a disconnect ends a networked mission without results), B-1199 (the networked agent save
+  read player 2's controls from the remote partner's slot). Found by the last turn and fixed in code: B-1201 (a co-op
+  client in the Room crashed when the host left; 6158cf4c), B-1194 (a disarmed simulant's own gun reached the world
+  unannounced; 7ea55351). Found by reading the Hold the Briefcase scores: B-1202 (with two players every networked
+  simulant updated twice a frame, `botTick` ignored `PROPFLAG_NOTYETTICKED` since 41431a3d; 4189fb54, SP-87).
+  c3d737c3 logs scenario points and briefcase holders and makes three more local smokes 150 s scoring checks. Queued
+  on binary c5a12bca: q_20261116050125504_74a4fe33 and q_20261116052314091_3ff93b3f.
 
 Next units, in order:
 1. Re-run the other two-process baselines against the fix (reconnect first: its harness events used
