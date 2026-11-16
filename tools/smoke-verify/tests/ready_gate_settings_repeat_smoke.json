@@ -1,0 +1,123 @@
+{
+  "scenario_name": "ready_gate_settings_repeat_smoke",
+  "description": "B-1208 (T-NETWORKING-011, 2026-11-16) positive twin of ready_gate_settings_rollback_smoke. During a real immutable ready gate the remote ordinary client sends its settings again through netClientSettingsChanged and CLC_SETTINGS with nothing changed, as its Room opening (the match setup reset) or a settings menu closing sends them. The authority must keep the prepared roster, publish nothing, and start the match: no rollback, no SVC_MATCH_CANCELLED, both machines in the live stage. Before the fix such a repeat, landing 0.16 s after the gate opened, rolled the gate back and network_coop_mission_end_smoke never started its mission. Port 27218.",
+  "tags": ["network", "ready-gate", "settings", "protocol", "multi-process", "smoke"],
+  "paths_of_interest": [
+    "port/src/main.c",
+    "port/src/pdmain.c",
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 330,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable", "--no-update-check", "--no-sound", "--skip-intro", "--host",
+        "--listen-bind", "27218",
+        "--launch-mp-room", "base:arena_mp_felicity", "base:combat", "0",
+        "--host-autostart"
+      ],
+      "wait_for": "NET: created server on port 27218",
+      "wait_timeout_seconds": 140,
+      "assertions": {
+        "required_lines": [
+          "PLAYER.INIT.COMMIT lobby-start room=\\d+ mode=0 players=2 bots=0 manifest=[1-9]\\d*",
+          "NET: CLC_SETTINGS client=1 repeats its settings during the ready gate; gate kept, nothing published",
+          "PLAYER.INIT.COMMIT lobby-start room=\\d+ rollback_snapshot_released=1",
+          "MATCH: server stage start"
+        ],
+        "required_sequences": [
+          {
+            "name": "repeat-inside-the-gate-then-launch",
+            "patterns": [
+              "PLAYER.INIT.COMMIT lobby-start room=\\d+ mode=0 players=2 bots=0",
+              "NET: CLC_SETTINGS client=1 repeats its settings during the ready gate; gate kept, nothing published",
+              "PLAYER.INIT.COMMIT lobby-start room=\\d+ rollback_snapshot_released=1",
+              "MATCH: server stage start"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "PLAYER.INIT.ROLLBACK",
+          "NET: ready gate aborted",
+          "NET: rejected CLC_SETTINGS",
+          "NET: kicking client 1",
+          "SMOKE: result=timeout",
+          "EXCEPTION_ACCESS_VIOLATION",
+          "ACCESS_VIOLATION",
+          "FATAL: "
+        ],
+        "required_counts": [
+          { "pattern": "NET: CLC_SETTINGS client=1 repeats its settings during the ready gate", "min": 1, "max": 1 }
+        ]
+      }
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable", "--no-update-check", "--no-sound", "--skip-intro",
+        "--connect-host", "127.0.0.1:27218",
+        "--debug-ready-gate-settings-repeat"
+      ],
+      "assertions": {
+        "required_lines": [
+          "BOOT: --debug-ready-gate-settings-repeat armed smoke=1 one_shot=1",
+          "SMOKE.NET.SETTINGS_REPEAT sent state=\\d+ handicap=\\d+ rc=0 ordinary_clc_settings=1 one_shot=1",
+          "MATCH: client stage start received",
+          "SMOKE: result=scripted_exit"
+        ],
+        "forbidden_patterns": [
+          "NET: SVC_MATCH_CANCELLED",
+          "NET: disconnected from server: Kicked",
+          "NET: rejected CLC_SETTINGS",
+          "SMOKE.NET.SETTINGS_CHANGE rejected",
+          "SMOKE.NET.SETTINGS_CHANGE sent",
+          "SMOKE: result=timeout",
+          "EXCEPTION_ACCESS_VIOLATION",
+          "ACCESS_VIOLATION",
+          "FATAL: "
+        ],
+        "required_counts": [
+          { "pattern": "SMOKE.NET.SETTINGS_REPEAT sent .* ordinary_clc_settings=1 one_shot=1", "min": 1, "max": 1 }
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 270000,
+      "stable_ms": 1000,
+      "comment": "The client hook waits internally for the exact PREPARING state and sends one real validated CLC_SETTINGS repeat; each process then waits for its live network stage."
+    },
+    { "at_ms": 3000, "type": "exit", "comment": "Three seconds of the live stage on both machines, then a scripted exit." }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=ready_gate_settings_repeat_smoke",
+      "NET: created server on port 27218",
+      "NET: incoming connection",
+      "NET: CLC_SETTINGS client=1 repeats its settings during the ready gate",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "PLAYER.INIT.ROLLBACK",
+      "NET: SVC_MATCH_CANCELLED"
+    ],
+    "required_counts": [
+      { "pattern": "SMOKE: scenario=ready_gate_settings_repeat_smoke", "min": 2, "max": 2 },
+      { "pattern": "SMOKE.NET.SETTINGS_REPEAT sent .* one_shot=1", "min": 1, "max": 1 },
+      { "pattern": "SMOKE: result=scripted_exit", "min": 1, "max": 2 }
+    ]
+  }
+}

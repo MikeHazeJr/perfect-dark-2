@@ -244,6 +244,11 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       sends it through netClientSettingsChanged/CLC_SETTINGS. This proves a
  *       prepared launch rolls back before the validated candidate publishes.
  *
+ *   --debug-ready-gate-settings-repeat
+ *       Smoke-only one-shot. The same send at the same boundary with nothing
+ *       changed, as a Room opening or a settings menu closing sends it
+ *       (B-1208): the prepared launch must keep its roster and start.
+ *
  *   --debug-spawn-weapon <catalog_id>
  *       After --launch-mp-room seeds g_MatchConfig, forces the spawn weapon
  *       mode to SPECIFIC using the supplied weapon catalog ID.  Used by
@@ -427,7 +432,7 @@ static s32         g_BootHostAutostartPeers = 1;
 static u8          g_BootHostAutostartGameMode = NETGAMEMODE_MP;
 static s32         g_BootHostAutostartFired = 0;
 static s32         g_BootHostAutostartSettleFrames = 0;
-static s32         g_BootReadyGateSettingsChangeArmed = 0;
+static s32         g_BootReadyGateSettingsChangeArmed = 0; /* 1 change, 2 repeat (B-1208) */
 static s32         g_BootReadyGateSettingsChangeFired = 0;
 /* c3845: auto-start sequencing state machine.
  *   0 = waiting for remote-in-lobby + settle (handled by SettleFrames above)
@@ -2907,6 +2912,16 @@ static void bootApplyCliFastPaths(void)
 				"BOOT: --debug-ready-gate-settings-change armed smoke=1 one_shot=1");
 		}
 	}
+	if (sysArgCheck("--debug-ready-gate-settings-repeat")) {
+		if (!smokeHarnessIsActive()) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-ready-gate-settings-repeat is smoke-only; request ignored");
+		} else {
+			g_BootReadyGateSettingsChangeArmed = 2;
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-ready-gate-settings-repeat armed smoke=1 one_shot=1");
+		}
+	}
 	if (sysArgCheck("--debug-generated-mesh-render-audit")) {
 		modAssetCompilerSetGeneratedModeldefRenderAudit(1);
 	}
@@ -4432,6 +4447,19 @@ s32 bootReadyGateSettingsChangeTick(void)
 	if (g_NetMode != NETMODE_CLIENT || g_NetLocalClient == NULL
 			|| g_NetLocalClient->state != CLSTATE_PREPARING) {
 		return 0;
+	}
+
+	if (g_BootReadyGateSettingsChangeArmed == 2) {
+		/* B-1208: the same ordinary send with nothing changed. The authority
+		 * must keep its prepared roster and start the match. */
+		g_BootReadyGateSettingsChangeFired = 1;
+		g_BootReadyGateSettingsChangeArmed = 0;
+		rc = netClientSettingsChanged();
+		sysLogPrintf(rc == 0 ? LOG_NOTE : LOG_ERROR,
+			"SMOKE.NET.SETTINGS_REPEAT sent state=%u handicap=%u rc=%d ordinary_clc_settings=1 one_shot=1",
+			(unsigned)g_NetLocalClient->state,
+			(unsigned)g_NetLocalClient->settings.handicap, rc);
+		return 1;
 	}
 
 	prior_handicap = g_PlayerConfigsArray[0].handicap;

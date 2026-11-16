@@ -2037,6 +2037,27 @@ static s32 netmsgReconnectContextSend(struct netclient *dstcl,
 			wire->manifest_len);
 }
 
+/* B-1208: true when a validated candidate repeats the client's published
+ * settings field for field. Raw wire values are compared, before the team and
+ * handicap rules the reader applies, so a candidate those rules would map back
+ * to the same values still counts as a change (the gate rolls back, as before). */
+static bool netmsgClcSettingsUnchanged(const struct netclient *srccl,
+		const net_client_settings_plan_t *plan)
+{
+	return srccl->settings.name[0] != '\0'
+		&& strncmp(srccl->settings.name, plan->name,
+			sizeof(srccl->settings.name) - 1) == 0
+		&& strncmp(srccl->settings.body_id, plan->identity.body_id,
+			CATALOG_ID_LEN - 1) == 0
+		&& strncmp(srccl->settings.head_id, plan->identity.head_id,
+			CATALOG_ID_LEN - 1) == 0
+		&& srccl->settings.options == plan->options
+		&& srccl->settings.team == plan->team
+		&& srccl->settings.handicap == plan->handicap
+		&& srccl->settings.fovy == plan->fovy
+		&& srccl->settings.fovzoommult == plan->fovzoommult;
+}
+
 u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 {
 	net_client_settings_plan_t plan;
@@ -2120,6 +2141,16 @@ u32 netmsgClcSettingsRead(struct netbuf *src, struct netclient *srccl)
 	 * that snapshot. Roll back the exact gate first, then apply the candidate to
 	 * restored lobby state. Invalid wire never reaches this boundary. */
 	if (readyGatePreparingClientIndex(srccl) >= 0) {
+		/* B-1208: a client re-sends its settings when its Room opens (the
+		 * match setup reset) and when a settings menu closes, changed or not.
+		 * A repeat of the published record changes nothing beneath the
+		 * snapshot, so the gate keeps its roster and nothing is published. */
+		if (netmsgClcSettingsUnchanged(srccl, &plan)) {
+			sysLogPrintf(LOG_NOTE,
+				"NET: CLC_SETTINGS client=%u repeats its settings during the ready gate; gate kept, nothing published",
+				(unsigned)srccl->id);
+			return 0;
+		}
 		sysLogPrintf(LOG_NOTE,
 			"PLAYER.INIT.ROLLBACK ready-gate reason=settings_changed client=%u validated_candidate=1 settings_published=0",
 			(unsigned)srccl->id);
