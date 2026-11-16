@@ -734,7 +734,10 @@ static void saveCaptureAgentDocument(const char *name,
 	document->sfxvolume = g_SfxVolume;
 	document->musicvolume = optionsGetMusicVolume();
 	document->soundmode = g_SoundMode;
-	document->controlmode[0] = saveAgentControlModeForSlot(player1, -1);
+	/* On a networked co-op or counter-op client the host's player, slot 0,
+	 * is the remote one; the local player's own setting is then in slot 1. */
+	document->controlmode[0] = saveAgentControlModeForSlot(player1,
+		player2 == 1 ? 1 : -1);
 	document->controlmode[1] = saveAgentControlModeForSlot(player2,
 		player2 != 5 ? 5 : -1);
 	for (s32 challenge = 0; challenge < SAVE_AGENT_CHALLENGE_COUNT; challenge++) {
