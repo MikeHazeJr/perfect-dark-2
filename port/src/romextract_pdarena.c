@@ -67,6 +67,7 @@
 #include "romextract_pd.h"
 #include "romextract_texture_stage.h"
 #include "scenario_stage_rules.h"
+#include "scenario_dyntex.h"
 #include "sha256.h"
 #include "system.h"
 #include "texture_decode_pure.h"
@@ -83,11 +84,11 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "../external/stb_image_write.h"
 
-#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945"
+#define PDSCENARIO_BG_VISUAL_EXPORT_VERSION "bg_visual_scene_glb_v12_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_materialextras_dualtex_alphablend_cipalfix_b943_iafix_b945_dyntex"
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -244,6 +245,10 @@ typedef struct {
 	f32 u, v;
 	u8 r, g, b, a;
 	u16 roomnum;
+	/* Animated surfaces (bg scene vertices): the vertex's N64 texture
+	 * coordinates before the room's texture scale, and that scale. */
+	s16 dyntex_s, dyntex_t;
+	u16 dyntex_scale_s, dyntex_scale_t;
 } pdscenario_visual_vertex_t;
 
 typedef struct {
@@ -302,6 +307,7 @@ typedef struct {
 	s32 min;
 	s32 flag;
 	s32 alpha_mode; /* PDSCENARIO_ALPHA_*; OPAQUE/MASK/BLEND, set from opa/xlu source */
+	s32 animation; /* SCENARIO_DYNTEX_*: the dyntex.c preset its texture moves by */
 	u32 tri_count;
 	pdscenario_visual_vertex_t *vertices;
 	u32 vertex_count;
@@ -329,6 +335,7 @@ typedef struct {
 	f32 min_x, min_y, min_z;
 	f32 max_x, max_y, max_z;
 	s32 has_bounds;
+	s32 stagenum; /* STAGE_*, for the animated surfaces' stage rules */
 } pdscenario_bgscene_t;
 
 static void s_textbufFree(pdscenario_textbuf_t *b)
@@ -5747,6 +5754,8 @@ static s32 s_bgSceneEnsureMaterial(pdscenario_bgscene_t *scene, s32 texnum,
 	m->min = min;
 	m->flag = flag;
 	m->alpha_mode = alpha_mode;
+	m->animation = texnum >= 0 ?
+		scenarioDyntexBaseKind(texnum, scene->stagenum) : SCENARIO_DYNTEX_NONE;
 	if (texnum >= 0 && texnum2 >= 0) {
 		snprintf(m->name, sizeof(m->name), "mat_%03u_tex_%04x_%04x_c%d",
 			(unsigned)scene->material_count, (unsigned)texnum,
@@ -6254,6 +6263,8 @@ typedef struct {
 	u32 runtime_uv_accessor;
 	u32 color_accessor;
 	u32 room_accessor;
+	u32 dyntex_view;
+	u32 dyntex_accessor;
 	u32 texture_index;
 	u32 secondary_texture_index;
 	f32 min_x, min_y, min_z;
@@ -6432,6 +6443,18 @@ static void s_bgMaterialGlbAuthorUv(f32 runtime_u, f32 runtime_v,
 	if (out_v) *out_v = (runtime_v - min_v) / span;
 }
 
+/* A material whose texture moves (a dyntex.c preset): scene.glb gives it
+ * the preset, its UV scale and a _PD_DYNTEX vertex attribute. The binary,
+ * bufferView and accessor passes below must agree on this, so all three ask
+ * here. */
+static s32 s_bgMaterialAnimated(const pdscenario_bgscene_t *scene,
+                                const pdscenario_bgmaterial_t *m)
+{
+	return m->vertex_count > 0 && m->animation > SCENARIO_DYNTEX_NONE &&
+		m->animation < SCENARIO_DYNTEX_KIND_COUNT &&
+		s_bgSceneDecodedTextureIndex(scene, m->texnum) >= 0;
+}
+
 static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 {
 	if (!scene || scene->tri_count == 0 || scene->material_count == 0) return -1;
@@ -6453,6 +6476,7 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 			mr[i].room_accessor = 0xffffffffu;
 		mr[i].texture_index = 0xffffffffu;
 		mr[i].secondary_texture_index = 0xffffffffu;
+		mr[i].dyntex_view = mr[i].dyntex_accessor = 0xffffffffu;
 	}
 	for (u32 i = 0; i < scene->texture_count; i++) {
 		texture_views[i] = 0xffffffffu;
@@ -6537,6 +6561,21 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				goto fail;
 			}
 		}
+		if (s_bgMaterialAnimated(scene, m)) {
+			if (s_binbufPad4(&bin) != 0) goto fail;
+			mr[i].dyntex_view = view_count++;
+			mr[i].dyntex_accessor = accessor_count++;
+			for (u32 v = 0; v < m->vertex_count; v++) {
+				if (s_binbufAppendF32(&bin, (f32)m->vertices[v].dyntex_s) != 0 ||
+				    s_binbufAppendF32(&bin, (f32)m->vertices[v].dyntex_t) != 0 ||
+				    s_binbufAppendF32(&bin,
+						(f32)m->vertices[v].dyntex_scale_s) != 0 ||
+				    s_binbufAppendF32(&bin,
+						(f32)m->vertices[v].dyntex_scale_t) != 0) {
+					goto fail;
+				}
+			}
+		}
 	}
 
 	for (u32 i = 0; i < scene->texture_count; i++) {
@@ -6580,13 +6619,16 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				"{\"attributes\":{\"POSITION\":%u,\"TEXCOORD_0\":%u,"
 				"\"TEXCOORD_1\":%u,"
 				"\"COLOR_0\":%u,"
-				"\"_PD_ROOM\":%u},"
-				"\"material\":%u,\"mode\":4}",
+				"\"_PD_ROOM\":%u",
 				(unsigned)mr[i].pos_accessor,
 				(unsigned)mr[i].uv_accessor,
 				(unsigned)mr[i].runtime_uv_accessor,
 				(unsigned)mr[i].color_accessor,
-				(unsigned)mr[i].room_accessor,
+				(unsigned)mr[i].room_accessor) != 0) goto fail_json;
+		if (mr[i].dyntex_accessor != 0xffffffffu &&
+				s_textbufAppendf(&json, ",\"_PD_DYNTEX\":%u",
+					(unsigned)mr[i].dyntex_accessor) != 0) goto fail_json;
+		if (s_textbufAppendf(&json, "},\"material\":%u,\"mode\":4}",
 				(unsigned)i) != 0) goto fail_json;
 	}
 	if (s_textbufAppend(&json, "]}],\"materials\":[") != 0) goto fail_json;
@@ -6640,6 +6682,15 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				s_bgGltfWrapName(m->smode), s_bgGltfWrapName(m->tmode),
 				m->offset, m->shifts, m->shiftt, m->min,
 				m->flag ? 1 : 0) != 0) goto fail_json;
+		if (mr[i].dyntex_accessor != 0xffffffffu) {
+			f32 anim_u_scale = 1.0f;
+			f32 anim_v_scale = 1.0f;
+			s_bgMaterialUvScaleForGlb(scene, m, &anim_u_scale, &anim_v_scale);
+			if (s_textbufAppendf(&json,
+					",\"animation\":\"%s\",\"uv_scale\":[%.9g,%.9g]",
+					scenarioDyntexKindName(m->animation),
+					(double)anim_u_scale, (double)anim_v_scale) != 0) goto fail_json;
+		}
 		if (mr[i].secondary_texture_index != 0xffffffffu) {
 			if (s_textbufAppendf(&json,
 					",\"secondaryTexture\":{\"index\":%d,\"texCoord\":1}",
@@ -6761,6 +6812,16 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				"{\"buffer\":0,\"byteOffset\":%u,\"byteLength\":%u,\"target\":34962}",
 				(unsigned)offset, (unsigned)room_len) != 0) goto fail_json;
 		offset += room_len;
+		if (s_bgMaterialAnimated(scene, m)) {
+			u32 dyntex_len = m->vertex_count * 16u;
+			offset = (offset + 3u) & ~3u;
+			if (s_textbufAppend(&json, ",") != 0) goto fail_json;
+			emitted_view++;
+			if (s_textbufAppendf(&json,
+					"{\"buffer\":0,\"byteOffset\":%u,\"byteLength\":%u,\"target\":34962}",
+					(unsigned)offset, (unsigned)dyntex_len) != 0) goto fail_json;
+			offset += dyntex_len;
+		}
 	}
 	for (u32 i = 0; i < scene->texture_count; i++) {
 		const pdscenario_bgtexture_t *tex = &scene->textures[i];
@@ -6819,6 +6880,16 @@ static s32 s_bgSceneBuildSceneGlb(pdscenario_bgscene_t *scene)
 				"\"type\":\"SCALAR\"}",
 				(unsigned)mr[i].room_view, (unsigned)m->vertex_count) != 0) {
 			goto fail_json;
+		}
+		if (s_bgMaterialAnimated(scene, m)) {
+			if (s_textbufAppend(&json, ",") != 0) goto fail_json;
+			emitted_accessor++;
+			if (s_textbufAppendf(&json,
+					"{\"bufferView\":%u,\"componentType\":5126,\"count\":%u,"
+					"\"type\":\"VEC4\"}",
+					(unsigned)mr[i].dyntex_view, (unsigned)m->vertex_count) != 0) {
+				goto fail_json;
+			}
 		}
 	}
 	if (s_textbufAppend(&json, "]}") != 0) goto fail_json;
@@ -6926,12 +6997,36 @@ static s32 s_bgGdlCommand(const Gfx *cmd)
 	return (s32)((cmd->words.w0 >> 24) & 0xffu);
 }
 
+/* Animated surfaces: the N64 texture coordinates and the room's texture
+ * scale of the triangle s_bgSceneAddTri just appended (its material's last
+ * three vertices), which the renderer moves as dyntex.c does. */
+static void s_bgSceneTagDyntex(pdscenario_bgscene_t *scene, s32 material_index,
+                               const Vtx *a, const Vtx *b, const Vtx *c,
+                               u32 scale_a, u32 scale_b, u32 scale_c)
+{
+	if (material_index < 0 || (u32)material_index >= scene->material_count) {
+		material_index = 0;
+	}
+	pdscenario_bgmaterial_t *m = &scene->materials[material_index];
+	if (m->vertex_count < 3) return;
+	pdscenario_visual_vertex_t *v = &m->vertices[m->vertex_count - 3];
+	const Vtx *src[3] = { a, b, c };
+	const u32 scale[3] = { scale_a, scale_b, scale_c };
+	for (s32 i = 0; i < 3; i++) {
+		v[i].dyntex_s = src[i]->s;
+		v[i].dyntex_t = src[i]->t;
+		v[i].dyntex_scale_s = (u16)(scale[i] >> 16);
+		v[i].dyntex_scale_t = (u16)(scale[i] & 0xffffu);
+	}
+}
+
 static s32 s_exportBgTriByIndices(pdscenario_bgscene_t *scene,
                                   s32 material_index,
                                   const Vtx loaded[16],
                                   const Col loaded_colours[16],
                                   const s32 loaded_s[16],
                                   const s32 loaded_t[16],
+                                  const u32 loaded_scale[16],
                                   const u8 valid[16],
                                   u32 a, u32 b, u32 c,
                                   const struct coord *room_pos,
@@ -6940,12 +7035,17 @@ static s32 s_exportBgTriByIndices(pdscenario_bgscene_t *scene,
 	if (a >= 16u || b >= 16u || c >= 16u) return 0;
 	if (!valid[a] || !valid[b] || !valid[c]) return 0;
 	if (a == b && b == c) return 0;
-	return s_bgSceneAddTri(scene, material_index,
-		&loaded[a], &loaded[b], &loaded[c],
-		loaded_colours[a], loaded_colours[b], loaded_colours[c],
-		room_pos, roomnum,
-		loaded_s[a], loaded_t[a], loaded_s[b], loaded_t[b],
-		loaded_s[c], loaded_t[c]);
+	if (s_bgSceneAddTri(scene, material_index,
+			&loaded[a], &loaded[b], &loaded[c],
+			loaded_colours[a], loaded_colours[b], loaded_colours[c],
+			room_pos, roomnum,
+			loaded_s[a], loaded_t[a], loaded_s[b], loaded_t[b],
+			loaded_s[c], loaded_t[c]) != 0) {
+		return -1;
+	}
+	s_bgSceneTagDyntex(scene, material_index, &loaded[a], &loaded[b],
+		&loaded[c], loaded_scale[a], loaded_scale[b], loaded_scale[c]);
+	return 0;
 }
 
 static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
@@ -6961,6 +7061,7 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 	Col loaded_colours[16];
 	s32 loaded_s[16];
 	s32 loaded_t[16];
+	u32 loaded_scale[16];
 	u8 valid[16];
 	const Col white = { .r = 255, .g = 255, .b = 255, .a = 255 };
 	const Col *current_colours = colours;
@@ -6971,6 +7072,7 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 	}
 	memset(loaded_s, 0, sizeof(loaded_s));
 	memset(loaded_t, 0, sizeof(loaded_t));
+	memset(loaded_scale, 0xff, sizeof(loaded_scale));
 	memset(valid, 0, sizeof(valid));
 	s32 material_index = 0;
 	u16 texture_scale_s = 0xffffu;
@@ -7038,6 +7140,8 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 					((s32)src[v].s * (s32)texture_scale_s) >> 16;
 				loaded_t[dest + v] =
 					((s32)src[v].t * (s32)texture_scale_t) >> 16;
+				loaded_scale[dest + v] = ((u32)texture_scale_s << 16) |
+					(u32)texture_scale_t;
 				valid[dest + v] = 1;
 			}
 		} else if (op == (u8)G_TRI1) {
@@ -7046,7 +7150,7 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 b = ((w1 >> 8) & 0xffu) / 10u;
 			u32 c = (w1 & 0xffu) / 10u;
 			if (s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_colours, loaded_s, loaded_t, valid, a, b, c,
+					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, a, b, c,
 					room_pos, roomnum) != 0) {
 				return -1;
 			}
@@ -7058,16 +7162,16 @@ static s32 s_exportBgGdl(pdscenario_bgscene_t *scene, Gfx *gdl,
 			u32 x3 = (w1 >> 16) & 0x0fu, y3 = (w1 >> 20) & 0x0fu, z3 = (w0 >> 8) & 0x0fu;
 			u32 x4 = (w1 >> 24) & 0x0fu, y4 = (w1 >> 28) & 0x0fu, z4 = (w0 >> 12) & 0x0fu;
 			if (s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_colours, loaded_s, loaded_t, valid, x1, y1, z1,
+					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x1, y1, z1,
 					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_colours, loaded_s, loaded_t, valid, x2, y2, z2,
+					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x2, y2, z2,
 					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_colours, loaded_s, loaded_t, valid, x3, y3, z3,
+					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x3, y3, z3,
 					room_pos, roomnum) != 0 ||
 			    s_exportBgTriByIndices(scene, material_index, loaded,
-					loaded_colours, loaded_s, loaded_t, valid, x4, y4, z4,
+					loaded_colours, loaded_s, loaded_t, loaded_scale, valid, x4, y4, z4,
 					room_pos, roomnum) != 0) {
 				return -1;
 			}
@@ -8037,10 +8141,11 @@ static s32 s_exportBgSection2Textures(const u8 *bg, u32 bg_size,
 }
 
 static s32 s_buildBgVisualExports(const u8 *bg, u32 bg_size,
-                                  pdscenario_bgscene_t *scene)
+                                  pdscenario_bgscene_t *scene, s32 stagenum)
 {
 	if (!bg || !bg_size || !scene) return -1;
 	if (s_bgSceneInit(scene) != 0) return -1;
+	scene->stagenum = stagenum;
 
 	u8 *primary = NULL;
 	u32 primary_size = 0;
@@ -9971,7 +10076,8 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	u32 bg_size = 0;
 	s32 has_bg = s_loadStageFileRaw(st->bgfileid, &bg_data, &bg_size);
 	if (has_bg > 0) {
-		if (s_buildBgVisualExports(bg_data, bg_size, &bg_scene) == 0) {
+		if (s_buildBgVisualExports(bg_data, bg_size, &bg_scene,
+				spec->stagenum) == 0) {
 			has_visual = 1;
 		} else {
 			sysLogPrintf(LOG_WARNING,

@@ -96,6 +96,13 @@ void scenarioSceneRendererSetRoomLights(const scenario_scene_room_light_t *light
  * fog colour (0-1). Sky and render-always rooms stay unfogged, as the game's
  * pre-pass drew them with fog off. */
 void scenarioSceneRendererSetFog(int enabled, float fog_mul, float fog_offset, const float color[3]);
+/* Animated surfaces (pd2_material.animation, the dyntex.c presets): the
+ * game's 80-second interval (g_Lv80SecIntervalFrac, 0 to 1) and the two stage
+ * flags the conditional presets read: Deep Sea's teleports on (flag 0x100 set,
+ * 0x10000 clear) and Attack Ship's engines destroyed (flag 0x10000). The next
+ * draw moves those vertices' UVs. */
+void scenarioSceneRendererSetDyntexFrame(float interval80, int teleports_on,
+	int engines_destroyed);
 /* For the --debug-scene-matrix-probe log: the scene's vertex positions. */
 int scenarioSceneRendererVertexCount(void);
 int scenarioSceneRendererVertexPosition(int index, float out[3]);

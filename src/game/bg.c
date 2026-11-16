@@ -57,6 +57,7 @@
 #include "lib/meshcollision.h"
 #include "model_rodata_guard.h"
 #include "scenario_scene_renderer.h"
+#include "game/chraction.h"
 #include "scenario_source_runtime.h"
 
 extern s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop);
@@ -1076,6 +1077,13 @@ Gfx *bgRenderScene(Gfx *gdl)
 				fovy, aspect, zrange.near, zrange.far,
 				bgGetScaleBg2Gfx(), g_Vars.currentplayer->globaldrawworldoffset.f);
 			bgSetScenarioSceneRoomLights();
+			/* Animated surfaces (dyntex.c presets): the interval and the
+			 * two stage flags the conditional presets read, as
+			 * dyntexTickRoom reads them. */
+			scenarioSceneRendererSetDyntexFrame(g_Lv80SecIntervalFrac,
+				chrHasStageFlag(NULL, 0x00000100)
+					&& !chrHasStageFlag(NULL, 0x00010000),
+				chrHasStageFlag(NULL, 0x00010000));
 		} else {
 			scenarioSceneRendererSetCameraFrame(NULL, NULL, NULL,
 				0.0f, 0.0f, 0.0f, 0.0f, 0.0f, NULL);

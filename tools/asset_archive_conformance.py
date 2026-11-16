@@ -128,8 +128,14 @@ ROOT_METADATA = {
 # DEPENDENCY stamp. Keep these in lockstep with the C sources:
 #   ARENA   -> ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND  (port/src/romextract_pdarena.c)
 #   MISSION -> PDMETA_SCENARIO_DEP_CACHE_KIND         (port/src/romextract_pdmeta.c)
+# Animated surfaces: the dyntex.c presets a scene.glb material may name in
+# pd2_material.animation (port/src/scenario_dyntex.c).
+SCENE_DYNTEX_PRESETS = frozenset({
+    "river", "monitor", "ocean", "arrows", "teleportal", "powerring", "powerjuice",
+})
+
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -1466,6 +1472,8 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
     texcoord_accessors: set[int] = set()
     runtime_texcoord_accessors: set[int] = set()
     color_accessors: set[int] = set()
+    scene_primitive_rows: list[tuple[object, dict]] = []
+    animated_materials: set[int] = set()
     meshes = gltf_json.get("meshes", [])
     if isinstance(meshes, list):
         for mesh in meshes:
@@ -1489,6 +1497,7 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                 color = attributes.get("COLOR_0")
                 if isinstance(color, int):
                     color_accessors.add(color)
+                scene_primitive_rows.append((primitive.get("material"), attributes))
 
     if not texcoord_accessors:
         return
@@ -1571,6 +1580,22 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                             f"{label} scene.glb material {index} pd2_material.{key} "
                             "must be an integer native material field"
                         )
+                if "animation" in pd2_material or "uv_scale" in pd2_material:
+                    if pd2_material.get("animation") not in SCENE_DYNTEX_PRESETS:
+                        errors.append(
+                            f"{label} scene.glb material {index} pd2_material.animation "
+                            f"must be one of {sorted(SCENE_DYNTEX_PRESETS)}"
+                        )
+                    uv_scale = pd2_material.get("uv_scale")
+                    if (not isinstance(uv_scale, list) or len(uv_scale) != 2 or
+                            any(isinstance(value, bool) or
+                                not isinstance(value, (int, float)) or
+                                not math.isfinite(value) for value in uv_scale)):
+                        errors.append(
+                            f"{label} scene.glb material {index} pd2_material.uv_scale "
+                            "must be two finite numbers"
+                        )
+                    animated_materials.add(index)
                 secondary_image = pd2_material.get("secondary_image")
                 secondary_texture = pd2_material.get("secondaryTexture")
                 if secondary_texture is not None:
@@ -1627,6 +1652,47 @@ def validate_scene_glb_texture_contract(label: str, data: bytes,
                         f"uses texCoord {texcoord}; generated DCC previews must "
                         "bind visible textures to TEXCOORD_0, not runtime repeat UVs"
                     )
+
+    if generated_pd_scenario:
+        # An animated material's primitives carry _PD_DYNTEX: per vertex the
+        # N64 texture coordinates s and t and the room's texture scales.
+        scene_accessors = gltf_json.get("accessors", [])
+        if not isinstance(scene_accessors, list):
+            scene_accessors = []
+
+        def scene_accessor(index: object) -> dict | None:
+            if isinstance(index, int) and not isinstance(index, bool) and \
+                    0 <= index < len(scene_accessors) and \
+                    isinstance(scene_accessors[index], dict):
+                return scene_accessors[index]
+            return None
+
+        for material_index, attributes in scene_primitive_rows:
+            dyntex = attributes.get("_PD_DYNTEX")
+            animated = isinstance(material_index, int) and material_index in animated_materials
+            if animated and dyntex is None:
+                errors.append(
+                    f"{label} scene.glb primitive of animated material "
+                    f"{material_index} is missing _PD_DYNTEX"
+                )
+                continue
+            if dyntex is None:
+                continue
+            if not animated:
+                errors.append(
+                    f"{label} scene.glb primitive of material {material_index} has "
+                    "_PD_DYNTEX without pd2_material.animation"
+                )
+                continue
+            accessor = scene_accessor(dyntex)
+            position = scene_accessor(attributes.get("POSITION"))
+            if (accessor is None or accessor.get("type") != "VEC4" or
+                    accessor.get("componentType") != 5126 or
+                    (position is not None and accessor.get("count") != position.get("count"))):
+                errors.append(
+                    f"{label} scene.glb material {material_index} _PD_DYNTEX must be a "
+                    "VEC4 float accessor with one entry per vertex"
+                )
 
     max_abs_runtime_uv = 0.0
     for accessor_index in sorted(runtime_texcoord_accessors):

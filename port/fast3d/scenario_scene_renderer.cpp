@@ -1,4 +1,5 @@
 #include "scenario_scene_renderer.h"
+#include "scenario_dyntex.h"
 
 #include "../external/imgui-node-editor/crude_json.h"
 #include "../external/stb_image.h"
@@ -68,6 +69,12 @@ struct Material {
 	 * legacy scenes that predate alphaMode emission. */
 	bool alpha_mode_explicit = false;
 	float alpha_cutoff = 0.01f;
+	/* Animated surfaces: the dyntex.c preset this texture moves by
+	 * (pd2_material.animation) and the factors that turn N64 texture
+	 * coordinates into its runtime UVs (pd2_material.uv_scale). */
+	int animation = SCENARIO_DYNTEX_NONE;
+	float anim_u_scale = 0.0f;
+	float anim_v_scale = 0.0f;
 };
 
 struct Image {
@@ -99,6 +106,19 @@ struct Vertex {
 	float sky;
 	/* The vertex's room (the scene's _PD_ROOM attribute), -1 when it names none. */
 	int32_t room;
+};
+
+/* An animated vertex: its N64 texture coordinates (after the group shift)
+ * and texture scales from _PD_DYNTEX, its preset, material and room. */
+struct DyntexVertex {
+	uint32_t vertex = 0;
+	int32_t base_s = 0;
+	int32_t base_t = 0;
+	uint16_t scale_s = 0xffff;
+	uint16_t scale_t = 0xffff;
+	int kind = SCENARIO_DYNTEX_NONE;
+	int material = -1;
+	int32_t room = -1;
 };
 
 struct DrawGroup {
@@ -163,6 +183,15 @@ struct Scene {
 	scenario_scene_camera_t camera = {};
 	int camera_slot_count = 0;
 	int last_camera_slot = -1;
+	/* Animated surfaces (dyntex.c presets): the vertices whose runtime UVs
+	 * move, and the frame state the game sets before each draw. */
+	std::vector<DyntexVertex> dyntex_vertices;
+	size_t dyntex_groups = 0;
+	size_t dyntex_kind_counts[SCENARIO_DYNTEX_KIND_COUNT] = {};
+	size_t dyntex_unusable_primitives = 0;
+	scenario_dyntex_frame_t dyntex_frame = {};
+	bool dyntex_frame_dirty = false;
+	bool logged_dyntex_update = false;
 };
 
 Scene g_scene;
@@ -506,6 +535,38 @@ static void parseMaterials(const crude_json::value &root,
 		if (pd2) {
 			mat.primary_texcoord = 1;
 		}
+		if (pd2) {
+			auto anim_it = pd2->find("animation");
+			if (anim_it != pd2->end()) {
+				int kind = anim_it->second.is_string()
+					? scenarioDyntexKindFromName(
+						anim_it->second.get<crude_json::string>().c_str())
+					: -1;
+				float us = 0.0f;
+				float vs = 0.0f;
+				bool scale_ok = false;
+				auto scale_it = pd2->find("uv_scale");
+				if (scale_it != pd2->end() && scale_it->second.is_array()) {
+					const crude_json::array *uv =
+						scale_it->second.get_ptr<crude_json::array>();
+					if (uv && uv->size() == 2 && (*uv)[0].is_number()
+							&& (*uv)[1].is_number()) {
+						us = (float)(*uv)[0].get<crude_json::number>();
+						vs = (float)(*uv)[1].get<crude_json::number>();
+						scale_ok = std::isfinite(us) && std::isfinite(vs);
+					}
+				}
+				if (kind > SCENARIO_DYNTEX_NONE && scale_ok) {
+					mat.animation = kind;
+					mat.anim_u_scale = us;
+					mat.anim_v_scale = vs;
+				} else {
+					sysLogPrintf(LOG_WARNING,
+						"SCENARIO.RENDER: material %zu has an animation the renderer cannot use; it stays still",
+						materials.size());
+				}
+			}
+		}
 		const crude_json::object *secondary =
 			pd2 ? objectField(*pd2, "secondaryTexture") : nullptr;
 		if (secondary) {
@@ -699,6 +760,45 @@ static bool appendPrimitive(const crude_json::value &prim,
 	int indices_i = intMember(prim, "indices", -1);
 	uint32_t first = (uint32_t)scene.vertices.size();
 
+	/* Animated surfaces: an animated material's primitive carries
+	 * _PD_DYNTEX (VEC4: N64 s, t and the texture scales). A primitive
+	 * without a usable one draws still. */
+	const Material *prim_material =
+		(material >= 0 && (size_t)material < scene.materials.size())
+			? &scene.materials[(size_t)material] : nullptr;
+	const Accessor *dyntex = nullptr;
+	std::vector<DyntexVertex> prim_dyntex;
+	if (prim_material && prim_material->animation > SCENARIO_DYNTEX_NONE) {
+		int dyntex_i = findAttr("_PD_DYNTEX");
+		if (dyntex_i >= 0 && (size_t)dyntex_i < accessors.size()
+				&& accessors[(size_t)dyntex_i].count == pos.count
+				&& accessors[(size_t)dyntex_i].type == "VEC4"
+				&& accessors[(size_t)dyntex_i].component_type == 5126) {
+			dyntex = &accessors[(size_t)dyntex_i];
+		} else {
+			scene.dyntex_unusable_primitives++;
+		}
+	}
+	auto readDyntex = [&](uint32_t index) -> bool {
+		if (!dyntex) {
+			return true;
+		}
+		float s = 0.0f, t = 0.0f, scale_s = 0.0f, scale_t = 0.0f;
+		if (!readFloatVec4(*dyntex, views, bin, bin_size, index,
+				&s, &t, &scale_s, &scale_t)) {
+			return false;
+		}
+		DyntexVertex d;
+		d.base_s = (int32_t)s;
+		d.base_t = (int32_t)t;
+		d.scale_s = (uint16_t)scale_s;
+		d.scale_t = (uint16_t)scale_t;
+		d.kind = prim_material->animation;
+		d.material = material;
+		prim_dyntex.push_back(d);
+		return true;
+	};
+
 	if (indices_i >= 0) {
 		if ((size_t)indices_i >= accessors.size()) {
 			return false;
@@ -738,6 +838,9 @@ static bool appendPrimitive(const crude_json::value &prim,
 				return false;
 			}
 			out.room = readRoom(idx);
+			if (!readDyntex(idx)) {
+				return false;
+			}
 			scene.vertices.push_back(out);
 		}
 	} else {
@@ -772,6 +875,9 @@ static bool appendPrimitive(const crude_json::value &prim,
 				return false;
 			}
 			out.room = readRoom(i);
+			if (!readDyntex(i)) {
+				return false;
+			}
 			scene.vertices.push_back(out);
 		}
 	}
@@ -786,6 +892,14 @@ static bool appendPrimitive(const crude_json::value &prim,
 	if (instance.mirrored) {
 		for (size_t i = first; i + 2 < scene.vertices.size(); i += 3)
 			std::swap(scene.vertices[i + 1], scene.vertices[i + 2]);
+		for (size_t i = 0; i + 2 < prim_dyntex.size(); i += 3)
+			std::swap(prim_dyntex[i + 1], prim_dyntex[i + 2]);
+	}
+	for (size_t k = 0; k < prim_dyntex.size(); k++) {
+		DyntexVertex d = prim_dyntex[k];
+		d.vertex = first + (uint32_t)k;
+		d.room = scene.vertices[d.vertex].room;
+		scene.dyntex_vertices.push_back(d);
 	}
 
 	DrawGroup group;
@@ -975,6 +1089,85 @@ done:
 		out = Scene();
 	}
 	return ok;
+}
+
+/* dyntexTickRoom's first-use shift, per group: the vertices of one preset
+ * in one room (dyntex.c groups by room and type as they load). */
+static void prepareDyntex(Scene &scene)
+{
+	struct GroupRange {
+		int32_t room;
+		int kind;
+		int min_s, max_s, min_t, max_t;
+	};
+	std::vector<GroupRange> groups;
+	auto findGroup = [&](int32_t room, int kind) -> GroupRange & {
+		for (GroupRange &g : groups) {
+			if (g.room == room && g.kind == kind) {
+				return g;
+			}
+		}
+		groups.push_back({room, kind, 32767, -32766, 32767, -32766});
+		return groups.back();
+	};
+	for (const DyntexVertex &d : scene.dyntex_vertices) {
+		GroupRange &g = findGroup(d.room, d.kind);
+		g.min_s = std::min(g.min_s, (int)d.base_s);
+		g.max_s = std::max(g.max_s, (int)d.base_s);
+		g.min_t = std::min(g.min_t, (int)d.base_t);
+		g.max_t = std::max(g.max_t, (int)d.base_t);
+	}
+	for (DyntexVertex &d : scene.dyntex_vertices) {
+		const GroupRange &g = findGroup(d.room, d.kind);
+		int add_s = 0;
+		int add_t = 0;
+		scenarioDyntexGroupShift(g.min_s, g.max_s, g.min_t, g.max_t, &add_s, &add_t);
+		d.base_s += add_s;
+		d.base_t += add_t;
+		if (d.kind > SCENARIO_DYNTEX_NONE && d.kind < SCENARIO_DYNTEX_KIND_COUNT) {
+			scene.dyntex_kind_counts[d.kind]++;
+		}
+	}
+	scene.dyntex_groups = groups.size();
+}
+
+/* Moves the animated vertices' runtime UVs for this frame. Returns whether
+ * any changed, and the vertex range to upload. */
+static bool applyDyntexFrame(Scene &scene, uint32_t *out_first, uint32_t *out_last)
+{
+	uint32_t first = UINT32_MAX;
+	uint32_t last = 0;
+	for (const DyntexVertex &d : scene.dyntex_vertices) {
+		int16_t s = 0;
+		int16_t t = 0;
+		if (!scenarioDyntexAnimate(d.kind, &scene.dyntex_frame,
+				d.base_s, d.base_t, &s, &t)) {
+			continue;
+		}
+		if (d.material < 0 || (size_t)d.material >= scene.materials.size()
+				|| d.vertex >= scene.vertices.size()) {
+			continue;
+		}
+		const Material &mat = scene.materials[(size_t)d.material];
+		float u = 0.0f;
+		float v = 0.0f;
+		scenarioDyntexUv(s, t, d.scale_s, d.scale_t,
+			mat.anim_u_scale, mat.anim_v_scale, &u, &v);
+		Vertex &vertex = scene.vertices[d.vertex];
+		if (vertex.u1 == u && vertex.v1 == v) {
+			continue;
+		}
+		vertex.u1 = u;
+		vertex.v1 = v;
+		first = std::min(first, d.vertex);
+		last = std::max(last, d.vertex);
+	}
+	if (first == UINT32_MAX) {
+		return false;
+	}
+	*out_first = first;
+	*out_last = last;
+	return true;
 }
 
 static void fillProbeResult(const Scene &scene,
@@ -1435,7 +1628,19 @@ extern "C" int scenarioSceneRendererActivate(const char *scenario_id,
 	}
 
 	next.active = true;
+	prepareDyntex(next);
 	g_scene = std::move(next);
+	if (!g_scene.dyntex_vertices.empty() || g_scene.dyntex_unusable_primitives) {
+		const size_t *k = g_scene.dyntex_kind_counts;
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.RENDER: animated surfaces '%s' vertices=%zu groups=%zu river=%zu monitor=%zu ocean=%zu arrows=%zu teleportal=%zu powerring=%zu powerjuice=%zu unusable_primitives=%zu",
+			scenario_id ? scenario_id : "?", g_scene.dyntex_vertices.size(),
+			g_scene.dyntex_groups,
+			k[SCENARIO_DYNTEX_RIVER], k[SCENARIO_DYNTEX_MONITOR],
+			k[SCENARIO_DYNTEX_OCEAN], k[SCENARIO_DYNTEX_ARROWS],
+			k[SCENARIO_DYNTEX_TELEPORTAL], k[SCENARIO_DYNTEX_POWERRING],
+			k[SCENARIO_DYNTEX_POWERJUICE], g_scene.dyntex_unusable_primitives);
+	}
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.RENDER: activated source scene '%s' source=%s vertices=%zu groups=%zu materials=%zu images=%zu alpha_textures=%zu alpha_materials=%zu secondary_materials=%zu uv=TEXCOORD_1 alpha_modes=opaque:%zu/mask:%zu/blend:%zu dualtex=extras",
 		scenario_id ? scenario_id : "?", scene_path,
@@ -1603,6 +1808,18 @@ extern "C" void scenarioSceneRendererSetRoomLights(const scenario_scene_room_lig
 			"SCENARIO.RENDER: room lights '%s' rooms=%d unlit=%d (roomHighlight's formula in the scene shader)",
 			g_scene.scenario_id.c_str(), count, unlit);
 	}
+}
+
+extern "C" void scenarioSceneRendererSetDyntexFrame(float interval80,
+	int teleports_on, int engines_destroyed)
+{
+	if (!g_scene.active || g_scene.dyntex_vertices.empty()) {
+		return;
+	}
+	g_scene.dyntex_frame.interval80 = interval80;
+	g_scene.dyntex_frame.teleports_on = teleports_on ? 1 : 0;
+	g_scene.dyntex_frame.engines_destroyed = engines_destroyed ? 1 : 0;
+	g_scene.dyntex_frame_dirty = true;
 }
 
 extern "C" void scenarioSceneRendererSetFog(int enabled, float fog_mul, float fog_offset, const float color[3])
@@ -1779,6 +1996,30 @@ extern "C" void scenarioSceneRendererRenderPasses(int view_x, int view_y, int wi
 			(GLsizeiptr)(g_scene.vertices.size() * sizeof(Vertex)),
 			g_scene.vertices.data());
 		g_scene.sky_dirty = false;
+	}
+	if (g_scene.dyntex_frame_dirty) {
+		/* Animated surfaces: this frame's UVs, uploaded for the range of
+		 * vertices that moved. The entry GL_ARRAY_BUFFER binding is
+		 * restored below. */
+		uint32_t moved_first = 0;
+		uint32_t moved_last = 0;
+		if (applyDyntexFrame(g_scene, &moved_first, &moved_last)) {
+			glBindBuffer(GL_ARRAY_BUFFER, g_scene.vbo);
+			glBufferSubData(GL_ARRAY_BUFFER,
+				(GLintptr)((size_t)moved_first * sizeof(Vertex)),
+				(GLsizeiptr)((size_t)(moved_last - moved_first + 1) * sizeof(Vertex)),
+				g_scene.vertices.data() + moved_first);
+			if (!g_scene.logged_dyntex_update) {
+				sysLogPrintf(LOG_NOTE,
+					"SCENARIO.RENDER: animated surfaces moved '%s' vertices %u..%u interval80=%.4f teleports_on=%d engines_destroyed=%d",
+					g_scene.scenario_id.c_str(), moved_first, moved_last,
+					g_scene.dyntex_frame.interval80,
+					g_scene.dyntex_frame.teleports_on,
+					g_scene.dyntex_frame.engines_destroyed);
+				g_scene.logged_dyntex_update = true;
+			}
+		}
+		g_scene.dyntex_frame_dirty = false;
 	}
 	/* c3844 glass fix: render scene groups via a lambda so we can do two passes --
 	 * opaque first, then translucent (uses_alpha) materials with GL_BLEND on -- so
