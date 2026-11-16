@@ -58,6 +58,11 @@ jobs:
           python -B tools/tests/test_pdxxx_modder_workflow.py -v
           python -B tools/tests/test_mod_manifest_parity.py -v
 
+      # B-1124: a multi-process smoke fixture that shares one install and passes
+      # neither --portable nor --savedir runs against the real user profile.
+      - name: Check smoke fixture isolation
+        run: python -B tools/tests/test_smoke_fixture_isolation.py -v
+
       - name: Check isolated smoke storage contracts
         # Match the native Windows interpreter required by Storage-Harness.ps1.
         shell: pwsh
@@ -86,6 +91,17 @@ jobs:
       # port/game sources under test.
       - name: Build client + tests
         run: cmake --build Build --target pd pd-tests -j
+
+      # SP-75 (context/systemic-bugs.md): `bool` is `#define bool s32` in C but
+      # one byte after <stdbool.h> and in C++. Preprocess every file of both
+      # targets and fail on a declaration seen with two widths, a C file whose
+      # own code runs with a flipped bool, or a push_macro scope that leaks.
+      # Runs after the build so generated headers exist.
+      - name: Check bool layout (SP-75)
+        run: |
+          python -B tools/tests/test_bool_layout_audit.py
+          python -B tools/bool_layout_audit.py --compile-commands Build/compile_commands.json --target pd
+          python -B tools/bool_layout_audit.py --compile-commands Build/compile_commands.json --target pd-tests
 
       - name: Run unit tests
         run: |

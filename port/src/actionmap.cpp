@@ -76,6 +76,7 @@ void actionmapRefreshStickMultFromUi(void);
 #define VKL_V     25
 #define VKL_U     24
 #define VKL_Y     28
+#define VKL_X     27
 #define VKL_Z     29
 #define VKL_G     10
 #define VKL_C     6
@@ -439,8 +440,7 @@ static const char * const s_ActionNames[] = { /* B-1184: unsized so the static_a
     "TestScenVisToggle",
     /* B-1184: 105-120 were added without names, so their pd.ini keys were
      * "(null)", the complete bindings file stopped at the first unnamed row
-     * and the next launch refused it (and every binding save after that).
-     * The names are the ones week-pd/crystal-pistol gave them. */
+     * and the next launch refused it (and every binding save after that). */
     /* 105-106: menu skip up/down */
     "MenuSkipUp",
     "MenuSkipDown",
@@ -461,7 +461,10 @@ static const char * const s_ActionNames[] = { /* B-1184: unsized so the static_a
     "VehicleLookY",
     "VehicleHandbrake",
     "VehicleUse",
-    /* 121: vehicle boost (Maian vehicle V3) */
+    /* 121-122: gun roll (T-MODDING-008) */
+    "GunRollLeft",
+    "GunRollRight",
+    /* 123: vehicle boost (Maian vehicle V3) */
     "VehicleBoost",
 };
 static_assert(sizeof(s_ActionNames) / sizeof(s_ActionNames[0]) == ACTION_COUNT,
@@ -1926,6 +1929,8 @@ s32 actionIsBlockedInFreefly(InputAction a)
     case ACTION_THROW_WEAPON:
     case ACTION_ZOOM_IN:
     case ACTION_ZOOM_OUT:
+    case ACTION_GUN_ROLL_LEFT:
+    case ACTION_GUN_ROLL_RIGHT:
     /* Weapon selection / radial: block */
     case ACTION_WEAPON_PREV:
     case ACTION_WEAPON_NEXT:
@@ -3034,6 +3039,9 @@ static void setupGameplayDefaults(s32 player)
         addBind(imc, ACTION_JUMP,           JOY_BTN(0, JBTN_A)); /* A_BUTTON / jump */
         addBind(imc, ACTION_SPRINT,         VK_LSHIFT);
         addBind(imc, ACTION_SPRINT,         JOY_BTN(0, JBTN_LSTICK)); /* Left stick click */
+        /* T-MODDING-008: gun roll (held). No pad default: every button is taken. */
+        addBind(imc, ACTION_GUN_ROLL_LEFT,  VKL_Z);
+        addBind(imc, ACTION_GUN_ROLL_RIGHT, VKL_X);
         /* ACTION_ZOOM_IN / ZOOM_OUT: no default kbd bind — user rebinds if needed */
         addBind(imc, ACTION_WEAPON_PREV,    VK_MOUSE_WHEEL_UP);
         addBind(imc, ACTION_WEAPON_PREV,    JOY_BTN(0, JBTN_LB));
@@ -3846,6 +3854,10 @@ static const SmokeActionEntry s_SmokeActionTable[] = {
     { "ACTION_VEHICLE_LOOK_Y",       ACTION_VEHICLE_LOOK_Y },
     { "ACTION_VEHICLE_HANDBRAKE",    ACTION_VEHICLE_HANDBRAKE },
     { "ACTION_VEHICLE_USE",          ACTION_VEHICLE_USE },
+    /* 121-122: gun roll (T-MODDING-008) */
+    { "ACTION_GUN_ROLL_LEFT",        ACTION_GUN_ROLL_LEFT },
+    { "ACTION_GUN_ROLL_RIGHT",       ACTION_GUN_ROLL_RIGHT },
+    /* 123: vehicle boost (Maian vehicle V3) */
     { "ACTION_VEHICLE_BOOST",        ACTION_VEHICLE_BOOST },
     /* Backward-compat aliases (resolve to canonical targets). */
     { "ACTION_INTERACT",             ACTION_USE },

@@ -1,4 +1,5 @@
 #include "net/net_manifest_type.h"
+#include "pd_bool.h"
 
 u8 netManifestTypeForCatalogAsset(asset_type_e asset_type)
 {
@@ -22,7 +23,7 @@ u8 netManifestTypeForCatalogAsset(asset_type_e asset_type)
 	}
 }
 
-bool netManifestTypeAcceptsCatalogAsset(u8 manifest_type, u8 slot_index,
+s32 netManifestTypeAcceptsCatalogAsset(u8 manifest_type, u8 slot_index,
 		asset_type_e asset_type)
 {
 	if (asset_type <= ASSET_NONE || asset_type >= ASSET_TYPE_COUNT

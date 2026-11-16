@@ -1,5 +1,8 @@
 # Unreleased Changes
 
+- Reject unsupported required glTF features and sparse or normalized accessor
+  data before conversion, with clear authoring limits and refreshed caches.
+
 - Create weapon mods inside the game: the Modding Hub's Weapons creator saves a
   complete, validated mod from any weapon and keeps that weapon's own behavior.
   A behavior graph the game cannot run is refused when a mod is saved or packed

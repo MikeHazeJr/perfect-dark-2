@@ -107,6 +107,83 @@ void matchConfigRestoreUserOptions(const char *reason)
 }
 
 /* ========================================================================
+ * Scenario selection rules: one owner for every entry path
+ * ========================================================================
+ *
+ * The Room combo, boot automation and the start request all write the
+ * primary scenario catalog ID. In the original menus, picking a scenario ran
+ * scenarioInit(), which is how King of the Hill and Capture the Case got
+ * Teams switched on. None of the PC entry paths did that, so a team-only
+ * mode could start with Teams off, and the derived integer mode could
+ * disagree with the primary ID (which the network start writer rejects).
+ *
+ * This is the PC selection-time owner. It derives the runtime mode from the
+ * primary ID and turns the user's Teams option on when the selected public
+ * game mode requires teams. It never turns Teams off and never moves a human
+ * to another team. When this call is what enabled Teams, bots that were
+ * added while Teams was off (all on team 0) are redistributed with the same
+ * balancing rule new bots get. Per-match scenario state is owned by
+ * scenarioInit() in mpStartMatch(). */
+s32 matchConfigApplyScenarioRules(const char *reason)
+{
+	const asset_entry_t *entry;
+	s32 changed = 0;
+	s32 teams_enabled_here = 0;
+	s32 i;
+
+	if (g_MatchConfig.scenario_id[0] == '\0'
+			|| memchr(g_MatchConfig.scenario_id, '\0',
+				sizeof(g_MatchConfig.scenario_id)) == NULL) {
+		return -1;
+	}
+
+	entry = assetCatalogResolve(g_MatchConfig.scenario_id);
+	if (!entry || entry->type != ASSET_GAMEMODE
+			|| entry->ext.gamemode.mode_id < MPSCENARIO_COMBAT
+			|| entry->ext.gamemode.mode_id > MPSCENARIO_CAPTURETHECASE) {
+		return -1;
+	}
+
+	if (g_MatchConfig.scenario != (u8)entry->ext.gamemode.mode_id) {
+		g_MatchConfig.scenario = (u8)entry->ext.gamemode.mode_id;
+		changed = 1;
+	}
+
+	if (entry->ext.gamemode.team_based
+			&& !(matchConfigGetUserOptions() & MPOPTION_TEAMSENABLED)) {
+		matchConfigSetUserOption(MPOPTION_TEAMSENABLED, 1);
+		teams_enabled_here = 1;
+		changed = 1;
+	}
+
+	if (teams_enabled_here) {
+		/* Park every bot outside the counted range first so the balancer sees
+		 * only the humans, then seat the bots one at a time. */
+		for (i = 0; i < g_MatchConfig.numSlots && i < MATCH_MAX_SLOTS; i++) {
+			if (g_MatchConfig.slots[i].type == SLOT_BOT) {
+				g_MatchConfig.slots[i].team = MAX_TEAMS;
+			}
+		}
+		for (i = 0; i < g_MatchConfig.numSlots && i < MATCH_MAX_SLOTS; i++) {
+			if (g_MatchConfig.slots[i].type == SLOT_BOT) {
+				g_MatchConfig.slots[i].team = matchConfigChooseBotTeam(2);
+			}
+		}
+	}
+
+	if (changed) {
+		sysLogPrintf(LOG_NOTE,
+			"MATCH.SCENARIO.RULES: reason=%s id='%s' mode=%u team_based=%d "
+			"teams_enabled_here=%d",
+			reason ? reason : "unspecified", g_MatchConfig.scenario_id,
+			(unsigned)g_MatchConfig.scenario,
+			entry->ext.gamemode.team_based ? 1 : 0, teams_enabled_here);
+	}
+
+	return changed;
+}
+
+/* ========================================================================
  * Match config initialization
  * ======================================================================== */
 
@@ -1475,6 +1552,9 @@ s32 matchStart(void)
 		g_MatchConfig.stage_id, g_MatchConfig.numSlots);
 
 	challengeDetermineUnlockedFeatures();
+	/* Apply the selected scenario's rules before the plan freezes options and
+	 * participant teams. An unresolved ID is rejected by the preflight below. */
+	(void)matchConfigApplyScenarioRules("matchStart");
 	status = matchStartPrepare(&plan);
 
 	if (status != MATCH_START_OK) {

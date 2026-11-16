@@ -223,6 +223,65 @@ bool unsignedValue(const Json &value, u32 &out)
     return true;
 }
 
+bool readGltfDocument(const char *json, size_t size, Json &root, const char *&reason)
+{
+    reason = "gltf_document_invalid";
+    if (!modAssetJsonReadValue(json, size, root) || !root.is_object() ||
+            !root.contains("asset")) return false;
+    const Json &asset = root["asset"];
+    if (!asset.is_object() || !asset["version"].is_string() ||
+            asset["version"].get<crude_json::string>() != "2.0") return false;
+    if (asset.contains("minVersion") && (!asset["minVersion"].is_string() ||
+            asset["minVersion"].get<crude_json::string>() != "2.0")) {
+        reason = "gltf_minimum_version_unsupported";
+        return false;
+    }
+    std::vector<std::string> used;
+    for (const char *key : {"extensionsUsed", "extensionsRequired"}) {
+        if (!root.contains(key)) continue;
+        const Json &list = root[key];
+        reason = "gltf_extension_declaration_invalid";
+        if (!list.is_array() || list.get<crude_json::array>().empty()) return false;
+        std::vector<std::string> names;
+        for (const Json &entry : list.get<crude_json::array>()) {
+            if (!entry.is_string()) return false;
+            const auto &name = entry.get<crude_json::string>();
+            if (name.empty() || std::find(names.begin(), names.end(), name) != names.end()) return false;
+            names.push_back(name);
+        }
+        if (std::strcmp(key, "extensionsUsed") == 0) used = std::move(names);
+        else {
+            for (const auto &name : names)
+                if (std::find(used.begin(), used.end(), name) == used.end()) return false;
+            // No standard extension has a complete converter implementation yet.
+            reason = "gltf_required_extension_unsupported";
+            return false;
+        }
+    }
+    if (root.contains("accessors")) {
+        reason = "gltf_accessor_declaration_invalid";
+        if (!root["accessors"].is_array()) return false;
+        for (const Json &accessor : root["accessors"].get<crude_json::array>()) {
+            reason = "gltf_accessor_declaration_invalid";
+            if (!accessor.is_object()) return false;
+            if (accessor.contains("sparse")) {
+                reason = "gltf_sparse_accessor_unsupported";
+                return false;
+            }
+            if (accessor.contains("normalized")) {
+                reason = "gltf_accessor_normalized_invalid";
+                if (!accessor["normalized"].is_boolean()) return false;
+                if (accessor["normalized"].get<crude_json::boolean>()) {
+                    reason = "gltf_normalized_accessor_unsupported";
+                    return false;
+                }
+            }
+        }
+    }
+    reason = nullptr;
+    return true;
+}
+
 bool document(const char *json, size_t size, bool glb, bool required,
     Json &root, const Json *&uri, u32 &declared)
 {
@@ -319,15 +378,24 @@ bool modAssetGltfReadDocument(const char *json, size_t size, Json &out) noexcept
     out = nullptr;
     try {
         Json root;
-        if (!modAssetJsonReadValue(json, size, root) || !root.is_object() ||
-                !root.contains("asset")) return false;
-        const Json &asset = root["asset"];
-        if (!asset.is_object() || !asset.contains("version") ||
-                !asset["version"].is_string() ||
-                asset["version"].get<crude_json::string>() != "2.0") return false;
+        const char *reason;
+        if (!readGltfDocument(json, size, root, reason)) return false;
         out = std::move(root);
         return true;
     } catch (...) { return false; }
+}
+
+extern "C" s32 modAssetGltfDocumentValidate(const char *json, size_t json_size,
+    char *error, size_t error_cap)
+{
+    if (error && error_cap) error[0] = '\0';
+    const char *reason = "gltf_document_invalid";
+    try {
+        Json root;
+        if (readGltfDocument(json, json_size, root, reason)) return 1;
+    } catch (...) { reason = "gltf_document_allocation_failed"; }
+    if (error && error_cap) std::snprintf(error, error_cap, "%s", reason);
+    return 0;
 }
 
 extern "C" s32 modAssetGltfBufferDocument(const char *json, size_t json_size, s32 glb,
@@ -583,7 +651,10 @@ extern "C" s32 modAssetGltfScenePlanBuild(const char *json, size_t json_size,
     const char *reason = "gltf_document_invalid";
     try {
         Json root;
-        if (modAssetGltfReadDocument(json, json_size, root) && buildScenePlan(root, *out, reason)) return 1;
+        if (readGltfDocument(json, json_size, root, reason)) {
+            reason = "gltf_scene_invalid";
+            if (buildScenePlan(root, *out, reason)) return 1;
+        }
     } catch (...) { reason = "gltf_scene_allocation_failed"; }
     modAssetGltfScenePlanFree(out);
     if (error && error_cap) std::snprintf(error, error_cap, "%s", reason);

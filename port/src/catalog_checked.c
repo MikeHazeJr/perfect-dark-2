@@ -10,7 +10,6 @@
  */
 
 #include <PR/ultratypes.h>
-#include <stdbool.h>
 #include "catalog_checked.h"
 
 catalog_checked_result_e catalogCheckedValidateIndex(s32 idx, s32 count)

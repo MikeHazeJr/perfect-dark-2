@@ -305,13 +305,22 @@ typedef enum InputAction {
     ACTION_VEHICLE_HANDBRAKE,        /* = 119 Space / B-button */
     ACTION_VEHICLE_USE,              /* = 120 E / A-button on-foot mount trigger */
 
-    /* ---- Vehicle boost (Maian vehicle V3, Mike 2026-11-16) ----
-     * Held: boosts a vehicle that has boost and heat values
-     * (vehicle_boost_heat.h); does nothing on other vehicles. Mappable;
-     * defaults Shift and the controller's A. */
-    ACTION_VEHICLE_BOOST,            /* = 121 Left Shift / A-button */
+    /* ---- Gun roll (T-MODDING-008, Mike 2026-11-15) ----
+     * Held: rolls the held gun about its barrel, up to the weapon's
+     * gun_roll_deg setting (0 for every base weapon, so they never roll).
+     * The crystal pistol's charge fan follows the roll. Keyboard Z / X, no
+     * controller default (every pad button already has a gameplay bind). */
+    ACTION_GUN_ROLL_LEFT,            /* = 121 Z */
+    ACTION_GUN_ROLL_RIGHT,           /* = 122 X */
 
-    ACTION_COUNT                /* = 122, sentinel - keep last */
+    /* ---- Vehicle boost (Maian vehicle V3, Mike 2026-11-16) ----
+     * Held: boosts a vehicle whose behavior graph has og.vehicle.boost_heat
+     * (vehicle_boost_heat.h); does nothing on other vehicles. Mappable;
+     * defaults Shift and the controller's A. After the gun roll actions,
+     * which landed on dev first. */
+    ACTION_VEHICLE_BOOST,            /* = 123 Left Shift / A-button */
+
+    ACTION_COUNT                /* = 124, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */

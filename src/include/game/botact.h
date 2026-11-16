@@ -18,6 +18,10 @@ u32 botactGetProjectileThrowInterval(u32 weapon);
 s32 botactGetWeaponByAmmoType(s32 ammotype);
 void botactThrow(struct chrdata *chr);
 s32 botactGetShootInterval60(s32 weaponnum, s32 funcnum);
+/* T-MODDING-008 (B-1211): a mod weapon's shooting or throwing function with
+ * no magazine (it fires without ammo, B-1151): a bot fires it with nothing
+ * loaded. */
+bool botactFiresWithoutAmmo(s32 weaponnum, s32 funcnum);
 bool botactFindRocketRoute(struct chrdata *chr, struct coord *frompos, struct coord *topos, RoomNum *fromrooms, RoomNum *torooms, struct projectile *projectile);
 void botactGetRocketNextStepPos(u16 padnum, struct coord *pos);
 void botactCreateSlayerRocket(struct chrdata *chr);

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Reap stale transient files from the .claude session workspace.
+  Inspect legacy age candidates. Automatic calls do nothing; never deletes.
 
 .DESCRIPTION
   The .claude/ tree accumulates regenerable session debris: multi-GB smoke
@@ -9,35 +9,36 @@
   and -- because the Dev Window's pre-build `git add -A` used to sweep it in --
   once blocked a push by exceeding GitHub's 100 MB file limit.
 
-  Gitignoring stopped the commits; this reaps the files themselves once stale.
+  Gitignoring stopped the commits. Age alone does not establish disposability:
+  these trees also hold unique fixtures, exact binaries and accepted evidence.
 
-  Staleness is by modification time: anything whose newest write is older than
-  -MaxAgeHours is removed. Active trees (touched within the window) are kept, so
-  this is safe to run at the start of every build.
+  Automatic build invocations now return immediately without scanning or
+  removing anything. Explicit -DryRun inventories by newest modification time;
+  its output is unreviewed and never authorizes deletion. Prepare exact hashed
+  candidates with devtools/smoke-storage-manifest.py and obtain confirmation.
 
-  SAFETY: operates on an EXPLICIT ALLOWLIST of known-regenerable paths only.
+  INVENTORY: operates on the historical path list only.
   It never touches config (settings.json, settings.local.json, launch.json,
   skills/), never touches .claude/worktrees/ (may hold uncommitted in-flight
   work), and refuses to delete anything not physically under <root>/.claude/ or
-  a <root>/tex_*.png diagnostic image.
+  a <root>/tex_*.png diagnostic image. The script has no removal operation.
 
 .PARAMETER Root
   Repo root. Defaults to the parent of this script's devtools/ directory.
 
 .PARAMETER MaxAgeHours
-  Age threshold in hours. Entries whose newest write is older than this are
-  reaped. Default 24. Use 0 to reap everything transient regardless of age.
+  Inventory age threshold in hours, default 24. With -DryRun, 0 lists all ages.
 
 .PARAMETER DryRun
-  Report what would be reaped and the total reclaim, but delete nothing.
+  List unreviewed age candidates and bytes. Delete nothing.
 
 .PARAMETER Quiet
   Suppress per-entry lines; print only the one-line summary. For build wiring.
 
 .EXAMPLE
   .\devtools\clean-claude-workspace.ps1 -DryRun
-  .\devtools\clean-claude-workspace.ps1                 # reap >24h stale
-  .\devtools\clean-claude-workspace.ps1 -MaxAgeHours 0  # reap all transient now
+  .\devtools\clean-claude-workspace.ps1 -Quiet        # automatic cheap no-op
+  .\devtools\clean-claude-workspace.ps1 -DryRun -MaxAgeHours 0
 #>
 [CmdletBinding()]
 param(
@@ -48,6 +49,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# T-TOOLING-005: age and directory names do not prove output is disposable.
+# Builds used to invoke this script without -DryRun and could erase receipts,
+# unique source fixtures and frozen binaries. Keep automatic calls cheap and
+# non-destructive. Explicit -DryRun remains a legacy inventory, never approval.
+if (-not $DryRun) {
+    if (-not $Quiet) {
+        Write-Host 'Automatic age-based cleanup is disabled. Prepare a verified manifest with devtools/smoke-storage-manifest.py and obtain confirmation of its exact scope before any removal.'
+    }
+    exit 0
+}
+Write-Warning 'Legacy age inventory only: listed entries may contain evidence. Nothing will be deleted. Use a verified file manifest for cleanup.'
 
 # --- Resolve + validate the repo root ---------------------------------------
 if (-not $Root -or $Root -eq '') {
@@ -174,21 +187,15 @@ foreach ($it in $candidates) {
     $rel   = $full.Substring($Root.Length).TrimStart('\')
 
     if ($DryRun) {
-        if (-not $Quiet) { Write-Host ("  would reap  {0,10}  {1,6}h  {2}" -f (Format-Size $bytes), $ageH, $rel) }
+        if (-not $Quiet) { Write-Host ("  inventory   {0,10}  {1,6}h  {2}" -f (Format-Size $bytes), $ageH, $rel) }
         $reapedBytes += $bytes; $reapedCount++
         continue
     }
 
-    try {
-        Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
-        $reapedBytes += $bytes; $reapedCount++
-        if (-not $Quiet) { Write-Host ("  reaped      {0,10}  {1,6}h  {2}" -f (Format-Size $bytes), $ageH, $rel) }
-    } catch {
-        if (-not $Quiet) { Write-Host ("  ! failed    {0}  ({1})" -f $rel, $_.Exception.Message) }
-    }
+    throw 'Inventory-only invariant failed: removal is unavailable.'
 }
 
-$verb = if ($DryRun) { 'would reap' } else { 'reaped' }
-Write-Host ("clean-claude-workspace: {0} {1} stale item(s), {2} reclaimed; {3} kept (< {4}h old)." -f `
+$verb = 'inventoried (unreviewed)'
+Write-Host ("clean-claude-workspace: {0} {1} stale item(s), {2} listed; no files removed; {3} kept (< {4}h old)." -f `
     $verb, $reapedCount, (Format-Size $reapedBytes), $keptCount, $MaxAgeHours)
 exit 0

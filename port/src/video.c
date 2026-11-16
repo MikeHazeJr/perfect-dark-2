@@ -1,9 +1,9 @@
 #include <stdlib.h>
 #include <stdio.h>
-#include <stdbool.h>
 #include <string.h>
 #include <SDL.h>
 #include <PR/ultratypes.h>
+#include "pd_bool.h"
 #include <PR/gbi.h>
 #include "platform.h"
 #include "config.h"

@@ -20,7 +20,7 @@
       "name": "host",
       "log_file": "pd-host.log",
       "boot_args": [
-        "--no-update-check", "--no-sound", "--skip-intro", "--host",
+        "--portable", "--no-update-check", "--no-sound", "--skip-intro", "--host",
         "--listen-bind", "27216",
         "--launch-mp-room", "base:defection", "base:combat", "0",
         "--host-autostart", "--host-autostart-mode", "coop",
@@ -91,7 +91,7 @@
       "name": "client",
       "log_file": "pd-client.log",
       "boot_args": [
-        "--no-update-check", "--no-sound", "--skip-intro",
+        "--portable", "--no-update-check", "--no-sound", "--skip-intro",
         "--connect-host", "127.0.0.1:27216"
       ],
       "assertions": {

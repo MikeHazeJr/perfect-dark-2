@@ -171,6 +171,27 @@ include their embedded buffer. Missing or invalid source cannot be rescued by
 an old cache. Bufferless native animation documents still receive strict
 document validation; an absent declaration cannot hide dangling buffer views.
 
+### Required features and accessor limits
+
+Declare `asset.version` as `2.0`; if present, `asset.minVersion` must also be
+`2.0`. The current converters implement no required standard extensions.
+An `extensionsRequired` declaration therefore reports
+`gltf_required_extension_unsupported`, rather than loading a changed result.
+Extension lists must contain unique, nonempty names, and each required name
+must also appear in `extensionsUsed`. An optional extension may use its core
+glTF fallback.
+
+Sparse accessor overlays currently report `gltf_sparse_accessor_unsupported`.
+Export dense accessor data instead. Integer normalization currently reports
+`gltf_normalized_accessor_unsupported`; export the actual floating-point
+attribute values, where supported, rather than merely removing a `normalized`
+flag from integer bytes. `normalized: false` and an absent flag retain ordinary
+accessor behavior. The flag must be a JSON boolean.
+
+These checks also apply to GLB and bufferless native animation documents.
+Names inside application `extras` remain metadata. This admission policy does
+not imply that every other material, skin or animation feature is implemented.
+
 ## Minimal triangle source
 
 This is a geometry example, not a complete `.pdmesh` archive. Use it as

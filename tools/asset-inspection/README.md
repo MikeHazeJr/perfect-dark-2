@@ -114,7 +114,7 @@ spool growth, 64 KiB for the bounded plan and 4 KiB for a failure receipt.
 It does not hash assets or write files.
 The capture estimate is a reservation, not measured growth; increase
 `-BytesPerCapture` for resolutions requiring larger images. Inventory checks the
-existing 300 GiB policy floor plus extra growth, writes only a new child of
+configured PD policy floor plus extra growth, writes only a new child of
 `.claude/asset-inspection`, and uses bounded hashing. No output is overwritten or
 deleted. Standalone Python accepts explicit byte/member/depth budgets and an
 exclusive new output file; the PowerShell entry point provides storage preflight.

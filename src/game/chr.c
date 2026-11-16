@@ -19,6 +19,7 @@
 #include "game/objectives.h"
 #include "game/game_096360.h"
 #include "game/bondgun.h"
+#include "game/bondgun_mod.h" /* T-MODDING-008 */
 #include "game/gunfx.h"
 #include "game/game_0b0fd0.h"
 #include "game/modelmgr.h"
@@ -2343,6 +2344,7 @@ void chr0f022214(struct chrdata *chr, struct prop *prop, bool fulltick)
 		u32 stack;
 		Mtxf sp80;
 		Mtxf sp40;
+		Mtxf sprolled;
 
 		prop->flags |= PROPFLAG_ONTHISSCREENTHISTICK | PROPFLAG_ONANYSCREENTHISTICK;
 
@@ -2365,8 +2367,22 @@ void chr0f022214(struct chrdata *chr, struct prop *prop, bool fulltick)
 			thing.unk00 = sp104;
 		}
 
+		/* T-MODDING-008: a mod gun its player has rolled rolls about its own
+		 * barrel in third person too. */
+		if (obj->type == OBJTYPE_WEAPON && (obj->hidden & OBJHFLAG_EMBEDDED) == 0
+				&& bgunModHeldRoll3P(chr, prop, thing.unk00, &sprolled)) {
+			thing.unk00 = &sprolled;
+		}
+
 		thing.unk10 = gfxAllocate(model->definition->nummatrices * sizeof(Mtxf));
 		modelSetMatrices(&thing, model);
+
+		/* T-MODDING-008: a held mod gun seen in third person shows its
+		 * spent rounds and the charge glow like the first person view.
+		 * No-op for base weapons. */
+		if (obj->type == OBJTYPE_WEAPON && (obj->hidden & OBJHFLAG_EMBEDDED) == 0) {
+			bgunModApplyHeldModel3P(chr, prop, model);
+		}
 
 		func0f07063c(prop, fulltick);
 

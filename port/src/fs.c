@@ -6,7 +6,6 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <errno.h>
-#include <stdbool.h>
 #include <PR/ultratypes.h>
 #include "constants.h"
 #include "config.h"

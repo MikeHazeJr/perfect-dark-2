@@ -52,26 +52,28 @@ dlopen dlsym mmap mremap pwrite pwritev writev syscall
 REVIEWED = {
     # Inactive MSVC/secure-lib alternatives; MinGW uses guarded fopen/wfopen.
     "port/external/imgui-node-editor/crude_json.cpp": {"routes": ["fopen_s"], "sha256": "c783a9e068da070a25cbab54527f5c108abe4d17cd1fb1e07bcdc3b34d51e3fb"},
-    "port/external/stb_image.h": {"routes": ["_wfopen_s", "fopen_s"], "sha256": "95b23d7fa56ee822abf955a6a70d904907f61f7851a28803afbec761394dde1b"},
-    "port/external/stb_image_write.h": {"routes": ["_wfopen_s", "fopen_s"], "sha256": "3e6af542cb43006c296169055ae4b3a998f75064034769c17e7b00875ec4e3ca"},
+    "port/external/stb_image.h": {"routes": ["_wfopen_s", "fopen_s"], "sha256": "df2c9d77c52bf288c433339d1853d8b7e199d9308c4cf6b6c1e0aab7d150dec0"},
+    "port/external/stb_image_write.h": {"routes": ["_wfopen_s", "fopen_s"], "sha256": "b21735cda266d706eed122f3a0ddaff2cce7c064e523bf1ad95e46edfff2eed9"},
     "port/external/stb_vorbis.c": {"routes": ["fopen_s"], "sha256": "6efbf8ac58a001b2c35133857c632ea12db94f5760410850aeea4df36e1bf07c"},
     # The miniSSDPD Unix socket implementation is excluded on Windows.
-    "port/external/miniupnpc/src/minissdpc.c": {"routes": ["write"], "sha256": "21d685f508b4b00cb5c46ed8b62ec78f4fbe1948288f0fce68f8fb996ab9aab9"},
+    "port/external/miniupnpc/src/minissdpc.c": {"routes": ["write"], "sha256": "9f43879fb045e3b86d9f6ac14776f8ee54ffb100f5b21e195fbb5e733517d05a"},
     # Project C++ profile serializer, not the CRT write descriptor function.
-    "port/include/actionmap_profile.h": {"routes": ["write"], "sha256": "c6520a3edc4b0be8b585c4924e0523308c7b94676e28fbac70d916a8baec7943"},
-    "port/src/actionmap_profile.cpp": {"routes": ["write"], "sha256": "23b777f8a94781e2199dfd6b2fc1042083aaeb5fd46e44a28d1d68914d9335d7"},
+    # Re-reviewed for B-1184 (T-MODDING-008): Store::initialize also rewrites a
+    # bindings file cut off at an unnamed action through the same serializer.
+    "port/include/actionmap_profile.h": {"routes": ["write"], "sha256": "6ea382d50e72f8fb3c7cc0be270d0f9251547f69ce152cda8b2f61017dd60a55"},
+    "port/src/actionmap_profile.cpp": {"routes": ["write"], "sha256": "931d3c9353490aaba4efe430025169c1454c6cb3af3844f1d936183031cf9795"},
     # Inactive POSIX branches; the Windows counterparts are wrapped.
-    "port/src/crash.c": {"routes": ["open"], "sha256": "2151fa0d536a11028a0fc5a4ee2280d9135586f28e824d1465ffc2bb3d70b97c"},
-    "port/src/fs.c": {"routes": ["mkdir"], "sha256": "636d96c2f35c6c54e1153fa5e18935ed914b8cdc75a9a3f1caed142f919c34cd"},
-    "port/src/mapimport.c": {"routes": ["mkdir"], "sha256": "e002d1adc43bdb5f15155259da8c14babba4be0cfa738e07aef429f0e0d012f1"},
-    "port/src/modpack_pdmod.c": {"routes": ["mkdir"], "sha256": "69445cd22d0765ad30b95590edcf2e8310ecd44da8739236972eb745c9236afc"},
-    "port/src/net/net.c": {"routes": ["open"], "sha256": "e885aee65f0d44338facda86cc842a595aeea0ed45741a89eea0774cba735f8b"},
+    "port/src/crash.c": {"routes": ["open"], "sha256": "766fc2f5ffb484f092be672bded832cd300d97d90805ffe5cc038d89d13c33f7"},
+    "port/src/fs.c": {"routes": ["mkdir"], "sha256": "95a210fddb3711643c1ec36e0b219dc1cde9bcac74594f504dc353f1c1e7e53d"},
+    "port/src/mapimport.c": {"routes": ["mkdir"], "sha256": "9ba4be3819040245f7fce7417a5b17af3676c025dd75f56b94c409f8a772c5bc"},
+    "port/src/modpack_pdmod.c": {"routes": ["mkdir"], "sha256": "53b54543b5e40faf5e505ecf192e2061e103d8e58b176cd94b3143f9719b2220"},
+    "port/src/net/net.c": {"routes": ["open"], "sha256": "606912ef8e745409b97153cd86303300b82fc4ec4847b09d93a80eea9e0a5fc4"},
     "port/src/pdca_extract_transaction.c": {"routes": ["mkdir"], "sha256": "ea7c9891ad5a20663da577577cc846a1fdd1f6e550e057821be09e45d956ffe8"},
-    "port/src/romdata.c": {"routes": ["mkdir"], "sha256": "9b9cccf9aa62b258d4cd0d14e2f36f0d3e78b28b2bbf219eccae222ed6d34122"},
-    "port/src/theater_format.c": {"routes": ["ftruncate"], "sha256": "0311fba4e2b6a676cc908160641ffe893602edb36ec59bc84c5d11d630e76ee1"},
+    "port/src/romdata.c": {"routes": ["mkdir"], "sha256": "14ae26828e8f5b75c32415b870c2a0489ce57aef47f2f55d0bc4dffa86bffe37"},
+    "port/src/theater_format.c": {"routes": ["ftruncate"], "sha256": "b684bb220e080efa8b7780260ff10002c527127f26b3778b6b1060fb9645dceb"},
     # Dynamic resolution is restricted to random bytes and a waitable timer.
-    "port/src/net/net_candidate.c": {"routes": ["GetProcAddress", "LoadLibraryA"], "sha256": "0c92bcd5be5027a3e0c60e459151d9c567d817a5aa06474377cbea64a1a4cb2c"},
-    "port/src/system.c": {"routes": ["GetProcAddress"], "sha256": "8403f95407161f3cac508e356e87297c4c0d72f74d0034f74fe9e53e3afc64d8"},
+    "port/src/net/net_candidate.c": {"routes": ["GetProcAddress", "LoadLibraryA"], "sha256": "8aabafc20491a90e664f81b0ef8df5ed9b12b558a764696741c3eb25183184b8"},
+    "port/src/system.c": {"routes": ["GetProcAddress"], "sha256": "bf6b770d4cb62f430834beb52cb74c4438f93f113ca4e764310da4091c0e3cd3"},
 }
 
 
@@ -101,13 +103,21 @@ def scan_source(source, wrapped):
 
 def review_fingerprint(source, routes):
     source = source.replace("\r\n", "\n")
-    lines = source.splitlines(keepends=True)
+    # Lines end at "\n" only, the same rule the line number below uses.
+    # str.splitlines would also break at form feeds and at 0x85, which legacy
+    # sources carry inside comments.
+    lines = re.split(r"(?<=\n)", source)
     code = code_tokens(source)
     excerpts = []
     references = re.compile(r"(?<![\w.:>])\b(" + "|".join(map(re.escape, sorted(routes))) + r")\b")
     for match in references.finditer(code):
         if match.group(1) in routes:
-            line = code.count("\n", 0, match.start())
+            # code_tokens keeps every offset but blanks the newlines inside
+            # block comments, so the line is counted in the original text.
+            # Counting it in the blanked text bound each pin to a window some
+            # lines above the call, and comment-only edits broke the pin while
+            # edits next to the call could go unseen.
+            line = source.count("\n", 0, match.start())
             excerpts.append("".join(lines[max(0, line - 4):line + 5]))
     return hashlib.sha256("\n".join(excerpts).encode("latin-1")).hexdigest()
 

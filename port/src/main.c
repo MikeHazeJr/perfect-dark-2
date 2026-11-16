@@ -271,6 +271,11 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       without depending on random arena spawn visibility. The optional
  *       bounded duration defaults to three seconds. One-shot per boot.
  *
+ *   --debug-bots-hold-fire
+ *       Smoke-only: simulants never fire a shot (chrTickShoot); they still
+ *       move, aim and set off proximity mines. Target-dummy smokes use it
+ *       now that bots can fight with mod weapons (T-MODDING-008).
+ *
  *   --debug-mount-bike
  *       Post-setupCreateProps hook: walks g_Vars.activeprops on the
  *       first frame after stage load and mounts player 0 on the
@@ -394,6 +399,13 @@ static const char *g_BootLaunchDifficulty = NULL;
 static const char *g_BootLaunchMpArena    = NULL;
 static const char *g_BootLaunchMpScenario = NULL;
 static s32         g_BootLaunchMpBotCount = 0;
+/* Week PD multiplayer smokes: --match-scorelimit <1..100> and
+ * --match-teamscorelimit <1..400> seed the ordinary match limits of a
+ * --launch-mp-room match so a scripted match can end on a score. Unlike the
+ * seconds time limit these are real setup values: they show in the Room and
+ * travel in the normal start message. 0 means the flag was not passed. */
+static s32         g_BootMatchScoreLimit = 0;
+static s32         g_BootMatchTeamScoreLimit = 0;
 /* Mike directive 2026-05-18: CLI infrastructure for end-to-end smoke
  * tests of CS matches. --debug-auto-start-match arms a one-shot that
  * fires Start Match after the Room dialog opens, skipping the human
@@ -887,6 +899,7 @@ extern bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
 extern bool chrRelocateToFloorWithCachedGround(struct chrdata *chr,
 		const struct coord *floorpos, f32 rootheight, RoomNum *rooms, f32 theta,
 		u16 floorcol, u8 floortype, RoomNum floorroom);
+extern bool g_DebugBotsHoldFire;
 extern f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms,
 		u16 *floorcol, u8 *floortype, u16 *floorflags, RoomNum *floorroom,
 		s32 *inlift, struct prop **lift);
@@ -1260,6 +1273,25 @@ static void bootApplyLaunchMpRoom(void)
 		strncpy(g_MatchConfig.scenario_id, g_BootLaunchMpScenario,
 			sizeof(g_MatchConfig.scenario_id) - 1);
 		g_MatchConfig.scenario_id[sizeof(g_MatchConfig.scenario_id) - 1] = '\0';
+	}
+	/* Derive the runtime mode from the ID and apply the mode's rules before
+	 * the bots below are seated, so a team-only mode gets two balanced teams
+	 * and --host-autostart sends a mode that matches the ID. */
+	if (matchConfigApplyScenarioRules("launch-mp-room") < 0) {
+		sysLogPrintf(LOG_WARNING,
+			"BOOT: --launch-mp-room scenario '%s' did not resolve to a game mode",
+			g_MatchConfig.scenario_id);
+	}
+	/* Stored limits are "limit minus one" (mpApplyLimits adds it back). */
+	if (g_BootMatchScoreLimit > 0) {
+		g_MatchConfig.scorelimit = (u8)(g_BootMatchScoreLimit - 1);
+		sysLogPrintf(LOG_NOTE, "BOOT: --match-scorelimit applied: score=%d",
+			g_BootMatchScoreLimit);
+	}
+	if (g_BootMatchTeamScoreLimit > 0) {
+		g_MatchConfig.teamscorelimit = (u16)(g_BootMatchTeamScoreLimit - 1);
+		sysLogPrintf(LOG_NOTE, "BOOT: --match-teamscorelimit applied: score=%d",
+			g_BootMatchTeamScoreLimit);
 	}
 	if (g_BootDebugSpawnWeapon && g_BootDebugSpawnWeapon[0]) {
 		strncpy(g_MatchConfig.spawn_weapon_id, g_BootDebugSpawnWeapon,
@@ -3528,8 +3560,12 @@ s32 bootDebugForceFirstPersonPreRenderTick(void)
 		struct coord pos = g_Vars.currentplayer->cam_pos;
 		struct coord up = {0.0f, 1.0f, 0.0f};
 		if (g_Vars.currentplayer->prop) {
+			/* B-1186: the player's prop already sits at eye height (spawns
+			 * place it at ground + vv_eyeheight, player.c), so it is the
+			 * first-person camera position. Adding vv_eyeheight again put
+			 * the forced camera 159 units up, inside or above the ceiling,
+			 * and shots fired from it flew out of the world. */
 			pos = g_Vars.currentplayer->prop->pos;
-			pos.y += g_Vars.currentplayer->vv_eyeheight;
 		}
 		if (g_BootDebugForceFirstPersonCamOffset) {
 			pos.x += g_BootDebugForceFirstPersonCamOffsetVec.x;
@@ -3742,6 +3778,29 @@ s32 bootConnectHostTick(void)
  *   - at least one OTHER client slot has reached CLSTATE_LOBBY
  *   - settle delay (~120 frames @ 60 fps ≈ 2 s) elapsed since that condition
  */
+/* While --host-autostart is armed and has not fired, say what it is waiting
+ * on: once when the reason changes and then about every three seconds. A
+ * two-process smoke that never starts its match otherwise leaves no trace of
+ * which condition was never met. Log only. */
+static void bootHostAutostartLogWaiting(const char *reason, s32 remote_in_lobby)
+{
+	static const char *last_reason = NULL;
+	static u32 calls_since_log = 0;
+
+	if (reason != last_reason || ++calls_since_log >= 300) {
+		extern s32 g_NetInit;
+		sysLogPrintf(LOG_NOTE,
+			"BOOT: --host-autostart waiting: reason=%s netinit=%d netmode=%d dedicated=%d "
+			"local_state=%d remote_in_lobby=%d peers_needed=%d settle=%d phase=%d",
+			reason, (s32)(g_NetInit != 0), (s32)g_NetMode, (s32)g_NetDedicated,
+			g_NetLocalClient ? (s32)g_NetLocalClient->state : -1,
+			remote_in_lobby, g_BootHostAutostartPeers,
+			g_BootHostAutostartSettleFrames, g_BootHostAutostartPhase);
+		last_reason = reason;
+		calls_since_log = 0;
+	}
+}
+
 s32 bootHostAutostartTick(void)
 {
 	if (!g_BootHostAutostartArmed || g_BootHostAutostartFired) {
@@ -3763,9 +3822,11 @@ s32 bootHostAutostartTick(void)
 	extern s32 netLobbyHostAddRemoteClientsToRoom(u8 room_id);
 
 	if (!g_NetInit || g_NetMode != NETMODE_SERVER || g_NetDedicated) {
+		bootHostAutostartLogWaiting("not-a-listen-host-yet", -1);
 		return 0;
 	}
 	if (!g_NetLocalClient || g_NetLocalClient->state < CLSTATE_LOBBY) {
+		bootHostAutostartLogWaiting("host-client-not-in-lobby", -1);
 		return 0;
 	}
 
@@ -3784,6 +3845,7 @@ s32 bootHostAutostartTick(void)
 	}
 	if (remoteInLobby < g_BootHostAutostartPeers) {
 		g_BootHostAutostartSettleFrames = 0; /* reset settle if peer drops pre-fire */
+		bootHostAutostartLogWaiting("waiting-for-remote-in-lobby", remoteInLobby);
 		return 0;
 	}
 
@@ -3791,6 +3853,7 @@ s32 bootHostAutostartTick(void)
 	 * exchange that follows CLC_AUTH has time to quiesce before we fire. */
 	if (g_BootHostAutostartSettleFrames < 120) {
 		g_BootHostAutostartSettleFrames++;
+		bootHostAutostartLogWaiting("settling-after-join", remoteInLobby);
 		return 0;
 	}
 
@@ -3912,6 +3975,10 @@ s32 bootHostAutostartTick(void)
 		numSims = 0;
 		simType = 0;
 		weaponSet = 0xFF;
+	} else {
+		/* The start writer rejects a mode that disagrees with the scenario
+		 * ID, and a team-only mode needs Teams in the sent options. */
+		(void)matchConfigApplyScenarioRules("host-autostart");
 	}
 	sysLogPrintf(LOG_NOTE,
 		"BOOT: --host-autostart firing: mode=%u stage='%s' difficulty=%u anti_client=%u scenario=%u timelimit=%u sims=%u",
@@ -4256,6 +4323,28 @@ int main(int argc, const char **argv)
 			}
 		}
 	}
+	{
+		const char *slimit = sysArgGetString("--match-scorelimit");
+		const char *tlimit = sysArgGetString("--match-teamscorelimit");
+		if (slimit && slimit[0]) {
+			long v = strtol(slimit, NULL, 0);
+			if (v >= 1 && v <= 100) {
+				g_BootMatchScoreLimit = (s32)v;
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --match-scorelimit expects 1..100; got: '%s'", slimit);
+			}
+		}
+		if (tlimit && tlimit[0]) {
+			long v = strtol(tlimit, NULL, 0);
+			if (v >= 1 && v <= 400) {
+				g_BootMatchTeamScoreLimit = (s32)v;
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --match-teamscorelimit expects 1..400; got: '%s'", tlimit);
+			}
+		}
+	}
 	g_BootDebugSwarmMap       = sysArgGetString("--debug-swarm-map");
 	g_BootDebugInstallReceivedMod =
 		sysArgGetString("--debug-install-received-mod");
@@ -4267,6 +4356,10 @@ int main(int argc, const char **argv)
 	g_BootDebugBotBody        = sysArgGetString("--debug-bot-body");
 	g_BootDebugBotHead        = sysArgGetString("--debug-bot-head");
 	g_BootDebugPlaceBotNearPlayer = sysArgCheck("--debug-place-bot-near-player") ? true : false;
+	if (sysArgCheck("--debug-bots-hold-fire")) {
+		g_DebugBotsHoldFire = true;
+		sysLogPrintf(LOG_NOTE, "BOOT: --debug-bots-hold-fire armed");
+	}
 	{
 		const char *holdsec = sysArgGetString(
 			"--debug-place-bot-near-player-hold-sec");

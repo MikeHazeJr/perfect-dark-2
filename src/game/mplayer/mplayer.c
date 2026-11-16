@@ -357,6 +357,18 @@ void mpStartMatch(void)
 			mpGetActivePlayerCount(), mpGetActiveBotCount());
 	}
 
+	/* Scenario state is initialized here for every Combat Simulator start
+	 * (offline Room, challenge, preset, listen authority, receiving client).
+	 * The original menus ran scenarioInit() when a scenario was picked; the PC
+	 * entry paths write the selection directly, so without this call King of
+	 * the Hill, Capture the Case and Pop a Cap began a match with whatever the
+	 * shared g_ScenarioData union last held. The participants this reads are
+	 * already committed on every path. Teams for team-only modes are settled
+	 * earlier by matchConfigApplyScenarioRules(), before options are frozen or
+	 * serialized, so the option write inside the team modes' init is a no-op
+	 * for a prepared network launch. */
+	scenarioInit();
+
 	sysLogPrintf(LOG_NOTE, "MATCH: options=0x%08x onehitkills=%d slowmo=%d scenario=%d handicap0=%d",
 		g_MpSetup.options,
 		(g_MpSetup.options & MPOPTION_ONEHITKILLS) != 0,
@@ -2756,6 +2768,49 @@ void mpCalculateAwards(void)
 	}
 }
 
+/* Match result witness for the smoke harness. Every peer logs the ranking it
+ * is about to show on its end screen, so a host log and a client log can be
+ * compared line for line: equal lines mean both sides agree on the result.
+ * Scores and deaths go through the scenario's own score callback, so the same
+ * lines cover Combat and the objective scenarios. Log only; no state change
+ * beyond what the ranking functions already do for the end screen. */
+static void mpLogMatchResult(void)
+{
+	struct ranking rankings[MAX_MPCHRS];
+	const bool teams = (g_MpSetup.options & MPOPTION_TEAMSENABLED) != 0;
+	s32 count;
+	s32 i;
+
+	count = mpGetPlayerRankings(rankings);
+	sysLogPrintf(LOG_NOTE,
+		"MATCH.RESULT: scenario=%d teams=%d chrs=%d netmode=%d",
+		(s32)g_MpSetup.scenario, teams ? 1 : 0, count, (s32)g_NetMode);
+
+	for (i = 0; i < count; i++) {
+		s32 score = 0;
+		s32 deaths = 0;
+
+		if (!rankings[i].mpchr) {
+			continue;
+		}
+		scenarioCalculatePlayerScore(rankings[i].mpchr, (s32)rankings[i].chrnum,
+			&score, &deaths);
+		sysLogPrintf(LOG_NOTE,
+			"MATCH.RESULT.CHR: rank=%d chr=%u team=%u score=%d deaths=%d",
+			i, (unsigned)rankings[i].chrnum, (unsigned)rankings[i].mpchr->team,
+			score, deaths);
+	}
+
+	if (teams) {
+		count = mpGetTeamRankings(rankings);
+		for (i = 0; i < count; i++) {
+			sysLogPrintf(LOG_NOTE,
+				"MATCH.RESULT.TEAM: rank=%d team=%u score=%d",
+				i, (unsigned)rankings[i].teamnum, (s32)rankings[i].score);
+		}
+	}
+}
+
 void mpEndMatch(void)
 {
 	s32 stack;
@@ -2811,6 +2866,7 @@ void mpEndMatch(void)
 	 * at match end on the host (time-limit path) and on the client (when it
 	 * processes SVC_STAGE_END -> mainEndStage), so the endscreen push fires
 	 * on both; the concatenated smoke log captures it. */
+	mpLogMatchResult();
 	sysLogPrintf(LOG_NOTE, "MATCH: endscreen shown");
 
 	func0f0f820c(NULL, -6);

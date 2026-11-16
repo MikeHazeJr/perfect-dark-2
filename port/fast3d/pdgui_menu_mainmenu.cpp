@@ -162,9 +162,12 @@ void creditsEnterNormalScroll(void);
 /* Pause/control restoration — needed when ImGui menu close bypasses
  * the legacy menutick bg-transition that normally calls func0f0fa6ac. */
 void playerUnpause(void);
-void lvSetPaused(bool paused);
+/* SP-75: these are the game's C definitions, which use the project bool
+ * (s32). This file does not include types.h, so `bool` here would be the
+ * one-byte C++ keyword and would not match them. */
+void lvSetPaused(s32 paused);
 s32 lvIsPaused(void);
-extern bool g_PlayersWithControl[];
+extern s32 g_PlayersWithControl[];
 
 /* Handlers we invoke to match original behavior */
 struct menuitem;
@@ -1823,6 +1826,8 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_USE,                 "Use / Interact",     BG_COMBAT,        "Doors, terminals, pickups. Tap reloads, hold interacts (threshold tunable in Per-action hold overrides).", &g_ImcGameplay },
     { ACTION_CANCEL_USE,          "Cancel / Drop",      BG_COMBAT,        "Abort an interaction or drop weapon.",                                                                &g_ImcGameplay },
     { ACTION_THROW_WEAPON,        "Throw Weapon",       BG_COMBAT,        NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_GUN_ROLL_LEFT,       "Roll Gun Left",      BG_COMBAT,        "Hold to roll the gun on its side, for weapons that allow it (shapes the crystal pistol's charge fan).", &g_ImcGameplay },
+    { ACTION_GUN_ROLL_RIGHT,      "Roll Gun Right",     BG_COMBAT,        "Hold to roll the gun the other way, for weapons that allow it.",                                      &g_ImcGameplay },
     { ACTION_VEHICLE_USE,         "Direct Use / Mount", BG_COMBAT,        "Optional direct on-foot activation. The normal Use / Interact hold also mounts vehicles.",             &g_ImcGameplay },
 
     /* --- Weapons (Gameplay) --- */

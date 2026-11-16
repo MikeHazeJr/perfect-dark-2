@@ -1,0 +1,168 @@
+{
+  "scenario_name": "crystal_pistol_net_roll_charge_smoke",
+  "description": "Crystal pistol (T-MODDING-008) online: a listen host and a client on 127.0.0.1 in one install that has the pistol mod, both spawning with it. Both run the same input: hold the gun roll right, switch to the secondary and charge while rolled. Protocol v63 carries the held roll actions (UCMD_GUNROLL_LEFT/RIGHT), so every peer rolls every player's gun (BONDGUN.ROLL for the local and the remote player on each side: four roll=90 lines). Each peer also simulates the other player's charge from its replicated input; the client launches nothing (skipped=client) and the host launches the client's volley itself, from the sockets of the gun it keeps for that player, fanned plus or minus 15 degrees along its rolled spine (fan ... roll=90 spread=30 sockets=6 for both players), and arms the client's mines (owner=1).",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "weapon",
+    "charge",
+    "roll",
+    "network",
+    "listen-host",
+    "multi-process",
+    "crystal_pistol",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "dev-mods/crystal_pistol/crystal_pistol.pdweapon",
+    "port/include/net/net.h",
+    "port/src/net/net_player_move_wire.c",
+    "src/game/bondmove.c",
+    "src/game/bondgun_mod.c",
+    "src/game/chr.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "current",
+  "remove_paths": [
+    "mods/crystal_pistol.pdmod",
+    "mods/crystal_pistol",
+    "mods/installed/crystal_pistol.pdmod",
+    "mods/installed/crystal_pistol"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": "dev-mods/crystal_pistol",
+      "dst": "mods/installed/crystal_pistol.pdmod"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--debug-force-first-person",
+        "--host",
+        "--listen-bind",
+        "27206",
+        "--launch-mp-room",
+        "base:arena_mp_felicity",
+        "base:combat",
+        "0",
+        "--debug-spawn-weapon",
+        "mod_crystal_pistol:crystal_pistol",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "180"
+      ],
+      "wait_for": "NET: created server on port 27206",
+      "wait_timeout_seconds": 120
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--debug-force-first-person",
+        "--connect-host",
+        "127.0.0.1:27206"
+      ]
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 270000,
+      "stable_ms": 1000,
+      "comment": "Each process waits for its live network stage before the shared input."
+    },
+    { "at_ms": 3000, "type": "action", "name": "ACTION_GUN_ROLL_RIGHT", "action": "press", "comment": "Roll a quarter turn and hold it; the move carries UCMD_GUNROLL_RIGHT." },
+    { "at_ms": 5000, "type": "action", "name": "ACTION_FIRE_MODE", "action": "tap", "comment": "Secondary: the charge (UCMD_SECONDARY)." },
+    { "at_ms": 6500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "Commit the charge while rolled; it launches 1.5 s later." },
+    { "at_ms": 6600, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 11000, "type": "action", "name": "ACTION_GUN_ROLL_RIGHT", "action": "release" },
+    { "at_ms": 14000, "type": "exit" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=crystal_pistol_net_roll_charge_smoke",
+      "BOOT: --listen-bind armed: port=27206",
+      "BOOT: --connect-host armed: addr='127.0.0.1:27206'",
+      "LOADER\\.POOL\\.WEAPON\\.PUBLIC_ADAPTER: installed id=mod_crystal_pistol:crystal_pistol runtime=\\d+ model=\\d+ funcs=2",
+      "NET: created server on port 27206",
+      "NET: connected to server, sending CLC_AUTH",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "BONDGUN\\.ROLL: player=\\d+ weapon=\\d+ roll=90",
+      "BONDGUN\\.CHARGE: start weapon=\\d+ player=\\d+ func=1 count=6",
+      "BONDGUN\\.CHARGE: released weapon=\\d+ player=\\d+ count=6 launched=6 dead=0 sockets=6",
+      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=0\\.[01]\\d roll=90 spread=30 sockets=6",
+      "BONDGUN\\.CRYSTAL: mine armed weapon=\\d+ func=1 owner=1",
+      "BONDGUN\\.CHARGE: released weapon=\\d+ player=\\d+ count=6 launched=0 dead=0 skipped=client",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "NET: connection rejected: protocol mismatch",
+      "NET: could not connect to ",
+      "LOUDFAIL\\.FALLBACK",
+      "result=FAIL",
+      "BONDGUN\\.MODEL: .*B-1185",
+      "skipped=no_owner",
+      "'mod_crystal_pistol:crystal_pistol' public weapon adapter install failed",
+      "'mod_crystal_pistol:crystal_pistol' activation failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "SMOKE: scenario=crystal_pistol_net_roll_charge_smoke",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "BONDGUN\\.ROLL: player=\\d+ weapon=\\d+ roll=90",
+        "min": 4
+      },
+      {
+        "pattern": "BONDGUN\\.CHARGE: start weapon=\\d+ player=\\d+ func=1 count=6",
+        "min": 4
+      },
+      {
+        "pattern": "BONDGUN\\.CHARGE: released weapon=\\d+ player=\\d+ count=6 launched=0 dead=0 skipped=client",
+        "min": 2
+      },
+      {
+        "pattern": "BONDGUN\\.CHARGE: released weapon=\\d+ player=\\d+ count=6 launched=6 dead=0 sockets=6",
+        "min": 2
+      },
+      {
+        "pattern": "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=0\\.[01]\\d roll=90 spread=30 sockets=6",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: player spawned slot=\\d+",
+        "min": 2
+      }
+    ]
+  }
+}

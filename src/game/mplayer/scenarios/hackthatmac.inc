@@ -11,6 +11,16 @@ extern struct menudialogdef g_ExtGameOptionsMenuDialog;
 
 #define HTM_NUM_TERMINALS 1
 
+/**
+ * PC (B-1125): the bank size the fallback fills to when the arena's own pads
+ * (Capture the Case pads and multiplayer ammo crates) are too few for the
+ * terminal and the uplink. The original bank is an arena's Capture the Case
+ * pads plus its multiplayer ammo crates, usually more than this, so with a
+ * filled bank the terminal and the respawning uplink still move around the
+ * arena.
+ */
+#define HTM_FALLBACK_BANK_PADS 8
+
 struct menuitem g_HtmOptionsMenuItems[] = {
 	{
 		MENUITEMTYPE_CHECKBOX,
@@ -182,6 +192,148 @@ void htmReset(void)
 	}
 }
 
+/**
+ * PC (B-1125): bank entries that can still be picked. The terminal selection
+ * marks each pick -1, and a pad number <= 0 is never picked.
+ */
+static s32 htmCountUsableBankPads(void)
+{
+	s32 count = 0;
+	s32 i;
+
+	for (i = 0; i < g_ScenarioData.htm.numpads; i++) {
+		if (g_ScenarioData.htm.padnums[i] > 0) {
+			count++;
+		}
+	}
+
+	return count;
+}
+
+/**
+ * PC (B-1125): distinct pads among the usable bank entries. An arena can list
+ * a pad twice (a case pad that is also a crate pad), and two entries for one
+ * pad cannot hold a terminal and the uplink apart.
+ */
+static s32 htmCountDistinctBankPads(void)
+{
+	s32 count = 0;
+	s32 i;
+	s32 j;
+
+	for (i = 0; i < g_ScenarioData.htm.numpads; i++) {
+		s16 padnum = g_ScenarioData.htm.padnums[i];
+
+		if (padnum <= 0) {
+			continue;
+		}
+
+		for (j = 0; j < i; j++) {
+			if (g_ScenarioData.htm.padnums[j] == padnum) {
+				break;
+			}
+		}
+
+		if (j == i) {
+			count++;
+		}
+	}
+
+	return count;
+}
+
+/**
+ * PC (B-1125): when the arena's own bank cannot hold the terminal and the
+ * uplink apart, fill it up with walkable pads (Mike, 2026-11-15: place some
+ * so there are enough). Banks that are already big enough are left alone, so
+ * arenas with their Capture the Case pads keep the original placement and
+ * the original random sequence.
+ */
+static void htmTopUpBank(void)
+{
+	struct scenariodata_htm *data = &g_ScenarioData.htm;
+	s16 added[HTM_FALLBACK_BANK_PADS];
+	s32 distinct = htmCountDistinctBankPads();
+	s32 numadded;
+	s32 i;
+
+	if (distinct >= htmNumProps()) {
+		return;
+	}
+
+	numadded = scenarioFallbackPads(added, HTM_FALLBACK_BANK_PADS - distinct, data->padnums, data->numpads, "HTM");
+
+	for (i = 0; i < numadded; i++) {
+		htmAddPad(added[i]);
+	}
+
+	sysLogPrintf(htmCountDistinctBankPads() >= htmNumProps() ? LOG_NOTE : LOG_ERROR,
+		"HTM: bank had %d usable pad(s) of %d needed; added %d walkable pad(s), bank now %d (B-1125)",
+		distinct, htmNumProps(), numadded, htmCountDistinctBankPads());
+}
+
+static s32 htmPadIsUnderTerminal(s32 padnum)
+{
+	s32 i;
+
+	for (i = 0; i < HTM_NUM_TERMINALS; i++) {
+		if (g_ScenarioData.htm.terminals[i].prop && g_ScenarioData.htm.terminals[i].padnum == padnum) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/**
+ * PC (B-1125): a random bank pad for the uplink when there is no ammo crate
+ * to replace.
+ *
+ * The original took any bank entry, including the ones the terminal
+ * selection had marked -1. An uplink on pad -1 is created off-world, so
+ * htmTick creates it again on the next tick (a new prop each time) until a
+ * pick lands on a real pad or a crate; on an arena without crates that can go
+ * on for many ticks. Pick only entries that are still pads and are not under
+ * a terminal. When none is left, use the pad the selection loop reserved for
+ * the uplink (terminals[HTM_NUM_TERMINALS], see htmNumProps), else pad 0 as
+ * before.
+ */
+static s32 htmChooseUplinkBankPad(void)
+{
+	struct scenariodata_htm *data = &g_ScenarioData.htm;
+	s32 numfree = 0;
+	s32 pick;
+	s32 i;
+
+	for (i = 0; i < data->numpads; i++) {
+		if (data->padnums[i] > 0 && !htmPadIsUnderTerminal(data->padnums[i])) {
+			numfree++;
+		}
+	}
+
+	if (numfree > 0) {
+		pick = rngRandom() % numfree;
+
+		for (i = 0; i < data->numpads; i++) {
+			if (data->padnums[i] > 0 && !htmPadIsUnderTerminal(data->padnums[i])) {
+				if (pick == 0) {
+					return data->padnums[i];
+				}
+
+				pick--;
+			}
+		}
+	}
+
+	if (data->numterminals > HTM_NUM_TERMINALS
+			&& data->terminals[HTM_NUM_TERMINALS].padnum > 0
+			&& !htmPadIsUnderTerminal(data->terminals[HTM_NUM_TERMINALS].padnum)) {
+		return data->terminals[HTM_NUM_TERMINALS].padnum;
+	}
+
+	return 0;
+}
+
 void htbCreateUplink(void)
 {
 	struct weaponobj template = {
@@ -222,6 +374,7 @@ void htbCreateUplink(void)
 	s32 padnum;
 	s32 count = 0;
 	struct defaultobj *candidates[20];
+	const char *source;
 
 	while (prop && count < 20) {
 #if VERSION >= VERSION_NTSC_1_0
@@ -245,10 +398,13 @@ void htbCreateUplink(void)
 		var800869ec->hidden |= OBJHFLAG_DELETING;
 		var800869ec->hidden2 |= OBJH2FLAG_CANREGEN;
 		padnum = var800869ec->pad;
+		source = "crate";
 	} else if (g_ScenarioData.htm.numpads > 0) {
-		padnum = g_ScenarioData.htm.padnums[rngRandom() % g_ScenarioData.htm.numpads];
+		padnum = htmChooseUplinkBankPad();
+		source = padnum > 0 ? "bank" : "pad0";
 	} else {
 		padnum = 0;
+		source = "pad0";
 	}
 
 	g_HtmUplinkObj = template;
@@ -263,6 +419,9 @@ void htbCreateUplink(void)
 	if (g_ScenarioData.htm.uplink) {
 		g_ScenarioData.htm.uplink->forcetick = true;
 	}
+
+	sysLogPrintf(LOG_NOTE, "HTM: uplink placed pad=%d source=%s prop=%s",
+		padnum, source, g_ScenarioData.htm.uplink ? "ok" : "none");
 }
 
 void htmInitProps(void)
@@ -271,6 +430,8 @@ void htmInitProps(void)
 	struct prop *prop = g_Vars.activeprops;
 	s32 i = 0;
 	s32 rand;
+	s32 numpicks;
+	s32 usable;
 
 	osSyncPrintf("HackThatMacInitProps -> Start : %d Bank Pads\n", data->numterminals);
 
@@ -291,14 +452,29 @@ void htmInitProps(void)
 	}
 
 	osSyncPrintf("HackThatMacInitProps -> Mid : %d Bank Pads\n", data->numpads);
+
+	// PC (B-1125): an arena with too few bank pads gets walkable ones added
+	htmTopUpBank();
+
 	osSyncPrintf("HackThatMacInitProps -> Generating %d random box pads from %d in the bank\n", htmNumProps(), data->numpads);
 
 	data->numterminals = 0;
 
+	// PC (B-1125): never ask for more picks than the bank holds. The loop
+	// below divides by zero on an empty bank and never ends once every entry
+	// has been picked. This only binds when even the top-up found too few pads.
+	numpicks = htmNumProps();
+	usable = htmCountUsableBankPads();
+
+	if (numpicks > usable) {
+		sysLogPrintf(LOG_ERROR, "HTM: bank holds %d usable pad(s), %d needed (B-1125)", usable, numpicks);
+		numpicks = usable;
+	}
+
 	// @bug: This should be < htmNumProps() - 1 to account for the data uplink,
 	// or just < HTM_NUM_TERMINALS. If HTM_NUM_TERMINALS is set to 7 then it
 	// will overflow the array.
-	while (data->numterminals < htmNumProps()) {
+	while (data->numterminals < numpicks) {
 		s32 padnum;
 
 		do {
@@ -318,12 +494,20 @@ void htmInitProps(void)
 	}
 
 	for (i = 0; i < HTM_NUM_TERMINALS; i++) {
+		// PC (B-1125): a terminal with no pad would be created off-world
+		if (i >= data->numterminals || data->terminals[i].padnum <= 0) {
+			sysLogPrintf(LOG_ERROR, "HTM: no pad for terminal %d; the arena has no usable pads (B-1125)", i);
+			continue;
+		}
+
 		data->terminals[i].prop = scenarioCreateObj(MODEL_GOODPC, data->terminals[i].padnum, 0.2f,
 				OBJFLAG_FALL | OBJFLAG_INVINCIBLE | OBJFLAG_FORCENOBOUNCE,
 				OBJFLAG2_IMMUNETOGUNFIRE | OBJFLAG2_IMMUNETOEXPLOSIONS,
 				OBJFLAG3_HTMTERMINAL | OBJFLAG3_INTERACTABLE);
 		osSyncPrintf("HackThatMacInitProps -> Building and adding custom prop %d - Pad=%d, Ptr=%08x\n",
 				i, data->terminals[i].padnum, data->terminals[i].prop);
+		sysLogPrintf(data->terminals[i].prop ? LOG_NOTE : LOG_ERROR, "HTM: terminal %d placed pad=%d prop=%s",
+				i, data->terminals[i].padnum, data->terminals[i].prop ? "ok" : "none");
 		htbRemoveAmmoCrateAtPad(data->terminals[i].padnum);
 	}
 

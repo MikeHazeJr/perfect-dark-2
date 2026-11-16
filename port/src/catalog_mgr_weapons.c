@@ -70,6 +70,19 @@ struct weapon *catalogManagerGetWeaponByIndex(s32 weapon_id)
 	return wgV2RuntimeIsWeapon(weapon_id) ? (struct weapon *)wgV2RuntimeWeapon(weapon_id) : (struct weapon *)loaderPoolGetWeapon(weapon_id);
 }
 
+s32 catalogManagerWeaponIsUsable(s32 weapon_id)
+{
+	const struct weapon *weapon;
+
+	/* Range-check here so an unusable id is answered silently rather than
+	 * through the MISS warning of the hot-path accessor. */
+	if (weapon_id < 0 || weapon_id >= CATALOG_MGR_WEAPON_COUNT) {
+		return 0;
+	}
+	weapon = catalogManagerGetWeaponByIndex(weapon_id);
+	return weapon != NULL && weapon->aimsettings != NULL;
+}
+
 struct weapon *catalogManagerGetWeaponAt(s32 iter_index)
 {
 	if (iter_index < 0 || iter_index >= CATALOG_MGR_WEAPON_COUNT) {

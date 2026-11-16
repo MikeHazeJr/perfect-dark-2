@@ -1,0 +1,146 @@
+{
+  "scenario_name": "crystal_pistol_viewmodel_smoke",
+  "description": "Crystal pistol test mod: the public OBJ held model, its catalog body texture and its muzzle/hold parts load from dev-mods/crystal_pistol and render in first person in an ordinary Combat Simulator match. Modelled on needler_viewmodel_visibility_smoke.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "weapon",
+    "viewmodel",
+    "visual",
+    "crystal_pistol",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "dev-mods/crystal_pistol/crystal_pistol.pdweapon",
+    "dev-mods/crystal_pistol/crystal_pistol_body.pdtexture",
+    "port/src/modasset_compiler.c",
+    "port/src/catalog_model_generation.cpp",
+    "src/game/bondgun.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "remove_paths": [
+    "mods/crystal_pistol.pdmod",
+    "mods/crystal_pistol",
+    "mods/installed/crystal_pistol.pdmod",
+    "mods/installed/crystal_pistol"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": "dev-mods/crystal_pistol",
+      "dst": "mods/installed/crystal_pistol.pdmod"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-generated-mesh-render-audit",
+    "--debug-force-first-person",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-spawn-weapon",
+    "mod_crystal_pistol:crystal_pistol",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Fresh installs extract and walk every typed archive first; wait for ordinary first-person Combat Simulator gameplay with the pistol as the spawn weapon."
+    },
+    { "at_ms": 3000, "type": "screenshot", "path": "cp-viewmodel-a.bmp", "comment": "Held model at rest. The session's first capture stalls the game about 1.3 s, so it comes well before the first shot: a press and release inside that stall land in one frame and fire nothing." },
+    { "at_ms": 6000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "One crystal; the muzzle flash shows for a frame. Each shot is held 600 ms and the shots are 2.5 s apart: a capture or the first crystal spawn stalls the game up to about a second, and a 150 ms tap inside a stall landed press and release in one frame and never fired (one flash short on 2026-11-15). The pistol fires once per press, so the hold adds no shots." },
+    { "at_ms": 6000, "type": "screenshot", "path": "cp-viewmodel-flash-a.bmp", "comment": "Same frame as the press." },
+    { "at_ms": 6600, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 8500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 8516, "type": "screenshot", "path": "cp-viewmodel-flash-b.bmp", "comment": "One frame after the press." },
+    { "at_ms": 9100, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 11000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 11033, "type": "screenshot", "path": "cp-viewmodel-flash-c.bmp", "comment": "Two frames after the press." },
+    { "at_ms": 11600, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    {
+      "at_ms": 12500,
+      "type": "exit",
+      "comment": "Exit after the rest capture and three shots."
+    }
+  ],
+  "retain_artifacts": [
+    { "src": "cp-viewmodel-a.bmp" },
+    { "src": "cp-viewmodel-flash-a.bmp" },
+    { "src": "cp-viewmodel-flash-b.bmp" },
+    { "src": "cp-viewmodel-flash-c.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=crystal_pistol_viewmodel_smoke",
+      "modmgr: loading mod 'crystal_pistol' from archive '.*installed.*crystal_pistol\\.pdmod'",
+      "PDWEAPON\\.NESTED\\.MESH_SOURCE: owner=mod_crystal_pistol:crystal_pistol id=mod_crystal_pistol:crystal_pistol_model action=claimed",
+      "LOADER\\.POOL\\.WEAPON\\.PUBLIC_ADAPTER: installed id=mod_crystal_pistol:crystal_pistol runtime=\\d+ model=\\d+ funcs=2",
+      "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod_crystal_pistol:crystal_pistol_model",
+      "MODASSET\\.RENDER: generated source modeldef rendered id=mod_crystal_pistol:crystal_pistol_model",
+      "BOOT: --debug-force-first-person active: stagenum=0x43 frame=\\d+ before=\\d+ after=0 frames=900",
+      "LOG\\.WPN\\.DIAG: playerRenderHud branch=fp_render cameramode=0",
+      "BONDGUN\\.FLASH: weapon=\\d+ hand=0 parts=1",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "ASSET\\.SOURCE_ONLY",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "RomProvider:filenum",
+      "result=FAIL",
+      "result=MISSING",
+      "CATEGORY_MISMATCH",
+      "references unknown texture catalog id",
+      "did not resolve to a catalog texture",
+      "selected public texture source unavailable",
+      "integer-native quantization warning source=.*crystal_pistol",
+      "'mod_crystal_pistol:crystal_pistol' public weapon adapter install failed",
+      "'mod_crystal_pistol:crystal_pistol' activation failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BONDGUN\\.SOURCE: loaded catalog model source filenum=\\d+ id=mod_crystal_pistol:crystal_pistol_model",
+        "min": 1
+      },
+      {
+        "pattern": "MODASSET\\.RENDER: generated source modeldef rendered id=mod_crystal_pistol:crystal_pistol_model",
+        "min": 1
+      },
+      {
+        "pattern": "BONDGUN\\.FLASH: weapon=\\d+ hand=0 parts=1",
+        "min": 3
+      },
+      {
+        "pattern": "SMOKE\\.GLSHOT: captured",
+        "min": 4
+      }
+    ]
+  }
+}

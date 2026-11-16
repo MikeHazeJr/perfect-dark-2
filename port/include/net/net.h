@@ -10,7 +10,13 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 61  /* v61 (2026-09-08): authenticated lobby roster.
+#define NET_PROTOCOL_VER 63  /* v63 (2026-11-15, CRYSTAL): UCMD_GUNROLL_LEFT/RIGHT
+                               carry a mod gun's roll input so every peer
+                               rolls it and the host fans a charge with it.
+                               (v62 is MULTIPLAYER's SVC_SCENARIO_STATE on
+                               week-pd/multiplayer; whichever merges second
+                               renumbers.)
+                             * v61 (2026-09-08): authenticated lobby roster.
                              * v60: room creation includes its
                                initial settings/playlist, room lists include
                                access and create/join return SVC_ROOM_RESULT.
@@ -382,6 +388,18 @@ struct netclientsettings {
 	f32 fovzoommult;
 };
 
+/* Layout rule for the shared structs below (netpreservedplayer,
+ * netrecentserver, netclient): flag members use s32, never `bool`.
+ *
+ * Project `bool` is a macro (`#define bool s32`, src/include/types.h), so its
+ * size depends on include order. A C file that includes any header pulling in
+ * <stdbool.h> after types.h gets `bool` as a 1-byte `_Bool` from then on.
+ * port/src/main.c and port/src/smoke_harness.c did exactly that (through
+ * native_write_policy.h) and laid struct netclient out with twelve 1-byte
+ * flags while net.c and netmsg.c used 4-byte ones, so &g_NetClients[1] and
+ * every member after the first flag sat at different addresses in different
+ * files. Spelling the type keeps one layout in every file. The values stay
+ * 0/1, so assignments and truth tests read the same as before. */
 struct netpreservedplayer {
 	char name[NET_MAX_NAME];
 	u8 cookie[NET_AUTH_COOKIE_LEN]; /* MASTER-C3: server-issued identity cookie */
@@ -391,7 +409,7 @@ struct netpreservedplayer {
 	u32 prop_syncid;
 	struct netclientsettings settings;
 	struct mpplayerconfig config;
-	bool active;
+	s32 active; /* 0/1; s32 so the layout cannot depend on include order */
 	u32 preserveframe; // frame number when preserved, for timeout
 };
 
@@ -407,7 +425,7 @@ struct netrecentserver {
 	u8 scenario;               /* DEPRECATED: integer MPSCENARIO_*. Use scenario_id instead. */
 	char hostname[NET_MAX_NAME];
 	u32 lastresponse; // system time of last response (0 = never)
-	bool online;
+	s32 online; /* 0/1; s32 so the layout cannot depend on include order */
 };
 
 extern struct netpreservedplayer g_NetPreservedPlayers[NET_MAX_CLIENTS];
@@ -465,6 +483,10 @@ extern u8 g_NetBotAuthorityClientId; /* NET_NULL_CLIENT when no authority delega
  * UCMD_ACTIVATE remains the action; this bit preserves device semantics
  * without asking the authority to infer them from its local control slot. */
 #define UCMD_VEHICLE_PC_INTENT (1 << 12)
+/* v63 (T-MODDING-008): the gun roll actions are held (ACTION_GUN_ROLL_LEFT /
+ * RIGHT). Held state, like UCMD_AIMMODE: forwarded, not important. */
+#define UCMD_GUNROLL_LEFT (1 << 13)
+#define UCMD_GUNROLL_RIGHT (1 << 14)
 #define UCMD_RESPAWN (1 << 27)
 #define UCMD_CHAT (1 << 28)
 #define UCMD_IMPORTANT_MASK (UCMD_FIRE | UCMD_ACTIVATE | UCMD_RELOAD | UCMD_AIMMODE | UCMD_SELECT | UCMD_SELECT_DUAL | UCMD_VEHICLE_PC_INTENT)
@@ -503,27 +525,29 @@ struct netclient {
 	struct netplayermove inmove[2]; // last 2 incoming player inputs, newest one first
 	u32 inmovetick; // last inmove tick which was applied to the player
 	u32 outmoveack; // last acked outmove tick
-	bool inmove_valid; // tick zero is a valid record after serial wrap
-	bool inmove_pending; // accepted receipt has not been applied, independent of tick distance
-	bool inmoveprev_valid; // previous received record exists, including tick zero
-	bool inmovetick_valid; // last applied tick exists, including tick zero
-	bool outmoveack_valid; // zero before the first acknowledgement is not an ACK
+	/* Flags below are 0/1 and spelled s32 on purpose: see the layout rule
+	 * above struct netpreservedplayer. */
+	s32 inmove_valid; // tick zero is a valid record after serial wrap
+	s32 inmove_pending; // accepted receipt has not been applied, independent of tick distance
+	s32 inmoveprev_valid; // previous received record exists, including tick zero
+	s32 inmovetick_valid; // last applied tick exists, including tick zero
+	s32 outmoveack_valid; // zero before the first acknowledgement is not an ACK
 	u32 forcetick; // tick on which the client's position was forced, or 0 if not forcing
 	u32 lerpticks; // how many ticks we've been lerping the position
 
 	u8 room_id;    // hub room assignment (0xFF = in lounge, not in a room)
 	u8 reconnect_preserved_index; /* v57: pending auth record; NET_NULL_CLIENT when none */
-	bool reconnect_settings_pending; /* exact CLC_SETTINGS waits for manifest READY */
+	s32 reconnect_settings_pending; /* exact CLC_SETTINGS waits for manifest READY */
 	u8 reconnect_manifest_phase; /* NET_RECONNECT_MANIFEST_* */
 	u8 reconnect_sanitized_team;
 	u32 reconnect_manifest_hash;
 	net_client_settings_plan_t reconnect_settings_plan;
 	u32 server_disconnect_intent_reason; /* sender-local ENet events discard wire reason */
-	bool server_disconnect_intent_pending; /* first server intent wins until teardown */
-	bool reconnect_resync_pending; /* v57: stage queued; exact state waits for post-load READY */
-	bool reconnect_gameplay_witness_pending; /* v57: next accepted fire move proves restored authority use */
-	bool stage_ready; // server: true once this client sent CLC_STAGE_READY after stage load
-	bool is_admin;    // MASTER-C2b: set after successful CLC_ADMIN ADMIN_AUTH on this peer
+	s32 server_disconnect_intent_pending; /* first server intent wins until teardown */
+	s32 reconnect_resync_pending; /* v57: stage queued; exact state waits for post-load READY */
+	s32 reconnect_gameplay_witness_pending; /* v57: next accepted fire move proves restored authority use */
+	s32 stage_ready; // server: true once this client sent CLC_STAGE_READY after stage load
+	s32 is_admin;    // MASTER-C2b: set after successful CLC_ADMIN ADMIN_AUTH on this peer
 	u8 auth_cookie[NET_AUTH_COOKIE_LEN]; // MASTER-C3: server-issued identity cookie for this peer
 
 	struct netbuf out; // outbound messages are written here, except broadcasts

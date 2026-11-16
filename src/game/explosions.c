@@ -1360,8 +1360,13 @@ u32 explosionTick(struct prop *prop)
 				chr = g_Vars.bond->prop->chr;
 			}
 
-			if (g_Rooms[exp->room].gfxdata) {
-				if (g_Rooms[exp->room].gfxdata->xlublocks && bgTestHitInRoom(&prop->pos, &exp->unk3d0, exp->room, &hitthing)) {
+			/* B-1189: rooms of a scenario-source stage have no gfxdata, which
+			 * skipped every scorch mark there. The scorch position comes from
+			 * the collision floor, so only the translucent-surface test needs
+			 * render data. */
+			if (g_Rooms[exp->room].gfxdata || bgIsScenarioSource()) {
+				if (g_Rooms[exp->room].gfxdata && g_Rooms[exp->room].gfxdata->xlublocks
+						&& bgTestHitInRoom(&prop->pos, &exp->unk3d0, exp->room, &hitthing)) {
 					xlu = hitthing.unk2c == 2;
 				}
 
