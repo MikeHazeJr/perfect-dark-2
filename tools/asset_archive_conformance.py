@@ -2565,6 +2565,13 @@ def validate_mission_source_contract(label: str, zf: zipfile.ZipFile,
                 errors.append(
                     f"{label} mission.graph.json must include mission phase graph nodes"
                 )
+            if isinstance(nodes, list):
+                for node in nodes:
+                    if isinstance(node, dict) and "required" in node:
+                        errors.append(
+                            f"{label} mission.graph.json node {node.get('id', '?')}: required belongs on the "
+                            f"objective's objectives.json row (mission-flow.md)"
+                        )
             if isinstance(nodes, list) and not any(
                 isinstance(node, dict)
                 and str(node.get("kind", "")) == "mission.objectives.source"
@@ -5826,6 +5833,17 @@ def validate_objectives_json_schema(label: str, entry_name: str, text: str,
             errors.append(
                 f"{label} {entry_name} row {idx} objective missing difficulty_mask"
             )
+        # mission-flow.md: "required": false on an objective row of the
+        # mission's table makes a bonus objective (out of the outcome).
+        if "required" in row:
+            if schema_id != "pd2.mission.objectives.v1":
+                errors.append(
+                    f"{label} {entry_name} row {idx} required belongs to the mission's objectives.json"
+                )
+            elif row.get("kind") != "objective" or not isinstance(row["required"], bool):
+                errors.append(
+                    f"{label} {entry_name} row {idx} required needs an objective row and true or false"
+                )
         if graph_prefix not in str(row.get("graph_node", "")):
             errors.append(
                 f"{label} {entry_name} row {idx} graph_node must bind {graph_prefix} graph source"

@@ -79,6 +79,11 @@ s32 scenarioSourceObjectiveGraphRecordStageFlags(u32 flags);
 s32 scenarioSourceObjectiveGraphHasStageFlag(u32 flag, s32 *out_has_flag);
 s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
 	const char *reason);
+/* mission-flow.md: 0 when the active mission graph leaves objective `index`
+ * out of the mission's outcome ("required": false on its objectives.json
+ * row); 1 otherwise, also with no mission graph or an objective it does not
+ * know (that one stays incomplete, so the mission cannot complete). */
+s32 scenarioSourceMissionObjectiveRequired(s32 index);
 s32 scenarioSourceAiGraphExecuteStop(struct chrdata *chr,
 	struct chopperobj *hovercar);
 s32 scenarioSourceAiGraphExecuteKneel(struct chrdata *chr);

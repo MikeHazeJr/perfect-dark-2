@@ -251,6 +251,7 @@ typedef struct scenario_source_objective_node {
 	s32 criteria_start;
 	s32 criteria_count;
 	s32 inserted;
+	s32 optional; /* mission-flow.md: the row's "required": false */
 } scenario_source_objective_node_t;
 
 typedef struct scenario_source_objective_criteria {
@@ -8669,6 +8670,32 @@ static s32 s_addMissionObjectiveSourceRow(
 	return 0;
 }
 
+/* mission-flow.md: a row of kind objective in the mission's objectives.json
+ * may carry "required": false, which leaves the objective out of the mission's
+ * outcome (a bonus objective: shown and checked, but its status neither
+ * completes nor fails the mission). Absent means required, the original rule.
+ * Refused on any other kind of row, or as anything but true or false. */
+static s32 s_missionObjectiveReadRequired(const char *object_text,
+	const char *objective_id, const char *kind,
+	scenario_source_objective_node_t *objectives, s32 objective_count)
+{
+	const char *end = object_text + strlen(object_text);
+	s32 required = 1;
+
+	if (!s_jsonFindKeyInRange(object_text, end, "required")) {
+		return 1;
+	}
+	if (strcmp(kind, "objective") != 0 || objective_count <= 0 ||
+			!s_jsonReadBoolValue(object_text, end, "required", &required)) {
+		sysLogPrintf(LOG_ERROR,
+			"MISSION.GRAPH: objectives.json row '%s' (kind %s): required needs an objective row and true or false",
+			objective_id, kind);
+		return 0;
+	}
+	objectives[objective_count - 1].optional = !required;
+	return 1;
+}
+
 static s32 s_loadMissionObjectiveSourceRows(const char *path,
 	const char *graph_text,
 	scenario_source_objective_node_t **out_objectives,
@@ -8759,6 +8786,13 @@ static s32 s_loadMissionObjectiveSourceRows(const char *path,
 					graph_text, &objectives, &objective_count,
 					&objective_capacity, &criteria, &criteria_count,
 					&criteria_capacity, &current_objective)) {
+				free(object_text);
+				free(text);
+				s_freeMissionObjectiveSourceRows(objectives, criteria);
+				return 0;
+			}
+			if (!s_missionObjectiveReadRequired(object_text, objective_id,
+					kind, objectives, objective_count)) {
 				free(object_text);
 				free(text);
 				s_freeMissionObjectiveSourceRows(objectives, criteria);
@@ -13220,6 +13254,18 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s_ActiveScenarioGraphs.mission_objective_runtime_active = 1;
 	s_ActiveScenarioGraphs.mission_stage_flags = 0;
 	s_ActiveScenarioGraphs.mission_stage_flags_valid = 1;
+	{
+		s32 optional = 0;
+
+		for (s32 oi = 0; oi < mission_objectives; oi++) {
+			optional += mission_objective_rows[oi].optional != 0;
+		}
+		if (optional) {
+			sysLogPrintf(LOG_NOTE,
+				"MISSION.GRAPH: %d of %d objectives of '%s' are optional (required false); the outcome leaves them out",
+				optional, mission_objectives, mission->id);
+		}
+	}
 
 	sysLogPrintf(LOG_NOTE,
 		"MISSION.GRAPH: activated mission graph '%s' scenario='%s' path=%s bytes=%u backend=%s",
@@ -34286,6 +34332,17 @@ s32 scenarioSourceObjectiveGraphReportRuntimeMismatch(s32 index,
 		return 0;
 	}
 	return s_missionObjectiveGraphRuntimeFailure(action, index, reason);
+}
+
+s32 scenarioSourceMissionObjectiveRequired(s32 index)
+{
+	if (!s_ActiveScenarioGraphs.mission_graph_active
+			|| !s_ActiveScenarioGraphs.mission_objectives
+			|| index < 0
+			|| index >= s_ActiveScenarioGraphs.mission_objective_nodes) {
+		return 1;
+	}
+	return !s_ActiveScenarioGraphs.mission_objectives[index].optional;
 }
 
 s32 scenarioSourceMissionGraphRecordPhase(const char *phase,

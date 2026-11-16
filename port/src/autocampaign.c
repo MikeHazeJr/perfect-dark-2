@@ -38,6 +38,7 @@
 #include "pdgui_campaign_bridge.h"
 #include "presence.h"
 #include "savefile.h"
+#include "scenario_source_runtime.h"
 #include "smoke_harness.h"
 
 extern struct solostage g_SoloStages[];
@@ -577,6 +578,8 @@ static s32 probeObjectiveParity(const char *stage_id)
 {
 	s32 compared = 0;
 	s32 not_graph = 0;
+	s32 graph_complete = 1;
+	s32 native_complete = 1;
 	s32 i;
 
 	for (i = 0; i < objectiveGetCount() && i < MAX_OBJECTIVES; i++) {
@@ -596,11 +599,33 @@ static s32 probeObjectiveParity(const char *stage_id)
 				stage_id, i, probeStatusName(graph), probeStatusName(native));
 			return -1;
 		}
+		/* mission-flow.md: the graph's outcome takes the required
+		 * objectives; the original rule takes every active one. */
+		if (scenarioSourceMissionObjectiveRequired(i) && graph != OBJECTIVE_COMPLETE) {
+			graph_complete = 0;
+		}
+		if (native != OBJECTIVE_COMPLETE) {
+			native_complete = 0;
+		}
 		compared++;
 	}
 
 	ACLOG("objective parity probe stage_id='%s' compared=%d not_graph=%d",
 		stage_id, compared, not_graph);
+
+	/* Outcome parity: no base objective is optional, so on every base
+	 * mission the mission graph's outcome equals the original rule's. */
+	if (not_graph == 0) {
+		if (graph_complete != native_complete) {
+			failRun(CAMPAIGN_RUN_FAILURE_OBJECTIVES,
+				"outcome parity probe: '%s' graph=%s native=%s",
+				stage_id, graph_complete ? "complete" : "incomplete",
+				native_complete ? "complete" : "incomplete");
+			return -1;
+		}
+		ACLOG("outcome parity probe stage_id='%s' outcome=%s",
+			stage_id, graph_complete ? "complete" : "incomplete");
+	}
 	return compared;
 }
 

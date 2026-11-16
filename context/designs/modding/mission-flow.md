@@ -1,7 +1,8 @@
 # Mission flow: phase, outcome and end from the mission graph
 
 Status: CORE, 2026-11-16. Design for the week note's "Mission flow (phases,
-end, fail)" row; slice 1 is CORE's to build on `week-pd/core`. Decision 1
+end, fail)" row; slice 1 built on `week-pd/core` (see Slices), slices 2 and 3
+are next. Decision 1
 (players can recreate any existing behavior with the nodes) applied to how a
 mission is judged and ended. Builds on `mission-graph-runner.md` (events,
 gates and `og.*` modules, D-006 option A).
@@ -29,11 +30,15 @@ gates and `og.*` modules, D-006 option A).
 
 ## The design
 
-1. **Required objectives are data.** A `mission.objective.source` node may
-   carry `"required": false`: the objective is shown and evaluated as now but
-   is left out of the outcome (its failure does not fail the mission, the
-   mission completes without it). Absent means required, the original rule.
-   The extractor writes no `required` field for the base missions.
+1. **Required objectives are data.** A row of kind `objective` in the
+   mission's `objectives.json` (`pd2.mission.objectives.v1`, the table the
+   runtime reads) may carry `"required": false`: the objective is shown and
+   evaluated as now but is left out of the outcome (its failure does not fail
+   the mission, the mission completes without it). Absent means required,
+   the original rule. One source: conformance refuses `required` on a
+   mission graph node and on the scenario's own objectives table. The
+   extractor writes no `required` field for the base missions, so the
+   extracted data and its cache kinds do not change.
 2. **One seam for the outcome.** `objectiveIsAllComplete` asks the mission
    graph runtime on a stage with an active mission graph
    (`scenarioSourceMissionOutcome`), which aggregates the graph's statuses of
@@ -71,13 +76,20 @@ gates and `og.*` modules, D-006 option A).
 
 ## Slices
 
-1. The outcome seam (`scenarioSourceMissionOutcome`, `required` read from the
-   graph), the runtime-owned phase state with `event.mission.phase_changed`,
-   the activation refusals, the outcome parity probe, conformance and runner
-   compile rules, the mission cache kind (`_outcome`, SP-86). No authored
-   change to the base data beyond the kind.
-2. `og.mission.end` and `gate.mission.phase`, with a smoke that ends a
-   mission from its graph (a test mission graph, not base content).
+1. **Built on `week-pd/core` (2026-11-16):** `required` read from the
+   mission's objective rows (`s_missionObjectiveReadRequired`; a bad value
+   refuses the table, so the mission graph does not activate), the accessor
+   `scenarioSourceMissionObjectiveRequired`, the two aggregates in
+   `objectives.c` (the outcome in `objectiveIsAllComplete`, the phase in
+   `objectivesCheckAll`) leaving an optional objective out, the campaign
+   runner's outcome parity probe (`outcome parity probe stage_id=...
+   outcome=...`, a failure on a difference), conformance, and pd-tests pins
+   (`tests/test_mission_outcome_static.cpp`). The campaign fixtures require
+   one outcome line per mission. No base data change.
+2. `event.mission.phase_changed` (the runtime-owned phase fires it),
+   `gate.mission.phase` and `og.mission.end`, with a smoke that plays a test
+   mission (not base content) with an optional objective and ends it from its
+   graph: the in-game proof of `required: false`.
 3. Remove the native loop from the scenario-source path once the outcome
    parity has held on all four campaigns; it stays the ROM stage's.
 

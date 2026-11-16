@@ -805,7 +805,12 @@ bool objectiveIsAllComplete(void)
 	for (i = 0; i < objectiveGetCount(); i++) {
 		u32 diffbits = objectiveGetDifficultyBits(i);
 
-		if (1 << lvGetDifficulty() & diffbits) {
+		/* mission-flow.md: the outcome takes the objectives the mission
+		 * graph requires; "required": false leaves a bonus objective out.
+		 * Every caller (the end screen, the menus, the AI command
+		 * if_all_objectives_complete) reads the outcome here. */
+		if ((1 << lvGetDifficulty() & diffbits)
+				&& scenarioSourceMissionObjectiveRequired(i)) {
 			s32 status;
 			// In network co-op, client uses cached statuses from SVC_OBJ_STATUS
 			// instead of re-evaluating criteria (which may depend on server state).
@@ -950,12 +955,16 @@ void objectivesCheckAll(void)
 			}
 
 			if (objectiveGetDifficultyBits(i) & (1 << lvGetDifficulty())) {
-				any_active_objective = 1;
-				if (status == OBJECTIVE_FAILED) {
-					any_failed_objective = 1;
-				}
-				if (status != OBJECTIVE_COMPLETE) {
-					all_active_objectives_complete = 0;
+				/* An optional objective is shown and checked but does not
+				 * decide the mission's phase (mission-flow.md). */
+				if (scenarioSourceMissionObjectiveRequired(i)) {
+					any_active_objective = 1;
+					if (status == OBJECTIVE_FAILED) {
+						any_failed_objective = 1;
+					}
+					if (status != OBJECTIVE_COMPLETE) {
+						all_active_objectives_complete = 0;
+					}
 				}
 				availableindex++;
 			}
