@@ -24,6 +24,7 @@
 #include "romdata.h"
 #include "romextract.h"
 #include "romextract_pd.h"
+#include "scenario_global_ailists.h"
 #include "config.h"
 #include "mod.h"
 #include "modmgr.h"
@@ -4391,6 +4392,14 @@ int main(int argc, const char **argv)
 			atexit(cleanup);
 		}
 		return 2;
+	}
+
+	/* Global AI lists, design step 5: the public rows must compile back to
+	 * the exact bytes of g_GlobalAilists (scenario_global_ailists.c). */
+	if (sysArgCheck("--check-global-ailists") &&
+			scenarioGlobalAiListsRoundTrip() != 0) {
+		sysLoudFailf("AI.GLOBAL",
+			"global AI lists do not round-trip through their public rows; see the AI.GLOBAL lines");
 	}
 
 	if (g_BootExtractAssetsOnly) {

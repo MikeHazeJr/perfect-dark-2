@@ -840,6 +840,22 @@ s32 scenarioSourceStageIsHub(void);
  * out may be NULL. */
 s32 scenarioSourceStageStars(struct scenario_stage_stars *out);
 
+/* A pd2.scenario.ai.lists.v1 document compiled to the AI interpreter's
+ * bytes by the same reader and compiler as a scenario's ai/ailists.json
+ * (catalog ids resolved to their numbers): one entry per list in document
+ * order. Returns 1, or 0 with a reason in error. scenarioSourceAiListsFree
+ * releases the lists. Global AI lists: context/designs/modding/global-ai-lists.md. */
+typedef struct scenario_ai_compiled_list {
+	s32 id;
+	u8 *bytes;
+	u32 size;
+	u32 commands;
+} scenario_ai_compiled_list_t;
+s32 scenarioSourceAiListsCompile(const char *json_text,
+	scenario_ai_compiled_list_t **out_lists, s32 *out_count,
+	char *error, u32 error_size);
+void scenarioSourceAiListsFree(scenario_ai_compiled_list_t *lists, s32 count);
+
 #ifdef __cplusplus
 }
 #endif

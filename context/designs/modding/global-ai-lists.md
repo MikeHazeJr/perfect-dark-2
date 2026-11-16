@@ -1,6 +1,6 @@
 # Global AI lists as public source (design, CORE, 2026-11-15)
 
-Status: plan written 2026-11-16 (below), not started. Checklist row "Global AI lists" (week note,
+Status: plan written 2026-11-16 (below). Slice 1 built on `week-pd/core-gai`: step 5's proof (rows, compile, byte comparison with `--check-global-ailists`), no asset type or runtime switch yet. Checklist row "Global AI lists" (week note,
 CORE's behavior conversion checklist). Decision 1: "Players should be able to
 recreate any existing game behavior with the nodes."
 

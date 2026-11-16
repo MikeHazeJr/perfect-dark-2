@@ -917,6 +917,8 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/scenario_scene_camera.c
   # Animated surfaces of scenario-source scenes (dyntex.c presets).
   ${CMAKE_SOURCE_DIR}/tests/test_scenario_dyntex.cpp
+  # Global AI lists as public rows (design step 5, source pins).
+  ${CMAKE_SOURCE_DIR}/tests/test_global_ailists_source.cpp
   ${CMAKE_SOURCE_DIR}/port/src/scenario_dyntex.c
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
