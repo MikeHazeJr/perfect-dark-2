@@ -386,11 +386,52 @@ Questions for Mike:
 - C1. The Characters tab: character, body and head mods from templates with
   name, gender, head policy and simulant profile, through
   `modAuthorRuntimeSave`.
+  - SURVEYED 2026-11-16 (read only, `week-pd/mods` at 3c4e3f06; file:line as reported).
+    Nothing of the tab exists. The mod author already saves character, body and head
+    mods (the kind follows the template's extension; `mods/Characters/<kind>_<slug>/`,
+    `mod:<kind>_<slug>`), but no game run has saved one yet, and descriptor values on
+    those kinds are untested. The hub's ten tools are parallel hand-kept tables in
+    `pdgui_menu_moddinghub.cpp` (the activate switch, child ids, the render chain, the
+    descriptions, the 0..9 clamp, LB/RB cycling) plus the main menu's `MODHUB_TOOL_*`
+    mirror, which already stops before Weapons. The Weapons tool is the model to follow:
+    a catalog browser, "Use as Template", a creator view with inner tabs, a save modal,
+    `modAuthorRuntimeSave`, enable and catalog refresh, `WEAPONMOD.SAVE.<STAGE>` lines and
+    a `--debug-weapon-tool-create` hook; its name preview and output path are hard-coded
+    to weapons.
+  - What the tab needs that is missing: an eleventh tool in each table; a name preview
+    and save path for any kind; browser and creator state for characters, bodies and
+    heads; gender (there is no gender key: `ismale` with `type`, DEFAULT, FEMALE,
+    FEMALEGUARD or MAIAN, kept consistent; for a character it lives in its embedded
+    body and head, whose member names differ between base and example templates); head
+    policy (fixed, random_gender or integrated: switching away from fixed removes the
+    embedded head, and integrated needs a complete body); and fixes so the result shows
+    in play (the Room's character list skips characters without both a body and a head
+    id, mod heads are left out of the random-gender pools, head display names are not
+    stored). Simulant profiles are a separate kind the mod author does not make yet (the
+    game reads `profile.json`, `pd2.botprofile.v2`), and nothing links a character to a
+    profile: bots take a body and a random head. Proof: a
+    `--debug-character-tool-create` hook, a recipe fixture and a smoke on
+    `MODAUTHOR.SAVE.OK kind=character` with a typed load.
+  - Proposed first slice (for Mike): the Characters tool with a browser of characters,
+    bodies and heads, "Use as Template", a creator with name and creator for all three
+    and gender and height for bodies and heads, the generic save modal, and the debug
+    hook and smoke. Head policy, the Room and pool fixes and simulant profiles (C4)
+    follow. A character made from a base template embeds base body and head archives,
+    so it is local only (BYOR), as the base hoverbike's copy is.
 - C2. Models: original male and female Maian meshes bound to the 14 body
   parts, `HEADBODYTYPE_MAIAN`; looks as textures. A clone of a base Maian mesh
   is only a local stand-in (BYOR: it embeds ROM-derived geometry and must not
   be shared).
 - C3. Green blood for Maian-type mod bodies.
+  - WRITTEN 2026-11-16: `chrGetBloodColour` (`src/game/chr.c`) keeps the original's
+    per-body list (Elvis, The King and Elvis in a waistcoat green; the robots, Mr Blonde
+    and the Skedar their own; everyone else red) and then asks `bodyBloodForCatalogBody`
+    (`port/src/body_blood.c`): a body outside the `base:` namespace whose type is
+    `HEADBODYTYPE_MAIAN` bleeds the same Maian green. Base bodies keep the original's
+    colours, so the base Maian soldier still bleeds red as in the original. The type is
+    read only for a body the catalog knows (no catalog miss from an unknown slot).
+    Tests: `[body-blood]` (the rule, and a source pin on the order in
+    `chrGetBloodColour`). In-game proof comes with the first Maian-type mod body (C2).
 - C4. Simulant: profile fields for weapon preference (Maian weapons),
   engagement range and cover, used by the bot weapon scoring and distance
   modes; a `bot_pref` for the crystal pistol so bots pick it at all.
