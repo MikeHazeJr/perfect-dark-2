@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_combat_net_rematch_smoke",
-  "description": "Finding 4 of the multiplayer week plan: two matches in the same room on a listen host (--host-autostart-matches 2). Port 27246, Felicity, 3 simulants, 35 s matches. The host leaves its first end screen with Use (Return to Room), is back in the room, re-arms after about 10 s and starts the second match through the same Room start path; the client shows its results at each stage end (B-1190) and never presses Continue, so the host's second match takes it along. B-1195: the host keeps its own player linked at the stage end, so its pause holds under the results, and its simulants go inert once Continue retires the chr table. B-1197: closing the networked results no longer runs the offline return to CI; the host stays in the ended arena behind the Room until its next match. Each process has its own schedule (fixtures mp_combat_net_rematch_host.json and mp_combat_net_rematch_client.json). Requires two server stage starts, two client stage starts, results for both matches on both sides and the host's exit to the room; forbids a rejected start.",
+  "description": "Finding 4 of the multiplayer week plan: two matches in the same room on a listen host (--host-autostart-matches 2). Port 27246, Felicity, 3 simulants, 35 s matches. The host leaves its first end screen with Use (Return to Room), is back in the room, re-arms after about 10 s and starts the second match through the same Room start path; the client shows its results at each stage end (B-1190) and never presses Continue, so the host's second match takes it along. B-1195: the host keeps its own player linked at the stage end, so its pause holds under the results, and its simulants go inert once Continue retires the chr table. B-1197: closing the networked results no longer runs the offline return to CI; the host stays in the ended arena behind the Room until its next match. Each process has its own schedule (fixtures mp_combat_net_rematch_host.json and mp_combat_net_rematch_client.json). Requires two server stage starts, two client stage starts, results for both matches on both sides and the host's exit to the room; forbids a rejected start. Counts (B-1197): the host stays in the ended arena behind the Room, so the same arena loads once per process, and the time-limit stage end is the host's line, once per match.",
   "tags": [
     "network",
     "combatsim",
@@ -167,7 +167,8 @@
       },
       {
         "pattern": "MANIFEST-SP: load 'base:arena_mp_felicity'",
-        "min": 4
+        "min": 2,
+        "max": 2
       },
       {
         "pattern": "MATCH: player spawned slot=\\d+",
@@ -215,7 +216,8 @@
       },
       {
         "pattern": "MATCH: stage end reason=timelimit",
-        "min": 4
+        "min": 2,
+        "max": 2
       },
       {
         "pattern": "MATCH: endscreen shown",
