@@ -1210,6 +1210,12 @@ void mainTick(void)
 	}
 }
 
+/* B-1198: set while netDisconnect ends a networked stage it is leaving: the
+ * stage goes straight to CI, so no mission results are pushed (they flashed up
+ * for both players, as g_NetMode was already NETMODE_NONE, and tried to save
+ * the agent's progress for a mission nobody finished). */
+static s32 s_MainEndStageWithoutResults = 0;
+
 void mainEndStage(void)
 {
 	scenarioSourceMissionGraphRecordPhase("end", "mainEndStage");
@@ -1220,7 +1226,13 @@ void mainEndStage(void)
 		pak0f11c6d0();
 		joyDisableTemporarily();
 
-		if (g_Vars.coopplayernum >= 0) {
+		if (s_MainEndStageWithoutResults
+				&& (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0
+					|| !g_Vars.normmplayerisrunning)) {
+			sysLogPrintf(LOG_NOTE,
+				"GAMELOOP: stage ended by a disconnect; no mission results (coop=%d anti=%d)",
+				(s32)g_Vars.coopplayernum, (s32)g_Vars.antiplayernum);
+		} else if (g_Vars.coopplayernum >= 0) {
 			s32 prevplayernum = g_Vars.currentplayernum;
 			s32 i;
 
@@ -1267,6 +1279,14 @@ void mainEndStage(void)
 	}
 
 	g_MainIsEndscreen = 1;
+}
+
+/* B-1198: netDisconnect's stage end (see s_MainEndStageWithoutResults). */
+void mainEndStageWithoutResults(void)
+{
+	s_MainEndStageWithoutResults = 1;
+	mainEndStage();
+	s_MainEndStageWithoutResults = 0;
 }
 
 /**

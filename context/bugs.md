@@ -28,15 +28,18 @@ value; or the preferences) and keeps its reason to itself. Diagnostic added (not
 `SAVE.DIAG: agent document ...` with those scalars and the public preferences validator's verdict. Not checked: whether
 a solo mission end fails the same way. The codec is CORE's; report the diagnostic's first result to CORE.
 
-## 2026-11-16 B-1198 A co-op or counter-op client disconnected mid-mission pushes results for both players (T-NETWORKING-011, open)
+## 2026-11-16 B-1198 A co-op or counter-op client disconnected mid-mission pushes results for both players (T-NETWORKING-011, fixed in code)
 
 Severity low (a results screen for both players flashes up while the client drops to CI; the agent save attempt in it
 fails, B-1199). Seen in `network_counterop_mission_end_smoke` (`results-20261116T014445Z.json`): the host's scripted
 exit came first, the client read `NET: disconnected from server: Server is shutting down`, and `netDisconnect` ended
 the stage (`mainEndStage`), which pushed `endscreenPushAnti` for player 0 and player 1: by then `g_NetMode` is no
-longer networked, so `mainEndStage`'s skip of remote players (B-1193) no longer applies. The smoke now allows those
-two teardown pushes (2 to 4 in all) and checks one push per machine at the mission end instead. Fix to consider:
-`netDisconnect` ends a networked mission without pushing results.
+longer networked (`g_NetMode = NETMODE_NONE` comes first in `netDisconnectWithIntent`), so `mainEndStage`'s skip of
+remote players (B-1193) no longer applies. Fix in code: `netDisconnect` ends the stage with
+`mainEndStageWithoutResults()` (pdmain.c), which pushes no co-op, counter-op or solo results on the way to CI and logs
+`GAMELOOP: stage ended by a disconnect; no mission results`; a networked Combat match still ends through `mpEndMatch`.
+The counter-op smoke checks one push per machine at the mission end and exactly two in all. Pinned in
+`tests/test_net_mission_end_static.cpp` (`[b1198]`). Not yet built or run.
 
 ## 2026-11-16 B-1197 Closing networked Combat results loaded CI on the listen host (T-NETWORKING-011, fixed in code)
 

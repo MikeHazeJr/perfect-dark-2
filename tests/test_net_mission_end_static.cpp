@@ -347,3 +347,30 @@ TEST_CASE("co-op chr spawns: a chr the host's AI makes reaches the client with t
 	REQUIRE(tick.find("chrSpawnAtChr(base, base->bodynum, -1, base->chrnum,") != std::string::npos);
 	REQUIRE(code_only(read_text_file("port/src/pdmain.c")).find("(void)bootDebugCloneGuardTick();") != std::string::npos);
 }
+
+TEST_CASE("mission end: a disconnect ends a networked mission without results",
+          "[net][coop][b1198]") {
+	// B-1198: netDisconnect clears g_NetMode before it ends the stage, so the
+	// per-machine results skip no longer applied and both players' results
+	// flashed up on the way to CI
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	REQUIRE(net.find("mainEndStageWithoutResults();") != std::string::npos);
+	REQUIRE(read_text_file("src/include/lib/main.h").find("void mainEndStageWithoutResults(void);") != std::string::npos);
+
+	const std::string pdmain = code_only(read_text_file("port/src/pdmain.c"));
+	const std::string end = function_body(pdmain, "void mainEndStage(void)\n{");
+	const size_t skip = end.find("if (s_MainEndStageWithoutResults");
+	const size_t coop = end.find("endscreenPushCoop();");
+	const size_t anti = end.find("endscreenPushAnti();");
+	const size_t mp = end.find("mpEndMatch();");
+	REQUIRE(skip != std::string::npos);
+	REQUIRE(coop != std::string::npos);
+	REQUIRE(anti != std::string::npos);
+	REQUIRE(mp != std::string::npos);
+	REQUIRE(skip < coop);
+	REQUIRE(skip < anti);
+	// A networked Combat match still ends through mpEndMatch
+	REQUIRE(end.find("|| !g_Vars.normmplayerisrunning", skip) < coop);
+	// The wrapper comes after mainEndStage, so its first mention stays the definition
+	REQUIRE(pdmain.find("mainEndStage(") == pdmain.find("void mainEndStage(void)") + 5);
+}

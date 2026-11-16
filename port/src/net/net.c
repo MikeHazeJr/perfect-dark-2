@@ -2446,8 +2446,8 @@ static s32 netDisconnectWithIntent(s32 retain_reconnect)
 				g_PlayerConfigsArray[i].options |= OPTION_ASKEDSAVEPLAYER;
 			}
 		}
-		// end the stage immediately
-		mainEndStage();
+		// end the stage immediately, without mission results (B-1198)
+		mainEndStageWithoutResults();
 		// try to drop back to main menu with 1 player
 		mpSetPaused(MPPAUSEMODE_UNPAUSED);
 		/* B-12 Phase 3: reset the participant pool to one local player. */
