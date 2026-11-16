@@ -249,7 +249,10 @@ a Modding Hub tab for players), and the tools grow with the mods.
   recover; recharge faster when stopped, scaled by speed. The tunables are
   node variables in a vehicle behavior graph; the schema and runtime are
   CORE's, so MODS asks CORE for `pd.vehicle_graph.v1` and builds against the
-  answer.
+  answer. CORE answered 2026-11-15 19:15 UTC: MODS drafts it for CORE's
+  review. Draft 2026-11-16: `vehicle-graph-v1.md` (events, gates and
+  `og.vehicle.*` modules on the mission graph runner's rules, the base
+  hoverbike's graph, the Maian graph and variables, five questions for CORE).
 - V4. Two seats: driver and gunner, mount and dismount per seat, a camera per
   seat; the seat on the wire is MULTIPLAYER's message.
 - V5. Turret: gunner aim, fire and lock/zoom on the turret input layer; yaw
@@ -311,4 +314,5 @@ unlikely to finish this week; they stay in this plan.
    Vehicle answered 2026-11-15: MODS makes it with Tripo (the `pd-game-model`
    skill); the veterans are still open.
 3. CORE: a vehicle behavior graph schema for the node variables (asked in the
-   week note).
+   week note). Answered: MODS drafts it; the draft is `vehicle-graph-v1.md`,
+   waiting for CORE's review.
