@@ -10885,3 +10885,45 @@ Next
 - B-1172's per-colour light flag; then the global AI lists (a new typed
   asset, about ten touch points: archive policy, mod contract, loader walker,
   boot extraction, mod manager, catalog type, conformance, runtime).
+
+## 2026-11-16 (02:05-03:25 UTC) - CORE: base 7 first try held old meshes (SP-85), animated surfaces seen in game, B-1172 closed, global AI lists slice 1
+
+What happened
+- Base 7 turn 1 (02:17-02:41 UTC) passed everything (Defection depth 16/16,
+  release 54/54, specials 42/42, Complex 12/12 with CORE's client and with an
+  extract-6 client) but its mesh census showed all 733 meshes still at render
+  schema v3: dcee4202 moved the mesh export version, not
+  ROMEXTRACT_PDMESH_FAST_CACHE_KIND, and the whole-folder skip runs first.
+  Fixed in 5a90a28c (the kind is built from the export version label) and on
+  week-pd/extract-6 (3223c21b, standalone pd-tests 1,887). New pattern SP-85.
+  Propagation: arenas/scenarios share a two-kind skip; bodies, heads,
+  characters and weapons compare nested mesh copies, so only meshes. Week
+  note: do not use shared-base-7 yet; redo queued
+  (q_20261116025212980_91829b9d) with the extract-6 client.
+- Animated surfaces check (02:41-02:58 UTC, private copy of base 6
+  re-extracted by CORE's client): census 16 scenes with animated materials,
+  none mismatched; conformance 10,033 archives; release 54/54, Complex 12/12,
+  Villa 16/16; every visited stage logged its animated vertices (no unusable
+  primitive) and the first frame that moved them; Deep Sea's teleport held
+  while its teleports were off. The light-flag census found 0 flagged colours
+  in all 87 scenes, so roomHighlight's per-colour case never applies to base
+  data. B-1172 marked fixed (ed0bcc49); Room effects row updated.
+- Global AI lists, slice 1 (design step 5) on a new worktree and branch,
+  D:\PD2-wt\core-gai, week-pd/core-gai (bb7cad51, 7862fd79, pushed):
+  romExtractGlobalAiListsJson writes g_GlobalAilists as
+  pd2.scenario.ai.lists.v1 rows; scenario_source_runtime.c exports
+  scenarioSourceAiListsCompile; scenario_global_ailists.c compiles the rows
+  and compares every list with the binary's bytes under
+  --check-global-ailists. pd-tests 1,947. The in-client check rides on the
+  base 7 redo turn (on CORE's private copy, never a shared base). Slice 2
+  (the .pdai type) reaches the mod manager UI, network mod distribution,
+  modpacks and the Theater format, with two product questions; left for a
+  focused session (design note updated).
+
+Next
+- Base 7 redo result: publish base 7 with extract-6 when the census shows v4
+  meshes with texture rows and the Complex screenshot shows the gun fixed.
+- Global AI lists round-trip result: merge week-pd/core-gai into
+  week-pd/core if every list is exact.
+- Recycle the private check copy D:\PD2-wt\core-check-dyntex and unused
+  frozen clients when done.
