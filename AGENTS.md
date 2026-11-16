@@ -1,8 +1,8 @@
-# Perfect Dark 2 — PC Port
+# Perfect Dark 2 - PC Port
 
 ## Project
 Merged PC port combining AllInOneMods (GEX, Kakariko, Goldfinger 64, Dark Noon) + netplay (ENet).
-PC only — x86_64 via MSYS2/MinGW + CMake. SDL2 + OpenGL rendering.
+PC only - x86_64 via MSYS2/MinGW + CMake. SDL2 + OpenGL rendering.
 
 ## Stack
 - **Language**: C (game code), C++ (port/fast3d renderer, ImGui backend)
@@ -23,30 +23,23 @@ at a time; other sessions must source-freeze and wait for that Git lane. Builds
 remain isolated and queued through `build-session.ps1`. The worktree merge
 rules below apply only if Mike explicitly re-enables worktrees.
 
-## Build environment — every session, before any build
+## Startup
+
+Canonical checkout: `C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike`. Start with the scoped checklist in `context/README.md`, current user instructions, and Workbench ownership/notes for the assigned lane. Dated context snapshots and parent-level mirrors are historical convenience copies; this checkout's `context/` and canonical Workbench take precedence. An already assigned task needs no second direction confirmation.
+
+## Build environment - before a build
 
 > **Do not rediscover TEMP or PATH. Do not invent alternatives.**
 
-From bash:
-```bash
-source devtools/build-env.sh && ninja -C Build pd pd-tests
-```
+AI verification uses the queued isolated wrapper below. It sets the canonical environment through `devtools/_build-env-prelude.ps1`; `devtools/build-env.sh` supplies the same TEMP/TMP/PATH invariants for Bash. See `context/procedures.md` for operator build entry points. Do not use shared `Build/` for concurrent verification.
 
-From PowerShell:
-```powershell
-.\devtools\build-headless.ps1   # self-configures env
-```
-
-`build-env.sh` sets `TEMP`, `TMP`, and prepends `/c/msys64/mingw64/bin` to `PATH`.
-`build-headless.ps1` dot-sources `devtools/_build-env-prelude.ps1` (idempotent).
-
-### Parallel test builds
+### Isolated queued verification builds
 
 If more than one AI/code session may build at the same time, **do not use shared `Build/`**.
-Use an isolated session build directory instead:
+Use an isolated session build directory for AI verification. Choose the affected target(s); `all` remains appropriate when client and tests both need rebuilding:
 
 ```powershell
-.\devtools\build-session.ps1 -Session <short-session-id> -Target all
+.\devtools\build-session.ps1 -Session <short-session-id> -Target <client|tests|all>
 ```
 
 Outputs go to `.claude/session-builds/<short-session-id>/`. Reuse the same
@@ -59,10 +52,10 @@ asks. Clean up after the session:
 .\devtools\build-session.ps1 -Remove -Session <short-session-id>
 ```
 
-Queued builds have a 60-second active-build watchdog by default. If a build
+Queued builds have a 120-second no-output watchdog by default, not a 120-second total build limit. If a build
 times out, treat exit code `124` as a hung-build failure, record it in context,
-and clean up the session directory with the same `-Remove -Session <id>`
-command. Use `-BuildTimeoutSeconds <seconds>` only for a specific slow clean
+and preserve useful failure logs/evidence before cleaning up the owned session
+directory with the same `-Remove -Session <id>` command. Use `-BuildTimeoutSeconds <seconds>` only for a specific slow clean
 build; use `0` only when Mike explicitly asks to disable the watchdog. New
 wrapper starts capture live stdout/stderr in
 `.claude/session-builds/<id>/_build-session.out.log` and
@@ -98,8 +91,10 @@ Every agent session must:
    `canonical=true`, `isolated=false`, and that `projectRoot`/`dataDir` point at
    the canonical checkout. The default server refuses linked-worktree startup;
    isolated tests require an explicit nondefault port and data directory.
-3. Run coordination `status`, then `register` with session id, goal, current
-   task, plan, and ETA.
+3. Reuse the exact coordination session id injected by the trusted lifecycle
+   hook; do not register a second identity. Without a hook-provided identity,
+   run coordination `status`, then `register` with a stable session id, goal,
+   current task, plan, and ETA.
 4. Read the Workbench roadmap and fold notes affecting its lane.
 5. Process every `new` note affecting its lane before implementation:
    `acknowledged`, then `incorporated`, `rejected_with_reason`,
@@ -128,117 +123,31 @@ per-view task list or revive the retired Kanban as live state.
 
 ---
 
-## STANDING ORDERS — Context System
+## Context and safety
 
-**This section is mandatory. Every AI session, every tool, every agent must follow these rules.**
+`context/README.md` owns startup/navigation and `context/procedures.md` owns operational rules. Follow their applicable sections instead of repeating a full context recovery on every turn. Load pillar/domain documents only for the assigned task.
 
-### 1. Context Is Code -- Treat It That Way
-
-Context files in `context/` are project infrastructure, not optional documentation. Updating them is **equal priority** to writing code. A code change without a corresponding context update is an incomplete change.
-
-**Canonical location**: `perfect_dark-mike/context/`. Copies of key files also exist at the parent level (`Perfect-Dark-2/`) for Cowork session access. When updating, always write to `context/` first, then sync the parent copy. If they ever diverge, `context/` wins.
-
-### 2. Session Start — Always Read First, Then Confirm
-
-Before writing any code or making any changes:
-1. Read `context/README.md` (cold-start orientation, navigation hub)
-2. Read `context/working-preferences.md` (collaboration mode)
-3. Read `context/constraints.md` (active + removed invariants)
-4. Read `context/procedures.md` (build verify, git safety, worktree, truncation discipline)
-5. Read `context/tasks.md` (active punch list)
-6. Read `context/session-log.md` (last 2-3 sessions)
-7. Read the Workbench roadmap and process new notes affecting your lane.
-8. Check the coordination hub, then register.
-9. Summarize to the user: where we are, what's next, any blockers
-10. **Present all active work fronts** - don't assume the last task is the next task
-11. Confirm direction before starting work
-
-**Only load pillar docs** (`context/pillars/<pillar>.md`) **when the current task requires them.** Don't waste context loading everything. The 11 pillars: catalog, input, menus, modding, connectivity, save-wire-format, server, build-dev-tooling, tests, rendering, physics-collision.
-
-### 3. Constraint Check — Before Every Significant Change
-
-Before implementing anything complex, check `context/constraints.md`:
-- **Active Constraints**: Things we must still respect (save format, protocol version, array limits)
-- **Removed Constraints**: Things we've abandoned. If the task's complexity comes from a removed constraint, **stop and propose the simpler approach**.
-- **Index Domain Warning**: Three index spaces that must not be confused (stage table, solo stage, stagenum)
-
-### 4. Update As You Go — Not In a Batch
-
-- Decision made -> update `context/constraints.md` or relevant pillar doc **immediately**
-- Bug found -> add to `context/bugs.md` **immediately**
-- Bug reveals a pattern -> add to `context/systemic-bugs.md`
-- Work item state changed -> update the Workbench **immediately**
-- Task summary changed -> keep `context/tasks.md` consistent with Workbench
-- Pillar status changed -> update `context/pillars/<pillar>.md` in the same commit as the code change
-- Constraint removed -> add to Removed section of constraints.md with date and rationale
-
-**Do not defer context updates to the end of the session.** If the conversation is cleared mid-task, the next session must be able to pick up from the context files alone.
-
-### 5. Session End — Save State
-
-When the user wraps up or a major task completes:
-1. Update `context/session-log.md` with: focus, what was done, decisions, next steps
-2. Update Workbench status/evidence/notes and keep `context/tasks.md` consistent
-3. Update any pillar doc whose live state shifted
-4. Brief summary to the user of what was recorded
-
-### 6. Bug Discipline
-
-- **One-off bugs** → `context/bugs.md` (ID, severity, root cause, fix, session)
-- **Systemic patterns** (classes of bugs) → `context/systemic-bugs.md` (with search commands and audit checklists)
-- After fixing a bug, **always do a propagation check**: does this same problem exist anywhere else? Fix the class, not the instance.
-
-### 7. Pre-Task Sanity Check
-
-Before starting significant work, mentally run through:
-1. **Constraint check**: Does this assume a constraint that's been removed?
-2. **Root cause check**: Am I fixing a symptom or the underlying problem?
-3. **Scope check**: Is this the simplest approach for modern hardware?
-4. **Cascade check**: Will this conflict with things already modernized?
-5. **Effort check**: Is this proportional to its importance?
-
-### 8. Rabbit Hole Protocol
-
-If mid-task you realize you're going deeper than expected — **stop, don't push through.** Explain what's happening, present options (refactor vs. partial modernize vs. patch), recommend one, let Mike decide.
-
-### 9. Git Safety — Worktree Operations
-
-These rules prevent the class of bugs where git operations silently discard or truncate in-flight work.
-
-**Commit-first discipline.** As soon as a session has a meaningful unit of work, commit it (WIP message fine) before running ANY git operation that touches the working tree — stash, rebase, reset, checkout, merge. Uncommitted work is unprotected work.
-
-**No bare `git stash`.** Never run `git stash` or `git stash push` without explicit paths. If separating work, use `git stash push -- <path> <path>` with explicit targets only. A bare stash grabs everything in the working tree — including build-verify noise and unrelated changes — and the pop can silently corrupt or conflict.
-
-**Pre-op snapshot for destructive operations.** Before any `git rebase`, `git reset`, or `git merge`:
-1. Record current HEAD SHA: `git rev-parse HEAD`
-2. Record line counts of all changed files: `git diff --stat`
-3. After the operation, verify against the snapshot — any file that shrank unexpectedly = halt and report to the user before continuing.
-
-The optional helper `devtools/git-snapshot.sh` automates this (see `devtools/README-git-snapshot.md`).
-
-**No `git reset --hard` without human instruction.** Never use `git reset --hard` in a session unless the user explicitly instructs it. Use `git reset --soft` or `git reset --mixed` if you need to unstage.
-
-**Post-merge verification.** After any merge, re-verify line counts of all changed files vs. their worktree-pre-merge state. If any file shrank or disappeared that shouldn't have, halt and report before continuing. This applies to worktree merges, branch merges, and rebase completions.
-
-### 10. Proactive Context Saves
-
-If the conversation is getting long, suggest saving state:
-> "We've covered a lot of ground. Want me to save current state and start fresh?"
-
-The goal: if context is cleared right now, the next session picks up in under a minute.
+- Canonical context is this checkout's `context/`. Parent copies never win by timestamp. Refresh a convenience mirror only for an identified consumer/handoff, after canonical context is updated; mark its source/date.
+- Keep resumable state current as decisions, constraints, bugs, ownership, and evidence change. Workbench is the live task/decision/feedback authority; `context/tasks.md` is its concise narrative summary. Update relevant pillars and the session log at meaningful checkpoints, including before compaction; ordinary checkpointing needs no extra approval.
+- Check active and removed constraints before significant changes. Do not retain workarounds for removed constraints. Preserve the index-domain distinctions and public-source asset contract below.
+- Fix root causes and check propagation of a discovered bug class. Record one-off bugs in `context/bugs.md` and systemic patterns in `context/systemic-bugs.md`.
+- If a task grows into an architectural/product-scope decision, explain the expansion and options and let Mike decide. Tactical choices within assigned work remain delegated.
+- Follow `context/procedures.md` Git safety: protect owned work before worktree-changing operations, use explicit stash paths, snapshot HEAD/diffs/line counts before destructive operations, preserve user/peer edits, and verify integration. No `git reset --hard` without explicit human instruction. Never delete a live Git lock or reset to repair a lock.
+- Keep the Git lane serialized. Worktrees remain disabled unless Mike explicitly re-enables them; do not overwrite the canonical checkout by copying a worktree over it.
+- Verify file integrity and the changed unit proportionately. Preserve necessary builds, focused/full tests, ordinary runtime proof, asset guards, historical receipts, queues, and retention rules. Documentation-only changes need static/diff checks rather than a game build.
 
 ---
 
-## Critical Rules — Code
+## Critical Rules - Code
 
 - **PC-only target**: No N64 or Switch support. Modern hardware, no legacy constraints.
 - **New code types**: Standard C types fine (`int`, `float`, `uint8_t`). `bool` is the project's `s32` macro (types.h); never include `<stdbool.h>`, and spell `s32` in declarations that C and C++ both see (SP-75, `context/constraints.md`).
-- **Legacy types**: `s32/u8/f32` from `PR/ultratypes.h` — typedefs, mix safely. Modernize organically.
+- **Legacy types**: `s32/u8/f32` from `PR/ultratypes.h` - typedefs, mix safely. Modernize organically.
 - **No platform guards**: Zero `PLATFORM_N64` remain. All new code unconditional.
 - **Memory**: `mempAlloc(size, MEMPOOL_STAGE)` for stage-lifetime. `IS4MB()` is compile-time `0`.
 - **Modern HW**: Prefer correctness over micro-optimization. Legacy workarounds exist because of N64 limits.
 - **Dead code removed**: N64 assembly, ultra/os, ultra/libc all removed.
-- **AI builds via `build-headless.ps1`**: Game director tests in-game via playtest dashboard.
+- **AI verification via isolated queued `build-session.ps1`**: Use affected targets and required tests/runtime proof. Game-director playtests remain a separate acceptance gate.
 
 ## Asset Pipeline c3842 Codex Hook
 
@@ -253,16 +162,16 @@ Every Codex session that touches asset archives, extraction, catalog/provider lo
 7. Treat any runtime ROM/RomProvider fallback after extraction as an asset-chain failure owned by `c3844`, not an acceptable fallback path.
 
 ## Architecture
-- `src/` — Original decompiled game code (C). `src/game/`, `src/lib/`, `src/include/`
-- `port/` — PC port additions (C/C++). `port/fast3d/`, `port/src/`, `port/include/`
-- `include/PR/` — N64 SDK headers (ultratypes.h, gbi.h)
-- `context/` — **Project context encyclopedia.** Start with `context/README.md`.
+- `src/` - Original decompiled game code (C). `src/game/`, `src/lib/`, `src/include/`
+- `port/` - PC port additions (C/C++). `port/fast3d/`, `port/src/`, `port/include/`
+- `include/PR/` - N64 SDK headers (ultratypes.h, gbi.h)
+- `context/` - **Project context encyclopedia.** Start with `context/README.md`.
 
 ## Key Subsystems
-- `src/game/` — Game logic: player movement, props, menus, multiplayer
-- `src/lib/` — Engine libraries: collision, capsule physics, model loading
-- `port/fast3d/` — Rendering: GBI translator, ImGui backend, PD-authentic styling
-- `port/src/net/` — Networking: ENet integration, message handlers
+- `src/game/` - Game logic: player movement, props, menus, multiplayer
+- `src/lib/` - Engine libraries: collision, capsule physics, model loading
+- `port/fast3d/` - Rendering: GBI translator, ImGui backend, PD-authentic styling
+- `port/src/net/` - Networking: ENet integration, message handlers
 
 ## Server and hosting
 

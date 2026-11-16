@@ -2841,6 +2841,10 @@ static s32 parseGltfTextMesh(const modasset_model_inputs_t *inputs, const char *
 	memcpy(json, data, size);
 	json[size] = '\0';
 
+	if (!modAssetGltfDocumentValidate(json, size, mesh->error, sizeof(mesh->error))) {
+		free(json);
+		return 0;
+	}
 	root.start = json;
 	root.end = json + size;
 	if (!gltfLoadTextBuffer(inputs, root, source_path, 0, &bin, &bin_size, &error)) {
@@ -2866,6 +2870,8 @@ static s32 parseGlbMesh(const u8 *data, u32 size, obj_mesh_t *mesh)
 	}
 	root.start = (const char *)chunks.json;
 	root.end = root.start + chunks.json_size;
+	if (!modAssetGltfDocumentValidate(root.start, chunks.json_size,
+			mesh->error, sizeof(mesh->error))) return 0;
 	if (!gltfValidateGlbBuffer(root, chunks.bin_size, 0, &bin_size)) {
 		objMeshSetError(mesh, 0, "glb_buffer_declaration_invalid");
 		return 0;
@@ -2898,6 +2904,8 @@ static s32 parseGltfAnimationInfoFromJson(const char *json, u32 json_size,
 	}
 
 	memset(info, 0, sizeof(*info));
+	if (!modAssetGltfDocumentValidate(json, json_size, info->error,
+			sizeof(info->error))) return 0;
 	root.start = json;
 	root.end = json + json_size;
 

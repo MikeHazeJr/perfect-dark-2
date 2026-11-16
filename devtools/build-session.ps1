@@ -82,7 +82,16 @@ $QueueActivePath = Join-Path $QueueDir "active.json"
 $QueueDurationsPath = Join-Path $QueueDir "durations.json"
 $QueueTimeoutExitCode = 124
 
+if($RetainHousekeeping){
+    $receiptWrapperPath=[IO.Path]::GetFullPath($PSCommandPath)
+    $receiptWrapperHash=(Get-FileHash -LiteralPath $receiptWrapperPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $receiptLoaded=Get-Variable -Name SmokeReceiptLoadedSources -Scope Script -ErrorAction SilentlyContinue
+    if($null -ne $receiptLoaded -and $receiptLoaded.Value.ContainsKey($receiptWrapperPath) -and $receiptLoaded.Value[$receiptWrapperPath] -cne $receiptWrapperHash){throw 'Retained wrapper changed in a live interpreter; preserve original operations.'}
+}
 . (Join-Path $ScriptDir 'Build-Retention.ps1')
+if($RetainHousekeeping){
+    $script:SmokeReceiptLoadedSources[$receiptWrapperPath]=$receiptWrapperHash
+}
 Assert-BuildRetentionOptions -Retained ([bool]$RetainHousekeeping) -DevMods $DevMods -Session $Session -Modes @{
     Clean=[bool]$Clean;NoQueue=[bool]$NoQueue;Remove=[bool]$Remove;RemoveAll=[bool]$RemoveAll;
     SelfTest=[bool]$SelfTest;Force=[bool]$Force;List=[bool]$List
@@ -642,19 +651,14 @@ function Invoke-QueuedBuildChild([string[]]$childArgs, $queueToken, [int]$timeou
     if (-not (Test-Path -LiteralPath $buildDir)) {
         New-Item -ItemType Directory -Path $buildDir -Force | Out-Null
     }
+    if($script:BuildRetentionContext){
+        return Invoke-BuildRetainedCapturedChild $childArgs $queueToken $timeoutSeconds $buildDir
+    }
 
     $stdoutLog = Get-BuildStdoutLogPath $buildDir
     $stderrLog = Get-BuildStderrLogPath $buildDir
-    if($script:BuildRetentionContext){
-        foreach($path in @($stdoutLog,$stderrLog)){
-            Assert-SmokePlainTree -Path $path
-            $log=[IO.File]::Open($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-            $log.Dispose()
-        }
-    }else{
-        Set-Content -LiteralPath $stdoutLog -Value "" -Encoding UTF8
-        Set-Content -LiteralPath $stderrLog -Value "" -Encoding UTF8
-    }
+    Set-Content -LiteralPath $stdoutLog -Value "" -Encoding UTF8
+    Set-Content -LiteralPath $stderrLog -Value "" -Encoding UTF8
 
     Write-Info "Build output: $stdoutLog"
     Write-Info "Build errors: $stderrLog"
@@ -667,7 +671,6 @@ function Invoke-QueuedBuildChild([string[]]$childArgs, $queueToken, [int]$timeou
     # that made build-headless.ps1 report a failed ninja compile as SUCCESS. Without
     # this, the queue could mark a FAILED child build as exit 0 = success. Additive.
     try { $childHandle = $child.Handle } catch {}
-    if($script:BuildRetentionContext){$script:BuildRetentionChild=$child}
     $startedUtc = [DateTime]::UtcNow
     # Idle-based watchdog: $timeoutSeconds is the max time with NO build output
     # (compile stalled / cc1 wedged), not a cap on total build time. A build
@@ -1132,7 +1135,8 @@ try {
     if (Test-Path -LiteralPath (Join-Path $gitForWindows "git.exe")) {
         $env:PATH = "$gitForWindows;$env:PATH"
     }
-    $childArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $headless) + $buildArgs
+    $childArgs = if($RetainHousekeeping){@("-NoProfile", "-NonInteractive", "-File", $headless) + $buildArgs}
+        else {@("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $headless) + $buildArgs}
     if ($NoQueue) {
         & powershell.exe @childArgs
         $exitCode = $LASTEXITCODE

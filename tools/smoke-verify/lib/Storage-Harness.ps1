@@ -1,9 +1,15 @@
 #Requires -Version 5.1
 # Prospective storage only. Historical runs and input templates are read-only.
-$script:SmokeStoragePolicy = @{}
-$script:SmokeStorageBackend = Join-Path (Split-Path -Parent $PSScriptRoot) 'storage.py'
-$script:SmokeStoragePython = ''
-$script:SmokeRetainHousekeeping = $false
+$guardSources=Get-Variable -Name SmokeReceiptLoadedSources -Scope Script -ErrorAction SilentlyContinue
+if($null -eq $guardSources){$script:SmokeReceiptLoadedSources=@{}}
+$guardPath=[IO.Path]::GetFullPath($PSCommandPath)
+$guardHash=(Get-FileHash -LiteralPath $guardPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if($script:SmokeReceiptLoadedSources.ContainsKey($guardPath) -and $script:SmokeReceiptLoadedSources[$guardPath] -cne $guardHash){throw 'Storage guard changed in a live interpreter; preserve original operations.'}
+$script:SmokeReceiptLoadedSources[$guardPath]=$guardHash
+if($null -eq (Get-Variable -Name SmokeStoragePolicy -Scope Script -ErrorAction SilentlyContinue)){$script:SmokeStoragePolicy=@{}}
+if($null -eq (Get-Variable -Name SmokeStorageBackend -Scope Script -ErrorAction SilentlyContinue)){$script:SmokeStorageBackend=Join-Path (Split-Path -Parent $PSScriptRoot) 'storage.py'}
+if($null -eq (Get-Variable -Name SmokeStoragePython -Scope Script -ErrorAction SilentlyContinue)){$script:SmokeStoragePython=''}
+if($null -eq (Get-Variable -Name SmokeRetainHousekeeping -Scope Script -ErrorAction SilentlyContinue)){$script:SmokeRetainHousekeeping=$false}
 
 function Set-SmokeStorageRetention {
     param([switch] $RetainHousekeeping)

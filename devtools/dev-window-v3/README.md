@@ -30,22 +30,22 @@ with `Dev Window v3.bat` (or `powershell -File dev-window-v3.ps1`).
 
 ## Transient-workspace reaping
 
-Before every `git add -A`, BUILD/Release run
-`devtools/clean-claude-workspace.ps1 -Quiet`, which removes stale regenerable
-`.claude/` debris -- multi-GB smoke installs / extraction caches, per-session
-build dirs, and ad-hoc `*.log` files (render/extract logs can top 200 MB). This
-keeps two problems from recurring:
+Before every `git add -A`, BUILD/Release invoke
+`devtools/clean-claude-workspace.ps1 -Quiet`. As of T-TOOLING-005 (2026-09-30),
+this is a cheap no-op: automatic age cleanup is disabled because the folders
+also hold accepted receipts, unique fixtures and frozen failure binaries.
+Gitignore still prevents generated outputs from entering commits. Earlier
+cleanup addressed two accumulation problems:
 
 1. **Push rejection.** A 219 MB render log once got swept into a commit and
    blew past GitHub's 100 MB file limit, bouncing the whole push.
 2. **Disk bloat.** The tree had grown ~2 GB of week-old logs.
 
-The reaper works off an **explicit allowlist** and an mtime threshold (default
-24h), so it only ever touches known-regenerable paths and leaves anything
-touched inside the window alone. It never touches config (`settings.json`,
-`skills/`, `launch.json`) or `.claude/worktrees/` (in-flight work). Run it by
-hand any time: `-DryRun` to preview, `-MaxAgeHours 0` to reap everything
-transient now.
+Explicit `-DryRun` lists unreviewed age candidates without removing anything.
+Use `devtools/smoke-storage-manifest.py` to prepare exact hashed historical
+file candidates. Permanently remove nothing until Mike confirms the manifest's
+scope, count, bytes and hash; retained evidence and current work are excluded.
+See `context/retention.md` for the boundary and prospective budget/isolation plan.
 
 ## How it differs from v2
 
