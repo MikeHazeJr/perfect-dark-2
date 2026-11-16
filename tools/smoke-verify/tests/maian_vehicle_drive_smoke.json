@@ -1,6 +1,6 @@
 {
   "scenario_name": "maian_vehicle_drive_smoke",
-  "description": "Maian vehicle V2 (week PD 2026-11-15/16): the Maian hover vehicle mod, made by the in-game mod author from dev-mods/maian_hover_vehicle/recipe.json (the original example vehicle plus the final model: build_vehicle_mesh.py from the cleaned-up Tripo model, vertex-coloured, with the turret's yaw and pitch parts, 18 ring seats and the crystal toggles; nothing in it comes from the base game), is placed in place of the stage's hoverbike (--debug-swap-vehicle) and driven (--debug-mount-bike). Proves the mod vehicle's own typed model loads in its private model slot (PDVEHICLE.MODEL, no FIX-B.2 model failure), is created at the hoverbike's world scale (VEHICLE.SWAP scale line) and drives on the mod's physics (no VEHICLE.SOURCE loud fail while accelerating and steering). The screenshots show the final model; boost, heat, the gunner seat and the turret come in later steps. Runs on CI training (--launch-mission 0x26), not Escape: after Escape's skipped intro the player never gets walk mode back (B-1159), so the mount hook never fires there. A fresh install has no agent, so CI training would stop at Agent Select: the smoke agent profile is staged in the portable save folder and loaded at boot (--launch-load-agent smoke).",
+  "description": "Maian vehicle V2 (week PD 2026-11-15/16): the Maian hover vehicle mod, made by the in-game mod author from dev-mods/maian_hover_vehicle/recipe.json (the original example vehicle plus the final model: build_vehicle_mesh.py from the cleaned-up Tripo model, vertex-coloured, with the turret's yaw and pitch parts, 18 ring seats and the crystal toggles; nothing in it comes from the base game), is placed in place of the stage's hoverbike (--debug-swap-vehicle) and driven (--debug-mount-bike). Proves the mod vehicle's own typed model loads in its private model slot (PDVEHICLE.MODEL, no FIX-B.2 model failure), is created at the hoverbike's world scale (VEHICLE.SWAP scale line) and drives on the mod's physics (no VEHICLE.SOURCE loud fail while accelerating and steering). The screenshots show the final model; boost, heat, the gunner seat and the turret come in later steps. Runs on CI training (--launch-mission 0x26), not Escape: after Escape's skipped intro the player never gets walk mode back (B-1159), so the mount hook never fires there. CI training forces Agent Select open after its intro until a game file is chosen there (loading an agent from the command line does not count), then opens the main menu: the smoke stages the smoke agent profile in the portable save folder, skips the intro, loads the agent through Agent Select and closes the main menu with Back, all with injected actions, which do not need window focus.",
   "tags": ["vehicle", "modding", "mod-author", "pdvehicle", "recipe", "gameplay", "maian-vehicle", "pillar:modding"],
   "paths_of_interest": [
     "dev-mods/maian_hover_vehicle/recipe.json",
@@ -37,8 +37,6 @@
     "--portable",
     "--mod-author",
     "mod-recipes/maian_hover_vehicle/recipe.json",
-    "--launch-load-agent",
-    "smoke",
     "--launch-mission",
     "0x26",
     "--debug-swap-vehicle",
@@ -46,23 +44,54 @@
     "--debug-mount-bike"
   ],
   "screenshots": [
-    { "at_ms": 1800, "name": "maian-vehicle-accelerating" },
-    { "at_ms": 3600, "name": "maian-vehicle-steering" }
+    { "at_ms": 18800, "name": "maian-vehicle-accelerating" },
+    { "at_ms": 20600, "name": "maian-vehicle-steering" }
   ],
   "input_sequence": [
     {
       "at_ms": 0,
       "type": "wait_until",
-      "condition": "offline_gameplay_ready",
-      "timeout_ms": 180000,
-      "stable_ms": 500,
-      "assist_action": "ACTION_SKIP_CUTSCENE",
-      "assist_condition": "cutscene_skip_ready",
-      "assist_hold_ms": 900,
-      "comment": "CI training is live with Player 0 on foot; the skip assist passes any intro."
+      "condition": "cutscene_skip_ready",
+      "timeout_ms": 150000,
+      "comment": "CI training is live and its camera intro is playing."
     },
     {
       "at_ms": 0,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press",
+      "comment": "Skip the intro. CI training then forces Agent Select open (no game file chosen yet)."
+    },
+    {
+      "at_ms": 900,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 8000,
+      "type": "action",
+      "name": "ACTION_USE",
+      "action": "tap",
+      "comment": "Agent Select accept: loads the staged smoke agent, the only profile, then the main menu opens."
+    },
+    {
+      "at_ms": 16000,
+      "type": "action",
+      "name": "ACTION_CANCEL_USE",
+      "action": "tap",
+      "comment": "Back on the main menu's top level closes it into CI training free roam and gives control back."
+    },
+    {
+      "at_ms": 17000,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 45000,
+      "stable_ms": 500,
+      "comment": "Player 0 is on foot with control, so the armed mount hook can fire."
+    },
+    {
+      "at_ms": 17000,
       "type": "wait_until",
       "condition": "vehicle_driver_ready",
       "timeout_ms": 60000,
@@ -70,32 +99,32 @@
       "comment": "Player 0 is mounted on the Maian vehicle and driving through LAYER_VEHICLE_DRIVER."
     },
     {
-      "at_ms": 1000,
+      "at_ms": 18000,
       "type": "action",
       "name": "ACTION_VEHICLE_ACCELERATE",
       "action": "press",
       "comment": "Accelerate: the movement path looks the vehicle's physics up by its model number."
     },
     {
-      "at_ms": 2400,
+      "at_ms": 19400,
       "type": "action",
       "name": "ACTION_VEHICLE_ACCELERATE",
       "action": "release"
     },
     {
-      "at_ms": 2600,
+      "at_ms": 19600,
       "type": "action",
       "name": "ACTION_VEHICLE_STEER_RIGHT",
       "action": "press"
     },
     {
-      "at_ms": 3800,
+      "at_ms": 20800,
       "type": "action",
       "name": "ACTION_VEHICLE_STEER_RIGHT",
       "action": "release"
     },
     {
-      "at_ms": 5000,
+      "at_ms": 22000,
       "type": "exit",
       "comment": "Scripted exit after driving."
     }
@@ -111,6 +140,11 @@
       "BOOT: --launch-mission '0x26' -> stagenum=0x26",
       "BOOT: --debug-mount-bike armed",
       "BOOT: --debug-swap-vehicle mod:vehicle_maian_hover armed",
+      "MENUPOOL: acquired agent_select",
+      "AGENT\\.SESSION: activation committed name='smoke' source=json",
+      "MENUPOOL: acquired main_menu",
+      "MENU_IMGUI: main menu CLOSE via ESC/B \\(top-level -> CI free-roam\\)",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
       "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_maian_hover\\)",
       "VEHICLE\\.SWAP: modelnum \\d+ takes the world scale of modelnum 58 \\(409/4096\\)",
       "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
@@ -124,6 +158,7 @@
       "FATAL: ",
       "SMOKE: result=timeout",
       "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "AGENT\\.SESSION: activation rejected",
       "MODAUTHOR\\.[A-Z.]*FAIL",
       "PDVEHICLE\\.MODEL\\.REJECT",
       "PDVEHICLE\\.MODEL: .*cannot be placed",
