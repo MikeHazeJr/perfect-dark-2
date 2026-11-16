@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_hacker_central_net_smoke",
-  "description": "Networked hacker central with simulants: listen host plus one client on loopback, Complex, three bots, 35 second time limit, same start path as mp_combat_net_bots_smoke. Baseline for the scenario state seam (T-NETWORKING-011): proves the objective scenario starts over the network, the host places its objective on a real pad (B-1125/B-1126 fill-in on extracted arenas) and both sides end with a match result for all five characters. Wire v64: the host sends the uplink, the download in progress and every player's progress and points in the stage baseline and on every change, and the client shows them instead of running downloads or making an uplink of its own. Written 2026-11-15; port 27244.",
+  "description": "Networked hacker central with simulants: listen host plus one client on loopback, Complex, three bots, 35 second time limit, same start path as mp_combat_net_bots_smoke. Baseline for the scenario state seam (T-NETWORKING-011): proves the objective scenario starts over the network, the host places its objective on a real pad (B-1125/B-1126 fill-in on extracted arenas) and both sides end with a match result for all five characters. Wire v64: the host sends the uplink, the download in progress and every player's progress and points in the stage baseline and on every change, and the client shows them instead of running downloads or making an uplink of its own. Written 2026-11-15; port 27244. Net scoring (T-NETWORKING-011, 2026-11-16): the 150 s match must end with a nonzero score in both machines' result lines (the client's follow the host's), as the local smokes require.",
   "tags": [
     "network",
     "combatsim",
@@ -204,6 +204,10 @@
       {
         "pattern": "BOT\\.DROP: host announced simulant",
         "min": 0
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.(CHR|TEAM): .*score=[1-9]",
+        "min": 2
       }
     ]
   }

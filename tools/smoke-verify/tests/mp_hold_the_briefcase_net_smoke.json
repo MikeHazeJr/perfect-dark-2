@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_hold_the_briefcase_net_smoke",
-  "description": "Networked hold the briefcase with simulants: listen host plus one client on loopback, Complex, three bots, 35 second time limit, same start path as mp_combat_net_bots_smoke. Baseline for the scenario state seam (T-NETWORKING-011): proves the objective scenario starts over the network, the host places its objective on a real pad (B-1125/B-1126 fill-in on extracted arenas) and both sides end with a match result for all five characters. Wire v64: the host sends the briefcase (holder or on the ground) in the stage baseline and on every change, and the client shows that briefcase instead of making its own. Written 2026-11-15; port 27243.",
+  "description": "Networked hold the briefcase with simulants: listen host plus one client on loopback, Complex, three bots, 35 second time limit, same start path as mp_combat_net_bots_smoke. Baseline for the scenario state seam (T-NETWORKING-011): proves the objective scenario starts over the network, the host places its objective on a real pad (B-1125/B-1126 fill-in on extracted arenas) and both sides end with a match result for all five characters. Wire v64: the host sends the briefcase (holder or on the ground) in the stage baseline and on every change, and the client shows that briefcase instead of making its own. Written 2026-11-15; port 27243. Net scoring (T-NETWORKING-011, 2026-11-16): the 150 s match must end with a nonzero score in both machines' result lines (the client's follow the host's), as the local smokes require.",
   "tags": [
     "network",
     "combatsim",
@@ -203,6 +203,10 @@
       {
         "pattern": "BOT\\.DROP: host announced simulant",
         "min": 0
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.(CHR|TEAM): .*score=[1-9]",
+        "min": 2
       }
     ]
   }
