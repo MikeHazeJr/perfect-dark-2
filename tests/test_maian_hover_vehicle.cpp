@@ -2,13 +2,16 @@
  * test_maian_hover_vehicle.cpp -- the Maian hover vehicle recipe.
  *
  * dev-mods/maian_hover_vehicle/ is the source of the custom vehicle mod: a
- * recipe for the in-game mod author plus the stand-in model files it puts in
- * (make_standin_mesh.py, from the October vehicle study). This case builds it
- * the way `--mod-author` does (recipe file, modAuthorSave) and checks what the
- * game will read from the saved archive: a vehicle in the mod's namespace
- * whose model is an embedded typed mesh with the strict descriptor the vehicle
- * model binder reads (`[model]`, kind = mesh), a culling radius and the
- * hoverbike's bounding-box node. Driving it is proven in game by
+ * recipe for the in-game mod author plus the model files it puts in
+ * (build_vehicle_mesh.py, from the cleaned-up Tripo model; the October-study
+ * stand-in it replaced is make_standin_mesh.py). This case builds it the way
+ * `--mod-author` does (recipe file, modAuthorSave) and checks what the game
+ * will read from the saved archive: a vehicle in the mod's namespace whose
+ * model is an embedded typed OBJ mesh with the strict descriptor the vehicle
+ * model binder reads (`[model]`, kind = mesh), a culling radius, the
+ * hoverbike's bounding-box node, and the parts later steps drive (turret yaw
+ * and pitch, the 18 ring seats and the muzzle seat, the crystal toggles).
+ * Driving it is proven in game by
  * tools/smoke-verify/tests/maian_vehicle_drive_smoke.json.
  *
  * When PD2_TEST_ARTIFACT_DIR is set, the built archive is copied to
@@ -171,7 +174,7 @@ TEST_CASE("the Maian hover vehicle recipe builds a vehicle with its own typed mo
 	REQUIRE(read == 1);
 	CHECK(hoverIniValue(*section, "catalog_id") == meshId);
 	CHECK(hoverIniValue(*section, "kind") == "mesh");
-	CHECK(hoverIniValue(*section, "model_file") == "model.gltf");
+	CHECK(hoverIniValue(*section, "model_file") == "model.obj");
 	const double radius = std::atof(hoverIniValue(*section, "model_scale").c_str());
 	CHECK(radius > 1000.0);   /* a vehicle-sized culling radius, not the 1.0 default */
 	CHECK(radius < 5000.0);
@@ -181,7 +184,24 @@ TEST_CASE("the Maian hover vehicle recipe builds a vehicle with its own typed mo
 	CHECK(nodes.find("\"type\": 2,") != std::string::npos);
 	CHECK(nodes.find("\"type\": 10,") != std::string::npos);
 	CHECK(nodes.find("\"type\": 24,") != std::string::npos);
-	CHECK(hoverHasEntry(mesh, "model.gltf"));
+	CHECK(nodes.find("\"type\": 18,") != std::string::npos);   /* the crystal toggles */
+	CHECK(hoverHasEntry(mesh, "model.obj"));
+	CHECK_FALSE(hoverHasEntry(mesh, "model.gltf"));             /* the template's glTF is gone */
 	CHECK(hoverHasEntry(mesh, "model.faces.json"));
 	CHECK(hoverHasEntry(mesh, "model.render.json"));
+
+	/* The mesh's manifest names the OBJ, under the mod's id. */
+	const std::string manifest = hoverEntry(mesh, "_meta/manifest.json");
+	CHECK(manifest.find("\"model_file\": \"model.obj\"") != std::string::npos);
+	CHECK(manifest.find("\"geometry\": \"model.obj\"") != std::string::npos);
+	CHECK(manifest.find("\"catalog_id\": \"" + meshId + "\"") != std::string::npos);
+
+	/* The parts later steps drive: turret yaw and pitch, the muzzle, the 18 ring
+	 * seats (110-127) and the muzzle crystal's seat (128), the crystal toggles. */
+	const std::string parts = hoverEntry(mesh, "model.parts.json");
+	for (int part : {0, 1, 2, 50, 110, 127, 128, 140, 141}) {
+		INFO("part " << part);
+		CHECK(parts.find("\"partnum\": " + std::to_string(part) + ",") != std::string::npos);
+	}
+	CHECK(parts.find("\"partnum\": 129,") == std::string::npos);
 }

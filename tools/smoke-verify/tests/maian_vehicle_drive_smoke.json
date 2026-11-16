@@ -1,10 +1,10 @@
 {
   "scenario_name": "maian_vehicle_drive_smoke",
-  "description": "Maian vehicle V2 (week PD 2026-11-15): the Maian hover vehicle mod, made by the in-game mod author from dev-mods/maian_hover_vehicle/recipe.json (the original example vehicle plus a stand-in model generated from the October vehicle study, so nothing in it comes from the base game), is placed on Escape in place of the hoverbike (--debug-swap-vehicle) and driven (--debug-mount-bike). Proves the mod vehicle's own typed model loads in its private model slot (PDVEHICLE.MODEL, no FIX-B.2 model failure), is created at the hoverbike's world scale (VEHICLE.SWAP scale line) and drives on the mod's physics (no VEHICLE.SOURCE loud fail while accelerating and steering). The screenshots show the stand-in model; boost, heat, the gunner seat and the turret come in later steps.",
+  "description": "Maian vehicle V2 (week PD 2026-11-15/16): the Maian hover vehicle mod, made by the in-game mod author from dev-mods/maian_hover_vehicle/recipe.json (the original example vehicle plus the final model: build_vehicle_mesh.py from the cleaned-up Tripo model, vertex-coloured, with the turret's yaw and pitch parts, 18 ring seats and the crystal toggles; nothing in it comes from the base game), is placed in place of the stage's hoverbike (--debug-swap-vehicle) and driven (--debug-mount-bike). Proves the mod vehicle's own typed model loads in its private model slot (PDVEHICLE.MODEL, no FIX-B.2 model failure), is created at the hoverbike's world scale (VEHICLE.SWAP scale line) and drives on the mod's physics (no VEHICLE.SOURCE loud fail while accelerating and steering). The screenshots show the final model; boost, heat, the gunner seat and the turret come in later steps. Runs on CI training (--launch-mission 0x26), not Escape: after Escape's skipped intro the player never gets walk mode back (B-1159), so the mount hook never fires there.",
   "tags": ["vehicle", "modding", "mod-author", "pdvehicle", "recipe", "gameplay", "maian-vehicle", "pillar:modding"],
   "paths_of_interest": [
     "dev-mods/maian_hover_vehicle/recipe.json",
-    "dev-mods/maian_hover_vehicle/make_standin_mesh.py",
+    "dev-mods/maian_hover_vehicle/build_vehicle_mesh.py",
     "port/src/assetcatalog_scanner.c",
     "port/src/body_head_source_bind.c",
     "port/src/vehicle_debug.c",
@@ -21,7 +21,7 @@
     { "src": "dev-mods/maian_hover_vehicle/template/tri_vehicle.pdvehicle", "dst": "mod-recipes/maian_hover_vehicle/template/tri_vehicle.pdvehicle" },
     { "src": "dev-mods/maian_hover_vehicle/template/tri_mesh.pdmesh", "dst": "mod-recipes/maian_hover_vehicle/template/tri_mesh.pdmesh" },
     { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/mesh.ini", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/mesh.ini" },
-    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.gltf", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.gltf" },
+    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.obj", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.obj" },
     { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.mtl", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.mtl" },
     { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.nodes.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.nodes.json" },
     { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.parts.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.parts.json" },
@@ -37,7 +37,7 @@
     "--mod-author",
     "mod-recipes/maian_hover_vehicle/recipe.json",
     "--launch-mission",
-    "base:escape",
+    "0x26",
     "--debug-swap-vehicle",
     "mod:vehicle_maian_hover",
     "--debug-mount-bike"
@@ -56,7 +56,7 @@
       "assist_action": "ACTION_SKIP_CUTSCENE",
       "assist_condition": "cutscene_skip_ready",
       "assist_hold_ms": 900,
-      "comment": "Escape is live with Player 0 on foot; the skip assist passes the intro cutscene."
+      "comment": "CI training is live with Player 0 on foot; the skip assist passes any intro."
     },
     {
       "at_ms": 0,
@@ -105,7 +105,7 @@
       "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:vehicle_maian_hover",
       "PDVEHICLE\\.MODEL: id=mod:vehicle_maian_hover model=mod:vehicle_maian_hover__\\S+ modelnum=\\d+ filenum=\\d+",
       "BOOT: --no-net set; netInit\\(\\) skipped",
-      "BOOT: --launch-mission 'base:escape' -> stagenum=",
+      "BOOT: --launch-mission '0x26' -> stagenum=0x26",
       "BOOT: --debug-mount-bike armed",
       "BOOT: --debug-swap-vehicle mod:vehicle_maian_hover armed",
       "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_maian_hover\\)",

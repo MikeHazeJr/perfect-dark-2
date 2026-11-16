@@ -3,15 +3,16 @@
   "template_file": "template/tri_vehicle.pdvehicle",
   "name": "Maian Hover",
   "author": "PD2",
-  "version": "0.1.0",
-  "description": "Maian two-seat hover vehicle, first build: the October vehicle study as a stand-in model on the example vehicle's hoverbike physics. Drives like a hoverbike for now; boost and heat, the gunner seat and the crystal turret follow.",
+  "version": "0.2.0",
+  "description": "Maian two-seat hover vehicle: hull and driver's cockpit, the gunner's pod on a ring of 18 seafoam crystals, and the crystal cannon. Hoverbike physics for now; boost, heat, the gunner seat and the turret follow.",
   "descriptor": {
     "model_file": "dependencies/assets/models/maian_hover.pdmesh"
   },
   "overrides": [
     { "entry": "dependencies/assets/models/maian_hover.pdmesh", "file": "template/tri_mesh.pdmesh" },
     { "entry": "dependencies/assets/models/maian_hover.pdmesh::mesh.ini", "file": "meshes/vehicle/mesh.ini" },
-    { "entry": "dependencies/assets/models/maian_hover.pdmesh::model.gltf", "file": "meshes/vehicle/model.gltf" },
+    { "entry": "dependencies/assets/models/maian_hover.pdmesh::model.gltf", "remove": true },
+    { "entry": "dependencies/assets/models/maian_hover.pdmesh::model.obj", "file": "meshes/vehicle/model.obj" },
     { "entry": "dependencies/assets/models/maian_hover.pdmesh::model.mtl", "file": "meshes/vehicle/model.mtl" },
     { "entry": "dependencies/assets/models/maian_hover.pdmesh::model.nodes.json", "file": "meshes/vehicle/model.nodes.json" },
     { "entry": "dependencies/assets/models/maian_hover.pdmesh::model.parts.json", "file": "meshes/vehicle/model.parts.json" },

@@ -18,16 +18,16 @@
       "drawdist": 0.0,
       "target": -1,
       "group": "-",
-      "render_mtx": 0,
-      "mcount": 1,
+      "render_mtx": -1,
+      "mcount": 0,
       "hitpart": 0,
       "bounds": {
-        "xmin": -843.0,
-        "xmax": 843.0,
-        "ymin": -563.297,
-        "ymax": 1600.764,
-        "zmin": -1550.0,
-        "zmax": 1550.0
+        "xmin": -784,
+        "xmax": 784,
+        "ymin": -540,
+        "ymax": 935,
+        "zmin": -1550,
+        "zmax": 1550
       },
       "distance": {
         "near": 0.0,
@@ -55,7 +55,7 @@
       "type": 10,
       "partnum": -1,
       "part": -1,
-      "mtx0": 0,
+      "mtx0": -1,
       "mtx1": -1,
       "mtx2": -1,
       "position": {
@@ -66,16 +66,16 @@
       "drawdist": 0.0,
       "target": -1,
       "group": "-",
-      "render_mtx": 0,
-      "mcount": 1,
+      "render_mtx": -1,
+      "mcount": 0,
       "hitpart": 1,
       "bounds": {
-        "xmin": -843.0,
-        "xmax": 843.0,
-        "ymin": -563.297,
-        "ymax": 1600.764,
-        "zmin": -1550.0,
-        "zmax": 1550.0
+        "xmin": -784,
+        "xmax": 784,
+        "ymin": -540,
+        "ymax": 935,
+        "zmin": -1550,
+        "zmax": 1550
       },
       "distance": {
         "near": 0.0,
@@ -103,7 +103,7 @@
       "type": 24,
       "partnum": -1,
       "part": -1,
-      "mtx0": 0,
+      "mtx0": -1,
       "mtx1": -1,
       "mtx2": -1,
       "position": {
@@ -113,17 +113,1361 @@
       },
       "drawdist": 0.0,
       "target": -1,
-      "group": "-",
+      "group": "hull",
       "render_mtx": 0,
       "mcount": 1,
       "hitpart": 0,
       "bounds": {
-        "xmin": -843.0,
-        "xmax": 843.0,
-        "ymin": -563.297,
-        "ymax": 1600.764,
-        "zmin": -1550.0,
-        "zmax": 1550.0
+        "xmin": -784,
+        "xmax": 784,
+        "ymin": -540,
+        "ymax": 935,
+        "zmin": -1550,
+        "zmax": 1550
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 3,
+      "parent": 0,
+      "type": 2,
+      "partnum": 1,
+      "part": 1,
+      "mtx0": 1,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 305.806,
+        "z": -384.765
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 4,
+      "parent": 3,
+      "type": 24,
+      "partnum": -1,
+      "part": -1,
+      "mtx0": -1,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "pod",
+      "render_mtx": 1,
+      "mcount": 1,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": -784,
+        "xmax": 784,
+        "ymin": -540,
+        "ymax": 935,
+        "zmin": -1550,
+        "zmax": 1550
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 5,
+      "parent": 3,
+      "type": 2,
+      "partnum": 2,
+      "part": 2,
+      "mtx0": 2,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 205.523,
+        "z": 193.56
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 6,
+      "parent": 5,
+      "type": 24,
+      "partnum": -1,
+      "part": -1,
+      "mtx0": -1,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "cannon",
+      "render_mtx": 2,
+      "mcount": 1,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": -784,
+        "xmax": 784,
+        "ymin": -540,
+        "ymax": 935,
+        "zmin": -1550,
+        "zmax": 1550
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 7,
+      "parent": 5,
+      "type": 2,
+      "partnum": 50,
+      "part": 3,
+      "mtx0": 3,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 1.098,
+        "y": 218.13,
+        "z": 728.085
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 8,
+      "parent": 5,
+      "type": 2,
+      "partnum": 128,
+      "part": 22,
+      "mtx0": 22,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 1.098,
+        "y": 218.13,
+        "z": 587.579
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 9,
+      "parent": 0,
+      "type": 2,
+      "partnum": 110,
+      "part": 4,
+      "mtx0": 4,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 385.061,
+        "y": 298.368,
+        "z": -388.124
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 10,
+      "parent": 0,
+      "type": 2,
+      "partnum": 111,
+      "part": 5,
+      "mtx0": 5,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 339.153,
+        "y": 298.064,
+        "z": -511.566
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 11,
+      "parent": 0,
+      "type": 2,
+      "partnum": 112,
+      "part": 6,
+      "mtx0": 6,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 271.818,
+        "y": 303.794,
+        "z": -616.92
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 12,
+      "parent": 0,
+      "type": 2,
+      "partnum": 113,
+      "part": 7,
+      "mtx0": 7,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 179.606,
+        "y": 303.757,
+        "z": -702.215
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 13,
+      "parent": 0,
+      "type": 2,
+      "partnum": 114,
+      "part": 8,
+      "mtx0": 8,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 64.596,
+        "y": 303.619,
+        "z": -770.768
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 14,
+      "parent": 0,
+      "type": 2,
+      "partnum": 115,
+      "part": 9,
+      "mtx0": 9,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": -71.099,
+        "y": 303.595,
+        "z": -768.393
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 15,
+      "parent": 0,
+      "type": 2,
+      "partnum": 116,
+      "part": 10,
+      "mtx0": 10,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": -185.103,
+        "y": 303.757,
+        "z": -699.006
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 16,
+      "parent": 0,
+      "type": 2,
+      "partnum": 117,
+      "part": 11,
+      "mtx0": 11,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": -278.484,
+        "y": 303.794,
+        "z": -614.331
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 17,
+      "parent": 0,
+      "type": 2,
+      "partnum": 118,
+      "part": 12,
+      "mtx0": 12,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": -341.251,
+        "y": 298.064,
+        "z": -505.609
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 18,
+      "parent": 0,
+      "type": 2,
+      "partnum": 119,
+      "part": 13,
+      "mtx0": 13,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": -384.99,
+        "y": 298.368,
+        "z": -381.406
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 19,
+      "parent": 0,
+      "type": 2,
+      "partnum": 120,
+      "part": 14,
+      "mtx0": 14,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": -380.279,
+        "y": 291.908,
+        "z": -242.586
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 20,
+      "parent": 0,
+      "type": 2,
+      "partnum": 121,
+      "part": 15,
+      "mtx0": 15,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": -324.972,
+        "y": 291.619,
+        "z": -107.214
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 21,
+      "parent": 0,
+      "type": 2,
+      "partnum": 122,
+      "part": 16,
+      "mtx0": 16,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": -202.057,
+        "y": 305.984,
+        "z": -27.634
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 22,
+      "parent": 0,
+      "type": 2,
+      "partnum": 123,
+      "part": 17,
+      "mtx0": 17,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": -68.97,
+        "y": 305.218,
+        "z": 27.376
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 23,
+      "parent": 0,
+      "type": 2,
+      "partnum": 124,
+      "part": 18,
+      "mtx0": 18,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 76.218,
+        "y": 305.218,
+        "z": 26.474
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 24,
+      "parent": 0,
+      "type": 2,
+      "partnum": 125,
+      "part": 19,
+      "mtx0": 19,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 205.179,
+        "y": 305.984,
+        "z": -36.434
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 25,
+      "parent": 0,
+      "type": 2,
+      "partnum": 126,
+      "part": 20,
+      "mtx0": 20,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 329.806,
+        "y": 291.619,
+        "z": -112.892
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 26,
+      "parent": 0,
+      "type": 2,
+      "partnum": 127,
+      "part": 21,
+      "mtx0": 21,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 382.76,
+        "y": 291.908,
+        "z": -249.221
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 27,
+      "parent": 0,
+      "type": 18,
+      "partnum": 140,
+      "part": -1,
+      "mtx0": -1,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "drawdist": 0.0,
+      "target": 28,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 28,
+      "parent": 27,
+      "type": 24,
+      "partnum": -1,
+      "part": -1,
+      "mtx0": -1,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "crystals",
+      "render_mtx": 4,
+      "mcount": 1,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": -784,
+        "xmax": 784,
+        "ymin": -540,
+        "ymax": 935,
+        "zmin": -1550,
+        "zmax": 1550
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 29,
+      "parent": 0,
+      "type": 18,
+      "partnum": 141,
+      "part": -1,
+      "mtx0": -1,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "drawdist": 0.0,
+      "target": 30,
+      "group": "-",
+      "render_mtx": -1,
+      "mcount": 0,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": 0.0,
+        "xmax": 0.0,
+        "ymin": 0.0,
+        "ymax": 0.0,
+        "zmin": 0.0,
+        "zmax": 0.0
+      },
+      "distance": {
+        "near": 0.0,
+        "far": 0.0
+      },
+      "reorder": {
+        "pivot": {
+          "x": 0.0,
+          "y": 0.0,
+          "z": 0.0
+        },
+        "axis": {
+          "x": 0.0,
+          "y": 1.0,
+          "z": 0.0
+        },
+        "target_a": -1,
+        "target_b": -1,
+        "side": 0
+      }
+    },
+    {
+      "id": 30,
+      "parent": 29,
+      "type": 24,
+      "partnum": -1,
+      "part": -1,
+      "mtx0": -1,
+      "mtx1": -1,
+      "mtx2": -1,
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "drawdist": 0.0,
+      "target": -1,
+      "group": "crystals_black",
+      "render_mtx": 4,
+      "mcount": 1,
+      "hitpart": 0,
+      "bounds": {
+        "xmin": -784,
+        "xmax": 784,
+        "ymin": -540,
+        "ymax": 935,
+        "zmin": -1550,
+        "zmax": 1550
       },
       "distance": {
         "near": 0.0,

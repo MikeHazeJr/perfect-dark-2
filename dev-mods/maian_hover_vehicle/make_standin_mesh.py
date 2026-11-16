@@ -1,5 +1,10 @@
 """Stand-in model for the Maian hover vehicle (Maian vehicle plan, step V2).
 
+SUPERSEDED 2026-11-16 by build_vehicle_mesh.py (the final model, from the
+cleaned-up Tripo model), whose output the recipe now uses from meshes/vehicle/.
+This script now writes to meshes/standin/ by default, so the two cannot
+overwrite each other; the recipe does not read meshes/standin/.
+
 Turns the geometry of Mike's October vehicle study (builder_v4.py in
 .claude/pd-maian-models-20261013/vehicle/, run in a headless Blender by
 blender_dump_vehicle.py, which writes a JSON dump) into the member files of
@@ -237,5 +242,5 @@ def build(dump_path, out_dir):
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit(__doc__)
-    target = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).parent / "meshes" / "vehicle"
+    target = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).parent / "meshes" / "standin"
     sys.exit(build(sys.argv[1], target))

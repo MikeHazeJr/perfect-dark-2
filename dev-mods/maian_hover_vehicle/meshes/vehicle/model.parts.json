@@ -4,6 +4,102 @@
     {
       "partnum": 0,
       "node": 0
+    },
+    {
+      "partnum": 1,
+      "node": 3
+    },
+    {
+      "partnum": 2,
+      "node": 5
+    },
+    {
+      "partnum": 50,
+      "node": 7
+    },
+    {
+      "partnum": 110,
+      "node": 9
+    },
+    {
+      "partnum": 111,
+      "node": 10
+    },
+    {
+      "partnum": 112,
+      "node": 11
+    },
+    {
+      "partnum": 113,
+      "node": 12
+    },
+    {
+      "partnum": 114,
+      "node": 13
+    },
+    {
+      "partnum": 115,
+      "node": 14
+    },
+    {
+      "partnum": 116,
+      "node": 15
+    },
+    {
+      "partnum": 117,
+      "node": 16
+    },
+    {
+      "partnum": 118,
+      "node": 17
+    },
+    {
+      "partnum": 119,
+      "node": 18
+    },
+    {
+      "partnum": 120,
+      "node": 19
+    },
+    {
+      "partnum": 121,
+      "node": 20
+    },
+    {
+      "partnum": 122,
+      "node": 21
+    },
+    {
+      "partnum": 123,
+      "node": 22
+    },
+    {
+      "partnum": 124,
+      "node": 23
+    },
+    {
+      "partnum": 125,
+      "node": 24
+    },
+    {
+      "partnum": 126,
+      "node": 25
+    },
+    {
+      "partnum": 127,
+      "node": 26
+    },
+    {
+      "partnum": 128,
+      "node": 8
+    },
+    {
+      "partnum": 140,
+      "node": 27
+    },
+    {
+      "partnum": 141,
+      "node": 29
     }
   ]
 }
