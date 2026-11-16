@@ -36,6 +36,15 @@ s32 scenarioGlobalAiListsRoundTrip(void);
  * caller refuses the stage). */
 s32 scenarioGlobalAiListsBindBank(char *reason, u32 reason_size);
 
+/* Step 4: a stage's own AI lists (its scenario's ai/ailists.json) with a
+ * global list id (below 0x401) replace those global lists for that stage
+ * only; the next stage's bind starts again from the bank. Returns 1, or 0 with
+ * the reason when one names an id that is not one of the game's global lists
+ * (it could never run; the caller refuses the stage). */
+struct ailist;
+s32 scenarioGlobalAiListsApplyStageOverrides(const struct ailist *stage_lists, s32 count,
+	char *reason, u32 reason_size);
+
 #ifdef __cplusplus
 }
 #endif

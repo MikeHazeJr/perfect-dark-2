@@ -85,3 +85,25 @@ TEST_CASE("global AI lists: a stage built from scenario source runs the bank's l
 	CHECK(sort < call);
 	REQUIRE(setup.find("g_Vars.normmplayerisrunning, \"global ai lists\", -1, reason);") != std::string::npos);
 }
+
+TEST_CASE("global AI lists: a stage's own list with a global id replaces it for that stage",
+          "[ai][globalailists][runtime]")
+{
+	const std::string bind = readSource("port/src/scenario_global_ailists.c");
+	const std::string setup = readSource("src/game/setup.c");
+
+	REQUIRE(bind.find("if (stage_lists[s].id >= 0x401 || !stage_lists[s].list) {") != std::string::npos);
+	REQUIRE(bind.find("g_GlobalAilists[i].list = stage_lists[s].list;") != std::string::npos);
+	REQUIRE(bind.find("\"the stage's ai/ailists.json has list 0x%04x, which is not one of the game's global lists\"") !=
+		std::string::npos);
+	// After the bank bind (which undoes the last stage's overrides) and after
+	// the stage lists are counted.
+	const size_t bind_call = setup.find("if (!scenarioGlobalAiListsBindBank(reason, sizeof(reason))) {");
+	const size_t count = setup.find("// Count the AI lists");
+	const size_t ovr = setup.find("if (!scenarioGlobalAiListsApplyStageOverrides(g_StageSetup.ailists,");
+	REQUIRE(bind_call != std::string::npos);
+	REQUIRE(count != std::string::npos);
+	REQUIRE(ovr != std::string::npos);
+	CHECK(bind_call < count);
+	CHECK(count < ovr);
+}

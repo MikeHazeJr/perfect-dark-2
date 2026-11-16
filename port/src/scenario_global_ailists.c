@@ -309,3 +309,38 @@ s32 scenarioGlobalAiListsBindBank(char *reason, u32 reason_size)
 		(unsigned)g_Vars.stagenum, native_count, s_Bank.entry->id);
 	return 1;
 }
+
+s32 scenarioGlobalAiListsApplyStageOverrides(const struct ailist *stage_lists, s32 count,
+	char *reason, u32 reason_size)
+{
+	s32 overrides = 0;
+
+	if (reason && reason_size) {
+		reason[0] = '\0';
+	}
+	for (s32 s = 0; stage_lists && s < count; s++) {
+		s32 found = 0;
+
+		if (stage_lists[s].id >= 0x401 || !stage_lists[s].list) {
+			continue;
+		}
+		for (s32 i = 0; g_GlobalAilists[i].list != NULL && i < GLOBAL_AILISTS_MAX; i++) {
+			if (g_GlobalAilists[i].id == stage_lists[s].id) {
+				g_GlobalAilists[i].list = stage_lists[s].list;
+				found = 1;
+				overrides++;
+				break;
+			}
+		}
+		if (!found) {
+			return s_bindFail(reason, reason_size,
+				"the stage's ai/ailists.json has list 0x%04x, which is not one of the game's global lists",
+				(unsigned)stage_lists[s].id);
+		}
+	}
+	if (overrides) {
+		sysLogPrintf(LOG_NOTE, "AI.GLOBAL: stage 0x%02x replaces %d global lists with its own (ai/ailists.json)",
+			(unsigned)g_Vars.stagenum, overrides);
+	}
+	return 1;
+}

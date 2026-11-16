@@ -1999,6 +1999,19 @@ void setupLoadFiles(s32 stagenum)
 			g_NumLvAilists = 0;
 		}
 
+		/* Global AI lists step 4 (global-ai-lists.md): the stage's own lists
+		 * with a global id replace those global lists for this stage. */
+		if (g_StageSetup.ailists && g_NumLvAilists > 0) {
+			char reason[192];
+
+			if (!scenarioGlobalAiListsApplyStageOverrides(g_StageSetup.ailists,
+					g_NumLvAilists, reason, sizeof(reason))) {
+				scenarioSourceFatalRuntimeFallbackForStage(&stage,
+					g_Vars.normmplayerisrunning, "global ai list override", -1, reason);
+				return;
+			}
+		}
+
 		// Convert path pad pointers from file-local to proper pointers
 		// and calculate the path lengths
 		if (g_StageSetup.paths) {
