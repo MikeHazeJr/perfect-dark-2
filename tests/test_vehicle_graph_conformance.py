@@ -128,8 +128,12 @@ class VehicleGraphConformanceTests(unittest.TestCase):
         self.assertEqual(graph_errors(base_graph(), None, "base:vehicle_hoverbike"), [])
 
     def test_the_maian_files_in_dev_mods_pass(self):
+        # The recipe's files name the template's catalog id; the in-game mod author rewrites it
+        # to the mod's id in every text member it writes (cloneRewriteText), overrides included.
         folder = Path(__file__).resolve().parents[1] / "dev-mods" / "maian_hover_vehicle"
-        graph = json.loads((folder / "behavior.graph.json").read_text("utf-8"))
+        text = (folder / "behavior.graph.json").read_text("utf-8")
+        self.assertIn('"catalog_id": "example:tri_vehicle"', text)
+        graph = json.loads(text.replace("example:tri_vehicle", CATALOG))
         variables = json.loads((folder / "behavior" / "variables.json").read_text("utf-8"))
         self.assertEqual(graph_errors(graph, variables), [])
 
