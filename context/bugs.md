@@ -1,5 +1,29 @@
 # Bug Tracker
 
+## 2026-11-16 B-1203 Single-process smokes ran against the real user profile (T-NETWORKING-011, fixed in the runner)
+
+Severity high (test isolation; it writes the user's real data). Found when three local smokes on 340eca64
+(`mp_hacker_central_local_smoke`, `mp_capture_the_case_local_smoke`, `mp_combat_local_scorelimit_smoke`;
+`results-20261116T080701Z.json` to `results-20261116T083802Z.json`) each crashed 0.03 s into boot: every one logged
+`save dir: C:/Users/mikeh/AppData/Roaming/perfectdark` and died in `strlen` while loading `input-bindings.ini` from
+there. Cause: `tools/smoke-verify/run.ps1` builds a single-process launch from `--smoke <test>`, the crash-handler
+switch and the fixture's own `boot_args`, and adds `--savedir` only under `-ReuseInstallId`. B-1124 wrongly said this
+path always passes `--savedir`, so its runner guard and `tools/tests/test_smoke_fixture_isolation.py` checked only
+fixtures with a `processes` list. 81 single-process fixtures name neither `--portable` nor `--savedir` (the eight
+`mp_*_local` smokes, `mp_room_flow`, the main-menu Joanna, swarm, stage-sky, vehicle and mission-intro smokes among
+them), so every run of them on this machine, by any session, read and rewrote the real profile's `pd.ini`,
+`input-bindings.ini` and `playerstats.json` (and could migrate an install's `pd.ini` into it, `fsInit`). The last
+such run was CORE's `stage_sky_depth_defection` (week-pd/core 3b303305c, started 07:18:15Z, saved playerstats there
+at 07:19:35Z); MULTIPLAYER's local smokes did the same all week. The crash itself is B-1184, fixed on dev by CRYSTAL
+(6e43ca22) but not yet on this branch: actions 105-120 had no name in `s_ActionNames`, CORE's build (which has the
+names) rewrote the real bindings file with all 123 rows per context, and this branch's loader read a NULL name for
+the first row it did not know (`MenuSkipUp`). Fix on `week-pd/multiplayer`: once both strategy branches have built
+the arguments, `run.ps1` adds `--portable` when the fixture's `boot_args` name neither flag (the game runs from its
+install, so `--portable` keeps the install as base dir and moves the save dir and `$H` into it); `-ReuseInstallId`
+still replaces the arguments with explicit directories. Pinned by `test_runner_isolates_single_process` in
+`tools/tests/test_smoke_fixture_isolation.py`, which fails on the old runner. Nothing in the real profile was
+restored or edited; that is Mike's call. Class: B-1124, the other launch path; SP-90.
+
 ## 2026-11-15 B-1212 Every G_TRI1 triangle index read as 0 on 64-bit, so no triangle of a generated model could be hit (T-MODDING-008)
 
 Severity high (engine-wide on PC). `Gtri` in `include/PR/gbi.h` had no
@@ -358,7 +382,8 @@ carry the run's timestamps (2026-11-14 17:44 local), as do new files under its
 `mod-cache`. Cause: `tools/smoke-verify/run.ps1` (multi-process launch, about
 line 1741) adds `--basedir/--savedir/--moddir/--debug-home-path` only when a
 fixture sets `separate_process_installs`; the single-process path always passes
-`--savedir`. A fixture whose processes share one install and pass neither
+`--savedir` (WRONG, corrected 2026-11-16 by B-1203: only `-ReuseInstallId` did, and 81 single-process fixtures
+also ran against the real profile). A fixture whose processes share one install and pass neither
 `--portable` nor `--savedir` therefore falls back to the game's default save dir
 (`fsInit`, `port/src/fs.c`: `$H` = `%APPDATA%/perfectdark` on Windows). Seven
 fixtures did: `listen_host_match_smoke`, `listen_host_peer_smoke`,
