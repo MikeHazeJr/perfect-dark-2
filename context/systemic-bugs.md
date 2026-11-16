@@ -8,6 +8,37 @@ N-0826 Budgeted-loop cursor ownership: commit persistent progress before an earl
 
 2026-10-26 N-0805: Donor-fixture scalar widening can conceal bitfield and signed-narrowing behavior. Check every modeled field against native declarations, including bit width; do not infer storage from bool-like names. This affected unrun switch fixtures and is corrected. Source review is not runtime acceptance.
 
+## 2026-11-15 Scenario-source stages have no room render data; native BG hit tests on it go silent
+
+Found with B-1187 (T-MODDING-008). When a stage's background comes from a
+scenario source (`g_BgUsingScenarioSource`, which includes the multiplayer
+arenas), `bgBuildScenarioSourceTables` creates every room with
+`gfxdata = NULL`, `vtxbatches = NULL` and `loaded240 = 1`, and `bgLoadRoom`
+only re-marks rooms loaded. Native code that finds background hits through
+that render data gets "no hit" without any error: `bgTestHitInRoom` returns
+false for every room, and `gfxdata`-guarded paths skip. Rooms off screen for
+a while are still "unloaded" by `bgTickRooms`, so code with an unloaded-room
+fallback works there only, which hides the problem on some surfaces.
+Collision tiles and the world collision mesh (`g_WorldMesh`,
+`meshRayCastWorld`) are built from the same source and do work.
+
+Search: `grep -n "bgTestHitInRoom(\|gfxdata\b\|vtxbatches" src/game/*.c`
+
+Audit (2026-11-15):
+- `propobj.c` `func0f06cd00`, sticky projectiles: fixed (B-1187).
+- `prop.c` hitscan (`shotCalculateHits`, `shotTestLos`): confirmed broken
+  (MULTIPLAYER's logs: every player shot `MISS`, never `HIT_BG`); fixed
+  (B-1189), Farsight x-ray untouched.
+- `splat.c` blood splats, `spawnpool.c` spawn clearance, `explosions.c`
+  scorch marks (its `gfxdata` guard): fixed (B-1189).
+- Not changed: `artifact.c` (`gfxdata`/`loaded240` checks, lens artifacts),
+  render-side code.
+Fix pattern: on `bgUsesScenarioMeshHits()`, call `bgTestHitScenarioMesh`
+(`shot` for hits that should stop at visible solids: floors and
+`BLOCK_SHOOT`; not `shot` for clearance: every surface); keep the native path
+for ROM stages. Do not use `meshRayCastWorld` for hits: it tests every
+triangle, including movement-only clip walls, and ignores the grid.
+
 ## 2026-10-13 Validate the evaluated transform used by collision diagnostics
 
 Visibility exclusion can remove an object from dependency-graph evaluation.
@@ -2048,9 +2079,21 @@ private manifest would have hidden the symptom by creating a second behavior
 source, so the fix instead derives and transactionally owns the legacy adapter
 from the public source/runtime IR.
 
+**Known instance (B-1211, 2026-11-15):** the same public weapon adapter zeroed
+the weapon's bot preferences. Native bot AI reads a clear `haspriammogoal` /
+`hassecammogoal` as "never use this function", so every bot armed with a mod
+weapon went unarmed. The fix derives defaults from the compiled functions and
+magazine (`s_publicWeaponBotPrefsBuild`). Other per-weapon native tables a
+public weapon fills with defaults, to recheck when one misbehaves: aim settings
+(`s_DefaultAim`), casing eject (none), reload animation (none), MP weapon-set
+membership.
+
 **Propagation check:** compare every typed activation/clear pair with the real
 family manager, renderer, audio, collision, or gameplay object it supplies;
 test active -> adapter populated -> final release clears -> reload rebuilds.
+For the public weapon adapter, list each native per-weapon table gameplay
+reads (`catalogManagerGetWeapon*`, `weaponGetAmmoByFunction`, bot preferences)
+and confirm the adapter writes a usable value, not a zeroed default.
 
 `rg -n "ACTIVATE|Register.*Runtime|Clear.*Runtime|loaderPoolParse|catalogManagerGet" port/src src/game`
 
@@ -3509,3 +3552,33 @@ setup objects.
 intro case or hill pads, (b) no multiplayer ammo crates, (c) both. Hacker
 Central is fixed; Capture the Case, King of the Hill and Hold the Briefcase are
 open in B-1126.
+
+---
+
+## SP-83: A Gfx union member reads its second word from the wrong bytes on 64-bit
+
+**Severity: HIGH — a decoder silently gets zeros or the wrong fields from every
+command of that kind, and skips the work without a log line.**
+
+On 64-bit builds `Gwords` holds two `uintptr_t` words, so w1 starts at byte 8.
+A union member whose second-word fields are narrower than `uintptr_t` (a
+4-byte `Tri`, 32-bit bitfields) packs them at bytes 4..7, the upper half of
+w0, unless it carries a `PLATFORM_64BIT` pad. Members holding a `uintptr_t`
+(`Gdma.addr`) are aligned to byte 8 and are fine.
+
+**Known instance (B-1212, 2026-11-15):** `Gtri` had no pad, so every G_TRI1
+index read 0. `Gtri4` was padded. Generated models draw with G_TRI1 only, so no
+triangle of theirs could be hit, collided with in a rendered-room world mesh,
+drawn in x-ray, or marked by `texLoadFromGdl`.
+
+**Still unpadded, not read today:** `Gvtx.offset/seg`, `GunkC0.tile1/tile2/unk20`,
+and the second words of `Gtexture`, `Gsettile`, `Gloadtile`, `Gsettilesize`,
+`Gfillrect`, `Gsetcombine`, `Gsetcolor`, `Gline3D`. Game code reads only their
+first-word fields (`vtx.unk08`, `unkc0.subcmd`, `texture.cmd`).
+
+**Audit checklist:** before reading any Gfx union member's field, check which
+word it lives in; a second-word field on 64-bit needs the member padded (or
+read `words.w1` and shift). A unit test should decode a macro-built command
+through the member (`tests/test_gdl_span.cpp` does this for G_TRI1 and G_TRI4).
+
+`rg -n "(->|\.)(tri|tri4|vtx|line|texture|settile|loadtile|settilesize|fillrect|setcombine|setcolor|setimg|segment|unkc0)\.[a-z]" src port`

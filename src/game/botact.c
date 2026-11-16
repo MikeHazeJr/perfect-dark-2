@@ -6,6 +6,7 @@
 #include "game/chr.h"
 #include "game/propsnd.h"
 #include "game/bondgun.h"
+#include "game/bondgun_mod.h" /* T-MODDING-008: self-loading mod magazines */
 #include "game/game_0b0fd0.h"
 #include "game/playermgr.h"
 #include "game/botact.h"
@@ -78,11 +79,34 @@ void botactReload(struct chrdata *chr, s32 handnum, bool withsound)
 	}
 }
 
+/* T-MODDING-008: funcnum of mod weapon weaponnum loads from a self-loading
+ * magazine (crystals that regrow): no reserve, never empty for long. */
+static bool botactIsSelfLoadingModFunction(s32 weaponnum, s32 funcnum)
+{
+	struct weaponfunc *func;
+
+	if (weaponnum < WEAPON_CUSTOM_START || weaponnum >= WEAPON_CUSTOM_END) {
+		return false;
+	}
+
+	func = weaponGetFunctionById(weaponnum, funcnum);
+
+	return func != NULL && bgunModAmmoIsSelfLoading(weaponnum, func->ammoindex);
+}
+
 s32 botactGetAmmoQuantityByWeapon(struct aibot *aibot, s32 weaponnum, s32 funcnum, bool include_equipped)
 {
 	s32 qty = 0;
 	s32 ammotype;
 	s32 equippedammotype;
+
+	/* T-MODDING-008: a self-loading magazine regrows forever, so to a bot it
+	 * is always full, as with BOTFLAG_UNLIMITEDAMMO: no ammo goals, no
+	 * pickups wanted, and the weapon is not dropped while its magazine
+	 * regrows. */
+	if (aibot && botactIsSelfLoadingModFunction(weaponnum, funcnum)) {
+		return bgunGetCapacityByAmmotype(botactGetAmmoTypeByFunction(weaponnum, funcnum));
+	}
 
 	if (aibot) {
 		if (aibot->flags & BOTFLAG_UNLIMITEDAMMO) {
@@ -138,6 +162,12 @@ s32 botactTryRemoveAmmoFromReserve(struct aibot *aibot, s32 weaponnum, s32 funcn
 	s32 amountremoved;
 	s32 *ammoheld = &aibot->ammoheld[botactGetAmmoTypeByFunction(weaponnum, funcnum)];
 
+	/* T-MODDING-008: a self-loading mod magazine (crystals that regrow) has
+	 * no reserve; a bot's reload refills it from nothing. */
+	if (aibot && tryqty > 0 && botactIsSelfLoadingModFunction(weaponnum, funcnum)) {
+		return tryqty;
+	}
+
 	if (!aibot || *ammoheld <= 0 || tryqty <= 0) {
 		return 0;
 	}
@@ -168,6 +198,12 @@ void botactGiveAmmoByWeapon(struct aibot *aibot, s32 weaponnum, s32 funcnum, s32
 {
 	s32 max;
 	s32 *heldquantity = &aibot->ammoheld[botactGetAmmoTypeByFunction(weaponnum, funcnum)];
+
+	/* T-MODDING-008: a self-loading magazine has no reserve to return
+	 * rounds to. */
+	if (botactIsSelfLoadingModFunction(weaponnum, funcnum)) {
+		return;
+	}
 
 	if (aibot && (aibot->flags & BOTFLAG_UNLIMITEDAMMO) == 0 && qty > 0) {
 		dprint();
@@ -452,10 +488,35 @@ s32 botactGetShootInterval60(s32 weaponnum, s32 funcnum)
 			} else if (func->type == INVENTORYFUNCTYPE_MELEE && weaponnum != WEAPON_REAPER) {
 				result = 60;
 			}
+
+			/* T-MODDING-008 (B-1211): a mod weapon's shot has no recoil
+			 * animation, so unk24 + unk25 is 0 and a bot would fire every
+			 * frame (a crystal pistol's six crystals in a tenth of a second).
+			 * Its recovery time is the time between shots, else 15 ticks. */
+			if (result <= 0 && weaponnum >= WEAPON_CUSTOM_START
+					&& (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+				s32 recovery = ((struct weaponfunc_shoot *)func)->recoverytime60;
+
+				result = recovery > 0 ? recovery : 15;
+			}
 		}
 	}
 
 	return result;
+}
+
+bool botactFiresWithoutAmmo(s32 weaponnum, s32 funcnum)
+{
+	struct weaponfunc *func;
+
+	if (weaponnum < WEAPON_CUSTOM_START || weaponnum >= WEAPON_CUSTOM_END) {
+		return false;
+	}
+
+	func = weaponGetFunctionById(weaponnum, funcnum);
+
+	return func != NULL && weaponGetAmmoByFunction(weaponnum, funcnum) == NULL
+		&& ((func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT || func->type == INVENTORYFUNCTYPE_THROW);
 }
 
 /**

@@ -45,7 +45,8 @@ s32 netPlayerMoveInterval(const struct netclient *client, s32 max_ticks)
 u32 netPlayerMoveForwardCommands(const struct netclient *client)
 {
     if (!client || !client->inmove_valid) return 0;
-    u32 mask = UCMD_FIRE | UCMD_AIMMODE | UCMD_EYESSHUT;
+    /* Held input, forwarded every frame. v63: the gun roll actions (T-MODDING-008). */
+    u32 mask = UCMD_FIRE | UCMD_AIMMODE | UCMD_EYESSHUT | UCMD_GUNROLL_LEFT | UCMD_GUNROLL_RIGHT;
     if (netPlayerMovePending(client)) mask |= UCMD_RELOAD | UCMD_SELECT | UCMD_SELECT_DUAL;
     return client->inmove[0].ucmd & mask;
 }

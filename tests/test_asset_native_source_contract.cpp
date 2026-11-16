@@ -15047,7 +15047,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("\"prop_type = %d") == std::string::npos);
 	REQUIRE(arena.find("ROMEXTRACT_PDARENA_FAST_CACHE_KIND \"pdarena_clean_public_v10_pdscenario_v99_iafix_b945\"") !=
 	        std::string::npos);
-	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115\"") !=
+	REQUIRE(arena.find("ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND \"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky\"") !=
 	        std::string::npos);
 	REQUIRE(arena.find("s_aiOpcodeSemanticKind") != std::string::npos);
 	REQUIRE(arena.find("ai_command_nodes_json") != std::string::npos);
@@ -16065,7 +16065,10 @@ TEST_CASE("V-009 Needler edited tint variants reach the production renderer audi
 	REQUIRE(builder.find("HELD_WEAPON_SCALE = 14.0") == std::string::npos);
 	REQUIRE(builder.find("HELD_WEAPON_POS_X = 30.0") != std::string::npos);
 	REQUIRE(builder.find("HELD_WEAPON_POS_Y = -18.0") != std::string::npos);
-	REQUIRE(builder.find("HELD_WEAPON_POS_Z = -45.0") != std::string::npos);
+	/* B-1155: the held Needler is authored muzzle +Z now, so its view depth
+	 * moved from -45 to -34 to keep the rear of the gun where it was. */
+	REQUIRE(builder.find("HELD_WEAPON_POS_Z = -34.0") != std::string::npos);
+	REQUIRE(builder.find("p[2] * HELD_WEAPON_SCALE))") != std::string::npos);
 	REQUIRE(builder.find("f\"posx = {HELD_WEAPON_POS_X:.1f}\\n\"") !=
 	        std::string::npos);
 	REQUIRE(builder.find("f\"posy = {HELD_WEAPON_POS_Y:.1f}\\n\"") !=

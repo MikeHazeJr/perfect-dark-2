@@ -34,6 +34,7 @@
 #include "bss.h"
 #include "lib/crash.h"
 #include "lib/dma.h"
+#include "lib/meshcollision.h"
 #include "lib/lib_17ce0.h"
 #include "lib/lib_2f490.h"
 #include "lib/main.h"
@@ -150,6 +151,26 @@ s32 g_BgNumPortalCameraCacheItems = 0;
 s32 g_BgUsingScenarioSource = 0;
 static struct colmesh *g_BgScenarioSourceMesh = NULL;
 static char g_BgScenarioSourceId[CATALOG_ID_LEN];
+
+s32 bgUsesScenarioSource(void)
+{
+	return g_BgUsingScenarioSource;
+}
+
+/* The first room at or after `from` that the stage's scenario source marks
+ * render_always (rooms.json), or -1. bgRenderScene draws these first. */
+static s32 bgNextScenarioRenderAlwaysRoom(s32 from)
+{
+	s32 r;
+
+	for (r = from > 1 ? from : 1; r < g_Vars.roomcount; r++) {
+		if (scenarioSourceRoomRenderAlways(r)) {
+			return r;
+		}
+	}
+
+	return -1;
+}
 
 void bgUnpausePropsInRoom(u32 roomnum, bool tintedglassonly)
 {
@@ -1090,9 +1111,13 @@ Gfx *bgRenderScene(Gfx *gdl)
 
 	// Render special "always on" rooms, such as the Defection moon,
 	// Attack Ship planet, and other sky tricks that are implemented as rooms
+	// A stage built from scenario source names them with render_always on its
+	// rooms.json rows (the same rooms roomInitLights flags); the stage checks
+	// stay for a stage built from the ROM background.
 	if (!sourcebg
 			&& !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)
-			&& (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
+			&& (g_BgUsingScenarioSource ? bgNextScenarioRenderAlwaysRoom(1) >= 0 :
+				(stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
 				|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
 				|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
 				|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id
@@ -1102,13 +1127,15 @@ Gfx *bgRenderScene(Gfx *gdl)
 				|| stagenum == g_Stages[STAGEINDEX_EXTRACTION].id
 				|| stagenum == g_Stages[STAGEINDEX_MBR].id
 				|| stagenum == g_Stages[STAGEINDEX_TEST_OLD].id
-				|| stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id)) {
+				|| stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id))) {
 		gdl = envStopFog(gdl);
 		gdl = vi0000ab78(gdl);
 
 		roomnum = -1;
 
-		if (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
+		if (g_BgUsingScenarioSource) {
+			// Each render_always room is drawn below, after the stars.
+		} else if (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
 				|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
 				|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
 				|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id) {
@@ -1145,7 +1172,16 @@ Gfx *bgRenderScene(Gfx *gdl)
 			gdl = vi0000ab78(gdl);
 		}
 
-		if (roomnum != -1) {
+		if (g_BgUsingScenarioSource) {
+			for (roomnum = bgNextScenarioRenderAlwaysRoom(1); roomnum >= 0;
+					roomnum = bgNextScenarioRenderAlwaysRoom(roomnum + 1)) {
+				if (!g_Rooms[roomnum].loaded240) {
+					bgLoadRoom(roomnum);
+				}
+
+				gdl = bgRenderRoomOpaque(gdl, roomnum);
+			}
+		} else if (roomnum != -1) {
 			if (!g_Rooms[roomnum].loaded240) {
 				bgLoadRoom(roomnum);
 			}
@@ -1382,6 +1418,7 @@ static s32 bgTryActivateScenarioSourceBackground(const catalog_stage_result_t *s
 	g_BgUsingScenarioSource = 0;
 	g_BgScenarioSourceMesh = NULL;
 	g_BgScenarioSourceId[0] = '\0';
+	scenarioSourceStageRulesReset();
 	scenarioSceneRendererDeactivate();
 
 	scenario = scenarioSourceFindEntryForStage(stage, prefer_mp);
@@ -2644,6 +2681,7 @@ void bgStop(void)
 	g_BgUsingScenarioSource = 0;
 	g_BgScenarioSourceMesh = NULL;
 	g_BgScenarioSourceId[0] = '\0';
+	scenarioSourceStageRulesReset();
 	scenarioSceneRendererDeactivate();
 	mtx00016748(1);
 }
@@ -5469,6 +5507,79 @@ bool bgRoomIsLoaded(s32 room)
 	return bgRoomIsValid(room) && g_Rooms[room].loaded240;
 }
 
+bool bgIsScenarioSource(void)
+{
+	return g_BgUsingScenarioSource != 0;
+}
+
+bool bgUsesScenarioMeshHits(void)
+{
+	return g_BgUsingScenarioSource && g_WorldMesh.ready && g_WorldMesh.numtris > 0;
+}
+
+bool bgTestHitScenarioMesh(struct coord *frompos, struct coord *topos, bool shot,
+		struct hitthing *hitthing, RoomNum *outroom)
+{
+	struct coord normal = {0.0f, 0.0f, 0.0f};
+	struct coord dir;
+	s32 tri = -1;
+	u16 mask = 0;
+	f32 frac;
+
+	if (outroom) {
+		*outroom = -1;
+	}
+
+	if (!bgUsesScenarioMeshHits() || !frompos || !topos || !hitthing) {
+		return false;
+	}
+
+	/* Shots stop at surfaces that block shooting, as the AI's own line of
+	 * fire does, so they pass movement-only clip walls the way native shots
+	 * passed collision that was never drawn. A mesh without authored flags
+	 * only knows floor/wall/ceiling, so everything counts there. */
+	if (shot && meshWorldHasShotFlags()) {
+		mask = GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_BLOCK_SHOOT;
+	}
+
+	frac = meshRayCastWorldMasked(frompos, topos, mask, &normal, &tri);
+
+	if (tri < 0 || !(frac < 1.0f)) {
+		return false;
+	}
+
+	dir.x = topos->x - frompos->x;
+	dir.y = topos->y - frompos->y;
+	dir.z = topos->z - frompos->z;
+
+	/* The mesh test is two-sided; face the normal back along the ray like
+	 * the native hit normal. */
+	if (normal.x * dir.x + normal.y * dir.y + normal.z * dir.z > 0.0f) {
+		normal.x = -normal.x;
+		normal.y = -normal.y;
+		normal.z = -normal.z;
+	}
+
+	memset(hitthing, 0, sizeof(*hitthing));
+	hitthing->pos.x = frompos->x + dir.x * frac;
+	hitthing->pos.y = frompos->y + dir.y * frac;
+	hitthing->pos.z = frompos->z + dir.z * frac;
+	hitthing->unk0c = normal;
+	/* No render texture: default surface (texGetDefinition(-1) is the empty
+	 * definition), opaque. */
+	hitthing->texturenum = -1;
+
+	if (outroom) {
+		RoomNum room = g_WorldMesh.tris[tri].roomnum;
+
+		if (room > 0 && room < g_Vars.roomcount) {
+			*outroom = room;
+		}
+	}
+
+	return true;
+}
+
 bool bgRoomContainsCoord(struct coord *pos, RoomNum roomnum)
 {
 	struct coord copy;
@@ -6619,11 +6730,15 @@ void bgTickPortals(void)
 		if (!g_BgRoomTestsDisabled) {
 			if (g_BgPortals[0].verticesoffset == 0) {
 				for (room = 1; room < g_Vars.roomcount; room++) {
+					// A sky room is left out of the screen test. A stage built
+					// from scenario source names its sky rooms in rooms.json;
+					// the stage checks stay for a stage built from the ROM.
 					if (bgRoomIntersectsScreenBox(room, &box)
-							&& ((g_StageIndex != STAGEINDEX_INFILTRATION && g_StageIndex != STAGEINDEX_RESCUE && g_StageIndex != STAGEINDEX_ESCAPE) || room != 0xf)
-							&& (g_StageIndex != STAGEINDEX_SKEDARRUINS || room != 0x02)
-							&& ((g_StageIndex != STAGEINDEX_DEFECTION && g_StageIndex != STAGEINDEX_EXTRACTION) || room != 0x01)
-							&& (g_StageIndex != STAGEINDEX_ATTACKSHIP || room != 0x71)) {
+							&& (g_BgUsingScenarioSource ? !scenarioSourceRoomSky(room) :
+								(((g_StageIndex != STAGEINDEX_INFILTRATION && g_StageIndex != STAGEINDEX_RESCUE && g_StageIndex != STAGEINDEX_ESCAPE) || room != 0xf)
+								&& (g_StageIndex != STAGEINDEX_SKEDARRUINS || room != 0x02)
+								&& ((g_StageIndex != STAGEINDEX_DEFECTION && g_StageIndex != STAGEINDEX_EXTRACTION) || room != 0x01)
+								&& (g_StageIndex != STAGEINDEX_ATTACKSHIP || room != 0x71)))) {
 						bgSetRoomOnscreen(room, 0, &box);
 					}
 				}

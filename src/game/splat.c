@@ -278,7 +278,25 @@ bool splat0f149274(f32 arg0, struct prop *chrprop, struct shotdata *shotdata, f3
 	portal00018148(&chrprop->pos, &stackshotdata.gunpos3d, chrprop->rooms, gunrooms, NULL, 0);
 	portal00018148(&stackshotdata.gunpos3d, &endpos, gunrooms, endrooms, rooms, ARRAYCOUNT(rooms) - 1);
 
-	for (i = 0; rooms[i] != -1; i++) {
+	/* B-1189: scenario-source stages have no room vertex batches, so blood
+	 * never found a wall; ask the world collision mesh instead. */
+	if (bgUsesScenarioMeshHits()) {
+		RoomNum hitroom;
+
+		if (bgTestHitScenarioMesh(&stackshotdata.gunpos3d, &endpos, true, &hitthing, &hitroom)
+				&& (stackshotdata.gunpos3d.x != hitthing.pos.x || stackshotdata.gunpos3d.y != hitthing.pos.y || stackshotdata.gunpos3d.z != hitthing.pos.z)) {
+			bestroom = hitroom >= 0 ? hitroom : (rooms[0] >= 0 ? rooms[0] : chrprop->rooms[0]);
+			besthitthing = hitthing;
+
+			endpos.x = hitthing.pos.x;
+			endpos.y = hitthing.pos.y;
+			endpos.z = hitthing.pos.z;
+
+			hasresult = true;
+		}
+	}
+
+	for (i = 0; !bgUsesScenarioMeshHits() && rooms[i] != -1; i++) {
 		if (bgTestHitInRoom(&stackshotdata.gunpos3d, &endpos, rooms[i], &hitthing)
 				&& ((stackshotdata.gunpos3d.x <= endpos.x && hitthing.pos.x <= endpos.x && stackshotdata.gunpos3d.x <= hitthing.pos.x) || (endpos.x <= stackshotdata.gunpos3d.x && endpos.x <= hitthing.pos.x && hitthing.pos.x <= stackshotdata.gunpos3d.x))
 					&& ((stackshotdata.gunpos3d.y <= endpos.y && hitthing.pos.y <= endpos.y && stackshotdata.gunpos3d.y <= hitthing.pos.y) || (endpos.y <= stackshotdata.gunpos3d.y && endpos.y <= hitthing.pos.y && hitthing.pos.y <= stackshotdata.gunpos3d.y))

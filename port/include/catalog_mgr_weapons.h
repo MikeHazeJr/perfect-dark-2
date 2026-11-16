@@ -61,6 +61,14 @@ typedef enum {
  * ======================================================================== */
 struct weapon *catalogManagerGetWeaponByIndex(s32 weapon_id);
 
+/* B-1181: 1 when weapon_id names an installed definition a player may hold.
+ * An in-range slot can still be empty: a custom slot whose public adapter
+ * failed (or was cleared) stays zeroed, with no aim settings and no
+ * functions. Every installed definition (loader pool, public adapter, v2
+ * runtime) carries aim settings, so that is the test. Silent: callers decide
+ * how to report and what to fall back to. */
+s32 catalogManagerWeaponIsUsable(s32 weapon_id);
+
 /* String-id accessor. Boundary use only; not a hot path.
  * Resolves catalog_id via assetCatalogResolve, expects ASSET_WEAPON,
  * dereferences runtime_index back to the same weapon entry as

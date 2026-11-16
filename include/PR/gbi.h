@@ -1352,6 +1352,12 @@ typedef struct {
 #else
     int pad:24;
     int cmd:8;
+#ifdef PLATFORM_64BIT
+    /* B-1212: on 64-bit each Gwords word is 8 bytes, so w1 starts at byte 8.
+     * Without this the triangle read the zero upper half of w0 and every
+     * G_TRI1 index decoded as 0 (Gtri4 already pads the same way). */
+    unsigned char pad2[4];
+#endif
 #endif
 	Tri tri;
 } Gtri;

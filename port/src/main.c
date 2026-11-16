@@ -254,6 +254,11 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       without depending on random arena spawn visibility. The optional
  *       bounded duration defaults to three seconds. One-shot per boot.
  *
+ *   --debug-bots-hold-fire
+ *       Smoke-only: simulants never fire a shot (chrTickShoot); they still
+ *       move, aim and set off proximity mines. Target-dummy smokes use it
+ *       now that bots can fight with mod weapons (T-MODDING-008).
+ *
  *   --debug-mount-bike
  *       Post-setupCreateProps hook: walks g_Vars.activeprops on the
  *       first frame after stage load and mounts player 0 on the
@@ -869,6 +874,7 @@ extern bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
 extern bool chrRelocateToFloorWithCachedGround(struct chrdata *chr,
 		const struct coord *floorpos, f32 rootheight, RoomNum *rooms, f32 theta,
 		u16 floorcol, u8 floortype, RoomNum floorroom);
+extern bool g_DebugBotsHoldFire;
 extern f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms,
 		u16 *floorcol, u8 *floortype, u16 *floorflags, RoomNum *floorroom,
 		s32 *inlift, struct prop **lift);
@@ -3469,8 +3475,12 @@ s32 bootDebugForceFirstPersonPreRenderTick(void)
 		struct coord pos = g_Vars.currentplayer->cam_pos;
 		struct coord up = {0.0f, 1.0f, 0.0f};
 		if (g_Vars.currentplayer->prop) {
+			/* B-1186: the player's prop already sits at eye height (spawns
+			 * place it at ground + vv_eyeheight, player.c), so it is the
+			 * first-person camera position. Adding vv_eyeheight again put
+			 * the forced camera 159 units up, inside or above the ceiling,
+			 * and shots fired from it flew out of the world. */
 			pos = g_Vars.currentplayer->prop->pos;
-			pos.y += g_Vars.currentplayer->vv_eyeheight;
 		}
 		if (g_BootDebugForceFirstPersonCamOffset) {
 			pos.x += g_BootDebugForceFirstPersonCamOffsetVec.x;
@@ -4261,6 +4271,10 @@ int main(int argc, const char **argv)
 	g_BootDebugBotBody        = sysArgGetString("--debug-bot-body");
 	g_BootDebugBotHead        = sysArgGetString("--debug-bot-head");
 	g_BootDebugPlaceBotNearPlayer = sysArgCheck("--debug-place-bot-near-player") ? true : false;
+	if (sysArgCheck("--debug-bots-hold-fire")) {
+		g_DebugBotsHoldFire = true;
+		sysLogPrintf(LOG_NOTE, "BOOT: --debug-bots-hold-fire armed");
+	}
 	{
 		const char *holdsec = sysArgGetString(
 			"--debug-place-bot-near-player-hold-sec");

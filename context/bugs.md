@@ -1,5 +1,255 @@
 # Bug Tracker
 
+## 2026-11-15 B-1212 Every G_TRI1 triangle index read as 0 on 64-bit, so no triangle of a generated model could be hit (T-MODDING-008)
+
+Severity high (engine-wide on PC). `Gtri` in `include/PR/gbi.h` had no
+`PLATFORM_64BIT` padding. On 64-bit each `Gwords` word is 8 bytes, so w1
+starts at byte 8, but `Gtri.tri` sat at bytes 4..7, the zero upper half of w0:
+every `gdl->tri.tri.v[...]` read 0. `Gtri4` (PD's four-triangle command) was
+already padded (`pad2[4]`), so stock ROM models, which draw with G_TRI4, were
+fine. Generated models (the mod asset compiler emits `gSP1Triangle` only)
+lost every triangle in the readers that decode G_TRI1: `bgTestHitOnChr`
+(projectiles into characters, and single-player bullets, which use the
+precise test; multiplayer bullets use the cheap box test), the room hit tests,
+`meshWorldAddRenderedRoom`, the x-ray room renderer and `texLoadFromGdl`. The
+readers skip an all-zero triangle without a word, so it never showed in a log.
+Found by `crystal_pistol_bot_embed_smoke`: crystals passed within 12 units of
+an on-screen bot whose bounding boxes they hit, and the triangle test
+(`BONDGUN.PROJECTILE.CHRWALK`: generated body, owned display lists, vertices
+present) found nothing. Fix: the same 4-byte pad before `Tri tri` on 64-bit
+little-endian; a unit test decodes `gSP1Triangle` and G_TRI4 words through
+the union. Pattern: SP-83.
+
+## 2026-11-15 B-1211 Bots never used mod weapons: public weapons had zeroed bot preferences (T-MODDING-008)
+
+Severity high (every `.pdweapon` weapon in a match with simulants). The public
+weapon adapter (`loaderPoolInstallPublicWeaponAdapter`, `port/src/loader_pool.c`)
+zeroed the weapon's `aibotweaponpreference` apart from the reload delay.
+`botinvTick` only considers a function whose `haspriammogoal`/`hassecammogoal`
+bit is set, so a bot spawned with a mod weapon (the spawn weapon arms bots too)
+switched to unarmed at once: bots never fired the crystal pistol or the
+Needler. The last report's "bots throw single mines" was read from code, never
+seen. Fix: `s_publicWeaponBotPrefsBuild` derives defaults until the format
+carries bot preferences (CORE): each executable function usable, scored like
+a mid pistol, attack range by function kind (a committed charge at explosive
+range), no ammo goals for a self-loading magazine, reload delay = the full
+regrow. Two follow-on gaps fixed with it (`botact.c`, `botinv.c`): a
+self-loading magazine counted as empty once fired, so the bot would drop the
+gun until it regrew, and a switch between two functions that share one
+self-loading magazine refilled it from nothing (the native switch returns the
+rounds to a reserve and reloads). Bots now report such a magazine as always
+full, and keep its rounds across the switch. Two more found reading the bot
+fire path (`bot.c`, `botact.c`): a mod weapon's shot has no recoil animation,
+so `botactGetShootInterval60` gave 0 and a bot would fire every frame (all six
+crystals in a tenth of a second); it now uses the function's recovery time,
+else 15 ticks. And a bot fires a "regular" weapon only with rounds loaded, so a
+mod function with no magazine (the Needler's, which fires without ammo per
+B-1151) would never fire; `botactFiresWithoutAmmo` lets it. Pattern: SP-37.
+
+## 2026-11-15 B-1210 The world mesh grid drops triangles past its 128-cell cap (T-MODDING-008, found, not fixed)
+
+Severity low today (only stages wider than 32768 units on an axis). Found by
+the B-1189 unit test. `meshWorldFinalize` (`src/lib/meshcollision.c`) caps the
+grid at `MESHGRID_MAX_DIM` (128) cells of 256 units per axis and clamps each
+triangle's cell range with `if (cx1 >= cellsx) cx1 = cellsx - 1` but leaves
+`cx0`/`cz0` unclamped, so a triangle wholly past the cap gets `cx0 > cx1` and
+is listed in no cell. Grid queries (`meshFindFloor`, `meshFindCeiling`, the new
+`meshGridRayCast`) cannot see it; `meshFindFloor` also skips lookups past the
+cap. `meshGridRayCast` falls back to testing every triangle on a capped grid.
+Proper fix for CORE: size cells to the stage (or clamp both ends and the
+lookups), then drop that fallback.
+
+## 2026-11-15 B-1189 Shots, splats and spawn checks ignored walls on scenario-source stages (T-MODDING-008)
+
+Severity high (every multiplayer arena; Mike asked for it to be fixed). The
+B-1187 pattern in the other `bgTestHitInRoom` callers: on a scenario-source
+stage no room has vertex batches, so the player's hitscan never registered a
+background hit. In MULTIPLAYER's smoke logs every player shot is
+`COMBAT: SHOT_RESULT MISS` (16 of 16, 28 of 28), never `HIT_BG`: shots went
+through walls and floors (no wall hits or sparks; props behind walls could be
+hit). The same gap left blood splats without walls, made every spawn-pool
+candidate look open (its clearance rays never hit), and the `gfxdata` guard in
+`explosions.c` skipped every scorch mark. Fix: `bgTestHitScenarioMesh`
+(`bg.c`) answers from the world collision mesh through a new grid-walked,
+flag-masked ray cast (`src/lib/meshraygrid.c`, `meshRayCastWorldMasked`).
+Shots, splats and sticky projectiles stop at floors and `BLOCK_SHOOT`
+surfaces, so they pass movement-only clip walls (50 on Felicity, 82 on
+Complex) as native render-geometry hits did; spawn clearance uses every
+surface. The Farsight's x-ray mode still skips the whole background test and
+shoots through walls. Callers: `shotCalculateHits`, `shotTestLos` (`prop.c`),
+`splat.c`, `spawnpool.c` (2), the sticky test in `propobj.c`; scorch marks are
+allowed without `gfxdata`. Hits carry texture -1 (default surface sound,
+sparks and bullet holes).
+
+## 2026-11-15 B-1188 Spent mod rounds lying on the floor were collected as the whole weapon (T-MODDING-008)
+
+Severity medium (mod weapons with a self-loading magazine). Found by
+`crystal_pistol_mine_bot_smoke`: crystal mines that came to rest next to a
+bot vanished without arming (`freed ... landed=0 timer240=-1`). Bots and
+players pick up any weapon object unless it carries
+`OBJFLAG_UNCOLLECTABLE` (`bot.c` pickup filter, `objTestForPickup`). Native
+mines are protected by a weapon-number rule (`timer240 >= 0`); custom weapons
+only by a sticky-device entity's `sticky_pickup_policy none`. So a resting
+crystal or crystal mine was collected as the crystal pistol plus ammo, by a
+bot passing by and by its owner, whom the owner's own mines ignore. Fix:
+`weaponCreateProjectileFromGset` marks projectiles of a mod function whose
+ammo slot is self-loading (`bgunModGsetFiresSpentRounds`) uncollectable:
+they are spent rounds with no reserve to refill. Open for MODS/CORE: custom
+deployables with a reserve (a mod mine weapon) still have no "not while
+deployed" pickup rule like the native mine list.
+
+## 2026-11-15 B-1187 Sticky projectiles fell through floors on scenario-source stages (T-MODDING-008)
+
+Severity high (every sticky projectile on every stage whose background comes
+from a scenario source, which includes the multiplayer arenas: mines, bolts,
+knives, laptop guns, mod crystals). Found by the crystal pistol smokes:
+crystals fired at Felicity's floor fell through it and left the world, and
+mines fired at the floor dropped through the bounce fallback instead of
+sticking. `func0f06cd00` (`propobj.c`) tests a sticky projectile's path with
+`bgTestHitInRoom` for loaded rooms and `cdExamLos09` for unloaded ones. On a
+scenario-source stage `bgLoadRoom` only marks a room loaded and never builds
+its vertex batches, so `bgTestHitInRoom` never hits, and `cdExamLos09` only
+checks walls (`GEOFLAG_WALL | BLOCK_SIGHT | BLOCK_SHOOT`). Net effect: sticky
+projectiles hit only walls of rooms that were off screen. Fix: on such a
+stage, with the world collision mesh built, the hit test ray-casts it
+(`meshRayCastWorld`; the stage's collision tiles are compiled from the same
+mesh) and faces the normal toward the projectile; ROM-background stages keep
+the native path. New `bgIsScenarioSource()`. Cost: one brute-force mesh ray
+per sticky projectile per tick (3785 triangles on Felicity); a grid walk
+would cut it if many projectiles fly at once.
+
+## 2026-11-15 B-1186 The forced first-person look put the camera 159 units too high (T-MODDING-008)
+
+Severity low (smoke tooling only; no shipped path uses it). Found when the
+crystal pistol smokes that use `--debug-force-first-person-look` fired
+crystals from 130 units above the camera: they started inside or above the
+ceiling, never touched the room geometry and flew out of the world
+(`freed ... at=(986,-18082,32319) landed=0`). `bootDebugForceFirstPersonPreRenderTick`
+(`port/src/main.c`) built the forced camera position as the player prop
+position plus `vv_eyeheight`, but the player's prop already sits at eye
+height (spawns place it at ground + `vv_eyeheight` in `player.c`), so the eye
+height was counted twice. Since shots, muzzle positions and the bot placement
+hook all derive from the forced camera, every gameplay check under a forced
+look ran from the wrong place. Fix: the prop position is the camera position.
+Only the crystal pistol smokes use the flag (it was added for screenshots in
+957ad3a2), so no other fixture moves.
+
+## 2026-11-15 B-1185 A held mod gun with six or more display lists overwrote the hand's data (T-MODDING-008)
+
+Severity high (silent memory corruption; latent until a mod gun has enough
+parts). Found reading the code before building the crystal pistol's part
+layout. The held gun model's per-node runtime data (rwdata) lives in
+`struct hand` `unk0a6c[32]` (`src/include/types.h`), and `modelInit` writes
+`rwdatalen` words into it without a check (`src/game/bondgun.c`, the
+`bgunTickMasterLoad` init loop). ROM guns fit because their GUNDL nodes cost
+no rwdata, but the mod mesh compiler emits DL nodes (type 24), which cost 6
+words each on x64 (three pointers), plus 1 per toggle. A mod gun with six or
+more display lists overran into `handsavedata` and then `handmodel`. Related:
+`bgunSetPartVisible` and the muzzle-flash collector wrote a toggle's word for
+any node under the part number, toggle or not.
+Fix on `week-pd/crystal-pistol`: a held model larger than `unk0a6c` gets a
+per-player, per-hand side buffer of 1024 words (`bgunHeldRwdataFor`); one larger
+than that is not drawn (logged `BONDGUN.MODEL: ... (B-1185)`). Toggle writes go
+through `hand->gunmodel.rwdatas` and only for TOGGLE nodes. The crystal pistol
+is laid out to fit the original 32 words (27: one DL per look, crystals bound to
+their seat matrices) and its smokes forbid the B-1185 log line.
+
+## 2026-11-15 B-1184 Sixteen input actions had no saved name, so the bindings file broke after the first launch (T-MODDING-008)
+
+Severity high (binding saves refused). Found by the input survey for the new
+gun roll actions. `s_ActionNames` (`port/src/actionmap.cpp`) stopped at action
+104, but actions 105-120 (menu skip, dev hotkeys, GPU swarm toggle, vehicle
+look, handbrake and use) were added later without names. Their pd.ini keys
+registered as `(null)` (`configLoad: malformed keyvalue line: (null)=E` in
+old logs), and writing the complete bindings file stopped at the first unnamed
+row (a bare `gameplay.`), so the next launch refused the file and blocked every
+later binding save ("The current binding file is invalid").
+Fix: names for 105-120 (`MenuSkipUp` ... `VehicleUse`) and the new gun roll
+actions (121-122); the table is now unsized with a `static_assert` that it has
+exactly `ACTION_COUNT` names, so a new action without a name no longer builds.
+An existing file written by an affected build is still refused once (it really
+is truncated); loading a profile or deleting `input-bindings.ini` replaces it.
+
+## 2026-11-15 B-1183 Dying while holding a mod weapon crashed the game (T-MODDING-008)
+
+Severity high (crash in ordinary multiplayer). Found re-running the Needler
+viewmodel fixture with a wait for gameplay on the B-1180 client: the twelve bots
+killed the player at about 65 s, the held Needler was dropped as a physics
+object, and the client crashed in `projectileFall` (`src/game/propobj.c`, the
+`bbox->xmax` read after `objFindBboxRodata`; backtrace via addr2line). A
+modeldef built from an author source hierarchy (`model.nodes.json`) gets a
+bounding box only if the hierarchy lists one; the flat source path always adds
+one, extracted models list their own, and base weapons drop a separate world
+model that has one, but a mod weapon's single model is also its dropped and
+pickup object. Not caused by B-1180 to B-1182 (drop physics untouched).
+Fix on `week-pd/crystal-pistol`: `generatedModeldefEnsureHierarchyBounds`
+(`port/src/modasset_compiler.c`) links a bounding box from the mesh bounds under
+the root when a skeleton-less, non-character hierarchy has none. Extracted models
+(native skeletons) are untouched. Verified on the branch client (shared base 3,
+single process, `--portable`): the Needler fixture with twelve bots played 52
+death screams in 30 s of combat and passed 21/21 with no crash; the same fixture
+on the client without this fix crashed after 15. Static pin `[b1183]`.
+
+## 2026-11-15 B-1180 A held mod gun drew without depth testing (T-MODDING-008)
+
+Severity high (every mod weapon's first-person model draws wrong). Found
+running the Tripo-built Maian crystal pistol model (test mod
+`dev-mods/crystal_pistol`, OBJ + texture, render class 0) in game on shared
+base 3: the gun loaded and rendered, but far-side parts (the muzzle bezel,
+the barrel crystal, inner faces) showed through the body. With every material
+set to `pd_render_class = 3`, which makes the generated display list emit
+`G_RM_AA_ZB_OPA_SURF`, the same model drew clean and matched the expected
+180-degree pose. Cause: `bgunRender` (`src/game/bondgun.c`) set
+`renderdata.zbufferenabled = false` for any skeleton-less generated gun model
+(added in 957ad3a2 with no recorded reason). Generated display lists for
+author meshes set combine and geometry state but inherit the node's render mode,
+which `modelApplyRenderModeType1` makes non-z-buffered when that flag is off,
+so the whole gun drew in triangle order without depth. This is also why held
+mod models looked turned about 225 degrees (MODS stand-in runs): with no depth,
+near and far sides swap visually; the pose is the native 180 degrees.
+Fix on `week-pd/crystal-pistol`: the exception is removed; every held gun is
+drawn with the z-buffer. The static pin in
+`tests/test_mod_external_archive_static.cpp` now requires the exception's absence.
+Verified: the unmodified crystal pistol test mod passes
+`crystal_pistol_viewmodel_smoke` 28/28 and its captures show a clean, depth-correct
+gun pointing into the screen; the Needler still renders solid.
+
+## 2026-11-15 B-1181 A mod weapon whose activation failed was still equipped, and the game crashed (T-MODDING-008)
+
+Severity high (crash). Found with the crystal pistol test mod: its
+`function.empty` secondary made the public weapon adapter fail (B-1182), the
+manifest rolled the weapon back and cleared its custom slot (zeroed: no aim
+settings, no functions), but match setup kept the user-picked spawn weapon
+(`SETUP: user-picked spawn weapon ... preserved`), the player was given and
+equipped slot 86, and the first gun tick dereferenced the null aim settings in
+`bgunSwivelWithDamp` (`bondgun.c`, backtrace via addr2line). Nothing checked that
+a weapon id named an installed definition. Fix on `week-pd/crystal-pistol`: new
+`catalogManagerWeaponIsUsable` (`port/src/catalog_mgr_weapons.c`; every installed
+definition, from the loader pool, the public adapter or the v2 runtime, carries
+aim settings); `bgunEquipWeapon` equips unarmed instead of an unusable id (it is
+the funnel for every equip path), `invGiveSingleWeapon` and `invGiveDoubleWeapon`
+refuse it, and the spawn pick in `setup.c`, `player.c` and `bot.c` falls back to
+the weapon set instead of keeping it, each with a warning naming B-1181.
+Verified with a test-mod variant whose functions use `ammo_slot` 5: the adapter
+rejects it, setup logs `picked spawn weapon ... has no installed definition`,
+the player spawns with the Falcon 2 and the match runs to a clean exit.
+
+## 2026-11-15 B-1182 The mod weapon adapter rejected function.empty, which base weapons and conformance accept (T-MODDING-008)
+
+Severity medium (a valid archive fails to load; with B-1181 it crashed).
+`function.empty` is how every extracted base weapon writes a missing secondary
+(`function_type: none`, `source: empty_slot`), and
+`tools/asset_archive_conformance.py` accepts it, but
+`s_publicWeaponFunctionBuild` (`port/src/loader_pool.c`) treated the valid held
+function as an unsupported function type 0 and failed the whole adapter. Fix on
+`week-pd/crystal-pistol`: new inline `weaponGraphHeldFunctionIsExecutable`
+(`port/include/weapon_graph_runtime.h`) treats a function.empty slot as absent;
+the adapter installs a NULL native function for it, as base weapons have, and
+counts only executable functions. Behavioural test: a graph with a hitscan
+primary and a function.empty secondary compiles, registers, and only the primary
+is executable. Verified in game: a test-mod variant with a function.empty
+secondary installs (`PUBLIC_ADAPTER: installed ... funcs=1`) and renders.
+
 ## 2026-11-15 B-1126 Capture the Case, King of the Hill and Hold the Briefcase lose their arena positions on extracted arenas (T-NETWORKING-011)
 
 Severity high for Capture the Case (the mode cannot be played as designed),

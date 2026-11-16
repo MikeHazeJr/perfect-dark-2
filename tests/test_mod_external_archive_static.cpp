@@ -6084,11 +6084,11 @@ TEST_CASE("weapon graph MP agreement is protocol-versioned after cutover",
 	REQUIRE(net.find("weaponGraphRuntimeNetRestoreEnabled()") == std::string::npos);
 
 	const std::string netHeader = readFile("port/include/net/net.h");
-	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 61") != std::string::npos);
+	REQUIRE(netHeader.find("#define NET_PROTOCOL_VER 63") != std::string::npos);
 	REQUIRE(netHeader.find("v54/v55") != std::string::npos);
 
 	const std::string versions = readFile("tests/test_versions.cpp");
-	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 61") != std::string::npos);
+	REQUIRE(versions.find("g_TestExpectedNetProtocolVer  = 63") != std::string::npos);
 }
 
 TEST_CASE("bot-profile catalog identity reaches UI save wire manifest and runtime",
@@ -6262,7 +6262,9 @@ TEST_CASE("archive-backed typed weapon sources keep transport-root chain",
 	REQUIRE(bondgun.find("use_static_source_matrices = gunmodeldef != NULL") != std::string::npos);
 	REQUIRE(bondgun.find("gunmodeldef->skel == NULL") != std::string::npos);
 	REQUIRE(bondgun.find("modAssetCompilerModeldefIsGenerated(gunmodeldef)") != std::string::npos);
-	REQUIRE(bondgun.find("renderdata.zbufferenabled = false;") != std::string::npos);
+	/* B-1180: held generated guns keep the z-buffer like every other held gun. */
+	REQUIRE(bondgun.find("renderdata.zbufferenabled = false;") == std::string::npos);
+	REQUIRE(bondgun.find("renderdata.zbufferenabled = true;") != std::string::npos);
 	REQUIRE(bondgun.find("modelUpdateMatrices(&renderdata, &hand->gunmodel)") != std::string::npos);
 	REQUIRE(bondgun.find("modelSetMatricesWithAnim(&renderdata, &hand->gunmodel)") != std::string::npos);
 
@@ -6449,6 +6451,116 @@ TEST_CASE("public weapon activation hydrates and clears the loader-owned runtime
 	REQUIRE(manifest.find("\"functions\"") == std::string::npos);
 	REQUIRE(manifest.find("\"aimsettings\"") == std::string::npos);
 	REQUIRE(manifest.find("\"muzzlez\"") == std::string::npos);
+}
+
+TEST_CASE("function.empty is an absent held function, not an unsupported one",
+		"[modding][pdxxx][weapon_graph][runtime][held][b1182]") {
+	/* The shape every extracted base weapon uses for a missing secondary. */
+	const std::string graph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"mod_test:empty_secondary\",\n"
+		"  \"graph_id\": \"empty_secondary_v1\",\n"
+		"  \"nodes\": [\n"
+		"    {\n"
+		"      \"id\": \"primary_action\",\n"
+		"      \"kind\": \"fire.hitscan\",\n"
+		"      \"params\": { \"mode\": \"primary\", \"function_type\": \"shoot_single\", \"ammo_slot\": 0 }\n"
+		"    },\n"
+		"    {\n"
+		"      \"id\": \"secondary_action\",\n"
+		"      \"kind\": \"function.empty\",\n"
+		"      \"params\": { \"mode\": \"secondary\", \"function_type\": \"none\", \"source\": \"empty_slot\" }\n"
+		"    }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"primary_action\" },\n"
+		"    { \"name\": \"secondary\", \"node\": \"secondary_action\" }\n"
+		"  ]\n"
+		"}\n";
+
+	weapon_graph_ir_t ir;
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+		static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+
+	weaponGraphRuntimeClearAll();
+	weaponGraphRuntimeSetEnabled(1);
+	REQUIRE(weaponGraphRuntimeRegisterHeldIr(12, &ir, err, sizeof(err)) == 0);
+	const weapon_graph_held_function_t *primary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(12, 0);
+	const weapon_graph_held_function_t *secondary =
+		weaponGraphRuntimeGetHeldFunctionForGameplay(12, 1);
+	REQUIRE(primary != nullptr);
+	REQUIRE(secondary != nullptr);
+	REQUIRE(secondary->opcode == WEAPON_GRAPH_OP_FUNCTION_EMPTY);
+	REQUIRE(weaponGraphHeldFunctionIsExecutable(primary) == 1);
+	REQUIRE(weaponGraphHeldFunctionIsExecutable(secondary) == 0);
+	REQUIRE(weaponGraphHeldFunctionIsExecutable(nullptr) == 0);
+	weaponGraphRuntimeSetEnabled(0);
+	weaponGraphRuntimeClearAll();
+
+	/* The mod weapon adapter builds a NULL native function for the empty slot
+	 * instead of rejecting function_type 0 and rolling the weapon back. */
+	const std::string pool = readFile("port/src/loader_pool.c");
+	REQUIRE(pool.find("if (!weaponGraphHeldFunctionIsExecutable(held)) return 1;") !=
+		std::string::npos);
+	REQUIRE(pool.find("weapon.functions[1] = weaponGraphHeldFunctionIsExecutable(secondary) ?") !=
+		std::string::npos);
+	REQUIRE(pool.find("secondary && secondary->valid") == std::string::npos);
+}
+
+TEST_CASE("a weapon without an installed definition is never given, equipped or kept as the spawn pick",
+		"[modding][pdxxx][weapon][static][b1181]") {
+	const std::string router = readFile("port/src/catalog_mgr_weapons.c");
+	REQUIRE(router.find("s32 catalogManagerWeaponIsUsable(s32 weapon_id)") != std::string::npos);
+	REQUIRE(router.find("return weapon != NULL && weapon->aimsettings != NULL;") != std::string::npos);
+
+	const std::string bondgun = readFile("src/game/bondgun.c");
+	const size_t equip = bondgun.find("void bgunEquipWeapon(s32 weaponnum)");
+	const size_t guard = bondgun.find(
+		"if (weaponnum > WEAPON_UNARMED && !catalogManagerWeaponIsUsable(weaponnum)) {");
+	const size_t shortcircuit = bondgun.find(
+		"if (player->gunctrl.weaponnum == weaponnum && player->gunctrl.switchtoweaponnum == -1) {");
+	REQUIRE(equip != std::string::npos);
+	REQUIRE(guard != std::string::npos);
+	REQUIRE(shortcircuit != std::string::npos);
+	/* The guard runs before the hand can adopt or short-circuit on the id. */
+	REQUIRE(equip < guard);
+	REQUIRE(guard < shortcircuit);
+
+	const std::string inv = readFile("src/game/inv.c");
+	REQUIRE(inv.find("if (!invWeaponIsGivable(weaponnum)) {") != std::string::npos);
+	REQUIRE(inv.find("if (!invWeaponIsGivable(weapon1) || !invWeaponIsGivable(weapon2)) {") !=
+		std::string::npos);
+
+	const char *spawnSites[] = { "src/game/player.c", "src/game/bot.c", "src/game/setup.c" };
+	for (const char *path : spawnSites) {
+		INFO(path);
+		const std::string source = readFile(path);
+		REQUIRE(source.find("&& catalogManagerWeaponIsUsable((s32)g_MatchConfig.spawnWeaponNum)") !=
+			std::string::npos);
+	}
+}
+
+TEST_CASE("a skeleton-less source hierarchy always gets a bounding box node",
+		"[modding][pdxxx][mesh][static][b1183]") {
+	/* A mod weapon's only model is also its dropped object; object physics
+	 * (projectileFall) reads the box without a NULL check. */
+	const std::string compiler = readFile("port/src/modasset_compiler.c");
+	const size_t helper = compiler.find("static void generatedModeldefEnsureHierarchyBounds(");
+	REQUIRE(helper != std::string::npos);
+	REQUIRE(compiler.find("node_count <= 0 || skeleton != NULL", helper) != std::string::npos);
+	REQUIRE(compiler.find("root->type == MODELNODETYPE_CHRINFO", helper) != std::string::npos);
+	REQUIRE(compiler.find("generatedModeldefMeshBounds(mesh, &owner->bbox_rodata.bbox);", helper) !=
+		std::string::npos);
+	const size_t call = compiler.find(
+		"generatedModeldefEnsureHierarchyBounds(owner, hierarchy.row_count, skeleton, mesh);");
+	const size_t rwdata = compiler.find(
+		"owner->def.rwdatalen = modelCalculateRwDataIndexes(owner->def.rootnode);", call);
+	REQUIRE(call != std::string::npos);
+	REQUIRE(rwdata != std::string::npos);
 }
 
 TEST_CASE("public weapon source registration fails closed",
@@ -10907,5 +11019,355 @@ TEST_CASE("weapon animation command graphs cannot hijack character animnum routi
 	REQUIRE(scanner.find("assetCatalogAnimationCategoryUsesCharacterClip(e->category)") !=
 		std::string::npos);
 	REQUIRE(distrib.find("assetCatalogAnimationCategoryUsesCharacterClip(e->category)") !=
+		std::string::npos);
+}
+
+TEST_CASE("mod magazines are flat ammoN_* settings with checked values (crystal pistol)",
+		"[modding][pdxxx][weapon_graph][settings][crystal_pistol]") {
+	const std::string variables =
+		R"({"schema":"pd.weapon_variables.v1","base_damage":1.0,"pierce":0,"cam":"none"})";
+	auto registerSettings = [&](const std::string &settings, char *err, size_t cap) {
+		const std::string primary = kW5fPrimaryGraph;
+		const std::string secondary = kW5fSecondaryGraph;
+		const std::string shared = kW5fSharedContext;
+		return weaponGraphRuntimeRegisterWeaponSourceJson(70, "base:w5f_weapon",
+			primary.data(), static_cast<u32>(primary.size()),
+			secondary.data(), static_cast<u32>(secondary.size()),
+			shared.data(), static_cast<u32>(shared.size()),
+			settings.data(), static_cast<u32>(settings.size()),
+			variables.data(), static_cast<u32>(variables.size()),
+			nullptr, 0, err, cap);
+	};
+	char err[256] = {};
+
+	weaponGraphRuntimeClearAll();
+	const std::string good = R"({"schema":"pd.weapon_settings.v1","ammo0_clip":6,"ammo0_reload":"regrow",)"
+		R"("ammo0_reserve":"none","ammo0_regrow_ticks60":36,"ammo0_seat_part_base":110,)"
+		R"("ammo1_clip":20,"ammo1_reserve":"pistol","gun_roll_deg":90})";
+	REQUIRE(registerSettings(good, err, sizeof(err)) == 0);
+	const weapon_graph_weapon_settings_t *table = weaponGraphRuntimeGetWeaponSettings(70);
+	REQUIRE(table != nullptr);
+	REQUIRE(table->setting_count == 8);
+	weaponGraphRuntimeClearAll();
+
+	const char *suffix = nullptr;
+	REQUIRE(weaponGraphAmmoSettingSlot("ammo0_clip", &suffix) == 0);
+	REQUIRE(std::string(suffix) == "clip");
+	REQUIRE(weaponGraphAmmoSettingSlot("ammo1_regrow_ticks60", &suffix) == 1);
+	REQUIRE(weaponGraphAmmoSettingSlot("ammo2_clip", nullptr) == -1);
+	REQUIRE(weaponGraphAmmoSettingSlot("ammo0_belt", nullptr) == -1);
+	REQUIRE(weaponGraphAmmoSettingSlot("ammo_clip", nullptr) == -1);
+	REQUIRE(weaponGraphAmmoReserveType("none") == WEAPON_GRAPH_AMMO_SELFLOADING_TYPE);
+	REQUIRE(weaponGraphAmmoReserveType("pistol") == 0x01);
+	REQUIRE(weaponGraphAmmoReserveType("magnum") == 0x0a);
+	REQUIRE(weaponGraphAmmoReserveType("cloak") == -1);
+	REQUIRE(weaponGraphAmmoReserveType(nullptr) == -1);
+
+	const std::vector<std::pair<std::string, std::string>> bad = {
+		{ R"({"schema":"pd.weapon_settings.v1","ammo0_clip":0})", "1..255" },
+		{ R"({"schema":"pd.weapon_settings.v1","ammo0_clip":256})", "1..255" },
+		{ R"({"schema":"pd.weapon_settings.v1","ammo0_clip":"six"})", "1..255" },
+		{ R"({"schema":"pd.weapon_settings.v1","ammo0_clip":6,"ammo0_reload":"belt"})", "magazine or regrow" },
+		{ R"({"schema":"pd.weapon_settings.v1","ammo0_clip":6,"ammo0_reserve":"cloak"})", "native ammo type" },
+		{ R"({"schema":"pd.weapon_settings.v1","ammo0_clip":6,"ammo0_regrow_ticks60":0})", "1..32767" },
+		{ R"({"schema":"pd.weapon_settings.v1","ammo0_clip":6,"ammo0_regrow_sound_catalog_id":"nocolon"})", "catalog ID" },
+		{ R"({"schema":"pd.weapon_settings.v1","gun_roll_deg":200})", "0..180" },
+		{ R"({"schema":"pd.weapon_settings.v1","ammo3_clip":6})", "has no production consumer" },
+	};
+	for (const auto &c : bad) {
+		INFO(c.first);
+		err[0] = '\0';
+		REQUIRE(registerSettings(c.first, err, sizeof(err)) != 0);
+		REQUIRE(std::string(err).find(c.second) != std::string::npos);
+		weaponGraphRuntimeClearAll();
+	}
+
+	/* The adapter turns the keys into the native magazine; pin its rules. */
+	const std::string pool = readFile("port/src/loader_pool.c");
+	REQUIRE(pool.find("out_ammo->casingeject = (u32)CASING_NONE;") != std::string::npos);
+	REQUIRE(pool.find("out_ammo->reload_animation = NULL; /* mod weapons play no gun animations */") !=
+		std::string::npos);
+	REQUIRE(pool.find("out_ammo->flags = out_ext->selfloading ? AMMOFLAG_NORESERVE : 0;") !=
+		std::string::npos);
+	REQUIRE(pool.find("regrow needs ammo%d_reserve none") != std::string::npos);
+	REQUIRE(pool.find("it fires without ammo (B-1151)") != std::string::npos);
+
+	/* B-1211: a public weapon's bot preferences are derived, never left zeroed
+	 * (botinvTick skips a function whose ammo-goal bit is clear, so bots went
+	 * unarmed); a self-loading magazine has no ammo goals and its reload
+	 * delay is the full regrow. */
+	REQUIRE(pool.find("s_publicWeaponBotPrefsBuild(&s_BotPrefs[runtime_weapon_id], funcs, held,") !=
+		std::string::npos);
+	REQUIRE(pool.find("out->haspriammogoal = 1;") != std::string::npos);
+	REQUIRE(pool.find("out->hassecammogoal = 1;") != std::string::npos);
+	REQUIRE(pool.find("if (!ext->selfloading && clip > 0) {") != std::string::npos);
+	REQUIRE(pool.find("(clip * ext->regrow_ticks60 + 59) / 60") != std::string::npos);
+	REQUIRE(pool.find("memset(&s_BotPrefs[runtime_weapon_id], 0") == std::string::npos);
+	const std::string botact = readFile("src/game/botact.c");
+	REQUIRE(botact.find("if (aibot && botactIsSelfLoadingModFunction(weaponnum, funcnum)) {") !=
+		std::string::npos);
+	REQUIRE(botact.find("return bgunGetCapacityByAmmotype(botactGetAmmoTypeByFunction(weaponnum, funcnum));") !=
+		std::string::npos);
+	const std::string botinv = readFile("src/game/botinv.c");
+	REQUIRE(botinv.find("&& bgunModFunctionsShareSelfLoadingAmmo(weaponnum, aibot->gunfunc, funcnum);") !=
+		std::string::npos);
+	REQUIRE(botinv.find("if ((changingfunc || changinggun) && !keepmagazine) {") != std::string::npos);
+	REQUIRE(botinv.find("if (changingfunc && !changinggun && !keepmagazine) {") != std::string::npos);
+}
+
+TEST_CASE("crystal pistol charge fan spreads the rounds evenly over plus or minus launch_fan_deg",
+		"[modding][weapon_graph][runtime][crystal_pistol]") {
+	/* Six rounds at Mike's default of 15: -15, -9, -3, 3, 9, 15 degrees. */
+	const f32 six[] = { -15.0f, -9.0f, -3.0f, 3.0f, 9.0f, 15.0f };
+	for (s32 j = 0; j < 6; j++) {
+		INFO(j);
+		REQUIRE(weaponGraphChargeFanAngleDeg(j, 6, WEAPON_GRAPH_CHARGE_FAN_DEFAULT_DEG) == Approx(six[j]));
+	}
+	/* The ends are the authored half-angle whatever the count. */
+	REQUIRE(weaponGraphChargeFanAngleDeg(0, 2, 20.0f) == Approx(-20.0f));
+	REQUIRE(weaponGraphChargeFanAngleDeg(1, 2, 20.0f) == Approx(20.0f));
+	REQUIRE(weaponGraphChargeFanAngleDeg(2, 5, 20.0f) == Approx(0.0f));
+	/* One round goes straight along the aim; a zero fan sends all along it. */
+	REQUIRE(weaponGraphChargeFanAngleDeg(0, 1, 15.0f) == Approx(0.0f));
+	REQUIRE(weaponGraphChargeFanAngleDeg(4, 6, 0.0f) == Approx(0.0f));
+	/* Out of range rounds read as the aim, never past the fan. */
+	REQUIRE(weaponGraphChargeFanAngleDeg(-1, 6, 15.0f) == Approx(0.0f));
+	REQUIRE(weaponGraphChargeFanAngleDeg(6, 6, 15.0f) == Approx(0.0f));
+}
+
+TEST_CASE("crystal pistol charge, cluster and arm-on-land params reach the runtime records",
+		"[modding][pdxxx][weapon_graph][runtime][crystal_pistol]") {
+	const std::string weaponGraph =
+		"{\n"
+		"  \"schema\": \"pd.weapon_graph.v1\",\n"
+		"  \"asset_id\": \"mod_test:charge\",\n"
+		"  \"graph_id\": \"charge\",\n"
+		"  \"nodes\": [\n"
+		"    { \"id\": \"primary_action\", \"kind\": \"fire.hitscan\",\n"
+		"      \"params\": { \"mode\": \"primary\", \"function_type\": \"shoot_single\", \"ammo_slot\": 0 } },\n"
+		"    { \"id\": \"secondary_action\", \"kind\": \"fire.charge_release\",\n"
+		"      \"params\": { \"mode\": \"secondary\", \"function_type\": \"throw\", \"ammo_slot\": 0,\n"
+		"        \"charge_time_ticks60\": 90, \"launch_part_base\": 110, \"launch_aim_part_base\": 130,\n"
+		"        \"launch_speed\": 22.0, \"charge_hide_part\": 120, \"charge_show_part\": 121 } }\n"
+		"  ],\n"
+		"  \"edges\": [],\n"
+		"  \"exports\": [\n"
+		"    { \"name\": \"primary\", \"node\": \"primary_action\" },\n"
+		"    { \"name\": \"secondary\", \"node\": \"secondary_action\" }\n"
+		"  ]\n"
+		"}\n";
+	weapon_graph_ir_t ir;
+	char err[256] = {};
+	REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, weaponGraph.data(),
+		static_cast<u32>(weaponGraph.size()), &ir, err, sizeof(err)) == 0);
+	weaponGraphRuntimeClearAll();
+	weaponGraphRuntimeSetEnabled(1);
+	REQUIRE(weaponGraphRuntimeRegisterHeldIr(12, &ir, err, sizeof(err)) == 0);
+	const weapon_graph_held_function_t *primary = weaponGraphRuntimeGetHeldFunctionForGameplay(12, 0);
+	const weapon_graph_held_function_t *secondary = weaponGraphRuntimeGetHeldFunctionForGameplay(12, 1);
+	REQUIRE(primary != nullptr);
+	REQUIRE(secondary != nullptr);
+	REQUIRE(primary->has_charge == 0);
+	REQUIRE(secondary->has_charge == 1);
+	REQUIRE(secondary->charge_time_ticks60 == 90);
+	REQUIRE(secondary->launch_part_base == 110);
+	REQUIRE(secondary->launch_aim_part_base == 130);
+	REQUIRE(secondary->launch_speed == Approx(22.0f));
+	REQUIRE(secondary->charge_hide_part == 120);
+	REQUIRE(secondary->charge_show_part == 121);
+	REQUIRE(secondary->charge_sound == -1);
+	REQUIRE(primary->launch_part_base == -1);
+	/* Mike's pick (2026-11-15): the charged volley fans plus or minus 15
+	 * degrees along the spine unless the node sets launch_fan_deg. */
+	REQUIRE(WEAPON_GRAPH_CHARGE_FAN_DEFAULT_DEG == Approx(15.0f));
+	REQUIRE(secondary->launch_fan_deg == Approx(15.0f));
+	weaponGraphIrFree(&ir);
+
+	/* launch_fan_deg is a tunable node param: 0..90 reaches the record, any
+	 * other value is refused before a record is published (SP-76). */
+	const auto fanGraph = [](const std::string &fan) {
+		return std::string(
+			"{\n  \"schema\": \"pd.weapon_graph.v1\",\n  \"asset_id\": \"mod_test:fan\",\n"
+			"  \"graph_id\": \"fan\",\n  \"nodes\": [\n"
+			"    { \"id\": \"secondary_action\", \"kind\": \"fire.charge_release\",\n"
+			"      \"params\": { \"mode\": \"secondary\", \"function_type\": \"throw\", \"ammo_slot\": 0,\n"
+			"        \"charge_time_ticks60\": 90, \"launch_fan_deg\": ") + fan + " } }\n"
+			"  ],\n  \"edges\": [],\n"
+			"  \"exports\": [ { \"name\": \"secondary\", \"node\": \"secondary_action\" } ]\n}\n";
+	};
+	const struct { const char *value; f32 expected; } fanAccepted[] = {
+		{ "20.0", 20.0f }, { "0", 0.0f }, { "90", 90.0f }, { "7.5", 7.5f },
+	};
+	for (const auto &row : fanAccepted) {
+		const std::string graph = fanGraph(row.value);
+		INFO(graph);
+		REQUIRE(weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+			static_cast<u32>(graph.size()), &ir, err, sizeof(err)) == 0);
+		const s32 fanResult = weaponGraphRuntimeRegisterHeldIr(13, &ir, err, sizeof(err));
+		INFO(err);
+		REQUIRE(fanResult == 0);
+		const weapon_graph_held_function_t *fan = weaponGraphRuntimeGetHeldFunctionForGameplay(13, 1);
+		REQUIRE(fan != nullptr);
+		REQUIRE(fan->has_charge == 1);
+		REQUIRE(fan->launch_fan_deg == Approx(row.expected));
+		weaponGraphIrFree(&ir);
+	}
+	for (const char *value : { "-5", "120", "90.5", "\"wide\"" }) {
+		const std::string graph = fanGraph(value);
+		INFO(graph);
+		char fanErr[256] = {};
+		s32 result = weaponGraphCompileJson(ASSET_WEAPON, graph.data(),
+			static_cast<u32>(graph.size()), &ir, fanErr, sizeof(fanErr));
+		if (result == 0) {
+			result = weaponGraphRuntimeRegisterHeldIr(13, &ir, fanErr, sizeof(fanErr));
+			weaponGraphIrFree(&ir);
+		}
+		INFO(fanErr);
+		REQUIRE(result != 0);
+		REQUIRE(std::string(fanErr).find("launch_fan_deg must be a number from 0 to 90") != std::string::npos);
+	}
+
+	const std::string projectileGraph =
+		"{ \"schema\": \"pd.projectile_graph.v1\", \"asset_id\": \"mod_test:crystal\", \"graph_id\": \"p\",\n"
+		"  \"nodes\": [ { \"id\": \"motion\", \"kind\": \"projectile.motion\", \"params\": { \"motion_kind\": \"powered\", \"speed\": 40.0 } },\n"
+		"    { \"id\": \"stick\", \"kind\": \"projectile.sticky_attach\", \"params\": {\n"
+		"    \"allow_background\": true, \"cluster_count\": 3, \"cluster_radius\": 150.0 } } ],\n"
+		"  \"edges\": [], \"exports\": [ { \"name\": \"main\", \"node\": \"stick\" } ] }\n";
+	REQUIRE(weaponGraphCompileJson(ASSET_PROJECTILE, projectileGraph.data(),
+		static_cast<u32>(projectileGraph.size()), &ir, err, sizeof(err)) == 0);
+	const s32 projectileResult = weaponGraphRuntimeRegisterProjectileIr(&ir, err, sizeof(err));
+	INFO(err);
+	REQUIRE(projectileResult == 0);
+	const weapon_graph_projectile_runtime_t *projectile = weaponGraphRuntimeGetProjectile("mod_test:crystal");
+	REQUIRE(projectile != nullptr);
+	REQUIRE(projectile->has_sticky_attach == 1);
+	REQUIRE(projectile->cluster_count == 3);
+	REQUIRE(projectile->cluster_radius == Approx(150.0f));
+	weaponGraphIrFree(&ir);
+
+	const std::string entityGraph =
+		"{ \"schema\": \"pd.entity_graph.v1\", \"asset_id\": \"mod_test:mine\", \"graph_id\": \"e\",\n"
+		"  \"nodes\": [ { \"id\": \"proxy\", \"kind\": \"entity.proxy_trigger\", \"params\": {\n"
+		"    \"radius\": 200, \"arm_on\": \"land\" } } ],\n"
+		"  \"edges\": [], \"exports\": [ { \"name\": \"main\", \"node\": \"proxy\" } ] }\n";
+	REQUIRE(weaponGraphCompileJson(ASSET_ENTITY, entityGraph.data(),
+		static_cast<u32>(entityGraph.size()), &ir, err, sizeof(err)) == 0);
+	const s32 entityResult = weaponGraphRuntimeRegisterEntityIr(&ir, err, sizeof(err));
+	INFO(err);
+	REQUIRE(entityResult == 0);
+	const weapon_graph_entity_runtime_t *entity = weaponGraphRuntimeGetEntity("mod_test:mine");
+	REQUIRE(entity != nullptr);
+	REQUIRE(entity->has_proxy_trigger == 1);
+	REQUIRE(entity->proxy_arm_on_land == 1);
+	REQUIRE(entity->proxy_radius == Approx(200.0f));
+	weaponGraphIrFree(&ir);
+
+	/* SP-76 (CORE ask, 2026-11-15): an authored rule that cannot work is
+	 * refused when the graph registers, not read as "no rule". */
+	const struct { asset_type_e type; const char *params; const char *kind; const char *error; } refused[] = {
+		{ ASSET_PROJECTILE, "\"cluster_count\": 1, \"cluster_radius\": 150.0", "projectile.sticky_attach",
+			"cluster_count of 2 or more" },
+		{ ASSET_PROJECTILE, "\"cluster_count\": 3, \"cluster_radius\": 0", "projectile.sticky_attach",
+			"cluster_radius above 0" },
+		{ ASSET_PROJECTILE, "\"cluster_count\": 3", "projectile.sticky_attach", "cluster_radius above 0" },
+		{ ASSET_PROJECTILE, "\"cluster_radius\": 150.0", "projectile.sticky_attach",
+			"cluster_count of 2 or more" },
+		{ ASSET_PROJECTILE, "\"cluster_count\": \"three\", \"cluster_radius\": 150.0", "projectile.sticky_attach",
+			"cluster_count of 2 or more" },
+		{ ASSET_ENTITY, "\"radius\": 200, \"arm_on\": \"landing\"", "entity.proxy_trigger", "unsupported arm_on" },
+	};
+	for (const auto &row : refused) {
+		const bool projectileRow = row.type == ASSET_PROJECTILE;
+		const std::string graph = std::string("{ \"schema\": \"") +
+			(projectileRow ? "pd.projectile_graph.v1" : "pd.entity_graph.v1") +
+			"\", \"asset_id\": \"mod_test:refused\", \"graph_id\": \"r\",\n  \"nodes\": [ " +
+			(projectileRow ? "{ \"id\": \"motion\", \"kind\": \"projectile.motion\", \"params\": "
+				"{ \"motion_kind\": \"powered\", \"speed\": 40.0 } }, " : "") +
+			"{ \"id\": \"n\", \"kind\": \"" + row.kind + "\", \"params\": { " + row.params + " } } ],\n"
+			"  \"edges\": [], \"exports\": [ { \"name\": \"main\", \"node\": \"n\" } ] }\n";
+		INFO(graph);
+		char refusedErr[256] = {};
+		/* Refused at compile (policy values) or at registration (rules
+		 * that need the node's numbers); either way before any record. */
+		s32 result = weaponGraphCompileJson(row.type, graph.data(), static_cast<u32>(graph.size()), &ir,
+			refusedErr, sizeof(refusedErr));
+		if (result == 0) {
+			result = projectileRow
+				? weaponGraphRuntimeRegisterProjectileIr(&ir, refusedErr, sizeof(refusedErr))
+				: weaponGraphRuntimeRegisterEntityIr(&ir, refusedErr, sizeof(refusedErr));
+			weaponGraphIrFree(&ir);
+		}
+		INFO(refusedErr);
+		REQUIRE(result != 0);
+		REQUIRE(std::string(refusedErr).find(row.error) != std::string::npos);
+	}
+	weaponGraphRuntimeSetEnabled(0);
+	weaponGraphRuntimeClearAll();
+
+	/* Where the game consumes them (src/game/bondgun_mod.c and its hooks). */
+	const std::string mod = readFile("src/game/bondgun_mod.c");
+	const std::string bondgun = readFile("src/game/bondgun.c");
+	const std::string propobj = readFile("src/game/propobj.c");
+	const std::string lv = readFile("src/game/lv.c");
+	REQUIRE(mod.find("bool bgunModTickIncAttackCharge(") != std::string::npos);
+	REQUIRE(mod.find("void bgunModChargeTick(void)") != std::string::npos);
+	/* Every launch path (the player's, with or without sockets, and a bot's)
+	 * fans by the function's launch_fan_deg; no fixed spacing is left. */
+	{
+		const std::string call = "weaponGraphChargeFanAngleDeg(j, charge->count, held->launch_fan_deg)";
+		size_t calls = 0;
+		for (size_t at = mod.find(call); at != std::string::npos; at = mod.find(call, at + 1)) {
+			calls++;
+		}
+		REQUIRE(calls == 2);
+		REQUIRE(mod.find("(6.0f * M_PI / 180.0f)") == std::string::npos);
+		REQUIRE(mod.find("(5.0f * M_PI / 180.0f)") == std::string::npos);
+	}
+	REQUIRE(mod.find("void bgunModProjectileLanded(struct weaponobj *weapon)") != std::string::npos);
+	REQUIRE(bondgun.find("finished = bgunModTickIncAttackCharge(info, handnum, hand, graph);") !=
+		std::string::npos);
+	REQUIRE(lv.find("bgunModChargeTick();") != std::string::npos);
+	REQUIRE(propobj.find("bgunModProjectileLanded((struct weaponobj *) obj);") != std::string::npos);
+	REQUIRE(propobj.find("bgunModProjectileForget(weapon);") != std::string::npos);
+	/* MODS ask 6: bots, NPCs and players meet a mod mine's own radius and
+	 * filters in the native proxy sweep; passing objects do not set it off. */
+	REQUIRE(propobj.find("coordTriggerProxiesFor(chr, &pos, true);") != std::string::npos);
+	REQUIRE(propobj.find("s32 decision = bgunModProxyDecision(weapon, chr, pos);") != std::string::npos);
+	REQUIRE(mod.find("return entity->proxy_target_filter_mode == 1 ? 0 : -1;") != std::string::npos);
+	/* B-1187: on a scenario-source stage the sticky hit test ray-casts the
+	 * world collision mesh (rooms there have no vertex batches), so crystals
+	 * and mines stick to floors instead of falling through them. */
+	REQUIRE(propobj.find("usemesh = bgUsesScenarioMeshHits();") != std::string::npos);
+	REQUIRE(propobj.find("bgTestHitScenarioMesh(&prop->pos, &sp1c4, true, &hitthing, NULL)") != std::string::npos);
+	REQUIRE(propobj.find("for (i = 0; !usemesh && spcc[i] != -1; i++) {") != std::string::npos);
+	const std::string bg = readFile("src/game/bg.c");
+	REQUIRE(bg.find("bool bgIsScenarioSource(void)") != std::string::npos);
+	/* B-1189: the other background hit tests on such a stage: hitscan (the
+	 * Farsight's x-ray mode still skips the whole test and shoots through
+	 * walls), the hitscan line-of-sight test, blood splats, spawn clearance
+	 * (every surface) and explosion scorch marks. */
+	REQUIRE(bg.find("mask = GEOFLAG_FLOOR1 | GEOFLAG_FLOOR2 | GEOFLAG_BLOCK_SHOOT;") != std::string::npos);
+	const std::string prop = readFile("src/game/prop.c");
+	const size_t farsight = prop.find(
+		"if (shotdata.gset.weaponnum != WEAPON_FARSIGHT || g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {");
+	const size_t shotmesh = prop.find("bgTestHitScenarioMesh(&shotdata.gunpos3d, &hitpos, true, &sp664, &hitroom)");
+	REQUIRE(farsight != std::string::npos);
+	REQUIRE(shotmesh != std::string::npos);
+	REQUIRE(farsight < shotmesh);
+	REQUIRE(prop.find("for (i = 0; !usemesh && rooms[i] != -1; i++) {") != std::string::npos);
+	REQUIRE(prop.find("bgTestHitScenarioMesh(&shotdata.gunpos3d, endpos3d, true, &sp664, NULL)") != std::string::npos);
+	REQUIRE(readFile("src/game/splat.c").find(
+		"bgTestHitScenarioMesh(&stackshotdata.gunpos3d, &endpos, true, &hitthing, &hitroom)") != std::string::npos);
+	const std::string spawnpool = readFile("src/game/spawnpool.c");
+	REQUIRE(spawnpool.find("bgTestHitScenarioMesh((struct coord *)pos, &endpoint, false, &hit, NULL)\n\t\t\t: bgTestHitInRoom(") !=
+		std::string::npos);
+	REQUIRE(spawnpool.find("? bgTestHitScenarioMesh((struct coord *)pos, &endpoint, false, &hit, NULL)\n\t\t\t: bgTestHitInRoom((struct coord *)pos, &endpoint, room, &hit)) {") !=
+		std::string::npos);
+	REQUIRE(readFile("src/game/explosions.c").find("if (g_Rooms[exp->room].gfxdata || bgIsScenarioSource()) {") !=
+		std::string::npos);
+	/* Spent rounds from a self-loading magazine are never pickups (a bot
+	 * collected resting crystal mines as the whole weapon). */
+	REQUIRE(mod.find("bool bgunModGsetFiresSpentRounds(struct gset *gset)") != std::string::npos);
+	REQUIRE(propobj.find("if (bgunModGsetFiresSpentRounds(gset)) {\n\t\t\tweapon->base.flags |= OBJFLAG_UNCOLLECTABLE;") !=
 		std::string::npos);
 }

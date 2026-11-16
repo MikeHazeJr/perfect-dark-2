@@ -1,0 +1,123 @@
+{
+  "scenario_name": "crystal_pistol_bot_charge_smoke",
+  "description": "Crystal pistol (T-MODDING-008) in a simulant's hands. The spawn weapon arms the bot too; public weapons now carry default bot preferences, so the bot keeps the gun instead of going unarmed. It fires primary crystals and, with a full magazine and its target 450..1500 units away, takes the committed charge: every loaded crystal commits, then launches as a vertical fan of proximity mines at the target. The next charge waits for a primary magazine. The player stands still at a fixed spawn and look as the target; the bot starts 240 units in front (held 1 s), so its gun is in view while it fires and BONDGUN.MODEL3P shows the third-person gun losing spent crystals and its charge state. Whether the bot then fires a primary round depends on who survives its first volley, so this run does not require it (earlier runs logged BONDGUN.BOT: fired).",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "weapon",
+    "charge",
+    "bots",
+    "crystal_pistol",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "dev-mods/crystal_pistol/crystal_pistol.pdweapon",
+    "port/src/loader_pool.c",
+    "src/game/bondgun_mod.c",
+    "src/game/botinv.c",
+    "src/game/botact.c",
+    "src/game/chraction.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "current",
+  "remove_paths": [
+    "mods/crystal_pistol.pdmod",
+    "mods/crystal_pistol",
+    "mods/installed/crystal_pistol.pdmod",
+    "mods/installed/crystal_pistol"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": "dev-mods/crystal_pistol",
+      "dst": "mods/installed/crystal_pistol.pdmod"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-spawn-at",
+    "780,-663,27,27",
+    "--debug-force-first-person",
+    "--debug-force-first-person-look",
+    "0.8174,0,-0.5760",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "1",
+    "--debug-spawn-weapon",
+    "mod_crystal_pistol:crystal_pistol",
+    "--debug-place-bot-near-player",
+    "--debug-place-bot-near-player-hold-sec",
+    "1",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay. The player then stands still; the bot finds it and fights."
+    },
+    { "at_ms": 3000, "type": "screenshot", "path": "cp-bot-charge-early.bmp", "comment": "The bot in front, firing." },
+    { "at_ms": 20000, "type": "screenshot", "path": "cp-bot-charge-mid.bmp" },
+    { "at_ms": 60000, "type": "screenshot", "path": "cp-bot-charge-late.bmp" },
+    { "at_ms": 62000, "type": "exit", "comment": "A minute of play: long enough for the bot to reach mid range with a full magazine at least once." }
+  ],
+  "retain_artifacts": [
+    { "src": "cp-bot-charge-early.bmp" },
+    { "src": "cp-bot-charge-mid.bmp" },
+    { "src": "cp-bot-charge-late.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=crystal_pistol_bot_charge_smoke",
+      "LOADER\\.POOL\\.WEAPON\\.PUBLIC_ADAPTER: installed id=mod_crystal_pistol:crystal_pistol runtime=\\d+ model=\\d+ funcs=2",
+      "BONDGUN\\.BOT: choose weapon=\\d+ bot=\\d+ loaded=6/6 target=\\d+ dist=\\d+ charge=1",
+      "BONDGUN\\.MODEL3P: chrnum=\\d+ mpindex=[1-9]\\d* weapon=\\d+ loaded=6/6 charging=1",
+      "BONDGUN\\.MODEL3P: chrnum=\\d+ mpindex=[1-9]\\d* weapon=\\d+ loaded=[0-5]/6",
+      "BONDGUN\\.CHARGE: start weapon=\\d+ bot=\\d+ func=1 count=6 release_in=90",
+      "BONDGUN\\.CHARGE: fan weapon=\\d+ vertical=1\\.00 roll=0 spread=30 bot=\\d+",
+      "BONDGUN\\.CHARGE: released weapon=\\d+ bot=\\d+ count=6 launched=6",
+      "BONDGUN\\.CRYSTAL: mine armed weapon=\\d+ func=1 owner=\\d+",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.FALLBACK",
+      "result=FAIL",
+      "BONDGUN\\.MODEL: .*B-1185",
+      "skipped=no_owner",
+      "BONDGUN\\.BOT: fired weapon=\\d+ func=1",
+      "'mod_crystal_pistol:crystal_pistol' public weapon adapter install failed",
+      "'mod_crystal_pistol:crystal_pistol' activation failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "SMOKE\\.GLSHOT: captured",
+        "min": 2
+      }
+    ]
+  }
+}

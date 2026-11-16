@@ -1,0 +1,134 @@
+{
+  "scenario_name": "crystal_pistol_cluster_smoke",
+  "description": "Crystal pistol (T-MODDING-008): primary crystals stick to the floor where they land (B-1187: they used to fall through floors on scenario-source stages), and three landed crystals from the same owner within the cluster radius detonate together. A fixed spawn and a forced look 33.5 degrees down put the crystals on open floor about 2.5 m ahead; three crystals form a cluster, then three more.",
+  "tags": [
+    "modding",
+    "pdxxx",
+    "weapon",
+    "projectile",
+    "crystal_pistol",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "dev-mods/crystal_pistol/crystal_pistol.pdweapon",
+    "src/game/bondgun_mod.c",
+    "src/game/propobj.c",
+    "port/src/weapon_graph_runtime.c"
+  ],
+  "log_channel_mask": "game,catalog,render,match,mods,system",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "remove_paths": [
+    "mods/crystal_pistol.pdmod",
+    "mods/crystal_pistol",
+    "mods/installed/crystal_pistol.pdmod",
+    "mods/installed/crystal_pistol"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/needler_visual_pd.ini",
+      "dst": "pd.ini"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": "dev-mods/crystal_pistol",
+      "dst": "mods/installed/crystal_pistol.pdmod"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-force-first-person",
+    "--debug-spawn-at",
+    "780,-663,27,27",
+    "--debug-force-first-person-look",
+    "0.6816,-0.5519,-0.4803",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-spawn-weapon",
+    "mod_crystal_pistol:crystal_pistol",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay with the pistol as the spawn weapon."
+    },
+    { "at_ms": 1000, "type": "screenshot", "path": "cp-cluster-start.bmp", "comment": "The session's first capture can stall the game for about a second; take it before the shots." },
+    { "at_ms": 4000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "The forced first-person look points 33.5 degrees down, so crystals land on the floor about 2.5 m ahead. The first crystal spawn stalls the game about a second, so the next shot waits 2 s." },
+    { "at_ms": 4100, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 6000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 6100, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 6400, "type": "screenshot", "path": "cp-cluster-two-landed.bmp", "comment": "Two crystals stuck in the floor." },
+    { "at_ms": 6500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "The third crystal completes the cluster." },
+    { "at_ms": 6600, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 6800, "type": "screenshot", "path": "cp-cluster-detonation.bmp" },
+    { "at_ms": 8000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press", "comment": "A second cluster at the same spot, after the first explosion has ended." },
+    { "at_ms": 8100, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 8500, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 8600, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 9000, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "press" },
+    { "at_ms": 9100, "type": "action", "name": "ACTION_FIRE_PRIMARY", "action": "release" },
+    { "at_ms": 9400, "type": "screenshot", "path": "cp-cluster-second.bmp" },
+    { "at_ms": 10500, "type": "exit" }
+  ],
+  "retain_artifacts": [
+    { "src": "cp-cluster-start.bmp" },
+    { "src": "cp-cluster-two-landed.bmp" },
+    { "src": "cp-cluster-detonation.bmp" },
+    { "src": "cp-cluster-second.bmp" }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=crystal_pistol_cluster_smoke",
+      "LOADER\\.POOL\\.WEAPON\\.PUBLIC_ADAPTER: installed id=mod_crystal_pistol:crystal_pistol runtime=\\d+ model=\\d+ funcs=2",
+      "BONDGUN\\.CRYSTAL: landed weapon=\\d+ func=0 owner=0 at=\\(-?\\d+,-7[56]\\d,-?\\d+\\) embedded=0 near=1/3",
+      "BONDGUN\\.CRYSTAL: landed weapon=\\d+ func=0 owner=0 at=\\(-?\\d+,-7[56]\\d,-?\\d+\\) embedded=0 near=2/3",
+      "BONDGUN\\.CRYSTAL: cluster detonated weapon=\\d+ func=0 owner=0 count=3 radius=150",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.FALLBACK",
+      "result=FAIL",
+      "BONDGUN\\.MODEL: .*B-1185",
+      "BONDGUN\\.CRYSTAL: landed registry full",
+      "'mod_crystal_pistol:crystal_pistol' public weapon adapter install failed",
+      "'mod_crystal_pistol:crystal_pistol' activation failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "BONDGUN\\.PROJECTILE: fired weapon=\\d+ func=0",
+        "min": 6
+      },
+      {
+        "pattern": "BONDGUN\\.CRYSTAL: cluster detonated weapon=\\d+ func=0 owner=0 count=3",
+        "min": 1
+      },
+      {
+        "pattern": "SMOKE\\.GLSHOT: captured",
+        "min": 4
+      }
+    ]
+  }
+}
