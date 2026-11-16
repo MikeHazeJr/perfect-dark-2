@@ -176,11 +176,16 @@ static s32 s_HtbNetHolder = -1;
 static s32 s_HtbNetPresent;
 static struct coord s_HtbNetPos;
 
+/* T-NETWORKING-011: the holder slot htbTick last logged (-1 on the ground,
+ * -2 not yet logged), so every match logs each pickup and drop */
+static s32 s_HtbLoggedHolder = -2;
+
 void htbReset(void)
 {
 	s32 i;
 
 	s_HtbNetHolder = -1;
+	s_HtbLoggedHolder = -2;
 	s_HtbNetPresent = false;
 	s_HtbNetPos.x = 0;
 	s_HtbNetPos.y = 0;
@@ -551,6 +556,19 @@ void htbTick(void)
 		pos->x = g_ScenarioData.htb.token->pos.x;
 		pos->y = g_ScenarioData.htb.token->pos.y;
 		pos->z = g_ScenarioData.htb.token->pos.z;
+	}
+
+	// PC (T-NETWORKING-011): log each pickup and drop, offline as well, so a
+	// match that ends without a point shows whether anyone held the briefcase
+	{
+		const s32 holder = htbHolderSlot(g_ScenarioData.htb.token);
+
+		if (holder != s_HtbLoggedHolder) {
+			sysLogPrintf(LOG_NOTE, "HTB: briefcase holder %d -> %d at %.1f s pos=(%.0f,%.0f,%.0f) netmode=%d",
+				s_HtbLoggedHolder, holder, g_Vars.lvframe60 / 60.0f,
+				g_ScenarioData.htb.pos.x, g_ScenarioData.htb.pos.y, g_ScenarioData.htb.pos.z, (s32)g_NetMode);
+			s_HtbLoggedHolder = holder;
+		}
 	}
 }
 

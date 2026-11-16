@@ -1067,6 +1067,32 @@ void scenarioCreateMatchStartHudmsgs(void)
 /**
  * Called on every frame during a match, including while paused.
  */
+/* PC (T-NETWORKING-011): the scenario points scenarioTick last logged per
+ * runtime chr slot. Points are not logged where the scenarios award them, so a
+ * match that ends without a score could not show whether anyone scored. */
+static s16 s_ScenarioLoggedPoints[MAX_MPCHRS];
+
+static void scenarioLogPointChanges(void)
+{
+	s32 i;
+
+	// A new stage starts its frame count again: every chr starts on 0
+	if (g_Vars.lvframenum <= 1) {
+		memset(s_ScenarioLoggedPoints, 0, sizeof(s_ScenarioLoggedPoints));
+	}
+
+	for (i = 0; i < g_MpNumChrs && i < MAX_MPCHRS; i++) {
+		const struct mpchrconfig *mpchr = g_MpAllChrConfigPtrs[i];
+
+		if (mpchr && mpchr->numpoints != s_ScenarioLoggedPoints[i]) {
+			sysLogPrintf(LOG_NOTE, "MATCH.POINTS: scenario=%d slot=%d %s points %d -> %d at %.1f s netmode=%d",
+				(s32)g_MpSetup.scenario, i, i < PLAYERCOUNT() ? "player" : "simulant",
+				(s32)s_ScenarioLoggedPoints[i], (s32)mpchr->numpoints, g_Vars.lvframe60 / 60.0f, (s32)g_NetMode);
+			s_ScenarioLoggedPoints[i] = mpchr->numpoints;
+		}
+	}
+}
+
 void scenarioTick(void)
 {
 	static s32 s_ScenarioTickFirstRun = 1;
@@ -1086,6 +1112,8 @@ void scenarioTick(void)
 		if (g_MpScenarios[scenario].tickfunc) {
 			g_MpScenarios[scenario].tickfunc();
 		}
+
+		scenarioLogPointChanges();
 	}
 }
 
