@@ -1,6 +1,6 @@
 # Bug Tracker
 
-## 2026-11-16 B-1271 Networked Hacker Central: a simulant holding the uplink stands by the terminal and never downloads (T-NETWORKING-011, open, diagnostic added)
+## 2026-11-16 B-1271 Networked Hacker Central: a simulant holding the uplink stands by the terminal and never downloads (T-NETWORKING-011, open: cause found in the original's rule, fix waits for Mike)
 
 Severity high for networked Hacker Central: no simulant scores. Seen in `mp_hacker_central_net_smoke` on binary
 a669d118 (base 7, `results-20261116T173009Z.json`, 85/86, the only failure the score count): simulant 2 took the
@@ -15,6 +15,22 @@ host keeps the simulant from leaving `MA_AIBOTGOTOPROP` for `MA_AIBOTDOWNLOAD`; 
 Not found by reading. **Diagnostic (746d79a7):** while a simulant holds the uplink without downloading, `HTM:
 simulant player N holds the uplink, not downloading (<reason>) ... action= actiontype= inrange= target= weapon=
 netmode=` every 10 s. Next run: `mp_hacker_central_net_smoke`.
+
+**Cause (found by reading the code, 2026-11-16; the queued run's diagnostic will confirm it):** the original's
+download rule can deadlock a simulant, and B-1207 removed what used to break it. Within 250 units (and 200 up or
+down) of the terminal, `htmTickChr` counts the simulant in range (`playernuminrange`), so its next decision is
+`MA_AIBOTDOWNLOAD`: it stands (`chrStand`) and `botinvTick` unarms it (in that action it skips weapon scoring and
+switches to `WEAPON_UNARMED`). A download then starts only if it faces the terminal within 45 degrees, and the only
+code that turns it toward the terminal (`botTick`'s target angle, `MA_AIBOTDOWNLOAD && htm.dlterminalnum != -1`)
+needs a download already running: `htmTickChr` starts one each frame and cancels it in the same call while the
+simulant faces away, so `dlterminalnum` is always -1 when the turn is decided. A simulant that reaches range facing
+away therefore stands there for good. Locally it walked in facing the terminal (in range at 100 degrees while still
+walking, 45 degrees when it stood: download started 0.3 s later); over the network it reached range walking away
+(171 degrees) and stood. Until B-1207 the port's stuck watchdog moved any simulant that stood 3 s in
+`MA_AIBOTDOWNLOAD`, which broke this deadlock and also cancelled every good download. **For Mike:** the fix changes
+the original's simulant behaviour: while in `MA_AIBOTDOWNLOAD` before its download starts, a simulant turns toward
+the terminal (at its normal turning speed, about 1 s for half a turn), so it starts instead of standing. Recommended;
+the alternative is to leave the original rule, with a simulant sometimes standing at the terminal forever.
 
 ## 2026-11-16 B-1270 A co-op client crashes when the host removes a chr whose rooms an NPC resync changed (T-NETWORKING-011, fixed in code, not yet run)
 
