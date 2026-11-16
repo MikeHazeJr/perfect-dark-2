@@ -67,6 +67,9 @@ REVIEWED = {
     "port/src/fs.c": {"routes": ["mkdir"], "sha256": "95a210fddb3711643c1ec36e0b219dc1cde9bcac74594f504dc353f1c1e7e53d"},
     "port/src/mapimport.c": {"routes": ["mkdir"], "sha256": "9ba4be3819040245f7fce7417a5b17af3676c025dd75f56b94c409f8a772c5bc"},
     "port/src/modpack_pdmod.c": {"routes": ["mkdir"], "sha256": "53b54543b5e40faf5e505ecf192e2061e103d8e58b176cd94b3143f9719b2220"},
+    # Reviewed for the user mods folder (T-MODDING-008): rootsMkdir's POSIX
+    # branch; the Windows branch calls the wrapped _mkdir.
+    "port/src/mods_roots.c": {"routes": ["mkdir"], "sha256": "79f51849db325f67de3e67f9cd3de9bc8b40cb177814dddba1ab611090c0aaed"},
     "port/src/net/net.c": {"routes": ["open"], "sha256": "606912ef8e745409b97153cd86303300b82fc4ec4847b09d93a80eea9e0a5fc4"},
     "port/src/pdca_extract_transaction.c": {"routes": ["mkdir"], "sha256": "ea7c9891ad5a20663da577577cc846a1fdd1f6e550e057821be09e45d956ffe8"},
     "port/src/romdata.c": {"routes": ["mkdir"], "sha256": "14ae26828e8f5b75c32415b870c2a0489ce57aef47f2f55d0bc4dffa86bffe37"},
