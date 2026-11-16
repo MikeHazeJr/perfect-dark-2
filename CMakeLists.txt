@@ -962,6 +962,9 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/port/src/ai_edge_shadow.c
   # AI lists as graphs: the two simulant commands' graph twins.
   ${CMAKE_SOURCE_DIR}/tests/test_ai_simulant_twins_static.cpp
+  # Typed AI operands, slice 1: the command schema.
+  ${CMAKE_SOURCE_DIR}/tests/test_ai_command_schema.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/ai_command_schema.c
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp

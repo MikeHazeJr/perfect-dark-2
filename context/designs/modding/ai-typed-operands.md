@@ -3,8 +3,9 @@
 Status: CORE, 2026-11-16. Design for the remaining target of the week note's
 "AI commands and cutscene triggers" row ("typed operands, parsed nodes,
 trigger-volume events"), under decision 1 (players can recreate any existing
-behavior with the nodes). Not built. The facts below come from a read-only
-survey of `week-pd/core` (0d2022b8) and the extracted base 7 data.
+behavior with the nodes). Slice 1 built (see "Slice 1 as built"); slices 2-4
+not built. The facts below come from a read-only survey of `week-pd/core`
+(0d2022b8) and the extracted base 7 data.
 
 ## Where it stands
 
@@ -80,6 +81,45 @@ AI editing and hand-written lists need named, typed parameters.
    `volumes.json` rows, delivered by the level graph runtime, so a list (or
    a module) can react without polling `if_chr_in_room`. Its own design; the
    base game keeps polling, which the AI lists already express.
+
+## Slice 1 as built
+
+- `port/include/ai_command_schema.h` and `port/src/ai_command_schema.c`
+  (pure, in the client and pd-tests): 441 commands, one per handler of
+  `g_CommandPointers` (0x01b4 is the NTSC 1.0 side of its `#if`), 819
+  fields; lookups by opcode and field name, kind names, and big-endian
+  field reads and writes with range checks. Widths are 1 to 4 bytes (the
+  timer comparisons hold a 24-bit tick count). Kinds as proposed, plus
+  `portal` (`set_portal_flag`, an index into the stage's portals).
+- How it was made: a generator read each handler's decoding (locals built
+  from `cmd[]` bytes, bytes passed to `chrFindById`, `objFindByTagId` and
+  `chraiGoToLabel`, bytes passed to the twin and the twin's parameter
+  names), then two reviewers went through every handler by hand (struct
+  overlays such as `try_damage`'s `gset` split into its members, `bytelist`
+  reads, 24-bit values, signedness from the casts; 292 of the 441 entries
+  changed from the draft). Every base row decodes and re-encodes to its
+  bytes (73,603 rows).
+- Choices worth knowing: a byte no handler reads is kind `unused`; six
+  such fields hold nonzero bytes in 20 base rows (`set_team_orders`,
+  `if_orders`, `recover_gun`, `release_object`, `clear_inventory`,
+  `if_music_event_queue_is_empty`: mostly a chr id the PC handler ignores),
+  so slice 2 writes an unused field into `args` only when it is not zero,
+  which keeps those rows byte-exact while authors see only what acts. Two
+  fields have two meanings: `chr_move_to_pad`'s pad (its low byte is a chr
+  when the mode is 88) and `play_sound_from_entity`'s `entity` (a chr or an
+  object tag by `entity_is_chr`, so kind `number`, as are the `entity`
+  fields of the `try_attack_*` family). Sound ids are signed, as the
+  handlers read them (bit 15 is a flag). `play_sound_from_prop` reads
+  `cmd[10]` twice, so its byte 9 is unused (the handler's own quirk, kept).
+- Checks: pd-tests `tests/test_ai_command_schema.cpp` (every handler has
+  its command and length; the fields cover every operand byte once; every
+  byte a handler reads is a used field, and the bytes passed to the label,
+  chr and object lookups are fields of that kind, with the two dual-use
+  fields as named exceptions; field reads and writes; the conformance copy
+  equals the table). Conformance (`AI_COMMAND_SCHEMA`,
+  `ai_row_operand_error`) checks every AI row of a scenario and of a
+  `.pdai` bank: a known opcode, its name, its operand count, and print's
+  single NUL. No data change.
 
 ## Not in scope
 
