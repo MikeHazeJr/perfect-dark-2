@@ -110,7 +110,7 @@ Landed on `week-pd/crystal-pistol` (6e43ca22 and later) and merged into dev on 2
 
 | Piece | Code | Proven in game |
 |---|---|---|
-| Mod magazine, self-loading ammo, HUD clip gauge | `loader_pool.c` adapter, `bondgun.c` hooks | `crystal_pistol_ammo_smoke` 31/31 (again on fa85ec7d's client) |
+| Mod magazine, self-loading ammo, HUD clip gauge | `loader_pool.c` adapter, `bondgun.c` hooks | `crystal_pistol_ammo_smoke` 31/31 (again on fa85ec7d's client, and on the dev merge build 361abab8) |
 | Regrow reload, interrupted by a shot | `bondgun_mod.c` `bgunModTickIncReloadRegrow` | same run |
 | Crystals leave their seats and regrow in place | `bgunModApplyHeldModel` (seat scaling) | same run, screenshots |
 | Three landed crystals detonate | `bgunModProjectileLanded`, `propobj.c` stick and rest hooks | walls: ammo 31/31; floor: `crystal_pistol_cluster_smoke` 19/19 (six crystals at y -763, two clusters; needed B-1187) |
