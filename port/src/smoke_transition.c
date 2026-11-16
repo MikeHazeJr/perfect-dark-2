@@ -93,10 +93,19 @@ smoke_transition_plan_t smokeTransitionTick(smoke_transition_state_t *state,
 	}
 	plan.stable_elapsed_ms = state->stable_elapsed_ms;
 
+	/* The harness ticks at the top of a frame, before the game reads input, so
+	 * a release decided here lands before that frame's production check. After
+	 * a stall the first tick past the hold can also be the first frame past a
+	 * production threshold (the 650 ms cutscene-skip hold): releasing there
+	 * meant no frame ever saw the threshold. Release one tick later instead. */
 	if (state->assist_state == SMOKE_TRANSITION_ASSIST_HELD
 			&& now_ms - state->assist_pressed_ms >= config->assist_hold_ms) {
-		state->assist_state = SMOKE_TRANSITION_ASSIST_RELEASED;
-		plan.release_assist = 1;
+		if (state->assist_hold_seen) {
+			state->assist_state = SMOKE_TRANSITION_ASSIST_RELEASED;
+			plan.release_assist = 1;
+		} else {
+			state->assist_hold_seen = 1;
+		}
 	}
 
 	if (state->assist_state == SMOKE_TRANSITION_ASSIST_ARMED
