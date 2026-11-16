@@ -11042,3 +11042,47 @@ Next
   Then tick Player and setup rules and update the Object rules row.
 - Then: the lifts rule (with MULTIPLAYER, B-228), Room effects (sparks,
   Escape gas), mission flow.
+
+## 2026-11-16 (06:27-07:31 UTC) - CORE: sparks and the Escape gas are data; the merged-client turn found two regressions (B-1250, B-1251)
+
+What happened
+- 09828557: stage.json "sparks": {"flash_lights": false} (Crash Site; the
+  environmental sparks do not flash the room lights).
+- 576d86ec: stage.json "gas" (rooms, a sphere {center, radius, door_tag},
+  door_rooms, cutscene_fade). gasRender reads one rule struct on both paths;
+  a ROM stage uses g_EscapeGasRule (the original's constants) and the
+  extractor writes that same struct for Escape. Every stage check of the
+  Room effects row is now data. pd-tests 2,000.
+- Turn q_20261116060755455_2b33c611 (06:56-07:21 UTC, client 576d86ec, CORE's
+  private copy D:\PD2-wt\core-check-merged): Complex 12/12, specials 42/42,
+  Defection depth 16/16, conformance 0 errors (tool frozen at 576d86ec); the
+  data carries all new rules (6 player rules, 12 object rule rows) and
+  Defection's and Investigation's object rules loaded in game. Two
+  regressions: B-1250 (the scenario kind reached 525 chars, the stamp
+  readers read 511, every launch re-extracted all scenarios and arenas) and
+  B-1251 (the Extraction chopper hum is a packed 0x810c and a 0x7fff bound
+  refused it, so Extraction's objects.json was refused and the release
+  campaign stopped there, 25/54). Both fixed in 14f8d527 (readers hold 2047
+  chars, the writer refuses a longer kind loudly; the hum bound is 0xffff,
+  kept as the packed s16). SP-86 gained the round-trip rule.
+- Answers: MODS's chrMoveToPos change (d21bf9f0) approved; MULTIPLAYER's
+  co-op Deep Sea question: the menuTick root -6 co-op branch (and the
+  coop_stage_end seam) is never reached, in the original either, because
+  mainEndStage pushes the co-op end screens directly (note corrected,
+  8949efe1).
+- Week note times are read from the clock now (two earlier stamps were
+  corrected).
+
+In flight
+- Recheck turn q_20261116072829623_cf241f34 (waiter bb3wrquuk, script
+  tools/core-merged-turn2.sh, gate core-merged2.ready, client
+  .claude/week-pd-client/core-merged2 = 14f8d527): two extraction passes on
+  the private copy (expect written=0), Complex and the release campaign;
+  expect 54/54, the chopper rules line, and the stage rule lines of Chicago
+  and Air Force One (limited ammo), Crash Site (sparks) and Escape (gas).
+
+Next
+- With the recheck: tick Player and setup rules, Room effects, and mark
+  Object rules three of four in game; then post week-pd/core as ready for
+  Mike's merge call (it needs a new shared base after the merge, for the
+  scenario kind).
