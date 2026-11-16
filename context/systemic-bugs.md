@@ -3673,6 +3673,12 @@ mission behind the Room.
 **Not checked:** a spectator client (`CLFLAG_SPECTATOR`) is never given a
 player; if it loads the stage, its global tick is deferred all match.
 
+**When fixing an instance:** the deferred tick also hid code that runs
+again once the link is kept. Restoring the host's tick (B-1195) brought back
+`menuTick`'s offline results close, which loaded CI as a networked host and
+rolled its player setup back to the title (B-1197). After restoring a
+process's tick, check what `lvTick` and `menuTick` do in that state.
+
 **Rules:**
 - Do not clear `g_NetLocalClient->player` while this process's stage is still
   loaded and drawn; the next player allocation replaces it.

@@ -911,6 +911,22 @@ void menuTick(void)
 			case MENUROOT_MPPAUSE:
 				break;
 			case MENUROOT_MPENDSCREEN:
+				/* B-1197 (T-NETWORKING-011): a networked results screen has
+				 * exits of its own that decide what follows on this machine:
+				 * Return to Room keeps the stage until the host's next one
+				 * (pdguiEndscreenExitToRoom), the host's mission choices start
+				 * it (pdguiEndscreenNetMission*), and Disconnect ends the
+				 * session first (netDisconnect, after which g_NetMode is
+				 * NETMODE_NONE). The offline close below loaded CI as a
+				 * networked host, whose player setup rolled back to the title,
+				 * so the host's next match never started. */
+				if (g_NetMode != NETMODE_NONE) {
+					sysLogPrintf(LOG_NOTE,
+						"MENU.MPENDSCREEN: networked results closed; no local stage change (netmode=%d)",
+						(s32)g_NetMode);
+					break;
+				}
+
 				if (g_Vars.normmplayerisrunning) {
 					var80087260 = 3;
 				}

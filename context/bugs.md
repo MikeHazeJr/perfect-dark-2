@@ -1,5 +1,22 @@
 # Bug Tracker
 
+## 2026-11-16 B-1197 Closing networked Combat results loaded CI on the listen host (T-NETWORKING-011, fixed in code)
+
+Severity high (the host's next match never starts after it leaves its results). Found by `mp_combat_net_rematch_smoke`
+on binary 9078eb6b (3cad23d4, 77/91, `results-20261116T010715Z.json`), right after B-1195 let the host's global tick
+run under the results: Continue (`GAMELOOP.MP: endscreen EXIT_TO_ROOM`) popped the results menus, and the next
+`menuTick` ran the offline close of `MENUROOT_MPENDSCREEN` (`GAMELOOP.CAMPAIGN: MPENDSCREEN → CITRAINING lobby
+return`): it unpaused MP, cleared `mplayerisrunning`, and loaded CI as a networked host, whose player setup rolled
+back to the title (`PLAYER.INIT.ROLLBACK phase=stage stage=0x26; returning to title`), so the host never re-armed its
+second match. The same close never ran before because the host's tick was deferred (B-1195) and a client's too
+(B-1190 part 2). B-1195's simulant gate held through it (`BOT: match chr table retired` once, no crash). Fix: that
+close does nothing while `g_NetMode` is not `NETMODE_NONE` and logs `MENU.MPENDSCREEN: networked results closed; no
+local stage change`; the networked exits decide what follows (Return to Room keeps the stage until the host's next
+match, the host's mission choices start it, Disconnect ends the session first, after which the offline close runs as
+before). `menuReset()` clears the close state at every stage load, so the co-op path, whose tick is deferred after its
+exit, never hits it later. Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[b1197]`); the rematch smoke
+forbids the CI return and `PLAYER.INIT.ROLLBACK` and requires the new line. Not yet run.
+
 ## 2026-11-15 B-1196 A networked co-op client is sent moves for a chr it does not have (T-NETWORKING-011, open)
 
 Severity medium until the chr is named (the client cannot see or place that chr; if it is an enemy, the client is
@@ -32,12 +49,14 @@ included. Continue then ran `mpClearRuntimeChrState()` (B-368), which sets `g_Mp
 stays loaded behind the Room, and the next AI tick divided by it. Same class as B-1190 part 2 on the client (SP-84).
 Fix: (1) the commit skips the listen host's own netclient, as the client's stage end read does; the next stage's
 player allocation replaces the link (`netPlayersAllocate`). With its global tick running, the host's results pause
-holds, and after Continue the game-over pause keeps the arena's update at 0. (2) `botTick` treats a simulant whose
+holds, and after Continue the game-over pause keeps the arena's update at 0 (once B-1197 stopped the offline results
+close from unpausing it and loading CI). (2) `botTick` treats a simulant whose
 match chr table is retired (`g_MpNumChrs <= 0`; a live match always counts its simulants) as scenery: no AI, spawning,
 room recovery or stuck repair, speeds zeroed, `chrTick` kept for the model, and one log line `BOT: match chr table
 retired; simulants are inert until the next stage`. (2) is needed besides (1) because `mpApplyConfig` (presets,
 challenges) replaces `g_MpSetup` whole, which would lift the game-over pause in the Room. Tests: `[b1195]` in
-`tests/test_host_autostart_rematch_static.cpp`; the rematch smoke requires the inert line. Not yet run in play.
+`tests/test_host_autostart_rematch_static.cpp`; the rematch smoke requires the inert line. Run on binary 9078eb6b
+(`results-20261116T010715Z.json`): no crash, the inert line logged once after Continue; the run stopped on B-1197.
 
 ## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, open)
 

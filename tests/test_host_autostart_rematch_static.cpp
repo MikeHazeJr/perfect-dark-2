@@ -333,6 +333,25 @@ TEST_CASE("results for every player: simulants of a retired match do not think",
 	REQUIRE(exit.find("mpClearRuntimeChrState();") != std::string::npos);
 }
 
+TEST_CASE("results for every player: closing networked results does not load CI",
+          "[net][rematch][finding4][b1197]") {
+	// B-1197: the offline results close loads CI, which a networked host
+	// cannot do (its player setup rolled back to the title); the networked
+	// exits decide what follows instead
+	const std::string menutick = code_only(read_text_file("src/game/menutick.c"));
+	const size_t root = menutick.find("case MENUROOT_MPENDSCREEN:\n");
+	REQUIRE(root != std::string::npos);
+	const size_t guard = menutick.find("if (g_NetMode != NETMODE_NONE) {", root);
+	const size_t lobby = menutick.find("var80087260 = 3;", root);
+	const size_t ci = menutick.find("mainChangeToStage(STAGE_CITRAINING);", root);
+	REQUIRE(guard != std::string::npos);
+	REQUIRE(lobby != std::string::npos);
+	REQUIRE(ci != std::string::npos);
+	REQUIRE(guard < lobby);
+	REQUIRE(guard < ci);
+	REQUIRE(menutick.find("break;", guard) < lobby);
+}
+
 TEST_CASE("results for every player: the primary results button is the default focus",
           "[net][rematch][finding4][b1192]") {
 	// B-1192 part 2: the debounce disables the bar when ImGui picks the first
