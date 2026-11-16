@@ -10886,7 +10886,7 @@ Next
   asset, about ten touch points: archive policy, mod contract, loader walker,
   boot extraction, mod manager, catalog type, conformance, runtime).
 
-## 2026-11-16 (02:05-03:25 UTC) - CORE: base 7 first try held old meshes (SP-85), animated surfaces seen in game, B-1172 closed, global AI lists slice 1
+## 2026-11-16 (02:05-03:25 UTC) - CORE: base 7 first try held old meshes (SP-86; SP-85 was MULTIPLAYER's), animated surfaces seen in game, B-1172 closed, global AI lists slice 1
 
 What happened
 - Base 7 turn 1 (02:17-02:41 UTC) passed everything (Defection depth 16/16,
@@ -10895,7 +10895,7 @@ What happened
   schema v3: dcee4202 moved the mesh export version, not
   ROMEXTRACT_PDMESH_FAST_CACHE_KIND, and the whole-folder skip runs first.
   Fixed in 5a90a28c (the kind is built from the export version label) and on
-  week-pd/extract-6 (3223c21b, standalone pd-tests 1,887). New pattern SP-85.
+  week-pd/extract-6 (3223c21b, standalone pd-tests 1,887). New pattern SP-86 (first written as SP-85, which MULTIPLAYER had claimed).
   Propagation: arenas/scenarios share a two-kind skip; bodies, heads,
   characters and weapons compare nested mesh copies, so only meshes. Week
   note: do not use shared-base-7 yet; redo queued
