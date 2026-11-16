@@ -1,5 +1,13 @@
 # Session Log (Active)
 
+2026-11-16 (23:24 ET) MULTIPLAYER, continued. Turn on b2a2a720 (base 7): Capture the Case carrier death 102/102
+(new smoke, port 27268; B-1272 now checked for all three token modes), counter-op agent death 132/132 (spec count
+fixed), co-op mission end 22/130 for no game reason: a machine-wide stall during the host's intro-skip hold meant no
+frame saw the 650 ms skip threshold before the harness released it (it ticks at the top of the frame, before the game
+reads input). Fix 496ab25e: the wait-assist transition releases one tick after the hold is found elapsed (new case in
+tests/test_smoke_transition.cpp); not built yet. Queued q_20261116232336243_f0ee78d6 behind MODS and CORE: build HEAD
+inside the turn, pd-tests, then re-run co-op mission end (script run_base7_build_then.sh). No SP-93 warning in any run.
+
 2026-11-16 (17:25 ET) MULTIPLAYER, continued. B-1209 checked in play and B-1272 found and fixed. New smoke
 tooling (d44b87d0): wait_until scenario_token_held and kill_token_holder (chrDamageByMisc on the simulant carrying the
 uplink, briefcase or case; scenario authority only), plus mp_hacker_central_net_carrier_death_smoke (port 27259)
