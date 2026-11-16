@@ -587,6 +587,14 @@ TEST_CASE("co-op chr removals: a client's rooms update moves the prop's room reg
 		REQUIRE(body.find("if (prop->active) {") == std::string::npos);
 	}
 
+	// The reconnect snapshot's prop state too (SP-92 audit): it moved the
+	// registration only for an active prop
+	const std::string reconnect = function_body(msg,
+		"u32 netmsgSvcReconnectPropStateRead(struct netbuf *src,\n\t\tstruct netclient *srccl)\n{");
+	REQUIRE(reconnect.find("propSetRooms(prop, wire.rooms);") != std::string::npos);
+	REQUIRE(reconnect.find("roomsCopy(wire.rooms, prop->rooms);") == std::string::npos);
+	REQUIRE(reconnect.find("was_active") == std::string::npos);
+
 	// The prop resync names objects only; prop->obj shares storage with
 	// prop->chr, so a row whose id names a chr here is skipped
 	const std::string prop_resync = function_body(msg, "u32 netmsgSvcPropResyncRead(struct netbuf *src, struct netclient *srccl)\n{");

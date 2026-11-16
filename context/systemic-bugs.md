@@ -4072,12 +4072,13 @@ grep -n "if (prop->active) {" port/src/net/netmsg.c
 **Audit checklist:**
 - [x] NPC resync, bot resync, prop resync, SVC_PROP_MOVE, lift move
   (B-1270).
-- [ ] `netmsgSvcReconnectPropStateRead` (reconnect snapshot, `was_active` gating) and
-  the reconnect spawn/placement path: both stage their own topology; check
-  that a paused, listed prop cannot change rooms there.
-- [ ] SVC_PROP_SPAWN: `roomsCopy(rooms, prop->rooms)` runs before the prop is
-  registered, then `if (prop->active) propDeregisterRooms`: check that no
-  creator (`laptopDeploy`, `objInit`) registered the prop first.
+- [x] `netmsgSvcReconnectPropStateRead` (reconnect snapshot): moved the
+  registration only when `was_active`, so a paused, listed prop kept its old
+  rooms; now `propSetRooms` (2026-11-16, after ded9b22f).
+- [x] SVC_PROP_SPAWN: `roomsCopy(rooms, prop->rooms)` runs before the prop is
+  registered; no creator registers it first (`objInit` and `laptopDeploy`
+  only allocate and initialise), and the placement block registers it once.
+  Correct as it is.
 - [-] `netmsgClcBotMoveRead` (bot-authority stub): a stub has no room
   registration; leave it.
 

@@ -4704,7 +4704,6 @@ u32 netmsgSvcReconnectPropStateRead(struct netbuf *src,
 	struct defaultobj *obj;
 	s32 expected_index;
 	s32 slot;
-	bool was_active;
 	u8 expected_detail = NET_RECONNECT_PROP_DETAIL_NONE;
 
 	if (!src || !srccl || srccl != g_NetLocalClient
@@ -4849,15 +4848,10 @@ u32 netmsgSvcReconnectPropStateRead(struct netbuf *src,
 		return 1;
 	}
 	obj = prop->obj;
-	was_active = prop->active != 0;
-	if (was_active) {
-		propDeregisterRooms(prop);
-	}
 	prop->pos = wire.pos;
-	roomsCopy(wire.rooms, prop->rooms);
-	if (was_active) {
-		propRegisterRooms(prop);
-	}
+	/* SP-92 (B-1270): a paused prop is listed in its rooms too;
+	 * propSetRooms moves whatever registration the prop has with the list. */
+	propSetRooms(prop, wire.rooms);
 	prop->flags = wire.prop_flags & ~PROPFLAG_ENABLED;
 	if (wire.prop_flags & PROPFLAG_ENABLED) {
 		propEnable(prop);
