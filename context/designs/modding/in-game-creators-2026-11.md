@@ -301,6 +301,19 @@ Foundation, in order. Each step lands with tests that run in CI.
    second rebases on the other; until CORE answers, nothing here changes.
    In my change the migration already runs in the user folder, not in
    `$E/../mods`, unless the user folder cannot be created.
+   DONE 2026-11-16 as CORE asked (week note, 2026-11-15 07:40 UTC): merged
+   CORE's one-commit `week-pd/installmods` (546263fe, `modsInstallRoots`,
+   `[b1169]`), and `modmgrScanDirectory` now reads the user mods folder,
+   then only `modsInstallRoots($E, $B)`: the repository-root folder for a
+   build inside a source checkout (the executable's parent holds
+   `CMakeLists.txt` and `.git`), then `<base>/mods`. The folder beside the
+   install and the working folder's `mods/` are no longer read and the
+   working folder's `mods/` is no longer created. For a smoke install the
+   install folder is `<base>/mods`, the same folder as before, so
+   `mods_user_folder_smoke` still holds. CORE's other callers (fonts,
+   themes, map import, install from file, the migration bench) moved to
+   `fsModRoots` on `week-pd/core`; when the branches meet in dev the
+   resolution is the user folder first, then CORE's install roots.
    The proposal as it was:
    - Writable user root: `$S/mods`. `$S` is already where saves live "so
      they persist across game updates and reinstalls" (`fs.c`):

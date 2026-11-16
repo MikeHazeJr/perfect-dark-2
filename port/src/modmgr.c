@@ -30,6 +30,7 @@
 #include "modarchive.h"
 #include "modvfs.h"
 #include "modmigrate.h"
+#include "mods_install_roots.h"
 #include "mods_roots.h"
 #include "asset_archive_policy.h"
 #include "assetcatalog.h"
@@ -1799,14 +1800,10 @@ static void modmgrScanDirectory(void)
 	g_ModRegistryCount = 0;
 	g_ModsRootCount = 0;
 
-	// Ensure mods directory exists on fresh install
-	if (!nativeWritePolicyActive()) fsCreateDir("./" MODMGR_MODS_DIR);
-
-	// PC: multiple roots are valid depending on launch dir:
-	// - $E/../mods (repo root when exe is in Build/)
-	// - ./mods (current working directory)
-	// - $E/mods (mods alongside exe)
-	// - base-dir fallback (often data/mods)
+	/* Read order without --moddir: the user mods folder (created when
+	 * missing; the only folder the game writes mods to), then the install's
+	 * own folders from modsInstallRoots (B-1169). No folder is created under
+	 * the working folder. */
 	const char *modsdir = NULL;
 	DIR *dir = NULL;
 	char candidateBufs[MODS_ROOTS_MAX][FS_MAXPATH + 1];
@@ -1838,11 +1835,26 @@ static void modmgrScanDirectory(void)
 		 * game writes mods to, and on a clash of mod ids its copy wins. The
 		 * install's own folders follow and are only read (mods_roots.h). */
 		modmgrResolveUserModsDir(candidateBufs[0], sizeof(candidateBufs[0]));
-		fsFullPath("$E/../" MODMGR_MODS_DIR, candidateBufs[1], sizeof(candidateBufs[1]));
-		strncpy(candidateBufs[2], "./" MODMGR_MODS_DIR, sizeof(candidateBufs[2]));
-		candidateBufs[2][sizeof(candidateBufs[2]) - 1] = '\0';
-		fsFullPath("$E/" MODMGR_MODS_DIR, candidateBufs[3], sizeof(candidateBufs[3]));
-		fsFullPath(MODMGR_MODS_DIR,       candidateBufs[4], sizeof(candidateBufs[4]));
+		/* B-1169 (Mike, 2026-11-15, option A): then the install's own
+		 * folders only (mods_install_roots.h): the repository-root folder for
+		 * a build inside a source checkout, then <base>/mods next to the game.
+		 * A folder beside the install could belong to another game, and the
+		 * working folder's mods/ follows a shortcut's start folder; neither
+		 * is read. */
+		char exeDir[FS_MAXPATH + 1];
+		char baseDir[FS_MAXPATH + 1];
+		char *installRoots[MODS_INSTALL_ROOTS_MAX] = { candidateBufs[1], candidateBufs[2] };
+		fsFullPath("$E", exeDir, sizeof(exeDir));
+		fsFullPath("$B", baseDir, sizeof(baseDir));
+		/* fsFullPath hands back the placeholder itself when it has no path. */
+		if (exeDir[0] == '$') exeDir[0] = '\0';
+		if (baseDir[0] == '$') baseDir[0] = '\0';
+		if (modsInstallRoots(exeDir, baseDir, installRoots, sizeof(candidateBufs[1]),
+				MODS_INSTALL_ROOTS_MAX) <= 0) {
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: the install's mods folders could not be named (exe '%s', base '%s')",
+				exeDir, baseDir);
+		}
 	}
 	for (s32 i = 0; i < MODS_ROOTS_MAX; i++) candidates[i] = candidateBufs[i];
 
@@ -1860,8 +1872,8 @@ static void modmgrScanDirectory(void)
 			sysLogPrintf(LOG_WARNING,
 				"modmgr: could not open explicit mod directory '%s'", explicitModsDir);
 		} else {
-			sysLogPrintf(LOG_WARNING, "modmgr: could not open mods directory (tried the user mods folder, $E/../%s, ./%s, $E/%s, base/%s)",
-				MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR, MODMGR_MODS_DIR);
+			sysLogPrintf(LOG_WARNING,
+				"modmgr: could not open a mods folder (tried the user mods folder and the install's mods folders)");
 		}
 		return;
 	}
@@ -1945,13 +1957,13 @@ static void modmgrScanDirectory(void)
 
 	closedir(dir);
 
-	/* Scan remaining candidate directories for mods not in the primary dir.
-	 * This catches mods placed in data/mods/ when ./mods/ was the primary,
-	 * or vice versa. Duplicate mod IDs are skipped. */
+	/* Scan the remaining folders (the install's, after the user mods folder)
+	 * for mods not in the primary one. Duplicate mod IDs are skipped, so the
+	 * user copy of a mod wins. */
 	for (s32 ci = 0; ci < MODS_ROOTS_MAX && g_ModRegistryCount < MODMGR_MAX_MODS; ci++) {
 		if (!candidates[ci][0]) continue;
 		/* The primary, or a folder already read under another spelling
-		 * ("./mods" and "$E/mods" when the game runs from its folder). */
+		 * (the user folder is the install's own with --portable). */
 		if (modmgrModsRootKnown(candidates[ci])) continue;
 
 		DIR *altdir = opendir(candidates[ci]);
