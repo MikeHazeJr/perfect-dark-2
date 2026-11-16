@@ -1,0 +1,298 @@
+{
+  "scenario_name": "network_counterop_agent_death_smoke",
+  "description": "T-NETWORKING-011, counter-op scoring: the counter-operative wins when the agent dies. A listen host and one client start counter-op Defection as network_counterop_mission_end_smoke does (the client is elected Anti, the host plays Joanna), with no forced mission end. 15 s into play the host's agent dies through the production death path (kill_player, playerDie); when the death animation finishes the host ends the mission for both (mainEndStage, SVC_STAGE_END, B-1193). Each machine pushes its own results: the agent's are a failed mission, the counter-operative's a completed one (GAMELOOP.COUNTEROP: results ... outcome=). The final objective statuses and both players' stats reach the client before the stage end. The client exits first from its results, then the host.",
+  "tags": [
+    "counterop",
+    "mission-end",
+    "scoring",
+    "multi-process",
+    "network",
+    "smoke",
+    "t-networking-011"
+  ],
+  "paths_of_interest": [
+    "src/game/player.c",
+    "src/game/endscreen.c",
+    "port/src/net/net.c",
+    "port/src/net/netmsg.c",
+    "port/src/pdmain.c",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 700,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27258",
+        "--launch-mp-room",
+        "base:defection",
+        "base:combat",
+        "0",
+        "--host-autostart",
+        "--host-autostart-mode",
+        "counterop",
+        "--difficulty",
+        "agent"
+      ],
+      "wait_for": "NET: created server on port 27258",
+      "wait_timeout_seconds": 140,
+      "assertions": {
+        "required_lines": [
+          "BOOT: --host-autostart armed mode=2 difficulty=agent",
+          "BOOT: --host-autostart firing: mode=2 stage='base:defection' difficulty=0 anti_client=1 scenario=0 timelimit=0 sims=0",
+          "PLAYER.INIT.COMMIT lobby-start room=\\d+ mode=2 players=2 bots=0 manifest=[1-9]\\d*",
+          "NET: ready gate .*2/2 ready 0 declined timed_out=0 .*starting countdown",
+          "PLAYER.INIT.COMMIT coop-stage players=2 bond=0 coop=-1 anti=1",
+          "PLAYER.INIT.COMMIT lobby-start room=\\d+ rollback_snapshot_released=1",
+          "PLAYER.INIT.COMMIT phase=network players=2",
+          "PLAYER.INIT.ORDER position=0 player=0 client=0 mode=1",
+          "PLAYER.INIT.ORDER position=1 player=1 client=1 mode=1",
+          "PLAYER.INIT.COMMIT phase=stage player=0",
+          "PLAYER.INIT.COMMIT phase=stage player=1",
+          "SPAWN.ORCH: prepare player=0 client=0 role=bond pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: prepare player=1 client=1 role=anti pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: commit player=0 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+          "SPAWN.ORCH: commit player=1 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+          "PLAYER.INIT.COMMIT phase=chrbody player=0",
+          "PLAYER.INIT.COMMIT phase=chrbody player=1",
+          "NET.STAGE.REPLICATION phase=waiting epoch=[1-9]\\d* room=\\d+ wait_mask=0x00000002 authority_ready=0 reason=coop-stage-start",
+          "NET.STAGE.REPLICATION ready authority=server epoch=[1-9]\\d* duplicate=0 post_load=1",
+          "NET.STAGE.REPLICATION ready client=1 epoch=[1-9]\\d* room=\\d+ duplicate=0 post_load=1",
+          "NET.STAGE.REPLICATION phase=release epoch=[1-9]\\d* room=\\d+ ready_mask=0x00000002 authority_ready=1",
+          "NET.STAGE.REPLICATION baseline=queued epoch=[1-9]\\d* room=\\d+ flags=0x[0-9a-f]+ bytes=[1-9]\\d*",
+          "NET.STAGE.REPLICATION phase=active epoch=[1-9]\\d* room=\\d+ fresh_release=1",
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
+          "GAMELOOP\\.COUNTEROP: endscreenPushAnti entry playernum=0 .* role=bond",
+          "GAMELOOP\\.COUNTEROP: results role=bond outcome=failed agent_dead=1 agent_aborted=0 anti_aborted=0",
+          "SMOKE\\.KILL_PLAYER: player=0 died=1"
+        ],
+        "required_sequences": [
+          {
+            "name": "canonical-counterop-role-spawns",
+            "patterns": [
+              "PLAYER.INIT.ORDER position=0 player=0 client=0 mode=1",
+              "PLAYER.INIT.ORDER position=1 player=1 client=1 mode=1",
+              "SPAWN.ORCH: prepare player=0 client=0 role=bond pool=\\d+ duplicate=0",
+              "SPAWN.ORCH: prepare player=1 client=1 role=anti pool=\\d+ duplicate=0",
+              "SPAWN.ORCH: commit player=0 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+              "SPAWN.ORCH: commit player=1 pool=\\d+ pos=\\([^)]+\\) room=\\d+"
+            ]
+          },
+          {
+            "name": "post-load-replication-release",
+            "patterns": [
+              "NET.STAGE.REPLICATION phase=waiting .* wait_mask=0x00000002",
+              "NET.STAGE.REPLICATION ready authority=server .* post_load=1",
+              "NET.STAGE.REPLICATION ready client=1 .* post_load=1",
+              "NET.STAGE.REPLICATION phase=release .* ready_mask=0x00000002",
+              "NET: sending npc resync to all clients",
+              "NET.STAGE.REPLICATION baseline=queued .* flags=0x[0-9a-f]+ bytes=[1-9]\\d*",
+              "NET.STAGE.REPLICATION phase=active .* fresh_release=1"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "PLAYER.INIT.ROLLBACK",
+          "PLAYER.INIT.FAULT",
+          "BOOT: --host-autostart consumed: result=FAILED",
+          "SMOKE: result=timeout",
+          "SMOKE\\.WAIT: (timeout|pending_tap)",
+          "prop with syncid .* does not exist",
+          "SVC_NPC_SYNC checksum mismatch",
+          "SVC_NPC_SYNC snapshot mismatch",
+          "SVC_NPC_SYNC rejected",
+          "SVC_NPC_RESYNC rejected",
+          "requesting npc resync",
+          "NET.STAGE.REPLICATION release=retry",
+          "NET.STAGE.REPLICATION ready=rejected",
+          "malformed or unknown message 0x4b",
+          "EXCEPTION_ACCESS_VIOLATION",
+          "ACCESS_VIOLATION",
+          "FATAL: ",
+          "Counter-Op requires exactly one remote room participant",
+          "GAMELOOP\\.COUNTEROP: endscreenPushAnti entry playernum=1 ",
+          "GAMELOOP\\.COUNTEROP: results role=bond outcome=completed"
+        ]
+      },
+      "smoke_path": "tools/smoke-verify/fixtures/network_counterop_agent_death_host.json"
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27258"
+      ],
+      "assertions": {
+        "required_lines": [
+          "NET: connected to server, sending CLC_AUTH",
+          "PLAYER.INIT.COMMIT stage-start mode=2 stage='base:defection' players=2 bots=0",
+          "NET: SVC_STAGE from server: co-op stage 0x[0-9a-f]+ difficulty 0 with 2 players",
+          "PLAYER.INIT.COMMIT phase=network players=2",
+          "PLAYER.INIT.ORDER position=0 player=1 client=0 mode=2",
+          "PLAYER.INIT.ORDER position=1 player=0 client=1 mode=2",
+          "PLAYER.INIT.COMMIT phase=stage player=0",
+          "PLAYER.INIT.COMMIT phase=stage player=1",
+          "SPAWN.ORCH: prepare player=1 client=0 role=bond pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: prepare player=0 client=1 role=anti pool=\\d+ duplicate=0",
+          "SPAWN.ORCH: commit player=1 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+          "SPAWN.ORCH: commit player=0 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+          "PLAYER.INIT.COMMIT phase=chrbody player=0",
+          "PLAYER.INIT.COMMIT phase=chrbody player=1",
+          "NET: sent CLC_STAGE_READY epoch=[1-9]\\d* post_load=1 stage=0x[0-9a-f]+",
+          "NET: SVC_NPC_SYNC snapshot verified epoch=[1-9]\\d* tick=\\d+ count=\\d+ checksum=0x[0-9a-f]+",
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
+          "GAMELOOP\\.COUNTEROP: endscreenPushAnti entry playernum=0 .* role=anti",
+          "GAMELOOP\\.COUNTEROP: results role=anti outcome=completed"
+        ],
+        "required_sequences": [
+          {
+            "name": "canonical-counterop-role-spawns",
+            "patterns": [
+              "PLAYER.INIT.ORDER position=0 player=1 client=0 mode=2",
+              "PLAYER.INIT.ORDER position=1 player=0 client=1 mode=2",
+              "SPAWN.ORCH: prepare player=1 client=0 role=bond pool=\\d+ duplicate=0",
+              "SPAWN.ORCH: prepare player=0 client=1 role=anti pool=\\d+ duplicate=0",
+              "SPAWN.ORCH: commit player=1 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+              "SPAWN.ORCH: commit player=0 pool=\\d+ pos=\\([^)]+\\) room=\\d+",
+              "NET: sent CLC_STAGE_READY epoch=[1-9]\\d* post_load=1",
+              "NET: SVC_NPC_RESYNC read \\d+ npcs at tick \\d+ epoch=[1-9]\\d* snapshot_pending=1",
+              "NET: SVC_NPC_SYNC snapshot verified epoch=[1-9]\\d*"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "PLAYER.INIT.ROLLBACK",
+          "PLAYER.INIT.FAULT",
+          "NET: rejected CLC_SETTINGS",
+          "SMOKE: result=timeout",
+          "SMOKE\\.WAIT: (timeout|pending_tap)",
+          "prop with syncid .* does not exist",
+          "SVC_NPC_SYNC checksum mismatch",
+          "SVC_NPC_SYNC snapshot mismatch",
+          "SVC_NPC_SYNC rejected",
+          "SVC_NPC_RESYNC rejected",
+          "requesting npc resync",
+          "NET.STAGE.REPLICATION ready=rejected",
+          "malformed or unknown message 0x4b",
+          "EXCEPTION_ACCESS_VIOLATION",
+          "ACCESS_VIOLATION",
+          "FATAL: ",
+          "GAMELOOP\\.COUNTEROP: results role=anti outcome=failed"
+        ]
+      },
+      "smoke_path": "tools/smoke-verify/fixtures/network_counterop_agent_death_client.json"
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Each process runs its own schedule (smoke_path); this one only bounds the test."
+    },
+    {
+      "at_ms": 600000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=network_counterop_agent_death_host",
+      "SMOKE: scenario=network_counterop_agent_death_client",
+      "NET: created server on port 27258",
+      "NET: incoming connection",
+      "SMOKE\\.KILL_PLAYER: player=0 died=1",
+      "MISSION: final objective statuses published before stage end room=",
+      "NET: mission end returns client=[0-9]+ to the lobby room=",
+      "NET: SVC_STAGE_END read mode=2 path=co-op",
+      "GAMELOOP\\.COUNTEROP: endscreenPushAnti entry",
+      "GAMELOOP\\.COUNTEROP: results role=bond outcome=failed",
+      "GAMELOOP\\.COUNTEROP: results role=anti outcome=completed",
+      "MISSION: final player stats applied players=2 of 2",
+      "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
+      "SMOKE: result=scripted_exit",
+      "PLAYER.INIT.COMMIT coop-stage players=2 bond=0 coop=-1 anti=1"
+    ],
+    "forbidden_patterns": [
+      "prop with syncid .* does not exist",
+      "SVC_NPC_SYNC checksum mismatch",
+      "SVC_NPC_SYNC snapshot mismatch",
+      "SVC_NPC_SYNC rejected",
+      "SVC_NPC_RESYNC rejected",
+      "requesting npc resync",
+      "NET.STAGE.REPLICATION release=retry",
+      "NET.STAGE.REPLICATION ready=rejected",
+      "malformed or unknown message 0x4b",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "ROSTER_MISMATCH",
+      "MENU\\.GRAPH\\.FIRE .* ok=0",
+      "LOBBY: results screen did not open within",
+      "start request failed",
+      "BOOT: --debug-end-mission",
+      "SMOKE\\.KILL_PLAYER: player 0 unavailable",
+      "SAVE: Agent Profile serialization failed"
+    ],
+    "required_counts": [
+      {
+        "pattern": "SMOKE: scenario=network_counterop_agent_death_(host|client)",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE\\.KILL_PLAYER: player=0 died=1",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "GAMELOOP\\.COUNTEROP: endscreenPushAnti entry",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "GAMELOOP\\.COUNTEROP: results role=",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit",
+        "min": 1,
+        "max": 2
+      },
+      {
+        "pattern": "PLAYER.INIT.COMMIT coop-stage players=2 bond=0 coop=-1 anti=1",
+        "min": 2,
+        "max": 2
+      }
+    ]
+  }
+}
