@@ -3843,3 +3843,40 @@ only while the mark is set: `chrTick` and `objTickPlayer` clear it into their
 - A networked log with `BOT.TICK: simulant N passed again in one frame` shows
   the passes; scores or timers that beat the clock (a Hold the Briefcase point
   in under 30 s held) point here.
+
+## SP-90: A tool launch that names no isolation falls back to the user's real data
+
+**Severity: HIGH - a test run reads and rewrites the player's own settings,
+bindings, statistics and mod cache, and a build that cannot parse what another
+build wrote there crashes at boot.**
+
+The game's defaults are the player's real folders: with neither `--portable`
+nor `--savedir`, `fsInit` (`port/src/fs.c`) sets `$H` and the save dir to
+`%APPDATA%/perfectdark`, and may migrate an install's `pd.ini` or `eeprom.bin`
+into it. Every tool that launches the game must therefore name isolation on
+every launch path, or it shares the player's profile with every other session
+and build on the machine.
+
+**Known instances (2026-11-16):**
+- B-1124: multi-process fixtures on a shared install (no
+  `separate_process_installs`, no `--portable`/`--savedir`). Fixed: seven
+  fixtures pass `--portable`, the runner refuses such a fixture, and
+  `tools/tests/test_smoke_fixture_isolation.py` checks every one.
+- B-1203: the runner's single-process launch added `--savedir` only under
+  `-ReuseInstallId`, so 81 single-process fixtures ran against the real
+  profile. Fixed: `run.ps1` adds `--portable` when the fixture names neither
+  flag (`test_runner_isolates_single_process` pins it).
+
+**Rules:**
+- A test or tool launch of the game names its save dir (`--savedir`) or runs
+  portable from its own install; the runner adds it when the fixture does not.
+- A check that a launch is isolated reads the launch code, not a comment or a
+  bug record about it (B-1124's record said the single-process path was safe).
+- Mike's own play launchers (`devtools/_dev-window.ps1`, the dev windows) use
+  the real profile on purpose; they are not test launches.
+
+**Search:**
+- `grep -n "ProcessStartInfo\|Start-Process" tools/smoke-verify/*.ps1 tools/smoke-verify/lib/*.ps1`
+  and check that every game launch reaches `--portable` or `--savedir`.
+- In a run's game log, `save dir:` must name the run's install or profile
+  folder, never `AppData/Roaming/perfectdark`.

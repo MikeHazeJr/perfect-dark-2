@@ -2485,6 +2485,17 @@ function Invoke-SmokeTest {
     } else {
         $allArgs = @() + $bootArgs
     }
+    # B-1203: a single-process launch whose boot_args name neither --portable
+    # nor --savedir ran against the player's real profile
+    # (AppData\Roaming\perfectdark) and rewrote pd.ini, input-bindings.ini and
+    # playerstats.json there; B-1124 only covered multi-process fixtures. The
+    # game runs from this install, so --portable keeps the install as its base
+    # dir and moves the save dir and $H into it. -ReuseInstallId below replaces
+    # these arguments with explicit directories.
+    if (-not (($bootArgs -contains '--portable') -or ($bootArgs -contains '--savedir'))) {
+        $allArgs += @('--portable')
+        Write-Info "  profile: --portable added, the test names no save dir (B-1203)"
+    }
     Write-Info ("  target: {0} ({1})" -f $target, $exeLeaf)
     if ($ReuseInstallId) {
         $allArgs = @('--smoke', [IO.Path]::GetFullPath($Test.Path)) + @($bootArgs | Where-Object { $_ -ne '--portable' }) + @(
