@@ -1,0 +1,67 @@
+{
+  "scenario_name": "combat_sim_simulant_twins",
+  "description": "AI lists as graphs (context/designs/modding/ai-list-graphs.md): the two simulant commands run through their graph twins. A Combat match on Car Park with 12 simulants for 90 s: the stage's background list 0x1000 runs mp_init_simulants (the whole wave completes), simulants kill and die, and each dead simulant runs global list 0x0028, whose if_bot_respawning goes on while it waits (branch=0) and jumps to label 0x16 once it has respawned (branch=1).",
+  "tags": ["ai", "graph", "simulants", "combatsim"],
+  "paths_of_interest": [
+    "port/src/scenario_source_runtime.c",
+    "src/game/mplayer/mpaicommands.c",
+    "port/src/romextract_pdarena.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 260,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mp-room",
+    "base:arena_mp_carpark",
+    "base:combat",
+    "12",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 160000,
+      "stable_ms": 1000,
+      "comment": "Pause until the local player of the Car Park match is spawned and live."
+    },
+    {
+      "at_ms": 90000,
+      "type": "exit",
+      "comment": "90 s of play: kills, deaths and respawns among the 12 simulants"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=combat_sim_simulant_twins",
+      "SCENARIO\\.GRAPH: AI simulant commands '[^']+' if_bot_respawning=1 mp_init_simulants=1 backend=graph\\.ai\\.simulant",
+      "SCENARIO\\.GRAPH: AI action mp_init_simulants wave=complete source=",
+      "SPAWN\\.WAVE: committed slot=11 next_uncommitted=12 total=12",
+      "MPSTATS\\.ATTRIBUTION .* attacker_kind=bot ",
+      "SCENARIO\\.GRAPH: AI condition if_bot_respawning chr=[0-9]+ simulant=1 label=22 branch=0 ",
+      "SCENARIO\\.GRAPH: AI condition if_bot_respawning chr=[0-9]+ simulant=1 label=22 branch=1 ",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "missing executable AI simulant source nodes",
+      "cannot (if_bot_respawning|mp_init_simulants) AI action",
+      "AI action mp_init_simulants wave=(pending|invalid)"
+    ],
+    "required_counts": [
+      {
+        "pattern": "SCENARIO\\.GRAPH: AI action mp_init_simulants wave=",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}
