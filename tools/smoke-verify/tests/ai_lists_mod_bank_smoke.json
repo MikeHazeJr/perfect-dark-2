@@ -1,0 +1,77 @@
+{
+  "scenario_name": "ai_lists_mod_bank_smoke",
+  "description": "Global AI lists slice 2, step 5 (context/designs/modding/global-ai-lists.md): the runner packs tests/fixtures/modpipe/ai-lists-bank into a .pdmod and enables it. Its .pdai carries global list 0x0000 (a byte-identical copy of the base list), so a Complex match must take that one list from the mod bank and the other 45 from base:ai_global, with play unchanged.",
+  "tags": [
+    "mods",
+    "ai",
+    "global-ai-lists",
+    "combatsim"
+  ],
+  "paths_of_interest": [
+    "port/src/scenario_global_ailists.c",
+    "port/src/assetcatalog_scanner.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 230,
+  "install_state": "current",
+  "remove_paths": [
+    "mods/fixture_ai_lists_bank",
+    "mods/fixture_ai_lists_bank.pdmod"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/modpipe_ai_lists_bank_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "packed_fixtures": [
+    {
+      "src": "tests/fixtures/modpipe/ai-lists-bank",
+      "dst": "mods/fixture_ai_lists_bank.pdmod"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--launch-mp-room",
+    "base:arena_mp_complex",
+    "base:combat",
+    "3",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 160000,
+      "stable_ms": 1000,
+      "comment": "Pause until the local player of the Complex match is spawned and live."
+    },
+    {
+      "at_ms": 2500,
+      "type": "exit",
+      "comment": "scripted exit after a few frames of play"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=ai_lists_mod_bank_smoke",
+      "modmgr: loading mod 'fixture_ai_lists_bank' from archive '.*fixture_ai_lists_bank\\.pdmod'",
+      "AI\\.GLOBAL: compiled the AI list bank '[^']+': 1 lists",
+      "AI\\.GLOBAL: stage 0x[0-9a-f]+ runs the 46 global lists of 'base:ai_global', 1 of them from 1 mod bank\\(s\\)",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "global ai lists",
+      "AI\\.GLOBAL: [^\\n]*(could not be read|do not compile|not one of the game's)"
+    ],
+    "required_counts": []
+  }
+}
