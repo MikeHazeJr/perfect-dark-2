@@ -954,6 +954,9 @@ set(SRC_TESTS
   # Global AI lists as public rows (design step 5, source pins).
   ${CMAKE_SOURCE_DIR}/tests/test_global_ailists_source.cpp
   ${CMAKE_SOURCE_DIR}/port/src/scenario_dyntex.c
+  # AI lists as graphs, slice 1: control-flow edges from the rows' bytes.
+  ${CMAKE_SOURCE_DIR}/tests/test_ai_list_edges.cpp
+  ${CMAKE_SOURCE_DIR}/port/src/ai_list_edges.c
   ${CMAKE_SOURCE_DIR}/tests/test_versions.cpp
   ${CMAKE_SOURCE_DIR}/tests/test_versions_pin.c
   ${CMAKE_SOURCE_DIR}/tests/test_connectcode.cpp

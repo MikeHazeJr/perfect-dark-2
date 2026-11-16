@@ -21,6 +21,7 @@ import re
 import struct
 import sys
 import zipfile
+from collections import Counter
 from dataclasses import dataclass, field
 from io import BytesIO
 from pathlib import Path
@@ -143,7 +144,7 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -909,10 +910,11 @@ SCHEMAS: dict[str, Schema] = {
         ],
     ),
     # Global AI list bank (context/designs/modding/global-ai-lists.md): one
-    # descriptor and the pd2.scenario.ai.lists.v1 rows of the global lists.
+    # descriptor and the pd2.scenario.ai.lists.v1 rows of the global lists,
+    # and their control-flow graph (ai-list-graphs.md).
     ".pdai": schema(
         required=["ai.ini", "ai/global_ailists.json"],
-        allowed=["ai.ini", "ai/global_ailists.json"],
+        allowed=["ai.ini", "ai/global_ailists.json", "ai/global_ailists.graph.json"],
     ),
 }
 
@@ -1188,6 +1190,14 @@ OPTIONAL_PUBLIC_SLOT_CONTRACT: dict[str, dict[str, SlotJustification]] = {
         "dependencies/assets/fonts/*.pdfont": slot("theme font dependencies", "theme importer", DEPENDENCY_LOADER, "theme.json uses the active/base font"),
         "dependencies/assets/audio/*.pdsfx": slot("theme sound dependencies", "theme importer", DEPENDENCY_LOADER, "theme has no private sounds"),
         "dependencies/assets/music/*.pdsong": slot("theme music dependencies", "theme importer", DEPENDENCY_LOADER, "theme has no private music"),
+    },
+    ".pdai": {
+        "ai/global_ailists.graph.json": slot(
+            "control-flow graph of the global AI lists (ai-list-graphs.md)",
+            "romextract_pdai and the conformance edge check",
+            "conformance recomputes every edge and flag from the rows; the runtime does not read it yet",
+            "a bank before extract_version global_ailists_rows_v2_aiedges has only its rows",
+        ),
     },
 }
 
@@ -5845,6 +5855,373 @@ def validate_scenario_ai_lists_json_schema(label: str, entry_name: str,
 # Global AI list ids are below 0x0401; stage lists start there (ailistFindById).
 GLOBAL_AI_LIST_ID_LIMIT = 0x0401
 
+# context/designs/modding/ai-list-graphs.md, slice 1: an AI list's control
+# flow as edges between its command nodes, recomputed here from the rows'
+# bytes with the native interpreter's rules (src/game/chrai.c chraiExecute
+# and chraiGoToLabel); port/src/ai_list_edges.c is the same in C.
+#
+# The branching commands: opcode -> n, the label byte cmd[n] (operands hold
+# cmd[2..]). Every handler whose native path calls
+# chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[n]), other than
+# go_to_next. Keep equal to s_AiListBranchOps in port/src/ai_list_edges.c:
+# pd-tests derives the set from src/game/chraicommands.c and
+# src/game/mplayer/mpaicommands.c and compares both copies with it.
+AI_LIST_BRANCH_LABEL_BYTE = {
+    0x000c: 2, 0x000f: 2, 0x0010: 2, 0x0011: 2, 0x0012: 2, 0x0013: 2,
+    0x0014: 2, 0x0015: 6, 0x0016: 6, 0x0017: 6, 0x0018: 6, 0x001b: 6,
+    0x001c: 5, 0x0023: 2, 0x0027: 4, 0x002a: 2, 0x002b: 2, 0x002c: 2,
+    0x002d: 2, 0x002e: 2, 0x002f: 3, 0x0030: 3, 0x0031: 3, 0x0032: 2,
+    0x0033: 3, 0x0034: 3, 0x0035: 2, 0x0037: 3, 0x0038: 3, 0x0039: 2,
+    0x003a: 2, 0x003b: 2, 0x003c: 2, 0x003d: 3, 0x003e: 3, 0x003f: 2,
+    0x0040: 6, 0x0041: 6, 0x0042: 2, 0x0043: 2, 0x0044: 2, 0x0045: 3,
+    0x0046: 2, 0x0047: 2, 0x0048: 3, 0x0049: 4, 0x004a: 2, 0x004b: 2,
+    0x004c: 2, 0x004d: 3, 0x004e: 5, 0x004f: 3, 0x0050: 3, 0x0051: 3,
+    0x0052: 4, 0x0053: 4, 0x0054: 7, 0x0055: 7, 0x0056: 5, 0x0057: 5,
+    0x0058: 4, 0x0059: 6, 0x005a: 6, 0x005b: 6, 0x005c: 4, 0x005d: 4,
+    0x005e: 3, 0x005f: 4, 0x0060: 4, 0x0061: 4, 0x0062: 3, 0x0063: 4,
+    0x006e: 4, 0x006f: 3, 0x0072: 4, 0x0073: 3, 0x0074: 3, 0x0075: 3,
+    0x0076: 3, 0x0077: 3, 0x0078: 3, 0x0079: 4, 0x007a: 4, 0x007b: 3,
+    0x007c: 3, 0x007d: 3, 0x007e: 3, 0x007f: 3, 0x0080: 3, 0x0081: 4,
+    0x0082: 4, 0x0083: 3, 0x0088: 3, 0x0089: 2, 0x008e: 4, 0x008f: 4,
+    0x0090: 2, 0x009d: 8, 0x00a0: 8, 0x00a3: 7, 0x00a6: 6, 0x00a9: 7,
+    0x00ac: 7, 0x00af: 7, 0x00ba: 2, 0x00bb: 2, 0x00bc: 5, 0x00bd: 5,
+    0x00c3: 2, 0x00c4: 4, 0x00c5: 4, 0x00c6: 12, 0x00c7: 11, 0x00c8: 9,
+    0x00c9: 8, 0x00ca: 9, 0x00d4: 5, 0x00e2: 6, 0x00e5: 3, 0x00ea: 3,
+    0x00eb: 5, 0x00ef: 5, 0x00f0: 2, 0x00f1: 2, 0x00f6: 2, 0x00f7: 2,
+    0x00f8: 3, 0x00fc: 3, 0x00fd: 3, 0x0103: 2, 0x0105: 4, 0x0107: 2,
+    0x0108: 5, 0x0109: 5, 0x010a: 7, 0x010c: 3, 0x010f: 5, 0x0110: 5,
+    0x0113: 2, 0x011a: 7, 0x011d: 7, 0x011e: 3, 0x011f: 3, 0x0120: 3,
+    0x0121: 4, 0x0122: 8, 0x0123: 8, 0x0125: 2, 0x0126: 2, 0x0127: 2,
+    0x0128: 3, 0x0129: 3, 0x012a: 3, 0x012b: 2, 0x012c: 2, 0x0133: 3,
+    0x0134: 4, 0x0135: 2, 0x0137: 3, 0x0138: 3, 0x013a: 4, 0x013c: 2,
+    0x013d: 3, 0x013f: 2, 0x0140: 4, 0x0147: 3, 0x0149: 5, 0x014a: 5,
+    0x014b: 2, 0x0152: 4, 0x0165: 3, 0x0166: 3, 0x0168: 3, 0x0169: 3,
+    0x016a: 6, 0x016f: 4, 0x0170: 3, 0x0171: 4, 0x0172: 3, 0x0173: 3,
+    0x0174: 2, 0x0176: 2, 0x0178: 3, 0x017a: 2, 0x017b: 3, 0x0181: 4,
+    0x0182: 3, 0x0183: 2, 0x0186: 5, 0x0187: 2, 0x0188: 3, 0x018a: 4,
+    0x018e: 6, 0x018f: 7, 0x0192: 3, 0x0193: 3, 0x019e: 5, 0x01a5: 2,
+    0x01a6: 3, 0x01a7: 3, 0x01aa: 2, 0x01ab: 4, 0x01b4: 2, 0x01ba: 6,
+    0x01bc: 3, 0x01bd: 2, 0x01be: 4, 0x01c0: 2, 0x01c9: 2, 0x01cc: 2,
+    0x01d7: 4, 0x01d8: 4, 0x01dd: 3, 0x01de: 2, 0x01df: 7,
+}
+AI_OP_GO_TO_NEXT = 0x0000
+AI_OP_GO_TO_FIRST = 0x0001
+AI_OP_LABEL = 0x0002
+AI_OP_YIELD = 0x0003
+AI_OP_END = 0x0004
+AI_OP_SET_LIST = 0x0005
+AI_OP_RETURN = 0x0008
+AI_CHR_SELF = 0xFD
+AI_LIST_EDGE_KINDS = ("next", "branch", "goto", "restart")
+# Command-node flags: these are written only when true, reachable only when
+# false.
+AI_LIST_NODE_TRUE_FLAGS = ("yields", "ends", "returns", "switches_list")
+AI_LIST_NODE_FLAG_KEYS = AI_LIST_NODE_TRUE_FLAGS + ("reachable",)
+AI_LIST_EDGE_ERRORS_SHOWN = 20
+# The .pdai bank carries its graph from this extract_version on
+# (PDAI_EXTRACT_VERSION, port/src/romextract_pdai.c).
+PDAI_AI_EDGES_EXTRACT_VERSION = "global_ailists_rows_v2_aiedges"
+PDAI_GRAPH_MEMBER = "ai/global_ailists.graph.json"
+AI_GRAPH_SCHEMA = "pd2.scenario.ai.graph.v1"
+
+
+def ai_list_control_flow(
+    commands: list[tuple[int, list[int]]],
+) -> tuple[list[tuple[int, int, str]], list[set[str]]]:
+    """One AI list's control flow, as port/src/ai_list_edges.c computes it.
+
+    commands: (opcode, operand bytes cmd[2..]) in list order. Returns
+    (edges, flags): edges (from, to, kind), grouped by command in command
+    order, next before the command's jump; flags, one set per command of
+    yields, ends, returns, switches_list and reachable. A command's successor
+    is the next command; a branching command also jumps to the first label
+    with its number at or after itself, go_to_next likewise and go_to_first
+    from the top; a label that is not found before the end restarts the list
+    at its first command. end, return, set_list on CHR_SELF and the gotos
+    have no next edge. Raises ValueError(index) for a command that lacks the
+    label or chr operand its control flow reads.
+    """
+    count = len(commands)
+    for index, (opcode, operands) in enumerate(commands):
+        if opcode in (AI_OP_GO_TO_NEXT, AI_OP_GO_TO_FIRST, AI_OP_LABEL,
+                      AI_OP_SET_LIST):
+            needed = 1
+        else:
+            label_byte = AI_LIST_BRANCH_LABEL_BYTE.get(opcode)
+            needed = label_byte - 1 if label_byte is not None else 0
+        if len(operands) < needed:
+            raise ValueError(index)
+
+    def find_label(start: int, label: int) -> int | None:
+        for index in range(start, count):
+            opcode, operands = commands[index]
+            if opcode == AI_OP_LABEL:
+                if operands[0] == label:
+                    return index
+            elif opcode == AI_OP_END:
+                return None
+        return None
+
+    edges: list[tuple[int, int, str]] = []
+    flags: list[set[str]] = [set() for _ in range(count)]
+    for index, (opcode, operands) in enumerate(commands):
+        has_next = True
+        jump: tuple[int, str] | None = None
+        if opcode in (AI_OP_GO_TO_NEXT, AI_OP_GO_TO_FIRST):
+            has_next = False
+            target = find_label(index if opcode == AI_OP_GO_TO_NEXT else 0,
+                                operands[0])
+            jump = (target, "goto") if target is not None else (0, "restart")
+        elif opcode == AI_OP_YIELD:
+            flags[index].add("yields")
+        elif opcode == AI_OP_END:
+            has_next = False
+            flags[index].add("ends")
+        elif opcode == AI_OP_RETURN:
+            has_next = False
+            flags[index].add("returns")
+        elif opcode == AI_OP_SET_LIST:
+            if operands[0] == AI_CHR_SELF:
+                has_next = False
+                flags[index].add("switches_list")
+        else:
+            label_byte = AI_LIST_BRANCH_LABEL_BYTE.get(opcode)
+            if label_byte is not None:
+                target = find_label(index, operands[label_byte - 2])
+                jump = (target, "branch") if target is not None else (0, "restart")
+        if has_next and index + 1 < count:
+            edges.append((index, index + 1, "next"))
+        if jump is not None:
+            edges.append((index, jump[0], jump[1]))
+
+    if count:
+        successors: list[list[int]] = [[] for _ in range(count)]
+        for source, target, _ in edges:
+            successors[source].append(target)
+        flags[0].add("reachable")
+        stack = [0]
+        while stack:
+            for target in successors[stack.pop()]:
+                if "reachable" not in flags[target]:
+                    flags[target].add("reachable")
+                    stack.append(target)
+    return edges, flags
+
+
+def _ai_row_hex(value: object, limit: int) -> int | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        number = int(value, 16)
+    except ValueError:
+        return None
+    return number if 0 <= number <= limit else None
+
+
+def ai_list_edge_errors(rows: object, nodes: object, links: object,
+                        require: bool) -> list[str]:
+    """Recomputes every AI list's control flow from its rows and compares it
+    with the graph: each link that leaves a command node must be one of the
+    command's edges ({from, to, kind}), each edge must have its link, and
+    each command node must carry exactly its flags. A graph with no edge and
+    no flag on any command node is from before the edges and is checked only
+    when require is set (its cache kind says it has them). Messages name the
+    list and the command and leave the archive label to the caller.
+    """
+    lists: dict[str, list[dict[str, object]]] = {}
+    command_ids: set[str] = set()
+    for row in rows if isinstance(rows, list) else []:
+        if not isinstance(row, dict):
+            continue
+        ref = row.get("ailist_ref")
+        graph_node = row.get("graph_node")
+        if not isinstance(ref, str) or not isinstance(graph_node, str):
+            continue
+        lists.setdefault(ref, []).append(row)
+        command_ids.add(graph_node)
+
+    node_by_id: dict[str, dict[str, object]] = {}
+    for node in nodes if isinstance(nodes, list) else []:
+        if isinstance(node, dict) and isinstance(node.get("id"), str):
+            node_by_id.setdefault(str(node["id"]), node)
+
+    def hashable(value: object) -> object:
+        return value if isinstance(value, str) or value is None else json.dumps(value)
+
+    actual: dict[str, list[tuple[object, object]]] = {}
+    for link in links if isinstance(links, list) else []:
+        if (isinstance(link, dict) and isinstance(link.get("from"), str)
+                and link["from"] in command_ids):
+            actual.setdefault(link["from"], []).append(
+                (hashable(link.get("to")), hashable(link.get("kind")))
+            )
+    declared = bool(actual) or any(
+        key in node_by_id.get(graph_node, {})
+        for graph_node in command_ids
+        for key in AI_LIST_NODE_FLAG_KEYS
+    )
+    if not declared and not require:
+        return []
+
+    errors: list[str] = []
+    for ref, list_rows in lists.items():
+        where = f"AI list {ref} ({clean_value(list_rows[0].get('list_id'))})"
+        commands: list[tuple[int, list[int]]] = []
+        for index, row in enumerate(list_rows):
+            opcode = _ai_row_hex(row.get("opcode"), 0xFFFF)
+            raw = row.get("operands")
+            operands = [_ai_row_hex(value, 0xFF) for value in raw] \
+                if isinstance(raw, list) else [None]
+            if row.get("command_index") != index:
+                errors.append(
+                    f"{where} command {index} ({row.get('graph_node')}): "
+                    f"command_index {clean_value(row.get('command_index'))} "
+                    "is not its place in the list; its edges cannot be checked"
+                )
+                break
+            if opcode is None or any(value is None for value in operands):
+                errors.append(
+                    f"{where} command {index} ({row.get('graph_node')}): "
+                    "opcode and operands must be hex strings; its edges cannot be checked"
+                )
+                break
+            commands.append((opcode, [int(value) for value in operands]))
+        else:
+            try:
+                expected_edges, expected_flags = ai_list_control_flow(commands)
+            except ValueError as exc:
+                index = int(exc.args[0])
+                errors.append(
+                    f"{where} command {index} ({list_rows[index].get('graph_node')}): "
+                    "lacks the label or chr operand its control flow reads"
+                )
+                continue
+            node_ids = [str(row["graph_node"]) for row in list_rows]
+            index_of = {node_id: index for index, node_id in enumerate(node_ids)}
+
+            def describe(target: object) -> str:
+                if isinstance(target, str) and target in index_of:
+                    return f"command {index_of[target]}"
+                return clean_value(target) or "(none)"
+
+            expected_by_command: list[list[tuple[object, object]]] = [
+                [] for _ in node_ids
+            ]
+            for source, target, kind in expected_edges:
+                expected_by_command[source].append((node_ids[target], kind))
+            for index, node_id in enumerate(node_ids):
+                command_where = f"{where} command {index} ({node_id})"
+                want = Counter(expected_by_command[index])
+                have = Counter(actual.get(node_id, []))
+                for (target, kind), number in sorted(
+                        (want - have).items(), key=lambda item: str(item[0])):
+                    errors.extend(
+                        [f"{command_where}: missing {kind} edge to {describe(target)}"]
+                        * number
+                    )
+                for (target, kind), number in sorted(
+                        (have - want).items(), key=lambda item: str(item[0])):
+                    shown = kind if kind in AI_LIST_EDGE_KINDS else f"kind {clean_value(kind) or '(none)'}"
+                    errors.extend(
+                        [f"{command_where}: unexpected {shown} edge to {describe(target)}"]
+                        * number
+                    )
+                node = node_by_id.get(node_id)
+                if node is None:
+                    continue  # the command node binding check reports it
+                for flag in AI_LIST_NODE_FLAG_KEYS:
+                    value = node.get(flag)
+                    expected = flag in expected_flags[index]
+                    if value is not None and not isinstance(value, bool):
+                        errors.append(f"{command_where}: {flag} must be true or false")
+                    elif flag == "reachable":
+                        if (value is not False) != expected:
+                            errors.append(
+                                f"{command_where}: reachable must be "
+                                f"{'true or absent' if expected else 'false'}"
+                            )
+                    elif bool(value) != expected:
+                        errors.append(
+                            f"{command_where}: {flag} must be "
+                            f"{'true' if expected else 'false or absent'}"
+                        )
+    return errors
+
+
+def _ai_edge_errors_capped(prefix: str, edge_errors: list[str]) -> list[str]:
+    shown = [f"{prefix} {message}" for message in edge_errors[:AI_LIST_EDGE_ERRORS_SHOWN]]
+    if len(edge_errors) > AI_LIST_EDGE_ERRORS_SHOWN:
+        shown.append(
+            f"{prefix} has {len(edge_errors)} AI control-flow edge errors; "
+            f"first {AI_LIST_EDGE_ERRORS_SHOWN} shown"
+        )
+    return shown
+
+
+def validate_ai_lists_graph_member(label: str, zf: zipfile.ZipFile,
+                                   rows: list[object]) -> list[str]:
+    """The .pdai bank's ai/global_ailists.graph.json (ai-list-graphs.md):
+    one scenario.ai.command node per row, by the row's graph_node id and with
+    its fields, and the control-flow edges of every list between them."""
+    prefix = f"{label} {PDAI_GRAPH_MEMBER}"
+    try:
+        graph = json.loads(zf.read(PDAI_GRAPH_MEMBER).decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return [f"{prefix} is not valid JSON: {exc}"]
+    if not isinstance(graph, dict) or graph.get("schema") != AI_GRAPH_SCHEMA:
+        return [f"{prefix} must declare schema {AI_GRAPH_SCHEMA}"]
+    nodes = graph.get("nodes")
+    links = graph.get("links")
+    if not isinstance(nodes, list) or not isinstance(links, list):
+        return [f"{prefix} must hold nodes and links arrays"]
+
+    errors: list[str] = []
+    row_by_node = {
+        row["graph_node"]: row
+        for row in rows
+        if isinstance(row, dict) and isinstance(row.get("graph_node"), str)
+    }
+    seen: set[str] = set()
+    node_errors: list[str] = []
+    for idx, node in enumerate(nodes):
+        node_id = node.get("id") if isinstance(node, dict) else None
+        row = row_by_node.get(node_id) if isinstance(node_id, str) else None
+        if row is None:
+            node_errors.append(f"node {idx} is not the graph_node of a row")
+            continue
+        if node_id in seen:
+            node_errors.append(f"node {idx} repeats {node_id}")
+            continue
+        seen.add(node_id)
+        if node.get("kind") != "scenario.ai.command":
+            node_errors.append(f"node {node_id} must be kind scenario.ai.command")
+        if node.get("source") != "ai/global_ailists.json":
+            node_errors.append(f"node {node_id} must source ai/global_ailists.json")
+        semantic_kind = node.get("semantic_kind")
+        if not (isinstance(semantic_kind, str) and semantic_kind.startswith("scenario.ai.")):
+            node_errors.append(f"node {node_id} must declare a scenario.ai semantic_kind")
+        for field in ("ailist_ref", "list_id", "command_index", "offset",
+                      "opcode", "opcode_name"):
+            if node.get(field) != row.get(field):
+                node_errors.append(
+                    f"node {node_id} must copy {field} from ai/global_ailists.json"
+                )
+                break
+    missing = [node_id for node_id in row_by_node if node_id not in seen]
+    if missing:
+        node_errors.append(
+            f"has no node for {len(missing)} row(s), first {missing[0]}"
+        )
+    for idx, link in enumerate(links):
+        source = link.get("from") if isinstance(link, dict) else None
+        if not isinstance(source, str) or source not in row_by_node:
+            node_errors.append(f"link {idx} must leave a command node")
+    errors.extend(_ai_edge_errors_capped(prefix, node_errors))
+    errors.extend(_ai_edge_errors_capped(
+        prefix, ai_list_edge_errors(rows, nodes, links, require=True)
+    ))
+    return errors
+
 
 def validate_ai_lists_source_contract(label: str, zf: zipfile.ZipFile,
                                       name_set: set[str],
@@ -5853,7 +6230,11 @@ def validate_ai_lists_source_contract(label: str, zf: zipfile.ZipFile,
 
     ai.ini's [ai_lists] section names the bank and its rows member. The rows
     are the per-stage pd2.scenario.ai.lists.v1 schema with global list ids.
+    From extract_version global_ailists_rows_v2_aiedges the bank also carries
+    the lists' control flow (ai_lists_graph_file, ai-list-graphs.md), which
+    must match the edges recomputed from the rows.
     """
+    graph_named = False
     if "ai.ini" in name_set:
         text = zf.read("ai.ini").decode("utf-8", errors="replace")
         sections = [
@@ -5869,6 +6250,24 @@ def validate_ai_lists_source_contract(label: str, zf: zipfile.ZipFile,
             errors.append(
                 f"{label} ai.ini must declare ai_lists_file = ai/global_ailists.json"
             )
+        graph_file = descriptor_value(text, "ai_lists_graph_file")
+        graph_named = graph_file == PDAI_GRAPH_MEMBER
+        if graph_file and not graph_named:
+            errors.append(
+                f"{label} ai.ini ai_lists_graph_file must be {PDAI_GRAPH_MEMBER}"
+            )
+        if (descriptor_value(text, "extract_version") == PDAI_AI_EDGES_EXTRACT_VERSION
+                and not graph_named):
+            errors.append(
+                f"{label} ai.ini must declare ai_lists_graph_file = {PDAI_GRAPH_MEMBER} "
+                f"(extract_version {PDAI_AI_EDGES_EXTRACT_VERSION} carries the edges)"
+            )
+    if graph_named and PDAI_GRAPH_MEMBER not in name_set:
+        errors.append(f"{label} missing {PDAI_GRAPH_MEMBER}, which ai.ini names")
+    if PDAI_GRAPH_MEMBER in name_set and not graph_named:
+        errors.append(
+            f"{label} {PDAI_GRAPH_MEMBER} must be named by ai.ini ai_lists_graph_file"
+        )
     if "ai/global_ailists.json" not in name_set:
         return
     text = zf.read("ai/global_ailists.json").decode("utf-8", errors="replace")
@@ -5895,6 +6294,8 @@ def validate_ai_lists_source_contract(label: str, zf: zipfile.ZipFile,
                 f"{label} ai/global_ailists.json row {idx} list_id "
                 f"{clean_value(list_id)} is not a global list id (below 0x0401)"
             )
+    if PDAI_GRAPH_MEMBER in name_set:
+        errors.extend(validate_ai_lists_graph_member(label, zf, rows))
 
 
 def validate_objectives_json_schema(label: str, entry_name: str, text: str,
@@ -6938,7 +7339,11 @@ def validate_direct_model_source_integer_native_boundary(label: str,
 
 def validate_archive_bytes(data: bytes, label: str, ext: str,
                            recurse: bool = True,
-                           known_catalog_ids: set[str] | None = None) -> ConformanceResult:
+                           known_catalog_ids: set[str] | None = None,
+                           parent_scenario_graph_cache: str | None = None) -> ConformanceResult:
+    """parent_scenario_graph_cache: the scenario_graph_cache kind an arena
+    declares for the .pdscenario it embeds (None for a standalone scenario).
+    Decides what that kind promises, e.g. the AI control-flow edges."""
     result = ConformanceResult()
     ext = ext.lower()
     descriptor = TYPED_DESCRIPTORS.get(ext)
@@ -8062,6 +8467,19 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                     result.errors.append(
                                         f"{label} level.graph.json has {command_graph_error_count} AI command graph binding errors; first 20 shown"
                                     )
+                                # ai-list-graphs.md slice 1: the control-flow
+                                # edges and flags recomputed from the rows.
+                                # Required when the embedding arena's kind is
+                                # the one that writes them; checked whenever
+                                # the graph carries any.
+                                result.errors.extend(_ai_edge_errors_capped(
+                                    f"{label} level.graph.json",
+                                    ai_list_edge_errors(
+                                        ai_rows, nodes, links,
+                                        require=parent_scenario_graph_cache
+                                        == ARENA_SCENARIO_GRAPH_CACHE_KIND,
+                                    ),
+                                ))
                         for pair in {
                             ("scenario.load", "scenario.pads"),
                             ("scenario.ai.lists", "scenario.ai.action.set_list"),
@@ -8746,13 +9164,25 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         )
 
             if recurse:
+                # An arena's scenario_graph_cache kind is what its embedded
+                # scenario promises (e.g. AI control-flow edges).
+                embedded_scenario_kind = None
+                if ext == ".pdarena" and descriptor in name_set:
+                    embedded_scenario_kind = descriptor_value(
+                        zf.read(descriptor).decode("utf-8", errors="replace"),
+                        "scenario_graph_cache",
+                    )
                 for name in public:
                     nested_ext = Path(name).suffix.lower()
                     if nested_ext in TYPED_DESCRIPTORS:
                         nested = zf.read(name)
                         nested_result = validate_archive_bytes(
                             nested, f"{label}::{name}", nested_ext, recurse=True,
-                            known_catalog_ids=active_catalog_ids
+                            known_catalog_ids=active_catalog_ids,
+                            parent_scenario_graph_cache=(
+                                embedded_scenario_kind
+                                if nested_ext == ".pdscenario" else None
+                            ),
                         )
                         result.extend(nested_result)
     except zipfile.BadZipFile:
@@ -9526,6 +9956,53 @@ def run_selftest() -> int:
             failures.append(
                 f"{name} structured contract accepted invalid source mutation"
             )
+
+    # ai-list-graphs.md: the AI control-flow edge rules on a hand-made list
+    # (repeated label 5, a branch by position, 0x01c0's cmd[2] label, a missing
+    # label, a backward go_to_first and two commands nothing reaches).
+    edge_list = [
+        (AI_OP_LABEL, [5]), (0x000C, [5]), (AI_OP_GO_TO_NEXT, [5]),
+        (AI_OP_LABEL, [5]), (AI_OP_YIELD, []), (0x01C0, [9, 5]),
+        (0x000C, [4]), (AI_OP_LABEL, [9]), (AI_OP_GO_TO_FIRST, [5]),
+        (AI_OP_RETURN, []), (AI_OP_END, []),
+    ]
+    edges, edge_flags = ai_list_control_flow(edge_list)
+    if edges != [
+        (0, 1, "next"), (1, 2, "next"), (1, 3, "branch"), (2, 3, "goto"),
+        (3, 4, "next"), (4, 5, "next"), (5, 6, "next"), (5, 7, "branch"),
+        (6, 7, "next"), (6, 0, "restart"), (7, 8, "next"), (8, 0, "goto"),
+    ]:
+        failures.append(f"AI-EDGES hand-made list edges are wrong: {edges}")
+    if [index for index, flags in enumerate(edge_flags)
+            if "reachable" not in flags] != [9, 10] or \
+            edge_flags[4] != {"yields", "reachable"}:
+        failures.append("AI-EDGES hand-made list flags are wrong")
+    edge_rows = [
+        {"ailist_ref": "ailist_0000", "list_id": "0x0401",
+         "graph_node": f"scenario.ai.ailist_0000.command.{index:04d}",
+         "command_index": index, "opcode": f"0x{opcode:04x}",
+         "operands": [f"0x{value:02x}" for value in operands]}
+        for index, (opcode, operands) in enumerate(edge_list)
+    ]
+    edge_nodes = [{"id": row["graph_node"]} for row in edge_rows]
+    for node, flags in zip(edge_nodes, edge_flags):
+        node.update({flag: True for flag in AI_LIST_NODE_TRUE_FLAGS if flag in flags})
+        if "reachable" not in flags:
+            node["reachable"] = False
+    edge_links = [
+        {"from": edge_rows[source]["graph_node"],
+         "to": edge_rows[target]["graph_node"], "kind": kind}
+        for source, target, kind in edges
+    ]
+    if ai_list_edge_errors(edge_rows, edge_nodes, edge_links, require=True):
+        failures.append("AI-EDGES a graph that matches its rows was refused")
+    if not any("missing restart edge to command 0" in error for error in
+               ai_list_edge_errors(edge_rows, edge_nodes, edge_links[:9] + edge_links[10:],
+                                   require=True)):
+        failures.append("AI-EDGES a missing restart edge was not reported")
+    if ai_list_edge_errors(edge_rows, [{"id": row["graph_node"]} for row in edge_rows],
+                           [], require=False):
+        failures.append("AI-EDGES a graph from before the edges was refused")
 
     if failures:
         print("asset-archive scanner selftest FAILED:", file=sys.stderr)

@@ -153,7 +153,7 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
 	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts\"") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);

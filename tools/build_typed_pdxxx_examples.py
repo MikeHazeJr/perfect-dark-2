@@ -27,7 +27,7 @@ ZIP_TIME = (1980, 1, 1, 0, 0, 0)
 #   ARENA   -> ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND  (port/src/romextract_pdarena.c)
 #   MISSION -> PDMETA_SCENARIO_DEP_CACHE_KIND         (port/src/romextract_pdmeta.c)
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -882,7 +882,7 @@ def update_scenario() -> bytes:
         "    { \"id\": \"scenario.pads\", \"kind\": \"scenario.pads.source\", \"source\": \"pads.json\", \"pads\": 1 },\n"
         "    { \"id\": \"navigation.paths\", \"kind\": \"scenario.navigation.paths.source\", \"source\": \"navigation/paths.json\", \"paths\": 1 },\n"
         "    { \"id\": \"scenario.ai.lists\", \"kind\": \"scenario.ai.lists.source\", \"source\": \"ai/ailists.json\", \"lists\": 1 },\n"
-        "    { \"id\": \"scenario.ai.ailist_0000.command.0000\", \"kind\": \"scenario.ai.command\", \"source\": \"ai/ailists.json\", \"ailist_ref\": \"ailist_0000\", \"list_id\": \"0x0000\", \"command_index\": 0, \"offset\": 0, \"opcode\": \"0x0004\", \"opcode_name\": \"end\", \"semantic_kind\": \"scenario.ai.control.end\" },\n"
+        "    { \"id\": \"scenario.ai.ailist_0000.command.0000\", \"kind\": \"scenario.ai.command\", \"source\": \"ai/ailists.json\", \"ailist_ref\": \"ailist_0000\", \"list_id\": \"0x0000\", \"command_index\": 0, \"offset\": 0, \"opcode\": \"0x0004\", \"opcode_name\": \"end\", \"semantic_kind\": \"scenario.ai.control.end\", \"ends\": true },\n"
         "    { \"id\": \"scenario.global.settings\", \"kind\": \"scenario.global.settings.source\", \"scenario\": \"example:tri_scenario\", \"source\": \"scenario.ini\", \"scene\": \"scene.glb\", \"collision\": \"collision.obj\", \"navigation\": \"navigation.ini\", \"pads\": 1, \"volumes\": 1 },\n"
         "    { \"id\": \"scenario.ai.action.set_list\", \"kind\": \"scenario.ai.action.set_list\", \"source\": \"ai/ailists.json\", \"target\": \"interpreter.ailist\", \"opcode\": \"0x0005\" },\n"
         "    { \"id\": \"scenario.ai.action.set_return_list\", \"kind\": \"scenario.ai.action.set_return_list\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aireturnlist\", \"opcode\": \"0x0006\" },\n"

@@ -44,8 +44,17 @@ TEST_CASE("global AI lists: the extractor writes base:ai_global and the round tr
 	REQUIRE(walker.find("\"ai/global_ailists.json\"") != std::string::npos);
 	// The rows are the ones the slice 1 round trip proved exact.
 	REQUIRE(writer.find("char *json = romExtractGlobalAiListsJson(&lists, &commands);") != std::string::npos);
+	// ai-list-graphs.md slice 1: the lists' control-flow edges ride along as
+	// a second member, named in ai.ini, with as many nodes as rows.
+	REQUIRE(writer.find("#define PDAI_GRAPH_MEMBER \"ai/global_ailists.graph.json\"") != std::string::npos);
+	REQUIRE(writer.find("graph = romExtractGlobalAiListsGraphJson(&graph_nodes, &graph_edges);") != std::string::npos);
+	REQUIRE(writer.find("if (!graph || graph_nodes != commands) {") != std::string::npos);
+	REQUIRE(writer.find("\"ai_lists_graph_file = %s\\n\"") != std::string::npos);
+	REQUIRE(writer.find("assetArchiveWriterAddPublicMem(&writer, PDAI_GRAPH_MEMBER, graph,") != std::string::npos);
+	REQUIRE(header.find("char *romExtractGlobalAiListsGraphJson(u32 *out_nodes, u32 *out_edges);") != std::string::npos);
 	// SP-86: the kind names the writer's output and moves with it.
-	REQUIRE(writer.find("#define PDAI_FAST_CACHE_KIND \"pdai_global_ailists_rows_v1\"") != std::string::npos);
+	REQUIRE(writer.find("#define PDAI_EXTRACT_VERSION \"global_ailists_rows_v2_aiedges\"") != std::string::npos);
+	REQUIRE(writer.find("#define PDAI_FAST_CACHE_KIND \"pdai_global_ailists_rows_v2_aiedges\"") != std::string::npos);
 	REQUIRE(writer.find("romExtractPdFastCacheKindMismatch(PDAI_FAST_CACHE_KIND, ai_dir)") != std::string::npos);
 	REQUIRE(writer.find("romExtractPdFastCacheWrite(PDAI_FAST_CACHE_KIND, ai_dir, \".pdai\");") != std::string::npos);
 

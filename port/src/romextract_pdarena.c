@@ -58,6 +58,7 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "ai_list_edges.h"
 #include "assetcatalog.h"
 #include "asset_archive_writer.h"
 #include "modarchive.h"
@@ -90,7 +91,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -4265,6 +4266,170 @@ static s32 s_appendAiOperandsJsonArray(pdscenario_textbuf_t *out,
 	return 0;
 }
 
+/* context/designs/modding/ai-list-graphs.md: one AI list's commands as its
+ * rows read them (offset, length, opcode and operand bytes), and the
+ * control-flow edges and flags ai_list_edges.c computes from those bytes. */
+typedef struct {
+	ai_list_command_t *commands;
+	u32 *offsets;
+	u32 *lengths;
+	ai_list_edge_t *edges;
+	u8 *flags;
+	u32 count;
+	u32 capacity;
+	u32 edge_count;
+} pdscenario_ai_list_scan_t;
+
+static void s_aiListScanFree(pdscenario_ai_list_scan_t *scan)
+{
+	free(scan->commands);
+	free(scan->offsets);
+	free(scan->lengths);
+	free(scan->edges);
+	free(scan->flags);
+	memset(scan, 0, sizeof(*scan));
+}
+
+static s32 s_aiListScanGrow(pdscenario_ai_list_scan_t *scan)
+{
+	const u32 capacity = scan->capacity ? scan->capacity * 2 : 256;
+	ai_list_command_t *commands;
+	u32 *offsets;
+	u32 *lengths;
+	ai_list_edge_t *edges;
+	u8 *flags;
+
+	commands = (ai_list_command_t *)realloc(scan->commands,
+		(size_t)capacity * sizeof(*commands));
+	if (!commands) {
+		return -1;
+	}
+	scan->commands = commands;
+	offsets = (u32 *)realloc(scan->offsets,
+		(size_t)capacity * sizeof(*offsets));
+	if (!offsets) {
+		return -1;
+	}
+	scan->offsets = offsets;
+	lengths = (u32 *)realloc(scan->lengths,
+		(size_t)capacity * sizeof(*lengths));
+	if (!lengths) {
+		return -1;
+	}
+	scan->lengths = lengths;
+	edges = (ai_list_edge_t *)realloc(scan->edges,
+		(size_t)capacity * AI_LIST_EDGES_PER_COMMAND * sizeof(*edges));
+	if (!edges) {
+		return -1;
+	}
+	scan->edges = edges;
+	flags = (u8 *)realloc(scan->flags, (size_t)capacity * sizeof(*flags));
+	if (!flags) {
+		return -1;
+	}
+	scan->flags = flags;
+	scan->capacity = capacity;
+	return 0;
+}
+
+/* Reads one list as its rows are written: chraiGetCommandLength per command,
+ * up to and including the first AICMD_END, never past max_len bytes. Then
+ * computes the list's edges and flags. require_end refuses a list that runs
+ * out before its end command. Returns 0, or -1 when a command does not fit,
+ * the end is missing, an operand the control flow reads is missing or memory
+ * runs out. */
+static s32 s_aiListScan(const u8 *list, u32 max_len, s32 require_end,
+	pdscenario_ai_list_scan_t *scan)
+{
+	u32 offset = 0;
+	u32 bad_command = 0;
+	s32 ended = 0;
+	ai_list_edges_result_t result;
+
+	scan->count = 0;
+	scan->edge_count = 0;
+	while (offset + 2 <= max_len && scan->count < 65536u) {
+		const u8 *cmd = list + offset;
+		const u16 opcode = (u16)(((u16)cmd[0] << 8) | cmd[1]);
+		const u32 len = chraiGetCommandLength((u8 *)list, offset);
+
+		if (len < 2 || len > max_len - offset) {
+			return -1;
+		}
+		if (scan->count == scan->capacity && s_aiListScanGrow(scan) != 0) {
+			return -1;
+		}
+		scan->commands[scan->count].opcode = opcode;
+		scan->commands[scan->count].operands = cmd + 2;
+		scan->commands[scan->count].operand_len = len - 2;
+		scan->offsets[scan->count] = offset;
+		scan->lengths[scan->count] = len;
+		scan->count++;
+		offset += len;
+		if (opcode == AICMD_END) {
+			ended = 1;
+			break;
+		}
+	}
+	if (require_end && !ended) {
+		return -1;
+	}
+	result = aiListEdgesCompute(scan->commands, scan->count, scan->edges,
+		scan->capacity * AI_LIST_EDGES_PER_COMMAND, &scan->edge_count,
+		scan->flags, &bad_command);
+	if (result != AI_LIST_EDGES_OK) {
+		sysLogPrintf(LOG_WARNING,
+			"romextract: AI list control flow failed at command %u: %s",
+			(unsigned)bad_command, aiListEdgesResultName(result));
+		return -1;
+	}
+	return 0;
+}
+
+/* A command node's control-flow flags (ai-list-graphs.md); reachable is
+ * written only when false. */
+static s32 s_appendAiCommandFlagsJson(pdscenario_textbuf_t *out, u8 flags)
+{
+	if (((flags & AI_LIST_NODE_YIELDS) &&
+			s_textbufAppend(out, ", \"yields\": true") != 0) ||
+			((flags & AI_LIST_NODE_ENDS) &&
+			s_textbufAppend(out, ", \"ends\": true") != 0) ||
+			((flags & AI_LIST_NODE_RETURNS) &&
+			s_textbufAppend(out, ", \"returns\": true") != 0) ||
+			((flags & AI_LIST_NODE_SWITCHES_LIST) &&
+			s_textbufAppend(out, ", \"switches_list\": true") != 0) ||
+			(!(flags & AI_LIST_NODE_REACHABLE) &&
+			s_textbufAppend(out, ", \"reachable\": false") != 0)) {
+		return -1;
+	}
+	return 0;
+}
+
+/* One link per control-flow edge of a list, {from, to, kind}, between its
+ * command nodes (<node_prefix>.command.NNNN). A link opens with ",\n" unless
+ * first is given and set (it is then cleared). */
+static s32 s_appendAiEdgeLinksJson(pdscenario_textbuf_t *out,
+	const char *node_prefix, const pdscenario_ai_list_scan_t *scan,
+	s32 *first)
+{
+	for (u32 e = 0; e < scan->edge_count; e++) {
+		const ai_list_edge_t *edge = &scan->edges[e];
+
+		if (s_textbufAppendf(out,
+				"%s    { \"from\": \"%s.command.%04u\", \"to\": \"%s.command.%04u\", \"kind\": \"%s\" }",
+				first && *first ? "" : ",\n",
+				node_prefix, (unsigned)edge->from,
+				node_prefix, (unsigned)edge->to,
+				aiListEdgeKindName(edge->kind)) != 0) {
+			return -1;
+		}
+		if (first) {
+			*first = 0;
+		}
+	}
+	return 0;
+}
+
 static s32 s_buildAiListsTable(const u8 *data, u32 size,
 	pdscenario_textbuf_t *ai_lists_json,
 	pdscenario_textbuf_t *ai_command_nodes_json,
@@ -4301,28 +4466,35 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 	u32 list_cap = (size - (u32)table_ofs) / (u32)sizeof(struct ailist);
 	u32 list_count = 0;
 	u32 command_count = 0;
+	pdscenario_ai_list_scan_t scan;
 
+	memset(&scan, 0, sizeof(scan));
 	for (u32 i = 0; i < list_cap && i < 16384u; i++) {
 		uintptr_t list_ofs = (uintptr_t)lists[i].list;
 		if (!list_ofs) {
 			break;
 		}
 		if (list_ofs >= size) {
-			return -1;
+			goto fail;
 		}
 
 		const u8 *list = data + list_ofs;
-		u32 max_len = size - (u32)list_ofs;
-		u32 offset = 0;
-		u32 command_index = 0;
+		char list_node_prefix[48];
 
-		while (offset + 2 <= max_len && command_index < 65536u) {
+		/* ai-list-graphs.md: the list's commands, as the rows below read
+		 * them, and the control-flow edges computed from their bytes. */
+		if (s_aiListScan(list, size - (u32)list_ofs, 0, &scan) != 0) {
+			goto fail;
+		}
+		snprintf(list_node_prefix, sizeof(list_node_prefix),
+			"scenario.ai.ailist_%04u", (unsigned)i);
+
+		for (u32 command_index = 0; command_index < scan.count;
+				command_index++) {
+			const u32 offset = scan.offsets[command_index];
+			const u32 len = scan.lengths[command_index];
 			const u8 *cmd = list + offset;
-			u16 opcode = (u16)(((u16)cmd[0] << 8) | cmd[1]);
-			u32 len = chraiGetCommandLength((u8 *)list, offset);
-			if (len < 2 || len > max_len - offset) {
-				return -1;
-			}
+			const u16 opcode = scan.commands[command_index].opcode;
 
 			const char *model_id = "";
 			const char *weapon_id = "";
@@ -4378,7 +4550,7 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 						", \"head_catalog_id\": ") != 0 ||
 					s_textbufAppendJsonString(ai_lists_json, head_id) != 0 ||
 					s_textbufAppend(ai_lists_json, " }") != 0) {
-				return -1;
+				goto fail;
 			}
 
 			if (s_textbufAppend(ai_command_nodes_json,
@@ -4398,6 +4570,8 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 						", \"semantic_kind\": ") != 0 ||
 					s_textbufAppendJsonString(ai_command_nodes_json,
 						semantic_kind) != 0 ||
+					s_appendAiCommandFlagsJson(ai_command_nodes_json,
+						scan.flags[command_index]) != 0 ||
 					s_textbufAppend(ai_command_nodes_json, " }") != 0 ||
 					s_textbufAppend(ai_command_links_json,
 						",\n    { \"from\": \"scenario.ai.lists\", \"to\": ") != 0 ||
@@ -4405,18 +4579,20 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 						graph_node) != 0 ||
 					s_textbufAppend(ai_command_links_json,
 						" }") != 0) {
-				return -1;
+				goto fail;
 			}
 
 			command_count++;
-			offset += len;
-			command_index++;
-			if (opcode == AICMD_END) {
-				break;
-			}
+		}
+		/* The list's control flow: next, branch, goto and restart edges
+		 * between its command nodes, after its list links. */
+		if (s_appendAiEdgeLinksJson(ai_command_links_json, list_node_prefix,
+				&scan, NULL) != 0) {
+			goto fail;
 		}
 		list_count++;
 	}
+	s_aiListScanFree(&scan);
 
 	if (out_lists) *out_lists = list_count;
 	if (out_commands) *out_commands = command_count;
@@ -4424,6 +4600,10 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 		return -1;
 	}
 	return 0;
+
+fail:
+	s_aiListScanFree(&scan);
+	return -1;
 }
 
 /* The global AI lists as public rows. The fields, their order and the
@@ -4530,6 +4710,88 @@ char *romExtractGlobalAiListsJson(u32 *out_lists, u32 *out_commands)
 	return json.data;
 
 fail:
+	s_textbufFree(&json);
+	return NULL;
+}
+
+/* context/designs/modding/ai-list-graphs.md: the global lists' control flow
+ * as a graph (pd2.scenario.ai.graph.v1), the ai/global_ailists.graph.json
+ * member of base:ai_global. Its nodes are the rows' graph_node ids
+ * (romExtractGlobalAiListsJson) with the fields and flags a scenario's
+ * command nodes carry in level.graph.json; its links are the edges between
+ * them, computed from the bytes the rows carry. */
+char *romExtractGlobalAiListsGraphJson(u32 *out_nodes, u32 *out_edges)
+{
+	pdscenario_textbuf_t nodes = { 0 };
+	pdscenario_textbuf_t links = { 0 };
+	pdscenario_textbuf_t json = { 0 };
+	pdscenario_ai_list_scan_t scan;
+	u32 node_count = 0;
+	u32 edge_count = 0;
+	s32 first_link = 1;
+
+	memset(&scan, 0, sizeof(scan));
+	if (out_nodes) *out_nodes = 0;
+	if (out_edges) *out_edges = 0;
+
+	for (u32 i = 0; g_GlobalAilists[i].list != NULL && i < 4096u; i++) {
+		const u16 list_id = (u16)g_GlobalAilists[i].id;
+		char list_node_prefix[48];
+
+		if (s_aiListScan(g_GlobalAilists[i].list, 0x10000u, 1, &scan) != 0) {
+			goto fail;
+		}
+		snprintf(list_node_prefix, sizeof(list_node_prefix),
+			"scenario.ai.global_%04x", (unsigned)list_id);
+		for (u32 c = 0; c < scan.count; c++) {
+			const u16 opcode = scan.commands[c].opcode;
+			const char *opcode_name = s_aiOpcodeName(opcode);
+			char semantic_kind[128];
+
+			s_aiOpcodeSemanticKind(opcode, opcode_name, semantic_kind,
+				sizeof(semantic_kind));
+			if (s_textbufAppendf(&nodes,
+					"%s    { \"id\": \"%s.command.%04u\", \"kind\": \"scenario.ai.command\", \"source\": \"ai/global_ailists.json\", \"ailist_ref\": \"global_%04x\", \"list_id\": \"0x%04x\", \"command_index\": %u, \"offset\": %u, \"opcode\": \"0x%04x\", \"opcode_name\": ",
+					node_count ? ",\n" : "", list_node_prefix, (unsigned)c,
+					(unsigned)list_id, (unsigned)list_id, (unsigned)c,
+					(unsigned)scan.offsets[c], (unsigned)opcode) != 0 ||
+					s_textbufAppendJsonString(&nodes, opcode_name) != 0 ||
+					s_textbufAppend(&nodes, ", \"semantic_kind\": ") != 0 ||
+					s_textbufAppendJsonString(&nodes, semantic_kind) != 0 ||
+					s_appendAiCommandFlagsJson(&nodes, scan.flags[c]) != 0 ||
+					s_textbufAppend(&nodes, " }") != 0) {
+				goto fail;
+			}
+			node_count++;
+		}
+		if (s_appendAiEdgeLinksJson(&links, list_node_prefix, &scan,
+				&first_link) != 0) {
+			goto fail;
+		}
+		edge_count += scan.edge_count;
+	}
+
+	if (s_textbufAppend(&json,
+			"{\n"
+			"  \"schema\": \"pd2.scenario.ai.graph.v1\",\n"
+			"  \"nodes\": [\n") != 0 ||
+			(nodes.data && s_textbufAppend(&json, nodes.data) != 0) ||
+			s_textbufAppend(&json, "\n  ],\n  \"links\": [\n") != 0 ||
+			(links.data && s_textbufAppend(&json, links.data) != 0) ||
+			s_textbufAppend(&json, "\n  ]\n}\n") != 0) {
+		goto fail;
+	}
+	s_aiListScanFree(&scan);
+	s_textbufFree(&nodes);
+	s_textbufFree(&links);
+	if (out_nodes) *out_nodes = node_count;
+	if (out_edges) *out_edges = edge_count;
+	return json.data;
+
+fail:
+	s_aiListScanFree(&scan);
+	s_textbufFree(&nodes);
+	s_textbufFree(&links);
 	s_textbufFree(&json);
 	return NULL;
 }

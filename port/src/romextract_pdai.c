@@ -6,10 +6,19 @@
  * written as one typed archive, ai/base_ai_global.pdai in the data folder:
  *
  *   ai.ini                  [ai_lists] catalog_id = base:ai_global,
- *                           ai_lists_file = ai/global_ailists.json
+ *                           ai_lists_file = ai/global_ailists.json,
+ *                           ai_lists_graph_file = ai/global_ailists.graph.json
  *   ai/global_ailists.json  the pd2.scenario.ai.lists.v1 rows a scenario's
  *                           ai/ailists.json holds (romExtractGlobalAiListsJson,
  *                           the writer the slice 1 round trip proved exact)
+ *   ai/global_ailists.graph.json
+ *                           the lists' control flow, pd2.scenario.ai.graph.v1:
+ *                           one node per row (its graph_node id) and the next,
+ *                           branch, goto and restart edges between them
+ *                           (romExtractGlobalAiListsGraphJson,
+ *                           context/designs/modding/ai-list-graphs.md); the
+ *                           conformance tool recomputes them from the rows,
+ *                           the runtime does not read them yet
  *   _meta/...               the archive metadata (pd_kind ai_lists)
  *
  * The rows come from the binary, not from the ROM, so the archive changes only
@@ -33,20 +42,25 @@
 #define PDAI_ARCHIVE_NAME "base_ai_global.pdai"
 #define PDAI_CATALOG_ID "base:ai_global"
 #define PDAI_ROWS_MEMBER "ai/global_ailists.json"
-#define PDAI_EXTRACT_VERSION "global_ailists_rows_v1"
-#define PDAI_FAST_CACHE_KIND "pdai_global_ailists_rows_v1"
+#define PDAI_GRAPH_MEMBER "ai/global_ailists.graph.json"
+#define PDAI_EXTRACT_VERSION "global_ailists_rows_v2_aiedges"
+#define PDAI_FAST_CACHE_KIND "pdai_global_ailists_rows_v2_aiedges"
 
 #if !defined(PD_SERVER)
 static s32 s_writePdaiArchive(const char *dst_full)
 {
 	u32 lists = 0;
 	u32 commands = 0;
+	u32 graph_nodes = 0;
+	u32 graph_edges = 0;
 	char *json = romExtractGlobalAiListsJson(&lists, &commands);
-	char ini[512];
+	char *graph = NULL;
+	char ini[640];
 	char manifest[768];
 	int ini_len;
 	int manifest_len;
 	u32 json_size;
+	u32 graph_size;
 	mod_archive_writer_t *aw;
 	asset_archive_writer_t writer;
 
@@ -55,17 +69,30 @@ static s32 s_writePdaiArchive(const char *dst_full)
 		return -1;
 	}
 	json_size = (u32)strlen(json);
+	/* ai-list-graphs.md: the lists' control-flow edges, from the same bytes. */
+	graph = romExtractGlobalAiListsGraphJson(&graph_nodes, &graph_edges);
+	if (!graph || graph_nodes != commands) {
+		sysLoudFailf("EXTRACT.PDAI",
+			"the global AI lists' graph could not be written (%u nodes for %u rows)",
+			(unsigned)graph_nodes, (unsigned)commands);
+		free(graph);
+		free(json);
+		return -1;
+	}
+	graph_size = (u32)strlen(graph);
 
 	ini_len = snprintf(ini, sizeof(ini),
 		"[ai_lists]\n"
 		"catalog_id = %s\n"
 		"ai_lists_file = %s\n"
+		"ai_lists_graph_file = %s\n"
 		"list_count = %u\n"
 		"command_count = %u\n"
+		"edge_count = %u\n"
 		"extract_version = %s\n"
 		"source = g_GlobalAilists\n",
-		PDAI_CATALOG_ID, PDAI_ROWS_MEMBER, (unsigned)lists, (unsigned)commands,
-		PDAI_EXTRACT_VERSION);
+		PDAI_CATALOG_ID, PDAI_ROWS_MEMBER, PDAI_GRAPH_MEMBER, (unsigned)lists,
+		(unsigned)commands, (unsigned)graph_edges, PDAI_EXTRACT_VERSION);
 	manifest_len = snprintf(manifest, sizeof(manifest),
 		"{\n"
 		"  \"pd_kind\": \"ai_lists\",\n"
@@ -83,6 +110,7 @@ static s32 s_writePdaiArchive(const char *dst_full)
 	if (ini_len <= 0 || (size_t)ini_len >= sizeof(ini)
 			|| manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
 		sysLoudFailf("EXTRACT.PDAI", "ai.ini or the manifest would be truncated");
+		free(graph);
 		free(json);
 		return -1;
 	}
@@ -90,12 +118,14 @@ static s32 s_writePdaiArchive(const char *dst_full)
 	aw = modArchiveBeginDerived(dst_full);
 	if (!aw) {
 		sysLoudFailf("EXTRACT.PDAI", "modArchiveBegin failed for \"%s\"", dst_full);
+		free(graph);
 		free(json);
 		return -1;
 	}
 	if (assetArchiveWriterInit(&writer, aw, "ai_lists", PDAI_CATALOG_ID) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDAI", "assetArchiveWriterInit failed for \"%s\"", dst_full);
 		modArchiveAbort(aw);
+		free(graph);
 		free(json);
 		return -1;
 	}
@@ -106,19 +136,25 @@ static s32 s_writePdaiArchive(const char *dst_full)
 				!= MODARCHIVE_OK
 			|| assetArchiveWriterAddPublicMem(&writer, PDAI_ROWS_MEMBER, json, json_size,
 				"rows") != MODARCHIVE_OK
+			|| assetArchiveWriterAddPublicMem(&writer, PDAI_GRAPH_MEMBER, graph,
+				graph_size, "graph") != MODARCHIVE_OK
 			|| assetArchiveWriterFinishMetadata(&writer) != MODARCHIVE_OK) {
 		sysLoudFailf("EXTRACT.PDAI", "could not write the members of \"%s\"", dst_full);
 		modArchiveAbort(aw);
+		free(graph);
 		free(json);
 		return -1;
 	}
+	free(graph);
 	free(json);
 	if (modArchiveFinish(aw) != 0) {
 		sysLoudFailf("EXTRACT.PDAI", "modArchiveFinish failed for \"%s\"", dst_full);
 		return -1;
 	}
-	sysLogPrintf(LOG_NOTE, "romextract pdai: base:ai_global %u lists, %u commands, %u bytes of rows",
-		(unsigned)lists, (unsigned)commands, (unsigned)json_size);
+	sysLogPrintf(LOG_NOTE,
+		"romextract pdai: base:ai_global %u lists, %u commands, %u edges, %u bytes of rows",
+		(unsigned)lists, (unsigned)commands, (unsigned)graph_edges,
+		(unsigned)json_size);
 	return 1;
 }
 #endif /* !PD_SERVER */

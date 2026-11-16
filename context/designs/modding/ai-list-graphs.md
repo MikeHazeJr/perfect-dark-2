@@ -2,9 +2,9 @@
 
 Status: CORE, 2026-11-16. Design for the next step of the week note's "AI
 commands and cutscene triggers" row (decision 1: players can recreate any
-existing behavior with the nodes). Not built. The facts below come from a
-read-only survey of `week-pd/core` and the extracted base 7 data on
-2026-11-16.
+existing behavior with the nodes). Slice 1 built (see "Slice 1 as built");
+slices 2-4 not built. The facts below come from a read-only survey of
+`week-pd/core` and the extracted base 7 data on 2026-11-16.
 
 ## Where it stands
 
@@ -108,6 +108,37 @@ read-only survey of `week-pd/core` and the extracted base 7 data on
 3. Twins report outcomes; the interpreter takes edges (play must not change:
    the shadow walk becomes the check that the walker and the bytes agree).
 4. The compiler writes bytes from edges (authoring).
+
+## Slice 1 as built
+
+- `port/src/ai_list_edges.c` (pure, in the client and pd-tests): one list's
+  commands (opcode, operand bytes) in, edges `next` / `branch` / `goto` /
+  `restart` and flags `yields`, `ends`, `returns`, `switches_list`,
+  `reachable` out. A command's edges come next first, then its jump. The
+  branching table is 215 opcodes (every `g_CommandPointers` handler whose
+  native path calls `chraiGoToLabel(g_Vars.ailist, g_Vars.aioffset, cmd[n])`,
+  go_to_next left to the interpreter rules): label byte = the command's last
+  byte except `if_chr_teleport_full_white` 0x01c0 (cmd[2]). pd-tests
+  re-derives the table from `chrai.c`, `chraicommands.c` and
+  `mpaicommands.c` and compares the conformance tool's copy with it.
+- Stage lists: `level.graph.json` command nodes gain the flags (written only
+  when true; `reachable` only when false) and each list's edges follow its
+  `scenario.ai.lists` links as `{from, to, kind}` links. Base 7 rows give
+  79,408 edges (58,325 next, 13,657 branch, 7,422 goto, 4 restart) and 2,578
+  unreachable commands. Scenario kind gains `_aiedges` (SP-86).
+- Global bank: `ai/global_ailists.graph.json` (`pd2.scenario.ai.graph.v1`,
+  `{schema, nodes, links}`, node ids = the rows' `graph_node`), named by
+  `ai.ini ai_lists_graph_file`; extract version and kind
+  `global_ailists_rows_v2_aiedges` / `pdai_global_ailists_rows_v2_aiedges`.
+  The meta walker ignores the extra key and member; the runtime reads only
+  the rows.
+- Conformance recomputes the edges from the rows (`ai_list_control_flow`)
+  and reports every missing, extra or different edge or flag by list and
+  command. A scenario must carry them when its arena's
+  `scenario_graph_cache` is the new kind; a graph with any edge or flag is
+  always checked; one with none and no such kind (older data) is not. A bank
+  must carry its graph from the new extract version; a graph present is
+  always checked.
 
 ## Not in scope
 
