@@ -1,6 +1,12 @@
 # Bug Tracker
 
-## 2026-11-16 B-1204 Objects on scenario-source stages are dropped from 100 units under their pad, so many sit inside a floor or fall to the one below (T-NETWORKING-011, root cause found, not fixed; CORE's code)
+## 2026-11-16 B-1204 Objects on scenario-source stages are dropped from 100 units under their pad, so many sit inside a floor or fall to the one below (T-NETWORKING-011, fixed by CORE)
+
+**Fixed** by CORE on week-pd/core 9a9cfc9f, cherry-picked here as 0ad19dca: each scenario pad keeps its own
+`PADFLAG_HASBBOXDATA` (the ROM's flags in pads.json), so a boxless pad's six box floats stay unread and
+`padUnpack` gives its usual default, so objects stand on their pads again. No re-extraction (every base pad without the bit
+has exactly that default box); a contract pin refuses the forced bit. Game check pending: the objective and
+Combat smokes on base 7 with simulants.
 
 **Root cause (read from data and source, 10:15 UTC):** `s_scenarioPadFlags` (`port/src/scenario_source_runtime.c`)
 sets `PADFLAG_HASBBOXDATA` on every packed pad, and the extractor gives each pad that had no box in the ROM a default
