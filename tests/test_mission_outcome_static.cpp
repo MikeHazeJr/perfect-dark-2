@@ -130,3 +130,22 @@ TEST_CASE("mission flow: every campaign fixture requires the outcome parity line
 		CHECK(text.find("\"outcome parity probe: \",") != std::string::npos);
 	}
 }
+
+TEST_CASE("mission flow and the AI list bank: the release and special-assignment fixtures pin what play showed",
+          "[mission][missionflow][globalailists][smoke-fixtures]")
+{
+	// CORE's turns on 2026-11-16: every mission delivers its active and
+	// complete phases once, and every stage runs the bank's global lists.
+	const struct { const char *path; int missions; } fixtures[] = {
+		{ "tools/smoke-verify/tests/auto_campaign_release.json", 17 },
+		{ "tools/smoke-verify/tests/auto_campaign_specials.json", 4 },
+	};
+	for (const auto &fixture : fixtures) {
+		INFO(fixture.path);
+		const std::string text = readSource(fixture.path);
+		const std::string n = std::to_string(fixture.missions);
+		CHECK(text.find("phase=active\", \"min\": " + n + ", \"max\": " + n + " }") != std::string::npos);
+		CHECK(text.find("phase=complete\", \"min\": " + n + ", \"max\": " + n + " }") != std::string::npos);
+		CHECK(text.find("runs the 46 global lists of 'base:ai_global'\", \"min\": " + n + " }") != std::string::npos);
+	}
+}

@@ -124,6 +124,9 @@
       { "pattern": "CAMPAIGN\\.AUTO: objective flag probe stage_id='base:", "min": 4, "max": 4 },
       { "pattern": "CAMPAIGN\\.AUTO: objective parity probe stage_id='base:", "min": 4, "max": 4 },
       { "pattern": "CAMPAIGN\\.AUTO: outcome parity probe stage_id='base:", "min": 4, "max": 4 },
+      { "pattern": "MISSION\\.GRAPH: event\\.mission\\.phase_changed 'base:mission_[a-z0-9_]+' phase=active", "min": 4, "max": 4 },
+      { "pattern": "MISSION\\.GRAPH: event\\.mission\\.phase_changed 'base:mission_[a-z0-9_]+' phase=complete", "min": 4, "max": 4 },
+      { "pattern": "AI\\.GLOBAL: stage 0x[0-9a-f]+ runs the 46 global lists of 'base:ai_global'", "min": 4 },
       { "pattern": "SCENARIO\\.SOURCE: B-1113 room table 'base:scenario_", "min": 4, "max": 40 },
       { "pattern": "outside_room=0 source=room_lights\\.json", "min": 4, "max": 40 }
     ]
