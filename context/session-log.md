@@ -1,5 +1,22 @@
 # Session Log (Active)
 
+2026-11-16 (07:40 ET) MULTIPLAYER, continued. All pushed (head 8dafe7f0). Lifecycle turn
+q_20261116101215836_0cfaa542 on df1734a2 (db7c8b51, CORE's B-1204 fix cherry-picked), base 7: Combat rejoin 116/116,
+co-op mission end 130/130, first networked Combat score-limit end 75/76 (ends by score limit 1), co-op Deep Sea 120/126
+(Next Mission takes both players into Defense). Two new bugs, both fixed in code in 8dafe7f0 (pd-tests 2,033):
+B-1205, a client refused a simulant's pickup of an item it still had respawning (each machine starts the 20 s wait
+when it learns of the earlier pickup, so the client's ended 0.3 s late and the simulant waiting on the spot took the
+host's copy); objTick's respawn steps are now objTickRegen, and objRegenNow finishes a respawn before either pickup
+replay. B-1206, the host's level script removed 3 Deep Sea chrs that the client kept (its NPC AI never runs), so the
+client refused all 883 NPC snapshots; new SVC_NPC_REMOVE 0x7f in the unreleased v64 (no bump) from chrTick's deleting
+branch, the client removes its copy at once, and a snapshot also removes NPCs it does not name (removals made while
+the client was still loading). SP-85 now covers removals. Re-run queued (q_20261116123806406_e534707d, Combat net
+score-limit, Deep Sea, co-op mission end on 490e8baf = 8dafe7f0); my two B-1204 checks run that binary too.
+Next: read those three turns; then KOH and Pop a Cap local, the rematch smokes, counter-op mission end, co-op retry
+and return, simulant types net, scenario net and reconnect smokes. Waiting: CORE on SP-87 (b) and the B-1203 runner
+change; MODS on UCMD_VEHICLE_BOOST. Open for Mike: Challenges and presets in the Room, co-op player drop
+(T-NETWORKING-007), the co-op AI-buddy entry, SP-87 (b), restoring the real profile (B-1203).
+
 2026-11-16 (04:10 ET) MULTIPLAYER, continued. All pushed (head 80bf07b5). Turn q_20261116064525787_3b2798fb on
 340eca64, base 7: Combat net with simulants 70/70 and Hold the Briefcase net 84/84, with the B-1202 once-per-frame
 line on host and client. Hacker Central local, Capture the Case local and Combat score-limit local each crashed
