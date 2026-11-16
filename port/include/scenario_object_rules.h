@@ -25,6 +25,10 @@ extern "C" {
  *                                 collision checks and is removed below
  *                                 y -30000 (default "crash": collides and
  *                                 explodes on the ground)
+ *   "multiplayer": true           lift and escalator_step rows: kept when
+ *                                 the stage runs in multiplayer, whatever
+ *                                 the row's difficulty and player-count
+ *                                 exclusions (B-228's stage list)
  */
 
 /* At most this many rows of one setup carry a rule. */
@@ -37,6 +41,7 @@ typedef struct scenario_object_rules {
 	s16 engine_hum_sound;          /* 0: the default */
 	s16 thrust_hum_sound;          /* 0: the default */
 	s32 fall_drop;
+	s32 multiplayer_kept;          /* lift / escalator step, see above */
 } scenario_object_rules_t;
 
 /* The rules on setup command `index` of the setup the scenario runtime built

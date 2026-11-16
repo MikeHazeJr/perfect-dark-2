@@ -4817,6 +4817,17 @@ static s32 s_setupReadObjectRules(const char *start, const char *end,
 		rules->coop_excluded = !b;
 		rules->present = 1;
 	}
+	if (s_jsonFindKeyInRange(start, end, "multiplayer")) {
+		if ((record->type != OBJTYPE_LIFT && record->type != OBJTYPE_ESCASTEP) ||
+				!s_jsonReadBoolValue(start, end, "multiplayer", &b)) {
+			s_setupTableSetError(table,
+				"object rule multiplayer needs a lift or escalator_step row and true or false on '%s'",
+				record->id, "");
+			return 0;
+		}
+		rules->multiplayer_kept = b != 0;
+		rules->present = 1;
+	}
 	if (s_jsonFindKeyInRange(start, end, "enemy_rockets_exempt")) {
 		if (record->type != OBJTYPE_WEAPON ||
 				!s_setupReadDifficultyMask(start, end, "enemy_rockets_exempt",
@@ -35508,6 +35519,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s32 coop = 0;
 		s32 rockets = 0;
 		s32 choppers = 0;
+		s32 multiplayer = 0;
 
 		for (s32 i = 0; i < table.count; i++) {
 			ruled += table.records[i].rules.present != 0;
@@ -35535,11 +35547,12 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 			coop += rules->coop_excluded != 0;
 			rockets += rules->enemy_rockets_exempt_mask != 0;
 			choppers += table.records[i].type == OBJTYPE_CHOPPER;
+			multiplayer += rules->multiplayer_kept != 0;
 		}
 		if (ruled) {
 			sysLogPrintf(LOG_NOTE,
-				"SCENARIO.SOURCE: object rules for '%s': %d rows (coop %d, enemy_rockets_exempt %d, chopper %d) source=objects.json",
-				scenario->id, ruled, coop, rockets, choppers);
+				"SCENARIO.SOURCE: object rules for '%s': %d rows (coop %d, enemy_rockets_exempt %d, chopper %d, multiplayer %d) source=objects.json",
+				scenario->id, ruled, coop, rockets, choppers, multiplayer);
 		}
 	}
 	if (!s_setupCollectBehaviorLinkSource(scenario, setup_path, &table)) {

@@ -3816,6 +3816,12 @@ King of the Hill fixed on the room of pad 0, Hold the Briefcase always on
 pad 0). The data gap: the scenario source carries only `INTROCMD_SPAWN` rows
 (`spawns.json`), so no arena has case or hill pads, and 16 of 18 arenas have no
 setup objects.
+- B-1253 (fixed 2026-11-16, `week-pd/core`), the other direction: a bridge for
+  data the old arena setups lacked kept running after the source changed. The
+  SP-in-MP overlay (`setup.c`, B-228) brought a campaign stage's lifts into its
+  arena because the ROM's arena setups had none; on scenario source the arena
+  loads the campaign scenario itself, so the main pass already had them and the
+  overlay created every lift a second time (Infiltration 4 -> 8).
 
 **Rules:**
 - Never `% count` or index a bank without checking the count first; never
@@ -3830,6 +3836,10 @@ setup objects.
   plays on such arenas is Mike's call per mode (approved for Hacker Central).
 - A scenario smoke asserts that its objects were placed on real pads, not only
   that the match started and ended.
+- When what an arena loads changes (ROM setup blob -> scenario source), re-check
+  every bridge that fills in what the old data lacked: once the new data
+  carries it, the bridge duplicates it. A smoke counts the objects the bridge
+  is about.
 
 **Search:**
 - `grep -n "% *g_ScenarioData\|% *data->\|% *count\b" src/game/mplayer/scenarios/*.inc`

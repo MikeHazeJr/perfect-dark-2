@@ -2151,6 +2151,44 @@ static bool setupHovercarWanted(s32 index, s32 withhovercars)
 		&& (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0));
 }
 
+/* What the main pass created of the lifts and escalator steps in
+ * multiplayer, for the SETUP.LIFT log line. */
+struct setuptransportcount {
+	s32 lifts;
+	s32 steps;
+	s32 by_rule;
+};
+
+/* A lift or escalator step in the main pass (object-rules.md). In
+ * multiplayer on a stage built from scenario source, a row with the object
+ * rule "multiplayer": true is kept whatever its difficulty and player-count
+ * exclusions, and every other row takes the usual filter; a ROM stage keeps
+ * B-228's stage list (mptransport_diffflag). */
+static bool setupTransportWanted(struct defaultobj *obj, s32 index, u32 diffflag,
+		u32 mptransport_diffflag, struct setuptransportcount *count)
+{
+	scenario_object_rules_t rules;
+	u32 filter = mptransport_diffflag;
+	bool by_rule = false;
+
+	if (g_Vars.mplayerisrunning && bgUsesScenarioSource()) {
+		by_rule = scenarioSourceSetupRecordRules(index, &rules) && rules.multiplayer_kept;
+		filter = by_rule ? 0 : diffflag;
+	}
+	if ((obj->flags2 & filter) != 0) {
+		return false;
+	}
+	if (g_Vars.mplayerisrunning) {
+		if (obj->type == OBJTYPE_LIFT) {
+			count->lifts++;
+		} else {
+			count->steps++;
+		}
+		count->by_rule += by_rule;
+	}
+	return true;
+}
+
 void setupCreateProps(s32 stagenum)
 {
 	s32 withchrs = !argFindByPrefix(1, "-nochr") && !argFindByPrefix(1, "-noprop");
@@ -2297,9 +2335,15 @@ void setupCreateProps(s32 stagenum)
 			 * with identical stagenum + identical setup blob, so all clients
 			 * end up with the same live lift set.  The existing server-auth
 			 * lift replication path (liftTick + prop sync) handles position
-			 * updates over the wire.  No new messages, no new fields. */
+			 * updates over the wire.  No new messages, no new fields.
+			 *
+			 * Object rules (2026-11-16): on a stage built from scenario
+			 * source this list is the objects.json rule "multiplayer": true
+			 * on lift and escalator step rows (setupTransportWanted); the
+			 * extractor writes it on the lifts and steps of these stages. */
 			u32 mptransport_diffflag = diffflag;
-			if (g_Vars.mplayerisrunning) {
+			struct setuptransportcount mptransport = { 0, 0, 0 };
+			if (g_Vars.mplayerisrunning && !bgUsesScenarioSource()) {
 				switch (g_Vars.stagenum) {
 				case STAGE_CITRAINING:
 				case STAGE_CHICAGO:
@@ -2443,8 +2487,10 @@ void setupCreateProps(s32 stagenum)
 					/* P5 (2026-04-24): use the SP-in-MP relaxed filter so
 					 * CI / Chicago / Villa lifts load when the stage is
 					 * hosted as an MP arena.  For every other stage this
-					 * behaves identically to the old `diffflag` path. */
-					if (withobjs && (obj->flags2 & mptransport_diffflag) == 0) {
+					 * behaves identically to the old `diffflag` path.  On a
+					 * scenario-source stage the row's rule decides. */
+					if (withobjs && setupTransportWanted(obj, index, diffflag,
+							mptransport_diffflag, &mptransport)) {
 						struct liftobj *lift = (struct liftobj *)obj;
 						struct modelstate *modelstate;
 						s32 modelnum = obj->modelnum;
@@ -2581,7 +2627,8 @@ void setupCreateProps(s32 stagenum)
 				case OBJTYPE_ESCASTEP:
 					/* P5 (2026-04-24): same SP-in-MP relax as OBJTYPE_LIFT so
 					 * escalator / fire-escape-step props survive MP host. */
-					if (withobjs && (obj->flags2 & mptransport_diffflag) == 0) {
+					if (withobjs && setupTransportWanted(obj, index, diffflag,
+							mptransport_diffflag, &mptransport)) {
 						struct escalatorobj *step = (struct escalatorobj *)obj;
 						struct prop *prop;
 
@@ -3179,6 +3226,12 @@ void setupCreateProps(s32 stagenum)
 				index++;
 			}
 			sysLogPrintf(LOG_NOTE, "SETUP: prop iteration done (%d objects)", index);
+			if (g_Vars.mplayerisrunning && bgUsesScenarioSource()
+					&& (mptransport.lifts || mptransport.steps)) {
+				sysLogPrintf(LOG_NOTE,
+					"SETUP.LIFT: multiplayer setup created %d lifts and %d escalator steps (%d kept by the objects.json multiplayer rule)",
+					mptransport.lifts, mptransport.steps, mptransport.by_rule);
+			}
 
 			/* B-228 Option E (2026-04-24): SP-in-MP transport-prop overlay.
 			 *
@@ -3203,8 +3256,14 @@ void setupCreateProps(s32 stagenum)
 			 * tracked separately as B-228b.
 			 *
 			 * Stage list: the SP-in-MP class identified by P5 + the 4-23
-			 * readiness audit. Add more as future audits flag them. */
-			if (g_Vars.mplayerisrunning && (
+			 * readiness audit. Add more as future audits flag them.
+			 *
+			 * B-1253 (2026-11-16): a ROM stage only. An arena match on a
+			 * campaign stage built from scenario source loads that stage's
+			 * own scenario (there is no arena-only scenario for it), so the
+			 * main pass has already created its lifts and steps; this pass
+			 * created them a second time from a second copy of the setup. */
+			if (g_Vars.mplayerisrunning && !bgUsesScenarioSource() && (
 					stagenum == STAGE_CITRAINING ||
 					stagenum == STAGE_CHICAGO ||
 					stagenum == STAGE_VILLA ||

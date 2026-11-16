@@ -90,7 +90,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -3131,6 +3131,16 @@ static void s_objectRulesJson(s32 stagenum, u8 type, const u8 *ptr, s32 len,
 	if (type == OBJTYPE_HOVERCAR &&
 			(stagenum == STAGE_EXTRACTION || stagenum == STAGE_DEFECTION)) {
 		snprintf(out, out_n, ",\n      \"coop\": false");
+		return;
+	}
+	/* setup.c (B-228, a port addition): the lifts and escalator steps of
+	 * these single-player stages are kept, whatever their exclusions, when
+	 * the stage runs in multiplayer. */
+	if ((type == OBJTYPE_LIFT || type == OBJTYPE_ESCASTEP) &&
+			(stagenum == STAGE_CITRAINING || stagenum == STAGE_CHICAGO ||
+			stagenum == STAGE_VILLA || stagenum == STAGE_INFILTRATION ||
+			stagenum == STAGE_G5BUILDING || stagenum == STAGE_PELAGIC)) {
+		snprintf(out, out_n, ",\n      \"multiplayer\": true");
 		return;
 	}
 	/* setup.c (Enemy Rockets): the K7 Avenger is kept on Investigation at

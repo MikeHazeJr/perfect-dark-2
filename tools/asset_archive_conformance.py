@@ -135,7 +135,7 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -5723,6 +5723,9 @@ def validate_object_rule_fields(label: str, text: str) -> list[str]:
         where = f"{label} objects.json row {idx} ({row.get('record_id', '?')})"
         if "coop" in row and (kind != "hover_car" or not isinstance(row["coop"], bool)):
             errors.append(f"{where}: coop needs a hover_car row and true or false")
+        if "multiplayer" in row and (kind not in ("lift", "escalator_step")
+                                     or not isinstance(row["multiplayer"], bool)):
+            errors.append(f"{where}: multiplayer needs a lift or escalator_step row and true or false")
         if "enemy_rockets_exempt" in row:
             value = row["enemy_rockets_exempt"]
             if kind != "weapon_pickup" or not isinstance(value, list) or not value \

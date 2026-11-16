@@ -153,7 +153,7 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
 	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas\"") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);
@@ -367,12 +367,16 @@ TEST_CASE("object rules travel on objects.json rows and replace the original's o
 	REQUIRE(extractor.find("catalogReadableSoundRefId(SFX_SHIP_HUM, engine, sizeof(engine));") != std::string::npos);
 	REQUIRE(extractor.find("catalogReadableSoundRefId(SFX_810D, thrust, sizeof(thrust));") != std::string::npos);
 	REQUIRE(extractor.find("use_mp_setup ? -1 : (s32)spec->stagenum") != std::string::npos);
+	REQUIRE(extractor.find("if ((type == OBJTYPE_LIFT || type == OBJTYPE_ESCASTEP) &&\n\t\t\t(stagenum == STAGE_CITRAINING || stagenum == STAGE_CHICAGO ||\n\t\t\tstagenum == STAGE_VILLA || stagenum == STAGE_INFILTRATION ||\n\t\t\tstagenum == STAGE_G5BUILDING || stagenum == STAGE_PELAGIC)) {\n\t\tsnprintf(out, out_n, \",\\n      \\\"multiplayer\\\": true\");") !=
+		std::string::npos);
 
 	// The runtime allows each field only on its kind and keeps the rows by
 	// setup command index.
 	REQUIRE(runtime.find("if (record->type != OBJTYPE_HOVERCAR ||") != std::string::npos);
 	REQUIRE(runtime.find("if (record->type != OBJTYPE_WEAPON ||") != std::string::npos);
 	REQUIRE(runtime.find("if (record->type != OBJTYPE_CHOPPER) {") != std::string::npos);
+	REQUIRE(runtime.find("if ((record->type != OBJTYPE_LIFT && record->type != OBJTYPE_ESCASTEP) ||") != std::string::npos);
+	REQUIRE(runtime.find("rules->multiplayer_kept = b != 0;") != std::string::npos);
 	REQUIRE(runtime.find("s_ObjectRuleRows[s_ObjectRuleRowCount].index = i;") != std::string::npos);
 	REQUIRE(runtime.find("audio.category != AUDIO_CAT_SFX") != std::string::npos);
 
@@ -383,6 +387,25 @@ TEST_CASE("object rules travel on objects.json rows and replace the original's o
 	REQUIRE(setup.find("&& !setupWeaponKeptUnderEnemyRockets(cmdindex)) {") != std::string::npos);
 	REQUIRE(setup.find("|| g_Vars.stagenum != STAGE_INVESTIGATION || lvGetDifficulty() != DIFF_PA) {") != std::string::npos);
 	REQUIRE(setup.find("chopperSetRules(chopper, rules.engine_hum_sound,") != std::string::npos);
+	// B-228's list: the row rule decides on a scenario-source stage in both
+	// transport cases, the list and the SP-in-MP overlay stay a ROM stage's
+	// (B-1253: on scenario source the overlay made every lift twice).
+	REQUIRE(setup.find("by_rule = scenarioSourceSetupRecordRules(index, &rules) && rules.multiplayer_kept;\n\t\tfilter = by_rule ? 0 : diffflag;") !=
+		std::string::npos);
+	{
+		size_t uses = 0;
+		for (size_t at = setup.find("if (withobjs && setupTransportWanted(obj, index, diffflag,");
+				at != std::string::npos;
+				at = setup.find("if (withobjs && setupTransportWanted(obj, index, diffflag,", at + 1)) {
+			uses++;
+		}
+		CHECK(uses == 2);
+	}
+	REQUIRE(setup.find("(obj->flags2 & mptransport_diffflag) == 0") == std::string::npos);
+	REQUIRE(setup.find("if (g_Vars.mplayerisrunning && !bgUsesScenarioSource()) {\n\t\t\t\tswitch (g_Vars.stagenum) {") !=
+		std::string::npos);
+	REQUIRE(setup.find("if (g_Vars.mplayerisrunning && !bgUsesScenarioSource() && (\n\t\t\t\t\tstagenum == STAGE_CITRAINING ||") !=
+		std::string::npos);
 	REQUIRE(propobj.find("soundnum = chopperThrustHum(chopper);") != std::string::npos);
 	REQUIRE(propobj.find("soundnum = chopperEngineHum(chopper);") != std::string::npos);
 	REQUIRE(propobj.find("if (chopperFallsAsDrop(chopper)) {") != std::string::npos);
@@ -394,6 +417,7 @@ TEST_CASE("object rules travel on objects.json rows and replace the original's o
 
 	// The checker knows the fields.
 	REQUIRE(conformance.find("def validate_object_rule_fields(") != std::string::npos);
+	REQUIRE(conformance.find("multiplayer needs a lift or escalator_step row and true or false") != std::string::npos);
 	REQUIRE(conformance.find("OBJECT_RULE_DIFFICULTIES = [\"agent\", \"special_agent\", \"perfect_agent\", \"perfect_dark\"]") !=
 		std::string::npos);
 }
