@@ -3988,8 +3988,21 @@ level scripts commonly act (end the intro, set objectives and stage flags, open
 doors, remove actors). A class fix would keep the reliable game-tick bytes
 across the authority publish and append them after the authority packet (same
 reliable channel, so ENet keeps the order), discarding only the unreliable
-buffer. It changes the T-ENGINE-004 authority frame rule, so it waits for a
-decision.
+buffer.
+
+**Class fix (ded9b22f, 2026-11-16, not yet run; CORE agreed the change and
+gave it to MULTIPLAYER, week note 17:04 UTC):** on (3), `netEndFrame` holds
+the tick's reliable bytes (`netServerAuthorityHoldReliable`) and, once the
+authority packet is out, puts them first in the frame's reliable buffer
+(`netServerAuthorityReleaseHeld`), ahead of the entity broadcast; a client
+applies them after the cutscene state changed, as the host's tick saw them.
+No client handler gates on cutscene state. While the publication retries
+they stay held and later frames' bytes join them in order; the hold is
+emptied only after what was put back went out
+(`netServerAuthorityHeldSettle`), and dropped at a stage boundary or end. A
+full hold (64 KB) drops with a `NET.SP91` warning. (1) and (2) are unchanged.
+Log: `NET.SP91: held N game-tick bytes`, `NET.SP91: N held game-tick bytes go
+out`. Pinned by `[sp91]` in `tests/test_net_mission_end_static.cpp`.
 
 **Rules:**
 - A one-shot reliable message the host decides in the game tick is queued and
@@ -4006,7 +4019,9 @@ decision.
 **Audit checklist:** for each game-tick writer, (a) one-shot or periodic (a
 periodic one is resent next frame), (b) covered by a baseline or snapshot,
 (c) can it run on a frame that publishes authority. Done: `SVC_NPC_REMOVE`
-(queued, B-1206). Open: the rest of the search list.
+(queued, B-1206); every reliable writer for (3) by the class fix. Open: (2),
+a one-shot reliable writer that runs before ACTIVE and is not in the release
+baseline.
 
 ---
 
