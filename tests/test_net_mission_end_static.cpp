@@ -344,7 +344,8 @@ TEST_CASE("co-op chr spawns: a chr the host's AI makes reaches the client with t
 	REQUIRE(main_c.find("sysArgGetString(\"--debug-clone-guard\")") != std::string::npos);
 	const std::string tick = function_body(main_c, "s32 bootDebugCloneGuardTick(void)\n{");
 	REQUIRE(tick.find("if (g_NetMode == NETMODE_CLIENT") != std::string::npos);
-	REQUIRE(tick.find("chrSpawnAtChr(base, base->bodynum, -1, base->chrnum,") != std::string::npos);
+	REQUIRE(tick.find("chrSpawnAtChr(chr, chr->bodynum, -1, chr->chrnum,") != std::string::npos);
+	REQUIRE(tick.find("ailistFindById(GAILIST_IDLE)") != std::string::npos);
 	REQUIRE(code_only(read_text_file("port/src/pdmain.c")).find("(void)bootDebugCloneGuardTick();") != std::string::npos);
 }
 

@@ -3177,8 +3177,12 @@ s32 bootDebugCloneGuardTick(void)
 
 	g_BootDebugCloneGuardFired = 1;
 
-	for (s32 pass = 0; pass < 2 && base == NULL; pass++) {
-		for (s32 i = 0; i < g_NumChrSlots; i++) {
+	/* Each candidate in turn (cloneable guards first) until one has room
+	 * beside it for the clone. */
+	cloneprop = NULL;
+
+	for (s32 pass = 0; pass < 2 && cloneprop == NULL; pass++) {
+		for (s32 i = 0; i < g_NumChrSlots && cloneprop == NULL; i++) {
 			struct chrdata *chr = &g_ChrSlots[i];
 
 			/* Not chrIsDead through a local extern: bool's size depends on
@@ -3189,29 +3193,26 @@ s32 bootDebugCloneGuardTick(void)
 					|| (chr->chrflags & CHRCFLAG_HIDDEN)) {
 				continue;
 			}
-			if (pass == 0 && (chr->chrflags & CHRCFLAG_CLONEABLE) == 0) {
+			if ((pass == 0) != ((chr->chrflags & CHRCFLAG_CLONEABLE) != 0)) {
 				continue;
 			}
 
-			base = chr;
-			break;
+			/* The idle list, not the AI's search list: a clone hunting the
+			 * players could end a smoke's mission before its scripted end.
+			 * What reaches a client (SVC_NPC_SPAWN) is the same either way. */
+			cloneprop = chrSpawnAtChr(chr, chr->bodynum, -1, chr->chrnum,
+				ailistFindById(GAILIST_IDLE), SPAWNFLAG_ALLOWONSCREEN);
+
+			if (cloneprop && cloneprop->chr) {
+				base = chr;
+			} else {
+				cloneprop = NULL;
+			}
 		}
 	}
 
-	if (base == NULL) {
-		sysLogPrintf(LOG_WARNING, "BOOT: --debug-clone-guard found no living guard to clone");
-		return 0;
-	}
-
-	/* The idle list, not the AI's search list: a clone hunting the players
-	 * could end a smoke's mission before its scripted end. What reaches a
-	 * client (SVC_NPC_SPAWN) is the same either way. */
-	cloneprop = chrSpawnAtChr(base, base->bodynum, -1, base->chrnum,
-		ailistFindById(GAILIST_IDLE), SPAWNFLAG_ALLOWONSCREEN);
-
-	if (cloneprop == NULL || cloneprop->chr == NULL) {
-		sysLogPrintf(LOG_WARNING, "BOOT: --debug-clone-guard could not place a clone of chr %d",
-			(s32)base->chrnum);
+	if (base == NULL || cloneprop == NULL) {
+		sysLogPrintf(LOG_WARNING, "BOOT: --debug-clone-guard found no living guard with room for a clone");
 		return 0;
 	}
 
