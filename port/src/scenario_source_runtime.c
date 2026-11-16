@@ -16,6 +16,10 @@
 #include "assetcatalog.h"
 #include "assetcatalog_load.h"
 #include "voice_locale_source.h"
+#include "mission_graph_runner.h"
+#include "mission_graph_modules.h"
+#include "scenario_stage_rules.h"
+#include "scenario_intro.h"
 #include "bss.h"
 #include "game/bondmove.h"
 #include "game/bg.h"
@@ -119,7 +123,12 @@ typedef struct scenario_source_portal_row {
 	u32 flags;
 	s32 vertex_count;
 	struct coord vertices[SCENARIO_SOURCE_PORTAL_MAX_VERTICES];
+	u8 light_rules; /* SCENARIO_PORTAL_RULE_* */
 } scenario_source_portal_row_t;
+
+/* Optional portals.json row rules (see scenarioSourceStageRulesReset). */
+#define SCENARIO_PORTAL_RULE_FLOOD_BLOCKED 0x01u
+#define SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT 0x02u
 
 typedef struct scenario_source_segment_list {
 	u32 *values;
@@ -780,6 +789,12 @@ typedef struct scenario_source_graph_state {
 	s32 level_graph_active;
 	s32 mission_graph_active;
 	s32 mission_objective_runtime_active;
+	/* The executable part of mission.graph.json (decision 2): compiled when
+	 * the mission graph activates. A refused program still owns the events,
+	 * so they run nothing instead of falling back to native code. */
+	mission_graph_program_t *mission_program;
+	s32 mission_program_refused;
+	char mission_program_error[160];
 	s32 mission_objective_insert_logged;
 	s32 mission_objective_evaluate_logged;
 	s32 mission_objective_check_logged;
@@ -1254,6 +1269,7 @@ static void s_resetActiveScenarioGraphs(void)
 	free(s_ActiveScenarioGraphs.level_volumes);
 	free(s_ActiveScenarioGraphs.mission_objectives);
 	free(s_ActiveScenarioGraphs.mission_objective_criteria);
+	missionGraphProgramFree(s_ActiveScenarioGraphs.mission_program);
 	memset(&s_ActiveScenarioGraphs, 0, sizeof(s_ActiveScenarioGraphs));
 }
 
@@ -2757,6 +2773,26 @@ static s32 s_jsonReadS32Value(const char *start, const char *end,
 	return 1;
 }
 
+/* 1 with *out set when key holds JSON true or false; 0 otherwise. */
+static s32 s_jsonReadBoolValue(const char *start, const char *end,
+	const char *key, s32 *out)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+
+	if (!out || !cursor || cursor >= end) {
+		return 0;
+	}
+	if (end - cursor >= 4 && strncmp(cursor, "true", 4) == 0) {
+		*out = 1;
+		return 1;
+	}
+	if (end - cursor >= 5 && strncmp(cursor, "false", 5) == 0) {
+		*out = 0;
+		return 1;
+	}
+	return 0;
+}
+
 static s32 s_jsonReadU32Value(const char *start, const char *end,
 	const char *key, u32 *out)
 {
@@ -3561,7 +3597,13 @@ static s32 s_setupApplyKnownField(scenario_source_setup_table_t *table,
 		slot_base = (u32)offsetof(struct multiammocrateobj, slots)
 			+ index * (u32)sizeof(struct multiammocrateslot);
 		if (strcmp(member, "model") == 0) {
-			if (!s_setupResolveModelnum(catalog_id, &ivalue)) {
+			/* An empty slot (no model id) is model 0, as the setup file has
+			 * it: a multiplayer crate's slots are filled when the match
+			 * starts, so every slot in base content is empty. A named model
+			 * that does not resolve is still refused. */
+			if (!catalog_id || !catalog_id[0]) {
+				ivalue = 0;
+			} else if (!s_setupResolveModelnum(catalog_id, &ivalue)) {
 				return 0;
 			}
 			return s_setupWriteU16(record,
@@ -4837,13 +4879,18 @@ static s32 s_countPathRowsWithFlag(const scenario_source_path_table_t *table,
 
 static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 	scenario_source_spawn_table_t *spawn_table,
+	const scenario_intro_t *intro,
 	scenario_source_ai_table_t *ai_table,
 	scenario_source_path_table_t *path_table,
 	const char *scenario_id, s32 *out_size)
 {
 	u32 intro_offset = (u32)sizeof(struct stagesetup);
 	u32 spawn_count = spawn_table ? (u32)spawn_table->count : 0;
-	u32 intro_size = spawn_count * 3u * (u32)sizeof(s32) + (u32)sizeof(s32);
+	u32 intro_words = intro ? (u32)intro->word_count : 0u;
+	/* The intro script: the spawn pads (spawns.json), then the other intro
+	 * commands (intro.json) in their authored order, then the end. */
+	u32 intro_size = spawn_count * 3u * (u32)sizeof(s32) +
+		intro_words * (u32)sizeof(s32) + (u32)sizeof(s32);
 	u32 props_offset = (intro_offset + intro_size + 3u) & ~3u;
 	u32 props_size = (u32)sizeof(u32);
 	u32 path_count = path_table ? (u32)path_table->count : 0;
@@ -4911,6 +4958,10 @@ static u8 *s_setupBuildStageBlock(scenario_source_setup_table_t *table,
 			memcpy(data + cursor, cmd, sizeof(cmd));
 			cursor += sizeof(cmd);
 		}
+	}
+	if (intro_words) {
+		memcpy(data + cursor, intro->words, (size_t)intro_words * sizeof(s32));
+		cursor += intro_words * (u32)sizeof(s32);
 	}
 	{
 		s32 intro_end = INTROCMD_END;
@@ -6434,6 +6485,17 @@ static scenario_source_portal_row_t *s_parsePortalsJson(char *text,
 			return NULL;
 		}
 		(void)portal_ref;
+		{
+			s32 flag = 0;
+			if (s_jsonReadBoolValue(cursor, object_end + 1,
+					"light_flood_blocked", &flag) && flag) {
+				row.light_rules |= SCENARIO_PORTAL_RULE_FLOOD_BLOCKED;
+			}
+			if (s_jsonReadBoolValue(cursor, object_end + 1,
+					"open_to_light", &flag) && flag) {
+				row.light_rules |= SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT;
+			}
+		}
 		row.room1 = s_parseRoomRef(room_a);
 		row.room2 = s_parseRoomRef(room_b);
 		if (row.room1 <= 0 || row.room2 <= 0 || row.room1 == row.room2) {
@@ -12868,6 +12930,25 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		"MISSION.GRAPH: phase source '%s' phases=%d backend=graph.mission.phase+mission.graph.nodes",
 		s_ActiveScenarioGraphs.mission_graph_path,
 		s_ActiveScenarioGraphs.mission_phase_node_count);
+	s_ActiveScenarioGraphs.mission_program = missionGraphProgramCompile(text,
+		text_size, missionGraphModuleKnown,
+		s_ActiveScenarioGraphs.mission_program_error,
+		sizeof(s_ActiveScenarioGraphs.mission_program_error));
+	if (s_ActiveScenarioGraphs.mission_program) {
+		sysLogPrintf(LOG_NOTE,
+			"MISSION.GRAPH: compiled executable program '%s' nodes=%d exec_edges=%d objective_status_events=%d modules=%d backend=graph.mission.runner",
+			mission->id,
+			missionGraphProgramNodeCount(s_ActiveScenarioGraphs.mission_program),
+			missionGraphProgramExecEdgeCount(s_ActiveScenarioGraphs.mission_program),
+			missionGraphProgramEventNodeCount(s_ActiveScenarioGraphs.mission_program,
+				MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED),
+			missionGraphProgramModuleNodeCount(s_ActiveScenarioGraphs.mission_program));
+	} else {
+		s_ActiveScenarioGraphs.mission_program_refused = 1;
+		sysLogPrintf(LOG_WARNING,
+			"MISSION.GRAPH: refused the executable program of '%s': %s; its events run nothing",
+			mission->id, s_ActiveScenarioGraphs.mission_program_error);
+	}
 	scenarioSourceMissionGraphRecordPhase("load", "mission.graph.activate");
 	free(text);
 
@@ -12877,6 +12958,113 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 s32 scenarioSourceObjectiveGraphIsActive(void)
 {
 	return s_ActiveScenarioGraphs.mission_objective_runtime_active;
+}
+
+s32 scenarioSourceMissionGraphOwnsObjectiveEvents(void)
+{
+	return s_ActiveScenarioGraphs.mission_graph_active &&
+		(s_ActiveScenarioGraphs.mission_program != NULL ||
+			s_ActiveScenarioGraphs.mission_program_refused);
+}
+
+s32 scenarioSourceMissionGraphObjectiveStatusChanged(s32 index, s32 number,
+	s32 status, s32 previous)
+{
+	static const char *const status_names[] = { "incomplete", "complete", "failed" };
+	const char *status_name = status >= 0 && status <= 2 ? status_names[status] : "?";
+	mission_graph_event_t event;
+	s32 ran;
+
+	if (!scenarioSourceMissionGraphOwnsObjectiveEvents()) {
+		return -1;
+	}
+	if (!s_ActiveScenarioGraphs.mission_program) {
+		sysLogPrintf(LOG_WARNING,
+			"MISSION.GRAPH: event.objective.status_changed '%s' objective=%d number=%d status=%s ran nothing: the program was refused (%s)",
+			s_ActiveScenarioGraphs.mission_id, index, number, status_name,
+			s_ActiveScenarioGraphs.mission_program_error);
+		return -1;
+	}
+
+	memset(&event, 0, sizeof(event));
+	event.kind = MISSION_GRAPH_EVENT_OBJECTIVE_STATUS_CHANGED;
+	event.objective_index = index;
+	event.objective_number = number;
+	event.status = status;
+	event.previous_status = previous;
+	if (s_ActiveScenarioGraphs.mission_objectives && index >= 0 &&
+			index < s_ActiveScenarioGraphs.mission_objective_nodes &&
+			s_ActiveScenarioGraphs.mission_objectives[index].graph_node[0]) {
+		event.objective_node = s_ActiveScenarioGraphs.mission_objectives[index].graph_node;
+	}
+
+	ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program,
+		&event, missionGraphModuleRun, NULL);
+	sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+		"MISSION.GRAPH: event.objective.status_changed '%s' objective=%d number=%d node=%s status=%s modules=%d backend=graph.mission.runner",
+		s_ActiveScenarioGraphs.mission_id, index, number,
+		event.objective_node ? event.objective_node : "-", status_name, ran);
+	return ran;
+}
+
+/* Mission events (CORE, 2026-11-15): what a completed mission leads to and
+ * what its completion unlocks run from the mission graph. Ownership is the
+ * same as for objective events: a refused program owns them and runs
+ * nothing, so the caller's default flow applies. */
+s32 scenarioSourceMissionGraphOwnsEvents(void)
+{
+	return scenarioSourceMissionGraphOwnsObjectiveEvents();
+}
+
+s32 scenarioSourceMissionGraphHandlesContinue(void)
+{
+	return scenarioSourceMissionGraphOwnsEvents() &&
+		missionGraphProgramHandlesEvent(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE);
+}
+
+s32 scenarioSourceMissionGraphContinueStartsNextStage(void)
+{
+	return scenarioSourceMissionGraphOwnsEvents() &&
+		missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE, "og.mission.start_next_stage");
+}
+
+s32 scenarioSourceMissionGraphContinueStartsCredits(void)
+{
+	return scenarioSourceMissionGraphOwnsEvents() &&
+		missionGraphProgramEventReachesModule(s_ActiveScenarioGraphs.mission_program,
+			MISSION_GRAPH_EVENT_MISSION_CONTINUE, "og.mission.start_credits");
+}
+
+s32 scenarioSourceMissionGraphMissionEvent(s32 kind, s32 seam)
+{
+	const char *name = kind == MISSION_GRAPH_EVENT_MISSION_COMPLETED ? "completed"
+		: kind == MISSION_GRAPH_EVENT_MISSION_CONTINUE ? "continue" : "?";
+	const char *seam_name = seam == MISSION_GRAPH_SEAM_ENDSCREEN ? "endscreen"
+		: seam == MISSION_GRAPH_SEAM_COOP_STAGE_END ? "coop_stage_end" : "none";
+	mission_graph_event_t event;
+	s32 ran;
+
+	if (!scenarioSourceMissionGraphOwnsEvents()) {
+		return -1;
+	}
+	if (!s_ActiveScenarioGraphs.mission_program) {
+		sysLogPrintf(LOG_WARNING,
+			"MISSION.GRAPH: event.mission.%s '%s' seam=%s ran nothing: the program was refused (%s)",
+			name, s_ActiveScenarioGraphs.mission_id, seam_name,
+			s_ActiveScenarioGraphs.mission_program_error);
+		return -1;
+	}
+	memset(&event, 0, sizeof(event));
+	event.kind = kind;
+	event.seam = seam;
+	ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program,
+		&event, missionGraphModuleRun, NULL);
+	sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
+		"MISSION.GRAPH: event.mission.%s '%s' seam=%s modules=%d backend=graph.mission.runner",
+		name, s_ActiveScenarioGraphs.mission_id, seam_name, ran);
+	return ran;
 }
 
 static s32 s_aiGraphRuntimeFailure(const char *action, const char *reason)
@@ -34485,6 +34673,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	char spawns_path[FS_MAXPATH + 1];
 	char ai_lists_path[FS_MAXPATH + 1];
 	char paths_path[FS_MAXPATH + 1];
+	char intro_path[FS_MAXPATH + 1];
 	u32 text_size;
 	char *setup_text;
 	char *objects_text;
@@ -34495,6 +34684,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	scenario_source_spawn_table_t spawn_table;
 	scenario_source_ai_table_t ai_table;
 	scenario_source_path_table_t path_table;
+	scenario_intro_t intro;
 	u8 *setup_data;
 	const char *stageid;
 
@@ -34523,6 +34713,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	memset(&spawn_table, 0, sizeof(spawn_table));
 	memset(&ai_table, 0, sizeof(ai_table));
 	memset(&path_table, 0, sizeof(path_table));
+	memset(&intro, 0, sizeof(intro));
 	if (!s_setupParseFieldsJson(setup_text, &table)) {
 		sysLogPrintf(LOG_ERROR,
 			"SCENARIO.SOURCE: invalid public setup.fields.json for '%s': %s",
@@ -34578,6 +34769,37 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	}
 	free(spawns_text);
 
+	/* The rest of the intro script (intro.json): what the player starts
+	 * with and the multiplayer placements. Optional, an authored scenario
+	 * may have none; an unreadable one stops the stage like spawns.json. */
+	memset(&intro, 0, sizeof(intro));
+	intro_path[0] = '\0';
+	if (s_scenarioMemberPath(scenario, "intro.json", intro_path, sizeof(intro_path))) {
+		char *intro_text = s_loadOptionalText(intro_path, &text_size);
+		if (intro_text) {
+			char intro_error[192];
+			const s32 intro_ok = scenarioIntroParse(intro_text, text_size,
+				s_setupResolveWeaponnum, &intro, intro_error, sizeof(intro_error));
+			free(intro_text);
+			if (!intro_ok) {
+				sysLogPrintf(LOG_ERROR,
+					"SCENARIO.SOURCE: invalid public intro.json for '%s': %s",
+					scenario->id, intro_error);
+				s_setupFreeTable(&table);
+				s_spawnFreeTable(&spawn_table);
+				s_freePathTable(&path_table);
+				s_aiFreeTable(&ai_table);
+				return NULL;
+			}
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: intro for '%s': rows=%d weapons=%d ammo=%d outfits=%d watch_times=%d cases=%d case_respawns=%d hills=%d legacy=%d source=intro.json",
+				scenario->id, intro.row_count, intro.counts.weapons,
+				intro.counts.ammo, intro.counts.outfits, intro.counts.watch_times,
+				intro.counts.cases, intro.counts.case_respawns, intro.counts.hills,
+				intro.counts.legacy);
+		}
+	}
+
 	paths_text = NULL;
 	if (s_scenarioPathsPath(scenario, paths_path, sizeof(paths_path))) {
 		paths_text = s_loadOptionalText(paths_path, &text_size);
@@ -34590,6 +34812,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	if (!s_loadPathSourceRows(paths_text, &path_table)) {
@@ -34602,6 +34825,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	free(paths_text);
@@ -34618,6 +34842,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	if (!s_loadAiListSourceJson(ai_text, &ai_table)) {
@@ -34629,6 +34854,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 	free(ai_text);
@@ -34642,10 +34868,11 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		s_spawnFreeTable(&spawn_table);
 		s_freePathTable(&path_table);
 		s_aiFreeTable(&ai_table);
+		scenarioIntroFree(&intro);
 		return NULL;
 	}
 
-	setup_data = s_setupBuildStageBlock(&table, &spawn_table, &ai_table,
+	setup_data = s_setupBuildStageBlock(&table, &spawn_table, &intro, &ai_table,
 		&path_table, scenario->id, out_size);
 	stageid = (stage && stage->entry && stage->entry->id[0])
 		? stage->entry->id : "?";
@@ -34669,6 +34896,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	s_spawnFreeTable(&spawn_table);
 	s_freePathTable(&path_table);
 	s_aiFreeTable(&ai_table);
+	scenarioIntroFree(&intro);
 	return setup_data;
 }
 
@@ -34979,6 +35207,225 @@ u8 *scenarioSourceLoadTilesForStage(const catalog_stage_result_t *stage,
 	return data;
 }
 
+/*
+ * Per-stage room and portal rules (decision 1, CORE, 2026-11-15): the
+ * optional rule fields of the stage's rooms.json and portals.json rows. They
+ * replace the stage checks the game kept in roomInitLights and the light
+ * setup (src/game/dlights.c), the room matrix (src/game/room.c) and the
+ * portal-less screen test (src/game/bg.c), which still apply to a stage built
+ * from the ROM background instead of scenario source. The portal table fills the portal
+ * rules and the room table the room rules, each clearing its own first, so a
+ * stage never sees the previous stage's rules.
+ */
+typedef struct {
+	u8 render_always;
+	u8 sky;                 /* drawn relative to the player (roomPopulateMtx) */
+	u8 all_lights_unshootable;
+	s16 base_brightness;    /* -1: keep the base level roomInitLights derives */
+	u64 unshootable_lights; /* bit n: light n of the room */
+} scenario_stage_room_rule_t;
+
+static scenario_stage_room_rule_t *s_StageRoomRules;
+static s32 s_StageRoomRuleCount;
+static u8 *s_StagePortalRules;
+static s32 s_StagePortalRuleCount;
+
+static void s_stageRoomRulesClear(void)
+{
+	free(s_StageRoomRules);
+	s_StageRoomRules = NULL;
+	s_StageRoomRuleCount = 0;
+}
+
+static void s_stagePortalRulesClear(void)
+{
+	free(s_StagePortalRules);
+	s_StagePortalRules = NULL;
+	s_StagePortalRuleCount = 0;
+}
+
+/* Stage-wide rules from stage.json (decision 3), loaded with the stage's
+ * scenario tables and dropped with the other stage rules. */
+static scenario_stage_rules_t s_StageWideRules;
+
+void scenarioSourceStageRulesReset(void)
+{
+	s_stageRoomRulesClear();
+	s_stagePortalRulesClear();
+	memset(&s_StageWideRules, 0, sizeof(s_StageWideRules));
+}
+
+s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
+	s32 prefer_mp)
+{
+	const asset_entry_t *scenario;
+	char path[FS_MAXPATH + 1];
+	char error[192];
+	u32 text_size = 0;
+	char *text;
+	s32 ok;
+
+	memset(&s_StageWideRules, 0, sizeof(s_StageWideRules));
+	scenario = s_findScenarioForStage(stage, prefer_mp);
+	if (!scenario || !scenario->id[0] ||
+			!s_scenarioMemberPath(scenario, "stage.json", path, sizeof(path))) {
+		return 0;
+	}
+	text = s_loadOptionalText(path, &text_size);
+	if (!text) {
+		return 0; /* an authored scenario may have no stage-wide rules */
+	}
+	ok = scenarioStageRulesParse(text, text_size, &s_StageWideRules, error,
+		sizeof(error));
+	free(text);
+	if (!ok) {
+		sysLogPrintf(LOG_WARNING,
+			"SCENARIO.SOURCE: stage.json of '%s' refused: %s; the stage runs without stage-wide rules",
+			scenario->id, error);
+		return -1;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d coop_spawn_distance=%.0f no_dark_room_lists=%d outcome_unknown=%d hub=%d stars=%d source=stage.json",
+		scenario->id, s_StageWideRules.weather.present,
+		s_StageWideRules.weather.rooms_have_weather ? "weather_rooms" : "dry_rooms",
+		s_StageWideRules.weather.room_count,
+		s_StageWideRules.weather.cutscene_only,
+		s_StageWideRules.weather.has_wind_direction,
+		s_StageWideRules.player.present,
+		scenarioStageOutfitName(s_StageWideRules.player.perfect_agent_outfit)
+			? scenarioStageOutfitName(s_StageWideRules.player.perfect_agent_outfit) : "-",
+		scenarioStageOutfitName(s_StageWideRules.player.disguise_outfit)
+			? scenarioStageOutfitName(s_StageWideRules.player.disguise_outfit) : "-",
+		s_StageWideRules.player.disguise_untargetable,
+		(double)s_StageWideRules.player.coop_spawn_distance,
+		s_StageWideRules.ai.no_dark_room_lists,
+		s_StageWideRules.ending.outcome_unknown,
+		s_StageWideRules.hub.present && s_StageWideRules.hub.hub,
+		s_StageWideRules.stars.present ? s_StageWideRules.stars.count : 0);
+	return 1;
+}
+
+s32 scenarioSourceStageWeather(scenario_stage_weather_t *out)
+{
+	if (!s_StageWideRules.weather.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.weather;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStagePlayer(scenario_stage_player_t *out)
+{
+	if (!s_StageWideRules.player.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.player;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageAi(scenario_stage_ai_t *out)
+{
+	if (!s_StageWideRules.ai.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.ai;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageIsHub(void)
+{
+	return s_StageWideRules.hub.present && s_StageWideRules.hub.hub;
+}
+
+s32 scenarioSourceStageStars(struct scenario_stage_stars *out)
+{
+	if (!s_StageWideRules.stars.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.stars;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageEnding(scenario_stage_ending_t *out)
+{
+	if (!s_StageWideRules.ending.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.ending;
+	}
+	return 1;
+}
+
+static const scenario_stage_room_rule_t *s_stageRoomRule(s32 roomnum)
+{
+	if (!s_StageRoomRules || roomnum <= 0 || roomnum >= s_StageRoomRuleCount) {
+		return NULL;
+	}
+	return &s_StageRoomRules[roomnum];
+}
+
+s32 scenarioSourceRoomRenderAlways(s32 roomnum)
+{
+	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
+	return rule && rule->render_always;
+}
+
+s32 scenarioSourceRoomSky(s32 roomnum)
+{
+	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
+	return rule && rule->sky;
+}
+
+s32 scenarioSourceRoomBaseBrightness(s32 roomnum, s32 *out_level)
+{
+	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
+
+	if (!rule || rule->base_brightness < 0) {
+		return 0;
+	}
+	if (out_level) {
+		*out_level = rule->base_brightness;
+	}
+	return 1;
+}
+
+s32 scenarioSourceRoomLightUnshootable(s32 roomnum, s32 lightindex)
+{
+	const scenario_stage_room_rule_t *rule = s_stageRoomRule(roomnum);
+
+	if (!rule || lightindex < 0) {
+		return 0;
+	}
+	if (rule->all_lights_unshootable) {
+		return 1;
+	}
+	return lightindex < 64 &&
+		(rule->unshootable_lights & ((u64)1 << lightindex)) != 0;
+}
+
+s32 scenarioSourcePortalBlocksLightFlood(s32 portalnum)
+{
+	return s_StagePortalRules && portalnum >= 0 &&
+		portalnum < s_StagePortalRuleCount &&
+		(s_StagePortalRules[portalnum] & SCENARIO_PORTAL_RULE_FLOOD_BLOCKED) != 0;
+}
+
+s32 scenarioSourcePortalOpenToLight(s32 portalnum)
+{
+	return s_StagePortalRules && portalnum >= 0 &&
+		portalnum < s_StagePortalRuleCount &&
+		(s_StagePortalRules[portalnum] & SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT) != 0;
+}
+
 struct bgportal *scenarioSourceLoadPortalsForStage(
 	const catalog_stage_result_t *stage, s32 prefer_mp, s32 room_count,
 	s32 *out_count)
@@ -34998,6 +35445,7 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 	if (out_count) {
 		*out_count = 0;
 	}
+	s_stagePortalRulesClear();
 
 	scenario = s_findScenarioForStage(stage, prefer_mp);
 	if (!scenario || !scenario->id[0] ||
@@ -35086,6 +35534,33 @@ struct bgportal *scenarioSourceLoadPortalsForStage(
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.SOURCE: compiled portals.json '%s' for stage '%s' as %d portals across %d rooms (%u bytes)",
 		portals_path, stageid, row_count, room_count, (unsigned)total_size);
+
+	/* The portal light rules, by the same index as the portal table. */
+	if (row_count > 0) {
+		s32 flood_blocked = 0;
+		s32 open_to_light = 0;
+
+		s_StagePortalRules = (u8 *)calloc((size_t)row_count, 1);
+		if (!s_StagePortalRules) {
+			sysLogPrintf(LOG_ERROR,
+				"SCENARIO.SOURCE: no memory for the portal light rules of '%s'",
+				scenario->id);
+		} else {
+			s_StagePortalRuleCount = row_count;
+			for (s32 i = 0; i < row_count; i++) {
+				s_StagePortalRules[i] = rows[i].light_rules;
+				flood_blocked += (rows[i].light_rules &
+					SCENARIO_PORTAL_RULE_FLOOD_BLOCKED) != 0;
+				open_to_light += (rows[i].light_rules &
+					SCENARIO_PORTAL_RULE_OPEN_TO_LIGHT) != 0;
+			}
+			if (flood_blocked || open_to_light) {
+				sysLogPrintf(LOG_NOTE,
+					"SCENARIO.SOURCE: portal light rules for stage '%s': light_flood_blocked=%d open_to_light=%d source=portals.json",
+					stageid, flood_blocked, open_to_light);
+			}
+		}
+	}
 
 	if (out_count) {
 		*out_count = row_count;
@@ -35638,6 +36113,112 @@ u8 *scenarioSourceLoadRoomLightsForStage(const catalog_stage_result_t *stage,
 	return data;
 }
 
+/* A JSON array of at most cap integers under key: 1 with *out_count set when
+ * it is well formed (an empty list included), 0 otherwise. */
+static s32 s_jsonReadIntList(const char *start, const char *end,
+	const char *key, s32 *out, s32 cap, s32 *out_count)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	s32 count = 0;
+
+	if (!out || !out_count || !cursor || cursor >= end || *cursor != '[') {
+		return 0;
+	}
+	cursor++;
+	for (;;) {
+		char *next;
+		long value;
+
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
+		}
+		if (cursor >= end) {
+			return 0;
+		}
+		if (*cursor == ']') {
+			break;
+		}
+		if (count >= cap) {
+			return 0;
+		}
+		value = strtol(cursor, &next, 0);
+		if (next == cursor || next > end) {
+			return 0;
+		}
+		out[count++] = (s32)value;
+		cursor = next;
+		while (cursor < end && isspace((unsigned char)*cursor)) {
+			cursor++;
+		}
+		if (cursor < end && *cursor == ',') {
+			cursor++;
+			continue;
+		}
+		if (cursor < end && *cursor == ']') {
+			break;
+		}
+		return 0;
+	}
+	*out_count = count;
+	return 1;
+}
+
+/* The optional rule fields of one rooms.json row. A field that is present but
+ * not usable is left out and counted in *refused. */
+static void s_readRoomRuleFields(const char *obj_open, const char *obj_close,
+	scenario_stage_room_rule_t *rule, s32 *refused)
+{
+	s32 flag;
+	s32 level;
+	s32 lights[64];
+	s32 light_count;
+
+	if (s_jsonValueAfterKey(obj_open, obj_close, "render_always")) {
+		if (s_jsonReadBoolValue(obj_open, obj_close, "render_always", &flag)) {
+			rule->render_always = flag ? 1 : 0;
+		} else {
+			(*refused)++;
+		}
+	}
+	if (s_jsonValueAfterKey(obj_open, obj_close, "sky")) {
+		if (s_jsonReadBoolValue(obj_open, obj_close, "sky", &flag)) {
+			rule->sky = flag ? 1 : 0;
+		} else {
+			(*refused)++;
+		}
+	}
+	if (s_jsonValueAfterKey(obj_open, obj_close, "base_brightness")) {
+		if (s_jsonReadS32Value(obj_open, obj_close, "base_brightness", &level)
+				&& level >= 0 && level <= 255) {
+			rule->base_brightness = (s16)level;
+		} else {
+			(*refused)++;
+		}
+	}
+	if (s_jsonValueAfterKey(obj_open, obj_close, "lights_unshootable")) {
+		if (s_jsonReadBoolValue(obj_open, obj_close, "lights_unshootable",
+				&flag)) {
+			rule->all_lights_unshootable = flag ? 1 : 0;
+		} else {
+			(*refused)++;
+		}
+	}
+	if (s_jsonValueAfterKey(obj_open, obj_close, "unshootable_lights")) {
+		if (s_jsonReadIntList(obj_open, obj_close, "unshootable_lights",
+				lights, 64, &light_count)) {
+			for (s32 i = 0; i < light_count; i++) {
+				if (lights[i] >= 0 && lights[i] < 64) {
+					rule->unshootable_lights |= (u64)1 << lights[i];
+				} else {
+					(*refused)++;
+				}
+			}
+		} else {
+			(*refused)++;
+		}
+	}
+}
+
 /*
  * B-1113: apply the authored room boxes from the rooms.json sidecar
  * (schema pd2.scenario.rooms.v1) emitted by the pdarena extractor.
@@ -35667,10 +36248,12 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 	s32 applied = 0;
 	s32 rejected = 0;
 	s32 brightness_rooms = 0;
+	s32 rules_refused = 0;
 
 	if (out_brightness_rooms) {
 		*out_brightness_rooms = 0;
 	}
+	s_stageRoomRulesClear();
 	if (!rooms || room_count <= 1) {
 		return 0;
 	}
@@ -35706,6 +36289,21 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 			scenario->id, bounds_path);
 		free(text);
 		return -1;
+	}
+
+	/* The rooms' render and light rules (see scenarioSourceStageRulesReset):
+	 * a room no row names, or whose row sets none, keeps the defaults. */
+	s_StageRoomRules = (scenario_stage_room_rule_t *)calloc((size_t)room_count,
+		sizeof(*s_StageRoomRules));
+	if (!s_StageRoomRules) {
+		sysLogPrintf(LOG_ERROR,
+			"SCENARIO.SOURCE: no memory for the room rules of '%s'",
+			scenario->id);
+	} else {
+		s_StageRoomRuleCount = room_count;
+		for (s32 r = 0; r < room_count; r++) {
+			s_StageRoomRules[r].base_brightness = -1;
+		}
 	}
 
 	/* Row objects are the only '{' after "rows", as in room_lights.json. */
@@ -35766,11 +36364,37 @@ s32 scenarioSourceApplyRoomTableForStage(const catalog_stage_result_t *stage,
 				brightness_rooms++;
 			}
 		}
+
+		if (s_StageRoomRules) {
+			s_readRoomRuleFields(obj_open, obj_close,
+				&s_StageRoomRules[roomnum], &rules_refused);
+		}
 	}
 
 	free(text);
 	if (out_brightness_rooms) {
 		*out_brightness_rooms = brightness_rooms;
+	}
+
+	if (s_StageRoomRules) {
+		s32 render_always = 0;
+		s32 sky = 0;
+		s32 base_brightness = 0;
+		s32 unshootable = 0;
+
+		for (s32 r = 1; r < s_StageRoomRuleCount; r++) {
+			render_always += s_StageRoomRules[r].render_always != 0;
+			sky += s_StageRoomRules[r].sky != 0;
+			base_brightness += s_StageRoomRules[r].base_brightness >= 0;
+			unshootable += s_StageRoomRules[r].all_lights_unshootable != 0 ||
+				s_StageRoomRules[r].unshootable_lights != 0;
+		}
+		if (render_always || sky || base_brightness || unshootable || rules_refused) {
+			sysLogPrintf(rules_refused ? LOG_WARNING : LOG_NOTE,
+				"SCENARIO.SOURCE: room rules for '%s': render_always=%d sky=%d base_brightness=%d unshootable_light_rooms=%d refused=%d source=rooms.json",
+				scenario->id, render_always, sky, base_brightness, unshootable,
+				rules_refused);
+		}
 	}
 
 	if (rejected > 0) {

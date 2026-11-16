@@ -4,6 +4,7 @@
 #include "system.h"
 #include "../lib/naudio/n_sndp.h"
 #include "game/camdraw.h"
+#include "game/endscreen.h"
 #include "game/game_006900.h"
 #include "game/body.h"
 #include "game/objectives.h"
@@ -4543,7 +4544,7 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 					transitiontotype = MENUDIALOGTYPE_DEFAULT;
 				}
 
-				if (g_StageIndex == STAGEINDEX_DEFENSE
+				if (endscreenStageOutcomeUnknown()
 						&& g_MenuData.bg != MENUBG_FAILURE
 						&& g_MenuData.nextbg != MENUBG_FAILURE) {
 					transitiontotype = MENUDIALOGTYPE_WHITE;
@@ -4564,7 +4565,7 @@ void dialogTick(struct menudialog *dialog, struct menuinputs *inputs, u32 tickfl
 	} else {
 		// Mid-transition
 		if (g_MenuData.root == MENUROOT_ENDSCREEN
-				&& g_StageIndex == STAGEINDEX_DEFENSE
+				&& endscreenStageOutcomeUnknown()
 				&& g_MenuData.bg != MENUBG_FAILURE
 				&& g_MenuData.nextbg != MENUBG_FAILURE
 				&& dialog->type2 != 0) {
@@ -6235,7 +6236,7 @@ u32 menuChooseMusic(void)
 {
 	s32 missionsuccess = MUSIC_MISSION_SUCCESS;
 
-	if (g_StageIndex == STAGEINDEX_DEFENSE) {
+	if (endscreenStageOutcomeUnknown()) {
 		missionsuccess = MUSIC_MISSION_UNKNOWN;
 	}
 

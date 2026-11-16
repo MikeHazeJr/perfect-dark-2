@@ -171,9 +171,11 @@ TEST_CASE("rooms take their authored brightness range from the room table",
 	const std::string bg = readSource("src/game/bg.c");
 	const std::string lights = readSource("src/game/dlights.c");
 
-	REQUIRE(extractor.find("\"\\\"brightness\\\": [%u, %u] }\",") != std::string::npos);
+	// The row ends with the pair; the optional room rules follow it and then
+	// the row is closed (see test_stage_light_rules_static.cpp).
+	REQUIRE(extractor.find("\"\\\"brightness\\\": [%u, %u]\",") != std::string::npos);
 	REQUIRE(extractor.find("(unsigned)rooms[r].br_light_min,") != std::string::npos);
-	REQUIRE(extractor.find("(unsigned)rooms[r].br_light_max) != 0) {") != std::string::npos);
+	REQUIRE(extractor.find("(unsigned)rooms[r].br_light_max) != 0 ||") != std::string::npos);
 
 	// A pair outside 0..255 or with the minimum above the maximum is ignored.
 	REQUIRE(runtime.find("&& brightness[0] >= 0 && brightness[0] <= 255") != std::string::npos);
@@ -213,5 +215,5 @@ TEST_CASE("the archive checker knows the room table member",
 	REQUIRE(conformance.find("\"rooms.json\",      # authored BG room table sidecar (B-1113)") !=
 		std::string::npos);
 	REQUIRE(conformance.find("\"rooms.json\": slot(") != std::string::npos);
-	REQUIRE(conformance.find("_objoperands_b1111_roomtable_b1113_b1114_b1115\"") != std::string::npos);
+	REQUIRE(conformance.find("_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars\"") != std::string::npos);
 }

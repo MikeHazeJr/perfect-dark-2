@@ -4980,6 +4980,8 @@ typedef struct generated_render_row {
 	s32 vertex_cache_slots[3];
 	s32 slot_first;
 	s32 slot_count;
+	/* B-1154: a texture row's scale, s in the high half, t in the low. */
+	u32 texture_scale;
 } generated_render_row_t;
 
 typedef struct generated_render_stream {
@@ -5444,9 +5446,12 @@ static s32 s_debugForceChrPrim(void)
 	return cached;
 }
 
+/* texture_scale: the RSP texture scale, s in the high half and t in the low
+ * (0xffffffff when the source stream names none; B-1154). */
 static void emitGeneratedTextureMarker(Gfx **gdlptr,
                                        const obj_material_t *material,
-                                       s32 preserve_inherited_combine)
+                                       s32 preserve_inherited_combine,
+                                       u32 texture_scale)
 {
 	Gfx *gdl;
 	u32 w0;
@@ -5487,10 +5492,12 @@ static void emitGeneratedTextureMarker(Gfx **gdlptr,
 		 * cycle/combine state. Type3 bodies need their stock two-cycle env lift, and
 		 * schema-v2 streams may pair exact geometry-state changes with a Type-specific
 		 * combine. Only enable/load the texture here; do not replace that node state. */
-		gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
+		gSPTexture(gdl++, (texture_scale >> 16) & 0xffffu,
+			texture_scale & 0xffffu, 0, G_TX_RENDERTILE, G_ON);
 	} else {
 		gDPSetCycleType(gdl++, G_CYC_1CYCLE);
-		gSPTexture(gdl++, 0xffff, 0xffff, 0, G_TX_RENDERTILE, G_ON);
+		gSPTexture(gdl++, (texture_scale >> 16) & 0xffffu,
+			texture_scale & 0xffffu, 0, G_TX_RENDERTILE, G_ON);
 		gDPSetCombineMode(gdl++, G_CC_MODULATEIA, G_CC_MODULATEIA);
 	}
 
@@ -7006,7 +7013,7 @@ static s32 generatedModeldefReadRenderStream(const modasset_model_inputs_t *inpu
 			}
 		}
 		if (op == MODASSET_RENDER_OP_TRI &&
-				schema_version >= MODASSET_RENDER_STREAM_SCHEMA_CURRENT) {
+				schema_version >= MODASSET_RENDER_STREAM_SCHEMA_VERTEX_CACHE) {
 			if (!jsonObjectU32Array3(object, "vertex_cache_slots",
 						cache_slots)) {
 				free(copy);
@@ -7046,6 +7053,18 @@ static s32 generatedModeldefReadRenderStream(const modasset_model_inputs_t *inpu
 				return -1;
 			}
 			row.geometry_mask = geometry_mask;
+		}
+		if (op == MODASSET_RENDER_OP_TEXTURE) {
+			u32 scale_s = 0;
+			u32 scale_t = 0;
+			if (!jsonObjectU32(object, "scale_s", &scale_s) ||
+					!jsonObjectU32(object, "scale_t", &scale_t) ||
+					scale_s > 0xffffu || scale_t > 0xffffu) {
+				free(copy);
+				generatedRenderStreamFree(stream);
+				return -1;
+			}
+			row.texture_scale = (scale_s << 16) | scale_t;
 		}
 		if (!generatedRenderStreamGrow(stream, 1)) {
 			free(copy);
@@ -7702,6 +7721,10 @@ static s32 generatedModeldefBuildPayload(const modasset_model_inputs_t *inputs, 
 
 	emitted = 0;
 	if (use_render_stream) {
+		/* B-1154: the source list's texture scale. Each list starts at the
+		 * texture loader's own default (tex.c appends 0xffff when a list loads
+		 * a texture without a G_TEXTURE of its own). */
+		u32 stream_texture_scale = 0xffffffffu;
 		for (s32 i = 0, last_material = -2, last_textured = 0,
 				last_matrix = -0x40000000, last_render_class = PDMESH_RC_OPAQUE; i < stream->row_count; i++) {
 			const generated_render_row_t *row = &stream->rows[i];
@@ -7711,6 +7734,17 @@ static s32 generatedModeldefBuildPayload(const modasset_model_inputs_t *inputs, 
 			s32 tri_matrix;
 
 			if (!generatedRenderRowUsesGroup(row, group_name)) {
+				continue;
+			}
+
+			if (row->op == MODASSET_RENDER_OP_TEXTURE) {
+				stream_texture_scale = row->texture_scale;
+				/* A scale change after a texture load applies to the vertices
+				 * that follow it, as on the RSP. */
+				if (last_textured) {
+					gSPTexture(gdl++, (stream_texture_scale >> 16) & 0xffffu,
+						stream_texture_scale & 0xffffu, 0, G_TX_RENDERTILE, G_ON);
+				}
 				continue;
 			}
 
@@ -7781,7 +7815,7 @@ static s32 generatedModeldefBuildPayload(const modasset_model_inputs_t *inputs, 
 					material = &mesh->materials[row->material];
 					if (objMaterialHasTexture(material)) {
 						emitGeneratedTextureMarker(&gdl, material,
-							preserve_inherited_combine);
+							preserve_inherited_combine, stream_texture_scale);
 						last_textured = 1;
 					} else if (last_textured) {
 						emitGeneratedUntexturedState(&gdl,
@@ -7843,7 +7877,7 @@ static s32 generatedModeldefBuildPayload(const modasset_model_inputs_t *inputs, 
 							tri->material_index != last_material) {
 						if (objMaterialHasTexture(material)) {
 							emitGeneratedTextureMarker(&gdl, material,
-								preserve_inherited_combine);
+								preserve_inherited_combine, stream_texture_scale);
 							last_textured = 1;
 						} else if (last_textured) {
 							emitGeneratedUntexturedState(&gdl,
@@ -7908,7 +7942,7 @@ static s32 generatedModeldefBuildPayload(const modasset_model_inputs_t *inputs, 
 					if (r == 0 && tri->material_index != last_material) {
 						if (objMaterialHasTexture(material)) {
 							emitGeneratedTextureMarker(&gdl, material,
-								preserve_inherited_combine);
+								preserve_inherited_combine, 0xffffffffu);
 							last_textured = 1;
 						} else if (last_textured) {
 							emitGeneratedUntexturedState(&gdl,
@@ -8443,7 +8477,7 @@ static s32 generatedRenderStreamContractValid(
 				u32 expected_mode = state->mode;
 				u32 expected_known = state->known;
 				if (stream->schema_version >=
-						MODASSET_RENDER_STREAM_SCHEMA_CURRENT) {
+						MODASSET_RENDER_STREAM_SCHEMA_VERTEX_CACHE) {
 					s32 slot = render->vertex_cache_slots[corner];
 					if (slot < 0 ||
 							slot >= MODASSET_RENDER_VERTEX_CACHE_SLOTS ||
@@ -9071,7 +9105,7 @@ static s32 buildGeneratedModeldefFromMesh(const modasset_model_inputs_t *inputs,
 		uintptr_t offset = (uintptr_t)(i * 3 * (s32)sizeof(Vtx));
 		if (tri->material_index != last_material) {
 			if (objMaterialHasTexture(material)) {
-				emitGeneratedTextureMarker(&gdl, material, 0);
+				emitGeneratedTextureMarker(&gdl, material, 0, 0xffffffffu);
 				last_textured = 1;
 			} else if (last_textured) {
 				emitGeneratedUntexturedState(&gdl, 0);

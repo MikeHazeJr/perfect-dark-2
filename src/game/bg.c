@@ -151,6 +151,26 @@ s32 g_BgUsingScenarioSource = 0;
 static struct colmesh *g_BgScenarioSourceMesh = NULL;
 static char g_BgScenarioSourceId[CATALOG_ID_LEN];
 
+s32 bgUsesScenarioSource(void)
+{
+	return g_BgUsingScenarioSource;
+}
+
+/* The first room at or after `from` that the stage's scenario source marks
+ * render_always (rooms.json), or -1. bgRenderScene draws these first. */
+static s32 bgNextScenarioRenderAlwaysRoom(s32 from)
+{
+	s32 r;
+
+	for (r = from > 1 ? from : 1; r < g_Vars.roomcount; r++) {
+		if (scenarioSourceRoomRenderAlways(r)) {
+			return r;
+		}
+	}
+
+	return -1;
+}
+
 void bgUnpausePropsInRoom(u32 roomnum, bool tintedglassonly)
 {
 	struct prop *prop;
@@ -1090,9 +1110,13 @@ Gfx *bgRenderScene(Gfx *gdl)
 
 	// Render special "always on" rooms, such as the Defection moon,
 	// Attack Ship planet, and other sky tricks that are implemented as rooms
+	// A stage built from scenario source names them with render_always on its
+	// rooms.json rows (the same rooms roomInitLights flags); the stage checks
+	// stay for a stage built from the ROM background.
 	if (!sourcebg
 			&& !USINGDEVICE(DEVICE_NIGHTVISION) && !USINGDEVICE(DEVICE_IRSCANNER)
-			&& (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
+			&& (g_BgUsingScenarioSource ? bgNextScenarioRenderAlwaysRoom(1) >= 0 :
+				(stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
 				|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
 				|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
 				|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id
@@ -1102,13 +1126,15 @@ Gfx *bgRenderScene(Gfx *gdl)
 				|| stagenum == g_Stages[STAGEINDEX_EXTRACTION].id
 				|| stagenum == g_Stages[STAGEINDEX_MBR].id
 				|| stagenum == g_Stages[STAGEINDEX_TEST_OLD].id
-				|| stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id)) {
+				|| stagenum == g_Stages[STAGEINDEX_ATTACKSHIP].id))) {
 		gdl = envStopFog(gdl);
 		gdl = vi0000ab78(gdl);
 
 		roomnum = -1;
 
-		if (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
+		if (g_BgUsingScenarioSource) {
+			// Each render_always room is drawn below, after the stars.
+		} else if (stagenum == g_Stages[STAGEINDEX_INFILTRATION].id
 				|| stagenum == g_Stages[STAGEINDEX_RESCUE].id
 				|| stagenum == g_Stages[STAGEINDEX_ESCAPE].id
 				|| stagenum == g_Stages[STAGEINDEX_MAIANSOS].id) {
@@ -1126,14 +1152,18 @@ Gfx *bgRenderScene(Gfx *gdl)
 			roomnum = 0x71;
 		}
 
-		/* M0.1a: catalog-first stage identity comparison */
+		/* M0.1a: catalog-first stage identity comparison. Decision 1: a stage
+		 * built from scenario source draws its stars when its stage.json has
+		 * a stars rule. */
 		if (PLAYERCOUNT() == 1
-				&& (strcmp(g_MissionConfig.stage_id, "base:defection") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:extraction") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:test_old") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:infiltration") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:escape") == 0
-					|| strcmp(g_MissionConfig.stage_id, "base:attackship") == 0)) {
+				&& (bgUsesScenarioSource()
+					? scenarioSourceStageStars(NULL) != 0
+					: (strcmp(g_MissionConfig.stage_id, "base:defection") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:extraction") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:test_old") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:infiltration") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:escape") == 0
+						|| strcmp(g_MissionConfig.stage_id, "base:attackship") == 0))) {
 			gdl = text0f153628(gdl);
 
 			gSPMatrix(gdl++, osVirtualToPhysical(camGetOrthogonalMtxL()), G_MTX_NOPUSH | G_MTX_LOAD | G_MTX_PROJECTION);
@@ -1145,7 +1175,16 @@ Gfx *bgRenderScene(Gfx *gdl)
 			gdl = vi0000ab78(gdl);
 		}
 
-		if (roomnum != -1) {
+		if (g_BgUsingScenarioSource) {
+			for (roomnum = bgNextScenarioRenderAlwaysRoom(1); roomnum >= 0;
+					roomnum = bgNextScenarioRenderAlwaysRoom(roomnum + 1)) {
+				if (!g_Rooms[roomnum].loaded240) {
+					bgLoadRoom(roomnum);
+				}
+
+				gdl = bgRenderRoomOpaque(gdl, roomnum);
+			}
+		} else if (roomnum != -1) {
 			if (!g_Rooms[roomnum].loaded240) {
 				bgLoadRoom(roomnum);
 			}
@@ -1382,6 +1421,7 @@ static s32 bgTryActivateScenarioSourceBackground(const catalog_stage_result_t *s
 	g_BgUsingScenarioSource = 0;
 	g_BgScenarioSourceMesh = NULL;
 	g_BgScenarioSourceId[0] = '\0';
+	scenarioSourceStageRulesReset();
 	scenarioSceneRendererDeactivate();
 
 	scenario = scenarioSourceFindEntryForStage(stage, prefer_mp);
@@ -1663,6 +1703,10 @@ static void bgBuildScenarioSourceTables(s32 stagenum)
 			if (verts[j]->z > g_Rooms[room].bbmax[2]) g_Rooms[room].bbmax[2] = verts[j]->z;
 		}
 	}
+
+	/* Decision 3: the stage-wide rules of the stage's stage.json (weather
+	 * first), read before the stage's weather and sky are set up. */
+	scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);
 
 	/* B-1113: the authored room boxes decide which room a pad is in, and so
 	 * whether the props placed on it exist at all. A box derived from a room's
@@ -2644,6 +2688,7 @@ void bgStop(void)
 	g_BgUsingScenarioSource = 0;
 	g_BgScenarioSourceMesh = NULL;
 	g_BgScenarioSourceId[0] = '\0';
+	scenarioSourceStageRulesReset();
 	scenarioSceneRendererDeactivate();
 	mtx00016748(1);
 }
@@ -6619,11 +6664,15 @@ void bgTickPortals(void)
 		if (!g_BgRoomTestsDisabled) {
 			if (g_BgPortals[0].verticesoffset == 0) {
 				for (room = 1; room < g_Vars.roomcount; room++) {
+					// A sky room is left out of the screen test. A stage built
+					// from scenario source names its sky rooms in rooms.json;
+					// the stage checks stay for a stage built from the ROM.
 					if (bgRoomIntersectsScreenBox(room, &box)
-							&& ((g_StageIndex != STAGEINDEX_INFILTRATION && g_StageIndex != STAGEINDEX_RESCUE && g_StageIndex != STAGEINDEX_ESCAPE) || room != 0xf)
-							&& (g_StageIndex != STAGEINDEX_SKEDARRUINS || room != 0x02)
-							&& ((g_StageIndex != STAGEINDEX_DEFECTION && g_StageIndex != STAGEINDEX_EXTRACTION) || room != 0x01)
-							&& (g_StageIndex != STAGEINDEX_ATTACKSHIP || room != 0x71)) {
+							&& (g_BgUsingScenarioSource ? !scenarioSourceRoomSky(room) :
+								(((g_StageIndex != STAGEINDEX_INFILTRATION && g_StageIndex != STAGEINDEX_RESCUE && g_StageIndex != STAGEINDEX_ESCAPE) || room != 0xf)
+								&& (g_StageIndex != STAGEINDEX_SKEDARRUINS || room != 0x02)
+								&& ((g_StageIndex != STAGEINDEX_DEFECTION && g_StageIndex != STAGEINDEX_EXTRACTION) || room != 0x01)
+								&& (g_StageIndex != STAGEINDEX_ATTACKSHIP || room != 0x71)))) {
 						bgSetRoomOnscreen(room, 0, &box);
 					}
 				}
