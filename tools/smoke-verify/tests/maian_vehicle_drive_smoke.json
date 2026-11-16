@@ -1,7 +1,16 @@
 {
   "scenario_name": "maian_vehicle_drive_smoke",
-  "description": "Maian vehicle V2 (week PD 2026-11-15/16): the Maian hover vehicle mod, made by the in-game mod author from dev-mods/maian_hover_vehicle/recipe.json (the original example vehicle plus the final model: build_vehicle_mesh.py from the cleaned-up Tripo model, vertex-coloured, with the turret's yaw and pitch parts, 18 ring seats and the crystal toggles; nothing in it comes from the base game), is placed in place of the stage's hoverbike (--debug-swap-vehicle) and driven (--debug-mount-bike). Proves the mod vehicle's own typed model loads in its private model slot (PDVEHICLE.MODEL, no FIX-B.2 model failure), is created at the hoverbike's world scale (VEHICLE.SWAP scale line) and drives on the mod's physics (no VEHICLE.SOURCE loud fail while accelerating and steering). The screenshots show the final model; boost, heat, the gunner seat and the turret come in later steps. Runs on CI training (--launch-mission 0x26), not Escape: Escape starts with the player pushing the hover bed (grab mode, as in the original; B-1159, not a bug), and the mount hook and the on-foot wait need walk mode. CI training forces Agent Select open after its intro until a game file is chosen there (loading an agent from the command line does not count), then opens the main menu: the smoke stages the smoke agent profile in the portable save folder, skips the intro, loads the agent through Agent Select and closes the main menu with Back, all with injected actions, which do not need window focus.",
-  "tags": ["vehicle", "modding", "mod-author", "pdvehicle", "recipe", "gameplay", "maian-vehicle", "pillar:modding"],
+  "description": "Maian vehicle V2 (week PD 2026-11-15/16): the Maian hover vehicle mod, made by the in-game mod author from dev-mods/maian_hover_vehicle/recipe.json (the original example vehicle plus the final model: build_vehicle_mesh.py from the cleaned-up Tripo model, vertex-coloured, with the turret's yaw and pitch parts, 18 ring seats and the crystal toggles; nothing in it comes from the base game), is placed in place of the stage's hoverbike (--debug-swap-vehicle) and driven (--debug-mount-bike). Proves the mod vehicle's own typed model loads in its private model slot (PDVEHICLE.MODEL, no FIX-B.2 model failure), is created at the hoverbike's world scale (VEHICLE.SWAP scale line) and drives on the mod's physics (no VEHICLE.SOURCE loud fail while accelerating and steering). The screenshots show the final model; boost, heat, the gunner seat and the turret come in later steps. Runs on Escape (--launch-mission base:escape), where the hoverbike is beside the start: on CI training the bike is in the hangar, outside the stage's active props near the player, so the mount hook never found it. Escape starts with the player pushing the hover bed (grab mode, as in the original; B-1159, not a bug): after the intro is skipped, one direct-activate press (ACTION_VEHICLE_USE, E) lets go of it, and the mount hook, which waits for walk mode, fires.",
+  "tags": [
+    "vehicle",
+    "modding",
+    "mod-author",
+    "pdvehicle",
+    "recipe",
+    "gameplay",
+    "maian-vehicle",
+    "pillar:modding"
+  ],
   "paths_of_interest": [
     "dev-mods/maian_hover_vehicle/recipe.json",
     "dev-mods/maian_hover_vehicle/build_vehicle_mesh.py",
@@ -15,20 +24,58 @@
   "verbose": 0,
   "timeout_seconds": 300,
   "install_state": "clean",
-  "remove_paths": ["mods/Vehicles/vehicle_maian_hover"],
+  "remove_paths": [
+    "mods/Vehicles/vehicle_maian_hover"
+  ],
   "fixtures": [
-    { "src": "dev-mods/maian_hover_vehicle/recipe.json", "dst": "mod-recipes/maian_hover_vehicle/recipe.json" },
-    { "src": "dev-mods/maian_hover_vehicle/template/tri_vehicle.pdvehicle", "dst": "mod-recipes/maian_hover_vehicle/template/tri_vehicle.pdvehicle" },
-    { "src": "dev-mods/maian_hover_vehicle/template/tri_mesh.pdmesh", "dst": "mod-recipes/maian_hover_vehicle/template/tri_mesh.pdmesh" },
-    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/mesh.ini", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/mesh.ini" },
-    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.obj", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.obj" },
-    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.mtl", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.mtl" },
-    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.nodes.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.nodes.json" },
-    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.parts.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.parts.json" },
-    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.faces.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.faces.json" },
-    { "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.render.json", "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.render.json" },
-    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent_smoke.json" },
-    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+    {
+      "src": "dev-mods/maian_hover_vehicle/recipe.json",
+      "dst": "mod-recipes/maian_hover_vehicle/recipe.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/template/tri_vehicle.pdvehicle",
+      "dst": "mod-recipes/maian_hover_vehicle/template/tri_vehicle.pdvehicle"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/template/tri_mesh.pdmesh",
+      "dst": "mod-recipes/maian_hover_vehicle/template/tri_mesh.pdmesh"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/mesh.ini",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/mesh.ini"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.obj",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.obj"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.mtl",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.mtl"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.nodes.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.nodes.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.parts.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.parts.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.faces.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.faces.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.render.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.render.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/behavior/variables.json",
+      "dst": "mod-recipes/maian_hover_vehicle/behavior/variables.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
   ],
   "boot_args": [
     "--no-update-check",
@@ -38,14 +85,20 @@
     "--mod-author",
     "mod-recipes/maian_hover_vehicle/recipe.json",
     "--launch-mission",
-    "0x26",
+    "base:escape",
     "--debug-swap-vehicle",
     "mod:vehicle_maian_hover",
     "--debug-mount-bike"
   ],
   "screenshots": [
-    { "at_ms": 18800, "name": "maian-vehicle-accelerating" },
-    { "at_ms": 20600, "name": "maian-vehicle-steering" }
+    {
+      "at_ms": 10800,
+      "name": "maian-vehicle-accelerating"
+    },
+    {
+      "at_ms": 12600,
+      "name": "maian-vehicle-steering"
+    }
   ],
   "input_sequence": [
     {
@@ -53,14 +106,14 @@
       "type": "wait_until",
       "condition": "cutscene_skip_ready",
       "timeout_ms": 150000,
-      "comment": "CI training is live and its camera intro is playing."
+      "comment": "Escape is live and its intro is playing."
     },
     {
       "at_ms": 0,
       "type": "action",
       "name": "ACTION_SKIP_CUTSCENE",
       "action": "press",
-      "comment": "Skip the intro. CI training then forces Agent Select open (no game file chosen yet)."
+      "comment": "Skip the intro. The stage then has the player grab the hover bed."
     },
     {
       "at_ms": 900,
@@ -71,19 +124,12 @@
     {
       "at_ms": 8000,
       "type": "action",
-      "name": "ACTION_USE",
+      "name": "ACTION_VEHICLE_USE",
       "action": "tap",
-      "comment": "Agent Select accept: loads the staged smoke agent, the only profile, then the main menu opens."
+      "comment": "Let go of the hover bed: a direct activate in grab mode drops it and gives walk mode back. Only once: a second press could grab it again."
     },
     {
-      "at_ms": 16000,
-      "type": "action",
-      "name": "ACTION_CANCEL_USE",
-      "action": "tap",
-      "comment": "Back on the main menu's top level closes it into CI training free roam and gives control back."
-    },
-    {
-      "at_ms": 17000,
+      "at_ms": 9000,
       "type": "wait_until",
       "condition": "offline_gameplay_ready",
       "timeout_ms": 45000,
@@ -91,7 +137,7 @@
       "comment": "Player 0 is on foot with control, so the armed mount hook can fire."
     },
     {
-      "at_ms": 17000,
+      "at_ms": 9000,
       "type": "wait_until",
       "condition": "vehicle_driver_ready",
       "timeout_ms": 60000,
@@ -99,32 +145,32 @@
       "comment": "Player 0 is mounted on the Maian vehicle and driving through LAYER_VEHICLE_DRIVER."
     },
     {
-      "at_ms": 18000,
+      "at_ms": 10000,
       "type": "action",
       "name": "ACTION_VEHICLE_ACCELERATE",
       "action": "press",
       "comment": "Accelerate: the movement path looks the vehicle's physics up by its model number."
     },
     {
-      "at_ms": 19400,
+      "at_ms": 11400,
       "type": "action",
       "name": "ACTION_VEHICLE_ACCELERATE",
       "action": "release"
     },
     {
-      "at_ms": 19600,
+      "at_ms": 11600,
       "type": "action",
       "name": "ACTION_VEHICLE_STEER_RIGHT",
       "action": "press"
     },
     {
-      "at_ms": 20800,
+      "at_ms": 12800,
       "type": "action",
       "name": "ACTION_VEHICLE_STEER_RIGHT",
       "action": "release"
     },
     {
-      "at_ms": 22000,
+      "at_ms": 14000,
       "type": "exit",
       "comment": "Scripted exit after driving."
     }
@@ -137,13 +183,9 @@
       "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:vehicle_maian_hover",
       "PDVEHICLE\\.MODEL: id=mod:vehicle_maian_hover model=mod:vehicle_maian_hover__\\S+ modelnum=\\d+ filenum=\\d+",
       "BOOT: --no-net set; netInit\\(\\) skipped",
-      "BOOT: --launch-mission '0x26' -> stagenum=0x26",
+      "BOOT: --launch-mission 'base:escape' -> stagenum=",
       "BOOT: --debug-mount-bike armed",
       "BOOT: --debug-swap-vehicle mod:vehicle_maian_hover armed",
-      "MENUPOOL: acquired agent_select",
-      "AGENT\\.SESSION: activation committed name='smoke' source=json",
-      "MENUPOOL: acquired main_menu",
-      "MENU_IMGUI: main menu CLOSE via ESC/B \\(top-level -> CI free-roam\\)",
       "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
       "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_maian_hover\\)",
       "VEHICLE\\.SWAP: modelnum \\d+ takes the world scale of modelnum 58 \\(409/4096\\)",
@@ -158,7 +200,6 @@
       "FATAL: ",
       "SMOKE: result=timeout",
       "LOUDFAIL\\.LOAD: .*unrecoverable",
-      "AGENT\\.SESSION: activation rejected",
       "MODAUTHOR\\.[A-Z.]*FAIL",
       "PDVEHICLE\\.MODEL\\.REJECT",
       "PDVEHICLE\\.MODEL: .*cannot be placed",
@@ -169,7 +210,11 @@
       "CATALOG-FATAL"
     ],
     "required_counts": [
-      { "pattern": "VEHICLE: mounted", "min": 1, "max": 1 }
+      {
+        "pattern": "VEHICLE: mounted",
+        "min": 1,
+        "max": 1
+      }
     ]
   }
 }

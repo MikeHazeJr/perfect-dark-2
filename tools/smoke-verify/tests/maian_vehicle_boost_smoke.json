@@ -1,0 +1,247 @@
+{
+  "scenario_name": "maian_vehicle_boost_smoke",
+  "description": "Maian vehicle V3 (Mike 2026-11-16): boost and heat. The Maian hover vehicle mod (built by the in-game mod author from dev-mods/maian_hover_vehicle/recipe.json, with behavior/variables.json, pd.vehicle_variables.v1) replaces CI training's hoverbike and is driven. Holding the new mappable boost action (ACTION_VEHICLE_BOOST, Shift / controller A) ramps the boost to full in about 1 s; after about 4 s of boost the crystals overheat: the seafoam crystal part (140) is hidden so the black ones inside it show, boost drops to its cap, steering is limited briefly and the turret is locked (logged until V5 reads it); letting go recovers the crystals in 2 to 4 s depending on speed. Runs on Escape (--launch-mission base:escape), where the hoverbike is beside the start: on CI training the bike is in the hangar, outside the stage's active props near the player, so the mount hook never found it. Escape starts with the player pushing the hover bed (grab mode, as in the original; B-1159, not a bug): after the intro is skipped, one direct-activate press (ACTION_VEHICLE_USE, E) lets go of it, and the mount hook, which waits for walk mode, fires. Screenshots: full boost, black crystals, recovering, cool.",
+  "tags": [
+    "vehicle",
+    "modding",
+    "mod-author",
+    "pdvehicle",
+    "recipe",
+    "gameplay",
+    "maian-vehicle",
+    "vehicle-boost",
+    "pillar:modding"
+  ],
+  "paths_of_interest": [
+    "dev-mods/maian_hover_vehicle/behavior/variables.json",
+    "port/src/vehicle_boost_heat.c",
+    "port/src/vehicle_boost_runtime.c",
+    "port/src/asset_runtime.c",
+    "src/game/propobj.c",
+    "src/game/bondbike.c",
+    "port/src/actionmap.cpp"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/Vehicles/vehicle_maian_hover"
+  ],
+  "fixtures": [
+    {
+      "src": "dev-mods/maian_hover_vehicle/recipe.json",
+      "dst": "mod-recipes/maian_hover_vehicle/recipe.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/template/tri_vehicle.pdvehicle",
+      "dst": "mod-recipes/maian_hover_vehicle/template/tri_vehicle.pdvehicle"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/template/tri_mesh.pdmesh",
+      "dst": "mod-recipes/maian_hover_vehicle/template/tri_mesh.pdmesh"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/mesh.ini",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/mesh.ini"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.obj",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.obj"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.mtl",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.mtl"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.nodes.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.nodes.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.parts.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.parts.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.faces.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.faces.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/meshes/vehicle/model.render.json",
+      "dst": "mod-recipes/maian_hover_vehicle/meshes/vehicle/model.render.json"
+    },
+    {
+      "src": "dev-mods/maian_hover_vehicle/behavior/variables.json",
+      "dst": "mod-recipes/maian_hover_vehicle/behavior/variables.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--mod-author",
+    "mod-recipes/maian_hover_vehicle/recipe.json",
+    "--launch-mission",
+    "base:escape",
+    "--debug-swap-vehicle",
+    "mod:vehicle_maian_hover",
+    "--debug-mount-bike"
+  ],
+  "screenshots": [
+    {
+      "at_ms": 12000,
+      "name": "maian-boost-full"
+    },
+    {
+      "at_ms": 15400,
+      "name": "maian-crystals-black"
+    },
+    {
+      "at_ms": 17000,
+      "name": "maian-crystals-recovering"
+    },
+    {
+      "at_ms": 22500,
+      "name": "maian-crystals-cool"
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "cutscene_skip_ready",
+      "timeout_ms": 150000,
+      "comment": "Escape is live and its intro is playing."
+    },
+    {
+      "at_ms": 0,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "press",
+      "comment": "Skip the intro. The stage then has the player grab the hover bed."
+    },
+    {
+      "at_ms": 900,
+      "type": "action",
+      "name": "ACTION_SKIP_CUTSCENE",
+      "action": "release"
+    },
+    {
+      "at_ms": 8000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_USE",
+      "action": "tap",
+      "comment": "Let go of the hover bed: a direct activate in grab mode drops it and gives walk mode back. Only once: a second press could grab it again."
+    },
+    {
+      "at_ms": 9000,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 45000,
+      "stable_ms": 500,
+      "comment": "Player 0 is on foot with control, so the armed mount hook can fire."
+    },
+    {
+      "at_ms": 9000,
+      "type": "wait_until",
+      "condition": "vehicle_driver_ready",
+      "timeout_ms": 60000,
+      "stable_ms": 1000,
+      "comment": "Player 0 is mounted on the Maian vehicle and driving through LAYER_VEHICLE_DRIVER."
+    },
+    {
+      "at_ms": 10000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "press",
+      "comment": "Drive forward, so the input line and the speed-scaled recovery have speed."
+    },
+    {
+      "at_ms": 10500,
+      "type": "action",
+      "name": "ACTION_VEHICLE_BOOST",
+      "action": "press",
+      "comment": "Hold boost: ramping, full after about 1 s (turret locked), overheated after about 4 s."
+    },
+    {
+      "at_ms": 16000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_BOOST",
+      "action": "release",
+      "comment": "Let go after 5.5 s: the crystals stay black while they recover."
+    },
+    {
+      "at_ms": 16000,
+      "type": "action",
+      "name": "ACTION_VEHICLE_ACCELERATE",
+      "action": "release",
+      "comment": "Slow down; recovery is faster at low speed."
+    },
+    {
+      "at_ms": 23000,
+      "type": "exit",
+      "comment": "Scripted exit once the crystals are cool again (2 to 4 s after letting go)."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=maian_vehicle_boost_smoke",
+      "MODAUTHOR\\.SAVE\\.OK kind=vehicle catalog=mod:vehicle_maian_hover mod_id=mod\\.vehicle_maian_hover updated=0",
+      "MODAUTHOR\\.CATALOG\\.OK catalog=mod:vehicle_maian_hover type=\\d+ enabled=1 bundled=0",
+      "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:vehicle_maian_hover",
+      "PDVEHICLE\\.MODEL: id=mod:vehicle_maian_hover model=mod:vehicle_maian_hover__\\S+ modelnum=\\d+ filenum=\\d+",
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "BOOT: --launch-mission 'base:escape' -> stagenum=",
+      "BOOT: --debug-mount-bike armed",
+      "BOOT: --debug-swap-vehicle mod:vehicle_maian_hover armed",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
+      "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_maian_hover\\)",
+      "VEHICLE\\.SWAP: modelnum \\d+ takes the world scale of modelnum 58 \\(409/4096\\)",
+      "BOOT: --debug-mount-bike consumed: .*result=MOUNTED",
+      "SMOKE\\.WAIT: satisfied condition=vehicle_driver_ready",
+      "VEHICLE: input .*accel=(?:[1-9][0-9]*\\.[0-9]+|0\\.[0-9]*[1-9][0-9]*)",
+      "VEHICLE: input .*boost=1\\.00",
+      "VEHICLE\\.BOOST: modelnum=\\d+ boost and heat on: boost_speed=7\\.00 ramp=240 overheat=960 overheated_boost=0\\.50 recover=480 ticks240",
+      "VEHICLE\\.BOOST: modelnum=\\d+ phase cool -> ramping",
+      "VEHICLE\\.BOOST: modelnum=\\d+ phase ramping -> full .*turret_locked=1",
+      "VEHICLE\\.BOOST: modelnum=\\d+ phase full -> overheated .*turret_locked=1",
+      "VEHICLE\\.BOOST: modelnum=\\d+ part 140 hidden \\(crystals black\\)",
+      "VEHICLE\\.BOOST: modelnum=\\d+ phase overheated -> recovering",
+      "VEHICLE\\.BOOST: modelnum=\\d+ phase recovering -> cool .*turret_locked=0",
+      "VEHICLE\\.BOOST: modelnum=\\d+ part 140 shown \\(crystals cool\\)",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "PDVEHICLE\\.MODEL\\.REJECT",
+      "PDVEHICLE\\.MODEL: .*cannot be placed",
+      "VEHICLE\\.SOURCE",
+      "VEHICLE\\.SWAP: '",
+      "FIX-B\\.2: modelnum",
+      "MODEL\\.RODATA\\.LOAD: PARTIAL",
+      "CATALOG-FATAL",
+      "VEHICLE\\.BOOST: no free boost slot",
+      "VEHICLE\\.BOOST: .*has no toggle part"
+    ],
+    "required_counts": [
+      {
+        "pattern": "VEHICLE: mounted",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "VEHICLE\\.BOOST: modelnum=\\d+ phase full -> overheated",
+        "min": 1,
+        "max": 1
+      }
+    ]
+  }
+}

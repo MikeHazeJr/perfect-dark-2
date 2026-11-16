@@ -151,6 +151,12 @@ TEST_CASE("the Maian hover vehicle recipe builds a vehicle with its own typed mo
 	CHECK(physics.find("\"catalog_id\": \"mod:vehicle_maian_hover\"") != std::string::npos);
 	CHECK(physics.find("\"archetype\": \"hoverbike\"") != std::string::npos);
 
+	/* Boost and heat (V3): the values file the game reads (asset_runtime.c). */
+	const std::string variables = hoverEntry(archive, "behavior/variables.json");
+	CHECK(variables.find("\"schema\": \"pd.vehicle_variables.v1\"") != std::string::npos);
+	CHECK(variables.find("\"overheat_after\": { \"value\": 240, \"unit\": \"ticks60\" }") != std::string::npos);
+	CHECK(variables.find("\"cool_crystal_part\": 140") != std::string::npos);
+
 	/* The embedded model, in the mod's namespace. */
 	std::string meshId;
 	for (u32 i = 0; i < result->ids.id_count; i++) {

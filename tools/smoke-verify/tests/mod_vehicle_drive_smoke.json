@@ -1,7 +1,16 @@
 {
   "scenario_name": "mod_vehicle_drive_smoke",
-  "description": "Maian vehicle V1 (week PD 2026-11-15): a mod vehicle can be placed and driven. The in-game mod author saves the base hoverbike as mod:vehicle_smoke_hover (a local-only stand-in: it embeds the base model, so it is never shared). The scanner binds the copy's embedded mesh through a private model slot and gives the vehicle that model number (PDVEHICLE.MODEL). --debug-swap-vehicle then gives the stage's hoverbike that model (VEHICLE.SWAP), --debug-mount-bike mounts it, and driving it runs hoverbikeUpdateMovement, which looks the vehicle up by model number every tick and fails loudly (VEHICLE.SOURCE) if the mod vehicle's physics are not found. Proves placement and the physics lookup for a mod vehicle; the mod vehicle's own model and tunables come with the Maian vehicle (V2, V3). Runs on CI training (--launch-mission 0x26), not Escape: Escape starts with the player pushing the hover bed (grab mode, as in the original; B-1159, not a bug), and the mount hook and the on-foot wait need walk mode. CI training forces Agent Select open after its intro until a game file is chosen there (loading an agent from the command line does not count), then opens the main menu: the smoke stages the smoke agent profile in the portable save folder, skips the intro, loads the agent through Agent Select and closes the main menu with Back, all with injected actions, which do not need window focus.",
-  "tags": ["vehicle", "modding", "mod-author", "pdvehicle", "recipe", "gameplay", "catalog", "pillar:modding"],
+  "description": "Maian vehicle V1 (week PD 2026-11-15): a mod vehicle can be placed and driven. The in-game mod author saves the base hoverbike as mod:vehicle_smoke_hover (a local-only stand-in: it embeds the base model, so it is never shared). The scanner binds the copy's embedded mesh through a private model slot and gives the vehicle that model number (PDVEHICLE.MODEL). --debug-swap-vehicle then gives the stage's hoverbike that model (VEHICLE.SWAP), --debug-mount-bike mounts it, and driving it runs hoverbikeUpdateMovement, which looks the vehicle up by model number every tick and fails loudly (VEHICLE.SOURCE) if the mod vehicle's physics are not found. Proves placement and the physics lookup for a mod vehicle; the mod vehicle's own model and tunables come with the Maian vehicle (V2, V3). Runs on Escape (--launch-mission base:escape), where the hoverbike is beside the start: on CI training the bike is in the hangar, outside the stage's active props near the player, so the mount hook never found it. Escape starts with the player pushing the hover bed (grab mode, as in the original; B-1159, not a bug): after the intro is skipped, one direct-activate press (ACTION_VEHICLE_USE, E) lets go of it, and the mount hook, which waits for walk mode, fires.",
+  "tags": [
+    "vehicle",
+    "modding",
+    "mod-author",
+    "pdvehicle",
+    "recipe",
+    "gameplay",
+    "catalog",
+    "pillar:modding"
+  ],
   "paths_of_interest": [
     "port/src/assetcatalog_scanner.c",
     "port/src/body_head_source_bind.c",
@@ -16,11 +25,18 @@
   "verbose": 0,
   "timeout_seconds": 300,
   "install_state": "clean",
-  "remove_paths": ["mods/Vehicles/vehicle_smoke_hover"],
+  "remove_paths": [
+    "mods/Vehicles/vehicle_smoke_hover"
+  ],
   "fixtures": [
-    { "src": "tools/smoke-verify/fixtures/mod_author/vehicle_from_base/recipe.json", "dst": "mod-recipes/vehicle_from_base/recipe.json" },
-    { "src": "tools/smoke-verify/fixtures/agent_smoke.json", "dst": "agent_smoke.json" },
-    { "src": "tools/smoke-verify/fixtures/no_mods_enabled.json", "dst": "mods-enabled.json" }
+    {
+      "src": "tools/smoke-verify/fixtures/mod_author/vehicle_from_base/recipe.json",
+      "dst": "mod-recipes/vehicle_from_base/recipe.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
   ],
   "boot_args": [
     "--no-update-check",
@@ -30,14 +46,20 @@
     "--mod-author",
     "mod-recipes/vehicle_from_base/recipe.json",
     "--launch-mission",
-    "0x26",
+    "base:escape",
     "--debug-swap-vehicle",
     "mod:vehicle_smoke_hover",
     "--debug-mount-bike"
   ],
   "screenshots": [
-    { "at_ms": 18800, "name": "mod-vehicle-accelerating" },
-    { "at_ms": 20600, "name": "mod-vehicle-steering" }
+    {
+      "at_ms": 10800,
+      "name": "mod-vehicle-accelerating"
+    },
+    {
+      "at_ms": 12600,
+      "name": "mod-vehicle-steering"
+    }
   ],
   "input_sequence": [
     {
@@ -45,14 +67,14 @@
       "type": "wait_until",
       "condition": "cutscene_skip_ready",
       "timeout_ms": 150000,
-      "comment": "CI training is live and its camera intro is playing."
+      "comment": "Escape is live and its intro is playing."
     },
     {
       "at_ms": 0,
       "type": "action",
       "name": "ACTION_SKIP_CUTSCENE",
       "action": "press",
-      "comment": "Skip the intro. CI training then forces Agent Select open (no game file chosen yet)."
+      "comment": "Skip the intro. The stage then has the player grab the hover bed."
     },
     {
       "at_ms": 900,
@@ -63,19 +85,12 @@
     {
       "at_ms": 8000,
       "type": "action",
-      "name": "ACTION_USE",
+      "name": "ACTION_VEHICLE_USE",
       "action": "tap",
-      "comment": "Agent Select accept: loads the staged smoke agent, the only profile, then the main menu opens."
+      "comment": "Let go of the hover bed: a direct activate in grab mode drops it and gives walk mode back. Only once: a second press could grab it again."
     },
     {
-      "at_ms": 16000,
-      "type": "action",
-      "name": "ACTION_CANCEL_USE",
-      "action": "tap",
-      "comment": "Back on the main menu's top level closes it into CI training free roam and gives control back."
-    },
-    {
-      "at_ms": 17000,
+      "at_ms": 9000,
       "type": "wait_until",
       "condition": "offline_gameplay_ready",
       "timeout_ms": 45000,
@@ -83,7 +98,7 @@
       "comment": "Player 0 is on foot with control, so the armed mount hook can fire."
     },
     {
-      "at_ms": 17000,
+      "at_ms": 9000,
       "type": "wait_until",
       "condition": "vehicle_driver_ready",
       "timeout_ms": 60000,
@@ -91,33 +106,33 @@
       "comment": "Player 0 is mounted on the swapped hoverbike and driving through LAYER_VEHICLE_DRIVER."
     },
     {
-      "at_ms": 18000,
+      "at_ms": 10000,
       "type": "action",
       "name": "ACTION_VEHICLE_ACCELERATE",
       "action": "press",
       "comment": "Accelerate: the movement path looks the mod vehicle's physics up by its model number."
     },
     {
-      "at_ms": 19400,
+      "at_ms": 11400,
       "type": "action",
       "name": "ACTION_VEHICLE_ACCELERATE",
       "action": "release"
     },
     {
-      "at_ms": 19600,
+      "at_ms": 11600,
       "type": "action",
       "name": "ACTION_VEHICLE_STEER_RIGHT",
       "action": "press",
       "comment": "Steer: the turn tunables come from the same lookup."
     },
     {
-      "at_ms": 20800,
+      "at_ms": 12800,
       "type": "action",
       "name": "ACTION_VEHICLE_STEER_RIGHT",
       "action": "release"
     },
     {
-      "at_ms": 22000,
+      "at_ms": 14000,
       "type": "exit",
       "comment": "Scripted exit after driving."
     }
@@ -130,13 +145,9 @@
       "MODAUTHOR\\.RECIPE\\.RESULT result=OK catalog=mod:vehicle_smoke_hover",
       "PDVEHICLE\\.MODEL: id=mod:vehicle_smoke_hover model=mod:vehicle_smoke_hover__\\S+ modelnum=\\d+ filenum=\\d+",
       "BOOT: --no-net set; netInit\\(\\) skipped",
-      "BOOT: --launch-mission '0x26' -> stagenum=0x26",
+      "BOOT: --launch-mission 'base:escape' -> stagenum=",
       "BOOT: --debug-mount-bike armed",
       "BOOT: --debug-swap-vehicle mod:vehicle_smoke_hover armed",
-      "MENUPOOL: acquired agent_select",
-      "AGENT\\.SESSION: activation committed name='smoke' source=json",
-      "MENUPOOL: acquired main_menu",
-      "MENU_IMGUI: main menu CLOSE via ESC/B \\(top-level -> CI free-roam\\)",
       "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
       "VEHICLE\\.SWAP: hoverbike modelnum 58 -> \\d+ \\(mod:vehicle_smoke_hover\\)",
       "VEHICLE\\.SWAP: modelnum \\d+ takes the world scale of modelnum 58 \\(409/4096\\)",
@@ -151,7 +162,6 @@
       "FATAL: ",
       "SMOKE: result=timeout",
       "LOUDFAIL\\.LOAD: .*unrecoverable",
-      "AGENT\\.SESSION: activation rejected",
       "MODAUTHOR\\.[A-Z.]*FAIL",
       "PDVEHICLE\\.MODEL\\.REJECT",
       "VEHICLE\\.SOURCE",
@@ -160,7 +170,11 @@
       "CATALOG-FATAL"
     ],
     "required_counts": [
-      { "pattern": "VEHICLE: mounted", "min": 1, "max": 1 }
+      {
+        "pattern": "VEHICLE: mounted",
+        "min": 1,
+        "max": 1
+      }
     ]
   }
 }
