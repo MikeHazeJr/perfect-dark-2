@@ -18,6 +18,7 @@ extern "C" {
 #include "assetcatalog_scanner.h"
 #include "body_head_source.h"
 #include "character_head_policy.h"
+#include "constants.h"
 #include "mod_author.h"
 #include "mod_manifest_validate.h"
 #include "modarchive.h"
@@ -1263,6 +1264,128 @@ TEST_CASE("mod author sets and removes descriptor keys the creator asks for",
 		const AuthorCall call = authorSave(both.request);
 		CHECK(call.code == MOD_AUTHOR_ERR_ARGS);
 		CHECK(authorTree(root.path) == before);
+	}
+}
+
+/* What the Characters tab (C1, maian-vehicle-and-veteran.md) will edit: a
+ * body's or head's gender (ismale with type, the rig derived from the type
+ * once rig_class is removed) and height as descriptor values, and a
+ * character's gender inside its own embedded body through a nested override.
+ * Read back with the game's strict body and character readers. */
+TEST_CASE("mod author sets the gender, type and height a Characters tab edits",
+          "[modding][author][characters-tab]") {
+	AuthorTempDir root;
+	char err[160] = {};
+
+	SECTION("body: male and Maian, its rig from its type, its height") {
+		const mod_author_descriptor_value_t values[] = {
+			{ "ismale", "1" },
+			{ "type", "HEADBODYTYPE_MAIAN" },
+			{ "height", "106" },
+			{ "rig_class", nullptr },
+		};
+		AuthorRequest req(authorExample(kBodyTemplate), root.path, "Veteran Harness");
+		req.request.descriptor_values = values;
+		req.request.descriptor_value_count = 4;
+		const AuthorCall saved = authorSave(req.request);
+		INFO("save error: " << saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		authorRequireReleaseValid(saved.result->archive_path);
+
+		const std::string archive = authorReadFile(saved.result->archive_path);
+		auto source = std::make_unique<body_head_source_t>();
+		const s32 parsed = bodyHeadSourceParseArchiveBytes(archive.data(),
+			static_cast<u32>(archive.size()), saved.result->catalog_id, 0, source.get(),
+			err, sizeof(err));
+		INFO("body reader: " << err);
+		REQUIRE(parsed == 1);
+		CHECK(source->ismale == 1);
+		CHECK(source->type == HEADBODYTYPE_MAIAN);
+		CHECK(source->height == 106);
+		CHECK(std::string(source->rig_class) == "maian_tall_neck");
+		CHECK(std::string(source->display_name) == "Veteran Harness");
+		authorKeepArtifact(saved.result->archive_path);
+	}
+
+	SECTION("head: female, the female rig") {
+		const mod_author_descriptor_value_t values[] = {
+			{ "ismale", "0" },
+			{ "type", "HEADBODYTYPE_FEMALE" },
+			{ "rig_class", nullptr },
+		};
+		AuthorRequest req(authorExample(kHeadTemplate), root.path, "Veteran Face");
+		req.request.descriptor_values = values;
+		req.request.descriptor_value_count = 3;
+		const AuthorCall saved = authorSave(req.request);
+		INFO("save error: " << saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		authorRequireReleaseValid(saved.result->archive_path);
+
+		const std::string archive = authorReadFile(saved.result->archive_path);
+		auto source = std::make_unique<body_head_source_t>();
+		const s32 parsed = bodyHeadSourceParseArchiveBytes(archive.data(),
+			static_cast<u32>(archive.size()), saved.result->catalog_id, 1, source.get(),
+			err, sizeof(err));
+		INFO("head reader: " << err);
+		REQUIRE(parsed == 1);
+		CHECK(source->ismale == 0);
+		CHECK(source->type == HEADBODYTYPE_FEMALE);
+		CHECK(std::string(source->rig_class) == "human_female_neck_standard");
+		CHECK(std::string(source->display_name) == "Veteran Face");
+		authorKeepArtifact(saved.result->archive_path);
+	}
+
+	SECTION("character: its gender lives in its own body, changed through a nested override") {
+		const std::string tmpl = authorExample(kCharacterTemplate);
+		const std::string bodyMember = "dependencies/assets/body/tri_body.pdbody";
+		std::string bodyIni = authorEntry(authorEntry(authorReadFile(tmpl), bodyMember), "body.ini");
+		const std::string rigLine = "rig_class = human_male_neck_standard\n";
+		REQUIRE(bodyIni.find(rigLine) != std::string::npos);
+		bodyIni.replace(bodyIni.find(rigLine), rigLine.size(),
+			"ismale = 1\ntype = HEADBODYTYPE_MAIAN\n");
+		const std::string overrideEntry = bodyMember + "::body.ini";
+		asset_archive_clone_override_t ov{};
+		ov.entry = overrideEntry.c_str();
+		ov.data = bodyIni.data();
+		ov.len = static_cast<u32>(bodyIni.size());
+
+		AuthorRequest req(tmpl, root.path, "Maian Veteran");
+		req.request.overrides = &ov;
+		req.request.override_count = 1;
+		const AuthorCall saved = authorSave(req.request);
+		INFO("save error: " << saved.err);
+		REQUIRE(saved.code == MOD_AUTHOR_OK);
+		authorRequireReleaseValid(saved.result->archive_path);
+		CHECK(std::string(saved.result->catalog_id) == "mod:character_maian_veteran");
+
+		/* The embedded body carries the mod's id for it (the override's
+		 * example id rewritten like the rest) and the new gender and type. */
+		const std::string archive = authorReadFile(saved.result->archive_path);
+		const std::string body = authorEntry(archive, bodyMember);
+		const std::string bodyId = std::string(saved.result->catalog_id) + "__body_tri_body";
+		auto source = std::make_unique<body_head_source_t>();
+		const s32 parsed = bodyHeadSourceParseArchiveBytes(body.data(),
+			static_cast<u32>(body.size()), bodyId.c_str(), 0, source.get(), err, sizeof(err));
+		INFO("embedded body reader: " << err);
+		REQUIRE(parsed == 1);
+		CHECK(source->ismale == 1);
+		CHECK(source->type == HEADBODYTYPE_MAIAN);
+		CHECK(std::string(source->rig_class) == "maian_tall_neck");
+
+		/* The character still names that body, with its fixed head. */
+		const std::string descriptor = authorEntry(archive, "character.ini");
+		auto ini = std::make_unique<ini_section_t>();
+		REQUIRE(bodyHeadSourceReadIniBytes(descriptor.data(), static_cast<u32>(descriptor.size()),
+			"character", ini.get(), err, sizeof(err)) == 1);
+		auto entry = std::make_unique<asset_entry_t>();
+		std::memset(entry.get(), 0, sizeof(asset_entry_t));
+		entry->type = ASSET_CHARACTER;
+		std::strcpy(entry->id, saved.result->catalog_id);
+		REQUIRE(characterSourceApplyIni(entry.get(), ini.get()) == 1);
+		CHECK(std::string(entry->ext.character.body_id) == bodyId);
+		CHECK(std::string(entry->ext.character.display_name) == "Maian Veteran");
+		CHECK(characterSourcePolicy(entry.get()) == CHARACTER_HEAD_POLICY_FIXED);
+		authorKeepArtifact(saved.result->archive_path);
 	}
 }
 

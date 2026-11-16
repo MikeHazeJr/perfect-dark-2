@@ -418,6 +418,14 @@ Questions for Mike:
     hook and smoke. Head policy, the Room and pool fixes and simulant profiles (C4)
     follow. A character made from a base template embeds base body and head archives,
     so it is local only (BYOR), as the base hoverbike's copy is.
+  - BACK END TESTED 2026-11-16 (`[characters-tab]` in `tests/test_mod_author.cpp`, 35
+    assertions, pd-tests only): the mod author already does what that first slice
+    saves. A body's or head's gender, type and height as descriptor values, with
+    `rig_class` removed so the reader derives it from the type (`maian_tall_neck`,
+    `human_female_neck_standard`), and a character's gender inside its own embedded
+    body through a nested override (`<body archive>::body.ini`, the example id in it
+    rewritten to the mod's id like the rest); the game's strict body and character
+    readers accept all three, and the character keeps its fixed head.
 - C2. Models: original male and female Maian meshes bound to the 14 body
   parts, `HEADBODYTYPE_MAIAN`; looks as textures. A clone of a base Maian mesh
   is only a local stand-in (BYOR: it embeds ROM-derived geometry and must not
