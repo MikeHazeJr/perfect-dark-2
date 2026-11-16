@@ -91,6 +91,9 @@ static s32 s_BotPuppetTick = 0;
 /* B-1195: one log line per retired match (see the botTick gate). */
 static bool s_BotRetiredLogged = false;
 
+/* B-1202: one log line per match when a frame passes a simulant twice. */
+static bool s_BotRepeatPassLogged = false;
+
 s32 botIsPuppetTick(void)
 {
 	return s_BotPuppetTick;
@@ -134,6 +137,7 @@ void botSpawnWaveReset(void)
 	s_BotSpawnWaveNextUncommitted = 0;
 	s_BotSpawnFailsafeDone = false;
 	s_BotSpawnFailsafeRetryPending = false;
+	s_BotRepeatPassLogged = false;
 	memset(s_BotSlotFrozen, 0, sizeof(s_BotSlotFrozen));
 }
 
@@ -1685,10 +1689,23 @@ s32 botTick(struct prop *prop)
 	f32 targetangle;
 	f32 oldangle;
 	f32 newangle;
-	/* FIX 1: PROPFLAG_NOTYETTICKED is cleared by chrTick before botTick runs,
-	 * so using it here made updateable=false after frame 0 — bots never ticked.
-	 * Use g_Vars.lvupdate240 directly: bots should tick every update frame. */
-	updateable = g_Vars.lvupdate240 != 0;
+	/* B-1202: the bot's update (AI, turning, scenario points, pickups) runs
+	 * once per frame, as in the original. propsTickPlayer runs once for each
+	 * player in a frame (each viewport, and every player of a networked
+	 * match: lvRender loops over all of them), and the frame's first pass
+	 * sets PROPFLAG_NOTYETTICKED on every prop. chrTick clears it later in
+	 * this function, so it is read here, before that, and a later pass in
+	 * the same frame skips the update. 41431a3d ("FIX 1") read lvupdate240
+	 * alone, so a networked match with two players ran every simulant's
+	 * update twice a frame (a Hold the Briefcase simulant took 7 points in a
+	 * 151 s match; a point needs 30 s held). */
+	updateable = g_Vars.lvupdate240 != 0 && (prop->flags & PROPFLAG_NOTYETTICKED) != 0;
+
+	if (g_Vars.lvupdate240 != 0 && !updateable && aibot && !s_BotRepeatPassLogged) {
+		sysLogPrintf(LOG_NOTE, "BOT.TICK: simulant %d passed again in one frame (players=%d); its update runs once a frame (B-1202)",
+			(s32)aibot->aibotnum, PLAYERCOUNT());
+		s_BotRepeatPassLogged = true;
+	}
 
 	if (aibot) {
 		/* U-10: Promote pending bot authority once stage load is confirmed.

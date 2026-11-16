@@ -3760,3 +3760,39 @@ run of another host-only effect through `SVC_CHR_DAMAGE` (`chrDamage` runs in
 full on a client); whether a co-op client drops a guard's held weapons at its
 death (not checked; the host's drop of an initial-id weapon names an id the
 client already has, so its spawn is declined and only the move applies).
+
+## SP-87: Per-frame work inside a pass that runs once per player
+
+**Severity: HIGH in networked play - timers, AI and scores run N times as
+fast with N players, and nothing looks broken offline (one player, one
+pass).**
+
+`lvRender` runs its per-player pass for every player of a networked match
+(`if (g_NetMode) forcesingleplayer = false;`), as it does for each
+split-screen viewport, so `propsTickPlayer` and everything it calls runs once
+per player each frame. The original marks every prop `PROPFLAG_NOTYETTICKED`
+on the frame's first pass (`currentplayerindex == 0`) and does per-frame work
+only while the mark is set: `chrTick` and `objTickPlayer` clear it into their
+`fulltick`. Work outside such a gate runs on every pass.
+
+**Known instances (2026-11-16):**
+- B-1202: `botTick` read `lvupdate240` alone (41431a3d), so a simulant's AI,
+  turning, scenario points and pickups ran once per player. Fixed in code:
+  the gate reads the mark again, before `chrTick` clears it.
+- Not fixed, cosmetic: the surface-locomotion blend at the end of `chrTick`
+  (`surface_blend_frames--`, `chrSurfaceLocoTick`) runs outside `fulltick`, so
+  a chr that uses it blends N times as fast on a networked machine (CORE's
+  area; left as it is).
+
+**Rules:**
+- Per-frame work in a prop tick waits on `PROPFLAG_NOTYETTICKED` (or the
+  tick's `fulltick`), read before anything in the same tick clears it.
+- Per-player work (what one player sees, that player's HUD) is the only work
+  that belongs on every pass.
+
+**Search:**
+- `grep -n "lvupdate240 != 0\|lvupdate60" src/game/*.c` inside functions that
+  `propsTickPlayer` reaches, and check each against the mark.
+- A networked log with `BOT.TICK: simulant N passed again in one frame` shows
+  the passes; scores or timers that beat the clock (a Hold the Briefcase point
+  in under 30 s held) point here.

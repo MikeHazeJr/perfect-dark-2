@@ -1,5 +1,23 @@
 # Bug Tracker
 
+## 2026-11-16 B-1202 In a networked match every simulant updates once per player each frame (T-NETWORKING-011, fixed in code)
+
+Severity high for networked matches with simulants (they think, turn, check pickups and earn scenario points twice
+as fast with two players, three times with three; offline is unaffected). Found by reading the Hold the Briefcase
+scores: the networked 150 s run on 21eec732 (`results-20261115T121447Z.json`) gave a simulant 7 points in a 151 s
+match, and a point needs 30 s held (`htbTickChr`, `TICKS(7200)`), so 5 is the most possible. Root cause: `lvRender`
+loops over every player of a networked match (`if (g_NetMode) forcesingleplayer = false;`, "tick all players"), so
+`propsTickPlayer` runs once per player each frame. Its first pass sets `PROPFLAG_NOTYETTICKED` on every prop, and
+the original `botTick` ran its update only while that flag was set (`chrTick`, called later in `botTick`, clears it),
+as `chrTick` still does for its full tick. 41431a3d ("FIX 1", 2026-04-04) changed `botTick` to read
+`g_Vars.lvupdate240` alone, on the belief that `chrTick` cleared the flag before `botTick` ran (it does not: nothing
+ticks a simulant's chr before `botTick`), so every later pass in the frame ran the whole update again: AI
+(`botTickUnpaused`), turning, stuck checks, `scenarioTickChr` (Hold the Briefcase hold time, Hacker Central
+download, Pop a Cap survival) and `botCheckPickups`. Fix: `updateable` again needs the flag as well as a nonzero
+update; a later pass logs `BOT.TICK: simulant N passed again in one frame (players=P)` once per match. Pinned in
+`tests/test_net_bot_pickup_static.cpp` (`[b1202]`). Pattern SP-87. Built 2026-11-16, the full suite passes (1993
+cases); not yet run in game. This changes how fast simulants act in networked matches, back to the offline speed.
+
 ## 2026-11-16 B-1201 A co-op client crashes when the host leaves while it is in the Room after a mission (T-NETWORKING-011, fixed in code)
 
 Severity high (client crash). Found by the first run of `network_coop_mission_return_smoke` on binary 0587e908

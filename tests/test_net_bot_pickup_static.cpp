@@ -357,3 +357,43 @@ TEST_CASE("bot pickup net: a disarmed simulant's gun is the host's to drop",
 	// the puppet branch leaves prop NULL, so the shared drop below skips it
 	REQUIRE(disarm.substr(puppet, host - puppet).find("prop =") == std::string::npos);
 }
+
+TEST_CASE("bot tick: a simulant's update runs once a frame however many players the frame passes",
+          "[net][botpickup][b1202]") {
+	// B-1202: lvRender runs propsTickPlayer once for each player of a
+	// networked match; the frame's first pass marks every prop not yet
+	// ticked, and botTick must read that mark before its chrTick clears it,
+	// or every later pass runs the simulant's AI, scenario points and pickups
+	// again
+	const std::string lv = code_only(read_text_file("src/game/lv.c"));
+	const size_t force = lv.find("forcesingleplayer = false;");
+	REQUIRE(force != std::string::npos);
+	const size_t net = lv.rfind("if (g_NetMode) {", force);
+	REQUIRE(net != std::string::npos);
+	REQUIRE(lv.substr(net, force - net).find(';') == std::string::npos);
+	const size_t count = lv.find("playercount = forcesingleplayer ? 1 : PLAYERCOUNT();", force);
+	REQUIRE(count != std::string::npos);
+	REQUIRE(lv.find("propsTickPlayer(islastplayer);", count) != std::string::npos);
+
+	const std::string prop = code_only(read_text_file("src/game/prop.c"));
+	const size_t first = prop.find("if (g_Vars.currentplayerindex == 0) {");
+	REQUIRE(first != std::string::npos);
+	REQUIRE(prop.find("flags |= PROPFLAG_NOTYETTICKED;", first) < prop.find("} else {", first));
+
+	const std::string chr = code_only(read_text_file("src/game/chr.c"));
+	REQUIRE(chr.find("prop->flags &= ~PROPFLAG_NOTYETTICKED;") != std::string::npos);
+
+	const std::string bot = code_only(read_text_file("src/game/bot.c"));
+	const std::string tick = function_body(bot, "s32 botTick(struct prop *prop)\n{");
+	const size_t gate = tick.find("updateable = g_Vars.lvupdate240 != 0 && (prop->flags & PROPFLAG_NOTYETTICKED) != 0;");
+	REQUIRE(gate != std::string::npos);
+	REQUIRE(gate < tick.find("chrTick(prop)"));
+	REQUIRE(tick.find("updateable = g_Vars.lvupdate240 != 0;") == std::string::npos);
+	REQUIRE(tick.find("updateable = ", gate + 1) == std::string::npos);
+	// the AI step, the scenario points and the pickups all wait on the gate
+	REQUIRE(tick.find("if (updateable && g_Vars.lvframe60 >= 145) {") != std::string::npos);
+	const size_t scenario = tick.find("scenarioTickChr(chr);");
+	REQUIRE(scenario != std::string::npos);
+	REQUIRE(tick.rfind("if (updateable) {", scenario) != std::string::npos);
+	REQUIRE(tick.find("if (updateable && !chrIsDead(chr)) {", scenario) < tick.find("botCheckPickups(chr);", scenario));
+}
