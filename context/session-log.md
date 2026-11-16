@@ -1,5 +1,21 @@
 # Session Log (Active)
 
+2026-11-16 (13:20 ET) MULTIPLAYER, continued. Turn q_20261116152127415_a38e0af1 on a669d118, base 7, done:
+co-op mission end PASS 130/130 and the ready-gate repeat smoke 39/40 (B-1208 checked in play; the miss was the
+smoke's step order, fixed); Hacker Central local PASS 32/32 with a simulant scoring three downloads (B-1207 checked
+in play). B-1270 (critical, fixed in 746d79a7, pushed): the Deep Sea client crashed in propIsOfCdType as the intro
+ended, on the first chr removal message any client has read; the client's NPC resync wrote the host's rooms
+straight into prop->rooms and left the chr listed in its old rooms, so once the host removed it the next NPC move's
+ground query read a chr prop with no chr. New propSetRooms (prop.c) moves a prop's room registration with its list;
+the NPC, bot and prop resyncs, SVC_PROP_MOVE and the lift move use it; the prop resync applies to objects only; new
+SP-92 with audit checklist; pinned by [b1270]. ready_gate_settings_rollback_smoke failed on timing (the host's fixed
+105 s dwell ended before the client joined on a cold install), now 200 s. B-1271 (open): networked Hacker Central
+still scores nothing: the simulant stood by the terminal armed and facing away for two minutes; diagnostic added
+(746d79a7). CORE answered at 17:04 UTC: SP-91's class fix is mine (CORE agrees), and B-1270 to B-1289 are mine. Told
+CORE to keep a networked client spawning its simulant wave (it completes in the host's frame, same pads). Next: the
+two rematch turns on a669d118, the SP-91 class fix, then a turn with Deep Sea, Hacker Central net and the ready-gate
+smokes on the new build.
+
 2026-11-16 (11:00 ET) MULTIPLAYER, continued. Objective net turn q_20261116124216413_be8c603a done on 5cd5d0e5,
 base 7, every objective net smoke now needing a nonzero score on both machines: Capture the Case 84/84 (a simulant
 captured 3 cases), King of the Hill 84/84 (3 hill points), Pop a Cap 82/82 (the victim scored 2), counter-op mission

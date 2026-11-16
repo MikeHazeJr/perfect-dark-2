@@ -1,5 +1,49 @@
 # Bug Tracker
 
+## 2026-11-16 B-1271 Networked Hacker Central: a simulant holding the uplink stands by the terminal and never downloads (T-NETWORKING-011, open, diagnostic added)
+
+Severity high for networked Hacker Central: no simulant scores. Seen in `mp_hacker_central_net_smoke` on binary
+a669d118 (base 7, `results-20261116T173009Z.json`, 85/86, the only failure the score count): simulant 2 took the
+uplink at 17.8 s, reached the terminal at 42.0 s (`HTM: player 2 download not facing the terminal at 42.0 s xz=240
+y=62 angle=171 weapon=2 action=44`, 240 units away, armed, facing away, still in `MA_AIBOTGOTOPROP`) and logged
+nothing more until the match ended at about 2.5 min: no new goal, no stuck relocation, no download. The same binary
+run locally (`mp_hacker_central_local_smoke`, 32/32, `results-20261116T174929Z.json`) scores: there the simulant
+logged the same `not facing` at 240 units with weapon 2 and action 44, then 0.3 s later `in progress ... weapon=1
+action=46` (unarmed, `MA_AIBOTDOWNLOAD`), and completed three downloads (score 6). So something in the networked
+host keeps the simulant from leaving `MA_AIBOTGOTOPROP` for `MA_AIBOTDOWNLOAD`; `bot.c` makes that switch when
+`g_ScenarioData.htm.playernuminrange` names the simulant, which `htmTickChr` sets whenever it is within 250 units.
+Not found by reading. **Diagnostic (746d79a7):** while a simulant holds the uplink without downloading, `HTM:
+simulant player N holds the uplink, not downloading (<reason>) ... action= actiontype= inrange= target= weapon=
+netmode=` every 10 s. Next run: `mp_hacker_central_net_smoke`.
+
+## 2026-11-16 B-1270 A co-op client crashes when the host removes a chr whose rooms an NPC resync changed (T-NETWORKING-011, fixed in code, not yet run)
+
+Severity critical for networked co-op and counter-op: the client crashes. Seen in `network_coop_deepsea_end_smoke`
+on binary a669d118 (base 7, `results-20261116T173916Z.json`, 116/126): as the intro cutscene ended, the client read
+the host's first chr removal (`NET.NPC: client removed chr syncid=1 chrnum=64 body=140 dead=0 dropitems=0 (the host
+removed it)`, the intro actor) and crashed at once: `FATAL: ACCESS_VIOLATION PC=... (+0x153681)`, backtrace
+`propIsOfCdType` (prop.c, reading `chr->actiontype` with `chr` NULL) <- `cdCollectGeoForCyl` <-
+`cdFindGroundInfoAtCyl` <- `chrSetPos` <- `netmsgSvcNpcMoveRead` <- `netStartFrame`. B-1206's follow-up (a669d118)
+made this the first removal message ever to reach a client; before it, no client removed a chr this way.
+
+Root cause: the client's NPC resync (`netmsgNpcResyncRecordApply`, every SVC_NPC_RESYNC, including the one at the
+stage start) wrote the host's rooms straight into `prop->rooms`, without taking the chr out of its old rooms' prop
+lists or putting it into the new ones. A chr whose rooms changed stayed listed in its old rooms. While it lived
+that was harmless (the listing points at a live chr), but when it was removed, `chrRemove` and `propFree` cleared
+only the rooms named in `prop->rooms`, and `propFree` left a `PROPTYPE_CHR` prop with no chr in the old rooms'
+lists. The next NPC move's collision query in such a room read it. The host never runs a resync apply, so only
+the client crashed. The same direct write is in the bot resync (`netmsgSvcChrResyncRead`) and the prop resync
+(`netmsgSvcPropResyncRead`), and SVC_PROP_MOVE and the lift move moved the registration only when `prop->active`,
+which leaves a paused, listed prop in its old rooms (SP-92).
+
+Fix (746d79a7): new `propSetRooms` (prop.c) copies a rooms list exactly (up to and including its terminator; the
+NPC snapshot digest covers the rooms) and moves the prop's registration with it when the prop is in the world
+(active, or listed in its first room). All five paths use it. The prop resync also applies to objects only now, as
+the host sends: `prop->obj` shares storage with `prop->chr`, so a row whose id named a chr on the client wrote
+object fields into the chr. Pinned by `[b1270]` in `tests/test_net_mission_end_static.cpp`. Not changed: the
+bot-authority stub update (`netmsgClcBotMoveRead`, a stub with no room registration) and the reconnect
+snapshot paths, which keep their own staged registration.
+
 ## 2026-11-16 B-1209 Hacker Central's new uplink, and a new briefcase, exist only on the host (T-NETWORKING-011, fixed in code, not yet run)
 
 Severity high for networked Hacker Central: once the first uplink carrier dies, no client sees the uplink or can
@@ -23,7 +67,7 @@ client's `htmNetPresent` already finds a ground uplink by scanning its props. No
 in `tests/test_net_bot_pickup_static.cpp`. Not changed: the crate that the new uplink replaces is hidden on the
 host only (`OBJHFLAG_DELETING`, regenerating); the prop dirty check's `SVC_PROP_RESYNC` carries hidden state.
 
-## 2026-11-16 B-1208 A client's unchanged settings resend cancels the host's ready gate (T-NETWORKING-011, fixed in code, not yet run)
+## 2026-11-16 B-1208 A client's unchanged settings resend cancels the host's ready gate (T-NETWORKING-011, fixed; checked in play)
 
 Severity medium: a networked start fails whenever a client sends its settings again, with nothing changed, inside
 the ready gate. The host cancels the start (`NET: ready gate aborted by '<name>'`) and someone must press Start
@@ -48,7 +92,9 @@ seam's twin: the same ordinary send at the PREPARING boundary with nothing chang
 `ready_gate_settings_rollback_smoke` stays the negative twin (its changed handicap still rolls back). Pinned in
 `tests/test_prepared_stage_transaction_static.cpp` (the B-1067 and B-1103 cases).
 
-## 2026-11-16 B-1207 Hacker Central simulants carry the uplink to the terminal but never complete a download (T-NETWORKING-011, fixed in code, not yet run)
+**Checked in play (a669d118, base 7):** `ready_gate_settings_repeat_smoke` (`results-20261116T170717Z.json`): `NET: CLC_SETTINGS client=1 repeats its settings during the ready gate; gate kept, nothing published`, then the match started on both machines; its one failure was the smoke's own step order (the stage start logs two lines before the rollback snapshot release), fixed in 746d79a7. `network_coop_mission_end_smoke` passed 130/130 (`results-20261116T171610Z.json`).
+
+## 2026-11-16 B-1207 Hacker Central simulants carry the uplink to the terminal but never complete a download (T-NETWORKING-011, fixed; checked in play locally; networked: B-1271)
 
 Severity medium to high for Hacker Central with simulants: no simulant scores, so a match against simulants has no
 contest; humans are not affected. Seen in `mp_hacker_central_local_smoke` before CORE's B-1204 fix (df1734a2,
@@ -83,7 +129,9 @@ gameplay decision needed). King of the Hill was checked for the same trap (a sim
 `MA_AIBOTGOTOPOS`): its simulants scored 1 and 2 points with one relocation a run in three earlier runs, so that
 case stays as it is. Pinned by `[b1207]` in `tests/test_net_bot_pickup_static.cpp`. The same run found B-1209.
 
-## 2026-11-16 B-1206 A co-op client keeps every chr the host removes, then refuses every NPC snapshot (T-NETWORKING-011, snapshot sweep checked in play; removal message re-fixed in code, not yet run)
+**Checked in play locally (a669d118, base 7):** `mp_hacker_central_local_smoke` 32/32 (`results-20261116T174929Z.json`): a simulant reached the terminal, turned and unarmed in 0.3 s, and completed three downloads (`HTM: player 3 download complete at 99.7 s points=1`, then 119.8 and 139.8 s; score 6), with no stuck relocation. Networked, a simulant still scores nothing, for another reason: B-1271.
+
+## 2026-11-16 B-1206 A co-op client keeps every chr the host removes, then refuses every NPC snapshot (T-NETWORKING-011, snapshot sweep checked in play; the removal message now reaches the client, which exposed B-1270)
 
 Severity high for networked co-op and counter-op: a guard that a level script removes stays frozen where it stood on
 the client, and NPC state correction stops for the rest of the stage while the host resends a full snapshot about 20
@@ -125,6 +173,8 @@ queue from the ACTIVE entity broadcast, after any authority packet and ahead of 
 start empty the queue (`N queued chr removal(s) not sent: <why>`); a chr made after the stage start that was never
 announced is skipped (no client has it); a full queue (64) asks for a full NPC snapshot. The pins in `[b1206]`
 follow. The class, every one-shot message written in the game tick, is SP-91.
+
+**The queued removal in play (a669d118, base 7):** in `network_coop_deepsea_end_smoke` (`results-20261116T173916Z.json`) the host queued and sent the intro actor's removal as the intro ended (`NET.NPC: host removed chr syncid=1 chrnum=64 ... action=3`, then `host sent the removal of chr syncid=1`), and the client removed it (`client removed chr syncid=1 ... (the host removed it)`), the first removal message any client has read. The client then crashed in the next NPC move: B-1270.
 
 ## 2026-11-16 B-1205 A client skips a simulant's pickup of an item it still has respawning (T-NETWORKING-011, fixed; checked in play)
 

@@ -4010,6 +4010,62 @@ periodic one is resent next frame), (b) covered by a baseline or snapshot,
 
 ---
 
+## SP-92: A client applies a host rooms list without moving the prop's room registration
+
+**Severity: HIGH - a crash, later and somewhere else: the first collision or
+room query in an old room after the prop is freed.**
+
+A prop has two records of where it is: `prop->rooms` (its list) and the room
+prop lists (`g_RoomPropListChunks`, which `roomGetProps` reads for collision,
+drawing and room queries). `propRegisterRooms` and `propDeregisterRooms` keep
+them together, and both work from `prop->rooms`. Code that writes
+`prop->rooms` directly, or deregisters and re-registers only under a
+condition that does not match whether the prop is listed, leaves the prop
+listed in rooms its list no longer names. While the prop lives that only adds
+a candidate to some room queries. When it is removed, `chrRemove`, `objFree`
+and `propFree` clear only the rooms in `prop->rooms`, and `propFree` keeps
+`prop->type` but clears `prop->chr` (and so `prop->obj`): the old rooms still
+list a chr or object prop with nothing behind it, and the next
+`propIsOfCdType` or room walk there reads NULL. The game itself always moves
+the two together; the network apply paths, written later, did not. The host
+runs none of them, so only a client crashes.
+
+**Known instance (B-1270, 2026-11-16):** `netmsgNpcResyncRecordApply` wrote
+the host's rooms straight into every NPC's `prop->rooms` (the stage-start
+snapshot included); Deep Sea's intro actor stayed listed in its old room, and
+when the host removed it (SVC_NPC_REMOVE) the client crashed in the next NPC
+move's ground query. Same write in `netmsgSvcChrResyncRead` (bots) and
+`netmsgSvcPropResyncRead` (objects); `netmsgSvcPropMoveRead` and
+`netmsgSvcPropLiftRead` moved the registration only when `prop->active`, and a
+paused prop is listed too. All five now call `propSetRooms` (746d79a7).
+
+**Search:**
+```
+grep -n "prop->rooms\[[a-z]*\] = \|roomsCopy([a-z_>.-]*, *[a-z_>.-]*prop->rooms)" port/src/net/*.c port/src/*.c
+grep -n "if (prop->active) {" port/src/net/netmsg.c
+```
+
+**Rules:**
+- A prop's rooms list changes through `propSetRooms` (moves whatever
+  registration the prop has with the list, copies the list exactly) or
+  through the game's own movers (`chrSetPos`, `chr0f0220ac`), never by a bare
+  write.
+- Whether to move the registration follows whether the prop is listed
+  (`propSetRooms`: active, or listed in its first room), not `prop->active` alone: paused props are
+  listed too.
+
+**Audit checklist:**
+- [x] NPC resync, bot resync, prop resync, SVC_PROP_MOVE, lift move
+  (B-1270).
+- [ ] `netmsgSvcReconnectPropStateRead` (reconnect snapshot, `was_active` gating) and
+  the reconnect spawn/placement path: both stage their own topology; check
+  that a paused, listed prop cannot change rooms there.
+- [ ] SVC_PROP_SPAWN: `roomsCopy(rooms, prop->rooms)` runs before the prop is
+  registered, then `if (prop->active) propDeregisterRooms`: check that no
+  creator (`laptopDeploy`, `objInit`) registered the prop first.
+- [-] `netmsgClcBotMoveRead` (bot-authority stub): a stub has no room
+  registration; leave it.
+
 ## SP-83: A Gfx union member reads its second word from the wrong bytes on 64-bit
 
 **Severity: HIGH — a decoder silently gets zeros or the wrong fields from every
