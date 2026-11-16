@@ -33,13 +33,13 @@
       "condition": "endscreen_visible",
       "timeout_ms": 90000,
       "stable_ms": 1000,
-      "at_ms": 0,
-      "comment": "The agent's own results, a failed mission, after the death animation."
+      "at_ms": 15000,
+      "comment": "The agent's own results, a failed mission, after the death animation. Same at_ms as the kill: the harness sorts events by at_ms (stable, JSON order for ties), so an earlier at_ms here would wait before the kill."
     },
     {
-      "at_ms": 12000,
+      "at_ms": 27000,
       "type": "exit",
-      "comment": "Scripted clean exit after the client has left its results."
+      "comment": "Scripted clean exit 12 s (script time, paused during waits) after the results, once the client has left its own."
     }
   ]
 }
