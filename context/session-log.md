@@ -11001,3 +11001,44 @@ Next
 - Object rules row (the Extraction chopper hum and its siblings) and the
   global AI lists slice 2 (the .pdai type), each in a focused stretch.
 - Rerun CORE's base checks on the merged client when the queue allows.
+
+## 2026-11-16 (06:45-07:05 UTC) - CORE: limited mine ammo and three object rules are data; merged-client turn queued
+
+What happened
+- 9efc0696: stage.json's player rule gains unlimited_ammo_excludes (weapon
+  catalog ids whose primary ammo the unlimited ammo cheats do not refill;
+  Chicago base:remotemine, Air Force One base:timedmine, from
+  bgunAmmotypeAllowsUnlimitedAmmo). Every stage check of the Player and
+  setup rules row is now a rule (ticked after the in-game check).
+- bf414e3d, 3accc882: object rules as optional objects.json row fields
+  (context/designs/modding/object-rules.md): "coop": false on Defection's
+  hover cars, enemy_rockets_exempt on Investigation's K7 Avenger, the
+  Extraction chopper's engine_hum, thrust_hum and fall. The runtime allows
+  each field only on its kind, resolves the hum sounds through the catalog
+  and keeps the rule rows by setup command index; setup.c asks
+  scenarioSourceSetupRecordRules where it creates or arms the object; the
+  chopper's rules sit in a small table beside the object. Not converted:
+  B-228's single-player lifts in multiplayer. The first build failed on a
+  second #include "sfx.h" (no include guard) in romextract_pdarena.c.
+- Scenario kind now ..._stars_dyntex_ammo_objrules; pins and
+  tri_arena.pdarena moved twice. pd-tests 1,998.
+- Recycled (own, this week): D:\PD2-wt\core-check-dyntex, the core-gai
+  worktree (pruned), frozen clients base7-make, core-dyntex, core-gai.
+
+In flight
+- Queue item q_20261116060755455_2b33c611 (waiter bc33wtaq2, script
+  scratchpad tools/core-merged-turn.sh, gate core-merged.ready): frozen
+  client .claude/week-pd-client/core-merged (code 3accc882; its version
+  string says bf414e3d, the head at configure time), conformance tool
+  frozen in core-merged/frozen-3accc882, private copy
+  D:\PD2-wt\core-check-merged. It re-extracts twice, then checks the
+  stage.json player rules (6 expected), the object rule rows, sweeps,
+  conformance, and runs Complex, release, specials and Defection depth.
+
+Next
+- Read the turn: expect unlimited_ammo_excludes=1 on Chicago and Air Force
+  One, the object rules lines for Defection, Investigation and Extraction
+  (and SETUP: chopper object rules), release 54/54 and specials 42/42.
+  Then tick Player and setup rules and update the Object rules row.
+- Then: the lifts rule (with MULTIPLAYER, B-228), Room effects (sparks,
+  Escape gas), mission flow.
