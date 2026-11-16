@@ -1,6 +1,22 @@
 # Bug Tracker
 
-## 2026-11-16 B-1204 Simulants never collect items that landed low on Complex's upper floors, the Hold the Briefcase case among them (T-NETWORKING-011, found, not fixed)
+## 2026-11-16 B-1204 Objects on scenario-source stages are dropped from 100 units under their pad, so many sit inside a floor or fall to the one below (T-NETWORKING-011, root cause found, not fixed; CORE's code)
+
+**Root cause (read from data and source, 10:40 UTC):** `s_scenarioPadFlags` (`port/src/scenario_source_runtime.c`)
+sets `PADFLAG_HASBBOXDATA` on every packed pad, and the extractor gives each pad that had no box in the ROM a default
+box of -100..100 (`romextract_pdarena.c`, `f32 bbox[6] = { -100.0f, 100.0f, ... }`). Complex has 226 pads; only 5
+carry the ROM flag, and their boxes start at the pad (y 0 to 105). The other 221 now claim a 200-unit box.
+`setup.c` places a pad's object from `centre`: the pad position when the pad has no box data, otherwise the
+box centre moved down by half its height, so here 100 under the pad. `func0f06a730` (`propobj.c`) then
+looks for a floor from there. Pads sit about 52 above their floor, so the search starts about 48 units under
+it. With another floor below (Complex rooms 24, 26, 39: floors at 0 and 276), the object lands on that one,
+276 units down (the ground-floor weapons at y 2 and 15 from pads at y 328). With no floor below, it stays where
+the search started: weapons at pad - 98, crates at pad - 95, the case at pad - 96. The collision mesh confirms
+each case, for example pad 73 at y 328 over a single floor at 276 put the case at 232. Every observed height
+matches pad - 100 plus the object's own bottom offset. Fix options for CORE: set the flag only when the source pad
+has it (records then vary in length, as in the ROM), or keep the layout and write a zero box for pads without one,
+so `centre` is the pad, as in the original. Either needs no re-extraction. Check B-1113's room assignment and
+anything else that reads pad boxes. Solo stages that load from scenario sources would be affected the same way.
 
 Severity high for every mode with simulants on a multi-level arena (they waste the match fetching items they cannot
 take, and an objective that lands there is never taken); possibly for players too, if a sunken item is hidden. Found
@@ -14,15 +30,11 @@ for the room 22 weapon five times in 150 s. Items at y 2 to 15 on the ground flo
 are collected (`BOT.PICKUP`). The networked case landed at y 232 in all three networked runs (base 3 pad 173; base 7
 pads 74 and 73) and was never taken. The local case landed at y 4 (pads 134 and 58) and was taken at 11 s and at
 64 s. So the local/networked difference was where the case landed (their rng streams differ), not the network.
-Likely mechanism, not yet proven in game: object pads sit near y 328, and `func0f06a650` (`propobj.c`) drops
-each object to the floor that `cdFindFloorRoomYColourFlagsAtPos` finds in the pad's rooms (a weapon's origin a few
-units above it, as at y 2 on the ground floor). On these upper rooms that floor seems to lie about 30 units under
-the floor simulants walk on: a simulant's root is about 117 above its floor on the ground floor, but 135 to 148
-above these items. The item then sits in or under the slab, and `botTestPropForPickup`'s line of sight
-(`cdTestLos06`, DOORS|BG) from the simulant to it is blocked. Extracted pads carry no room (`room_ref` ""), so the
-room the game gives them (B-1113) decides which floor is found. Same family as B-1187/B-1189 (scenario-source
-stages). Next, CORE's call (placement and collision on scenario-source stages): log the floor found at
-placement next to `chr->ground` at the same spot, and look at whether players see those items.
+An item 42 to 46 units under the floor fails `botTestPropForPickup`'s line of sight (`cdTestLos06`, DOORS|BG) from
+a simulant standing over it. The crate at y 509, 42 under its 551 floor, was collected only from the floor below,
+where that line is clear. (My first guess, a wrong floor from `func0f06a650`, was wrong: that function has no
+callers; the root cause is above.) Next, CORE's call: the fix, then a game check that the briefcase, weapons and
+crates rest on their own floors (on Complex: rooms 2, 21, 22, 24 and 42).
 
 ## 2026-11-16 B-1203 Single-process smokes ran against the real user profile (T-NETWORKING-011, fixed in the runner)
 
