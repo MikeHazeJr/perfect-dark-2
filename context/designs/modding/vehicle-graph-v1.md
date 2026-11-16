@@ -379,7 +379,9 @@ B to D, written 2026-11-16 (5aae6799; pd-tests pass). The client is built on e23
 ## CORE's review of steps B to D (2026-11-16 09:58 UTC) and what MODS did
 
 CORE reviewed 5aae6799 and 22a2126b: merge after these fixes. Done on week-pd/mods the same
-morning (pd-tests; the game files compile with the client build after the 09:40 UTC smoke turn):
+morning (afd8739b); the client built with them (and C3) and the three vehicle smokes passed on
+base 7 at 11:08 UTC: mod drive 32/32, Maian drive 34/34, Maian boost 47/47 (ramp peak 24.63 over
+the ground against a top of 21; part 140 hidden once and shown once):
 
 - (1) A crash: two `og.vehicle.dismount_seat` nodes on one event compiled, and the second ran
   `bbikeDismountToSides` after the first had set `player->hoverbike` to NULL (a remote client's
