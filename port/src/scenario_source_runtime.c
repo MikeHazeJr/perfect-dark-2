@@ -28,6 +28,7 @@
 #include "game/atan2f.h"
 #include "game/cheats.h"
 #include "game/bondgun.h"
+#include "game/bot.h"
 #include "game/chraction.h"
 #include "game/chr.h"
 #include "game/chrai.h"
@@ -788,6 +789,8 @@ typedef struct scenario_source_graph_state {
 	s32 level_ai_say_ci_staff_quip_node_count;
 	s32 level_ai_shuffle_ruins_pillars_node_count;
 	s32 level_ai_shuffle_pelagic_switches_node_count;
+	s32 level_ai_if_bot_respawning_node_count;
+	s32 level_ai_mp_init_simulants_node_count;
 	char level_global_settings_scenario[CATALOG_ID_LEN];
 	char level_global_settings_kind[32];
 	scenario_source_objective_node_t *mission_objectives;
@@ -1228,6 +1231,8 @@ typedef struct scenario_source_graph_state {
 	s32 ai_action_say_ci_staff_quip_logged;
 	s32 ai_action_shuffle_ruins_pillars_logged;
 	s32 ai_action_shuffle_pelagic_switches_logged;
+	s32 ai_condition_if_bot_respawning_logged; /* bit per branch outcome */
+	s32 ai_action_mp_init_simulants_logged; /* bit per wave result */
 	s32 level_volume_eval_logged;
 	s32 level_volume_missing_logged;
 	s32 level_graph_tick_logged;
@@ -9790,6 +9795,8 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 	s32 level_ai_say_ci_staff_quip_node_count;
 	s32 level_ai_shuffle_ruins_pillars_node_count;
 	s32 level_ai_shuffle_pelagic_switches_node_count;
+	s32 level_ai_if_bot_respawning_node_count;
+	s32 level_ai_mp_init_simulants_node_count;
 	scenario_source_volume_row_t *level_volume_rows;
 	scenario_source_objective_node_t *mission_objective_rows;
 	scenario_source_objective_criteria_t *mission_criteria_rows;
@@ -10826,6 +10833,10 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		"\"kind\": \"scenario.ai.action.shuffle_ruins_pillars\"");
 	level_ai_shuffle_pelagic_switches_node_count = s_countTextOccurrences(text,
 		"\"kind\": \"scenario.ai.action.shuffle_pelagic_switches\"");
+	level_ai_if_bot_respawning_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.condition.if_bot_respawning\"");
+	level_ai_mp_init_simulants_node_count = s_countTextOccurrences(text,
+		"\"kind\": \"scenario.ai.action.mp_init_simulants\"");
 	if (level_global_settings_node_count != 1) {
 		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
 			"missing executable global settings source node");
@@ -11588,6 +11599,14 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 			level_ai_shuffle_pelagic_switches_node_count != 1) {
 		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
 			"missing executable AI quip/setup shuffle action source nodes");
+		free(text);
+		return 0;
+	}
+	/* ai-list-graphs.md: the two simulant commands (host only). */
+	if (level_ai_if_bot_respawning_node_count != 1 ||
+			level_ai_mp_init_simulants_node_count != 1) {
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path,
+			"missing executable AI simulant source nodes");
 		free(text);
 		return 0;
 	}
@@ -12545,6 +12564,10 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		level_ai_shuffle_ruins_pillars_node_count;
 	s_ActiveScenarioGraphs.level_ai_shuffle_pelagic_switches_node_count =
 		level_ai_shuffle_pelagic_switches_node_count;
+	s_ActiveScenarioGraphs.level_ai_if_bot_respawning_node_count =
+		level_ai_if_bot_respawning_node_count;
+	s_ActiveScenarioGraphs.level_ai_mp_init_simulants_node_count =
+		level_ai_mp_init_simulants_node_count;
 	s_ActiveScenarioGraphs.level_graph_active = 1;
 
 	stageid = stage && stage->entry && stage->entry->id[0]
@@ -12944,6 +12967,11 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		s_ActiveScenarioGraphs.level_ai_shuffle_ruins_pillars_node_count,
 		s_ActiveScenarioGraphs
 			.level_ai_shuffle_pelagic_switches_node_count);
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: AI simulant commands '%s' if_bot_respawning=%d mp_init_simulants=%d backend=graph.ai.simulant+ai/ailists.json",
+		s_ActiveScenarioGraphs.level_graph_path,
+		s_ActiveScenarioGraphs.level_ai_if_bot_respawning_node_count,
+		s_ActiveScenarioGraphs.level_ai_mp_init_simulants_node_count);
 	sysLogPrintf(LOG_NOTE,
 		"SCENARIO.GRAPH: AI team maintenance actions '%s' set_chr_preset_to_unalerted_teammate=%d rebuild_teams=%d rebuild_squadrons=%d backend=graph.ai.action.team+ai/ailists.json",
 		s_ActiveScenarioGraphs.level_graph_path,
@@ -20894,6 +20922,75 @@ s32 scenarioSourceAiGraphExecuteRebuildTeams(void)
 			"SCENARIO.GRAPH: AI action rebuild_teams source=%s backend=graph.ai.action.rebuild_teams+ai/ailists.json",
 			s_ActiveScenarioGraphs.ai_lists_path);
 		s_ActiveScenarioGraphs.ai_action_rebuild_teams_logged = 1;
+	}
+	return 1;
+}
+
+/* AI lists as graphs (context/designs/modding/ai-list-graphs.md): the two
+ * simulant commands, which run only in multiplayer. Semantics from
+ * MULTIPLAYER (week note, 2026-11-16 12:44 UTC) as the game plays today.
+ * if_bot_respawning (0x0176): the current chr is a simulant whose respawn
+ * is pending -> jump to the label and clear the flag; otherwise go on (no
+ * chr, or a chr without an aibot, is false: the original read aibot
+ * regardless and crashed). */
+s32 scenarioSourceAiGraphExecuteIfBotRespawning(struct chrdata *chr, s32 label)
+{
+	s32 branch_taken;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_if_bot_respawning_node_count != 1) {
+		return s_aiGraphRuntimeFailure("if_bot_respawning",
+			"missing scenario.ai.condition.if_bot_respawning node");
+	}
+	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
+		return s_aiGraphRuntimeFailure("if_bot_respawning",
+			"missing ai/ailists.json source");
+	}
+	branch_taken = chr && chr->aibot && chr->aibot->respawning == true;
+	if (branch_taken) {
+		chr->aibot->respawning = false;
+	}
+	s_aiGraphApplyBranch(branch_taken, label, 3);
+	if (!(s_ActiveScenarioGraphs.ai_condition_if_bot_respawning_logged & (1 << branch_taken))) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI condition if_bot_respawning chr=%d simulant=%d label=%d branch=%d source=%s backend=graph.ai.condition.simulant+ai/ailists.json",
+			chr ? (s32)chr->chrnum : -1, chr && chr->aibot ? 1 : 0, label, branch_taken,
+			s_ActiveScenarioGraphs.ai_lists_path);
+		s_ActiveScenarioGraphs.ai_condition_if_bot_respawning_logged |= 1 << branch_taken;
+	}
+	return 1;
+}
+
+/* mp_init_simulants (0x0185): spawns the simulant wave. The command goes on
+ * whether the wave completed or not, as the game plays today: the botTick
+ * failsafe retries a pending wave (the B-949 guard always skipped the
+ * original's "leave the opcode in place" return). The caller moves on. */
+s32 scenarioSourceAiGraphExecuteMpInitSimulants(void)
+{
+	enum bot_spawn_wave_result wave;
+	s32 bit;
+
+	if (!s_ActiveScenarioGraphs.level_graph_active) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.level_ai_mp_init_simulants_node_count != 1) {
+		return s_aiGraphRuntimeFailure("mp_init_simulants",
+			"missing scenario.ai.action.mp_init_simulants node");
+	}
+	if (!s_ActiveScenarioGraphs.ai_lists_path[0]) {
+		return s_aiGraphRuntimeFailure("mp_init_simulants",
+			"missing ai/ailists.json source");
+	}
+	wave = botSpawnAll();
+	bit = wave == BOT_SPAWN_WAVE_COMPLETE ? 1 : wave == BOT_SPAWN_WAVE_RETRY_PENDING ? 2 : 4;
+	if (!(s_ActiveScenarioGraphs.ai_action_mp_init_simulants_logged & bit)) {
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.GRAPH: AI action mp_init_simulants wave=%s source=%s backend=graph.ai.action.simulant+ai/ailists.json",
+			bit == 1 ? "complete" : bit == 2 ? "pending" : "invalid",
+			s_ActiveScenarioGraphs.ai_lists_path);
+		s_ActiveScenarioGraphs.ai_action_mp_init_simulants_logged |= bit;
 	}
 	return 1;
 }

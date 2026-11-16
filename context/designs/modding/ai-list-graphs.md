@@ -4,17 +4,19 @@ Status: CORE, 2026-11-16. Design for the next step of the week note's "AI
 commands and cutscene triggers" row (decision 1: players can recreate any
 existing behavior with the nodes). Slice 1 built (see "Slice 1 as built");
 slice 2 built but not yet run in play and without its fixtures (see "Slice 2
-as built"); slices 3-4 not built. The facts below come from a read-only
-survey of `week-pd/core` and the extracted base 7 data on 2026-11-16.
+as built"); the two simulant twins built (see "Simulant twins as built");
+slices 3-4 not built. The facts below come from a read-only survey of
+`week-pd/core` and the extracted base 7 data on 2026-11-16.
 
 ## Where it stands
 
-- 434 of the 441 AI command handlers have a graph twin
+- 434 of the 441 AI command handlers had a graph twin
   (`scenarioSourceAiGraphExecute*`) that runs instead of the native handler on
-  a stage built from scenario source. Seven have none: the interpreter's own
+  a stage built from scenario source. Seven had none: the interpreter's own
   control flow (`aiGoToNext`, `aiGoToFirst`, `aiLabel`, `aiYield`,
   `aiEndList`) and two simulant commands (`aiIfBotRespawning` 0x0176,
-  `aiMpInitSimulants` 0x0185).
+  `aiMpInitSimulants` 0x0185). The two simulant commands have one now (436
+  of 441); the five left are the control flow the edges carry.
 - The data has the commands as graph nodes but no control flow:
   `level.graph.json` holds one `scenario.ai.command` node per row
   (69,335 across the 87 scenarios) and links each to its list; no link
@@ -186,6 +188,44 @@ survey of `week-pd/core` and the extracted base 7 data on 2026-11-16.
   untracked.
 - Not yet: no campaign has run with the walk, and the campaign fixtures do
   not require the line.
+
+## Simulant twins as built
+
+- Every level graph carries two more module nodes, linked from
+  `scenario.ai.lists`: `scenario.ai.condition.if_bot_respawning` (opcode
+  0x0176, target `chr.aibot.respawning`) and
+  `scenario.ai.action.mp_init_simulants` (0x0185, target
+  `simulants.spawn_wave`). The runtime requires exactly one of each (the
+  "simulant" family; a level graph without them refuses the stage) and logs
+  `SCENARIO.GRAPH: AI simulant commands '...' if_bot_respawning=1
+  mp_init_simulants=1`. Conformance and the typed examples carry them; the
+  scenario kind gains `_simtwins` (SP-86).
+- Where they run in base 7: `if_bot_respawning` once, in the global list
+  0x0028 (the simulant dead list: yield, then jump to the respawn when it is
+  pending, else loop); `mp_init_simulants` in the background list 0x1000 of
+  each of the 24 multiplayer stages, before `rebuild_teams`,
+  `rebuild_squadrons` and the switch to list 0x0000.
+- `if_bot_respawning(label)`: MULTIPLAYER's semantics. The twin jumps to the
+  label and clears the flag when the running chr is a simulant whose respawn
+  is pending, and goes on otherwise; no chr, or a chr without an aibot, is
+  false. The native handler read `aibot` through a null pointer in that case
+  (the original's missing return); it now returns too (B-1254). Each branch
+  outcome is logged once per stage (`... branch=0` and `... branch=1`).
+- `mp_init_simulants`: built as the game plays today, which differs from the
+  "stays on its command" in "Fail closed" above. The original returned
+  without moving while the wave was incomplete ("leave the opcode in place"),
+  but on PC the B-949 guard skips any command that returns without moving, so
+  the command has always gone on; the botTick failsafe retries a pending wave
+  from its retained cursor. Staying would also change a networked client: in
+  a multiplayer match its background chrs run list 0x1000 too (only co-op and
+  counter-op suppress non-simulant AI on a client), so its `rebuild_teams`
+  and `rebuild_squadrons` would wait until its own wave completes. The twin
+  and the native handler call `botSpawnAll()` and go on, complete or not;
+  each wave result is logged once per stage (`wave=complete`, `pending`,
+  `invalid`). Whether a pending wave should hold the list is MULTIPLAYER's
+  call; it is one line in each, and the shadow walk would then need a stop
+  in place for 0x0185, as for `set_camera_animation`.
+- Pins: `tests/test_ai_simulant_twins_static.cpp`.
 
 ## Not in scope
 

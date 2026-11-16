@@ -144,7 +144,7 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -8360,6 +8360,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                             "scenario.ai.action.set_pad_preset": "AI set_pad_preset action",
                             "scenario.ai.action.chr_set_pad_preset": "AI chr_set_pad_preset action",
                             "scenario.ai.action.chr_copy_pad_preset": "AI chr_copy_pad_preset action",
+                            "scenario.ai.condition.if_bot_respawning": "AI if_bot_respawning condition",
+                            "scenario.ai.action.mp_init_simulants": "AI mp_init_simulants action",
                         }.items():
                             if node_kinds.count(required_kind) != 1:
                                 result.errors.append(
@@ -8965,6 +8967,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                             ("scenario.ai.lists", "scenario.ai.action.set_pad_preset"),
                             ("scenario.ai.lists", "scenario.ai.action.chr_set_pad_preset"),
                             ("scenario.ai.lists", "scenario.ai.action.chr_copy_pad_preset"),
+                            ("scenario.ai.lists", "scenario.ai.condition.if_bot_respawning"),
+                            ("scenario.ai.lists", "scenario.ai.action.mp_init_simulants"),
                             ("scenario.pads", "scenario.ai.action.jog_to_pad"),
                             ("scenario.pads", "scenario.ai.action.go_to_pad_preset"),
                             ("scenario.pads", "scenario.ai.action.walk_to_pad"),

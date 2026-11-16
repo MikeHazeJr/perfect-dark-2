@@ -303,6 +303,9 @@ s32 scenarioSourceAiGraphExecuteFaceCover(struct chrdata *chr,
 s32 scenarioSourceAiGraphExecuteDangerCover(struct chrdata *chr);
 s32 scenarioSourceAiGraphExecuteReleaseCover(struct chrdata *chr);
 s32 scenarioSourceAiGraphExecuteRebuildTeams(void);
+/* ai-list-graphs.md: the two simulant commands (host only). */
+s32 scenarioSourceAiGraphExecuteIfBotRespawning(struct chrdata *chr, s32 label);
+s32 scenarioSourceAiGraphExecuteMpInitSimulants(void);
 s32 scenarioSourceAiGraphExecuteRebuildSquadrons(void);
 s32 scenarioSourceAiGraphExecuteChrSetListening(struct chrdata *basechr,
 	s32 chrnum, s32 listening);

@@ -91,7 +91,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -5316,6 +5316,8 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"    { \"id\": \"scenario.ai.action.say_quip\", \"kind\": \"scenario.ai.action.say_quip\", \"source\": \"ai/ailists.json\", \"target\": \"chr.quip\", \"opcode\": \"0x0130\" },\n"
 			"    { \"id\": \"scenario.ai.action.say_ci_staff_quip\", \"kind\": \"scenario.ai.action.say_ci_staff_quip\", \"source\": \"ai/ailists.json\", \"target\": \"chr.ci_staff_quip\", \"opcode\": \"0x01a2\" },\n"
 			"    { \"id\": \"scenario.ai.action.shuffle_ruins_pillars\", \"kind\": \"scenario.ai.action.shuffle_ruins_pillars\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"setup.tags\", \"opcode\": \"0x01b1\" },\n"
+			"    { \"id\": \"scenario.ai.condition.if_bot_respawning\", \"kind\": \"scenario.ai.condition.if_bot_respawning\", \"source\": \"ai/ailists.json\", \"target\": \"chr.aibot.respawning\", \"opcode\": \"0x0176\" },\n"
+			"    { \"id\": \"scenario.ai.action.mp_init_simulants\", \"kind\": \"scenario.ai.action.mp_init_simulants\", \"source\": \"ai/ailists.json\", \"target\": \"simulants.spawn_wave\", \"opcode\": \"0x0185\" },\n"
 			"    { \"id\": \"scenario.ai.action.shuffle_pelagic_switches\", \"kind\": \"scenario.ai.action.shuffle_pelagic_switches\", \"source\": \"ai/ailists.json\", \"objects\": \"objects.json\", \"target\": \"setup.tags\", \"opcode\": \"0x01b9\" }%s\n",
 			scenario_id, kind ? kind : "scenario",
 			(unsigned)portal_count,
@@ -5835,6 +5837,8 @@ static s32 s_buildScenarioSourceFiles(const char *scenario_id,
 			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.set_pad_preset\" },\n"
 			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.chr_set_pad_preset\" },\n"
 			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.chr_copy_pad_preset\" },\n"
+			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.condition.if_bot_respawning\" },\n"
+			"    { \"from\": \"scenario.ai.lists\", \"to\": \"scenario.ai.action.mp_init_simulants\" },\n"
 			"    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.jog_to_pad\" },\n"
 			"    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.go_to_pad_preset\" },\n"
 			"    { \"from\": \"scenario.pads\", \"to\": \"scenario.ai.action.walk_to_pad\" },\n"
@@ -10074,6 +10078,10 @@ static s32 s_existingPdscenarioArchiveIsClean(const char *relpath)
 			"scenario.ai.action.chr_set_pad_preset") &&
 		s_existingArchiveEntryContains(relpath, "level.graph.json",
 			"scenario.ai.action.chr_copy_pad_preset") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.ai.condition.if_bot_respawning") &&
+		s_existingArchiveEntryContains(relpath, "level.graph.json",
+			"scenario.ai.action.mp_init_simulants") &&
 		s_existingArchiveHasEntry(relpath, "_meta/generated-collision.json") &&
 		s_existingArchiveHasEntry(relpath, "_meta/generated-navmesh.json") &&
 		s_existingPdscenarioGeneratedNavmeshIsCurrent(relpath);
