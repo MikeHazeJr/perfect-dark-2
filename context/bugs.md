@@ -22,7 +22,7 @@ N times the elapsed time, because `propsTickPlayer` adds the frame's time to eve
 slot's `slotupdate240` on each pass and advances `runstateindex` on each pass, and a background tick spends that
 accumulated time (the original split-screen scheduler does the same). So a simulant out of every player's view still
 acts at twice the speed with two players, and a co-op guard out of view on the host likewise. Points earned out of
-view can therefore still beat the 30 s rule in the Hold the Briefcase re-run.
+view can therefore still beat the 30 s rule in the Hold the Briefcase re-run. **Fixed in code 2026-11-16 with option (b)** (CORE agreed on the hub, 05:59 UTC): in a networked match `propsTickPlayer` counts the frame's time once (`netrepeatpass`: on a pass after the first, no prop or slot gains time, the background slot does not advance and no background prop ticks), so every prop gets real time as offline; local split screen keeps the original per-pass accounting. Background pickups no longer regenerate N times as fast either. Pinned in `tests/test_net_bot_pickup_static.cpp` (`[sp87]`); pd-tests 2,019 cases green; not yet run in game.
 
 ## 2026-11-16 B-1201 A co-op client crashes when the host leaves while it is in the Room after a mission (T-NETWORKING-011, fixed)
 

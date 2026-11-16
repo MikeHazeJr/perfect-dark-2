@@ -2204,6 +2204,7 @@ void propsTickPlayer(bool islastplayer)
 	s32 roomidx;
 	s32 roomnum;
 	bool done;
+	bool netrepeatpass;
 	struct chrdata *chr1;
 	struct chrdata *chr2;
 
@@ -2231,14 +2232,25 @@ void propsTickPlayer(bool islastplayer)
 	savedlvupdate60f = g_Vars.lvupdate60f;
 	savedlvupdate60freal = g_Vars.lvupdate60freal;
 
-	for (i = 0; i < g_Vars.numpropstates; i++) {
-		g_Vars.propstates[i].slotupdate240 += g_Vars.lvupdate240;
-	}
+	/* SP-87 (B-1202; CORE agreed 2026-11-16): a networked match passes the
+	 * props once per player each frame (lvRender ticks every player, local
+	 * and remote). Its time is counted once, on the frame's first pass: only
+	 * there do the slots and the props gain the frame's time and the
+	 * background slot advance, and a later pass ticks no background prop, so
+	 * a prop in no player's view gets real time, as offline. Local split
+	 * screen keeps the original per-pass accounting. */
+	netrepeatpass = g_NetMode != NETMODE_NONE && g_Vars.currentplayerindex != 0;
 
-	g_Vars.runstateindex++;
+	if (!netrepeatpass) {
+		for (i = 0; i < g_Vars.numpropstates; i++) {
+			g_Vars.propstates[i].slotupdate240 += g_Vars.lvupdate240;
+		}
 
-	if (g_Vars.runstateindex >= g_Vars.numpropstates) {
-		g_Vars.runstateindex = 0;
+		g_Vars.runstateindex++;
+
+		if (g_Vars.runstateindex >= g_Vars.numpropstates) {
+			g_Vars.runstateindex = 0;
+		}
 	}
 
 	runstateindex = g_Vars.runstateindex;
@@ -2399,7 +2411,10 @@ void propsTickPlayer(bool islastplayer)
 			}
 		}
 
-		prop->propupdate240 += g_Vars.lvupdate240;
+		/* SP-87: a networked repeat pass adds no time (see netrepeatpass) */
+		if (!netrepeatpass) {
+			prop->propupdate240 += g_Vars.lvupdate240;
+		}
 
 		if (i > 0) {
 			// The prop is in the foreground, so it must be ticked on this frame
@@ -2466,7 +2481,9 @@ void propsTickPlayer(bool islastplayer)
 				g_Vars.propstates[prop->propstateindex].propcount++;
 			}
 
-			if (prop->propstateindex == runstateindex) {
+			/* SP-87: the background slot runs on the frame's first pass only
+			 * in a networked match; a repeat pass would tick it again */
+			if (prop->propstateindex == runstateindex && !netrepeatpass) {
 				if (prop->lastupdateframe != g_Vars.propstates[runstateindex].lastupdateframe) {
 					g_Vars.lvupdate240 = prop->propupdate240;
 					g_Vars.lvupdate60 = prop->propupdate240 + prop->propupdate60err;

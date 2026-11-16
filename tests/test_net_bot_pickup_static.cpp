@@ -397,3 +397,40 @@ TEST_CASE("bot tick: a simulant's update runs once a frame however many players 
 	REQUIRE(tick.rfind("if (updateable) {", scenario) != std::string::npos);
 	REQUIRE(tick.find("if (updateable && !chrIsDead(chr)) {", scenario) < tick.find("botCheckPickups(chr);", scenario));
 }
+
+TEST_CASE("prop scheduler: a networked match counts the frame's time once however many players it passes",
+          "[net][botpickup][b1202][sp87]") {
+	// SP-87 (CORE agreed 2026-11-16): a networked match passes the props once
+	// per player each frame; only the frame's first pass adds the frame's time
+	// to the slots and props and advances the background slot, and a later
+	// pass ticks no background prop. Local split screen keeps the original
+	// per-pass accounting, so the gate needs a networked mode
+	const std::string prop = code_only(read_text_file("src/game/prop.c"));
+	const std::string tick = function_body(prop, "void propsTickPlayer(bool islastplayer)\n{");
+	const size_t gate = tick.find("netrepeatpass = g_NetMode != NETMODE_NONE && g_Vars.currentplayerindex != 0;");
+	REQUIRE(gate != std::string::npos);
+
+	const size_t slots = tick.find("if (!netrepeatpass) {", gate);
+	REQUIRE(slots != std::string::npos);
+	const size_t slottime = tick.find("g_Vars.propstates[i].slotupdate240 += g_Vars.lvupdate240;", slots);
+	const size_t advance = tick.find("g_Vars.runstateindex++;", slots);
+	REQUIRE(slottime != std::string::npos);
+	REQUIRE(advance != std::string::npos);
+	// both inside the first-pass block, before the loop takes runstateindex
+	const size_t take = tick.find("runstateindex = g_Vars.runstateindex;", slots);
+	REQUIRE(take != std::string::npos);
+	REQUIRE(slottime < take);
+	REQUIRE(advance < take);
+	// the gated ones are the only slot accumulation and slot advance
+	REQUIRE(tick.find("slotupdate240 += ") == tick.rfind("slotupdate240 += "));
+	REQUIRE(tick.find("runstateindex++") == tick.rfind("runstateindex++"));
+	REQUIRE(tick.find("g_Vars.runstateindex++;") == advance);
+
+	const size_t proptime = tick.find("prop->propupdate240 += g_Vars.lvupdate240;");
+	REQUIRE(proptime != std::string::npos);
+	REQUIRE(tick.rfind("if (!netrepeatpass) {", proptime) > take);
+	REQUIRE(tick.find("prop->propupdate240 += g_Vars.lvupdate240;", proptime + 1) == std::string::npos);
+
+	REQUIRE(tick.find("if (prop->propstateindex == runstateindex && !netrepeatpass) {") != std::string::npos);
+	REQUIRE(tick.find("if (prop->propstateindex == runstateindex) {") == std::string::npos);
+}
