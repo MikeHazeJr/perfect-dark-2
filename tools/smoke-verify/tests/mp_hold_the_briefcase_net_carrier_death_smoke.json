@@ -1,0 +1,276 @@
+{
+  "scenario_name": "mp_hold_the_briefcase_net_carrier_death_smoke",
+  "description": "B-1272 / T-NETWORKING-011, networked Hold the Briefcase when the briefcase's carrier dies. A listen host and one client start Hold the Briefcase on Complex with three simulants as mp_hold_the_briefcase_net_smoke does (150 s time limit). Once a simulant has carried the briefcase for 1 s, the host kills it through the production damage path (kill_token_holder, chrDamageByMisc). The dying simulant drops the briefcase (botinvDrop announces it with SVC_PROP_SPAWN), and the briefcase has no MP weapon slot, so before B-1272 the match manifest gave it no session catalog id and the client built the dropped case as WEAPON_UNARMED. Passes when the client replays a simulant's pickup of the dropped case as the briefcase (weapon 79) and shows that simulant as its holder. Each process runs its own schedule; both exit from their results. Written 2026-11-16; port 27267.",
+  "tags": [
+    "network",
+    "combatsim",
+    "bots",
+    "multiplayer-modes",
+    "scenario",
+    "b-1272",
+    "t-networking-011"
+  ],
+  "paths_of_interest": [
+    "src/game/mplayer/scenarios/holdthebriefcase.inc",
+    "src/game/mplayer/scenarios.c",
+    "src/game/botinv.c",
+    "port/src/net/netmsg.c",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 900,
+  "install_state": "clean",
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--host",
+        "--listen-bind",
+        "27267",
+        "--launch-mp-room",
+        "base:arena_mp_complex",
+        "base:hold_the_briefcase",
+        "3",
+        "--host-autostart",
+        "--match-timelimit-sec",
+        "150"
+      ],
+      "wait_for": "NET: created server on port 27267",
+      "wait_timeout_seconds": 120,
+      "smoke_path": "tools/smoke-verify/fixtures/mp_hold_the_briefcase_net_carrier_death_host.json",
+      "assertions": {
+        "required_lines": [
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "SMOKE\\.WAIT: satisfied condition=scenario_token_held",
+          "SMOKE\\.KILL_TOKEN_HOLDER: simulant player=[2-4] token=briefcase died=1",
+          "BOT\\.DROP: host announced simulant [2-4] weapon=79 syncid=[0-9]+",
+          "MANIFEST-HOST: scenario 1 token weapon 79 as '[^']+'"
+        ],
+        "required_sequences": [
+          {
+            "name": "dropped-briefcase-announced-and-taken",
+            "patterns": [
+              "SMOKE\\.WAIT: satisfied condition=scenario_token_held",
+              "BOT\\.DROP: host announced simulant [2-4] weapon=79 syncid=[0-9]+",
+              "SMOKE\\.KILL_TOKEN_HOLDER: simulant player=[2-4] token=briefcase died=1",
+              "BOT\\.PICKUP: host sent simulant [2-4] item [0-9]+ weapon=79 ",
+              "HTB: briefcase holder -1 -> [2-4] "
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "SMOKE\\.KILL_TOKEN_HOLDER: no living simulant",
+          "SMOKE\\.WAIT: (timeout|pending_tap)"
+        ]
+      }
+    },
+    {
+      "name": "client",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check",
+        "--no-sound",
+        "--skip-intro",
+        "--connect-host",
+        "127.0.0.1:27267"
+      ],
+      "smoke_path": "tools/smoke-verify/fixtures/mp_hold_the_briefcase_net_carrier_death_client.json",
+      "assertions": {
+        "required_lines": [
+          "SMOKE\\.WAIT: satisfied condition=network_stage_live",
+          "BOT\\.PICKUP: client replayed simulant [2-4] item [0-9]+ weapon=79 "
+        ],
+        "required_sequences": [
+          {
+            "name": "client-takes-the-dropped-briefcase",
+            "patterns": [
+              "BOT\\.PICKUP: client replayed simulant [2-4] item [0-9]+ weapon=79 ",
+              "HTB: client briefcase from host holder=[2-4] present=1",
+              "HTB: client briefcase from host holder=-1 present=1",
+              "BOT\\.PICKUP: client replayed simulant [2-4] item [0-9]+ weapon=79 ",
+              "HTB: client briefcase from host holder=[2-4] present=1"
+            ]
+          }
+        ],
+        "forbidden_patterns": [
+          "BOT\\.PICKUP: client skipped",
+          "SMOKE\\.WAIT: (timeout|pending_tap)"
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Each process runs its own schedule (smoke_path); this one only bounds the test."
+    },
+    {
+      "at_ms": 840000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=mp_hold_the_briefcase_net_carrier_death_host",
+      "SMOKE: scenario=mp_hold_the_briefcase_net_carrier_death_client",
+      "BOOT: --listen-bind armed: port=27267",
+      "BOOT: --connect-host armed: addr='127.0.0.1:27267'",
+      "BOOT: --host-autostart armed",
+      "BOOT: --match-timelimit-sec armed: seconds=150",
+      "BOOT: --launch-mp-room arena='base:arena_mp_complex' scenario='base:hold_the_briefcase' bots=3",
+      "BOOT: --listen-bind consumed: port=27267 .*result=OK rc=0",
+      "BOOT: --connect-host consumed: addr='127.0.0.1:27267' result=OK rc=0",
+      "NET: created server on port 27267",
+      "NET: connecting to 127\\.0\\.0\\.1:27267",
+      "NET: incoming connection",
+      "NET: connected to server, sending CLC_AUTH",
+      "NET: client slot \\d+ assigned to peer",
+      "BOOT: --host-autostart firing",
+      "BOOT: --host-autostart consumed: result=OK rc=0",
+      "MANIFEST-SP: load 'base:arena_mp_complex'",
+      "MATCH: server stage start",
+      "MATCH: client stage start received",
+      "MATCH: player spawned slot=0",
+      "MATCH: player spawned slot=1",
+      "MATCH: scores replicated",
+      "MATCH: stage end reason=(timelimit|scorelimit)",
+      "MATCH: endscreen shown",
+      "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+      "MATCH\\.RESULT: scenario=1 teams=0 chrs=5 netmode=1",
+      "MATCH\\.RESULT: scenario=1 teams=0 chrs=5 netmode=2",
+      "MATCH: final scores published before stage end room=",
+      "HTB: briefcase placed pad=[1-9][0-9]* source=(crate|bank) prop=ok",
+      "SCENARIO\\.STATE: sent scenario=1 rev=[0-9]+ reason=baseline",
+      "SCENARIO\\.STATE: first state from host scenario=1 rev=[0-9]+",
+      "HTB: client briefcase from host holder=-?[0-9]+ present=1 rev=[0-9]+"
+    ],
+    "forbidden_patterns": [
+      "BOOT: --no-net set; netInit\\(\\) skipped",
+      "NET: could not init ENet, disabling networking",
+      "NET: could not create ENet host on port \\d+",
+      "NET: could not connect to ",
+      "NET: connection rejected: protocol mismatch",
+      "BOOT: --listen-bind cannot fire:",
+      "BOOT: --connect-host cannot fire:",
+      "BOOT: --listen-bind consumed: port=27267 .*result=FAILED",
+      "BOOT: --connect-host consumed: addr='127\\.0\\.0\\.1:27267' result=FAILED",
+      "BOOT: --host-autostart consumed: result=FAILED",
+      "MATCHSETUP: cannot resolve stage ",
+      "MATCHSETUP: no players configured",
+      "MATCHSTART\\.DIAG: BAILED",
+      "MATCHSTART\\.DIAG: abort reason=",
+      "CATALOG\\.LIFECYCLE\\.LOAD: .*type mismatch",
+      "MANIFEST-SP: load failed 'base:arena_mp_complex'",
+      "MANIFEST\\.LIFECYCLE\\.(REJECT|ROLLBACK)",
+      "MANIFEST-(SP|MP): .*rejected; current manifest preserved",
+      "SPAWN.ORCH: no pool slot",
+      "SPAWN.ORCH:.*unresolved duplicate",
+      "SPAWN: could not resolve room",
+      "MENU: watchdog",
+      "MENUPOOL legacy-stack leak",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable",
+      "HTB: briefcase placed pad=0 ",
+      "HTB: briefcase placed pad=-?[0-9]+ source=pad0",
+      "SCENARIO\\.MISS:",
+      "SCENARIO: object model=",
+      "SCENARIO\\.STATE: rejected malformed state",
+      "SCENARIO\\.STATE: dropped scenario=",
+      "SCENARIO\\.STATE: send failed",
+      "HTB: client holder from host chr=-?[0-9]+ is not a character of this match",
+      "NET: scenario state append failed",
+      "BOT\\.PICKUP: client skipped",
+      "NET: malformed or unknown message 0x4[dD]",
+      "NET: weapon [0-9]+ .* has no session catalog id"
+    ],
+    "required_counts": [
+      {
+        "pattern": "NET: created server on port 27267",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "NET: incoming connection",
+        "min": 1
+      },
+      {
+        "pattern": "NET: connected to server, sending CLC_AUTH",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "MANIFEST-SP: load 'base:arena_mp_complex'",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: player spawned slot=\\d+",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH: server stage start",
+        "min": 1
+      },
+      {
+        "pattern": "SMOKE: result=scripted_exit",
+        "min": 1
+      },
+      {
+        "pattern": "PARTICIPANTS: 5 active \\(2 players, 3 bots\\)",
+        "min": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT: scenario=1 teams=0 chrs=5 netmode=",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "MATCH\\.RESULT\\.CHR: rank=",
+        "min": 10,
+        "max": 10
+      },
+      {
+        "pattern": "SCENARIO\\.STATE: first state from host scenario=1",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "BOT\\.PICKUP: host sent simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.PICKUP: client replayed simulant",
+        "min": 0
+      },
+      {
+        "pattern": "BOT\\.DROP: host announced simulant",
+        "min": 0
+      },
+      {
+        "pattern": "SMOKE: scenario=mp_hold_the_briefcase_net_carrier_death_(host|client)",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "SMOKE\\.KILL_TOKEN_HOLDER: simulant player=",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
+        "min": 2,
+        "max": 2
+      }
+    ]
+  }
+}
