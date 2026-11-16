@@ -289,6 +289,79 @@ a Modding Hub tab for players), and the tools grow with the mods.
   today; the largest single step).
 - V9. The Vehicles tab in the Modding Hub on `modAuthorRuntimeSave`.
 
+### V4 design draft (2026-11-16, MODS; questions for Mike, the wire for MULTIPLAYER)
+
+READ, by a read-only survey of `week-pd/mods` at 452ad5bb (file:line as it
+reported them). Today a vehicle has one rider:
+
+- The rider lives on the player: `player->hoverbike` (the vehicle prop),
+  `bondmovemode == MOVEMODE_BIKE`, `bondvehiclemode` (off, engine start,
+  running; dismount only when running), `bondvehicleoffset` (the seat, a fixed
+  (0, 80, -50) over the model scale) and the `bondenter*` camera blend.
+- The vehicle's only occupancy state is `OBJHFLAG_MOUNTED` in `obj->hidden`,
+  which also travels in `SVC_PROP_DAMAGE` and `SVC_PROP_RESYNC`. One rider is
+  assumed by the owner loops (`currentPlayerHoverbikeOwner`, `...OwnedByOther`;
+  `currentPlayerCanApplyHoverbikeState` refuses a second player), by every
+  rider running the full bike tick (physics, engine sound with one shared
+  static, perimeter), by the idle tick's skip while mounted and by the death
+  path (`bondtankexplode`).
+- Camera: the eye is the seat offset through the bike's matrix; yaw is the
+  bike's (`vv_theta`) and looking sideways steers.
+- Input: `LAYER_VEHICLE_DRIVER` with `g_ImcVehicle`. `LAYER_VEHICLE_TURRET` and
+  `SCENE_VEHICLE_KIND_TURRET` exist as stubs (no action set, no IMC); the
+  boarding check is the driver's only.
+- Wire: `SVC_PROP_VEHICLE_STATE` (0x39, 20 bytes: state, actor client,
+  playernum, prop syncid, type, objtype, stage epoch, sequence) has no seat;
+  one transition is reserved at a time; mount and exit intents are UCMD bits.
+- The vehicle graph already has both seats (`gate.vehicle.seat_free`,
+  `og.vehicle.mount_seat` and `dismount_seat` with `"seat"`); the game's host
+  refuses the gunner and every caller asks for the driver seat.
+
+Proposal:
+
+1. A gunner seat exists only on a vehicle whose v1 graph mounts one; the base
+   hoverbike keeps one seat. The occupants (`occupant[2]`, a player number or
+   none) live in the graph runtime's per-vehicle record, keyed like the
+   instance by the prop and its `lifecycle_generation`.
+2. `OBJHFLAG_MOUNTED` keeps meaning "the driver seat is taken", so the physics,
+   the idle tick, doors, pushing and the network flag carriage stay as they
+   are.
+3. Both seats keep `player->hoverbike` and `MOVEMODE_BIKE`; the player gains a
+   seat. The driver-only parts branch on it (the physics and its input, the
+   engine sound, the perimeter, the dismount momentum, the death explosion).
+   The gunner's prop follows the pod's seat each frame (a position node in the
+   model), and the gunner's yaw and pitch are free (V5 makes them the turret's
+   aim).
+4. Mount: `event.vehicle.mount_requested` carries the seat asked for (question
+   1); a taken seat's request falls to the other free seat or fails.
+5. Seat switch: `ACTION_VEHICLE_SWITCH_SEAT` on both vehicle layers fires a new
+   `event.vehicle.switch_seat_requested`, and `og.vehicle.switch_seat` moves
+   the rider to the other seat when it is free (question 2).
+6. Camera and layer per seat: boarding the gunner seat pushes
+   `LAYER_VEHICLE_TURRET` (`SCENE_VEHICLE_KIND_TURRET`), which gets its action
+   set (aim, fire, zoom and lock, switch seat, exit, pause), a
+   `g_ImcVehicleTurret` with defaults and a rebind group (question 3).
+7. Network, MULTIPLAYER's: a seat byte in `SVC_PROP_VEHICLE_STATE` (a wire
+   bump), a seat on the mount intent, and the gunner's aim and fire in the move
+   message. MODS gives the local prepare, apply and commit a seat parameter so
+   the wire can carry it, and does not change the wire.
+8. Tests: the seat records and the graph's seat events in pd-tests (the
+   observer pins follow); a solo smoke mounts the driver seat, switches to the
+   gunner seat (turret layer on top, the prop at the pod), switches back, drives
+   and dismounts.
+
+Questions for Mike:
+
+1. Which seat does a mount take: the side the player walks up to (driver on
+   one side, gunner on the other), or always the driver seat first?
+2. A seat switch for a solo player (recommended): stop, climb into the turret
+   and fire, which is the brief's sitting-duck intent, until the ally drives
+   (V8). In co-op it moves only to a free seat.
+3. Turret control defaults: mouse aims, left button fires, right button zooms
+   and locks, Tab switches seat (unbound today), F exits like the driver's; on a
+   controller the right stick aims, RT fires, LT zooms and locks, Y switches
+   seat (next weapon on foot only), and X exits like the driver's.
+
 ### Veteran
 
 - C1. The Characters tab: character, body and head mods from templates with
