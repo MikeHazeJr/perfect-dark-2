@@ -1129,6 +1129,10 @@ set(SRC_TESTS
   # A mod vehicle's own model number and --debug-swap-vehicle (Maian vehicle V1).
   ${CMAKE_SOURCE_DIR}/port/src/vehicle_debug.c
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_model_slot.cpp
+  # The Maian vehicle's boost and heat state machine (V3; the drafted
+  # og.vehicle.boost_heat module, context/designs/modding/vehicle-graph-v1.md).
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_boost_heat.c
+  ${CMAKE_SOURCE_DIR}/tests/test_vehicle_boost_heat.cpp
   # The Maian hover vehicle recipe, built the way --mod-author builds it (V2).
   ${CMAKE_SOURCE_DIR}/tests/test_maian_hover_vehicle.cpp
   # The Maian crystal pistol recipe, built the way --mod-author builds it.

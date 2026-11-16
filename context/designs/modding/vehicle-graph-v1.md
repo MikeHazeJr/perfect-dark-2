@@ -111,7 +111,7 @@ limit timer.
 |---|---|---|
 | `boost_speed` | extra forward speed at full boost | 7.0 (the base bonus's top) |
 | `ramp_time` | 0 to full boost while held | `{60, ticks60}` (1 s) |
-| `overheat_after` | time at full boost until overheated; heat rises at the boost level, so a partial boost heats slower | `{240, ticks60}` (4 s) |
+| `overheat_after` | time boost is held until overheated (heat rises at a constant rate while held, so about 4 s from pressing) | `{240, ticks60}` (4 s) |
 | `overheated_boost` | the boost cap from overheating until cool again (0 base, 1 full) | 0.5 |
 | `steer_limit` | steering scale right after overheating | 0.5 |
 | `steer_limit_time` | how long the steering limit lasts | `{45, ticks60}` |
@@ -119,11 +119,15 @@ limit timer.
 | `recover_speed_scale` | recovery time multiplier at full non-boost speed (linear in the speed fraction) | 2.0 |
 
 Phases: `cool` (heat 0) -> `ramping` (held, boost below 1) -> `full` -> after
-`overheat_after` at full, `overheated` (boost capped at `overheated_boost`, the
+`overheat_after` of holding boost, `overheated` (boost falls to
+`overheated_boost` and stays there while held, the heat stays full, the
 steering limit starts) -> boost released, `recovering` (heat falls at the
 speed-scaled rate; boost stays capped if pressed again) -> heat 0, `cool`.
 Releasing before overheating goes back to `cool` as the boost ramps down, and
-heat falls at the same rate. Each change raises `event.vehicle.heat_changed`.
+heat falls at the same rate; heat left from a short break counts towards the
+next overheat. Each change raises `event.vehicle.heat_changed`. The state
+machine is written and unit-tested as `port/src/vehicle_boost_heat.c`
+(`[vehicle-boost-heat]`); nothing calls it yet.
 Choice to confirm with Mike: boosting again while `recovering` is allowed at the
 capped level and does not lengthen the black-crystal time.
 
