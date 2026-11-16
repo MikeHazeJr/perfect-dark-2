@@ -829,6 +829,7 @@ struct scenario_stage_player;
 struct scenario_stage_ai;
 struct scenario_stage_ending;
 struct scenario_stage_stars;
+struct scenario_stage_sparks;
 s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 	s32 prefer_mp);
 s32 scenarioSourceStageWeather(struct scenario_stage_weather *out);
@@ -839,6 +840,8 @@ s32 scenarioSourceStageIsHub(void);
 /* B-1172 / decision 1: the loaded stage's starfield rule; 0 when it has none.
  * out may be NULL. */
 s32 scenarioSourceStageStars(struct scenario_stage_stars *out);
+/* The loaded stage's sparks rule; 0 when it has none. out may be NULL. */
+s32 scenarioSourceStageSparks(struct scenario_stage_sparks *out);
 
 /* A pd2.scenario.ai.lists.v1 document compiled to the AI interpreter's
  * bytes by the same reader and compiler as a scenario's ai/ailists.json

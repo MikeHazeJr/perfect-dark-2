@@ -135,7 +135,7 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -2669,7 +2669,7 @@ def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
 # Stage-wide rules (decision 3, CORE, 2026-11-15). Keep in step with
 # port/src/scenario_stage_rules.cpp.
 STAGE_RULES_SCHEMA = "pd2.scenario.stage.v1"
-STAGE_RULES_KEYS = {"schema", "note", "weather", "player", "ai", "ending", "hub", "stars"}
+STAGE_RULES_KEYS = {"schema", "note", "weather", "player", "ai", "ending", "hub", "stars", "sparks"}
 STAGE_PLAYER_KEYS = {"perfect_agent_outfit", "disguise", "coop_spawn_distance",
                      "unlimited_ammo_excludes"}
 STAGE_MAX_AMMO_EXCLUDES = 8
@@ -2739,6 +2739,15 @@ def validate_stage_json(label: str, text: str) -> list[str]:
                         errors.append(f"{where} player.unlimited_ammo_excludes names a weapon twice")
     if "hub" in doc and not isinstance(doc["hub"], bool):
         errors.append(f"{where} hub must be true or false")
+    if "sparks" in doc:
+        sparks = doc["sparks"]
+        if not isinstance(sparks, dict):
+            errors.append(f"{where} sparks must be an object")
+        else:
+            for key in sorted(set(sparks) - {"flash_lights"}):
+                errors.append(f"{where} sparks has an unknown key {key!r}")
+            if not isinstance(sparks.get("flash_lights"), bool):
+                errors.append(f"{where} sparks.flash_lights must be true or false")
     if "stars" in doc:
         stars = doc["stars"]
         if not isinstance(stars, dict):

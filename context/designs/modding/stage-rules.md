@@ -119,12 +119,21 @@ Escape get 200 stars on a grid of 2; Attack Ship 1,200 and Test Old 1,600 on a
 grid of 3, below the horizon too. Not carried: `starsRender`'s Defection and
 Extraction tint, which computes a blend and discards it, so it has no effect.
 
+## `sparks`
+
+`"sparks": { "flash_lights": false }` keeps the stage's environmental sparks
+(`sparks.c`'s `SPARKTYPE_ENVIRONMENTAL` types) from flashing the room lights;
+`flash_lights` is required, and a stage without the key flashes them, as the
+original does everywhere but Crash Site. The extractor writes it for Crash Site;
+a ROM stage keeps the original check.
+
 ## Next families (from CORE's stage-check survey, week note checklist)
 
 Each becomes a key here unless it belongs to a room or an object:
 
 - Escape's gas (a stage-level sphere and door tags; its rooms on `rooms.json`).
-- Animated textures and sparks (`dyntex.c`, `sparks.c`).
+- Animated textures went into `scene.glb` materials (`animated-surfaces.md`)
+  and sparks into `sparks` above.
 - The stage's text bank (`lang.c`), if it is needed before the scenario is read.
 
 Room-level and object-level rules (Escape's gas rooms, the Extraction chopper

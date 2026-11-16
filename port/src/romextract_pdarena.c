@@ -89,7 +89,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -7643,6 +7643,12 @@ static s32 s_stageNoDarkRoomLists(s32 stagenum)
 	return stagenum == STAGE_CRASHSITE;
 }
 
+/* The environmental sparks do not flash the room lights (sparks.c). */
+static s32 s_stageSparksNoLightFlash(s32 stagenum)
+{
+	return stagenum == STAGE_CRASHSITE;
+}
+
 /* The unlimited ammo cheats leave the remote mines alone on Chicago and the
  * timed mines on Air Force One (bgunAmmotypeAllowsUnlimitedAmmo, bondgun.c).
  * The rule names the weapon whose primary ammo it is. */
@@ -7740,7 +7746,7 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 	if (s_textbufAppend(out,
 			"{\n"
 			"  \"schema\": \"pd2.scenario.stage.v1\",\n"
-			"  \"note\": \"Stage-wide rules, each optional. weather: where and how the stage's rain or snow falls (its AI commands start it): wind_speed; y_min and y_max, the height band around the camera the particles fill; z_max, 0 or a z below which the camera sees no weather; cutscene_only; exactly one of weather_rooms (the only rooms with weather) and dry_rooms (the rooms without it); optional wind_direction {angle, speed_x, speed_z} for a fixed wind. player: perfect_agent_outfit, the outfit worn at Perfect Agent and up; disguise {outfit, untargetable}, the outfit worn while disguised and whether a disguised player cannot be targeted; coop_spawn_distance, how far the co-op buddy starts from the player (60 when absent); unlimited_ammo_excludes, the weapons (catalog ids) whose primary ammo the unlimited ammo cheats do not refill here. ai: dark_room_lists false keeps guards off their dark room AI list. ending: outcome unknown makes the end screen report the mission as Unknown and the agent as Missing, turns the menus gray and slow and plays the mission-unknown tune on a completion. hub: true marks the stage the player spends time in between missions: no cheats, no mission timer, corpses fade as in the original, no damage outside a training session, a death respawns the player, no co-op AI buddies and no next mission on its end screen. stars: the starfield of a stage that has one: count stars on a sky cube of grid cells per face side, below_horizon when they fill the whole sky. Outfits: default, elvis, trent, trench, frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess, mrblonde, maian, negotiator.\"") != 0) {
+			"  \"note\": \"Stage-wide rules, each optional. weather: where and how the stage's rain or snow falls (its AI commands start it): wind_speed; y_min and y_max, the height band around the camera the particles fill; z_max, 0 or a z below which the camera sees no weather; cutscene_only; exactly one of weather_rooms (the only rooms with weather) and dry_rooms (the rooms without it); optional wind_direction {angle, speed_x, speed_z} for a fixed wind. player: perfect_agent_outfit, the outfit worn at Perfect Agent and up; disguise {outfit, untargetable}, the outfit worn while disguised and whether a disguised player cannot be targeted; coop_spawn_distance, how far the co-op buddy starts from the player (60 when absent); unlimited_ammo_excludes, the weapons (catalog ids) whose primary ammo the unlimited ammo cheats do not refill here. ai: dark_room_lists false keeps guards off their dark room AI list. ending: outcome unknown makes the end screen report the mission as Unknown and the agent as Missing, turns the menus gray and slow and plays the mission-unknown tune on a completion. hub: true marks the stage the player spends time in between missions: no cheats, no mission timer, corpses fade as in the original, no damage outside a training session, a death respawns the player, no co-op AI buddies and no next mission on its end screen. stars: the starfield of a stage that has one: count stars on a sky cube of grid cells per face side, below_horizon when they fill the whole sky. sparks: flash_lights false keeps the stage's environmental sparks from flashing the room lights. Outfits: default, elvis, trent, trench, frock_ripped, frock, leather, deepsea, wetsuit, snow, lab, stewardess, mrblonde, maian, negotiator.\"") != 0) {
 		return -1;
 	}
 	if (weather) {
@@ -7832,6 +7838,10 @@ static s32 s_buildStageJson(s32 stagenum, pdscenario_textbuf_t *out)
 	if (has_stars && s_textbufAppendf(out,
 			",\n  \"stars\": { \"count\": %d, \"grid\": %d, \"below_horizon\": %s }",
 			star_count, star_grid, star_below ? "true" : "false") != 0) {
+		return -1;
+	}
+	if (s_stageSparksNoLightFlash(stagenum) &&
+			s_textbufAppend(out, ",\n  \"sparks\": { \"flash_lights\": false }") != 0) {
 		return -1;
 	}
 	return s_textbufAppend(out, "\n}\n");

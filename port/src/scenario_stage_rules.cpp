@@ -197,6 +197,15 @@ void readStars(const Json &stars, scenario_stage_stars_t &out)
 	out.below_horizon = boolean(stars, "below_horizon", "stars") ? 1 : 0;
 }
 
+void readSparks(const Json &sparks, scenario_stage_sparks_t &out)
+{
+	if (!sparks.is_object()) refuse("sparks must be an object");
+	onlyKeys(sparks, { "flash_lights" }, "sparks");
+	if (!sparks.contains("flash_lights")) refuse("sparks.flash_lights must be true or false");
+	out.present = 1;
+	out.no_light_flash = boolean(sparks, "flash_lights", "sparks") ? 0 : 1;
+}
+
 } // namespace
 
 extern "C" const char *scenarioStageOutfitName(s32 value)
@@ -228,7 +237,8 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 				root["schema"].get<crude_json::string>() != SCENARIO_STAGE_RULES_SCHEMA) {
 			refuse(std::string("stage.json must declare schema ") + SCENARIO_STAGE_RULES_SCHEMA);
 		}
-		onlyKeys(root, { "schema", "note", "weather", "player", "ai", "ending", "hub", "stars" }, "stage.json");
+		onlyKeys(root, { "schema", "note", "weather", "player", "ai", "ending", "hub", "stars", "sparks" },
+			"stage.json");
 		if (root.contains("note") && !root["note"].is_string()) refuse("stage.json note must be text");
 		out->player.perfect_agent_outfit = -1;
 		out->player.disguise_outfit = -1;
@@ -242,6 +252,7 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 			out->hub.hub = root["hub"].get<crude_json::boolean>() ? 1 : 0;
 		}
 		if (root.contains("stars")) readStars(root["stars"], out->stars);
+		if (root.contains("sparks")) readSparks(root["sparks"], out->sparks);
 		return 1;
 	} catch (const Refusal &refusal) {
 		std::memset(out, 0, sizeof(*out));

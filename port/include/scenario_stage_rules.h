@@ -124,6 +124,14 @@ typedef struct scenario_stage_stars {
 	s32 below_horizon;
 } scenario_stage_stars_t;
 
+/* "sparks": {"flash_lights": false} keeps the stage's environmental sparks
+ * (sparks.c's SPARKTYPE_ENVIRONMENTAL types) from flashing the room lights
+ * (Crash Site); flash_lights is required, true is the default. */
+typedef struct scenario_stage_sparks {
+	s32 present;
+	s32 no_light_flash;
+} scenario_stage_sparks_t;
+
 typedef struct scenario_stage_rules {
 	scenario_stage_weather_t weather;
 	scenario_stage_player_t player;
@@ -131,6 +139,7 @@ typedef struct scenario_stage_rules {
 	scenario_stage_ending_t ending;
 	scenario_stage_hub_t hub;
 	scenario_stage_stars_t stars;
+	scenario_stage_sparks_t sparks;
 } scenario_stage_rules_t;
 
 /* The outfit name for an OUTFIT_* value, or NULL; and the value for a name,

@@ -153,7 +153,7 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
 	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules\"") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);
@@ -396,6 +396,41 @@ TEST_CASE("object rules travel on objects.json rows and replace the original's o
 	REQUIRE(conformance.find("def validate_object_rule_fields(") != std::string::npos);
 	REQUIRE(conformance.find("OBJECT_RULE_DIFFICULTIES = [\"agent\", \"special_agent\", \"perfect_agent\", \"perfect_dark\"]") !=
 		std::string::npos);
+}
+
+TEST_CASE("the stage.json sparks rule decides whether environmental sparks flash the lights",
+          "[stage][scenario][stagerules]")
+{
+	Parsed crashsite(stage(R"("sparks": { "flash_lights": false })"));
+	INFO(crashsite.error);
+	REQUIRE(crashsite.ok);
+	CHECK(crashsite.rules.sparks.present == 1);
+	CHECK(crashsite.rules.sparks.no_light_flash == 1);
+
+	Parsed flashing(stage(R"("sparks": { "flash_lights": true })"));
+	REQUIRE(flashing.ok);
+	CHECK(flashing.rules.sparks.no_light_flash == 0);
+
+	Parsed none(stage(""));
+	REQUIRE(none.ok);
+	CHECK(none.rules.sparks.present == 0);
+
+	CHECK(refusal(stage(R"("sparks": {})")).find("sparks.flash_lights must be true or false") != std::string::npos);
+	CHECK(refusal(stage(R"("sparks": { "flash_lights": "no" })")).find("must be true or false") != std::string::npos);
+	CHECK(refusal(stage(R"("sparks": { "colour": 1 })")).find("unknown key 'colour'") != std::string::npos);
+	CHECK(refusal(stage(R"("sparks": true)")).find("sparks must be an object") != std::string::npos);
+
+	// The extractor writes the original's Crash Site check, the game asks the
+	// rule on a scenario-source stage and keeps the check for a ROM stage.
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string sparks = readSource("src/game/sparks.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+	REQUIRE(extractor.find("static s32 s_stageSparksNoLightFlash(s32 stagenum)\n{\n\treturn stagenum == STAGE_CRASHSITE;") !=
+		std::string::npos);
+	REQUIRE(sparks.find("return !(scenarioSourceStageSparks(&rule) && rule.no_light_flash);") != std::string::npos);
+	REQUIRE(sparks.find("return g_Vars.stagenum != STAGE_CRASHSITE;") != std::string::npos);
+	REQUIRE(sparks.find("if (g_Vars.stagenum != STAGE_CRASHSITE) {") == std::string::npos);
+	REQUIRE(conformance.find("sparks.flash_lights must be true or false") != std::string::npos);
 }
 
 TEST_CASE("the stage.json ending rule decides how a stage presents its outcome", "[stage][scenario][stagerules]")
