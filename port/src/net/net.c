@@ -2439,7 +2439,35 @@ static s32 netDisconnectWithIntent(s32 retain_reconnect)
 		SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
 		"netDisconnect");
 
-	if (wasingame && !g_AppQuitting) {
+	/* B-1201: since B-1197 a player in the Room after networked results is in
+	 * the lobby state while the ended match or mission stays loaded behind
+	 * the Room until the next one. A disconnect there left that stage live
+	 * offline: a co-op client's guards, puppets of the host whose actions
+	 * were never set up here, then ran their own AI and crashed
+	 * (chrTickAttack). Leave such a stage for CI as an in-game disconnect does. */
+	const bool leftendedstage = !wasingame && g_MainIsEndscreen
+		&& STAGE_IS_GAMEPLAY(g_Vars.stagenum) && g_Vars.stagenum != STAGE_CITRAINING;
+
+	if (leftendedstage) {
+		sysLogPrintf(LOG_NOTE,
+			"NET: disconnect leaves the ended stage 0x%02x behind the Room for CI",
+			(u32)g_Vars.stagenum);
+	}
+
+	if ((wasingame || leftendedstage) && !g_AppQuitting) {
+		/* B-1201: freeze the stage being left for the frames before CI loads
+		 * (lvReset unpauses CI). Its chrs are this client's puppets of the
+		 * host: with g_NetMode now NETMODE_NONE their AI is no longer
+		 * suppressed (chraTick), and an action the host was running (an
+		 * attack, say) was never set up here. The results push that used to
+		 * pause it is gone (B-1198); each prop's catch-up time goes too, so
+		 * no backgrounded chr ticks with time saved from before the pause. */
+		lvSetPaused(true);
+		g_Vars.lvupdate240 = 0;
+		for (s32 i = 0; g_Vars.props && i < g_Vars.maxprops; i++) {
+			g_Vars.props[i].propupdate240 = 0;
+		}
+
 		// skip the "want to save" dialog for all players
 		for (s32 i = 0; i < MAX_PLAYERS; ++i) {
 			if (g_Vars.players[i]) {

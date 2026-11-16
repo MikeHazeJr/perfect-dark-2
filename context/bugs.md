@@ -1,5 +1,24 @@
 # Bug Tracker
 
+## 2026-11-16 B-1201 A co-op client crashes when the host leaves while it is in the Room after a mission (T-NETWORKING-011, fixed in code)
+
+Severity high (client crash). Found by the first run of `network_coop_mission_return_smoke` on binary 0587e908
+(5a1dfcda, 125/129, `results-20261116T042438Z.json`): Return to Room worked on both machines (`GAMELOOP.COOP: host chose
+return to room`, the client's `host returned to room 1; leaving the mission results`, each Room opened), then the
+host's scripted exit came first, the client read `NET: disconnected from server: Server is shutting down`, and 10 ms
+later crashed: ACCESS_VIOLATION in `chrTickAttack` (chraction.c, `chr->act_attack.animcfg`), from `chraTick` <
+`chrTick` < `propsTickPlayer` < `lvRender`. Root cause: since B-1197 a player in the Room after networked results is in
+the lobby state while the ended mission stays loaded behind the Room, so `netDisconnectWithIntent`'s `wasingame` (the
+game state only) was false and the client stayed in that stage, now offline. With `g_NetMode` at `NETMODE_NONE` the
+client's suppression of co-op NPC AI in `chraTick` no longer applied and its global tick ran again, unpaused (the
+results exit unpauses), so a guard the host had left in `ACT_ATTACK`, whose action data a client never sets up, ran its
+attack tick. Same class as SP-84's "safe only by order" note. B-1198 had also removed the results push that paused the
+stage on an in-game disconnect. Fix: the disconnect also leaves for CI when an ended gameplay stage (not CI) is still
+loaded (`leftendedstage`, from `g_MainIsEndscreen`; log `NET: disconnect leaves the ended stage ... behind the Room for
+CI`), and whenever it leaves a stage it first freezes it (`lvSetPaused(true)`, the update zeroed, every prop's catch-up
+time dropped) until CI loads. Pinned in `tests/test_net_mission_end_static.cpp` (`[b1201]`). Built 2026-11-16, the
+full suite passes (1992 cases); the smoke re-run is queued.
+
 ## 2026-11-16 B-1200 A second networked Combat match in the same room is refused (T-NETWORKING-011, fixed in code)
 
 Severity high (no rematch in a room after a match with a random spawn weapon, the default). Found by

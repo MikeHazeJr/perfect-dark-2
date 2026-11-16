@@ -3669,6 +3669,10 @@ mission's Return to Room defers the global tick until the next stage. The
 last `lvTick` ran under the paused results, so the kept update is 0 and the
 mission stays frozen; a change that unpauses before that clear would run the
 mission behind the Room.
+That happened on 2026-11-16 through a disconnect (B-1201): with `g_NetMode`
+reset, the client's global tick ran again, unpaused, and its suppression
+of co-op NPC AI no longer applied. A disconnect now leaves such a stage
+for CI and freezes it until CI loads.
 
 **Not checked:** a spectator client (`CLFLAG_SPECTATOR`) is never given a
 player; if it loads the stage, its global tick is deferred all match.

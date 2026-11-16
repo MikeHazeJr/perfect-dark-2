@@ -390,3 +390,28 @@ TEST_CASE("mission end: a networked mission's agent save takes player 2's contro
 	REQUIRE(capture.find("s32 player2 = saveAgentPlayer2Slot();") != std::string::npos);
 	REQUIRE(commit.find("s32 player2 = saveAgentPlayer2Slot();") != std::string::npos);
 }
+
+TEST_CASE("mission end: a disconnect from the Room leaves the ended stage, frozen, for CI",
+          "[net][coop][b1201]") {
+	// B-1201: after a networked results exit the ended stage stays loaded
+	// behind the Room; a disconnect there left it live offline, and a co-op
+	// client's guards (host puppets) ran actions never set up here
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	const std::string disconnect = function_body(net, "static s32 netDisconnectWithIntent(s32 retain_reconnect)\n{");
+	const size_t ended = disconnect.find("const bool leftendedstage = !wasingame && g_MainIsEndscreen");
+	const size_t block = disconnect.find("if ((wasingame || leftendedstage) && !g_AppQuitting) {");
+	const size_t pause = disconnect.find("lvSetPaused(true);", block);
+	const size_t catchup = disconnect.find("g_Vars.props[i].propupdate240 = 0;", block);
+	const size_t end = disconnect.find("mainEndStageWithoutResults();", block);
+	const size_t ci = disconnect.find("sceneStageChangeTo(STAGE_CITRAINING,", block);
+	REQUIRE(ended != std::string::npos);
+	REQUIRE(block != std::string::npos);
+	REQUIRE(pause != std::string::npos);
+	REQUIRE(catchup != std::string::npos);
+	REQUIRE(end != std::string::npos);
+	REQUIRE(ci != std::string::npos);
+	REQUIRE(ended < block);
+	REQUIRE(pause < end);
+	REQUIRE(catchup < end);
+	REQUIRE(end < ci);
+}
