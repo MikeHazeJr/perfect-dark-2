@@ -1,0 +1,12 @@
+{
+  "schema": "pd.vehicle_variables.v1",
+  "boost_speed": 7.0,
+  "boost_ramp": { "value": 60, "unit": "ticks60" },
+  "overheat_after": { "value": 240, "unit": "ticks60" },
+  "overheated_boost": 0.5,
+  "steer_limit": 0.5,
+  "steer_limit_time": { "value": 45, "unit": "ticks60" },
+  "recover_time_stopped": { "value": 120, "unit": "ticks60" },
+  "recover_speed_scale": 2.0,
+  "cool_crystal_part": 140
+}

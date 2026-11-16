@@ -1,6 +1,7 @@
 #include <ultra64.h>
 #include "constants.h"
 #include "asset_runtime.h"
+#include "vehicle_boost_runtime.h"
 #include "system.h"
 #include "arenapool.h"
 #include "game/bondmove.h"
@@ -7205,6 +7206,93 @@ f32 objCollide(struct defaultobj *movingobj, struct coord *movingvel, f32 rotati
 	return force;
 }
 
+/* Maian vehicle V3: show or hide the vehicle's cool-crystal part (its
+ * archive's cool_crystal_part); the black crystals sit inside it. */
+static void hoverbikeSetCoolCrystals(struct hoverbikeobj *bike,
+		const asset_runtime_binding_t *source, s32 visible)
+{
+	struct model *model = bike->base.model;
+	struct modelnode *node;
+	union modelrwdata *rwdata;
+
+	if (source->vehicle_cool_crystal_part < 0 || !model || !model->definition) {
+		return;
+	}
+	node = modelGetPart(model->definition, source->vehicle_cool_crystal_part);
+	if (!node || node->type != MODELNODETYPE_TOGGLE) {
+		static s32 s_WarnedPart = 0;
+		if (!s_WarnedPart) {
+			s_WarnedPart = 1;
+			sysLogPrintf(LOG_WARNING,
+				"VEHICLE.BOOST: modelnum=%d has no toggle part %d for its crystals",
+				bike->base.modelnum, source->vehicle_cool_crystal_part);
+		}
+		return;
+	}
+	rwdata = modelGetNodeRwData(model, node);
+	rwdata->toggle.visible = visible ? true : false;
+	sysLogPrintf(LOG_NOTE, "VEHICLE.BOOST: modelnum=%d part %d %s",
+		bike->base.modelnum, source->vehicle_cool_crystal_part,
+		visible ? "shown (crystals cool)" : "hidden (crystals black)");
+}
+
+/* Maian vehicle V3: advance this vehicle's boost and heat by one update
+ * (vehicle_boost_heat.h). The speed fraction is the forward-thrust part of
+ * the speed over its top value without boost: full input thrust against the
+ * drag, the same recurrence as hoverbikeUpdateMovement's drag loop. */
+static vehicle_boost_heat_state_t *hoverbikeBoostHeatStep(struct hoverbikeobj *bike,
+		const asset_runtime_binding_t *source)
+{
+	s32 created = 0;
+	s32 prev = 0;
+	vehicle_boost_heat_state_t *state = vehicleBoostRuntimeState(bike, &created);
+	f32 drag;
+	f32 thrust;
+	f32 topspeed;
+	f32 speed;
+	f32 speedfrac;
+
+	if (!state) {
+		static s32 s_WarnedSlots = 0;
+		if (!s_WarnedSlots) {
+			s_WarnedSlots = 1;
+			sysLogPrintf(LOG_WARNING,
+				"VEHICLE.BOOST: no free boost slot for modelnum=%d; it does not boost",
+				bike->base.modelnum);
+		}
+		return NULL;
+	}
+	if (created) {
+		sysLogPrintf(LOG_NOTE,
+			"VEHICLE.BOOST: modelnum=%d boost and heat on: boost_speed=%.2f ramp=%.0f overheat=%.0f overheated_boost=%.2f recover=%.0f ticks240",
+			bike->base.modelnum, source->vehicle_boost_heat.boost_speed,
+			source->vehicle_boost_heat.ramp_ticks240,
+			source->vehicle_boost_heat.overheat_ticks240,
+			source->vehicle_boost_heat.overheated_boost,
+			source->vehicle_boost_heat.recover_ticks240);
+		hoverbikeSetCoolCrystals(bike, source, 1);
+	}
+	drag = PAL ? source->vehicle_drag_pal : source->vehicle_drag_ntsc;
+	thrust = source->vehicle_forward_input_scale * PALUPF(source->vehicle_forward_thrust);
+	topspeed = drag < 1.0f ? thrust / (1.0f - drag) : 0.0f;
+	speed = sqrtf(bike->speedabs[0] * bike->speedabs[0] + bike->speedabs[1] * bike->speedabs[1]);
+	speedfrac = topspeed > 0.0f ? speed / topspeed : 0.0f;
+
+	if (vehicleBoostHeatStep(state, &source->vehicle_boost_heat,
+			vehicleBoostRuntimeTakeHeld(bike), speedfrac, (f32)g_Vars.lvupdate240, &prev)) {
+		sysLogPrintf(LOG_NOTE,
+			"VEHICLE.BOOST: modelnum=%d phase %s -> %s boost=%.2f heat=%.2f speed=%.2f turret_locked=%d",
+			bike->base.modelnum, vehicleBoostHeatPhaseName(prev),
+			vehicleBoostHeatPhaseName(state->phase), state->boost, state->heat,
+			speedfrac, vehicleBoostHeatTurretLocked(state));
+		if ((prev == VEHICLE_BOOST_HEAT_OVERHEATED || prev == VEHICLE_BOOST_HEAT_RECOVERING)
+				!= (vehicleBoostHeatCrystalsBlack(state) != 0)) {
+			hoverbikeSetCoolCrystals(bike, source, !vehicleBoostHeatCrystalsBlack(state));
+		}
+	}
+	return state;
+}
+
 void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 speedsideways, f32 speedtheta)
 {
 	const asset_runtime_binding_t *source;
@@ -7219,6 +7307,8 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 	s32 i;
 	u32 stack[6];
 	f32 tmp;
+	vehicle_boost_heat_state_t *boostheat = NULL;
+	f32 steerscale = 1.0f;
 
 	if (!bike) {
 		return;
@@ -7233,8 +7323,17 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 	if (!source->vehicle_allow_drive) {
 		return;
 	}
+	/* Maian vehicle V3: a vehicle with boost and heat values uses them
+	 * instead of the original full-throttle bonus (below), and its
+	 * steering is limited briefly after the crystals overheat. */
+	if (source->vehicle_boost_heat_enabled) {
+		boostheat = hoverbikeBoostHeatStep(bike, source);
+		if (boostheat) {
+			steerscale = vehicleBoostHeatSteerScale(boostheat, &source->vehicle_boost_heat);
+		}
+	}
 
-	tmp = speedtheta * source->vehicle_turn_input_scale;
+	tmp = speedtheta * source->vehicle_turn_input_scale * steerscale;
 
 	if (speedforwards < 0) {
 		tmp *= 1.0f - speedforwards * source->vehicle_reverse_turn_gain;
@@ -7351,7 +7450,11 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		bike->ezreal2 += (sp68 - bike->ezreal2) * tilt_response;
 	}
 
-	if (speedforwards >= 0.99f) {
+	if (source->vehicle_boost_heat_enabled) {
+		/* No full-throttle bonus: the boost is its own action. Without a
+		 * state (no free slot, logged) the vehicle does not boost. */
+		bike->maxspeedtime240 = 0;
+	} else if (speedforwards >= 0.99f) {
 		bike->maxspeedtime240 += g_Vars.lvupdate240;
 
 		if (bike->maxspeedtime240 > TICKS(source->vehicle_boost_time_ticks60)) {
@@ -7371,9 +7474,14 @@ void hoverbikeUpdateMovement(struct hoverbikeobj *bike, f32 speedforwards, f32 s
 		}
 	}
 
-	bike->speedrel[1] = bike->maxspeedtime240 *
-		source->vehicle_boost_speed /
-		TICKS(source->vehicle_boost_time_ticks60);
+	if (source->vehicle_boost_heat_enabled) {
+		bike->speedrel[1] = boostheat
+			? vehicleBoostHeatExtraSpeed(boostheat, &source->vehicle_boost_heat) : 0.0f;
+	} else {
+		bike->speedrel[1] = bike->maxspeedtime240 *
+			source->vehicle_boost_speed /
+			TICKS(source->vehicle_boost_time_ticks60);
+	}
 
 	bike->speed[1] = bike->speedabs[1] + bike->speedrel[1] * cosangle + bike->speedrel[0] * sinangle;
 	bike->speed[0] = bike->speedabs[0] + bike->speedrel[1] * sinangle - bike->speedrel[0] * cosangle;

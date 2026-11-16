@@ -2,6 +2,7 @@
 #include "constants.h"
 #include "actionmap.h"
 #include "asset_runtime.h"
+#include "vehicle_boost_runtime.h"
 #include "game/bondbike.h"
 #include "game/bondmove.h"
 #include "game/camera.h"
@@ -547,6 +548,10 @@ void bbikeApplyMoveData(struct movedata *data)
 		f32 vAccel  = actionValue(actionPlayer, ACTION_VEHICLE_ACCELERATE);
 		f32 vBrake  = actionValue(actionPlayer, ACTION_VEHICLE_BRAKE);
 		f32 vHandbrake = actionValue(actionPlayer, ACTION_VEHICLE_HANDBRAKE);
+		/* Maian vehicle V3: held boost, used by a vehicle with boost and heat
+		 * values (hoverbikeUpdateMovement); other vehicles ignore it. */
+		f32 vBoost = actionValue(actionPlayer, ACTION_VEHICLE_BOOST);
+		vehicleBoostRuntimeSetHeld(bike, vBoost > 0.5f);
 		bool vehicleInputs = (vAccel > 0.0f || vBrake > 0.0f
 				|| vLeft > 0.0f || vRight > 0.0f || vHandbrake > 0.0f);
 		if (vehicleInputs) {
@@ -590,8 +595,8 @@ void bbikeApplyMoveData(struct movedata *data)
 					&& (s32)g_Vars.lvframenum
 						- s_LastVehicleInputLogFrame[g_Vars.currentplayernum] >= 30) {
 				sysLogPrintf(LOG_NOTE,
-					"VEHICLE: input player=%d accel=%.2f brake=%.2f left=%.2f right=%.2f handbrake=%.2f",
-					actionPlayer, vAccel, vBrake, vLeft, vRight, vHandbrake);
+					"VEHICLE: input player=%d accel=%.2f brake=%.2f left=%.2f right=%.2f handbrake=%.2f boost=%.2f",
+					actionPlayer, vAccel, vBrake, vLeft, vRight, vHandbrake, vBoost);
 				s_LastVehicleInputLogFrame[g_Vars.currentplayernum] = (s32)g_Vars.lvframenum;
 			}
 		}

@@ -1863,6 +1863,7 @@ static const BindableAction s_BindableActions[] = {
     { ACTION_VEHICLE_LOOK_X,      "Vehicle Look X",     BG_VEHICLE,       "Mounted camera yaw axis/direction.",                                                                   &g_ImcVehicle },
     { ACTION_VEHICLE_LOOK_Y,      "Vehicle Look Y",     BG_VEHICLE,       "Mounted camera pitch axis/direction.",                                                                 &g_ImcVehicle },
     { ACTION_VEHICLE_HANDBRAKE,   "Handbrake",          BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_VEHICLE_BOOST,       "Boost",              BG_VEHICLE,       "Hold to boost a vehicle that has one. The Maian vehicle's crystals overheat after a few seconds.",    &g_ImcVehicle },
     { ACTION_PAUSE,               "Pause",              BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
     { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
 

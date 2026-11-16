@@ -131,6 +131,15 @@ machine is written and unit-tested as `port/src/vehicle_boost_heat.c`
 Choice to confirm with Mike: boosting again while `recovering` is allowed at the
 capped level and does not lengthen the black-crystal time.
 
+## Interim, until CORE answers
+
+As CORE agreed (keep the values in a file in the vehicle archive until the
+graph exists), the game reads `behavior/variables.json` directly: a vehicle
+with the file gets `og.vehicle.boost_heat` wired as in the Maian graph below
+(no full-throttle bonus), with the same value names plus `cool_crystal_part`,
+the part that the graph's `og.vehicle.part_visible` nodes would hide. Moving to
+the graph changes the wiring only; the values file stays as it is.
+
 ## The base hoverbike's graph
 
 ```json

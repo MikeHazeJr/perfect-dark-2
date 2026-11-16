@@ -296,15 +296,22 @@ typedef enum InputAction {
 
     /* ---- Vehicle controls expansion (Mike directive 2026-05-17) ----
      * Camera look (yaw/pitch) on RSTICK + mouse-delta so the driver can aim
-     * around while mounted. Handbrake on Space / A-button. Vehicle USE is
-     * the on-foot interact trigger that boards the nearest hoverbike (so the
-     * legacy --debug-mount-bike CLI flag is no longer the only way in). */
+     * around while mounted. Handbrake on Space / B-button (A until Mike moved
+     * it for boost, 2026-11-16). Vehicle USE is the on-foot interact trigger
+     * that boards the nearest hoverbike (so the legacy --debug-mount-bike CLI
+     * flag is no longer the only way in). */
     ACTION_VEHICLE_LOOK_X,           /* = 117 mouse-delta-x / RSTICK_X (yaw) */
     ACTION_VEHICLE_LOOK_Y,           /* = 118 mouse-delta-y / RSTICK_Y (pitch) */
-    ACTION_VEHICLE_HANDBRAKE,        /* = 119 Space / A-button */
+    ACTION_VEHICLE_HANDBRAKE,        /* = 119 Space / B-button */
     ACTION_VEHICLE_USE,              /* = 120 E / A-button on-foot mount trigger */
 
-    ACTION_COUNT                /* = 121, sentinel - keep last */
+    /* ---- Vehicle boost (Maian vehicle V3, Mike 2026-11-16) ----
+     * Held: boosts a vehicle that has boost and heat values
+     * (vehicle_boost_heat.h); does nothing on other vehicles. Mappable;
+     * defaults Shift and the controller's A. */
+    ACTION_VEHICLE_BOOST,            /* = 121 Left Shift / A-button */
+
+    ACTION_COUNT                /* = 122, sentinel - keep last */
 } InputAction;
 
 /* Backward-compat aliases */

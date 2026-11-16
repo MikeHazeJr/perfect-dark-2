@@ -307,7 +307,7 @@ static s32 actionmapGetVkByName(const char *name)
  * Action name table (must match InputAction enum order)
  * ============================================================ */
 
-static const char * const s_ActionNames[ACTION_COUNT] = {
+static const char * const s_ActionNames[] = { /* B-1184: unsized so the static_assert below counts the names */
     /* 0-5: movement */
     "MoveForward",
     "MoveBackward",
@@ -437,7 +437,35 @@ static const char * const s_ActionNames[ACTION_COUNT] = {
     /* 103-104: test-scenarios cycler reverse + visibility toggle (S594h-A2) */
     "TestScenCyclePrev",
     "TestScenVisToggle",
+    /* B-1184: 105-120 were added without names, so their pd.ini keys were
+     * "(null)", the complete bindings file stopped at the first unnamed row
+     * and the next launch refused it (and every binding save after that).
+     * The names are the ones week-pd/crystal-pistol gave them. */
+    /* 105-106: menu skip up/down */
+    "MenuSkipUp",
+    "MenuSkipDown",
+    /* 107-115: dev hotkeys and tooling chords */
+    "DebugBotFreeze",
+    "DebugInvincibility",
+    "DebugOverlayToggle",
+    "DebugMeshToggle",
+    "DebugCullModeCycle",
+    "DebugTestFire",
+    "DebugWireframeToggle",
+    "HotswapToggle",
+    "ToggleFullscreen",
+    /* 116: GPU swarm sub-method toggle */
+    "TestScenGpuFullToggle",
+    /* 117-120: vehicle controls */
+    "VehicleLookX",
+    "VehicleLookY",
+    "VehicleHandbrake",
+    "VehicleUse",
+    /* 121: vehicle boost (Maian vehicle V3) */
+    "VehicleBoost",
 };
+static_assert(sizeof(s_ActionNames) / sizeof(s_ActionNames[0]) == ACTION_COUNT,
+              "B-1184: every InputAction needs a persisted name");
 
 /* ============================================================
  * Module state
@@ -1913,6 +1941,7 @@ s32 actionIsBlockedInFreefly(InputAction a)
     case ACTION_VEHICLE_STEER_LEFT:
     case ACTION_VEHICLE_STEER_RIGHT:
     case ACTION_VEHICLE_EXIT:
+    case ACTION_VEHICLE_BOOST:
     /* Crouch / jump / sprint on the frozen player-chr: block */
     case ACTION_CROUCH:
     case ACTION_JUMP:
@@ -3184,7 +3213,8 @@ static void setupVehicleDefaults(s32 player)
     /* Vehicle expansion (Mike directive 2026-05-17). LOOK_X/Y mirror the
      * right-stick + arrow-key shape of ACTION_AIM_* so mounted yaw/pitch
      * uses the analog stick the user already trained on for on-foot aim.
-     * HANDBRAKE on Space / A-button. The on-foot mount/use shortcut lives
+     * HANDBRAKE on Space / B-button: Mike 2026-11-16 gave A to boost and
+     * moved the handbrake to B. The on-foot mount/use shortcut lives
      * on g_ImcGameplay because this vehicle IMC is inactive until mounted. */
     addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_AXIS(0, JOFS_RSTICK_RIGHT));
     addBind(imc, ACTION_VEHICLE_LOOK_X,      JOY_AXIS(0, JOFS_RSTICK_LEFT));
@@ -3195,7 +3225,10 @@ static void setupVehicleDefaults(s32 player)
     addBind(imc, ACTION_VEHICLE_LOOK_Y,      VKL_UP);
     addBind(imc, ACTION_VEHICLE_LOOK_Y,      VKL_DOWN);
     addBind(imc, ACTION_VEHICLE_HANDBRAKE,   VK_SPACE);
-    addBind(imc, ACTION_VEHICLE_HANDBRAKE,   JOY_BTN(0, JBTN_A));
+    addBind(imc, ACTION_VEHICLE_HANDBRAKE,   JOY_BTN(0, JBTN_B));
+    /* Boost (Maian vehicle V3, Mike 2026-11-16): Shift and A, mappable. */
+    addBind(imc, ACTION_VEHICLE_BOOST,       VK_LSHIFT);
+    addBind(imc, ACTION_VEHICLE_BOOST,       JOY_BTN(0, JBTN_A));
     addBind(imc, ACTION_PAUSE,               VK_ESCAPE);
     addBind(imc, ACTION_PAUSE,               JOY_BTN(0, JBTN_START));
     addBind(imc, ACTION_VOICE_PTT,           VKL_V);
@@ -3813,6 +3846,7 @@ static const SmokeActionEntry s_SmokeActionTable[] = {
     { "ACTION_VEHICLE_LOOK_Y",       ACTION_VEHICLE_LOOK_Y },
     { "ACTION_VEHICLE_HANDBRAKE",    ACTION_VEHICLE_HANDBRAKE },
     { "ACTION_VEHICLE_USE",          ACTION_VEHICLE_USE },
+    { "ACTION_VEHICLE_BOOST",        ACTION_VEHICLE_BOOST },
     /* Backward-compat aliases (resolve to canonical targets). */
     { "ACTION_INTERACT",             ACTION_USE },
     { "ACTION_MENU_ACCEPT",          ACTION_USE },

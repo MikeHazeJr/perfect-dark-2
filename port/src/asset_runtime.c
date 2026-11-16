@@ -1199,6 +1199,101 @@ static s32 s_hydrateBotProfile(asset_runtime_binding_t *binding)
     return ok;
 }
 
+/* The `{ ... }` value of `key` (flat: no object inside it). */
+static s32 s_jsonObjectSpan(const char *json, u32 size, const char *key,
+                            const char **out_obj, u32 *out_size)
+{
+    const char *p = s_jsonFindValue(json, size, key);
+    const char *end = json ? json + size : NULL;
+    const char *q;
+
+    if (!p || !end || p >= end || *p != '{') {
+        return 0;
+    }
+    for (q = p + 1; q < end && *q != '}'; q++) {
+        if (*q == '{') {
+            return 0;
+        }
+    }
+    if (q >= end) {
+        return 0;
+    }
+    *out_obj = p;
+    *out_size = (u32)(q - p + 1);
+    return 1;
+}
+
+/* A `{ "value": N, "unit": "ticks60" | "ticks240" | "centiseconds" }` time. */
+static s32 s_jsonReadTicks240(const char *json, u32 size, const char *key,
+                              f32 *out)
+{
+    const char *obj = NULL;
+    u32 obj_size = 0;
+    f32 value = 0.0f;
+    char unit[16];
+
+    return s_jsonObjectSpan(json, size, key, &obj, &obj_size) &&
+        s_jsonReadFloat(obj, obj_size, "value", &value) &&
+        s_jsonReadString(obj, obj_size, "unit", unit, sizeof(unit)) &&
+        vehicleBoostHeatTimeToTicks240(value, unit, out);
+}
+
+/*
+ * Maian vehicle V3: the optional boost and heat values in the vehicle's
+ * behavior/variables.json (pd.vehicle_variables.v1, the drafted vehicle
+ * graph's values, context/designs/modding/vehicle-graph-v1.md; CORE agreed
+ * they live in a file in the vehicle archive until the graph exists). Absent:
+ * the vehicle keeps the original full-throttle bonus. Present: every value
+ * must be there and valid, else the vehicle does not hydrate, so a broken
+ * file never drives silently without its boost.
+ */
+static s32 s_hydrateVehicleBoostHeat(asset_runtime_binding_t *binding)
+{
+    static const char member[] = "behavior/variables.json";
+    char path[FS_MAXPATH];
+    char schema[48];
+    vehicle_boost_heat_params_t params;
+    u32 size = 0;
+    char *json;
+    s32 part = -1;
+    s32 ok;
+
+    memset(&params, 0, sizeof(params));
+    binding->vehicle_boost_heat_enabled = 0;
+    binding->vehicle_cool_crystal_part = -1;
+    if (!s_sourceMemberPath(binding->primary_path, member, path, sizeof(path)) ||
+            s_primaryFileSize(path) < 0) {
+        return 1;
+    }
+    json = s_loadSourceMember(binding, member, &size);
+    if (!json) {
+        return 0;
+    }
+    ok = s_jsonReadString(json, size, "schema", schema, sizeof(schema)) &&
+        strcmp(schema, "pd.vehicle_variables.v1") == 0 &&
+        s_jsonReadFloat(json, size, "boost_speed", &params.boost_speed) &&
+        s_jsonReadTicks240(json, size, "boost_ramp", &params.ramp_ticks240) &&
+        s_jsonReadTicks240(json, size, "overheat_after", &params.overheat_ticks240) &&
+        s_jsonReadFloat(json, size, "overheated_boost", &params.overheated_boost) &&
+        s_jsonReadFloat(json, size, "steer_limit", &params.steer_limit) &&
+        s_jsonReadTicks240(json, size, "steer_limit_time", &params.steer_limit_ticks240) &&
+        s_jsonReadTicks240(json, size, "recover_time_stopped", &params.recover_ticks240) &&
+        s_jsonReadFloat(json, size, "recover_speed_scale", &params.recover_speed_scale) &&
+        vehicleBoostHeatParamsValid(&params, NULL);
+    if (ok && s_jsonFindValue(json, size, "cool_crystal_part")) {
+        ok = s_jsonReadInt(json, size, "cool_crystal_part", &part) &&
+            part >= 0 && part <= 0x7fff;
+    }
+    free(json);
+    if (!ok) {
+        return 0;
+    }
+    binding->vehicle_boost_heat = params;
+    binding->vehicle_cool_crystal_part = part;
+    binding->vehicle_boost_heat_enabled = 1;
+    return 1;
+}
+
 static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
 {
     u32 physics_size = 0;
@@ -1295,6 +1390,7 @@ static s32 s_hydrateVehicle(asset_runtime_binding_t *binding)
             ok = 0;
         }
     }
+    if (ok) ok = s_hydrateVehicleBoostHeat(binding);
     if (ok) binding->source_hydrated = 1;
     free(physics);
     free(behavior);

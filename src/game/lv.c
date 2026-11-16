@@ -125,6 +125,7 @@
 #include "asset_fallback_telemetry.h" /* c3849 Wave 1 */
 #include "scenario_source_runtime.h"
 #include "smoke_harness.h"
+#include "vehicle_boost_runtime.h"
 
 /* PC: persistent stats tracking */
 extern void statIncrement(const char *key, u64 amount);
@@ -794,6 +795,8 @@ bool lvReset(s32 stagenum)
 	varsReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling propsReset");
 	propsReset();
+	/* Maian vehicle V3: no vehicle's boost and heat outlives its stage. */
+	vehicleBoostRuntimeReset();
 	sysLogPrintf(LOG_NOTE, "LOAD: calling chrmgrReset");
 	chrmgrReset();
 	/* PC (c132): re-acquire the frozen corpse store from the fresh stage pool so

@@ -3,6 +3,7 @@
 
 #include "assetcatalog.h"
 #include "character_head_policy.h"
+#include "vehicle_boost_heat.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -119,6 +120,14 @@ typedef struct asset_runtime_binding {
     s32 vehicle_allow_drive;
     s32 vehicle_allow_dismount;
     f32 vehicle_hover[13];
+    /* Maian vehicle V3: boost and heat from the archive's optional
+     * behavior/variables.json (pd.vehicle_variables.v1), the interim home
+     * of the drafted vehicle graph's values. Not enabled: the vehicle keeps
+     * the original full-throttle bonus. cool_crystal_part is the model
+     * part shown while the crystals are cool and hidden while black, or -1. */
+    s32 vehicle_boost_heat_enabled;
+    s32 vehicle_cool_crystal_part;
+    vehicle_boost_heat_params_t vehicle_boost_heat;
 } asset_runtime_binding_t;
 
 void assetRuntimeReset(void);

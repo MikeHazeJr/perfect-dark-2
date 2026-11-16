@@ -840,7 +840,9 @@ SCHEMAS: dict[str, Schema] = {
     ".pdvehicle": schema(
         required=["vehicle.ini", "physics.json"],
         require_any=[["behavior.graph.json", "model.gltf", "model.glb", "model.obj", "mesh.pdmesh", "dependencies/assets/models/*.pdmesh"]],
-        allowed=["vehicle.ini", "physics.json", "model.gltf", "model.glb", "model.obj", "behavior.graph.json", "mesh.pdmesh"],
+        # behavior/variables.json: optional boost and heat values (Maian
+        # vehicle V3, pd.vehicle_variables.v1; validate_vehicle_variables).
+        allowed=["vehicle.ini", "physics.json", "model.gltf", "model.glb", "model.obj", "behavior.graph.json", "mesh.pdmesh", "behavior/variables.json"],
         allowed_globs=[
             "dependencies/assets/models/*.pdmesh",
             "dependencies/assets/materials/*.pdmaterial",
@@ -2235,6 +2237,63 @@ def validate_pdmesh_hierarchy_contract(label: str, zf: zipfile.ZipFile,
         return
 
 
+VEHICLE_VARIABLES_TIME_UNITS = ("ticks60", "ticks240", "centiseconds")
+
+
+def validate_vehicle_variables(label: str, variables: object,
+                               errors: list[str]) -> None:
+    """Maian vehicle V3: behavior/variables.json (pd.vehicle_variables.v1),
+    the boost and heat values the game reads in asset_runtime.c
+    (s_hydrateVehicleBoostHeat), the drafted vehicle graph's values
+    (context/designs/modding/vehicle-graph-v1.md). Other keys are allowed:
+    the graph will name its own values. The rules match the game's reader,
+    which refuses the whole vehicle when one of them fails."""
+    where = f"{label} behavior/variables.json"
+    if not isinstance(variables, dict):
+        errors.append(f"{where} must be a JSON object")
+        return
+    if variables.get("schema") != "pd.vehicle_variables.v1":
+        errors.append(f"{where} schema must be 'pd.vehicle_variables.v1'")
+        return
+
+    def number(key: str, lo: float, hi: float) -> None:
+        value = variables.get(key)
+        if not is_finite_json_number(value) or not lo <= float(value) <= hi:
+            errors.append(f"{where} {key} must be a number from {lo} to {hi}")
+
+    def time(key: str, positive: bool) -> None:
+        value = variables.get(key)
+        if (not isinstance(value, dict) or
+                value.get("unit") not in VEHICLE_VARIABLES_TIME_UNITS or
+                not is_finite_json_number(value.get("value")) or
+                float(value["value"]) < 0.0 or
+                (positive and float(value["value"]) <= 0.0)):
+            errors.append(
+                f"{where} {key} must be {{\"value\": N, \"unit\": "
+                f"one of {list(VEHICLE_VARIABLES_TIME_UNITS)}}} with N "
+                f"{'above 0' if positive else 'at least 0'}"
+            )
+
+    number("boost_speed", 0.0, 1000.0)
+    time("boost_ramp", True)
+    time("overheat_after", True)
+    number("overheated_boost", 0.0, 1.0)
+    number("steer_limit", 0.0, 1.0)
+    time("steer_limit_time", False)
+    time("recover_time_stopped", True)
+    value = variables.get("recover_speed_scale")
+    if not is_finite_json_number(value) or float(value) <= 0.0:
+        errors.append(f"{where} recover_speed_scale must be a number above 0")
+    if "cool_crystal_part" in variables:
+        part = variables.get("cool_crystal_part")
+        if (not isinstance(part, int) or isinstance(part, bool) or
+                not 0 <= part <= 0x7FFF):
+            errors.append(
+                f"{where} cool_crystal_part must be a model part number "
+                "from 0 to 32767"
+            )
+
+
 def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
                                      name_set: set[str],
                                      errors: list[str]) -> None:
@@ -2311,6 +2370,15 @@ def validate_vehicle_source_contract(label: str, zf: zipfile.ZipFile,
             errors.append(
                 f"{label} physics.json hover must contain exactly 13 finite numbers"
             )
+
+    if "behavior/variables.json" in name_set:
+        try:
+            variables = json.loads(
+                zf.read("behavior/variables.json").decode("utf-8")
+            )
+        except (KeyError, UnicodeDecodeError, json.JSONDecodeError):
+            variables = None
+        validate_vehicle_variables(label, variables, errors)
 
     behavior = read_json_member(zf, "behavior.graph.json")
     if validate_catalog_bound_json(

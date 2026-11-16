@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <utility>
 
 #include "catch.hpp"
 
@@ -1754,5 +1755,126 @@ TEST_CASE("c3849 meta-family bindings are value-identical to native-shaped input
 			"data/ntsc-final/themes/base_theme_blue.pdtheme::theme.json");
 	}
 
+	assetRuntimeReset();
+}
+
+/* Maian vehicle V3: the optional boost and heat values of a .pdvehicle
+ * (behavior/variables.json, pd.vehicle_variables.v1; the drafted vehicle
+ * graph's values, context/designs/modding/vehicle-graph-v1.md). */
+static int hydrateBoostVehicle(const char *dirName, const char *variables)
+{
+	TempRuntimeDir dir(dirName);
+	asset_entry_t vehicle;
+	initEntry(vehicle, ASSET_VEHICLE, "mod:vehicle_boosted");
+	vehicle.runtime_index = 0x1b9;
+	std::strncpy(vehicle.ext.vehicle.model_file, "model.gltf",
+		sizeof(vehicle.ext.vehicle.model_file) - 1);
+	std::strncpy(vehicle.ext.vehicle.physics_file, "physics.json",
+		sizeof(vehicle.ext.vehicle.physics_file) - 1);
+	std::strncpy(vehicle.ext.vehicle.behavior_graph, "behavior.graph.json",
+		sizeof(vehicle.ext.vehicle.behavior_graph) - 1);
+	std::string modelPath = dir.write("model.gltf", "{}");
+	dir.write("physics.json",
+		"{\"schema\":\"pd2.vehicle.physics.v2\","
+		"\"catalog_id\":\"mod:vehicle_boosted\","
+		"\"turn_input_scale\":0.05,\"reverse_turn_gain\":0.6,"
+		"\"steering_response_ntsc\":0.08,\"steering_response_pal\":0.09,"
+		"\"turn_visual_scale\":10,\"input_response\":0.4,"
+		"\"forward_input_scale\":0.7,\"lateral_input_scale\":0.3,"
+		"\"lean_response\":4,\"forward_base\":0.25,"
+		"\"forward_accel_gain\":0.75,\"reverse_base\":0.45,"
+		"\"drag_ntsc\":0.96,\"drag_pal\":0.95,"
+		"\"forward_thrust\":1.2,\"lateral_thrust\":0.8,"
+		"\"forward_tilt\":0.2,\"lateral_tilt\":0.3,"
+		"\"tilt_response_ntsc\":0.05,\"tilt_response_pal\":0.06,"
+		"\"yaw_response_ntsc\":0.16,\"yaw_response_pal\":0.18,"
+		"\"boost_speed\":7,\"boost_time_ticks60\":1800,"
+		"\"hover\":[82,1,3,0.0025,0.1,0.01,0.02,0.00002,0.0006,"
+		"0.01,0.02,0.00002,0.0006]}");
+	dir.write("behavior.graph.json",
+		"{\"schema\":\"pd2.vehicle.behavior.v2\","
+		"\"catalog_id\":\"mod:vehicle_boosted\","
+		"\"allow_mount\":true,\"allow_drive\":true,"
+		"\"allow_dismount\":true}");
+	if (variables) {
+		std::filesystem::path behavior =
+			std::filesystem::path(modelPath).parent_path() / "behavior";
+		std::filesystem::create_directories(behavior);
+		std::ofstream out(behavior / "variables.json", std::ios::binary);
+		out << variables;
+	}
+	REQUIRE(assetRuntimeActivateCatalogEntry(&vehicle, modelPath.c_str()) == 1);
+	return assetRuntimeHydrateCatalogEntry(&vehicle);
+}
+
+static std::string boostVariables(const char *replaceKey = nullptr, const char *with = nullptr)
+{
+	std::string json =
+		"{\"schema\":\"pd.vehicle_variables.v1\",\"boost_speed\":7.0,"
+		"\"boost_ramp\":{\"value\":60,\"unit\":\"ticks60\"},"
+		"\"overheat_after\":{\"value\":240,\"unit\":\"ticks60\"},"
+		"\"overheated_boost\":0.5,\"steer_limit\":0.5,"
+		"\"steer_limit_time\":{\"value\":45,\"unit\":\"ticks60\"},"
+		"\"recover_time_stopped\":{\"value\":120,\"unit\":\"ticks60\"},"
+		"\"recover_speed_scale\":2.0,\"cool_crystal_part\":140}";
+	if (replaceKey && with) {
+		size_t at = json.find(replaceKey);
+		REQUIRE(at != std::string::npos);
+		json.replace(at, std::strlen(replaceKey), with);
+	}
+	return json;
+}
+
+TEST_CASE("Maian vehicle V3: boost and heat values hydrate from behavior/variables.json",
+          "[modding][pdxxx][runtime][vehicle-boost-heat]") {
+	SECTION("no file: the vehicle keeps the original full-throttle bonus") {
+		assetRuntimeReset();
+		REQUIRE(hydrateBoostVehicle("pd2_vehicle_boost_none", nullptr) == 1);
+		const asset_runtime_binding_t *b = assetRuntimeVehicleForModelnum(0x1b9);
+		REQUIRE(b != nullptr);
+		REQUIRE(b->vehicle_boost_heat_enabled == 0);
+		REQUIRE(b->vehicle_cool_crystal_part == -1);
+	}
+	SECTION("a complete file turns boost and heat on, times in 240 Hz ticks") {
+		assetRuntimeReset();
+		REQUIRE(hydrateBoostVehicle("pd2_vehicle_boost_ok", boostVariables().c_str()) == 1);
+		const asset_runtime_binding_t *b = assetRuntimeVehicleForModelnum(0x1b9);
+		REQUIRE(b != nullptr);
+		REQUIRE(b->vehicle_boost_heat_enabled == 1);
+		REQUIRE(b->vehicle_cool_crystal_part == 140);
+		REQUIRE(b->vehicle_boost_heat.boost_speed == Approx(7.0f));
+		REQUIRE(b->vehicle_boost_heat.ramp_ticks240 == Approx(240.0f));
+		REQUIRE(b->vehicle_boost_heat.overheat_ticks240 == Approx(960.0f));
+		REQUIRE(b->vehicle_boost_heat.overheated_boost == Approx(0.5f));
+		REQUIRE(b->vehicle_boost_heat.steer_limit == Approx(0.5f));
+		REQUIRE(b->vehicle_boost_heat.steer_limit_ticks240 == Approx(180.0f));
+		REQUIRE(b->vehicle_boost_heat.recover_ticks240 == Approx(480.0f));
+		REQUIRE(b->vehicle_boost_heat.recover_speed_scale == Approx(2.0f));
+	}
+	SECTION("the crystal part is optional") {
+		assetRuntimeReset();
+		REQUIRE(hydrateBoostVehicle("pd2_vehicle_boost_nopart",
+			boostVariables(",\"cool_crystal_part\":140", "").c_str()) == 1);
+		const asset_runtime_binding_t *b = assetRuntimeVehicleForModelnum(0x1b9);
+		REQUIRE(b != nullptr);
+		REQUIRE(b->vehicle_boost_heat_enabled == 1);
+		REQUIRE(b->vehicle_cool_crystal_part == -1);
+	}
+	SECTION("a broken file refuses the vehicle instead of driving without its boost") {
+		const std::pair<const char *, const char *> broken[] = {
+			{ ",\"recover_speed_scale\":2.0", "" },
+			{ "\"unit\":\"ticks60\"},\"overheated_boost\"", "\"unit\":\"seconds\"},\"overheated_boost\"" },
+			{ "\"overheated_boost\":0.5", "\"overheated_boost\":1.5" },
+			{ "pd.vehicle_variables.v1", "pd.vehicle_variables.v2" },
+			{ "\"cool_crystal_part\":140", "\"cool_crystal_part\":-3" },
+			{ "\"boost_ramp\":{\"value\":60,\"unit\":\"ticks60\"}", "\"boost_ramp\":60" },
+		};
+		for (const auto &edit : broken) {
+			assetRuntimeReset();
+			INFO(edit.second);
+			REQUIRE(hydrateBoostVehicle("pd2_vehicle_boost_bad",
+				boostVariables(edit.first, edit.second).c_str()) == 0);
+		}
+	}
 	assetRuntimeReset();
 }

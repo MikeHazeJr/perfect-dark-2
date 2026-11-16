@@ -256,6 +256,21 @@ a Modding Hub tab for players), and the tools grow with the mods.
   Boost input DECIDED by Mike 2026-11-16: a new mappable action, defaults
   Shift on keyboard and A on an Xbox controller; the vehicle handbrake's
   controller default moves from A to B (it keeps Space on keyboard).
+  WRITTEN 2026-11-16, built and proven with the next build and smoke turn:
+  `ACTION_VEHICLE_BOOST` (121, saved name `VehicleBoost`, Controls menu row,
+  vehicle layer; actions 105-120 got their saved names too, the names
+  `week-pd/crystal-pistol` gave them for B-1184). A vehicle whose archive
+  has `behavior/variables.json` (`pd.vehicle_variables.v1`, the drafted
+  graph's values, read by `asset_runtime.c`) boosts with
+  `vehicle_boost_heat.c` instead of the original full-throttle bonus; its
+  state is per vehicle (`vehicle_boost_runtime.c`, cleared at stage load in
+  `lv.c`); steering is limited after overheating; `cool_crystal_part` (140
+  for the Maian vehicle) is hidden while the crystals are black; phase
+  changes log `VEHICLE.BOOST:` with `turret_locked=` until the turret (V5)
+  reads it. The conformance tool allows and checks the file. A file with a
+  bad value refuses the vehicle. Tests: `[vehicle-boost-heat]` (state
+  machine, per-vehicle table, archive reader) and
+  `tests/test_vehicle_variables_conformance.py`.
 - V4. Two seats: driver and gunner, mount and dismount per seat, a camera per
   seat; the seat on the wire is MULTIPLAYER's message.
 - V5. Turret: gunner aim, fire and lock/zoom on the turret input layer; yaw

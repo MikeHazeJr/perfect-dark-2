@@ -1136,6 +1136,7 @@ set(SRC_TESTS
   # The Maian vehicle's boost and heat state machine (V3; the drafted
   # og.vehicle.boost_heat module, context/designs/modding/vehicle-graph-v1.md).
   ${CMAKE_SOURCE_DIR}/port/src/vehicle_boost_heat.c
+  ${CMAKE_SOURCE_DIR}/port/src/vehicle_boost_runtime.c
   ${CMAKE_SOURCE_DIR}/tests/test_vehicle_boost_heat.cpp
   # The Maian hover vehicle recipe, built the way --mod-author builds it (V2).
   ${CMAKE_SOURCE_DIR}/tests/test_maian_hover_vehicle.cpp

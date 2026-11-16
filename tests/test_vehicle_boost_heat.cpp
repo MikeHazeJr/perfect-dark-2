@@ -13,6 +13,7 @@
 
 extern "C" {
 #include "vehicle_boost_heat.h"
+#include "vehicle_boost_runtime.h"
 }
 
 namespace {
@@ -233,4 +234,45 @@ TEST_CASE("Boost params are checked and times convert to 240 Hz ticks", "[vehicl
 	REQUIRE(ticks == Approx(240.0f));
 	REQUIRE_FALSE(vehicleBoostHeatTimeToTicks240(1.0f, "seconds", &ticks));
 	REQUIRE_FALSE(vehicleBoostHeatTimeToTicks240(-1.0f, "ticks60", &ticks));
+}
+
+TEST_CASE("Each vehicle keeps its own boost state until the stage resets", "[vehicle-boost-heat]")
+{
+	vehicleBoostRuntimeReset();
+	int a = 0, b = 0, idle = 0;
+	s32 created = 0;
+	vehicle_boost_heat_state_t *sa = vehicleBoostRuntimeState(&a, &created);
+	REQUIRE(sa != nullptr);
+	REQUIRE(created == 1);
+	REQUIRE(sa->phase == VEHICLE_BOOST_HEAT_COOL);
+	REQUIRE(vehicleBoostRuntimeState(&a, &created) == sa);
+	REQUIRE(created == 0);
+	vehicle_boost_heat_state_t *sb = vehicleBoostRuntimeState(&b, &created);
+	REQUIRE(sb != nullptr);
+	REQUIRE(sb != sa);
+
+	/* The driver's input is read once per update. */
+	vehicleBoostRuntimeSetHeld(&a, 1);
+	REQUIRE(vehicleBoostRuntimeTakeHeld(&a) == 1);
+	REQUIRE(vehicleBoostRuntimeTakeHeld(&a) == 0);
+	REQUIRE(vehicleBoostRuntimeTakeHeld(&b) == 0);
+	/* Not pressing boost on a vehicle takes no slot. */
+	vehicleBoostRuntimeSetHeld(&idle, 0);
+	REQUIRE(vehicleBoostRuntimeTakeHeld(&idle) == 0);
+
+	/* A full table refuses more vehicles instead of sharing a state. */
+	int many[VEHICLE_BOOST_RUNTIME_SLOTS];
+	int made = 0;
+	for (int i = 0; i < VEHICLE_BOOST_RUNTIME_SLOTS; i++) {
+		if (vehicleBoostRuntimeState(&many[i], nullptr)) made++;
+	}
+	REQUIRE(made == VEHICLE_BOOST_RUNTIME_SLOTS - 2);
+
+	/* A stage load clears every state. */
+	sa->heat = 0.75f;
+	vehicleBoostRuntimeReset();
+	sa = vehicleBoostRuntimeState(&a, &created);
+	REQUIRE(created == 1);
+	REQUIRE(sa->heat == 0.0f);
+	vehicleBoostRuntimeReset();
 }
