@@ -1,7 +1,12 @@
 {
   "scenario_name": "combat_sim_simulant_twins",
-  "description": "AI lists as graphs (context/designs/modding/ai-list-graphs.md): the two simulant commands run through their graph twins. A Combat match on Car Park with 12 simulants for 90 s: the stage's background list 0x1000 runs mp_init_simulants (the whole wave completes), simulants kill and die, and each dead simulant runs global list 0x0028, whose if_bot_respawning goes on while it waits (branch=0) and jumps to label 0x16 once it has respawned (branch=1).",
-  "tags": ["ai", "graph", "simulants", "combatsim"],
+  "description": "AI lists as graphs (context/designs/modding/ai-list-graphs.md): the two simulant commands run through their graph twins. A Combat match on Complex with 12 simulants for 150 s (Car Park at 90 s gave hits but no kill on 2026-11-16, so the dead list never ran): the stage's background list 0x1000 runs mp_init_simulants (the whole wave completes), simulants kill and die, and each dead simulant runs global list 0x0028, whose if_bot_respawning goes on while it waits (branch=0) and jumps to label 0x16 once it has respawned (branch=1).",
+  "tags": [
+    "ai",
+    "graph",
+    "simulants",
+    "combatsim"
+  ],
   "paths_of_interest": [
     "port/src/scenario_source_runtime.c",
     "src/game/mplayer/mpaicommands.c",
@@ -9,7 +14,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 260,
+  "timeout_seconds": 330,
   "install_state": "current",
   "boot_args": [
     "--no-update-check",
@@ -17,7 +22,7 @@
     "--no-net",
     "--portable",
     "--launch-mp-room",
-    "base:arena_mp_carpark",
+    "base:arena_mp_complex",
     "base:combat",
     "12",
     "--debug-auto-start-match"
@@ -29,12 +34,12 @@
       "condition": "offline_gameplay_ready",
       "timeout_ms": 160000,
       "stable_ms": 1000,
-      "comment": "Pause until the local player of the Car Park match is spawned and live."
+      "comment": "Pause until the local player of the Complex match is spawned and live."
     },
     {
-      "at_ms": 90000,
+      "at_ms": 150000,
       "type": "exit",
-      "comment": "90 s of play: kills, deaths and respawns among the 12 simulants"
+      "comment": "150 s of play on the compact Complex arena: kills, deaths and respawns among the 12 simulants"
     }
   ],
   "assertions": {
