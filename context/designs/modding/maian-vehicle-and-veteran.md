@@ -403,6 +403,20 @@ Build order:
 - V4a. Seat records in the graph runtime, the host's `seat_free` for both
   seats, `event.vehicle.switch_seat_requested` and `og.vehicle.switch_seat` in
   the runner and conformance, with pd-tests.
+  - WRITTEN 2026-11-16 (0611ac20 on `week-pd/mods-v4`), not compiled yet. As
+    built: a switch request names the seat asked for, like a mount;
+    `gate.vehicle.seat` tests the seat of any of the three seat requests; one
+    event may reach one mount, one dismount and one switch per seat;
+    `vehicleGraphProgramEventSeats` tells the game which seats a mount, a
+    dismount or a switch can act on (so "has a gunner seat" and "has a seat to
+    switch to" are read from the graph); the record keeps one player per seat
+    and one seat per player (`vehicleGraphRuntimeSeatOccupant`,
+    `SetSeatOccupant`, `SeatOfPlayer`) and keeps the riders when a program is
+    freed and compiled again. The driver seat's truth stays `OBJHFLAG_MOUNTED`
+    (it covers a remote driver); the gunner seat's is the record, which is the
+    call MULTIPLAYER's wire will make for a remote gunner. Tests: a two-seat
+    graph in `[vehicle-graph]` and in the conformance cases (10 pass). Schema:
+    `vehicle-graph-v1.md`, "Seats".
 - V4b. The seat a mount asks for (mount points, view and distance), the
   gunner's ride (follow the pod, free look, no physics), the turret layer and
   its input context, the double-press switch, and the Maian graph's gunner
