@@ -1827,6 +1827,12 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode",
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("PADFLAG_HASBBOXDATA") !=
 	        std::string::npos);
+	// B-1204: a pad keeps its own box bit; forcing it on every pad made the
+	// -100..100 default a real box and dropped objects 100 under their pad.
+	REQUIRE(scenario_runtime.find("flags |= PADFLAG_HASBBOXDATA;") ==
+	        std::string::npos);
+	REQUIRE(scenario_runtime.find("boxed += (rows[i].flags & PADFLAG_HASBBOXDATA) != 0;") !=
+	        std::string::npos);
 	REQUIRE(scenario_runtime_h.find("scenarioSourcePadsGetWideOffsets") !=
 	        std::string::npos);
 	REQUIRE(scenario_runtime.find("s_clearSourceWidePadOffsets()") !=

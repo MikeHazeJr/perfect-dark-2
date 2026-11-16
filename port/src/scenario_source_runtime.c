@@ -6260,7 +6260,13 @@ static u32 s_scenarioPadFlags(u32 flags)
 		| PADFLAG_UPALIGNINVERT
 		| PADFLAG_LOOKALIGNTOX | PADFLAG_LOOKALIGNTOY | PADFLAG_LOOKALIGNTOZ
 		| PADFLAG_LOOKALIGNINVERT);
-	flags |= PADFLAG_HASBBOXDATA;
+	/* B-1204: PADFLAG_HASBBOXDATA stays the pad's own (the ROM's flags in
+	 * pads.json). Every record carries the six box floats, and pads are found
+	 * by offset, so padUnpack leaves them unread without the bit and gives
+	 * the -100..100 default it always gave. Forcing the bit on every pad made
+	 * that default a real box: setup.c dropped each object from 100 under its
+	 * pad (into the floor slab or onto the floor below) and scaled the
+	 * objects that fit their pad's bounds to it. */
 	return flags;
 }
 
@@ -6432,14 +6438,22 @@ static u8 *s_buildPadfile(const scenario_source_pad_row_t *rows,
 	wide_offsets = use_wide_offsets ? (u32 *)(buf + header_size) : NULL;
 	records = buf + header_size + offset_size;
 
-	for (i = 0; i < row_count; i++) {
-		if (wide_offsets) {
-			wide_offsets[i] = (u32)(records - buf);
-		} else {
-			offsets[i] = (u16)(records - buf);
+	{
+		s32 boxed = 0;
+
+		for (i = 0; i < row_count; i++) {
+			if (wide_offsets) {
+				wide_offsets[i] = (u32)(records - buf);
+			} else {
+				offsets[i] = (u16)(records - buf);
+			}
+			s_writePadRecord(records, &rows[i]);
+			boxed += (rows[i].flags & PADFLAG_HASBBOXDATA) != 0;
+			records += record_size;
 		}
-		s_writePadRecord(records, &rows[i]);
-		records += record_size;
+		sysLogPrintf(LOG_NOTE,
+			"SCENARIO.SOURCE: pads.json %d pads, %d with a box of their own (B-1204)",
+			row_count, boxed);
 	}
 
 	if (wide_offsets) {
