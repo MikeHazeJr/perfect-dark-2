@@ -52,15 +52,21 @@ Fix (client only, no wire change): `objTick`'s respawn steps moved unchanged int
 its respawn sound) and then the finish. Both pickup replays call it first when this client still has the item
 respawning (logs `BOT.PICKUP: client finished item N's respawn for simulant S, T ticks before its own wait ended`
 and `NET: SVC_PROP_PICKUP client finished prop N's respawn ...`), then replay as before, so the wait starts again
-as the host's did. Pinned by `[b1205]` in `tests/test_net_bot_pickup_static.cpp`.
+as the host's did. Pinned by `[b1205]` in `tests/test_net_bot_pickup_static.cpp`. Seen working once in play
+2026-11-16 (490e8baf, `mp_hold_the_briefcase_net_smoke` 84/84): `BOT.PICKUP: client finished item 6's respawn
+for simulant 3, 27 ticks before its own wait ended`, then `client replayed simulant 3 item 6`; the Combat
+score-limit re-run that failed on it is queued.
 
 ## 2026-11-16 B-1204 Objects on scenario-source stages are dropped from 100 units under their pad, so many sit inside a floor or fall to the one below (T-NETWORKING-011, fixed by CORE)
 
 **Fixed** by CORE on week-pd/core 9a9cfc9f, cherry-picked here as 0ad19dca: each scenario pad keeps its own
 `PADFLAG_HASBBOXDATA` (the ROM's flags in pads.json), so a boxless pad's six box floats stay unread and
 `padUnpack` gives its usual default, so objects stand on their pads again. No re-extraction (every base pad without the bit
-has exactly that default box); a contract pin refuses the forced bit. Game check pending: the objective and
-Combat smokes on base 7 with simulants.
+has exactly that default box); a contract pin refuses the forced bit. **Checked in play 2026-11-16** on binary
+490e8baf (8dafe7f0), base 7: in `mp_hold_the_briefcase_net_smoke` (84/84, `results-20261116T125201Z.json`) the
+case stands on pad 67 at y 4, a simulant takes it at 18.4 s and scores, and simulants collect the upper-floor
+crates and weapons (y 278 to 291) they could never take before; `mp_combat_local_scorelimit_smoke` (24/24,
+`results-20261116T125730Z.json`, no kill in 240 s before) ends by score limit 1 after a simulant's kill.
 
 **Root cause (read from data and source, 10:15 UTC):** `s_scenarioPadFlags` (`port/src/scenario_source_runtime.c`)
 sets `PADFLAG_HASBBOXDATA` on every packed pad, and the extractor gives each pad that had no box in the ROM a default
@@ -143,6 +149,10 @@ slot's `slotupdate240` on each pass and advances `runstateindex` on each pass, a
 accumulated time (the original split-screen scheduler does the same). So a simulant out of every player's view still
 acts at twice the speed with two players, and a co-op guard out of view on the host likewise. Points earned out of
 view can therefore still beat the 30 s rule in the Hold the Briefcase re-run. **Fixed in code 2026-11-16 with option (b)** (CORE agreed on the hub, 05:59 UTC): in a networked match `propsTickPlayer` counts the frame's time once (`netrepeatpass`: on a pass after the first, no prop or slot gains time, the background slot does not advance and no background prop ticks), so every prop gets real time as offline; local split screen keeps the original per-pass accounting. Background pickups no longer regenerate N times as fast either. Pinned in `tests/test_net_bot_pickup_static.cpp` (`[sp87]`); pd-tests 2,019 cases green; not yet run in game.
+**Checked in play 2026-11-16** on binary 490e8baf (8dafe7f0), `mp_hold_the_briefcase_net_smoke` 84/84
+(`results-20261116T125201Z.json`): the simulant that took the case at 18.4 s scored at 48.4, 78.4, 108.3 and
+138.3 s, one point per 30 s held as in the original (7 points in 151 s before the fix), and the client's points
+and final result lines match the host's.
 
 ## 2026-11-16 B-1201 A co-op client crashes when the host leaves while it is in the Room after a mission (T-NETWORKING-011, fixed)
 
