@@ -780,7 +780,7 @@ TEST_CASE("asset native-source guard is tracked by tests and source docs",
 	        std::string::npos);
 	REQUIRE(pdmesh_render_stream.find("model.render.json must reference every model.faces.json face") !=
 	        std::string::npos);
-	REQUIRE(pdmesh_render_stream.find("SCHEMA_CURRENT = 3") !=
+	REQUIRE(pdmesh_render_stream.find("SCHEMA_CURRENT = 4") !=
 	        std::string::npos);
 	REQUIRE(pdmesh_render_stream.find("vertex_load") != std::string::npos);
 	REQUIRE(pdmesh_render_stream.find("vertex_scope") != std::string::npos);

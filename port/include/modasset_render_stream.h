@@ -18,7 +18,12 @@ extern "C" {
 
 #define MODASSET_RENDER_STREAM_SCHEMA_LEGACY 1
 #define MODASSET_RENDER_STREAM_SCHEMA_GEOMETRY 2
-#define MODASSET_RENDER_STREAM_SCHEMA_CURRENT 3
+#define MODASSET_RENDER_STREAM_SCHEMA_VERTEX_CACHE 3
+/* B-1154: schema v4 adds "texture" rows, the RSP texture scale (G_TEXTURE)
+ * the source list sets before its texture loads. A reflection-mapped
+ * (G_TEXTURE_GEN) material's scale decides how often its texture repeats. */
+#define MODASSET_RENDER_STREAM_SCHEMA_TEXTURE 4
+#define MODASSET_RENDER_STREAM_SCHEMA_CURRENT 4
 #define MODASSET_RENDER_VERTEX_CACHE_SLOTS 64
 #define MODASSET_RENDER_MATRIX_INDEX_MAX 32766
 
@@ -42,6 +47,7 @@ typedef enum modasset_render_stream_op {
 	MODASSET_RENDER_OP_VERTEX_LOAD,
 	MODASSET_RENDER_OP_VERTEX_SCOPE,
 	MODASSET_RENDER_OP_VERTEX_CACHE_RESET,
+	MODASSET_RENDER_OP_TEXTURE,
 } modasset_render_stream_op_t;
 
 /* Top-level model nodes are allowed to carry display-list or vertex references

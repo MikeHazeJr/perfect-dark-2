@@ -69,7 +69,7 @@
 #define ROMEXTRACT_PDMESH_MODEL_VMA 0x05000000u
 #define ROMEXTRACT_PDMESH_MTX_STACK_CAP 11
 #define ROMEXTRACT_PDMESH_NODE_DEPTH_CAP 2048
-#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v25_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_zero_tri_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19"
+#define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "model_obj_mtx_v25_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_zero_tri_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19_texscale_b1154"
 #define ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION ROMEXTRACT_PDMESH_OBJ_EXPORT_VERSION_LABEL "\n"
 #define ROMEXTRACT_PDMESH_FAST_CACHE_KIND "pdmesh_model_obj_mtx_v28_materials_hierarchy_parts_faces_json_relations_raw_mtx_render_commands_json_geometry_state_vertex_cache_provenance_allmodels_menuhud_zero_tri_models_top_level_policy_gbi_vtxcount_paircache_vtxcolour_jointflags_vtxmtx_collision19"
 extern u16 g_CartFileNums[];
@@ -1063,6 +1063,30 @@ static s32 s_objAppendGeometryRow(pdmesh_obj_export_t *ctx,
 	return 0;
 }
 
+/* B-1154: the source list's RSP texture scale (G_TEXTURE). The texture
+ * loader keeps the one before each texture load (tex.c texWriteTextureCmd),
+ * so the compiler replays it instead of its 0xffff default. */
+static s32 s_objAppendTextureRow(pdmesh_obj_export_t *ctx,
+	u32 scale_s, u32 scale_t)
+{
+	if (!ctx || !ctx->render) {
+		return 0;
+	}
+	if (ctx->render_cmd_count > 0 &&
+			s_textbufAppend(ctx->render, ",\n") != 0) {
+		return -1;
+	}
+	if (s_textbufAppend(ctx->render, "    { \"group\": ") != 0 ||
+			s_textbufAppendJsonString(ctx->render, s_objCurrentGroup(ctx)) != 0 ||
+			s_textbufAppendf(ctx->render,
+				", \"command\": \"texture\", \"scale_s\": %u, \"scale_t\": %u }",
+				(unsigned)scale_s, (unsigned)scale_t) != 0) {
+		return -1;
+	}
+	ctx->render_cmd_count++;
+	return 0;
+}
+
 static s32 s_objAppendVertexBoundaryRow(pdmesh_obj_export_t *ctx,
 	const char *command)
 {
@@ -1669,6 +1693,19 @@ static s32 s_exportGdlToObjWalk(pdmesh_obj_export_t *ctx, Gfx *raw_gdl,
 			if (ctx->mtx_stack_size > 1) ctx->mtx_stack_size--;
 			if (s_objAppendRenderRow(ctx, "pop", -1, -1,
 					0, -1, NULL, NULL, NULL) != 0) {
+				return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_OUTPUT,
+					depth, cmdidx, w0, w1);
+			}
+			continue;
+		}
+
+		if (cmd == (u8)G_TEXTURE) {
+			/* B-1154: a reflection-mapped gun sets 0x0800 here; drawn at
+			 * 0xffff its reflection repeats 32 times (blue and white stripes).
+			 * A command that turns texturing off has no scale to keep. */
+			if ((w0 & 0xffu) != 0 &&
+					s_objAppendTextureRow(ctx, (w1 >> 16) & 0xffffu,
+						w1 & 0xffffu) != 0) {
 				return s_gdlWalkFail(state, PDMESH_GDL_FAILURE_OUTPUT,
 					depth, cmdidx, w0, w1);
 			}
