@@ -16,7 +16,7 @@ ticks a simulant's chr before `botTick`), so every later pass in the frame ran t
 download, Pop a Cap survival) and `botCheckPickups`. Fix: `updateable` again needs the flag as well as a nonzero
 update; a later pass logs `BOT.TICK: simulant N passed again in one frame (players=P)` once per match. Pinned in
 `tests/test_net_bot_pickup_static.cpp` (`[b1202]`). Pattern SP-87. Built 2026-11-16, the full suite passes (1993
-cases); not yet run in game. This changes how fast simulants act in networked matches, back to the offline speed.
+cases). Seen in play 2026-11-16 (binary c5a12bca, `mp_simulant_types_net_smoke` PASS 107/107): the host logged `BOT.TICK: simulant 4 passed again in one frame (players=2)`, so the second per-player pass happens and now skips the update; the Hold the Briefcase re-run checks the effect on points. This changes how fast simulants act in networked matches, back to the offline speed.
 Not covered (open, a question for Mike and CORE under SP-87): a prop in the background, in no player's view, still gets
 N times the elapsed time, because `propsTickPlayer` adds the frame's time to every prop's `propupdate240` and every
 slot's `slotupdate240` on each pass and advances `runstateindex` on each pass, and a background tick spends that
@@ -24,7 +24,7 @@ accumulated time (the original split-screen scheduler does the same). So a simul
 acts at twice the speed with two players, and a co-op guard out of view on the host likewise. Points earned out of
 view can therefore still beat the 30 s rule in the Hold the Briefcase re-run.
 
-## 2026-11-16 B-1201 A co-op client crashes when the host leaves while it is in the Room after a mission (T-NETWORKING-011, fixed in code)
+## 2026-11-16 B-1201 A co-op client crashes when the host leaves while it is in the Room after a mission (T-NETWORKING-011, fixed)
 
 Severity high (client crash). Found by the first run of `network_coop_mission_return_smoke` on binary 0587e908
 (5a1dfcda, 125/129, `results-20261116T042438Z.json`): Return to Room worked on both machines (`GAMELOOP.COOP: host chose
@@ -41,7 +41,10 @@ stage on an in-game disconnect. Fix: the disconnect also leaves for CI when an e
 loaded (`leftendedstage`, from `g_MainIsEndscreen`; log `NET: disconnect leaves the ended stage ... behind the Room for
 CI`), and whenever it leaves a stage it first freezes it (`lvSetPaused(true)`, the update zeroed, every prop's catch-up
 time dropped) until CI loads. Pinned in `tests/test_net_mission_end_static.cpp` (`[b1201]`). Built 2026-11-16, the
-full suite passes (1992 cases); the smoke re-run is queued.
+full suite passes (1992 cases). **Fixed in play 2026-11-16** (binary c5a12bca = c3d737c3,
+`network_coop_mission_return_smoke` PASS 129/129, `results-20261116T054147Z.json`): after the host's Return to Room
+and its exit, the client logged `NET: disconnect leaves the ended stage 0x30 behind the Room for CI` 20 ms after
+`Server is shutting down`, and did not crash.
 
 ## 2026-11-16 B-1200 A second networked Combat match in the same room is refused (T-NETWORKING-011, fixed in code)
 
@@ -174,7 +177,7 @@ challenges) replaces `g_MpSetup` whole, which would lift the game-over pause in 
 `tests/test_host_autostart_rematch_static.cpp`; the rematch smoke requires the inert line. Run on binary 9078eb6b
 (`results-20261116T010715Z.json`): no crash, the inert line logged once after Continue; the run stopped on B-1197.
 
-## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, fixed in code)
+## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, fixed)
 
 Severity medium (a simulant takes a weapon on the host that stays on the ground on the client; no crash). Seen in
 `mp_simulant_types_net_smoke` on binary 91a54a5d (`results-20261115T215645Z.json`, 106/107, the only failure):
@@ -226,8 +229,11 @@ block in `chrTick` notes every weapon with a dynamic sync id the chr carries bef
 each one the drop leaves in the world (`netmsgSvcPropSpawnWrite` + `netmsgSvcPropMoveWrite`; log `NET.DROP: host
 announced chr ... dropped weapon=... syncid=... flags=...`), so any drop path is covered, not only the held slots; and
 on a networked client `botDisarm` retires the puppet's held model and drops or makes nothing. Pinned in
-`tests/test_net_bot_pickup_static.cpp` (`[b1194]`, two cases). Built 2026-11-16, the full suite passes (1992 cases);
-the smoke re-run is queued.
+`tests/test_net_bot_pickup_static.cpp` (`[b1194]`, two cases). Built 2026-11-16, the full suite passes (1992 cases).
+**Fixed in play 2026-11-16** (binary c5a12bca = c3d737c3, `mp_simulant_types_net_smoke` PASS 107/107,
+`results-20261116T055414Z.json`): no client skip at all (24 host pickups sent, 24 replayed; 23 were skipped on
+0587e908), and the host logged 16 `NET.DROP: host announced chr N dropped weapon=10 ... flags=0x00004000` lines, the
+disarmed simulants' own guns, under low dynamic ids such as 21 and 24 like the ones skipped before.
 
 ## 2026-11-15 B-1193 The networked co-op and counter-op mission end is local on each machine (T-NETWORKING-011, Mike: host control)
 
