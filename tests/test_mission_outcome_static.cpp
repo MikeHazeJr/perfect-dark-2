@@ -110,3 +110,23 @@ TEST_CASE("mission flow: the phase reaches the graph and a graph can end the mis
 	REQUIRE(conformance.find("MISSION_GRAPH_EXEC_GATES = {\"gate.objective.status\", \"gate.mission.phase\"}") !=
 		std::string::npos);
 }
+
+TEST_CASE("mission flow: every campaign fixture requires the outcome parity line",
+          "[mission][objectives][missionflow][smoke-fixtures]")
+{
+	const struct { const char *path; int missions; } fixtures[] = {
+		{ "tools/smoke-verify/tests/auto_campaign_release.json", 17 },
+		{ "tools/smoke-verify/tests/auto_campaign_release_pa.json", 17 },
+		{ "tools/smoke-verify/tests/auto_campaign_release_sa.json", 17 },
+		{ "tools/smoke-verify/tests/auto_campaign_soak.json", 17 },
+		{ "tools/smoke-verify/tests/auto_campaign_specials.json", 4 },
+	};
+	for (const auto &fixture : fixtures) {
+		INFO(fixture.path);
+		const std::string text = readSource(fixture.path);
+		const std::string count = "{ \"pattern\": \"CAMPAIGN\\\\.AUTO: outcome parity probe stage_id='base:\", \"min\": " +
+			std::to_string(fixture.missions) + ", \"max\": " + std::to_string(fixture.missions) + " }";
+		CHECK(text.find(count) != std::string::npos);
+		CHECK(text.find("\"outcome parity probe: \",") != std::string::npos);
+	}
+}

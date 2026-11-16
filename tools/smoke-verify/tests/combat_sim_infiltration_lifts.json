@@ -9,7 +9,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 120,
+  "timeout_seconds": 240,
   "install_state": "clean",
   "boot_args": [
     "--no-update-check",
@@ -24,7 +24,7 @@
   ],
   "input_sequence": [
     { "at_ms": 0,     "type": "wait", "comment": "boot, seed the Combat Simulator config and start the match through the debug launch path" },
-    { "at_ms": 70000, "type": "exit", "comment": "after the stage load, setupCreateProps and a few gameplay frames" }
+    { "at_ms": 150000, "type": "exit", "comment": "a test install boots for about 67 s before the launch is taken (2026-11-16); then the stage load, setupCreateProps and some gameplay frames" }
   ],
   "assertions": {
     "required_lines": [
