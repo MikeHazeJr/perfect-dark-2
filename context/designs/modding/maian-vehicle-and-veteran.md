@@ -315,7 +315,7 @@ a Modding Hub tab for players), and the tools grow with the mods.
   today; the largest single step).
 - V9. The Vehicles tab in the Modding Hub on `modAuthorRuntimeSave`.
 
-### V4 design draft (2026-11-16, MODS; questions for Mike, the wire for MULTIPLAYER)
+### V4 design (decided by Mike 2026-11-16; the wire is MULTIPLAYER's)
 
 READ, by a read-only survey of `week-pd/mods` at 452ad5bb (file:line as it
 reported them). Today a vehicle has one rider:
@@ -343,50 +343,73 @@ reported them). Today a vehicle has one rider:
   `og.vehicle.mount_seat` and `dismount_seat` with `"seat"`); the game's host
   refuses the gunner and every caller asks for the driver seat.
 
-Proposal:
+Mike's decisions (2026-11-16):
 
-1. A gunner seat exists only on a vehicle whose v1 graph mounts one; the base
-   hoverbike keeps one seat. The occupants (`occupant[2]`, a player number or
-   none) live in the graph runtime's per-vehicle record, keyed like the
-   instance by the prop and its `lifecycle_generation`.
+- "The seat you take depends on where you entered from and where you're
+  looking."
+- "If no one is in the other seat, double-tapping the enter/exit vehicle button
+  switches seats instead of exiting."
+- Turret control defaults are MODS's to pick, and stay mappable.
+
+Design:
+
+1. Seats belong to the graph. A gunner seat exists only on a vehicle whose v1
+   graph mounts one; the base hoverbike keeps one seat. The occupants (a player
+   number or none, per seat) live in the graph runtime's per-vehicle record,
+   keyed like the instance by the prop and its `lifecycle_generation`, and
+   `gate.vehicle.seat_free` reads them.
 2. `OBJHFLAG_MOUNTED` keeps meaning "the driver seat is taken", so the physics,
    the idle tick, doors, pushing and the network flag carriage stay as they
    are.
 3. Both seats keep `player->hoverbike` and `MOVEMODE_BIKE`; the player gains a
-   seat. The driver-only parts branch on it (the physics and its input, the
-   engine sound, the perimeter, the dismount momentum, the death explosion).
-   The gunner's prop follows the pod's seat each frame (a position node in the
-   model), and the gunner's yaw and pitch are free (V5 makes them the turret's
-   aim).
-4. Mount: `event.vehicle.mount_requested` carries the seat asked for (question
-   1); a taken seat's request falls to the other free seat or fails.
-5. Seat switch: `ACTION_VEHICLE_SWITCH_SEAT` on both vehicle layers fires a new
-   `event.vehicle.switch_seat_requested`, and `og.vehicle.switch_seat` moves
-   the rider to the other seat when it is free (question 2).
-6. Camera and layer per seat: boarding the gunner seat pushes
-   `LAYER_VEHICLE_TURRET` (`SCENE_VEHICLE_KIND_TURRET`), which gets its action
-   set (aim, fire, zoom and lock, switch seat, exit, pause), a
-   `g_ImcVehicleTurret` with defaults and a rebind group (question 3).
-7. Network, MULTIPLAYER's: a seat byte in `SVC_PROP_VEHICLE_STATE` (a wire
+   seat. The driver-only parts branch on it: the physics and its input, the
+   engine sound, the perimeter, the dismount momentum and the death explosion.
+4. Which seat a mount asks for. Each seat has a mount point on the model: the
+   driver's is the original seat offset, the gunner's is the pod (the turret's
+   yaw part). The request is for the seat whose mount point the player is
+   looking at and standing nearest to: within the mount range, the seat with
+   the smaller angle between the player's view and the direction to its mount
+   point wins, and distance breaks a near tie. If that seat is taken and the
+   other is free and also in range, the request is for the other; otherwise
+   it fails as a mount does today. The graph then decides as before
+   (`event.vehicle.mount_requested` with the seat, `gate.vehicle.seat_free`,
+   `og.vehicle.mount_seat`).
+5. Seat switch. The exit button, pressed twice within 0.3 s while the other
+   seat is free, fires `event.vehicle.switch_seat_requested`; its
+   `og.vehicle.switch_seat` moves the rider to the other seat. One press, with
+   no second inside the window, exits as today. So only a vehicle with a free
+   second seat waits the 0.3 s before an exit; a one-seat vehicle, or a
+   vehicle whose other seat is taken, exits at once. The window is a tuning
+   constant beside the input read.
+6. The gunner. The gunner's prop follows the pod each frame, with free yaw and
+   pitch (V5 makes them the turret's aim), no bike physics and no drive input.
+   Boarding the gunner seat pushes `LAYER_VEHICLE_TURRET`
+   (`SCENE_VEHICLE_KIND_TURRET`) with its own action set and
+   `g_ImcVehicleTurret`. The driver's eye also moves to a seat position read
+   from the model, so the Maian hull no longer fills the lower half of the
+   driver's view.
+7. Turret control defaults, all mappable in the Controls menu under the vehicle
+   group: mouse aims, left button fires, right button zooms and locks, F exits
+   (twice to switch seat); on a controller the right stick aims, RT fires, LT
+   zooms and locks, X exits (twice to switch seat). Fire and zoom do nothing
+   until the turret (V5) reads them.
+8. Network, MULTIPLAYER's: a seat byte in `SVC_PROP_VEHICLE_STATE` (a wire
    bump), a seat on the mount intent, and the gunner's aim and fire in the move
    message. MODS gives the local prepare, apply and commit a seat parameter so
    the wire can carry it, and does not change the wire.
-8. Tests: the seat records and the graph's seat events in pd-tests (the
-   observer pins follow); a solo smoke mounts the driver seat, switches to the
-   gunner seat (turret layer on top, the prop at the pod), switches back, drives
-   and dismounts.
 
-Questions for Mike:
+Build order:
 
-1. Which seat does a mount take: the side the player walks up to (driver on
-   one side, gunner on the other), or always the driver seat first?
-2. A seat switch for a solo player (recommended): stop, climb into the turret
-   and fire, which is the brief's sitting-duck intent, until the ally drives
-   (V8). In co-op it moves only to a free seat.
-3. Turret control defaults: mouse aims, left button fires, right button zooms
-   and locks, Tab switches seat (unbound today), F exits like the driver's; on a
-   controller the right stick aims, RT fires, LT zooms and locks, Y switches
-   seat (next weapon on foot only), and X exits like the driver's.
+- V4a. Seat records in the graph runtime, the host's `seat_free` for both
+  seats, `event.vehicle.switch_seat_requested` and `og.vehicle.switch_seat` in
+  the runner and conformance, with pd-tests.
+- V4b. The seat a mount asks for (mount points, view and distance), the
+  gunner's ride (follow the pod, free look, no physics), the turret layer and
+  its input context, the double-press switch, and the Maian graph's gunner
+  nodes.
+- V4c. A solo smoke: walk up looking at the cockpit and mount the driver seat,
+  press exit twice (turret layer on top, the player at the pod), twice again
+  (driver), drive, press once and dismount.
 
 ### Veteran
 
