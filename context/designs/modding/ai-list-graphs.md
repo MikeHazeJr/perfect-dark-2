@@ -192,6 +192,10 @@ slices 3-4 not built. The facts below come from a read-only survey of
   untracked 0 on every mission. That run showed B-1256 (the counters were
   reset only for a campaign's first mission, so each line carried running
   totals); the end screen's route now resets them too.
+  Release 59/59, special assignments 47/47, Special Agent 40/40 and Perfect
+  Agent 40/40 in the same turn, all with differ 0 and untracked 0. The five
+  campaign fixtures require one line per mission (17, or 4 for the special
+  assignments) with differ 0 and untracked 0, and forbid the failure line.
 
 ## Simulant twins as built
 
