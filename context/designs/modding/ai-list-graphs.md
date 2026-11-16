@@ -97,7 +97,16 @@ slices 2-4 not built. The facts below come from a read-only survey of
 - In step 4, a node without the edge its outcome needs (a branch with no
   `branch` edge) refuses the list at compile time, not at run time.
 - The two simulant commands without a twin get one before step 4 (they run
-  only in multiplayer, on the host).
+  only in multiplayer, on the host). MULTIPLAYER's semantics (week note,
+  2026-11-16 12:44 UTC): `if_bot_respawning(label)` (0x0176) jumps to the label
+  and clears the flag when the current chr is a simulant whose
+  `aibot->respawning` is set, and goes on otherwise (no chr or not a simulant
+  is false; the original reads `aibot` regardless and would crash);
+  `mp_init_simulants` (0x0185) calls `botSpawnAll()` and, while the wave is not
+  complete, stays on its command so the next pass retries (the twin ends the
+  tick without moving: only a handler that goes on without moving is skipped
+  by B-949), and goes on once it is. A networked client runs neither (its
+  simulants are the host's).
 
 ## Slices
 
