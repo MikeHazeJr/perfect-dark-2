@@ -14,6 +14,7 @@
 #include "fs.h"
 #include "asset_source_debug.h"
 #include "assetcatalog.h"
+#include "scenario_object_rules.h"
 #include "assetcatalog_load.h"
 #include "voice_locale_source.h"
 #include "mission_graph_runner.h"
@@ -196,6 +197,7 @@ typedef struct scenario_source_setup_record {
 	s32 order;
 	u8 *bytes;
 	u32 len;
+	scenario_object_rules_t rules; /* object-rules.md */
 } scenario_source_setup_record_t;
 
 typedef struct scenario_source_setup_table {
@@ -4702,6 +4704,190 @@ static void s_jsonReadOptionalStringValue(const char *start, const char *end,
 	(void)s_jsonReadStringValue(start, end, key, out, out_n);
 }
 
+/* Object rules (context/designs/modding/object-rules.md): optional fields on
+ * an objects.json row. Each is allowed only on the kind of row whose code
+ * reads it, so a field the game would ignore is refused instead. */
+static const char *const s_ObjectRuleDifficulties[] = {
+	"agent", "special_agent", "perfect_agent", "perfect_dark",
+};
+
+const char *scenarioObjectRuleDifficultyName(s32 diff)
+{
+	if (diff < 0 || diff >= (s32)(sizeof(s_ObjectRuleDifficulties) /
+			sizeof(s_ObjectRuleDifficulties[0]))) {
+		return NULL;
+	}
+	return s_ObjectRuleDifficulties[diff];
+}
+
+/* "enemy_rockets_exempt": a list of difficulty names, at least one. */
+static s32 s_setupReadDifficultyMask(const char *start, const char *end,
+	const char *key, u32 *out)
+{
+	const char *cursor = s_jsonValueAfterKey(start, end, key);
+	s32 count = 0;
+
+	*out = 0;
+	if (!cursor || cursor >= end || *cursor != '[') {
+		return 0;
+	}
+	cursor++;
+	for (;;) {
+		char name[32];
+		size_t len = 0;
+		s32 diff;
+		s32 found = -1;
+
+		while (cursor < end && (isspace((unsigned char)*cursor) || *cursor == ',')) {
+			cursor++;
+		}
+		if (cursor >= end) {
+			return 0;
+		}
+		if (*cursor == ']') {
+			break;
+		}
+		if (*cursor != '"') {
+			return 0;
+		}
+		cursor++;
+		while (cursor < end && *cursor != '"' && len + 1 < sizeof(name)) {
+			name[len++] = *cursor++;
+		}
+		if (cursor >= end || *cursor != '"') {
+			return 0;
+		}
+		cursor++;
+		name[len] = '\0';
+		for (diff = 0; scenarioObjectRuleDifficultyName(diff); diff++) {
+			if (strcmp(name, scenarioObjectRuleDifficultyName(diff)) == 0) {
+				found = diff;
+			}
+		}
+		if (found < 0 || (*out & (1u << found))) {
+			return 0;
+		}
+		*out |= 1u << found;
+		count++;
+	}
+	return count > 0;
+}
+
+/* A hum's sound effect catalog id, as a playable sound number. */
+static s32 s_setupResolveHumSound(const char *id, s16 *out)
+{
+	catalog_audio_result_t audio;
+
+	memset(&audio, 0, sizeof(audio));
+	if (!id[0] || !catalogResolveAudio(id, &audio) || audio.sound_id <= 0 ||
+			audio.sound_id > 0x7fff || audio.category != AUDIO_CAT_SFX) {
+		return 0;
+	}
+	*out = (s16)audio.sound_id;
+	return 1;
+}
+
+static s32 s_setupReadObjectRules(const char *start, const char *end,
+	scenario_source_setup_record_t *record,
+	scenario_source_setup_table_t *table)
+{
+	scenario_object_rules_t *rules = &record->rules;
+	char text[CATALOG_ID_LEN];
+	s32 b;
+
+	memset(rules, 0, sizeof(*rules));
+	if (s_jsonFindKeyInRange(start, end, "coop")) {
+		if (record->type != OBJTYPE_HOVERCAR ||
+				!s_jsonReadBoolValue(start, end, "coop", &b)) {
+			s_setupTableSetError(table,
+				"object rule coop needs a hover_car row and true or false on '%s'",
+				record->id, "");
+			return 0;
+		}
+		rules->coop_excluded = !b;
+		rules->present = 1;
+	}
+	if (s_jsonFindKeyInRange(start, end, "enemy_rockets_exempt")) {
+		if (record->type != OBJTYPE_WEAPON ||
+				!s_setupReadDifficultyMask(start, end, "enemy_rockets_exempt",
+					&rules->enemy_rockets_exempt_mask)) {
+			s_setupTableSetError(table,
+				"object rule enemy_rockets_exempt needs a weapon row and a list of difficulties on '%s'",
+				record->id, "");
+			return 0;
+		}
+		rules->present = 1;
+	}
+	if (s_jsonFindKeyInRange(start, end, "engine_hum") ||
+			s_jsonFindKeyInRange(start, end, "thrust_hum") ||
+			s_jsonFindKeyInRange(start, end, "fall")) {
+		if (record->type != OBJTYPE_CHOPPER) {
+			s_setupTableSetError(table,
+				"object rules engine_hum, thrust_hum and fall need a chopper row ('%s')",
+				record->id, "");
+			return 0;
+		}
+		text[0] = '\0';
+		if (s_jsonFindKeyInRange(start, end, "engine_hum") &&
+				(!s_jsonReadStringValue(start, end, "engine_hum", text, sizeof(text)) ||
+				!s_setupResolveHumSound(text, &rules->engine_hum_sound))) {
+			s_setupTableSetError(table,
+				"object rule engine_hum names no sound effect ('%s' on '%s')",
+				text, record->id);
+			return 0;
+		}
+		text[0] = '\0';
+		if (s_jsonFindKeyInRange(start, end, "thrust_hum") &&
+				(!s_jsonReadStringValue(start, end, "thrust_hum", text, sizeof(text)) ||
+				!s_setupResolveHumSound(text, &rules->thrust_hum_sound))) {
+			s_setupTableSetError(table,
+				"object rule thrust_hum names no sound effect ('%s' on '%s')",
+				text, record->id);
+			return 0;
+		}
+		text[0] = '\0';
+		if (s_jsonFindKeyInRange(start, end, "fall")) {
+			if (!s_jsonReadStringValue(start, end, "fall", text, sizeof(text)) ||
+					(strcmp(text, "crash") != 0 && strcmp(text, "drop") != 0)) {
+				s_setupTableSetError(table,
+					"object rule fall must be crash or drop ('%s' on '%s')",
+					text, record->id);
+				return 0;
+			}
+			rules->fall_drop = strcmp(text, "drop") == 0;
+		}
+		rules->present = 1;
+	}
+	return 1;
+}
+
+/* The object rules of the setup built last, by setup command index (the
+ * record's place after sorting; s_setupBuildStageBlock writes the props in
+ * that order). Only the rows that carry one. */
+typedef struct scenario_object_rule_row {
+	s32 index;
+	scenario_object_rules_t rules;
+} scenario_object_rule_row_t;
+
+static scenario_object_rule_row_t s_ObjectRuleRows[SCENARIO_OBJECT_RULE_ROWS_MAX];
+static s32 s_ObjectRuleRowCount;
+
+s32 scenarioSourceSetupRecordRules(s32 index, scenario_object_rules_t *out)
+{
+	if (out) {
+		memset(out, 0, sizeof(*out));
+	}
+	for (s32 i = 0; i < s_ObjectRuleRowCount; i++) {
+		if (s_ObjectRuleRows[i].index == index) {
+			if (out) {
+				*out = s_ObjectRuleRows[i].rules;
+			}
+			return 1;
+		}
+	}
+	return 0;
+}
+
 static s32 s_setupApplyObjectsJson(char *text,
 	scenario_source_setup_table_t *table)
 {
@@ -4798,6 +4984,9 @@ static s32 s_setupApplyObjectsJson(char *text,
 		record = s_setupFindOrAddRecord(table, record_id, kind,
 			s_setupRecordOrderFromId(record_id, order));
 		if (!record) {
+			return 0;
+		}
+		if (!s_setupReadObjectRules(cursor, object_end + 1, record, table)) {
 			return 0;
 		}
 
@@ -35132,6 +35321,7 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 		*out_size = 0;
 	}
 
+	s_ObjectRuleRowCount = 0;
 	scenario = s_findScenarioForStage(stage, prefer_mp);
 	if (!scenario || !s_scenarioSetupFieldsPath(scenario, setup_path,
 			sizeof(setup_path))) {
@@ -35302,6 +35492,45 @@ u8 *scenarioSourceLoadSetupForStage(const catalog_stage_result_t *stage,
 	if (table.count > 1) {
 		qsort(table.records, (size_t)table.count, sizeof(table.records[0]),
 			s_setupCompareRecords);
+	}
+	{
+		s32 ruled = 0;
+		s32 coop = 0;
+		s32 rockets = 0;
+		s32 choppers = 0;
+
+		for (s32 i = 0; i < table.count; i++) {
+			ruled += table.records[i].rules.present != 0;
+		}
+		if (ruled > SCENARIO_OBJECT_RULE_ROWS_MAX) {
+			sysLogPrintf(LOG_ERROR,
+				"SCENARIO.SOURCE: objects.json of '%s' carries object rules on %d rows; at most %d are allowed",
+				scenario->id, ruled, SCENARIO_OBJECT_RULE_ROWS_MAX);
+			s_setupFreeTable(&table);
+			s_spawnFreeTable(&spawn_table);
+			s_freePathTable(&path_table);
+			s_aiFreeTable(&ai_table);
+			scenarioIntroFree(&intro);
+			return NULL;
+		}
+		for (s32 i = 0; i < table.count; i++) {
+			const scenario_object_rules_t *rules = &table.records[i].rules;
+
+			if (!rules->present) {
+				continue;
+			}
+			s_ObjectRuleRows[s_ObjectRuleRowCount].index = i;
+			s_ObjectRuleRows[s_ObjectRuleRowCount].rules = *rules;
+			s_ObjectRuleRowCount++;
+			coop += rules->coop_excluded != 0;
+			rockets += rules->enemy_rockets_exempt_mask != 0;
+			choppers += table.records[i].type == OBJTYPE_CHOPPER;
+		}
+		if (ruled) {
+			sysLogPrintf(LOG_NOTE,
+				"SCENARIO.SOURCE: object rules for '%s': %d rows (coop %d, enemy_rockets_exempt %d, chopper %d) source=objects.json",
+				scenario->id, ruled, coop, rockets, choppers);
+		}
 	}
 	if (!s_setupCollectBehaviorLinkSource(scenario, setup_path, &table)) {
 		s_setupFreeTable(&table);

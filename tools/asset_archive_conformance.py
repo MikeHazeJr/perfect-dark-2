@@ -135,7 +135,7 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -5632,6 +5632,42 @@ def validate_simple_rows_json_schema(label: str, entry_name: str, text: str,
     return len(rows), errors
 
 
+# Object rules (context/designs/modding/object-rules.md): optional fields on
+# objects.json rows, each allowed only on the kind of row whose code reads it.
+OBJECT_RULE_DIFFICULTIES = ["agent", "special_agent", "perfect_agent", "perfect_dark"]
+
+
+def validate_object_rule_fields(label: str, text: str) -> list[str]:
+    errors: list[str] = []
+    try:
+        rows = json.loads(text).get("rows")
+    except (json.JSONDecodeError, AttributeError):
+        return errors  # the row check reports an unreadable file
+    if not isinstance(rows, list):
+        return errors
+    for idx, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        kind = row.get("kind")
+        where = f"{label} objects.json row {idx} ({row.get('record_id', '?')})"
+        if "coop" in row and (kind != "hover_car" or not isinstance(row["coop"], bool)):
+            errors.append(f"{where}: coop needs a hover_car row and true or false")
+        if "enemy_rockets_exempt" in row:
+            value = row["enemy_rockets_exempt"]
+            if kind != "weapon_pickup" or not isinstance(value, list) or not value \
+                    or any(v not in OBJECT_RULE_DIFFICULTIES for v in value) \
+                    or len(set(value)) != len(value):
+                errors.append(f"{where}: enemy_rockets_exempt needs a weapon row and a list of "
+                              f"distinct difficulties ({', '.join(OBJECT_RULE_DIFFICULTIES)})")
+        for key in ("engine_hum", "thrust_hum"):
+            if key in row and (kind != "chopper" or not isinstance(row[key], str)
+                               or not CATALOG_ID_RE.match(row[key])):
+                errors.append(f"{where}: {key} needs a chopper row and a sound effect catalog id")
+        if "fall" in row and (kind != "chopper" or row["fall"] not in ("crash", "drop")):
+            errors.append(f"{where}: fall needs a chopper row and crash or drop")
+    return errors
+
+
 def validate_scenario_ai_lists_json_schema(label: str, entry_name: str,
                                            text: str) -> tuple[int, list[str]]:
     required_fields = [
@@ -7084,6 +7120,8 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                         ],
                     )
                     result.errors.extend(object_errors)
+                    result.errors.extend(validate_object_rule_fields(
+                        label, zf.read("objects.json").decode("utf-8", errors="replace")))
                 if "ai/ailists.json" in name_set:
                     ai_row_count, ai_errors = validate_scenario_ai_lists_json_schema(
                         label,

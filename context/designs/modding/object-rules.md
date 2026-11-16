@@ -1,6 +1,9 @@
 # Object rules: optional fields on `objects.json` rows
 
-Status: design, CORE, 2026-11-16. The "Object rules" row of the week note's
+Status: CORE, 2026-11-16. Built on `week-pd/core` for the hover cars, Enemy
+Rockets and the chopper (`port/include/scenario_object_rules.h`); the lifts
+rule (B-228's single-player-in-multiplayer list) is not converted yet. The
+"Object rules" row of the week note's
 conversion checklist. Decision 3 (stage-wide rules travel in the level's
 archive) and decision 1 (players can recreate any behavior) applied to the
 stage checks that are about one object, not the whole stage. Stage-wide

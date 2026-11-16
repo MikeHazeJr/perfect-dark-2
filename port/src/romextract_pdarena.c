@@ -78,6 +78,7 @@
 #include "game/tex.h"
 #include "arenadata_authored.h"
 #include "weapondata_authored.h"
+#include "catalog_readable_ids.h"
 #include "lib/rzip.h"
 
 #define STB_IMAGE_WRITE_STATIC
@@ -88,7 +89,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -3117,6 +3118,42 @@ static s32 s_appendScenarioObjectiveJsonRow(pdscenario_textbuf_t *objectives_jso
 	return 0;
 }
 
+/* Object rules (context/designs/modding/object-rules.md): the original's
+ * checks on one object, written on its objects.json row. stagenum is -1 for
+ * a multiplayer setup, which has none of these. */
+static void s_objectRulesJson(s32 stagenum, u8 type, const u8 *ptr, s32 len,
+                              char *out, size_t out_n)
+{
+	out[0] = '\0';
+	/* setup.c (withhovercars): no hover cars on Extraction or Defection in
+	 * co-op or counter-op. */
+	if (type == OBJTYPE_HOVERCAR &&
+			(stagenum == STAGE_EXTRACTION || stagenum == STAGE_DEFECTION)) {
+		snprintf(out, out_n, ",\n      \"coop\": false");
+		return;
+	}
+	/* setup.c (Enemy Rockets): the K7 Avenger is kept on Investigation at
+	 * Perfect Agent. */
+	if (type == OBJTYPE_WEAPON && len >= (s32)sizeof(struct weaponobj) &&
+			((const struct weaponobj *)ptr)->weaponnum == WEAPON_K7AVENGER &&
+			stagenum == STAGE_INVESTIGATION) {
+		snprintf(out, out_n, ",\n      \"enemy_rockets_exempt\": [\"perfect_agent\"]");
+		return;
+	}
+	/* propobj.c (chopperIncrementMovement, chopperTickFall): the Extraction
+	 * chopper's hums, and its fall with no collision checks. */
+	if (type == OBJTYPE_CHOPPER && stagenum == STAGE_EXTRACTION) {
+		char engine[CATALOG_ID_LEN];
+		char thrust[CATALOG_ID_LEN];
+
+		catalogReadableSoundRefId(SFX_SHIP_HUM, engine, sizeof(engine));
+		catalogReadableSoundRefId(SFX_810D, thrust, sizeof(thrust));
+		snprintf(out, out_n,
+			",\n      \"engine_hum\": \"%s\",\n      \"thrust_hum\": \"%s\",\n      \"fall\": \"drop\"",
+			engine, thrust);
+	}
+}
+
 static s32 s_appendScenarioObjectJsonRow(pdscenario_textbuf_t *objects_json,
                                          u32 index,
                                          const char *record_id,
@@ -3130,7 +3167,8 @@ static s32 s_appendScenarioObjectJsonRow(pdscenario_textbuf_t *objects_json,
                                          const char *ailist_ref,
                                          const char *flags,
                                          const char *flags2,
-                                         const char *flags3)
+                                         const char *flags3,
+                                         const char *rules_json)
 {
 	if (!objects_json || !record_id || !kind) return -1;
 	if (s_textbufAppend(objects_json, index ? ",\n    {\n" : "    {\n") != 0 ||
@@ -3158,13 +3196,14 @@ static s32 s_appendScenarioObjectJsonRow(pdscenario_textbuf_t *objects_json,
 			s_textbufAppendJsonString(objects_json, flags2) != 0 ||
 			s_textbufAppend(objects_json, ",\n      \"flags3\": ") != 0 ||
 			s_textbufAppendJsonString(objects_json, flags3) != 0 ||
+			(rules_json && rules_json[0] && s_textbufAppend(objects_json, rules_json) != 0) ||
 			s_textbufAppend(objects_json, "\n    }") != 0) {
 		return -1;
 	}
 	return 0;
 }
 
-static s32 s_buildSetupTables(const u8 *data, u32 size,
+static s32 s_buildSetupTables(const u8 *data, u32 size, s32 stagenum,
                               pdscenario_textbuf_t *objects_json,
                               pdscenario_textbuf_t *objectives_json,
                               pdscenario_textbuf_t *setup_fields_json,
@@ -3267,7 +3306,7 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 					"", "", "",
 					s_nonnullCatalogId(catalogBodyIdByBodynum(chr->bodynum)),
 					s_nonnullCatalogId(catalogHeadIdByHeadnum(chr->headnum)),
-					ailist_ref, flags, flags2, "") != 0) {
+					ailist_ref, flags, flags2, "", "") != 0) {
 				free(tag_targets);
 				return -1;
 			}
@@ -3291,18 +3330,20 @@ static s32 s_buildSetupTables(const u8 *data, u32 size,
 			snprintf(flags, sizeof(flags), "0x%08x", (unsigned)obj->flags);
 			snprintf(flags2, sizeof(flags2), "0x%08x", (unsigned)obj->flags2);
 			snprintf(flags3, sizeof(flags3), "0x%08x", (unsigned)obj->flags3);
+			char rules_json[384];
+			s_objectRulesJson(stagenum, type, ptr, len, rules_json, sizeof(rules_json));
 			if (s_appendScenarioObjectJsonRow(objects_json, object_count,
 					record_id, s_objTypeName(type), pad_ref,
 					s_nonnullCatalogId(catalogModelIdByModelnum(obj->modelnum)),
 					weapon_ref, dual_weapon_ref, "", "", "",
-					flags, flags2, flags3) != 0) {
+					flags, flags2, flags3, rules_json) != 0) {
 				free(tag_targets);
 				return -1;
 			}
 		} else {
 			if (s_appendScenarioObjectJsonRow(objects_json, object_count,
 					record_id, s_objTypeName(type), "", "", "", "",
-					"", "", "", "", "", "") != 0) {
+					"", "", "", "", "", "", "") != 0) {
 				free(tag_targets);
 				return -1;
 			}
@@ -10157,7 +10198,8 @@ static s32 s_emitOnePdscenarioSpec(const pdscenario_emit_spec_t *spec,
 	s32 has_setup = s_loadStageFilePreprocessed(setup_fileid,
 		LOADTYPE_SETUP, &setup_data, &setup_size);
 	if (has_setup > 0) {
-		if (s_buildSetupTables(setup_data, setup_size, &objects_json,
+		if (s_buildSetupTables(setup_data, setup_size,
+				use_mp_setup ? -1 : (s32)spec->stagenum, &objects_json,
 				&objectives_json, &setup_fields_json, &object_count,
 				&objective_count) != 0) {
 			sysLogPrintf(LOG_WARNING,

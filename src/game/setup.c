@@ -51,6 +51,7 @@
 #include "assetload.h"
 #include "asset_source_debug.h"
 #include "scenario_source_runtime.h"
+#include "scenario_object_rules.h"
 #include "net/matchsetup.h"
 
 /* Phase 3: lang manifest tracking (port/src/langmanifest.c) */
@@ -1018,6 +1019,18 @@ void setupCreateObject(struct defaultobj *obj, s32 cmdindex)
  * The Marquis of Queensbury Rules (everyone unarmed) and Enemy Rockets cheats
  * are implemented here.
  */
+/* Object rules (object-rules.md): on a stage built from scenario source, a
+ * weapon row may name the difficulties at which the Enemy Rockets cheat
+ * leaves it alone; a ROM stage keeps the original's Investigation check. */
+static bool setupWeaponKeptUnderEnemyRockets(s32 cmdindex)
+{
+	scenario_object_rules_t rules;
+
+	return bgUsesScenarioSource()
+		&& scenarioSourceSetupRecordRules(cmdindex, &rules)
+		&& (rules.enemy_rockets_exempt_mask & (1u << lvGetDifficulty())) != 0;
+}
+
 void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 {
 	if (weapon->base.flags & OBJFLAG_ASSIGNEDTOCHR) {
@@ -1048,7 +1061,8 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 				}
 #endif
 			} else {
-				if (cheatIsActive(CHEAT_ENEMYROCKETS)) {
+				if (cheatIsActive(CHEAT_ENEMYROCKETS)
+						&& !setupWeaponKeptUnderEnemyRockets(cmdindex)) {
 					switch (weapon->weaponnum) {
 					case WEAPON_FALCON2:
 					case WEAPON_FALCON2_SILENCER:
@@ -1089,7 +1103,8 @@ void setupPlaceWeapon(struct weaponobj *weapon, s32 cmdindex)
 						// Don't replace the K7 guard's weapon in Investigation
 						// because it would make an objective impossible.
 						// @bug: It's still replaced on PD mode difficulty.
-						if (g_Vars.stagenum != STAGE_INVESTIGATION || lvGetDifficulty() != DIFF_PA) {
+						if (bgUsesScenarioSource()
+								|| g_Vars.stagenum != STAGE_INVESTIGATION || lvGetDifficulty() != DIFF_PA) {
 							weapon->weaponnum = WEAPON_ROCKETLAUNCHER;
 							weapon->base.modelnum = MODEL_CHRDYROCKET;
 							weapon->base.extrascale = 256;
@@ -2121,6 +2136,21 @@ void setupLoadFiles(s32 stagenum)
 	g_Vars.maxprops = numobjs + numchrs + extra + 40;
 }
 
+/* Object rules (object-rules.md): on a stage built from scenario source, a
+ * hover car row may say it is left out of co-op and counter-op ("coop":
+ * false); a ROM stage keeps the original's Extraction and Defection check
+ * (withhovercars). */
+static bool setupHovercarWanted(s32 index, s32 withhovercars)
+{
+	scenario_object_rules_t rules;
+
+	if (!bgUsesScenarioSource()) {
+		return withhovercars;
+	}
+	return !(scenarioSourceSetupRecordRules(index, &rules) && rules.coop_excluded
+		&& (g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0));
+}
+
 void setupCreateProps(s32 stagenum)
 {
 	s32 withchrs = !argFindByPrefix(1, "-nochr") && !argFindByPrefix(1, "-noprop");
@@ -2139,6 +2169,7 @@ void setupCreateProps(s32 stagenum)
 
 	withhovercars = !(stagenum == STAGE_EXTRACTION || stagenum == STAGE_DEFECTION)
 		|| !(g_Vars.coopplayernum >= 0 || g_Vars.antiplayernum >= 0);
+	chopperClearRules();
 
 	escstepx = 0;
 	escstepy = 0;
@@ -2663,7 +2694,8 @@ void setupCreateProps(s32 stagenum)
 					}
 					break;
 				case OBJTYPE_HOVERCAR:
-					if (withhovercars && withobjs && (obj->flags2 & diffflag) == 0) {
+					if (setupHovercarWanted(index, withhovercars) && withobjs
+							&& (obj->flags2 & diffflag) == 0) {
 						struct hovercarobj *car = (struct hovercarobj *)obj;
 						struct prop *prop;
 
@@ -2697,8 +2729,15 @@ void setupCreateProps(s32 stagenum)
 				case OBJTYPE_CHOPPER:
 					if (withobjs && (obj->flags2 & diffflag) == 0) {
 						struct chopperobj *chopper = (struct chopperobj *)obj;
+						scenario_object_rules_t rules;
 
 						setupCreateObject(obj, index);
+
+						if (bgUsesScenarioSource() && obj->prop
+								&& scenarioSourceSetupRecordRules(index, &rules)) {
+							chopperSetRules(chopper, rules.engine_hum_sound,
+								rules.thrust_hum_sound, rules.fall_drop);
+						}
 
 						obj->flags |= OBJFLAG_CHOPPER_INIT;
 						obj->prop->forcetick = true;

@@ -129,4 +129,4 @@ Each becomes a key here unless it belongs to a room or an object:
 
 Room-level and object-level rules (Escape's gas rooms, the Extraction chopper
 hum, objects left out of co-op) go on `rooms.json` and `objects.json` rows
-instead, like the light rules.
+instead, like the light rules; the object rules are in `object-rules.md`.

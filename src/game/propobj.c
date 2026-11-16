@@ -11954,6 +11954,87 @@ void chopperIncrementBarrel(struct prop *chopperprop, bool firing)
 	chopper->fireslotthing->unk00++;
 }
 
+/* Object rules (object-rules.md): a chopper's hums and fall from its
+ * objects.json row on a stage built from scenario source, kept beside the
+ * object (struct chopperobj does not grow; the B-323 stride class). A ROM
+ * stage keeps the original's Extraction checks. */
+#define CHOPPER_RULES_MAX 8
+
+static struct {
+	struct chopperobj *chopper;
+	s16 engine_hum;
+	s16 thrust_hum;
+	bool drop;
+} s_ChopperRules[CHOPPER_RULES_MAX];
+static s32 s_ChopperRuleCount;
+
+void chopperClearRules(void)
+{
+	s_ChopperRuleCount = 0;
+}
+
+void chopperSetRules(struct chopperobj *chopper, s16 engine_hum, s16 thrust_hum, bool drop)
+{
+	if (s_ChopperRuleCount >= CHOPPER_RULES_MAX) {
+		sysLogPrintf(LOG_ERROR, "SETUP: more than %d choppers carry object rules; this one keeps the defaults",
+			CHOPPER_RULES_MAX);
+		return;
+	}
+	s_ChopperRules[s_ChopperRuleCount].chopper = chopper;
+	s_ChopperRules[s_ChopperRuleCount].engine_hum = engine_hum;
+	s_ChopperRules[s_ChopperRuleCount].thrust_hum = thrust_hum;
+	s_ChopperRules[s_ChopperRuleCount].drop = drop;
+	s_ChopperRuleCount++;
+	sysLogPrintf(LOG_NOTE, "SETUP: chopper object rules engine_hum=0x%04x thrust_hum=0x%04x fall=%s",
+		(u16)engine_hum, (u16)thrust_hum, drop ? "drop" : "crash");
+}
+
+static s32 chopperRuleIndex(struct chopperobj *chopper)
+{
+	s32 i;
+
+	for (i = 0; i < s_ChopperRuleCount; i++) {
+		if (s_ChopperRules[i].chopper == chopper) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static s32 chopperEngineHum(struct chopperobj *chopper)
+{
+	if (bgUsesScenarioSource()) {
+		s32 i = chopperRuleIndex(chopper);
+
+		return i >= 0 && s_ChopperRules[i].engine_hum ? s_ChopperRules[i].engine_hum : SFX_810F;
+	}
+
+	return g_Vars.stagenum == STAGE_EXTRACTION ? SFX_SHIP_HUM : SFX_810F;
+}
+
+static s32 chopperThrustHum(struct chopperobj *chopper)
+{
+	if (bgUsesScenarioSource()) {
+		s32 i = chopperRuleIndex(chopper);
+
+		return i >= 0 && s_ChopperRules[i].thrust_hum ? s_ChopperRules[i].thrust_hum : SFX_8110;
+	}
+
+	return g_Vars.stagenum == STAGE_EXTRACTION ? SFX_810D : SFX_8110;
+}
+
+static bool chopperFallsAsDrop(struct chopperobj *chopper)
+{
+	if (bgUsesScenarioSource()) {
+		s32 i = chopperRuleIndex(chopper);
+
+		return i >= 0 && s_ChopperRules[i].drop;
+	}
+
+	return stageGetIndex(g_Vars.stagenum) == STAGEINDEX_EXTRACTION;
+}
+
 void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, struct coord *dir, bool firing)
 {
 	struct defaultobj *obj = prop->obj;
@@ -12089,7 +12170,7 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 	mtx3Copy(rotmtx3, chopper->base.realrot);
 
 	if (chopper->power > 0.45f && !firing && (chopper->base.flags2 & OBJFLAG2_INVISIBLE) == 0 && objIsHealthy(&chopper->base)) {
-		soundnum = g_Vars.stagenum == STAGE_EXTRACTION ? SFX_810D : SFX_8110;
+		soundnum = chopperThrustHum(chopper);
 
 		psCreateIfNotDupe(prop, soundnum, PSTYPE_CHOPPERHUM2);
 	} else {
@@ -12126,7 +12207,7 @@ void chopperIncrementMovement(struct prop *prop, f32 goalroty, f32 goalrotx, str
 	chopperIncrementBarrel(prop, firing);
 
 	if ((chopper->base.flags2 & OBJFLAG2_INVISIBLE) == 0 && objIsHealthy(&chopper->base)) {
-		soundnum = g_Vars.stagenum == STAGE_EXTRACTION ? SFX_SHIP_HUM : SFX_810F;
+		soundnum = chopperEngineHum(chopper);
 
 		psCreateIfNotDupe(prop, soundnum, PSTYPE_CHOPPERHUM1);
 	} else {
@@ -12207,7 +12288,7 @@ void chopperTickFall(struct prop *chopperprop)
 
 	goalroty = chopper->roty + *x + *z;
 
-	if (stageGetIndex(g_Vars.stagenum) == STAGEINDEX_EXTRACTION) {
+	if (chopperFallsAsDrop(chopper)) {
 		// The Extraction chopper falls without any collision checks and is
 		// reaped once it reaches the lower barrier
 		if (chopperprop->pos.y < -30000) {
