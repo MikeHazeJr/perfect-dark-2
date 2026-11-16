@@ -1,5 +1,29 @@
 # Bug Tracker
 
+## 2026-11-16 B-1204 Simulants never collect items that landed low on Complex's upper floors, the Hold the Briefcase case among them (T-NETWORKING-011, found, not fixed)
+
+Severity high for every mode with simulants on a multi-level arena (they waste the match fetching items they cannot
+take, and an objective that lands there is never taken); possibly for players too, if a sunken item is hidden. Found
+with the BOT.TEAM, BOT.CMD and BOT.GOAL lines (80bf07b5) in `mp_hold_the_briefcase_local_smoke` and
+`mp_hold_the_briefcase_net_smoke` on base 7 (`results-20261116T094935Z.json`, `results-20261116T100549Z.json`).
+It is not a networking difference. In both runs every simulant has `teamisonlyai`, takes the get-case command at
+2.4 s and starts routes to items and to the case. Some items are never collected, although simulants reach them
+(xz within 1 to 50 units, 135 to 148 units above). On Complex these are the weapons at (-3087,230,-717) room 2,
+(-4888,230,-378) room 22 and (-3642,-321,1334) room 42, and the ammo crate at (-3064,-42,69) room 21; one simulant went
+for the room 22 weapon five times in 150 s. Items at y 2 to 15 on the ground floor, and the raised crate at y 509,
+are collected (`BOT.PICKUP`). The networked case landed at y 232 in all three networked runs (base 3 pad 173; base 7
+pads 74 and 73) and was never taken. The local case landed at y 4 (pads 134 and 58) and was taken at 11 s and at
+64 s. So the local/networked difference was where the case landed (their rng streams differ), not the network.
+Likely mechanism, not yet proven in game: object pads sit near y 328, and `func0f06a650` (`propobj.c`) drops
+each object to the floor that `cdFindFloorRoomYColourFlagsAtPos` finds in the pad's rooms (a weapon's origin a few
+units above it, as at y 2 on the ground floor). On these upper rooms that floor seems to lie about 30 units under
+the floor simulants walk on: a simulant's root is about 117 above its floor on the ground floor, but 135 to 148
+above these items. The item then sits in or under the slab, and `botTestPropForPickup`'s line of sight
+(`cdTestLos06`, DOORS|BG) from the simulant to it is blocked. Extracted pads carry no room (`room_ref` ""), so the
+room the game gives them (B-1113) decides which floor is found. Same family as B-1187/B-1189 (scenario-source
+stages). Next, CORE's call (placement and collision on scenario-source stages): log the floor found at
+placement next to `chr->ground` at the same spot, and look at whether players see those items.
+
 ## 2026-11-16 B-1203 Single-process smokes ran against the real user profile (T-NETWORKING-011, fixed in the runner)
 
 Severity high (test isolation; it writes the user's real data). Found when three local smokes on 340eca64
