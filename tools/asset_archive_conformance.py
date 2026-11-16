@@ -135,7 +135,7 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -2669,7 +2669,8 @@ def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
 # Stage-wide rules (decision 3, CORE, 2026-11-15). Keep in step with
 # port/src/scenario_stage_rules.cpp.
 STAGE_RULES_SCHEMA = "pd2.scenario.stage.v1"
-STAGE_RULES_KEYS = {"schema", "note", "weather", "player", "ai", "ending", "hub", "stars", "sparks"}
+STAGE_RULES_KEYS = {"schema", "note", "weather", "player", "ai", "ending", "hub", "stars", "sparks",
+                    "gas"}
 STAGE_PLAYER_KEYS = {"perfect_agent_outfit", "disguise", "coop_spawn_distance",
                      "unlimited_ammo_excludes"}
 STAGE_MAX_AMMO_EXCLUDES = 8
@@ -2680,6 +2681,65 @@ STAGE_OUTFITS = ["default", "elvis", "trent", "trench", "frock_ripped", "frock",
 STAGE_WEATHER_KEYS = {"wind_speed", "y_min", "y_max", "z_max", "cutscene_only",
                       "weather_rooms", "dry_rooms", "wind_direction"}
 STAGE_WEATHER_MAX_ROOMS = 127
+
+
+def validate_stage_gas(where: str, gas) -> list[str]:
+    """stage.json gas (Escape's gas cloud): rooms and/or a sphere, door rooms,
+    a cutscene fade; the reader's limits (scenario_stage_rules.cpp)."""
+    errors: list[str] = []
+
+    def is_whole(value, lo, hi):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) \
+            and float(value).is_integer() and lo <= value <= hi
+
+    if not isinstance(gas, dict):
+        return [f"{where} gas must be an object"]
+    for key in sorted(set(gas) - {"rooms", "sphere", "door_rooms", "cutscene_fade"}):
+        errors.append(f"{where} gas has an unknown key {key!r}")
+    rooms = gas.get("rooms", [])
+    if not isinstance(rooms, list) or len(rooms) > 32 or not all(is_whole(r, 1, 32767) for r in rooms):
+        errors.append(f"{where} gas.rooms must list at most 32 room numbers 1..32767")
+    sphere = gas.get("sphere")
+    if sphere is not None:
+        if not isinstance(sphere, dict):
+            errors.append(f"{where} gas.sphere must be an object")
+        else:
+            for key in sorted(set(sphere) - {"center", "radius", "door_tag"}):
+                errors.append(f"{where} gas.sphere has an unknown key {key!r}")
+            center = sphere.get("center")
+            if not isinstance(center, list) or len(center) != 3 or not all(
+                    isinstance(v, (int, float)) and not isinstance(v, bool) for v in center):
+                errors.append(f"{where} gas.sphere.center must be [x, y, z]")
+            radius = sphere.get("radius")
+            if not isinstance(radius, (int, float)) or isinstance(radius, bool) or not radius > 0:
+                errors.append(f"{where} gas.sphere.radius must be more than 0")
+            if "door_tag" in sphere and not is_whole(sphere["door_tag"], 0, 65535):
+                errors.append(f"{where} gas.sphere.door_tag must be a tag number 0..65535")
+    if not rooms and sphere is None:
+        errors.append(f"{where} gas needs rooms or a sphere")
+    door_rooms = gas.get("door_rooms", [])
+    if not isinstance(door_rooms, list) or len(door_rooms) > 4:
+        errors.append(f"{where} gas.door_rooms must list at most 4 rooms")
+    else:
+        for entry in door_rooms:
+            if not isinstance(entry, dict) or set(entry) - {"room", "door_tags", "add"} \
+                    or not is_whole(entry.get("room"), 1, 32767) \
+                    or not isinstance(entry.get("door_tags"), list) \
+                    or not 1 <= len(entry["door_tags"]) <= 4 \
+                    or not all(is_whole(t, 0, 65535) for t in entry["door_tags"]) \
+                    or ("add" in entry and not (isinstance(entry["add"], (int, float))
+                                                and not isinstance(entry["add"], bool)
+                                                and -1 <= entry["add"] <= 1)):
+                errors.append(f"{where} gas.door_rooms entries need a room, 1 to 4 door_tags "
+                              f"and an optional add -1..1")
+    fade = gas.get("cutscene_fade")
+    if fade is not None:
+        if not isinstance(fade, dict) or set(fade) != {"start_frame", "full_frame"} \
+                or not is_whole(fade["start_frame"], 0, 1000000) \
+                or not is_whole(fade["full_frame"], 1, 1000000) \
+                or not fade["full_frame"] > fade["start_frame"]:
+            errors.append(f"{where} gas.cutscene_fade needs start_frame and a later full_frame")
+    return errors
 
 
 def validate_stage_json(label: str, text: str) -> list[str]:
@@ -2748,6 +2808,8 @@ def validate_stage_json(label: str, text: str) -> list[str]:
                 errors.append(f"{where} sparks has an unknown key {key!r}")
             if not isinstance(sparks.get("flash_lights"), bool):
                 errors.append(f"{where} sparks.flash_lights must be true or false")
+    if "gas" in doc:
+        errors.extend(validate_stage_gas(where, doc["gas"]))
     if "stars" in doc:
         stars = doc["stars"]
         if not isinstance(stars, dict):

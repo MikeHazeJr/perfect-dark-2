@@ -127,11 +127,23 @@ Extraction tint, which computes a blend and discards it, so it has no effect.
 original does everywhere but Crash Site. The extractor writes it for Crash Site;
 a ROM stage keeps the original check.
 
+## `gas`
+
+A gas cloud drawn over the screen (`nbomb.c` `gasRender`; Escape's gas):
+`rooms` (room numbers where it shows), a `sphere` `{center, radius, door_tag}`
+outside those rooms where it thins toward the edge and follows how far the
+`door_tag` door is open, `door_rooms` `[{room, door_tags, add}]` (inside a gas
+room that is also `room`, the gas follows the most open of `door_tags`, plus
+`add`) and a `cutscene_fade` `{start_frame, full_frame}`. At least one of
+`rooms` and `sphere`. The game keeps one rule struct for both paths: a ROM stage
+uses `g_EscapeGasRule` (the original's constants) and the extractor writes the
+same struct into Escape's `stage.json`, so the two cannot differ.
+
 ## Next families (from CORE's stage-check survey, week note checklist)
 
 Each becomes a key here unless it belongs to a room or an object:
 
-- Escape's gas (a stage-level sphere and door tags; its rooms on `rooms.json`).
+- Escape's gas went into `gas` above (its rooms listed there, as weather's are).
 - Animated textures went into `scene.glb` materials (`animated-surfaces.md`)
   and sparks into `sparks` above.
 - The stage's text bank (`lang.c`), if it is needed before the scenario is read.

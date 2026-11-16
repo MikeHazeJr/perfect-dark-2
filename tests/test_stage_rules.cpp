@@ -153,7 +153,7 @@ TEST_CASE("the extractor writes the game's weather table and the weather code re
 	REQUIRE(extractor.find("if ((weather->flags & WEATHERFLAG_FORCE_WINDDIR) &&") != std::string::npos);
 	REQUIRE(extractor.find("assetArchiveWriterAddPublicMem(&asset_writer, \"stage.json\",") != std::string::npos);
 	REQUIRE(extractor.find("s_existingArchiveEntryContains(relpath, \"stage.json\",\n\t\t\t\"stars: the starfield of a stage\") &&") != std::string::npos);
-	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks\"") != std::string::npos);
+	REQUIRE(extractor.find("_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas\"") != std::string::npos);
 
 	// The stage loads it with its scenario tables, and it is dropped with them.
 	REQUIRE(bg.find("scenarioSourceLoadStageRulesForStage(&stage, g_Vars.normmplayerisrunning);") != std::string::npos);
@@ -431,6 +431,64 @@ TEST_CASE("the stage.json sparks rule decides whether environmental sparks flash
 	REQUIRE(sparks.find("return g_Vars.stagenum != STAGE_CRASHSITE;") != std::string::npos);
 	REQUIRE(sparks.find("if (g_Vars.stagenum != STAGE_CRASHSITE) {") == std::string::npos);
 	REQUIRE(conformance.find("sparks.flash_lights must be true or false") != std::string::npos);
+}
+
+TEST_CASE("the stage.json gas rule places a gas cloud and the ROM path uses the same rule",
+          "[stage][scenario][stagerules]")
+{
+	Parsed escape(stage(R"("gas": { "rooms": [146, 147, 145], "sphere": { "center": [-1473, -308, -13660],
+		"radius": 1328, "door_tag": 50 }, "door_rooms": [ { "room": 145, "door_tags": [48, 49], "add": 0.2 } ],
+		"cutscene_fade": { "start_frame": 2180, "full_frame": 2600 } })"));
+	INFO(escape.error);
+	REQUIRE(escape.ok);
+	const scenario_stage_gas_t &gas = escape.rules.gas;
+	CHECK(gas.present == 1);
+	REQUIRE(gas.room_count == 3);
+	CHECK(gas.rooms[2] == 145);
+	CHECK(gas.has_sphere == 1);
+	CHECK(gas.sphere_center[2] == -13660.0f);
+	CHECK(gas.sphere_radius == 1328.0f);
+	CHECK(gas.sphere_door_tag == 50);
+	REQUIRE(gas.door_room_count == 1);
+	CHECK(gas.door_rooms[0].room == 145);
+	REQUIRE(gas.door_rooms[0].tag_count == 2);
+	CHECK(gas.door_rooms[0].tags[1] == 49);
+	CHECK(gas.door_rooms[0].add == Approx(0.2f));
+	CHECK(gas.has_cutscene_fade == 1);
+	CHECK(gas.fade_start == 2180);
+	CHECK(gas.fade_full == 2600);
+
+	Parsed sphere_only(stage(R"("gas": { "sphere": { "center": [0, 0, 0], "radius": 10 } })"));
+	REQUIRE(sphere_only.ok);
+	CHECK(sphere_only.rules.gas.sphere_door_tag == -1);
+	CHECK(sphere_only.rules.gas.room_count == 0);
+
+	CHECK(refusal(stage(R"("gas": {})")).find("gas needs rooms or a sphere") != std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "rooms": [0] })")).find("not a room number") != std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "sphere": { "center": [0, 0], "radius": 1 } })")).find("center must be [x, y, z]") !=
+		std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "sphere": { "center": [0, 0, 0], "radius": 0 } })")).find("radius must be more than 0") !=
+		std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "rooms": [1], "door_rooms": [ { "room": 1, "door_tags": [] } ] })"))
+		.find("door_tags names 1 to 4 doors") != std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "rooms": [1], "cutscene_fade": { "start_frame": 10, "full_frame": 5 } })"))
+		.find("full_frame must come after start_frame") != std::string::npos);
+	CHECK(refusal(stage(R"("gas": { "rooms": [1], "smell": 1 })")).find("unknown key 'smell'") != std::string::npos);
+
+	// One rule struct: a ROM stage uses g_EscapeGasRule, the extractor writes it,
+	// and the game draws the gas wherever the stage has a rule.
+	const std::string nbomb = readSource("src/game/nbomb.c");
+	const std::string player = readSource("src/game/player.c");
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	REQUIRE(nbomb.find(".sphere_center = { -1473.0f, -308.0f, -13660.0f },") != std::string::npos);
+	REQUIRE(nbomb.find(".door_rooms = { { .room = 0x91, .tag_count = 2, .tags = { 0x30, 0x31 }, .add = 0.2f } },") !=
+		std::string::npos);
+	REQUIRE(nbomb.find(".fade_start = 2180,") != std::string::npos);
+	REQUIRE(nbomb.find("if (g_Vars.stagenum == STAGE_ESCAPE) {\n\t\t*out = g_EscapeGasRule;") != std::string::npos);
+	REQUIRE(nbomb.find("cutsceneframe60 < 2180") == std::string::npos);
+	REQUIRE(player.find("if (gasStageHasGas()) {\n\t\t\tgdl = gasRender(gdl);") != std::string::npos);
+	REQUIRE(player.find("if (g_Vars.stagenum == STAGE_ESCAPE) {\n\t\t\tgdl = gasRender(gdl);") == std::string::npos);
+	REQUIRE(extractor.find("stagenum == STAGE_ESCAPE ? &g_EscapeGasRule : NULL;") != std::string::npos);
 }
 
 TEST_CASE("the stage.json ending rule decides how a stage presents its outcome", "[stage][scenario][stagerules]")

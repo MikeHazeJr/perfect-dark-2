@@ -132,6 +132,44 @@ typedef struct scenario_stage_sparks {
 	s32 no_light_flash;
 } scenario_stage_sparks_t;
 
+/* "gas": a gas cloud drawn over the screen (nbomb.c gasRender; Escape's gas).
+ *   rooms          room numbers where the gas shows (at most
+ *                  SCENARIO_STAGE_MAX_GAS_ROOMS)
+ *   sphere         {center [x, y, z], radius, door_tag}: outside those rooms,
+ *                  within radius of center the gas shows, thinner toward the
+ *                  edge and scaled by how far door_tag's door is open
+ *                  (door_tag optional: full strength)
+ *   door_rooms     [{room, door_tags, add}]: inside a gas room that is also
+ *                  room, the gas follows the most open of door_tags plus add
+ *   cutscene_fade  {start_frame, full_frame}: in a cutscene the gas is hidden
+ *                  before start_frame and fades in until full_frame
+ * At least one of rooms and sphere. */
+#define SCENARIO_STAGE_MAX_GAS_ROOMS 32
+#define SCENARIO_STAGE_MAX_GAS_DOOR_ROOMS 4
+#define SCENARIO_STAGE_MAX_GAS_DOOR_TAGS 4
+
+typedef struct scenario_stage_gas_door_room {
+	s16 room;
+	s32 tag_count;
+	s32 tags[SCENARIO_STAGE_MAX_GAS_DOOR_TAGS];
+	f32 add;
+} scenario_stage_gas_door_room_t;
+
+typedef struct scenario_stage_gas {
+	s32 present;
+	s32 room_count;
+	s16 rooms[SCENARIO_STAGE_MAX_GAS_ROOMS];
+	s32 has_sphere;
+	f32 sphere_center[3];
+	f32 sphere_radius;
+	s32 sphere_door_tag;      /* -1: none */
+	s32 door_room_count;
+	scenario_stage_gas_door_room_t door_rooms[SCENARIO_STAGE_MAX_GAS_DOOR_ROOMS];
+	s32 has_cutscene_fade;
+	s32 fade_start;
+	s32 fade_full;
+} scenario_stage_gas_t;
+
 typedef struct scenario_stage_rules {
 	scenario_stage_weather_t weather;
 	scenario_stage_player_t player;
@@ -140,6 +178,7 @@ typedef struct scenario_stage_rules {
 	scenario_stage_hub_t hub;
 	scenario_stage_stars_t stars;
 	scenario_stage_sparks_t sparks;
+	scenario_stage_gas_t gas;
 } scenario_stage_rules_t;
 
 /* The outfit name for an OUTFIT_* value, or NULL; and the value for a name,

@@ -197,6 +197,96 @@ void readStars(const Json &stars, scenario_stage_stars_t &out)
 	out.below_horizon = boolean(stars, "below_horizon", "stars") ? 1 : 0;
 }
 
+s32 roomNumber(const Json &value, const std::string &where)
+{
+	const double room = value.is_number() ? value.get<crude_json::number>() : -1.0;
+	if (room < 1.0 || room > 32767.0 || room != std::floor(room)) {
+		refuse(where + " holds something that is not a room number 1..32767");
+	}
+	return static_cast<s32>(room);
+}
+
+s32 doorTag(const Json &value, const std::string &where)
+{
+	const double tag = value.is_number() ? value.get<crude_json::number>() : -1.0;
+	if (tag < 0.0 || tag > 65535.0 || tag != std::floor(tag)) {
+		refuse(where + " holds something that is not a tag number 0..65535");
+	}
+	return static_cast<s32>(tag);
+}
+
+void readGas(const Json &gas, scenario_stage_gas_t &out)
+{
+	if (!gas.is_object()) refuse("gas must be an object");
+	onlyKeys(gas, { "rooms", "sphere", "door_rooms", "cutscene_fade" }, "gas");
+	out.present = 1;
+	out.sphere_door_tag = -1;
+	if (gas.contains("rooms")) {
+		const Json &rooms = gas["rooms"];
+		if (!rooms.is_array()) refuse("gas.rooms must be a list of room numbers");
+		const crude_json::array &list = rooms.get<crude_json::array>();
+		if (list.size() > SCENARIO_STAGE_MAX_GAS_ROOMS) {
+			refuse("gas.rooms names more than " + std::to_string(SCENARIO_STAGE_MAX_GAS_ROOMS) + " rooms");
+		}
+		for (const Json &room : list) {
+			out.rooms[out.room_count++] = static_cast<s16>(roomNumber(room, "gas.rooms"));
+		}
+	}
+	if (gas.contains("sphere")) {
+		const Json &sphere = gas["sphere"];
+		if (!sphere.is_object()) refuse("gas.sphere must be an object");
+		onlyKeys(sphere, { "center", "radius", "door_tag" }, "gas.sphere");
+		if (!sphere.contains("center") || !sphere["center"].is_array() ||
+				sphere["center"].get<crude_json::array>().size() != 3) {
+			refuse("gas.sphere.center must be [x, y, z]");
+		}
+		const crude_json::array &center = sphere["center"].get<crude_json::array>();
+		for (int i = 0; i < 3; i++) {
+			if (!center[i].is_number()) refuse("gas.sphere.center must be [x, y, z]");
+			out.sphere_center[i] = static_cast<f32>(center[i].get<crude_json::number>());
+		}
+		out.sphere_radius = number(sphere, "radius", "gas.sphere");
+		if (!(out.sphere_radius > 0.0f)) refuse("gas.sphere.radius must be more than 0");
+		if (sphere.contains("door_tag")) out.sphere_door_tag = doorTag(sphere["door_tag"], "gas.sphere.door_tag");
+		out.has_sphere = 1;
+	}
+	if (out.room_count == 0 && !out.has_sphere) refuse("gas needs rooms or a sphere");
+	if (gas.contains("door_rooms")) {
+		const Json &rooms = gas["door_rooms"];
+		if (!rooms.is_array()) refuse("gas.door_rooms must be a list");
+		const crude_json::array &list = rooms.get<crude_json::array>();
+		if (list.size() > SCENARIO_STAGE_MAX_GAS_DOOR_ROOMS) {
+			refuse("gas.door_rooms has more than " + std::to_string(SCENARIO_STAGE_MAX_GAS_DOOR_ROOMS) + " rooms");
+		}
+		for (const Json &entry : list) {
+			if (!entry.is_object()) refuse("gas.door_rooms holds something that is not an object");
+			onlyKeys(entry, { "room", "door_tags", "add" }, "gas.door_rooms");
+			scenario_stage_gas_door_room_t &door = out.door_rooms[out.door_room_count++];
+			if (!entry.contains("room")) refuse("gas.door_rooms needs a room");
+			door.room = static_cast<s16>(roomNumber(entry["room"], "gas.door_rooms.room"));
+			if (!entry.contains("door_tags") || !entry["door_tags"].is_array()) {
+				refuse("gas.door_rooms.door_tags must be a list of tag numbers");
+			}
+			const crude_json::array &tags = entry["door_tags"].get<crude_json::array>();
+			if (tags.empty() || tags.size() > SCENARIO_STAGE_MAX_GAS_DOOR_TAGS) {
+				refuse("gas.door_rooms.door_tags names 1 to " + std::to_string(SCENARIO_STAGE_MAX_GAS_DOOR_TAGS) + " doors");
+			}
+			for (const Json &tag : tags) door.tags[door.tag_count++] = doorTag(tag, "gas.door_rooms.door_tags");
+			door.add = entry.contains("add") ? number(entry, "add", "gas.door_rooms") : 0.0f;
+			if (!(door.add >= -1.0f && door.add <= 1.0f)) refuse("gas.door_rooms.add must be -1..1");
+		}
+	}
+	if (gas.contains("cutscene_fade")) {
+		const Json &fade = gas["cutscene_fade"];
+		if (!fade.is_object()) refuse("gas.cutscene_fade must be an object");
+		onlyKeys(fade, { "start_frame", "full_frame" }, "gas.cutscene_fade");
+		out.fade_start = wholeNumber(fade, "start_frame", 0, 1000000, "gas.cutscene_fade");
+		out.fade_full = wholeNumber(fade, "full_frame", 1, 1000000, "gas.cutscene_fade");
+		if (out.fade_full <= out.fade_start) refuse("gas.cutscene_fade.full_frame must come after start_frame");
+		out.has_cutscene_fade = 1;
+	}
+}
+
 void readSparks(const Json &sparks, scenario_stage_sparks_t &out)
 {
 	if (!sparks.is_object()) refuse("sparks must be an object");
@@ -237,8 +327,8 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 				root["schema"].get<crude_json::string>() != SCENARIO_STAGE_RULES_SCHEMA) {
 			refuse(std::string("stage.json must declare schema ") + SCENARIO_STAGE_RULES_SCHEMA);
 		}
-		onlyKeys(root, { "schema", "note", "weather", "player", "ai", "ending", "hub", "stars", "sparks" },
-			"stage.json");
+		onlyKeys(root, { "schema", "note", "weather", "player", "ai", "ending", "hub", "stars", "sparks",
+			"gas" }, "stage.json");
 		if (root.contains("note") && !root["note"].is_string()) refuse("stage.json note must be text");
 		out->player.perfect_agent_outfit = -1;
 		out->player.disguise_outfit = -1;
@@ -253,6 +343,7 @@ extern "C" s32 scenarioStageRulesParse(const char *json, size_t json_size,
 		}
 		if (root.contains("stars")) readStars(root["stars"], out->stars);
 		if (root.contains("sparks")) readSparks(root["sparks"], out->sparks);
+		if (root.contains("gas")) readGas(root["gas"], out->gas);
 		return 1;
 	} catch (const Refusal &refusal) {
 		std::memset(out, 0, sizeof(*out));

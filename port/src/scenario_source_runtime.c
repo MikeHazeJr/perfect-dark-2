@@ -35968,7 +35968,7 @@ s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 		}
 	}
 	sysLogPrintf(LOG_NOTE,
-		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d coop_spawn_distance=%.0f unlimited_ammo_excludes=%d no_dark_room_lists=%d outcome_unknown=%d hub=%d stars=%d sparks_no_light_flash=%d source=stage.json",
+		"SCENARIO.SOURCE: stage rules for '%s': weather=%d %s=%d cutscene_only=%d wind_direction=%d player=%d perfect_agent_outfit=%s disguise_outfit=%s disguise_untargetable=%d coop_spawn_distance=%.0f unlimited_ammo_excludes=%d no_dark_room_lists=%d outcome_unknown=%d hub=%d stars=%d sparks_no_light_flash=%d gas_rooms=%d gas_sphere=%d source=stage.json",
 		scenario->id, s_StageWideRules.weather.present,
 		s_StageWideRules.weather.rooms_have_weather ? "weather_rooms" : "dry_rooms",
 		s_StageWideRules.weather.room_count,
@@ -35986,7 +35986,9 @@ s32 scenarioSourceLoadStageRulesForStage(const catalog_stage_result_t *stage,
 		s_StageWideRules.ending.outcome_unknown,
 		s_StageWideRules.hub.present && s_StageWideRules.hub.hub,
 		s_StageWideRules.stars.present ? s_StageWideRules.stars.count : 0,
-		s_StageWideRules.sparks.no_light_flash);
+		s_StageWideRules.sparks.no_light_flash,
+		s_StageWideRules.gas.present ? s_StageWideRules.gas.room_count : 0,
+		s_StageWideRules.gas.has_sphere);
 	return 1;
 }
 
@@ -36035,6 +36037,17 @@ s32 scenarioSourceStageStars(struct scenario_stage_stars *out)
 	}
 	if (out) {
 		*out = s_StageWideRules.stars;
+	}
+	return 1;
+}
+
+s32 scenarioSourceStageGas(struct scenario_stage_gas *out)
+{
+	if (!s_StageWideRules.gas.present) {
+		return 0;
+	}
+	if (out) {
+		*out = s_StageWideRules.gas;
 	}
 	return 1;
 }

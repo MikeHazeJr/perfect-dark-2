@@ -6835,7 +6835,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 			gdl = playerDrawStoredFade(gdl);
 		}
 
-		if (g_Vars.stagenum == STAGE_ESCAPE) {
+		if (gasStageHasGas()) {
 			gdl = gasRender(gdl);
 		}
 
@@ -6856,7 +6856,7 @@ Gfx *playerRenderHud(Gfx *gdl)
 			gdl = nbombRenderOverlay(gdl);
 		}
 
-		if (g_Vars.stagenum == STAGE_ESCAPE) {
+		if (gasStageHasGas()) {
 			gdl = gasRender(gdl);
 		}
 
