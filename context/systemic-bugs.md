@@ -3696,3 +3696,53 @@ process's tick, check what `lvTick` and `menuTick` do in that state.
 and (b) is the stage still loaded and drawn afterwards? Done: both MP stage
 end paths (B-1190, B-1195). Open: the co-op and counter-op results exit (safe
 while it stays paused), spectators.
+
+## SP-85: A prop made after the stage start has a sync id only on the host
+
+**Severity: HIGH - the client cannot see, place or pick up what the host
+refers to, and nothing crashes, so it looks like a missing item or an
+invisible enemy.**
+
+`netSyncIdsAllocate` gives every prop that exists at the stage start the same
+id on each machine (slot index + 1). After that, `propAllocate` gives each new
+prop `g_NetNextSyncId++` on the host and 0 on a client (`prop.c`). A host
+message that names such a prop reaches a client only if a spawn message named
+it first (`SVC_PROP_SPAWN`, objects only) or the client gave its own copy the
+same id. Otherwise the client logs `NET: prop with syncid N does not exist`
+(or its reader's own skip line) every time.
+
+**Known instances (2026-11-16):**
+- B-1194: a simulant's held weapon is made when it equips it; the death drop
+  left the host's copy in the world under an id no client knew, and the
+  client's puppet dropped an unnumbered copy. Fixed: the host announces the
+  dropped held weapon, the client's puppet retires its copy.
+- B-1196: a guard the host's AI clones or spawns (`try_spawn_clone2` 0x00ca,
+  `spawn_chr_at_pad`/`_at_chr`) exists only on the host; the client got its
+  `SVC_NPC_MOVE` 20 times a second and never saw it. Fixed in code: the host
+  announces such a chr with `SVC_NPC_SPAWN` (its weapons and hat included)
+  before its moves, and the client makes it under the same ids. Open: a
+  reconnecting co-op client does not get chrs made before it rejoined.
+
+**Rules:**
+- A prop the host creates at run time that clients must see or act on is
+  announced with its id (a spawn message), or made by the client only from
+  that announcement.
+- A prop both machines create at run time (held models, effects) stays local
+  on each, and is never handed to the world under an id; when it becomes a
+  world item, the host announces it and the client retires its own copy.
+
+**Search:**
+- `grep -n "first dynamic syncid\|does not exist\|client skipped" pd-*.log`:
+  an id at or above the first dynamic id is this pattern.
+- `grep -rn "propAllocate()\|chrGiveWeapon(\|weaponCreateForChr(" src/game`
+  and check each run-time caller: who creates it, and how a client learns its
+  id.
+
+**Audit checklist:** for each run-time prop, (a) is it created on the host
+only, on both, or on the client only, and (b) does any host message name it
+by id? Done: player drops (`weaponCreateForPlayerDrop`), simulant inventory
+drops (`botinvDrop`), simulant held weapons at death (B-1194), AI chr spawns
+and clones with their weapons and hats (B-1196, in code). Open: reconnect for
+B-1196's chrs; whether a co-op client drops a guard's held weapons at its
+death (not checked; the host's drop of an initial-id weapon names an id the
+client already has, so its spawn is declined and only the move applies).

@@ -107,6 +107,11 @@ typedef struct net_vehicle_state_txn_s {
  * (kills and shots by region), so each machine's results show both players
  * with the host's numbers. */
 #define SVC_MISSION_STATS  0x7d
+/* B-1196 (unreleased v62): server→match, co-op/counter-op only. A chr the
+ * host made after the stage start (an AI clone or spawn) has a dynamic sync
+ * id no client knows (SP-85); the host sends this once, reliably, before the
+ * chr's moves, and the client makes a puppet with the same ids. */
+#define SVC_NPC_SPAWN      0x7e
 #define SVC_ROOM_PLAYLIST  0x79 // server→room: mod music playlist changed by leader (serialized string)
 
 /* MASTER-C2b: Admin RCON reply (protocol v38+; ADMIN_RESP_RATE_LIMIT added v39). */
@@ -366,6 +371,8 @@ u32 netmsgClcCoopReadyRead(struct netbuf *src, struct netclient *srccl);
 
 u32 netmsgSvcNpcMoveWrite(struct netbuf *dst, struct chrdata *chr);
 u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl);
+u32 netmsgSvcNpcSpawnWrite(struct netbuf *dst, struct chrdata *chr);
+u32 netmsgSvcNpcSpawnRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcNpcStateWrite(struct netbuf *dst, struct chrdata *chr);
 u32 netmsgSvcNpcStateRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcNpcSyncWrite(struct netbuf *dst);

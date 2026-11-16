@@ -288,3 +288,38 @@ TEST_CASE("bot pickup net: client token searches skip a copy marked for deletion
 		REQUIRE(present.find("(prop->obj->hidden & OBJHFLAG_DELETING) == 0") != std::string::npos);
 	}
 }
+
+TEST_CASE("bot pickup net: a simulant's held weapons dropped at its death carry the host's sync ids",
+          "[net][botpickup][b1194]") {
+	// B-1194: a held weapon equipped after the stage start has a dynamic sync
+	// id only the host knows; the host announces it once its death drop puts
+	// it in the world, and a client's puppet retires its own unnumbered copy
+	const std::string chr = code_only(read_text_file("src/game/chr.c"));
+	const size_t drop = chr.find("objDropRecursively(prop, false);");
+	REQUIRE(drop != std::string::npos);
+	const size_t server = chr.find("if (g_NetMode == NETMODE_SERVER) {", drop);
+	const size_t dynamic = chr.find("wprop->syncid >= g_NetFirstDynamicSyncId", drop);
+	const size_t spawn = chr.find("netmsgSvcPropSpawnWrite(&g_NetMsgRel, wprop) == 0", drop);
+	const size_t move = chr.find("netmsgSvcPropMoveWrite(&g_NetMsgRel, wprop, NULL);", drop);
+	REQUIRE(server != std::string::npos);
+	REQUIRE(dynamic != std::string::npos);
+	REQUIRE(spawn != std::string::npos);
+	REQUIRE(move != std::string::npos);
+	REQUIRE(server < dynamic);
+	REQUIRE(dynamic < spawn);
+	REQUIRE(spawn < move);
+	REQUIRE(chr.find("struct prop *heldprops[2] = { chr->weapons_held[0], chr->weapons_held[1] };") < drop);
+
+	const std::string action = code_only(read_text_file("src/game/chraction.c"));
+	const std::string death = function_body(action,
+		"void chrBeginDeath(struct chrdata *chr, struct coord *dir, f32 relangle, s32 hitpart, struct gset *gset, bool knockout, s32 aplayernum)\n{");
+	const size_t puppet = death.find("if (chr->aibot && g_NetMode == NETMODE_CLIENT && !g_NetLocalBotAuthority) {");
+	const size_t retire = death.find("chr->weapons_held[i]->obj->hidden |= OBJHFLAG_DELETING;", puppet);
+	const size_t local = death.find("objSetDropped(chr->weapons_held[0], DROPTYPE_DEFAULT);");
+	REQUIRE(puppet != std::string::npos);
+	REQUIRE(retire != std::string::npos);
+	REQUIRE(local != std::string::npos);
+	REQUIRE(puppet < retire);
+	REQUIRE(retire < local);
+	REQUIRE(death.find("} else {", retire) < local);
+}

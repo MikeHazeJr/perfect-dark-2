@@ -678,10 +678,23 @@ static s32 saveWriteAgentDocument(const char *name,
 	}
 	stream = saveAtomicStream(&transaction);
 	if (agentProfileWriteJson(stream, document) != 0) {
+		/* B-1199 diagnostic: the codec keeps its validation reason to itself,
+		 * so name the scalars and the preferences verdict it checks. Seen at
+		 * every networked co-op/counter-op mission end on the host. */
+		char prefserror[160] = "";
+		const s32 prefsbad = agentProfilePreferencesValidate(&document->preferences,
+			prefserror, sizeof(prefserror));
+
 		saveAtomicAbort(&transaction);
 		sysLogPrintf(LOG_ERROR,
 			"SAVE: Agent Profile serialization failed name='%s'; destination preserved",
 			name);
+		sysLogPrintf(LOG_ERROR,
+			"SAVE.DIAG: agent document autodifficulty=%u autostageindex=%u thumbnail=%u soundmode=%d controlmode=%u,%u preferences=%s",
+			(unsigned)document->autodifficulty, (unsigned)document->autostageindex,
+			(unsigned)document->thumbnail, (s32)document->soundmode,
+			(unsigned)document->controlmode[0], (unsigned)document->controlmode[1],
+			prefsbad != 0 ? prefserror : "ok");
 		savePublishAgentWriteReceipt(name, -1);
 		return -1;
 	}

@@ -477,6 +477,12 @@ static s32         g_BootDebugFaceNearestBot = 0;
 static s32         g_BootDebugEndMissionSec = -1;
 static s32         g_BootDebugEndMissionComplete = 0;
 static s32         g_BootDebugEndMissionFired = 0;
+/* B-1196: --debug-clone-guard <seconds> clones a guard on the host (or
+ * offline) after that much mission play, as an unalerted guard's
+ * try_spawn_clone2 does, so a smoke can prove a co-op client gets the clone
+ * (SVC_NPC_SPAWN) instead of waiting for the AI to make one. */
+static s32         g_BootDebugCloneGuardSec = -1;
+static s32         g_BootDebugCloneGuardFired = 0;
 static struct prop *g_BootDebugFaceBotProp = NULL;
 static u32         g_BootDebugFaceBotLastLogMs = 0;
 static s32         g_BootDebugFaceBotLogs = 0;
@@ -3139,6 +3145,102 @@ s32 bootDebugEndMissionTick(void)
 	return 1;
 }
 
+/* B-1196: clone one guard once, on the host or offline, in a solo, co-op or
+ * counter-op mission. A cloneable guard (CHRCFLAG_CLONEABLE) is preferred,
+ * then any living guard; the clone gets the guard's held weapons, team and
+ * flags as aiDuplicateChr gives them, and may appear on screen. It stands
+ * idle (see below). */
+s32 bootDebugCloneGuardTick(void)
+{
+	extern struct prop *chrSpawnAtChr(struct chrdata *basechr, s32 body, s32 head, u32 chrnum, u8 *ailist, u32 spawnflags);
+	extern u8 *ailistFindById(s32 ailistid);
+	struct chrdata *base = NULL;
+	struct prop *cloneprop;
+	struct chrdata *clone;
+	struct prop *wprops[2] = { NULL, NULL };
+
+	if (g_BootDebugCloneGuardSec < 0 || g_BootDebugCloneGuardFired) {
+		return 0;
+	}
+	if (g_NetMode == NETMODE_CLIENT || g_MainIsEndscreen
+			|| g_Vars.tickmode != TICKMODE_NORMAL
+			|| g_Vars.stagenum == STAGE_TITLE || g_Vars.stagenum == STAGE_CITRAINING) {
+		return 0;
+	}
+	if (g_Vars.coopplayernum < 0 && g_Vars.antiplayernum < 0
+			&& (g_Vars.normmplayerisrunning || g_Vars.mplayerisrunning)) {
+		return 0;
+	}
+	if (g_Vars.lvframe60 < g_BootDebugCloneGuardSec * 60) {
+		return 0;
+	}
+
+	g_BootDebugCloneGuardFired = 1;
+
+	for (s32 pass = 0; pass < 2 && base == NULL; pass++) {
+		for (s32 i = 0; i < g_NumChrSlots; i++) {
+			struct chrdata *chr = &g_ChrSlots[i];
+
+			/* Not chrIsDead through a local extern: bool's size depends on
+			 * include order (SP-75), so read the action directly. */
+			if (!chr->prop || chr->prop->type != PROPTYPE_CHR || chr->prop->chr != chr
+					|| chr->aibot || !chr->model
+					|| chr->actiontype == ACT_DIE || chr->actiontype == ACT_DEAD
+					|| (chr->chrflags & CHRCFLAG_HIDDEN)) {
+				continue;
+			}
+			if (pass == 0 && (chr->chrflags & CHRCFLAG_CLONEABLE) == 0) {
+				continue;
+			}
+
+			base = chr;
+			break;
+		}
+	}
+
+	if (base == NULL) {
+		sysLogPrintf(LOG_WARNING, "BOOT: --debug-clone-guard found no living guard to clone");
+		return 0;
+	}
+
+	/* The idle list, not the AI's search list: a clone hunting the players
+	 * could end a smoke's mission before its scripted end. What reaches a
+	 * client (SVC_NPC_SPAWN) is the same either way. */
+	cloneprop = chrSpawnAtChr(base, base->bodynum, -1, base->chrnum,
+		ailistFindById(GAILIST_IDLE), SPAWNFLAG_ALLOWONSCREEN);
+
+	if (cloneprop == NULL || cloneprop->chr == NULL) {
+		sysLogPrintf(LOG_WARNING, "BOOT: --debug-clone-guard could not place a clone of chr %d",
+			(s32)base->chrnum);
+		return 0;
+	}
+
+	clone = cloneprop->chr;
+	chrSetChrnum(clone, chrsGetNextUnusedChrnum());
+	base->chrdup = clone->chrnum;
+	clone->team = base->team;
+
+	for (s32 h = 0; h < 2; h++) {
+		if (base->weapons_held[h] && base->weapons_held[h]->weapon) {
+			struct weaponobj *w = base->weapons_held[h]->weapon;
+
+			wprops[h] = chrGiveWeapon(clone, w->base.modelnum, w->weaponnum,
+				h == 1 ? OBJFLAG_WEAPON_LEFTHANDED : 0);
+		}
+	}
+
+	clone->flags = base->flags;
+	clone->flags2 = base->flags2;
+
+	sysLogPrintf(LOG_NOTE,
+		"BOOT: --debug-clone-guard cloned chr %d as chr %d syncid=%u cloneable=%d weapons=%u,%u netmode=%d",
+		(s32)base->chrnum, (s32)clone->chrnum, (unsigned)cloneprop->syncid,
+		(base->chrflags & CHRCFLAG_CLONEABLE) ? 1 : 0,
+		wprops[0] ? (unsigned)wprops[0]->syncid : 0u, wprops[1] ? (unsigned)wprops[1]->syncid : 0u,
+		(s32)g_NetMode);
+	return 1;
+}
+
 s32 bootDebugFaceNearestBotTick(void)
 {
 	struct player *pl;
@@ -4760,6 +4862,19 @@ int main(int argc, const char **argv)
 				sysLogPrintf(LOG_WARNING,
 					"BOOT: --debug-end-mission rejected '%s' (want <seconds>:complete or <seconds>:fail)",
 					endmission);
+			}
+		}
+	}
+	{
+		const char *cloneguard = sysArgGetString("--debug-clone-guard");
+		if (cloneguard && cloneguard[0]) {
+			s32 seconds = -1;
+			if (sscanf(cloneguard, "%d", &seconds) == 1 && seconds >= 0) {
+				g_BootDebugCloneGuardSec = seconds;
+				sysLogPrintf(LOG_NOTE, "BOOT: --debug-clone-guard armed: seconds=%d", seconds);
+			} else {
+				sysLogPrintf(LOG_WARNING,
+					"BOOT: --debug-clone-guard rejected '%s' (want <seconds>)", cloneguard);
 			}
 		}
 	}

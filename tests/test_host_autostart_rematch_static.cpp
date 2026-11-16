@@ -333,6 +333,29 @@ TEST_CASE("results for every player: simulants of a retired match do not think",
 	REQUIRE(exit.find("mpClearRuntimeChrState();") != std::string::npos);
 }
 
+TEST_CASE("rematch: a match's random spawn weapon roll does not outlive it",
+          "[net][rematch][finding4][b1200]") {
+	// B-1200: the roll lives in g_MatchConfig for the match; the next lobby
+	// start refuses a random mode that still holds a typed ID
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string forget = function_body(msg, "static void netMatchConfigForgetSpawnRoll(void)\n{");
+	REQUIRE(forget.find("SPAWNWEAPON_MODE_RANDOM") != std::string::npos);
+	REQUIRE(forget.find("SPAWNWEAPON_MODE_FIESTA") != std::string::npos);
+	REQUIRE(forget.find("g_MatchConfig.spawn_weapon_id[0] = '\\0';") != std::string::npos);
+
+	const std::string commit = function_body(msg, "void netmsgSvcStageEndCommit(u8 room_id, u8 mode)\n{");
+	const size_t review = commit.find("ncl->reviewing_results = 1;");
+	REQUIRE(review != std::string::npos);
+	REQUIRE(commit.find("netMatchConfigForgetSpawnRoll();", review) != std::string::npos);
+
+	const std::string end = function_body(msg, "u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t stage = end.find("mainEndStage();\n\t\tnetMatchConfigForgetSpawnRoll();");
+	REQUIRE(stage != std::string::npos);
+
+	// The refusal it avoids stays in place for a genuinely mixed config
+	REQUIRE(msg.find("\"random/Fiesta spawn mode retains a typed ID\"") != std::string::npos);
+}
+
 TEST_CASE("results for every player: closing networked results does not load CI",
           "[net][rematch][finding4][b1197]") {
 	// B-1197: the offline results close loads CI, which a networked host

@@ -3616,6 +3616,7 @@ static void netClientEvReceive(struct netclient *cl)
 			case SVC_PROP_SYNC: rc = netmsgSvcPropSyncRead(&cl->in, cl); break;
 			case SVC_PROP_RESYNC: rc = netmsgSvcPropResyncRead(&cl->in, cl); break;
 			case SVC_NPC_MOVE: rc = netmsgSvcNpcMoveRead(&cl->in, cl); break;
+			case SVC_NPC_SPAWN: rc = netmsgSvcNpcSpawnRead(&cl->in, cl); break;
 			case SVC_NPC_STATE: rc = netmsgSvcNpcStateRead(&cl->in, cl); break;
 			case SVC_NPC_SYNC: rc = netmsgSvcNpcSyncRead(&cl->in, cl); break;
 			case SVC_NPC_RESYNC: rc = netmsgSvcNpcResyncRead(&cl->in, cl); break;
@@ -3850,6 +3851,87 @@ void netStartFrame(void)
 	netbufStartWrite(&g_NetMsgRel);
 }
 
+/* B-1196 (T-NETWORKING-011): chrs the host made after the stage start (AI
+ * clones and spawns, SP-85), each announced once with SVC_NPC_SPAWN. The ids
+ * grow for the whole stage (propAllocate), so the list restarts when the
+ * stage's first dynamic id changes. Their moves and states wait a quarter
+ * second after the announcement: the spawn goes on the reliable channel and
+ * a move on the unreliable one, which ENet does not order between them. */
+#define NET_NPC_SPAWN_MAX         128
+#define NET_NPC_SPAWN_SETTLE_TICKS 15
+
+static u32 s_NetNpcSpawnIds[NET_NPC_SPAWN_MAX];
+static u32 s_NetNpcSpawnTicks[NET_NPC_SPAWN_MAX];
+static s32 s_NetNpcSpawnCount = 0;
+static u32 s_NetNpcSpawnFirst = 0;
+static bool s_NetNpcSpawnFullLogged = false;
+
+static s32 netServerNpcSpawnIndex(u32 syncid)
+{
+	if (s_NetNpcSpawnFirst != g_NetFirstDynamicSyncId) {
+		s_NetNpcSpawnFirst = g_NetFirstDynamicSyncId;
+		s_NetNpcSpawnCount = 0;
+		s_NetNpcSpawnFullLogged = false;
+	}
+
+	for (s32 i = 0; i < s_NetNpcSpawnCount; i++) {
+		if (s_NetNpcSpawnIds[i] == syncid) {
+			return i;
+		}
+	}
+
+	return -1;
+}
+
+static void netServerNpcSpawnAnnounce(struct chrdata *chr)
+{
+	u32 syncid;
+
+	if (!netNpcIsReplicationReady(chr)) {
+		return;
+	}
+
+	syncid = chr->prop->syncid;
+
+	if (syncid < g_NetFirstDynamicSyncId || netServerNpcSpawnIndex(syncid) >= 0) {
+		return;
+	}
+
+	if (s_NetNpcSpawnCount >= NET_NPC_SPAWN_MAX) {
+		if (!s_NetNpcSpawnFullLogged) {
+			sysLogPrintf(LOG_WARNING, "NET.NPC: more than %d chrs made after the stage start; later ones are not announced",
+				NET_NPC_SPAWN_MAX);
+			s_NetNpcSpawnFullLogged = true;
+		}
+		return;
+	}
+
+	if (netmsgSvcNpcSpawnWrite(&g_NetMsgRel, chr) == 0) {
+		s_NetNpcSpawnIds[s_NetNpcSpawnCount] = syncid;
+		s_NetNpcSpawnTicks[s_NetNpcSpawnCount] = g_NetTick;
+		s_NetNpcSpawnCount++;
+	}
+}
+
+static bool netServerNpcSpawnSettled(const struct chrdata *chr)
+{
+	const u32 syncid = chr->prop->syncid;
+	s32 index;
+
+	if (syncid < g_NetFirstDynamicSyncId) {
+		return true;
+	}
+
+	index = netServerNpcSpawnIndex(syncid);
+
+	if (index < 0) {
+		/* Not announced (the list is full): send as before */
+		return s_NetNpcSpawnCount >= NET_NPC_SPAWN_MAX;
+	}
+
+	return g_NetTick - s_NetNpcSpawnTicks[index] >= NET_NPC_SPAWN_SETTLE_TICKS;
+}
+
 void netEndFrame(void)
 {
 	const bool terminal_stage_end_frame = g_NetMode == NETMODE_SERVER
@@ -4012,13 +4094,23 @@ void netEndFrame(void)
 				s_npcBroadcastStarted = true;
 			}
 
+			/* B-1196: a chr the host made after the stage start is announced
+			 * (SVC_NPC_SPAWN) before any move or state names it. */
+			if (g_NumChrSlots > 0) {
+				for (s32 i = 0; i < g_NumChrSlots; ++i) {
+					netServerNpcSpawnAnnounce(&g_ChrSlots[i]);
+				}
+			}
+
 			// NPC position updates every 3 frames (~20 Hz)
 			if ((g_NetTick % 3) == 0) {
 				if (g_NumChrSlots > 0) {
 					for (s32 i = 0; i < g_NumChrSlots; ++i) {
 						struct chrdata *chr = &g_ChrSlots[i];
 						if (netNpcIsReplicationReady(chr)) {
-							netmsgSvcNpcMoveWrite(&g_NetMsg, chr);
+							if (netServerNpcSpawnSettled(chr)) {
+								netmsgSvcNpcMoveWrite(&g_NetMsg, chr);
+							}
 						}
 					}
 				}
@@ -4030,7 +4122,9 @@ void netEndFrame(void)
 					for (s32 i = 0; i < g_NumChrSlots; ++i) {
 						struct chrdata *chr = &g_ChrSlots[i];
 						if (netNpcIsReplicationReady(chr)) {
-							netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);
+							if (netServerNpcSpawnSettled(chr)) {
+								netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);
+							}
 						}
 					}
 				}

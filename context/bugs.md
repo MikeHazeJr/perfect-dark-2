@@ -1,5 +1,43 @@
 # Bug Tracker
 
+## 2026-11-16 B-1200 A second networked Combat match in the same room is refused (T-NETWORKING-011, fixed in code)
+
+Severity high (no rematch in a room after a match with a random spawn weapon, the default). Found by
+`mp_combat_net_rematch_smoke` on binary 30973012 (f8d79928, 79/94, `results-20261116T020226Z.json`), the first run to
+get past B-1195 and B-1197: the host left its results with Return to Room, stayed in the arena behind the Room
+(`MENU.MPENDSCREEN: networked results closed; no local stage change`, `BOT: match chr table retired`), re-armed and
+fired its second match, and the lobby start refused it: `PLAYER.INIT.ROLLBACK lobby-write detail=random/Fiesta spawn
+mode retains a typed ID`, `BOOT: --host-autostart started match 2 of 2 rc=-5`. Root cause: a random spawn weapon is
+rolled per match (`netLobbyStartResolveRandomSpawn`) and the start commit copies the resolved config, roll included,
+into `g_MatchConfig` (`netLobbyStartCommit`; a client stores it too from `SVC_STAGE_START`), which the match reads at
+every spawn; the next `netLobbyStartWritePrepare` refuses a random mode that still holds a typed ID. Fix: the match
+end forgets the roll for random and Fiesta modes (`netMatchConfigForgetSpawnRoll`, from the host's stage end commit
+and a client's stage end read, which may host next; log `NET: match end forgets the rolled spawn weapon ...`); the
+refusal stays for a genuinely mixed configuration. Pinned in `tests/test_host_autostart_rematch_static.cpp`
+(`[b1200]`); the rematch smoke requires the log line. Not yet built or run.
+
+## 2026-11-16 B-1199 The mission-end Agent Profile save is refused in networked co-op and counter-op (T-NETWORKING-011, open; save codec is CORE's)
+
+Severity medium (mission progress of a networked co-op or counter-op mission may not be saved; no crash). Every
+networked mission end on the host logs `ERROR: SAVE: Agent Profile serialization failed name='Dark'; destination
+preserved` right after `endscreenPushCoop`/`endscreenPushAnti` (co-op run `results-20261116T011832Z.json` and
+counter-op run `results-20261116T014445Z.json`; once on the counter-op client too, in its disconnect teardown,
+B-1198). `saveWriteAgentDocument` (savefile.c) calls `agentProfileWriteJson`, whose `profileDocumentValidate`
+refuses the document (a scalar: auto difficulty, auto stage index, thumbnail, sound mode, control modes; a challenge
+value; or the preferences) and keeps its reason to itself. Diagnostic added (not yet run): the failure path logs
+`SAVE.DIAG: agent document ...` with those scalars and the public preferences validator's verdict. Not checked: whether
+a solo mission end fails the same way. The codec is CORE's; report the diagnostic's first result to CORE.
+
+## 2026-11-16 B-1198 A co-op or counter-op client disconnected mid-mission pushes results for both players (T-NETWORKING-011, open)
+
+Severity low (a results screen for both players flashes up while the client drops to CI; the agent save attempt in it
+fails, B-1199). Seen in `network_counterop_mission_end_smoke` (`results-20261116T014445Z.json`): the host's scripted
+exit came first, the client read `NET: disconnected from server: Server is shutting down`, and `netDisconnect` ended
+the stage (`mainEndStage`), which pushed `endscreenPushAnti` for player 0 and player 1: by then `g_NetMode` is no
+longer networked, so `mainEndStage`'s skip of remote players (B-1193) no longer applies. The smoke now allows those
+two teardown pushes (2 to 4 in all) and checks one push per machine at the mission end instead. Fix to consider:
+`netDisconnect` ends a networked mission without pushing results.
+
 ## 2026-11-16 B-1197 Closing networked Combat results loaded CI on the listen host (T-NETWORKING-011, fixed in code)
 
 Severity high (the host's next match never starts after it leaves its results). Found by `mp_combat_net_rematch_smoke`
@@ -17,7 +55,7 @@ before). `menuReset()` clears the close state at every stage load, so the co-op 
 exit, never hits it later. Pinned in `tests/test_host_autostart_rematch_static.cpp` (`[b1197]`); the rematch smoke
 forbids the CI return and `PLAYER.INIT.ROLLBACK` and requires the new line. Not yet run.
 
-## 2026-11-15 B-1196 A networked co-op client is sent moves for a chr it does not have (T-NETWORKING-011, open)
+## 2026-11-15 B-1196 A networked co-op client is sent moves for a chr it does not have (T-NETWORKING-011, fixed in code)
 
 Severity medium until the chr is named (the client cannot see or place that chr; if it is an enemy, the client is
 shot by someone it cannot see). Seen in `network_coop_mission_end_smoke` on binary 8c56ad72 (119/121; both failures
@@ -34,6 +72,28 @@ when it first sends its move (`NET.NPC: host replicates a chr created after the 
 logs each unknown id once with its nearest local chr (`NET.NPC: client has no chr for syncid=...`). That says
 which chr it is and whether the client holds an unlinked copy (deterministic creation on both sides) or none
 (host-only creation, which needs a spawn message).
+2026-11-16: the re-run on binary 9078eb6b passed 121/121 with no `NET.NPC` line on either side, so the host made no
+chr after the stage start that time: the spawn is conditional. Likely source (by reading, pattern SP-85): the shared
+AI lists (`gailists.c`) have an unalerted guard "create a spawn", a clone of itself searching for the player
+(`try_spawn_clone2(CHR_SELF, GAILIST_SEARCH_FOR_PLAYER, ...)`, opcode 0x00ca, `aiDuplicateChr`, only for a
+`CHRCFLAG_CLONEABLE` guard); in the failing run a guard shot the host as gameplay began. Co-op AI runs only on the
+host, and no message names a chr the host's AI makes, so a co-op client never sees a clone (or a `spawn_chr_at_*`
+guard) while the host's copy can shoot it. Fix needed: a chr spawn message (the host announces a chr with a dynamic
+id, with its held weapons and hat, before its moves; the client makes a puppet with the same ids), plus a host
+debug trigger so a smoke can prove it.
+Fixed in code 2026-11-16 (not yet built or run): new `SVC_NPC_SPAWN` 0x7e (unreleased v62, co-op and counter-op
+only). Each net frame the host announces, once and reliably, every replication-ready chr whose sync id is dynamic
+(`netServerNpcSpawnAnnounce`, net.c), with its chr number, body, head, place, angle, rooms, team, flags, held
+weapons (sync id, weapon, model, left hand, dual) and hat; its moves and states wait 15 ticks after that, since
+ENet does not order the reliable spawn against an unreliable move. The client makes the chr at the host's place
+without a second spot search (`chrSpawnReplicated`, chraction.c, idle list; its AI stays suppressed there), binds
+the host's ids to the chr, weapons and hat, and sets the chr number, team and flags; a spawn for an id it already
+has is ignored. Logs: `NET.NPC: host announced a chr made after the stage start ...`, `NET.NPC: client made the
+host's chr ...`. `--debug-clone-guard <seconds>` (port/src/main.c) clones a living guard once on the host, idle so
+it cannot end a smoke's mission, with the guard's weapons, team and flags; `network_coop_mission_end_smoke` uses it
+at 20 s and requires both NET.NPC lines and no `client has no chr`. Pinned in
+`tests/test_net_mission_end_static.cpp` (`[b1196]`). Open: a co-op client that reconnects does not get chrs made
+before it rejoined (T-NETWORKING-007).
 
 ## 2026-11-15 B-1195 The listen host crashes when it leaves Combat results for the Room (T-NETWORKING-011, fixed in code)
 
@@ -58,7 +118,7 @@ challenges) replaces `g_MpSetup` whole, which would lift the game-over pause in 
 `tests/test_host_autostart_rematch_static.cpp`; the rematch smoke requires the inert line. Run on binary 9078eb6b
 (`results-20261116T010715Z.json`): no crash, the inert line logged once after Continue; the run stopped on B-1197.
 
-## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, open)
+## 2026-11-15 B-1194 A client skips some simulant pickups: the item is not in its world (T-NETWORKING-011, fixed in code)
 
 Severity medium (a simulant takes a weapon on the host that stays on the ground on the client; no crash). Seen in
 `mp_simulant_types_net_smoke` on binary 91a54a5d (`results-20261115T215645Z.json`, 106/107, the only failure):
@@ -73,6 +133,19 @@ id, not an object or weapon, `timetoregen != 0`, or deleting) holds from the sta
 client's skip line names the test that refused and what it holds under the id (type, object type, respawn timer,
 position, and the first dynamic id). Initial ids are prop slot index + 1 on each side (`netSyncIdsAllocate`), so a
 "no prop has this sync id" with a low id means the client's setup left that slot free.
+Named 2026-11-16 (`mp_simulant_types_net_smoke` on binary 9078eb6b, 106/107, `results-20261116T013126Z.json`):
+both sides log `last initial syncid=17 first dynamic syncid=18`, so every skipped item (23 to 58, 14 of them) is a
+dynamic prop; the client has no prop under any of those ids, and on the host every one is weapon 8 (`objtype=8`,
+a weapon) that no `BOT.DROP: host announced` line covers (those four, 33, 34, 40 and 53, were replayed fine).
+Root cause: a simulant's held weapon is a prop made when it equips it, after the stage start, so it has a dynamic
+id on the host and none on a client. `chrBeginDeath` drops the held weapons (`objSetDropped`, then `chrTick`'s
+`objDropRecursively`) on both machines: the host's copy lies in the world under an id the client never learns, and
+the client's puppet drops an unnumbered copy, so a later host pickup cannot reach it. Fix in code (pattern SP-85):
+the host announces each held weapon with a dynamic id once the death drop puts it in the world
+(`netmsgSvcPropSpawnWrite` + `netmsgSvcPropMoveWrite`, as `botinvDrop` does; log `NET.DROP: host announced chr ...
+held weapon=... syncid=...`), and a client's puppet retires its own held models at death instead of dropping them
+(`OBJHFLAG_DELETING`, as a weapon switch does). Pinned in `tests/test_net_bot_pickup_static.cpp` (`[b1194]`). Not
+yet built or run.
 
 ## 2026-11-15 B-1193 The networked co-op and counter-op mission end is local on each machine (T-NETWORKING-011, Mike: host control)
 

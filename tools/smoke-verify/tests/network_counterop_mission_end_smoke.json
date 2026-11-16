@@ -1,6 +1,6 @@
 {
   "scenario_name": "network_counterop_mission_end_smoke",
-  "description": "B-1193 for counter-op (Mike, 2026-11-15: the host decides what follows a networked co-op or counter-op mission). A listen host and one client start counter-op Defection as network_counterop_stage_transaction_smoke does: the client is elected Anti, the host plays Joanna. After 40 s the host ends the mission with every objective complete (--debug-end-mission). Each machine shows only its own player's results (endscreenPushAnti on both); the host's commit returns the client to the lobby; the host presses its default Next Mission, whose lobby start keeps the same client as Anti (g_NetLastCounterOpClientId) and takes it along from its results screen into Investigation. Asserts the final objective statuses and both players' stats before the stage end, one results push per machine, the host's choice, the Anti role in both missions and the second mission live on both.",
+  "description": "B-1193 for counter-op (Mike, 2026-11-15: the host decides what follows a networked co-op or counter-op mission). A listen host and one client start counter-op Defection as network_counterop_stage_transaction_smoke does: the client is elected Anti, the host plays Joanna. After 40 s the host ends the mission with every objective complete (--debug-end-mission). Each machine shows only its own player's results (endscreenPushAnti on both); the host's commit returns the client to the lobby; the host presses its default Next Mission, whose lobby start keeps the same client as Anti (g_NetLastCounterOpClientId) and takes it along from its results screen into Investigation. Asserts the final objective statuses and both players' stats before the stage end, one results push per machine, the host's choice, the Anti role in both missions and the second mission live on both. The host pushes one results screen, its own (Joanna); the client pushes its own (Anti) at the mission end, and when the host's scripted exit comes first, two more during its disconnect teardown (netDisconnect ends the stage, B-1198), so the total is 2 to 4.",
   "tags": [
     "b1193",
     "campaign",
@@ -77,7 +77,8 @@
           "NET.STAGE.REPLICATION baseline=queued epoch=[1-9]\\d* room=\\d+ flags=0x[0-9a-f]+ bytes=[1-9]\\d*",
           "NET.STAGE.REPLICATION phase=active epoch=[1-9]\\d* room=\\d+ fresh_release=1",
           "SMOKE\\.WAIT: satisfied condition=network_stage_live",
-          "SMOKE\\.WAIT: satisfied condition=gameplay_ready"
+          "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
+          "GAMELOOP\\.COUNTEROP: endscreenPushAnti entry playernum=0 .* role=bond"
         ],
         "required_sequences": [
           {
@@ -122,7 +123,8 @@
           "EXCEPTION_ACCESS_VIOLATION",
           "ACCESS_VIOLATION",
           "FATAL: ",
-          "Counter-Op requires exactly one remote room participant"
+          "Counter-Op requires exactly one remote room participant",
+          "GAMELOOP\\.COUNTEROP: endscreenPushAnti entry playernum=1 "
         ]
       },
       "smoke_path": "tools/smoke-verify/fixtures/network_counterop_mission_end_host.json"
@@ -157,7 +159,8 @@
           "NET: sent CLC_STAGE_READY epoch=[1-9]\\d* post_load=1 stage=0x[0-9a-f]+",
           "NET: SVC_NPC_SYNC snapshot verified epoch=[1-9]\\d* tick=\\d+ count=\\d+ checksum=0x[0-9a-f]+",
           "SMOKE\\.WAIT: satisfied condition=network_stage_live",
-          "SMOKE\\.WAIT: satisfied condition=gameplay_ready"
+          "SMOKE\\.WAIT: satisfied condition=gameplay_ready",
+          "GAMELOOP\\.COUNTEROP: endscreenPushAnti entry playernum=0 .* role=anti"
         ],
         "required_sequences": [
           {
@@ -264,7 +267,7 @@
       {
         "pattern": "GAMELOOP\\.COUNTEROP: endscreenPushAnti entry",
         "min": 2,
-        "max": 2
+        "max": 4
       },
       {
         "pattern": "SMOKE\\.WAIT: satisfied condition=endscreen_visible",

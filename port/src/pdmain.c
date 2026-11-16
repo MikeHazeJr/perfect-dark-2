@@ -855,6 +855,12 @@ void mainTick(void)
 		(void)bootDebugEndMissionTick();
 	}
 
+	/* B-1196: --debug-clone-guard clones a guard on the host or offline. */
+	{
+		extern s32 bootDebugCloneGuardTick(void);
+		(void)bootDebugCloneGuardTick();
+	}
+
 	/* T-ENGINE-004: bounded ordinary-client Combat Simulator verifier.
 	 * Marks a fully validated deterministic kill matrix ready only after a
 	 * live offline match reaches its configured frame. mpEndMatch commits the

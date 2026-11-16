@@ -223,6 +223,7 @@ bool chrRelocateToFloorWithCachedGround(struct chrdata *chr,
 		u16 floorcol, u8 floortype, RoomNum floorroom);
 
 struct prop *chrSpawnAtCoord(s32 body, s32 head, struct coord *pos, RoomNum *room, f32 angle, u8 *ailist, u32 spawnflags);
+struct prop *chrSpawnReplicated(s32 body, s32 head, struct coord *pos, RoomNum *room, f32 angle, bool noblood);
 bool chrIsPropPresetBlockingSightToTarget(struct chrdata *chr);
 bool chrMoveToPos(struct chrdata *chr, struct coord *pos, RoomNum *room, f32 angle, bool ignorebg);
 bool chrCheckCoverOutOfSight(struct chrdata *chr, s32 covernum, bool soft);

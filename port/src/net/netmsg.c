@@ -3867,6 +3867,23 @@ u32 netmsgSvcStageEndWrite(struct netbuf *dst, u8 room_id, u8 mode)
 	return dst->error;
 }
 
+/* B-1200 (T-NETWORKING-011): a random spawn weapon is rolled per match
+ * (netLobbyStartResolveRandomSpawn) and kept in g_MatchConfig, which the match
+ * reads at every spawn; the next lobby start rolls again and refuses a leftover
+ * roll ("random/Fiesta spawn mode retains a typed ID"). Forget it when the match
+ * ends, on the host and on a client (which may host next). */
+static void netMatchConfigForgetSpawnRoll(void)
+{
+	if ((g_MatchConfig.spawnWeaponMode == SPAWNWEAPON_MODE_RANDOM
+				|| g_MatchConfig.spawnWeaponMode == SPAWNWEAPON_MODE_FIESTA)
+			&& g_MatchConfig.spawn_weapon_id[0] != '\0') {
+		sysLogPrintf(LOG_NOTE, "NET: match end forgets the rolled spawn weapon '%s' (mode=%u)",
+			g_MatchConfig.spawn_weapon_id, (unsigned)g_MatchConfig.spawnWeaponMode);
+		g_MatchConfig.spawn_weapon_id[0] = '\0';
+		g_MatchConfig.spawnWeaponNum = 0xFF;
+	}
+}
+
 void netmsgSvcStageEndCommit(u8 room_id, u8 mode)
 {
 	g_NetStageEpoch = 0;
@@ -3926,6 +3943,7 @@ void netmsgSvcStageEndCommit(u8 room_id, u8 mode)
 				}
 			}
 		}
+		netMatchConfigForgetSpawnRoll();
 	}
 	sysLogPrintf(LOG_NOTE, "NET: SVC_STAGE_END committed mode=%u room=%u",
 		(unsigned)mode, (unsigned)room_id);
@@ -4003,6 +4021,7 @@ u32 netmsgSvcStageEndRead(struct netbuf *src, struct netclient *srccl)
 
 		g_NumReasonsToEndMpMatch = 1;
 		mainEndStage();
+		netMatchConfigForgetSpawnRoll();
 	}
 
 	/* SA-1: tear down session catalog on match end (client-side). */
@@ -8392,6 +8411,174 @@ u32 netmsgSvcNpcMoveRead(struct netbuf *src, struct netclient *srccl)
 	chr->surface_up[2] = newsurface_z;
 
 	return src->error;
+}
+
+/* ========================================================================
+ * SVC_NPC_SPAWN - a chr the host made after the stage start (B-1196)
+ * Co-op and counter-op only. An AI clone (try_spawn_clone2) or spawn
+ * (spawn_chr_at_pad/_at_chr) exists only on the host, under a dynamic sync
+ * id (SP-85). The host sends this once, reliably, before the chr's moves
+ * (net.c holds them back a little); the client makes a puppet at the host's
+ * place, with the same chr number, held weapons and hat, under the same ids.
+ * ======================================================================== */
+
+u32 netmsgSvcNpcSpawnWrite(struct netbuf *dst, struct chrdata *chr)
+{
+	struct prop *prop = chr ? chr->prop : NULL;
+	struct prop *held[2];
+	struct prop *hat;
+	bool dual;
+
+	if (!dst || !prop || prop->syncid == 0 || !netNpcIsReplicationReady(chr)) {
+		return 1;
+	}
+
+	held[0] = chr->weapons_held[0];
+	held[1] = chr->weapons_held[1];
+	hat = chr->weapons_held[2];
+	dual = held[0] && held[1] && held[0]->weapon && held[1]->weapon
+		&& held[0]->weapon->dualweapon == held[1]->weapon
+		&& held[1]->weapon->dualweapon == held[0]->weapon;
+
+	netbufWriteU8(dst, SVC_NPC_SPAWN);
+	netbufWriteU32(dst, prop->syncid);
+	netbufWriteS16(dst, chr->chrnum);
+	netbufWriteS16(dst, chr->bodynum);
+	netbufWriteS16(dst, chr->headnum);
+	netbufWriteCoord(dst, &prop->pos);
+	netbufWriteF32(dst, chrGetInverseTheta(chr));
+	netbufWriteRooms(dst, prop->rooms, ARRAYCOUNT(prop->rooms));
+	netbufWriteU8(dst, chr->team);
+	netbufWriteU32(dst, chr->chrflags);
+	netbufWriteU32(dst, chr->hidden);
+	netbufWriteU32(dst, chr->flags);
+	netbufWriteU32(dst, chr->flags2);
+	netbufWriteU8(dst, chr->noblood ? 1 : 0);
+
+	for (s32 i = 0; i < 2; i++) {
+		const struct prop *w = held[i];
+		const bool ok = w && w->type == PROPTYPE_WEAPON && w->weapon && w->obj;
+
+		netbufWriteU32(dst, ok ? w->syncid : 0);
+		netbufWriteS16(dst, ok ? (s16)w->weapon->weaponnum : -1);
+		netbufWriteS16(dst, ok ? (s16)w->obj->modelnum : -1);
+		netbufWriteU32(dst, ok ? (w->obj->flags & OBJFLAG_WEAPON_LEFTHANDED) : 0);
+	}
+
+	netbufWriteU8(dst, dual ? 1 : 0);
+	netbufWriteU32(dst, hat && hat->obj ? hat->syncid : 0);
+	netbufWriteS16(dst, hat && hat->obj ? (s16)hat->obj->modelnum : -1);
+
+	sysLogPrintf(LOG_NOTE,
+		"NET.NPC: host announced a chr made after the stage start syncid=%u chrnum=%d body=%d head=%d weapons=%u,%u hat=%u",
+		(unsigned)prop->syncid, (s32)chr->chrnum, (s32)chr->bodynum, (s32)chr->headnum,
+		held[0] ? (unsigned)held[0]->syncid : 0u, held[1] ? (unsigned)held[1]->syncid : 0u,
+		hat ? (unsigned)hat->syncid : 0u);
+
+	return dst->error;
+}
+
+u32 netmsgSvcNpcSpawnRead(struct netbuf *src, struct netclient *srccl)
+{
+	const u32 syncid = netbufReadU32(src);
+	const s16 chrnum = netbufReadS16(src);
+	const s16 bodynum = netbufReadS16(src);
+	const s16 headnum = netbufReadS16(src);
+	struct coord pos;
+	netbufReadCoord(src, &pos);
+	const f32 angle = netbufReadF32(src);
+	s16 rooms[8] = { -1 };
+	netbufReadRooms(src, rooms, ARRAYCOUNT(rooms));
+	const u8 team = netbufReadU8(src);
+	const u32 chrflags = netbufReadU32(src);
+	const u32 hidden = netbufReadU32(src);
+	const u32 flags = netbufReadU32(src);
+	const u32 flags2 = netbufReadU32(src);
+	const u8 noblood = netbufReadU8(src);
+	u32 wsyncid[2];
+	s16 wweaponnum[2];
+	s16 wmodelnum[2];
+	u32 wobjflags[2];
+
+	for (s32 i = 0; i < 2; i++) {
+		wsyncid[i] = netbufReadU32(src);
+		wweaponnum[i] = netbufReadS16(src);
+		wmodelnum[i] = netbufReadS16(src);
+		wobjflags[i] = netbufReadU32(src);
+	}
+
+	const u8 dual = netbufReadU8(src);
+	const u32 hatsyncid = netbufReadU32(src);
+	const s16 hatmodelnum = netbufReadS16(src);
+	struct prop *wprops[2] = { NULL, NULL };
+	struct prop *prop;
+	struct chrdata *chr;
+
+	if (src->error) {
+		return src->error;
+	}
+
+	if (!srccl || srccl->state < CLSTATE_GAME
+			|| (g_NetGameMode != NETGAMEMODE_COOP && g_NetGameMode != NETGAMEMODE_ANTI)) {
+		return 0;
+	}
+
+	if (syncid == 0 || netSyncIdLookup(syncid)) {
+		sysLogPrintf(LOG_NOTE, "NET.NPC: client ignored a chr spawn syncid=%u (%s)",
+			(unsigned)syncid, syncid ? "already present" : "no id");
+		return 0;
+	}
+
+	prop = chrSpawnReplicated(bodynum, headnum, &pos, rooms, angle, noblood != 0);
+
+	if (!prop || !prop->chr) {
+		sysLogPrintf(LOG_WARNING,
+			"NET.NPC: client could not make the host's chr syncid=%u chrnum=%d body=%d head=%d",
+			(unsigned)syncid, (s32)chrnum, (s32)bodynum, (s32)headnum);
+		return 0;
+	}
+
+	chr = prop->chr;
+	prop->syncid = syncid;
+	netSyncIdMapSet(syncid, prop);
+	chrSetChrnum(chr, chrnum);
+	chr->team = team;
+	chr->chrflags = chrflags;
+	chr->hidden = hidden;
+	chr->flags = flags;
+	chr->flags2 = flags2;
+
+	for (s32 i = 0; i < 2; i++) {
+		if (wsyncid[i] != 0 && wweaponnum[i] >= 0 && wmodelnum[i] >= 0
+				&& !netSyncIdLookup(wsyncid[i])) {
+			wprops[i] = chrGiveWeapon(chr, wmodelnum[i], wweaponnum[i], wobjflags[i]);
+
+			if (wprops[i]) {
+				wprops[i]->syncid = wsyncid[i];
+				netSyncIdMapSet(wsyncid[i], wprops[i]);
+			}
+		}
+	}
+
+	if (dual && wprops[0] && wprops[1] && wprops[0]->weapon && wprops[1]->weapon) {
+		propweaponSetDual(wprops[1]->weapon, wprops[0]->weapon);
+	}
+
+	if (hatmodelnum >= 0) {
+		struct prop *hatprop = hatCreateForChr(chr, hatmodelnum, 0);
+
+		if (hatprop && hatsyncid != 0 && !netSyncIdLookup(hatsyncid)) {
+			hatprop->syncid = hatsyncid;
+			netSyncIdMapSet(hatsyncid, hatprop);
+		}
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"NET.NPC: client made the host's chr syncid=%u chrnum=%d body=%d head=%d weapons=%u,%u",
+		(unsigned)syncid, (s32)chrnum, (s32)bodynum, (s32)headnum,
+		wprops[0] ? (unsigned)wprops[0]->syncid : 0u, wprops[1] ? (unsigned)wprops[1]->syncid : 0u);
+
+	return 0;
 }
 
 /* ========================================================================

@@ -3308,8 +3308,30 @@ s32 chrTick(struct prop *prop)
 
 	if (fulltick && (chr->chrflags & CHRCFLAG_HIDDEN) == 0) {
 		if (chr->hidden & CHRHFLAG_DROPPINGITEM) {
+			/* B-1194: a held weapon equipped after the stage start (as a
+			 * simulant's are) has a dynamic sync id that no client knows, so
+			 * the host announces it once this drop puts it in the world, as
+			 * botinvDrop does for a simulant's other weapons. A client's
+			 * puppet retires its own copy (chrBeginDeath). */
+			struct prop *heldprops[2] = { chr->weapons_held[0], chr->weapons_held[1] };
+
 			objDropRecursively(prop, false);
 			chr->hidden &= ~CHRHFLAG_DROPPINGITEM;
+
+			if (g_NetMode == NETMODE_SERVER) {
+				for (s32 h = 0; h < 2; h++) {
+					struct prop *wprop = heldprops[h];
+
+					if (wprop && wprop->type == PROPTYPE_WEAPON && wprop->weapon
+							&& wprop->parent == NULL
+							&& wprop->syncid >= g_NetFirstDynamicSyncId
+							&& netmsgSvcPropSpawnWrite(&g_NetMsgRel, wprop) == 0) {
+						netmsgSvcPropMoveWrite(&g_NetMsgRel, wprop, NULL);
+						sysLogPrintf(LOG_NOTE, "NET.DROP: host announced chr %d held weapon=%d syncid=%u",
+							(s32)chr->chrnum, (s32)wprop->weapon->weaponnum, (unsigned)wprop->syncid);
+					}
+				}
+			}
 		}
 
 		func0f041a74(chr);

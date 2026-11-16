@@ -291,3 +291,59 @@ TEST_CASE("mission end: each machine's results show both players with the host's
 	REQUIRE(render.find("pdguiEndscreenNetMissionStats(1, &partnerKills, partnerShots,") != std::string::npos);
 	REQUIRE(render.find("\"PARTNER: %s\"") != std::string::npos);
 }
+
+TEST_CASE("co-op chr spawns: a chr the host's AI makes reaches the client with the host's ids",
+          "[net][coop][b1196]") {
+	// B-1196: an AI clone or spawn exists only on the host under a dynamic
+	// sync id (SP-85); the host announces it before its moves and the client
+	// makes a puppet with the same ids
+	REQUIRE(read_text_file("port/include/net/netmsg.h").find("#define SVC_NPC_SPAWN      0x7e") != std::string::npos);
+
+	const std::string net = code_only(read_text_file("port/src/net/net.c"));
+	REQUIRE(net.find("case SVC_NPC_SPAWN: rc = netmsgSvcNpcSpawnRead(&cl->in, cl); break;") != std::string::npos);
+	const std::string end = function_body(net, "void netEndFrame(void)\n{");
+	const size_t announce = end.find("netServerNpcSpawnAnnounce(&g_ChrSlots[i]);");
+	const size_t move = end.find("netmsgSvcNpcMoveWrite(&g_NetMsg, chr);");
+	const size_t state = end.find("netmsgSvcNpcStateWrite(&g_NetMsgRel, chr);");
+	REQUIRE(announce != std::string::npos);
+	REQUIRE(move != std::string::npos);
+	REQUIRE(state != std::string::npos);
+	REQUIRE(announce < move);
+	REQUIRE(end.rfind("netServerNpcSpawnSettled(chr)", move) > announce);
+	REQUIRE(end.rfind("netServerNpcSpawnSettled(chr)", state) > move);
+	const std::string settled = function_body(net, "static bool netServerNpcSpawnSettled(const struct chrdata *chr)\n{");
+	REQUIRE(settled.find("syncid < g_NetFirstDynamicSyncId") != std::string::npos);
+	REQUIRE(settled.find("NET_NPC_SPAWN_SETTLE_TICKS") != std::string::npos);
+
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const std::string read = function_body(msg, "u32 netmsgSvcNpcSpawnRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t mode = read.find("g_NetGameMode != NETGAMEMODE_COOP && g_NetGameMode != NETGAMEMODE_ANTI");
+	const size_t duplicate = read.find("if (syncid == 0 || netSyncIdLookup(syncid)) {");
+	const size_t make = read.find("prop = chrSpawnReplicated(bodynum, headnum, &pos, rooms, angle, noblood != 0);");
+	const size_t bind = read.find("netSyncIdMapSet(syncid, prop);");
+	REQUIRE(mode != std::string::npos);
+	REQUIRE(duplicate != std::string::npos);
+	REQUIRE(make != std::string::npos);
+	REQUIRE(bind != std::string::npos);
+	REQUIRE(mode < make);
+	REQUIRE(duplicate < make);
+	REQUIRE(make < bind);
+	REQUIRE(read.find("chrSetChrnum(chr, chrnum);") != std::string::npos);
+	REQUIRE(read.find("netSyncIdMapSet(wsyncid[i], wprops[i]);") != std::string::npos);
+	REQUIRE(read.find("return 1") == std::string::npos);
+
+	// The client takes the host's place as it is
+	const std::string action = code_only(read_text_file("src/game/chraction.c"));
+	const std::string replicated = function_body(action,
+		"struct prop *chrSpawnReplicated(s32 bodynum, s32 headnum, struct coord *pos, RoomNum *rooms, f32 angle, bool noblood)\n{");
+	REQUIRE(replicated.find("chrAllocate(model, pos, rooms2, angle, ailistFindById(GAILIST_IDLE))") != std::string::npos);
+	REQUIRE(replicated.find("chrAdjustPosForSpawn") == std::string::npos);
+
+	// A smoke can make a clone on the host
+	const std::string main_c = code_only(read_text_file("port/src/main.c"));
+	REQUIRE(main_c.find("sysArgGetString(\"--debug-clone-guard\")") != std::string::npos);
+	const std::string tick = function_body(main_c, "s32 bootDebugCloneGuardTick(void)\n{");
+	REQUIRE(tick.find("if (g_NetMode == NETMODE_CLIENT") != std::string::npos);
+	REQUIRE(tick.find("chrSpawnAtChr(base, base->bodynum, -1, base->chrnum,") != std::string::npos);
+	REQUIRE(code_only(read_text_file("port/src/pdmain.c")).find("(void)bootDebugCloneGuardTick();") != std::string::npos);
+}

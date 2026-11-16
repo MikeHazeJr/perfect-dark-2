@@ -110,7 +110,8 @@
       "LOBBY\\.REVIEW: client=[0-9]+ reviewing=0 reason=continue",
       "LOBBY\\.REVIEW: client=[0-9]+ reviewing=0 reason=match-start",
       "BOT: match chr table retired; simulants are inert until the next stage",
-      "MENU\\.MPENDSCREEN: networked results closed; no local stage change"
+      "MENU\\.MPENDSCREEN: networked results closed; no local stage change",
+      "NET: match end forgets the rolled spawn weapon"
     ],
     "forbidden_patterns": [
       "BOOT: --no-net set; netInit\\(\\) skipped",

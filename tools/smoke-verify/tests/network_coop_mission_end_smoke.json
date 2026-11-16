@@ -1,6 +1,6 @@
 {
   "scenario_name": "network_coop_mission_end_smoke",
-  "description": "B-1193 (Mike, 2026-11-15: the host decides what follows a networked co-op or counter-op mission). A listen host and one client start co-op Defection as network_coop_stage_transaction_smoke does; after 40 s of play the host ends the mission with every objective complete (--debug-end-mission, the level script's own end). Each machine shows only its own player's results; the host's commit returns the client to the lobby; the host presses its default Next Mission, whose lobby start takes the client along from its results screen into the next mission. Asserts the final objective statuses before the stage end, one results push per machine, the host's choice and the second mission live on both.",
+  "description": "B-1193 (Mike, 2026-11-15: the host decides what follows a networked co-op or counter-op mission). A listen host and one client start co-op Defection as network_coop_stage_transaction_smoke does; after 40 s of play the host ends the mission with every objective complete (--debug-end-mission, the level script's own end). Each machine shows only its own player's results; the host's commit returns the client to the lobby; the host presses its default Next Mission, whose lobby start takes the client along from its results screen into the next mission. Asserts the final objective statuses before the stage end, one results push per machine, the host's choice and the second mission live on both. B-1196: 20 s into the first mission the host clones a guard (--debug-clone-guard, idle), as a guard's own clone would appear; the client must make the same chr from the host's SVC_NPC_SPAWN, so no move names a chr it lacks.",
   "tags": [
     "b1193",
     "campaign",
@@ -10,7 +10,8 @@
     "network",
     "player-init",
     "smoke",
-    "transaction"
+    "transaction",
+    "b1196"
   ],
   "paths_of_interest": [
     "port/src/pdmain.c",
@@ -47,7 +48,9 @@
         "--difficulty",
         "agent",
         "--debug-end-mission",
-        "40:complete"
+        "40:complete",
+        "--debug-clone-guard",
+        "20"
       ],
       "wait_for": "NET: created server on port 27254",
       "wait_timeout_seconds": 140,
@@ -224,7 +227,11 @@
       "BRIDGE: local-replayed CLC_LOBBY_START gamemode=1",
       "SMOKE\\.WAIT: satisfied condition=endscreen_visible",
       "SMOKE: result=scripted_exit",
-      "MISSION: final player stats applied players=2 of 2"
+      "MISSION: final player stats applied players=2 of 2",
+      "BOOT: --debug-clone-guard armed: seconds=20",
+      "BOOT: --debug-clone-guard cloned chr [0-9]+ as chr [0-9]+ syncid=[0-9]+",
+      "NET\\.NPC: host announced a chr made after the stage start syncid=",
+      "NET\\.NPC: client made the host's chr syncid="
     ],
     "forbidden_patterns": [
       "prop with syncid .* does not exist",
@@ -246,7 +253,10 @@
       "LOBBY: results screen did not open within",
       "GAMELOOP\\.COOP: no next mission",
       "start request failed",
-      "BOOT: --debug-end-mission rejected"
+      "BOOT: --debug-end-mission rejected",
+      "BOOT: --debug-clone-guard (found no|could not|rejected)",
+      "NET\\.NPC: client could not make the host's chr",
+      "NET\\.NPC: client has no chr for syncid="
     ],
     "required_counts": [
       {
@@ -278,6 +288,11 @@
         "pattern": "SMOKE: result=scripted_exit",
         "min": 1,
         "max": 2
+      },
+      {
+        "pattern": "BOOT: --debug-clone-guard cloned chr",
+        "min": 1,
+        "max": 1
       }
     ]
   }
