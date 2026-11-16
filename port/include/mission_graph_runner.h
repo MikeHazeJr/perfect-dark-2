@@ -112,6 +112,14 @@ typedef s32 (*mission_graph_module_run_fn)(const char *kind, const char *node_id
  * when the graph is malformed or names something the runner cannot execute. */
 mission_graph_program_t *missionGraphProgramCompile(const char *json, size_t json_size,
 	mission_graph_module_known_fn module_known, char *err, size_t err_cap);
+/* object-events.md slice 1: compile a level graph's program
+ * (level.graph.json). Only its event.*, gate.* and og.* nodes are the
+ * program, at most MISSION_GRAPH_MAX_NODES of them; every other node is
+ * level data (AI lists, setup, rooms), skipped and not counted, and an edge
+ * without "input" may name one. An execution edge still joins program
+ * nodes. A level graph without program nodes compiles to an empty program. */
+mission_graph_program_t *missionGraphProgramCompileLevel(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap);
 void missionGraphProgramFree(mission_graph_program_t *program);
 
 s32 missionGraphProgramNodeCount(const mission_graph_program_t *program);

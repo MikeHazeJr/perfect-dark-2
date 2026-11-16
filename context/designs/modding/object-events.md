@@ -111,6 +111,31 @@ under decision 1. Not built. Facts from a read-only survey of
 - Conformance checks a level graph's program part as it checks a mission
   graph's.
 
+## Slice 2 plan (CORE, 2026-11-16)
+
+- Event kinds in the runner: `event.pickup.collected`,
+  `event.door.opened`, `event.door.closed` and `event.object.used`. An
+  event node may filter one object (`"object": "setup_0123"`; absent or
+  `"any"` for every one). The event carries `object` (the record id),
+  `tag` (-1 when no tag record names it), `object_kind` (the objects.json
+  kind), `catalog_id` (the weapon of a pickup, else the object's model; may
+  be absent) and `player` (-1 when no player caused it).
+- Seams, each after the native decision and effect (game code builds the
+  payload, as the objectives check builds the players' positions):
+  `propPickupByPlayer` once the pickup applied (the current player);
+  `doorStartOpen` and `doorStartClose` for every start, whoever caused it
+  (player -1); `propobjInteract` for the use button on an object (the
+  current player). The record id comes from `setupGetCmdIndexByProp`, the
+  tag from `objGetTagNum`.
+- Delivered to the level program on every stage and to the mission
+  program on a mission, on the host only (a networked client fires none;
+  replication stays MULTIPLAYER's).
+- Record-only: no base graph wires them. The runtime counts each kind per
+  stage and logs the counts once (`SCENARIO.GRAPH: object events '...'
+  pickup.collected=... door.opened=... door.closed=... object.used=...`);
+  the campaign fixtures require doors and pickups on the missions that
+  have them, so every base mission shows its events arriving.
+
 ## Not in scope
 
 - Lifts' own stops and glass breaking (their own events after slice 4).

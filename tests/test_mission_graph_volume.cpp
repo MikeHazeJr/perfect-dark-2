@@ -193,7 +193,7 @@ TEST_CASE("Mission graph volume events: the runtime binds and delivers them",
 
 	// Delivered on a change of inside/outside per player, from the objectives
 	// check after the phase event, not on a network client.
-	REQUIRE(runtime.find("if (inside == ((s_ActiveScenarioGraphs.mission_volumes[v].inside & bit) != 0)) {")
+	REQUIRE(runtime.find("if (inside == ((bound[v].inside & bit) != 0)) {")
 		!= std::string::npos);
 	REQUIRE(runtime.find("event.kind = inside ? MISSION_GRAPH_EVENT_VOLUME_ENTERED : MISSION_GRAPH_EVENT_VOLUME_LEFT;")
 		!= std::string::npos);

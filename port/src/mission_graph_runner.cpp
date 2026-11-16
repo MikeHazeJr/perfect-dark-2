@@ -77,26 +77,39 @@ struct mission_graph_program {
 	int modules = 0;
 };
 
-extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json, size_t json_size,
-	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
+namespace {
+
+bool isProgramKind(const std::string &kind)
 {
+	return kind.rfind("event.", 0) == 0 || kind.rfind("gate.", 0) == 0 || kind.rfind("og.", 0) == 0;
+}
+
+// level (object-events.md slice 1): the graph is a level graph, whose
+// program is only its event.*, gate.* and og.* nodes; every other node is
+// level data, skipped and not counted, and an edge that is not an
+// execution edge may name it.
+mission_graph_program_t *compileProgram(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap, bool level)
+{
+	const std::string file = level ? "level.graph.json" : "mission.graph.json";
+
 	setError(err, err_cap, "");
 	if (!json || !json_size) {
-		setError(err, err_cap, "empty mission graph");
+		setError(err, err_cap, level ? "empty level graph" : "empty mission graph");
 		return nullptr;
 	}
 	try {
 		crude_json::value root;
 		if (!modAssetJsonReadValue(json, json_size, root) || !root.is_object()) {
-			setError(err, err_cap, "mission.graph.json is not one JSON object");
+			setError(err, err_cap, file + " is not one JSON object");
 			return nullptr;
 		}
 		if (!root.contains("nodes") || !root["nodes"].is_array()) {
-			setError(err, err_cap, "mission.graph.json has no nodes array");
+			setError(err, err_cap, file + " has no nodes array");
 			return nullptr;
 		}
 		const crude_json::array &nodes = root["nodes"].get<crude_json::array>();
-		if (nodes.size() > MISSION_GRAPH_MAX_NODES) {
+		if (!level && nodes.size() > MISSION_GRAPH_MAX_NODES) {
 			setError(err, err_cap, "more than " + std::to_string(MISSION_GRAPH_MAX_NODES) + " nodes");
 			return nullptr;
 		}
@@ -106,6 +119,17 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 		for (size_t i = 0; i < nodes.size(); i++) {
 			const crude_json::value &node = nodes[i];
 			Node compiled;
+			if (level) {
+				std::string kind;
+				if (!node.is_object() || !stringField(node, "kind", kind) || !isProgramKind(kind)) {
+					continue; // level data, not the program
+				}
+				if (program->nodes.size() >= MISSION_GRAPH_MAX_NODES) {
+					setError(err, err_cap, "more than " + std::to_string(MISSION_GRAPH_MAX_NODES) +
+						" program nodes");
+					return nullptr;
+				}
+			}
 			if (!node.is_object() || !stringField(node, "id", compiled.id) || compiled.id.empty() ||
 					!stringField(node, "kind", compiled.kind) || compiled.kind.empty()) {
 				setError(err, err_cap, "node " + std::to_string(i) + " needs a non-empty id and kind");
@@ -222,6 +246,10 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 				}
 				auto source = index.find(from);
 				auto target = index.find(to);
+				if (level && !edge.contains("input") &&
+						(source == index.end() || target == index.end())) {
+					continue; // structural edge of the level data
+				}
 				if (source == index.end() || target == index.end()) {
 					setError(err, err_cap, where + " names a missing node ('" +
 						(source == index.end() ? from : to) + "')");
@@ -275,9 +303,23 @@ extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json,
 		}
 		return program.release();
 	} catch (...) {
-		setError(err, err_cap, "mission graph could not be read");
+		setError(err, err_cap, level ? "level graph could not be read" : "mission graph could not be read");
 		return nullptr;
 	}
+}
+
+} // namespace
+
+extern "C" mission_graph_program_t *missionGraphProgramCompile(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
+{
+	return compileProgram(json, json_size, module_known, err, err_cap, false);
+}
+
+extern "C" mission_graph_program_t *missionGraphProgramCompileLevel(const char *json, size_t json_size,
+	mission_graph_module_known_fn module_known, char *err, size_t err_cap)
+{
+	return compileProgram(json, json_size, module_known, err, err_cap, true);
 }
 
 extern "C" s32 missionGraphPhaseFromText(const char *text)

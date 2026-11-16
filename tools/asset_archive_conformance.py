@@ -2644,15 +2644,24 @@ MISSION_GRAPH_AFTER_END_EVENTS = {"event.mission.completed", "event.mission.cont
 MISSION_GRAPH_STATUSES = {"complete", "incomplete", "failed"}
 
 
-def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
+def _is_graph_program_kind(kind: object) -> bool:
+    return isinstance(kind, str) and kind.startswith(("event.", "gate.", "og."))
+
+
+def validate_mission_graph_execution(label: str, graph: dict, level: bool = False) -> list[str]:
     """The same rules the runner applies when it compiles a mission graph:
     unique ids, known og.* modules and gate kinds, every edge between existing
     nodes, and execution edges ("input": "exec") only from an executable
-    event, gate or module to a gate or module, with the right output port."""
+    event, gate or module to a gate or module, with the right output port.
+    With level (object-events.md slice 1) the graph is a level graph, whose
+    program is only its event.*, gate.* and og.* nodes: its other nodes are
+    level data, and an edge that is not an execution edge may name one."""
     errors: list[str] = []
-    where = f"{label} mission.graph.json"
+    where = f"{label} level.graph.json" if level else f"{label} mission.graph.json"
     kinds: dict[str, str] = {}
     for idx, node in enumerate(graph.get("nodes") or []):
+        if level and not (isinstance(node, dict) and _is_graph_program_kind(node.get("kind"))):
+            continue
         node_id = node.get("id") if isinstance(node, dict) else None
         kind = node.get("kind") if isinstance(node, dict) else None
         if not isinstance(node_id, str) or not node_id or not isinstance(kind, str) or not kind:
@@ -2693,6 +2702,8 @@ def validate_mission_graph_execution(label: str, graph: dict) -> list[str]:
             errors.append(f"{where} edge {idx} needs from and to")
             continue
         src, dst = edge["from"], edge["to"]
+        if level and "input" not in edge and (src not in kinds or dst not in kinds):
+            continue  # a structural edge of the level data
         if src not in kinds or dst not in kinds:
             errors.append(f"{where} edge {idx} names a missing node")
             continue
@@ -9222,6 +9233,11 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                 result.errors.append(
                                     f"{label} level.graph.json must include exactly one {description} graph node"
                                 )
+                        # object-events.md slice 1: the level graph's own
+                        # program (its event.*, gate.* and og.* nodes), as the
+                        # runtime compiles it for every stage.
+                        result.errors.extend(
+                            validate_mission_graph_execution(label, graph, level=True))
                         links = graph.get("links")
                         link_pairs = set()
                         if isinstance(links, list):

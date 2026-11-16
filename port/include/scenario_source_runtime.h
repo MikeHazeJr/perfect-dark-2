@@ -95,6 +95,11 @@ s32 scenarioSourceMissionGraphDeliverPhaseEvent(void);
 struct coord;
 s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
 	const s32 *present, s32 count);
+/* object-events.md slice 1: players going into or out of the volumes the
+ * level graph's own program names, on every stage; called from lvTick after
+ * scenarioTick on the host (present[p] 0 when a player has no prop). */
+s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count);
 s32 scenarioSourceMissionGraphRequestEnd(s32 completed);
 s32 scenarioSourceMissionGraphForcedOutcome(s32 *out_complete);
 s32 scenarioSourceMissionGraphTakePendingEnd(void);

@@ -326,6 +326,15 @@ typedef struct scenario_nav_source_hashes {
 	char paths[SHA256_HEX_SIZE];
 } scenario_nav_source_hashes_t;
 
+/* trigger-volume-events.md: a box a program's event.volume.* nodes name,
+ * bound at activation, and which players are inside it (a bit per player). */
+typedef struct scenario_source_bound_volume {
+	const char *id; /* the program's string */
+	f32 min[3];
+	f32 max[3];
+	u32 inside;
+} scenario_source_bound_volume_t;
+
 typedef struct scenario_source_graph_state {
 	char scenario_id[CATALOG_ID_LEN];
 	char level_graph_path[FS_MAXPATH + 1];
@@ -1248,12 +1257,14 @@ typedef struct scenario_source_graph_state {
 	/* trigger-volume-events.md: the boxes event.volume.* names, bound at
 	 * activation, and which players are inside each (a bit per player). */
 	s32 mission_volume_count;
-	struct {
-		const char *id; /* the program's string */
-		f32 min[3];
-		f32 max[3];
-		u32 inside;
-	} mission_volumes[MISSION_GRAPH_MAX_VOLUMES];
+	scenario_source_bound_volume_t mission_volumes[MISSION_GRAPH_MAX_VOLUMES];
+	/* object-events.md slice 1: the executable part of level.graph.json
+	 * (its event.*, gate.* and og.* nodes), compiled for every stage, and
+	 * the boxes its event.volume.* nodes name. */
+	mission_graph_program_t *level_program;
+	char level_program_error[160];
+	s32 level_program_volume_count;
+	scenario_source_bound_volume_t level_program_volumes[MISSION_GRAPH_MAX_VOLUMES];
 	s32 mission_forced_outcome;  /* og.mission.end_*: 0 none, 1 failed, 2 completed */
 	s32 mission_end_pending;     /* og.mission.end_*: the stage ends after the check */
 } scenario_source_graph_state_t;
@@ -1297,6 +1308,7 @@ static void s_resetActiveScenarioGraphs(void)
 	free(s_ActiveScenarioGraphs.mission_objectives);
 	free(s_ActiveScenarioGraphs.mission_objective_criteria);
 	missionGraphProgramFree(s_ActiveScenarioGraphs.mission_program);
+	missionGraphProgramFree(s_ActiveScenarioGraphs.level_program);
 	memset(&s_ActiveScenarioGraphs, 0, sizeof(s_ActiveScenarioGraphs));
 }
 
@@ -9456,16 +9468,18 @@ static const asset_entry_t *s_findMissionForScenario(
 	return match.archive_match;
 }
 
-/* trigger-volume-events.md: binds every volume the mission program's
- * event.volume.* nodes name to its box in the stage's volumes.json. Returns
- * 0 with the reason when one is missing or not an aabb. */
-static s32 s_missionGraphBindVolumes(char *error, size_t error_size)
+/* trigger-volume-events.md: binds every volume a program's event.volume.*
+ * nodes name to its box in the stage's volumes.json: the mission program's,
+ * and (object-events.md slice 1) the level program's. Returns 0 with the
+ * reason when one is missing or not an aabb. */
+static s32 s_graphBindVolumes(const mission_graph_program_t *program,
+	scenario_source_bound_volume_t *bound, s32 *bound_count, char *error, size_t error_size)
 {
-	const s32 count = missionGraphProgramVolumeCount(s_ActiveScenarioGraphs.mission_program);
+	const s32 count = missionGraphProgramVolumeCount(program);
 
-	s_ActiveScenarioGraphs.mission_volume_count = 0;
+	*bound_count = 0;
 	for (s32 i = 0; i < count && i < MISSION_GRAPH_MAX_VOLUMES; i++) {
-		const char *id = missionGraphProgramVolumeAt(s_ActiveScenarioGraphs.mission_program, i);
+		const char *id = missionGraphProgramVolumeAt(program, i);
 		const scenario_source_volume_row_t *row = NULL;
 
 		for (s32 v = 0; id && s_ActiveScenarioGraphs.level_volumes
@@ -9481,16 +9495,26 @@ static s32 s_missionGraphBindVolumes(char *error, size_t error_size)
 				id ? id : "?");
 			return 0;
 		}
-		s_ActiveScenarioGraphs.mission_volumes[i].id = id;
-		memcpy(s_ActiveScenarioGraphs.mission_volumes[i].min, row->min, sizeof(row->min));
-		memcpy(s_ActiveScenarioGraphs.mission_volumes[i].max, row->max, sizeof(row->max));
-		s_ActiveScenarioGraphs.mission_volumes[i].inside = 0;
-		s_ActiveScenarioGraphs.mission_volume_count = i + 1;
+		bound[i].id = id;
+		memcpy(bound[i].min, row->min, sizeof(row->min));
+		memcpy(bound[i].max, row->max, sizeof(row->max));
+		bound[i].inside = 0;
+		*bound_count = i + 1;
 	}
-	if (count > 0) {
+	return 1;
+}
+
+static s32 s_missionGraphBindVolumes(char *error, size_t error_size)
+{
+	if (!s_graphBindVolumes(s_ActiveScenarioGraphs.mission_program,
+			s_ActiveScenarioGraphs.mission_volumes, &s_ActiveScenarioGraphs.mission_volume_count,
+			error, error_size)) {
+		return 0;
+	}
+	if (s_ActiveScenarioGraphs.mission_volume_count > 0) {
 		sysLogPrintf(LOG_NOTE,
 			"MISSION.GRAPH: bound %d trigger volume(s) of '%s' backend=graph.mission.volume+volumes.json",
-			count, s_ActiveScenarioGraphs.mission_id);
+			s_ActiveScenarioGraphs.mission_volume_count, s_ActiveScenarioGraphs.mission_id);
 	}
 	return 1;
 }
@@ -12709,6 +12733,35 @@ s32 scenarioSourceActivateGraphsForStage(const catalog_stage_result_t *stage,
 		level_ai_if_bot_respawning_node_count;
 	s_ActiveScenarioGraphs.level_ai_mp_init_simulants_node_count =
 		level_ai_mp_init_simulants_node_count;
+	/* object-events.md slice 1: the level graph's own program (its event.*,
+	 * gate.* and og.* nodes), for every stage. One that does not compile,
+	 * or names a volume that is no box of volumes.json, refuses the level
+	 * graph. A base level graph has none: an empty program. */
+	s_ActiveScenarioGraphs.level_program = missionGraphProgramCompileLevel(text, text_size,
+		missionGraphModuleKnown, s_ActiveScenarioGraphs.level_program_error,
+		sizeof(s_ActiveScenarioGraphs.level_program_error));
+	if (!s_ActiveScenarioGraphs.level_program
+			|| !s_graphBindVolumes(s_ActiveScenarioGraphs.level_program,
+				s_ActiveScenarioGraphs.level_program_volumes,
+				&s_ActiveScenarioGraphs.level_program_volume_count,
+				s_ActiveScenarioGraphs.level_program_error,
+				sizeof(s_ActiveScenarioGraphs.level_program_error))) {
+		char reason[200];
+
+		snprintf(reason, sizeof(reason), "level program refused: %s",
+			s_ActiveScenarioGraphs.level_program_error);
+		s_graphFailure(ASSET_SCENARIO, scenario->id, graph_path, reason);
+		s_resetActiveScenarioGraphs();
+		free(text);
+		return 0;
+	}
+	sysLogPrintf(LOG_NOTE,
+		"SCENARIO.GRAPH: level program '%s' nodes=%d exec_edges=%d modules=%d volumes=%d backend=graph.level.runner",
+		scenario->id,
+		missionGraphProgramNodeCount(s_ActiveScenarioGraphs.level_program),
+		missionGraphProgramExecEdgeCount(s_ActiveScenarioGraphs.level_program),
+		missionGraphProgramModuleNodeCount(s_ActiveScenarioGraphs.level_program),
+		s_ActiveScenarioGraphs.level_program_volume_count);
 	s_ActiveScenarioGraphs.level_graph_active = 1;
 
 	stageid = stage && stage->entry && stage->entry->id[0]
@@ -34752,16 +34805,17 @@ s32 scenarioSourceMissionGraphRecordPhase(const char *phase,
  * the players' positions (present[p] 0 for a player with no prop) and
  * delivers nothing on a networked client (the host's graph decides).
  * Returns the modules run. */
-s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
+/* One program's volume events: each player who went into or out of one of
+ * its bound volumes since the last call fires event.volume.entered or
+ * event.volume.left on it. Returns the modules run. */
+static s32 s_graphDeliverVolumeEvents(const mission_graph_program_t *program,
+	scenario_source_bound_volume_t *bound, s32 bound_count, const char *channel,
+	const char *owner, const char *backend, const struct coord *positions,
 	const s32 *present, s32 count)
 {
 	s32 total = 0;
 
-	if (!s_ActiveScenarioGraphs.mission_graph_active || !s_ActiveScenarioGraphs.mission_program
-			|| s_ActiveScenarioGraphs.mission_volume_count <= 0 || !positions || !present) {
-		return 0;
-	}
-	for (s32 v = 0; v < s_ActiveScenarioGraphs.mission_volume_count; v++) {
+	for (s32 v = 0; v < bound_count; v++) {
 		for (s32 p = 0; p < count && p < 32; p++) {
 			const u32 bit = 1u << p;
 			mission_graph_event_t event;
@@ -34770,37 +34824,65 @@ s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
 
 			if (present[p]) {
 				const struct coord *pos = &positions[p];
-				const f32 *min = s_ActiveScenarioGraphs.mission_volumes[v].min;
-				const f32 *max = s_ActiveScenarioGraphs.mission_volumes[v].max;
+				const f32 *min = bound[v].min;
+				const f32 *max = bound[v].max;
 
 				inside = pos->x >= min[0] && pos->x <= max[0] && pos->y >= min[1]
 					&& pos->y <= max[1] && pos->z >= min[2] && pos->z <= max[2];
 			}
-			if (inside == ((s_ActiveScenarioGraphs.mission_volumes[v].inside & bit) != 0)) {
+			if (inside == ((bound[v].inside & bit) != 0)) {
 				continue;
 			}
 			if (inside) {
-				s_ActiveScenarioGraphs.mission_volumes[v].inside |= bit;
+				bound[v].inside |= bit;
 			} else {
-				s_ActiveScenarioGraphs.mission_volumes[v].inside &= ~bit;
+				bound[v].inside &= ~bit;
 			}
 			memset(&event, 0, sizeof(event));
 			event.kind = inside ? MISSION_GRAPH_EVENT_VOLUME_ENTERED : MISSION_GRAPH_EVENT_VOLUME_LEFT;
 			event.objective_index = -1;
-			event.volume = s_ActiveScenarioGraphs.mission_volumes[v].id;
+			event.volume = bound[v].id;
 			event.player = p;
-			ran = missionGraphProgramFire(s_ActiveScenarioGraphs.mission_program, &event,
-				missionGraphModuleRun, NULL);
+			ran = missionGraphProgramFire(program, &event, missionGraphModuleRun, NULL);
 			sysLogPrintf(ran < 0 ? LOG_WARNING : LOG_NOTE,
-				"MISSION.GRAPH: %s '%s' volume=%s player=%d modules=%d backend=graph.mission.runner",
-				inside ? "event.volume.entered" : "event.volume.left",
-				s_ActiveScenarioGraphs.mission_id, event.volume, p, ran);
+				"%s: %s '%s' volume=%s player=%d modules=%d backend=%s",
+				channel, inside ? "event.volume.entered" : "event.volume.left",
+				owner, event.volume, p, ran, backend);
 			if (ran > 0) {
 				total += ran;
 			}
 		}
 	}
 	return total;
+}
+
+s32 scenarioSourceMissionGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count)
+{
+	if (!s_ActiveScenarioGraphs.mission_graph_active || !s_ActiveScenarioGraphs.mission_program
+			|| s_ActiveScenarioGraphs.mission_volume_count <= 0 || !positions || !present) {
+		return 0;
+	}
+	return s_graphDeliverVolumeEvents(s_ActiveScenarioGraphs.mission_program,
+		s_ActiveScenarioGraphs.mission_volumes, s_ActiveScenarioGraphs.mission_volume_count,
+		"MISSION.GRAPH", s_ActiveScenarioGraphs.mission_id, "graph.mission.runner",
+		positions, present, count);
+}
+
+/* object-events.md slice 1: the level program's volume events, on every
+ * stage (lvTick, after scenarioTick); the caller passes the players'
+ * positions and delivers nothing on a networked client. */
+s32 scenarioSourceLevelGraphDeliverVolumeEvents(const struct coord *positions,
+	const s32 *present, s32 count)
+{
+	if (!s_ActiveScenarioGraphs.level_graph_active || !s_ActiveScenarioGraphs.level_program
+			|| s_ActiveScenarioGraphs.level_program_volume_count <= 0 || !positions || !present) {
+		return 0;
+	}
+	return s_graphDeliverVolumeEvents(s_ActiveScenarioGraphs.level_program,
+		s_ActiveScenarioGraphs.level_program_volumes,
+		s_ActiveScenarioGraphs.level_program_volume_count, "SCENARIO.GRAPH",
+		s_ActiveScenarioGraphs.scenario_id, "graph.level.runner", positions, present, count);
 }
 
 s32 scenarioSourceMissionGraphDeliverPhaseEvent(void)
