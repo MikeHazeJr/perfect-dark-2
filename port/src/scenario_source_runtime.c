@@ -21,6 +21,7 @@
 #include "mission_graph_modules.h"
 #include "scenario_stage_rules.h"
 #include "scenario_intro.h"
+#include "ai_command_schema.h"
 #include "ai_edge_shadow.h"
 #include "bss.h"
 #include "game/bondmove.h"
@@ -2490,6 +2491,48 @@ static s32 s_aiAppendCommand(scenario_source_ai_table_t *table,
 	return 1;
 }
 
+/* context/designs/modding/ai-typed-operands.md, slice 2: a row's "args",
+ * when it has them, encoded through the command schema must give exactly
+ * the row's operand bytes (checked before catalog ids patch them). A row
+ * without args is the v1 form and compiles from its operands. */
+static s32 s_aiRowArgsMatchOperands(scenario_source_ai_table_t *table,
+	const char *ailist_ref, u32 command_index, char *row_start, char *row_end,
+	const scenario_source_ai_command_t *cmd)
+{
+	const char *args = s_jsonValueAfterKey(row_start, row_end, "args");
+	const ai_command_schema_t *schema;
+	char *args_end;
+	u8 bytes[512];
+	char error[160];
+	char where[64];
+	s32 count;
+
+	if (!args) {
+		return 1;
+	}
+	snprintf(where, sizeof(where), "%s command %u", ailist_ref, (unsigned)command_index);
+	schema = aiCommandSchemaFind(cmd->opcode);
+	args_end = *args == '{' ? s_jsonFindObjectEnd((char *)args, row_end) : NULL;
+	if (!schema || !args_end) {
+		s_aiTableSetError(table, "AI row '%s' has args the command schema cannot read",
+			where, "");
+		return 0;
+	}
+	count = aiCommandArgsEncode(schema, args, (u32)(args_end - args + 1), bytes,
+		sizeof(bytes), error, sizeof(error));
+	if (count < 0) {
+		s_aiTableSetError(table, "AI row '%s' args: %s", where, error);
+		return 0;
+	}
+	if ((u32)count != cmd->operand_count
+			|| (count > 0 && memcmp(bytes, cmd->operands, (size_t)count) != 0)) {
+		s_aiTableSetError(table, "AI row '%s' args do not give its operands%s",
+			where, "");
+		return 0;
+	}
+	return 1;
+}
+
 static s32 s_loadAiListSourceJson(char *text,
 	scenario_source_ai_table_t *table)
 {
@@ -2594,6 +2637,8 @@ static s32 s_loadAiListSourceJson(char *text,
 			"head_catalog_id", head_id, sizeof(head_id));
 		if (!s_aiParseOperandsJsonArray(cursor, object_end + 1,
 				"operands", &cmd.operands, &cmd.operand_count) ||
+				!s_aiRowArgsMatchOperands(table, ailist_ref, command_index,
+				cursor, object_end + 1, &cmd) ||
 				!s_aiApplyCatalogOperands(table, &cmd, model_id,
 				weapon_id, body_id, head_id) ||
 				!s_aiAppendCommand(table, list, &cmd)) {

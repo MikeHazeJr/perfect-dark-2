@@ -10,6 +10,9 @@
 
 #include "ai_command_schema.h"
 
+#include <inttypes.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 
 static const char *const s_AiOperandKindNames[AI_OPERAND_KIND_COUNT] = {
@@ -1443,4 +1446,320 @@ int aiCommandFieldWrite(const ai_command_field_t *field, uint8_t *operands,
 		raw >>= 8;
 	}
 	return 1;
+}
+
+/* ---------------------------------------------------------------------
+ * Slice 2: arguments as JSON (ai-typed-operands.md).
+ */
+
+static int s_append(char *out, uint32_t out_size, uint32_t *len, const char *fmt, ...)
+{
+	va_list args;
+	int written;
+
+	if (*len >= out_size) {
+		return 0;
+	}
+	va_start(args, fmt);
+	written = vsnprintf(out + *len, out_size - *len, fmt, args);
+	va_end(args);
+	if (written < 0 || (uint32_t)written >= out_size - *len) {
+		return 0;
+	}
+	*len += (uint32_t)written;
+	return 1;
+}
+
+int aiCommandArgsToJson(const ai_command_schema_t *schema, const uint8_t *operands,
+	uint32_t operand_len, char *out, uint32_t out_size)
+{
+	uint32_t len = 0;
+	int first = 1;
+
+	if (!schema || !out || out_size == 0 || (operand_len && !operands)) {
+		return -1;
+	}
+	out[0] = '\0';
+	if (schema->length == 0) {
+		/* print: the text up to its only NUL. */
+		if (operand_len == 0 || operands[operand_len - 1] != 0
+				|| memchr(operands, 0, operand_len - 1)) {
+			return -1;
+		}
+		if (!s_append(out, out_size, &len, "{\"%s\": \"", schema->fields[0].name)) {
+			return -1;
+		}
+		for (uint32_t i = 0; i + 1 < operand_len; i++) {
+			const uint8_t b = operands[i];
+			const int ok = b == '"' || b == '\\'
+				? s_append(out, out_size, &len, "\\%c", (char)b)
+				: b < 0x20 || b >= 0x7f
+				? s_append(out, out_size, &len, "\\u%04x", (unsigned)b)
+				: s_append(out, out_size, &len, "%c", (char)b);
+			if (!ok) {
+				return -1;
+			}
+		}
+		return s_append(out, out_size, &len, "\"}") ? (int)len : -1;
+	}
+	if (operand_len != (uint32_t)schema->length - 2u
+			|| !s_append(out, out_size, &len, "{")) {
+		return -1;
+	}
+	for (uint32_t i = 0; i < schema->field_count; i++) {
+		const ai_command_field_t *field = &schema->fields[i];
+		int64_t value = 0;
+		int ok;
+
+		if (!aiCommandFieldRead(field, operands, operand_len, &value)) {
+			return -1;
+		}
+		if (field->kind == AI_OPERAND_UNUSED && value == 0) {
+			continue;
+		}
+		if (field->kind == AI_OPERAND_BOOL && (value == 0 || value == 1)) {
+			ok = s_append(out, out_size, &len, "%s\"%s\": %s", first ? "" : ", ",
+				field->name, value ? "true" : "false");
+		} else {
+			ok = s_append(out, out_size, &len, "%s\"%s\": %" PRId64, first ? "" : ", ",
+				field->name, value);
+		}
+		if (!ok) {
+			return -1;
+		}
+		first = 0;
+	}
+	return s_append(out, out_size, &len, "}") ? (int)len : -1;
+}
+
+static int s_fail(char *error, uint32_t error_size, const char *fmt, ...)
+{
+	va_list args;
+
+	if (error && error_size) {
+		va_start(args, fmt);
+		vsnprintf(error, error_size, fmt, args);
+		va_end(args);
+	}
+	return -1;
+}
+
+static const char *s_skipSpace(const char *p, const char *end)
+{
+	while (p < end && (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r')) {
+		p++;
+	}
+	return p;
+}
+
+/* A JSON string at p (its opening quote) into out (NUL-terminated, at most
+ * out_size bytes with the NUL; \uXXXX only below 0x100). Returns the byte
+ * after the closing quote, or NULL. *out_len excludes the NUL. */
+static const char *s_readString(const char *p, const char *end, uint8_t *out,
+	uint32_t out_size, uint32_t *out_len)
+{
+	uint32_t len = 0;
+
+	if (p >= end || *p != '"') {
+		return NULL;
+	}
+	p++;
+	while (p < end && *p != '"') {
+		uint32_t c = (uint8_t)*p++;
+
+		if (c == '\\') {
+			if (p >= end) {
+				return NULL;
+			}
+			c = (uint8_t)*p++;
+			if (c == 'u') {
+				uint32_t value = 0;
+
+				if (end - p < 4) {
+					return NULL;
+				}
+				for (int i = 0; i < 4; i++) {
+					const char h = *p++;
+
+					value <<= 4;
+					if (h >= '0' && h <= '9') {
+						value |= (uint32_t)(h - '0');
+					} else if (h >= 'a' && h <= 'f') {
+						value |= (uint32_t)(h - 'a' + 10);
+					} else if (h >= 'A' && h <= 'F') {
+						value |= (uint32_t)(h - 'A' + 10);
+					} else {
+						return NULL;
+					}
+				}
+				if (value == 0 || value > 0xff) {
+					return NULL;
+				}
+				c = value;
+			} else if (c == 'n') {
+				c = '\n';
+			} else if (c == 't') {
+				c = '\t';
+			} else if (c != '"' && c != '\\' && c != '/') {
+				return NULL;
+			}
+		} else if (c < 0x20) {
+			return NULL;
+		}
+		if (len + 1 >= out_size) {
+			return NULL;
+		}
+		out[len++] = (uint8_t)c;
+	}
+	if (p >= end) {
+		return NULL;
+	}
+	out[len] = 0;
+	*out_len = len;
+	return p + 1;
+}
+
+int aiCommandArgsEncode(const ai_command_schema_t *schema, const char *json,
+	uint32_t json_len, uint8_t *out, uint32_t out_size, char *error,
+	uint32_t error_size)
+{
+	const char *end;
+	const char *p;
+	uint8_t seen[64];
+	uint32_t count;
+
+	if (error && error_size) {
+		error[0] = '\0';
+	}
+	if (!schema || !json || !out) {
+		return s_fail(error, error_size, "no arguments");
+	}
+	if (schema->field_count > sizeof(seen)) {
+		return s_fail(error, error_size, "%s has too many fields", schema->name);
+	}
+	memset(seen, 0, sizeof(seen));
+	count = schema->length ? (uint32_t)schema->length - 2u : 0u;
+	if (count > out_size) {
+		return s_fail(error, error_size, "%s needs %u operand bytes", schema->name,
+			(unsigned)count);
+	}
+	memset(out, 0, count);
+	end = json + json_len;
+	p = s_skipSpace(json, end);
+	if (p >= end || *p != '{') {
+		return s_fail(error, error_size, "%s arguments are not an object", schema->name);
+	}
+	p = s_skipSpace(p + 1, end);
+	if (p < end && *p == '}') {
+		p++;
+	} else {
+		for (;;) {
+			uint8_t key[64];
+			uint32_t key_len = 0;
+			const ai_command_field_t *field = NULL;
+			uint32_t index = 0;
+
+			p = s_readString(p, end, key, sizeof(key), &key_len);
+			if (!p) {
+				return s_fail(error, error_size, "%s has a bad argument name", schema->name);
+			}
+			for (index = 0; index < schema->field_count; index++) {
+				if (strcmp(schema->fields[index].name, (const char *)key) == 0) {
+					field = &schema->fields[index];
+					break;
+				}
+			}
+			if (!field) {
+				return s_fail(error, error_size, "%s has no argument '%s'", schema->name,
+					(const char *)key);
+			}
+			if (seen[index]) {
+				return s_fail(error, error_size, "%s argument '%s' appears twice",
+					schema->name, field->name);
+			}
+			seen[index] = 1;
+			p = s_skipSpace(p, end);
+			if (p >= end || *p != ':') {
+				return s_fail(error, error_size, "%s argument '%s' has no value",
+					schema->name, field->name);
+			}
+			p = s_skipSpace(p + 1, end);
+			if (field->kind == AI_OPERAND_STRING) {
+				uint32_t text_len = 0;
+
+				if (out_size < 1) {
+					return s_fail(error, error_size, "no room for %s's text", schema->name);
+				}
+				p = s_readString(p, end, out, out_size, &text_len);
+				if (!p) {
+					return s_fail(error, error_size, "%s argument '%s' is not a text it can hold",
+						schema->name, field->name);
+				}
+				count = text_len + 1u;
+			} else {
+				int64_t value = 0;
+
+				if (field->kind == AI_OPERAND_BOOL && end - p >= 4 && strncmp(p, "true", 4) == 0) {
+					value = 1;
+					p += 4;
+				} else if (field->kind == AI_OPERAND_BOOL && end - p >= 5
+						&& strncmp(p, "false", 5) == 0) {
+					value = 0;
+					p += 5;
+				} else {
+					int negative = 0;
+					int digits = 0;
+
+					if (p < end && *p == '-') {
+						negative = 1;
+						p++;
+					}
+					while (p < end && *p >= '0' && *p <= '9') {
+						if (digits >= 18) {
+							return s_fail(error, error_size, "%s argument '%s' is too large",
+								schema->name, field->name);
+						}
+						value = value * 10 + (*p - '0');
+						digits++;
+						p++;
+					}
+					if (!digits) {
+						return s_fail(error, error_size, "%s argument '%s' must be %s",
+							schema->name, field->name,
+							field->kind == AI_OPERAND_BOOL ? "true or false" : "a whole number");
+					}
+					if (negative) {
+						value = -value;
+					}
+				}
+				if (!aiCommandFieldWrite(field, out, count, value)) {
+					return s_fail(error, error_size, "%s argument '%s' = %" PRId64
+						" is outside its %u-byte %s range", schema->name, field->name, value,
+						(unsigned)field->width, field->is_signed ? "signed" : "unsigned");
+				}
+			}
+			p = s_skipSpace(p, end);
+			if (p < end && *p == ',') {
+				p = s_skipSpace(p + 1, end);
+				continue;
+			}
+			if (p < end && *p == '}') {
+				p++;
+				break;
+			}
+			return s_fail(error, error_size, "%s arguments are not a closed object",
+				schema->name);
+		}
+	}
+	if (s_skipSpace(p, end) != end) {
+		return s_fail(error, error_size, "%s arguments have text after the object",
+			schema->name);
+	}
+	for (uint32_t i = 0; i < schema->field_count; i++) {
+		if (!seen[i] && schema->fields[i].kind != AI_OPERAND_UNUSED) {
+			return s_fail(error, error_size, "%s is missing argument '%s'", schema->name,
+				schema->fields[i].name);
+		}
+	}
+	return (int)count;
 }

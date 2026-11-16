@@ -58,6 +58,7 @@
 #include "constants.h"
 #include "fs.h"
 #include "loader_enum_reverse.h"
+#include "ai_command_schema.h"
 #include "ai_list_edges.h"
 #include "assetcatalog.h"
 #include "asset_archive_writer.h"
@@ -91,7 +92,7 @@
 #define PDSCENARIO_BG_VISUAL_EXPORT_VERSION_FILE \
 	PDSCENARIO_BG_VISUAL_EXPORT_VERSION "\n"
 #define ROMEXTRACT_PDARENA_FAST_CACHE_KIND "pdarena_clean_public_v10_pdscenario_v99_iafix_b945"
-#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins"
+#define ROMEXTRACT_PDSCENARIO_FAST_CACHE_KIND "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs"
 
 /* Convert "base:arena_mp_skedar" -> "base_arena_mp_skedar". */
 static void s_idToFilename(const char *id, char *out, size_t n)
@@ -4266,6 +4267,29 @@ static s32 s_appendAiOperandsJsonArray(pdscenario_textbuf_t *out,
 	return 0;
 }
 
+/* context/designs/modding/ai-typed-operands.md, slice 2: one command's
+ * arguments as ", \"args\": {...}" from the command schema (named, typed
+ * fields; an unused field only when it is not zero). A command the schema
+ * cannot type fails the archive, as a row the writer cannot read would. */
+static s32 s_appendAiArgsJson(pdscenario_textbuf_t *out, const u8 *cmd, u32 len)
+{
+	char args[1024];
+	const u16 opcode = len >= 2 ? (u16)(((u16)cmd[0] << 8) | cmd[1]) : 0;
+	const ai_command_schema_t *schema = len >= 2 ? aiCommandSchemaFind(opcode) : NULL;
+
+	if (!schema || aiCommandArgsToJson(schema, cmd + 2, len - 2, args,
+			sizeof(args)) < 0) {
+		sysLogPrintf(LOG_ERROR,
+			"romextract: AI command 0x%04x (%u bytes) does not fit the AI command schema",
+			(unsigned)opcode, (unsigned)len);
+		return -1;
+	}
+	if (s_textbufAppend(out, ", \"args\": ") != 0 || s_textbufAppend(out, args) != 0) {
+		return -1;
+	}
+	return 0;
+}
+
 /* context/designs/modding/ai-list-graphs.md: one AI list's commands as its
  * rows read them (offset, length, opcode and operand bytes), and the
  * control-flow edges and flags ai_list_edges.c computes from those bytes. */
@@ -4537,6 +4561,7 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 					s_textbufAppend(ai_lists_json,
 						", \"operands\": ") != 0 ||
 					s_appendAiOperandsJsonArray(ai_lists_json, cmd, len) != 0 ||
+					s_appendAiArgsJson(ai_lists_json, cmd, len) != 0 ||
 					s_textbufAppend(ai_lists_json,
 						", \"model_catalog_id\": ") != 0 ||
 					s_textbufAppendJsonString(ai_lists_json, model_id) != 0 ||
@@ -4570,6 +4595,7 @@ static s32 s_buildAiListsTable(const u8 *data, u32 size,
 						", \"semantic_kind\": ") != 0 ||
 					s_textbufAppendJsonString(ai_command_nodes_json,
 						semantic_kind) != 0 ||
+					s_appendAiArgsJson(ai_command_nodes_json, cmd, len) != 0 ||
 					s_appendAiCommandFlagsJson(ai_command_nodes_json,
 						scan.flags[command_index]) != 0 ||
 					s_textbufAppend(ai_command_nodes_json, " }") != 0 ||
@@ -4676,6 +4702,7 @@ char *romExtractGlobalAiListsJson(u32 *out_lists, u32 *out_commands)
 					s_textbufAppendJsonString(&json, opcode_name) != 0 ||
 					s_textbufAppend(&json, ", \"operands\": ") != 0 ||
 					s_appendAiOperandsJsonArray(&json, cmd, len) != 0 ||
+					s_appendAiArgsJson(&json, cmd, len) != 0 ||
 					s_textbufAppend(&json, ", \"model_catalog_id\": ") != 0 ||
 					s_textbufAppendJsonString(&json, model_id) != 0 ||
 					s_textbufAppend(&json, ", \"weapon_catalog_id\": ") != 0 ||
@@ -4758,6 +4785,8 @@ char *romExtractGlobalAiListsGraphJson(u32 *out_nodes, u32 *out_edges)
 					s_textbufAppendJsonString(&nodes, opcode_name) != 0 ||
 					s_textbufAppend(&nodes, ", \"semantic_kind\": ") != 0 ||
 					s_textbufAppendJsonString(&nodes, semantic_kind) != 0 ||
+					s_appendAiArgsJson(&nodes, g_GlobalAilists[i].list + scan.offsets[c],
+						scan.lengths[c]) != 0 ||
 					s_appendAiCommandFlagsJson(&nodes, scan.flags[c]) != 0 ||
 					s_textbufAppend(&nodes, " }") != 0) {
 				goto fail;

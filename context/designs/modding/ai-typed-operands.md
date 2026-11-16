@@ -3,8 +3,8 @@
 Status: CORE, 2026-11-16. Design for the remaining target of the week note's
 "AI commands and cutscene triggers" row ("typed operands, parsed nodes,
 trigger-volume events"), under decision 1 (players can recreate any existing
-behavior with the nodes). Slice 1 built (see "Slice 1 as built"); slices 2-4
-not built. The facts below come from a read-only survey of `week-pd/core`
+behavior with the nodes). Slices 1 and 2 built (see "Slice 1 as built" and
+"Slice 2 as built"); slices 3-4 not built. The facts below come from a read-only survey of `week-pd/core`
 (0d2022b8) and the extracted base 7 data.
 
 ## Where it stands
@@ -120,6 +120,36 @@ AI editing and hand-written lists need named, typed parameters.
   `ai_row_operand_error`) checks every AI row of a scenario and of a
   `.pdai` bank: a known opcode, its name, its operand count, and print's
   single NUL. No data change.
+
+## Slice 2 as built
+
+- Pure helpers in `ai_command_schema.c`: `aiCommandArgsToJson` (a command's
+  bytes to `{"chr": 36, "label": 6}`: fields in byte order, an unused field
+  only when it is not zero, a bool field holding 0 or 1 as `false` or
+  `true`, print's text as a JSON string) and `aiCommandArgsEncode` (back to
+  bytes: any key order, every used field required, an unknown or repeated
+  key, a value outside its field's range, a non-number or a malformed object
+  refused with a reason).
+- The extractor writes `"args"` after `"operands"` on every row of a
+  scenario's `ai/ailists.json` and of the bank, and on every command node of
+  `level.graph.json` and of `ai/global_ailists.graph.json`; a command the
+  schema cannot type fails the archive. Scenario kind `_typedargs`; the bank's
+  extract version and kind `global_ailists_rows_v3_typedargs` (SP-86).
+- The compiler: a row with `args` encodes them and must get exactly its
+  operand bytes, checked before the catalog ids patch them, or the list is
+  refused (`AI row '<list> command <n>' args ...`). A row without `args` is
+  the v1 form and still compiles from its operands. Every stage load and
+  every bank compile is therefore the check that the two forms agree.
+- Conformance: `ai_command_args` (the same rules in Python) and, per row,
+  args equal to what the operands decode to; command nodes carry their
+  row's args (`ai_args_node_errors`); every row must have them when the
+  scenario's arena is the new kind or the bank's extract version is v3 (the
+  version gate that requires the bank's graph takes v2 and v3).
+- Checks: pd-tests round-trips every command through both helpers at the
+  top and bottom of each field's range and pins the refusals, the call
+  sites and their order; the conformance unit tests cover matching and
+  mismatched args, nodes and the v3 requirement. All 73,603 base rows
+  decode to args and back in Python.
 
 ## Not in scope
 

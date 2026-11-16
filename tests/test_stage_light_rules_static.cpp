@@ -95,7 +95,7 @@ TEST_CASE("the extractor writes each stage's room and light rules onto its rows"
 	// moved, so existing installs are re-extracted.
 	REQUIRE(extractor.find("\"sky true draws it relative to the player\")") != std::string::npos);
 	REQUIRE(extractor.find("\"Optional light rules on a row\")") != std::string::npos);
-	REQUIRE(extractor.find("_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins\"") != std::string::npos);
+	REQUIRE(extractor.find("_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs\"") != std::string::npos);
 }
 
 TEST_CASE("the rooms bgRenderScene draws first are the extracted render_always rooms",

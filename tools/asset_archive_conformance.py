@@ -144,7 +144,7 @@ SCENE_DYNTEX_PRESETS = frozenset({
 })
 
 ARENA_SCENARIO_GRAPH_CACHE_KIND = (
-    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins"
+    "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_alphablend_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json_cipalfix_b943_iafix_b945_objoperands_b1111_roomtable_b1113_b1114_b1115_lightrules_sky_stagejson_player_ai_intro_mpsetup_ending_hub_stars_dyntex_ammo_objrules_sparks_gas_mplifts_aiedges_simtwins_typedargs"
 )
 MISSION_SCENARIO_DEP_CACHE_KIND = (
     "pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
@@ -6257,6 +6257,51 @@ AI_COMMAND_SCHEMA = {
 AI_ROW_OPERAND_ERROR_CAP = 20
 
 
+def ai_command_args(opcode: int, operands: list[int]) -> dict | None:
+    """A command's arguments as port/src/ai_command_schema.c
+    aiCommandArgsToJson writes them: named fields in byte order, an unused
+    field only when not zero, a bool field holding 0 or 1 as false or true,
+    print's text as a string. None when the bytes do not fit the command."""
+    command = AI_COMMAND_SCHEMA.get(opcode)
+    if command is None:
+        return None
+    _name, length, fields = command
+    if length == 0:
+        if not operands or operands[-1] != 0 or 0 in operands[:-1]:
+            return None
+        return {fields[0][0]: bytes(operands[:-1]).decode("latin-1")}
+    if len(operands) != length - 2:
+        return None
+    args: dict = {}
+    for name, offset, width, signed, kind in fields:
+        raw = 0
+        for byte in operands[offset - 2:offset - 2 + width]:
+            raw = (raw << 8) | byte
+        if signed and raw & (1 << (8 * width - 1)):
+            raw -= 1 << (8 * width)
+        if kind == "unused" and raw == 0:
+            continue
+        args[name] = bool(raw) if kind == "bool" and raw in (0, 1) else raw
+    return args
+
+
+def _ai_args_text(args: object) -> str:
+    return json.dumps(args, sort_keys=True)
+
+
+def _ai_row_args_error(row: dict, opcode: int, values: list[int]) -> str | None:
+    """ai-typed-operands.md slice 2: a row's args, when it has them, are
+    exactly what its operands decode to."""
+    if "args" not in row:
+        return None
+    expected = ai_command_args(opcode, values)
+    args = row.get("args")
+    if not isinstance(args, dict) or _ai_args_text(args) != _ai_args_text(expected):
+        return (f"args {clean_value(_ai_args_text(args))} do not match its operands "
+                f"({clean_value(_ai_args_text(expected))})")
+    return None
+
+
 def ai_row_operand_error(row: dict) -> str | None:
     """Why one AI row does not fit the command schema, or None."""
     try:
@@ -6285,11 +6330,11 @@ def ai_row_operand_error(row: dict) -> str | None:
     if length == 0:
         if not values or values[-1] != 0 or 0 in values[:-1]:
             return f"{name} text must end at its only NUL byte"
-        return None
+        return _ai_row_args_error(row, opcode, values)
     if len(values) != length - 2:
         return (f"{name} has {len(values)} operand bytes; the command schema "
                 f"says {length - 2}")
-    return None
+    return _ai_row_args_error(row, opcode, values)
 
 
 def validate_scenario_ai_lists_json_schema(label: str, entry_name: str,
@@ -6421,6 +6466,10 @@ AI_LIST_EDGE_ERRORS_SHOWN = 20
 # The .pdai bank carries its graph from this extract_version on
 # (PDAI_EXTRACT_VERSION, port/src/romextract_pdai.c).
 PDAI_AI_EDGES_EXTRACT_VERSION = "global_ailists_rows_v2_aiedges"
+# From this extract_version on the bank's rows and graph nodes carry args
+# (ai-typed-operands.md slice 2); it carries the graph too.
+PDAI_TYPED_ARGS_EXTRACT_VERSION = "global_ailists_rows_v3_typedargs"
+PDAI_GRAPH_EXTRACT_VERSIONS = (PDAI_AI_EDGES_EXTRACT_VERSION, PDAI_TYPED_ARGS_EXTRACT_VERSION)
 PDAI_GRAPH_MEMBER = "ai/global_ailists.graph.json"
 AI_GRAPH_SCHEMA = "pd2.scenario.ai.graph.v1"
 
@@ -6516,6 +6565,30 @@ def _ai_row_hex(value: object, limit: int) -> int | None:
     except ValueError:
         return None
     return number if 0 <= number <= limit else None
+
+
+def ai_args_node_errors(rows: object, nodes: object, require: bool) -> list[str]:
+    """ai-typed-operands.md slice 2: every command node carries its row's
+    args (both or neither), and with require (the archive's kind or extract
+    version writes them) every row has them. Row args against operands is
+    ai_row_operand_error's."""
+    errors: list[str] = []
+    if not isinstance(rows, list) or not isinstance(nodes, list):
+        return errors
+    row_by_node = {row.get("graph_node"): row for row in rows if isinstance(row, dict)}
+    for idx, row in enumerate(rows):
+        if require and isinstance(row, dict) and "args" not in row:
+            errors.append(f"row {idx} has no args")
+    for node in nodes:
+        if not isinstance(node, dict) or node.get("kind") != "scenario.ai.command":
+            continue
+        row = row_by_node.get(node.get("id"))
+        if row is None:
+            continue
+        if ("args" in node) != ("args" in row) or (
+                "args" in row and _ai_args_text(node.get("args")) != _ai_args_text(row.get("args"))):
+            errors.append(f"node {node.get('id')} args differ from its row's")
+    return errors
 
 
 def ai_list_edge_errors(rows: object, nodes: object, links: object,
@@ -6720,6 +6793,10 @@ def validate_ai_lists_graph_member(label: str, zf: zipfile.ZipFile,
     errors.extend(_ai_edge_errors_capped(
         prefix, ai_list_edge_errors(rows, nodes, links, require=True)
     ))
+    errors.extend(_ai_edge_errors_capped(prefix, ai_args_node_errors(
+        rows, nodes,
+        require=any(isinstance(row, dict) and "args" in row for row in rows),
+    )))
     return errors
 
 
@@ -6735,8 +6812,10 @@ def validate_ai_lists_source_contract(label: str, zf: zipfile.ZipFile,
     must match the edges recomputed from the rows.
     """
     graph_named = False
+    extract_version = ""
     if "ai.ini" in name_set:
         text = zf.read("ai.ini").decode("utf-8", errors="replace")
+        extract_version = descriptor_value(text, "extract_version")
         sections = [
             line.strip()[1:-1].strip()
             for line in text.splitlines()
@@ -6756,7 +6835,7 @@ def validate_ai_lists_source_contract(label: str, zf: zipfile.ZipFile,
             errors.append(
                 f"{label} ai.ini ai_lists_graph_file must be {PDAI_GRAPH_MEMBER}"
             )
-        if (descriptor_value(text, "extract_version") == PDAI_AI_EDGES_EXTRACT_VERSION
+        if (descriptor_value(text, "extract_version") in PDAI_GRAPH_EXTRACT_VERSIONS
                 and not graph_named):
             errors.append(
                 f"{label} ai.ini must declare ai_lists_graph_file = {PDAI_GRAPH_MEMBER} "
@@ -6793,6 +6872,13 @@ def validate_ai_lists_source_contract(label: str, zf: zipfile.ZipFile,
             errors.append(
                 f"{label} ai/global_ailists.json row {idx} list_id "
                 f"{clean_value(list_id)} is not a global list id (below 0x0401)"
+            )
+    if extract_version == PDAI_TYPED_ARGS_EXTRACT_VERSION:
+        without = sum(1 for row in rows if isinstance(row, dict) and "args" not in row)
+        if without:
+            errors.append(
+                f"{label} ai/global_ailists.json has {without} rows without args "
+                f"(extract_version {PDAI_TYPED_ARGS_EXTRACT_VERSION} writes them)"
             )
     if PDAI_GRAPH_MEMBER in name_set:
         errors.extend(validate_ai_lists_graph_member(label, zf, rows))
@@ -8978,6 +9064,16 @@ def validate_archive_bytes(data: bytes, label: str, ext: str,
                                     f"{label} level.graph.json",
                                     ai_list_edge_errors(
                                         ai_rows, nodes, links,
+                                        require=parent_scenario_graph_cache
+                                        == ARENA_SCENARIO_GRAPH_CACHE_KIND,
+                                    ),
+                                ))
+                                # ai-typed-operands.md slice 2: the rows'
+                                # and the command nodes' args.
+                                result.errors.extend(_ai_edge_errors_capped(
+                                    f"{label} level.graph.json",
+                                    ai_args_node_errors(
+                                        ai_rows, nodes,
                                         require=parent_scenario_graph_cache
                                         == ARENA_SCENARIO_GRAPH_CACHE_KIND,
                                     ),

@@ -8,13 +8,14 @@ import zipfile
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "tools"))
 from asset_archive_conformance import (
+    AI_COMMAND_SCHEMA,
     ARENA_SCENARIO_GRAPH_CACHE_KIND, FAMILIES_NOT_YET_REQUIRED,
     TYPED_DESCRIPTORS, ai_list_control_flow, ai_list_edge_errors,
     validate_archive_bytes,
 )
 
 
-def ai_row(list_id, index, opcode_name="end_list"):
+def ai_row(list_id, index, opcode_name="end"):
     return {
         "ailist_ref": f"global_{list_id:04x}",
         "list_id": f"0x{list_id:04x}",
@@ -117,7 +118,9 @@ HAND_MADE = [
 def list_rows(list_id, commands):
     rows, offset = [], 0
     for index, (opcode, operands) in enumerate(commands):
-        row = ai_row(list_id, index, opcode_name=f"op_{opcode:04x}")
+        # Real commands: conformance checks each row against the command
+        # schema (ai-typed-operands.md), so the name is the schema's.
+        row = ai_row(list_id, index, opcode_name=AI_COMMAND_SCHEMA[opcode][0])
         row.update(offset=offset, opcode=f"0x{opcode:04x}",
                    operands=[f"0x{value:02x}" for value in operands])
         rows.append(row)
@@ -221,6 +224,8 @@ class AiListEdgeRuleTests(unittest.TestCase):
 class GlobalAiListsGraphTests(unittest.TestCase):
     NEW_INI = (GOOD_INI + "ai_lists_graph_file = ai/global_ailists.graph.json\n"
                "extract_version = global_ailists_rows_v2_aiedges\n")
+    TYPED_INI = (GOOD_INI + "ai_lists_graph_file = ai/global_ailists.graph.json\n"
+                 "extract_version = global_ailists_rows_v3_typedargs\n")
 
     def bank(self, ini, rows, graph):
         data = io.BytesIO()
@@ -256,6 +261,34 @@ class GlobalAiListsGraphTests(unittest.TestCase):
         graph["nodes"].pop()
         errors = self.bank(self.NEW_INI, rows, graph)
         self.assertTrue(any("has no node for 1 row(s)" in error for error in errors))
+
+    def test_rows_and_nodes_carry_matching_args(self):
+        """ai-typed-operands.md slice 2: args decode the operands, nodes copy them."""
+        commands = [(0x0033, [0x24, 0x06]), (LABEL, [6]), (END, [])]  # if_chr_dead
+        rows = list_rows(0x0010, commands)
+        args = [{"chr": 36, "label": 6}, {"label": 6}, {}]
+        for row, arg in zip(rows, args):
+            row["args"] = arg
+        graph = self.graph(rows, commands)
+        args_by_node = {row["graph_node"]: row["args"] for row in rows}
+        for node in graph["nodes"]:
+            if node["id"] in args_by_node:
+                node["args"] = args_by_node[node["id"]]
+        self.assertEqual(self.bank(self.TYPED_INI, rows, graph), [])
+        # A row whose args do not decode its operands.
+        bad_rows = [dict(row) for row in rows]
+        bad_rows[0]["args"] = {"chr": 37, "label": 6}
+        errors = self.bank(self.TYPED_INI, bad_rows, graph)
+        self.assertTrue(any("do not match its operands" in error for error in errors))
+        # A node whose args are not its row's.
+        bad_graph = json.loads(json.dumps(graph))
+        bad_graph["nodes"][1]["args"] = {"chr": 36, "label": 7}
+        errors = self.bank(self.TYPED_INI, rows, bad_graph)
+        self.assertTrue(any("args differ from its row's" in error for error in errors))
+        # The typed extract version requires them on every row.
+        bare = [{k: v for k, v in row.items() if k != "args"} for row in rows]
+        errors = self.bank(self.TYPED_INI, bare, self.graph(bare, commands))
+        self.assertTrue(any("3 rows without args" in error for error in errors))
 
     def test_new_extract_version_requires_the_graph(self):
         rows = list_rows(0x0010, [(END, [])])
@@ -308,7 +341,9 @@ class ScenarioAiEdgesKindTests(unittest.TestCase):
                       errors[0])
 
     def test_an_older_kind_does_not(self):
-        older = ARENA_SCENARIO_GRAPH_CACHE_KIND.removesuffix("_aiedges")
+        # The kind before the edges: everything ahead of "_aiedges".
+        older = ARENA_SCENARIO_GRAPH_CACHE_KIND.split("_aiedges")[0]
+        self.assertNotEqual(older, ARENA_SCENARIO_GRAPH_CACHE_KIND)
         self.assertEqual(self.arena_errors(True, older), [])
 
 

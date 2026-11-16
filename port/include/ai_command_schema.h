@@ -97,6 +97,25 @@ int aiCommandFieldWrite(const ai_command_field_t *field, uint8_t *operands,
 void aiCommandFieldRange(const ai_command_field_t *field, int64_t *out_min,
 	int64_t *out_max);
 
+/* Slice 2: a command's arguments as a JSON object, e.g. {"chr": 36,
+ * "label": 6}, in field order. An unused field is written only when its
+ * bytes are not zero (it keeps a base row byte-exact; it has no effect);
+ * print's text is a JSON string. Writes a NUL-terminated object into out
+ * and returns its length, or -1 when the operands do not fit the command
+ * (print: no NUL at the end) or out is too small. */
+int aiCommandArgsToJson(const ai_command_schema_t *schema, const uint8_t *operands,
+	uint32_t operand_len, char *out, uint32_t out_size);
+
+/* Encodes a JSON arguments object (json points at its '{', json_len covers
+ * it through its '}') into the command's operand bytes. Every field but an
+ * unused one is required; an unused field defaults to zero; a key that is
+ * no field, a value outside its field's range or a malformed object is
+ * refused. Returns the operand count written to out, or -1 with the reason
+ * in error. */
+int aiCommandArgsEncode(const ai_command_schema_t *schema, const char *json,
+	uint32_t json_len, uint8_t *out, uint32_t out_size, char *error,
+	uint32_t error_size);
+
 #ifdef __cplusplus
 }
 #endif

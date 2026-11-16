@@ -371,3 +371,162 @@ TEST_CASE("AI command schema: the conformance tool carries the same table",
 	}
 	REQUIRE(count == aiCommandSchemaCount());
 }
+
+TEST_CASE("AI command schema: arguments round-trip through JSON for every command",
+	"[ai][schema][args]")
+{
+	char json[512];
+	uint8_t bytes[64];
+	uint8_t back[64];
+	char error[160];
+
+	for (uint32_t i = 0; i < aiCommandSchemaCount(); i++) {
+		const ai_command_schema_t *schema = aiCommandSchemaAt(i);
+		INFO("opcode 0x" << std::hex << schema->opcode << " " << schema->name);
+		if (schema->opcode == AI_COMMAND_OP_PRINT) {
+			continue;
+		}
+		const uint32_t count = (uint32_t)schema->length - 2u;
+		REQUIRE(count <= sizeof(bytes));
+		// Every field at a value inside its range: the top value, then its
+		// smallest; an unused field zero, then not.
+		for (int pass = 0; pass < 2; pass++) {
+			std::memset(bytes, 0, sizeof(bytes));
+			for (uint32_t f = 0; f < schema->field_count; f++) {
+				const ai_command_field_t *field = &schema->fields[f];
+				int64_t min = 0;
+				int64_t max = 0;
+				aiCommandFieldRange(field, &min, &max);
+				int64_t value = pass == 0 ? max : min;
+				if (field->kind == AI_OPERAND_UNUSED) {
+					value = pass;
+				}
+				REQUIRE(aiCommandFieldWrite(field, bytes, count, value) == 1);
+			}
+			const int len = aiCommandArgsToJson(schema, bytes, count, json, sizeof(json));
+			REQUIRE(len > 0);
+			INFO(json);
+			std::memset(back, 0xaa, sizeof(back));
+			REQUIRE(aiCommandArgsEncode(schema, json, (uint32_t)len, back, sizeof(back),
+				error, sizeof(error)) == (int)count);
+			REQUIRE(std::memcmp(bytes, back, count) == 0);
+		}
+	}
+}
+
+TEST_CASE("AI command schema: arguments as authors write them", "[ai][schema][args]")
+{
+	char json[256];
+	uint8_t bytes[64];
+	char error[160];
+	const ai_command_schema_t *dead = aiCommandSchemaFind(0x0033);
+	REQUIRE(dead != nullptr);
+
+	// if_chr_dead: chr 0x24, label 6, as the extractor writes it.
+	const uint8_t operands[2] = {0x24, 0x06};
+	REQUIRE(aiCommandArgsToJson(dead, operands, 2, json, sizeof(json)) > 0);
+	REQUIRE(std::string(json) == "{\"chr\": 36, \"label\": 6}");
+	// Any order and spacing.
+	const std::string reordered = " { \"label\" : 6 ,\n \"chr\": 36 } ";
+	REQUIRE(aiCommandArgsEncode(dead, reordered.c_str(), (uint32_t)reordered.size(), bytes,
+		sizeof(bytes), error, sizeof(error)) == 2);
+	REQUIRE(bytes[0] == 0x24);
+	REQUIRE(bytes[1] == 0x06);
+
+	// Refusals, each with its reason.
+	const std::vector<std::pair<std::string, std::string>> refused = {
+		{"{\"chr\": 36}", "missing argument 'label'"},
+		{"{\"chr\": 36, \"label\": 6, \"pad\": 1}", "no argument 'pad'"},
+		{"{\"chr\": 36, \"label\": 256}", "outside its 1-byte unsigned range"},
+		{"{\"chr\": -1, \"label\": 6}", "outside its 1-byte unsigned range"},
+		{"{\"chr\": 36, \"chr\": 36, \"label\": 6}", "appears twice"},
+		{"{\"chr\": \"bond\", \"label\": 6}", "must be a whole number"},
+		{"{\"chr\": 36, \"label\": 6", "not a closed object"},
+		{"[36, 6]", "not an object"},
+		{"{\"chr\": 36, \"label\": 6} x", "text after the object"},
+	};
+	for (const auto &[text, reason] : refused) {
+		INFO(text);
+		REQUIRE(aiCommandArgsEncode(dead, text.c_str(), (uint32_t)text.size(), bytes,
+			sizeof(bytes), error, sizeof(error)) == -1);
+		REQUIRE(std::string(error).find(reason) != std::string::npos);
+	}
+
+	// print: its text with escapes, NUL-terminated in the bytes.
+	const ai_command_schema_t *print = aiCommandSchemaFind(AI_COMMAND_OP_PRINT);
+	REQUIRE(print != nullptr);
+	const uint8_t text[] = {'s', 'a', 'y', ' ', '"', 'h', 'i', '"', 0x5c, 0x01, 0};
+	const int len = aiCommandArgsToJson(print, text, sizeof(text), json, sizeof(json));
+	REQUIRE(len > 0);
+	// The quotes and the backslash escaped, byte 0x01 as a u-escape.
+	const std::string expected = std::string("{\"text\": \"say ") + '\\' + "\"hi" + '\\' + "\""
+		+ '\\' + '\\' + '\\' + "u0001\"}";
+	REQUIRE(std::string(json) == expected);
+	REQUIRE(aiCommandArgsEncode(print, json, (uint32_t)len, bytes, sizeof(bytes), error,
+		sizeof(error)) == (int)sizeof(text));
+	REQUIRE(std::memcmp(bytes, text, sizeof(text)) == 0);
+	// A text without its NUL, or with one inside, does not fit.
+	REQUIRE(aiCommandArgsToJson(print, text, sizeof(text) - 1, json, sizeof(json)) == -1);
+	const uint8_t inner[] = {'a', 0, 'b', 0};
+	REQUIRE(aiCommandArgsToJson(print, inner, sizeof(inner), json, sizeof(json)) == -1);
+
+	// A bool field is written true or false; an unused field only when set.
+	const ai_command_schema_t *warp = aiCommandSchemaFind(0x00df);
+	REQUIRE(warp != nullptr);
+	const uint8_t warp_bytes[5] = {0x07, 0x00, 0x01, 0x00, 0x00};
+	REQUIRE(aiCommandArgsToJson(warp, warp_bytes, 5, json, sizeof(json)) > 0);
+	REQUIRE(std::string(json) == "{\"object\": 7, \"has_direction\": true}");
+	const uint8_t warp_set[5] = {0x07, 0x00, 0x00, 0x12, 0x34};
+	REQUIRE(aiCommandArgsToJson(warp, warp_set, 5, json, sizeof(json)) > 0);
+	REQUIRE(std::string(json) == "{\"object\": 7, \"has_direction\": false, \"unused\": 4660}");
+}
+
+TEST_CASE("AI command schema: rows and nodes carry args, the compiler checks them",
+	"[ai][schema][args][static]")
+{
+	const std::string extractor = readSource("port/src/romextract_pdarena.c");
+	const std::string bank = readSource("port/src/romextract_pdai.c");
+	const std::string runtime = readSource("port/src/scenario_source_runtime.c");
+	const std::string conformance = readSource("tools/asset_archive_conformance.py");
+
+	// The extractor writes args after the operands of every stage and bank
+	// row, and on every stage and bank command node, from the schema.
+	REQUIRE(extractor.find("#include \"ai_command_schema.h\"") != std::string::npos);
+	REQUIRE(extractor.find("static s32 s_appendAiArgsJson(pdscenario_textbuf_t *out, const u8 *cmd, u32 len)")
+		!= std::string::npos);
+	REQUIRE(extractor.find("aiCommandArgsToJson(schema, cmd + 2, len - 2, args,") != std::string::npos);
+	REQUIRE(extractor.find("s_appendAiOperandsJsonArray(ai_lists_json, cmd, len) != 0 ||\n"
+		"\t\t\t\t\ts_appendAiArgsJson(ai_lists_json, cmd, len) != 0 ||") != std::string::npos);
+	REQUIRE(extractor.find("s_appendAiArgsJson(ai_command_nodes_json, cmd, len) != 0 ||") != std::string::npos);
+	REQUIRE(extractor.find("s_appendAiOperandsJsonArray(&json, cmd, len) != 0 ||\n"
+		"\t\t\t\t\ts_appendAiArgsJson(&json, cmd, len) != 0 ||") != std::string::npos);
+	REQUIRE(extractor.find("s_appendAiArgsJson(&nodes, g_GlobalAilists[i].list + scan.offsets[c],")
+		!= std::string::npos);
+	// SP-86: the scenario kind and the bank's version moved with the output.
+	REQUIRE(extractor.find("_aiedges_simtwins_typedargs\"") != std::string::npos);
+	REQUIRE(bank.find("#define PDAI_EXTRACT_VERSION \"global_ailists_rows_v3_typedargs\"") != std::string::npos);
+
+	// The compiler encodes a row's args and compares them with its operands
+	// before the catalog ids patch the bytes.
+	const size_t parse = runtime.find("\"operands\", &cmd.operands, &cmd.operand_count) ||");
+	const size_t check = runtime.find("!s_aiRowArgsMatchOperands(table, ailist_ref, command_index,");
+	const size_t patch = runtime.find("!s_aiApplyCatalogOperands(table, &cmd, model_id,");
+	REQUIRE(parse != std::string::npos);
+	REQUIRE(check != std::string::npos);
+	REQUIRE(patch != std::string::npos);
+	REQUIRE(parse < check);
+	REQUIRE(check < patch);
+	REQUIRE(runtime.find("count = aiCommandArgsEncode(schema, args, (u32)(args_end - args + 1), bytes,")
+		!= std::string::npos);
+	REQUIRE(runtime.find("\"AI row '%s' args do not give its operands%s\"") != std::string::npos);
+
+	// Conformance recomputes the args from the operands, compares nodes with
+	// rows, and requires args with the new kind and the v3 bank.
+	REQUIRE(conformance.find("def ai_command_args(opcode: int, operands: list[int]) -> dict | None:")
+		!= std::string::npos);
+	REQUIRE(conformance.find("def ai_args_node_errors(rows: object, nodes: object, require: bool) -> list[str]:")
+		!= std::string::npos);
+	REQUIRE(conformance.find("PDAI_TYPED_ARGS_EXTRACT_VERSION = \"global_ailists_rows_v3_typedargs\"")
+		!= std::string::npos);
+	REQUIRE(conformance.find("if extract_version == PDAI_TYPED_ARGS_EXTRACT_VERSION:") != std::string::npos);
+}
