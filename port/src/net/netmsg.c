@@ -5996,14 +5996,10 @@ u32 netmsgSvcPropMoveRead(struct netbuf *src, struct netclient *srccl)
 
 	prop->pos = pos;
 
+	/* B-1270: a paused prop is listed in its rooms too; propSetRooms moves
+	 * whatever registration the prop has with the list. */
 	if (!propRoomsEqual(rooms, prop->rooms)) {
-		if (prop->active) {
-			propDeregisterRooms(prop);
-		}
-		roomsCopy(rooms, prop->rooms);
-		if (prop->active) {
-			propRegisterRooms(prop);
-		}
+		propSetRooms(prop, rooms);
 	}
 
 	if (!(flags & (1 << 0))) {
@@ -7185,14 +7181,10 @@ u32 netmsgSvcPropLiftRead(struct netbuf *src, struct netclient *srccl)
 
 	prop->pos = pos;
 
+	/* B-1270: a paused prop is listed in its rooms too; propSetRooms moves
+	 * whatever registration the prop has with the list. */
 	if (!propRoomsEqual(rooms, prop->rooms)) {
-		if (prop->active) {
-			propDeregisterRooms(prop);
-		}
-		roomsCopy(rooms, prop->rooms);
-		if (prop->active) {
-			propRegisterRooms(prop);
-		}
+		propSetRooms(prop, rooms);
 	}
 
 	return src->error;
@@ -8051,9 +8043,9 @@ u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)
 		chr->prevpos = prop->pos;
 		prop->pos = pos;
 		chrSetLookAngle(chr, angle);
-		for (s32 r = 0; r < ARRAYCOUNT(prop->rooms); ++r) {
-			prop->rooms[r] = rooms[r];
-		}
+		/* B-1270: through propSetRooms, so the bot leaves the room lists of
+		 * its old rooms instead of staying listed there. */
+		propSetRooms(prop, rooms);
 
 		aibot->speedmultforwards = speedfwd;
 		aibot->speedmultsideways = speedside;
@@ -8227,8 +8219,11 @@ u32 netmsgSvcPropResyncRead(struct netbuf *src, struct netclient *srccl)
 		}
 
 		/* SP-81 (B-1131): as in the character resync, a client that is not in the
-		 * game yet reads every row and applies none. */
-		if (srccl->state < CLSTATE_GAME || !prop || !prop->obj) {
+		 * game yet reads every row and applies none. The host sends objects only
+		 * (PROPTYPE_OBJ); prop->obj shares its storage with prop->chr, so a row
+		 * whose id names any other kind of prop here is skipped, not applied. */
+		if (srccl->state < CLSTATE_GAME || !prop || !prop->obj
+				|| prop->type != PROPTYPE_OBJ) {
 			continue;
 		}
 
@@ -8236,9 +8231,9 @@ u32 netmsgSvcPropResyncRead(struct netbuf *src, struct netclient *srccl)
 
 		// Apply base state
 		prop->pos = pos;
-		for (s32 r = 0; r < ARRAYCOUNT(prop->rooms); ++r) {
-			prop->rooms[r] = rooms[r];
-		}
+		/* B-1270: through propSetRooms, so the object leaves the room lists
+		 * of its old rooms instead of staying listed there. */
+		propSetRooms(prop, rooms);
 		obj->damage = damage;
 		obj->hidden = hidden;
 
@@ -9166,13 +9161,12 @@ static void netmsgNpcResyncRecordApply(
 	prop->pos = record->pos;
 	chrSetLookAngle(chr, record->angle);
 
-	for (s32 i = 0; i < ARRAYCOUNT(prop->rooms); i++) {
-		prop->rooms[i] = record->rooms[i];
-
-		if (record->rooms[i] < 0) {
-			break;
-		}
-	}
+	/* B-1270: the host's exact rooms (the snapshot digest covers them),
+	 * through propSetRooms so the chr also leaves the room lists of its old
+	 * rooms. A bare copy left it listed there; once the host removed the chr
+	 * (SVC_NPC_REMOVE) and its prop was freed, the next collision query in
+	 * an old room read a chr prop with no chr. */
+	propSetRooms(prop, record->rooms);
 
 	chr->myaction = record->myaction;
 	chr->actiontype = record->actiontype;

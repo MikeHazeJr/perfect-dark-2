@@ -530,3 +530,67 @@ TEST_CASE("co-op chr removals: a chr the host removes leaves the client too",
 	REQUIRE(sweep.find("netNpcIsReplicationReady(chr)") != std::string::npos);
 	REQUIRE(sweep.find("netNpcRemoveLocal(chr->prop, false,") != std::string::npos);
 }
+
+TEST_CASE("co-op chr removals: a client's rooms update moves the prop's room registration",
+          "[net][coop][b1270]") {
+	// B-1270: the client's NPC resync wrote the host's rooms straight into
+	// prop->rooms, so the chr stayed listed in its old rooms. Once the host
+	// removed it (SVC_NPC_REMOVE, B-1206) and its prop was freed, the next NPC
+	// move's collision query in an old room read a chr prop with no chr:
+	// ACCESS_VIOLATION in propIsOfCdType on Deep Sea, as the intro ended.
+	const std::string prop_c = code_only(read_text_file("src/game/prop.c"));
+	const std::string set = function_body(prop_c, "void propSetRooms(struct prop *prop, const RoomNum *rooms)\n{");
+	const size_t registered = set.find("registered = prop->active || propIsListedInRoom(prop, prop->rooms[0]);");
+	const size_t leave = set.find("propDeregisterRooms(prop);");
+	const size_t copy = set.find("prop->rooms[i] = rooms[i];");
+	const size_t stop = set.find("if (rooms[i] < 0) {", copy);
+	const size_t join = set.find("propRegisterRooms(prop);");
+	REQUIRE(registered != std::string::npos);
+	REQUIRE(leave != std::string::npos);
+	REQUIRE(copy != std::string::npos);
+	REQUIRE(stop != std::string::npos);
+	REQUIRE(join != std::string::npos);
+	REQUIRE(registered < leave);
+	REQUIRE(leave < copy);
+	REQUIRE(stop < join);
+	// Both ends only for a prop that is in the world
+	REQUIRE(set.rfind("if (registered) {", leave) > registered);
+	REQUIRE(set.rfind("if (registered) {", join) > stop);
+
+	const std::string listed = function_body(prop_c, "static bool propIsListedInRoom(struct prop *prop, RoomNum room)\n{");
+	REQUIRE(listed.find("room < 0 || room >= g_Vars.roomcount") != std::string::npos);
+	REQUIRE(listed.find("chunkindex = g_RoomPropListChunkIndexes[room];") != std::string::npos);
+	REQUIRE(listed.find("chunkindex = g_RoomPropListChunks[chunkindex].propnums[MAX_PROPSPERROOMCHUNK];") != std::string::npos);
+	REQUIRE(read_text_file("src/include/game/prop.h").find("void propSetRooms(struct prop *prop, const RoomNum *rooms);")
+		!= std::string::npos);
+
+	// Every rooms list from the host that a client applies goes through it
+	const std::string msg = code_only(read_text_file("port/src/net/netmsg.c"));
+	const struct {
+		const char *signature;
+		const char *call;
+	} sites[] = {
+		{ "static void netmsgNpcResyncRecordApply(\n\t\tconst struct net_npc_resync_record *record)\n{",
+			"propSetRooms(prop, record->rooms);" },
+		{ "u32 netmsgSvcChrResyncRead(struct netbuf *src, struct netclient *srccl)\n{", "propSetRooms(prop, rooms);" },
+		{ "u32 netmsgSvcPropResyncRead(struct netbuf *src, struct netclient *srccl)\n{", "propSetRooms(prop, rooms);" },
+		{ "u32 netmsgSvcPropMoveRead(struct netbuf *src, struct netclient *srccl)\n{", "propSetRooms(prop, rooms);" },
+		{ "u32 netmsgSvcPropLiftRead(struct netbuf *src, struct netclient *srccl)\n{", "propSetRooms(prop, rooms);" },
+	};
+	for (const auto &site : sites) {
+		INFO(site.signature);
+		const std::string body = function_body(msg, site.signature);
+		REQUIRE(body.find(site.call) != std::string::npos);
+		REQUIRE(body.find("prop->rooms[r] = ") == std::string::npos);
+		REQUIRE(body.find("prop->rooms[i] = ") == std::string::npos);
+		REQUIRE(body.find("roomsCopy(rooms, prop->rooms);") == std::string::npos);
+		REQUIRE(body.find("if (prop->active) {") == std::string::npos);
+	}
+
+	// The prop resync names objects only; prop->obj shares storage with
+	// prop->chr, so a row whose id names a chr here is skipped
+	const std::string prop_resync = function_body(msg, "u32 netmsgSvcPropResyncRead(struct netbuf *src, struct netclient *srccl)\n{");
+	const size_t skip = prop_resync.find("|| prop->type != PROPTYPE_OBJ) {");
+	REQUIRE(skip != std::string::npos);
+	REQUIRE(skip < prop_resync.find("struct defaultobj *obj = prop->obj;"));
+}

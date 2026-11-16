@@ -37,8 +37,8 @@
             "patterns": [
               "PLAYER.INIT.COMMIT lobby-start room=\\d+ mode=0 players=2 bots=0",
               "NET: CLC_SETTINGS client=1 repeats its settings during the ready gate; gate kept, nothing published",
-              "PLAYER.INIT.COMMIT lobby-start room=\\d+ rollback_snapshot_released=1",
-              "MATCH: server stage start"
+              "MATCH: server stage start",
+              "PLAYER.INIT.COMMIT lobby-start room=\\d+ rollback_snapshot_released=1"
             ]
           }
         ],

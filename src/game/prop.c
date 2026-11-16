@@ -3709,6 +3709,74 @@ void propRegisterRooms(struct prop *prop)
 	}
 }
 
+/* True if the room's prop list holds this prop. */
+static bool propIsListedInRoom(struct prop *prop, RoomNum room)
+{
+	s16 propnum;
+	s32 chunkindex;
+	s32 i;
+
+	if (room < 0 || room >= g_Vars.roomcount) {
+		return false;
+	}
+
+	propnum = prop - g_Vars.props;
+	chunkindex = g_RoomPropListChunkIndexes[room];
+
+	while (chunkindex >= 0) {
+		for (i = 0; i < MAX_PROPSPERROOMCHUNK; i++) {
+			if (g_RoomPropListChunks[chunkindex].propnums[i] == propnum) {
+				return true;
+			}
+		}
+
+		chunkindex = g_RoomPropListChunks[chunkindex].propnums[MAX_PROPSPERROOMCHUNK];
+	}
+
+	return false;
+}
+
+/**
+ * Give a prop a new rooms list, moving its room registration with it
+ * (B-1270, SP-92).
+ *
+ * A prop in the world (active, or listed in its first room) leaves its old
+ * rooms and joins the new ones; any other prop (held, attached, not placed)
+ * only takes the list. The list is copied up to and including its
+ * terminator, at most ARRAYCOUNT(prop->rooms) entries, so it matches the
+ * source exactly. Writing prop->rooms directly instead leaves a registered
+ * prop listed in its old rooms: harmless while it lives, but once it is
+ * freed, those rooms list a prop with no chr or obj, and the next collision
+ * or room query there reads it.
+ */
+void propSetRooms(struct prop *prop, const RoomNum *rooms)
+{
+	bool registered;
+	s32 i;
+
+	if (prop == NULL || rooms == NULL) {
+		return;
+	}
+
+	registered = prop->active || propIsListedInRoom(prop, prop->rooms[0]);
+
+	if (registered) {
+		propDeregisterRooms(prop);
+	}
+
+	for (i = 0; i < ARRAYCOUNT(prop->rooms); i++) {
+		prop->rooms[i] = rooms[i];
+
+		if (rooms[i] < 0) {
+			break;
+		}
+	}
+
+	if (registered) {
+		propRegisterRooms(prop);
+	}
+}
+
 void func0f065d1c(struct coord *pos, RoomNum *rooms, struct coord *newpos, RoomNum *newrooms, RoomNum *morerooms, u32 arg5)
 {
 	RoomNum stackrooms[8];

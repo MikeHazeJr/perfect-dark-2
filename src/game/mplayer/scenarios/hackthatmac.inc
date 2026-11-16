@@ -178,13 +178,42 @@ static s32 s_HtmLoggedHolder = -2;
 static s8 s_HtmLoggedDlState[MAX_MPCHRS];
 static s32 s_HtmDlLogLines;
 
+/* B-1271 diagnostic: the lvframe60 of each simulant's last stall line */
+static s32 s_HtmBotStallLogFrame[MAX_MPCHRS];
+
 static void htmLogDownloadReset(void)
 {
 	s32 i;
 
 	for (i = 0; i < MAX_MPCHRS; i++) {
 		s_HtmLoggedDlState[i] = -1;
+		s_HtmBotStallLogFrame[i] = 0;
 	}
+}
+
+/* B-1271 diagnostic: while a simulant holds the uplink without downloading,
+ * say every 10 s what it is doing: its action and action type, whether the
+ * scenario counts it in range, and its target. A networked simulant stood
+ * 240 units from the terminal, armed and facing away, for two minutes, where
+ * a local one turns and starts within a second. */
+static void htmLogBotStall(struct chrdata *chr, s32 playernum, s32 state, f32 rangexz, f32 relangle)
+{
+	static const char *const names[] = { "", "out of range", "not facing the terminal",
+		"not holding the uplink", "in progress" };
+
+	if (chr == NULL || chr->aibot == NULL || playernum < 0 || playernum >= MAX_MPCHRS
+			|| state < 1 || state > 3 || s_HtmDlLogLines >= HTM_DL_LOG_CAP
+			|| g_Vars.lvframe60 - s_HtmBotStallLogFrame[playernum] < 600) {
+		return;
+	}
+
+	s_HtmBotStallLogFrame[playernum] = g_Vars.lvframe60;
+	s_HtmDlLogLines++;
+	sysLogPrintf(LOG_NOTE,
+		"HTM: simulant player %d holds the uplink, not downloading (%s) at %.1f s xz=%.0f angle=%.0f action=%d actiontype=%d inrange=%d target=%d weapon=%d netmode=%d",
+		playernum, names[state], g_Vars.lvframe60 / 60.0f, rangexz, relangle,
+		chr->myaction, chr->actiontype, g_ScenarioData.htm.playernuminrange, chr->target,
+		chr->aibot->weaponnum, g_NetMode);
 }
 
 static void htmLogDownloadState(s32 playernum, s32 state, f32 rangexz, f32 rangey, f32 relangle,
@@ -967,6 +996,9 @@ void htmTickChr(struct chrdata *chr)
 			rangexz, rangey, relangle,
 			chr ? chr->aibot->weaponnum : bgunGetWeaponNum(HAND_RIGHT),
 			chr ? chr->myaction : -1);
+		htmLogBotStall(chr, playernum,
+			(rangexz > 250 || rangey > 200) ? 1 : relangle > 45 ? 2 : !holdinguplink ? 3 : 4,
+			rangexz, relangle);
 
 		if (rangexz > 250 || rangey > 200 || relangle > 45 || !holdinguplink) {
 			if (rangexz < 250 && rangey < 200) {
