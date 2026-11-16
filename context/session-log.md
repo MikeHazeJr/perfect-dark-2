@@ -1,5 +1,21 @@
 # Session Log (Active)
 
+2026-11-16 (17:25 ET) MULTIPLAYER, continued. B-1209 checked in play and B-1272 found and fixed. New smoke
+tooling (d44b87d0): wait_until scenario_token_held and kill_token_holder (chrDamageByMisc on the simulant carrying the
+uplink, briefcase or case; scenario authority only), plus mp_hacker_central_net_carrier_death_smoke (port 27259)
+and its Hold the Briefcase twin (port 27267). First run (d44b87d0, 102/104): the host announced the replacement
+uplink (B-1209 works) but the client replayed its pickup as weapon 1: B-1272, the data uplink and the briefcase have
+no MP weapon slot, so the Combat Simulator manifest never listed them, they had no session catalog id, and every
+message naming one (announced or dropped token, a simulant's held weapon, player stats, reconnect inventory)
+reached clients as WEAPON_UNARMED. Fix (b2a2a720, pd-tests 2,042): scenarioTokenWeaponNum + the lobby start adds
+the token's catalog closure; netWriteWeaponRef warns once per weapon with no session id (new SP-93). Re-run in the
+same turn: Hacker Central carrier death 106/106 (weapon 46), Hold the Briefcase carrier death 102/102 (weapon 79);
+the first also caught B-1271's deadlock with its diagnostic (a carrier lost its facing mid-download and stood
+unarmed in MA_AIBOTDOWNLOAD for the rest of the match). Also: the Challenges row's local end is PASS (CHALLENGE
+COMPLETED! at 0-0, the original's tie rule); no other branch has an out-of-order smoke schedule. Still for Mike:
+B-1271's fix, co-op player drop, AI-buddy entry, Challenges and presets entry. Next: watch the co-op smokes for the
+new SP-93 warning (mission drops), Capture the Case carrier death.
+
 2026-11-16 (16:12 ET) MULTIPLAYER, continued. Part 2 on c35b35a2 (base 7, q_20261116183120950_df5e28cf): the
 games all pass. Co-op Retry Mission 126/126, Return to Room 129/129; ready gate repeat 40/40 (B-1208) and rollback
 43/43; King of the Hill's second match in the same Room 101/101 (all six objective and score modes now rematch

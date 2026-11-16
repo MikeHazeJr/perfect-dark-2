@@ -1,6 +1,6 @@
 # Bug Tracker
 
-## 2026-11-16 B-1272 A scenario's token reaches clients as no weapon: the uplink and the briefcase have no session catalog id (T-NETWORKING-011, fixed; uplink checked in play)
+## 2026-11-16 B-1272 A scenario's token reaches clients as no weapon: the uplink and the briefcase have no session catalog id (T-NETWORKING-011, fixed; checked in play for the uplink and the briefcase)
 
 Severity high for networked Hacker Central, Hold the Briefcase and Capture the Case. Seen in the first run of
 `mp_hacker_central_net_carrier_death_smoke` (d44b87d0, base 7, `results-20261116T212817Z.json`, 102/104): the host
@@ -33,8 +33,10 @@ manifests scan the stage's setup and AI lists for weapons (`manifestBuildMission
 `results-20261116T215453Z.json`):** the host's manifest listed it (`MANIFEST-HOST: scenario 2 token weapon 46 as
 'base:datauplink'`), the host killed the first carrier at 23.4 s and announced the replacement (syncid 48), and the
 client replayed simulant 4's pickup of it as `item 48 weapon=46 result=0` and showed simulant 4 as the holder; no
-`has no session catalog id` warning. The briefcase's twin, `mp_hold_the_briefcase_net_carrier_death_smoke`, runs
-next.
+`has no session catalog id` warning. **And for the briefcase** (b2a2a720, `mp_hold_the_briefcase_net_carrier_death_smoke` 102/102,
+`results-20261116T222007Z.json`): `MANIFEST-HOST: scenario 1 token weapon 79 as 'base:briefcase2'`; the host killed the
+carrier at 23.5 s, the dying simulant's case was announced (`BOT.DROP: host announced simulant 2 weapon=79 syncid=48`),
+and the client replayed simulant 4's pickup of it as `item 48 weapon=79 result=0` and showed simulant 4 as the holder.
 
 ## 2026-11-16 B-1271 Hacker Central: a simulant that reaches the terminal facing away stands there and never downloads (T-NETWORKING-011, open, intermittent: the original's rule; fix waits for Mike)
 
