@@ -1,5 +1,15 @@
 # Session Log (Active)
 
+2026-11-16 (15:25 ET) MULTIPLAYER, continued. Part 1 on c35b35a2 (base 7, q_20261116183120118_5e31664e) passed
+4/4: co-op Deep Sea end 126/126 with B-1270 fixed in play (the client read the host's removal of the intro actor and
+played on through Defense), co-op mission end 130/130, counter-op mission end 128/128 (results log their outcome:
+agent completed, counter-operative failed), networked Hacker Central 86/86 and it scores (a simulant made four
+downloads, 8 points on both machines): B-1207 checked networked, B-1271 is intermittent (only a simulant reaching the
+terminal facing away stands; fix still waits for Mike). SP-91's hold worked on every cutscene authority frame.
+80dd632e (a dead client's select of no weapon dropped quietly) built, pd-tests 2,037 pass. Context in e2432521.
+Next: part 2 (q_20261116183120950_df5e28cf, running on the frozen c35b35a2): co-op retry and return, ready-gate
+repeat and rollback, counter-op agent death, King of the Hill rematch; then record and push.
+
 2026-11-16 (14:15 ET) MULTIPLAYER, continued. A second networked match in the same Room passes for Combat
 95/95, Hold the Briefcase 101/101, Hacker Central 101/101, Pop a Cap 100/100 and Capture the Case 101/101 (a669d118,
 base 7); King of the Hill's run is to be repeated: its host stalled 111 s in the boot asset check while my session
